@@ -6,7 +6,7 @@ from loguru import logger
 
 from ao_shaping.drivers.dm.base import DM
 
-# Type-specific kwargs filter: maps registered name → set of accepted kwargs
+# 按类型过滤 kwargs 的映射: 注册名 → 接受的 kwargs 集合
 _KWARG_FILTERS: dict[str, set[str]] = {
     "nlight": {
         "keep_when_exit",
@@ -50,26 +50,24 @@ _KWARG_FILTERS: dict[str, set[str]] = {
     },
 }
 
-# Legacy kwarg aliases: (old_name) → (new_name)
+# 旧版 kwarg 别名: (old_name) → (new_name)
 _KWARG_ALIASES: dict[str, dict[str, str]] = {
     "nlight": {"dm_neibor_diff": "max_neibor_diff"},
     "sim": {"dm_neibor_diff": "max_neibor_diff"},
 }
 
-#: Guards the one-time import that binds the simulated DM types.
+#: 守护绑定仿真 DM 类型的那次一次性 import。
 _sim_dms_bound = False
 
 
 def _ensure_sim_dms_bound() -> None:
-    """Bind the ``sim`` / ``sim_micro`` DM types on first registry use.
+    """在首次使用注册表时绑定 ``sim`` / ``sim_micro`` DM 类型。
 
-    Those types are declared with ``@register_dm(...)`` inside
-    ``drivers.sim.dm``. Importing that package from ``drivers.dm.__init__``
-    instead would invert the layering (a hardware package importing the
-    simulation one) and creates an import cycle, because ``simulated_micro_dm``
-    imports ``drivers.dm.base`` back. Deferring the import to first registry use
-    keeps the dependency pointing one way while making the types discoverable no
-    matter which package the process imported first.
+    这些类型是在 ``drivers.sim.dm`` 内用 ``@register_dm(...)`` 声明的。
+    若改为从 ``drivers.dm.__init__`` 导入该包, 则会把分层方向倒过来
+    (硬件包导入仿真包), 并造成循环导入, 因为 ``simulated_micro_dm``
+    又会回头导入 ``drivers.dm.base``。把这次 import 推迟到首次使用注册表时,
+    既让依赖保持单向, 又使这些类型无论进程先导入哪个包都能被发现。
     """
     global _sim_dms_bound
     if _sim_dms_bound:
@@ -77,12 +75,12 @@ def _ensure_sim_dms_bound() -> None:
     _sim_dms_bound = True
     try:
         import ao_shaping.drivers.sim.dm  # noqa: F401
-    except ImportError as exc:  # pragma: no cover - sim package is optional
+    except ImportError as exc:  # pragma: no cover - sim 包是可选的
         logger.debug("simulated DM types unavailable: {}", exc)
 
 
 class DMRegistry:
-    """Registry for DM implementations with decorator-based registration."""
+    """支持基于装饰器注册的 DM 实现注册表。"""
 
     def __init__(self) -> None:
         self._registry: dict[str, Type[DM]] = {}
@@ -106,17 +104,16 @@ class DMRegistry:
         return cls(**kwargs)
 
     def create_dm(self, name: str, **kwargs: Any) -> DM:
-        """Create a DM instance, filtering kwargs by type-specific accepted params.
+        """创建 DM 实例, 按类型专属的接受参数过滤 kwargs。
 
-        This is the primary factory method for callers that don't know
-        the exact constructor signature of each DM type.
+        这是给那些不清楚每种 DM 类型确切构造函数签名的调用方用的主工厂方法。
 
         Args:
-            name: Registered DM type name (case-insensitive).
-            **kwargs: Arbitrary kwargs; only accepted ones are forwarded.
+            name: 已注册的 DM 类型名 (大小写不敏感)。
+            **kwargs: 任意 kwargs; 只有被接受的才会转发。
 
         Returns:
-            Instantiated DM subclass.
+            实例化后的 DM 子类。
         """
         key = name.lower()
         _ensure_sim_dms_bound()
@@ -125,7 +122,7 @@ class DMRegistry:
                 f"Unknown DM type: {name!r}. Available: {sorted(self._registry.keys())}"
             )
 
-        # Apply legacy aliases
+        # 应用旧版别名
         for old, new in _KWARG_ALIASES.get(key, {}).items():
             if old in kwargs and new not in kwargs:
                 kwargs[new] = kwargs.pop(old)
@@ -144,7 +141,7 @@ class DMRegistry:
         return sorted(self._registry.keys())
 
     def list_reachable_types(self) -> list[str]:
-        """Return sorted list of DM types whose hardware is currently reachable."""
+        """返回当前硬件可达的 DM 类型排序列表。"""
         _ensure_sim_dms_bound()
         return sorted(
             name for name, cls in self._registry.items() if cls.is_reachable()
@@ -172,41 +169,39 @@ def register_dm(name: str) -> Callable[[Type[DM]], Type[DM]]:
 
 
 def create_dm(name: str, **kwargs: Any) -> DM:
-    """Convenience: create a DM instance via the global registry with kwarg filtering."""
+    """便捷函数: 经全局注册表创建 DM 实例, 并做 kwarg 过滤。"""
     return _global_registry.create_dm(name, **kwargs)
 
 
 def list_dm_types() -> list[str]:
-    """Convenience: list registered DM types."""
+    """便捷函数: 列出已注册的 DM 类型。"""
     return _global_registry.list_types()
 
 
 def list_reachable_dm_types() -> list[str]:
-    """Convenience: list DM types whose hardware is currently reachable."""
+    """便捷函数: 列出当前硬件可达的 DM 类型。"""
     return _global_registry.list_reachable_types()
 
 
 def resolve_dm(dm_type: str | None = None, **kwargs) -> DM:
-    """Resolve the DM type and create a DM instance.
+    """解析 DM 类型并创建 DM 实例。
 
-    Mirrors the DM-selection block shared by the ``wf`` / ``pipeline`` /
-    ``pib`` / ``combined`` / ``dm-matrix`` runners: an explicit
-    ``dm_type`` is lowercased and used directly; otherwise the reachable
-    DM types are probed and the single reachable one is chosen, with errors
-    for zero / multiple candidates.
+    对应 ``wf`` / ``pipeline`` / ``pib`` / ``combined`` / ``dm-matrix``
+    这些 runner 共用的 DM 选择块: 显式的 ``dm_type`` 会被转小写后直接使用;
+    否则探测可达的 DM 类型并选取唯一可达的那一个, 对零个/多个候选分别报错。
 
     Args:
-        dm_type: Explicit DM type name, or ``None`` for auto-detection.
-        **kwargs: Extra constructor kwargs forwarded to ``create_dm``
-            (e.g. ``keep_when_exit``, ``max_neibor_diff``,
-            ``dm_neibor_diff``).
+        dm_type: 显式的 DM 类型名, 传 ``None`` 则自动检测。
+        **kwargs: 转发给 ``create_dm`` 的额外构造函数 kwargs
+            (例如 ``keep_when_exit``、``max_neibor_diff``、
+            ``dm_neibor_diff``)。
 
     Returns:
-        A created DM instance.
+        创建好的 DM 实例。
 
     Raises:
-        RuntimeError: If no DM is reachable, or multiple DMs are reachable
-            while ``dm_type`` is ``None``.
+        RuntimeError: 没有可达的 DM 时, 或 ``dm_type`` 为 ``None``
+            却有多个 DM 可达时。
     """
     from loguru import logger
 

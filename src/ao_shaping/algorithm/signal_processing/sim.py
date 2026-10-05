@@ -62,7 +62,7 @@ def calculate_stokes_rgb(Ex, Ey):
 
     p = np.sqrt(S1**2 + S2**2) / S0
 
-    # HSV to RGB
+    # HSV 转 RGB
     H = alpha
     S = p
     V = S0 / S0.max()

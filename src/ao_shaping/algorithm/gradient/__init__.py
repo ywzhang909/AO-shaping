@@ -1,13 +1,12 @@
-"""Gradient optimizers (Adam-family, acceleration).
+"""梯度优化器 (Adam 家族、加速器)。
 
-Submodules are importable directly by their full path, e.g.::
+子模块可按全路径直接导入, 例如::
 
     from ao_shaping.algorithm.gradient.adam import Adam, AdamW, AdaMOD
     from ao_shaping.algorithm.gradient.acceleration import _njit
 
-This ``__init__`` intentionally does NOT re-import the submodules: a docstring-only
-package init avoids a circular-import cascade (submodules import each other and the
-top-level ``ao_shaping.algorithm`` facade, so eagerly importing them here would run
-the top-level ``__init__`` mid-initialisation). All public names are exposed through
-the top-level ``ao_shaping.algorithm`` facade instead.
+本 ``__init__`` 刻意*不*重新导入子模块: 只有 docstring 的包 init 可以避免
+循环导入级联 (子模块之间互相导入, 也会导入顶层 ``ao_shaping.algorithm`` 门面,
+在这里急加载它们会让顶层 ``__init__`` 在初始化中途被执行)。所有公开名字改为
+经由顶层 ``ao_shaping.algorithm`` 门面暴露。
 """

@@ -1,17 +1,15 @@
-"""Shared PEP 562 lazy-attribute installation for driver packages.
+"""驱动包共用的 PEP 562 惰性属性安装器。
 
-Importing a driver package must not load a native SDK. The side effects are
-real and non-obvious — ``ccd/miicam/driver.py`` calls ``_setup_miicam_sdk()``
-at module scope, which rewrites ``sys.path`` and preloads ``MIIUSB.dll`` via
-``ctypes.CDLL``; ``ccd/daheng/driver.py`` imports the ``gxipy`` bindings. Since
-Python initialises a parent package before importing its submodules, one eager
-import makes *every* consumer of the sibling registries pay for it.
+导入驱动包**不得**加载原生 SDK。这些副作用是真实存在且不明显的 ——
+``ccd/miicam/driver.py`` 在模块作用域调用 ``_setup_miicam_sdk()``, 会改写
+``sys.path`` 并通过 ``ctypes.CDLL`` 预加载 ``MIIUSB.dll``; ``ccd/daheng/driver.py``
+则导入 ``gxipy`` 绑定。由于 Python 会先初始化父包再导入其子模块, 一次 eager 导入
+就会让兄弟注册表的*每一个*使用者为此买单。
 
-The camera family solved this with a module-level ``__getattr__``. That body was
-then copied into a second package, so the resolution rules (first-access
-binding, ``globals()`` caching so a failed backend is not retried, graceful
-degradation to ``None``) existed in two places and could drift. This module is
-the single implementation; driver packages call :func:`install_lazy_attrs`.
+相机家族原先用模块级 ``__getattr__`` 解决了这个问题。随后那段实现体被复制到第二个
+包里, 于是解析规则 (首次访问绑定、``globals()`` 缓存使失败的后端不被重试、优雅降级为
+``None``) 同时存在于两处并可能漂移。本模块是唯一实现; 驱动包调用
+:func:`install_lazy_attrs`。
 """
 
 from __future__ import annotations
@@ -28,20 +26,19 @@ def install_lazy_attrs(
     module_name: str,
     on_error: Callable[[str, BaseException], None] | None = None,
 ) -> Callable[[str], Any]:
-    """Build a PEP 562 ``__getattr__`` resolving ``backends`` on first access.
+    """构造一个 PEP 562 ``__getattr__``, 在首次访问时解析 ``backends``。
 
     Args:
-        module_globals: The calling package's ``globals()``. Successfully
-            resolved names are cached there, so a name is imported at most once
-            and a later direct import of the submodule cannot shadow the binding.
-        backends: Public attribute name -> ``(module path, attribute)``.
-        module_name: Dotted package name, used in the error message.
-        on_error: Optional hook invoked as ``on_error(name, exception)``.
-            Defaults to a debug log. Return ``False`` from it to re-raise
-            instead of degrading to ``None``.
+        module_globals: 调用方包的 ``globals()``。解析成功的名字会缓存在其中,
+            因此每个名字至多导入一次, 之后对该子模块的直接 import 也无法遮蔽该绑定。
+        backends: 公共属性名 -> ``(模块路径, 属性)``。
+        module_name: 点分包名, 用于错误消息。
+        on_error: 可选钩子, 以 ``on_error(name, exception)`` 形式调用。
+            默认为一条 debug 日志。从中返回 ``False`` 则重新抛出异常,
+            而不是降级为 ``None``。
 
     Returns:
-        A ``__getattr__`` function suitable for the calling package.
+        一个适用于调用方包的 ``__getattr__`` 函数。
     """
 
     def __getattr__(name: str) -> Any:
@@ -54,7 +51,7 @@ def install_lazy_attrs(
 
         try:
             value = getattr(import_module(module_path), attr)
-        except Exception as exc:  # a missing SDK must not break the whole package
+        except Exception as exc:  # 缺失的 SDK 不应拖垮整个包
             if on_error is not None and on_error(name, exc) is False:
                 raise
             logger.debug(f"{name} driver not available: {exc}")

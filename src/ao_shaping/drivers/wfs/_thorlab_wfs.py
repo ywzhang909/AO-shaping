@@ -17,33 +17,33 @@ from ctypes import (
 
 import numpy as np
 
-# WFS status bits
+# WFS 状态位
 WFS_STATUS = {
-    "CON": 0x00000001,  # USB connection lost, set by driver
-    "PTH": 0x00000002,  # Power too high (cam saturated)
-    "PTL": 0x00000004,  # Power too low (low cam digits)
-    "HAL": 0x00000008,  # High ambient light
-    "SCL": 0x00000010,  # Spot contrast too low
-    "ZFL": 0x00000020,  # Zernike fit failed because of not enough detected spots
-    "ZFH": 0x00000040,  # Zernike fit failed because of too much detected spots
-    "ATR": 0x00000080,  # Camera is still awaiting a trigger
-    "CFG": 0x00000100,  # Camera is configured, ready to use
-    "PUD": 0x00000200,  # Pupil is defined
-    "SPC": 0x00000400,  # No. of spots or pupil or aoi has been changed
-    "RDA": 0x00000800,  # Reconstructed spot deviations available
-    "URF": 0x00001000,  # User reference data available
-    "HSP": 0x00002000,  # Camera is in Highspeed Mode
-    "MIS": 0x00004000,  # Mismatched centroids in Highspeed Mode
-    "LOS": 0x00008000,  # low number of detected spots, warning: reduced Zernike accuracy
-    "FIL": 0x00010000,  # pupil is badly filled with spots, warning: reduced Zernike accuracy
+    "CON": 0x00000001,  # USB 连接丢失, 由驱动置位
+    "PTH": 0x00000002,  # 光功率过高 (相机饱和)
+    "PTL": 0x00000004,  # 光功率过低 (相机灰度值偏低)
+    "HAL": 0x00000008,  # 环境光过强
+    "SCL": 0x00000010,  # 光斑对比度过低
+    "ZFL": 0x00000020,  # 探测到的光斑数不足, Zernike 拟合失败
+    "ZFH": 0x00000040,  # 探测到的光斑数过多, Zernike 拟合失败
+    "ATR": 0x00000080,  # 相机仍在等待触发
+    "CFG": 0x00000100,  # 相机已配置, 可用
+    "PUD": 0x00000200,  # 光瞳已定义
+    "SPC": 0x00000400,  # 光斑数 / 光瞳 / aoi 已变更
+    "RDA": 0x00000800,  # 重建的光斑偏差可用
+    "URF": 0x00001000,  # 用户参考数据可用
+    "HSP": 0x00002000,  # 相机处于高速模式
+    "MIS": 0x00004000,  # 高速模式下质心不匹配
+    "LOS": 0x00008000,  # 探测到的光斑数偏少, 警告: Zernike 精度下降
+    "FIL": 0x00010000,  # 光斑未填满光瞳, 警告: Zernike 精度下降
 }
 
 
-# MAX_SPOTS is actually a constrained by the library version
-# see WFS.h for the actual value
+# MAX_SPOTS 实际上受库版本约束
+# 实际取值见 WFS.h
 MAX_SPOTS = [80, 80]
 
-# defining names according to the manual
+# 按手册定义各类型名
 ViStatus = c_int32
 ViBoolean = c_bool
 ViSession = c_ulong
@@ -55,7 +55,7 @@ ViReal64 = c_double
 ViChar256 = c_char * 256
 ViChar512 = c_char * 512
 ViRsrc = ViChar256
-ArrFloat = np.ctypeslib.ndpointer(shape=MAX_SPOTS[::-1])  # note the Y, X order
+ArrFloat = np.ctypeslib.ndpointer(shape=MAX_SPOTS[::-1])  # 注意是 Y, X 顺序
 ArrImg = np.ctypeslib.ndpointer(dtype=np.uint8, shape=(512, 512))
 
 
@@ -66,7 +66,7 @@ def VI_NULL():
 
 def to_int(hexvar):
     """
-    This function returns hex thing like  b"0x00000400" to integers
+    本函数把 b"0x00000400" 这类十六进制字面量转成整数
     """
     return int(hexvar, 0)
 
@@ -82,7 +82,7 @@ def load_dll():
     dll.WFS_close.restype = ViStatus
     dll.WFS_close.argtypes = [ViSession]
 
-    # configuration functions
+    # 配置类函数
     dll.WFS_GetInstrumentInfo.restype = ViStatus
     dll.WFS_GetInstrumentInfo.argtypes = [
         ViSession,
@@ -199,7 +199,7 @@ def load_dll():
     dll.WFS_SelectMla.restype = ViStatus
     dll.WFS_SelectMla.argtypes = [ViSession, ViInt32]
 
-    # WFS_SetAoi and WFS_SetAoi are undocumented and thus left out
+    # WFS_SetAoi 与 WFS_SetAoi 均无文档, 因此未绑定
 
     dll.WFS_SetPupil.restype = ViStatus
     dll.WFS_SetPupil.argtypes = [ViSession, ViReal64, ViReal64, ViReal64, ViReal64]
@@ -219,11 +219,11 @@ def load_dll():
     dll.WFS_GetReferencePlane.restype = ViStatus
     dll.WFS_GetReferencePlane.argtypes = [ViSession, POINTER(ViInt32)]
 
-    # Action/Status Functions
+    # 动作/状态类函数
     dll.WFS_GetStatus.restype = ViStatus
     dll.WFS_GetStatus.argtypes = [ViSession, POINTER(ViInt32)]
 
-    # Data Functions
+    # 数据类函数
     dll.WFS_TakeSpotfieldImage.restype = ViStatus
     dll.WFS_TakeSpotfieldImage.argtypes = [ViSession]
 
@@ -234,7 +234,7 @@ def load_dll():
         POINTER(ViReal64),
     ]
 
-    # WFS_GetSpotfieldImage left out
+    # WFS_GetSpotfieldImage 未绑定
 
     dll.WFS_GetSpotfieldImageCopy.restype = ViStatus
     dll.WFS_GetSpotfieldImageCopy.argtypes = [
@@ -356,7 +356,7 @@ def load_dll():
         POINTER(ViReal64),
     ]
 
-    # Utility Functions
+    # 工具类函数
     dll.WFS_self_test.restype = ViStatus
     dll.WFS_self_test.argtypes = [ViSession, ViInt16, c_char_p]  # ViChar[]
 
@@ -400,7 +400,7 @@ def load_dll():
     dll.WFS_Flip2DArray.restype = ViStatus
     dll.WFS_Flip2DArray.argtypes = [ViSession, ViReal32, ViReal32]  # ViReal32
 
-    # Calibration Functions
+    # 标定类函数
     dll.WFS_SetSpotsToUserReference.restype = ViStatus
     dll.WFS_SetSpotsToUserReference.argtypes = [ViSession]
 

@@ -1,4 +1,4 @@
-"""Compatibility layer for legacy ao_shaping.sim module."""
+"""兼容层, 服务于 legacy 的 ao_shaping.sim 模块。"""
 
 from __future__ import annotations
 

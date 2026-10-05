@@ -106,7 +106,7 @@ class NLight(DM):
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct an NLight DM from its driver parameter object."""
+        """从驱动参数对象构造 NLight DM。"""
         kwargs = {
             "max_iter_diff": getattr(params, "max_iter_diff", 20),
             "max_neibor_diff": getattr(params, "max_neibor_diff", 200),
@@ -185,11 +185,11 @@ class NLight(DM):
         logger.info(f"NLight 配置已保存: {config_file}")
 
     def open(self) -> None:
-        """Open connection to DM and initialize"""
+        """打开与 DM 的连接并完成初始化"""
         self.initialize()
 
     def close(self) -> None:
-        """Close connection to DM and clean up"""
+        """关闭与 DM 的连接并清理"""
         if not self.__keep_when_exit:
             self.reset_all()
             self.set_hv(False)
@@ -197,11 +197,11 @@ class NLight(DM):
         self.udp_driver.sock.close()
 
     def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Transform command to DM actuators"""
+        """把命令转换为 DM 致动器取值"""
         return self.transform_voltage(cmd)
 
     def get_actuator_positions(self) -> npt.NDArray[np.floating]:
-        """Get positions of DM actuators"""
+        """获取 DM 致动器的位置"""
         return self._last_voltages.copy()
 
     def get_hardware_info(self) -> dict:
@@ -216,7 +216,7 @@ class NLight(DM):
         }
 
     def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Low-level voltage application via UDP driver."""
+        """经 UDP 驱动施加电压的底层实现。"""
         vs = np.clip(vs, self.V_Min, self.V_Max)
         if _enable_check_max_voltage_gap := self.max_iter_diff > 0:
             gap = vs - self._last_voltages

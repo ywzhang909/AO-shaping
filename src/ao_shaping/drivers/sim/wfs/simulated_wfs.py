@@ -1,60 +1,48 @@
-"""Simulated Shack-Hartmann wavefront sensor built on OOPAO.
+"""基于 OOPAO 的模拟 Shack-Hartmann 波前传感器。
 
-Why a slope model and not a focal-plane one
---------------------------------------------
-A Shack-Hartmann sensor measures the **pupil-plane phase gradient**: a
-microlens array images the pupil onto a detector and the spot displacement
-encodes each subaperture's local tip/tilt. Driving ``wfs_measure(..., phase_in=)``
-therefore measures exactly the quantity an AO loop needs.
+为何用 slope 模型而非焦平面模型
+--------------------------------
+Shack-Hartmann 传感器测量的是**瞳面相位梯度**: 微透镜阵列把瞳孔成像到探测器上, 光斑
+位移编码各子孔径的局部 tip/tilt。因此驱动 ``wfs_measure(..., phase_in=)`` 所测得的,
+恰好就是 AO 环路所需的量。
 
-Reusing the repository's existing focal-plane propagation instead (as an earlier
-plan proposed) would have produced a *camera* image, not slopes — the two are not
-interchangeable, and the optimizers consume slopes.
+改而复用本仓库已有的焦平面传播 (早先某个方案曾这么提议) 会产出*相机*图像而不是
+slope —— 二者不可互换, 而优化器消费的是 slope。
 
-Fidelity
---------
-The slopes come from OOPAO's lenslet FFT rather than a stub formula, and the
-measurement obeys the invariants an AO loop depends on: **deterministic**
-(repeated reads are bit-identical), **sign-symmetric**, and **exactly zero** on a
-flat pupil.
+保真度
+------
+slope 来自 OOPAO 的微透镜 FFT 而非某个凑数公式, 且该测量满足 AO 环路所依赖的不变量:
+**确定性** (重复读取逐位相同)、**符号对称**, 且在平 pupil 上**恰好为零**。
 
-The *Zernike coefficients* are far less faithful than those invariants, and
-reports must not present them as ground truth. Measured, injecting known modes in
-radians and reading ``get_zernike()`` back:
+*Zernike 系数*远不如这些不变量保真, 报告绝不应把它们当作真值。实测: 以弧度注入已知
+模式, 再读回 ``get_zernike()``:
 
     isolated single modes   noll 2 tilt  24%     noll 4 defocus  1.4%     noll 11 spherical 32%
     four modes together     noll 2 tilt  83%     noll 4 defocus  0.9%     noll 7 coma 17%   noll 11 spherical 25%
 
-Tilt alone recovers to 24% but only to 83% when co-injected with other modes, so
-the dominant error is **inter-modal cross-talk**, not per-mode noise. That is a
-genuine property of this sensor as modelled: the lenslet image is an intensity
-(``|FFT|**2``), which is quadratic in phase, so cross-terms between modes cannot
-be linearised away. Refining the sampling does not fix it -- raising
-``n_pixel_per_subaperture`` from 8 to 32 and ``n_subap`` from 6 to 24 left
-combined-mode error at 80-140%, and conditioning stayed benign (cond 2-6), which
-rules out a rank deficiency.
+tilt 单独注入只恢复到 24%, 与其他模式同注入却只恢复到 83%, 因此主误差是**模式间串扰**
+(cross-talk), 而非逐模式噪声。这是该传感器在如此建模下的真实性质: 微透镜图像是一张
+强度图 (``|FFT|**2``), 它对相位是二次的, 所以模式之间的交叉项无法被线性化掉。细化采样
+并不能修好这一点 —— 把 ``n_pixel_per_subaperture`` 从 8 提到 32、``n_subap`` 从 6 提到
+24 之后, 组合模式误差仍在 80-140%, 且条件数始终良性 (cond 2-6), 这排除了秩亏。
 
-Consequently this class is suitable for exercising control loops, checking
-sign conventions and validating the micrometre/waves plumbing. It is **not** a
-conforming wavefront reference: any report of RMS improvement or Strehl derived
-from ``get_zernike()`` must be labelled as unvalidated. For trustworthy numbers,
-calibrate against hardware the way ``zernike-matrix`` does.
+因此本类适合用来跑控制环、检验符号约定、验证 µm/waves 这条单位链。它**不是**一个合格的
+波前参考: 任何由 ``get_zernike()`` 推出的 RMS 改善率或 Strehl 都必须标注为**未验证**。
+要可信的数值, 请像 ``zernike-matrix`` 那样对硬件做标定。
 
-Not modelled: microlens aberration, detector noise, and spot crosstalk.
+未建模: 微透镜像差、探测器噪声, 以及光斑串扰。
 
-Units (the historically dangerous part)
----------------------------------------
-The WFS family returns Zernike coefficients in **micrometres** while corrections
-are applied in **waves**. Mixing the two produced two real bugs (coefficients
-inflated 1.88x; applied phase shrunk 2*pi = 6.28x). This sensor therefore keeps
-radians internally and converts only at the boundary:
+单位 (历史上危险的那一部分)
+-----------------------------
+WFS 这一族以**微米**返回 Zernike 系数, 而矫正是以 **waves** 施加的。两者混用造成过两个
+真实 bug (系数被放大 1.88x; 施加的相位缩小 2*pi = 6.28x)。因此本传感器内部始终保持
+弧度, 只在边界处换算:
 
 * ``get_wavefront()`` -> waves      = ``phase_rad / (2*pi)``
 * ``get_zernike()``   -> micrometres = ``phase_rad * lambda_um / (2*pi)``
 
-``um_to_waves()`` is hard-coded for 532 nm, so the default wavelength must be
-532 nm for ``um_to_waves()`` then ``* 2*pi`` to recover the radians exactly. A
-different wavelength would silently rescale the whole correction chain.
+``um_to_waves()`` 是写死 532 nm 的, 所以默认波长必须是 532 nm, 否则 ``um_to_waves()``
+再 ``* 2*pi`` 无法还原弧度。换一个波长会静默地重新缩放整条校正链。
 """
 
 from __future__ import annotations
@@ -77,28 +65,26 @@ from ao_shaping.utils.wavefront.zernike_utils import (
 
 _MATRIX_CACHE: dict[tuple, np.ndarray] = {}
 
-#: Most recently constructed sensor. ``SimulateDM`` publishes voltages here so a
-#: DM-driven loop actually moves the pupil the sensor measures. Process-wide for
-#: the same reason ``slm_pib_sim.get_system()`` is: the DM and the sensor are
-#: built by separate factories and never share a reference.
+#: 最近构造的传感器。``SimulateDM`` 把电压发布到这里, 于是 DM 驱动的环路才真的能移动
+#: 传感器所测的 pupil。之所以是进程级的, 理由与 ``slm_pib_sim.get_system()`` 相同: DM 与
+#: 传感器由彼此独立的工厂构造, 从不共享引用。
 _ACTIVE_SENSOR: SimulatedWFS | None = None
 
 
 def get_active_sim_wfs() -> SimulatedWFS | None:
-    """Return the most recently constructed simulated sensor, if any."""
+    """返回最近构造的模拟传感器, 若有。"""
     return _ACTIVE_SENSOR
 
 
-#: A Shack-Hartmann sensor is blind to piston: a subaperture's absolute phase
-#: offset does not move its spot. ``list_zernike_modes`` starts at Noll 1
-#: (piston), and fitting it against slopes leaves a near-null column that
-#: ``pinv`` amplifies into a large spurious coefficient (measured: +0.50 rad for
-#: a defocus pupil). Piston is therefore excluded from the fit basis.
+#: Shack-Hartmann 传感器对 piston 是盲的: 子孔径的绝对相位偏移不会移动它的光斑。
+#: ``list_zernike_modes`` 从 Noll 1 (piston) 起, 把它一起拟合会留下一列近零空间向量,
+#: 而 ``pinv`` 会把它放大成一个巨大的伪系数 (实测: 对纯离焦瞳孔为 +0.50 rad)。因此
+#: piston 被排除出拟合基。
 _FIT_FIRST_MODE = 1
 
 
 def _to_numpy(array: Any) -> np.ndarray:
-    """CuPy -> NumPy. OOPAO's own ``to_numpy`` is broken on the installed CuPy."""
+    """CuPy → NumPy。OOPAO 自带的 ``to_numpy`` 在已安装的 CuPy 上是坏的。"""
     try:
         import cupy as cp
 
@@ -111,7 +97,7 @@ def _to_numpy(array: Any) -> np.ndarray:
 
 @register_wfs("sim")
 class SimulatedWFS(BaseWFS):
-    """A simulated Shack-Hartmann WFS sharing the real driver's contract."""
+    """与真实驱动共用契约的模拟 Shack-Hartmann WFS。"""
 
     manufacturer = "Simulated"
     model = "SimulatedWFS"
@@ -142,10 +128,9 @@ class SimulatedWFS(BaseWFS):
         self.wavelength_nm = int(wavelength_nm)
         self.zernike_order = int(zernike_order)
 
-        # Thorlabs-facing surface. The optimizers and runners read these directly
-        # (``wfs.num_spots_x``, ``wfs.mla_index``, ``wfs.serial_num`` ...), so a
-        # simulated sensor has to answer them even though it has no MLA, no
-        # serial number and no vendor DLL.
+        # 面向 Thorlabs 的接口面。优化器与 runner 直接读取这些成员
+        # (``wfs.num_spots_x``、``wfs.mla_index``、``wfs.serial_num`` ...), 所以一个
+        # 仿真传感器即便没有 MLA、没有序列号、没有厂商 DLL, 也必须回答它们。
         self.num_spots_x = self.n_subap
         self.num_spots_y = self.n_subap
         self.mla_index = None
@@ -155,19 +140,18 @@ class SimulatedWFS(BaseWFS):
         self.high_speed = True
         self.use_custom_ref = False
         self.pupil = np.ones((self.grid, self.grid), dtype=np.float64)
-        # Subaperture pitch in pixels; the SH grid divides the pupil evenly.
+        # 子孔径间距, 单位像素; SH 网格把瞳孔均分。
         self.d_x = self.diameter / self.n_subap if self.n_subap else self.diameter
 
         self._phase_rad = np.zeros((self.grid, self.grid), dtype=float)
-        # Sized to the sensor grid, not the SLM panel: `SimPibSystem` owns a
-        # separate instance for the far field, and reusing that one would need
-        # resampling 1200x1920 down to this grid on every measurement.
+        # 按传感器网格而非 SLM 面板定尺寸: `SimPibSystem` 为远场另有一份实例,
+        # 复用那一份会需要在每次测量时把 1200x1920 重采样到这个网格。
         self.dm_optics = SimDmOptics(slm_shape=(self.grid, self.grid))
         self._slopes: np.ndarray | None = None
         self._flux: np.ndarray | None = None
         self._raw: np.ndarray | None = None
 
-        # OOPAO prints banner tables on construction; keep the library silent.
+        # OOPAO 在构造时会打横幅表格; 让该库保持安静。
         with contextlib.redirect_stdout(io.StringIO()):
             self._tel = oopao.Telescope(
                 resolution=self.grid,
@@ -192,9 +176,8 @@ class SimulatedWFS(BaseWFS):
         self._set_state_ok()
         global _ACTIVE_SENSOR
         _ACTIVE_SENSOR = self
-        # Optional aberration to correct. Without one the DM can only add
-        # phase, so an RMS-minimising loop correctly keeps the flat command
-        # and there is nothing to demonstrate.
+        # 待校正的可选像差。没有它时 DM 只能*增加*相位, 因此一个最小化 RMS 的环路
+        # 正确地保留平场命令, 也就没什么可演示的了。
         if disturbance_config is not None:
             self.disturbance = SimDisturbance(
                 disturbance_config, (self.grid, self.grid)
@@ -213,7 +196,7 @@ class SimulatedWFS(BaseWFS):
 
         self._set_state(DeviceState.READY)
 
-    # ---- configuration -------------------------------------------------
+    # ---- 配置 ---------------------------------------------------------
 
     def _n_modes(self, order: int) -> int:
         return len(list_zernike_modes(order))
@@ -229,12 +212,11 @@ class SimulatedWFS(BaseWFS):
         )
 
     def _reconstructor(self, order: int) -> np.ndarray:
-        """Pseudo-inverse mapping measured slopes -> Zernike radians.
+        """把实测 slope 映射到 Zernike 弧度的伪逆。
 
-        Calibrated numerically by pushing each Zernike mode through the sensor,
-        which is the same procedure the ``zernike-matrix`` command performs on
-        hardware. It is self-consistent by construction: no assumed sensitivity,
-        no external calibration file, and it cannot drift from the forward model.
+        通过把每个 Zernike 模式推过传感器来数值标定, 这与 ``zernike-matrix`` 命令在硬件
+        上所执行的流程相同。它在构造上就是自洽的: 不假设任何灵敏度, 不依赖外部标定文件,
+        且不可能与正向模型发生漂移。
         """
         key = self._matrix_key(order)
         cached = _MATRIX_CACHE.get(key)
@@ -258,7 +240,7 @@ class SimulatedWFS(BaseWFS):
         return pseudo
 
     def _mode_phase(self, index: int, order: int) -> np.ndarray:
-        """Radian phase for one Noll mode, aperture-exterior filled with zero."""
+        """单个 Noll 模式的弧度相位, 口径外填零。"""
         modes = list_zernike_modes(order)
         noll, _n, _m, _name = modes[index]
         phase = generate_zernike_phase(
@@ -267,14 +249,13 @@ class SimulatedWFS(BaseWFS):
             n_max=order,
             radius=self.grid / 2.4,
         )
-        # The canonical generator returns NaN outside the aperture; the pupil
-        # mask already excludes that region, so flatten it for the FFT.
+        # 规范生成器在口径外返回 NaN; 瞳孔掩模本就排除了那一块, 因此把它压平供 FFT 使用。
         return np.nan_to_num(np.asarray(phase, dtype=float), nan=0.0)
 
-    # ---- state ---------------------------------------------------------
+    # ---- 状态 ---------------------------------------------------------
 
     def set_pupil_phase(self, phase_rad: np.ndarray) -> None:
-        """Inject the pupil-plane phase (radians) the sensor should measure."""
+        """注入传感器应当测量的瞳面相位 (弧度)。"""
         arr = np.asarray(phase_rad, dtype=float)
         if arr.shape != (self.grid, self.grid):
             raise ValueError(
@@ -284,11 +265,10 @@ class SimulatedWFS(BaseWFS):
         self._slopes = None
 
     def _pupil_phase(self) -> np.ndarray:
-        """DM phase plus any explicitly injected phase, summed at evaluation.
+        """DM 相位加上任何显式注入的相位, 在求值时累加。
 
-        Following the ``SimDisturbance`` precedent, contributors are summed here
-        rather than baked into ``_phase_rad``, so neither can be double-counted
-        and the stored command stays exactly what the caller set.
+        沿用 ``SimDisturbance`` 的先例: 各贡献者在此处累加而不是烘进 ``_phase_rad``,
+        于是两者都不会被重复计入, 而存下的命令恰好就是调用方设的那个。
         """
         total = self._phase_rad
         dm_phase = self.dm_optics.phase()
@@ -299,10 +279,10 @@ class SimulatedWFS(BaseWFS):
         return total
 
     def take_slopes(self) -> tuple[np.ndarray, np.ndarray]:
-        """Measure and return ``(dx, dy)`` slopes in the sensor's native units.
+        """测量并返回传感器原生单位下的 ``(dx, dy)`` slope。
 
-        OOPAO returns a row-blocked array: rows ``0:n_subap`` carry x-slopes and
-        rows ``n_subap:`` carry y-slopes (verified with pure tilt probes).
+        OOPAO 返回的是一个按行分块的数组: 第 ``0:n_subap`` 行携带 x-slope, 第
+        ``n_subap:`` 行携带 y-slope (用纯倾斜探针实测确认)。
         """
         if self._slopes is None:
             with contextlib.redirect_stdout(io.StringIO()):
@@ -320,15 +300,15 @@ class SimulatedWFS(BaseWFS):
         slopes = np.concatenate([dx.ravel(), dy.ravel()])
         return self._reconstructor(order) @ slopes
 
-    # ---- BaseWFS contract ----------------------------------------------
+    # ---- BaseWFS 契约 -------------------------------------------------
 
     def take_image(self, n_sample: int = 10, dynamicNoiseCut: bool = True) -> None:
-        """Refresh the measurement. The simulated sensor is noise-free."""
+        """刷新测量。仿真传感器无噪声。"""
         self._slopes = None
         self.take_slopes()
 
     def get_spots_statics(self) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray]]:
-        """Spot intensities and centroids from the lenslet-plane image."""
+        """来自微透镜平面图像的光斑强度与质心。"""
         self.take_slopes()
         assert self._raw is not None and self._flux is not None
         raw = np.asarray(self._raw, dtype=float)
@@ -351,20 +331,18 @@ class SimulatedWFS(BaseWFS):
         edge_clip: int = 1,
         plot: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Validity mask over the ``num_spots_x`` x ``num_spots_y`` subaperture grid.
+        """"num_spots_x" x ``num_spots_y`` 子孔径网格上的有效性掩模。
 
-        Returns ``(mask_bool, valid_indices_flat)``: the 2-D boolean mask and the
-        flat indices of valid entries. Callers filter the slope vector with
-        ``np.concatenate([mask.ravel(), mask.ravel()])`` against
-        ``2 * num_spots_x * num_spots_y`` rows, so the mask must be sized by the
-        subaperture grid and not by the flux array.
+        返回 ``(mask_bool, valid_indices_flat)``: 二维布尔掩模以及有效条目的扁平索引。
+        调用方会用 ``np.concatenate([mask.ravel(), mask.ravel()])`` 过滤 slope 向量并与
+        ``2 * num_spots_x * num_spots_y`` 行相对照, 因此该掩模必须按子孔径网格定尺寸,
+        而不是按 flux 数组。
 
-        It cannot be sized by flux: OOPAO reports flux on the 8x8 lenslet grid
-        (64 entries at ``n_subap=6``) while the slopes span a 6x6 subaperture
-        grid (36, doubled to 72 slopes). The two are different geometries.
+        它不可能按 flux 定尺寸: OOPAO 把 flux 报在 8x8 微透镜网格上 (``n_subap=6`` 时
+        64 项), 而 slope 跨的是 6x6 子孔径网格 (36 项, 展开为 72 个 slope)。两者是不同
+        的几何。
 
-        The model has no per-subaperture vignetting to detect, so every
-        subaperture is valid apart from the requested edge clip.
+        该模型没有逐子孔径的渐晕可供检测, 所以除所请求的边缘裁剪之外, 每个子孔径都有效。
         """
         nx, ny = self.num_spots_x, self.num_spots_y
         mask = np.ones((nx, ny), dtype=bool)
@@ -378,7 +356,7 @@ class SimulatedWFS(BaseWFS):
     def get_spot_deviation(
         self, cancel_tile: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Spot displacement from the reference, in the sensor's native units."""
+        """相对参考的光斑位移, 单位为传感器原生单位。"""
         dx, dy = self.take_slopes()
         if cancel_tile and self.remove_tilt:
             dx = dx - float(dx.mean())
@@ -386,12 +364,12 @@ class SimulatedWFS(BaseWFS):
         return dx, dy
 
     def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
-        """Reconstructed wavefront in **waves**, plus summary statistics.
+        """以 **waves** 表示的重建波前, 以及汇总统计量。
 
-        The statistics keys mirror :meth:`ThorlabWFS.get_wavefront` exactly
-        (``min``/``max``/``diff``/``mean``/``rms``/``wighted_rms``). The runner
-        reads ``statics["wighted_rms"]`` to schedule its learning rate, so a
-        narrower dict raises ``KeyError`` mid-optimization.
+        统计量的键与 :meth:`ThorlabWFS.get_wavefront` 完全一致
+        (``min``/``max``/``diff``/``mean``/``rms``/``wighted_rms``)。runner 会读
+        ``statics["wighted_rms"]`` 来调度学习率, 所以字典少一个键就会在优化中途抛
+        ``KeyError``。
         """
         order = self.zernike_order
         fit_rad = self._zernike_radians(order)
@@ -399,9 +377,8 @@ class SimulatedWFS(BaseWFS):
         for k, j in enumerate(range(_FIT_FIRST_MODE, self._n_modes(order))):
             fitted += fit_rad[k] * self._mode_phase(j, order)
         wavefront = fitted / (2.0 * np.pi)
-        # Piston is unmeasurable, so the residual is taken against the
-        # piston-removed pupil; otherwise the DC offset dominates the RMS and
-        # the number stops describing how well the modes were recovered.
+        # piston 不可测, 因此残差是相对去掉 piston 的 pupil 取的; 否则那个 DC 偏移会
+        # 主导 RMS, 那个数就不再描述模式被恢复了多少。
         pupil = self._pupil_phase()
         residual = pupil - fitted - float(pupil.mean())
         stats = {
@@ -415,11 +392,10 @@ class SimulatedWFS(BaseWFS):
         return wavefront, stats
 
     def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
-        """Zernike coefficients in **micrometres**, Noll ordered.
+        """以**微米**表示、按 Noll 排序的 Zernike 系数。
 
-        Micrometres are the historical WFS contract. Callers must convert with
-        ``zernike_utils.um_to_waves()`` before doing anything in waves. Piston is
-        reported as zero because the sensor cannot measure it.
+        微米是 WFS 的历史契约。调用方在做任何 waves 相关的运算之前, 必须先用
+        ``zernike_utils.um_to_waves()`` 换算。piston 报为零, 因为传感器测不到它。
         """
         fit_rad = self._zernike_radians(zernike_order)
         n_all = self._n_modes(zernike_order)
@@ -427,40 +403,40 @@ class SimulatedWFS(BaseWFS):
         z_rad[_FIT_FIRST_MODE:] = fit_rad
         return z_rad * (self.wavelength_nm * 1e-3) / (2.0 * np.pi)
 
-    # ---- Thorlabs-specific surface (no simulated counterpart) ----------
+    # ---- Thorlabs 专有接口面 (仿真侧无对应物) ------------------------
 
     def optimize_pupil(self) -> tuple[float, float, float, float]:
-        """Return the configured pupil; there is nothing to optimise."""
+        """返回所配置的瞳孔; 没有可优化的东西。"""
         return (0.0, 0.0, float(self.diameter), float(self.diameter))
 
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:
-        """The simulated sensor has neither exposure nor gain."""
+        """仿真传感器既无曝光也无增益。"""
         return (float(self.get_parameter_value("exposure_time_ms") or 0.0), 1.0)
 
     def save_user_ref(self, backup_dir: str | None = None) -> bool:
-        """No user reference to persist; a no-op that reports success."""
+        """没有需要持久化的用户参考; 一个报告成功的空操作。"""
         return True
 
     def load_user_ref(self, backup_path: str | None = None) -> bool:
-        """No user reference to load; a no-op that reports success."""
+        """没有需要加载的用户参考; 一个报告成功的空操作。"""
         return True
 
     def create_default_user_ref(self) -> bool:
         return True
 
     def get_mla_name(self) -> str:
-        """Name of the active microlens array.
+        """当前微透镜阵列的名字。
 
-        There is no MLA on a simulated sensor, but tooling prints this and
-        writes it into report metadata, so it answers rather than raising.
+        仿真传感器上没有 MLA, 但工具链会打印它、并把它写进报告元数据, 所以这里
+        如实回答而不是抛异常。
         """
         return "SIM-MLA"
 
     def set_ref_plane(self, custom: bool) -> None:
-        """Select the reference plane. No-op: the sim has no user .ref file."""
+        """选择参考面。空操作: 仿真没有用户 .ref 文件。"""
         self.use_custom_ref = bool(custom)
 
-    # ---- Device lifecycle ----------------------------------------------
+    # ---- 设备生命周期 ------------------------------------------------
 
     def open(self) -> None:
         self._open = True

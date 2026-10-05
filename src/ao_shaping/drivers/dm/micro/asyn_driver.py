@@ -54,7 +54,7 @@ _DEFAULT_CONTROLLER_TIMEOUT: float = DEFAULT_TIMEOUT
 
 MAX_CHANNELS: int = CHANNELS_PER_CONTROLLER
 
-# Re-export WiringMap so callers can import from this module directly.
+# 从本模块直接 re-export WiringMap, 方便调用方导入。
 __all__ = [
     "AsyncMicroDM",
     "AsyncR50Controller",
@@ -66,18 +66,18 @@ __all__ = [
 
 
 # =============================================================================
-# Voltage Converter (LUT)
+# 电压换算器 (LUT)
 # =============================================================================
 
 
 class VoltageConverter:
-    """Pre-computed lookup table for voltage → payload byte conversion.
+    """电压 → 载荷字节转换的预计算查找表。
 
-    Builds a 65536-entry table mapping every possible rounded raw value to
-    its (high, low) byte pair using the same formula as
-    :func:`~ao_shaping.drivers.dm.micro.driver.voltages_to_payload`.
-    ``fill_buffer`` then converts a 50-element voltage array into a 100-byte
-    payload in O(50) with no per-element float math.
+    构建一张 65536 项的表, 用与
+    :func:`~ao_shaping.drivers.dm.micro.driver.voltages_to_payload`
+    相同的公式把每个可能的取整后原始值映射到其 (high, low) 字节对。
+    随后 ``fill_buffer`` 可在 O(50) 时间内把一个 50 元素电压数组转成
+    100 字节载荷, 且不做逐元素的浮点运算。
     """
 
     def __init__(self) -> None:
@@ -87,16 +87,16 @@ class VoltageConverter:
             low = raw % 256
             self._lut.append((high, low))
 
-        # Pre-compute constants for fill_buffer
+        # 为 fill_buffer 预计算常量
         self._scale = PAYLOAD_SCALE
         self._offset = PAYLOAD_OFFSET
 
     def fill_buffer(self, voltages: npt.NDArray[np.floating], buf: bytearray) -> None:
-        """Convert 50 voltages into 100 interleaved bytes.
+        """把 50 个电压转换为 100 个交织字节。
 
         Args:
-            voltages: Array of exactly 50 float voltages.
-            buf: Pre-allocated bytearray of at least 100 bytes (modified in place).
+            voltages: 恰好 50 个浮点电压构成的数组。
+            buf: 至少 100 字节的预分配 bytearray (原地修改)。
         """
         v = np.asarray(voltages, dtype=np.float32).ravel()
         np.clip(v, VOLTAGE_MIN, VOLTAGE_MAX, out=v)
@@ -109,7 +109,7 @@ class VoltageConverter:
             buf[i * 2 + 1] = low
 
     def convert_single(self, voltage: float) -> tuple[int, int]:
-        """Convert a single voltage to (high, low) bytes via LUT."""
+        """经 LUT 把单个电压转换为 (high, low) 字节。"""
         v = float(np.clip(voltage, VOLTAGE_MIN, VOLTAGE_MAX))
         raw = int(round(v * self._scale + self._offset))
         raw = max(0, min(65535, raw))
@@ -117,21 +117,21 @@ class VoltageConverter:
 
 
 # =============================================================================
-# Send Result
+# 发送结果
 # =============================================================================
 
 
 @dataclass(frozen=True, slots=True)
 class SendResult:
-    """Outcome of a single ``AsyncR50Controller.send_voltages`` call.
+    """单次 ``AsyncR50Controller.send_voltages`` 调用的结果。
 
     Attributes:
-        success: Whether the data was written to the TCP stream.
-        error: Human-readable error string (``None`` on success).
-        latency_us: Wall-clock round-trip latency in microseconds.
-        controller_id: 1-based controller id this result belongs to
-            (``None`` when constructed by callers without controller context).
-        ip: Controller IP this result belongs to (same fallback semantics).
+        success: 数据是否已写入 TCP 流。
+        error: 面向人阅读的错误字符串 (成功时为 ``None``)。
+        latency_us: 往返墙钟延迟, 单位微秒。
+        controller_id: 该结果所属的控制器 ID (从 1 开始)
+            (无控制器上下文的调用方构造时为 ``None``)。
+        ip: 该结果所属的控制器 IP (回退语义同上)。
     """
 
     success: bool
@@ -142,15 +142,15 @@ class SendResult:
 
 
 # =============================================================================
-# Async R50 Controller
+# 异步 R50 控制器
 # =============================================================================
 
 
 class AsyncR50Controller:
-    """Async TCP client for a single R50Power controller (50 channels).
+    """单台 R50Power 控制器 (50 通道) 的异步 TCP 客户端。
 
-    Manages a persistent ``asyncio.StreamReader`` / ``StreamWriter`` pair.
-    All network methods are coroutines.
+    管理一对持久的 ``asyncio.StreamReader`` / ``StreamWriter``。
+    所有网络方法均为协程。
     """
 
     def __init__(
@@ -171,22 +171,22 @@ class AsyncR50Controller:
 
     @property
     def is_connected(self) -> bool:
-        """Whether the TCP connection is active."""
+        """TCP 连接是否处于活动状态。"""
         return self._writer is not None and not self._writer.is_closing()
 
     async def connect(self) -> bool:
-        """Open an async TCP connection to the controller.
+        """打开到控制器的异步 TCP 连接。
 
         Returns:
-            True on success, False on failure.
+            成功返回 True, 失败返回 False。
         """
         try:
             self._reader, self._writer = await asyncio.wait_for(
                 asyncio.open_connection(self.ip, self.port),
                 timeout=self._timeout,
             )
-            # Disable Nagle: frames are small and written one-shot, so delayed
-            # ACK/Nagle buffering would add tens of ms per frame.
+            # 禁用 Nagle: 帧很小且一次性写入, 延迟 ACK / Nagle 缓冲
+            # 会给每帧增加几十毫秒。
             sock = self._writer.get_extra_info("socket")
             if sock is not None:
                 try:
@@ -207,7 +207,7 @@ class AsyncR50Controller:
             return False
 
     async def disconnect(self) -> None:
-        """Close the TCP connection."""
+        """关闭 TCP 连接。"""
         if self._writer is not None:
             try:
                 self._writer.close()
@@ -219,32 +219,32 @@ class AsyncR50Controller:
             logger.debug(f"AsyncR50Controller[{self.controller_id}] disconnected")
 
     def prebuild_command(self, voltages: npt.NDArray[np.floating]) -> bytes:
-        """Pre-compute the full 0x09 command bytes for a 50-channel frame.
+        """预计算 50 通道帧的完整 0x09 命令字节。
 
-        Encodes exactly like :meth:`send_voltages` but performs no network
-        I/O, so the caller can cache the result and replay it zero-cost in a
-        hot loop via :meth:`send_bytes`.
+        编码方式与 :meth:`send_voltages` 完全一致, 但不做网络 I/O,
+        因此调用方可以缓存结果, 并在热循环里经 :meth:`send_bytes`
+        零成本地重放。
 
         Args:
-            voltages: Array of 50 float voltages.
+            voltages: 50 个浮点电压构成的数组。
 
         Returns:
-            The complete command byte-string (header + opcode + payload + footer).
+            完整的命令字节串 (帧头 + 操作码 + 载荷 + 帧尾)。
         """
         buf = bytearray(MAX_CHANNELS * 2)
         self._converter.fill_buffer(voltages, buf)
         return bytes(HEADER + bytes([CMD_SET_ALL_VOLTAGE_BY_ARR]) + buf + FOOTER)
 
     async def send_bytes(self, cmd: bytes, timeout: float | None = None) -> SendResult:
-        """Write pre-built command bytes and drain, measuring latency.
+        """写入预构建的命令字节并 drain, 同时测量延迟。
 
         Args:
-            cmd: Raw command byte-string (e.g. from :meth:`prebuild_command`).
-            timeout: Optional per-send timeout (seconds). Falls back to
-                ``self._timeout`` when *None*.
+            cmd: 原始命令字节串 (例如来自 :meth:`prebuild_command`)。
+            timeout: 可选的单次发送超时 (秒)。为 *None* 时回退到
+                ``self._timeout``。
 
         Returns:
-            A :class:`SendResult` describing the outcome.
+            描述结果的 :class:`SendResult`。
         """
         if self._writer is None:
             return SendResult(
@@ -286,22 +286,22 @@ class AsyncR50Controller:
     async def send_voltages(
         self, voltages: npt.NDArray[np.floating], timeout: float | None = None
     ) -> SendResult:
-        """Send a 50-channel voltage frame via the 0x09 command.
+        """经 0x09 命令发送 50 通道电压帧。
 
         Args:
-            voltages: Array of 50 float voltages.
-            timeout: Optional per-send timeout (seconds). Falls back to
-                ``self._timeout`` when *None*.
+            voltages: 50 个浮点电压构成的数组。
+            timeout: 可选的单次发送超时 (秒)。为 *None* 时回退到
+                ``self._timeout``。
 
         Returns:
-            A :class:`SendResult` describing the outcome.
+            描述结果的 :class:`SendResult`。
         """
         if self._writer is None:
             return SendResult(success=False, error="not_connected")
         return await self.send_bytes(self.prebuild_command(voltages), timeout=timeout)
 
     async def send_relay(self, state: bool) -> SendResult:
-        """Open (True) or close (False) the relay."""
+        """打开 (True) 或关闭 (False) 继电器。"""
         if self._writer is None:
             return SendResult(
                 success=False,
@@ -328,25 +328,25 @@ class AsyncR50Controller:
 
 
 # =============================================================================
-# Async MicroDM Driver
+# 异步 MicroDM 驱动
 # =============================================================================
 
-# AsyncMicroDM intentionally has no from_params factory: no driver-layer
-# parameter class carries its required controller IP list.
+# AsyncMicroDM 刻意没有 from_params 工厂: 驱动层的任何参数类
+# 都没有携带它所需的控制器 IP 列表。
 
 
 @register_dm("asyn_micro")
 class AsyncMicroDM(DM):
-    """Asynchronous multi-controller R50Power deformable mirror driver.
+    """异步的多控制器 R50Power 变形镜驱动。
 
-    Wraps multiple :class:`AsyncR50Controller` instances and presents the
-    standard :class:`DM` interface.  The sync methods ``open()`` / ``close()``
-    bridge to the async internals via ``_run_async``.
+    包装多个 :class:`AsyncR50Controller` 实例, 并对外呈现标准的
+    :class:`DM` 接口。同步方法 ``open()`` / ``close()``
+    通过 ``_run_async`` 桥接到异步内部实现。
 
     Attributes:
-        DM_Num: Total logical channel count (39×39 = 1521).
-        V_Min: Minimum voltage (-20.0 V).
-        V_Max: Maximum voltage (120.0 V).
+        DM_Num: 逻辑通道总数 (39×39 = 1521)。
+        V_Min: 最小电压 (-20.0 V)。
+        V_Max: 最大电压 (120.0 V)。
     """
 
     DM_Num: int = DM_NUM
@@ -383,10 +383,10 @@ class AsyncMicroDM(DM):
             f"{[(c.ip, c.port) for c in self._controllers]}"
         )
 
-    # ---- Sync ↔ Async Bridge ------------------------------------------------
+    # ---- 同步 ↔ 异步 桥接 ------------------------------------------------
 
     def _get_or_create_loop(self) -> asyncio.AbstractEventLoop:
-        """Return the running event loop, or create one if needed."""
+        """返回正在运行的事件循环, 需要时则新建一个。"""
         try:
             return asyncio.get_running_loop()
         except RuntimeError:
@@ -396,22 +396,22 @@ class AsyncMicroDM(DM):
             return loop
 
     def _run_async(self, coro: Any) -> object:
-        """Run an async coroutine from sync code.
+        """从同步代码运行一个异步协程。
 
-        If an event loop is already running, schedules via ``asyncio.ensure_future``.
-        Otherwise runs to completion with ``loop.run_until_complete``.
+        若已有事件循环在运行, 则经 ``asyncio.ensure_future`` 调度。
+        否则用 ``loop.run_until_complete`` 一直运行到完成。
         """
         loop = self._get_or_create_loop()
         if loop.is_running():
-            # We're inside an async context — schedule and return the task
+            # 我们处在异步上下文中 —— 调度并返回该 task
             return asyncio.ensure_future(coro)
         return loop.run_until_complete(coro)
 
-    # ---- DM Interface (sync) ------------------------------------------------
+    # ---- DM 接口 (同步) ------------------------------------------------
 
     @classmethod
     def is_reachable(cls) -> bool:
-        """Async driver is always considered reachable (connect at open time)."""
+        """异步驱动始终视为可达 (在 open 时才连接)。"""
         return True
 
     @property
@@ -419,7 +419,7 @@ class AsyncMicroDM(DM):
         return np.ones(self.DM_NUM, dtype=bool)
 
     def open(self) -> None:
-        """Connect to all controllers (sync bridge)."""
+        """连接到所有控制器 (同步桥接)。"""
         self._run_async(self._async_open())
 
     async def _async_open(self) -> None:
@@ -434,7 +434,7 @@ class AsyncMicroDM(DM):
         logger.info(f"AsyncMicroDM ready: {n_ok}/{len(self._controllers)} connected")
 
     def close(self) -> None:
-        """Disconnect all controllers (sync bridge)."""
+        """断开所有控制器 (同步桥接)。"""
         self._run_async(self._async_close())
 
     async def _async_close(self) -> None:
@@ -450,33 +450,32 @@ class AsyncMicroDM(DM):
         return self._last_voltages.copy()
 
     def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Map [-1, 1] → [V_Min, V_Max]."""
+        """把 [-1, 1] 映射到 [V_Min, V_Max]。"""
         return self.transform_voltage(cmd)
 
     def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Clip and store voltages. Actual TCP send happens in ``send_frame``."""
+        """钳位并保存电压。实际 TCP 发送在 ``send_frame`` 中进行。"""
         vs = np.clip(vs, self.V_Min, self.V_Max)
         self._last_voltages = vs.copy()
         return self._last_voltages
 
-    # ---- Async-specific methods ---------------------------------------------
+    # ---- 异步专属方法 -------------------------------------------------
 
     @property
     def controller_info(self) -> list[tuple[int, str, int, bool]]:
-        """Per-controller introspection: ``(controller_id, ip, port, is_connected)``.
+        """逐控制器的自省信息: ``(controller_id, ip, port, is_connected)``。
 
-        Useful for diagnostics — lets callers report exactly which endpoints
-        were attempted and which are currently connected.
+        便于诊断 —— 让调用方准确报告尝试过哪些端点、当前哪些已连接。
         """
         return [
             (c.controller_id, c.ip, c.port, c.is_connected) for c in self._controllers
         ]
 
     async def connect_all(self) -> dict[int, bool]:
-        """Connect all controllers concurrently.
+        """并发连接所有控制器。
 
         Returns:
-            Dict mapping controller_id (1-based) → success.
+            controller_id (从 1 开始) -> 是否成功的字典。
         """
         results = await asyncio.gather(*(ctrl.connect() for ctrl in self._controllers))
         return {ctrl.controller_id: ok for ctrl, ok in zip(self._controllers, results)}
@@ -484,13 +483,13 @@ class AsyncMicroDM(DM):
     async def send_frame(
         self, voltages: npt.NDArray[np.floating] | None = None
     ) -> list[SendResult]:
-        """Send a voltage frame to all controllers concurrently.
+        """并发向所有控制器发送电压帧。
 
         Args:
-            voltages: If *None*, sends ``self._last_voltages``.
+            voltages: 为 *None* 时发送 ``self._last_voltages``。
 
         Returns:
-            List of :class:`SendResult`, one per controller.
+            :class:`SendResult` 列表, 每台控制器一项。
         """
         if voltages is not None:
             vs = np.clip(np.asarray(voltages, dtype=np.float64), self.V_Min, self.V_Max)
@@ -511,18 +510,17 @@ class AsyncMicroDM(DM):
         return list(await asyncio.gather(*tasks))
 
     def build_frame_commands(self, voltages: npt.NDArray[np.floating]) -> list[bytes]:
-        """Pre-compute per-controller command bytes for a full voltage frame.
+        """为完整电压帧预计算各控制器的命令字节。
 
-        Chunks the logical channel array exactly like :meth:`send_frame` and
-        returns one fully encoded command byte-string per controller, ready
-        for zero-allocation replay via :meth:`send_frame_commands`.
+        完全按 :meth:`send_frame` 的方式对逻辑通道数组分块,
+        并为每台控制器返回一条完整编码的命令字节串, 可经
+        :meth:`send_frame_commands` 零分配地重放。
 
         Args:
-            voltages: Voltage array for all logical channels.
+            voltages: 所有逻辑通道的电压数组。
 
         Returns:
-            List of pre-built command byte-strings, aligned with
-            ``self._controllers``.
+            预构建的命令字节串列表, 与 ``self._controllers`` 一一对应。
         """
         vs = np.clip(np.asarray(voltages, dtype=np.float64), self.V_Min, self.V_Max)
         commands = []
@@ -542,19 +540,18 @@ class AsyncMicroDM(DM):
         commands: list[bytes],
         voltages: npt.NDArray[np.floating] | None = None,
     ) -> list[SendResult]:
-        """Send pre-built per-controller command bytes concurrently.
+        """并发发送预构建的各控制器命令字节。
 
-        The hot-loop fast path of :meth:`send_frame`: no voltage encoding,
-        no chunking, no allocation — just one ``write``+``drain`` per
-        controller on the cached bytes.
+        :meth:`send_frame` 的热循环快路径: 不做电压编码、不分块、
+        不分配内存 —— 只在缓存的字节上对每台控制器做一次 ``write``+``drain``。
 
         Args:
-            commands: One pre-built command byte-string per controller, as
-                returned by :meth:`build_frame_commands`.
-            voltages: If provided, recorded as ``self._last_voltages``.
+            commands: 每台控制器一条预构建的命令字节串, 形式如
+                :meth:`build_frame_commands` 的返回值。
+            voltages: 若提供, 则记录为 ``self._last_voltages``。
 
         Returns:
-            List of :class:`SendResult`, one per controller.
+            :class:`SendResult` 列表, 每台控制器一项。
         """
         if voltages is not None:
             self._last_voltages = np.clip(
@@ -570,13 +567,13 @@ class AsyncMicroDM(DM):
         )
 
     async def set_relay(self, state: bool) -> dict[int, SendResult]:
-        """Open (True) or close (False) the relay on all controllers concurrently.
+        """并发打开 (True) 或关闭 (False) 所有控制器上的继电器。
 
         Args:
-            state: True to power on the relay, False to power off.
+            state: True 给继电器上电, False 断电。
 
         Returns:
-            Dict mapping controller_id (1-based) → SendResult.
+            controller_id (从 1 开始) -> SendResult 的字典。
         """
         results = await asyncio.gather(
             *[ctrl.send_relay(state) for ctrl in self._controllers]
@@ -587,12 +584,12 @@ class AsyncMicroDM(DM):
         }
 
     async def shutdown(self, home_voltage: float = 0.0) -> None:
-        """Safe shutdown: home voltages, relay off, disconnect all.
+        """安全关机: 电压归零, 继电器断开, 断开所有连接。
 
         Args:
-            home_voltage: Voltage to set on all channels before disconnecting.
+            home_voltage: 断开前要设置到所有通道上的电压。
         """
-        # Set home voltage on all controllers
+        # 在所有控制器上设置原点电压
         home_vs = np.full(self.DM_Num, home_voltage)
         self._last_voltages = home_vs.copy()
 
@@ -606,8 +603,8 @@ class AsyncMicroDM(DM):
 
 
 # =============================================================================
-# Backwards compatibility alias
+# 向后兼容别名
 # =============================================================================
 
-# Some callers may import the class under a different name
+# 部分调用方可能用另一个名字导入该类
 MicroDMAsync = AsyncMicroDM

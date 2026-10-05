@@ -87,13 +87,12 @@ def turbulence_phase(
     propagation_distance: float | None = None,
     rng: np.random.Generator | None = None,
 ) -> np.ndarray:
-    """Generate a single von-Karman phase screen [rad] on the cfg grid.
+    """在 cfg 网格上生成单张 von-Karman 相位屏 [rad]。
 
-    OOPAO backend (``AO_OOPAO_BACKEND``): delegates to
+    OOPAO 后端 (``AO_OOPAO_BACKEND``): 委托给
     :class:`ao_shaping.drivers.sim.oopao_backend.OopaoScreenBackend.make_screens`
-    (single slab, seed from ``rng``), rescaling to the per-slab r0 that matches
-    the historical aotools/FFT path. Numpy backend (default): FFT-spectrum
-    Kolmogorov generation (legacy behaviour, unchanged).
+    (单 slab, seed 取自 ``rng``), 并重新缩放到与历史 aotools/FFT 路径相匹配的每 slab r0。
+    Numpy 后端 (默认): FFT 谱 Kolmogorov 生成 (legacy 行为, 不变)。
     """
     beam_cfg = to_bs_config(cfg)
     cn2_value = beam_cfg.Cn2 if cn2 is None else float(cn2)
@@ -178,10 +177,10 @@ def apply_lens(field: np.ndarray, cfg: BeamSimConfig, focal_length: float) -> np
 
 
 def propagate(field: np.ndarray, cfg: BeamSimConfig, distance: float) -> np.ndarray:
-    """Angular-spectrum propagation of ``field`` by ``distance`` metres.
+    """把 ``field`` 按角谱传播 ``distance`` 米。
 
-    OOPAO backend (``AO_OOPAO_BACKEND``): OOPAO ``Atmosphere.ASM`` kernel.
-    Numpy backend (default): legacy ``beam_simulation.propagation``.
+    OOPAO 后端 (``AO_OOPAO_BACKEND``): OOPAO 的 ``Atmosphere.ASM`` 核。
+    Numpy 后端 (默认): legacy 的 ``beam_simulation.propagation``。
     """
     beam_cfg = to_bs_config(cfg)
     if _oopao_enabled():
@@ -197,10 +196,10 @@ def propagate(field: np.ndarray, cfg: BeamSimConfig, distance: float) -> np.ndar
 
 
 def _oopao_enabled() -> bool:
-    """Return True when the OOPAO backend is enabled via ``AO_OOPAO_BACKEND``.
+    """当通过 ``AO_OOPAO_BACKEND`` 启用 OOPAO 后端时返回 True。
 
-    Default off (numpy/legacy path). Set ``AO_OOPAO_BACKEND=1/true/yes`` to use
-    the OOPAO library; falls back to numpy automatically if OOPAO is unavailable.
+    默认关闭 (走 numpy/legacy 路径)。设 ``AO_OOPAO_BACKEND=1/true/yes`` 以使用
+    OOPAO 库; 若 OOPAO 不可用则自动回落到 numpy。
     """
     value = os.environ.get("AO_OOPAO_BACKEND", "")
     enabled = value.strip().lower() in ("1", "true", "yes", "on")

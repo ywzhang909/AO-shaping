@@ -32,7 +32,7 @@ RESET_CHANNEL_COUNT: int = 256
 
 
 class DMUdp:
-    """Blocking UDP client for one NLight controller."""
+    """单台 NLight 控制器的阻塞式 UDP 客户端。"""
 
     HEAD_WITH_ECHO = UDP_HEAD_WITH_ECHO
     HEAD = UDP_HEAD
@@ -40,7 +40,7 @@ class DMUdp:
 
     def __init__(self) -> None:
         self.ip = NLIGHT_IP
-        # test ip reachable
+        # 校验测试用 IP 是否可达
         try:
             socket.inet_aton(self.ip)
         except socket.error:

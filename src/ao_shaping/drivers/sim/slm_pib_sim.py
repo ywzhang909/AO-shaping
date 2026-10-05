@@ -1,28 +1,22 @@
-"""Simulated 2f-Fourier SLM + CCD for running ``slm-pib`` without hardware.
+"""用于无硬件跑 ``slm-pib`` 的模拟 2f 傅里叶 SLM + CCD。
 
-The ``slm-pib`` optimizer (``optimizer/wfless/slm_zernike_pib.py``) drives a real
-``Santec`` SLM through ``create_phase_from_array(phase_rad) -> uint16`` and
-``display_data(gray, ...)`` and reads the far-field spot from a CCD. This module
-provides a pure-numpy stand-in that reproduces that contract while actually
-propagating light, so the SPGD search has a *real* optical feedback loop:
+``slm-pib`` 优化器 (``optimizer/wfless/slm_zernike_pib.py``) 驱动一台真实的 ``Santec``
+SLM, 方式是 ``create_phase_from_array(phase_rad) -> uint16`` 与 ``display_data(gray, ...)``,
+并从一台 CCD 上读取远场光斑。本模块提供的是一个纯 numpy 的替身, 它复现该契约的同时
+真的传播光, 于是 SPGD 搜索有了一个*真实*的光学反馈环路:
 
-* :class:`SimSLMPib` — accepts a raw-radian phase, stores it, and on display
-  computes the Fraunhofer far field of a Gaussian input beam modulated by the
-  phase (``np.fft.fft2`` of the pupil field, centred). The 0-order spot sits at
-  the image centre and its shape responds to the applied phase exactly as a 2f
-  bench would.
-* :class:`SimPibCCD` — a ``BaseCamera`` whose ``get_numpy_image`` simply returns
-  the last far-field image produced by the sim SLM (plus a small Poisson-like
-  shot-noise floor so the metric is not perfectly smooth).
+* :class:`SimSLMPib` —— 接受 raw 弧度相位、把它存下来, 并在显示时计算被该相位调制的
+  高斯入射光束的夫琅禾费远场 (瞳孔场的 ``np.fft.fft2``, 居中)。0 级光斑落在画面正中,
+  其形状对所施加相位的响应与一台 2f 台架完全一致。
+* :class:`SimPibCCD` —— 一个 ``BaseCamera``, 其 ``get_numpy_image`` 直接返回仿真 SLM
+  最近一次产出的远场图像 (再加一点类 Poisson 的散粒噪声地板, 使指标不会完全光滑)。
 
-The two are wired together through :class:`SimSLMPibSystem`, which also registers
-a ``"sim"`` entry in the camera registry so ``create_camera("sim", ...)`` returns
-a ``SimPibCCD`` bound to a shared system.
+两者经 :class:`SimSLMPibSystem` 连在一起; 它同时在相机注册表里注册一个 ``"sim"``
+条目, 使 ``create_camera("sim", ...)`` 返回一个绑定到共享 system 的 ``SimPibCCD``。
 
-This is intentionally a *far-field FFT* model (the 2f Fourier bench in
-``AGENTS.md``), not a near-field propagator: the SLM is at the front focal plane
-and the CCD at the back focal plane, so the CCD image is the 2-D FFT of the SLM
-pupil. That is exactly the regime ``slm-pib`` operates in.
+这有意是一个*远场 FFT* 模型 (即 ``AGENTS.md`` 里的 2f 傅里叶台架), 而不是近场传播器:
+SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳孔的二维 FFT。这恰好是
+``slm-pib`` 所工作的机制。
 """
 
 from __future__ import annotations
@@ -39,53 +33,49 @@ from ao_shaping.drivers.sim.disturbance import SimDisturbance
 from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
 
-try:  # scipy's pocketfft is multithreaded, which the padded transform needs.
+try:  # scipy 的 pocketfft 是多线程的, 而补零后的变换需要它。
     from scipy import fft as _scipy_fft
-except ImportError:  # pragma: no cover - numpy is always present
+except ImportError:  # pragma: no cover - numpy 总是存在
     _scipy_fft = None
 
-# SLM panel geometry (matches the real Santec SLM-200: 1920 x 1200, 10-bit).
+# SLM 面板几何 (与真实 Santec SLM-200 一致: 1920 x 1200, 10-bit)。
 SLM_W = 1920
 SLM_H = 1200
 SLM_BITS = 10
 SLM_MAX_GRAY = (1 << SLM_BITS) - 1  # 1023
-TWO_PI_GRAY = 993  # 2*pi in gray at 1064 nm (device dynamic value, see AGENTS.md)
+TWO_PI_GRAY = 993  # 1064 nm 下的 2*pi 灰度 (设备动态值, 见 AGENTS.md)
 
-# Input Gaussian beam radius (SLM pixels) — the waist of the flat-field beam
-# incident on the SLM. Chosen so the beam comfortably fills the panel aperture.
+# 入射高斯光束半径 (SLM 像素) —— 即打在 SLM 上的平场光束的光腰。取值使光束能宽裕地
+# 填满面板口径。
 BEAM_W0 = 400.0
 
-# CCD far-field resolution (square). The 0-order spot lands at the image centre.
+# CCD 远场分辨率 (正方形)。0 级光斑落在画面正中。
 CCD_RES = (512, 512)
 
-# Zero-padding factor applied to the pupil before ``fft2``. The far-field pixel
-# pitch is fixed by the transform, so an unpadded FFT put the 0-order spot at
-# ~1.8 px FWHM -- barely one sample across it, leaving every power-ratio metric
-# to divide by a numerically unresolved peak. Padding shrinks that pitch by
-# this factor, which is the digital equivalent of the longer effective focal
-# length a real bench gains by narrowing the camera ROI (cropping the *same*
-# array only magnifies it and adds no samples). At 4 the spot spans ~7 px.
+# 在 ``fft2`` 之前施加到瞳孔上的补零因子。远场像元间距由该变换固定, 因此不补零的 FFT
+# 会把 0 级光斑放到 ~1.8 px FWHM —— 横跨它的采样几乎只有一个, 于是每个功率比指标都要
+# 去除一个在数值上根本没被分辨的峰值。补零把这个间距按该因子缩小, 这在数字上等价于
+# 真实台架通过缩小相机 ROI 获得的更长有效焦距 (裁剪*同一*数组只会放大它, 不增加任何
+# 采样)。取 4 时光斑横跨 ~7 px。
 FAR_FIELD_PADDING = 4
 
-# Side length, in far-field pixels, of the centred window retained after the
-# padded FFT. Bounds both the cached array and the shot/read noise applied to it
-# in ``far_field_noisy``; must stay >= the camera window (``cam_size``).
+# 补零 FFT 之后保留的居中窗口的边长, 单位远场像素。它同时限定了缓存数组以及
+# ``far_field_noisy`` 施加在上面的散粒/读出噪声; 必须 >= 相机窗口 (``cam_size``)。
 FAR_FIELD_WINDOW = 1024
 
 
 def _forward_fft2(field: np.ndarray) -> np.ndarray:
-    """2-D forward FFT, using scipy's multithreaded kernel when available."""
+    """二维正向 FFT, 可用时走 scipy 的多线程核。"""
     if _scipy_fft is not None:
         return _scipy_fft.fft2(field, workers=-1)
     return np.fft.fft2(field)
 
 
 class SimPibSystem:
-    """Shared optical state between the sim SLM and the sim CCD.
+    """仿真 SLM 与仿真 CCD 之间共享的光学状态。
 
-    Holds the *currently displayed* radian phase and the lazily-computed far
-    field. A single instance is shared by the SLM (writer) and the CCD (reader)
-    so the camera always sees the light that the SLM last displayed.
+    持有*当前显示的*弧度相位与惰性计算的远场。SLM (写方) 与 CCD (读方) 共用同一个
+    实例, 因此相机总能看到的正是 SLM 最后显示的那束光。
     """
 
     def __init__(
@@ -101,27 +91,24 @@ class SimPibSystem:
         far_field_padding: int = FAR_FIELD_PADDING,
         far_field_window: int = FAR_FIELD_WINDOW,
     ) -> None:
-        """Build the shared optical state.
+        """构造共享的光学状态。
 
         Args:
-            slm_shape: SLM panel shape ``(h, w)``.
-            ccd_res: Far-field resolution.
-            beam_w0: Gaussian input-beam waist in SLM pixels.
-            noise_adu: Shot/read-noise floor added by :meth:`far_field_noisy`.
-            seed: RNG seed for the noise model.
-            disturbance: Optional turbulence + thermal-halo model. Keyword-only
-                and defaulting to ``None`` so every existing caller keeps the
-                original, disturbance-free behaviour. Its screen is added to the
-                SLM command phase inside :meth:`far_field`; ``self._phase`` is
-                never modified, so the disturbance cannot be double-counted.
-            dm_optics: Optional DM voltage -> phase coupling. Like the
-                disturbance this is summed at evaluation time and never baked
-                into ``self._phase``. It defaults to a flat, zero-volt instance
-                rather than ``None`` so DM-driven runners are coupled by
-                construction and cannot silently regress to driving nothing.
+            slm_shape: SLM 面板形状 ``(h, w)``。
+            ccd_res: 远场分辨率。
+            beam_w0: 高斯入射光束腰, 单位 SLM 像素。
+            noise_adu: :meth:`far_field_noisy` 加入的散粒/读出噪声地板。
+            seed: 噪声模型的 RNG 种子。
+            disturbance: 可选的湍流 + 热晕模型。仅关键字传入且默认 ``None``, 这样
+                每个现有调用方都保持原先无干扰的行为。它的相位屏在 :meth:`far_field`
+                内部被加到 SLM 命令相位上; ``self._phase`` 从不被修改, 因此干扰不会
+                被重复计入。
+            dm_optics: 可选的 DM 电压 → 相位耦合。与干扰一样, 它在求值时被累加,
+                从不烘进 ``self._phase``。它默认是一个平的、零电压的实例而非 ``None``,
+                于是 DM 驱动的 runner 在构造上就已耦合, 不会静默退化成什么都没驱动。
         """
-        # Deferred: config.DM_N_ACTUATORS resolves via a live DM reachability
-        # probe, so importing it at module scope would block on sockets.
+        # 延迟 import: config.DM_N_ACTUATORS 是经一次活的 DM 可达性探测解析的,
+        # 所以在模块作用域 import 它会阻塞在 socket 上。
         from ao_shaping.config import DM_N_ACTUATORS
 
         self.slm_h, self.slm_w = slm_shape
@@ -142,10 +129,10 @@ class SimPibSystem:
         self._pad_buffer: np.ndarray | None = None
         self._gray: np.ndarray | None = None
 
-    # --- SLM side --------------------------------------------------------
+    # --- SLM 侧 --------------------------------------------------------
 
     def set_phase_rad(self, phase_rad: np.ndarray) -> None:
-        """Store a raw-radian phase and mark the far field stale."""
+        """保存一份 raw 弧度相位, 并把远场标记为过期。"""
         phase = np.asarray(phase_rad, dtype=np.float64)
         if phase.shape != (self.slm_h, self.slm_w):
             raise ValueError(
@@ -153,10 +140,10 @@ class SimPibSystem:
             )
         with self._lock:
             self._phase = phase
-            self._far_field = None  # stale until next display
+            self._far_field = None  # 直到下次显示前都是过期的
 
     def set_gray(self, gray: np.ndarray) -> None:
-        """Store a raw grayscale pattern (flat-gray path, no radian conversion)."""
+        """保存原始灰度图样 (平场灰度路径, 不做弧度换算)。"""
         g = np.asarray(gray, dtype=np.uint16)
         if g.shape != (self.slm_h, self.slm_w):
             raise ValueError(f"gray shape {g.shape} != SLM panel {(self.slm_h, self.slm_w)}")
@@ -164,37 +151,35 @@ class SimPibSystem:
             self._gray = g
             self._far_field = None
 
-    # --- CCD side --------------------------------------------------------
+    # --- CCD 侧 --------------------------------------------------------
 
     def far_field(self) -> np.ndarray:
-        """Compute (and cache) the far-field image of the displayed phase.
+        """计算 (并缓存) 所显示相位的远场图像。
 
-        The pupil field is ``A(r) * exp(i*phase)`` where ``A`` is the Gaussian
-        input beam; the far field is ``|FFT(pupil)|^2`` with the zero-frequency
-        component moved to the centre (``fftshift``). The 0-order spot is the
-        image centre, matching the 2f-bench convention in ``AGENTS.md``.
+        瞳孔场是 ``A(r) * exp(i*phase)``, 其中 ``A`` 是高斯入射光束; 远场是
+        ``|FFT(pupil)|^2``, 并把零频分量移到中心 (``fftshift``)。0 级光斑即画面中心,
+        与 ``AGENTS.md`` 里的 2f 台架约定一致。
         """
         with self._lock:
-            # The DM is an independent optical state, so a voltage change must
-            # invalidate the cache. Without this the cache keeps serving the
-            # pre-DM image and a DM-driven loop reads as if the DM did nothing.
+            # DM 是一个独立的光学状态, 所以电压变化必须让缓存失效。没有这一步,
+            # 缓存会一直供应 DM 作用之前的那张图, 于是 DM 驱动的环路读起来就像
+            # DM 什么都没做。
             if self.dm_optics.version != self._dm_version:
                 self._far_field = None
                 self._dm_version = self.dm_optics.version
             if self._far_field is not None:
                 return self._far_field.copy()
             phase = self._phase
-            # Disturbance shares the pupil plane with the SLM command, so it is
-            # added before the Fourier transform. The early return above consumes
-            # it once per real optical evaluation. `self._phase` stays the pure
-            # command -- baking the disturbance in would double-count it.
+            # 干扰与 SLM 命令共处同一个瞳面, 所以它在傅里叶变换之前就被加进去。
+            # 上面的提前返回保证每次真实光学求值只消耗它一次。`self._phase` 保持为
+            # 纯命令 —— 把干扰烘进去会被重复计入。
             if self.disturbance is not None:
                 phase = phase + self.disturbance.phase()
-            # Likewise the DM: summed here, never baked into `self._phase`.
+            # DM 同理: 在此累加, 从不烘进 `self._phase`。
             dm_phase = self.dm_optics.phase()
             if dm_phase.any():
                 phase = phase + dm_phase
-            # Gaussian input beam amplitude on the SLM grid.
+            # SLM 网格上的高斯入射光束幅度。
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
             r2 = (xx - cx) ** 2 + (yy - cy) ** 2
@@ -216,8 +201,8 @@ class SimPibSystem:
             y0 = (spectrum.shape[0] - window) // 2
             x0 = (spectrum.shape[1] - window) // 2
             spectrum = spectrum[y0 : y0 + window, x0 : x0 + window]
-            # Normalise to a 0..255-ish grayscale so exposure/peak logic behaves
-            # like a real camera (peak ~100 for the flat beam).
+            # 归一化到 ~0..255 的灰度范围, 使曝光/峰值逻辑的行为像真实相机
+            # (平场光束下峰值 ~100)。
             peak = float(spectrum.max())
             if peak > 0:
                 spectrum = spectrum * (100.0 / peak)
@@ -225,21 +210,16 @@ class SimPibSystem:
             return self._far_field.copy()
 
     def far_field_noisy(self) -> np.ndarray:
-        """Far field plus shot + read noise, as a raw ADU frame.
+        """远场加上散粒噪声 + 读出噪声, 以原始 ADU 帧返回。
 
-        The result is deliberately **not** clipped at zero. ``far_field`` is
-        ``|FFT|**2`` and so already non-negative, which means every negative value
-        here comes from read noise. Clipping at zero rectifies that symmetric
-        noise into a DC pedestal proportional to the pixel count: with the spot
-        holding ~150 px of signal inside a 1200x1920 frame, the pedestal measured
-        ~3000x the signal. Every power-ratio metric then divided by that pedestal
-        instead of by the light, which is why ``pib``/``combined`` sat at ~0.0145
-        and their SPGD gradient estimates were pure noise.
+        结果刻意**不**在零处裁剪。``far_field`` 是 ``|FFT|**2``, 本身已非负, 因此这里
+        每一个负值都只可能来自读出噪声。在零处裁剪会把这种对称噪声整流成一个与像素数
+        成正比的 DC 地板: 光斑在一幅 1200x1920 的画面里只占 ~150 px 信号, 而该地板实测
+        约为信号的 ~3000x。于是每个功率比指标除的都是那个地板而不是光, 这正是
+        ``pib``/``combined`` 停在 ~0.0145、其 SPGD 梯度估计全是噪声的原因。
 
-        A real sensor's floor sits below its clipping threshold and is clipped
-        once at digitisation, so a raw frame may dip slightly below the black
-        level; dark-frame subtraction is what removes the offset, not a
-        per-frame clip.
+        真实传感器的地板位于其裁剪阈值*之下*, 只在量化时被裁剪一次, 因此原始帧可以
+        略低于黑电平; 去掉该偏移靠的是暗帧扣除, 而不是逐帧 clip。
         """
         img = self.far_field()
         if self.noise_adu > 0:
@@ -249,18 +229,17 @@ class SimPibSystem:
         return img
 
 
-# A single process-wide system so the registry-created CCD and the monkeypatched
-# SLM share the same optical state.
+# 一个进程级的 system, 让注册表创建的 CCD 与被 monkeypatch 的 SLM 共享同一份光学状态。
 _SYSTEM: SimPibSystem | None = None
 
 
 def get_system(
     seed: int | None = None, *, disturbance: SimDisturbance | None = None
 ) -> SimPibSystem:
-    """Return the process-wide :class:`SimPibSystem` (created on first use).
+    """返回进程级的 :class:`SimPibSystem` (首次使用时创建)。
 
-    ``disturbance`` is only applied when the system is created here; an already
-    existing system is returned unchanged (use :func:`reset_system` to swap it).
+    ``disturbance`` 只在 system 于此处被创建时才生效; 已存在的 system 原样返回
+    (用 :func:`reset_system` 来替换它)。
     """
     global _SYSTEM
     if _SYSTEM is None:
@@ -271,42 +250,40 @@ def get_system(
 def reset_system(
     seed: int | None = None, *, disturbance: SimDisturbance | None = None
 ) -> SimPibSystem:
-    """Replace the process-wide system (used between matrix cells)."""
+    """替换进程级的 system (用于矩阵单元格之间)。"""
     global _SYSTEM
     _SYSTEM = SimPibSystem(seed=seed, disturbance=disturbance)
     return _SYSTEM
 
 
 class SimSLMPib:
-    """Simulated Santec SLM exposing the exact contract the optimizer uses.
+    """模拟 Santec SLM, 暴露出优化器实际使用的那个精确契约。
 
-    Only the methods ``slm_zernike_pib`` actually call are implemented:
-    ``create_phase_from_array``, ``display_data``, ``set_grayscale``, ``open``,
-    ``close``, ``is_connected``, ``__enter__``/``__exit__``.
+    只实现 ``slm_zernike_pib`` 真正会调用的那些方法:
+    ``create_phase_from_array``、``display_data``、``set_grayscale``、``open``、
+    ``close``、``is_connected``、``__enter__``/``__exit__``。
     """
 
-    #: Mirrors ``Santec.Gray_Scale_bits``; ``optimize_slm_square`` reads it when
-    #: sizing its ``PatternHelper``. Absent here, it raised ``AttributeError``
-    #: partway through an ``spgd-square`` simulation run.
+    #: 镜像 ``Santec.Gray_Scale_bits``; ``optimize_slm_square`` 在给它的
+    #: ``PatternHelper`` 定尺寸时会读它。缺了它, ``spgd-square`` 的仿真运行会在
+    #: 中途抛 ``AttributeError``。
     Gray_Scale_bits: int = GRAY_SCALE_BITS
 
     def __init__(self, *args: Any, system: SimPibSystem | None = None, **kwargs: Any) -> None:
         self.system = system or get_system()
         self._open = False
-        # Track the last displayed radian phase for reporting.
+        # 跟踪最后显示的弧度相位, 供报告使用。
         self.last_phase_rad: np.ndarray | None = None
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> "SimSLMPib":
-        """Construct from a driver parameter object (dataclass API parity).
+        """从驱动参数对象构造 (dataclass API 对齐)。
 
-        ``optimize_slm_zernike_pib`` builds the SLM through
-        ``Santec.from_params(config.slm)`` rather than ``Santec(...)``, so this
-        simulation double must expose the same classmethod or the sim CLI path
-        raises ``AttributeError: type object 'SimSLMPib' has no attribute
-        'from_params'``. Mirrors the real driver's ``getattr``-with-default
-        extraction; ``slm_number`` is recorded for parity/debugging but the sim
-        has no physical panel identity.
+        ``optimize_slm_zernike_pib`` 是通过 ``Santec.from_params(config.slm)`` 而非
+        ``Santec(...)`` 构造 SLM 的, 所以这个仿真替身必须暴露同一个 classmethod, 否则
+        仿真 CLI 路径会抛 ``AttributeError: type object 'SimSLMPib' has no attribute
+        'from_params'``。这里镜像真实驱动中那种"``getattr`` 带默认值"的取值方式;
+        ``slm_number`` 被记录下来只为对齐/调试, 仿真并无物理面板身份。
         """
         kwargs: dict[str, Any] = {
             "slm_number": getattr(params, "slm_number", 1),
@@ -319,7 +296,7 @@ class SimSLMPib:
         kwargs.update(overrides)
         return cls(**kwargs)
 
-    # --- context manager / lifecycle -------------------------------------
+    # --- 上下文管理器 / 生命周期 -------------------------------------
 
     def open(self) -> None:
         self._open = True
@@ -338,21 +315,20 @@ class SimSLMPib:
     def __exit__(self, *exc: Any) -> None:
         self.close()
 
-    # --- phase / gray API (matches Santec contract) ----------------------
+    # --- 相位 / 灰度 API (对齐 Santec 契约) --------------------------
 
     def create_phase_from_array(self, phase_rad: np.ndarray) -> np.ndarray:
-        """Radian phase -> uint16 grayscale, AND arm the optical system.
+        """弧度相位 → uint16 灰度, 并同时给光学系统上膛。
 
-        On the real Santec this only converts rad->gray (2*pi = ~993 gray) and
-        leaves the panel untouched until ``display_data``. Here we additionally
-        store the radian phase so the next ``far_field()`` reflects it. The
-        returned grayscale is the radian->gray mapping (wrap + scale to 1023).
+        在真实 Santec 上这一步只做弧度→灰度换算 (2*pi = ~993 灰度), 在
+        ``display_data`` 之前不动面板。而这里额外把弧度相位存下来, 使下一次
+        ``far_field()`` 会反映它。返回的灰度就是弧度→灰度的映射 (wrap 后缩放到 1023)。
         """
         rad = np.asarray(phase_rad, dtype=np.float64)
-        # Store the raw radian phase so the far field uses it.
+        # 存下原始弧度相位, 供远场使用。
         self.system.set_phase_rad(rad)
         self.last_phase_rad = rad.copy()
-        # radian -> grayscale (2*pi maps to TWO_PI_GRAY), wrapping like the driver.
+        # 弧度 → 灰度 (2*pi 映射到 TWO_PI_GRAY), wrap 方式与驱动一致。
         gray = (np.mod(rad, 2.0 * np.pi) / (2.0 * np.pi) * TWO_PI_GRAY)
         return gray.astype(np.uint16)
 
@@ -362,22 +338,20 @@ class SimSLMPib:
         memory_number: int | None = None,
         memory_mode: int | None = None,
     ) -> int:
-        """Display a grayscale pattern.
+        """显示一幅灰度图样。
 
-        The optimizer always calls ``create_phase_from_array`` (which arms the
-        phase) before ``display_data``, so by the time this runs the far field
-        is already correct. A bare grayscale display (no preceding phase) is
-        treated as a flat-phase pattern: its mean gray maps to a constant phase
-        offset, which does not change the far-field *shape* (only the 0-order
-        coupling), so we leave the stored phase as-is.
+        优化器总是先调用 ``create_phase_from_array`` (它给相位上膛) 再调
+        ``display_data``, 所以到这里时远场已经是对的。一次裸的灰度显示 (前面没有相位)
+        被当作平场相位图样处理: 它的平均灰度映射到一个常数相位偏移, 而后者不改变远场的
+        *形状* (只改变 0 级耦合), 所以我们把存下的相位原样保留。
         """
         self._open = True
-        # Force the far field to be (re)computed on next CCD read.
+        # 强制下一次 CCD 读取时 (重新) 计算远场。
         self.system.set_gray(np.asarray(gray, dtype=np.uint16))
         return memory_number if memory_number is not None else 0
 
     def set_grayscale(self, gray: int | np.ndarray) -> None:
-        """Set a uniform grayscale (used on exit to blank the panel)."""
+        """设置均匀灰度 (退出时用来把面板涂黑)。"""
         if isinstance(gray, (int, float)):
             arr = np.full((self.system.slm_h, self.system.slm_w), int(gray), dtype=np.uint16)
         else:
@@ -386,10 +360,10 @@ class SimSLMPib:
 
 
 class SimPibCCD(BaseCamera):
-    """Simulated CCD returning the sim SLM's far field.
+    """返回仿真 SLM 远场的模拟 CCD。
 
-    Wired to the process-wide :class:`SimPibSystem`. Registered as camera type
-    ``"sim"`` so ``create_camera("sim", ...)`` yields an instance of this class.
+    接到进程级的 :class:`SimPibSystem` 上。注册为相机类型 ``"sim"``, 因此
+    ``create_camera("sim", ...)`` 会产出本类的实例。
     """
 
     def __init__(
@@ -406,7 +380,7 @@ class SimPibCCD(BaseCamera):
         self.system = system or get_system()
         self._open = False
 
-    # --- BaseCamera interface -------------------------------------------
+    # --- BaseCamera 接口 -------------------------------------------
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
         self.close()
@@ -424,11 +398,10 @@ class SimPibCCD(BaseCamera):
         self._open = True
 
     def get_numpy_image(self, n_sample: int = 1, skip_first: bool = False) -> np.ndarray:
-        """Return the current far field (with noise), cropped to ``cam_size``.
+        """返回当前远场 (含噪声), 裁剪到 ``cam_size``。
 
-        The optimizer windows the CCD to ``cam_size`` around the spot; here we
-        return the central ``cam_size x cam_size`` crop of the full far field so
-        the spot (at the image centre) stays inside the window.
+        优化器把 CCD 在光斑周围开窗到 ``cam_size``; 这里返回完整远场中央的
+        ``cam_size x cam_size`` 裁剪, 使光斑 (位于画面中心) 留在窗口内。
         """
         if not self._open:
             raise CameraError("SimPibCCD not opened")
@@ -473,7 +446,7 @@ class SimPibCCD(BaseCamera):
     def get_cam_list() -> list:
         return ["sim"]
 
-    # --- exposure compatibility helpers ---------------------------------
+    # --- 曝光兼容辅助 ---------------------------------------------
 
     @property
     def min_exposure_ms(self) -> float:
@@ -490,7 +463,7 @@ class SimPibCCD(BaseCamera):
         max_iterations: int = 20,
         n_sample: int = 1,
     ) -> np.ndarray:
-        """Return the far field scaled so its peak ~= target_max (0-255 scale)."""
+        """返回缩放后峰值 ~= target_max 的远场 (0-255 量纲)。"""
         img = self.get_numpy_image(n_sample=n_sample)
         peak = float(img.max())
         if peak > 0 and target_max > 0:
@@ -499,21 +472,19 @@ class SimPibCCD(BaseCamera):
 
 
 def register_sim_camera() -> None:
-    """Register the ``"sim"`` camera type so ``create_camera("sim", ...)`` works."""
+    """注册 ``"sim"`` 相机类型, 使 ``create_camera("sim", ...)`` 可用。"""
     from ao_shaping.drivers.ccd.common import register_camera
 
     try:
         register_camera("sim", SimPibCCD)
-    except Exception as exc:  # already registered
+    except Exception as exc:  # 已注册过
         logger.debug("sim camera already registered: {}", exc)
 
 
-# Registering here rather than only inside ``register_sim_camera()`` makes
-# ``--cam_type sim`` work for every consumer. It previously had exactly two
-# call sites (the slm-gsnet runner's ``_maybe_sim_patch`` and the
-# ``scripts/slm_pib_sim_run.py`` harness), so the documented command
-# ``main.py slm-pib spgd --cam_type sim`` died with
-# ``ValueError: Unknown camera type: 'sim'``. Holding the simulated far field
-# implies having the simulated camera that reads it, so importing this module
-# is the natural place to bind the pair together.
+# 在此处注册 (而不只是放在 ``register_sim_camera()`` 里) 使 ``--cam_type sim`` 对每一个
+# 消费者都可用。此前它恰好只有两个调用点 (slm-gsnet runner 的 ``_maybe_sim_patch`` 与
+# ``scripts/slm_pib_sim_run.py`` 那套脚手架), 因此文档里写的命令
+# ``main.py slm-pib spgd --cam_type sim`` 会死于
+# ``ValueError: Unknown camera type: 'sim'``。持有仿真远场本就意味着持有读取它的仿真
+# 相机, 所以 import 本模块就是把两者绑在一起的自然位置。
 register_sim_camera()

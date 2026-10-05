@@ -1,7 +1,6 @@
-"""Atmospheric simulation - Phase screens and propagation.
+"""大气仿真 —— 相位屏与传播。
 
-This module provides simulated atmospheric turbulence and thermal blooming effects
-using phase screens, which can be used as device-compatible wrappers.
+本模块用相位屏提供湍流与热晕效应的仿真实现, 可作为兼容设备接口的包装器使用。
 """
 
 from __future__ import annotations
@@ -17,11 +16,10 @@ from ao_shaping.drivers.sim.base import SimulatedDevice, WavefrontProcessor
 
 
 class SimulatedTurbulentScreen(WavefrontProcessor):
-    """Simulated turbulent phase screen.
-    
-    This class provides a simulated turbulent phase screen that applies
-    atmospheric turbulence effects to wavefronts.
-    
+    """仿真的湍流相位屏。
+
+    本类提供模拟的湍流相位屏, 对波前施加大气湍流效应。
+
     Example:
         >>> screen = SimulatedTurbulentScreen(Cn2=1e-15, L0=1.0, l0=0.01)
         >>> with screen:
@@ -41,15 +39,15 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         l0: float = 0.01,
         harmonic: int = 1,
     ):
-        """Initialize turbulent phase screen.
-        
+        """初始化湍流相位屏。
+
         Args:
-            device_id: Unique device identifier.
-            dist: Propagation distance in meters.
-            Cn2: Refractive index structure constant.
-            L0: Outer scale in meters.
-            l0: Inner scale in meters.
-            harmonic: Sub-harmonic order.
+            device_id: 设备唯一标识。
+            dist: 传播距离, 单位米。
+            Cn2: 折射率结构常数。
+            L0: 外尺度, 单位米。
+            l0: 内尺度, 单位米。
+            harmonic: 次谐波阶数。
         """
         super().__init__(device_id, wavelength=1064.0, npix=512, dpix=1e-3)
 
@@ -68,7 +66,7 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         )
 
     def _register_parameters(self) -> None:
-        """Register parameters."""
+        """注册参数。"""
         self.register_parameter(
             "Cn2",
             default_value=self.Cn2,
@@ -94,24 +92,24 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             description="Inner scale",
         )
 
-    # ========== SimulatedDevice Implementation ==========
+    # ========== SimulatedDevice 实现 ==========
 
     def compute(self, *args, **kwargs) -> Any:
-        """Apply turbulent screen to wavefront."""
+        """对波前施加湍流相位屏。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
 
-    # ========== WavefrontProcessor Implementation ==========
+    # ========== WavefrontProcessor 实现 ==========
 
     def process(self, wave: Any) -> Any:
-        """Apply turbulent phase screen to wavefront.
-        
+        """对波前施加湍流相位屏。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Wavefront with turbulence applied.
+            已施加湍流的波前。
         """
         if not self.is_connected():
             raise RuntimeError("Turbulent screen not connected")
@@ -138,7 +136,7 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
             self._set_state(DeviceState.READY)
 
     def _apply_turbulence_fallback(self, wave: Any) -> Any:
-        """Apply turbulence directly (fallback)."""
+        """直接施加湍流 (回退路径)。"""
         npix = getattr(wave, "npix", 512)
         dpix = getattr(wave, "dpix", 1e-3)
         wavelength = getattr(wave, "wavelength", getattr(wave, "lamd", 1064e-9))
@@ -169,14 +167,14 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         l_max: float,
         distance: float,
     ) -> np.ndarray:
-        """Generate Von Kármán/Kolmogorov turbulence phase screen.
-        
+        """生成 Von Kármán/Kolmogorov 湍流相位屏。
+
         Args:
-            npix: Number of pixels.
-            dpix: Pixel size.
-            
+            npix: 像素数。
+            dpix: 像元尺寸。
+
         Returns:
-            Phase screen array.
+            相位屏数组。
         """
         if cn2 <= 0 or distance <= 0:
             return np.zeros((npix, npix), dtype=float)
@@ -199,17 +197,17 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         )
 
     def get_opd(self) -> np.ndarray | None:
-        """Get current OPD (Optical Path Difference).
-        
+        """获取当前 OPD (光程差)。
+
         Returns:
-            OPD array or None.
+            OPD 数组, 或 None。
         """
         return self._opd.copy() if self._opd is not None else None
 
 
 class SimulatedThermalScreen(WavefrontProcessor):
-    """Simulated thermal blooming phase screen.
-    
+    """仿真的热晕相位屏。
+
     Example:
         >>> screen = SimulatedThermalScreen(absorb=1e-5, wind=2.0)
         >>> with screen:
@@ -229,15 +227,15 @@ class SimulatedThermalScreen(WavefrontProcessor):
         wind_y: float = 0.0,
         solve_mode: str = "FFT_non_Isobaric",
     ):
-        """Initialize thermal phase screen.
-        
+        """初始化热晕相位屏。
+
         Args:
-            device_id: Unique device identifier.
-            dist: Propagation distance in meters.
-            absorb: Absorption coefficient.
-            wind_x: Wind velocity in x direction (m/s).
-            wind_y: Wind velocity in y direction (m/s).
-            solve_mode: Solution mode ('Green', 'FFT_Isobaric', 'FFT_non_Isobaric').
+            device_id: 设备唯一标识。
+            dist: 传播距离, 单位米。
+            absorb: 吸收系数。
+            wind_x: x 方向风速 (m/s)。
+            wind_y: y 方向风速 (m/s)。
+            solve_mode: 求解模式 ('Green', 'FFT_Isobaric', 'FFT_non_Isobaric')。
         """
         super().__init__(device_id, wavelength=1064.0, npix=512, dpix=1e-3)
 
@@ -257,7 +255,7 @@ class SimulatedThermalScreen(WavefrontProcessor):
     # ========== SimulatedDevice Implementation ==========
 
     def compute(self, *args, **kwargs) -> Any:
-        """Apply thermal screen to wavefront."""
+        """对波前施加热晕相位屏。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
@@ -265,13 +263,13 @@ class SimulatedThermalScreen(WavefrontProcessor):
     # ========== WavefrontProcessor Implementation ==========
 
     def process(self, wave: Any) -> Any:
-        """Apply thermal blooming phase screen to wavefront.
-        
+        """对波前施加热晕相位屏。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Wavefront with thermal effects applied.
+            已施加热效应的波前。
         """
         if not self.is_connected():
             raise RuntimeError("Thermal screen not connected")
@@ -279,24 +277,24 @@ class SimulatedThermalScreen(WavefrontProcessor):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # Try digitaltwin
+            # 尝试 digitaltwin
             try:
                 from sim.digitaltwin import screens as dt_screens
                 from sim.digitaltwin import base as dt_base
 
-                # Create environment
+                # 构造环境
                 env = dt_base.Environment()
                 env.absorb = self.absorb
                 env.wind_x = self.wind_x
                 env.wind_y = self.wind_y
-                env.density = 1.177  # Standard air
+                env.density = 1.177  # 标准空气
                 env.Cp = 1005
                 env.Cv = 718
                 env.temperature = 288
                 env.Cs2 = 331.3 ** 2
                 env.gravity = 9.81
 
-                # Create and apply screen
+                # 构造并施加相位屏
                 screen = dt_screens.ThermalScreen(self.dist, env, self.solve_mode)
                 screen.out(wave)
 
@@ -304,21 +302,20 @@ class SimulatedThermalScreen(WavefrontProcessor):
                 return wave
             except ImportError:
                 logger.warning("sim.digitaltwin not available, using fallback")
-                return wave  # Fallback: no-op
+                return wave  # 回退: 空操作
         finally:
             self._set_state(DeviceState.READY)
 
     def get_opd(self) -> np.ndarray | None:
-        """Get current OPD."""
+        """获取当前 OPD。"""
         return self._opd.copy() if self._opd is not None else None
 
 
 class SimulatedATP(SimulatedDevice):
-    """Simulated Atmospheric Propagation (ATP).
-    
-    This class simulates laser propagation through the atmosphere
-    including turbulence and thermal blooming effects.
-    
+    """仿真的大气传输 (ATP)。
+
+    本类模拟激光在大气中的传播, 包含湍流与热晕效应。
+
     Example:
         >>> atp = SimulatedATP(prop_dist=3000, layers=10, Cn2=1e-15)
         >>> with atp:
@@ -338,15 +335,15 @@ class SimulatedATP(SimulatedDevice):
         Thermal: bool = False,
         Turbulent: bool = True,
     ):
-        """Initialize atmospheric propagation.
-        
+        """初始化大气传输。
+
         Args:
-            device_id: Unique device identifier.
-            prop_dist: Propagation distance in meters.
-            layers: Number of phase screen layers.
-            Cn2: Refractive index structure constant.
-            Thermal: Enable thermal blooming.
-            Turbulent: Enable turbulence.
+            device_id: 设备唯一标识。
+            prop_dist: 传播距离, 单位米。
+            layers: 相位屏层数。
+            Cn2: 折射率结构常数。
+            Thermal: 启用热晕。
+            Turbulent: 启用湍流。
         """
         super().__init__(device_id)
 
@@ -366,19 +363,19 @@ class SimulatedATP(SimulatedDevice):
     # ========== SimulatedDevice Implementation ==========
 
     def compute(self, *args, **kwargs) -> Any:
-        """Propagate wave through atmosphere."""
+        """让波在大气中传播。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.propagate(args[0])
 
     def propagate(self, wave: Any) -> Any:
-        """Propagate wave through atmosphere.
-        
+        """让波在大气中传播。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Propagated wavefront.
+            传播后的波前。
         """
         if not self.is_connected():
             raise RuntimeError("ATP not connected")
@@ -386,12 +383,12 @@ class SimulatedATP(SimulatedDevice):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # Try digitaltwin
+            # 尝试 digitaltwin
             try:
                 from sim.digitaltwin import atp as dt_atp
                 from sim.digitaltwin import base as dt_base
 
-                # Create initial environment
+                # 构造初始环境
                 env = dt_base.Environment()
                 env.absorb = 5e-6
                 env.scatter = 5e-5
@@ -409,7 +406,7 @@ class SimulatedATP(SimulatedDevice):
                 env.L0 = 1.0
                 env.l0 = 0.01
 
-                # Create ATP
+                # 构造 ATP
                 atp = dt_atp.ATP(
                     env_init=env,
                     prop_dist=self.prop_dist,
@@ -418,7 +415,7 @@ class SimulatedATP(SimulatedDevice):
                     Thermal=self.Thermal,
                 )
 
-                # Propagate
+                # 传播
                 atp.out(wave)
 
                 self._atp = atp
@@ -430,10 +427,10 @@ class SimulatedATP(SimulatedDevice):
             self._set_state(DeviceState.READY)
 
     def set_env_params(self, **kwargs) -> None:
-        """Set environmental parameters.
-        
+        """设置环境参数。
+
         Args:
-            **kwargs: Environmental parameters.
+            **kwargs: 环境参数。
         """
         for key, value in kwargs.items():
             if hasattr(self, key):

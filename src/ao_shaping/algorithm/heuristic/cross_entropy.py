@@ -1,6 +1,6 @@
-"""Cross-Entropy Method (CEM) optimization algorithm.
+"""交叉熵方法 (CEM) 优化算法。
 
-Population-based optimization that uses sampling from a Gaussian distribution.
+基于种群的优化, 从高斯分布中采样。
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.cross_entropy import CrossEntropyMethod
@@ -30,7 +30,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 @dataclass
 class CEMConfig:
-    """Cross-Entropy Method specific configuration."""
+    """交叉熵方法专用配置。"""
 
     pop_size: int = 50
     elite_fraction: float = 0.2
@@ -38,9 +38,9 @@ class CEMConfig:
 
 
 class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
-    """Cross-Entropy Method optimizer.
+    """交叉熵方法优化器。
 
-    Uses Gaussian sampling with parameters updated based on elite samples.
+    用高斯采样, 并依据精英样本来更新参数。
     """
 
     _registry_key = OptimizerType.CROSS_ENTROPY
@@ -58,7 +58,7 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
         elite_fraction: float = 0.2,
         initial_std: float = 5.0,
     ):
-        """Initialize CEM optimizer."""
+        """初始化 CEM 优化器。"""
         if config is None:
             config = OptimizerConfig(
                 n_iterations=n_iterations, bounds=bounds, seed=seed
@@ -75,23 +75,22 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
         self.cem_config = cem_config
         self._mean = np.zeros(dim)
         self._std = np.full(dim, self.cem_config.initial_std)
-        # Generation state lives on self so @guided_mutation can read it.
+        # 每一代的状态放在 self 上, 供 @guided_mutation 读取。
         self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
         self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
 
     @guided_mutation(merge="replace_worst")
     def _sample_generation(self) -> npt.NDArray[np.float64]:
-        """Draw one generation from the current Gaussian, clipped into bounds.
+        """从当前高斯分布采出一代, 并裁剪到边界内。
 
-        The decorator reads ``self._population`` / ``self._fitness_vals`` from the
-        *previous* generation, which is deliberate: CEM has no selection pressure
-        inside a generation, so guidance by the previous generation's scores is
-        exactly the feedback loop the GM paper describes. On the very first
-        generation those are empty, so the decorator declines to inject anything.
+        该装饰器读取的是*上一*代的 ``self._population`` / ``self._fitness_vals``,
+        这是刻意为之: CEM 在一代之内没有选择压力, 所以由上一代的分数来引导,
+        恰好就是 GM 论文所描述的那个反馈回路。在最初一代它们是空的, 于是装饰器
+        拒绝注入任何东西。
 
         Returns:
-            The sampled generation, shape ``(pop_size, dim)``.
+            采样出的一代, 形状 ``(pop_size, dim)``。
         """
         samples = self.rng.normal(
             self._mean, self._std, (self.cem_config.pop_size, self.dim)
@@ -103,7 +102,7 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
         fitness_fn: callable,
         init_x: npt.NDArray[np.float64] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run Cross-Entropy Method optimization."""
+        """执行交叉熵方法优化。"""
         if init_x is not None:
             self._mean = init_x.copy()
 
@@ -111,7 +110,7 @@ class CrossEntropyMethod(NumpyPopulationGM, HeuristicOptimizer):
 
         for iteration in range(1, self.config.n_iterations + 1):
             self._current_iter = iteration
-            # Sample (the decorator may splice in guided-mutation offspring).
+            # 采样 (装饰器可能会把引导式变异的后代拼接进来)。
             evolved = self._sample_generation()
             self._population = np.asarray(evolved, dtype=np.float64)
 

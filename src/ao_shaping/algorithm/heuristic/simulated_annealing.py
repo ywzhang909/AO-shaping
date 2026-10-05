@@ -1,12 +1,12 @@
-"""Simulated Annealing (SA) optimization module.
+"""模拟退火 (Simulated Annealing, SA) 优化模块。
 
-Standard SA algorithm for continuous optimization.
+用于连续优化的标准 SA 算法。
 
-Key features:
-- Multiple temperature schedules
-- Metropolis acceptance criterion
-- Neighbor generation
-- Adaptive cooling
+主要特性:
+- 多种温度调度方案
+- Metropolis 接受准则
+- 邻解生成
+- 自适应降温
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.simulated_annealing import SimulatedAnnealing
@@ -40,15 +40,15 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 
 class FitnessFunction(Protocol):
-    """Protocol for fitness function."""
+    """适应度函数的 Protocol。"""
 
     def __call__(self, x: npt.NDArray[np.float64]) -> float:
-        """Evaluate fitness."""
+        """评估适应度。"""
         ...
 
 
 class TempSchedule(Enum):
-    """Temperature schedule types."""
+    """温度调度类型。"""
 
     LINEAR = auto()
     EXPONENTIAL = auto()
@@ -58,19 +58,19 @@ class TempSchedule(Enum):
 
 @dataclass
 class SAParams:
-    """Simulated Annealing parameters."""
+    """模拟退火参数。"""
 
     n_iterations: int = 1000
     initial_temp: float = 100.0
     final_temp: float = 0.01
     schedule: TempSchedule = TempSchedule.EXPONENTIAL
-    step_size: float = 0.5  # Standard deviation for neighbor generation
+    step_size: float = 0.5  # 生成邻解所用的标准差
     bounds: tuple[float, float] = (-10.0, 10.0)
 
 
 @dataclass
 class SAHistory:
-    """History of SA optimization run."""
+    """SA 优化运行的历史记录。"""
 
     best_fitness: list[float] = field(default_factory=list)
     current_fitness: list[float] = field(default_factory=list)
@@ -78,12 +78,12 @@ class SAHistory:
 
 
 class SimulatedAnnealing(HeuristicOptimizer):
-    """Simulated Annealing optimizer.
+    """模拟退火优化器。
 
     Attributes:
-        dim: Dimension of the problem.
-        params: SA parameters.
-        history: Optimization history.
+        dim: 问题维度。
+        params: SA 参数。
+        history: 优化历史。
     """
 
     _registry_key = OptimizerType.SA
@@ -94,12 +94,12 @@ class SimulatedAnnealing(HeuristicOptimizer):
         params: SAParams | None = None,
         random_state: np.random.Generator | None = None,
     ):
-        """Initialize SA optimizer.
+        """初始化 SA 优化器。
 
         Args:
-            dim: Dimension of the optimization problem.
-            params: SA parameters. If None, uses default SAParams.
-            random_state: Random generator for reproducibility.
+            dim: 优化问题的维度。
+            params: SA 参数。None 表示使用默认的 SAParams。
+            random_state: 用于复现的随机数生成器。
         """
         self.params = params if params is not None else SAParams()
         # 从 SAParams 派生 OptimizerConfig (iterations/bounds), 复用基类的 dim/rng 设置。
@@ -118,17 +118,17 @@ class SimulatedAnnealing(HeuristicOptimizer):
         random_state: np.random.Generator | None,
         **kwargs: Any,
     ) -> "SimulatedAnnealing":
-        """Build a SA from the common config, translating it into SAParams.
+        """由通用配置构造 SA, 并把配置转换为 SAParams。
 
         Args:
-            dim: Dimension of the optimization problem.
-            config: Common configuration built by ``HeuristicOptimizer.create``.
-            random_state: Generator derived from ``config.seed``, or None.
-            **kwargs: Accepted for signature compatibility with the base hook;
-                simulated annealing exposes no ``create()`` extras.
+            dim: 优化问题的维度。
+            config: 由 ``HeuristicOptimizer.create`` 构建的通用配置。
+            random_state: 由 ``config.seed`` 导出的生成器, 或 None。
+            **kwargs: 仅为与基类钩子保持签名兼容而接受;
+                模拟退火不提供任何 ``create()`` 额外参数。
 
         Returns:
-            The constructed SimulatedAnnealing.
+            构造好的 SimulatedAnnealing。
         """
         params = SAParams(
             n_iterations=config.n_iterations,
@@ -137,13 +137,13 @@ class SimulatedAnnealing(HeuristicOptimizer):
         return cls(dim=dim, params=params, random_state=random_state)
 
     def _get_temperature(self, iteration: int) -> float:
-        """Get temperature for current iteration.
+        """获取当前迭代的温度。
 
         Args:
-            iteration: Current iteration number.
+            iteration: 当前迭代轮次。
 
         Returns:
-            Current temperature.
+            当前温度。
         """
         t = iteration / self.params.n_iterations
 
@@ -171,13 +171,13 @@ class SimulatedAnnealing(HeuristicOptimizer):
         return self.params.initial_temp
 
     def _generate_neighbor(self, current: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Generate neighbor solution.
+        """生成邻解。
 
         Args:
-            current: Current solution.
+            current: 当前解。
 
         Returns:
-            Neighbor solution.
+            邻解。
         """
         neighbor = current + self.rng.normal(0, self.params.step_size, self.dim)
         return np.clip(neighbor, self.params.bounds[0], self.params.bounds[1])
@@ -188,15 +188,15 @@ class SimulatedAnnealing(HeuristicOptimizer):
         new_fitness: float,
         temperature: float,
     ) -> float:
-        """Calculate acceptance probability using Metropolis criterion.
+        """按 Metropolis 准则计算接受概率。
 
         Args:
-            current_fitness: Fitness of current solution.
-            new_fitness: Fitness of new solution.
-            temperature: Current temperature.
+            current_fitness: 当前解的适应度。
+            new_fitness: 新解的适应度。
+            temperature: 当前温度。
 
         Returns:
-            Acceptance probability.
+            接受概率。
         """
         if new_fitness < current_fitness:
             return 1.0
@@ -214,17 +214,17 @@ class SimulatedAnnealing(HeuristicOptimizer):
         early_stop_threshold: float | None = None,
         callback: Callable[[int, npt.NDArray[np.float64], float, float], None] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run simulated annealing optimization.
+        """运行模拟退火优化。
 
         Args:
-            fitness_fn: Fitness function to minimize.
-            init_x: Initial point. If None, starts from random.
-            early_stop_threshold: Stop if best fitness below this threshold.
-            callback: Optional callback function called after each iteration
-                      with (iteration, current_position, current_fitness, temperature).
+            fitness_fn: 要最小化的适应度函数。
+            init_x: 初始点。None 表示从随机点出发。
+            early_stop_threshold: 最优适应度低于该阈值时提前停止。
+            callback: 可选的回调函数, 每轮迭代后以
+                      (iteration, current_position, current_fitness, temperature) 调用。
 
         Returns:
-            Tuple of (best_solution, best_fitness).
+            (best_solution, best_fitness) 元组。
         """
         if init_x is not None:
             current = init_x.copy()
@@ -271,7 +271,7 @@ class SimulatedAnnealing(HeuristicOptimizer):
 
     @property
     def convergence_history(self) -> list[float]:
-        """Return convergence history (best fitness per iteration)."""
+        """返回收敛历史 (每轮迭代的最优适应度)。"""
         return self.history.best_fitness
 
 
@@ -286,21 +286,21 @@ def minimize_sa(
     init_x: npt.NDArray[np.float64] | None = None,
     early_stop_threshold: float | None = None,
 ) -> tuple[npt.NDArray[np.float64], float]:
-    """Convenience function for SA optimization.
+    """SA 优化的便捷函数。
 
     Args:
-        fitness_fn: Fitness function to minimize.
-        dim: Dimension of the problem.
-        n_iterations: Number of iterations.
-        initial_temp: Initial temperature.
-        final_temp: Final temperature.
-        schedule: Temperature schedule.
-        bounds: Search space bounds (min, max).
-        init_x: Initial point.
-        early_stop_threshold: Early stopping threshold.
+        fitness_fn: 要最小化的适应度函数。
+        dim: 问题维度。
+        n_iterations: 迭代次数。
+        initial_temp: 初始温度。
+        final_temp: 最终温度。
+        schedule: 温度调度方案。
+        bounds: 搜索空间边界 (min, max)。
+        init_x: 初始点。
+        early_stop_threshold: 提前停止阈值。
 
     Returns:
-        Tuple of (best_solution, best_fitness).
+        (best_solution, best_fitness) 元组。
     """
     params = SAParams(
         n_iterations=n_iterations,

@@ -1,4 +1,4 @@
-"""MIICAM SDK path finding and setup utilities."""
+"""MIICAM SDK 路径查找与设置工具。"""
 
 import os
 import sys
@@ -10,30 +10,30 @@ from ao_shaping.utils.io.file import ROOT_DIR
 
 
 def _find_miicam_sdk_path() -> str | None:
-    """Find the MIICAM SDK path by checking multiple possible locations.
+    """通过检查多个可能位置来查找 MIICAM SDK 路径。
 
-    Checks in order:
-    1. Environment variable MIICAM_SDK_PATH (user-configurable)
-    2. Bundled in project (src/ao_shaping/drivers/ccd/_miicam_sdk)
-    3. External libs directory (libs/miicamsdk.20240728/python)
+    检查顺序:
+    1. 环境变量 MIICAM_SDK_PATH (可由用户配置)
+    2. 随项目自带 (src/ao_shaping/drivers/ccd/_miicam_sdk)
+    3. 外部 libs 目录 (libs/miicamsdk.20240728/python)
 
-    Returns:
-        str | None: Path to SDK if found, None otherwise.
+    返回:
+        str | None: 找到时返回 SDK 路径, 否则返回 None。
     """
-    # Option 0: Environment variable (highest priority, user-configurable)
+    # 方案 0: 环境变量 (最高优先级, 可由用户配置)
     env_sdk_path = os.environ.get("MIICAM_SDK_PATH")
     if env_sdk_path and os.path.isdir(env_sdk_path):
         return env_sdk_path
 
     _project_root = str(ROOT_DIR)
 
-    # Deduplicate paths while preserving order
+    # 去重并保持顺序
     seen: set[str] = set()
     _MII_SDK_PATHS: list[str] = []
     for path in [
-        # Option 1: Bundled in project (for development)
+        # 方案 1: 随项目自带 (供开发使用)
         os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "_miicam_sdk"),
-        # Option 2: External libs directory
+        # 方案 2: 外部 libs 目录
         os.path.join(_project_root, "libs", "miicamsdk.20240728", "python"),
     ]:
         if path not in seen:
@@ -47,10 +47,10 @@ def _find_miicam_sdk_path() -> str | None:
 
 
 def _setup_miicam_sdk() -> bool:
-    """Set up the MIICAM SDK by adding its path to sys.path and DLL search path.
+    """通过把其路径加入 sys.path 与 DLL 搜索路径来设置 MIICAM SDK。
 
-    Returns:
-        bool: True if SDK was found and set up successfully, False otherwise.
+    返回:
+        bool: SDK 被找到且设置成功返回 True, 否则返回 False。
     """
     sdk_path = _find_miicam_sdk_path()
     if sdk_path is None:
@@ -60,14 +60,14 @@ def _setup_miicam_sdk() -> bool:
     if sdk_path not in sys.path:
         sys.path.append(sdk_path)
 
-    # Add SDK path to DLL search path (Windows)
+    # 把 SDK 路径加入 DLL 搜索路径 (Windows)
     if hasattr(os, "add_dll_directory"):
         try:
             os.add_dll_directory(sdk_path)
         except Exception as e:
             logger.warning(f"Failed to add DLL directory: {e}")
 
-    # Pre-load the SDK DLL if available
+    # 若可用则预加载 SDK DLL
     dll_path = os.path.join(sdk_path, "MIIUSB.dll")
     if os.path.exists(dll_path):
         try:

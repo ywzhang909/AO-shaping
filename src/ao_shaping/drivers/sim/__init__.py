@@ -1,25 +1,24 @@
-"""Simulated devices package.
+"""模拟设备子包。
 
-This package provides simulated hardware devices that integrate with the
-device driver framework. These simulated devices wrap the numerical simulation
-code from sim.digitaltwin while presenting a Device-compatible interface.
+本子包提供与设备驱动框架集成的仿真硬件设备。这些仿真设备把 sim.digitaltwin 的
+数值仿真代码包装起来, 同时对外呈现与 Device 兼容的接口。
 
-Structure:
+结构:
     sim/
-    ├── base.py          # Base classes for simulated devices
-    ├── wave.py          # Wave generation, propagation, and metric utilities
-    ├── ccd/             # Simulated cameras
-    ├── laser/           # Simulated lasers
-    ├── optics/          # Simulated optical elements (SLM, Lens, Aperture)
-    └── atmos/           # Simulated atmospheric effects
+    ├── base.py          # 模拟设备的基类
+    ├── wave.py          # 波前生成、传播与度量工具
+    ├── ccd/             # 模拟相机
+    ├── laser/           # 模拟激光器
+    ├── optics/          # 模拟光学元件 (SLM、透镜、光阑)
+    └── atmos/           # 模拟大气效应
 
-Physics utilities (wrapping sim.digitaltwin):
-    create_wave()        # Create a Wave object
-    apply_aperture()     # Apply circular aperture
-    apply_focus()        # Apply thin lens focus phase
-    propagate()          # Angular spectrum propagation
-    power_bucket()       # Compute PIB metric
-    radius_metric()      # Compute energy-containing radius
+物理工具 (包装自 sim.digitaltwin):
+    create_wave()        # 创建 Wave 对象
+    apply_aperture()     # 施加圆形光阑
+    apply_focus()        # 施加薄透镜聚焦相位
+    propagate()          # 角谱传播
+    power_bucket()       # 计算 PIB 指标
+    radius_metric()      # 计算能量包含半径
 
 Example:
     >>> from ao_shaping.drivers.sim import (
@@ -77,7 +76,7 @@ from ao_shaping.drivers.sim.wave import (
     radius_metric,
 )
 
-# Try to import Environment from sim.digitaltwin, but gracefully handle missing dependency
+# 尝试从 sim.digitaltwin 导入 Environment, 但对缺失的依赖做优雅处理
 try:
     from sim.digitaltwin.base import Environment
     _has_environment = True
@@ -85,14 +84,14 @@ except ImportError:
     Environment = None
     _has_environment = False
 
-# Build __all__ list dynamically
+# 动态构造 __all__ 列表
 __all__ = [
-    # Base classes
+    # 基类
     "SimulatedDevice",
     "SimulatedDeviceError",
     "OpticalDevice",
     "WavefrontProcessor",
-    # Wave utilities
+    # 波前工具
     "WaveGenerator",
     "WavePropagator",
     "LensApplier",
@@ -110,13 +109,13 @@ __all__ = [
     "SimulateDM",
     # CCD
     "SimulatedCCD",
-    # Laser
+    # 激光器
     "SimulatedLaser",
-    # Optics
+    # 光学元件
     "SimulatedSLM",
     "SimulatedLens",
     "SimulatedAperture",
-    # Atmosphere
+    # 大气
     "SimulatedTurbulentScreen",
     "SimulatedThermalScreen",
     "SimulatedATP",
@@ -127,9 +126,9 @@ if _has_environment:
 
 __version__ = "1.0.0"
 
-# Binding the simulated camera here makes ``--cam_type sim`` work for every
-# consumer of this package, not only for the runners that happened to call
-# ``register_sim_camera()`` themselves (see slm_pib_sim for the original bug).
+# 在此处绑定仿真相机, 使 ``--cam_type sim`` 对本子包的**每一个**消费者都可用,
+# 而不只是那些恰好自己调用了 ``register_sim_camera()`` 的 runner
+# (原始 bug 见 slm_pib_sim)。
 from ao_shaping.drivers.sim.slm_pib_sim import register_sim_camera as _register_sim
 
 _register_sim()

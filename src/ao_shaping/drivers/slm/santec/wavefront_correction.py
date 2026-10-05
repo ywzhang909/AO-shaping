@@ -787,7 +787,7 @@ class WavefrontCorrection:
 
         # 拟合优度：非异常点残差 / 原始标准差
         clean_residual = residual.copy()
-        clean_residual[outlier_mask] = 0.0  # replaced outliers have 0 residual
+        clean_residual[outlier_mask] = 0.0  # 被替换的异常点残差记为 0
         if orig_std > 1e-10:
             fit_quality = float(np.std(clean_residual)) / orig_std
             fit_grade = (

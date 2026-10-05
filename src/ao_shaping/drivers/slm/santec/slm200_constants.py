@@ -17,9 +17,9 @@ GRAY_SCALE_BITS = 10  # 灰度位数
 
 
 def get_max_grayscale() -> int:
-    """Get maximum grayscale value (2^bits - 1).
+    """取最大灰度值 (2^bits - 1)。
 
     Returns:
-        Maximum grayscale value based on GRAY_SCALE_BITS.
+        由 GRAY_SCALE_BITS 决定的最大灰度值。
     """
     return 2 ** GRAY_SCALE_BITS - 1

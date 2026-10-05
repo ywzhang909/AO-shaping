@@ -1,55 +1,59 @@
-"""FourierGSNet simulation environment (SimSLM, SimCCD, SimFourierGSNetEnv).
+"""FourierGSNet 仿真环境 (SimSLM / SimCCD / SimFourierGSNetEnv)。
 
-Digital twin of the real 2f Fourier bench used by ``fouriergsnet_optimize.py``:
-an SLM panel (Santec SLM200, 1920x1200) at the front focal plane of a lens
-(f = 0.125 m) with a CCD camera at the back focal plane. The CCD far field is
-the Fraunhofer diffraction pattern of the SLM field, sampled on the CCD pixel
-lattice.
+真实 2f 傅里叶台架 (SLM 前焦面 → f=125mm 透镜 → CCD 后焦面) 的数字孪生:
+SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅禾费衍射图样,
+按 CCD 像元格采样。
 
-Physics model
--------------
-* Fraunhofer propagation with the FFT convention of the real pipeline
-  (``fouriergsnet_optimize.py:prop``)::
+物理模型
+---------
+* 夫琅禾费传播采用归一化 FFT 约定 (0 级落在画面正中)::
 
       E = fftshift(fft2(ifftshift(U), norm="ortho"))
 
-  so the DC (0-order) sits at the frame centre.
-* The FFT grid pitch is ``p_fft = lamb * f / (P * d_slm)`` where ``P`` is the
-  padded grid size (next power of two >= max(K_px, beam region)). The CCD
-  lattice is obtained by bilinearly resampling the P x P FFT intensity onto
-  ``K_px x K_px`` pixels (``scipy.ndimage.zoom``, factor ``K_px / P``). This
-  maps an FFT bin offset ``D`` to ``D * K_px / P`` CCD pixels, so a grating of
-  period ``P_slm`` SLM pixels produces its +1 order exactly at
-  ``K_px / P_slm`` pixels from the 0-order (the K-law).
-* Physical pixel envelope: each SLM pixel has a finite active width
-  ``d_eff``, so the far field is multiplied by a separable sinc envelope
-  ``sinc(d_eff * u / (lamb * f))`` (first null at ``K_px * d_slm / d_eff``
-  CCD pixels). The default ``d_eff = 7.8 um`` puts the first null at
-  ~2100 px, outside the K=2048 band edge; the sinc-envelope test uses
-  ``d_eff = 4 * d_slm`` so the null lands at ``K_px / 4 = 512 px`` inside
-  the band.
-* The beam is a Gaussian of width ``w0`` (default 250 px) on a
-  ``region x region`` patch (default 512) centred at ``beam_center``
-  (default panel centre (960, 600) in (row, col)). The patch is placed on
-  the P x P grid so the beam centre lands on bin ``P / 2`` (DC at centre).
-* Static aberrations (``env.aberrations``, Noll-index -> coefficient) are
-  generated with ``ZernikeGenerator`` (radius = region / 2) and added to the
-  displayed phase before the single gray quantization in ``render_intensity``
-  — identical to writing ``base + aberration`` through ``display_phase``.
-  Zernike polynomials are only defined inside the unit circle, so the
-  aberration phase is NaN outside it and is zeroed there (``nan_to_num``).
+* FFT 网格步长 ``p_fft = lamb * f / (P * d_slm)``, ``P`` 是补零后的网格边长
+  (≥ max(K_px, 光束 region) 的最小 2 的幂)。CCD 画面由 P×P 强度图双线性重采样
+  到 ``K_px × K_px`` (``scipy.ndimage.zoom``, 系数 ``K_px / P``): FFT bin 偏移 ``D``
+  映射到 ``D * K_px / P`` 个 CCD 像素, 故周期 ``P_slm`` 个 SLM 像素的光栅, 其 +1
+  级恰好落在距 0 级 ``K_px / P_slm`` 像素处 —— 即 **K 定律**。
+* 像素包络: 每个 SLM 像元有有限有效宽度 ``d_eff``, 故远场乘一个可分离 sinc 包络
+  ``sinc(d_eff * u / (lamb * f))``, 首零点位于 ``K_px * d_slm / d_eff`` 个 CCD 像素处。
+  默认 ``d_eff = 7.8 um`` 把首零点推到 ~2100 px, 落在 K=2048 的带外; sinc 包络测试用
+  ``d_eff = 4 * d_slm``, 使零点落在带内 ``K_px / 4 = 512 px``。
+* 光束是宽度 ``w0`` (默认 250 px) 的高斯, 铺在 ``region × region`` (默认 512) 的
+  面板块上, 以 ``beam_center`` (默认面板中心 (960, 600), (行, 列)) 为中心; 该块被放到
+  P×P 网格的 ``P / 2`` 位置, 使 0 级居中。
+* 静态像差 (``env.aberrations``, Noll 索引 → 系数) 由 ``ZernikeGenerator``
+  (半径 = region / 2) 生成, 在 ``render_intensity`` 的**唯一一次**灰度量化之前叠加到
+  已显示相位上 —— 与直接向 ``display_phase`` 写 ``base + aberration`` 完全等价。
+  Zernike 多项式只在单位圆内有定义, 故圆外为 NaN, 用 ``nan_to_num`` 置零。
 
-Duck-typing contract (mirrors the real Santec SLM / MiiCam drivers)
--------------------------------------------------------------------
+鸭子类型契约 (对齐真实 Santec SLM / MiiCam 驱动)
+------------------------------------------------
 * ``slm.display_phase(phase_rad, wait_time_s=, memory_number=, memory_mode=) -> int``
 * ``slm.display_data(gray_uint16, ...) -> int``
 * ``slm.get_displayed_memory_number() -> int``
 * ``ccd.get_numpy_image(n_sample=1) -> np.uint16``
 * ``MEMORY_MODE_INTERNAL == 0``, ``Panel_Res == (1920, 1200)``
 
-The gray depth is 255 (matching ``SLMLUTCalibrator.factory_2pi = 255.0``);
-``display_phase`` stores the ideal (unquantized) phase and the quantization
-happens once in ``render_intensity``.
+灰度深度 255 (对应 ``SLMLUTCalibrator.factory_2pi = 255.0``): ``display_phase`` 只存
+理想 (未量化) 相位, 量化统一发生在 ``render_intensity``。
+
+与其他核心模块的关系
+--------------------
+本模块是 **纯仿真层**, 不 import 任何硬件驱动, 因此可被离线训练/评估直接消费:
+
+* 上游物理口径唯一: FFT 约定与 K 定律同时被
+  ``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的正向模型采用,
+  两边逐位可比 —— 这是 model-in-the-loop 拟合结果可直接与注入真值比较的前提。
+* 下游主要消费者:
+  - ``optimizer/wfless/model_in_loop_shaping.py`` — 仅仿真, 用 ``BeamParams(native=True)``
+    让面板网格就是模型网格, 环路内不引入任何重采样;
+  - ``scripts/fouriergsnet_sim_train.py`` — 场景矩阵离线训练 (该脚本依赖的独立 CLI
+    ``fouriergsnet_optimize.py`` 已于 f19dced 从仓库根删除, 脚本目前不可运行);
+  - 物理回归测试 ``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py`` 与湍流测试
+    ``test_sim_fouriergsnet_turbulence.py``。
+* 与 ``drivers/sim/slm_pib_sim.py`` 的区别: 后者是 SLM-PIB 族的台架孪生并注册为
+  ``--cam_type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
 """
 from __future__ import annotations
 
@@ -62,12 +66,12 @@ from scipy import ndimage
 
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
-# Hardware contract literals (mirror the real Santec SLM200 driver).
+# 硬件契约字面量 (对齐真实 Santec SLM200 驱动)。
 MEMORY_MODE_INTERNAL = 0
-PANEL_RES = (1920, 1200)  # (width, height) — driver convention
-PANEL_H, PANEL_W = 1920, 1200  # calibrator convention (h, w)
+PANEL_RES = (1920, 1200)  # (宽, 高) — 驱动约定
+PANEL_H, PANEL_W = 1920, 1200  # 标定器约定 (h, w)
 
-# Default optical bench parameters (2f Fourier bench).
+# 2f 傅里叶台架的默认光学参数。
 LAMBDA = 1064e-9
 D_SLM = 8e-6
 D_CCD = 2.2e-6
@@ -77,30 +81,27 @@ D_EFF = 7.8e-6
 
 @dataclass
 class BeamParams:
-    """Gaussian beam parameters on the SLM panel.
+    """SLM 面板上的高斯光束参数。
 
-    ``native`` selects the **native-pitch square-panel** geometry (default
-    ``False`` keeps the historical 1920x1200 anisotropic panel). When ``True``
-    the displayed model hologram sits at its **native pixel pitch** on a small
-    square aperture (region x region) so that the model's FFT-based forward
-    (``fouriergsnet_optimize.prop``) and the env's ``render_intensity`` FFT
-    agree — this is what lets the closed loop actually shape a square.
+    ``native`` 选择**原生节距方形面板**几何 (默认 ``False`` 保留历史的 1920×1200
+    各向异性面板)。置 ``True`` 时, 显示的模型全息图以**原生像元节距**铺在
+    ``region × region`` 的小方形孔径上, 使模型的 FFT 正向与本环境的
+    ``render_intensity`` FFT 逐位一致 —— 这正是闭环能真正整形出方形的原因。
+    消费方见 ``optimizer/wfless/model_in_loop_shaping.py``。
     """
 
     region: int = 512
     w0: float = 250.0
-    center: tuple[int, int] | None = None  # (row, col) on the panel; None = panel center
+    center: tuple[int, int] | None = None  # 面板上的 (行, 列); None = 面板中心
     native: bool = False
 
 
 @dataclass
 class CalibNoise:
-    """Calibration-noise model injected into the rendered far field.
+    """注入到渲染远场中的标定噪声模型。
 
-    ``deltaK_fraction`` perturbs Kx/Ky per-axis by a random fraction,
-    ``center_offset_px`` shifts the whole frame by a random offset,
-    ``rotation_deg`` rotates the frame, and ``scale`` multiplies K globally
-    (deterministic).
+    ``deltaK_fraction`` 按轴给 Kx/Ky 加一个随机比例扰动, ``center_offset_px`` 整帧
+    平移随机偏移, ``rotation_deg`` 旋转画面, ``scale`` 全局缩放 K (确定性项)。
     """
 
     deltaK_fraction: float = 0.0
@@ -110,11 +111,15 @@ class CalibNoise:
 
 
 class SimSLM:
-    """Simulated Santec SLM200 (duck-typed to the real driver contract)."""
+    """模拟 Santec SLM200 (鸭子类型对齐真实驱动契约)。
+
+    与 ``slm_pib_sim.SimSLMPib`` 的区别: 本类不参与设备注册, 只服务
+    ``SimFourierGSNetEnv``, 因此 ``Panel_Res`` 固定为 1920×1200 (native 模式除外)。
+    """
 
     MEMORY_MODE_INTERNAL = 0
     Panel_Res = (1920, 1200)
-    _max_gray = 255  # factory LUT: 2*pi at gray 255 (SLMLUTCalibrator.factory_2pi)
+    _max_gray = 255  # 工厂 LUT: 2π 对应灰度 255 (SLMLUTCalibrator.factory_2pi)
 
     def __init__(
         self,
@@ -142,7 +147,7 @@ class SimSLM:
         memory_number: int | None = None,
         memory_mode: int = 0,
     ) -> int:
-        """Store the ideal phase (radians); quantization happens at render time."""
+        """保存理想相位 (弧度); 量化推迟到渲染时统一做一次。"""
         phase = np.asarray(phase_rad, dtype=np.float64)
         if phase.shape != (self.panel_h, self.panel_w):
             raise ValueError(
@@ -166,7 +171,7 @@ class SimSLM:
         memory_number: int | None = None,
         memory_mode: int = 0,
     ) -> int:
-        """Store a raw uint16 grayscale pattern (already quantized)."""
+        """保存已量化的 uint16 原始灰度图案。"""
         gray = np.asarray(gray_uint16, dtype=np.uint16)
         if gray.shape != (self.panel_h, self.panel_w):
             raise ValueError(
@@ -199,7 +204,7 @@ class SimSLM:
 
 
 class SimCCD:
-    """Simulated CCD camera at the back focal plane (duck-typed to MiiCam)."""
+    """模拟置于后焦面的 CCD (鸭子类型对齐 MiiCam)。"""
 
     def __init__(
         self,
@@ -216,7 +221,7 @@ class SimCCD:
         self._rng = np.random.default_rng(seed)
 
     def get_numpy_image(self, n_sample: int = 1) -> np.ndarray:
-        """Render the far field and return a uint16 frame (K_px x K_px)."""
+        """渲染远场并返回 uint16 画面 (K_px × K_px)。"""
         intensity = self._env.render_intensity()
         intensity = intensity / intensity.max()
         if not self.noise_enabled:
@@ -234,7 +239,7 @@ class SimCCD:
 
 
 class SimFourierGSNetEnv:
-    """Digital twin of the 2f Fourier bench (SLM -> lens -> CCD)."""
+    """2f 傅里叶台架 (SLM → 透镜 → CCD) 的数字孪生。"""
 
     def __init__(
         self,
@@ -263,8 +268,8 @@ class SimFourierGSNetEnv:
         self.calib_noise = calib_noise if calib_noise is not None else CalibNoise()
         self._rng = np.random.default_rng(seed)
         self._native = self.beam.native
-        # Native mode: center defaults to panel center; region must equal the
-        # model hologram size (64) for a 1:1 native-pitch mapping.
+        # native 模式: 中心默认取面板中心, 且 region 必须等于模型全息图边长 (64),
+        # 才能保证 1:1 原生节距映射。
         if self.beam.center is None:
             if self._native:
                 self.beam.center = (int(self.beam.region) // 2, int(self.beam.region) // 2)
@@ -275,9 +280,8 @@ class SimFourierGSNetEnv:
             1 << (self.beam.region - 1).bit_length(),
         )
         self.p_fft = lamb * f / (self.P * d_slm)
-        # Native mode: square isotropic panel with pitch == region, so a 64x64
-        # model hologram sits at native pixel pitch (no band-limiting upscale)
-        # and the env FFT agrees with fouriergsnet_optimize.prop().
+        # native 模式: 节距等于 region 的方形各向同性面板, 于是 64×64 的模型全息图
+        # 坐在原生像元节距上 (不做带限上采样), 环境 FFT 与模型正向完全一致。
         if self._native:
             self.PANEL_H = self.PANEL_W = int(self.beam.region)
             self.slm = SimSLM(self, panel_res=(int(self.beam.region), int(self.beam.region)))
@@ -296,7 +300,7 @@ class SimFourierGSNetEnv:
         self._beam_amp = self._build_beam_amp()
         self._render_cache: np.ndarray | None = None
         self._render_key: tuple[Any, ...] | None = None
-        # Time-varying turbulence (Ornstein-Uhlenbeck) — inactive by default.
+        # 时变湍流 (Ornstein-Uhlenbeck) —— 默认不激活。
         self._turb_rng: np.random.Generator | None = None
         self._turb_nolls: tuple[int, ...] = ()
         self._turb_sigma: float = 0.0
@@ -304,7 +308,7 @@ class SimFourierGSNetEnv:
         self._turb_dt: float = 1.0
         self._turb_state: dict[int, float] = {}
 
-    # -- time-varying turbulence (Ornstein-Uhlenbeck) -----------------------
+    # -- 时变湍流 (Ornstein-Uhlenbeck) ---------------------------------------
 
     def configure_turbulence(
         self,
@@ -314,20 +318,17 @@ class SimFourierGSNetEnv:
         dt: float = 1.0,
         nolls: tuple[int, ...] = (4, 5, 6, 11, 13),
     ) -> None:
-        """Enable a time-varying low-order aberration drift.
+        """开启低阶像差的时变漂移。
 
-        Each configured Noll coefficient follows a mean-reverting
-        Ornstein-Uhlenbeck process advanced one step per
-        :meth:`advance_time` call (one closed-loop frame)::
+        每个被配置的 Noll 系数走一条均值回归的 Ornstein-Uhlenbeck 过程, 每次
+        :meth:`advance_time` (即一个闭环帧) 推进一步::
 
             x <- x - (x / tau) * dt + sigma * sqrt(2 * dt / tau) * N(0, 1)
 
-        The stationary distribution is ``N(0, sigma**2)``, so ``sigma`` is the
-        stationary standard deviation in **radians** (same unit as
-        ``self.aberrations``) and ``tau`` is the relaxation time in **frames**.
-        Per-mode state is reset to ``0.0`` and a private seeded generator is
-        created so trajectories are reproducible. ``self.aberrations`` is left
-        untouched until the first :meth:`advance_time` step.
+        平稳分布为 ``N(0, sigma**2)``, 故 ``sigma`` 是以**弧度**为单位的平稳标准差
+        (与 ``self.aberrations`` 同单位), ``tau`` 是以**帧**为单位的弛豫时间。
+        逐模式状态重置为 ``0.0`` 并新建私有带种子生成器, 使轨迹可复现;
+        ``self.aberrations`` 在第一次 :meth:`advance_time` 之前保持不动。
         """
         self._turb_rng = np.random.default_rng(seed)
         self._turb_nolls = tuple(int(n) for n in nolls)
@@ -345,11 +346,10 @@ class SimFourierGSNetEnv:
         )
 
     def advance_time(self) -> None:
-        """Advance the OU turbulence by one frame and write ``self.aberrations``.
+        """把 OU 湍流推进一帧并写入 ``self.aberrations``。
 
-        No-op when turbulence is not configured (backward compatible). Applied
-        coefficients are in **radians**, consistent with the static aberration
-        semantics; values are not wrapped.
+        未配置湍流时是空操作 (向后兼容)。写入的系数单位为**弧度**, 与静态像差
+        语义一致; 不做 mod 2π 包裹。
         """
         if self._turb_rng is None or not self._turb_nolls:
             return
@@ -367,19 +367,23 @@ class SimFourierGSNetEnv:
 
     @property
     def turbulence_active(self) -> bool:
-        """True when :meth:`configure_turbulence` has enabled OU drift."""
+        """``configure_turbulence`` 是否已开启 OU 漂移。"""
         return self._turb_rng is not None and bool(self._turb_nolls)
 
     @property
     def turbulence_nolls(self) -> tuple[int, ...]:
-        """Configured Noll indices (empty tuple when turbulence is inactive)."""
+        """已配置的 Noll 索引 (湍流未激活时为空元组)。"""
         return self._turb_nolls
 
 
-    # -- public API ---------------------------------------------------------
+    # -- 公开 API ---------------------------------------------------------
 
     def render_intensity(self) -> np.ndarray:
-        """Render the CCD far-field intensity (K_px x K_px, float64)."""
+        """渲染 CCD 远场强度 (K_px × K_px, float64)。
+
+        渲染键 = (SLM 版本号, 排序后的像差字典), 因此连续两次读取同一相位会命中
+        缓存 —— 这是 ``advance_time`` 之外的第二条"内容未变"快路径。
+        """
         key = (self.slm._version, tuple(sorted(self.aberrations.items())))
         if self._render_cache is not None and self._render_key == key:
             return self._render_cache
@@ -404,7 +408,7 @@ class SimFourierGSNetEnv:
         return I
 
     def inject_calib_noise(self, calib: dict[str, Any]) -> dict[str, Any]:
-        """Return a perturbed copy of a calibration dict (Kx/Ky/center/rotation)."""
+        """返回标定字典 (Kx/Ky/center/rotation) 的扰动副本。"""
         cn = self.calib_noise
         out = dict(calib)
         dkx = (
@@ -439,7 +443,7 @@ class SimFourierGSNetEnv:
         out["rotation_deg"] = out.get("rotation_deg", 0.0) + dr
         return out
 
-    # -- internals ----------------------------------------------------------
+    # -- 内部实现 ----------------------------------------------------------
 
     def _build_beam_amp(self) -> np.ndarray:
         region = self.beam.region

@@ -1,13 +1,13 @@
-"""Particle Swarm Optimization (PSO) module.
+"""粒子群优化 (Particle Swarm Optimization, PSO) 模块。
 
-Standard PSO algorithm for continuous optimization.
+用于连续优化的标准 PSO 算法。
 
-Key features:
-- Inertia weight for momentum
-- Cognitive component (personal best)
-- Social component (global best)
-- Velocity clamping
-- Position bounds
+主要特性:
+- 提供动量的惯性权重
+- 认知分量 (个体最优)
+- 社会分量 (全局最优)
+- 速度限幅
+- 位置边界
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.pso import ParticleSwarmOptimizer
@@ -42,36 +42,36 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 
 class FitnessFunction(Protocol):
-    """Protocol for fitness function."""
+    """适应度函数的 Protocol。"""
 
     def __call__(self, x: npt.NDArray[np.float64]) -> float:
-        """Evaluate fitness."""
+        """评估适应度。"""
         ...
 
 
 @dataclass
 class PSOParams:
-    """PSO parameters."""
+    """PSO 参数。"""
 
     n_particles: int = 30
     n_iterations: int = 1000
-    w: float = 0.729  # Inertia weight
-    c1: float = 1.49  # Cognitive coefficient
-    c2: float = 1.49  # Social coefficient
-    v_max: float = 2.0  # Maximum velocity
+    w: float = 0.729  # 惯性权重
+    c1: float = 1.49  # 认知系数
+    c2: float = 1.49  # 社会系数
+    v_max: float = 2.0  # 最大速度
     bounds: tuple[float, float] = (-10.0, 10.0)
 
 
 @dataclass
 class PSOHistory:
-    """History of PSO optimization run."""
+    """PSO 优化运行的历史记录。"""
 
     best_fitness: list[float] = field(default_factory=list)
     mean_fitness: list[float] = field(default_factory=list)
 
 
 class Particle:
-    """Single particle in PSO."""
+    """PSO 中的单个粒子。"""
 
     def __init__(
         self,
@@ -87,12 +87,12 @@ class Particle:
 
 
 class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
-    """Particle Swarm Optimization optimizer.
+    """粒子群优化器。
 
     Attributes:
-        dim: Dimension of the problem.
-        params: PSO parameters.
-        history: Optimization history.
+        dim: 问题维度。
+        params: PSO 参数。
+        history: 优化历史。
     """
 
     _registry_key = OptimizerType.PSO
@@ -103,12 +103,12 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         params: PSOParams | None = None,
         random_state: np.random.Generator | None = None,
     ):
-        """Initialize PSO optimizer.
+        """初始化 PSO 优化器。
 
         Args:
-            dim: Dimension of the optimization problem.
-            params: PSO parameters. If None, uses default PSOParams.
-            random_state: Random generator for reproducibility.
+            dim: 优化问题的维度。
+            params: PSO 参数。None 表示使用默认的 PSOParams。
+            random_state: 用于复现的随机数生成器。
         """
         self.params = params if params is not None else PSOParams()
         # 从 PSOParams 派生 OptimizerConfig (iterations/bounds), 复用基类的 dim/rng 设置。
@@ -131,16 +131,16 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         random_state: np.random.Generator | None,
         **kwargs: Any,
     ) -> "ParticleSwarmOptimizer":
-        """Build a PSO from the common config, translating it into PSOParams.
+        """由通用配置构造 PSO, 并把配置转换为 PSOParams。
 
         Args:
-            dim: Dimension of the optimization problem.
-            config: Common configuration built by ``HeuristicOptimizer.create``.
-            random_state: Generator derived from ``config.seed``, or None.
-            **kwargs: Only ``n_particles`` is honoured; PSO takes no other extras.
+            dim: 优化问题的维度。
+            config: 由 ``HeuristicOptimizer.create`` 构建的通用配置。
+            random_state: 由 ``config.seed`` 导出的生成器, 或 None。
+            **kwargs: 只接受 ``n_particles``; PSO 不接受其他额外参数。
 
         Returns:
-            The constructed ParticleSwarmOptimizer.
+            构造好的 ParticleSwarmOptimizer。
         """
         params = PSOParams(
             n_particles=kwargs.get("n_particles", 30),
@@ -150,18 +150,18 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         return cls(dim=dim, params=params, random_state=random_state)
 
     def _reset(self) -> None:
-        """Reset optimizer state."""
+        """重置优化器状态。"""
         self.global_best_position = None
         self.global_best_fitness = float("inf")
 
     def _initialize_particles(self, init_x: npt.NDArray[np.float64] | None = None) -> list[Particle]:
-        """Initialize particles.
+        """初始化粒子群。
 
         Args:
-            init_x: Initial point to include in particles.
+            init_x: 要纳入粒子群的初始点。
 
         Returns:
-            List of particles.
+            粒子列表。
         """
         particles = []
 
@@ -185,10 +185,10 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         self,
         fitness_fn: FitnessFunction,
     ) -> None:
-        """Evaluate all particles.
+        """评估所有粒子。
 
         Args:
-            fitness_fn: Fitness function.
+            fitness_fn: 适应度函数。
         """
         for p in self.particles:
             p.fitness = fitness_fn(p.position)
@@ -202,7 +202,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
                     self.global_best_fitness = p.fitness
 
     def _update_velocities(self) -> None:
-        """Update velocities for all particles."""
+        """更新所有粒子的速度。"""
         r1 = self.rng.random((self.params.n_particles, self.dim))
         r2 = self.rng.random((self.params.n_particles, self.dim))
 
@@ -216,16 +216,14 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
 
     @guided_mutation(merge="replace_worst")
     def _advance_positions(self) -> npt.NDArray[np.float64]:
-        """Advance every particle one step and return the swarm as an array.
+        """让每个粒子前进一步, 并把粒子群以数组形式返回。
 
-        The decorator reads the swarm through the :class:`GMOptimizerMixin`
-        contract, then commits any guided-mutation offspring through
-        :meth:`_gm_commit`. Returning the array (rather than ``None``) is what
-        lets the same decorator serve PSO as it serves the array-backed
-        optimizers.
+        装饰器通过 :class:`GMOptimizerMixin` 契约读取粒子群, 再经
+        :meth:`_gm_commit` 提交任何引导变异的子代。返回数组 (而不是 ``None``)
+        正是同一个装饰器既能服务 PSO、又能服务以数组为后端的优化器的原因。
 
         Returns:
-            The swarm positions, shape ``(n_particles, dim)``.
+            粒子位置, 形状 ``(n_particles, dim)``。
         """
         for p in self.particles:
             p.position = p.position + p.velocity
@@ -235,8 +233,8 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         return self._gm_population()
 
     # ------------------------------------------------------------------
-    # GMOptimizerMixin contract -- PSO keeps a list[Particle], so each hook
-    # projects to and from an (n, dim) array.
+    # GMOptimizerMixin 契约 -- PSO 保存的是 list[Particle], 因此每个钩子
+    # 都需要在 (n, dim) 数组与该列表之间来回投影。
     # ------------------------------------------------------------------
     def _gm_population(self) -> npt.NDArray[np.float64]:
         return np.array([p.position for p in self.particles])
@@ -258,12 +256,11 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         return self.params.bounds
 
     def _gm_commit(self, population: npt.NDArray[np.float64]) -> None:
-        """Write the merged swarm back, zeroing the velocity of moved particles.
+        """把合并后的粒子群写回, 并把被移动粒子的速度清零。
 
-        An injected particle keeps a zero velocity so the swarm does not
-        immediately fly the new candidate away; the particles the optimizer moved
-        itself keep theirs, so PSO's momentum is preserved. The injected
-        particles are scored by the ``_evaluate_particles`` call that follows.
+        注入的粒子速度为零, 免得粒子群立刻把新候选飞走; 优化器自己移动的粒子
+        保留原速度, 从而保住 PSO 的动量。被注入的粒子由紧随其后的
+        ``_evaluate_particles`` 调用打分。
         """
         for particle, position in zip(self.particles, population):
             if not np.array_equal(particle.position, position):
@@ -277,17 +274,17 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         early_stop_threshold: float | None = None,
         callback: Callable[[int, npt.NDArray[np.float64], float], None] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run PSO optimization.
+        """运行 PSO 优化。
 
         Args:
-            fitness_fn: Fitness function to minimize.
-            init_x: Initial point to include in particles.
-            early_stop_threshold: Stop if best fitness below this threshold.
-            callback: Optional callback function called after each iteration
-                      with (iteration, best_position, best_fitness).
+            fitness_fn: 要最小化的适应度函数。
+            init_x: 要纳入粒子群的初始点。
+            early_stop_threshold: 最优适应度低于该阈值时提前停止。
+            callback: 可选的回调函数, 每轮迭代后以
+                      (iteration, best_position, best_fitness) 调用。
 
         Returns:
-            Tuple of (best_solution, best_fitness).
+            (best_solution, best_fitness) 元组。
         """
         self.particles = self._initialize_particles(init_x)
 
@@ -326,7 +323,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
 
     @property
     def convergence_history(self) -> list[float]:
-        """Return convergence history (best fitness per iteration)."""
+        """返回收敛历史 (每轮迭代的最优适应度)。"""
         return self.history.best_fitness
 
 
@@ -339,19 +336,19 @@ def minimize_pso(
     init_x: npt.NDArray[np.float64] | None = None,
     early_stop_threshold: float | None = None,
 ) -> tuple[npt.NDArray[np.float64], float]:
-    """Convenience function for PSO optimization.
+    """PSO 优化的便捷函数。
 
     Args:
-        fitness_fn: Fitness function to minimize.
-        dim: Dimension of the problem.
-        n_particles: Number of particles.
-        n_iterations: Number of iterations.
-        bounds: Search space bounds (min, max).
-        init_x: Initial point.
-        early_stop_threshold: Early stopping threshold.
+        fitness_fn: 要最小化的适应度函数。
+        dim: 问题维度。
+        n_particles: 粒子数量。
+        n_iterations: 迭代次数。
+        bounds: 搜索空间边界 (min, max)。
+        init_x: 初始点。
+        early_stop_threshold: 提前停止阈值。
 
     Returns:
-        Tuple of (best_solution, best_fitness).
+        (best_solution, best_fitness) 元组。
     """
     params = PSOParams(
         n_particles=n_particles,

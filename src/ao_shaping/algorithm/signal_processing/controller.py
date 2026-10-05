@@ -96,7 +96,7 @@ class HardwareConfig:
     correction_csv_path: str = ""
 
     # WFS parameters
-    mla_index: int = 2  # MlaRes enum value (2=Res768)
+    mla_index: int = 2  # MlaRes 枚举值 (2=Res768)
     exposure_time: float = 0.0
     high_speed: bool = False
     use_custom_ref: bool = False

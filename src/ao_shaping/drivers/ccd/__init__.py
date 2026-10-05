@@ -1,22 +1,18 @@
-"""CCD camera drivers package.
+"""CCD 相机驱动包。
 
-This package provides camera drivers with a unified interface.
+本包提供统一接口的相机驱动。
 
-SDK-backed backends are exposed **lazily** (PEP 562): ``MIICamera`` and
-``DahengCamera`` resolve on first attribute access instead of at package
-import. Importing a backend eagerly is not side-effect free — ``miicam.driver``
-calls ``_setup_miicam_sdk()``, which mutates ``sys.path`` and loads the native
-``MIIUSB.dll`` via ``ctypes.CDLL``, and ``daheng`` imports the ``gxipy``
-bindings. Because Python initializes this package before any
-``ao_shaping.drivers.ccd.common`` import, the previous eager imports made
-*every* consumer of the camera registry (:func:`create_camera`) pay for both
-SDKs. Deferring them matches the laziness already documented for the registry
-in ``ccd/AGENTS.md``: a missing or broken backend SDK only fails when that
-backend is actually requested.
+基于 SDK 的后端以**惰性**方式暴露 (PEP 562): ``MIICamera`` 与 ``DahengCamera``
+在首次属性访问时才解析, 而不是在包导入时。急切导入后端并非无副作用 ——
+``miicam.driver`` 会调用 ``_setup_miicam_sdk()``, 它修改 ``sys.path`` 并经
+``ctypes.CDLL`` 加载原生 ``MIIUSB.dll``, 而 ``daheng`` 会导入 ``gxipy`` 绑定。
+由于 Python 在任何 ``ao_shaping.drivers.ccd.common`` 导入之前就先初始化本包,
+此前那些急切导入让相机注册表 (:func:`create_camera`) 的**每一个**使用者都要为
+两个 SDK 买单。把它们推迟, 与 ``ccd/AGENTS.md`` 里已为注册表记录的惰性约定一致:
+缺失或损坏的后端 SDK 只在该后端真正被请求时才失败。
 
-The public names are unchanged, so ``from ao_shaping.drivers.ccd import
-MIICamera`` keeps working; a backend that cannot be imported still degrades to
-``None`` exactly as before.
+公开名称未变, 因此 ``from ao_shaping.drivers.ccd import MIICamera`` 继续可用;
+无法导入的后端仍与以前一样退化为 ``None``。
 """
 
 from typing import TYPE_CHECKING
@@ -29,7 +25,7 @@ from ao_shaping.drivers.ccd.ffmpeg import (
     ImageFolderCamera,
 )
 
-# Public attribute name -> (module to import, attribute within that module).
+# 公开属性名 -> (要导入的模块, 该模块内的属性)。
 _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "MIICamera": ("ao_shaping.drivers.ccd.miicam.driver", "MIICamera"),
     "MIICAMError": ("ao_shaping.drivers.ccd.miicam.driver", "MIICAMError"),
@@ -38,8 +34,7 @@ _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
 
 
 if TYPE_CHECKING:
-    # Static analyzers need the names to be visible; at runtime they are bound
-    # by ``__getattr__`` on first access instead.
+    # 静态分析器需要看见这些名字; 运行时它们由首次访问时的 ``__getattr__`` 绑定。
     from ao_shaping.drivers.ccd.daheng import DahengCamera
     from ao_shaping.drivers.ccd.miicam.driver import MIICAMError, MIICamera
 

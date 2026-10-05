@@ -1,6 +1,6 @@
-"""Differential Evolution (DE) optimization algorithm.
+"""差分进化 (DE) 优化算法。
 
-Global optimization algorithm that uses vector differences for mutation.
+一种全局优化算法, 用向量差来做变异。
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.differential_evolution import DifferentialEvolution
@@ -30,7 +30,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 @dataclass
 class DEConfig:
-    """Differential Evolution specific configuration."""
+    """差分进化专用配置。"""
 
     pop_size: int = 30
     crossover_prob: float = 0.9
@@ -38,9 +38,9 @@ class DEConfig:
 
 
 class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
-    """Differential Evolution optimizer.
+    """差分进化优化器。
 
-    Uses differential mutation: mutant = best + F * (r1 - r2)
+    使用差分变异: mutant = best + F * (r1 - r2)
     """
 
     _registry_key = OptimizerType.DIFFERENTIAL_EVOLUTION
@@ -58,7 +58,7 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
         crossover_prob: float = 0.9,
         mutation_factor: float = 0.8,
     ):
-        """Initialize DE optimizer."""
+        """初始化 DE 优化器。"""
         if config is None:
             config = OptimizerConfig(
                 n_iterations=n_iterations, bounds=bounds, seed=seed
@@ -73,26 +73,24 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
             )
 
         self.de_config = de_config
-        # Generation state lives on self so @guided_mutation can read it.
+        # 每一代的状态放在 self 上, 供 @guided_mutation 读取。
         self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
         self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
 
     @guided_mutation(merge="replace_worst")
     def _evolve_generation(self, fitness_fn: callable) -> npt.NDArray[np.float64]:
-        """Run one full DE pass with greedy selection.
+        """带贪婪选择地跑完一整趟 DE。
 
-        Each target is crossed with a mutant built from the current best and two
-        random population members; the trial replaces the target when it is no
-        worse. The population is updated in place, so with GM disabled the
-        returned array *is* ``self._population`` and the caller skips the
-        re-scoring step entirely.
+        每个目标个体都与一个变异体交叉, 该变异体由当前最优个体和两个随机种群成员
+        构成; 试验个体只要不比原来差就取代目标个体。种群是就地更新的, 所以在 GM
+        关闭时, 返回的数组*就是* ``self._population``, 调用方完全不必再重新打分。
 
         Args:
-            fitness_fn: Fitness function to minimize.
+            fitness_fn: 待最小化的适应度函数。
 
         Returns:
-            The population after one pass, shape ``(pop_size, dim)``.
+            一趟之后的种群, 形状 ``(pop_size, dim)``。
         """
         population = self._population
         fitness = self._fitness_vals
@@ -132,7 +130,7 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
         fitness_fn: callable,
         init_x: npt.NDArray[np.float64] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run Differential Evolution optimization."""
+        """执行差分进化优化。"""
         pop_size = max(10, self.de_config.pop_size)
 
         self._population = self.rng.uniform(
@@ -156,7 +154,7 @@ class DifferentialEvolution(NumpyPopulationGM, HeuristicOptimizer):
             evolved = self._evolve_generation(fitness_fn)
 
             if evolved is not self._population:
-                # GM overwrote the worst rows, so their cached scores are stale.
+                # GM 覆写了最差的几行, 所以它们缓存的分数已经过期。
                 self._population = np.asarray(evolved, dtype=np.float64)
                 self._fitness_vals = np.array(
                     [fitness_fn(ind) for ind in self._population], dtype=np.float64

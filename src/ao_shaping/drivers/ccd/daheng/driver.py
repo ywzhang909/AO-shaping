@@ -43,7 +43,7 @@ CCD_CONFIG = ConfigHandler(_CCD_CONFIG_DIR, "ccd", CCDParams)
 class DahengCamera(BaseCamera):
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct a Daheng camera from a driver parameter object."""
+        """由驱动参数对象构造一个大恒相机。"""
         kwargs = {
             "cam_id": getattr(params, "cam_id", 0),
             "exposure_time_ms": getattr(params, "exposure_time_ms", 0.0),
@@ -84,12 +84,12 @@ class DahengCamera(BaseCamera):
         return "daheng"
 
     def open(self) -> "DahengCamera":
-        """Open the camera device (alias for initialize)."""
+        """打开相机设备 (initialize 的别名)。"""
         self.initialize()
         return self
 
     def close(self) -> None:
-        """Close the camera device and release resources."""
+        """关闭相机设备并释放资源。"""
         if self.cam:
             self.cam_width, self.cam_height = 0, 0
             self.cam.stream_off()
@@ -99,11 +99,11 @@ class DahengCamera(BaseCamera):
 
     @property
     def sn(self) -> str | None:
-        """Get the camera serial number."""
+        """获取相机序列号。"""
         return self._sn
 
     def is_connected(self) -> bool:
-        """Check if camera is connected and ready."""
+        """检查相机是否已连接且就绪。"""
         return self.cam is not None and self._sn is not None
 
     def load_config(self) -> dict:
@@ -198,10 +198,9 @@ class DahengCamera(BaseCamera):
             logger.warning(
                 f"Exposure time range not found for camera {sn}. Using default value."
             )
-        # Clamp the requested exposure into the device range before writing.
-        # An out-of-range value (notably 0 ms, the conventional "auto" sentinel)
-        # makes the SDK `set` fail out-of-bounds and the camera silently keeps its
-        # previous/default (often long) exposure → saturated frames.
+        # 写入前把请求的曝光钳到设备范围内。
+        # 越界的值 (尤其是 0 ms, 即约定俗成的"自动"哨兵值) 会让 SDK 的 `set`
+        # 越界失败, 相机则静默沿用它上一次/默认的 (往往很长的) 曝光 → 饱和帧。
         _req = self.__exposure_time_ms.ms
         _lo, _hi = self.__exposure_time_ms.min, self.__exposure_time_ms.max
         if not (_lo <= _req <= _hi):
@@ -251,13 +250,13 @@ class DahengCamera(BaseCamera):
         self.cam.stream_on()
 
     def reset_exposure_time(self, time_ms: float) -> float:
-        """Reset the camera exposure time.
+        """重设相机曝光时间。
 
-        Args:
-            time_ms: The new exposure time in milliseconds.
+        参数:
+            time_ms: 新的曝光时间, 单位毫秒。
 
-        Returns:
-            float: The actual exposure time set in milliseconds.
+        返回:
+            float: 实际设定的曝光时间, 单位毫秒。
         """
         assert self.cam, "camera not initialized"
         time_ms = float(time_ms)
@@ -631,35 +630,35 @@ class DahengCamera(BaseCamera):
 
     @staticmethod
     def get_cam_list():
-        """Get list of available cameras."""
+        """获取可用相机列表。"""
         device_manager = gx.DeviceManager()
         _, dev_info_list = device_manager.update_device_list()
         return dev_info_list if dev_info_list else list()
 
     def get_exposure_range(self) -> tuple[float, float]:
-        """Get the camera's supported exposure time range.
+        """获取相机支持的曝光时间范围。
 
-        Returns:
+        返回:
             (min_exposure_ms, max_exposure_ms)
         """
         assert self.cam, "camera not initialized"
         return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """Enable or disable auto exposure.
+        """启用或关闭自动曝光。
 
-        Uses Daheng SDK ``ExposureAuto`` enum (``"On"``/``"Off"``).
-        When enabling, the camera automatically adjusts exposure time and
-        gain to reach the target brightness set via ``ExpectedGrayValue``.
+        用的是大恒 SDK 的 ``ExposureAuto`` 枚举 (``"On"``/``"Off"``)。
+        启用时相机会自动调整曝光时间与增益, 以达到经 ``ExpectedGrayValue``
+        设定的目标亮度。
 
-        Args:
-            enable: True to enable, False to disable.
-            mode: Auto exposure mode (0=disable, 1=continuous, 2=once).
-                  Only meaningful when ``enable=True``; Daheng SDK does not
-                  expose a separate mode enum, so continuous is always used.
+        参数:
+            enable: True 启用, False 关闭。
+            mode: 自动曝光模式 (0=禁用, 1=连续, 2=单次)。
+                  只在 ``enable=True`` 时有意义; 大恒 SDK 没有单独的模式枚举,
+                  因此始终使用连续模式。
 
-        Returns:
-            bool: True if successful, False if not supported.
+        返回:
+            bool: 成功返回 True, 不支持返回 False。
         """
         assert self.cam, "camera not initialized"
         try:
@@ -675,16 +674,16 @@ class DahengCamera(BaseCamera):
             return False
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness.
+        """设置自动曝光的目标亮度。
 
-        Maps to Daheng SDK ``ExpectedGrayValue`` (IntFeature, 0-255,
-        default 120). Only effective when auto exposure is enabled.
+        对应大恒 SDK 的 ``ExpectedGrayValue`` (IntFeature, 0-255,
+        默认 120)。仅在自动曝光启用时生效。
 
-        Args:
-            target: Target brightness value. Range: 0-255, default: 120.
+        参数:
+            target: 目标亮度值。范围 0-255, 默认 120。
 
-        Returns:
-            The target value that was set.
+        返回:
+            实际设定的目标值。
         """
         assert self.cam, "camera not initialized"
         target = max(0, min(255, target))
@@ -696,17 +695,16 @@ class DahengCamera(BaseCamera):
         return target
 
     def get_auto_exposure_state(self) -> dict:
-        """Get current auto exposure state.
+        """获取当前自动曝光状态。
 
-        Reads ``ExposureAuto`` enum and ``ExpectedGrayValue`` from the
-        Daheng SDK.
+        从大恒 SDK 读取 ``ExposureAuto`` 枚举与 ``ExpectedGrayValue``。
 
-        Returns:
-            Dictionary containing:
-                - enabled: bool - Whether auto exposure is enabled
-                - mode: int - Current mode (1=continuous, 0=disabled)
-                - target: int - Current target brightness (0-255)
-                - exposure_time_ms: float - Current exposure time in ms
+        返回:
+            含以下内容的字典:
+                - enabled: bool —— 自动曝光是否已启用
+                - mode: int —— 当前模式 (1=连续, 0=禁用)
+                - target: int —— 当前目标亮度 (0-255)
+                - exposure_time_ms: float —— 当前曝光时间, 单位 ms
         """
         assert self.cam, "camera not initialized"
         state: dict = {
@@ -735,20 +733,20 @@ class DahengCamera(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """Set auto exposure time and gain range.
+        """设置自动曝光的时间与增益范围。
 
-        Maps to Daheng SDK ``AutoExposureTimeMin``/``Max`` (FloatFeature,
-        µs) and ``AutoGainMin``/``Max`` (FloatFeature). These bounds
-        constrain the auto-exposure / auto-gain search space.
+        对应大恒 SDK 的 ``AutoExposureTimeMin``/``Max`` (FloatFeature,
+        µs) 与 ``AutoGainMin``/``Max`` (FloatFeature)。这些边界限定了
+        自动曝光 / 自动增益的搜索空间。
 
-        Args:
-            max_time_ms: Maximum exposure time in ms.
-            min_time_ms: Minimum exposure time in ms.
-            max_gain: Maximum gain value.
-            min_gain: Minimum gain value.
+        参数:
+            max_time_ms: 最大曝光时间, 单位 ms。
+            min_time_ms: 最小曝光时间, 单位 ms。
+            max_gain: 最大增益值。
+            min_gain: 最小增益值。
 
-        Returns:
-            bool: True if successful, False if not supported.
+        返回:
+            bool: 成功返回 True, 不支持返回 False。
         """
         assert self.cam, "camera not initialized"
         try:
@@ -767,13 +765,12 @@ class DahengCamera(BaseCamera):
 
     @property
     def auto_exposure_value(self) -> float:
-        """Current auto exposure numerical value (exposure time in ms).
+        """当前自动曝光的数值 (曝光时间, 单位 ms)。
 
-        When auto exposure is enabled, this returns the exposure time
-        the SDK has auto-adjusted to. When disabled, it returns the
-        manually-set exposure time.
+        自动曝光启用时, 返回 SDK 自动调到的曝光时间; 关闭时, 返回手动设定的
+        曝光时间。
 
-        Returns:
-            float: Current exposure time in milliseconds.
+        返回:
+            float: 当前曝光时间, 单位毫秒。
         """
         return self.exposure_time

@@ -11,7 +11,7 @@ Wiring Map:
     控制器 IP 与通道映射默认从 ``libs/micro_drive1300/wiring_map.json``
     加载 (``use_wiring_map=True``)。``use_wiring_map=False`` 时退回默认 IP。
 
-Example:
+示例:
     >>> dm = MicroDM()
     >>> dm.open()
     >>> dm.send_voltages(np.zeros(50))
@@ -89,8 +89,8 @@ class MicroDMParams(DeviceParam):
     safety_mode: bool = param(default=True, cast=bool)
 
 
-# MicroDM intentionally has no from_params factory: MicroDMParams only covers
-# persisted scalar settings, not controller IPs, device ID, or exclusion lists.
+# MicroDM 刻意没有 from_params 工厂: MicroDMParams 只涵盖
+# 可持久化的标量设置, 不含控制器 IP、设备 ID 或排除列表。
 
 
 # 模块级单例，所有 MicroDM 实例共用
@@ -101,37 +101,36 @@ MAX_CHANNELS: int = CHANNELS_PER_CONTROLLER
 
 
 # =============================================================================
-# Voltage Conversion
+# 电压换算
 # =============================================================================
 def voltages_to_payload(
     voltages: npt.NDArray[np.floating] | list[float] | float,
 ) -> bytes:
-    """Convert voltage(s) to the 0x09 command payload.
+    """把电压转换为 0x09 命令的载荷。
 
-    Supports single float (returns 2 bytes) or array (returns 2*N bytes).
-    Vectorized numpy version — clips, scales, and interleaves
-    high/low bytes in one pass.
+    支持单个 float (返回 2 字节) 或数组 (返回 2*N 字节)。
+    向量化 numpy 版本 —— 一次遍历完成钳位、缩放与高/低字节交织。
 
-    Protocol reference (from R50PowerV1.m MATLAB):
+    协议参考 (来自 R50PowerV1.m MATLAB):
         value = (voltage + 20) / 20 / 3.4 / 3.3 * 65535.0
         highByte = floor(value / 255)
         lowByte = floor(mod(value, 256))
 
-    # NOTO
-    THEORETICAL CORRECT IMPLEMENTATION (consistent byte extraction):
-        The MATLAB implementation has an inconsistency: it uses 255 for high byte
-        division but 256 for low byte (via mod). Theoretically correct would be:
-            raw = round(value)  # proper rounding to nearest integer
-            high = raw // 256   # consistent with low = raw % 256
+    # 注意
+    理论上一致的实现 (统一的字节提取):
+        MATLAB 实现存在不一致: 高字节除法用 255, 而低字节 (经 mod) 用 256。
+        理论上正确的做法应为:
+            raw = round(value)  # 正确地四舍五入到整数
+            high = raw // 256   # 与 low = raw % 256 保持一致
             low = raw % 256
-        This ensures high * 256 + low == raw for the full value range.
-        However, the MATLAB behavior is preserved for hardware compatibility.
+        这可保证在整个取值范围内 high * 256 + low == raw。
+        但为兼容硬件, 这里保留 MATLAB 的行为。
 
     Args:
-        voltages: Single voltage (float) or array of voltages (list/np.ndarray).
+        voltages: 单个电压 (float) 或电压数组 (list/np.ndarray)。
 
     Returns:
-        Interleaved high/low bytes as bytes object.
+        以 bytes 对象返回的高/低字节交织结果。
     """
     v = np.asarray(voltages, dtype=np.float32)
     if v.ndim == 0:
@@ -148,53 +147,52 @@ def voltages_to_payload(
 
 
 # =============================================================================
-# Exceptions
+# 异常
 # =============================================================================
 
 
 class MicroDMError(Exception):
-    """Base exception for MicroDM errors."""
+    """MicroDM 错误基类异常。"""
 
 
 class MicroDMConnectionError(MicroDMError):
-    """Raised when connection to a controller fails."""
+    """连接控制器失败时抛出。"""
 
 
 class MicroDMVoltageError(MicroDMError):
-    """Raised when a voltage value is out of range."""
+    """电压取值超出范围时抛出。"""
 
 
 # =============================================================================
-# Relay State
+# 继电器状态
 # =============================================================================
 
 
 class RelayState(IntEnum):
-    """Relay open/close state."""
+    """继电器开/关状态。"""
 
     OFF = 0
     ON = 1
 
 
 # =============================================================================
-# Low-Level Sync R50 Controller
+# 底层同步 R50 控制器
 # =============================================================================
 
 
 class R50Controller:
-    """Sync TCP client for a single R50Power controller (50 channels).
+    """单台 R50Power 控制器 (50 通道) 的同步 TCP 客户端。
 
-    Low-level helper used internally by MicroDM. Each instance manages a
-    persistent TCP connection to one physical power supply unit.
+    MicroDM 内部使用的底层辅助类。每个实例管理到一台物理电源单元的
+    持久 TCP 连接。
 
-    Implements the same method names as :class:`DM` where applicable
-    (``open``/``close``/``is_connected``) so it composes naturally
-    with the DM interface.
+    在适用处实现与 :class:`DM` 相同的方法名
+    (``open``/``close``/``is_connected``), 以便与 DM 接口自然组合。
 
     Attributes:
-        controller_id: 1-based controller identifier.
-        ip: IP address string.
-        port: TCP port number.
+        controller_id: 从 1 开始的控制器标识。
+        ip: IP 地址字符串。
+        port: TCP 端口号。
     """
 
     def __init__(
@@ -211,19 +209,19 @@ class R50Controller:
 
         self._socket: socket.socket | None = None
 
-    # ---- Properties ---------------------------------------------------------
+    # ---- 属性 ------------------------------------------------------------
 
     @property
     def is_connected(self) -> bool:
-        """Check if the TCP connection is established."""
+        """检查 TCP 连接是否已建立。"""
         return self._socket is not None
 
-    # ---- Context Manager ---------------------------------------------------
+    # ---- 上下文管理器 -----------------------------------------------------
 
     def __enter__(self) -> R50Controller:
-        """Context manager entry — opens the TCP connection.
+        """上下文管理器入口 —— 打开 TCP 连接。
 
-        Usage::
+        用法::
 
             with R50Controller(1, "192.168.0.101", 10101) as ctrl:
                 ctrl.set_all_channel_voltage(0.0)
@@ -232,16 +230,16 @@ class R50Controller:
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        """Context manager exit — closes the TCP connection."""
+        """上下文管理器出口 —— 关闭 TCP 连接。"""
         self.close()
 
-    # ---- Connection Management ----------------------------------------------
+    # ---- 连接管理 --------------------------------------------------------
 
     def open(self) -> bool:
-        """Open a TCP connection to the controller.
+        """打开到控制器的 TCP 连接。
 
         Returns:
-            True on success, False on failure.
+            成功返回 True, 失败返回 False。
         """
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -260,7 +258,7 @@ class R50Controller:
             return False
 
     def close(self) -> None:
-        """Close the TCP connection."""
+        """关闭 TCP 连接。"""
         if self._socket is not None:
             try:
                 self._socket.close()
@@ -269,16 +267,16 @@ class R50Controller:
             self._socket = None
             logger.debug(f"R50Controller[{self.controller_id}] disconnected")
 
-    # ---- Command Sending ----------------------------------------------------
+    # ---- 命令发送 --------------------------------------------------------
 
     def send(self, data: bytes) -> bool:
-        """Send raw command bytes to the controller.
+        """向控制器发送原始命令字节。
 
         Args:
-            data: Complete command packet (header + payload + footer).
+            data: 完整的命令包 (帧头 + 载荷 + 帧尾)。
 
         Returns:
-            True on success. On failure, marks the controller as disconnected.
+            成功返回 True。失败时会把该控制器标记为已断开。
         """
         if self._socket is None:
             return False
@@ -291,13 +289,13 @@ class R50Controller:
             return False
 
     def set_all_channel_voltage(self, voltage: float) -> bool:
-        """Set all 50 channels to the same voltage (command 0x08).
+        """把所有 50 个通道设为同一电压 (命令 0x08)。
 
         Args:
-            voltage: Voltage in volts (clipped to [-20, 120]).
+            voltage: 电压, 单位伏特 (钳位到 [-20, 120])。
 
         Returns:
-            True on success.
+            成功返回 True。
         """
         payload = voltages_to_payload(voltage)
         hv, lv = payload[0], payload[1]
@@ -305,14 +303,14 @@ class R50Controller:
         return self.send(cmd)
 
     def set_channel_voltage(self, channel: int, voltage: float) -> bool:
-        """Set a single channel voltage (command 0x04).
+        """设置单个通道的电压 (命令 0x04)。
 
         Args:
-            channel: Channel index (0-49).
-            voltage: Voltage in volts.
+            channel: 通道索引 (0-49)。
+            voltage: 电压, 单位伏特。
 
         Returns:
-            True on success, False if channel is out of range.
+            成功返回 True, 通道越界返回 False。
         """
         if not 0 <= channel < MAX_CHANNELS:
             logger.warning(
@@ -325,13 +323,13 @@ class R50Controller:
         return self.send(cmd)
 
     def set_all_voltage_array(self, voltages: list[float]) -> bool:
-        """Set all 50 channels by array (command 0x09, fastest method).
+        """按数组设置全部 50 个通道 (命令 0x09, 最快的方式)。
 
         Args:
-            voltages: List of exactly 50 voltage values.
+            voltages: 恰好 50 个电压值构成的列表。
 
         Returns:
-            True on success, False if array length is not 50.
+            成功返回 True, 数组长度不是 50 返回 False。
         """
         if len(voltages) != MAX_CHANNELS:
             logger.warning(
@@ -349,22 +347,21 @@ class R50Controller:
         return self.send(cmd)
 
     def set_relay(self, state: bool) -> bool:
-        """Open (True) or close (False) the relay.
+        """打开 (True) 或关闭 (False) 继电器。
 
-        Command 0x06 = open, 0x07 = close.
+        命令 0x06 = 打开, 0x07 = 关闭。
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         return self.send(cmd)
 
     def power_off_and_close(self, home_voltage: float = 0.0) -> bool:
-        """Safe shutdown: home all channels, relay OFF, then close connection.
+        """安全关机: 先把所有通道归零, 继电器断开, 再关闭连接。
 
-        Homes (zeroes) the output voltages before cutting relay power so the
-        mirror surface returns to its reference position while the controller
-        is still energised. Single call shared by CLI tools and the GUI.
+        在切断继电器电源之前先把输出电压归零, 使镜面在控制器仍带电时
+        回到参考位置。CLI 工具与 GUI 共用这一调用。
 
         Returns:
-            True if both voltage and relay commands succeeded.
+            电压命令与继电器命令都成功时返回 True。
         """
         ok1 = self.set_all_channel_voltage(home_voltage)
         ok2 = self.set_relay(False)
@@ -373,32 +370,32 @@ class R50Controller:
 
 
 # =============================================================================
-# Main MicroDM Driver
+# 主 MicroDM 驱动
 # =============================================================================
 
 
 @register_dm("micro")
 class MicroDM(DM, Device):
-    """Micro DM (R50Power) deformable mirror driver.
+    """Micro DM (R50Power) 变形镜驱动。
 
-    Controls one or more R50Power controllers via synchronous TCP.
-    Defaults to a single 50-channel controller at 192.168.0.101:10101.
+    通过同步 TCP 控制一台或多台 R50Power 控制器。默认使用单台 50 通道
+    控制器，地址为 192.168.0.101:10101。
 
-    When multiple IPs are supplied, channels are assigned sequentially::
+    提供多个 IP 时, 通道按顺序分配::
 
         controller 0  →  channels   0-49
         controller 1  →  channels  50-99
         ...
 
-    All TCP communication to all controllers happens synchronously,
-    without an async event loop.
+    与所有控制器的全部 TCP 通信均为同步进行,
+    不使用异步事件循环。
 
     Attributes:
-        DM_Num: Total logical channel count (50 per controller).
-        V_Min: Minimum voltage (-20.0 V).
-        V_Max: Maximum voltage (120.0 V).
+        DM_Num: 逻辑通道总数 (每台控制器 50 个)。
+        V_Min: 最小电压 (-20.0 V)。
+        V_Max: 最大电压 (120.0 V)。
 
-    Example:
+    示例:
         >>> dm = MicroDM()
         >>> dm.open()
         >>> dm.send_voltages(np.zeros(50))
@@ -408,10 +405,10 @@ class MicroDM(DM, Device):
     """
 
     DM_Num: int = DM_NUM
-    DM_NUM: int = DM_NUM  # Alias for base class compatibility
+    DM_NUM: int = DM_NUM  # 与基类兼容的别名
     V_Min: float = VOLTAGE_MIN
     V_Max: float = VOLTAGE_MAX
-    max_neibor_diff: float = float("inf")  # No neighbor constraint
+    max_neibor_diff: float = float("inf")  # 无邻居约束
 
     device_type = DeviceType.DM
     manufacturer = "R50Power"
@@ -419,7 +416,7 @@ class MicroDM(DM, Device):
 
     @classmethod
     def is_reachable(cls) -> bool:
-        """Check if at least one R50Power controller is reachable on TCP."""
+        """检查是否至少有一台 R50Power 控制器在 TCP 上可达。"""
         for suffix in range(IP_SUFFIX_MIN, IP_SUFFIX_MAX + 1):
             ip = f"192.168.0.{suffix}"
             try:
@@ -447,23 +444,23 @@ class MicroDM(DM, Device):
         exclude_ids: list[int] | None = None,
         safety_mode: bool = True,
     ):
-        """Initialize the MicroDM driver.
+        """初始化 MicroDM 驱动。
 
         Args:
-            ips: IP addresses of R50Power controllers.
-                Default: loaded from wiring map if ``use_wiring_map=True``,
-                otherwise ``["192.168.0.101"]`` (single controller).
-                Pass multiple IPs for multi-controller setups.
-            timeout: TCP connection/send timeout in seconds.
-            device_id: Unique device identifier (auto-generated if empty).
-            use_wiring_map: If True (default), load controller IPs from
-                ``libs/micro_drive1300/wiring_map.json``.
-            exclude_ips: IP addresses to skip during initialization.
-                Controllers with these IPs will not be created.
-            exclude_ids: Controller IDs (1-based) to skip during initialization.
-                Controllers with these IDs will not be created.
-            safety_mode: If True (default), send_voltages ramps from current
-                state to target in steps bounded by max_neibor_diff.
+            ips: R50Power 控制器的 IP 地址。
+                默认: 若 ``use_wiring_map=True`` 则从接线表加载,
+                否则为 ``["192.168.0.101"]`` (单台控制器)。
+                多控制器 setups 请传入多个 IP。
+            timeout: TCP 连接/发送超时, 单位秒。
+            device_id: 唯一设备标识 (为空时自动生成)。
+            use_wiring_map: 为 True (默认) 时从
+                ``libs/micro_drive1300/wiring_map.json`` 加载控制器 IP。
+            exclude_ips: 初始化时要跳过的 IP 地址。
+                这些 IP 对应的控制器不会被创建。
+            exclude_ids: 初始化时要跳过的控制器 ID (从 1 开始)。
+                这些 ID 对应的控制器不会被创建。
+            safety_mode: 为 True (默认) 时, send_voltages 会从当前状态
+                斜坡到目标值, 每步变化量不超过 max_neibor_diff。
         """
         self._init_values = {
             "timeout": timeout,
@@ -476,7 +473,7 @@ class MicroDM(DM, Device):
         DM.__init__(self, safety_mode=params.safety_mode)
         Device.__init__(self, device_id)
 
-        # Load wiring map if enabled
+        # 启用则加载接线表
         self._wiring_map: WiringMap | None = None
         self._channel_by_position: dict[
             int, ChannelInfo
@@ -493,7 +490,7 @@ class MicroDM(DM, Device):
             if self._wiring_map is not None:
                 self._build_channel_indices(self._wiring_map)
 
-        # Determine IPs from wiring map or use defaults
+        # 从接线表确定 IP, 否则用默认值
         if ips is not None:
             self._ips = ips
         elif self._wiring_map is not None:
@@ -501,7 +498,7 @@ class MicroDM(DM, Device):
         else:
             self._ips = [DEFAULT_IPS[0]]
 
-        # Filter out excluded IPs
+        # 过滤掉被排除的 IP
         exclude_ip_set = set(exclude_ips or [])
         self._ips = [ip for ip in self._ips if ip not in exclude_ip_set]
 
@@ -514,7 +511,7 @@ class MicroDM(DM, Device):
 
         self._relay_state = RelayState.OFF
 
-        # Build sync controllers, skipping excluded IDs
+        # 构建同步控制器, 跳过被排除的 ID
         exclude_id_set = set(exclude_ids or [])
         self._controllers: list[R50Controller] = [
             R50Controller(
@@ -531,7 +528,7 @@ class MicroDM(DM, Device):
             for cid in exclude_id_set:
                 logger.warning(f"Excluded controller ID: {cid}")
 
-        # Register device parameters
+        # 注册设备参数
         self._register_parameters()
 
         logger.debug(
@@ -540,10 +537,10 @@ class MicroDM(DM, Device):
             f"voltage range [{self.V_Min}, {self.V_Max}] V"
         )
 
-    # ---- Parameter Registration ---------------------------------------------
+    # ---- 参数注册 --------------------------------------------------------
 
     def _register_parameters(self) -> None:
-        """Register device parameters for the parameter management system."""
+        """为参数管理系统注册设备参数。"""
         self.register_parameter(
             "voltage_min",
             self.V_Min,
@@ -565,15 +562,15 @@ class MicroDM(DM, Device):
             description="Number of physical R50Power controllers",
         )
 
-    # ---- Wiring Map Methods -------------------------------------------------
+    # ---- 接线表方法 ------------------------------------------------------
 
     def _build_channel_indices(self, wiring_map: WiringMap) -> None:
-        """Build lookup indices from a parsed WiringMap.
+        """从解析出的 WiringMap 构建查找索引。
 
-        Creates three indices for O(1) channel lookup:
+        创建三个用于 O(1) 通道查找的索引:
         - _channel_by_position: physical_position → ChannelInfo
         - _channel_by_ip_payload: (ip_suffix, payload_position) → ChannelInfo
-        - _channel_by_xy: (x, y) in 39x39 grid → ChannelInfo
+        - _channel_by_xy: 39x39 网格中的 (x, y) → ChannelInfo
         """
         for group_key, group in wiring_map.groups.items():
             for entry in group.channels:
@@ -582,23 +579,23 @@ class MicroDM(DM, Device):
 
                 info = ChannelInfo.from_entry(entry, group.name, group_key)
 
-                # Index by physical position (safe: is_valid guarantees non-None)
+                # 按物理位置索引 (安全: is_valid 保证非 None)
                 assert entry.physical_position is not None
                 self._channel_by_position[entry.physical_position] = info
 
-                # Index by (ip_suffix, payload_position)
+                # 按 (ip_suffix, payload_position) 索引
                 if entry.ip_suffix is not None and entry.payload_position is not None:
                     self._channel_by_ip_payload[
                         (entry.ip_suffix, entry.payload_position)
                     ] = info
 
-                # Index by (x, y) from physical_label (format: "group-row-col")
+                # 从 physical_label 解析出 (x, y) 并索引 (格式: "group-row-col")
                 if entry.physical_label is not None:
                     parts = entry.physical_label.split("-")
                     if len(parts) == 3:
                         try:
-                            row = int(parts[1])  # y coordinate (1-based)
-                            col = int(parts[2])  # x coordinate (1-based)
+                            row = int(parts[1])  # y 坐标 (从 1 开始)
+                            col = int(parts[2])  # x 坐标 (从 1 开始)
                             self._channel_by_xy[(col, row)] = info
                         except ValueError:
                             pass
@@ -611,46 +608,45 @@ class MicroDM(DM, Device):
 
     @property
     def wiring_map(self) -> WiringMap | None:
-        """Access the loaded wiring map (read-only)."""
+        """访问已加载的接线表 (只读)。"""
         return self._wiring_map
 
     def get_channel_by_xy(self, x: int, y: int) -> ChannelInfo | None:
-        """Get channel info by x, y coordinates in the 39×39 array.
+        """按 39×39 阵列中的 x, y 坐标获取通道信息。
 
         Args:
-            x: Column index (1-based, 1-39).
-            y: Row index (1-based, 1-39).
+            x: 列索引 (从 1 开始, 1-39)。
+            y: 行索引 (从 1 开始, 1-39)。
 
         Returns:
-            ChannelInfo if found, None otherwise.
+            找到则返回 ChannelInfo, 否则为 None。
         """
         return self._channel_by_xy.get((x, y))
 
     def get_channel_by_ip_position(
         self, ip_suffix: int, payload_position: int
     ) -> ChannelInfo | None:
-        """Get channel info by controller IP suffix and payload position.
+        """按控制器 IP 后缀与载荷位置获取通道信息。
 
         Args:
-            ip_suffix: IP address suffix (e.g., 101 for 192.168.0.101).
-            payload_position: Channel position within the controller (1-50).
+            ip_suffix: IP 地址后缀 (例如 101 对应 192.168.0.101)。
+            payload_position: 控制器内的通道位置 (1-50)。
 
         Returns:
-            ChannelInfo if found, None otherwise.
+            找到则返回 ChannelInfo, 否则为 None。
         """
         return self._channel_by_ip_payload.get((ip_suffix, payload_position))
 
-    # ---- Device Interface ---------------------------------------------------
+    # ---- 设备接口 --------------------------------------------------------
 
     def open(self) -> None:
-        """Open connections to all R50Power controllers.
+        """打开到所有 R50Power 控制器的连接。
 
-        Connects to every controller synchronously. Individual connection
-        failures are logged as warnings but do not prevent other controllers
-        from connecting.
+        同步连接到每台控制器。单台连接失败会记为警告日志,
+        但不影响其他控制器继续连接。
 
         Raises:
-            MicroDMConnectionError: If no controller can be reached.
+            MicroDMConnectionError: 没有任何控制器能连上时。
         """
         self._set_state(DeviceState.CONNECTING)
 
@@ -676,7 +672,7 @@ class MicroDM(DM, Device):
         )
 
     def close(self) -> None:
-        """Close all controller connections."""
+        """关闭所有控制器连接。"""
         for ctrl in self._controllers:
             try:
                 ctrl.close()
@@ -687,20 +683,20 @@ class MicroDM(DM, Device):
         logger.info("MicroDM disconnected")
 
     def is_connected(self) -> bool:
-        """Check whether at least one controller is connected and ready.
+        """检查是否至少有一台控制器已连接并就绪。
 
         Returns:
-            True if at least one controller has an active TCP connection.
+            至少一台控制器有活动 TCP 连接时返回 True。
         """
         return self._state == DeviceState.READY and any(
             ctrl.is_connected for ctrl in self._controllers
         )
 
     def get_hardware_info(self) -> dict[str, Any]:
-        """Get hardware-specific information.
+        """获取硬件专属信息。
 
         Returns:
-            Dictionary with device info, connection status, and ranges.
+            含设备信息、连接状态与取值范围的字典。
         """
         connected_count = sum(1 for c in self._controllers if c.is_connected)
         return {
@@ -717,39 +713,39 @@ class MicroDM(DM, Device):
         }
 
     def get_actuator_positions(self) -> npt.NDArray[np.floating]:
-        """Get the current actuator voltages.
+        """获取当前的致动器电压。
 
         Returns:
-            Copy of the current voltage array (DM_Num elements).
+            当前电压数组的副本 (DM_Num 个元素)。
         """
         return self._last_voltages.copy()
 
-    # ---- DM Interface -------------------------------------------------------
+    # ---- DM 接口 ---------------------------------------------------------
 
     def transform(self, cmd: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Transform a normalized command ``[-1, 1]`` to device voltage range.
+        """把归一化命令 ``[-1, 1]`` 转换为设备电压范围。
 
-        Maps [-1, 1] linearly to [V_Min, V_Max].
+        将 [-1, 1] 线性映射到 [V_Min, V_Max]。
 
         Args:
-            cmd: Normalized command array.
+            cmd: 归一化命令数组。
 
         Returns:
-            Voltage array in the device range.
+            设备范围内的电压数组。
         """
         return self.transform_voltage(cmd)
 
     def send(self, cmd: npt.NDArray[np.floating] | float) -> npt.NDArray[np.floating]:
-        """Send a voltage command to all channels.
+        """向所有通道发送电压命令。
 
         Args:
-            cmd: Voltage array (DM_Num elements) or a single float for all channels.
+            cmd: 电压数组 (DM_Num 个元素), 或一个作用于所有通道的标量 float。
 
         Returns:
-            The applied voltage array.
+            施加后的电压数组。
 
         Raises:
-            MicroDMVoltageError: If the command type is unsupported.
+            MicroDMVoltageError: 命令类型不受支持时。
         """
         if isinstance(cmd, np.ndarray):
             return self.send_voltages(cmd)
@@ -758,9 +754,9 @@ class MicroDM(DM, Device):
         raise MicroDMVoltageError(f"Unsupported command type: {type(cmd)}")
 
     def _apply_voltages(self, vs: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Low-level voltage application via sync TCP to all controllers.
+        """经同步 TCP 向所有控制器施加电压的底层实现。
 
-        Channels are distributed round-robin across controllers:
+        通道按顺序轮转分配到各控制器:
 
             controller 0  →  vs[0:50]
             controller 1  →  vs[50:100]
@@ -800,21 +796,21 @@ class MicroDM(DM, Device):
     def send_voltages(
         self, vs: npt.NDArray[np.floating], wait_time_s: float = 0.001
     ) -> npt.NDArray[np.floating]:
-        """Send a voltage array to all channels using sync parallel TCP.
+        """用同步并行 TCP 把电压数组发送到所有通道。
 
-        Voltages are distributed across R50Power controllers automatically.
-        When safety_mode is True (default), voltages are ramped from current
-        state to target in steps bounded by max_neibor_diff.
+        电压会自动分配到各台 R50Power 控制器。
+        safety_mode 为 True (默认) 时, 电压会从当前状态斜坡到目标值,
+        每步变化量不超过 max_neibor_diff。
 
         Args:
-            vs: Voltage array for all logical channels.
-            wait_time_s: Sleep after sending (hardware settling time).
+            vs: 所有逻辑通道的电压数组。
+            wait_time_s: 发送后休眠时间 (硬件稳定时间)。
 
         Returns:
-            The applied voltage array.
+            施加后的电压数组。
 
         Raises:
-            MicroDMVoltageError: If the array length does not match DM_Num.
+            MicroDMVoltageError: 数组长度与 DM_Num 不符时。
         """
         vs = np.asarray(vs, dtype=np.float64)
         if vs.shape != (self.DM_Num,):
@@ -822,25 +818,25 @@ class MicroDM(DM, Device):
                 f"Expected {self.DM_Num} voltages, got {vs.shape}"
             )
         result = super().send_voltages(vs, wait_time_s=wait_time_s)
-        # The base class echoes its input type, but ``vs`` was coerced to a
-        # plain ndarray above (a ``DmCommands`` has no array protocol, so it
-        # would already have been rejected by the shape check).
+        # 基类会回显其输入类型, 但上面的 ``vs`` 已被强制转为
+        # 普通 ndarray (``DmCommands`` 没有数组协议, 因此本来就会
+        # 被前面的形状检查拦下)。
         assert isinstance(result, np.ndarray)
         return result
 
-    # ---- Protocol Commands --------------------------------------------------
+    # ---- 协议命令 --------------------------------------------------------
 
     def set_channel_voltage(self, channel: int, voltage: float) -> None:
-        """Set voltage for a single logical channel.
+        """设置单个逻辑通道的电压。
 
-        Automatically routes to the correct physical controller.
+        自动路由到正确的物理控制器。
 
         Args:
-            channel: Logical channel index (0 to DM_Num - 1).
-            voltage: Voltage in volts.
+            channel: 逻辑通道索引 (0 到 DM_Num - 1)。
+            voltage: 电压, 单位伏特。
 
         Raises:
-            MicroDMVoltageError: If channel is out of range.
+            MicroDMVoltageError: 通道越界时。
         """
         if not 0 <= channel < self.DM_Num:
             raise MicroDMVoltageError(
@@ -857,15 +853,15 @@ class MicroDM(DM, Device):
             self._last_voltages[channel] = voltage_clipped
 
     def set_all_channel_voltage(self, voltage: float) -> npt.NDArray[np.floating]:
-        """Set all logical channels to the same voltage.
+        """把所有逻辑通道设为同一电压。
 
-        Sends to all controllers.
+        发送到所有控制器。
 
         Args:
-            voltage: Voltage in volts for all channels.
+            voltage: 所有通道的电压, 单位伏特。
 
         Returns:
-            The applied voltage array.
+            施加后的电压数组。
         """
         voltage = max(self.V_Min, min(self.V_Max, float(voltage)))
         vs = np.full(self.DM_Num, voltage)
@@ -874,10 +870,10 @@ class MicroDM(DM, Device):
         return self._last_voltages.copy()
 
     def set_relay_state(self, state: bool) -> None:
-        """Set relay state on all connected controllers.
+        """设置所有已连接控制器上的继电器状态。
 
         Args:
-            state: True to open relay, False to close.
+            state: True 打开继电器, False 关闭。
         """
         cmd = HEADER + bytes([CMD_RELAY_ON if state else CMD_RELAY_OFF]) + FOOTER
         for ctrl in self._controllers:
@@ -887,7 +883,7 @@ class MicroDM(DM, Device):
         logger.info(f"Relay {'opened' if state else 'closed'} on all controllers")
 
     def reset_all(self) -> None:
-        """Reset all channels to 0 V."""
+        """把所有通道复位到 0 V。"""
         vs = np.zeros(self.DM_Num)
         self.send_voltages(vs)
         logger.info("MicroDM reset to 0 V")

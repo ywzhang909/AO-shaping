@@ -1,13 +1,12 @@
-"""Gradient-descent optimizers (SGD / Adam family / Muon family).
+"""梯度下降优化器 (SGD / Adam 家族 / Muon 家族)。
 
-Every concrete optimizer **registers itself** by declaring ``_registry_key``;
-this module contains no dispatch table and no references to its own subclasses
-beyond those declarations, so adding an optimizer (e.g. a new Muon variant) means
-adding one class here and nothing else -- :meth:`Base.create` is a dict lookup, so
-the Open/Closed Principle holds.
+每个具体优化器都通过声明 ``_registry_key`` 来**自行注册**; 本模块不含任何
+分发表, 除这些声明之外也不引用自己的子类, 因此新增一个优化器 (比如一个新的
+Muon 变体) 只需在这里加一个类, 别的什么都不必动 -- :meth:`Base.create` 只是一次
+dict 查找, 所以开闭原则成立。
 
-``create`` does no fault tolerance: keyword arguments go straight to the
-constructor, which raises ``TypeError`` naming any argument it does not accept.
+``create`` 不做任何容错: 关键字参数直接送到构造函数, 由它对任何不接受的参数
+抛出指名道姓的 ``TypeError``。
 
 Example:
     >>> from ao_shaping.algorithm.gradient.adam import Base
@@ -50,44 +49,43 @@ def learning_schedule(
 
 
 class Base(RegisteredBase):
-    """Abstract base class for gradient optimizers.
+    """梯度优化器的抽象基类。
 
-    Subclasses opt into the :meth:`create` factory by declaring
-    ``_registry_key``; they are then registered automatically::
+    子类通过声明 ``_registry_key`` 接入 :meth:`create` 工厂; 声明后即被自动注册::
 
         class MyOptimizer(Base):
             _registry_key = "mine"
 
-    Keys are matched case-insensitively; see :meth:`_normalize_key`.
+    键按大小写不敏感匹配; 见 :meth:`_normalize_key`。
     """
 
-    #: This family's registry, keyed by lower-case optimizer name.
+    #: 本家族的注册表, 以小写优化器名为键。
     _registry: ClassVar[dict[str, type[Base]]] = {}
 
     @classmethod
     def _normalize_key(cls, key: Any) -> str:
-        """Return ``key`` as the lowercase name this family registers under."""
+        """把 ``key`` 转成本家族注册时使用的小写名字。"""
         return str(key).lower()
 
     @classmethod
     def registered_names(cls) -> tuple[str, ...]:
-        """Return every registered optimizer name, sorted."""
+        """返回全部已注册的优化器名, 已排序。"""
         return tuple(sorted(cls._registry))
 
     @classmethod
     def _describe_keys(cls) -> list[str]:
-        """Return the registered names for error messages."""
+        """返回已注册的名字, 供错误消息使用。"""
         return list(cls.registered_names())
 
     def __init__(self, dim: int, lr: float = 1.0):
-        """Initialize optimizer.
+        """初始化优化器。
 
         Args:
-            dim: Dimension of the parameter vector. Must be positive.
-            lr: Learning rate.
+            dim: 参数向量的维度。必须为正。
+            lr: 学习率。
 
         Raises:
-            ValueError: If ``dim`` is not positive.
+            ValueError: 若 ``dim`` 不是正数。
         """
         self._validate_dim(dim)
         self.dim = dim
@@ -102,40 +100,40 @@ class Base(RegisteredBase):
         pass
 
     def reset(self) -> None:
-        """Return the optimizer to its freshly-constructed state.
+        """把优化器恢复到刚构造出来的状态。
 
-        Zeroes the step counter and every momentum buffer, so the same instance
-        can be reused for a new run without inheriting stale momentum.
+        步数计数器与所有动量缓冲清零, 于是同一个实例可以在新一轮运行中复用,
+        而不会继承上一次残留的动量。
         """
         self.t = 0
         self._reset()
 
     def _reset(self) -> None:
-        """Zero subclass-specific buffers. No-op by default."""
+        """将子类特有的缓冲清零。默认什么都不做。"""
 
     @classmethod
     def create(cls, name: str, dim: int, lr: float = 1.0, **kwargs: Any) -> Base:
-        """Create an optimizer by name, looked up in the registry.
+        """按名字创建一个优化器, 在注册表里查找。
 
         Args:
-            name: Registered optimizer name (case-insensitive).
-            dim: Dimension of the parameter vector.
-            lr: Learning rate.
-            **kwargs: Forwarded verbatim to the constructor, which raises
-                ``TypeError`` naming any argument it does not accept.
+            name: 已注册的优化器名 (大小写不敏感)。
+            dim: 参数向量的维度。
+            lr: 学习率。
+            **kwargs: 原样转发给构造函数, 由它对任何不接受的参数抛出指名道姓的
+                ``TypeError``。
 
         Returns:
-            Optimizer instance.
+            优化器实例。
 
         Raises:
-            ValueError: If ``name`` has no registered implementation.
-            ValueError: If ``dim`` is not positive.
+            ValueError: 若 ``name`` 没有已注册的实现。
+            ValueError: 若 ``dim`` 不是正数。
         """
         return cls._lookup(name)._construct(dim=dim, lr=lr, **kwargs)
 
     @classmethod
     def _construct(cls, dim: int, lr: float = 1.0, **kwargs: Any) -> Base:
-        """Build an instance from ``create``'s keyword arguments."""
+        """由 ``create`` 的关键字参数构造实例。"""
         return cls(dim=dim, lr=lr, **kwargs)
 
 
@@ -381,39 +379,38 @@ class MunoW(Muno):
 
 def zeropower_via_newtonschulz5(G, steps: int = 5):
     """
-    Newton-Schulz iteration to compute the zeroth power / orthogonalization of G. We opt to use a
-    quintic iteration whose coefficients are selected to maximize the slope at zero. For the purpose
-    of minimizing steps, it turns out to be empirically effective to keep increasing the slope at
-    zero even beyond the point where the iteration no longer converges all the way to one everywhere
-    on the interval. This iteration therefore does not produce UV^T but rather something like US'V^T
-    where S' is diagonal with S_{ii}' ~ Uniform(0.5, 1.5), which turns out not to hurt model
-    performance at all relative to UV^T, where USV^T = G is the SVD.
+    用 Newton-Schulz 迭代计算 G 的零次幂 / 正交化。我们选用一个五次迭代, 其系数
+    挑得使零点处的斜率最大。就把步数降到最少这个目的而言, 实测上即便继续抬高
+    零点处的斜率、越过迭代在整个区间上都不再收敛到 1 的位置, 也依然是有效的。
+    因此该迭代产出的并不是 UV^T, 而更像是 US'V^T, 其中 S' 是对角阵且
+    S_{ii}' ~ Uniform(0.5, 1.5); 相比 USV^T = G 那个 SVD, 这样做似乎完全不损害
+    模型性能。
     """
     assert G.ndim >= 2, "G must be at least 2-dimensional"
 
-    # Coefficients for quintic iteration
+    # 五次迭代的系数
     a, b, c = (3.4445, -4.7750, 2.0315)
 
-    # Work with a copy of G in float32
+    # 在 float32 下用 G 的一份副本
     X = G.astype(np.float32)
 
-    # Transpose if needed (when rows > columns)
+    # 需要时转置 (当行数 > 列数)
     transposed = False
     if X.shape[-2] > X.shape[-1]:
         X = np.swapaxes(X, -2, -1)
         transposed = True
 
-    # Ensure spectral norm is at most 1
+    # 确保谱范数不超过 1
     norm = np.linalg.norm(X, axis=(-2, -1), keepdims=True)
     X = X / (norm + 1e-7)
 
-    # Perform the NS iterations
+    # 执行 NS 迭代
     for _ in range(steps):
         A = np.matmul(X, np.swapaxes(X, -2, -1))
-        B = b * A + c * np.matmul(A, A)  # quintic computation
+        B = b * A + c * np.matmul(A, A)  # 五次计算
         X = a * X + np.matmul(B, X)
 
-    # Transpose back if needed
+    # 需要时转回去
     if transposed:
         X = np.swapaxes(X, -2, -1)
 
@@ -422,34 +419,34 @@ def zeropower_via_newtonschulz5(G, steps: int = 5):
 
 def muon_update(grad, momentum_buffer, beta=0.95, ns_steps=5, nesterov=True):
     """
-    Muon update function that applies momentum and Newton-Schulz orthogonalization
+    Muon 更新函数, 施加动量与 Newton-Schulz 正交化
 
     Args:
-        grad: Current gradient
-        momentum_buffer: Momentum buffer
-        beta: Momentum coefficient
-        ns_steps: Number of Newton-Schulz steps
-        nesterov: Whether to use Nesterov momentum
+        grad: 当前梯度
+        momentum_buffer: 动量缓冲
+        beta: 动量系数
+        ns_steps: Newton-Schulz 步数
+        nesterov: 是否使用 Nesterov 动量
     """
-    # Update momentum buffer
+    # 更新动量缓冲
     momentum_buffer = beta * momentum_buffer + (1 - beta) * grad
 
-    # Apply Nesterov momentum or standard momentum
+    # 施加 Nesterov 动量或标准动量
     update = grad * (1 - beta) + momentum_buffer * beta if nesterov else momentum_buffer
 
-    # For convolutional filters (4D), reshape to 2D
+    # 对卷积核 (4D), 重塑为 2D
     original_shape = update.shape
     if update.ndim == 4:
         update = update.reshape(len(update), -1)
 
-    # Apply Newton-Schulz orthogonalization
+    # 施加 Newton-Schulz 正交化
     update = zeropower_via_newtonschulz5(update, steps=ns_steps)
 
-    # Rescale based on dimension ratio
+    # 按维度比值重新缩放
     scale = max(1, update.shape[-2] / update.shape[-1]) ** 0.5
     update = update * scale
 
-    # Reshape back to original shape if needed
+    # 需要时重塑回原形状
     if update.shape != original_shape:
         update = update.reshape(original_shape)
 
@@ -460,57 +457,56 @@ class Muon(Base):
     """
     Muon - MomentUm Orthogonalized by Newton-schulz
 
-    Muon internally runs standard SGD-momentum, and then performs an orthogonalization post-
-    processing step, in which each 2D parameter's update is replaced with the nearest orthogonal
-    matrix. For efficient orthogonalization we use a Newton-Schulz iteration.
+    Muon 内部先跑标准的 SGD-momentum, 然后做一次正交化后处理, 其中每个 2D 参数的
+    更新量被替换为最近的正交矩阵。为高效完成正交化, 我们使用 Newton-Schulz 迭代。
 
-    Muon should only be used for hidden weight layers. The input embedding, final output layer,
-    and any internal gains or biases should be optimized using a standard method such as AdamW.
+    Muon 只应用于隐藏权重层。输入嵌入层、最终输出层, 以及任何内部的增益或偏置,
+    都应当用 AdamW 之类的标准方法来优化。
     """
 
     _registry_key = "muon"
 
     def __init__(self, dim: int, lr=0.02, weight_decay=0, momentum=0.95, ns_steps=5):
         """
-        Initialize Muon optimizer
+        初始化 Muon 优化器
 
         Args:
-            dim: Parameter dimension
-            lr: Learning rate
-            weight_decay: Weight decay coefficient
-            momentum: Momentum coefficient
-            ns_steps: Number of Newton-Schulz steps
+            dim: 参数维度
+            lr: 学习率
+            weight_decay: 权重衰减系数
+            momentum: 动量系数
+            ns_steps: Newton-Schulz 步数
         """
         super().__init__(dim, lr)
         self.weight_decay = weight_decay
         self.momentum = momentum
         self.ns_steps = ns_steps
 
-        # Initialize momentum buffer
+        # 初始化动量缓冲
         self.momentum_buffer = np.zeros(dim, dtype=np.float32)
 
     def update(self, grad: npt.NDArray[np.floating]):
         """
-        Update parameters using Muon optimization
+        用 Muon 优化更新参数
 
         Args:
-            grad: Current gradient
+            grad: 当前梯度
 
         Returns:
-            Update step
+            更新步长
         """
         self.t += 1
 
-        # Apply weight decay
+        # 施加权重衰减
         if self.weight_decay > 0:
             grad = grad + self.weight_decay * self.momentum_buffer
 
-        # Apply Muon update
+        # 施加 Muon 更新
         update, self.momentum_buffer = muon_update(
             grad, self.momentum_buffer, beta=self.momentum, ns_steps=self.ns_steps
         )
 
-        # Scale by learning rate
+        # 按学习率缩放
         return -self.lr * update
 
     def _reset(self):
@@ -519,76 +515,76 @@ class Muon(Base):
 
 class AdamNS(Base):
     """
-    Adam optimizer with Newton-Schulz orthogonalization post-processing
+    带 Newton-Schulz 正交化后处理的 Adam 优化器
     """
 
     _registry_key = "adamns"
 
     def __init__(self, dim: int, lr=1e-3, betas=(0.9, 0.999), eps=1e-8, ns_steps=5):
         """
-        Initialize AdamNS optimizer
+        初始化 AdamNS 优化器
 
         Args:
-            dim: Parameter dimension
-            lr: Learning rate
-            betas: Coefficients for computing running averages of gradient and its square
-            eps: Term added to the denominator to improve numerical stability
-            ns_steps: Number of Newton-Schulz steps for orthogonalization
+            dim: 参数维度
+            lr: 学习率
+            betas: 计算梯度及其平方的滑动平均的系数
+            eps: 加到分母上以改善数值稳定性的项
+            ns_steps: 用于正交化的 Newton-Schulz 步数
         """
         super().__init__(dim, lr)
         self.beta1, self.beta2 = betas
         self.eps = eps
         self.ns_steps = ns_steps
 
-        # Initialize buffers
-        self.buf1 = np.zeros(dim, dtype=np.float32)  # First moment estimate
-        self.buf2 = np.zeros(dim, dtype=np.float32)  # Second moment estimate
+        # 初始化缓冲
+        self.buf1 = np.zeros(dim, dtype=np.float32)  # 一阶矩估计
+        self.buf2 = np.zeros(dim, dtype=np.float32)  # 二阶矩估计
 
     def adam_update(self, grad):
         """
-        Standard Adam update
+        标准 Adam 更新
         """
-        # Update biased first moment estimate
+        # 更新有偏的一阶矩估计
         self.buf1 = self.beta1 * self.buf1 + (1 - self.beta1) * grad
 
-        # Update biased second raw moment estimate
+        # 更新有偏的二阶原始矩估计
         self.buf2 = self.beta2 * self.buf2 + (1 - self.beta2) * grad**2
 
-        # Compute bias-corrected first moment estimate
+        # 计算偏差修正后的一阶矩估计
         buf1c = self.buf1 / (1 - self.beta1**self.t)
 
-        # Compute bias-corrected second raw moment estimate
+        # 计算偏差修正后的二阶原始矩估计
         buf2c = self.buf2 / (1 - self.beta2**self.t)
 
-        # Compute update
+        # 计算更新量
         return buf1c / (np.sqrt(buf2c) + self.eps)
 
     def update(self, grad: npt.NDArray[np.floating]):
         """
-        Update parameters using Adam with Newton-Schulz orthogonalization
+        用带 Newton-Schulz 正交化的 Adam 更新参数
 
         Args:
-            grad: Current gradient
+            grad: 当前梯度
 
         Returns:
-            Update step
+            更新步长
         """
         self.t += 1
 
-        # Standard Adam update
+        # 标准 Adam 更新
         update = self.adam_update(grad)
 
-        # For higher dimensional parameters, apply Newton-Schulz orthogonalization
+        # 对更高维的参数, 施加 Newton-Schulz 正交化
         if update.ndim >= 2:
             original_shape = update.shape
-            # Reshape to 2D if needed
+            # 需要时重塑为 2D
             if update.ndim > 2:
                 update = update.reshape(-1, update.shape[-1])
 
-            # Apply Newton-Schulz orthogonalization
+            # 施加 Newton-Schulz 正交化
             update = zeropower_via_newtonschulz5(update, steps=self.ns_steps)
 
-            # Reshape back
+            # 重塑回去
             if update.shape != original_shape:
                 update = update.reshape(original_shape)
 
@@ -612,29 +608,29 @@ def search_optimal_delta(
     perturb_mask: npt.NDArray | None = None,
     verbose: bool = True,
 ) -> tuple[float, dict]:
-    """Search for optimal perturbation delta using magnitude scanning.
+    """用幅值扫描搜索最优扰动 delta。
 
-    Two-phase approach:
-    1. Magnitude scan: test orders of magnitude (1e-2, 1e-1, 1e0, 1e1, 1e2)
-    2. Fine scan: test within best magnitude range
+    两阶段方案:
+    1. 幅值扫描: 测试各个数量级 (1e-2, 1e-1, 1e0, 1e1, 1e2)
+    2. 精细扫描: 在最佳数量级区间内测试
 
-    A valid delta should produce consistent RMS improvement in both +/- directions.
+    一个有效的 delta 应当在 +/- 两个方向上都带来一致的 RMS 改善。
 
     Args:
-        param_dim: Dimension of parameter vector to optimize.
-        objective_fn: Function that takes parameters and returns scalar objective.
-        apply_fn: Function to apply parameters to the system.
-        min_delta: Minimum delta value to test.
-        max_delta: Maximum delta value to test.
-        n_magnitude_steps: Number of magnitude steps to test (default: 5).
-        n_samples_per_delta: Number of samples per delta to reduce noise (default: 5).
-        clip_min: Minimum value for parameter clipping.
-        clip_max: Maximum value for parameter clipping.
-        perturb_mask: Optional mask for which parameters to perturb.
-        verbose: Whether to print progress information.
+        param_dim: 待优化参数向量的维度。
+        objective_fn: 接受参数并返回标量目标值的函数。
+        apply_fn: 把参数施加到系统上的函数。
+        min_delta: 要测试的最小 delta 值。
+        max_delta: 要测试的最大 delta 值。
+        n_magnitude_steps: 要测试的数量级步数 (默认: 5)。
+        n_samples_per_delta: 每个 delta 的采样数, 用于压低噪声 (默认: 5)。
+        clip_min: 参数裁剪的下界。
+        clip_max: 参数裁剪的上界。
+        perturb_mask: 可选掩码, 指定扰动哪些参数。
+        verbose: 是否打印进度信息。
 
     Returns:
-        Tuple of (optimal_delta, info_dict)
+        (optimal_delta, info_dict) 二元组
     """
     if verbose:
         print(f"\n{'=' * 60}")

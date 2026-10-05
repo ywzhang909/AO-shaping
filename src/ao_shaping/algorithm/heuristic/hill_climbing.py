@@ -1,6 +1,6 @@
-"""Hill Climbing optimization algorithm.
+"""爬山法优化算法。
 
-Simple local search optimization that iteratively improves solution by local moves.
+一种简单的局部搜索优化, 通过局部移动迭代改进解。
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.hill_climbing import HillClimbing
@@ -29,19 +29,19 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 @dataclass
 class HCConfig:
-    """Hill Climbing specific configuration."""
+    """爬山法专用配置。"""
 
     step_size: float = 0.1
     neighbor_std: float = 0.1
 
 
 class HillClimbing(HeuristicOptimizer):
-    """Hill Climbing optimizer.
+    """爬山法优化器。
 
     Attributes:
-        dim: Dimension of the problem.
-        config: Configuration.
-        hc_config: Hill Climbing specific config.
+        dim: 问题的维度。
+        config: 配置。
+        hc_config: 爬山法专用配置。
     """
 
     _registry_key = OptimizerType.HILL_CLIMBING
@@ -58,7 +58,7 @@ class HillClimbing(HeuristicOptimizer):
         step_size: float = 0.1,
         neighbor_std: float = 0.1,
     ):
-        """Initialize Hill Climbing optimizer."""
+        """初始化爬山法优化器。"""
         if config is None:
             config = OptimizerConfig(
                 n_iterations=n_iterations, bounds=bounds, seed=seed
@@ -71,7 +71,7 @@ class HillClimbing(HeuristicOptimizer):
         self.hc_config = hc_config
 
     def _generate_neighbor(self, current: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Generate neighbor solution."""
+        """生成邻居解。"""
         neighbor = current + self.rng.normal(0, self.hc_config.neighbor_std, self.dim)
         return np.clip(neighbor, self.config.bounds[0], self.config.bounds[1])
 
@@ -80,7 +80,7 @@ class HillClimbing(HeuristicOptimizer):
         fitness_fn: callable,
         init_x: npt.NDArray[np.float64] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run Hill Climbing optimization."""
+        """执行爬山法优化。"""
         if init_x is not None:
             current = init_x.copy()
         else:

@@ -1,7 +1,7 @@
 # WFS Python SDK 驱动编写指南 (官方手册 API 全量清单 / ctypes 绑定约定 / 状态位与错误表 / 坑位清单):
 #   docs/thorlab-wfs/agent.md
 #
-# refreces docs : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
+# 参考文档 : https://github.com/nvladimus/WFS/blob/master/python/Thorlabs-WFS-read-average-wavefront.ipynb
 
 from __future__ import annotations
 
@@ -53,16 +53,16 @@ MAX_MLA_INDICES = 16
 
 
 def require_take_image(func):
-    """Decorator ensuring take_image() is called before the wrapped method.
+    """装饰器: 保证被包装的方法之前已经调用过 take_image()。
 
-    If no image has been captured yet, automatically calls take_image() first.
+    如果尚未采集图像, 就自动先调用一次 take_image()。
 
-    **File transformations**: None. Ensures the DLL has a current spotfield
-    image and centroid data before functions that depend on it.
+    **文件变换**: 无。它只保证依赖点场的函数执行前, DLL 里已有当前的点场图像
+    与质心数据。
 
-    Note:
-        After auto-calling take_image(), sets ``_image_captured = False`` so
-        the function itself can set it to ``True`` after its own image capture.
+    注意:
+        自动调用 take_image() 之后会把 ``_image_captured = False`` 置上, 好让函数
+        自己在完成图像采集后把它设回 ``True``。
     """
 
     @wraps(func)
@@ -95,20 +95,20 @@ class MlaRes(IntEnum):
     def from_str(
         cls, value: str | int | MlaRes, default: MlaRes | None = None
     ) -> MlaRes:
-        """Convert a string or integer to MlaRes enum member.
+        """把字符串或整数转成 MlaRes 枚举成员。
 
-        Args:
-            value: Resolution string ('512', '768', '1024', '1280', '320'),
-                   integer (512, 768, 1024, 1280, 320), or MlaRes instance
-            default: Default MlaRes to return on invalid input (default: None, raise on invalid)
+        参数:
+            value: 分辨率字符串 ('512', '768', '1024', '1280', '320')、整数
+                   (512, 768, 1024, 1280, 320), 或 MlaRes 实例
+            default: 输入非法时返回的默认 MlaRes (默认 None, 即非法时抛异常)
 
-        Returns:
-            MlaRes enum member
+        返回:
+            MlaRes 枚举成员
 
-        Raises:
-            ValueError: If value is not a supported resolution and no default provided
+        异常:
+            ValueError: value 不是受支持的分辨率, 且未提供 default
         """
-        # If already a MlaRes instance, return as-is
+        # 若已经是 MlaRes 实例, 原样返回
         if isinstance(value, cls):
             return value
 
@@ -162,7 +162,7 @@ Mla_pix = {
 
 
 def _to_mla_res(v: Any) -> MlaRes:
-    """Convert int/str/MlaRes values to MlaRes enum."""
+    """把 int/str/MlaRes 取值转成 MlaRes 枚举。"""
     if isinstance(v, MlaRes):
         return v
     if isinstance(v, str):
@@ -196,13 +196,12 @@ WFS_CONFIG = ConfigHandler(_WFS_CONFIG_DIR, "wfs", WFSParams)
 
 @register_wfs("thorlab")
 class ThorlabWFS(BaseWFS):
-    """Thorlabs Wavefront Sensor (WFS) device driver.
+    """Thorlabs 波前传感器 (WFS) 设备驱动。
 
-    Provides comprehensive control over Thorlabs WFS hardware including
-    spotfield image capture, wavefront reconstruction, Zernike fitting,
-    and reference management.
+    为 Thorlabs WFS 硬件提供完整控制, 覆盖点场图像采集、波前重建、Zernike 拟合
+    以及参考管理。
 
-    Attributes:
+    属性:
         device_type: DeviceType.WFS
         manufacturer: "Thorlabs"
         model: "WFS"
@@ -216,7 +215,7 @@ class ThorlabWFS(BaseWFS):
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct a Thorlabs WFS from a driver parameter object."""
+        """由驱动参数对象构造一个 Thorlabs WFS。"""
         kwargs = {
             "mla_index": getattr(params, "mla_index", None),
             "exposure_time": getattr(params, "exposure_time", None),
@@ -249,25 +248,25 @@ class ThorlabWFS(BaseWFS):
         stable_max_attempts: int = 50,
         device_id: str = "",
     ):
-        """Initialize Thorlabs WFS driver.
+        """初始化 Thorlabs WFS 驱动。
 
-        Args:
-            mla_index: MLA resolution (if None, loaded from config).
-                Positional arg for backward compatibility with WFSManager.
-            exposure_time: Exposure time in ms; 0 means auto (if None, loaded from config).
-            high_speed: Enable high speed mode (if None, loaded from config).
-            use_custom_ref: Use custom reference file (if None, loaded from config).
-            pupil_diameter: Pupil diameter in mm (if None, loaded from config).
-            pupil_center: (cx, cy) center position (if None, loaded from config).
-            stable_sample_enable: Enable automatic stable sample filtering.
-            stable_sample_n: Number of stable samples to collect.
-            stable_variance_threshold: Variance threshold for stability.
-            stable_max_attempts: Max attempts before giving up.
-            device_id: Unique device identifier (passed to Device base class).
+        参数:
+            mla_index: MLA 分辨率 (为 None 时从配置读取)。
+                位置参数, 为兼容旧版 WFSManager。
+            exposure_time: 曝光时间, 单位 ms; 0 表示自动 (为 None 时从配置读取)。
+            high_speed: 启用高速模式 (为 None 时从配置读取)。
+            use_custom_ref: 使用自定义参考文件 (为 None 时从配置读取)。
+            pupil_diameter: 光瞳直径, 单位 mm (为 None 时从配置读取)。
+            pupil_center: (cx, cy) 中心位置 (为 None 时从配置读取)。
+            stable_sample_enable: 启用自动稳定采样过滤。
+            stable_sample_n: 需要采集的稳定采样数。
+            stable_variance_threshold: 判定稳定性的方差阈值。
+            stable_max_attempts: 放弃前的最大尝试次数。
+            device_id: 设备唯一标识 (传给 Device 基类)。
         """
         super().__init__(device_id)
 
-        # Store initialization parameters (deferred to open())
+        # 暂存初始化参数 (推迟到 open())
         if isinstance(mla_index, str):
             mla_index = MlaRes.from_str(mla_index)
         # 用于 ConfigHandler.apply_from_config() 的 init_values
@@ -284,14 +283,13 @@ class ThorlabWFS(BaseWFS):
         self._init_stable_variance_threshold: float = stable_variance_threshold
         self._init_stable_max_attempts: int = stable_max_attempts
 
-        # The native DLL is resolved lazily (see ``_lib``); constructing the
-        # driver must not require the vendor runtime to be installed.
+        # 原生 DLL 以惰性方式解析 (见 ``_lib``); 构造驱动不得要求厂商运行时已安装。
         self._wfs_instrument_index = c_int32()
         self.device_name = ""
         self.serial_num = ""
         self._instrument_handle = c_ulong(0)
 
-        # Instance attributes (will be updated in open())
+        # 实例属性 (将在 open() 中更新)
         self.use_custom_ref: bool = False
         self.mla_index: MlaRes = MlaRes.Res768
         self.image_pix = Mla_pix[self.mla_index]
@@ -307,25 +305,24 @@ class ThorlabWFS(BaseWFS):
         self.enable_high_speed: bool = False
         self._image_captured = False
 
-        # Stable sampling parameters
+        # 稳定采样参数
         self.stable_sample_enable: bool = False
         self.stable_sample_n: int = 5
         self.stable_variance_threshold: float = 0.1
         self.stable_max_attempts: int = 50
 
-        # Register parameters and capabilities
+        # 注册参数与能力
         self._register_parameters()
         self._register_capabilities()
 
     @property
     def _lib(self):
-        """The ``WFS_64.dll`` handle, loaded on first use and cached.
+        """``WFS_64.dll`` 句柄, 首次使用时加载并缓存。
 
-        Was bound eagerly in ``__init__``, which made constructing a
-        ``ThorlabWFS`` raise ``OSError`` wherever the Thorlabs / VISA runtime is
-        absent — blocking offline tooling and driver introspection. Every call
-        site already reads ``self._lib.<fn>``, so deferring the load here leaves
-        them untouched and moves the requirement to ``open()``.
+        此前是在 ``__init__`` 里急切绑定的, 那使得在没有 Thorlabs / VISA 运行时的
+        任何地方构造 ``ThorlabWFS`` 都会抛 ``OSError``, 挡住离线工具与驱动自省。
+        所有调用点本来就都在读 ``self._lib.<fn>``, 因此把加载推迟到这里既不用改动
+        它们, 又把该依赖推迟到了 ``open()``。
         """
         return self._ensure_sdk()
 
@@ -334,7 +331,7 @@ class ThorlabWFS(BaseWFS):
         return load_dll()
 
     def _register_parameters(self) -> None:
-        """Register WFS-specific parameters."""
+        """注册 WFS 专有参数。"""
         self.register_parameter(
             "exposure_time_ms",
             default_value=0.0,
@@ -387,7 +384,7 @@ class ThorlabWFS(BaseWFS):
         )
 
     def _register_capabilities(self) -> None:
-        """Register WFS capabilities."""
+        """注册 WFS 能力项。"""
         self.register_capability(
             "measure_wavefront",
             description="Measure wavefront from current spotfield image",
@@ -419,13 +416,13 @@ class ThorlabWFS(BaseWFS):
             return_type=bool,
         )
 
-    # ==================== Device Base Class Overrides ====================
+    # ==================== Device 基类覆写 ====================
 
     def open(self) -> None:
-        """Open connection to the WFS device and initialize.
+        """打开 WFS 设备连接并完成初始化。
 
-        Raises:
-            ConnectionError: If WFS is already in use or initialization fails.
+        异常:
+            ConnectionError: WFS 已被占用, 或初始化失败。
         """
         self._set_state(DeviceState.CONNECTING)
 
@@ -446,7 +443,7 @@ class ThorlabWFS(BaseWFS):
             self.handle_error(res)
             return
 
-        # check if WFS is in use, if not, connect to device
+        # 检查 WFS 是否被占用, 未被占用则连接设备
         assert not device_in_use, (
             "Wavefront sensor currently in use.... closing program"
         )
@@ -460,13 +457,13 @@ class ThorlabWFS(BaseWFS):
             f"Connected to {self.device_name} with Serial Number {self.serial_num}"
         )
 
-        # Load configuration (init params take priority, then config values)
+        # 加载配置 (init 参数优先, 其次取配置值)
         config = self.load_config()
 
         # 通过 ConfigHandler 应用简单字段 (mla_index, exposure_time, high_speed, use_custom_ref)
         WFS_CONFIG.apply_from_config(self, config, init_values=self._init_values)
 
-        # Validate exposure time
+        # 校验曝光时间
         if not (
             self._explosure_time == 0.0
             or EXP_TIME_LOW <= self._explosure_time <= EXP_TIME_HIGH
@@ -494,7 +491,7 @@ class ThorlabWFS(BaseWFS):
         else:
             self.d_x, self.d_y = 2.0, 2.0
 
-        # stable sample parameters
+        # 稳定采样参数
         self.stable_sample_enable = self._init_stable_sample_enable
         self.stable_sample_n = self._init_stable_sample_n
         self.stable_variance_threshold = self._init_stable_variance_threshold
@@ -525,9 +522,9 @@ class ThorlabWFS(BaseWFS):
         logger.info(f"WFS device {self.device_id} ready")
 
     def close(self) -> None:
-        """Close the WFS device connection and release resources."""
+        """关闭 WFS 设备连接并释放资源。"""
         if self._instrument_handle.value > 0:
-            # Save configuration
+            # 保存配置
             self.save_config()
             self.enable_high_speed = False
 
@@ -538,19 +535,18 @@ class ThorlabWFS(BaseWFS):
         logger.info(f"WFS device {self.device_id} closed")
 
     def is_connected(self) -> bool:
-        """Check if the WFS device is connected and ready.
+        """检查 WFS 设备是否已连接且就绪。
 
-        Returns:
-            True if instrument handle is valid and state is READY.
+        返回:
+            仪器句柄有效且状态为 READY 时返回 True。
         """
         return self._instrument_handle.value > 0 and self._state == DeviceState.READY
 
     def get_hardware_info(self) -> dict:
-        """Get hardware-specific information.
+        """获取硬件相关信息。
 
-        Returns:
-            Dictionary with serial_number, device_name, manufacturer, model,
-            and firmware version.
+        返回:
+            含 serial_number、device_name、manufacturer、model 以及固件版本的字典。
         """
         return {
             "serial_number": self.serial_num,
@@ -560,13 +556,13 @@ class ThorlabWFS(BaseWFS):
             "firmware_version": "N/A",
         }
 
-    # ==================== Config Management ====================
+    # ==================== 配置管理 ====================
 
     def load_config(self) -> dict:
-        """Load JSON configuration file based on serial number.
+        """按序列号加载 JSON 配置文件。
 
-        Returns:
-            Configuration dict; empty dict if no serial number or file missing.
+        返回:
+            配置字典; 无序列号或文件缺失时返回空字典。
         """
         if not self.serial_num:
             logger.warning("WFS serial number not available, skipping config load")
@@ -574,10 +570,10 @@ class ThorlabWFS(BaseWFS):
         return WFS_CONFIG._manager.load_config(self.serial_num)
 
     def save_config(self) -> None:
-        """Save current parameters to JSON configuration file.
+        """把当前参数保存到 JSON 配置文件。
 
-        Config items include: serial_number, mla_index, exposure_time, high_speed,
-        pupil_center, pupil_diameter, use_custom_ref.
+        配置项包括: serial_number、mla_index、exposure_time、high_speed、
+        pupil_center、pupil_diameter、use_custom_ref。
         """
         if not self.serial_num:
             logger.warning("WFS serial number not available, skipping config save")
@@ -593,14 +589,14 @@ class ThorlabWFS(BaseWFS):
         config_file = WFS_CONFIG._manager._get_config_file(self.serial_num)
         logger.info(f"WFS configuration saved: {config_file}")
 
-    # ==================== Error Handling ====================
+    # ==================== 错误处理 ====================
 
     def handle_error(self, err: ViStatus, no_raise: bool = False) -> None:
-        """Handle WFS error by retrieving and logging error message.
+        """取出并记录错误消息以处理 WFS 错误。
 
-        Args:
-            err: Error code returned from WFS library.
-            no_raise: If True, only log error without raising exception.
+        参数:
+            err: WFS 库返回的错误码。
+            no_raise: 为 True 时只记录错误, 不抛异常。
         """
         info = create_string_buffer(256)
         self._lib.WFS_error_message(self._instrument_handle, err, byref(info))
@@ -608,16 +604,16 @@ class ThorlabWFS(BaseWFS):
         if not no_raise:
             raise WfsError(info.value.decode('utf-8'))
 
-    # ==================== MLA Configuration ====================
+    # ==================== MLA 配置 ====================
 
     def select_mla(self, mla_index: MlaRes) -> None:
-        """Select and configure MLA (Micro Lens Array) holographic element.
+        """选择并配置 MLA (微透镜阵列) 全息元件。
 
-        Args:
-            mla_index: MLA resolution enum value.
+        参数:
+            mla_index: MLA 分辨率枚举值。
 
-        Note:
-            This resets the camera configuration and updates num_spots_x/y.
+        注意:
+            这会重置相机配置并更新 num_spots_x/y。
         """
         self._lib.WFS_SelectMla(self._instrument_handle, 0)
         num_spots_x = c_int32()
@@ -638,28 +634,28 @@ class ThorlabWFS(BaseWFS):
         )
 
     def set_ref_plane(self, custom: bool) -> None:
-        """Set reference plane for wavefront measurement.
+        """设置波前测量的参考平面。
 
-        **DLL calls** (in order when ``custom=True``):
-        1. ``WFS_SetReferencePlane(handle, 1)`` → switch to custom ref plane
-        2. ``WFS_LoadUserRefFile(handle)`` → load ``.ref`` file from DLL-managed dir
+        **DLL 调用** (``custom=True`` 时的顺序):
+        1. ``WFS_SetReferencePlane(handle, 1)`` → 切到自定义参考平面
+        2. ``WFS_LoadUserRefFile(handle)`` → 从 DLL 管理的目录加载 ``.ref`` 文件
 
-        **DLL calls** (when ``custom=False``):
-        1. ``WFS_SetReferencePlane(handle, 0)`` → switch to factory default
+        **DLL 调用** (``custom=False`` 时):
+        1. ``WFS_SetReferencePlane(handle, 0)`` → 切回出厂默认
 
-        **File transformations**:
-        - When ``custom=True``:
-          DLL reads ``<Ref_Dir>/<filename>.ref`` (created by ``save_user_ref()``).
-          No files are written or modified.
-        - When ``custom=False``:
-          No file operations. Only DLL internal state change.
+        **文件变换**:
+        - ``custom=True`` 时:
+          DLL 读取 ``<Ref_Dir>/<filename>.ref`` (由 ``save_user_ref()`` 创建)。
+          不写入也不修改任何文件。
+        - ``custom=False`` 时:
+          无文件操作, 只改变 DLL 内部状态。
 
-        **Fallback behavior**:
-        If ``WFS_LoadUserRefFile`` fails (no ``.ref`` file exists yet),
-        falls back to default reference with a warning instead of raising.
+        **回退行为**:
+        若 ``WFS_LoadUserRefFile`` 失败 (尚无 ``.ref`` 文件), 则带警告回退到默认参考,
+        而不是抛异常。
 
-        Args:
-            custom: If True, load custom user reference file; otherwise use default reference.
+        参数:
+            custom: 为 True 时加载自定义用户参考文件, 否则使用默认参考。
         """
         _select = 1 if custom else 0
         if err := self._lib.WFS_SetReferencePlane(
@@ -679,7 +675,7 @@ class ThorlabWFS(BaseWFS):
                     "No user reference file available (use save_user_ref() first). "
                     "Falling back to default reference."
                 )
-                # Fall back to default reference
+                # 回退到默认参考
                 self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(0))
                 self.use_custom_ref = False
             else:
@@ -689,21 +685,21 @@ class ThorlabWFS(BaseWFS):
 
     @require_take_image
     def create_default_user_ref(self) -> bool:
-        """Create a default user reference from the current spotfield image.
+        """由当前点场图像创建默认用户参考。
 
-        **DLL calls**:
-        1. ``WFS_CreateDefaultUserReference(handle)`` — computes reference spot
-           positions from the most recently captured spotfield image.
+        **DLL 调用**:
+        1. ``WFS_CreateDefaultUserReference(handle)`` —— 由最近一次采集的点场图像
+           计算参考斑点位置。
 
-        **File transformations**: None.
-        The reference is only set in DLL internal memory. To persist to disk,
-        call ``save_user_ref()`` afterwards (which writes ``.ref`` file).
+        **文件变换**: 无。
+        参考只写入 DLL 内部内存。若要持久化到磁盘, 需随后调用 ``save_user_ref()``
+        (它会写出 ``.ref`` 文件)。
 
-        **Typical workflow**:
+        **典型流程**:
         ``take_image()`` → ``create_default_user_ref()`` → ``save_user_ref()``
 
-        Returns:
-            True on success, False on failure.
+        返回:
+            成功返回 True, 失败返回 False。
         """
         if err := self._lib.WFS_CreateDefaultUserReference(self._instrument_handle):
             self.handle_error(err, no_raise=True)
@@ -713,29 +709,25 @@ class ThorlabWFS(BaseWFS):
         return True
 
     def get_mla_name(self) -> str:
-        """Get the currently selected MLA name (e.g., 'MLA150M-5C').
+        """获取当前选中的 MLA 名称 (如 'MLA150M-5C')。
 
-        Calls ``WFS_GetMlaData(handle, 0, ...)`` to retrieve the name of
-        the Microlens Array that was selected by ``WFS_SelectMla(handle, 0)``
-        during initialization.
+        调用 ``WFS_GetMlaData(handle, 0, ...)`` 取回微透镜阵列的名称, 它对应初始化
+        期间由 ``WFS_SelectMla(handle, 0)`` 选中的那个阵列。
 
         .. important::
 
-           The ``MLAIndex`` parameter of ``WFS_GetMlaData`` is **not** the
-           camera resolution code (0=1280, 1=1024, 2=768, 3=512, 4=320).
-           It is the ``MLA`` **selection index** (0 to ``MLACount-1``),
-           which corresponds to the same value passed to ``WFS_SelectMla``.
-           Since the driver always selects MLA 0 via ``WFS_SelectMla(handle, 0)``,
-           we pass index 0 here.
+           ``WFS_GetMlaData`` 的 ``MLAIndex`` 参数**不是**相机分辨率代码
+           (0=1280, 1=1024, 2=768, 3=512, 4=320), 而是 MLA 的**选择索引**
+           (0 到 ``MLACount-1``), 其取值与传给 ``WFS_SelectMla`` 的相同。
+           由于驱动始终用 ``WFS_SelectMla(handle, 0)`` 选中 MLA 0, 这里传索引 0。
 
-        Returns:
-            MLA name string (e.g. ``"MLA150M-5C"``), or empty string if the
-            DLL call fails.
+        返回:
+            MLA 名称字符串 (如 ``"MLA150M-5C"``); DLL 调用失败时返回空字符串。
         """
         mla_name_buffer = create_string_buffer(256)
         err = self._lib.WFS_GetMlaData(
             self._instrument_handle,
-            c_int32(0),  # MLA index = 0 (the selected MLA)
+            c_int32(0),  # MLA index = 0 (选中的 MLA)
             mla_name_buffer,
             byref(c_double()),
             byref(c_double()),
@@ -760,15 +752,15 @@ class ThorlabWFS(BaseWFS):
         return name.strip("\x00").strip()
 
     def _try_get_mla_name_fallback(self) -> str:
-        """Try alternative MLA indices (1, 2, ... up to 15) for a name.
+        """尝试用其他 MLA 索引 (1, 2, ... 直到 15) 取得名称。
 
-        If the primary MLA index (0) is not available, this searches higher
-        indices as a safety net. The WFS typically has 1-2 calibrated MLAs.
+        若主 MLA 索引 (0) 不可用, 这里作为兜底向上搜索更多索引。WFS 通常只有
+        1-2 个已标定的 MLA。
 
-        Returns:
-            MLA name string, or empty string if all attempts fail.
+        返回:
+            MLA 名称字符串; 全部尝试失败时返回空字符串。
         """
-        for alt_idx in range(1, MAX_MLA_INDICES):  # try indices 1..MAX_MLA_INDICES-1
+        for alt_idx in range(1, MAX_MLA_INDICES):  # 尝试索引 1..MAX_MLA_INDICES-1
             buf = create_string_buffer(256)
             err = self._lib.WFS_GetMlaData(
                 self._instrument_handle,
@@ -796,23 +788,23 @@ class ThorlabWFS(BaseWFS):
 
     @staticmethod
     def _get_ref_default_dir() -> Path:
-        """Get the default WFS reference file directory.
+        """获取 WFS 默认参考文件目录。
 
-        The Thorlabs WFS DLL saves/loads reference files to/from:
+        Thorlabs WFS DLL 把参考文件保存/加载到:
             C:\\Users\\<user>\\Documents\\Thorlabs\\Wavefront Sensor\\Reference
 
-        On Linux, falls back to ~/.local/share/Thorlabs/WFS/Ref or project data directory.
+        在 Linux 上回退到 ~/.local/share/Thorlabs/WFS/Ref 或项目 data 目录。
 
-        Returns:
-            Path object for the reference directory.
+        返回:
+            参考目录的 Path 对象。
         """
         import platform
 
         system = platform.system()
 
         if system == "Windows":
-            # Use Path.home() which reliably resolves C:\Users\<username>
-            # Fall back to USERPROFILE if home() fails
+            # 用 Path.home(), 它能可靠地解析出 C:\Users\<username>
+            # home() 失败时回退到 USERPROFILE
             home = Path.home()
             if not home or not home.exists():
                 user_profile = os.environ.get("USERPROFILE")
@@ -823,7 +815,7 @@ class ThorlabWFS(BaseWFS):
                     home = Path("C:/Users/Public")
             return home / "Documents" / "Thorlabs" / "Wavefront Sensor" / "Reference"
         else:
-            # Linux/macOS fallback: use XDG_DATA_HOME or project data directory
+            # Linux/macOS 回退: 用 XDG_DATA_HOME 或项目 data 目录
             xdg_data = os.environ.get("XDG_DATA_HOME", "")
             if xdg_data:
                 base = Path(xdg_data)
@@ -833,7 +825,7 @@ class ThorlabWFS(BaseWFS):
             ref_dir = base / "Thorlabs" / "WFS" / "Ref"
             logger.debug(f"[WFS _get_ref_default_dir] Linux fallback: {ref_dir}")
 
-            # Fallback to project data/calibration if not writable
+            # 若不可写, 回退到项目 data/calibration
             project_fallback = Path("data") / "calibration" / "wfs_ref"
             if not ref_dir.parent.exists():
                 logger.debug(
@@ -844,24 +836,23 @@ class ThorlabWFS(BaseWFS):
             return ref_dir
 
     def _get_ref_filename(self, fallback_if_empty: bool = True) -> str:
-        """Construct the ``.ref`` filename that the WFS DLL expects.
+        """构造 WFS DLL 期望的 ``.ref`` 文件名。
 
-        **Filename pattern** (from Thorlabs SDK):
+        **文件名格式** (来自 Thorlabs SDK):
             ``WFS_<serial_number>_<mla_name>_<cam_resol_idx>.ref``
 
-        This filename is used by both ``save_user_ref()`` (to know where the
-        DLL wrote the file) and ``load_user_ref()`` (to locate the file for
-        copying or reading). It matches what the DLL expects internally.
+        该文件名同时被 ``save_user_ref()`` (用于知道 DLL 把文件写到了哪里) 与
+        ``load_user_ref()`` (用于定位要复制或读取的文件) 使用, 与 DLL 内部期望一致。
 
-        **No file transformations** — pure string construction.
+        **无文件变换** —— 纯字符串拼接。
 
-        Args:
-            fallback_if_empty: If True and ``mla_name`` is empty, use
-                ``"unknown"`` as a placeholder so the filename is still valid.
+        参数:
+            fallback_if_empty: 为 True 且 ``mla_name`` 为空时, 用 ``"unknown"``
+                作占位符, 以保证文件名仍然合法。
 
-        Returns:
-            Filename string like ``WFS_M00224955_MLA150M-5C_0.ref``,
-            or ``WFS_M00224955_unknown_3.ref`` if MLA name unavailable.
+        返回:
+            形如 ``WFS_M00224955_MLA150M-5C_0.ref`` 的文件名字符串;
+            MLA 名称不可得时为 ``WFS_M00224955_unknown_3.ref``。
         """
         mla_name = self.get_mla_name()
         if not mla_name and fallback_if_empty:
@@ -871,41 +862,38 @@ class ThorlabWFS(BaseWFS):
                 f"using fallback filename with 'unknown': "
                 f"WFS_{self.serial_num}_unknown_{int(self.mla_index)}.ref"
             )
-        # cam_resol_idx is the MLA resolution index (self.mla_index value)
+        # cam_resol_idx 就是 MLA 分辨率索引 (self.mla_index 的值)
         cam_resol_idx = int(self.mla_index)
         filename = f"WFS_{self.serial_num}_{mla_name}_{cam_resol_idx}.ref"
         return filename
 
     @require_take_image
     def save_user_ref(self, backup_dir: str | Path | None = None) -> Path | None:
-        """Save user reference file and create a timestamped backup.
+        """保存用户参考文件并创建带时间戳的备份。
 
-        **DLL calls** (in order):
-        1. ``WFS_SetSpotsToUserReference(handle)`` — promotes current spot
-           centroids as the reference (internal DLL memory only).
-        2. ``WFS_SaveUserRefFile(handle)`` — writes ``.ref`` file to the
-           DLL-managed location on disk.
+        **DLL 调用** (按顺序):
+        1. ``WFS_SetSpotsToUserReference(handle)`` —— 把当前斑点质点提升为参考
+           (只存在于 DLL 内部内存)。
+        2. ``WFS_SaveUserRefFile(handle)`` —— 把 ``.ref`` 文件写到 DLL 管理的磁盘位置。
 
-        **File transformations** (step by step):
+        **文件变换** (逐步):
         ::
 
-            ┌─ DLL writes to:  <Ref_Dir>/<filename>.ref        (CREATED)
-            └─ shutil.copy2 →  <backup_dir>/<filename>_<ts>.ref (CREATED)
+            ┌─ DLL 写入:  <Ref_Dir>/<filename>.ref        (新建)
+            └─ shutil.copy2 →  <backup_dir>/<filename>_<ts>.ref (新建)
 
         - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
         - **filename** = ``WFS_{serial}_{mla_name}_{res_index}``
-        - If the MLA name cannot be determined (``WFS_GetMlaData`` fails), uses
-          ``"unknown"`` as fallback in the filename.
-        - If the expected filename is not found after DLL save, searches the
-          ref directory for any ``WFS_{serial}_*.ref`` file as fallback.
-        - The DLL-managed copy may be silently overwritten on next save;
-          the timestamped backup preserves history.
+        - 若无法确定 MLA 名称 (``WFS_GetMlaData`` 失败), 文件名中用 ``"unknown"`` 兜底。
+        - 若 DLL 保存后在预期路径下找不到文件名, 就在参考目录里搜索任意
+          ``WFS_{serial}_*.ref`` 文件作为兜底。
+        - DLL 管理的那份副本在下一次保存时可能被静默覆盖; 带时间戳的备份保留历史。
 
-        Args:
-            backup_dir: Directory to store backup. Defaults to ``data/calibration/``.
+        参数:
+            backup_dir: 存放备份的目录。默认 ``data/calibration/``。
 
-        Returns:
-            Path to the timestamped backup file, or None on failure.
+        返回:
+            带时间戳的备份文件路径; 失败时返回 None。
         """
         if backup_dir is None:
             backup_dir = Path("data/calibration")
@@ -913,26 +901,26 @@ class ThorlabWFS(BaseWFS):
             backup_dir = Path(backup_dir)
         backup_dir.mkdir(parents=True, exist_ok=True)
 
-        # Explicitly set current spot positions as the reference before saving.
-        # Without this call, WFS_SaveUserRefFile may have nothing to persist,
-        # resulting in a "No User Reference available!" error on subsequent load.
+        # 保存前显式把当前斑点位置设为参考。
+        # 少了这次调用, WFS_SaveUserRefFile 可能无内容可存, 导致随后加载时报
+        # "No User Reference available!" 错误。
         if err := self._lib.WFS_SetSpotsToUserReference(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             return None
 
-        # Call DLL to save reference file to its default location
+        # 调用 DLL 把参考文件保存到它的默认位置
         if err := self._lib.WFS_SaveUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             return None
 
-        # Get the source file path (where DLL saved it)
+        # 取源文件路径 (DLL 保存的位置)
         ref_dir = self._get_ref_default_dir()
         ref_filename = self._get_ref_filename()
         src_path = ref_dir / ref_filename
 
         if not src_path.exists():
-            # Fallback: search ref_dir for any .ref file matching the serial number.
-            # The DLL may choose a different filename when MLA name is unavailable.
+            # 兜底: 在 ref_dir 中搜索与序列号匹配的任何 .ref 文件。
+            # MLA 名称不可得时 DLL 可能选了别的文件名。
             logger.warning(
                 f"Reference file not found at expected path: {src_path}\n"
                 f"Searching {ref_dir} for files matching serial {self.serial_num}..."
@@ -951,12 +939,12 @@ class ThorlabWFS(BaseWFS):
                 )
                 return None
 
-        # Create timestamped backup filename
+        # 生成带时间戳的备份文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         backup_filename = f"{src_path.stem}_{timestamp}{src_path.suffix}"
         backup_path = backup_dir / backup_filename
 
-        # Copy to backup location
+        # 复制到备份位置
         try:
             shutil.copy2(src_path, backup_path)
             logger.info(f"User reference saved to DLL location: {src_path}")
@@ -967,41 +955,39 @@ class ThorlabWFS(BaseWFS):
             return None
 
     def load_user_ref(self, backup_path: str | Path | None = None) -> bool:
-        """Load user reference file from a backup or default location.
+        """从备份或默认位置加载用户参考文件。
 
-        **DLL calls** (in order):
-        1. ``WFS_LoadUserRefFile(handle)`` — loads ``.ref`` file from DLL dir
-        2. ``WFS_SetReferencePlane(handle, 1)`` — switches to custom ref plane
+        **DLL 调用** (按顺序):
+        1. ``WFS_LoadUserRefFile(handle)`` —— 从 DLL 目录加载 ``.ref`` 文件
+        2. ``WFS_SetReferencePlane(handle, 1)`` —— 切到自定义参考平面
 
-        **File transformations** (step by step):
+        **文件变换** (逐步):
 
-        **With ``backup_path`` provided**::
+        **提供了 ``backup_path``** 时::
         ::
 
-            shutil.copy2(backup_path → <Ref_Dir>/<filename>.ref)  (COPIED)
-            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+            shutil.copy2(backup_path → <Ref_Dir>/<filename>.ref)  (已复制)
+            DLL 读取 ←  <Ref_Dir>/<filename>.ref                  (读取)
 
-        **Without ``backup_path``**::
+        **未提供 ``backup_path``** 时::
         ::
 
-            DLL reads ←  <Ref_Dir>/<filename>.ref                  (READ)
+            DLL 读取 ←  <Ref_Dir>/<filename>.ref                  (读取)
 
         - **Ref_Dir** = ``%USERPROFILE%/Documents/Thorlabs/Wavefront Sensor/Reference``
-        - If ``backup_path`` is given, the file is first copied to the DLL's
-          expected location so ``WFS_LoadUserRefFile`` can find it.
-        - If the file does not exist at the expected path, the DLL returns an
-          error (previously "No User Reference available!") — see ``save_user_ref()``
-          to create it.
+        - 若给了 ``backup_path``, 会先把文件复制到 DLL 期望的位置, 好让
+          ``WFS_LoadUserRefFile`` 能找到它。
+        - 若预期路径下没有该文件, DLL 会返回错误 (此前是 "No User Reference
+          available!") —— 见 ``save_user_ref()`` 如何创建它。
 
-        Args:
-            backup_path: Optional path to a backup ``.ref`` file to load.
-                If provided, the file is copied to the DLL-managed directory
-                before calling ``WFS_LoadUserRefFile``.
+        参数:
+            backup_path: 要加载的备份 ``.ref`` 文件路径, 可选。
+                若提供, 会先复制到 DLL 管理的目录, 再调用 ``WFS_LoadUserRefFile``。
 
-        Returns:
-            True on success, False on failure.
+        返回:
+            成功返回 True, 失败返回 False。
         """
-        # Debug: print current system information
+        # 调试: 打印当前系统信息
         import platform
 
         logger.debug(f"[WFS load_user_ref] Platform: {platform.system()}")
@@ -1015,7 +1001,7 @@ class ThorlabWFS(BaseWFS):
                 logger.error(f"Backup file not found: {backup_path}")
                 return False
 
-            # Copy backup to DLL's expected location
+            # 把备份复制到 DLL 期望的位置
             ref_dir = self._get_ref_default_dir()
             logger.debug(f"[WFS load_user_ref] ref_dir: {ref_dir}")
             logger.debug(f"[WFS load_user_ref] ref_dir exists: {ref_dir.exists()}")
@@ -1035,12 +1021,12 @@ class ThorlabWFS(BaseWFS):
                 logger.error(f"Failed to copy backup file: {e}")
                 return False
 
-        # Call DLL to load reference file from its default location
+        # 调用 DLL 从它的默认位置加载参考文件
         logger.debug("[WFS load_user_ref] Calling WFS_LoadUserRefFile...")
         if err := self._lib.WFS_LoadUserRefFile(self._instrument_handle):
             self.handle_error(err, no_raise=True)
             logger.error("Failed to load user reference file via WFS_LoadUserRefFile")
-            # Additional debug: list the DLL's expected reference file path
+            # 附加调试: 列出 DLL 期望的参考文件路径
             ref_dir = self._get_ref_default_dir()
             ref_filename = self._get_ref_filename()
             expected_path = ref_dir / ref_filename
@@ -1049,7 +1035,7 @@ class ThorlabWFS(BaseWFS):
                 f"[WFS load_user_ref] Expected path exists: {expected_path.exists()}"
             )
             if not expected_path.exists():
-                # List directory contents to help debugging
+                # 列出目录内容以帮助调试
                 try:
                     files = list(ref_dir.glob("*")) if ref_dir.exists() else []
                     logger.debug(f"[WFS load_user_ref] Files in ref_dir: {files}")
@@ -1057,7 +1043,7 @@ class ThorlabWFS(BaseWFS):
                     logger.debug(f"[WFS load_user_ref] Cannot list ref_dir: {list_err}")
             return False
 
-        # Also update the reference plane setting
+        # 同时更新参考平面设置
         logger.debug("[WFS load_user_ref] Setting reference plane to custom...")
         if err := self._lib.WFS_SetReferencePlane(self._instrument_handle, c_int32(1)):
             self.handle_error(err, no_raise=True)
@@ -1067,25 +1053,24 @@ class ThorlabWFS(BaseWFS):
         logger.info("User reference file loaded successfully")
         return True
 
-    # ==================== Pupil / Image Capture ====================
+    # ==================== 光瞳 / 图像采集 ====================
 
     def optimize_pupil(self) -> tuple[float, float, float, float]:
-        """Optimize pupil detection.
+        """优化光瞳检测。
 
-        This function calculates the beam centroid and diameter from the
-        current spotfield data.
+        本函数由当前点场数据计算光束质心与直径。
 
-        Note:
-            **只计算并返回, 不写回设备** — 调用方必须显式
+        注意:
+            **只计算并返回, 不写回设备** —— 调用方必须显式
             ``wfs.pupil = wfs.optimize_pupil()`` 才会调用 ``WFS_SetPupil`` 生效。
             硬编码/未写回的 pupil 与真实光束不符时, 边界无效子孔径会污染
             ``WFS_ZernikeLsf`` 全孔径 LSF 拟合 → 巨大的假 tip/tilt (2026-09 实测
             (0,0,8mm) 硬编码产生 |z|=4.6~12.8λ, 自动 pupil ≈(±0.15, ±3.7)mm 后
             恢复 0.006~0.217λ 并线性度 R²=0.9603)。
 
-        Returns:
-            tuple[float, float, float, float]: beam centroid x, beam centroid y,
-                beam diameter x, beam diameter y
+        返回:
+            tuple[float, float, float, float]: 光束质心 x、光束质心 y、
+                光束直径 x、光束直径 y
         """
         assert not self.enable_high_speed, "turn off high speed mode first"
         self._lib.WFS_CalcSpotsCentrDiaIntens(
@@ -1126,15 +1111,15 @@ class ThorlabWFS(BaseWFS):
         return (cx_v, cy_v, dx_v, dy_v)
 
     def take_image(self, n_sample: int = 10, dynamicNoiseCut: bool = True) -> None:
-        """Capture spotfield image and calculate spot centroids/diameters/intensities.
+        """采集点场图像并计算斑点质心/直径/强度。
 
-        Args:
-            n_sample: Number of auto-exposure samples to take (used when exposure_time <= 0).
-            dynamicNoiseCut: Enable dynamic noise floor cutoff for spot calculation.
+        参数:
+            n_sample: 自动曝光模式下采集的采样张数 (exposure_time <= 0 时使用)。
+            dynamicNoiseCut: 是否为斑点计算启用动态噪声底截止。
 
-        Note:
-            Sets self._image_captured flag to True upon successful capture.
-            For fixed exposure, takes single image; for auto exposure, iterates n_sample times.
+        注意:
+            采集成功后把 self._image_captured 标志置为 True。
+            固定曝光时只拍一张; 自动曝光时迭代 n_sample 次。
         """
         if self._explosure_time > 0:
             if err := self._lib.WFS_TakeSpotfieldImage(self._instrument_handle):
@@ -1142,7 +1127,7 @@ class ThorlabWFS(BaseWFS):
             else:
                 self._image_captured = True
         else:
-            # No fixed exposure time, use auto-exposure with multiple samples
+            # 无固定曝光时间, 用多次采样的自动曝光
             actual_exposure = c_double()
             actual_gain = c_double()
             for _ in range(n_sample):
@@ -1151,7 +1136,7 @@ class ThorlabWFS(BaseWFS):
                 )
             self._image_captured = True
 
-        # Calculate spot centroids, diameters, and intensities
+        # 计算斑点质心、直径与强度
         if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
             self._instrument_handle, c_int32(1 if dynamicNoiseCut else 0), c_int32(0)
         ):
@@ -1159,16 +1144,16 @@ class ThorlabWFS(BaseWFS):
 
     @require_take_image
     def get_spotfiled_image(self) -> np.ndarray:
-        """Retrieve the captured spotfield image from the WFS device.
+        """从 WFS 设备取出已采集的点场图像。
 
-        Returns:
-            np.ndarray: 2D uint8 image array (rows × columns).
+        返回:
+            np.ndarray: 二维 uint8 图像数组 (行 × 列)。
 
-        Raises:
-            RuntimeError: If WFS_GetSpotfieldImageCopy fails.
+        异常:
+            RuntimeError: WFS_GetSpotfieldImageCopy 失败。
         """
-        # Allocate buffer for maximum possible image size
-        # (CAM_MAXPIX_X * CAM_MAXPIX_Y per manual; 1280×1024 is the largest MLA)
+        # 按手册给出的最大图像尺寸分配缓冲区
+        # (CAM_MAXPIX_X * CAM_MAXPIX_Y; 1280×1024 是最大的 MLA)
         max_h, max_w = 1024, 1280
         image_buf = np.empty((max_h, max_w), dtype=np.uint8)
         rows = c_int32()
@@ -1180,22 +1165,22 @@ class ThorlabWFS(BaseWFS):
             byref(cols),
         ):
             raise RuntimeError(self.handle_error(err))
-        # Return only the valid region (rows × columns)
+        # 只返回有效区域 (行 × 列)
         return image_buf[: rows.value, : cols.value]
 
     @require_take_image
     def get_spots_statics(self) -> tuple[np.ndarray, tuple[np.ndarray, np.ndarray]]:
-        """Get spot intensities and centroid positions.
+        """获取斑点强度与质心位置。
 
-        Returns:
-            tuple containing:
-                - np.ndarray: spot intensities array of shape (num_spots_x, num_spots_y)
-                - tuple[np.ndarray, np.ndarray]: (centroid_x, centroid_y) arrays
-                  each of shape (num_spots_x, num_spots_y)
+        返回:
+            含以下内容的 tuple:
+                - np.ndarray: 形状为 (num_spots_x, num_spots_y) 的斑点强度数组
+                - tuple[np.ndarray, np.ndarray]: (centroid_x, centroid_y) 数组,
+                  每个形状都是 (num_spots_x, num_spots_y)
 
-        Note:
-            Requires high speed mode to be disabled.
-            Spots outside the active pupil region will have NaN values.
+        注意:
+            要求已关闭高速模式。
+            活动光瞳区域之外的斑点值为 NaN。
         """
         assert not self.enable_high_speed, "turn off high speed mode first"
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
@@ -1225,18 +1210,18 @@ class ThorlabWFS(BaseWFS):
         edge_clip: int = 1,
         plot: bool = False,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Build valid subaperture mask for WFS40-5C.
+        """为 WFS40-5C 构建有效子孔径掩码。
 
-        Args:
-            n_avg: Number of frames to average for noise suppression.
-            threshold_ratio: Intensity threshold as ratio of max intensity (0.2-0.4 typical).
-            edge_clip: Number of lenslet rows/cols to clip from edges (1-2 recommended).
-            plot: If True, display visualization.
+        参数:
+            n_avg: 为抑制噪声而平均的帧数。
+            threshold_ratio: 以最大强度为基准的强度阈值比例 (典型 0.2-0.4)。
+            edge_clip: 从边缘裁掉的透镜行/列数 (推荐 1-2)。
+            plot: 为 True 时显示可视化。
 
-        Returns:
+        返回:
             tuple: (mask_bool, valid_indices_flat)
-                - mask_bool: 2D boolean array of shape (num_spots_x, num_spots_y)
-                - valid_indices_flat: 1D array of flattened indices for valid subapertures
+                - mask_bool: 形状 (num_spots_x, num_spots_y) 的二维布尔数组
+                - valid_indices_flat: 有效子孔径展平索引构成的一维数组
         """
         from scipy import ndimage
 
@@ -1294,15 +1279,15 @@ class ThorlabWFS(BaseWFS):
         variance_threshold: float,
         max_attempts: int,
     ) -> list[np.ndarray]:
-        """Collect stable samples based on variance threshold.
+        """按方差阈值采集稳定样本。
 
-        Args:
-            n_samples: Number of stable samples to collect.
-            variance_threshold: Maximum allowed variance for a sample to be considered stable.
-            max_attempts: Maximum number of attempts before giving up.
+        参数:
+            n_samples: 要采集的稳定样本数。
+            variance_threshold: 判定样本稳定所允许的最大方差。
+            max_attempts: 放弃前的最大尝试次数。
 
-        Returns:
-            List of stable sample arrays.
+        返回:
+            稳定样本数组的列表。
         """
         stable_samples = []
         attempts = 0
@@ -1344,25 +1329,25 @@ class ThorlabWFS(BaseWFS):
 
         return stable_samples
 
-    # ==================== Wavefront Measurement ====================
+    # ==================== 波前测量 ====================
 
     @require_take_image
     def get_wavefront(self, cancel_tile: bool = False) -> tuple[np.ndarray, dict]:
-        """Calculate wavefront from spot deviations.
+        """由斑点偏差计算波前。
 
-        Args:
-            cancel_tile: If True, remove tip/tilt from wavefront measurement.
+        参数:
+            cancel_tile: 为 True 时从波前测量中去掉 tip/tilt。
 
-        Returns:
-            tuple[np.ndarray, dict]: (wavefront array, statistics dict)
-                - wavefront: 2D array of wavefront values in waves
-                - statistics: dict with keys 'min', 'max', 'diff', 'mean', 'rms', 'wighted_rms'
+        返回:
+            tuple[np.ndarray, dict]: (波前数组, 统计量字典)
+                - wavefront: 波前值二维数组, 单位 waves
+                - statistics: 键为 'min'、'max'、'diff'、'mean'、'rms'、'wighted_rms' 的 dict
 
-        Note:
-            Uses measured wavefront (type=0) with adaptive pupil compensation if pupil is defined.
-            When stable_sample_enable is True, collects multiple stable samples and returns mean.
+        注意:
+            使用实测波前 (type=0); 若光瞳已定义, 则带自适应光瞳补偿。
+            stable_sample_enable 为 True 时采集多个稳定样本并返回其均值。
         """
-        # Use stable sampling if enabled
+        # 若启用了稳定采样则使用它
         if self.stable_sample_enable:
             stable_wfs = self._get_stable_samples(
                 self.stable_sample_n,
@@ -1403,7 +1388,7 @@ class ThorlabWFS(BaseWFS):
             else:
                 wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
 
-        # Calculate statistics from the wavefront (regardless of how it was obtained)
+        # 由波前计算统计量 (无论波前是怎么得到的)
         min_val, max_val, diff_val, mean_val = (
             c_double(),
             c_double(),
@@ -1455,38 +1440,38 @@ class ThorlabWFS(BaseWFS):
         }
 
     def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
-        """Remove tilt (tip/tilt) from wavefront by fitting a plane and subtracting it.
+        """通过拟合平面并减去它来去除波前中的倾斜 (tip/tilt)。
 
-        Args:
-            wavefront: 2D wavefront array.
+        参数:
+            wavefront: 二维波前数组。
 
-        Returns:
-            Wavefront with tilt removed.
+        返回:
+            去掉倾斜后的波前。
         """
-        # Create coordinate grids (normalized to [-1, 1] for numerical stability)
+        # 建立坐标网格 (归一化到 [-1, 1] 以保证数值稳定性)
         ny, nx = wavefront.shape
         y, x = np.meshgrid(
             np.linspace(-1, 1, ny), np.linspace(-1, 1, nx), indexing="ij"
         )
 
-        # Flatten for fitting
+        # 展平以便拟合
         z = wavefront.flatten()
 
-        # Build design matrix for plane: z = a*x + b*y + c
+        # 构造平面的设计矩阵: z = a*x + b*y + c
         A = np.column_stack([x.flatten(), y.flatten(), np.ones_like(x.flatten())])
 
-        # Solve for coefficients using least squares
+        # 用最小二乘解出系数
         try:
             coeffs, _, _, _ = np.linalg.lstsq(A, z, rcond=None)
             a, b, c = coeffs
 
-            # Create the tilt plane
+            # 构造倾斜平面
             tilt_plane = a * x + b * y + c
 
-            # Subtract the tilt
+            # 减去倾斜
             wavefront_no_tilt = wavefront - tilt_plane
         except Exception:
-            # If fitting fails, just return original
+            # 拟合失败就原样返回
             logger.warning("Failed to fit tilt plane, returning original wavefront")
             return wavefront
 
@@ -1494,30 +1479,30 @@ class ThorlabWFS(BaseWFS):
 
     @staticmethod
     def calc_n_zernike_terms(n: int) -> int:
-        """Calculate the number of Zernike terms for a given order.
+        """计算给定阶数下的 Zernike 项数。
 
-        Args:
-            n: Zernike order.
+        参数:
+            n: Zernike 阶数。
 
-        Returns:
-            Number of Zernike terms.
+        返回:
+            Zernike 项数。
         """
         return (n + 1) * (n + 2) // 2 + 1
 
     @require_take_image
     def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
-        """Calculate Zernike polynomial coefficients from spot deviations.
+        """由斑点偏差计算 Zernike 多项式系数。
 
-        Args:
-            zernike_order: Zernike order (max 10, indexed from 0).
+        参数:
+            zernike_order: Zernike 阶数 (最大 10, 从 0 起索引)。
 
-        Returns:
-            np.ndarray: Zernike coefficients array.
+        返回:
+            np.ndarray: Zernike 系数数组。
 
-        Raises:
-            AssertionError: If zernike_order exceeds 10.
+        异常:
+            AssertionError: zernike_order 超过 10。
 
-        Note:
+        注意:
             - 结果依赖 pupil 正确性: 调用前必须 ``wfs.pupil = wfs.optimize_pupil()``。
               硬编码 pupil 与光束不符时, 边界无效子孔径会污染 LSF 拟合, 产生巨大的
               假 tip/tilt 系数 (2026-09 实测: |z|=4.6~12.8λ → pupil 修正后 ≤0.22λ)。
@@ -1549,25 +1534,25 @@ class ThorlabWFS(BaseWFS):
             return np.empty_like(zernike_um)
         return zernike_um
 
-    # ==================== Spot Deviation ====================
+    # ==================== 斑点偏差 ====================
 
     @require_take_image
     def get_spot_deviation(
         self, cancel_tile: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Get spot deviation from reference positions.
+        """获取斑点相对参考位置的偏差。
 
-        Args:
-            cancel_tile: If True, remove tip/tilt from deviations.
+        参数:
+            cancel_tile: 为 True 时从偏差中去掉 tip/tilt。
 
-        Returns:
-            tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) arrays
-               each of shape (num_spots_x, num_spots_y).
+        返回:
+            tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y) 数组,
+               每个形状都是 (num_spots_x, num_spots_y)。
 
-        Note:
-            When stable_sample_enable is True, collects multiple stable samples and returns mean.
+        注意:
+            stable_sample_enable 为 True 时采集多个稳定样本并返回其均值。
         """
-        # Use stable sampling if enabled
+        # 若启用了稳定采样则使用它
         if self.stable_sample_enable:
             stable_x_list = []
             stable_y_list = []
@@ -1598,7 +1583,7 @@ class ThorlabWFS(BaseWFS):
                 dev_x = _spots_dev_x[: self.num_spots_x, : self.num_spots_y]
                 dev_y = _spots_dev_y[: self.num_spots_x, : self.num_spots_y]
 
-                # Calculate variance as stability metric
+                # 以方差作为稳定性度量
                 variance = float(np.var(dev_x) + np.var(dev_y))
                 if variance < self.stable_variance_threshold:
                     stable_x_list.append(dev_x)
@@ -1655,25 +1640,24 @@ class ThorlabWFS(BaseWFS):
     def get_stable_spot_deviation(
         self, intensity_threshold: float = 0.0, cancel_tile: bool = False
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Get spot deviations with low-intensity subapertures zeroed out.
+        """获取斑点偏差, 并把低强度子孔径的偏差置零。
 
-        This function:
-        1. Calculates spot intensities and centroids via WFS_CalcSpotsCentrDiaIntens
-        2. Calculates spot deviations via WFS_CalcSpotToReferenceDeviations
-        3. Zeros out deviation for subapertures where intensity < intensity_threshold
+        本函数:
+        1. 经 WFS_CalcSpotsCentrDiaIntens 计算斑点强度与质心
+        2. 经 WFS_CalcSpotToReferenceDeviations 计算斑点偏差
+        3. 把强度 < intensity_threshold 的子孔径的偏差置零
 
-        Args:
-            intensity_threshold: Minimum intensity threshold. Subapertures with
-                intensity below this value will have their deviations set to 0.
-                Default 0.0 means no filtering (all subapertures included).
-            cancel_tile: If True, remove tip/tilt from deviations.
+        参数:
+            intensity_threshold: 最小强度阈值。强度低于该值的子孔径偏差会被置 0。
+                默认 0.0 表示不过滤 (纳入全部子孔径)。
+            cancel_tile: 为 True 时从偏差中去掉 tip/tilt。
 
-        Returns:
+        返回:
             tuple[np.ndarray, np.ndarray]: (deviation_x, deviation_y)
-                arrays of shape (num_spots_x, num_spots_y).
-                Subapertures with intensity < threshold have deviation = 0.
+                形状为 (num_spots_x, num_spots_y) 的数组。
+                强度 < 阈值的子孔径偏差 = 0。
         """
-        # Step 1: Calculate intensities and centroids
+        # 第 1 步: 计算强度与质心
         spots_intensities = np.empty(MAX_SPOTS, dtype=np.float32)
         if res := self._lib.WFS_CalcSpotsCentrDiaIntens(
             self._instrument_handle, c_int32(1), c_int32(0)
@@ -1687,7 +1671,7 @@ class ThorlabWFS(BaseWFS):
         self._lib.WFS_GetSpotIntensities(self._instrument_handle, spots_intensities)
         intensities = spots_intensities[: self.num_spots_x, : self.num_spots_y]
 
-        # Step 2: Calculate deviations
+        # 第 2 步: 计算偏差
         _spots_deviation_x = np.empty(MAX_SPOTS, dtype=np.float32)
         _spots_deviation_y = np.empty(MAX_SPOTS, dtype=np.float32)
 
@@ -1714,7 +1698,7 @@ class ThorlabWFS(BaseWFS):
         x = _spots_deviation_x[: self.num_spots_x, : self.num_spots_y]
         y = _spots_deviation_y[: self.num_spots_x, : self.num_spots_y]
 
-        # Step 3: Zero out deviations for low-intensity subapertures
+        # 第 3 步: 把低强度子孔径的偏差置零
         if intensity_threshold > 0.0:
             low_intensity_mask = intensities < intensity_threshold
             x[low_intensity_mask] = 0.0
@@ -1728,22 +1712,22 @@ class ThorlabWFS(BaseWFS):
 
         return x, y
 
-    # ==================== Exposure / Gain Management ====================
+    # ==================== 曝光 / 增益管理 ====================
 
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:
-        """Automatically optimize exposure time and gain for clear spotfield images.
+        """自动优化曝光时间与增益, 以获得清晰的点场图像。
 
-        Takes up to 10 test images, checking device status after each to find usable exposure
-        that is neither saturated (power too high) nor too dim (power too low).
+        最多拍 10 张测试图, 每张之后检查设备状态, 找出既不饱和 (光功率过高)
+        也不过暗 (光功率过低) 的可用曝光。
 
-        Returns:
+        返回:
             tuple[float, float]: (optimal_exposure_time_ms, optimal_gain)
 
-        Note:
-            Does NOT change device settings; caller should apply returned values.
+        注意:
+            不会改动设备设置; 调用方应自行应用返回值。
         """
         lib, instrument_handle = self._lib, self._instrument_handle
-        # Take a series of images until one is usable. Check the device status after each image to determine usability
+        # 连续拍图直到有一张可用; 每拍一张后检查设备状态以判定是否可用
         actual_exposure = c_double()
         actual_gain = c_double()
         device_status = c_int32()
@@ -1766,14 +1750,14 @@ class ThorlabWFS(BaseWFS):
         return actual_exposure.value, actual_gain.value
 
     def get_exposure_time_range(self) -> tuple[float, float, float]:
-        """Get the hardware-supported exposure time range.
+        """获取硬件支持的曝光时间范围。
 
-        Returns:
+        返回:
             tuple[float, float, float]: (min_exposure_ms, max_exposure_ms, increment_ms)
-                All values are in seconds.
+                所有值均为秒。
 
-        Note:
-            Returns cached values if already retrieved; queries hardware on first call.
+        注意:
+            若此前已取过则返回缓存值; 首次调用时才查询硬件。
         """
         if hasattr(self, "_exposure_time_range"):
             return self._exposure_time_range
@@ -1789,11 +1773,11 @@ class ThorlabWFS(BaseWFS):
         )
         if err != 0:
             self.handle_error(err, no_raise=True)
-            # Fall back to constants if hardware query fails
+            # 硬件查询失败时回退到常量
             logger.warning("Failed to get exposure range from hardware, using defaults")
             return EXP_TIME_LOW, EXP_TIME_HIGH, 0.001
 
-        # Convert from microseconds to milliseconds
+        # 从微秒换算为毫秒
         self._exposure_time_range = (
             min_exp.value / 1000.0,
             max_exp.value / 1000.0,
@@ -1805,24 +1789,24 @@ class ThorlabWFS(BaseWFS):
         )
         return self._exposure_time_range
 
-    # ==================== Properties ====================
+    # ==================== 属性 ====================
 
     @property
     def exposure_time(self) -> float:
-        """Get current exposure time in milliseconds."""
+        """获取当前曝光时间, 单位毫秒。"""
         actual_exposure = c_double()
         self._lib.WFS_GetExposureTime(self._instrument_handle, byref(actual_exposure))
         return actual_exposure.value
 
     @exposure_time.setter
     def exposure_time(self, value: float) -> None:
-        """Set exposure time.
+        """设置曝光时间。
 
-        Args:
-            value: Exposure time in milliseconds.
+        参数:
+            value: 曝光时间, 单位毫秒。
 
-        Raises:
-            AssertionError: If value is outside valid range [0.002, 86] ms.
+        异常:
+            AssertionError: value 超出合法范围 [0.002, 86] ms。
         """
         assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, (
             f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
@@ -1835,10 +1819,10 @@ class ThorlabWFS(BaseWFS):
 
     @property
     def pupil(self) -> tuple[float, float, float, float]:
-        """Get current pupil configuration.
+        """获取当前光瞳配置。
 
-        Returns:
-            tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y) in mm.
+        返回:
+            tuple[float, float, float, float]: (centroid_x, centroid_y, diameter_x, diameter_y), 单位 mm。
         """
         beam_centroid_x = c_double()
         beam_centroid_y = c_double()
@@ -1857,12 +1841,12 @@ class ThorlabWFS(BaseWFS):
 
     @pupil.setter
     def pupil(self, center_and_diameter: tuple[float, float, float, float]) -> None:
-        """Set pupil configuration.
+        """设置光瞳配置。
 
-        Args:
-            center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y) in mm.
+        参数:
+            center_and_diameter: (centroid_x, centroid_y, diameter_x, diameter_y), 单位 mm。
 
-        Note:
+        注意:
             pupil 应来自 ``optimize_pupil()`` 且必须显式写回:
             ``wfs.pupil = wfs.optimize_pupil()`` (optimize_pupil 只计算不设置,
             本 setter 也不会因直径 ≤ 0 自动调用它 — 直径 ≤ 0 / 中心 (0,0) 按
@@ -1898,10 +1882,10 @@ class ThorlabWFS(BaseWFS):
 
     @property
     def high_speed(self) -> bool:
-        """Check if high speed mode is enabled.
+        """检查是否已启用高速模式。
 
-        Returns:
-            bool: True if high speed mode is active.
+        返回:
+            bool: 高速模式生效时为 True。
         """
         enable_high_speed = self._lib.WFS_CheckHighspeedCentroids(
             self._instrument_handle
@@ -1910,14 +1894,14 @@ class ThorlabWFS(BaseWFS):
 
     @high_speed.setter
     def high_speed(self, enable: bool) -> None:
-        """Enable or disable high speed mode.
+        """启用或关闭高速模式。
 
-        Args:
-            enable: True to enable high speed mode, False to disable.
+        参数:
+            enable: 为 True 启用高速模式, 为 False 关闭。
 
-        Note:
-            High speed mode only supports 512x512 resolution and requires auto exposure.
-            Automatically re-optimizes pupil after enabling.
+        注意:
+            高速模式只支持 512x512 分辨率, 且要求自动曝光。
+            启用后会自动重新优化光瞳。
         """
         if self.device_name.upper() == "WFS40-5C":
             logger.warning(f"{self.device_name} not support high speed mode!")
@@ -1939,10 +1923,10 @@ class ThorlabWFS(BaseWFS):
                 self._instrument_handle, c_int32(1), c_int32(1)
             )
 
-        if res := __set_high_speed():  # res == 0 means success
+        if res := __set_high_speed():  # res == 0 表示成功
             self.handle_error(res, True)
             self.pupil = self.optimize_pupil()
-            if res := __set_high_speed():  # try again with auto pupil settings
+            if res := __set_high_speed():  # 用自动光瞳设置再试一次
                 self.handle_error(res, True)
         else:
             self.enable_high_speed = enable
@@ -1953,10 +1937,10 @@ class ThorlabWFS(BaseWFS):
                 windowSizeY = ViInt32()
                 windowStartposX = np.zeros(
                     self.num_spots_x, dtype=np.int32
-                )  # This parameter returns a one-dimensional array containing the start positions in pixels for spot windows in X direction.
+                )  # 此参数返回一维数组, 含 X 方向上各斑点窗口的起始像素位置。
                 windowStartposY = np.zeros(
                     self.num_spots_y, dtype=np.int32
-                )  # This parameter returns a one-dimensional array containing the start positions in pixels for spot windows in Y direction.
+                )  # 此参数返回一维数组, 含 Y 方向上各斑点窗口的起始像素位置。
 
                 self._lib.WFS_GetHighspeedWindows(
                     self._instrument_handle,

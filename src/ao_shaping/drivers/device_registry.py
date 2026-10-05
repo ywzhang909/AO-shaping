@@ -1,7 +1,6 @@
-"""Device registry for digital twin management.
+"""用于数字孪生管理的设备注册表。
 
-Provides centralized device registration, discovery, and management
-for building digital twin systems.
+为构建数字孪生系统提供集中的设备注册、发现与管理能力。
 """
 
 from __future__ import annotations
@@ -22,26 +21,26 @@ from ao_shaping.drivers.device_base import (
 
 @dataclass
 class RegisteredDevice:
-    """Wrapper for registered device with additional management info."""
+    """已注册设备的包装, 附带额外管理信息。"""
 
     device: Device
-    alias: str = ""  # User-friendly name
-    tags: list[str] = field(default_factory=list)  # For grouping/filtering
-    priority: int = 0  # Device priority (higher = more important)
-    auto_connect: bool = False  # Auto-connect on registry load
-    twin_sync_enabled: bool = True  # Enable digital twin sync
+    alias: str = ""  # 面向用户的名字
+    tags: list[str] = field(default_factory=list)  # 用于分组/过滤
+    priority: int = 0  # 设备优先级 (越大越重要)
+    auto_connect: bool = False  # 注册表加载时自动连接
+    twin_sync_enabled: bool = True  # 启用数字孪生同步
 
 
 class DeviceRegistry:
-    """Central registry for managing all hardware devices.
+    """管理所有硬件设备的中央注册表。
 
-    This class provides:
-    - Device registration and discovery
-    - Unified access to all devices
-    - Digital twin state management
-    - Batch operations on device groups
+    本类提供:
+    - 设备注册与发现
+    - 对所有设备的统一访问
+    - 数字孪生状态管理
+    - 对设备组的批量操作
 
-    Example:
+    示例:
         >>> registry = DeviceRegistry()
         >>>
         >>> # Register devices
@@ -58,21 +57,21 @@ class DeviceRegistry:
     """
 
     def __init__(self):
-        """Initialize empty device registry."""
+        """初始化空的设备注册表。"""
         # device_id -> RegisteredDevice
         self._devices: dict[str, RegisteredDevice] = {}
 
-        # alias -> device_id (for quick lookup)
+        # alias -> device_id (供快速查找)
         self._aliases: dict[str, str] = {}
 
-        # Callbacks for registry events
+        # 注册表事件的回调
         self._on_device_registered: list[Callable[[str, Device], None]] = []
         self._on_device_unregistered: list[Callable[[str, Device], None]] = []
         self._on_state_change: list[Callable[[str, DeviceState, DeviceState], None]] = []
 
         logger.info("Device registry initialized")
 
-    # ==================== Registration ====================
+    # ==================== 注册 ====================
 
     def register(
         self,
@@ -83,29 +82,29 @@ class DeviceRegistry:
         auto_connect: bool = False,
         twin_sync_enabled: bool = True,
     ) -> str:
-        """Register a device in the registry.
+        """把设备注册到注册表中。
 
         Args:
-            device: Device instance to register.
-            alias: User-friendly name for the device.
-            tags: Tags for grouping/filtering devices.
-            priority: Device priority (higher = more important).
-            auto_connect: Whether to auto-connect when registry loads.
-            twin_sync_enabled: Enable digital twin synchronization.
+            device: 要注册的设备实例。
+            alias: 设备的面向用户名字。
+            tags: 用于对设备分组/过滤的标签。
+            priority: 设备优先级 (越大越重要)。
+            auto_connect: 注册表加载时是否自动连接。
+            twin_sync_enabled: 是否启用数字孪生同步。
 
         Returns:
-            Device ID.
+            设备 ID。
 
         Raises:
-            ValueError: If alias is already in use.
+            ValueError: alias 已被占用时。
         """
         device_id = device.device_id
 
-        # Check alias uniqueness
+        # 检查 alias 唯一性
         if alias and alias in self._aliases:
             raise ValueError(f"Alias '{alias}' is already registered")
 
-        # Create registration record
+        # 创建注册记录
         reg = RegisteredDevice(
             device=device,
             alias=alias or device_id[:8],
@@ -121,7 +120,7 @@ class DeviceRegistry:
 
         logger.info(f"Registered device: {alias or device_id[:8]} ({device.model})")
 
-        # Notify callbacks
+        # 通知回调
         for callback in self._on_device_registered:
             try:
                 callback(device_id, device)
@@ -131,15 +130,15 @@ class DeviceRegistry:
         return device_id
 
     def unregister(self, device_id: str) -> bool:
-        """Unregister a device.
+        """注销一个设备。
 
         Args:
-            device_id: Device ID or alias.
+            device_id: 设备 ID 或 alias。
 
         Returns:
-            True if device was found and removed.
+            设备被找到并移除时返回 True。
         """
-        # Resolve alias if needed
+        # 必要时解析 alias
         device_id = self._resolve_id(device_id)
 
         if device_id not in self._devices:
@@ -147,11 +146,11 @@ class DeviceRegistry:
 
         reg = self._devices.pop(device_id)
 
-        # Remove alias mapping
+        # 移除 alias 映射
         if reg.alias in self._aliases:
             del self._aliases[reg.alias]
 
-        # Close device if connected
+        # 已连接则关闭设备
         try:
             reg.device.close()
         except (DeviceError, ConnectionError, RuntimeError) as e:
@@ -159,7 +158,7 @@ class DeviceRegistry:
 
         logger.info(f"Unregistered device: {reg.alias}")
 
-        # Notify callbacks
+        # 通知回调
         for callback in self._on_device_unregistered:
             try:
                 callback(device_id, reg.device)
@@ -169,48 +168,48 @@ class DeviceRegistry:
         return True
 
     def _resolve_id(self, device_id_or_alias: str) -> str:
-        """Resolve alias to device ID if needed."""
+        """必要时把 alias 解析为设备 ID。"""
         if device_id_or_alias in self._aliases:
             return self._aliases[device_id_or_alias]
         return device_id_or_alias
 
-    # ==================== Device Access ====================
+    # ==================== 设备访问 ====================
 
     def get(self, device_id: str) -> Device | None:
-        """Get device by ID or alias."""
+        """按 ID 或 alias 获取设备。"""
         device_id = self._resolve_id(device_id)
         reg = self._devices.get(device_id)
         return reg.device if reg else None
 
     def __getitem__(self, device_id: str) -> Device:
-        """Get device by ID or alias (dict-like access)."""
+        """按 ID 或 alias 获取设备 (类字典访问)。"""
         device = self.get(device_id)
         if device is None:
             raise KeyError(f"Device '{device_id}' not found")
         return device
 
     def __contains__(self, device_id: str) -> bool:
-        """Check if device is registered."""
+        """检查设备是否已注册。"""
         device_id = self._resolve_id(device_id)
         return device_id in self._devices
 
     def list_devices(self) -> list[str]:
-        """List all registered device IDs."""
+        """列出所有已注册的设备 ID。"""
         return list(self._devices.keys())
 
     def list_aliases(self) -> list[str]:
-        """List all registered aliases."""
+        """列出所有已注册的 alias。"""
         return list(self._aliases.keys())
 
     def get_registration_info(self, device_id: str) -> RegisteredDevice | None:
-        """Get full registration information for a device."""
+        """获取某个设备的完整注册信息。"""
         device_id = self._resolve_id(device_id)
         return self._devices.get(device_id)
 
-    # ==================== Discovery ====================
+    # ==================== 查找 ====================
 
     def find_by_type(self, device_type: DeviceType) -> list[Device]:
-        """Find all devices of a specific type."""
+        """查找某一类型的全部设备。"""
         return [
             reg.device
             for reg in self._devices.values()
@@ -218,7 +217,7 @@ class DeviceRegistry:
         ]
 
     def find_by_tag(self, tag: str) -> list[Device]:
-        """Find all devices with a specific tag."""
+        """查找带有某个标签的全部设备。"""
         return [
             reg.device
             for reg in self._devices.values()
@@ -226,7 +225,7 @@ class DeviceRegistry:
         ]
 
     def find_by_manufacturer(self, manufacturer: str) -> list[Device]:
-        """Find all devices from a specific manufacturer."""
+        """查找来自某个制造商的全部设备。"""
         return [
             reg.device
             for reg in self._devices.values()
@@ -234,7 +233,7 @@ class DeviceRegistry:
         ]
 
     def find_by_model(self, model: str) -> list[Device]:
-        """Find all devices with a specific model."""
+        """查找某个型号的全部设备。"""
         return [
             reg.device
             for reg in self._devices.values()
@@ -242,20 +241,20 @@ class DeviceRegistry:
         ]
 
     def find_by_state(self, state: DeviceState) -> list[Device]:
-        """Find all devices in a specific state."""
+        """查找处于某个状态的全部设备。"""
         return [
             reg.device
             for reg in self._devices.values()
             if reg.device.state == state
         ]
 
-    # ==================== Batch Operations ====================
+    # ==================== 批量操作 ====================
 
     def connect_all(self, device_type: DeviceType | None = None) -> dict[str, bool]:
-        """Connect all devices (optionally filtered by type).
+        """连接所有设备 (可按类型过滤)。
 
         Returns:
-            Dictionary of device_id -> success status.
+            device_id -> 是否成功的字典。
         """
         results = {}
         for device_id, reg in self._devices.items():
@@ -270,7 +269,7 @@ class DeviceRegistry:
         return results
 
     def disconnect_all(self, device_type: DeviceType | None = None) -> dict[str, bool]:
-        """Disconnect all devices."""
+        """断开所有设备。"""
         results = {}
         for device_id, reg in self._devices.items():
             if device_type and reg.device.device_type != device_type:
@@ -284,10 +283,10 @@ class DeviceRegistry:
         return results
 
     def health_check_all(self) -> dict[str, tuple[bool, str]]:
-        """Perform health check on all devices.
+        """对所有设备执行健康检查。
 
         Returns:
-            Dictionary of device_id -> (is_healthy, message).
+            device_id -> (是否健康, 消息) 的字典。
         """
         return {
             device_id: reg.device.health_check()
@@ -295,19 +294,19 @@ class DeviceRegistry:
         }
 
     def get_all_status(self) -> dict[str, dict[str, Any]]:
-        """Get status of all devices."""
+        """获取所有设备的状态。"""
         return {
             device_id: reg.device.get_status()
             for device_id, reg in self._devices.items()
         }
 
-    # ==================== Digital Twin ====================
+    # ==================== 数字孪生 ====================
 
     def get_all_twin_states(self) -> dict[str, dict[str, Any]]:
-        """Get twin states for all registered devices.
+        """获取所有已注册设备的孪生状态。
 
         Returns:
-            Dictionary of device_id -> twin state.
+            device_id -> 孪生状态的字典。
         """
         states = {}
         for device_id, reg in self._devices.items():
@@ -319,13 +318,13 @@ class DeviceRegistry:
         return states
 
     def sync_from_twin_states(self, twin_states: dict[str, dict[str, Any]]) -> dict[str, bool]:
-        """Synchronize devices from twin states.
+        """从孪生状态同步设备。
 
         Args:
-            twin_states: Dictionary of device_id -> twin state.
+            twin_states: device_id -> 孪生状态的字典。
 
         Returns:
-            Dictionary of device_id -> success status.
+            device_id -> 是否成功的字典。
         """
         results = {}
         for device_id, state in twin_states.items():
@@ -344,10 +343,10 @@ class DeviceRegistry:
         return results
 
     def get_twin_snapshot(self) -> dict[str, Any]:
-        """Get complete snapshot for digital twin initialization.
+        """获取用于数字孪生初始化的完整快照。
 
         Returns:
-            Dictionary containing all device states and metadata.
+            包含所有设备状态与元数据的字典。
         """
         return {
             "registry_info": {
@@ -364,26 +363,26 @@ class DeviceRegistry:
             },
         }
 
-    # ==================== Event Callbacks ====================
+    # ==================== 事件回调 ====================
 
     def on_device_registered(self, callback: Callable[[str, Device], None]) -> None:
-        """Register callback for device registration events."""
+        """注册设备注册事件的回调。"""
         self._on_device_registered.append(callback)
 
     def on_device_unregistered(self, callback: Callable[[str, Device], None]) -> None:
-        """Register callback for device unregistration events."""
+        """注册设备注销事件的回调。"""
         self._on_device_unregistered.append(callback)
 
-    # Note: on_state_change callback is reserved for future use
-    # when automatic state change notifications are implemented.
+    # 注: on_state_change 回调为将来使用而预留,
+    # 待自动状态变更通知实现后再启用。
 
-    # ==================== Import/Export ====================
+    # ==================== 导入/导出 ====================
 
     def export_config(self) -> dict[str, Any]:
-        """Export registry configuration.
+        """导出注册表配置。
 
         Returns:
-            Configuration dictionary for persistence.
+            用于持久化的配置字典。
         """
         return {
             "devices": [
@@ -407,23 +406,23 @@ class DeviceRegistry:
         }
 
     def __len__(self) -> int:
-        """Number of registered devices."""
+        """已注册设备的数量。"""
         return len(self._devices)
 
     def __iter__(self):
-        """Iterate over registered devices."""
+        """迭代已注册的设备。"""
         return iter(self._devices.values())
 
     def __repr__(self) -> str:
         return f"DeviceRegistry(devices={len(self._devices)}, aliases={len(self._aliases)})"
 
 
-# Global registry instance for convenience
+# 供便捷使用的全局注册表实例
 _global_registry: DeviceRegistry | None = None
 
 
 def get_global_registry() -> DeviceRegistry:
-    """Get or create the global device registry."""
+    """获取或创建全局设备注册表。"""
     global _global_registry
     if _global_registry is None:
         _global_registry = DeviceRegistry()

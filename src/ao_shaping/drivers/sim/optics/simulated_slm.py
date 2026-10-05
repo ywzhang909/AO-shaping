@@ -1,7 +1,7 @@
-"""Simulated SLM and optical elements.
+"""模拟 SLM 与光学元件。
 
-This module provides simulated optical devices including SLM (Spatial Light Modulator),
-Lens, Aperture, and other optical elements that integrate with the simulation framework.
+本模块提供光学器件的仿真实现, 包含 SLM (空间光调制器)、透镜、光阑以及其他能接入
+仿真框架的光学元件。
 """
 
 from __future__ import annotations
@@ -16,20 +16,19 @@ from ao_shaping.drivers.sim.base import SimulatedDevice, SimulatedDeviceError, W
 
 
 class SimulatedSLMError(SimulatedDeviceError):
-    """Exception for simulated SLM errors."""
+    """模拟 SLM 相关错误的异常。"""
     pass
 
 
 class SimulatedSLM(WavefrontProcessor):
-    """Simulated Spatial Light Modulator.
-    
-    This class provides a simulated SLM that applies phase patterns
-    to wavefronts. It inherits from WavefrontProcessor.
-    
+    """模拟空间光调制器。
+
+    本类提供一个对波前施加相位图样的模拟 SLM。它继承自 WavefrontProcessor。
+
     Attributes:
-        resolution: SLM resolution (width, height).
-        phase_range: Maximum phase modulation range in radians.
-    
+        resolution: SLM 分辨率 (宽, 高)。
+        phase_range: 最大相位调制范围, 单位弧度。
+
     Example:
         >>> slm = SimulatedSLM(resolution=(1920, 1080))
         >>> with slm:
@@ -51,21 +50,21 @@ class SimulatedSLM(WavefrontProcessor):
         enable_noise: bool = False,
         random_seed: int | None = None,
     ):
-        """Initialize simulated SLM.
-        
+        """初始化模拟 SLM。
+
         Args:
-            device_id: Unique device identifier.
-            resolution: SLM resolution (width, height).
-            phase_range: Maximum phase range in radians.
-            wavelength: Operating wavelength in nm.
-            enable_noise: Whether to add phase noise.
-            random_seed: Random seed for reproducibility.
+            device_id: 设备唯一标识。
+            resolution: SLM 分辨率 (宽, 高)。
+            phase_range: 最大相位范围, 单位弧度。
+            wavelength: 工作波长, 单位 nm。
+            enable_noise: 是否加入相位噪声。
+            random_seed: 用于可复现性的随机种子。
         """
         super().__init__(
             device_id,
             wavelength,
-            resolution[1],  # npix = height
-            8e-6,  # dpix ~ 8μm for typical SLM
+            resolution[1],  # npix = 高
+            8e-6,  # 典型 SLM 的 dpix ~ 8μm
             enable_noise,
             random_seed,
         )
@@ -85,7 +84,7 @@ class SimulatedSLM(WavefrontProcessor):
         )
 
     def _register_parameters(self) -> None:
-        """Register SLM parameters."""
+        """注册 SLM 参数。"""
         self.register_parameter(
             "phase_range",
             default_value=self.phase_range,
@@ -104,7 +103,7 @@ class SimulatedSLM(WavefrontProcessor):
         )
 
     def _register_capabilities(self) -> None:
-        """Register SLM capabilities."""
+        """注册 SLM 能力。"""
         self.register_capability(
             "set_phase",
             description="Set phase pattern",
@@ -117,29 +116,29 @@ class SimulatedSLM(WavefrontProcessor):
             return_type=object,
         )
 
-    # ========== SimulatedDevice Implementation ==========
+    # ========== SimulatedDevice 实现 ==========
 
     def compute(self, *args, **kwargs) -> Any:
-        """Apply phase to wavefront."""
+        """对波前施加相位。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
 
-    # ========== SLM-Specific Methods ==========
+    # ========== SLM 专用方法 ==========
 
     def set_phase(self, phase: np.ndarray) -> None:
-        """Set phase pattern on SLM.
-        
+        """在 SLM 上设置相位图样。
+
         Args:
-            phase: 2D phase array in radians.
+            phase: 二维相位数组, 单位弧度。
         """
-        if phase.shape != self._resolution[::-1]:  # Note: (height, width)
+        if phase.shape != self._resolution[::-1]:  # 注意: (高, 宽)
             raise ValueError(
                 f"Phase shape {phase.shape} doesn't match "
                 f"SLM resolution {self._resolution}"
             )
 
-        # Normalize to phase range
+        # 归一化到相位范围
         gamma = self.get_parameter_value("gamma")
         if gamma != 1.0:
             phase = np.power(phase / self.phase_range, 1.0 / gamma) * self.phase_range
@@ -150,29 +149,29 @@ class SimulatedSLM(WavefrontProcessor):
         logger.debug(f"Phase pattern loaded: shape={phase.shape}")
 
     def get_phase(self) -> np.ndarray | None:
-        """Get current phase pattern.
-        
+        """获取当前相位图样。
+
         Returns:
-            Current phase pattern or None.
+            当前相位图样, 或 None。
         """
         return self._current_phase.copy() if self._current_phase is not None else None
 
     def clear(self) -> None:
-        """Clear phase pattern (set to zero)."""
+        """清除相位图样 (置零)。"""
         self._current_phase = np.zeros(self._resolution[::-1])
         self._phase_loaded = False
         logger.debug("Phase pattern cleared")
 
-    # ========== WavefrontProcessor Implementation ==========
+    # ========== WavefrontProcessor 实现 ==========
 
     def process(self, wave: Any) -> Any:
-        """Apply SLM phase pattern to wavefront.
-        
+        """对波前施加 SLM 相位图样。
+
         Args:
-            wave: Input wavefront (compatible with sim.digitaltwin.Wave).
-            
+            wave: 输入波前 (兼容 sim.digitaltwin.Wave)。
+
         Returns:
-            Wavefront with phase applied.
+            已施加相位的波前。
         """
         if not self.is_connected():
             raise RuntimeError("SLM not connected")
@@ -184,31 +183,31 @@ class SimulatedSLM(WavefrontProcessor):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # Try to use digitaltwin optics
+            # 尝试使用 digitaltwin 的光学元件
             try:
                 from sim.digitaltwin.optics import SLM as DT_SLM
 
-                # Create SLM and apply
+                # 构造 SLM 并施加
                 slm = DT_SLM(self._current_phase, wave.dpix)
                 slm.out(wave)
 
                 return wave
             except ImportError:
-                # Fallback: apply phase directly
+                # 回退: 直接施加相位
                 return self._apply_phase_direct(wave)
         finally:
             self._set_state(DeviceState.READY)
 
     def _apply_phase_direct(self, wave: Any) -> Any:
-        """Apply phase directly to wavefront (fallback).
-        
+        """直接对波前施加相位 (回退)。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Modified wavefront.
+            修改后的波前。
         """
-        # Resize phase if needed
+        # 必要时重采样相位
         phase = self._current_phase
         if hasattr(wave, 'npix') and hasattr(wave, 'dpix'):
             if phase.shape != (wave.npix, wave.npix):
@@ -218,12 +217,12 @@ class SimulatedSLM(WavefrontProcessor):
                         phase, self.dpix, wave.npix, wave.dpix
                     )
                 except ImportError:
-                    # Simple resize
+                    # 简单重采样
                     from scipy import ndimage
                     factor = wave.npix / phase.shape[0]
                     phase = ndimage.zoom(phase, factor)
 
-        # Apply phase
+        # 施加相位
         if hasattr(wave, 'wavefront'):
             wave.change_wf(phase=phase)
 
@@ -231,8 +230,8 @@ class SimulatedSLM(WavefrontProcessor):
 
 
 class SimulatedLens(SimulatedDevice):
-    """Simulated focusing lens.
-    
+    """模拟聚焦透镜。
+
     Example:
         >>> lens = SimulatedLens(focus_length=0.5)
         >>> output = lens.process(input_wave)
@@ -248,12 +247,12 @@ class SimulatedLens(SimulatedDevice):
         focus_length: float = 0.5,
         wavelength: float = 1064.0,
     ):
-        """Initialize simulated lens.
-        
+        """初始化模拟透镜。
+
         Args:
-            device_id: Unique device identifier.
-            focus_length: Focal length in meters (positive = converging).
-            wavelength: Wavelength in nm.
+            device_id: 设备唯一标识。
+            focus_length: 焦距, 单位米 (正值 = 会聚)。
+            wavelength: 波长, 单位 nm。
         """
         super().__init__(device_id)
 
@@ -261,24 +260,24 @@ class SimulatedLens(SimulatedDevice):
         self.wavelength = wavelength
 
     def compute(self, *args, **kwargs) -> Any:
-        """Apply lens to wavefront."""
+        """对波前施加透镜。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
 
     def process(self, wave: Any) -> Any:
-        """Apply lens phase to wavefront.
-        
+        """对波前施加透镜相位。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Focused wavefront.
+            聚焦后的波前。
         """
         if not self.is_connected():
             raise RuntimeError("Lens not connected")
 
-        # Try digitaltwin
+        # 尝试 digitaltwin
         try:
             from sim.digitaltwin.optics import Lens as DT_Lens
 
@@ -286,11 +285,11 @@ class SimulatedLens(SimulatedDevice):
             lens.out(wave)
             return wave
         except ImportError:
-            # Fallback: apply directly
+            # 回退: 直接施加
             return self._apply_lens_direct(wave)
 
     def _apply_lens_direct(self, wave: Any) -> Any:
-        """Apply lens phase directly (fallback)."""
+        """直接施加透镜相位 (回退)。"""
         if not hasattr(wave, 'r'):
             return wave
 
@@ -304,8 +303,8 @@ class SimulatedLens(SimulatedDevice):
 
 
 class SimulatedAperture(SimulatedDevice):
-    """Simulated optical aperture.
-    
+    """模拟光学光阑。
+
     Example:
         >>> aperture = SimulatedAperture(radius=0.05)
         >>> output = aperture.process(input_wave)
@@ -320,30 +319,30 @@ class SimulatedAperture(SimulatedDevice):
         device_id: str = "",
         radius: float = 0.05,
     ):
-        """Initialize simulated aperture.
-        
+        """初始化模拟光阑。
+
         Args:
-            device_id: Unique device identifier.
-            radius: Aperture radius in meters (positive = aperture, negative = obstruction).
+            device_id: 设备唯一标识。
+            radius: 光阑半径, 单位米 (正值 = 光阑, 负值 = 遮挡物)。
         """
         super().__init__(device_id)
 
         self.radius = radius
 
     def compute(self, *args, **kwargs) -> Any:
-        """Apply aperture to wavefront."""
+        """对波前施加光阑。"""
         if len(args) < 1:
             raise ValueError("Wave argument required")
         return self.process(args[0])
 
     def process(self, wave: Any) -> Any:
-        """Apply aperture to wavefront.
-        
+        """对波前施加光阑。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Masked wavefront.
+            已被掩模的波前。
         """
         if not self.is_connected():
             raise RuntimeError("Aperture not connected")
@@ -356,11 +355,11 @@ class SimulatedAperture(SimulatedDevice):
             aperture.out(wave)
             return wave
         except ImportError:
-            # Fallback
+            # 回退
             return self._apply_aperture_direct(wave)
 
     def _apply_aperture_direct(self, wave: Any) -> Any:
-        """Apply aperture directly (fallback)."""
+        """直接施加光阑 (回退)。"""
         if not hasattr(wave, 'r'):
             return wave
 

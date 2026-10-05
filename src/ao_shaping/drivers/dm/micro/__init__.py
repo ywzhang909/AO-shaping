@@ -6,7 +6,7 @@
 ``constants`` 放帧协议 / 电压编码; ``micro_constants`` 放该型号硬件规格;
 ``wiring_map`` 是接线表的类型化 JSON schema。
 
-Example:
+示例:
     >>> from ao_shaping.drivers.dm.micro import MicroDM
     >>> with MicroDM(ips=["192.168.0.101"]) as dm:
     ...     dm.set_relay_state(True)
@@ -68,11 +68,11 @@ from ao_shaping.drivers.dm.micro.wiring_map import (
     WiringMap,
 )
 
-# The async driver is resolved lazily because ``@register_dm("asyn_micro")``
-# runs as an import side effect. ``runners/runner_common.py`` snapshots
-# ``list_dm_types()`` and *then* imports this package to widen the ``--dm_type``
-# list from 6 to 7 entries; an eager import here would collapse that two-step
-# ordering and change the help output.
+# 异步驱动是惰性解析的, 因为 ``@register_dm("asyn_micro")``
+# 是 import 副作用。``runners/runner_common.py`` 先快照
+# ``list_dm_types()``, *然后* 才导入本包, 以便把 ``--dm_type``
+# 列表从 6 项扩到 7 项; 此处若 eager 导入就会塌掉这个两步顺序,
+# 从而改变 help 输出。
 _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "AsyncMicroDM": ("ao_shaping.drivers.dm.micro.asyn_driver", "AsyncMicroDM"),
     "AsyncR50Controller": (

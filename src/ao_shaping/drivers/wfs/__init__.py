@@ -1,4 +1,4 @@
-"""Wavefront sensor drivers (Thorlabs WFS and the simulated sensor)."""
+"""波前传感器驱动 (Thorlabs WFS 与仿真传感器)。"""
 
 from ao_shaping.drivers.wfs._registry import create_wfs, resolve_wfs
 from ao_shaping.drivers.wfs.base import BaseWFS

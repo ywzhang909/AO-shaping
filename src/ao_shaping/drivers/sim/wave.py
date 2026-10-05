@@ -17,12 +17,12 @@ from ao_shaping.drivers.sim.base import OpticalDevice, SimulatedDevice, Simulate
 
 
 class WaveDeviceError(SimulatedDeviceError):
-    """Wave simulation related errors."""
+    """波仿真相关错误。"""
 
 
 @dataclass
 class SimWave:
-    """Lightweight wave container used when sim.digitaltwin is unavailable."""
+    """sim.digitaltwin 不可用时使用的轻量波容器。"""
 
     wavefront: np.ndarray
     wavelength: float
@@ -56,7 +56,7 @@ class SimWave:
         return self.wavelength
 
     def change_wf(self, phase: np.ndarray | None = None, amplitude: np.ndarray | None = None) -> None:
-        """Apply phase and/or amplitude to the wavefront."""
+        """对波前施加相位和/或幅度。"""
         if amplitude is not None:
             self.wavefront = self.wavefront * amplitude
         if phase is not None:
@@ -290,7 +290,7 @@ def apply_focus(wave: Any, focal_length: float) -> None:
 
 
 def propagate(wave: Any, distance: float) -> None:
-    """Angular spectrum propagation using internal beam simulation backend."""
+    """使用内部光束仿真后端做角谱传播。"""
     sim_wave = _as_sim_wave(wave)
     beam_cfg = make_beam_config(
         n_grid=sim_wave.npix,

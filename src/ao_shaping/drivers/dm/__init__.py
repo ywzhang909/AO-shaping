@@ -20,12 +20,12 @@ from ao_shaping.drivers.dm.micro import (
     MicroDMVoltageError,
 )
 
-# The simulated DMs are resolved lazily. Importing them here created a cycle:
-# this (hardware) package -> drivers.sim.dm -> simulated_micro_dm ->
-# drivers.dm.base -> back into this module, while drivers.sim.dm was only half
-# initialised. The cycle used to be masked because ``drivers/__init__`` imported
-# ``dm.nlight`` eagerly, completing this module before ``drivers.sim`` was
-# touched; making that import lazy exposed it.
+# 仿真 DM 是惰性解析的。在此处导入它们会造成循环:
+# 本 (硬件) 包 -> drivers.sim.dm -> simulated_micro_dm ->
+# drivers.dm.base -> 又回到本模块, 而此时 drivers.sim.dm 只初始化了一半。
+# 该循环此前被掩盖, 因为 ``drivers/__init__`` 会 eager 导入
+# ``dm.nlight``, 在 ``drivers.sim`` 被触及之前就完成了本模块;
+# 把那次导入改为惰性后就暴露了出来。
 _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "SimMicroDM": ("ao_shaping.drivers.sim.dm", "SimMicroDM"),
     "SimulateDM": ("ao_shaping.drivers.sim.dm", "SimulateDM"),

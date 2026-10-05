@@ -1,11 +1,10 @@
-"""Simulated DM for testing and development without hardware.
+"""用于无硬件测试与开发的模拟 DM。
 
-This module provides a generic simulated DM with configurable channel count,
-noise simulation, and deformation modeling.
+本模块提供一个通用的模拟 DM, 通道数、噪声仿真与变形建模均可配置。
 
 Attributes:
-    v_min: Minimum voltage (-300).
-    v_max: Maximum voltage (499).
+    v_min: 最小电压 (-300)。
+    v_max: 最大电压 (499)。
 """
 
 from typing import Any
@@ -20,27 +19,25 @@ from ao_shaping.model.quantities import DmCommands
 
 @register_dm("sim")
 class SimulateDM(DM):
-    """Generic simulated deformable mirror.
+    """通用模拟变形镜。
 
-    Simulates a deformable mirror with configurable number of actuators,
-    voltage limits, noise, and deformation modeling. Useful for testing
-    optimization algorithms without hardware.
+    模拟一台致动器数量、电压上下限、噪声与变形建模均可配置的变形镜。便于在没有
+    硬件的情况下测试优化算法。
 
     Attributes:
-        channel: Number of channels (default: 64).
-        n_actuators: Number of actuators (default: 64).
-        disabled_actuators: List of disabled actuator indices.
-        v_min: Minimum voltage.
-        v_max: Maximum voltage.
+        channel: 通道数 (默认 64)。
+        n_actuators: 致动器数 (默认 64)。
+        disabled_actuators: 被禁用致动器的索引列表。
+        v_min: 最小电压。
+        v_max: 最大电压。
     """
 
     channel: int = 64
     n_actuators: int = 64
     disabled_actuators: list[int] = []
 
-    #: Canonical base-class names. The lowercase ``v_min``/``v_max`` below were
-    #: the only ones defined, so the base default of ``+/-inf`` leaked through
-    #: and any caller clipping a command to the DM's range clipped to nothing.
+    #: 基类上的规范名称。下面的小写 ``v_min``/``v_max`` 曾是唯一定义的那两个, 于是
+    #: 基类默认的 ``+/-inf`` 透了出来, 任何把指令裁剪到 DM 量程的调用都裁了个空。
     V_Min: float = -300.0
     V_Max: float = 499.0
 
@@ -49,12 +46,11 @@ class SimulateDM(DM):
 
     @property
     def DM_NUM(self) -> int:
-        """Actuator count, as the ``DM`` base class spells it.
+        """致动器数, 拼写与 ``DM`` 基类一致。
 
-        ``DM.DM_Num`` forwards to ``self.DM_NUM``; without this the class raised
-        ``AttributeError`` on every ``DM_Num`` access. That went unnoticed while
-        the type was unregistered — ``@register_dm("sim")`` is what made the
-        gap reachable.
+        ``DM.DM_Num`` 会转发到 ``self.DM_NUM``; 缺了这个, 该类在每次访问 ``DM_Num``
+        时都抛 ``AttributeError``。此前一直没被发现, 是因为那时该类型尚未注册 ——
+        ``@register_dm("sim")`` 才让这个缺口变得可达。
         """
         return self.n_actuators
 
@@ -65,13 +61,13 @@ class SimulateDM(DM):
         keep_when_exit: bool = True,
         noise_level: float = 0.01,
     ):
-        """Initialize simulated DM.
+        """初始化模拟 DM。
 
         Args:
-            max_iter_diff: Maximum voltage change per iteration.
-            max_neibor_diff: Maximum voltage difference between neighbors.
-            keep_when_exit: Whether to keep voltage on exit.
-            noise_level: Noise level for voltage simulation.
+            max_iter_diff: 每轮迭代允许的最大电压变化量。
+            max_neibor_diff: 邻居之间允许的最大电压差。
+            keep_when_exit: 退出时是否保留电压。
+            noise_level: 电压仿真的噪声水平。
         """
         super().__init__()
         self.units_adj_mat = self._load_adj_txt()
@@ -83,16 +79,16 @@ class SimulateDM(DM):
         self.hv_state = False
         self.deformation_history: list[np.ndarray] = []
         self.voltage_history: list[np.ndarray] = []
-        # Simulated deformation model parameters
+        # 模拟变形模型的参数
         self.deformation_model = np.eye(self.channel) * 0.01
 
     def open(self) -> None:
-        """Open simulated connection and initialize."""
+        """打开仿真连接并初始化。"""
         self.initialize()
         print("Simulated DM initialized successfully")
 
     def close(self) -> None:
-        """Close simulated connection."""
+        """关闭仿真连接。"""
         if not self.__keep_when_exit:
             self.reset_all()
             self.set_hv(False)
@@ -100,43 +96,43 @@ class SimulateDM(DM):
         print("Simulated DM connection closed")
 
     def transform(self, cmd: np.ndarray) -> np.ndarray:
-        """Transform normalized command to voltage range."""
+        """把归一化指令变换到电压量程。"""
         cmd = np.clip(cmd, -1, 1)
         return (cmd + 1) * (self.v_max - self.v_min) / 2 + self.v_min
 
     def send(self, cmd: np.ndarray) -> np.ndarray:
-        """Send command to simulated DM."""
+        """向模拟 DM 发送指令。"""
         if isinstance(cmd, np.ndarray):
             return self.send_voltages(cmd)
         raise ValueError("Unsupported command type. Expected numpy array of voltages.")
 
     def get_actuator_positions(self) -> np.ndarray:
-        """Get simulated actuator positions in a grid layout."""
+        """以网格布局返回模拟致动器位置。"""
         x = np.linspace(0, 10, int(np.sqrt(self.channel)))
         y = np.linspace(0, 10, int(np.sqrt(self.channel)))
         xx, yy = np.meshgrid(x, y)
         return np.column_stack((xx.ravel(), yy.ravel()))
 
     def initialize(self) -> None:
-        """Initialize DM: turn on HV and reset voltages."""
+        """初始化 DM: 打开高压并把电压清零。"""
         self.set_hv(hv=True)
         self.reset_all()
 
     def reset_all(self) -> int:
-        """Reset all channels to zero voltage."""
+        """把所有通道电压重置为零。"""
         self.send_voltages(np.zeros(self.channel), 0.01)
         self.__last_v = np.zeros_like(self.__last_v)
         return 0
 
     def send_voltages(self, vs: DmCommands | np.ndarray, wait_time_s: float = 0.001) -> DmCommands | np.ndarray:
-        """Send voltages to simulated DM with noise and rate limiting.
+        """向模拟 DM 发送电压, 含噪声与速率限制。
 
         Args:
-            vs: Voltage array to send.
-            wait_time_s: Wait time per voltage step.
+            vs: 待发送的电压数组。
+            wait_time_s: 每个电压步长的等待时间。
 
         Returns:
-            Current voltage array after simulation.
+            仿真后的当前电压数组。
         """
         typed = isinstance(vs, DmCommands)
         if typed:
@@ -148,9 +144,9 @@ class SimulateDM(DM):
         if values.shape != (self.channel,):
             raise ValueError(f"Expected {self.channel} voltages, got {values.shape}")
         vs = np.clip(values, self.v_min, self.v_max)
-        # Add noise to simulate real hardware
+        # 加入噪声以模拟真实硬件
         noisy_vs = vs + np.random.normal(0, self.noise_level, size=vs.shape)
-        # Apply voltage rate limiting logic
+        # 施加电压速率限制逻辑
         __gap = noisy_vs - self.__last_v
         if self.max_iter_diff > 0:
             _direction = np.sign(__gap)
@@ -162,9 +158,9 @@ class SimulateDM(DM):
         else:
             self.__last_v = noisy_vs
 
-        # Record voltage history
+        # 记录电压历史
         self.voltage_history.append(self.__last_v.copy())
-        # Calculate simulated deformation (voltage to deformation)
+        # 计算模拟变形量 (电压 → 变形)
         deformation = self._voltage_to_deformation(self.__last_v)
         self.deformation_history.append(deformation)
         self._publish_to_optics(self.__last_v)
@@ -173,19 +169,17 @@ class SimulateDM(DM):
         return self.__last_v
 
     def _publish_to_optics(self, voltages: np.ndarray) -> None:
-        """Push the achieved voltages into the shared optical model's DM phase.
+        """把实际达到的电压推给共享光学模型的 DM 相位。
 
-        Without this the DM is invisible to ``SimPibSystem``: its ``far_field``
-        summed only the SLM command, so DM-driven loops (``pib``, ``combined``)
-        ran to completion while the voltages changed nothing.
+        缺了这一步, DM 对 ``SimPibSystem`` 就是不可见的: 它的 ``far_field``
+        只累加 SLM 命令相位, 于是 DM 驱动的环路 (``pib``、``combined``)
+        一路跑完, 而电压变化什么都没改变。
 
-        The import is deferred because ``drivers/sim/__init__`` imports this
-        module *before* ``slm_pib_sim``, so a module-level import would resolve
-        against a partially initialised package.
+        这里做延迟 import, 因为 ``drivers/sim/__init__`` 是**先** import 本模块、
+        **再** import ``slm_pib_sim``, 模块级 import 会解析到半初始化的包上。
 
-        The *achieved* voltages are published, not the requested ones, so the
-        optics sees the same rate-limited and noise-laden state the driver
-        actually applied.
+        发布的是**实际达到**的电压而非请求值, 这样光学侧看到的就是驱动真正施加的、
+        经过速率限制且带噪声的状态。
         """
         from loguru import logger
 
@@ -208,15 +202,13 @@ class SimulateDM(DM):
         self._publish_to_wfs(voltages)
 
     def _publish_to_wfs(self, voltages: np.ndarray) -> None:
-        """Also push the voltages to the simulated sensor, if one is live.
+        """在有活跃的模拟传感器时, 也把电压推给它。
 
-        The far-field model and the WFS model are separate optical states: the
-        sensor measures the pupil, not the far field, so publishing only to
-        ``SimPibSystem`` left ``wf``/``rms-zernike`` reading a flat pupil and
-        reporting zero RMS no matter what the DM did.
+        远场模型与 WFS 模型是两个各自独立的光学状态: 传感器测的是瞳面而非远场,
+        因此只发布到 ``SimPibSystem`` 会让 ``wf``/``rms-zernike`` 一直读到平 pupil,
+        无论 DM 怎么动都报零 RMS。
 
-        Silently skipped when no simulated sensor exists -- on hardware paths,
-        or when only the far-field model is in use.
+        没有模拟传感器时静默跳过 —— 硬件路径, 或只用远场模型时即是。
         """
         from ao_shaping.drivers.sim.wfs.simulated_wfs import get_active_sim_wfs
 
@@ -226,55 +218,55 @@ class SimulateDM(DM):
         sensor.dm_optics.set_voltages(voltages)
 
     def set_hv(self, hv: bool = True) -> int:
-        """Set high voltage state."""
+        """设置高压状态。"""
         self.hv_state = hv
         return 0
 
     def get_hv_state(self) -> bool:
-        """Get current high voltage state."""
+        """获取当前高压状态。"""
         return self.hv_state
 
     def _voltage_to_deformation(self, voltages: np.ndarray) -> np.ndarray:
-        """Convert voltages to deformation using a linear model.
+        """用线性模型把电压换算为变形量。
 
         Args:
-            voltages: Input voltage array.
+            voltages: 输入电压数组。
 
         Returns:
-            Deformation array.
+            变形量数组。
         """
         deformation = np.dot(self.deformation_model, voltages)
-        # Add deformation noise
+        # 加入变形噪声
         deformation += np.random.normal(0, self.noise_level * 0.1, size=deformation.shape)
         return deformation
 
     @staticmethod
     def _load_adj_txt() -> np.ndarray:
-        """Adjacency matrix, shared with the real DM drivers.
+        """邻接矩阵, 与真实 DM 驱动共用。
 
-        Replaces a byte-for-byte duplicate of this loader that read a
-        CWD-relative ``data/dm_adj.txt`` and carried its own fallback grid.
+        取代了本加载器的一份逐字节重复实现 —— 那份去读一个相对于 CWD 的
+        ``data/dm_adj.txt``, 并自带一套回退网格。
         """
         return load_adjacency()
 
 
     def get_deformation_history(self) -> np.ndarray:
-        """Get deformation history as array.
+        """以数组形式返回变形历史。
 
         Returns:
-            Array of deformation values over time.
+            随时间的变形值数组。
         """
         return np.array(self.deformation_history)
 
     def get_voltage_history(self) -> np.ndarray:
-        """Get voltage history as array.
+        """以数组形式返回电压历史。
 
         Returns:
-            Array of voltage values over time.
+            随时间的电压值数组。
         """
         return np.array(self.voltage_history)
 
     def clear_history(self) -> None:
-        """Clear deformation and voltage history."""
+        """清空变形历史与电压历史。"""
         self.deformation_history = []
         self.voltage_history = []

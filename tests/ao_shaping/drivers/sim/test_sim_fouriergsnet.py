@@ -1,19 +1,21 @@
-"""TDD physics tests for the FourierGSNet simulation environment.
+"""FourierGSNet 仿真环境的物理回归测试 (TDD)。
 
-Verifies the 2f Fourier-bench physics model of ``SimFourierGSNetEnv``:
+验证 ``SimFourierGSNetEnv`` 的 2f 傅里叶台架物理模型:
 
-* the K-law — a blaze grating of period ``P_slm`` SLM pixels produces its
-  +1 order exactly ``K_px / P_slm`` CCD pixels from the 0-order;
-* the physical pixel envelope — a separable sinc whose first null sits at
-  ``K_px * d_slm / d_eff`` CCD pixels;
-* static aberration additivity — ``env.aberrations`` equals writing
-  ``base + aberration`` directly through ``display_phase``, and a Noll-3
-  tilt shifts the far-field centroid by ``c * K / (pi * R)`` pixels;
-* the duck-typing contract the real ``fouriergsnet_optimize.py`` pipeline
-  (SLMCCDCalibrator / SLMLUTCalibrator / ShapingSystem) relies on.
+* **K 定律** —— 周期 ``P_slm`` 个 SLM 像素的闪耀光栅, 其 +1 级恰好落在距 0 级
+  ``K_px / P_slm`` 个 CCD 像素处;
+* **物理像元包络** —— 可分离 sinc, 首零点位于 ``K_px * d_slm / d_eff`` 个 CCD 像素;
+* **静态像差可加性** —— ``env.aberrations`` 等价于直接向 ``display_phase`` 写
+  ``base + aberration``, 且 Noll 3 (倾斜) 使远场质心偏移 ``c * K / (pi * R)`` 像素;
+* **鸭子类型契约** —— ``SimSLM``/``SimCCD`` 满足真实 Santec/MiiCam 驱动的调用形状
+  (独立 CLI ``fouriergsnet_optimize.py`` 已于 f19dced 删除, 契约本身仍有效)。
 
-All tests are seedable, run on CPU with small K (2048), and use
-``noise_enabled=False`` so the physics is deterministic.
+全部测试可设种子、纯 CPU、K 取小值 (2048), 且用 ``noise_enabled=False`` 让物理
+部分完全确定性。
+
+与其他模块的关系: 被测对象是 ``drivers/sim/fouriergsnet_env.py``; 其 FFT 口径被
+``algorithm/signal_processing/zernike_coefficient_optimizer.py`` 的正向模型共享,
+故这里的 K 定律/包络断言同时是那条 model-in-the-loop 拟合链的前置条件。
 """
 from __future__ import annotations
 
@@ -24,24 +26,24 @@ from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 K_SMALL = 2048
 D_SLM = 8e-6
-D_EFF_TEST = 4 * D_SLM  # envelope first null at K_px/4 = 512 px inside the band
+D_EFF_TEST = 4 * D_SLM  # 包络首零点落在带内 K_px/4 = 512 px
 PANEL_H, PANEL_W = 1920, 1200
 
 
 def _blaze_phase(period_px: int) -> np.ndarray:
-    """x-axis blaze grating phase (radians), replicating SLMCCDCalibrator._blaze."""
+    """沿 x 方向的闪耀光栅相位 (弧度), 复刻历史管线中 SLMCCDCalibrator._blaze。"""
     return np.tile((2 * np.pi * np.arange(PANEL_W) / period_px), (PANEL_H, 1))
 
 
 def _threshold_centroid(img: np.ndarray, thresh: float = 0.5) -> tuple[float, float]:
-    """Intensity-weighted centroid of pixels above ``thresh * max``."""
+    """高于 ``thresh * max`` 的像素的强度加权质心。"""
     yy, xx = np.nonzero(img > thresh * img.max())
     w = img[yy, xx].astype(np.float64)
     return (float(np.average(yy, weights=w)), float(np.average(xx, weights=w)))
 
 
 def test_k_law(seed: int = 0) -> None:
-    """Grating period P_slm -> +1 order displacement == K_px / P_slm (within 3%)."""
+    """光栅周期 P_slm -> +1 级位移 == K_px / P_slm (容差 3%)。"""
     env = SimFourierGSNetEnv(K_px=K_SMALL, noise_enabled=False, seed=seed)
     center = K_SMALL / 2
     for period in (32, 64):
@@ -56,11 +58,11 @@ def test_k_law(seed: int = 0) -> None:
 
 
 def test_sinc_envelope_null(seed: int = 0) -> None:
-    """Flat phase: separable sinc envelope first null at K_px * d_slm / d_eff (within 5%)."""
+    """平场: 可分离 sinc 包络首零点位于 K_px * d_slm / d_eff (容差 5%)。"""
     env = SimFourierGSNetEnv(
         K_px=K_SMALL,
         d_eff=D_EFF_TEST,
-        beam=BeamParams(w0=1.0),  # delta-like beam -> far field ~ envelope
+        beam=BeamParams(w0=1.0),  # 准点状光束 -> 远场 ≈ 包络本身
         noise_enabled=False,
         seed=seed,
     )
@@ -76,11 +78,11 @@ def test_sinc_envelope_null(seed: int = 0) -> None:
 
 
 def test_static_aberration_additivity(seed: int = 0) -> None:
-    """Static aberrations add to the displayed base phase (env path == direct path)."""
+    """静态像差叠加到已显示基础相位上 (env 路径 == 直接路径)。"""
     region = 512
     zgen = ZernikeGenerator((region, region), radius=region / 2, n_orders=6)
-    base = zgen.generate_polynomial({(2, 0): 0.3})  # small defocus
-    tilt = zgen.generate_polynomial({(1, -1): 1.0})  # Noll 3 = (1,-1) tilt along rows
+    base = zgen.generate_polynomial({(2, 0): 0.3})  # 小离焦
+    tilt = zgen.generate_polynomial({(1, -1): 1.0})  # Noll 3 = (1,-1), 沿行倾斜
     r0, c0 = 960 - region // 2, 600 - region // 2
 
     env = SimFourierGSNetEnv(
@@ -102,7 +104,7 @@ def test_static_aberration_additivity(seed: int = 0) -> None:
 
     assert np.allclose(frame_env, frame_ref, rtol=1e-2)
 
-    # tilt centroid shift: c * K / (pi * R) = 2.55 px at c=1, R=256, K=2048
+    # 倾斜引起的质心偏移: c * K / (πR) = 2.55 px (c=1, R=256, K=2048)
     env_flat = SimFourierGSNetEnv(
         K_px=K_SMALL, beam=BeamParams(w0=100.0), noise_enabled=False, seed=seed
     )
@@ -118,7 +120,7 @@ def test_static_aberration_additivity(seed: int = 0) -> None:
 
 
 def test_device_ducktyping_contract(seed: int = 0) -> None:
-    """SimSLM/SimCCD satisfy the duck-typing contract of fouriergsnet_optimize.py."""
+    """SimSLM/SimCCD 满足真实 SLM/MiiCam 驱动的鸭子类型契约。"""
     env = SimFourierGSNetEnv(K_px=K_SMALL, seed=seed)
     slm = env.slm
     ccd = env.ccd

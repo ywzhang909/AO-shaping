@@ -1,13 +1,13 @@
-"""Genetic Algorithm optimization module.
+"""遗传算法优化模块。
 
-This module provides pure Genetic Algorithm operators for general optimization.
-Extracts core GA components from ga_zernike.py for reusability.
+本模块为通用优化提供纯遗传算法算子。
+把 ga_zernike.py 里的核心 GA 组件抽出来以便复用。
 
-Key features:
-- Tournament selection
-- Blend crossover (BLX-alpha)
-- Gaussian mutation
-- Elitism preservation
+主要特性:
+- 锦标赛选择
+- 混合交叉 (BLX-alpha)
+- 高斯变异
+- 精英保留
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.ga import GeneticAlgorithm
@@ -42,23 +42,23 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 
 class FitnessFunction(Protocol):
-    """Protocol for fitness function."""
+    """适应度函数的 Protocol。"""
 
     def __call__(self, x: npt.NDArray[np.float64]) -> float:
-        """Evaluate fitness.
+        """评估适应度。
 
         Args:
-            x: Individual to evaluate.
+            x: 待评估的个体。
 
         Returns:
-            Fitness value (lower is better for minimization).
+            适应度值 (做最小化时越小越好)。
         """
         ...
 
 
 @dataclass
 class GAParams:
-    """Genetic Algorithm parameters."""
+    """遗传算法参数。"""
 
     pop_size: int = 50
     n_generations: int = 2000
@@ -67,8 +67,8 @@ class GAParams:
     tournament_size: int = 3
     elite_count: int = 2
     bounds: tuple[float, float] = (-50.0, 50.0)
-    alpha: float = 0.5  # BLX-alpha expansion factor
-    mutation_sigma: float = 5.0  # Gaussian mutation sigma
+    alpha: float = 0.5  # BLX-alpha 扩张系数
+    mutation_sigma: float = 5.0  # 高斯变异的 sigma
 
 
 def tournament_selection(
@@ -77,21 +77,21 @@ def tournament_selection(
     tournament_size: int,
     random_state: np.random.Generator | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Select an individual using tournament selection.
+    """用锦标赛选择挑出一个个体。
 
     Args:
-        population: Array of shape (pop_size, dim) containing the population.
-        fitness: Array of shape (pop_size,) containing fitness values (lower is better).
-        tournament_size: Number of individuals to compete in the tournament.
-        random_state: Random generator for reproducibility.
+        population: 形状 (pop_size, dim) 的种群数组。
+        fitness: 形状 (pop_size,) 的适应度值数组 (越小越好)。
+        tournament_size: 参加锦标赛的个体数。
+        random_state: 用于可复现性的随机数生成器。
 
     Returns:
-        Selected individual as array of shape (dim,).
+        选中的个体, 形状 (dim,) 的数组。
     """
     rng = random_state if random_state is not None else np.random.default_rng()
     pop_size = len(population)
     contestants = rng.choice(pop_size, tournament_size, replace=False)
-    # For minimization, select the one with minimum fitness
+    # 做最小化时, 选适应度最小的那个
     best_idx = contestants[np.argmin(fitness[contestants])]
     return population[best_idx].copy()
 
@@ -102,32 +102,31 @@ def blend_crossover(
     alpha: float = 0.5,
     random_state: np.random.Generator | None = None,
 ) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Blend crossover (BLX-alpha) for two parents.
+    """对两个亲本做混合交叉 (BLX-alpha)。
 
-    Creates two children by interpolating/extrapolating between parents
-    within a range expanded by factor alpha.
+    在按系数 alpha 扩张过的范围内, 通过在两个亲本之间插值/外插生成两个子代。
 
     Args:
-        parent1: First parent array of shape (dim,).
-        parent2: Second parent array of shape (dim,).
-        alpha: Expansion factor for the search range.
-        random_state: Random generator for reproducibility.
+        parent1: 形状 (dim,) 的第一个亲本数组。
+        parent2: 形状 (dim,) 的第二个亲本数组。
+        alpha: 搜索范围的扩张系数。
+        random_state: 用于可复现性的随机数生成器。
 
     Returns:
-        Tuple of two children arrays.
+        两个子代数组组成的二元组。
     """
     rng = random_state if random_state is not None else np.random.default_rng()
     n = len(parent1)
-    # Calculate the range between parents
+    # 计算两个亲本之间的范围
     c_min = np.minimum(parent1, parent2)
     c_max = np.maximum(parent1, parent2)
     I = c_max - c_min
 
-    # Expand the range
+    # 扩张该范围
     lower = c_min - alpha * I
     upper = c_max + alpha * I
 
-    # Generate children uniformly in the expanded range
+    # 在扩张后的范围内均匀生成子代
     child1 = lower + rng.random(n) * (upper - lower)
     child2 = lower + rng.random(n) * (upper - lower)
 
@@ -141,21 +140,20 @@ def gaussian_mutation(
     bounds: tuple[float, float] = (-50.0, 50.0),
     random_state: np.random.Generator | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Apply Gaussian mutation to an individual.
+    """对一个个体施加高斯变异。
 
-    Each gene has a probability of being mutated according to mutation_rate.
-    Mutated genes are perturbed by a Gaussian with mean 0 and given sigma.
-    Values are clipped to the specified bounds.
+    每个基因都有 mutation_rate 的概率被变异。被变异的基因由一个均值为 0、sigma
+    为给定值的高斯分布扰动。取值会被裁剪到指定边界。
 
     Args:
-        individual: Individual to mutate, shape (dim,).
-        mutation_rate: Probability of mutating each gene.
-        sigma: Standard deviation of the Gaussian perturbation.
-        bounds: Tuple of (min, max) bounds for clipping.
-        random_state: Random generator for reproducibility.
+        individual: 待变异的个体, 形状 (dim,)。
+        mutation_rate: 每个基因被变异的概率。
+        sigma: 高斯扰动的标准差。
+        bounds: 用于裁剪的 (最小, 最大) 边界二元组。
+        random_state: 用于可复现性的随机数生成器。
 
     Returns:
-        Mutated individual.
+        变异后的个体。
     """
     rng = random_state if random_state is not None else np.random.default_rng()
     mutated = individual.copy()
@@ -168,7 +166,7 @@ def gaussian_mutation(
 
 @dataclass
 class GAHistory:
-    """History of GA optimization run."""
+    """GA 优化运行的历史。"""
 
     best_fitness: list[float] = field(default_factory=list)
     mean_fitness: list[float] = field(default_factory=list)
@@ -176,12 +174,12 @@ class GAHistory:
 
 
 class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
-    """Genetic Algorithm optimizer for continuous optimization.
+    """用于连续优化的遗传算法优化器。
 
     Attributes:
-        dim: Dimension of the problem.
-        params: GA parameters.
-        history: Optimization history.
+        dim: 问题的维度。
+        params: GA 参数。
+        history: 优化历史。
     """
 
     _registry_key = OptimizerType.GA
@@ -192,12 +190,12 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         params: GAParams | None = None,
         random_state: np.random.Generator | None = None,
     ):
-        """Initialize Genetic Algorithm.
+        """初始化遗传算法。
 
         Args:
-            dim: Dimension of the optimization problem.
-            params: GA parameters. If None, uses default GAParams.
-            random_state: Random generator for reproducibility.
+            dim: 优化问题的维度。
+            params: GA 参数。为 None 时用默认的 GAParams。
+            random_state: 用于可复现性的随机数生成器。
         """
         self.params = params if params is not None else GAParams()
         # 从 GAParams 派生 OptimizerConfig (iterations/bounds), 复用基类的 dim/rng 设置。
@@ -207,7 +205,7 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         )
         super().__init__(dim, config, random_state)
         self.history = GAHistory()
-        # Generation state lives on self so @guided_mutation can read it.
+        # 每一代的状态放在 self 上, 供 @guided_mutation 读取。
         self._population: npt.NDArray[np.float64] = np.empty((0, self.dim))
         self._fitness_vals: npt.NDArray[np.float64] = np.empty(0)
         self._current_iter: int = 0
@@ -220,16 +218,16 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         random_state: np.random.Generator | None,
         **kwargs: Any,
     ) -> "GeneticAlgorithm":
-        """Build a GA from the common config, translating it into GAParams.
+        """由通用配置构造一个 GA, 并把它翻译成 GAParams。
 
         Args:
-            dim: Dimension of the optimization problem.
-            config: Common configuration built by ``HeuristicOptimizer.create``.
-            random_state: Generator derived from ``config.seed``, or None.
-            **kwargs: Only ``pop_size`` is honoured; GA takes no other extras.
+            dim: 优化问题的维度。
+            config: ``HeuristicOptimizer.create`` 构造出的通用配置。
+            random_state: 由 ``config.seed`` 派生的生成器, 或 None。
+            **kwargs: 只有 ``pop_size`` 会被采纳; GA 不接受其他额外参数。
 
         Returns:
-            The constructed GeneticAlgorithm.
+            构造出的 GeneticAlgorithm。
         """
         params = GAParams(
             pop_size=kwargs.get("pop_size", 30),
@@ -239,20 +237,20 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
         return cls(dim=dim, params=params, random_state=random_state)
 
     def _initialize_population(self, init_x: npt.NDArray[np.float64] | None = None) -> npt.NDArray[np.float64]:
-        """Initialize population.
+        """初始化种群。
 
         Args:
-            init_x: Initial point to include in population. If None, starts from random.
+            init_x: 要纳入种群的初始点。为 None 时从随机点开始。
 
         Returns:
-            Initial population array of shape (pop_size, dim).
+            形状 (pop_size, dim) 的初始种群数组。
         """
         pop = self.rng.uniform(
             self.params.bounds[0],
             self.params.bounds[1],
             (self.params.pop_size, self.dim),
         )
-        # Include initial point if provided
+        # 给了初始点就把它纳入
         if init_x is not None:
             pop[0] = init_x.copy()
         return pop
@@ -260,14 +258,14 @@ class GeneticAlgorithm(NumpyPopulationGM, HeuristicOptimizer):
     def _evaluate_population(
         self, pop: npt.NDArray[np.float64], fitness_fn: FitnessFunction
     ) -> npt.NDArray[np.float64]:
-        """Evaluate fitness for entire population.
+        """评估整个种群的适应度。
 
         Args:
-            pop: Population array.
-            fitness_fn: Fitness function.
+            pop: 种群数组。
+            fitness_fn: 适应度函数。
 
         Returns:
-            Fitness values array of shape (pop_size,).
+            形状 (pop_size,) 的适应度值数组。
         """
         fitness = np.array([fitness_fn(ind) for ind in pop])
         return fitness

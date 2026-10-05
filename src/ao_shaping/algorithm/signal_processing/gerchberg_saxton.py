@@ -1,12 +1,11 @@
-"""Gerchberg-Saxton algorithm for hologram generation.
+"""用于全息图生成的 Gerchberg-Saxton 算法。
 
-This module implements the classical Gerchberg-Saxton phase retrieval algorithm
-with Angular Spectrum Method (ASM) for optical wave propagation.
+本模块实现经典的 Gerchberg-Saxton 相位恢复算法, 并采用角谱法 (ASM)
+完成光的波前传播。
 
-The algorithm iteratively constrains the amplitude at the source (SLM) plane
-and target (far-field) plane to compute the optimal phase pattern for the SLM.
+算法迭代地约束源面 (SLM) 与目标面 (远场) 的振幅, 从而算出 SLM 的最优相位图形。
 
-Reference:
+参考文献:
     - Gerchberg, R. W., & Saxton, W. O. (1972). A practical algorithm for the
       determination of phase from image and diffraction plane pictures.
       Optik, 35, 237-246.
@@ -26,14 +25,14 @@ from loguru import logger
 
 @dataclass
 class GSResult:
-    """Result container for Gerchberg-Saxton algorithm.
+    """Gerchberg-Saxton 算法的结果容器。
 
     Attributes:
-        phase: Computed phase pattern for SLM (radians, 0-2π)
-        amplitude: Final amplitude at target plane
-        error_history: List of error values per iteration
-        iterations: Number of iterations performed
-        converged: Whether the algorithm converged
+        phase: 为 SLM 算出的相位图形 (弧度, 0-2π)
+        amplitude: 目标面上的最终振幅
+        error_history: 每次迭代对应的误差值列表
+        iterations: 实际执行的迭代次数
+        converged: 算法是否收敛
     """
 
     phase: npt.NDArray[np.floating]
@@ -66,7 +65,7 @@ def _compute_propagator(
     kz_squared = k**2 - kx**2 - ky**2
     kz = np.sqrt(np.maximum(kz_squared, 0))
     H = np.exp(1j * kz * z)
-    H[kz_squared < 0] = 0  # Evanescent waves
+    H[kz_squared < 0] = 0  # 倏逝波
     return ifftshift(H)
 
 
@@ -76,29 +75,28 @@ def angular_spectrum_propagate(
     z: float,
     wavelength: float,
 ) -> npt.NDArray[np.complexfloating]:
-    """Propagate optical field using Angular Spectrum Method (ASM).
+    """用角谱法 (ASM) 传播光场。
 
-    The Angular Spectrum Method propagates a complex optical field from one
-    plane to another using Fourier optics. It's accurate for near-field and
-    far-field propagation.
+    角谱法借助傅里叶光学把复光场从一个平面传播到另一个平面。
+    它对近场与远场传播都是精确的。
 
     Args:
-        field: Complex field array (2D numpy array)
-        dx: Pixel spacing (meters)
-        z: Propagation distance (meters, positive=forward, negative=backward)
-        wavelength: Light wavelength (meters)
+        field: 复光场数组 (二维 numpy 数组)
+        dx: 像素间距 (米)
+        z: 传播距离 (米, 正=正向, 负=反向)
+        wavelength: 光的波长 (米)
 
     Returns:
-        Propagated complex field (same shape as input)
+        传播后的复光场 (形状与输入相同)
 
     Example:
-        >>> # Forward propagate by 10cm
+        >>> # 正向传播 10cm
         >>> propagated = angular_spectrum_propagate(field, dx=8e-6, z=0.1, wavelength=633e-9)
     """
     if field.ndim != 2:
         raise ValueError(f"Field must be 2D array, got {field.ndim}D")
 
-    # FFT → multiply by propagator → IFFT
+    # FFT → 乘以传播子 → IFFT
     F = fft2(field)
     H = _compute_propagator(field.shape[0], field.shape[1], dx, z, wavelength)
     F_propagated = F * H
@@ -118,55 +116,52 @@ def gerchberg_saxton(
     phase_callback: Callable[[int, npt.NDArray[np.floating]], None] | None = None,
     propagation: str = "asm",
 ) -> GSResult:
-    """Gerchberg-Saxton algorithm for phase retrieval.
+    """用于相位恢复的 Gerchberg-Saxton 算法。
 
-    Computes the optimal phase pattern to apply at the source plane (SLM)
-    to produce a desired intensity distribution at the target plane.
+    计算应施加在源面 (SLM) 的最优相位图形, 使目标面上产生期望的强度分布。
 
-    Algorithm:
-        1. Initialize field A at source plane
-        2. For each iteration:
-           a. Apply source amplitude constraint: B = source_amp * exp(i*phase(A))
-           b. Propagate forward to target plane: C = ASM(B, +z)
-           c. Apply target amplitude constraint: D = target_amp * exp(i*phase(C))
-           d. Propagate backward to source plane: A = ASM(D, -z)
-        3. Extract final phase: phase = angle(A)
+    算法:
+        1. 在源面初始化光场 A
+        2. 每次迭代:
+           a. 施加源面振幅约束: B = source_amp * exp(i*phase(A))
+           b. 正向传播到目标面: C = ASM(B, +z)
+           c. 施加目标面振幅约束: D = target_amp * exp(i*phase(C))
+           d. 反向传播回源面: A = ASM(D, -z)
+        3. 提取最终相位: phase = angle(A)
 
     Args:
-        source_amplitude: 2D array, amplitude constraint at SLM plane
-                         (typically uniform illumination, shape matches SLM)
-        target_amplitude: 2D array, desired amplitude at target plane
-                         (square root of target intensity image)
-        iterations: Number of GS iterations (default: 50)
-        cell_spacing: Pixel size in meters (default: 8e-6 for SLM200)
-        distance: Propagation distance in meters (default: 0.1)
-        wavelength: Light wavelength in meters (default: 1064e-9 for YAG laser)
-        error_threshold: Optional convergence threshold (mean squared error)
-        progress_callback: Optional callback function(iteration, error) for monitoring
-        phase_callback: Optional callback function(iteration, phase) invoked with the
-            current source-plane phase (radians) after each iteration.  Enables
-            live hardware display of the evolving phase pattern.
-        propagation: Propagation model, ``"asm"`` (Angular Spectrum Method,
-            default) or ``"fft"`` (single-FFT Fraunhofer plane — the focal
-            plane is treated as the Fourier transform of the source plane).
-            ``"fft"`` drops the per-iteration propagator construction entirely,
-            matching the far-field GS speed of a single FFT/IFFT pair.
+        source_amplitude: 二维数组, SLM 面上的振幅约束
+                         (通常为均匀照明, 形状与 SLM 一致)
+        target_amplitude: 二维数组, 目标面上期望的振幅
+                         (目标强度图的平方根)
+        iterations: GS 迭代次数 (默认: 50)
+        cell_spacing: 像素尺寸, 单位米 (SLM200 默认 8e-6)
+        distance: 传播距离, 单位米 (默认: 0.1)
+        wavelength: 光的波长, 单位米 (YAG 激光默认 1064e-9)
+        error_threshold: 可选的收敛阈值 (均方误差)
+        progress_callback: 可选的回调函数 (迭代数, 误差), 用于监控
+        phase_callback: 可选的回调函数 (迭代数, 相位), 每次迭代后以当前
+            源面相位 (弧度) 调用, 从而能把演化中的相位图形实时显示到硬件上。
+        propagation: 传播模型, ``"asm"`` (角谱法, 默认) 或 ``"fft"``
+            (单次 FFT 的夫琅禾费平面 —— 焦平面被视作源平面的傅里叶变换)。
+            ``"fft"`` 完全省掉每次迭代构建传播子的开销, 速度与单对 FFT/IFFT
+            的远场 GS 相当。
 
     Returns:
-        GSResult containing computed phase, amplitude, error history, and convergence info
+        含相位、振幅、误差历史与收敛信息的 GSResult
 
     Raises:
-        ValueError: If input arrays have wrong dimensions or parameters are invalid
+        ValueError: 输入数组维度不对或参数无效时
 
     Example:
-        >>> # Create target amplitude from image
+        >>> # 由图像创建目标振幅
         >>> target_img = np.loadtxt('target_pattern.csv', delimiter=',')
-        >>> target_amp = np.sqrt(target_img / target_img.max())  # Normalize and sqrt
+        >>> target_amp = np.sqrt(target_img / target_img.max())  # 归一化并开方
         >>>
-        >>> # Uniform source amplitude
+        >>> # 均匀源振幅
         >>> source_amp = np.ones((1200, 1920))
         >>>
-        >>> # Run GS algorithm
+        >>> # 运行 GS 算法
         >>> result = gerchberg_saxton(
         ...     source_amplitude=source_amp,
         ...     target_amplitude=target_amp,
@@ -176,10 +171,10 @@ def gerchberg_saxton(
         ...     wavelength=1064e-9,
         ... )
         >>>
-        >>> # Use computed phase
-        >>> slm_phase = result.phase  # Radians, 0-2π
+        >>> # 使用算出的相位
+        >>> slm_phase = result.phase  # 弧度, 0-2π
     """
-    # Validate inputs
+    # 校验输入
     if source_amplitude.ndim != 2 or target_amplitude.ndim != 2:
         raise ValueError("Input amplitudes must be 2D arrays")
 
@@ -207,74 +202,74 @@ def gerchberg_saxton(
 
     Ny, Nx = source_amplitude.shape
 
-    # Initialize field A with target back-propagated to source plane
-    # This gives a better starting point than random initialization
+    # 用反向传播到源面的目标来初始化光场 A
+    # 这比随机初始化给出更好的起点
     logger.debug("Initializing field with back-propagated target")
     if propagation == "asm":
         A = angular_spectrum_propagate(
             target_amplitude.astype(np.complex128),
             cell_spacing,
-            -distance,  # Backward propagation
+            -distance,  # 反向传播
             wavelength,
         )
     else:
-        # Fraunhofer backward propagation: inverse FFT of the target plane
+        # 夫琅禾费反向传播: 目标平面的逆 FFT
         A = ifft2(ifftshift(target_amplitude.astype(np.complex128)))
 
     error_history = []
 
-    # Main GS iteration loop
+    # GS 主迭代循环
     for i in range(iterations):
-        # Step 1: Apply source plane amplitude constraint
+        # 步骤 1: 施加源面振幅约束
         # B = source_amplitude * exp(i * phase(A))
         phase_A = np.angle(A)
         B = source_amplitude * np.exp(1j * phase_A)
 
         if propagation == "asm":
-            # Step 2: Forward propagate to target plane
+            # 步骤 2: 正向传播到目标面
             C = angular_spectrum_propagate(B, cell_spacing, distance, wavelength)
         else:
-            # Step 2: Forward to Fraunhofer (focal) plane — single FFT
+            # 步骤 2: 正向传播到夫琅禾费 (焦) 平面 —— 单次 FFT
             C = fftshift(fft2(B))
 
-        # Step 3: Apply target plane amplitude constraint
+        # 步骤 3: 施加目标面振幅约束
         # D = target_amplitude * exp(i * phase(C))
         phase_C = np.angle(C)
         D = target_amplitude * np.exp(1j * phase_C)
 
         if propagation == "asm":
-            # Step 4: Backward propagate to source plane
+            # 步骤 4: 反向传播回源面
             A = angular_spectrum_propagate(D, cell_spacing, -distance, wavelength)
         else:
-            # Step 4: Backward to source plane — single IFFT
+            # 步骤 4: 反向传播回源面 —— 单次 IFFT
             A = ifft2(ifftshift(D))
 
-        # Calculate error (mean squared error between |C| and target)
+        # 计算误差 (|C| 与目标之间的均方误差)
         amplitude_C = np.abs(C)
         mse = np.mean((amplitude_C - target_amplitude) ** 2)
         error_history.append(float(mse))
 
-        # Progress callback
+        # 进度回调
         if progress_callback is not None:
             progress_callback(i, float(mse))
 
-        # Live phase callback — push the current source-plane phase to hardware
+        # 实时相位回调 —— 把当前源面相位推送到硬件
         if phase_callback is not None:
             phase_callback(i, phase_A)
 
-        # Log progress every 10 iterations
+        # 每 10 次迭代记录一次进度
         if (i + 1) % 10 == 0 or i == 0:
             logger.debug(f"Iteration {i + 1}/{iterations}, MSE={mse:.6f}")
 
-        # Check convergence
+        # 检查收敛
         if error_threshold is not None and mse < error_threshold:
             logger.info(f"Converged at iteration {i + 1} with MSE={mse:.6f}")
             break
 
-    # Extract final results
+    # 提取最终结果
     final_phase = np.angle(A)
 
-    # Forward propagate one more time to get target plane amplitude
+    # 再正向传播一次以得到目标面振幅
     final_B = source_amplitude * np.exp(1j * final_phase)
     if propagation == "asm":
         final_C = angular_spectrum_propagate(
@@ -284,7 +279,7 @@ def gerchberg_saxton(
         final_C = fftshift(fft2(final_B))
     final_amplitude = np.abs(final_C)
 
-    # Check if we converged
+    # 检查是否收敛
     converged = error_threshold is not None and error_history[-1] < error_threshold
 
     logger.info(
@@ -314,33 +309,31 @@ def adaptive_gerchberg_saxton(
     wavelength: float = 1064e-9,
     feedback_weight: float = 0.3,
 ) -> GSResult:
-    """Adaptive Gerchberg-Saxton with experimental feedback.
+    """带实验反馈的自适应 Gerchberg-Saxton。
 
-    This variant incorporates actual measured amplitude from the experimental
-    setup to refine the phase pattern iteratively. It's useful when the
-    theoretical model doesn't perfectly match reality.
+    这个变体把实验装置实测到的振幅引入进来, 迭代细化相位图形。
+    当理论模型与实际不完全吻合时它很有用。
 
     Args:
-        source_amplitude: Amplitude constraint at SLM plane
-        target_amplitude: Desired amplitude at target plane
-        measured_amplitude_callback: Function that takes a phase pattern,
-            displays it on SLM, captures image with CCD, and returns
-            measured amplitude (square root of intensity)
-        outer_iterations: Number of adaptive feedback loops
-        inner_iterations: Number of GS iterations per feedback loop
-        cell_spacing: Pixel spacing in meters
-        distance: Propagation distance in meters
-        wavelength: Light wavelength in meters
-        feedback_weight: Weight for blending measured vs simulated (0-1)
+        source_amplitude: SLM 面上的振幅约束
+        target_amplitude: 目标面上期望的振幅
+        measured_amplitude_callback: 接受相位图形、把它显示到 SLM 上、
+            用 CCD 拍图, 并返回实测振幅 (强度的平方根) 的函数
+        outer_iterations: 自适应反馈外层循环的次数
+        inner_iterations: 每个反馈循环内的 GS 迭代次数
+        cell_spacing: 像素间距, 单位米
+        distance: 传播距离, 单位米
+        wavelength: 光的波长, 单位米
+        feedback_weight: 实测与仿真混合时的权重 (0-1)
 
     Returns:
-        GSResult with final computed phase
+        含最终相位的 GSResult
 
     Example:
         >>> def capture_amplitude(phase_pattern):
         ...     slm.display_phase(phase_pattern)
         ...     img = camera.get_image()
-        ...     return np.sqrt(img)  # Amplitude from intensity
+        ...     return np.sqrt(img)  # 由强度得到振幅
         >>>
         >>> result = adaptive_gerchberg_saxton(
         ...     source_amplitude,
@@ -352,7 +345,7 @@ def adaptive_gerchberg_saxton(
     """
     logger.info(f"Starting adaptive GS: {outer_iterations} outer loops")
 
-    # Start with standard GS
+    # 先跑标准 GS
     result = gerchberg_saxton(
         source_amplitude,
         target_amplitude,
@@ -367,18 +360,18 @@ def adaptive_gerchberg_saxton(
     for outer_i in range(outer_iterations):
         logger.info(f"Adaptive iteration {outer_i + 1}/{outer_iterations}")
 
-        # Get measured amplitude from experiment
+        # 从实验装置取实测振幅
         measured_amp = measured_amplitude_callback(current_phase)
 
-        # Blend target with measured (feedback)
-        # This allows the algorithm to adapt to real-world imperfections
+        # 把目标与实测混合 (反馈)
+        # 这让算法能适应真实世界中的不完美
         blended_target = (
             1 - feedback_weight
         ) * target_amplitude + feedback_weight * measured_amp * target_amplitude / (
             measured_amp + 1e-10
         )
 
-        # Run GS with blended target
+        # 用混合后的目标跑 GS
         result = gerchberg_saxton(
             source_amplitude,
             blended_target,
@@ -401,42 +394,42 @@ def calculate_reconstruction_error(
     distance: float = 0.1,
     wavelength: float = 1064e-9,
 ) -> dict[str, float]:
-    """Calculate various error metrics for GS reconstruction quality.
+    """计算衡量 GS 重建质量的各种误差指标。
 
     Args:
-        computed_phase: Phase pattern computed by GS algorithm
-        source_amplitude: Source plane amplitude constraint
-        target_amplitude: Target plane amplitude constraint
-        cell_spacing: Pixel spacing in meters
-        distance: Propagation distance in meters
-        wavelength: Light wavelength in meters
+        computed_phase: GS 算法算出的相位图形
+        source_amplitude: 源面振幅约束
+        target_amplitude: 目标面振幅约束
+        cell_spacing: 像素间距, 单位米
+        distance: 传播距离, 单位米
+        wavelength: 光的波长, 单位米
 
     Returns:
-        Dictionary with error metrics:
-            - mse: Mean squared error
-            - nmse: Normalized MSE
-            - correlation: Correlation coefficient
-            - efficiency: Optical efficiency
+        含各误差指标的字典:
+            - mse: 均方误差
+            - nmse: 归一化 MSE
+            - correlation: 相关系数
+            - efficiency: 光学效率
     """
-    # Propagate computed phase to target plane
+    # 把算出的相位传播到目标面
     field = source_amplitude * np.exp(1j * computed_phase)
     propagated = angular_spectrum_propagate(field, cell_spacing, distance, wavelength)
     computed_amplitude = np.abs(propagated)
 
-    # Normalize for comparison
+    # 归一化以便比较
     target_norm = target_amplitude / (target_amplitude.max() + 1e-10)
     computed_norm = computed_amplitude / (computed_amplitude.max() + 1e-10)
 
     # MSE
     mse = np.mean((computed_norm - target_norm) ** 2)
 
-    # Normalized MSE
+    # 归一化 MSE
     nmse = mse / (np.mean(target_norm**2) + 1e-10)
 
-    # Correlation coefficient
+    # 相关系数
     correlation = np.corrcoef(computed_norm.flatten(), target_norm.flatten())[0, 1]
 
-    # Optical efficiency (energy in target region / total energy)
+    # 光学效率 (目标区域内的能量 / 总能量)
     efficiency = np.sum(computed_amplitude**2) / (np.sum(source_amplitude**2) + 1e-10)
 
     return {

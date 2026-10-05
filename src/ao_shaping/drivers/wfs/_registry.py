@@ -1,8 +1,7 @@
-"""Registry for wavefront-sensor implementations.
+"""波前传感器实现的注册表。
 
-Cameras resolve through ``register_camera``/``create_camera`` and DMs through
-``register_dm``/``resolve_dm``; before this module WFS had no seam at all, so a
-simulated sensor could not be substituted into a runner even once one existed.
+相机走 ``register_camera``/``create_camera`` 解析, DM 走 ``register_dm``/``resolve_dm``;
+而在本模块之前 WFS 完全没有接入点, 因此即便写出了仿真传感器也无法替换进 runner。
 """
 
 from __future__ import annotations
@@ -43,14 +42,12 @@ _bound = False
 
 
 def _ensure_bound() -> None:
-    """Bind the known sensor types on first registry use.
+    """在注册表首次使用时绑定已知的传感器类型。
 
-    The simulated sensor is declared with ``@register_wfs("sim")`` inside
-    ``drivers.sim.wfs``. Importing that package from ``drivers.wfs.__init__``
-    would invert the layering and risk a cycle, because ``SimulatedWFS`` imports
-    ``drivers.wfs.base`` (and this module) back. Deferring to first registry use
-    keeps the dependency one-way while making the type discoverable regardless of
-    which package the process imported first.
+    仿真传感器是在 ``drivers.sim.wfs`` 内部用 ``@register_wfs("sim")`` 声明的。
+    从 ``drivers.wfs.__init__`` 导入那个包会颠倒分层并有形成循环的风险, 因为
+    ``SimulatedWFS`` 回头又会导入 ``drivers.wfs.base`` (以及本模块)。推迟到注册表
+    首次使用时再绑定, 既让依赖保持单向, 又使类型无论进程先导入哪个包都可被发现。
     """
     global _bound
     if _bound:
@@ -62,12 +59,12 @@ def _ensure_bound() -> None:
     ):
         try:
             __import__(module)
-        except ImportError as exc:  # pragma: no cover - sim package is optional
+        except ImportError as exc:  # pragma: no cover - 仿真包为可选依赖
             logger.debug("WFS type from {} unavailable: {}", module, exc)
 
 
 class WFSRegistry:
-    """Registry for WFS implementations with decorator-based registration."""
+    """基于装饰器注册的 WFS 实现注册表。"""
 
     def __init__(self) -> None:
         self._registry: dict[str, Type[BaseWFS]] = {}
@@ -91,10 +88,10 @@ class WFSRegistry:
         return cls(**kwargs)
 
     def create_wfs(self, name: str, **kwargs: Any) -> BaseWFS:
-        """Create a sensor, forwarding only the kwargs that type accepts.
+        """创建传感器, 只转发该类型接受的 kwargs。
 
-        Runners pass a uniform bag of options regardless of which sensor they end
-        up with, so unrecognised keys are dropped rather than raising.
+        Runner 不管最终拿到哪种传感器, 都传同一袋选项, 因此无法识别的键会被丢弃
+        而不是抛异常。
         """
         _ensure_bound()
         key = name.lower()
@@ -138,21 +135,20 @@ def register_wfs(name: str) -> Callable[[Type[BaseWFS]], Type[BaseWFS]]:
 
 
 def create_wfs(name: str, **kwargs: Any) -> BaseWFS:
-    """Create a WFS instance via the global registry with kwarg filtering."""
+    """经全局注册表创建 WFS 实例, 并做 kwargs 过滤。"""
     return _global_registry.create_wfs(name, **kwargs)
 
 
 def list_wfs_types() -> list[str]:
-    """List registered WFS type names."""
+    """列出已注册的 WFS 类型名。"""
     return _global_registry.list_types()
 
 
 def resolve_wfs(wfs_type: str | None = None, **kwargs: Any) -> BaseWFS:
-    """Resolve the sensor type and create it.
+    """解析传感器类型并创建实例。
 
-    ``wfs_type=None`` yields Thorlab, matching what the runner call sites did
-    before this seam existed, so migrating them to ``resolve_wfs`` is behaviour
-    preserving.
+    ``wfs_type=None`` 时给出 Thorlab, 与该接入点存在之前 runner 调用点的行为一致,
+    因此把它们迁移到 ``resolve_wfs`` 是行为保持的。
     """
     name = (wfs_type or "thorlab").lower()
     if wfs_type is None:

@@ -18,22 +18,22 @@ def _gaussian2d(
     sigma: float,
     offset: float,
 ) -> npt.NDArray[np.float64]:
-    """2D Gaussian function for curve fitting.
+    """用于曲线拟合的二维高斯函数。
 
     Args:
-        xdata: Coordinate array of shape (2, N)
-        amplitude: Peak amplitude
-        x0, y0: Center coordinates
-        sigma: Standard deviation (waist radius)
-        offset: Background offset
+        xdata: 形状 (2, N) 的坐标数组
+        amplitude: 峰值幅度
+        x0, y0: 中心坐标
+        sigma: 标准差 (腰半径)
+        offset: 背景偏移
 
     Returns:
-        np.ndarray: Gaussian values at each point
+        np.ndarray: 各点处的高斯值
     """
     x = xdata[0]
     y = xdata[1]
 
-    # Ensure sigma is positive
+    # 确保 sigma 为正
     sigma = max(sigma, 1e-6)
 
     return amplitude * np.exp(-((x - x0)**2 + (y - y0)**2) / (2 * sigma**2)) + offset
@@ -45,7 +45,7 @@ class ImageTargetFunc:
         cls: type["ImageTargetFunc"], init_img: npt.NDArray[np.float64]
     ) -> "ImageTargetFunc":
         h, w = init_img.shape
-        # Initial center in (x, y) = (col, row) format: (w//2, h//2)
+        # (x, y) = (col, row) 格式下的初始中心: (w//2, h//2)
         _ret = cls(w, h, (w // 2, h // 2))
         center = _ret.intelligen_center(init_img)
         center_int = (round(center[0]), round(center[1]))
@@ -162,10 +162,9 @@ class ImageTargetFunc:
         return int(np.argmax(meets) + 1)
 
     def __get_bucket_mask(self, radius):
-        # Clamp instead of asserting: ``radius()`` saturates to ``len(self.masks)``
-        # when even the largest mask is too small, and callers scale the dynamic
-        # bucket radius by a ratio (a float). Both can land outside [1, len-1],
-        # which previously aborted the run mid-optimisation.
+        # 用 clamp 代替 assert: ``radius()`` 在连最大的 mask 都太小时会饱和到
+        # ``len(self.masks)``, 而调用方还会用一个比值 (浮点数) 去缩放动态桶半径。
+        # 两者都可能落到 [1, len-1] 之外, 而此前会让运行在优化中途中止。
         idx = int(radius)
         idx = min(max(idx, 1), len(self.masks) - 1)
         return self.masks[idx]

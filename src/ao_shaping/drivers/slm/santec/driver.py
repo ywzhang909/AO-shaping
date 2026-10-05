@@ -3,7 +3,7 @@
 提供对Santec系列空间光调制器(SLM-200/SLM-300 等)的控制接口，
 支持相位图显示、波长设置、内存模式等功能。
 
-Agent Wiki: docs/slm-200/agent_wiki.md
+智能体 Wiki: docs/slm-200/agent_wiki.md
 """
 
 from __future__ import annotations
@@ -69,20 +69,20 @@ SLOT_MAX: int = 125
 def apply_lut_remap(
     gray: npt.NDArray[np.number], lut: npt.NDArray[np.uint16]
 ) -> npt.NDArray[np.float64]:
-    """Apply phase→gray compensation lookup table to a grayscale array.
+    """把相位→灰度补偿查找表应用到灰度数组上。
 
-    Maps each pixel's ideal gray value (0..1023) through the inverse_gray LUT
-    to obtain the corrected gray value that produces the intended phase.
+    将每个像素的理想灰度值 (0..1023) 经 inverse_gray LUT 映射, 得到能产生
+    预期相位的矫正后灰度值。
 
-    The LUT index uses the same truncation as the final ``astype(np.uint16)``
-    cast in ``create_phase_from_array``, so an identity LUT is a true no-op.
+    LUT 索引使用的截断方式与 ``create_phase_from_array`` 末尾最终的
+    ``astype(np.uint16)`` 转换相同, 因此恒等 LUT 是真正的 no-op。
 
     Args:
-        gray: Grayscale array (float or int) with values in 0..1023.
-        lut: Inverse gray table (uint16, length ≥ 1024).
+        gray: 灰度数组 (float 或 int), 取值 0..1023。
+        lut: 反查灰度表 (uint16, 长度 ≥ 1024)。
 
     Returns:
-        Corrected grayscale array with the same shape as *gray*, dtype float64.
+        矫正后的灰度数组, shape 与 *gray* 相同, dtype float64。
     """
     idx = np.clip(gray.astype(np.int64), 0, lut.size - 1)
     return lut[idx].astype(np.float64)
@@ -90,7 +90,7 @@ def apply_lut_remap(
 
 # ── SLM 内存槽轮换 (驱动层唯一实现) ──────────────────────────────────────────
 def read_current_slot(slm: Any) -> int | None:
-    """Read the currently displayed memory slot without treating errors as fatal.
+    """读取当前显示的内存槽, 不把错误当作致命问题。
 
     ``set_grayscale`` 模式下无内存槽显示, ``SLM_Ctrl_ReadDS`` 返回错误码 1
     是正常行为, 此处一并吞掉, 返回 ``None`` 由调用方回退。
@@ -113,7 +113,7 @@ def choose_slot(
     slot_max: int = SLOT_MAX,
     choice: Callable[[list[int]], int] = random.choice,
 ) -> int:
-    """Choose a slot different from ``last_slot``."""
+    """选择一个与 ``last_slot`` 不同的槽位。"""
     if slot_min > slot_max:
         raise ValueError("slot_min must be less than or equal to slot_max")
     candidates = [slot for slot in range(slot_min, slot_max + 1) if slot != last_slot]
@@ -123,10 +123,10 @@ def choose_slot(
 
 
 class SlotRotator:
-    """Rotate writes across SLM memory slots for one acquisition session.
+    """在一次采集会话内把写入轮换到不同的 SLM 内存槽。
 
-    Wraps a live SLM (duck-typed: exposes ``get_displayed_memory_number``,
-    ``display_data`` / ``display_phase`` with ``memory_number`` kwarg).
+    包装一个活的 SLM (鸭子类型: 暴露 ``get_displayed_memory_number``、
+    带 ``memory_number`` 关键字参数的 ``display_data`` / ``display_phase``)。
     """
 
     def __init__(
@@ -166,7 +166,7 @@ class SlotRotator:
         return slot
 
 
-# Config directory: <project_root>/data/slm_configs/ or from SLM_CONFIG_DIR env var
+# 配置目录: <project_root>/data/slm_configs/ 或取自 SLM_CONFIG_DIR 环境变量
 _SLM_CONFIG_DIR = Path(
     os.environ.get("SLM_CONFIG_DIR", PROJECT_ROOT / "data" / "slm_configs")
 )
@@ -176,7 +176,7 @@ _SLM_CONFIG_DIR = Path(
 
 
 def _to_int_or_none(v: Any) -> int | None:
-    """Convert value to int, returning None if None or empty."""
+    """把值转换为 int; 若为 None 或空则返回 None。"""
     if v is None:
         return None
     try:
@@ -230,10 +230,9 @@ class SantecError(Exception):
 
 
 def _is_retryable_santec_error(exception) -> bool:
-    """Determine if an exception is retryable for SLM operations.
+    """判断某个异常对 SLM 操作是否可重试。
 
-    Retry on SantecError as these often indicate transient USB issues
-    that may succeed on retry.
+    SantecError 视为可重试, 因为它通常意味着 USB 的瞬时问题, 重试可能成功。
     """
     return isinstance(exception, SantecError)
 
@@ -292,7 +291,7 @@ class Santec:
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct a Santec SLM from a driver parameter object."""
+        """由驱动参数对象构造 Santec SLM。"""
         kwargs = {
             "slm_number": getattr(params, "slm_number", 1),
             "use_120hz": getattr(params, "use_120hz", False),
@@ -456,16 +455,16 @@ class Santec:
         """当前矫正 CSV 文件路径（None 表示未加载）"""
         return self._correction.csv_path if self._correction is not None else None
 
-    # ── LUT (phase→gray compensation) ─────────────────────
+    # ── LUT (相位→灰度补偿) ─────────────────────
 
     @property
     def lut(self) -> npt.NDArray[np.uint16] | None:
-        """Loaded inverse_gray compensation table (uint16, len ~1024) or None."""
+        """已加载的 inverse_gray 补偿表 (uint16, 长度 ~1024), 无则为 None。"""
         return self._lut
 
     @property
     def lut_dir(self) -> Path | None:
-        """Directory the LUT was loaded from, or None."""
+        """LUT 的加载目录, 无则为 None。"""
         return self._lut_dir
 
     @property
@@ -481,15 +480,14 @@ class Santec:
     @property
     def temperature(self):
         """
-        Read the drive board and option board temperatures.
+        读取驱动板与选板 (option board) 的温度。
 
         Returns
         -------
         (float, float)
-            Temperature in Celsius of the drive and option board
+            驱动板与选板温度, 单位为摄氏度
         """
-        # Note that the Santec documentation suggests using signed
-        # integers, but the header requests unsigned integers.
+        # 注意: Santec 文档建议使用有符号整数, 但头文件请求的是无符号整数。
         drive_temp = ctypes.c_uint32(0)
         option_temp = ctypes.c_uint32(0)
 
@@ -535,16 +533,16 @@ class Santec:
             SantecError: 设备连接失败
         """
         if self.is_open:
-            # SDK may be in inconsistent state - try to verify and recover
+            # SDK 可能处于不一致状态 —— 尝试核实并恢复
             try:
                 self._check_status()
                 logger.warning(f"SLM #{self.slm_number} 已经处于打开状态")
                 return
             except SantecError:
-                # Device in bad state, force reset
+                # 设备状态异常，强制复位
                 logger.warning(f"SLM #{self.slm_number} 状态异常，尝试复位")
                 self.is_open = False
-                # Try to close and recover
+                # 尝试关闭以恢复
                 with contextlib.suppress(Exception):
                     self._slm.SLM_Ctrl_Close(self.slm_number)
                 time.sleep(0.2)
@@ -552,7 +550,7 @@ class Santec:
         # 先尝试关闭（确保干净状态）
         with contextlib.suppress(Exception):
             self._slm.SLM_Ctrl_Close(self.slm_number)
-        # Small delay for SDK state to settle
+        # 短暂延时, 让 SDK 状态稳定
         time.sleep(0.1)
 
         # 打开设备
@@ -651,7 +649,7 @@ class Santec:
         logger.info(f"SLM #{self.slm_number} 已重启")
         # 重启后设备需要重新打开
         self.is_open = False
-        # Allow device time to stabilize after reboot
+        # 留出时间让设备在重启后稳定下来
         time.sleep(0.5)
 
     def get_serial_number(self, timeout: float = 0.0) -> str | None:
@@ -707,7 +705,7 @@ class Santec:
         """读取产品序列号（标签上的 12 位数字）。
 
         Args:
-            board: 0=Drive board, 1=Option board
+            board: 0=驱动板 (Drive board), 1=选板 (Option board)
 
         Returns:
             12 位产品序列号字符串，失败时返回 None
@@ -725,7 +723,7 @@ class Santec:
         """读取 LCOS 产品序列号（最长 20 位数字）。
 
         Args:
-            board: 0=Drive board, 1=Option board
+            board: 0=驱动板 (Drive board), 1=选板 (Option board)
 
         Returns:
             LCOS 序列号字符串，失败时返回 None
@@ -835,7 +833,7 @@ class Santec:
         """获取当前显示的相位缓存及其来源说明。
 
         Returns:
-            Tuple of (phase_gray, source). `phase_gray` 为 uint16 灰度相位图。
+            (phase_gray, source) 元组。`phase_gray` 为 uint16 灰度相位图。
         """
         self._ensure_open()
 
@@ -909,7 +907,7 @@ class Santec:
         """获取当前波长设置信息
 
         Returns:
-            Tuple of (wavelength_nm, max_grayscale_for_2pi)
+            (wavelength_nm, max_grayscale_for_2pi) 元组
 
         Raises:
             SantecError: 读取失败
@@ -933,11 +931,9 @@ class Santec:
                 f"SLM #{self.slm_number}: SLM_Ctrl_ReadWL returned phase=0;"
                 " device wavelength not set"
             )
-            # The device's wavelength phase table is NOT programmed. Remember
-            # this so `_setup_wavelength()` forces a `set_wavelength()` write
-            # even when the requested wavelength numerically matches — otherwise
-            # the table stays unset and the panel applies no phase at all
-            # (CCD sees no change).
+            # 设备的波长相位表尚未编程。记住这一点, 使 `_setup_wavelength()` 即便
+            # 请求波长在数值上相等也强制执行一次 `set_wavelength()` 写入 ——
+            # 否则相位表保持未设置, 面板完全不加相位 (CCD 看不到任何变化)。
             self._wavelength_phase_unset = True
             self._max_gray = self.MAX_GRAYSCALE_VALUE
             return (
@@ -1177,15 +1173,14 @@ class Santec:
         logger.debug("相位数据显示")
 
     def _read_displayed_slot_safe(self) -> int | None:
-        """Best-effort read of the currently displayed memory slot.
+        """尽力读取当前显示的内存槽。
 
-        Returns ``None`` when unavailable — reading the slot raises error code 1
-        in ``set_grayscale`` mode, which is normal there (no memory slot is
-        being displayed).
+        不可用时返回 ``None`` —— 在 ``set_grayscale`` 模式下读取该槽会抛出错误码 1,
+        在那里属于正常现象 (没有内存槽处于显示状态)。
         """
         try:
             slot = self.get_displayed_memory_number()
-        except Exception:  # noqa: BLE001 - error code 1 is normal outside memory mode
+        except Exception:  # noqa: BLE001 - 内存模式之外, 错误码 1 属正常
             return None
         return int(slot) if isinstance(slot, int) else None
 
@@ -1232,13 +1227,11 @@ class Santec:
                     self._current_memory_slot + 1
                 ) % MAX_MEM_SLOTS
                 target_slot = self._current_memory_slot + 1
-                # display_memory(slot) is a firmware NO-OP when that slot is
-                # already displayed. `_current_memory_slot` is a process-local
-                # counter (seeded to 1 at construction, NOT read from the
-                # device), so the first write after open can collide with
-                # whatever the panel is showing — e.g. a phase left there by
-                # another process/GUI — and silently do nothing. Skip the
-                # displayed slot so the rotation is guaranteed to change it.
+                # display_memory(slot) 在该槽位已被显示时是固件 NO-OP。
+                # `_current_memory_slot` 是进程内计数器 (构造时置为 1, 并非从设备
+                # 读取), 所以 open 之后的首次写入可能与面板当前显示的内容撞槽 ——
+                # 例如别的进程/GUI 留下的相位 —— 从而静默地什么都不做。跳过当前
+                # 显示槽, 保证轮换一定改变它。
                 displayed = self._read_displayed_slot_safe()
                 if displayed is not None and target_slot == displayed:
                     self._current_memory_slot = (
@@ -1267,22 +1260,20 @@ class Santec:
         memory_number: int | None = None,
         memory_mode: int = MEMORY_MODE_INTERNAL,
     ) -> int:
-        """Display a radian phase matrix on the SLM.
+        """在 SLM 上显示弧度制相位矩阵。
 
-        Convenience wrapper that converts a radian phase array to SLM
-        grayscale via :meth:`create_phase_from_array` and then displays
-        it via :meth:`display_data`.
+        便捷封装: 先经 :meth:`create_phase_from_array` 把弧度相位数组转换为 SLM
+        灰度, 再经 :meth:`display_data` 显示。
 
         Args:
-            phase_rad: Phase array in radians (0–2π), shape (height, width).
-            wait_time_s: Display wait time (seconds); ``None`` = auto-estimate
-                (default).
+            phase_rad: 弧度制相位数组 (0–2π), shape (height, width)。
+            wait_time_s: 显示等待时间 (秒); ``None`` = 自动估算 (默认)。
             memory_number: 内存位置编号（1-128）；None 则自动轮换槽位（默认）
             memory_mode: 内存模式，默认为内部内存模式
 
         Raises:
-            SantecError: Write or display failed.
-            RuntimeError: Device not open.
+            SantecError: 写入或显示失败。
+            RuntimeError: 设备未打开。
         """
         phase_gray = self.create_phase_from_array(phase_rad)
         return self.display_data(
@@ -1457,16 +1448,16 @@ class Santec:
     def create_phase_from_array(
         self, phase_rad: npt.NDArray[np.floating], max_grayscale: int | None = None
     ) -> npt.NDArray[np.uint16]:
-        """Convert radian phase values to SLM grayscale values.
+        """把弧度制相位值转换为 SLM 灰度值。
 
-        Converts phase values in radians (0-2π) to SLM grayscale (0-1023).
+        把弧度制相位值 (0-2π) 转换为 SLM 灰度 (0-1023)。
 
         Args:
-            phase_rad: Phase array in radians (0-2π), shape (height, width).
-            max_grayscale: Grayscale value for 2π radians. Auto-calculated if None.
+            phase_rad: 弧度制相位数组 (0-2π), shape (height, width)。
+            max_grayscale: 2π 弧度对应的灰度值。None 时自动计算。
 
         Returns:
-            Grayscale phase array, dtype=uint16.
+            灰度相位数组, dtype=uint16。
         """
         if max_grayscale is None:
             max_grayscale = self._max_gray
@@ -1668,15 +1659,14 @@ class Santec:
         return False
 
     def load_lut(self, lut_dir: str | Path | None) -> None:
-        """Load phase→gray compensation table from a LUT directory.
+        """从 LUT 目录加载相位→灰度补偿表。
 
-        The directory must contain ``lut.npz`` (preferred) or
-        ``lut_inverse.csv`` as produced by ``ao_shaping.utils.slm.slm_lut.save_lut()``.
+        该目录必须包含 ``lut.npz`` (首选) 或 ``lut_inverse.csv``, 即
+        ``ao_shaping.utils.slm.slm_lut.save_lut()`` 的产物。
 
         Args:
-            lut_dir: Path to the LUT directory.  ``None`` clears the loaded LUT.
-                A missing or malformed directory logs a warning and leaves the
-                previous state unchanged.
+            lut_dir: LUT 目录路径。``None`` 表示清除已加载的 LUT。
+                目录缺失或格式错误时记录一条告警, 并保持原状态不变。
         """
         if lut_dir is None:
             self._lut = None
@@ -1692,7 +1682,7 @@ class Santec:
             )
             return
 
-        # Try npz first
+        # 优先尝试 npz
         npz_file = lut_path / "lut.npz"
         if npz_file.is_file():
             try:
@@ -1726,7 +1716,7 @@ class Santec:
             )
             return
 
-        # Fallback: lut_inverse.csv
+        # 回退路径: lut_inverse.csv
         csv_file = lut_path / "lut_inverse.csv"
         if csv_file.is_file():
             try:
@@ -1734,7 +1724,7 @@ class Santec:
                     str(csv_file), delimiter=",", dtype=np.uint16, skip_header=1
                 )
                 if raw.ndim == 2 and raw.shape[1] >= 2:
-                    inverse_gray = raw[:, 1]  # second column: gray
+                    inverse_gray = raw[:, 1]  # 第二列: 灰度
                 elif raw.ndim == 1:
                     inverse_gray = raw
                 else:
@@ -1988,9 +1978,8 @@ class Santec:
             self.wavelength, self._max_gray = self.get_wavelength_info()
         else:
             device_wavelength, device_max_gray = self.get_wavelength_info()
-            # A numerically-equal wavelength is NOT sufficient: if the device's
-            # phase table is unset (SLM_Ctrl_ReadWL returned phase=0) the panel
-            # applies no phase, so force the write.
+            # 波长数值相等并不充分: 若设备相位表未设置 (SLM_Ctrl_ReadWL 返回 phase=0),
+            # 面板不会施加任何相位, 故强制执行写入。
             if device_wavelength == self.wavelength and not getattr(
                 self, "_wavelength_phase_unset", False
             ):
@@ -2014,10 +2003,10 @@ class Santec:
             retry_delay: 重试间隔秒数，默认0.1秒
 
         Returns:
-            True if device becomes ready
+            设备就绪则返回 True
 
         Raises:
-            SantecError: if device never becomes ready
+            SantecError: 设备始终未就绪
         """
         for attempt in range(max_retries):
             try:

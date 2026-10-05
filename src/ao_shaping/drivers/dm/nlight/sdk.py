@@ -18,10 +18,9 @@ from ao_shaping.drivers.dm.nlight.nlight_constants import DM_NUM
 
 
 class DMSdk:
-    """ctypes wrapper around ``Drv_UDPST.dll``.
+    """``Drv_UDPST.dll`` 的 ctypes 包装。
 
-    Construction loads the DLL and asserts the drive board is connected, so
-    callers should only instantiate it once the hardware is expected to be up.
+    构造过程会加载 DLL 并断言驱动板已连接, 因此调用方只应在预期硬件已上电时实例化它。
     """
 
     def __init__(self) -> None:

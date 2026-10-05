@@ -1,6 +1,6 @@
-"""Optical simulation devices.
+"""光学元件模拟设备。
 
-This package provides simulated optical devices including SLM, Lens, Aperture, etc.
+本子包提供光学元件的仿真实现, 包含 SLM、透镜、光阑等。
 """
 
 from ao_shaping.drivers.sim.optics.simulated_slm import (

@@ -1,15 +1,13 @@
-"""FFmpeg/OpenCV camera driver for video streams and virtual cameras.
+"""面向视频流与虚拟相机的 FFmpeg/OpenCV 相机驱动。
 
-This driver provides camera interface compatibility using OpenCV's FFmpeg backend.
-It supports:
-- Video files (local .mp4, .avi, etc.)
-- RTSP/RTMP/HTTP streams
-- Virtual camera devices (e.g., OBS virtual camera)
-- Webcam devices (via DirectShow on Windows)
-- Folder of timestamped image files (virtual CCD)
+本驱动借助 OpenCV 的 FFmpeg 后端提供相机接口兼容。支持:
+- 视频文件 (本地 .mp4、.avi 等)
+- RTSP/RTMP/HTTP 流
+- 虚拟相机设备 (例如 OBS virtual camera)
+- 摄像头设备 (在 Windows 上经 DirectShow)
+- 按时间戳命名的图像文件目录 (虚拟 CCD)
 
-Note: Exposure time control is simulated - it controls internal frame processing
-delay, not actual hardware exposure.
+注意: 曝光时间控制是仿真的 —— 它控制的是内部帧处理延迟, 而非真实硬件曝光。
 """
 
 from __future__ import annotations
@@ -25,38 +23,37 @@ from ao_shaping.utils.io.timestamp import TimestampParser
 
 
 class FFmpegCameraError(CameraError):
-    """Exception raised for FFmpeg camera errors."""
+    """FFmpeg 相机错误异常。"""
 
     pass
 
 
 class FFmpegCamera(BaseCamera):
-    """FFmpeg/OpenCV-based camera driver.
+    """基于 FFmpeg/OpenCV 的相机驱动。
 
-    Provides camera interface compatibility using FFmpeg through OpenCV.
-    Supports video files, network streams, and virtual camera devices.
+    通过 OpenCV 的 FFmpeg 后端提供相机接口兼容。支持视频文件、网络流与虚拟
+    相机设备。
 
-    Args:
-        cam_id: Camera identifier - can be:
-            - Integer: Device index (0 for default webcam, 1 for second camera, etc.)
-            - String: File path or stream URL (e.g., "video.mp4", "rtsp://...")
-        exposure_time_ms: Simulated exposure time in milliseconds.
-            Note: This is a simulated parameter - actual exposure depends on
-            the video source/stream and cannot be controlled.
-        skip_sampling: If True, skip frames to reduce capture rate.
-            If False, wait for each frame (slower but no frame loss).
+    参数:
+        cam_id: 相机标识 —— 可以是:
+            - 整数: 设备索引 (0 为默认摄像头, 1 为第二台相机等)
+            - 字符串: 文件路径或流 URL (如 "video.mp4"、"rtsp://...")
+        exposure_time_ms: 仿真的曝光时间, 单位毫秒。
+            注意: 这是仿真参数 —— 真实曝光取决于视频源/流, 无法被控制。
+        skip_sampling: 为 True 时跳帧以降低采集速率。
+            为 False 则逐帧等待 (更慢, 但不丢帧)。
 
-    Example:
-        # Open a video file
+    示例:
+        # 打开一个视频文件
         with FFmpegCamera(cam_id="test_video.mp4") as cam:
             img = cam.get_numpy_image()
 
-        # Open a network stream
+        # 打开一个网络流
         with FFmpegCamera(cam_id="rtsp://192.168.1.100:8554 live stream") as cam:
             img = cam.get_numpy_image()
 
-        # Open virtual camera (Windows)
-        with FFmpegCamera(cam_id=1) as cam:  # OBS Virtual Camera usually appears as device 1
+        # 打开虚拟相机 (Windows)
+        with FFmpegCamera(cam_id=1) as cam:  # OBS Virtual Camera 通常显示为设备 1
             img = cam.get_numpy_image()
     """
 
@@ -66,12 +63,12 @@ class FFmpegCamera(BaseCamera):
         exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
     ):
-        """Initialize FFmpeg camera configuration.
+        """初始化 FFmpeg 相机配置。
 
-        Args:
-            cam_id: Camera device index, file path, or stream URL.
-            exposure_time_ms: Initial exposure time in milliseconds (simulated).
-            skip_sampling: Whether to skip frames for faster capture.
+        参数:
+            cam_id: 相机设备索引、文件路径或流 URL。
+            exposure_time_ms: 初始曝光时间, 单位毫秒 (仿真)。
+            skip_sampling: 是否跳帧以加快采集。
         """
         super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self._cap = None
@@ -82,47 +79,47 @@ class FFmpegCamera(BaseCamera):
         self._total_frames = 0
 
     def __enter__(self) -> FFmpegCamera:
-        """Context manager entry - initialize camera."""
+        """上下文管理器入口 —— 初始化相机。"""
         self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Context manager exit - cleanup camera resources."""
+        """上下文管理器出口 —— 清理相机资源。"""
         self.close()
 
     def initialize(self) -> None:
-        """Initialize the FFmpeg camera/video stream.
+        """初始化 FFmpeg 相机 / 视频流。
 
-        This method:
-        1. Closes any previously opened camera.
-        2. Opens the specified video source by cam_id.
-        3. Retrieves video properties (resolution, fps).
-        4. Determines if source is a file, stream, or device.
+        本方法:
+        1. 关闭此前已打开的相机。
+        2. 按 cam_id 打开指定的视频源。
+        3. 读取视频属性 (分辨率、fps)。
+        4. 判断源是文件、流还是设备。
 
-        Raises:
-            ConnectionAbortedError: If camera/video source cannot be opened.
-            FFmpegCameraError: If video properties cannot be read.
+        异常:
+            ConnectionAbortedError: 相机/视频源打不开。
+            FFmpegCameraError: 读不到视频属性。
         """
-        # Close previously opened camera
+        # 关闭此前已打开的相机
         self.close()
 
         import cv2
 
-        # Handle different source types
+        # 处理不同的源类型
         if isinstance(self.cam_id, int):
-            # Device index (webcam, virtual camera)
+            # 设备索引 (摄像头、虚拟相机)
             self._cap = cv2.VideoCapture(self.cam_id, cv2.CAP_DSHOW)
             self._stream_url = f"device_{self.cam_id}"
             self._is_file = False
         elif isinstance(self.cam_id, str):
-            # Check if it's a URL or file path
+            # 判断是 URL 还是文件路径
             if self.cam_id.startswith(("rtsp://", "rtmp://", "http://", "https://")):
-                # Network stream
+                # 网络流
                 self._cap = cv2.VideoCapture(self.cam_id)
                 self._stream_url = self.cam_id
                 self._is_file = False
             else:
-                # Local video file
+                # 本地视频文件
                 self._cap = cv2.VideoCapture(self.cam_id)
                 self._stream_url = self.cam_id
                 self._is_file = True
@@ -132,27 +129,27 @@ class FFmpegCamera(BaseCamera):
                 "Expected int (device index) or str (file path/URL)."
             )
 
-        # Check if opened successfully
+        # 检查是否成功打开
         if not self._cap or not self._cap.isOpened():
             error_info = f"Failed to open video source: {self.cam_id}"
             logger.error(error_info)
             raise ConnectionAbortedError(error_info)
 
-        # Get video properties
+        # 取视频属性
         self.cam_width = int(self._cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         self.cam_height = int(self._cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
         self._fps = self._cap.get(cv2.CAP_PROP_FPS)
 
-        # Get total frame count (only works for video files, not streams)
+        # 取总帧数 (只对视频文件有效, 流不行)
         if self._is_file:
             self._total_frames = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT))
         else:
             self._total_frames = 0
 
-        # Generate serial number from source
+        # 由源生成序列号
         self._sn = f"FFmpeg_{self.cam_id}"
 
-        # Create coordinate grids
+        # 建立坐标网格
         self.xv, self.yv = self._get_grid(self.cam_width, self.cam_height)
 
         logger.info(
@@ -161,11 +158,11 @@ class FFmpegCamera(BaseCamera):
         )
 
     def open(self) -> None:
-        """Open the camera device (alias for initialize)."""
+        """打开相机设备 (initialize 的别名)。"""
         self.initialize()
 
     def close(self) -> None:
-        """Close the camera device and release resources."""
+        """关闭相机设备并释放资源。"""
         if self._cap is not None:
             self._cap.release()
             self._cap = None
@@ -175,20 +172,19 @@ class FFmpegCamera(BaseCamera):
         logger.info(f"Closed FFmpeg camera: {self.cam_id}")
 
     def reset_exposure_time(self, time_ms: float) -> float:
-        """Set the simulated exposure time.
+        """设置仿真的曝光时间。
 
-        Note: This is a SIMULATED parameter - actual exposure depends on
-        the video source/stream and cannot be controlled via FFmpeg.
-        This setting only adds a delay between frame captures.
+        注意: 这是仿真参数 —— 真实曝光取决于视频源/流, 无法经 FFmpeg 控制。
+        该设置只是给帧采集之间加一点延迟。
 
-        Args:
-            time_ms: New exposure time in milliseconds.
+        参数:
+            time_ms: 新的曝光时间, 单位毫秒。
 
-        Returns:
-            float: The exposure time that was set.
+        返回:
+            float: 所设定的曝光时间。
 
-        Raises:
-            AssertionError: If camera is not initialized.
+        异常:
+            AssertionError: 相机未初始化。
         """
         assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
         self.exposure_time_ms = max(0.011, float(time_ms))
@@ -203,22 +199,22 @@ class FFmpegCamera(BaseCamera):
         center: tuple[int, int] | tuple[np.intp, ...],
         size: tuple[int, int],
     ) -> tuple[tuple[int, int], tuple[int, int]]:
-        """Reset the video ROI (not supported for FFmpeg).
+        """重设视频 ROI (FFmpeg 不支持)。
 
-        FFmpeg does not support region of interest. Returns current dimensions.
+        FFmpeg 不支持感兴趣区域。返回当前尺寸。
 
-        Args:
-            center: Ignored (not supported).
-            size: Ignored (not supported).
+        参数:
+            center: 忽略 (不支持)。
+            size: 忽略 (不支持)。
 
-        Returns:
-            Tuple of ((width, height), (center_x, center_y)).
+        返回:
+            ((width, height), (center_x, center_y))。
 
-        Raises:
-            AssertionError: If camera is not initialized.
+        异常:
+            AssertionError: 相机未初始化。
         """
         assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
-        # FFmpeg doesn't support ROI - return current dimensions
+        # FFmpeg 不支持 ROI —— 返回当前尺寸
         center_x = self.cam_width // 2
         center_y = self.cam_height // 2
         return (self.cam_width, self.cam_height), (center_x, center_y)
@@ -228,37 +224,37 @@ class FFmpegCamera(BaseCamera):
         n_sample: int = 1,
         skip_first: bool = True,
     ) -> np.ndarray:
-        """Capture image(s) from FFmpeg video source with optional averaging.
+        """从 FFmpeg 视频源采集图像, 可选做平均。
 
-        Args:
-            n_sample: Number of samples to average. Must be > 0.
-            skip_first: Whether to skip first frame (often unstable for streams).
+        参数:
+            n_sample: 平均的采样数。必须 > 0。
+            skip_first: 是否跳过第一帧 (对流常常不稳定)。
 
-        Returns:
-            np.ndarray: Captured image as uint8 array.
+        返回:
+            np.ndarray: 采集到的图像, 为 uint8 数组。
 
-        Raises:
-            AssertionError: If n_sample is not positive or camera not initialized.
-            FFmpegCameraError: If frame capture fails.
+        异常:
+            AssertionError: n_sample 不是正数, 或相机未初始化。
+            FFmpegCameraError: 采集帧失败。
         """
         assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
         assert n_sample > 0, "Sample count must be > 0"
 
         import cv2
 
-        # Skip first frame if requested
+        # 按需跳过第一帧
         if skip_first:
             ret, frame = self._cap.read()
             if not ret:
                 raise FFmpegCameraError(f"Failed to capture frame from {self.cam_id}")
             self._frame_count += 1
 
-        # Capture frames
+        # 采集帧
         frames = []
         for _ in range(n_sample):
             ret, frame = self._cap.read()
             if not ret:
-                # For video files, loop back to beginning
+                # 对视频文件, 循环回到开头
                 if self._is_file and self._total_frames > 0:
                     self._cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     self._frame_count = 0
@@ -275,22 +271,22 @@ class FFmpegCamera(BaseCamera):
 
             self._frame_count += 1
 
-            # Convert BGR to grayscale if needed
+            # 需要时把 BGR 转成灰度
             if len(frame.shape) == 3 and frame.shape[2] == 3:
                 frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
             frames.append(frame)
 
-            # Simulated exposure time delay
+            # 仿真的曝光时间延迟
             if self.exposure_time_ms > 0:
                 time.sleep(self.exposure_time_ms / 1000.0)
 
-        # Compute average
+        # 计算平均
         avg_img = np.mean(frames, axis=0)
 
-        # Skip sampling: drop frames to reduce capture rate
+        # 跳采样: 丢帧以降低采集速率
         if self.skip_sampling and self._is_file:
-            # Skip half the frames when skip_sampling is True
+            # skip_sampling 为 True 时跳掉一半的帧
             skip_count = int(self._cap.get(cv2.CAP_PROP_FRAME_COUNT)) // 2
             if skip_count > 0:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, skip_count)
@@ -298,41 +294,41 @@ class FFmpegCamera(BaseCamera):
         return avg_img.astype(np.uint8)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """Enable or disable auto exposure.
+        """启用或关闭自动曝光。
 
-        Note: Not supported for FFmpeg sources. Returns False.
+        注意: FFmpeg 源不支持。返回 False。
 
-        Args:
-            enable: Ignored.
-            mode: Ignored.
+        参数:
+            enable: 忽略。
+            mode: 忽略。
 
-        Returns:
-            bool: Always returns False (not supported).
+        返回:
+            bool: 始终返回 False (不支持)。
         """
         logger.warning("Auto exposure not supported for FFmpeg sources")
         return False
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness.
+        """设置自动曝光的目标亮度。
 
-        Note: Not supported for FFmpeg sources.
+        注意: FFmpeg 源不支持。
 
-        Args:
-            target: Ignored.
+        参数:
+            target: 忽略。
 
-        Returns:
-            int: Returns 0 (not supported).
+        返回:
+            int: 返回 0 (不支持)。
 
-        Raises:
-            NotImplementedError: Always raises (not supported).
+        异常:
+            NotImplementedError: 始终抛出 (不支持)。
         """
         raise NotImplementedError("Auto exposure not supported for FFmpeg sources")
 
     def get_auto_exposure_state(self) -> dict:
-        """Get current auto exposure state.
+        """获取当前自动曝光状态。
 
-        Returns:
-            dict: Always indicates disabled state.
+        返回:
+            dict: 始终指示禁用状态。
         """
         return {
             "enabled": False,
@@ -347,37 +343,37 @@ class FFmpegCamera(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """Set auto exposure time and gain range.
+        """设置自动曝光的时间与增益范围。
 
-        Note: Not supported for FFmpeg sources.
+        注意: FFmpeg 源不支持。
 
-        Args:
-            max_time_ms: Ignored.
-            min_time_ms: Ignored.
-            max_gain: Ignored.
-            min_gain: Ignored.
+        参数:
+            max_time_ms: 忽略。
+            min_time_ms: 忽略。
+            max_gain: 忽略。
+            min_gain: 忽略。
 
-        Returns:
-            bool: Always returns False (not supported).
+        返回:
+            bool: 始终返回 False (不支持)。
         """
         logger.warning("Auto exposure range not supported for FFmpeg sources")
         return False
 
     @staticmethod
     def get_cam_list() -> list:
-        """Get list of available video capture devices.
+        """获取可用视频采集设备列表。
 
-        Note: This is a best-effort list. On Windows, this may only detect
-        DirectShow devices. Video files and streams are not enumerated.
+        注意: 这是尽力而为的列表。在 Windows 上, 它可能只能探测到 DirectShow
+        设备。视频文件与流不会被枚举。
 
-        Returns:
-            List of available device indices (0-9) that can be tried.
+        返回:
+            可尝试的设备索引 (0-9) 列表。
         """
         import cv2
 
         devices = []
 
-        # Try to detect DirectShow devices on Windows
+        # 尝试在 Windows 上探测 DirectShow 设备
         if hasattr(cv2, "CAP_DSHOW"):
             for i in range(10):
                 try:
@@ -388,7 +384,7 @@ class FFmpegCamera(BaseCamera):
                 except Exception:
                     pass
         else:
-            # Try default backend
+            # 尝试默认后端
             for i in range(5):
                 try:
                     cap = cv2.VideoCapture(i)
@@ -402,37 +398,36 @@ class FFmpegCamera(BaseCamera):
 
 
 class ImageFolderCamera(BaseCamera):
-    """Camera driver that reads images from a folder with timestamp-named files.
+    """从按时间戳命名的文件目录读取图像的相机驱动。
 
-    This driver mimics a CCD camera by reading sequentially from a folder containing
-    image files named with timestamps (e.g., 1700000000000.png, 1700000000050.png).
+    本驱动通过从一个包含图像文件的目录中顺序读取来模拟 CCD 相机, 这些文件名带
+    时间戳 (例如 1700000000000.png、1700000000050.png)。
 
-    It is useful for:
-    - Playing back recorded image sequences
-    - Testing optimization pipelines with saved data
-    - Virtual CCD simulation from recorded data
+    适用于:
+    - 回放已录制的图像序列
+    - 用已保存的数据测试优化流程
+    - 以录制数据做虚拟 CCD 仿真
 
-    Args:
-        cam_id: Path to the folder containing image files.
-        exposure_time_ms: Delay between reading frames (simulated exposure).
-            Note: This is a simulated parameter - actual capture timing depends
-            on the file timestamps, not controllable.
-        skip_sampling: If True, skip every other frame when reading.
-            If False, read every frame in sequence.
+    参数:
+        cam_id: 含图像文件的目录路径。
+        exposure_time_ms: 读帧之间的延迟 (仿真曝光)。
+            注意: 这是仿真参数 —— 真实的采集时序取决于文件时间戳, 无法控制。
+        skip_sampling: 为 True 时读取时每隔一帧跳一张。
+            为 False 则按顺序读每一帧。
 
-    Example:
-        # Open a folder of timestamped images
+    示例:
+        # 打开一个带时间戳图像的目录
         with ImageFolderCamera(cam_id="/path/to/images") as cam:
             img = cam.get_numpy_image(n_sample=5)
 
-        # Loop through images (for video-like playback)
+        # 遍历图像 (类视频回放)
         with ImageFolderCamera(cam_id="recordings/20240101") as cam:
             for _ in range(100):
                 img = cam.get_numpy_image()
-                # Process img...
+                # 处理 img...
     """
 
-    # Supported image extensions
+    # 支持的图像扩展名
     SUPPORTED_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff", ".npy"}
 
     def __init__(
@@ -441,12 +436,12 @@ class ImageFolderCamera(BaseCamera):
         exposure_time_ms: float = 20.0,
         skip_sampling: bool = False,
     ):
-        """Initialize image folder camera.
+        """初始化图片文件夹相机。
 
-        Args:
-            cam_id: Path to the folder containing image files.
-            exposure_time_ms: Delay between readings in milliseconds.
-            skip_sampling: Whether to skip every other frame.
+        参数:
+            cam_id: 含图像文件的目录路径。
+            exposure_time_ms: 两次读取之间的延迟, 单位毫秒。
+            skip_sampling: 是否每隔一帧跳一张。
         """
         super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self._folder_path: Path | None = None
@@ -455,42 +450,42 @@ class ImageFolderCamera(BaseCamera):
         self._last_image: np.ndarray | None = None
 
     def __enter__(self) -> ImageFolderCamera:
-        """Context manager entry - initialize camera."""
+        """上下文管理器入口 —— 初始化相机。"""
         self.initialize()
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
-        """Context manager exit - cleanup resources."""
+        """上下文管理器出口 —— 清理资源。"""
         self.close()
 
     def initialize(self) -> None:
-        """Initialize by scanning folder for image files.
+        """通过扫描目录中的图像文件来初始化。
 
-        This method:
-        1. Closes any previously opened folder.
-        2. Validates the folder path exists.
-        3. Scans for supported image files.
-        4. Sorts files by filename (typically timestamp).
-        5. Reads first image to get dimensions.
+        本方法:
+        1. 关闭此前已打开的目录。
+        2. 校验目录路径存在。
+        3. 扫描受支持的图像文件。
+        4. 按文件名排序 (通常是时间戳)。
+        5. 读第一张图以得到尺寸。
 
-        Raises:
-            ConnectionAbortedError: If folder not found or no images found.
-            FFmpegCameraError: If image dimensions cannot be read.
+        异常:
+            ConnectionAbortedError: 目录不存在或没找到图像。
+            FFmpegCameraError: 读不出图像尺寸。
         """
-        # Close previously opened folder
+        # 关闭此前已打开的目录
         self.close()
 
-        # Convert cam_id to Path
+        # 把 cam_id 转成 Path
         self._folder_path = Path(self.cam_id)
 
-        # Validate folder exists
+        # 校验目录存在
         if not self._folder_path.exists():
             raise ConnectionAbortedError(f"Image folder not found: {self.cam_id}")
 
         if not self._folder_path.is_dir():
             raise ConnectionAbortedError(f"Path is not a directory: {self.cam_id}")
 
-        # Scan for image files
+        # 扫描图像文件
         self._image_files = []
         for ext in self.SUPPORTED_EXTENSIONS:
             self._image_files.extend(self._folder_path.glob(f"*{ext}"))
@@ -502,11 +497,11 @@ class ImageFolderCamera(BaseCamera):
                 f"Supported formats: {self.SUPPORTED_EXTENSIONS}"
             )
 
-        # Sort by timestamp using TimestampParser
+        # 用 TimestampParser 按时间戳排序
         self._image_files = TimestampParser().sort_files(self._image_files)
         self._current_index = 0
 
-        # Read first image to get dimensions
+        # 读第一张图以得到尺寸
         first_img = self._read_image(self._image_files[0])
         if first_img is None:
             raise FFmpegCameraError(
@@ -517,10 +512,10 @@ class ImageFolderCamera(BaseCamera):
         self.cam_height = first_img.shape[0]
         self._last_image = first_img
 
-        # Generate serial number from folder
+        # 由目录名生成序列号
         self._sn = f"ImageFolder_{self._folder_path.name}"
 
-        # Create coordinate grids
+        # 建立坐标网格
         self.xv, self.yv = self._get_grid(self.cam_width, self.cam_height)
 
         logger.info(
@@ -530,22 +525,22 @@ class ImageFolderCamera(BaseCamera):
         )
 
     def _read_image(self, image_path: Path) -> np.ndarray | None:
-        """Read a single image file.
+        """读取单个图像文件。
 
-        Args:
-            image_path: Path to the image file.
+        参数:
+            image_path: 图像文件路径。
 
-        Returns:
-            np.ndarray: Grayscale image, or None if read fails.
+        返回:
+            np.ndarray: 灰度图像; 读取失败时返回 None。
         """
         import cv2
 
         try:
-            # Handle .npy files specially
+            # 特殊处理 .npy 文件
             if image_path.suffix.lower() == ".npy":
                 img = np.load(image_path)
             else:
-                # Read with OpenCV
+                # 用 OpenCV 读取
                 img = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
 
             if img is None:
@@ -558,11 +553,11 @@ class ImageFolderCamera(BaseCamera):
             return None
 
     def open(self) -> None:
-        """Open the image folder (alias for initialize)."""
+        """打开图像目录 (initialize 的别名)。"""
         self.initialize()
 
     def close(self) -> None:
-        """Close the camera and release resources."""
+        """关闭相机并释放资源。"""
         self._image_files = []
         self._current_index = 0
         self._last_image = None
@@ -571,19 +566,19 @@ class ImageFolderCamera(BaseCamera):
         logger.info(f"Closed ImageFolder camera: {self.cam_id}")
 
     def reset_exposure_time(self, time_ms: float) -> float:
-        """Set the simulated exposure time (delay between reads).
+        """设置仿真的曝光时间 (读帧之间的延迟)。
 
-        Note: This is a SIMULATED parameter - adds delay between frame reads.
-        Actual timing depends on file timestamps, not controllable.
+        注意: 这是仿真参数 —— 只给读帧之间加延迟。
+        真实时序取决于文件时间戳, 无法控制。
 
-        Args:
-            time_ms: New delay time in milliseconds.
+        参数:
+            time_ms: 新的延迟时间, 单位毫秒。
 
-        Returns:
-            float: The time that was set.
+        返回:
+            float: 所设定的延迟时间。
 
-        Raises:
-            AssertionError: If camera is not initialized.
+        异常:
+            AssertionError: 相机未初始化。
         """
         assert self._folder_path is not None, "camera not initialized"
         self.exposure_time_ms = max(0.0, float(time_ms))
@@ -598,19 +593,19 @@ class ImageFolderCamera(BaseCamera):
         center: tuple[int, int] | tuple[np.intp, ...],
         size: tuple[int, int],
     ) -> tuple[tuple[int, int], tuple[int, int]]:
-        """Reset the image ROI (not supported).
+        """重设图像 ROI (不支持)。
 
-        Image folder camera does not support ROI. Returns current dimensions.
+        图片文件夹相机不支持 ROI。返回当前尺寸。
 
-        Args:
-            center: Ignored (not supported).
-            size: Ignored (not supported).
+        参数:
+            center: 忽略 (不支持)。
+            size: 忽略 (不支持)。
 
-        Returns:
-            Tuple of ((width, height), (center_x, center_y)).
+        返回:
+            ((width, height), (center_x, center_y))。
 
-        Raises:
-            AssertionError: If camera is not initialized.
+        异常:
+            AssertionError: 相机未初始化。
         """
         assert self._folder_path is not None, "camera not initialized"
         center_x = self.cam_width // 2
@@ -622,34 +617,34 @@ class ImageFolderCamera(BaseCamera):
         n_sample: int = 1,
         skip_first: bool = True,
     ) -> np.ndarray:
-        """Read image(s) from folder with optional averaging.
+        """从目录读取图像, 可选做平均。
 
-        Args:
-            n_sample: Number of samples to average. Must be > 0.
-            skip_first: Whether to skip first image (often unstable).
+        参数:
+            n_sample: 平均的采样数。必须 > 0。
+            skip_first: 是否跳过第一张图 (常常不稳定)。
 
-        Returns:
-            np.ndarray: Captured image as uint8 array.
+        返回:
+            np.ndarray: 采集到的图像, 为 uint8 数组。
 
-        Raises:
-            AssertionError: If n_sample is not positive or camera not initialized.
-            FFmpegCameraError: If image read fails.
+        异常:
+            AssertionError: n_sample 不是正数, 或相机未初始化。
+            FFmpegCameraError: 读图失败。
         """
         assert self._folder_path is not None, "camera not initialized"
         assert n_sample > 0, "Sample count must be > 0"
 
-        # Skip first image if requested
+        # 按需跳过第一张图
         if skip_first:
             self._advance_index()
             if self._current_index >= len(self._image_files):
-                # Loop back to beginning
+                # 循环回到开头
                 self._current_index = 0
 
-        # Read requested number of images
+        # 读取所请求张数的图像
         frames = []
         for _ in range(n_sample):
             if self._current_index >= len(self._image_files):
-                # Loop back to beginning for continuous playback
+                # 连续回放时循环回到开头
                 self._current_index = 0
 
             img = self._read_image(self._image_files[self._current_index])
@@ -662,58 +657,58 @@ class ImageFolderCamera(BaseCamera):
             self._last_image = img
             self._advance_index()
 
-            # Simulated exposure time delay
+            # 仿真的曝光时间延迟
             if self.exposure_time_ms > 0:
                 time.sleep(self.exposure_time_ms / 1000.0)
 
-        # Compute average
+        # 计算平均
         avg_img = np.mean(frames, axis=0)
         return avg_img.astype(np.uint8)
 
     def _advance_index(self) -> None:
-        """Advance the current index, handling skip_sampling."""
+        """前进当前索引, 并处理 skip_sampling。"""
         if self.skip_sampling:
-            # Skip every other image
+            # 每隔一张跳一张
             self._current_index += 2
         else:
             self._current_index += 1
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """Enable or disable auto exposure.
+        """启用或关闭自动曝光。
 
-        Note: Not supported for image folder. Returns False.
+        注意: 图片文件夹不支持。返回 False。
 
-        Args:
-            enable: Ignored.
-            mode: Ignored.
+        参数:
+            enable: 忽略。
+            mode: 忽略。
 
-        Returns:
-            bool: Always returns False (not supported).
+        返回:
+            bool: 始终返回 False (不支持)。
         """
         logger.warning("Auto exposure not supported for ImageFolder sources")
         return False
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness.
+        """设置自动曝光的目标亮度。
 
-        Note: Not supported for image folder.
+        注意: 图片文件夹不支持。
 
-        Args:
-            target: Ignored.
+        参数:
+            target: 忽略。
 
-        Returns:
-            int: Returns 0 (not supported).
+        返回:
+            int: 返回 0 (不支持)。
 
-        Raises:
-            NotImplementedError: Always raises.
+        异常:
+            NotImplementedError: 始终抛出。
         """
         raise NotImplementedError("Auto exposure not supported for ImageFolder sources")
 
     def get_auto_exposure_state(self) -> dict:
-        """Get current auto exposure state.
+        """获取当前自动曝光状态。
 
-        Returns:
-            dict: Always indicates disabled state.
+        返回:
+            dict: 始终指示禁用状态。
         """
         return {
             "enabled": False,
@@ -728,28 +723,28 @@ class ImageFolderCamera(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """Set auto exposure time and gain range.
+        """设置自动曝光的时间与增益范围。
 
-        Note: Not supported for image folder.
+        注意: 图片文件夹不支持。
 
-        Args:
-            max_time_ms: Ignored.
-            min_time_ms: Ignored.
-            max_gain: Ignored.
-            min_gain: Ignored.
+        参数:
+            max_time_ms: 忽略。
+            min_time_ms: 忽略。
+            max_gain: 忽略。
+            min_gain: 忽略。
 
-        Returns:
-            bool: Always returns False (not supported).
+        返回:
+            bool: 始终返回 False (不支持)。
         """
         logger.warning("Auto exposure range not supported for ImageFolder sources")
         return False
 
     @staticmethod
     def get_cam_list() -> list:
-        """Get list of available image folders (not applicable).
+        """获取可用图像目录列表 (不适用)。
 
-        Returns:
-            Empty list - image folders are specified by path, not enumerated.
+        返回:
+            空列表 —— 图像目录按路径指定, 不做枚举。
         """
         logger.warning(
             "ImageFolderCamera.get_cam_list() not applicable - specify folder path directly"

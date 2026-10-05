@@ -35,4 +35,4 @@ __all__ = [
     "ZernikeSLMError",
 ]
 
-# Note: PatternHelper is in ao_shaping.utils.pattern_helper
+# 注意: PatternHelper 位于 ao_shaping.utils.pattern_helper

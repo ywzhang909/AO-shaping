@@ -1,6 +1,6 @@
-"""Random Search optimization algorithm.
+"""随机搜索优化算法。
 
-Samples random solutions and keeps the best found.
+采样随机解并保留其中最好的。
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.random_search import RandomSearch
@@ -28,9 +28,9 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
 
 
 class RandomSearch(HeuristicOptimizer):
-    """Random Search optimizer.
+    """随机搜索优化器。
 
-    Pure random search that samples uniformly from the search space.
+    纯随机搜索, 在搜索空间里均匀采样。
     """
 
     _registry_key = OptimizerType.RANDOM_SEARCH
@@ -44,7 +44,7 @@ class RandomSearch(HeuristicOptimizer):
         bounds: tuple[float, float] = (-10.0, 10.0),
         seed: int | None = None,
     ):
-        """Initialize Random Search optimizer."""
+        """初始化随机搜索优化器。"""
         if config is None:
             config = OptimizerConfig(
                 n_iterations=n_iterations, bounds=bounds, seed=seed
@@ -56,7 +56,7 @@ class RandomSearch(HeuristicOptimizer):
         fitness_fn: callable,
         init_x: npt.NDArray[np.float64] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run Random Search optimization."""
+        """执行随机搜索优化。"""
         if init_x is not None:
             self._best_solution = init_x.copy()
             self._best_fitness = fitness_fn(init_x)

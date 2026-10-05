@@ -1,16 +1,13 @@
-"""Differentiable beam shaping via gradient-descent SLM phase optimization.
+"""用梯度下降优化 SLM 相位实现的可微分光束整形。
 
-This module provides a fully differentiable forward model (phase → FFT/ASM
-propagation → far-field intensity) implemented in PyTorch, enabling direct
-gradient-based optimization of an SLM phase map.  The objective minimises a
-weighted combination of uniformity, efficiency, zero-order suppression, and
-smoothness losses against a target intensity mask.
+本模块用一个用 PyTorch 实现的完全可微正向模型 (相位 → FFT/ASM 传播 →
+远场强度), 从而支持对 SLM 相位图的直接基于梯度的优化。目标函数把均匀度、
+效率、零级抑制与平滑度损失的加权组合, 对照一个目标强度掩码来最小化。
 
-PyTorch is **optional** at import time — every torch symbol is accessed
-through the :func:`_torch` lazy accessor so that the rest of the project can
-``import`` this module without torch installed.  Callers who invoke any
-torch-dependent function will receive a clear :class:`ImportError` if the
-dependency is missing.
+PyTorch 在导入时是**可选**依赖 —— 所有 torch 符号都通过
+:func:`_torch` 这个惰性访问器获取, 因此项目其余部分在没装 torch 的情况下
+也能 ``import`` 本模块。调用任何依赖 torch 的函数时, 若依赖缺失会收到
+明确的 :class:`ImportError`。
 
 Example:
     >>> from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
@@ -41,18 +38,18 @@ if TYPE_CHECKING:  # pragma: no cover – type-only imports
 
 
 # ---------------------------------------------------------------------------
-# Lazy torch accessor
+# 惰性 torch 访问器
 # ---------------------------------------------------------------------------
 
 
 def _torch():
-    """Return the ``torch`` module, raising :class:`ImportError` when absent.
+    """返回 ``torch`` 模块; 缺失时抛出 :class:`ImportError`。
 
     Returns:
-        The ``torch`` top-level module.
+        ``torch`` 顶层模块。
 
     Raises:
-        ImportError: If PyTorch is not installed.
+        ImportError: 若未安装 PyTorch。
     """
     try:
         import torch as _t
@@ -64,7 +61,7 @@ def _torch():
 
 
 # ---------------------------------------------------------------------------
-# Target mask creation
+# 目标掩码生成
 # ---------------------------------------------------------------------------
 
 
@@ -75,23 +72,23 @@ def create_target_mask(
     *,
     sigma: float | None = None,
 ) -> npt.NDArray[np.float64]:
-    """Create a normalised target intensity mask.
+    """创建归一化的目标强度掩码。
 
     Args:
-        shape: One of ``"square"``, ``"circle"``, ``"gaussian"``, ``"spot"``.
-        grid_size: ``(H, W)`` of the output array.
-        size: Characteristic dimension in pixels.
-            * square — side length
-            * circle — diameter
-            * gaussian — ``sigma`` defaults to ``size / 6`` if not given
-            * spot — diameter (focused spot, same as circle)
-        sigma: Override for the Gaussian standard deviation (pixels).
+        shape: ``"square"``、``"circle"``、``"gaussian"``、``"spot"`` 之一。
+        grid_size: 输出数组的 ``(H, W)``。
+        size: 以像素为单位的特征尺寸。
+            * square —— 边长
+            * circle —— 直径
+            * gaussian —— 若未给出, ``sigma`` 默认为 ``size / 6``
+            * spot —— 直径 (聚焦光斑, 与 circle 相同)
+        sigma: 高斯标准差的覆盖值 (像素)。
 
     Returns:
-        ``(H, W)`` ``float64`` mask with values in ``[0, 1]``, centred.
+        取值在 ``[0, 1]`` 内、居中的 ``(H, W)`` ``float64`` 掩码。
 
     Raises:
-        ValueError: On invalid *shape* or non-2-D *grid_size*.
+        ValueError: *shape* 无效或 *grid_size* 不是二维时。
     """
     valid_shapes = {"square", "circle", "gaussian", "spot"}
     if shape not in valid_shapes:
@@ -125,15 +122,14 @@ def create_target_mask(
 
 
 # ---------------------------------------------------------------------------
-# Loss functions (torch tensors in → scalar tensor out)
+# 损失函数 (torch 张量进, 标量张量出)
 # ---------------------------------------------------------------------------
 
 
 def uniformity_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
-    """Coefficient of variation of intensity inside the target region.
+    """目标区域内强度的变异系数。
 
-    Lower values mean more uniform illumination.  Returns zero when the
-    target region is empty or contains only zeros (NaN-safe).
+    值越低表示照明越均匀。目标区域为空或只含零时返回零 (对 NaN 安全)。
     """
     torch = _torch()
     mask = target > 0
@@ -147,9 +143,9 @@ def uniformity_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
 
 
 def efficiency_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
-    """One minus the fraction of total energy falling inside the target.
+    """1 减去落在目标内的总能量占比。
 
-    Lower values mean more energy is concentrated where desired.
+    值越低表示能量越集中在期望位置。
     """
     torch = _torch()
     total = intensity.sum()
@@ -161,15 +157,15 @@ def efficiency_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
 
 
 def zero_order_penalty(intensity: "Tensor") -> "Tensor":
-    """Penalty for a strong DC / zero-order spike at the field centre.
+    """对场中心处强 DC / 零级尖峰的惩罚。
 
-    Returns the mean intensity within a small central window (5×5 pixels)
-    normalised by the total intensity — higher means worse suppression.
+    返回一个小中心窗口 (5×5 像素) 内的平均强度, 并用总强度归一化 ——
+    值越高表示零级抑制越差。
     """
     torch = _torch()
     H, W = intensity.shape[-2:]
     cy, cx = H // 2, W // 2
-    r = 2  # half-window → 5×5 region
+    r = 2  # 半窗宽 → 5×5 区域
     region = intensity[..., cy - r : cy + r + 1, cx - r : cx + r + 1]
     total = intensity.sum()
     if total < 1e-12:
@@ -178,10 +174,9 @@ def zero_order_penalty(intensity: "Tensor") -> "Tensor":
 
 
 def smoothness_regularization(phase: "Tensor") -> "Tensor":
-    """Finite-difference penalty on phase gradients.
+    """对相位梯度施加的有限差分惩罚。
 
-    Returns zero for a constant phase map and grows with high-frequency
-    spatial variation.
+    相位图恒定时返回零, 并随高频空间变化增大。
     """
     torch = _torch()
     dy = phase[:, 1:] - phase[:, :-1]
@@ -199,20 +194,18 @@ def total_loss(
     w_zero_order: float = 0.0,
     w_smoothness: float = 0.0,
 ) -> "Tensor":
-    """Weighted sum of all loss components.
+    """所有损失分量的加权和。
 
-    All individual terms are non-negative and roughly comparable in scale.
+    各个分量均非负, 量级也大致相当。
 
     .. note::
-        Empirically verified weights (report/slm_differential_shaping/): the
-        zero-order penalty MUST be 0 for targets centred on the beam origin —
-        suppressing the DC (centre) pushes energy OUT of a centred square/spot
-        and collapses encircled energy (EE 0.84 -> 0.07 at
-        ``w_zero_order=0.1``).  Smoothness regularisation similarly fights the
-        high-frequency phase content needed for sharp square edges; a 0 weight
-        gives the best result.  ``w_efficiency >= w_uniformity`` concentrates
-        energy first, then uniformity flattens it (600+ iterations reach
-        CV<0.1; see the report for learning curves).
+        经实测验证的权重 (report/slm_differential_shaping/): 对于以光束原点
+        为中心的目标, 零级惩罚必须为 0 —— 抑制 DC (中心) 会把能量从居中的
+        方斑 / 光斑里赶出去, 使围栏能量崩塌 (EE 0.84 -> 0.07, 当
+        ``w_zero_order=0.1``)。平滑度正则同样会与锐利方斑边缘所需的高频
+        相位成分对抗; 权重取 0 效果最好。``w_efficiency >= w_uniformity``
+        先把能量聚起来, 再由均匀度把它压平 (600+ 次迭代可达 CV<0.1;
+        学习曲线见报告)。
     """
     return (
         w_uniformity * uniformity_loss(intensity, target)
@@ -223,7 +216,7 @@ def total_loss(
 
 
 # ---------------------------------------------------------------------------
-# Differentiable propagation
+# 可微传播
 # ---------------------------------------------------------------------------
 
 
@@ -236,19 +229,18 @@ def _asm_propagator_torch(
     device_str: str,
     dtype_name: str,
 ):
-    """Cache the ASM propagator for a given (shape, dx, z, λ, device, dtype).
+    """为给定的 (shape, dx, z, λ, device, dtype) 缓存 ASM 传播子。
 
-    The propagator depends only on the optical geometry, not on the field
-    itself, so it can be safely shared across calls.
+    传播子只依赖光学几何, 与光场本身无关, 因此可以安全地在多次调用间共享。
 
     Returns:
-        A complex tensor of shape ``(H, W)``.
+        形状为 ``(H, W)`` 的复张量。
     """
     torch = _torch()
     dtype = getattr(torch, dtype_name)
     H, W = grid_shape
-    # Compute in float64 for numerical parity with the numpy reference
-    # implementation, then cast to the field's dtype.
+    # 用 float64 计算以与 numpy 参考实现在数值上一致,
+    # 再转换到光场的 dtype。
     fx = torch.fft.fftfreq(W, dx, device=device_str, dtype=torch.float64)
     fy = torch.fft.fftfreq(H, dx, device=device_str, dtype=torch.float64)
     FY, FX = torch.meshgrid(fy, fx, indexing="ij")
@@ -260,10 +252,10 @@ def _asm_propagator_torch(
     kz_sq = torch.where(evanescent, torch.zeros_like(kz_sq), kz_sq)
     H_prop = torch.exp(1j * torch.sqrt(kz_sq) * z)
     H_prop[evanescent] = 0.0
-    # ifftshift aligns the propagator with the fft2 output ordering, matching
-    # the numpy reference in ao_shaping.algorithm.gerchberg_saxton (verified:
-    # torch vs numpy ASM agree to ~1e-11 on random complex fields, enabling
-    # direct cross-checks and symmetric fft/asm comparison).
+    # ifftshift 让传播子与 fft2 的输出排序对齐, 与
+    # ao_shaping.algorithm.gerchberg_saxton 里的 numpy 参考实现一致
+    # (已验证: 在随机复光场上 torch 与 numpy 的 ASM 一致到 ~1e-11,
+    # 因此可以做直接交叉校验, 以及对称的 fft/asm 比较)。
     return torch.fft.ifftshift(H_prop).to(dtype=dtype)
 
 
@@ -273,27 +265,26 @@ def angular_spectrum_propagate_torch(
     z: float,
     wavelength: float,
 ) -> "Tensor":
-    """Angular Spectrum Method propagation using PyTorch FFTs.
+    """用 PyTorch FFT 实现的角谱法传播。
 
-    Mirrors the numpy ``angular_spectrum_propagate`` in
-    ``ao_shaping.algorithm.gerchberg_saxton`` but operates on torch tensors
-    with a cached propagator.
+    镜像 ``ao_shaping.algorithm.gerchberg_saxton`` 里的 numpy 版
+    ``angular_spectrum_propagate``, 但作用于带缓存传播子的 torch 张量。
 
     Args:
-        field: Complex field tensor ``(H, W)``.
-        dx: Pixel spacing in metres.
-        z: Propagation distance (positive = forward).
-        wavelength: Wavelength in metres.
+        field: 复光场张量 ``(H, W)``。
+        dx: 像素间距, 单位米。
+        z: 传播距离 (正 = 正向)。
+        wavelength: 波长, 单位米。
 
     Returns:
-        Propagated complex field, same shape as *field*.
+        传播后的复光场, 形状与 *field* 相同。
     """
     torch = _torch()
     if field.ndim != 2:
         raise ValueError(f"Field must be 2D, got {field.ndim}D")
     H, W = field.shape[-2:]
     device_str = str(field.device)
-    dtype_name = str(field.dtype).split(".")[-1]  # e.g. "complex64"
+    dtype_name = str(field.dtype).split(".")[-1]  # 例如 "complex64"
     H_prop = _asm_propagator_torch(
         (H, W),
         dx,
@@ -307,7 +298,7 @@ def angular_spectrum_propagate_torch(
 
 
 # ---------------------------------------------------------------------------
-# Forward model (factory — avoids nn.Module at import time)
+# 正向模型 (工厂 —— 避免导入期出现 nn.Module)
 # ---------------------------------------------------------------------------
 
 
@@ -317,13 +308,12 @@ def _build_forward(
     distance: float,
     wavelength: float,
 ) -> Callable[["Tensor", "Tensor | None"], "Tensor"]:
-    """Build the differentiable forward model as a closure.
+    """把可微正向模型构建成闭包。
 
-    This avoids class definitions that depend on torch at import time while
-    still keeping the propagation parameters local.
+    这样既避免了导入期依赖 torch 的类定义, 又能让传播参数保持局部。
 
     Returns:
-        Callable ``(phase, source_amplitude=None) -> real_intensity``.
+        可调用对象 ``(phase, source_amplitude=None) -> real_intensity``。
     """
     torch = _torch()
 
@@ -359,21 +349,21 @@ def _build_forward(
 
 
 # ---------------------------------------------------------------------------
-# Result container
+# 结果容器
 # ---------------------------------------------------------------------------
 
 
 @dataclass
 class DifferentiableShapingResult:
-    """Outcome of a differentiable beam-shaping optimisation run.
+    """一次可微光束整形运行的输出。
 
     Attributes:
-        phase: Best/final ``(H, W)`` ``float64`` phase in radians.
-        target_intensity: ``(H, W)`` target mask used for optimisation.
-        simulated_intensity: ``(H, W)`` intensity produced by the final phase.
-        loss_history: Per-iteration total loss values.
-        iterations: Number of iterations performed.
-        converged: Whether the run completed all requested iterations.
+        phase: 最优 / 最终的 ``(H, W)`` ``float64`` 相位, 单位弧度。
+        target_intensity: 用于优化的 ``(H, W)`` 目标掩码。
+        simulated_intensity: 由最终相位产生的 ``(H, W)`` 强度。
+        loss_history: 每次迭代的总损失值。
+        iterations: 执行的迭代次数。
+        converged: 是否跑完了全部请求的迭代。
     """
 
     phase: npt.NDArray[np.floating]
@@ -385,7 +375,7 @@ class DifferentiableShapingResult:
 
 
 # ---------------------------------------------------------------------------
-# Main training loop
+# 主训练循环
 # ---------------------------------------------------------------------------
 
 
@@ -411,56 +401,52 @@ def train_beam_shaping(
     progress_callback: Callable[[int, float], None] | None = None,
     phase_callback: Callable[["Tensor"], None] | None = None,
 ) -> DifferentiableShapingResult:
-    """Optimise an SLM phase map via gradient descent.
+    """用梯度下降优化 SLM 相位图。
 
     Args:
-        target: ``(H, W)`` target intensity mask (numpy or torch).
-        grid_size: ``(H, W)`` grid dimensions.
-        source_amplitude: Illumination amplitude. Uniform if *None*.
-        initial_phase: Starting phase (radians). Zeros if *None*.
-        propagation: ``"fft"`` (Fraunhofer) or ``"asm"`` (Angular Spectrum).
-        optimizer: ``"adam"`` or ``"lbfgs"``.
-        iterations: Number of optimisation steps.
-        lr: Learning rate.
-        w_uniformity: Weight for uniformity loss.
-        w_efficiency: Weight for efficiency loss.
-        w_zero_order: Weight for zero-order penalty.
-        w_smoothness: Weight for smoothness regularisation.
-        cell_spacing: Pixel pitch in metres.
-        distance: Propagation distance in metres.
-        wavelength: Wavelength in metres.
-        device: ``"cuda"``, ``"cpu"``, or *None* for auto-detect.
-        seed: Random seed for reproducibility.
-        progress_callback: ``fn(iteration, loss)`` called each step.
-        phase_callback: ``fn(phase_tensor)`` called each step.
+        target: ``(H, W)`` 目标强度掩码 (numpy 或 torch)。
+        grid_size: ``(H, W)`` 网格尺寸。
+        source_amplitude: 照明振幅。为 *None* 时取均匀值。
+        initial_phase: 起始相位 (弧度)。为 *None* 时取全零。
+        propagation: ``"fft"`` (夫琅禾费) 或 ``"asm"`` (角谱)。
+        optimizer: ``"adam"`` 或 ``"lbfgs"``。
+        iterations: 优化步数。
+        lr: 学习率。
+        w_uniformity: 均匀度损失的权重。
+        w_efficiency: 效率损失的权重。
+        w_zero_order: 零级惩罚的权重。
+        w_smoothness: 平滑度正则的权重。
+        cell_spacing: 像素间距, 单位米。
+        distance: 传播距离, 单位米。
+        wavelength: 波长, 单位米。
+        device: ``"cuda"``、``"cpu"``, 或 *None* 表示自动检测。
+        seed: 用于保证可复现的随机种子。
+        progress_callback: 每步调用的 ``fn(iteration, loss)``。
+        phase_callback: 每步调用的 ``fn(phase_tensor)``。
 
     Returns:
-        :class:`DifferentiableShapingResult` with all fields populated.
+        字段全部填好的 :class:`DifferentiableShapingResult`。
 
     Raises:
-        ValueError: On invalid inputs.
+        ValueError: 输入无效时。
 
     .. note::
-        Empirically tuned defaults (256×256, report/slm_differential_shaping/):
-        - ``lr=3e-2`` + ``w_zero_order=0``: the old defaults (``lr=1e-2``,
-          ``w_zero_order=0.1``) were broken — the zero-order penalty pushes
-          energy OUT of a centred target (encircled energy collapsed to 0.07
-          vs 0.84 achievable) and the low LR trapped predictions in the
-          trivial-uniform critical point, especially for ``asm``.  With the
-          defaults below, fft/adam reaches CV<0.1 and EE~0.84 in 600
-          iterations (seeds 1-3), spot targets CV~0/EE~0.87, and asm reaches
-          CV~0/EE~0.90.  L-BFGS (lr=1.0, 60 outer iters) produces an
-          essentially flat-top square (CV~0).
-        - Energy concentration reacts faster than uniformity: a
-          ``w_efficiency >= w_uniformity`` split flattens the beam after the
-          energy is gathered, so the option below favours efficiency.
-        - ``smoothness_regularization`` fights the high-frequency phase
-          content that sharp square edges require — 0 weight is optimal for
-          these targets.
+        经实测调优的默认值 (256×256, report/slm_differential_shaping/):
+        - ``lr=3e-2`` + ``w_zero_order=0``: 旧默认值 (``lr=1e-2``、
+          ``w_zero_order=0.1``) 是坏的 —— 零级惩罚把能量赶出居中目标
+          (围栏能量从可达的 0.84 崩到 0.07), 而低学习率又把预测困在
+          平凡的均匀临界点上, 对 ``asm`` 尤其明显。用下面的默认值,
+          fft/adam 在 600 次迭代内达到 CV<0.1、EE~0.84 (种子 1-3),
+          spot 目标 CV~0/EE~0.87, asm 达到 CV~0/EE~0.90。
+          L-BFGS (lr=1.0, 60 次外迭代) 给出近乎平顶的方斑 (CV~0)。
+        - 能量集中的响应比均匀度更快: ``w_efficiency >= w_uniformity``
+          的配比是在能量聚齐之后才把光束压平, 所以下面的取值偏向效率。
+        - ``smoothness_regularization`` 会与锐利方斑边缘所需的高频相位
+          成分对抗 —— 对这些目标, 权重 0 最优。
     """
     torch = _torch()
 
-    # -- Validate -----------------------------------------------------------
+    # -- 校验 -----------------------------------------------------------
     if propagation not in ("fft", "asm"):
         raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
     if optimizer not in ("adam", "lbfgs"):
@@ -473,12 +459,12 @@ def train_beam_shaping(
     if iterations < 1:
         raise ValueError(f"iterations must be >= 1, got {iterations}")
 
-    # Validate target dimensionality and that it matches grid_size
+    # 校验目标的维度, 以及是否与 grid_size 匹配
     if isinstance(target, np.ndarray):
         if target.ndim != 2:
             raise ValueError(f"target must be 2D, got {target.ndim}D")
         target_shape = target.shape
-    else:  # torch tensor
+    else:  # torch 张量
         if target.dim() != 2:
             raise ValueError(f"target must be 2D, got {target.dim()}D")
         target_shape = tuple(target.shape)
@@ -488,20 +474,20 @@ def train_beam_shaping(
             f"target shape {target_shape} does not match grid_size {(H, W)}"
         )
 
-    # -- Reproducibility ----------------------------------------------------
+    # -- 可复现性 ----------------------------------------------------
     if seed is not None:
         torch.manual_seed(seed)
         np.random.seed(seed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(seed)
 
-    # -- Device -------------------------------------------------------------
+    # -- 设备 ---------------------------------------------------------
     if device is None:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     dev = torch.device(device)
     dtype = torch.float32
 
-    # -- Prepare tensors ----------------------------------------------------
+    # -- 准备张量 ----------------------------------------------------
     if isinstance(target, np.ndarray):
         t_tensor = torch.from_numpy(target).to(device=dev, dtype=dtype)
     else:
@@ -524,24 +510,23 @@ def train_beam_shaping(
         else:
             phase_init = initial_phase.to(device=dev, dtype=dtype)
     else:
-        # Small random noise avoids the degenerate zero-gradient start where
-        # the field is purely real (intensity is quadratic in phase there).
-        # Empirical finding (report/slm_differential_shaping/): a flat/zero
-        # phase is a critical point that ASM never escapes (loss grew instead
-        # of converging); the 0.1-scale noise kicks prediction away from it.
-        # Uniform/`scale=0.1` matters too — 1.0-scale noise focuses slowly.
+        # 加入小随机噪声, 避开那种光场为纯实数 (强度在那里是相位的二次函数)
+        # 的零梯度退化起点。实测发现 (report/slm_differential_shaping/):
+        # 平坦 / 零相位是一个 ASM 永远逃不出的临界点 (损失反而变大而不是
+        # 收敛); 0.1 量级的噪声能把预测踢离它。均匀 / `scale=0.1` 这一点
+        # 也很关键 —— 1.0 量级的噪声聚焦很慢。
         phase_init = 0.1 * torch.randn((H, W), device=dev, dtype=dtype)
 
     phase = torch.nn.Parameter(phase_init.clone())
 
-    # -- Forward model ------------------------------------------------------
+    # -- 正向模型 ----------------------------------------------------
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)
 
-    # -- Optimiser ----------------------------------------------------------
+    # -- 优化器 ------------------------------------------------------
     loss_history: list[float] = []
 
     def _closure():
-        """Single forward+backward pass shared by both Adam and L-BFGS."""
+        """Adam 与 L-BFGS 共用的单次前向 + 反向传播。"""
         opt.zero_grad()
         intensity = forward(phase, amp)
         loss = total_loss(
@@ -557,8 +542,8 @@ def train_beam_shaping(
         return loss
 
     if optimizer == "adam":
-        # `Any` because torch is optional — the concrete optimizer type is
-        # only known at runtime from the `optimizer` string.
+        # 用 `Any` 是因为 torch 是可选依赖 —— 具体的优化器类型只能
+        # 在运行时由 `optimizer` 字符串确定。
         opt: Any = torch.optim.Adam([phase], lr=lr)
     else:
         opt = torch.optim.LBFGS(
@@ -569,7 +554,7 @@ def train_beam_shaping(
             line_search_fn="strong_wolfe",
         )
 
-    # -- Training loop ------------------------------------------------------
+    # -- 训练循环 ----------------------------------------------------
     converged = False
     logger.info(
         "Starting differentiable beam shaping: {} iterations, "
@@ -588,7 +573,7 @@ def train_beam_shaping(
                 logger.warning("NaN loss at iteration {}; stopping early", it)
                 break
             opt.step()
-        else:  # lbfgs — closure is invoked internally by the optimiser
+        else:  # lbfgs —— 闭包由优化器内部调用
             loss = opt.step(_closure)
             if loss is None or torch.isnan(loss):
                 logger.warning(
@@ -596,9 +581,9 @@ def train_beam_shaping(
                 )
                 break
 
-        # Wrap phase into [0, 2π).  For Adam this is safe each step; for
-        # L-BFGS wrapping mid-run would break its gradient-history bookkeeping,
-        # so we only wrap at the very end.
+        # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
+        # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
+        # 最后才包裹。
         if optimizer == "adam":
             with torch.no_grad():
                 phase.data = phase.data % (2.0 * math.pi)
@@ -619,7 +604,7 @@ def train_beam_shaping(
     if len(loss_history) >= iterations:
         converged = True
 
-    # -- Extract results ----------------------------------------------------
+    # -- 提取结果 ----------------------------------------------------
     with torch.no_grad():
         final_intensity = forward(phase, amp)
         final_phase = (

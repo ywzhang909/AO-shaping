@@ -1,7 +1,6 @@
-"""Atmospheric simulation devices.
+"""大气模拟设备。
 
-This package provides simulated atmospheric effects including turbulence
-and thermal blooming phase screens, and atmospheric propagation.
+本子包提供大气效应的仿真实现, 包含湍流相位屏、热晕相位屏以及大气传输。
 """
 
 from ao_shaping.drivers.sim.atmos.screens import (

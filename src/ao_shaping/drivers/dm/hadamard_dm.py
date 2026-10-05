@@ -8,9 +8,9 @@ from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.utils.wavefront.hadamard_calc import HadamardGenerator
 
 
-# HadamardDM intentionally has no from_params factory: no driver-layer
-# parameter class defines its mode_order, resolution, radius, bits, mask_type,
-# and safety_mode constructor fields.
+# HadamardDM 刻意没有 from_params 工厂: 驱动层的任何参数类
+# 都没有定义它的 mode_order、resolution、radius、bits、mask_type
+# 和 safety_mode 这些构造函数字段。
 
 
 @register_dm("hadamard")
@@ -40,15 +40,15 @@ class HadamardDM(DM):
         mask_type: str = "circular",
         safety_mode: bool = True,
     ):
-        """Initialize the Hadamard DM.
+        """初始化 Hadamard DM。
 
         Args:
-            mode_order: The order N of the Hadamard matrix. Must be a power of 2.
-            resolution: Output phase resolution as (width, height).
-            radius: Aperture radius in normalized coordinates.
-            bits: SLM bit depth (e.g., 10 for 0-1023 range).
-            mask_type: Pupil mask type ("circular" or "rectangular").
-            safety_mode: Accepted for interface consistency (no effect for phase DMs).
+            mode_order: Hadamard 矩阵的阶 N。必须是 2 的幂。
+            resolution: 输出相位分辨率, 形式为 (宽, 高)。
+            radius: 归一化坐标下的光瞳半径。
+            bits: SLM 位深 (例如 10 表示 0-1023 范围)。
+            mask_type: 光瞳掩码类型 ("circular" 或 "rectangular")。
+            safety_mode: 仅为接口一致性而接受 (对相位型 DM 无作用)。
         """
         self.mode_order = mode_order
         self.resolution = resolution
@@ -56,8 +56,8 @@ class HadamardDM(DM):
         self.mask_type = mask_type
         self._radius = radius
 
-        # Initialize the Hadamard generator BEFORE super().__init__
-        # because DM_NUM property depends on _generator
+        # 先于 super().__init__ 初始化 Hadamard 生成器,
+        # 因为 DM_NUM 属性依赖 _generator
         self._generator = HadamardGenerator(
             resolution=resolution,
             mode_order=mode_order,
@@ -68,14 +68,14 @@ class HadamardDM(DM):
 
         super().__init__(safety_mode=safety_mode)
 
-        # Track current state
+        # 跟踪当前状态
         self._current_coeffs: np.ndarray | None = None
         self._current_phase: np.ndarray | None = None
         self.is_open = False
 
     @property
     def DM_NUM(self) -> int:
-        """Number of actuators (modes) for this DM."""
+        """该 DM 的致动器 (模式) 数量。"""
         return self._generator.n_modes
 
     @property
@@ -98,20 +98,20 @@ class HadamardDM(DM):
         """根据Hadamard系数生成相位面型（弧度）
 
         Args:
-            coefficients: 1D array of Hadamord mode coefficients.
-                         Length should be ≤ n_modes (mode_order²).
+            coefficients: Hadamard 模式系数的一维数组,
+                         长度应 ≤ n_modes (mode_order²)。
 
         Returns:
             相位面型（弧度），shape为 (height, width)
         """
-        # Generate gray phase using the generator
+        # 用生成器产生灰度相位
         phase_gray = self._generator.generate_modes(coefficients)
 
-        # Convert from gray values to radians
+        # 从灰度值转换为弧度
         max_val = 2**self.bits - 1
         phase_rad = phase_gray.astype(np.float64) / max_val * 2 * np.pi
 
-        # Store current state
+        # 保存当前状态
         self._current_coeffs = coefficients.copy()
         self._current_phase = phase_rad.copy()
 
@@ -121,7 +121,7 @@ class HadamardDM(DM):
         """生成0~2π范围的相位图（用于SLM显示）
 
         Args:
-            coefficients: 1D array of Hadamord mode coefficients.
+            coefficients: Hadamard 模式系数的一维数组。
 
         Returns:
             灰度相位图，dtype=uint16
@@ -132,17 +132,17 @@ class HadamardDM(DM):
         return phase_gray
 
     def transform(self, cmd) -> np.ndarray:
-        """Transform command to phase pattern.
+        """把命令转换为相位图案。
 
         Args:
-            cmd: Command to transform. Can be:
-                - np.ndarray: 1D array of coefficients
+            cmd: 待转换的命令。可以是:
+                - np.ndarray: 系数的一维数组
 
         Returns:
-            2D phase array in gray scale (uint16).
+            灰度标度的二维相位数组 (uint16)。
 
         Raises:
-            ValueError: If command type is not supported.
+            ValueError: 命令类型不受支持时。
         """
         if isinstance(cmd, np.ndarray):
             return self.generate_phase_2pi(cmd)
@@ -151,13 +151,13 @@ class HadamardDM(DM):
         )
 
     def send(self, cmd) -> np.ndarray:
-        """Send command to DM and return phase pattern.
+        """向 DM 发送命令并返回相位图案。
 
         Args:
-            cmd: Command to send (1D numpy array of coefficients).
+            cmd: 待发送的命令 (系数的一维 numpy 数组)。
 
         Returns:
-            2D phase array in gray scale (uint16).
+            灰度标度的二维相位数组 (uint16)。
         """
         return self.transform(cmd)
 
@@ -165,7 +165,7 @@ class HadamardDM(DM):
         """发送Hadamard系数并返回相位图（快捷方法）
 
         Args:
-            coefficients: 1D array of Hadamord mode coefficients.
+            coefficients: Hadamard 模式系数的一维数组。
 
         Returns:
             灰度相位图 (uint16)
@@ -173,7 +173,7 @@ class HadamardDM(DM):
         return self.generate_phase_2pi(coefficients)
 
     def open(self) -> None:
-        """Open the Hadamard DM connection."""
+        """打开 Hadamard DM 连接。"""
         self.is_open = True
         logger.info(
             f"HadamardDM opened: mode_order={self.mode_order}, "
@@ -182,35 +182,35 @@ class HadamardDM(DM):
         )
 
     def close(self) -> None:
-        """Close the Hadamard DM connection."""
+        """关闭 Hadamard DM 连接。"""
         self.is_open = False
         logger.info("HadamardDM closed")
 
     def get_actuator_positions(self) -> np.ndarray:
-        """Get current actuator positions (coefficients).
+        """获取当前致动器位置 (系数)。
 
         Returns:
-            1D array of current coefficients, or empty array if none set.
+            当前系数的一维数组, 未设置时返回空数组。
         """
         if self._current_coeffs is None:
             return np.array([])
         return self._current_coeffs.copy()
 
     def get_phase(self) -> np.ndarray | None:
-        """Get the current phase pattern.
+        """获取当前相位图案。
 
         Returns:
-            Current phase array, or None if no phase has been generated.
+            当前的相位数组, 若尚未生成任何相位则为 None。
         """
         if self._current_phase is None:
             return None
         return self._current_phase.copy()
 
     def is_connected(self) -> bool:
-        """Check if the DM is connected/open.
+        """检查 DM 是否已连接/打开。
 
         Returns:
-            True if open, False otherwise.
+            已打开返回 True, 否则返回 False。
         """
         return self.is_open
 
@@ -229,16 +229,16 @@ class HadamardDM(DM):
         return info
 
     def __enter__(self):
-        """Context manager entry."""
+        """上下文管理器入口。"""
         self.open()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
+        """上下文管理器出口。"""
         self.close()
 
     def __repr__(self) -> str:
-        """String representation."""
+        """字符串表示。"""
         return (
             f"HadamardDM(mode_order={self.mode_order}, "
             f"resolution={self.resolution}, mask_type='{self.mask_type}')"

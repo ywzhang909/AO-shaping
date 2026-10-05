@@ -18,7 +18,7 @@ from loguru import logger
 
 @dataclass(frozen=True)
 class SourceFiles:
-    """Source Excel files used to generate the wiring map."""
+    """用于生成接线表的源 Excel 文件。"""
 
     wiring_table: str
     device_mapping: str
@@ -26,7 +26,7 @@ class SourceFiles:
 
 @dataclass(frozen=True)
 class Metadata:
-    """Wiring map metadata."""
+    """接线表元数据。"""
 
     description: str
     generated_at: str
@@ -37,7 +37,7 @@ class Metadata:
 
 @dataclass(frozen=True)
 class ChannelSchemaDoc:
-    """Documentation for channel fields (from wiring_map.json schema.channel)."""
+    """通道字段的文档说明 (来自 wiring_map.json 的 schema.channel)。"""
 
     needle_id: str
     physical_label: str
@@ -50,20 +50,20 @@ class ChannelSchemaDoc:
 
 @dataclass(frozen=True)
 class SchemaDoc:
-    """Schema documentation section."""
+    """schema 文档小节。"""
 
     channel: ChannelSchemaDoc
 
 
 @dataclass(frozen=True)
 class ChannelEntry:
-    """Single channel mapping entry from the wiring map.
+    """接线表中的单条通道映射记录。
 
-    Represents one needle pin (277-330) and its mapping to:
-    - Physical position in the 39×39 actuator array
-    - Controller IP address (via ip_suffix)
-    - Payload byte position within the controller's 50-channel frame
-    - TCP port (10000 + ip_suffix)
+    表示一根针脚 (277-330) 及其到以下各项的映射:
+    - 39×39 致动器阵列中的物理位置
+    - 控制器 IP 地址 (经由 ip_suffix)
+    - 该控制器 50 通道帧内的载荷字节位置
+    - TCP 端口 (10000 + ip_suffix)
     """
 
     needle_id: int | None
@@ -76,19 +76,19 @@ class ChannelEntry:
 
     @property
     def is_valid(self) -> bool:
-        """Check if this entry has meaningful data (not all null)."""
+        """检查该记录是否含有有效数据 (而非全为 null)。"""
         return self.physical_position is not None
 
     @property
     def ip_address(self) -> str | None:
-        """Full IP address (assumes 192.168.0.x subnet)."""
+        """完整 IP 地址 (假定为 192.168.0.x 子网)。"""
         if self.ip_suffix is not None:
             return f"192.168.0.{self.ip_suffix}"
         return None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> ChannelEntry:
-        """Parse a ChannelEntry from a JSON dict."""
+        """从 JSON 字典解析出 ChannelEntry。"""
         return cls(
             needle_id=data.get("needle_id"),
             physical_label=data.get("physical_label"),
@@ -102,7 +102,7 @@ class ChannelEntry:
 
 @dataclass(frozen=True)
 class Group:
-    """A group of channels (e.g., "一组", "二组")."""
+    """一组通道 (例如 "一组"、"二组")。"""
 
     name: str
     channel_count: int
@@ -110,11 +110,11 @@ class Group:
 
     @classmethod
     def from_dict(cls, key: str, data: dict[str, Any]) -> Group:
-        """Parse a Group from a JSON dict.
+        """从 JSON 字典解析出 Group。
 
         Args:
-            key: Group key from JSON (e.g., "group_1").
-            data: Group data dict.
+            key: JSON 中的组键 (例如 "group_1")。
+            data: 组数据字典。
         """
         channels = [ChannelEntry.from_dict(ch) for ch in data.get("channels", [])]
         return cls(
@@ -126,7 +126,7 @@ class Group:
 
 @dataclass(frozen=True)
 class RangeInfo:
-    """Min/max range for a numeric field."""
+    """某个数值字段的最小/最大范围。"""
 
     min: int
     max: int
@@ -134,7 +134,7 @@ class RangeInfo:
 
 @dataclass(frozen=True)
 class Summary:
-    """Wiring map summary statistics."""
+    """接线表的汇总统计。"""
 
     unique_ip_suffixes: list[int]
     needle_id_range: RangeInfo
@@ -142,7 +142,7 @@ class Summary:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> Summary:
-        """Parse a Summary from a JSON dict."""
+        """从 JSON 字典解析出 Summary。"""
         nid = data.get("needle_id_range", {})
         ppr = data.get("physical_position_range", {})
         return cls(
@@ -156,13 +156,13 @@ class Summary:
 
 @dataclass(frozen=True)
 class WiringMap:
-    """Complete wiring map for the 1300-channel DM cabinet.
+    """1300 通道 DM 柜的完整接线表。
 
-    Parsed from ``libs/micro_drive1300/wiring_map.json``.
-    Maps each needle pin (277-330) across multiple groups to:
-    - Physical positions in a 39×39 actuator array
-    - Controller IPs (via ip_suffix)
-    - Payload byte positions (1-50) within each controller's frame
+    解析自 ``libs/micro_drive1300/wiring_map.json``。
+    把跨多个组的每根针脚 (277-330) 映射到:
+    - 39×39 致动器阵列中的物理位置
+    - 控制器 IP (经由 ip_suffix)
+    - 各控制器帧内的载荷字节位置 (1-50)
     """
 
     schema_version: str
@@ -173,18 +173,18 @@ class WiringMap:
 
     @property
     def all_channels(self) -> list[ChannelEntry]:
-        """Flattened list of all valid channel entries across all groups."""
+        """跨所有组展开的全部有效通道记录。"""
         return [
             ch for group in self.groups.values() for ch in group.channels if ch.is_valid
         ]
 
     @property
     def unique_ips(self) -> list[str]:
-        """Sorted list of unique controller IP addresses.
+        """去重后排序的控制器 IP 地址列表。
 
-        Derives IPs from the actual channel data in the groups, falling back
-        to the summary field if present. This ensures the wiring map works
-        even when the optional ``summary`` section is missing from the JSON.
+        IP 由各组中的实际通道数据推导而来, 若 JSON 中存在 summary 字段
+        则在无实际数据时回退到它。这确保即使 JSON 缺失可选的 ``summary``
+        小节, 接线表依然可用。
         """
         suffixes = {
             ch.ip_suffix
@@ -198,7 +198,7 @@ class WiringMap:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> WiringMap:
-        """Parse a complete WiringMap from a JSON dict."""
+        """从 JSON 字典解析出完整的 WiringMap。"""
         meta_data = data.get("metadata", {})
         sf_data = meta_data.get("source_files", {})
         meta = Metadata(
@@ -242,13 +242,13 @@ class WiringMap:
 
     @classmethod
     def from_file(cls, path: Path) -> WiringMap | None:
-        """Load a WiringMap from a JSON file.
+        """从 JSON 文件加载 WiringMap。
 
         Args:
-            path: Path to the wiring_map.json file.
+            path: wiring_map.json 文件的路径。
 
         Returns:
-            Parsed WiringMap, or None if file not found or invalid.
+            解析出的 WiringMap, 文件不存在或无效时为 None。
         """
         if not path.exists():
             logger.warning(f"Wiring map not found: {path}")
@@ -270,9 +270,9 @@ class WiringMap:
 
 @dataclass(frozen=True)
 class ChannelInfo:
-    """Runtime lookup view of a channel, built from WiringMap.
+    """由 WiringMap 构建的通道运行时查找视图。
 
-    Includes group context and pre-computed indices for fast lookup.
+    包含组上下文与预先算好的索引, 便于快速查找。
     """
 
     needle_id: int | None
@@ -287,7 +287,7 @@ class ChannelInfo:
 
     @property
     def ip_address(self) -> str | None:
-        """Full IP address (assumes 192.168.0.x subnet)."""
+        """完整 IP 地址 (假定为 192.168.0.x 子网)。"""
         if self.ip_suffix is not None:
             return f"192.168.0.{self.ip_suffix}"
         return None
@@ -296,7 +296,7 @@ class ChannelInfo:
     def from_entry(
         cls, entry: ChannelEntry, group_name: str, group_key: str
     ) -> ChannelInfo:
-        """Create a ChannelInfo from a ChannelEntry with group context."""
+        """由带组上下文的 ChannelEntry 创建 ChannelInfo。"""
         return cls(
             needle_id=entry.needle_id,
             physical_label=entry.physical_label,

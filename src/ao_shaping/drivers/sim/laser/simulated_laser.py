@@ -1,8 +1,7 @@
-"""Simulated laser device.
+"""模拟激光器设备。
 
-This module provides a simulated laser that inherits from Device,
-allowing it to integrate with the existing device framework while using
-numerical simulation internally.
+本模块提供一个继承自 Device 的模拟激光器, 内部走数值仿真, 同时仍能接入现有的
+设备框架。
 """
 
 from __future__ import annotations
@@ -17,23 +16,22 @@ from ao_shaping.drivers.sim.base import OpticalDevice, SimulatedDeviceError
 
 
 class SimulatedLaserError(SimulatedDeviceError):
-    """Exception for simulated laser errors."""
+    """模拟激光器相关错误的异常。"""
     pass
 
 
 class SimulatedLaser(OpticalDevice):
-    """Simulated laser source.
-    
-    This class provides a simulated laser that generates wavefronts
-    based on specified parameters. It inherits from OpticalDevice
-    to integrate with the optical simulation framework.
-    
+    """模拟激光光源。
+
+    本类提供一个按指定参数生成波前的模拟激光器。它继承自 OpticalDevice, 以接入
+    光学仿真框架。
+
     Attributes:
-        power: Laser power in watts.
-        wavelength: Operating wavelength in nanometers.
-        aperture: Beam aperture diameter in meters.
-        beam_quality: Beam quality factor M².
-    
+        power: 激光功率, 单位瓦。
+        wavelength: 工作波长, 单位纳米。
+        aperture: 光束口径直径, 单位米。
+        beam_quality: 光束质量因子 M²。
+
     Example:
         >>> laser = SimulatedLaser(power=100, wavelength=1064)
         >>> with laser:
@@ -55,16 +53,16 @@ class SimulatedLaser(OpticalDevice):
         enable_noise: bool = True,
         random_seed: int | None = None,
     ):
-        """Initialize simulated laser.
-        
+        """初始化模拟激光器。
+
         Args:
-            device_id: Unique device identifier.
-            power: Laser power in watts.
-            wavelength: Wavelength in nanometers.
-            aperture: Beam aperture in meters.
-            beam_quality: Beam quality factor M².
-            enable_noise: Whether to add noise.
-            random_seed: Random seed for reproducibility.
+            device_id: 设备唯一标识。
+            power: 激光功率, 单位瓦。
+            wavelength: 波长, 单位纳米。
+            aperture: 光束口径, 单位米。
+            beam_quality: 光束质量因子 M²。
+            enable_noise: 是否加入噪声。
+            random_seed: 用于可复现性的随机种子。
         """
         super().__init__(device_id, wavelength, enable_noise, random_seed)
 
@@ -86,7 +84,7 @@ class SimulatedLaser(OpticalDevice):
         )
 
     def _register_parameters(self) -> None:
-        """Register laser parameters."""
+        """注册激光器参数。"""
         self.register_parameter(
             "power",
             default_value=self.power,
@@ -121,7 +119,7 @@ class SimulatedLaser(OpticalDevice):
         )
 
     def _register_capabilities(self) -> None:
-        """Register laser capabilities."""
+        """注册激光器能力。"""
         self.register_capability(
             "generate",
             description="Generate laser wavefront",
@@ -138,23 +136,23 @@ class SimulatedLaser(OpticalDevice):
             parameters=["wavelength"],
         )
 
-    # ========== SimulatedDevice Implementation ==========
+    # ========== SimulatedDevice 实现 ==========
 
     def compute(self, *args, **kwargs) -> Any:
-        """Generate laser wavefront."""
+        """生成激光器波前。"""
         return self.generate()
 
-    # ========== Laser-Specific Methods ==========
+    # ========== 激光器专用方法 ==========
 
     def generate(self, npix: int = 512, dpix: float = 1e-3) -> Any:
-        """Generate laser wavefront.
-        
+        """生成激光器波前。
+
         Args:
-            npix: Number of pixels.
-            dpix: Pixel size in meters.
-            
+            npix: 像素数。
+            dpix: 像元尺寸, 单位米。
+
         Returns:
-            Wavefront object (compatible with sim.digitaltwin.Wave).
+            波前对象 (兼容 sim.digitaltwin.Wave)。
         """
         if not self.is_connected():
             raise RuntimeError("Laser not connected")
@@ -165,7 +163,7 @@ class SimulatedLaser(OpticalDevice):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # Generate wavefront using digitaltwin if available
+            # 在 digitaltwin 可用时用它生成波前
             wave = self._create_wavefront(npix, dpix)
 
             if self.beam_quality > 1.0:
@@ -180,33 +178,33 @@ class SimulatedLaser(OpticalDevice):
             self._set_state(DeviceState.READY)
 
     def _create_wavefront(self, npix: int, dpix: float) -> Any:
-        """Create wavefront object.
-        
+        """构造波前对象。
+
         Args:
-            npix: Number of pixels.
-            dpix: Pixel size.
-            
+            npix: 像素数。
+            dpix: 像元尺寸。
+
         Returns:
-            Wavefront object.
+            波前对象。
         """
-        # Try to use digitaltwin base classes
+        # 尝试使用 digitaltwin 的基类
         try:
             from sim.digitaltwin.base import Wave as DTWave
 
             wave = DTWave()
             wave.change_grid(npix, dpix)
-            wave.wavelength = self.wavelength * 1e-9  # Convert to meters
-            wave.refractive = 1.0  # Air
+            wave.wavelength = self.wavelength * 1e-9  # 换算成米
+            wave.refractive = 1.0  # 空气
 
-            # Generate Gaussian beam
+            # 生成高斯光束
             r = wave.r
             radius = self.aperture / 2 / np.sqrt(2)
             amplitude = np.exp(-(r / radius) ** 2)
 
-            # Set wavefront
+            # 设定波前
             wave.wavefront = amplitude * np.exp(0j)
 
-            # Scale power
+            # 缩放到目标功率
             from sim.digitaltwin import utilities as utils
             intensity = utils.wf2intensity(wave.wavefront, wave.refractive)
             power = intensity.sum() * dpix ** 2
@@ -214,27 +212,27 @@ class SimulatedLaser(OpticalDevice):
 
             return wave
         except ImportError:
-            # Fallback: create simple wavefront dict
+            # 回退: 构造简单的波前字典
             logger.warning("Using fallback wavefront (sim.digitaltwin not available)")
             return self._create_simple_wavefront(npix, dpix)
 
     def _create_simple_wavefront(self, npix: int, dpix: float) -> dict:
-        """Create simple wavefront dict (fallback).
-        
+        """构造简单波前字典 (回退)。
+
         Args:
-            npix: Number of pixels.
-            dpix: Pixel size.
-            
+            npix: 像素数。
+            dpix: 像元尺寸。
+
         Returns:
-            Simple wavefront dictionary.
+            简单波前字典。
         """
-        # Create coordinate grids
+        # 构造坐标网格
         x = np.linspace(-npix * dpix / 2, npix * dpix / 2 - dpix, npix)
         y = np.linspace(-npix * dpix / 2, npix * dpix / 2 - dpix, npix)
         xx, yy = np.meshgrid(x, y)
         r = np.sqrt(xx ** 2 + yy ** 2)
 
-        # Gaussian beam
+        # 高斯光束
         radius = self.aperture / 2 / np.sqrt(2)
         amplitude = np.exp(-(r / radius) ** 2)
 
@@ -253,26 +251,26 @@ class SimulatedLaser(OpticalDevice):
         }
 
     def _apply_beam_quality(self, wave: Any) -> Any:
-        """Apply beam quality degradation.
-        
+        """按光束质量因子 M² 施加退化。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Wavefront with beam quality applied.
+            已施加光束质量退化的波前。
         """
-        # Simplified: add phase distortion based on M²
+        # 简化实现: 按 M² 加入相位畸变
         try:
             from sim.digitaltwin import screens as dt_screens
             from sim.digitaltwin import base as dt_base
 
-            # Create fake environment for turbulent screen
+            # 给湍流相位屏造一个假环境
             env = dt_base.Environment()
-            env.Cn2 = 1e-15  # Weak turbulence
+            env.Cn2 = 1e-15  # 弱湍流
             env.L0 = 1.0
             env.l0 = 0.01
 
-            # Apply slight distortion
+            # 施加轻微畸变
             screen = dt_screens.TurbulentScreen(0.1, env, harmonic=0)
             screen.out(wave)
 
@@ -281,10 +279,10 @@ class SimulatedLaser(OpticalDevice):
             return wave
 
     def set_power(self, power: float) -> None:
-        """Set laser power.
-        
+        """设置激光功率。
+
         Args:
-            power: Power in watts.
+            power: 功率, 单位瓦。
         """
         if not (0 <= power <= 1000):
             raise ValueError(f"Power {power} out of range [0, 1000]")
@@ -294,10 +292,10 @@ class SimulatedLaser(OpticalDevice):
         logger.info(f"Laser power set to {power} W")
 
     def set_wavelength(self, wavelength: float) -> None:
-        """Set laser wavelength.
-        
+        """设置激光波长。
+
         Args:
-            wavelength: Wavelength in nanometers.
+            wavelength: 波长, 单位纳米。
         """
         if not (300 <= wavelength <= 2000):
             raise ValueError(f"Wavelength {wavelength} out of range [300, 2000]")
@@ -307,27 +305,27 @@ class SimulatedLaser(OpticalDevice):
         logger.info(f"Laser wavelength set to {wavelength} nm")
 
     def enable_output(self, enabled: bool) -> None:
-        """Enable or disable laser output.
-        
+        """启用或禁用激光输出。
+
         Args:
-            enabled: True to enable, False to disable.
+            enabled: True 启用, False 禁用。
         """
         self._output_enabled = enabled
         logger.info(f"Laser output {'enabled' if enabled else 'disabled'}")
 
     def is_output_enabled(self) -> bool:
-        """Check if output is enabled."""
+        """检查输出是否已启用。"""
         return self._output_enabled
 
-    # ========== OpticalDevice Implementation ==========
+    # ========== OpticalDevice 实现 ==========
 
     def process(self, wave: Any) -> Any:
-        """Process wavefront (pass-through for laser).
-        
+        """处理波前 (对激光器直通透传)。
+
         Args:
-            wave: Input wavefront.
-            
+            wave: 输入波前。
+
         Returns:
-            Same wavefront.
+            同一个波前。
         """
         return wave

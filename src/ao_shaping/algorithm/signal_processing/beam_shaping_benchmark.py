@@ -1,32 +1,29 @@
-"""Simulation benchmark for SLM far-field beam-shaping algorithms (Unit B).
+"""SLM 远场光束整形算法的仿真基准 (Unit B)。
 
-Compares the three far-field shaping strategies on a *pure simulation*
-bundle — no SLM / CCD / DM hardware required:
+在一套*纯仿真*的环境里比较三种远场整形策略 —— 不需要 SLM / CCD / DM 硬件:
 
-* ``"gs"`` — :func:`~ao_shaping.algorithm.gerchberg_saxton.gerchberg_saxton`
-* ``"backprop"`` — :func:`~ao_shaping.algorithm.differentiable_shaping.train_beam_shaping`
-* ``"spgd-sim"`` — a compact self-contained SPGD loop over the same
-  Fraunhofer (FFT) forward model used by the other two, so all three
-  optimisers see an identical propagation physics.
+* ``"gs"`` —— :func:`~ao_shaping.algorithm.gerchberg_saxton.gerchberg_saxton`
+* ``"backprop"`` —— :func:`~ao_shaping.algorithm.differentiable_shaping.train_beam_shaping`
+* ``"spgd-sim"`` —— 一个紧凑的自包含 SPGD 循环, 跑在另外两者所用的同一个
+  夫琅禾费 (FFT) 正向模型上, 使三个优化器看到完全相同的传播物理。
 
-Every algorithm produces an SLM phase map which is then turned back into
-a simulated far-field intensity with the **same** FFT propagator, so the
-benchmark is a fair head-to-head: the only difference between the columns
-is the optimisation strategy, never the forward model.
+每个算法产出一个 SLM 相位图, 随后用**同一个** FFT 传播子把它转回仿真远场
+强度, 所以这个基准是公平的正面对比: 各列之间唯一的差别是优化策略,
+绝不是正向模型。
 
-Exposure/brightness invariant metrics follow the project rules — all
-intensity comparisons are normalised so absolute scale does not matter.
+曝光 / 亮度不变量指标遵循项目规则 —— 所有强度比较都做归一化, 使绝对尺度
+无关紧要。
 
-Public API:
-    - :func:`run_benchmark` (one algorithm × one target shape → result dict)
-    - :func:`run_benchmark_suite` (grid over algorithms × shapes →
+公开 API:
+    - :func:`run_benchmark` (一个算法 × 一个目标形状 → 结果字典)
+    - :func:`run_benchmark_suite` (算法 × 形状的网格 →
       ``(list[dict], DataFrame)``)
     - :func:`measure_shaped_area` / :func:`check_area_requirement`
-      (fixed-shape area gate)
-    - GIF + metrics CSV/MD writers (PIL / stdlib csv)
+      (固定形状面积门槛)
+    - GIF + 指标 CSV/MD 写出器 (PIL / stdlib csv)
 
-This module targets Python 3.12+, is hardware-free and fully offline;
-tests live in ``tests/ao_shaping/algorithm/``.
+本模块面向 Python 3.12+, 无硬件依赖且完全离线;
+测试位于 ``tests/ao_shaping/algorithm/``。
 """
 
 from __future__ import annotations
@@ -41,15 +38,15 @@ import pandas as pd
 from loguru import logger
 from PIL import Image
 
-# Reuse the canonical algorithm + metrics implementations so the benchmark
-# measures exactly what the runners ship, not a re-implementation.
+# 复用 canonical 的算法与指标实现, 使基准测的正是 runner 交付的那套东西,
+# 而不是某个再实现。
 from ao_shaping.utils.image.beam_metrics import compute_shaping_metrics
 from ao_shaping.utils.image.targets import create_target_shape
 from ao_shaping.optimizer import train_beam_shaping
 from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
 
 # ---------------------------------------------------------------------------
-# Constants / defaults
+# 常量 / 默认值
 # ---------------------------------------------------------------------------
 DEFAULT_GRID: tuple[int, int] = (128, 128)
 DEFAULT_CELL_SPACING: float = 8e-6
@@ -68,7 +65,7 @@ SUITE_ALGORITHMS: tuple[str, ...] = tuple(sorted(_ALGORITHMS))
 
 
 # ---------------------------------------------------------------------------
-# Forward model (shared by all algorithms)
+# 正向模型 (所有算法共用)
 # ---------------------------------------------------------------------------
 def _propagate_far_field(
     phase: npt.NDArray[np.floating],
@@ -77,24 +74,21 @@ def _propagate_far_field(
     distance: float = DEFAULT_DISTANCE,
     wavelength: float = DEFAULT_WAVELENGTH,
 ) -> npt.NDArray[np.floating]:
-    """Fraunhofer far-field intensity of ``exp(i*phase)`` (FFT focal model).
+    """``exp(i*phase)`` 的夫琅禾费远场强度 (FFT 焦面模型)。
 
-    The SLM plane field ``exp(j*phi)`` (uniform illumination, plateau flat
-    phase = 0-order at center) is propagated to the far field with a single
-    FFT — the same focal-plane model used by ``gerchberg_saxton(...,
-    propagation="fft")``. Returns the normalised *intensity*
-    ``|FFT(exp(j*phi))|^2`` so all algorithms are compared on the same
-    physics.
+    SLM 面光场 ``exp(j*phi)`` (均匀照明, 平坦相位 = 中心处的 0 级) 用单次 FFT
+    传播到远场 —— 即 ``gerchberg_saxton(..., propagation="fft")`` 所用的
+    同一个焦面模型。返回归一化的*强度* ``|FFT(exp(j*phi))|^2``,
+    使所有算法都在同一套物理上比较。
 
     Args:
-        phase: 2D phase map in radians.
-        cell_spacing: Pixel pitch (m). Unused by FFT but kept for symmetry.
-        distance: Propagation distance (m). Unused by FFT but kept for
-            symmetry with the ASM path.
-        wavelength: Wavelength (m). Unused by FFT but kept for symmetry.
+        phase: 二维相位图, 单位弧度。
+        cell_spacing: 像素间距 (米)。FFT 不用它, 但为对称性保留。
+        distance: 传播距离 (米)。FFT 不用它, 但为与 ASM 路径对称而保留。
+        wavelength: 波长 (米)。FFT 不用它, 但为对称性保留。
 
     Returns:
-        Float64 2D far-field intensity, normalised to sum == 1.
+        float64 的二维远场强度, 归一化到总和 == 1。
     """
     field = np.exp(1j * np.asarray(phase, dtype=np.float64))
     ff = np.abs(np.fft.fftshift(np.fft.fft2(field))) ** 2
@@ -105,26 +99,25 @@ def _propagate_far_field(
 
 
 # ---------------------------------------------------------------------------
-# Area helpers (fixed-shape gate)
+# 面积辅助函数 (固定形状门槛)
 # ---------------------------------------------------------------------------
 def measure_shaped_area(intensity: npt.NDArray[np.floating], threshold_ratio: float = 0.5) -> int:
-    """Count pixels whose intensity is at least ``threshold_ratio × peak``.
+    """统计强度不低于 ``threshold_ratio × 峰值`` 的像素数。
 
-    This is the project-standard "shaped area" definition used by the
-    square/diff runners: the bright region is the set of pixels above half
-    of the frame's *peak* intensity (threshold is relative, never absolute,
-    which keeps the metric exposure-invariant).
+    这是项目标准的 "整形面积" 定义, 方斑 / diff runner 也用它:
+    亮区是那些高于整幅画面*峰值*强度一半的像素集合 (阈值是相对的,
+    绝不用绝对值, 从而让该指标对曝光不敏感)。
 
     Args:
-        intensity: 2D intensity map.
-        threshold_ratio: Fraction of the peak intensity defining "bright".
-            Must be in ``(0, 1]``.
+        intensity: 二维强度图。
+        threshold_ratio: 定义 "亮" 的峰值强度占比。
+            必须在 ``(0, 1]`` 内。
 
     Returns:
-        Number of bright pixels (``0`` for an empty/zero frame).
+        亮像素数量 (空 / 全零画面时为 ``0``)。
 
     Raises:
-        ValueError: If ``threshold_ratio`` is not in ``(0, 1]``.
+        ValueError: 若 ``threshold_ratio`` 不在 ``(0, 1]`` 内。
     """
     if not 0.0 < float(threshold_ratio) <= 1.0:
         raise ValueError(f"threshold_ratio must be in (0, 1], got {threshold_ratio}")
@@ -140,25 +133,24 @@ def check_area_requirement(
     requested: int,
     tolerance: float = 0.20,
 ) -> dict[str, Any]:
-    """Check whether a measured shaped area meets a requested area.
+    """检查实测整形面积是否满足要求的面积。
 
-    The requirement is satisfied when ``measured >= (1 - tolerance) *
-    requested`` (we tolerate undershoot but never consider an oversized
-    pattern a failure — the gate is "did we fill the target box").
+    当 ``measured >= (1 - tolerance) * requested`` 时视为满足 (我们容忍
+    欠量, 但绝不把超尺寸的图形判为失败 —— 这个门槛问的是
+    "有没有把目标方框填满")。
 
     Args:
-        measured: Measured bright-pixel count.
-        requested: Requested target-box pixel count.
-        tolerance: Allowed relative undershoot ``(0, 1)``.
+        measured: 实测亮像素数。
+        requested: 要求的目标方框像素数。
+        tolerance: 允许的相对欠量 ``(0, 1)``。
 
     Returns:
-        Dict with ``"met"`` (bool), ``"measured_area"``, ``"requested_area"``,
-        ``"tolerance"``, ``"fill_ratio"`` (``measured / requested``) and
-        ``"shortfall"`` (``max(0, requested - measured)``).
+        含 ``"met"`` (bool)、``"measured_area"``、``"requested_area"``、
+        ``"tolerance"``、``"fill_ratio"`` (``measured / requested``) 以及
+        ``"shortfall"`` (``max(0, requested - measured)``) 的字典。
 
     Raises:
-        ValueError: If either area is negative or ``tolerance`` is out of
-            ``(0, 1)``.
+        ValueError: 若任一面积为负, 或 ``tolerance`` 不在 ``(0, 1)`` 内。
     """
     if measured < 0 or requested < 0:
         raise ValueError(f"Areas must be non-negative, got {measured}, {requested}")
@@ -177,7 +169,7 @@ def check_area_requirement(
 
 
 # ---------------------------------------------------------------------------
-# Target generation
+# 目标生成
 # ---------------------------------------------------------------------------
 def create_benchmark_target(
     shape: str,
@@ -186,36 +178,36 @@ def create_benchmark_target(
     target_area: int = DEFAULT_TARGET_AREA,
     aspect_ratio: float = 1.0,
 ) -> tuple[npt.NDArray[np.floating], dict[str, Any]]:
-    """Build a normalised target shape for a benchmark run.
+    """为一次基准运行构建归一化的目标形状。
 
-    Wraps :func:`~ao_shaping.utils.image.targets.create_target_shape`
-    so the benchmark uses the exact same target factory as the runners.
+    包装 :func:`~ao_shaping.utils.image.targets.create_target_shape`,
+    使基准使用与 runner 完全相同的目标工厂。
 
     Args:
-        shape: ``"square"``, ``"circle"`` or ``"gaussian"``.
-        grid_size: ``(height, width)`` output grid.
-        target_area: Requested bright pixel count. For ``"square"`` this
-            fixes the side via ``side = round(sqrt(area))``; for ``"circle"``
-            it sizes the radius so the **filled** circle area approximates the
-            request; for ``"gaussian"`` it is ignored (sigma from default).
-        aspect_ratio: Width:height for ``"square"``; ``>1`` makes a
-            rectangle (long axis horizontal). Ignored otherwise.
+        shape: ``"square"``、``"circle"`` 或 ``"gaussian"``。
+        grid_size: 输出的 ``(高, 宽)`` 网格。
+        target_area: 要求的亮像素数。对 ``"square"`` 它通过
+            ``side = round(sqrt(area))`` 确定边长; 对 ``"circle"``
+            它定出半径使**填充**圆面积逼近该要求; 对 ``"gaussian"``
+            则被忽略 (sigma 取默认值)。
+        aspect_ratio: ``"square"`` 的宽:高; ``>1`` 表示矩形
+            (长边水平)。其余情况忽略。
 
     Returns:
-        ``(target_intensity, info)`` where ``target_intensity`` is the
-        normalised 2D intensity in ``[0, 1]`` and ``info`` contains
-        ``"requested_area"``, ``"shape"``, ``"grid_size"`` and ``"side_px"``
-        (square side length in grid pixels).
+        ``(target_intensity, info)``, 其中 ``target_intensity`` 是
+        ``[0, 1]`` 内的归一化二维强度, ``info`` 含
+        ``"requested_area"``、``"shape"``、``"grid_size"`` 和
+        ``"side_px"`` (以网格像素计的方斑边长)。
 
     Raises:
-        ValueError: If ``shape`` is not supported.
+        ValueError: 若 ``shape`` 不受支持。
     """
     if shape not in _SHAPES:
         raise ValueError(f"Unsupported shape {shape!r}; choose from {sorted(_SHAPES)}")
 
     if shape == "square":
         side = max(1, int(round(float(target_area) ** 0.5)))
-        # For aspect_ratio > 1 the long side is horizontal: side × ratio.
+        # aspect_ratio > 1 时长边水平: 边长 × 比例。
         long_side = max(side, int(round(side * float(aspect_ratio))))
         target = create_target_shape(
             "rectangle" if aspect_ratio > 1.0 else "square",
@@ -246,7 +238,7 @@ def create_benchmark_target(
 
 
 # ---------------------------------------------------------------------------
-# Per-algorithm execution
+# 各算法的执行
 # ---------------------------------------------------------------------------
 def _run_gerchberg_saxton(
     target_intensity: npt.NDArray[np.floating],
@@ -254,7 +246,7 @@ def _run_gerchberg_saxton(
     iterations: int,
     seed: int,
 ) -> npt.NDArray[np.floating]:
-    """GS phase retrieval; return the phase map (radians)."""
+    """GS 相位恢复; 返回相位图 (弧度)。"""
     target_amp = np.sqrt(np.maximum(target_intensity, 0.0))
     result = gerchberg_saxton(
         source_amplitude=np.ones(grid_size, dtype=np.float64),
@@ -276,7 +268,7 @@ def _run_backprop(
     seed: int,
     device: str | None,
 ) -> npt.NDArray[np.floating]:
-    """Differentiable gradient-descent shaping; return the phase map."""
+    """可微梯度下降整形; 返回相位图。"""
     result = train_beam_shaping(
         target=target_intensity,
         grid_size=grid_size,
@@ -302,13 +294,12 @@ def _run_spgd_sim(
     iterations: int,
     seed: int,
 ) -> npt.NDArray[np.floating]:
-    """Self-contained SPGD loop over the same FFT forward model.
+    """跑在同一个 FFT 正向模型上的自包含 SPGD 循环。
 
-    SPGD (Stochastic Parallel Gradient Descent) optimises the SLM phase map
-    directly against the target intensity using the same
-    :func:`_propagate_far_field` model as GS/backprop. The cost combines
-    uniformity (CV inside the bright mask) and encircled energy, mirroring
-    the project's shaping objective, so the comparison is apples-to-apples.
+    SPGD (Stochastic Parallel Gradient Descent) 用与 GS/backprop 相同的
+    :func:`_propagate_far_field` 模型, 直接对目标强度优化 SLM 相位图。
+    代价函数结合均匀度 (亮掩码内的 CV) 与围栏能量, 与项目的整形目标一致,
+    因此这个对比是同类可比的。
     """
     rng = np.random.default_rng(seed)
     phase = rng.normal(0.0, 0.05, size=grid_size).astype(np.float64)
@@ -317,7 +308,7 @@ def _run_spgd_sim(
     best_cost = np.inf
     best_phase = phase.copy()
     for it in range(int(iterations)):
-        # Random perturbation (same statistics each iteration).
+        # 随机扰动 (每次迭代统计量相同)。
         delta = rng.normal(0.0, 0.08, size=grid_size)
         plus = _propagate_far_field(phase + delta)
         minus = _propagate_far_field(phase - delta)
@@ -334,7 +325,7 @@ def _run_spgd_sim(
 
 
 def _cost(intensity: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_]) -> float:
-    """Shaping cost from uniformity CV + encircled-energy shortfall."""
+    """由均匀度 CV + 围栏能量缺口构成的整形代价。"""
     metrics = compute_shaping_metrics(intensity, mask)
     cv = float(metrics.get("uniformity_cv", 0.0))
     ee = float(metrics.get("encircled_energy", 0.0))
@@ -342,7 +333,7 @@ def _cost(intensity: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_]) -> f
 
 
 # ---------------------------------------------------------------------------
-# Public benchmark entry points
+# 公开的基准入口
 # ---------------------------------------------------------------------------
 def run_benchmark(
     algorithm: str,
@@ -355,25 +346,23 @@ def run_benchmark(
     max_frames: int = DEFAULT_MAX_FRAMES,
     device: str | None = None,
 ) -> dict[str, Any]:
-    """Run one shaping algorithm on one simulated target shape.
+    """在一个仿真目标形状上跑一个整形算法。
 
     Args:
-        algorithm: ``"gs"``, ``"backprop"`` or ``"spgd-sim"``.
-        shape: ``"square"``, ``"circle"`` or ``"gaussian"``.
-        grid_size: ``(height, width)`` grid.
-        target_area: Requested target-box pixel count (square side derives
-            from its square root).
-        aspect_ratio: Width:height for a square target (``>1`` → rectangle).
-        iterations: Optimisation iterations; default 100.
-        seed: Random seed (reproducible runs).
-        max_frames: Length cap for the recorded evolution (GIF frame budget).
-        device: Backprop compute device (``"cuda"``/``"cpu"``/None=auto).
+        algorithm: ``"gs"``、``"backprop"`` 或 ``"spgd-sim"``。
+        shape: ``"square"``、``"circle"`` 或 ``"gaussian"``。
+        grid_size: ``(高, 宽)`` 网格。
+        target_area: 要求的目标方框像素数 (方斑边长由其平方根推出)。
+        aspect_ratio: 方斑目标的宽:高 (``>1`` → 矩形)。
+        iterations: 优化迭代次数; 默认 100。
+        seed: 随机种子 (可复现的运行)。
+        max_frames: 所记录演化过程的长度上限 (GIF 帧预算)。
+        device: Backprop 的计算设备 (``"cuda"``/``"cpu"``/None=自动)。
 
     Returns:
-        Dict with algorithm identifier, target/requested area, simulated
-        intensity, shaped-area measurement, area-requirement check, shaping
-        metrics (``uniformity_cv``, ``encircled_energy``,
-        ``uniformity_cv``), and timing.
+        含算法标识、目标 / 要求面积、仿真强度、整形面积测量、面积要求检查、
+        整形指标 (``uniformity_cv``、``encircled_energy``、
+        ``uniformity_cv``) 以及耗时的字典。
     """
     if algorithm not in _ALGORITHMS:
         raise ValueError(f"Unsupported algorithm {algorithm!r}; choose {sorted(_ALGORITHMS)}")
@@ -384,12 +373,11 @@ def run_benchmark(
 
     iterations = int(iterations) if iterations is not None else DEFAULT_ITERATIONS
 
-    # Normalise a scalar grid_size (``32``) to a 2D grid (``(32, 32)``) at the
-    # single authoritative entry point. All downstream consumers
-    # (``create_benchmark_target``, ``gerchberg_saxton``/``backprop``/
-    # ``spgd-sim`` phase runners) require 2D arrays; a scalar would otherwise
-    # collapse ``np.ones(grid_size)`` to a 1D source amplitude and raise
-    # ``ValueError: Input amplitudes must be 2D arrays``.
+    # 在唯一的权威入口处把标量 grid_size (``32``) 归一化成二维网格
+    # (``(32, 32)``)。所有下游消费方 (``create_benchmark_target``、
+    # ``gerchberg_saxton``/``backprop``/``spgd-sim`` 各相位执行器) 都需要
+    # 二维数组; 标量会把 ``np.ones(grid_size)`` 压成一维源振幅并抛出
+    # ``ValueError: Input amplitudes must be 2D arrays``。
     if isinstance(grid_size, int):
         grid_size = (grid_size, grid_size)
 
@@ -411,7 +399,7 @@ def run_benchmark(
     measured_area = measure_shaped_area(simulated)
     area_check = check_area_requirement(measured_area, requested)
 
-    # Normalise target for the (symmetric) metric call.
+    # 为 (对称的) 指标调用归一化目标。
     target_norm = target_intensity / float(target_intensity.sum()) if target_intensity.sum() > 0 else target_intensity
     mask = target_norm > 0.5 * float(np.max(target_norm))
     metrics = compute_shaping_metrics(simulated, mask)
@@ -452,25 +440,24 @@ def run_benchmark_suite(
     max_frames: int = DEFAULT_MAX_FRAMES,
     device: str | None = None,
 ) -> tuple[list[dict[str, Any]], pd.DataFrame]:
-    """Run all algorithms × all selected shapes (exhaustive grid).
+    """跑遍所有算法 × 所有选定形状 (穷举网格)。
 
     Args:
-        algorithms: Subset of ``{"gs","backprop","spgd-sim"}``;
-            all three when *None*.
-        shapes: Subset of ``{"square","circle","gaussian"}``;
-            all three when *None*.
-        grid_size: Grid dimensions.
-        target_area: Requested target-box area (pixels).
-        aspect_ratio: Square aspect ratio.
-        iterations: Optimisation iterations.
-        seed: Random seed.
-        max_frames: GIF frame budget (per cell).
-        device: Backprop device.
-    
+        algorithms: ``{"gs","backprop","spgd-sim"}`` 的子集;
+            为 *None* 时取全部三个。
+        shapes: ``{"square","circle","gaussian"}`` 的子集;
+            为 *None* 时取全部三个。
+        grid_size: 网格尺寸。
+        target_area: 要求的目标方框面积 (像素)。
+        aspect_ratio: 方斑的宽高比。
+        iterations: 优化迭代次数。
+        seed: 随机种子。
+        max_frames: GIF 帧预算 (每格)。
+        device: Backprop 设备。
+
     Returns:
-        ``(rows, dataframe)`` where each row is the scalar
-        :func:`run_benchmark` result (phase/simulated arrays stripped) and
-        ``dataframe`` is the tabular view with one row per cell.
+        ``(rows, dataframe)``, 其中每一行是 :func:`run_benchmark` 的标量结果
+        (已剥掉 phase/simulated 数组), ``dataframe`` 是每格一行的表格视图。
     """
     algos = list(algorithms or sorted(_ALGORITHMS))
     shps = list(shapes or sorted(_SHAPES))
@@ -498,7 +485,7 @@ def run_benchmark_suite(
 
 
 # ---------------------------------------------------------------------------
-# Serialization helpers (DF / CSV / MD / GIF)
+# 序列化辅助 (DF / CSV / MD / GIF)
 # ---------------------------------------------------------------------------
 HPRINT_KEYS: tuple[str, ...] = (
     "algorithm",
@@ -514,7 +501,7 @@ HPRINT_KEYS: tuple[str, ...] = (
 
 
 def to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
-    """Project rows on the scalar (non-array) fields into a DataFrame."""
+    """把各行投影到标量 (非数组) 字段, 得到一个 DataFrame。"""
     scalar_rows = []
     for row in rows:
         scalar_rows.append({k: row[k] for k in HPRINT_KEYS if k in row})
@@ -530,19 +517,18 @@ def build_gif_frames(
     simulated: npt.NDArray[np.floating],
     max_frames: int = DEFAULT_MAX_FRAMES,
 ) -> list[Image.Image]:
-    """Render a small PIL frame sequence: target → simulated stacked.
+    """渲染一小段 PIL 帧序列: target → simulated 堆叠。
 
-    Uses a perceptually-scaled grayscale palette so intensity dynamics are
-    visible in a low-bit GIF. Returns at least one frame.
+    使用感知上经过缩放的灰度调色板, 使强度动态在低位深 GIF 里也可见。
+    至少返回一帧。
 
     Args:
-        target: Normalised target intensity ``(H, W)``.
-        simulated: Normalised simulated intensity ``(H, W)``.
-        max_frames: Maximum pragmatic frame count (GIF doesn't benefit
-            from >40).
+        target: 归一化的目标强度 ``(H, W)``。
+        simulated: 归一化的仿真强度 ``(H, W)``。
+        max_frames: 实用意义上的最大帧数 (GIF 超过 40 帧没有收益)。
 
     Returns:
-        List of PIL ``Image`` (mode ``"P"``, 8-bit palette).
+        PIL ``Image`` 列表 (模式 ``"P"``, 8 位调色板)。
     """
     n_frames = max(1, min(max_frames, 24))
     stack = np.stack([target, simulated], axis=-1)  # (H, W, 2)

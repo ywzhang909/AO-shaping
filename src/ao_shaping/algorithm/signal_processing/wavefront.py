@@ -159,7 +159,7 @@ def reconstruct_poisson_svd(sx, sy, remove_tilt=True):
     return phi, rms
 
 
-# ---------------- demo ----------------
+# ---------------- 演示 ----------------
 if __name__ == "__main__":
     N = 32
     # -------------- 伪造：X tilt + 球面 + 噪声 --------------

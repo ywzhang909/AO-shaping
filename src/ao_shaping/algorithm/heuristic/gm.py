@@ -1,39 +1,35 @@
-"""Guided Mutation (GM) for population-based heuristic optimizers.
+"""面向基于种群的启发式优化器的引导变异 (Guided Mutation, GM)。
 
-This module provides three pieces:
+本模块提供三部分内容:
 
-* :class:`GMOperator` -- the operator interface, plus two kernels:
-  :class:`RankGuidedMutation` and :class:`ValueFrequencyGuidedMutation`.
-* :class:`GMOptimizerMixin` -- the generic GM interface a heuristic mixes in to
-  gain ``use_gm`` / ``_gm_operator`` / ``apply_gm_if_enabled``.
-* :func:`guided_mutation` -- a decorator that wraps one evolution step and splices
-  GM offspring into the population right after it runs.
+* :class:`GMOperator` -- 算子接口, 以及两个核实现:
+  :class:`RankGuidedMutation` 与 :class:`ValueFrequencyGuidedMutation`。
+* :class:`GMOptimizerMixin` -- 启发式算法混入即可获得的通用 GM 接口,
+  带来 ``use_gm`` / ``_gm_operator`` / ``apply_gm_if_enabled``。
+* :func:`guided_mutation` -- 一个装饰器, 包装一次进化步, 并在其运行后立即把
+  GM 子代插入种群。
 
-Two independent GM definitions sit behind the single :class:`GMOperator`
-interface, because "guided mutation" has **no canonical published definition**:
+同一个 :class:`GMOperator` 接口背后有两种彼此独立的 GM 定义, 因为
+"引导变异" **没有公认的文献定义**:
 
 ``RankGuidedMutation``
-    A *continuous* scheme. Parents are drawn with linear-rank weights, then a
-    shrinking subset of coordinates is perturbed by an annealed Gaussian whose
-    magnitude also decays. This is the closest relative in the literature (rank
-    based adaptive mutation, e.g. Basak 2021, arXiv:2104.08842, which adapts the
-    per-individual mutation *rate*), here extended to a shared step size.
-    **The closed form below is this repository's choice, not a cited formula.**
+    一种 *连续* 方案。父代按线性排名权重抽取, 随后对逐步收缩的坐标子集施加
+    退火的高斯扰动, 其幅度也随之衰减。这是文献中最接近的对应物 (基于排名的
+    自适应变异, 例如 Basak 2021, arXiv:2104.08842, 它自适应的是逐个体的变异
+    *率*), 此处把它扩展到共享步长。
+    **下面的闭式形式是本仓库自行选定的, 并非引自某篇文献的公式。**
 
 ``ValueFrequencyGuidedMutation``
-    Follows the discrete operator of Liu Hui et al., *A universal feedback-based
+    沿用刘辉等人的离散算子, *A universal feedback-based
     improvement strategy for wavefront-shaping algorithms*, Acta Photonica
-    Sinica 52(6):0629002 (2023), doi:10.3788/gzxb20235206.0629002 -- the paper
-    behind the ``add GM algorithm`` TODO in this package. It keeps a value
-    frequency table ``G``, picks ``N_G(k)`` guided units, and samples their new
-    values proportionally to that frequency. It is adapted here from a discrete
-    domain to the continuous one by resampling recorded elite values per
-    dimension.
+    Sinica 52(6):0629002 (2023), doi:10.3788/gzxb20235206.0629002 -- 也就是
+    本包中 ``add GM algorithm`` TODO 所指的论文。它维护一个取值频次表
+    ``G``, 选出 ``N_G(k)`` 个引导单元, 并按该频次成比例地为它们抽取新的取值。
+    此处把离散域改造到连续域的做法是逐维度重采样已记录的精英取值。
 
-Neither kernel guarantees elitism: ``parent + noise`` can be worse than the
-parent. Callers needing monotone non-degradation must retain elites themselves.
-GA does so natively; the ``replace_worst`` merge used by DE/CEM/PSO only ever
-overwrites the tail of the population.
+两个核都不保证精英保留: ``parent + noise`` 可能比父代更差。需要单调不退化的
+调用方必须自己保留精英。GA 原生如此; DE/CEM/PSO 使用的 ``replace_worst``
+合并也只会覆盖种群的尾部。
 """
 
 from __future__ import annotations
@@ -51,14 +47,12 @@ def _check_population(
     fitness: npt.NDArray[np.float64],
     ranks: npt.NDArray[np.intp],
 ) -> None:
-    """Validate a kernel's preconditions loudly.
+    """显式校验各核的前置条件。
 
-    The kernels are the concrete implementations, so they -- not the mixin --
-    are the right place to reject input they cannot honour.
+    这些核是具体实现, 所以它们 (而非 mixin) 才是拒绝无法满足的输入的合适位置。
 
     Raises:
-        ValueError: If the population is empty, not 2-D, or its fitness/ranks do
-            not line up with it.
+        ValueError: 若种群为空、不是二维, 或其 fitness/ranks 与之不匹配。
     """
     if population.ndim != 2:
         raise ValueError(f"population must be 2-D, got shape {population.shape}")
@@ -74,10 +68,10 @@ def _check_population(
 
 
 class GMOperator(ABC):
-    """Interface for a guided-mutation kernel.
+    """引导变异核的接口。
 
-    Implementations turn a scored population into ``n_offspring`` new candidates.
-    They must not mutate ``population`` or ``fitness``.
+    实现负责把已打分的种群转换为 ``n_offspring`` 个新候选。
+    它们不得改动 ``population`` 或 ``fitness``。
     """
 
     @abstractmethod
@@ -91,47 +85,45 @@ class GMOperator(ABC):
         bounds: tuple[float, float],
         rng: np.random.Generator,
     ) -> npt.NDArray[np.float64]:
-        """Generate guided-mutation offspring.
+        """生成引导变异的子代。
 
         Args:
-            population: Population array of shape ``(n, dim)``.
-            fitness: Fitness per individual, shape ``(n,)``; **lower is better**,
-                matching the minimising convention of this package.
-            ranks: Rank per individual, ``1`` = best.
-            current_iter: Zero-based generation index, used for annealing.
-            n_offspring: Number of children to produce.
-            bounds: Scalar ``(low, high)`` clip applied to every child.
-            rng: Random generator (never the global numpy RNG).
+            population: 形状为 ``(n, dim)`` 的种群数组。
+            fitness: 逐个体的适应度, 形状 ``(n,)``; **越小越好**,
+                与本包的最小化约定一致。
+            ranks: 逐个体的排名, ``1`` 表示最优。
+            current_iter: 从 0 开始的代数下标, 用于退火。
+            n_offspring: 要产生的子代数量。
+            bounds: 施加到每个子代上的标量 ``(low, high)`` 截断区间。
+            rng: 随机数生成器 (绝不使用 numpy 全局 RNG)。
 
         Returns:
-            Array of shape ``(n_offspring, dim)``, clipped into ``bounds``.
+            形状为 ``(n_offspring, dim)`` 的数组, 已截断到 ``bounds`` 内。
         """
         raise NotImplementedError
 
     def reset(self) -> None:
-        """Clear cross-generation state. No-op for stateless kernels."""
+        """清除跨代状态。无状态的核无需实现。"""
 
 
 class RankGuidedMutation(GMOperator):
-    """Continuous rank-weighted guided mutation (this repo's definition).
+    """连续的排名加权引导变异 (本仓库自定的定义)。
 
-    Parents are sampled with linear ranking weights
-    ``w_i = (N + 1 - r_i) / (0.5 * N * (N + 1))``, so rank 1 is heaviest and the
-    weights sum to 1. Each child perturbs ``N_G(k)`` coordinates drawn without
-    replacement, where both the perturbed fraction and the Gaussian magnitude
-    decay with the generation::
+    父代按线性排名权重 ``w_i = (N + 1 - r_i) / (0.5 * N * (N + 1))`` 抽取,
+    因此排名 1 权重最大, 且权重之和为 1。每个子代扰动无放回抽取的 ``N_G(k)``
+    个坐标, 其中被扰动的比例与高斯幅度都随代数衰减::
 
         fG(k)  = (g0 - g_end) * k ** (-1 / lam_g) + g_end
         N_G(k) = clip(round(dim * fG(k)), 1, dim)
         sigma(k) = sigma0 * (sigma_min / sigma0) ** (k / lam_s)
 
     Attributes:
-        g0: Initial perturbed fraction of coordinates.
-        g_end: Asymptotic perturbed fraction.
-        lam_g: Decay constant of the perturbed fraction.
-        sigma0: Initial perturbation magnitude, as a fraction of the bound span.
-        sigma_min: Floor on the perturbation magnitude.
-        lam_s: Decay constant of the magnitude.
+        g0: 初始被扰动的坐标比例。
+        g_end: 渐近的被扰动比例。
+        lam_g: 被扰动比例的衰减常数。
+        sigma0: 初始扰动幅度, 以边界跨度为比例。
+        sigma_min: 扰动幅度的下限。
+        lam_s: 幅度的衰减常数。
     """
 
     def __init__(
@@ -143,18 +135,18 @@ class RankGuidedMutation(GMOperator):
         sigma_min: float = 1e-3,
         lam_s: float = 50.0,
     ) -> None:
-        """Initialize the kernel.
+        """初始化该核。
 
         Args:
-            g0: Initial perturbed fraction of coordinates, in ``(0, 1]``.
-            g_end: Asymptotic perturbed fraction, in ``[0, g0]``.
-            lam_g: Decay constant of the perturbed fraction; larger is slower.
-            sigma0: Initial magnitude as a fraction of the bound span.
-            sigma_min: Magnitude floor as a fraction of the bound span.
-            lam_s: Decay constant of the magnitude; larger is slower.
+            g0: 初始被扰动的坐标比例, 取值在 ``(0, 1]``。
+            g_end: 渐近的被扰动比例, 取值在 ``[0, g0]``。
+            lam_g: 被扰动比例的衰减常数; 越大衰减越慢。
+            sigma0: 初始幅度, 以边界跨度为比例。
+            sigma_min: 幅度下限, 以边界跨度为比例。
+            lam_s: 幅度的衰减常数; 越大衰减越慢。
 
         Raises:
-            ValueError: If the schedule parameters are inconsistent.
+            ValueError: 若调度参数自相矛盾。
         """
         if not 0.0 < g_end <= g0 <= 1.0:
             raise ValueError(f"require 0 < g_end <= g0 <= 1, got g_end={g_end}, g0={g0}")
@@ -172,7 +164,7 @@ class RankGuidedMutation(GMOperator):
         self.lam_s = float(lam_s)
 
     def _fraction(self, k: int) -> float:
-        """Return the perturbed coordinate fraction at generation ``k``."""
+        """返回第 ``k`` 代被扰动的坐标比例。"""
         if k <= 0:
             return self.g0
         return (self.g0 - self.g_end) * k ** (-1.0 / self.lam_g) + self.g_end
@@ -192,7 +184,7 @@ class RankGuidedMutation(GMOperator):
         _check_population(population, fitness, ranks)
         span = high - low
 
-        # Linear ranking weights: rank 1 (best) gets the largest weight.
+        # 线性排名权重: 排名 1 (最优) 获得最大权重。
         weights = (n + 1.0 - ranks) / (0.5 * n * (n + 1.0))
         total = weights.sum()
         weights = weights / total if total > 0 else np.full(n, 1.0 / n)
@@ -211,33 +203,27 @@ class RankGuidedMutation(GMOperator):
 
 
 class ValueFrequencyGuidedMutation(GMOperator):
-    """Discrete value-frequency GM, adapted to continuous domains.
+    """离散取值频次 GM, 已适配到连续域。
 
-    Follows Liu Hui et al., Acta Photonica Sinica 52(6):0629002 (2023): the
-    paper keeps a value-frequency table ``G`` and samples new values for the
-    chosen guided units proportionally to that frequency.
+    沿用刘辉等人, Acta Photonica Sinica 52(6):0629002 (2023): 该论文维护一个
+    取值频次表 ``G``, 并按该频次为选中的引导单元成比例地抽取新取值。
 
-    Continuous adaptation used here: each *coordinate* is a "unit", and the
-    frequency table records, per coordinate, how often each recorded elite value
-    was seen. Guided units are drawn by frequency (so coordinates that
-    historically produced good individuals get perturbed more often), and their
-    new values are resampled from that coordinate's recorded elite values
-    (value-frequency sampling) plus a Gaussian jitter that anneals to zero.
+    此处采用的连续域适配: 把每个 *坐标* 视作一个"单元", 频次表逐坐标记录每个
+    已记录精英取值的出现次数。引导单元按频次抽取 (因此历史上产生过优质个体的
+    坐标被扰动得更频繁), 它们的新取值则从该坐标已记录的精英取值中重采样
+    (取值频次采样), 再叠加一个退火到零的高斯抖动。
 
-    Because it resamples elite values, the first call must be preceded by
-    :meth:`observe` (which :meth:`__call__` does automatically when no history
-    has been recorded yet, seeding from the incoming population).
+    由于它要重采样精英取值, 首次调用前必须先执行 :meth:`observe`
+    (当尚未记录任何历史时, :meth:`__call__` 会自动执行, 用传入的种群作种子)。
 
     Attributes:
-        elite_fraction: Fraction of the population treated as elite.
-        n_guided: Guided units per child, or ``None`` to derive it from the
-            generation index via ``n_guided0`` and ``lam_g``.
-        n_guided0: Initial guided-unit count when ``n_guided`` is None.
-        lam_g: Decay constant of the guided-unit count.
-        jitter: Gaussian jitter added to a resampled elite value, as a fraction
-            of the bound span.
-        elite_decay: Probability of forgetting a recorded elite value, keeping
-            the table from growing without bound.
+        elite_fraction: 被视为精英的种群比例。
+        n_guided: 每个子代的引导单元数, 或 ``None`` 表示由代数下标经
+            ``n_guided0`` 与 ``lam_g`` 推导。
+        n_guided0: ``n_guided`` 为 None 时第 0 代的引导单元数。
+        lam_g: 引导单元数的衰减常数。
+        jitter: 加到重采样精英取值上的高斯抖动, 以边界跨度为比例。
+        elite_decay: 遗忘某个已记录精英取值的概率, 避免该表无限增长。
     """
 
     def __init__(
@@ -249,19 +235,18 @@ class ValueFrequencyGuidedMutation(GMOperator):
         jitter: float = 0.01,
         elite_decay: float = 0.05,
     ) -> None:
-        """Initialize the kernel.
+        """初始化该核。
 
         Args:
-            elite_fraction: Fraction of the population recorded as elite, in
-                ``(0, 1]``.
-            n_guided: Fixed guided-unit count, or None to anneal it.
-            n_guided0: Guided-unit count at generation 0 when annealing.
-            lam_g: Decay constant of the guided-unit count.
-            jitter: Jitter magnitude as a fraction of the bound span.
-            elite_decay: Per-call probability of forgetting a recorded value.
+            elite_fraction: 被记为精英的种群比例, 取值在 ``(0, 1]``。
+            n_guided: 固定的引导单元数, 或 None 表示对其退火。
+            n_guided0: 退火时第 0 代的引导单元数。
+            lam_g: 引导单元数的衰减常数。
+            jitter: 抖动幅度, 以边界跨度为比例。
+            elite_decay: 每次调用遗忘某个已记录取值的概率。
 
         Raises:
-            ValueError: If the parameters are out of range.
+            ValueError: 若参数超出范围。
         """
         if not 0.0 < elite_fraction <= 1.0:
             raise ValueError(
@@ -286,15 +271,15 @@ class ValueFrequencyGuidedMutation(GMOperator):
         self._elite_values: dict[int, list[float]] = {}
 
     def reset(self) -> None:
-        """Forget every recorded elite value."""
+        """遗忘所有已记录的精英取值。"""
         self._elite_values.clear()
 
     def observe(self, population: npt.NDArray[np.float64], fitness: npt.NDArray[np.float64]) -> None:
-        """Record this generation's elite individuals into the value table.
+        """把本代的精英个体记入取值表。
 
         Args:
-            population: Population array of shape ``(n, dim)``.
-            fitness: Fitness per individual, shape ``(n,)``; lower is better.
+            population: 形状为 ``(n, dim)`` 的种群数组。
+            fitness: 逐个体的适应度, 形状 ``(n,)``; 越小越好。
         """
         if population.size == 0:
             return
@@ -304,13 +289,13 @@ class ValueFrequencyGuidedMutation(GMOperator):
             for coord, value in enumerate(population[row]):
                 bucket = self._elite_values.setdefault(coord, [])
                 bucket.append(float(value))
-                # Bound the table so long runs cannot grow it without limit.
+                # 限制表的大小, 避免长时间运行把它撑到无界。
                 cap = max(8, n_elite * 8)
                 if len(bucket) > cap:
                     del bucket[: len(bucket) - cap]
 
     def _guided_count(self, dim: int, k: int) -> int:
-        """Return the number of guided units at generation ``k``."""
+        """返回第 ``k`` 代的引导单元数。"""
         if self.n_guided is not None:
             return int(np.clip(self.n_guided, 1, dim))
         k = max(int(k), 1)
@@ -334,19 +319,18 @@ class ValueFrequencyGuidedMutation(GMOperator):
         if n_offspring <= 0:
             return np.empty((0, dim), dtype=np.float64)
 
-        # Rank-weighted parents, same weighting as the continuous kernel so both
-        # operators exploit the same selection pressure.
+        # 排名加权的父代, 与连续核使用同样的权重, 使两个算子利用同样的选择压力。
         weights = (n + 1.0 - ranks) / (0.5 * n * (n + 1.0))
         total = weights.sum()
         weights = weights / total if total > 0 else np.full(n, 1.0 / n)
 
         if not self._elite_values:
             self.observe(population, fitness)
-            self.elite_decay = 0.0  # seed only; real forgetting starts next call
+            self.elite_decay = 0.0  # 仅用于播种; 真正的遗忘从下一次调用开始
 
         children = population[rng.choice(n, size=n_offspring, p=weights)].copy()
 
-        # Units that already carry recorded elite values are the "guided" ones.
+        # 已带有精英取值记录的单元就是"引导"单元。
         recorded = [c for c in range(dim) if self._elite_values.get(c)]
         if not recorded:
             return children
@@ -372,111 +356,106 @@ class ValueFrequencyGuidedMutation(GMOperator):
 
 
 class GMOptimizerMixin:
-    """Guided-mutation contract for a population-based optimizer.
+    """面向基于种群的优化器的引导变异契约。
 
-    A concrete optimizer joins the GM family by mixing this in, declaring
-    ``_gm_operator`` support, and implementing the five hooks below. The mixin
-    holds no state of its own beyond the on/off switch, so it can be combined
-    with :class:`HeuristicOptimizer` without affecting the MRO or constructor.
+    具体优化器通过混入本类、声明 ``_gm_operator`` 支持并实现下面五个钩子来加入
+    GM 家族。除开关之外 mixin 自身不持有任何状态, 因此它可以和
+    :class:`HeuristicOptimizer` 自由组合, 而不影响 MRO 或构造函数。
 
-    The five hooks are the whole contract. They are declared
-    ``NotImplementedError`` rather than given ``getattr``-based fallbacks,
-    because a silently-defaulting hook is how a GM operator ends up mutating the
-    wrong population:
+    这五个钩子就是全部契约。它们声明为 ``NotImplementedError`` 而非提供基于
+    ``getattr`` 的兜底实现, 因为静默取默认值的钩子正是 GM 算子最终改到错误
+    种群上的原因:
 
     ``_gm_population()``
-        The current population as an ``(n, dim)`` array.
+        当前种群, 形状为 ``(n, dim)`` 的数组。
     ``_gm_fitness()``
-        The matching fitness array, shape ``(n,)``, **lower is better**.
+        对应的适应度数组, 形状 ``(n,)``, **越小越好**。
     ``_gm_iteration()``
-        The zero-based generation index, used by the kernels' annealing.
+        从 0 开始的代数下标, 供各核退火使用。
     ``_gm_offspring()``
-        How many candidates GM may contribute this generation.
+        本代 GM 可以贡献多少个候选。
     ``_gm_bounds()``
-        The scalar ``(low, high)`` every child is clipped into.
+        每个子代被截断到的标量 ``(low, high)``。
 
-    After merging, :meth:`_gm_commit` receives the new population and must write
-    it back to the optimizer's own state.
+    合并完成后, :meth:`_gm_commit` 会收到新种群, 必须把它写回优化器自身的状态。
 
-    An optimizer whose population is already an ``(n, dim)`` array should mix in
-    :class:`NumpyPopulationGM` instead, which implements all six hooks from three
-    attributes.
+    种群本身已是 ``(n, dim)`` 数组的优化器应改为混入
+    :class:`NumpyPopulationGM`, 它用三个属性实现了全部六个钩子。
     """
 
-    #: Master switch. GM costs nothing while this is False. A plain class
-    #: attribute (not a ClassVar) so :meth:`enable_gm` shadows it per instance and
-    #: one optimizer's setting can never leak into another's.
+    #: 总开关。为 False 时 GM 不产生任何开销。这是一个普通类属性
+    #: (而非 ClassVar), 这样 :meth:`enable_gm` 才能按实例遮蔽它,
+    #: 一个优化器的设置绝不会泄漏到另一个优化器。
     use_gm: bool = False
 
-    #: The active kernel. ``None`` means GM is unavailable, whatever ``use_gm``
-    #: says -- the two are set together by :meth:`enable_gm`.
+    #: 当前生效的核。``None`` 表示 GM 不可用, 与 ``use_gm`` 写什么无关 --
+    #: 两者总是由 :meth:`enable_gm` 一起设置。
     _gm_operator: GMOperator | None = None
 
-    #: Fraction of the population handed to GM. The remaining slots stay with the
-    #: algorithm's own variation operators, so the population size never changes.
+    #: 交给 GM 的种群比例。其余名额仍由算法自身的变异算子产生,
+    #: 因此种群规模始终不变。
     gm_offspring_fraction: float = 0.2
 
-    #: Supplied by the host ``HeuristicOptimizer``.
+    #: 由宿主 ``HeuristicOptimizer`` 提供。
     dim: int
     rng: np.random.Generator
 
     def enable_gm(self, operator: GMOperator, use_gm: bool = True) -> None:
-        """Install a GM kernel and turn GM on (or off).
+        """安装 GM 核并开启 (或关闭) GM。
 
         Args:
-            operator: The kernel to use.
-            use_gm: Whether GM is active after this call.
+            operator: 要使用的核。
+            use_gm: 本次调用之后 GM 是否启用。
         """
         self._gm_operator = operator
         self.use_gm = use_gm
 
     def disable_gm(self) -> None:
-        """Turn GM off, keeping the installed kernel for a later re-enable."""
+        """关闭 GM, 但保留已安装的核, 供之后重新启用。"""
         self.use_gm = False
 
     # ------------------------------------------------------------------
-    # Contract to be implemented by the concrete optimizer
+    # 由具体优化器实现的契约
     # ------------------------------------------------------------------
     def _gm_population(self) -> npt.NDArray[np.float64]:
-        """Return the current population as an ``(n, dim)`` array."""
+        """返回当前种群, 形状为 ``(n, dim)`` 的数组。"""
         raise NotImplementedError
 
     def _gm_fitness(self) -> npt.NDArray[np.float64]:
-        """Return the current fitness array, shape ``(n,)``; lower is better."""
+        """返回当前适应度数组, 形状 ``(n,)``; 越小越好。"""
         raise NotImplementedError
 
     def _gm_iteration(self) -> int:
-        """Return the zero-based generation index."""
+        """返回从 0 开始的代数下标。"""
         raise NotImplementedError
 
     def _gm_offspring(self) -> int:
-        """Return how many candidates GM may contribute this generation."""
+        """返回本代 GM 可以贡献多少个候选。"""
         raise NotImplementedError
 
     def _gm_bounds(self) -> tuple[float, float]:
-        """Return the scalar ``(low, high)`` children are clipped into."""
+        """返回子代被截断到的标量 ``(low, high)``。"""
         raise NotImplementedError
 
     def _gm_commit(self, population: npt.NDArray[np.float64]) -> None:
-        """Adopt ``population`` as the optimizer's new population."""
+        """把 ``population`` 作为优化器的新种群。"""
         raise NotImplementedError
 
     # ------------------------------------------------------------------
-    # Shared behaviour
+    # 共享行为
     # ------------------------------------------------------------------
     def _ranks(self, fitness: npt.NDArray[np.float64]) -> npt.NDArray[np.intp]:
-        """Return competition-free ranks, ``1`` for the best (lowest) fitness."""
+        """返回无并列处理的排名, 最优 (最小) 适应度记为 ``1``。"""
         return fitness.argsort().argsort() + 1
 
     def apply_gm_if_enabled(self) -> npt.NDArray[np.float64]:
-        """Generate one batch of GM offspring from the optimizer's own state.
+        """从优化器自身的状态生成一批 GM 子代。
 
-        Returns an empty ``(0, dim)`` array when GM is off or no kernel is
-        installed, which every merge policy treats as "nothing to add". That is
-        the only reason the method is safe to call unconditionally.
+        当 GM 关闭或未安装任何核时, 返回空的 ``(0, dim)`` 数组, 所有合并策略都
+        把它当作"没有可加的东西"。正因如此该方法可以无条件调用。
 
         Returns:
-            Array of shape ``(n_offspring, dim)``, or ``(0, dim)`` when disabled.
+            形状为 ``(n_offspring, dim)`` 的数组; 禁用时为 ``(0, dim)``。
         """
         if not self.use_gm or self._gm_operator is None:
             return np.empty((0, self.dim), dtype=np.float64)
@@ -498,23 +477,22 @@ class GMOptimizerMixin:
 
 
 class NumpyPopulationGM(GMOptimizerMixin):
-    """:class:`GMOptimizerMixin` for optimizers already holding an ndarray.
+    """面向已持有 ndarray 的优化器的 :class:`GMOptimizerMixin`。
 
-    Implements all six hooks from three attributes the concrete optimizer
-    maintains as its generation state:
+    用具体优化器作为其代际状态维护的三个属性实现全部六个钩子:
 
     ``_population``
-        The current ``(n, dim)`` population.
+        当前的 ``(n, dim)`` 种群。
     ``_fitness_vals``
-        Its scores, shape ``(n,)``.
+        其打分, 形状 ``(n,)``。
     ``_current_iter``
-        The zero-based generation index.
+        从 0 开始的代数下标。
     """
 
     _population: npt.NDArray[np.float64]
     _fitness_vals: npt.NDArray[np.float64]
     _current_iter: int
-    config: Any  # provides .bounds, supplied by HeuristicOptimizer
+    config: Any  # 提供 .bounds, 由 HeuristicOptimizer 给出
 
     def _gm_population(self) -> npt.NDArray[np.float64]:
         return self._population
@@ -546,11 +524,10 @@ _GMStep = TypeVar("_GMStep", bound=Callable[..., npt.NDArray[np.float64]])
 def _merge_grow(
     evolved: npt.NDArray[np.float64], children: npt.NDArray[np.float64], worst: npt.NDArray[np.intp]
 ) -> npt.NDArray[np.float64]:
-    """Append GM offspring after the step's own offspring.
+    """把 GM 子代追加在该步自身产生的子代之后。
 
-    The population grows by ``len(children)``; the caller is responsible for the
-    resulting size. Only correct when the algorithm reserves exactly that many
-    slots -- see :meth:`NumpyPopulationGM._gm_offspring`.
+    种群规模增长 ``len(children)``; 调用方需自行负责最终规模。只有当算法恰好预留
+    了那么多名额时才正确 -- 参见 :meth:`NumpyPopulationGM._gm_offspring`。
     """
     return np.vstack([evolved, children])
 
@@ -558,10 +535,9 @@ def _merge_grow(
 def _merge_replace_worst(
     evolved: npt.NDArray[np.float64], children: npt.NDArray[np.float64], worst: npt.NDArray[np.intp]
 ) -> npt.NDArray[np.float64]:
-    """Overwrite the ``worst`` rows with GM offspring, keeping the size fixed.
+    """用 GM 子代覆盖 ``worst`` 行, 保持规模不变。
 
-    Required for any algorithm whose population has a fixed size, where growing
-    it would break the operator's own indexing.
+    任何种群规模固定的算法都需要它, 因为一旦扩张就会破坏算子自身的索引方式。
     """
     merged = evolved.copy()
     merged[worst] = children
@@ -571,21 +547,19 @@ def _merge_replace_worst(
 def guided_mutation(
     merge: Literal["grow", "replace_worst"] = "grow",
 ) -> Callable[[_GMStep], _GMStep]:
-    """Splice guided-mutation offspring into the population after an evolution step.
+    """在一次进化步之后把引导变异的子代插入种群。
 
-    The decorated step must return the new population as an ``(n, dim)`` array
-    and its host must satisfy the :class:`GMOptimizerMixin` contract. With GM off
-    the wrapper returns exactly what the step returned, having consumed no random
-    numbers -- which is what keeps a disabled optimizer bit-identical to a run
-    without the decorator.
+    被装饰的步必须以 ``(n, dim)`` 数组返回新种群, 且其宿主必须满足
+    :class:`GMOptimizerMixin` 契约。GM 关闭时, 包装器原样返回该步的返回值,
+    且不消耗任何随机数 -- 正是这一点使未启用的优化器与不加本装饰器运行时
+    逐位一致。
 
     Args:
-        merge: ``"grow"`` appends the offspring (the step must have reserved their
-            slots, so the size ends up unchanged). ``"replace_worst"`` overwrites
-            the worst rows instead, for algorithms that tolerate a fixed size.
+        merge: ``"grow"`` 追加子代 (该步必须已为它们预留好名额, 因此规模最终不变)。
+            ``"replace_worst"`` 则改为覆盖最差的几行, 适用于能容忍固定规模的算法。
 
     Returns:
-        A decorator that wraps one evolution step.
+        一个包装单次进化步的装饰器。
     """
     merge_fn = _merge_grow if merge == "grow" else _merge_replace_worst
 

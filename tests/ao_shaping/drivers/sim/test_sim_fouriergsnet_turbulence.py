@@ -1,16 +1,18 @@
-"""TDD tests for time-varying turbulence in ``SimFourierGSNetEnv``.
+"""``SimFourierGSNetEnv`` 时变湍流的 TDD 测试。
 
-The env models the low-order aberration state as ``self.aberrations`` — a
-``dict`` mapping Noll index -> coefficient in **radians**. Time-varying
-turbulence is an Ornstein-Uhlenbeck (OU) mean-reverting random walk applied to
-a configurable subset of those Noll coefficients, one OU step per closed-loop
-frame::
+环境把低阶像差状态建模为 ``self.aberrations`` —— 一个 Noll 索引 → **弧度**系数的
+字典。时变湍流是对其中可配置子集施加的 Ornstein-Uhlenbeck (OU) 均值回归随机游走,
+每个闭环帧推进一步::
 
     x <- x - (x / tau) * dt + sigma * sqrt(2 * dt / tau) * N(0, 1)
 
-with ``sigma`` the stationary standard deviation in radians, ``tau`` the
-relaxation time in frames and ``dt`` the frame step. All tests are offline,
-deterministic (fixed seeds) and use small ``K_px`` grids so they stay fast.
+其中 ``sigma`` 是以弧度为单位的平稳标准差, ``tau`` 是以帧为单位的弛豫时间, ``dt``
+是帧步长。全部测试离线、确定性 (固定种子), 且用小 ``K_px`` 网格保持快速。
+
+与其他模块的关系: 被测对象是 ``drivers/sim/fouriergsnet_env.py`` 的
+``configure_turbulence`` / ``advance_time``; 其静态像差端口 (弧度、Noll 索引) 与
+``optimizer/wfless/model_in_loop_shaping.py`` 注入真值时用的是同一套约定, 故这里
+锁定的是那条注入-拟合闭环的可信前提。
 """
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ def _small_env(seed: int = 0) -> SimFourierGSNetEnv:
 
 
 def test_turbulence_inactive_by_default() -> None:
-    """Fresh env: inactive, empty noll set, advance_time is a no-op + cache hit."""
+    """新建环境: 未激活、noll 集为空、advance_time 是空操作且渲染命中缓存。"""
     env = _small_env(seed=0)
     env.slm.display_phase(np.zeros((PANEL_H, PANEL_W)))
 
@@ -46,7 +48,7 @@ def test_turbulence_inactive_by_default() -> None:
 
 
 def test_turbulence_bounded_ou() -> None:
-    """OU coefficients stay bounded (< 4*sigma) and actually move."""
+    """OU 系数有界 (< 4σ) 且确实在动。"""
     env = _small_env(seed=0)
     env.configure_turbulence(seed=42, sigma=0.5, tau=50.0, dt=1.0, nolls=NOLLS)
 
@@ -61,14 +63,14 @@ def test_turbulence_bounded_ou() -> None:
     for noll in NOLLS:
         assert abs(env.aberrations[noll]) < 4 * 0.5
 
-    # After warmup, every step must respect the bound.
+    # 预热之后, 每一步都必须满足该界。
     assert max(abs(x) for x in trajectory[50:]) < 4 * 0.5
-    # Not frozen: at least one mode moved off its zero initial condition.
+    # 不是冻结: 至少有一个模式离开了零初值。
     assert any(env.aberrations[noll] != 0.0 for noll in NOLLS)
 
 
 def test_turbulence_stationary_std() -> None:
-    """Empirical stationary std of one noll matches sigma within loose bounds."""
+    """单个 noll 的经验平稳标准差在宽松容差内与 sigma 相符。"""
     sigma = 0.5
     env = _small_env(seed=0)
     env.configure_turbulence(seed=42, sigma=sigma, tau=50.0, dt=1.0, nolls=(4,))
@@ -88,7 +90,7 @@ def test_turbulence_stationary_std() -> None:
 
 
 def test_turbulence_drifts_render_changes() -> None:
-    """OU drift on Noll 4 changes the rendered far field between frames."""
+    """Noll 4 上的 OU 漂移使相邻两帧的渲染远场不同。"""
     env = _small_env(seed=0)
     env.slm.display_phase(np.zeros((PANEL_H, PANEL_W)))
     env.configure_turbulence(seed=42, sigma=1.0, tau=50.0, dt=1.0, nolls=(4,))
@@ -107,7 +109,7 @@ def test_turbulence_drifts_render_changes() -> None:
 
 
 def test_turbulence_seeded_reproducible() -> None:
-    """Same seed and params -> identical OU coefficient trajectory."""
+    """同种子同参数 -> 完全相同的 OU 系数轨迹。"""
     env_a = _small_env(seed=0)
     env_b = _small_env(seed=0)
     env_a.configure_turbulence(seed=42, sigma=0.5, tau=50.0, dt=1.0, nolls=NOLLS)
@@ -125,7 +127,7 @@ def test_turbulence_seeded_reproducible() -> None:
 
 
 def test_turbulence_preserves_manual_aberrations() -> None:
-    """OU only evolves configured nolls; other manual aberrations are untouched."""
+    """OU 只演化被配置的 noll; 手动设置的其它像差不受影响。"""
     env = _small_env(seed=0)
     env.aberrations = {4: 1.0, 11: 0.5, 7: 0.3}
     env.configure_turbulence(seed=42, sigma=0.5, tau=50.0, dt=1.0, nolls=(4, 11))

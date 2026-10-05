@@ -1,18 +1,17 @@
-"""Shared black-box heuristic-search driver for the hardware optimization loops.
+"""供硬件优化循环使用的共享黑盒启发式搜索驱动。
 
-The heuristic optimizers in this package **minimise** their fitness function,
-while the hardware objectives differ in direction (PIB is maximised, RMS is
-minimised). This driver centralises everything the optimizers would otherwise
-re-implement:
+本包里的启发式优化器都是**最小化**自己的适应度函数, 而硬件目标的方向并不
+一致 (PIB 是最大化, RMS 是最小化)。本驱动把那些否则会被各优化器重复实现的东西
+集中起来:
 
-* the ``algorithm name -> OptimizerType`` mapping (``"spgd"`` is excluded — that
-  is a gradient method handled by the callers' own loops),
-* ``maximize`` sign handling (fitness = ±value),
-* bounds clipping so hardware never receives an out-of-range vector,
-* a per-evaluation callback (recording / live display),
-* cooperative early abort (e.g. the user closed the live pygame window).
+* ``算法名 -> OptimizerType`` 的映射 (``"spgd"`` 被排除在外 -- 那是梯度方法,
+  由调用方自己的循环处理),
+* ``maximize`` 的符号处理 (适应度 = ±value),
+* 边界裁剪, 让硬件永远收不到越界向量,
+* 每次求值后的回调 (记录 / 实时显示),
+* 协作式提前中止 (例如用户关掉了实时的 pygame 窗口)。
 
-This is a leaf algorithm-layer module: it imports no hardware and no optimizer.
+这是算法层的叶子模块: 它不导入任何硬件, 也不导入任何优化器。
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ from ao_shaping.algorithm.heuristic.heuristic_base import (
     OptimizerType,
 )
 
-#: Heuristic algorithm names (excluding ``"spgd"``) -> optimizer type.
+#: 启发式算法名 (不含 ``"spgd"``) -> 优化器类型。
 HEURISTIC_ALGORITHM_MAP: dict[str, OptimizerType] = {
     "ga": OptimizerType.GA,
     "pso": OptimizerType.PSO,
@@ -39,8 +38,7 @@ HEURISTIC_ALGORITHM_MAP: dict[str, OptimizerType] = {
     "de": OptimizerType.DIFFERENTIAL_EVOLUTION,
 }
 
-#: Heuristics that accept a population size (PSO names the same knob
-#: ``n_particles``).
+#: 接受种群规模的启发式算法 (PSO 把同一个旋钮叫作 ``n_particles``)。
 POPULATION_ALGORITHMS: frozenset[OptimizerType] = frozenset(
     {
         OptimizerType.GA,
@@ -52,18 +50,18 @@ POPULATION_ALGORITHMS: frozenset[OptimizerType] = frozenset(
 
 
 class SearchAborted(RuntimeError):
-    """Raised by a ``should_stop`` callback to end a heuristic search early."""
+    """由 ``should_stop`` 回调抛出, 用于提前结束启发式搜索。"""
 
 
 @dataclass
 class HeuristicSearchResult:
-    """Outcome of :func:`run_heuristic_search`.
+    """:func:`run_heuristic_search` 的结果。
 
     Attributes:
-        best_x: Best parameter vector found (clipped to the search bounds).
-        best_value: Raw objective value of ``best_x`` (in the caller's direction).
-        evaluations: Number of objective evaluations performed.
-        history: Raw objective value of every evaluation, in order.
+        best_x: 找到的最佳参数向量 (已裁剪到搜索边界内)。
+        best_value: ``best_x`` 的原始目标值 (按调用方的方向)。
+        evaluations: 执行过的目标函数求值次数。
+        history: 每次求值的原始目标值, 按顺序排列。
     """
 
     best_x: npt.NDArray[np.float64]
@@ -73,7 +71,7 @@ class HeuristicSearchResult:
 
 
 def heuristic_algorithm_choices(include_spgd: bool = True) -> tuple[str, ...]:
-    """Return the algorithm names accepted by the optimizers (``spgd`` first)."""
+    """返回各优化器接受的算法名 (``spgd`` 在最前)。"""
     names = tuple(HEURISTIC_ALGORITHM_MAP)
     return ("spgd", *names) if include_spgd else names
 
@@ -86,19 +84,18 @@ def create_heuristic(
     seed: int | None = None,
     pop_size: int | None = None,
 ) -> HeuristicOptimizer:
-    """Build a heuristic optimizer through the shared factory.
+    """经由共享工厂构造一个启发式优化器。
 
     Args:
-        optimizer_type: Heuristic selector (GA/PSO/SA/HC/RS/CEM/DE).
-        dim: Problem dimensionality.
-        iterations: Generations / iterations (``n_iterations``).
-        bounds: ``(low, high)`` search bounds for every parameter.
-        seed: Optional random seed for reproducibility.
-        pop_size: Optional population size for GA/PSO/CEM/DE (ignored by
-            SA/HC/RS, which do not take one).
+        optimizer_type: 启发式选择器 (GA/PSO/SA/HC/RS/CEM/DE)。
+        dim: 问题维度。
+        iterations: 代数 / 迭代次数 (``n_iterations``)。
+        bounds: 每个参数的 ``(低, 高)`` 搜索边界。
+        seed: 可选的随机种子, 用于可复现性。
+        pop_size: GA/PSO/CEM/DE 可选的种群规模 (SA/HC/RS 不接受, 会被忽略)。
 
     Returns:
-        A ready-to-run :class:`HeuristicOptimizer` (call ``.optimize(fn, x0)``).
+        一个可直接运行的 :class:`HeuristicOptimizer` (调用 ``.optimize(fn, x0)``)。
     """
     factory_kwargs: dict = {
         "n_iterations": max(1, int(iterations)),
@@ -126,36 +123,35 @@ def run_heuristic_search(
     on_evaluate: Callable[[npt.NDArray[np.float64], float, int], None] | None = None,
     should_stop: Callable[[], bool] | None = None,
 ) -> HeuristicSearchResult:
-    """Drive ``evaluate`` with the named heuristic algorithm.
+    """用指定名字的启发式算法驱动 ``evaluate``。
 
-    ``evaluate`` must return the **raw** objective value (in the caller's own
-    units/direction); with ``maximize=True`` the driver searches for its maximum
-    by handing ``-value`` to the (minimising) heuristic.
+    ``evaluate`` 必须返回**原始**目标值 (按调用方自己的单位/方向); 当
+    ``maximize=True`` 时, 本驱动把 ``-value`` 交给 (做最小化的) 启发式, 从而
+    搜索它的最大值。
 
     Args:
-        algorithm: One of :data:`HEURISTIC_ALGORITHM_MAP` (case-insensitive).
-        evaluate: Black-box objective; receives a bounds-clipped vector.
-        dim: Problem dimensionality (e.g. number of Zernike terms).
-        iterations: Heuristic iterations/generations (callers map their ``epochs``
-            here; note population methods perform ``pop_size`` evaluations each).
-        bounds: ``(low, high)`` clip/search bounds for every parameter.
-        x0: Optional initial vector (included by GA and used as the start by the
-            local methods).
-        maximize: True to ascend ``evaluate`` (PIB-like), False to descend it
-            (RMS-like).
-        seed: Optional random seed.
-        pop_size: Optional population size (GA/PSO/CEM/DE).
-        on_evaluate: Optional ``(x, value, evaluation_index)`` callback after every
-            evaluation — use it to append Recorder rows / refresh a live display.
-            ``evaluation_index`` is 1-based.
-        should_stop: Optional predicate; when it returns True the search aborts and
-            the best-so-far result is returned (no exception).
+        algorithm: :data:`HEURISTIC_ALGORITHM_MAP` 中的一个 (大小写不敏感)。
+        evaluate: 黑盒目标函数; 收到的是已裁剪到边界内的向量。
+        dim: 问题维度 (例如 Zernike 项数)。
+        iterations: 启发式迭代数/代数 (调用方把它们的 ``epochs`` 映射到这里;
+            注意种群类方法每一代会做 ``pop_size`` 次求值)。
+        bounds: 每个参数的 ``(低, 高)`` 裁剪/搜索边界。
+        x0: 可选的初始向量 (GA 会把它纳入种群, 局部方法则用它作起点)。
+        maximize: 为 True 时按 ``evaluate`` 上升搜索 (PIB 类), 为 False 时下降
+            搜索 (RMS 类)。
+        seed: 可选的随机种子。
+        pop_size: 可选的种群规模 (GA/PSO/CEM/DE)。
+        on_evaluate: 可选的 ``(x, value, evaluation_index)`` 回调, 在每次求值
+            之后触发 -- 用它来追加 Recorder 行 / 刷新实时显示。
+            ``evaluation_index`` 从 1 开始。
+        should_stop: 可选的判定式; 它返回 True 时搜索中止并返回当前最好的结果
+            (不抛异常)。
 
     Returns:
-        HeuristicSearchResult with the best vector, its raw value and history.
+        HeuristicSearchResult, 含最佳向量、它的原始值以及历史。
 
     Raises:
-        ValueError: Unknown ``algorithm``.
+        ValueError: 未知的 ``algorithm``。
     """
     key = str(algorithm).lower()
     if key not in HEURISTIC_ALGORITHM_MAP:
@@ -196,8 +192,8 @@ def run_heuristic_search(
     try:
         optimizer.optimize(fitness, init_x=x0)
     except SearchAborted:
-        # Aborted (e.g. the live window was closed): the best-so-far was already
-        # recorded inside ``fitness`` before the stop check, so fall through.
+        # 已中止 (例如实时窗口被关掉): 在停止检查之前, 当前最好的结果就已经在
+        # ``fitness`` 里记录过了, 所以直接落到下面。
         pass
 
     if best_x[0] is None:

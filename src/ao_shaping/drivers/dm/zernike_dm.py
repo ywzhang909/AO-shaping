@@ -11,9 +11,9 @@ from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 
-# ZernikeDM intentionally has no from_params factory: no driver-layer
-# parameter class defines its n_max, resolution, radius, bits, and
-# safety_mode constructor fields.
+# ZernikeDM 刻意没有 from_params 工厂: 驱动层的任何参数类
+# 都没有定义它的 n_max、resolution、radius、bits 和
+# safety_mode 这些构造函数字段。
 
 
 @register_dm("zernike")
@@ -41,8 +41,8 @@ class ZernikeDM(DM):
         self.resolution = resolution
         self.bits = bits
 
-        # Initialize generator BEFORE super().__init__
-        # because DM_NUM property depends on _generator
+        # 先于 super().__init__ 初始化生成器,
+        # 因为 DM_NUM 属性依赖 _generator
         self._generator = ZernikeGenerator(
             resolution=resolution, radius=radius, n_orders=n_max
         )
@@ -109,8 +109,8 @@ class ZernikeDM(DM):
         height, width = self.resolution[1], self.resolution[0]
         max_val = float(2**self.bits - 1)
 
-        # Generate phase using ZernikeGenerator's generate_polynomial.
-        # Outside the aperture the zernike package yields NaN; zero them.
+        # 用 ZernikeGenerator 的 generate_polynomial 生成相位。
+        # 光瞳之外 zernike 包给出 NaN; 置零。
         phase_raw = self._generator.generate_polynomial(coeffs_dict)
         phase_raw = np.nan_to_num(phase_raw, nan=0.0, posinf=0.0, neginf=0.0)
 

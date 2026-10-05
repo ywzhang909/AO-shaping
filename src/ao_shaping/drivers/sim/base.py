@@ -1,11 +1,10 @@
-"""Simulated device base classes.
+"""模拟设备基类。
 
-This module provides base classes for simulated optical devices,
-extending the Device framework with simulation-specific functionality.
+本模块为仿真光学设备提供基类, 在 Device 框架之上扩展仿真专用功能。
 
-Architecture:
-    - SimulatedDevice: Base class for all simulation devices
-    - OpticalDevice: Specialized base for optical simulation devices
+架构:
+    - SimulatedDevice: 所有仿真设备的基类
+    - OpticalDevice: 光学仿真设备的专用基类
 """
 
 from __future__ import annotations
@@ -25,22 +24,21 @@ from ao_shaping.drivers.device_base import (
 
 
 class SimulatedDeviceError(DeviceError):
-    """Base exception for simulated device errors."""
+    """模拟设备错误的基异常。"""
     pass
 
 
 class SimulatedDevice(Device):
-    """Base class for simulated devices.
-    
-    This class extends the Device base class with simulation-specific
-    functionality, providing a foundation for all simulated hardware
-    devices in the AO-Shaping framework.
-    
+    """仿真设备的基类。
+
+    本类在 Device 基类之上扩展仿真专用功能, 为 AO-Shaping 框架里所有仿真硬件
+    设备提供基础。
+
     Attributes:
-        device_type: DeviceType.OTHER for simulated devices
+        device_type: 仿真设备为 DeviceType.OTHER
         manufacturer: "Simulation"
-        model: Specific model name
-    
+        model: 具体型号名
+
     Example:
         >>> class MySimulatedDevice(SimulatedDevice):
         ...     def __init__(self):
@@ -48,7 +46,7 @@ class SimulatedDevice(Device):
         ...         self._register_parameters()
         ...
         ...     def compute(self, *args):
-        ...         # Simulation logic here
+        ...         # 这里的仿真逻辑
         ...         return result
     """
 
@@ -62,12 +60,12 @@ class SimulatedDevice(Device):
         enable_noise: bool = True,
         random_seed: int | None = None,
     ):
-        """Initialize simulated device.
-        
+        """初始化仿真设备。
+
         Args:
-            device_id: Unique device identifier. If empty, auto-generated.
-            enable_noise: Whether to add noise to simulations.
-            random_seed: Random seed for reproducible results.
+            device_id: 设备唯一标识。为空时自动生成。
+            enable_noise: 是否在仿真中加入噪声。
+            random_seed: 用于得到可复现结果的随机种子。
         """
         super().__init__(device_id)
 
@@ -76,35 +74,35 @@ class SimulatedDevice(Device):
         self._random_seed = random_seed
         self._rng = np.random.default_rng(random_seed)
 
-        # Update metadata for simulation
+        # 为仿真更新元数据
         self._metadata.manufacturer = self.manufacturer
         self._metadata.model = self.model
 
         logger.debug(f"SimulatedDevice {self.__class__.__name__} initialized")
 
-    # ========== Device Base Class Implementation ==========
+    # ========== Device 基类实现 ==========
 
     def open(self) -> None:
-        """Open simulated device connection."""
+        """打开仿真设备连接。"""
         self._set_state(DeviceState.CONNECTING)
-        # Simulate connection delay
+        # 模拟连接延迟
         self._set_state(DeviceState.READY)
         logger.info(f"Simulated device {self.device_id} opened")
 
     def close(self) -> None:
-        """Close simulated device connection."""
+        """关闭仿真设备连接。"""
         self._set_state(DeviceState.DISCONNECTED)
         logger.info(f"Simulated device {self.device_id} closed")
 
     def is_connected(self) -> bool:
-        """Check if device is connected."""
+        """检查设备是否已连接。"""
         return self._state == DeviceState.READY
 
     def get_hardware_info(self) -> dict[str, Any]:
-        """Get simulated hardware information.
-        
+        """获取仿真的硬件信息。
+
         Returns:
-            Dictionary containing simulation-specific hardware info.
+            包含仿真专用硬件信息的字典。
         """
         return {
             "device_type": "simulation",
@@ -115,52 +113,51 @@ class SimulatedDevice(Device):
             "random_seed": self._random_seed,
         }
 
-    # ========== Simulation-Specific Methods ==========
+    # ========== 仿真专用方法 ==========
 
     @abstractmethod
     def compute(self, *args, **kwargs) -> Any:
-        """Execute simulation computation.
-        
-        This method must be implemented by subclasses to perform
-        the actual simulation calculation.
-        
+        """执行仿真计算。
+
+        本方法必须由子类实现, 以完成实际的仿真计算。
+
         Returns:
-            Simulation result (type depends on implementation).
+            仿真结果 (类型取决于具体实现)。
         """
         pass
 
     def reset(self) -> None:
-        """Reset simulation state to initial conditions."""
+        """把仿真状态重置回初始条件。"""
         logger.debug(f"Simulated device {self.device_id} reset")
 
     def set_seed(self, seed: int) -> None:
-        """Set random seed for reproducible simulations.
-        
+        """设置随机种子, 使仿真可复现。
+
         Args:
-            seed: Random seed value.
+            seed: 随机种子值。
         """
         self._random_seed = seed
         self._rng = np.random.default_rng(seed)
         logger.debug(f"Random seed set to {seed}")
 
     def set_noise(self, enabled: bool) -> None:
-        """Enable or disable noise in simulations.
-        
+        """启用或禁用仿真中的噪声。
+
         Args:
-            enabled: Whether to add noise.
+            enabled: 是否加入噪声。
         """
         self._enable_noise = enabled
         logger.debug(f"Noise {'enabled' if enabled else 'disabled'}")
 
     def _generate_noise(self, shape: tuple, scale: float = 1.0) -> np.ndarray:
-        """Generate noise array.
-        
+        """生成噪声数组。
+
         Args:
-            shape: Output array shape.
-            scale: Noise amplitude scale factor.
-            
+            shape: 输出数组形状。
+            scale: 噪声幅度的缩放因子。
+
         Returns:
-            Noise array.
+            噪声数组。
         """
         if self._enable_noise:
             return self._rng.normal(0, scale, shape)
@@ -168,14 +165,13 @@ class SimulatedDevice(Device):
 
 
 class OpticalDevice(SimulatedDevice):
-    """Base class for optical simulation devices.
-    
-    This class extends SimulatedDevice with optical-specific
-    functionality, including wavelength handling and wavefront processing.
-    
+    """光学仿真设备的基类。
+
+    本类在 SimulatedDevice 之上扩展光学专用功能, 包括波长处理与波前处理。
+
     Attributes:
-        wavelength: Operating wavelength in nanometers.
-    
+        wavelength: 工作波长, 单位纳米。
+
     Example:
         >>> class MyOpticDevice(OpticalDevice):
         ...     def __init__(self, wavelength=1064):
@@ -183,7 +179,7 @@ class OpticalDevice(SimulatedDevice):
         ...         self.wavelength = wavelength
         ...
         ...     def process(self, wave):
-        ...         # Process wavefront
+        ...         # 处理波前
         ...         return processed_wave
     """
 
@@ -194,13 +190,13 @@ class OpticalDevice(SimulatedDevice):
         enable_noise: bool = True,
         random_seed: int | None = None,
     ):
-        """Initialize optical simulation device.
-        
+        """初始化光学仿真设备。
+
         Args:
-            device_id: Unique device identifier.
-            wavelength: Operating wavelength in nm.
-            enable_noise: Whether to add noise.
-            random_seed: Random seed for reproducibility.
+            device_id: 设备唯一标识。
+            wavelength: 工作波长, 单位 nm。
+            enable_noise: 是否加入噪声。
+            random_seed: 用于可复现性的随机种子。
         """
         super().__init__(device_id, enable_noise, random_seed)
 
@@ -209,43 +205,41 @@ class OpticalDevice(SimulatedDevice):
         self._output_wave: Any | None = None
 
     def set_input(self, wave: Any) -> None:
-        """Set input wavefront for processing.
-        
+        """设置待处理的输入波前。
+
         Args:
-            wave: Input wavefront object.
+            wave: 输入波前对象。
         """
         self._input_wave = wave
         logger.debug(f"Input wave set for {self.__class__.__name__}")
 
     def get_output(self) -> Any:
-        """Get processed output wavefront.
-        
+        """获取处理后的输出波前。
+
         Returns:
-            Output wavefront object.
+            输出波前对象。
         """
         return self._output_wave
 
     @abstractmethod
     def process(self, wave: Any) -> Any:
-        """Process input wavefront.
-        
-        This method must be implemented by subclasses to perform
-        the actual optical processing.
-        
+        """处理输入波前。
+
+        本方法必须由子类实现, 以完成实际的光学处理。
+
         Args:
-            wave: Input wavefront to process.
-            
+            wave: 待处理的输入波前。
+
         Returns:
-            Processed wavefront.
+            处理后的波前。
         """
         pass
 
 
 class WavefrontProcessor(OpticalDevice):
-    """Base class for wavefront processing devices.
-    
-    Specialized optical device for wavefront manipulation,
-    such as SLMs, lenses, and apertures.
+    """波前处理设备的基类。
+
+    用于操控波前的光学仿真专用设备, 例如 SLM、透镜与光阑。
     """
 
     def __init__(
@@ -257,15 +251,15 @@ class WavefrontProcessor(OpticalDevice):
         enable_noise: bool = True,
         random_seed: int | None = None,
     ):
-        """Initialize wavefront processor.
-        
+        """初始化波前处理器。
+
         Args:
-            device_id: Unique device identifier.
-            wavelength: Operating wavelength in nm.
-            npix: Number of pixels in wavefront array.
-            dpix: Pixel size in meters.
-            enable_noise: Whether to add noise.
-            random_seed: Random seed for reproducibility.
+            device_id: 设备唯一标识。
+            wavelength: 工作波长, 单位 nm。
+            npix: 波前数组的像素数。
+            dpix: 像元尺寸, 单位米。
+            enable_noise: 是否加入噪声。
+            random_seed: 用于可复现性的随机种子。
         """
         super().__init__(device_id, wavelength, enable_noise, random_seed)
 
@@ -274,10 +268,10 @@ class WavefrontProcessor(OpticalDevice):
         self._phase_pattern: np.ndarray | None = None
 
     def set_phase(self, phase: np.ndarray) -> None:
-        """Set phase pattern.
-        
+        """设置相位图样。
+
         Args:
-            phase: 2D phase array in radians.
+            phase: 二维相位数组, 单位弧度。
         """
         if phase.shape != (self.npix, self.npix):
             logger.warning(
@@ -287,9 +281,9 @@ class WavefrontProcessor(OpticalDevice):
         self._phase_pattern = phase
 
     def get_phase(self) -> np.ndarray | None:
-        """Get current phase pattern.
-        
+        """获取当前相位图样。
+
         Returns:
-            Current phase pattern or None.
+            当前相位图样, 或 None。
         """
         return self._phase_pattern

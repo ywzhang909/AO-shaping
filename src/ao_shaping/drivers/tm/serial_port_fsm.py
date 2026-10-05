@@ -14,7 +14,7 @@ class SerialPortFSM:
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct a serial FSM from a driver parameter object."""
+        """由驱动参数对象构造串口 FSM。"""
         kwargs = {
             "port": getattr(params, "port", None),
             "baud": getattr(params, "baud", 2000000),
@@ -195,7 +195,7 @@ class SerialPortFSM:
         # 限幅 + 0.05 量化
         x = max(min(x, SerialPortFSM.MAX), SerialPortFSM.MIN)
         y = max(min(y, SerialPortFSM.MAX), SerialPortFSM.MIN)
-        # Pack position data in big-endian format to match C++ implementation
+        # 按大端序打包位置数据，与 C++ 实现保持一致
         buf[3:7] = SerialPortFSM._pack_position_xy(x, y)
         checksum = (~(sum(buf[2:12])) & 0xFF)
         buf[12] = checksum

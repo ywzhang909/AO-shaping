@@ -11,7 +11,7 @@ from loguru import logger
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.ccd.miicam._sdk_setup import _setup_miicam_sdk
 
-# Set up MIICAM SDK before importing
+# 导入前先设置好 MIICAM SDK
 _MIICAM_AVAILABLE = _setup_miicam_sdk()
 
 if _MIICAM_AVAILABLE:
@@ -21,19 +21,19 @@ else:
 
 
 class MIICAMError(CameraError):
-    """Exception raised for MIICAM camera errors."""
+    """MIICAM 相机错误异常。"""
 
     pass
 
 
-# ===== Private Helper Classes =====
+# ===== 内部辅助类 =====
 
 
 class _CallbackSession:
-    """Manages callback mode lifecycle for a single capture or continuous streaming.
+    """管理单次采集或连续拉流的回调模式生命周期。
 
-    Tracks whether callback mode was already active to avoid interfering
-    with existing callback streams started via ``start_callback_mode``.
+    跟踪回调模式此前是否已激活, 以免干扰由 ``start_callback_mode`` 启动的
+    既有回调流。
     """
 
     def __init__(self, owner: "MIICamera") -> None:
@@ -41,7 +41,7 @@ class _CallbackSession:
         self._was_active: bool = False
 
     def start(self, callback: Callable | None = None) -> None:
-        """Enter callback mode, or reuse an existing active session."""
+        """进入回调模式, 或复用已激活的会话。"""
         self._was_active = self._owner._callback_mode_active
         if not self._was_active:
             self._owner._stop_streaming()
@@ -56,7 +56,7 @@ class _CallbackSession:
         self._owner._callback_mode_active = True
 
     def stop(self) -> None:
-        """Leave callback mode if this session started it."""
+        """若回调模式是本会话启动的, 则退出它。"""
         if not self._was_active:
             self._owner._stop_streaming()
             time.sleep(0.3)
@@ -66,15 +66,15 @@ class _CallbackSession:
 
 
 class _FramePuller:
-    """Pulls frames from the camera with retry logic."""
+    """带重试地从相机拉取帧。"""
 
     def __init__(self, owner: "MIICamera") -> None:
         self._owner = owner
 
     def wait_image(self, timeout_ms: int | None = None) -> np.ndarray:
-        """WaitImageV3 with retry on timeout.
+        """WaitImageV3, 超时后重试。
 
-        Timeout is adaptive: if not provided, uses ``max(300, exposure_ms * 5)``.
+        超时值是自适应的: 若未给定, 取 ``max(300, exposure_ms * 5)``。
         """
         if timeout_ms is None:
             timeout_ms = max(300, int(self._owner.exposure_time_ms * 5))
@@ -116,16 +116,16 @@ class _FramePuller:
         self._owner.cam.PullStillImageV2(buffer, bits, frame_info)
 
 
-# ===== Main Camera Class =====
+# ===== 相机主类 =====
 
 
 class MIICamera(BaseCamera):
-    """MIICAM camera stream manager.
+    """MIICAM 相机拉流管理器。
 
-    Supports two capture modes:
-    - **wait** (default): blocking ``WaitImageV3`` pull.
-    - **callback**: ``StartPullModeWithCallback`` + software ``Trigger`` +
-      ``PullImageV4`` (参考 C++ ``demosofttrigger``).
+    支持两种采集模式:
+    - **wait** (默认): 阻塞式 ``WaitImageV3`` 拉取。
+    - **callback**: ``StartPullModeWithCallback`` + 软件 ``Trigger`` +
+      ``PullImageV4`` (参考 C++ ``demosofttrigger``)。
     """
 
     MIN_EXPOSURE_MS = 0.011
@@ -133,16 +133,16 @@ class MIICamera(BaseCamera):
 
     @staticmethod
     def get_exposure_range() -> tuple[float, float]:
-        """Get the camera's supported exposure time range in ms.
+        """获取相机支持的曝光时间范围, 单位 ms。
 
-        Returns:
+        返回:
             (min_exposure_ms, max_exposure_ms)
         """
         return MIICamera.MIN_EXPOSURE_MS, MIICamera.MAX_EXPOSURE_MS
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
-        """Construct a MiiCam camera from a driver parameter object."""
+        """由驱动参数对象构造一个 MiiCam 相机。"""
         kwargs = {
             "cam_id": getattr(params, "cam_id", 0),
             "exposure_time_ms": getattr(params, "exposure_time_ms", 20.0),
@@ -161,15 +161,15 @@ class MIICamera(BaseCamera):
         bit_depth: int = 8,
         capture_mode: str = "wait",
     ):
-        """Initialize MIICAM camera.
+        """初始化 MIICAM 相机。
 
-        Args:
-            cam_id: Camera index.
-            exposure_time_ms: Exposure time in milliseconds.
-            skip_sampling: Enable 2x2 binning.
-            bit_depth: Output bit depth (8 or 16).
-            capture_mode: "wait" uses WaitImageV3 (blocking pull),
-                "callback" uses callback-based PullImageV4 (software trigger mode).
+        参数:
+            cam_id: 相机索引。
+            exposure_time_ms: 曝光时间, 单位毫秒。
+            skip_sampling: 启用 2x2 binning。
+            bit_depth: 输出位深 (8 或 16)。
+            capture_mode: "wait" 用 WaitImageV3 (阻塞拉取),
+                "callback" 用基于回调的 PullImageV4 (软件触发模式)。
         """
         if capture_mode not in ("wait", "callback"):
             raise ValueError(
@@ -178,30 +178,30 @@ class MIICamera(BaseCamera):
         super().__init__(cam_id, exposure_time_ms, skip_sampling)
         self._bit_depth = bit_depth
         self._pixel_format = "MONO8" if bit_depth == 8 else "MONO16"
-        self._max_bit_depth = 8  # Will be updated from camera
+        self._max_bit_depth = 8  # 稍后从相机更新
         self._capture_mode = capture_mode
         self._callback_mode_active: bool = False
 
-        # Exposure limits (ms) - SDK hardware constraints
+        # 曝光上下限 (ms) —— SDK 的硬件约束
         self._min_exposure_ms = MIICamera.MIN_EXPOSURE_MS
         self._max_exposure_ms = MIICamera.MAX_EXPOSURE_MS
 
-        # Helper objects (initialized after cam is opened)
+        # 辅助对象 (在 cam 打开之后初始化)
         self._callback_session: _CallbackSession | None = None
         self._frame_puller: _FramePuller | None = None
 
     @property
     def min_exposure_ms(self) -> float:
-        """Minimum exposure time in milliseconds."""
+        """最小曝光时间, 单位毫秒。"""
         return MIICamera.MIN_EXPOSURE_MS
 
     @property
     def max_exposure_ms(self) -> float:
-        """Maximum exposure time in milliseconds."""
+        """最大曝光时间, 单位毫秒。"""
         return MIICamera.MAX_EXPOSURE_MS
 
     # =========================================================================
-    # Context manager / lifecycle
+    # 上下文管理器 / 生命周期
     # =========================================================================
 
     def __enter__(self):
@@ -211,14 +211,14 @@ class MIICamera(BaseCamera):
         self.close()
 
     def open(self) -> "MIICamera":
-        """Open the camera device (alias for initialize)."""
+        """打开相机设备 (initialize 的别名)。"""
         self.initialize()
         return self
 
     def close(self) -> None:
-        """Close the camera device and release resources."""
+        """关闭相机设备并释放资源。"""
         if self.cam:
-            # Stop streaming with retry - the callback thread may need time to exit
+            # 带重试地停止拉流 —— 回调线程可能需要一点时间退出
             for _ in range(5):
                 try:
                     self.cam.Stop()
@@ -228,13 +228,13 @@ class MIICamera(BaseCamera):
                 except Exception:
                     break
 
-            # Flush any pending frames
+            # 清空待处理帧
             try:
                 self.cam.put_Option(miicam.MIICAM_OPTION_FLUSH, 3)
             except Exception:
                 pass
 
-            # Delay to let callback thread finish
+            # 留一点时间让回调线程结束
             time.sleep(0.3)
 
             try:
@@ -246,19 +246,19 @@ class MIICamera(BaseCamera):
             self.cam_height = 0
             self.cam = None
 
-            # Give the camera hardware a moment to settle before re-opening
+            # 重新打开前给相机硬件一点时间稳定
             time.sleep(0.5)
 
     # =========================================================================
-    # Initialization
+    # 初始化
     # =========================================================================
 
     def initialize(self) -> None:
-        """Initialize the camera device."""
-        # Close previously opened camera device (if any)
+        """初始化相机设备。"""
+        # 关闭此前已打开的相机设备 (若有)
         self.__exit__(None, None, None)
 
-        # Pre-emptive: try to stop any stale stream from a previous session
+        # 预防性处理: 尝试停掉上一次会话遗留的拉流
         try:
             dev_list = miicam.Miicam.EnumV2()
             if dev_list and len(dev_list) > self.cam_id:
@@ -281,7 +281,7 @@ class MIICamera(BaseCamera):
         except Exception:
             pass
 
-        # Update device list and get device info list
+        # 更新设备列表并取得设备信息列表
         dev_list = miicam.Miicam.EnumV2()
         if not dev_list or len(dev_list) <= self.cam_id:
             error_info = f"Camera ID {self.cam_id} not found. "
@@ -290,7 +290,7 @@ class MIICamera(BaseCamera):
             logger.error(error_info)
             raise ConnectionAbortedError(error_info)
 
-        # Open camera by index
+        # 按索引打开相机
         self.cam = miicam.Miicam.Open(dev_list[self.cam_id].id)
         if not self.cam:
             raise MIICAMError("Failed to open camera")
@@ -299,12 +299,12 @@ class MIICamera(BaseCamera):
         self._init_streaming()
         self.__update_properties()
 
-        # Initialize helper objects after camera is ready
+        # 相机就绪后再初始化辅助对象
         self._callback_session = _CallbackSession(self)
         self._frame_puller = _FramePuller(self)
 
     def _init_hardware(self) -> None:
-        """Set exposure, gain, bit depth, pixel format, and resolution."""
+        """设置曝光、增益、位深、像素格式与分辨率。"""
         self._init_exposure()
         self._init_bit_depth()
         self._init_pixel_format()
@@ -314,7 +314,7 @@ class MIICamera(BaseCamera):
         self._init_serial_number()
 
     def _init_exposure(self) -> None:
-        """Disable auto exposure and set exposure time / gain."""
+        """关闭自动曝光并设置曝光时间与增益。"""
         try:
             self.cam.put_AutoExpoEnable(0)
         except miicam.HRESULTException:
@@ -331,7 +331,7 @@ class MIICamera(BaseCamera):
             logger.warning("Could not set exposure gain")
 
     def _init_bit_depth(self) -> None:
-        """Query max bit depth and configure output bit depth."""
+        """查询最大位深并配置输出位深。"""
         self._max_bit_depth = self.cam.MaxBitDepth()
 
         if self._bit_depth == 8:
@@ -353,7 +353,7 @@ class MIICamera(BaseCamera):
             self._bit_depth = 8
 
     def _init_pixel_format(self) -> None:
-        """Set pixel format based on bit depth."""
+        """按位深设置像素格式。"""
         if self._bit_depth == 8:
             self._pixel_format = "MONO8"
             self._set_mono8_format()
@@ -371,12 +371,12 @@ class MIICamera(BaseCamera):
                 self._set_mono8_format()
 
     def _set_mono8_format(self) -> None:
-        """Force MONO8 format and disable RAW mode."""
+        """强制 MONO8 格式并关闭 RAW 模式。"""
         self._try_set_option(miicam.MIICAM_OPTION_RGB, 3)
         self._try_set_option(miicam.MIICAM_OPTION_RAW, 0)
 
     def _try_set_option(self, option: int, value: int) -> bool:
-        """Try to set an SDK option, return True if successful."""
+        """尝试设置某个 SDK 选项, 成功返回 True。"""
         try:
             self.cam.put_Option(option, value)
             return True
@@ -384,7 +384,7 @@ class MIICamera(BaseCamera):
             return False
 
     def _init_binning(self) -> None:
-        """Enable 2x2 binning if skip_sampling is True."""
+        """skip_sampling 为 True 时启用 2x2 binning。"""
         if not self.skip_sampling:
             return
         if not self._try_set_option(miicam.MIICAM_OPTION_BINNING, 0x80 | 2):
@@ -393,13 +393,13 @@ class MIICamera(BaseCamera):
             )
 
     def _init_resolution(self) -> None:
-        """Set camera to maximum resolution and update size properties."""
+        """把相机设为最大分辨率并更新尺寸属性。"""
         max_width, max_height = self.cam.get_Resolution(0)
         self.cam.put_Size(max_width, max_height)
         self.cam_width, self.cam_height = self.cam.get_Size()
 
     def _detect_raw_format(self) -> None:
-        """Detect actual raw format and adjust pixel format if needed."""
+        """检测实际 raw 格式, 必要时调整像素格式。"""
         raw_fmt, _ = self.cam.get_RawFormat()
         raw_fmt_str = (
             raw_fmt.decode("ascii", errors="replace")
@@ -424,15 +424,15 @@ class MIICamera(BaseCamera):
             )
 
     def _init_serial_number(self) -> None:
-        """Query camera serial number."""
+        """查询相机序列号。"""
         try:
             self._sn = self.cam.SerialNumber()
         except Exception:
             self._sn = f"MIICAM_{self.cam_id}"
 
     def _init_streaming(self) -> None:
-        """Start the video stream (pull mode without callback)."""
-        # Pre-emptively try to stop any stale stream from a previous session
+        """启动视频流 (不带回调的拉流模式)。"""
+        # 预防性地尝试停掉上一次会话遗留的拉流
         try:
             self.cam.Stop()
         except Exception:
@@ -455,7 +455,7 @@ class MIICamera(BaseCamera):
                     raise
 
     # =========================================================================
-    # Exposure control
+    # 曝光控制
     # =========================================================================
 
     def reset_exposure_time(self, time_ms: float) -> float:
@@ -471,12 +471,12 @@ class MIICamera(BaseCamera):
           - 建议从 ≥0.2ms 起调节；亮区宽度/均值正确响应曝光，而峰值 (max) 可能被
             锁在 ~85 —— 做质量指标时应优先 mean / 亮区包围盒而非 max。
 
-        Args:
-            time_ms: New exposure time in milliseconds.
-                Valid range: 0.011ms to 10000ms. Values outside this range are clamped.
+        参数:
+            time_ms: 新的曝光时间, 单位毫秒。
+                合法范围: 0.011ms 到 10000ms。超出该范围的值会被钳制。
 
-        Returns:
-            Actual exposure time set in milliseconds.
+        返回:
+            实际设定的曝光时间, 单位毫秒。
         """
         assert self.cam, "camera not initialized"
         if time_ms < MIICamera.MIN_EXPOSURE_MS:
@@ -550,14 +550,14 @@ class MIICamera(BaseCamera):
         经验约束 (见模块文档): 曝光 <0.1ms 时信号淹没在噪声中; 峰值可能被锁在
         ~85, 因此高目标 (如 220) 常常不可达, 此时会以边界曝光退出。
 
-        Args:
+        参数:
             target_max: 目标最大亮度 (0-255, 默认40)。
             tolerance: 峰值容差 (0-255, 默认5)。
             twice_valid: True 时要求连续两次落入容差范围才收敛 (默认True)。
             max_iterations: 最大迭代次数 (默认20)。
             n_sample: 每次估计峰值时的采样帧数 (默认1)。
 
-        Returns:
+        返回:
             np.ndarray: 调整后采集到的图像 (uint8/uint16, 取决于位深)。
         """
         assert self.cam, "camera not initialized"
@@ -631,14 +631,14 @@ class MIICamera(BaseCamera):
         return img
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
-        """Enable or disable auto exposure.
+        """启用或关闭自动曝光。
 
-        Args:
-            enable: True to enable, False to disable.
-            mode: Auto exposure mode (0=disable, 1=continuous, 2=once).
+        参数:
+            enable: True 启用, False 关闭。
+            mode: 自动曝光模式 (0=禁用, 1=连续, 2=单次)。
 
-        Returns:
-            True if successful.
+        返回:
+            成功返回 True。
         """
         assert self.cam, "camera not initialized"
         mode_value = 1 if enable else 0
@@ -648,13 +648,13 @@ class MIICamera(BaseCamera):
         return True
 
     def set_auto_exposure_target(self, target: int) -> int:
-        """Set auto exposure target brightness.
+        """设置自动曝光的目标亮度。
 
-        Args:
-            target: Target brightness value. Range: 16-220, default: 120.
+        参数:
+            target: 目标亮度值。范围 16-220, 默认 120。
 
-        Returns:
-            The target value that was set.
+        返回:
+            实际设定的目标值。
         """
         assert self.cam, "camera not initialized"
         target = max(16, min(220, target))
@@ -665,10 +665,10 @@ class MIICamera(BaseCamera):
         return target
 
     def get_auto_exposure_state(self) -> dict:
-        """Get current auto exposure state.
+        """获取当前自动曝光状态。
 
-        Returns:
-            Dictionary containing enabled, mode, and target.
+        返回:
+            含 enabled、mode 与 target 的字典。
         """
         assert self.cam, "camera not initialized"
         state = {"enabled": False, "mode": 0, "target": 120}
@@ -687,16 +687,16 @@ class MIICamera(BaseCamera):
         max_gain: int = 300,
         min_gain: int = 100,
     ) -> bool:
-        """Set auto exposure time and gain range.
+        """设置自动曝光的时间与增益范围。
 
-        Args:
-            max_time_ms: Maximum exposure time in ms.
-            min_time_ms: Minimum exposure time in ms.
-            max_gain: Maximum gain value.
-            min_gain: Minimum gain value.
+        参数:
+            max_time_ms: 最大曝光时间, 单位 ms。
+            min_time_ms: 最小曝光时间, 单位 ms。
+            max_gain: 最大增益值。
+            min_gain: 最小增益值。
 
-        Returns:
-            True if successful, False if not supported.
+        返回:
+            成功返回 True, 不支持返回 False。
         """
         assert self.cam, "camera not initialized"
         try:
@@ -712,7 +712,7 @@ class MIICamera(BaseCamera):
         return True
 
     # =========================================================================
-    # Window / ROI
+    # 窗口 / ROI
     # =========================================================================
 
     def reset_window(
@@ -720,14 +720,14 @@ class MIICamera(BaseCamera):
         center: tuple[int, int] | tuple[np.intp, ...] = (0, 0),
         size: tuple[int, int] = (0, 0),
     ) -> tuple[tuple[int, int], tuple[int, int]]:
-        """Reset the camera window size and position.
+        """重设相机窗口的大小与位置。
 
-        Args:
-            center: Expected window center position (x, y).
-            size: Expected window size (width, height). Use (0, 0) for maximum.
+        参数:
+            center: 期望的窗口中心位置 (x, y)。
+            size: 期望的窗口大小 (width, height)。用 (0, 0) 表示最大。
 
-        Returns:
-            ((width, height), (center_x, center_y)) actually set.
+        返回:
+            实际设定的 ((width, height), (center_x, center_y))。
         """
         assert self.cam, "camera not initialized"
         center = tuple(int(c) for c in center)
@@ -761,21 +761,21 @@ class MIICamera(BaseCamera):
         return (width, height), (width // 2, height // 2)
 
     # =========================================================================
-    # Image capture
+    # 图像采集
     # =========================================================================
 
     def __take_one_shot(self) -> np.ndarray:
-        """Capture a single camera image using the configured capture mode."""
+        """按配置的采集模式拍摄单张相机图像。"""
         if self._capture_mode == "callback":
             return self.__take_one_shot_callback()
         return self.__take_one_shot_wait()
 
     def __take_one_shot_wait(self) -> np.ndarray:
-        """WaitImageV3-based capture (blocking pull)."""
+        """基于 WaitImageV3 的采集 (阻塞拉取)。"""
         return self._frame_puller.wait_image()
 
     def __take_one_shot_callback(self) -> np.ndarray:
-        """Callback-based capture using PullImageV4 (software trigger mode)."""
+        """基于回调的采集, 用 PullImageV4 (软件触发模式)。"""
         with self._callback_session as session:
             self.cam.Trigger(1)
             result = self.get_callback_frame(timeout=5.0)
@@ -789,14 +789,14 @@ class MIICamera(BaseCamera):
         n_sample: int = 1,
         skip_first: bool = True,
     ) -> np.ndarray:
-        """Get camera image data with averaging.
+        """获取相机图像数据并做平均。
 
-        Args:
-            n_sample: Number of samples to average. Must be > 0.
-            skip_first: Whether to skip first frame (often unstable).
+        参数:
+            n_sample: 平均的采样数。必须 > 0。
+            skip_first: 是否跳过第一帧 (常常不稳定)。
 
-        Returns:
-            Processed averaged image.
+        返回:
+            处理后的平均图像。
         """
         assert n_sample > 0, "Sample count must be > 0"
 
@@ -815,28 +815,28 @@ class MIICamera(BaseCamera):
         return avg_img.astype(np.uint8 if self._bit_depth == 8 else np.uint16)
 
     # =========================================================================
-    # Callback mode (continuous streaming)
+    # 回调模式 (连续拉流)
     # =========================================================================
 
     def start_callback_mode(
         self,
         callback: Callable | None = None,
     ) -> None:
-        """Start pull mode with a callback function for frame notification.
+        """启动带帧通知回调函数的拉流模式。
 
-        The callback runs in an internal SDK thread. Keep it fast — do NOT
-        perform heavy processing or call back into the SDK from within it.
+        回调运行在 SDK 内部线程里。务必保持轻量 —— 不要在其中做重处理, 也不要
+        回头调用 SDK。
 
-        Args:
-            callback: Function called on each new frame with (image, frame_info).
-                      If None, uses the internal buffer callback.
+        参数:
+            callback: 每来一帧新图像就被调用的函数, 签名为 (image, frame_info)。
+                      为 None 时使用内部缓冲回调。
         """
         assert self.cam, "camera not initialized"
         self._callback_session.start(callback)
         logger.info("Callback mode started")
 
     def stop_callback_mode(self) -> None:
-        """Stop callback mode and release callback resources."""
+        """停止回调模式并释放回调相关资源。"""
         self._callback_session.stop()
         logger.info("Callback mode stopped")
 
@@ -847,7 +847,7 @@ class MIICamera(BaseCamera):
         user_callback: Callable[[np.ndarray, miicam.MiicamFrameInfoV3], None]
         | None = None,
     ) -> None:
-        """Internal SDK callback: called when a new frame is available."""
+        """SDK 内部回调: 有新帧可用时被调用。"""
         if nEvent == miicam.MIICAM_EVENT_IMAGE:
             try:
                 bufsize, bits, dtype = self._get_buffer_params()
@@ -888,13 +888,13 @@ class MIICamera(BaseCamera):
     def get_callback_frame(
         self, timeout: float = 1.0
     ) -> tuple[np.ndarray, miicam.MiicamFrameInfoV3] | None:
-        """Get the latest frame from callback mode.
+        """从回调模式取最新一帧。
 
-        Args:
-            timeout: Maximum time to wait for a new frame in seconds.
+        参数:
+            timeout: 等待新帧的最长时间, 单位秒。
 
-        Returns:
-            Tuple of (image, frame_info) or None if timeout.
+        返回:
+            (image, frame_info) 的 tuple; 超时时返回 None。
         """
         if self._callback_new_frame.wait(timeout=timeout):
             with self._callback_buffer_lock:
@@ -903,17 +903,17 @@ class MIICamera(BaseCamera):
         return None
 
     # =========================================================================
-    # Trigger mode (software trigger)
+    # 触发模式 (软件触发)
     # =========================================================================
 
     def set_trigger_mode(self, mode: int) -> None:
-        """Set camera trigger mode.
+        """设置相机触发模式。
 
-        Args:
-            mode: 0 = video mode (default)
-                  1 = software / simulated trigger
-                  2 = external trigger (rising edge)
-                  3 = external + software trigger
+        参数:
+            mode: 0 = 视频模式 (默认)
+                  1 = 软件 / 仿真触发
+                  2 = 外部触发 (上升沿)
+                  3 = 外部 + 软件触发
         """
         assert self.cam, "camera not initialized"
         self._stop_streaming()
@@ -921,23 +921,23 @@ class MIICamera(BaseCamera):
         logger.info("Trigger mode set to {}", mode)
 
     def get_trigger_mode(self) -> int:
-        """Get current trigger mode.
+        """获取当前触发模式。
 
-        Returns:
-            Current trigger mode (0=video, 1=software, 2=external, 3=both).
+        返回:
+            当前触发模式 (0=视频, 1=软件, 2=外部, 3=两者)。
         """
         assert self.cam, "camera not initialized"
         return self.cam.get_Option(miicam.MIICAM_OPTION_TRIGGER)
 
     def trigger(self, n_images: int = 1) -> None:
-        """Send a software trigger.
+        """发送一次软件触发。
 
-        The camera must be in trigger mode (set_trigger_mode(1)) and
-        streaming (StartPullModeWithCallback) before calling this.
+        调用本方法前, 相机必须处于触发模式 (set_trigger_mode(1)) 且正在拉流
+        (StartPullModeWithCallback)。
 
-        Args:
-            n_images: Number of images to capture.
-                      0 = cancel trigger, 0xFFFF = continuous.
+        参数:
+            n_images: 要采集的图像张数。
+                      0 = 取消触发, 0xFFFF = 连续。
         """
         assert self.cam, "camera not initialized"
         self.cam.Trigger(n_images)
@@ -947,17 +947,16 @@ class MIICamera(BaseCamera):
         n_images: int = 1,
         timeout_ms: int = 0,
     ) -> np.ndarray:
-        """Software trigger and wait for image synchronously.
+        """软件触发并同步等待图像。
 
-        Combines Trigger + WaitImageV3 in one call. The camera must be
-        in trigger mode and streaming.
+        把 Trigger 与 WaitImageV3 合在一次调用里。相机必须处于触发模式且正在拉流。
 
-        Args:
-            n_images: Number of images to capture (1 for single trigger).
-            timeout_ms: Timeout in ms. 0 = adaptive (exposure * 5, min 300ms).
+        参数:
+            n_images: 要采集的图像张数 (单次触发填 1)。
+            timeout_ms: 超时, 单位 ms。0 = 自适应 (曝光 × 5, 最小 300ms)。
 
-        Returns:
-            Captured image as numpy array.
+        返回:
+            采集到的图像, 为 numpy 数组。
         """
         assert self.cam, "camera not initialized"
 
@@ -988,27 +987,26 @@ class MIICamera(BaseCamera):
         return self._decode_image(img_data)
 
     # =========================================================================
-    # Still image (Snap) - high-resolution capture
+    # 静态图像 (Snap) —— 高分辨率采集
     # =========================================================================
 
     def snap(self, resolution_index: int = 0xFFFFFFFF) -> None:
-        """Trigger a still image capture (Snap).
+        """触发一次静态图像采集 (Snap)。
 
-        The camera temporarily switches to the specified resolution,
-        captures one frame, then switches back to the preview resolution.
+        相机临时切到指定分辨率, 采集一帧, 再切回预览分辨率。
 
-        Args:
-            resolution_index: Resolution index to snap. 0xFFFFFFFF = current
-                            preview resolution.
+        参数:
+            resolution_index: Snap 使用的分辨率索引。0xFFFFFFFF = 当前
+                            预览分辨率。
         """
         assert self.cam, "camera not initialized"
         self.cam.Snap(resolution_index)
 
     def pull_still_image(self) -> tuple[np.ndarray, miicam.MiicamFrameInfoV3]:
-        """Pull a still image after Snap event.
+        """在 Snap 事件之后拉取静态图像。
 
-        Returns:
-            Tuple of (image, frame_info).
+        返回:
+            (image, frame_info) 的 tuple。
         """
         assert self.cam, "camera not initialized"
 
@@ -1023,26 +1021,26 @@ class MIICamera(BaseCamera):
         return img, frame_info
 
     def get_still_resolution_count(self) -> int:
-        """Get number of available still image resolutions."""
+        """获取可用静态图像分辨率的数量。"""
         assert self.cam, "camera not initialized"
         return self.cam.StillResolutionNumber()
 
     def get_still_resolution(self, index: int) -> tuple[int, int]:
-        """Get dimensions of a still image resolution."""
+        """获取某个静态图像分辨率的尺寸。"""
         assert self.cam, "camera not initialized"
         return self.cam.get_StillResolution(index)
 
     # =========================================================================
-    # Stream control
+    # 拉流控制
     # =========================================================================
 
     def pause(self, b_pause: bool = True) -> None:
-        """Pause or resume the video stream."""
+        """暂停或恢复视频流。"""
         assert self.cam, "camera not initialized"
         self.cam.Pause(1 if b_pause else 0)
 
     def _stop_streaming(self) -> None:
-        """Stop streaming (internal helper)."""
+        """停止拉流 (内部辅助)。"""
         if self.cam:
             try:
                 self.cam.Stop()
@@ -1052,11 +1050,11 @@ class MIICamera(BaseCamera):
         self._callback_mode_active = False
 
     # =========================================================================
-    # Internal helpers
+    # 内部辅助
     # =========================================================================
 
     def _get_buffer_params(self) -> tuple[int, int, type]:
-        """Get buffer size, bits, and numpy dtype based on current format."""
+        """按当前格式取缓冲区大小、位数与 numpy dtype。"""
         if getattr(self, "_pixel_format", None) == "YUV422":
             return (self.cam_width * self.cam_height * 2, 8, np.uint8)
         elif self._bit_depth == 8:
@@ -1065,7 +1063,7 @@ class MIICamera(BaseCamera):
             return (self.cam_width * self.cam_height * 2, 16, np.uint16)
 
     def _decode_image(self, img_data: np.ndarray) -> np.ndarray:
-        """Decode raw image data based on pixel format."""
+        """按像素格式解码原始图像数据。"""
         if getattr(self, "_pixel_format", None) == "YUV422":
             img_yuv = img_data.reshape((self.cam_height, self.cam_width * 2))
             return img_yuv[:, ::2]
@@ -1088,5 +1086,5 @@ class MIICamera(BaseCamera):
 
     @staticmethod
     def get_cam_list():
-        """Get list of available cameras."""
+        """获取可用相机列表。"""
         return miicam.Miicam.EnumV2()

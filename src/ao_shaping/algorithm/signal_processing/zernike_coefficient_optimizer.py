@@ -1,63 +1,53 @@
-"""Fit Zernike aberration coefficients to a measured far-field intensity.
+"""把 Zernike 像差系数拟合到实测远场强度上。
 
-"Step A" of the iterative model-in-the-loop SLM beam-shaping pipeline: with the
-SLM phase map held **fixed**, fit the Zernike aberration coefficients ``c`` so
-that a differentiable FFT forward model reproduces the far-field intensity that
-was actually measured.  The digital twin then re-measures with the updated
-phase and the loop re-fits, one round at a time.
+迭代式 model-in-the-loop SLM 光束整形管线的 "步骤 A": 在 SLM 相位图**固定**
+的前提下, 拟合 Zernike 像差系数 ``c``, 使可微的 FFT 正向模型能复现实测到的
+远场强度。数字孪生随后用更新后的相位重新测量, 循环再一次次地重新拟合。
 
-Model
+模型
 -----
-On the ``region x region`` pupil grid::
+在 ``region x region`` 的瞳面网格上::
 
     U        = A * exp(i * (phi_slm + sum_j c_j * Z_j))
     I_model  = |fftshift(fft2(ifftshift(U), norm="ortho"))|**2
 
-The FFT convention is the one used by the digital twin
-(:meth:`SimFourierGSNetEnv.render_intensity`), so with the native Gaussian beam
-(``w0 = 250 * region / 512``) this model's far field is bit-identical to the
-twin's on the same grid.
+FFT 约定与数字孪生 (:meth:`SimFourierGSNetEnv.render_intensity`) 所用的
+一致, 所以在使用原生高斯光束 (``w0 = 250 * region / 512``) 时, 本模型的
+远场在同一网格上与孪生逐位相同。
 
-``A`` defaults to that native Gaussian and may be overridden per run.
-``phi_slm`` is consumed as **raw unwrapped radians**: phase generators in this
-repo return raw radians and the only ``mod 2*pi`` wrap lives in the SLM driver,
-so nothing is wrapped here.
+``A`` 默认为那份原生高斯, 可按次运行覆盖。``phi_slm`` 以**未包裹的原始
+弧度**消费: 本仓库的相位生成器都返回原始弧度, 唯一的 ``mod 2*pi`` 包裹
+点在 SLM 驱动里, 所以这里不做任何包裹。
 
-Loss and gradient
------------------
-The objective mirrors :meth:`DifferentiableBeamOptimizer._intensity_loss`: a
-*peak-normalized* MSE against the measured far field, ``i / (i.max() + 1e-8)``.
-Peak rather than energy normalization is required because the FFT concentrates
-the energy in a few pixels, which underflows in float32.
+损失与梯度
+-----------
+目标函数镜像 :meth:`DifferentiableBeamOptimizer._intensity_loss`: 对实测远场
+做*峰值归一化*的 MSE, ``i / (i.max() + 1e-8)``。之所以必须用峰值而非能量
+归一化, 是因为 FFT 把能量集中到少数像素上, 那会在 float32 里下溢。
 
-The step is **measurement-anchored** in the sense of
-``differentiable_beam.py``: the target *and* the normalization scale of the
-loss are taken from the MEASURED image, so the upstream intensity gradient
-handed to the model Jacobian ``dI_model/dc`` is anchored on real data rather
-than on the model's own image.
+这一步在 ``differentiable_beam.py`` 意义下是**测量锚定**的: 损失的*目标*
+与*归一化尺度*都取自实测图像, 因此交给模型 Jacobian ``dI_model/dc`` 的上游
+强度梯度是锚定在真实数据上, 而不是模型自己那张图上。
 
 .. note::
-   In :class:`DifferentiableBeamOptimizer` the anchor point and the target are
-   *different* images (hardware frame vs. desired pattern), so the loss can be
-   evaluated at the measurement to obtain ``dL/dI`` and pushed through the
-   model Jacobian with ``i_sim.backward(gradient=i_meas.grad)``.  Here the
-   measurement *is* the fit target, so that literal form evaluates the loss at
-   the target itself and yields an identically zero upstream gradient.  The
-   anchor is therefore carried by the normalization scale (``peak_anchor``,
-   taken from the measurement) and the residual is taken on the model image,
-   which is algebraically the same anchored gradient and is non-degenerate.
+   在 :class:`DifferentiableBeamOptimizer` 里锚点与目标是*不同*的两张图
+   (硬件帧 vs 期望图形), 所以可以在测量处求损失得到 ``dL/dI``, 再用
+   ``i_sim.backward(gradient=i_meas.grad)`` 推过模型 Jacobian。而这里测量
+   *就是*拟合目标, 于是那种字面写法会在目标自身处求值, 给出恒为零的上游
+   梯度。因此锚点改由归一化尺度承担 (``peak_anchor``, 取自测量),
+   残差则取在模型图像上 —— 这在代数上是同一个锚定梯度, 且非退化。
 
 Attributes:
-    n_coefficients: Number of fitted Zernike coefficients.
-    n_orders: Maximum radial order of the Zernike basis.
-    region: Side length of the square pupil/far-field grid.
-    radius: Zernike aperture radius in pixels.
-    device: The torch device the optimization runs on.
-    coefficient_tensor: The live coefficient parameter tensor (requires_grad).
-    coefficients: Detached numpy copy of the current coefficients (radians).
-    loss_history: Loss value per optimization step.
-    last_loss: The loss at the last step, or ``None`` before the first update.
-    converged: Whether the early-stopping criterion was met.
+    n_coefficients: 拟合的 Zernike 系数个数。
+    n_orders: Zernike 基的最大径向阶数。
+    region: 方形瞳面 / 远场网格的边长。
+    radius: Zernike 瞳面半径 (像素)。
+    device: 优化所在的 torch 设备。
+    coefficient_tensor: 实时的系数参数张量 (requires_grad)。
+    coefficients: 当前系数的 numpy 副本 (已 detach), 单位弧度。
+    loss_history: 每一步优化的损失值。
+    last_loss: 最后一步的损失, 首次更新之前为 ``None``。
+    converged: 是否满足提前停止条件。
 """
 
 from __future__ import annotations
@@ -79,30 +69,30 @@ from ao_shaping.utils.wavefront.zernike_calc import (
 if TYPE_CHECKING:  # pragma: no cover - type-only imports
     import torch
 
-#: Reference region of the digital twin (``SimFourierGSNetEnv.BeamParams``).
+#: 数字孪生的参考 region (``SimFourierGSNetEnv.BeamParams``)。
 TWIN_REGION = 512
-#: Native Gaussian waist of the digital twin, in twin-region pixels.
+#: 数字孪生的原生高斯束腰, 以孪生 region 的像素计。
 TWIN_W0 = 250.0
-#: Guard added to every peak-normalization divisor, mirroring
-#: :meth:`DifferentiableBeamOptimizer._intensity_loss`.
+#: 加到每个峰值归一化除数上的保护量, 与
+#: :meth:`DifferentiableBeamOptimizer._intensity_loss` 保持一致。
 PEAK_EPS = 1e-8
-#: Plateau detection: stop once the best loss has not improved by more than
-#: ``RELATIVE_TOL`` (or ``ABSOLUTE_FLOOR``) for ``PLATEAU_PATIENCE`` steps.
+#: 平台期检测: 当最优损失连续 ``PLATEAU_PATIENCE`` 步的改善量都不超过
+#: ``RELATIVE_TOL`` (或 ``ABSOLUTE_FLOOR``) 时就停止。
 RELATIVE_TOL = 1e-5
 ABSOLUTE_FLOOR = 1e-12
 PLATEAU_PATIENCE = 30
-#: Never stop before this many steps, whatever the plateau heuristic says.
+#: 无论平台期启发式怎么说, 在这么多步之前都不停止。
 MIN_ITERATIONS = 5
 
 
 def _torch():
-    """Return the ``torch`` module, raising :class:`ImportError` when absent.
+    """返回 ``torch`` 模块; 缺失时抛出 :class:`ImportError`。
 
     Returns:
-        The ``torch`` top-level module.
+        ``torch`` 顶层模块。
 
     Raises:
-        ImportError: If PyTorch is not installed.
+        ImportError: 若未安装 PyTorch。
     """
     try:
         import torch as _t
@@ -115,7 +105,7 @@ def _torch():
 
 
 def _numpy_dtype(dtype_name: str) -> Any:
-    """Map a working-precision name to the matching numpy dtype."""
+    """把工作精度名称映射到对应的 numpy dtype。"""
     return np.float64 if dtype_name == "float64" else np.float32
 
 
@@ -124,12 +114,12 @@ def _to_tensor(
     device: torch.device,
     dtype: str = "float32",
 ) -> torch.Tensor:
-    """Convert a real 2D numpy array to a torch tensor on ``device``.
+    """把实数二维 numpy 数组转成 ``device`` 上的 torch 张量。
 
     Args:
-        x: Source array.
-        device: Target torch device.
-        dtype: Working precision, ``"float32"`` or ``"float64"``.
+        x: 源数组。
+        device: 目标 torch 设备。
+        dtype: 工作精度, ``"float32"`` 或 ``"float64"``。
     """
     torch = _torch()
     arr = np.ascontiguousarray(x, dtype=_numpy_dtype(dtype))
@@ -138,15 +128,14 @@ def _to_tensor(
 
 @dataclass
 class ZernikeCoefficientResult:
-    """Outcome of a :meth:`ZernikeCoefficientOptimizer.run` call.
+    """一次 :meth:`ZernikeCoefficientOptimizer.run` 调用的结果。
 
     Attributes:
-        coefficients: Final fitted coefficients in radians, shape
-            ``(calc_n_zernike_terms(n_orders),)`` in Noll order.
-        history: Per-iteration records; always contains ``"loss"``.
-        iterations: Number of optimization steps actually performed.
-        converged: Whether the stopping criterion was met before the budget
-            ran out.
+        coefficients: 最终拟合出的系数, 单位弧度, 形状
+            ``(calc_n_zernike_terms(n_orders),)``, 按 Noll 序。
+        history: 逐迭代记录; 始终含 ``"loss"``。
+        iterations: 实际执行的优化步数。
+        converged: 是否在预算耗尽之前就满足了停止条件。
     """
 
     coefficients: npt.NDArray[np.floating]
@@ -156,55 +145,47 @@ class ZernikeCoefficientResult:
 
 
 class ZernikeCoefficientOptimizer(IterativeOptimizer):
-    """Fit Zernike aberration coefficients to a measured far field.
+    """把 Zernike 像差系数拟合到实测远场上。
 
-    The optimizer is stateful: construct it once, then call :meth:`update`
-    repeatedly for manual control, or :meth:`run` for the full loop.
+    该优化器是有状态的: 构造一次, 然后反复调用 :meth:`update` 以手动控制,
+    或调用 :meth:`run` 跑完整循环。
 
-    Digital-twin contract
-    ---------------------
-    The far field reproduces ``SimFourierGSNetEnv.render_intensity``'s core
-    convention, ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` with
-    ``U = A * exp(1j * patch)``, including two details that are easy to miss and
-    that this class matches deliberately:
-
-    * **The patch is masked, not the aberration.** The twin computes
-      ``nan_to_num(phi_slm + aberration, nan=0.0)``, so the *sum* is flat
-      outside the circular Zernike aperture. Applying the SLM phase everywhere
-      instead makes the model disagree with the twin by O(100%).
-    * **The amplitude still applies outside the aperture**, because the twin
-      masks phase only, never amplitude.
-
-    With ``dtype="float64"`` the far field matches the float64 twin to ~1 ulp
-    (2.7e-16 relative); the float32 default agrees to ~7e-8 relative, which is
-    float32 round-off rather than a modelling difference.
-
-    Loss
-    ----
-    The recorded loss is the peak-normalized MSE between the model and measured
-    far fields. The literal two-stage "measurement-anchored" trick of
-    ``differentiable_beam.py`` (backpropagating the loss into the measured
-    intensity) is degenerate here, because the measured image is a constant with
-    respect to the coefficients -- ``dL/dI_meas == 0`` at the target, so it
-    contributes no gradient. This class therefore uses the measured *peak* as a
-    fixed normalization anchor, which is equivalent to standard peak-normalized
-    MSE while keeping the target and the normalizer constant in ``c``, so the
-    gradient flows through the model intensity alone.
-
-    Learning rate
+    数字孪生契约
     -------------
-    With a high-order basis (``n_orders=10``, 66 coefficients) the objective has
-    a shallow local basin that can absorb the fit while leaving the coefficients
-    wrong. Measured on a ``region=64`` grid with a three-mode truth, the same
-    problem converges to loss ~9e-13 and ``|c - c_true| < 1e-4`` at
-    ``lr in {0.02, 0.03, 0.1}`` but stalls at loss ~6.9e-6 and ``|c - c_true|``
-    ~0.49 at ``lr in {0.05, 0.08}``. The Jacobian of the normalized intensity is
-    well conditioned at that operating point (condition number ~5.6,
-    ``sigma_min`` ~12.5), so the basin is an optimization artifact rather than an
-    identifiability limit -- a direct least-squares solve from the same start
-    recovers ``c_true``. Callers using a 10-order basis should therefore validate
-    the *coefficient* error, not just the loss: a low loss alone does not prove
-    the coefficients were found.
+    远场复现 ``SimFourierGSNetEnv.render_intensity`` 的核心约定,
+    即 ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` 且
+    ``U = A * exp(1j * patch)``, 其中包含两个容易漏掉、而本类刻意匹配的细节:
+
+    * **被掩膜的是 patch, 不是像差。** 孪生算的是
+      ``nan_to_num(phi_slm + aberration, nan=0.0)``, 所以在圆形 Zernike
+      瞳面之外被压平的是*两者之和*。若把 SLM 相位施加到整个画面,
+      模型与孪生的差异就会达到 O(100%)。
+    * **振幅仍然作用在瞳面之外**, 因为孪生只掩膜相位, 从不掩膜振幅。
+
+    用 ``dtype="float64"`` 时, 远场与 float64 孪生一致到 ~1 ulp
+    (相对 2.7e-16); float32 默认值一致到相对 ~7e-8, 这属于 float32
+    舍入而非建模差异。
+
+    损失
+    ----
+    记录的损失是模型远场与实测远场之间的峰值归一化 MSE。
+    ``differentiable_beam.py`` 里那种字面的两阶段 "测量锚定" 技巧
+    (把损失反传进实测强度) 在这里是退化的, 因为实测图像对系数而言是常量
+    -- 在目标处 ``dL/dI_meas == 0``, 不贡献任何梯度。因此本类改用实测
+    *峰值* 作为固定的归一化锚点, 这等价于标准的峰值归一化 MSE, 同时让
+    目标与归一化因子在 ``c`` 上都是常量, 梯度于是只经由模型强度流动。
+
+    学习率
+    ------
+    用高阶基 (``n_orders=10``, 66 个系数) 时, 目标函数存在一个浅的局部盆地,
+    它能把损失吸收掉却让系数仍然是错的。在 ``region=64`` 网格上以三模式
+    真值实测: 同一问题在 ``lr in {0.02, 0.03, 0.1}`` 下收敛到 loss ~9e-13
+    且 ``|c - c_true| < 1e-4``, 而在 ``lr in {0.05, 0.08}`` 下停在
+    loss ~6.9e-6 且 ``|c - c_true|`` ~0.49。归一化强度的 Jacobian 在该工作点
+    条件良好 (条件数 ~5.6, ``sigma_min`` ~12.5), 所以这个盆地是优化伪影
+    而不是可辨识性上限 -- 从同一起点直接做最小二乘求解能恢复 ``c_true``。
+    因此使用 10 阶基的调用方应当校验*系数*误差, 而不只是看损失:
+    单看低损失并不能证明系数被找到了。
     """
 
     def __init__(
@@ -221,49 +202,42 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         far_field_size: int | None = None,
         frozen_modes: tuple[int, ...] = (),
     ) -> None:
-        """Initialize the optimizer and validate all inputs.
+        """初始化优化器并校验所有输入。
 
         Args:
-            n_orders: Maximum radial order of the Zernike basis. Must be >= 1.
-                The basis holds ``calc_n_zernike_terms(n_orders)`` modes in
-                Noll 1976 order (Noll 4 = defocus, Noll 5 = astigmatism).
-            region: Side length of the square grid. Must be >= 16 and even.
-            radius: Zernike aperture radius in pixels. Defaults to
-                ``region // 2``. Modes outside the aperture evaluate to zero.
-            initial_coefficients: Optional starting coefficients in radians,
-                shape ``(n_coefficients,)``. Defaults to zeros, or to a small
-                seeded random draw when ``seed`` is given.
-            lr: Adam learning rate. Must be > 0.
-            max_iterations: Iteration budget for :meth:`run`. Must be >= 1.
-            device: Torch device string. Defaults to ``"cpu"`` so that runs
-                are reproducible and never touch a GPU implicitly; pass
-                ``"cuda"`` explicitly to use one.
-            seed: Optional RNG seed for the random initial coefficients.
-            dtype: Working precision, ``"float32"`` (default) or
-                ``"float64"``. The digital twin evaluates its far field in
-                float64, so ``"float64"`` is what makes this model
-                bit-identical to ``SimFourierGSNetEnv``; float32 keeps the
-                default fast and matches the repo's differentiable-beam
-                convention, agreeing with the twin to float32 round-off
-                (~1e-7 relative).
-            far_field_size: Optional zero-padding size for the pupil field
-                before the FFT. ``None`` (default) keeps the historical
-                behaviour of transforming at ``region``, which is what the
-                digital twin's native 1:1 mode does. Pass a larger power of two
-                to sample the *same* field of view more finely -- required when
-                comparing against a real camera, whose pixels are far smaller
-                than the unpadded ``lambda * f / (region * d_slm)`` pitch.
-                Must be ``>= region`` when given.
-            frozen_modes: Noll indices (1-based) to hold at zero for the whole
-                fit. Defaults to empty, i.e. every mode moves. Pass
-                ``(1, 2, 3)`` when fitting to a measured far-field intensity:
-                piston and tilt are invisible to ``|E|**2`` (see
-                :meth:`_apply_mode_mask`), so leaving them free lets the fit
-                absorb unmodellable residual into degenerate directions.
+            n_orders: Zernike 基的最大径向阶数, 必须 >= 1。
+                该基按 Noll 1976 序含 ``calc_n_zernike_terms(n_orders)`` 个模式
+                (Noll 4 = 离焦, Noll 5 = 散光)。
+            region: 方形网格的边长。必须 >= 16 且为偶数。
+            radius: Zernike 瞳面半径 (像素)。默认为 ``region // 2``。
+                瞳面之外的模式求值为零。
+            initial_coefficients: 可选的起始系数, 单位弧度, 形状
+                ``(n_coefficients,)``。默认为全零; 给了 ``seed`` 时则取
+                一个带种子的小随机抽样。
+            lr: Adam 学习率。必须 > 0。
+            max_iterations: :meth:`run` 的迭代预算。必须 >= 1。
+            device: torch 设备字符串。默认为 ``"cpu"``, 使运行可复现且绝不
+                隐式碰 GPU; 要用 GPU 需显式传 ``"cuda"``。
+            seed: 随机初始系数的可选 RNG 种子。
+            dtype: 工作精度, ``"float32"`` (默认) 或 ``"float64"``。
+                数字孪生以 float64 计算远场, 所以 ``"float64"`` 才是让本模型
+                与 ``SimFourierGSNetEnv`` 逐位相同的精度; float32 保持默认的
+                快速, 并符合本仓库 differentiable-beam 的约定, 与孪生一致到
+                float32 舍入 (相对 ~1e-7)。
+            far_field_size: FFT 之前对瞳面光场做零填充的可选尺寸。
+                ``None`` (默认) 保持在 ``region`` 上变换的历史行为, 这正是
+                数字孪生原生 1:1 模式的做法。传一个更大的 2 的幂以便对*同一*
+                视场做更精细的采样 -- 与真实相机对比时必须这样做, 因为相机
+                像素远小于未填充时的 ``lambda * f / (region * d_slm)`` 间距。
+                给出时必须 >= ``region``。
+            frozen_modes: 在整个拟合过程中强制保持为零的 Noll 索引 (1 起)。
+                默认为空, 即所有模式都可动。当拟合到实测远场强度时传
+                ``(1, 2, 3)``: piston 与 tilt 对 ``|E|**2`` 不可见
+                (见 :meth:`_apply_mode_mask`), 把它们放开会让拟合把无法建模
+                的残余吸收到退化方向上。
 
         Raises:
-            ValueError: If any argument is out of range or any array has the
-                wrong shape.
+            ValueError: 任一参数越界, 或任一数组形状不对时。
         """
         torch = _torch()
         super().__init__(max_iterations=max_iterations)
@@ -308,8 +282,8 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                     f"got {noll!r}"
                 )
             mask[index - 1] = 0.0
-        # Kept as numpy and turned into a tensor on first use: the device is not
-        # resolved yet at this point in __init__.
+        # 保持为 numpy, 首次使用时才转成张量: 在 __init__ 的这个位置
+        # 设备还没解析出来。
         self._frozen_mask: npt.NDArray[np.float64] | None = None if mask.all() else mask
         self._mode_mask: Any = None
 
@@ -341,11 +315,11 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._dtype_name = dtype
         self._np_dtype = _numpy_dtype(dtype)
 
-        # Precompute the Zernike basis once, for both the numpy and the torch path.
+        # 一次性预计算 Zernike 基, numpy 与 torch 两条路径共用。
         self._basis_np = self._build_basis()
         self._basis_t = _to_tensor(self._basis_np, self._dev, dtype)
-        # Aperture mask (1 inside, 0 outside), mirroring the twin's
-        # ``nan_to_num(patch, nan=0.0)`` on the summed phase.
+        # 瞳面掩膜 (内为 1, 外为 0), 对应孪生对相位之和所用的
+        # ``nan_to_num(patch, nan=0.0)``。
         self._aperture_t = _to_tensor(self._aperture_np, self._dev, dtype)
 
         self._default_amplitude = self.native_amplitude(region)
@@ -366,14 +340,14 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         )
 
     # ------------------------------------------------------------------
-    # Construction helpers
+    # 构造辅助函数
     # ------------------------------------------------------------------
     def _build_basis(self) -> npt.NDArray[np.floating]:
-        """Build the Noll-ordered Zernike basis, zero outside the aperture.
+        """构建按 Noll 序排列的 Zernike 基, 瞳面之外为零。
 
         Returns:
-            2D-array of shape ``(n_coeffs, region, region)``; mode ``j`` is
-            Noll index ``j + 1``. Outside-aperture NaNs are mapped to zero.
+            形状为 ``(n_coeffs, region, region)`` 的二维数组; 第 ``j`` 个模式
+            是 Noll 索引 ``j + 1``。瞳面外的 NaN 映射为零。
         """
         generator = ZernikeGenerator(
             (self._region, self._region),
@@ -386,23 +360,21 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             weights[index] = 1.0
             mode = np.asarray(generator.generate_noll(weights), dtype=np.float64)
             if index == 0:
-                # The generator evaluates every mode on the same circular
-                # aperture, so the piston mode's finite support *is* that
-                # aperture. Deriving the mask here (instead of re-deriving the
-                # geometry) keeps it exactly consistent with the twin, which
-                # masks via the same NaN-outside-aperture convention.
+                # 生成器在同一个圆形瞳面上求值所有模式, 所以 piston 模式的有限支撑
+                # *就是* 那个瞳面。在这里导出掩膜 (而不是重新推导几何),
+                # 使它与孪生严格一致 —— 孪生正是用同一套 NaN-出瞳面约定
+                # 做掩膜的。
                 self._aperture_np = np.isfinite(mode)
             basis[index] = np.nan_to_num(mode, nan=0.0)
         return basis
 
     def _restart(self, restore_initial: bool = False) -> None:
-        """Reset the coefficient tensor, Adam state and loop bookkeeping.
+        """重置系数张量、Adam 状态与循环记账。
 
         Args:
-            restore_initial: When ``True`` the coefficients are reset to the
-                values passed to ``__init__``; otherwise the current
-                coefficients are kept and only the optimizer/loop state is
-                rebuilt, which warm-starts a repeated :meth:`run`.
+            restore_initial: 为 ``True`` 时把系数重置为传给 ``__init__`` 的值;
+                否则保留当前系数, 只重建优化器 / 循环状态, 从而让重复的
+                :meth:`run` 暖启动。
         """
         torch = _torch()
         start = (
@@ -422,21 +394,20 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._no_improve = 0
 
     # ------------------------------------------------------------------
-    # Public helpers
+    # 公开的辅助函数
     # ------------------------------------------------------------------
     @staticmethod
     def native_amplitude(region: int) -> npt.NDArray[np.floating]:
-        """Return the digital twin's native Gaussian beam for a ``region`` grid.
+        """返回 ``region`` 网格上数字孪生的原生高斯光束。
 
-        The waist scales linearly with the grid so that ``region=TWIN_REGION``
-        reproduces ``BeamParams.w0 = 250.0`` exactly and the resulting far
-        field matches the digital twin's.
+        束腰随网格线性缩放, 使 ``region=TWIN_REGION`` 精确复现
+        ``BeamParams.w0 = 250.0``, 由此得到的远场与数字孪生一致。
 
         Args:
-            region: Side length of the square grid in pixels.
+            region: 方形网格的边长 (像素)。
 
         Returns:
-            2D float64 amplitude map, unit on-axis and Gaussian off-axis.
+            二维 float64 振幅图, 轴上为 1, 轴外为高斯分布。
         """
         w0 = TWIN_W0 * (region / TWIN_REGION)
         yy, xx = np.mgrid[0:region, 0:region]
@@ -444,73 +415,72 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return np.exp(-r2 / (2 * w0**2))
 
     # ------------------------------------------------------------------
-    # Properties
+    # 属性
     # ------------------------------------------------------------------
     @property
     def n_coefficients(self) -> int:
-        """Number of fitted Zernike coefficients."""
+        """拟合的 Zernike 系数个数。"""
         return self._n_coeffs
 
     @property
     def n_orders(self) -> int:
-        """Maximum radial order of the Zernike basis."""
+        """Zernike 基的最大径向阶数。"""
         return self._n_orders
 
     @property
     def region(self) -> int:
-        """Side length of the square grid in pixels."""
+        """方形网格的边长 (像素)。"""
         return self._region
 
     @property
     def radius(self) -> int:
-        """Zernike aperture radius in pixels."""
+        """Zernike 瞳面半径 (像素)。"""
         return self._radius
 
     @property
     def device(self) -> str:
-        """The torch device the optimization runs on."""
+        """优化所在的 torch 设备。"""
         return str(self._dev)
 
     @property
     def iterations(self) -> int:
-        """Number of optimization steps performed so far."""
+        """迄今为止执行的优化步数。"""
         return self._iteration
 
     @property
     def coefficient_tensor(self) -> torch.Tensor:
-        """The live coefficient parameter tensor (requires_grad)."""
+        """实时的系数参数张量 (requires_grad)。"""
         return self._coefficients
 
     @property
     def coefficients(self) -> npt.NDArray[np.floating]:
-        """Detached numpy copy of the current coefficients (radians)."""
+        """当前系数的 numpy 副本 (已 detach), 单位弧度。"""
         return self._coefficients.detach().cpu().numpy().astype(np.float64)
 
     @property
     def loss_history(self) -> list[float]:
-        """Loss value per optimization step."""
+        """每一步优化的损失值。"""
         return self._loss_history
 
     @property
     def last_loss(self) -> float | None:
-        """The loss at the last step, or ``None`` before the first update."""
+        """最后一步的损失, 首次更新之前为 ``None``。"""
         return self._loss_history[-1] if self._loss_history else None
 
     @property
     def converged(self) -> bool:
-        """Whether the early-stopping criterion was met."""
+        """是否满足提前停止条件。"""
         return self._converged
 
     @property
     def is_converged(self) -> bool:
-        """True when the iteration budget is exhausted or the fit converged.
+        """迭代预算耗尽或拟合收敛时为 ``True``。
 
-        Combines the base class' budget check with this class' own criteria:
-        an absolute loss floor, or a plateau in which the best loss has not
-        improved for :data:`PLATEAU_PATIENCE` consecutive steps.
+        把基类的预算检查与本类自己的判据结合起来: 一个绝对的损失下限,
+        或者最优损失连续 :data:`PLATEAU_PATIENCE` 步没有改善的平台期。
 
         Returns:
-            ``True`` when :meth:`run` should stop.
+            :meth:`run` 应当停止时为 ``True``。
         """
         if self._iteration >= self.max_iterations:
             return True
@@ -520,34 +490,32 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             self._converged = True
             return True
         if self._no_improve >= PLATEAU_PATIENCE:
-            # The plateau is a real convergence criterion, not a budget
-            # exhaustion, so the result must report it as converged.
+            # 平台期是真正的收敛判据, 不是预算耗尽,
+            # 所以结果必须把它报告为已收敛。
             self._converged = True
             return True
         return False
 
     # ------------------------------------------------------------------
-    # Public API
+    # 公开 API
     # ------------------------------------------------------------------
     def generate_basis(self) -> npt.NDArray[np.floating]:
-        """Return a copy of the cached Zernike basis.
+        """返回 Zernike 基缓存的一份副本。
 
         Returns:
-            Array of shape ``(n_coefficients, region, region)`` in Noll order;
-            entries outside the aperture are exactly zero. The returned array
-            is a copy, so mutating it does not affect the optimizer.
+            按 Noll 序、形状为 ``(n_coefficients, region, region)`` 的数组;
+            瞳面之外的项恰好为零。返回的是副本, 所以改动它不会影响优化器。
         """
         return self._basis_np.copy()
 
     def set_source_amplitude(self, source_amplitude: npt.NDArray[np.floating]) -> None:
-        """Set the source-plane (pupil) amplitude used by subsequent steps.
+        """设置后续步骤所用的源面 (瞳面) 振幅。
 
         Args:
-            source_amplitude: 2D amplitude map of shape
-                ``(region, region)``.
+            source_amplitude: 形状为 ``(region, region)`` 的二维振幅图。
 
         Raises:
-            ValueError: If the shape is wrong or the values are not finite.
+            ValueError: 形状不对, 或取值非有限时。
         """
         amplitude = np.asarray(source_amplitude, dtype=np.float64)
         if amplitude.shape != (self._region, self._region):
@@ -565,25 +533,23 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         phase_slm: npt.NDArray[np.floating],
         source_amplitude: npt.NDArray[np.floating] | None = None,
     ) -> npt.NDArray[np.floating]:
-        """Evaluate the far-field intensity of a coefficient vector.
+        """求一个系数向量的远场强度。
 
-        This is the single source of truth for the forward model; it is the
-        same computation :meth:`update` differentiates, evaluated without a
-        graph. Use it to synthesize a reference measurement.
+        这是正向模型的唯一事实来源; 它与 :meth:`update` 所微分的
+        是同一套计算, 只是不建计算图。可以用它合成一份参考测量。
 
         Args:
-            coefficients: 1D coefficient vector in radians, shape
-                ``(n_coefficients,)``.
-            phase_slm: 2D fixed SLM phase in **raw unwrapped radians**, shape
-                ``(region, region)``.
-            source_amplitude: Optional 2D amplitude override for this call.
+            coefficients: 一维系数向量, 单位弧度, 形状
+                ``(n_coefficients,)``。
+            phase_slm: 二维固定 SLM 相位, **未包裹的原始弧度**, 形状
+                ``(region, region)``。
+            source_amplitude: 本次调用可选的二维振幅覆盖值。
 
         Returns:
-            2D float64 far-field intensity on the model grid.
+            模型网格上的二维 float64 远场强度。
 
         Raises:
-            ValueError: If any array has the wrong shape or holds non-finite
-                values.
+            ValueError: 任一数组形状不对或含非有限值时。
         """
         torch = _torch()
         values = np.asarray(coefficients, dtype=np.float64)
@@ -608,32 +574,29 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return intensity.detach().cpu().numpy().astype(np.float64)
 
     def reset(self) -> None:
-        """Reset the coefficients to their initial values and clear history."""
+        """把系数重置回初值并清空历史。"""
         self._restart(restore_initial=True)
         logger.debug("ZernikeCoefficientOptimizer reset to initial coefficients")
 
     def update(self, i_meas: npt.NDArray[np.floating], phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Perform one Adam step and return the next coefficient vector.
+        """执行一步 Adam 并返回下一个系数向量。
 
-        The step is measurement-anchored: the peak-normalized MSE is taken
-        between the model far field and the measured one, with both the target
-        and the normalization scale taken from the measurement, and the
-        gradient is backpropagated through the FFT into the coefficients.
+        这一步是测量锚定的: 峰值归一化的 MSE 取在模型远场与实测远场之间,
+        目标与归一化尺度都取自测量, 梯度则经 FFT 反传进系数。
 
-        If the optimizer has already converged, this is a no-op that returns
-        the current coefficients without stepping.
+        若优化器已经收敛, 这一步为空操作, 直接返回当前系数而不推进。
 
         Args:
-            i_meas: 2D measured far-field intensity. Resized to the model grid
-                when its shape differs (real CCD frames are 250x248).
-            phase_slm: 2D fixed SLM phase in **raw unwrapped radians**, shape
-                ``(region, region)``.
+            i_meas: 二维实测远场强度。形状不同时会重采样到模型网格
+                (真实 CCD 帧是 250x248)。
+            phase_slm: 二维固定 SLM 相位, **未包裹的原始弧度**, 形状
+                ``(region, region)``。
 
         Returns:
-            The updated coefficients as a detached numpy array (radians).
+            更新后的系数, 以 numpy 数组返回 (已 detach), 单位弧度。
 
         Raises:
-            ValueError: If the measurement or the phase map is invalid.
+            ValueError: 测量或相位图无效时。
         """
         if self._converged:
             return self.coefficients
@@ -651,8 +614,8 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         intensity = self._far_field_intensity(
             self._coefficients, phase_t, amplitude_t
         )
-        # Measurement-anchored gradient: target and normalization scale both
-        # come from the measured image; the residual lives on the model image.
+        # 测量锚定的梯度: 目标与归一化尺度都来自实测图像;
+        # 残差落在模型图像上。
         self._anchored_intensity_loss(intensity, target, peak_anchor).backward()
         self._opt.step()
         self._apply_mode_mask()
@@ -670,24 +633,21 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         phase_slm: npt.NDArray[np.floating],
         source_amplitude: npt.NDArray[np.floating] | None = None,
     ) -> ZernikeCoefficientResult:
-        """Run the fitting loop until convergence or the iteration budget.
+        """跑拟合循环, 直至收敛或用尽迭代预算。
 
-        The Adam state and the loss history are rebuilt first, but the current
-        coefficients are kept, so repeated calls warm-start from the previous
-        fit. Call :meth:`reset` to return to the initial coefficients.
+        Adam 状态与损失历史会先重建, 但当前系数被保留, 所以重复调用可以从
+        上一次拟合暖启动。调用 :meth:`reset` 可回到初始系数。
 
         Args:
-            i_meas: 2D measured far-field intensity, any shape.
-            phase_slm: 2D fixed SLM phase in **raw unwrapped radians**, shape
-                ``(region, region)``.
-            source_amplitude: Optional 2D amplitude override of shape
-                ``(region, region)``; restored to the native Gaussian only by
-                constructing a new optimizer.
+            i_meas: 二维实测远场强度, 任意形状。
+            phase_slm: 二维固定 SLM 相位, **未包裹的原始弧度**, 形状
+                ``(region, region)``。
+            source_amplitude: 形状为 ``(region, region)`` 的可选二维振幅覆盖
+                值; 只有新建一个优化器才会恢复到原生高斯。
 
         Returns:
-            A :class:`ZernikeCoefficientResult` holding the fitted
-            coefficients, the per-iteration ``"loss"`` history, the number of
-            steps and whether the stopping criterion was met.
+            一个 :class:`ZernikeCoefficientResult`, 持有拟合出的系数、
+            逐迭代的 ``"loss"`` 历史、步数以及是否满足停止条件。
         """
         self._restart()
         if source_amplitude is not None:
@@ -718,21 +678,18 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return result
 
     # ------------------------------------------------------------------
-    # Model and loss
+    # 模型与损失
     # ------------------------------------------------------------------
     def _apply_mode_mask(self) -> None:
-        """Zero the frozen coefficients in place after an optimizer step.
+        """在一步优化器之后把冻结的系数就地清零。
 
-        Piston and tilt (Noll 1-3) are **unidentifiable** from a far-field
-        *intensity*: piston is a global phase that leaves ``|E|**2`` exactly
-        unchanged, and tilt only displaces the spot, which a same-window or
-        argmax-aligned comparison barely sees. Leaving them free is not
-        harmless -- with no identifiable signal the optimizer parks the
-        residual in those degenerate directions instead of reporting "no
-        aberration". Measured on real hardware captures, 56% of the fitted
-        coefficient norm landed in Noll 1-3 while the fit quality did not
-        improve at all. Freezing them follows the repo's existing convention
-        (``slm_square_shaping --zernike-mask`` also forces Noll 1-3 to zero).
+        piston 与 tilt (Noll 1-3) 从远场*强度*上是**不可辨识**的:
+        piston 是一个全局相位, 使 ``|E|**2`` 完全不变; tilt 只是把光斑
+        平移, 而同窗口或按 argmax 对齐的比较几乎察觉不到。把它们放开并非
+        无害 —— 没有可辨识信号时, 优化器会把残余停在那几个退化方向上,
+        而不是报告 "没有像差"。在真实硬件采集上实测: 拟合出的系数范数有
+        56% 落在 Noll 1-3, 而拟合质量毫无改善。冻结它们遵循本仓库既有的
+        约定 (``slm_square_shaping --zernike-mask`` 同样把 Noll 1-3 强制为零)。
         """
         if self._frozen_mask is None:
             return
@@ -744,13 +701,12 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
 
     @property
     def far_field_size(self) -> int:
-        """Side length of the far-field grid produced by the forward model.
+        """正向模型产出的远场网格边长。
 
-        Equals ``region`` unless zero-padding was requested via
-        ``far_field_size``. Callers that build a target on the *pupil* grid must
-        rescale it by ``far_field_size / region`` before comparing it with a
-        model far field, because a far-field pixel covers a different physical
-        extent than a pupil pixel once padding is in play.
+        除非通过 ``far_field_size`` 请求了零填充, 否则等于 ``region``。
+        在*瞳面*网格上构建目标的调用方, 必须先按
+        ``far_field_size / region`` 把它缩放, 才能与模型远场比较 ——
+        因为一旦涉及填充, 远场像素覆盖的物理范围就与瞳面像素不同了。
         """
         return self._far_field_size
 
@@ -760,31 +716,28 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         phase_slm: torch.Tensor,
         amplitude: torch.Tensor,
     ) -> torch.Tensor:
-        """Differentiable far-field intensity of the current coefficients.
+        """当前系数的可微远场强度。
 
-        Mirrors the digital twin's convention:
-        ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` with
-        ``U = A * exp(1j * patch)``.
+        与数字孪生的约定一致:
+        ``|fftshift(fft2(ifftshift(U), norm="ortho"))|**2`` 且
+        ``U = A * exp(1j * patch)``。
 
-        ``patch`` follows the twin exactly: the SLM phase and the aberration
-        are summed first and the *sum* is then masked, because the twin applies
-        ``nan_to_num(phi_slm + aberration, nan=0.0)`` and the aberration is NaN
-        outside the circular aperture. The total phase is therefore flat
-        (zero) outside the aperture while the Gaussian amplitude still applies
-        there -- multiplying only the aberration by the mask would instead
-        leave ``exp(1j * phi_slm)`` there and disagree with the twin.
+        ``patch`` 严格遵循孪生: 先把 SLM 相位与像差相加, 再对*和*做掩膜,
+        因为孪生施加的是 ``nan_to_num(phi_slm + aberration, nan=0.0)``,
+        而像差在圆形瞳面之外是 NaN。于是总相位在瞳面之外是平的 (零),
+        而高斯振幅在那里依然作用 —— 若只给像差乘掩膜, 那里就会留下
+        ``exp(1j * phi_slm)``, 从而与孪生不一致。
 
-        When ``far_field_size`` exceeds ``region`` the pupil field is zero-padded
-        to that size before the FFT. Padding does **not** change the field of
-        view -- the sampled extent stays ``lambda * f / d_slm`` -- it only
-        samples it more finely, by ``far_field_size / region``. That matters on
-        real benches: the far-field pixel pitch is ``lambda * f / (P * d_slm)``,
-        so an unpadded ``P = region = 256`` grid has a ~65 um pitch and renders
-        this bench's ~27 um spot as a sub-pixel delta (sigma ~0.4 px), which
-        cannot be compared with - let alone shaped against - a camera whose
-        pixels are ~2.2 um. The digital twin exposes the same knob through its
-        zero-padding size ``P``; see also ``generate_zernike_farfield_sim_report``
-        (FAR_N = 8192) for the canonical padded sampling.
+        当 ``far_field_size`` 大于 ``region`` 时, 瞳面光场会在 FFT 之前被
+        零填充到该尺寸。填充**不会**改变视场 —— 采样范围仍是
+        ``lambda * f / d_slm`` —— 它只是以 ``far_field_size / region``
+        倍的精细度去采样它。这在真实台架上很重要: 远场像素间距是
+        ``lambda * f / (P * d_slm)``, 所以未填充的 ``P = region = 256``
+        网格间距约 65 um, 会把本台架约 27 um 的光斑渲染成一个亚像素的
+        delta (sigma ~0.4 px), 既无法与像素约 2.2 um 的相机比较, 更谈不上
+        拿它做整形。数字孪生通过其零填充尺寸 ``P`` 暴露同一个开关;
+        规范的填充采样另见 ``generate_zernike_farfield_sim_report``
+        (FAR_N = 8192)。
         """
         torch = _torch()
         aberration = torch.einsum("j,jhw->hw", coefficients, self._basis_t)
@@ -805,20 +758,19 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     def _intensity_loss(
         self, intensity: torch.Tensor, target: torch.Tensor
     ) -> torch.Tensor:
-        """Peak-normalized MSE between an intensity map and the target.
+        """强度图与目标之间的峰值归一化 MSE。
 
-        Mirrors :meth:`DifferentiableBeamOptimizer._intensity_loss` exactly:
-        peak-normalize to a maximum of 1.0 and take the mean squared
-        difference. Peak normalization in float32 avoids the underflow that
-        energy normalization suffers when the FFT concentrates energy in a few
-        pixels; the ``+ PEAK_EPS`` term guards a zero peak.
+        与 :meth:`DifferentiableBeamOptimizer._intensity_loss` 完全一致:
+        峰值归一化到最大 1.0 后取均方差。float32 下的峰值归一化避免了
+        能量归一化在 FFT 把能量集中到少数像素时所遭受的下溢;
+        ``+ PEAK_EPS`` 项则保护零峰值的情形。
 
         Args:
-            intensity: 2D intensity tensor, normalized by its own peak.
-            target: 2D peak-normalized target tensor.
+            intensity: 用自身峰值归一化的二维强度张量。
+            target: 二维峰值归一化的目标张量。
 
         Returns:
-            Scalar MSE loss tensor, differentiable w.r.t. ``intensity``.
+            标量 MSE 损失张量, 对 ``intensity`` 可微。
         """
         torch = _torch()
         normalized = intensity / (intensity.max() + PEAK_EPS)
@@ -830,35 +782,30 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         target: torch.Tensor,
         peak_anchor: torch.Tensor,
     ) -> torch.Tensor:
-        """Measurement-anchored loss used for the gradient step.
+        """用于梯度那一步的测量锚定损失。
 
-        The target and the normalization scale both come from the measured
-        image; only the residual is evaluated on the model. This is the
-        non-degenerate form of the measurement-anchored gradient of
-        ``differentiable_beam.py``: evaluating the peak-normalized loss at the
-        measurement against the measurement as its own target would give an
-        identically zero upstream gradient.
+        目标与归一化尺度都来自实测图像; 只有残差在模型上求值。这是
+        ``differentiable_beam.py`` 里测量锚定梯度的非退化形式: 在测量处
+        以测量自身为目标求峰值归一化损失, 会给出恒为零的上游梯度。
 
         Args:
-            intensity: 2D model intensity tensor.
-            target: 2D peak-normalized measured tensor.
-            peak_anchor: Scalar tensor, the measured peak used as the
-                normalization scale.
+            intensity: 二维模型强度张量。
+            target: 二维峰值归一化的实测张量。
+            peak_anchor: 标量张量, 用作归一化尺度的实测峰值。
 
         Returns:
-            Scalar loss tensor, differentiable w.r.t. ``intensity``.
+            标量损失张量, 对 ``intensity`` 可微。
         """
         torch = _torch()
         return torch.mean((intensity / peak_anchor - target) ** 2)
 
     # ------------------------------------------------------------------
-    # Input preparation and bookkeeping
+    # 输入准备与记账
     # ------------------------------------------------------------------
     def _validate_phase(self, phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
-        """Validate the fixed SLM phase map and return it as a 2D array.
+        """校验固定的 SLM 相位图并以二维数组返回。
 
-        The phase is consumed as **raw unwrapped radians**; this method never
-        wraps or rescales it.
+        该相位以**未包裹的原始弧度**消费; 本方法绝不做包裹或缩放。
         """
         phase = np.asarray(phase_slm, dtype=np.float64)
         if phase.ndim != 2:
@@ -873,7 +820,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return phase
 
     def _resolve_amplitude(self, source_amplitude: npt.NDArray[np.floating] | None) -> npt.NDArray[np.floating]:
-        """Return the amplitude to use, defaulting to the stored one."""
+        """返回要使用的振幅, 默认取已存的那份。"""
         if source_amplitude is None:
             return self._source_amplitude
         amplitude = np.asarray(source_amplitude, dtype=np.float64)
@@ -887,20 +834,19 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         return amplitude
 
     def _target_grid(self) -> tuple[int, int]:
-        """Grid the measured frame must be resampled onto for the loss.
+        """损失计算要求实测帧被重采样到的网格。
 
-        This is the **far-field** grid, not the pupil grid: ``_far_field_intensity``
-        zero-pads the pupil to ``far_field_size`` before the FFT, so it returns
-        ``far_field_size``-square intensity, and the residual in
-        ``_anchored_intensity_loss`` is only meaningful when the measurement lives
-        on that same grid. When no padding is configured the two coincide.
+        这是**远场**网格, 而不是瞳面网格: ``_far_field_intensity``
+        会在 FFT 之前把瞳面零填充到 ``far_field_size``, 所以它返回的是
+        ``far_field_size`` 见方的强度, 而 ``_anchored_intensity_loss``
+        里的残差只有当测量也落在同一个网格上时才有意义。未配置填充时
+        两者恰好相同。
 
-        Fixing this is what makes ``far_field_size`` usable at all. Previously the
-        measurement was resampled to ``region`` while the prediction was
-        ``far_field_size``, so every ``update()`` with ``far_field_size > region``
-        raised a shape mismatch -- which is precisely the configuration the
-        ``far_field_size`` docstring calls mandatory for real benches, because an
-        unpadded grid samples this bench's ~27 um spot as a sub-pixel delta.
+        正是修好这一点才让 ``far_field_size`` 真正可用。此前测量被重采样
+        到 ``region`` 而预测是 ``far_field_size``, 于是每一个满足
+        ``far_field_size > region`` 的 ``update()`` 都抛形状不匹配 ——
+        而这恰恰是 ``far_field_size`` 的 docstring 对真实台架所要求的配置,
+        因为未填充的网格会把本台架约 27 um 的光斑采样成一个亚像素 delta。
         """
         pad = int(self._far_field_size)
         side = pad if pad > 0 else int(self._region)
@@ -909,19 +855,18 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     def _prepare_measurement(
         self, i_meas: npt.NDArray[np.floating]
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Resize, peak-normalize and tensorize a measured far field.
+        """对实测远场做缩放、峰值归一化并转成张量。
 
         Args:
-            i_meas: 2D measured intensity, any shape (real CCD frames are
-                250x248 while the model grid is square).
+            i_meas: 二维实测强度, 任意形状 (真实 CCD 帧是 250x248,
+                而模型网格是正方形)。
 
         Returns:
-            Tuple of the peak-normalized target tensor and the scalar
-            measured-peak tensor used as the gradient anchor.
+            (峰值归一化的目标张量, 用作梯度锚点的标量实测峰值张量) 元组。
 
         Raises:
-            ValueError: If the measurement is not 2D, is not finite, has no
-                positive peak, or cannot be resized to the model grid.
+            ValueError: 测量不是二维、含非有限值、没有正峰值, 或无法缩放到
+                模型网格时。
         """
         torch = _torch()
         measured = np.asarray(i_meas, dtype=np.float64)
@@ -954,7 +899,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         )
 
     def _update_stagnation(self, loss_value: float) -> None:
-        """Advance the plateau counter used by :attr:`is_converged`."""
+        """推进 :attr:`is_converged` 所用的平台期计数器。"""
         previous_best = self._best_value
         if loss_value <= ABSOLUTE_FLOOR:
             self._converged = True

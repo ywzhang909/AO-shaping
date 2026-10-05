@@ -1,9 +1,9 @@
-"""Tabu-search algorithm components.
+"""禁忌搜索算法组件。
 
-Import directly by full path::
+按全路径直接导入::
 
     from ao_shaping.algorithm.tabu.tabu_search import TabuSearchRunner, TabuMemory
 
-This ``__init__`` is docstring-only to avoid a circular-import cascade; all public
-names are exposed through the top-level ``ao_shaping.algorithm`` facade.
+本 ``__init__`` 只有 docstring, 以避免循环导入级联; 所有公开名字都经由顶层
+``ao_shaping.algorithm`` 门面暴露。
 """

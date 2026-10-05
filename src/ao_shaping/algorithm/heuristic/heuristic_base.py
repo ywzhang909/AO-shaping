@@ -1,24 +1,22 @@
-"""Base class for heuristic optimization algorithms.
+"""启发式优化算法的基类。
 
-Provides a common interface for switching between different optimizers.
+为在不同优化器之间切换提供统一接口。
 
-Concrete optimizers **register themselves**; this module never imports them.
-Adding an algorithm therefore touches exactly one new module (which declares
-``_registry_key``) and nothing here -- the Open/Closed Principle holds because
-:meth:`HeuristicOptimizer.create` is a dict lookup, not an ``if``/``elif`` chain.
+具体优化器**自行注册**; 本模块从不导入它们。因此新增一个算法只会多碰一个新
+模块 (它声明 ``_registry_key``), 这里什么也不用动 -- 开闭原则成立, 因为
+:meth:`HeuristicOptimizer.create` 只是一次 dict 查找, 而不是 ``if``/``elif``
+链。
 
-Registration happens at subclass-definition time via ``__init_subclass__``, so a
-concrete optimizer is available as soon as its module has been imported. The
-top-level ``ao_shaping.algorithm`` facade imports every concrete optimizer, so
-importing anything under ``ao_shaping.algorithm.heuristic`` has already populated
-the registry.
+注册发生在子类定义时, 借助 ``__init_subclass__`` 完成, 所以一个具体优化器在
+它的模块被导入之后就已经可用。顶层 ``ao_shaping.algorithm`` 门面会导入每一个
+具体优化器, 所以导入 ``ao_shaping.algorithm.heuristic`` 下的任何东西时, 注册表
+早已填好。
 
-This module does no fault tolerance. ``create`` forwards every keyword it does
-not own straight to the concrete constructor, so offering an option an algorithm
-does not support raises ``TypeError`` from that constructor -- naming the
-offending argument -- instead of being silently dropped here. Callers that present
-a superset of options are expected to know which algorithms accept which; see
-``search.POPULATION_ALGORITHMS`` for the population-size case.
+本模块不做任何容错。``create`` 会把每一个它不拥有的关键字原样转发给具体构造
+函数, 所以传入某个算法不支持的选项时, 会由该构造函数抛出 ``TypeError`` --
+并指名道姓地指出那个参数 -- 而不会在这里被悄悄丢掉。那些提供超集选项的调用方
+本来就应该知道哪些算法接受哪些选项; 种群规模的情形见
+``search.POPULATION_ALGORITHMS``。
 
 Example:
     >>> from ao_shaping.algorithm.heuristic.heuristic_base import (
@@ -50,10 +48,10 @@ from ao_shaping.algorithm.base import RegisteredBase
 
 
 class OptimizerType(Enum):
-    """Available optimizer types.
+    """可用的优化器类型。
 
-    Every member needs a registered implementation, because
-    :meth:`HeuristicOptimizer.create` is expected to serve the whole enum.
+    每一个成员都需要一个已注册的实现, 因为 :meth:`HeuristicOptimizer.create`
+    预期要服务整个枚举。
     """
 
     GA = auto()
@@ -67,10 +65,10 @@ class OptimizerType(Enum):
 
 @dataclass
 class OptimizerConfig:
-    """Common optimizer configuration.
+    """优化器通用配置。
 
-    These are the arguments :meth:`HeuristicOptimizer.create` consumes on the
-    caller's behalf; every other keyword is forwarded to the constructor.
+    这些就是 :meth:`HeuristicOptimizer.create` 代调用方消费掉的参数; 其余每个
+    关键字都转发给具体构造函数。
     """
 
     n_iterations: int = 1000
@@ -80,23 +78,21 @@ class OptimizerConfig:
 
 
 class HeuristicOptimizer(RegisteredBase):
-    """Abstract base class for heuristic optimizers.
+    """启发式优化器的抽象基类。
 
-    All heuristic algorithms inherit from this class for uniform interface.
+    所有启发式算法都继承本类, 以获得统一接口。
 
-    Subclasses opt into the :meth:`create` factory by declaring
-    ``_registry_key``; they are then registered automatically::
+    子类通过声明 ``_registry_key`` 接入 :meth:`create` 工厂; 声明后即被自动注册::
 
         class MyAlgorithm(HeuristicOptimizer):
             _registry_key = OptimizerType.MY_ALGORITHM
     """
 
-    #: This family's registry, keyed by :class:`OptimizerType`.
+    #: 本家族的注册表, 以 :class:`OptimizerType` 为键。
     _registry: ClassVar[dict[OptimizerType, type[HeuristicOptimizer]]] = {}
 
-    #: Keyword arguments consumed by :meth:`create` rather than forwarded to a
-    #: concrete constructor. Derived from :class:`OptimizerConfig` so a new
-    #: config field is reserved automatically.
+    #: 由 :meth:`create` 消费、而非转发给具体构造函数的关键字参数。取自
+    #: :class:`OptimizerConfig`, 所以新增一个配置字段会被自动保留。
     _CONFIG_KEYS: ClassVar[frozenset[str]] = frozenset(
         OptimizerConfig.__dataclass_fields__
     )
@@ -107,16 +103,16 @@ class HeuristicOptimizer(RegisteredBase):
         config: OptimizerConfig | None = None,
         random_state: np.random.Generator | None = None,
     ):
-        """Initialize optimizer.
+        """初始化优化器。
 
         Args:
-            dim: Dimension of the optimization problem. Must be positive.
-            config: Common configuration. If None, uses default.
-            random_state: Random generator for reproducibility. When None, one
-                is derived from ``config.seed`` so a seeded run is reproducible.
+            dim: 优化问题的维度。必须为正。
+            config: 通用配置。为 None 时用默认值。
+            random_state: 用于可复现性的随机数生成器。为 None 时由 ``config.seed``
+                派生, 于是带种子的运行是可复现的。
 
         Raises:
-            ValueError: If ``dim`` is not positive.
+            ValueError: 若 ``dim`` 不是正数。
         """
         self._validate_dim(dim)
         self.dim = dim
@@ -136,40 +132,40 @@ class HeuristicOptimizer(RegisteredBase):
         fitness_fn: Callable[[npt.NDArray[np.float64]], float],
         init_x: npt.NDArray[np.float64] | None = None,
     ) -> tuple[npt.NDArray[np.float64], float]:
-        """Run optimization.
+        """执行优化。
 
         Args:
-            fitness_fn: Fitness function to minimize.
-            init_x: Initial point.
+            fitness_fn: 待最小化的适应度函数。
+            init_x: 初始点。
 
         Returns:
-            Tuple of (best_solution, best_fitness).
+            (best_solution, best_fitness) 二元组。
         """
         pass
 
     @property
     def best_solution(self) -> npt.NDArray[np.float64] | None:
-        """Return best solution found."""
+        """返回找到的最佳解。"""
         return self._best_solution
 
     @property
     def best_fitness(self) -> float | None:
-        """Return best fitness found."""
+        """返回找到的最佳适应度。"""
         return self._best_fitness
 
     @property
     def convergence_history(self) -> list[float]:
-        """Return a copy of the convergence history (best fitness per iteration).
+        """返回收敛历史 (每轮迭代的最佳适应度) 的副本。
 
-        A copy is returned so callers cannot mutate the recorded history.
+        返回副本, 是为了让调用方无法改动已记录的历史。
         """
         return self._convergence_history.copy()
 
     def reset(self) -> None:
-        """Return the instance to its pre-run state so it can be reused.
+        """把实例恢复到运行前的状态, 使其可被复用。
 
-        Clears the recorded best solution / fitness and the convergence history,
-        then delegates to :meth:`_reset` for subclass state.
+        清空已记录的最佳解 / 适应度与收敛历史, 然后把子类状态的处理委托给
+        :meth:`_reset`。
         """
         self._best_solution = None
         self._best_fitness = None
@@ -178,7 +174,7 @@ class HeuristicOptimizer(RegisteredBase):
 
     @classmethod
     def _describe_keys(cls) -> list[str]:
-        """Return the registered selector names for error messages."""
+        """返回已注册的选择器名字, 供错误消息使用。"""
         return [member.name for member in cls.registered()]
 
     @classmethod
@@ -188,22 +184,21 @@ class HeuristicOptimizer(RegisteredBase):
         dim: int,
         **kwargs: Any,
     ) -> HeuristicOptimizer:
-        """Create an optimizer by type, looked up in the registry.
+        """按类型创建一个优化器, 在注册表里查找。
 
         Args:
-            optimizer_type: Registered selector (see :meth:`registered`).
-            dim: Dimension of the problem.
+            optimizer_type: 已注册的选择器 (见 :meth:`registered`)。
+            dim: 问题的维度。
             **kwargs: ``n_iterations`` / ``bounds`` / ``early_stop_threshold`` /
-                ``seed`` configure the run and are consumed here. Every other
-                keyword is forwarded to the concrete constructor, which raises
-                ``TypeError`` if it does not accept it.
+                ``seed`` 用于配置本次运行, 在这里被消费掉。其余每个关键字都
+                转发给具体构造函数, 由它在不接受时抛出 ``TypeError``。
 
         Returns:
-            Optimizer instance.
+            优化器实例。
 
         Raises:
-            ValueError: If ``optimizer_type`` has no registered implementation.
-            ValueError: If ``dim`` is not positive.
+            ValueError: 若 ``optimizer_type`` 没有已注册的实现。
+            ValueError: 若 ``dim`` 不是正数。
         """
         config = OptimizerConfig(
             n_iterations=kwargs.get("n_iterations", OptimizerConfig.n_iterations),
@@ -233,9 +228,9 @@ class HeuristicOptimizer(RegisteredBase):
         random_state: np.random.Generator,
         **kwargs: Any,
     ) -> HeuristicOptimizer:
-        """Build an instance from the common config plus algorithm extras.
+        """由通用配置加上算法特有参数构造实例。
 
-        Overridden by the optimizers whose constructor takes its own parameter
-        dataclass instead of an :class:`OptimizerConfig`.
+        那些构造函数接收自己专属参数 dataclass (而非 :class:`OptimizerConfig`)
+        的优化器会覆写本方法。
         """
         return cls(dim=dim, config=config, random_state=random_state, **kwargs)

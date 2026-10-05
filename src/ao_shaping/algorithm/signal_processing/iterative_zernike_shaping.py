@@ -1,31 +1,29 @@
-"""Iterative Zernike + phase-only SLM beam-shaping optimizer (torch-differentiable).
+"""迭代式 Zernike + 纯相位 SLM 光束整形优化器 (torch 可微)。
 
-Implements a two-stage iterative scheme on the 2f-Fourier bench:
+在 2f-傅里叶台上实现一个两阶段迭代方案:
 
-* **Stage A — Zernike calibration**: with an initial random SLM phase, learn a
-  small set (≤ n_max) of Zernike coefficients (raw radians) so that the
-  *simulated* far-field matches a *reference* far-field (the "actual" target).
-* **Stage B — Phase-only shaping**: freeze the calibrated Zernike coefficients,
-  optimize the free-form SLM phase so the far-field matches a square target.
-* **Iteration A↔B**: alternate A and B (early-stop) until the square converges.
+* **阶段 A —— Zernike 标定**: 从一个初始随机 SLM 相位出发, 学出一小组
+  (≤ n_max) Zernike 系数 (原始弧度), 使*仿真*远场与*参考*远场 (即 "实际"
+  目标) 相匹配。
+* **阶段 B —— 纯相位整形**: 冻结标定好的 Zernike 系数, 优化自由形式的
+  SLM 相位, 使远场与方形目标相匹配。
+* **A↔B 迭代**: 交替执行 A 与 B (提前停止), 直至方斑收敛。
 
-The forward model is a zero-padded Fraunhofer FFT (float64):
+正向模型是带零填充的夫琅禾费 FFT (float64):
 
     field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
     far_field = fftshift(fft2(ifftshift(pad(field))))
 
-Zernike basis maps come from the canonical ``ZernikeGenerator`` and are
-converted to constant torch tensors; only their coefficients are trainable.
+Zernike 基图来自 canonical 的 ``ZernikeGenerator`` 并转成常量 torch 张量;
+只有它们的系数是可训练的。
 
-All phase generators return **raw unwrapped radians**; the only mod-2π wrap is
-the SLM driver ``create_phase_from_array`` (not exercised in simulation).
+所有相位生成器都返回**未包裹的原始弧度**; 唯一的 mod-2π 包裹点是 SLM 驱动
+``create_phase_from_array`` (仿真中不走这条路)。
 
-Class-based optimizer convention (AGENTS.md): ``__init__`` validates + sets
-state; ``update()`` performs one step and returns the next state; ``run()``
-returns a result dataclass.
+基于类的优化器约定 (AGENTS.md): ``__init__`` 校验 + 设置状态;
+``update()`` 执行一步并返回下一个状态; ``run()`` 返回结果 dataclass。
 
-Requires torch; import is lazy (``_torch()``) so the package imports without
-torch installed.
+需要 torch; 导入是惰性的 (``_torch()``), 因此没装 torch 时本包仍可导入。
 """
 
 from __future__ import annotations
@@ -47,32 +45,30 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
-# Result / config containers
+# 结果 / 配置容器
 # ---------------------------------------------------------------------------
 @dataclass
 class IterativeZernikeShapingConfig:
-    """Parameters for the iterative Zernike + phase-only shaping optimizer.
+    """迭代式 Zernike + 纯相位整形优化器的参数。
 
     Attributes:
-        n_grid: SLM grid edge length (square) -- the pupil grid.
-        n_zernike: Maximum Zernike radial order (n_max). 0 = skip calibration.
-        target_side_px: Target square side length in far-field (camera) pixels,
-            i.e. pixels of the zero-padded far-field grid (``far_field_size``).
-        seed: RNG seed for reproducibility.
-        zernike_lr: Learning rate for Zernike calibration (Adam). Keep this small
-            (1e-3..1e-2); the far-field MSE landscape is rugged and a larger value
-            diverges to non-finite coefficients.
-        slm_lr: Learning rate for SLM phase shaping (cosine-decayed per pass).
-        calib_iters: Number of Adam steps per Zernike calibration pass.
-        shaping_iters: Number of Adam steps per SLM phase shaping pass.
-        max_outer_iters: Maximum number of A↔B outer iterations.
-        early_stop_patience: Stop outer loop after this many non-improving passes.
-        early_stop_min_delta: Minimum score improvement to count as "improved".
-        far_field_padding: Zero-padding factor for the Fraunhofer FFT. The
-            far-field grid is ``n_grid * far_field_padding``; a same-size FFT
-            undersamples the focal plane at ~1.1 px per waist radius (a model
-            constant) and aliases into a lattice. Must match the bench config
-            used to build the reference far-field.
+        n_grid: SLM 网格边长 (正方形) —— 即瞳面网格。
+        n_zernike: Zernike 最大径向阶数 (n_max)。0 = 跳过标定。
+        target_side_px: 远场 (相机) 像素计的目标方斑边长,
+            即零填充远场网格 (``far_field_size``) 的像素。
+        seed: 用于保证可复现的 RNG 种子。
+        zernike_lr: Zernike 标定的学习率 (Adam)。这个值要保持小
+            (1e-3..1e-2); 远场 MSE 的地形崎岖, 更大的值会让系数发散成非有限。
+        slm_lr: SLM 相位整形的学习率 (每轮按余弦衰减)。
+        calib_iters: 每轮 Zernike 标定的 Adam 步数。
+        shaping_iters: 每轮 SLM 相位整形的 Adam 步数。
+        max_outer_iters: A↔B 外层迭代的最大次数。
+        early_stop_patience: 连续这么多轮没有改进后停止外层循环。
+        early_stop_min_delta: 算作 "有改进" 所需的最小分数提升。
+        far_field_padding: 夫琅禾费 FFT 的零填充倍数。远场网格为
+            ``n_grid * far_field_padding``; 同尺寸的 FFT 会在每个束腰半径约
+            1.1 px 的尺度上欠采样焦平面 (这是一个模型常量), 并混叠成一个
+            点阵。必须与构建参考远场所用的台架配置一致。
     """
 
     n_grid: int = 64
@@ -89,7 +85,7 @@ class IterativeZernikeShapingConfig:
     far_field_padding: int = 8
 
     def __post_init__(self) -> None:
-        """Validate fields early (mirrors the optimizer constructor checks)."""
+        """尽早校验字段 (与优化器构造函数的检查对应)。"""
         if self.n_grid < 4:
             raise ValueError(f"n_grid must be >= 4, got {self.n_grid}")
         if self.n_zernike < 0:
@@ -107,13 +103,13 @@ class IterativeZernikeShapingConfig:
 
     @property
     def far_field_size(self) -> int:
-        """Edge length of the zero-padded far-field (camera) grid."""
+        """零填充远场 (相机) 网格的边长。"""
         return self.n_grid * self.far_field_padding
 
 
 @dataclass
 class IterativeZernikeShapingResult:
-    """Outcome of one full run of the iterative optimizer."""
+    """迭代优化器完整跑一轮的结果。"""
 
     zernike_coeffs: dict[tuple[int, int], float]
     slm_phase: npt.NDArray[np.floating]
@@ -126,19 +122,19 @@ class IterativeZernikeShapingResult:
 
 
 # ---------------------------------------------------------------------------
-# Torch lazy import
+# torch 惰性导入
 # ---------------------------------------------------------------------------
 _torch_module: Any = None
 
 
 def _torch() -> Any:
-    """Lazily import and cache torch.
+    """惰性导入并缓存 torch。
 
     Returns:
-        The ``torch`` module.
+        ``torch`` 模块。
 
     Raises:
-        RuntimeError: If torch is not installed.
+        RuntimeError: 若未安装 torch。
     """
     global _torch_module
     if _torch_module is None:
@@ -154,39 +150,39 @@ def _torch() -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Optimizer
+# 优化器
 # ---------------------------------------------------------------------------
 class IterativeZernikeShapingOptimizer:
-    """Two-stage iterative Zernike + phase-only SLM beam-shaping optimizer.
+    """两阶段迭代式 Zernike + 纯相位 SLM 光束整形优化器。
 
-    The forward model is:
+    正向模型为:
 
         field = gauss_pupil · exp(1j·(zernike_phase + slm_phase))
         far_field = fftshift(fft2(ifftshift(pad(field))))   (float64)
 
-    Zernike phase uses the canonical RZern grid convention:
-    - Grid: (np.arange(n) - (n-1)/2) / radius, radius = n/2 (unit circle at grid edge)
+    Zernike 相位使用 canonical 的 RZern 网格约定:
+    - 网格: (np.arange(n) - (n-1)/2) / radius, radius = n/2 (单位圆在网格边缘)
     - R = sqrt(x² + y²), θ = atan2(y, x)
     - Z_n^m(r,θ) = R_n^|m|(r) · (cos(mθ) if m≥0 else sin(|m|θ))
-    - Basis maps come from the canonical ``ZernikeGenerator``.
+    - 基图来自 canonical 的 ``ZernikeGenerator``。
 
-    The class follows the class-based optimizer convention:
-    - ``__init__``: validate config, precompute static tensors (gauss pupil,
-      target, Zernike basis modes).
-    - ``calibrate_zernike``: one pass of Stage A (returns updated coeffs).
-    - ``shape_phase``: one pass of Stage B (returns updated slm phase).
-    - ``update``: one outer iteration (A then B, or B only if n_zernike=0).
-    - ``run``: full loop with early stopping; returns result dataclass.
+    本类遵循基于类的优化器约定:
+    - ``__init__``: 校验配置, 预计算静态张量 (高斯瞳面、目标、
+      Zernike 基模式)。
+    - ``calibrate_zernike``: 阶段 A 的一轮 (返回更新后的系数)。
+    - ``shape_phase``: 阶段 B 的一轮 (返回更新后的 slm 相位)。
+    - ``update``: 一次外层迭代 (先 A 再 B, 若 n_zernike=0 则只 B)。
+    - ``run``: 带提前停止的完整循环; 返回结果 dataclass。
     """
 
     def __init__(self, config: IterativeZernikeShapingConfig) -> None:
-        """Initialize the optimizer.
+        """初始化优化器。
 
         Args:
-            config: Optimizer parameters.
+            config: 优化器参数。
 
         Raises:
-            ValueError: If n_grid < 4 or n_zernike < 0.
+            ValueError: 若 n_grid < 4 或 n_zernike < 0。
         """
         if config.n_grid < 4:
             raise ValueError(f"n_grid must be >= 4, got {config.n_grid}")
@@ -204,12 +200,12 @@ class IterativeZernikeShapingOptimizer:
         self._config = config
         t = _torch()
 
-        # --- Static tensors (precomputed once) ---
+        # --- 静态张量 (只预计算一次) ---
         n = config.n_grid
         m = config.far_field_size
         radius = n / 2.0
 
-        # Normalized coordinate grid (canonical RZern convention)
+        # 归一化坐标网格 (canonical 的 RZern 约定)
         coords = (t.arange(n, dtype=t.float64) - (n - 1) / 2.0) / radius
         y, x = t.meshgrid(coords, coords, indexing="ij")  # shape (n, n)
         self._x = x
@@ -219,13 +215,13 @@ class IterativeZernikeShapingOptimizer:
         self._far_field_size = m
         self._pad = (m - n) // 2
 
-        # Gaussian pupil on the aperture, same convention as the bench
-        # (exp(-r^2/w0^2) with w0 = aperture/3.5, truncated at the edge r = 1).
+        # 瞳面上的高斯光斑, 与台架同约定
+        # (exp(-r^2/w0^2), w0 = aperture/3.5, 在边缘 r = 1 处截断)。
         w0_norm = 2.0 / 3.5
         aperture_mask = (self._r <= 1.0).to(t.float64)
         self._gauss = t.exp(-(self._r**2) / (w0_norm**2)) * aperture_mask
 
-        # Zernike basis modes (n=1..n_zernike, piston excluded)
+        # Zernike 基模式 (n=1..n_zernike, 排除 piston)
         self._zernike_modes: list[tuple[int, int]] = []
         if config.n_zernike > 0:
             self._zernike_modes = [
@@ -251,7 +247,7 @@ class IterativeZernikeShapingOptimizer:
             self._basis = []
         self._n_zernike_params = len(self._zernike_modes)
 
-        # Target (square, normalized to sum=1)
+        # 目标 (方形, 归一化到总和=1)
         target = t.zeros((m, m), dtype=t.float64)
         half = m // 2
         s = config.target_side_px
@@ -260,7 +256,7 @@ class IterativeZernikeShapingOptimizer:
         self._target = target
         self._target_support = (target > 0).to(t.float64)
 
-        # --- Trainable parameters (initialized to zero; reset in run()) ---
+        # --- 可训练参数 (初始化为零; 在 run() 里重置) ---
         self._zernike_coeffs: t.nn.Parameter | None = None
         self._slm_phase: t.nn.Parameter | None = None
 
@@ -274,36 +270,36 @@ class IterativeZernikeShapingOptimizer:
         )
 
     def _zernike_basis(self) -> list[tuple[int, int, Any]]:
-        """Return the cached basis tensors built by the canonical generator.
+        """返回由 canonical 生成器构建好的基张量缓存。
 
-        The maps come from :class:`ZernikeGenerator` (``generate_polynomial``,
-        NaN outside the aperture replaced by 0) and are converted to constant
-        torch tensors once in ``__init__``; only the coefficients are trainable.
-        Re-deriving the radial polynomial here instead would be a second,
-        drifting copy of the canonical Zernike math.
+        这些基图来自 :class:`ZernikeGenerator` (``generate_polynomial``,
+        瞳面外的 NaN 替换为 0), 并在 ``__init__`` 里一次性转成常量
+        torch 张量; 只有系数是可训练的。
+        在这里重新推导径向多项式, 就会变成 canonical Zernike 数学的第二份
+        会漂移的副本。
 
         Returns:
-            List of (n, m, basis_tensor) tuples.
+            (n, m, basis_tensor) 元组列表。
         """
         return self._basis
 
     # ------------------------------------------------------------------
-    # Forward model
+    # 正向模型
     # ------------------------------------------------------------------
     def _far_field(self, zernike_coeffs: Any, slm_phase: Any) -> Any:
-        """Compute far-field intensity from Zernike + SLM phase.
+        """由 Zernike 相位 + SLM 相位算出远场强度。
 
-        The pupil field is zero-padded to the far-field grid and transformed by
-        a centred Fraunhofer FFT (``fftshift(fft2(ifftshift(...)))``), matching
-        ``slm_shaping_bench.forward_intensity``.
+        瞳面光场零填充到远场网格后, 用居中形式的夫琅禾费 FFT
+        (``fftshift(fft2(ifftshift(...)))``) 变换, 与
+        ``slm_shaping_bench.forward_intensity`` 一致。
 
         Args:
-            zernike_coeffs: 1-D tensor of Zernike coefficients (raw radians),
-                length = n_zernike_params.
-            slm_phase: 2-D tensor of SLM phase (raw radians), shape (n, n).
+            zernike_coeffs: Zernike 系数的一维张量 (原始弧度),
+                长度 = n_zernike_params。
+            slm_phase: SLM 相位的二维张量 (原始弧度), 形状 (n, n)。
 
         Returns:
-            Normalized far-field intensity tensor (sum=1), shape (M, M).
+            归一化的远场强度张量 (总和=1), 形状 (M, M)。
         """
         t = _torch()
         if zernike_coeffs is not None and self._n_zernike_params > 0:
@@ -328,7 +324,7 @@ class IterativeZernikeShapingOptimizer:
         return intensity
 
     def _zernike_phase(self, coeffs: dict[tuple[int, int], float]) -> npt.NDArray[np.floating]:
-        """Zernike phase (raw radians) for a coefficient dict, shape (n, n)."""
+        """由系数字典求 Zernike 相位 (原始弧度), 形状 (n, n)。"""
         t = _torch()
         n = self._config.n_grid
         phase = t.zeros((n, n), dtype=t.float64)
@@ -339,55 +335,54 @@ class IterativeZernikeShapingOptimizer:
         return phase.numpy()
 
     def _score(self, intensity: Any) -> Any:
-        """Compute composite quality score (PIB + uniformity).
+        """计算综合质量分 (PIB + 均匀度)。
 
-        Score = 0.5 * PIB + 0.5 * (1 - min(CV/0.3, 1))
+        分数 = 0.5 * PIB + 0.5 * (1 - min(CV/0.3, 1))
 
         Args:
-            intensity: Normalized far-field intensity tensor.
+            intensity: 归一化的远场强度张量。
 
         Returns:
-            Scalar tensor (composite score, higher is better).
+            标量张量 (综合分数, 越大越好)。
         """
         t = _torch()
-        # Fixed centred support (matches compute_metrics with center=None). An
-        # argmax-rolled box is discontinuous: for speckle-like fields the argmax
-        # hops between near-equal grains under a ~1e-3 model change, so the
-        # optimizer chases a box that no longer covers the beam.
+        # 固定的居中支撑区 (与 center=None 的 compute_metrics 一致)。滚动
+        # 跟随 argmax 的方框是不连续的: 对类散斑光场, ~1e-3 的模型变化就足以
+        # 让 argmax 在近乎等强的晶粒之间跳, 于是优化器追一个已经盖不住光束
+        # 的方框。
         support = self._target_support
         pib = (intensity * support).sum()
         vals = intensity[support > 0]
         if vals.numel() == 0 or vals.mean() <= 0:
             cv = t.tensor(float("inf"), dtype=t.float64, device=intensity.device)
         else:
-            # Population std (unbiased=False) to match numpy's np.std, which the
-            # bench composite_score uses -- otherwise the two objectives differ.
+            # 用总体标准差 (unbiased=False) 以匹配 numpy 的 np.std,
+            # 台架的 composite_score 用的正是它 -- 否则两个目标函数会不一致。
             cv = vals.std(unbiased=False) / (vals.mean() + 1e-12)
-        # Keep in sync with slm_shaping_bench.composite_from_pib_cv.
+        # 与 slm_shaping_bench.composite_from_pib_cv 保持同步。
         return 0.5 * pib + 0.5 * (1.0 / (1.0 + cv))
 
     # ------------------------------------------------------------------
-    # Stage A: Zernike calibration
+    # 阶段 A: Zernike 标定
     # ------------------------------------------------------------------
     def calibrate_zernike(
         self,
         actual_far_field: Any,
         initial_slm_phase: Any,
     ) -> dict[tuple[int, int], float]:
-        """Run one Zernike calibration pass (Stage A).
+        """跑一轮 Zernike 标定 (阶段 A)。
 
-        Learns Zernike coefficients (raw radians) to minimize the difference
-        between the simulated far-field and the reference "actual" far-field,
-        given a fixed initial SLM phase.
+        在给定固定初始 SLM 相位的前提下, 学习 Zernike 系数 (原始弧度),
+        使仿真远场与参考 "实际" 远场之间的差异最小。
 
         Args:
-            actual_far_field: Reference far-field (numpy or torch), shape (n, n),
-                normalized to sum=1.
-            initial_slm_phase: Initial SLM phase (numpy or torch), shape (n, n),
-                raw radians (not wrapped).
+            actual_far_field: 参考远场 (numpy 或 torch), 形状 (n, n),
+                归一化到总和=1。
+            initial_slm_phase: 初始 SLM 相位 (numpy 或 torch), 形状 (n, n),
+                原始弧度 (未包裹)。
 
         Returns:
-            Dictionary mapping (n, m) to calibrated coefficient (raw radians).
+            把 (n, m) 映射到标定后系数 (原始弧度) 的字典。
         """
         t = _torch()
         if self._n_zernike_params == 0:
@@ -403,15 +398,15 @@ class IterativeZernikeShapingOptimizer:
         else:
             slm_init = initial_slm_phase.to(t.float64)
 
-        # Trainable Zernike coefficients
+        # 可训练的 Zernike 系数
         zernike_coeffs = t.nn.Parameter(
             t.zeros(self._n_zernike_params, dtype=t.float64)
         )
         opt = t.optim.Adam([zernike_coeffs], lr=self._config.zernike_lr)
 
-        # Sum-normalised far field => per-pixel values ~1/m^2 and raw MSE ~1e-10,
-        # where Adam's default eps=1e-8 dominates the gradient. Scaling the loss
-        # by the target keeps it O(1) so the learning rate actually applies.
+        # 和取归一化的远场 => 逐像素值 ~1/m^2, 原始 MSE ~1e-10,
+        # 那里 Adam 默认的 eps=1e-8 会盖过梯度。用目标做缩放让损失保持
+        # O(1), 这样学习率才真正起作用。
         scale = t.mean(target_ff**2) + 1e-12
         for _ in range(self._config.calib_iters):
             opt.zero_grad()
@@ -428,7 +423,7 @@ class IterativeZernikeShapingOptimizer:
                 )
                 break
 
-        # Extract calibrated coefficients
+        # 提取标定后的系数
         with t.no_grad():
             coeffs_dict: dict[tuple[int, int], float] = {}
             for i, (n, m, _) in enumerate(self._zernike_basis()):
@@ -436,26 +431,25 @@ class IterativeZernikeShapingOptimizer:
         return coeffs_dict
 
     # ------------------------------------------------------------------
-    # Stage B: SLM phase shaping
+    # 阶段 B: SLM 相位整形
     # ------------------------------------------------------------------
     def shape_phase(
         self,
         zernike_coeffs: dict[tuple[int, int], float] | None,
         initial_slm_phase: npt.NDArray[np.floating] | None = None,
     ) -> npt.NDArray[np.floating]:
-        """Run one SLM phase shaping pass (Stage B).
+        """跑一轮 SLM 相位整形 (阶段 B)。
 
-        Freezes the Zernike coefficients and optimizes the free-form SLM phase
-        to maximize the composite score (PIB + uniformity) against the square
-        target.
+        冻结 Zernike 系数, 对照方形目标优化自由形式的 SLM 相位,
+        使综合分数 (PIB + 均匀度) 最大化。
 
         Args:
-            zernike_coeffs: Frozen Zernike coefficients (raw radians), or None.
-            initial_slm_phase: Initial SLM phase (raw radians), shape (n, n).
-                If None, initialized to zeros.
+            zernike_coeffs: 冻结的 Zernike 系数 (原始弧度), 或 None。
+            initial_slm_phase: 初始 SLM 相位 (原始弧度), 形状 (n, n)。
+                为 None 时初始化为全零。
 
         Returns:
-            Optimized SLM phase (numpy, raw radians), shape (n, n).
+            优化后的 SLM 相位 (numpy, 原始弧度), 形状 (n, n)。
         """
         t = _torch()
         n = self._config.n_grid
@@ -484,8 +478,8 @@ class IterativeZernikeShapingOptimizer:
         best_phase = slm_phase.detach().clone()
 
         for i in range(iters):
-            # Cosine decay: a flat slm_lr makes Adam overshoot and the score
-            # oscillates, so the pass would end on an arbitrary (poor) iterate.
+            # 余弦衰减: 平直的 slm_lr 会让 Adam 过冲、分数震荡,
+            # 于是这一轮会停在一个任意的 (较差的) 迭代点上。
             for group in opt.param_groups:
                 group["lr"] = base_lr * 0.5 * (1.0 + np.cos(np.pi * i / max(iters, 1)))
             opt.zero_grad()
@@ -501,7 +495,7 @@ class IterativeZernikeShapingOptimizer:
         return best_phase.numpy()
 
     # ------------------------------------------------------------------
-    # One outer iteration
+    # 一次外层迭代
     # ------------------------------------------------------------------
     def update(
         self,
@@ -509,15 +503,15 @@ class IterativeZernikeShapingOptimizer:
         zernike_coeffs: dict[tuple[int, int], float],
         slm_phase: npt.NDArray[np.floating],
     ) -> tuple[dict[tuple[int, int], float], npt.NDArray[np.floating]]:
-        """Perform one outer iteration: Stage A (if n_zernike > 0) then Stage B.
+        """执行一次外层迭代: 阶段 A (若 n_zernike > 0), 然后阶段 B。
 
         Args:
-            actual_far_field: Reference far-field (for Stage A).
-            zernike_coeffs: Current Zernike coefficients.
-            slm_phase: Current SLM phase (raw radians).
+            actual_far_field: 参考远场 (供阶段 A 使用)。
+            zernike_coeffs: 当前 Zernike 系数。
+            slm_phase: 当前 SLM 相位 (原始弧度)。
 
         Returns:
-            Tuple of (updated zernike_coeffs, updated slm_phase).
+            (更新后的 zernike_coeffs, 更新后的 slm_phase) 元组。
         """
         if self._n_zernike_params > 0:
             zernike_coeffs = self.calibrate_zernike(actual_far_field, slm_phase)
@@ -525,44 +519,43 @@ class IterativeZernikeShapingOptimizer:
         return zernike_coeffs, slm_phase
 
     # ------------------------------------------------------------------
-    # Full run with early stopping
+    # 带提前停止的完整运行
     # ------------------------------------------------------------------
     def run(
         self,
         actual_far_field: npt.NDArray[np.floating],
         initial_slm_phase: npt.NDArray[np.floating] | None = None,
     ) -> IterativeZernikeShapingResult:
-        """Run the full iterative optimization loop.
+        """运行完整的迭代优化循环。
 
         Args:
-            actual_far_field: Reference far-field (the "actual" target), shape
-                (n, n), normalized to sum=1.
-            initial_slm_phase: Initial SLM phase (raw radians), shape (n, n).
-                If None, initialized to zeros (flat).
+            actual_far_field: 参考远场 (即 "实际" 目标), 形状 (n, n),
+                归一化到总和=1。
+            initial_slm_phase: 初始 SLM 相位 (原始弧度), 形状 (n, n)。
+                为 None 时初始化为全零 (平坦)。
 
         Returns:
-            IterativeZernikeShapingResult with all intermediates.
+            含全部中间量的 IterativeZernikeShapingResult。
         """
         t = _torch()
         cfg = self._config
         n = cfg.n_grid
 
-        # Shaping start.
+        # 整形起点。
         if initial_slm_phase is None:
             slm_phase = np.zeros((n, n), dtype=np.float64)
         else:
             slm_phase = np.asarray(initial_slm_phase, dtype=np.float64)
 
-        # Stage A must be evaluated with the same SLM phase the reference was
-        # built with (flat); using the shaping warm start would make the fit
-        # inconsistent with the reference.
+        # 阶段 A 必须用构建参考时所用的同一个 SLM 相位 (平坦) 来求值;
+        # 若用整形的暖启动, 拟合就会与参考不自洽。
         calibration_phase = np.zeros((n, n), dtype=np.float64)
 
         zernike_coeffs: dict[tuple[int, int], float] = {}
         score_history: list[dict[str, Any]] = []
         converged = False
 
-        # Compute initial score
+        # 计算初始分数
         t_arr = _torch()
         actual_t = t_arr.as_tensor(actual_far_field, dtype=t_arr.float64)
         slm_t = t_arr.as_tensor(slm_phase, dtype=t_arr.float64)
@@ -583,23 +576,22 @@ class IterativeZernikeShapingOptimizer:
         first_shape = True
 
         for outer in range(1, cfg.max_outer_iters + 1):
-            # Stage A (if applicable)
+            # 阶段 A (若适用)
             if self._n_zernike_params > 0:
                 zernike_coeffs = self.calibrate_zernike(
                     actual_far_field, calibration_phase
                 )
 
-            # The model adds the frozen Zernike to the SLM phase, so on the first
-            # shaping pass subtract it from the initial phase: otherwise the
-            # warm start is corrupted by a Zernike the model then re-adds.
+            # 模型会把冻结的 Zernike 加到 SLM 相位上, 所以第一轮整形要把它从初始
+            # 相位里减掉: 否则暖启动会被一份模型随后又加回来的 Zernike 污染。
             if first_shape and self._n_zernike_params > 0:
                 slm_phase = slm_phase - self._zernike_phase(zernike_coeffs)
                 first_shape = False
 
-            # Stage B
+            # 阶段 B
             slm_phase = self.shape_phase(zernike_coeffs, slm_phase)
 
-            # Compute score
+            # 计算分数
             zernike_vec = t_arr.zeros(self._n_zernike_params, dtype=t_arr.float64)
             for i, nm in enumerate(self._zernike_modes):
                 if nm in zernike_coeffs:
@@ -609,7 +601,7 @@ class IterativeZernikeShapingOptimizer:
             score = float(self._score(ff).item())
             score_history.append({"outer_iter": outer, "score": score, "stage": "A+B"})
 
-            # Early stopping
+            # 提前停止
             if score > best_score + cfg.early_stop_min_delta:
                 best_score = score
                 best_slm_phase = slm_phase.copy()
@@ -628,8 +620,8 @@ class IterativeZernikeShapingOptimizer:
                     )
                     break
 
-        # Return the best-scoring state (not the last), so ``final_score``,
-        # ``slm_phase`` and ``far_field`` all describe the same artifact.
+        # 返回分数最优的状态 (而非最后一个), 这样 ``final_score``、
+        # ``slm_phase`` 与 ``far_field`` 描述的都是同一个产物。
         return IterativeZernikeShapingResult(
             zernike_coeffs=best_zernike,
             slm_phase=best_slm_phase,

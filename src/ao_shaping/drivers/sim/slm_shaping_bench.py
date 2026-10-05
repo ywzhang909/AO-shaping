@@ -1,42 +1,34 @@
-"""Closed-loop SLM far-field beam-shaping simulation bench.
+"""闭环 SLM 远场整形仿真台架。
 
-This module provides a self-contained, hardware-free simulation of **single
-phase-only SLM** far-field beam shaping (the 2f Fourier model):
+本模块提供**单块纯相位 SLM** 远场整形 (2f 傅里叶模型) 的自包含、无硬件仿真:
 
     gaussian input field  ->  SLM phase exp(1j*phi)  ->  Fraunhofer far field
     ->  intensity on the (zero-padded) camera grid
 
-It re-uses ``beam_backend`` only for the input beam (``gaussian_pupil`` /
-``make_beam_config``); the focal plane is computed directly as a zero-padded
-FFT. It provides:
+它只把 ``beam_backend`` 用于入射光束 (``gaussian_pupil`` / ``make_beam_config``);
+焦平面则直接由一次补零 FFT 算出。它提供:
 
-* objective-function / quality metrics (PIB, efficiency, uniformity/CV,
-  Strehl, overlap, zero-order fraction, structure similarity) used as the
-  *objective functions* reported in the paper survey, and
-* reference *phase generators* / optimization loops that reproduce, at a
-  simulation level, the representative methods found in the literature
-  (Gerchberg-Saxton, IFTA, differentiable gradient descent, SPGD sensorless
-  black-box, Zernike-basis SPGD, and an analytic single-plate "amplitude"
-  target).
+* 目标函数 / 质量指标 (PIB、efficiency、uniformity/CV、Strehl、overlap、zero-order
+  fraction、structure similarity), 它们作为论文综述中所报告的*目标函数*;
+* 参考性的*相位生成器* / 优化环路, 在仿真层面复现文献中的代表性方法
+  (Gerchberg-Saxton、IFTA、可微分梯度下降、SPGD 无感知黑盒、Zernike 基 SPGD,
+  以及一个解析的"纯幅度"单板目标)。
 
-The intent is to let a single, reproducible script exercise many beam-shaping
-methods on one optical model and compare them with identical metrics.
+其目的是让单个可复现的脚本在同一个光学模型上跑遍多种整形方法, 并用完全相同的指标
+比较它们。
 
-All functions here use NumPy only, except ``differentiable_shape`` which needs
-torch. The torch import is lazy (inside the function), so the module imports
-cleanly without torch installed and the numpy paths stay usable.
+本模块除 ``differentiable_shape`` 之外只用 NumPy, 而后者需要 torch。torch 的 import 是
+惰性的 (在函数内部), 因此没装 torch 时本模块仍能干净地导入, 且 numpy 路径保持可用。
 
-Note on the physical model
---------------------------
-The 2f Fourier bench (SLM front focus -> f-lens -> camera back focus) maps the
-SLM pupil field to its **Fourier transform** (the lens phase + propagation to
-``z=f`` equals a Fraunhofer transform up to a global phase). The pupil is
-therefore zero-padded to ``far_field_size`` before the FFT so the focal plane is
-properly sampled: a same-size FFT samples it at ``w_far/dx_far =
-aperture/(pi*w0) = 3.5/pi = 1.11`` px per waist radius -- a constant of the
-model independent of ``n_grid`` -- which aliases the lens-phase-modulated pupil
-into a lattice of dots (see ``far_field_padding``). The zero-order spot sits at
-the global intensity maximum (located by ``argmax``, never by geometry).
+关于物理模型的说明
+------------------
+2f 傅里叶台架 (SLM 前焦面 → f 透镜 → 相机后焦面) 把 SLM 瞳孔场映射到它的**傅里叶
+变换** (透镜相位 + 传播到 ``z=f``, 除一个全局相位外就等于夫琅禾费变换)。因此在 FFT
+之前瞳孔要补零到 ``far_field_size``, 使焦平面被正确采样: 同尺寸的 FFT 是以
+``w_far/dx_far = aperture/(pi*w0) = 3.5/pi = 1.11`` px 每腰半径对焦平面采样的 ——
+这是模型中一个与 ``n_grid`` 无关的常数 —— 它会把经透镜相位调制的瞳孔混叠成一个点阵
+(见 ``far_field_padding``)。0 级光斑位于全局强度最大值处 (用 ``argmax`` 定位, 从不
+按几何定位)。
 """
 
 from __future__ import annotations
@@ -54,44 +46,40 @@ from ao_shaping.drivers.sim.beam_backend import (
 
 
 # ---------------------------------------------------------------------------
-# Configuration
+# 配置
 # ---------------------------------------------------------------------------
 @dataclass(frozen=True)
 class ShapingBenchConfig:
-    """Parameters for the 2f-Fourier SLM shaping bench.
+    """2f 傅里叶 SLM 整形台架的参数。
 
     Attributes:
-        n_grid: SLM / simulation grid edge length (square).
-        aperture_size: SLM aperture width in metres.
-        wavelength: laser wavelength in metres.
-        focal_length: lens focal length in metres (sets the 2f scale).
-        cn2: atmospheric turbulence strength (0 => no turbulence).
-        l_max: turbulence outer scale (m).
-        l_min: turbulence inner scale (m).
-        target_side_px: target square/region side length in **far-field
-            (camera) pixels**, i.e. pixels of the zero-padded far-field grid
-            (``far_field_size``), not of the pupil grid.
-        target_kind: "square" | "circle" | "gaussian" | "annulus".
-        zero_order_margin_px: guard radius (far-field px) around the zero-order
-            spot when reporting its power fraction (phase-only SLM keeps the
-            undiffracted 0th order at the pattern center).
-        far_field_padding: integer zero-padding factor applied to the pupil
-            before the Fraunhofer FFT, i.e. the far-field grid is
-            ``n_grid * far_field_padding``.  Without padding a same-size FFT
-            samples the focal plane at ``w_far/dx_far = aperture/(pi*w0) =
-            3.5/pi = 1.11`` px per waist radius *independently of n_grid*,
-            which cannot represent a focused spot (it aliases into a lattice of
-            dots).  8x gives ~8.9 px/waist (enough for aberration morphology);
-            16x matches the repo house standard (``SimPibSystem`` and
-            ``generate_zernike_farfield_sim_report`` both use 512 -> 8192).
-        seed: RNG seed for reproducibility.
+        n_grid: SLM / 仿真网格边长 (正方形)。
+        aperture_size: SLM 口径宽度, 单位米。
+        wavelength: 激光波长, 单位米。
+        focal_length: 透镜焦距, 单位米 (决定 2f 的尺度)。
+        cn2: 大气湍流强度 (0 => 无湍流)。
+        l_max: 湍流外尺度 (m)。
+        l_min: 湍流内尺度 (m)。
+        target_side_px: 目标方形/区域边长, 单位**远场 (相机) 像素**, 即补零后的
+            远场网格 (``far_field_size``) 上的像素, 而不是瞳孔网格上的。
+        target_kind: "square" | "circle" | "gaussian" | "annulus"。
+        zero_order_margin_px: 报告 0 级功率占比时所用的保护半径 (远场 px); 纯相位
+            SLM 会把未衍射的 0 级留在图样中心。
+        far_field_padding: 夫琅禾费 FFT 之前施加到瞳孔上的整数补零因子, 即远场网格
+            为 ``n_grid * far_field_padding``。不补零时, 同尺寸 FFT 是以
+            ``w_far/dx_far = aperture/(pi*w0) = 3.5/pi = 1.11`` px 每腰半径对焦平面
+            采样的, *与 n_grid 无关*, 无法表示一个聚焦光斑 (会混叠成一个点阵)。
+            8x 给出 ~8.9 px/腰 (足以体现像差形态); 16x 与仓库内部标准一致
+            (``SimPibSystem`` 与 ``generate_zernike_farfield_sim_report`` 都用
+            512 -> 8192)。
+        seed: 用于可复现性的 RNG 种子。
     """
 
     n_grid: int = 256
-    aperture_size: float = 12e-3  # 12 mm SLM aperture
+    aperture_size: float = 12e-3  # 12 mm SLM 口径
     wavelength: float = 532e-9  # 532 nm
-    focal_length: float = 0.125  # 125 mm lens
-    cn2: float = 0.0  # 0 => clean (no turbulence) baseline
+    focal_length: float = 0.125  # 125 mm 透镜
+    cn2: float = 0.0  # 0 => 干净 (无湍流) 基线
     l_max: float = 0.1
     l_min: float = 1e-3
     target_side_px: int = 60
@@ -108,16 +96,16 @@ class ShapingBenchConfig:
 
     @property
     def far_field_size(self) -> int:
-        """Edge length of the zero-padded far-field (camera) grid."""
+        """补零后远场 (相机) 网格的边长。"""
         return self.n_grid * self.far_field_padding
 
     @property
     def far_field_pixel_size(self) -> float:
-        """Far-field (camera) pixel pitch in metres.
+        """远场 (相机) 像元间距, 单位米。
 
-        For a Fraunhofer FFT zero-padded to ``M = n_grid * far_field_padding``
-        the focal-plane pitch is ``lambda*f/(M*dx_pupil) =
-        lambda*f/(far_field_padding*aperture_size)`` -- independent of n_grid.
+        对补零到 ``M = n_grid * far_field_padding`` 的夫琅禾费 FFT, 焦平面间距为
+        ``lambda*f/(M*dx_pupil) =
+        lambda*f/(far_field_padding*aperture_size)`` —— 与 n_grid 无关。
         """
         return (
             self.wavelength
@@ -138,11 +126,11 @@ class ShapingBenchConfig:
 
 
 # ---------------------------------------------------------------------------
-# Result container
+# 结果容器
 # ---------------------------------------------------------------------------
 @dataclass
 class ShapingResult:
-    """Outcome of a single shaping run on the bench."""
+    """台架上一次整形运行的产出。"""
 
     method: str
     phase: np.ndarray
@@ -153,13 +141,13 @@ class ShapingResult:
 
 
 # ---------------------------------------------------------------------------
-# Forward model (2f Fourier)
+# 正向模型 (2f 傅里叶)
 # ---------------------------------------------------------------------------
 def _pad_centred(arr: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
-    """Zero-pad a square pupil-grid array to the far-field grid, centred.
+    """把方形瞳孔网格数组居中补零到远场网格。
 
-    The pupil occupies the central ``n_grid x n_grid`` block; the padding
-    region is the (dark) area outside the SLM aperture.
+    瞳孔占据中央的 ``n_grid x n_grid`` 块; 补零区域就是 SLM 口径之外那片 (暗的)
+    面积。
     """
     n = arr.shape[0]
     m = cfg.far_field_size
@@ -172,25 +160,22 @@ def _pad_centred(arr: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
 
 
 def _fraunhofer_intensity(field: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
-    """Zero-padded Fraunhofer (focal-plane) intensity of a pupil field.
+    """瞳孔场的补零夫琅禾费 (焦平面) 强度。
 
-    The 2f Fourier bench maps the SLM pupil field to its Fourier transform
-    (the lens phase + propagation to ``z=f`` is exactly this, up to a global
-    phase).  The pupil is centred and **zero-padded** to ``far_field_size``
-    before the FFT so the focal plane is properly oversampled; an un-padded
-    same-size FFT samples the focal plane at only ~1.1 px per waist radius
-    (a model constant, independent of ``n_grid``) and aliases into a lattice.
+    2f 傅里叶台架把 SLM 瞳孔场映射到它的傅里叶变换 (透镜相位 + 传播到 ``z=f``, 除一个
+    全局相位外恰好就是这个)。瞳孔被居中并在 FFT 之前**补零**到 ``far_field_size``,
+    使焦平面被充分过采样; 不补零的同尺寸 FFT 只以 ~1.1 px 每腰半径对焦平面采样
+    (一个与 ``n_grid`` 无关的模型常数), 并会混叠成一个点阵。
 
-    Transform convention: ``F = fftshift(fft2(ifftshift(f)))`` so that a
-    centred pupil maps to a centred far field, matching
-    ``SimPibSystem.far_field`` and the repo ``beam_simulation._ft`` helper.
+    变换约定: ``F = fftshift(fft2(ifftshift(f)))``, 使居中的瞳孔映射到居中的远场,
+    与 ``SimPibSystem.far_field`` 以及仓库里的 ``beam_simulation._ft`` 辅助函数一致。
 
     Args:
-        field: Pupil field on the ``n_grid`` grid (complex).
-        cfg: Bench config (supplies the padding factor).
+        field: ``n_grid`` 网格上的瞳孔场 (复数)。
+        cfg: 台架配置 (提供补零因子)。
 
     Returns:
-        Non-negative intensity on the ``far_field_size`` grid (unnormalised).
+        ``far_field_size`` 网格上的非负强度 (未归一化)。
     """
     padded = _pad_centred(field, cfg)
     focal = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(padded)))
@@ -198,11 +183,10 @@ def _fraunhofer_intensity(field: np.ndarray, cfg: ShapingBenchConfig) -> np.ndar
 
 
 def forward_intensity(phase: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
-    """Propagate a phase-only SLM pattern to the far field; return intensity.
+    """把纯相位 SLM 图样传播到远场; 返回强度。
 
-    Gaussian input field times ``exp(1j*phase)`` (phase-only SLM) propagated to
-    the focal plane by a **zero-padded** Fraunhofer FFT. Returns a
-    non-negative intensity array on the ``far_field_size`` grid (unnormalised).
+    高斯入射场乘以 ``exp(1j*phase)`` (纯相位 SLM), 再由一次**补零**的夫琅禾费 FFT
+    传播到焦平面。返回 ``far_field_size`` 网格上的非负强度数组 (未归一化)。
     """
     beam_cfg = cfg.make_beam_config()
     field = gaussian_pupil(beam_cfg).astype(np.complex128) * np.exp(
@@ -212,10 +196,10 @@ def forward_intensity(phase: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
 
 
 def make_target(cfg: ShapingBenchConfig) -> np.ndarray:
-    """Build the normalised far-field target pattern (sum=1) on the camera grid.
+    """在相机网格上构造归一化的远场目标图样 (sum=1)。
 
-    Target is centred on the **far-field (padded)** grid; its size is
-    ``cfg.target_side_px`` far-field pixels so the objective is scale-stable.
+    目标以**远场 (补零后) 网格**为中心; 其尺寸是 ``cfg.target_side_px`` 个远场像素,
+    使目标函数在尺度上稳定。
     """
     n = cfg.far_field_size
     y, x = np.ogrid[:n, :n]
@@ -238,19 +222,16 @@ def make_target(cfg: ShapingBenchConfig) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
-# Objective functions / quality metrics
+# 目标函数 / 质量指标
 # ---------------------------------------------------------------------------
 def _rolled_support(target: np.ndarray, center: tuple[int, int] | None) -> np.ndarray:
-    """Boolean target support, rolled so its centre sits on ``center``.
+    """目标的布尔支撑域, 被平移使其中心落在 ``center`` 上。
 
-    ``center`` is ``(col, row)`` (the ``np.unravel_index(...)[::-1]`` convention
-    used by every caller). Rows (axis 0) are shifted by the *row* offset and
-    columns (axis 1) by the *column* offset -- mixing these up transposes the
-    support for off-axis beams, which silently lets an optimizer chase a
-    support that no longer covers the beam. When ``center`` is None the support
-    is used as-is (grid-centred). Callers must use the *same* centre for every
-    metric so the bucket consistently follows the beam (matching the hardware
-    closed-loop ``argmax`` rule).
+    ``center`` 是 ``(col, row)`` (每个调用方都用的 ``np.unravel_index(...)[::-1]``
+    约定)。行 (轴 0) 按*行*偏移平移、列 (轴 1) 按*列*偏移平移 —— 把这两个弄反会在
+    离轴光束时把支撑域转置, 从而静默地让优化器去追一个已不再覆盖光束的支撑域。
+    ``center`` 为 None 时支撑域原样使用 (网格居中)。调用方必须对每个指标都用*同一个*
+    中心, 使桶始终跟着光束走 (与硬件闭环的 ``argmax`` 规则一致)。
     """
     sup = target > 0
     if center is not None:
@@ -266,11 +247,10 @@ def power_in_bucket(
     *,
     center: tuple[int, int] | None = None,
 ) -> float:
-    """Power-in-bucket: fraction of total power inside the target region.
+    """桶内功率: 落在目标区域内的总功率占比。
 
-    The target region is taken from ``target`` (its support). If ``center`` is
-    given as ``(x, y)``, the target is re-centred there (the target follows
-    the measured zero-order / beam centroid), mirroring the hardware loop.
+    目标区域取自 ``target`` (它的支撑域)。若 ``center`` 以 ``(x, y)`` 给出, 目标会
+    以它为中心重新居中 (目标跟着实测的 0 级 / 光束质心走), 这与硬件环路一致。
     """
     total = intensity.sum()
     if total <= 0:
@@ -284,7 +264,7 @@ def efficiency(
     *,
     center: tuple[int, int] | None = None,
 ) -> float:
-    """Encircled / bucket energy = power in the target support."""
+    """环围 / 桶内能量 = 目标支撑域内的功率。"""
     return power_in_bucket(intensity, target, center=center)
 
 
@@ -294,11 +274,11 @@ def uniformity_cv(
     *,
     center: tuple[int, int] | None = None,
 ) -> float:
-    """Coefficient of variation of intensity *within* the target support.
+    """目标支撑域*内部*强度的变异系数。
 
-    Lower is better (0 = perfectly uniform). Returns +inf if the target
-    support is empty of power. The support is rolled to ``center`` exactly as
-    in :func:`power_in_bucket`, so PIB and CV always describe the same region.
+    越低越好 (0 = 完全均匀)。若目标支撑域内没有功率则返回 +inf。支撑域被平移到
+    ``center`` 的方式与 :func:`power_in_bucket` 完全一致, 因此 PIB 与 CV 描述的
+    始终是同一块区域。
     """
     vals = intensity[_rolled_support(target, center)]
     if vals.size == 0 or vals.mean() <= 0:
@@ -307,10 +287,9 @@ def uniformity_cv(
 
 
 def strehl(intensity: np.ndarray, target: np.ndarray) -> float:
-    """Normalized overlap (Strehl-like) between simulated and target patterns.
+    """仿真图样与目标图样之间的归一化重叠 (类 Strehl)。
 
-    Uses the cosine similarity (normalized inner product) of the two
-    energy-distributed patterns; 1.0 = perfect match.
+    用两张能量分布图样的余弦相似度 (归一化内积); 1.0 = 完全匹配。
     """
     a = intensity
     b = target
@@ -329,15 +308,15 @@ def zero_order_fraction(
     *,
     zero_order_margin_px: float = 10.0,
 ) -> float:
-    """Fraction of total power inside the central zero-order guard band.
+    """落在中央 0 级保护带内的总功率占比。
 
     Args:
-        intensity: Far-field intensity on the (padded) camera grid.
-        center: Zero-order location as ``(col, row)`` -- the
-            ``np.unravel_index(...)[::-1]`` convention used by every caller.
-        zero_order_margin_px: Guard radius in far-field (camera) pixels. The
-            default is ~1 Airy radius (10 px at the 8x padding); scale it with
-            ``cfg.zero_order_margin_px`` for other paddings.
+        intensity: (补零后) 相机网格上的远场强度。
+        center: 0 级位置, 以 ``(col, row)`` 给出 —— 即每个调用方都用的
+            ``np.unravel_index(...)[::-1]`` 约定。
+        zero_order_margin_px: 保护半径, 单位远场 (相机) 像素。默认值约等于一个
+            Airy 半径 (8x 补零下为 10 px); 换其他补零倍数时要按
+            ``cfg.zero_order_margin_px`` 缩放。
     """
     n = intensity.shape[0]
     y, x = np.ogrid[:n, :n]
@@ -354,15 +333,13 @@ def compute_metrics(
     center: tuple[int, int] | None = None,
     zero_order_margin_px: float = 10.0,
 ) -> dict[str, float]:
-    """Compute the full objective-function suite used in the survey.
+    """计算综述中所用的整套目标函数。
 
-    ``center`` is the target-box centre: ``None`` (default) uses the target's
-    own grid-centred support, which is correct for this **centred** simulation
-    bench. Do NOT default it to the intensity ``argmax``: for a speckle-like
-    field the global maximum hops between near-equal grains under a ~1e-3 model
-    perturbation, so an argmax-rolled box makes PIB/CV discontinuous and lets an
-    optimizer chase a box that does not cover the beam. The zero-order guard is
-    still centred on the intensity peak (that is what it measures).
+    ``center`` 是目标框中心: ``None`` (默认) 表示使用目标自身那个网格居中的支撑域,
+    这对本**居中**的仿真台架是正确的。**不要**把它默认成强度的 ``argmax``: 对类
+    散斑的场, 在 ~1e-3 的模型扰动下全局最大值会在几乎相等的晶粒之间跳动, 于是按
+    argmax 平移的框会让 PIB/CV 不连续, 并让优化器去追一个并不覆盖光束的框。0 级保护
+    仍以强度峰值为中心 (它测的就是这个)。
     """
     peak = np.unravel_index(np.argmax(intensity), intensity.shape)[::-1]
     return {
@@ -383,15 +360,13 @@ def composite_from_pib_cv(
     w_pib: float = 0.5,
     w_unif: float = 0.5,
 ) -> float:
-    """Composite score formula, shared by the numpy and torch objective paths.
+    """综合评分公式, 由 numpy 与 torch 两条目标函数路径共用。
 
-    Uniformity is scored as ``1 / (1 + cv)`` rather than a clipped linear map.
-    A clipped term ``1 - min(cv/cv_ref, 1)`` saturates to zero for every
-    achievable flat-top CV (CV within a target box is not scale-free, so no
-    single ``cv_ref`` works), which silently reduces the objective to pure
-    bucket energy and rewards concentrating light over flattening it.
-    ``1/(1+cv)`` is monotone and never saturates, so it rewards every
-    uniformity gain with no threshold to tune.
+    均匀性按 ``1 / (1 + cv)`` 计分, 而不是裁剪过的线性映射。裁剪项
+    ``1 - min(cv/cv_ref, 1)`` 对任何可达的平顶 CV 都饱和到零 (目标框内的 CV 并非
+    尺度无关, 所以不存在一个通用的 ``cv_ref``), 那会静默地把目标函数退化成纯粹的桶内
+    能量, 从而奖励把光集中而不是把光抹平。``1/(1+cv)`` 是单调且永不饱和的, 因此会
+    奖励每一分均匀性改善, 且没有阈值需要调。
     """
     return w_pib * pib + w_unif * (1.0 / (1.0 + cv))
 
@@ -402,11 +377,10 @@ def composite_score(
     w_pib: float = 0.5,
     w_unif: float = 0.5,
 ) -> float:
-    """Composite scalar score to *maximize* (the SPGD / differentiable reward).
+    """需要*最大化*的综合标量评分 (SPGD / 可微分的奖励)。
 
-    Combines bucket energy with a uniformity term so the optimizer does not
-    merely dump energy into the box while leaving it ragged (a known failure
-    mode of CV-only objectives).
+    把桶内能量与一项均匀性项结合起来, 使优化器不会只顾把能量灌进框里却任其参差
+    (这是仅用 CV 作目标的一个已知失败模式)。
     """
     pib = m.get("PIB", 0.0)
     cv = m.get("CV", float("inf"))
@@ -414,7 +388,7 @@ def composite_score(
 
 
 # ---------------------------------------------------------------------------
-# Method 1: Gerchberg-Saxton (amplitude <-> phase constraints)
+# 方法 1: Gerchberg-Saxton (幅度 <-> 相位约束)
 # ---------------------------------------------------------------------------
 def gs_shape(
     cfg: ShapingBenchConfig,
@@ -426,23 +400,20 @@ def gs_shape(
     return_phase_only: bool = True,
     base_phase: np.ndarray | None = None,
 ) -> ShapingResult:
-    """Gerchberg-Saxton shaping of a single phase-only SLM.
+    """单块纯相位 SLM 的 Gerchberg-Saxton 整形。
 
-    Amplitude constraint = sqrt(target) in the far field, phase constraint =
-    arbitrary (SLM plane). The final phase is the SLM pattern.
+    幅度约束 = 远场中的 sqrt(target), 相位约束 = 任意 (SLM 平面)。最终相位就是 SLM
+    图样。
 
-    GS runs on the **padded far-field grid** (the pupil is zero-padded to
-    ``far_field_size``), so the forward/backward FFT pair is an exact,
-    correctly-sampled transform and the returned intensity matches
-    ``make_target``'s grid. The pupil-support constraint keeps only the central
-    ``n_grid`` block (light exists only inside the SLM aperture).
+    GS 跑在**补零后的远场网格**上 (瞳孔被补零到 ``far_field_size``), 因此正/反向那一对
+    FFT 是精确且采样正确的变换, 返回的强度与 ``make_target`` 的网格一致。瞳孔支撑域约束
+    只保留中央的 ``n_grid`` 块 (光只存在于 SLM 口径之内)。
 
     Args:
-        base_phase: Fixed pupil phase (raw radians, shape ``(n_grid, n_grid)``)
-            that the GS solution is added to, e.g. a measured aberration
-            pre-correction ``-Z_est``. It is applied *inside* the pupil
-            constraint, so GS shapes the corrected pupil and the returned phase
-            is the total ``base_phase + delta``.
+        base_phase: 固定的瞳孔相位 (raw 弧度, 形状 ``(n_grid, n_grid)``), GS 解会被加到
+            它之上, 例如一个实测像差的预矫正 ``-Z_est``。它在*瞳孔约束内部*被施加,
+            因此 GS 整形的是已矫正的瞳孔, 而返回的相位是总相位
+            ``base_phase + delta``。
     """
     beam_cfg = cfg.make_beam_config()
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
@@ -453,20 +424,20 @@ def gs_shape(
         base = np.zeros(amp_slm.shape, dtype=np.float64)
     else:
         base = _pad_centred(np.asarray(base_phase, dtype=np.float64), cfg)
-    # Initial field: gaussian input in the SLM plane
+    # 初始场: SLM 平面上的高斯入射
     field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
 
     history = []
     for i in range(n_iters):
-        # SLM -> far field
+        # SLM → 远场
         ff = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-        # amplitude constraint in far field
+        # 远场中的幅度约束
         ff = ff * (amp_target / (np.abs(ff) + 1e-12)) * relax
-        # relax back toward the target amplitude
+        # 向目标幅度回松
         ff = ff * (1 - relax) + amp_target * np.exp(1j * np.angle(ff)) * relax
-        # far field -> SLM plane
+        # 远场 → SLM 平面
         field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
-        # phase-only constraint in SLM plane (keep gaussian amplitude, set phase)
+        # SLM 平面中的纯相位约束 (保留高斯幅度, 设定相位)
         field = amp_slm * np.exp(1j * np.angle(field))
         if verbose and i % 20 == 0:
             inten = _fraunhofer_intensity(field, cfg)
@@ -492,7 +463,7 @@ def gs_shape(
 
 
 # ---------------------------------------------------------------------------
-# Method 2: differentiable gradient descent (torch, optional)
+# 方法 2: 可微分梯度下降 (torch, 可选)
 # ---------------------------------------------------------------------------
 def differentiable_shape(
     cfg: ShapingBenchConfig,
@@ -501,10 +472,10 @@ def differentiable_shape(
     lr: float = 0.05,
     seed: int | None = None,
 ) -> ShapingResult:
-    """Differentiable far-field shaping: gradient descent on the SLM phase.
+    """可微分远场整形: 对 SLM 相位做梯度下降。
 
-    Loss = 1 - overlap(target, sim) + lambda * (1 - PIB). Requires torch, which
-    is imported lazily so the rest of this module works without it.
+    Loss = 1 - overlap(target, sim) + lambda * (1 - PIB)。需要 torch, 它是惰性导入的,
+    因此本模块其余部分没有它也能工作。
     """
     try:
         import torch
@@ -542,11 +513,11 @@ def differentiable_shape(
         opt.zero_grad()
         inten = intensity(param)
         inten = inten / inten.sum()
-        # target overlap (cosine-ish, normalized)
+        # 目标重叠度 (类余弦, 归一化)
         a = inten - inten.mean()
         b = tgt - tgt.mean()
         overlap = (a * b).sum() / (a.norm() * b.norm() + 1e-12)
-        # PIB: power in target support
+        # PIB: 目标支撑域内的功率
         sup = (tgt > 0).double()
         pib = (inten * sup).sum() / inten.sum()
         loss = -overlap - 0.5 * pib
@@ -575,7 +546,7 @@ def differentiable_shape(
 
 
 # ---------------------------------------------------------------------------
-# Method 3: SPGD (sensorless black-box gradient) on the SLM phase
+# 方法 3: SPGD (SLM 相位上的无感知黑盒梯度)
 # ---------------------------------------------------------------------------
 def spgd_shape(
     cfg: ShapingBenchConfig,
@@ -586,20 +557,19 @@ def spgd_shape(
     seed: int | None = None,
     dim: int | None = None,
 ) -> ShapingResult:
-    """Sensorless SPGD on a low-dimensional (Zernike / coarse) phase basis.
+    """低维 (Zernike / 粗) 相位基上的无感知 SPGD。
 
-    The SLM phase is parameterised as a small number of freeform coefficients
-    (a coarse grid) so that random-gradient search is tractable in the sim.
-    The reward is the composite score (PIB + uniformity).
+    SLM 相位被参数化为少量 freeform 系数 (一个粗网格), 使随机梯度搜索在仿真中可行。
+    奖励是综合评分 (PIB + 均匀性)。
     """
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_target(cfg)
-    d = dim or 16  # 16x16 freeform basis
+    d = dim or 16  # 16x16 freeform 基
     n_par = d * d
     phase_flat = rng.normal(0, 0.05, size=n_par)
 
     def upsample(vec: np.ndarray) -> np.ndarray:
-        """Map the d×d freeform coefficient grid to the full SLM phase (kron upsample)."""
+        """把 d×d 的 freeform 系数网格映射为完整的 SLM 相位 (kron 上采样)。"""
         ph = np.kron(vec.reshape(d, d), np.ones((cfg.n_grid // d, cfg.n_grid // d)))
         if ph.shape != (cfg.n_grid, cfg.n_grid):
             ph = ph[: cfg.n_grid, : cfg.n_grid]
@@ -645,13 +615,13 @@ def spgd_shape(
 
 
 # ---------------------------------------------------------------------------
-# Method 4: analytic "amplitude" target (single-plate amplitude-only baseline)
+# 方法 4: 解析的"纯幅度"目标 (单板纯幅度基线)
 # ---------------------------------------------------------------------------
 def analytic_amplitude_target(cfg: ShapingBenchConfig) -> ShapingResult:
-    """Trivial baseline: the target itself (amplitude shaping, no phase).
+    """平凡基线: 目标本身 (幅度整形, 无相位)。
 
-    Serves as a reference for what a pure-amplitude (non-phase-only) SLM would
-    produce -- it bounds the achievable quality for a phase-only device.
+    作为"一块纯幅度 (非纯相位) SLM 会产出什么"的参照 —— 它给出了纯相位器件可达质量
+    的上界。
     """
     target = make_target(cfg)
     metrics = compute_metrics(target, target)

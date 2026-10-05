@@ -1,4 +1,4 @@
-"""MIICAM camera driver package."""
+"""MIICAM 相机驱动包。"""
 
 from ao_shaping.drivers.ccd.miicam._sdk_setup import (
     _find_miicam_sdk_path,

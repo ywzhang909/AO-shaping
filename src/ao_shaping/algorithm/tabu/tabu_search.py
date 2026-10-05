@@ -1,25 +1,24 @@
 """
-Tabu Search Algorithm Module
+禁忌搜索 (Tabu Search) 算法模块
 
-This module provides a general-purpose implementation of tabu-based adaptive neighborhood
-search for optimization problems. It is designed to be domain-agnostic and can be used
-with any optimization problem that requires escaping local optima.
+本模块为优化问题提供基于禁忌的自适应邻域搜索的通用实现。它被设计为领域无关的,
+可用于任何需要跳出局部最优的优化问题。
 
-The module includes:
-- TabuMemory: Short-term memory to avoid revisiting explored candidates
-- AdaptiveSearchState: Dynamic radius adjustment for neighborhood exploration
-- Candidate generators: Methods for generating search candidates
-- TabuSearchRunner: High-level orchestration class
+模块包含:
+- TabuMemory: 短期记忆, 避免重复访问已探索过的候选
+- AdaptiveSearchState: 动态调整邻域探索半径
+- 候选生成器: 生成搜索候选的方法
+- TabuSearchRunner: 高层编排类
 
 Usage:
     from ao_shaping.algorithm.tabu.tabu_search import TabuSearchRunner, TabuMemory, AdaptiveSearchState
 
-    # Create components
+    # 创建各组件
     tabu_memory = TabuMemory(capacity=128, quantization=2.0)
     search_state = AdaptiveSearchState(radius=2.0, min_radius=0.5, max_radius=12.0,
                                        expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4)
 
-    # Create runner
+    # 创建 runner
     runner = TabuSearchRunner(
         tabu_memory=tabu_memory,
         search_state=search_state,
@@ -27,7 +26,7 @@ Usage:
         safety_check=my_safety_check,
     )
 
-    # Run search
+    # 运行搜索
     result = runner.run_search(anchor_v, anchor_value, evaluate_candidate)
 
 Author: AO-Shaping Development Team
@@ -43,27 +42,24 @@ import numpy.typing as npt
 
 
 # =============================================================================
-# Core Data Structures
+# 核心数据结构
 # =============================================================================
 
 
 @dataclass
 class TabuMemory:
-    """Short-term tabu memory for avoiding re-exploration of suboptimal candidates.
+    """短期禁忌记忆, 用于避免重新探索次优候选。
 
-    This class implements a queue-based tabu memory with quantized voltage keys.
-    It prevents the algorithm from revisiting recently explored candidates by storing
-    their quantized representations in both a queue (for FIFO eviction) and a
-    set (for O(1) lookup).
+    本类实现一种基于队列的禁忌记忆, 键为量化后的电压。它把最近探索过的候选的量化
+    表示同时存入队列 (用于 FIFO 逐出) 与集合 (用于 O(1) 查找), 从而阻止算法重访
+    这些候选。
 
-    The quantization allows for flexible granularity in the tabu memory. A larger
-    quantization value means more candidates will be considered "the same" and thus
-    marked as tabu.
+    量化使禁忌记忆的粒度可以灵活调整。量化值越大, 越多的候选会被视为"相同"而
+    被标记为禁忌。
 
     Attributes:
-        capacity: Maximum number of candidates to store in tabu memory.
-        quantization: Step size for quantizing candidate keys. Larger values
-                    mean coarser discretization.
+        capacity: 禁忌记忆最多保存的候选数量。
+        quantization: 候选键的量化步长。值越大离散化越粗。
 
     Example:
         >>> tabu = TabuMemory(capacity=128, quantization=2.0)
@@ -79,18 +75,18 @@ class TabuMemory:
     _keys: set[tuple[int, ...]] = field(init=False, default_factory=set)
 
     def make_key(self, voltages: npt.NDArray[np.float64]) -> tuple[int, ...]:
-        """Quantize voltage array into integer key for tabu storage.
+        """把电压数组量化为整数键, 供禁忌存储使用。
 
-        This method converts a voltage array into a tuple of integers by:
-        1. Converting to float64 for precision
-        2. Dividing by quantization scale
-        3. Rounding to nearest integer
+        本方法按如下步骤把电压数组转成整数元组:
+        1. 转为 float64 以保证精度
+        2. 除以量化尺度
+        3. 四舍五入到最近整数
 
         Args:
-            voltages: The voltage array to quantize.
+            voltages: 待量化的电压数组。
 
         Returns:
-            Tuple of integers representing the quantized voltage profile.
+            表示量化后电压分布的整数元组。
         """
         scale = max(float(self.quantization), 1e-6)
         return tuple(
@@ -98,27 +94,27 @@ class TabuMemory:
         )
 
     def contains(self, voltages: npt.NDArray[np.float64]) -> bool:
-        """Check if a voltage profile is in tabu memory.
+        """检查某个电压分布是否已在禁忌记忆中。
 
         Args:
-            voltages: The voltage array to check.
+            voltages: 待检查的电压数组。
 
         Returns:
-            True if the quantized voltages are in tabu memory, False otherwise.
-            Returns False if capacity is <= 0 (tabu disabled).
+            量化后的电压在禁忌记忆中则返回 True, 否则返回 False。
+            capacity <= 0 (禁忌禁用) 时返回 False。
         """
         if self.capacity <= 0:
             return False
         return self.make_key(voltages) in self._keys
 
     def add(self, voltages: npt.NDArray[np.float64]) -> None:
-        """Add a voltage profile to tabu memory.
+        """把一个电压分布加入禁忌记忆。
 
-        If the key already exists or capacity is <= 0, this method does nothing.
-        When capacity is exceeded, the oldest entry is evicted (FIFO).
+        若键已存在或 capacity <= 0, 本方法不做任何事。
+        超出容量时逐出最早的条目 (FIFO)。
 
         Args:
-            voltages: The voltage array to add to tabu memory.
+            voltages: 要加入禁忌记忆的电压数组。
         """
         if self.capacity <= 0:
             return
@@ -134,31 +130,29 @@ class TabuMemory:
 
 @dataclass
 class AdaptiveSearchState:
-    """State management for adaptive neighborhood search radius.
+    """自适应邻域搜索半径的状态管理。
 
-    This class manages the dynamic adjustment of the search radius based on
-    whether recent search iterations have produced improvements. It implements
-    an adaptive strategy that:
-    - Shrinks the radius when improvements are found (exploitation)
-    - Expands the radius when no improvement is found (exploration)
+    本类根据最近的搜索迭代是否带来改进, 管理搜索半径的动态调整。它实现如下
+    自适应策略:
+    - 发现改进时收缩半径 (利用)
+    - 没有改进时扩张半径 (探索)
 
-    The radius is clipped between min_radius and max_radius to prevent
-    degenerate behavior.
+    半径被截断在 min_radius 与 max_radius 之间, 以防止退化行为。
 
     Attributes:
-        radius: Current search radius.
-        min_radius: Minimum allowed search radius.
-        max_radius: Maximum allowed search radius.
-        expand_ratio: Multiplier for radius expansion when no improvement.
-        shrink_ratio: Multiplier for radius shrinking when improved.
-        improvement_tol: Tolerance for considering an improvement significant.
+        radius: 当前搜索半径。
+        min_radius: 允许的最小搜索半径。
+        max_radius: 允许的最大搜索半径。
+        expand_ratio: 无改进时扩张半径的倍率。
+        shrink_ratio: 有改进时收缩半径的倍率。
+        improvement_tol: 判定改进是否显著的容差。
 
     Example:
         >>> state = AdaptiveSearchState(radius=2.0, min_radius=0.5, max_radius=12.0,
         ...                            expand_ratio=1.4, shrink_ratio=0.75, improvement_tol=1e-4)
-        >>> state.update_radius(improved=True)  # Shrink
+        >>> state.update_radius(improved=True)  # 收缩
         1.5
-        >>> state.update_radius(improved=False)  # Expand
+        >>> state.update_radius(improved=False)  # 扩张
         2.1
     """
 
@@ -170,13 +164,13 @@ class AdaptiveSearchState:
     improvement_tol: float
 
     def update_radius(self, improved: bool) -> float:
-        """Update the search radius based on improvement status.
+        """按改进状态更新搜索半径。
 
         Args:
-            improved: Whether the last search iteration found improvement.
+            improved: 上一轮搜索迭代是否找到了改进。
 
         Returns:
-            The updated radius value (clamped to [min_radius, max_radius]).
+            更新后的半径值 (已截断到 [min_radius, max_radius])。
         """
         if improved:
             next_radius = self.radius * self.shrink_ratio
@@ -187,7 +181,7 @@ class AdaptiveSearchState:
 
 
 # =============================================================================
-# Candidate Generation
+# 候选生成
 # =============================================================================
 
 
@@ -198,27 +192,24 @@ def generate_search_candidates(
     active_mask: npt.NDArray[np.bool_] | None = None,
     rng: np.random.Generator | None = None,
 ) -> list[npt.NDArray[np.float64]]:
-    """Generate mixed dense/sparse perturbations around an anchor point.
+    """在锚点附近生成稠密/稀疏混合的扰动。
 
-    This function generates candidate solutions by perturbing an anchor voltage
-    vector. It uses a mixed strategy:
-    - Half of candidates: Gaussian perturbation (dense exploration)
-    - Half of candidates: Sparse uniform perturbation (sparse exploration)
+    本函数通过扰动一个锚电压向量来生成候选解, 采用混合策略:
+    - 一半候选: 高斯扰动 (稠密探索)
+    - 一半候选: 稀疏均匀扰动 (稀疏探索)
 
-    The sparse perturbation activates only ~35% of dimensions with random
-    magnitudes, providing a different exploration pattern than dense methods.
+    稀疏扰动只激活约 35% 的维度并赋予随机幅度, 提供了与稠密方法不同的探索模式。
 
     Args:
-        anchor_v: The anchor voltage vector to perturb.
-        radius_scale: Standard deviation for Gaussian perturbations, scale for
-                      uniform perturbations.
-        n_samples: Number of candidate perturbations to generate.
-        active_mask: Binary mask indicating which dimensions to perturb.
-                    If None, all dimensions are active.
-        rng: Random number generator. If None, uses default_rng.
+        anchor_v: 待扰动的锚电压向量。
+        radius_scale: 高斯扰动的标准差, 也是均匀扰动的尺度。
+        n_samples: 要生成的候选扰动数量。
+        active_mask: 指示哪些维度需要扰动的二值掩码。
+                    None 表示所有维度都激活。
+        rng: 随机数生成器。None 表示使用 default_rng。
 
     Returns:
-        List of candidate voltage vectors.
+        候选电压向量的列表。
 
     Example:
         >>> anchor = np.zeros(64)
@@ -231,7 +222,7 @@ def generate_search_candidates(
 
     candidates: list[npt.NDArray[np.float64]] = []
 
-    # Apply active mask if provided
+    # 若提供了激活掩码则施加它
     if active_mask is not None:
         mask = np.asarray(active_mask, dtype=np.float64)
     else:
@@ -240,12 +231,12 @@ def generate_search_candidates(
     radius_scale = max(float(radius_scale), 1e-6)
 
     for sample_id in range(max(int(n_samples), 1)):
-        # Alternate between dense (Gaussian) and sparse (uniform) perturbations
+        # 稠密 (高斯) 与稀疏 (均匀) 扰动交替进行
         if sample_id % 2 == 0:
-            # Dense perturbation: Gaussian noise
+            # 稠密扰动: 高斯噪声
             perturbation = rng.normal(0.0, radius_scale, size=anchor_v.shape)
         else:
-            # Sparse perturbation: random signs + magnitudes + sparse activation
+            # 稀疏扰动: 随机符号 + 随机幅度 + 稀疏激活
             signs = (
                 rng.binomial(1, 0.5, size=anchor_v.shape).astype(np.float64) * 2.0 - 1.0
             )
@@ -255,7 +246,7 @@ def generate_search_candidates(
             sparse_mask = rng.binomial(1, 0.35, size=anchor_v.shape).astype(np.float64)
             perturbation = signs * magnitudes * sparse_mask
 
-        # Apply mask and add to anchor
+        # 施加掩码后加到锚点上
         candidates.append(anchor_v + perturbation * mask)
 
     return candidates
@@ -269,25 +260,24 @@ def should_trigger_search(
     patience: int,
     last_best_epoch: int,
 ) -> bool:
-    """Determine if adaptive search should be triggered at current epoch.
+    """判断当前迭代是否应触发自适应搜索。
 
-    This function checks multiple conditions to determine whether to trigger
-    the tabu search:
-    1. Search must be enabled
-    2. Must have passed warmup period
-    3. Must be at correct interval (not every epoch)
-    4. Must have exceeded patience threshold since last improvement
+    本函数检查多个条件以确定是否触发禁忌搜索:
+    1. 搜索必须已启用
+    2. 必须已过预热期
+    3. 必须处在正确的间隔上 (而非每一轮都触发)
+    4. 自上次改进以来必须已超过耐心阈值
 
     Args:
-        epoch: Current optimization epoch.
-        enabled: Whether adaptive search is enabled.
-        warmup: Minimum epochs before first search.
-        interval: Epochs between search triggers.
-        patience: Epochs without improvement before triggering search.
-        last_best_epoch: Epoch of last improvement.
+        epoch: 当前优化迭代轮次。
+        enabled: 自适应搜索是否启用。
+        warmup: 首次搜索之前的最少迭代轮数。
+        interval: 两次搜索触发之间的迭代间隔。
+        patience: 触发搜索前允许无改进的迭代轮数。
+        last_best_epoch: 上次改进所在的迭代轮次。
 
     Returns:
-        True if search should be triggered, False otherwise.
+        应触发搜索则返回 True, 否则返回 False。
 
     Example:
         >>> should_trigger_search(epoch=500, enabled=True, warmup=200,
@@ -304,34 +294,33 @@ def should_trigger_search(
 
 
 # =============================================================================
-# Tabu Search Runner
+# 禁忌搜索 Runner
 # =============================================================================
 
 
 class TabuSearchRunner:
-    """Orchestrates tabu-based adaptive neighborhood search.
+    """编排基于禁忌的自适应邻域搜索。
 
-    This class provides a high-level interface for running tabu search with
-    adaptive neighborhood exploration. It integrates:
-    - Tabu memory for avoiding re-exploration
-    - Adaptive radius management
-    - Candidate generation
-    - Safety checks
-    - Candidate evaluation
+    本类提供运行带自适应邻域探索的禁忌搜索的高层接口, 集成:
+    - 用于避免重复探索的禁忌记忆
+    - 自适应半径管理
+    - 候选生成
+    - 安全检查
+    - 候选评估
 
-    The runner is designed to be domain-agnostic by accepting callback functions
-    for problem-specific operations (candidate generation, safety checks, evaluation).
+    该 runner 通过接受针对特定问题的操作 (候选生成、安全检查、评估) 的回调
+    函数来保持领域无关。
 
     Attributes:
-        tabu_memory: Tabu memory instance for tracking explored candidates.
-        search_state: Adaptive search state for radius management.
-        candidate_generator: Function to generate candidate solutions.
-        safety_check: Optional function to validate candidate safety.
-        clip_bounds: Optional (min, max) tuple for voltage clipping.
+        tabu_memory: 用于跟踪已探索候选的禁忌记忆实例。
+        search_state: 用于半径管理的自适应搜索状态。
+        candidate_generator: 生成候选解的函数。
+        safety_check: 可选的候选安全性校验函数。
+        clip_bounds: 可选的电压截断 (min, max) 元组。
 
     Example:
         >>> def evaluate(voltages):
-        ...     # Your objective function here
+        ...     # 在这里写你的目标函数
         ...     return {"value": objective_value, "other": data}
         >>>
         >>> runner = TabuSearchRunner(
@@ -356,16 +345,16 @@ class TabuSearchRunner:
         safety_check: Callable[[npt.NDArray[np.float64]], bool] | None = None,
         clip_bounds: tuple[float, float] | None = None,
     ):
-        """Initialize the TabuSearchRunner.
+        """初始化 TabuSearchRunner。
 
         Args:
-            tabu_memory: Tabu memory instance.
-            search_state: Adaptive search state instance.
-            candidate_generator: Function to generate candidates.
-                                If None, uses default generate_search_candidates.
-            safety_check: Optional function to validate candidate safety.
-                         If None, all candidates are considered safe.
-            clip_bounds: Optional (min, max) tuple for voltage clipping.
+            tabu_memory: 禁忌记忆实例。
+            search_state: 自适应搜索状态实例。
+            candidate_generator: 生成候选的函数。
+                                None 表示使用默认的 generate_search_candidates。
+            safety_check: 可选的候选安全性校验函数。
+                         None 表示所有候选都视为安全。
+            clip_bounds: 可选的电压截断 (min, max) 元组。
         """
         self.tabu_memory = tabu_memory
         self.search_state = search_state
@@ -382,49 +371,49 @@ class TabuSearchRunner:
         improvement_tol: float | None = None,
         rng: np.random.Generator | None = None,
     ) -> dict | None:
-        """Run one iteration of tabu search.
+        """运行一轮禁忌搜索。
 
-        This method:
-        1. Generates candidate solutions around anchor
-        2. Filters out tabu and unsafe candidates
-        3. Evaluates valid candidates
-        4. Selects best improving candidate
-        5. Updates tabu memory and search radius
-        6. Returns result or None if no progress
+        本方法:
+        1. 在锚点附近生成候选解
+        2. 过滤掉禁忌与不安全的候选
+        3. 评估有效候选
+        4. 选出带来改进的最佳候选
+        5. 更新禁忌记忆与搜索半径
+        6. 返回结果; 若没有进展则返回 None
 
         Args:
-            anchor_v: Current best voltage vector.
-            anchor_objective: Objective value at anchor.
-            evaluate_candidate: Function that evaluates a candidate and returns
-                              a dict with at least 'objective_key' and 'value' keys.
-            objective_key: Key name for objective value in evaluation dict.
-            improvement_tol: Minimum improvement required. If None, uses
-                           search_state.improvement_tol.
-            rng: Random number generator. If None, uses default_rng.
+            anchor_v: 当前最优电压向量。
+            anchor_objective: 锚点处的目标值。
+            evaluate_candidate: 评估候选的函数, 返回至少包含 'objective_key'
+                              与 'value' 键的 dict。
+            objective_key: 评估 dict 中目标值所用的键名。
+            improvement_tol: 所需的最小改进量。None 表示使用
+                           search_state.improvement_tol。
+            rng: 随机数生成器。None 表示使用 default_rng。
 
         Returns:
-            None if no candidates were evaluated (all rejected or empty).
-            Dict with:
-                - accepted: bool - Whether a candidate was accepted
-                - voltages: np.ndarray - Best candidate voltages
-                - value: float - Objective value at best candidate
-                - tabu_hits: int - Number of candidates skipped due to tabu
-                - safe_rejects: int - Number of candidates rejected for safety
-                - evaluated: int - Number of candidates evaluated
-                - radius: float - Current search radius
-                - anchor: str - Source of anchor ('best' or 'current')
+            若没有任何候选被评估 (全被拒绝或为空) 则返回 None。
+            否则返回包含以下键的 dict:
+                - accepted: bool - 是否接受了某个候选
+                - voltages: np.ndarray - 最佳候选的电压
+                - value: float - 最佳候选处的目标值
+                - tabu_hits: int - 因禁忌而跳过的候选数
+                - safe_rejects: int - 因安全性被拒的候选数
+                - evaluated: int - 已评估的候选数
+                - radius: float - 当前搜索半径
+                - anchor: str - 锚点来源 ('best' 或 'current')
         """
         if rng is None:
             rng = np.random.default_rng()
 
-        # Use provided tolerance or default from search state
+        # 使用传入的容差, 或搜索状态中的默认值
         tol = (
             improvement_tol
             if improvement_tol is not None
             else self.search_state.improvement_tol
         )
 
-        # Generate candidates - use positional args for compatibility
+        # 生成候选 - 用位置参数以保证兼容性
         if self.candidate_generator == generate_search_candidates:
             candidates = self.candidate_generator(
                 anchor_v,
@@ -434,7 +423,7 @@ class TabuSearchRunner:
                 rng,
             )
         else:
-            # Custom generator - try with kwargs
+            # 自定义生成器 - 先尝试关键字参数
             try:
                 candidates = self.candidate_generator(
                     anchor_v=anchor_v,
@@ -444,7 +433,7 @@ class TabuSearchRunner:
                     rng=rng,
                 )
             except TypeError:
-                # Fallback: positional args
+                # 兜底: 位置参数
                 candidates = self.candidate_generator(
                     anchor_v,
                     self.search_state.radius,
@@ -459,26 +448,26 @@ class TabuSearchRunner:
         evaluated = 0
 
         for candidate in candidates:
-            # Apply clipping if bounds specified
+            # 若指定了边界则施加截断
             if self.clip_bounds is not None:
                 candidate = np.clip(candidate, self.clip_bounds[0], self.clip_bounds[1])
 
-            # Check tabu
+            # 检查禁忌
             if self.tabu_memory.contains(candidate):
                 tabu_hits += 1
                 continue
 
-            # Check safety
+            # 检查安全性
             if self.safety_check is not None and not self.safety_check(candidate):
                 safe_rejects += 1
                 self.tabu_memory.add(candidate)
                 continue
 
-            # Evaluate candidate
+            # 评估候选
             candidate_eval = evaluate_candidate(candidate)
             evaluated += 1
 
-            # Check if this is an improvement
+            # 判断这是否算改进
             candidate_value = candidate_eval.get(
                 objective_key, candidate_eval.get("value", 0)
             )
@@ -497,7 +486,7 @@ class TabuSearchRunner:
             else:
                 self.tabu_memory.add(candidate)
 
-        # Handle no valid candidates
+        # 处理没有有效候选的情况
         if best_candidate is None:
             self.search_state.update_radius(improved=False)
             return {
@@ -509,7 +498,7 @@ class TabuSearchRunner:
                 "anchor": "best",
             }
 
-        # Accept best candidate
+        # 接受最佳候选
         self.tabu_memory.add(anchor_v)
         self.search_state.update_radius(improved=True)
 
@@ -528,7 +517,7 @@ class TabuSearchRunner:
 
 
 # =============================================================================
-# Factory Functions
+# 工厂函数
 # =============================================================================
 
 
@@ -545,26 +534,25 @@ def create_tabu_search_runner(
     safety_check: Callable[[npt.NDArray[np.float64]], bool] | None = None,
     clip_bounds: tuple[float, float] | None = None,
 ) -> TabuSearchRunner:
-    """Factory function to create a TabuSearchRunner with default parameters.
+    """以默认参数创建 TabuSearchRunner 的工厂函数。
 
-    This is a convenience function that creates all required components
-    with sensible defaults.
+    这是一个便捷函数, 用合理的默认值创建全部所需组件。
 
     Args:
-        capacity: Tabu memory capacity.
-        quantization: Tabu memory quantization step.
-        initial_radius: Initial search radius.
-        min_radius: Minimum search radius.
-        max_radius: Maximum search radius.
-        expand_ratio: Radius expansion ratio.
-        shrink_ratio: Radius shrinking ratio.
-        improvement_tol: Improvement tolerance.
-        candidate_generator: Custom candidate generator or None for default.
-        safety_check: Custom safety check or None for no check.
-        clip_bounds: Voltage clipping bounds or None.
+        capacity: 禁忌记忆容量。
+        quantization: 禁忌记忆的量化步长。
+        initial_radius: 初始搜索半径。
+        min_radius: 最小搜索半径。
+        max_radius: 最大搜索半径。
+        expand_ratio: 半径扩张倍率。
+        shrink_ratio: 半径收缩倍率。
+        improvement_tol: 改进容差。
+        candidate_generator: 自定义候选生成器, None 表示使用默认实现。
+        safety_check: 自定义安全检查, None 表示不做检查。
+        clip_bounds: 电压截断边界, 或 None。
 
     Returns:
-        Configured TabuSearchRunner instance.
+        配置好的 TabuSearchRunner 实例。
 
     Example:
         >>> runner = create_tabu_search_runner(

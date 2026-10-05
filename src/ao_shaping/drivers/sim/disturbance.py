@@ -1,50 +1,40 @@
-"""Wavefront disturbance for the 2f-Fourier SLM simulation.
+"""2f 傅里叶 SLM 仿真的波前干扰。
 
-The ``slm-pib`` simulation originally propagated a *perfectly clean* wavefront:
-:meth:`ao_shaping.drivers.sim.slm_pib_sim.SimPibSystem.far_field` used only the
-SLM command phase, so the closed loop was never exposed to any wavefront
-disturbance. This module supplies the missing disturbance -- **atmospheric
-turbulence** plus a **thermal halo (热晕)** -- and exposes the static/dynamic
-regimes the report needs to compare.
+``slm-pib`` 的仿真原本传播的是一份*完全干净*的波前:
+:meth:`ao_shaping.drivers.sim.slm_pib_sim.SimPibSystem.far_field` 只用了 SLM 命令相位,
+因此闭环从未暴露在任何波前干扰之下。本模块补上缺失的干扰 —— **大气湍流** 加上
+**热晕 (热晕)** —— 并提供报告需要对比的 static/dynamic 两种机制。
 
-Two disturbance regimes
------------------------
+两种干扰机制
+-------------
 ``static``
-    One screen is generated on first use and then reused forever. This is the
-    frozen-screen case, the analogue of the ``closed`` turbulence mode used by
-    ``scripts/generate_oopao_impact_report.py``.
+    首次使用时生成一张相位屏, 之后永远复用。这就是冻结屏的情形, 对应
+    ``scripts/generate_oopao_impact_report.py`` 所用的 ``closed`` 湍流模式。
 ``dynamic``
-    A fresh, independent screen is drawn on **every** optical evaluation -- the
-    ``open``/sliding analogue. This models the *fully-decorrelated*
-    ("white in time") limit. That limit is the correct asymptotic here: real
-    atmospheric decorrelation is ~10-50 ms while one SPGD evaluation on this
-    loop takes ~0.375 s, so consecutive evaluations are in fact uncorrelated.
-    This is explicitly **not** a wind/advection model.
+    **每一次**光学求值都抽一张全新的独立相位屏 —— 即 ``open``/滑动的对应物。
+    它建模的是*完全去相关* ("时间上白") 极限。该极限在此是正确的渐近: 真实大气的
+    去相关时间约 10-50 ms, 而本环路上一次 SPGD 求值要 ~0.375 s, 因此相邻两次求值
+    实际上是不相关的。这明确**不是**风场/平流模型。
 
-Both regimes are deterministic for a fixed ``seed``.
+两种机制在 ``seed`` 固定时都是确定性的。
 
-Amplitudes are reported *as measured*, never analytically
----------------------------------------------------------
-``cn2`` and ``distance_m`` are **degenerate generator knobs**: the canonical
-generator derives ``r0 = (0.423 * k**2 * cn2 * distance) ** (-3/5)``, which
-depends only on their *product*. A single thin screen carries no propagation
-physics, so there is no real kilometre-scale atmospheric path being modelled
-here -- the bench is a ~0.3 m laboratory 2f-Fourier rig.
+幅度一律*按实测*报告, 绝不给解析值
+--------------------------------------
+``cn2`` 与 ``distance_m`` 是**退化的生成器旋钮**: 规范生成器推出的是
+``r0 = (0.423 * k**2 * cn2 * distance) ** (-3/5)``, 它只依赖二者的*乘积*。
+单张薄屏不携带任何传播物理, 所以这里并没有在建模真实的公里级大气光路 —— 本台架是
+一台 ~0.3 m 的实验室 2f 傅里叶装置。
 
-In addition, the repository's default (numpy) screen generator synthesises the
-screen by FFT of a filtered white-noise field with **no subharmonic/low-frequency
-compensation** (see ``src/ao_shaping/drivers/sim/AGENTS.md``, note 4). Because
-``l_max`` (tens of metres) greatly exceeds the 15.36 mm aperture, most of the
-von-Karman variance sits below the fundamental FFT frequency, so the measured
-``sigma`` is a **lower bound** on the analytic variance for the same ``r0``.
-Every amplitude this module reports is therefore measured from the produced
-arrays via :meth:`SimDisturbance.stats`.
+此外, 本仓库默认的 (numpy) 相位屏生成器是用滤波后的白噪声场做 FFT 合成相位屏的,
+**没有**次谐波/低频补偿 (见 ``src/ao_shaping/drivers/sim/AGENTS.md`` 注 4)。由于
+``l_max`` (几十米) 远大于 15.36 mm 口径, von-Karman 方差的大部分落在基频 FFT 频率
+以下, 因此实测 ``sigma`` 是同一 ``r0`` 下解析方差的一个**下界**。所以本模块报告的
+每个幅度都是经 :meth:`SimDisturbance.stats` 从实际产出的数组上量出来的。
 
-Raw-radian contract
--------------------
-:meth:`SimDisturbance.phase` returns **raw, unwrapped radians** and never
-applies ``mod 2*pi`` -- matching the repository rule that the only wrap point is
-the SLM driver's radian -> grayscale conversion.
+raw 弧度契约
+-------------
+:meth:`SimDisturbance.phase` 返回 **raw 未包裹弧度**, 从不施加 ``mod 2*pi`` ——
+这与仓库规则一致: 唯一的 wrap 点是 SLM 驱动里弧度 → 灰度的转换。
 """
 
 from __future__ import annotations
@@ -58,52 +48,47 @@ from loguru import logger
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
-#: Valid :attr:`DisturbanceConfig.mode` values.
+#: 合法的 :attr:`DisturbanceConfig.mode` 取值。
 DISTURBANCE_MODES: tuple[str, ...] = ("none", "static", "dynamic")
 
-#: Default Gaussian beam waist, in SLM pixels. Mirrors ``slm_pib_sim.BEAM_W0``
-#: but is duplicated here on purpose: importing the optical-system module from
-#: this one would create a cycle (``slm_pib_sim`` imports *this* module).
+#: 默认高斯光束腰, 单位 SLM 像素。与 ``slm_pib_sim.BEAM_W0`` 一致, 但这里**有意**
+#: 重复一份: 从本模块去 import 光学系统模块会形成循环 (``slm_pib_sim`` 反过来
+#: import 的是*本*模块)。
 DEFAULT_BEAM_W0: float = 400.0
 
-#: Amplitude below which the Gaussian pupil counts as un-illuminated when
-#: normalising the thermal halo's peak-to-valley, so the normalisation is not
-#: dominated by the numerically-noisy far wings.
+#: 在归一化热晕的峰谷值时, 低于该幅度的高斯瞳孔就算未被照亮, 以免归一化被数值
+#: 噪声较大的远翼主导。
 _AMPLITUDE_FLOOR: float = 1e-3
 
-#: Width of the smoothstep apodisation edge, as a fraction of the halo radius.
+#: smoothstep 渐晕边的宽度, 占光晕半径的比例。
 _APOD_EDGE_FRACTION: float = 0.35
 
 
 @dataclass(frozen=True)
 class DisturbanceConfig:
-    """Configuration for :class:`SimDisturbance`.
+    """:class:`SimDisturbance` 的配置。
 
-    The panel geometry is deliberately *not* part of this config -- it is
-    supplied at construction time so one config can be reused across grids.
+    面板几何刻意*不*属于这份配置 —— 它在构造时传入, 这样同一份配置可跨网格复用。
 
     Attributes:
-        mode: ``"none"``, ``"static"`` or ``"dynamic"``.
-        cn2: Refractive-index structure constant. Degenerate with
-            :attr:`distance_m`: only their product sets ``r0``.
-        distance_m: Generator path-length knob, not a real propagation path on
-            this bench (see the module docstring).
-        l_max: Outer scale [m].
-        l_min: Inner scale [m].
-        wavelength_m: Wavelength [m].
-        pixel_pitch_m: SLM pixel pitch [m]; sets the screen's physical extent so
-            its pixels stay isotropic with the panel.
-        thermal_halo_pv_waves: Peak-to-valley of the thermal-halo phase, in
-            waves. ``0`` disables the halo.
-        thermal_halo_radius_px: Radius over which the halo phase is retained, in
-            SLM pixels. Values far beyond ``~2 * beam_w0`` are attenuated to
-            invisibility by the Gaussian pupil amplitude (0.325 at 600 px and
-            0.135 at 800 px for the default 400 px waist).
-        halo_noll: ``(noll_index, coefficient)`` pairs fed to the canonical
-            :func:`~ao_shaping.utils.wavefront.zernike_utils.generate_zernike_phase`.
-            Negative coefficients give the negative thermal lens.
-        halo_n_max: Maximum Zernike radial order for the halo basis.
-        seed: Master seed; fully determines both regimes.
+        mode: ``"none"``、``"static"`` 或 ``"dynamic"``。
+        cn2: 折射率结构常数。与 :attr:`distance_m` 退化: 只有二者的乘积决定 ``r0``。
+        distance_m: 生成器的路径长度旋钮, 而不是本台架上的真实传播路径
+            (见模块 docstring)。
+        l_max: 外尺度 [m]。
+        l_min: 内尺度 [m]。
+        wavelength_m: 波长 [m]。
+        pixel_pitch_m: SLM 像元间距 [m]; 它决定相位屏的物理范围, 使相位屏的像元与
+            面板保持各向同性。
+        thermal_halo_pv_waves: 热晕相位的峰谷值, 单位 waves。``0`` 表示禁用光晕。
+        thermal_halo_radius_px: 保留光晕相位的半径, 单位 SLM 像素。远大于
+            ``~2 * beam_w0`` 的取值会被高斯瞳孔幅度衰减到不可见 (在默认 400 px 腰
+            半径下, 600 px 处为 0.325、800 px 处为 0.135)。
+        halo_noll: 喂给规范入口
+            :func:`~ao_shaping.utils.wavefront.zernike_utils.generate_zernike_phase`
+            的 ``(noll_index, coefficient)`` 对。负系数给出负热透镜。
+        halo_n_max: 光晕基的 Zernike 最大径向阶数。
+        seed: 主种子; 完全决定两种机制。
     """
 
     mode: str = "none"
@@ -141,23 +126,21 @@ class DisturbanceConfig:
 
 
 class SimDisturbance:
-    """Turbulence + thermal-halo phase disturbance on an ``(h, w)`` panel grid.
+    """在 ``(h, w)`` 面板网格上的湍流 + 热晕相位干扰。
 
-    Memory is bounded on purpose. ``dynamic`` mode generates one full-resolution
-    screen per optical evaluation and a 300-epoch run performs ~630 evaluations;
-    retaining them (at ~18 MB each for a 1200x1920 float64 array) would cost
-    several gigabytes. Only scalars are accumulated, and the frozen screen is
-    the sole array kept alive -- in ``dynamic`` mode the screen is returned to
-    the caller and never retained here.
+    内存是有意受限的。``dynamic`` 模式每次光学求值都会生成一张全分辨率相位屏,
+    而 300 个 epoch 的运行要做 ~630 次求值; 把它们都留着 (1200x1920 float64 数组
+    每张约 18 MB) 要吃掉好几 GB。这里只累加标量, 唯一长期存活的数组是那张冻结屏 ——
+    在 ``dynamic`` 模式下相位屏交还给调用方, 从不在此留存。
 
     Args:
-        config: The disturbance configuration.
-        shape: Panel shape ``(h, w)`` -- e.g. the SLM's ``(1200, 1920)``.
-        beam_w0: Gaussian beam waist in pixels, used only to mask the halo's
-            peak-to-valley normalisation. Defaults to :data:`DEFAULT_BEAM_W0`.
+        config: 干扰配置。
+        shape: 面板形状 ``(h, w)`` —— 例如 SLM 的 ``(1200, 1920)``。
+        beam_w0: 高斯光束腰, 单位像素, 只用于掩模光晕的峰谷值归一化。
+            默认取 :data:`DEFAULT_BEAM_W0`。
 
     Raises:
-        ValueError: On an unsupported configuration or an ``h > w`` panel.
+        ValueError: 配置不支持, 或面板 ``h > w``。
     """
 
     def __init__(
@@ -196,27 +179,24 @@ class SimDisturbance:
             self.shape,
         )
 
-    # --- construction helpers -------------------------------------------
+    # --- 构造辅助 ---------------------------------------------------
 
     def _amplitude_mask(self) -> np.ndarray:
-        """Boolean mask of where the Gaussian pupil is meaningfully illuminated."""
+        """高斯瞳孔被有效照亮处的布尔掩模。"""
         h, w = self.shape
         yy, xx = np.mgrid[0:h, 0:w]
         r2 = (xx - w / 2.0) ** 2 + (yy - h / 2.0) ** 2
         return np.exp(-r2 / (2.0 * self.beam_w0**2)) > _AMPLITUDE_FLOOR
 
     def _build_halo(self) -> np.ndarray:
-        """Deterministic thermal-halo phase, PV-normalised to the requested waves.
+        """确定性的热晕相位, 峰谷值归一化到请求的 waves 数。
 
-        The halo is a *steady-state* aberration (the negative thermal lens left
-        in the beam path), so it is built once and added to every turbulence
-        streak instead of being re-randomised.
+        光晕是一个*稳态*像差 (留在光路上的负热透镜), 因此只构造一次并加到每一条湍流
+        上, 而不重新随机化。
 
-        Construction follows the repository rule that all Zernike maths goes
-        through the canonical API entry: the unit-coefficient phase comes from
-        :func:`generate_zernike_phase` (linear in the coefficients), its
-        peak-to-valley is measured inside the illuminated pupil, and the array is
-        scaled linearly so PV equals ``thermal_halo_pv_waves * 2*pi`` radians.
+        构造过程遵循仓库规则: 所有 Zernike 数学都走规范 API 入口 —— 单位系数的相位
+        来自 :func:`generate_zernike_phase` (对系数线性), 其峰谷值在被照亮的瞳孔内
+        量出, 再对数组做线性缩放, 使 PV 等于 ``thermal_halo_pv_waves * 2*pi`` 弧度。
         """
         h, w = self.shape
         if self.config.thermal_halo_pv_waves <= 0.0:
@@ -243,7 +223,7 @@ class SimDisturbance:
         t = np.clip(
             (self.config.thermal_halo_radius_px + edge - radius) / (2.0 * edge), 0.0, 1.0
         )
-        unit = unit * (t * t * (3.0 - 2.0 * t))  # smoothstep apodisation
+        unit = unit * (t * t * (3.0 - 2.0 * t))  # smoothstep 渐晕
 
         mask = self._amplitude_mask()
         pv = float(np.ptp(unit[mask])) if np.any(mask) else 0.0
@@ -256,12 +236,11 @@ class SimDisturbance:
         return unit * (self.config.thermal_halo_pv_waves * 2.0 * np.pi / pv)
 
     def _turbulence_streak(self, index: int) -> np.ndarray:
-        """Generate the ``index``-th independent turbulence screen (uncached).
+        """生成第 ``index`` 张独立湍流相位屏 (不做缓存)。
 
-        Generated at the panel's native pixel pitch (``n_grid = w`` covering
-        ``w * pixel_pitch``) and centre-cropped to ``h`` rows, so the screen has
-        isotropic pixels, no anamorphic stretch and no tiling seam. A coarser
-        grid was measured to lose ~41% of the phase amplitude.
+        按面板的原生像元间距生成 (``n_grid = w`` 覆盖 ``w * pixel_pitch``), 再**居中
+        裁剪**到 ``h`` 行, 使相位屏像元各向同性、无各向异性拉伸、无拼接缝。实测更粗的
+        网格会丢失约 41% 的相位幅度。
         """
         h, w = self.shape
         if self.config.cn2 <= 0.0:
@@ -290,25 +269,25 @@ class SimDisturbance:
         start = (full.shape[0] - h) // 2
         return np.ascontiguousarray(full[start : start + h, :w])
 
-    # --- public API ------------------------------------------------------
+    # --- 公开 API ------------------------------------------------------
 
     @property
     def enabled(self) -> bool:
-        """Whether a disturbance is being applied at all."""
+        """是否正在施加干扰。"""
         return self.config.mode != "none"
 
     @property
     def halo_phase(self) -> np.ndarray:
-        """The deterministic thermal-halo phase array (raw radians)."""
+        """确定性的热晕相位数组 (raw 弧度)。"""
         return self._halo
 
     def phase(self) -> np.ndarray:
-        """Return the disturbance phase for the current optical evaluation.
+        """返回当前光学求值所用的干扰相位。
 
         Returns:
-            ``(h, w)`` float64 array of **raw, unwrapped radians**. ``"none"``
-            returns zeros; ``"static"`` always returns the same frozen screen;
-            ``"dynamic"`` returns a fresh, independent screen on every call.
+            **raw 未包裹弧度** 的 ``(h, w)`` float64 数组。``"none"`` 返回全零;
+            ``"static"`` 始终返回同一张冻结屏; ``"dynamic"`` 每次调用都返回一张
+            全新的独立相位屏。
         """
         self._calls += 1
 
@@ -338,12 +317,12 @@ class SimDisturbance:
         return total
 
     def stats(self) -> dict[str, float]:
-        """Measured disturbance amplitudes (never analytic values).
+        """实测的干扰幅度 (绝不给解析值)。
 
         Returns:
-            Scalars only: ``sigma_turb_rad``, ``sigma_halo_rad``,
-            ``sigma_total_rad``, ``streaks_used``, ``calls``, ``beam_w0``,
-            ``panel_pixels``.
+            只含标量: ``sigma_turb_rad``、``sigma_halo_rad``、
+            ``sigma_total_rad``、``streaks_used``、``calls``、``beam_w0``、
+            ``panel_pixels``。
         """
         halo_std = float(self._halo[self._mask].std()) if np.any(self._mask) else 0.0
 
@@ -379,29 +358,26 @@ class SimDisturbance:
         }
 
     def trace(self) -> dict[str, list]:
-        """Per-evaluation history: ``call_rms`` and ``call_streak_index``."""
+        """逐次求值的历史: ``call_rms`` 与 ``call_streak_index``。"""
         return {
             "call_rms": list(self._call_rms),
             "call_streak_index": list(self._call_streak_index),
         }
 
     def archive(self, *, factor: int = 8, max_count: int = 12) -> dict[str, np.ndarray]:
-        """Decimated thumbnails of the distinct screens actually used.
+        """实际用到的那些不同相位屏的抽稀缩略图。
 
-        Screens are regenerated on demand from the same per-streak seed rather
-        than retained, so archiving costs no memory during the run. For
-        ``dynamic`` at most ``max_count`` evenly spaced streak indices are
-        archived -- every ``call_rms`` entry is still recorded in full by
-        :meth:`trace`, which is the actual evidence that the screen varied.
+        相位屏是按需从各自的 streak 种子重新生成的, 而非留存, 因此归档在运行期间不占
+        内存。对 ``dynamic`` 最多归档 ``max_count`` 个等间隔的 streak 索引 ——
+        :meth:`trace` 仍会完整记录每一条 ``call_rms``, 那才是相位屏确实在变的证据。
 
         Args:
-            factor: Spatial decimation factor; the thumbnail is
-                ``(h // factor, w // factor)``.
-            max_count: Maximum number of distinct screens to archive.
+            factor: 空间抽稀因子; 缩略图为 ``(h // factor, w // factor)``。
+            max_count: 最多归档多少张不同相位屏。
 
         Returns:
             ``{"screens": (n, h//factor, w//factor) float32,
-            "streak_indices": (n,) int32}``.
+            "streak_indices": (n,) int32}``。
         """
         if factor < 1:
             raise ValueError(f"factor must be >= 1, got {factor}")
@@ -449,7 +425,7 @@ class SimDisturbance:
         }
 
     def to_dict(self) -> dict[str, Any]:
-        """JSON-serialisable config + measured stats (no arrays)."""
+        """可 JSON 序列化的配置 + 实测统计 (不含数组)。"""
         config = asdict(self.config)
         config["halo_noll"] = [list(pair) for pair in self.config.halo_noll]
         return {
