@@ -169,3 +169,81 @@ choice) is what limits inverse quality. That needs an accuracy ladder — train
 forward models to deliberately different fidelity levels, invert each, and check
 whether sim shape_sum tracks the ladder. Every comparison so far has used one
 accuracy point, so accuracy has never been varied as a variable.
+
+### Attempt 4 — accuracy ladder: more accuracy is NOT better
+
+`scripts/inverse_design_accuracy_ladder.py`. Ladder rung = AdamW steps used to fit
+the forward model (`fit_steps=0` = random init = the "no information" control).
+Accuracy is **held-out** forward MSE on a different real sample than the one
+fitted — otherwise the rungs are not ordered by generalisation and the ladder is
+meaningless. Confirmed monotone: MSE falls 0.00311 → 0.00079 across the rungs.
+
+`design_steps=0` scores the fitted coefficient vector *directly*, with no inverse
+optimisation in front of it. That is the only place forward accuracy cannot hide
+behind the optimiser.
+
+sim shape_sum, 3 sample pairs x 2 seeds (lower held-out MSE = more accurate model):
+
+| fit_steps | held-out MSE | design=0 | design=5 | design=20 | design=60 |
+|---|---|---|---|---|---|
+| 0 | 0.00311 | 0.6578 | 1.0403 | 1.0859 | 1.0668 |
+| 5 | 0.00232 | 0.6898 | 0.7725 | 0.9745 | 0.9718 |
+| **15** | **0.00124** | **1.1210** | 0.9084 | 0.8026 | 0.8874 |
+| 40 | 0.00087 | 1.0496 | 0.9193 | 1.0560 | 1.0991 |
+| 80 | 0.00081 | 1.0322 | 1.0454 | 1.0080 | 0.9829 |
+| 200 | 0.00079 | 0.8557 | 0.9896 | 1.0348 | 1.0965 |
+
+Flat reference = 0.6578.
+
+**Q1 — accuracy axis at design_steps=0, paired against the best rung (15):**
+
+| fit_steps | held-out MSE | Δ shape_sum | positives |
+|---|---|---|---|
+| 0 | 0.00311 | −0.4632 | 0/6 |
+| 5 | 0.00232 | −0.4312 | 0/6 |
+| 40 | 0.00087 | −0.0714 | 0/6 |
+| 80 | 0.00081 | −0.0889 | 0/6 |
+| 200 | 0.00079 | **−0.2653** | 0/6 |
+
+Three findings, and the second is the one that answers the original question:
+
+1. **Forward accuracy does carry usable information.** The no-information start is
+   strictly worse, 0/6. So this is not "accuracy is irrelevant".
+2. **More accuracy is not better — the relationship is non-monotonic.** The best
+   start is `fit_steps=15` (held-out MSE 0.00124). The *most* accurate model,
+   `fit_steps=200`, cuts held-out error a further 36% (0.00079) yet is markedly
+   worse as a start (−0.2653, 0/6). Ranking forward models by held-out MSE would
+   therefore **actively mislead** here: it would pick the worse shaper.
+3. **Inverse design steps add a real, monotone gain** — +0.045 / +0.093 / +0.116 at
+   5 / 20 / 60 steps (18/36, 24/36, 22/36 positive). They reduce but do not erase
+   the dependence on the start: at design_steps=60 the fit_steps=15 column is still
+   the worst of the fitted rungs.
+
+So the original premise — "how does forward-model accuracy affect inverse shaping?"
+— has an answer that is *not* the expected one: in this setup intermediate
+forward accuracy shapes better than high forward accuracy.
+
+**Caveats, stated because they bound the claim:**
+
+* 3 sample pairs x 2 seeds per cell. The `0/6` sign counts are consistent, but the
+  spread across rungs (0.86–1.12) is only ~2x the within-cell noise, so this is a
+  *ranking*, not a calibrated curve.
+* The `fit_steps=0` rungs all share one random init (`torch.manual_seed(0)`), so
+  their variance is understated — treat that row as n=1, not n=6.
+* Evaluator is a **sim**, not the bench.
+* The mechanism is **not** established. Plausible: the heavily-fitted models
+  overfit a single sample, and their coefficients drift away from the true bench
+  aberration in a way that is a worse *starting phase*. That is a hypothesis.
+
+A bug worth recording: the first version of this sweep passed a `design_steps`
+value that `design()` ignored (its step count was hardcoded), so the 5/20/60 columns
+came out byte-identical and only 0 vs 60 was really tested. The table above is from
+the fixed version, where the design axis genuinely varies.
+
+### Next direction
+
+Test the overfitting hypothesis directly rather than leaving it as a story: if the
+heavily-fitted start is worse because it overfits one sample, then fitting on
+*several* samples should move the best rung toward the high-accuracy end. If the
+best rung stays at low accuracy, overfitting is not the mechanism and the
+relationship is genuinely non-monotonic.

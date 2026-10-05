@@ -46,13 +46,17 @@ from ml.hwdataset.records import Materialiser  # noqa: E402
 from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
 from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
 
+# Discretisation shared with `inverse_design_accuracy_ladder.py`, which imports
+# these rather than re-declaring them. Kept as module constants (not argparse-only
+# defaults) so there is exactly one source of truth for the grid.
+GRID, N_MAX, PADDING = 64, 15, 12
+SIZE_FRAC, ASPECT = 0.375, 4.0 / 3.0
 # The simulator is calibrated for the real bench panel, so the model's small pupil
 # map has to be embedded into the illuminated disc. A 64x64 sim panel is out of
 # regime and returns NaN -- verified by sweeping panel shape x waist x padding.
 PANEL_H, PANEL_W = 1200, 1920
 DISC_RADIUS = 450
 SIM_PADDING, SIM_WINDOW = 4, 1024
-SIZE_FRAC, ASPECT = 0.375, 4.0 / 3.0
 
 OBJECTIVES: dict[str, LossConfig] = {
     "mse": LossConfig(w_mse=1.0),
@@ -132,7 +136,8 @@ def fit_forward(index, position: int, grid: int, n_max: int, padding: int, steps
         optimiser.step()
     with torch.no_grad():
         residual = float(((model(cos, sin) - reference) ** 2).mean())
-    return model.coefficients_array().detach().cpu().numpy(), residual
+    # `coefficients_array` already returns a detached numpy array.
+    return model.coefficients_array(), residual
 
 
 def design(
@@ -168,9 +173,9 @@ def design(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--grid", type=int, default=64)
-    parser.add_argument("--n-max", type=int, default=15)
-    parser.add_argument("--padding", type=int, default=12)
+    parser.add_argument("--grid", type=int, default=GRID)
+    parser.add_argument("--n-max", type=int, default=N_MAX)
+    parser.add_argument("--padding", type=int, default=PADDING)
     parser.add_argument("--samples", type=int, default=4, help="real corpus samples to fit")
     parser.add_argument("--seeds", type=int, default=3, help="design seeds per sample")
     parser.add_argument("--fit-steps", type=int, default=120)

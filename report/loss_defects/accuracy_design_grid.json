@@ -1,0 +1,1446 @@
+{
+  "rows": [
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 0,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0030950531363487244,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8633260063782888
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8633260063782888
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6660119338158668
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6660119338158668
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.913244038556125
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.913244038556125
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8590554714255512
+    },
+    {
+      "pair": 0,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.002259077038615942,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8590554714255512
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.04628508458566
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.04628508458566
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.7884707245461798
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.7884707245461798
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0543072406021177
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0543072406021177
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9413000785101283
+    },
+    {
+      "pair": 0,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0010226338636130095,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9413000785101283
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.005037499173701
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.005037499173701
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9926054186959912
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9926054186959912
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9948118435048735
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9948118435048735
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0560953974880412
+    },
+    {
+      "pair": 0,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.000678619893733412,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0560953974880412
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0001296713055854
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0001296713055854
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1777740097196354
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1777740097196354
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8189155435323554
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8189155435323554
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8605084589841243
+    },
+    {
+      "pair": 0,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0006282453541643918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8605084589841243
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9533727947171055
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9533727947171055
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0961051466802956
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0961051466802956
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1232921571025054
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1232921571025054
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0979722136525114
+    },
+    {
+      "pair": 0,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0006141384365037084,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0979722136525114
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 1,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0031672033946961164,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6380455140286084
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6380455140286084
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9755624407203566
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9755624407203566
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9980160573393541
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9980160573393541
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0801050907796503
+    },
+    {
+      "pair": 1,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0020449550356715918,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0801050907796503
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1697693317363453
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1697693317363453
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0932611112498674
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0932611112498674
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8373663033713972
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8373663033713972
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6220269693798431
+    },
+    {
+      "pair": 1,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0010662572458386421,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6220269693798431
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1157260147168246
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1157260147168246
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0772044922519335
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0772044922519335
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0290422106488955
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0290422106488955
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0572184339978898
+    },
+    {
+      "pair": 1,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0007180367247201502,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0572184339978898
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0007760375497314
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0007760375497314
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1522819458374638
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1522819458374638
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0714186423283678
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0714186423283678
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0224211852717393
+    },
+    {
+      "pair": 1,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0006375032826326787,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0224211852717393
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.568540835949323
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.568540835949323
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8533613115726296
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8533613115726296
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.037647090126911
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.037647090126911
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.135471683389805
+    },
+    {
+      "pair": 1,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0005931950872763991,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.135471683389805
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6578448985428038
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0403283960585816
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 2,
+      "fit_steps": 0,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.003081686794757843,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0667964080860162
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.5680589941521015
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.5680589941521015
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6760392623650662
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6760392623650662
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.012355237460858
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.012355237460858
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9760944491958939
+    },
+    {
+      "pair": 2,
+      "fit_steps": 5,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.002653640927746892,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9760944491958939
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1469643609415054
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1469643609415054
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8434753941504213
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8434753941504213
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.5161082689025472
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.5161082689025472
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0989941770254132
+    },
+    {
+      "pair": 2,
+      "fit_steps": 15,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0016263759462162852,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0989941770254132
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0279405302239186
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0279405302239186
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6879489641881511
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.6879489641881511
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1441229459042495
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1441229459042495
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1839098661217629
+    },
+    {
+      "pair": 2,
+      "fit_steps": 40,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.001221245271153748,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.1839098661217629
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.095554465276201
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.095554465276201
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8060534535358357
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.8060534535358357
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.133764280236947
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.133764280236947
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.065692416773286
+    },
+    {
+      "pair": 2,
+      "fit_steps": 80,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0011550876079127192,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.065692416773286
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 0,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0452831267570275
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 0,
+      "seed": 1,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0452831267570275
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 0,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0191941097083426
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 5,
+      "seed": 1,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0191941097083426
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 0,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9435441620375471
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 20,
+      "seed": 1,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 0.9435441620375471
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 0,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0560635361319477
+    },
+    {
+      "pair": 2,
+      "fit_steps": 200,
+      "design_steps": 60,
+      "seed": 1,
+      "held_out_mse": 0.0011568879708647728,
+      "flat": 0.6578448985428038,
+      "sim_shape_sum": 1.0560635361319477
+    }
+  ],
+  "summary": [
+    {
+      "fit_steps": 0,
+      "design_steps": 0,
+      "held_out_mse": 0.0031146477752675614,
+      "sim_shape_sum": 0.6578448985428037
+    },
+    {
+      "fit_steps": 0,
+      "design_steps": 5,
+      "held_out_mse": 0.0031146477752675614,
+      "sim_shape_sum": 1.0403283960585819
+    },
+    {
+      "fit_steps": 0,
+      "design_steps": 20,
+      "held_out_mse": 0.0031146477752675614,
+      "sim_shape_sum": 1.085863511798186
+    },
+    {
+      "fit_steps": 0,
+      "design_steps": 60,
+      "held_out_mse": 0.0031146477752675614,
+      "sim_shape_sum": 1.0667964080860164
+    },
+    {
+      "fit_steps": 5,
+      "design_steps": 0,
+      "held_out_mse": 0.002319224334011475,
+      "sim_shape_sum": 0.6898101715196664
+    },
+    {
+      "fit_steps": 5,
+      "design_steps": 5,
+      "held_out_mse": 0.002319224334011475,
+      "sim_shape_sum": 0.7725378789670966
+    },
+    {
+      "fit_steps": 5,
+      "design_steps": 20,
+      "held_out_mse": 0.002319224334011475,
+      "sim_shape_sum": 0.9745384444521124
+    },
+    {
+      "fit_steps": 5,
+      "design_steps": 60,
+      "held_out_mse": 0.002319224334011475,
+      "sim_shape_sum": 0.9717516704670316
+    },
+    {
+      "fit_steps": 15,
+      "design_steps": 0,
+      "held_out_mse": 0.0012384223518893123,
+      "sim_shape_sum": 1.1210062590878371
+    },
+    {
+      "fit_steps": 15,
+      "design_steps": 5,
+      "held_out_mse": 0.0012384223518893123,
+      "sim_shape_sum": 0.9084024099821563
+    },
+    {
+      "fit_steps": 15,
+      "design_steps": 20,
+      "held_out_mse": 0.0012384223518893123,
+      "sim_shape_sum": 0.802593937625354
+    },
+    {
+      "fit_steps": 15,
+      "design_steps": 60,
+      "held_out_mse": 0.0012384223518893123,
+      "sim_shape_sum": 0.8874404083051283
+    },
+    {
+      "fit_steps": 40,
+      "design_steps": 0,
+      "held_out_mse": 0.0008726339632024368,
+      "sim_shape_sum": 1.049568014704815
+    },
+    {
+      "fit_steps": 40,
+      "design_steps": 5,
+      "held_out_mse": 0.0008726339632024368,
+      "sim_shape_sum": 0.9192529583786918
+    },
+    {
+      "fit_steps": 40,
+      "design_steps": 20,
+      "held_out_mse": 0.0008726339632024368,
+      "sim_shape_sum": 1.0559923333526728
+    },
+    {
+      "fit_steps": 40,
+      "design_steps": 60,
+      "held_out_mse": 0.0008726339632024368,
+      "sim_shape_sum": 1.0990745658692311
+    },
+    {
+      "fit_steps": 80,
+      "design_steps": 0,
+      "held_out_mse": 0.0008069454149032632,
+      "sim_shape_sum": 1.0321533913771728
+    },
+    {
+      "fit_steps": 80,
+      "design_steps": 5,
+      "held_out_mse": 0.0008069454149032632,
+      "sim_shape_sum": 1.0453698030309784
+    },
+    {
+      "fit_steps": 80,
+      "design_steps": 20,
+      "held_out_mse": 0.0008069454149032632,
+      "sim_shape_sum": 1.0080328220325567
+    },
+    {
+      "fit_steps": 80,
+      "design_steps": 60,
+      "held_out_mse": 0.0008069454149032632,
+      "sim_shape_sum": 0.98287402034305
+    },
+    {
+      "fit_steps": 200,
+      "design_steps": 0,
+      "held_out_mse": 0.0007880738315482935,
+      "sim_shape_sum": 0.8557322524744854
+    },
+    {
+      "fit_steps": 200,
+      "design_steps": 5,
+      "held_out_mse": 0.0007880738315482935,
+      "sim_shape_sum": 0.9895535226537558
+    },
+    {
+      "fit_steps": 200,
+      "design_steps": 20,
+      "held_out_mse": 0.0007880738315482935,
+      "sim_shape_sum": 1.034827803088988
+    },
+    {
+      "fit_steps": 200,
+      "design_steps": 60,
+      "held_out_mse": 0.0007880738315482935,
+      "sim_shape_sum": 1.0965024777247547
+    }
+  ]
+}
