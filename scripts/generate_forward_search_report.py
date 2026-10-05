@@ -62,7 +62,7 @@ plt.rcParams["axes.unicode_minus"] = False
 
 # The arms worth showing side by side: the incumbent, the best loss arm, the best
 # augmentation arm, and the architecture arm with the best SSIM.
-SHOW = ["A0 mse (incumbent)", "A3 +ellipse 1.0", "C4 +strong 25%", "A5 unet"]
+SHOW = ["A0 mse (incumbent)", "D2 physics+residual", "A3 +ellipse 1.0", "A5 unet"]
 SAMPLES = [0, 1, 2, 3]
 
 
@@ -90,10 +90,14 @@ def main() -> None:
     x = torch.cat([t["phase_cos"], t["phase_sin"]], dim=1)
     y = _peak_normalise(t["target"].clone())
 
+    from forward_search_extra import PhysicsPlusResidual
+    from ml.phase.unet import UNetGenerator
+    from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+
     specs = {
         "A0 mse (incumbent)": Arm("A0"),
+        "D2 physics+residual": Arm("D2", kind="combo"),
         "A3 +ellipse 1.0": Arm("A3", weights=_ellipse(1.0)),
-        "C4 +strong 25%": Arm("C4", strong_frac=0.25),
         "A5 unet": Arm("A5", kind="unet"),
     }
     preds: dict[str, torch.Tensor] = {}
@@ -104,7 +108,14 @@ def main() -> None:
                 300, grid=GRID, beam_w0=BEAM_W0, far_field_padding=PADDING,
                 aperture_radius=APERTURE_R, n_max=N_MAX, seed=99,
             )
-        model = train_arm(arm, x, y, 0, device, strong)
+        if arm.kind == "combo":
+            torch.manual_seed(0)
+            model = PhysicsPlusResidual(
+                ZernikeAmpModel(ZernikeAmpConfig(n_max=N_MAX, grid=GRID, far_field_padding=PADDING)),
+                16, 0.15).to(device)
+            model, _, _ = _train(model, x, y, 0, device, xv, _peak_norm(yv))
+        else:
+            model = train_arm(arm, x, y, 0, device, strong)
         with torch.no_grad():
             preds[name] = torch.cat([fwd(model, xv[s : s + 256]) for s in range(0, xv.shape[0], 256)])
 
@@ -117,7 +128,8 @@ def main() -> None:
         ax = axes[r, 0]
         im = ax.imshow(true, cmap="inferno", vmin=0, vmax=vmax)
         ax.set_title("实测 true（CCD）" if r == 0 else "", fontsize=10)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
         if r == 0:
             ax.set_ylabel(f"样本 #{si}", fontsize=9)
         for c, name in enumerate(SHOW):
@@ -126,12 +138,14 @@ def main() -> None:
             ax.imshow(p, cmap="inferno", vmin=0, vmax=vmax)
             if r == 0:
                 ax.set_title(f"预测 pred\n{name}", fontsize=9)
-            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xticks([])
+            ax.set_yticks([])
             ax = axes[r, 2 + 2 * c]
             imd = ax.imshow(p - true, cmap="coolwarm", vmin=-0.5, vmax=0.5)
             if r == 0:
                 ax.set_title("残差 pred − true", fontsize=9)
-            ax.set_xticks([]); ax.set_yticks([])
+            ax.set_xticks([])
+            ax.set_yticks([])
     fig.colorbar(im, ax=axes[:, 0].tolist(), fraction=0.02, pad=0.01)
     fig.suptitle(
         "pred vs true —— 每个 arm 的预测与实测远场（同一色标，逐样本对比）\n"
@@ -156,7 +170,8 @@ def main() -> None:
     ypos = np.arange(len(names))
     ax.barh(ypos, d, xerr=se, color=colours, capsize=3)
     ax.axvline(0, color="k", lw=1)
-    ax.set_yticks(ypos); ax.set_yticklabels(names, fontsize=9)
+    ax.set_yticks(ypos)
+    ax.set_yticklabels(names, fontsize=9)
     ax.set_xlabel("ΔR² 相对基线（配对，同 seed）")
     ax.set_title("各 arm 对正向 R² 的贡献\n绿=3/3 seed 全部更好，红=不一致", fontsize=11)
     for i, (dd, ss, pp) in enumerate(zip(d, se, pos)):
@@ -168,7 +183,8 @@ def main() -> None:
              xerr=[np.std([r["ssim"] for r in data["rows"] if r["arm"] == s["arm"]], ddof=1) / np.sqrt(3)
                    for s in table],
              color="#1565c0", capsize=3, alpha=0.8)
-    ax2.set_yticks(ypos); ax2.set_yticklabels([])
+    ax2.set_yticks(ypos)
+    ax2.set_yticklabels([])
     ax2.set_xlabel("val SSIM（越高越好）")
     ax2.set_title("结构相似度", fontsize=11)
     ax2.grid(alpha=0.3, axis="x")
@@ -181,6 +197,25 @@ def main() -> None:
     fig.savefig(FIG_DIR / "forward_search_summary.png", bbox_inches="tight", dpi=140)
     plt.close(fig)
     print(f"wrote {FIG_DIR / 'forward_search_summary.png'}")
+
+
+def _peak_norm(t: torch.Tensor) -> torch.Tensor:
+    return t / t.amax(dim=(-2, -1), keepdim=True).clamp_min(1e-12)
+
+
+def _train(model, x, y, seed, device, xv, yv):
+    """Plain loop for the combo arm so it matches the padding the search used."""
+    opt = torch.optim.Adam(model.parameters(), lr=0.02)
+    for _ in range(60):
+        model.train()
+        order = torch.randperm(x.shape[0])
+        for s in range(0, x.shape[0], 64):
+            i = order[s : s + 64]
+            opt.zero_grad(set_to_none=True)
+            torch.mean((fwd(model, x[i].to(device)) - y[i].to(device)) ** 2).backward()
+            opt.step()
+    model.eval()
+    return model, None, None
 
 
 def _ellipse(w: float):
