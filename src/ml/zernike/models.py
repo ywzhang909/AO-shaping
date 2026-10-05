@@ -191,7 +191,11 @@ class ZernikeAmpConfig:
             spec said ``amp``, which is why ``"amplitude"`` was the first default;
             it is kept as a supported value, but it is measurably worse.
         normalization: ``"peak"`` (default), ``"sum"``, or ``"none"``.
-
+        conserve_energy: Rescale the output so its **intensity sum equals the input
+            phasor's** (see :meth:`_conserve_energy`). Off by default because it changes
+            the output scale, and the ``"peak"`` contract is relied on elsewhere. Turn it
+            on when the loss must anchor against absolute energy -- e.g. to stop a
+            degenerate solution that brightens a few pixels to drive MSE down.
             **``"sum"`` is a trap and must not be selected on MSE alone.**
             Dividing both prediction and target by their own total energy makes
             them agree almost trivially -- measured ``MSE = 0.00000``,
@@ -261,6 +265,7 @@ class ZernikeAmpConfig:
     radius: float | None = None
     observable: Observable = "intensity"
     normalization: Normalization = "peak"
+    conserve_energy: bool = False
     far_field_padding: int = 10
     center_crop: bool = True
     attention: bool = False
@@ -558,6 +563,7 @@ class ZernikeAmpModel(nn.Module):
         self.normalization: Normalization = config.normalization
         self.far_field_padding = config.far_field_padding
         self.center_crop = config.center_crop
+        self.conserve_energy = config.conserve_energy
 
         self.K = basis.K
         self.register_buffer("basis", basis.as_tensor(), persistent=False)
@@ -642,8 +648,14 @@ class ZernikeAmpModel(nn.Module):
         measured = torch.complex(phase_cos, phase_sin)
         correction = self.correction_phase()
         unit_phase = torch.polar(torch.ones_like(correction), correction)
+        field = measured * unit_phase
 
-        return self._normalize(self._observable_from_field(measured * unit_phase))
+        observable = self._normalize(self._observable_from_field(field))
+        if self.conserve_energy:
+            # LAST, deliberately: peak/sum normalisation divides the total away, so
+            # conserving before it would be a no-op.
+            observable = self._conserve_energy(observable, field)
+        return observable
 
     def _observable_from_field(self, field: torch.Tensor) -> torch.Tensor:
         """Pupil field -> far-field observable, before normalisation.
@@ -711,8 +723,15 @@ class ZernikeAmpModel(nn.Module):
         unit_phase = torch.polar(
             torch.ones_like(correction), correction
         )[None, None]
-        observable = self._observable_from_field(unit_phase)
-        return self._normalize(observable) if normalize else observable
+        field = unit_phase
+        observable = self._observable_from_field(field)
+        if normalize:
+            observable = self._normalize(observable)
+        if self.conserve_energy:
+            # LAST, for the same reason as forward(): a preceding peak/sum
+            # normalisation would divide the conserved total straight back out.
+            observable = self._conserve_energy(observable, field)
+        return observable
 
     def _validate_inputs(self, phase_cos: torch.Tensor, phase_sin: torch.Tensor) -> None:
         """Check the phasor pair matches the basis resolution."""
@@ -774,6 +793,35 @@ class ZernikeAmpModel(nn.Module):
         else:
             return observable
         return observable / torch.clamp(scale, min=_EPS)
+
+    def _conserve_energy(
+        self, observable: torch.Tensor, pupil: torch.Tensor
+    ) -> torch.Tensor:
+        """Rescale ``observable`` so its intensity sum equals the input's.
+
+        Why this is a *post*-processing step and not a property of the propagation:
+        ``_propagate`` uses ``norm="ortho"``, for which Parseval is exact --
+        ``sum(|F|^2) == sum(|pupil|^2)`` with no N factor. The propagated field is
+        therefore already energy-conserving, and the conservation is then thrown away
+        by the output normalisation (``peak`` divides by the maximum, ``sum`` divides
+        by the total). Re-imposing it as the last step restores a scale that the loss
+        can actually anchor against.
+
+        The anchor is the **input phasor's** own intensity sum, which is informative
+        rather than a constant: the corpus stores ``phase_cos``/``phase_sin`` as a
+        *coherent block average* of the wrapped phase, so ``|phasor|^2 < 1`` wherever
+        the block is not phase-coherent, and the model's total tracks how much light
+        actually reached the panel.
+
+        Scope, stated plainly: this makes the output's absolute scale meaningful
+        *relative to the input pupil*. It does **not** put the prediction on the
+        camera's absolute ADU scale -- that additionally needs the illumination
+        calibration, and no such constant exists in this model.
+        """
+        target = pupil.real.pow(2) + pupil.imag.pow(2)
+        target_total = target.sum(dim=(-2, -1), keepdim=True)
+        current_total = observable.sum(dim=(-2, -1), keepdim=True)
+        return observable * (target_total / torch.clamp(current_total, min=_EPS))
 
     def correction_phase(self) -> torch.Tensor:
         """Return the current pupil phase correction as ``(g, g)`` radians.

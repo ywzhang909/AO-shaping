@@ -170,6 +170,10 @@ class AmpTrainConfig:
     loss_weights: LossConfig = field(
         default_factory=lambda: LossConfig(w_mse=1.0, w_shape_gap=1.0)
     )
+    #: Rescale the model's output so its intensity sum equals the input phasor's.
+    #: Off by default (see ``ZernikeAmpConfig.conserve_energy``); enable it when the
+    #: loss should be able to anchor against absolute energy.
+    conserve_energy: bool = False
     #: ROI side as a fraction of the (centre-cropped) output grid edge. The
     #: default 0.375 reproduces the 24/64 grid the bench tooling uses; it is a
     #: free parameter of the objective, not a fitted constant.
@@ -558,6 +562,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             grid=cfg.grid,
             observable=cfg.observable,
             normalization=cfg.normalization,
+    conserve_energy=cfg.conserve_energy,
             far_field_padding=cfg.far_field_padding,
             center_crop=cfg.center_crop,
             attention=cfg.attention,
@@ -900,6 +905,11 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--observable", default=model_default.observable)
     parser.add_argument("--normalization", default=model_default.normalization)
     parser.add_argument(
+        "--conserve-energy",
+        action="store_true",
+        help="Rescale the prediction so its intensity sum equals the input phasor's",
+    )
+    parser.add_argument(
         "--far-field-padding", type=int, default=model_default.far_field_padding
     )
     parser.add_argument(
@@ -975,6 +985,7 @@ def main(argv: list[str] | None = None) -> int:
         n_max=args.n_max,
         observable=args.observable,
         normalization=args.normalization,
+    conserve_energy=args.conserve_energy,
         far_field_padding=args.far_field_padding,
         center_crop=args.center_crop,
         max_train=args.max_train,

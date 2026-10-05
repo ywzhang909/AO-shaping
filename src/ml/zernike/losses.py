@@ -169,6 +169,85 @@ def _flatten_roi(intensity: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
     return roi_sum, total
 
 
+def second_moments(
+    intensity: Tensor, mask: Tensor | None = None
+) -> tuple[Tensor, Tensor, Tensor]:
+    """Per-sample intensity second moments ``(var_x, var_y, var_r)`` in pixel^2.
+
+    These are the central moments about the **intensity centroid**::
+
+        x_bar   = sum(x * I) / sum(I)
+        var_x   = sum((x - x_bar)^2 * I) / sum(I)
+
+    and ``var_r = var_x + var_y``, the radial second moment -- the quantity usually
+    meant by a beam's "second moment" and the one that sets the spot size.
+
+    Why it is needed alongside MSE: a pixel-wise MSE is dominated by the bright core,
+    so a prediction can match the peak closely while getting the *spread* badly wrong,
+    and MSE barely notices. The second moments are a 2-number summary of that spread,
+    so they react to core/halo redistribution that MSE is nearly blind to.
+
+    Masked (``mask`` given) the centroid and moments are computed inside the ROI only,
+    which is what you want when the spot is measured against a target box.
+
+    Returns ``(B,)`` tensors, matching every other term in this module. Pixels outside
+    a supplied mask, and any NaN the basis may carry, contribute nothing.
+    """
+    if intensity.dim() != 4:
+        raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
+    weights = intensity
+    if mask is not None:
+        if tuple(intensity.shape[-2:]) != tuple(mask.shape):
+            raise ValueError(
+                f"intensity spatial {tuple(intensity.shape[-2:])} does not match mask "
+                f"{tuple(mask.shape)}; the ROI was built for a different frame size"
+            )
+        m = mask.to(device=intensity.device, dtype=intensity.dtype)
+        if m.dim() == 2:
+            m = m.view(1, 1, *m.shape)
+        weights = intensity * m
+    weights = torch.nan_to_num(weights, nan=0.0, posinf=0.0, neginf=0.0)
+
+    height, width = intensity.shape[-2:]
+    ys = torch.arange(height, device=intensity.device, dtype=intensity.dtype)
+    xs = torch.arange(width, device=intensity.device, dtype=intensity.dtype)
+    grid_y = ys.view(1, 1, height, 1)
+    grid_x = xs.view(1, 1, 1, width)
+
+    total = weights.sum(dim=(-2, -1)).squeeze(-1)
+    safe = torch.clamp(total, min=EPS)
+
+    mean_y = (weights * grid_y).sum(dim=(-2, -1)).squeeze(-1) / safe
+    mean_x = (weights * grid_x).sum(dim=(-2, -1)).squeeze(-1) / safe
+
+    dy = grid_y - mean_y.view(-1, 1, 1, 1)
+    dx = grid_x - mean_x.view(-1, 1, 1, 1)
+    var_y = (weights * dy.pow(2)).sum(dim=(-2, -1)).squeeze(-1) / safe
+    var_x = (weights * dx.pow(2)).sum(dim=(-2, -1)).squeeze(-1) / safe
+    return var_x, var_y, var_x + var_y
+
+
+def spot_moment_gap_term(
+    prediction: Tensor, target: Tensor, mask: Tensor | None = None
+) -> Tensor:
+    """Relative error in the radial second moment, ``|var_r(pred) - var_r(target)| / var_r(target)``.
+
+    **Anchored** to the target, unlike :func:`pib_term` / :func:`uniformity_term`: the
+    reference is always the measurement. That matters. The unanchored physical terms
+    were a category error for *fitting* -- their optimum is "ignore the data and emit
+    an ideal spot" -- and the fix was :func:`shape_gap_term`. This term is built the
+    same way from the start: a spot-size error is only meaningful against the spot
+    size that was actually measured.
+
+    Normalising by the target's own moment makes it scale-free, so it is comparable
+    across frames with different brightness (the corpus spans uint8/float32/float64
+    with maxima of 255 / 239.6 / 100.9) and comparable to ``w_mse``.
+    """
+    _, _, pred_r = second_moments(prediction, mask)
+    _, _, true_r = second_moments(target, mask)
+    return (pred_r - true_r).abs() / torch.clamp(true_r, min=EPS)
+
+
 def pib_term(intensity: Tensor, mask: Tensor) -> Tensor:
     """Fraction of in-frame light inside the ROI, per sample, in ``[0, 1]``.
 
@@ -256,6 +335,12 @@ class LossConfig:
             data and emit an ideal spot" (measured: val R2 +0.78 -> -0.86, with
             ``shape_sum`` 34% above the physics being predicted). Set this
             instead of ``w_pib``/``w_uniformity`` for fidelity tasks.
+        w_spot_moment: Weight on the **anchored** spot-size term
+            :func:`spot_moment_gap_term`, the relative error in the radial second
+            moment. MSE is dominated by the bright core, so it barely notices a
+            prediction that matches the peak while getting the spread wrong; this
+            term is a two-number summary of exactly that. Anchored to the measurement,
+            so unlike ``w_pib``/``w_uniformity`` it cannot be won by ignoring the data.
         shape_gap_relative: Normalise :func:`shape_gap_term` by the reference's
             own mean ``shape_sum``. The physical terms are ``O(1)`` while a
             peak-normalised MSE is ``O(0.003)``, so without this a nominal
@@ -272,6 +357,7 @@ class LossConfig:
     w_pib: float = 0.0
     w_uniformity: float = 0.0
     w_shape_gap: float = 0.0
+    w_spot_moment: float = 0.0
     shape_gap_relative: bool = True
     normalization: str = "peak"
 
@@ -338,6 +424,11 @@ def composite_loss(
         out["shape_gap"] = gap
         per_sample.append(cfg.w_shape_gap * gap)
 
+    if cfg.w_spot_moment:
+        moment = spot_moment_gap_term(pred, target, mask)
+        out["spot_moment"] = moment
+        per_sample.append(cfg.w_spot_moment * moment)
+
     if not per_sample:
         raise ValueError("LossConfig has no non-zero weight; nothing to optimise")
 
@@ -355,5 +446,8 @@ __all__ = [
     "poisson_nll",
     "roi_energy_loss",
     "roi_mask",
+    "second_moments",
+    "shape_gap_term",
+    "spot_moment_gap_term",
     "uniformity_term",
 ]

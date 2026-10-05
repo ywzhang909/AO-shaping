@@ -960,6 +960,129 @@ gradient arms are unaffected, it is recorded rather than chased.
 * The freeform grid is `24x24` upsampled to 64x64 on a 64x64 pupil grid. A native
   full-resolution freeform grid (4096 DOF) was not tried, and neither was a
   physically-apertured coarse grid, so the coarse-grid choice is unvalidated.
+
+---
+
+## ⚠️ CORRECTION (added after the illustrated report) — the evaluator was cropping the wrong region
+
+Rendering the pred-vs-true figure exposed a bug that invalidates the **quantitative**
+sim numbers in attempts 1-15.
+
+`sim_far_field` cropped the simulator's far field with `image[:64, :64]`. The 0-order
+of a `SimPibSystem` far field sits at the **centre** of the array, so that took the
+**top-left corner**, where the measured value is `1e-05` against a peak of `100` —
+i.e. every ROI metric in this file was computed on a patch roughly 10^5 times dimmer
+than the beam, describing off-axis sidelobes rather than the spot.
+
+It was invisible because the numbers were self-consistent and reproducible. It became
+visible only as a *picture*: the "independent simulation" panel of the inverse
+pred-vs-true figure rendered blank while the line profile showed a flat trace. Two
+further faults surfaced with it:
+
+* **Angular-scale mismatch.** The 64x64 pupil was embedded in the 1200x1920 panel, so
+  the far field covered the *panel's* angular range and the beam core landed on ~6 px
+  of the 64 px crop. A design targeting a 24 px square in its own grid then aimed at
+  something 4x larger than the measurement window, and every comparison read as noise
+  (GS-flat came out at ~-0.002 for every ROI tried).
+* **ROI size calibrated against the broken crop.** `SIZE_FRAC=0.375` was chosen while
+  the evaluator was reading a corner.
+
+Fixed by running the 64x64 pupil **directly** (`far_field_window=64`, waist scaled from
+the bench ratio), so the evaluator's far-field grid is identical to the grid
+Gerchberg-Saxton produces and the two are comparable pixel-for-pixel. With the scale
+matched, shaping works as expected: **GS - flat = +0.2945** at `SIZE_FRAC=0.375`,
+`aspect=4/3`.
+
+What survives and what does not:
+
+| claim | status after the fix |
+|---|---|
+| `correction_far_field` ignores the fitted model (attempt 12) | **unaffected** — a code-level fact proved by bit-identity, with no metric involved |
+| forward accuracy does not predict inverse quality | **unaffected in substance** — it was never an input to the path |
+| inverse design beats flat | survives qualitatively; the margin changes |
+| "GS beats gradient" | was a coin flip before; needs re-measuring on the fixed evaluator |
+| "refinement is a restart" (spearman -0.87/-0.92) | **needs re-measuring** — it was computed on the corner patch |
+| absolute numbers throughout | **void**; the JSON panels are kept only as a record of the bug |
+
+The methodological lesson is the same one as attempts 3, 5 and 13, and this time it is
+about *plots*: a metric can be reproducible, self-consistent, and still measure the
+wrong region. Rendering it is what caught it. The re-measurement is the first thing
+`scripts/inverse_restart_selection.py` / `roi_robustness.py` should be re-run for.
+
+---
+
+## Attempt 16 — anchored spot-size term and energy-conserving output
+
+Two requested changes to the forward path, measured paired on 12 real corpus samples
+(150 steps each, identical init, `n_max=15`, `grid=64`).
+
+**1. `spot_moment_gap_term` — the radial second moment, anchored to the target.**
+`|var_r(pred) - var_r(true)| / var_r(true)`, computed about the intensity centroid.
+Anchored from the start, unlike `pib_term`/`uniformity_term`: the reference is always
+the measurement, so it cannot be won by ignoring the data (the defect that made the
+unanchored pair cost R2 +0.78 -> -0.86).
+
+**2. `conserve_energy` — rescale the output so its intensity sum equals the input
+phasor's.** `_propagate` already uses `norm="ortho"`, so Parseval is exact and the
+propagated field is conservative; peak normalisation is what destroys the total. The
+rescale is therefore applied **last**, after `_normalize`, or it would be a no-op.
+Verified exact: ratio `1.000000`, and the anchor tracks partial coherence
+(`|phasor|=0.5` -> `128.0` for an input total of `128.0`).
+
+| config | R2 | MSE | moment gap | var pred | var true |
+|---|---|---|---|---|---|
+| **conserve_energy = False** | | | | | |
+| `mse` | **0.9545** | 0.00067 | 0.0463 | 71.10 | 74.56 |
+| `mse + moment(0.5)` | 0.7441 | 0.00378 | **0.0055** | 74.77 | 74.56 |
+| `mse + moment(2)` | 0.5964 | 0.00597 | **0.0038** | 74.52 | 74.56 |
+| `mse + moment + gap` | 0.7361 | 0.00390 | 0.0072 | 74.27 | 74.56 |
+| **conserve_energy = True** | | | | | |
+| `mse` | **-4.8517** | 0.08640 | 0.6998 | 126.73 | 74.56 |
+| `mse + moment(0.5)` | -1.6788 | 0.03960 | 0.0340 | 77.09 | 74.56 |
+| `mse + moment(2)` | -1.5800 | 0.03812 | 0.0191 | 75.59 | 74.56 |
+
+Paired deltas vs `mse`:
+
+| flag | config | dR2 | positives |
+|---|---|---|---|
+| False | `mse+moment(0.5)` | **-0.2105** ± 0.0148 | 0/12 |
+| False | `mse+moment(2)` | **-0.3582** ± 0.0151 | 0/12 |
+| True | `mse+moment(0.5)` | **+3.1729** ± 0.1674 | **12/12** |
+| True | `mse+moment(2)` | **+3.2717** ± 0.1592 | **12/12** |
+
+Read honestly, and neither half is a standalone win:
+
+* **The spot-size term does exactly what it was built for.** It cuts the moment gap
+  8x (0.0463 -> 0.0055 at `w=0.5`, -> 0.0038 at `w=2`) and pulls `var_pred` onto
+  `var_true` (71.10 -> 74.77 against a true 74.56).
+* **But it buys that with fidelity.** R2 falls 0.9545 -> 0.7441 -> 0.5964, in 0/12
+  paired runs. It is a genuine **trade-off**, not a free win, and it is monotone in the
+  weight. For a *forward* model, whose whole job is to predict the whole frame, that
+  is usually the wrong side of the trade.
+* **`conserve_energy` on its own is harmful** with a peak-normalised target: R2
+  **-4.8517**. The output now carries an absolute scale the target does not, and MSE
+  punishes the mismatch. It only makes sense with `normalization="none"`, or with a
+  loss that is absolute-scale aware.
+* **They interact strongly.** With conservation on, the spot-size term stops being a
+  trade-off and becomes a repair mechanism: **+3.17, 12/12**. The two are not
+  independent knobs.
+
+Recommendation, given the measurements rather than the intent:
+
+* Forward fidelity is the priority -> keep `w_spot_moment = 0` (the incumbent), or use a
+  small weight only when spot size is what the application cares about.
+* Absolute brightness is the priority -> `conserve_energy=True` **with**
+  `normalization="none"`, and then `w_spot_moment` becomes necessary rather than
+  optional.
+* Do not enable `conserve_energy` alone against a peak-normalised target.
+
+### Remaining caveats
+
+* Every number remains a **sim** claim, not a bench claim.
+* The freeform grid is `24x24` upsampled to 64x64. A native full-resolution freeform
+  grid (4096 DOF) was not tried.
+* **The ROI-sweep conclusions (attempts 13-15) still need re-measuring** on the
+  corrected evaluator. See the correction section above.
 * Attempts 8-14 are uncommitted: a concurrent in-progress merge holds 21 conflicted
   files and `git commit` refuses. They are on disk and unstaged.
 

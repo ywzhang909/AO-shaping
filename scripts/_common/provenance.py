@@ -511,6 +511,13 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/freeform_vs_zernike.py",
         ),
     ),
+    "report/loss_defects/inverse_design_report.md": ReportProvenance(
+        script="scripts/generate_inverse_design_report.py",
+        command="python scripts/generate_inverse_design_report.py",
+        environment="离线",
+        note="逆向整形中文报告：正向/反向 pred vs true 对比图 + ROI 扫描 + 术语表",
+        extra_scripts=("scripts/freeform_vs_zernike.py",),
+    ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,
