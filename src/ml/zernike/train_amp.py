@@ -611,7 +611,11 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     # region the bench optimiser reports.
     grid = int(train_t["target"].shape[-1])
     loss_mask = None
-    if cfg.loss == "physical" or cfg.loss_weights.w_spot_moment > 0.0:
+    if (
+        cfg.loss == "physical"
+        or cfg.loss_weights.w_spot_moment > 0.0
+        or cfg.loss_weights.w_ellipse > 0.0
+    ):
         loss_mask = roi_mask(
             (grid, grid),
             (grid / 2.0, grid / 2.0),
@@ -969,6 +973,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
+        "--w-ellipse",
+        type=float,
+        default=0.0,
+        help=(
+            "Weight on the anchored ellipse-fit gap (centroid x/y, var_x, var_y, "
+            "covariance). Richer than --w-spot-moment: sees spot position and tilt, "
+            "which the radial term scores as zero."
+        ),
+    )
+    parser.add_argument(
         "--target-size-frac",
         type=float,
         default=train_default.target_size_frac,
@@ -1028,7 +1042,10 @@ def main(argv: list[str] | None = None) -> int:
         l2_penalty=args.l2_penalty,
         loss=args.loss,
         loss_weights=LossConfig(
-            w_mse=1.0, w_shape_gap=1.0, w_spot_moment=args.w_spot_moment
+            w_mse=1.0,
+            w_shape_gap=1.0,
+            w_spot_moment=args.w_spot_moment,
+            w_ellipse=args.w_ellipse,
         ),
     target_size_frac=args.target_size_frac,
     target_aspect_ratio=args.target_aspect_ratio,

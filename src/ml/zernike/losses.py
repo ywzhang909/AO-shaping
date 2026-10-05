@@ -227,6 +227,100 @@ def second_moments(
     return var_x, var_y, var_x + var_y
 
 
+def ellipse_parameters(
+    intensity: Tensor, mask: Tensor | None = None
+) -> tuple[Tensor, Tensor, Tensor, Tensor, Tensor]:
+    """Per-sample second-moment ellipse ``(cx, cy, var_x, var_y, cov)``.
+
+    The intensity-weighted covariance about the centroid::
+
+        cx, cy = sum(pos * I) / sum(I)
+        var_x  = sum((x - cx)^2 * I) / sum(I)
+        var_y  = sum((y - cy)^2 * I) / sum(I)
+        cov    = sum((x - cx)(y - cy) * I) / sum(I)
+
+    ``cov`` is the term the radial ``var_x + var_y`` cannot see: it encodes elongation and
+    its orientation, so two ellipses with identical total spread but different aspect or
+    tilt are distinguishable here and invisible there.
+
+    Centroids are in pixel units (0-based at pixel centres).
+
+    Returns five ``(B,)`` tensors, matching every other term in this module.
+    """
+    if intensity.dim() != 4:
+        raise ValueError(f"intensity must be (B,1,H,W), got {tuple(intensity.shape)}")
+    device, dtype = intensity.device, intensity.dtype
+    height, width = intensity.shape[-2:]
+
+    weights = intensity
+    if mask is not None:
+        if tuple(intensity.shape[-2:]) != tuple(mask.shape):
+            raise ValueError(
+                f"intensity spatial {tuple(intensity.shape[-2:])} does not match mask "
+                f"{tuple(mask.shape)}; the ROI was built for a different frame size"
+            )
+        m = mask.to(device=device, dtype=dtype)
+        if m.dim() == 2:
+            m = m.view(1, 1, *m.shape)
+        weights = intensity * m
+
+    weights = torch.where(torch.isfinite(weights), weights, torch.zeros_like(weights))
+    total = weights.sum(dim=(-2, -1)).clamp_min(EPS)
+
+    ys = torch.arange(height, device=device, dtype=dtype).view(1, 1, height, 1) + 0.5
+    xs = torch.arange(width, device=device, dtype=dtype).view(1, 1, 1, width) + 0.5
+    cx = (weights * xs).sum(dim=(-2, -1)) / total
+    cy = (weights * ys).sum(dim=(-2, -1)) / total
+
+    # (B,1,1,1), not (B,1,1): xs is (1,1,1,W) and ys is (1,1,H,1), and broadcasting
+    # aligns from the RIGHT -- a 3-D view silently yields (1,B,1,W) instead of (B,1,1,W),
+    # which leaves var_x with the wrong shape rather than raising.
+    dx = xs - cx.reshape(-1, 1, 1, 1)
+    dy = ys - cy.reshape(-1, 1, 1, 1)
+    var_x = (weights * dx * dx).sum(dim=(-2, -1)) / total
+    var_y = (weights * dy * dy).sum(dim=(-2, -1)) / total
+    cov = (weights * dx * dy).sum(dim=(-2, -1)) / total
+    # weights is (B,1,H,W), so reducing over (-2,-1) leaves (B,1). Squeeze to (B,) to match
+    # every other term in this module -- otherwise composite_loss's torch.stack over
+    # per_sample sees mixed ranks and fails.
+    return cx.reshape(-1), cy.reshape(-1), var_x.reshape(-1), var_y.reshape(-1), cov.reshape(-1)
+
+
+def ellipse_gap_term(
+    prediction: Tensor, reference: Tensor, mask: Tensor | None = None
+) -> dict[str, Tensor]:
+    """Anchored relative error on each ellipse parameter.
+
+    Every component is divided by the **reference's own scale**, so the term measures "does
+    the prediction have the same spot as the measurement" and cannot be won by ignoring the
+    data. ``cov`` is divided by the geometric mean of the reference's two spreads instead of
+    by itself, because ``cov`` is antisymmetric and may legitimately vanish (a spot aligned
+    with the grid) -- a self-normalised term would be singular exactly on the easy cases.
+
+    Returns a dict with the five per-component gaps, the summed ``ellipse`` term that the
+    composite loss uses, and ``_mean_ellipse`` for logging.
+    """
+    p_cx, p_cy, p_vx, p_vy, p_cov = ellipse_parameters(prediction, mask)
+    r_cx, r_cy, r_vx, r_vy, r_cov = ellipse_parameters(reference, mask)
+
+    # Pixel scale: the largest spread the reference has, floored so a degenerate frame
+    # cannot make the centroid terms explode.
+    scale = torch.maximum(r_vx, r_vy).clamp_min(EPS)
+    cov_scale = torch.sqrt(r_vx.clamp_min(EPS) * r_vy.clamp_min(EPS))
+
+    gaps = {
+        "ellipse_cx": (p_cx - r_cx).abs() / scale,
+        "ellipse_cy": (p_cy - r_cy).abs() / scale,
+        "ellipse_var_x": (p_vx - r_vx).abs() / r_vx.clamp_min(EPS),
+        "ellipse_var_y": (p_vy - r_vy).abs() / r_vy.clamp_min(EPS),
+        "ellipse_cov": (p_cov - r_cov).abs() / cov_scale,
+    }
+    out = dict(gaps)
+    out["ellipse"] = sum(gaps.values())
+    out["_mean_ellipse"] = out["ellipse"].mean()
+    return out
+
+
 def spot_moment_gap_term(
     prediction: Tensor, target: Tensor, mask: Tensor | None = None
 ) -> Tensor:
@@ -358,6 +452,11 @@ class LossConfig:
     w_uniformity: float = 0.0
     w_shape_gap: float = 0.0
     w_spot_moment: float = 0.0
+    #: Weight on the anchored ellipse-fit gap -- the five second-moment-ellipse
+    #: parameters (centroid x/y, var_x, var_y, covariance). Strictly richer than
+    #: ``w_spot_moment``: a 2 px shift scores 0.0898 here and exactly 0.0 on the radial
+    #: term, which is blind to both position and orientation.
+    w_ellipse: float = 0.0
     shape_gap_relative: bool = True
     normalization: str = "peak"
 
@@ -424,6 +523,11 @@ def composite_loss(
         out["shape_gap"] = gap
         per_sample.append(cfg.w_shape_gap * gap)
 
+    if cfg.w_ellipse:
+        ellipse = ellipse_gap_term(pred, target, mask)
+        out["ellipse"] = ellipse["ellipse"]
+        per_sample.append(cfg.w_ellipse * ellipse["ellipse"])
+
     if cfg.w_spot_moment:
         moment = spot_moment_gap_term(pred, target, mask)
         out["spot_moment"] = moment
@@ -449,5 +553,7 @@ __all__ = [
     "second_moments",
     "shape_gap_term",
     "spot_moment_gap_term",
+    "ellipse_parameters",
+    "ellipse_gap_term",
     "uniformity_term",
 ]

@@ -43,9 +43,11 @@
 | [`fouriergsnet_pipeline/report.md`](fouriergsnet_pipeline/report.md) | `scripts/generate_fouriergsnet_pipeline_report.py` | 离线 | 5 项集成测试的结果记录 |
 | [`fouriergsnet_sim/report.md`](fouriergsnet_sim/report.md) | `scripts/generate_fouriergsnet_sim_report.py (+fouriergsnet_sim_train.py, generate_slm_gsnet_sim_gif.py)` | 离线 | 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加 |
 | [`heuristic_pib/report.md`](heuristic_pib/report.md) | `scripts/generate_heuristic_pib_report.py` | 离线 | 7 种启发式 + PIB 目标；summary.csv 为本脚本产物 |
+| [`hwdataset_corpus/report.md`](hwdataset_corpus/report.md) | `scripts/generate_hwdataset_corpus_report.py` | 离线 | data/debug 硬件调试语料的纯元数据统计 (10 张图); 只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据。§1.1 的「全量重建是否改变结论」交叉核对需另加 --full-index <扫描过全部 pkl 的索引.json> |
 | [`loss_algorithms_smoke/report.md`](loss_algorithms_smoke/report.md) | `scripts/compare_loss_algorithms.py` | 离线 | 测试用例跑 --quick 生成的冒烟版本 |
 | [`loss_defects/PROCESS.md`](loss_defects/PROCESS.md) | `人工撰写 (+inverse_design_sim_eval.py, inverse_design_accuracy_ladder.py, inverse_design_restarts.py, inverse_restart_selection.py, inverse_objective_alignment.py, inverse_achievable_target.py, gs_vs_gradient_inverse.py, gs_plus_refinement.py, alignment_vs_accuracy.py, roi_robustness.py, restart_claim_robustness.py, freeform_vs_zernike.py)` | 离线 | 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论） |
 | [`loss_defects/README.md`](loss_defects/README.md) | `人工撰写 (+sweep_far_field_padding.py)` | 离线 | 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板 |
+| [`loss_defects/forward_search_report.md`](loss_defects/forward_search_report.md) | `scripts/generate_forward_search_report.py (+forward_search.py, inverse_strong_phase.py, probe_device_metadata.py, check_ellipse_term.py)` | 离线 | 正向模型改进尝试: 设备参数/椭圆loss/attention/U-Net/图像增强, 3 seed 配对 |
 | [`loss_defects/inverse_design_report.md`](loss_defects/inverse_design_report.md) | `scripts/generate_inverse_design_report.py (+freeform_vs_zernike.py)` | 离线 | 逆向整形中文报告：正向/反向 pred vs true 对比图 + ROI 扫描 + 术语表 |
 | [`micro_deformable_mirror/freq_test.md`](micro_deformable_mirror/freq_test.md) | `人工撰写` | 硬件 | 微驱动器频率测试记录；images/freq_test/ 为同期截图 |
 | [`micro_deformable_mirror/voltage_test.md`](micro_deformable_mirror/voltage_test.md) | `人工撰写` | 硬件 | 微驱动器电压测试记录 (R50Power)；images/voltage_test/ 为同期截图 |
@@ -89,9 +91,10 @@
 | [`slm_shaping_sim/report.md`](slm_shaping_sim/report.md) | `scripts/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
 | [`slm_zernike_shaping/report.md`](slm_zernike_shaping/report.md) | `scripts/generate_slm_zernike_shaping_report.py` | 离线 | 读 slm_zernike_shaping optimizer 的 debug 产物 |
 | [`strehl_benchmark/report.md`](strehl_benchmark/report.md) | `scripts/generate_strehl_benchmark_report.py` | 离线 | 8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv |
-| [`zernike_amp/report.md`](zernike_amp/report.md) | `scripts/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |
-| [`zernike_amp/unet_comparison.md`](zernike_amp/unet_comparison.md) | `scripts/compare_models_cv.py (+compare_unet_baseline.py)` | 离线 | grouped CV 对比 (physics / hybrid / unet) 的原始对照表 |
+| [`zernike_coeff2amp/report.md`](zernike_coeff2amp/report.md) | `scripts/generate_zernike_coeff_report.py (+sweep_coeff_models.py)` | 离线 | 系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练 |
 | [`zernike_farfield_sim/report.md`](zernike_farfield_sim/report.md) | `scripts/generate_zernike_farfield_sim_report.py` | 离线 | Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物 |
+| [`zernike_phase2amp/report.md`](zernike_phase2amp/report.md) | `scripts/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |
+| [`zernike_phase2amp/unet_comparison.md`](zernike_phase2amp/unet_comparison.md) | `scripts/compare_models_cv.py (+compare_unet_baseline.py)` | 离线 | grouped CV 对比 (physics / hybrid / unet) 的原始对照表 |
 | [`zotero_objectives/README.md`](zotero_objectives/README.md) | `人工撰写` | 人工调研 | Zotero 扫描：整形目标函数 / 评价函数目录 |
 
 ## 尚未生成产物的报告

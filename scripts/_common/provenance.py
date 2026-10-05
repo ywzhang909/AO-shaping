@@ -86,6 +86,14 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/zernike_coeff2amp/report.md": ReportProvenance(
+        script="scripts/generate_zernike_coeff_report.py",
+        command="python scripts/generate_zernike_coeff_report.py",
+        environment="离线",
+        note="系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练",
+        extra_scripts=("scripts/sweep_coeff_models.py",),
+    ),
+
     # -- beam shaping / benchmark suite -------------------------------------
     "report/beam_shaping/papers/beam_shaping_papers.md": ReportProvenance(
         script="scripts/generate_beam_shaping_papers_report.py",
@@ -394,7 +402,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="临时调试 run 的成果展示",
     ),
-    "report/zernike_amp/report.md": ReportProvenance(
+    "report/zernike_phase2amp/report.md": ReportProvenance(
         script="scripts/generate_zernike_amp_report.py",
         command="python scripts/generate_zernike_amp_report.py",
         environment="离线",
@@ -404,12 +412,24 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/compare_models_cv.py",
         ),
     ),
-    "report/zernike_amp/unet_comparison.md": ReportProvenance(
+    "report/zernike_phase2amp/unet_comparison.md": ReportProvenance(
         script="scripts/compare_models_cv.py",
         command="python scripts/compare_models_cv.py --analyse",
         environment="离线",
         note="grouped CV 对比 (physics / hybrid / unet) 的原始对照表",
         extra_scripts=("scripts/compare_unet_baseline.py",),
+    ),
+    # -- 硬件调试语料统计 (hwdataset) ----------------------------------------
+    "report/hwdataset_corpus/report.md": ReportProvenance(
+        script="scripts/generate_hwdataset_corpus_report.py",
+        command="python scripts/generate_hwdataset_corpus_report.py",
+        environment="离线",
+        note=(
+            "data/debug 硬件调试语料的纯元数据统计 (10 张图); 只读 "
+            "hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据。"
+            "§1.1 的「全量重建是否改变结论」交叉核对需另加 "
+            "--full-index <扫描过全部 pkl 的索引.json>"
+        ),
     ),
     "report/sac_ao_20260109_205218/training_report.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -511,6 +531,18 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/freeform_vs_zernike.py",
         ),
     ),
+    "report/loss_defects/forward_search_report.md": ReportProvenance(
+        script="scripts/generate_forward_search_report.py",
+        command="python scripts/forward_search.py && python scripts/generate_forward_search_report.py",
+        environment="离线",
+        note="正向模型改进尝试: 设备参数/椭圆loss/attention/U-Net/图像增强, 3 seed 配对",
+        extra_scripts=(
+            "scripts/forward_search.py",
+            "scripts/inverse_strong_phase.py",
+            "scripts/probe_device_metadata.py",
+            "scripts/check_ellipse_term.py",
+        ),
+    ),
     "report/loss_defects/inverse_design_report.md": ReportProvenance(
         script="scripts/generate_inverse_design_report.py",
         command="python scripts/generate_inverse_design_report.py",
@@ -580,7 +612,7 @@ def script_link(script: str, depth: int) -> str:
     """Markdown link to ``script`` from a report ``depth`` dirs below the root.
 
     ``depth`` is the number of path segments between the repo root and the
-    report's own directory (``report/zernike_amp/report.md`` -> 2). Computed
+    report's own directory (``report/zernike_phase2amp/report.md`` -> 2). Computed
     rather than hardcoded so a report can be nested differently without its link
     silently breaking.
     """
