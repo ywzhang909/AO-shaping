@@ -36,8 +36,8 @@ once the twin is installed) and is otherwise redundant.
 
 Module-local entry points (``python -m``) are equally supported:
 
-    python -m ao_shaping.runners.slm.shaping_runner spgd --help
-    python -m ao_shaping.runners.slm.shaping_runner square --help
+    python -m ao_shaping.runners.slm.slm_shaping_runner spgd --help
+    python -m ao_shaping.runners.slm.slm_shaping_runner square --help
 
 Results (default ``data/``):
 

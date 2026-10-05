@@ -16,9 +16,9 @@ EXPECTED_ALGORITHMS = ("spgd", "ga", "pso", "sa", "hc", "rs", "cem", "de")
 
 # runner module path -> display name, attribute holding the command
 SLM_PHASE_RUNNERS = [
-    ("ao_shaping.runners.slm.shaping_runner", "slm-pib", "run"),
+    ("ao_shaping.runners.slm.slm_shaping_runner", "slm-pib", "run"),
     # ``spgd-square`` is the ``square`` subcommand of the same module.
-    ("ao_shaping.runners.slm.shaping_runner", "spgd-square", "square"),
+    ("ao_shaping.runners.slm.slm_shaping_runner", "spgd-square", "square"),
     ("ao_shaping.runners.slm.rms_zernike_runner", "rms-zernike", "run"),
     (
         "ao_shaping.runners.zernike_search_runner",

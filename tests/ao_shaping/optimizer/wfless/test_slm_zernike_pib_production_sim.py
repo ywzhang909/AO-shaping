@@ -2,7 +2,7 @@
 
 Why this module exists
 ----------------------
-``slm_zernike_pib`` is what ``runners/slm/shaping_runner.py`` actually calls. The
+``slm_zernike_pib`` is what ``runners/slm/slm_shaping_runner.py`` actually calls. The
 existing offline coverage in ``test_slm_zernike_objectives_sim.py`` imports
 ``optimize_slm_zernike_pib`` from ``slm_zernike_shaping`` -- a near-duplicate
 module -- so it never exercised the production entry point for most assertions.

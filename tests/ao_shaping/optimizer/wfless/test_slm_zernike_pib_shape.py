@@ -12,7 +12,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     target_shape_roi,
 )
 from ao_shaping.runners.runner_common import CameraParamsPib, ObjectiveTarget
-from ao_shaping.runners.slm.shaping_runner import run
+from ao_shaping.runners.slm.slm_shaping_runner import run
 
 
 def test_target_shape_roi_tracks_center_and_aspect_ratio() -> None:

@@ -41,7 +41,7 @@ AO-shaping/
 │   │   │   └── slm/                       # SLM 相关 runner
 │   │   │       ├── rms_zernike_runner.py     # SLM Zernike RMS (rms-zernike)
 │   │   │       ├── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
-│   │   │       ├── shaping_runner.py          # SLM Zernike PIB (slm-pib) + 方形整形 (spgd-square)
+│   │   │       ├── slm_shaping_runner.py          # SLM Zernike PIB (slm-pib) + 方形整形 (spgd-square)
 │   │   │       ├── gsnet_runner.py           # SLM自由相位方形整形 (slm-gsnet)
 │   │   │       ├── gs_refine_runner.py       # GS 预矫正 + SPGD 细化 (slm-gs-refine)
 │   │   │       ├── model_in_loop_runner.py   # 正向模型闭环校正 (slm-model-in-loop)
@@ -169,9 +169,9 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `combined` | `runners/nlight_dm/combined_runner.py` | AdaMOD+SPGD 混合PIB (DM+CCD) |
 | `slm-lut` | `tools/slm/slm_lut_runner.py` | SLM灰度→相位LUT校准 |
 | `slm-diagnose` | `tools/slm/slm_diagnose.py` | SLM硬件自检 |
-| `spgd-square` | `runners/slm/shaping_runner.py` (`square`) | SLM方形光斑SPGD整形 |
+| `spgd-square` | `runners/slm/slm_shaping_runner.py` (`square`) | SLM方形光斑SPGD整形 |
 | `slm-gsnet` | `runners/slm/gsnet_runner.py` | SLM自由相位方形整形 (SPGD/启发式) |
-| `slm-pib` | `runners/slm/shaping_runner.py` | SLM Zernike PIB优化 (`spgd` / `heuristic`) |
+| `slm-pib` | `runners/slm/slm_shaping_runner.py` | SLM Zernike PIB优化 (`spgd` / `heuristic`) |
 | `slm-gs-refine` | `runners/slm/gs_refine_runner.py` | GS 预矫正 + 自由相位 SPGD 整形 |
 | `slm-model-in-loop` | `runners/slm/model_in_loop_runner.py` | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
 
@@ -528,7 +528,7 @@ python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 \
 ```bash
 python src/ao_shaping/main.py spgd-square [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm.shaping_runner square` (也可写成 `main.py slm-pib square` —— 三个入口等价)
+等同于: `python -m ao_shaping.runners.slm.slm_shaping_runner square` (也可写成 `main.py slm-pib square` —— 三个入口等价)
 
 通过 SPGD (随机并行梯度下降) 优化 Zernike 系数, 将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。目标方形边长可由 `--target-side` 显式指定 (像素) 或由 `--target-mean-brightness` 按总亮度能量守恒自动推导。支持 `--basis zernike` (与 GUI 一致的 radius=600 + defocus + spherical 初始化) 与 `--basis freeform` (自由相位网格, 可合成方形)。
 
@@ -758,7 +758,7 @@ python src/ao_shaping/main.py hadamard-matrix --mode-order 16 --n-averages 5 --o
 ```bash
 python src/ao_shaping/main.py slm-pib [spgd|heuristic] [OPTIONS]
 ```
-等同于: `python -m ao_shaping.runners.slm.shaping_runner`
+等同于: `python -m ao_shaping.runners.slm.slm_shaping_runner`
 
 通过 SLM 加载 Zernike 相位, 以CCD远场光斑为反馈, 优化Zernike系数实现PIB (Power-in-Bucket) 整形。采用 **dataclass 单参数 API** (`optimize_slm_zernike_pib(config: SlmZernikePibConfig)`), 设备由优化器内部自行打开/关闭 (禁止跨 run 复用设备)。
 
@@ -1143,7 +1143,7 @@ python -m ao_shaping.tools.slm.slm_diagnose
 
 16. SLM 方形光斑 SPGD 整形:
 ```bash
-python -m ao_shaping.runners.slm.shaping_runner square [OPTIONS]
+python -m ao_shaping.runners.slm.slm_shaping_runner square [OPTIONS]
 ```
 
 17. SLM 自由相位方形整形:
@@ -1153,7 +1153,7 @@ python -m ao_shaping.runners.slm.gsnet_runner [OPTIONS]
 
 18. SLM Zernike PIB 优化:
 ```bash
-python -m ao_shaping.runners.slm.shaping_runner [spgd|heuristic] [OPTIONS]
+python -m ao_shaping.runners.slm.slm_shaping_runner [spgd|heuristic] [OPTIONS]
 ```
 
 19. 闭环波前优化:
@@ -1839,12 +1839,12 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [SLM 操作手册](docs/slm/slm_gui_manual.md)、[PatternHelper 指南](docs/slm/slm_pattern_helper.md)、[开机表征指南](docs/slm/pre_run_characterization.md)、[SLM 相位图集](docs/slm/slm_patterns/)
   - **每设备硬件评测报告** (2026-09 重新生成): [WFS](docs/wfs/wfs_report.md) / [MiiCam](docs/miicam/miicam_report.md) / [SLM-200](docs/slm-200/slm-200_report.md) / [Micro-DM](docs/micro-dm/micro-dm_report.md)
   - 厂商手册: [大恒相机 SDK](docs/daheng/) · [Thorlabs WFS](docs/thorlab-wfs/) · [Santec SLM-200/DLL](docs/slm-200/) · [微驱动器接线表](docs/micro%20deformable%20mirror/)
-  - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办总账](TODO.md)
+  - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办索引](TODO.md) · [已完成档案](docs/dev/todo_archive.md)
 
 ## 近期更新
 
 ### v0.16.0 (2026-10-05)
-- **`slm-pib` / `spgd-square` 合并进单个 runner**: `runners/slm/pib_runner.py` → `runners/slm/shaping_runner.py`, `runners/slm/square_runner.py` 作为其 `square` 子命令合入。命令行名与全部选项不变; 新增两个等价入口 `main.py slm-pib square` 与 `python -m ...shaping_runner square`。
+- **`slm-pib` / `spgd-square` 合并进单个 runner**: `runners/slm/pib_runner.py` → `runners/slm/slm_shaping_runner.py`, `runners/slm/square_runner.py` 作为其 `square` 子命令合入。命令行名与全部选项不变; 新增两个等价入口 `main.py slm-pib square` 与 `python -m ...slm_shaping_runner square`。
 - 修复: **`--cam_type sim` 在两半都是坏的** —— `spgd-square` 从未注册模拟相机 (所谓"离线试跑"会去开真实 Santec 并以 `SantecError -10002` 收场), `slm-pib` 只换了相机却仍构造真实 `Santec`, 且是在烧掉自动曝光探针之后。现统一走 `runner_common.patch_sim_square_shaping` / `patch_sim_pib_shaping`; 两半都能在 2f-Fourier 数字孪生上跑完 2 epoch。`--slm_type sim` 同时从"声明但无效"变成有效 (缺 `--cam_type sim` 时报 UsageError, 而不是去连硬件)。两个 helper 有一处**故意不同**: pib 那半**不** reset 模拟系统, 因为 `slm_pib_sim_run.py` harness 自己装了带干扰的定种子系统并包装了 `reset_system` 以保住干扰 —— 实测重跑 harness 干扰量不变 (`sigma_total=0.5658 rad`)。
 - 修复: `spgd-square --delta` 是**空操作** —— `SlmSquareParams.delta` 硬编码 `0.1`, Click 无法区分"没传"与"传了 0.1", 于是默认 `lr=0` 的自适应调度每轮改写它。现改为 `None` + `resolve_spgd_delta` (省略=自适应, 显式=钉住), 与 `slm-gsnet` / `slm-pib` 一致。
 - `spgd-square --debug` 过去不产出任何东西; 现写 `data/debug/slm_square_<ts>/` 的 PNG/PKL/JSON (带自描述 sidecar)。历史上的 CSV / 最优系数 / 最优图输出不变。⚠️ 实测这些记录目前**只有 `--basis freeform` 能进 `ml/hwdataset`** (Zernike 基 0/3, 因 `_c` 存的是活动模式向量而被判 `odd_coefficient_length`), 见 TODO H-23。

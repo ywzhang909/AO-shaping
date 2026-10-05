@@ -20,7 +20,7 @@ Two modules export more than one command, so ``_IMPORT_ATTRS`` is load-bearing
 rather than decorative:
 
 * ``slm/zernike_matrix_runner.py`` -> ``zernike_matrix_run`` / ``zernike_closed_loop_run``
-* ``slm/shaping_runner.py`` -> ``slm_pib_run`` (the click group ``run``, i.e.
+* ``slm/slm_shaping_runner.py`` -> ``slm_pib_run`` (the click group ``run``, i.e.
   ``slm-pib``) / ``slm_square_run`` (its ``square`` subcommand, i.e.
   ``spgd-square``)
 * ``matrix_runner.py`` -> ``dm_matrix_run`` / ``hadamard_matrix_run``
@@ -76,8 +76,8 @@ _LAZY_RUNNERS: dict[str, str] = {
     # Both commands live in one module (the slm-pib and spgd-square halves of
     # the shaping family), so they need distinct attributes -- see the
     # _IMPORT_ATTRS note below.
-    "slm_square_run": "ao_shaping.runners.slm.shaping_runner",
-    "slm_pib_run": "ao_shaping.runners.slm.shaping_runner",
+    "slm_square_run": "ao_shaping.runners.slm.slm_shaping_runner",
+    "slm_pib_run": "ao_shaping.runners.slm.slm_shaping_runner",
     "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner",
     # Was in neither __all__ nor _LAZY_RUNNERS. It resolved only because of the
     # eager imports this module used to carry, so main.py's `slm-gsnet`

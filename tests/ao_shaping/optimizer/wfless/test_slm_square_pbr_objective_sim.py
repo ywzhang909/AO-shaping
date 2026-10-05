@@ -337,7 +337,7 @@ class TestConfigAndCliPlumbing:
 
         from ao_shaping.runners.slm import (
             gsnet_runner as slm_gsnet_runner,
-            shaping_runner as slm_shaping_runner,
+            slm_shaping_runner,
         )
 
         for mod in (slm_gsnet_runner, slm_shaping_runner):

@@ -62,7 +62,7 @@ DEFAULT_MAX_FRAMES: int = 40
 _SHAPES: set[str] = {"square", "circle", "gaussian"}
 _ALGORITHMS: set[str] = {"gs", "backprop", "spgd-sim"}
 
-# 公开别名 (shaping_runner CLI 引用): 已排序的元组, 保证确定性输出顺序.
+# 公开别名 (slm_shaping_runner CLI 引用): 已排序的元组, 保证确定性输出顺序.
 SUITE_SHAPES: tuple[str, ...] = tuple(sorted(_SHAPES))
 SUITE_ALGORITHMS: tuple[str, ...] = tuple(sorted(_ALGORITHMS))
 

@@ -668,7 +668,7 @@ def save_optimization_debug_artifacts(
     * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2
       PNG (objective history / best coefficients / first & last image), a
       pickled copy of ``data`` and a JSON sidecar of ``json_payload``.
-      Used by ``shaping_runner``.
+      Used by ``slm_shaping_runner``.
 
     Args:
         records:           Recorder object with ``get_sublist()``,
@@ -761,7 +761,7 @@ def save_recorder_debug_artifacts(
 ) -> Path:
     """Convert a :class:`Recorder` into the data-mode debug artifacts.
 
-    This is the shared backend for ``shaping_runner._save_debug_artifacts``
+    This is the shared backend for ``slm_shaping_runner._save_debug_artifacts``
     and ``slm_gsnet_runner._save_debug_artifacts``: it walks ``res.history``,
     extracts the configured key sets into a ``{epoch: record}`` dict and
     delegates to :func:`save_optimization_debug_artifacts` (data mode).

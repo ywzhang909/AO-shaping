@@ -1,4 +1,4 @@
-"""Tests for ``shaping_runner``: debug artifacts + CLI options (no hardware).
+"""Tests for ``slm_shaping_runner``: debug artifacts + CLI options (no hardware).
 
 The debug figure is exercised through ``_save_debug_artifacts`` with a synthetic
 :class:`Recorder`, so the whole image-output path is covered offline.
@@ -13,7 +13,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm.shaping_runner import (
+from ao_shaping.runners.slm.slm_shaping_runner import (
     CameraParams,
     HeuristicParams,
     ObjectiveParams,

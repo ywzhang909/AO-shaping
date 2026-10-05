@@ -1720,7 +1720,7 @@ python scripts/generate_pearson_pkl_gif.py --pkl data/debug/<run>/<ts>/<name>.pk
 Runs the **`slm-pib`** SPGD shaping pipeline **entirely in the simulation
 environment** (no hardware). Wires the pure-numpy 2f-Fourier sim
 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) into the **genuine**
-`shaping_runner` (the `slm-pib` half) CLI path so the standard debug artifacts
+`slm_shaping_runner` (the `slm-pib` half) CLI path so the standard debug artifacts
 (PNG/PKL/JSON) are
 produced exactly as a hardware run would write them — ready for report
 generation.
@@ -1791,7 +1791,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
 > 不钉住的话两次 `spgd-square --cam_type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
-> `tests/ao_shaping/runners/test_shaping_runner_sim_backend.py`)。
+> `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
@@ -1805,7 +1805,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   without the classmethod the sim path dies with
   `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
   (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
-- invokes the genuine `shaping_runner.run` Click entry with `--cam_type sim`
+- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam_type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
@@ -1900,7 +1900,7 @@ python scripts/generate_shape_objective_comparison.py
   constant frame gives exactly `1.0`); the `1e3` value is a discrete sentinel
   for a dark / NaN / non-normalisable frame, not a continuous tail
 
-> ⚠️ **Provenance is inferred unless the sidecar records it.** `shaping_runner`
+> ⚠️ **Provenance is inferred unless the sidecar records it.** `slm_shaping_runner`
 > now writes `objective` / `cam_type` / `cam_id` / `exposure_time_ms` /
 > `zernike_radius` / search knobs into the JSON sidecar, so new runs are
 > self-attributing. Runs written before that still record only

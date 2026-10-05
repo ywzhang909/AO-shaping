@@ -15,7 +15,7 @@
 > 0 级光斑必须用 `argmax` 定位（已进 `AGENTS.md` 红线）、CCD 像素空间 target 尺寸换算、
 > 曝光饱和削顶对相关度指标的破坏。**同主题的现存实现**是
 > `slm-gsnet`（`runners/slm/gsnet_runner.py`，backprop/GS 路径）与
-> `spgd-square`（`runners/slm/shaping_runner.py` 的 `square` 子命令）。
+> `spgd-square`（`runners/slm/slm_shaping_runner.py` 的 `square` 子命令）。
 >
 > 原文所述 `diff-beam` (backprop/gs) 在 **SLM200 + 大恒相机** 上做方形整形的实测经验，
 > 记录了 2026-09-10 真机验证发现的 **0 级光斑定位 bug 链** (最终以 argmax 收尾) 与

@@ -24,7 +24,7 @@
 
 ## 1. 运行说明
 
-本运行使用 `src/ao_shaping/runners/slm/shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy 2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。
+本运行使用 `src/ao_shaping/runners/slm/slm_shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy 2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。
 
 - **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)
 - **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)

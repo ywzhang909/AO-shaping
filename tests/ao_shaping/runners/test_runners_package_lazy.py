@@ -11,9 +11,9 @@ the top of ``__init__.py``, so every name was already in ``globals()`` by the ti
 ``__getattr__`` could ever be consulted -- the lazy path was unreachable dead
 code, and the warning it promised to avoid was live:
 
-    RuntimeWarning: 'ao_shaping.runners.slm.shaping_runner' found in sys.modules
+    RuntimeWarning: 'ao_shaping.runners.slm.slm_shaping_runner' found in sys.modules
     after import of package 'ao_shaping.runners', but prior to execution of
-    'ao_shaping.runners.slm.shaping_runner'; this may result in unpredictable
+    'ao_shaping.runners.slm.slm_shaping_runner'; this may result in unpredictable
     behaviour
 
 The subprocess assertions are the real contract. In-process ``sys.modules``
@@ -35,7 +35,7 @@ from ao_shaping.runners import _IMPORT_ATTRS, _LAZY_RUNNERS
 #: Every ``python -m`` entry point the package documents. Two of them live in
 #: sub-packages, which is where the warning was easiest to trigger from.
 _M_ENTRY_POINTS = [
-    "ao_shaping.runners.slm.shaping_runner",
+    "ao_shaping.runners.slm.slm_shaping_runner",
     "ao_shaping.runners.nlight_dm.wf_runner",
     "ao_shaping.runners.slm.rms_zernike_runner",
 ]

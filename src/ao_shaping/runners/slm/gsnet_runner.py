@@ -223,7 +223,7 @@ def _maybe_sim_patch(cam_type: str) -> None:
 
     Thin alias kept for back-compat: the implementation now lives in
     ``runner_common.patch_sim_square_shaping`` so ``spgd-square``
-    (``runners/slm/shaping_runner.py``) and this runner cannot drift into
+    (``runners/slm/slm_shaping_runner.py``) and this runner cannot drift into
     patching different module sets. The module-level name is what
     ``_execute`` resolves at call time, so monkeypatching
     ``gsnet_runner._maybe_sim_patch`` still works.

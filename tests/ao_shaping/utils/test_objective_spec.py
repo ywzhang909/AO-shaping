@@ -32,7 +32,7 @@ from ao_shaping.runners.runner_common import (
     ObjectiveTarget,
     config_payload,
 )
-from ao_shaping.runners.slm.shaping_runner import run as slm_pib_run
+from ao_shaping.runners.slm.slm_shaping_runner import run as slm_pib_run
 from ao_shaping.utils.image.target import (
     OBJECTIVE_ALLOWED_SHAPES,
     SHAPING_OBJECTIVE_CHOICES,

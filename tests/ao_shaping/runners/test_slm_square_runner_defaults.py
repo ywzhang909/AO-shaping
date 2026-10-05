@@ -6,7 +6,7 @@ basis matching the GUI (``multi_slm_controller.py`` Zernike branch):
 
 No hardware is opened — ``optimize_slm_square`` is monkey-patched to capture its
 arguments. The command now lives as the ``square`` subcommand of
-``runners/slm/shaping_runner.py`` (merged with the ``slm-pib`` group), and it
+``runners/slm/slm_shaping_runner.py`` (merged with the ``slm-pib`` group), and it
 hands the optimizer a :class:`SlmSquareConfig` container rather than ~30 flat
 kwargs, so the assertions read the captured config.
 """
@@ -19,7 +19,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners.slm.shaping_runner import square
+from ao_shaping.runners.slm.slm_shaping_runner import square
 
 
 def _invoke(args: list[str], obj: dict | None = None):
@@ -38,7 +38,7 @@ def _invoke(args: list[str], obj: dict | None = None):
     # what the call resolves through -- patch it there, not in the optimizer
     # module (which the runner never looks up again).
     with patch(
-        "ao_shaping.runners.slm.shaping_runner.optimize_slm_square",
+        "ao_shaping.runners.slm.slm_shaping_runner.optimize_slm_square",
         side_effect=_fake_optimize,
     ):
         result = runner.invoke(

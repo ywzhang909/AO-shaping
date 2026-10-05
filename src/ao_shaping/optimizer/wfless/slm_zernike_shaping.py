@@ -479,7 +479,7 @@ class SlmZernikePibConfig:
 
 
 # Debug-artifact key sets (mirrors the shaping recorder row schema from
-# ``runners/slm/shaping_runner.py``). ``save_recorder_debug_artifacts`` writes a PNG
+# ``runners/slm/slm_shaping_runner.py``). ``save_recorder_debug_artifacts`` writes a PNG
 # figure + a ``.pkl`` (list of row dicts) + a ``.json`` payload bundle.
 _DEBUG_IMG_KEYS = ("_img",)
 _DEBUG_1D_KEYS = ("_c",)

@@ -1346,7 +1346,7 @@ def patch_sim_square_shaping(cam_type: str) -> None:
     """Route the square-shaping optimizer onto the 2f-Fourier digital twin.
 
     Used by ``runners/slm/gsnet_runner.py`` (freeform square) and
-    ``runners/slm/shaping_runner.py`` (``spgd-square``).
+    ``runners/slm/slm_shaping_runner.py`` (``spgd-square``).
 
     Pins ``seed=42`` so a dry run is reproducible: neither family has a
     user-facing seed that reaches the bench itself, and a drifting disturbance

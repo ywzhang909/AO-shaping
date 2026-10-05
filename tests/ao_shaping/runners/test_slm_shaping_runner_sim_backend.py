@@ -127,7 +127,7 @@ class TestOfflineRunsReachTheTwin:
         assert "Best quality" in result.output
 
     def test_slm_pib_spgd_runs_offline(self, tmp_path):
-        from ao_shaping.runners.slm.shaping_runner import spgd
+        from ao_shaping.runners.slm.slm_shaping_runner import spgd
 
         result = CliRunner().invoke(
             spgd,
@@ -137,6 +137,6 @@ class TestOfflineRunsReachTheTwin:
 
 
 def _spgd_square():
-    from ao_shaping.runners.slm.shaping_runner import square
+    from ao_shaping.runners.slm.slm_shaping_runner import square
 
     return square
