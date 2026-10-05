@@ -363,19 +363,78 @@ reliable gain than anything the forward-model or loss changes produced.
 ### What this means for the codebase
 
 `slm_gs_refine` and the shaping runners spend their budget on epochs (steps). On this
-evidence the budget is better spent on **restarts with pick-the-best**, since the
-per-restart outcome spread (sd 0.08-0.26) dwarfs the within-restart progress past
-~60 steps. Concretely: ~60 steps per restart, N restarts, score each on the model,
-keep the best. That is a cheap change and it is the one this study actually
-supports.
+evidence the budget is better spent on **restarts**, since the per-restart outcome
+spread (sd 0.08-0.26) dwarfs the within-restart progress past ~60 steps.
 
-Caveats: 5 restarts per cell is thin for an sd estimate; the evaluator is a sim, not
-the bench; and "score the restarts on the model" assumes the model's score correlates
-with the independent one, which is the next thing worth checking.
+⚠️ **This recommendation is partly overturned by attempt 7 below** — the "score each
+restart and keep the best" half does not survive testing. Keep the restarts, drop the
+model-score selection.
+
+### Attempt 7 — the model score cannot rank restarts, so the recipe above fails
+
+The proposed recipe was "~60 steps per restart, score each on the model, keep the
+best". That is only valid if the model's own score tracks quality on the independent
+evaluator. Single-trial check said no but hopeful: spearman −0.10 (no usable rank
+correlation) yet `argmin(model_loss)` landed on rank 4/24 with regret 0.0375 against
+a restart spread of 0.56. That is exactly the shape of result that is luck, so the
+rule was measured over **30 independent trials of 12 restarts** instead.
+
+| rule | mean sim shape_sum |
+|---|---|
+| pick by model score (argmin loss) | 1.0041 ± 0.1555 |
+| oracle (argmax sim) | 1.1416 ± 0.0397 |
+| random restart | 0.9660 ± 0.0472 |
+| worst restart | 0.6888 ± 0.1074 |
+
+* `pick_model − random = **+0.0381 ± 0.1367**`, positive in 20/30 trials,
+  **t = +1.53** — not significant.
+* per-trial `spearman(model_loss, sim) = −0.0562 ± 0.2693` — mean rank correlation
+  is zero.
+* fraction of the available gain captured: **0.278**, against 0.782 implied by the
+  single trial.
+* regret vs oracle: 0.1375 ± 0.1528 — as large as the gain itself.
+
+**Verdict: the model score is not useful for selection.** The rank-4 landing was
+luck. An external scorer is required.
+
+### The coherent picture (attempts 5-7 together)
+
+These three now explain each other, which is the strongest result in this file:
+
+1. **Attempt 5**: the forward model is capacity/optimisation-limited, not
+   data-limited — 4 training samples buy no held-out accuracy (MSE 0.00130 → 0.00138).
+2. **Attempt 7**: its predictions are therefore reliable only near the data it was
+   fitted to. Off that manifold it interpolates the training point but its *ranking*
+   of different coefficient vectors is uncorrelated with reality.
+3. **Attempt 6**: so **optimising on the model works but selecting with it does
+   not.** Descending the model loss reliably improves the model loss and produces sim
+   scores above flat (12/12 paired, attempts 3-6), yet two solutions that fit the
+   training sample equally well can have very different real far fields.
+
+The practical consequence is uncomfortable but clear: for inverse shaping, the learned
+model can *propose* phases but cannot *grade* them. Grading needs a measurement —
+which is exactly why the hardware path is SPGD with a real camera, and why the sim
+`model_in_loop` loop refits against probes rather than trusting its own forward model.
+
+Revised recipe, after attempts 6 and 7 together:
+
+* **Do** use restarts: the outcome spread (0.45 within a trial) is the only large,
+  reliable effect found in this entire study.
+* **Do** keep ~60 steps per restart; past that, step count buys nothing.
+* **Do not** select restarts by model loss — it is statistically indistinguishable
+  from picking blind. Select on a measurement, or (offline, as here) on the
+  independent simulator, and treat the model score as an optimisation signal only.
 
 ### Next direction
 
-Check the assumption the recipe depends on: does picking the best restart *by the
-learned model's own score* also pick a good one *on the independent sim*? If model
-score and sim score are uncorrelated across restarts, then best-of-N needs an
-external scorer and the recipe above is wrong.
+The open question this leaves is whether the model/eval disagreement is reducible.
+Two candidate causes, distinguishable by experiment:
+
+* **Under-determination**: with `n_max=15` (135 free coefficients) fitted to a single
+  64x64 image, many coefficient vectors fit the data equally well. If that is the
+  cause, constraining the fit — heavier `l2_penalty`, fewer modes, or fitting to many
+  samples jointly — should make the model score correlate with the sim.
+* **Genuine model error**: the model is simply wrong away from the training point.
+
+Either way this is a forward-model defect with a concrete test, which is more useful
+than the ordering questions that attempts 3-5 were chasing.
