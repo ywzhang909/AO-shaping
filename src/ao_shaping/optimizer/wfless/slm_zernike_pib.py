@@ -1349,7 +1349,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # `+ - - +` (ABBA) when ``abba_sampling`` is on. The palindrome
                 # makes a drift that is linear in time carry an identical term
                 # in both sign-means, so it cancels out of the SPGD difference
-                # (see tools/slm/slm_snr_probe.py::abba_signal). Cost: 4
+                # (see tools/slm/sweep_analysis.py::abba_signal). Cost: 4
                 # captures/epoch instead of 2.
                 _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                 for _sign in _spgd_capture_signs(config.abba_sampling):

@@ -103,7 +103,7 @@ class TestBenchConstants:
         assert float(constants["max_defocus_fit_rms"]) == float(_MAX_DEFOCUS_FIT_RMS)
 
     def test_importing_the_kernel_pure_numpy_module_is_allowed(self, gen: Any) -> None:
-        """``slm_bench_probe`` takes its devices by injection, so it is safe.
+        """``bench_kernels`` takes its devices by injection, so it is safe.
 
         The generator must not blanket-refuse it: doing so is what let a literal
         drift away from the code unnoticed.

@@ -88,7 +88,7 @@ class WiringCam(MockCam):
 class TestZernikePanelIsTheKernelOne:
     """The panel builder is the kernel's; only the probe-specific bits are new.
 
-    ``zernike_panel`` itself is owned by ``slm_bench_probe`` and is tested
+    ``zernike_panel`` itself is owned by ``bench_kernels`` and is tested
     there. What matters here is that the probe re-exports it rather than
     reimplementing it (a second copy silently drifted once already), and that it
     honours a non-default ``panel_shape``.

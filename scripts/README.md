@@ -660,7 +660,7 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 
 > **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
 > family delegate measurement/analysis logic to
-> `src/ao_shaping/tools/slm/slm_scan_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `src/ao_shaping/tools/slm/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
 
@@ -1935,7 +1935,7 @@ inverted gradient.
   ~185 % "route disagreement" computed from two different calibrations is a
   pure artefact.
 - **Constant-drift guard.** The bench constants are imported from the modules
-  that define them (`slm_bench_probe.TILT_SHIFT_SCALE`,
+  that define them (`bench_kernels.TILT_SHIFT_SCALE`,
   `model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS`) rather than hardcoded. A literal
   can silently drift away from the code; any import failure is listed in
   `fallbacks` and surfaced in the captions.

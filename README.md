@@ -475,14 +475,15 @@ python src/ao_shaping/main.py slm-diagnose --step freeze
 | `slm_drift_probe` | **平场漂移 + 曝光阶梯线性**。用区域范数判漂移 (**不用峰值** — 实测同设置两次运行峰值读到 100 与 23, 而 box sum 稳到 0.2%)。判据 `monotonic`/`non_monotonic`/`saturated` |
 | `slm_floor_probe` | **测量本底 + 稳定时间 + SNR-vs-K**。回答噪声是读噪声 (`noise_limited`) 还是漂移 (`drift_limited`); 后者说明降 delta 无用, 要改稳定判据或改用 ABBA。稳定时间由采样拟合, 替代固定 sleep |
 | `slm_abba_probe` | **稠密随机相位是否可分辨**。ABBA (`+ - - +`) 消一阶漂移并先量本底。`verdict=unusable` 时不要去测转移矩阵 |
-| `slm_bench_metrics` | 上面三个探针的**纯 numpy 分析内核** (无设备/无 I/O, CI 可跑)。含两种**故意不同**的帧预处理, 见下 |
+| `bench_kernels` | 上面三个探针共用的**测量 + 分析内核** (设备由参数注入, 无设备/无 I/O, CI 可跑)。含两种**故意不同**的帧预处理, 见下 |
 
 > 🔑 **启动 GS / GSNet / SPGD runner 之前先跑表征探针**:
 > `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`。
 > 完整流程、验收阈值与**危险默认值清单**见
 > [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
 
-`slm_bench_probe.py` 是它们共用的纯测量内核 (设备由参数传入, 可脱机单测);
+`bench_kernels.py` 提供它们共用的纯测量原语 (`display_and_average` /
+`capture_settled` / `measure_spot` / `tilt_shift_px`) 与离线分析函数;
 `slm_zernike_sweep_probe.py` 在其上实现了多点扫描协议 (含 Recorder 落盘), 也是
 `scripts/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
 
@@ -1843,7 +1844,7 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
 - 修复: `ComplexField.field` 属性名冲突 → 使用 `dc_field` 别名
 
 ### v0.12.0 (2026-09-17)
-- **共享扫描分析助手** (`tools/slm/slm_scan_analysis.py`): 纯 numpy 提取 `outlier_mask` (Z-score 异常点剔除)、`group_raw_scan` (灰度扫描分批求均值/标准差)、`analyze_linearity` (线性度指标)、`LINEARITY_AMPS`、`latest_match` 等 7 个公共符号; `zernike_matrix_runner` 改用 `outlier_mask` 剔除伪影点; 报告生成脚本 (`generate_zernike_response_matrix_report.py` / `generate_zernike_linearity_report.py`) 委托同一助手, 消除 `calibration.py`/`slm_lut_runner` 中的复刻逻辑
+- **共享扫描分析助手** (`tools/slm/sweep_analysis.py`): 纯 numpy 提取 `outlier_mask` (Z-score 异常点剔除)、`group_raw_scan` (灰度扫描分批求均值/标准差)、`analyze_linearity` (线性度指标)、`LINEARITY_AMPS`、`latest_match` 等 7 个公共符号; `zernike_matrix_runner` 改用 `outlier_mask` 剔除伪影点; 报告生成脚本 (`generate_zernike_response_matrix_report.py` / `generate_zernike_linearity_report.py`) 委托同一助手, 消除 `calibration.py`/`slm_lut_runner` 中的复刻逻辑
 - **共享相机/相位工具** (`utils/hardware_utils.py`, `utils/slm_phase.py`): `open_camera()` 统一相机工厂 + `flat_gray`/`capture_frame` 等; 所有相机打开调用点 (slm_lut_runner, phase_capture, slm_diagnose, micro_dm_image_collect) 统一走 `hardware_utils.open_camera`, 消除 `slm_camera.py` 中间层 (注: `slm_camera.py` 模块随后已删除, 相机打开功能统一收敛至 `utils.hardware_utils.open_camera`)
 - **slm_slot 助手并入 Santec 驱动**: `utils/slm_slot.py` 删除, `SLOT_MIN`/`SLOT_MAX`、`SlotRotator`、`choose_slot`、`read_current_slot`、`apply_lut_remap` 移至驱动内部 (经 `santec/__init__.py` re-export 保持公共面)
 - **calibration.py 拆分**: 离散几何标定 (`SLMCCDCalibrator`, 现行主流程) 与 LUT 标定 (`SLMLUTCalibrator`, `DeprecationWarning` 废弃) 分离; LUT canonical 路径收敛到 `slm_lut_runner` + `utils/slm_lut` → `Santec.load_lut`

@@ -15,7 +15,7 @@ Method, reusing the existing kernels rather than re-deriving them:
 * each dense pattern is measured with the drift-cancelling ``+ - - +``
   palindrome (:func:`~ao_shaping.tools.slm.sweep_analysis.abba_signal`);
 * ``snr = response / floor`` is graded against the thresholds that
-  ``slm_snr_probe`` already uses (:data:`SNR_USABLE`, :data:`SNR_STRONG`).
+  ``sweep_analysis`` already uses (:data:`SNR_USABLE`, :data:`SNR_STRONG`).
 
 The objective scalar is deliberately the **L2 distance from the flat
 reference**, not a normalised image-quality metric, because the drift floor is
@@ -100,7 +100,7 @@ def prepare_roi_frame(
 ) -> np.ndarray:
     """Detach the readout pedestal, then crop the frozen ROI.
 
-    Two steps in this order, both from ``slm_bench_metrics``:
+    Two steps in this order, both from ``bench_kernels``:
 
     1. :func:`finite_clip` removes the symmetric read noise by subtracting the
        frame median and clipping at zero. A raw CCD frame is roughly half
