@@ -1286,6 +1286,59 @@ options are therefore to accept ~0.88 for a model that emits a closed-form reali
 property. **Adding regularisation to fix a gap that is not there would make the model worse,
 and the measurements say so at three seeds each.**
 
+### Both options tried — and the architecture does not decide the thing that matters
+
+`scripts/physics_vs_unet_inverse.py`, 3 seeds paired, identical budget, **one shared
+adapter** (`coefficients → canonical basis → phase → phasor → model`) so the
+parameterisation, basis, loss and optimiser are the same objects in both arms. Without that
+the comparison would be rigged — physics would be invertible by construction and the U-Net
+merely declared so. Both scored at padding 10, the value both were trained at.
+
+| | val R² | SSIM | PSNR | params | inv(rand) | inv(GS) |
+|---|---|---|---|---|---|---|
+| physics (option 1) | +0.8801 | 0.7692 | 29.38 | **230** | 0.8941 | **1.0250** |
+| U-Net (option 2) | **+0.8971** | **0.8516** | **30.65** | 7 778 465 | 0.8843 | 0.9509 |
+| *flat reference* | — | — | — | — | — | *1.3210* |
+
+Paired, U-Net − physics:
+
+| quantity | Δ | positives |
+|---|---|---|
+| forward R² | **+0.0170 ± 0.0060** | **3/3** |
+| forward SSIM | **+0.0824 ± 0.0119** | **3/3** |
+| inverse from random start | −0.0098 ± 0.0186 | 1/3 |
+| inverse from GS | −0.0742 ± 0.0972 | 1/3 |
+
+**Option 2's advantage is real and reproduces — but only forwards.** U-Net beats physics on
+R² and SSIM in 3/3 paired seeds, independently confirming the grouped-CV result. It is *not*
+better at inverting: statistically indistinguishable from a random start (−0.0098 ± 0.0186)
+and worse from GS, though that one is inside its own spread (±0.0972) and is not claimed.
+
+**The finding that reorders the options: neither model can invert.** Both land far *below*
+the flat reference in the inverse direction — physics −0.2960, U-Net −0.3701 — i.e. pushing
+either model's gradient toward a square target produces a worse spot than doing nothing. So
+the U-Net's better forward accuracy buys **nothing** for the shaping workflow, and the
+inverse bottleneck is **architecture-independent**.
+
+That is the same wall as the padding sweep above (pearson ≤ 0.27 at every padding) and as
+the freeform result (refinement hurts), now confirmed with a second architecture. The
+common cause is the **training distribution**, not the model class: this corpus is four
+optimisation objectives of *mild* bench aberrations mapping to *broad* spots, so neither
+model has ever seen a strong phase like a GS proposal. Both are extrapolating, and both
+extrapolate badly.
+
+**Consequence for the choice.** Option 1 keeps a property option 2 does not have, at a cost
+option 2 does not repay:
+
+* keep **physics** — 230 parameters, a closed-form realisable phase (`Σ Z_k B_k`), and an
+  exact analytic gradient — and treat its R² 0.88 as the price;
+* switching to the **U-Net** costs 34 000× the parameters *and* the closed-form phase, and
+  returns +0.017 R² that the inverse path cannot use.
+
+So option 2 is not worth taking for this application, and the thing worth fixing is the
+inverse direction — which needs **training data covering strong phases / square targets**,
+not a bigger network. Nothing in this file supports adding capacity for it.
+
 ### Remaining caveats
 
 * Every number remains a **sim** claim, not a bench claim.
