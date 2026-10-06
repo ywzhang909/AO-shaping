@@ -466,6 +466,14 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="人工调研",
         note="Zotero 扫描：整形目标函数 / 评价函数目录",
     ),
+    "report/pib_loss_terms/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类"
+            "(对数强度梯度差分, --w_loggrad)、2 类早已存在、3 类否决, 附实测依据"
+        ),
+    ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
     "report/benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md": ReportProvenance(
         script="scripts/generate_beam_shaping_benchmark_report.py",

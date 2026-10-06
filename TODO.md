@@ -50,6 +50,7 @@
 | H-22 | `slm-pib` 合并后未上真机回归（新增一次 `patch_sim_pib_shaping`） | [#39](https://github.com/ywzhang909/AO-shaping/issues/39) |
 | H-23 | 🟡 **纯离线可修**：方形家族 `--debug` 产物只有 freeform 基能进 ML 语料，zernike 基 0% | [#40](https://github.com/ywzhang909/AO-shaping/issues/40) |
 | H-24 | 方形家族进 `hwdataset` 会换 `fov_px` ⇒ `far_field_padding` 标定必须重扫 | [#41](https://github.com/ywzhang909/AO-shaping/issues/41) |
+| **H-25** | **`--w_loggrad` 结构项已落地但未实机验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
 
 ### 1.2 FourierGSNet 真机验证（`report/fouriergsnet_pipeline/`）
 
@@ -176,11 +177,58 @@
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | **R-29**（#50，`display.py` 搬 `display/`）⇒ **R-33 / R-43**（同一文件，#51 / #53）⇒ **R-39**（#52） |
+| **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | **R-45**（#61 叶子层 14 处）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
 | **第 4 批（内部重构，需先补特征测试）** | **R-19**（#49，父项）⇒ **R-5 / R-6 / R-7 / R-8**（#42–#45）；**R-14**（#47，需先做产品决策）；**R-13**（#46）；**R-44**（#54，需先决定是否动所有调用者轨迹）；**R-18**（#48，接入已有实现或删注释） |
 | **纯离线但要台架数据** | **F-4**（#55，先做「`ml` 算不算主包」的决策）；**F-5**（#56，先切片）；**H-23**（#40，修 `hwdataset` 索引）；**X-2**（#60，加误报标记） |
-| **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有真机 `--debug` 产物 |
+| **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.`55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有真机 `--debug` 产物 |
 
 ---
+
+
+## 7. 函数归属审计（2026-10-06）
+
+> 一次 4 路并行审计（plotting 越界 / `utils` 叶子违规 / 重复实现 / `tools` 包边界）
+> + 1 次 `slm_zernike` 分叉评审，产出 **49 个条目**。
+> **详细清单已全部搬迁为 GitHub issue**（下表），本节只保留索引 —— 符合本文件
+> 「新增待办：开 issue，标题带 ID 前缀…并在本表加一行」的约定。
+> 执行顺序见 §6「第 3.5 批」。
+
+| ID | issue | 摘要 | 波次 / 风险 |
+|---|---|---|---|
+| R-45 | [#61](https://github.com/ywzhang909/AO-shaping/issues/61) | `utils/` 叶子层 14 处反向依赖（`hardware_utils` / `pattern_helper` / `wfs_utils`） | A 🟢 |
+| R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | `optimizer` 反向 import `tools/` 探针模块（`slm_model_in_loop` 两处） | B 🟢 |
+| R-47 | [#63](https://github.com/ywzhang909/AO-shaping/issues/63) | 面板几何下沉 `utils/slm/`（**`phase_to_panel` 归属纠正 + 命名陷阱**） | C 🟡 |
+| R-48 | [#64](https://github.com/ywzhang909/AO-shaping/issues/64) | 帧分析下沉 `utils/image/`（13 个纯数组符号） | C 🟡 |
+| R-49 | [#65](https://github.com/ywzhang909/AO-shaping/issues/65) | 新建 `utils/math/`（拟合 + 稳定性判据） | C 🟡 |
+| R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | Zernike **第三套 API 层**收敛（`beam_simulation` / `PatternHelper`） | D 🟡 |
+| R-51 | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | 重复收口：`flat_gray` / `power_bucket` / `create_target_mask` | D 🟡 |
+| R-52 | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | 报告脚本 `plot_summary_bars` 三份相同实现参数化 | D 🟡 |
+| R-53 | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | `compute_metrics` 三份同名不同契约 → **改名不合并** | D 🟡 |
+| R-54 | [#70](https://github.com/ywzhang909/AO-shaping/issues/70) | 两个 SLM runner 大块重复（只抽共用段，不动 CLI flag） | D 🟡 |
+| R-55 | [#71](https://github.com/ywzhang909/AO-shaping/issues/71) | `utils/io/file.py` 等叶子层模块级 import matplotlib | E 🟡 |
+| R-56 | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | `optimizer/` 内 9 处 pygame / matplotlib 渲染面 | E 🔴→🟡 |
+| F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | `pyarrow_probe` 两份**已漂移**（哈希不同），先 diff 再定去留 | 护栏 |
+| X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
+| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
+| **R-57** | — （待开 issue） | 峰峰值安全应改**投影/约束**而非软惩罚：软惩罚存在交叉问题（性能项涨 0.2 时 3 个单位惩罚仍可接受 ⇒ run 会安心停在 3× MPE），且把无量纲图像指标与物理单位用**无法标定**的常数耦合；SPGD 梯度幅度随曝光/增益漂移 ⇒ 按上周噪声标定的权重会变成潜在违规。成熟做法 = 约束支配（feasible 恒先于 infeasible）+ 显式安全层。仓库已有能量门可作现成落点。**本轮未实现**，依据见 `report/pib_loss_terms/README.md` §4.1 | E 🟡 |
+
+### 7.1 护栏：以下**不是**待办，**不得**当作重复去「修」
+
+这批是审计的**假阳性**，没有对应 issue（因为不是待办）。记在这里只为阻止未来的
+重复动作 —— 当初审计差点把它们当成缺陷改掉。
+
+| 项 | 为什么不是重复 |
+|---|---|
+| `far_field_intensity`：`algorithm/signal_processing/differentiable_beam.py:98` vs `scripts/.../generate_zernike_farfield_sim_report.py:62` | 一个 torch 可微、一个 numpy 2f-Fourier，**签名与语义都不同** ⇒ 纯命名撞车 |
+| `apply_lens` / `propagate`：`drivers/sim/beam_backend.py:174,179` | 该处**委派**给 `beam_simulation.py:60` ⇒ adapter 模式，不是复制 |
+| `utils/wavefront/matrix_utils.py` 的 `calc_n_zernike_terms` | **有 docstring 声明的 re-export shim** ⇒ 保留 |
+| `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
+| `compute_metrics` 三份 | 三种真实契约 ⇒ 改**名**不合并，见 R-53 |
+| `main` / `run`（各 entrypoint） | 合法 |
+| `gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py` | **已漂移**（各 106 行但 SHA256 不同）⇒ 见 F-13，不可按「相同副本」直接删 |
+
+> 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有
+> 大量未提交改动，行号大概率已漂移。
 
 ## 来源清单
 
@@ -196,6 +244,7 @@
 | 代码注释 ×4 | 2026-09-17 ~ 09-25 | runner 待测清单 | → §1.1 |
 | `docs/issues_report.md` §10/§11 | 2026-05-26 | 架构建议 + 新增扫描 | → F-4 / F-5 |
 | `OBJECTIVE_TARGET_SHAPE_MERGE_PLAN.md` | 2026-09-26 | objective/target_shape 合并 | ✅ 已落地 → archive §5 |
+| 代码结构审计（4 路并行 + 1 次分叉评审） | 2026-10-06 | 函数归属 / 重复实现 / 叶子层违规 | → **§7**（issue #50、#61–#74） |
 
 **扫描范围**：`docs/**/*.md`、`src/**`、`scripts/**`、`tests/**` 中的 `TODO.md`、
 `TODO/FIXME/XXX/HACK/待办/未实现/待确认` 代码注释、以及各报告文档末尾的

@@ -57,6 +57,7 @@
 | [`models_analysis/tmp_sac_run_showcase.md`](models_analysis/tmp_sac_run_showcase.md) | `scripts/generate_models_report.py` | 离线 | 临时调试 run 的成果展示 |
 | [`oopao_impact/report.md`](oopao_impact/report.md) | `scripts/generate_oopao_impact_report.py` | 离线 | 端到端 AO 环境下的后端影响 |
 | [`oopao_vs_numpy/report.md`](oopao_vs_numpy/report.md) | `scripts/generate_oopao_vs_numpy_report.py` | 离线 | 像差 x 湍流 12 场景 x 2 后端对比 |
+| [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w_loggrad)、2 类早已存在、3 类否决, 附实测依据 |
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
