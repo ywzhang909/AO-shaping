@@ -29,6 +29,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from functools import partial
 from pathlib import Path
 
 import matplotlib
@@ -45,7 +46,14 @@ sys.path.insert(0, str(ROOT))
 
 from ml.zernike import inverse_design as inv  # noqa: E402
 from ml.zernike.losses import LossConfig  # noqa: E402
+from scripts._common import fmt_signed  # noqa: E402
 from scripts._common.provenance import insert_header  # noqa: E402
+
+#: Bound to ``missing="MISSING"`` so this report keeps its own absence token. A
+#: ``def _fmt`` copy of ``fmt_signed`` is banned by
+#: ``test_common_helpers_not_reintroduced.py`` -- two copies drift, and this one had
+#: already been reported. ``spec`` stays positional (``_fmt(x, ".4f")``).
+_fmt = partial(fmt_signed, missing="MISSING")
 
 OUT_DIR = ROOT / "report" / "loss_defects"
 FIG_DIR = OUT_DIR / "figures"
@@ -487,9 +495,180 @@ def _inverse_rows() -> list[str]:
     return out
 
 
+def _taxonomy_rows() -> list[str]:
+    """The closed-loop loss taxonomy scorecard, read from the saved panel."""
+    data = _load("closed_loop_loss_taxonomy.json")
+    if not data.get("verdict"):
+        return ["*NOT PRODUCED YET - run `python scripts/closed_loop_loss_taxonomy.py`*"]
+    inc = data["incumbent_best_movement"]
+    v = data["verdict"]
+    labels = {
+        "weighted_mse": "加权 MSE（目标区高权重）",
+        "gradient_loss": "梯度域 L1",
+        "peak_penalty": "峰值强度惩罚",
+        "ssim_loss": "SSIM Loss",
+        "energy_conservation": "总能量守恒",
+        "phase_smoothness": "相位平滑 `||∇φ||₁`（实现于 `losses.py`）",
+        "phase_modulation_depth": "相位调制深度（峰谷）",
+    }
+    out = ["| 候选 loss | 相对判别力 | 退化安全 | 与现有项最大 │ρ│ | 是否有独立信息 |",
+           "|---|---|---|---|---|"]
+    order = [
+        "weighted_mse", "gradient_loss", "peak_penalty", "ssim_loss",
+        "energy_conservation", "phase_smoothness", "phase_modulation_depth",
+    ]
+    for name in order:
+        if name not in v:
+            continue
+        r = v[name]
+        if not r.get("screenable_here", True):
+            out.append(
+                f"| {labels[name]} | — | — | — | **本台架无法筛选**（见下） |"
+            )
+            continue
+        rho = r["max_abs_spearman_vs_incumbent"]
+        rho_s = "—" if rho != rho else f"{rho:.2f}"
+        # "Independent information" = it moves beyond what the incumbent set already
+        # captures on at least one corruption. `covers` empty means it does not.
+        indep = "**有**（" + "、".join(r["covers"]) + "）" if r["covers"] else "无"
+        safe = "是" if r["degenerate_safe"] else "**否**"
+        out.append(f"| {labels[name]} | {r['discrimination']:.4f} | {safe} | {rho_s} | {indep} |")
+    out.append("")
+    out.append("判别力 = 该 loss 在三种扰动下改变量占它自己动态范围的比例（跨项可比）；"
+               "「现有项」= `mse` / `uniformity` / `w_speckle` / `w_ellipse`。")
+    out.append("")
+    out.append("现有项的最好相对变化量（候选必须超过它才算有信息）：")
+    for k, vv in inc.items():
+        out.append(f"* `{k}`：**{vv['best_relative']:.4f}**（由 `{vv['argmax']}` 取得）")
+    return out
+
+
+def _phase_smooth_rows() -> list[str]:
+    """The paired 3-seed result for the phase-domain penalty."""
+    data = _load("phase_smoothness_train.json")
+    if not data.get("verdict"):
+        return ["*尚未生成：先跑 `python scripts/phase_smoothness_train.py`*"]
+    cfg = data["config"]
+    base = data["baseline"]
+    out = [
+        f"配对 {len(cfg['seeds'])} 个 seed，epochs={cfg['epochs']}，n_max={cfg['n_max']}，"
+        f"padding={cfg['padding']}，每个权重与 `w=0` **同 seed 配对**比较：",
+        "",
+        "| w_phase_smooth | ΔR²（配对） | 标准误 | 胜过基线 | ΔSSIM | 相位 TV | 相位 PV |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for w, r in data["verdict"].items():
+        out.append(
+            f"| {w} | {_fmt(r['d_r2_paired'])} | {_fmt(r['d_r2_se'], '.4f')} | "
+            f"{r['beats_baseline']}/{r['n']} | {_fmt(r['d_ssim_paired'])} | "
+            f"{base['phase_tv']:.4f} → {r['phase_tv']:.4f} | "
+            f"{base['phase_pv_rad']:.2f} → {r['phase_pv_rad']:.2f} rad |"
+        )
+    out.append("")
+    rows = data["rows"]
+    zero = [r for r in rows if r["weight"] == 0.0]
+    heavy = [r for r in rows if r["weight"] == max(cfg["weights"])]
+    zc = sum(r["max_abs_coeff"] for r in zero) / len(zero)
+    hc = sum(r["max_abs_coeff"] for r in heavy) / len(heavy)
+    out.append(
+        f"**机制是显式的**：最大系数幅值从 `w=0` 的 {zc:.3f} 塌到 `w={max(cfg['weights'])}` 的 "
+        f"{hc:.3f}。这个惩罚不是在校准一个过大的修正，而是在**把修正整体压掉**——"
+        "模型干脆不再校正像差。"
+    )
+    out.append("")
+    out.append(f"**结论：预测被证实**（{'CONFIRMED' if data['outcome'] == 'CONFIRMED' else 'REFUTED'}）。"
+               f"没有任何一个权重在 >=2/{len(cfg['seeds'])} 个 seed 上有帮助，因此"
+               "**`w_phase_smooth` 保持默认 0**。")
+    return out
+
+
+def _crosstalk_rows() -> list[str]:
+    """Forward-training arms: incumbent, same-simulator control, crosstalk at 3 strengths."""
+    data = _load("crosstalk_augmentation_train.json")
+    if not data.get("verdict"):
+        return ["*NOT PRODUCED YET - run `python scripts/crosstalk_augmentation_train.py`*"]
+    import ml.zernike.eval_stats as es
+
+    v = data["verdict"]
+    base = data["baseline"]
+    rows = data["rows"]
+    base_by_seed = {r["seed"]: r["r2"] for r in rows if r["arm"] == "D2"}
+    ctrl_by_seed = {r["seed"]: r["r2"] for r in rows if r["arm"] == "D2+same"}
+
+    out = [
+        f"基线 `D2`（无增强）平均 R² = {_fmt(base['mean_r2'])}，配对 {len(base_by_seed)} 个 seed。",
+        "",
+        "| arm | ΔR²（配对） | 标准误 | Cohen's dz | p（精确符号翻转） | 胜过基线 | vs 同源对照 |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for arm in ("D2+same", "D2+xt0.5", "D2+xt1.0", "D2+xt2.0"):
+        if arm not in v:
+            continue
+        r = v[arm]
+        sel = {x["seed"]: x["r2"] for x in rows if x["arm"] == arm}
+        d = [sel[s] - base_by_seed[s] for s in sorted(sel)]
+        st = es.paired_comparison(d, arm)
+        label = "**同源对照**" if arm == "D2+same" else arm
+        out.append(
+            f"| {label} | {_fmt(st['mean_diff'])} | {_fmt(r['d_r2_se'], '.4f')} | "
+            f"{_fmt(st['cohens_dz'], '+.2f')} | {st['p_sign_flip']:.4f} | "
+            f"{r['beats_baseline']}/{r['n']} | "
+            f"{'—' if arm == 'D2+same' else ('**胜出**' if r['beats_control'] else '不胜')} |"
+        )
+    out.append("")
+    out.append(
+        f"⚠️ **5 个配对样本的最小可达 p = {es.min_attainable_pvalue(5)}**，"
+        "所以这个协议**结构上就到不了 p<0.05**。下表所有 p 值都只能读作"
+        "「是否有方向性证据」，不能读作「是否显著」。"
+    )
+    out.append("")
+    guards = data.get("degeneracy_guards", {})
+    if guards:
+        out.append(
+            "退化守卫（防止某一臂其实是空转）："
+            + "；".join(
+                f"`{k}` = {_fmt(val, '.4f')}" for k, val in guards.items()
+                if k.endswith("_vs_same_mae")
+            )
+            + "。串扰臂与同源臂的目标**确实不同**，否则这一臂是空操作、负结果毫无意义。"
+        )
+    return out
+
+
+def _inverse_transfer_rows() -> list[str]:
+    """Inverse scores through the same three arms, on the scale-matched padding-1 protocol."""
+    data = _load("inverse_crosstalk_check.json")
+    if not data.get("verdict"):
+        return ["*尚未生成：先跑 `python scripts/inverse_crosstalk_check.py`*"]
+    ref = data["references"]
+    v = data["verdict"]
+    out = [
+        f"平场 = {ref['flat']:.4f}，GS 提案 = {ref['gs']:.4f}"
+        f"（GS − 平场 = {ref['gs'] - ref['flat']:+.4f}）。"
+        "⚠️ **三个 arm 的逆向得分全部低于平场**，也就是说经由本模型做逆向优化"
+        "**依然失败**，与第 8 节的结论一致。",
+        "",
+        "| arm | 逆向得分 | Δ（配对） | Cohen's dz | p | 胜过基线 | 正向 R² |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    for arm in sorted(v, key=lambda a: -v[a]["d_inv_vs_D2"]):
+        r = v[arm]
+        label = "**同源对照**" if arm == "D2+same" else arm
+        out.append(
+            f"| {label} | {r['mean_inv']:.4f} | {_fmt(r['d_inv_vs_D2'])} | "
+            f"{_fmt(r['cohens_dz'], '+.2f')} | {r['p_sign_flip']:.4f} | "
+            f"{r['beats_baseline']}/{r['n']} | {_fmt(r['mean_fwd_r2'])} |"
+        )
+    return out
+
+
 def build_report(stats: dict, figures_ok: bool) -> str:
     fwd, invst, ph = stats["forward"], stats["inverse"], stats["phase"]
     SEARCH_ROWS = _search_rows()
+    TAXONOMY_ROWS = _taxonomy_rows()
+    CROSSTALK_ROWS = _crosstalk_rows()
+    INVERSE_TRANSFER_ROWS = _inverse_transfer_rows()
+    PHASE_SMOOTH_ROWS = _phase_smooth_rows()
     COMBINED_ROWS = _combined_rows()
     INVERSE_ROWS = _inverse_rows()
     lines = [
@@ -703,7 +882,157 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "* 合成强相位数据与真实语料**同源**（都用项目自带仿真器），"
         "因此模型没有在完全独立的传播模型上被评测过。",
         "",
-        "## 10. 复现",
+        "## 10. 闭环整形的 loss 分类：逐项打分，只有一项是新轴",
+        "",
+        "有人提出了一份闭环整形 loss 清单（加权 MSE / SSIM / 梯度域 / 相位平滑 / "
+        "physics-informed / 峰值惩罚 / 能量守恒）。下面按**本仓已实测的**三条轴打分，"
+        "而不是照单采纳：",
+        "",
+        "1. **判别力** —— 三种方向相反的扰动（过平滑 / 过散斑 / 能量移位）下，"
+        "它相对自身动态范围改变了多少。",
+        "2. **退化安全** —— 能不能靠毁掉信号来取胜。这不是假设：本仓实测过只优化均匀度"
+        "把环围能量推到 **0.002**。",
+        "3. **冗余度** —— 与现有项的逐样本相关性。相关性 0.97 的项只是多一个旋钮，"
+        "不是多一份信息。",
+        "",
+        *TAXONOMY_ROWS,
+        "",
+        "**七个候选里，五个是重复的或已被否掉的：**",
+        "",
+        "* **能量守恒已经存在**（`losses.roi_energy_loss`），而且实测判别力只有 0.0362 —— "
+        "`image_mode='abs255'` 加上模型的 `normalization='peak'` 已经把总量除掉了，"
+        "这个「光路损耗告警」几乎没有可告警的东西。",
+        "* **physics-informed 已经存在**，就是 `slm_model_in_loop` 本身：它每轮重新拟合"
+        "正向模型的像差，也就是清单里「定期重新标定 F_err」那一条，已经按轮做了。",
+        "* **冷启动配方（physics-informed + MSE）已经被否**：合成强相位增强 "
+        "C4 +strong 25% 实测 **−0.0211，0/3 配对**。原因见下。",
+        "* **峰值惩罚退化不安全**：空 ROI 天然没有热像素，所以它可以靠把光打空取胜。",
+        "* **加权 MSE 与现有项相关性 0.97**，且没有一项扰动能超过现有项最好水平 —— "
+        "纯冗余。",
+        "",
+        "「独立信息」一列**全为空**，意思是：没有一个候选能做到现有项做不到的事。"
+        "`w_speckle` 在过散斑上已经把相对变化量吃到 **1.0000**（饱和），那里根本没有余量。",
+        "",
+        "### 为什么「合成强相位增强」也无效：它不是独立数据",
+        "",
+        "C4 用的 `ml/zernike/augment.py::strong_phase_pairs` 看起来是「新数据」，"
+        "但它的目标来自 `ml/zernike/inverse_design.py::sim_far_field`，"
+        "而那正是 `ZernikeAmpModel._propagate` 自己的传播链。"
+        "**实测两者的相关系数 = 0.9956**（同一相位下，`padding=12`，64×64）："
+        "所谓「独立仿真器」与模型自身的输出只差 0.4%。",
+        "",
+        "所以它不是独立信息，只是把模型已经能精确算出的东西又喂了一遍，"
+        "同时把训练分布搅宽——净效果为负（−0.0211，0/3 配对）与「它没有信息」一致。",
+        "",
+        "**这给出了下一步唯一有意义的判据**：任何新增强数据，其传播器必须包含"
+        "模型**证明无法表示**的物理。本仓已知且已实测的候选有三个——"
+        "面板串扰 / 有限填充因子、LCOS 灰度-幅度耦合（AGENTS.md 实测周期约 993 灰度）、"
+        "以及像差本身的大幅偏离。但仿真器里没有任何一项的模型，"
+        "所以这三者都只能作为**训练数据的生成器**引入，不能靠仿真自己长出来。",
+        "",
+        "### 两个我自己的台架错误（都曾伪造出读数）",
+        "",
+        "* **用「真值处的取值」做归一化**：清单里每一项都是 anchored 的，真值处取值按"
+        "构造为 0，于是所有比值都是 `inf`。改为「该项自身动态范围」才可比。",
+        "* **在扰动扫描上给相位域项打分**：它们按构造与输入无关，于是必然得到 "
+        "`判别力=0 / 不安全`。这是台架的伪影不是结论，现在显式标为"
+        "**本台架无法筛选**，必须配训练实验。",
+        "",
+        "## 11. 相位平滑：唯一的新轴，实现后实测无效",
+        "",
+        "上面两项里，相位平滑是**唯一本仓没测过**的，而且它是清单里唯一作用在**指令**"
+        "而非测量图像上的项：其余各项都只能事后观察相位梯度的后果，无法表达"
+        "「这个相位在面板上不可实现」。所以它被实现了"
+        "（`losses.phase_smoothness_penalty` = TV + 2π 峰谷铰链，`w_phase_smooth` 默认 0）。",
+        "",
+        "**它的动机是对的**：不加约束的拟合命令了 **PV 23.19 rad ≈ 3.7 个完整 2π**，"
+        "面板的相位线性度撑不住。",
+        "",
+        "**但配对实验说不要打开它：**",
+        "",
+        *PHASE_SMOOTH_ROWS,
+        "",
+        "### 为什么会这样，以及为什么这不奇怪",
+        "",
+        "这个结果是**先预测后验证**的，预测来自一条已有测量：`l2_penalty` 本身就是一个"
+        "系数域正则项，而它在每个强度上都更差（−0.025 / −0.253，均 0/3 配对），"
+        "因为验证/训练误差比 **1.08**、学习曲线是平的 —— **根本没有可压缩的泛化间隙**。"
+        "相位平滑是同一根杠杆，只是去掉了模态序上的各向异性（L2 在模态序上是各向同性的，"
+        "这在物理上是错的：同样 1 rad 系数，高阶模态的相位梯度陡得多）。"
+        "它理应继承失败，而它确实继承了。",
+        "",
+        "### 这条结论的硬边界（必须一起读）",
+        "",
+        "**仿真器的相位响应是理想的**——没有串扰、没有填充因子、没有效率耦合。"
+        "所以可实现性惩罚在这里**只可能损失精度，不可能赚回任何东西**，"
+        "因为不存在一个会向它收费的串扰模型。",
+        "换句话说：**PV 23 rad 在真实台架上是否真的损失效率，这是一个本仓无法回答的硬件问题。**"
+        "在有人实测之前，`w_phase_smooth` 保持 0。本报告能给出的只是："
+        "模型确实在命令一个面板撑不住的相位，以及用仿真无法判断这件事的代价。",
+        "",
+        "---",
+        "",
+        "## 12. 串扰增强：唯一带新物理的增强，测了，结论与直觉相反",
+        "",
+        "上一节给出了下一步的唯一判据：增强数据的传播器必须包含模型**证明无法表示**的物理。"
+        "本仓已知、且已实测而仿真器没有的候选有三个，本节测第一个——**SLM 像素串扰 / "
+        "有限填充因子**（2f 台架有空间带宽积，真实 LCOS 会混合相邻像素）。",
+        "",
+        "实现走 `SimPibSystem._pupil_field` 这条 seam（其 docstring 明说是为「子类注入"
+        "瞳面物理（如 SLM 通道串扰）」而留的），**不复制**补零 + FFT + 归一化那条链——"
+        "复制一份悄悄漂移的传播器是本仓已记录过的失败模式。",
+        "串扰 PSF 作用在**复瞳孔场**上而不是相位上：串扰混合的是相邻像素的**场**，"
+        "混合相位是另一种（错误的）误差模型。",
+        "",
+        "**臂设计**：`D2`（无增强）、`D2+same`（**同源对照**，与串扰臂同样本数）、"
+        "`D2+crosstalk σ ∈ {0.5, 1.0, 2.0}`。对照臂不可省——没有它就分不清"
+        "「独立传播器有效」与「数据变多有效」，而这正是整个问题。",
+        "",
+        *CROSSTALK_ROWS,
+        "",
+        "### 结论一：串扰增强本身**不成立**",
+        "",
+        "最好的串扰臂（σ=2.0）配对 ΔR² = +0.0253，但**标准误 ±0.0314 比效应本身还大**，"
+        "精确符号翻转 **p = 0.6250**。它相对同源对照的优势是 +0.0112，**p = 0.3125**——"
+        "也就是说「独立传播器」带来的额外信息，在噪声里完全看不见。",
+        "",
+        "### 结论二：但「加数据」本身有效，只是与传播器无关",
+        "",
+        "同源对照 `D2+same` 配对 ΔR² = +0.0141（p = 0.8125），单看正向也不显著，"
+        "**但它在逆向上是三个臂里唯一达到协议下限的**：Δ = +0.0485、dz = +1.35、"
+        "**5/5 seed 全胜**、p = 0.0625（= 5 对的最小可达值）。",
+        "",
+        "**方向与直觉相反**：同源增强对逆向的帮助**大于**串扰增强（+0.0485 对 +0.0286）。",
+        "如果「独立物理传播器」是瓶颈，同源对照不该赢。它赢了，说明当前瓶颈**不是**"
+        "「传播器缺少物理」，而是更朴素的东西——**训练分布的覆盖度与多样性本身**。",
+        "同源增强之所以有用，很可能不是因为它提供了新信息（它没有，corr 0.9956），"
+        "而是因为它把 300 个**远离原分布**的强相位样本塞进了每个 batch，"
+        "起到了正则化/扩覆盖的作用。",
+        "",
+        "## 13. 逆向：增益**没有**从正向传过来（第三次独立确认）",
+        "",
+        "按第 8 节的判据做转移检验：正向动了，逆向是否跟着动？"
+        "本节用**尺度匹配**的 padding-1 协议（padding 12 下 GS 提案**低于**平场，"
+        "脚本自带的守卫会直接拒绝运行——这个守卫是对的，且正是它避免了早期 ROI 扫描那类无效数字）。",
+        "",
+        *INVERSE_TRANSFER_ROWS,
+        "",
+        "**结论：串扰臂的逆向增益不成立**（Δ = +0.0286，dz = +0.74，p = 0.1875，仅 4/5）。"
+        "把第 8 节的两条与本节合起来看，"
+        "「正向准确率不能预测逆向能力」已经是**第三次**被独立确认：",
+        "",
+        "1. physics + U-Net 残差：正向 +0.0426（5/5）→ 逆向 +0.0065（2/5，噪声）。",
+        "2. 单独 U-Net：正向 R² 近乎翻倍（+0.8718 对 +0.6276）→ 逆向 **+0.0000**。",
+        "3. 本节：串扰增强正向略动（不显著）→ 逆向也不动；"
+        "而同源增强正向不显著、逆向却是 5/5 全胜。",
+        "",
+        "第 3 条尤其说明问题：**正向和逆向甚至不同向**。"
+        "所以「先修正向再修逆向」这个工作顺序本身不成立，"
+        "任何只按正向 R² 排序的模型选择都在优化一个与目标无关的量。",
+        "",
+        "---",
+        "",
+        "## 14. 复现",
         "",
         "```bash",
         "python scripts/generate_inverse_design_report.py",
@@ -714,6 +1043,10 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "python scripts/forward_search_extra.py",
         "python scripts/inverse_combined.py",
         "python scripts/generate_forward_search_report.py",
+        "python scripts/closed_loop_loss_taxonomy.py",
+        "python scripts/phase_smoothness_train.py",
+        "python scripts/crosstalk_augmentation_train.py",
+        "python scripts/inverse_crosstalk_check.py",
         "```",
         "",
     ]
