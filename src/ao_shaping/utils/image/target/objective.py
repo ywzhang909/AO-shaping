@@ -15,6 +15,7 @@ from loguru import logger
 from ao_shaping.utils.image.target.metrics import (
     TARGET_SHAPE_CHOICES,
     TargetShape,
+    log_gradient_difference_metric,
     rmse_out_metric,
     rmse_shape_metric,
     rms_pib_terms,
@@ -24,6 +25,7 @@ from ao_shaping.utils.image.target.metrics import (
     shape_metric,
     shape_stage_from_energy,
 )
+from ao_shaping.utils.image.target.patterns import create_target_shape
 
 
 #: Sentinel added to (max-mode) or subtracted from (min-mode) every score of a
@@ -261,6 +263,11 @@ class ShapingObjectiveParams:
     w_rms_init: float | None = None
     w_ee_init: float | None = None
     w_outside: float = 1.0
+    w_loggrad: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not np.isfinite(self.w_loggrad) or self.w_loggrad < 0.0:
+            raise ValueError(f"w_loggrad must be >= 0 and finite, got {self.w_loggrad!r}")
 
 
 @dataclass(frozen=True)
@@ -289,6 +296,7 @@ class ObjectiveResult:
     ratio: float
     tracking: float
     terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
+    loggrad: float = 0.0
 
 
 SHAPING_OBJECTIVE_CHOICES = (
@@ -540,6 +548,24 @@ class ShapingObjective:
         self._terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._shape_state: dict[str, float] = {"best_energy": 0.0}
         self._violations = 0
+        # Structural reference for the ``w_loggrad`` modifier: the flat-phase
+        # capture, i.e. the bench's OWN natural spot profile. Referencing the
+        # achieved profile rather than the requested shape is deliberate and
+        # measured — a target-SHAPE reference does not work here. ``log`` of a
+        # hard-edged shape (create_target_shape returns a 2-valued disc) is a
+        # step function, so a gradient comparison against it scores a clean
+        # Gaussian spot 0.438 and speckle 0.425, i.e. INVERTED. Against a
+        # smooth profile of the achievable width the ordering is correct (clean
+        # 0.000, speckle 0.084, off-size 0.279). This term therefore answers
+        # "did this candidate gain structure finer than the natural profile",
+        # which is exactly what the energy-in-bucket objectives are blind to.
+        # Shape itself remains ``pib`` / ``shape`` / ``roi_pib``'s job.
+        # Only retained when the feature is enabled, so the default path pays
+        # nothing in memory.
+        self._loggrad_reference: np.ndarray | None = None
+        if params.w_loggrad > 0.0:
+            ref = np.asarray(init_img, dtype=np.float32)
+            self._loggrad_reference = np.where(np.isfinite(ref), ref, 0.0)
 
         if params.objective == "rms_pib":
             w_pib, w_rms, w_ee = _resolve_init_weights(
@@ -602,16 +628,44 @@ class ShapingObjective:
         """
         self._reference_center = (float(center[0]), float(center[1]))
 
-    def raw(self, img: np.ndarray) -> tuple[float, float, float]:
-        """Score one frame without the safety guard.
+    @property
+    def _sign(self) -> float:
+        """Polarity of the reported objective: ``-1`` when higher is better.
 
-        Returns:
-            ``(j, ratio, tracking)`` - the objective value, the secondary
-            quantity the objective reports for logging, and the value the search
-            tracks as "best". ``tracking`` differs from ``j`` only for ``pib``,
-            where it is the bucket ratio at the fixed ideal radius rather than at
-            the (shrinking) live bucket radius.
+        Single source of truth for the penalty direction. ``_raw_base`` returns
+        NATIVE polarity (higher-is-better entries); this sign is what converts a
+        penalty into "uniformly bad" before it is handed to an optimiser that
+        minimises.
         """
+        return -1.0 if self._params.mode == "max" else 1.0
+
+    def _get_loggrad_term(self, img: np.ndarray) -> float | None:
+        """Structure term against the bench's natural spot profile, or ``None``.
+
+        ``None`` means "skip" and must leave the objective untouched. It is
+        returned when the feature is off, when no reference was captured, or
+        when the candidate frame no longer matches the reference geometry (the
+        window can be re-armed mid-run, e.g. after ``reset_window``) - a shape
+        mismatch must degrade gracefully rather than raise inside the loop.
+        """
+        if self._params.w_loggrad <= 0.0:
+            return 0.0
+        reference = self._loggrad_reference
+        if reference is None:
+            return None
+        frame = np.asarray(img, dtype=np.float32)
+        if frame.shape != reference.shape:
+            return None
+        try:
+            lg = float(log_gradient_difference_metric(frame, reference))
+        except ValueError:
+            return None
+        if not np.isfinite(lg):
+            return 0.0
+        return lg
+
+    def _raw_base(self, img: np.ndarray) -> tuple[float, float, float]:
+        """Score one frame without the safety guard (base terms only)."""
         p = self._params
         objective = p.objective
 
@@ -740,6 +794,27 @@ class ShapingObjective:
         avg_r, avg_ratio = self._target_func.avg_radius(img, moment=1.0)
         return float(avg_r), float(avg_ratio), float(avg_r)
 
+    def raw(self, img: np.ndarray) -> tuple[float, float, float]:
+        """Score one frame: base terms plus the opt-in log-gradient modifier.
+
+        ``_raw_base`` returns native polarity, so a min-max penalty must be
+        combined as ``j + sign * weight * lg`` - SUBTRACTED in ``max`` mode,
+        ADDED in ``min`` mode. Adding it unconditionally would make every
+        max-mode objective (``pib`` / ``shape`` / ``roi_pib`` / ``rms_pib`` /
+        ``pearson``) score *better* when the shape gets worse.
+
+        With ``w_loggrad == 0`` this is exactly ``_raw_base``, byte for byte.
+        """
+        j, ratio, tracking = self._raw_base(img)
+        lg = self._get_loggrad_term(img)
+        if lg is None or self._params.w_loggrad <= 0.0:
+            return float(j), float(ratio), float(tracking)
+        return (
+            float(j + self._sign * self._params.w_loggrad * lg),
+            float(ratio),
+            float(tracking),
+        )
+
     def __call__(self, img: np.ndarray) -> ObjectiveResult:
         """Score one frame, applying the in-ROI energy-loss safety guard.
 
@@ -752,10 +827,21 @@ class ShapingObjective:
         from ``img``, so an abandoned frame still looked like a great candidate
         to every ``best_*`` comparison and the exit path could write a
         guard-forbidden phase back to the SLM.
+
+        This calls ``_raw_base`` rather than ``raw`` on purpose: the modifier is
+        skipped entirely on the guard-fire path, so ``GUARD_PENALTY`` dominates
+        for ANY ``w_loggrad`` instead of only while ``w_loggrad < 1000``.
         """
-        j, ratio, tracking = self.raw(img)
+        j, ratio, tracking = self._raw_base(img)
+        lg = self._get_loggrad_term(img)
+        modifier = 0.0
+        if lg is not None and self._params.w_loggrad > 0.0:
+            modifier = self._sign * self._params.w_loggrad * lg
         if self._guard_ref_energy is None:
-            return ObjectiveResult(float(j), float(ratio), float(tracking), self._terms)
+            return ObjectiveResult(
+                float(j + modifier), float(ratio), float(tracking),
+                self._terms, float(lg or 0.0),
+            )
 
         loss = roi_energy_loss(self._guard_ref_energy, self._roi_energy(img))
         if loss > self._params.max_roi_energy_loss:
@@ -768,14 +854,17 @@ class ShapingObjective:
                     self._params.max_roi_energy_loss,
                     self._violations,
                 )
-            sign = -1.0 if self._params.mode == "max" else 1.0
             return ObjectiveResult(
-                float(j + sign * GUARD_PENALTY),
+                float(j + self._sign * GUARD_PENALTY),
                 float(ratio),
-                float(tracking + sign * GUARD_PENALTY),
+                float(tracking + self._sign * GUARD_PENALTY),
                 self._terms,
+                0.0,
             )
-        return ObjectiveResult(float(j), float(ratio), float(tracking), self._terms)
+        return ObjectiveResult(
+            float(j + modifier), float(ratio), float(tracking),
+            self._terms, float(lg or 0.0),
+        )
 
     def metric_panel(self, img: np.ndarray) -> dict[str, float]:
         """Cross-objective metric panel recorded on EVERY epoch.
