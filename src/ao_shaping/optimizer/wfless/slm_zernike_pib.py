@@ -620,6 +620,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     max_roi_energy_loss = camera_config.max_roi_energy_loss
     w_uniformity = camera_config.w_uniformity
     w_peak = camera_config.w_peak
+    w_loggrad = camera_config.w_loggrad
     w_displacement = camera_config.w_displacement
     log_uniformity = camera_config.log_uniformity
     w_ema_decay = camera_config.w_ema_decay
@@ -960,6 +961,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 w_pib_init=w_pib_init,
                 w_rms_init=w_rms_init,
                 w_ee_init=w_ee_init,
+                w_loggrad=w_loggrad,
             ),
             target_func,
             init_img,
@@ -1048,6 +1050,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             max_brt: float,
             gate: str | None = None,
             phase: np.ndarray | None = None,
+            loggrad: float = 0.0,
         ) -> dict:
             """Append one search step to the recorder (shared by both branches).
 
@@ -1076,6 +1079,12 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 "optimizer": optimizer_type,
                 f"best_{objective}": best_objective,
             }
+            if loggrad != 0.0 or w_loggrad > 0.0:
+                # Structure term. Recorded ONLY when the feature is in use: the
+                # default recorder schema is a pinned contract (epoch rows may
+                # add exactly "_gate" over the baseline row), so a default run
+                # must keep its column set byte-identical.
+                row["loggrad"] = float(loggrad)
             if record_phase and phase is not None:
                 # Display-ready grayscale exactly as sent to the SLM device.
                 row["_phase"] = phase
@@ -1285,6 +1294,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             lr_val=0.0,
                             delta_val=float(delta),
                             max_brt=float(np.max(img)),
+                            loggrad=float(last_eval.get("loggrad", 0.0)),
                         )
                         if live_display is not None:
                             text = (
@@ -1611,6 +1621,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         lr_val=optimizer.lr,
                         delta_val=delta,
                         max_brt=float(max_brightness),
+                        loggrad=float(_sign_results[1][0].loggrad),
                     )
                     if live_display is not None:
                         text = (

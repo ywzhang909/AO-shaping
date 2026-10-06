@@ -564,6 +564,18 @@ class ObjectiveParamsPib:
         float, option("--w_uniformity", help="Uniformity penalty weight.")
     ] = 2.0
     w_peak: Annotated[float, option("--w_peak", help="Peak penalty weight.")] = 0.5
+    w_loggrad: Annotated[
+        float,
+        option(
+            "--w_loggrad",
+            help=(
+                "Weight on the log-intensity gradient-difference structure term. "
+                "0 disables it (default). It penalises excess fine structure "
+                "(speckle) against the bench's natural spot profile, which the "
+                "energy-in-bucket objectives cannot see."
+            ),
+        ),
+    ] = 0.0
     w_displacement: Annotated[
         float, option("--w_displacement", help="Displacement penalty weight.")
     ] = 0.0
