@@ -35,7 +35,7 @@ KEEP_VOLTAGE_WHEN_EXIT = True
 V_MAX = 499
 V_MIN = -300
 UPDATE_MAX = 20
-DM_Adj = np.loadtxt('data\dm_adj.txt')
+DM_Adj = np.loadtxt(r'data\dm_adj.txt')
 Tolerance = 300
 print(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
 

@@ -74,6 +74,14 @@ _USAGE_RE = re.compile(r"^Usage: .*$", re.MULTILINE)
 # a broader "any [a|b|c]" rule would also hide changes to STATIC choice lists (--camera-type,
 # --wfs_type, --objective), which this golden exists to catch.
 _DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm_type\s+)\[[a-z_0-9|]+\]", re.MULTILINE)
+# Click renders a `click.Path` default through `os.path.sep`, so one and the same command
+# prints `data\x.csv` on Windows and `data/x.csv` everywhere else. Comparing that verbatim
+# would make this snapshot machine-dependent: the committed one was produced off-Windows, so
+# regenerating on Windows flips every path default and reports drift that is not a
+# behavioural change. Scoped to the `[default: ...]` suffix on purpose -- help prose elsewhere
+# legitimately contains both slashes (e.g. "input/output", "miicam/daheng"), so a repo-wide
+# backslash rule would silently hide real edits.
+_DEFAULT_PATH_RE = re.compile(r"(\[default:[^\]\n]*(?:\n(?![ \t]*-)[^\]\n]*)*)\]")
 
 TOOLS_SLM_MODULES: list[str] = [
     "calibration",
@@ -101,14 +109,16 @@ EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 13, "run": 3}
 
 
 def normalize(text: str) -> str:
-    """Normalise the two parts of ``--help`` that are not behavioural contract.
+    """Normalise the three parts of ``--help`` that are not behavioural contract.
 
-    The ``Usage:`` line carries the prog name, and ``--dm_type``'s choice list is
-    the live DM registry (see ``_DM_TYPE_CHOICE_RE``). Everything else - flag
-    names, their order, types, defaults and help prose - is compared verbatim.
+    The ``Usage:`` line carries the prog name, ``--dm_type``'s choice list is the live DM
+    registry (see ``_DM_TYPE_CHOICE_RE``), and a ``click.Path`` default carries the platform
+    separator (see ``_DEFAULT_PATH_RE``). Everything else - flag names, their order, types,
+    defaults and help prose - is compared verbatim.
     """
     text = _USAGE_RE.sub(f"Usage: {PROG}", text)
-    return _DM_TYPE_CHOICE_RE.sub(r"\g<1>[<dm-types>]", text)
+    text = _DM_TYPE_CHOICE_RE.sub(r"\g<1>[<dm-types>]", text)
+    return _DEFAULT_PATH_RE.sub(lambda m: m.group(1).replace("\\", "/") + "]", text)
 
 
 def invoke_help(cmd: click.Command) -> tuple[str, int]:

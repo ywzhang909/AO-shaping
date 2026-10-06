@@ -143,21 +143,25 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
     focal_scale_px=_TILT_SHIFT_SCALE_PX,
 )
 
-# Snapshot of DM types taken BEFORE asyn_micro_dm registration below. The
-# dm_matrix_runner at HEAD computed its own DM_TYPES at import time before
-# asyn_micro was registered (runners/__init__.py imports dm_matrix_runner
-# before full_voltage_runner), so its --dm_type choice list excluded asyn_micro.
-# Preserve that exact ordering for byte-identical help output.
-DM_TYPES_PRE_ASYN_MICRO = list_dm_types()
+# `dm-matrix` deliberately offers one DM type fewer than every other command, so its
+# `--dm_type` help stays byte-identical to its pre-asyn_micro text (see
+# `EXPECTED_DM_TYPE_CHOICES` in tests/ao_shaping/runners/test_cli_contract_freeze.py).
+#
+# This used to be a *positional* snapshot taken before the side-effect import below, which
+# made it racy by construction: DM types self-register on import, so any earlier importer of
+# `asyn_driver` (another test module, a runner imported first) left `asyn_micro` already in the
+# registry and the snapshot silently stopped excluding it. That hazard is registered as R2 and
+# was reproducible in a plain two-file pytest run, because alphabetical collection order decided
+# the winner. Filtering the name is order-independent and describes the intent directly, so the
+# freeze no longer depends on who imported what first.
+DM_TYPES_PRE_ASYN_MICRO = [t for t in list_dm_types() if t != "asyn_micro"]
 
 # Importing the async driver module registers the "asyn_micro" DM type (side
 # effect). It is normally registered by micro_drive.full_voltage_runner, which is
 # imported AFTER this module in runners/__init__.py — without this import,
 # DM_TYPES below would miss asyn_micro and the --dm_type choice list would
-# silently shrink from 7 to 6 entries. The submodule is imported directly
-# rather than via ``dm.micro``, whose __getattr__ resolves the async driver
-# lazily (that laziness is what keeps DM_TYPES_PRE_ASYN_MICRO above honest).
-import ao_shaping.drivers.dm.micro.asyn_driver  # noqa: F401
+# silently shrink from 7 to 6 entries.
+import ao_shaping.drivers.dm.micro.asyn_driver  # noqa: E402,F401
 
 DM_TYPES = list_dm_types()
 

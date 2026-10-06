@@ -1,7 +1,7 @@
 """Hardware test for ThorlabWFS driver — reproduces suspected bugs on real device.
 
 Run with the project venv:
-    .venv\Scripts\python.exe scripts\wfs_driver_hw_test.py
+    .venv\\Scripts\\python.exe scripts\\wfs_driver_hw_test.py
 
 Each suspect is wrapped in try/except so one failure doesn't abort the rest.
 Prints PASS/FAIL per check with exact exception text.

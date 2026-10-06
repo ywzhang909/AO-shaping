@@ -40,6 +40,7 @@ from click.testing import CliRunner
 from ao_shaping.runners import runner_common
 from ao_shaping.runners.runner_common import (
     DM_TYPES,
+    DM_TYPES_PRE_ASYN_MICRO,
     CameraParams,
     CameraParamsPib,
     ClickGroup,
@@ -249,15 +250,26 @@ class TestDmTypes:
         assert DM_TYPES == sorted(set(DM_TYPES))
 
     def test_pre_snapshot_precedes_the_side_effect_import(self) -> None:
-        """Static check: the snapshot must be taken before ``asyn_micro`` registers.
+        """Static check: the snapshot must exclude ``asyn_micro`` by construction.
 
-        Race-free, and it fails for the actual regression (someone dropping or
-        reordering the import) rather than for whatever ran earlier in the suite.
+        It used to be a positional snapshot taken before this module imported
+        ``asyn_driver``, which was race-free only while nothing else imported that
+        module first -- an assumption a two-file pytest run broke purely on
+        alphabetical collection order. The snapshot is now a name filter, so the
+        mechanism to pin is the filter plus its position before the full list.
+
+        Static, and it fails for the actual regressions (someone dropping the filter, or
+        moving it after the side-effect import) rather than for whatever ran earlier.
         """
         source = Path(runner_common.__file__).read_text(encoding="utf-8")
-        snapshot = source.index("DM_TYPES_PRE_ASYN_MICRO = list_dm_types()")
-        side_effect = source.index("import ao_shaping.drivers.dm.asyn_micro_dm")
-        assert snapshot < side_effect, (
-            "runner_common must snapshot the registry BEFORE importing "
-            "asyn_micro_dm, otherwise the snapshot cannot observe the difference"
+        snapshot = source.index('DM_TYPES_PRE_ASYN_MICRO = [t for t in list_dm_types() if t != "asyn_micro"]')
+        side_effect = source.index("import ao_shaping.drivers.dm.micro.asyn_driver")
+        full = source.index("DM_TYPES = list_dm_types()")
+        assert snapshot < side_effect < full, (
+            "runner_common must derive DM_TYPES_PRE_ASYN_MICRO before importing "
+            "asyn_driver, and DM_TYPES after it, otherwise the two lists cannot differ"
         )
+        assert "asyn_micro" not in DM_TYPES_PRE_ASYN_MICRO, (
+            "DM_TYPES_PRE_ASYN_MICRO must exclude asyn_micro in every import order"
+        )
+        assert "asyn_micro" in DM_TYPES, "DM_TYPES must offer asyn_micro"
