@@ -43,8 +43,9 @@ matplotlib.use("Agg")  # BEFORE pyplot: a training box has no display
 import matplotlib.pyplot as plt  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`) must be
+# importable for a bare `python scripts/<name>.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from scripts._common import fmt_metric as _fmt  # noqa: E402
 from scripts._common import markdown_table as _table  # noqa: E402
@@ -267,7 +268,7 @@ def main(argv: list[str] | None = None) -> int:
                 f"Holm p = {_fmt(stat.get('p_holm'))}，"
                 f"Cohen's d_z = **{_fmt(stat['cohens_dz'], 2)}**"
                 f"（{len(stat.get('folds', []))} 折，最小可达 p = "
-                f"{2 / 2 ** max(1, len(stat.get('folds', []))):.4f}）。\n"
+                f"{_fmt(2 / 2 ** max(1, len(stat.get('folds', []))))}）。\n"
             )
         body.append(
             "\n> **结论：两个模型在本数据上无法区分**（p 远大于 0.05）。"

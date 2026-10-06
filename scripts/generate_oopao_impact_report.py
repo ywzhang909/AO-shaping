@@ -64,7 +64,29 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     ShapingBenchConfig,
     forward_intensity,
 )
-from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv  # noqa: E402
+# `SimTurbulenceAOEnv` is imported lazily, inside the function that drives it.
+# It lives in `ao_shaping.optimizer.rl.envs`, whose module-level `import gymnasium`
+# belongs to the OPTIONAL `rl` dependency group. Importing it here made this
+# generator un-importable without `uv sync --group rl`, which broke
+# `test_migrated_generator_import_actually_resolves` on a bare ML install even
+# though nothing at module scope needs the environment.
+
+
+def _load_env_cls():
+    """Import the RL AO environment, or explain which extra is missing.
+
+    Deferred so that importing this generator never requires the `rl` group; see the
+    note at the import site above.
+    """
+    try:
+        from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment dependent
+        raise ModuleNotFoundError(
+            f"{exc.name} is required to run this report but is not installed. "
+            "It lives in the optional `rl` dependency group: "
+            "`uv sync --group rl` (or `uv sync --all-groups`)."
+        ) from exc
+    return SimTurbulenceAOEnv
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -302,7 +324,7 @@ def run_episode(
     """
     with backend_arm(arm):
         np.random.seed(seed)
-        env = SimTurbulenceAOEnv(
+        env = _load_env_cls()(
             n_grid=n_grid,
             n_actuators=N_ACTUATORS,
             n_subapertures=N_SUBAPERTURES,

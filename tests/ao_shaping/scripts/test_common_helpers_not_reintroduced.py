@@ -32,16 +32,19 @@ EXTRACTED = {
 
 #: Generators migrated onto ``scripts._common``.
 MIGRATED = (
+    "compare_loss_algorithms.py",
     "generate_diff_shaping_report.py",
     "generate_fouriergsnet_sim_report.py",
     "generate_gsnet_offline_report.py",
     "generate_heuristic_pib_report.py",
+    "generate_inverse_design_report.py",
     "generate_oopao_impact_report.py",
     "generate_oopao_vs_numpy_report.py",
     "generate_slm_pib_online_report.py",
     "generate_slm_pib_rms_pib_report.py",
     "generate_shape_objective_comparison.py",
     "generate_strehl_benchmark_report.py",
+    "generate_zernike_coeff_report.py",
 )
 
 

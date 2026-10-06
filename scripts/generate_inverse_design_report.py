@@ -42,7 +42,9 @@ import torch  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT))
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`) must be
+# importable for a bare `python scripts/<name>.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ml.zernike import inverse_design as inv  # noqa: E402
 from ml.zernike.losses import LossConfig  # noqa: E402
@@ -400,23 +402,6 @@ def _load(name: str) -> dict:
     if not path.exists():
         return {}
     return json.loads(path.read_text(encoding="utf-8"))
-
-
-def _fmt(value, spec: str = "+.4f", missing: str = "MISSING") -> str:
-    """Format a number, or report it missing rather than as 0.0000.
-
-    A metric that silently renders as zero is indistinguishable from a real zero, which is how
-    an absent measurement turns into a fake result.
-    """
-    if value is None:
-        return missing
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if f != f:  # NaN
-        return missing
-    return format(f, spec)
 
 
 def _search_rows() -> list[str]:

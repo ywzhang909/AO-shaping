@@ -56,6 +56,11 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
+# `scripts._common` lives in this package, so the REPO ROOT (not just `src`) must be
+# importable for a bare `python scripts/<name>.py`.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts._common import fmt_signed as _fmt  # noqa: E402
 
 import matplotlib
 
@@ -336,10 +341,6 @@ def _write_csv(path: Path, rows: list[dict]) -> None:
         writer = csv.DictWriter(fh, fieldnames=keys)
         writer.writeheader()
         writer.writerows(rows)
-
-
-def _fmt(value: float) -> str:
-    return f"{value:+.4f}" if isinstance(value, (int, float)) else str(value)
 
 
 def _write_markdown(path: Path, rows: list[dict], args, epochs: int) -> None:

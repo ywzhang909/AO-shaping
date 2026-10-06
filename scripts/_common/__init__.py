@@ -111,13 +111,24 @@ def fmt_fixed(v: float, nd: int = 4) -> str:
     return f"{v:.{nd}f}" if v == v else "—"
 
 
-def fmt_signed(v: float, spec: str = "+.4f") -> str:
-    """Signed ``format`` spec (``+.4f`` by default); ``"n/a"`` for non-finite.
+def fmt_signed(v: float, spec: str = "+.4f", missing: str = "n/a") -> str:
+    """Signed ``format`` spec (``+.4f`` by default); ``missing`` for unusable input.
 
     The ``generate_shape_objective_comparison.py`` formatter, used for the
     improvement columns where the ``+`` sign carries information.
+
+    **Total by construction.** ``np.isfinite(None)`` raises ``TypeError``, and these
+    generators feed it ``row.get(...)`` on cells that failed to train, so a bare
+    ``isfinite`` guard turns a missing metric into a crash partway through writing a
+    report. Non-numeric input is coerced, and anything that cannot yield a finite
+    float renders as ``missing`` -- never as ``0.0000``, which would be
+    indistinguishable from a real zero.
     """
-    return "n/a" if not np.isfinite(v) else format(v, spec)
+    try:
+        f = float(v)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return missing if v is None else str(v)
+    return missing if not np.isfinite(f) else format(f, spec)
 
 
 # ---------------------------------------------------------------------------
