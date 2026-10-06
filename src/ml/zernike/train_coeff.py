@@ -52,6 +52,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -99,6 +100,10 @@ INDEX_CACHE = "data/hw_index_cache.json"
 _SSIM_C1 = 0.01**2
 _SSIM_C2 = 0.015**2
 
+#: W&B run modes. ``"offline"`` is the default because a training box usually has
+#: no ``WANDB_API_KEY``; the run directory syncs later with ``wandb sync <dir>``.
+WandbMode = Literal["online", "offline", "disabled", "shared"]
+
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -125,6 +130,14 @@ class CoeffTrainConfig:
     hidden: int = 512
     norm_layer: Literal["group", "batch", "none"] = "group"
     norm_groups: int = 8
+    #: Feed only the first ``input_terms`` coefficients to the model.
+    #: ``None`` uses all ``calc_n_zernike_terms(n_max)`` (136 at n_max=15).
+    #: The corpus's longest vector is 78 terms, so dims 78..135 are structurally
+    #: always zero: 58 permanently-constant input dimensions. Trimming them is an
+    #: A/B-able hypothesis about whether that dead subspace costs generalisation.
+    #: Slicing here rather than in the Dataset keeps the Dataset's contract (and
+    #: its Noll-prefix padding tests) untouched.
+    input_terms: int | None = None
 
     # -- optimisation
     epochs: int = 60
@@ -139,6 +152,7 @@ class CoeffTrainConfig:
     num_workers: int = 0
 
     # -- fold selection
+    protocol: Literal["file", "objective"] = "file"
     fold: int | None = None
     held_out_path: str | None = None
 
@@ -148,6 +162,14 @@ class CoeffTrainConfig:
     image_every: int = 10
     save_checkpoint: bool = True
     max_samples: int | None = None
+
+    # -- telemetry. Never load-bearing: every call is wrapped so a wandb failure
+    #    degrades to a warning and the run still produces its artefacts.
+    use_wandb: bool = True
+    wandb_project: str = "ao-shaping-zernike-coeff"
+    wandb_name: str | None = None
+    wandb_mode: WandbMode = "offline"
+    wandb_image_every: int = 0
 
 
 @dataclass(frozen=True)
@@ -178,7 +200,7 @@ class FileFold:
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
-def r2_score(pred: np.ndarray, target: np.ndarray) -> np.ndarray:
+def r2_score(pred: np.ndarray, target: np.ndarray) -> np.ndarray | float:
     """Coefficient of determination, **per sample**, against its own mean.
 
     ``R^2 = 1 - SS_res / SS_tot`` where ``SS_tot`` is computed from the target's
@@ -316,6 +338,80 @@ def file_folds(dataset: ZernikeCoeffDataset) -> list[FileFold]:
     return folds
 
 
+def objective_of(path: Path) -> str:
+    """The optimisation objective a debug pickle was collected under.
+
+    ``slm_zernike_shaping_<objective>_<stamp>_<stamp>.pkl`` carries the objective
+    in the file name, so this parses recorded provenance rather than guessing. The
+    timestamps are stripped with a pattern rather than a fixed ``rsplit``: the
+    objective itself may contain underscores (``rms_pib``, ``rmse_out``), so
+    ``rsplit("_", 2)`` would leave ``shape_20260926_170950`` and truncate
+    ``rms_pib`` to ``rms``.
+
+    The ``slm_pib_online`` smoke runs name no objective and become their own group.
+    """
+    stem = Path(path).stem  # `.stem`, not `.name`: the suffix must not survive
+    if "slm_zernike_shaping_" in stem:
+        tail = stem.split("slm_zernike_shaping_", 1)[1]
+        # Drop every `_<8 digits>_<6 digits>` stamp the writer appends.
+        return re.sub(r"_\d{8}_\d{6}", "", tail) or "unknown"
+    if "slm_pib_online" in str(path):
+        return "pib_online_smoke"
+    return "other"
+
+
+def objective_folds(dataset: "ZernikeCoeffDataset") -> list[FileFold]:
+    """Leave-one-OBJECTIVE-out folds.
+
+    The protocol that actually measures generalisation, and the direct answer to
+    a failed constant-predictor canary: when every pickle of a family comes from
+    one optimisation run, train and val share a large common component, so a
+    mean-image predictor already scores well within an objective. Holding out a
+    whole *objective* removes that shared component.
+
+    Only ~4 folds exist, so the minimum attainable sign-flip p-value is
+    ``2/2**4 = 0.125``: this protocol can report effect sizes, never significance.
+    """
+    records = dataset.records
+    groups: dict[str, list[int]] = {}
+    for position, record in enumerate(records):
+        groups.setdefault(objective_of(record.path), []).append(position)
+    total = len(records)
+    folds: list[FileFold] = []
+    for index, (name, val) in enumerate(sorted(groups.items())):
+        val_set = set(val)
+        train = tuple(i for i in range(total) if i not in val_set)
+        folds.append(
+            FileFold(
+                index=index,
+                held_out=Path(name),
+                train_positions=train,
+                val_positions=tuple(val),
+            )
+        )
+    return folds
+
+
+def build_folds(
+    dataset: "ZernikeCoeffDataset", protocol: str = "file"
+) -> list[FileFold]:
+    """Dispatch fold construction on the protocol name.
+
+    Args:
+        dataset: A :class:`~ml.hwdataset.zernike_dataset.ZernikeCoeffDataset`.
+        protocol: ``"file"`` (leave-one-pickle-out, the default) or
+            ``"objective"`` (leave-one-objective-out).
+
+    Raises:
+        ValueError: On an unknown protocol name.
+    """
+    if protocol == "file":
+        return file_folds(dataset)
+    if protocol == "objective":
+        return objective_folds(dataset)
+    raise ValueError(f"protocol must be 'file' or 'objective'; got {protocol!r}")
+
+
 def select_fold(folds: list[FileFold], cfg: CoeffTrainConfig) -> FileFold:
     """Choose one fold from ``cfg.held_out_path`` or ``cfg.fold``.
 
@@ -348,6 +444,135 @@ def select_fold(folds: list[FileFold], cfg: CoeffTrainConfig) -> FileFold:
 # ---------------------------------------------------------------------------
 # Train
 # ---------------------------------------------------------------------------
+def _init_wandb(
+    cfg: CoeffTrainConfig,
+    model: torch.nn.Module,
+    *,
+    n_train: int,
+    n_val: int,
+    n_terms: int,
+    held_out: str,
+):
+    """Start a wandb run, degrading to a plain local log if wandb is unavailable.
+
+    Offline is the default mode: a training box normally has no
+    ``WANDB_API_KEY``, and an online run would simply fail. The offline directory
+    syncs later with ``wandb sync <dir>``.
+
+    Returns:
+        The ``wandb.Run``, or ``None`` when telemetry is off or unavailable. A
+        ``None`` return is never an error -- the run continues and still writes
+        ``summary.json`` and the checkpoint.
+    """
+    if not cfg.use_wandb:
+        return None
+    try:
+        import wandb
+    except ImportError:
+        logger.warning("wandb not installed; continuing without it")
+        return None
+    try:
+        run = wandb.init(
+            project=cfg.wandb_project,
+            name=cfg.wandb_name,
+            mode=cfg.wandb_mode,
+            dir=str(Path(cfg.out_dir)),
+            config={
+                **{k: v for k, v in asdict(cfg).items()},
+                "n_coefficients": int(n_terms),
+                "n_parameters": int(count_parameters(model)),
+                "n_train_records": int(n_train),
+                "n_val_records": int(n_val),
+                "held_out": str(held_out),
+            },
+            reinit=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+        logger.warning("wandb.init failed ({}); continuing offline-only", exc)
+        return None
+    return run
+
+
+def _log_wandb_row(run, row: dict[str, float], epoch: int) -> None:
+    """Push one epoch row. Failure is a warning, never a crash."""
+    if run is None:
+        return
+    try:
+        run.log(row, step=epoch)
+    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+        logger.warning("could not log epoch {} to wandb: {}", epoch, exc)
+
+
+def _log_comparison_image(run, path: Path, epoch: int, caption: str) -> None:
+    """Attach one true-vs-prediction figure to the run.
+
+    The PNG is already on disk, so it is attached by path rather than re-rendered
+    into an in-memory ``wandb.Image``.
+    """
+    if run is None:
+        return
+    try:
+        import wandb
+
+        run.log(
+            {
+                "compare/true_vs_pred": wandb.Image(
+                    str(path), caption=caption, file_type="png"
+                )
+            },
+            step=epoch,
+        )
+    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+        logger.warning("could not log {} to wandb: {}", path.name, exc)
+
+
+def _log_wandb_summary(run, result: CoeffTrainResult) -> None:
+    """Push the end-of-run summary, including the full per-epoch history.
+
+    The history is attached as a table so the run is self-describing: a reader
+    can see the whole curve next to the selected checkpoint rather than only the
+    endpoint.
+    """
+    if run is None:
+        return
+    try:
+        import wandb
+
+        run.summary["best_epoch"] = int(result.best_epoch)
+        run.summary["best_val_r2"] = float(result.best_val_r2)
+        run.summary["held_out"] = result.held_out
+        run.summary["n_train"] = int(result.n_train)
+        run.summary["n_val"] = int(result.n_val)
+        run.summary["n_epochs"] = len(result.history)
+        if result.history:
+            run.summary["final_val_r2"] = float(result.history[-1].get("val_r2", float("nan")))
+            run.summary["final_val_pearson_r"] = float(
+                result.history[-1].get("val_pearson_r", float("nan"))
+            )
+            run.summary["final_train_mse"] = float(
+                result.history[-1].get("train_mse", float("nan"))
+            )
+        run.summary["history"] = wandb.Table(
+            columns=list(result.history[0].keys()) if result.history else ["epoch"],
+            data=[[row.get(k) for k in (result.history[0].keys() if result.history else ["epoch"])] for row in result.history],
+        )
+    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+        logger.warning("could not write the wandb summary: {}", exc)
+
+
+def _finish_wandb(run) -> None:
+    """Close the run. Failure is a warning, never a crash."""
+    if run is None:
+        return
+    try:
+        run.finish()
+    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+        logger.warning("could not finish the wandb run: {}", exc)
+
+
+# ---------------------------------------------------------------------------
+# Train
+# ---------------------------------------------------------------------------
 def _build_optimizer(model: torch.nn.Module, cfg: CoeffTrainConfig) -> torch.optim.Optimizer:
     """Dispatch on ``cfg.optimizer``.
 
@@ -355,14 +580,20 @@ def _build_optimizer(model: torch.nn.Module, cfg: CoeffTrainConfig) -> torch.opt
     so a sweep over the two at that setting measures nothing. That is a property
     of the optimisers, not a bug in this dispatch.
     """
-    common = {"lr": float(cfg.lr), "weight_decay": float(cfg.weight_decay)}
     if cfg.optimizer == "adam":
-        return torch.optim.Adam(model.parameters(), **common)
+        return torch.optim.Adam(
+            model.parameters(), lr=float(cfg.lr), weight_decay=float(cfg.weight_decay)
+        )
     if cfg.optimizer == "adamw":
-        return torch.optim.AdamW(model.parameters(), **common)
+        return torch.optim.AdamW(
+            model.parameters(), lr=float(cfg.lr), weight_decay=float(cfg.weight_decay)
+        )
     if cfg.optimizer == "sgd":
         return torch.optim.SGD(
-            model.parameters(), momentum=float(cfg.momentum), **common
+            model.parameters(),
+            lr=float(cfg.lr),
+            momentum=float(cfg.momentum),
+            weight_decay=float(cfg.weight_decay),
         )
     raise ValueError(
         f"optimizer must be one of 'adam', 'adamw', 'sgd'; got {cfg.optimizer!r}"
@@ -381,7 +612,10 @@ def _predict(model: torch.nn.Module, coeffs: torch.Tensor) -> torch.Tensor:
 
 
 def _evaluate(
-    model: torch.nn.Module, loader: DataLoader, device: torch.device
+    model: torch.nn.Module,
+    loader: DataLoader,
+    device: torch.device,
+    n_input: int | None = None,
 ) -> dict[str, float]:
     """Score one split. ``r2`` is the selection metric; the rest are diagnostics."""
     model.eval()
@@ -389,7 +623,7 @@ def _evaluate(
     targets: list[np.ndarray] = []
     with torch.no_grad():
         for batch in loader:
-            coeffs = batch["coeffs"].to(device, non_blocking=True)
+            coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
             image = batch["image"].to(device, non_blocking=True)
             pred = _predict(model, coeffs)
             preds.append(pred.detach().float().cpu().numpy())
@@ -397,7 +631,9 @@ def _evaluate(
     pred_arr = np.concatenate(preds, axis=0) if preds else np.zeros((0, 1, 1, 1), np.float32)
     target_arr = np.concatenate(targets, axis=0)
     mse = float(np.mean((pred_arr - target_arr) ** 2))
-    per_sample_r2 = r2_score(pred_arr, target_arr)
+    # atleast_1d: r2_score returns a bare float for a 1-D input, but here the
+    # arrays are always (N, 1, grid, grid), so this is an array either way.
+    per_sample_r2 = np.atleast_1d(r2_score(pred_arr, target_arr))
     finite = per_sample_r2[np.isfinite(per_sample_r2)]
     return {
         "r2": float(np.mean(finite)) if finite.size else float("nan"),
@@ -415,6 +651,7 @@ def _save_comparison(
     batch: dict[str, torch.Tensor],
     device: torch.device,
     caption: str,
+    n_input: int | None = None,
 ) -> None:
     """Write a true-vs-prediction strip. Never fatal to the run."""
     try:
@@ -425,7 +662,9 @@ def _save_comparison(
 
         model.eval()
         count = min(4, batch["coeffs"].shape[0])
-        pred = _predict(model, batch["coeffs"][:count].to(device)).detach().cpu().numpy()
+        width = batch["coeffs"].shape[1] if n_input is None else n_input
+        coeffs = batch["coeffs"][:count, :width].to(device)
+        pred = _predict(model, coeffs).detach().cpu().numpy()
         true = batch["image"][:count].detach().cpu().numpy()
         fig, axes = plt.subplots(2, count, figsize=(3.0 * count, 6.4))
         for column in range(count):
@@ -446,6 +685,26 @@ def _save_comparison(
         # A figure must never kill a training run that is otherwise producing a
         # checkpoint, so this degrades to a warning.
         logger.warning("Could not write the comparison figure {}: {}", path, exc)
+
+
+def _n_input_terms(dataset: "ZernikeCoeffDataset", cfg: CoeffTrainConfig) -> int:
+    """How many leading coefficients the model should actually see.
+
+    ``cfg.input_terms`` (an A/B knob) or the full padded width. Raises when the
+    request exceeds the padded width, because silently clamping would train a
+    different model than the config asked for.
+    """
+    if cfg.input_terms is None:
+        return dataset.n_terms
+    requested = int(cfg.input_terms)
+    if requested < 1:
+        raise ValueError(f"input_terms must be >= 1, got {cfg.input_terms}")
+    if requested > dataset.n_terms:
+        raise ValueError(
+            f"input_terms={requested} exceeds the padded width {dataset.n_terms}; "
+            "the dataset pads to calc_n_zernike_terms(n_max)"
+        )
+    return requested
 
 
 def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
@@ -492,7 +751,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         use_cache=cfg.use_cache,
     )
 
-    folds = file_folds(dataset)
+    folds = build_folds(dataset, cfg.protocol)
     fold = select_fold(folds, cfg)
     train_positions = list(fold.train_positions)
     val_positions = list(fold.val_positions)
@@ -544,8 +803,9 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         **generator_kwargs,
     )
 
+    n_input = _n_input_terms(dataset, cfg)
     model_config = ZernikeCoeffConfig(
-        n_coeffs=dataset.n_terms,
+        n_coeffs=n_input,
         grid=cfg.grid,
         architecture=cfg.architecture,
         bottleneck=cfg.bottleneck,
@@ -568,6 +828,15 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     optimizer = _build_optimizer(model, cfg)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
 
+    run = _init_wandb(
+        cfg,
+        model,
+        n_train=len(train_positions),
+        n_val=len(val_positions),
+        n_terms=n_input,
+        held_out=fold.held_out.name,
+    )
+
     history: list[dict[str, float]] = []
     best_r2 = -float("inf")
     best_epoch = -1
@@ -577,7 +846,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         running = 0.0
         seen = 0
         for batch in train_loader:
-            coeffs = batch["coeffs"].to(device, non_blocking=True)
+            coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
             image = batch["image"].to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
             prediction = _predict(model, coeffs)
@@ -590,7 +859,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
             seen += coeffs.shape[0]
         scheduler.step()
 
-        metrics = _evaluate(model, val_loader, device)
+        metrics = _evaluate(model, val_loader, device, n_input)
         row: dict[str, float] = {
             "epoch": float(epoch),
             "lr": float(scheduler.get_last_lr()[0]),
@@ -598,6 +867,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
             **{f"val_{k}": v for k, v in metrics.items()},
         }
         history.append(row)
+        _log_wandb_row(run, row, epoch)
 
         # Selection on R^2 ONLY -- see the module docstring.
         if metrics["r2"] == metrics["r2"] and metrics["r2"] > best_r2:
@@ -637,13 +907,18 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
                 row["val_ssim"],
             )
         if epoch % max(1, cfg.image_every) == 0 or epoch == cfg.epochs - 1:
+            figure_path = out_dir / f"compare_epoch{epoch:03d}.png"
+            caption = f"fold {fold.index} (held out {fold.held_out.name}) epoch {epoch}"
             _save_comparison(
-                out_dir / f"compare_epoch{epoch:03d}.png",
-                model,
-                next(iter(val_loader)),
-                device,
-                f"fold {fold.index} (held out {fold.held_out.name}) epoch {epoch}",
+                figure_path, model, next(iter(val_loader)), device, caption, n_input
             )
+            # Attach every figure when asked, else only the last one, so a long
+            # run does not upload an image per epoch by default.
+            if (
+                cfg.wandb_image_every > 0
+                and epoch % cfg.wandb_image_every == 0
+            ) or epoch == cfg.epochs - 1:
+                _log_comparison_image(run, figure_path, epoch, caption)
 
     summary_path = out_dir / "summary.json"
     final_metrics = history[-1] if history else {}
@@ -660,6 +935,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
                 "n_val": len(val_positions),
                 "n_terms": dataset.n_terms,
                 "parameters": count_parameters(model),
+                "input_terms": n_input,
                 "best_val_r2": best_r2,
                 "best_epoch": best_epoch,
                 "checkpoint": str(checkpoint_path) if checkpoint_path else None,
@@ -678,7 +954,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         summary_path,
         time.perf_counter() - started,
     )
-    return CoeffTrainResult(
+    result = CoeffTrainResult(
         best_val_r2=best_r2,
         best_epoch=best_epoch,
         history=history,
@@ -689,6 +965,9 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         n_val=len(val_positions),
         final_metrics=final_metrics,
     )
+    _log_wandb_summary(run, result)
+    _finish_wandb(run)
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -724,6 +1003,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--latent-channels", type=int, default=cfg_default.latent_channels)
     parser.add_argument("--hidden", type=int, default=cfg_default.hidden)
     parser.add_argument(
+        "--input-terms",
+        type=int,
+        default=cfg_default.input_terms,
+        help=(
+            "feed only the first N coefficients; the longest vector in the "
+            "corpus is 78 terms, so dims beyond it are permanently zero. "
+            "Omit for all 136."
+        ),
+    )
+    parser.add_argument(
         "--norm-layer", choices=["group", "batch", "none"], default=cfg_default.norm_layer
     )
     parser.add_argument("--norm-groups", type=int, default=cfg_default.norm_groups)
@@ -740,7 +1029,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default=cfg_default.device)
     parser.add_argument("--num-workers", type=int, default=cfg_default.num_workers)
     parser.add_argument(
-        "--fold", type=int, default=cfg_default.fold, help="leave-one-pickle-out fold index"
+        "--protocol",
+        choices=["file", "objective"],
+        default=cfg_default.protocol,
+        help=(
+            "'file' holds out one pickle (18 folds); 'objective' holds out one "
+            "optimisation objective (4 folds, effect sizes only -- too few to "
+            "reach significance)"
+        ),
+    )
+    parser.add_argument(
+        "--fold", type=int, default=cfg_default.fold, help="fold index within the protocol"
     )
     parser.add_argument("--held-out-path", default=cfg_default.held_out_path)
     parser.add_argument("--out-dir", default=cfg_default.out_dir)
@@ -753,6 +1052,22 @@ def _build_parser() -> argparse.ArgumentParser:
         default=cfg_default.save_checkpoint,
     )
     parser.add_argument("--max-samples", type=int, default=cfg_default.max_samples)
+    parser.add_argument(
+        "--no-wandb",
+        dest="use_wandb",
+        action="store_false",
+        default=cfg_default.use_wandb,
+        help="run without W&B telemetry (artefacts are still written)",
+    )
+    parser.add_argument("--wandb-project", default=cfg_default.wandb_project)
+    parser.add_argument("--wandb-name", default=cfg_default.wandb_name)
+    parser.add_argument("--wandb-mode", default=cfg_default.wandb_mode)
+    parser.add_argument(
+        "--wandb-image-every",
+        type=int,
+        default=cfg_default.wandb_image_every,
+        help="attach a comparison figure every N epochs (0 = only the last one)",
+    )
     return parser
 
 
@@ -769,6 +1084,7 @@ def main(argv: list[str] | None = None) -> int:
         features=tuple(args.features),
         latent_channels=args.latent_channels,
         hidden=args.hidden,
+        input_terms=args.input_terms,
         norm_layer=args.norm_layer,
         norm_groups=args.norm_groups,
         epochs=args.epochs,
@@ -781,6 +1097,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         device=args.device,
         num_workers=args.num_workers,
+        protocol=args.protocol,
         fold=args.fold,
         held_out_path=args.held_out_path,
         out_dir=args.out_dir,
@@ -788,6 +1105,11 @@ def main(argv: list[str] | None = None) -> int:
         image_every=args.image_every,
         save_checkpoint=bool(args.save_checkpoint),
         max_samples=args.max_samples,
+        use_wandb=bool(args.use_wandb),
+        wandb_project=args.wandb_project,
+        wandb_name=args.wandb_name,
+        wandb_mode=args.wandb_mode,
+        wandb_image_every=args.wandb_image_every,
     )
     train(cfg)
     return 0

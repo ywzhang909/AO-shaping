@@ -780,7 +780,7 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 ### generate_zernike_amp_report.py
 
 Generates the **illustrated Chinese report** for the learned Zernike far-field
-model: `report/phase2amp/report.md` + `report/phase2amp/figures/*.png`.
+model: `report/zernike_phase2amp/report.md` + `report/zernike_phase2amp/figures/*.png`.
 **Fully offline** — reads only saved artefacts, never opens a camera or SLM.
 
 **Usage:**

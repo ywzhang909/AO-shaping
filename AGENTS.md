@@ -445,9 +445,9 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 > 但两者**用途不可互换**: U-Net 出的是**图像**, 反解成可下发的 SLM 相位是另一个问题;
 > 就"预测要下发的修正"而言, 230 参数物理模型是唯一能**闭式给出可实现相位**
 > (`Σ Z_k B_k`, 230 个可解释弧度) 的, 且参数少 34000×、墙钟少 40%。
-> 完整报告见 [`report/zernike_amp/report.md`](report/zernike_amp/report.md),
+> 完整报告见 [`report/zernike_phase2amp/report.md`](report/zernike_phase2amp/report.md),
 > 含 11 节"被推翻结论"存档。旧对比表见
-> [`report/zernike_amp/unet_comparison.md`](report/zernike_amp/unet_comparison.md)。
+> [`report/zernike_phase2amp/unet_comparison.md`](report/zernike_phase2amp/unet_comparison.md)。
 
 0. **拿 `hwdataset` 的 `image` 当 Zernike 前向模型的 target 时, 必须校准远场尺度。**
    `_anchored_window` (`transforms.py:440`) 取的是**以 0 阶为中心的 `grid×grid` 窗口**,

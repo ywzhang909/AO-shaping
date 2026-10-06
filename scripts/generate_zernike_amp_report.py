@@ -17,7 +17,7 @@ Inputs
 ``logs/zernike_amp_final/compare_epoch*.png``
     true-vs-prediction frames rendered during training.
 
-Outputs ``report/zernike_amp/report.md`` plus ``report/zernike_amp/figures/*.png``.
+Outputs ``report/zernike_phase2amp/report.md`` plus ``report/zernike_phase2amp/figures/*.png``.
 
 Two conventions worth stating because they are easy to get wrong:
 
@@ -57,7 +57,7 @@ from scripts._common import markdown_table, savefig  # noqa: E402
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-FIGURES = ROOT / "report" / "zernike_amp" / "figures"
+FIGURES = ROOT / "report" / "zernike_phase2amp" / "figures"
 MODELS = ("physics", "hybrid", "unet")
 LABELS = {
     "physics": "物理模型 physics",
@@ -1093,7 +1093,7 @@ def main() -> int:
         "--synthesis", default="logs/uniform_spot_phase",
         help="directory written by scripts/optimize_uniform_spot_phase.py",
     )
-    parser.add_argument("--out-dir", default="report/zernike_amp")
+    parser.add_argument("--out-dir", default="report/zernike_phase2amp")
     parser.add_argument("--no-figures", action="store_true")
     args = parser.parse_args()
 

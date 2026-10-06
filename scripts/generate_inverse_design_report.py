@@ -248,12 +248,12 @@ def figure_inverse(index, path: Path, checkpoint: Path | None = None) -> dict:
     fig.suptitle(
         "逆向整形：pred vs true —— 模型对自己提出的相位预测准吗"
         + (
-            f"（⚠ 模型 padding={blob['far_field_padding']} vs 独立仿真 padding="
-            f"{inv.SIM_PADDING}：两者角标度不同，面板不可直接比较，见报告 §已知缺陷）"
+            "（⚠ 模型在逆向方向无精度：与独立仿真在 padding 1–16 全域 pearson ≤ 0.27，"
+            "非标度问题，见报告 §已知缺陷）"
             if trained
             else "（⚠ 未训练，系数为零）"
         ),
-        fontsize=12,
+        fontsize=11,
         y=1.02,
     )
     fig.tight_layout()

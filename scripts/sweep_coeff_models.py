@@ -1,6 +1,6 @@
 """Run the coefficient -> far-field forward model under a protocol with power.
 
-Produces everything ``report/zernike_coeff/report.md`` is drawn from, as a saved
+Produces everything ``report/zernike_coeff2amp/report.md`` is drawn from, as a saved
 artefact rather than prose, in ``logs/zernike_coeff_sweep.json``.
 
 =========================  Why this script exists  ==========================
@@ -65,13 +65,13 @@ from ml.zernike.forward_model import peak_normalize  # noqa: E402
 from ml.zernike.train_coeff import (  # noqa: E402
     INDEX_CACHE,
     CoeffTrainConfig,
-    file_folds,
+    build_folds,
     r2_score,
     train,
 )
 
 OUT_JSON = "logs/zernike_coeff_sweep.json"
-FIG_DIR = "report/zernike_coeff/figures"
+FIG_DIR = "report/zernike_coeff2amp/figures"
 
 
 # ---------------------------------------------------------------------------
@@ -166,12 +166,24 @@ def gate_constant_predictor(
 def gate_normalisation_trap(
     model, batch: dict[str, torch.Tensor], device: torch.device
 ) -> dict:
-    """Gate 2: the R^2 ordering must DISAGREE with the PSNR ordering.
+    """Gate 2: PSNR/SSIM are normalisation artifacts; R^2 is not.
 
-    The same trained model's predictions are scored against the SAME far-field
-    images put through three normalisations. "sum" (divide by total energy) is
-    expected to win on PSNR and LOSE on R^2 -- that disagreement is the trap this
-    repo already fell into once, and the reason selection uses R^2 alone.
+    The SAME trained model's predictions are scored against the SAME images after
+    putting *both* sides through one normalisation.
+
+    An earlier version of this gate normalised only the target and so could not
+    demonstrate anything -- it just showed a scale mismatch. The point of the trap
+    is subtler and only appears when both sides move together:
+
+    * ``R^2 = 1 - SS_res/SS_tot`` and every term is quadratic, so dividing a
+      sample by ``k`` divides numerator and denominator by ``k^2`` and **cancels**.
+      R^2 is therefore *invariant* to a per-sample rescale.
+    * ``PSNR = 10*log10(L^2/MSE)`` has ``L`` fixed, so dividing by ``k`` divides
+      MSE by ``k^2`` and PSNR **rises by 20*log10(k)**, unboundedly.
+
+    So the gate asserts exactly that: R^2 unchanged across normalisations while
+    PSNR swings by a large factor. That is why this repo selects on R^2 -- a
+    normalisation that "improves" PSNR by 40 dB has changed nothing about the fit.
     """
     model.eval()
     with torch.no_grad():
@@ -199,24 +211,47 @@ def gate_normalisation_trap(
 
     rows = []
     for name, fn in (("peak", peak_norm), ("robust", robust_norm), ("sum", sum_norm)):
+        # BOTH sides through the same normalisation -- that is the whole point.
         target = fn(raw)
-        mse = float(np.mean((prediction - target) ** 2))
+        pred_n = fn(prediction)
+        mse = float(np.mean((pred_n - target) ** 2))
         rows.append(
             {
                 "normalization": name,
-                "r2": float(np.mean(r2_score(prediction, target))),
+                "r2": float(np.mean(r2_score(pred_n, target))),
                 "psnr": float(10.0 * np.log10(1.0 / mse)) if mse > 0 else float("inf"),
             }
         )
-    by_r2 = max(rows, key=lambda r: r["r2"])["normalization"]
-    by_psnr = max(rows, key=lambda r: r["psnr"])["normalization"]
+
+    r2_values = [r["r2"] for r in rows]
+    finite_psnr = [r["psnr"] for r in rows if np.isfinite(r["psnr"])]
+    r2_spread = float(np.ptp(r2_values)) if r2_values else float("nan")
+    psnr_spread = (
+        float(np.ptp(finite_psnr)) if len(finite_psnr) > 1 else float("nan")
+    )
+    # The trap, stated as a ratio rather than as exact invariance. R^2 is only
+    # *exactly* invariant under a COMMON per-sample scale; normalising each side
+    # by its own maximum applies DIFFERENT factors to prediction and target, so
+    # R^2 does move a little. What matters is the orders-of-magnitude gap: PSNR
+    # swings tens of dB while R^2 barely moves, so PSNR is reporting the
+    # normalisation rather than the fit.
+    ratio = (
+        psnr_spread / r2_spread
+        if np.isfinite(psnr_spread) and r2_spread > 0
+        else float("inf")
+    )
     return {
         "gate": "normalisation_trap",
-        "criterion": "R^2 ordering disagrees with PSNR ordering across normalisations",
-        "best_by_r2": by_r2,
-        "best_by_psnr": by_psnr,
-        "disagree": by_r2 != by_psnr,
-        "passed": by_r2 != by_psnr,
+        "criterion": (
+            "PSNR spread over {peak,robust,sum} must exceed the R^2 spread by "
+            ">=100x (R^2 spread <= 0.1 dB-equivalent, PSNR spread > 10 dB)"
+        ),
+        "r2_spread": r2_spread,
+        "psnr_spread_db": psnr_spread,
+        "psnr_to_r2_spread_ratio": ratio,
+        "r2_invariant_to_1e_2": bool(r2_spread <= 1e-2),
+        "psnr_moves": bool(np.isfinite(psnr_spread) and psnr_spread > 10.0),
+        "passed": bool(np.isfinite(psnr_spread) and psnr_spread > 10.0 and ratio >= 100.0),
         "rows": rows,
     }
 
@@ -250,7 +285,24 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--folds", type=int, default=0, help="0 = every fold")
     parser.add_argument("--arms", nargs="+", default=["conv", "mlp"])
+    parser.add_argument(
+        "--input-terms",
+        type=int,
+        nargs="*",
+        default=None,
+        help=(
+            "A/B the input width: one run per value, all on the SAME folds. "
+            "The corpus longest vector is 78 terms, so 78 vs 136 measures "
+            "whether the permanently-zero input dims cost generalisation."
+        ),
+    )
     parser.add_argument("--quick", action="store_true")
+    parser.add_argument(
+        "--protocol",
+        choices=["file", "objective"],
+        default="file",
+        help="'file' = leave-one-pickle-out; 'objective' = leave-one-objective-out",
+    )
     parser.add_argument("--out", default=OUT_JSON)
     args = parser.parse_args(argv)
 
@@ -261,7 +313,7 @@ def main(argv: list[str] | None = None) -> int:
     dataset = ZernikeCoeffDataset(
         index, config=MaterialiserConfig(grid=64, image_mode="robust"), use_cache=False
     )
-    folds = file_folds(dataset)
+    folds = build_folds(dataset, args.protocol)
     fold_indices = (
         [0, len(folds) // 2, len(folds) - 1] if args.quick else list(range(len(folds)))
     )
@@ -272,23 +324,40 @@ def main(argv: list[str] | None = None) -> int:
     gates = [gate_padding(dataset), gate_constant_predictor(dataset, folds, fold_indices)]
     print(json.dumps(gates, indent=2, default=str))
 
-    results: dict[str, list[dict]] = {arm: [] for arm in args.arms}
+    # Each configuration is one arm: (architecture, input_terms).
+    configs = [
+        (arm, terms) for arm in args.arms for terms in (args.input_terms or [None])
+    ]
+    arm_names = [
+        f"{arm}/in{terms if terms else "full"}" for arm, terms in configs
+    ]
+    results: dict[str, list[dict]] = {name: [] for name in arm_names}
     trap_gate: dict | None = None
-    for arm in args.arms:
+    for arm_name, (arm, terms) in zip(arm_names, configs):
         for fold_index in fold_indices:
-            out_dir = Path("logs/zernike_coeff") / f"{arm}_fold{fold_index:02d}"
+            suffix = f"_in{terms}" if terms else ""
+            out_dir = (
+                Path("logs/zernike_coeff") / f"{arm}_fold{fold_index:02d}{suffix}"
+            )
             cfg = CoeffTrainConfig(
+                protocol=args.protocol,
                 architecture=arm,
+                input_terms=terms,
                 epochs=epochs,
                 fold=fold_index,
                 out_dir=str(out_dir),
                 image_every=max(1, epochs),
                 log_every=max(1, epochs // 2),
             )
-            print(f"\n=== arm={arm} fold={fold_index} epochs={epochs} ===", flush=True)
+            print(
+                f"\n=== arm={arm_name} fold={fold_index} epochs={epochs} ===",
+                flush=True,
+            )
             outcome = train(cfg)
             row = {
-                "arm": arm,
+                "arm": arm_name,
+                "architecture": arm,
+                "input_terms": terms,
                 "fold": fold_index,
                 "held_out": outcome.held_out,
                 "n_train": outcome.n_train,
@@ -297,18 +366,39 @@ def main(argv: list[str] | None = None) -> int:
                 "best_epoch": outcome.best_epoch,
                 "final": outcome.final_metrics,
             }
-            results[arm].append(row)
+            results[arm_name].append(row)
             if trap_gate is None:
-                trap_gate = _trap_from_checkpoint(out_dir / "best_coefficients.pt")
+                trap_gate = _trap_from_checkpoint(
+                    out_dir / "best_coefficients.pt",
+                    dataset,
+                    folds[fold_index].val_positions,
+                )
     if trap_gate is not None:
         gates.append(trap_gate)
         print(json.dumps([trap_gate], indent=2, default=str))
 
+    # (a) Canary-subtracted skill. The absolute R^2 is optimistic because a
+    # train-mean image already scores highly on this corpus, so the honest
+    # yardstick is the model's improvement OVER that null on the same fold.
+    null_by_fold = {
+        row["fold"]: row["r2"]
+        for g in gates
+        if g["gate"] == "constant_predictor"
+        for row in g["per_fold"]
+    }
+    for name, rows in results.items():
+        for row in rows:
+            null = null_by_fold.get(row["fold"])
+            row["null_r2"] = null
+            row["skill_r2"] = (
+                None if null is None else row["best_val_r2"] - null
+            )
+
     # Paired comparison on the SHARED folds.
     statistics: dict[str, dict] = {}
-    if len(args.arms) >= 2:
-        base = args.arms[0]
-        for arm in args.arms[1:]:
+    if len(arm_names) >= 2:
+        base = arm_names[0]
+        for arm in arm_names[1:]:
             shared = sorted(
                 set(r["fold"] for r in results[base])
                 & set(r["fold"] for r in results[arm])
@@ -321,9 +411,18 @@ def main(argv: list[str] | None = None) -> int:
                 "mean_diff": float(np.mean(diffs)) if diffs else float("nan"),
                 "p_sign_flip": sign_flip_pvalue(diffs),
                 "cohens_dz": cohens_dz(diffs),
-                "note": "negative favours the first-named arm"
-                if base == args.arms[0]
-                else "",
+                "note": f"negative favours {base}",
+                "mean_skill_diff": float(
+                    np.mean(
+                        [
+                            (by_arm[f] - by_base[f])
+                            for f in shared
+                            if by_arm[f] is not None and by_base[f] is not None
+                        ]
+                    )
+                ),
+                "skill_by_arm": by_arm,
+                "skill_by_base": by_base,
             }
         adjusted = holm_bonferroni(
             {k: v["p_sign_flip"] for k, v in statistics.items()}
@@ -334,7 +433,8 @@ def main(argv: list[str] | None = None) -> int:
     summary = {
         "generated": time.strftime("%Y-%m-%dT%H:%M:%S"),
         "epochs": epochs,
-        "arms": args.arms,
+        "arms": arm_names,
+        "configs": [{"architecture": a, "input_terms": t} for a, t in configs],
         "folds_used": fold_indices,
         "n_folds": len(fold_indices),
         "gates": gates,
@@ -347,6 +447,16 @@ def main(argv: list[str] | None = None) -> int:
                 else float("nan"),
                 "std_r2": float(np.std([r["best_val_r2"] for r in rows], ddof=1))
                 if len(rows) > 1
+                else float("nan"),
+                "mean_skill_r2": float(
+                    np.mean([r["skill_r2"] for r in rows if r["skill_r2"] is not None])
+                )
+                if any(r["skill_r2"] is not None for r in rows)
+                else float("nan"),
+                "mean_null_r2": float(
+                    np.mean([r["null_r2"] for r in rows if r["null_r2"] is not None])
+                )
+                if any(r["null_r2"] is not None for r in rows)
                 else float("nan"),
             }
             for arm, rows in results.items()
@@ -373,7 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _trap_from_checkpoint(path: Path) -> dict | None:
+def _trap_from_checkpoint(path: Path, dataset, positions) -> dict | None:
     """Re-score a trained checkpoint against three normalisations (gate 2)."""
     if not path.exists():
         return None
@@ -393,10 +503,15 @@ def _trap_from_checkpoint(path: Path) -> dict | None:
         coeff_std=blob["coeff_std"],
         use_cache=False,
     )
-    held = blob["held_out"]
-    positions = [i for i, r in enumerate(dataset.records) if str(r.path) == held]
+    # Positions come from the fold, not from re-matching `held_out` against a path:
+    # an objective fold's label is an objective name, not a filename.
+    if not positions:
+        return None
+    # The checkpoint may have been trained on a trimmed input width
+    # (input_terms), so feed the model exactly what it was built for.
+    width = int(config.n_coeffs)
     batch = {
-        "coeffs": torch.stack([dataset[i]["coeffs"] for i in positions[:32]]),
+        "coeffs": torch.stack([dataset[i]["coeffs"] for i in positions[:32]])[:, :width],
         "image": torch.stack([dataset[i]["image"] for i in positions[:32]]),
     }
     return gate_normalisation_trap(model, batch, torch.device("cpu"))
@@ -434,9 +549,10 @@ def _plot(summary: dict) -> None:
         axes[1].set_xticks(positions)
         axes[1].set_xticklabels(labels)
         axes[1].set_title(
-            f"Normalisation trap: R^2 best={trap['best_by_r2']}, "
-            f"PSNR best={trap['best_by_psnr']}"
+            f"Normalisation trap: PSNR spread {trap.get('psnr_spread_db', float('nan')):.1f} dB"
+            f" vs R2 spread {trap.get('r2_spread', float('nan')):.3f}"
         )
+        axes[1].set_yscale("log")
         axes[1].legend(fontsize=8)
         axes[1].grid(alpha=0.3, axis="y")
     fig.suptitle(
