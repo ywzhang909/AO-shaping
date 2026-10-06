@@ -718,6 +718,79 @@ python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
 > 断言近似可复现, 不要断言相等。
 
 
+#### 正向模型闭环整形 (slm-model-in-loop)
+
+```bash
+python src/ao_shaping/main.py slm-model-in-loop [OPTIONS]
+```
+等同于: `python -m ao_shaping.runners.slm.model_in_loop_runner`
+
+**每轮交替两步**，用实测数据在闭环里持续修正正向模型，再用修正后的模型合成相位：
+
+1. **Step A —— 拟合正向模型**：显示若干个**强随机探针相位**，用「实测帧 vs 模型预测」
+   重新拟合**一个共享的 Zernike 像差**。探针必须是强相位（`--probe-spread` 远大于 ~3 rad）：
+   平瞳孔聚焦成近 δ 函数，其强度对低阶光滑像差几乎不响应，拟合会失明。
+2. **Step B —— 由正向模型合成相位**：冻结刚拟合出的像差，优化**全像素 SLM 相位**去逼近方形
+   目标，下发、实测。本轮的相位作为下一轮的热启动。
+
+两个守卫防止两步互相追逐：系数变化的 **trust region**，以及逐轮**验收测试**（拟合或实测质量
+回退就回滚该轮）。最终相位只有**实测优于平场**才提交。
+
+> 例：`Noll 1,2,3`（piston/tip/tilt）默认冻结，因为它们**无法从远场强度辨识** —— 放开它们
+> 实测会把 56% 的系数范数灌进这些简并方向而不带来任何收益。
+
+主要选项:
+- `-r, --n-rounds`: 迭代轮数（拟合 → 整形 → 复测）
+- `--probe-count` / `--probe-spread`: 每轮探针数与探针相位 std (rad)
+- `--step-a-iterations` / `--step-a-lr` / `--n-orders`: Step A 的 Adam 步数/学习率/拟合阶数
+- `--step-b-iterations` / `--step-b-lr`: Step B 的 Adam 步数/学习率
+- `--frozen-modes`: 冻结的 1-based Noll 序号 (默认 `1,2,3`)
+- `--region` / `--far-field-padding`: 正向模型瞳孔网格 / 远场补零倍数
+- `--panel-span-px` / `--pupil-center`: 探针覆盖的面板宽度 / 光斑面板坐标 `'x,y'`
+- `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m`: 光路模型的**测量锚点**
+- `--target-side`: 目标方形边长 (相机像素)
+- `--w-efficiency` / `--w-uniformity`: 质量分权重。**`w-efficiency` 必须非零** ——
+  只优化 `-CV` 会把能量推出目标框 (硬件实测 EE → 0.002)
+- `--min-geometry-correlation`: 几何 bake-off 阈值; 低于它直接中止 (退出码 2)
+- `--warm-start/--no-warm-start`、`--early-stop-score`、`--save-best-image`
+- `--cam_type [daheng|miicam|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size`
+- `--slm_number` / `--slm_wavelength` / `--device` / `--dtype` / `--seed`
+
+> ⚠️ **`--exposure_time_ms 0` = 「不固定」，不是「自动安全」。** 大恒驱动会把越界值钳到量程
+> 端点，于是 `0` 实际变成设备最小值 ~0.02 ms —— 比本台可用区间 0.4–1.5 ms 暗 20–75 倍。
+> 上机前**必须显式传入按当前激光功率实测的曝光**（本台架历史参考 1.5 ms）。
+
+> 🔑 **上机前先跑表征探针**（顺序不能反）:
+> `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`。
+> 完整流程与危险默认值清单见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
+> 若台架无法被正向模型描述（bake-off 失败），改用 `slm-gs-refine`。
+
+示例:
+```bash
+# 无硬件自检 (2f-Fourier 数值仿真)
+python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2
+
+# 大恒 CCD + Santec SLM #1 @1064nm (曝光按当前功率实测后填入)
+python src/ao_shaping/main.py slm-model-in-loop \
+    --cam_type daheng --cam-id 0 --exposure_time_ms 1.5 \
+    --slm_number 1 --slm_wavelength 1064 \
+    --panel-span-px 900 --pupil-center 960,600 --camera-pixel-um 2.2 \
+    -r 6
+```
+
+输出 (`data/slm_model_in_loop/<日期>/`): 逐轮历史 CSV、`best_phase.npy`
+(**raw 未包裹弧度**, 用 `Santec.create_phase_from_array()` 下发)、`bench_geometry.json`
+(拟合出的几何，供复现)、可选最优远场图 PNG。
+
+**Recorder pkl (`data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`) 每次运行都会写**，不依赖
+`--debug` —— 它是 `{epoch: record}` 结构，带 `_epoch` 索引键，配 `.json` sidecar（含完整
+已解析配置）。`--debug` 额外打印逐轮明细表。⚠️ 行内**只有标量**（由测试锁定），
+逐帧图像不在这里面；本次运行的最优帧另存为 PNG。
+
+> 退出码 `2` = 几何 bake-off 失败，或台架持续落在模型之外 —— 该轮**没有**提交任何相位
+> （保留平场/已验证相位），建议换 `slm-gs-refine`。
+
+
 #### Hadamard响应矩阵标定 (hadamard-matrix)
 ```bash
 python src/ao_shaping/main.py hadamard-matrix [OPTIONS]
