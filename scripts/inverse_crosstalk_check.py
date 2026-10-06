@@ -58,8 +58,17 @@ if str(ROOT / "scripts") not in sys.path:
 
 OUT_DIR = ROOT / "report" / "loss_defects"
 
-from crosstalk_augmentation_train import (  # noqa: E402
+from crosstalk_augmentation_train import (  # noqa: E402,F401
     RESIDUAL_WIDTH, crosstalk_phase_pairs, train,
+)
+# Importing the forward module also applies its CUDA determinism settings, which this script
+# depends on for the same reason: without them two identical runs disagree by more than the
+# effect being measured. Asserted rather than assumed, so the dependency cannot silently rot.
+import crosstalk_augmentation_train as _fwd_mod  # noqa: E402
+
+assert _fwd_mod.torch.backends.cudnn.deterministic, (
+    "CUDA determinism must stay enabled: without it two identical runs of the same arm "
+    "disagree by ~0.03 R2, which is the size of the effect under test"
 )
 from forward_search import APERTURE_R, ASPECT, BEAM_W0, SIZE_FRAC  # noqa: E402
 from forward_search_extra import RESIDUAL_SCALE  # noqa: E402

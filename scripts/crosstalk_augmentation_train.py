@@ -77,6 +77,23 @@ if str(ROOT / "scripts") not in sys.path:
 
 from scipy.ndimage import convolve  # noqa: E402
 
+# Reproducibility, made non-negotiable by measurement rather than by taste.
+#
+# With the default CUDA settings, `cudnn.deterministic` is False, so the convolution
+# backward pass uses non-deterministic atomics. Two *identical* invocations of one arm then
+# disagree: measured R2 0.8510094635 vs 0.8573237018, with fitted coefficients differing by up
+# to 0.065. That is the same order as the effect this experiment measures (~0.03 R2), and
+# because the noise is independent per arm it inflates the paired delta rather than cancelling
+# -- so a paired SE computed from nondeterministic runs UNDERSTATES the true spread.
+#
+# Observed consequence: one full run reported D2+crosstalk2.0 at +0.0253 paired (3/5, called a
+# winner) and the next identical run reported -0.0125 (0/5). Both were "the same experiment".
+# Enabling determinism costs ~4% wall clock and makes the two runs bitwise identical, which is
+# the only reason the paired statistics below mean anything.
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=True)
+
 OUT_DIR = ROOT / "report" / "loss_defects"
 
 from forward_search import APERTURE_R, BEAM_W0, GRID, N_MAX, PADDING  # noqa: E402
@@ -118,10 +135,31 @@ class CrosstalkSim:
     """Factory for a ``SimPibSystem`` whose pupil field carries a crosstalk PSF.
 
     Implemented by subclassing so the pad -> FFT -> normalise chain stays canonical.
+
+    Raises:
+        RuntimeError: If :meth:`SimPibSystem._pupil_field` is absent. The seam is required,
+            and its absence must be loud. This class was written against a working-tree
+            version of ``slm_pib_sim.py`` that refactored the pupil construction into an
+            overridable method; a parallel ``git stash`` removed that refactor mid-experiment,
+            after which every "crosstalk" arm silently became a **no-op** -- the subclass
+            overrode a method the base class never called, so its targets came out identical
+            to the control's. The degeneracy guard in :func:`main` caught it (mean |diff| fell
+            from 0.0105 to exactly 0.0), but only because the guard existed. Refusing to run
+            is the only safe behaviour: a silent no-op here produces numbers that look like a
+            real null result.
     """
 
     def __new__(cls, sigma_px: float, **kwargs):
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem
+
+        if not hasattr(SimPibSystem, "_pupil_field"):
+            raise RuntimeError(
+                "SimPibSystem has no _pupil_field seam, so pupil-plane physics cannot be "
+                "injected without copying the pad + FFT + normalise chain -- which AGENTS.md "
+                "forbids, because a duplicated propagator diverges silently. The seam is "
+                "absent from the current working tree. Restore it, or implement crosstalk "
+                "through a different mechanism; do NOT let this subclass no-op."
+            )
 
         kernel = _gauss_kernel_2d(sigma_px)
         base = SimPibSystem

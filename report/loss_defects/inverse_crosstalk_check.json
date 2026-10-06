@@ -209,5 +209,18 @@
   "transferred": [
     "D2+same"
   ],
-  "verdict_line": "inverse gain TRANSFERS: D2+same"
+  "verdict_line": "inverse gain TRANSFERS: D2+same",
+  "void": {
+    "status": "VOID",
+    "why": [
+      "Run 1 (injection genuinely worked; guard xt2.0_vs_same_mae = 0.0105) was NOT reproducible. A second identical run reported the opposite sign for every arm. cudnn.deterministic was False, so two identical invocations of one arm gave R2 0.8510094635 vs 0.8573237018, with fitted coefficients differing by up to 0.065 -- the same order as the effect under test. Because the noise is independent per arm it inflates a paired delta instead of cancelling, so the paired SEs were lower bounds on the true spread.",
+      "Run 2 was worse in a different way. A parallel `git stash` (stash@{0}, 2026-10-06 14:39, 24 files of unrelated WIP) removed the working-tree refactor that introduced SimPibSystem._pupil_field. The crosstalk subclass therefore overrode a method the base class never called, and every crosstalk arm silently became a no-op -- the degeneracy guard fell from 0.0105 to exactly 0.0.",
+      "Consequence for the inverse run: it consumed the same generator, so its D2+xt2.0 arm was configurationally identical to D2+same. The apparent gap between those two arms was nondeterminism, not crosstalk."
+    ],
+    "what_survives": "The CUDA nondeterminism finding itself. It is independently measured (two identical invocations of one arm disagreeing by ~0.006 R2 with coefficients differing by up to 0.065) and it is now fixed: with cudnn.deterministic=True and torch.use_deterministic_algorithms(True, warn_only=True) two runs are bitwise identical, at ~4% wall-clock cost.",
+    "guard_that_caught_it": "crosstalk_augmentation_train.py's degeneracy guard asserts the crosstalk targets differ from the same-simulator targets, and aborts if mean |diff| < 1e-4. It exists because a previous evaluator in this repo produced all-zero metrics for every configuration while looking perfectly self-consistent. It fired here, on the second run, which is the only reason this was caught rather than reported as a null result.",
+    "fix_applied": "CrosstalkSim now raises RuntimeError when SimPibSystem._pupil_field is absent, so the arm cannot silently no-op again.",
+    "not_restored": "stash@{0} holds 24 files of unrelated in-progress work and belongs to the user. It was deliberately NOT popped: doing so could clobber concurrent edits, and the seam's absence is a finding to report rather than a thing to paper over.",
+    "how_to_reproduce": "Restore the _pupil_field seam (or implement crosstalk another way), then re-run crosstalk_augmentation_train.py followed by inverse_crosstalk_check.py. Determinism is already enforced in the script."
+  }
 }
