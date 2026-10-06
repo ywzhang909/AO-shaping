@@ -32,9 +32,12 @@ from ao_shaping.utils.image.target.ccd import (
     square_target_from_measurement,
 )
 from ao_shaping.utils.image.target.metrics import (
+    LOGGRAD_EPS,
+    LOGGRAD_SIGMA,
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
     TargetShape,
+    log_gradient_difference_metric,
     pearson_shape_metric,
     rmse_out_metric,
     rmse_shape_metric,
@@ -94,6 +97,9 @@ __all__ = [
     "shape_stage",
     "shape_stage_from_energy",
     "shape_metric",
+    "LOGGRAD_EPS",
+    "LOGGRAD_SIGMA",
+    "log_gradient_difference_metric",
     # square
     "compute_square_side",
     "build_square_target_amplitude",

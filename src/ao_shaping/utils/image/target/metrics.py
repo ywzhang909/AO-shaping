@@ -508,3 +508,156 @@ def shape_metric(
 
     score = energy - w_u * u_term - w_pk * pk_term - w_d * d_term
     return float(score), float(energy)
+
+
+# ---------------------------------------------------------------------------
+# Log-intensity gradient difference
+# ---------------------------------------------------------------------------
+
+#: Explicit floor for the log transform in
+#: :func:`log_gradient_difference_metric`.
+#:
+#: Deliberately NOT ``np.finfo(np.float64).eps`` (~2.2e-16). Read noise puts many
+#: pixels a few counts below zero (clipped to 0), and a 1e-16 floor would turn
+#: that clipped floor into a ~36-unit log jump - the score would measure read
+#: noise instead of structure.
+LOGGRAD_EPS: float = 1e-8
+
+#: Blur width, in pixels, applied to both frames before the log transform.
+LOGGRAD_SIGMA: float = 1.0
+
+
+def _loggrad_kernel(sigma: float) -> np.ndarray:
+    """Normalised 1D Gaussian kernel; ``sigma == 0`` is the identity kernel."""
+    if sigma == 0.0:
+        return np.ones(1, dtype=np.float64)
+    radius = int(np.ceil(3.0 * sigma))
+    offsets = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-(offsets**2) / (2.0 * sigma * sigma))
+    return kernel / kernel.sum()
+
+
+def _loggrad_blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    """Separable convolution with reflect padding, pure NumPy.
+
+    Hand-rolled on purpose: ``target`` is a leaf of :mod:`ao_shaping.utils`, so
+    it must not import ``scipy.ndimage`` to save ~10 lines. Keep it that way.
+    """
+    radius = (kernel.size - 1) // 2
+    height, width = img.shape
+    padded = np.pad(img, radius, mode="reflect")
+    rows = np.zeros((height, width), dtype=np.float64)
+    for offset, weight in enumerate(kernel):
+        rows += weight * padded[:height, offset : offset + width]
+    padded = np.pad(rows, radius, mode="reflect")
+    out = np.zeros((height, width), dtype=np.float64)
+    for offset, weight in enumerate(kernel):
+        out += weight * padded[offset : offset + height, :width]
+    return out
+
+
+def _loggrad_prepare(frame: np.ndarray, eps: float, kernel: np.ndarray) -> np.ndarray | None:
+    """Clip negatives, peak-normalise, blur, then log one frame.
+
+    Returns ``None`` when clipping leaves no dynamic range (constant frame, or
+    one that was entirely negative): its log field is flat, so its gradient
+    magnitude is identically zero and the caller scores it as a flat match -
+    the same answer two different constants already get.
+    """
+    clipped = np.clip(frame, 0.0, None)
+    peak = float(clipped.max())
+    if not np.isfinite(peak) or peak <= eps:
+        return None
+    blurred = _loggrad_blur(clipped / peak, kernel)
+    # The kernel weights are non-negative, so ``blurred`` is non-negative too:
+    # the explicit LOGGRAD_EPS floor below is the only clamp needed.
+    return np.log(np.maximum(blurred, LOGGRAD_EPS))
+
+
+def _loggrad_magnitude(log_field: np.ndarray) -> np.ndarray:
+    """``|grad|`` of a log-intensity field."""
+    dy, dx = np.gradient(log_field)
+    return np.hypot(dy, dx)
+
+
+def log_gradient_difference_metric(
+    meas: np.ndarray,
+    target: np.ndarray,
+    *,
+    eps: float = LOGGRAD_EPS,
+    sigma: float = LOGGRAD_SIGMA,
+) -> float:
+    """Mean absolute difference of the log-intensity gradient magnitudes.
+
+    A structure-aware companion to the power-ratio objectives: a speckled frame
+    and a smooth one can enclose the same power but have very different log
+    gradients, so this separates them where ``roi_pib`` / ``rms_pib`` cannot.
+
+    The pipeline is clip -> independent peak normalisation -> shared Gaussian
+    blur -> log -> gradient magnitude -> mean absolute difference, clipped to
+    ``[0, 1]``. Normalising each frame by its own peak is what makes the score
+    exposure- and laser-drift-invariant for non-negative frames.
+
+    A frame with no dynamic range (constant, or entirely negative before
+    clipping) has a zero log gradient and therefore scores ``0.0`` - the same
+    answer as "identical frames". Non-finite samples are replaced by ``0.0``
+    (the repo's standard prep convention) rather than raising, because this runs
+    once per epoch in the closed loop; only genuine caller mistakes raise.
+
+    Args:
+        meas: measured camera frame, any 2D shape.
+        target: reference frame of the same shape.
+        eps: floor for the log transform; must be finite and positive.
+        sigma: blur width in pixels; ``0`` disables blurring.
+
+    Returns:
+        The score in ``[0, 1]``; ``0.0`` when both frames are identical or
+        either one is flat.
+
+    Raises:
+        ValueError: on non-2D input, mismatched shapes, ``eps <= 0`` or
+            ``sigma < 0``.
+    """
+    eps = float(eps)
+    sigma = float(sigma)
+    if not np.isfinite(eps) or eps <= 0.0:
+        raise ValueError(f"eps must be a finite positive float, got {eps!r}")
+    if not np.isfinite(sigma) or sigma < 0.0:
+        raise ValueError(f"sigma must be a finite non-negative float, got {sigma!r}")
+
+    meas_frame = np.asarray(meas, dtype=np.float64)
+    target_frame = np.asarray(target, dtype=np.float64)
+    if meas_frame.ndim != 2 or target_frame.ndim != 2:
+        raise ValueError(
+            f"meas and target must both be 2D, got {meas_frame.ndim}D "
+            f"and {target_frame.ndim}D"
+        )
+    if meas_frame.shape != target_frame.shape:
+        raise ValueError(
+            f"meas and target must have the same shape, got "
+            f"{meas_frame.shape} and {target_frame.shape}"
+        )
+    # Non-finite samples are SANITISED, not rejected. This module is called once
+    # per epoch inside the closed loop, so raising on one bad pixel would abort a
+    # multi-hour run with the SLM left holding an arbitrary phase. Non-finite
+    # camera frames are an expected condition, not a programming error, and the
+    # repo already standardises on ``np.where(isfinite, frame, 0.0)`` in
+    # ``slm_gs_refine._prepare_frame`` and both ``tools/slm/bench_kernels.py``
+    # prep kernels; matching that convention keeps this term from becoming a new
+    # failure mode. Shape/eps/sigma mistakes above still raise - those are real
+    # caller bugs.
+    meas_frame = np.where(np.isfinite(meas_frame), meas_frame, 0.0)
+    target_frame = np.where(np.isfinite(target_frame), target_frame, 0.0)
+
+    if meas_frame.size == 0 or min(meas_frame.shape) < 2:
+        # No axis along which to differentiate: the log gradient is zero.
+        return 0.0
+
+    kernel = _loggrad_kernel(sigma)
+    meas_log = _loggrad_prepare(meas_frame, eps, kernel)
+    target_log = _loggrad_prepare(target_frame, eps, kernel)
+    if meas_log is None or target_log is None:
+        return 0.0
+
+    difference = _loggrad_magnitude(meas_log) - _loggrad_magnitude(target_log)
+    return float(np.clip(np.abs(difference).mean(), 0.0, 1.0))
