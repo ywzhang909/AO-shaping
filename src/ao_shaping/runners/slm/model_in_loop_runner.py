@@ -293,24 +293,38 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
             plt.close(fig)
             click.echo(f"Best image saved    : {img_file}")
 
+    # The recorder pkl is written on EVERY run, not only under --debug.
+    #
+    # It is the run record: the `{epoch: record}` pickle plus its json sidecar is what
+    # offline analysis and the report generators consume, and a hardware run whose only
+    # structured record exists when someone remembered a flag cannot be revisited. This
+    # path was also outright broken before -- the optimizer's records carried no `_epoch`
+    # key, which the shared writer requires, so `--debug` raised KeyError instead of
+    # writing anything. `--debug` still adds the per-round table above.
+    recorder_dir = save_recorder_debug_artifacts(
+        recorder,
+        str(root_dir),
+        "slm_model_in_loop",
+        scalar_keys=(
+            # Numeric only: the shared writer casts every entry here with `float()`.
+            # `reason` is deliberately absent -- it is a string, and having it in this
+            # tuple raised `ValueError: could not convert string to float: 'baseline'`,
+            # a second defect hiding behind the missing-`_epoch` KeyError. The full text
+            # column is preserved in the CSV written above.
+            "round", "accepted", "loss_before", "loss_after",
+            "step_a_iterations", "step_b_iterations", "coeff_step_l2",
+            "coeff_step_applied", "clamp_applied", "coeff_norm",
+            "score_before", "score_after", "cv_after", "ee_after",
+            "uniformity_cv", "probe_count", "step_a_lr", "rejection_streak",
+            "geometry_correlation", "n_calibration_probes",
+        ),
+        img_keys=("_img",),
+        json_payload={"status": result.status, "config": str(config)},
+        title="slm-model-in-loop",
+    )
+    click.echo(f"Recorder pkl/json   : {recorder_dir.parent}")
     if debug:
-        debug_dir = save_recorder_debug_artifacts(
-            recorder,
-            str(root_dir),
-            "slm_model_in_loop",
-            scalar_keys=(
-                "round", "accepted", "reason", "loss_before", "loss_after",
-                "step_a_iterations", "step_b_iterations", "coeff_step_l2",
-                "coeff_step_applied", "clamp_applied", "coeff_norm",
-                "score_before", "score_after", "cv_after", "ee_after",
-                "uniformity_cv", "probe_count", "step_a_lr", "rejection_streak",
-                "geometry_correlation", "n_calibration_probes",
-            ),
-            img_keys=("_img",),
-            json_payload={"status": result.status, "config": str(config)},
-            title="slm-model-in-loop",
-        )
-        click.echo(f"Debug artefacts     : {debug_dir}")
+        click.echo(f"Debug artefacts     : {recorder_dir}")
 
     if result.status in ("aborted_unidentifiable", "aborted_rejection_streak"):
         click.echo("")

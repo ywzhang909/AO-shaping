@@ -992,6 +992,11 @@ _SIM_KWARGS: dict = {
 _SHARED_KEYS = {
     "stage",
     "round",
+    # The Recorder's required index key. `utils.io.file.save_recorder_debug_artifacts`
+    # does `data[int(rec["_epoch"])] = item`, so a row without it raises KeyError from
+    # inside the pkl path -- which is precisely why this runner's `--debug` artefacts
+    # could never be written. It is shared by both schemas because both are recorded.
+    "_epoch",
     "accepted",
     "reason",
     "score_before",

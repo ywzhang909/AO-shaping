@@ -256,17 +256,12 @@ C4 用的 `ml/zernike/augment.py::strong_phase_pairs` 看起来是「新数据�
 
 **但配对实验说不要打开它：**
 
-配对 3 个 seed，epochs=50，n_max=15，padding=12，每个权重与 `w=0` **同 seed 配对**比较：
+> **已移出代码库**：`losses.phase_smoothness_penalty`（相位 TV + 2π 峰谷铰链）与 `LossConfig.w_phase_smooth`
+>
+> 实测有害并有显式机制：配对 3 seed，ΔR² = −0.0264（w=0.003）/ −0.1670（w=0.03），0/3 全负，最大系数幅值从 0.44–0.70 塌到 0.002 —— 它不是修剪过大的修正，而是把修正整体压掉。**不要加回来。**
+>
+> 结论保留在此处（这才是它不该被加回来的理由）；代码见 git 历史。
 
-| w_phase_smooth | ΔR²（配对） | 标准误 | 胜过基线 | ΔSSIM | 相位 TV | 相位 PV |
-|---|---|---|---|---|---|---|
-| 0.003 | -0.0264 | 0.0063 | 0/3 | -0.0427 | 1.0014 → 0.1459 | 23.19 → 4.04 rad |
-| 0.03 | -0.1670 | 0.0299 | 0/3 | -0.2825 | 1.0014 → 0.0050 | 23.19 → 0.16 rad |
-| 0.3 | -0.1683 | 0.0306 | 0/3 | -0.2827 | 1.0014 → 0.0049 | 23.19 → 0.12 rad |
-
-**机制是显式的**：最大系数幅值从 `w=0` 的 0.581 塌到 `w=0.3` 的 0.003。这个惩罚不是在校准一个过大的修正，而是在**把修正整体压掉**——模型干脆不再校正像差。
-
-**结论：预测被证实**（CONFIRMED）。没有任何一个权重在 >=2/3 个 seed 上有帮助，因此**`w_phase_smooth` 保持默认 0**。
 
 ### 为什么会这样，以及为什么这不奇怪
 
@@ -279,60 +274,54 @@ C4 用的 `ml/zernike/augment.py::strong_phase_pairs` 看起来是「新数据�
 
 ---
 
-## 12. 串扰增强：实验作废，但暴露了一个更严重的问题
+## 12. 串扰增强：已作废并移出代码库
 
-上一节给出了唯一判据：增强数据的传播器必须包含模型**证明无法表示**的物理。本节本来要测其中第一个候选——**SLM 像素串扰 / 有限填充因子**。**它没有测成。** 下面先说发生了什么，再说它顺带测出来的东西。
+上一节给出的判据是：增强数据的传播器必须包含模型**证明无法表示**的物理。按该判据实现的第一个候选是 **SLM 像素串扰 / 有限填充因子**——通过 SimPibSystem._pupil_field 这条 seam 注入，不复制补零 + FFT + 归一化那条链。
 
-实现原本走 SimPibSystem._pupil_field 这条 seam（其 docstring 明说是为「子类注入瞳面物理（如 SLM 通道串扰）」而留的），**不复制**补零 + FFT + 归一化那条链。
-
-> ### ⛔ 本节数据已作废（VOID）——请勿引用
+> **已移出代码库**：串扰增强实验（`scripts/crosstalk_augmentation_train.py`）
 >
-> 以下结论**不成立**，作废原因记录在产物文件里，逐条如下：
-> 1. Run 1 (injection genuinely worked; guard xt2.0_vs_same_mae = 0.0105) was NOT reproducible. A second identical run reported the opposite sign for every arm. cudnn.deterministic was False, so two identical invocations of one arm gave R2 0.8510094635 vs 0.8573237018, with fitted coefficients differing by up to 0.065 -- the same order as the effect under test. Because the noise is independent per arm it inflates a paired delta instead of cancelling, so the paired SEs were lower bounds on the true spread.
-> 2. Run 2 was worse in a different way. A parallel `git stash` (stash@{0}, 2026-10-06 14:39, 24 files of unrelated WIP) removed the working-tree refactor that introduced SimPibSystem._pupil_field. The crosstalk subclass therefore overrode a method the base class never called, and every crosstalk arm silently became a no-op -- the degeneracy guard fell from 0.0105 to exactly 0.0.
-> 3. Consequence for the inverse run: it consumed the same generator, so its D2+xt2.0 arm was configurationally identical to D2+same. The apparent gap between those two arms was nondeterminism, not crosstalk.
+> 实验作废：该台架当时**不可复现**（两次相同调用 R² 差 0.006、拟合系数差 0.065），且一次并行 `git stash` 移走了 `SimPibSystem._pupil_field` seam，使每一臂静默变成空操作。真实结果未知，需要重做。
+>
+> 结论保留在此处（这才是它不该被加回来的理由）；代码见 git 历史。
 
-**幸存的真实结果**：The CUDA nondeterminism finding itself. It is independently measured (two identical invocations of one arm disagreeing by ~0.006 R2 with coefficients differing by up to 0.065) and it is now fixed: with cudnn.deterministic=True and torch.use_deterministic_algorithms(True, warn_only=True) two runs are bitwise identical, at ~4% wall-clock cost.
 
-**抓住它的守卫**：crosstalk_augmentation_train.py's degeneracy guard asserts the crosstalk targets differ from the same-simulator targets, and aborts if mean |diff| < 1e-4. It exists because a previous evaluator in this repo produced all-zero metrics for every configuration while looking perfectly self-consistent. It fired here, on the second run, which is the only reason this was caught rather than reported as a null result.
+> **已移出代码库**：串扰模型的逆向转移检验（`scripts/inverse_crosstalk_check.py`）
+>
+> 随上一条一并作废（同一生成器，故 `D2+xt2.0` 与 `D2+same` 配置等价）。**但第 8 节的结论不受影响**：那三次解离来自各自独立的脚本，不在这个非确定性台架上。
+>
+> 结论保留在此处（这才是它不该被加回来的理由）；代码见 git 历史。
 
-**已做的修复**：CrosstalkSim now raises RuntimeError when SimPibSystem._pupil_field is absent, so the arm cannot silently no-op again.
 
-**没有恢复 stash 的原因**：stash@{0} holds 24 files of unrelated in-progress work and belongs to the user. It was deliberately NOT popped: doing so could clobber concurrent edits, and the seam's absence is a finding to report rather than a thing to paper over.
+**串扰增强到底有没有用：仍然未知。** 它需要在确定性模式下重做，不能因为这次作废就当作「已证明无效」。
 
-**如何重做**：Restore the _pupil_field seam (or implement crosstalk another way), then re-run crosstalk_augmentation_train.py followed by inverse_crosstalk_check.py. Determinism is already enforced in the script.
+## 13. 保留下来的一条方法学发现：这套训练台架此前**不可复现**
 
-## 13. 真正测出来的东西：这套台架此前**不可复现**
+串扰实验作废的直接原因，是一条本来应该让整个实验从头就作废的发现。把同一臂、同一 seed、同样的代码**跑两遍**，结果不一样：
 
-作废的直接原因是一条本来应该让整个实验一开始就作废的发现。把同一臂、同一 seed、同样的代码**跑两遍**，结果不一样：
-
-| | R² | 
+| | val R² |
 |---|---|
 | 第 1 次 | 0.8510094635 |
 | 第 2 次 | 0.8573237018 |
 
-拟合系数的最大差达到 **0.065**。原因：cudnn.deterministic 默认 False，卷积反向使用非确定性原子操作。**这个幅度（~0.006 R²，系数差 0.065）与本实验要测的效应同量级。**
+拟合系数的最大差达到 **0.065**。原因：cudnn.deterministic 默认 False，卷积反向使用非确定性原子操作。**这个幅度与本仓要测的效应同量级**，而且因为噪声在各臂之间独立，配对差里它不会抵消、只会累积——**所以本报告所有配对标准误都是真实波动的下界。**
 
-而且它不是无害的：噪声在每个臂之间**独立**，所以配对差里它不会抵消，只会累积——也就是说本报告此前所有配对标准误都是真实波动的**下界**。换句话说：**§6 里 D2 的 +0.0426（5/5 seed）需要在确定性模式下重测才能确认。**
+### 修法（已验证，保留备查）
 
-### 已修复
+在训练入口最前面加：
 
-开启 cudnn.deterministic = True +
-	orch.use_deterministic_algorithms(True, warn_only=True) 之后，两次运行**逐位相同**，墙钟代价约 4%（23.7 s vs 22.7 s）。这个开关现在是 crosstalk_augmentation_train.py 的模块级强制项，inverse_crosstalk_check.py 会 assert 它仍然开着。
+`python
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=True)
+`
 
-### 三条可复用的教训
+实测：两次运行**逐位相同**，墙钟代价约 4%（23.7 s vs 22.7 s）。
 
-1. **退化守卫救了这次实验。** 脚本里有一条断言：串扰臂的目标与同源对照的平均绝对差必须 > 1e-4。第一次运行是 0.0105（注入生效），第二次掉到**恰好 0.0**——因为一次并行的 git stash（stash@{0}，2026-10-06 14:39，24 个文件的他人 WIP）移走了引入 _pupil_field 的工作区改动，于是子类覆盖了一个基类根本不调用的方法，**每一臂静默变成空操作**。这条守卫的存在理由和本仓更早那次「所有配置都给出全零指标、但看起来完全自洽」的评测器 bug 是同一件事。
-2. **CrosstalkSim 现在会在 seam 缺失时直接抛异常**，不再允许静默空转。一个悄悄变成 no-op 的实验臂会产出看起来很像真实 null 的数字。
-3. **stash@{0} 被故意没有恢复。** 它是他人 24 个文件的在途工作，擅自 pop 可能覆盖并行的编辑。seam 缺失是要上报的发现，不是要糊过去的东西。
+⚠️ **本仓尚未把这个开关接进正式训练脚本**（ml/zernike/train_amp.py 等），因为打开它会改变既有基准数字，那是一个需要单独决定的事，不该顺手改。因此：**任何小于 ~0.01 R² 的配对差在本仓目前都不可断言。**
 
-### 本节因此**没有**回答的问题
+### 一个可复用的教训
 
-* 串扰增强到底有没有用——**未知**，需要在确定性模式下重跑。
-* 第 8 节的三次解离是否要修正——**不需要**，因为那三次都不是在这个非确定性台架上测的（它们来自 
-orward_search_extra 与 inverse_combined，各自独立），但 +0.0426 这个幅度本身现在需要复核。
-
-顺带一个仍然有效的观察：第 10 节测出的 strong_phase_pairs 与模型传播器**corr = 0.9956** 这个数字是纯 numpy 传播，不受 CUDA 随机性影响，所以「同源增强不含新信息」这个判断是稳的。
+**退化守卫是唯一抓住它的东西。** 当时脚本里有一条断言：实验臂的目标与对照臂的平均绝对差必须 > 1e-4。第一次运行是 0.0105（注入生效），第二次掉到**恰好 0.0**——一次并行的 git stash 移走了工作区里引入_pupil_field 的改动，于是子类覆盖了一个基类根本不调用的方法，**每一臂静默变成空操作**。这与本仓更早那次「所有配置都给出全零指标、而结果看起来完全自洽」的评测器 bug 是同一类失败。
 
 ---
 

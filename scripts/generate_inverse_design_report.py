@@ -528,168 +528,46 @@ def _taxonomy_rows() -> list[str]:
     return out
 
 
-def _phase_smooth_rows() -> list[str]:
-    """The paired 3-seed result for the phase-domain penalty."""
-    data = _load("phase_smoothness_train.json")
-    if not data.get("verdict"):
-        return ["*尚未生成：先跑 `python scripts/phase_smoothness_train.py`*"]
-    cfg = data["config"]
-    base = data["baseline"]
-    out = [
-        f"配对 {len(cfg['seeds'])} 个 seed，epochs={cfg['epochs']}，n_max={cfg['n_max']}，"
-        f"padding={cfg['padding']}，每个权重与 `w=0` **同 seed 配对**比较：",
-        "",
-        "| w_phase_smooth | ΔR²（配对） | 标准误 | 胜过基线 | ΔSSIM | 相位 TV | 相位 PV |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for w, r in data["verdict"].items():
-        out.append(
-            f"| {w} | {_fmt(r['d_r2_paired'])} | {_fmt(r['d_r2_se'], '.4f')} | "
-            f"{r['beats_baseline']}/{r['n']} | {_fmt(r['d_ssim_paired'])} | "
-            f"{base['phase_tv']:.4f} → {r['phase_tv']:.4f} | "
-            f"{base['phase_pv_rad']:.2f} → {r['phase_pv_rad']:.2f} rad |"
-        )
-    out.append("")
-    rows = data["rows"]
-    zero = [r for r in rows if r["weight"] == 0.0]
-    heavy = [r for r in rows if r["weight"] == max(cfg["weights"])]
-    zc = sum(r["max_abs_coeff"] for r in zero) / len(zero)
-    hc = sum(r["max_abs_coeff"] for r in heavy) / len(heavy)
-    out.append(
-        f"**机制是显式的**：最大系数幅值从 `w=0` 的 {zc:.3f} 塌到 `w={max(cfg['weights'])}` 的 "
-        f"{hc:.3f}。这个惩罚不是在校准一个过大的修正，而是在**把修正整体压掉**——"
-        "模型干脆不再校正像差。"
-    )
-    out.append("")
-    out.append(f"**结论：预测被证实**（{'CONFIRMED' if data['outcome'] == 'CONFIRMED' else 'REFUTED'}）。"
-               f"没有任何一个权重在 >=2/{len(cfg['seeds'])} 个 seed 上有帮助，因此"
-               "**`w_phase_smooth` 保持默认 0**。")
-    return out
+def _removed_note(what: str, why: str) -> list[str]:
+    """A removed experiment: state what went and why, never a dangling reference.
 
-
-def _void_notice(name: str) -> list[str] | None:
-    """If an artefact is marked VOID, render why and refuse to print its numbers.
-
-    The reason is read from the artefact rather than restated here, so the report cannot
-    claim a measurement is void for a different reason than the one recorded.
+    The negative experiments were deliberately removed from the tree at the operator's
+    request so the codebase is not cluttered with knobs that measured harmful and arms that
+    measured void. The conclusions are kept here because they are the reason the features do
+    not exist -- deleting the record as well would invite someone to re-add them. The code
+    itself is in git history, not in the working tree.
     """
-    void = _load(name).get("void")
-    if not void:
-        return None
-    out = [
-        "> ### ⛔ 本节数据已作废（VOID）——请勿引用",
+    return [
+        f"> **已移出代码库**：{what}",
         ">",
-        "> 以下结论**不成立**，作废原因记录在产物文件里，逐条如下：",
+        f"> {why}",
+        ">",
+        "> 结论保留在此处（这才是它不该被加回来的理由）；代码见 git 历史。",
+        "",
     ]
-    out += [f"> {i}. {w}" for i, w in enumerate(void.get("why", []), 1)]
-    out += [
-        "",
-        f"**幸存的真实结果**：{void.get('what_survives', '')}",
-        "",
-        f"**抓住它的守卫**：{void.get('guard_that_caught_it', '')}",
-        "",
-        f"**已做的修复**：{void.get('fix_applied', '')}",
-        "",
-        f"**没有恢复 stash 的原因**：{void.get('not_restored', '')}",
-        "",
-        f"**如何重做**：{void.get('how_to_reproduce', '')}",
-    ]
-    return out
-
-
-def _crosstalk_rows() -> list[str]:
-    """Forward-training arms: incumbent, same-simulator control, crosstalk at 3 strengths."""
-    notice = _void_notice("crosstalk_augmentation_train.json")
-    if notice is not None:
-        return notice
-    data = _load("crosstalk_augmentation_train.json")
-    if not data.get("verdict"):
-        return ["*NOT PRODUCED YET - run `python scripts/crosstalk_augmentation_train.py`*"]
-    import ml.zernike.eval_stats as es
-
-    v = data["verdict"]
-    base = data["baseline"]
-    rows = data["rows"]
-    base_by_seed = {r["seed"]: r["r2"] for r in rows if r["arm"] == "D2"}
-    ctrl_by_seed = {r["seed"]: r["r2"] for r in rows if r["arm"] == "D2+same"}
-
-    out = [
-        f"基线 `D2`（无增强）平均 R² = {_fmt(base['mean_r2'])}，配对 {len(base_by_seed)} 个 seed。",
-        "",
-        "| arm | ΔR²（配对） | 标准误 | Cohen's dz | p（精确符号翻转） | 胜过基线 | vs 同源对照 |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for arm in ("D2+same", "D2+xt0.5", "D2+xt1.0", "D2+xt2.0"):
-        if arm not in v:
-            continue
-        r = v[arm]
-        sel = {x["seed"]: x["r2"] for x in rows if x["arm"] == arm}
-        d = [sel[s] - base_by_seed[s] for s in sorted(sel)]
-        st = es.paired_comparison(d, arm)
-        label = "**同源对照**" if arm == "D2+same" else arm
-        out.append(
-            f"| {label} | {_fmt(st['mean_diff'])} | {_fmt(r['d_r2_se'], '.4f')} | "
-            f"{_fmt(st['cohens_dz'], '+.2f')} | {st['p_sign_flip']:.4f} | "
-            f"{r['beats_baseline']}/{r['n']} | "
-            f"{'—' if arm == 'D2+same' else ('**胜出**' if r['beats_control'] else '不胜')} |"
-        )
-    out.append("")
-    out.append(
-        f"⚠️ **5 个配对样本的最小可达 p = {es.min_attainable_pvalue(5)}**，"
-        "所以这个协议**结构上就到不了 p<0.05**。下表所有 p 值都只能读作"
-        "「是否有方向性证据」，不能读作「是否显著」。"
-    )
-    out.append("")
-    guards = data.get("degeneracy_guards", {})
-    if guards:
-        out.append(
-            "退化守卫（防止某一臂其实是空转）："
-            + "；".join(
-                f"`{k}` = {_fmt(val, '.4f')}" for k, val in guards.items()
-                if k.endswith("_vs_same_mae")
-            )
-            + "。串扰臂与同源臂的目标**确实不同**，否则这一臂是空操作、负结果毫无意义。"
-        )
-    return out
-
-
-def _inverse_transfer_rows() -> list[str]:
-    """Inverse scores through the same three arms, on the scale-matched padding-1 protocol."""
-    notice = _void_notice("inverse_crosstalk_check.json")
-    if notice is not None:
-        return notice
-    data = _load("inverse_crosstalk_check.json")
-    if not data.get("verdict"):
-        return ["*尚未生成：先跑 `python scripts/inverse_crosstalk_check.py`*"]
-    ref = data["references"]
-    v = data["verdict"]
-    out = [
-        f"平场 = {ref['flat']:.4f}，GS 提案 = {ref['gs']:.4f}"
-        f"（GS − 平场 = {ref['gs'] - ref['flat']:+.4f}）。"
-        "⚠️ **三个 arm 的逆向得分全部低于平场**，也就是说经由本模型做逆向优化"
-        "**依然失败**，与第 8 节的结论一致。",
-        "",
-        "| arm | 逆向得分 | Δ（配对） | Cohen's dz | p | 胜过基线 | 正向 R² |",
-        "|---|---|---|---|---|---|---|",
-    ]
-    for arm in sorted(v, key=lambda a: -v[a]["d_inv_vs_D2"]):
-        r = v[arm]
-        label = "**同源对照**" if arm == "D2+same" else arm
-        out.append(
-            f"| {label} | {r['mean_inv']:.4f} | {_fmt(r['d_inv_vs_D2'])} | "
-            f"{_fmt(r['cohens_dz'], '+.2f')} | {r['p_sign_flip']:.4f} | "
-            f"{r['beats_baseline']}/{r['n']} | {_fmt(r['mean_fwd_r2'])} |"
-        )
-    return out
 
 
 def build_report(stats: dict, figures_ok: bool) -> str:
     fwd, invst, ph = stats["forward"], stats["inverse"], stats["phase"]
     SEARCH_ROWS = _search_rows()
     TAXONOMY_ROWS = _taxonomy_rows()
-    CROSSTALK_ROWS = _crosstalk_rows()
-    INVERSE_TRANSFER_ROWS = _inverse_transfer_rows()
-    PHASE_SMOOTH_ROWS = _phase_smooth_rows()
+    CROSSTALK_ROWS = _removed_note(
+        "串扰增强实验（`scripts/crosstalk_augmentation_train.py`）",
+        "实验作废：该台架当时**不可复现**（两次相同调用 R² 差 0.006、拟合系数差 0.065），"
+        "且一次并行 `git stash` 移走了 `SimPibSystem._pupil_field` seam，使每一臂静默变成空操作。"
+        "真实结果未知，需要重做。",
+    )
+    INVERSE_TRANSFER_ROWS = _removed_note(
+        "串扰模型的逆向转移检验（`scripts/inverse_crosstalk_check.py`）",
+        "随上一条一并作废（同一生成器，故 `D2+xt2.0` 与 `D2+same` 配置等价）。"
+        "**但第 8 节的结论不受影响**：那三次解离来自各自独立的脚本，不在这个非确定性台架上。",
+    )
+    PHASE_SMOOTH_ROWS = _removed_note(
+        "`losses.phase_smoothness_penalty`（相位 TV + 2π 峰谷铰链）与 `LossConfig.w_phase_smooth`",
+        "实测有害并有显式机制：配对 3 seed，ΔR² = −0.0264（w=0.003）/ −0.1670（w=0.03），"
+        "0/3 全负，最大系数幅值从 0.44–0.70 塌到 0.002 —— 它不是修剪过大的修正，"
+        "而是把修正整体压掉。**不要加回来。**",
+    )
     COMBINED_ROWS = _combined_rows()
     INVERSE_ROWS = _inverse_rows()
     lines = [
@@ -993,67 +871,58 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "---",
         "",
-        "## 12. 串扰增强：实验作废，但暴露了一个更严重的问题",
+        "## 12. 串扰增强：已作废并移出代码库",
         "",
-        "上一节给出了唯一判据：增强数据的传播器必须包含模型**证明无法表示**的物理。"
-        "本节本来要测其中第一个候选——**SLM 像素串扰 / 有限填充因子**。"
-        "**它没有测成。** 下面先说发生了什么，再说它顺带测出来的东西。",
-        "",
-        "实现原本走 SimPibSystem._pupil_field 这条 seam（其 docstring 明说是为「子类注入"
-        "瞳面物理（如 SLM 通道串扰）」而留的），**不复制**补零 + FFT + 归一化那条链。",
+        "上一节给出的判据是：增强数据的传播器必须包含模型**证明无法表示**的物理。"
+        "按该判据实现的第一个候选是 **SLM 像素串扰 / 有限填充因子**——"
+        "通过 SimPibSystem._pupil_field 这条 seam 注入，不复制补零 + FFT + 归一化那条链。",
         "",
         *CROSSTALK_ROWS,
         "",
-        "## 13. 真正测出来的东西：这套台架此前**不可复现**",
+        *INVERSE_TRANSFER_ROWS,
         "",
-        "作废的直接原因是一条本来应该让整个实验一开始就作废的发现。"
+        "**串扰增强到底有没有用：仍然未知。** 它需要在确定性模式下重做，"
+        "不能因为这次作废就当作「已证明无效」。",
+        "",
+        "## 13. 保留下来的一条方法学发现：这套训练台架此前**不可复现**",
+        "",
+        "串扰实验作废的直接原因，是一条本来应该让整个实验从头就作废的发现。"
         "把同一臂、同一 seed、同样的代码**跑两遍**，结果不一样：",
         "",
-        "| | R² | ",
+        "| | val R² |",
         "|---|---|",
         "| 第 1 次 | 0.8510094635 |",
         "| 第 2 次 | 0.8573237018 |",
         "",
         "拟合系数的最大差达到 **0.065**。原因：cudnn.deterministic 默认 False，"
-        "卷积反向使用非确定性原子操作。**这个幅度（~0.006 R²，系数差 0.065）"
-        "与本实验要测的效应同量级。**",
+        "卷积反向使用非确定性原子操作。**这个幅度与本仓要测的效应同量级**，"
+        "而且因为噪声在各臂之间独立，配对差里它不会抵消、只会累积——"
+        "**所以本报告所有配对标准误都是真实波动的下界。**",
         "",
-        "而且它不是无害的：噪声在每个臂之间**独立**，所以配对差里它不会抵消，只会累积——"
-        "也就是说本报告此前所有配对标准误都是真实波动的**下界**。"
-        "换句话说：**§6 里 D2 的 +0.0426（5/5 seed）需要在确定性模式下重测才能确认。**",
+        "### 修法（已验证，保留备查）",
         "",
-        "### 已修复",
+        "在训练入口最前面加：",
         "",
-        "开启 cudnn.deterministic = True +",
-        "	orch.use_deterministic_algorithms(True, warn_only=True) 之后，"
-        "两次运行**逐位相同**，墙钟代价约 4%（23.7 s vs 22.7 s）。"
-        "这个开关现在是 crosstalk_augmentation_train.py 的模块级强制项，"
-        "inverse_crosstalk_check.py 会 assert 它仍然开着。",
+        "`python",
+        "torch.backends.cudnn.deterministic = True",
+        "torch.backends.cudnn.benchmark = False",
+        "torch.use_deterministic_algorithms(True, warn_only=True)",
+        "`",
         "",
-        "### 三条可复用的教训",
+        "实测：两次运行**逐位相同**，墙钟代价约 4%（23.7 s vs 22.7 s）。",
         "",
-        "1. **退化守卫救了这次实验。** 脚本里有一条断言：串扰臂的目标与同源对照的"
-        "平均绝对差必须 > 1e-4。第一次运行是 0.0105（注入生效），"
-        "第二次掉到**恰好 0.0**——因为一次并行的 git stash（stash@{0}，"
-        "2026-10-06 14:39，24 个文件的他人 WIP）移走了引入 _pupil_field 的工作区改动，"
-        "于是子类覆盖了一个基类根本不调用的方法，**每一臂静默变成空操作**。"
-        "这条守卫的存在理由和本仓更早那次「所有配置都给出全零指标、但看起来完全自洽」的"
-        "评测器 bug 是同一件事。",
-        "2. **CrosstalkSim 现在会在 seam 缺失时直接抛异常**，不再允许静默空转。"
-        "一个悄悄变成 no-op 的实验臂会产出看起来很像真实 null 的数字。",
-        "3. **stash@{0} 被故意没有恢复。** 它是他人 24 个文件的在途工作，"
-        "擅自 pop 可能覆盖并行的编辑。seam 缺失是要上报的发现，不是要糊过去的东西。",
+        "⚠️ **本仓尚未把这个开关接进正式训练脚本**（ml/zernike/train_amp.py 等），"
+        "因为打开它会改变既有基准数字，那是一个需要单独决定的事，不该顺手改。"
+        "因此：**任何小于 ~0.01 R² 的配对差在本仓目前都不可断言。**",
         "",
-        "### 本节因此**没有**回答的问题",
+        "### 一个可复用的教训",
         "",
-        "* 串扰增强到底有没有用——**未知**，需要在确定性模式下重跑。",
-        "* 第 8 节的三次解离是否要修正——**不需要**，因为那三次都不是在这个"
-        "非确定性台架上测的（它们来自 orward_search_extra 与 inverse_combined，"
-        "各自独立），但 +0.0426 这个幅度本身现在需要复核。",
-        "",
-        "顺带一个仍然有效的观察：第 10 节测出的 strong_phase_pairs 与模型传播器"
-        "**corr = 0.9956** 这个数字是纯 numpy 传播，不受 CUDA 随机性影响，"
-        "所以「同源增强不含新信息」这个判断是稳的。",
+        "**退化守卫是唯一抓住它的东西。** 当时脚本里有一条断言：实验臂的目标"
+        "与对照臂的平均绝对差必须 > 1e-4。第一次运行是 0.0105（注入生效），"
+        "第二次掉到**恰好 0.0**——一次并行的 git stash 移走了工作区里引入"
+        "_pupil_field 的改动，于是子类覆盖了一个基类根本不调用的方法，"
+        "**每一臂静默变成空操作**。这与本仓更早那次「所有配置都给出全零指标、"
+        "而结果看起来完全自洽」的评测器 bug 是同一类失败。",
         "",
         "---",
         "",

@@ -861,20 +861,21 @@ def _quality(
 ) -> float:
     """Composite score to maximise, from a square-metrics dict.
 
-    Uses the canonical :func:`~ao_shaping.drivers.sim.slm_shaping_bench.composite_from_pib_cv`,
-    i.e. ``w_efficiency * EE + w_uniformity / (1 + CV)``, for two reasons.
+    Uses the canonical :func:~ao_shaping.drivers.sim.slm_shaping_bench.composite_from_pib_cv,
+    i.e. `w_efficiency * EE + w_uniformity / (1 + CV)`, so the number here is directly
+    comparable with the simulated pipeline and `slm-gs-refine`.
 
-    First, it is the same yardstick the simulated pipeline and ``slm-gs-refine``
-    use, so a hardware number here is comparable with those.
-
-    Second, and decisively, it does not saturate. ``compute_quality_score`` in
-    ``utils/image/beam_metrics.py`` scores uniformity as ``exp(-((CV/0.3)**2))``,
-    which underflows to ~6e-5 at the CV ~0.9 this task actually reaches and to
-    exactly 0 at the CV ~11 of an *unshaped* focus. Both therefore score 0 on
-    uniformity and the composite collapses to ``0.3*aspect + 0.3*EE``, which
-    ranks a near-delta focus with CV 11 **above** a genuinely uniform square.
-    That is the metric-saturation trap in its purest form: the bake-off would
-    discard the correct phase and keep flat.
+    History worth keeping, because it is why this function exists at all. It was written when
+    `utils/image/beam_metrics.compute_quality_score` scored uniformity as
+    `exp(-((CV/0.3)**2))`, which underflows to ~6e-5 at the CV ~0.9 this task reaches and to
+    exactly 0 at the CV ~11 of an *unshaped* focus. Both scored 0 on uniformity, so that
+    composite collapsed to `0.3*aspect + 0.3*EE` and ranked a near-delta focus with CV 11
+    **above** a genuinely uniform square -- the bake-off would have discarded the correct
+    phase and kept flat. `compute_quality_score` has since been **fixed** to the same
+    non-saturating `1/(1+CV)` form, so the two now agree on the uniformity axis and the
+    inversion is gone. This function is kept because its weights and its absence of an aspect
+    term make it the better-conditioned bake-off objective -- not because the canonical one is
+    still broken. See `report/loss_defects/inverse_design_report.md` section 10.
     """
     from ao_shaping.drivers.sim.slm_shaping_bench import composite_from_pib_cv
 
@@ -1146,6 +1147,13 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             {
                 "stage": "calibration",
                 "round": 0,
+                # `_epoch` is the Recorder's required index key: the shared writer
+                # `utils.io.file.save_recorder_debug_artifacts` does
+                # `data[int(rec["_epoch"])] = item`, so a record without it raises
+                # KeyError from inside the pkl path. Every other shaping optimizer
+                # stamps it (see `slm_zernike_pib.py`); this one did not, which is why
+                # its `--debug` artefacts could never be written.
+                "_epoch": 0,
                 "accepted": True,
                 "reason": "baseline",
                 "score_before": float(flat_score),
@@ -1269,6 +1277,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             row = {
                 "stage": "round",
                 "round": index + 1,
+                # See the calibration record above: required by the shared pkl writer.
+                "_epoch": index + 1,
                 "accepted": bool(verdict.accepted),
                 "reason": verdict.reason,
                 "loss_before": loss_before,

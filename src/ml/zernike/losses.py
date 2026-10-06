@@ -65,12 +65,6 @@ from ao_shaping.utils.image.target.metrics import target_shape_roi
 #: so an unguarded ``log`` yields ``-inf`` and an unguarded ``I_hat`` can be 0.
 EPS: float = 1e-8
 
-#: Peak-to-valley phase excursion (radians) beyond which the LCOS is driven past a full
-#: 2pi and the panel's phase linearity no longer holds. Santec SLM-200 at 1064 nm maps
-#: 2pi onto 993 gray levels of a 10-bit range, so a PV above ~6.3 rad is already asking
-#: the wrap efficiency to be flat across the whole command, which it is not.
-PHASE_PV_LIMIT_RAD: float = 6.283
-
 
 def roi_mask(
     image_shape: tuple[int, int],
@@ -450,35 +444,6 @@ def speckle_detail_term(
     return {"tv_ratio": ratio, "tv_pred": tv_p, "tv_ref": tv_r}
 
 
-def phase_smoothness_penalty(phase: Tensor, mask: Tensor | None = None) -> Tensor:
-    """``TV(phi) + max(0, PV(phi) - pv_limit)``: phase-domain realizability.
-
-    Unlike every other term in this module, this one acts on the **command** rather
-    than on the measured image. That is the distinction that matters: SLM crosstalk and
-    the spatial bandwidth product limit how fast the phase may change across the panel,
-    and no image-domain term can express that constraint -- they can only observe its
-    consequences after the fact.
-
-    Args:
-        phase: ``(B, 1, g, g)`` or ``(g, g)`` phase in **radians**, raw unwrapped.
-        mask: Optional ``(g, g)`` / ``(1, 1, g, g)`` aperture mask. The panel outside
-            the illuminated disc is not driven at all, so penalising its gradient
-            would constrain a region the SLM never modulates. Defaults to no mask.
-
-    Returns:
-        Scalar penalty. ``TV`` is the sum of mean absolute first differences in
-        radians per pixel; the second term is a hinge on peak-to-valley excursion.
-    """
-    p = phase if phase.dim() == 4 else phase.unsqueeze(0).unsqueeze(0)
-    if mask is not None:
-        m = mask.to(device=p.device, dtype=p.dtype)
-        p = p * (m if m.dim() == 4 else m.view(1, 1, *m.shape))
-    tv = (p[:, :, 1:, :] - p[:, :, :-1, :]).abs().mean()
-    tv = tv + (p[:, :, :, 1:] - p[:, :, :, :-1]).abs().mean()
-    pv = p.amax(dim=(-2, -1)) - p.amin(dim=(-2, -1))
-    return tv + torch.clamp(pv - PHASE_PV_LIMIT_RAD, min=0.0).mean()
-
-
 def roi_energy_loss(current: Tensor, reference: float | Tensor) -> Tensor:
     """Fractional in-ROI energy loss vs a reference; 0 means no loss.
 
@@ -569,13 +534,6 @@ class LossConfig:
     #: the ROI (which drove EE to 0.002 on hardware for the unanchored terms) and
     #: it penalises an over-smoothed prediction as well as an over-noisy one.
     w_speckle: float = 0.0
-    #: Weight on the **phase-domain realizability** penalty
-    #: :func:`phase_smoothness_penalty`. This is the only term in the whole config that
-    #: acts on the command instead of the measurement: every other one scores the
-    #: predicted far field, and none of them can express "this phase is not physically
-    #: realisable on the panel". Applied by the training loop, not by
-    #: :func:`composite_loss`, because it needs the model's coefficients.
-    w_phase_smooth: float = 0.0
     shape_gap_relative: bool = True
     normalization: str = "peak"
 

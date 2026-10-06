@@ -52,7 +52,6 @@ from ml.hwdataset import (
 from ml.zernike.losses import (
     LossConfig,
     composite_loss,
-    phase_smoothness_penalty,
     roi_mask,
     spot_moment_gap_term,
 )
@@ -665,13 +664,6 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
                 loss = data_mse
             if cfg.l2_penalty:
                 loss = loss + cfg.l2_penalty * torch.sum(model.coefficients**2)
-            if cfg.loss_weights.w_phase_smooth:
-                # The one term that constrains the command rather than the measurement.
-                # Applied here, not in `composite_loss`, because it needs the model's
-                # phase and `composite_loss` only ever sees the predicted image.
-                loss = loss + cfg.loss_weights.w_phase_smooth * phase_smoothness_penalty(
-                    model.correction_phase()
-                )
             loss.backward()
             if cfg.grad_clip:
                 torch.nn.utils.clip_grad_norm_(_trainable_params(model), cfg.grad_clip)
