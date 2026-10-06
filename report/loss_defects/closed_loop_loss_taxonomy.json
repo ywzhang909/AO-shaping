@@ -1,0 +1,279 @@
+{
+  "config": {
+    "grid": 64,
+    "n_samples": 48,
+    "roi_side": 32,
+    "bg_weight": 0.05
+  },
+  "cases": [
+    "exact",
+    "over_smooth",
+    "over_speckle",
+    "displace",
+    "empty_roi",
+    "all_dark"
+  ],
+  "incumbent_best_movement": {
+    "over_smooth": {
+      "best_relative": 0.03778109966527006,
+      "argmax": "uniformity"
+    },
+    "over_speckle": {
+      "best_relative": 1.0,
+      "argmax": "w_speckle"
+    },
+    "displace": {
+      "best_relative": 0.42186592185822425,
+      "argmax": "mse"
+    }
+  },
+  "scores": {
+    "incumbent:mse": {
+      "exact": 0.0,
+      "over_smooth": 0.00019234958745073527,
+      "over_speckle": 0.01944943703711033,
+      "displace": 0.008217607624828815,
+      "empty_roi": 0.01763540878891945,
+      "all_dark": 0.019479192793369293
+    },
+    "incumbent:uniformity": {
+      "exact": 0.48522675037384033,
+      "over_smooth": 0.4623044729232788,
+      "over_speckle": 0.606712818145752,
+      "displace": 0.5149353742599487,
+      "empty_roi": 0.0,
+      "all_dark": 0.0
+    },
+    "incumbent:w_speckle": {
+      "exact": 0.0,
+      "over_smooth": 0.15222086012363434,
+      "over_speckle": 5.47381067276001,
+      "displace": 0.05095335841178894,
+      "empty_roi": 1.0,
+      "all_dark": 1.0
+    },
+    "incumbent:w_ellipse": {
+      "exact": 0.0,
+      "over_smooth": 0.042604923248291016,
+      "over_speckle": 0.08231130242347717,
+      "displace": 0.16350172460079193,
+      "empty_roi": 3.2402021884918213,
+      "all_dark": 3.2402021884918213
+    },
+    "weighted_mse": {
+      "exact": 0.0,
+      "over_smooth": 0.0005931055638939142,
+      "over_speckle": 0.061630550771951675,
+      "displace": 0.02518451027572155,
+      "empty_roi": 0.06134055182337761,
+      "all_dark": 0.06166119873523712
+    },
+    "ssim_loss": {
+      "exact": 0.0,
+      "over_smooth": 0.023541033267974854,
+      "over_speckle": 0.4884471297264099,
+      "displace": 0.28858011960983276,
+      "empty_roi": 0.27779144048690796,
+      "all_dark": 0.8351293802261353
+    },
+    "gradient_loss": {
+      "exact": 0.0,
+      "over_smooth": 0.004951242823153734,
+      "over_speckle": 0.1323709338903427,
+      "displace": 8.875944331521168e-05,
+      "empty_roi": 0.01075168326497078,
+      "all_dark": 0.019587496295571327
+    },
+    "peak_penalty": {
+      "exact": 0.0,
+      "over_smooth": 0.0,
+      "over_speckle": 2.8245670795440674,
+      "displace": 0.0,
+      "empty_roi": 0.0,
+      "all_dark": 0.0
+    },
+    "energy_conservation": {
+      "exact": 0.0,
+      "over_smooth": 0.16334660351276398,
+      "over_speckle": 32.969913482666016,
+      "displace": 1.52587890625e-05,
+      "empty_roi": 197.4035186767578,
+      "all_dark": 304.9867858886719
+    },
+    "phase_smoothness": {
+      "exact": 2.1761863231658936,
+      "over_smooth": 2.1761863231658936,
+      "over_speckle": 2.1761863231658936,
+      "displace": 2.1761863231658936,
+      "empty_roi": 2.1761863231658936,
+      "all_dark": 2.1761863231658936
+    },
+    "phase_modulation_depth": {
+      "exact": 67.44642639160156,
+      "over_smooth": 67.44642639160156,
+      "over_speckle": 67.44642639160156,
+      "displace": 67.44642639160156,
+      "empty_roi": 67.44642639160156,
+      "all_dark": 67.44642639160156
+    }
+  },
+  "verdict": {
+    "weighted_mse": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.0005931055638939142,
+        "over_speckle": 0.061630550771951675,
+        "displace": 0.02518451027572155,
+        "empty_roi": 0.06134055182337761,
+        "all_dark": 0.06166119873523712
+      },
+      "discrimination": 0.4725184740941284,
+      "own_scale": 0.06166119873523712,
+      "degenerate_safe": true,
+      "empty_roi_margin": 0.06134055182337761,
+      "all_dark_margin": 0.06166119873523712,
+      "covers": [],
+      "max_abs_spearman_vs_incumbent": 0.9734042553191491,
+      "spearman_vs_incumbent": {
+        "mse": 0.9734042553191491,
+        "uniformity": 0.2564046895353887,
+        "w_speckle": 0.8379287885366914,
+        "w_ellipse": 0.188558402084238
+      },
+      "screenable_here": true,
+      "phase_domain": false
+    },
+    "ssim_loss": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.023541033267974854,
+        "over_speckle": 0.4884471297264099,
+        "displace": 0.28858011960983276,
+        "empty_roi": 0.27779144048690796,
+        "all_dark": 0.8351293802261353
+      },
+      "discrimination": 0.31953862541531813,
+      "own_scale": 0.8351293802261353,
+      "degenerate_safe": true,
+      "empty_roi_margin": 0.27779144048690796,
+      "all_dark_margin": 0.8351293802261353,
+      "covers": [],
+      "max_abs_spearman_vs_incumbent": NaN,
+      "spearman_vs_incumbent": {
+        "mse": NaN,
+        "uniformity": NaN,
+        "w_speckle": NaN,
+        "w_ellipse": NaN
+      },
+      "screenable_here": true,
+      "phase_domain": false
+    },
+    "gradient_loss": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.004951242823153734,
+        "over_speckle": 0.1323709338903427,
+        "displace": 8.875944331521168e-05,
+        "empty_roi": 0.01075168326497078,
+        "all_dark": 0.019587496295571327
+      },
+      "discrimination": 0.34602494701403286,
+      "own_scale": 0.1323709338903427,
+      "degenerate_safe": true,
+      "empty_roi_margin": 0.01075168326497078,
+      "all_dark_margin": 0.019587496295571327,
+      "covers": [],
+      "max_abs_spearman_vs_incumbent": 0.6677160225792446,
+      "spearman_vs_incumbent": {
+        "mse": 0.6677160225792446,
+        "uniformity": -0.5953104646113766,
+        "w_speckle": 0.3618106817194964,
+        "w_ellipse": 0.23393399913156757
+      },
+      "screenable_here": true,
+      "phase_domain": false
+    },
+    "peak_penalty": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.0,
+        "over_speckle": 2.8245670795440674,
+        "displace": 0.0,
+        "empty_roi": 0.0,
+        "all_dark": 0.0
+      },
+      "discrimination": 0.3333333333333333,
+      "own_scale": 2.8245670795440674,
+      "degenerate_safe": false,
+      "empty_roi_margin": 0.0,
+      "all_dark_margin": 0.0,
+      "covers": [],
+      "max_abs_spearman_vs_incumbent": 0.6391663048198004,
+      "spearman_vs_incumbent": {
+        "mse": 0.6391663048198004,
+        "uniformity": 0.6098567086409032,
+        "w_speckle": 0.44800260529743824,
+        "w_ellipse": 0.0001085540599218411
+      },
+      "screenable_here": true,
+      "phase_domain": false
+    },
+    "energy_conservation": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.16334660351276398,
+        "over_speckle": 32.969913482666016,
+        "displace": 1.52587890625e-05,
+        "empty_roi": 197.4035186767578,
+        "all_dark": 304.9867858886719
+      },
+      "discrimination": 0.03621279880309563,
+      "own_scale": 304.9867858886719,
+      "degenerate_safe": true,
+      "empty_roi_margin": 197.4035186767578,
+      "all_dark_margin": 304.9867858886719,
+      "covers": [],
+      "max_abs_spearman_vs_incumbent": 0.7321971341728182,
+      "spearman_vs_incumbent": {
+        "mse": 0.7321971341728182,
+        "uniformity": -0.14253148067737736,
+        "w_speckle": 0.6625054277029963,
+        "w_ellipse": 0.09780720798957883
+      },
+      "screenable_here": true,
+      "phase_domain": false
+    },
+    "phase_smoothness": {
+      "values": {
+        "exact": 2.1761863231658936,
+        "over_smooth": 2.1761863231658936,
+        "over_speckle": 2.1761863231658936,
+        "displace": 2.1761863231658936,
+        "empty_roi": 2.1761863231658936,
+        "all_dark": 2.1761863231658936
+      },
+      "discrimination": 0.0,
+      "degenerate_safe": null,
+      "screenable_here": false,
+      "not_screenable_reason": "phase-domain term: invariant to the input image by construction, so a corruption sweep cannot score it; requires a paired training run",
+      "covers": [],
+      "phase_domain": true
+    },
+    "phase_modulation_depth": {
+      "values": {
+        "exact": 67.44642639160156,
+        "over_smooth": 67.44642639160156,
+        "over_speckle": 67.44642639160156,
+        "displace": 67.44642639160156,
+        "empty_roi": 67.44642639160156,
+        "all_dark": 67.44642639160156
+      },
+      "discrimination": 0.0,
+      "degenerate_safe": null,
+      "screenable_here": false,
+      "not_screenable_reason": "phase-domain term: invariant to the input image by construction, so a corruption sweep cannot score it; requires a paired training run",
+      "covers": [],
+      "phase_domain": true
+    }
+  }
+}
