@@ -27,6 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from ml.zernike.eval_stats import seed_agreement  # noqa: E402
 from ml.zernike.train_coeff import CoeffTrainConfig, train  # noqa: E402
 
 OUT = "logs/seed_sensitivity.json"
@@ -96,7 +97,14 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
 
-    signs = {int(np.sign(d)) for d in diffs if d != 0.0}
+    # {seed: high_width - low_width} for the seed-agreement diagnosis.
+    seed_diffs: dict[int, float] = {}
+    for seed, values in sorted(by_seed.items()):
+        if len(values) < 2:
+            continue
+        keys = sorted(values)
+        seed_diffs[seed] = values[keys[-1]] - values[keys[0]]
+    agreement = seed_agreement(seed_diffs)
     summary = {
         "fold": args.fold,
         "epochs": args.epochs,
@@ -105,8 +113,8 @@ def main(argv: list[str] | None = None) -> int:
         "per_seed": table,
         "mean_diff": float(np.mean(diffs)) if diffs else float("nan"),
         "std_diff": float(np.std(diffs, ddof=1)) if len(diffs) > 1 else float("nan"),
-        "signs_observed": sorted(signs),
-        "sign_flips": bool(len(signs) > 1),
+        "signs_observed": agreement["signs_observed"],
+        "sign_flips": agreement["sign_flips"],
         "per_term_means": {
             f"in{t}": float(
                 np.mean([r["best_val_r2"] for r in rows if r["input_terms"] == t])
@@ -114,12 +122,7 @@ def main(argv: list[str] | None = None) -> int:
             for t in args.input_terms
         },
         "wall_seconds": time.perf_counter() - started,
-        "interpretation": (
-            "sign flips across seeds => the earlier 18-fold p-value was one "
-            "shared seed's init, NOT a property of the input width"
-            if len(signs) > 1
-            else "sign is stable across seeds => consistent with a real effect"
-        ),
+        "interpretation": agreement["interpretation"],
     }
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)

@@ -61,6 +61,11 @@ from ml.hwdataset.zernike_dataset import (  # noqa: E402
     fit_coeff_stats,
     pad_coefficients,
 )
+from ml.zernike.eval_stats import (  # noqa: E402
+    cohens_dz,
+    holm_bonferroni,
+    sign_flip_pvalue,
+)
 from ml.zernike.forward_model import peak_normalize  # noqa: E402
 from ml.zernike.train_coeff import (  # noqa: E402
     INDEX_CACHE,
@@ -75,55 +80,10 @@ FIG_DIR = "report/zernike_coeff2amp/figures"
 
 
 # ---------------------------------------------------------------------------
-# Statistics (exact, no scipy/sklearn -- this repo has neither)
+# Statistics live in ml.zernike.eval_stats -- the single source of truth.
+# They were inline here until 383b7c7; keeping a second copy here is exactly the
+# "duplicate implementation drifts" failure this repo has been bitten by.
 # ---------------------------------------------------------------------------
-def sign_flip_pvalue(diffs: list[float]) -> float:
-    """Exact two-sided sign-flip permutation p-value on paired differences.
-
-    Enumerates all ``2**n`` sign assignments. The minimum attainable p-value is
-    ``2 / 2**n``, so with 18 folds it is ~7.6e-6 and with 4 folds it is 0.125 --
-    a 4-fold protocol *structurally* cannot reach significance, which is why the
-    objective-wise split is reported as effect sizes only.
-    """
-    clean = [d for d in diffs if d == d]
-    n = len(clean)
-    if n == 0:
-        return float("nan")
-    observed = abs(float(np.mean(clean)))
-    total = 0
-    extreme = 0
-    for mask in range(1 << n):
-        total += 1
-        acc = 0.0
-        for i in range(n):
-            acc += clean[i] if (mask >> i) & 1 else -clean[i]
-        if abs(acc / n) >= observed - 1e-15:
-            extreme += 1
-    return extreme / total
-
-
-def cohens_dz(diffs: list[float]) -> float:
-    """Cohen's ``d_z`` = mean(diff) / std(diff) for paired samples."""
-    clean = np.asarray([d for d in diffs if d == d], dtype=np.float64)
-    if clean.size < 2:
-        return float("nan")
-    sd = float(clean.std(ddof=1))
-    if sd <= 0.0:
-        return float("inf") if float(clean.mean()) != 0.0 else float("nan")
-    return float(clean.mean() / sd)
-
-
-def holm_bonferroni(pvalues: dict[str, float]) -> dict[str, float]:
-    """Holm-Bonferroni adjusted p-values, monotone-enforced."""
-    items = sorted(pvalues.items(), key=lambda kv: kv[1])
-    m = len(items)
-    adjusted: dict[str, float] = {}
-    running = 0.0
-    for rank, (key, p) in enumerate(items):
-        value = min(1.0, (m - rank) * p)
-        running = max(running, value)
-        adjusted[key] = running
-    return adjusted
 
 
 # ---------------------------------------------------------------------------

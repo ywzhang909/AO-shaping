@@ -46,6 +46,9 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from scripts._common import fmt_metric as _fmt  # noqa: E402
+from scripts._common import markdown_table as _table  # noqa: E402
+
 OUT_DIR = "report/zernike_coeff2amp"
 FIG_DIR = f"{OUT_DIR}/figures"
 FILE_SWEEP = "logs/zernike_coeff_sweep.json"
@@ -53,37 +56,11 @@ OBJ_SWEEP = "logs/zernike_coeff_sweep_objective.json"
 PRODUCTION = "logs/zernike_coeff/production_fold13/summary.json"
 
 
-def _fmt(value: object, digits: int = 4) -> str:
-    """Format a metric for a markdown table, degrading rather than lying.
-
-    ``None``/NaN becomes an em dash so an absent metric is visibly absent rather
-    than rendering as ``0.0000`` -- a failure mode this repo has hit before.
-    """
-    if value is None:
-        return "—"
-    if isinstance(value, float):
-        if value != value:
-            return "—"
-        if value in (float("inf"), float("-inf")):
-            return "∞"
-        return f"{value:.{digits}f}"
-    return str(value)
-
-
 def _load(path: str) -> dict | None:
     file = ROOT / path
     if not file.exists():
         return None
     return json.loads(file.read_text(encoding="utf-8"))
-
-
-def _table(headers: list[str], rows: list[list[str]]) -> str:
-    """GitHub-flavoured markdown table."""
-    out = ["| " + " | ".join(headers) + " |"]
-    out.append("|" + "|".join(["---"] * len(headers)) + "|")
-    for row in rows:
-        out.append("| " + " | ".join(row) + " |")
-    return "\n".join(out)
 
 
 def _training_curve(history: list[dict], title: str, path: Path) -> None:

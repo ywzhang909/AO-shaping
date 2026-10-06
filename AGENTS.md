@@ -75,6 +75,8 @@ AO-shaping/
 | Standalone runners (未注册) | `src/ao_shaping/runners/` | `slm_offset_runner` 计划迁移至 `tools/slm/`。⚠️ `slm_shaping_runner` **曾经**在此列 (2026-10-05 前它未注册); 现已注册为 `slm-pib` + `spgd-square`, 不再属于本行 |
 | ML training | `src/ml/` (standalone, not inside `ao_shaping/`) | U-Net+GAN, trainer, wandb_logger |
 | 硬件相位→相机图像 DataLoader | `src/ml/hwdataset/` | `data/debug` 全量转 PyTorch Dataset: 输入=SLM 相位+曝光, 输出=CCD 画面 (见 `硬件调试转 Dataset` 节) |
+| **Zernike 系数→远场强度 Dataset** | `src/ml/hwdataset/zernike_dataset.py` | 输入=136 维 Noll 序系数 (弧度), 输出=归一化远场强度; **绕过 `materialise()` 的瞳孔重建**, 实测 136 → 10.5 ms/item 且输出逐位一致 |
+| 离线评估统计 (配对检验/canary skill) | `src/ml/zernike/eval_stats.py` | **纯 numpy, 报告引用的统计唯一来源** (sign-flip 精确置换检验 / `cohens_dz` / `holm_bonferroni` / `min_attainable_pvalue` / `skill_scores` / `seed_agreement`)。scripts/ 只做渲染, **不得复制第二份** |
 | Standalone tools | `src/ao_shaping/tools/` | SLM phase capture, Micro-DM per-channel image collection, train data collection |
 | Visualization | `src/ao_shaping/display/` | Windows, frames for GUI |
 | GUI | `src/ao_shaping/gui/{r50,dm,slm,zernike,ccd}/` | Streamlit components, 按设备域分包 (见上方目录树) |
@@ -1000,6 +1002,8 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Vector-beam demo `sim.py` living in `algorithm/` | The vector-beam demo `sim.py` lives in `algorithm/` — it belongs in `scripts/`. |
 | `utils/slm/pattern_helper.py` importing `from ao_shaping.algorithm.phase_wrap` at module top level | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. |
 | 脚本/runner/tools/GUI 内**重复实现 Zernike 数学** (Noll↔(n,m) 查表、多项式求值、相位生成) | Canonical 入口唯一: `utils/wavefront/zernike_utils.py` (API 层) + `utils/wavefront/zernike_calc.py` (引擎层), 单向依赖 `zernike_utils → zernike_calc`。2026-09 去重重构前 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 各有一套, 已全数收敛。新代码一律 `from ao_shaping.utils.wavefront.zernike_utils import ...`, 禁止 `import aotools`/自写 `RZern`/自写 `noll2nm` 表。详见 README `## Zernike 使用指南` 与 AGENTS `## Zernike 使用规范`。 |
+| **配对检验只在"变化的轴"上配对** — 拿 N 折当 N 个独立样本 | 全部折共用同一个 `seed` 时, 各折共享**同一条权重初始化随机流**, 于是 N 折是"同一对初始化"被测了 N 次, **不是**该对比的 N 次独立采样; sign-flip 检验仍按独立处理, p 值**偏保守 (过于乐观)**。实测: `input_terms` 136→78 的 18 折配对给出 `p = 0.0144`, 但固定一折只换 seed 后**符号翻转**、差值量级小 30 倍 ⇒ 那是初始化噪声不是效应。规则: **换 seed 就对 seed 配对, 换折就对折配对**, 两者不可互相冒充; 判定前跑 `scripts/seed_sensitivity_coeff.py`。另: `min_attainable_pvalue(n) = 2/2**n`, 故 4 折协议**结构上**到不了 p<0.05, 那里只报效应量不报结论。统计实现唯一入口 `ml/zernike/eval_stats.py` |
+| 用 **MSE/PSNR/SSIM** 给 `normalization` 选开关 | 任何含 `sum` 归一化的指标都在度量**归一化本身**而不是拟合质量。实测同一配置: `normalization="sum"` 给 PSNR **72.1 dB** / SSIM 0.9996, 而 R² 反而**更差**于 `peak`。判据只看 **R² / corr / 光斑域指标** |
 
 > 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`report/slm/slm_square_spgd/README.md`](report/slm/slm_square_spgd/README.md)。
 

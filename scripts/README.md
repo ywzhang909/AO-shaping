@@ -2343,6 +2343,58 @@ these scripts appeared to run four seeds and measured `sd = 0.0000` with
 mean == best == worst — they were byte-identical replicates, which invalidated the paired
 counts of three earlier attempts.
 
+## Zernike Forward Model & Coefficient Training
+
+These scripts train, sweep, and report on the Zernike-coefficient → CCD far-field forward
+model in `ml/zernike/`. All are **fully offline** — pure numpy/torch on the `ml/hwdataset`
+corpus, no hardware.
+
+| Script | Purpose |
+|---|---|
+| `train_coeff.py` (module entry: `python -m ml.zernike.train_coeff`) | Train `ZernikeCoeffConvNet`/`ZernikeCoeffMLP` with `--protocol(file|objective)`, `--fold`, `--held-out-path`, `--input-terms`, `--w-ellipse`, W&B. R² selects checkpoints. |
+| `sweep_coeff_models.py` | Sweep width/depth × n_max × lr × optimizer across folds. |
+| `forward_search.py` | Forward-model search: physics × U-Net residual × loss × normalization × n_max. Writes `report/loss_defects/forward_search.json`. |
+| `forward_search_extra.py` | Expanded forward search with additional loss/augmentation combinations. |
+| `generate_zernike_coeff_report.py` | Render the illustrated coefficient-training report (`report/zernike_coeff2amp/`). Reads `logs/zernike_coeff/` summaries. |
+| `generate_inverse_design_report.py` | Render the inverse-design report (`report/loss_defects/inverse_design_report.md`). Reads `logs/zernike_coeff/` and `report/loss_defects/forward_search.json`. |
+| `write_forward_search_report.py` | Render `report/loss_defects/forward_search_report.md` from `forward_search.json`. |
+| `probe_device_metadata.py` | Dump per-family FOV / pixel scale / exposure metadata from the index. |
+| `wire_ellipse.py` | Wire the `w_ellipse` loss term into `train_amp`. |
+| `check_ellipse_term.py` | Validate `ellipse_gap_term` against synthetic inputs. |
+| `diagnose_moment_gameability.py` / `diagnose_moment_metric.py` | Diagnose second-moment vs ellipse metric behavior. |
+| `probe_moment_floor.py` | Probe the minimum detectable moment gap. |
+| `speckle_loss_bench.py` | Benchmark the `log_gradient_difference` (speckle) term against structure. |
+| `metric_discrimination.py` | Compare total_variation_ratio vs SSIM vs PSNR for discriminating blur. |
+| `seed_sensitivity_coeff.py` | **Seed-axis control** for a paired effect. Fixes one fold and varies only `--seeds`, so a fold-paired test's confound is exposed. Writes `logs/seed_sensitivity.json`. Used to overturn the `input_terms` p-value — see below. |
+| `patch_report_sections.py` | Patch specific sections of a report from templated fragments. |
+
+### `ml.zernike.eval_stats` — the statistics these scripts share
+
+`sign_flip_pvalue`, `cohens_dz`, `holm_bonferroni`, `min_attainable_pvalue`,
+`paired_comparison`, `skill_scores`, `seed_agreement`, `aggregate_by_arm`,
+`iter_paired_diffs` live in **`src/ml/zernike/eval_stats.py`**, not in any script.
+They are pure numpy (the repo has neither scipy nor sklearn) and are imported by
+`sweep_coeff_models.py` and `seed_sensitivity_coeff.py`. A second copy inside a
+generator is the "duplicate implementation drifts" failure this repo has been bitten
+by before — put new statistics there, not in a script. Pinned by
+`tests/ao_shaping/ml/zernike/test_eval_stats.py`.
+
+> 🔴 **A paired p-value is only as valid as the axis you paired on.** The single
+> easiest way to publish a confident wrong number is to vary the *data* axis (folds)
+> many times while holding the *initialisation* axis (seed) at one value. Every fold
+> then shares **one** weight draw, so N folds measure *that init pair* N times, and a
+> sign-flip test treats them as N independent samples — an **anti-conservative** p.
+>
+> This is not hypothetical: the 18-fold `input_terms` test reported `p = 0.0144` for
+> trimming the input 136→78. `seed_sensitivity_coeff.py` held one fold and varied the
+> seed, and the sign **flipped** (mean difference −0.0031 ± 0.0038, ~30× smaller than
+> the fold estimate). The effect was an initialisation artefact. **Vary seeds, pair on
+> seeds; vary folds, pair on folds.**
+>
+> Also note `min_attainable_pvalue(n) = 2 / 2**n`: a 4-fold protocol cannot reach
+> p < 0.05 no matter how large the effect, so report effect sizes there instead of a
+> verdict.
+
 ## Verification Scripts
 
 ### generate_bench_probe_report.py
