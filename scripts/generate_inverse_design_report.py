@@ -379,8 +379,119 @@ GLOSSARY = """
 """
 
 
+def _load(name: str) -> dict:
+    """Load a saved result panel, or ``{}`` when it has not been produced yet.
+
+    The report must render on a clean checkout where only some experiments have been run, so a
+    missing artefact degrades to an empty dict and the section says so rather than inventing
+    numbers.
+    """
+    import json
+
+    path = OUT_DIR / name
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _fmt(value, spec: str = "+.4f", missing: str = "MISSING") -> str:
+    """Format a number, or report it missing rather than as 0.0000.
+
+    A metric that silently renders as zero is indistinguishable from a real zero, which is how
+    an absent measurement turns into a fake result.
+    """
+    if value is None:
+        return missing
+    try:
+        f = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if f != f:  # NaN
+        return missing
+    return format(f, spec)
+
+
+def _search_rows() -> list[str]:
+    """The paired-delta table for the architecture / loss / augmentation search."""
+    data = _load("forward_search.json")
+    if not data.get("summary"):
+        return ["*NOT PRODUCED YET - run `python scripts/forward_search.py`*"]
+    out = ["| arm | mean R2 | dR2 (paired) | std err | beats baseline | dSSIM |",
+           "|---|---|---|---|---|---|"]
+    for row in data["summary"]:
+        out.append(
+            f"| {row['arm']} | {_fmt(row['r2'])} | {_fmt(row['d_r2'])} | "
+            f"{_fmt(row.get('d_r2_se'), '.4f')} | {row.get('pos', 0)}/3 | "
+            f"{_fmt(row.get('d_ssim'))} |"
+        )
+    return out
+
+
+def _combined_rows() -> list[str]:
+    """The winner table: physics + U-Net residual against each architecture alone."""
+    data = _load("forward_search_extra.json")
+    rows = data.get("rows")
+    if not rows:
+        return ["*NOT PRODUCED YET - run `python scripts/forward_search_extra.py`*"]
+    base = {r["seed"]: r for r in rows if r["arm"] == "A0 physics"}
+    out = ["| arm | dR2 (paired) | std err | beats baseline | dSSIM |", "|---|---|---|---|---|"]
+    for name in sorted({r["arm"] for r in rows}):
+        sel = [r for r in rows if r["arm"] == name]
+        if name == "A0 physics":
+            out.append("| A0 physics (incumbent) | - | - | - | - |")
+            continue
+        deltas = [r["r2"] - base[r["seed"]]["r2"] for r in sel if r["seed"] in base]
+        if not deltas:
+            continue
+        mean = sum(deltas) / len(deltas)
+        var = sum((d - mean) ** 2 for d in deltas) / (len(deltas) - 1) if len(deltas) > 1 else 0.0
+        ss = [r["ssim"] - base[r["seed"]]["ssim"] for r in sel if r["seed"] in base]
+        out.append(
+            f"| {name} | {_fmt(mean)} | {_fmt(var / len(deltas) ** 0.5, '.4f')} | "
+            f"{sum(1 for d in deltas if d > 0)}/{len(deltas)} | {_fmt(sum(ss) / len(ss))} |"
+        )
+    out.append("")
+    out.append(f"({len(base)} seeds, paired. Read from `forward_search_extra.json`.)")
+    return out
+
+
+def _inverse_rows() -> list[str]:
+    """The three-arm inverse comparison that the improved forward model triggered."""
+    data = _load("inverse_combined.json")
+    rows = data.get("rows")
+    if not rows:
+        return ["*NOT PRODUCED YET - run `python scripts/inverse_combined.py`*"]
+    flat = float(data.get("flat", 0.0))
+    gs = float(data.get("gs", 0.0))
+    base = {r["seed"]: r["inv_rand"] for r in rows if r["arm"] == "A0 physics"}
+    out = ["| arm | forward R2 | inverse (random start) | vs flat | d(inverse) | consistent |",
+           "|---|---|---|---|---|---|",
+           f"| _flat reference (do nothing)_ | - | {flat:.4f} | 0.0000 | - | - |",
+           f"| _GS proposal_ | - | {gs:.4f} | {gs - flat:+.4f} | - | - |"]
+    for name in ("A0 physics", "A5 unet", "D2 physics+residual"):
+        sel = [r for r in rows if r["arm"] == name]
+        if not sel:
+            continue
+        inv = sum(r["inv_rand"] for r in sel) / len(sel)
+        r2 = sum(r["r2"] for r in sel) / len(sel)
+        if name == "A0 physics":
+            out.append(f"| {name} | {_fmt(r2)} | {inv:.4f} | {inv - flat:+.4f} | - | - |")
+            continue
+        d = [r["inv_rand"] - base[r["seed"]] for r in sel if r["seed"] in base]
+        if not d:
+            continue
+        out.append(
+            f"| {name} | {_fmt(r2)} | {inv:.4f} | {inv - flat:+.4f} | "
+            f"{_fmt(sum(d) / len(d))} | {sum(1 for v in d if v > 0)}/{len(d)} |"
+        )
+    return out
+
+
 def build_report(stats: dict, figures_ok: bool) -> str:
     fwd, invst, ph = stats["forward"], stats["inverse"], stats["phase"]
+    SEARCH_ROWS = _search_rows()
+    COMBINED_ROWS = _combined_rows()
+    INVERSE_ROWS = _inverse_rows()
     lines = [
         "# 逆向整形研究报告（正向 + 反向 pred vs true）",
         "",
@@ -446,39 +557,163 @@ def build_report(stats: dict, figures_ok: bool) -> str:
             "",
         ]
     lines += [
-        "## 5. 一个必须讲清楚的坑：模型不能给自己打分",
+        "## 5. 梯度精修到底是不是「重启」——一个被推翻的结论",
         "",
         "![ROI 扫描](figures/roi_sweep.png)",
         "",
-        "左图：无论用 GS 还是梯度精修，9 种目标框下**都稳定优于平场**。"
-        "右图：两者的优势**互不占优**——GS 已经做得好的时候梯度精修增益就小，反之亦然。"
-        "（横纵坐标分别相对平场和相对 GS。）",
+        "**本节曾经写着一个已被推翻的结论。保留这段是为了说明它是怎么被推翻的。**",
         "",
-        "这条关系在 9 种 ROI 几何 × 2 种目标函数上稳健"
-        "（Spearman −0.87 / −0.92），换到自由相位参数化后仍是 −0.73。",
-        "它说明**梯度精修更像一次重启，而不是一个方向正确的梯度**："
-        "起点差时救回来，起点好时反而破坏。",
+        "原结论是：「梯度精修更像一次重启，而不是一个方向正确的梯度」——"
+        "起点差时救回来，起点好时反而破坏。证据是 9 种 ROI 几何 × 2 种目标函数上 "
+        "Spearman = **−0.87 / −0.92**。据此还给出了工程建议：按起点质量设闸门，只精修没达标的提案。",
         "",
-        "因此工程上的正确做法是**按起点质量设闸门**——只在提案没达标时才精修。"
-        "`slm_gs_refine` 的 bake-off（平场与 GS 实测比分，取优者）正是这个形状。",
+        "**问题出在评测器本身。** 原来那套评测把远场用 `[:64, :64]` 裁切，"
+        "而 0 阶光斑在远场阵列的**中心**，不在左上角。左上角的数值比中心光斑低约 10^5 倍，"
+        "于是所有 ROI 指标量的都是**离轴旁瓣**，不是光斑。",
+        "",
+        "这个错误被自己的数字掩盖了很久——它是自洽的、可复现的。"
+        "只有把图画出来才会看到「独立仿真」那一栏是空的。",
+        "",
+        "修正后的结论**方向相反**：",
+        "",
+        "| 结论 | 原始（错误评测器） | 修正后 |",
+        "|---|---|---|",
+        "| 「GS 优于梯度设计」 | 34/90，接近抛硬币 | **9/9**，配对 t = +6.4…+32.5 |",
+        "| 「精修破坏 GS 解」 | −0.2206，0/16 | **符号翻转**：+0.0795，78/90 为正 |",
+        "| 「精修是重启不是梯度」 | Spearman −0.87 / −0.92 | **Spearman +0.93 / +0.95** |",
+        "",
+        "Spearman 从 −0.87 变成 +0.93 不是「效果变弱」，是**符号翻转且幅度更大**："
+        "GS 提案越好，精修增益越大。这正是方向正确的梯度该有的行为，与重启行为相反。",
+        "",
+        "**两条对工程直接有用的推论：**",
+        "",
+        "1. **不要按起点质量设闸门。** 那条建议建立在错误的符号上。"
+        "现在的证据支持「精修几乎总是有帮助」，不需要闸门。",
+        "2. **GS 单独用常常不比平场好。** `GS − 平场` 在 90/90 次里都是负的"
+        "（−0.0025…−0.0364）。真正的收益来自 **GS + 精修**：GS 给出正确的盆地，梯度把它走完。",
+        "",
+        "自由相位参数化下结论**不一致**：精修反而在 9/9 个 ROI 里都**破坏** GS 解（−0.2779）。"
+        "原因是自由相位有 576 个自由度，而模型只表达 135 个 Zernike 模式——"
+        "精修在一个目标函数看不见的方向上走了。这与 §9 的正向结论是同一件事。",
         "",
         "---",
         "",
         GLOSSARY,
         "",
-        "## 6. 尚未验证的边界",
+"## 6. 正向模型的改进尝试：逐项贡献",
+        "",
+        "![各 arm 对 R² 的贡献](figures/forward_search_summary.png)",
+        "",
+        "每个 arm 都与基线**同 seed 配对**比较（不同 seed 之间 R² 的散布高达 0.075，"
+        "不配对就会把随机波动读成改进）。排序只看 R² 与 SSIM，不看 MSE/PSNR——"
+        "本仓库有过 72 dB PSNR 但 R² 低于常数预测的记录。",
+        "",
+        *SEARCH_ROWS,
+        "",
+        "逐项结论：",
+        "",
+        "| 尝试 | 结果 | 原因 |",
+        "|---|---|---|",
+        "| 相机曝光等设备参数 | **无法进行** | 7 个 family 的曝光全是常数"
+        "（1.1/1.1/0.4/1.5/1.2/1.2/0.1 ms），常数输入携带零信息 |",
+        "| 椭圆拟合 loss（3 个权重） | 降低自身指标 18%，但 R² 0/3 | "
+        "拿像素保真度换光斑形状，是权衡不是净提升 |",
+        "| physics + attention | −0.0137，0/3 | 参数 ×45 无收益，第三次被否 |",
+        "| U-Net 单独 | +0.0168 ± 0.0221 | 标准误比均值还大，且**过度平滑**（见下） |",
+        "| 相位 π 翻转 | +0.0000，逐位相同 | **物理上必然无效**：加 π 使相量取负，"
+        "而 `|FFT(−E)| = |FFT(E)|`，强度目标完全不变 |",
+        "| 相位噪声 / 平移 / 合成强相位 | 全在噪声内或为负 | "
+        "验证/训练误差比 1.08，没有泛化间隙可压 |",
+        "",
+        "### 唯一有效的改进：physics + U-Net 残差",
+        "",
+        "![pred vs true 逐样本对比](figures/forward_search_pred_vs_true.png)",
+        "",
+        "两个模型之前只被**分开**试过，漏掉的是中间那档：让 physics 做它擅长的"
+        "（闭式解析相位），让 CNN 只补它表达不了的部分。",
+        "",
+        *COMBINED_ROWS,
+        "",
+        "两点值得记下：",
+        "",
+        "* **U-Net 单独用仍然没用**（+0.0168 ± 0.0221）。所以提升不是「更大的网络」，"
+        "而是物理基座提供了 CNN 自己找不到的东西。",
+        "* **冻结基座反而更差**（4/5，+0.0261，对比联合训练的 5/5）。"
+        "说明残差不是单纯「补基座缺的那部分」——基座与残差需要**一起**适应。",
+        "",
+        "这与本仓库早前「hybrid 与 physics 统计不可区分」的记录不矛盾："
+        "那个 hybrid 用的是 32 通道零初始化残差，而这里是完整 U-Net 残差、缩放 0.15。"
+        "**架构细节决定成败，旧结论不能直接套用。**",
+        "",
+        "图里还有一个只看数字看不出来的现象：**U-Net 的 SSIM 优势部分来自「过度平滑」。**"
+        "它的预测光斑明显比实测更宽更糊，残差图中心发蓝（预测偏暗）、外圈发红（预测偏亮）。"
+        "数值上同向印证：U-Net 的椭圆误差 0.3997 对基线 0.2027，光斑尺寸差了近 2 倍。"
+        "R² 会惩罚丢失的峰值结构，SSIM 不会——这就是本文不按 SSIM 选模型的原因。",
+        "",
+        "## 7. 没有过拟合可修",
+        "",
+        "「误差过大」很容易被当成过拟合，但实测不是：",
+        "",
+        "| 训练记录数 | val R² | 验证/训练 |",
+        "|---|---|---|",
+        "| 128 | +0.8767 | 1.16 |",
+        "| 256 | +0.8850 | 1.02 |",
+        "| 512（默认） | **+0.8860** | **1.08** |",
+        "| 768 | +0.8851 | 1.12 |",
+        "",
+        "验证误差只比训练误差高 8%（256 条时反而更低），学习曲线是平的，"
+        "而且**每一个正则化都让它更差**：`l2=1e-3` −0.025、`l2=1e-2` −0.253、"
+        "`weight_decay=1e-2` −0.207，全部 0/3 配对。降低容量（`n_max=15`）"
+        "毫无变化（−0.0005）。",
+        "",
+        "所以正向误差是**表示能力上限**，不是过拟合。加正则化去补一个不存在的间隙，"
+        "只会让模型更差——这一点在每个杠杆上都是 3 个 seed 量过的。",
+        "",
+        "## 8. 逆向优化仍然失败，且与模型结构无关",
+        "",
+        "既然上一节的改进有效，按既定条件就该验证逆向。三个 arm 在同一 padding 下重测：",
+        "",
+        *INVERSE_ROWS,
+        "",
+        "（padding=1，所以本表的 R² 不能与第 6 节的 padding=12 结果直接比较；"
+        "三个 arm 之间可比。）",
+        "",
+        "**这是一个负结果，而且很重要：**",
+        "",
+        "* 改进最大的 D2 把正向 R² 抬高了 +0.0426（5/5 配对），"
+        "逆向只动了 +0.0065（2/5，纯噪声）。",
+        "* 更刺眼的是 U-Net：正向 R² 几乎翻倍（+0.8718 对 +0.6276），"
+        "逆向分数**纹丝不动**（0.5461）。",
+        "",
+        "至此已经是**第三次**用三种结构、两种 padding 独立确认同一件事："
+        "**正向准确率不能预测逆向能力。** 瓶颈是**训练分布**"
+        "（语料只有四个优化目标的轻微像差），不是模型容量，也不是正则化。"
+        "更强的模型不会解决它，只有系统性覆盖强相位的训练数据才会。",
+        "",
+        "---",
+        "",
+        "## 9. 尚未验证的边界",
         "",
         "* 以上全部是**仿真**结论，不是台架实测结论。",
         "* 只覆盖了 Zernike（135 自由度）与自由相位 `phase-grid=24`（576 自由度）两种参数化；"
         "未试原生全分辨率自由相位（4096 自由度）。",
-        "* ROI 几何扫描用的是 `SIZE_FRAC × ASPECT` 的 3×3 组合，"
-        "中间没有更密的采样。",
+        "* ROI 几何扫描用的是 `SIZE_FRAC × ASPECT` 的 3×3 组合，中间没有更密的采样。",
+        "* 跨目标的分组比较**做不了**：每个 seed 的验证划分只覆盖 1–2 个优化目标，"
+        "只有 `rmse_out` 出现在 2 个以上的 seed 里。要做这件事需要 10 折分组交叉验证。",
+        "* 合成强相位数据与真实语料**同源**（都用项目自带仿真器），"
+        "因此模型没有在完全独立的传播模型上被评测过。",
         "",
-        "## 7. 复现",
+        "## 10. 复现",
         "",
         "```bash",
         "python scripts/generate_inverse_design_report.py",
         "python -m pytest tests/ao_shaping/ml/zernike/test_inverse_design.py -q",
+        "",
+        "# Section 6 panels (run the experiments before regenerating the report)",
+        "python scripts/forward_search.py",
+        "python scripts/forward_search_extra.py",
+        "python scripts/inverse_combined.py",
+        "python scripts/generate_forward_search_report.py",
         "```",
         "",
     ]

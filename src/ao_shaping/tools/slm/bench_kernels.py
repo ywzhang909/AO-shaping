@@ -51,6 +51,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.ndimage import zoom
 
 #: Union of both sources' star-export surfaces (`slm_bench_probe` had no `__all__`,
 #: `slm_bench_metrics` declared 9). Keeping the union stops `import *` narrowing.
@@ -64,6 +65,7 @@ __all__ = [
     "TILT_SHIFT_SCALE",
     "build_block_pattern",
     "core_fraction",
+    "crop_around_zero_order",
     "crop_roi",
     "despike_frame",
     "display_and_average",
@@ -86,6 +88,8 @@ __all__ = [
 
     "camera_pixel_um_from_focal_scale",
     "focal_length_from_camera_pixel",
+    "gaussian_grid",
+    "phase_to_panel",
 ]
 
 # Bench constants measured 2026-09-30 (Santec SLM-200 #1 22030108, 1920x1200,
@@ -525,6 +529,93 @@ def finite_median_subtract(frame: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # ROI helpers
 # ---------------------------------------------------------------------------
+
+
+def gaussian_grid(region: int, waist_grid: float) -> np.ndarray:
+    """Gaussian illumination on the model grid, masked to the inscribed circle.
+
+    Args:
+        region: Model grid edge length in pixels.
+        waist_grid: Gaussian waist in **model pixels**.
+
+    Returns:
+        A ``(region, region)`` amplitude array, zero outside the inscribed
+        circle of radius ``region / 2``.
+    """
+    yy, xx = np.mgrid[0:region, 0:region]
+    r2 = (xx - region / 2.0) ** 2 + (yy - region / 2.0) ** 2
+    amp = np.exp(-r2 / (2.0 * max(float(waist_grid), 1e-6) ** 2))
+    amp[r2 > (region / 2.0) ** 2] = 0.0
+    return amp
+
+
+def phase_to_panel(
+    phase_model: np.ndarray, disc_radius: int, pupil_center: tuple[int, int]
+) -> np.ndarray:
+    """Resize a model-grid phase onto the panel disc, centred on the beam.
+
+    Args:
+        phase_model: ``(region, region)`` phase, raw unwrapped radians.
+        disc_radius: Half-width of the target window, **panel** pixels.
+        pupil_center: Beam centre in **panel** pixels as ``(x, y)``.
+
+    Returns:
+        A ``(SLM_PANEL_H, SLM_PANEL_W)`` float64 array holding the phase inside
+        the disc and zero elsewhere -- the shape the Santec driver expects.
+
+    Raises:
+        ValueError: If ``phase_model`` is not square.
+
+    Note:
+        ``pupil_center`` must be measured **on the panel**. The camera's 0-order
+        is a different coordinate frame entirely (on this bench the two axes are
+        swapped and the scales differ by more than 10x), so deriving one from the
+        other silently writes the phase where the beam is not.
+    """
+    phase_model = np.asarray(phase_model, dtype=np.float64)
+    if phase_model.ndim != 2 or phase_model.shape[0] != phase_model.shape[1]:
+        raise ValueError(f"phase_model must be square, got {phase_model.shape}")
+    r = int(disc_radius)
+    region = phase_model.shape[0]
+    sub = np.asarray(
+        zoom(phase_model, (2 * r / region, 2 * r / region), order=1), dtype=np.float64
+    )
+    panel = np.zeros((SLM_PANEL_H, SLM_PANEL_W), dtype=np.float64)
+    cx, cy = int(pupil_center[0]), int(pupil_center[1])
+    # Clip the window so an off-centre or oversized disc stays in bounds.
+    x0, x1 = max(cx - r, 0), min(cx + r, SLM_PANEL_W)
+    y0, y1 = max(cy - r, 0), min(cy + r, SLM_PANEL_H)
+    sub = sub[y0 - (cy - r) : y1 - (cy - r), x0 - (cx - r) : x1 - (cx - r)]
+    panel[y0:y1, x0:x1] = sub
+    return panel
+
+
+def crop_around_zero_order(frame: np.ndarray, size: int = 512) -> np.ndarray:
+    """Crop a fixed-size window centred on the frame's global argmax.
+
+    The optical axis is the frame's brightest point, never the geometric centre:
+    on this bench the 0-order sits ~620 px off-centre in x. A geometry solve
+    compares the model's *central* far-field window against the stored frame, so
+    an uncropped frame would be compared against a misaligned window and the
+    speckle correlation would collapse.
+
+    Args:
+        frame: 2D far-field frame.
+        size: Window side in pixels, clamped to the frame and zero-padded up.
+
+    Returns:
+        The cropped ``(size, size)`` window.
+    """
+    data = np.asarray(frame, dtype=np.float64)
+    side = int(min(max(size, 1), data.shape[0], data.shape[1]))
+    cy, cx = np.unravel_index(int(np.argmax(data)), data.shape)
+    y0, x0 = int(cy) - side // 2, int(cx) - side // 2
+    out = np.zeros((side, side), dtype=np.float64)
+    sy0, sx0 = max(y0, 0), max(x0, 0)
+    sy1, sx1 = min(y0 + side, data.shape[0]), min(x0 + side, data.shape[1])
+    if sy1 > sy0 and sx1 > sx0:
+        out[sy0 - y0 : sy1 - y0, sx0 - x0 : sx1 - x0] = data[sy0:sy1, sx0:sx1]
+    return out
 
 
 def crop_roi(

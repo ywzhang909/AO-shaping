@@ -705,18 +705,41 @@ class TestQualityScore:
         unshaped = _quality({"encircled_energy": 0.99, "uniformity_cv": 11.0})
         assert shaped > unshaped
 
-    def test_legacy_score_saturates_and_inverts_the_ranking(self) -> None:
-        """Legacy: ``0.3*aspect + 0.4*exp(-((CV/0.3)**2)) + 0.3*EE``.
+    def test_the_saturating_kernel_it_replaced_and_the_ranking_it_breaks(self) -> None:
+        """Why this runner has its own ``_quality``: the kernel it replaced was wrong.
 
-        With aspect_ratio 1.0 the first term is 0.3; at CV=11 the uniformity term
-        underflows to exactly 0, leaving ``0.3 + 0.3*0.99 = 0.597``, which is
-        **higher** than the shaped case. This is the bug, pinned numerically.
+        The retired kernel was ``f_uni = exp(-((CV/0.3)**2))``, i.e. a saturating
+        exponential. On this measured pair it gave the uniform square **0.5610**
+        and the unshaped focus **0.5970** -- ranking the unshaped focus *above*
+        the uniform square, because CV=11 underflows that kernel to exactly 0 and
+        an unfocused spot is naturally concentrated (EE=0.99). That inversion is
+        what made the first bake-off discard the correct phase and keep the flat
+        field.
+
+        The canonical ``compute_quality_score`` no longer has this defect -- its
+        kernels are now the non-saturating ``1/(1+|AR-1|)`` and ``1/(1+CV)``, so
+        both scores are pinned here as a regression check that the trap cannot
+        reopen. This test no longer asserts the saturation exists; it asserts the
+        ordering is correct, and records the retired numbers as the reason.
         """
+        # Retired saturating kernel, reproduced locally so the failure mode stays
+        # visible without depending on `compute_quality_score` regressing to it.
+        def legacy(cv: float, ee: float) -> float:
+            f_uni = math.exp(-((cv / 0.3) ** 2))
+            return 0.3 * 1.0 + 0.4 * f_uni + 0.3 * ee
+
+        assert legacy(cv=0.9, ee=0.87) == pytest.approx(0.5610493639216347)
+        assert legacy(cv=11.0, ee=0.99) == pytest.approx(0.3 * 1.0 + 0.3 * 0.99)
+        assert legacy(cv=11.0, ee=0.99) > legacy(cv=0.9, ee=0.87)  # the inversion
+
+        # Canonical, as shipped now: same inputs, ordering restored.
         shaped = compute_quality_score(_metrics(cv=0.9, ee=0.87))
         unshaped = compute_quality_score(_metrics(cv=11.0, ee=0.99))
-        assert shaped == pytest.approx(0.5610493639216347)
-        assert unshaped == pytest.approx(0.3 * 1.0 + 0.3 * 0.99)
-        assert unshaped > shaped  # the inversion the runner exists to avoid
+        assert shaped > unshaped
+        # 0.3*1/(1+0) + 0.4/(1+0.9) + 0.3*0.87 = 0.3 + 0.21053 + 0.261
+        assert shaped == pytest.approx(0.3 + 0.4 / 1.9 + 0.3 * 0.87)
+        # 0.3 + 0.4/12 + 0.3*0.99
+        assert unshaped == pytest.approx(0.3 + 0.4 / 12.0 + 0.3 * 0.99)
 
     def test_missing_cv_is_treated_as_uniformity_failure(self) -> None:
         """Absent CV must score 0 on the CV axis, not raise or default to 0."""
@@ -902,10 +925,17 @@ class TestImportIsolation:
 
         ``slm_gs_refine`` is the module that drags in the driver package (see the
         class docstring); naming it here is what makes the attribution auditable.
+
+        The second name is ``bench_kernels``, not the older ``slm_bench_probe``:
+        commit ``54d9613`` merged that module and five siblings into two kernels, and
+        this assertion had not been updated. A stale member of a ``>=`` set does not
+        fail -- the set only grows -- so the pin quietly stopped pinning anything, and
+        the whole file stopped importing. Kept explicit here because the failure mode of
+        an ``>=`` pin is silence, not an error.
         """
         assert _module_level_imports() >= {
             "ao_shaping.optimizer.wfless.slm_gs_refine",
-            "ao_shaping.tools.slm.slm_bench_probe",
+            "ao_shaping.tools.slm.bench_kernels",
         }
 
     def test_driver_modules_arrive_transitively_via_slm_gs_refine(self) -> None:

@@ -1,0 +1,173 @@
+{
+  "config": {
+    "grid": 64,
+    "n_samples": 48,
+    "roi_side": 32
+  },
+  "cases": [
+    "exact",
+    "over_smooth",
+    "extra_speckle",
+    "missing_speckle",
+    "empty_roi",
+    "all_dark"
+  ],
+  "scores": {
+    "mse (incumbent)": {
+      "exact": 0.0,
+      "over_smooth": 0.00019234958745073527,
+      "extra_speckle": 0.01911267079412937,
+      "missing_speckle": 1.659987356106285e-05,
+      "empty_roi": 0.01763540878891945,
+      "all_dark": 0.019479192793369293
+    },
+    "uniformity (incumbent)": {
+      "exact": 0.5147732496261597,
+      "over_smooth": 0.5376955270767212,
+      "extra_speckle": 0.3974350690841675,
+      "missing_speckle": 0.5189544558525085,
+      "empty_roi": 1.0,
+      "all_dark": 1.0
+    },
+    "cv_ratio": {
+      "exact": 0.0,
+      "over_smooth": 0.08830190449953079,
+      "extra_speckle": 0.6178565621376038,
+      "missing_speckle": 0.016693999990820885,
+      "empty_roi": 1.0,
+      "all_dark": 1.0
+    },
+    "cv_unanchored": {
+      "exact": 0.9520730376243591,
+      "over_smooth": 0.8692899346351624,
+      "extra_speckle": 1.5298453569412231,
+      "missing_speckle": 0.936491072177887,
+      "empty_roi": 0.0,
+      "all_dark": 0.0
+    },
+    "entropy_ratio": {
+      "exact": 0.0,
+      "over_smooth": 0.04610481858253479,
+      "extra_speckle": 0.4017055928707123,
+      "missing_speckle": 0.012872240506112576,
+      "empty_roi": 1.0,
+      "all_dark": 1.0
+    },
+    "entropy_absolute": {
+      "exact": 2.6277554035186768,
+      "over_smooth": 2.748692274093628,
+      "extra_speckle": 1.5716880559921265,
+      "missing_speckle": 2.659647226333618,
+      "empty_roi": 0.0,
+      "all_dark": 0.0
+    },
+    "tv_ratio": {
+      "exact": 0.0,
+      "over_smooth": 0.15222086012363434,
+      "extra_speckle": 5.457874298095703,
+      "missing_speckle": 0.055725276470184326,
+      "empty_roi": 1.0,
+      "all_dark": 1.0
+    }
+  },
+  "verdict": {
+    "mse (incumbent)": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.00019234958745073527,
+        "extra_speckle": 0.01911267079412937,
+        "missing_speckle": 1.659987356106285e-05,
+        "empty_roi": 0.01763540878891945,
+        "all_dark": 0.019479192793369293
+      },
+      "discrimination": 0.006440540085047057,
+      "degenerate_safe": true,
+      "empty_roi_margin": 0.01763540878891945,
+      "all_dark_margin": 0.019479192793369293
+    },
+    "uniformity (incumbent)": {
+      "values": {
+        "exact": 0.5147732496261597,
+        "over_smooth": 0.5376955270767212,
+        "extra_speckle": 0.3974350690841675,
+        "missing_speckle": 0.5189544558525085,
+        "empty_roi": 1.0,
+        "all_dark": 1.0
+      },
+      "discrimination": 0.048147221406300865,
+      "degenerate_safe": true,
+      "empty_roi_margin": 0.48522675037384033,
+      "all_dark_margin": 0.48522675037384033
+    },
+    "cv_ratio": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.08830190449953079,
+        "extra_speckle": 0.6178565621376038,
+        "missing_speckle": 0.016693999990820885,
+        "empty_roi": 1.0,
+        "all_dark": 1.0
+      },
+      "discrimination": 0.2409508222093185,
+      "degenerate_safe": true,
+      "empty_roi_margin": 1.0,
+      "all_dark_margin": 1.0
+    },
+    "cv_unanchored": {
+      "values": {
+        "exact": 0.9520730376243591,
+        "over_smooth": 0.8692899346351624,
+        "extra_speckle": 1.5298453569412231,
+        "missing_speckle": 0.936491072177887,
+        "empty_roi": 0.0,
+        "all_dark": 0.0
+      },
+      "discrimination": 0.22537912925084433,
+      "degenerate_safe": false,
+      "empty_roi_margin": -0.9520730376243591,
+      "all_dark_margin": -0.9520730376243591
+    },
+    "entropy_ratio": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.04610481858253479,
+        "extra_speckle": 0.4017055928707123,
+        "missing_speckle": 0.012872240506112576,
+        "empty_roi": 1.0,
+        "all_dark": 1.0
+      },
+      "discrimination": 0.1535608839864532,
+      "degenerate_safe": true,
+      "empty_roi_margin": 1.0,
+      "all_dark_margin": 1.0
+    },
+    "entropy_absolute": {
+      "values": {
+        "exact": 2.6277554035186768,
+        "over_smooth": 2.748692274093628,
+        "extra_speckle": 1.5716880559921265,
+        "missing_speckle": 2.659647226333618,
+        "empty_roi": 0.0,
+        "all_dark": 0.0
+      },
+      "discrimination": 0.40296534697214764,
+      "degenerate_safe": false,
+      "empty_roi_margin": -2.6277554035186768,
+      "all_dark_margin": -2.6277554035186768
+    },
+    "tv_ratio": {
+      "values": {
+        "exact": 0.0,
+        "over_smooth": 0.15222086012363434,
+        "extra_speckle": 5.457874298095703,
+        "missing_speckle": 0.055725276470184326,
+        "empty_roi": 1.0,
+        "all_dark": 1.0
+      },
+      "discrimination": 1.888606811563174,
+      "degenerate_safe": true,
+      "empty_roi_margin": 1.0,
+      "all_dark_margin": 1.0
+    }
+  }
+}

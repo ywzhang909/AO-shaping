@@ -376,6 +376,74 @@ def uniformity_term(intensity: Tensor, mask: Tensor) -> Tensor:
     return 1.0 - u / (1.0 + u)
 
 
+def speckle_detail_term(
+    prediction: Tensor, reference: Tensor, mask: Tensor
+) -> dict[str, Tensor]:
+    """Two-sided relative error on in-ROI total variation. The speckle loss to use.
+
+    Returns ``tv_ratio`` (the loss) plus ``tv_pred`` / ``tv_ref`` for logging.
+
+    Why this form, measured rather than argued (``scripts/speckle_loss_bench.py``, 48 real
+    validation targets, three corruption families and two degenerate probes):
+
+    =================================== ============ ===============
+    candidate                            discrimination degenerate-safe
+    =================================== ============ ===============
+    **tv_ratio (this term)**             **1.8886**   yes
+    entropy (absolute)                   0.4030       **no**
+    cv (anchored)                        0.2410       yes
+    cv (unanchored)                      0.2254       **no**
+    entropy (anchored)                  0.1536       yes
+    uniformity (incumbent)               0.0481       yes
+    mse (incumbent)                      0.0064       yes
+    =================================== ============ ===============
+
+    Three things follow.
+
+    **The incumbents are nearly blind to speckle.** MSE separates the corruptions by 0.0064
+    and ``uniformity_term`` by 0.0481 -- the latter is a ``std/mean`` proxy, which is exactly
+    the second moment that speckle noise barely moves, because multiplicative noise inflates
+    the mean and the standard deviation together. If the quantity being shaped is the texture
+    of the far field, neither term is measuring it.
+
+    **Anchoring is not optional.** Every unanchored candidate scores **exactly 0** on both
+    degenerate probes: empty ROI and all-dark. An unanchored contrast or entropy can be driven
+    to its optimum by destroying the signal. That is not hypothetical -- optimising
+    ``uniformity`` alone drove encircled energy to 0.002 on hardware. Dividing by the
+    reference's own scale is what makes the term unwinnable that way, which is the same
+    convention ``ellipse_gap_term`` already uses and for the same reason.
+
+    **Two-sided beats one-sided.** ``CV`` and entropy are both one-directional: they only know
+    that *too much* speckle is bad, so blurring monotonically improves them. Total variation
+    penalises too little detail as well, which is why it separates ``missing_speckle``
+    (0.0557) where ``uniformity`` does not (0.0042, and in the wrong direction).
+
+    The physics: fully developed speckle has exponentially distributed intensity, so its
+    normalised histogram is flat and ``CV = 1``; a shaped uniform square is a near-delta with
+    ``CV -> 0``. A term on the distribution's *shape* is therefore the right objective, and
+    this is the shape term that survived both safety checks.
+
+    Still a within-ROI term: it carries no energy information, so it must accompany
+    :func:`pib_term`, exactly as :func:`uniformity_term` does.
+    """
+    m = mask.to(device=prediction.device, dtype=prediction.dtype)
+    if m.dim() == 2:
+        m = m.view(1, 1, *m.shape)
+
+    def tv(x: Tensor) -> Tensor:
+        r = x * m
+        # Horizontal and vertical first differences. Gradient magnitude would be equivalent
+        # up to a constant and is not used here, to keep the value comparable to
+        # `ml.zernike.metrics.total_variation_ratio`.
+        dh = (r[:, :, 1:, :] - r[:, :, :-1, :]).abs().flatten(1).sum(dim=1)
+        dw = (r[:, :, :, 1:] - r[:, :, :, :-1]).abs().flatten(1).sum(dim=1)
+        return dh + dw
+
+    tv_p, tv_r = tv(prediction), tv(reference)
+    ratio = (tv_p - tv_r).abs() / torch.clamp(tv_r, min=EPS)
+    return {"tv_ratio": ratio, "tv_pred": tv_p, "tv_ref": tv_r}
+
+
 def roi_energy_loss(current: Tensor, reference: float | Tensor) -> Tensor:
     """Fractional in-ROI energy loss vs a reference; 0 means no loss.
 
@@ -457,6 +525,15 @@ class LossConfig:
     #: ``w_spot_moment``: a 2 px shift scores 0.0898 here and exactly 0.0 on the radial
     #: term, which is blind to both position and orientation.
     w_ellipse: float = 0.0
+    #: Weight on the **anchored speckle-detail term** :func:`speckle_detail_term`,
+    #: the two-sided relative error in in-ROI total variation. This is the term to
+    #: use when the far field's *texture* is the target, which is what square
+    #: shaping is: measured over 48 real targets it separates three corruption
+    #: families by 1.8886, against 0.0481 for ``w_uniformity`` and 0.0064 for MSE.
+    #: Anchored to the measurement and two-sided, so it cannot be won by emptying
+    #: the ROI (which drove EE to 0.002 on hardware for the unanchored terms) and
+    #: it penalises an over-smoothed prediction as well as an over-noisy one.
+    w_speckle: float = 0.0
     shape_gap_relative: bool = True
     normalization: str = "peak"
 
@@ -523,6 +600,12 @@ def composite_loss(
         out["shape_gap"] = gap
         per_sample.append(cfg.w_shape_gap * gap)
 
+    if cfg.w_speckle:
+        speck = speckle_detail_term(pred, target, mask)
+        out["speckle"] = speck["tv_ratio"]
+        per_sample.append(cfg.w_speckle * speck["tv_ratio"])
+        out["speckle_tv_pred"] = speck["tv_pred"]
+        out["speckle_tv_ref"] = speck["tv_ref"]
     if cfg.w_ellipse:
         ellipse = ellipse_gap_term(pred, target, mask)
         out["ellipse"] = ellipse["ellipse"]

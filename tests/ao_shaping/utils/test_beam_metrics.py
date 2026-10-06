@@ -306,12 +306,89 @@ class TestComputeQualityScore:
         assert score == pytest.approx(1.0)
 
     def test_hand_computed_weights_and_kernels(self):
-        # f_ar = exp(-((1.3-1)/0.3)^2) = exp(-1); f_uni = exp(-(0.3/0.3)^2) = exp(-1)
+        # f_ar = 1/(1+|1.3-1|) = 1/1.3; f_uni = 1/(1+0.3) = 1/1.3
         score = compute_quality_score(
             {"aspect_ratio": 1.3, "uniformity_cv": 0.3, "encircled_energy": 0.5}
         )
-        expected = 0.3 * math.exp(-1) + 0.4 * math.exp(-1) + 0.3 * 0.5
+        expected = 0.3 / 1.3 + 0.4 / 1.3 + 0.3 * 0.5
         assert score == pytest.approx(expected)
+
+    def test_aspect_kernel_is_monotone_and_never_rewards_sub_unit_ar(self):
+        """``f_ar = 1/(1+|AR-1|)`` must decrease with |AR-1| and stay <= 1.
+
+        The kernel is now rational, where a careless ``1/(1+AR-1)`` would have
+        scored AR=0.5 (0.67) as *better* than a perfect square (1.0). The ``abs``
+        is what prevents that. ``compute_square_metrics`` always emits AR >= 1
+        because it divides max extent by min, so AR < 1 is unreachable from
+        real input -- but the guard is what keeps the kernel well-behaved if a
+        caller hand-builds the dict.
+        """
+        previous = math.inf
+        for ar in (1.0, 1.1, 1.3, 2.0, 4.0):
+            score = compute_quality_score(
+                {"aspect_ratio": ar, "uniformity_cv": 0.0, "encircled_energy": 1.0}
+            )
+            assert score < previous, f"AR={ar} did not lower the score"
+            previous = score
+        # AR < 1 must not be rewarded.
+        assert compute_quality_score(
+            {"aspect_ratio": 0.5, "uniformity_cv": 0.0, "encircled_energy": 1.0}
+        ) < compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": 0.0, "encircled_energy": 1.0}
+        )
+
+    def test_uniformity_axis_is_monotone_across_the_whole_reachable_range(self):
+        """Every CV increase must lower the score, including 0.9 -> 11.
+
+        This is the regression that matters. The old saturating kernel
+        ``exp(-((CV/0.3)**2))`` scored both CV=0.9 and CV=11 as exactly 0, so a
+        uniform square and an unshaped focus tied on the uniformity axis and the
+        ranking was decided by encircled energy alone -- which favours the
+        unshaped focus, because an unfocused spot is naturally concentrated.
+        """
+        previous = math.inf
+        for cv in (0.0, 0.1, 0.3, 0.5, 0.9, 1.0, 3.0, 11.0, 30.0):
+            score = compute_quality_score(
+                {"aspect_ratio": 1.0, "uniformity_cv": cv, "encircled_energy": 0.9}
+            )
+            assert score < previous, f"CV={cv} did not lower the score"
+            previous = score
+
+    def test_uniformity_still_resolves_high_cv(self):
+        """CV=0.9 and CV=11 must no longer tie.
+
+        Under the saturating kernel both returned ~0 on the uniformity axis.
+        """
+        shaped = compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": 0.9, "encircled_energy": 0.9}
+        )
+        unshaped = compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": 11.0, "encircled_energy": 0.9}
+        )
+        assert shaped > unshaped
+        # The gap is real, not float dust: 1/1.9 - 1/12 = 0.443, times w=0.4.
+        assert shaped - unshaped == pytest.approx(0.4 * (1 / 1.9 - 1 / 12.0))
+
+    def test_ranking_beats_a_uniform_square_over_an_unshaped_focus(self):
+        """The hardware failure this fixes, pinned on realistic numbers.
+
+        ``slm-model-in-loop``'s first bake-off ranked the CV=0.9 uniform square
+        *below* the CV=11 unshaped focus and so kept the flat field, discarding
+        the correct phase. The measured pair is reproduced here from that report.
+        """
+        shaped = compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": 0.9, "encircled_energy": 0.87}
+        )
+        unshaped = compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": 11.0, "encircled_energy": 0.99}
+        )
+        assert shaped > unshaped
+
+    def test_negative_cv_does_not_invert_the_uniformity_axis(self):
+        """A negative CV is unphysical; clamp to 0 rather than rewarding it."""
+        assert compute_quality_score(
+            {"aspect_ratio": 1.0, "uniformity_cv": -5.0, "encircled_energy": 0.0}
+        ) == pytest.approx(0.7)
 
     def test_encircled_energy_clipped_above_one(self):
         score = compute_quality_score(

@@ -14,11 +14,17 @@ measurement:
   agreement). A model can score a respectable PSNR while putting the spot in the
   wrong place or at the wrong width; these catch that and PSNR cannot.
 
-Deliberately **not** included: ``LPIPS`` / ``FID``. Both need a pretrained
-backbone, and this environment has no ``torchvision``, so
-``torchmetrics.image.LearnedPerceptualImagePatchSimilarity`` is not importable
-(verified, not assumed). Adding a perceptual metric is therefore a dependency
-decision, not a code change -- see :func:`available_perceptual_metrics`.
+Deliberately **not** included: ``LPIPS`` / ``FID``. Both need a pretrained backbone, and
+while ``torchvision`` is now installed the ``lpips`` weight package is still absent, so
+``LearnedPerceptualImagePatchSimilarity`` cannot load weights here (verified, not assumed).
+Adding a perceptual metric is therefore a dependency decision, not a code change -- see
+:func:`available_perceptual_metrics`.
+
+* **speckle / detail** -- :func:`total_variation_ratio`. SSIM is blind to over-smoothing
+(0.98 under a blur that TV registers as -25%), which matters because the strongest arm in the
+architecture search won on SSIM while being measurably blurrier. The ratio is reported for
+that reason, not as a generic extra; ``scripts/metric_discrimination.py`` is the measurement
+that selected it and the four metrics it rejected.
 
 Canonical helpers are reused rather than reimplemented, per ``AGENTS.md``:
 ``compute_metrics`` and ``measure_spot_diameter_cam`` from
@@ -38,6 +44,7 @@ __all__ = [
     "batch_image_metrics",
     "per_sample_beam_metrics",
     "psnr",
+    "total_variation_ratio",
 ]
 
 #: Encircled-energy fraction used for the spot-diameter comparison. 0.90 matches
@@ -68,6 +75,55 @@ def available_perceptual_metrics() -> tuple[str, ...]:
     except ImportError:
         pass
     return tuple(usable)
+
+
+def total_variation_ratio(pred: torch.Tensor, target: torch.Tensor) -> float:
+    """Mean total variation of ``pred`` divided by that of ``target``.
+
+    Reported as a ratio rather than a raw energy so the number is comparable across images
+    and across runs: 1.0 means the prediction carries the same amount of spatial detail as
+    the truth, below 1.0 means it is smoother than the truth, above 1.0 means it is rougher.
+
+    Why this one earned a place when four other candidates did not
+    (``scripts/metric_discrimination.py``, 48 real validation targets):
+
+    ============================ ========= =========
+    corruption                    SSIM      TV ratio
+    ============================ ========= =========
+    Gaussian blur sigma=1.5       0.9765    0.7472
+    additive speckle CV=0.6      0.4948    7.8737
+    ============================ ========= =========
+
+    SSIM barely moves on blur -- 0.98 reads as "essentially perfect" to anyone scanning a
+    number -- while TV drops 25%. That is the concrete form of the over-smoothing blindness
+    documented in ``report/loss_defects/inverse_design_report.md``, where the U-Net scored the
+    best SSIM of any arm while its ellipse error was ~2x worse. TV is also the only metric in
+    that sweep whose response to additive speckle (7.9x) exceeded its response to blur, which
+    is what a speckle-aware scorer needs.
+
+    Rejected alongside it, for the record:
+
+    * **MS-SSIM** -- needs a grid larger than 160 px; ours is 64, and 6x the compute is not
+      affordable for a metric.
+    * ``spectral_angle_mapper`` / ``rase`` -- they FFT along the **channel** axis, i.e. they
+      are built for multispectral imagery, so on single-channel far-field frames they are
+      degenerate (every image ties on magnitude).
+    * A radially-averaged 2-D spectrum correlation, which I expected to be the right spectral
+      metric for speckle -- it moved by less than 0.002 under every corruption and earned
+      nothing.
+    * ``vif`` -- exceeded 1.0 and *rose* under additive noise, i.e. it rewarded the corruption.
+
+    Returns:
+        The ratio, or NaN when the target has no measurable variation.
+    """
+    from torchmetrics.functional.image import total_variation
+
+    p = pred.detach().to(torch.float32)
+    t = target.detach().to(torch.float32)
+    tv_t = float(total_variation(t, reduction="mean"))
+    if tv_t <= 1e-12:
+        return float("nan")
+    return float(total_variation(p, reduction="mean")) / tv_t
 
 
 def psnr(pred: torch.Tensor, target: torch.Tensor, data_range: float = 1.0) -> torch.Tensor:

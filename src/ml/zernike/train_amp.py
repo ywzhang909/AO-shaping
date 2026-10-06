@@ -61,6 +61,7 @@ from ml.zernike.metrics import (
     per_sample_beam_metrics,
     roi_shape_terms,
     summarise_beam_metrics,
+    total_variation_ratio,
 )
 from ml.zernike.models import (
     Normalization,
@@ -413,9 +414,14 @@ def evaluate(
     """Score the model on a materialised split.
 
     Reports the img2img-standard set (MSE/RMSE/MAE/NRMSE/PSNR/SSIM/R²) batched on
-    the GPU, plus the beam-domain set (centroid offset, spot diameter, correlation,
+    the GPU, plus ``tv_ratio`` (detail retention, 1.0 = same as the target) and the
+    beam-domain set (centroid offset, spot diameter, correlation,
     efficiency, peak ratio) on the first ``beam_samples`` -- the beam metrics need a
     per-sample numpy pass and are far too slow to run on all 11k records.
+
+    ``tv_ratio`` is here because SSIM alone is misleading for this model: on the strongest
+    arm of the architecture search, SSIM ranked the blurriest prediction first.
+    See :func:`~ml.zernike.metrics.total_variation_ratio`.
 
     When ``roi_size_frac`` is given, the ROI shape terms (``pib_term`` /
     ``uniformity`` / ``shape_sum``, plus the measured frame's own) are added via
@@ -455,6 +461,11 @@ def evaluate(
 
     out = batch_image_metrics(prediction, reference)
     out["perplexity"] = regression_perplexity(out["mse"], variance)
+    # Detail retention. Included because SSIM cannot see over-smoothing: the U-Net arm won on
+    # SSIM while being the blurriest prediction we trained, so an SSIM-only report would have
+    # ranked that failure as a success. 1.0 = same detail as the target, <1 smoother,
+    # >1 rougher. See `ml.zernike.metrics.total_variation_ratio` for the sweep that chose it.
+    out["tv_ratio"] = total_variation_ratio(prediction, reference)
 
     rows = [
         per_sample_beam_metrics(

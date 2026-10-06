@@ -60,9 +60,10 @@ from loguru import logger
 #: proportional to the pixel count (documented in ``drivers/sim/AGENTS.md``),
 #: which corrupts every ratio metric computed afterwards.
 from ao_shaping.optimizer.wfless.slm_gs_refine import _prepare_frame
-from ao_shaping.tools.slm.slm_bench_probe import (
+from ao_shaping.tools.slm.bench_kernels import (
     BEAM_CENTER_PANEL,
     SLM_PITCH_M,
+    crop_around_zero_order,
     gaussian_grid,
     phase_to_panel,
 )
@@ -702,8 +703,6 @@ class _SimBench:
         self._phase = np.asarray(phase_model, dtype=np.float64) + self._aberration
 
     def measure(self) -> np.ndarray:
-        from ao_shaping.tools.slm.slm_bench_probe import crop_around_zero_order
-
         far = self._forward(self._phase, self._cfg)
         # Emulate the camera window: a fixed-size crop on the peak, which is what
         # reset_window + argmax anchoring gives on the real bench.
@@ -786,8 +785,6 @@ class _HardwareBench:
         self._closed = False
 
     def display(self, phase_model: np.ndarray) -> None:
-        from ao_shaping.tools.slm.slm_bench_probe import phase_to_panel
-
         # Raw unwrapped radians on the PANEL: the only mod-2pi wrap in the whole
         # repo lives inside the driver's radian -> grayscale conversion. Stashed
         # rather than written here, because capture_settled owns the write: it
