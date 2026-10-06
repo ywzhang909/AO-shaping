@@ -77,15 +77,23 @@ class TestDefaultOff:
         def _boom(*_a, **_k):
             raise AssertionError("metric called while w_loggrad == 0")
 
-        monkeypatch.setattr(mod, "log_gradient_difference_metric", _boom)
+        monkeypatch.setattr(mod, "log_gradient_field", _boom)
         obj = make_objective(objective=name, w_loggrad=0.0)
         assert np.isfinite(obj(clean_blob()).j)
         assert obj(clean_blob()).loggrad == 0.0
 
     def test_reference_not_retained_when_off(self) -> None:
         """The default path must not pay the memory cost."""
-        assert make_objective(w_loggrad=0.0)._loggrad_reference is None
-        assert make_objective(w_loggrad=0.5)._loggrad_reference is not None
+        assert make_objective(w_loggrad=0.0)._loggrad_reference_field is None
+        assert make_objective(w_loggrad=0.5)._loggrad_reference_field is not None
+
+    def test_reference_field_is_cached_not_rebuilt(self) -> None:
+        """The reference frame is fixed, so its field must be built only once."""
+        obj = make_objective(w_loggrad=1.0)
+        before = obj._loggrad_reference_field
+        obj(clean_blob())
+        obj(speckled_blob())
+        assert obj._loggrad_reference_field is before
 
 
 class TestPolarity:

@@ -570,14 +570,106 @@ def _loggrad_prepare(frame: np.ndarray, eps: float, kernel: np.ndarray) -> np.nd
         return None
     blurred = _loggrad_blur(clipped / peak, kernel)
     # The kernel weights are non-negative, so ``blurred`` is non-negative too:
-    # the explicit LOGGRAD_EPS floor below is the only clamp needed.
-    return np.log(np.maximum(blurred, LOGGRAD_EPS))
+    # the explicit floor below is the only clamp needed. It must be the CALLER's
+    # ``eps``, not the module default, or the keyword would be a no-op.
+    return np.log(np.maximum(blurred, eps))
 
 
 def _loggrad_magnitude(log_field: np.ndarray) -> np.ndarray:
     """``|grad|`` of a log-intensity field."""
     dy, dx = np.gradient(log_field)
     return np.hypot(dy, dx)
+
+
+def _sanitize_frame(frame: np.ndarray, name: str) -> np.ndarray:
+    """Coerce to float64 2D and replace non-finite samples with ``0.0``.
+
+    Non-finite samples are SANITISED, not rejected. This module is called once per
+    epoch inside the closed loop, so raising on one bad pixel would abort a
+    multi-hour run with the SLM left holding an arbitrary phase. Non-finite
+    camera frames are an expected condition, not a programming error, and the
+    repo already standardises on ``np.where(isfinite, frame, 0.0)`` in
+    ``slm_gs_refine._prepare_frame`` and both ``tools/slm/bench_kernels.py``
+    prep kernels; matching that convention keeps this term from becoming a new
+    failure mode. Shape/eps/sigma mistakes still raise - those are caller bugs.
+    """
+    arr = np.asarray(frame, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"{name} must be 2D, got {arr.ndim}D")
+    return np.where(np.isfinite(arr), arr, 0.0)
+
+
+def _validate_tolerances(eps: float, sigma: float) -> tuple[float, float]:
+    eps = float(eps)
+    sigma = float(sigma)
+    if not np.isfinite(eps) or eps <= 0.0:
+        raise ValueError(f"eps must be a finite positive float, got {eps!r}")
+    if not np.isfinite(sigma) or sigma < 0.0:
+        raise ValueError(f"sigma must be a finite non-negative float, got {sigma!r}")
+    return eps, sigma
+
+
+def log_gradient_field(
+    frame: np.ndarray,
+    *,
+    eps: float = LOGGRAD_EPS,
+    sigma: float = LOGGRAD_SIGMA,
+) -> np.ndarray | None:
+    """Peak-normalised-input ``|grad log I|`` of one frame.
+
+    This is the cacheable half of :func:`log_gradient_difference_metric`: the
+    expensive part (peak normalisation, the separable blur, the log, and the
+    gradient magnitude) depends only on the frame. A caller comparing many frames
+    against ONE fixed reference should build that reference's field once with
+    this function and then use :func:`log_gradient_difference_from_fields`,
+    instead of re-blurring the reference on every call (measured 2x saving).
+
+    Args:
+        frame: any 2D image; non-finite samples are replaced by ``0.0``.
+        eps: floor for the log transform; must be finite and positive.
+        sigma: blur width in pixels; ``0`` disables blurring.
+
+    Returns:
+        The gradient-magnitude field, or ``None`` when the frame has no dynamic
+        range (constant, or entirely non-positive before clipping) and therefore
+        a flat log field.
+
+    Raises:
+        ValueError: on non-2D input, ``eps <= 0`` or ``sigma < 0``.
+    """
+    eps, sigma = _validate_tolerances(eps, sigma)
+    arr = _sanitize_frame(frame, "frame")
+    if arr.size == 0 or min(arr.shape) < 2:
+        # No axis along which to differentiate: the log gradient is zero.
+        return None
+    log_field = _loggrad_prepare(arr, eps, _loggrad_kernel(sigma))
+    if log_field is None:
+        return None
+    # NOTE: deliberately NOT renormalised by its own peak. The gain invariance
+    # this metric promises comes from peak-normalising each INPUT frame before
+    # the log (see ``_loggrad_prepare``); dividing the gradient magnitude by its
+    # own maximum as well lets a single spike dominate the whole field and
+    # inverts the (well-behaved) monotonicity in sigma.
+    return _loggrad_magnitude(log_field)
+
+
+def log_gradient_difference_from_fields(
+    meas_field: np.ndarray | None,
+    target_field: np.ndarray | None,
+) -> float:
+    """Mean absolute difference of two fields from :func:`log_gradient_field`.
+
+    Returns ``0.0`` when either field is ``None`` (a flat frame), which matches
+    what two identical frames already score.
+    """
+    if meas_field is None or target_field is None:
+        return 0.0
+    if meas_field.shape != target_field.shape:
+        raise ValueError(
+            f"gradient fields must have the same shape, got "
+            f"{meas_field.shape} and {target_field.shape}"
+        )
+    return float(np.clip(np.abs(meas_field - target_field).mean(), 0.0, 1.0))
 
 
 def log_gradient_difference_metric(
@@ -618,46 +710,15 @@ def log_gradient_difference_metric(
         ValueError: on non-2D input, mismatched shapes, ``eps <= 0`` or
             ``sigma < 0``.
     """
-    eps = float(eps)
-    sigma = float(sigma)
-    if not np.isfinite(eps) or eps <= 0.0:
-        raise ValueError(f"eps must be a finite positive float, got {eps!r}")
-    if not np.isfinite(sigma) or sigma < 0.0:
-        raise ValueError(f"sigma must be a finite non-negative float, got {sigma!r}")
-
-    meas_frame = np.asarray(meas, dtype=np.float64)
-    target_frame = np.asarray(target, dtype=np.float64)
-    if meas_frame.ndim != 2 or target_frame.ndim != 2:
-        raise ValueError(
-            f"meas and target must both be 2D, got {meas_frame.ndim}D "
-            f"and {target_frame.ndim}D"
-        )
+    eps, sigma = _validate_tolerances(eps, sigma)
+    meas_frame = _sanitize_frame(meas, "meas")
+    target_frame = _sanitize_frame(target, "target")
     if meas_frame.shape != target_frame.shape:
         raise ValueError(
             f"meas and target must have the same shape, got "
             f"{meas_frame.shape} and {target_frame.shape}"
         )
-    # Non-finite samples are SANITISED, not rejected. This module is called once
-    # per epoch inside the closed loop, so raising on one bad pixel would abort a
-    # multi-hour run with the SLM left holding an arbitrary phase. Non-finite
-    # camera frames are an expected condition, not a programming error, and the
-    # repo already standardises on ``np.where(isfinite, frame, 0.0)`` in
-    # ``slm_gs_refine._prepare_frame`` and both ``tools/slm/bench_kernels.py``
-    # prep kernels; matching that convention keeps this term from becoming a new
-    # failure mode. Shape/eps/sigma mistakes above still raise - those are real
-    # caller bugs.
-    meas_frame = np.where(np.isfinite(meas_frame), meas_frame, 0.0)
-    target_frame = np.where(np.isfinite(target_frame), target_frame, 0.0)
-
-    if meas_frame.size == 0 or min(meas_frame.shape) < 2:
-        # No axis along which to differentiate: the log gradient is zero.
-        return 0.0
-
-    kernel = _loggrad_kernel(sigma)
-    meas_log = _loggrad_prepare(meas_frame, eps, kernel)
-    target_log = _loggrad_prepare(target_frame, eps, kernel)
-    if meas_log is None or target_log is None:
-        return 0.0
-
-    difference = _loggrad_magnitude(meas_log) - _loggrad_magnitude(target_log)
-    return float(np.clip(np.abs(difference).mean(), 0.0, 1.0))
+    return log_gradient_difference_from_fields(
+        log_gradient_field(meas_frame, eps=eps, sigma=sigma),
+        log_gradient_field(target_frame, eps=eps, sigma=sigma),
+    )

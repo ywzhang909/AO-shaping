@@ -15,7 +15,9 @@ from loguru import logger
 from ao_shaping.utils.image.target.metrics import (
     TARGET_SHAPE_CHOICES,
     TargetShape,
+    log_gradient_difference_from_fields,
     log_gradient_difference_metric,
+    log_gradient_field,
     rmse_out_metric,
     rmse_shape_metric,
     rms_pib_terms,
@@ -25,7 +27,6 @@ from ao_shaping.utils.image.target.metrics import (
     shape_metric,
     shape_stage_from_energy,
 )
-from ao_shaping.utils.image.target.patterns import create_target_shape
 
 
 #: Sentinel added to (max-mode) or subtracted from (min-mode) every score of a
@@ -561,11 +562,16 @@ class ShapingObjective:
         # which is exactly what the energy-in-bucket objectives are blind to.
         # Shape itself remains ``pib`` / ``shape`` / ``roi_pib``'s job.
         # Only retained when the feature is enabled, so the default path pays
-        # nothing in memory.
-        self._loggrad_reference: np.ndarray | None = None
+        # nothing in memory. The reference's gradient field is precomputed ONCE
+        # (it is a fixed frame) rather than rebuilt every epoch, which measured a
+        # 2x saving in the per-epoch metric cost.
+        self._loggrad_reference_field: np.ndarray | None = None
+        self._loggrad_reference_shape: tuple[int, int] | None = None
         if params.w_loggrad > 0.0:
             ref = np.asarray(init_img, dtype=np.float32)
-            self._loggrad_reference = np.where(np.isfinite(ref), ref, 0.0)
+            ref = np.where(np.isfinite(ref), ref, 0.0)
+            self._loggrad_reference_field = log_gradient_field(ref)
+            self._loggrad_reference_shape = ref.shape
 
         if params.objective == "rms_pib":
             w_pib, w_rms, w_ee = _resolve_init_weights(
@@ -650,19 +656,32 @@ class ShapingObjective:
         """
         if self._params.w_loggrad <= 0.0:
             return 0.0
-        reference = self._loggrad_reference
-        if reference is None:
+        reference_field = self._loggrad_reference_field
+        if reference_field is None:
             return None
         frame = np.asarray(img, dtype=np.float32)
-        if frame.shape != reference.shape:
+        if frame.shape != self._loggrad_reference_shape:
             return None
         try:
-            lg = float(log_gradient_difference_metric(frame, reference))
+            meas_field = log_gradient_field(frame)
         except ValueError:
             return None
-        if not np.isfinite(lg):
+        lg = log_gradient_difference_from_fields(meas_field, reference_field)
+        return lg if np.isfinite(lg) else 0.0
+
+    def _loggrad_shift(self, img: np.ndarray) -> float:
+        """Signed shift the structure term contributes to ``j`` (0.0 when off).
+
+        Single place where the modifier is combined with the score, so ``raw``
+        and ``__call__`` cannot drift apart. The term is a LOSS, hence
+        ``sign * weight * lg``: SUBTRACTED in ``max`` mode, ADDED in ``min``.
+        """
+        if self._params.w_loggrad <= 0.0:
             return 0.0
-        return lg
+        lg = self._get_loggrad_term(img)
+        if lg is None:
+            return 0.0
+        return self._sign * self._params.w_loggrad * lg
 
     def _raw_base(self, img: np.ndarray) -> tuple[float, float, float]:
         """Score one frame without the safety guard (base terms only)."""
@@ -806,14 +825,7 @@ class ShapingObjective:
         With ``w_loggrad == 0`` this is exactly ``_raw_base``, byte for byte.
         """
         j, ratio, tracking = self._raw_base(img)
-        lg = self._get_loggrad_term(img)
-        if lg is None or self._params.w_loggrad <= 0.0:
-            return float(j), float(ratio), float(tracking)
-        return (
-            float(j + self._sign * self._params.w_loggrad * lg),
-            float(ratio),
-            float(tracking),
-        )
+        return float(j + self._loggrad_shift(img)), float(ratio), float(tracking)
 
     def __call__(self, img: np.ndarray) -> ObjectiveResult:
         """Score one frame, applying the in-ROI energy-loss safety guard.
@@ -834,9 +846,7 @@ class ShapingObjective:
         """
         j, ratio, tracking = self._raw_base(img)
         lg = self._get_loggrad_term(img)
-        modifier = 0.0
-        if lg is not None and self._params.w_loggrad > 0.0:
-            modifier = self._sign * self._params.w_loggrad * lg
+        modifier = self._loggrad_shift(img)
         if self._guard_ref_energy is None:
             return ObjectiveResult(
                 float(j + modifier), float(ratio), float(tracking),
