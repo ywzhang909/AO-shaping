@@ -2497,6 +2497,48 @@ The largest cross-check the report makes — `S = k_tilt·π·R` — deliberatel
 **no calibration file at all** (the illuminated radius ships inside the npz), so
 it stays valid even while §2 and §6 are disabled.
 
+### generate_model_in_loop_report.py
+
+Generates the **call graph / computation-timing / algorithm write-up** for the
+`slm-model-in-loop` runner: `report/slm/model_in_loop_algorithm.md` + three
+figures. **Fully offline** — it opens no device and imports no hardware stack
+(it reads the source with `ast`, not by importing `ao_shaping`, precisely because
+`import ao_shaping` pulls in `drivers`). It is a *functional description*, not a
+measurement, so `运行环境` is `离线`.
+
+**Usage:**
+```bash
+python scripts/generate_model_in_loop_report.py
+python scripts/generate_model_in_loop_report.py --no-figures
+python scripts/generate_model_in_loop_report.py --out report/slm/model_in_loop_algorithm.md
+```
+
+**Why the diagrams are generated rather than hand-written.** A hand-drawn call
+graph is a snapshot: rename `_metrics_at` and the document keeps reading as
+authoritative while being fiction. Here every symbol named in the two diagrams is
+resolved against the real modules' AST before anything is written, and the config
+table's defaults are read out of the dataclass AST instead of being typed into the
+prose — so a rename or a default bump **fails generation** instead of leaving a
+stale document behind. `DIAGRAM_SYMBOLS` at the top of the file is the list of
+symbols the guard checks; extend it when a diagram grows.
+
+**Deliberately no wall-clock timing.** Per-round *counts* of device round-trips and
+compute steps are derivable from the configuration, so the report gives them
+(probe count x 2 x `n_eval_frames`, plus one display+measure for the round's
+acceptance frame). Durations depend on the bench and would be fabrication in an
+offline document; §11 of the report states this and what else it does not claim
+(no convergence guarantee; twin scores are not comparable with hardware scores,
+whose angular scale comes from the bake-off rather than from `TWIN_REGION`).
+
+Three figures: layered call ownership, per-round operation budget, and the
+acceptance state machine. **Two of them were wrong on first render and passed the
+link check anyway** — an overlapping pair of boxes, and an arrow drawn through an
+unrelated box so it read as the wrong transition. Worth looking at the PNGs, not
+just at whether the links resolve.
+
+Registered in `scripts/_common/provenance.py::REPORTS`; run
+`python scripts/sync_report_provenance.py` after regenerating.
+
 ### model_in_loop_hw_runbook.py
 
 Hardware runbook for the **model-in-the-loop** square-shaping test: calibrate
