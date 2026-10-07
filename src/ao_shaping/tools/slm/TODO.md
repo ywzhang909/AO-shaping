@@ -59,12 +59,27 @@
       `improvement_rms`（伪造数据）。真实槽数是 127（`constants.py:20 MAX_MEM_SLOTS`），
       非注释所写 128。
 
-- [x] **D2 · min-max 归一化反模式** — **已推翻，不修**
-      `calibration.py:2182` 的 `P` 是刀口扫描中**一维标量 CCD 光强数组**（`power()` 返回
+- [x] **D2 · min-max 归一化反模式** — **❌ 误报，不修**
+      > **显式标记（2026-10-06 补）**：本条是**误报**，已结案 —— 原文见
+      > [`docs/dev/todo_archive.md`](../../../../docs/dev/todo_archive.md) **§4 X-2**
+      > （GitHub issue [#60](https://github.com/ywzhang909/AO-shaping/issues/60)）。
+      > **不要再"修"它。** 下面这段论证保留在此，是为了让下一个读到
+      > `AGENTS.md` ANTI-PATTERNS 表里的人知道这条为什么是错的。
+      >
+      > ⚠️ **原文引的 `calibration.py:2182` 行号已漂移**：该处现在是一句
+      > `logger.info("已应用存储窗口: …")`。真正的归一化 + 分位点插值在
+      > **`calibration.py:2229-2230`**（`np.interp(0.50, Pn, ss)`）。
+
+      那里的 `P` 是刀口扫描中**一维标量 CCD 光强数组**（`power()` 返回
       `float(p.sum())`），`[0,1]` 归一化是 `np.interp(0.50, Pn, ss)` 求 CDF 分位点的**必要前提**，
-      与相位/尺度无关性无关。另外原文点名的两个反模式**早已修复**：`PatternHelper._zernike_to_uint16`
-      已删除，`ZernikeDM.generate_phase` 已于 2026-09-16 改为 raw 直通 —— 是 `AGENTS.md`
-      的 ANTI-PATTERNS 表把它们记成"仍存在"而过期。
+      与相位/尺度无关性无关 —— 归一化的是**强度轴**，不是相位。
+      另外原文点名的两个反模式**早已修复**：`PatternHelper._zernike_to_uint16`
+      已删除，`ZernikeDM.generate_phase` 已于 2026-09-16 改为 raw 直通；`AGENTS.md`
+      的 ANTI-PATTERNS 表也已改成"已修复/已删除，仅作反模式记录"，**不再是"仍存在"**。
+
+      🔑 **判据**：min-max 归一化只有作用在**相位/系数**上才是尺度无关反模式（系数 ×1
+      与 ×4 输出字节相同 ⇒ 幅度不可控）；作用在**实测强度扫描曲线**上只是把横轴归一化，
+      是标准做法。混淆这两者会导致有人去"修"一个没坏的东西 —— 这正是本条被记成缺陷的原因。
 
 - [x] **D3 · README 文档自相矛盾** — **已修**（`307d90d`）：仅 `README.md:439,449` 两行把
       `--cam-type` 写成 `--camera-type`。原文暗示 `slm-lut` 也有问题，**该处本就是对的**，勿动。
