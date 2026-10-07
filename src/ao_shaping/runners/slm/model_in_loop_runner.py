@@ -97,6 +97,11 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         f"Frozen modes: {params.frozen_modes or '(none)'} "
         "(piston/tip/tilt are unidentifiable from far-field INTENSITY)"
     )
+    if params.forward_checkpoint is not None:
+        click.echo(
+            f"Step-A seed: {params.forward_checkpoint} "
+            f"(assume_unverified_geometry={params.assume_unverified_geometry})"
+        )
     click.echo(
         f"Guards: trust region {params.trust_region_c_l2} rad, "
         f"loss delta {params.acceptance_loss_delta}, score eps {params.acceptance_score_eps}, "
@@ -143,6 +148,8 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         step_a_lr=params.step_a_lr,
         n_orders=params.n_orders,
         frozen_modes=_parse_frozen_modes(params.frozen_modes),
+        forward_checkpoint=params.forward_checkpoint,
+        assume_unverified_geometry=params.assume_unverified_geometry,
         step_b_iterations=params.step_b_iterations,
         step_b_lr=params.step_b_lr,
         region=params.region,

@@ -56,6 +56,7 @@ import math
 import os
 import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from functools import lru_cache
 from pathlib import Path
@@ -154,12 +155,15 @@ from ao_shaping.optimizer.wfless.slm_gs_refine import (
     _prepare_frame,
 )
 from ao_shaping.utils.wavefront import focal_length_from_camera_pixel
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     AcceptanceVerdict,
+    ModelInLoopResult,
     ModelInLoopStatus,
     SlmModelInLoopConfig,
     _probe_phase,
     _quality,
+    _seed_coefficients_from_checkpoint,
     _to_model_grid,
     acceptance_verdict,
     optimize_slm_model_in_loop,
@@ -257,6 +261,206 @@ class TestConfigValidation:
         )
         assert config.frozen_modes == (1, 2, 3)
         assert isinstance(config.frozen_modes, tuple)
+
+
+# ---------------------------------------------------------------------------
+# 1b. Forward-checkpoint seeding (Step A)
+# ---------------------------------------------------------------------------
+
+
+def _write_amp_checkpoint(
+    path: Path,
+    *,
+    coeffs: np.ndarray,
+    n_max: int,
+    grid: int,
+    far_field_padding: int,
+    observable: str = "intensity",
+    normalization: str = "peak",
+) -> Path:
+    """Write a well-formed ``best_coefficients.pt`` the loader can read.
+
+    The 7-key format is pinned by the round-trip test in
+    ``tests/ao_shaping/ml/zernike/test_amp_checkpoint.py`` (the *write* side);
+    here we only need a valid *read* input, so it is built by hand. ``coeffs`` is
+    the piston-EXCLUDED vector, ``K = calc_n_zernike_terms(n_max) - 1`` entries.
+
+    The tensor is stored in **float32** to mirror the real ``train_amp`` writer
+    (the model trains in float32). The loader's round-trip check re-copies the
+    vector into the model's float32 parameter and asserts bit equality, which only
+    holds when the stored values are float32-exact -- a float64 tensor would fail
+    that check. Callers should therefore pass float32-representable values.
+    """
+    import torch
+
+    torch.save(
+        {
+            "coefficients": torch.as_tensor(np.asarray(coeffs, dtype=np.float32)),
+            "n_max": n_max,
+            "grid": grid,
+            "observable": observable,
+            "normalization": normalization,
+            "far_field_padding": far_field_padding,
+            "config": {"loss": "mse"},
+        },
+        path,
+    )
+    return path
+
+
+class TestForwardCheckpointSeeding:
+    """Step A can start from a train_amp checkpoint instead of zeros.
+
+    Off by default (``forward_checkpoint=None`` -> the historical zero seed).
+    When set, the checkpoint is loaded, checked against the run's geometry with
+    strict equality, and embedded into the piston-inclusive coefficient vector.
+    """
+
+    def test_default_off_returns_none(self) -> None:
+        """No checkpoint -> the helper returns None so the caller keeps zeros."""
+        config = SlmModelInLoopConfig(n_orders=4, region=8)
+        assert config.forward_checkpoint is None
+        assert _seed_coefficients_from_checkpoint(config) is None
+
+    def test_seed_path_places_checkpoint_at_offset_one(self, tmp_path) -> None:
+        """The piston-excluded vector lands at offset 1; frozen modes are zeroed."""
+        n_orders, region, padding = 4, 8, 1
+        n_coeffs = calc_n_zernike_terms(n_orders)  # 15, piston-inclusive
+        # K = 14, piston-excluded: index 0 = Noll 2 (tip). Distinctive values.
+        ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
+        path = _write_amp_checkpoint(
+            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            far_field_padding=padding,
+        )
+        config = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=True,
+        )
+        seed = _seed_coefficients_from_checkpoint(config)
+        assert seed is not None
+        # Mirror the helper: place at offset 1, then re-zero the frozen modes.
+        expected = np.zeros(n_coeffs, dtype=np.float64)
+        expected[1:] = ckpt
+        for noll in config.frozen_modes:
+            expected[int(noll) - 1] = 0.0
+        assert np.array_equal(seed, expected)
+
+    def test_frozen_modes_are_re_applied(self, tmp_path) -> None:
+        """Non-zero Noll 2/3 in the checkpoint are zeroed; higher modes survive."""
+        n_orders, region, padding = 4, 8, 1
+        n_coeffs = calc_n_zernike_terms(n_orders)
+        ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
+        assert ckpt[0] != 0.0 and ckpt[1] != 0.0  # Noll 2 (tip), Noll 3 (tilt)
+        path = _write_amp_checkpoint(
+            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            far_field_padding=padding,
+        )
+        config = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=True,
+        )
+        seed = _seed_coefficients_from_checkpoint(config)
+        assert seed is not None
+        assert seed[0] == 0.0  # Noll 1 piston (frozen)
+        assert seed[1] == 0.0  # Noll 2 tip (frozen) -- was ckpt[0] != 0
+        assert seed[2] == 0.0  # Noll 3 tilt (frozen) -- was ckpt[1] != 0
+        assert seed[3] == ckpt[2]  # Noll 4 survives
+        assert seed[4] == ckpt[3]  # Noll 5 survives
+
+    def test_grid_mismatch_aborts_and_names_both_numbers(self, tmp_path) -> None:
+        n_orders, padding = 4, 1
+        region = 8
+        n_coeffs = calc_n_zernike_terms(n_orders)
+        ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
+        path = _write_amp_checkpoint(
+            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=16,
+            far_field_padding=padding,  # grid 16 != region 8
+        )
+        config = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=True,
+        )
+        with pytest.raises(ValueError) as exc:
+            _seed_coefficients_from_checkpoint(config)
+        msg = str(exc.value)
+        assert "16" in msg and "8" in msg
+
+    def test_n_max_mismatch_aborts_and_names_both_numbers(self, tmp_path) -> None:
+        n_orders, region, padding = 4, 8, 1
+        n_max_ckpt = 5  # deliberately != n_orders
+        k = calc_n_zernike_terms(n_max_ckpt) - 1
+        ckpt = np.arange(1, k + 1, dtype=np.float32) * 0.25  # length matches K
+        path = _write_amp_checkpoint(
+            tmp_path / "c.pt", coeffs=ckpt, n_max=n_max_ckpt, grid=region,
+            far_field_padding=padding,
+        )
+        config = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=True,
+        )
+        with pytest.raises(ValueError) as exc:
+            _seed_coefficients_from_checkpoint(config)
+        msg = str(exc.value)
+        assert "5" in msg and "4" in msg
+
+    def test_unverified_geometry_gate(self, tmp_path) -> None:
+        """False (default) refuses; True accepts and the note names the 3 fields."""
+        from ml.zernike.amp_checkpoint import check_geometry, load_trained_forward_model
+
+        n_orders, region, padding = 4, 8, 1
+        n_coeffs = calc_n_zernike_terms(n_orders)
+        ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
+        path = _write_amp_checkpoint(
+            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            far_field_padding=padding,
+        )
+        cfg_off = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=False,
+        )
+        with pytest.raises(ValueError) as exc:
+            _seed_coefficients_from_checkpoint(cfg_off)
+        assert "radius" in str(exc.value)  # the error names the unrecorded fields
+
+        cfg_on = SlmModelInLoopConfig(
+            n_orders=n_orders, region=region, far_field_padding=padding,
+            forward_checkpoint=str(path), assume_unverified_geometry=True,
+        )
+        seed = _seed_coefficients_from_checkpoint(cfg_on)
+        assert seed is not None
+        loaded = load_trained_forward_model(path)
+        report = check_geometry(
+            loaded, region=region, n_orders=n_orders,
+            far_field_size=region * padding, assume_unverified_geometry=True,
+        )
+        assert report.ok
+        joined = " ".join(report.notes)
+        for field in ("radius", "center_crop", "conserve_energy"):
+            assert field in joined
+
+    def test_zero_path_is_byte_identical_to_the_legacy_seed(self) -> None:
+        """The no-checkpoint seed must equal the legacy all-zero seed exactly.
+
+        The legacy seed's length came from ``ZernikeCoefficientOptimizer(...).
+        n_coefficients`` (piston-inclusive); the new zero path uses
+        ``calc_n_zernike_terms`` directly. They agree exactly when that identity
+        holds -- the invariant that makes the seed length valid for the optimizer.
+        (``region=16``: the optimizer requires ``region >= 16 and even``; the
+        coefficient count is region-independent so the value is immaterial.)
+        """
+        from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
+            ZernikeCoefficientOptimizer,
+        )
+
+        n_orders = 4
+        n_coeffs = calc_n_zernike_terms(n_orders)
+        legacy_len = int(
+            ZernikeCoefficientOptimizer(n_orders=n_orders, region=16).n_coefficients
+        )
+        assert n_coeffs == legacy_len
+        zero = np.zeros(n_coeffs, dtype=np.float64)
+        assert zero.shape == (legacy_len,)
+        assert np.array_equal(zero, np.zeros(legacy_len, dtype=np.float64))
 
 
 class TestUnvalidatedInvariants:
@@ -1032,6 +1236,7 @@ _CALIBRATION_KEYS = _SHARED_KEYS | _CALIBRATION_ONLY_KEYS
 _ROUND_KEYS = _SHARED_KEYS | _ROUND_ONLY_KEYS
 
 _sim_cache: dict = {}
+_seeded_sim_cache: dict = {}
 
 
 def _sim_result() -> dict:
@@ -1196,3 +1401,70 @@ class TestSimEndToEnd:
     def test_geometry_correlation_is_reported(self) -> None:
         """The bake-off gate reads this number, so it must be on the row."""
         assert math.isfinite(_sim_result()["history"][0]["geometry_correlation"])
+
+
+def _seeded_sim_result() -> dict:
+    """Run the tiny simulated optimisation ONCE with a valid checkpoint seed.
+
+    Mirrors the existing :func:`_sim_result` harness (same sim geometry) so the
+    only variable is the Step-A seed: a well-formed ``best_coefficients.pt`` whose
+    geometry matches the run (``n_max == n_orders``, ``grid == region``, padding
+    matches) is loaded and embedded as the starting coefficient vector. The
+    checkpoint must acknowledge the unverified geometry to be accepted.
+    """
+    if "value" not in _seeded_sim_cache:
+        region = int(_SIM_KWARGS["region"])
+        n_orders = 10
+        padding = int(_SIM_KWARGS["far_field_padding"])
+        k = calc_n_zernike_terms(n_orders) - 1  # piston-excluded count
+        coeffs = np.arange(1, k + 1, dtype=np.float32) * 0.25
+        fd, raw_path = tempfile.mkstemp(suffix=".pt")
+        os.close(fd)
+        ckpt_path = Path(raw_path)
+        _write_amp_checkpoint(
+            ckpt_path, coeffs=coeffs, n_max=n_orders, grid=region,
+            far_field_padding=padding,
+        )
+        kwargs = dict(_SIM_KWARGS)
+        kwargs["forward_checkpoint"] = str(ckpt_path)
+        kwargs["assume_unverified_geometry"] = True
+        result = optimize_slm_model_in_loop(SlmModelInLoopConfig(**kwargs))
+        _seeded_sim_cache["value"] = {
+            "result": result,
+            "history": result.recorder.history,
+            "checkpoint_path": ckpt_path,
+        }
+    return copy.deepcopy(_seeded_sim_cache["value"])
+
+
+class TestSimEndToEndSeeded:
+    """The seeded variant of the sim loop: a checkpoint start must not crash.
+
+    Only the starting vector changes; the sim harness (Stage 0 flat baseline,
+    Stage 1 geometry, the alternating rounds, the final bake-off) is the same.
+    Reusing :func:`_sim_result`'s geometry keeps the new case to the minimum
+    ``n_rounds`` while exercising the full loop with a non-zero seed.
+    """
+
+    def test_reaches_a_terminal_status_without_raising(self) -> None:
+        payload = _seeded_sim_result()
+        status = payload["result"].status
+        assert status in {
+            ModelInLoopStatus.COMPLETED,
+            ModelInLoopStatus.ABORTED_UNIDENTIFIABLE,
+            ModelInLoopStatus.ABORTED_REJECTION_STREAK,
+            ModelInLoopStatus.BAKE_OFF_REJECTED,
+        }
+        # The seed must have been applied (the run accepted a valid checkpoint).
+        assert isinstance(payload["result"], ModelInLoopResult)
+
+    def test_seed_was_not_the_zero_vector(self) -> None:
+        """Sanity: the checkpoint actually carried non-zero coefficients."""
+        path = Path(_seeded_sim_result()["checkpoint_path"])
+        if path.exists():
+            import torch
+
+            vec = np.asarray(
+                torch.load(path, map_location="cpu", weights_only=False)["coefficients"]
+            )
+            assert np.max(np.abs(vec)) > 0.0

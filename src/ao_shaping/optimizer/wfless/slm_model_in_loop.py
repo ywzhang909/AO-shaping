@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -67,6 +68,7 @@ from ao_shaping.tools.slm.bench_kernels import (
     gaussian_grid,
     phase_to_panel,
 )
+from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
 __all__ = [
     "Bench",
@@ -307,6 +309,23 @@ class SlmModelInLoopConfig:
     directions without improving the fit at all.
     """
 
+    forward_checkpoint: str | None = None
+    """Path to a train_amp ``best_coefficients.pt`` used to seed the Step-A fit.
+
+    ``None`` (default) keeps the historical all-zero seed. When set, the stored
+    coefficients are loaded, checked against this run's geometry, and used as the
+    starting point; a mismatch is refused rather than silently ignored.
+    """
+
+    assume_unverified_geometry: bool = False
+    """Acknowledge that the checkpoint records no ``radius``/``center_crop``/
+    ``conserve_energy`` (it cannot), so those were reconstructed from defaults.
+
+    Required to be True for a checkpoint to be accepted -- the loader cannot verify
+    them, and the run refuses rather than presenting an unverified reconstruction as
+    if it were checked.
+    """
+
     # --- Step B: square synthesis with the aberration frozen ----------------
     step_b_iterations: int = 600
     step_b_lr: float = 0.05
@@ -477,6 +496,14 @@ class SlmModelInLoopConfig:
             )
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
+        if self.forward_checkpoint is not None:
+            # Fail at config time, before any device opens: a typo in the seed
+            # path must not burn a hardware run to be discovered in Stage 2.
+            if not Path(self.forward_checkpoint).exists():
+                raise ValueError(
+                    "forward_checkpoint does not exist: "
+                    f"{self.forward_checkpoint!r}"
+                )
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
         # Resolve the focal length once, here, so the runner, a library caller and
         # the tests can never disagree about what geometry a run actually used.
@@ -1062,6 +1089,76 @@ def _predicted_far_field(
     return out
 
 
+def _seed_coefficients_from_checkpoint(config: SlmModelInLoopConfig) -> np.ndarray | None:
+    """Build the Step-A coefficient seed from a ``train_amp`` checkpoint.
+
+    ``None`` (``forward_checkpoint`` unset) means "keep the historical all-zero
+    seed" and is returned untouched. Otherwise the stored coefficients are loaded,
+    checked against this run's geometry, and embedded into the piston-*inclusive*
+    vector the loop uses.
+
+    The checkpoint vector is piston-*excluded* (``K = calc_n_zernike_terms(n_max) -
+    1`` entries, index 0 = Noll 2 / tip); the loop's vector is piston-*inclusive*
+    (``n_coeffs`` entries, index 0 = Noll 1 / piston), so the stored vector is
+    placed at offset 1. The frozen modes are then re-zeroed, because the checker
+    and the loader both trust the caller to honour them: the optimizer's
+    ``__init__`` validates the seed's shape/finiteness but does **not** zero the
+    frozen entries in it (it only builds the mask for the update path).
+
+    Returns:
+        The piston-inclusive seed, or ``None`` for the zero path.
+
+    Raises:
+        ValueError: If the checkpoint's geometry disagrees with this run, or its
+            coefficient count cannot be placed into the piston-inclusive vector.
+    """
+    if config.forward_checkpoint is None:
+        return None
+
+    from ml.zernike.amp_checkpoint import check_geometry, load_trained_forward_model
+
+    loaded = load_trained_forward_model(config.forward_checkpoint)
+    report = check_geometry(
+        loaded,
+        region=int(config.region),
+        n_orders=int(config.n_orders),
+        far_field_size=int(config.region) * int(config.far_field_padding),
+        assume_unverified_geometry=bool(config.assume_unverified_geometry),
+    )
+    if not report.ok:
+        # Strict: a geometry mismatch aborts rather than being silently ignored.
+        raise ValueError(
+            "forward checkpoint "
+            f"{config.forward_checkpoint!r} fails the geometry check: "
+            + "; ".join(report.errors)
+        )
+    for note in report.notes:
+        logger.info("checkpoint geometry: {}", note)
+
+    n_coeffs = calc_n_zernike_terms(int(config.n_orders))
+    if loaded.coefficients.shape[0] != n_coeffs - 1:
+        raise ValueError(
+            "forward checkpoint coefficient count "
+            f"{loaded.coefficients.shape[0]} does not fit a piston-inclusive "
+            f"vector of {n_coeffs} entries (expected {n_coeffs - 1})"
+        )
+
+    seed = np.zeros(n_coeffs, dtype=np.float64)
+    seed[1:] = loaded.coefficients[: n_coeffs - 1]
+    # Re-apply the frozen modes: the optimizer keeps them at zero in its update
+    # path, but a stale non-zero seed entry would otherwise survive until then.
+    for noll in config.frozen_modes:
+        if 1 <= int(noll) <= n_coeffs:
+            seed[int(noll) - 1] = 0.0
+
+    logger.info(
+        "Step A seeded from checkpoint {}: max |coefficient| = {:.6f} rad",
+        config.forward_checkpoint,
+        float(np.max(np.abs(seed))) if n_coeffs else 0.0,
+    )
+    return seed
+
+
 def _make_optimizer(config: SlmModelInLoopConfig, coefficients: np.ndarray | None) -> Any:
     """Build a :class:`ZernikeCoefficientOptimizer` around ``coefficients``.
 
@@ -1121,9 +1218,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     """
     from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
         create_target_mask,
-    )
-    from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
-        ZernikeCoefficientOptimizer,
     )
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
         StepBConfig,
@@ -1279,12 +1373,19 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             )
 
         # ---------------- Stage 2: the alternating loop --------------------
-        coefficients = np.zeros(
-            int(ZernikeCoefficientOptimizer(
-                n_orders=int(config.n_orders), region=int(config.region)
-            ).n_coefficients),
-            dtype=np.float64,
-        )
+        # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
+        # (piston), so its length is the full term count, not the optimizer's
+        # piston-excluded count.
+        n_coeffs = calc_n_zernike_terms(int(config.n_orders))
+        # A checkpoint seed (if any) is built -- and validated -- up front so a
+        # geometry mismatch aborts before the flat baseline or any device time is
+        # spent. With no checkpoint the seed is None and the historical all-zero
+        # start is used verbatim.
+        seeded = _seed_coefficients_from_checkpoint(config)
+        if seeded is None:
+            coefficients = np.zeros(n_coeffs, dtype=np.float64)
+        else:
+            coefficients = seeded
         step_a_lr = float(config.step_a_lr)
         probe_count = int(config.probe_count)
         rejection_streak = 0

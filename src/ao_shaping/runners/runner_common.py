@@ -2353,6 +2353,33 @@ class SlmModelInLoopParams:
         ),
     ] = "1,2,3"
 
+    forward_checkpoint: Annotated[
+        str | None,
+        option(
+            "--forward-checkpoint",
+            type=click.STRING,
+            help=(
+                "Path to a train_amp best_coefficients.pt used to SEED the Step-A "
+                "fit from coefficients learned offline, instead of the default "
+                "all-zero start. OFF by default (None -> historical zero seed). "
+                "The stored coefficients are checked against this run's geometry "
+                "and a mismatch ABORTS rather than being silently ignored."
+            ),
+        ),
+    ] = None
+    assume_unverified_geometry: Annotated[
+        bool,
+        option(
+            "--assume-unverified-geometry/--no-assume-unverified-geometry",
+            help=(
+                "Required together with --forward-checkpoint: acknowledge that the "
+                "checkpoint records no radius/center_crop/conserve_energy (it "
+                "cannot), so they were reconstructed from defaults. Without it a "
+                "checkpoint is refused rather than accepted as fully verified."
+            ),
+        ),
+    ] = False
+
     # --- Step B: square synthesis with the aberration frozen ----------------
     step_b_iterations: Annotated[
         int, option("--step-b-iterations", help="Adam steps per round for Step B.")
