@@ -872,6 +872,10 @@ def shape_phase_with_frozen_aberration(
         ImportError: If PyTorch is unavailable.
     """
     torch = _require_torch()
+    # Function-local, like every other torch touch in this module: the package
+    # must stay importable without PyTorch so the CPU-only paths still work.
+    from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+
     tdtype = getattr(torch, dtype)
     dev = torch.device(device) if device is not None else _auto_device(torch)
 
@@ -945,17 +949,7 @@ def shape_phase_with_frozen_aberration(
         # always ran at `region`, so a padded run compared a `region`-sized
         # intensity against a `far_field_size`-sized target.
         pad = int(getattr(optimizer, "far_field_size", region))
-        if pad > field.shape[0]:
-            half = (pad - field.shape[0]) // 2
-            field = torch.nn.functional.pad(
-                field.unsqueeze(0),
-                (half, pad - field.shape[0] - half,
-                 half, pad - field.shape[1] - half),
-            ).squeeze(0)
-        spectrum = torch.fft.fftshift(
-            torch.fft.fft2(torch.fft.ifftshift(field), norm="ortho")
-        )
-        intensity = spectrum.real**2 + spectrum.imag**2
+        intensity = focal_intensity(field, pad)
         loss = total_loss(
             intensity,
             phase,

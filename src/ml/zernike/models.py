@@ -49,6 +49,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 
+from ao_shaping.utils.wavefront.fraunhofer import focal_field
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
@@ -767,22 +768,7 @@ class ZernikeAmpModel(nn.Module):
         restores that centring on the output.
         """
         n = field.shape[-1]
-        m = n * self.far_field_padding
-        if m > n:
-            start = (m - n) // 2
-            padded = torch.zeros(
-                field.shape[:-2] + (m, m), dtype=field.dtype, device=field.device
-            )
-            padded[..., start : start + n, start : start + n] = field
-            field = padded
-
-        return torch.fft.fftshift(
-            torch.fft.fft2(
-                torch.fft.ifftshift(field, dim=(-2, -1)),
-                norm="ortho",
-            ),
-            dim=(-2, -1),
-        )
+        return focal_field(field, n * self.far_field_padding)
 
     def _normalize(self, observable: torch.Tensor) -> torch.Tensor:
         """Apply the configured per-frame normalisation."""

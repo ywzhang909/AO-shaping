@@ -740,20 +740,12 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         (FAR_N = 8192)。
         """
         torch = _torch()
+        from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+
         aberration = torch.einsum("j,jhw->hw", coefficients, self._basis_t)
         patch = (phase_slm + aberration) * self._aperture_t
         field = amplitude * torch.exp(1j * patch)
-        pad = self._far_field_size
-        if pad > field.shape[0]:
-            half = (pad - field.shape[0]) // 2
-            field = torch.nn.functional.pad(
-                field.unsqueeze(0), (half, pad - field.shape[0] - half,
-                                    half, pad - field.shape[1] - half)
-            ).squeeze(0)
-        spectrum = torch.fft.fftshift(
-            torch.fft.fft2(torch.fft.ifftshift(field), norm="ortho")
-        )
-        return spectrum.real**2 + spectrum.imag**2
+        return focal_intensity(field, self._far_field_size)
 
     def _intensity_loss(
         self, intensity: torch.Tensor, target: torch.Tensor
