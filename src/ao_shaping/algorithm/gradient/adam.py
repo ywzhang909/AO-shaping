@@ -32,10 +32,28 @@ def learning_schedule(
 ):
     if method == "static":
         return lr
-    # 余弦退火
+    # Cosine annealing: starts at lr, ends at the 1e-6 floor.
+    #
+    # This used to be ``lr * cos(pi * epoch / epochs) + 1e-6``, which is a half-wave,
+    # not an anneal: cos changes sign at ``epoch == epochs/2`` so the floor does not
+    # keep the LR positive, and the second half of every run fed the optimizer a
+    # step size of ``-lr + 1e-6`` -- the full initial magnitude, negated, i.e. a
+    # direction reversal rather than a step-size change. Fixed by R-44.
+    #
+    # The form below is the textbook anneal and is deliberately identical to
+    # ``optimizer.wf.rms_by_zernike.cosine_annealing_lr`` with ``lr_min=1e-6``:
+    # lr at epoch 0, the floor at ``epoch == epochs``, monotone non-increasing in
+    # between, and never negative. Do not "simplify" it back to a bare
+    # ``lr * cos(...)`` -- that is the defect.
+    #
+    # NOTE: the ``exp``/``linear`` branches below still use the older
+    # ``lr * f(epoch/epochs) + 1e-6`` floor convention, whereas
+    # ``rms_by_zernike`` routes the same names to a richer parameterised family
+    # (``exponential_decay_lr`` takes a ``decay_factor``). Left alone here: R-44
+    # is about the negative learning rate, and reconciling the two families is a
+    # separate decision that must not be smuggled in with this fix.
     elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
-        return lr
+        return 1e-6 + (lr - 1e-6) * (1 + np.cos(np.pi * epoch / epochs)) / 2
     # 指数衰减
     elif method == "exp":
         lr = lr * np.exp(-epoch / epochs) + 1e-6

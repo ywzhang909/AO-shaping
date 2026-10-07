@@ -121,7 +121,7 @@
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；启用 `R50Controller.__enter__/__exit__`。⚠️ 必须先钉死 Micro-DM 磁盘布局 | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法。⚠️ 只动 CLI 层，**不合并命令体** | [#52](https://github.com/ywzhang909/AO-shaping/issues/52) |
 | R-43 | 补 `micro_dm_image_collect.py` 测试（🟡 `train_data_collect.py` 一半已完成 → archive §5.32） | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
-| R-44 | 🔴 `algorithm.learning_schedule` 的 `cosin` 分支在 `epoch > epochs/2` 后返回**负学习率**（实测 `-3.09e-4`）。已用测试钉住现状，改它会动到所有调用者轨迹 | [#54](https://github.com/ywzhang909/AO-shaping/issues/54) |
+| ~~R-44~~ | ✅ **已修**：`cosin` 分支原是 `lr*cos(π·e/E)+1e-6`（半波，非退火）⇒ `e>E/2` 返回 **`-lr+1e-6`**（完整反向）。已改为标准退火 `1e-6+(lr-1e-6)(1+cos(π·e/E))/2`，与 `rms_by_zernike.cosine_annealing_lr` **101 轮逐位一致**（max diff <1e-18）。⚠️ 原「实测 -3.09e-4」对应 `e=60`，archive 写 `e=75` 有误（`e=75` 应为 -7.06e-4） | [#54](https://github.com/ywzhang909/AO-shaping/issues/54)（已结） |
 
 > **旧账本 §2.2 的 R-30 / R-31 两行是陈旧的** —— 它们实际已于 2026-10-03 完成
 > （见 [archive §5.1](docs/dev/todo_archive.md)），但表格未同步更新。**不要**为它们开 issue。
