@@ -467,9 +467,7 @@ class TestBuildFromInitImageConsistency:
 
         # Check that the center pixel is inside the radius-0 mask (just the center pixel)
         mask_r0 = target.masks[0]  # radius 0 mask (pixels with dist <= 0)
-        assert mask_r0[row_idx, col_idx] == True, (
-            "Center pixel should be inside radius-0 mask"
-        )
+        assert mask_r0[row_idx, col_idx], "Center pixel should be inside radius-0 mask"
 
         # Verify consistency: dist_mat and masks should agree on center
         assert np.isclose(target.dist_mat[row_idx, col_idx], 0.0), (
@@ -479,9 +477,7 @@ class TestBuildFromInitImageConsistency:
         # Also check radius-1 mask contains nearby pixels
         mask_r1 = target.masks[1]  # radius 1 mask (pixels with dist <= 1)
         # The center pixel should be in the radius-1 mask
-        assert mask_r1[row_idx, col_idx] == True, (
-            "Center pixel should be inside radius-1 mask"
-        )
+        assert mask_r1[row_idx, col_idx], "Center pixel should be inside radius-1 mask"
 
     def test_build_from_init_image_vs_manual_construction(self):
         """Test that build_from_init_image gives same result as manual construction
@@ -548,7 +544,7 @@ class TestBuildFromInitImageConsistency:
         # Test pib: should use correct center
         pib_mask = target._ImageTargetFunc__get_bucket_mask(3)
         # The center pixel should be inside the mask
-        assert pib_mask[cy, cx] == True, "Center should be inside pib mask"
+        assert pib_mask[cy, cx], "Center should be inside pib mask"
 
         # Test radius: should use correct center
         r = target.radius(img, energy=0.5)

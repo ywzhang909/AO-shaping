@@ -34,12 +34,16 @@ ENABLE_CCD = os.environ.get("TEST_CCD", "1") == "1"
 # 全部测试 (含不走 fixture 的 test_context_manager 用例) 都直接打开设备,
 # 无设备时 WFS open() 失败会在 GC 终结化触发 SDK 原生崩溃, 必须 skip-first。
 if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "yes"}:
-    pytest.skip("set AO_RUN_HARDWARE=1 to run hardware integration tests", allow_module_level=True)
+    pytest.skip(
+        "set AO_RUN_HARDWARE=1 to run hardware integration tests",
+        allow_module_level=True,
+    )
 
 
 # ============================================================================
 # WFS Hardware Integration Tests
 # ============================================================================
+
 
 class TestWFSHardware:
     """Thorlabs WFS hardware integration tests."""
@@ -56,7 +60,9 @@ class TestWFSHardware:
             wfs = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
             wfs.open()
             print(f"\n[WFS] Connected: {wfs.device_name}, SN: {wfs.serial_num}")
-            print(f"[WFS] MLA: {wfs.mla_index}, Spots: {wfs.num_spots_x}x{wfs.num_spots_y}")
+            print(
+                f"[WFS] MLA: {wfs.mla_index}, Spots: {wfs.num_spots_x}x{wfs.num_spots_y}"
+            )
             yield wfs
             wfs.close()
             print("[WFS] Closed")
@@ -119,7 +125,7 @@ class TestWFSHardware:
         print(f"  Min: {stats['min']:.4f}, Max: {stats['max']:.4f}")
         assert isinstance(wf, np.ndarray)
         assert wf.shape == (wfs.num_spots_x, wfs.num_spots_y)
-        assert 'rms' in stats
+        assert "rms" in stats
 
     def test_get_wavefront_with_tilt_cancel(self, wfs):
         """Test wavefront with tilt cancellation."""
@@ -132,15 +138,21 @@ class TestWFSHardware:
         """Test spot deviation measurement."""
         wfs.take_image()
         dev_x, dev_y = wfs.get_spot_deviation(cancel_tile=False)
-        print(f"  Deviation X shape: {dev_x.shape}, range: [{dev_x.min():.4f}, {dev_x.max():.4f}]")
-        print(f"  Deviation Y shape: {dev_y.shape}, range: [{dev_y.min():.4f}, {dev_y.max():.4f}]")
+        print(
+            f"  Deviation X shape: {dev_x.shape}, range: [{dev_x.min():.4f}, {dev_x.max():.4f}]"
+        )
+        print(
+            f"  Deviation Y shape: {dev_y.shape}, range: [{dev_y.min():.4f}, {dev_y.max():.4f}]"
+        )
         assert dev_x.shape == (wfs.num_spots_x, wfs.num_spots_y)
         assert dev_y.shape == (wfs.num_spots_x, wfs.num_spots_y)
 
     def test_get_stable_spot_deviation(self, wfs):
         """Test stable spot deviation with intensity threshold."""
         wfs.take_image()
-        dev_x, dev_y = wfs.get_stable_spot_deviation(intensity_threshold=0.0, cancel_tile=False)
+        dev_x, dev_y = wfs.get_stable_spot_deviation(
+            intensity_threshold=0.0, cancel_tile=False
+        )
         print(f"  Stable deviation X shape: {dev_x.shape}")
         print(f"  Stable deviation Y shape: {dev_y.shape}")
         assert dev_x.shape == (wfs.num_spots_x, wfs.num_spots_y)
@@ -225,6 +237,7 @@ class TestWFSHardware:
 # SLM Hardware Integration Tests
 # ============================================================================
 
+
 class TestSLMHardware:
     """Santec SLM hardware integration tests."""
 
@@ -308,7 +321,7 @@ class TestZernikeSLMHardware:
 
             slm = ZernikeSLM(slm_number=1, wavelength=532, n_max=4)
             slm.open()
-            print(f"\n[ZernikeSLM] Connected, n_max=4")
+            print("\n[ZernikeSLM] Connected, n_max=4")
             yield slm
             slm.close()
             print("[ZernikeSLM] Closed")
@@ -345,6 +358,7 @@ class TestZernikeSLMHardware:
 # ============================================================================
 # DM Hardware Integration Tests
 # ============================================================================
+
 
 class TestDMHardware:
     """NLight DM hardware integration tests."""
@@ -386,7 +400,9 @@ class TestDMHardware:
         """Test sending patterned voltages."""
         voltages = np.random.uniform(dm.V_Min, dm.V_Max, dm.DM_Num)
         dm.send_voltages(voltages, wait_time_s=0.1)
-        print(f"  Sent random voltages: min={voltages.min():.1f}, max={voltages.max():.1f}")
+        print(
+            f"  Sent random voltages: min={voltages.min():.1f}, max={voltages.max():.1f}"
+        )
 
     def test_check_dm_unit_grad_safe(self, dm):
         """Test voltage gradient safety check."""
@@ -425,6 +441,7 @@ class TestDMHardware:
 # CCD Hardware Integration Tests
 # ============================================================================
 
+
 class TestCCDHardware:
     """CCD camera hardware integration tests."""
 
@@ -457,7 +474,7 @@ class TestCCDHardware:
 
             cam = MIICamera(cam_id=0)
             cam.initialize()
-            print(f"\n[MIICAM] Connected")
+            print("\n[MIICAM] Connected")
             yield cam
             cam.close()
             print("[MIICAM] Closed")
@@ -487,7 +504,7 @@ class TestCCDHardware:
 
     def test_miicam_connection(self, miicam):
         """Test MIICAM camera connection."""
-        print(f"  Connected to MIICAM")
+        print("  Connected to MIICAM")
 
     def test_miicam_get_image(self, miicam):
         """Test MIICAM image capture."""
@@ -499,12 +516,13 @@ class TestCCDHardware:
     def test_miicam_exposure(self, miicam):
         """Test MIICAM exposure time setting."""
         miicam.reset_exposure_time(50.0)
-        print(f"  Set exposure: 50.0 ms")
+        print("  Set exposure: 50.0 ms")
 
 
 # ============================================================================
 # Full Pipeline Hardware Integration Test
 # ============================================================================
+
 
 class TestFullPipeline:
     """Full pipeline test: WFS + SLM + DM working together."""
@@ -513,7 +531,9 @@ class TestFullPipeline:
     def full_setup(self):
         """Initialize all hardware devices."""
         if not (ENABLE_WFS and ENABLE_SLM and ENABLE_DM):
-            pytest.skip("Full pipeline requires WFS, SLM, and DM (set TEST_WFS=1 TEST_SLM=1 TEST_DM=1)")
+            pytest.skip(
+                "Full pipeline requires WFS, SLM, and DM (set TEST_WFS=1 TEST_SLM=1 TEST_DM=1)"
+            )
 
         setup = {}
         try:
@@ -523,16 +543,18 @@ class TestFullPipeline:
 
             print("\n[Pipeline] Initializing all devices...")
 
-            setup['wfs'] = ThorlabWFS(MlaRes.Res768, use_custom_ref=False, high_speed=True)
-            setup['wfs'].open()
+            setup["wfs"] = ThorlabWFS(
+                MlaRes.Res768, use_custom_ref=False, high_speed=True
+            )
+            setup["wfs"].open()
             print(f"[Pipeline] WFS: {setup['wfs'].device_name}")
 
-            setup['slm'] = ZernikeSLM(slm_number=1, wavelength=532, n_max=4)
-            setup['slm'].open()
-            print(f"[Pipeline] SLM: Connected")
+            setup["slm"] = ZernikeSLM(slm_number=1, wavelength=532, n_max=4)
+            setup["slm"].open()
+            print("[Pipeline] SLM: Connected")
 
-            setup['dm'] = NLight()
-            setup['dm'].open()
+            setup["dm"] = NLight()
+            setup["dm"].open()
             print(f"[Pipeline] DM: {setup['dm'].DM_Num} actuators")
 
             yield setup
@@ -544,13 +566,13 @@ class TestFullPipeline:
                 try:
                     dev.close()
                     print(f"[Pipeline] {key}: Closed")
-                except:
+                except Exception:
                     pass
 
     def test_full_pipeline_wavefront(self, full_setup):
         """Test full pipeline: SLM phase -> WFS measurement."""
-        wfs = full_setup['wfs']
-        slm = full_setup['slm']
+        wfs = full_setup["wfs"]
+        slm = full_setup["slm"]
 
         # Set flat phase on SLM
         slm.set_flat()
@@ -563,6 +585,7 @@ class TestFullPipeline:
 
         # Send random Zernike coefficients
         import numpy as np
+
         coeffs = np.random.uniform(-5, 5, 15)
         coeffs[0] = 0  # No piston
         slm.send_zernike(coeffs)
@@ -575,8 +598,8 @@ class TestFullPipeline:
 
     def test_full_pipeline_dm_correction(self, full_setup):
         """Test full pipeline: DM voltage correction."""
-        wfs = full_setup['wfs']
-        dm = full_setup['dm']
+        wfs = full_setup["wfs"]
+        dm = full_setup["dm"]
 
         # Reset DM
         dm.reset_all()

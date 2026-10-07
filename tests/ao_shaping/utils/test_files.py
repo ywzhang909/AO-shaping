@@ -60,6 +60,7 @@ def test_add_record():
     assert recorder1[0]["_id"] == 1
     assert recorder1[1]["_id"] == 2
 
+
 def test_merge_recorder():
     recorder1 = Recorder("mark1", "target1")
     recorder2 = Recorder("mark1", "target1")
@@ -86,7 +87,7 @@ class TestSaveHistoryHdf5:
         with h5py.File(path, "r") as f:
             assert f["metadata"].attrs["run"] == "test"
             assert f["metadata"].attrs["epochs"] == 2
-            assert f["metadata"].attrs["flag"] == True
+            assert f["metadata"].attrs["flag"], "flag should be True"
             assert f["metadata"].attrs["none_val"] == ""
             np.testing.assert_allclose(f["scalars/loss"][:], [1.0, 0.5])
             np.testing.assert_array_equal(f["epochs/0000/coeffs"][:], [1.0, 2.0])

@@ -121,7 +121,7 @@ class TestGSVizualization:
         final_error = result.error_history[-1]
         improvement = (initial_error - final_error) / initial_error
 
-        print(f"\n✓ Convergence test:")
+        print("\n✓ Convergence test:")
         print(f"  Initial error: {initial_error:.6f}")
         print(f"  Final error: {final_error:.6f}")
         print(f"  Improvement: {improvement:.1%}")

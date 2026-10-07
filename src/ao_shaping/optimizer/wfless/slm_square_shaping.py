@@ -169,6 +169,7 @@ def _slm_cls(slm_type: str = "") -> type:
         raise RuntimeError("Santec SLM driver not available. Install the SLM SDK.")
     return Santec
 
+
 # SLM resolution (from Santec.Panel_Res = (1920, 1200))
 SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
@@ -543,9 +544,9 @@ def square_quality_score(
     w_ee: float = 0.4,
     w_ar: float = 0.2,
     *,
-peak_to_background: float = 0.0,
-        w_pbr: float = 0.0,
-        pbr_reference: float = 1000.0,
+    peak_to_background: float = 0.0,
+    w_pbr: float = 0.0,
+    pbr_reference: float = 1000.0,
 ) -> float:
     """Compute a combined quality score for the square beam.
 
@@ -1044,6 +1045,83 @@ class SlmSquareConfig:
     delta_pinned: bool = False
     kwargs: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Validate the square-shaping fields before any hardware is touched.
+
+        These rules used to live in ``optimize_slm_square`` *after* the
+        camera and SLM context managers were entered — a bad value then
+        meant a wasted device open/close cycle. Moving them here means
+        programmatic callers (no Click layer) also get the guard.
+        """
+        if self.n_max < 1:
+            raise ValueError(f"n_max must be at least 1, got {self.n_max}")
+        if self.target_side < 0:
+            raise ValueError(
+                f"target_side must be non-negative, got {self.target_side}"
+            )
+        if self.target_mean_brightness < 0:
+            raise ValueError(
+                f"target_mean_brightness must be non-negative, "
+                f"got {self.target_mean_brightness}"
+            )
+        if self.target_side > 0 and self.target_mean_brightness > 0:
+            raise ValueError(
+                "target_side 与 target_mean_brightness 互斥: "
+                "方形边长(px) 与 方形平均亮度只能二选一 (both given)"
+            )
+        if self.side_factor <= 0:
+            raise ValueError(f"side_factor must be positive, got {self.side_factor}")
+        if self.delta < 0:
+            raise ValueError(f"delta must be non-negative, got {self.delta}")
+        if self.lr < 0:
+            raise ValueError(f"lr must be non-negative, got {self.lr}")
+        if self.cam_id < 0:
+            raise ValueError(f"cam_id must be non-negative, got {self.cam_id}")
+        if self.cam_size < 16:
+            raise ValueError(f"cam_size must be at least 16, got {self.cam_size}")
+        if self.target_max_brightness <= 0:
+            raise ValueError(
+                f"target_max_brightness must be positive, got {self.target_max_brightness}"
+            )
+        if self.slm_number < 1 or self.slm_number > 8:
+            raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
+        if self.slm_wavelength < 0:
+            raise ValueError(
+                f"slm_wavelength must be non-negative, got {self.slm_wavelength}"
+            )
+        if self.w_uniformity < 0:
+            raise ValueError(
+                f"w_uniformity must be non-negative, got {self.w_uniformity}"
+            )
+        if self.w_efficiency < 0:
+            raise ValueError(
+                f"w_efficiency must be non-negative, got {self.w_efficiency}"
+            )
+        if self.w_aspect < 0:
+            raise ValueError(f"w_aspect must be non-negative, got {self.w_aspect}")
+        if self.w_pbr < 0:
+            raise ValueError(f"w_pbr must be non-negative, got {self.w_pbr}")
+        if self.phase_grid < 2:
+            raise ValueError(f"phase_grid must be at least 2, got {self.phase_grid}")
+        if self.zernike_radius is not None and self.zernike_radius <= 0:
+            raise ValueError(
+                f"zernike_radius must be positive when set, got {self.zernike_radius!r}"
+            )
+        if self.rotation_search_deg < 0 or self.rotation_search_deg > 360:
+            raise ValueError(
+                f"rotation_search_deg 必须在 0~360 范围内, "
+                f"实际 {self.rotation_search_deg}"
+            )
+        if self.max_roi_energy_loss < 0 or self.max_roi_energy_loss > 1:
+            raise ValueError(
+                "max_roi_energy_loss must be within 0..1 "
+                f"(0 disables the guard), got {self.max_roi_energy_loss!r}"
+            )
+        if self.init_amplitude_rad < 0:
+            raise ValueError(
+                f"init_amplitude_rad must be non-negative, got {self.init_amplitude_rad}"
+            )
+
 
 def optimize_slm_square(
     center: tuple[int, int] | str | None,
@@ -1234,25 +1312,6 @@ def optimize_slm_square(
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
 
-    algorithm = str(algorithm).lower()
-    if algorithm not in heuristic_algorithm_choices(include_spgd=True):
-        raise ValueError(
-            f"algorithm must be one of {heuristic_algorithm_choices()}, "
-            f"got {algorithm!r}"
-        )
-
-    if objective not in SQUARE_OBJECTIVE_CHOICES:
-        raise ValueError(
-            f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
-        )
-
-    # 目标方形参数二选一: 边长(像素) 或 平均亮度, 同时给出报错
-    if target_side > 0 and target_mean_brightness > 0:
-        raise ValueError(
-            "target_side 与 target_mean_brightness 互斥: "
-            "方形边长(px) 与 方形平均亮度只能二选一 (both given)"
-        )
-
     # The recorded score is whatever ``objective`` selected, so name the column
     # accordingly. The default (``quality``/``shape``/``""``) keeps the historical
     # ``quality`` column name so existing default runs stay byte-identical; a
@@ -1349,10 +1408,6 @@ def optimize_slm_square(
 
     # --- SLM↔camera relative rotation search (extra SPGD DOF) ---
     _rotation_search_deg = float(rotation_search_deg)
-    if not (0.0 <= _rotation_search_deg <= 360.0):
-        raise ValueError(
-            f"rotation_search_deg 必须在 0~360 范围内, 实际 {_rotation_search_deg}"
-        )
     _has_rotation = _rotation_search_deg > 0.0
     _rot_clip: tuple[float, float] | None = (
         (-_rotation_search_deg / 2.0, _rotation_search_deg / 2.0)
@@ -1384,9 +1439,14 @@ def optimize_slm_square(
 
     with (
         create_camera(
-            cam_type, cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
+            cam_type,
+            cam_id=cam_id,
+            exposure_time_ms=exposure_time_ms,
+            skip_sampling=False,
         ) as cam,
-        _slm_cls(slm_type)(slm_number=slm_number, wavelength=slm_wavelength or None) as slm,
+        _slm_cls(slm_type)(
+            slm_number=slm_number, wavelength=slm_wavelength or None
+        ) as slm,
     ):
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
@@ -1935,7 +1995,10 @@ def optimize_slm_square(
                 if _guard_enabled and _guard_ref_ee is not None:
                     _pos_loss = (_guard_ref_ee - pos_ee) / _guard_ref_ee
                     _neg_loss = (_guard_ref_ee - neg_ee) / _guard_ref_ee
-                    if _pos_loss > max_roi_energy_loss or _neg_loss > max_roi_energy_loss:
+                    if (
+                        _pos_loss > max_roi_energy_loss
+                        or _neg_loss > max_roi_energy_loss
+                    ):
                         _gated = True
                         _n_energy_gated += 1
                         _gate = "energy"
@@ -2127,7 +2190,9 @@ def optimize_slm_square(
             f"@ epoch {last_best_epoch}"
         )
         if _guard_enabled:
-            logger.info("Energy guard: {} of {} epochs skipped", _n_energy_gated, epochs)
+            logger.info(
+                "Energy guard: {} of {} epochs skipped", _n_energy_gated, epochs
+            )
 
         display_stack.close()
 
@@ -2164,8 +2229,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
     parser.add_argument(
-        "-t", "--exposure_time_ms", type=float, default=0.0,
-        help="Exposure time in ms; 0 = keep device setting / auto (Daheng clamps 0 to device min)"
+        "-t",
+        "--exposure_time_ms",
+        type=float,
+        default=0.0,
+        help="Exposure time in ms; 0 = keep device setting / auto (Daheng clamps 0 to device min)",
     )
     parser.add_argument("--cam_id", type=int, default=0, help="Camera device ID")
     parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")

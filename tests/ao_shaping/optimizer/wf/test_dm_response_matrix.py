@@ -33,7 +33,7 @@ def _make_result(
     n_cycles: int = 1,
     wait_time: float = 0.1,
     timestamp: str = "2026-05-13T12:00:00",
-) -> "DMResponseMatrixResult":
+) -> "DMResponseMatrixResult":  # noqa: F821 - imported inside function to avoid circular import
     """Create a DMResponseMatrixResult with sensible defaults."""
     from ao_shaping.optimizer.wf.dm_response_matrix import DMResponseMatrixResult
 
@@ -663,8 +663,12 @@ class TestMeasureActuatorResponse:
 
         # Alternating pos/neg pattern: first call returns pos, then neg, etc.
         call_count = {"idx": 0}
-        pos_values = np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(n_spots_x, n_spots_y)
-        neg_values = -np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(n_spots_x, n_spots_y)
+        pos_values = np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(
+            n_spots_x, n_spots_y
+        )
+        neg_values = -np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(
+            n_spots_x, n_spots_y
+        )
 
         def get_spot_deviation(cancel_tile=False):
             call_count["idx"] += 1
@@ -698,7 +702,9 @@ class TestMeasureActuatorResponse:
         assert np.allclose(mean_resp, expected_full)
 
         # dev_x and dev_y should also be (pos - neg) / (2*V)
-        expected_dev = np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(n_spots_x, n_spots_y)
+        expected_dev = np.arange(1, n_spots_total + 1, dtype=np.float64).reshape(
+            n_spots_x, n_spots_y
+        )
         assert np.allclose(dev_x, expected_dev)
         assert np.allclose(dev_y, expected_dev)
 
@@ -804,7 +810,9 @@ class TestDMResponseMatrixCalibration:
 
     def test_calibrate_inverses(self):
         """Call with compute_inverses=True; verify pinv and lstsq shapes."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 64
         dm = self._make_mock_dm(n_actuators)
@@ -819,6 +827,7 @@ class TestDMResponseMatrixCalibration:
         with patch(
             "ao_shaping.optimizer.wf.dm_response_matrix.measure_actuator_response"
         ) as mock_measure:
+
             def measure_side_effect(**kwargs):
                 response = np.random.randn(n_slopes) * 0.1
                 variance = np.full(n_slopes, 0.01)
@@ -848,7 +857,9 @@ class TestDMResponseMatrixCalibration:
 
     def test_calibrate_no_inverses(self):
         """Same but compute_inverses=False; verify pinv_matrix is None."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 64
         dm = self._make_mock_dm(n_actuators)
@@ -888,7 +899,9 @@ class TestDMResponseMatrixCalibration:
 
     def test_calibrate_skips_actuator_zero(self):
         """Verify actuator 0 is not measured when dm_unit_mask[0] is False."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 8
         dm = self._make_mock_dm(n_actuators)
@@ -1066,7 +1079,9 @@ class TestHadamard:
 
     def test_calibrate_hadamard_equivalent_to_sequential(self):
         """Hadamard and sequential modes produce the same matrix."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 8
         n_spots_x, n_spots_y = 3, 2
@@ -1108,7 +1123,9 @@ class TestHadamard:
 
     def test_calibrate_hadamard_multi_cycle_variance(self):
         """Multi-cycle Hadamard calibration reports finite non-zero variance."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 8
         n_spots_x, n_spots_y = 3, 2
@@ -1139,7 +1156,9 @@ class TestHadamard:
 
     def test_calibrate_hadamard_explicit_order(self):
         """Explicit hadamard_order >= n_valid works; smaller orders raise."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 5
         n_spots_x, n_spots_y = 3, 2
@@ -1187,7 +1206,9 @@ class TestHadamard:
 
     def test_calibrate_hadamard_subap_mask_shape(self):
         """Partial subaperture mask filters the Hadamard matrix rows."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 8
         n_spots_x, n_spots_y = 4, 4
@@ -1222,7 +1243,9 @@ class TestHadamard:
 
     def test_calibrate_default_mode_is_sequential(self):
         """Default calibration mode is sequential with no Hadamard order."""
-        from ao_shaping.optimizer.wf.dm_response_matrix import calibrate_dm_response_matrix
+        from ao_shaping.optimizer.wf.dm_response_matrix import (
+            calibrate_dm_response_matrix,
+        )
 
         n_actuators = 8
         n_spots_x, n_spots_y = 3, 2

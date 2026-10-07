@@ -76,7 +76,7 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.wavefront.matrix_utils import (
-focal_length_from_camera_pixel,
+    focal_length_from_camera_pixel,
 )
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
@@ -244,6 +244,88 @@ class SlmGsRefineConfig:
         self._focal_length_pinned = self.focal_length_m > 0.0
         if not self._focal_length_pinned:
             self.focal_length_m = self._derive_focal_length()
+
+        # --- range validation (moved here from the optimizer body so a bad
+        # value never reaches the hardware context managers) ---
+        if self.epochs < 1:
+            raise ValueError(f"epochs must be at least 1, got {self.epochs}")
+        if self.phase_grid < 2:
+            raise ValueError(f"phase_grid must be at least 2, got {self.phase_grid}")
+        if self.delta < 0:
+            raise ValueError(f"delta must be non-negative, got {self.delta}")
+        if self.n_eval_frames < 1:
+            raise ValueError(
+                f"n_eval_frames must be at least 1, got {self.n_eval_frames}"
+            )
+        if self.gs_iters < 1:
+            raise ValueError(f"gs_iters must be at least 1, got {self.gs_iters}")
+        if self.gs_relax <= 0:
+            raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
+        if self.w_pib < 0 or self.w_unif < 0:
+            raise ValueError(
+                f"w_pib and w_unif must be non-negative, got "
+                f"w_pib={self.w_pib}, w_unif={self.w_unif}"
+            )
+        if self.w_pib <= 0 and self.w_unif <= 0:
+            raise ValueError("at least one of w_pib / w_unif must be positive")
+        if self.settle_wait_s <= 0:
+            raise ValueError(
+                f"settle_wait_s must be positive, got {self.settle_wait_s}"
+            )
+        if self.settle_tol <= 0:
+            raise ValueError(f"settle_tol must be positive, got {self.settle_tol}")
+        if self.settle_max_wait_s <= 0:
+            raise ValueError(
+                f"settle_max_wait_s must be positive, got {self.settle_max_wait_s}"
+            )
+        if self.settle_max_discard < 1:
+            raise ValueError(
+                f"settle_max_discard must be at least 1, got {self.settle_max_discard}"
+            )
+        if self.side_factor <= 0:
+            raise ValueError(f"side_factor must be positive, got {self.side_factor}")
+        if self.target_side < 0:
+            raise ValueError(
+                f"target_side must be non-negative, got {self.target_side}"
+            )
+        if self.panel_pixel_um <= 0:
+            raise ValueError(
+                f"panel_pixel_um must be positive, got {self.panel_pixel_um}"
+            )
+        if self.camera_pixel_um <= 0:
+            raise ValueError(
+                f"camera_pixel_um must be positive, got {self.camera_pixel_um}"
+            )
+        if self.beam_radius_px <= 0:
+            raise ValueError(
+                f"beam_radius_px must be positive, got {self.beam_radius_px}"
+            )
+        if self.far_field_padding < 1:
+            raise ValueError(
+                f"far_field_padding must be at least 1, got {self.far_field_padding}"
+            )
+        if self.cam_size < 16:
+            raise ValueError(f"cam_size must be at least 16, got {self.cam_size}")
+        if self.slm_number < 1 or self.slm_number > 8:
+            raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
+        if self.slm_wavelength < 0:
+            raise ValueError(
+                f"slm_wavelength must be non-negative, got {self.slm_wavelength}"
+            )
+        if self.exposure_time_ms < 0:
+            raise ValueError(
+                f"exposure_time_ms must be non-negative, got {self.exposure_time_ms}"
+            )
+        if self.early_stop_score < 0:
+            raise ValueError(
+                f"early_stop_score must be non-negative, got {self.early_stop_score}"
+            )
+        if self.progress_every < 1:
+            raise ValueError(
+                f"progress_every must be at least 1, got {self.progress_every}"
+            )
+        if self.lr_min_ratio < 0 or self.lr_min_ratio > 1:
+            raise ValueError(f"lr_min_ratio must be in 0..1, got {self.lr_min_ratio}")
 
     def _derive_focal_length(self) -> float:
         """Derive the 2f focal length from the anchor and the measured scale."""
@@ -766,10 +848,14 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
             # gradient. It is reshaped only when embedded into the panel.
             grid = max(2, int(config.phase_grid))
             dof = np.zeros(grid * grid, dtype=np.float64)
-            optimizer = _make_optimizer(config.optimizer_type, dof.size, _lr_at(config, 0))
+            optimizer = _make_optimizer(
+                config.optimizer_type, dof.size, _lr_at(config, 0)
+            )
 
             def phase_of(vec: np.ndarray) -> np.ndarray:
-                return _compose(base_panel, vec.reshape(grid, grid), panel_shape, radius_px)
+                return _compose(
+                    base_panel, vec.reshape(grid, grid), panel_shape, radius_px
+                )
 
             for epoch in range(max(1, int(config.epochs))):
                 lr = _lr_at(config, epoch)
@@ -818,8 +904,13 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
                         best_score,
                         best_stage,
                     )
-                if config.early_stop_score > 0 and best_score >= config.early_stop_score:
-                    logger.info("early stop at epoch {} (score {:.4f})", epoch, best_score)
+                if (
+                    config.early_stop_score > 0
+                    and best_score >= config.early_stop_score
+                ):
+                    logger.info(
+                        "early stop at epoch {} (score {:.4f})", epoch, best_score
+                    )
                     break
 
             best_row = max(recorder.history, key=lambda r: r["score"])
