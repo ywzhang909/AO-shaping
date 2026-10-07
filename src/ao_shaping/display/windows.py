@@ -365,3 +365,162 @@ class SlmZernikeDisplay(AutoDisplay):
         self._closed = True
         if getattr(self, "_frames", None):
             super().close()
+
+
+class SlmModelInLoopDisplay(SlmZernikeDisplay):
+    """Live pygame view for model-in-the-loop square shaping.
+
+    **Shares** the four-panel window with :class:`SlmZernikeDisplay` -- the same
+    2x2 geometry, the same ``FrameInfo`` panel descriptors, the same frame
+    primitives, and the same ``closed`` / ``close()`` contract -- and swaps
+    exactly one panel: where the PIB view draws the Zernike coefficient bars,
+    this one draws the **forward model's predicted far field**.
+
+    That single substitution is what makes this loop watchable. Step A fits one
+    shared Zernike aberration by minimising
+    ``loss(measured CCD, predicted far field)``, so showing the two side by side
+    lets the fit be *seen* converging; no scalar in the history can show that.
+    The fitted coefficients themselves stay in the recorder/CSV, which is the
+    right place for numbers rather than a fourth picture.
+
+    Panel contents:
+
+    ``ccd``
+        The measured camera frame with the square target outlined, in frozen
+        optical-axis (source-image) coordinates.
+    ``phase``
+        The raw unwrapped-radian phase currently on the SLM panel.
+    ``predicted``
+        The forward model's far field for ``(coefficients, phase)``. Peak
+        normalised per frame, so this is a *shape* comparison against ``ccd`` and
+        not an absolute-brightness one -- the two live on different grids
+        (camera pixels vs the padded model grid) and different radiometries.
+    ``curve``
+        The per-round metric log.
+
+    The prediction panel renders blank while no prediction is available yet
+    (the flat baseline is displayed before the model has any fitted
+    aberration), rather than raising.
+    """
+
+    def __init__(
+        self,
+        frame_size: tuple[int, int] = SlmZernikeDisplay.DEFAULT_FRAME_SIZE,
+        display_size: tuple[int, int] = SlmZernikeDisplay.DEFAULT_DISPLAY_SIZE,
+        margin: int = 10,
+        grid: tuple[int, int] = (2, 2),
+        curve_title: str = "score curve",
+        curve_y_range: tuple[float, float] | None = None,
+        target_shape: str | None = "square",
+        target_size: float | None = None,
+        target_aspect_ratio: float = 1.0,
+    ) -> None:
+        # ``zernike_clip`` only parameterises the coefficient-bar panel this
+        # layout does not have; the base constructor still requires a value.
+        super().__init__(
+            zernike_clip=1.0,
+            frame_size=frame_size,
+            display_size=display_size,
+            margin=margin,
+            grid=grid,
+            curve_title=curve_title,
+            curve_y_range=curve_y_range,
+            target_shape=target_shape,
+            target_size=target_size,
+            target_aspect_ratio=target_aspect_ratio,
+        )
+        # Rebind the panel list AFTER the base constructor, which installs the
+        # PIB layout. ``AutoDisplay.init_window`` instantiates the frames from
+        # ``self.frame_list``, so replacing it here is what changes the window.
+        self.frame_list = [
+            FrameInfo(
+                "ccd",
+                "CCD (measured)",
+                "Image2DWithBucketFrame",
+                {
+                    "target_shape": target_shape,
+                    "target_size": target_size,
+                    "target_aspect_ratio": target_aspect_ratio,
+                },
+            ),
+            FrameInfo("phase", "SLM phase (sent)", "Image2DFrame", {}),
+            FrameInfo("predicted", "Predicted far field", "Image2DFrame", {}),
+            FrameInfo(
+                "curve",
+                curve_title,
+                "EpochCurveFrame",
+                {
+                    "y_min": curve_y_range[0] if curve_y_range else None,
+                    "y_max": curve_y_range[1] if curve_y_range else None,
+                },
+            ),
+        ]
+
+    def update(
+        self,
+        measured: np.ndarray,
+        phase: np.ndarray,
+        predicted: np.ndarray | None = None,
+        center: tuple[int, int] = (0, 0),
+        r: float = 0.0,
+        info: str = "",
+        value: float | None = None,
+        epoch: int | None = None,
+        total_epochs: int | None = None,
+        target_size: float | None = None,
+    ) -> bool:
+        """Render one frame; returns ``False`` once the window has been closed.
+
+        Args:
+            measured: The camera frame just read, background-subtracted.
+            phase: Raw unwrapped-radian phase on the SLM right now.
+            predicted: The forward model's far field, or ``None`` to leave the
+                panel blank.
+            center / r: Target overlay position/radius in **source-image**
+                coordinates; the frame class scales them to the zoomed surface.
+            info: Window caption and curve label.
+            value: Metric to append to the curve panel (``None`` redraws only,
+                which is what the intra-round probe frames want).
+            epoch: x value for ``value``.
+            total_epochs: x-axis span, so the curve advances in proportion to the
+                configured round count.
+            target_size: Per-frame target box override in pixels; ``None`` falls
+                back to the constructor value.
+        """
+        if self.closed:
+            return False
+
+        import pygame
+
+        _target_size = target_size if target_size is not None else self.target_size
+        frame_data = {
+            "ccd": {
+                "img": measured,
+                "center": center,
+                "r": r,
+                "target_shape": self.target_shape,
+                "target_size": _target_size,
+                "target_aspect_ratio": self.target_aspect_ratio,
+            },
+            "phase": {"img": phase},
+            "predicted": {
+                # A blank panel rather than a stale or fabricated image: a
+                # missing prediction must not read as a fitted result.
+                "img": np.zeros((2, 2), dtype=np.float64)
+                if predicted is None
+                else predicted
+            },
+            "curve": {
+                "value": value,
+                "epoch": epoch,
+                "total_epochs": total_epochs,
+                "label": info,
+            },
+        }
+        try:
+            alive = self.render(frame_data, info=info)
+        except pygame.error:
+            alive = False
+        if not alive:
+            self._window_closed = True
+        return bool(alive)

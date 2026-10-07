@@ -17,6 +17,7 @@ from ao_shaping.display.windows import (
     DisplayClosedError,
     FrameInfo,
     ImageVoltagesDisplay,
+    SlmModelInLoopDisplay,
     SlmZernikeDisplay,
 )
 
@@ -28,6 +29,7 @@ __all__ = [
     "ImageVoltagesDisplay",
     "Image2DFrame",
     "Image2DWithBucketFrame",
+    "SlmModelInLoopDisplay",
     "SlmZernikeDisplay",
     "VoltageFrame",
     "FrameInfo",
