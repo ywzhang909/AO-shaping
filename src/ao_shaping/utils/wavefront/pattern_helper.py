@@ -528,7 +528,19 @@ class PatternHelper:
         SLM 驱动 ``slm.create_phase_from_array()`` 完成 (2π = max_grayscale +
         波前校正 + LUT), 不在本工具内做 —— 2026-09 移除
         ``generate_zernike_polynomial_phase`` (冗余) 与 ``_zernike_to_uint16``
-        (min-max 归一化抹掉系数幅度), 本方法是唯一弧度相位入口。
+        (min-max 归一化抹掉系数幅度)。
+
+        ⚠️ **本方法不是「唯一弧度相位入口」**（2026-10-06 订正）。原 docstring 如此
+        声称, 与 `README.md`「Zernike 使用指南」的两层规范矛盾, 会让人继续往本文件里
+        堆 Zernike 数学。规范入口是:
+
+        - API 层 ``utils.wavefront.zernike_utils.generate_zernike_phase`` —— 绝大多数场景
+        - 引擎层 ``utils.wavefront.zernike_calc.ZernikeGenerator`` —— 同分辨率反复生成
+
+        本方法**只是一个薄适配器**, 它在 canonical 之上额外承担三件事, 正因如此才不能被
+        删掉: ① 孔径外置 0(下游 ``create_phase_from_array`` 要灰度 0); ② ``nan_to_num``
+        (``ZernikeGenerator`` 在孔径外返回 NaN); ③ raw 未包裹弧度的契约。新代码请直接用
+        上面两层; 只有需要"GUI/SLM 同款 + 孔径外 0"时才用本方法。
 
         Args:
             coefficients: ``{(n, m): amplitude}`` dictionary.
