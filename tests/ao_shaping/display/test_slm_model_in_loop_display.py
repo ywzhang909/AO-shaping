@@ -15,7 +15,8 @@ import pathlib
 import numpy as np
 import pytest
 
-from ao_shaping.display import SlmModelInLoopDisplay, SlmZernikeDisplay
+from ao_shaping.display import SlmModelInLoopDisplay, SlmZernikeDisplay, phase_for_display
+from ao_shaping.display.frames import to_display_uint8
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _predicted_far_field
 from ao_shaping.runners import runner_common
 from ao_shaping.runners.runner_common import SlmModelInLoopParams
@@ -208,6 +209,141 @@ def test_predicted_far_field_does_not_hide_unexpected_bugs() -> None:
     opt = _FakeOptimizer(error=TypeError("wrong arg type"))
     with pytest.raises(TypeError):
         _predicted_far_field(opt, np.zeros(3), np.zeros((8, 8)), np.ones((8, 8)))
+
+
+def test_predicted_far_field_rejects_a_non_2d_result() -> None:
+    """A shape change in the forward model must blank the panel, not crash.
+
+    ``to_display_uint8`` raises ``ValueError`` on anything that is not 2-D, so
+    without this guard a future return-shape change would abort the run at render
+    time -- on hardware, after minutes of probe acquisition.
+    """
+    opt = _FakeOptimizer(result=np.zeros((4, 4, 3)))
+    assert _predicted_far_field(opt, np.zeros(3), np.zeros((8, 8)), np.ones((8, 8))) is None
+
+
+# ---------------------------------------------------------------------------
+# Signed-phase rendering
+# ---------------------------------------------------------------------------
+
+
+class TestPhaseForDisplay:
+    """``to_display_uint8`` normalises by the POSITIVE peak, which loses signed data."""
+
+    def test_all_negative_phase_is_not_blank(self) -> None:
+        """The bug this fixes: measured ``max=0`` -- a completely empty panel."""
+        raw = np.linspace(-1.0, -0.1, 64 * 64).reshape(64, 64)
+        assert to_display_uint8(raw).max() == 0, (
+            "precondition: the shared uint8 path does blank an all-negative phase"
+        )
+        out = to_display_uint8(phase_for_display(raw))
+        assert out.max() > 0
+        # Structure, not just "not blank": the ramp must span real grey levels.
+        assert np.unique(out).size >= 200
+
+    def test_phase_whose_maximum_is_exactly_zero_is_not_blank(self) -> None:
+        """The ``peak > 0.0`` guard's edge case, and a distinct failure mode.
+
+        A phase that is non-positive everywhere -- entirely plausible for a solver
+        that converged to a mostly-negative correction -- has ``max == 0``, so the
+        shared path skips scaling *and* clips every pixel to zero.
+        """
+        raw = np.linspace(-1.0, 0.0, 64 * 64).reshape(64, 64)
+        assert raw.max() == 0.0, "precondition"
+        assert to_display_uint8(raw).max() == 0, "precondition: renders blank"
+        out = to_display_uint8(phase_for_display(raw))
+        assert out.max() > 0
+        assert np.unique(out).size >= 200
+
+    def test_a_uniform_background_is_not_mistaken_for_structure(self) -> None:
+        """Contrast with the outlier case, where old and new agree.
+
+        4095 identical values plus one spike carry no recoverable structure in
+        either path, so this pins that the fix does not *invent* detail: it only
+        rescales what is actually there.
+        """
+        raw = np.concatenate([np.full(64 * 64 - 1, -2.0), np.array([3.0])]).reshape(64, 64)
+        assert np.unique(phase_for_display(raw)).size == 2
+
+    def test_negative_lobe_structure_survives_a_large_positive_offset(self) -> None:
+        """The realistic Step B shape: graded structure below zero, positive spikes.
+
+        Peak normalisation maps the whole graded negative region below zero and
+        clips it away, collapsing the panel to three levels; peak-to-peak keeps it.
+        Measured: 3 levels / 64 lit pixels before, 40 levels / 3988 after.
+        """
+        raw = np.linspace(-1.0, -0.1, 64 * 64).reshape(64, 64)
+        raw[::512] += 6.0
+        assert raw.min() < 0.0 and raw.max() > 0.0, "precondition: mixed sign"
+
+        old = to_display_uint8(raw)
+        assert np.unique(old).size <= 5, f"precondition: old path collapses, got {np.unique(old).size}"
+        assert np.count_nonzero(old) < 100, "precondition: old path hides the structure"
+
+        new = to_display_uint8(phase_for_display(raw))
+        assert np.unique(new).size > np.unique(old).size
+        assert np.count_nonzero(new) > 3000
+
+    def test_a_negative_lobe_becomes_visible_next_to_a_positive_peak(self) -> None:
+        """A phase oscillating about zero with a positive bias.
+
+        Both paths use the full 256-level range here, but peak normalisation puts
+        the entire negative lobe at zero, so a third of the panel is dead. Only
+        the lit-pixel count separates them: 2371 before, 3933 after.
+        """
+        t = np.linspace(0, 8 * np.pi, 64 * 64)
+        raw = (2.0 * np.sin(t) + 0.5).reshape(64, 64)
+        assert raw.min() < 0.0 < raw.max(), "precondition: straddles zero"
+
+        old = to_display_uint8(raw)
+        new = to_display_uint8(phase_for_display(raw))
+        assert np.count_nonzero(old) < np.count_nonzero(new)
+        # The negative lobe is roughly half the array, so the old path must lose a
+        # substantial fraction of the panel rather than a rounding-error's worth.
+        assert np.count_nonzero(new) - np.count_nonzero(old) > 1000
+
+    def test_output_range_is_normalised_for_the_shared_uint8_path(self) -> None:
+        """Peak must be exactly 1.0 so ``to_display_uint8``'s rescale is a no-op."""
+        rng = np.random.default_rng(0)
+        out = phase_for_display(rng.normal(0, 3.0, (32, 32)))
+        assert out.min() == 0.0
+        assert out.max() == 1.0
+
+    def test_constant_phase_maps_to_a_uniform_panel(self) -> None:
+        """No structure means no structure -- not a divide-by-zero artefact."""
+        out = phase_for_display(np.full((16, 16), 2.5))
+        assert np.all(out == 0.0)
+
+    def test_non_finite_values_are_neutralised(self) -> None:
+        """NaN/inf must not poison the range, but must not invent detail either."""
+        raw = np.array([[0.0, np.nan], [np.inf, 5.0]])
+        out = phase_for_display(raw)
+        assert np.all(np.isfinite(out))
+        assert out.max() == 1.0
+
+    def test_all_non_finite_input_degrades_to_a_uniform_panel(self) -> None:
+        raw = np.array([[np.nan, np.inf], [-np.inf, np.nan]])
+        out = phase_for_display(raw)
+        assert np.all(np.isfinite(out))
+        assert np.all(out == 0.0)
+
+    def test_empty_input_is_returned_unchanged_in_shape(self) -> None:
+        assert phase_for_display(np.zeros((0, 5))).shape == (0, 5)
+
+    def test_display_update_uses_the_signed_safe_path(self) -> None:
+        """The phase panel must go through the helper, not the raw array.
+
+        Asserted on the source because the difference is only observable in a
+        window, and a blank phase panel is precisely the silent failure that is
+        easy to reintroduce and hard to notice.
+        """
+        import inspect
+
+        from ao_shaping.display import windows
+
+        source = inspect.getsource(windows.SlmModelInLoopDisplay.update)
+        assert '"phase": {"img": phase_for_display(phase)}' in source
+        assert '"phase": {"img": phase}' not in source
 
 
 # ---------------------------------------------------------------------------

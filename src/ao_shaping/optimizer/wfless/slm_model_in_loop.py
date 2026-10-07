@@ -1106,7 +1106,18 @@ def _predicted_far_field(
     except (ValueError, RuntimeError) as exc:
         logger.warning("live-view prediction unavailable: {}", exc)
         return None
-    return np.asarray(predicted, dtype=np.float64)
+    out = np.asarray(predicted, dtype=np.float64)
+    if out.ndim != 2:
+        # ``Image2DFrame`` -> ``to_display_uint8`` raises on anything that is not
+        # 2-D. Degrade here instead, so a future change to the forward model's
+        # return shape blanks one panel rather than killing a hardware run that
+        # has already spent minutes of probe acquisitions.
+        logger.warning(
+            "live-view prediction is {}-D, not a 2-D far field; panel left blank",
+            out.ndim,
+        )
+        return None
+    return out
 
 
 def _make_optimizer(config: SlmModelInLoopConfig, coefficients: np.ndarray | None) -> Any:

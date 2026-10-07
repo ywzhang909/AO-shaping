@@ -19,6 +19,7 @@ from ao_shaping.display.windows import (
     ImageVoltagesDisplay,
     SlmModelInLoopDisplay,
     SlmZernikeDisplay,
+    phase_for_display,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "render_gs_animation",
     "save_frames_as_gif",
     "to_display_uint8",
+    "phase_for_display",
 ]

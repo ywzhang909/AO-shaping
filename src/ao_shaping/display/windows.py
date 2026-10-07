@@ -367,6 +367,49 @@ class SlmZernikeDisplay(AutoDisplay):
             super().close()
 
 
+def phase_for_display(phase: np.ndarray) -> np.ndarray:
+    """Map signed radian phase onto ``[0, 1]`` so its structure is always visible.
+
+    :func:`to_display_uint8` normalises by the **positive peak** only, which is
+    correct for the non-negative panels (CCD intensity, predicted far field) but
+    silently loses signed data: an all-negative phase maps to an empty panel, and
+    a phase with one positive outlier maps to a single lit pixel out of thousands.
+    Measured on this feature's own inputs -- an all-negative phase renders
+    ``max=0`` (completely blank) and ``[-2, ..., -2, +3]`` renders exactly one
+    non-zero pixel out of 4096.
+
+    That is not hypothetical here: Step B's synthesised phase is whatever the
+    solver converged to and carries no guarantee of being positive-dominant, so
+    the one panel meant to answer "what phase is on the SLM?" could go blank while
+    the run looked perfectly healthy.
+
+    Scaling by the **peak-to-peak range** instead keeps every distinct value
+    distinguishable. The absolute radian scale is not recoverable from the panel
+    (it has no colour bar), so nothing that was readable is lost -- whereas a blank
+    panel is actively misleading.
+
+    A constant phase maps to zeros (uniform mid-grey once displayed), which is the
+    honest rendering of "no structure".
+
+    Args:
+        phase: Raw unwrapped-radian phase, any shape.
+
+    Returns:
+        A ``float64`` array in ``[0, 1]``, safe for :func:`to_display_uint8`.
+    """
+    arr = np.asarray(phase, dtype=np.float64)
+    if arr.size == 0:
+        return arr
+    arr = np.nan_to_num(arr, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+    lo = float(arr.min())
+    span = float(arr.max()) - lo
+    if span <= 0.0:
+        return np.zeros_like(arr)
+    # ``to_display_uint8`` divides by the peak, and this is 1.0 by construction, so
+    # the panel's own normalisation becomes a no-op rather than a second rescale.
+    return (arr - lo) / span
+
+
 class SlmModelInLoopDisplay(SlmZernikeDisplay):
     """Live pygame view for model-in-the-loop square shaping.
 
@@ -502,7 +545,7 @@ class SlmModelInLoopDisplay(SlmZernikeDisplay):
                 "target_size": _target_size,
                 "target_aspect_ratio": self.target_aspect_ratio,
             },
-            "phase": {"img": phase},
+            "phase": {"img": phase_for_display(phase)},
             "predicted": {
                 # A blank panel rather than a stale or fabricated image: a
                 # missing prediction must not read as a fitted result.
