@@ -81,7 +81,7 @@ def write_table(df: pd.DataFrame, output_dir: str | Path) -> Path:
         ">",
         f"- Grid: {df['shape'].count() if not df.empty else 0} cells "
         "(3 algorithms x 3 shapes)",
-        f"- Regenerate: `python scripts/generate_beam_shaping_benchmark_report.py` "
+        "- Regenerate: `python scripts/generate_beam_shaping_benchmark_report.py` "
         "(fully offline, ~100 s)",
         "> The sibling `.csv` is written too but is **not committed** -- the repo has a "
         "global `*.csv` ignore rule and no CSV under `docs/` is tracked. Re-run to "

@@ -356,7 +356,7 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
         "# Shape Objective Comparison Report",
         "",
         "Offline comparison of three shape objectives scored on the **same** real",
-        f"CCD frames recorded by the `slm-pib` online suite (target: square,",
+        "CCD frames recorded by the `slm-pib` online suite (target: square,",
         f"side {side} px, anchored at the pre-optimization frame `argmax`).",
         "",
         "> **Provenance.** Prefer runs whose `summary_*.json` records `cam_type` /",
@@ -547,7 +547,7 @@ def write_report(results: list[tuple[FrameSet, dict[str, np.ndarray], tuple[floa
                 "provenance fields, so objective/camera must be inferred"
             )
         lines += [
-            f"- gate verdicts: "
+            "- gate verdicts: "
             + ", ".join(f"{g}={fs.gates.count(g)}" for g in
                         sorted(set(fs.gates))),
             "",

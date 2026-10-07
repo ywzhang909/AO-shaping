@@ -1,11 +1,10 @@
-"""Generate Cython optimizer performance comparison report.
+"""生成 Cython 优化器性能对比报告。
 
-Runs the benchmark in ``src.calculators.benchmark`` and emits a markdown report
-with performance tables and analysis into ``report/benchmarks/cython_optimizer_performance.md``
-(repo convention: report generators write under ``docs/<topic>/``, never the
-``docs/`` root).
+运行 ``src.calculators.benchmark`` 中的基准测试，输出性能表格与分析到
+``report/benchmarks/cython_optimizer_performance.md``（仓库约定：报告生成脚本写入
+``report/<topic>/``，不写 ``report/`` 根目录）。
 
-Usage:
+用法：
     $env:PYTHONPATH = "src;libs"
     python scripts/generate_cython_optimizer_report.py
 """
@@ -65,14 +64,14 @@ def create_correctness_table(results: list[dict]) -> str:
     """Create markdown table for correctness verification."""
     dims = [10, 100, 1000, 10000]
     optimizers = ["SGD", "Adam", "AdamW", "AdaMOD", "Muno", "MunoW", "Muon", "AdamNS"]
-    
+
     lines = [
         "## Correctness Verification",
         "",
         "| Optimizer | Dim 10 | Dim 100 | Dim 1000 | Dim 10000 | Status |",
         "|-----------|--------|---------|----------|-----------|--------|",
     ]
-    
+
     for opt in optimizers:
         row = f"| {opt} "
         for dim in dims:
@@ -81,7 +80,7 @@ def create_correctness_table(results: list[dict]) -> str:
             row += f"| {md:.2e} "
         row += f"| {'✅ OK' if all(r['correct'] == 'OK' for r in results if r['optimizer'] == opt) else '❌ FAIL'} |"
         lines.append(row)
-    
+
     lines.append("")
     lines.append("*Max absolute difference between Cython and Python implementations*")
     lines.append("")
@@ -91,28 +90,28 @@ def create_correctness_table(results: list[dict]) -> str:
 def create_performance_table(results: list[dict], dim: int) -> str:
     """Create markdown table for performance at a specific dimension."""
     optimizers = ["SGD", "Adam", "AdamW", "AdaMOD", "Muno", "MunoW", "Muon", "AdamNS"]
-    
+
     lines = [
         f"### Dimension: {dim}",
         "",
         "| Optimizer | Cython (ms) | Python (ms) | Speedup |",
         "|-----------|-------------|-------------|---------|",
     ]
-    
+
     for opt in optimizers:
         r = next(r for r in results if r["optimizer"] == opt and r["dim"] == dim)
         cython_ms = r["cython_ms"]
         python_ms = r["python_ms"]
         speedup = r["speedup"]
-        
+
         # Highlight best speedup
         if speedup > 1:
             speedup_str = f"**{speedup:.2f}x**"
         else:
             speedup_str = f"{speedup:.2f}x"
-        
+
         lines.append(f"| {opt} | {cython_ms:.2f} | {python_ms:.2f} | {speedup_str} |")
-    
+
     lines.append("")
     return "\n".join(lines)
 
@@ -121,20 +120,20 @@ def create_summary_table(results: list[dict]) -> str:
     """Create summary table with geometric mean speedups."""
     optimizers = ["SGD", "Adam", "AdamW", "AdaMOD", "Muno", "MunoW", "Muon", "AdamNS"]
     dims = [10, 100, 1000, 10000]
-    
+
     lines = [
         "## Summary: Geometric Mean Speedup Across All Dimensions",
         "",
         "| Optimizer | Dim 10 | Dim 100 | Dim 1000 | Dim 10000 | Geometric Mean |",
         "|-----------|--------|---------|----------|-----------|----------------|",
     ]
-    
+
     for opt in optimizers:
         speedups = []
         for dim in dims:
             r = next(r for r in results if r["optimizer"] == opt and r["dim"] == dim)
             speedups.append(r["speedup"])
-        
+
         geom_mean = np.exp(np.mean(np.log(speedups)))
         row = f"| {opt} "
         for s in speedups:
@@ -144,7 +143,7 @@ def create_summary_table(results: list[dict]) -> str:
                 row += f"| {s:.2f}x "
         row += f"| **{geom_mean:.2f}x** |"
         lines.append(row)
-    
+
     lines.append("")
     return "\n".join(lines)
 
@@ -154,7 +153,7 @@ def plot_speedup_charts(results: list[dict], out_dir: Path) -> None:
     optimizers = ["SGD", "Adam", "AdamW", "AdaMOD", "Muno", "MunoW", "Muon", "AdamNS"]
     dims = [10, 100, 1000, 10000]
     colors = plt.cm.tab10(np.linspace(0, 1, len(optimizers)))
-    
+
     # Chart 1: Speedup vs Dimension (line plot)
     fig, ax = plt.subplots(figsize=(10, 6))
     for idx, opt in enumerate(optimizers):
@@ -162,20 +161,20 @@ def plot_speedup_charts(results: list[dict], out_dir: Path) -> None:
         for dim in dims:
             r = next(r for r in results if r["optimizer"] == opt and r["dim"] == dim)
             speedups.append(r["speedup"])
-        ax.plot(dims, speedups, marker='o', label=opt, color=colors[idx], lw=2)
-    
-    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.5, label='Break-even (1x)')
-    ax.set_xscale('log')
-    ax.set_xlabel('Dimension')
-    ax.set_ylabel('Speedup (Python / Cython)')
-    ax.set_title('Cython Optimizer Speedup vs Problem Dimension')
-    ax.legend(loc='upper right', fontsize=8)
+        ax.plot(dims, speedups, marker="o", label=opt, color=colors[idx], lw=2)
+
+    ax.axhline(y=1.0, color="red", linestyle="--", alpha=0.5, label="Break-even (1x)")
+    ax.set_xscale("log")
+    ax.set_xlabel("Dimension")
+    ax.set_ylabel("Speedup (Python / Cython)")
+    ax.set_title("Cython Optimizer Speedup vs Problem Dimension")
+    ax.legend(loc="upper right", fontsize=8)
     ax.grid(True, alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_dir / "speedup_vs_dimension.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
     logger.info("Saved {}", out_dir / "speedup_vs_dimension.png")
-    
+
     # Chart 2: Bar chart at dim=100 (typical real-time control size)
     fig, ax = plt.subplots(figsize=(10, 6))
     dim_target = 100
@@ -183,16 +182,22 @@ def plot_speedup_charts(results: list[dict], out_dir: Path) -> None:
     for opt in optimizers:
         r = next(r for r in results if r["optimizer"] == opt and r["dim"] == dim_target)
         speedups.append(r["speedup"])
-    
+
     bars = ax.bar(optimizers, speedups, color=colors)
-    ax.axhline(y=1.0, color='red', linestyle='--', alpha=0.5, label='Break-even (1x)')
+    ax.axhline(y=1.0, color="red", linestyle="--", alpha=0.5, label="Break-even (1x)")
     for bar, s in zip(bars, speedups):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1, 
-                f'{s:.1f}x', ha='center', va='bottom', fontsize=9)
-    ax.set_ylabel('Speedup (Python / Cython)')
-    ax.set_title(f'Speedup at Dimension {dim_target} (Typical Real-Time Control)')
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.1,
+            f"{s:.1f}x",
+            ha="center",
+            va="bottom",
+            fontsize=9,
+        )
+    ax.set_ylabel("Speedup (Python / Cython)")
+    ax.set_title(f"Speedup at Dimension {dim_target} (Typical Real-Time Control)")
     ax.legend()
-    ax.grid(True, axis='y', alpha=0.3)
+    ax.grid(True, axis="y", alpha=0.3)
     fig.tight_layout()
     fig.savefig(out_dir / "speedup_dim100.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -244,7 +249,7 @@ def write_report(results: list[dict], out_dir: Path) -> None:
         "",
         "![Speedup vs Dimension](speedup_vs_dimension.png)",
         "",
-        f"![Speedup at Dimension 100](speedup_dim100.png)",
+        "![Speedup at Dimension 100](speedup_dim100.png)",
         "",
         "---",
         "",
@@ -285,16 +290,18 @@ def write_report(results: list[dict], out_dir: Path) -> None:
         "",
         "## Raw Data",
         "",
-        f"Full benchmark results available at: `src/calculators/benchmark_results.json`",
+        "Full benchmark results available at: `src/calculators/benchmark_results.json`",
         "",
-        f"Generated: 2026-09-21",
+        "Generated: 2026-09-21",
         "",
         "---",
         "",
         "*Report generated by `scripts/generate_cython_optimizer_report.py`*",
     ]
-    
-    (out_dir / "cython_optimizer_performance.md").write_text("\n".join(lines), encoding="utf-8")
+
+    (out_dir / "cython_optimizer_performance.md").write_text(
+        "\n".join(lines), encoding="utf-8"
+    )
     logger.info("Saved {}", out_dir / "cython_optimizer_performance.md")
 
 
@@ -303,13 +310,13 @@ def main() -> None:
     logger.info("Loading benchmark results...")
     results = load_results()
     logger.info("Loaded {} results", len(results))
-    
+
     logger.info("Generating charts...")
     plot_speedup_charts(results, OUT_DIR)
-    
+
     logger.info("Writing markdown report...")
     write_report(results, OUT_DIR)
-    
+
     logger.info("Report generation complete!")
 
 
