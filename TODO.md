@@ -202,7 +202,7 @@
 | R-48 | [#64](https://github.com/ywzhang909/AO-shaping/issues/64) | 帧分析下沉 `utils/image/`（13 个纯数组符号） | C 🟡 |
 | R-49 | [#65](https://github.com/ywzhang909/AO-shaping/issues/65) | 新建 `utils/math/`（拟合 + 稳定性判据） | C 🟡 |
 | R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | ⚠️ **2026-10-06 部分修复，保持开放**。①「第三套 API 层」前提**不成立**：`PatternHelper.generate_zernike_polynomial:550` **已委托** canonical，是薄适配器（孔径外置0 + `nan_to_num` + raw 弧度），被~15 文件依赖 ⇒ 不可删；已订正其 docstring 的「唯一入口」不实声称（`82998b9`）。② 🔴 **两份实现不可互换**：`beam_simulation.py:74` 手写多项式 vs canonical `zernike_calc.py:197 zernike_radial` —— 25 个模式中 18 个仅差**逐模式尺度因子**（归一化不同），**7 个（n≥3 奇数阶）是真正不同的多项式**，最大绝对差 3.243 ⇒ 直接换用会静默改变 `optimizer/rl/envs.py:840` 的 RL 相位。③ `zernike_radial` **零生产调用方**，仅 3 个测试且只覆盖一致的 `(0,0)/(1,1)/(2,0)` ⇒ 它才是可疑的一方 | D 🔴 待决策 |
-| R-51 | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | 重复收口：`flat_gray` / `power_bucket` / `create_target_mask` | D 🟡 |
+| ~~R-51~~ | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | ✅ **2/3 已收口**（`290ee51`）：`flat_gray` 委托 `utils/slm_phase`（写死副本是「面板尺寸一变就静默不一致」）；`create_target_mask` 两份**去docstring 后逐字节相同**，改为由 `algorithm/…/differentiable_shaping` re-export `utils/image/target/patterns`（utils 在 algorithm 之下，方向正确）。❌ 第三项 `power_bucket` **删除与委托皆不可** → 拆出 R-59（#78） | ✅ |
 | R-52 | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | 报告脚本 `plot_summary_bars` 三份相同实现参数化 | D 🟡 |
 | R-53 | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | `compute_metrics` 三份同名不同契约 → **改名不合并** | D 🟡 |
 | R-54 | [#70](https://github.com/ywzhang909/AO-shaping/issues/70) | 两个 SLM runner 大块重复（只抽共用段，不动 CLI flag） | D 🟡 |
