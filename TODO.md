@@ -201,7 +201,7 @@
 | R-47 | [#63](https://github.com/ywzhang909/AO-shaping/issues/63) | 面板几何下沉 `utils/slm/`（**`phase_to_panel` 归属纠正 + 命名陷阱**） | C 🟡 |
 | R-48 | [#64](https://github.com/ywzhang909/AO-shaping/issues/64) | 帧分析下沉 `utils/image/`（13 个纯数组符号） | C 🟡 |
 | R-49 | [#65](https://github.com/ywzhang909/AO-shaping/issues/65) | 新建 `utils/math/`（拟合 + 稳定性判据） | C 🟡 |
-| R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | Zernike **第三套 API 层**收敛（`beam_simulation` / `PatternHelper`） | D 🟡 |
+| R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | ⚠️ **2026-10-06 部分修复，保持开放**。①「第三套 API 层」前提**不成立**：`PatternHelper.generate_zernike_polynomial:550` **已委托** canonical，是薄适配器（孔径外置0 + `nan_to_num` + raw 弧度），被~15 文件依赖 ⇒ 不可删；已订正其 docstring 的「唯一入口」不实声称（`82998b9`）。② 🔴 **两份实现不可互换**：`beam_simulation.py:74` 手写多项式 vs canonical `zernike_calc.py:197 zernike_radial` —— 25 个模式中 18 个仅差**逐模式尺度因子**（归一化不同），**7 个（n≥3 奇数阶）是真正不同的多项式**，最大绝对差 3.243 ⇒ 直接换用会静默改变 `optimizer/rl/envs.py:840` 的 RL 相位。③ `zernike_radial` **零生产调用方**，仅 3 个测试且只覆盖一致的 `(0,0)/(1,1)/(2,0)` ⇒ 它才是可疑的一方 | D 🔴 待决策 |
 | R-51 | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | 重复收口：`flat_gray` / `power_bucket` / `create_target_mask` | D 🟡 |
 | R-52 | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | 报告脚本 `plot_summary_bars` 三份相同实现参数化 | D 🟡 |
 | R-53 | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | `compute_metrics` 三份同名不同契约 → **改名不合并** | D 🟡 |
