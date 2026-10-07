@@ -278,6 +278,27 @@ trainer.
 
 ## Analysis and Tuning Scripts
 
+### analyze_hwdataset_distributions.py
+
+Measures **array-level** per-family distributions of the `ml/hwdataset` corpus:
+stratified-samples the indexed records (≤40 per family, seeded, `grid=64`,
+`image_mode="abs255"`) and materialises each sample through the canonical
+`Materialiser` (bit-identical to the training DataLoader), then reports per-family
+quantiles of brightness / spot size / phase coherence / phase spread / entropy /
+frame CV. **Fully offline** (reads pkls locally, no hardware, no network); ~90 s
+for 252 samples across 112 pkls.
+
+**Usage:**
+```bash
+python scripts/analyze_hwdataset_distributions.py
+```
+
+**Output:** `report/hwdataset_corpus/distribution_stats.json` — the *only*
+array-level input of `generate_hwdataset_corpus_report.py` §10/§11 (that
+generator itself never opens a pickle). If this file is absent, the report's
+§10/§11 degrade to a pointer and the 4 distribution figures are skipped; all
+metadata sections are unaffected.
+
 ### compare_loss_algorithms.py
 
 Runs a **loss × algorithm** comparison matrix on the offline sim bench, with both
@@ -776,6 +797,27 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 > `src/ao_shaping/tools/slm/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
+
+### generate_hwdataset_corpus_report.py
+
+Generates the `report/hwdataset_corpus` corpus-composition report (12 metadata
+sections + 2 array-level sections, 14 figures). **Fully offline** — reads only
+`data/hw_index_cache.json`, `data/debug/**/*.json`, and the pre-produced
+`report/hwdataset_corpus/distribution_stats.json`; `.pkl` files are touched with
+`Path.stat()` only (never opened / unpickled / mmap'ed), and `ml.hwdataset` is
+never imported. All counts are computed at runtime; nothing is hard-coded.
+§10/§11 (array-level distributions) read the JSON written by
+`analyze_hwdataset_distributions.py`; if that file is absent the two sections
+degrade to a pointer and the 4 distribution figures are skipped. `--full-index
+<path>` enables the §1.1 "does an index rebuild change the conclusions?"
+cross-check; `--no-figures` renders markdown only.
+
+**Usage:**
+```bash
+# two-stage reproduction (§14)
+python scripts/analyze_hwdataset_distributions.py
+python scripts/generate_hwdataset_corpus_report.py
+```
 
 ### generate_zernike_amp_report.py
 

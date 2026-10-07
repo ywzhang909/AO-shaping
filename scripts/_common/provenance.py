@@ -425,11 +425,15 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/generate_hwdataset_corpus_report.py",
         environment="离线",
         note=(
-            "data/debug 硬件调试语料的纯元数据统计 (10 张图); 只读 "
-            "hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据。"
+            "data/debug 硬件调试语料的纯元数据统计 (14 张图, 含 4 张数组级分布图); "
+            "只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据; "
+            "§10/§11 的数组级实测另读 analyze_hwdataset_distributions.py 预产的 "
+            "distribution_stats.json (该文件缺失时两节降级为提示, 10 张元数据图不受影响, "
+            "两阶段复现命令见报告 §14)。"
             "§1.1 的「全量重建是否改变结论」交叉核对需另加 "
             "--full-index <扫描过全部 pkl 的索引.json>"
         ),
+        extra_scripts=("scripts/analyze_hwdataset_distributions.py",),
     ),
     "report/sac_ao_20260109_205218/training_report.md": ReportProvenance(
         script=HANDWRITTEN,
