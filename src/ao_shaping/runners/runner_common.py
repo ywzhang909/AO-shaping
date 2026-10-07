@@ -2258,6 +2258,21 @@ class SlmModelInLoopParams:
         bool, option("--save-best-image", help="Save the best far-field PNG.")
     ] = True
 
+    # --- live view ---------------------------------------------------------
+    show: Annotated[
+        bool,
+        option(
+            "--show",
+            is_flag=True,
+            help=(
+                "Open a live pygame window: measured CCD, phase on the SLM, the "
+                "forward model's PREDICTED far field, and the per-round metric "
+                "curve. Same flag as slm-pib / spgd-square. Closing the window "
+                "stops the search after the current round."
+            ),
+        ),
+    ] = False
+
     # --- target ------------------------------------------------------------
     target_side: Annotated[
         int,

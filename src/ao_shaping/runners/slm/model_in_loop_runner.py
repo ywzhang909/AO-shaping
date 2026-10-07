@@ -128,6 +128,7 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     )
 
     config = SlmModelInLoopConfig(
+        show=params.show,
         n_rounds=params.n_rounds,
         seed=params.seed,
         device=params.device,

@@ -762,6 +762,12 @@ python src/ao_shaping/main.py slm-model-in-loop [OPTIONS]
   只优化 `-CV` 会把能量推出目标框 (硬件实测 EE → 0.002)
 - `--min-geometry-correlation`: 几何 bake-off 阈值; 低于它直接中止 (退出码 2)
 - `--warm-start/--no-warm-start`、`--early-stop-score`、`--save-best-image`
+- `--show`: 打开 pygame 实时窗口 (与 `slm-pib` / `spgd-square` **同一个 `--show` 标志**, 共用
+  `display.SlmZernikeDisplay` 那套窗口机制)。四格面板: **实测 CCD** (叠加方形目标框) /
+  **SLM 上加载的相位** / **正向模型预测的远场** / **逐轮 metrics 曲线**。
+  预测格走 `ZernikeCoefficientOptimizer.forward_intensity` —— 与 Step A 优化的 loss 同一个前向
+  模型, 所以屏幕上的图不可能与 loss 口径不一致; Step A 每采一个探针就重绘一次, 可以**看着拟合
+  收敛**。关掉窗口 = 停止搜索 (当前轮结束后), 已验证的最优相位仍会走完最后的 bake-off 提交。
 - `--cam_type [daheng|miicam|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size`
 - `--slm_number` / `--slm_wavelength` / `--device` / `--dtype` / `--seed`
 

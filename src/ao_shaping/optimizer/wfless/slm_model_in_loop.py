@@ -476,6 +476,23 @@ class SlmModelInLoopConfig:
     settle_max_wait_s: float = 6.0
     settle_max_discard: int = 40
 
+    # --- display ------------------------------------------------------------
+    show: bool = False
+    """Open a live pygame window during the run.
+
+    Shares the four-panel view the ``slm-pib`` runner uses -- see
+    :class:`~ao_shaping.display.SlmModelInLoopDisplay`, which subclasses
+    :class:`~ao_shaping.display.SlmZernikeDisplay` and swaps the Zernike
+    coefficient bars for the forward model's **predicted** far field. Panels:
+    measured CCD, phase on the SLM, predicted far field, per-round metric curve.
+
+    Display is diagnostics only: it can never change what the loop optimises or
+    which phase it commits, and a prediction that cannot be produced degrades to
+    a blank panel instead of aborting a run that has already spent hardware
+    time. Closing the window stops the search after the current round, then
+    still runs the final bake-off, so the best *already verified* phase is kept.
+    """
+
     # --- bookkeeping --------------------------------------------------------
     output_subdir: str = "slm_model_in_loop"
     callback: Callable[[int, dict[str, Any]], None] | None = field(
@@ -1051,6 +1068,58 @@ def _calibrate_geometry(
     return geometry, records
 
 
+def _predicted_far_field(
+    optimizer: Any,
+    coefficients: np.ndarray,
+    phase: np.ndarray,
+    source_amplitude: np.ndarray,
+) -> np.ndarray | None:
+    """Forward-model far field for the live display, or ``None`` if unavailable.
+
+    This is the "predicted CCD" panel: the same forward model Step A fits
+    against, evaluated at ``(coefficients, phase)``. It reuses
+    :meth:`ZernikeCoefficientOptimizer.forward_intensity` -- the single source of
+    truth for the forward model -- rather than re-deriving a far field, so the
+    picture on screen cannot disagree with the loss being optimised.
+
+    Returns ``None`` instead of raising when the prediction cannot be produced.
+    The live view is diagnostics: a run on hardware has already spent minutes of
+    probe acquisitions, and aborting it because a *display* frame failed would
+    be strictly worse than showing a blank panel. Only the two failure modes
+    that are actually expected are absorbed -- the forward model's own
+    shape/finiteness validation (``ValueError``) and a torch backend failure
+    (``RuntimeError``) -- so a genuine bug still surfaces.
+
+    Args:
+        optimizer: The Step A :class:`ZernikeCoefficientOptimizer`.
+        coefficients: Coefficient vector in radians.
+        phase: Raw unwrapped-radian SLM phase, ``(region, region)``.
+        source_amplitude: Calibrated illumination on the model grid.
+
+    Returns:
+        ``(far_field_size, far_field_size)`` float64 intensity, or ``None``.
+    """
+    try:
+        predicted = optimizer.forward_intensity(
+            coefficients, phase, source_amplitude
+        )
+    except (ValueError, RuntimeError) as exc:
+        logger.warning("live-view prediction unavailable: {}", exc)
+        return None
+    out = np.asarray(predicted, dtype=np.float64)
+    if out.ndim != 2:
+        # ``Image2DFrame`` -> ``to_display_uint8`` raises on anything that is not
+        # 2-D. Degrade here instead, so a future change to the forward model's
+        # return shape blanks one panel rather than killing a hardware run that
+        # has already spent minutes of probe acquisitions.
+        logger.warning(
+            "live-view prediction is {}-D, not a 2-D far field; panel left blank",
+            out.ndim,
+        )
+        return None
+    return out
+
+
 def _make_optimizer(config: SlmModelInLoopConfig, coefficients: np.ndarray | None) -> Any:
     """Build a :class:`ZernikeCoefficientOptimizer` around ``coefficients``.
 
@@ -1125,6 +1194,10 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     recorder = Recorder()
 
     bench = _open_bench(config)
+    # Declared before the ``try`` so the ``finally`` teardown can always reach it.
+    # The window itself can only be opened further down, once the geometry solve
+    # has produced the target box that the CCD overlay needs.
+    live_display: Any = None
     try:
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
@@ -1236,6 +1309,33 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             flat_metrics.get("encircled_energy", float("nan")),
         )
 
+        # ---------------- Optional live view ---------------------------------
+        # Opened here rather than at the top because the CCD overlay needs the
+        # solved ``target_camera``. The flat baseline is rendered from the frames
+        # already measured above, so opening later costs no extra acquisition.
+        if config.show:
+            from ao_shaping.display import SlmModelInLoopDisplay
+
+            live_display = SlmModelInLoopDisplay(
+                curve_title="score curve",
+                target_shape="square",
+            )
+            live_display.init_window()
+            live_display.update(
+                measured=flat_frame,
+                phase=flat_phase,
+                # No prediction yet: the model has no fitted aberration at this
+                # point, so the panel stays blank rather than implying a fit.
+                predicted=None,
+                center=roi_center,
+                r=target_camera / 2.0,
+                info=f"flat baseline | score {flat_score:.4f}",
+                value=float(flat_score),
+                epoch=0,
+                total_epochs=int(config.n_rounds),
+                target_size=target_camera,
+            )
+
         # ---------------- Stage 2: the alternating loop --------------------
         coefficients = np.zeros(
             int(ZernikeCoefficientOptimizer(
@@ -1274,6 +1374,28 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
                 bench.display(probe)
                 measured = _prepare_frame(bench.measure())
+                if live_display is not None and not live_display.closed:
+                    # The most informative frame of the whole loop: the
+                    # prediction here uses the coefficients as they stand
+                    # *before* this probe is folded in, so watching the
+                    # prediction panel track the measurement panel is watching
+                    # Step A's fit improve. ``value`` is left at its default so
+                    # the intra-round probes redraw the curve without adding
+                    # points -- the curve is per *round*, not per probe.
+                    live_display.update(
+                        measured=measured,
+                        phase=probe,
+                        predicted=_predicted_far_field(
+                            optimizer, coefficients, probe, source_amplitude
+                        ),
+                        center=roi_center,
+                        r=target_camera / 2.0,
+                        info=(
+                            f"round {index + 1}/{config.n_rounds} "
+                            f"step A probe {probe_index + 1}/{probe_count}"
+                        ),
+                        target_size=target_camera,
+                    )
                 # Step A's loss needs the measurement on the model's own grid.
                 frames.append(
                     (
@@ -1362,6 +1484,31 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             }
             recorder.history.append(row)
 
+            if live_display is not None and not live_display.closed:
+                # Prediction under the *clamped* coefficients -- the ones the
+                # acceptance test actually judged -- not the raw fit, so the
+                # picture matches the verdict in ``reason``.
+                _shaped_phase = np.asarray(shaped, dtype=np.float64)
+                live_display.update(
+                    measured=shaped_frame,
+                    phase=_shaped_phase,
+                    predicted=_predicted_far_field(
+                        optimizer, clamped, _shaped_phase, source_amplitude
+                    ),
+                    center=roi_center,
+                    r=target_camera / 2.0,
+                    info=(
+                        f"round {index + 1}/{config.n_rounds} "
+                        f"{'accepted' if verdict.accepted else 'rejected'} "
+                        f"({verdict.reason}) | score {score_after:.4f} | "
+                        f"loss {loss_before:.5f}->{loss_after:.5f}"
+                    ),
+                    value=float(score_after),
+                    epoch=index + 1,
+                    total_epochs=int(config.n_rounds),
+                    target_size=target_camera,
+                )
+
             if verdict.accepted:
                 coefficients = clamped
                 phase = np.asarray(shaped, dtype=np.float64)
@@ -1412,6 +1559,16 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     score_before, config.early_stop_score,
                 )
                 break
+            if live_display is not None and live_display.closed:
+                # Stop searching, but fall through to the final bake-off so the
+                # best already-verified phase is still committed -- closing a
+                # window is a request to stop looking, not to discard the work.
+                logger.info(
+                    "live display closed; stopping after round {}/{}",
+                    index + 1,
+                    config.n_rounds,
+                )
+                break
             if config.callback is not None:
                 config.callback(index, row)
 
@@ -1442,4 +1599,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             config=config,
         )
     finally:
+        if live_display is not None:
+            live_display.close()
         bench.close()

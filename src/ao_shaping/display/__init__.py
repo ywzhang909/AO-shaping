@@ -17,7 +17,9 @@ from ao_shaping.display.windows import (
     DisplayClosedError,
     FrameInfo,
     ImageVoltagesDisplay,
+    SlmModelInLoopDisplay,
     SlmZernikeDisplay,
+    phase_for_display,
 )
 
 __all__ = [
@@ -28,6 +30,7 @@ __all__ = [
     "ImageVoltagesDisplay",
     "Image2DFrame",
     "Image2DWithBucketFrame",
+    "SlmModelInLoopDisplay",
     "SlmZernikeDisplay",
     "VoltageFrame",
     "FrameInfo",
@@ -36,4 +39,5 @@ __all__ = [
     "render_gs_animation",
     "save_frames_as_gif",
     "to_display_uint8",
+    "phase_for_display",
 ]
