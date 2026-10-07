@@ -31,6 +31,11 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+# Canonical single home for create_target_mask (see the alias below).
+from ao_shaping.utils.image.target.patterns import (
+    create_target_mask as _canonical_create_target_mask,
+)
+
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     from typing import Any
 
@@ -65,60 +70,17 @@ def _torch():
 # ---------------------------------------------------------------------------
 
 
-def create_target_mask(
-    shape: str,
-    grid_size: tuple[int, int],
-    size: int,
-    *,
-    sigma: float | None = None,
-) -> npt.NDArray[np.float64]:
-    """创建归一化的目标强度掩码。
-
-    Args:
-        shape: ``"square"``、``"circle"``、``"gaussian"``、``"spot"`` 之一。
-        grid_size: 输出数组的 ``(H, W)``。
-        size: 以像素为单位的特征尺寸。
-            * square —— 边长
-            * circle —— 直径
-            * gaussian —— 若未给出, ``sigma`` 默认为 ``size / 6``
-            * spot —— 直径 (聚焦光斑, 与 circle 相同)
-        sigma: 高斯标准差的覆盖值 (像素)。
-
-    Returns:
-        取值在 ``[0, 1]`` 内、居中的 ``(H, W)`` ``float64`` 掩码。
-
-    Raises:
-        ValueError: *shape* 无效或 *grid_size* 不是二维时。
-    """
-    valid_shapes = {"square", "circle", "gaussian", "spot"}
-    if shape not in valid_shapes:
-        raise ValueError(f"Invalid shape {shape!r}. Must be one of {valid_shapes}")
-    if len(grid_size) != 2:
-        raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
-
-    H, W = grid_size
-    cy, cx = H / 2.0, W / 2.0
-    yy, xx = np.mgrid[0:H, 0:W]
-
-    if shape == "square":
-        half = size / 2.0
-        mask = ((np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)).astype(
-            np.float64
-        )
-
-    elif shape in {"circle", "spot"}:
-        radius = size / 2.0
-        r2 = (xx - cx) ** 2 + (yy - cy) ** 2
-        mask = (r2 <= radius**2).astype(np.float64)
-
-    else:  # gaussian
-        sig = sigma if sigma is not None else size / 6.0
-        mask = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * sig**2))
-        peak = mask.max()
-        if peak > 0:
-            mask = mask / peak
-
-    return mask.astype(np.float64)
+#: Re-export of the canonical ``create_target_mask``.
+#:
+#: This used to be a byte-identical private copy of the implementation in
+#: ``utils/image/target/patterns.py`` (verified equal with docstrings stripped),
+#: which is a duplicate implementation waiting to drift -- the failure mode this
+#: repo has been bitten by repeatedly. ``utils/`` is the canonical layer because it
+#: sits *below* ``algorithm/``; re-exporting upwards keeps this module's public API
+#: unchanged while leaving a single implementation to maintain.
+#:
+#: See utils/image/target/patterns.py for the docstring and semantics.
+create_target_mask = _canonical_create_target_mask
 
 
 # ---------------------------------------------------------------------------

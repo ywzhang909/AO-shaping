@@ -30,6 +30,7 @@ from loguru import logger
 from ao_shaping.drivers.slm.santec import Santec, WavefrontCorrection
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.slm.sweep_analysis import outlier_mask
+from ao_shaping.utils.slm_phase import flat_gray as _canonical_flat_gray
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_utils import LAMBDA_UM, UM_TO_WAVES, um_to_waves
@@ -350,8 +351,14 @@ def make_phase(ph: PatternHelper, coefficients: dict[tuple[int, int], float],
 
 
 def flat_gray() -> np.ndarray:
-    """纯平相位灰度 (gray=0). 扁平相位必须直接发 uint16, 严禁走 create_phase_from_array."""
-    return np.full((PANEL_H, PANEL_W), 0, dtype=np.uint16)
+    """纯平相位灰度 (gray=0).扁平相位必须直接发 uint16, 严禁走 create_phase_from_array.
+
+    委托给 canonical 的 :func:`ao_shaping.utils.slm_phase.flat_gray`,不再自带一份
+    ``np.full((PANEL_H, PANEL_W), 0)``。原实现把面板尺寸与灰度值写死, 而 canonical 版
+    两者都是参数;两份并存正是「重复实现漂移」的起点。此处仍固定 gray=0、平板尺寸
+    取本模块的 :data:`PANEL_H` / :data:`PANEL_W`,语义与旧实现逐位相同。
+    """
+    return _canonical_flat_gray(panel_res=(PANEL_H, PANEL_W), gray_value=0)
 
 
 def show_phase(slm: Santec, phase_rad: np.ndarray,
