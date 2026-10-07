@@ -486,9 +486,15 @@ class Recorder:
         return len(self.history)
 
     def __getitem__(self, index):
-        assert index < len(self.history), (
-            f"index {index} out of range {len(self.history)}"
-        )
+        # Must raise IndexError, not AssertionError: Python's iteration protocol
+        # (``for row in recorder``) calls __getitem__ with 0, 1, 2, ... and stops
+        # ONLY on IndexError. An assert here overruns instead of terminating and
+        # blows up with a bare AssertionError, so a plain iteration silently
+        # breaks. Also note ``assert`` vanishes under ``python -O``.
+        if not -len(self.history) <= index < len(self.history):
+            raise IndexError(
+                f"index {index} out of range {len(self.history)}"
+            )
         if hasattr(self.history, "iloc"):
             return self.history.iloc[index]
         return self.history[index]

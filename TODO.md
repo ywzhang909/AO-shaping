@@ -210,7 +210,7 @@
 | F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | `pyarrow_probe` 两份**已漂移**（哈希不同），先 diff 再定去留 | 护栏 |
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
 | R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
-| **R-57** | — （待开 issue） | 峰峰值安全应改**投影/约束**而非软惩罚：软惩罚存在交叉问题（性能项涨 0.2 时 3 个单位惩罚仍可接受 ⇒ run 会安心停在 3× MPE），且把无量纲图像指标与物理单位用**无法标定**的常数耦合；SPGD 梯度幅度随曝光/增益漂移 ⇒ 按上周噪声标定的权重会变成潜在违规。成熟做法 = 约束支配（feasible 恒先于 infeasible）+ 显式安全层。仓库已有能量门可作现成落点。**本轮未实现**，依据见 `report/pib_loss_terms/README.md` §4.1 | E 🟡 |
+| ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max_peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
 
 ### 7.1 护栏：以下**不是**待办，**不得**当作重复去「修」
 

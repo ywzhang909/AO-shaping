@@ -483,6 +483,24 @@ class SlmZernikePibConfig:
     # corr(J, max_brt) = -0.9996 on the bench) - that epoch's update and
     # best-track are skipped entirely. 0 disables.
     fold_ratio: float = 0.5
+    # Measured-peak feasibility gate. This is NOT a safety interlock and NOT a
+    # projection onto the feasible set - see the long warning below. It refuses
+    # to COMMIT the next update once frames that were ALREADY displayed on the
+    # SLM exceeded ``max_peak`` camera counts. 0 disables it, which is the
+    # default so existing runs stay bit-identical.
+    #
+    # Why a gate and not a penalty term: a soft ``w_peak * max(0, peak-cap)**2``
+    # term has a crossover failure - a step that gains 0.2 merit will happily
+    # sit at 3x the cap because 3 penalty units < 0.2 merit units - and it
+    # couples a dimensionless image metric to physical units through a constant
+    # nobody can calibrate. A feasibility filter has no such trade.
+    #
+    # ``max_peak`` is a camera-window count under the CURRENT exposure, so it is
+    # only meaningful with a FIXED exposure: with ``exposure_time_ms == 0`` the
+    # auto-exposure path lowers exposure when a frame approaches saturation, so
+    # counts fall while optical power does not and the cap is silently masked.
+    # The runner warns when that combination is requested.
+    max_peak: float = 0.0
     # Noise-aware update gate: when |J+ - J-| <= ``noise_gate_k`` * sigma_hat
     # (rolling std of the last ``noise_gate_window`` diffs) the SPGD gradient
     # is measurement noise (measured SNR < 0.1 at delta < 0.001) - the update
@@ -1056,9 +1074,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
             ``gate`` records the SPGD evaluation verdict for offline stats:
             ``"applied"`` (gradient adopted), ``"fold"`` (brightness fold
-            rejected before scoring) or ``"noise"`` (diff below the noise gate,
-            zeroed update). ``None`` (heuristic branch, or legacy records)
-            means "no verdict recorded".
+            rejected before scoring), ``"noise"`` (diff below the noise gate,
+            zeroed update) or ``"peak"`` (measured peak exceeded ``max_peak``,
+            update not committed). ``None`` (heuristic branch, or legacy
+            records) means "no verdict recorded".
             """
             row = {
                 "J": J,
@@ -1362,11 +1381,24 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             _diff_history: deque[float] = deque(maxlen=config.noise_gate_window)
             _n_fold_gated = 0
             _n_noise_gated = 0
+            _n_peak_gated = 0
 
             if config.abba_sampling:
                 logger.info(
                     "SPGD ABBA sampling enabled: 4 captures/epoch (+ - - +), "
                     "linear drift cancellation"
+                )
+
+            if config.max_peak > 0.0 and exposure_time_ms == 0:
+                # A counts cap under auto-exposure is not a power cap: the
+                # saturation path lowers exposure, so counts fall while optical
+                # power does not.
+                logger.warning(
+                    "max_peak={} is a camera-count threshold but "
+                    "exposure_time_ms=0 enables auto-exposure, which lowers "
+                    "exposure near saturation and can mask a real over-power "
+                    "event. Fix the exposure to make the cap meaningful.",
+                    config.max_peak,
                 )
 
             with tqdm.tqdm(
@@ -1455,6 +1487,55 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             lr_val=optimizer.lr,
                             delta_val=delta,
                             max_brt=float(max(pk for _, _, pk, _ in _frame_stats)),
+                        )
+                        bar.update(1)
+                        continue
+
+                    # Measured-peak feasibility gate (see ``max_peak``): mirror the
+                    # fold gate, NOT the noise gate. A peak violation says nothing
+                    # about gradient validity, so unlike the noise gate this must
+                    # NOT call ``optimizer.update`` - zero-updating there decays
+                    # momentum, which would corrupt the Adam moments with a
+                    # statement we have no evidence for. It also must not append
+                    # to ``_diff_history`` (that would inflate ``sigma_hat`` and
+                    # make the noise gate over-fire) nor refresh the fold
+                    # baseline, nor best-track, nor touch the bucket / lr
+                    # schedules. Fully orthogonal: no state changes at all.
+                    _peak_observed = float(max(pk for _, _, pk, _ in _frame_stats))
+                    if config.max_peak > 0.0 and _peak_observed > config.max_peak:
+                        _n_peak_gated += 1
+                        logger.warning(
+                            "epoch {}: peak {:.0f} exceeds max_peak={:.0f} - "
+                            "update NOT committed (step #{})",
+                            epoch,
+                            _peak_observed,
+                            config.max_peak,
+                            _n_peak_gated,
+                        )
+                        # Honest row: unchanged coefficients, real mean J over the
+                        # frames actually scored, real peak. ``gate`` records the
+                        # reason so the freeze is visible offline.
+                        _peak_j: list[float] = []
+                        _peak_ratio: list[float] = []
+                        for _c_sign, _img_c, _, _ in _captures:
+                            _r = shaping(_img_c)
+                            _peak_j.append(float(_r.j))
+                            _peak_ratio.append(float(_r.ratio))
+                        _peak_j_mean = float(np.mean(_peak_j))
+                        _log_row(
+                            epoch=epoch,
+                            coeffs=_init_c,
+                            obj_val=_peak_j_mean,
+                            obj_ratio=float(np.mean(_peak_ratio)),
+                            J=_peak_j_mean,
+                            diff=0.0,
+                            gate="peak",
+                            grad=np.zeros(nk, dtype=np.float64),
+                            img=pos_img,
+                            phase=pos_phase,
+                            lr_val=optimizer.lr,
+                            delta_val=delta,
+                            max_brt=_peak_observed,
                         )
                         bar.update(1)
                         continue
@@ -1650,12 +1731,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
             logger.info(
                 "SPGD finished: {}/{} epochs updates applied, {} brightness-fold "
-                "epochs skipped, {} noise-gated updates (noise_gate_k={})",
-                epochs - _n_fold_gated - _n_noise_gated,
+                "epochs skipped, {} noise-gated updates (noise_gate_k={}), "
+                "{} peak-gated updates (max_peak={})",
+                epochs - _n_fold_gated - _n_noise_gated - _n_peak_gated,
                 epochs,
                 _n_fold_gated,
                 _n_noise_gated,
                 config.noise_gate_k,
+                _n_peak_gated,
+                config.max_peak,
             )
 
             # On exit, leave the SLM at the best phase found. The initial (flat or

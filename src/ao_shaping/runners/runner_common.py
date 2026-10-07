@@ -458,10 +458,22 @@ class SpgdParamsPib(SpgdParams):
     noise_gate_k: Annotated[
         float,
         option(
-            "--noise-gate-k",
+            "--noise_gate_k",
             help="Noise-aware update gate sigma multiplier (0 disables).",
         ),
     ] = 3.0
+    max_peak: Annotated[
+        float,
+        option(
+            "--max_peak",
+            help=(
+                "Measured-peak feasibility gate in camera counts (0 disables, the "
+                "default). NOT a safety interlock: it only refuses to commit the "
+                "next update after already-displayed frames exceeded this value. "
+                "Requires a FIXED --exposure_time_ms, else auto-exposure masks it."
+            ),
+        ),
+    ] = 0.0
     abba_sampling: Annotated[
         bool,
         option(

@@ -344,6 +344,7 @@ def _build_slm_pib_config(
             fold_ratio=search.fold_ratio,
             noise_gate_k=search.noise_gate_k,
             abba_sampling=search.abba_sampling,
+            max_peak=search.max_peak,
         )
     else:  # HeuristicParams
         cfg.update(
