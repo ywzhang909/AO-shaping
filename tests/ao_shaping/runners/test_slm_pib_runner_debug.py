@@ -517,9 +517,16 @@ def test_debug_artifacts_write_sidecars(tmp_path):
 def test_debug_artifacts_pkl_exports_array_fields(tmp_path):
     """2D image fields and 1D coefficient arrays are exported losslessly.
 
-    The shared data-mode backend preserves ``_img`` (img key set) and ``_c``
-    (1D key set) per epoch in the pickled data dict; the old h5 full-export
-    path (including ``_phase``) no longer exists.
+    The shared data-mode backend preserves ``_img`` (img key set), ``_c``
+    (1D key set) and ``_phase`` / ``_grad`` (2D key set) per epoch in the
+    pickled data dict; the old h5 full-export path no longer exists.
+
+    ``_phase`` used to be asserted *absent* here, which was wrong twice over:
+    the h5 removal says nothing about the data-mode key sets, and
+    ``slm_shaping_runner._DEBUG_2D_KEYS`` deliberately lists ``_phase`` so a
+    report can show the phase actually sent to the SLM next to the measured
+    spot. The uint16 dtype must survive the round trip (``d2_keys`` casts with
+    a bare ``np.asarray``, unlike ``d1_keys`` which forces float).
     """
     import pickle
 
@@ -542,8 +549,11 @@ def test_debug_artifacts_pkl_exports_array_fields(tmp_path):
     row0 = data[rec.history[0]["_epoch"]]
     np.testing.assert_array_equal(row0["_img"], np.full((16, 16), 10, dtype=np.uint8))
     np.testing.assert_array_equal(row0["_c"], np.linspace(-1.0, 1.0, 6))
-    # ``_phase`` is not part of the exported key set (h5 full-export removed)
-    assert "_phase" not in row0
+    # ``_phase`` is a 2D key: present, and still uint16 after the round trip.
+    assert row0["_phase"].dtype == np.uint16, row0["_phase"].dtype
+    np.testing.assert_array_equal(row0["_phase"], np.full((16, 16), 100, dtype=np.uint16))
+    # It must be present on *every* epoch, not just the baseline row.
+    assert all("_phase" in row for row in data.values())
 
 
 def test_resolve_auto_camera_sets_exposure_and_center(monkeypatch):
