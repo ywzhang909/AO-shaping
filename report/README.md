@@ -65,7 +65,6 @@
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
 | [`slm/daily_2026-09-15.md`](slm/daily_2026-09-15.md) | `人工撰写 (+generate_zernike_response_matrix_report.py, generate_zernike_wfs_report.py)` | 硬件 | 硬件实验日报；引用的两个 generate_* 脚本见当日记录 |
 | [`slm/daily_2026-09-16.md`](slm/daily_2026-09-16.md) | `人工撰写 (+wfs_probe.py)` | 硬件 | 硬件实验日报 |
-| [`slm/model_in_loop_algorithm.md`](slm/model_in_loop_algorithm.md) | `scripts/generate_model_in_loop_report.py` | 离线 | slm-model-in-loop 的调用关系图 / 计算时序图 / 算法说明 (功能说明, 非测量); 图中符号对着源码 AST 校验, 默认值从 dataclass AST 读出, 故改名会使生成失败 |
 | [`slm/model_in_loop_bench_calibration.md`](slm/model_in_loop_bench_calibration.md) | `scripts/model_in_loop_hw_runbook.py` | 硬件 | 正向模型台架几何标定；runbook 采集 + 本文档结论 |
 | [`slm/report2.md`](slm/report2.md) | `人工撰写` | 硬件 | SLM 相位生成链路审计 + 矫正效果根因分析；数据由 zernike-matrix 闭环产生 |
 | [`slm/report3.md`](slm/report3.md) | `scripts/generate_zernike_response_matrix_report.py` | 离线 | 2026-09-16 响应矩阵重标测试报告 |

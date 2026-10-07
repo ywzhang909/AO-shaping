@@ -1,36 +1,49 @@
-"""Generate the model-in-the-loop algorithm report (call graph / timing / algorithm).
+"""Generate the model-in-the-loop usage write-up (call graph / timing / algorithm).
 
-**What this report is.** A *description of code*, not a measurement: it documents
-how ``slm-model-in-loop`` is wired, what happens in what order, and why each guard
-exists. It is therefore ``运行环境: 离线`` and needs no instrument.
+**What this document is.** A *functional description* -- how the command is wired,
+what runs in what order, why each guard exists, and how the forward-prediction
+model is put together. It is **not** the conclusion of a measurement, so it lives
+in ``docs/`` and needs no instrument.
 
-**Why it is generated rather than hand-written.** Three reasons, in order of how
-much they have actually cost this repo:
+**Why the diagrams are generated rather than hand-written.** Three reasons, in
+order of how much they have actually cost this repo:
 
 1. **The diagrams would rot.** A hand-drawn call graph names symbols; renaming one
    turns the document into fiction that still reads as authoritative. So the
-   diagrams here are *derived from the source*, and every symbol they name is
-   resolved against the real modules before the file is written. A rename breaks
-   generation loudly (see ``_verify_symbols``) instead of silently producing a
-   confident lie.
-2. **The numbers come from the dataclass.** ``trust_region_c_l2``'s default,
-   ``max_rejection_streak``, ``PLATEAU_PATIENCE`` -- these are read out of the
-   AST, not typed here, so a default bump cannot leave the prose stale.
-3. **Provenance is mechanical.** The report lives under ``report/`` and must carry
-   the generated header, or ``tests/ao_shaping/scripts/test_report_provenance.py``
-   fails. A generator that overwrites its own report has to stamp that header
-   itself (``insert_header``), which is what ``main`` does.
+   diagrams are *derived from the source*: every symbol they name is resolved
+   against the real modules before the file is written, plus a check in the other
+   direction -- that every declared symbol is actually mentioned in the output. A
+   rename breaks generation loudly instead of silently producing a confident lie.
+2. **The numbers come from the code.** The config table's defaults are read out of
+   the dataclass AST; the learned model's parameter counts are measured by
+   importing it and calling ``count_parameters``. Neither is typed in by hand, and
+   when torch is missing the document degrades to *no number* rather than an
+   unverified one.
+3. **Traceability is mechanical.** The document writes its own header, so a reader
+   can always find the script that produced it.
+
+**Why ``docs/`` and not ``report/``.** AGENTS.md splits the two: ``report/<topic>/``
+holds the conclusions of measurements, ``docs/`` holds device/usage documentation.
+The *hardware measurement* of this same runner is
+``report/slm/model_in_loop_bench_calibration.md``; the two are deliberately kept
+apart. Consequently this file is **not** in ``scripts/_common/provenance.py::REPORTS``
+-- that registry renders ``report/README.md`` and assumes every key is under
+``report/``, so a ``docs/`` key there would compute the wrong relative path.
 
 **Deliberately absent.** No wall-clock timing. The per-round *counts* of device
 round-trips and compute steps are derivable from the configuration, so they are
 reported; the *durations* depend on the bench and would be a fabrication here. A
 previous report in this family was invalidated by exactly that mistake.
 
+**Diagrams are mermaid**, because this document is read on GitHub where mermaid
+renders. ASCII art needed hand-aligned boxes to stay legible and still could not
+show control flow or state.
+
 Usage::
 
     python scripts/generate_model_in_loop_report.py
     python scripts/generate_model_in_loop_report.py --no-figures
-    python scripts/generate_model_in_loop_report.py --out report/slm/model_in_loop_algorithm.md
+    python scripts/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
 """
 
 from __future__ import annotations
@@ -51,9 +64,17 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common.provenance import script_link  # noqa: E402
 
-REPORT_KEY = "report/slm/model_in_loop_algorithm.md"
+#: Where the generated write-up lands. ``docs/``, not ``report/``: this is a usage /
+#: architecture description, and AGENTS.md reserves ``report/<topic>/`` for the
+#: conclusions of measurements. Not registered in ``provenance.REPORTS`` because that
+#: registry renders ``report/README.md`` and assumes every key lives under ``report/``.
+DOC_KEY = "docs/slm/model_in_loop_algorithm.md"
+
+#: Appended after each embedded diagram so the next paragraph is separated by a
+#: blank line -- markdown needs one, and `"\\n".join` alone would not provide it.
+NEWLINE = "\n"
 
 #: Repo-root-relative modules the diagrams and tables are derived from.
 HARDWARE = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
@@ -63,6 +84,8 @@ RUNNER = "src/ao_shaping/runners/slm/model_in_loop_runner.py"
 PARAMS = "src/ao_shaping/runners/runner_common.py"
 IO = "src/ao_shaping/utils/io/file.py"
 GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
+LEARNED = "src/ml/zernike/forward_model.py"
+PHYSICS = "src/ml/zernike/models.py"
 
 MODULES = {
     "hardware": HARDWARE,
@@ -72,6 +95,8 @@ MODULES = {
     "params": PARAMS,
     "io": IO,
     "gs_refine": GS_REFINE,
+    "learned": LEARNED,
+    "physics": PHYSICS,
 }
 
 #: Every symbol the two ASCII diagrams name, as ``(module_key, qualified name)``.
@@ -111,6 +136,22 @@ DIAGRAM_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("optimizer", "ZernikeCoefficientOptimizer"),
     # recorder
     ("io", "save_recorder_debug_artifacts"),
+    # the learned forward model (the section on its structure)
+    ("learned", "ZernikeCoeffConfig"),
+    ("learned", "ZernikeCoeffConvNet"),
+    ("learned", "ZernikeCoeffMLP"),
+    ("learned", "_ConvBlock"),
+    ("learned", "_make_norm"),
+    ("learned", "build_forward_model"),
+    ("learned", "count_parameters"),
+    ("learned", "peak_normalize"),
+    ("learned", "DEFAULT_N_COEFFS"),
+    # the physics forward model, for contrast
+    ("physics", "ZernikeAmpModel"),
+    # the analytic model Step A actually differentiates through
+    ("optimizer", "forward_intensity"),
+    ("optimizer", "_far_field_intensity"),
+    ("optimizer", "_intensity_loss"),
 )
 
 
@@ -236,97 +277,223 @@ def _module_constants(rel: str, wanted: tuple[str, ...]) -> dict[str, str]:
 
 
 # ---------------------------------------------------------------------------
-# The two ASCII diagrams
+# The mermaid diagrams
+#
+# mermaid rather than ASCII art: this document is read on GitHub, where mermaid
+# renders. The ASCII version needed hand-aligned boxes to stay legible and still
+# could not show control flow or state.
 # ---------------------------------------------------------------------------
 
 CALL_GRAPH = """\
-main.py `slm-model-in-loop`                              click hub
- └─ runners/slm/model_in_loop_runner.py :: run            硬件编排层
-     ├─ _parse_frozen_modes / _parse_point                CLI 文本 -> 类型化字段
-     ├─ SlmModelInLoopConfig                              扁平 dataclass (runner_common)
-     ├─ optimize_slm_model_in_loop(config)                ← 唯一公开入口
-     │   │
-     │   ├─ _open_bench(config)                           ──► Bench (Protocol)
-     │   │     ├─ _SimBench                                cam_type=sim (数字孪生)
-     │   │     └─ _HardwareBench                           daheng/miicam + Santec
-     │   │        display(phase) / measure() / close()        设备 import 全部延迟
-     │   │
-     │   ├─ _calibrate_geometry(bench, config)             一次性几何 bake-off
-     │   │     └─ calibrate_bench_geometry(...)           [孪生] sim 直接取真值
-     │   │
-     │   ├─ 平场基线: display(flat) -> _metrics_at -> _quality
-     │   │
-     │   └─ for index in range(n_rounds):
-     │       │
-     │       │  ── Step A: 重拟合一个共享像差 ─────────────────────────────
-     │       ├─ coefficients = np.zeros(n_coeffs)           ← 唯一初始种子 (硬编码)
-     │       ├─ _make_optimizer(config, coefficients)
-     │       │     └─ ZernikeCoefficientOptimizer(initial_coefficients=...)
-     │       │          zernike_coefficient_optimizer.py   Adam 作用在 Zernike 向量上
-     │       ├─ for probe_index in range(probe_count):
-     │       │     ├─ _probe_phase(region, probe_spread, seed)        [孪生]
-     │       │     ├─ bench.display(probe) -> _prepare_frame(bench.measure())
-     │       │     │                      _prepare_frame  <- slm_gs_refine
-     │       │     └─ _to_model_grid(measured, roi_center, far_field_size, ...)
-     │       ├─ _fit_aberration_at_probes(optimizer, frames, iters)  [孪生]
-     │       │     └─ 所有探针轮流喂进**同一个** Adam 状态; 触发平台期则 rearm
-     │       └─ trust_region_clamp(fitted, coefficients, trust_region_c_l2)
-     │                                     限制 |c_{t+1} - c_t|
-     │       │
-     │       │  ── Step B: 冻结像差, 合成方形 ─────────────────────────────
-     │       ├─ shape_phase_with_frozen_aberration(...)                 [孪生]
-     │       ├─ bench.display(shaped) -> _prepare_frame
-     │       │                        -> _metrics_at -> _quality
-     │       ├─ phase = shaped                        成为下一轮的热启动
-     │       └─ acceptance_verdict(loss_before, loss_after, score_before, score_after)
-     │            accept -> coefficients/phase 前移, streak 清零
-     │            reject -> 阻尼 lr / 加探针 / streak+1
-     │                      streak >= max_rejection_streak -> ABORTED_REJECTION_STREAK
-     │
-     └─ save_recorder_debug_artifacts(recorder, ...)       utils/io/file.py
-          data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl      每次运行都写
-"""
+```mermaid
+graph TD
+    CLI["main.py · slm-model-in-loop"]
+
+    subgraph L1["① 硬件编排层 · runners/slm/model_in_loop_runner.py"]
+        direction TB
+        RUN["run(ctx, params: SlmModelInLoopParams)"]
+        PARSE["_parse_frozen_modes / _parse_point"]
+        CFG["SlmModelInLoopConfig<br/>(runner_common.py 扁平 dataclass)"]
+        RUN --> PARSE --> CFG
+    end
+
+    subgraph L2["② 策略层 (硬件移植) · optimizer/wfless/slm_model_in_loop.py"]
+        direction TB
+        OPT["optimize_slm_model_in_loop(config)<br/>← 唯一公开入口"]
+        OPEN["_open_bench(config)"]
+        GEOM["_calibrate_geometry(bench, config)<br/>一次性几何 bake-off"]
+        MKOPT["_make_optimizer(config, coefficients)"]
+        CLAMP["trust_region_clamp(...)"]
+        QUAL["_metrics_at / _quality"]
+        TGRID["_to_model_grid(...)"]
+        ACC["acceptance_verdict(...)"]
+        VERDICT{{"ModelInLoopStatus"}}
+    end
+
+    subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
+        direction TB
+        BENCH["Bench (Protocol)<br/>display / measure / close"]
+        SIM["_SimBench<br/>2f-Fourier 数字孪生"]
+        HW["_HardwareBench<br/>daheng/miicam + Santec"]
+        BENCH -.实现.- SIM
+        BENCH -.实现.- HW
+    end
+
+    subgraph L3["④ 共享数学 = 数字孪生 · optimizer/wfless/model_in_loop_shaping.py"]
+        direction TB
+        GEOMSOLVE["calibrate_bench_geometry(...)"]
+        PROBE["_probe_phase(...)"]
+        STEPA["_fit_aberration_at_probes(...)"]
+        STEPB["shape_phase_with_frozen_aberration(...)"]
+        TWINRUN["simulate_iterative_shaping(config)<br/>--cam_type sim 走的就是这条"]
+    end
+
+    subgraph L4["⑤ 算法层 · algorithm/signal_processing"]
+        direction TB
+        ZCO["ZernikeCoefficientOptimizer<br/>Adam 作用在 Zernike 系数向量上"]
+    end
+
+    subgraph LX["借用的帧预处理 · slm_gs_refine.py"]
+        direction TB
+        PREP["_prepare_frame"]
+    end
+
+    subgraph LO["⑥ 记录 · utils/io/file.py"]
+        direction TB
+        SAVE["save_recorder_debug_artifacts(...)<br/>每次运行都写 pkl + json sidecar"]
+    end
+
+    CLI --> RUN
+    CFG --> OPT
+    OPT --> OPEN
+    OPEN --> BENCH
+    OPT --> GEOM
+    GEOM -.延迟 import.- GEOMSOLVE
+    OPT -->|"平场基线"| QUAL
+    QUAL -->|"基准 score"| OPT
+
+    OPT -->|"每轮: coefficients = np.zeros(n_coeffs)"| MKOPT
+    MKOPT --> ZCO
+    OPT -->|"每轮 × probe_count"| PROBE
+    PROBE --> BENCH
+    BENCH -->|"measure()"| PREP
+    PREP --> TGRID
+    TGRID --> STEPA
+    STEPA --> ZCO
+    ZCO --> CLAMP
+    CLAMP --> STEPB
+    STEPB -->|"display(shaped) + measure()"| BENCH
+    BENCH --> QUAL
+    QUAL --> ACC
+    ACC -->|"accept"| OPT
+    ACC -->|"reject"| OPT
+    ACC -->|"streak ≥ max_rejection_streak"| VERDICT
+    OPT --> SAVE
+
+    SIM -.孪生不另写一份, 只是换掉 Bench.-> TWINRUN
+    TWINRUN -.共享同一批数学.- GEOMSOLVE
+    TWINRUN -.-> STEPA
+    TWINRUN -.-> STEPB
+```"""
 
 SEQUENCE = """\
-时序图 (一轮;  ▓ = 设备 I/O   ░ = 计算   │ = 状态变更)   默认参数: 8 探针 / 80 / 600
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as 用户
+    participant M as main.py
+    participant R as runner
+    participant O as optimize_slm_model_in_loop
+    participant B as Bench (设备)
+    participant Z as ZernikeCoefficientOptimizer
 
-  用户      main.py      runner          optimize_()      Bench(设备)     ZernikeOpt
-    │          │            │                 │              │              │
-    │ 命令行   │            │                 │              │              │
-    ├─────────►│            │                 │              │              │
-    │          ├───────────►│ 解析参数        │              │              │
-    │          │            ├─ np.zeros(K) ──┼─ 种子 c_0 ──┼─────────────►│
-    │          │            │                 ├─ _open_bench─┼─────────►    │
-    │          │            │                 │        ▓ open device        │
-    │          │            │                 │              │              │
-    │          │            │        ┌────────┴─ 几何 bake-off (一次性) ───┐ │
-    │          │            │        │ device: display+measure × n_calib_probe │ │
-    │          │            │        │   calibrate_bench_geometry(...)   │ │
-    │          │            │        │   相关度 < min_geometry_corr ⇒ 退出码 2│
-    │          │            │        └──────────────────────────────────┘ │
-    │          │            │                 ├─ ▓ display(flat) → 基线 score │
-    │          │            │                 │              │              │
-    ╞══════════╪════════════╪═════════════════╪══════════════╪══════════════╡ 第 t 轮
-    │          │            │                 │              │              │
-    │          │            │            ┌────┴─ Step A ────┼──────────────►│
-    │          │            │            │ ▓▓ 探针 i=0..7 (display+measure)│
-    │          │            │            │    _probe_phase / _prepare_frame│
-    │          │            │            │    _to_model_grid → 模型网格    │
-    │          │            │            │ ░ 80× Adam 前向+反向 (循环全部探针)
-    │          │            │            │    → fitted, loss_before/after │
-    │          │            │            │ ░ trust_region_clamp → clamped │
-    │          │            │            │              │              │
-    │          │            │            │            ┌──┴─ Step B ──────┼──►│
-    │          │            │            │ ░ 600× 全像素相位 Adam (像差冻结)
-    │          │            │            │ ▓ display(shaped) + measure     │
-    │          │            │            │ ░ _metrics_at → _quality → after│
-    │          │            │            │ ░ acceptance_verdict ────────────┤
-    │          │            │                 │      │              │
-    │          │            │      accept ────┼──────┘  c←clamped, phase←shaped
-    │          │            │      reject ────┼──────► 阻尼 lr / 探针+escalate
-    │          │            │                 │      streak=3 ⇒ ABORTED ─────►│
-    │          │◄───────────┴─ CSV / pkl / best_phase.npy / bench_geometry.json
-"""
+    U->>M: slm-model-in-loop <命令行>
+    M->>R: run(params)
+    R->>O: optimize_slm_model_in_loop(config)
+
+    rect rgb(245, 240, 235)
+        Note over O,B: 一次性 —— 几何标定
+        O->>Z: coefficients = np.zeros(n_coeffs) 〔唯一初始种子〕
+        O->>B: _open_bench(config)
+        B-->>O: 设备已连接 (import 全部延迟)
+        loop n_calibration_probes 次
+            O->>B: display(probe) + measure()
+            B-->>O: 实测远场帧
+        end
+        O->>O: calibrate_bench_geometry(...)
+        alt 相关度 < min_geometry_correlation
+            O-->>U: 退出码 2 —— 不提交任何相位
+        end
+    end
+
+    rect rgb(240, 245, 240)
+        O->>B: display(flat)
+        B-->>O: _prepare_frame(measure())
+        O->>O: _metrics_at → _quality → score_before
+    end
+
+    rect rgb(238, 243, 249)
+        Note over O,Z: 第 t 轮 —— Step A: 重拟合一个共享像差
+        loop probe_count 次
+            O->>O: _probe_phase(region, probe_spread, seed)
+            O->>B: display(probe)
+            B-->>O: measure() → _prepare_frame
+            O->>O: _to_model_grid(...) 搬到模型网格
+        end
+        O->>Z: step_a_iterations 次前向+反向<br/>(轮流喂全部探针, 同一 Adam 状态)
+        Z-->>O: fitted + loss_before/after
+        O->>O: trust_region_clamp → clamped
+    end
+
+    rect rgb(249, 240, 245)
+        Note over O,B: Step B: 像差冻结, 合成方形
+        O->>Z: step_b_iterations 次全像素相位 Adam
+        Z-->>O: shaped
+        O->>B: display(shaped)
+        B-->>O: _prepare_frame → _metrics_at → _quality
+    end
+
+    O->>O: acceptance_verdict(loss, score)
+    alt accept
+        O->>O: c ← clamped, phase ← shaped, streak = 0
+    else reject
+        O->>O: lr 阻尼, 探针 +escalate, streak += 1
+    end
+    O-->>R: ModelInLoopResult
+    R-->>U: CSV / pkl / best_phase.npy / bench_geometry.json
+```"""
+
+GUARD_STATE = """\
+```mermaid
+stateDiagram-v2
+    [*] --> 进入第t轮: trust_region_clamp → clamped
+    进入第t轮 --> 验收: acceptance_verdict<br/>loss 与 score 前后对比
+    验收 --> accept: 未变差
+    验收 --> reject: loss 变差 或<br/>score 变差超 acceptance_score_eps
+    accept --> 下一轮: c ← clamped<br/>phase ← shaped<br/>lr 复原, streak = 0
+    reject --> 下一轮: lr × damp_lr_factor<br/>探针 +escalate_probe_count<br/>(上限 max_probe_count)
+    reject --> aborted_rejection_streak: streak ≥ max_rejection_streak
+    aborted_rejection_streak --> [*]: 不提交任何相位
+    下一轮 --> 进入第t轮
+```"""
+
+LEARNED_PIPELINE = """\
+```mermaid
+flowchart LR
+    subgraph PRE["前处理 · Dataset 拥有输入契约"]
+        direction TB
+        C1["实测 Zernike 系数<br/>Noll 序 · raw 弧度"]
+        C2["零填充到 136 维<br/>(实测长度 15 / 36 / 78)"]
+        C3["模型内部不做输入归一化"]
+        C1 --> C2 --> C3
+    end
+
+    subgraph DEEP["深度模块 · ZernikeCoeffConvNet"]
+        direction TB
+        B1["coeff_proj<br/>Linear 136 → 256·4·4 = 4096<br/>再 view 成 (B,256,4,4)<br/>★ 空间结构在这里被创造"]
+        D1["stage1 Upsample×2 → _ConvBlock<br/>256 → 256"]
+        D2["stage2 Upsample×2 → _ConvBlock<br/>256 → 128"]
+        D3["stage3 Upsample×2 → _ConvBlock<br/>128 → 64"]
+        D4["stage4 Upsample×2 → _ConvBlock<br/>64 → 32"]
+        B1 --> D1 --> D2 --> D3 --> D4
+    end
+
+    subgraph BLOCK["每个 _ConvBlock"]
+        direction LR
+        Q1["Conv2d 3×3"] --> Q2["Norm<br/>(GroupNorm 默认)"] --> Q3["GELU"] --> Q4["Conv2d 3×3"] --> Q5["Norm"]
+    end
+
+    subgraph POST["后处理 · 输出契约"]
+        direction TB
+        P1["head = Conv2d 32→1, k=1<br/>raw / 无界 · 不加激活"]
+        P2["peak_normalize<br/>逐样本 amax, 除数下限 1e-12"]
+        P3["(B,1,64,64) 每样本最大值恰为 1.0"]
+        P1 --> P2 --> P3
+    end
+
+    PRE -->|"(B,136) 弧度"| DEEP
+    DEEP -->|"(B,32,64,64)"| POST
+```"""
 
 
 # ---------------------------------------------------------------------------
@@ -347,70 +514,6 @@ def _setup_fonts() -> None:
     else:
         print("warning: no CJK font found; Chinese labels may be garbled")
     plt.rcParams["axes.unicode_minus"] = False
-
-
-def _fig_layers(path: Path) -> None:
-    """Layered block diagram -- who owns what, and which way the calls go.
-
-    Bands are laid out on a fixed vertical grid because an earlier version let
-    the Bench row overlap the strategy-layer row: the figure still rendered, the
-    link check still passed, and the two labels sat on top of each other.
-    """
-    fig, ax = plt.subplots(figsize=(13.0, 8.2))
-    ax.set_xlim(0, 100)
-    ax.set_ylim(0, 100)
-    ax.axis("off")
-
-    box_w, box_h = 27.0, 11.0
-    x0 = 31.0
-
-    def band(y: float, title: str, boxes: list[tuple[str, str]], fc: str, ec: str) -> None:
-        ax.text(2.0, y, title, fontsize=11.0, va="center", color="#1f3b57")
-        for i, (name, sub) in enumerate(boxes):
-            x = x0 + i * (box_w + 5.0)
-            ax.add_patch(FancyBboxPatch(
-                (x, y - box_h / 2), box_w, box_h,
-                boxstyle="round,pad=0.4", linewidth=1.3,
-                edgecolor=ec, facecolor=fc,
-            ))
-            ax.text(x + box_w / 2, y + 1.4, name, fontsize=9.6,
-                    ha="center", va="center")
-            ax.text(x + box_w / 2, y - 2.6, sub, fontsize=8.8,
-                    ha="center", va="center", color="#555555")
-
-    # y positions, top to bottom. Spacing >= box_h + gap so nothing can collide.
-    band(90.0, "CLI / 编排层", [("main.py", "click hub"),
-                              ("model_in_loop_runner.py", "runners/slm/")],
-         "#eef4f9", "#4a6f8a")
-    band(69.0, "策略层 (硬件移植)", [("slm_model_in_loop.py", "optimizer/wfless/")],
-         "#eef4f9", "#4a6f8a")
-    band(46.0, "设备抽象 (--cam_type 唯一改变的一层)",
-         [("Bench 协议", "display / measure / close"),
-          ("_SimBench / _HardwareBench", "2f-Fourier 孪生 或 大恒/MiiCam + Santec")],
-         "#fdf1e6", "#8a4a20")
-    band(25.0, "共享数学 = 数字孪生", [("model_in_loop_shaping.py", "optimizer/wfless/")],
-         "#e9f6ef", "#2d6a4f")
-    band(6.0, "算法层", [("zernike_coefficient_optimizer.py",
-                          "algorithm/signal_processing/  ·  Adam")],
-         "#eef4f9", "#4a6f8a")
-
-    for y_from, y_to in ((84.5, 74.5), (63.5, 51.5), (40.5, 30.5), (19.5, 11.5)):
-        ax.add_patch(FancyArrowPatch(
-            (x0 + box_w / 2, y_from), (x0 + box_w / 2, y_to),
-            arrowstyle="-|>", mutation_scale=15, linewidth=1.5, color="#4a6f8a",
-        ))
-
-    # the shared-math row is imported *by* the strategy row, not merely below it
-    ax.add_patch(FancyArrowPatch(
-        (x0 + box_w + 2.0, 46.0), (x0 + box_w + 2.0, 69.0),
-        arrowstyle="-|>", mutation_scale=14, linewidth=1.4, color="#2d6a4f",
-        connectionstyle="arc3,rad=0.30",
-    ))
-    ax.text(x0 + box_w + 5.5, 57.5, "延迟 import\n(共享数学)", fontsize=8.8,
-            color="#1f5138", va="center")
-
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
 
 
 def _fig_timeline(path: Path, cfg: dict[str, str]) -> None:
@@ -461,49 +564,6 @@ def _fig_timeline(path: Path, cfg: dict[str, str]) -> None:
     plt.close(fig)
 
 
-def _fig_guards(path: Path, cfg: dict[str, str]) -> None:
-    """The acceptance state machine, as a small state diagram."""
-    fig, ax = plt.subplots(figsize=(11.4, 5.0))
-    ax.set_xlim(0, 100)
-    ax.set_ylim(0, 100)
-    ax.axis("off")
-
-    def box(x, y, w, h, text, fc, ec):
-        ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle="round,pad=0.4",
-                                    linewidth=1.4, edgecolor=ec, facecolor=fc))
-        ax.text(x + w / 2, y + h / 2, text, fontsize=9.6, ha="center", va="center")
-
-    box(2, 58, 26, 22, "进入第 t 轮\ntrust_region_clamp → clamped\n（系数步长被截断）", "#eef4f9", "#4a6f8a")
-    box(37, 58, 26, 22, "acceptance_verdict\nloss_before/after\nscore_before/after", "#eef4f9", "#4a6f8a")
-    box(72, 58, 26, 22, "Step B 实测\nshaped_frame → _quality\n→ score_after", "#eef4f9", "#4a6f8a")
-    box(37, 12, 26, 20, "accept\nc ← clamped, phase ← shaped\nlr 复原, streak = 0",
-        "#e9f6ef", "#2d6a4f")
-    box(72, 12, 26, 20, f"reject\nlr × {cfg['damp_lr_factor']}\n探针 +{cfg['escalate_probe_count']} (上限 {cfg['max_probe_count']})",
-        "#fdecec", "#a83a3a")
-    box(2, 12, 26, 20,
-        f"streak ≥ {cfg['max_rejection_streak']}\n=> ABORTED_REJECTION_STREAK\n(不提交任何相位)", "#fdecec", "#a83a3a")
-
-    for a, b in (((28, 69), (37, 69)), ((63, 69), (72, 69))):
-        ax.add_patch(FancyArrowPatch(a, b, arrowstyle="-|>", mutation_scale=14,
-                                     linewidth=1.4, color="#4a6f8a"))
-    ax.add_patch(FancyArrowPatch((50, 58), (50, 32), arrowstyle="-|>",
-                                 mutation_scale=14, linewidth=1.4, color="#2d6a4f"))
-    ax.text(52.5, 45, "accept", fontsize=9, color="#2d6a4f")
-    ax.add_patch(FancyArrowPatch((63, 62), (76, 32), arrowstyle="-|>",
-                                 mutation_scale=14, linewidth=1.4, color="#a83a3a",
-                                 connectionstyle="arc3,rad=0.18"))
-    ax.text(70, 44, "reject", fontsize=9, color="#a83a3a")
-    # reject -> abort is routed *below* both boxes on purpose: a straight line
-    # between them crosses the accept box, which reads as "reject -> accept".
-    ax.plot([85.0, 85.0], [12.0, 4.5], color="#a83a3a", linewidth=1.4)
-    ax.plot([85.0, 15.0], [4.5, 4.5], color="#a83a3a", linewidth=1.4)
-    ax.add_patch(FancyArrowPatch((15.0, 4.5), (15.0, 12.0), arrowstyle="-|>",
-                                 mutation_scale=14, linewidth=1.4, color="#a83a3a"))
-    ax.text(50, 6.8, "streak 累加; 台架落在模型之外时中止, 而不是提交一个模型自己喜欢的相位",
-            fontsize=9.4, ha="center", color="#444444")
-    fig.savefig(path, dpi=150, bbox_inches="tight")
-    plt.close(fig)
-
 
 # ---------------------------------------------------------------------------
 # Markdown
@@ -516,11 +576,175 @@ def _table(rows: list[tuple[str, str]]) -> str:
     return f"{head}\n{body}"
 
 
+def _learned_model_facts() -> dict[str, int]:
+    """Measured facts about ``ml.zernike.forward_model``, or ``{}`` if unavailable.
+
+    Imported rather than recomputed: hand-rolling ``Linear``/``Conv2d``/``GroupNorm``
+    parameter arithmetic -- or re-deriving ``calc_n_zernike_terms`` -- inside this
+    generator would each be a second copy of something the code already owns, i.e.
+    exactly the duplicate-implementation drift this repo keeps paying for. Returns
+    ``{}`` when torch is unavailable so the document degrades to *no number* rather
+    than an unverified one.
+    """
+    try:
+        from ml.zernike.forward_model import (  # noqa: PLC0415
+            DEFAULT_N_COEFFS,
+            ZernikeCoeffConfig,
+            ZernikeCoeffConvNet,
+            ZernikeCoeffMLP,
+            count_parameters,
+        )
+    except Exception as exc:  # torch missing / ml dependency group not installed
+        print(f"note: cannot measure the learned model's facts "
+              f"({type(exc).__name__}: {exc}); that section omits those numbers")
+        return {}
+    config = ZernikeCoeffConfig()
+    return {
+        "n_coeffs": int(DEFAULT_N_COEFFS),
+        "conv": count_parameters(ZernikeCoeffConvNet(config)),
+        "mlp": count_parameters(ZernikeCoeffMLP(config)),
+    }
+
+
+def _section_forward_model(cfg: dict[str, str]) -> list[str]:
+    """The forward-prediction model, in three stages.
+
+    Which model this is matters, because the repo has three and they are easy to
+    confuse: the one Step A differentiates through is *not* the learned one.
+    """
+    facts = _learned_model_facts()
+    width = facts.get("n_coeffs", 136)
+    out: list[str] = []
+    A = out.append
+
+    A("## 8. 正向预测模型的结构 (前处理 / 深度模块 / 后处理)\n")
+    A(
+        "本仓有**三个**都叫「正向模型」的东西, 用途完全不同。先分清, 再讲结构 —— 混淆这三者\n"
+        "本项目已经付出过代价: 离线 checkpoint 的 piston 约定与闭环约定差一位 (§9)。\n"
+    )
+    A("| 模型 | 模块 | 形态 | 谁在用 |\n|---|---|---|---|")
+    A("| **解析 FFT** (闭环内联) | `ZernikeCoefficientOptimizer._far_field_intensity` | 无参数: `exp(i·patch)` → 中心补零 → `fftshift(fft2(ifftshift))` → `\\|F\\|²` | **`slm-model-in-loop` 的 Step A 真正在优化的那个**; Step B 的梯度也穿过它 |")
+    A("| **物理 + 可学习系数** | `ZernikeAmpModel` | 整个数据集共享**一个**系数向量 (`nn.Parameter`, 零初始化) | 离线标定与逆向设计; `K = calc_n_zernike_terms(n_max) − 1` (不含 piston) |")
+    A("| **学习式前向网络** | `ZernikeCoeffConvNet` / `ZernikeCoeffMLP` | 系数投影 + 卷积解码器 | 离线训练与评测; 本节余下部分讲它 |\n")
+    A(
+        "> 也就是说: **闭环跑的是解析 FFT 那一个**, 不是下面的神经网络。讲后者是因为 §9 的\n"
+        "> checkpoint 来自它, 而它与闭环约定的差异正是那条坑。\n"
+    )
+    A(
+        "解析那一条的完整链条很短, 也正因如此才值得写下来: "
+        "`patch = (phase_slm + aberration) × aperture_t` → `field = amplitude × exp(i·patch)`\n"
+        "→ 中心补零到 `far_field_size` → `fftshift(fft2(ifftshift(field), norm=\"ortho\"))` →\n"
+        "强度取 `re² + im²`。预测入口是 `forward_intensity`, 损失是 `_intensity_loss` —— 它把强度\n"
+        "按 `intensity / (max + PEAK_EPS)` 归一化后取 MSE(`PEAK_EPS = 1e-8`)。\n"
+        "**这里没有可学参数**: Step A 拟合的是那一个共享 Zernike 像差向量, 不是网络权重。\n"
+    )
+
+    A("### 8.1 前处理: 输入侧刻意不归一化\n")
+    A(
+        f"输入是 `(B, {width})` 的 **Noll 序、raw 弧度**系数向量"
+        f"(`DEFAULT_N_COEFFS = calc_n_zernike_terms(15)`)。实测语料里的向量长度不一\n"
+        f"(15 / 36 / 78), 统一**零填充**到 {width} 维 —— 于是有 {width - 78}–{width - 15} 个输入维"
+        "**结构上恒为零**。\n"
+    )
+    A(
+        "**`forward` 内部不做任何输入归一化**, 这是有意的: 输入契约归 Dataset 所有, 模型不该\n"
+        "偷偷再缩一次。代价是语料系数本身很小 —— 实测 `max|c| = 0.0617 rad`、`rms = 0.0142` ——\n"
+        "所以桥接层用 `nn.init.xavier_uniform_` 而不是零/极小初始化, 让 `Linear` 去学这些小尺度。\n"
+    )
+
+    A("### 8.2 深度模块: 系数投影 + 卷积解码器\n")
+    A(LEARNED_PIPELINE + NEWLINE)
+    A(
+        "**为什么是「系数投影 + 卷积解码」而不是 flatten 到 `grid*grid` 的 MLP.** 这个映射是确定性的、\n"
+        "光滑的, 而且它的输出有**真实的二维局部性**: 类 Airy 光斑的位置跟着 tip/tilt 走, 径向结构跟着\n"
+        "高阶模式走。flatten 到向量的 MLP 把这个几何丢掉, 得靠单个权重矩阵重新学出平移等变性。\n"
+        "于是 `coeff_proj` 先把一个裸向量**创造**成常数特征图, 之后交给平移等变的卷积解码。\n"
+    )
+    A(
+        "**可达性是一个被强制的不变量**: `grid == bottleneck · 2^len(features)`。默认\n"
+        "`grid=64`、`features=(256,128,64,32)` → `len=4` 个 2 倍上采样级, 于是 `bottleneck` 被**推导**为\n"
+        "`64 // 16 = 4`, 不是挑出来的。`grid` 是这个等式里动不了的一边(它是数据集物化的网格, 也是\n"
+        "`(B,1,grid,grid)` 的输出契约), 所以让路的一定是 `bottleneck`。`__init__` 里不满足就报错, 并\n"
+        "直接告诉你该拧哪个旋钮。\n"
+    )
+    A(
+        "**每个 `_ConvBlock` 是 `Conv3×3 → Norm → GELU → Conv3×3 → Norm`.** 三点讲究:\n"
+        "- **先上采样再细化**: 最近邻上采样不引入新的可平均的值, 所以随后的 3×3 在更细的尺度上\n"
+        "  看到的是**真实邻域**, 而不是插值出来的平台。\n"
+        "- **默认 GroupNorm 而不是 BatchNorm**: 目标是逐帧 peak 归一化的, 逐样本尺度已经被归一化掉了;\n"
+        "  而 `BatchNorm` 还带每步更新的 running 统计量, 在 `eval()` 里被消费, 这会让训练时的行为\n"
+        "  **耦合**到它见过的 batch 顺序与历史。在几百条 64×64 记录上, 这种耦合是纯方差。\n"
+        "  `GroupNorm` 逐样本按通道组归一化, train/eval 行为一致, 跨 epoch 不带状态。\n"
+        "  `batch` / `none` 仍可选, 是为了让这个选择**可测**而不是只能被断言。\n"
+        "- `_make_norm` 在通道宽度不被 `norm_groups` 整除时按 `gcd(channels, norm_groups)` **降组**\n"
+        "  并记一条 debug, 而不是静默取整 —— 静默取整会把「你要求的组数根本不可用」藏起来。\n"
+    )
+
+    A("### 8.3 后处理: 输出契约是 raw + peak 归一化\n")
+    A(
+        "`head` 是 `Conv2d(32, 1, kernel_size=1)`, **raw 且无界, 刻意不加激活**。这一点是硬要求:\n"
+        "`ml.phase.unet.UNetGenerator` 的图像头字面就是 `self.sigmoid(self.final_conv(x))`, 出不来\n"
+        "`(0,1)` 之外的值, 会把动态范围**压平** —— 越过轨道的值全被压成同一个数, 模型就再也分不出\n"
+        "「很亮的核」和「亮的核」。`test_forward_model.py::TestAntiSigmoidHead` 是让未来有人\n"
+        "「顺手复用 U-Net」而大声失败的回归守卫。\n"
+    )
+    A(
+        "逐帧尺度由调用方施加: `peak_normalize(x) = x / clamp(amax(x, dim=(-2,-1)), min=1e-12)`。\n"
+        "它的三条性质都是契约的一部分: **负值不裁掉**; **除数不跨 batch 共享**, 只逐样本;\n"
+        "下界 `1e-12` 与 `ml.zernike.models._EPS` 一致, 免得两个归一化器漂移。\n"
+    )
+    A(
+        "**由此得到一个必须记住的推论**: `denormalized()` 返回的张量 `argmax` **按构造恰为 1.0**。\n"
+        "所以这个模型的输出**回答不了任何绝对亮度问题**(到了传感器多少光、激光漂没漂), 只回答\n"
+        "相对结构。\n"
+    )
+
+    A("### 8.4 基线臂与参数量\n")
+    A(
+        "`build_forward_model(config)` 按 `config.architecture` (`\"conv\"` / `\"mlp\"`) 实例化其中一条臂。\n"
+        "`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 臂完全一致 (raw、无界、`(B,1,g,g)`),\n"
+        "但把 `grid*grid` 全部从一个 `Linear` 里吐出来 —— 丢掉的正是 2-D 局部性, 而这正是该对照要\n"
+        "检验的假设。\n"
+    )
+    if facts:
+        A(
+            f"默认 `ZernikeCoeffConfig()` 下用 `count_parameters` **实测**: "
+            f"**conv {facts['conv']:,}**, **mlp {facts['mlp']:,}** —— MLP 参数量更大而输出更差,\n"
+            "这正是「结构对, 而不是容量大」的论据。\n"
+        )
+    else:
+        A("_参数量需要 torch 才能测; 本次运行环境缺 torch, 故不填数字 —— 不用手算的数代替实测。_\n")
+
+    A("### 8.5 评测口径\n")
+    A(
+        "**只看 R² / correlation / 光斑域指标, 永远不要用 MSE/PSNR/SSIM 给这个模型选超参。**\n"
+        "目标是逐帧 peak 归一化的, 预测与目标的 `max` 都被钉在 1.0, 于是那三个指标主要在度量\n"
+        "**归一化本身**而不是拟合质量。实测反例: 某个 sibling 任务上「总能量」归一化给出\n"
+        "PSNR 72 dB、SSIM 0.9996, 而 R² 反而**更差**。\n"
+    )
+    return out
+
+
+def _verify_mentioned(body: str) -> None:
+    """Fail if a declared diagram symbol never appears in the document.
+
+    The source-side check (:func:`_verify_symbols`) catches renames; this one
+    catches the opposite drift -- a symbol left in ``DIAGRAM_SYMBOLS`` after its
+    diagram was rewritten, which would leave the guard claiming to protect
+    something the document no longer mentions.
+    """
+    absent = [name for _, name in DIAGRAM_SYMBOLS if name not in body]
+    if absent:
+        raise SystemExit(
+            "model-in-loop write-up: DIAGRAM_SYMBOLS lists symbols the document "
+            "never mentions (diagram rewritten, list not updated):\n  - "
+            + "\n  - ".join(absent)
+        )
+
+
 def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str:
     fig_dir = "figures"
-    fig1 = f"{fig_dir}/model_in_loop_layers.png"
     fig2 = f"{fig_dir}/model_in_loop_timeline.png"
-    fig3 = f"{fig_dir}/model_in_loop_guards.png"
 
     plateau = consts.get("PLATEAU_PATIENCE", "30")
     twin_region = consts.get("TWIN_REGION", "512")
@@ -552,11 +776,11 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
 
     # -- 2 调用关系 -------------------------------------------------------
     A("## 2. 调用关系图\n")
-    A("每个名字都是真实符号, 方括号标注它归哪一层。缩进行是一轮里的两个步骤。\n")
-    A("```\n" + CALL_GRAPH + "```\n")
-    A("### 分层与依赖方向\n")
-    if figures:
-        A(f"![分层与依赖方向]({fig1})\n")
+    A(
+        "每个节点都是真实符号, ①…⑥ 标出它归哪一层。虚线 = 延迟 import "
+        "(硬件栈在 import 期就碰硬件, 所以这些 import 全在函数内部)。\n"
+    )
+    A(CALL_GRAPH + NEWLINE)
     A(
         "孪生与硬件的关系是这个模块的全部设计要点: 标 `[孪生]` 的行**不是**一份会腐烂的平行实现,\n"
         "而是硬件层 import 进来的共享数学 (`model_in_loop_shaping`), 且 import 全部延迟到函数内 ——\n"
@@ -572,8 +796,11 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
 
     # -- 3 时序 -----------------------------------------------------------
     A("## 3. 计算时序图\n")
-    A("一轮的完整时序。`▓` 是设备 I/O, `░` 是计算, `│` 是状态变更。\n")
-    A("```\n" + SEQUENCE + "```\n")
+    A(
+        "一轮的完整时序。`rect` 的底色区分阶段, 与 §3 的操作预算图配色一致: "
+        "米色 = 一次性几何标定, 浅绿 = 平场基线, 蓝 = Step A, 粉 = Step B。\n"
+    )
+    A(SEQUENCE + NEWLINE)
     A("### 顺序里三个容易看漏的点\n")
     A(
         "**几何标定在最前面, 且只做一次.** 它自己也要 display+measure, 但它解的是\n"
@@ -624,7 +851,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("### 4.4 系数个数\n")
     A(
         "`n_coefficients = calc_n_zernike_terms(n_orders)`, **含 piston**。\n"
-        "这与 `ml/zernike` 的离线约定**差一位**, 见 §8。\n"
+        "这与 `ml/zernike` 的离线约定**差一位**, 见 §9。\n"
     )
 
     # -- 5 Step B ---------------------------------------------------------
@@ -659,8 +886,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "**守卫 2 —— 逐轮验收.** `acceptance_verdict(loss_before, loss_after, score_before, score_after)`:\n"
         "拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps`), 该轮就被 reject。\n"
     )
-    if figures:
-        A(f"![验收状态机]({fig3})\n")
+    A(GUARD_STATE + NEWLINE)
     A(
         "持续 reject 意味着台架落在模型描述之外 (瞳孔配准、面板倾斜、离面离焦、渐晕), 此时运行\n"
         "**中止**而不是提交一个「模型自己喜欢」的相位。\n"
@@ -703,8 +929,11 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "硬件路径不强制这个等式 —— 它标定自己的几何。\n"
     )
 
-    # -- 8 权重加载 -------------------------------------------------------
-    A("## 8. 加载预训练权重: 现状与真正的障碍\n")
+    # -- 8 正向模型结构 ---------------------------------------------------
+    parts.extend(_section_forward_model(cfg))
+
+    # -- 9 权重加载 -------------------------------------------------------
+    A("## 9. 加载预训练权重: 现状与真正的障碍\n")
     A(
         "**当前没有加载路径。** 硬件路径的 Step A 种子是硬编码的 `np.zeros(n_coeffs)`, 每轮在此之上\n"
         "热启动; 没有 `--load`、没有 `torch.load`、没有 `state_dict`。\n"
@@ -742,7 +971,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
 
     # -- 9 输出 -----------------------------------------------------------
-    A("## 9. 输出契约\n")
+    A("## 10. 输出契约\n")
     A(
         "- `data/slm_model_in_loop/<日期>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**, 用\n"
         "  `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、\n"
@@ -754,7 +983,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
 
     # -- 10 状态机 --------------------------------------------------------
-    A("## 10. 终止状态\n")
+    A("## 11. 终止状态\n")
     A("| 状态 | 含义 |\n|---|---|")
     A("| `completed` | 至少一轮被接受 (或正确地保留了平场) |")
     A("| `aborted_unidentifiable` | 几何标定从未达到要求的相关度 |")
@@ -766,7 +995,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
 
     # -- 11 断言边界 ------------------------------------------------------
-    A("## 11. 本报告**不**主张什么\n")
+    A("## 12. 本报告**不**主张什么\n")
     A(
         "- **不含壁钟耗时。** §3 的图是操作数, 不是秒。\n"
         "- **不含真机结论。** 环境是 `离线`; 本报告描述代码, 没有任何一次硬件运行的数据。\n"
@@ -782,12 +1011,32 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
 # ---------------------------------------------------------------------------
 
 
+def _doc_header(key: str) -> str:
+    """Provenance header for a ``docs/`` write-up.
+
+    Uses the canonical :func:`script_link` so the relative path is computed from
+    the file's own depth rather than hardcoded, but deliberately does **not** use
+    ``provenance.insert_header``: that is reserved for registry-managed reports,
+    and the marker comments it emits belong to the sync pass to rewrite.
+    """
+    depth = len(Path(key).parts) - 1
+    script = "scripts/generate_model_in_loop_report.py"
+    return "\n".join((
+        f"> **生成脚本**: {script_link(script, depth)}",
+        "> **复现命令**: `python scripts/generate_model_in_loop_report.py`",
+        "> **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)",
+        "> **说明**: 本文档是**使用/结构说明**, 不是测量结论 —— 硬件实测另见",
+        "> [`report/slm/model_in_loop_bench_calibration.md`]"
+        "(../../report/slm/model_in_loop_bench_calibration.md)。",
+    ))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", default=REPORT_KEY,
-                        help="report path, repo-root relative")
+    parser.add_argument("--out", default=DOC_KEY,
+                        help="output path, repo-root relative")
     parser.add_argument("--no-figures", action="store_true",
-                        help="markdown only")
+                        help="skip the matplotlib figure (mermaid always renders)")
     args = parser.parse_args()
 
     _verify_symbols()
@@ -800,12 +1049,17 @@ def main() -> int:
     if not args.no_figures:
         fig_dir.mkdir(parents=True, exist_ok=True)
         _setup_fonts()
-        _fig_layers(fig_dir / "model_in_loop_layers.png")
         _fig_timeline(fig_dir / "model_in_loop_timeline.png", cfg)
-        _fig_guards(fig_dir / "model_in_loop_guards.png", cfg)
 
     body = render(cfg, consts, figures=not args.no_figures)
-    stamped = insert_header(body, REPORT_KEY)
+    _verify_mentioned(body)
+    header = _doc_header(args.out)
+    lines = body.splitlines()
+    at = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), 0)
+    rest = lines[at + 1:]
+    while rest and not rest[0].strip():
+        rest.pop(0)
+    stamped = "\n".join(lines[: at + 1] + ["", header, ""] + rest).rstrip("\n") + "\n"
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(stamped, encoding="utf-8")
     print(f"wrote {args.out} ({len(stamped)} chars)")

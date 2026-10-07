@@ -2499,45 +2499,56 @@ it stays valid even while §2 and §6 are disabled.
 
 ### generate_model_in_loop_report.py
 
-Generates the **call graph / computation-timing / algorithm write-up** for the
-`slm-model-in-loop` runner: `report/slm/model_in_loop_algorithm.md` + three
-figures. **Fully offline** — it opens no device and imports no hardware stack
-(it reads the source with `ast`, not by importing `ao_shaping`, precisely because
-`import ao_shaping` pulls in `drivers`). It is a *functional description*, not a
-measurement, so `运行环境` is `离线`.
+Generates the **usage write-up** for the `slm-model-in-loop` runner:
+`docs/slm/model_in_loop_algorithm.md` + one figure. Covers the call graph, the
+computation-timing sequence, the algorithm itself (Step A / Step B / the two
+coupling guards), the config defaults, and the structure of the forward-prediction
+model (pre-processing / deep modules / post-processing).
+
+**It lands in `docs/`, not `report/`** — it is a functional description, not the
+conclusion of a measurement. AGENTS.md draws that line: `report/<topic>/` holds
+measurement conclusions, `docs/` holds device/usage documentation. The *hardware
+measurement* of this same runner is
+[`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md)
+and the two are deliberately kept apart. Consequently this generator is **not**
+registered in `scripts/_common/provenance.py::REPORTS`: that registry renders
+`report/README.md` and assumes every key is under `report/`, so a `docs/` key
+would compute the wrong relative path. The document writes its own header via
+`provenance.script_link` instead. **`sync_report_provenance.py` does not touch it
+and does not need to.**
 
 **Usage:**
 ```bash
 python scripts/generate_model_in_loop_report.py
-python scripts/generate_model_in_loop_report.py --no-figures
-python scripts/generate_model_in_loop_report.py --out report/slm/model_in_loop_algorithm.md
+python scripts/generate_model_in_loop_report.py --no-figures    # skip the matplotlib figure
+python scripts/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
 ```
 
-**Why the diagrams are generated rather than hand-written.** A hand-drawn call
-graph is a snapshot: rename `_metrics_at` and the document keeps reading as
-authoritative while being fiction. Here every symbol named in the two diagrams is
-resolved against the real modules' AST before anything is written, and the config
-table's defaults are read out of the dataclass AST instead of being typed into the
-prose — so a rename or a default bump **fails generation** instead of leaving a
-stale document behind. `DIAGRAM_SYMBOLS` at the top of the file is the list of
-symbols the guard checks; extend it when a diagram grows.
+**Diagrams are mermaid** (`graph TD`, `sequenceDiagram`, `stateDiagram-v2`,
+`flowchart LR`), not ASCII art: the document is read on GitHub, where mermaid
+renders. ASCII needed hand-aligned boxes to stay legible and still could not show
+control flow or state.
 
-**Deliberately no wall-clock timing.** Per-round *counts* of device round-trips and
-compute steps are derivable from the configuration, so the report gives them
-(probe count x 2 x `n_eval_frames`, plus one display+measure for the round's
-acceptance frame). Durations depend on the bench and would be fabrication in an
-offline document; §11 of the report states this and what else it does not claim
-(no convergence guarantee; twin scores are not comparable with hardware scores,
-whose angular scale comes from the bake-off rather than from `TWIN_REGION`).
+**Two guards, in both directions.** Every symbol the diagrams name is resolved
+against the real modules' AST before anything is written (`_verify_symbols`), *and*
+every symbol in `DIAGRAM_SYMBOLS` must actually appear in the output
+(`_verify_mentioned`). A hand-drawn call graph is a snapshot: rename `_metrics_at`
+and it keeps reading as authoritative while being fiction. The first guard catches
+the rename; the second catches the opposite drift — a diagram rewritten while the
+symbol list was not. Extend `DIAGRAM_SYMBOLS` when you add a diagram.
 
-Three figures: layered call ownership, per-round operation budget, and the
-acceptance state machine. **Two of them were wrong on first render and passed the
-link check anyway** — an overlapping pair of boxes, and an arrow drawn through an
-unrelated box so it read as the wrong transition. Worth looking at the PNGs, not
-just at whether the links resolve.
+**Numbers come from the code, or not at all.** The config table's defaults are read
+out of the dataclass AST. The learned model's parameter counts are *measured* by
+importing `ml.zernike.forward_model` and calling `count_parameters` — never
+re-derived, because hand-rolling `Linear`/`Conv2d`/`GroupNorm` arithmetic (or
+`calc_n_zernike_terms`) in the generator would be a second copy of something the
+code already owns. Without torch the report omits those numbers rather than
+printing an unverified one.
 
-Registered in `scripts/_common/provenance.py::REPORTS`; run
-`python scripts/sync_report_provenance.py` after regenerating.
+**No wall-clock timing.** Per-round *counts* of device round-trips and compute steps
+are derivable from the configuration, so they are given (probe count × 2 ×
+`n_eval_frames`, plus one display+measure for the round's acceptance frame).
+Durations depend on the bench and would be fabrication in an offline document.
 
 ### model_in_loop_hw_runbook.py
 
