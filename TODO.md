@@ -108,7 +108,7 @@
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、`KeyboardInterrupt`）都让 SLM 停在随机相位 | [#45](https://github.com/ywzhang909/AO-shaping/issues/45) |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴**已按实测修**，但真问题是**静默吞参数**：`SGD` 只收 `(dim, lr)` ⇒ `**config.kwargs` 逃生口是**死的** | [#46](https://github.com/ywzhang909/AO-shaping/issues/46) |
 | R-14 P2 | `metric_panel` 每 epoch 全量指标 → 加 `panel_every_n`。⚠️ **前置是产品决策**（跳过轮次留空 vs 沿用上一轮） | [#47](https://github.com/ywzhang909/AO-shaping/issues/47) |
-| R-18 P3 | 离线 GS 作闭环初值 `--init-gs`：**`gs_warm_start` 已在别处落地** ⇒ 接入已有实现，或删掉陈旧注释 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48) |
+| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2100` 的**布尔 CLI flag**，GS 相位是 `slm_gs_refine.py:598` 内联调 `gs_shape`，**没有可复用函数**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
 | R-19 P3 | 🟡 注入机制已统一（archive §5.34），**`BenchSession` 本体未做** ⇒ R-5~R-8 仍待办。本条是那四项的跟踪父项 | [#49](https://github.com/ywzhang909/AO-shaping/issues/49) |
 
 ### 2.2 `utils/` + `scripts/` + `tools/` 架构重构
