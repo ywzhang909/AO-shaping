@@ -185,6 +185,15 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="正向模型台架几何标定；runbook 采集 + 本文档结论",
     ),
+    "report/slm/model_in_loop_algorithm.md": ReportProvenance(
+        script="scripts/generate_model_in_loop_report.py",
+        command="python scripts/generate_model_in_loop_report.py",
+        environment="离线",
+        note=(
+            "slm-model-in-loop 的调用关系图 / 计算时序图 / 算法说明 (功能说明, 非测量); "
+            "图中符号对着源码 AST 校验, 默认值从 dataclass AST 读出, 故改名会使生成失败"
+        ),
+    ),
     "report/slm/bench_probe/report.md": ReportProvenance(
         script="scripts/generate_bench_probe_report.py",
         command="python scripts/generate_bench_probe_report.py",
