@@ -30,14 +30,12 @@ never opens a device.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Annotated, Any
 
 import click
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.runners import runner_common
 from ao_shaping.runners.runner_common import (
     DM_TYPES,
     DM_TYPES_PRE_ASYN_MICRO,
@@ -126,9 +124,7 @@ class TestUnionCouplings:
 
     def test_camera_params_pib_center_explicit_string_type_stays_string(self) -> None:
         """``CameraParamsPib.center`` overrides the parent with the same hatch."""
-        params = parse_with(
-            CameraParamsPib, ["--center", "3,4"], "camera-params-pib"
-        )
+        params = parse_with(CameraParamsPib, ["--center", "3,4"], "camera-params-pib")
 
         assert isinstance(params.center, str)
         assert not isinstance(params.center, tuple)
@@ -170,12 +166,16 @@ class ThreeMemberUnionParams:
 class DefaultInOptionParams:
     """``default=`` inside ``option(...)`` is rejected: the field owns the default."""
 
-    x: Annotated[int, option("--x", default=5, help="default= belongs on the field.")] = 7
+    x: Annotated[
+        int, option("--x", default=5, help="default= belongs on the field.")
+    ] = 7
 
 
 @dataclass
 class DuplicateNameChild:
-    x: Annotated[int, option("--x", help="Declared by the nested ClickGroup child.")] = 1
+    x: Annotated[
+        int, option("--x", help="Declared by the nested ClickGroup child.")
+    ] = 1
 
 
 @dataclass
@@ -249,27 +249,17 @@ class TestDmTypes:
     def test_dm_types_is_sorted_and_unique(self) -> None:
         assert DM_TYPES == sorted(set(DM_TYPES))
 
-    def test_pre_snapshot_precedes_the_side_effect_import(self) -> None:
-        """Static check: the snapshot must exclude ``asyn_micro`` by construction.
+    def test_pre_snapshot_excludes_asyn_micro_by_name(self) -> None:
+        """``DM_TYPES_PRE_ASYN_MICRO`` must equal ``DM_TYPES`` minus ``asyn_micro``.
 
-        It used to be a positional snapshot taken before this module imported
-        ``asyn_driver``, which was race-free only while nothing else imported that
-        module first -- an assumption a two-file pytest run broke purely on
-        alphabetical collection order. The snapshot is now a name filter, so the
-        mechanism to pin is the filter plus its position before the full list.
-
-        Static, and it fails for the actual regressions (someone dropping the filter, or
-        moving it after the side-effect import) rather than for whatever ran earlier.
+        The snapshot is derived by name filter after the side-effect import, so it
+        is order-independent and fails for the real regressions (dropping the filter,
+        or including ``asyn_micro``) rather than for whatever ran earlier.
         """
-        source = Path(runner_common.__file__).read_text(encoding="utf-8")
-        snapshot = source.index('DM_TYPES_PRE_ASYN_MICRO = [t for t in list_dm_types() if t != "asyn_micro"]')
-        side_effect = source.index("import ao_shaping.drivers.dm.micro.asyn_driver")
-        full = source.index("DM_TYPES = list_dm_types()")
-        assert snapshot < side_effect < full, (
-            "runner_common must derive DM_TYPES_PRE_ASYN_MICRO before importing "
-            "asyn_driver, and DM_TYPES after it, otherwise the two lists cannot differ"
-        )
         assert "asyn_micro" not in DM_TYPES_PRE_ASYN_MICRO, (
             "DM_TYPES_PRE_ASYN_MICRO must exclude asyn_micro in every import order"
         )
         assert "asyn_micro" in DM_TYPES, "DM_TYPES must offer asyn_micro"
+        assert set(DM_TYPES_PRE_ASYN_MICRO) == set(DM_TYPES) - {"asyn_micro"}, (
+            "DM_TYPES_PRE_ASYN_MICRO must be exactly DM_TYPES minus asyn_micro"
+        )

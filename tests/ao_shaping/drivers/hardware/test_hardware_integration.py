@@ -288,7 +288,7 @@ class TestMiiCam:
 
     def test_initialize(self, miicam):
         """Test camera initialization."""
-        print(f"\nMiiCam initialized")
+        print("\nMiiCam initialized")
         print(f"Image format: {miicam.image_format}")
 
     def test_capture_image(self, miicam):
@@ -302,7 +302,7 @@ class TestMiiCam:
     def test_set_exposure(self, miicam):
         """Test exposure time setting."""
         miicam.reset_exposure_time(50)
-        print(f"\nSet exposure to 50ms")
+        print("\nSet exposure to 50ms")
 
     def test_auto_exposure(self, miicam):
         """Test auto exposure control."""
@@ -331,7 +331,7 @@ class TestWFS_SLM_Integration:
         print(f"Defocus wavefront RMS: {stats_defocus['rms']:.4f}")
 
         zernike_slm.set_flat()
-        print(f"Restored flat: OK")
+        print("Restored flat: OK")
 
     def test_zernike_deviation_response(self, wfs, zernike_slm):
         """Test spot deviation response to SLM changes."""

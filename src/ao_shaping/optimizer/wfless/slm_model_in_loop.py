@@ -17,6 +17,64 @@ The module is a thin orchestration layer. No Zernike math, no forward model, no
 metric and no loss is reimplemented here: everything is delegated to the
 canonical helpers so the hardware path cannot drift from the simulated one.
 
+Call graph
+----------
+Everything below is a real symbol in a real module; the layer that owns each
+one is in brackets. Indented lines are the two steps of one round.
+
+::
+
+    main.py `slm-model-in-loop`                         (click hub)
+     └─ runners/slm/model_in_loop_runner.py :: run        [hardware orchestration]
+         ├─ _parse_frozen_modes / _parse_point           CLI text -> typed fields
+         ├─ SlmModelInLoopConfig                         flat dataclass, runner_common
+         ├─ optimize_slm_model_in_loop(config)           ← the only public entry
+         │   │
+         │   ├─ _open_bench(config)                      ──► Bench (Protocol)
+         │   │     ├─ _SimBench                           cam_type=sim (digital twin)
+         │   │     └─ _HardwareBench                      daheng/miicam + Santec
+         │   │        display(phase) / measure() / close()   device imports deferred
+         │   │
+         │   ├─ _calibrate_geometry(bench, config)
+         │   │     └─ calibrate_bench_geometry(...)       [twin] sim -> true_geometry()
+         │   │
+         │   ├─ flat baseline: display(flat) -> _metrics_at -> _quality
+         │   │
+         │   └─ for index in range(n_rounds):
+         │       │
+         │       │  -- Step A: refit ONE shared aberration --------------------------
+         │       ├─ coefficients = np.zeros(n_coeffs)      ← the ONLY seed, hardcoded
+         │       ├─ _make_optimizer(config, coefficients)
+         │       │     └─ ZernikeCoefficientOptimizer(initial_coefficients=...)
+         │       │          zernike_coefficient_optimizer.py  Adam over the Zernike vector
+         │       ├─ for probe_index in range(probe_count):
+         │       │     ├─ _probe_phase(region, probe_spread, seed)      [twin]
+         │       │     ├─ bench.display(probe) -> _prepare_frame(bench.measure())
+         │       │     │                      _prepare_frame  <- slm_gs_refine
+         │       │     └─ _to_model_grid(measured, roi_center, far_field_size, ...)
+         │       ├─ _fit_aberration_at_probes(optimizer, frames, iters, rearm)  [twin]
+         │       │     └─ cycles every probe through ONE Adam state, then re-arms
+         │       └─ trust_region_clamp(...)      caps |c_{t+1} - c_t|
+         │       │
+         │       │  -- Step B: synthesise the square, aberration frozen ---------------
+         │       ├─ shape_phase_with_frozen_aberration(...)          [twin]
+         │       ├─ display(shaped) -> _prepare_frame -> _metrics_at -> _quality
+         │       ├─ phase = shaped                     becomes next round's warm start
+         │       └─ acceptance_verdict(before, after)  -> accept | reject
+         │            reject: damp lr, add probes, count the streak
+         │            3 straight rejects -> ModelInLoopStatus.ABORTED_REJECTION_STREAK
+         │
+         └─ save_recorder_debug_artifacts(recorder, ...)      [utils/io/file]
+              data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl   written EVERY run
+
+The `[twin]` rows are the point of this layout.
+:mod:`model_in_loop_shaping` runs the *same* alternating loop against the
+digital twin (:func:`simulate_iterative_shaping`), and this module imports its
+math rather than restating it -- every one of those imports is deferred into the
+function that uses it, because ``ao_shaping.drivers`` touches hardware at import
+time. So the simulation is not a parallel implementation that can rot; it is the
+shared library, and ``--cam_type sim`` swaps only the ``Bench`` implementation.
+
 Why Step A probes instead of using the shaped phase
 ----------------------------------------------------
 A flat -- or a smoothly shaped -- pupil focuses to a near-delta whose normalised

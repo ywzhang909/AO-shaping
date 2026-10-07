@@ -2073,7 +2073,7 @@ def calibrate_bench_geometry_from_sweep(
         )
         + f"; modes fitted {modes_used}; joint rel-RMS {fit_rms:.1%}; bench offsets "
         + ", ".join(f"{m} {o:+.3f}" for m, o in sorted(offsets.items()))
-        + f" rad; curvatures "
+        + " rad; curvatures "
         + ", ".join(f"{m} {v:.1f}" for m, v in sorted(curvature_report.items()))
         + f"; defocus asymmetry {asymmetry:+.0%}; waist "
         + ("fitted" if waist_determined else "NOT identifiable, flat-top default")

@@ -183,7 +183,7 @@ class TestMIICAMCamera:
             max_val = int(img.max())
             mean_val = float(img.mean())
 
-            print(f"\n1ms exposure (first frame) stats:")
+            print("\n1ms exposure (first frame) stats:")
             print(f"  Max: {max_val}")
             print(f"  Mean: {mean_val:.1f}")
             print(f"  Min: {int(img.min())}")

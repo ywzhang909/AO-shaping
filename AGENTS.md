@@ -35,11 +35,14 @@ AO-shaping/
 │   │   │   └── rl/               # Reinforcement learning (SAC)
 │   │   ├── utils/                # Utilities (spots_calc, wavefront_calc, zernike_calc, zernike_utils, wfs_utils)
 │   │   ├── ml/                  # Machine learning (U-Net+GAN, training, models) — NOTE: lives at src/ml/ as a separate standalone package
-│   │   │   └── hwdataset/       # 硬件相位→相机图像 DataLoader (index/transforms/records/dataset/cache/inspect)
-│   │   │   ├── trainer/         # Training utilities
-│   │   │   ├── models/          # Neural network models
+│   │   │   ├── gsnet/         # GSNet: GS + SPGD 整形训练
+│   │   │   ├── gsnet_debug/   # GSNet 调试/离线评估
+│   │   │   ├── phase/         # U-Net+GAN 相位预测 (dataset, discriminator, trainer, unet)
+│   │   │   ├── hwdataset/     # 硬件相位→相机图像 DataLoader (index/transforms/records/dataset/cache/inspect/zernike_dataset)
+│   │   │   ├── zernike/       # Zernike forward/inverse model (models, forward_model, train_coeff, train_amp, losses, metrics, augment, dataset, inverse_design, eval_stats)
+│   │   │   ├── train.py       # ML 训练入口
 │   │   │   └── wandb_logger.py  # WandB integration
-│   │   ├── tools/                # Standalone tools (SLM phase capture, Micro-DM image collection, data collection)
+│   │   ├── tools/                # Standalone tools (SLM phase capture, Micro-DM image collection, slm_train_data_collect)
 │   │   ├── display/              # Visualization (Windows, frames for GUI)
 │   │   └── gui/                  # GUI components (Streamlit), 按设备域分包:
 │   │       ├── r50/              #   R50Power 控制器 UI (r50_controller_ui.py 入口)

@@ -80,9 +80,16 @@ from pathlib import Path
 from typing import Annotated, Any, cast
 
 import click
+import numpy as np
 
-from ao_shaping.drivers.ccd.common import CAMERA_TYPE_CHOICES
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
+from ao_shaping.drivers.ccd.common import CAMERA_TYPE_CHOICES
+from ao_shaping.drivers.dm import list_dm_types
+from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
+
+# The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
+# the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
+# leaf shared with ``tools/slm/params.py``. Defined here, not here.
 from ao_shaping.utils.cli.params import (
     ClickGroup,
     _collect_click_annotations,
@@ -95,17 +102,7 @@ from ao_shaping.utils.image.target import (
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
-from ao_shaping.utils.wavefront.matrix_utils import (
-    focal_length_from_camera_pixel,
-)
-
-from ao_shaping.drivers.dm import list_dm_types
-from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
-
-# The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
-# the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
-# leaf shared with ``tools/slm/params.py``. Defined here, not here.
-from ao_shaping.utils.cli.params import ClickGroup, option, with_params
+from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
 
 # slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
 # 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
@@ -147,23 +144,13 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 # `--dm_type` help stays byte-identical to its pre-asyn_micro text (see
 # `EXPECTED_DM_TYPE_CHOICES` in tests/ao_shaping/runners/test_cli_contract_freeze.py).
 #
-# This used to be a *positional* snapshot taken before the side-effect import below, which
-# made it racy by construction: DM types self-register on import, so any earlier importer of
-# `asyn_driver` (another test module, a runner imported first) left `asyn_micro` already in the
-# registry and the snapshot silently stopped excluding it. That hazard is registered as R2 and
-# was reproducible in a plain two-file pytest run, because alphabetical collection order decided
-# the winner. Filtering the name is order-independent and describes the intent directly, so the
-# freeze no longer depends on who imported what first.
-DM_TYPES_PRE_ASYN_MICRO = [t for t in list_dm_types() if t != "asyn_micro"]
-
-# Importing the async driver module registers the "asyn_micro" DM type (side
-# effect). It is normally registered by micro_drive.full_voltage_runner, which is
-# imported AFTER this module in runners/__init__.py — without this import,
-# DM_TYPES below would miss asyn_micro and the --dm_type choice list would
-# silently shrink from 7 to 6 entries.
-import ao_shaping.drivers.dm.micro.asyn_driver  # noqa: E402,F401
+# ``DM_TYPES`` is the full set of lazily-registered DM types (including
+# ``asyn_micro``). ``DM_TYPES_PRE_ASYN_MICRO`` is derived by name filter;
+# the registration side effects live in each subpackage's ``__init__``, not here.
+from ao_shaping.drivers.dm import list_dm_types
 
 DM_TYPES = list_dm_types()
+DM_TYPES_PRE_ASYN_MICRO = [t for t in DM_TYPES if t != "asyn_micro"]
 
 
 # ---------------------------------------------------------------------------
@@ -268,6 +255,17 @@ class SlmParams:
             "--zernike_radius", help="Zernike aperture radius (pixels); 0 = default."
         ),
     ] = 0.0
+
+    def __post_init__(self) -> None:
+        """Validate the common SLM fields before any hardware is touched."""
+        if self.slm_number < 1 or self.slm_number > 8:
+            raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
+        if self.slm_wavelength < 0:
+            raise ValueError(
+                f"slm_wavelength must be non-negative, got {self.slm_wavelength}"
+            )
+        if self.n_max < 1:
+            raise ValueError(f"n_max must be at least 1, got {self.n_max}")
 
 
 @dataclass
@@ -1225,6 +1223,14 @@ class SlmParamsPib(SlmParams):
         ),
     ] = None
 
+    def __post_init__(self) -> None:
+        """Validate the slm-pib-specific fields; parent validates n_max etc."""
+        super().__post_init__()
+        if not np.isfinite(self.zernike_radius) or self.zernike_radius <= 0:
+            raise ValueError(
+                f"zernike_radius must be positive, got {self.zernike_radius!r}"
+            )
+
 
 @dataclass
 class CameraParamsPib(CameraParams, ObjectiveParamsPib):
@@ -1265,6 +1271,63 @@ class CameraParamsPib(CameraParams, ObjectiveParamsPib):
         int,
         option("--auto-n-frames", help="Frames for the auto 0-order centre median."),
     ] = 5
+
+    def __post_init__(self) -> None:
+        """Validate the objective/camera fields before any hardware is touched.
+
+        These rules used to live in ``optimizer/wfless/slm_zernike_pib.py``,
+        which runs *after* the camera and SLM context managers are entered —
+        a bad value then meant a wasted device open/close cycle, and in the
+        worst case a partial run written to disk. Moving them here means
+        programmatic callers (no Click layer) also get the guard.
+        """
+        if self.target_center_smooth < 1:
+            raise ValueError(
+                f"target_center_smooth must be at least 1, got {self.target_center_smooth}"
+            )
+        if self.target_size is not None and (
+            not np.isfinite(self.target_size) or self.target_size <= 0
+        ):
+            raise ValueError(f"target_size must be positive, got {self.target_size!r}")
+        if not np.isfinite(self.target_aspect_ratio) or self.target_aspect_ratio <= 0:
+            raise ValueError(
+                f"target_aspect_ratio must be positive, got {self.target_aspect_ratio!r}"
+            )
+        if not 0.0 <= self.w_ema_decay <= 1.0:
+            raise ValueError(
+                f"w_ema_decay must be within 0..1, got {self.w_ema_decay!r}"
+            )
+        if not 0.0 <= self.w_floor < 0.5:
+            raise ValueError(
+                f"w_floor must be within 0..0.5 (exclusive), got {self.w_floor!r}"
+            )
+        if not np.isfinite(self.w_temperature) or self.w_temperature <= 0.0:
+            raise ValueError(
+                f"w_temperature must be positive, got {self.w_temperature!r}"
+            )
+        for _name, _w in (
+            ("w_pib_init", self.w_pib_init),
+            ("w_rms_init", self.w_rms_init),
+            ("w_ee_init", self.w_ee_init),
+        ):
+            if _w is not None and (not np.isfinite(_w) or _w < 0.0):
+                raise ValueError(
+                    f"{_name} must be a finite, non-negative weight, got {_w!r}"
+                )
+        if not 0.0 <= self.max_roi_energy_loss <= 1.0:
+            raise ValueError(
+                f"max_roi_energy_loss must be within 0..1 (0 disables the guard), "
+                f"got {self.max_roi_energy_loss!r}"
+            )
+        for _name, _w in (
+            ("w_uniformity", self.w_uniformity),
+            ("w_peak", self.w_peak),
+            ("w_displacement", self.w_displacement),
+        ):
+            if not np.isfinite(_w) or _w < 0.0:
+                raise ValueError(
+                    f"{_name} must be a finite, non-negative weight, got {_w!r}"
+                )
 
 
 # ---------------------------------------------------------------------------
@@ -1493,7 +1556,7 @@ class PibRunnerParams:
         ),
     ] = "mass"
     exposure_time_ms: Annotated[
-        int,
+        float,
         option(
             "-t",
             "--exposure_time_ms",

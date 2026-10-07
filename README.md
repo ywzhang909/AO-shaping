@@ -78,10 +78,19 @@ AO-shaping/
 │   │   │   ├── wfless/          # 无波前优化 (PIB, SPGD, 可微分整形)
 │   │   │   └── rl/              # 强化学习 (SAC, LR-WFS)
 │   │   ├── utils/               # 工具函数 (io/image/wavefront/slm 子包 + root-level shims)
-│   │   ├── tools/               # 硬件交互工具 (tools/slm/, tools/micro_dm/, train_data_collect.py)
+│   │   │   └── image/
+│   │   │       └── target/      # 目标形状: ccd, metrics, objective, patterns, square
+│   │   ├── tools/               # 硬件交互工具 (tools/slm/, tools/micro_dm/, slm_train_data_collect.py)
 │   │   ├── display/             # 可视化 (窗口, GUI帧, pygame)
 │   │   └── gui/                 # GUI组件 (Streamlit), 按设备域分包: r50/dm/slm/zernike/ccd
-│   ├── ml/                      # 机器学习独立包 (gsnet/phase/zernike, trainer, wandb_logger)
+│   ├── ml/                      # 机器学习独立包
+│   │   ├── gsnet/               # GSNet: GS + SPGD 整形训练
+│   │   ├── gsnet_debug/         # GSNet 调试/离线评估
+│   │   ├── phase/               # U-Net+GAN 相位预测 (dataset, discriminator, trainer, unet)
+│   │   ├── hwdataset/           # 硬件相位→相机图像 Dataset (index, records, transforms, cache, dataset, zernike_dataset)
+│   │   ├── zernike/             # Zernike forward/inverse model (models, forward_model, train_coeff, train_amp, losses, metrics, augment, dataset, inverse_design, eval_stats)
+│   │   ├── train.py             # ML 训练入口
+│   │   └── wandb_logger.py      # W&B 集成
 │   ├── calculators/               # Cython扩展 (standalone)
 │   └── optical_ui/                # [DEPRECATED] Empty package
 ├── tests/ao_shaping/              # Tests (镜像 src 结构)
@@ -1274,9 +1283,41 @@ data/md_test/
 
 注意: `combined_runner.py` 功能仍通过 `combined` 命令可用，非废弃；`pipeline_runner` 是推荐的 WF→PIB 串行方案。
 
-### ML训练 (U-Net+GAN相位预测)
+### ML训练
 
-项目支持使用深度学习模型进行相位预测训练和推理：
+#### Zernike 系数→远场前向模型 (`ml/zernike/`)
+
+`ml/zernike/` 实现 Zernike 系数向量 → CCD 远场图像的物理-optical 前向模型及其学习/逆设计。单一入口: `ml.zernike` 包级 `__all__` 导出 `ZernikeAmpModel` / `ZernikeCoeffConvNet` / `ZernikeCoeffMLP` 等。
+
+| 模块 | 内容 | 说明 |
+|---|---|---|
+| `models.py` | `ZernikeAmpModel`, `ZernikeAmpConfig`, `ZernikeAmpFitConfig`, `ZernikeAmpResult` | 物理前向模型: phasor → 复瞳 → exp(i·Σc_k·Z_k) → FFT → \|F\|²。`observable="intensity"`/`"amplitude"`, `normalization="peak"/"sum"/"none"`。Noll 1 piston 排除 |
+| `forward_model.py` | `ZernikeCoeffConvNet`, `ZernikeCoeffMLP`, `ZernikeCoeffConfig`, `peak_normalize`, `build_forward_model`, `count_parameters` | 学习前向模型 (coefficient projection → conv decoder)。ConvNet 拥有空间局部性; MLP 作 baseline |
+| `train_coeff.py` | `CoeffTrainConfig`, `CoeffTrainResult`, `file_folds`, `objective_folds`, `train`, `main` | 训练器: `--input-terms`/`--protocol(file\|objective)`/`--fold`/`--held-out-path`, W&B 集成 (`wandb_mode="offline"`)。R² 选 checkpoint; PSNR/SSIM/MSE 仅作诊断 |
+| `train_amp.py` | `AmpTrainConfig`, `evaluate`, `grad_statistics`, `collect_split` | 物理前向模型训练: `--loss(mse\|physical)/--observable/--normalization/--far-field-padding`, `--w-ellipse/--w-shape-gap/--w-spot-moment` 结构项 |
+| `losses.py` | `LossConfig`, `composite_loss`, `pib_term`, `uniformity_term`, `shape_gap_term`, `spot_moment_gap_term`, `ellipse_parameters`, `ellipse_gap_term`, `speckle_detail_term`, `poisson_nll`, `roi_mask` | 物理感知损失: anchored shape_gap/spot_moment/ellipse gap (解决 unanchored PIB/uniformity 在拟合任务上的劣性), speckle_detail (log-intensity 梯度差), Poisson NLL (FourierGSNet Eq.28) |
+| `metrics.py` | `batch_image_metrics`, `per_sample_beam_metrics`, `total_variation_ratio`, `available_perceptual_metrics` | img2img 标准指标 (MSE/RMSE/PSNR/SSIM/Pearson/efficiency) + 光斑域指标 (centroid_offset_px/spot_diameter_px/peak_ratio) + TV ratio (抵测 over-smoothing) |
+| `augment.py` | `phasor_noise`, `phase_flip`, `phase_shift`, `strong_phase_pairs` | phasor 噪声 (感应级) + OOD 合成对 (GS 提案/大振幅 Zernike/空间粗糙随机相位)。全部显式 seeded |
+| `dataset.py` | `ZernikeCoefficientDataset`, `coefficients_to_phase_map`, `load_zernike_coefficients`, `create_zernike_loaders` | 硬件 Zernike 系数数据集, 复用 `ml.hwdataset` 索引 |
+| `inverse_design.py` | `score_phase`, `gs_phase`, `gradient_freeform`, `gradient_zernike`, ... | Inverse design toolkit: independent evaluator (SimPibSystem) + design operators。不自评自拟 |
+| `eval_stats.py` | `sign_flip_pvalue`, `min_attainable_pvalue`, `cohens_dz`, `holm_bonferroni`, `paired_comparison`, `skill_scores`, `seed_agreement` | **唯一统计来源**: 纯 numpy 配对检验 (sign-flip permutation) + Cohen's d_z + Holm-Bonferroni。scripts/ 只做渲染, 不得复制 |
+
+**快速开始** (coeff→farfield forward model):
+
+```bash
+# Leave-one-pickle-out 训练 (18 folds), 默认 ConvNet, n_max=15
+python -m ml.zernike.train_coeff --protocol file --fold 0 --epochs 60 --batch-size 64
+
+# Sweep 宽度/深度 × n_max × lr × loss
+python scripts/sweep_coeff_models.py
+
+# Forward search (physics × U-Net × loss × algorithm), 生成报告
+python scripts/forward_search.py && python scripts/write_forward_search_report.py
+```
+
+详见 [`report/zernike_coeff2amp/report.md`](report/zernike_coeff2amp/report.md) 与 [`report/loss_defects/forward_search_report.md`](report/loss_defects/forward_search_report.md)。
+
+#### U-Net+GAN 相位预测 (`ml/phase/`)
 
 ```bash
 # 训练
@@ -1921,6 +1962,35 @@ pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_un
   - [驱动层架构](docs/drivers_architecture.md)、[AO 仿真指南](docs/simulation.md)、[Tabu 算法](docs/tabu_search_algorithm.md)、[已知问题](docs/issues_report.md)、[待办索引](TODO.md) · [已完成档案](docs/dev/todo_archive.md)
 
 ## 近期更新
+
+### v0.17.0 (2026-10-06)
+
+**Zernike 系数→远场前向模型训练** (15 个提交 `0694a0e` → `493ef1e`):
+
+- **物理-optical 前向模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/report.md`](report/zernike_coeff2amp/report.md)。
+
+- **可微前向模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照臂。
+
+- **训练器** (`ml/zernike/train_coeff.py`): `CoeffTrainConfig` (冻结 dataclass, `--input-terms`/`--protocol`/`--fold`/`--held-out-path`, W&B 集成, `--w-ellipse`). 两种折叠协议: `"file"` (18 折 leave-one-pickle-out) / `"objective"` (4 折 leave-one-objective-out). R² 选择 checkpoint (PSNR/SSIM/MSE 仅作诊断 —— 它们在 per-frame peak-normalised 目标上是退化的)。`--input-terms` 修剪输入到前 N 项 (语料最长向量 78 项, 136 维中 58 维恒为 0)。
+
+- **物理感知损失** (`ml/zernike/losses.py`): `LossConfig` + `composite_loss`。移植自 `ao_shaping.utils.image.target.metrics` 的 PIB/uniformity/energy-loss (torch 版, ROI mask 复用 canonical builder)。新增:
+  - `shape_gap_term` (anchored: pred 与 reference 的 ROI 形状统计绝对误差 —— 解决 unanchored PIB/uniformity 在"拟合"任务上的劣性: val R² +0.78 → -0.86)
+  - `spot_moment_gap_term` (锚定的径向二阶矩相对误差, MSE 对核/晕分布盲)
+  - `ellipse_parameters`/`ellipse_gap_term` (5 参数椭圆 gap, 捕捉位置/aspect/tilt 而径向矩无法)
+  - `speckle_detail_term` (log-intensity 梯度差, 惩罚过度细微结构)
+  - `poisson_nll` (FourierGSNet Eq.28)
+
+- **数据增广** (`ml/zernike/augment.py`): `phasor_noise` (感应级 phasor 噪声), `phase_flip`, `phase_shift`, `strong_phase_pairs` (GS 提案 / 大振幅 Zernike / 空间粗糙随机相位 → OOD 合成对, 解决 inverse design 外分布问题)。全部显式 seeded (generator), 模型系数 Init 为 0。
+
+- **配对统计来源** (`src/ml/zernike/eval_stats.py`): `sign_flip_pvalue` (精确 2^n 枚举, 最小 p = 2/2^n), `cohens_dz`, `holm_bonferroni`, `paired_comparison`, `skill_scores`, `seed_agreement`。纯 numpy (无 scipy/sklearn), 唯一来源。scripts/ 只做渲染。⚠️ **fold 与 seed 不能混配**: 同 seed 的 N 折共享一条初始化随机流, sign-flip 检验 p 偏乐观 (实测 `input_terms` 136→78 18 折 p=0.0144, 但固定一折 vary seed 后符号翻转, 差值量级小 30 倍 —— 初始化噪声)。
+
+- **目标形状度量** (`utils/image/target/` 子包):
+  - **结构项 `log_gradient_difference_metric`** (`utils/image/target/metrics.py`): `log_gradient_field`/`log_gradient_difference_from_fields`/`log_gradient_difference_metric` + `LOGGRAD_EPS`/`LOGGRAD_SIGMA` 常量。惩罚过度细微结构 (speckle), 能量-in-bucket 目标无法捕捉。
+  - **`--w_loggrad` CLI** (`runner_common.py`, `objective.py`, `slm_zernike_pib.py`): 新增 `--w_loggrad` (默认 0), 串接 log-gradient 差异度量进 PIB 目标函数。
+
+- **slm-model-in-loop** (`6b85858` + `efedabe`): `slm_model_in_loop` 闭环优化器 recorder pkl 修复 (写入现在真正生效), 负效应臂移除, README 补充硬件使用指南 (pkl 总是写出, 曝光陷阱, 运行前探针)。
+
+- **CLI 帮助测试** (`493ef1e`): CLI 帮助 golden-file 测试增强, SLM 训练数据采集器 (`slm_train_data_collect.py`) 测试引入。
 
 ### v0.16.0 (2026-10-05)
 - **`slm-pib` / `spgd-square` 合并进单个 runner**: `runners/slm/pib_runner.py` → `runners/slm/slm_shaping_runner.py`, `runners/slm/square_runner.py` 作为其 `square` 子命令合入。命令行名与全部选项不变; 新增两个等价入口 `main.py slm-pib square` 与 `python -m ...slm_shaping_runner square`。

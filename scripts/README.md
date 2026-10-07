@@ -278,6 +278,27 @@ trainer.
 
 ## Analysis and Tuning Scripts
 
+### analyze_hwdataset_distributions.py
+
+Measures **array-level** per-family distributions of the `ml/hwdataset` corpus:
+stratified-samples the indexed records (≤40 per family, seeded, `grid=64`,
+`image_mode="abs255"`) and materialises each sample through the canonical
+`Materialiser` (bit-identical to the training DataLoader), then reports per-family
+quantiles of brightness / spot size / phase coherence / phase spread / entropy /
+frame CV. **Fully offline** (reads pkls locally, no hardware, no network); ~90 s
+for 252 samples across 112 pkls.
+
+**Usage:**
+```bash
+python scripts/analyze_hwdataset_distributions.py
+```
+
+**Output:** `report/hwdataset_corpus/distribution_stats.json` — the *only*
+array-level input of `generate_hwdataset_corpus_report.py` §10/§11 (that
+generator itself never opens a pickle). If this file is absent, the report's
+§10/§11 degrade to a pointer and the 4 distribution figures are skipped; all
+metadata sections are unaffected.
+
 ### compare_loss_algorithms.py
 
 Runs a **loss × algorithm** comparison matrix on the offline sim bench, with both
@@ -776,6 +797,27 @@ python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --p
 > `src/ao_shaping/tools/slm/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
+
+### generate_hwdataset_corpus_report.py
+
+Generates the `report/hwdataset_corpus` corpus-composition report (12 metadata
+sections + 2 array-level sections, 14 figures). **Fully offline** — reads only
+`data/hw_index_cache.json`, `data/debug/**/*.json`, and the pre-produced
+`report/hwdataset_corpus/distribution_stats.json`; `.pkl` files are touched with
+`Path.stat()` only (never opened / unpickled / mmap'ed), and `ml.hwdataset` is
+never imported. All counts are computed at runtime; nothing is hard-coded.
+§10/§11 (array-level distributions) read the JSON written by
+`analyze_hwdataset_distributions.py`; if that file is absent the two sections
+degrade to a pointer and the 4 distribution figures are skipped. `--full-index
+<path>` enables the §1.1 "does an index rebuild change the conclusions?"
+cross-check; `--no-figures` renders markdown only.
+
+**Usage:**
+```bash
+# two-stage reproduction (§14)
+python scripts/analyze_hwdataset_distributions.py
+python scripts/generate_hwdataset_corpus_report.py
+```
 
 ### generate_zernike_amp_report.py
 
@@ -2454,6 +2496,59 @@ inverted gradient.
 The largest cross-check the report makes — `S = k_tilt·π·R` — deliberately needs
 **no calibration file at all** (the illuminated radius ships inside the npz), so
 it stays valid even while §2 and §6 are disabled.
+
+### generate_model_in_loop_report.py
+
+Generates the **usage write-up** for the `slm-model-in-loop` runner:
+`docs/slm/model_in_loop_algorithm.md` + one figure. Covers the call graph, the
+computation-timing sequence, the algorithm itself (Step A / Step B / the two
+coupling guards), the config defaults, and the structure of the forward-prediction
+model (pre-processing / deep modules / post-processing).
+
+**It lands in `docs/`, not `report/`** — it is a functional description, not the
+conclusion of a measurement. AGENTS.md draws that line: `report/<topic>/` holds
+measurement conclusions, `docs/` holds device/usage documentation. The *hardware
+measurement* of this same runner is
+[`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md)
+and the two are deliberately kept apart. Consequently this generator is **not**
+registered in `scripts/_common/provenance.py::REPORTS`: that registry renders
+`report/README.md` and assumes every key is under `report/`, so a `docs/` key
+would compute the wrong relative path. The document writes its own header via
+`provenance.script_link` instead. **`sync_report_provenance.py` does not touch it
+and does not need to.**
+
+**Usage:**
+```bash
+python scripts/generate_model_in_loop_report.py
+python scripts/generate_model_in_loop_report.py --no-figures    # skip the matplotlib figure
+python scripts/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
+```
+
+**Diagrams are mermaid** (`graph TD`, `sequenceDiagram`, `stateDiagram-v2`,
+`flowchart LR`), not ASCII art: the document is read on GitHub, where mermaid
+renders. ASCII needed hand-aligned boxes to stay legible and still could not show
+control flow or state.
+
+**Two guards, in both directions.** Every symbol the diagrams name is resolved
+against the real modules' AST before anything is written (`_verify_symbols`), *and*
+every symbol in `DIAGRAM_SYMBOLS` must actually appear in the output
+(`_verify_mentioned`). A hand-drawn call graph is a snapshot: rename `_metrics_at`
+and it keeps reading as authoritative while being fiction. The first guard catches
+the rename; the second catches the opposite drift — a diagram rewritten while the
+symbol list was not. Extend `DIAGRAM_SYMBOLS` when you add a diagram.
+
+**Numbers come from the code, or not at all.** The config table's defaults are read
+out of the dataclass AST. The learned model's parameter counts are *measured* by
+importing `ml.zernike.forward_model` and calling `count_parameters` — never
+re-derived, because hand-rolling `Linear`/`Conv2d`/`GroupNorm` arithmetic (or
+`calc_n_zernike_terms`) in the generator would be a second copy of something the
+code already owns. Without torch the report omits those numbers rather than
+printing an unverified one.
+
+**No wall-clock timing.** Per-round *counts* of device round-trips and compute steps
+are derivable from the configuration, so they are given (probe count × 2 ×
+`n_eval_frames`, plus one display+measure for the round's acceptance frame).
+Durations depend on the bench and would be fabrication in an offline document.
 
 ### model_in_loop_hw_runbook.py
 

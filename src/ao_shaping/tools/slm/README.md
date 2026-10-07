@@ -62,6 +62,7 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 | `slm_lut_runner` | 灰度→相位 LUT 标定。**注册为 `slm-lut`** |
 | `gray_response` | SLM 灰度 → 相机最大亮度响应(注意 SLM 幅度耦合: 周期 ≈ 2π) |
 | `phase_capture` | 随机相位采集 |
+| `slm_train_data_collect` | **训练数据采集器** (SLM + 远场 CCD, 可选第二台 CCD 记为 `pupil`)。按 `exposure_ms × cam_size` 交叉扫描采集, 产物可直接被 `ml/hwdataset` 索引; 用来补语料分布缺口 (`objective` 覆盖、曝光聚集、freeform 网格单一、视场单一)。`--no-hw` 只打印采集计划 |
 
 
 

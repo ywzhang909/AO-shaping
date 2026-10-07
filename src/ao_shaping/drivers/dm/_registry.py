@@ -80,22 +80,52 @@ def _ensure_sim_dms_bound() -> None:
 
 
 class DMRegistry:
-    """支持基于装饰器注册的 DM 实现注册表。"""
+    """支持基于装饰器注册 + 惰性加载的 DM 实现注册表。"""
 
     def __init__(self) -> None:
         self._registry: dict[str, Type[DM]] = {}
+        self._lazy_registry: dict[str, tuple[str, str]] = {}
 
     def register(self, name: str) -> Callable[[Type[DM]], Type[DM]]:
         def decorator(cls: Type[DM]) -> Type[DM]:
             if not issubclass(cls, DM):
                 raise TypeError(f"{cls.__name__} must be a subclass of DM")
             self._registry[name.lower()] = cls
+            # 如果之前有惰性注册条目, 现在被真实类替换掉 → 删掉惰性条目
+            self._lazy_registry.pop(name.lower(), None)
             return cls
 
         return decorator
 
+    def register_lazy(self, name: str, module_path: str, class_name: str) -> None:
+        """注册一个 DM 类型名, 推迟到首次使用时才 import 真实模块。
+
+        这允许 ``list_dm_types()`` 在没有任何驱动模块被导入的情况下
+        就返回完整的类型列表。
+        """
+        key = name.lower()
+        # 如果真实类已经注册 (某处提前 import 了驱动模块), 不覆盖
+        if key in self._registry:
+            return
+        self._lazy_registry[key] = (module_path, class_name)
+
+    def _resolve_lazy(self, name: str) -> None:
+        """按需 import 惰性注册的驱动模块, 把真实类填入 ``_registry``。"""
+        key = name.lower()
+        if key not in self._lazy_registry or key in self._registry:
+            return
+        module_path, class_name = self._lazy_registry.pop(key)
+        import importlib
+
+        module = importlib.import_module(module_path)
+        cls = getattr(module, class_name)
+        if not issubclass(cls, DM):
+            raise TypeError(f"{class_name} in {module_path} must be a subclass of DM")
+        self._registry[key] = cls
+
     def create(self, name: str, **kwargs: Any) -> DM:
         _ensure_sim_dms_bound()
+        self._resolve_lazy(name)
         cls = self._registry.get(name.lower())
         if cls is None:
             raise ValueError(
@@ -117,6 +147,7 @@ class DMRegistry:
         """
         key = name.lower()
         _ensure_sim_dms_bound()
+        self._resolve_lazy(key)
         if key not in self._registry:
             raise ValueError(
                 f"Unknown DM type: {name!r}. Available: {sorted(self._registry.keys())}"
@@ -134,21 +165,24 @@ class DMRegistry:
         return self._registry[key](**filtered)
 
     def has_type(self, name: str) -> bool:
-        return name.lower() in self._registry
+        key = name.lower()
+        return key in self._registry or key in self._lazy_registry
 
     def list_types(self) -> list[str]:
         _ensure_sim_dms_bound()
-        return sorted(self._registry.keys())
+        return sorted(set(self._registry.keys()) | set(self._lazy_registry.keys()))
 
     def list_reachable_types(self) -> list[str]:
         """返回当前硬件可达的 DM 类型排序列表。"""
         _ensure_sim_dms_bound()
+        # 惰性条目无法判断可达性, 只能跳过; 已加载的才参与检测
         return sorted(
             name for name, cls in self._registry.items() if cls.is_reachable()
         )
 
     def get_class(self, name: str) -> Type[DM]:
         _ensure_sim_dms_bound()
+        self._resolve_lazy(name.lower())
         cls = self._registry.get(name.lower())
         if cls is None:
             raise ValueError(
@@ -166,6 +200,16 @@ def get_dm_registry() -> DMRegistry:
 
 def register_dm(name: str) -> Callable[[Type[DM]], Type[DM]]:
     return _global_registry.register(name)
+
+
+def register_dm_lazy(name: str, module_path: str, class_name: str) -> None:
+    """注册一个 DM 类型名而不立即 import 其驱动模块。
+
+    该类型会在 ``list_dm_types()`` 中可见, 但真实的类对象只在实际
+    ``create_dm(name)`` 时才被 import。每个驱动子包的 ``__init__.py``
+    应当在模块作用域调用本函数, 把各自的类型名挂到注册表上。
+    """
+    _global_registry.register_lazy(name, module_path, class_name)
 
 
 def create_dm(name: str, **kwargs: Any) -> DM:

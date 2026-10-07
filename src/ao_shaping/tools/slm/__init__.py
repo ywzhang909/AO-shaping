@@ -2,6 +2,10 @@
 
 包含:
 - phase_capture.py — SLM 相位捕获 (湍流/Zernike 相位数据集采集)
+- slm_train_data_collect.py — 训练数据采集器 (SLM + 远场 CCD, 可选第二台
+  CCD 记为 `pupil`); 按 exposure x cam_size 交叉扫描, 产物可直接被
+  `ml/hwdataset` 索引, 用来补语料分布缺口 (`objective` 覆盖 / 曝光聚集 /
+  freeform 网格单一 / 视场单一)
 - gray_response.py — SLM 灰度响应测量
 - slm_diagnose.py — SLM 硬件自检 (freeze/modulate/linearity 三步证据链)
 - slm_phase_response.py — SLM 相位→CCD 响应探针 (离焦/透镜用例 + 共享采集/渲染通道)
