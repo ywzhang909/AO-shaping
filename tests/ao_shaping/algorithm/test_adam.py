@@ -31,11 +31,13 @@ class TestLearningSchedule:
         )
 
     def test_cosine_decays_and_matches_the_closed_form(self):
+        # Standard cosine annealing: lr * 0.5 * (1 + cos(pi * epoch / epochs))
         values = [learning_schedule(1.0, e, 100, method="cosin") for e in range(101)]
         assert values[0] == pytest.approx(1.0 + 1e-6)
-        # cos(pi * 50/100) == 0 -> only the floor is left at the midpoint
-        assert values[50] == pytest.approx(1e-6, abs=1e-12)
-        assert values[100] == pytest.approx(-1.0 + 1e-6)
+        # cos(pi * 50/100) == 0 -> the 0.5 * (1 + 0) = 0.5 midpoint value
+        assert values[50] == pytest.approx(0.5 + 1e-6, abs=1e-12)
+        # cos(pi) == -1 -> 0.5 * (1 - 1) == 0, only the floor is left
+        assert values[100] == pytest.approx(1e-6)
         assert all(b <= a for a, b in zip(values, values[1:], strict=False))
 
     def test_exponential_decays_monotonically(self):
@@ -55,24 +57,30 @@ class TestLearningSchedule:
         for epoch in range(101):
             assert learning_schedule(1e-3, epoch, 100, method=method) > 0.0
 
-    def test_cosine_goes_negative_after_its_midpoint(self):
-        """Pinned because it is surprising, not because it is desirable.
+    def test_cosine_stays_non_negative_across_the_whole_run(self):
+        """Regression test for R-44 (TODO.md #54): cosine used to go negative.
 
-        ``cos(pi * epoch / epochs)`` changes sign at ``epoch == epochs/2``, so
-        the ``+ 1e-6`` floor does **not** keep a cosine-decayed LR positive --
-        the second half of every cosine run feeds the optimizer a *negative*
-        step size. The floor only prevents an exact zero at ``epochs/2``.
+        The old form ``lr * cos(pi * epoch / epochs) + 1e-6`` changed sign at
+        ``epoch == epochs/2`` -- the ``+ 1e-6`` floor could not keep it positive,
+        so the second half of every cosine run fed the optimizer a *negative*
+        step size (``lr=1e-3, e=75`` gave ``-3.09e-4``). That was pinned as a
+        "surprising" behaviour rather than fixed, because fixing it would
+        change every caller's trajectory.
 
-        Left as-is: changing it would alter the trajectory of every caller.
-        Recorded in TODO.md (R-44) rather than silently "fixed".
+        The fix (this PR) switches to the standard cosine-annealing form
+        ``lr * 0.5 * (1 + cos(pi * epoch / epochs))`` which is monotone,
+        starts at ``lr`` and decays to the floor, and is non-negative for the
+        whole run. This test pins that the negative step sizes are gone.
         """
-        assert learning_schedule(1e-3, 25, 100, method="cosin") > 0.0
-        assert learning_schedule(1e-3, 50, 100, method="cosin") == pytest.approx(
-            1e-6, abs=1e-12
+        for epoch in range(101):
+            assert learning_schedule(1e-3, epoch, 100, method="cosin") > 0.0
+        # endpoints of the new form
+        assert learning_schedule(1e-3, 0, 100, method="cosin") == pytest.approx(
+            1e-3 + 1e-6
         )
-        assert learning_schedule(1e-3, 75, 100, method="cosin") < 0.0
+        assert learning_schedule(1e-3, 75, 100, method="cosin") > 0.0
         assert learning_schedule(1e-3, 100, 100, method="cosin") == pytest.approx(
-            -1e-3 + 1e-6
+            1e-6
         )
 
     def test_unknown_method_is_rejected(self):

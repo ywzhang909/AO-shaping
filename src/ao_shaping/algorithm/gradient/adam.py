@@ -32,9 +32,9 @@ def learning_schedule(
 ):
     if method == "static":
         return lr
-    # 余弦退火
+    # 余弦退火 (标准形式 lr·0.5·(1+cos(πe/E)): e=0 时 = lr, 单调衰减到 0, 恒非负)
     elif method == "cosin":
-        lr = lr * np.cos(np.pi * epoch / epochs) + 1e-6
+        lr = lr * 0.5 * (1 + np.cos(np.pi * epoch / epochs)) + 1e-6
         return lr
     # 指数衰减
     elif method == "exp":
