@@ -122,3 +122,63 @@ def test_migrated_generator_import_actually_resolves(name: str) -> None:
         spec.loader.exec_module(module)
     finally:
         sys.modules.pop(spec.name, None)
+
+
+#: Single-home modules: content lives under ``src/`` and must not be copied here.
+#:
+#: ``pyarrow_probe`` is the case that motivated this guard (issue #73). It is a
+#: **library module with no CLI and no __main__**, used by ``gui/slm``'s
+#: ``pattern_controls.py`` and covered by ``test_pattern_controls.py``. A copy
+#: had also appeared under ``scripts/`` with **zero importers** -- it was pure
+#: duplication, and nobody noticed for as long as it existed.
+SINGLE_HOME_MODULES = ("pyarrow_probe",)
+
+
+@pytest.mark.parametrize("name", SINGLE_HOME_MODULES)
+def test_pyarrow_probe_has_a_single_home(name: str) -> None:
+    """The canonical copy lives in the GUI package; ``scripts/`` must not grow one."""
+    canonical = _ROOT / "src" / "ao_shaping" / "gui" / "slm" / f"{name}.py"
+    assert canonical.is_file(), f"canonical {name} is missing from {canonical}"
+
+    stray = _SCRIPTS / f"{name}.py"
+    assert not stray.exists(), (
+        f"{stray} is a duplicate of {canonical}: {name} is a library module with "
+        "no CLI, it belongs to the package that uses it. See issue #73."
+    )
+
+
+def test_no_script_duplicates_a_package_module() -> None:
+    """No file under ``scripts/`` may be a byte-for-byte copy of one under ``src/``.
+
+    Compares content with line endings normalised, because a CRLF/LF difference
+    is what let the ``pyarrow_probe`` twin look "drifted" in a hash comparison when
+    it was in fact identical -- an audit that concludes "these differ, decide
+    later" is how the duplicate survived. A genuine copy shows up here regardless
+    of which line ending each side was checked out with.
+
+    Deliberately content-based rather than name-based: the failure mode is a copy
+    of *whatever* a library module, and a new one would not be in any allow-list.
+    """
+    import hashlib
+
+    package_root = _ROOT / "src" / "ao_shaping"
+
+    def digest(path: Path) -> str:
+        raw = path.read_bytes().replace(b"\r\n", b"\n")
+        return hashlib.sha256(raw).hexdigest()
+
+    package = {
+        digest(p): p.relative_to(_ROOT).as_posix()
+        for p in package_root.rglob("*.py")
+        if p.is_file()
+    }
+
+    duplicates = [
+        (p.relative_to(_ROOT).as_posix(), package[digest(p)])
+        for p in sorted(_SCRIPTS.rglob("*.py"))
+        if p.is_file() and digest(p) in package
+    ]
+    assert not duplicates, (
+        "these scripts/ files are exact copies of a package module and will "
+        f"drift: {duplicates}"
+    )

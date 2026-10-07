@@ -207,7 +207,7 @@
 | R-54 | [#70](https://github.com/ywzhang909/AO-shaping/issues/70) | 两个 SLM runner 大块重复（只抽共用段，不动 CLI flag） | D 🟡 |
 | R-55 | [#71](https://github.com/ywzhang909/AO-shaping/issues/71) | `utils/io/file.py` 等叶子层模块级 import matplotlib | E 🟡 |
 | R-56 | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | `optimizer/` 内 9 处 pygame / matplotlib 渲染面 | E 🔴→🟡 |
-| F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | `pyarrow_probe` 两份**已漂移**（哈希不同），先 diff 再定去留 | 护栏 |
+| F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | ~~`pyarrow_probe` 两份~~ **已结案**：`scripts/` 副本零导入方且与 `gui/slm` 那份**归一化行尾后逐字节相同**，已删 | ✅ 619d2d0/待本轮 |
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
 | R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
 | ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max_peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
@@ -225,7 +225,7 @@
 | `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
 | `compute_metrics` 三份 | 三种真实契约 ⇒ 改**名**不合并，见 R-53 |
 | `main` / `run`（各 entrypoint） | 合法 |
-| `gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py` | **已漂移**（各 106 行但 SHA256 不同）⇒ 见 F-13，不可按「相同副本」直接删 |
+| ~~`gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py`~~ | **曾是误判**：原文写「已漂移（各 106 行但 SHA256 不同）」，实测**两份各 130 行、归一化行尾后 SHA256 完全相同**（`9d4a448b78d7028f`），差异**仅 CRLF vs LF**。副本已删（F-13） |
 
 > 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有
 > 大量未提交改动，行号大概率已漂移。

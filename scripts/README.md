@@ -439,23 +439,17 @@ brighter.
 
 `repeat_shape_objectives.py` calls it with `DRIFT_MAX_REL_DEV = 0.25`.
 
-### pyarrow_probe.py
+> 🔴 **`pyarrow_probe` 曾经在这里有一份副本，已删除**（issue [#73](https://github.com/ywzhang909/AO-shaping/issues/73)）。
+> 该模块是 **library module——无 CLI、无 `__main__`**，唯一真实位置是
+> `src/ao_shaping/gui/slm/pyarrow_probe.py`：由 `gui/slm/__init__.py` re-export，
+> 被 `pattern_controls.py` 使用，由 `tests/ao_shaping/gui/slm/test_pattern_controls.py`
+> 覆盖。`scripts/` 这份**零导入方**，且归一化行尾后与上面那份**逐字节相同**
+> （原始 SHA256 不同的原因只是 CRLF vs LF，不是内容漂移）。
+>
+> **它是「无 CLI 的 library module 放进 `scripts/`」的结果**——`scripts/` 的准入
+> 规则是报告生成与可执行脚本，不是共享库。防再犯守卫：
+> `tests/ao_shaping/scripts/test_common_helpers_not_reintroduced.py::test_pyarrow_probe_has_a_single_home`
 
-Small `pyarrow` diagnostics used by the tests and the `ZernikeControl` debug
-panel. **A library module — no CLI, no `__main__`.**
-
-| API | Purpose |
-|---|---|
-| `pyarrow_version() -> str \| None` | Installed version, `None` if absent |
-| `pyarrow_pandas_compat_ok() -> bool` | Whether the `pyarrow`/`pandas` pair is importable together |
-| `probe_pyarrow() -> tuple[bool, str]` | One-shot `(ok, message)` pair |
-| `pyarrow_diagnostics() -> list[tuple[str, str]]` | The multi-row panel view |
-
-It is deliberately **not** imported at `pattern_controls` module level: the
-control page calls `probe_pyarrow()` inline inside `ZernikeControl.render()`, so
-a broken pyarrow can never block the module import or the rest of the page from
-rendering. The tests monkeypatch the probe to simulate a broken pyarrow without
-breaking the real one.
 
 ## Micro-DM Diff Analysis Pipeline
 
