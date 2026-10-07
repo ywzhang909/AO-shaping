@@ -1312,6 +1312,25 @@ def optimize_slm_square(
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
 
+    # Reject an out-of-vocabulary objective HERE, before any device is opened.
+    # The only other validation sits at the bottom of square_objective_score, i.e. in
+    # per-epoch scoring -- after the SLM has been driven and the camera opened and
+    # probed, so a typo reached the hardware and left the panel on whatever phase the
+    # first perturbation wrote.
+    #
+    # This is deliberately STRICTER than square_objective_score, which still tolerates the
+    # legacy aliases ``("quality", "shape", "")`` at its first branch. Nothing in ``src/``
+    # passes ``"shape"`` or ``""`` -- the CLI and every runner default to ``"quality"`` and
+    # declare the same ``SQUARE_OBJECTIVE_CHOICES`` vocabulary (imported from
+    # ``utils.image.target.objective``) that this check enforces. The alias branch is left
+    # alone because it is reachable by direct callers of the scorer; do not "reconcile" the
+    # two by widening this check.
+    _objective = str(objective).lower()
+    if _objective not in SQUARE_OBJECTIVE_CHOICES:
+        raise ValueError(
+            f"objective must be one of {SQUARE_OBJECTIVE_CHOICES}, got {objective!r}"
+        )
+
     # The recorded score is whatever ``objective`` selected, so name the column
     # accordingly. The default (``quality``/``shape``/``""``) keeps the historical
     # ``quality`` column name so existing default runs stay byte-identical; a
