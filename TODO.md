@@ -177,7 +177,7 @@
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | **R-29**（#50，`display.py` 搬 `display/`）⇒ **R-33 / R-43**（同一文件，#51 / #53）⇒ **R-39**（#52） |
-| **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | **R-45**（#61 叶子层 14 处）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
+| **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | ~~**R-45**（#61）⇒ 误报，已结案~~ ⇒ **R-58**（#77，叶子层唯一的真违规）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
 | **第 4 批（内部重构，需先补特征测试）** | **R-19**（#49，父项）⇒ **R-5 / R-6 / R-7 / R-8**（#42–#45）；**R-14**（#47，需先做产品决策）；**R-13**（#46）；**R-44**（#54，需先决定是否动所有调用者轨迹）；**R-18**（#48，接入已有实现或删注释） |
 | **纯离线但要台架数据** | **F-4**（#55，先做「`ml` 算不算主包」的决策）；**F-5**（#56，先切片）；**H-23**（#40，修 `hwdataset` 索引）；**X-2**（#60，加误报标记） |
 | **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.`55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有真机 `--debug` 产物 |
@@ -195,8 +195,9 @@
 
 | ID | issue | 摘要 | 波次 / 风险 |
 |---|---|---|---|
-| R-45 | [#61](https://github.com/ywzhang909/AO-shaping/issues/61) | `utils/` 叶子层 14 处反向依赖（`hardware_utils` / `pattern_helper` / `wfs_utils`） | A 🟢 |
+| ~~R-45~~ | [#61](https://github.com/ywzhang909/AO-shaping/issues/61) | ❌ **误报，已作 not-planned 结案**：14 处经 AST 核实**全部**是 README 明文许可的 `TYPE_CHECKING` / 函数内延迟导入。真正的 1 处见 R-58 | ✅ |
 | R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | `optimizer` 反向 import `tools/` 探针模块（`slm_model_in_loop` 两处） | B 🟢 |
+| **R-58** | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | 🔴 `utils/slm/phase_display.py:28` **模块级** `import model` ⇒ 导入这个叶子模块会在 import 期拉进 **60 个** `ao_shaping.drivers.*`（经 `model/field.py:45`），威胁驱动惰性加载契约 | A 🔴 |
 | R-47 | [#63](https://github.com/ywzhang909/AO-shaping/issues/63) | 面板几何下沉 `utils/slm/`（**`phase_to_panel` 归属纠正 + 命名陷阱**） | C 🟡 |
 | R-48 | [#64](https://github.com/ywzhang909/AO-shaping/issues/64) | 帧分析下沉 `utils/image/`（13 个纯数组符号） | C 🟡 |
 | R-49 | [#65](https://github.com/ywzhang909/AO-shaping/issues/65) | 新建 `utils/math/`（拟合 + 稳定性判据） | C 🟡 |
@@ -224,7 +225,7 @@
 | `utils/wavefront/matrix_utils.py` 的 `calc_n_zernike_terms` | **有 docstring 声明的 re-export shim** ⇒ 保留 |
 | `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
 | `compute_metrics` 三份 | 三种真实契约 ⇒ 改**名**不合并，见 R-53 |
-| `main` / `run`（各 entrypoint） | 合法 |
+| `utils/` 里指向 `drivers` / `algorithm` 的 **14 处**向上 import（`hardware_utils.py:33,673,686`、`wfs_utils.py:15,16`、`pattern_helper.py:20,36,92,98,830,847,864,883,896`） | ❌ **不是违规** —— 全部是 README「编码规范 §9」**明文许可**的 `TYPE_CHECKING` 保护或函数内延迟导入。已按此结案（#61）。⚠️ 另注意 `test_cli_params_leaf.py` 的 `_LEAF` 是**单个文件** `utils/cli/params.py`，**不覆盖整棵 `utils/`**，发现不了这类问题 |
 | ~~`gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py`~~ | **曾是误判**：原文写「已漂移（各 106 行但 SHA256 不同）」，实测**两份各 130 行、归一化行尾后 SHA256 完全相同**（`9d4a448b78d7028f`），差异**仅 CRLF vs LF**。副本已删（F-13） |
 
 > 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有
