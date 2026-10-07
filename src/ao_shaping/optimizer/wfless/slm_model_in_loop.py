@@ -1229,6 +1229,22 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
     recorder = Recorder()
 
+    # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
+    # (piston), so its length is the full term count, not the optimizer's
+    # piston-excluded count.
+    n_coeffs = calc_n_zernike_terms(int(config.n_orders))
+    # Build -- and validate -- the checkpoint seed *before any device opens*. The
+    # loader needs only the config and the file, so a geometry mismatch can and
+    # must fail here: doing it later costs a calibration pass and a flat-baseline
+    # measurement on hardware to discover a mistake that is knowable offline.
+    # With no checkpoint the seed is None and the historical all-zero start is
+    # used verbatim.
+    seeded = _seed_coefficients_from_checkpoint(config)
+    if seeded is None:
+        coefficients = np.zeros(n_coeffs, dtype=np.float64)
+    else:
+        coefficients = seeded
+
     bench = _open_bench(config)
     # Declared before the ``try`` so the ``finally`` teardown can always reach it.
     # The window itself can only be opened further down, once the geometry solve
@@ -1373,19 +1389,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             )
 
         # ---------------- Stage 2: the alternating loop --------------------
-        # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
-        # (piston), so its length is the full term count, not the optimizer's
-        # piston-excluded count.
-        n_coeffs = calc_n_zernike_terms(int(config.n_orders))
-        # A checkpoint seed (if any) is built -- and validated -- up front so a
-        # geometry mismatch aborts before the flat baseline or any device time is
-        # spent. With no checkpoint the seed is None and the historical all-zero
-        # start is used verbatim.
-        seeded = _seed_coefficients_from_checkpoint(config)
-        if seeded is None:
-            coefficients = np.zeros(n_coeffs, dtype=np.float64)
-        else:
-            coefficients = seeded
         step_a_lr = float(config.step_a_lr)
         probe_count = int(config.probe_count)
         rejection_streak = 0
