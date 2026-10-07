@@ -82,6 +82,7 @@ PROBES = [
     "slm_phase_resolution",
     "slm_phase_response",
     "slm_tilt_probe",
+    "slm_train_data_collect",
     "slm_wfs_probe",
     "slm_wfs_reference",
     "slm_zernike_correction",
@@ -352,7 +353,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     short = {p for p in PROBES if "--cam-type" in g[p]["declared"]}
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
-    assert len(short) == 8, f"--cam-type lost a probe: {sorted(short)}"
+    assert len(short) == 9, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -365,7 +366,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     ("a", "b", "count_a", "count_b"),
     [
         ("--output", "--out", 8, 4),
-        ("--slm-wavelength", "--wavelength", 14, 3),
+        ("--slm-wavelength", "--wavelength", 15, 3),
     ],
 )
 def test_other_split_flag_spellings_survive(
@@ -382,10 +383,10 @@ def test_other_split_flag_spellings_survive(
 
 
 def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
-    """277 declared flags across 19 probes. A drop here means the scan went blind.
+    """314 declared flags across 20 probes. A drop here means the scan went blind.
 
     Declared and help-visible counts differ legitimately: click adds a built-in
-    ``--help`` to all 19, and some probes declare ``hidden=True`` options that
+    ``--help`` to all 20, and some probes declare ``hidden=True`` options that
     never render. Both numbers are pinned so a change in either direction is seen.
 
     287 -> 285 on 2026-10-04: ``slm_zernike_sweep_probe`` declared
@@ -394,13 +395,18 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     spellings exited rc=2 and ``args.save_frames`` was never read -- frame saving
     is unconditional. The dead, broken declaration was deleted rather than
     "repaired" into a flag that would still control nothing.
+
+    277 -> 314 / 289 -> 327 / 19 -> 20 on 2026-10-06:
+    ``slm_train_data_collect`` landed with 37 declared and 38 help-visible flags
+    (click's built-in ``--help`` accounts for the difference). Both deltas equal
+    that probe's own counts exactly, so the totals moved only by the addition.
     """
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 277, f"declared flag inventory is {declared}, expected 277"
-    assert visible == 289, f"help-visible flag inventory is {visible}, expected 289"
-    assert len(PROBES) == 19
+    assert declared == 314, f"declared flag inventory is {declared}, expected 314"
+    assert visible == 327, f"help-visible flag inventory is {visible}, expected 327"
+    assert len(PROBES) == 20
 
 
 # ---------------------------------------------------------------------------
@@ -456,8 +462,24 @@ def test_golden_entry_rewrites_every_field_it_stores(probe: str) -> None:
     This re-measures every probe against the committed golden with no
     subprocess at all, so a partial writer fails in milliseconds.
     """
-    stored = _golden()[probe]
-    rewritten = _golden_entry(probe, stored["help"])
+    stored = _golden().get(probe)
+    # A probe that has never been baselined has no entry to compare against. That must
+    # not raise: this test used to do `_golden()[probe]`, which made adding a probe
+    # impossible through the sanctioned path, because the KeyError fired *before*
+    # `AO_PROBE_HELP_UPDATE=1` could write the first entry. Keep the load-bearing
+    # invariant (the regeneration writes all five fields) and stop there.
+    help_text = stored["help"] if stored is not None else _rendered_help(probe)
+    rewritten = _golden_entry(probe, help_text)
+
+    assert set(rewritten) == {
+        "help",
+        "help_flags",
+        "declared",
+        "body_literals",
+        "body_literals_sha256",
+    }, f"{probe}: _golden_entry must measure every field the golden stores, got {sorted(rewritten)}"
+    if stored is None:
+        return
 
     assert set(rewritten) == set(stored), (
         f"{probe}: the regeneration path writes {sorted(rewritten)} but the golden "
@@ -480,14 +502,22 @@ def test_rendered_help_matches_golden_or_differs_only_in_order() -> None:
     actual = {p: _rendered_help(p) for p in PROBES}
     expected = _golden()
     drift = {}
+    unbaselined: list[str] = []
     for probe in PROBES:
-        if actual[probe] != expected[probe]["help"]:
+        stored = expected.get(probe)
+        if stored is None:
+            # Not drift: this is how a newly added probe gets baselined. Tracked
+            # separately so it is reported but never counted as a hard mismatch --
+            # the write below still happens, so the next run compares it properly.
+            unbaselined.append(probe)
+            continue
+        if actual[probe] != stored["help"]:
             drift[probe] = {
                 "flags_differ": sorted(
-                    set(_HELP_FLAG.findall(actual[probe])) ^ set(expected[probe]["help_flags"])
+                    set(_HELP_FLAG.findall(actual[probe])) ^ set(stored["help_flags"])
                 ),
                 "same_lines_reordered": sorted(actual[probe].splitlines())
-                == sorted(expected[probe]["help"].splitlines()),
+                == sorted(stored["help"].splitlines()),
             }
     GOLDEN.write_text(
         json.dumps(
@@ -502,3 +532,8 @@ def test_rendered_help_matches_golden_or_differs_only_in_order() -> None:
         f"rendered help changed beyond ordering: {hard}. If the change is intended, "
         "review it and commit the regenerated golden alongside."
     )
+    if unbaselined:
+        print(
+            f"baselined {len(unbaselined)} newly added probe(s) into the golden: "
+            f"{sorted(unbaselined)}"
+        )

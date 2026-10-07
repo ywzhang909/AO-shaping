@@ -1028,11 +1028,12 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     camera = _construction_sites(_CAMERA_RE)
 
     # 18 -> 21 and 15 -> 18 when slm_abba_probe / slm_drift_probe / slm_floor_probe
-    # were added upstream. This guard pins the census so a *refactor* cannot quietly
-    # consolidate device sessions; adding a genuinely new probe is a legitimate
-    # change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 21, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 18, f"camera-open call sites changed: {camera}"
+    # were added upstream; 21 -> 22 and 18 -> 20 when slm_train_data_collect landed
+    # (1 Santec session + 2 camera opens). This guard pins the census so a *refactor*
+    # cannot quietly consolidate device sessions; adding a genuinely new probe is a
+    # legitimate change and must be re-baselined here deliberately.
+    assert sum(santec.values()) == 22, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 20, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "calibration.py": 2,
@@ -1049,6 +1050,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm_phase_resolution.py": 1,
         "slm_phase_response.py": 1,
         "slm_tilt_probe.py": 1,
+        "slm_train_data_collect.py": 1,
         "slm_wfs_probe.py": 1,
         "slm_wfs_reference.py": 1,
         "slm_zernike_correction.py": 1,
@@ -1072,6 +1074,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm_phase_resolution.py": 1,
         "slm_phase_response.py": 1,
         "slm_tilt_probe.py": 1,
+        "slm_train_data_collect.py": 2,
         "slm_zernike_sweep_probe.py": 1,
         "sweep_analysis.py": 1,
     }, f"camera-open per-file census drifted: {camera}"
