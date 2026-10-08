@@ -108,7 +108,7 @@
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、`KeyboardInterrupt`）都让 SLM 停在随机相位 | [#45](https://github.com/ywzhang909/AO-shaping/issues/45) |
 | R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴**已按实测修**，但真问题是**静默吞参数**：`SGD` 只收 `(dim, lr)` ⇒ `**config.kwargs` 逃生口是**死的** | [#46](https://github.com/ywzhang909/AO-shaping/issues/46) |
 | R-14 P2 | `metric_panel` 每 epoch 全量指标 → 加 `panel_every_n`。⚠️ **前置是产品决策**（跳过轮次留空 vs 沿用上一轮） | [#47](https://github.com/ywzhang909/AO-shaping/issues/47) |
-| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2100` 的**布尔 CLI flag**，GS 相位是 `slm_gs_refine.py:598` 内联调 `gs_shape`，**没有可复用函数**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
+| R-18 P3 | 离线 GS 作闭环初值 `--init-gs`：**`gs_warm_start` 已在别处落地** ⇒ 接入已有实现，或删掉陈旧注释 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48) |
 | R-19 P3 | 🟡 注入机制已统一（archive §5.34），**`BenchSession` 本体未做** ⇒ R-5~R-8 仍待办。本条是那四项的跟踪父项 | [#49](https://github.com/ywzhang909/AO-shaping/issues/49) |
 
 ### 2.2 `utils/` + `scripts/` + `tools/` 架构重构
@@ -121,7 +121,7 @@
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；启用 `R50Controller.__enter__/__exit__`。⚠️ 必须先钉死 Micro-DM 磁盘布局 | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法。⚠️ 只动 CLI 层，**不合并命令体** | [#52](https://github.com/ywzhang909/AO-shaping/issues/52) |
 | R-43 | 补 `micro_dm_image_collect.py` 测试（🟡 `train_data_collect.py` 一半已完成 → archive §5.32） | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
-| ~~R-44~~ | ✅ **已修**：`cosin` 分支原是 `lr*cos(π·e/E)+1e-6`（半波，非退火）⇒ `e>E/2` 返回 **`-lr+1e-6`**（完整反向）。已改为标准退火 `1e-6+(lr-1e-6)(1+cos(π·e/E))/2`，与 `rms_by_zernike.cosine_annealing_lr` **101 轮逐位一致**（max diff <1e-18）。⚠️ 原「实测 -3.09e-4」对应 `e=60`，archive 写 `e=75` 有误（`e=75` 应为 -7.06e-4） | [#54](https://github.com/ywzhang909/AO-shaping/issues/54)（已结） |
+| R-44 | 🔴 `algorithm.learning_schedule` 的 `cosin` 分支在 `epoch > epochs/2` 后返回**负学习率**（实测 `-3.09e-4`）。已用测试钉住现状，改它会动到所有调用者轨迹 | [#54](https://github.com/ywzhang909/AO-shaping/issues/54) |
 
 > **旧账本 §2.2 的 R-30 / R-31 两行是陈旧的** —— 它们实际已于 2026-10-03 完成
 > （见 [archive §5.1](docs/dev/todo_archive.md)），但表格未同步更新。**不要**为它们开 issue。
@@ -177,7 +177,7 @@
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | **R-29**（#50，`display.py` 搬 `display/`）⇒ **R-33 / R-43**（同一文件，#51 / #53）⇒ **R-39**（#52） |
-| **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | ~~**R-45**（#61）⇒ 误报，已结案~~ ⇒ **R-58**（#77，叶子层唯一的真违规）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
+| **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | **R-45**（#61 叶子层 14 处）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
 | **第 4 批（内部重构，需先补特征测试）** | **R-19**（#49，父项）⇒ **R-5 / R-6 / R-7 / R-8**（#42–#45）；**R-14**（#47，需先做产品决策）；**R-13**（#46）；**R-44**（#54，需先决定是否动所有调用者轨迹）；**R-18**（#48，接入已有实现或删注释） |
 | **纯离线但要台架数据** | **F-4**（#55，先做「`ml` 算不算主包」的决策）；**F-5**（#56，先切片）；**H-23**（#40，修 `hwdataset` 索引）；**X-2**（#60，加误报标记） |
 | **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.`55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有真机 `--debug` 产物 |
@@ -195,15 +195,14 @@
 
 | ID | issue | 摘要 | 波次 / 风险 |
 |---|---|---|---|
-| ~~R-45~~ | [#61](https://github.com/ywzhang909/AO-shaping/issues/61) | ❌ **误报，已作 not-planned 结案**：14 处经 AST 核实**全部**是 README 明文许可的 `TYPE_CHECKING` / 函数内延迟导入。真正的 1 处见 R-58 | ✅ |
+| R-45 | [#61](https://github.com/ywzhang909/AO-shaping/issues/61) | `utils/` 叶子层 14 处反向依赖（`hardware_utils` / `pattern_helper` / `wfs_utils`） | A 🟢 |
 | R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | `optimizer` 反向 import `tools/` 探针模块（`slm_model_in_loop` 两处） | B 🟢 |
-| **R-58** | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | 🔴 `utils/slm/phase_display.py:28` **模块级** `import model` ⇒ 导入这个叶子模块会在 import 期拉进 **60 个** `ao_shaping.drivers.*`（经 `model/field.py:45`），威胁驱动惰性加载契约 | A 🔴 |
 | R-47 | [#63](https://github.com/ywzhang909/AO-shaping/issues/63) | 面板几何下沉 `utils/slm/`（**`phase_to_panel` 归属纠正 + 命名陷阱**） | C 🟡 |
 | R-48 | [#64](https://github.com/ywzhang909/AO-shaping/issues/64) | 帧分析下沉 `utils/image/`（13 个纯数组符号） | C 🟡 |
 | R-49 | [#65](https://github.com/ywzhang909/AO-shaping/issues/65) | 新建 `utils/math/`（拟合 + 稳定性判据） | C 🟡 |
-| R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | ⚠️ **2026-10-06 部分修复，保持开放**。①「第三套 API 层」前提**不成立**：`PatternHelper.generate_zernike_polynomial:550` **已委托** canonical，是薄适配器（孔径外置0 + `nan_to_num` + raw 弧度），被~15 文件依赖 ⇒ 不可删；已订正其 docstring 的「唯一入口」不实声称（`82998b9`）。② 🔴 **两份实现不可互换**：`beam_simulation.py:74` 手写多项式 vs canonical `zernike_calc.py:197 zernike_radial` —— 25 个模式中 18 个仅差**逐模式尺度因子**（归一化不同），**7 个（n≥3 奇数阶）是真正不同的多项式**，最大绝对差 3.243 ⇒ 直接换用会静默改变 `optimizer/rl/envs.py:840` 的 RL 相位。③ `zernike_radial` **零生产调用方**，仅 3 个测试且只覆盖一致的 `(0,0)/(1,1)/(2,0)` ⇒ 它才是可疑的一方 | D 🔴 待决策 |
-| ~~R-51~~ | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | ✅ **2/3 已收口**（`290ee51`）：`flat_gray` 委托 `utils/slm_phase`（写死副本是「面板尺寸一变就静默不一致」）；`create_target_mask` 两份**去docstring 后逐字节相同**，改为由 `algorithm/…/differentiable_shaping` re-export `utils/image/target/patterns`（utils 在 algorithm 之下，方向正确）。❌ 第三项 `power_bucket` **删除与委托皆不可** → 拆出 R-59（#78） | ✅ |
-| R-52 | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | 报告脚本 `plot_summary_bars` 三份相同实现参数化 | D 🟡 |
+| R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | Zernike **第三套 API 层**收敛（`beam_simulation` / `PatternHelper`） | D 🟡 |
+| R-51 | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | 重复收口：`flat_gray` / `power_bucket` / `create_target_mask` | D 🟡 |
+| ~~R-52~~ | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | ✅ **2/3 收口**（`3a5b23f`）：`heuristic_pib` 与 `strehl_benchmark` 两份 `plot_summary_bars` 完全同构（只差 metric key / xlabel / title）→ 提为 `scripts/_common.plot_summary_bars`，其余常量全部钉死为两份原本的取值，**两个调用点 PNG 逐字节一致已验证**（21101B / 23372B），不重写任何已提交图。第三份 `generate_slm_pib_rms_pib_report` **刻意不合**：它按行数缩放图高、xlim 由数据动态导出、dpi=110 且无 `bbox_inches`、**有返回值**，强行合并等于把一套契约强加给两者（与 `_common` 五个 formatter 刻意不合并同理） | ✅ |
 | R-53 | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | `compute_metrics` 三份同名不同契约 → **改名不合并** | D 🟡 |
 | R-54 | [#70](https://github.com/ywzhang909/AO-shaping/issues/70) | 两个 SLM runner 大块重复（只抽共用段，不动 CLI flag） | D 🟡 |
 | R-55 | [#71](https://github.com/ywzhang909/AO-shaping/issues/71) | `utils/io/file.py` 等叶子层模块级 import matplotlib | E 🟡 |
@@ -225,7 +224,7 @@
 | `utils/wavefront/matrix_utils.py` 的 `calc_n_zernike_terms` | **有 docstring 声明的 re-export shim** ⇒ 保留 |
 | `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
 | `compute_metrics` 三份 | 三种真实契约 ⇒ 改**名**不合并，见 R-53 |
-| `utils/` 里指向 `drivers` / `algorithm` 的 **14 处**向上 import（`hardware_utils.py:33,673,686`、`wfs_utils.py:15,16`、`pattern_helper.py:20,36,92,98,830,847,864,883,896`） | ❌ **不是违规** —— 全部是 README「编码规范 §9」**明文许可**的 `TYPE_CHECKING` 保护或函数内延迟导入。已按此结案（#61）。⚠️ 另注意 `test_cli_params_leaf.py` 的 `_LEAF` 是**单个文件** `utils/cli/params.py`，**不覆盖整棵 `utils/`**，发现不了这类问题 |
+| `main` / `run`（各 entrypoint） | 合法 |
 | ~~`gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py`~~ | **曾是误判**：原文写「已漂移（各 106 行但 SHA256 不同）」，实测**两份各 130 行、归一化行尾后 SHA256 完全相同**（`9d4a448b78d7028f`），差异**仅 CRLF vs LF**。副本已删（F-13） |
 
 > 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有

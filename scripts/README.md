@@ -2764,6 +2764,7 @@ flattening a real measurement to zero in a committed report.
 | `fmt_signed(v, spec="+.4f")` | `_fmt` in `generate_shape_objective_comparison.py` | `"n/a"` for non-finite. |
 | `markdown_table(headers, rows)` | `_markdown_table` ×2 | GitHub-flavoured table. |
 | `savefig(fig, path, dpi=150)` | `_savefig` ×3 | `bbox_inches="tight"` + closes the figure. |
+| `plot_summary_bars(results, out_path, *, metric_key, xlabel, title)` | `plot_summary_bars` ×2 (heuristic-PIB and Strehl benchmarks) | Horizontal bar chart, one metric per algorithm, sorted descending. Every constant is pinned to what both copies used — `figsize=(8,5)`, `color="steelblue"`, value label at `+0.01` with 3 decimals, `xlim=(0,1.05)`, `grid(axis="x", alpha=0.3)`, `dpi=150` — and **byte-identical PNG output was verified for both call sites**, so no committed figure is rewritten. `generate_slm_pib_rms_pib_report` keeps its own `plot_summary_bars`: it scales figure height with the row count, derives a dynamic `xlim` from the data, uses `dpi=110` without `bbox_inches`, and returns the path instead of `None`. |
 | `iters_to_threshold(curve, threshold)` | ×2 | 1-based first crossing; `- 1e-12` absorbs float noise. |
 | `format_iters(v)` | ×2 | Em dash when the threshold was never reached. |
 
