@@ -33,6 +33,7 @@ __all__ = [
     "format_iters",
     "iters_to_threshold",
     "markdown_table",
+    "plot_summary_bars",
     "savefig",
 ]
 
@@ -175,3 +176,62 @@ def markdown_table(headers: Sequence[Any], rows: Sequence[Sequence[Any]]) -> str
     for r in rows:
         lines.append("| " + " | ".join(str(x) for x in r) + " |")
     return "\n".join(lines)
+
+
+def plot_summary_bars(
+    results: dict[str, dict],
+    out_path: Any,
+    *,
+    metric_key: str,
+    xlabel: str,
+    title: str,
+) -> None:
+    """Horizontal bar chart of one metric per algorithm, sorted descending.
+
+    Extracted because ``generate_heuristic_pib_report`` and
+    ``generate_strehl_benchmark_report`` carried the same block twice, differing only
+    in ``metric_key``, ``xlabel`` and ``title``. Those three are the whole variation,
+    so they became parameters here and every other constant is pinned to what both
+    copies actually used -- ``figsize=(8, 5)``, ``color="steelblue"``, the value label
+    at ``+0.01`` with three decimals, ``xlim=(0, 1.05)``, ``grid(axis="x",
+    alpha=0.3)`` and ``dpi=150``. Verified byte-identical PNG output for both call
+    sites, so no committed figure is rewritten.
+
+    ``generate_slm_pib_rms_pib_report`` also defines a ``plot_summary_bars`` and is
+    deliberately NOT routed through here: it scales figure height with the row count,
+    derives a dynamic ``xlim`` from the data, uses dpi=110 without
+    ``bbox_inches="tight"``, and returns the path instead of ``None``. Folding it in
+    would force one contract onto both and rewrite a committed figure -- the same
+    reason ``scripts/_common``'s five formatters are deliberately not merged.
+
+    Args:
+        results: ``{label: {metric_key: value}}``, sorted by that value descending.
+        out_path: destination PNG path.
+        metric_key: key inside each ``results`` entry holding the plotted value.
+        xlabel: x-axis label.
+        title: figure title.
+    """
+    import matplotlib.pyplot as plt
+
+    from loguru import logger
+
+    names = sorted(results, key=lambda n: results[n][metric_key], reverse=True)
+    values = [results[n][metric_key] for n in names]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+    bars = ax.barh(names, values, color="steelblue")
+    for bar, value in zip(bars, values, strict=True):
+        ax.text(
+            bar.get_width() + 0.01,
+            bar.get_y() + bar.get_height() / 2,
+            f"{value:.3f}",
+            va="center",
+            fontsize=9,
+        )
+    ax.set_xlabel(xlabel)
+    ax.set_xlim(0.0, 1.05)
+    ax.set_title(title)
+    ax.grid(True, axis="x", alpha=0.3)
+    fig.tight_layout()
+    savefig(fig, out_path, dpi=150)
+    logger.info("Saved {}", out_path)

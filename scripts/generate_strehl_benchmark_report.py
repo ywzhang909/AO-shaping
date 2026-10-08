@@ -59,7 +59,7 @@ from ao_shaping.optimizer.wfless.strehl_sim_eval import StrehlLandscape  # noqa:
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from scripts._common import format_iters, iters_to_threshold
+from scripts._common import format_iters, iters_to_threshold, plot_summary_bars
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo rule)
@@ -402,28 +402,18 @@ def plot_spot_before_after(
 
 
 def plot_summary_bars(results: dict[str, dict], out_dir: Path) -> None:
-    """Plot horizontal bar chart of final Strehl per algorithm."""
-    names = sorted(results, key=lambda n: results[n]["final_strehl"], reverse=True)
-    strehls = [results[n]["final_strehl"] for n in names]
+    """Plot horizontal bar chart of final Strehl per algorithm.
 
-    fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(names, strehls, color="steelblue")
-    for bar, s in zip(bars, strehls):
-        ax.text(
-            bar.get_width() + 0.01,
-            bar.get_y() + bar.get_height() / 2,
-            f"{s:.3f}",
-            va="center",
-            fontsize=9,
-        )
-    ax.set_xlabel("Final Strehl")
-    ax.set_xlim(0.0, 1.05)
-    ax.set_title("Strehl 优化结果对比 (TraditionalAOSystem, dim=64)")
-    ax.grid(True, axis="x", alpha=0.3)
-    fig.tight_layout()
-    fig.savefig(out_dir / "summary_bars.png", dpi=150, bbox_inches="tight")
-    plt.close(fig)
-    logger.info("Saved {}", out_dir / "summary_bars.png")
+    Delegates to ``scripts._common.plot_summary_bars``; this body used to be a copy of
+    the one in generate_heuristic_pib_report, differing only in the metric key, the axis label and the title.
+    """
+    plot_summary_bars(
+        results,
+        out_dir / "summary_bars.png",
+        metric_key="final_strehl",
+        xlabel="Final Strehl",
+        title="Strehl 优化结果对比 (TraditionalAOSystem, dim=64)",
+    )
 
 
 def save_summary_csv(
