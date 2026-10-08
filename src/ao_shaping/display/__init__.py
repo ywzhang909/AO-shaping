@@ -3,6 +3,7 @@ from ao_shaping.display.frames import (
     Image2DFrame,
     Image2DWithBucketFrame,
     VoltageFrame,
+    save_best_image,
     to_display_uint8,
 )
 from ao_shaping.display.gs_visualization import (
@@ -37,6 +38,7 @@ __all__ = [
     "create_gs_iteration_frame",
     "gerchberg_saxton_with_visualization",
     "render_gs_animation",
+    "save_best_image",
     "save_frames_as_gif",
     "to_display_uint8",
     "phase_for_display",

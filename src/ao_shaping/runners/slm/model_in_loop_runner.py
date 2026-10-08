@@ -25,6 +25,7 @@ import numpy as np
 
 from ao_shaping.runners.runner_common import SlmModelInLoopParams, with_params
 from ao_shaping.utils.io.cli_helpers import get_debug_mode
+from ao_shaping.display.frames import save_best_image
 
 
 def _parse_frozen_modes(raw: str) -> tuple[int, ...]:
@@ -284,21 +285,15 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     if params.save_best_image:
         img = result.best_frame
         if img is not None:
-            import matplotlib
-
-            matplotlib.use("Agg")
-            import matplotlib.pyplot as plt
-
-            fig, ax = plt.subplots(figsize=(8, 8))
-            ax.imshow(img, cmap="gray")
-            ax.set_title(
-                f"slm-model-in-loop best: score={result.best_score:.4f} "
-                f"(flat {result.flat_score:.4f})"
+            img_file = save_best_image(
+                img,
+                save_dir / "best_far_field.png",
+                title=(
+                    f"slm-model-in-loop best: score={result.best_score:.4f} "
+                    f"(flat {result.flat_score:.4f})"
+                ),
+                hide_axes=True,
             )
-            ax.axis("off")
-            img_file = save_dir / "best_far_field.png"
-            fig.savefig(img_file, dpi=150, bbox_inches="tight")
-            plt.close(fig)
             click.echo(f"Best image saved    : {img_file}")
 
     # The recorder pkl is written on EVERY run, not only under --debug.

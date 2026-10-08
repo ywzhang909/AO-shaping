@@ -93,6 +93,7 @@ from ao_shaping.utils.io.file import (
     Recorder,
     save_recorder_debug_artifacts,
 )
+from ao_shaping.display.frames import save_best_image
 
 # Backward-compatible aliases / re-exports — tests and external callers
 # import the parameter dataclasses from the runner module they configure, so
@@ -756,19 +757,16 @@ def _save_square_best_image(save_dir: Path, best_iter: dict) -> None:
     if best_img is None:
         return
 
-    import matplotlib.pyplot as plt
-
     side = best_iter.get("side", 0)
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.imshow(best_img, cmap="gray")
-    ax.set_title(
-        f"Best square (CV={best_iter.get('cv', 0):.4f}, "
-        f"EE={best_iter.get('ee', 0):.4f})"
+    img_file = save_best_image(
+        best_img,
+        save_dir / "best_square.png",
+        title=(
+            f"Best square (CV={best_iter.get('cv', 0):.4f}, "
+            f"EE={best_iter.get('ee', 0):.4f})"
+        ),
+        marker_side=side,
     )
-    ax.scatter(side // 2, side // 2, c="red", s=20, marker="+")
-    img_file = save_dir / "best_square.png"
-    plt.savefig(img_file, dpi=150, bbox_inches="tight")
-    plt.close()
     click.echo(f"Best image saved: {img_file}")
 
 

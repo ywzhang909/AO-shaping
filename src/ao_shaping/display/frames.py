@@ -1,4 +1,5 @@
 from abc import ABC
+from typing import Any
 
 import numpy as np
 from loguru import logger
@@ -459,3 +460,45 @@ class EpochCurveFrame(BaseFrame):
                 )
 
         super().render()
+
+
+def save_best_image(
+    img: np.ndarray,
+    out_path: Any,
+    *,
+    title: str,
+    marker_side: int | None = None,
+    hide_axes: bool = False,
+) -> Any:
+    """Render one far-field frame to PNG and return the path written.
+
+    Canonical implementation for the three SLM runners' "save the best frame" step
+    (issue #83). Each copy differed in ways that mattered, so the differences are
+    explicit parameters:
+
+    Args:
+        img: 2-D far-field intensity frame.
+        out_path: destination PNG path.
+        title: figure title -- each runner reports its own metrics here.
+        marker_side: when given, draw a red cross at the square target's half
+            diagonal (``marker_side // 2``). The square-shaping runner uses this as a
+            reading reference; the freeform / model-in-loop runners pass ``None``.
+        hide_axes: call ``ax.axis("off")``. Used by the two freeform-family runners.
+
+    Returns:
+        The path written, so callers can echo it.
+    """
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots(figsize=(8, 8))
+    ax.imshow(img, cmap="gray")
+    ax.set_title(title)
+    if marker_side is not None:
+        ax.scatter(
+            marker_side // 2, marker_side // 2, c="red", s=20, marker="+",
+        )
+    if hide_axes:
+        ax.axis("off")
+    fig.savefig(out_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
