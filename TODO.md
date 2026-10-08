@@ -203,7 +203,7 @@
 | R-50 | [#66](https://github.com/ywzhang909/AO-shaping/issues/66) | Zernike **第三套 API 层**收敛（`beam_simulation` / `PatternHelper`） | D 🟡 |
 | R-51 | [#67](https://github.com/ywzhang909/AO-shaping/issues/67) | 重复收口：`flat_gray` / `power_bucket` / `create_target_mask` | D 🟡 |
 | ~~R-52~~ | [#68](https://github.com/ywzhang909/AO-shaping/issues/68) | ✅ **2/3 收口**（`3a5b23f`）：`heuristic_pib` 与 `strehl_benchmark` 两份 `plot_summary_bars` 完全同构（只差 metric key / xlabel / title）→ 提为 `scripts/_common.plot_summary_bars`，其余常量全部钉死为两份原本的取值，**两个调用点 PNG 逐字节一致已验证**（21101B / 23372B），不重写任何已提交图。第三份 `generate_slm_pib_rms_pib_report` **刻意不合**：它按行数缩放图高、xlim 由数据动态导出、dpi=110 且无 `bbox_inches`、**有返回值**，强行合并等于把一套契约强加给两者（与 `_common` 五个 formatter 刻意不合并同理） | ✅ |
-| R-53 | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | `compute_metrics` 三份同名不同契约 → **改名不合并** | D 🟡 |
+| ~~R-53~~ | [#69](https://github.com/ywzhang909/AO-shaping/issues/69) | ✅ **改名消歧完成**（`3aece31`）：三份 `compute_metrics` 是**三种真实契约**、合并会破坏至少两个调用方，故只改名不合并 —— `compute_beam_metrics`（dict: mse/correlation/efficiency，canonical，20+ 调用方）· `compute_bench_metrics`（dict: center/zero_order_margin_px）· `compute_cv_ee`（tuple: CV,EE）。60 处 / 16 文件，**无任何文件同时引用两者**，故按文件定向改名安全；docstring / AGENTS.md / 两处导航型 report README 同步更新。新增守卫 `test_compute_metrics_renamed.py`：裸名再现、三名缺失、两契约塌缩为同一 docstring 均判失败 | ✅ |
 | R-54 | [#70](https://github.com/ywzhang909/AO-shaping/issues/70) | 两个 SLM runner 大块重复（只抽共用段，不动 CLI flag） | D 🟡 |
 | R-55 | [#71](https://github.com/ywzhang909/AO-shaping/issues/71) | `utils/io/file.py` 等叶子层模块级 import matplotlib | E 🟡 |
 | R-56 | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | `optimizer/` 内 9 处 pygame / matplotlib 渲染面 | E 🔴→🟡 |
