@@ -13,7 +13,6 @@ from ao_shaping.drivers.ccd.common import (
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
-from ao_shaping.optimizer.constants import OPTIMIZER_MAP
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.spots_calc import radius
@@ -98,16 +97,8 @@ from ao_shaping.algorithm.tabu.tabu_search import (  # noqa: F401
     TabuMemory,
 )
 
+from ao_shaping.optimizer.constants import create_optimizer
 
-def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
-    """Create the configured optimizer while filtering unsupported kwargs."""
-    optimizer_cls = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
-    filtered_kwargs = {}
-    signature = inspect.signature(optimizer_cls.__init__)
-    for key, value in kwargs.items():
-        if key in signature.parameters:
-            filtered_kwargs[key] = value
-    return optimizer_cls(dim, lr=lr, **filtered_kwargs)
 
 
 def _extract_optimizer_momentum(optimizer: Base) -> np.ndarray | float | None:
@@ -514,7 +505,7 @@ def optimize_pib(
 
             j, pib_ratio = calc_objective(init_img)
 
-            optimizer = _create_optimizer(
+            optimizer = create_optimizer(
                 optimizer_type=optimizer_type,
                 dim=dm.DM_Num,
                 lr=lr,

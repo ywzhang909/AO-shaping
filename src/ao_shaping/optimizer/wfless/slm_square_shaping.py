@@ -123,6 +123,7 @@ from ao_shaping.utils.wavefront.zernike_calc import (
     calc_n_zernike_terms,
     noll_indices,
 )
+from ao_shaping.optimizer.constants import create_optimizer
 
 if TYPE_CHECKING:
     import pygame
@@ -175,14 +176,6 @@ SLM_WIDTH = 1920
 SLM_HEIGHT = 1200
 SLM_RESOLUTION = (SLM_WIDTH, SLM_HEIGHT)
 
-OPTIMIZER_MAP = {
-    "adam": Adam,
-    "adamw": AdamW,
-    "adamod": AdaMOD,
-    "sgd": SGD,
-    "muno": Muno,
-    "munow": MunoW,
-}
 
 # Zernike basis: only these modes are optimised by ``spgd-square``. Defocus
 # (2,0) + Spherical (4,0) match the GUI Zernike branch (multi_slm_controller.py)
@@ -225,15 +218,6 @@ def _map_init_to_active_modes(
     return arr[: len(active_modes)]
 
 
-def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
-    """Create the configured optimizer while filtering unsupported kwargs."""
-    optimizer_cls = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
-    filtered_kwargs = {}
-    signature = inspect.signature(optimizer_cls.__init__)
-    for key, value in kwargs.items():
-        if key in signature.parameters:
-            filtered_kwargs[key] = value
-    return optimizer_cls(dim, lr=lr, **filtered_kwargs)
 
 
 def _locate_square_center(img: np.ndarray, mode: str) -> tuple[int, int]:
@@ -1903,7 +1887,7 @@ def optimize_slm_square(
             return recorder
 
         # Create optimizer
-        optimizer = _create_optimizer(
+        optimizer = create_optimizer(
             optimizer_type=optimizer_type,
             dim=_opt_dim,
             lr=lr,

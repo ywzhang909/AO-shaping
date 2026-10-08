@@ -25,6 +25,8 @@ from typing import Any
 import numpy as np
 import pytest
 
+from ao_shaping.optimizer.constants import OPTIMIZER_MAP as _CANONICAL_OPTIMIZER_MAP
+from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     SlmZernikePibConfig,
     _frame_fold_check,
@@ -581,7 +583,7 @@ class TestCreateOptimizerKwargFilter:
 
         module = importlib.import_module(module_name)
         with _loguru_records() as records:
-            optimizer = module._create_optimizer("sgd", dim=4, lr=0.1, momentum=0.9)
+            optimizer = create_optimizer("sgd", dim=4, lr=0.1, momentum=0.9)
         assert type(optimizer).__name__ == "SGD"
         assert any("momentum" in r for r in records), (
             "a kwarg the optimizer cannot accept must be reported; dropping it "
@@ -605,14 +607,14 @@ class TestCreateOptimizerKwargFilter:
                 self.dim = dim
                 self.lr = lr
 
-        original = dict(module.OPTIMIZER_MAP)
-        module.OPTIMIZER_MAP["sink"] = _Sinks
+        original = dict(_CANONICAL_OPTIMIZER_MAP)
+        _CANONICAL_OPTIMIZER_MAP["sink"] = _Sinks
         try:
             with _loguru_records() as records:
-                module._create_optimizer("sink", dim=4, lr=0.1, beta1=0.85, freeform=7)
+                create_optimizer("sink", dim=4, lr=0.1, beta1=0.85, freeform=7)
         finally:
-            module.OPTIMIZER_MAP.clear()
-            module.OPTIMIZER_MAP.update(original)
+            _CANONICAL_OPTIMIZER_MAP.clear()
+            _CANONICAL_OPTIMIZER_MAP.update(original)
 
         assert received == {"beta1": 0.85, "freeform": 7}, received
         assert not records, (
@@ -629,7 +631,7 @@ class TestCreateOptimizerKwargFilter:
         import importlib
 
         module = importlib.import_module(module_name)
-        optimizer = module._create_optimizer("adam", dim=4, lr=0.1, beta1=0.85)
+        optimizer = create_optimizer("adam", dim=4, lr=0.1, beta1=0.85)
         assert optimizer.beta1 == pytest.approx(0.85)
 
 

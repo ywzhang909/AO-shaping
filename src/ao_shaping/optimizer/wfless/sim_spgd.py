@@ -10,26 +10,15 @@ import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
 from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
-from ao_shaping.optimizer.constants import OPTIMIZER_MAP
 from ao_shaping.utils.image.spots_calc import power_bucket, radius
 from ao_shaping.utils import logger, Recorder
 
+from ao_shaping.optimizer.constants import create_optimizer
 
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])
 
 
-def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs) -> Base:
-    """Create optimizer instance."""
-    opt_class = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
-    filtered_kwargs = {}
-    import inspect
-
-    sig = inspect.signature(opt_class.__init__)
-    for key, value in kwargs.items():
-        if key in sig.parameters:
-            filtered_kwargs[key] = value
-    return opt_class(dim, lr=lr, **filtered_kwargs)
 
 
 def _pib_ratio(
@@ -277,7 +266,7 @@ def optimize_spgd(
     use_fixed_gain = optimizer_key == "spgd"
     adaptive_optimizer = None
     if not use_fixed_gain:
-        adaptive_optimizer = _create_optimizer(
+        adaptive_optimizer = create_optimizer(
             optimizer_key,
             total_actuators,
             lr=max(current_gamma * current_delta, 1e-8),
@@ -537,7 +526,7 @@ def optimize_spgd_zernike(
     use_fixed_gain = optimizer_key == "spgd"
     adaptive_optimizer = None
     if not use_fixed_gain:
-        adaptive_optimizer = _create_optimizer(
+        adaptive_optimizer = create_optimizer(
             optimizer_key,
             nk,
             lr=max(current_gamma * current_delta, 1e-8),

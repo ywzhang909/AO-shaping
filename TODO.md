@@ -106,7 +106,7 @@
 | R-6 P1 | 两个搜索分支共享 `BenchSession`（序列重复，**饱和策略还不一致**） | [#43](https://github.com/ywzhang909/AO-shaping/issues/43) |
 | R-7 P1 | 巨型函数拆编排器：~900 行 → `prepare_geometry`（**不可变 dataclass**，字段必须区分 `window_center_full_frame` / `reference_center_window_local`）+ `_run_spgd` / `_run_heuristic` | [#44](https://github.com/ywzhang909/AO-shaping/issues/44) |
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、`KeyboardInterrupt`）都让 SLM 停在随机相位 | [#45](https://github.com/ywzhang909/AO-shaping/issues/45) |
-| R-13 P2 | `_create_optimizer` 的 `inspect.signature` 创可贴**已按实测修**，但真问题是**静默吞参数**：`SGD` 只收 `(dim, lr)` ⇒ `**config.kwargs` 逃生口是**死的** | [#46](https://github.com/ywzhang909/AO-shaping/issues/46) |
+| ~~R-13~~ | ✅ **收敛完成**（#46）：实测**不是 5 份相同副本，而是 4 种不同实现** —— 只有 `slm_square_shaping` 与 `pib` 逐字节相同（9 行）；`slm_zernike_pib` + `slm_zernike_shaping` **早已是「响亮失败」版**（检测 `accepts_var_keyword`、转发 `**kwargs`、并 warning 列出被丢参数），而 `pib` / `slm_square_shaping` / `sim_spgd` **仍静默吞参**（且永远不转发给声明 `**kwargs` 的 callee，即 `**config.kwargs` 逃生口失效）。canonical 落在 `optimizer/constants.py::create_optimizer`，紧邻它本就该集中管理的 `OPTIMIZER_MAP`。🎁 **额外发现**：3 个文件各自还定义了一份 `OPTIMIZER_MAP`，与 canonical **内容完全相同**（仅差类型标注）→ 一并改为导入。守卫 `test_optimizer_factory_single_home.py`（12 项）除结构检查外**锁定行为**：丢参必须被报告、声明 `**kwargs` 的 callee 必须收到传参 | ✅ |
 | R-14 P2 | `metric_panel` 每 epoch 全量指标 → 加 `panel_every_n`。⚠️ **前置是产品决策**（跳过轮次留空 vs 沿用上一轮） | [#47](https://github.com/ywzhang909/AO-shaping/issues/47) |
 | R-18 P3 | 离线 GS 作闭环初值 `--init-gs`：**`gs_warm_start` 已在别处落地** ⇒ 接入已有实现，或删掉陈旧注释 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48) |
 | R-19 P3 | 🟡 注入机制已统一（archive §5.34），**`BenchSession` 本体未做** ⇒ R-5~R-8 仍待办。本条是那四项的跟踪父项 | [#49](https://github.com/ywzhang909/AO-shaping/issues/49) |

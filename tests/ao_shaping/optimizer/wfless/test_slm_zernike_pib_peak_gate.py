@@ -210,7 +210,7 @@ class TestOrthogonality:
         )
 
         calls: list[int] = []
-        real_create = mod._create_optimizer
+        real_create = mod.create_optimizer
 
         def _spy(*a, **k):
             opt = real_create(*a, **k)
@@ -224,7 +224,7 @@ class TestOrthogonality:
             return opt
 
         _patch_sim(monkeypatch)
-        monkeypatch.setattr(mod, "_create_optimizer", _spy)
+        monkeypatch.setattr(mod, "create_optimizer", _spy)
         optimize_slm_zernike_pib(_config(max_peak=1.0))
         assert calls == [], "optimizer.update ran despite every epoch being frozen"
 
