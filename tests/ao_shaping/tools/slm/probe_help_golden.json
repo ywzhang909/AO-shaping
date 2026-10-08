@@ -777,8 +777,8 @@
     ]
   },
   "slm_zernike_sweep_probe": {
-    "body_literals": 105,
-    "body_literals_sha256": "0f495ed125aa8075",
+    "body_literals": 104,
+    "body_literals_sha256": "79e5ad740de68938",
     "declared": [
       "--no-hw",
       "--no-save-frames",

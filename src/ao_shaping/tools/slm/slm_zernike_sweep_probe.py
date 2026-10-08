@@ -41,7 +41,8 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.tools.slm.params import SlmAcquireParams, SlmBenchParams
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.slm.bench_kernels import (  # noqa: F401  (capture_settled re-export)
+    capture_settled,
     SLM_PITCH_M,
     SLM_PANEL_H,
     SLM_PANEL_W,
@@ -213,43 +214,6 @@ def point_panel_phase(
         )
     return zernike_panel({nm: float(point.coefficient)}, zernike_radius, pupil_center,
                          panel_shape)
-
-
-def capture_settled(
-    cam: Any,
-    slm: Any,
-    phase_rad: np.ndarray,
-    *,
-    n_frames: int = 4,
-    n_discard: int = 3,
-    wait_time_s: float = 0.5,
-    stable_tol: float = 0.02,
-    max_wait_s: float = 6.0,
-) -> np.ndarray:
-    """Display one phase and return the averaged far-field frame once settled.
-
-    The single-phase entry point, for callers that build their own acquisition
-    order (an ABBA interleave, a repeated push-pull) and only need the settle
-    discipline and the averaging from here.
-
-    Args:
-        cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
-        slm: An open SLM exposing ``create_phase_from_array`` and
-            ``display_data(gray, wait_time_s)``.
-        phase_rad: Raw unwrapped radians, panel-shaped.
-        n_frames: Frames averaged into the returned measurement.
-        n_discard: Frames discarded before the stability loop starts.
-        wait_time_s: Explicit LCOS settle before measuring.
-        stable_tol: Relative agreement required between consecutive readings.
-        max_wait_s: Cap on the wait for stability.
-
-    Returns:
-        The averaged frame.
-    """
-    return display_and_average(
-        cam, slm, phase_rad, n_frames=n_frames, n_discard=n_discard,
-        wait_time_s=wait_time_s, stable_tol=stable_tol, max_wait_s=max_wait_s,
-    )
 
 
 def acquire_sweep(

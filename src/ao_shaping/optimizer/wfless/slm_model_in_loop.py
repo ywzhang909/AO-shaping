@@ -803,7 +803,7 @@ class _HardwareBench:
     def __init__(self, config: SlmModelInLoopConfig) -> None:
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm.santec import Santec
-        from ao_shaping.tools.slm.slm_zernike_sweep_probe import capture_settled
+        from ao_shaping.tools.slm.bench_kernels import capture_settled
 
         self._capture = capture_settled
         self._config = config
