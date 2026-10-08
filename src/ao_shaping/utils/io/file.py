@@ -18,7 +18,12 @@ from ao_shaping.utils.io.timestamp import (
 
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+
+# NOTE: matplotlib is imported lazily inside the functions that plot
+# (Recorder.save_best / Recorder.plot / _save_data_mode_debug_artifacts /
+# save_optimization_debug_artifacts). utils/ is the leaf layer and must not
+# module-level import a rendering stack; the same reasoning already applies to
+# `ao_shaping.utils.image.display`, which is deferred for cycle reasons.
 
 # Project root directory (workspace root)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -449,6 +454,8 @@ class Recorder:
     def save_best(
         self, saved_dir: str | Path, target: str, process_fn=lambda x: x, **kwargs
     ):
+        import matplotlib.pyplot as plt
+
         target_value, (index, value) = self.get_best_target(target)
 
         if isinstance(saved_dir, str):
@@ -474,6 +481,8 @@ class Recorder:
         return target_value, value
 
     def plot(self, target: str, ax=None):
+        import matplotlib.pyplot as plt
+
         if ax is None:
             fig, ax = plt.subplots(1, 1, figsize=(12, 4))
         ax.plot(self.history[target], self.history[self.mark])
@@ -598,6 +607,8 @@ def _save_data_mode_debug_artifacts(
     """
     epochs = sorted(data.keys())
 
+    import matplotlib.pyplot as plt
+
     fig, ax = plt.subplots(2, 2, figsize=(12, 9))
 
     obj_key = _infer_objective_key(data)
@@ -721,6 +732,8 @@ def save_optimization_debug_artifacts(
 
     # --- wavefront mode (historical behaviour) ---
     from ao_shaping.utils.image.display import make_debug_wavefront_ax_plots, plot_funcs
+
+    import matplotlib.pyplot as plt
 
     fig, ax = plt.subplots(2, 2, figsize=(12, 9))
 
