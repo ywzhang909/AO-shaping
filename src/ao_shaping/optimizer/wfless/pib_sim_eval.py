@@ -5,10 +5,7 @@ from dataclasses import dataclass, field
 import html
 from pathlib import Path
 
-import matplotlib
 
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
@@ -346,6 +343,10 @@ def save_visualizations(
 ) -> dict[str, Path]:
     """Persist CSV and diagnostic plots for the simulation suite."""
     output_path = Path(output_dir)
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
     output_path.mkdir(parents=True, exist_ok=True)
 
     summary_csv = output_path / "summary.csv"

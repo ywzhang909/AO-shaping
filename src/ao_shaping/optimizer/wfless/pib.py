@@ -4,7 +4,6 @@ from contextlib import contextmanager
 
 import tqdm
 import numpy as np
-import matplotlib.pylab as plt
 
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
@@ -377,6 +376,8 @@ def optimize_pib(
 
     """
 
+
+    import matplotlib.pylab as plt
     delta = abs(delta)
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
