@@ -16,6 +16,7 @@ it in would make this guard fail for a reason that has not been decided yet. Whe
 from __future__ import annotations
 
 import ast
+import pytest
 from pathlib import Path
 
 RENDERING_STACK = ("matplotlib", "pygame", "pyplot")
@@ -26,7 +27,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 UTILS_ROOT = REPO_ROOT / "src" / "ao_shaping" / "utils"
 
 #: module-level rendering imports that are known and still open
-_CARVE_OUT = {"src/ao_shaping/utils/image/display.py"}
+_CARVE_OUT = set()
 
 
 def _module_level_rendering_imports(path: Path) -> list[int]:
@@ -108,3 +109,8 @@ def test_file_py_plotting_helpers_still_work() -> None:
         if not has_local:
             missing.append(fn.name)
     assert not missing, f"these functions use plt but no longer import it: {missing}"
+def test_old_display_path_raises() -> None:
+    import sys
+    sys.path.insert(0, str(REPO_ROOT / 'src'))
+    with pytest.raises(ImportError):
+        import ao_shaping.utils.image.display  # noqa: F401

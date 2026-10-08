@@ -14,7 +14,7 @@ from ao_shaping.utils.io.file import (
     get_init_V_by_rms,
     logger,
 )
-from ao_shaping.utils.image.display import plot_funcs
+from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
     get_date_dir_name,

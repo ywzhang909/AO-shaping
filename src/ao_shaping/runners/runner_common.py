@@ -12,7 +12,7 @@ canonical homes:
   :func:`_save_data_mode_debug_artifacts`,
   :func:`_infer_objective_key` → :mod:`ao_shaping.utils.io.file`
 * :func:`make_debug_wavefront_ax_plots`,
-  :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
+  :func:`save_recorder_artifacts` → :mod:`ao_shaping.display.image_display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
 This module keeps only the parameter dataclasses (with their click option

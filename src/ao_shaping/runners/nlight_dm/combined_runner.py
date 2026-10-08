@@ -13,7 +13,7 @@ from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
 )
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.utils.image.display import plot_funcs
+from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import CameraParams, CombinedRunnerParams, with_params
 

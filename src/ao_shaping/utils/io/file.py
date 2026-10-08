@@ -23,7 +23,7 @@ import pandas as pd
 # (Recorder.save_best / Recorder.plot / _save_data_mode_debug_artifacts /
 # save_optimization_debug_artifacts). utils/ is the leaf layer and must not
 # module-level import a rendering stack; the same reasoning already applies to
-# `ao_shaping.utils.image.display`, which is deferred for cycle reasons.
+# `ao_shaping.display.image_display`, which is deferred for cycle reasons.
 
 # Project root directory (workspace root)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -731,7 +731,7 @@ def save_optimization_debug_artifacts(
         )
 
     # --- wavefront mode (historical behaviour) ---
-    from ao_shaping.utils.image.display import make_debug_wavefront_ax_plots, plot_funcs
+    from ao_shaping.display.image_display import make_debug_wavefront_ax_plots, plot_funcs
 
     import matplotlib.pyplot as plt
 

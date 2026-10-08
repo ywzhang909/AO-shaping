@@ -18,12 +18,12 @@ import pytest
 
 def test_single_implementation_across_import_paths():
     import ao_shaping.display as display_pkg
-    import ao_shaping.utils.image.display as utils_display
+    import ao_shaping.display.image_display as display_mod
     from ao_shaping.utils import ImageVoltagesDisplay as utils_pkg_cls
 
-    assert display_pkg.ImageVoltagesDisplay is utils_display.ImageVoltagesDisplay
+    assert display_pkg.ImageVoltagesDisplay is display_mod.ImageVoltagesDisplay
     assert utils_pkg_cls is display_pkg.ImageVoltagesDisplay
-    assert utils_display.VOLT_HEIGHT == display_pkg.windows.VOLT_HEIGHT
+    assert display_pkg.windows.VOLT_HEIGHT == display_mod.VOLT_HEIGHT
 
 
 class TestImageVoltagesDisplay:

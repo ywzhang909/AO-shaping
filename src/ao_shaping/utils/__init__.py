@@ -75,21 +75,21 @@ if TYPE_CHECKING:  # pragma: no cover - for static analysers only
     from ao_shaping.utils.io.file import get_init_V_by_energy as get_init_V_by_energy
     from ao_shaping.utils.io.file import save_history as save_history
     from ao_shaping.utils.io.file import Recorder as Recorder
-    from ao_shaping.utils.image.display import ImageVoltagesDisplay as ImageVoltagesDisplay
-    from ao_shaping.utils.image.display import ZernikeCalibrationDisplay as ZernikeCalibrationDisplay
-    from ao_shaping.utils.image.display import plot_funcs as plot_funcs
-    from ao_shaping.utils.image.display import VOLT_HEIGHT as VOLT_HEIGHT
-    from ao_shaping.utils.image.display import LOG_J_HEIGHT as LOG_J_HEIGHT
-    from ao_shaping.utils.image.display import BACKGROUND_COLOR as BACKGROUND_COLOR
-    from ao_shaping.utils.image.display import LINE_COLOR as LINE_COLOR
-    from ao_shaping.utils.image.display import ZERN_STABLE_COLOR as ZERN_STABLE_COLOR
-    from ao_shaping.utils.image.display import ZERN_MODERATE_COLOR as ZERN_MODERATE_COLOR
-    from ao_shaping.utils.image.display import ZERN_UNSTABLE_COLOR as ZERN_UNSTABLE_COLOR
-    from ao_shaping.utils.image.display import ZERN_BAR_DEFAULT_COLOR as ZERN_BAR_DEFAULT_COLOR
-    from ao_shaping.utils.image.display import ZERN_TEXT_COLOR as ZERN_TEXT_COLOR
-    from ao_shaping.utils.image.display import ZERN_BG_COLOR as ZERN_BG_COLOR
-    from ao_shaping.utils.image.display import ZERN_PROGRESS_BG as ZERN_PROGRESS_BG
-    from ao_shaping.utils.image.display import ZERN_PROGRESS_FILL as ZERN_PROGRESS_FILL
+    from ao_shaping.display.image_display import ImageVoltagesDisplay as ImageVoltagesDisplay
+    from ao_shaping.display.image_display import ZernikeCalibrationDisplay as ZernikeCalibrationDisplay
+    from ao_shaping.display.image_display import plot_funcs as plot_funcs
+    from ao_shaping.display.image_display import VOLT_HEIGHT as VOLT_HEIGHT
+    from ao_shaping.display.image_display import LOG_J_HEIGHT as LOG_J_HEIGHT
+    from ao_shaping.display.image_display import BACKGROUND_COLOR as BACKGROUND_COLOR
+    from ao_shaping.display.image_display import LINE_COLOR as LINE_COLOR
+    from ao_shaping.display.image_display import ZERN_STABLE_COLOR as ZERN_STABLE_COLOR
+    from ao_shaping.display.image_display import ZERN_MODERATE_COLOR as ZERN_MODERATE_COLOR
+    from ao_shaping.display.image_display import ZERN_UNSTABLE_COLOR as ZERN_UNSTABLE_COLOR
+    from ao_shaping.display.image_display import ZERN_BAR_DEFAULT_COLOR as ZERN_BAR_DEFAULT_COLOR
+    from ao_shaping.display.image_display import ZERN_TEXT_COLOR as ZERN_TEXT_COLOR
+    from ao_shaping.display.image_display import ZERN_BG_COLOR as ZERN_BG_COLOR
+    from ao_shaping.display.image_display import ZERN_PROGRESS_BG as ZERN_PROGRESS_BG
+    from ao_shaping.display.image_display import ZERN_PROGRESS_FILL as ZERN_PROGRESS_FILL
     from ao_shaping.utils.io.timestamp import TimestampParser as TimestampParser
     from ao_shaping.utils.io.timestamp import parse_timestamp as parse_timestamp
     from ao_shaping.utils.io.timestamp import sort_by_timestamp as sort_by_timestamp
@@ -126,7 +126,7 @@ if TYPE_CHECKING:  # pragma: no cover - for static analysers only
 #: ``matrix_utils`` and ``zernike_calc``) the LAST one wins, matching what the
 #: previous sequential ``from ... import`` block resolved to.
 _LAZY_EXPORTS: dict[str, str] = {
-    'display': 'ao_shaping.utils.image:display',
+'display': 'ao_shaping.display:image_display',
     'spots_calc': 'ao_shaping.utils.image:spots_calc',
     'file': 'ao_shaping.utils.io:file',
     'timestamp': 'ao_shaping.utils.io:timestamp',
@@ -170,21 +170,21 @@ _LAZY_EXPORTS: dict[str, str] = {
     'get_init_V_by_energy': 'ao_shaping.utils.io.file:get_init_V_by_energy',
     'save_history': 'ao_shaping.utils.io.file:save_history',
     'Recorder': 'ao_shaping.utils.io.file:Recorder',
-    'ImageVoltagesDisplay': 'ao_shaping.utils.image.display:ImageVoltagesDisplay',
-    'ZernikeCalibrationDisplay': 'ao_shaping.utils.image.display:ZernikeCalibrationDisplay',
-    'plot_funcs': 'ao_shaping.utils.image.display:plot_funcs',
-    'VOLT_HEIGHT': 'ao_shaping.utils.image.display:VOLT_HEIGHT',
-    'LOG_J_HEIGHT': 'ao_shaping.utils.image.display:LOG_J_HEIGHT',
-    'BACKGROUND_COLOR': 'ao_shaping.utils.image.display:BACKGROUND_COLOR',
-    'LINE_COLOR': 'ao_shaping.utils.image.display:LINE_COLOR',
-    'ZERN_STABLE_COLOR': 'ao_shaping.utils.image.display:ZERN_STABLE_COLOR',
-    'ZERN_MODERATE_COLOR': 'ao_shaping.utils.image.display:ZERN_MODERATE_COLOR',
-    'ZERN_UNSTABLE_COLOR': 'ao_shaping.utils.image.display:ZERN_UNSTABLE_COLOR',
-    'ZERN_BAR_DEFAULT_COLOR': 'ao_shaping.utils.image.display:ZERN_BAR_DEFAULT_COLOR',
-    'ZERN_TEXT_COLOR': 'ao_shaping.utils.image.display:ZERN_TEXT_COLOR',
-    'ZERN_BG_COLOR': 'ao_shaping.utils.image.display:ZERN_BG_COLOR',
-    'ZERN_PROGRESS_BG': 'ao_shaping.utils.image.display:ZERN_PROGRESS_BG',
-    'ZERN_PROGRESS_FILL': 'ao_shaping.utils.image.display:ZERN_PROGRESS_FILL',
+    'ImageVoltagesDisplay': 'ao_shaping.display.image_display:ImageVoltagesDisplay',
+    'ZernikeCalibrationDisplay': 'ao_shaping.display.image_display:ZernikeCalibrationDisplay',
+    'plot_funcs': 'ao_shaping.display.image_display:plot_funcs',
+    'VOLT_HEIGHT': 'ao_shaping.display.image_display:VOLT_HEIGHT',
+    'LOG_J_HEIGHT': 'ao_shaping.display.image_display:LOG_J_HEIGHT',
+    'BACKGROUND_COLOR': 'ao_shaping.display.image_display:BACKGROUND_COLOR',
+    'LINE_COLOR': 'ao_shaping.display.image_display:LINE_COLOR',
+    'ZERN_STABLE_COLOR': 'ao_shaping.display.image_display:ZERN_STABLE_COLOR',
+    'ZERN_MODERATE_COLOR': 'ao_shaping.display.image_display:ZERN_MODERATE_COLOR',
+    'ZERN_UNSTABLE_COLOR': 'ao_shaping.display.image_display:ZERN_UNSTABLE_COLOR',
+    'ZERN_BAR_DEFAULT_COLOR': 'ao_shaping.display.image_display:ZERN_BAR_DEFAULT_COLOR',
+    'ZERN_TEXT_COLOR': 'ao_shaping.display.image_display:ZERN_TEXT_COLOR',
+    'ZERN_BG_COLOR': 'ao_shaping.display.image_display:ZERN_BG_COLOR',
+    'ZERN_PROGRESS_BG': 'ao_shaping.display.image_display:ZERN_PROGRESS_BG',
+    'ZERN_PROGRESS_FILL': 'ao_shaping.display.image_display:ZERN_PROGRESS_FILL',
     'TimestampParser': 'ao_shaping.utils.io.timestamp:TimestampParser',
     'parse_timestamp': 'ao_shaping.utils.io.timestamp:parse_timestamp',
     'sort_by_timestamp': 'ao_shaping.utils.io.timestamp:sort_by_timestamp',
