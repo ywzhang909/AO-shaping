@@ -124,7 +124,7 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = 0.0
+SLM_RESPONSE_TIME_S = None
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -135,7 +135,6 @@ SLM_APPLY_BEST_ON_EXIT = True
 # SLM resolution. Sourced from the driver rather than repeated here -- see the
 # note in slm_zernike_pib.py. Names kept because tests import them.
 SLM_WIDTH, SLM_HEIGHT = PANEL_RES
-SLM_RESOLUTION = tuple(PANEL_RES)
 
 OPTIMIZER_MAP = {
     "adam": Adam,
@@ -232,33 +231,6 @@ CAM_WINDOW_TARGET_MARGIN = 1.5
 # radius is dominated by the stray halo and lands ~2x too large, which leaves no
 # shaping headroom at all.)
 TARGET_BOX_WAIST_FACTOR = 2.0
-
-
-# Memory-slot range used for phase writes (never repeat a slot consecutively).
-_SLOT_MIN, _SLOT_MAX = 2, 125
-_SLOT_STATE = {"slot": _SLOT_MIN - 1}
-
-
-def _display(slm, gray) -> int:
-    """Display ``gray`` on a **rotating explicit memory slot**.
-
-    ``slm.display_data(gray)`` (default slot handling) produced NO optical effect
-    on this bench: verified on BOTH cameras, a 5 rad tilt did not move the spot
-    and a uniform 0 vs 900 changed nothing. ``slm.display_data(gray,
-    memory_number=<distinct slot>, memory_mode=MEMORY_MODE_INTERNAL)`` -- the
-    mechanism ``tools/slm/slm_diagnose.py`` uses -- does refresh the LCOS. Since
-    writing the *same* slot twice is a firmware no-op, slots are rotated.
-    """
-    _SLOT_STATE["slot"] = (
-        _SLOT_MIN if _SLOT_STATE["slot"] >= _SLOT_MAX else _SLOT_STATE["slot"] + 1
-    )
-    slm.display_data(
-        gray,
-        memory_number=_SLOT_STATE["slot"],
-        memory_mode=MEMORY_MODE_INTERNAL,
-    )
-    return _SLOT_STATE["slot"]
-
 
 def _zernike_to_phase(
     coeffs: np.ndarray,
@@ -678,7 +650,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     zernike_modes = _zernike_indices(n_max)
 
     # SLM pattern helper
-    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
+    pattern_helper = PatternHelper(resolution=PANEL_RES, bits=10)
 
     if show:
         # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.
@@ -723,8 +695,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         initial_phase = slm.create_phase_from_array(
             _zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius)
         )
-        _display(slm, initial_phase)
-        time.sleep(SLM_RESPONSE_TIME_S)
+        slm.display_data(initial_phase, SLM_RESPONSE_TIME_S)
 
         # Initial acquisition used to locate the spot. When a fixed exposure was
         # requested we honour it here too: auto-exposing to
@@ -1064,8 +1035,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 best_phase = slm.create_phase_from_array(
                     _zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius)
                 )
-                _display(slm, best_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
+                slm.display_data(best_phase, 0.2)
                 # Un-windowed (full-frame) before/after for the report: the metric
                 # window hides the energy that leaves the box, so the illustrative
                 # comparison must be captured on the raw sensor.
@@ -1103,15 +1073,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             break
                         _raw_w = max(400, _raw_w // 2)
                         _raw_h = max(400, _raw_h // 2)
-                    _display(slm, initial_phase)
-                    time.sleep(SLM_RESPONSE_TIME_S)
+                    slm.display_data(initial_phase, 0.2)
                     setattr(
                         recorder,
                         "raw_before_img",
                         cam.get_numpy_image(CAM_SAMPLE_ITER),
                     )
-                    _display(slm, best_phase)
-                    time.sleep(SLM_RESPONSE_TIME_S)
+                    slm.display_data(best_phase, 0.2)
                     setattr(
                         recorder,
                         "raw_after_img",
@@ -1173,8 +1141,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 candidate_phase = slm.create_phase_from_array(
                     _zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius)
                 )
-                _display(slm, candidate_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
+                slm.display_data(candidate_phase, SLM_RESPONSE_TIME_S)
                 img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 if exposure_time_ms == 0 and is_saturated(img):
                     # Saturated: re-auto-expose to the requested target, mirroring
@@ -1308,8 +1275,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 pos_phase = slm.create_phase_from_array(
                     _zernike_to_phase(_pos_c, n_max, pattern_helper, zernike_radius)
                 )
-                _display(slm, pos_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
+                slm.display_data(pos_phase, SLM_RESPONSE_TIME_S)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 pos_res = shaping(pos_img)
                 pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
@@ -1319,8 +1285,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 neg_phase = slm.create_phase_from_array(
                     _zernike_to_phase(_neg_c, n_max, pattern_helper, zernike_radius)
                 )
-                _display(slm, neg_phase)
-                time.sleep(SLM_RESPONSE_TIME_S)
+                slm.display_data(neg_phase, SLM_RESPONSE_TIME_S)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_res = shaping(neg_img)
                 neg_obj, neg_obj_ratio = neg_res.j, neg_res.ratio

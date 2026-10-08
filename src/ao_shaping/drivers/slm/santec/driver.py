@@ -1974,7 +1974,7 @@ class Santec:
 
     def _setup_wavelength(self) -> None:
         """设置工作波长（open() 子步骤）"""
-        if self.wavelength is None:
+        if self.wavelength is None or self.wavelength < 450 or self.wavelength >1600:
             self.wavelength, self._max_gray = self.get_wavelength_info()
         else:
             device_wavelength, device_max_gray = self.get_wavelength_info()

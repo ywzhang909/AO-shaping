@@ -9,12 +9,18 @@ Attributes:
 
 from typing import Any
 
+import sys
+
 import numpy as np
 
 from ao_shaping.drivers.dm._adjacency import load_adjacency
 from ao_shaping.drivers.dm._registry import register_dm
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.model.quantities import DmCommands
+
+#: 活动模拟波前传感器所在模块的绝对名。见 ``SimulateDM._publish_to_wfs``: 用它做
+#: ``sys.modules`` 快捷判定, 以免为一个可选的 GPU 后端付 import 代价。
+_SIM_WFS_MODULE = "ao_shaping.drivers.sim.wfs.simulated_wfs"
 
 
 @register_dm("sim")
@@ -210,6 +216,18 @@ class SimulateDM(DM):
 
         没有模拟传感器时静默跳过 —— 硬件路径, 或只用远场模型时即是。
         """
+        # 快捷判定: 只有真正构造过 ``SimulatedWFS``, 那个模块才会在 ``sys.modules`` 里;
+        # 从没 import 过它, 就**定义上**不存在活动传感器 (``_ACTIVE_SENSOR`` 只能是
+        # None), 于是直接跳过。
+        #
+        # 这条捷径是必须的, 不是优化: ``from ... import get_active_sim_wfs`` 会把整条
+        # OOPAO + cupy 传感器栈拖进来, 而 OOPAO 缺失或装坏时它会抛 —— 实测本机两种都
+        # 中招 (``OOPAO.__spec__ is None``, 以及 cupy 找不到 ``cublasLt*.dll``)。DM 电压
+        # 下发是热路径, 不该为一个**可选的** GPU 后端付这个代价, 更不该因它崩掉: 只用
+        # 远场模型 (numpy 后端, ``AO_OOPAO_BACKEND`` 未启用) 是受支持的配置。
+        if _SIM_WFS_MODULE not in sys.modules:
+            return
+
         from ao_shaping.drivers.sim.wfs.simulated_wfs import get_active_sim_wfs
 
         sensor = get_active_sim_wfs()

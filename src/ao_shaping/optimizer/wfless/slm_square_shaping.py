@@ -1043,6 +1043,10 @@ class SlmSquareConfig:
     #: may only update the learning rate. Set by the CLI when the user actually
     #: typed ``--delta``; otherwise the schedule owns ``delta`` as before.
     delta_pinned: bool = False
+    #: When True (default), the target box center is fixed from the initial
+    #: detection and NOT re-detected after exposure adjustment. When False, the
+    #: center is re-detected on the post-exposure frame (legacy behavior).
+    fix_target: bool = True
     kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -1306,6 +1310,7 @@ def optimize_slm_square(
     max_roi_energy_loss = float(config.max_roi_energy_loss)
     init_amplitude_rad = float(config.init_amplitude_rad)
     _delta_pinned = _delta_pinned or bool(config.delta_pinned)
+    _fix_target = bool(config.fix_target)
     kwargs = config.kwargs
 
     delta = abs(delta)
@@ -1634,10 +1639,11 @@ def optimize_slm_square(
         # is guaranteed to sit on the beam (AGENTS.md: 0-order located by argmax,
         # never by geometry — it can sit off the frame centre).
         # Post-exposure re-detection by the selected mode; explicit (x, y) tuples
-        # are fixed and not re-detected.
-        if _center_mode != "fixed":
+        # are fixed and not re-detected. When fix_target=True (default), the
+        # initial center is kept and NOT re-detected after exposure adjustment.
+        if _center_mode != "fixed" and not _fix_target:
             center = _locate_square_center(init_img, _center_mode)
-        logger.info(f"target box center @ {center}")
+        logger.info(f"target box center @ {center} (fix_target={_fix_target})")
 
         # Compute target square side length
         if target_mean_brightness > 0:
