@@ -32,7 +32,7 @@ from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     composite_score,
-    compute_metrics,
+    compute_bench_metrics,
     forward_intensity,
     make_target,
 )
@@ -124,13 +124,13 @@ def test_s2_shaping_raises_score():
 
     ff_init = forward_intensity(init_slm, _bench_cfg())
     ff_init = ff_init / ff_init.sum()
-    score_init = composite_score(compute_metrics(ff_init, target))
+    score_init = composite_score(compute_bench_metrics(ff_init, target))
 
     opt = _optimizer(n_zernike=0, shaping_iters=80)  # zernike off => pure shaping
     slm_out = opt.shape_phase(None, init_slm)
     ff_out = forward_intensity(slm_out, _bench_cfg())
     ff_out = ff_out / ff_out.sum()
-    score_out = composite_score(compute_metrics(ff_out, target))
+    score_out = composite_score(compute_bench_metrics(ff_out, target))
 
     assert score_out > score_init, f"shaped score {score_out} not > initial {score_init}"
 
@@ -288,11 +288,11 @@ def test_s7_objective_consistency_and_shaping_discrimination():
 
     def _score(ff: np.ndarray) -> float:
         ff = ff / (ff.sum() + 1e-12)
-        return composite_score(compute_metrics(ff, target))
+        return composite_score(compute_bench_metrics(ff, target))
 
     def _metrics(intensity: np.ndarray):
         intensity = intensity / intensity.sum()
-        return compute_metrics(intensity, target)
+        return compute_bench_metrics(intensity, target)
 
     gs = gs_shape(cfg, n_iters=200, seed=0)
     gs_m = _metrics(gs.intensity)
@@ -349,7 +349,7 @@ def test_s9_warm_started_refinement_beats_gs():
     gs = gs_shape(cfg, n_iters=100, seed=0)
     gs_ff = forward_intensity(gs.phase, cfg)
     gs_ff = gs_ff / gs_ff.sum()
-    gs_score = composite_score(compute_metrics(gs_ff, target))
+    gs_score = composite_score(compute_bench_metrics(gs_ff, target))
 
     out = optimize_iterative_zernike_shaping(
         IterativeZernikePibConfig(

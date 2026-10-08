@@ -109,7 +109,11 @@ class TestReachesTheFarField:
     def test_far_field_responds_to_dm_voltage(self, optics):
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem
 
-        system = SimPibSystem(slm_shape=(120, 192), ccd_res=(120, 192))
+        # Inject the fixture's DM. Building a bare SimPibSystem() would give it its
+        # OWN default 50-actuator DM, so pushing `optics.n_actuators` (64) voltages
+        # into it was a length mismatch. That used to be masked: construction raised
+        # ("n_actuators must be a perfect square") before the drive line was reached.
+        system = SimPibSystem(slm_shape=(120, 192), ccd_res=(120, 192), dm_optics=optics)
         system.set_phase_rad(np.zeros((120, 192)))
         flat = system.far_field()
 
@@ -131,7 +135,8 @@ class TestReachesTheFarField:
         """
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem
 
-        system = SimPibSystem(slm_shape=(120, 192), ccd_res=(120, 192))
+        # Inject the fixture's DM -- see the note in the test above.
+        system = SimPibSystem(slm_shape=(120, 192), ccd_res=(120, 192), dm_optics=optics)
         system.set_phase_rad(np.zeros((120, 192)))
         volts = np.zeros(optics.n_actuators)
         volts[1] = 80.0

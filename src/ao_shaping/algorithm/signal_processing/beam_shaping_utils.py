@@ -9,7 +9,7 @@
 - 目标图形生成 (``create_target_shape`` / ``create_target_mask`` /
   ``load_target_image`` / ``square_target_from_measurement`` / ...) ->
   :mod:`ao_shaping.utils.targets`.
-- 质量指标 (``compute_metrics`` / ``compute_shaping_metrics`` /
+- 质量指标 (``compute_beam_metrics`` / ``compute_shaping_metrics`` /
   ``compute_square_metrics`` / ``compute_quality_score`` /
   ``measure_spot_diameter_cam`` / ``measure_bright_span`` /
   ``normalize_pattern`` / ``intensity_to_amplitude`` / ``clamp_side``) ->
@@ -37,7 +37,7 @@ from ao_shaping.utils.image.targets import (
 # 质量指标 -> ``ao_shaping.utils.beam_metrics``
 from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
-    compute_metrics,
+    compute_beam_metrics,
     compute_quality_score,
     compute_shaping_metrics,
     compute_square_metrics,
@@ -84,7 +84,7 @@ __all__ = [
     "square_target_from_measurement",
     # beam_metrics
     "clamp_side",
-    "compute_metrics",
+    "compute_beam_metrics",
     "compute_quality_score",
     "compute_shaping_metrics",
     "compute_square_metrics",

@@ -49,7 +49,7 @@ from ao_shaping.drivers.sim.fouriergsnet_env import (
     CalibNoise,
     SimFourierGSNetEnv,
 )
-from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.image.beam_metrics import compute_beam_metrics
 
 # ---------------------------------------------------------------------------
 # 场景预设
@@ -271,7 +271,7 @@ def run_cell(
     # ---- 收尾整帧指标 (复刻 _append_final_record 内联; 不调用原函数,
     #      它会写模块级 OUT_DIR = data/shaping_test/history.csv) ----
     final = sys_.geo.workzone(np.asarray(acquire(env.ccd), np.float64), fg.N)
-    metrics = compute_metrics(final, sys_.I_tgt.cpu().numpy())
+    metrics = compute_beam_metrics(final, sys_.I_tgt.cpu().numpy())
     I_t = torch.from_numpy(final.astype(np.float32)).to(fg.DEV)
     uni, ee = fg.ShapingSystem._metrics(I_t, sys_.roi)
     recorder.append({"step": steps, "ccd": final, "uniformity": uni, "encircled": ee, **metrics})

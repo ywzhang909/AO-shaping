@@ -80,6 +80,10 @@ dev = [
 ]
 ml = [
     "wandb>=0.20.0",
+    # ml/zernike/metrics.py imports torchmetrics (SSIM / total variation); both
+    # Zernike trainers call batch_image_metrics, so it is a hard requirement of the
+    # ml group, not an optional extra.
+    "torchmetrics>=1.4.0",
 ]
 rl = [
     "gymnasium>=1.2.1",

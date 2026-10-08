@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -77,8 +78,11 @@ __all__ = [
     "collect_split",
     "evaluate",
     "grad_statistics",
+    "objective_of",
+    "per_objective_r2",
     "regression_perplexity",
     "render_comparison",
+    "split_mse_r2",
     "train",
 ]
 
@@ -91,6 +95,34 @@ DEFAULT_FAMILY: str = "slm_zernike_shaping"
 #: records (~0.6 GB as float32 grids); a few hundred is plenty to fit 14
 #: coefficients and keeps the run interactive.
 DEFAULT_MAX_RECORDS: int = 512
+
+#: Pickle-name shape for the ``slm_zernike_shaping`` family. The family packs 10
+#: pickles from four optimisation objectives (``rms_pib`` / ``rmse_out`` /
+#: ``shape`` / ``roi_pib``) -- four distinct bench states behind one family name.
+#: A stem looks like ``slm_zernike_shaping_<objective>_<YYYYMMDD>_<HHMMSS>[_...].pkl``
+#: and carries a timestamp (sometimes two), so the objective group is matched
+#: **lazily** -- the first ``_<objective>`` before the first date stamp -- mirroring
+#: ``scripts/compare_models_cv.py`` so the two never drift.
+_OBJECTIVE_RE = re.compile(r"^slm_zernike_shaping_(?P<objective>.+?)_\d{8}_\d{6}")
+
+
+def objective_of(path: Any) -> str:
+    """Return the optimisation objective encoded in a ``slm_zernike_shaping`` path.
+
+    The four objectives are very unevenly represented (``roi_pib`` has a single
+    file), which is exactly why the train/val split must be stratified by objective
+    instead of shuffling records. Paths that do not carry the objective (other
+    families) fall back to ``"?"`` so the stratification simply treats them as one
+    group.
+
+    Args:
+        path: A ``Path`` or ``str`` to the corpus pickle.
+
+    Returns:
+        The objective substring, or ``"?"`` when it cannot be parsed.
+    """
+    match = _OBJECTIVE_RE.match(Path(path).stem)
+    return match.group("objective") if match else "?"
 
 #: ``wandb.init(mode=...)`` accepts these; kept local so the annotation below does
 #: not need wandb imported at module scope.
@@ -118,6 +150,12 @@ class AmpTrainConfig:
     #: distinct bench states, behind one family name.
     file_contains: str | None = None
     grid: int = 64
+    #: Dataset-level image mode, forwarded to ``MaterialiserConfig``. ``"abs255"``
+    #: (default) keeps the absolute CCD brightness, which is what makes the exposure
+    #: readable from the target. ``"peak"`` / ``"robust"`` normalise per frame instead,
+    #: which discards the absolute level; both are legitimate but answer a different
+    #: question, so the mode is recorded in the run's config rather than implied.
+    image_mode: str = "abs255"
     n_max: int = 4
     observable: Observable = "intensity"
     normalization: Normalization = "peak"
@@ -333,6 +371,45 @@ def collect_split(
     }
 
 
+def _stratified_cap(
+    positions: list[int], file_to_positions: dict[str, list[int]], cap: int
+) -> list[int]:
+    """Return at most ``cap`` of ``positions`` without collapsing the objective mix.
+
+    A bare ``positions[:cap]`` cuts in file order, so on the default 128-record cap
+    it would drop one of the two objectives present in the validation split. This
+    instead allocates the cap across the files (largest-remainder proportional) so
+    every objective that has files in the split is retained -- which is the whole
+    point of the stratified split.
+
+    Args:
+        positions: All positions of one split (file order preserved).
+        file_to_positions: ``str(path) -> positions`` for the files in the split.
+        cap: Maximum number of positions to keep.
+
+    Returns:
+        A subset of ``positions`` of size ``min(cap, len(positions))``.
+    """
+    if cap <= 0 or len(positions) <= cap:
+        return list(positions)
+    weights = [len(v) for v in file_to_positions.values()]
+    total = float(sum(weights))
+    # Largest-remainder so the integers sum to exactly ``cap``.
+    raw = [cap * w / total for w in weights]
+    quotas = [int(math.floor(r)) for r in raw]
+    deficit = cap - sum(quotas)
+    # Hand the leftover slots to the files with the largest fractional remainders,
+    # tie-broken by file order for determinism.
+    for i, _ in sorted(
+        enumerate(raw), key=lambda t: (-(t[1] - quotas[t[0]]), t[0])
+    )[:deficit]:
+        quotas[i] += 1
+    out: list[int] = []
+    for (fname, fpos), q in zip(file_to_positions.items(), quotas, strict=True):
+        out.extend(fpos[:q])
+    return out
+
+
 def _select_records(
     dataset: HwPhaseImageDataset, cfg: AmpTrainConfig
 ) -> tuple[list[int], list[int]]:
@@ -342,6 +419,17 @@ def _select_records(
     :func:`~ml.hwdataset.dataset.create_hw_dataloaders`: records inside one pickle
     are consecutive epochs of the same optimisation run, so a record-level split
     would put near-duplicates on both sides.
+
+    It is additionally **stratified by optimisation objective**. The
+    ``slm_zernike_shaping`` family packs 10 pickles from four objectives
+    (``rms_pib`` / ``rmse_out`` / ``shape`` / ``roi_pib``) -- four distinct bench
+    states behind one family name. A plain 25%-of-files draw (plus the 128-record
+    cap) happened to land both validation files on one objective, so the single
+    global coefficient vector was judged on one bench state while trained on a
+    mixture of four -- the cause of the large train/val gap. Stratifying assigns
+    validation files per objective so every objective that has >= 2 files is
+    represented on both sides, and the size caps are applied proportionally
+    (see :func:`_stratified_cap`) so the retained mix survives truncation.
     """
     records = dataset.records
     if cfg.file_contains is not None:
@@ -372,27 +460,53 @@ def _select_records(
         positions = list(range(len(records)))
 
     by_file: dict[str, list[int]] = {}
+    file_objective: dict[str, str] = {}
     for position, record in zip(positions, records, strict=True):
-        by_file.setdefault(str(record.path), []).append(position)
+        key = str(record.path)
+        by_file.setdefault(key, []).append(position)
+        file_objective[key] = objective_of(key)
 
-    files = sorted(by_file)
+    # Group files by objective so the train/val draw is stratified.
+    by_objective: dict[str, list[str]] = {}
+    for fname in by_file:
+        by_objective.setdefault(file_objective[fname], []).append(fname)
+
     rng = np.random.default_rng(cfg.seed)
-    order = rng.permutation(len(files))
-    n_val_files = max(1, int(round(len(files) * cfg.val_fraction)))
-    if len(files) - n_val_files < 1:
-        raise SystemExit(f"only {len(files)} file(s); cannot split train/val")
+    val_files: set[str] = set()
+    train_files: set[str] = set()
+    for obj, fns in by_objective.items():
+        fns_sorted = sorted(fns)
+        if len(fns_sorted) >= 2:
+            order = rng.permutation(len(fns_sorted))
+            n_val = max(1, int(round(len(fns_sorted) * cfg.val_fraction)))
+            for rank, idx in enumerate(order):
+                (val_files if rank < n_val else train_files).add(fns_sorted[idx])
+        else:
+            # A single-file objective cannot be split, so it stays in train only;
+            # that objective is simply absent from validation, which is honest.
+            train_files.update(fns_sorted)
 
-    val: list[int] = []
+    if not val_files or not train_files:
+        raise SystemExit(f"cannot split {len(by_file)} file(s) across objectives")
+
     train: list[int] = []
-    for rank, file_index in enumerate(order):
-        bucket = val if rank < n_val_files else train
-        bucket.extend(by_file[files[file_index]])
+    val: list[int] = []
+    train_files_sorted: list[str] = []
+    val_files_sorted: list[str] = []
+    for fname in sorted(by_file):
+        if fname in val_files:
+            val_files_sorted.append(fname)
+            val.extend(by_file[fname])
+        else:
+            train_files_sorted.append(fname)
+            train.extend(by_file[fname])
 
     rng.shuffle(train)
+    rng.shuffle(val)
     if cfg.max_train > 0:
-        train = train[: cfg.max_train]
+        train = _stratified_cap(train, {f: by_file[f] for f in train_files_sorted}, cfg.max_train)
     if cfg.max_val > 0:
-        val = val[: cfg.max_val]
+        val = _stratified_cap(val, {f: by_file[f] for f in val_files_sorted}, cfg.max_val)
     if not train or not val:
         raise SystemExit(f"empty split: train={len(train)} val={len(val)}")
     return train, val
@@ -504,6 +618,103 @@ def evaluate(
     return out
 
 
+@torch.no_grad()
+def per_objective_r2(
+    model: ZernikeAmpModel,
+    tensors: dict[str, torch.Tensor],
+    groups: list[str],
+    batch: int = 256,
+) -> dict[str, float]:
+    """Per-group R² on one materialised split, keyed ``r2_<group>``.
+
+    The aggregate R² in :func:`evaluate` averages every sample together, so on the
+    ``slm_zernike_shaping`` family it hides how well each objective's bench state is
+    predicted. With the train/val gap dominated by objective heterogeneity, the
+    per-objective breakdown is the number that actually explains a run.
+
+    Args:
+        model: The model to score.
+        tensors: Output of :func:`collect_split`.
+        groups: One group label (see :func:`objective_of`) per sample, in the same
+            order as ``tensors["target"]``.
+        batch: Chunk size for the forward pass.
+
+    Returns:
+        ``{f"r2_{group}": value}`` for every distinct group with >= 2 samples;
+        smaller groups map to ``nan`` so their absence is visible, not silent.
+    """
+    model.eval()
+    target = tensors["target"]
+    reference = model._normalize(target.clone())  # noqa: SLF001 - same package
+    n = target.shape[0]
+    chunks = [
+        model(tensors["phase_cos"][start : start + batch], tensors["phase_sin"][start : start + batch])
+        for start in range(0, n, batch)
+    ]
+    prediction = torch.cat(chunks)
+    model.train()
+    out: dict[str, float] = {}
+    for group in dict.fromkeys(groups):
+        mask = torch.as_tensor([g == group for g in groups])
+        if int(mask.sum()) < 2:
+            out[f"r2_{group}"] = float("nan")
+            continue
+        # Scored with the canonical metric on the subgroup, so a per-group R^2 and the
+        # aggregate ``val_r2`` are the same quantity -- not two definitions that happen
+        # to look alike (``batch_image_metrics`` uses ``1 - mse/var`` with ``torch.var``'s
+        # n-1 denominator; re-deriving it as ``1 - ss_res/ss_tot`` shifts R^2 by ~1e-2
+        # at n=320 and made train/val gaps meaningless).
+        out[f"r2_{group}"] = batch_image_metrics(prediction[mask], reference[mask])["r2"]
+    return out
+
+
+@torch.no_grad()
+def split_mse_r2(
+    model: ZernikeAmpModel,
+    tensors: dict[str, torch.Tensor],
+    batch: int = 256,
+) -> tuple[float, float]:
+    """Whole-split MSE and R² for one materialised split, at the current weights.
+
+    Why this exists: the ``train_mse`` in the history is an average of the
+    **in-epoch** losses, i.e. measured while the weights were still moving, whereas
+    ``val_mse`` is always measured with the **end-of-epoch** weights. Dividing one by
+    the other -- the obvious "train/val gap" -- therefore mixes two epochs, and it also
+    compares a running average against a point measurement. These two numbers are the
+    apples-to-apples pair: same weights, same peak normalisation, same forward path as
+    :func:`evaluate`.
+
+    Measured on real ``slm_zernike_shaping`` data (6 seeds, n_max=4, 40 epochs), the
+    mixed-epoch ratio sits at ~1.15 with a seed-to-seed spread of 0.63-2.32; the
+    same-epoch R² difference is ~0.00-0.05, i.e. **there is no meaningful
+    generalisation gap at this model size** (14 coefficients vs 512 samples). A large
+    apparent gap is a split-composition artefact, not overfitting.
+
+    Args:
+        model: The model to score.
+        tensors: Output of :func:`collect_split`.
+        batch: Chunk size for the forward pass.
+
+    Returns:
+        ``(mse, r2)``, taken straight from
+        :func:`~ml.zernike.metrics.batch_image_metrics` so the definition cannot drift
+        from :func:`evaluate`'s ``val_mse`` / ``val_r2``.
+    """
+    model.eval()
+    target = tensors["target"]
+    reference = model._normalize(target.clone())  # noqa: SLF001 - same package
+    n = target.shape[0]
+    prediction = torch.cat(
+        [
+            model(tensors["phase_cos"][start : start + batch], tensors["phase_sin"][start : start + batch])
+            for start in range(0, n, batch)
+        ]
+    )
+    model.train()
+    out = batch_image_metrics(prediction, reference)
+    return out["mse"], out["r2"]
+
+
 def render_comparison(
     true_img: np.ndarray,
     pred_img: np.ndarray,
@@ -570,10 +781,13 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         index = index.filter(families=list(cfg.families))
     dataset = HwPhaseImageDataset(
         index,
-        config=MaterialiserConfig(grid=cfg.grid),
+        config=MaterialiserConfig(grid=cfg.grid, image_mode=cfg.image_mode),
         use_cache=True,
     )
     train_idx, val_idx = _select_records(dataset, cfg)
+    # Per-objective labels for the validation samples, aligned to ``val_idx`` order,
+    # so the per-objective R^2 breakdown can be reported every epoch.
+    val_objectives = [objective_of(dataset.records[i].path) for i in val_idx]
     logger.info(
         "split: train={} val={} from {} records (families={}, fov_px={})",
         len(train_idx),
@@ -681,11 +895,30 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             roi_size_frac=cfg.target_size_frac,
             roi_aspect=cfg.target_aspect_ratio,
         )
+        # The aggregate val R^2 hides how well each objective's bench state is
+        # predicted -- the very axis that drives the train/val gap. A second,
+        # cheap forward over the (small) validation split keeps the per-objective
+        # breakdown available without polluting evaluate()'s float-only metrics dict.
+        metrics.update(per_objective_r2(model, val_t, val_objectives))
+        # Same-epoch train score: same weights, same normalisation, same code path as
+        # the val metrics above. This -- not `train_mse` -- is what a train/val gap has
+        # to be computed from (see split_mse_r2).
+        train_eval_mse, train_eval_r2 = split_mse_r2(model, train_t)
+        val_mse = float(metrics["mse"])
+        val_r2 = float(metrics["r2"])
         row = {
             "epoch": epoch,
             "lr": float(scheduler.get_last_lr()[0]),
             "train_mse": se / n_train,
             "train_obj": penalty / n_train,
+            "train_eval_mse": train_eval_mse,
+            "train_eval_r2": train_eval_r2,
+            #: Same-epoch val/train MSE ratio. 1.0 = no generalisation gap. This is the
+            #: only gap number comparable across runs; `best_val_mse / final_train_mse`
+            #: mixes epochs and is not.
+            "gap_mse": val_mse / train_eval_mse if train_eval_mse > 0.0 else float("nan"),
+            #: Same-epoch R^2 difference (val minus train). 0.0 = no gap.
+            "gap_r2": val_r2 - train_eval_r2,
             **{f"val_{k}": v for k, v in metrics.items()},
             "grad_total": grads["total"],
             "grad_max": grads["max"],
@@ -711,7 +944,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
                 "epoch {}/{} train={:.5f} val_mse={:.5f} r2={:+.4f} psnr={:.2f}dB "
                 "ssim={:.4f} nrmse={:.4f} ppl={:.3f} | corr={:.3f} eff={:.3f} "
                 "d_offset={:.2f}px d_ratio={:.3f} |g|={:.2e} dead={:.0f} "
-                "max|c|={:.3f}",
+                "max|c|={:.3f} | tr_eval={:.5f} tr_r2={:+.4f} gap_mse={:.2f} gap_r2={:+.3f}",
                 epoch + 1,
                 cfg.epochs,
                 row["train_mse"],
@@ -728,6 +961,10 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
                 row["grad_total"],
                 row["grad_dead"],
                 row["coef_abs_max"],
+                row["train_eval_mse"],
+                row["train_eval_r2"],
+                row["gap_mse"],
+                row["gap_r2"],
             )
         if run is not None:
             run.log(row, step=epoch)
@@ -933,8 +1170,27 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Train ZernikeAmpModel on the real hardware corpus.",
     )
     parser.add_argument("--families", nargs="*", default=[DEFAULT_FAMILY])
+    parser.add_argument(
+        "--file-contains",
+        type=str,
+        default=None,
+        help=(
+            "Substring filter on the artefact path, applied before the split. On the "
+            "slm_zernike_shaping family this is what makes 'train on one objective' "
+            "expressible, e.g. --file-contains rms_pib."
+        ),
+    )
     parser.add_argument("--fov-px", type=int, default=None)
     parser.add_argument("--grid", type=int, default=model_default.grid)
+    parser.add_argument(
+        "--image-mode",
+        default=train_default.image_mode,
+        help=(
+            "Dataset-level image mode: abs255 (default, keeps absolute CCD brightness "
+            "so the exposure stays readable) | peak | robust (per-frame normalisation, "
+            "discards the absolute level)."
+        ),
+    )
     parser.add_argument("--n-max", type=int, default=model_default.n_max)
     parser.add_argument("--observable", default=model_default.observable)
     parser.add_argument("--normalization", default=model_default.normalization)
@@ -1035,8 +1291,10 @@ def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     cfg = AmpTrainConfig(
         families=tuple(args.families),
+        file_contains=args.file_contains,
         fov_px=args.fov_px,
         grid=args.grid,
+        image_mode=args.image_mode,
         n_max=args.n_max,
         observable=args.observable,
         normalization=args.normalization,

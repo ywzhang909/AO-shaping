@@ -31,16 +31,27 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from tests.ao_shaping.drivers._subprocess_env import subprocess_env_with_pythonpath
+
 _ROOT = Path(__file__).resolve().parents[4]
 
 
 def _run(snippet: str, cwd: Path) -> subprocess.CompletedProcess[str]:
+    """Run ``snippet`` from ``cwd`` in a minimal, platform-correct environment.
+
+    This used to hardcode ``PYTHONPATH=f"{_ROOT/'src'}:{_ROOT/'libs'}"}`` plus a
+    ``HOME``-only env. Two Windows problems: the colon separator is inert there
+    (``;`` is the separator, so the whole string read as one directory), and dropping
+    ``SYSTEMROOT``/``PATH`` made the child die at start-up with
+    ``WinError 10106``. Absolute entries matter here because this test deliberately
+    runs from an unrelated ``cwd``.
+    """
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(snippet)],
         capture_output=True,
         text=True,
         cwd=str(cwd),
-        env={"PYTHONPATH": f"{_ROOT / 'src'}:{_ROOT / 'libs'}", "HOME": "/tmp"},
+        env=subprocess_env_with_pythonpath(root=str(_ROOT), absolute=True),
         timeout=180,
     )
 

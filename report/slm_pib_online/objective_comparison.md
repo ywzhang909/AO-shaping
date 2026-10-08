@@ -1,5 +1,12 @@
 # 整形目标函数对比报告
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/generate_shape_objective_comparison.py`](../../scripts/generate_shape_objective_comparison.py)
+> **复现命令**: `python scripts/generate_shape_objective_comparison.py`
+> **运行环境**: 离线
+> **说明**: 三种整形目标函数的排序一致性 (Spearman)
+<!-- provenance:end -->
+
 在 **同一组** 真实 CCD 帧上离线对比三种整形目标函数，这些帧由 `slm-pib` 在线套件记录 (目标: 正方形, 边长 50 px, 以优化前帧 `argmax` 为锚点)。
 
 > **溯源.** 优先使用 `summary_*.json` 显式记录 `cam_type` / `cam_id` / `exposure_time_ms` 的运行 —— `slm_pib_runner` 现在会写入这些字段，因此此类产物是自我溯源的。旧运行仅记录 `delta` / `epochs` / `lr`，相机后端是从运行配置**推断**而非从产物读回；对此类运行，请将后端归属视为暂定。下面各运行章节列出了实际找到的 sidecar 内容，使该区别可见。

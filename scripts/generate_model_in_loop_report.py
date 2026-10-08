@@ -86,6 +86,8 @@ IO = "src/ao_shaping/utils/io/file.py"
 GS_REFINE = "src/ao_shaping/optimizer/wfless/slm_gs_refine.py"
 LEARNED = "src/ml/zernike/forward_model.py"
 PHYSICS = "src/ml/zernike/models.py"
+AMP_CKPT = "src/ml/zernike/amp_checkpoint.py"
+FRAUNHOFER = "src/ao_shaping/utils/wavefront/fraunhofer.py"
 
 MODULES = {
     "hardware": HARDWARE,
@@ -97,6 +99,8 @@ MODULES = {
     "gs_refine": GS_REFINE,
     "learned": LEARNED,
     "physics": PHYSICS,
+    "amp_ckpt": AMP_CKPT,
+    "fraunhofer": FRAUNHOFER,
 }
 
 #: Every symbol the two ASCII diagrams name, as ``(module_key, qualified name)``.
@@ -122,6 +126,15 @@ DIAGRAM_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("hardware", "acceptance_verdict"),
     ("hardware", "SlmModelInLoopConfig"),
     ("hardware", "Bench"),
+    # the optional offline-checkpoint seed (Wave 3) and its read seam (Wave 2)
+    ("hardware", "_seed_coefficients_from_checkpoint"),
+    ("amp_ckpt", "load_trained_forward_model"),
+    ("amp_ckpt", "check_geometry"),
+    ("amp_ckpt", "UNVERIFIED_GEOMETRY_FIELDS"),
+    ("amp_ckpt", "TrainedForwardModel"),
+    # the one canonical Fraunhofer propagator (Wave 1)
+    ("fraunhofer", "focal_field"),
+    ("fraunhofer", "focal_intensity"),
     # shared math, imported from the twin
     ("twin", "_fit_aberration_at_probes"),
     ("twin", "shape_phase_with_frozen_aberration"),
@@ -300,6 +313,7 @@ graph TD
     subgraph L2["② 策略层 (硬件移植) · optimizer/wfless/slm_model_in_loop.py"]
         direction TB
         OPT["optimize_slm_model_in_loop(config)<br/>← 唯一公开入口"]
+        SEED["_seed_coefficients_from_checkpoint(config)<br/>开设备之前 · 仅当 --forward-checkpoint"]
         OPEN["_open_bench(config)"]
         GEOM["_calibrate_geometry(bench, config)<br/>一次性几何 bake-off"]
         MKOPT["_make_optimizer(config, coefficients)"]
@@ -308,6 +322,17 @@ graph TD
         TGRID["_to_model_grid(...)"]
         ACC["acceptance_verdict(...)"]
         VERDICT{{"ModelInLoopStatus"}}
+    end
+
+    subgraph LCK["②' 离线权重读缝 · ml/zernike/amp_checkpoint.py"]
+        direction TB
+        LOAD["load_trained_forward_model(path)"]
+        CHK["check_geometry(...)<br/>不逐项相符即报错"]
+    end
+
+    subgraph LFR["②'' 唯一的 Fraunhofer 传播 · utils/wavefront/fraunhofer.py"]
+        direction TB
+        FR["focal_field / focal_intensity<br/>中心补零 + fftshift(fft2(ifftshift))"]
     end
 
     subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
@@ -345,6 +370,10 @@ graph TD
 
     CLI --> RUN
     CFG --> OPT
+    OPT -->|"种子: 默认 np.zeros(n_coeffs)"| SEED
+    SEED -.延迟 import.- LOAD
+    LOAD --> CHK
+    CHK -->|"不逐项相符 → 开设备前就报错"| SEED
     OPT --> OPEN
     OPEN --> BENCH
     OPT --> GEOM
@@ -352,8 +381,9 @@ graph TD
     OPT -->|"平场基线"| QUAL
     QUAL -->|"基准 score"| OPT
 
-    OPT -->|"每轮: coefficients = np.zeros(n_coeffs)"| MKOPT
+    OPT -->|"每轮: coefficients (零种子 或 checkpoint 种子)"| MKOPT
     MKOPT --> ZCO
+    ZCO -.解析远场.- FR
     OPT -->|"每轮 × probe_count"| PROBE
     PROBE --> BENCH
     BENCH -->|"measure()"| PREP
@@ -391,9 +421,14 @@ sequenceDiagram
     M->>R: run(params)
     R->>O: optimize_slm_model_in_loop(config)
 
+    opt --forward-checkpoint 已给
+        O->>O: _seed_coefficients_from_checkpoint(config) 〔开设备之前〕
+        Note over O: 不逐项相符 → 此刻就报错, 不烧台架时间
+    end
+
     rect rgb(245, 240, 235)
         Note over O,B: 一次性 —— 几何标定
-        O->>Z: coefficients = np.zeros(n_coeffs) 〔唯一初始种子〕
+        O->>Z: coefficients = np.zeros(n_coeffs) 〔默认零种子〕
         O->>B: _open_bench(config)
         B-->>O: 设备已连接 (import 全部延迟)
         loop n_calibration_probes 次

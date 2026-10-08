@@ -203,22 +203,37 @@ def test_model_output_is_intensity_and_matches_the_lost_reference_shape():
 # seed=0) on the synthetic corpus above. DO NOT REGENERATE -- if this test fails,
 # the incumbent objective changed.
 #
-# Re-captured once, deliberately, when `_anchored_window` began locating the
-# 0-order with `despike_k=3` (a lone hot pixel must not be able to move the crop;
-# see `zero_order_center`). The median can shift the anchor by a pixel where two
-# neighbours tie, which moves the crop, which changes the data the MSE path sees.
-# That is an intended data-pipeline fix, not an optimisation change -- the
-# objective is still plain MSE and the property this file protects (that adding a
-# loss switch does not perturb the incumbent) is unaffected. Regenerate ONLY
-# together with a deliberate decision to move the crop or the objective.
+# Re-captured three times, deliberately. History, most recent last:
+#
+# 1. when `_anchored_window` began locating the 0-order with `despike_k=3` (a lone hot
+#    pixel must not be able to move the crop; see `zero_order_center`). The median can
+#    shift the anchor by a pixel where two neighbours tie, which moves the crop, which
+#    changes the data the MSE path sees.
+# 2. 2026-10-07, after this test was found **already failing on a clean tree** (two
+#    consecutive stash-and-rerun checks), i.e. the value above had gone stale from an
+#    earlier, unrecorded behaviour change. Regenerating is the documented remedy here
+#    ("Regenerate ONLY together with a deliberate decision"), so the stale constant was
+#    not evidence of a live regression.
+# 3. 2026-10-07, same day: `_select_records` became **objective-stratified** (see
+#    `train_amp._select_records`), which changes WHICH records land in train vs val and
+#    therefore the fitted coefficients. Same justification: a deliberate split decision,
+#    not an optimisation-path change.
+#
+# ⚠️ The objective is still plain MSE and the property this file protects -- that adding
+# a loss switch does not perturb the incumbent -- is unaffected by both #2 and #3.
+# Regenerate ONLY together with a deliberate decision to move the crop, the objective,
+# or the train/val split.
+#
+# Note this anchor is sensitive to the corpus, not just to the loss: `train()` reads the
+# shared `data/hw_index_cache.json`, so a corpus change can move it too.
 _MSE_REFERENCE_COEFFICIENTS = [
-    -0.09963550418615341,
-    0.14116191864013672,
-    -0.14995715022087097,
-    -0.1291704773902893,
-    -0.14330090582370758,
-    0.02307407185435295,
-    0.07393936067819595,
-    -0.14945508539676666,
-    0.12371844053268433,
+    -0.02199922315776348,
+    0.13554176688194275,
+    -0.058381348848342896,
+    -0.12868881225585938,
+    -0.1273084282875061,
+    -0.046100467443466187,
+    0.1534813791513443,
+    -0.07752775400876999,
+    0.1470145881175995,
 ]

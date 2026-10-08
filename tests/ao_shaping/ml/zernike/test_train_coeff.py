@@ -358,8 +358,12 @@ class TestLossContract:
 
             train(CoeffTrainConfig(image_mode="sum", epochs=1, use_wandb=False))
 
-    def test_default_image_mode_is_robust(self) -> None:
-        assert CoeffTrainConfig().image_mode == "robust"
+    def test_default_image_mode_is_peak(self) -> None:
+        # Measured on the real slm_zernike_shaping corpus (5 seeds, leave-one-file-out,
+        # judged on val R^2): peak +0.821 > robust +0.628 > abs255 -0.345. peak is
+        # the stable normalisation on this bench; robust stays for benches whose
+        # brightest pixel is a hot spot.
+        assert CoeffTrainConfig().image_mode == "peak"
 
     def test_default_selection_metric_path_is_r2(self) -> None:
         # The config exposes no knob to select the best epoch on MSE/PSNR/SSIM.

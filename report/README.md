@@ -52,6 +52,7 @@
 | [`micro_deformable_mirror/freq_test.md`](micro_deformable_mirror/freq_test.md) | `人工撰写` | 硬件 | 微驱动器频率测试记录；images/freq_test/ 为同期截图 |
 | [`micro_deformable_mirror/voltage_test.md`](micro_deformable_mirror/voltage_test.md) | `人工撰写` | 硬件 | 微驱动器电压测试记录 (R50Power)；images/voltage_test/ 为同期截图 |
 | [`miicam_simulation/miicam_report.md`](miicam_simulation/miicam_report.md) | `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py` | 离线 | 仿真 MiiCam 的测试报告 (无需设备) |
+| [`model_free_ao_survey/report.md`](model_free_ao_survey/report.md) | `人工撰写` | 人工调研 | 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式 |
 | [`models_analysis/report.md`](models_analysis/report.md) | `scripts/generate_models_report.py` | 离线 | 读 TensorBoard event 文件 |
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
 | [`models_analysis/tmp_sac_run_showcase.md`](models_analysis/tmp_sac_run_showcase.md) | `scripts/generate_models_report.py` | 离线 | 临时调试 run 的成果展示 |

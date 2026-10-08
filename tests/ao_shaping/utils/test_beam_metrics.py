@@ -1,7 +1,7 @@
 """Regression-anchor tests for :mod:`ao_shaping.utils.beam_metrics`.
 
 Pins the exact current behavior of the pure-NumPy beam-shaping metrics
-(compute_metrics, compute_shaping_metrics, compute_square_metrics,
+(compute_beam_metrics, compute_shaping_metrics, compute_square_metrics,
 compute_quality_score, measure_bright_span, clamp_side,
 measure_spot_diameter_cam, intensity_to_amplitude, normalize_pattern,
 zero_order_center, median_zero_order_center).
@@ -20,7 +20,7 @@ import pytest
 
 from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
-    compute_metrics,
+    compute_beam_metrics,
     compute_quality_score,
     compute_shaping_metrics,
     compute_square_metrics,
@@ -112,35 +112,35 @@ class TestMeasureSpotDiameterCam:
 
 class TestComputeMetrics:
     def test_identical_uniform_patterns(self):
-        m = compute_metrics(np.ones((2, 2)), np.ones((2, 2)))
+        m = compute_beam_metrics(np.ones((2, 2)), np.ones((2, 2)))
         assert m["mse"] == 0.0
         assert m["correlation"] == 1.0
         assert m["efficiency"] == 1.0
 
     def test_scale_invariance(self):
         # Both maps are normalized to unit sum, so absolute scale is irrelevant.
-        a = compute_metrics(np.ones((2, 2)), np.ones((2, 2)))
-        b = compute_metrics(2 * np.ones((2, 2)), 5 * np.ones((2, 2)))
+        a = compute_beam_metrics(np.ones((2, 2)), np.ones((2, 2)))
+        b = compute_beam_metrics(2 * np.ones((2, 2)), 5 * np.ones((2, 2)))
         assert b["mse"] == pytest.approx(a["mse"])
         assert b["correlation"] == pytest.approx(a["correlation"])
         assert b["efficiency"] == pytest.approx(a["efficiency"])
 
     def test_uniform_vs_zero(self):
-        m = compute_metrics(np.ones((2, 2)), np.zeros((2, 2)))
+        m = compute_beam_metrics(np.ones((2, 2)), np.zeros((2, 2)))
         # measured normalized to 0.25 each; target stays 0
         assert m["mse"] == pytest.approx(0.0625)
         assert m["correlation"] == 0.0  # zero-variance guard -> not allclose
         assert m["efficiency"] == 0.0
 
     def test_zero_vs_zero_safe_branch(self):
-        m = compute_metrics(np.zeros((2, 2)), np.zeros((2, 2)))
+        m = compute_beam_metrics(np.zeros((2, 2)), np.zeros((2, 2)))
         assert m["mse"] == 0.0
         assert m["correlation"] == 1.0  # zero-variance guard -> allclose
         assert m["efficiency"] == 0.0  # total == 0 -> safe branch
 
     def test_hand_computed_correlation(self):
         # measured=[[1,0],[0,0]], target=[[0,1],[0,0]] (both already unit sum)
-        m = compute_metrics(
+        m = compute_beam_metrics(
             np.array([[1.0, 0.0], [0.0, 0.0]]), np.array([[0.0, 1.0], [0.0, 0.0]])
         )
         assert m["mse"] == pytest.approx(0.5)
@@ -149,7 +149,7 @@ class TestComputeMetrics:
 
     def test_shape_mismatch_raises(self):
         with pytest.raises(ValueError, match="Shape mismatch"):
-            compute_metrics(np.ones((2, 2)), np.ones((3, 3)))
+            compute_beam_metrics(np.ones((2, 2)), np.ones((3, 3)))
 
 
 class TestComputeShapingMetrics:

@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.utils.image.beam_metrics import compute_metrics
+from ao_shaping.utils.image.beam_metrics import compute_beam_metrics
 from ao_shaping.utils.image.targets import square_target_from_measurement
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -242,7 +242,7 @@ class TestRunBackprop:
 
         measured = np.load(out_dir / "measured_intensity.npy")
         target = np.load(out_dir / "target_intensity.npy")
-        m = compute_metrics(measured, target)
+        m = compute_beam_metrics(measured, target)
         assert set(m) == {"mse", "correlation", "efficiency"}
 
 

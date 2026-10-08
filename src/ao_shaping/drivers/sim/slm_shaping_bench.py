@@ -326,7 +326,7 @@ def zero_order_fraction(
     return float(intensity[m].sum() / total) if total > 0 else 0.0
 
 
-def compute_metrics(
+def compute_bench_metrics(
     intensity: np.ndarray,
     target: np.ndarray,
     *,
@@ -443,12 +443,12 @@ def gs_shape(
             inten = _fraunhofer_intensity(field, cfg)
             inten = inten / inten.max()
             center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-            m = compute_metrics(inten, target, center=center)
+            m = compute_bench_metrics(inten, target, center=center)
             history.append({"iter": i, **m})
     inten = _fraunhofer_intensity(field, cfg)
     inten = inten / (inten.sum() + 1e-12)
     center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-    metrics = compute_metrics(inten, target, center=center)
+    metrics = compute_bench_metrics(inten, target, center=center)
     n = cfg.n_grid
     pad = (cfg.far_field_size - n) // 2
     pupil_phase = np.angle(field)[pad : pad + n, pad : pad + n]
@@ -528,13 +528,13 @@ def differentiable_shape(
                 inten_np = intensity(param).numpy()
                 inten_np = inten_np / inten_np.max()
                 center = np.unravel_index(np.argmax(inten_np), inten_np.shape)[::-1]
-                metrics_hist = compute_metrics(inten_np, target, center=center)
+                metrics_hist = compute_bench_metrics(inten_np, target, center=center)
                 history.append({"iter": i, **metrics_hist})
     with torch.no_grad():
         inten_np = intensity(param).numpy()
         inten_np = inten_np / (inten_np.sum() + 1e-12)
     center = np.unravel_index(np.argmax(inten_np), inten_np.shape)[::-1]
-    metrics = compute_metrics(inten_np, target, center=center)
+    metrics = compute_bench_metrics(inten_np, target, center=center)
     return ShapingResult(
         method="differentiable",
         phase=param.detach().numpy(),
@@ -579,7 +579,7 @@ def spgd_shape(
         inten = forward_intensity(upsample(vec), cfg)
         inten = inten / inten.max()
         center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-        m = compute_metrics(inten, target, center=center)
+        m = compute_bench_metrics(inten, target, center=center)
         return composite_score(m)
 
     score = eval_score(phase_flat)
@@ -596,13 +596,13 @@ def spgd_shape(
             inten = forward_intensity(upsample(phase_flat), cfg)
             inten = inten / inten.max()
             center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-            m = compute_metrics(inten, target, center=center)
+            m = compute_bench_metrics(inten, target, center=center)
             history.append({"iter": i, "score": score, "PIB": m["PIB"], "CV": m["CV"]})
     ph = upsample(phase_flat)
     inten = forward_intensity(ph, cfg)
     inten = inten / (inten.sum() + 1e-12)
     center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-    metrics = compute_metrics(inten, target, center=center)
+    metrics = compute_bench_metrics(inten, target, center=center)
     metrics["score"] = composite_score(metrics)
     return ShapingResult(
         method="spgd_freeform",
@@ -624,7 +624,7 @@ def analytic_amplitude_target(cfg: ShapingBenchConfig) -> ShapingResult:
     的上界。
     """
     target = make_target(cfg)
-    metrics = compute_metrics(target, target)
+    metrics = compute_bench_metrics(target, target)
     return ShapingResult(
         method="analytic_amplitude_baseline",
         phase=np.zeros((cfg.n_grid, cfg.n_grid)),
@@ -639,7 +639,7 @@ __all__ = [
     "ShapingResult",
     "forward_intensity",
     "make_target",
-    "compute_metrics",
+    "compute_bench_metrics",
     "composite_score",
     "composite_from_pib_cv",
     "gs_shape",

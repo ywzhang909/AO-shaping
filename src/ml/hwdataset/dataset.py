@@ -50,11 +50,18 @@ written:
    quantity for every item and would not be comparable across epochs.
 
 3. **Why the image is NOT peak-normalised** (``image_mode="abs255"`` default).
-   Exposure is a model *input*, so absolute brightness is precisely the signal
-   that encodes it. Peak-normalising would delete the exposure information from
-   the target while leaving it in the input -- a silent label corruption. The
-   ``"peak"`` mode still exists for anyone who deliberately wants the relative
-   shape.
+    Exposure is a model *input*, so absolute brightness is precisely the signal
+    that encodes it. Peak-normalising would delete the exposure information from
+    the target while leaving it in the input -- a silent label corruption. The
+    ``"peak"`` mode still exists for anyone who deliberately wants the relative
+    shape. That is exactly the right trade for **cross-family** comparison:
+    measured on the same seeded 252-record stratified sample, the cross-family
+    brightness spread (max family-median / min family-median) is ~14.5x in
+    ``abs255`` and 1.00x after ``"peak"`` -- the exposure component of the
+    difference is removable, while the structural parts (frame CV, d90/FOV,
+    central energy, entropy, phase spread) are already scale-invariant and no
+    image processing removes them. For the full difference-source-to-processing
+    mapping see ``report/hwdataset_corpus``.
 
 =============================  The FOV caveat, surfaced  =============================
 

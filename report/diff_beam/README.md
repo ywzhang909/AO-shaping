@@ -249,7 +249,7 @@ frames/frame_*.npy+.png + frame_meta.jsonl   # 逐帧原始记录 (含 spot 字�
   `runners/slm_gsnet_runner.py`（`slm-gsnet backprop`）
 - 目标: `utils/targets.py` (`square_target_from_measurement`) → 现为
   `utils/image/targets.py`，实现在 `utils/image/target/ccd.py:90`
-- 指标: `utils/beam_metrics.py` (`compute_metrics`) → 现为 `utils/image/beam_metrics.py:113`
+- 指标: `utils/beam_metrics.py` (`compute_beam_metrics`) → 现为 `utils/image/beam_metrics.py:113`
 - 测试: `tests/ao_shaping/runners/test_diff_beam_runner.py`（文件仍在，但改用 `importlib`
   动态加载已被删除的模块，**不可能再通过**）
 - 质心工具: `utils/spots_calc.py::centroid` → 现为 `utils/image/spots_calc.py:234`

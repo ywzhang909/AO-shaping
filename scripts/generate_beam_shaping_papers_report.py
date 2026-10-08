@@ -47,7 +47,7 @@ from loguru import logger  # noqa: E402
 
 from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     ShapingBenchConfig,
-    compute_metrics,
+    compute_bench_metrics,
     forward_intensity,
     make_target,
 )
@@ -100,7 +100,7 @@ def main() -> int:
         inten = res.intensity
         inten = inten / (inten.max() + 1e-12)
         center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-        m = compute_metrics(inten, target, center=center)
+        m = compute_bench_metrics(inten, target, center=center)
         fig = save_figure(inten, res.method, res.method)
         rows.append(
             {
@@ -137,7 +137,7 @@ def main() -> int:
     raw = forward_intensity(np.zeros((CONFIG.n_grid, CONFIG.n_grid)), CONFIG)
     raw = raw / (raw.max() + 1e-12)
     c = np.unravel_index(np.argmax(raw), raw.shape)[::-1]
-    m0 = compute_metrics(raw, target, center=c)
+    m0 = compute_bench_metrics(raw, target, center=c)
     save_figure(raw, "Unshaped (zero phase)", "unshaped")
     rows.append(
         {

@@ -26,7 +26,7 @@ from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     composite_score,
-    compute_metrics,
+    compute_bench_metrics,
     forward_intensity,
     gs_shape,
     make_target,
@@ -235,7 +235,7 @@ def optimize_iterative_zernike_shaping(
 
     ff = result.far_field
     ff_norm = ff / (ff.sum() + 1e-12)
-    metrics = compute_metrics(
+    metrics = compute_bench_metrics(
         ff_norm,
         target,
         zero_order_margin_px=bench_cfg.zero_order_margin_px,

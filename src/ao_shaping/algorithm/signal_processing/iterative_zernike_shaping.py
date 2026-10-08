@@ -346,7 +346,7 @@ class IterativeZernikeShapingOptimizer:
             标量张量 (综合分数, 越大越好)。
         """
         t = _torch()
-        # 固定的居中支撑区 (与 center=None 的 compute_metrics 一致)。滚动
+        # 固定的居中支撑区 (与 center=None 的 compute_beam_metrics 一致)。滚动
         # 跟随 argmax 的方框是不连续的: 对类散斑光场, ~1e-3 的模型变化就足以
         # 让 argmax 在近乎等强的晶粒之间跳, 于是优化器追一个已经盖不住光束
         # 的方框。

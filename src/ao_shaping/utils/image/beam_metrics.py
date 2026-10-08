@@ -26,7 +26,7 @@ __all__ = [
     "intensity_to_amplitude",
     "normalize_pattern",
     "measure_spot_diameter_cam",
-    "compute_metrics",
+    "compute_beam_metrics",
     "compute_shaping_metrics",
     "compute_square_metrics",
     "compute_quality_score",
@@ -110,7 +110,7 @@ def measure_spot_diameter_cam(intensity: np.ndarray, energy: float = 0.90) -> fl
     return 2.0 * float(r)
 
 
-def compute_metrics(
+def compute_beam_metrics(
     measured: np.ndarray,
     target: np.ndarray,
 ) -> dict[str, float]:
@@ -168,7 +168,7 @@ def compute_shaping_metrics(
 ) -> dict[str, float]:
     """计算掩码感知的光束整形质量指标。
 
-    在 :func:`compute_metrics` 基础上补充均匀性 / 环围能量统计, 且仅在
+    在 :func:`compute_beam_metrics` 基础上补充均匀性 / 环围能量统计, 且仅在
     布尔目标掩码内部计算。
 
     Args:

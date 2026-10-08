@@ -302,7 +302,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 | `transforms.py` | 纯 array→array: 灰度→弧度、ROI 裁剪、**相干**块平均、Zernike/freeform 面板还原、远场裁剪 |
 | `records.py` | 单条 `HwRecordRef` → `HwSample` 的唯一实现 (dataset 与 cache 共用, 保证两条路径**逐位一致**); `MaterialiserConfig` / `PayloadStore`(有界 LRU) / `Materialiser`(也是缓存读取点, `use_cache` 默认 True) |
 | `train_amp.py` | `python -m ml.zernike.train_amp` 训练入口: DataLoader 驱动, 记录 loss / grad norm / R² / PSNR / SSIM / NRMSE / perplexity / corr / efficiency / 质心偏移 / 光斑直径比, 出 true-vs-pred 对比图, 推 wandb (无 key 时 offline) |
-| `metrics.py` | img2img 标准指标 (MSE/RMSE/MAE/NRMSE/PSNR/SSIM) + 光斑域指标 (质心偏移 / 90% 环围直径 / 峰比), 复用 `beam_metrics.compute_metrics` / `measure_spot_diameter_cam` |
+| `metrics.py` | img2img 标准指标 (MSE/RMSE/MAE/NRMSE/PSNR/SSIM) + 光斑域指标 (质心偏移 / 90% 环围直径 / 峰比), 复用 `beam_metrics.compute_beam_metrics` / `measure_spot_diameter_cam` |
 | `dataset.py` | `HwPhaseImageDataset` / `FileGroupedSampler` / `build_hw_dataloader` / `create_hw_dataloaders` |
 | `cache.py` | 派生网格的 mmap 缓存 (`.hw_cache/<stem>/`), 消除每轮 212 s Zernike 反演 + 35 s 读盘 |
 | `inspect.py` | `python -m ml.hwdataset.inspect` 语料统计 / 抽样自检 / 建缓存 |
@@ -404,8 +404,30 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 > **真正的大头是折难度本身**: 留一 pickle 的逐折 R² 从 0.737 到 0.941 (σ≈0.08),
 > 同一模型换一折就差 0.2 ⇒ 任何**非配对**比较都淹没在折间方差里。
 > **所以必须分组 + 配对**: 三个模型共用同一批折, 折难度在差值里抵消, 配对 σ 降到 ~0.01。
-> ⚠️ 另: `_select_records` 的划分是**按文件的 75/25** (`val_fraction=0.25`,
-> train_amp.py:302), 之后验证集再被截断到 `max_val=128` (:315) —— **不是 80/20**。
+> ⚠️ 另: `train_amp._select_records` 的划分是**按 objective 分层的按文件划分**
+> (2026-10-07 改为 objective-stratified, 此前是"按文件随机 75/25 + `max_val=128` 截断")。
+> **但分层并没有消解 train/val 缺口 —— 别再宣称它消解了。** 6 seed × 2 arm × 40 epoch
+> 配对实测 (同 epoch 对比, `n_max=4`, 唯一变量是划分):
+>
+> | | gap@best_ep 均值±sd | val R² 均值±sd |
+> |---|---|---|
+> | 旧划分 | 1.16 ± 0.71 (0.63–2.32) | +0.8418 ± 0.0774 |
+> | 分层划分 | 1.13 ± 0.33 (0.74–1.62) | +0.8499 ± 0.0201 |
+>
+> 配对差 (旧−新) `p=0.9375` / `d_z=+0.03` ⇒ **均值无效应**, 两边缺口都 ≈1.15。
+> ⚠️ **早期"缺口 1.97 → 0.78 已消解"的说法是单 seed 噪声, 已作废**: 旧划分的 val 组成
+> **随 seed 剧变** (seed 0 抽到 2 个 `rmse_out` → gap 1.99; seed 2 抽到单个 `rms_pib`
+> → gap 0.63), 当时只跑了 seed 0, 正好抽到最差情形。
+> **分层真正修掉的是方差与可复现性, 不是均值**: val 组成恒为 `{rms_pib, rmse_out, shape}`
+> (旧划分 6 个 seed 出现 5 种不同组合), gap sd 0.71→0.33, val R² sd 0.077→0.020 (3.9×),
+> 且逐目标 val R² 每 epoch 可见 (旧划分常只有 1 个目标, 看不见别的目标崩)。
+> 单一目标 (`roi_pib`, 仅 1 文件) 无法拆分, 只进 train。"train on one objective"
+> 用 `--file-contains <substring>`。
+> ⚠️ **`gap` 指标本身有缺陷**: `best_val_mse / final_train_mse` 取的是**不同 epoch**
+> (early-stop 的 val vs 最后一轮 train), 而 history 里的 `train_mse` 是**轮内平均**
+> (权重还在动)。要看真实泛化缺口必须用 `train_eval_mse` / `train_eval_r2` / `gap_mse`
+> (同 epoch、同一权重、同一 peak 归一)。真实缺口很小 (val R² ≈ +0.85), 无过拟合
+> (14 参数 vs 512 样本) ⇒ **"差异很大"主要是单 seed + val 组成漂移的错觉**。
 > ⚠️ `HWRecordRef.source` 是**相位表示** (`panel_gray`/`panel_rad`/`zernike`/`freeform`),
 > **不是来源文件**; 文件标识是 `HWRecordRef.path`。
 
@@ -991,7 +1013,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Square shaping with low-order Zernike (n≤4) | Zernike modes are a **circularly symmetric smooth** basis; they physically cannot synthesise a square far-field (needs 2D-sinc-like near field / high spatial frequencies). Use full-pixel phase freedom (GS / differentiable / free-form), not Zernike. |
 | Optimising `-CV` alone as the SPGD objective for square shaping | With no energy term the optimizer **empties the target box** to minimise CV (hardware observed EE→0.002). The objective must include encircled energy (use the combined quality score). |
 | Computing `PIB` / `CV` on a **raw** CCD frame (read noise not removed) | A CCD frame carries symmetric read noise, so ~half its pixels are negative (measured 7164/14400 on a sim frame). `power_in_bucket` divides the in-target sum by the **whole-frame** sum, so a negative background drives the ratio **above 1** (measured `PIB=1.0120`) and corrupts `CV` the same way — the optimiser then chases read noise. Subtract the frame median and clip at 0 (`slm_gs_refine._prepare_frame`); clipping the *raw* frame instead rectifies noise into a pixel-count-sized DC pedestal (see the `clip(·,0,None)` defect in `sim/AGENTS.md`). |
-| Re-locating the target ROI by `argmax` on **every** iteration | On a speckle field the global maximum hops between near-equal grains under a ~1e-3 perturbation, so an `argmax`-rolled box makes `PIB`/`CV` **discontinuous** and the optimizer chases a box that no longer covers the beam (documented on `compute_metrics`). Locate the 0-order **once** on the unshaped frame and freeze the ROI for the whole run. |
+| Re-locating the target ROI by `argmax` on **every** iteration | On a speckle field the global maximum hops between near-equal grains under a ~1e-3 perturbation, so an `argmax`-rolled box makes `PIB`/`CV` **discontinuous** and the optimizer chases a box that no longer covers the beam (documented on `compute_beam_metrics`). Locate the 0-order **once** on the unshaped frame and freeze the ROI for the whole run. |
 | Committing a GS warm-start phase to hardware without a bake-off | The GS phase comes from a *model* of the bench (aperture, focal length, camera pixel pitch). If any input is wrong, GS makes the real spot **worse**. Measure flat and GS and keep the better one — a mis-calibrated model then costs two measurements instead of wrecking the run (`slm_gs_refine` Stage 1). |
 | Treating an exact run-to-run reproduction as a property of a closed loop | The seed pins the SPGD perturbation signs, **not** the measurements: every far-field read carries device noise. Two same-seed runs disagree at ~1e-3 *at the flat baseline*, before any optimisation. Assert approximate reproducibility, never equality. |
 | Trusting `reset_window()`'s returned centre | When the spot is near the frame edge the ROI offset is clamped but the returned `(w//2, h//2)` is not the true spot position → the target box lands off the beam (hardware observed epoch-0 `mean_b=0.01`). Re-locate the spot by `argmax`/centroid on the **windowed** image. |

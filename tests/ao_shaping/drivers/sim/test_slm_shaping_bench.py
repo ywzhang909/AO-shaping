@@ -3,7 +3,7 @@
 import numpy as np
 
 from ao_shaping.drivers.sim.slm_shaping_bench import (
-    compute_metrics,
+    compute_bench_metrics,
     power_in_bucket,
     zero_order_fraction,
 )
@@ -18,5 +18,5 @@ def test_off_axis_center_uses_xy_coordinates() -> None:
 
     assert power_in_bucket(intensity, target, center=center) == 1.0
     assert zero_order_fraction(intensity, center) == 1.0
-    assert compute_metrics(intensity, target, center=center)["PIB"] == 1.0
-    assert compute_metrics(intensity, target)["zero_order"] == 1.0
+    assert compute_bench_metrics(intensity, target, center=center)["PIB"] == 1.0
+    assert compute_bench_metrics(intensity, target)["zero_order"] == 1.0

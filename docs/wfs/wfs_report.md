@@ -1,5 +1,5 @@
 # WFS Hardware Test Report
-**Generated:** 2026-10-05 23:01:59
+**Generated:** 2026-10-07 19:40:33
 **Device:** wfs
 ---
 
@@ -13,6 +13,6 @@ This test runs without hardware using simulated data.
 
 **Status:** ✅ PASS
 
-**Duration:** 0.39s
+**Duration:** 0.32s
 
 ---

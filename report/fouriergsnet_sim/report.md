@@ -309,7 +309,7 @@ x ← x − (x/τ)·dt + σ·sqrt(2·dt/τ)·N(0,1)      (平稳分布 N(0, σ²
 4. `adaptive_gs_init(iters=5)` → 初值相位 `φ₀` (设备自适应 GS, 用"实测幅值+仿真相位")。
 5. (本 run `ft_samples=0`, **跳过**微调) → 直接进闭环。
 6. `closed_loop(steps=30, replay=False)` → 纯**推理模式**闭环, 逐帧记录。
-7. 收尾: 采整帧 → `compute_metrics` → 写 `config.json`/`metrics.csv`/`final.json`/帧。
+7. 收尾: 采整帧 → `compute_beam_metrics` → 写 `config.json`/`metrics.csv`/`final.json`/帧。
 
 ### 5.3 模型结构 (Model Architecture)
 

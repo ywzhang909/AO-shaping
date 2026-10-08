@@ -26,7 +26,7 @@ from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     composite_score,
-    compute_metrics,
+    compute_bench_metrics,
     forward_intensity,
     make_target,
 )
@@ -86,7 +86,7 @@ def run_gs_baseline() -> tuple[float, float, float, np.ndarray]:
     gs = gs_shape(cfg, n_iters=200, seed=SEED)
     ff = forward_intensity(gs.phase, cfg)
     ff = ff / (ff.sum() + 1e-12)
-    m = compute_metrics(ff, target)
+    m = compute_bench_metrics(ff, target)
     return composite_score(m), m["PIB"], m["CV"], gs.phase
 
 
@@ -107,7 +107,7 @@ def run_spgd_baseline() -> tuple[float, float, float, np.ndarray]:
     spgd = spgd_shape(cfg, n_iters=600, delta=0.1, lr=0.02, seed=SEED, dim=8)
     ff = forward_intensity(spgd.phase, cfg)
     ff = ff / (ff.sum() + 1e-12)
-    m = compute_metrics(ff, target)
+    m = compute_bench_metrics(ff, target)
     return composite_score(m), m["PIB"], m["CV"], spgd.phase
 
 
@@ -271,7 +271,7 @@ def main() -> None:
 
     # Initial state == the reference far-field (golden Zernike, flat SLM phase)
     ff_init = actual_ff
-    m_init = compute_metrics(ff_init, target)
+    m_init = compute_bench_metrics(ff_init, target)
     init_score = composite_score(m_init)
     logger.info("Initial score={:.4f} PIB={:.4f} CV={:.4f}", init_score, m_init["PIB"], m_init["CV"])
 

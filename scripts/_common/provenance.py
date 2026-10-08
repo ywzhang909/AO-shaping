@@ -476,6 +476,16 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="人工调研",
         note="Zotero 扫描：整形目标函数 / 评价函数目录",
     ),
+    "report/model_free_ao_survey/report.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="人工调研",
+        note=(
+            "无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 "
+            "(SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 "
+            "(自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / "
+            "RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式"
+        ),
+    ),
     "report/pib_loss_terms/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",

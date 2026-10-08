@@ -119,7 +119,14 @@ class CoeffTrainConfig:
     # -- data / geometry (forwarded to ZernikeCoeffDataset + MaterialiserConfig)
     n_max: int = DEFAULT_N_MAX
     grid: int = 64
-    image_mode: str = "robust"
+    #: Target normalisation. ``"peak"`` (default) divides each far-field frame by its
+    #: brightest pixel -- on this bench that is the 0-order, the dominant feature, so
+    #: it is a stable, near-physical scale. Measured on the real ``slm_zernike_shaping``
+    #: corpus (5 seeds, leave-one-file-out, judged on val R^2): ``peak`` = +0.821 vs
+    #: ``robust`` = +0.628, with ``abs255`` (the un-normalised detector level, which
+    #: spans ~2.9 decades with exposure) faring worst at R^2 -0.35. ``robust`` remains
+    #: a safe choice if a bench's brightest pixel is a hot spot rather than the 0-order.
+    image_mode: str = "peak"
     use_cache: bool = False
 
     # -- model (forwarded to ZernikeCoeffConfig)
@@ -729,8 +736,8 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         # constant predictor while PSNR/SSIM look perfect).
         raise ValueError(
             "image_mode='sum' is not permitted: total-energy normalisation makes "
-            "PSNR and SSIM degenerate while degrading R^2. Use 'robust' or, as "
-            "an ablation only, 'peak'."
+            "PSNR and SSIM degenerate while degrading R^2. Use 'peak' (default) or "
+            "'robust'."
         )
 
     out_dir = Path(cfg.out_dir)

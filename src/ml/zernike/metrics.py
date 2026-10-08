@@ -7,7 +7,7 @@ measurement:
   ``MSE``, ``RMSE``, ``MAE``, ``NRMSE``, ``PSNR``, ``SSIM``, plus Pearson
   ``correlation`` and the scale-invariant ``efficiency`` overlap already
   implemented canonically in
-  :func:`ao_shaping.utils.image.beam_metrics.compute_metrics`.
+  :func:`ao_shaping.utils.image.beam_metrics.compute_beam_metrics`.
 * **beam-domain** -- what the optics actually cares about: where the spot is
   (``centroid_offset_px``) and how wide it is (``spot_diameter_px`` at a stated
   encircled-energy fraction), plus ``peak_ratio`` (a Strehl-like brightness
@@ -27,7 +27,7 @@ that reason, not as a generic extra; ``scripts/metric_discrimination.py`` is the
 that selected it and the four metrics it rejected.
 
 Canonical helpers are reused rather than reimplemented, per ``AGENTS.md``:
-``compute_metrics`` and ``measure_spot_diameter_cam`` from
+``compute_beam_metrics`` and ``measure_spot_diameter_cam`` from
 :mod:`ao_shaping.utils.image.beam_metrics`, and ``centroid`` from
 :mod:`ao_shaping.utils.image.spots_calc`.
 """
@@ -203,7 +203,7 @@ def per_sample_beam_metrics(
     Both arrays are ``(H, W)`` and are compared **scale-invariantly**: the
     SLM+CCD chain has an unknown absolute gain, so every quantity here is
     computed after normalising each image to unit sum, exactly as the canonical
-    :func:`~ao_shaping.utils.image.beam_metrics.compute_metrics` does.
+    :func:`~ao_shaping.utils.image.beam_metrics.compute_beam_metrics` does.
 
     Args:
         pred: ``(H, W)`` predicted observable.
@@ -216,14 +216,14 @@ def per_sample_beam_metrics(
         ``spot_diameter_ratio`` and ``peak_ratio``.
     """
     from ao_shaping.utils.image.beam_metrics import (
-        compute_metrics,
+        compute_beam_metrics,
         measure_spot_diameter_cam,
     )
     from ao_shaping.utils.image.spots_calc import centroid
 
     p = np.asarray(pred, dtype=np.float64)
     t = np.asarray(target, dtype=np.float64)
-    canonical = compute_metrics(p, t)
+    canonical = compute_beam_metrics(p, t)
 
     p_norm = p / p.sum() if p.sum() > 0 else p
     t_norm = t / t.sum() if t.sum() > 0 else t

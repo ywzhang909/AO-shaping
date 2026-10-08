@@ -25,16 +25,26 @@ import sys
 import textwrap
 from pathlib import Path
 
-_ROOT = Path(__file__).resolve().parents[3]
+from tests.ao_shaping.drivers._subprocess_env import subprocess_env_with_pythonpath
+
+_ROOT = Path(__file__).resolve().parents[4]
 
 
 def _run(snippet: str) -> subprocess.CompletedProcess[str]:
+    """Execute ``snippet`` in a fresh interpreter rooted at the repo.
+
+    The env comes from the shared helper. This used to hardcode a POSIX literal
+    (``PATH=/usr/bin:/bin``, ``HOME=/tmp``) and point ``_ROOT`` at ``tests/``: on
+    Windows, stripping ``SYSTEMROOT`` killed the child with ``WinError 10106`` before
+    any assertion ran, and the colon-separated ``"src:libs"`` ``PYTHONPATH`` was inert,
+    so imports resolved only because the package is pip-installed.
+    """
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(snippet)],
         capture_output=True,
         text=True,
         cwd=_ROOT,
-        env={"PYTHONPATH": "src:libs", "PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+        env=subprocess_env_with_pythonpath(root=str(_ROOT), absolute=True),
         timeout=180,
     )
 

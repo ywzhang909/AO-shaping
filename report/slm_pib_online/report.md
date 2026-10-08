@@ -1,5 +1,12 @@
 # SLM-PIB 在线验收报告 (Daheng CCD)
 
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/generate_slm_pib_online_report.py`](../../scripts/generate_slm_pib_online_report.py)
+> **复现命令**: `python scripts/generate_slm_pib_online_report.py`
+> **运行环境**: 离线
+> **说明**: 在线回归套件验收报告 (读 data/debug/slm_pib_online/)
+<!-- provenance:end -->
+
 从 `data/debug/slm_pib_online/` 生成的离线报告。未打开硬件；下述所有数值均来自 `AO_RUN_HARDWARE=1` 在线套件写入的保存 recorder pickle 与 summary JSON。
 
 分析运行: **11** (3 次 SNR 扫描, 8 次 smoke)。

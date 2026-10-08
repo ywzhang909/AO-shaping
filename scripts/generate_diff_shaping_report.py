@@ -98,7 +98,7 @@ def _mkdirs() -> None:
 # ---------------------------------------------------------------------------
 # Metrics (exact definitions from the task)
 # ---------------------------------------------------------------------------
-def compute_metrics(intensity: np.ndarray, target: np.ndarray) -> tuple[float, float]:
+def compute_cv_ee(intensity: np.ndarray, target: np.ndarray) -> tuple[float, float]:
     """Return (CV, EE) for an intensity map against a target mask.
 
     mask = target > 0
@@ -233,7 +233,7 @@ def run_gs_baseline(target: np.ndarray) -> dict:
     )
     phase = gs.phase
     farfield = _fft_farfield(phase)
-    cv, ee = compute_metrics(farfield, target)
+    cv, ee = compute_cv_ee(farfield, target)
 
     # Save far-field figure
     fig, ax = plt.subplots(figsize=(6, 5))
@@ -280,7 +280,7 @@ def run_diff(
             ff = _fft_farfield(phase_np)
         else:
             ff = _asm_farfield(phase_np)
-        cv, ee = compute_metrics(ff, target)
+        cv, ee = compute_cv_ee(ff, target)
         cv_hist.append(cv)
         ee_hist.append(ee)
 
@@ -303,7 +303,7 @@ def run_diff(
         phase_callback=_cb if track else None,
     )
 
-    cv, ee = compute_metrics(result.simulated_intensity, target)
+    cv, ee = compute_cv_ee(result.simulated_intensity, target)
     loss_hist = result.loss_history
 
     return {

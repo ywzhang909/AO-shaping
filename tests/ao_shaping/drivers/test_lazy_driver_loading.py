@@ -30,18 +30,24 @@ from pathlib import Path
 import pytest
 
 from ao_shaping.drivers.device_base import Device
+from tests.ao_shaping.drivers._subprocess_env import subprocess_env_with_pythonpath
 
 _ROOT = Path(__file__).resolve().parents[3]
 
 
 def _run(snippet: str) -> subprocess.CompletedProcess[str]:
-    """Execute ``snippet`` in a clean interpreter rooted at the repo."""
+    """Execute ``snippet`` in a fresh interpreter rooted at the repo.
+
+    Uses the shared env helper instead of the POSIX literal this used to hardcode
+    (``PATH=/usr/bin:/bin``, ``HOME=/tmp``), which stripped ``SYSTEMROOT`` and killed
+    the child with ``WinError 10106`` on Windows before the snippet could run.
+    """
     return subprocess.run(
         [sys.executable, "-c", textwrap.dedent(snippet)],
         capture_output=True,
         text=True,
         cwd=_ROOT,
-        env={"PYTHONPATH": "src:libs", "PATH": "/usr/bin:/bin", "HOME": "/tmp"},
+        env=subprocess_env_with_pythonpath(root=str(_ROOT), absolute=True),
         timeout=180,
     )
 
