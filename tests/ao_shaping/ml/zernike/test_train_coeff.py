@@ -358,12 +358,18 @@ class TestLossContract:
 
             train(CoeffTrainConfig(image_mode="sum", epochs=1, use_wandb=False))
 
-    def test_default_image_mode_is_peak(self) -> None:
-        # Measured on the real slm_zernike_shaping corpus (5 seeds, leave-one-file-out,
-        # judged on val R^2): peak +0.821 > robust +0.628 > abs255 -0.345. peak is
-        # the stable normalisation on this bench; robust stays for benches whose
-        # brightest pixel is a hot spot.
-        assert CoeffTrainConfig().image_mode == "peak"
+    def test_default_image_mode_is_the_incumbent_robust(self) -> None:
+        # The default is deliberately NOT `peak`. A 5-seed R^2 comparison once
+        # favoured `peak` (+0.821 vs +0.628), but that comparison never checked the
+        # constant-predictor floor: on this corpus a *constant* predictor scores
+        # R^2 +0.920 under `peak` and +0.799 under `abs255`, so raw R^2 differences
+        # of that size sit inside the metric's own floor. Scored on
+        # `skill = 1 - mse_model/mse_constant` the ordering reverses
+        # (scripts/sweep_target_transform.py), and `zscore` -- which strips the
+        # per-frame level entirely -- leaves skill +0.006, i.e. the coefficients
+        # live mostly in the absolute level. So the earlier argument is withdrawn
+        # and the incumbent is kept until the ConvNet itself is scored on skill.
+        assert CoeffTrainConfig().image_mode == "robust"
 
     def test_default_selection_metric_path_is_r2(self) -> None:
         # The config exposes no knob to select the best epoch on MSE/PSNR/SSIM.

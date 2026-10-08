@@ -425,6 +425,26 @@ REPORTS: dict[str, ReportProvenance] = {
         note="grouped CV 对比 (physics / hybrid / unet) 的原始对照表",
         extra_scripts=("scripts/compare_unet_baseline.py",),
     ),
+    "report/zernike_r2_baseline/report.md": ReportProvenance(
+        script="scripts/diagnose_pod_ridge.py",
+        command=(
+            "python scripts/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256 "
+            "# 再跑 verify_pod_ridge_canary.py / diagnose_r2_baseline.py / "
+            "sweep_target_transform.py"
+        ),
+        environment="离线",
+        note=(
+            "验证 R² 被常数基线吞掉：常数预测器在同一 10 折协议下 R²=+0.910，"
+            "故改用 skill = 1 - mse_model/mse_const 记分；含 image_mode 默认值"
+            "论证的撤回"
+        ),
+        extra_scripts=(
+            "scripts/diagnose_pod_ridge.py",
+            "scripts/verify_pod_ridge_canary.py",
+            "scripts/diagnose_r2_baseline.py",
+            "scripts/sweep_target_transform.py",
+        ),
+    ),
     # -- 硬件调试语料统计 (hwdataset) ----------------------------------------
     "report/hwdataset_corpus/report.md": ReportProvenance(
         script="scripts/generate_hwdataset_corpus_report.py",

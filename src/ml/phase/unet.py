@@ -8,6 +8,12 @@ import torch
 import torch.nn as nn
 
 
+#: What :class:`UNetGenerator`'s head emits. ``"image"`` is the linear (no
+#: activation) head, required when the target is an intensity frame rather than an
+#: SLM phase map -- see :meth:`UNetGenerator.forward` for the measurement.
+OutputMode = Literal["phase", "coeffs", "image"]
+
+
 class DoubleConv(nn.Module):
     """Double convolution block: Conv-BN-ReLU-Conv-BN-ReLU."""
 
@@ -38,7 +44,7 @@ class UNetGenerator(nn.Module):
         self,
         in_channels: int = 2,
         features: list[int] | None = None,
-        output_mode: Literal["phase", "coeffs"] = "phase",
+        output_mode: OutputMode = "phase",
         n_coeffs: int = 55,
     ):
         """Initialize U-Net generator.
@@ -46,7 +52,12 @@ class UNetGenerator(nn.Module):
         Args:
             in_channels: Input image channels (1 for single cam, 2 for dual cam).
             features: Feature channels for U-Net encoder.
-            output_mode: Output mode - "phase" for 2D map, "coeffs" for 1D vector.
+            output_mode: What the head emits.
+                ``"phase"`` (default) applies a sigmoid, because an SLM phase map
+                is displayed as a ``[0, 1]`` grayscale pattern.
+                ``"image"`` emits the **raw linear** conv output, for intensity
+                targets -- see the note below.
+                ``"coeffs"`` emits an unconstrained ``n_coeffs`` vector.
             n_coeffs: Number of Zernike coefficients (only used if output_mode="coeffs").
         """
         super().__init__()
@@ -125,8 +136,28 @@ class UNetGenerator(nn.Module):
             bottleneck_pooled = self.global_pool(bottleneck_feat).flatten(1)
             combined = torch.cat([pooled, bottleneck_pooled], dim=1)
             return self.coeff_head(combined)
-        else:
-            return self.sigmoid(self.final_conv(x))
+        if self.output_mode == "image":
+            # No activation. Added for unbounded-intensity targets (a far-field
+            # frame is mostly near-zero background with a small bright core, which
+            # a sigmoid can only reach by saturating most pixels).
+            #
+            # ⚠️ **Measured WORSE on this corpus, do not reach for it by default.**
+            # On `slm_zernike_shaping` (10-fold leave-one-pickle-out, judged by
+            # `skill = 1 - mse_model/mse_constant`, see
+            # `report/zernike_r2_baseline/report.md`): sigmoid head skill -0.994,
+            # linear head skill **-1.622**, paired difference +0.628 with
+            # p=0.0059 in favour of the sigmoid (d_z=+0.92). The linear head is also
+            # far less stable (per-fold skill down to -3.59, sd 0.86 -> 1.30).
+            # The original hypothesis -- that the sigmoid parks the output at its
+            # midpoint and so cannot reach a target of mean 0.014 -- was **wrong**:
+            # an untrained output range says nothing about where training lands.
+            # The bounded head evidently regularises the output, and on this data
+            # that matters more than the initialisation offset. Kept as an option
+            # because the underlying concern (a saturated sigmoid cannot express a
+            # near-zero background) is real for other targets; it is just not the
+            # limiting factor here.
+            return self.final_conv(x)
+        return self.sigmoid(self.final_conv(x))
 
 
 def build_unet(

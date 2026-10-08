@@ -76,7 +76,9 @@ import torch
 from loguru import logger
 
 from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index
-from ml.zernike.metrics import batch_image_metrics
+from ml.zernike.metrics import batch_image_metrics, constant_baseline_metrics
+from ml.zernike.eval_stats import holm_bonferroni as eval_holm_bonferroni
+from ml.zernike.eval_stats import sign_flip_pvalue
 from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
 from compare_unet_baseline import (
@@ -90,7 +92,11 @@ from compare_unet_baseline import (
 # `slm_zernike_shaping_rms_pib_20260926_162917_20260926_162917.pkl` -> `rms_pib`
 _OBJECTIVE_RE = re.compile(r"^slm_zernike_shaping_(?P<objective>.+?)_\d{8}_\d{6}")
 
-METRICS = ("mse", "r2", "ssim", "psnr", "nrmse")
+# ``skill`` / ``r2_const`` are the honest headline on this corpus: a *constant*
+# predictor reaches ``r2`` ~= +0.910, so ``r2`` alone cannot separate models.
+# ``skill = 1 - mse_model / mse_const`` has no such floor. See
+# ``report/zernike_r2_baseline/report.md``.
+METRICS = ("mse", "r2", "ssim", "psnr", "nrmse", "skill", "r2_const", "mse_const")
 
 
 def objective_of(path: Path) -> str:
@@ -170,8 +176,19 @@ def _predict(model, stacked: torch.Tensor, forward) -> torch.Tensor:
 
 
 def _metrics(prediction: torch.Tensor, target: torch.Tensor) -> dict[str, float]:
+    """Image metrics **plus** the constant-predictor floor.
+
+    ``r2`` alone is not a scoreboard here: on this corpus a *constant* image
+    (the split's own mean) reaches R^2 ~= +0.910, because peak-normalised
+    far-field frames are nearly static (pooled target variance ~0.014). So every
+    model in a comparison table has to be read against ``r2_const``, and
+    ``skill = 1 - mse_model / mse_const`` is the floor-free number. Without it a
+    model that does nothing scores 0.91. See
+    ``report/zernike_r2_baseline/report.md``.
+    """
     values = batch_image_metrics(prediction, target)
-    return {key: float(values[key]) for key in METRICS}
+    values.update(constant_baseline_metrics(prediction, target))
+    return {key: float(values[key]) for key in METRICS if key in values}
 
 
 def score_by_objective(
@@ -206,6 +223,16 @@ def main() -> int:
     parser.add_argument("--batch-size", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--unet-features", type=int, nargs="+", default=[16, 32, 64, 128, 256])
+    parser.add_argument(
+        "--unet-output-mode",
+        choices=["phase", "image"],
+        default="phase",
+        help=(
+            "U-Net head. 'phase' ends in a sigmoid (right for an SLM phase map, "
+            "wrong for an intensity target -- see report/zernike_r2_baseline). "
+            "'image' is the linear head."
+        ),
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--out", default="logs/models_cv.json")
     parser.add_argument(
@@ -267,6 +294,7 @@ def main() -> int:
                     name, cfg,
                     residual_width=args.residual_width,
                     unet_features=args.unet_features,
+                    unet_output_mode=args.unet_output_mode,
                 ).to(device)
                 started = time.perf_counter()
                 model, seconds, _ = fit(model, train_t, cfg, device, forward_for(name))
@@ -313,49 +341,29 @@ def main() -> int:
 def exact_sign_flip_p(diffs: list[float]) -> float:
     """Exact two-sided sign-flip permutation p-value for a paired sample.
 
-    At 10 folds the null distribution is enumerable (2**10 = 1024 sign
-    assignments), so no normality assumption is needed -- which matters because
-    10 differences are far too few to check that assumption. The smallest
-    attainable two-sided p is 2/1024 = 0.00195.
+    Delegates to :func:`ml.zernike.eval_stats.sign_flip_pvalue`, which is the
+    repo's single implementation. This wrapper used to carry its own copy of the
+    enumeration, which is precisely the "second copy drifts" failure the
+    statistics module exists to prevent -- two scripts computing the same test
+    is how a report ends up quoting a p-value no code can reproduce. At 10 folds
+    the null distribution is enumerable (2**10 = 1024 sign assignments), so no
+    normality assumption is needed, and the smallest attainable two-sided p is
+    2/1024 = 0.00195.
 
-    The test assumes the differences are symmetric about zero under the null.
     Note that k-fold differences are *not* independent (fold i's training set
     overlaps fold j's), which makes even this test mildly anti-conservative --
-    the effect size and CI below are the honest headline, the p-value only
-    brackets it.
+    the effect size is the honest headline, the p-value only brackets it.
     """
-    values = [d for d in diffs if d != 0.0]
-    if not values:
-        return 1.0
-    # The test statistic is the magnitude of the *signed* sum. Comparing against
-    # the sum of absolute values instead would make every p-value hit the 2/2**n
-    # floor, because only two sign-flips can align every term.
-    observed = abs(sum(values))
-    total = len(values)
-    extreme = 0
-    for mask in range(1 << total):
-        flipped = sum(
-            -d if (mask >> i) & 1 else d for i, d in enumerate(values)
-        )
-        if abs(flipped) >= observed - 1e-12:
-            extreme += 1
-    return extreme / (1 << total)
+    return sign_flip_pvalue(diffs)
 
 
 def holm_bonferroni(p_values: dict[str, float]) -> dict[str, float]:
     """Holm-Bonferroni adjusted p-values, preserving input keys.
 
-    Comparing 3 models across 5 metrics is 10+ tests on 4-10 folds; without a
-    multiplicity correction a 'significant' result is close to guaranteed.
+    Delegates to :func:`ml.zernike.eval_stats.holm_bonferroni`; see
+    :func:`exact_sign_flip_p` for why this wrapper exists.
     """
-    ordered = sorted(p_values.items(), key=lambda kv: kv[1])
-    total = len(ordered)
-    adjusted: dict[str, float] = {}
-    running = 0.0
-    for rank, (key, value) in enumerate(ordered):
-        running = max(running, min(1.0, (total - rank) * value))
-        adjusted[key] = running
-    return adjusted
+    return eval_holm_bonferroni(p_values)
 
 
 def _reanalyse(path: Path) -> None:

@@ -97,6 +97,7 @@
 | [`zernike_farfield_sim/report.md`](zernike_farfield_sim/report.md) | `scripts/generate_zernike_farfield_sim_report.py` | 离线 | Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物 |
 | [`zernike_phase2amp/report.md`](zernike_phase2amp/report.md) | `scripts/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |
 | [`zernike_phase2amp/unet_comparison.md`](zernike_phase2amp/unet_comparison.md) | `scripts/compare_models_cv.py (+compare_unet_baseline.py)` | 离线 | grouped CV 对比 (physics / hybrid / unet) 的原始对照表 |
+| [`zernike_r2_baseline/report.md`](zernike_r2_baseline/report.md) | `scripts/diagnose_pod_ridge.py (+diagnose_pod_ridge.py, verify_pod_ridge_canary.py, diagnose_r2_baseline.py, sweep_target_transform.py)` | 离线 | 验证 R² 被常数基线吞掉：常数预测器在同一 10 折协议下 R²=+0.910，故改用 skill = 1 - mse_model/mse_const 记分；含 image_mode 默认值论证的撤回 |
 | [`zotero_objectives/README.md`](zotero_objectives/README.md) | `人工撰写` | 人工调研 | Zotero 扫描：整形目标函数 / 评价函数目录 |
 
 ## 尚未生成产物的报告

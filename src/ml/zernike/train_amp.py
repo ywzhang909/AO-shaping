@@ -59,6 +59,7 @@ from ml.zernike.losses import (
 from ml.zernike.metrics import (
     available_perceptual_metrics,
     batch_image_metrics,
+    constant_baseline_metrics,
     per_sample_beam_metrics,
     roi_shape_terms,
     summarise_beam_metrics,
@@ -574,6 +575,12 @@ def evaluate(
     model.train()
 
     out = batch_image_metrics(prediction, reference)
+    # The metric floor, made explicit. On this corpus a *constant* image scores
+    # R^2 ~= +0.910, so the R^2 above cannot be read as model quality on its own;
+    # `skill` says how much of that constant baseline the model actually removes
+    # (0.0 = no better than one image for everything, negative = worse).
+    # See `report/zernike_r2_baseline/report.md`.
+    out.update(constant_baseline_metrics(prediction, reference))
     out["perplexity"] = regression_perplexity(out["mse"], variance)
     # Detail retention. Included because SSIM cannot see over-smoothing: the U-Net arm won on
     # SSIM while being the blurriest prediction we trained, so an SSIM-only report would have

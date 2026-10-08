@@ -79,6 +79,7 @@ from ml.zernike.forward_model import (
     count_parameters,
     peak_normalize,
 )
+from ml.zernike.metrics import constant_baseline_metrics
 
 __all__ = [
     "CoeffTrainConfig",
@@ -119,14 +120,28 @@ class CoeffTrainConfig:
     # -- data / geometry (forwarded to ZernikeCoeffDataset + MaterialiserConfig)
     n_max: int = DEFAULT_N_MAX
     grid: int = 64
-    #: Target normalisation. ``"peak"`` (default) divides each far-field frame by its
-    #: brightest pixel -- on this bench that is the 0-order, the dominant feature, so
-    #: it is a stable, near-physical scale. Measured on the real ``slm_zernike_shaping``
-    #: corpus (5 seeds, leave-one-file-out, judged on val R^2): ``peak`` = +0.821 vs
-    #: ``robust`` = +0.628, with ``abs255`` (the un-normalised detector level, which
-    #: spans ~2.9 decades with exposure) faring worst at R^2 -0.35. ``robust`` remains
-    #: a safe choice if a bench's brightest pixel is a hot spot rather than the 0-order.
-    image_mode: str = "peak"
+    #: Target normalisation. ``"peak"`` divides each far-field frame by its
+    #: brightest pixel; ``"abs255"`` keeps the absolute detector level.
+    #:
+    #: ⚠️ **The default is not settled — measured, and deliberately left alone.**
+    #: `scripts/sweep_target_transform.py` scores a 4-component POD + ridge on the
+    #: 10-fold protocol under each transform, and reports ``skill =
+    #: 1 - mse_model / mse_constant`` rather than raw R^2. Raw R^2 is unusable
+    #: here: a *constant* predictor scores +0.80..+0.95 depending only on the
+    #: transform, so R^2 differences of 0.03 sit inside the metric's own floor.
+    #: On skill the ordering reverses -- abs255 +0.240 > log +0.213 > peak +0.065
+    #: > center-crop +0.024 > zscore +0.006 -- i.e. **each step of per-frame
+    #: normalisation deletes coefficient information**, because the coefficients
+    #: are encoded in the absolute level far more than in the frame shape.
+    #:
+    #: So `peak` is *not* justified over `abs255` by the obvious argument any more.
+    #: It was set here on 2026-10-08 from a 5-seed R^2 comparison that did not
+    #: check the constant-predictor floor; that argument is withdrawn. Choosing
+    #: between them needs the ConvNet scored on *skill*, on the 10-fold protocol,
+    #: with exposure (or the absolute level) available as an input -- the linear
+    #: model shows the information is there, so the open question is only whether
+    #: this architecture can use it. Until that is measured, keep the incumbent.
+    image_mode: str = "robust"
     use_cache: bool = False
 
     # -- model (forwarded to ZernikeCoeffConfig)
@@ -642,7 +657,7 @@ def _evaluate(
     # arrays are always (N, 1, grid, grid), so this is an array either way.
     per_sample_r2 = np.atleast_1d(r2_score(pred_arr, target_arr))
     finite = per_sample_r2[np.isfinite(per_sample_r2)]
-    return {
+    out = {
         "r2": float(np.mean(finite)) if finite.size else float("nan"),
         "pearson_r": _pearson_per_sample(pred_arr, target_arr),
         "mse": mse,
@@ -650,6 +665,17 @@ def _evaluate(
         "psnr": _psnr_from_mse(mse),
         "ssim": _ssim(pred_arr, target_arr),
     }
+    # `r2` alone is not interpretable on this corpus: a constant image (the split's
+    # own mean) scores R^2 ~= +0.910, because peak-normalised frames are nearly
+    # static. `skill` is invariant to that floor -- 0.0 = no better than one image
+    # for everything, negative = worse. See report/zernike_r2_baseline/report.md.
+    out.update(
+        constant_baseline_metrics(
+            torch.from_numpy(pred_arr), torch.from_numpy(target_arr)
+        )
+    )
+    out.pop("mse")  # already present above, identical definition
+    return out
 
 
 def _save_comparison(
@@ -736,7 +762,7 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
         # constant predictor while PSNR/SSIM look perfect).
         raise ValueError(
             "image_mode='sum' is not permitted: total-energy normalisation makes "
-            "PSNR and SSIM degenerate while degrading R^2. Use 'peak' (default) or "
+            "PSNR and SSIM degenerate while degrading R^2. Use 'peak' or "
             "'robust'."
         )
 
