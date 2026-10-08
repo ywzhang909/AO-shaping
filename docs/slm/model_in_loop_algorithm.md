@@ -43,6 +43,7 @@ graph TD
     subgraph L2["② 策略层 (硬件移植) · optimizer/wfless/slm_model_in_loop.py"]
         direction TB
         OPT["optimize_slm_model_in_loop(config)<br/>← 唯一公开入口"]
+        SEED["_seed_coefficients_from_checkpoint(config)<br/>开设备之前 · 仅当 --forward-checkpoint"]
         OPEN["_open_bench(config)"]
         GEOM["_calibrate_geometry(bench, config)<br/>一次性几何 bake-off"]
         MKOPT["_make_optimizer(config, coefficients)"]
@@ -51,6 +52,17 @@ graph TD
         TGRID["_to_model_grid(...)"]
         ACC["acceptance_verdict(...)"]
         VERDICT{{"ModelInLoopStatus"}}
+    end
+
+    subgraph LCK["②' 离线权重读缝 · ml/zernike/amp_checkpoint.py"]
+        direction TB
+        LOAD["load_trained_forward_model(path)"]
+        CHK["check_geometry(...)<br/>不逐项相符即报错"]
+    end
+
+    subgraph LFR["②'' 唯一的 Fraunhofer 传播 · utils/wavefront/fraunhofer.py"]
+        direction TB
+        FR["focal_field / focal_intensity<br/>中心补零 + fftshift(fft2(ifftshift))"]
     end
 
     subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
@@ -88,6 +100,10 @@ graph TD
 
     CLI --> RUN
     CFG --> OPT
+    OPT -->|"种子: 默认 np.zeros(n_coeffs)"| SEED
+    SEED -.延迟 import.- LOAD
+    LOAD --> CHK
+    CHK -->|"不逐项相符 → 开设备前就报错"| SEED
     OPT --> OPEN
     OPEN --> BENCH
     OPT --> GEOM
@@ -95,8 +111,9 @@ graph TD
     OPT -->|"平场基线"| QUAL
     QUAL -->|"基准 score"| OPT
 
-    OPT -->|"每轮: coefficients = np.zeros(n_coeffs)"| MKOPT
+    OPT -->|"每轮: coefficients (零种子 或 checkpoint 种子)"| MKOPT
     MKOPT --> ZCO
+    ZCO -.解析远场.- FR
     OPT -->|"每轮 × probe_count"| PROBE
     PROBE --> BENCH
     BENCH -->|"measure()"| PREP
@@ -147,9 +164,14 @@ sequenceDiagram
     M->>R: run(params)
     R->>O: optimize_slm_model_in_loop(config)
 
+    opt --forward-checkpoint 已给
+        O->>O: _seed_coefficients_from_checkpoint(config) 〔开设备之前〕
+        Note over O: 不逐项相符 → 此刻就报错, 不烧台架时间
+    end
+
     rect rgb(245, 240, 235)
         Note over O,B: 一次性 —— 几何标定
-        O->>Z: coefficients = np.zeros(n_coeffs) 〔唯一初始种子〕
+        O->>Z: coefficients = np.zeros(n_coeffs) 〔默认零种子〕
         O->>B: _open_bench(config)
         B-->>O: 设备已连接 (import 全部延迟)
         loop n_calibration_probes 次
@@ -246,7 +268,14 @@ re-arm 必须绕着**当前**系数重建优化器。
 ### 4.4 系数个数
 
 `n_coefficients = calc_n_zernike_terms(n_orders)`, **含 piston**。
-这与 `ml/zernike` 的离线约定**差一位**, 见 §9。
+这与 `ml/zernike` 的离线约定**差一位**, 差异如何对齐见 §9.2。
+
+**远场传播只有一份实现.** Step A 的解析远场、Step B 的可微远场, 以及离线 `ZernikeAmpModel`
+的 `_propagate`, 三者都调用 `utils/wavefront/fraunhofer.py` 的 `focal_intensity` /
+`focal_field`(中心补零 + `fftshift(fft2(ifftshift(·), norm="ortho"))` + `re²+im²`)。
+改动前这三处是三份彼此独立的拷贝; 现在只有目标网格尺寸不同(绝对 `far_field_size` vs
+`n × far_field_padding`), 其余完全相同 —— 收敛前逐位比对过。物理参数化差异(piston 处理、
+瞳面振幅、孔径掩模、是否中心裁回 `grid`)**刻意不统一**, 那是模型差异不是复制粘贴。
 
 ## 5. Step B 详细: 冻结像差下的全像素相位合成
 
@@ -326,7 +355,7 @@ stateDiagram-v2
 
 | 模型 | 模块 | 形态 | 谁在用 |
 |---|---|---|---|
-| **解析 FFT** (闭环内联) | `ZernikeCoefficientOptimizer._far_field_intensity` | 无参数: `exp(i·patch)` → 中心补零 → `fftshift(fft2(ifftshift))` → `\|F\|²` | **`slm-model-in-loop` 的 Step A 真正在优化的那个**; Step B 的梯度也穿过它 |
+| **解析 FFT** (闭环使用) | `utils/wavefront/fraunhofer.focal_intensity` | 无参数: `exp(i·patch)` → 中心补零 → `fftshift(fft2(ifftshift))` → `\|F\|²` | **`slm-model-in-loop` 的 Step A 真正在优化的那个**; Step B 的梯度也穿过它 |
 | **物理 + 可学习系数** | `ZernikeAmpModel` | 整个数据集共享**一个**系数向量 (`nn.Parameter`, 零初始化) | 离线标定与逆向设计; `K = calc_n_zernike_terms(n_max) − 1` (不含 piston) |
 | **学习式前向网络** | `ZernikeCoeffConvNet` / `ZernikeCoeffMLP` | 系数投影 + 卷积解码器 | 离线训练与评测; 本节余下部分讲它 |
 
@@ -334,9 +363,12 @@ stateDiagram-v2
 > checkpoint 来自它, 而它与闭环约定的差异正是那条坑。
 
 解析那一条的完整链条很短, 也正因如此才值得写下来: `patch = (phase_slm + aberration) × aperture_t` → `field = amplitude × exp(i·patch)`
-→ 中心补零到 `far_field_size` → `fftshift(fft2(ifftshift(field), norm="ortho"))` →
-强度取 `re² + im²`。预测入口是 `forward_intensity`, 损失是 `_intensity_loss` —— 它把强度
+→ 中心补零到 `far_field_size` → `focal_field(field, far_field_size)`, 即
+`fftshift(fft2(ifftshift(field), norm="ortho"))` → `focal_intensity` 取 `re² + im²`。
+预测入口是 `forward_intensity`, 损失是 `_intensity_loss` —— 它把强度
 按 `intensity / (max + PEAK_EPS)` 归一化后取 MSE(`PEAK_EPS = 1e-8`)。
+**这条链不再内联在闭环里**: 传播本身只有 `utils/wavefront/fraunhofer.py` 一份实现, 闭环与
+离线 `ZernikeAmpModel` 都调它(改动前是各写一份)。
 **这里没有可学参数**: Step A 拟合的是那一个共享 Zernike 像差向量, 不是网络权重。
 
 ### 8.1 前处理: 输入侧刻意不归一化
@@ -442,44 +474,88 @@ flowchart LR
 **归一化本身**而不是拟合质量。实测反例: 某个 sibling 任务上「总能量」归一化给出
 PSNR 72 dB、SSIM 0.9996, 而 R² 反而**更差**。
 
-## 9. 加载预训练权重: 现状与真正的障碍
+## 9. 加载预训练权重: 已接好的那条路
 
-**当前没有加载路径。** 硬件路径的 Step A 种子是硬编码的 `np.zeros(n_coeffs)`, 每轮在此之上
-热启动; 没有 `--load`、没有 `torch.load`、没有 `state_dict`。
+`--forward-checkpoint <best_coefficients.pt>` 让 Step A 从 `train_amp` 学到的系数起步, 而不是
+从零。**默认关闭** —— 不给这个参数时种子逐位仍是 `np.zeros(n_coeffs)`, 与本特性之前完全一致。
 
-**有一个注入点, 但它不是加载器.** `model_in_loop_shaping.StepAConfig.initial_coefficients`
-存在且带形状校验, 但: (a) 只被孪生的 `simulate_iterative_shaping` 读取, 硬件优化器不读;
-(b) CLI 从不暴露它; (c) 它自己的 docstring 写的是「给一个故意错误的猜测, 让 fit→shape 的
-迭代过程可观测」—— 它是**诊断旋钮**, 不是权重加载接口。接到硬件上属于改用途, 不是修 bug。
+读缝是 `ml/zernike/amp_checkpoint.py`(只读, 不认识硬件): `load_trained_forward_model(path)` 重建
+一个 `ZernikeAmpModel` 并把系数**原地 copy 进**它自己的 `Parameter`(不替换对象, 否则任何持有该
+引用的优化器会被悄悄脱钩), 返回一个冻结的 `TrainedForwardModel`; `check_geometry(...)` 决定这份
+权重**能不能**用。被核对不了的三个字段集中在模块常量 `UNVERIFIED_GEOMETRY_FIELDS` 里。
 
-**离线 checkpoint 是真实存在的**, `logs/*/best_coefficients.pt`:
+### 9.1 严格相等: 能核对的逐项核对, 核不了的显式承认
 
-```python
-{'coefficients': tensor(K, float64),   # 非 piston 的 Noll 序, 弧度
- 'n_max': …, 'grid': …, 'observable': …, 'normalization': …,
- 'far_field_padding': …, 'config': {...}}
-```
+checkpoint 只记录 7 个键, `check_geometry` 对其中能对照的**逐项硬相等**, 不符即报错:
+`grid`↔`region`、`n_max`↔`n_orders`、有效补零倍数↔`far_field_padding`、
+`observable` 必须 `intensity`、`normalization` 必须 `peak`。每条消息都同时写出两边的数字。
 
-**但两边差一位 piston, 这是会静默错位的坑.** 离线 `K = calc_n_zernike_terms(n_max) - 1`
-(排除 Noll 1), 硬件 `n_coefficients = calc_n_zernike_terms(n_orders)` (包含 Noll 1):
+但 `radius` / `center_crop` / `conserve_energy` **checkpoint 根本没有记录**(实测 `config` 里
+没有这三个键), 所以「严格」对它们只能诚实地做不到。因此它们不是被核对, 而是被**要求承认**:
+不给 `--assume-unverified-geometry` 就直接拒绝这份权重, 给了才记一条 note。**「不知道」不能被
+装成「核对过」** —— 测试专门断言未记录字段永远不会因为「与本机不同」而进 `errors`。
+
+### 9.2 两侧差一位 piston, 以及为什么这不危险
+
+离线 `K = calc_n_zernike_terms(n_max) - 1`(排除 Noll 1), 硬件
+`n_coefficients = calc_n_zernike_terms(n_orders)`(包含 Noll 1):
 
 | | 系数个数 |
 |---|---|
 | 离线 `n_max=4` → K | **14** |
 | 硬件 `--n-orders 4` | **15** |
 
-**14 用任何 `--n-orders` 都取不到** —— 形状校验要求恰好等于 `calc_n_zernike_terms(n_orders)`。
-要对接必须**在前面补一个 `0.0`** 当 piston (两侧都是 Noll 序, 补完 Noll 2..15 精确对齐);
-这恰好无害, 因为 `--frozen-modes` 默认已把 piston 冻在 0。
+所以装载器把离线向量放在**偏移 1** 处(前面补 `0.0` 当 piston), 两侧随即按 Noll 序精确对齐。
+补 0 恰好无害: `--frozen-modes` 默认已把 piston 冻在 0, 且装载器**再施加一次**冻结 ——
+`ZernikeCoefficientOptimizer.__init__` 只校验种子的形状与有限性, 并不会把冻结项清零(它只为
+更新路径建了掩码), 所以不清就会让第 1 轮从一个 Noll 2/3 非零的种子上开跑。
 
-**两个会让加载白做的前提:**
+### 9.3 权重只是**初值**, 不绕过拟合
 
-- checkpoint 的 `observable` 应当是 `intensity`。本仓实测 `amplitude` 在三个 `n_max` 上都落后
-  `intensity` 约 0.12 R²; 仓库里现成的 `logs/amp_wandb/` 恰好是 `amplitude`, 属较弱变体。
-- Step A **每轮都从探针重拟合**, 所以预训练权重只缩短第 1 轮; 收益是「起步在正确的盆地」,
-  不是「跳过拟合」。trust region 与验收测试仍然会审它。
+Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起点 —— 收益是「起步在正确的盆地」,
+不是「跳过拟合」。trust region 与逐轮验收照样审它: 种子给错了, 验收测试仍然会 reject。
 
-## 10. 输出契约
+### 9.4 两个会让加载白做的前提
+
+- **几何必须逐项相符**, 见 §9.1。现成的 `logs/*/best_coefficients.pt` 实测是
+  `n_max=4, grid=64, far_field_padding=1`, 而硬件默认 `far_field_padding=8` —— **默认值下这份
+  权重会被拒绝**, 这是设计如此而非故障。要么按 checkpoint 的几何显式传参, 要么离线按
+  `--far-field-padding 8` 重训一份。
+- `observable` 必须是 `intensity`。本仓实测 `amplitude` 在三个 `n_max` 上都落后 `intensity`
+  约 0.12 R²; 现成的 `logs/amp_wandb/` 恰好是 `amplitude`, 属较弱变体。
+
+几何核对与路径存在性都发生在**开设备之前**: 路径不存在在 `__post_init__` 就报错, 几何不符在
+开设备前报错。写错一个参数不该用一次校准 + 一帧实测来发现。
+
+## 10. 上机后的 TODO (尚未验证的部分)
+
+本节列的是**代码之外、只能在台架上回答**的问题。离线与 `cam_type=sim` 已覆盖的是「接线是否正确、
+几何不符是否报错、种子是否按位移 1 放置且冻结项被清零」, **不是**「这份权重对最终整形质量有多大
+好处」。后者需要下面的对照实验, 目前**没有任何数据**。
+
+1. **权重迁移到底有没有用 (唯一真正的问题).** 同 seed、同参数跑两次: 一次带
+
+   `--forward-checkpoint`, 一次不带。比较第 1 轮系数变化量与最终实测分数。
+
+   判据不是「带种子的分数更高」, 而是**带种子的坏起点能被验收测试恢复** —— 如果带种子的 run
+   反而更差, 说明离线权重与本台架的物理不一致 (几何相符 ≠ 物理相符), 那就该先重训而不是调参数。
+
+2. **默认 padding 的矛盾要不要在代码层面解决.** 现成权重是 `far_field_padding=1`, 闭环默认 8。
+   目前靠使用者自己读 §9.4 对齐; 如果实际使用中经常踩到, 应考虑让 CLI 在拒绝时**直接打印该传什么**,
+   而不是只报「effective padding 1 != 8」。
+
+3. **未记录几何的假设到底成不成立.** `radius=None` / `center_crop=True` / `conserve_energy=False`
+   是装载器的默认值, 不是 checkpoint 的记录。台架上如果装配口径与之不同 (例如实际有效口径不是
+   内切圆), `--assume-unverified-geometry` 会掩盖这个差异 —— 需要一次**不带**该开关、改为显式
+   指定真实口径的对照。
+
+4. **每轮重拟合会不会把种子吃掉.** §9.3 断言种子只影响第 1 轮, 这一点在 sim 里可测; 台架上
+   要确认的是漂移与 LCOS 弛豫下, 「正确盆地」的收益能否撑过多轮漂移。
+
+5. **真机前置条件不变.** 曝光不可留 `0`(大恒会钳到量程端点, 暗 20–75 倍); 开机前按
+   `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。
+
+## 11. 输出契约
 
 - `data/slm_model_in_loop/<日期>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**, 用
   `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、
@@ -489,7 +565,7 @@ PSNR 72 dB、SSIM 0.9996, 而 R² 反而**更差**。
   ⚠️ 行内**只有标量** (由测试锁定), 逐帧图像不在其中; 最优帧另存 PNG。
   CSV 额外保留字符串列 `reason`, 它不能进 pkl 的标量集 (writer 用 `float()` 转换)。
 
-## 11. 终止状态
+## 12. 终止状态
 
 | 状态 | 含义 |
 |---|---|
@@ -500,11 +576,14 @@ PSNR 72 dB、SSIM 0.9996, 而 R² 反而**更差**。
 退出码 `2` = 几何 bake-off 失败或持续落在模型之外, 该轮**没有**提交任何相位;
 这种台架应改用 `slm-gs-refine`。
 
-## 12. 本报告**不**主张什么
+## 13. 本报告**不**主张什么
 
 - **不含壁钟耗时。** §3 的图是操作数, 不是秒。
-- **不含真机结论。** 环境是 `离线`; 本报告描述代码, 没有任何一次硬件运行的数据。
+- **不含真机结论。** 环境是 `离线`; 本报告描述代码, 没有任何一次硬件运行的数据 ——
+  §10 列的就是必须上台架才能回答的问题。
 - **不含收敛保证。** Step A 是非凸拟合, 探针多样性降低但**不消除**局部驻点;
   报告不主张给定轮数内必然收敛。
+- **不主张离线权重对最终整形质量有确定好处。** §9 只主张接线正确、几何不符会报错;
+  有没有收益是 §10 的第 1 条, 目前无数据。
 - **孪生上的分数不可与硬件分数直接比较**: 孪生用 `TWIN_REGION = 512` 的
   解析光路, 硬件侧的标度来自 bake-off, 二者的绝对强度标度不同。
