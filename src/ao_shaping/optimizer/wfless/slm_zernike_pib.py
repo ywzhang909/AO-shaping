@@ -592,6 +592,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     max_roi_energy_loss = camera_config.max_roi_energy_loss
     w_uniformity = camera_config.w_uniformity
     w_peak = camera_config.w_peak
+    w_pearson = camera_config.w_pearson
     w_loggrad = camera_config.w_loggrad
     w_displacement = camera_config.w_displacement
     log_uniformity = camera_config.log_uniformity
@@ -660,6 +661,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     for _name, _w in (
         ("w_uniformity", w_uniformity),
         ("w_peak", w_peak),
+        ("w_pearson", w_pearson),
         ("w_displacement", w_displacement),
     ):
         if not np.isfinite(_w) or _w < 0.0:
@@ -742,7 +744,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             cam,
             exposure_time_ms,
             TEST_EXPOSURE_TIME_BRIGHTNESS,
-            n_sample=CAM_SAMPLE_ITER,
+            n_sample=config.n_eval_frames,
         )
 
         # Resolve the centre spec (None / "mass" / "max" / "shape" / tuple).
@@ -773,7 +775,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             cam,
             exposure_time_ms,
             target_max_brightness,
-            n_sample=CAM_SAMPLE_ITER,
+            n_sample=config.n_eval_frames,
         )
         logger.debug(
             "Initial Image Max brightness: {} @ {}ms",
@@ -817,7 +819,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             )
             img_size, center = cam.reset_window(_req_center, (_required, _required))
             center_full = (float(_req_center[0]), float(_req_center[1]))
-            init_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
+            init_img = cam.get_numpy_image(config.n_eval_frames)
             img_size = init_img.shape[::-1]
             logger.info("camera window enlarged to {}x{}", img_size[0], img_size[1])
 
@@ -921,6 +923,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 scoring=ShapeScoringParams(
                     w_uniformity=w_uniformity,
                     w_peak=w_peak,
+                    w_pearson=w_pearson,
                     w_displacement=w_displacement,
                     log_uniformity=log_uniformity,
                 ),
@@ -1005,6 +1008,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _row0.update(shaping.metric_panel(init_img))
         if record_phase:
             _row0["_phase"] = initial_phase
+            _row0["_full_frame_img"] = _img
         recorder.append(_row0)
 
         def _log_row(
@@ -1144,14 +1148,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         setattr(
                             recorder,
                             "raw_before_img",
-                            cam.get_numpy_image(CAM_SAMPLE_ITER),
+                            cam.get_numpy_image(config.n_eval_frames),
                         )
                         _display(slm, best_phase)
                         time.sleep(SLM_RESPONSE_TIME_S)
                         setattr(
                             recorder,
                             "raw_after_img",
-                            cam.get_numpy_image(CAM_SAMPLE_ITER),
+                            cam.get_numpy_image(config.n_eval_frames),
                         )
                         setattr(recorder, "raw_frame_shape", full_frame_shape)
                     except (RuntimeError, ValueError, AssertionError) as exc:
@@ -1422,10 +1426,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         # visible offline, then skip search.
                         _fold_j: list[float] = []
                         _fold_ratio: list[float] = []
-                        for _c_sign, _img_c, _, _ in _captures:
-                            _r = shaping(_img_c)
-                            _fold_j.append(float(_r.j))
-                            _fold_ratio.append(float(_r.ratio))
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _fold_j.append(float(_r.j))
+                                _fold_ratio.append(float(_r.ratio))
                         _fold_j_mean = float(np.mean(_fold_j))
                         _log_row(
                             epoch=epoch,
@@ -1471,10 +1476,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         # reason so the freeze is visible offline.
                         _peak_j: list[float] = []
                         _peak_ratio: list[float] = []
-                        for _c_sign, _img_c, _, _ in _captures:
-                            _r = shaping(_img_c)
-                            _peak_j.append(float(_r.j))
-                            _peak_ratio.append(float(_r.ratio))
+                        with shaping.shape_batch():
+                            for _c_sign, _img_c, _, _ in _captures:
+                                _r = shaping(_img_c)
+                                _peak_j.append(float(_r.j))
+                                _peak_ratio.append(float(_r.ratio))
                         _peak_j_mean = float(np.mean(_peak_j))
                         _log_row(
                             epoch=epoch,
@@ -1506,9 +1512,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         float(np.mean([sm for _, _, _, sm in _frame_stats])),
                     )
                     _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
-                    for _c_sign, _img_c, _, _ in _captures:
-                        shaping.set_reference_center(zero_order_center(_img_c))
-                        _sign_results[_c_sign].append(shaping(_img_c))
+                    with shaping.shape_batch():
+                        for _c_sign, _img_c, _, _ in _captures:
+                            shaping.set_reference_center(zero_order_center(_img_c))
+                            _sign_results[_c_sign].append(shaping(_img_c))
                     pos_res = _sign_results[1][0]
                     # Sign-means (2 frames reduce to the single value they hold).
                     pos_obj = float(np.mean([r.j for r in _sign_results[1]]))

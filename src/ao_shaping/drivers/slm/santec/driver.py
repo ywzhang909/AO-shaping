@@ -306,6 +306,8 @@ class Santec:
             "correction_csv_path": getattr(params, "correction_csv_path", None),
         }
         kwargs.update(overrides)
+        if kwargs["wavelength"] == 0:
+            kwargs["wavelength"] = None
         return cls(**kwargs)
 
     def __init__(

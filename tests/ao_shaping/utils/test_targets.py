@@ -561,6 +561,28 @@ class TestShapeMetric:
         )
         assert np.isclose(score_stage, score_explicit)
 
+    def test_pearson_term_rewards_uniform_square_outline(self) -> None:
+        roi = target_shape_roi((40, 40), (20, 20), "square", 12)
+        square = np.zeros((40, 40), dtype=float)
+        square[roi] = 1.0
+        peaked = square.copy()
+        peaked[18:22, 18:22] = 8.0
+        options = dict(
+            center=(20, 20),
+            target_shape="square",
+            target_size=12,
+            w_uniformity=0.0,
+            w_peak=0.0,
+            w_displacement=0.0,
+        )
+        plain_square, _ = shape_metric(square, **options)
+        plain_peaked, _ = shape_metric(peaked, **options)
+        weighted_square, _ = shape_metric(square, w_pearson=1.0, **options)
+        weighted_peaked, _ = shape_metric(peaked, w_pearson=1.0, **options)
+        assert plain_square == pytest.approx(plain_peaked)
+        assert weighted_square == pytest.approx(2.0)
+        assert weighted_square > weighted_peaked
+
     def test_unknown_stage_raises(self) -> None:
         frame = np.zeros((20, 20))
         frame[9:12, 9:12] = 1.0

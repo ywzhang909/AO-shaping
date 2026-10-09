@@ -1,10 +1,9 @@
 """Characterization tests pinning the ``with_params`` click mechanism contract.
 
-``with_params`` (``ao_shaping.runners.runner_common``) turns dataclass fields
+``with_params`` (``ao_shaping.utils.cli.params``) turns dataclass fields
 declared as ``name: Annotated[T, option(...)] = default`` into click options and
 delivers a fully-populated parameter instance to the wrapped command under a
-keyword named by ``kw_name``. It is about to be moved out of
-``runner_common.py``; these tests lock the behaviour that silently depends on
+keyword named by ``kw_name``. These tests lock the behaviour that depends on
 **four different escape hatches** for union-typed fields, plus the three
 ``TypeError`` raise sites that keep the convention honest.
 
@@ -41,12 +40,10 @@ from ao_shaping.runners.runner_common import (
     DM_TYPES_PRE_ASYN_MICRO,
     CameraParams,
     CameraParamsPib,
-    ClickGroup,
     PibRunnerParams,
     WfsParams,
-    option,
-    with_params,
 )
+from ao_shaping.utils.cli.params import ClickGroup, option, with_params
 
 # ---------------------------------------------------------------------------
 # helpers

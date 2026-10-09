@@ -97,7 +97,7 @@ class TestMIICAMCamera:
         with MIICamera(cam_id=0, exposure_time_ms=20) as cam:
             img = cam.get_numpy_image(n_sample=5, skip_first=True)
             assert isinstance(img, np.ndarray)
-            assert img.dtype == np.uint8
+            assert img.dtype == np.float32
             assert img.shape == (cam.cam_height, cam.cam_width)
             print(f"\nAveraged image (5 samples) shape: {img.shape}")
             print(f"Image min: {img.min()}, max: {img.max()}")

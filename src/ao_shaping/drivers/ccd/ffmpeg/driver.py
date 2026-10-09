@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
+from ao_shaping.drivers.ccd.base import AveragedFrame, BaseCamera, CameraError
 from ao_shaping.utils.io.file import logger
 from ao_shaping.utils.io.timestamp import TimestampParser
 
@@ -231,7 +231,7 @@ class FFmpegCamera(BaseCamera):
             skip_first: 是否跳过第一帧 (对流常常不稳定)。
 
         返回:
-            np.ndarray: 采集到的图像, 为 uint8 数组。
+            np.ndarray: 单帧为 uint8，多帧平均为 float32 原始灰度值。
 
         异常:
             AssertionError: n_sample 不是正数, 或相机未初始化。
@@ -291,7 +291,7 @@ class FFmpegCamera(BaseCamera):
             if skip_count > 0:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, skip_count)
 
-        return avg_img.astype(np.uint8)
+        return frames[0] if n_sample == 1 else AveragedFrame(avg_img, frames[0].dtype)
 
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """启用或关闭自动曝光。

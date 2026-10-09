@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -66,7 +67,9 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     optimize_slm_square,
 )
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    SLM_RESOLUTION,
     SlmZernikePibConfig,
+    _display,
     optimize_slm_zernike_pib,
 )
 from ao_shaping.runners.runner_common import (
@@ -84,8 +87,8 @@ from ao_shaping.runners.runner_common import (
     patch_sim_pib_shaping,
     patch_sim_square_shaping,
     resolve_spgd_delta,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.image.targets import ObjectiveSpec
 from ao_shaping.utils.io.cli_helpers import get_debug_mode, setup_coredumpy
 from ao_shaping.utils.io.file import (
@@ -120,7 +123,7 @@ __all__ = [
 
 # --- debug artifact fields -------------------------------------------------
 
-_DEBUG_IMG_KEYS = ("_img",)
+_DEBUG_IMG_KEYS = ("_img", "_full_frame_img")
 _DEBUG_1D_KEYS = ("_c",)
 # ``_phase`` is the display-ready grayscale actually sent to the SLM on each
 # epoch (present when ``record_phase`` / ``--debug``); persisted so the report
@@ -240,6 +243,12 @@ def _save_debug_artifacts(
         "target_shape": getattr(target, "target_shape", None),
         "target_size": getattr(camera, "target_size", None),
         "max_roi_energy_loss": getattr(camera, "max_roi_energy_loss", None),
+        "w_uniformity": getattr(camera, "w_uniformity", None),
+        "w_peak": getattr(camera, "w_peak", None),
+        "w_pearson": getattr(camera, "w_pearson", None),
+        "w_displacement": getattr(camera, "w_displacement", None),
+        "shape_schedule": getattr(camera, "shape_schedule", None),
+        "log_uniformity": getattr(camera, "log_uniformity", None),
         # Camera identity.
         "cam_type": getattr(camera, "cam_type", None),
         "cam_id": getattr(camera, "cam_id", None),
@@ -360,15 +369,15 @@ def _build_slm_pib_config(
 
 def _resolve_auto_camera(
     camera: CameraParams,
+    slm_params: SlmParamsPib,
     find_exposure: bool,
     auto_target_peak: float,
     auto_n_frames: int,
 ) -> None:
     """Probe the camera for a safe fixed exposure / 0-order centre before optimizing.
 
-    Opens its own probe camera (closed again before the real run), so a
-    failure never blocks the run: on any error the CLI-provided values are
-    kept and ``'auto'`` centre falls back to the smart ``'shape'`` detection.
+    Set the SLM to flat before opening a probe camera, so prior run phases
+    cannot bias the exposure. Both probe devices close before the real run.
     Uses ``auto_find_exposure_and_center`` from the shared hardware utils so
     any runner can reuse the same probe logic.
     """
@@ -377,20 +386,28 @@ def _resolve_auto_camera(
         open_camera,
     )
 
+    from ao_shaping.optimizer.wfless.slm_zernike_pib import Santec
+
     try:
-        probe = open_camera(camera.cam_type, camera.cam_id, camera.exposure_time_ms)
-        try:
-            exposure, center = auto_find_exposure_and_center(
-                probe,
-                find_exposure=find_exposure,
-                find_center=(camera.center == "auto"),
-                target_peak=auto_target_peak,
-                n_frames=auto_n_frames,
+        with Santec.from_params(slm_params) as probe_slm:
+            flat = probe_slm.create_phase_from_array(
+                np.zeros((SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.float32)
             )
-        finally:
-            close_fn = getattr(probe, "close", None)
-            if callable(close_fn):
-                close_fn()
+            _display(probe_slm, flat)
+            time.sleep(0.3)
+            probe = open_camera(camera.cam_type, camera.cam_id, camera.exposure_time_ms)
+            try:
+                exposure, center = auto_find_exposure_and_center(
+                    probe,
+                    find_exposure=find_exposure,
+                    find_center=(camera.center == "auto"),
+                    target_peak=auto_target_peak,
+                    n_frames=auto_n_frames,
+                )
+            finally:
+                close_fn = getattr(probe, "close", None)
+                if callable(close_fn):
+                    close_fn()
         if exposure is not None:
             camera.exposure_time_ms = float(exposure)
         if center is not None:
@@ -862,6 +879,7 @@ def _execute(
     if camera.auto_exposure or camera.center == "auto":
         _resolve_auto_camera(
             camera,
+            slm,
             camera.auto_exposure,
             camera.auto_target_peak,
             camera.auto_n_frames,

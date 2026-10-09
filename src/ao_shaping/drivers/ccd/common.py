@@ -624,7 +624,8 @@ def full_scale(img: np.ndarray) -> float:
     """Full-scale (saturation) value of a camera frame, in 0-255 gray units.
 
     Integer frames carry their own limit, so read it off the dtype (uint8 -> 255,
-    uint16 -> 65535). Float frames are read off the *same* detectors in the
+    uint16 -> 65535). AveragedFrame retains that source limit. Other float
+    frames are read off the *same* detectors in the
     *same* units: the debug corpus holds uint8 / float32 / float64 frames whose
     per-frame maxima are all <= 255, so 255 - not 1.0 - is the ceiling. Treating
     a float frame as already normalised would compress it by up to 255x.
@@ -635,6 +636,8 @@ def full_scale(img: np.ndarray) -> float:
     Returns:
         The value at or above which the frame counts as saturated.
     """
+    if hasattr(img, "full_scale"):
+        return float(img.full_scale)
     if np.issubdtype(img.dtype, np.integer):
         return float(np.iinfo(img.dtype).max)
     return DETECTOR_FULL_SCALE

@@ -573,6 +573,10 @@ class ObjectiveParamsPib:
         float, option("--w-uniformity", help="Uniformity penalty weight.")
     ] = 2.0
     w_peak: Annotated[float, option("--w-peak", help="Peak penalty weight.")] = 0.5
+    w_pearson: Annotated[
+        float,
+        option("--w-pearson", help="Weight on correlation with the uniform target shape."),
+    ] = 0.0
     w_loggrad: Annotated[
         float,
         option(
@@ -1329,6 +1333,7 @@ class CameraParamsPib(CameraParams, ObjectiveParamsPib):
         for _name, _w in (
             ("w_uniformity", self.w_uniformity),
             ("w_peak", self.w_peak),
+            ("w_pearson", self.w_pearson),
             ("w_displacement", self.w_displacement),
         ):
             if not np.isfinite(_w) or _w < 0.0:

@@ -21,8 +21,8 @@ from ao_shaping.runners.runner_common import (
     WfAlgorithmParams,
     WfRunParams,
     WfsParams,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 
 
 @click.command()

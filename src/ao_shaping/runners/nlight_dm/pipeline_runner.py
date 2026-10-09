@@ -23,8 +23,8 @@ from ao_shaping.runners.runner_common import (
     PipelineDeviceParams,
     PipelineRunParams,
     WfsParams,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 
 
 @click.command()

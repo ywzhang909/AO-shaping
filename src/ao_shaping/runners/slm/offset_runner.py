@@ -11,9 +11,8 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.runners.runner_common import (
     WfsParams,
     ZernikeSlmParams,
-    option,
-    with_params,
 )
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     setup_coredumpy,

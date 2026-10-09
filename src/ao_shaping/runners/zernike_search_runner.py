@@ -43,8 +43,8 @@ from ao_shaping.runners.runner_common import (
     GreedyZernikeParams,
     WfsParams,
     ZernikeSlmParams,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     get_debug_mode,
