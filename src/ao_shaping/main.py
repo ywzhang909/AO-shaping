@@ -23,7 +23,7 @@ Commands:
 
 Examples:
     python main.py --debug wf --epochs 10000
-    python main.py --debug pib --cam_id 1 --epochs 5000
+    python main.py --debug pib --cam-id 1 --epochs 5000
     python main.py --debug gs --target-shape gaussian --use-hardware
     python main.py --debug zernike-matrix --n-max 10
 """

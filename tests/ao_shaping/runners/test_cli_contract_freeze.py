@@ -6,7 +6,7 @@ of ``runners/runner_common.py`` and migrating the 22 ``tools/slm`` probes onto
 command-line behaviour, so every observable is pinned here first:
 
 1. **Command inventory** — the exact set of names registered on ``main.py``.
-2. **``--dm_type`` choice lists** — per command. Note ``dm-matrix`` deliberately
+2. **``--dm-type`` choice lists** — per command. Note ``dm-matrix`` deliberately
    offers 6 (no ``asyn_micro``): ``runner_common.py`` snapshots
    ``DM_TYPES_PRE_ASYN_MICRO`` before importing ``asyn_micro_dm`` to keep its
    help output byte-identical to the pre-registration help. That divergence is
@@ -78,18 +78,18 @@ EXPECTED_DM_TYPE_CHOICES = {
 }
 
 
-_DM_TYPE_CHOICE_RE = re.compile(r"^(?P<head>\s*--dm_type\s*)\[[a-z_0-9|]+\]", re.MULTILINE)
+_DM_TYPE_CHOICE_RE = re.compile(r"^(?P<head>\s*--dm-type\s*)\[[a-z_0-9|]+\]", re.MULTILINE)
 
 
 def _help_text(command: click.Command) -> str:
     """Render ``--help`` for one command through click's own formatter.
 
     The one genuinely environment-dependent fragment is normalised away: the
-    ``--dm_type`` choice list is built from the live DM registry, so a full-suite
+    ``--dm-type`` choice list is built from the live DM registry, so a full-suite
     run (where other tests registered DM types first) legitimately renders more
     entries than a bare run. Its *declaration* is pinned separately by
     ``test_dm_matrix_offer_the_pre_asyn_micro_snapshot``; every other choice list
-    (``--wfs_type``, ``--mode``, ``--mla-index``, ...) stays byte-for-byte frozen.
+    (``--wfs-type``, ``--mode``, ``--mla-index``, ...) stays byte-for-byte frozen.
     """
     ctx = click.Context(command, info_name=command.name, terminal_width=88)
     return _DM_TYPE_CHOICE_RE.sub(r"\g<head>[<DM_TYPES>]", command.get_help(ctx))
@@ -109,15 +109,15 @@ def test_registered_command_inventory_is_frozen() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 2. --dm_type choice lists
+# 2. --dm-type choice lists
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("name", sorted(EXPECTED_DM_TYPE_CHOICES))
 def test_dm_type_choice_list_is_frozen(name: str) -> None:
     command = cli.commands[name]
-    options = [p for p in command.params if "--dm_type" in p.opts]
-    assert len(options) == 1, f"{name} should expose exactly one --dm_type"
+    options = [p for p in command.params if "--dm-type" in p.opts]
+    assert len(options) == 1, f"{name} should expose exactly one --dm-type"
     assert isinstance(options[0].type, click.Choice)
     actual = tuple(options[0].type.choices)
     expected = EXPECTED_DM_TYPE_CHOICES[name]
@@ -154,7 +154,7 @@ def test_dm_matrix_offer_the_pre_asyn_micro_snapshot() -> None:
     from ao_shaping.runners import runner_common
 
     dm_matrix = [
-        p for p in cli.commands["dm-matrix"].params if "--dm_type" in p.opts
+        p for p in cli.commands["dm-matrix"].params if "--dm-type" in p.opts
     ][0]
     assert isinstance(dm_matrix.type, click.Choice)
     assert set(runner_common.DM_TYPES_PRE_ASYN_MICRO).issubset(set(dm_matrix.type.choices))
@@ -163,11 +163,11 @@ def test_dm_matrix_offer_the_pre_asyn_micro_snapshot() -> None:
 
 
 def test_no_new_command_silently_grows_dm_type() -> None:
-    """A command gaining ``--dm_type`` is a behaviour change, not a refactor."""
+    """A command gaining ``--dm-type`` is a behaviour change, not a refactor."""
     actual = {
         name
         for name, command in cli.commands.items()
-        if any("--dm_type" in p.opts for p in command.params)
+        if any("--dm-type" in p.opts for p in command.params)
     }
     assert actual == set(EXPECTED_DM_TYPE_CHOICES)
 
@@ -223,9 +223,9 @@ def test_pupil_center_annotation_still_carries_the_tuple_arm() -> None:
 
 
 def _pupil_center_option() -> click.Option:
-    """The ``-c/--pupil_center`` option as click actually built it for ``wf``."""
-    options = [p for p in cli.commands["wf"].params if "--pupil_center" in p.opts]
-    assert len(options) == 1, "wf must expose exactly one --pupil_center"
+    """The ``-c/--pupil-center`` option as click actually built it for ``wf``."""
+    options = [p for p in cli.commands["wf"].params if "--pupil-center" in p.opts]
+    assert len(options) == 1, "wf must expose exactly one --pupil-center"
     return options[0]
 
 

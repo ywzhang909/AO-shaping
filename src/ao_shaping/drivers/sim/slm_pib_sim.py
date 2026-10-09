@@ -481,10 +481,10 @@ def register_sim_camera() -> None:
         logger.debug("sim camera already registered: {}", exc)
 
 
-# 在此处注册 (而不只是放在 ``register_sim_camera()`` 里) 使 ``--cam_type sim`` 对每一个
+# 在此处注册 (而不只是放在 ``register_sim_camera()`` 里) 使 ``--cam-type sim`` 对每一个
 # 消费者都可用。此前它恰好只有两个调用点 (slm-gsnet runner 的 ``_maybe_sim_patch`` 与
 # ``scripts/slm_pib_sim_run.py`` 那套脚手架), 因此文档里写的命令
-# ``main.py slm-pib spgd --cam_type sim`` 会死于
+# ``main.py slm-pib spgd --cam-type sim`` 会死于
 # ``ValueError: Unknown camera type: 'sim'``。持有仿真远场本就意味着持有读取它的仿真
 # 相机, 所以 import 本模块就是把两者绑在一起的自然位置。
 register_sim_camera()

@@ -724,8 +724,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         img_size, center = cam.reset_window(center, img_size)
         logger.info("reset window center @ {}", center)
 
-        # Precedence: fixed exposure (`--exposure_time_ms > 0`) wins over
-        # auto-exposure (`--target_max_brightness > 0`); `0/0` keeps the current
+        # Precedence: fixed exposure (`--exposure-time-ms > 0`) wins over
+        # auto-exposure (`--target-max-brightness > 0`); `0/0` keeps the current
         # exposure ("若为0则不自动调整曝光时间", matching the runner help).
         init_img = capture_with_exposure(
             cam,

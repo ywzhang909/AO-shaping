@@ -102,7 +102,7 @@ SimulatedDevice (Device)
 > (L305-307), 既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
 > `SimDisturbance`(负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延展到光束半径之外)。
 
-> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam_type sim` 时调用
+> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam-type sim` 时调用
 > `reset_system(seed=42)` (现为 `runners/runner_common.py::patch_sim_square_shaping`; 2026-10-05 前
 > 该函数只服务 `slm-pib`/`slm-gsnet`, `slm-pib` 那一份后来被移除), 这会**替换**进程级 system 并清掉
 > 已注入的干扰 —— 运行会静默地以**无干扰**方式执行, 而 companion 清单却声称有干扰。
@@ -212,7 +212,7 @@ SimulatedDevice (Device)
 修复: **不再逐帧裁剪**。真实探测器的本底位于其阈值**之下**, 只在量化时裁剪一次,
 raw 帧本就允许略微低于黑电平; 去黑电平靠暗帧扣除, 不是每帧 clip。
 
-修复后实测 `main.py pib --cam_type sim --dm_type sim -e 200`, 目标函数真实上升:
+修复后实测 `main.py pib --cam-type sim --dm-type sim -e 200`, 目标函数真实上升:
 
 | epoch | 0 | ~100 | ~200 |
 |-------|---|------|------|
@@ -273,7 +273,7 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 镜像 DM 的 `_registry.py` (`register_wfs`/`create_wfs`/`list_wfs_types`/
 `resolve_wfs`, 同样的延迟绑定, 因此硬件包不会 import 仿真包)。
 
-`--wfs_type [thorlab|sim]` 定义在共享的 `WfsParams` 上, 8 个已注册命令**既暴露
+`--wfs-type [thorlab|sim]` 定义在共享的 `WfsParams` 上, 8 个已注册命令**既暴露
 也真正透传**该 flag: `wf`、`pipeline`、`rms-zernike`、`ga-zernike`、
 `greedy-zernike`、`dm-matrix`、`hadamard-matrix`、`zernike-matrix`。
 `closed-loop` **刻意没有** —— 它回放已保存的响应矩阵 (`ClosedLoopParams`)。
@@ -291,14 +291,14 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
 ⚠️ 以前只发布到远场, 于是 `wf` 永远读到平 pupil、无论 DM 怎么动 RMS 都是 0。
 
-⚠️ **`wf --wfs_type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
+⚠️ **`wf --wfs-type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
 扰动/像差时, DM 只能**增加**相位, 因此平场 (`wighted_rms ≈ 2.8e-05`) 才是
 RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正过程, 必须先注入
 像差 —— 已加 `--disturbance-cn2` (经 `SimDisturbance` 注入**瞳孔**, 默认 `0`
 = 不注入)。
 
 ⚠️ **注入了像差后 SPGD 能收敛, 但比硬件慢约一个数量级 —— 要加 epoch 或提 lr**
-(实测 2026-10-01, `wf --wfs_type sim --dm_type sim --disturbance-cn2 2e-13`)。
+(实测 2026-10-01, `wf --wfs-type sim --dm-type sim --disturbance-cn2 2e-13`)。
 `schedule_lr_delta` 是按**真实硬件**的电压-相位标度标定的; 对仿真 DM,
 `delta=3 V` 时单致动器峰值相位只有 **0.017 waves ≈ 目标量的 2.6%**, 梯度信号偏弱。
 **这不是不收敛, 只是慢** —— 逐轮目标量单调下降:

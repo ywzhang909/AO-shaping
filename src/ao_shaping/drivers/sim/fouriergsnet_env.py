@@ -53,7 +53,7 @@ SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅�
   - 物理回归测试 ``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py`` 与湍流测试
     ``test_sim_fouriergsnet_turbulence.py``。
 * 与 ``drivers/sim/slm_pib_sim.py`` 的区别: 后者是 SLM-PIB 族的台架孪生并注册为
-  ``--cam_type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
+  ``--cam-type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
 """
 from __future__ import annotations
 

@@ -35,8 +35,8 @@ dm/
 > ⚠️ **`micro/__init__.py` 的异步驱动是惰性的。** `@register_dm("asyn_micro")`
 > 是 import 副作用, 而 `runners/runner_common.py` 先快照 `list_dm_types()`
 > (`DM_TYPES_PRE_ASYN_MICRO`, 6 项) 再 import 异步模块 (`DM_TYPES`, 7 项) ——
-> 这个两步顺序决定 `--dm_type` 的 help 文本。改成 eager 会塌成一步,
-> `--dm_type` 列表从 7 项静默缩成 6 项。故 `micro/__init__.py` 用
+> 这个两步顺序决定 `--dm-type` 的 help 文本。改成 eager 会塌成一步,
+> `--dm-type` 列表从 7 项静默缩成 6 项。故 `micro/__init__.py` 用
 > `install_lazy_attrs` 解析异步符号, 而 `runner_common` 直接 import
 > `ao_shaping.drivers.dm.micro.asyn_driver` 子模块。契约由
 > `tests/ao_shaping/runners/test_cli_contract_freeze.py` 逐字节冻结。

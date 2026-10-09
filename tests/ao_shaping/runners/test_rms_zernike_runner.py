@@ -298,7 +298,7 @@ class TestRunFunction:
                     "4",
                     "--delta",
                     "1.0",  # Skip auto-delta by providing positive value
-                    "--wfs_res",
+                    "--wfs-res",
                     "1024",
                     "--exposure-time-ms",
                     "50.0",
@@ -373,7 +373,7 @@ class TestRunFunction:
                     "4",
                     "--delta",
                     "1.0",
-                    "--wfs_res",
+                    "--wfs-res",
                     "1024",
                     "--exposure-time-ms",
                     "75.0",
