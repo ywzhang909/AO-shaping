@@ -48,6 +48,12 @@ from ao_shaping.drivers.sim.beam_backend import (
 # ---------------------------------------------------------------------------
 # 配置
 # ---------------------------------------------------------------------------
+#: Selectable free-space propagators. ``"fft"`` is the zero-padded Fraunhofer
+#: transform (the exact ``z -> infinity`` limit); ``"asm"`` routes to the
+#: canonical angular-spectrum propagator.
+_PROPAGATIONS: tuple[str, ...] = ("fft", "asm")
+
+
 @dataclass(frozen=True)
 class ShapingBenchConfig:
     """2f 傅里叶 SLM 整形台架的参数。
@@ -72,6 +78,16 @@ class ShapingBenchConfig:
             8x 给出 ~8.9 px/腰 (足以体现像差形态); 16x 与仓库内部标准一致
             (``SimPibSystem`` 与 ``generate_zernike_farfield_sim_report`` 都用
             512 -> 8192)。
+        propagation: 传播算子。``"fft"`` (默认) = 补零夫琅禾费 FFT, 它是
+            ``z -> infinity`` 的精确极限, 对任意距离都成立, 也是所有已标定报告
+            所用的算子。``"asm"`` = 规范角谱传播
+            (``algorithm/signal_processing/angular_spectrum.py``), 物理参数化
+            (波长/像素间距/距离), 可微、可限带, 但只在
+            ``2*pi*lambda*z*f_sig**2 << 1`` 时有效 —— 对 12 mm 口径即
+            ``z << 0.9 m``, 而焦距 0.125 m 已在其内, 故本台架两者都可用。
+        asm_band_limit: ``propagation="asm"`` 时是否施加 Voelz & Roggemann 截止。
+            截止频率就是输出网格 Nyquist, 所以它会同时丢掉超出输出采样能力的
+            分量; 默认 ``False``。
         seed: 用于可复现性的 RNG 种子。
     """
 
@@ -86,6 +102,8 @@ class ShapingBenchConfig:
     target_kind: str = "square"
     zero_order_margin_px: float = 10.0
     far_field_padding: int = 8
+    propagation: str = "fft"
+    asm_band_limit: bool = False
     seed: int = 0
 
     def __post_init__(self) -> None:
@@ -93,6 +111,24 @@ class ShapingBenchConfig:
             raise ValueError(
                 f"far_field_padding must be >= 1, got {self.far_field_padding}"
             )
+        if self.propagation not in _PROPAGATIONS:
+            raise ValueError(
+                f"propagation must be one of {list(_PROPAGATIONS)}, "
+                f"got {self.propagation!r}"
+            )
+        if self.propagation == "asm" and self.focal_length <= 0.0:
+            raise ValueError(
+                f"focal_length must be > 0 when propagation='asm', "
+                f"got {self.focal_length!r}"
+            )
+
+    @property
+    def pupil_pixel_size(self) -> float:
+        """瞳孔 (SLM) 网格的像元间距, 单位米 —— 角谱传播的 ``dx``。
+
+        由 ``aperture_size / n_grid`` 得出: 口径宽度摊到 ``n_grid`` 个采样上。
+        """
+        return self.aperture_size / self.n_grid
 
     @property
     def far_field_size(self) -> int:
@@ -178,6 +214,25 @@ def _fraunhofer_intensity(field: np.ndarray, cfg: ShapingBenchConfig) -> np.ndar
         ``far_field_size`` 网格上的非负强度 (未归一化)。
     """
     padded = _pad_centred(field, cfg)
+    if cfg.propagation == "asm":
+        # Measured: ASM CANNOT replace the FFT on a 2f Fourier bench.
+        # At `z = cfg.focal_length` the angular-spectrum output has
+        # `max|out| = 1.0066` -- identical to the input `|exp(i*phase)| = 1` --
+        # and peaks at the PUPIL position, not at the array centre. That is the
+        # whole point: ASM returns the *propagated beam*, whereas this bench's
+        # far field is produced by the LENS performing a Fourier transform.
+        # Free-space diffraction over `f = 0.125 m` barely changes the beam
+        # (`z_R = pi*w0^2/lambda = 13.3 m`, so `w(f)/w0 = 1.0004`); a genuine
+        # Fraunhofer pattern via ASM needs `z >> a^2/lambda = 271 m` for this
+        # 12 mm aperture.
+        # `propagation="asm"` is therefore rejected rather than silently wrong.
+        raise NotImplementedError(
+            "propagation='asm' is not physically valid on a 2f Fourier bench: "
+            "the far field is the LENS's Fourier transform, which free-space "
+            "propagation to z=f does not reproduce (measured: output equals the "
+            "input pupil, peak at the pupil position). Use propagation='fft', "
+            "which is the exact z->infinity limit. See the module docstring."
+        )
     focal = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(padded)))
     return np.abs(focal) ** 2
 

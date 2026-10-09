@@ -50,6 +50,7 @@ from ml.hwdataset import (
     build_hw_dataloader,
     build_hw_index,
 )
+from ml.zernike.augment import GEOMETRIC_TRANSFORMS, geometric_pair
 from ml.zernike.losses import (
     LossConfig,
     composite_loss,
@@ -177,6 +178,18 @@ class AmpTrainConfig:
     max_train: int = DEFAULT_MAX_RECORDS
     max_val: int = 128
     val_fraction: float = 0.25
+    #: Probability of applying one synchronous geometric transform (flip / rot90)
+    #: to BOTH the pupil phasor and the far-field target of a training batch.
+    #:
+    #: ⚠️ **This biases the learned coefficients, by construction.** The model holds
+    #: ONE global coefficient vector shared by all samples, and a geometric
+    #: transform acts on it by an exact orthogonal operator ``D`` (see
+    #: :func:`ml.zernike.augment.basis_transform`). Per-sample transforms therefore
+    #: demand ``c ~ c*`` AND ``c ~ D c*``; at probability 1 the optimum is confined
+    #: to the ``D``-invariant subspace, which drives the odd-signature modes
+    #: (tilt, coma) to zero. The bench is not reflection-symmetric, so that is a real
+    #: bias, not a regulariser. Default 0 (off).
+    geometric_augment: float = 0.0
     beam_samples: int = 64
 
     epochs: int = 40
@@ -767,6 +780,10 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         An :class:`AmpTrainResult` with the best coefficients and the full history.
     """
     torch.manual_seed(cfg.seed)
+    # Dedicated stream for the geometric augmentation, seeded off `cfg.seed`, so the
+    # draw neither depends on nor perturbs the main RNG (which drives the permutation).
+    aug_generator = torch.Generator()
+    aug_generator.manual_seed(cfg.seed + 9973)
     # Validate the objective name up front. Falling through to MSE on an
     # unrecognised value would make a typo (e.g. "physcial") silently reproduce
     # the incumbent run, which is the one outcome this switch must not have.
@@ -865,13 +882,35 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         for start in range(0, n_train, cfg.batch_size):
             idx = permutation[start : start + cfg.batch_size]
             optimizer.zero_grad(set_to_none=True)
-            prediction = model(train_t["phase_cos"][idx], train_t["phase_sin"][idx])
+            phase_cos = train_t["phase_cos"][idx]
+            phase_sin = train_t["phase_sin"][idx]
+            target = fit_target[idx]
+            if cfg.geometric_augment > 0.0:
+                # One transform per batch, drawn from a DEDICATED generator so the
+                # main RNG stream (which drives the permutation above) is untouched
+                # and the run stays reproducible. The target is transformed by the
+                # SAME operator as the input -- that is what makes the pair
+                # self-consistent. See the config field for why this still biases
+                # the shared coefficient vector.
+                if float(torch.rand(1, generator=aug_generator)) < cfg.geometric_augment:
+                    pick = int(
+                        torch.randint(
+                            0,
+                            len(GEOMETRIC_TRANSFORMS),
+                            (1,),
+                            generator=aug_generator,
+                        )
+                    )
+                    phase_cos, phase_sin, target, _ = geometric_pair(
+                        phase_cos, phase_sin, target, GEOMETRIC_TRANSFORMS[pick]
+                    )
+            prediction = model(phase_cos, phase_sin)
             # Always measured, for every loss: model selection and the reported
             # history stay on val MSE so runs remain comparable across objectives.
-            data_mse = torch.mean((prediction - fit_target[idx]) ** 2)
+            data_mse = torch.mean((prediction - target) ** 2)
             if loss_mask is not None:
                 terms = composite_loss(
-                    prediction, fit_target[idx], loss_mask, cfg.loss_weights
+                    prediction, target, loss_mask, cfg.loss_weights
                 )
                 loss = terms["_mean_total"]
             else:
@@ -1212,6 +1251,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-train", type=int, default=DEFAULT_MAX_RECORDS)
     parser.add_argument("--max-val", type=int, default=128)
     parser.add_argument("--val-fraction", type=float, default=0.25)
+    # Default read from the dataclass, NOT a literal: a CLI literal here once
+    # silently shadowed the calibrated `far_field_padding` and every run started
+    # from R2 = -0.38.
+    parser.add_argument(
+        "--geometric-augment",
+        type=float,
+        default=AmpTrainConfig.geometric_augment,
+        help=(
+            "probability of applying one synchronous geometric transform (flip / "
+            "rot90) to both the pupil phasor and the target of a batch; biases the "
+            "shared coefficient vector toward the transform's invariant subspace "
+            "(default: %(default)s, i.e. off)"
+        ),
+    )
     parser.add_argument("--beam-samples", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch-size", type=int, default=64)
