@@ -752,6 +752,13 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     ) -> torch.Tensor:
         """强度图与目标之间的峰值归一化 MSE。
 
+        上游 :func:`focal_intensity` 用的是补零夫琅禾费 FFT, **刻意不换角谱
+        (ASM) 传播** (``signal_processing/angular_spectrum.py`` 提供规范实现):
+        在 2f 台架几何实测, ASM 在 ``z = f`` 处返回的是**传播后的光束**
+        (``max|out| = 1.0066``, 峰值落在瞳孔位置), 而不是透镜的傅里叶变换;
+        真正的夫琅禾费图样需``z >> a**2/lambda = 271 m``。边界由
+        ``test_angular_spectrum.py::TestNotAFraunhoferSubstitute`` 锁定。
+
         与 :meth:`DifferentiableBeamOptimizer._intensity_loss` 完全一致:
         峰值归一化到最大 1.0 后取均方差。float32 下的峰值归一化避免了
         能量归一化在 FFT 把能量集中到少数像素时所遭受的下溢;

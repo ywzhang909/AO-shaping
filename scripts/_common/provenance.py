@@ -94,6 +94,17 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/sweep_coeff_models.py",),
     ),
 
+    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
+        script="scripts/generate_asm_vs_fraunhofer_report.py",
+        command="python scripts/generate_asm_vs_fraunhofer_report.py",
+        environment="离线",
+        note=(
+            "角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; "
+            "含 Parseval/限带/平移约定与 GS 半阵列移位"
+        ),
+        extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
+    ),
+
     # -- beam shaping / benchmark suite -------------------------------------
     "report/beam_shaping/papers/beam_shaping_papers.md": ReportProvenance(
         script="scripts/generate_beam_shaping_papers_report.py",

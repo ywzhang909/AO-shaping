@@ -49,6 +49,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from loguru import logger
 
+from ao_shaping.algorithm.signal_processing.angular_spectrum import (
+    angular_spectrum_propagate_torch,
+)
 from ao_shaping.utils.wavefront.fraunhofer import focal_field
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
@@ -67,12 +70,26 @@ __all__ = [
 Observable = Literal["amplitude", "intensity"]
 Normalization = Literal["peak", "sum", "none"]
 OptimizerName = Literal["adam", "adamw", "sgd"]
+#: Free-space propagator. ``"fft"`` is the Fraunhofer ``z -> infinity`` limit;
+#: ``"asm"`` is the canonical angular-spectrum propagator (see
+#: :class:`ZernikeAmpConfig` for the validity bound that makes ``"fft"`` the
+#: default at this bench's geometry).
+Propagation = Literal["fft", "asm"]
 
 #: Physical quantity compared against the CCD frame.
 _OBSERVABLES: tuple[str, ...] = ("amplitude", "intensity")
 #: Output rescaling applied after the observable is formed.
 _NORMALIZATIONS: tuple[str, ...] = ("peak", "sum", "none")
 _OPTIMIZERS: tuple[str, ...] = ("adam", "adamw", "sgd")
+#: Free-space propagators selectable via :attr:`ZernikeAmpConfig.propagation`.
+_PROPAGATIONS: tuple[str, ...] = ("fft", "asm")
+
+#: Shared normalisation for ``fft2`` **and** ``ifft2``. ``"ortho"`` on both keeps
+#: Parseval exact with no N factor, which is what :meth:`ZernikeAmpModel._conserve_energy`
+#: relies on. Setting it on only ONE side rescales the field by ``sqrt(N)``
+#: (measured energy ratio ``m**2``) and peak normalisation hides it completely --
+#: so it is defined once here and applied to both transforms.
+_FFT_NORM = "ortho"
 
 #: 0-based slot of Noll 1 == (0, 0) inside a Noll-ordered coefficient vector.
 _PISTON_SLOT = 0
@@ -259,6 +276,32 @@ class ZernikeAmpConfig:
             large number; 16x16 = 256 tokens keeps it ~1% of the cost. Default 16.
         attention_dim: Bottleneck width of the attention block. Default 32.
         attention_heads: Self-attention heads. Default 1.
+        propagation: Free-space propagator. ``"fft"`` is the Fraunhofer transform
+            -- a plain centre-padded ``fftshift(fft2(ifftshift(field)))`` with
+            **no** wavelength, pitch or distance, which makes it the exact
+            ``z -> infinity`` limit and correct at every distance.
+            ``"asm"`` routes through the canonical angular-spectrum propagator
+            (``algorithm/signal_processing/angular_spectrum.py``), which is
+            physically parameterised but **only valid while
+            ``2*pi*lambda*z*f_sig**2 << 1``**, i.e. ``z << 39 mm`` for this
+            512 um aperture at ``dx=8 um``. The Fraunhofer pattern only *forms* at
+            ``z >> a**2/lambda = 61.6 mm``, so no single ``distance`` is both
+            ASM-valid and in the far field. Measured against the closed-form far
+            field at these settings: FFT ``relL2 = 7.7e-2``, ASM ``relL2 = 1.53``.
+            Splitting into sub-steps does not help -- ``prod(H(z/N)) == H(z)``
+            bitwise. Default ``"fft"``: it is the correct propagator for this
+            bench, and ``"asm"`` is opt-in for callers who want the physics.
+        wavelength: Wavelength in metres. Only read when ``propagation="asm"``.
+        pixel_pitch: Pupil sample pitch in metres. Only read when
+            ``propagation="asm"``. ``8e-6`` is the SLM pixel.
+        distance: Propagation distance in metres. Only read when
+            ``propagation="asm"``. ``0.1224`` is the derived bench focal length
+            (see ``report/slm/model_in_loop_bench_calibration.md``).
+        asm_band_limit: Apply the Voelz & Roggemann cutoff when
+            ``propagation="asm"``. Note the cutoff is the OUTPUT grid's Nyquist,
+            so at ``dx=8 um``/``z=0.1224 m`` it is ~1.1e3 /m against pupil content
+            reaching 6.25e4 /m -- it discards the Airy structure entirely. Default
+            ``False`` for that reason; set ``True`` only for short-``z`` use.
     """
 
     n_max: int = 4
@@ -269,6 +312,11 @@ class ZernikeAmpConfig:
     conserve_energy: bool = False
     far_field_padding: int = 10
     center_crop: bool = True
+    propagation: Propagation = "fft"
+    wavelength: float = 1064e-9
+    pixel_pitch: float = 8e-6
+    distance: float = 0.1224
+    asm_band_limit: bool = False
     attention: bool = False
     attention_grid: int = 16
     attention_dim: int = 32
@@ -565,6 +613,11 @@ class ZernikeAmpModel(nn.Module):
         self.far_field_padding = config.far_field_padding
         self.center_crop = config.center_crop
         self.conserve_energy = config.conserve_energy
+        self.propagation: Propagation = config.propagation
+        self.pixel_pitch = config.pixel_pitch
+        self.distance = config.distance
+        self.wavelength = config.wavelength
+        self.asm_band_limit = config.asm_band_limit
 
         self.K = basis.K
         self.register_buffer("basis", basis.as_tensor(), persistent=False)
@@ -623,6 +676,21 @@ class ZernikeAmpModel(nn.Module):
             raise ValueError(
                 f"far_field_padding must be an int >= 1, got {config.far_field_padding!r}"
             )
+        if config.propagation not in _PROPAGATIONS:
+            raise ValueError(
+                f"propagation must be one of {list(_PROPAGATIONS)}, "
+                f"got {config.propagation!r}"
+            )
+        if config.propagation == "asm":
+            for name, value in (
+                ("wavelength", config.wavelength),
+                ("pixel_pitch", config.pixel_pitch),
+                ("distance", config.distance),
+            ):
+                if not (value > 0.0):
+                    raise ValueError(
+                        f"{name} must be > 0 when propagation='asm', got {value!r}"
+                    )
 
     # ------------------------------------------------------------------
     # Forward model
@@ -760,15 +828,54 @@ class ZernikeAmpModel(nn.Module):
             )
 
     def _propagate(self, field: torch.Tensor) -> torch.Tensor:
-        """Centre-pad to the far-field grid and apply the Fraunhofer FFT.
+        """Centre-pad to the far-field grid, then propagate.
 
-        Mirrors ``slm_shaping_bench.forward_intensity`` / ``_far_field``: the
-        pupil is zero-padded symmetrically, ``ifftshift`` recentres the input
-        so the zero-frequency term lands at the array centre, and ``fftshift``
-        restores that centring on the output.
+        The pupil is zero-padded symmetrically so the output grid is
+        ``grid * far_field_padding``. That keeps ``far_field_padding``'s meaning
+        under BOTH propagators: both map output index ``j`` to
+        ``f' = j / (m * dx)``, so the centred crop selects the same spatial
+        frequencies either way and the measured ``PADDING_BY_FOV_PX`` optima
+        survive the switch.
+
+        Two branches differing ONLY in the propagator:
+
+        ``"fft"`` (default)
+            :func:`~ao_shaping.utils.wavefront.fraunhofer.focal_field` --
+            ``fftshift(fft2(ifftshift(field)))`` with no wavelength, pitch or
+            distance. It is the exact ``z -> infinity`` limit, hence correct at
+            every distance, and it is what the calibrated reports were measured
+            with.
+
+        ``"asm"``
+            The canonical angular-spectrum propagator: physically parameterised
+            (wavelength / pitch / distance), and band-limitable. Valid only while
+            ``2*pi*lambda*z*f_sig**2 << 1`` -- ``z << 39 mm`` here, whereas a
+            Fraunhofer pattern needs ``z >> 61.6 mm``. See
+            :class:`ZernikeAmpConfig` for the measured divergence.
         """
         n = field.shape[-1]
-        return focal_field(field, n * self.far_field_padding)
+        m = n * self.far_field_padding
+        if self.propagation == "asm":
+            padded = field
+            if m > n:
+                start = (m - n) // 2
+                padded = torch.zeros(
+                    field.shape[:-2] + (m, m), dtype=field.dtype, device=field.device
+                )
+                padded[..., start : start + n, start : start + n] = field
+            # The canonical propagator returns an UNSHIFTED field (DC at index 0),
+            # so exactly one fftshift here restores the array-centred optical axis
+            # that _centre_crop assumes. Shifting it twice is the classic way to
+            # get a plausible-looking but wrong far field.
+            propagated = angular_spectrum_propagate_torch(
+                padded,
+                self.pixel_pitch,
+                self.distance,
+                self.wavelength,
+                band_limit=self.asm_band_limit,
+            )
+            return torch.fft.fftshift(propagated, dim=(-2, -1))
+        return focal_field(field, m)
 
     def _normalize(self, observable: torch.Tensor) -> torch.Tensor:
         """Apply the configured per-frame normalisation."""
@@ -786,12 +893,25 @@ class ZernikeAmpModel(nn.Module):
         """Rescale ``observable`` so its intensity sum equals the input's.
 
         Why this is a *post*-processing step and not a property of the propagation:
-        ``_propagate`` uses ``norm="ortho"``, for which Parseval is exact --
+        the FFT branch propagates with the shared ``_FFT_NORM`` constant applied to
+        **both** transforms, for which Parseval is exact --
         ``sum(|F|^2) == sum(|pupil|^2)`` with no N factor. The propagated field is
         therefore already energy-conserving, and the conservation is then thrown away
         by the output normalisation (``peak`` divides by the maximum, ``sum`` divides
         by the total). Re-imposing it as the last step restores a scale that the loss
         can actually anchor against.
+
+        Two caveats now that ``propagation`` is selectable:
+
+        - The constant must be applied to ``fft2`` AND ``ifft2``. Setting
+          ``norm="ortho"`` on only one side rescales the field by ``sqrt(N)``
+          (measured energy ratio ``m**2``), and peak normalisation hides it
+          entirely. ``_FFT_NORM`` exists so the two cannot drift apart.
+        - The ASM branch conserves energy only up to its band-limit: suppressing
+          the evanescent/out-of-band bins multiplies the total by ``(1 - f_ev)``,
+          where ``f_ev`` is the discarded fraction. At ``dx=8 um`` /
+          ``z=0.1224 m`` that is most of the spectrum, which is why
+          ``asm_band_limit`` defaults to ``False``.
 
         The anchor is the **input phasor's** own intensity sum, which is informative
         rather than a constant: the corpus stores ``phase_cos``/``phase_sin`` as a

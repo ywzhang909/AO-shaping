@@ -35,8 +35,116 @@ __all__ = [
     "phasor_noise",
     "phase_flip",
     "phase_shift",
+    "geometric_pair",
+    "basis_transform",
     "strong_phase_pairs",
 ]
+
+#: Geometric transforms offered by :func:`geometric_pair`, as
+#: ``(name, flip_rows, flip_cols, rot90_k)``.
+GEOMETRIC_TRANSFORMS: tuple[tuple[str, bool, bool, int], ...] = (
+    ("identity", False, False, 0),
+    ("flip_rows", True, False, 0),
+    ("flip_cols", False, True, 0),
+    ("flip_both", True, True, 0),
+    ("rot90", False, False, 1),
+    ("rot180", False, False, 2),
+    ("rot270", False, False, 3),
+)
+
+
+def geometric_pair(
+    phase_cos: Tensor,
+    phase_sin: Tensor,
+    image: Tensor,
+    transform: tuple[str, bool, bool, int],
+) -> tuple[Tensor, Tensor, tuple[str, bool, bool, int]]:
+    """Apply ONE spatial transform to the pupil phasor and the far field together.
+
+    "Synchronous" is the whole point: the target must be transformed by the *same*
+    operator as the input, because a reflected pupil really does produce a reflected
+    far field for a shift-invariant propagator.
+
+    .. warning::
+       On :class:`~ml.zernike.models.ZernikeAmpModel` this is **not** a
+       label-preserving augmentation, and that is a measured property of the
+       architecture, not a bug in this function. The model holds ONE global Zernike
+       coefficient vector ``c`` shared by every sample, and a reflection acts on it
+       by an exact orthogonal operator ``D``:
+
+           out(g*m, c) == roll1(g(out(m, D c)))        (measured, maxerr 1.9e-15)
+
+       So flipping the input and the target demands ``c ~ c*`` **and**
+       ``c ~ D c*``. At probability 1 the optimum is constrained to the
+       ``D``-invariant subspace, which drives the odd-signature modes (tilt, coma)
+       to zero. The physical bench is not reflection-symmetric, so that bias is real.
+       Flip-invariant operators are exactly ``+`` and ``-`` (global sign) and the
+       identity -- which is what :func:`phase_flip` already implements.
+
+       For a model with per-sample capacity (the learned ``train_coeff`` decoder) the
+       same transform is sound ordinary augmentation, and ``basis_transform`` is
+       exposed so the coefficient action stays expressible.
+
+    Args:
+        phase_cos: Real part of the pupil phasor, ``(B, 1, g, g)``.
+        phase_sin: Imaginary part, same shape.
+        image: Far-field target, ``(B, 1, g, g)``.
+        transform: One of :data:`GEOMETRIC_TRANSFORMS`.
+
+    Returns:
+        ``(phase_cos, phase_sin, image, transform)`` -- transformed in place-free
+        fashion (the inputs are not mutated) plus the transform actually applied, so
+        a caller can record it.
+    """
+    name, flip_rows, flip_cols, rot90_k = transform
+    if rot90_k % 4:
+        phase_cos = torch.rot90(phase_cos, rot90_k, dims=(-2, -1))
+        phase_sin = torch.rot90(phase_sin, rot90_k, dims=(-2, -1))
+        image = torch.rot90(image, rot90_k, dims=(-2, -1))
+    if flip_rows:
+        phase_cos = torch.flip(phase_cos, dims=(-2,))
+        phase_sin = torch.flip(phase_sin, dims=(-2,))
+        image = torch.flip(image, dims=(-2,))
+    if flip_cols:
+        phase_cos = torch.flip(phase_cos, dims=(-1,))
+        phase_sin = torch.flip(phase_sin, dims=(-1,))
+        image = torch.flip(image, dims=(-1,))
+    return phase_cos, phase_sin, image, transform
+
+
+def basis_transform(
+    basis: Tensor, transform: tuple[str, bool, bool, int]
+) -> Tensor:
+    """The operator ``D`` a geometric transform induces on a Zernike basis.
+
+    Measured, not derived: for a column flip ``D = diag(s)`` exactly (residual
+    ``1.2e-14``), and ``rot90`` is an exact orthogonal **matrix** that *preserves
+    radial order* ``n`` (block-diagonal by ``n`` to ``1.4e-15``; the ``n=1`` tilt
+    block is ``[[0,-1],[1,0]]``). Do **not** hand-derive it as ``(-1)**|m|`` --
+    that is wrong for 16 of 27 slots under this generator's convention, because its
+    ``(2,-2)`` mode is ``sin 2theta``. Solve for it instead:
+
+        D = np.linalg.lstsq(B_flat, transform(B).T).T
+
+    Args:
+        basis: ``(K, g, g)`` mode stack.
+        transform: One of :data:`GEOMETRIC_TRANSFORMS`.
+
+    Returns:
+        ``(K, K)`` matrix ``D`` such that ``g(Z_k) == sum_j D[k, j] Z_j``.
+    """
+    import numpy as np
+
+    array = basis.detach().cpu().numpy().astype(np.float64)
+    # Build the transformed stack with the same ops geometric_pair applies.
+    stacked = torch.from_numpy(array).unsqueeze(1)
+    cos = torch.zeros_like(stacked)
+    sin = torch.zeros_like(stacked)
+    _, _, moved, _ = geometric_pair(cos, sin, stacked, transform)
+    moved_np = moved.squeeze(1).numpy().astype(np.float64)
+    k = array.shape[0]
+    operator, *_ = np.linalg.lstsq(array.reshape(k, -1).T, moved_np.reshape(k, -1).T)
+    return torch.from_numpy(np.ascontiguousarray(operator.T))
 
 
 def phasor_noise(

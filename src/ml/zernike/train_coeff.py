@@ -81,12 +81,19 @@ from ml.hwdataset.zernike_dataset import (
     ZernikeCoeffDataset,
     fit_coeff_stats,
 )
+from ml.zernike.augment import (
+    GEOMETRIC_TRANSFORMS,
+    basis_transform,
+    geometric_pair,
+)
 from ml.zernike.forward_model import (
     ZernikeCoeffConfig,
     build_forward_model,
     count_parameters,
     peak_normalize,
 )
+from ml.zernike.models import ZernikeBasis
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 
 __all__ = [
     "CoeffTrainConfig",
@@ -127,6 +134,23 @@ class CoeffTrainConfig:
     # -- data / geometry (forwarded to ZernikeCoeffDataset + MaterialiserConfig)
     n_max: int = DEFAULT_N_MAX
     grid: int = 64
+    #: Probability of applying one synchronous geometric transform per batch.
+    #:
+    #: Unlike the physics model in ``train_amp``, this arm is a plain
+    #: per-sample-capacity network, so the transform is sound ordinary
+    #: augmentation — **but only if the coefficient vector is transformed too**.
+    #: A flip acts on a Noll vector as a signed permutation and ``rot90`` as an
+    #: exact orthogonal matrix that *preserves* radial order ``n`` (both measured
+    #: orthogonal to ~1e-15), so the correct pairing is
+    #: ``(image -> g(image), coeffs -> D @ coeffs)`` with ``D`` obtained from
+    #: :func:`ml.zernike.augment.basis_transform`. Transforming the image alone
+    #: would ask the network to predict a rotated spot from unrotated
+    #: coefficients.
+    #:
+    #: Requires ``n_input == calc_n_zernike_terms(n_max)`` (i.e. no
+    #: ``--input-terms`` trimming), because ``D`` is a square operator on the
+    #: full basis; it is silently skipped when the input is trimmed.
+    geometric_augment: float = 0.0
     #: Target normalisation. ``"peak"`` (default) divides each far-field frame by its
     #: brightest pixel -- on this bench that is the 0-order, the dominant feature, so
     #: it is a stable, near-physical scale. Measured on the real ``slm_zernike_shaping``
@@ -774,6 +798,10 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(cfg.seed)
+    # Dedicated stream for geometric augmentation, so the draw neither depends on
+    # nor perturbs the main RNG (which drives shuffling / init).
+    geom_generator = torch.Generator()
+    geom_generator.manual_seed(cfg.seed + 9973)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
     if cfg.image_mode == "sum":
         # Not a style preference: "sum" is the measured trap (R^2 worse than a
@@ -855,6 +883,40 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     )
 
     n_input = _n_input_terms(dataset, cfg)
+    # Geometric augmentation is only meaningful when the coefficient vector spans
+    # the whole Zernike basis: `D` is a square operator, so a trimmed
+    # `--input-terms` input cannot be transformed consistently. Skip it loudly
+    # rather than silently applying half the transform.
+    geom_ops: dict[str, torch.Tensor] = {}
+    if cfg.geometric_augment > 0.0:
+        if n_input != calc_n_zernike_terms(cfg.n_max):
+            logger.warning(
+                "geometric_augment ignored: n_input={} != full basis {} "
+                "(do not combine with --input-terms)",
+                n_input,
+                calc_n_zernike_terms(cfg.n_max),
+            )
+        else:
+            basis = ZernikeBasis(cfg.grid, cfg.n_max).as_tensor()
+            geom_ops = {}
+            for transform in GEOMETRIC_TRANSFORMS:
+                operator = basis_transform(basis, transform).to(device)
+                # HARD guard: the dataset's vector is Noll-ordered INCLUDING
+                # piston (`calc_n_zernike_terms`), while `ZernikeBasis` EXCLUDES
+                # it -- so the operator can be one column short (measured:
+                # n_max=3 -> vector 10, basis K=9). Applying a mismatched D would
+                # silently corrupt the coefficients, so refuse instead.
+                if operator.shape[0] != n_input:
+                    logger.warning(
+                        "geometric_augment ignored: basis operator is {}x{} but the "
+                        "coefficient vector is {} (piston convention mismatch)",
+                        operator.shape[0],
+                        operator.shape[1],
+                        n_input,
+                    )
+                    geom_ops = {}
+                    break
+                geom_ops[transform[0]] = operator
     model_config = ZernikeCoeffConfig(
         n_coeffs=n_input,
         grid=cfg.grid,
@@ -922,6 +984,26 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
             coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
             image = batch["image"].to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
+            if geom_ops:
+                # Same transform on BOTH sides: the image geometrically, and the
+                # coefficient vector through the induced operator `D`. Drawn from a
+                # dedicated generator so the main RNG stream is untouched.
+                if float(torch.rand(1, generator=geom_generator)) < cfg.geometric_augment:
+                    pick = int(
+                        torch.randint(
+                            0, len(GEOMETRIC_TRANSFORMS), (1,), generator=geom_generator
+                        )
+                    )
+                    transform = GEOMETRIC_TRANSFORMS[pick]
+                    _, _, image, _ = geometric_pair(
+                        torch.zeros_like(image),
+                        torch.zeros_like(image),
+                        image,
+                        transform,
+                    )
+                    coeffs = torch.nn.functional.linear(
+                        coeffs, geom_ops[transform[0]]
+                    )
             # Only the TRAINING step is autocast. `_evaluate` below -- which
             # produces the R^2 that selects the checkpoint -- stays fp32, so the
             # selection decision cannot move when `amp` flips. Safe to autocast here
