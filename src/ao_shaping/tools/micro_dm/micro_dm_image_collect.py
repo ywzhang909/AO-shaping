@@ -50,13 +50,11 @@ from loguru import logger
 from ao_shaping.config import DEVICES
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.dm.micro import (
-    DEFAULT_IPS,
     MAX_CHANNELS,
     VOLTAGE_MAX,
     VOLTAGE_MIN,
-    WIRING_MAP_PATH,
     R50Controller,
-    WiringMap,
+    resolve_ips,
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
@@ -144,32 +142,6 @@ def _parse_channels(channel_str: str) -> list[int]:
         click.echo(f"❌ 通道号必须在 0-{MAX_CHANNELS - 1} 范围内")
         sys.exit(1)
     return channels
-
-
-def _resolve_ips(user_ips: tuple[str, ...]) -> list[str]:
-    """解析待采集的控制器 IP 列表: 用户指定则用之, 否则遍历所有控制器 (wiring map → 默认 IP 段)。
-
-    Args:
-        user_ips: 用户通过 --ip 指定的 IP 元组 (可能为空)
-
-    Returns:
-        待采集的控制器 IP 列表
-    """
-    if user_ips:
-        return list(user_ips)
-    try:
-        wm = WiringMap.from_file(WIRING_MAP_PATH)
-        if wm is None:
-            raise ValueError("wiring map 文件缺失或无效")
-        ips = wm.unique_ips
-        if not ips:
-            logger.warning("wiring map 未包含有效控制器, 回退默认 IP 段")
-            return list(DEFAULT_IPS)
-        logger.info("未指定 IP, 从 wiring map 加载 {} 个控制器: {}", len(ips), ips)
-        return ips
-    except Exception as e:
-        logger.warning("wiring map 加载失败 ({}), 回退默认 IP 段", e)
-        return list(DEFAULT_IPS)
 
 
 def _resolve_ip_port(ip_str: str, port: int | None) -> tuple[str, int]:
@@ -537,7 +509,7 @@ def run(params: MicroDMImageCollectParams) -> None:
     ch_list = _parse_channels(params.channels)
 
     # 解析待采集的控制器 IP 列表 (未指定 → 遍历所有控制器)
-    ip_list = _resolve_ips(params.ip)
+    ip_list = resolve_ips(params.ip)
     if not ip_list:
         click.echo("❌ 未指定 IP 且无法解析控制器列表, 请使用 --ip 手动指定")
         sys.exit(1)
@@ -616,14 +588,12 @@ def run(params: MicroDMImageCollectParams) -> None:
                     failed_ips.append(ip_addr)
                     continue
 
-            ctrl: R50Controller | None = None
-            try:
+            with R50Controller(
+                controller_id=controller_id, ip=ip_addr, port=resolved_port
+            ) as ctrl:
                 # 连接控制器
                 click.echo(f"🔌 连接 {ip_addr}:{resolved_port}... ", nl=False)
-                ctrl = R50Controller(
-                    controller_id=controller_id, ip=ip_addr, port=resolved_port
-                )
-                if not ctrl.open():
+                if not ctrl.is_connected:
                     click.echo("❌ 连接失败, 跳过该控制器")
                     logger.warning(
                         "控制器 {}:{} 连接失败, 跳过", ip_addr, resolved_port
@@ -633,74 +603,75 @@ def run(params: MicroDMImageCollectParams) -> None:
                 click.echo("✅ 已连接")
                 logger.info("控制器已连接: {}:{}", ip_addr, resolved_port)
 
-                # 注册信号处理器用于优雅关闭
-                signal.signal(signal.SIGINT, _signal_handler)
-                signal.signal(signal.SIGTERM, _signal_handler)
+                try:
+                    # 注册信号处理器用于优雅关闭
+                    signal.signal(signal.SIGINT, _signal_handler)
+                    signal.signal(signal.SIGTERM, _signal_handler)
 
-                # 继电器上电
-                click.echo("⚡ 继电器上电... ", nl=False)
-                if ctrl.set_relay(True):
-                    click.echo("✅ 已上电, 开始下发电压")
-                else:
-                    click.echo("❌ 上电失败, 跳过该控制器")
-                    logger.warning("控制器 {} 继电器上电失败, 跳过", ip_addr)
-                    failed_ips.append(ip_addr)
-                    continue
+                    # 继电器上电
+                    click.echo("⚡ 继电器上电... ", nl=False)
+                    if ctrl.set_relay(True):
+                        click.echo("✅ 已上电, 开始下发电压")
+                    else:
+                        click.echo("❌ 上电失败, 跳过该控制器")
+                        logger.warning("控制器 {} 继电器上电失败, 跳过", ip_addr)
+                        failed_ips.append(ip_addr)
+                        continue
 
-                # 每 IP 一个子目录
-                ip_dir = base_dir / ip_addr
-                ip_dir.mkdir(parents=True, exist_ok=True)
+                    # 每 IP 一个子目录
+                    ip_dir = base_dir / ip_addr
+                    ip_dir.mkdir(parents=True, exist_ok=True)
 
-                # 逐通道采集
-                click.echo(
-                    f"  待采集通道: {len(ch_list)} 个, 电压 {params.voltage:g}V, "
-                    f"归位 {params.home_voltage:g}V, 等待 {params.settle_time:g}s"
-                )
-                saved_files = _collect_for_ip(
-                    ctrl=ctrl,
-                    cam=cam,
-                    ip=ip_addr,
-                    channels=ch_list,
-                    voltage=params.voltage,
-                    home_voltage=params.home_voltage,
-                    ip_dir=ip_dir,
-                    n_frames=params.n_frames,
-                    n_sample=params.n_sample,
-                    skip_first=params.skip_first,
-                    settle_time=params.settle_time,
-                    save_npy=params.save_npy,
-                )
+                    # 逐通道采集
+                    click.echo(
+                        f"  待采集通道: {len(ch_list)} 个, 电压 {params.voltage:g}V, "
+                        f"归位 {params.home_voltage:g}V, 等待 {params.settle_time:g}s"
+                    )
+                    saved_files = _collect_for_ip(
+                        ctrl=ctrl,
+                        cam=cam,
+                        ip=ip_addr,
+                        channels=ch_list,
+                        voltage=params.voltage,
+                        home_voltage=params.home_voltage,
+                        ip_dir=ip_dir,
+                        n_frames=params.n_frames,
+                        n_sample=params.n_sample,
+                        skip_first=params.skip_first,
+                        settle_time=params.settle_time,
+                        save_npy=params.save_npy,
+                    )
 
-                # 写入每 IP 元数据
-                metadata = {
-                    "ip": ip_addr,
-                    "port": resolved_port,
-                    "voltage": params.voltage,
-                    "home_voltage": params.home_voltage,
-                    "channels": ch_list,
-                    "timestamp": datetime.now().isoformat(),
-                    "camera_type": params.camera_type,
-                    "cam_id": params.cam_id,
-                    "exposure_ms": params.exposure_ms,
-                    "bit_depth": params.bit_depth,
-                    "n_frames": frame_count,
-                    "n_sample": params.n_sample,
-                    "settle_time": params.settle_time,
-                    "saved_count": len(saved_files),
-                    "saved_files": saved_files,
-                }
-                meta_path = ip_dir / "metadata.json"
-                with meta_path.open("w", encoding="utf-8") as f:
-                    json.dump(metadata, f, ensure_ascii=False, indent=2)
-                logger.info("元数据已保存: {}", meta_path)
+                    # 写入每 IP 元数据
+                    metadata = {
+                        "ip": ip_addr,
+                        "port": resolved_port,
+                        "voltage": params.voltage,
+                        "home_voltage": params.home_voltage,
+                        "channels": ch_list,
+                        "timestamp": datetime.now().isoformat(),
+                        "camera_type": params.camera_type,
+                        "cam_id": params.cam_id,
+                        "exposure_ms": params.exposure_ms,
+                        "bit_depth": params.bit_depth,
+                        "n_frames": frame_count,
+                        "n_sample": params.n_sample,
+                        "settle_time": params.settle_time,
+                        "saved_count": len(saved_files),
+                        "saved_files": saved_files,
+                    }
+                    meta_path = ip_dir / "metadata.json"
+                    with meta_path.open("w", encoding="utf-8") as f:
+                        json.dump(metadata, f, ensure_ascii=False, indent=2)
+                    logger.info("元数据已保存: {}", meta_path)
 
-                click.echo(
-                    f"📷 {ip_addr} 采集完成: {len(saved_files)}/{len(ch_list)} 张图像已保存到 {ip_dir}"
-                )
-                ok_ips.append(ip_addr)
-            finally:
-                if ctrl is not None and ctrl.is_connected:
-                    _safe_shutdown(ctrl, params.home_voltage)
+                    click.echo(
+                        f"📷 {ip_addr} 采集完成: {len(saved_files)}/{len(ch_list)} 张图像已保存到 {ip_dir}"
+                    )
+                    ok_ips.append(ip_addr)
+                finally:
+                    if ctrl.is_connected:
+                        _safe_shutdown(ctrl, params.home_voltage)
     finally:
         # 关闭相机 (保证任何错误路径下相机都会被关闭)
         try:
