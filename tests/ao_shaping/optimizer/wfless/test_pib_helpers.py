@@ -4,7 +4,7 @@ from ao_shaping.algorithm.gradient.adam import AdaMOD, Adam, AdamW
 from ao_shaping.optimizer.wfless.pib import (
     AdaptiveSearchState,
     TabuMemory,
-    _create_optimizer,
+    create_optimizer,
     _extract_optimizer_momentum,
     _generate_search_candidates,
     _reset_optimizer_state,
@@ -91,23 +91,23 @@ def test_should_trigger_adaptive_search_uses_warmup_interval_and_patience() -> N
 
 
 def test_create_optimizer_supports_adam_family() -> None:
-    adam = _create_optimizer("adam", dim=4, lr=0.1)
-    fallback = _create_optimizer("unknown", dim=4, lr=0.1)
+    adam = create_optimizer("adam", dim=4, lr=0.1)
+    fallback = create_optimizer("unknown", dim=4, lr=0.1)
 
     assert isinstance(adam, Adam)
     assert isinstance(fallback, AdaMOD)
 
 
 def test_create_optimizer_with_beta_and_epsilon() -> None:
-    adamw = _create_optimizer("adamw", dim=4, lr=0.1, beta1=0.85, beta2=0.95)
+    adamw = create_optimizer("adamw", dim=4, lr=0.1, beta1=0.85, beta2=0.95)
     assert isinstance(adamw, AdamW)
 
-    sgd = _create_optimizer("sgd", dim=4, lr=0.5)
+    sgd = create_optimizer("sgd", dim=4, lr=0.5)
     assert sgd.lr == 0.5
 
 
 def test_extract_optimizer_momentum_returns_ndarray() -> None:
-    adam = _create_optimizer("adam", dim=4, lr=0.1)
+    adam = create_optimizer("adam", dim=4, lr=0.1)
     momentum = _extract_optimizer_momentum(adam)
     assert momentum is None or isinstance(momentum, np.ndarray)
 

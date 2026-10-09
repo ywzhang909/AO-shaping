@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+# NOTE: matplotlib is imported lazily inside the two functions that plot
+# (_on_step, save_evaluation_artifacts). Visualisation belongs to display/, and a
+# module-level rendering import in the optimiser costs import time for every consumer.
+# `matplotlib.use("Agg")` moved with it -- it is a global side effect that must happen
+# before pyplot is first imported, so the pair cannot be separated.
+
 from collections import deque
 from pathlib import Path
 import json
 
 import gymnasium as gym
-import matplotlib
-
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
@@ -318,6 +320,11 @@ class AOTrainingCallback(BaseCallback):
         self.strehl_window: deque[float] = deque(maxlen=200)
 
     def _on_step(self) -> bool:
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
         infos = self.locals.get("infos", [])
         rewards = self.locals.get("rewards", [])
         actions = self.locals.get("actions", [])
@@ -441,6 +448,11 @@ def evaluate_model(model, env: gym.Env, episodes: int, deterministic: bool = Tru
 
 
 def save_evaluation_artifacts(results: dict[str, object], output_dir: Path, prefix: str) -> None:
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
     output_dir.mkdir(parents=True, exist_ok=True)
     trajectories = results.get("trajectories", [])
     if not trajectories:

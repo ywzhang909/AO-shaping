@@ -192,6 +192,63 @@ def _ssim(pred: torch.Tensor, target: torch.Tensor, *, data_range: float) -> flo
     return float(value)
 
 
+def constant_baseline_metrics(
+    pred: torch.Tensor, target: torch.Tensor, *, baseline: torch.Tensor | None = None
+) -> dict[str, float]:
+    """Score ``pred`` against a **constant predictor**, i.e. report ``skill``.
+
+    Why this exists
+    ---------------
+    On this corpus a *constant* image (the split's own mean) already reaches
+    R^2 = +0.910 under :func:`batch_image_metrics`, because peak-normalised
+    far-field frames are nearly static -- the pooled target variance is only
+    ~0.014. So an R^2 of 0.87-0.92 says almost nothing about model quality: the
+    whole recorded model table lived inside a band whose width is set by the
+    *data*, not the model. See ``report/zernike_r2_baseline/report.md``.
+
+    ``skill = 1 - mse(pred) / mse(constant)`` is invariant to that floor: 0.0
+    means "no better than predicting one image for everything", 1.0 means a
+    perfect prediction, and it is negative when the model is worse than the
+    constant.
+
+    The default ``baseline`` is the **target's own per-pixel mean over the
+    split**, which is the strongest constant any split-level predictor can
+    achieve. That choice is deliberate and conservative: it can only *understate*
+    ``skill``, never overstate it. A practitioner deploying on unseen data would
+    have to carry a train-split mean instead, which is strictly worse, so the
+    number here is a lower bound on the real skill.
+
+    Args:
+        pred: ``(N, C, H, W)`` prediction.
+        target: ``(N, C, H, W)`` target, same shape.
+        baseline: Optional constant image to score against, broadcastable to
+            ``target``. Defaults to the per-pixel mean of ``target``.
+
+    Returns:
+        ``mse_const``, ``r2_const``, ``skill``, and the variance of the target
+        (``var``) so the floor is visible in the same record.
+    """
+    pred = pred.detach().to(torch.float32)
+    target = target.detach().to(torch.float32)
+    mse = float((pred - target).pow(2).mean())
+    constant = (
+        target.mean(dim=0, keepdim=True)
+        if baseline is None
+        else baseline.detach().to(torch.float32)
+    )
+    mse_const = float((constant - target).pow(2).mean())
+    variance = float(torch.var(target))
+    return {
+        "mse": mse,
+        "mse_const": mse_const,
+        "var": variance,
+        "r2_const": 1.0 - mse_const / variance if variance > 0 else float("nan"),
+        # A constant with ~zero error would divide by ~0; report nan rather than a
+        # fake infinity so downstream comparisons stay well defined.
+        "skill": 1.0 - mse / mse_const if mse_const > 0 else float("nan"),
+    }
+
+
 def per_sample_beam_metrics(
     pred: np.ndarray,
     target: np.ndarray,

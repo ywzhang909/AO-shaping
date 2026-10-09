@@ -107,6 +107,7 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
+from ao_shaping.optimizer.constants import create_optimizer
 
 TargetShape = Literal[
     "gaussian",
@@ -150,14 +151,6 @@ SLM_APPLY_BEST_ON_EXIT = True
 SLM_WIDTH, SLM_HEIGHT = PANEL_RES
 SLM_RESOLUTION = tuple(PANEL_RES)
 
-OPTIMIZER_MAP = {
-    "adam": Adam,
-    "adamw": AdamW,
-    "adamod": AdaMOD,
-    "sgd": SGD,
-    "muno": Muno,
-    "munow": MunoW,
-}
 
 # Search-family selection: "spgd" runs the SPGD gradient loop below; every other
 # name is a black-box heuristic handled by the shared driver in
@@ -182,45 +175,6 @@ IMPROVE_EPS = 1e-4
 # the ``ShapingObjective`` that calls them, and are re-exported here unchanged.
 
 
-def _create_optimizer(optimizer_type: str, dim: int, lr: float, **kwargs: Any) -> Base:
-    """Create the configured optimizer, forwarding the kwargs it can accept.
-
-    The optimizer family is heterogeneous: ``SGD``'s signature is only
-    ``(self, dim, lr)`` while ``Adam`` also takes ``beta1``/``beta2`` and ``AdaMOD``
-    adds ``beta3``. One CLI passes the union, so the extras must be filtered per
-    class.
-
-    Two things the old filter got wrong, both silently:
-
-    * a key the target does not accept was dropped with no word, so
-      ``--optimizer sgd`` with ``momentum`` looked accepted and did nothing;
-    * a callee declaring ``**kwargs`` never received anything, because a
-      var-keyword's parameters are *named* ``kwargs`` -- so the documented
-      ``**config.kwargs`` escape hatch could never reach any optimizer.
-
-    So: forward to ``**kwargs`` when the callee declares one, and report anything
-    genuinely dropped instead of swallowing it.
-    """
-    optimizer_cls = OPTIMIZER_MAP.get(optimizer_type.lower(), AdaMOD)
-    signature = inspect.signature(optimizer_cls.__init__)
-    accepts_var_keyword = any(
-        p.kind is inspect.Parameter.VAR_KEYWORD for p in signature.parameters.values()
-    )
-    accepted: dict[str, Any] = {}
-    dropped: list[str] = []
-    for key, value in kwargs.items():
-        if key in signature.parameters or accepts_var_keyword:
-            accepted[key] = value
-        else:
-            dropped.append(key)
-    if dropped:
-        logger.warning(
-            "{} does not accept {}; ignored. Accepted: {{}}",
-            optimizer_cls.__name__,
-            ", ".join(sorted(dropped)),
-            ", ".join(sorted(signature.parameters)),
-        )
-    return optimizer_cls(dim, lr=lr, **accepted)
 
 
 ZERNIKE_APERTURE_RADIUS = 300.0
@@ -521,7 +475,7 @@ class SlmZernikePibConfig:
     record_phase: bool = False
     # --- Escape hatch -----------------------------------------------------------
     #: Extra keyword arguments forwarded to the optimizer constructor
-    #: (``_create_optimizer``); kept out of the typed fields.
+    #: (``create_optimizer``); kept out of the typed fields.
     kwargs: dict[str, Any] = field(default_factory=dict)
 
 
@@ -605,7 +559,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             optimization iterations). The camera/objective fields live on
             ``config.camera`` (:class:`CameraParamsPib`) and the SLM/Zernike
             fields on ``config.slm`` (:class:`SlmParamsPib`); ``config.kwargs``
-            is forwarded to the optimizer constructor (``_create_optimizer``).
+            is forwarded to the optimizer constructor (``create_optimizer``).
 
     Returns:
         Recorder: Optimization history recorder.
@@ -987,7 +941,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _init_res = shaping(init_img)
         j, pib_ratio = _init_res.j, _init_res.ratio
 
-        optimizer = _create_optimizer(
+        optimizer = create_optimizer(
             optimizer_type=optimizer_type,
             dim=nk,
             lr=lr,

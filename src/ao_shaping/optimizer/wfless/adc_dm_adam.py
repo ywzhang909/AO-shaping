@@ -3,7 +3,6 @@ import pandas as pd
 import time
 import os
 import tqdm
-import matplotlib.pyplot as plt
 
 from ao_shaping.algorithm.gradient.acceleration import _njit
 
@@ -184,6 +183,8 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
 
 SAVED = False
 if __name__ == "__main__":
+
+    import matplotlib.pyplot as plt
     for sample_num in range(1):
         dfhistory = optimizer(R)
 

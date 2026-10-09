@@ -162,8 +162,21 @@ def fit(
     return model, time.perf_counter() - started, running / (n * cfg.epochs)
 
 
-def build_model(name: str, cfg, residual_width: int = 32, unet_features: list[int] | None = None) -> nn.Module:
-    """Instantiate one of the compared models by name."""
+def build_model(
+    name: str,
+    cfg,
+    residual_width: int = 32,
+    unet_features: list[int] | None = None,
+    unet_output_mode: str = "phase",
+) -> nn.Module:
+    """Instantiate one of the compared models by name.
+
+    ``unet_output_mode`` selects the U-Net's head. ``"phase"`` (the historical
+    default) ends in a sigmoid, which suits an SLM phase map but not an intensity
+    target; ``"image"`` is the linear head. See ``report/zernike_r2_baseline/report.md``
+    section 9 -- on ``slm_zernike_shaping`` the sigmoid arm scored a negative skill
+    against a constant-image baseline.
+    """
     if name == "physics":
         return ZernikeAmpModel(ZernikeAmpConfig(n_max=cfg.n_max, grid=cfg.grid))
     if name == "hybrid":
@@ -173,8 +186,9 @@ def build_model(name: str, cfg, residual_width: int = 32, unet_features: list[in
         )
     if name == "unet":
         return UNetGenerator(
-            in_channels=2, features=unet_features or [16, 32, 64, 128, 256],
-            output_mode="phase",
+            in_channels=2,
+            features=unet_features or [16, 32, 64, 128, 256],
+            output_mode=unet_output_mode,
         )
     raise ValueError(f"unknown model {name!r}")
 

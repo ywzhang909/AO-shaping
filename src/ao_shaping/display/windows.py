@@ -65,7 +65,7 @@ class ImageVoltagesDisplay(BaseDisplay):
     """Live view: a CCD image with the bucket circle plus a voltage bar chart.
 
     This is the **single canonical implementation**. The former duplicate in
-    ``ao_shaping.utils.image.display`` now imports this class, so both import
+    ``ao_shaping.display.image_display`` now imports this class, so both import
     paths resolve to the same object.
 
     ``render`` takes the voltage range per call (the DM min/max voltage), which is
