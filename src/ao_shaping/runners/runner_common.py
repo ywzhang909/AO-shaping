@@ -1,4 +1,4 @@
-"""Shared parameter dataclasses + ``with_params`` click integration.
+"""Shared runner parameter dataclasses with Click option metadata.
 
 A single place for the parameter groups that appear in 3+ runner files,
 keeping each runner focused on what makes it unique while pulling the CLI
@@ -15,8 +15,8 @@ canonical homes:
   :func:`save_recorder_artifacts` → :mod:`ao_shaping.display.image_display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
-This module keeps only the parameter dataclasses (with their click option
-metadata) plus the ``with_params`` machinery that turns them into CLI options.
+This module keeps the parameter dataclasses and their Click option metadata.
+Runners import ``with_params`` directly from ``ao_shaping.utils.cli.params``.
 
 Parameter dataclasses are grouped by role:
 
@@ -90,12 +90,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
 # leaf shared with ``tools/slm/params.py``. Defined here, not here.
-from ao_shaping.utils.cli.params import (
-    ClickGroup,
-    _collect_click_annotations,
-    option,
-    with_params,
-)
+from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
