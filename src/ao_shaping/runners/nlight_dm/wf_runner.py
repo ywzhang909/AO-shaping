@@ -16,41 +16,55 @@ from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import WfRunnerParams, WfsParams, with_params
+from ao_shaping.runners.runner_common import (
+    DmDeviceParams,
+    WfAlgorithmParams,
+    WfRunParams,
+    WfsParams,
+    with_params,
+)
 
 
 @click.command()
 @click.pass_context
-@with_params(WfRunnerParams, kw_name="params")
+@with_params(DmDeviceParams, kw_name="dm")
+@with_params(WfRunParams, kw_name="run")
+@with_params(WfAlgorithmParams, kw_name="algorithm")
 @with_params(WfsParams, kw_name="wfs")
-def run(ctx: click.Context, params: WfRunnerParams, wfs: WfsParams) -> None:
+def run(
+    ctx: click.Context,
+    dm: DmDeviceParams,
+    run: WfRunParams,
+    algorithm: WfAlgorithmParams,
+    wfs: WfsParams,
+) -> None:
     """波前优化器
 
     DEBUG环境变量控制调试模式。
     """
     debug = get_debug_mode()
 
-    dm = resolve_dm(params.dm_type)
+    dm_device = resolve_dm(dm.dm_type)
     try:
-        dm.open()
-        init_v = [0 for _ in range(dm.DM_NUM)]
+        dm_device.open()
+        init_v = [0 for _ in range(dm_device.DM_NUM)]
         records = optimizer_rms_dm(
             init_v=init_v,
-            epochs=params.epochs,
+            epochs=run.epochs,
             wfs_res=cast(Literal["512", "768"], wfs.wfs_res),
             pupil_diameter=wfs.pupil_diameter,
             pupil_center=cast(tuple[float, float], wfs.pupil_center),
-            early_stop_threshold=params.early_stop_threshold,
-            dm=dm,
+            early_stop_threshold=run.early_stop_threshold,
+            dm=dm_device,
             wfs_type=wfs.wfs_type,
-            disturbance_cn2=params.disturbance_cn2,
-            lr=params.lr,
-            delta=params.delta,
+            disturbance_cn2=algorithm.disturbance_cn2,
+            lr=algorithm.lr,
+            delta=algorithm.delta,
         )
     finally:
-        dm.close()
+        dm_device.close()
 
-    root_dir = Path(params.dir)
+    root_dir = Path(run.dir)
 
     min_iter, (min_epoch, min_rms) = records.get_best_iter()
 

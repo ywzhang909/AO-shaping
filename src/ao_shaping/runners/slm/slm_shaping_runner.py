@@ -13,7 +13,7 @@ feedback, Zernike coefficients) and only differ in what they optimise:
 
 They were separate modules (``pib_runner.py`` + ``square_runner.py``) whose
 option groups, config plumbing and sim wiring had already started to drift —
-``--cam_type sim`` replaced the camera on one command and opened a real Santec
+``--cam-type sim`` replaced the camera on one command and opened a real Santec
 on the other. One module, one set of shared helpers, one sim patch.
 
 Usage:
@@ -24,14 +24,14 @@ Usage:
 
 Without a subcommand ``slm-pib`` runs the SPGD (gradient) search.
 
-Offline dry-run (no hardware) — ``--cam_type sim`` covers **both** devices, so
+Offline dry-run (no hardware) — ``--cam-type sim`` covers **both** devices, so
 neither command can reach for hardware on that path:
 
-    python src/ao_shaping/main.py slm-pib spgd --cam_type sim -e 3
-    python src/ao_shaping/main.py spgd-square --cam_type sim -e 3
+    python src/ao_shaping/main.py slm-pib spgd --cam-type sim -e 3
+    python src/ao_shaping/main.py spgd-square --cam-type sim -e 3
 
-``spgd-square`` additionally exposes ``--slm_type`` for symmetry with the other
-SLM runners; it must accompany ``--cam_type sim`` (a simulated SLM only exists
+``spgd-square`` additionally exposes ``--slm-type`` for symmetry with the other
+SLM runners; it must accompany ``--cam-type sim`` (a simulated SLM only exists
 once the twin is installed) and is otherwise redundant.
 
 Module-local entry points (``python -m``) are equally supported:
@@ -797,7 +797,7 @@ def square(
         # only exists once the sim patch is installed — which is keyed on the
         # camera backend. Failing loudly beats opening real hardware.
         raise click.UsageError(
-            "--slm_type sim 需要同时指定 --cam_type sim (数字孪生 bench 成对提供)"
+            "--slm-type sim 需要同时指定 --cam-type sim (数字孪生 bench 成对提供)"
         )
 
     root_dir, debug = _resolve_run_context(ctx)
@@ -854,7 +854,7 @@ def _execute(
 ) -> None:
     """Shared execution path for both search families."""
     setup_coredumpy()
-    # Must precede the auto-camera probe *and* the run: with --cam_type sim the
+    # Must precede the auto-camera probe *and* the run: with --cam-type sim the
     # optimizer's SLM resolves to the digital twin, never a real Santec. Before
     # this wiring the flag only replaced the camera, so a "sim" pib run died on
     # `SantecError -10002` (no USB) after burning the probe.

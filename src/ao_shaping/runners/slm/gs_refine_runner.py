@@ -14,10 +14,10 @@ CLI 两种入口等价::
 示例::
 
     # 无硬件自检 (2f-Fourier 数值仿真)
-    python src/ao_shaping/main.py slm-gs-refine --cam_type sim -e 20
+    python src/ao_shaping/main.py slm-gs-refine --cam-type sim -e 20
 
     # 大恒 CCD + Santec SLM #1 @1064nm
-    python src/ao_shaping/main.py slm-gs-refine --cam_type daheng --cam-id 0 -e 400
+    python src/ao_shaping/main.py slm-gs-refine --cam-type daheng --cam-id 0 -e 400
 
     # 目标方形边长显式指定 (相机像素)
     python src/ao_shaping/main.py slm-gs-refine --target-side 90
