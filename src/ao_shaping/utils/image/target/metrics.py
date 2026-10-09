@@ -442,10 +442,11 @@ def shape_metric(
     w_displacement: float = 0.5,
     stage: str | None = None,
     log_uniformity: bool = False,
+    w_pearson: float = 0.0,
 ) -> tuple[float, float]:
     """Return the dynamic-ROI shaping score and encircled-energy ratio.
 
-    ``score = energy - w_u*u - w_pk*pk - w_d*d`` where every penalty term is
+    ``score = energy - w_u*u - w_pk*pk - w_d*d + w_rho*rho`` where every penalty term is
     bounded to ``[0, 1)`` (``u = std/mean`` mapped by ``u/(1+u)``,
     ``pk = max/mean`` mapped by ``(pk-1)/(pk+1)``) so the weights stay
     comparable and cannot swamp the energy term.
@@ -507,6 +508,14 @@ def shape_metric(
         w_u, w_pk, w_d = float(w_uniformity), float(w_peak), float(w_displacement)
 
     score = energy - w_u * u_term - w_pk * pk_term - w_d * d_term
+    if w_pearson:
+        pearson_loss, _ = pearson_shape_metric(
+            frame, center, target_shape, target_size, target_aspect_ratio
+        )
+        # The Pearson helper returns 1e3 for dark or invalid frames. Such a
+        # frame has no defined correlation and must not dominate this score.
+        if 0.0 <= pearson_loss <= 2.0:
+            score += float(w_pearson) * (1.0 - pearson_loss)
     return float(score), float(energy)
 
 

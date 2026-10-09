@@ -4,9 +4,11 @@ Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import math
 from dataclasses import dataclass, field
-from typing import Any, cast
+from typing import Any, Iterator, cast
 
 import numpy as np
 
@@ -213,6 +215,7 @@ class ShapeScoringParams:
     w_uniformity: float = 3.0
     w_peak: float = 0.5
     w_displacement: float = 0.5
+    w_pearson: float = 0.0
     log_uniformity: bool = True
 
 
@@ -548,6 +551,7 @@ class ShapingObjective:
         self._panel_init_sum = init_sum
         self._terms: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)
         self._shape_state: dict[str, float] = {"best_energy": 0.0}
+        self._shape_batch_stage: str | None = None
         self._violations = 0
         # Structural reference for the ``w_loggrad`` modifier: the flat-phase
         # capture, i.e. the bench's OWN natural spot profile. Referencing the
@@ -633,6 +637,21 @@ class ShapingObjective:
         the baseline it was armed with, only the ROI location becomes live.
         """
         self._reference_center = (float(center[0]), float(center[1]))
+
+    @contextmanager
+    def shape_batch(self) -> Iterator[None]:
+        """Hold schedule weights fixed across one SPGD sign-pair evaluation."""
+        if self._params.objective != "shape" or not self._params.shape_schedule:
+            yield
+            return
+        previous = self._shape_batch_stage
+        self._shape_batch_stage = previous or shape_stage_from_energy(
+            self._shape_state["best_energy"]
+        )
+        try:
+            yield
+        finally:
+            self._shape_batch_stage = previous
 
     @property
     def _sign(self) -> float:
@@ -749,7 +768,8 @@ class ShapingObjective:
             # penalised as if the coefficients had moved it (displacement weight
             # = 0 for the same reason: the energy term already captures drift).
             stage = (
-                shape_stage_from_energy(self._shape_state["best_energy"])
+                self._shape_batch_stage
+                or shape_stage_from_energy(self._shape_state["best_energy"])
                 if p.shape_schedule
                 else None
             )
@@ -765,12 +785,30 @@ class ShapingObjective:
                 w_displacement=p.scoring.w_displacement,
                 stage=stage,
                 log_uniformity=p.scoring.log_uniformity,
+                w_pearson=p.scoring.w_pearson,
             )
             # Monotone: the schedule may only get stricter, never laxer.
             self._shape_state["best_energy"] = max(
                 self._shape_state["best_energy"], energy
             )
-            return float(score), float(energy), float(score)
+            # Stage weights steer the gradient, while best-phase comparisons
+            # must use a fixed scale across every stage of the run.
+            tracking = score
+            if stage is not None:
+                tracking, _ = shape_metric(
+                    img,
+                    self._reference_center,
+                    self._reference_center,
+                    p.shape,
+                    p.size,
+                    p.aspect_ratio,
+                    w_uniformity=p.scoring.w_uniformity,
+                    w_peak=p.scoring.w_peak,
+                    w_displacement=p.scoring.w_displacement,
+                    log_uniformity=p.scoring.log_uniformity,
+                    w_pearson=p.scoring.w_pearson,
+                )
+            return float(score), float(energy), float(tracking)
 
         if objective == "rmse":
             # Minimise the RMSE between the frame and the uniform-intensity
@@ -898,6 +936,7 @@ class ShapingObjective:
             w_displacement=p.scoring.w_displacement,
             stage=None,
             log_uniformity=p.scoring.log_uniformity,
+            w_pearson=p.scoring.w_pearson,
         )
         pib_term, rms_t = rms_pib_terms(
             img, self._reference_center, p.shape, p.size, p.aspect_ratio

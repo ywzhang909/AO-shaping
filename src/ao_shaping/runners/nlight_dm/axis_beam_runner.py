@@ -27,8 +27,8 @@ from ao_shaping.runners.runner_common import (
     PibAlgorithmParams,
     PibOpticalParams,
     PibRunParams,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 
 
 @click.command()

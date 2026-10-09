@@ -130,6 +130,10 @@ class TestAutoExposureUsesConstants:
         mock_cam.WidthMax.get.return_value = 1920
         mock_cam.HeightMax.get.return_value = 1080
         mock_cam.data_stream = [MagicMock()]
+        mock_cam.data_stream[0].StreamBufferHandlingMode.get.return_value = (
+            constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value,
+            "NewestOnly",
+        )
         mock_raw = MagicMock()
         mock_raw.get_status.return_value = 0
         mock_raw.get_numpy_array.return_value = MagicMock()
@@ -146,6 +150,9 @@ class TestAutoExposureUsesConstants:
         cam.open()
 
         mock_cam.ExposureAuto.set.assert_any_call(constants.GxAutoEntry.OFF.value)
+        mock_cam.data_stream[0].StreamBufferHandlingMode.set.assert_called_once_with(
+            constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value
+        )
 
 
 class TestAllEnumValuesAreIntegers:

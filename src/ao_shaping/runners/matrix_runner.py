@@ -60,8 +60,8 @@ from ao_shaping.runners.runner_common import (
     HadamardMatrixRunnerParams,
     ThorlabWfsDriverParams,
     WfsParams,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
     get_timestamp_str,

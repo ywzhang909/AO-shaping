@@ -66,7 +66,8 @@ from pathlib import Path
 import click
 import numpy as np
 
-from ao_shaping.runners.runner_common import SlmGsRefineParams, with_params
+from ao_shaping.runners.runner_common import SlmGsRefineParams
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import get_debug_mode
 from ao_shaping.display.frames import save_best_image
 

@@ -35,6 +35,7 @@ from ao_shaping.utils.image.targets import (
     roi_energy_loss,
     roi_pib_metric,
     shape_metric,
+    target_shape_roi,
 )
 
 CENTER = (10.0, 10.0)
@@ -68,6 +69,45 @@ def make_params(objective: str, mode: str = "max", **overrides) -> ShapingObject
     }
     params.update(overrides)
     return ShapingObjectiveParams(**params)
+
+
+def test_shape_schedule_uses_one_stage_per_sign_pair_and_fixed_best_scale() -> None:
+    roi = target_shape_roi((20, 20), CENTER, "square", 6)
+
+    def frame(energy: float) -> np.ndarray:
+        img = np.full((20, 20), (1.0 - energy) / (400 - roi.sum()))
+        pattern = np.linspace(1.0, 3.0, int(roi.sum()))
+        img[roi] = energy * pattern / pattern.sum()
+        return img
+
+    params = make_params("shape", shape="square", size=6, shape_schedule=True)
+    objective = ShapingObjective(params, None, frame(0.79))
+    objective.raw(frame(0.79))  # Establish the middle stage before the pair.
+
+    with objective.shape_batch():
+        plus = objective.raw(frame(0.81))
+        minus = objective.raw(frame(0.79))
+
+    middle_plus, _ = shape_metric(
+        frame(0.81), CENTER, CENTER, "square", 6, 1,
+        stage="middle", log_uniformity=params.scoring.log_uniformity,
+    )
+    middle_minus, _ = shape_metric(
+        frame(0.79), CENTER, CENTER, "square", 6, 1,
+        stage="middle", log_uniformity=params.scoring.log_uniformity,
+    )
+    assert plus[0] == pytest.approx(middle_plus)
+    assert minus[0] == pytest.approx(middle_minus)
+    assert objective.raw(frame(0.79))[0] != pytest.approx(middle_minus)
+
+    fixed_score, _ = shape_metric(
+        frame(0.81), CENTER, CENTER, "square", 6, 1,
+        w_uniformity=params.scoring.w_uniformity,
+        w_peak=params.scoring.w_peak,
+        w_displacement=params.scoring.w_displacement,
+        log_uniformity=params.scoring.log_uniformity,
+    )
+    assert plus[2] == pytest.approx(fixed_score)
 
 
 def make_objective(objective: str, mode: str = "max", init_img=None, **overrides):

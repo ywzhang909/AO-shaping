@@ -56,8 +56,7 @@ the ``Annotated`` metadata objects are only materialised at decoration time.
 
 Public API re-exported by :mod:`ao_shaping.utils.cli`: :class:`ClickGroup`,
 :data:`option`, :func:`with_params`. The private ``_``-prefixed helpers are
-internal, except ``_collect_click_annotations`` which stays reachable from
-``ao_shaping.runners.runner_common`` for back-compat.
+internal; tests import ``_collect_click_annotations`` from this module.
 """
 
 from __future__ import annotations

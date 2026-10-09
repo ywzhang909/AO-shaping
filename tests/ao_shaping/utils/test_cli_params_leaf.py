@@ -184,15 +184,11 @@ def test_mechanism_is_not_duplicated_anywhere_else() -> None:
     )
 
 
-def test_runner_common_shares_the_leaf_objects_not_copies() -> None:
-    """``runner_common`` must import the mechanism, not re-own it.
-
-    Identity (``is``) rather than equality: a copy that happens to compare equal
-    today is still free to drift tomorrow.
-    """
+def test_runner_common_uses_leaf_metadata_without_reexporting_with_params() -> None:
+    """Parameter classes use leaf metadata; runners import the collector directly."""
     from ao_shaping.runners import runner_common
 
-    assert runner_common.with_params is cli_params.with_params
+    assert not hasattr(runner_common, "with_params")
     assert runner_common.ClickGroup is cli_params.ClickGroup
     assert runner_common.option is cli_params.option
 

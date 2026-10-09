@@ -58,7 +58,8 @@ from ml.gsnet_debug.offline import (  # noqa: E402
     RecordIndex,
     build_record_index,
 )
-from ao_shaping.runners.runner_common import RunParams, option  # noqa: E402
+from ao_shaping.runners.runner_common import RunParams  # noqa: E402
+from ao_shaping.utils.cli.params import option  # noqa: E402
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy  # noqa: E402
 from ml.gsnet.evaluate import evaluate_model  # noqa: E402
 from ml.gsnet.model import FourierGSNet, count_parameters  # noqa: E402

@@ -7,6 +7,7 @@ import numpy as np
 import numpy.typing as npt
 
 from ao_shaping.drivers.ccd import BaseCamera
+from ao_shaping.drivers.ccd.base import AveragedFrame
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.drivers.ccd.daheng import constants
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
@@ -247,6 +248,10 @@ class DahengCamera(BaseCamera):
         self.cam.ExposureTime.set(int(self.__exposure_time_ms.ms * 1000))
 
         self.__update_properties()
+        stream_mode = self.cam.data_stream[0].StreamBufferHandlingMode
+        stream_mode.set(constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value)
+        if stream_mode.get()[0] != constants.GxDSStreamBufferHandlingModeEntry.NEWEST_ONLY.value:
+            raise RuntimeError("Daheng stream buffer mode did not switch to NewestOnly")
         self.cam.stream_on()
 
     def reset_exposure_time(self, time_ms: float) -> float:
@@ -434,7 +439,7 @@ class DahengCamera(BaseCamera):
 
     def get_numpy_image(
         self, n_sample=1, skip_first=True, denoise=False
-    ) -> npt.NDArray[np.uint16] | npt.NDArray[np.uint8]:
+    ) -> npt.NDArray[np.uint16] | npt.NDArray[np.uint8] | npt.NDArray[np.float32]:
         """
         获取相机的图像数据，进行平均处理。
 
@@ -443,19 +448,22 @@ class DahengCamera(BaseCamera):
         skip_first (bool): 是否跳过第一次采样，默认值为True。
 
         返回:
-        np.ndarray: 处理后的平均图像，数据类型由位深决定 (uint16/uint8)。
+        np.ndarray: 单帧保留原始整数类型，多帧平均为 float32 原始灰度值。
         """
-        out_dtype = np.uint16 if self._bit_depth == 16 else np.uint8
-        numpy_image = np.zeros((n_sample, self.cam_height, self.cam_width), dtype=float)
+        assert n_sample > 0, "Sample count must be > 0"
         if skip_first:
             self.__take_one_shot()
-        for i in range(n_sample):
-            numpy_image[i] += self.__take_one_shot()
-        avg_img = np.mean(numpy_image, axis=0)
+        first_img = self.__take_one_shot()
+        if n_sample == 1 and not denoise:
+            return first_img
+        total = np.asarray(first_img, dtype=np.float64).copy()
+        for _ in range(n_sample - 1):
+            total += self.__take_one_shot()
+        avg_img = total / n_sample
         if denoise:
             avg_img = avg_img - np.median(avg_img)
             avg_img = np.where(avg_img < 0, 0, avg_img)
-        return avg_img.astype(out_dtype)
+        return AveragedFrame(avg_img, first_img.dtype)
 
     def auto_exposure(
         self,

@@ -15,7 +15,8 @@ from ao_shaping.utils.io.cli_helpers import (
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.utils.image.display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import CameraParams, CombinedAlgorithmParams, CombinedRunParams, with_params
+from ao_shaping.runners.runner_common import CameraParams, CombinedAlgorithmParams, CombinedRunParams
+from ao_shaping.utils.cli.params import with_params
 
 import matplotlib.pyplot as plt
 

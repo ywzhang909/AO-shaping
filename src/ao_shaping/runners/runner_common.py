@@ -1,4 +1,4 @@
-"""Shared parameter dataclasses + ``with_params`` click integration.
+"""Shared runner parameter dataclasses with Click option metadata.
 
 A single place for the parameter groups that appear in 3+ runner files,
 keeping each runner focused on what makes it unique while pulling the CLI
@@ -15,8 +15,7 @@ canonical homes:
   :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
-This module keeps only the parameter dataclasses (with their click option
-metadata) plus the ``with_params`` machinery that turns them into CLI options.
+This module keeps the parameter dataclasses and their Click option metadata.
 
 Parameter dataclasses are grouped by role:
 
@@ -89,12 +88,11 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
-# leaf shared with ``tools/slm/params.py``. Defined here, not here.
+# leaf shared with ``tools/slm/params.py``. Parameter classes consume it here.
 from ao_shaping.utils.cli.params import (
     ClickGroup,
     _collect_click_annotations,
     option,
-    with_params,
 )
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
@@ -578,6 +576,10 @@ class ObjectiveParamsPib:
         float, option("--w-uniformity", help="Uniformity penalty weight.")
     ] = 2.0
     w_peak: Annotated[float, option("--w-peak", help="Peak penalty weight.")] = 0.5
+    w_pearson: Annotated[
+        float,
+        option("--w-pearson", help="Weight on correlation with the uniform target shape."),
+    ] = 0.0
     w_loggrad: Annotated[
         float,
         option(
@@ -1334,6 +1336,7 @@ class CameraParamsPib(CameraParams, ObjectiveParamsPib):
         for _name, _w in (
             ("w_uniformity", self.w_uniformity),
             ("w_peak", self.w_peak),
+            ("w_pearson", self.w_pearson),
             ("w_displacement", self.w_displacement),
         ):
             if not np.isfinite(_w) or _w < 0.0:

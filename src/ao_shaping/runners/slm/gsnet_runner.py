@@ -49,8 +49,8 @@ from ao_shaping.runners.runner_common import (
     parse_center,
     patch_sim_square_shaping,
     resolve_spgd_delta,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 
