@@ -15,16 +15,17 @@ from ao_shaping.utils.io.cli_helpers import (
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import CameraParams, CombinedRunnerParams, with_params
+from ao_shaping.runners.runner_common import CameraParams, CombinedAlgorithmParams, CombinedRunParams, with_params
 
 import matplotlib.pyplot as plt
 
 
 @click.command()
 @click.pass_context
-@with_params(CombinedRunnerParams, kw_name="params")
+@with_params(CombinedAlgorithmParams, kw_name="algorithm")
+@with_params(CombinedRunParams, kw_name="run")
 @with_params(CameraParams, kw_name="camera")
-def run(ctx: click.Context, params: CombinedRunnerParams, camera: CameraParams) -> None:
+def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRunParams, camera: CameraParams) -> None:
     """AdaMOD 综合PIB优化器
 
     使用AdaMOD优化器进行桶内功率(PIB)优化，支持自适应桶半径收缩。
@@ -32,54 +33,54 @@ def run(ctx: click.Context, params: CombinedRunnerParams, camera: CameraParams) 
     调试模式: ``main.py --debug combined`` / 本命令 ``--debug`` / 环境变量 ``DEBUG=1``
     任一开启即可输出 pkl/json 与汇总图片。
     """
-    debug = resolve_debug(ctx, params.debug_flag)
+    debug = resolve_debug(ctx, run.debug_flag)
     center = camera.center if camera.center is not None else "mass"
 
-    if params.load_file and Path(params.load_file).exists():
-        init_v = np.loadtxt(params.load_file).tolist()
+    if run.load_file and Path(run.load_file).exists():
+        init_v = np.loadtxt(run.load_file).tolist()
     else:
         init_v = []
 
     config = {
-        "root_dir": params.root_dir,
-        "load_file": params.load_file,
+        "root_dir": run.root_dir,
+        "load_file": run.load_file,
         "cam_id": camera.cam_id,
         "center": center,
         "exposure_time_ms": camera.exposure_time_ms,
-        "epochs": params.epochs,
-        "r_bucket": params.r_bucket,
-        "delta": params.delta,
-        "lr": params.lr,
-        "shrink_iter": params.shrink_iter,
-        "shrink_ratio": params.shrink_ratio,
+        "epochs": run.epochs,
+        "r_bucket": algorithm.r_bucket,
+        "delta": algorithm.delta,
+        "lr": algorithm.lr,
+        "shrink_iter": algorithm.shrink_iter,
+        "shrink_ratio": algorithm.shrink_ratio,
         "cam_size": camera.cam_size,
-        "target_max_brightness": params.target_max_brightness,
+        "target_max_brightness": algorithm.target_max_brightness,
         "debug": debug,
-        "show": params.show,
+        "show": run.show,
     }
     logger.info(config)
 
-    dm = resolve_dm(params.dm_type, keep_when_exit=True, max_neibor_diff=200)
+    dm = resolve_dm(algorithm.dm_type, keep_when_exit=True, max_neibor_diff=200)
 
     res_list = optimize_pib(
         dm=dm,
         center=center,
-        epochs=params.epochs,
-        r_bucket=params.r_bucket,
-        delta=params.delta,
-        lr=params.lr,
+        epochs=run.epochs,
+        r_bucket=algorithm.r_bucket,
+        delta=algorithm.delta,
+        lr=algorithm.lr,
         exposure_time_ms=camera.exposure_time_ms,
         cam_type=camera.cam_type,
-        shrink_iter=params.shrink_iter,
-        shrink_ratio=params.shrink_ratio,
+        shrink_iter=algorithm.shrink_iter,
+        shrink_ratio=algorithm.shrink_ratio,
         cam_id=camera.cam_id,
-        show=params.show,
+        show=run.show,
         init_v=init_v,
         cam_size=camera.cam_size,
-        target_max_brightness=params.target_max_brightness,
+        target_max_brightness=algorithm.target_max_brightness,
     )
 
-    saved_dir = f"{params.root_dir}/flatten_voltages/{get_date_dir_name()}"
+    saved_dir = f"{run.root_dir}/flatten_voltages/{get_date_dir_name()}"
     res_list.save_best(
         saved_dir, target="_v", process_fn=lambda x: np.around(x).astype(int), fmt="%d"
     )
@@ -87,7 +88,7 @@ def run(ctx: click.Context, params: CombinedRunnerParams, camera: CameraParams) 
     last_V = best_iter["_v"]
 
     if debug:
-        save_dir = gen_date_dir(f"{params.root_dir}/combined")
+        save_dir = gen_date_dir(f"{run.root_dir}/combined")
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
         res_list.save_dataframe(saved_file_name.with_suffix(".pkl"), compression="zip")
 

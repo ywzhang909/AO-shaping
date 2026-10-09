@@ -16,8 +16,8 @@ Usage:
     python src/ao_shaping/main.py slm-gsnet train [OPTIONS]    # offline GSNet training
 
 Offline dry-run (no hardware) — options live on the subcommand, not the group:
-    python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 50
-    python src/ao_shaping/main.py slm-gsnet heuristic --cam_type sim --epochs 50 --algorithm ga
+    python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 50
+    python src/ao_shaping/main.py slm-gsnet heuristic --cam-type sim --epochs 50 --algorithm ga
     python src/ao_shaping/main.py slm-gsnet train --epochs 1 --max-samples 32
 
 ``train`` never opens a device: it reads the ``data/debug`` pickles the

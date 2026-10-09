@@ -20,7 +20,8 @@ from ao_shaping.utils.io.cli_helpers import (
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
-    PipelineRunnerParams,
+    PipelineDeviceParams,
+    PipelineRunParams,
     WfsParams,
     with_params,
 )
@@ -28,10 +29,11 @@ from ao_shaping.runners.runner_common import (
 
 @click.command()
 @click.pass_context
-@with_params(PipelineRunnerParams, kw_name="params")
+@with_params(PipelineDeviceParams, kw_name="device")
+@with_params(PipelineRunParams, kw_name="run")
 @with_params(WfsParams, kw_name="wfs_params")
 def run(
-    ctx: click.Context, params: PipelineRunnerParams, wfs_params: WfsParams
+    ctx: click.Context, device: PipelineDeviceParams, run: PipelineRunParams, wfs_params: WfsParams
 ) -> None:
     """串行优化器（先波前优化，再轴向光束优化）
 
@@ -39,10 +41,10 @@ def run(
     """
     debug = get_debug_mode()
 
-    dm = resolve_dm(params.dm_type)
+    dm = resolve_dm(device.dm_type)
 
-    if params.load_file:
-        last_v = np.loadtxt(params.load_file)
+    if run.load_file:
+        last_v = np.loadtxt(run.load_file)
         init_v = last_v.tolist()
     else:
         init_v = []
@@ -56,8 +58,8 @@ def run(
             pupil_diameter=wfs_params.pupil_diameter,
             wfs_res=wfs_params.wfs_res,
             pupil_center=cast(tuple[float, float], wfs_params.pupil_center),
-            early_stop_threshold=params.rms_threshold,
-            epochs=params.wf_epochs,
+            early_stop_threshold=run.rms_threshold,
+            epochs=run.wf_epochs,
             dm=dm,
         )
 
@@ -72,19 +74,19 @@ def run(
 
         dm_available = np.ones(dm.DM_NUM, dtype=bool)
         dm_available[0] = False
-        if params.dm_unit_mask == "inner":
+        if device.dm_unit_mask == "inner":
             dm_available[21:] = False
-        elif params.dm_unit_mask == "outer":
+        elif device.dm_unit_mask == "outer":
             dm_available[:39] = False
 
         ccd_records = optimize_pib(
-            cam_id=cast(int, params.cam_id),
+            cam_id=cast(int, device.cam_id),
             center="mass",
-            exposure_time_ms=params.exposure_time_ms,
-            cam_size=params.cam_size,
+            exposure_time_ms=device.exposure_time_ms,
+            cam_size=device.cam_size,
             dm_unit_mask=dm_available,
             target_max_brightness=0,
-            epochs=params.epochs,
+            epochs=run.epochs,
             lr=0.9,
             delta=0.9,
             shrink_iter=20,
@@ -98,7 +100,7 @@ def run(
         max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
         last_V = max_pid_iter["_v"]
 
-        save_dir = Path(params.dir) / "flatten_voltages" / get_date_dir_name()
+        save_dir = Path(run.dir) / "flatten_voltages" / get_date_dir_name()
 
         def np_array_to_int(arr):
             return arr.astype(int)
@@ -136,7 +138,7 @@ def run(
             plot_funcs["voltage_heatmap"](voltages, ax[1, 3], "Voltage History")
 
             plt.tight_layout()
-            save_dir = gen_date_dir(f"{params.dir}/pipeline")
+            save_dir = gen_date_dir(f"{run.dir}/pipeline")
             saved_file_name = gen_file_path_uuid(save_dir)
             wf_records.save_dataframe(
                 saved_file_name.with_suffix(".wfs.pkl"), compression="zip"
@@ -151,15 +153,15 @@ def run(
 
                 json.dump(
                     {
-                        "dir": params.dir,
-                        "load_file": params.load_file,
-                        "epochs": params.epochs,
+                        "dir": run.dir,
+                        "load_file": run.load_file,
+                        "epochs": run.epochs,
                         "wfs_res": wfs_params.wfs_res,
                         "pupil_diameter": wfs_params.pupil_diameter,
-                        "cam_id": params.cam_id,
-                        "exposure_time_ms": params.exposure_time_ms,
-                        "cam_size": params.cam_size,
-                        "rms_threshold": params.rms_threshold,
+                        "cam_id": device.cam_id,
+                        "exposure_time_ms": device.exposure_time_ms,
+                        "cam_size": device.cam_size,
+                        "rms_threshold": run.rms_threshold,
                         "debug": debug,
                     },
                     f,

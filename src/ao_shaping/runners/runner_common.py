@@ -60,10 +60,10 @@ Accepted CLI help diffs (vs. the pre-refactor per-runner decorator stacks):
 2. Fused ``CameraParamsPib`` lists the objective block before the camera
    block, with the ``--auto-*`` flags after ``-c/--center`` (byte-identical
    to the pre-refactor slm-pib CLI help).
-3. ``SlmParamsPib`` lists ``--slm_number`` first (previously ``--init_c``
+3. ``SlmParamsPib`` lists ``--slm-number`` first (previously ``--init-c``
    first — the decorator-stack help was reversed).
-4. ``SpgdParamsPib`` lists ``--show`` before ``--shrink_iter`` (previously
-   ``--shrink_iter`` first).
+4. ``SpgdParamsPib`` lists ``--show`` before ``--shrink-iter`` (previously
+   ``--shrink-iter`` first).
 5. Objective blocks read top-to-bottom (previously reversed).
 6. ``slm-gsnet`` gains a ``--seed`` option (from ``RunParams``); it had no
    seed option before — its optimizer kwargs hardcoded ``random_seed=None``.
@@ -141,7 +141,7 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 )
 
 # `dm-matrix` deliberately offers one DM type fewer than every other command, so its
-# `--dm_type` help stays byte-identical to its pre-asyn_micro text (see
+# `--dm-type` help stays byte-identical to its pre-asyn_micro text (see
 # `EXPECTED_DM_TYPE_CHOICES` in tests/ao_shaping/runners/test_cli_contract_freeze.py).
 #
 # ``DM_TYPES`` is the full set of lazily-registered DM types (including
@@ -198,7 +198,7 @@ class CameraParams:
     cam_type: Annotated[
         str,
         option(
-            "--cam_type",
+            "--cam-type",
             type=click.Choice(CAMERA_TYPE_CHOICES),
             help="CCD camera backend (sim = 2f-Fourier numerical simulation, no hardware).",
         ),
@@ -206,7 +206,7 @@ class CameraParams:
     exposure_time_ms: Annotated[
         float,
         option(
-            "--exposure_time_ms",
+            "--exposure-time-ms",
             help=(
                 "CCD exposure time in ms. 0 (the default) means 'no fixed value': "
                 "the camera keeps whatever it is set to, and auto-exposure "
@@ -218,7 +218,7 @@ class CameraParams:
         ),
     ] = 0.0
     cam_size: Annotated[
-        int, option("--cam_size", help="CCD window size in pixels.")
+        int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
     center: Annotated[
         str | tuple[int, int] | None,
@@ -236,23 +236,23 @@ class SlmParams:
     """Santec SLM options (slm-gsnet family)."""
 
     slm_number: Annotated[
-        int, option("--slm_number", help="Santec SLM device number (1-8).")
+        int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
     slm_wavelength: Annotated[
         int,
         option(
-            "--slm_wavelength",
+            "--slm-wavelength",
             help=(
                 "SLM operating wavelength (nm); 0 (the default) asks the "
                 "device which wavelength it is programmed for."
             ),
         ),
     ] = 0
-    n_max: Annotated[int, option("-n", "--n_max", help="Max Zernike radial order.")] = 4
+    n_max: Annotated[int, option("-n", "--n-max", help="Max Zernike radial order.")] = 4
     zernike_radius: Annotated[
         float,
         option(
-            "--zernike_radius", help="Zernike aperture radius (pixels); 0 = default."
+            "--zernike-radius", help="Zernike aperture radius (pixels); 0 = default."
         ),
     ] = 0.0
 
@@ -273,16 +273,16 @@ class WfsParams:
     """Thorlabs WFS options (rms-zernike, ga-zernike, greedy-zernike share these)."""
 
     wfs_res: Annotated[
-        str, option("-r", "--wfs_res", help="WFS分辨率 (default: 1024)")
+        str, option("-r", "--wfs-res", help="WFS分辨率 (default: 1024)")
     ] = "1024"
     pupil_diameter: Annotated[
-        float, option("-p", "--pupil_diameter", help="瞳孔直径 (default: 2.7)")
+        float, option("-p", "--pupil-diameter", help="瞳孔直径 (default: 2.7)")
     ] = 2.7
     pupil_center: Annotated[
         str | tuple[float, float],
         option(
             "-c",
-            "--pupil_center",
+            "--pupil-center",
             callback=parse_tuple,
             help="瞳孔中心坐标 (default: (0,0))",
         ),
@@ -301,7 +301,7 @@ class WfsParams:
     wfs_type: Annotated[
         str,
         option(
-            "--wfs_type",
+            "--wfs-type",
             type=click.Choice(["thorlab", "sim"]),
             help="波前传感器类型 (sim=仿真 Shack-Hartmann, 无需硬件)",
         ),
@@ -384,7 +384,7 @@ class SpgdParams:
     optimizer_type: Annotated[
         str,
         option(
-            "--optimizer_type",
+            "--optimizer-type",
             type=click.Choice(
                 ["adam", "adamw", "adamod", "sgd", "muno", "munow"],
                 case_sensitive=False,
@@ -412,7 +412,7 @@ class HeuristicParams:
     ] = "ga"
     pop_size: Annotated[
         int | None,
-        option("--pop_size", type=int, help="Population size (ga/pso/cem/de)."),
+        option("--pop-size", type=int, help="Population size (ga/pso/cem/de)."),
     ] = None
     epochs: Annotated[
         int, option("-e", "--epochs", help="Optimization iterations.")
@@ -439,10 +439,10 @@ class SpgdParamsPib(SpgdParams):
         float, option("--delta", help="SPGD perturbation amplitude (rad).")
     ] = 0.2
     shrink_iter: Annotated[
-        int, option("--shrink_iter", help="Iterations before radius/step shrink.")
+        int, option("--shrink-iter", help="Iterations before radius/step shrink.")
     ] = 0
     shrink_ratio: Annotated[
-        float, option("--shrink_ratio", help="Radius/step shrink ratio.")
+        float, option("--shrink-ratio", help="Radius/step shrink ratio.")
     ] = 0.9
     n_eval_frames: Annotated[
         int,
@@ -458,19 +458,19 @@ class SpgdParamsPib(SpgdParams):
     noise_gate_k: Annotated[
         float,
         option(
-            "--noise_gate_k",
+            "--noise-gate-k",
             help="Noise-aware update gate sigma multiplier (0 disables).",
         ),
     ] = 3.0
     max_peak: Annotated[
         float,
         option(
-            "--max_peak",
+            "--max-peak",
             help=(
                 "Measured-peak feasibility gate in camera counts (0 disables, the "
                 "default). NOT a safety interlock: it only refuses to commit the "
                 "next update after already-displayed frames exceeded this value. "
-                "Requires a FIXED --exposure_time_ms, else auto-exposure masks it."
+                "Requires a FIXED --exposure-time-ms, else auto-exposure masks it."
             ),
         ),
     ] = 0.0
@@ -518,7 +518,7 @@ class ObjectiveTarget:
     target_shape: Annotated[
         str | None,
         option(
-            "--target_shape",
+            "--target-shape",
             type=click.Choice(list(TARGET_SHAPE_CHOICES)),
             help="Target ROI shape (implies the 'shape' objective).",
         ),
@@ -536,33 +536,33 @@ class ObjectiveParamsPib:
     target_max_brightness: Annotated[
         int,
         option(
-            "--target_max_brightness", help="Target max brightness for auto-exposure."
+            "--target-max-brightness", help="Target max brightness for auto-exposure."
         ),
     ] = 40
     r_bucket: Annotated[
         int,
-        option("-r", "--r_bucket", help="Bucket radius (0 = auto from power radius)."),
+        option("-r", "--r-bucket", help="Bucket radius (0 = auto from power radius)."),
     ] = 0
     target_size: Annotated[
-        float, option("--target_size", help="Target extent in camera px.")
+        float, option("--target-size", help="Target extent in camera px.")
     ] = 64.0
     target_aspect_ratio: Annotated[
         float,
         option(
-            "--target_aspect_ratio", help="Width:height ratio for a rectangular target."
+            "--target-aspect-ratio", help="Width:height ratio for a rectangular target."
         ),
     ] = 4.0 / 3.0
     target_center_smooth: Annotated[
         int,
         option(
-            "--target_center_smooth",
+            "--target-center-smooth",
             help="Frames averaged for the target centre estimate.",
         ),
     ] = 3
     shape_schedule: Annotated[
         bool,
         option(
-            "--shape_schedule",
+            "--shape-schedule",
             is_flag=True,
             help="Use the coarse->fine shaping weight schedule.",
         ),
@@ -570,18 +570,18 @@ class ObjectiveParamsPib:
     max_roi_energy_loss: Annotated[
         float,
         option(
-            "--max_energy_loss",
+            "--max-energy-loss",
             help="Max allowed in-ROI energy loss fraction (0 disables the guard).",
         ),
     ] = 0.6
     w_uniformity: Annotated[
-        float, option("--w_uniformity", help="Uniformity penalty weight.")
+        float, option("--w-uniformity", help="Uniformity penalty weight.")
     ] = 2.0
-    w_peak: Annotated[float, option("--w_peak", help="Peak penalty weight.")] = 0.5
+    w_peak: Annotated[float, option("--w-peak", help="Peak penalty weight.")] = 0.5
     w_loggrad: Annotated[
         float,
         option(
-            "--w_loggrad",
+            "--w-loggrad",
             help=(
                 "Weight on the log-intensity gradient-difference structure term. "
                 "0 disables it (default). It penalises excess fine structure "
@@ -591,12 +591,12 @@ class ObjectiveParamsPib:
         ),
     ] = 0.0
     w_displacement: Annotated[
-        float, option("--w_displacement", help="Displacement penalty weight.")
+        float, option("--w-displacement", help="Displacement penalty weight.")
     ] = 0.0
     log_uniformity: Annotated[
         bool,
         option(
-            "--log_uniformity",
+            "--log-uniformity",
             is_flag=True,
             help="Use log1p(u) instead of u/(1+u) for the uniformity term.",
         ),
@@ -604,21 +604,21 @@ class ObjectiveParamsPib:
     w_ema_decay: Annotated[
         float,
         option(
-            "--w_ema_decay",
+            "--w-ema-decay",
             help="EMA decay for the adaptive PIB/RMS weights of the 'rms_pib' objective.",
         ),
     ] = 0.9
     w_floor: Annotated[
         float,
         option(
-            "--w_floor",
+            "--w-floor",
             help="Minimum weight floor per term of the 'rms_pib' objective (0..0.5).",
         ),
     ] = 0.1
     w_temperature: Annotated[
         float,
         option(
-            "--w_temperature",
+            "--w-temperature",
             help="Softmax temperature for the 'rms_pib' weight update.",
         ),
     ] = 8.0
@@ -627,7 +627,7 @@ class ObjectiveParamsPib:
     w_pib_init: Annotated[
         float | None,
         option(
-            "--w_pib_init",
+            "--w-pib-init",
             type=float,
             help="Initial PIB weight of the 'rms_pib' objective (default 1/3).",
         ),
@@ -635,7 +635,7 @@ class ObjectiveParamsPib:
     w_rms_init: Annotated[
         float | None,
         option(
-            "--w_rms_init",
+            "--w-rms-init",
             type=float,
             help="Initial RMS (in-ROI uniformity) weight of the 'rms_pib' objective (default 1/3).",
         ),
@@ -643,7 +643,7 @@ class ObjectiveParamsPib:
     w_ee_init: Annotated[
         float | None,
         option(
-            "--w_ee_init",
+            "--w-ee-init",
             help="Initial encircled-energy weight of the 'rms_pib' objective (default 1/3).",
         ),
     ] = None
@@ -697,16 +697,16 @@ class ObjectiveParamsSquare:
         ),
     ] = 200
     w_uniformity: Annotated[
-        float, option("--w_uniformity", help="Uniformity (CV) weight.")
+        float, option("--w-uniformity", help="Uniformity (CV) weight.")
     ] = 0.4
     w_efficiency: Annotated[
-        float, option("--w_efficiency", help="Encircled-energy weight.")
+        float, option("--w-efficiency", help="Encircled-energy weight.")
     ] = 0.6
-    w_aspect: Annotated[float, option("--w_aspect", help="Aspect-ratio weight.")] = 0.0
+    w_aspect: Annotated[float, option("--w-aspect", help="Aspect-ratio weight.")] = 0.0
     w_pbr: Annotated[
         float,
         option(
-            "--w_pbr",
+            "--w-pbr",
             help=(
                 "Background-suppression (peak-to-background) weight. "
                 "0 = off (default), which keeps runs reproducible. PBR is the "
@@ -789,7 +789,7 @@ class RmsZernikeParams:
     lr: Annotated[float, option("--lr", help="学习率 (default: 0.01)")] = 0.01
     delta: Annotated[float, option("--delta", help="初始delta值 (default: 0.0)")] = 0.0
     early_stop_threshold: Annotated[
-        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
+        float, option("-t", "--early-stop-threshold", help="早停阈值 (default: 0.12)")
     ] = 0.12
     min_delta: Annotated[
         float,
@@ -904,7 +904,7 @@ class RmsZernikeParams:
     pop_size: Annotated[
         int | None,
         option(
-            "--pop_size",
+            "--pop-size",
             type=int,
             help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
         ),
@@ -929,7 +929,7 @@ class GreedyZernikeParams:
         int, option("-n", "--n-max", help="Zernike最大阶数 (default: 4)")
     ] = 4
     early_stop_threshold: Annotated[
-        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.12)")
+        float, option("-t", "--early-stop-threshold", help="早停阈值 (default: 0.12)")
     ] = 0.12
     show: Annotated[
         bool,
@@ -962,7 +962,7 @@ class GreedyZernikeParams:
     pop_size: Annotated[
         int | None,
         option(
-            "--pop_size",
+            "--pop-size",
             type=int,
             help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
         ),
@@ -1075,7 +1075,7 @@ class SlmSquareParams:
     cam_type: Annotated[
         str,
         option(
-            "--cam_type",
+            "--cam-type",
             type=click.Choice(CAMERA_TYPE_CHOICES),
             help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 无需硬件)。",
         ),
@@ -1083,9 +1083,9 @@ class SlmSquareParams:
     slm_type: Annotated[
         str,
         option(
-            "--slm_type",
+            "--slm-type",
             type=click.Choice(["santec", "sim"]),
-            help="SLM 后端 (sim = 2f-Fourier 数值仿真, 无需硬件; 需配合 --cam_type sim)。",
+            help="SLM 后端 (sim = 2f-Fourier 数值仿真, 无需硬件; 需配合 --cam-type sim)。",
         ),
     ] = "santec"
     cam_size: Annotated[
@@ -1112,7 +1112,7 @@ class SlmSquareParams:
     pop_size: Annotated[
         int | None,
         option(
-            "--pop_size",
+            "--pop-size",
             type=int,
             help="种群规模 (ga/pso/cem/de 使用; 默认取算法默认值)",
         ),
@@ -1211,17 +1211,17 @@ class SlmParamsPib(SlmParams):
     zernike_radius: Annotated[
         float,
         option(
-            "--zernike_radius",
+            "--zernike-radius",
             help=f"Zernike aperture radius (pixels); default = SLM 面板短边的一半 ({DEFAULT_ZERNIKE_RADIUS} px).",
         ),
     ] = DEFAULT_ZERNIKE_RADIUS
-    shift_x: Annotated[int, option("--shift_x", help="SLM phase X shift (pixels).")] = 0
-    shift_y: Annotated[int, option("--shift_y", help="SLM phase Y shift (pixels).")] = 0
+    shift_x: Annotated[int, option("--shift-x", help="SLM phase X shift (pixels).")] = 0
+    shift_y: Annotated[int, option("--shift-y", help="SLM phase Y shift (pixels).")] = 0
     load_file: Annotated[
         str | None,
         option(
             "-f",
-            "--load_file",
+            "--load-file",
             type=str,
             help="Path to a prior Zernike coefficient file to load.",
         ),
@@ -1229,7 +1229,7 @@ class SlmParamsPib(SlmParams):
     init_c: Annotated[
         str | None,
         option(
-            "--init_c",
+            "--init-c",
             type=str,
             help="Initial Zernike coefficients (JSON or comma-separated).",
         ),
@@ -1254,7 +1254,7 @@ class CameraParamsPib(CameraParams, ObjectiveParamsPib):
     """
 
     cam_size: Annotated[
-        int, option("--cam_size", help="CCD window size in pixels.")
+        int, option("--cam-size", help="CCD window size in pixels.")
     ] = 250
     center: Annotated[
         str | tuple[int, int] | None,
@@ -1407,7 +1407,7 @@ def _patch_sim_devices(
     *,
     reset_seed: int | None,
 ) -> None:
-    """Shared body of the ``--cam_type sim`` wiring. No-op for hardware cameras.
+    """Shared body of the ``--cam-type sim`` wiring. No-op for hardware cameras.
 
     Both SLM shaping optimizers resolve their camera through
     ``drivers.ccd.common.create_camera(cam_type, ...)`` and their SLM through a
@@ -1423,7 +1423,7 @@ def _patch_sim_devices(
 
     Lives here rather than in any single runner because the duplication was not
     benign: each per-runner copy patched a *different* module set, so
-    ``--cam_type sim`` quietly worked on one command and opened real hardware on
+    ``--cam-type sim`` quietly worked on one command and opened real hardware on
     another.
     """
     if cam_type != "sim":
@@ -1448,7 +1448,7 @@ def patch_sim_square_shaping(cam_type: str) -> None:
 
     Pins ``seed=42`` so a dry run is reproducible: neither family has a
     user-facing seed that reaches the bench itself, and a drifting disturbance
-    stream would make ``--cam_type sim`` runs incomparable across invocations.
+    stream would make ``--cam-type sim`` runs incomparable across invocations.
     """
     import ao_shaping.optimizer.wfless.slm_square_shaping as opt
 
@@ -1476,6 +1476,50 @@ def patch_sim_pib_shaping(cam_type: str) -> None:
 
 
 @dataclass
+class WfRunParams:
+    """波前 runner 的运行与输出设置。"""
+
+    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录 (default: data)")] = "data"
+    epochs: Annotated[int, option("-e", "--epochs", help="优化迭代次数 (default: 20000)")] = 20_000
+    early_stop_threshold: Annotated[
+        float, option("-t", "--early-stop-threshold", help="早停阈值 (default: 0.0)")
+    ] = 0.0
+    show: Annotated[
+        bool, option("--show", is_flag=True, help="显示远场光斑CCD图像和优化历史 (default: False)")
+    ] = False
+
+
+@dataclass
+class WfAlgorithmParams:
+    """波前优化算法设置。"""
+
+    disturbance_cn2: Annotated[
+        float, option("--disturbance-cn2", type=float, help="仿真 WFS 湍流强度 cn2 (0=不加像差, 默认 0)")
+    ] = 0.0
+    lr: Annotated[
+        float | None, option("--lr", type=float, help="覆盖自动学习率 (默认按硬件标定的自动调度)")
+    ] = None
+    delta: Annotated[
+        float | None,
+        option("--delta", type=float, help="覆盖 SPGD 扰动幅度 (V); 自动调度按真实硬件标度"),
+    ] = None
+
+
+@dataclass
+class DmDeviceParams:
+    """变形镜设备选择。"""
+
+    dm_type: Annotated[
+        str | None,
+        option(
+            "--dm-type",
+            type=click.Choice(DM_TYPES, case_sensitive=False),
+            help="变形镜类型 (default: auto-detect).",
+        ),
+    ] = None
+
+
+@dataclass
 class WfRunnerParams:
     """波前优化器 (wf) 的全部 CLI 参数。"""
 
@@ -1487,7 +1531,7 @@ class WfRunnerParams:
     ] = 20_000
 
     early_stop_threshold: Annotated[
-        float, option("-t", "--early_stop_threshold", help="早停阈值 (default: 0.0)")
+        float, option("-t", "--early-stop-threshold", help="早停阈值 (default: 0.0)")
     ] = 0.0
     disturbance_cn2: Annotated[
         float,
@@ -1524,7 +1568,7 @@ class WfRunnerParams:
     dm_type: Annotated[
         str | None,
         option(
-            "--dm_type",
+            "--dm-type",
             type=click.Choice(DM_TYPES, case_sensitive=False),
             help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
         ),
@@ -1536,26 +1580,26 @@ class PibRunnerParams:
     """轴向光束优化器 (pib) 的全部 CLI 参数。"""
 
     root_dir: Annotated[
-        str, option("-d", "--root_dir", help="数据保存根目录 (default: data)")
+        str, option("-d", "--root-dir", help="数据保存根目录 (default: data)")
     ] = "data"
     load_file: Annotated[
         str,
         option(
             "-f",
-            "--load_file",
+            "--load-file",
             help="加载优化结果文件 (default: None), 若为'rms',则使用RMS优化结果初始化",
         ),
     ] = "rms"
     cam_id: Annotated[
         str,
-        option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
+        option("--cam-id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
     ] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
     cam_type: Annotated[
         str,
         option(
-            "--cam_type",
+            "--cam-type",
             type=click.Choice(CAMERA_TYPE_CHOICES),
-            help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 需配合 --dm_type sim)。",
+            help="CCD 相机后端 (sim = 2f-Fourier 数值仿真, 需配合 --dm-type sim)。",
         ),
     ] = "miicam"
     center: Annotated[
@@ -1571,7 +1615,7 @@ class PibRunnerParams:
         float,
         option(
             "-t",
-            "--exposure_time_ms",
+            "--exposure-time-ms",
             help=(
                 "远场光斑CCD曝光时间 (毫秒). 0(默认)=不固定, 由设备保持/自动曝光; "
                 "Daheng 上 0 会被驱动钳到设备最小值(~0.02ms)"
@@ -1585,7 +1629,7 @@ class PibRunnerParams:
         int,
         option(
             "-r",
-            "--r_bucket",
+            "--r-bucket",
             help="半径桶大小 (default: 0,环围半径)。若设置为0,则根据功率半径自动调整。",
         ),
     ] = 0
@@ -1595,12 +1639,12 @@ class PibRunnerParams:
         option("--lr", help="优化学习率 (default: 0.0,表示基于环围半径动态学习率衰减)"),
     ] = 0.0
     weight_decay: Annotated[
-        float, option("--weight_decay", help="权重衰减 (default: 0.0)")
+        float, option("--weight-decay", help="权重衰减 (default: 0.0)")
     ] = 0.0
     optimizer_type: Annotated[
         str,
         option(
-            "--optimizer_type",
+            "--optimizer-type",
             type=click.Choice(
                 ["adam", "adamw", "adamod", "sgd", "muno", "munow"],
                 case_sensitive=False,
@@ -1612,32 +1656,32 @@ class PibRunnerParams:
     shrink_iter: Annotated[
         int,
         option(
-            "--shrink_iter",
+            "--shrink-iter",
             help="优化迭代次数后收缩半径桶和步长 (default: 200)。若设置为0，则不进行收缩。",
         ),
     ] = 200
     shrink_ratio: Annotated[
-        float, option("--shrink_ratio", help="收缩半径桶和步长比例 (default: 0.8)")
+        float, option("--shrink-ratio", help="收缩半径桶和步长比例 (default: 0.8)")
     ] = 0.8
     enable_adaptive_search: Annotated[
         bool,
         option(
-            "--enable_adaptive_search",
+            "--enable-adaptive-search",
             is_flag=True,
             help="启用局部最优后的自适应邻域搜索",
         ),
     ] = False
     search_interval: Annotated[
-        int, option("--search_interval", show_default=True, help="邻域搜索触发间隔")
+        int, option("--search-interval", show_default=True, help="邻域搜索触发间隔")
     ] = 120
     search_warmup: Annotated[
         int,
-        option("--search_warmup", show_default=True, help="邻域搜索启动前的最小迭代数"),
+        option("--search-warmup", show_default=True, help="邻域搜索启动前的最小迭代数"),
     ] = 200
     search_patience: Annotated[
         int,
         option(
-            "--search_patience",
+            "--search-patience",
             show_default=True,
             help="最佳 PIB 无提升时触发搜索的等待轮数",
         ),
@@ -1645,28 +1689,28 @@ class PibRunnerParams:
     search_samples: Annotated[
         int,
         option(
-            "--search_samples", show_default=True, help="每次邻域搜索评估的候选解数量"
+            "--search-samples", show_default=True, help="每次邻域搜索评估的候选解数量"
         ),
     ] = 8
     search_radius: Annotated[
         float | None,
         option(
-            "--search_radius",
+            "--search-radius",
             type=float,
             help="邻域搜索初始半径，默认跟随 delta 自适应",
         ),
     ] = None
     tabu_memory_size: Annotated[
-        int, option("--tabu_memory_size", show_default=True, help="禁忌记忆表容量")
+        int, option("--tabu-memory-size", show_default=True, help="禁忌记忆表容量")
     ] = 128
     cam_size: Annotated[
-        int, option("-s", "--cam_size", help="相机开窗大小 (default: 200*200)")
+        int, option("-s", "--cam-size", help="相机开窗大小 (default: 200*200)")
     ] = 200
     target_max_brightness: Annotated[
         int,
         option(
             "-b",
-            "--target_max_brightness",
+            "--target-max-brightness",
             help="目标最大亮度值 (default: 90), 若为0则不自动调整曝光时间",
         ),
     ] = 90
@@ -1691,7 +1735,7 @@ class PibRunnerParams:
     dm_type: Annotated[
         str | None,
         option(
-            "--dm_type",
+            "--dm-type",
             type=click.Choice(DM_TYPES, case_sensitive=False),
             help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
         ),
@@ -1707,6 +1751,50 @@ class PibRunnerParams:
 
 
 @dataclass
+class PibRunParams:
+    """PIB 输出、输入和迭代生命周期设置。"""
+
+    root_dir: Annotated[str, option("-d", "--root-dir", help="数据保存根目录 (default: data)")] = "data"
+    load_file: Annotated[str, option("-f", "--load-file", help="加载优化结果文件 (default: rms)")] = "rms"
+    epochs: Annotated[int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")] = 4_000
+    show: Annotated[bool, option("--show", is_flag=True, help="显示优化历史")] = False
+    debug_flag: Annotated[bool | None, option("--debug", is_flag=True, help="启用调试产物")] = None
+
+
+@dataclass
+class PibOpticalParams:
+    """PIB 相机测量和目标区域设置。"""
+
+    cam_id: Annotated[str, option("--cam-id", help="远场光斑CCD设备ID")] = cast(str, lambda: os.environ.get("FAR_CAM_ID", "0"))
+    cam_type: Annotated[str, option("--cam-type", type=click.Choice(CAMERA_TYPE_CHOICES), help="CCD 相机后端")] = "miicam"
+    center: Annotated[str | tuple[float, float] | None, option("-c", "--center", callback=parse_tuple, help="场光斑CCD中心位置")] = "mass"
+    exposure_time_ms: Annotated[float, option("-t", "--exposure-time-ms", help="CCD曝光时间 (毫秒)")] = 0.0
+    r_bucket: Annotated[int, option("-r", "--r-bucket", help="半径桶大小")] = 0
+    cam_size: Annotated[int, option("-s", "--cam-size", help="相机开窗大小")] = 200
+    target_max_brightness: Annotated[int, option("-b", "--target-max-brightness", help="目标最大亮度")] = 90
+
+
+@dataclass
+class PibAlgorithmParams:
+    """PIB 梯度与自适应搜索设置。"""
+
+    delta: Annotated[float, option("--delta", help="优化步长")] = 2.0
+    lr: Annotated[float, option("--lr", help="优化学习率")] = 0.0
+    weight_decay: Annotated[float, option("--weight-decay", help="权重衰减")] = 0.0
+    optimizer_type: Annotated[str, option("--optimizer-type", type=click.Choice(["adam", "adamw", "adamod", "sgd", "muno", "munow"]), help="优化器类型")] = "adamod"
+    shrink_iter: Annotated[int, option("--shrink-iter", help="收缩间隔")] = 200
+    shrink_ratio: Annotated[float, option("--shrink-ratio", help="收缩比例")] = 0.8
+    objective: Annotated[str, option("-o", "--objective", type=click.Choice(["pib", "radiu", "avg_radiu"]), help="优化目标")] = "pib"
+    enable_adaptive_search: Annotated[bool, option("--enable-adaptive-search", is_flag=True, help="启用自适应邻域搜索")] = False
+    search_interval: Annotated[int, option("--search-interval", help="邻域搜索触发间隔")] = 120
+    search_warmup: Annotated[int, option("--search-warmup", help="邻域搜索预热迭代数")] = 200
+    search_patience: Annotated[int, option("--search-patience", help="搜索等待轮数")] = 100
+    search_samples: Annotated[int, option("--search-samples", help="候选解数量")] = 8
+    search_radius: Annotated[float | None, option("--search-radius", type=float, help="邻域搜索初始半径")] = None
+    tabu_memory_size: Annotated[int, option("--tabu-memory-size", help="禁忌记忆表容量")] = 128
+
+
+@dataclass
 class PipelineRunnerParams:
     """串行优化器 (pipeline) 的全部 CLI 参数。"""
 
@@ -1715,37 +1803,37 @@ class PipelineRunnerParams:
     ] = "data"
     load_file: Annotated[
         str | None,
-        option("-f", "--load_file", help="加载优化结果文件 (default: None)"),
+        option("-f", "--load-file", help="加载优化结果文件 (default: None)"),
     ] = None
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 8000)")
     ] = 8_000
     wf_epochs: Annotated[
-        int, option("-E", "--wf_epochs", help="WF优化迭代次数 (default: 8000)")
+        int, option("-E", "--wf-epochs", help="WF优化迭代次数 (default: 8000)")
     ] = 8_000
     cam_id: Annotated[
         str,
-        option("--cam_id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
+        option("--cam-id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
     ] = cast(str, lambda: os.environ.get("Far_Cam_ID", 0))
     exposure_time_ms: Annotated[
         int,
         option(
             "-t",
-            "--exposure_time_ms",
+            "--exposure-time-ms",
             help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)",
         ),
     ] = 0
     cam_size: Annotated[
-        int, option("-s", "--cam_size", help="相机开窗大小 (default: 160)")
+        int, option("-s", "--cam-size", help="相机开窗大小 (default: 160)")
     ] = 160
     rms_threshold: Annotated[
-        float, option("--rms_threshold", help="RMS阈值 (default: 0.12)")
+        float, option("--rms-threshold", help="RMS阈值 (default: 0.12)")
     ] = 0.12
     dm_unit_mask: Annotated[
         str,
         option(
             "-u",
-            "--dm_unit_mask",
+            "--dm-unit-mask",
             type=click.Choice(["all", "inner", "outer"]),
             help="DM单元掩码 (default: all)",
         ),
@@ -1753,7 +1841,7 @@ class PipelineRunnerParams:
     dm_type: Annotated[
         str | None,
         option(
-            "--dm_type",
+            "--dm-type",
             type=click.Choice(DM_TYPES, case_sensitive=False),
             help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
         ),
@@ -1761,36 +1849,58 @@ class PipelineRunnerParams:
 
 
 @dataclass
+class PipelineRunParams:
+    """串行 WF→PIB 的生命周期和结果设置。"""
+
+    dir: Annotated[str, option("-d", "--dir", help="数据保存根目录")] = "data"
+    load_file: Annotated[str | None, option("-f", "--load-file", help="加载优化结果文件")] = None
+    epochs: Annotated[int, option("-e", "--epochs", help="PIB优化迭代次数")] = 8_000
+    wf_epochs: Annotated[int, option("-E", "--wf-epochs", help="WF优化迭代次数")] = 8_000
+    rms_threshold: Annotated[float, option("--rms-threshold", help="RMS阈值")] = 0.12
+
+
+@dataclass
+class PipelineDeviceParams:
+    """串行 runner 的远场相机与变形镜设置。"""
+
+    cam_id: Annotated[str, option("--cam-id", help="远场光斑CCD设备ID")] = cast(str, os.environ.get("Far_Cam_ID", 0))
+    exposure_time_ms: Annotated[int, option("-t", "--exposure-time-ms", help="CCD曝光时间")] = 0
+    cam_size: Annotated[int, option("-s", "--cam-size", help="相机开窗大小")] = 160
+    dm_unit_mask: Annotated[str, option("-u", "--dm-unit-mask", type=click.Choice(["all", "inner", "outer"]), help="DM单元掩码")] = "all"
+    dm_type: Annotated[str | None, option("--dm-type", type=click.Choice(DM_TYPES, case_sensitive=False), help="变形镜类型")] = None
+
+
+@dataclass
 class CombinedRunnerParams:
     """AdaMOD 综合PIB优化器 (combined) 的全部 CLI 参数。"""
 
     root_dir: Annotated[
-        str, option("-d", "--root_dir", help="数据保存根目录 (default: data)")
+        str, option("-d", "--root-dir", help="数据保存根目录 (default: data)")
     ] = "data"
     load_file: Annotated[
         str | None,
-        option("-f", "--load_file", help="加载初始电压文件 (default: None)"),
+        option("-f", "--load-file", help="加载初始电压文件 (default: None)"),
     ] = None
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
     ] = 4_000
     r_bucket: Annotated[
         int,
-        option("-r", "--r_bucket", help="半径桶大小 (default: 0, 环围半径自动调整)"),
+        option("-r", "--r-bucket", help="半径桶大小 (default: 0, 环围半径自动调整)"),
     ] = 0
     delta: Annotated[float, option("--delta", help="优化步长 (default: 1)")] = 1.0
     lr: Annotated[
         float, option("--lr", help="优化学习率 (default: 0.0, 动态学习率衰减)")
     ] = 0.0
     shrink_iter: Annotated[
-        int, option("--shrink_iter", help="收缩半径桶的迭代间隔 (default: 0, 不收缩)")
+        int, option("--shrink-iter", help="收缩半径桶的迭代间隔 (default: 0, 不收缩)")
     ] = 0
     shrink_ratio: Annotated[
-        float, option("--shrink_ratio", help="收缩半径桶比例 (default: 0.9)")
+        float, option("--shrink-ratio", help="收缩半径桶比例 (default: 0.9)")
     ] = 0.9
     target_max_brightness: Annotated[
         int,
-        option("-b", "--target_max_brightness", help="目标最大亮度值 (default: 40)"),
+        option("-b", "--target-max-brightness", help="目标最大亮度值 (default: 40)"),
     ] = 40
     show: Annotated[
         bool,
@@ -1803,11 +1913,35 @@ class CombinedRunnerParams:
     dm_type: Annotated[
         str | None,
         option(
-            "--dm_type",
+            "--dm-type",
             type=click.Choice(DM_TYPES, case_sensitive=False),
             help="变形镜类型 (default: auto-detect)",
         ),
     ] = None
+
+
+@dataclass
+class CombinedRunParams:
+    """combined runner 的生命周期和输出设置。"""
+
+    root_dir: Annotated[str, option("-d", "--root-dir", help="数据保存根目录")] = "data"
+    load_file: Annotated[str | None, option("-f", "--load-file", help="加载初始电压文件")] = None
+    epochs: Annotated[int, option("-e", "--epochs", help="优化迭代次数")] = 4_000
+    show: Annotated[bool, option("--show", is_flag=True, help="显示优化历史")] = False
+    debug_flag: Annotated[bool | None, option("--debug", is_flag=True, help="启用调试产物")] = None
+
+
+@dataclass
+class CombinedAlgorithmParams:
+    """combined runner 的 PIB 算法设置。"""
+
+    r_bucket: Annotated[int, option("-r", "--r-bucket", help="半径桶大小")] = 0
+    delta: Annotated[float, option("--delta", help="优化步长")] = 1.0
+    lr: Annotated[float, option("--lr", help="优化学习率")] = 0.0
+    shrink_iter: Annotated[int, option("--shrink-iter", help="收缩间隔")] = 0
+    shrink_ratio: Annotated[float, option("--shrink-ratio", help="收缩比例")] = 0.9
+    target_max_brightness: Annotated[int, option("-b", "--target-max-brightness", help="目标最大亮度")] = 40
+    dm_type: Annotated[str | None, option("--dm-type", type=click.Choice(DM_TYPES, case_sensitive=False), help="变形镜类型")] = None
     debug_flag: Annotated[
         bool | None,
         option(
@@ -1871,7 +2005,7 @@ class DmMatrixRunnerParams:
     dm_type: Annotated[
         str | None,
         option(
-            "--dm_type",
+            "--dm-type",
             type=click.Choice(DM_TYPES_PRE_ASYN_MICRO, case_sensitive=False),
             help="变形镜类型 (default: auto-detect). 若未指定且仅一个DM在线则自动选取，否则报错.",
         ),
@@ -2056,7 +2190,7 @@ class SlmGsRefineParams:
         float, option("--side-factor", help="Multiplier on the target side.")
     ] = 1.0
     w_pib: Annotated[
-        float, option("--w_pib", help="Composite weight on power-in-bucket.")
+        float, option("--w-pib", help="Composite weight on power-in-bucket.")
     ] = 0.5
     w_unif: Annotated[
         float, option("--w-unif", help="Composite weight on 1/(1+CV).")
@@ -2159,25 +2293,25 @@ class SlmGsRefineParams:
     cam_type: Annotated[
         str,
         option(
-            "--cam_type",
+            "--cam-type",
             type=click.Choice(["daheng", "miicam", "sim"]),
             help="CCD backend (sim = 2f-Fourier numerical simulation, no hardware).",
         ),
     ] = "daheng"
     cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
     exposure_time_ms: Annotated[
-        float, option("--exposure_time_ms", help="CCD exposure in ms (0 = default).")
+        float, option("--exposure-time-ms", help="CCD exposure in ms (0 = default).")
     ] = 0.0
     cam_size: Annotated[
-        int, option("--cam_size", help="CCD window size in pixels.")
+        int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
     slm_number: Annotated[
-        int, option("--slm_number", help="Santec SLM device number (1-8).")
+        int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
     slm_wavelength: Annotated[
         int,
         option(
-            "--slm_wavelength",
+            "--slm-wavelength",
             help=(
                 "SLM operating wavelength (nm); 0 (the default) asks the "
                 "device which wavelength it is programmed for."
@@ -2539,7 +2673,7 @@ class SlmModelInLoopParams:
     cam_type: Annotated[
         str,
         option(
-            "--cam_type",
+            "--cam-type",
             type=click.Choice(["daheng", "miicam", "sim"]),
             help="CCD backend (sim = 2f-Fourier numerical simulation, no hardware).",
         ),
@@ -2547,18 +2681,18 @@ class SlmModelInLoopParams:
     cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
     exposure_time_ms: Annotated[
         float,
-        option("--exposure_time_ms", help="CCD exposure in ms (0 = device default)."),
+        option("--exposure-time-ms", help="CCD exposure in ms (0 = device default)."),
     ] = 0.0
     cam_size: Annotated[
-        int, option("--cam_size", help="CCD window size in pixels.")
+        int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
     slm_number: Annotated[
-        int, option("--slm_number", help="Santec SLM device number (1-8).")
+        int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
     slm_wavelength: Annotated[
         int,
         option(
-            "--slm_wavelength",
+            "--slm-wavelength",
             help="SLM operating wavelength (nm); 0 asks the device.",
         ),
     ] = 1064
