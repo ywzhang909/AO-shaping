@@ -2212,7 +2212,7 @@ if __name__ == "__main__":
         "-e", "--epochs", type=int, default=2000, help="Number of iterations"
     )
     parser.add_argument(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order"
+        "-n", "--n-max", type=int, default=4, help="Max Zernike radial order"
     )
     parser.add_argument(
         "-c",
@@ -2233,15 +2233,15 @@ if __name__ == "__main__":
     parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
     parser.add_argument(
         "-t",
-        "--exposure_time_ms",
+        "--exposure-time-ms",
         type=float,
         default=0.0,
         help="Exposure time in ms; 0 = keep device setting / auto (Daheng clamps 0 to device min)",
     )
-    parser.add_argument("--cam_id", type=int, default=0, help="Camera device ID")
-    parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
+    parser.add_argument("--cam-id", type=int, default=0, help="Camera device ID")
+    parser.add_argument("--slm-number", type=int, default=1, help="SLM device number")
     parser.add_argument(
-        "--slm_wavelength",
+        "--slm-wavelength",
         type=int,
         default=0,
         help=(
@@ -2256,7 +2256,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--show", action="store_true", help="Show images during optimization"
     )
-    parser.add_argument("--cam_size", type=int, default=300, help="Camera window size")
+    parser.add_argument("--cam-size", type=int, default=300, help="Camera window size")
     parser.add_argument(
         "--zernike-mask",
         type=str,
