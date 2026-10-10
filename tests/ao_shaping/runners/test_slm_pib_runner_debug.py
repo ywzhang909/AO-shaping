@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import click
 import numpy as np
 import pytest
 from click.testing import CliRunner
@@ -23,6 +24,7 @@ from ao_shaping.runners.slm.slm_shaping_runner import (
     SpgdParams,
     _build_slm_pib_config,
     _resolve_auto_camera,
+    _resolve_run_options,
     _save_debug_artifacts,
     run,
 )
@@ -33,6 +35,25 @@ from ao_shaping.runners.runner_common import (
     SpgdParamsPib,
 )
 from ao_shaping.utils.io.file import Recorder
+
+
+def test_slm_pib_inherits_root_output_options_only_when_not_overridden():
+    root = click.Context(
+        click.Command("main"), obj={"dir": "root-output", "debug": True}
+    )
+    group = click.Context(click.Command("slm-pib"), parent=root)
+    command = click.Context(click.Command("spgd"), parent=group)
+    command.set_parameter_source("dir", click.core.ParameterSource.DEFAULT)
+    inherited = RunParams()
+    _resolve_run_options(inherited, command)
+    assert inherited.dir == "root-output"
+    assert inherited.debug is True
+
+    command.set_parameter_source("dir", click.core.ParameterSource.COMMANDLINE)
+    local = RunParams(dir="local-output", debug=False)
+    _resolve_run_options(local, command)
+    assert local.dir == "local-output"
+    assert local.debug is True
 
 
 def _make_recorder(objective: str, mode: str, n: int = 3) -> Recorder:

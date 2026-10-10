@@ -864,6 +864,16 @@ run.add_command(heuristic, name="heuristic")
 run.add_command(square, name="square")
 
 
+def _resolve_run_options(run_cfg: RunParams, ctx: click.Context | None) -> None:
+    if ctx is None:
+        return
+    root = ctx.find_root()
+    if isinstance(root.obj, dict):
+        run_cfg.debug = run_cfg.debug or bool(root.obj.get("debug", False))
+        if ctx.get_parameter_source("dir") == click.core.ParameterSource.DEFAULT:
+            run_cfg.dir = root.obj.get("dir", run_cfg.dir)
+
+
 def _execute(
     run_cfg: RunParams,
     camera: CameraParamsPib,
@@ -871,6 +881,7 @@ def _execute(
     search: SpgdParamsPib | HeuristicParams,
 ) -> None:
     """Shared execution path for both search families."""
+    _resolve_run_options(run_cfg, click.get_current_context(silent=True))
     setup_coredumpy()
     # Must precede the auto-camera probe *and* the run: with --cam-type sim the
     # optimizer's SLM resolves to the digital twin, never a real Santec. Before
