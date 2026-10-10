@@ -282,10 +282,10 @@ class WfsParams:
             help="瞳孔中心坐标 (default: (0,0))",
         ),
     ] = "(0,0)"
-    exposure_time_ms: Annotated[
+    wfs_exposure_ms: Annotated[
         float,
         option(
-            "--exposure-time-ms",
+            "--wfs-exposure-ms",
             type=float,
             help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
         ),
@@ -1942,14 +1942,6 @@ class CombinedAlgorithmParams:
     shrink_ratio: Annotated[float, option("--shrink-ratio", help="收缩比例")] = 0.9
     target_max_brightness: Annotated[int, option("-b", "--target-max-brightness", help="目标最大亮度")] = 40
     dm_type: Annotated[str | None, option("--dm-type", type=click.Choice(DM_TYPES, case_sensitive=False), help="变形镜类型")] = None
-    debug_flag: Annotated[
-        bool | None,
-        option(
-            "--debug",
-            is_flag=True,
-            help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, PIB 曲线, 最优电压)",
-        ),
-    ] = None
 
 
 @dataclass

@@ -334,7 +334,7 @@ graph TD
         FR["focal_field / focal_intensity<br/>中心补零 + fftshift(fft2(ifftshift))"]
     end
 
-    subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
+    subgraph LB["③ 设备抽象 · 唯一随 --cam-type 改变的一层"]
         direction TB
         BENCH["Bench (Protocol)<br/>display / measure / close"]
         SIM["_SimBench<br/>2f-Fourier 数字孪生"]
@@ -349,7 +349,7 @@ graph TD
         PROBE["_probe_phase(...)"]
         STEPA["_fit_aberration_at_probes(...)"]
         STEPB["shape_phase_with_frozen_aberration(...)"]
-        TWINRUN["simulate_iterative_shaping(config)<br/>--cam_type sim 走的就是这条"]
+        TWINRUN["simulate_iterative_shaping(config)<br/>--cam-type sim 走的就是这条"]
     end
 
     subgraph L4["⑤ 算法层 · algorithm/signal_processing"]
@@ -821,7 +821,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A(
         "孪生与硬件的关系是这个模块的全部设计要点: 标 `[孪生]` 的行**不是**一份会腐烂的平行实现,\n"
         "而是硬件层 import 进来的共享数学 (`model_in_loop_shaping`), 且 import 全部延迟到函数内 ——\n"
-        "`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam_type sim` 只替换 `Bench` 的实现,\n"
+        "`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam-type sim` 只替换 `Bench` 的实现,\n"
         "其余数学逐位相同; 反过来, 仿真里验证过的 Step A/B 逻辑不会在硬件路径上悄悄漂移。\n"
     )
     A(

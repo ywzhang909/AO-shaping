@@ -148,14 +148,13 @@ class TestCliOptions:
         assert hasattr(run, "callback")
         assert callable(run)
 
-    def test_exposure_time_ms_option_exists(self):
-        """Test that --exposure-time-ms option is defined (not --exposure-time)."""
+    def test_wfs_exposure_ms_option_exists(self):
+        """The WFS exposure flag is --wfs-exposure-ms, distinct from any CCD exposure."""
         from ao_shaping.runners.slm.rms_zernike_runner import run
 
         param_names = [p.name for p in run.params]
-        assert "exposure_time_ms" in param_names
-        # Old option should NOT exist
-        assert "exposure_time" not in param_names
+        assert "wfs_exposure_ms" in param_names
+        assert "exposure_time_ms" not in param_names
 
     def test_all_expected_options_exist(self):
         """Test that all expected CLI options are present."""

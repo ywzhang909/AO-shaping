@@ -2,7 +2,7 @@
 """Rewrite underscore CLI flags to dash form across the repository.
 
 Flags are matched as whole tokens so a multi-segment name like
-``--exposure-time_ms`` is rewritten correctly -- a naive ``s/--x_y/--x-y/``
+``--exposure-time-ms`` is rewritten correctly -- a naive ``s/--x-y/--x-y/``
 pattern silently misses any flag whose underscore is not in the first segment.
 
 Two things are deliberately NOT touched:

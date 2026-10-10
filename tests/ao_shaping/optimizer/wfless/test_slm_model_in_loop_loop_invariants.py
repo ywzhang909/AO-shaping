@@ -341,7 +341,7 @@ class TestCliInvocation:
         result = runner.invoke(
             run,
             [
-                "--cam_type", "sim",
+                "--cam-type", "sim",
                 "--n-rounds", "1",
                 "--probe-count", "2",
                 "--step-a-iterations", "4",

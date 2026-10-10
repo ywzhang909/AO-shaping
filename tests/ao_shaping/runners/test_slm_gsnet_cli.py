@@ -16,7 +16,7 @@ SHARED_OPTIONS = (
     "-e",
     "--epochs",
     "--cam-type",
-    "--exposure-time_ms",
+    "--exposure-time-ms",
     "--cam-size",
     "--slm-number",
     "--slm-wavelength",

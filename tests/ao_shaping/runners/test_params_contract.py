@@ -212,12 +212,12 @@ class TestNegativePins:
 
 
 class TestDmTypes:
-    """The ``--dm_type`` choice list must offer ``asyn_micro``, whatever the import order.
+    """The ``--dm-type`` choice list must offer ``asyn_micro``, whatever the import order.
 
     ``runner_common`` takes a ``DM_TYPES_PRE_ASYN_MICRO`` snapshot and then does
     ``import ao_shaping.drivers.dm.asyn_micro_dm``, whose only purpose is the
     registration side effect that adds ``asyn_micro``. Deleting that import
-    silently shrinks ``--dm_type`` by one entry.
+    silently shrinks ``--dm-type`` by one entry.
 
     The snapshot is inherently racy and this test does not pretend otherwise: DM
     types self-register on import, so if any *earlier* test already imported
@@ -241,7 +241,7 @@ class TestDmTypes:
 
     def test_core_dm_types_are_offered(self) -> None:
         missing = self.ALWAYS_REGISTERED - set(DM_TYPES)
-        assert not missing, f"--dm_type is missing core DM types: {missing}"
+        assert not missing, f"--dm-type is missing core DM types: {missing}"
 
     def test_dm_types_is_sorted_and_unique(self) -> None:
         assert DM_TYPES == sorted(set(DM_TYPES))

@@ -1,7 +1,7 @@
 """Tests for the GS-warm-started freeform SLM square-shaping hardware loop.
 
 The hardware path cannot be exercised without a Santec SLM and a CCD, so the
-end-to-end coverage runs against ``--cam_type sim`` (the 2f-Fourier digital
+end-to-end coverage runs against ``--cam-type sim`` (the 2f-Fourier digital
 twin). That still exercises the real control flow: ROI location and freezing,
 the GS bake-off, settle-then-average acquisition, SPGD gradient estimation and
 the phase/panel embedding.

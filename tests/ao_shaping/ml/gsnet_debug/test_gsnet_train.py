@@ -950,8 +950,8 @@ class TestTrainCli:
         result = CliRunner().invoke(group, ["train", "--help"])
 
         assert "--algorithm" not in result.output
-        assert "--pop_size" not in result.output
-        assert "--optimizer_type" not in result.output
+        assert "--pop-size" not in result.output
+        assert "--optimizer-type" not in result.output
 
     def test_seed_belongs_to_run_params_not_the_train_params(self) -> None:
         """``--seed`` lives on :class:`RunParams`; declaring it twice is a hard
