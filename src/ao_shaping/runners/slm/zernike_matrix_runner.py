@@ -112,7 +112,7 @@ from ao_shaping.utils.io.cli_helpers import (
     get_timestamp_str,
     setup_coredumpy,
 )
-from ao_shaping.utils.image.display import ZernikeCalibrationDisplay
+from ao_shaping.display.image_display import ZernikeCalibrationDisplay
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.wfs_utils import (

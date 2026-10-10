@@ -80,6 +80,16 @@ def test_santec_from_params_accepts_current_wavelength_attribute(
     )
 
 
+def test_santec_from_params_zero_wavelength_uses_device_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _assert_factory_matches(
+        monkeypatch,
+        SimpleNamespace(slm_wavelength=0),
+        _constructor_defaults(),
+    )
+
+
 def test_santec_from_params_uses_constructor_defaults(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

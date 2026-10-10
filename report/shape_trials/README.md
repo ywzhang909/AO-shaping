@@ -54,7 +54,7 @@ energy.
 | `hardware_gs_centered_20261010/` | After locating the zero order in the full frame at (x=668, y=1026), a 12-iteration GS warm start changed the composite score from 0.5726 (flat) to 0.6880 (GS), PIB from 0.9144 to 0.8340, and CV from 3.331 to 0.8451. One SPGD refinement epoch scored 0.6871, slightly below GS. Standard debug PNG/PKL/JSON record the displayed phase and measured image at each stage. |
 | `hardware_gs_100iter_20261010/` | At the same 100 px target, 1 ms exposure and three-frame mean, 100 GS iterations gave score 0.6803 versus 0.5701 for flat. One refinement epoch reached 0.6823 (PIB 0.8137, CV 0.8153). Standard debug PNG/PKL/JSON are saved. This run does not establish a gain over the 12-iteration run because the flat reference and camera state were measured in a separate session. |
 | `hardware_gs_pad2_20261010/` | Changed the 12-iteration GS far-field padding from 1 to 2. Flat scored 0.5713, GS 0.7195 and one refinement epoch 0.7225 (PIB 0.8923, CV 0.8092). Standard debug PNG/PKL/JSON are saved. The image still consists of nonuniform hotspots. Across sessions, the larger score alone does not isolate padding as the cause. |
-| `hardware_gs_pad3_20261010/` | With 12 GS iterations and padding 3, flat scored 0.5712 and GS scored 0.7546 (PIB 0.9356, CV 0.7437). GS was the best stage and had the highest composite score among these recorded GS trials. Standard debug PNG/PKL/JSON are saved. |
+| `hardware_gs_pad3_20261010/` | With 12 GS iterations and padding 3, flat scored 0.5712 and GS scored 0.7546 (PIB 0.9356, CV 0.7437). GS was the best stage in this short run. A later 24-epoch refinement reached 0.7635; see the online report. Standard debug PNG/PKL/JSON are saved. |
 | `hardware_gs_pad4_20261010/` | With 12 GS iterations and padding 4, flat scored 0.5677, GS 0.7460 and one refinement epoch 0.7492 (PIB 0.9217, CV 0.7336). Refinement was the best stage, but its score did not exceed the padding-3 trial. Standard debug PNG/PKL/JSON are saved. |
 
 ### Measured image and phase evolution
@@ -81,6 +81,10 @@ inspection. Neither image establishes a filled uniform square.
 
 ![GS padding-3 debug score and measured frames](figures/gs_pad3_debug_summary.png)
 
+The later 24-epoch GS refinement and the optional coverage-weight trial,
+including complete reproduction commands and measured GIFs, are documented in
+[the 2026-10-10 online report](online_20261010.md).
+
 Regenerate the GIFs by passing the respective run's `debug/` PKL to
 `scripts/generate_pearson_pkl_gif.py --pkl <path> --output-dir
 report/shape_trials/figures`; the GS render used `--max-frames 3 --fps 2
@@ -92,7 +96,7 @@ The 100 x 100 px uniform square remains **unachieved**. Increasing the
 uniformity weight and the short freeform SPGD search did not solve it. The
 paired replay shows a real change in the Zernike spot, yet only a small portion
 of the target area is bright. The centered GS trials improved their composite
-score and CV, but even the highest-scoring padding-3 image has hotspots and
+score and CV, but even the later 0.7635 padding-3 refinement has hotspots and
 empty regions instead of a filled, uniform square. The padding-4 run did not
 improve the composite score further. A future live comparison should
 interleave flat and GS phases at the same exposure and frame count and assess

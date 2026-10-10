@@ -12,10 +12,11 @@ canonical homes:
   :func:`_save_data_mode_debug_artifacts`,
   :func:`_infer_objective_key` → :mod:`ao_shaping.utils.io.file`
 * :func:`make_debug_wavefront_ax_plots`,
-  :func:`save_recorder_artifacts` → :mod:`ao_shaping.utils.image.display`
+  :func:`save_recorder_artifacts` → :mod:`ao_shaping.display.image_display`
 * :func:`resolve_dm` → :mod:`ao_shaping.drivers.dm._registry`
 
 This module keeps the parameter dataclasses and their Click option metadata.
+Runners import ``with_params`` directly from ``ao_shaping.utils.cli.params``.
 
 Parameter dataclasses are grouped by role:
 
@@ -89,11 +90,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
 # leaf shared with ``tools/slm/params.py``. Parameter classes consume it here.
-from ao_shaping.utils.cli.params import (
-    ClickGroup,
-    _collect_click_annotations,
-    option,
-)
+from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
@@ -1949,14 +1946,6 @@ class CombinedAlgorithmParams:
     shrink_ratio: Annotated[float, option("--shrink-ratio", help="收缩比例")] = 0.9
     target_max_brightness: Annotated[int, option("-b", "--target-max-brightness", help="目标最大亮度")] = 40
     dm_type: Annotated[str | None, option("--dm-type", type=click.Choice(DM_TYPES, case_sensitive=False), help="变形镜类型")] = None
-    debug_flag: Annotated[
-        bool | None,
-        option(
-            "--debug",
-            is_flag=True,
-            help="启用调试模式: 保存 pkl/json 与汇总图 (初始/最优光斑, PIB 曲线, 最优电压)",
-        ),
-    ] = None
 
 
 @dataclass

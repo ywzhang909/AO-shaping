@@ -136,7 +136,7 @@ def __dir__() -> list[str]:
 # Optimizers (loaded here to expose in package namespace)
 from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
-from ao_shaping.utils.image.display import ImageVoltagesDisplay
+from ao_shaping.display.image_display import ImageVoltagesDisplay
 
 # Utilities
 from ao_shaping.utils.io.file import Recorder, logger

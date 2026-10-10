@@ -26,6 +26,7 @@ optimizers already recorded and trains FourierGSNet on them in simulation.
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -53,6 +54,13 @@ from ao_shaping.runners.runner_common import (
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+from ao_shaping.display import AutoDisplay, FrameInfo
+from ao_shaping.display.frames import (
+    Image2DFrame,
+    Image2DWithBucketFrame,
+    EpochCurveFrame,
+)
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 
 # --- debug artifact fields -------------------------------------------------
 # The square-shaping recorder stores the metric keys below. Image-like entries
@@ -84,6 +92,142 @@ _1D_KEYS = ("_c", "_grad")
 # contract, so the default objective must keep them byte-for-byte identical.
 # Mirrors ``ObjectiveParamsSquare.objective``'s default.
 _DEFAULT_SQUARE_OBJECTIVE = "quality"
+
+
+class _FreeformSquareDisplay:
+    """Live pygame view for freeform square shaping (slm-gsnet).
+
+    Composes three panels using :class:`AutoDisplay`:
+    - CCD far-field image with target box overlay
+    - SLM phase (freeform, raw radians mapped to [0,1] for visibility)
+    - Metric curve (quality / CV / EE over epochs)
+
+    Used as a context manager so the window is always torn down.
+    """
+
+    DEFAULT_FRAME_SIZE = (500, 400)
+    DEFAULT_DISPLAY_SIZE = (1550, 500)
+
+    def __init__(
+        self,
+        target_side: int,
+        frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
+        display_size: tuple[int, int] = DEFAULT_DISPLAY_SIZE,
+        margin: int = 10,
+    ) -> None:
+        self.target_side = target_side
+        self._roi_center: tuple[int, int] | None = None
+        self._quality_curve: list[float] = []
+        self._cv_curve: list[float] = []
+        self._ee_curve: list[float] = []
+        self._epoch = 0
+        self._closed = False
+
+        frames = [
+            FrameInfo(
+                "ccd",
+                "CCD Far-field",
+                "Image2DWithBucketFrame",
+                {
+                    "target_shape": "square",
+                    "target_size": float(target_side),
+                    "target_aspect_ratio": 1.0,
+                },
+            ),
+            FrameInfo("phase", "SLM Phase (freeform)", "Image2DFrame", {}),
+            FrameInfo(
+                "curve",
+                "Quality / CV / EE",
+                "EpochCurveFrame",
+                {"y_min": 0.0, "y_max": 1.2},
+            ),
+        ]
+        self._display = AutoDisplay(
+            frames,
+            frame_size=frame_size,
+            display_size=display_size,
+            margin=margin,
+            grid=(3, 1),
+        )
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def init_window(self) -> None:
+        self._display.init_window()
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        self._display.close()
+
+    def set_roi_center(self, center: tuple[int, int]) -> None:
+        """Set the frozen ROI center (in window-local coordinates)."""
+        self._roi_center = center
+
+    def update(
+        self,
+        measured: np.ndarray,
+        phase: np.ndarray,
+        quality: float,
+        cv: float,
+        ee: float,
+        epoch: int,
+        total_epochs: int | None = None,
+        info: str = "",
+    ) -> bool:
+        """Render one frame; returns ``False`` once the window has been closed."""
+        if self.closed:
+            return False
+
+        self._epoch = epoch
+        self._quality_curve.append(quality)
+        self._cv_curve.append(cv)
+        self._ee_curve.append(ee)
+
+        # Map raw signed radians to [0, 1] for display visibility
+        phase_disp = self._phase_for_display(phase)
+
+        frame_data = {
+            "ccd": {
+                "img": measured,
+                "center": self._roi_center
+                or (measured.shape[1] // 2, measured.shape[0] // 2),
+                "r": self.target_side / 2.0,
+                "target_shape": "square",
+                "target_size": float(self.target_side),
+                "target_aspect_ratio": 1.0,
+            },
+            "phase": {"img": phase_disp},
+            "curve": {
+                "value": quality,
+                "epoch": epoch,
+                "total_epochs": total_epochs,
+                "label": info,
+            },
+        }
+        try:
+            alive = self._display.render(frame_data, info=info)
+        except Exception:
+            alive = False
+        if not alive:
+            self._closed = True
+        return bool(alive)
+
+    @staticmethod
+    def _phase_for_display(phase: np.ndarray) -> np.ndarray:
+        """Map signed radian phase onto ``[0, 1]`` so its structure is always visible."""
+        arr = np.asarray(phase, dtype=np.float64)
+        if arr.size == 0:
+            return arr
+        arr = np.nan_to_num(arr, copy=True, nan=0.0, posinf=0.0, neginf=0.0)
+        lo = float(arr.min())
+        span = float(arr.max()) - lo
+        if span <= 0.0:
+            return np.zeros_like(arr)
+        return (arr - lo) / span
 
 
 def _save_debug_artifacts(
@@ -312,10 +456,19 @@ run.add_command(train, name="train")
 
 
 def _execute(cfg: SlmGsnetConfig) -> None:
-    """Shared execution path for both search families."""
+    """Shared execution path for both search families.
+
+    The optimizer (:func:`optimize_slm_square`) owns the live pygame display during
+    the search when ``config.show`` is True. For freeform basis the internal
+    ``_SPGDDisplay`` still renders the SLM phase and CCD image correctly; the
+    Zernike coefficient panel is empty (freeform has 576 DOF, not Zernike modes).
+    This function adds a post-run best-result viewer when ``--show`` is used.
+    """
     setup_coredumpy()
     _maybe_sim_patch(cfg.camera.cam_type)
 
+    # The optimizer creates its own live display when show=True. We pass the flag
+    # through the config so the internal _SPGDDisplay is used during optimization.
     config = _build_square_config(cfg)
     res = optimize_slm_square(
         center=parse_center(cfg.camera.center),
@@ -326,6 +479,12 @@ def _execute(cfg: SlmGsnetConfig) -> None:
     if cfg.run.debug:
         _save_debug_artifacts(res, cfg.objective, cfg.run.dir)
 
+    # Post-run best-result viewer (opens after optimization completes).
+    # This gives a clean view of the best phase + far field without the
+    # coefficient-panel clutter from the internal display.
+    if cfg.search.show:
+        _show_best_result(res, config)
+
     final = res.history[-1]
     logger.info(
         "SLM GSNET done. Final quality={:.4f} (CV={:.4f}, EE={:.4f}, AR={:.4f})",
@@ -334,6 +493,147 @@ def _execute(cfg: SlmGsnetConfig) -> None:
         final.get("ee", float("nan")),
         final.get("ar", float("nan")),
     )
+
+
+def _show_best_result(res: Recorder, config: SlmSquareConfig) -> None:
+    """Display the best far-field frame and SLM phase after optimization.
+
+    Opens a pygame window showing:
+    - Best CCD far-field image with target box
+    - Best SLM phase (freeform, mapped to [0,1] for visibility)
+    - Metric summary text
+    Press ESC or close window to exit.
+    """
+    best_iter, _ = res.get_best_iter()
+    best_img = best_iter.get("_img")
+    best_phase = best_iter.get("_c")
+    if best_img is None or best_phase is None:
+        logger.warning("No best frame/phase recorded; skipping result viewer")
+        return
+
+    # Reconstruct the full-panel phase for display (freeform: upsample grid -> panel)
+    phase_grid = int(config.phase_grid)
+    panel_h, panel_w = 1200, 1920
+    cells = np.asarray(best_phase, dtype=np.float64).reshape(phase_grid, phase_grid)
+    block_h = int(np.ceil(panel_h / phase_grid))
+    block_w = int(np.ceil(panel_w / phase_grid))
+    upsampled = np.kron(cells, np.ones((block_h, block_w), dtype=np.float64))
+    best_phase_panel = upsampled[:panel_h, :panel_w]
+
+    # Map phase to [0,1] for display
+    arr = np.nan_to_num(best_phase_panel, nan=0.0, posinf=0.0, neginf=0.0)
+    lo, hi = float(arr.min()), float(arr.max())
+    phase_disp = (arr - lo) / (hi - lo) if hi > lo else np.zeros_like(arr)
+
+    # Locate target center on best frame (use zero-order as proxy)
+    from ao_shaping.utils.image.beam_metrics import zero_order_center
+
+    center = zero_order_center(best_img, refine=False)
+    target_side = int(config.target_side) if config.target_side > 0 else 0
+
+    import pygame
+
+    try:
+        pygame.init()
+    except pygame.error as e:
+        logger.warning("pygame 初始化失败 (无显示环境?), 跳过结果查看器: {}", e)
+        return
+
+    try:
+        # Window layout: 2 panels side by side + info bar
+        panel_w, panel_h = 600, 500
+        info_h = 80
+        win_w = panel_w * 2 + 20
+        win_h = panel_h + info_h + 20
+        screen = pygame.display.set_mode((win_w, win_h))
+        pygame.display.set_caption("slm-gsnet Best Result")
+        font = pygame.font.SysFont("consolas", 18)
+        title_font = pygame.font.SysFont("consolas", 22, bold=True)
+        clock = pygame.time.Clock()
+
+        # Pre-render surfaces
+        def to_surface(arr: np.ndarray, cmap: str = "gray") -> pygame.Surface:
+            arr = np.asarray(arr, dtype=np.float64)
+            if arr.size == 0:
+                arr = np.zeros((16, 16), dtype=np.float64)
+            vmin, vmax = float(arr.min()), float(arr.max())
+            if vmax - vmin < 1e-9:
+                norm = np.zeros_like(arr, dtype=np.uint8)
+            else:
+                norm = ((arr - vmin) / (vmax - vmin) * 255.0).astype(np.uint8)
+            if cmap == "heat" and norm.ndim == 2:
+                f = norm.astype(np.float64) / 255.0
+                r = np.clip(1.5 - np.abs(4 * f - 3.0), 0.0, 1.0)
+                g = np.clip(1.5 - np.abs(4 * f - 2.0), 0.0, 1.0)
+                b = np.clip(1.5 - np.abs(4 * f - 1.0), 0.0, 1.0)
+                rgb = np.dstack((r, g, b))
+                rgb = (rgb * 255.0).astype(np.uint8)
+                return pygame.surfarray.make_surface(rgb.swapaxes(0, 1))
+            if norm.ndim == 2:
+                norm = np.dstack((norm, norm, norm))
+            return pygame.surfarray.make_surface(norm.swapaxes(0, 1))
+
+        img_surf = to_surface(best_img, "heat")
+        phase_surf = to_surface(phase_disp, "gray")
+        img_surf = pygame.transform.scale(img_surf, (panel_w, panel_h))
+        phase_surf = pygame.transform.scale(phase_surf, (panel_w, panel_h))
+
+        # Metrics text
+        quality = best_iter.get("quality", float("nan"))
+        cv = best_iter.get("cv", float("nan"))
+        ee = best_iter.get("ee", float("nan"))
+        ar = best_iter.get("ar", float("nan"))
+        epoch = best_iter.get("_epoch", -1)
+        lines = [
+            f"Best @ epoch {epoch} | Quality={quality:.4f} | CV={cv:.4f} | EE={ee:.4f} | AR={ar:.4f}",
+            f"Target side: {target_side or 'auto'} px | Basis: freeform ({phase_grid}x{phase_grid})",
+            "Press ESC or close window to exit",
+        ]
+
+        running = True
+        while running:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    running = False
+                elif event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                    running = False
+
+            screen.fill((25, 25, 25))
+            # Panels
+            screen.blit(phase_surf, (10, 10))
+            screen.blit(img_surf, (panel_w + 20, 10))
+
+            # Panel titles
+            screen.blit(
+                title_font.render("SLM Phase (freeform)", True, (0, 255, 255)),
+                (10, panel_h + 15),
+            )
+            screen.blit(
+                title_font.render("CCD Far-field", True, (0, 255, 255)),
+                (panel_w + 20, panel_h + 15),
+            )
+
+            # Metrics
+            y = panel_h + 50
+            for line in lines:
+                screen.blit(font.render(line, True, (200, 200, 200)), (10, y))
+                y += 24
+
+            # Draw target box on CCD panel
+            if target_side > 0:
+                cx, cy = center
+                scale_x = panel_w / best_img.shape[1]
+                scale_y = panel_h / best_img.shape[0]
+                box_x = int((cx - target_side / 2) * scale_x) + panel_w + 20
+                box_y = int((cy - target_side / 2) * scale_y) + 10
+                box_w = int(target_side * scale_x)
+                box_h = int(target_side * scale_y)
+                pygame.draw.rect(screen, (255, 0, 0), (box_x, box_y, box_w, box_h), 2)
+
+            pygame.display.flip()
+            clock.tick(30)
+    finally:
+        pygame.quit()
 
 
 if __name__ == "__main__":
