@@ -12,7 +12,7 @@ Union-typed fields in the repo, and the single reason each one imports at all:
 | Field                                | Annotation                       | Escape hatch              |
 |--------------------------------------|----------------------------------|---------------------------|
 | ``WfsParams.pupil_center``           | ``str \\| tuple[float, float]``      | ``callback=parse_tuple``  |
-| ``PibRunnerParams.center``           | ``str \\| tuple[float, float] \\| None`` | ``callback=parse_tuple``  |
+| ``PibOpticalParams.center``          | ``str \\| tuple[float, float] \\| None`` | ``callback=parse_tuple``  |
 | ``CameraParams.center``              | ``str \\| tuple[int, int] \\| None``    | ``type=click.STRING``     |
 | ``CameraParamsPib.center``           | ``str \\| tuple[int, int] \\| None``    | ``type=click.STRING``     |
 
@@ -40,7 +40,7 @@ from ao_shaping.runners.runner_common import (
     DM_TYPES_PRE_ASYN_MICRO,
     CameraParams,
     CameraParamsPib,
-    PibRunnerParams,
+    PibOpticalParams,
     WfsParams,
 )
 from ao_shaping.utils.cli.params import ClickGroup, option, with_params
@@ -98,9 +98,9 @@ class TestUnionCouplings:
         assert params.pupil_center == (960.0, 600.0)
         assert all(isinstance(v, float) for v in params.pupil_center)
 
-    def test_pib_runner_center_callback_yields_float_tuple(self) -> None:
-        """``PibRunnerParams.center`` is saved by ``callback=parse_tuple``."""
-        params = parse_with(PibRunnerParams, ["--center", "3,4"], "pib-params")
+    def test_pib_optical_center_callback_yields_float_tuple(self) -> None:
+        """``PibOpticalParams.center`` is saved by ``callback=parse_tuple``."""
+        params = parse_with(PibOpticalParams, ["--center", "3,4"], "pib-params")
 
         assert isinstance(params.center, tuple)
         assert params.center == (3.0, 4.0)

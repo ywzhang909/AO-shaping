@@ -7,15 +7,15 @@ sensorless runners do not, so they cannot be exercised without hardware:
 ===================  ==========================================  ==============
 runner               param dataclass                             ``cam_type``
 ===================  ==========================================  ==============
-``pib``              ``PibRunnerParams``                          added
+``pib``              ``PibOpticalParams``                         added
 ``spgd-square``      ``SlmSquareParams``                          added
-``combined``         ``CombinedRunnerParams``                     already present
+``combined``         ``CombinedRunParams`` + ``CameraParams``    already present
 ===================  ==========================================  ==============
 
-``combined`` is the exception: its CLI is wired with a second
+``combined`` is the exception: its CLI is wired with a separate
 ``@with_params(CameraParams, kw_name="camera")`` decorator, so ``--cam-type``
-already reaches it. It must **not** be declared again on
-``CombinedRunnerParams`` — that would register a duplicate Click option name.
+already reaches it. It must **not** be declared again on the combined classes —
+that would register a duplicate Click option name.
 
 ``optimize_slm_square`` already accepts ``cam_type`` and resolves the camera
 through the ``create_camera`` registry, so ``spgd-square`` only needs the CLI
@@ -61,7 +61,7 @@ class TestRunnerParamsExposeCamType:
     @pytest.mark.parametrize(
         ("module", "cls"),
         [
-            ("ao_shaping.runners.runner_common", "PibRunnerParams"),
+            ("ao_shaping.runners.runner_common", "PibOpticalParams"),
             ("ao_shaping.runners.runner_common", "SlmSquareParams"),
         ],
     )
@@ -76,19 +76,24 @@ class TestRunnerParamsExposeCamType:
     def test_combined_gets_cam_type_from_camera_params(self):
         """``combined`` must NOT duplicate the field.
 
-        Its CLI is wired as ``@with_params(CombinedRunnerParams, ...)`` plus
+        Its CLI is wired as ``@with_params(CombinedAlgorithmParams, ...)``,
+        ``@with_params(CombinedRunParams, ...)`` and
         ``@with_params(CameraParams, kw_name="camera")``, so ``--cam-type``
-        already arrives via ``CameraParams``. Declaring it again on
-        ``CombinedRunnerParams`` would register a second Click option with the
-        same name.
+        already arrives via ``CameraParams``. Declaring it again on the combined
+        classes would register a second Click option with the same name.
         """
-        from ao_shaping.runners.runner_common import CameraParams, CombinedRunnerParams
+        from ao_shaping.runners.runner_common import (
+            CameraParams,
+            CombinedAlgorithmParams,
+            CombinedRunParams,
+        )
 
         assert "cam_type" in CameraParams.__dataclass_fields__
-        assert "cam_type" not in CombinedRunnerParams.__dataclass_fields__, (
-            "combined already receives --cam-type through CameraParams; a second "
-            "declaration collides on the Click option name"
-        )
+        for cls in (CombinedRunParams, CombinedAlgorithmParams):
+            assert "cam_type" not in cls.__dataclass_fields__, (
+                f"combined already receives --cam-type through CameraParams; a second "
+                f"declaration on {cls.__name__} collides on the Click option name"
+            )
 
     def test_slm_square_params_offers_sim(self):
         from ao_shaping.runners.runner_common import SlmSquareParams
