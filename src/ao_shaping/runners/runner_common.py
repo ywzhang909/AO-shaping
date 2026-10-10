@@ -1147,7 +1147,11 @@ class SlmSquareParams:
                 "刘卉等, 光子学报 2023, 52(6):0629002。"
             ),
         ),
-    ] = 0.0
+] = 0.0
+    adaptive: Annotated[bool, option("--adaptive", is_flag=True, help="启用自适应 SPGD 闭环: 按 epoch 三等分切换 stage_weights 三元组 (w_uniformity, w_efficiency, w_aspect), 并在 CV 停滞 (最近 stagnate_win 轮 best 改善 < min_improve_frac) 时短暂提升 w_uniformity。默认关闭, 关闭时行为与既有运行完全一致。")] = False
+    stagnate_win: Annotated[int, option("--stagnate-win", help="停滞检测窗口轮数, 与 --adaptive 联用 (default: 10)")] = 10
+    stagnate_boost: Annotated[float, option("--stagnate-boost", help="停滞时 w_uniformity 倍增因子, 1.0=关闭增强 (default: 1.5)")] = 1.5
+    min_improve_frac: Annotated[float, option("--min-improve-frac", help="停滞判定阈值: 窗口内 best CV 改善 < 该比例视为停滞 (default: 0.01)")] = 0.01
     basis: Annotated[
         str,
         option(

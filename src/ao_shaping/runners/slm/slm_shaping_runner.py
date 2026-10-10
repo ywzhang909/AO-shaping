@@ -632,6 +632,10 @@ def _build_square_config(
         rotation_search_deg=params.rotation_search_deg,
         algorithm=params.algorithm,
         pop_size=params.pop_size,
+        adaptive=params.adaptive,
+        stagnate_win=params.stagnate_win,
+        stagnate_boost=params.stagnate_boost,
+        min_improve_frac=params.min_improve_frac,
     )
 
 
@@ -673,6 +677,10 @@ def _square_json_payload(
             "w_efficiency": config.w_efficiency,
             "w_aspect": config.w_aspect,
             "w_pbr": config.w_pbr,
+            "adaptive": config.adaptive,
+            "stagnate_win": config.stagnate_win,
+            "stagnate_boost": config.stagnate_boost,
+            "min_improve_frac": config.min_improve_frac,
             "random_seed": config.random_seed,
             "pop_size": config.pop_size,
             "optimizer_type": config.optimizer_type,

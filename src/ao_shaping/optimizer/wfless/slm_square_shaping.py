@@ -124,6 +124,11 @@ from ao_shaping.utils.wavefront.zernike_calc import (
     noll_indices,
 )
 from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
+    AdaptiveSpgdConfig,
+    get_stage_weights,
+    should_boost_stagnation,
+)
 
 if TYPE_CHECKING:
     import pygame
@@ -1027,6 +1032,10 @@ class SlmSquareConfig:
     #: may only update the learning rate. Set by the CLI when the user actually
     #: typed ``--delta``; otherwise the schedule owns ``delta`` as before.
     delta_pinned: bool = False
+    adaptive: bool = False
+    stagnate_win: int = 10
+    stagnate_boost: float = 1.5
+    min_improve_frac: float = 0.01
     kwargs: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -1105,6 +1114,16 @@ class SlmSquareConfig:
             raise ValueError(
                 f"init_amplitude_rad must be non-negative, got {self.init_amplitude_rad}"
             )
+        if self.stagnate_win < 1:
+            raise ValueError(f"stagnate_win must be at least 1, got {self.stagnate_win}")
+        if self.stagnate_boost < 1.0:
+            raise ValueError(
+                f"stagnate_boost must be >= 1.0, got {self.stagnate_boost}"
+            )
+        if not (0.0 <= self.min_improve_frac < 1.0):
+            raise ValueError(
+                f"min_improve_frac must be in [0, 1), got {self.min_improve_frac}"
+            )
 
 
 def optimize_slm_square(
@@ -1143,6 +1162,10 @@ def optimize_slm_square(
     objective: str = "quality",
     max_roi_energy_loss: float = 0.6,
     init_amplitude_rad: float = 0.0,
+    adaptive: bool = False,
+    stagnate_win: int = 10,
+    stagnate_boost: float = 1.5,
+    min_improve_frac: float = 0.01,
     **kwargs,
 ) -> Recorder:
     """Optimize square beam uniformity using SLM with Zernike coefficient control.
@@ -1206,6 +1229,19 @@ def optimize_slm_square(
             historical combined score; ``"pearson"`` is the FourierGSNet
             ``1 - Pearson`` correlation loss, negated to higher-is-better by
             :func:`square_objective_score`.
+        adaptive: Enable the adaptive SPGD closed loop (default False). When on,
+            the quality weights are scheduled from
+            :data:`AdaptiveSpgdConfig.stage_weights` — a
+            (w_uniformity, w_efficiency, w_aspect) triple — switching at epoch
+            thirds, and ``w_uniformity`` is temporarily boosted while the
+            best-CV improvement stays below ``min_improve_frac`` over the last
+            ``stagnate_win`` epochs. When off, behavior is identical to previous
+            releases.
+        stagnate_win: Stagnation-detection window in epochs (adaptive only).
+        stagnate_boost: Multiplicative boost applied to ``w_uniformity`` while
+            stagnating; 1.0 disables the boost (adaptive only).
+        min_improve_frac: Stagnation trigger — best-CV improvement below this
+            fraction over the window counts as stagnation (adaptive only).
         **kwargs: Additional optimizer parameters.
 
     Returns:
@@ -1241,6 +1277,10 @@ def optimize_slm_square(
             algorithm=algorithm,
             pop_size=pop_size,
             objective=objective,
+            adaptive=adaptive,
+            stagnate_win=stagnate_win,
+            stagnate_boost=stagnate_boost,
+            min_improve_frac=min_improve_frac,
             kwargs=kwargs,
         )
     else:
@@ -1291,6 +1331,28 @@ def optimize_slm_square(
     init_amplitude_rad = float(config.init_amplitude_rad)
     _delta_pinned = _delta_pinned or bool(config.delta_pinned)
     kwargs = config.kwargs
+
+    # Adaptive SPGD closed loop (opt-in via config.adaptive). The base weights
+    # are frozen here — best-* tracking must stay comparable across epochs while
+    # the scheduled weights (and the stagnation boost) only affect the SCORED
+    # quality during a run.
+    _base_w_uniformity, _base_w_efficiency, _base_w_aspect = (
+        w_uniformity,
+        w_efficiency,
+        w_aspect,
+    )
+    _adaptive_cfg = (
+        AdaptiveSpgdConfig(
+            stagnate_win=int(config.stagnate_win),
+            stagnate_boost=float(config.stagnate_boost),
+            min_improve_frac=float(config.min_improve_frac),
+            enable_stagnate_boost=True,
+            boost_w_u_only=True,
+        )
+        if bool(config.adaptive)
+        else None
+    )
+    _adaptive_boost_active = False
 
     delta = abs(delta)
     epochs = int(epochs)
@@ -1912,6 +1974,38 @@ def optimize_slm_square(
             total=epochs, desc=f"slm_square iter {epochs}", dynamic_ncols=True
         ) as bar:
             for epoch in range(1, epochs + 1):
+                # Adaptive SPGD (only active when --adaptive is on): schedule the
+                # quality weights from stage_weights by epoch thirds, then detect
+                # best-CV stagnation over the last `stagnate_win` epochs and
+                # temporarily boost w_uniformity.
+                if _adaptive_cfg is not None:
+                    w_uniformity, w_efficiency, w_aspect = get_stage_weights(
+                        _adaptive_cfg, epoch, epochs
+                    )
+                    if (
+                        _adaptive_cfg.enable_stagnate_boost
+                        and _adaptive_cfg.stagnate_boost > 1.0
+                        and should_boost_stagnation(
+                            _cv_history,
+                            win=_adaptive_cfg.stagnate_win,
+                            min_improve_frac=_adaptive_cfg.min_improve_frac,
+                        )
+                    ):
+                        if not _adaptive_boost_active:
+                            logger.info(
+                                "Adaptive SPGD: best-CV stagnation over the last "
+                                "{} epochs (win={}, min_improve_frac={}); boosting "
+                                "w_uniformity x{} for this epoch",
+                                _adaptive_cfg.stagnate_win,
+                                _adaptive_cfg.stagnate_win,
+                                _adaptive_cfg.min_improve_frac,
+                                _adaptive_cfg.stagnate_boost,
+                            )
+                        _adaptive_boost_active = True
+                        w_uniformity *= _adaptive_cfg.stagnate_boost
+                    else:
+                        _adaptive_boost_active = False
+
                 # Generate random perturbation (±1 pattern), dim = _dim
                 disturb_c = rng.binomial(1, 0.5, (_dim,)).astype(float) * 2.0 - 1.0
                 disturb_c = disturb_c * delta
@@ -2092,9 +2186,31 @@ def optimize_slm_square(
                 )
                 J = (pos_cost + neg_cost) / 2
 
+                # Best-tracking uses the FROZEN base weights (adaptive contract):
+                # the logged `quality` reflects the scheduled/boosted weights,
+                # while best-* selection must stay comparable across epochs.
+                _track_quality = (
+                    square_objective_score(
+                        eval_img,
+                        eval_cv,
+                        eval_ee,
+                        eval_ar,
+                        center,
+                        target_side,
+                        objective,
+                        _base_w_uniformity,
+                        _base_w_efficiency,
+                        _base_w_aspect,
+                        peak_to_background=eval_pbr,
+                        w_pbr=w_pbr,
+                    )
+                    if _adaptive_cfg is not None
+                    else quality
+                )
+
                 # Track best
-                if quality > best_quality + 1e-6:
-                    best_quality = quality
+                if _track_quality > best_quality + 1e-6:
+                    best_quality = _track_quality
                     best_cost = float(J)
                     best_cv = eval_cv
                     best_ee = eval_ee
@@ -2132,6 +2248,15 @@ def optimize_slm_square(
                             delta,
                         )
                     delta *= _param_scale
+
+                # Adaptive-only: the CV history is normally collected only for
+                # the `lr == 0` schedule, but stagnation detection needs it for
+                # ANY lr once --adaptive is on.
+                elif _adaptive_cfg is not None:
+                    _cv_history.append(eval_cv)
+                    _max_history_len = max(_max_history_len, len(_cv_history))
+                    if len(_cv_history) > _max_history_len:
+                        _cv_history.pop(0)
 
                 log = {
                     "J": J,
