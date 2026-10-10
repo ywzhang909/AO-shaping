@@ -65,6 +65,11 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 | `--phase-grid` | 自由相位粗网格边长 (默认 24 → 576 DOF) | 24 |
 | `--delta` / `--lr` / `--optimizer [adam\|adamw\|adamod\|sgd]` / `--lr-schedule` | SPGD 超参 | - |
 | `--gs-iters` / `--gs-warm-start/--no-gs-warm-start` | GS 迭代数 / 是否用平场热启动 | - |
+| `--gs-method [plain\|weighted\|hio\|hio-weighted]` | 开环 GS 变体, 见 §4.1。`plain` = 既有行为 | `plain` |
+| `--gs-gamma` | 加权 GS 累积反馈系数 γ (0≤γ<1; γ=0 退化 ⇒ 等价 plain) | 0.5 |
+| `--gs-weight-clip` | 加权 GS 权重裁剪上限 (须 >1) | 4.0 |
+| `--gs-beta` | HIO 反馈松弛 β (Fienup, 0≤β≤1; β=0 ⇒ 噪声区冻结) | 0.9 |
+| `--gs-hio-fraction` | `hio-weighted` 中 HIO 阶段占比 (0=全加权, 1=全 HIO) | 0.7 |
 | `--beam-radius-px` | 面板上照明光斑**半径** (实测台架值) | 450 |
 | `--camera-pixel-um` | 相机像素间距 (um) —— **光路模型的测量锚点** | 2.2 |
 | `--focal-length-m` | 2f 透镜焦距 (m)。默认 0 = 由实测焦点标度 + `--camera-pixel-um` 派生 (本台架 ⇒ 0.1224 m) | 0 |
@@ -77,6 +82,32 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 
 > **`--dir` 是组级选项**，必须写在子命令之前：
 > `python src/ao_shaping/main.py --dir data slm-gs-refine ...`
+
+### 4.1 GS 变体 (`--gs-method`)
+
+默认 `plain` 走的是**原封不动的 `gs_shape`**, 所以不传该开关时行为与引入本特性
+前完全一致 (已用 git HEAD 的旧实现做过逐位比对: phase / intensity / metrics 全等)。
+
+| 值 | 算法 | 用途 |
+|---|------|------|
+| `plain` | 经典 GS (误差缩减) | 既有行为, 默认 |
+| `weighted` | 加权迭代反馈 GS: `W *= (A_target/\|F\|)^γ`, 裁剪后按支撑域均值归一 | 压热点、填暗区 → **均匀度** |
+| `hio` | Fienup HIO (框外负反馈 `G - β·B`) | 逃离 GS 的局部极小 |
+| `hio-weighted` | 前 `hio_fraction` 走 HIO, 之后走 weighted | 文档推荐的组合: 探索 + 抛光 |
+
+⚠️ **这三个变体都是振荡收敛, 不是单调下降。** 实测 (台架模型 n_grid=256,
+padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代数下"最后一步"只是
+振荡相位上的一次随机抽样。因此 `UniformSquareShaper.run()` 默认返回**历史最优迭代**
+(`select="best"`), 而不是最后一步; 这与硬件侧本来就有的 bake-off + best 跟踪一致。
+传 `select="last"` 可退回旧取法 (仅供逐迭代等价性验证)。
+
+⚠️ **HIO 的实现顺序不可交换。** 朴素映射 (先用目标幅度再做负反馈) 在这里是
+**退化的**: 方形目标在框外 `A_target ≡ 0`, 反馈项恒为 0, 框外永远不更新。正确做法是
+**先施加瞳孔幅度约束**得到非零的 `B`, 再在远场做 `G = A·B/|B|` (框内) /
+`G - β·B` (框外)。
+
+上机建议: 先用 `--cam_type sim` 确认目标边长/锚点无误, 再在硬件上试
+`--gs-method weighted`; 若均匀度改善但能量下降, 降 `--gs-gamma`。
 
 ## 5. 关键参数说明
 

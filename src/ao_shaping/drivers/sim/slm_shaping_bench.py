@@ -390,6 +390,39 @@ def composite_score(
 # ---------------------------------------------------------------------------
 # 方法 1: Gerchberg-Saxton (幅度 <-> 相位约束)
 # ---------------------------------------------------------------------------
+def _gs_initial_field(
+    cfg: ShapingBenchConfig,
+    beam_cfg: BeamSimConfig,
+    *,
+    seed: int | None,
+    base_phase: np.ndarray | None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """构造 GS 的初始场 (SLM 平面上的高斯入射 + 随机扰动)。
+
+    返回 ``(field, amp_slm, amp_target, target, base)``:
+
+    * ``field``: 补零后远场网格上的初始复场 ``amp_slm * exp(1j*(base + noise))``;
+    * ``amp_slm``: 补零后的高斯瞳孔幅度;
+    * ``amp_target``: 目标幅度的平方根;
+    * ``target``: 目标强度 (与 ``make_target`` 的网格一致);
+    * ``base``: 固定的瞳孔相位 (raw 弧度, 补零后), 未使用时由调用方丢弃。
+
+    ``gs_shape`` 与 ``UniformSquareShaper`` 共用此入口, 保证两条路径的初始场
+    在同一 seed 下逐位一致。
+    """
+    rng = np.random.default_rng(cfg.seed if seed is None else seed)
+    target = make_target(cfg)
+    amp_target = np.sqrt(target)
+    amp_slm = _pad_centred(np.abs(gaussian_pupil(beam_cfg)), cfg).astype(np.float64)
+    if base_phase is None:
+        base = np.zeros(amp_slm.shape, dtype=np.float64)
+    else:
+        base = _pad_centred(np.asarray(base_phase, dtype=np.float64), cfg)
+    # 初始场: SLM 平面上的高斯入射
+    field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
+    return field, amp_slm, amp_target, target, base
+
+
 def gs_shape(
     cfg: ShapingBenchConfig,
     *,
@@ -416,16 +449,9 @@ def gs_shape(
             ``base_phase + delta``。
     """
     beam_cfg = cfg.make_beam_config()
-    rng = np.random.default_rng(cfg.seed if seed is None else seed)
-    target = make_target(cfg)
-    amp_target = np.sqrt(target)
-    amp_slm = _pad_centred(np.abs(gaussian_pupil(beam_cfg)), cfg).astype(np.float64)
-    if base_phase is None:
-        base = np.zeros(amp_slm.shape, dtype=np.float64)
-    else:
-        base = _pad_centred(np.asarray(base_phase, dtype=np.float64), cfg)
-    # 初始场: SLM 平面上的高斯入射
-    field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
+    field, amp_slm, amp_target, target, _base = _gs_initial_field(
+        cfg, beam_cfg, seed=seed, base_phase=base_phase
+    )
 
     history = []
     for i in range(n_iters):
@@ -460,6 +486,231 @@ def gs_shape(
         history=history,
         n_iters=n_iters,
     )
+
+
+# ---------------------------------------------------------------------------
+# 方法 1b: 均匀方形整形的加权 GS / HIO 变体 (class-based)
+# ---------------------------------------------------------------------------
+GS_METHODS = ("weighted", "hio", "hio-weighted")
+GS_SELECT = ("best", "last")
+
+
+class UniformSquareShaper:
+    """均匀方形远场整形的 GS 变体优化器 (class-based API)。
+
+    与 ``gs_shape`` 共享同一个初始场与交替投影骨架, 但把远场幅度约束换成三种
+    变体之一:
+
+    * ``weighted``: 逐像素权重 ``W`` 的乘法更新 (``W *= (A_target/|F|)^gamma``,
+      再裁剪到 ``[1/weight_clip, weight_clip]`` 并归一化到均值 1)。``gamma``
+      控制权重更新的激进程度: 0 时权重恒为 1, 退化为 plain GS (与 ``gs_shape``
+      逐位等价); 越接近 1 越激进, 但 ``gamma >= 1`` 会让权重在相邻迭代间振荡
+      (``(A/|F|)^gamma`` 的比值被放大), 因此上界是开区间。权重归一化到均值 1
+      是刻意的: 只有**相对空间权重**有意义 —— ``arg()`` 对正尺度不变, 绝对
+      尺度会被 pupil 约束吸收。
+    * ``hio``: Fienup HIO 更新 (``G' = A*B/|B|`` 在支撑域内, ``G - beta*B`` 在
+      支撑域外)。``beta`` 是 HIO 松弛: 0 时噪声区被冻结 (支撑域外不更新),
+      1 时是经典 HIO。
+    * ``hio-weighted``: 前 ``hio_fraction`` 比例的迭代走 HIO (探索), 之后走
+      weighted (收敛抛光)。``hio_fraction`` 是自由超参数, 默认 0.7 = 70% 探索 /
+      30% 抛光。
+
+    能量守恒: 构造时把 ``amp_target`` 重标定到与瞳孔总能量一致
+    (``sum(amp_slm^2)``), 使远场总能量与入射一致。该重标定因子在瞳孔约束
+    ``amp_slm * exp(1j*angle)`` 下被抵消 (``angle(c*X) = angle(X)``, c > 0),
+    因此 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。
+
+    Args:
+        cfg: 台架配置。
+        n_iters: 迭代次数。
+        method: 变体 (``GS_METHODS`` 之一)。
+        gamma: weighted 的权重指数 (0 <= gamma < 1)。
+        weight_clip: 权重裁剪上限 (必须 > 1)。
+        beta: HIO 松弛 (0 <= beta <= 1)。
+        hio_fraction: hio-weighted 中 HIO 阶段占比 (0 <= hio_fraction <= 1)。
+        relax: Fienup 松弛参数 (0, 1], 与 ``gs_shape`` 同义。
+        seed: 覆盖 ``cfg.seed`` 的随机种子。
+        verbose: 每 20 轮记录一次历史。
+        base_phase: 初始相位 (叠加在随机扰动之上)。
+        select: ``"best"`` (默认) 返回评分最好的迭代; ``"last"`` 返回最后一次
+            迭代, 与 ``gs_shape`` 的取法一致 —— 用于证明逐迭代轨迹等价。
+    """
+
+    def __init__(
+        self,
+        cfg: ShapingBenchConfig,
+        *,
+        n_iters: int = 200,
+        method: str = "weighted",
+        gamma: float = 0.5,
+        weight_clip: float = 4.0,
+        beta: float = 0.9,
+        hio_fraction: float = 0.7,
+        relax: float = 1.0,
+        seed: int | None = None,
+        verbose: bool = False,
+        base_phase: np.ndarray | None = None,
+        select: str = "best",
+    ) -> None:
+        if method not in GS_METHODS:
+            raise ValueError(f"unknown method {method!r}; expected one of {GS_METHODS}")
+        if not (0.0 <= gamma < 1.0):
+            raise ValueError(f"gamma must be in [0, 1), got {gamma}")
+        if weight_clip <= 1.0:
+            raise ValueError(f"weight_clip must be > 1.0, got {weight_clip}")
+        if not (0.0 <= beta <= 1.0):
+            raise ValueError(f"beta must be in [0, 1], got {beta}")
+        if not (0.0 <= hio_fraction <= 1.0):
+            raise ValueError(f"hio_fraction must be in [0, 1], got {hio_fraction}")
+        if n_iters < 1:
+            raise ValueError(f"n_iters must be >= 1, got {n_iters}")
+        if select not in GS_SELECT:
+            raise ValueError(f"select must be one of {GS_SELECT}, got {select!r}")
+
+        self.cfg = cfg
+        self.method = method
+        self.n_iters = n_iters
+        self.gamma = gamma
+        self.weight_clip = weight_clip
+        self.beta = beta
+        self.hio_fraction = hio_fraction
+        self.relax = relax
+        self.verbose = verbose
+        self.select = select
+
+        beam_cfg = cfg.make_beam_config()
+        field, amp_slm, amp_target, target, base = _gs_initial_field(
+            cfg, beam_cfg, seed=seed, base_phase=base_phase
+        )
+        # 能量守恒: 把目标幅度重标定到与瞳孔总能量一致。因子 c 在 pupil 约束
+        # 下被抵消 (angle(c*X) = angle(X)), 故 gamma=0 仍与 gs_shape 逐位等价。
+        n_total = amp_slm.size
+        rescale = np.sqrt(
+            n_total * float(np.sum(amp_slm**2)) / max(float(np.sum(amp_target**2)), 1e-30)
+        )
+        amp_target = amp_target * rescale
+
+        self.field = field
+        self.amp_slm = amp_slm
+        self.amp_target = amp_target
+        self.target = target
+        self.base = base
+        self.support = amp_target > 0
+        self.W = np.ones_like(amp_target)
+        self.g = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
+        self._iter = 0
+        self.history: list[dict[str, float]] = []
+        self.pad = (cfg.far_field_size - cfg.n_grid) // 2
+
+    def update(self) -> np.ndarray:
+        """执行一步迭代, 返回裁剪后的 pupil 相位 (raw 弧度, 不 mod 2π)。"""
+        if self.method == "hio" or (
+            self.method == "hio-weighted"
+            and self._iter < round(self.hio_fraction * self.n_iters)
+        ):
+            self._hio_step()
+        else:
+            self._weighted_step()
+        self._iter += 1
+        n = self.cfg.n_grid
+        p = self.pad
+        return np.angle(self.field)[p : p + n, p : p + n]
+
+    def _weighted_step(self) -> None:
+        ff = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(self.field)))
+        ratio = np.ones_like(self.amp_target)
+        ratio[self.support] = (
+            self.amp_target[self.support] / (np.abs(ff)[self.support] + 1e-12)
+        ) ** self.gamma
+        self.W = np.clip(self.W * ratio, 1.0 / self.weight_clip, self.weight_clip)
+        self.W /= max(float(self.W[self.support].mean()), 1e-12)
+        ff = (self.W * self.amp_target) * ff / (np.abs(ff) + 1e-12)
+        ff = ff * (1 - self.relax) + (self.W * self.amp_target) * np.exp(
+            1j * np.angle(ff)
+        ) * self.relax
+        self.field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
+        self.field = self.amp_slm * np.exp(1j * np.angle(self.field))
+
+    def _hio_step(self) -> None:
+        pupil = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
+        )
+        b = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(pupil)))
+        self.g = np.where(
+            self.support,
+            self.amp_target * b / (np.abs(b) + 1e-12),
+            self.g - self.beta * b,
+        )
+        self.field = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
+        )
+
+    def _score(self) -> tuple[float, dict[str, float]]:
+        """当前迭代的远场评分。
+
+        口径与 ``slm_gs_refine`` 的硬件闭环**完全一致**: ``0.5*PIB + 0.5/(1+CV)``
+        (``composite_from_pib_cv`` 的默认权重)。刻意复用调用方自己的排序准则,
+        而不是另立一个指标 —— 否则开环 GS 的"最优"与闭环优化器的"最优"会对不上。
+        """
+        inten = _fraunhofer_intensity(self.field, self.cfg)
+        inten = inten / (inten.sum() + 1e-12)
+        y, x = np.unravel_index(np.argmax(inten), inten.shape)
+        m = compute_bench_metrics(inten, self.target, center=(int(x), int(y)))
+        return composite_from_pib_cv(m["PIB"], m["CV"]), m
+
+    def run(self) -> ShapingResult:
+        """跑完 ``n_iters`` 步, 返回与 ``gs_shape`` 同构的结果。
+
+        ⚠️ **``select="best"`` (默认) 返回历史最优迭代, 而不是最后一次迭代。**
+
+        这三个变体都**振荡收敛**: 逐迭代实测 (n_grid=256, padding=3) 的框内 CV
+        在 60 步内于 0.37~1.50 之间往复, plain GS 同样如此。固定迭代数下"最后一步"
+        只是振荡相位上的一次随机抽样 —— 实测同为 60 步, γ=0.1 落到 CV 0.4019
+        (优于 plain 的 0.8848), γ=0.5 落到 CV 1.3869 (劣于 plain)。逐步取最优把它
+        变成单调的, 也是硬件侧本来就有的做法 (bake-off + best_score 跟踪)。
+
+        ``select="last"`` 退回 ``gs_shape`` 的取法 (最后一次迭代), 用来验证逐迭代
+        轨迹与 plain GS 严格等价。
+        """
+        n = self.cfg.n_grid
+        p = self.pad
+        track = self.select == "best"
+        best_score = -np.inf
+        best_field: np.ndarray | None = None
+        best_iter = -1
+        for _ in range(self.n_iters):
+            self.update()
+            score, m = self._score()
+            if track and score > best_score:
+                best_score = score
+                best_iter = self._iter - 1
+                # 只在刷新最优时拷贝, 且只存瞳孔块 (瞳孔外恒为 0, 可无损重建)
+                best_field = self.field[p : p + n, p : p + n].copy()
+            if self.verbose and (self._iter - 1) % 20 == 0:
+                self.history.append({"iter": self._iter - 1, **m})
+        if track and best_field is not None:
+            picked = best_field
+        else:
+            picked = self.field[p : p + n, p : p + n]
+            best_iter = self._iter - 1
+        # 由瞳孔块无损重建全场 (场在瞳孔块之外恒为 0, 因为 amp_slm 在那里为 0)
+        field = np.zeros(self.amp_slm.shape, dtype=np.complex128)
+        field[p : p + n, p : p + n] = picked
+        inten = _fraunhofer_intensity(field, self.cfg)
+        inten = inten / (inten.sum() + 1e-12)
+        y, x = np.unravel_index(np.argmax(inten), inten.shape)
+        center = (int(x), int(y))
+        metrics = compute_bench_metrics(inten, self.target, center=center)
+        metrics = {**metrics, "best_iter": float(best_iter)}
+        pupil_phase = np.angle(picked)
+        return ShapingResult(
+            method=self.method,
+            phase=pupil_phase,
+            intensity=inten,
+            metrics=metrics,
+            history=self.history,
+            n_iters=self._iter,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -642,6 +893,8 @@ __all__ = [
     "compute_bench_metrics",
     "composite_score",
     "composite_from_pib_cv",
+    "GS_METHODS",
+    "UniformSquareShaper",
     "gs_shape",
     "differentiable_shape",
     "spgd_shape",

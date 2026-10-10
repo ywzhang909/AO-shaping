@@ -101,6 +101,12 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         f"GS warm start: {'on' if params.gs_warm_start else 'off'} "
         f"(iters={params.gs_iters})"
     )
+    if params.gs_method != "plain":
+        click.echo(
+            f"GS strategy: {params.gs_method}  gamma={params.gs_gamma} "
+            f"clip={params.gs_weight_clip} beta={params.gs_beta} "
+            f"hio_fraction={params.gs_hio_fraction}"
+        )
     # focal_length_m defaults to 0 = "derive from the measured focal scale and the
     # camera pixel pitch", so echo what will actually be used rather than the raw
     # 0 (the config resolves it in __post_init__).
@@ -162,6 +168,11 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         lr_schedule=params.lr_schedule,
         gs_iters=params.gs_iters,
         gs_warm_start=params.gs_warm_start,
+        gs_method=params.gs_method,
+        gs_gamma=params.gs_gamma,
+        gs_weight_clip=params.gs_weight_clip,
+        gs_beta=params.gs_beta,
+        gs_hio_fraction=params.gs_hio_fraction,
         panel_pixel_um=params.panel_pixel_um,
         camera_pixel_um=params.camera_pixel_um,
         beam_radius_px=params.beam_radius_px,

@@ -676,6 +676,15 @@ python src/ao_shaping/main.py slm-gs-refine [OPTIONS]
 - `--phase-grid`: 自由相位粗网格边长 (默认: 24 → 576 DOF)
 - `--delta` / `--lr` / `--optimizer [adam|adamw|adamod|sgd]` / `--lr-schedule`
 - `--gs-iters` / `--gs-warm-start/--no-gs-warm-start`
+- `--gs-method [plain|weighted|hio|hio-weighted]`: 开环 GS 变体。默认 `plain` = 既有行为
+  (原封不动走 `gs_shape`, 已与引入前的实现逐位比对全等)。`weighted` = 加权迭代反馈
+  (压热点/填暗区 → 均匀度), `hio` = Fienup HIO (框外负反馈, 逃离局部极小),
+  `hio-weighted` = 前 N 次 HIO + 后 M 次加权 GS (文档推荐组合)。
+  ⚠️ 三者均**振荡收敛** (实测框内 CV 在 0.37~1.50 往复), 故默认返回**历史最优迭代**
+  而非最后一步。详见 [`docs/slm/slm_gs_refine.md`](docs/slm/slm_gs_refine.md) §4.1
+- `--gs-gamma` (0.5) / `--gs-weight-clip` (4.0): 加权 GS 累积反馈系数与权重裁剪
+- `--gs-beta` (0.9): HIO 反馈松弛 (Fienup, 0≤β≤1)
+- `--gs-hio-fraction` (0.7): `hio-weighted` 中 HIO 阶段占比
 - `--beam-radius-px`: 面板上照明光斑**半径** (默认 450, 实测台架值)
 - `--camera-pixel-um`: 相机像素间距 (um) —— **光路模型的测量锚点**, 因为它是**每台相机**
   的数据手册常数 (大恒 MER2-507-23GM = 2.2 µm, `drivers/AGENTS.md` 有权威记录)。

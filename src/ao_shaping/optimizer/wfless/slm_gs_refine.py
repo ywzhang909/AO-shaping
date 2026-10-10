@@ -68,6 +68,7 @@ from loguru import logger
 
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
+    UniformSquareShaper,
     composite_from_pib_cv,
     gs_shape,
     power_in_bucket,
@@ -186,6 +187,16 @@ class SlmGsRefineConfig:
     gs_iters: int = 200
     gs_warm_start: bool = True
     gs_relax: float = 1.0
+    gs_method: str = "plain"
+    """GS 变体: plain / weighted / hio / hio-weighted。默认 plain = 既有行为。"""
+    gs_gamma: float = 0.5
+    """加权 GS 累积反馈系数 γ, 0≤γ<1。γ=0 是退化哨兵 (权重恒为 1 ⇒ 与 plain GS 等价)。"""
+    gs_weight_clip: float = 4.0
+    """加权 GS 权重上限 (裁剪, 须 >1)。"""
+    gs_beta: float = 0.9
+    """HIO 反馈松弛系数 β (Fienup, 0≤β≤1)。β=0 是退化哨兵 (框外冻结)。"""
+    gs_hio_fraction: float = 0.7
+    """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
 
     # --- bench model (only used to compute the GS phase) -------------------
     panel_pixel_um: float = _DEFAULT_PANEL_PIXEL_UM
@@ -264,6 +275,26 @@ class SlmGsRefineConfig:
             )
         if self.gs_relax <= 0:
             raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
+        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted"):
+            raise ValueError(
+                "gs_method must be one of 'plain', 'weighted', 'hio', "
+                f"'hio-weighted', got {self.gs_method!r}"
+            )
+        # γ≥1 makes the cumulative feedback unit-gain and it oscillates; γ=0 is a
+        # deliberate degenerate sentinel (weight stays 1 ⇒ identical to plain GS)
+        if not (0.0 <= self.gs_gamma < 1.0):
+            raise ValueError(f"gs_gamma must be in [0, 1), got {self.gs_gamma}")
+        if self.gs_weight_clip <= 1.0:
+            raise ValueError(
+                f"gs_weight_clip must be > 1.0, got {self.gs_weight_clip}"
+            )
+        # Fienup relaxation range; β=0 freezes the noise region
+        if not (0.0 <= self.gs_beta <= 1.0):
+            raise ValueError(f"gs_beta must be in [0, 1], got {self.gs_beta}")
+        if not (0.0 <= self.gs_hio_fraction <= 1.0):
+            raise ValueError(
+                f"gs_hio_fraction must be in [0, 1], got {self.gs_hio_fraction}"
+            )
         if self.w_pib < 0 or self.w_unif < 0:
             raise ValueError(
                 f"w_pib and w_unif must be non-negative, got "
@@ -560,6 +591,13 @@ def _gs_pupil_phase(
 ) -> np.ndarray | None:
     """Compute the GS warm-start phase on the pupil square (raw radians).
 
+    ``config.gs_method`` selects the open-loop GS variant. ``"plain"`` keeps the
+    historical path byte-for-byte (it calls :func:`gs_shape` directly); the other
+    variants route through :class:`UniformSquareShaper`, which improves the
+    *uniformity* of the flat-top square rather than plain error-reduction --
+    weighted iterative feedback, Fienup HIO, or the documented
+    "HIO first, weighted GS to polish" combination.
+
     Returns ``None`` when the warm start is disabled or GS degenerates, in which
     case the caller simply proceeds from the flat phase.
     """
@@ -599,9 +637,32 @@ def _gs_pupil_phase(
         config.camera_pixel_um,
     )
     try:
-        phase = gs_shape(
-            cfg, n_iters=config.gs_iters, relax=config.gs_relax, seed=seed
-        ).phase
+        if config.gs_method == "plain":
+            # Historical path, deliberately NOT routed through the new class:
+            # this is the default and must stay bit-for-bit what it always was.
+            phase = gs_shape(
+                cfg, n_iters=config.gs_iters, relax=config.gs_relax, seed=seed
+            ).phase
+        else:
+            logger.info(
+                "GS strategy={} gamma={} weight_clip={} beta={} hio_fraction={}",
+                config.gs_method,
+                config.gs_gamma,
+                config.gs_weight_clip,
+                config.gs_beta,
+                config.gs_hio_fraction,
+            )
+            phase = UniformSquareShaper(
+                cfg,
+                n_iters=config.gs_iters,
+                method=config.gs_method,
+                gamma=config.gs_gamma,
+                weight_clip=config.gs_weight_clip,
+                beta=config.gs_beta,
+                hio_fraction=config.gs_hio_fraction,
+                relax=config.gs_relax,
+                seed=seed,
+            ).run().phase
     except (ValueError, FloatingPointError, np.linalg.LinAlgError) as exc:
         logger.warning("GS warm start failed ({}); continuing from flat", exc)
         return None

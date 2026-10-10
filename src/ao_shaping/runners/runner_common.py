@@ -2238,6 +2238,45 @@ class SlmGsRefineParams:
             help="Compute a GS phase and keep it only if it beats flat.",
         ),
     ] = True
+    gs_method: Annotated[
+        str,
+        option(
+            "--gs-method",
+            type=click.Choice(["plain", "weighted", "hio", "hio-weighted"]),
+            help=(
+                "GS variant: plain = today's behaviour; weighted = 加权 GS; "
+                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS."
+            ),
+        ),
+    ] = "plain"
+    gs_gamma: Annotated[
+        float,
+        option(
+            "--gs-gamma",
+            help="Weighted-GS cumulative feedback coefficient gamma (0<=g<1; 0=plain).",
+        ),
+    ] = 0.5
+    gs_weight_clip: Annotated[
+        float,
+        option(
+            "--gs-weight-clip",
+            help="Weighted-GS weight upper clip (must be > 1).",
+        ),
+    ] = 4.0
+    gs_beta: Annotated[
+        float,
+        option(
+            "--gs-beta",
+            help="HIO feedback relaxation beta (Fienup, 0<=b<=1; 0=freeze noise region).",
+        ),
+    ] = 0.9
+    gs_hio_fraction: Annotated[
+        float,
+        option(
+            "--gs-hio-fraction",
+            help="Fraction of HIO iterations in hio-weighted (0<=f<=1).",
+        ),
+    ] = 0.7
 
     # --- bench model -------------------------------------------------------
     panel_pixel_um: Annotated[
