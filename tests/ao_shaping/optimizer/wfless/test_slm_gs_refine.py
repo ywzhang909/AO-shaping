@@ -53,10 +53,10 @@ def _fast_config(**overrides) -> SlmGsRefineConfig:
         cam_size=100,
         gs_iters=8,
         n_eval_frames=1,
-        settle_wait_s=0.0,
-        settle_max_wait_s=0.0,
+        settle_wait_s=0.001,
+        settle_max_wait_s=0.001,
         settle_max_discard=1,
-        progress_every=0,
+        progress_every=1,
     )
     base.update(overrides)
     return SlmGsRefineConfig(**base)
@@ -387,6 +387,47 @@ class TestEndToEndSim:
         assert all("phase" not in row for row in rec.history)
         assert all(not isinstance(row.get("cv"), np.ndarray) for row in rec.history)
 
+    def test_debug_records_each_measured_frame_and_display_phase(self, tmp_path):
+        from ao_shaping.utils.io.file import save_recorder_debug_artifacts
+
+        rec = optimize_slm_gs_refine(_fast_config(epochs=1, record_debug=True))
+        assert {row["stage"] for row in rec.history} == {"flat", "gs", "refine"}
+        assert [row["_epoch"] for row in rec.history] == list(range(len(rec.history)))
+        for row in rec.history:
+            assert row["_img"].ndim == 2
+            assert row["_phase"].shape == (1200, 1920)
+            assert row["_phase"].dtype == np.uint16
+            if row["stage"] == "refine":
+                for side in ("pos", "neg"):
+                    assert row[f"_img_{side}"].shape == row["_img"].shape
+                    assert row[f"_phase_{side}"].shape == row["_phase"].shape
+                selected = "pos" if row["pos"] >= row["neg"] else "neg"
+                assert row["_img"] is row[f"_img_{selected}"]
+                assert row["_phase"] is row[f"_phase_{selected}"]
+
+        png = save_recorder_debug_artifacts(
+            rec,
+            root_dir=str(tmp_path),
+            subdir_prefix="slm_gs_refine",
+            scalar_keys=("score", "pib", "cv"),
+            img_keys=(
+                "_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"
+            ),
+            json_payload={"record_debug": True},
+        )
+        assert png.exists()
+        assert png.with_suffix(".pkl").exists()
+        assert png.with_suffix(".json").exists()
+        import pickle
+
+        with png.with_suffix(".pkl").open("rb") as artifact:
+            saved = pickle.load(artifact)
+        assert len(saved) == len(rec.history)
+        assert all(
+            key in saved[max(saved)]
+            for key in ("_img_pos", "_img_neg", "_phase_pos", "_phase_neg")
+        )
+
     def test_roi_is_frozen_at_the_flat_baseline(self):
         """Every row must share the one ROI located on the unshaped frame."""
         rec = optimize_slm_gs_refine(_fast_config(epochs=4))
@@ -468,3 +509,28 @@ class TestEndToEndSim:
         monkeypatch.setattr(slm_pib_sim.SimPibCCD, "close", spy)
         optimize_slm_gs_refine(_fast_config(epochs=1))
         assert closed
+
+    def test_hardware_window_centers_on_full_frame_peak(self, monkeypatch):
+        from ao_shaping.optimizer.wfless import slm_gs_refine as module
+        from ao_shaping.utils.io.file import Recorder
+
+        frame = np.zeros((100, 120), dtype=np.float64)
+        frame[42, 77] = 100.0
+        monkeypatch.setattr(module, "_sync_device_wavelength", lambda *_: None)
+        monkeypatch.setattr(module, "_panel_shape", lambda *_: (8, 8))
+        monkeypatch.setattr(module, "_display_and_average", lambda *_args, **_kwargs: frame)
+
+        class CameraStub:
+            def reset_window(self, *, center, size):
+                assert center == (77, 42)
+                assert size == (100, 100)
+                raise RuntimeError("window configured")
+
+        with pytest.raises(RuntimeError, match="window configured"):
+            module._run_gs_refine_session(
+                _fast_config(cam_type="daheng"),
+                object(),
+                CameraStub(),
+                np.random.default_rng(1),
+                Recorder(mark="score", mode="max"),
+            )

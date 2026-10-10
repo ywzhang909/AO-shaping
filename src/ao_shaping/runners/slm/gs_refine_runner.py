@@ -68,7 +68,7 @@ import numpy as np
 
 from ao_shaping.runners.runner_common import SlmGsRefineParams
 from ao_shaping.utils.cli.params import with_params
-from ao_shaping.utils.io.cli_helpers import get_debug_mode
+from ao_shaping.utils.io.cli_helpers import resolve_debug
 from ao_shaping.display.frames import save_best_image
 
 
@@ -83,7 +83,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx)
     root_dir = (
         Path(ctx.parent.obj.get("dir", "data"))
         if ctx.parent is not None and ctx.parent.obj is not None
@@ -145,7 +145,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         SlmGsRefineConfig,
         optimize_slm_gs_refine,
     )
-    from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+    from ao_shaping.utils.io.file import gen_date_dir, gen_date_str, save_history
 
     config = SlmGsRefineConfig(
         epochs=params.epochs,
@@ -178,6 +178,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         settle_wait_s=params.settle_wait_s,
         settle_tol=params.settle_tol,
         settle_max_wait_s=params.settle_max_wait_s,
+        record_debug=debug,
     )
 
     recorder = optimize_slm_gs_refine(config)
@@ -196,7 +197,11 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     if "flat" in stage_scores:
         click.echo(f"Flat baseline : {stage_scores['flat']:.4f}")
     if "gs" in stage_scores:
-        verdict = "adopted" if best_iter["stage"] == "gs" else "rejected (kept flat)"
+        verdict = (
+            "adopted"
+            if stage_scores["gs"] > stage_scores["flat"]
+            else "rejected (kept flat)"
+        )
         click.echo(f"GS warm start : {stage_scores['gs']:.4f}  [{verdict}]")
     click.echo(f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})")
     click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
@@ -204,7 +209,17 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     save_dir = gen_date_dir(root_dir / "slm_gs_refine")
     csv_file = save_dir / f"slm_gs_refine_{gen_date_str()}.csv"
-    recorder.save_dataframe(csv_file)
+    save_history(
+        [
+            {
+                key: value
+                for key, value in row.items()
+                if isinstance(value, (str, int, float, bool, np.generic)) or value is None
+            }
+            for row in recorder.history
+        ],
+        csv_file,
+    )
     click.echo(f"History saved: {csv_file}")
 
     best_phase = getattr(recorder, "best_phase", None)
@@ -231,7 +246,24 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
             click.echo(f"Best image saved: {img_file}")
 
     if debug:
-        click.echo(f"Debug data saved to: {save_dir}")
+        from ao_shaping.utils.io.file import save_recorder_debug_artifacts
+
+        debug_png = save_recorder_debug_artifacts(
+            recorder,
+            root_dir=str(root_dir),
+            subdir_prefix="slm_gs_refine",
+            scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
+            img_keys=(
+                "_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"
+            ),
+            json_payload={
+                key: value
+                for key, value in vars(config).items()
+                if isinstance(value, (str, int, float, bool)) or value is None
+            },
+            title="SLM GS refine",
+        )
+        click.echo(f"Debug data saved to: {debug_png}")
 
 
 if __name__ == "__main__":
