@@ -171,7 +171,7 @@ class TestCliOptions:
             "pupil_diameter",
             "pupil_center",
             "early_stop_threshold",
-            "exposure_time_ms",
+            "wfs_exposure_ms",
             "wavelength",
             "shift_x",
             "shift_y",
@@ -299,7 +299,7 @@ class TestRunFunction:
                     "1.0",  # Skip auto-delta by providing positive value
                     "--wfs-res",
                     "1024",
-                    "--exposure-time-ms",
+                    "--wfs-exposure-ms",
                     "50.0",
                 ],
             )
@@ -308,8 +308,8 @@ class TestRunFunction:
             assert result.exit_code == 0, f"CLI failed: {result.output}"
             assert "完成" in result.output or "RMS" in result.output
 
-    def test_run_passes_exposure_time_ms_to_optimizer(self):
-        """Test that exposure_time_ms is correctly passed to optimizer_rms."""
+    def test_run_passes_wfs_exposure_ms_to_optimizer(self):
+        """The WFS exposure flag reaches optimizer_rms as wfs_exposure_time."""
         from click.testing import CliRunner
 
         from ao_shaping.runners.slm.rms_zernike_runner import run
@@ -374,7 +374,7 @@ class TestRunFunction:
                     "1.0",
                     "--wfs-res",
                     "1024",
-                    "--exposure-time-ms",
+                    "--wfs-exposure-ms",
                     "75.0",
                 ],
             )
