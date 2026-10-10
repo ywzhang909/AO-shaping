@@ -430,6 +430,55 @@ def shape_stage_from_energy(energy: float) -> str:
     return "fine"
 
 
+def shape_tile_coverage(img: np.ndarray, roi: np.ndarray, bins: int = 5) -> float:
+    """Overlap of measured and uniform target energy across spatial tiles.
+
+    A concentrated spot can have high in-box energy while leaving most of a
+    large target dark. This term measures broad spatial coverage separately
+    from the pixel-level CV. Corner median subtraction removes the camera's
+    approximately constant pedestal before computing tile energy fractions.
+    """
+    frame = np.asarray(img, dtype=np.float64)
+    mask = np.asarray(roi, dtype=bool)
+    if frame.ndim != 2 or mask.shape != frame.shape:
+        raise ValueError("img and roi must be 2D arrays of the same shape")
+    if bins < 1:
+        raise ValueError(f"bins must be positive, got {bins}")
+    ys, xs = np.nonzero(mask)
+    if not ys.size:
+        return 0.0
+    corner_h = max(1, frame.shape[0] // 10)
+    corner_w = max(1, frame.shape[1] // 10)
+    corners = np.concatenate(
+        (
+            frame[:corner_h, :corner_w].ravel(),
+            frame[:corner_h, -corner_w:].ravel(),
+            frame[-corner_h:, :corner_w].ravel(),
+            frame[-corner_h:, -corner_w:].ravel(),
+        )
+    )
+    background = float(np.median(corners))
+    signal = np.clip(frame - background, 0.0, None)
+    signal = np.where(mask, signal, 0.0)
+    if not np.isfinite(signal).all() or signal.sum() <= 0.0:
+        return 0.0
+
+    observed: list[float] = []
+    expected: list[float] = []
+    y_tiles = np.array_split(np.arange(ys.min(), ys.max() + 1), bins)
+    x_tiles = np.array_split(np.arange(xs.min(), xs.max() + 1), bins)
+    for y_tile in y_tiles:
+        for x_tile in x_tiles:
+            if not y_tile.size or not x_tile.size:
+                continue
+            tile = np.ix_(y_tile, x_tile)
+            observed.append(float(signal[tile].sum()))
+            expected.append(float(mask[tile].sum()))
+    measured = np.asarray(observed) / float(signal.sum())
+    target = np.asarray(expected) / float(mask.sum())
+    return float(np.minimum(measured, target).sum())
+
+
 def shape_metric(
     img: np.ndarray,
     center: tuple[float, float],
@@ -443,10 +492,11 @@ def shape_metric(
     stage: str | None = None,
     log_uniformity: bool = False,
     w_pearson: float = 0.0,
+    w_coverage: float = 0.0,
 ) -> tuple[float, float]:
     """Return the dynamic-ROI shaping score and encircled-energy ratio.
 
-    ``score = energy - w_u*u - w_pk*pk - w_d*d + w_rho*rho`` where every penalty term is
+    ``score = energy - w_u*u - w_pk*pk - w_d*d + w_rho*rho + w_cov*coverage`` where every penalty term is
     bounded to ``[0, 1)`` (``u = std/mean`` mapped by ``u/(1+u)``,
     ``pk = max/mean`` mapped by ``(pk-1)/(pk+1)``) so the weights stay
     comparable and cannot swamp the energy term.
@@ -457,6 +507,8 @@ def shape_metric(
             progress fraction). ``None`` uses the explicit ``w_*`` weights.
         log_uniformity: use ``log1p(u)`` instead of ``u/(1+u)`` to keep the
             gradient visible once the ROI is nearly flat.
+        w_coverage: weight on 5x5 spatial tile overlap with the uniform target.
+            Zero preserves the existing score.
     """
     frame = np.asarray(img, dtype=np.float64)
     if frame.ndim != 2:
@@ -516,6 +568,8 @@ def shape_metric(
         # frame has no defined correlation and must not dominate this score.
         if 0.0 <= pearson_loss <= 2.0:
             score += float(w_pearson) * (1.0 - pearson_loss)
+    if w_coverage:
+        score += float(w_coverage) * shape_tile_coverage(frame, roi)
     return float(score), float(energy)
 
 

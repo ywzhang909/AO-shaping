@@ -580,6 +580,10 @@ class ObjectiveParamsPib:
         float,
         option("--w-pearson", help="Weight on correlation with the uniform target shape."),
     ] = 0.0
+    w_coverage: Annotated[
+        float,
+        option("--w-coverage", help="Weight on spatial coverage across target tiles."),
+    ] = 0.0
     w_loggrad: Annotated[
         float,
         option(

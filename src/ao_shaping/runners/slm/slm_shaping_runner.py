@@ -246,6 +246,7 @@ def _save_debug_artifacts(
         "w_uniformity": getattr(camera, "w_uniformity", None),
         "w_peak": getattr(camera, "w_peak", None),
         "w_pearson": getattr(camera, "w_pearson", None),
+        "w_coverage": getattr(camera, "w_coverage", None),
         "w_displacement": getattr(camera, "w_displacement", None),
         "shape_schedule": getattr(camera, "shape_schedule", None),
         "log_uniformity": getattr(camera, "log_uniformity", None),

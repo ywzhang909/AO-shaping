@@ -344,7 +344,7 @@ def test_cli_exposes_rms_pib_init_weight_options():
     result = CliRunner().invoke(run, ["spgd", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in ("--w-pib-init", "--w-rms-init", "--w-ee-init", "--w-pearson"):
+    for opt in ("--w-pib-init", "--w-rms-init", "--w-ee-init", "--w-pearson", "--w-coverage"):
         assert opt in result.output
 
 

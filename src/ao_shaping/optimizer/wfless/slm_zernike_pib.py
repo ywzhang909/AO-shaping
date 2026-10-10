@@ -593,6 +593,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     w_uniformity = camera_config.w_uniformity
     w_peak = camera_config.w_peak
     w_pearson = camera_config.w_pearson
+    w_coverage = camera_config.w_coverage
     w_loggrad = camera_config.w_loggrad
     w_displacement = camera_config.w_displacement
     log_uniformity = camera_config.log_uniformity
@@ -662,6 +663,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         ("w_uniformity", w_uniformity),
         ("w_peak", w_peak),
         ("w_pearson", w_pearson),
+        ("w_coverage", w_coverage),
         ("w_displacement", w_displacement),
     ):
         if not np.isfinite(_w) or _w < 0.0:
@@ -924,6 +926,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     w_uniformity=w_uniformity,
                     w_peak=w_peak,
                     w_pearson=w_pearson,
+                    w_coverage=w_coverage,
                     w_displacement=w_displacement,
                     log_uniformity=log_uniformity,
                 ),

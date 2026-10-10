@@ -65,10 +65,11 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
 
     assert result.exit_code == 0, result.output
     for option in (
-        "--target_shape",
-        "--target_size",
-        "--target_aspect_ratio",
-        "--target_center_smooth",
+        "--target-shape",
+        "--target-size",
+        "--target-aspect-ratio",
+        "--target-center-smooth",
+        "--w-coverage",
     ):
         assert option in result.output
     assert "shape" in result.output
@@ -85,7 +86,7 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
 
 
 def test_slm_pib_cli_target_shape_choices_match_optimizer() -> None:
-    # The CLI --target_shape choices must stay in sync with the optimizer's
+    # The CLI --target-shape choices must stay in sync with the optimizer's
     # TARGET_SHAPE_CHOICES; otherwise a valid CLI choice hits a ValueError in
     # the optimizer (e.g. the old "annulus" vs "annular" mismatch).
     result = CliRunner().invoke(run, ["spgd", "--help"])
@@ -94,11 +95,11 @@ def test_slm_pib_cli_target_shape_choices_match_optimizer() -> None:
     # Extract the bracketed choice list from the help text.
     import re
 
-    match = re.search(r"--target_shape\s+\[([^\]]+)\]", result.output)
+    match = re.search(r"--target-shape\s+\[([^\]]+)\]", result.output)
     assert match, result.output
     cli_choices = {c.strip() for c in match.group(1).split("|")}
     assert cli_choices == set(TARGET_SHAPE_CHOICES), (
-        f"CLI --target_shape choices {cli_choices} != "
+        f"CLI --target-shape choices {cli_choices} != "
         f"TARGET_SHAPE_CHOICES {set(TARGET_SHAPE_CHOICES)}"
     )
 
