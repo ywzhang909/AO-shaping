@@ -117,9 +117,9 @@ box sum cv = **0.20%**。
 
 ## 4. 2026-10-01 `slm-gsnet spgd` 实机失败的根因
 
-运行参数: `--cam_type daheng --cam-id 0 --exposure_time_ms 1.5 --cam_size 300
---target-side 100 -c shape --zernike_radius 450 --objective quality
---delta 0.2 --lr 0.02 --optimizer_type adamod -e 80 --debug`
+运行参数: `--cam-type daheng --cam-id 0 --exposure-time-ms 1.5 --cam-size 300
+--target-side 100 -c shape --zernike-radius 450 --objective quality
+--delta 0.2 --lr 0.02 --optimizer-type adamod -e 80 --debug`
 
 | 判据 | 值 | 判读 |
 |---|---|---|

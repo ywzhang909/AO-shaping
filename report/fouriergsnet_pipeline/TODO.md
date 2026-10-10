@@ -96,18 +96,18 @@ Get-Content "C:\Users\zhangh\AppData\Local\Temp\opencode\hw_smoke.out"
 # D:\Projects\TIFO\AO-shaping, PYTHONPATH=src;libs
 $env:PYTHONPATH='src;libs'
 python src/ao_shaping/main.py slm-gsnet spgd `
-  --cam_type daheng --cam-id 0 `
-  --slm_number 1 --slm_wavelength 1064 `
+  --cam-type daheng --cam-id 0 `
+  --slm-number 1 --slm-wavelength 1064 `
   -c max `
-  --exposure_time_ms 0.8 `
+  --exposure-time-ms 0.8 `
   -e 50
 ```
 
 关键参数 (已对照 `slm-gsnet spgd --help`):
-- `--cam_type daheng --cam-id 0` — 真机用 Daheng 远场相机 (cam-id=0, 对应 `Far_Cam_ID=0`)。
-- `--slm_number 1 --slm_wavelength 1064` — Santec SLM #1, 1064 nm (driver 内部走 memory mode + slot 轮换)。
+- `--cam-type daheng --cam-id 0` — 真机用 Daheng 远场相机 (cam-id=0, 对应 `Far_Cam_ID=0`)。
+- `--slm-number 1 --slm-wavelength 1064` — Santec SLM #1, 1064 nm (driver 内部走 memory mode + slot 轮换)。
 - `-c max` — 0 级光斑用 `argmax` 定位 (红线 3)。
-- `--exposure_time_ms 0.8` — 1064 nm 近饱和基线 ~0.02ms 量级, 0.8ms 为保守曝光 (可调)。
+- `--exposure-time-ms 0.8` — 1064 nm 近饱和基线 ~0.02ms 量级, 0.8ms 为保守曝光 (可调)。
 - `-e 50` — SPGD 迭代数 (真机先小步验证收敛, 勿一次跑满)。
 
 **验收判据**:
@@ -121,10 +121,10 @@ python src/ao_shaping/main.py slm-gsnet spgd `
 
 ```powershell
 python src/ao_shaping/main.py slm-gsnet heuristic `
-  --cam_type daheng --cam-id 0 `
-  --slm_number 1 --slm_wavelength 1064 `
+  --cam-type daheng --cam-id 0 `
+  --slm-number 1 --slm-wavelength 1064 `
   -c max `
-  --exposure_time_ms 0.8 `
+  --exposure-time-ms 0.8 `
   --algorithm spgd -e 30
 ```
 

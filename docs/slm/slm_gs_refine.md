@@ -68,10 +68,10 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 | `--beam-radius-px` | 面板上照明光斑**半径** (实测台架值) | 450 |
 | `--camera-pixel-um` | 相机像素间距 (um) —— **光路模型的测量锚点** | 2.2 |
 | `--focal-length-m` | 2f 透镜焦距 (m)。默认 0 = 由实测焦点标度 + `--camera-pixel-um` 派生 (本台架 ⇒ 0.1224 m) | 0 |
-| `--slm_wavelength` | SLM 工作波长 (nm)。默认 0 = 询问设备实际编程波长 | 0 |
+| `--slm-wavelength` | SLM 工作波长 (nm)。默认 0 = 询问设备实际编程波长 | 0 |
 | `--far-field-padding` | GS 远场补零倍数 (默认 3; **代价是平方级**) | 3 |
-| `--cam_type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size` | 相机配置 | - |
-| `--slm_number` / `--slm_wavelength` | SLM 配置 | - |
+| `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
+| `--slm-number` / `--slm-wavelength` | SLM 配置 | - |
 | `--n-eval-frames` / `--settle-wait-s` / `--settle-tol` / `--settle-max-wait-s` | 稳定判据 | - |
 | `--early-stop-score` / `--seed` / `--save-best-image` | 早停/种子/保存图 | - |
 
@@ -90,20 +90,20 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 本台架实测 `K` ⇒ 0.1224 m (与 125 mm 标称差 2%)。
 显式传值可锁定具体镜头。
 
-### `--slm_wavelength` 默认 0 = 询问设备
+### `--slm-wavelength` 默认 0 = 询问设备
 实验室有 532/1064 两台 SLM。焦点标度 `K ∝ λ`，换波长须先把 `K` 折算过去，否则派生焦距会按 `λ/λ_ref` 整体缩放 (532 nm 会整整大 2×)。
 
 ## 6. 仿真模式
 
 ```bash
-python src/ao_shaping/main.py slm-gs-refine --cam_type sim -e 20
+python src/ao_shaping/main.py slm-gs-refine --cam-type sim -e 20
 ```
 
 ## 7. 硬件示例
 
 ```bash
 # 大恒 CCD + Santec SLM #1 @1064nm
-python src/ao_shaping/main.py slm-gs-refine --cam_type daheng --cam-id 0 -e 400
+python src/ao_shaping/main.py slm-gs-refine --cam-type daheng --cam-id 0 -e 400
 
 # 显式指定目标方形边长 (相机像素)
 python src/ao_shaping/main.py slm-gs-refine --target-side 90

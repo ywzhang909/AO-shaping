@@ -38,20 +38,20 @@ graph TD
 
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
-| `-d, --root_dir` | 数据保存根目录 | data |
-| `-f, --load_file` | 加载初始电压文件 | - |
-| `--cam_id` | 远场光斑 CCD 设备 ID | Far_CAM_ID/0 |
+| `-d, --root-dir` | 数据保存根目录 | data |
+| `-f, --load-file` | 加载初始电压文件 | - |
+| `--cam-id` | 远场光斑 CCD 设备 ID | Far_CAM_ID/0 |
 | `-c, --center` | 光斑中心位置 (mass/auto/'x,y') | mass |
-| `-t, --exposure_time_ms` | CCD 曝光时间 (ms, 0=不固定) | **0** |
+| `-t, --exposure-time-ms` | CCD 曝光时间 (ms, 0=不固定) | **0** |
 | `-e, --epochs` | 优化迭代次数 | 4000 |
-| `-r, --r_bucket` | 半径桶大小 (0=自动调整) | 0 |
+| `-r, --r-bucket` | 半径桶大小 (0=自动调整) | 0 |
 | `--delta` | 优化步长 | 1.0 |
 | `--lr` | 优化学习率 (0=动态衰减) | 0.0 |
-| `--shrink_iter` / `--shrink_ratio` | 收缩半径桶迭代间隔/比例 | 0 / 0.9 |
-| `-s, --cam_size` | 相机开窗大小 | 250 |
-| `-b, --target_max_brightness` | 目标最大亮度值 | 40 |
+| `--shrink-iter` / `--shrink-ratio` | 收缩半径桶迭代间隔/比例 | 0 / 0.9 |
+| `-s, --cam-size` | 相机开窗大小 | 250 |
+| `-b, --target-max-brightness` | 目标最大亮度值 | 40 |
 | `--show` | 显示远场光斑 CCD 图像和优化历史 | False |
-| `--dm_type` | 变形镜类型 (nlight/micro/asyn_micro/zernike/hadamard/auto) | auto-detect |
+| `--dm-type` | 变形镜类型 (nlight/micro/asyn_micro/zernike/hadamard/auto) | auto-detect |
 
 ## 5. 多 DM 支持
 
@@ -59,7 +59,7 @@ graph TD
 
 ## 6. 曝光默认值陷阱 (红线)
 
-> **`--exposure_time_ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
+> **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
 > 上机前**必须显式传入按当前激光功率实测的曝光**。
 
 ## 7. 输出契约
@@ -70,7 +70,7 @@ graph TD
 ## 8. 示例
 
 ```bash
-DEBUG=1 python src/ao_shaping/main.py combined --epochs 2000 --cam_size 250
+DEBUG=1 python src/ao_shaping/main.py combined --epochs 2000 --cam-size 250
 ```
 
 ## 9. 单独运行

@@ -44,14 +44,14 @@
 
 ```bash
 python src/ao_shaping/main.py slm-gsnet spgd \
-  --cam_type daheng --cam-id 0 \
-  --exposure_time_ms 1.5 \
-  --cam_size 300 --target-side 100 \
-  -c shape --zernike_radius 450 \
-  --slm_number 1 --slm_wavelength 1064 \
+  --cam-type daheng --cam-id 0 \
+  --exposure-time-ms 1.5 \
+  --cam-size 300 --target-side 100 \
+  -c shape --zernike-radius 450 \
+  --slm-number 1 --slm-wavelength 1064 \
   --objective quality \
   --delta 0.2 --lr 0.02 \
-  --optimizer_type adamod \
+  --optimizer-type adamod \
   -e 80 --debug
 ```
 
@@ -180,8 +180,8 @@ SNR 实测 (54 DOF) 全部 < 1.4。freeform 是 **576 DOF, 其中约 159 被照�
 | 4 | 随机初始化是满幅 `uniform(-π,π)`, 与 docstring 声称的 "small init" 矛盾 | `slm_gsnet_runner.py:1223` |
 | 5 | 方形路径无 encircled-energy guard | `ObjectiveParamsSquare` |
 | 6 | 单帧采样, 无 ABBA / 漂移对消 (台架已备 `slm_snr_probe.abba_signal` 但未接) | `CAM_SAMPLE_ITER = 1` |
-| 7 | 传 `--exposure_time_ms` 会**关闭自动曝光**, 且饱和保护成为死代码 (`exposure_time_ms == 0` 才触发) | `resolve_initial_exposure` / L1670 |
-| 8 | `--exposure_time_ms` 默认 **80.0 ms** —— 本台架近饱和基线 ~0.02 ms, 默认值必然饱和 | `CameraParams` |
+| 7 | 传 `--exposure-time-ms` 会**关闭自动曝光**, 且饱和保护成为死代码 (`exposure_time_ms == 0` 才触发) | `resolve_initial_exposure` / L1670 |
+| 8 | `--exposure-time-ms` 默认 **80.0 ms** —— 本台架近饱和基线 ~0.02 ms, 默认值必然饱和 | `CameraParams` |
 | 9 | 焦距标定常数自相矛盾: 文档同时写 `132940/P` 与 `7600/P` (差 17.5×); 实测 7400 与一阶 `7557/P` 相差仅 1–2% | `slm_bench_probe.py:78` / 文档 |
 | 10 | 仓库中 **11 个**非记录 pickle (`None` / `Recorder` 对象) 曾使语料索引整体失败 —— 已修复 | `gsnet_offline.py:292-310` |
 
@@ -200,7 +200,7 @@ SNR 实测 (54 DOF) 全部 < 1.4。freeform 是 **576 DOF, 其中约 159 被照�
 5. **重新定义可达目标**: 在本台架上, 80 px staircase 能影响的是
    *大尺度* 结构 —— 例如把能量聚进一个 **≥100 px 的大 ROI**、压低斑径、
    提升 Strehl, 而不是刻一个 50 px 的平顶方块。
-6. **修正 `--exposure_time_ms` 默认值** (80 ms → 本台架 ~1–1.5 ms),
+6. **修正 `--exposure-time-ms` 默认值** (80 ms → 本台架 ~1–1.5 ms),
    并让饱和保护在固定曝光下也生效。
 
 ---
@@ -211,12 +211,12 @@ SNR 实测 (54 DOF) 全部 < 1.4。freeform 是 **576 DOF, 其中约 159 被照�
 $env:PYTHONPATH = 'src;libs'
 # 必须作为独立进程 + 外部看门狗运行 (SLM memory-mode open + 首次采集可能无限阻塞)
 python src/ao_shaping/main.py slm-gsnet spgd `
-  --cam_type daheng --cam-id 0 `
-  --exposure_time_ms 1.5 --cam_size 300 --target-side 100 `
-  -c shape --zernike_radius 450 `
-  --slm_number 1 --slm_wavelength 1064 `
+  --cam-type daheng --cam-id 0 `
+  --exposure-time-ms 1.5 --cam-size 300 --target-side 100 `
+  -c shape --zernike-radius 450 `
+  --slm-number 1 --slm-wavelength 1064 `
   --objective quality --delta 0.2 --lr 0.02 `
-  --optimizer_type adamod -e 80 --debug
+  --optimizer-type adamod -e 80 --debug
 ```
 
 > ⚠️ 设备安全: SLM **仅 memory mode** (`video_mode=0`), 绝不开 DVI;

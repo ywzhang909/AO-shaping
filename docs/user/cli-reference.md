@@ -42,7 +42,7 @@ python src/ao_shaping/main.py wf --help
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
 
-⚠️ **组级与命令级的 `-d` 重复声明**。组级有 `--dir`（默认 `data`）和 `--debug`，但 `wf` / `pib` / `pipeline` / `rms-zernike` / `ga-zernike` / `greedy-zernike` 又各自在自己的选项表里重复声明了 `-d`；其中 `pib` 和 `combined` 把它命名为 `-d, --root_dir` 而不是 `-d, --dir`。同一个短选项出现在两层，位置决定作用对象：组级写在命令名之前，命令级写在命令名之后。
+⚠️ **组级与命令级的 `-d` 重复声明**。组级有 `--dir`（默认 `data`）和 `--debug`，但 `wf` / `pib` / `pipeline` / `rms-zernike` / `ga-zernike` / `greedy-zernike` 又各自在自己的选项表里重复声明了 `-d`；其中 `pib` 和 `combined` 把它命名为 `-d, --root-dir` 而不是 `-d, --dir`。同一个短选项出现在两层，位置决定作用对象：组级写在命令名之前，命令级写在命令名之后。
 
 ```bash
 # 组级 --dir
@@ -51,7 +51,7 @@ python src/ao_shaping/main.py --dir data wf
 python src/ao_shaping/main.py wf -d data
 ```
 
-⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w_pib`（下划线）与 `--w-unif`（连字符）；`spgd-square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w_uniformity`；`pib` 用 `--shrink_iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
+⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w-pib`（下划线）与 `--w-unif`（连字符）；`spgd-square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w-uniformity`；`pib` 用 `--shrink-iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
 
 ⚠️ **调试模式有三条等价路径**：`main.py --debug <cmd>` / `<cmd> --debug` / 环境变量 `DEBUG=1`；真值为 `1` / `true` / `yes`，不区分大小写。并非每个命令都自带 `--debug` 选项，`wf` / `pipeline` / `ga-zernike` / `spgd-square` / `slm-lut` / `slm-diagnose` / `slm-gs-refine` 的选项表里没有 `--debug`，这几个命令要开调试只能走组级 `--debug` 或 `DEBUG=1`。
 
@@ -80,7 +80,7 @@ python src/ao_shaping/main.py wf -d data
 
 ### 硬件需求
 
-DM + WFS。`--wfs_type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`--dm_type` 含 `sim` / `sim_micro` 仿真变形镜，两者都选仿真即可完全脱离硬件跑。
+DM + WFS。`--wfs-type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`--dm-type` 含 `sim` / `sim_micro` 仿真变形镜，两者都选仿真即可完全脱离硬件跑。
 
 ### 选项
 
@@ -88,18 +88,18 @@ DM + WFS。`--wfs_type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`-
 |---|---|---|---|
 | `-d, --dir` | TEXT | `data` | 数据保存根目录 |
 | `-e, --epochs` | INTEGER | `20000` | 优化迭代次数 |
-| `-t, --early_stop_threshold` | FLOAT | `0.0` | 早停阈值 |
+| `-t, --early-stop-threshold` | FLOAT | `0.0` | 早停阈值 |
 | `--disturbance-cn2` | FLOAT | `0.0` | 仿真 WFS 湍流强度 cn2，0=不加像差 |
 | `--lr` | FLOAT | 未指定（`WfRunnerParams.lr=None`） | 覆盖自动学习率；不给则按硬件标定的自动调度 |
 | `--delta` | FLOAT | 未指定（`WfRunnerParams.delta=None`） | 覆盖 SPGD 扰动幅度（V）；不给则走自动调度 |
 | `--show` | 开关 | `False` | 显示远场光斑 CCD 图像和优化历史 |
-| `--dm_type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
-| `-r, --wfs_res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil_diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil_center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `--dm-type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
+| `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
-| `--wfs_type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
+| `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 
 共 14 项。默认值来源：`runner_common.py :: WfRunnerParams`（`defaults_dump.txt:5-12`）、`WfsParams`（`defaults_dump.txt:355-360`）。
 
@@ -107,7 +107,7 @@ DM + WFS。`--wfs_type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`-
 
 ```bash
 # 仿真 DM + 仿真 WFS，跑 200 轮早停演示
-python src/ao_shaping/main.py wf -e 200 --dm_type sim --wfs_type sim --show
+python src/ao_shaping/main.py wf -e 200 --dm-type sim --wfs-type sim --show
 
 # 真实硬件，指定 WFS 分辨率与瞳孔参数
 python src/ao_shaping/main.py wf -r 1024 -p 2.7 -c "0,0" --exposure-time-ms 0.0
@@ -121,41 +121,41 @@ python src/ao_shaping/main.py wf -r 1024 -p 2.7 -c "0,0" --exposure-time-ms 0.0
 
 ### 硬件需求
 
-DM + CCD。`--cam_type sim` 是 2f-Fourier 数值仿真（需配合 `--dm_type sim`），`--dm_type` 亦含 `sim` / `sim_micro`，两者配合可完全仿真。
+DM + CCD。`--cam-type sim` 是 2f-Fourier 数值仿真（需配合 `--dm-type sim`），`--dm-type` 亦含 `sim` / `sim_micro`，两者配合可完全仿真。
 
 ### 选项
 
 | 选项 | 类型/取值 | 默认值 | 说明 |
 |---|---|---|---|
-| `-d, --root_dir` | TEXT | `data` | 数据保存根目录。⚠️ 长选项是 `--root_dir`，不是 `--dir` |
-| `-f, --load_file` | TEXT | `rms` ⚠️ | 加载优化结果文件；若为 `rms` 则用 RMS 优化结果初始化。⚠️ `--help` 写 `(default: None)`，默认值转储为 `'rms'`，以转储为准 |
-| `--cam_id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID |
-| `--cam_type` | `[miicam\|daheng\|sim]` | `miicam` | CCD 相机后端，sim = 2f-Fourier 数值仿真，需配合 `--dm_type sim` |
+| `-d, --root-dir` | TEXT | `data` | 数据保存根目录。⚠️ 长选项是 `--root-dir`，不是 `--dir` |
+| `-f, --load-file` | TEXT | `rms` ⚠️ | 加载优化结果文件；若为 `rms` 则用 RMS 优化结果初始化。⚠️ `--help` 写 `(default: None)`，默认值转储为 `'rms'`，以转储为准 |
+| `--cam-id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID |
+| `--cam-type` | `[miicam\|daheng\|sim]` | `miicam` | CCD 相机后端，sim = 2f-Fourier 数值仿真，需配合 `--dm-type sim` |
 | `-c, --center` | TEXT | `mass` | 远场光斑 CCD 中心位置，例如 `665,403` |
-| `-t, --exposure_time_ms` | FLOAT | `0.0` | 远场光斑 CCD 曝光时间（毫秒）。0=不固定，由设备保持或自动曝光；Daheng 上 0 会被驱动钳到设备最小值（约 0.02ms） |
+| `-t, --exposure-time-ms` | FLOAT | `0.0` | 远场光斑 CCD 曝光时间（毫秒）。0=不固定，由设备保持或自动曝光；Daheng 上 0 会被驱动钳到设备最小值（约 0.02ms） |
 | `-e, --epochs` | INTEGER | `4000` | 优化迭代次数 |
-| `-r, --r_bucket` | INTEGER | `0` | 半径桶大小。0=环围半径，按功率半径自动调整 |
+| `-r, --r-bucket` | INTEGER | `0` | 半径桶大小。0=环围半径，按功率半径自动调整 |
 | `--delta` | FLOAT | `2.0` | 优化步长 |
 | `--lr` | FLOAT | `0.0` | 优化学习率。0.0 表示基于环围半径动态学习率衰减 |
-| `--weight_decay` | FLOAT | `0.0` | 权重衰减 |
-| `--optimizer_type` | `[adam\|adamw\|adamod\|sgd\|muno\|munow]` | `adamod` | 梯度阶段使用的优化器类型 |
-| `--shrink_iter` | INTEGER | `200` | 优化多少迭代后收缩半径桶和步长。0=不收缩 |
-| `--shrink_ratio` | FLOAT | `0.8` | 收缩半径桶和步长比例 |
-| `--enable_adaptive_search` | 开关 | `False` | 启用局部最优后的自适应邻域搜索 |
-| `--search_interval` | INTEGER | `120` | 邻域搜索触发间隔 |
-| `--search_warmup` | INTEGER | `200` | 邻域搜索启动前的最小迭代数 |
-| `--search_patience` | INTEGER | `100` | 最佳 PIB 无提升时触发搜索的等待轮数 |
-| `--search_samples` | INTEGER | `8` | 每次邻域搜索评估的候选解数量 |
-| `--search_radius` | FLOAT | 未指定（`PibRunnerParams.search_radius=None`） | 邻域搜索初始半径，默认跟随 delta 自适应 |
-| `--tabu_memory_size` | INTEGER | `128` | 禁忌记忆表容量 |
-| `-s, --cam_size` | INTEGER | `200` | 相机开窗大小（`--help` 文案写作 `200*200`） |
-| `-b, --target_max_brightness` | INTEGER | `90` | 目标最大亮度值，0=不自动调整曝光时间 |
+| `--weight-decay` | FLOAT | `0.0` | 权重衰减 |
+| `--optimizer-type` | `[adam\|adamw\|adamod\|sgd\|muno\|munow]` | `adamod` | 梯度阶段使用的优化器类型 |
+| `--shrink-iter` | INTEGER | `200` | 优化多少迭代后收缩半径桶和步长。0=不收缩 |
+| `--shrink-ratio` | FLOAT | `0.8` | 收缩半径桶和步长比例 |
+| `--enable-adaptive-search` | 开关 | `False` | 启用局部最优后的自适应邻域搜索 |
+| `--search-interval` | INTEGER | `120` | 邻域搜索触发间隔 |
+| `--search-warmup` | INTEGER | `200` | 邻域搜索启动前的最小迭代数 |
+| `--search-patience` | INTEGER | `100` | 最佳 PIB 无提升时触发搜索的等待轮数 |
+| `--search-samples` | INTEGER | `8` | 每次邻域搜索评估的候选解数量 |
+| `--search-radius` | FLOAT | 未指定（`PibRunnerParams.search_radius=None`） | 邻域搜索初始半径，默认跟随 delta 自适应 |
+| `--tabu-memory-size` | INTEGER | `128` | 禁忌记忆表容量 |
+| `-s, --cam-size` | INTEGER | `200` | 相机开窗大小（`--help` 文案写作 `200*200`） |
+| `-b, --target-max-brightness` | INTEGER | `90` | 目标最大亮度值，0=不自动调整曝光时间 |
 | `-o, --objective` | `[pib\|radiu\|avg_radiu]` | `pib` | 优化目标函数：pib=最大化 PIB，radiu=最小化半径，avg_radiu=最大化平均半径 |
 | `--show` | 开关 | `False` | 显示远场光斑 CCD 图像和优化历史 |
-| `--dm_type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
+| `--dm-type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
 | `--debug` | 开关 | `None`（关闭） | 启用调试模式，保存 pkl/json 与汇总图（初始/最优光斑、目标曲线、最优电压） |
 
-共 27 项。默认值来源：`runner_common.py :: PibRunnerParams`（`defaults_dump.txt:15-41`），`--cam_id` 为 lambda 动态默认（`defaults_dump.txt:17`）。
+共 27 项。默认值来源：`runner_common.py :: PibRunnerParams`（`defaults_dump.txt:15-41`），`--cam-id` 为 lambda 动态默认（`defaults_dump.txt:17`）。
 
 ### 示例
 
@@ -164,7 +164,7 @@ DM + CCD。`--cam_type sim` 是 2f-Fourier 数值仿真（需配合 `--dm_type s
 python src/ao_shaping/main.py pib -e 4000 -r 0 -o pib
 
 # 仿真链路 + 调试输出
-python src/ao_shaping/main.py --debug pib --cam_type sim --dm_type sim -c mass
+python src/ao_shaping/main.py --debug pib --cam-type sim --dm-type sim -c mass
 ```
 
 ## 5. pipeline
@@ -175,38 +175,38 @@ python src/ao_shaping/main.py --debug pib --cam_type sim --dm_type sim -c mass
 
 ### 硬件需求
 
-DM + WFS + CCD。`--wfs_type sim` 可替换 WFS；该命令选项表里没有 `--cam_type`，CCD 侧没有仿真后端选项。
+DM + WFS + CCD。`--wfs-type sim` 可替换 WFS；该命令选项表里没有 `--cam-type`，CCD 侧没有仿真后端选项。
 
 ### 选项
 
 | 选项 | 类型/取值 | 默认值 | 说明 |
 |---|---|---|---|
 | `-d, --dir` | TEXT | `data` | 数据保存根目录 |
-| `-f, --load_file` | TEXT | `None` | 加载优化结果文件 |
+| `-f, --load-file` | TEXT | `None` | 加载优化结果文件 |
 | `-e, --epochs` | INTEGER | `8000` | 优化迭代次数 |
-| `-E, --wf_epochs` | INTEGER | `8000` | WF 优化迭代次数 |
-| `--cam_id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID，无短选项 |
-| `-t, --exposure_time_ms` | INTEGER | `0` | 远场光斑 CCD 曝光时间（毫秒），0=自动选取曝光 |
-| `-s, --cam_size` | INTEGER | `160` | 相机开窗大小 |
-| `--rms_threshold` | FLOAT | `0.12` | RMS 阈值，无短选项 |
-| `-u, --dm_unit_mask` | `[all\|inner\|outer]` | `all` | DM 单元掩码 |
-| `--dm_type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
-| `-r, --wfs_res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil_diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil_center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `-E, --wf-epochs` | INTEGER | `8000` | WF 优化迭代次数 |
+| `--cam-id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID，无短选项 |
+| `-t, --exposure-time-ms` | INTEGER | `0` | 远场光斑 CCD 曝光时间（毫秒），0=自动选取曝光 |
+| `-s, --cam-size` | INTEGER | `160` | 相机开窗大小 |
+| `--rms-threshold` | FLOAT | `0.12` | RMS 阈值，无短选项 |
+| `-u, --dm-unit-mask` | `[all\|inner\|outer]` | `all` | DM 单元掩码 |
+| `--dm-type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
+| `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
-| `--wfs_type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
+| `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 
 共 16 项。默认值来源：`runner_common.py :: PipelineRunnerParams`（`defaults_dump.txt:44-53`）、`WfsParams`（`defaults_dump.txt:355-360`）。
 
-ℹ️ 该命令**没有** `-R`，分辨率是 `-r, --wfs_res`；`-c` 是 `--pupil_center`，不是 `--cam_id`。
+ℹ️ 该命令**没有** `-R`，分辨率是 `-r, --wfs-res`；`-c` 是 `--pupil-center`，不是 `--cam-id`。
 
 ### 示例
 
 ```bash
 # WF 阶段 8000 轮 + PIB 阶段 8000 轮，RMS 达标后切 PIB
-python src/ao_shaping/main.py pipeline -E 8000 -e 8000 --rms_threshold 0.12 -s 160
+python src/ao_shaping/main.py pipeline -E 8000 -e 8000 --rms-threshold 0.12 -s 160
 ```
 
 ## 6. zernike-matrix
@@ -217,7 +217,7 @@ python src/ao_shaping/main.py pipeline -E 8000 -e 8000 --rms_threshold 0.12 -s 1
 
 ### 硬件需求
 
-SLM（Santec）+ WFS。`--wfs_type sim` 可用仿真 Shack-Hartmann 替代真实 WFS；SLM 侧该命令没有仿真后端选项。
+SLM（Santec）+ WFS。`--wfs-type sim` 可用仿真 Shack-Hartmann 替代真实 WFS；SLM 侧该命令没有仿真后端选项。
 
 ### 选项
 
@@ -250,12 +250,12 @@ SLM（Santec）+ WFS。`--wfs_type sim` 可用仿真 Shack-Hartmann 替代真实
 | `--auto-exposure / --no-auto-exposure` | 开关 | `True` | 启用 WFS 自动曝光，默认开启 |
 | `--high-speed` | 开关 | `False` | 启用高速模式 |
 | `--use-custom-ref` | 开关 | `False` | 使用自定义参考文件 |
-| `-r, --wfs_res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil_diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil_center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
-| `--wfs_type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
+| `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 
 共 33 项。默认值来源：`zernike_matrix_runner.py :: ZernikeMatrixParams`（`defaults_dump.txt:477-494`）、`runner_common.py :: WfsParams`（`defaults_dump.txt:355-360`）、`ZernikeSlmParams`（`defaults_dump.txt:363-367`）、`ThorlabWfsDriverParams`（`defaults_dump.txt:370-374`）。
 

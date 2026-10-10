@@ -112,6 +112,6 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 
 ## 4. SPGD
 
-> uv run -m ao_shaping.runners.slm_pib_runner spgd -c "max" --target_shape square --target_size 50 --delta 0.0005 --exposure_time_ms 1.2 --show -e 200 --zernike_radius 480 -n 9 --debug --lr 0.5
+> uv run -m ao_shaping.runners.slm_pib_runner spgd -c "max" --target-shape square --target-size 50 --delta 0.0005 --exposure-time-ms 1.2 --show -e 200 --zernike-radius 480 -n 9 --debug --lr 0.5
 
 ![1790602621794](image/report/1790602621794.png)

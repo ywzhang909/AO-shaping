@@ -81,7 +81,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ### 孪生与硬件共享数学
 `model_in_loop_shaping.py` 含 `calibrate_bench_geometry` / `_probe_phase` / `_fit_aberration_at_probes` / `shape_phase_with_frozen_aberration` / `simulate_iterative_shaping`。
-`--cam_type sim` 只替换 `Bench` 实现 (`_SimBench` vs `_HardwareBench`)，数学逐位相同。
+`--cam-type sim` 只替换 `Bench` 实现 (`_SimBench` vs `_HardwareBench`)，数学逐位相同。
 
 ## 5. 主要选项
 
@@ -101,8 +101,8 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--min-geometry-correlation` | 几何 bake-off 阈值；低于直接中止 (退出码 2) | 0.5 |
 | `--warm-start/--no-warm-start` | 热启动 | True |
 | `--early-stop-score` / `--save-best-image` | 早停分数 / 保存最优图 | - |
-| `--cam_type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size` | 相机配置 | - |
-| `--slm_number` / `--slm_wavelength` / `--device` / `--dtype` / `--seed` | SLM/设备/种子 | - |
+| `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
+| `--slm-number` / `--slm-wavelength` / `--device` / `--dtype` / `--seed` | SLM/设备/种子 | - |
 
 ## 6. 两个守卫
 
@@ -116,21 +116,21 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ## 7. 曝光默认值陷阱 (红线)
 
-> **`--exposure_time_ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
+> **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
 > **上机前必须显式传入按当前激光功率实测的曝光** (本台架历史参考 1.5 ms)。
 
 ## 8. 仿真模式
 
 ```bash
-python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2
+python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 ```
 
 ## 9. 硬件示例
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam_type daheng --cam-id 0 --exposure_time_ms 1.5 \
-    --slm_number 1 --slm_wavelength 1064 \
+    --cam-type daheng --cam-id 0 --exposure-time-ms 1.5 \
+    --slm-number 1 --slm-wavelength 1064 \
     --panel-span-px 900 --pupil-center 960,600 --camera-pixel-um 2.2 \
     -r 6
 ```
