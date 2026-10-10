@@ -585,6 +585,8 @@ _DATA_MODE_OBJECTIVE_KEYS = (
 def _infer_objective_key(data: dict[int, dict]) -> str | None:
     """Return the objective column name present in the first data record."""
     first = next(iter(data.values()), {})
+    if "score" in first:
+        return "score"
     for key in _DATA_MODE_OBJECTIVE_KEYS:
         if key in first:
             return key

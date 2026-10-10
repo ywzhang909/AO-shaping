@@ -229,6 +229,7 @@ class SlmGsRefineConfig:
     # --- bookkeeping -------------------------------------------------------
     callback: Callable[[int, float], None] | None = field(default=None, repr=False)
     progress_every: int = 10
+    record_debug: bool = False
 
     def __post_init__(self) -> None:
         """Resolve the derived bench-model quantities once, here.
@@ -257,8 +258,10 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"n_eval_frames must be at least 1, got {self.n_eval_frames}"
             )
-        if self.gs_iters < 1:
-            raise ValueError(f"gs_iters must be at least 1, got {self.gs_iters}")
+        if self.gs_iters < 0 or (self.gs_warm_start and self.gs_iters == 0):
+            raise ValueError(
+                f"gs_iters must be positive when GS is enabled, got {self.gs_iters}"
+            )
         if self.gs_relax <= 0:
             raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
         if self.w_pib < 0 or self.w_unif < 0:
@@ -489,18 +492,19 @@ def _display_and_average(
     settle_tol: float,
     settle_max_wait_s: float,
     settle_max_discard: int,
+    memory_number: int | None = None,
 ) -> np.ndarray:
     """Write ``phase_rad`` (raw radians), wait for the panel to settle, average.
 
-    ``slm.display_data(gray)`` is called with **no** ``memory_number`` so the
-    driver rotates memory slots itself, and with no ``wait_time_s`` so we do not
-    trust its flip-time estimate (it reports 0.0 ms for phases with similar gray
-    statistics). Calling it with only the gray map is also what keeps this loop
-    runnable against the simulated SLM, whose ``display_data`` has no
-    ``wait_time_s`` parameter at all.
+    Real hardware uses a pair of explicit memory slots that exclude the slot
+    displayed before the run. The simulator receives only the gray map because
+    its ``display_data`` does not accept hardware slot arguments.
     """
     gray = slm.create_phase_from_array(phase_rad)
-    slm.display_data(gray)
+    if memory_number is None:
+        slm.display_data(gray)
+    else:
+        slm.display_data(gray, memory_number=memory_number)
 
     if settle_wait_s > 0:
         time.sleep(settle_wait_s)
@@ -712,13 +716,11 @@ def _open_cam(config: SlmGsRefineConfig) -> Any:
             cam_size=config.cam_size,
         )
 
-    cam = create_camera(
+    return create_camera(
         config.cam_type,
         cam_id=config.cam_id,
         exposure_time_ms=config.exposure_time_ms,
     )
-    cam.reset_window(center=(0, 0), size=(config.cam_size, config.cam_size))
-    return cam
 
 
 # ---------------------------------------------------------------------------
@@ -746,190 +748,290 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
 
     rng = np.random.default_rng(config.seed)
     recorder = Recorder(mark="score", mode="max")
-    best_score = -math.inf
-    best_stage = _STAGE_FLAT
-    best_phase: np.ndarray | None = None
-    best_frame: np.ndarray | None = None
 
     slm = _open_slm(config)
-    cam = _open_cam(config)
+    cam = None
     try:
+        cam = _open_cam(config)
         with slm, cam:
-            _sync_device_wavelength(config, slm)
-            panel_shape = _panel_shape(slm)
-            radius_px = max(8.0, float(config.beam_radius_px))
-            target_side = _derive_target_side(config, radius_px)
-            logger.info(
-                "slm-gs-refine: panel={} beam_radius={}px target_side={}px "
-                "cam={}#{} exposure={}ms grid={}x{}",
-                panel_shape,
-                radius_px,
-                target_side,
-                config.cam_type,
-                config.cam_id,
-                config.exposure_time_ms,
-                config.phase_grid,
-                config.phase_grid,
-            )
+            original_slot = None
+            original_gray = None
+            if config.cam_type != "sim":
+                from ao_shaping.drivers.slm.santec import SantecError
 
-            def measure(phase: np.ndarray) -> np.ndarray:
-                return _display_and_average(
-                    cam,
-                    slm,
-                    phase,
-                    n_frames=config.n_eval_frames,
-                    settle_wait_s=config.settle_wait_s,
-                    settle_tol=config.settle_tol,
-                    settle_max_wait_s=config.settle_max_wait_s,
-                    settle_max_discard=config.settle_max_discard,
+                try:
+                    original_slot = slm.get_displayed_memory_number()
+                except SantecError as exc:
+                    if exc.code != 1:
+                        raise
+                if original_slot is None:
+                    original_gray = slm.get_current_grayscale()
+            try:
+                return _run_gs_refine_session(
+                    config, slm, cam, rng, recorder, protected_slot=original_slot
                 )
-
-            def record(
-                stage: str, frame: np.ndarray, mask: np.ndarray, **extra: Any
-            ) -> float:
-                score, pib, cv = _metrics(frame, mask, config.w_pib, config.w_unif)
-                recorder.append(
-                    {
-                        "stage": stage,
-                        "score": score,
-                        "pib": pib,
-                        "cv": cv,
-                        "target_side": target_side,
-                        **extra,
-                    }
-                )
-                return score
-
-            # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
-            flat_panel = np.zeros(panel_shape, dtype=np.float64)
-            frame0 = measure(flat_panel)
-            cy, cx = _locate_zero_order(frame0)
-            mask = _square_mask(frame0.shape, cy, cx, target_side)
-            if not mask.any():
-                raise ValueError(
-                    f"target square (side={target_side}px at ({cy},{cx})) is empty"
-                )
-            score_flat = record(_STAGE_FLAT, frame0, mask, cy=cy, cx=cx)
-            best_score = score_flat
-            best_phase = flat_panel
-            best_frame = frame0
-            logger.info(
-                "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
-                cy,
-                cx,
-                target_side,
-                score_flat,
-            )
-
-            # --- Stage 1: GS warm start, admitted only if it wins -------------
-            base_panel = flat_panel
-            gs_box = _gs_pupil_phase(config, radius_px, target_side)
-            if gs_box is not None:
-                gs_panel = _embed_pupil_square(gs_box, panel_shape, radius_px)
-                gs_frame = measure(gs_panel)
-                score_gs = record(_STAGE_GS, gs_frame, mask, cy=cy, cx=cx)
-                if score_gs > score_flat:
-                    base_panel = gs_panel
-                    best_score = score_gs
-                    best_phase = gs_panel
-                    best_frame = gs_frame
-                    best_stage = _STAGE_GS
-                else:
-                    logger.info(
-                        "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
-                        "(check --camera-pixel-um / --beam-radius-px)",
-                        score_gs,
-                        score_flat,
-                    )
-
-            # --- Stage 2: SPGD freeform refinement --------------------------
-            # The DOF vector stays flat: ``Base.update`` keeps its moments at
-            # ``(dim,)`` and would not broadcast against a ``(grid, grid)``
-            # gradient. It is reshaped only when embedded into the panel.
-            grid = max(2, int(config.phase_grid))
-            dof = np.zeros(grid * grid, dtype=np.float64)
-            optimizer = _make_optimizer(
-                config.optimizer_type, dof.size, _lr_at(config, 0)
-            )
-
-            def phase_of(vec: np.ndarray) -> np.ndarray:
-                return _compose(
-                    base_panel, vec.reshape(grid, grid), panel_shape, radius_px
-                )
-
-            for epoch in range(max(1, int(config.epochs))):
-                lr = _lr_at(config, epoch)
-                if hasattr(optimizer, "lr"):
-                    optimizer.lr = lr
-
-                delta = rng.choice(np.array([-1.0, 1.0]), size=dof.size) * config.delta
-                # Measure first, then advance: the phase we score below is the one
-                # the camera actually saw, never a dof we have not evaluated yet.
-                frame_pos = measure(phase_of(dof + delta))
-                frame_neg = measure(phase_of(dof - delta))
-                pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif)[0]
-                neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif)[0]
-
-                take_pos = pos >= neg
-                measured_phase = phase_of(dof + delta if take_pos else dof - delta)
-                score = record(
-                    _STAGE_REFINE,
-                    frame_pos if take_pos else frame_neg,
-                    mask,
-                    epoch=epoch,
-                    lr=lr,
-                    pos=pos,
-                    neg=neg,
-                )
-                if score > best_score:
-                    best_score = score
-                    best_phase = measured_phase
-                    best_frame = frame_pos if take_pos else frame_neg
-                    best_stage = _STAGE_REFINE
-
-                grad = spgd_gradient(pos, neg, delta, maximize=True)
-                dof = np.clip(dof - optimizer.update(grad), -4.0 * np.pi, 4.0 * np.pi)
-
-                if config.callback is not None:
-                    config.callback(epoch, score)
-                if config.progress_every and epoch % config.progress_every == 0:
-                    logger.info(
-                        "epoch {:4d} lr={:.4g} score={:.4f} (pos={:.4f} neg={:.4f}) "
-                        "best={:.4f} [{}]",
-                        epoch,
-                        lr,
-                        score,
-                        pos,
-                        neg,
-                        best_score,
-                        best_stage,
-                    )
-                if (
-                    config.early_stop_score > 0
-                    and best_score >= config.early_stop_score
-                ):
-                    logger.info(
-                        "early stop at epoch {} (score {:.4f})", epoch, best_score
-                    )
-                    break
-
-            best_row = max(recorder.history, key=lambda r: r["score"])
-            logger.info(
-                "best composite {:.4f} at stage={} epoch={} ({} evaluations)",
-                best_row["score"],
-                best_row["stage"],
-                best_row.get("epoch", "-"),
-                len(recorder.history),
-            )
+            finally:
+                if config.cam_type != "sim":
+                    try:
+                        if original_slot is None:
+                            slm.set_grayscale(original_gray)
+                        else:
+                            slm._display_memory(original_slot)
+                    except Exception:
+                        logger.exception("failed to restore the initial SLM display")
+                        raise
     finally:
-        # Devices may already be closed by the context manager; this only matters
-        # when construction or open() raised part-way.
         for dev in (cam, slm):
+            if dev is None:
+                continue
             try:
                 dev.close()
             except Exception:  # noqa: BLE001 - cleanup must not mask the real error
                 logger.debug("device close failed during cleanup", exc_info=True)
 
+
+def _run_gs_refine_session(
+    config: SlmGsRefineConfig,
+    slm: Any,
+    cam: Any,
+    rng: np.random.Generator,
+    recorder: Recorder,
+    protected_slot: int | None = None,
+) -> Recorder:
+    best_score = -math.inf
+    best_stage = _STAGE_FLAT
+    best_phase: np.ndarray | None = None
+    best_frame: np.ndarray | None = None
+    _sync_device_wavelength(config, slm)
+    panel_shape = _panel_shape(slm)
+    work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
+    if config.cam_type != "sim":
+        # Locate the zero order on the full sensor before restricting the CCD ROI.
+        discovery = _display_and_average(
+            cam,
+            slm,
+            np.zeros(panel_shape, dtype=np.float64),
+            n_frames=1,
+            settle_wait_s=config.settle_wait_s,
+            settle_tol=config.settle_tol,
+            settle_max_wait_s=config.settle_max_wait_s,
+            settle_max_discard=config.settle_max_discard,
+            memory_number=work_slots[2],
+        )
+        full_y, full_x = _locate_zero_order(discovery)
+        cam.reset_window(
+            center=(full_x, full_y), size=(config.cam_size, config.cam_size)
+        )
+        logger.info("CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y)
+    radius_px = max(8.0, float(config.beam_radius_px))
+    target_side = _derive_target_side(config, radius_px)
+    logger.info(
+        "slm-gs-refine: panel={} beam_radius={}px target_side={}px "
+        "cam={}#{} exposure={}ms grid={}x{}",
+        panel_shape,
+        radius_px,
+        target_side,
+        config.cam_type,
+        config.cam_id,
+        config.exposure_time_ms,
+        config.phase_grid,
+        config.phase_grid,
+    )
+
+    work_slots = work_slots[:2]
+    measurement_count = 0
+
+    def measure(phase: np.ndarray) -> np.ndarray:
+        nonlocal measurement_count
+        memory_number = None
+        if config.cam_type != "sim":
+            memory_number = work_slots[measurement_count % len(work_slots)]
+            measurement_count += 1
+        return _display_and_average(
+            cam,
+            slm,
+            phase,
+            n_frames=config.n_eval_frames,
+            settle_wait_s=config.settle_wait_s,
+            settle_tol=config.settle_tol,
+            settle_max_wait_s=config.settle_max_wait_s,
+            settle_max_discard=config.settle_max_discard,
+            memory_number=memory_number,
+        )
+
+    def record(
+        stage: str,
+        frame: np.ndarray,
+        mask: np.ndarray,
+        phase: np.ndarray,
+        *,
+        other_frame: np.ndarray | None = None,
+        other_phase: np.ndarray | None = None,
+        positive_wins: bool | None = None,
+        **extra: Any,
+    ) -> float:
+        score, pib, cv = _metrics(frame, mask, config.w_pib, config.w_unif)
+        row = {
+            "stage": stage,
+            "score": score,
+            "pib": pib,
+            "cv": cv,
+            "target_side": target_side,
+            "_epoch": len(recorder.history),
+            **extra,
+        }
+        if config.record_debug:
+            row["_img"] = np.asarray(frame).copy()
+            row["_phase"] = np.asarray(slm.create_phase_from_array(phase)).copy()
+            if other_frame is not None and other_phase is not None:
+                other_img = np.asarray(other_frame).copy()
+                other_gray = np.asarray(
+                    slm.create_phase_from_array(other_phase)
+                ).copy()
+                if positive_wins:
+                    row.update(
+                        _img_pos=row["_img"],
+                        _phase_pos=row["_phase"],
+                        _img_neg=other_img,
+                        _phase_neg=other_gray,
+                    )
+                else:
+                    row.update(
+                        _img_pos=other_img,
+                        _phase_pos=other_gray,
+                        _img_neg=row["_img"],
+                        _phase_neg=row["_phase"],
+                    )
+        recorder.append(row)
+        return score
+
+    # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
+    flat_panel = np.zeros(panel_shape, dtype=np.float64)
+    frame0 = measure(flat_panel)
+    cy, cx = _locate_zero_order(frame0)
+    mask = _square_mask(frame0.shape, cy, cx, target_side)
+    if not mask.any():
+        raise ValueError(
+            f"target square (side={target_side}px at ({cy},{cx})) is empty"
+        )
+    score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
+    best_score = score_flat
+    best_phase = flat_panel
+    best_frame = frame0
+    logger.info(
+        "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
+        cy,
+        cx,
+        target_side,
+        score_flat,
+    )
+
+    # --- Stage 1: GS warm start, admitted only if it wins -------------
+    base_panel = flat_panel
+    gs_box = _gs_pupil_phase(config, radius_px, target_side)
+    if gs_box is not None:
+        gs_panel = _embed_pupil_square(gs_box, panel_shape, radius_px)
+        gs_frame = measure(gs_panel)
+        score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
+        if score_gs > score_flat:
+            base_panel = gs_panel
+            best_score = score_gs
+            best_phase = gs_panel
+            best_frame = gs_frame
+            best_stage = _STAGE_GS
+        else:
+            logger.info(
+                "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
+                "(check --camera-pixel-um / --beam-radius-px)",
+                score_gs,
+                score_flat,
+            )
+
+    # --- Stage 2: SPGD freeform refinement --------------------------
+    # The DOF vector stays flat: ``Base.update`` keeps its moments at
+    # ``(dim,)`` and would not broadcast against a ``(grid, grid)``
+    # gradient. It is reshaped only when embedded into the panel.
+    grid = max(2, int(config.phase_grid))
+    dof = np.zeros(grid * grid, dtype=np.float64)
+    optimizer = _make_optimizer(
+        config.optimizer_type, dof.size, _lr_at(config, 0)
+    )
+
+    def phase_of(vec: np.ndarray) -> np.ndarray:
+        return _compose(
+            base_panel, vec.reshape(grid, grid), panel_shape, radius_px
+        )
+
+    for epoch in range(max(1, int(config.epochs))):
+        lr = _lr_at(config, epoch)
+        if hasattr(optimizer, "lr"):
+            optimizer.lr = lr
+
+        delta = rng.choice(np.array([-1.0, 1.0]), size=dof.size) * config.delta
+        # Measure first, then advance: the phase we score below is the one
+        # the camera actually saw, never a dof we have not evaluated yet.
+        phase_pos = phase_of(dof + delta)
+        phase_neg = phase_of(dof - delta)
+        frame_pos = measure(phase_pos)
+        frame_neg = measure(phase_neg)
+        pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif)[0]
+        neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif)[0]
+
+        take_pos = pos >= neg
+        measured_phase = phase_pos if take_pos else phase_neg
+        score = record(
+            _STAGE_REFINE,
+            frame_pos if take_pos else frame_neg,
+            mask,
+            measured_phase,
+            other_frame=frame_neg if take_pos else frame_pos,
+            other_phase=phase_neg if take_pos else phase_pos,
+            positive_wins=take_pos,
+            epoch=epoch,
+            lr=lr,
+            pos=pos,
+            neg=neg,
+        )
+        if score > best_score:
+            best_score = score
+            best_phase = measured_phase
+            best_frame = frame_pos if take_pos else frame_neg
+            best_stage = _STAGE_REFINE
+
+        grad = spgd_gradient(pos, neg, delta, maximize=True)
+        dof = np.clip(dof - optimizer.update(grad), -4.0 * np.pi, 4.0 * np.pi)
+
+        if config.callback is not None:
+            config.callback(epoch, score)
+        if config.progress_every and epoch % config.progress_every == 0:
+            logger.info(
+                "epoch {:4d} lr={:.4g} score={:.4f} (pos={:.4f} neg={:.4f}) "
+                "best={:.4f} [{}]",
+                epoch,
+                lr,
+                score,
+                pos,
+                neg,
+                best_score,
+                best_stage,
+            )
+        if (
+            config.early_stop_score > 0
+            and best_score >= config.early_stop_score
+        ):
+            logger.info(
+                "early stop at epoch {} (score {:.4f})", epoch, best_score
+            )
+            break
+
+    best_row = max(recorder.history, key=lambda r: r["score"])
+    logger.info(
+        "best composite {:.4f} at stage={} epoch={} ({} evaluations)",
+        best_row["score"],
+        best_row["stage"],
+        best_row.get("epoch", "-"),
+        len(recorder.history),
+    )
     # The best phase and frame ride on the Recorder as attributes rather than as
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array

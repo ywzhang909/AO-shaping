@@ -8,7 +8,7 @@ from typing import Any, Callable, Self
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
+from ao_shaping.drivers.ccd.base import AveragedFrame, BaseCamera, CameraError
 from ao_shaping.drivers.ccd.miicam._sdk_setup import _setup_miicam_sdk
 
 # 导入前先设置好 MIICAM SDK
@@ -805,14 +805,10 @@ class MIICamera(BaseCamera):
         if n_sample == 1:
             return first_img
 
-        numpy_image = np.zeros_like(first_img) if skip_first else first_img.copy()
-        _n_sample = n_sample if skip_first else n_sample - 1
-
-        for _ in range(_n_sample):
-            numpy_image = numpy_image + self.__take_one_shot()
-
-        avg_img = numpy_image / _n_sample
-        return avg_img.astype(np.uint8 if self._bit_depth == 8 else np.uint16)
+        total = np.zeros(first_img.shape, dtype=np.float64) if skip_first else first_img.astype(np.float64)
+        for _ in range(n_sample if skip_first else n_sample - 1):
+            total += self.__take_one_shot()
+        return AveragedFrame(total / n_sample, first_img.dtype)
 
     # =========================================================================
     # 回调模式 (连续拉流)

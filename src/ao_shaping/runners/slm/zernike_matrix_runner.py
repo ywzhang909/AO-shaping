@@ -89,9 +89,8 @@ from ao_shaping.runners.runner_common import (
     ThorlabWfsDriverParams,
     WfsParams,
     ZernikeSlmParams,
-    option,
-    with_params,
 )
+from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.tools.slm.slm_zernike_common import (
     DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,

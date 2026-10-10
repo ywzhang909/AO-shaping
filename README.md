@@ -563,6 +563,10 @@ python src/ao_shaping/main.py spgd-square [OPTIONS]
 - `--zernike-radius`: Zernike 孔径半径 px (默认: 600 = SLM 面板短边一半, 与GUI一致)
 - `--zernike-mask`: 0/1 binary mask (逗号分隔), 指定参与优化的 Zernike 模式 (Noll 1-3 强制为 0; 覆盖 --basis zernike 默认)
 - `--rotation-search`: SLM↔相机相对旋转搜索范围 (度, 0~360; 0=关闭旋转校正)。>0 时旋转角作为额外 SPGD 自由度在 ±range/2 内搜索
+- `--adaptive`: 启用自适应 SPGD 闭环: 按 epoch 三等分切换 stage_weights 三元组 (w_uniformity, w_efficiency, w_aspect), 并在 CV 停滞 (最近 stagnate_win 轮 best 改善 < min_improve_frac) 时短暂提升 w_uniformity。默认关闭, 关闭时行为与既有运行完全一致
+- `--stagnate-win`: 停滞检测窗口轮数, 与 --adaptive 联用 (默认: 10)
+- `--stagnate-boost`: 停滞时 w_uniformity 倍增因子, 1.0=关闭增强 (默认: 1.5)
+- `--min-improve-frac`: 停滞判定阈值: 窗口内 best CV 改善 < 该比例视为停滞 (默认: 0.01)
 - `--init-defocus` (默认: 1.0) / `--init-spherical` (默认: 0.5): 初始 Defocus (2,0) / Spherical (4,0) 系数
 - `--init-coeffs`: 初始Zernike系数JSON (Noll 索引 dict 或 Noll 序数组); zernike 基只优化 Defocus(2,0)[Noll 4] 与 Spherical(4,0)[Noll 11], 例如 `'{"4":1.0,"11":0.5}'`
 - `--save-best-image`: 保存最优远场图 PNG

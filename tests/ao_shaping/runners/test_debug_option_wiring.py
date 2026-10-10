@@ -82,3 +82,51 @@ def test_main_group_exposes_debug_flag():
 
     assert result.exit_code == 0, result.output
     assert "--debug" in result.output
+
+
+def test_gs_refine_honours_main_group_debug(tmp_path, monkeypatch):
+    import numpy as np
+
+    from ao_shaping.main import cli
+    from ao_shaping.optimizer.wfless import slm_gs_refine
+    from ao_shaping.utils.io.file import Recorder
+
+    seen = []
+
+    def fake_optimize(config):
+        seen.append(config.record_debug)
+        recorder = Recorder(mark="score", mode="max")
+        recorder.append(
+            {
+                "_epoch": 0,
+                "stage": "flat",
+                "score": 0.2,
+                "pib": 0.1,
+                "cv": 1.0,
+                "_img": np.ones((4, 4)),
+                "_phase": np.zeros((4, 4), dtype=np.uint16),
+            }
+        )
+        recorder.append({"_epoch": 1, "stage": "gs", "score": 0.3, "pib": 0.2, "cv": 0.8})
+        recorder.append(
+            {"_epoch": 2, "stage": "refine", "score": 0.4, "pib": 0.3, "cv": 0.7}
+        )
+        return recorder
+
+    monkeypatch.setattr(slm_gs_refine, "optimize_slm_gs_refine", fake_optimize)
+    result = CliRunner().invoke(
+        cli,
+        ["--dir", str(tmp_path), "--debug", "slm-gs-refine", "--cam-type", "sim"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert seen == [True]
+    assert "Debug data saved to:" in result.output
+    assert "[adopted]" in result.output
+    assert list((tmp_path / "debug").rglob("*.pkl"))
+    csv_files = list((tmp_path / "slm_gs_refine").rglob("*.csv"))
+    assert len(csv_files) == 1
+    csv_text = csv_files[0].read_text(encoding="utf-8")
+    assert "score" in csv_text
+    assert "_img" not in csv_text
+    assert "_phase" not in csv_text

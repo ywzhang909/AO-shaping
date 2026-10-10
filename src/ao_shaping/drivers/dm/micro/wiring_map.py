@@ -15,6 +15,9 @@ from typing import Any
 
 from loguru import logger
 
+from ao_shaping.drivers.dm.micro.constants import WIRING_MAP_PATH
+from ao_shaping.drivers.dm.micro.micro_constants import DEFAULT_IPS
+
 
 @dataclass(frozen=True)
 class SourceFiles:
@@ -310,6 +313,32 @@ class ChannelInfo:
         )
 
 
+def resolve_ips(user_ips: tuple[str, ...]) -> list[str]:
+    """解析待采集的控制器 IP 列表: 用户指定则用之, 否则遍历所有控制器 (wiring map → 默认 IP 段)。
+
+    Args:
+        user_ips: 用户通过 --ip 指定的 IP 元组 (可能为空)
+
+    Returns:
+        待采集的控制器 IP 列表
+    """
+    if user_ips:
+        return list(user_ips)
+    try:
+        wm = WiringMap.from_file(WIRING_MAP_PATH)
+        if wm is None:
+            raise ValueError("wiring map 文件缺失或无效")
+        ips = wm.unique_ips
+        if not ips:
+            logger.warning("wiring map 未包含有效控制器, 回退默认 IP 段")
+            return list(DEFAULT_IPS)
+        logger.info("未指定 IP, 从 wiring map 加载 {} 个控制器: {}", len(ips), ips)
+        return ips
+    except Exception as e:
+        logger.warning("wiring map 加载失败 ({}), 回退默认 IP 段", e)
+        return list(DEFAULT_IPS)
+
+
 __all__ = [
     "ChannelEntry",
     "ChannelInfo",
@@ -321,4 +350,5 @@ __all__ = [
     "SourceFiles",
     "Summary",
     "WiringMap",
+    "resolve_ips",
 ]

@@ -5,6 +5,20 @@ from abc import ABC, abstractmethod
 import numpy as np
 
 
+class AveragedFrame(np.ndarray):
+    """Float camera counts with the source pixel format's saturation level."""
+
+    full_scale: float
+
+    def __new__(cls, values: np.ndarray, source_dtype: np.dtype) -> "AveragedFrame":
+        frame = np.asarray(values, dtype=np.float32).view(cls)
+        frame.full_scale = float(np.iinfo(source_dtype).max)
+        return frame
+
+    def __array_finalize__(self, obj: object) -> None:
+        self.full_scale = getattr(obj, "full_scale", 255.0)
+
+
 class CameraError(Exception):
     """相机错误异常的基类。"""
 
@@ -154,8 +168,8 @@ class BaseCamera(ABC):
                 因为返回的第一帧可能是陈旧或不稳定的。
 
         返回:
-            np.ndarray: 采集到的图像, 为 ``uint8`` 或 ``uint16`` 数组,
-            取决于相机当前的位深 / 像素格式。
+            np.ndarray: 单帧保留相机原始类型；多帧平均保留小数灰度值
+            (``float32``)，不提前量化为整数。
 
         异常:
             AssertionError: n_sample 不是正数。

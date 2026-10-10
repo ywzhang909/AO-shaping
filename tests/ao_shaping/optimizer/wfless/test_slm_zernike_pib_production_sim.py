@@ -242,6 +242,20 @@ def test_multi_frame_averaging_runs():
     assert np.isfinite(float(recorder.history[-1]["J"]))
 
 
+def test_initial_baseline_uses_the_evaluation_frame_count(monkeypatch):
+    """Initial full-frame and ROI metrics must share the epoch sampling scale."""
+    capture = engine.capture_with_exposure
+    sample_counts = []
+
+    def record_capture(*args, **kwargs):
+        sample_counts.append(kwargs["n_sample"])
+        return capture(*args, **kwargs)
+
+    monkeypatch.setattr(engine, "capture_with_exposure", record_capture)
+    _run("shape", epochs=1, n_eval_frames=4)
+    assert sample_counts == [4, 4]
+
+
 def test_fold_and_noise_gates_accept_their_disable_values():
     """0 disables both gates; they must not become no-ops that still gate."""
     recorder = _run(

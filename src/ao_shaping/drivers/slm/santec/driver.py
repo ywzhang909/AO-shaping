@@ -292,20 +292,21 @@ class Santec:
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:
         """由驱动参数对象构造 Santec SLM。"""
+        wavelength = getattr(
+            params, "slm_wavelength", getattr(params, "wavelength", None)
+        )
         kwargs = {
             "slm_number": getattr(params, "slm_number", 1),
             "use_120hz": getattr(params, "use_120hz", False),
-            "wavelength": getattr(
-                params,
-                "slm_wavelength",
-                getattr(params, "wavelength", None),
-            ),
+            "wavelength": None if wavelength == 0 else wavelength,
             "video_mode": getattr(params, "video_mode", VideoMode.Memory),
             "shift_x": getattr(params, "shift_x", None),
             "shift_y": getattr(params, "shift_y", None),
             "correction_csv_path": getattr(params, "correction_csv_path", None),
         }
         kwargs.update(overrides)
+        if kwargs["wavelength"] == 0:
+            kwargs["wavelength"] = None
         return cls(**kwargs)
 
     def __init__(

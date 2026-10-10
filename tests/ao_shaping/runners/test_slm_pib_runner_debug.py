@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import click
 import numpy as np
 import pytest
 from click.testing import CliRunner
@@ -23,6 +24,7 @@ from ao_shaping.runners.slm.slm_shaping_runner import (
     SpgdParams,
     _build_slm_pib_config,
     _resolve_auto_camera,
+    _resolve_run_options,
     _save_debug_artifacts,
     run,
 )
@@ -33,6 +35,25 @@ from ao_shaping.runners.runner_common import (
     SpgdParamsPib,
 )
 from ao_shaping.utils.io.file import Recorder
+
+
+def test_slm_pib_inherits_root_output_options_only_when_not_overridden():
+    root = click.Context(
+        click.Command("main"), obj={"dir": "root-output", "debug": True}
+    )
+    group = click.Context(click.Command("slm-pib"), parent=root)
+    command = click.Context(click.Command("spgd"), parent=group)
+    command.set_parameter_source("dir", click.core.ParameterSource.DEFAULT)
+    inherited = RunParams()
+    _resolve_run_options(inherited, command)
+    assert inherited.dir == "root-output"
+    assert inherited.debug is True
+
+    command.set_parameter_source("dir", click.core.ParameterSource.COMMANDLINE)
+    local = RunParams(dir="local-output", debug=False)
+    _resolve_run_options(local, command)
+    assert local.dir == "local-output"
+    assert local.debug is True
 
 
 def _make_recorder(objective: str, mode: str, n: int = 3) -> Recorder:
@@ -78,6 +99,28 @@ def test_debug_artifacts_written_for_every_objective(tmp_path, objective, mode):
     assert png.exists() and png.stat().st_size > 0
     assert png.with_suffix(".pkl").exists()
     assert png.with_suffix(".json").exists()
+
+
+def test_debug_artifacts_preserve_initial_full_frame(tmp_path):
+    import pickle
+
+    rec = _make_recorder("shape", "max")
+    full_frame = np.zeros((32, 48), dtype=np.uint8)
+    full_frame[20, 7] = 93
+    rec.history[0]["_full_frame_img"] = full_frame
+
+    png = _save_debug_artifacts(
+        rec,
+        CameraParamsPib(target=ObjectiveTarget(name="shape")),
+        SlmParams(),
+        SpgdParamsPib(),
+        str(tmp_path),
+    )
+
+    with open(png.with_suffix(".pkl"), "rb") as f:
+        data = pickle.load(f)
+    np.testing.assert_array_equal(data[0]["_full_frame_img"], full_frame)
+    assert all("_full_frame_img" not in data[epoch] for epoch in (1, 2))
 
 
 def _make_rms_pib_recorder_with_target_box(n: int = 5) -> Recorder:
@@ -203,7 +246,9 @@ def test_debug_artifact_json_round_trips_config(tmp_path):
     rec = _make_recorder("pib", "max")
     png = _save_debug_artifacts(
         rec,
-        CameraParamsPib(target=ObjectiveTarget(name="pib")),
+        CameraParamsPib(
+            target=ObjectiveTarget(name="pib"), w_pearson=1.0, shape_schedule=True
+        ),
         SlmParams(),
         HeuristicParams(algorithm="ga"),
         str(tmp_path),
@@ -215,6 +260,8 @@ def test_debug_artifact_json_round_trips_config(tmp_path):
     assert payload["algorithm"] == "ga"
     # objective identity is now recorded
     assert payload["objective"] == "pib"
+    assert payload["w_pearson"] == 1.0
+    assert payload["shape_schedule"] is True
     # unset fields are dropped rather than serialised as null
     assert all(v is not None for v in payload.values())
 
@@ -301,7 +348,7 @@ def test_cli_exposes_debug_and_heuristic_options():
     result = CliRunner().invoke(run, ["heuristic", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in ("--debug", "--algorithm", "--pop_size", "--cam_type", "--seed"):
+    for opt in ("--debug", "--algorithm", "--pop-size", "--cam-type", "--seed"):
         assert opt in result.output
     for algo in ("spgd", "ga", "pso", "sa", "hc", "rs", "cem", "de"):
         assert algo in result.output
@@ -318,7 +365,7 @@ def test_cli_exposes_rms_pib_init_weight_options():
     result = CliRunner().invoke(run, ["spgd", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in ("--w_pib_init", "--w_rms_init", "--w_ee_init"):
+    for opt in ("--w-pib-init", "--w-rms-init", "--w-ee-init", "--w-pearson", "--w-coverage"):
         assert opt in result.output
 
 
@@ -444,9 +491,31 @@ def _patch_probe(
     patching the module attributes intercepts the probe.
     """
     probe = _StubProbeCamera()
-    calls: dict[str, Any] = {}
+    calls: dict[str, Any] = {"events": []}
+
+    class ProbeSlm:
+        @classmethod
+        def from_params(cls, params):
+            calls["slm_params"] = params
+            return cls()
+
+        def __enter__(self):
+            calls["events"].append("slm_open")
+            return self
+
+        def __exit__(self, *args):
+            calls["events"].append("slm_close")
+
+        def create_phase_from_array(self, phase):
+            assert phase.shape == (1200, 1920)
+            assert not np.any(phase)
+            return np.zeros_like(phase, dtype=np.uint16)
+
+        def display_data(self, gray, **kwargs):
+            calls["events"].append("flat_display")
 
     def fake_open_camera(camera_type: str, cam_id: int, exposure_ms: float):
+        calls["events"].append("camera_open")
         calls["open"] = (camera_type, cam_id, exposure_ms)
         return probe
 
@@ -466,6 +535,8 @@ def _patch_probe(
     monkeypatch.setattr(
         "ao_shaping.utils.image.hardware_utils.open_camera", fake_open_camera
     )
+    monkeypatch.setattr("ao_shaping.optimizer.wfless.slm_zernike_pib.Santec", ProbeSlm)
+    monkeypatch.setattr("ao_shaping.runners.slm.slm_shaping_runner.time.sleep", lambda _: None)
     monkeypatch.setattr(
         "ao_shaping.utils.image.hardware_utils.auto_find_exposure_and_center",
         fake_auto_find,
@@ -561,13 +632,14 @@ def test_resolve_auto_camera_sets_exposure_and_center(monkeypatch):
     camera = CameraParams(center="auto", exposure_time_ms=80.0)
 
     _resolve_auto_camera(
-        camera, find_exposure=True, auto_target_peak=160.0, auto_n_frames=5
+        camera, SlmParamsPib(), find_exposure=True, auto_target_peak=160.0, auto_n_frames=5
     )
 
     assert camera.exposure_time_ms == 12.5
     assert camera.center == (34, 56)
     assert probe.closed is True
     assert calls["auto"] == (True, True, 160.0, 5)
+    assert calls["events"] == ["slm_open", "flat_display", "camera_open", "slm_close"]
 
 
 def test_resolve_auto_camera_keeps_exposure_when_find_exposure_false(monkeypatch):
@@ -575,7 +647,7 @@ def test_resolve_auto_camera_keeps_exposure_when_find_exposure_false(monkeypatch
     camera = CameraParams(center="auto", exposure_time_ms=80.0)
 
     _resolve_auto_camera(
-        camera, find_exposure=False, auto_target_peak=160.0, auto_n_frames=5
+        camera, SlmParamsPib(), find_exposure=False, auto_target_peak=160.0, auto_n_frames=5
     )
 
     assert camera.exposure_time_ms == 80.0
@@ -589,7 +661,7 @@ def test_resolve_auto_camera_falls_back_on_probe_error(monkeypatch):
     camera = CameraParams(center="auto", exposure_time_ms=80.0)
 
     _resolve_auto_camera(
-        camera, find_exposure=True, auto_target_peak=160.0, auto_n_frames=5
+        camera, SlmParamsPib(), find_exposure=True, auto_target_peak=160.0, auto_n_frames=5
     )
 
     assert camera.center == "shape"

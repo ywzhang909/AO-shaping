@@ -11,6 +11,7 @@ from ao_shaping.display.gs_visualization import (
     create_gs_iteration_frame,
     gerchberg_saxton_with_visualization,
     render_gs_animation,
+    save_frames_as_gif,
 )
 from ao_shaping.display.image_display import (
     ImageVoltagesDisplay,
@@ -42,6 +43,7 @@ __all__ = (
     "DisplayClosedError",
     "EpochCurveFrame",
     "FrameInfo",
+    "GSVizCallback",
     "Image2DFrame",
     "Image2DWithBucketFrame",
     "ImageVoltagesDisplay",
@@ -66,6 +68,7 @@ __all__ = (
     "gerchberg_saxton_with_visualization",
     "render_gs_animation",
     "save_best_image",
+    "save_frames_as_gif",
     "to_display_uint8",
     "windows",
     "frames",

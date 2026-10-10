@@ -16,8 +16,8 @@ Usage:
     python src/ao_shaping/main.py slm-gsnet train [OPTIONS]    # offline GSNet training
 
 Offline dry-run (no hardware) — options live on the subcommand, not the group:
-    python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 50
-    python src/ao_shaping/main.py slm-gsnet heuristic --cam_type sim --epochs 50 --algorithm ga
+    python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 50
+    python src/ao_shaping/main.py slm-gsnet heuristic --cam-type sim --epochs 50 --algorithm ga
     python src/ao_shaping/main.py slm-gsnet train --epochs 1 --max-samples 32
 
 ``train`` never opens a device: it reads the ``data/debug`` pickles the
@@ -50,8 +50,8 @@ from ao_shaping.runners.runner_common import (
     parse_center,
     patch_sim_square_shaping,
     resolve_spgd_delta,
-    with_params,
 )
+from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.display import AutoDisplay, FrameInfo
