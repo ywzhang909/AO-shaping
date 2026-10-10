@@ -1,4 +1,4 @@
-# Shape objective trials (2026-10-09)
+# Shape objective trials (2026-10-09 to 2026-10-10)
 
 All completed optimization runs below used `--debug` and have their own
 PNG/PKL/JSON record set under the named directory. Epoch 0 is the initial
@@ -9,11 +9,99 @@ diagnostic and do not establish a uniform square beam.
 
 The Santec SLM #1 and Daheng CCD were online for these trials, and a settled
 flat / 64-px blaze / flat replay showed a reversible spot movement. The 100-px
-uniform square **was not achieved**. The best interleaved replay in this set
+uniform square **was not achieved**. The best 2026-10-09 Zernike interleaved replay
 improved the in-box CV to about 2.46 (from about 3.0 for the lower-order
 comparison), but only 164 of 10,000 target pixels exceeded half peak and the
-spot FWHM was about 20 x 11 px. It remained a compact peak. The devices are
-offline now; no further live test is claimed here.
+spot FWHM was about 20 x 11 px. It remained a compact peak. Both devices were
+online again for the 2026-10-10 tests below. Availability after that session is
+not inferred from these records.
+
+## Online retest after the fractional-mean fix (2026-10-10)
+
+The Santec SLM (`22030108`) and Daheng CCD (`FJB24112232`) were used at fixed
+1 ms exposure. New `slm-pib` runs used three frames per evaluation and the
+float32 fractional-mean camera path. The commands below show the significant
+CLI settings; each run's `debug/` JSON is the authority for its full resolved
+configuration. Invoke through `main.py` with the Daheng SDK on `PYTHONPATH`.
+
+```powershell
+python main.py --dir report/shape_trials/hardware_fractional_baseline_20261010 --debug slm-pib spgd --cam-type daheng --exposure-time-ms 1 --cam-size 250 --center max --objective shape --target-shape square --target-size 100 --n-eval-frames 3 --n-max 15 --delta 0.05 --lr 1 --epochs 24 --log-uniformity --w-uniformity 2
+python main.py --dir report/shape_trials/hardware_fractional_wuniformity4_20261010 --debug slm-pib spgd --cam-type daheng --exposure-time-ms 1 --cam-size 250 --center max --objective shape --target-shape square --target-size 100 --n-eval-frames 3 --n-max 15 --delta 0.05 --lr 1 --epochs 24 --log-uniformity --w-uniformity 4
+python main.py --dir report/shape_trials/hardware_freeform_square_20261010 --debug spgd-square --cam-type daheng --exposure-ms 1 --cam-size 250 --center max --target-side 100 --basis freeform --phase-grid 12 --delta 0.5 --lr 0.1 --epochs 24 --wavelength 1064
+python main.py --dir report/shape_trials/hardware_gs_centered_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 1 --phase-grid 12 --epochs 1
+python main.py --dir report/shape_trials/hardware_gs_100iter_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 100 --far-field-padding 1 --phase-grid 12 --epochs 1
+python main.py --dir report/shape_trials/hardware_gs_pad2_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 2 --phase-grid 12 --epochs 1
+python main.py --dir report/shape_trials/hardware_gs_pad3_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 3 --phase-grid 12 --epochs 1
+python main.py --dir report/shape_trials/hardware_gs_pad4_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 4 --phase-grid 12 --epochs 1
+```
+
+The Zernike runs' saved config records `slm_wavelength=0`; the freeform and GS
+runs record 1064 nm. That setting difference and the distinct objectives prevent
+a direct ranking of their objective scores. `spgd-square` used its default
+`side_factor=1.5`, uniformity/efficiency weights 0.4/0.6, and its own EE
+definition. Its EE must not be compared numerically with `slm-pib` in-box
+energy.
+
+| Record directory | Observation |
+| --- | --- |
+| `device_replay_fractional_mean_20261010/` | Replayed the 2026-10-09 n_max=15 epoch-22 phase between flats after the mean fix. Flat CV was about 2.84; candidate CV 2.074, Pearson 0.373 versus about 0.283 for flat, while in-box energy fell from about 0.704 to 0.690. Background median 0.6666667 count confirms fractional values survived averaging. A reproducible shape change is visible, but the spot is still centrally peaked. |
+| `hardware_fractional_baseline_20261010/` | 24-epoch `slm-pib` run with log uniformity and weight 2. Best recorded epoch 5 had shape score -1.918 versus -2.453 at epoch 0. Saved PNG/PKL/JSON contain the run. |
+| `hardware_fractional_wuniformity4_20261010/` and `device_replay_wuniformity_paired_20261010/` | Increased only uniformity weight from 2 to 4; best recorded epoch was 4. Interleaved replay of the two best phases gave CV 2.240-2.265, Pearson 0.347-0.351, energy about 0.699 for weight 2; weight 4 gave CV 2.614-2.636, Pearson 0.302-0.304, energy about 0.688. Flanking flats had CV about 2.92. Raising the weight did not help; the better candidate lit only about 140/10,000 target pixels above half peak. |
+| `device_flat_batch3_20261010/` and `device_flat_individual3_20261010/` | Separate camera sessions differed in light level by about 2.5%, so this pair alone cannot isolate the capture method. |
+| `device_flat_interleaved_average_20261010/` | Within one camera connection, alternated three-frame batch means with software means of three single-frame reads, five of each. Both background medians were 0.66667 count. Mean CV was 2.93998 versus 2.93873; in-box energy 0.69533 versus 0.69461; Pearson 0.27406 versus 0.27409. Differences are within observed flat-phase drift. This supports practical consistency, not pixelwise equality: the two methods captured different frames. |
+| `hardware_freeform_square_20261010/` | `spgd-square` freeform 12x12, 24 epochs. Best was epoch 0 flat: quality 0.02793, CV 2.988, EE 0.04486. Later frames sometimes lowered CV toward 2.3 but lost efficiency, and no quality improvement was accepted. |
+| `hardware_gs_bakeoff_20261010/` | First `slm-gs-refine` attempt placed the camera ROI at the upper-left instead of the beam. Its scores cannot support an optical conclusion and are excluded from the GS comparison. |
+| `hardware_gs_centered_20261010/` | After locating the zero order in the full frame at (x=668, y=1026), a 12-iteration GS warm start changed the composite score from 0.5726 (flat) to 0.6880 (GS), PIB from 0.9144 to 0.8340, and CV from 3.331 to 0.8451. One SPGD refinement epoch scored 0.6871, slightly below GS. Standard debug PNG/PKL/JSON record the displayed phase and measured image at each stage. |
+| `hardware_gs_100iter_20261010/` | At the same 100 px target, 1 ms exposure and three-frame mean, 100 GS iterations gave score 0.6803 versus 0.5701 for flat. One refinement epoch reached 0.6823 (PIB 0.8137, CV 0.8153). Standard debug PNG/PKL/JSON are saved. This run does not establish a gain over the 12-iteration run because the flat reference and camera state were measured in a separate session. |
+| `hardware_gs_pad2_20261010/` | Changed the 12-iteration GS far-field padding from 1 to 2. Flat scored 0.5713, GS 0.7195 and one refinement epoch 0.7225 (PIB 0.8923, CV 0.8092). Standard debug PNG/PKL/JSON are saved. The image still consists of nonuniform hotspots. Across sessions, the larger score alone does not isolate padding as the cause. |
+| `hardware_gs_pad3_20261010/` | With 12 GS iterations and padding 3, flat scored 0.5712 and GS scored 0.7546 (PIB 0.9356, CV 0.7437). GS was the best stage and had the highest composite score among these recorded GS trials. Standard debug PNG/PKL/JSON are saved. |
+| `hardware_gs_pad4_20261010/` | With 12 GS iterations and padding 4, flat scored 0.5677, GS 0.7460 and one refinement epoch 0.7492 (PIB 0.9217, CV 0.7336). Refinement was the best stage, but its score did not exceed the padding-3 trial. Standard debug PNG/PKL/JSON are saved. |
+
+### Measured image and phase evolution
+
+The animations below were rendered from the saved debug PKLs with
+`scripts/generate_pearson_pkl_gif.py`. The left panel is the CCD image and the
+right panel is the SLM phase. The GS animation shows flat, GS and one SPGD
+measurement; the Zernike animation samples 12 frames from the 24-epoch run.
+The generator normalizes **each CCD frame separately** before applying its
+colormap. Use these animations to inspect shape, not to compare absolute
+brightness or energy between frames or algorithms.
+
+![GS padding-3 flat, GS and refinement frames](figures/slm_gs_refine_20261010_100439_20261010_100439.gif)
+
+![Zernike SPGD frames sampled from the fractional-mean baseline](figures/slm_pib_shape_20261010_093101_20261010_093101.gif)
+
+The GS padding-3 best frame and its standard debug overview are shown below.
+The 100 px target region contains distinct bright islands and dark gaps, even
+though the run reached composite score 0.7546, PIB 0.9356 and CV 0.7437. The
+overview plots the recorded score; the best-frame image is for spatial
+inspection. Neither image establishes a filled uniform square.
+
+![GS padding-3 best measured far field](figures/gs_pad3_best_far_field.png)
+
+![GS padding-3 debug score and measured frames](figures/gs_pad3_debug_summary.png)
+
+Regenerate the GIFs by passing the respective run's `debug/` PKL to
+`scripts/generate_pearson_pkl_gif.py --pkl <path> --output-dir
+report/shape_trials/figures`; the GS render used `--max-frames 3 --fps 2
+--max-dim 512` and the Zernike render used `--max-frames 12 --fps 3
+--max-dim 512`. The static images are copies of that GS run's
+`best_far_field.png` and standard debug PNG.
+
+The 100 x 100 px uniform square remains **unachieved**. Increasing the
+uniformity weight and the short freeform SPGD search did not solve it. The
+paired replay shows a real change in the Zernike spot, yet only a small portion
+of the target area is bright. The centered GS trials improved their composite
+score and CV, but even the highest-scoring padding-3 image has hotspots and
+empty regions instead of a filled, uniform square. The padding-4 run did not
+improve the composite score further. A future live comparison should
+interleave flat and GS phases at the same exposure and frame count and assess
+spatial coverage as well as CV, PIB and the composite score. During these trials,
+the runner's GS verdict text was found to depend on the final best stage. When
+refinement beat GS, it could say "GS rejected" even though GS had been accepted
+as the warm start.
+That reporting bug was fixed; the recorded `flat`, `gs` and `refine` stages
+remain the source for these historical comparisons.
 
 Confirmed measurement defects and fixes:
 
@@ -52,11 +140,9 @@ Shape-method results from controlled replays:
 
 The remaining constraint is the control basis and optical setup: low-order
 Zernike modes mainly move and broaden a compact spot and have not filled the
-100-px square. The next hardware session should compare a freeform/GS square
-phase against the Zernike baseline at the same fixed exposure and frame count,
-using interleaved flat/candidate replay and the existing debug PNG/PKL/JSON
-record format. Recheck `N`-frame versus N single-frame measurements live after
-the fractional-mean fix before comparing new metrics with this table.
+100-px square. The 2026-10-10 session tested a short freeform search and
+interleaved `N`-frame versus N single-frame capture; see the online retest
+above. A GS candidate still needs the same controlled flat/candidate replay.
 
 The hardware trials in this table predate the 2026-10-09 camera averaging fix.
 Previously, `get_numpy_image(n_sample=N)` truncated each pixel mean back to an
@@ -114,8 +200,8 @@ and the later hardware runs use non-saturated fixed 1 ms exposure. The initial
 energy discrepancy came from using 1 frame for the baseline but 3 frames for
 SPGD evaluations; the optimizer now uses `config.n_eval_frames` in both places.
 The paired comparisons above cover the tested shape weights and schedule. A
-uniform 100-px square still needs a broader control basis and a new hardware
-comparison once both devices are online.
+uniform 100-px square still needs a stronger candidate and a controlled
+hardware comparison. The 2026-10-10 online retest is documented above.
 
 ## Document ideas and next comparisons
 
@@ -125,7 +211,8 @@ calibration, corner-background subtraction before normalization, geometric
 registration, gradient-scale balancing, adaptive perturbation, a trust region,
 and backtracking acceptance. The trials above cover the first two scoring
 changes and the noise calibration. The 100-px target is still far from uniform:
-the best replayed CV is about 2.46. Background/registration and adaptive
+the best 2026-10-09 Zernike replay CV is about 2.46. The later GS trials have
+lower CV but separated hotspots. Background/registration and adaptive
 search ideas remain to be isolated and tested with the same debug and replay
 protocol. The document's example is a 44x33 rectangle with eight modes, so its
 numerical settings do not transfer directly to this 100-px square / n_max=8
