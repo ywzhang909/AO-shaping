@@ -59,8 +59,9 @@ from loguru import logger
 #: Reused rather than reimplemented: median-subtract THEN clip. Clipping the raw
 #: frame would rectify symmetric read noise into a positive pedestal
 #: proportional to the pixel count (documented in ``drivers/sim/AGENTS.md``),
-#: which corrupts every ratio metric computed afterwards.
-from ao_shaping.optimizer.wfless.slm_gs_refine import _prepare_frame
+#: which corrupts every ratio metric computed afterwards. Canonical home is
+#: the leaf ``utils`` layer, so this import pulls in no driver package.
+from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.tools.slm.bench_kernels import (
     BEAM_CENTER_PANEL,
     SLM_PITCH_M,
@@ -198,7 +199,11 @@ def acceptance_verdict(
     Returns:
         The :class:`AcceptanceVerdict`.
     """
-    if not np.isfinite(loss_before) or not np.isfinite(loss_after) or not np.isfinite(score_after):
+    if (
+        not np.isfinite(loss_before)
+        or not np.isfinite(loss_after)
+        or not np.isfinite(score_after)
+    ):
         # A non-finite residual means the fit or the measurement diverged. That
         # is not "no evidence of harm", it is absence of evidence: refuse it.
         return AcceptanceVerdict(False, True, True, "non_finite")
@@ -210,11 +215,16 @@ def acceptance_verdict(
     )
     tags = [
         name
-        for name, hit in (("loss_worsened", loss_worsened), ("score_degraded", score_degraded))
+        for name, hit in (
+            ("loss_worsened", loss_worsened),
+            ("score_degraded", score_degraded),
+        )
         if hit
     ]
     return AcceptanceVerdict(
-        accepted=not tags, loss_worsened=loss_worsened, score_degraded=score_degraded,
+        accepted=not tags,
+        loss_worsened=loss_worsened,
+        score_degraded=score_degraded,
         reason="+".join(tags) if tags else "accepted",
     )
 
@@ -501,15 +511,14 @@ class SlmModelInLoopConfig:
             # path must not burn a hardware run to be discovered in Stage 2.
             if not Path(self.forward_checkpoint).exists():
                 raise ValueError(
-                    "forward_checkpoint does not exist: "
-                    f"{self.forward_checkpoint!r}"
+                    f"forward_checkpoint does not exist: {self.forward_checkpoint!r}"
                 )
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
         # Resolve the focal length once, here, so the runner, a library caller and
         # the tests can never disagree about what geometry a run actually used.
         if self.focal_length_m <= 0.0:
+            from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
             from ao_shaping.optimizer.wfless.slm_gs_refine import (
-                _DEFAULT_WAVELENGTH_NM,
                 _TILT_SHIFT_SCALE_MEASURED_AT_NM,
                 _TILT_SHIFT_SCALE_PX,
                 focal_length_from_camera_pixel,
@@ -517,7 +526,7 @@ class SlmModelInLoopConfig:
 
             self._focal_length_pinned = False
             self.focal_length_m = focal_length_from_camera_pixel(
-                wavelength_nm=float(self.slm_wavelength or _DEFAULT_WAVELENGTH_NM),
+                wavelength_nm=float(self.slm_wavelength or DEFAULT_WAVELENGTH_NM),
                 camera_pixel_um=self.camera_pixel_um,
                 slm_pixel_um=self.slm_pixel_um or SLM_PITCH_M * 1e6,
                 focal_scale_px=_TILT_SHIFT_SCALE_PX,
@@ -671,14 +680,17 @@ class _SimBench:
     """Numerical stand-in for the 2f bench, used for CI and offline QA.
 
     The far field comes from the canonical analytical model
-    (:func:`~ao_shaping.drivers.sim.slm_shaping_bench.forward_intensity`); a
+     (:func:`~ao_shaping.algorithm.signal_processing.square_shaping._forward_intensity`
+     re-exported as ``forward_intensity`` from ``slm_shaping_bench``);
     camera-shaped crop around the peak emulates the detector's ROI, and additive
     read noise plus 16-bit quantisation emulate its noise floor. That last part
     matters: the whole reason Step A needs a strong probe is that the pedestal
     from quantisation is the same order as the signal a weak probe produces.
     """
 
-    def __init__(self, config: SlmModelInLoopConfig, *, read_noise: float = 2.0) -> None:
+    def __init__(
+        self, config: SlmModelInLoopConfig, *, read_noise: float = 2.0
+    ) -> None:
         from ao_shaping.drivers.sim.slm_shaping_bench import (
             ShapingBenchConfig,
             forward_intensity,
@@ -737,7 +749,8 @@ class _SimBench:
             vector[index] = float(amplitude)
         logger.info(
             "sim bench: injecting ground-truth aberration {} (rad) over {} fitted modes",
-            dict(config.sim_aberration), basis.shape[0],
+            dict(config.sim_aberration),
+            basis.shape[0],
         )
         return np.tensordot(vector, basis, axes=(0, 0)).astype(np.float64)
 
@@ -817,7 +830,9 @@ class _HardwareBench:
         )
         self._cam.open()
         if config.cam_size > 0:
-            self._cam.reset_window(center=(0, 0), size=(config.cam_size, config.cam_size))
+            self._cam.reset_window(
+                center=(0, 0), size=(config.cam_size, config.cam_size)
+            )
         self._slm = Santec(
             slm_number=config.slm_number,
             wavelength=config.slm_wavelength or None,
@@ -878,7 +893,9 @@ def _open_bench(config: SlmModelInLoopConfig) -> Bench:
 # ---------------------------------------------------------------------------
 
 
-def _metrics_at(frame: np.ndarray, target_side: int, center: tuple[int, int]) -> dict[str, float]:
+def _metrics_at(
+    frame: np.ndarray, target_side: int, center: tuple[int, int]
+) -> dict[str, float]:
     """Square metrics on ``frame`` about a **frozen** ``center``.
 
     The anchor is passed in rather than re-derived. On a speckle field the global
@@ -897,7 +914,9 @@ def _metrics_at(frame: np.ndarray, target_side: int, center: tuple[int, int]) ->
     """
     from ao_shaping.utils.image.beam_metrics import compute_square_metrics
 
-    return compute_square_metrics(frame, int(target_side), (float(center[0]), float(center[1])))
+    return compute_square_metrics(
+        frame, int(target_side), (float(center[0]), float(center[1]))
+    )
 
 
 def _quality(
@@ -905,7 +924,10 @@ def _quality(
 ) -> float:
     """Composite score to maximise, from a square-metrics dict.
 
-    Uses the canonical :func:~ao_shaping.drivers.sim.slm_shaping_bench.composite_from_pib_cv,
+    Uses the canonical :func:`composite_from_pib_cv`
+    (re-exported via ``ao_shaping.drivers.sim.slm_shaping_bench`` for historical
+    reasons, defined in
+    :mod:`ao_shaping.algorithm.signal_processing.square_shaping`),
     i.e. `w_efficiency * EE + w_uniformity / (1 + CV)`, so the number here is directly
     comparable with the simulated pipeline and `slm-gs-refine`.
 
@@ -921,7 +943,9 @@ def _quality(
     term make it the better-conditioned bake-off objective -- not because the canonical one is
     still broken. See `report/loss_defects/inverse_design_report.md` section 10.
     """
-    from ao_shaping.drivers.sim.slm_shaping_bench import composite_from_pib_cv
+    from ao_shaping.algorithm.signal_processing.square_shaping import (
+        composite_from_pib_cv,
+    )
 
     return float(
         composite_from_pib_cv(
@@ -980,9 +1004,11 @@ def _to_model_grid(
     if abs(scale - round(scale)) < 1e-9 and int(round(scale)) > 1:
         block = int(round(scale))
         usable = (span // block) * block
-        reduced = out[:usable, :usable].reshape(
-            usable // block, block, usable // block, block
-        ).mean(axis=(1, 3))
+        reduced = (
+            out[:usable, :usable]
+            .reshape(usable // block, block, usable // block, block)
+            .mean(axis=(1, 3))
+        )
         if reduced.shape[0] == region:
             return np.ascontiguousarray(reduced)
     return np.ascontiguousarray(
@@ -1019,11 +1045,11 @@ def _calibrate_geometry(
             config.region, config.probe_spread, config.seed + 50_000 + index
         )
         bench.display(probe)
-        image = _prepare_frame(bench.measure())
-        records.append(CalibrationRecord(image=image, phase=probe, label=f"calib{index}"))
-    logger.info(
-        "collected {} calibration probes for the geometry solve", len(records)
-    )
+        image = prepare_frame(bench.measure())
+        records.append(
+            CalibrationRecord(image=image, phase=probe, label=f"calib{index}")
+        )
+    logger.info("collected {} calibration probes for the geometry solve", len(records))
     geometry = calibrate_bench_geometry(
         records,
         wavelength=float(config.wavelength_nm) * 1e-9,
@@ -1069,9 +1095,7 @@ def _predicted_far_field(
         ``(far_field_size, far_field_size)`` float64 intensity, or ``None``.
     """
     try:
-        predicted = optimizer.forward_intensity(
-            coefficients, phase, source_amplitude
-        )
+        predicted = optimizer.forward_intensity(coefficients, phase, source_amplitude)
     except (ValueError, RuntimeError) as exc:
         logger.warning("live-view prediction unavailable: {}", exc)
         return None
@@ -1089,7 +1113,9 @@ def _predicted_far_field(
     return out
 
 
-def _seed_coefficients_from_checkpoint(config: SlmModelInLoopConfig) -> np.ndarray | None:
+def _seed_coefficients_from_checkpoint(
+    config: SlmModelInLoopConfig,
+) -> np.ndarray | None:
     """Build the Step-A coefficient seed from a ``train_amp`` checkpoint.
 
     ``None`` (``forward_checkpoint`` unset) means "keep the historical all-zero
@@ -1159,7 +1185,9 @@ def _seed_coefficients_from_checkpoint(config: SlmModelInLoopConfig) -> np.ndarr
     return seed
 
 
-def _make_optimizer(config: SlmModelInLoopConfig, coefficients: np.ndarray | None) -> Any:
+def _make_optimizer(
+    config: SlmModelInLoopConfig, coefficients: np.ndarray | None
+) -> Any:
     """Build a :class:`ZernikeCoefficientOptimizer` around ``coefficients``.
 
     Used both for the first fit and to **re-arm** a tripped convergence plateau.
@@ -1254,7 +1282,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
         bench.display(flat_phase)
-        flat_frame = _prepare_frame(bench.measure())
+        flat_frame = prepare_frame(bench.measure())
         if not np.any(flat_frame > 0):
             raise RuntimeError(
                 "the flat-phase frame is empty after background subtraction; "
@@ -1299,16 +1327,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # measurement on THAT grid, which is a different span from the target.
         cell_scale = scale * float(config.region) / float(geometry.far_field_size)
         logger.info(
-            'grid mapping: {:.4f} cam px per model px -> {:.4f} cam px per far-field '
-            'cell (far_field_size={})',
-            scale, cell_scale, geometry.far_field_size,
+            "grid mapping: {:.4f} cam px per model px -> {:.4f} cam px per far-field "
+            "cell (far_field_size={})",
+            scale,
+            cell_scale,
+            geometry.far_field_size,
         )
         target_side_model = max(3, int(round(config.target_side / scale)))
         target_side_model = min(target_side_model, int(config.region) - 2)
         target_camera = max(3, int(round(target_side_model * scale)))
         logger.info(
             "target side: {} camera px -> {} model px (scale {:.4f} cam/model px)",
-            config.target_side, target_side_model, scale,
+            config.target_side,
+            target_side_model,
+            scale,
         )
         target = create_target_mask(
             "square", (int(config.region), int(config.region)), target_side_model
@@ -1419,7 +1451,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     config.seed + index * 1000 + probe_index,
                 )
                 bench.display(probe)
-                measured = _prepare_frame(bench.measure())
+                measured = prepare_frame(bench.measure())
                 if live_display is not None and not live_display.closed:
                     # The most informative frame of the whole loop: the
                     # prediction here uses the coefficients as they stand
@@ -1456,7 +1488,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             logger.info(
                 "round {}/{}: fitting the forward model on {} probes",
-                index + 1, config.n_rounds, probe_count,
+                index + 1,
+                config.n_rounds,
+                probe_count,
             )
             fitted, losses, step_a_iters, optimizer = _fit_aberration_at_probes(
                 optimizer, frames, int(config.step_a_iterations)
@@ -1472,7 +1506,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             if clamp_applied:
                 logger.info(
                     "trust region clipped a {:.3f} rad coefficient step to {:.3f} rad",
-                    step_l2, float(config.trust_region_c_l2),
+                    step_l2,
+                    float(config.trust_region_c_l2),
                 )
 
             # --- Step B: synthesise the square with that aberration frozen --
@@ -1489,13 +1524,18 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 source_amplitude=source_amplitude,
             )
             bench.display(np.asarray(shaped, dtype=np.float64))
-            shaped_frame = _prepare_frame(bench.measure())
+            shaped_frame = prepare_frame(bench.measure())
             shaped_metrics = _metrics_at(shaped_frame, target_camera, roi_center)
-            score_after = _quality(shaped_metrics, config.w_efficiency, config.w_uniformity)
+            score_after = _quality(
+                shaped_metrics, config.w_efficiency, config.w_uniformity
+            )
 
             # --- Guard 2: accept or roll the round back ----------------------
             verdict = acceptance_verdict(
-                loss_before, loss_after, score_before, score_after,
+                loss_before,
+                loss_after,
+                score_before,
+                score_after,
                 loss_delta=float(config.acceptance_loss_delta),
                 score_eps=float(config.acceptance_score_eps),
             )
@@ -1521,12 +1561,18 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 "score_after": float(score_after),
                 "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
                 "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
-                "uniformity_cv": float(shaped_metrics.get("uniformity_cv", float("nan"))),
+                "uniformity_cv": float(
+                    shaped_metrics.get("uniformity_cv", float("nan"))
+                ),
                 "probe_count": int(probe_count),
                 "step_a_lr": float(step_a_lr),
                 "rejection_streak": int(rejection_streak),
-                "shape_loss_initial": float(shaping_loss[0]) if shaping_loss else float("nan"),
-                "shape_loss_final": float(shaping_loss[-1]) if shaping_loss else float("nan"),
+                "shape_loss_initial": float(shaping_loss[0])
+                if shaping_loss
+                else float("nan"),
+                "shape_loss_final": float(shaping_loss[-1])
+                if shaping_loss
+                else float("nan"),
             }
             recorder.history.append(row)
 
@@ -1565,17 +1611,25 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     best_frame = shaped_frame
                 logger.info(
                     "round {}/{} accepted: score {} -> {:.4f} (CV {:.4f}, EE {:.4f})",
-                    index + 1, config.n_rounds,
+                    index + 1,
+                    config.n_rounds,
                     "n/a" if score_before is None else f"{score_before:.4f}",
-                    score_after, row["cv_after"], row["ee_after"],
+                    score_after,
+                    row["cv_after"],
+                    row["ee_after"],
                 )
             else:
                 rejection_streak += 1
                 logger.warning(
                     "round {}/{} REJECTED ({}): loss {:.5f} -> {:.5f}, score "
                     "{:.4f} -> {:.4f}; streak {}",
-                    index + 1, config.n_rounds, verdict.reason,
-                    loss_before, loss_after, row["score_before"], score_after,
+                    index + 1,
+                    config.n_rounds,
+                    verdict.reason,
+                    loss_before,
+                    loss_after,
+                    row["score_before"],
+                    score_after,
                     rejection_streak,
                 )
                 if rejection_streak >= int(config.max_rejection_streak):
@@ -1602,7 +1656,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             ):
                 logger.info(
                     "early stop: score {:.4f} reached the target {:.4f}",
-                    score_before, config.early_stop_score,
+                    score_before,
+                    config.early_stop_score,
                 )
                 break
             if live_display is not None and live_display.closed:
@@ -1623,13 +1678,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             logger.warning(
                 "no shaped phase beat the flat baseline (best {:.4f} <= flat "
                 "{:.4f}); keeping flat",
-                best_score, flat_score,
+                best_score,
+                flat_score,
             )
-            best_phase, best_frame, best_score = flat_phase.copy(), flat_frame, flat_score
+            best_phase, best_frame, best_score = (
+                flat_phase.copy(),
+                flat_frame,
+                flat_score,
+            )
             status = ModelInLoopStatus.BAKE_OFF_REJECTED
         else:
             logger.info(
-                "final bake-off: shaped {:.4f} beats flat {:.4f}", best_score, flat_score
+                "final bake-off: shaped {:.4f} beats flat {:.4f}",
+                best_score,
+                flat_score,
             )
         logger.info("model-in-the-loop finished with status={}", status)
         return ModelInLoopResult(
