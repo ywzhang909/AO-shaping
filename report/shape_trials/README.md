@@ -1,5 +1,11 @@
 # Shape objective trials (2026-10-09 to 2026-10-10)
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件
+> **说明**: 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总
+<!-- provenance:end -->
+
 All completed optimization runs below used `--debug` and have their own
 PNG/PKL/JSON record set under the named directory. Epoch 0 is the initial
 phase; later rows are measurements from the search. These short runs are

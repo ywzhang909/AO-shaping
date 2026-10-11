@@ -50,13 +50,13 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 - 初始值 0.536862 → 末值 0.665692 (未改善); 最优相对初始 0.0040449
 - 优化器内部跟踪的 `best_<objective>` 未写入调试产物 (`_DEBUG_SCALAR_KEYS` 不含该键), 故最优值由本脚本从目标列重算。
 
-![run0_objective](figures\run0_objective.png)
+![run0_objective](figures/run0_objective.png)
 
-![run0_zernike](figures\run0_zernike.png)
+![run0_zernike](figures/run0_zernike.png)
 
-![run0_frames](figures\run0_frames.png)
+![run0_frames](figures/run0_frames.png)
 
-![run0_spot](figures\run0_spot.gif)
+![run0_spot](figures/run0_spot.gif)
 
 ### 2.3 解读
 
@@ -90,13 +90,13 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 - 初始值 0.614717 → 末值 0.585336 (未改善); 最优相对初始 0.00897115
 - 优化器内部跟踪的 `best_<objective>` 未写入调试产物 (`_DEBUG_SCALAR_KEYS` 不含该键), 故最优值由本脚本从目标列重算。
 
-![run1_objective](figures\run1_objective.png)
+![run1_objective](figures/run1_objective.png)
 
-![run1_zernike](figures\run1_zernike.png)
+![run1_zernike](figures/run1_zernike.png)
 
-![run1_frames](figures\run1_frames.png)
+![run1_frames](figures/run1_frames.png)
 
-![run1_spot](figures\run1_spot.gif)
+![run1_spot](figures/run1_spot.gif)
 
 ### 2.3 解读
 

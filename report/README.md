@@ -55,12 +55,13 @@
 | [`model_free_ao_survey/report.md`](model_free_ao_survey/report.md) | `人工撰写` | 人工调研 | 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式 |
 | [`models_analysis/report.md`](models_analysis/report.md) | `scripts/generate_models_report.py` | 离线 | 读 TensorBoard event 文件 |
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
-| [`models_analysis/tmp_sac_run_showcase.md`](models_analysis/tmp_sac_run_showcase.md) | `scripts/generate_models_report.py` | 离线 | 临时调试 run 的成果展示 |
 | [`oopao_impact/report.md`](oopao_impact/report.md) | `scripts/generate_oopao_impact_report.py` | 离线 | 端到端 AO 环境下的后端影响 |
 | [`oopao_vs_numpy/report.md`](oopao_vs_numpy/report.md) | `scripts/generate_oopao_vs_numpy_report.py` | 离线 | 像差 x 湍流 12 场景 x 2 后端对比 |
 | [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w-loggrad)、2 类早已存在、3 类否决, 附实测依据 |
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
+| [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 硬件 | 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总 |
+| [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写` | 硬件 | 2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，scripts/compare_shape_debug.py 只渲染对照图 |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
 | [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+slm_zernike_sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
@@ -86,8 +87,6 @@
 | [`slm_pib_heuristic_hw/sensitivity.md`](slm_pib_heuristic_hw/sensitivity.md) | `scripts/measure_shape_sensitivity.py` | 硬件 | 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py |
 | [`slm_pib_online/objective_comparison.md`](slm_pib_online/objective_comparison.md) | `scripts/generate_shape_objective_comparison.py` | 离线 | 三种整形目标函数的排序一致性 (Spearman) |
 | [`slm_pib_online/report.md`](slm_pib_online/report.md) | `scripts/generate_slm_pib_online_report.py` | 离线 | 在线回归套件验收报告 (读 data/debug/slm_pib_online/) |
-| [`slm_pib_online/sensitivity.md`](slm_pib_online/sensitivity.md) | `scripts/measure_shape_sensitivity.py` | 硬件 | 整形目标函数灵敏度 (噪声地板) 实测 |
-| [`slm_pib_online_hw/objective_comparison.md`](slm_pib_online_hw/objective_comparison.md) | `scripts/generate_shape_objective_comparison.py` | 离线 | 真机帧上的目标函数排序对比 |
 | [`slm_pib_shape_50px/report.md`](slm_pib_shape_50px/report.md) | `scripts/generate_slm_pib_sim_report.py` | 离线 | 50px target 的仿真运行报告 |
 | [`slm_pib_sim/report.md`](slm_pib_sim/report.md) | `scripts/generate_slm_pib_sim_report.py (+slm_pib_sim_run.py)` | 离线 | 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生 |
 | [`slm_shaping_sim/report.md`](slm_shaping_sim/report.md) | `scripts/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
@@ -107,3 +106,6 @@
 - `beam_shaping/papers/beam_shaping_papers.md` ← `scripts/generate_beam_shaping_papers_report.py` (离线)
 - `beam_shaping/papers/literature_survey.md` ← `人工撰写` (人工调研)
 - `loss_algorithms/report.md` ← `scripts/compare_loss_algorithms.py` (离线)
+- `models_analysis/tmp_sac_run_showcase.md` ← `scripts/generate_models_report.py` (离线)
+- `slm_pib_online/sensitivity.md` ← `scripts/measure_shape_sensitivity.py` (硬件)
+- `slm_pib_online_hw/objective_comparison.md` ← `scripts/generate_shape_objective_comparison.py` (离线)

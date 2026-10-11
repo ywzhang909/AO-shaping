@@ -638,6 +638,19 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="测试用例跑 --quick 生成的冒烟版本",
     ),
+    # -- shape trials ---------------------------------------------------------
+    "report/shape_trials/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="方斑整形实机对比试验索引；各次试验的目录与结论由此汇总",
+    ),
+    "report/shape_trials/online_20261010.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD "
+        "FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，"
+        "scripts/compare_shape_debug.py 只渲染对照图",
+    ),
 }
 
 
