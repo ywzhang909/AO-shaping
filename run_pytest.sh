@@ -39,12 +39,26 @@ CPU_LIMIT="${AO_CPUS:-16}"
 MEM_LIMIT="${AO_MEMORY:-32g}"
 PIDS_LIMIT="${AO_PIDS:-2048}"
 GPU="${AO_GPU:-device=0}"
-AO_TEST_DATA="${AO_TEST_DATA:-$HOME/ao-testdata}"
 # CWD must be writable: tests legitimately write scratch files relative to
 # it (e.g. savefig("cmp.png")), which the read-only repo mount forbids. The repo
 # itself stays read-only; only this scratch directory is not.
 AO_SCRATCH="${AO_SCRATCH:-$HOME/ao-pytest-scratch}"
 mkdir -p "$AO_SCRATCH"
+
+# data/ is copied fresh into the scratch area and mounted read-write (some tests
+# write data/wfs_configs). It cannot be the host's staging directory directly:
+# the container runs as root, so anything it leaves behind is undeletable from
+# the host. Notably data/debug -- its mere EXISTENCE is what gates the real-data
+# tests, so a polluted copy silently turns those skips into failures. Rebuilding
+# from a pristine source on every run makes that impossible.
+SEED_DATA="${AO_TEST_DATA_SEED:-$HOME/ao-testdata}"
+AO_TEST_DATA="${AO_TEST_DATA:-$AO_SCRATCH/data}"
+if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
+    "$REPO/scripts/stage_test_data.sh" >/dev/null
+    rm -rf "$AO_TEST_DATA"
+    cp -r "$SEED_DATA" "$AO_TEST_DATA"
+fi
+mkdir -p "$AO_TEST_DATA"
 
 # Opt-in switches the suite itself reads (golden-file regeneration,
 # fault-handler dumps). They must be forwarded explicitly, otherwise setting
