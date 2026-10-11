@@ -21,7 +21,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.sim.slm_shaping_bench import power_in_bucket, uniformity_cv
+from ao_shaping.algorithm import make_optimizer
+from ao_shaping.algorithm.signal_processing.square_shaping import (
+    power_in_bucket,
+    uniformity_cv,
+)
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
     _compose,
@@ -30,14 +34,13 @@ from ao_shaping.optimizer.wfless.slm_gs_refine import (
     _fit_exact,
     _locate_zero_order,
     _lr_at,
-    _make_optimizer,
     _metrics,
-    _prepare_frame,
     _pupil_side,
     _square_mask,
     _upsample_bilinear,
     optimize_slm_gs_refine,
 )
+from ao_shaping.utils.image.beam_metrics import prepare_frame
 
 
 def _fast_config(**overrides) -> SlmGsRefineConfig:
@@ -53,10 +56,10 @@ def _fast_config(**overrides) -> SlmGsRefineConfig:
         cam_size=100,
         gs_iters=8,
         n_eval_frames=1,
-        settle_wait_s=0.0,
-        settle_max_wait_s=0.0,
+        settle_wait_s=0.001,
+        settle_max_wait_s=0.001,
         settle_max_discard=1,
-        progress_every=0,
+        progress_every=1,
     )
     base.update(overrides)
     return SlmGsRefineConfig(**base)
@@ -130,14 +133,14 @@ class TestPrepareFrame:
     def test_removes_negative_read_noise(self):
         rng = np.random.default_rng(0)
         frame = rng.normal(50.0, 20.0, size=(80, 80))
-        clean = _prepare_frame(frame)
+        clean = prepare_frame(frame)
         assert clean.min() >= 0.0
         # The ~50 background is gone. Clipping piles the negative half onto zero,
         # so the surviving mean is a fraction of sigma rather than exactly zero.
         assert clean.mean() < 0.5 * frame.std()
 
     def test_removes_a_constant_pedestal(self):
-        assert np.allclose(_prepare_frame(np.full((40, 40), 37.0)), 0.0)
+        assert np.allclose(prepare_frame(np.full((40, 40), 37.0)), 0.0)
 
     def test_pib_stays_within_unit_interval(self):
         """Uncorrected frames give PIB > 1, which is physically impossible.
@@ -152,19 +155,19 @@ class TestPrepareFrame:
 
         mask = _square_mask(frame.shape, 60, 60, 40)
         assert power_in_bucket(frame, mask) == pytest.approx(1.923, abs=0.01)
-        assert power_in_bucket(_prepare_frame(frame), mask) <= 1.0
+        assert power_in_bucket(prepare_frame(frame), mask) <= 1.0
 
     def test_nan_is_neutralised(self):
         frame = np.full((20, 20), np.nan)
         frame[5, 5] = 2.0
-        assert np.isfinite(_prepare_frame(frame)).all()
+        assert np.isfinite(prepare_frame(frame)).all()
 
     def test_metrics_are_finite_and_bounded(self):
         rng = np.random.default_rng(1)
         frame = np.zeros((60, 60))
         frame[20:40, 20:40] = 80.0
         frame += rng.normal(0.0, 4.0, size=frame.shape)
-        clean = _prepare_frame(frame)
+        clean = prepare_frame(frame)
         mask = _square_mask(clean.shape, 30, 30, 24)
         score, pib, cv = _metrics(clean, mask, 0.5, 0.5)
         assert 0.0 <= pib <= 1.0
@@ -177,7 +180,9 @@ class TestPrepareFrame:
         uniform[20:44, 20:44] = 1.0
         peaked = np.zeros((64, 64))
         peaked[32, 32] = 1.0
-        assert _metrics(uniform, mask, 0.5, 0.5)[0] > _metrics(peaked, mask, 0.5, 0.5)[0]
+        assert (
+            _metrics(uniform, mask, 0.5, 0.5)[0] > _metrics(peaked, mask, 0.5, 0.5)[0]
+        )
         assert uniformity_cv(uniform, mask) == pytest.approx(0.0, abs=1e-12)
 
 
@@ -238,10 +243,16 @@ class TestTargetSide:
         cfg = SlmGsRefineConfig()
         radius = 450.0
         expected = (
-            2 * radius * cfg.panel_pixel_um * 1e-6 * cfg.focal_length_m
+            2
+            * radius
+            * cfg.panel_pixel_um
+            * 1e-6
+            * cfg.focal_length_m
             / (cfg.camera_pixel_um * 1e-6)
         )
-        assert _derive_target_side(cfg, radius) == pytest.approx(round(expected), rel=0.01)
+        assert _derive_target_side(cfg, radius) == pytest.approx(
+            round(expected), rel=0.01
+        )
 
     def test_camera_pitch_is_the_anchor_and_focal_length_is_derived(self):
         """The pitch is the ANCHOR; the focal length is derived from it.
@@ -265,7 +276,11 @@ class TestTargetSide:
 
         # f = p_cam * d_slm * K / lambda  ->  the 125mm nominal lens to ~2%
         expected_f = (
-            _DEFAULT_CAMERA_PIXEL_UM * 1e-6 * 8.0 * 1e-6 * _TILT_SHIFT_SCALE_PX
+            _DEFAULT_CAMERA_PIXEL_UM
+            * 1e-6
+            * 8.0
+            * 1e-6
+            * _TILT_SHIFT_SCALE_PX
             / (_TILT_SHIFT_SCALE_MEASURED_AT_NM * 1e-9)
         )
         assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(expected_f, rel=1e-9)
@@ -283,7 +298,9 @@ class TestTargetSide:
 
         for lam in (1064.0, 532.0, 780.0):
             cfg = SlmGsRefineConfig(slm_wavelength=lam)
-            assert cfg.focal_length_m == pytest.approx(_DEFAULT_FOCAL_LENGTH_M, rel=1e-9)
+            assert cfg.focal_length_m == pytest.approx(
+                _DEFAULT_FOCAL_LENGTH_M, rel=1e-9
+            )
 
     def test_explicit_focal_length_is_respected_not_overwritten(self):
         cfg = SlmGsRefineConfig(focal_length_m=0.125)
@@ -292,7 +309,7 @@ class TestTargetSide:
 
     def test_wavelength_zero_asks_the_device_then_falls_back(self):
         """0 means "ask the device", and math must never see a 0 wavelength."""
-        from ao_shaping.optimizer.wfless.slm_gs_refine import _sync_device_wavelength
+        from ao_shaping.drivers.slm.factory import sync_device_wavelength
 
         class Reports532:
             wavelength = 532
@@ -302,15 +319,15 @@ class TestTargetSide:
 
         cfg = SlmGsRefineConfig()
         assert cfg.slm_wavelength == 0
-        _sync_device_wavelength(cfg, Reports532())
+        sync_device_wavelength(cfg, Reports532())
         assert cfg.slm_wavelength == 532
 
         silent = SlmGsRefineConfig()
-        _sync_device_wavelength(silent, ReportsNothing())
+        sync_device_wavelength(silent, ReportsNothing())
         assert silent.slm_wavelength > 0, "must not leave 0 for the GS math"
 
         pinned = SlmGsRefineConfig(slm_wavelength=1064)
-        _sync_device_wavelength(pinned, Reports532())
+        sync_device_wavelength(pinned, Reports532())
         assert pinned.slm_wavelength == 1064, "an explicit wavelength must win"
 
     def test_never_degenerate(self):
@@ -340,7 +357,7 @@ class TestLearningRate:
 class TestOptimizerFactory:
     @pytest.mark.parametrize("kind", ["adam", "adamw", "adamod", "sgd", "unknown"])
     def test_every_kind_yields_a_working_optimizer(self, kind):
-        opt = _make_optimizer(kind, 16, 0.1)
+        opt = make_optimizer(kind, 16, 0.1)
         step = opt.update(np.ones(16))
         assert np.asarray(step).shape == (16,)
         assert np.isfinite(np.asarray(step, dtype=float)).all()
@@ -386,6 +403,52 @@ class TestEndToEndSim:
         # The memory defect: no row may carry a full panel array.
         assert all("phase" not in row for row in rec.history)
         assert all(not isinstance(row.get("cv"), np.ndarray) for row in rec.history)
+
+    def test_debug_records_each_measured_frame_and_display_phase(self, tmp_path):
+        from ao_shaping.utils.io.file import save_recorder_debug_artifacts
+
+        rec = optimize_slm_gs_refine(_fast_config(epochs=1, record_debug=True))
+        assert {row["stage"] for row in rec.history} == {"flat", "gs", "refine"}
+        assert [row["_epoch"] for row in rec.history] == list(range(len(rec.history)))
+        for row in rec.history:
+            assert row["_img"].ndim == 2
+            assert row["_phase"].shape == (1200, 1920)
+            assert row["_phase"].dtype == np.uint16
+            if row["stage"] == "refine":
+                for side in ("pos", "neg"):
+                    assert row[f"_img_{side}"].shape == row["_img"].shape
+                    assert row[f"_phase_{side}"].shape == row["_phase"].shape
+                selected = "pos" if row["pos"] >= row["neg"] else "neg"
+                assert row["_img"] is row[f"_img_{selected}"]
+                assert row["_phase"] is row[f"_phase_{selected}"]
+
+        png = save_recorder_debug_artifacts(
+            rec,
+            root_dir=str(tmp_path),
+            subdir_prefix="slm_gs_refine",
+            scalar_keys=("score", "pib", "cv"),
+            img_keys=(
+                "_img",
+                "_phase",
+                "_img_pos",
+                "_phase_pos",
+                "_img_neg",
+                "_phase_neg",
+            ),
+            json_payload={"record_debug": True},
+        )
+        assert png.exists()
+        assert png.with_suffix(".pkl").exists()
+        assert png.with_suffix(".json").exists()
+        import pickle
+
+        with png.with_suffix(".pkl").open("rb") as artifact:
+            saved = pickle.load(artifact)
+        assert len(saved) == len(rec.history)
+        assert all(
+            key in saved[max(saved)]
+            for key in ("_img_pos", "_img_neg", "_phase_pos", "_phase_neg")
+        )
 
     def test_roi_is_frozen_at_the_flat_baseline(self):
         """Every row must share the one ROI located on the unshaped frame."""
@@ -468,3 +531,30 @@ class TestEndToEndSim:
         monkeypatch.setattr(slm_pib_sim.SimPibCCD, "close", spy)
         optimize_slm_gs_refine(_fast_config(epochs=1))
         assert closed
+
+    def test_hardware_window_centers_on_full_frame_peak(self, monkeypatch):
+        from ao_shaping.optimizer.wfless import slm_gs_refine as module
+        from ao_shaping.utils.io.file import Recorder
+
+        frame = np.zeros((100, 120), dtype=np.float64)
+        frame[42, 77] = 100.0
+        monkeypatch.setattr(module, "sync_device_wavelength", lambda *_: None)
+        monkeypatch.setattr(module, "_panel_shape", lambda *_: (8, 8))
+        monkeypatch.setattr(
+            module, "_display_and_average", lambda *_args, **_kwargs: frame
+        )
+
+        class CameraStub:
+            def reset_window(self, *, center, size):
+                assert center == (77, 42)
+                assert size == (100, 100)
+                raise RuntimeError("window configured")
+
+        with pytest.raises(RuntimeError, match="window configured"):
+            module._run_gs_refine_session(
+                _fast_config(cam_type="daheng"),
+                object(),
+                CameraStub(),
+                np.random.default_rng(1),
+                Recorder(mark="score", mode="max"),
+            )

@@ -514,7 +514,12 @@ python scripts/sweep_zernike_models.py --final-only
 python scripts/generate_zernike_amp_report.py
 
 # 训练 + wandb（无 key 时离线）
-python -m ml.zernike.train_amp --n-max 20 --epochs 50 --lr 0.02 \\
+# ⚠️ 这条命令是**修复前**写下的：`train_amp.optimizer_fit_config()` 当时漏传 `lr`，
+# 于是 `--lr 0.02` 被静默丢弃、实际按 `ZernikeAmpFitConfig.lr` 默认 **0.05** 训练
+# （本目录 summary.json 里 history 的首行 lr≈0.0498 即为实测证据）。
+# 该漏传已修（`optimizer_fit_config()` 现在透传 `lr`），故**今天照抄会跑出 0.02、
+# 与本文数字不可比**。要复现本文这一轮，请显式写 `--lr 0.05`。
+python -m ml.zernike.train_amp --n-max 20 --epochs 50 --lr 0.05 \\
     --max-train 1010 --beam-samples 96 --out-dir logs/zernike_amp_final
 
 # 权威对比：分组 CV + 配对精确检验

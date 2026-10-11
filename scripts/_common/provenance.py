@@ -94,6 +94,22 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/sweep_coeff_models.py",),
     ),
 
+    "report/inverse_shaping_unet/report.md": ReportProvenance(
+        script="scripts/generate_inverse_shaping_report.py",
+        command="python scripts/generate_inverse_shaping_report.py",
+        environment="离线",
+        note="逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/"
+        "平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; "
+        "输入为 ml.shaping.train + ml.shaping.evaluate 的产物",
+    ),
+    "report/inverse_shaping_unet/model.md": ReportProvenance(
+        script="scripts/generate_inverse_shaping_model_report.py",
+        command="python scripts/generate_inverse_shaping_model_report.py",
+        environment="离线",
+        note="PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; "
+        "含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测",
+    ),
+
     # -- beam shaping / benchmark suite -------------------------------------
     "report/beam_shaping/papers/beam_shaping_papers.md": ReportProvenance(
         script="scripts/generate_beam_shaping_papers_report.py",

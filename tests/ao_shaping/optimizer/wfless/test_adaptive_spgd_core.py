@@ -49,4 +49,3 @@ def test_detector_running_min_over_last_10_and_stagnation_only():
     should_boost_rising = adaptive_spgd_core.should_boost_stagnation(cv_rising, win=10, min_improve_frac=0.01)
     # best is still 0.46 from earlier? or running min - stagnation is about best not improving; rising means current worse than best -> stagnant relative to best
     assert should_boost_rising is True
-

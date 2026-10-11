@@ -109,6 +109,7 @@ _LAZY_BACKENDS: dict[str, tuple[str, str]] = {
     "SourceFiles": ("ao_shaping.drivers.dm.micro.wiring_map", "SourceFiles"),
     "Summary": ("ao_shaping.drivers.dm.micro.wiring_map", "Summary"),
     "WiringMap": ("ao_shaping.drivers.dm.micro.wiring_map", "WiringMap"),
+    "resolve_ips": ("ao_shaping.drivers.dm.micro.wiring_map", "resolve_ips"),
     # --- asyn_driver ---
     "AsyncMicroDM": (
         "ao_shaping.drivers.dm.micro.asyn_driver",
@@ -180,5 +181,6 @@ __all__ = [
     "VoltageConverter",
     "WIRING_MAP_PATH",
     "WiringMap",
+    "resolve_ips",
     "voltages_to_payload",
 ]

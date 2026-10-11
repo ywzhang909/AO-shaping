@@ -23,8 +23,6 @@
 
 | 报告 | 生成脚本 | 运行环境 | 说明 |
 |---|---|---|---|
-| [`beam_shaping/papers/beam_shaping_papers.md`](beam_shaping/papers/beam_shaping_papers.md) | `scripts/generate_beam_shaping_papers_report.py` | 离线 | 文献方法在同一光学模型 + 同一 target 上的仿真对比 |
-| [`beam_shaping/papers/literature_survey.md`](beam_shaping/papers/literature_survey.md) | `人工撰写` | 人工调研 | 2026-09 文献调研，非生成产物 |
 | [`benchmarks/backend_kernels_performance.md`](benchmarks/backend_kernels_performance.md) | `tests/ao_shaping/utils/test_spots_calc.py` | 离线 | 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时） |
 | [`benchmarks/cython_optimizer_performance.md`](benchmarks/cython_optimizer_performance.md) | `scripts/generate_cython_optimizer_report.py` | 离线 | 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成 |
 | [`benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`](benchmarks/device_less_full/beam_shaping_benchmark_metrics.md) | `scripts/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画 |
@@ -44,6 +42,8 @@
 | [`fouriergsnet_sim/report.md`](fouriergsnet_sim/report.md) | `scripts/generate_fouriergsnet_sim_report.py (+fouriergsnet_sim_train.py, generate_slm_gsnet_sim_gif.py)` | 离线 | 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加 |
 | [`heuristic_pib/report.md`](heuristic_pib/report.md) | `scripts/generate_heuristic_pib_report.py` | 离线 | 7 种启发式 + PIB 目标；summary.csv 为本脚本产物 |
 | [`hwdataset_corpus/report.md`](hwdataset_corpus/report.md) | `scripts/generate_hwdataset_corpus_report.py (+analyze_hwdataset_distributions.py)` | 离线 | data/debug 硬件调试语料的纯元数据统计 (14 张图, 含 4 张数组级分布图); 只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据; §10/§11 的数组级实测另读 analyze_hwdataset_distributions.py 预产的 distribution_stats.json (该文件缺失时两节降级为提示, 10 张元数据图不受影响, 两阶段复现命令见报告 §14)。§1.1 的「全量重建是否改变结论」交叉核对需另加 --full-index <扫描过全部 pkl 的索引.json> |
+| [`inverse_shaping_unet/model.md`](inverse_shaping_unet/model.md) | `scripts/generate_inverse_shaping_model_report.py` | 离线 | PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测 |
+| [`inverse_shaping_unet/report.md`](inverse_shaping_unet/report.md) | `scripts/generate_inverse_shaping_report.py` | 离线 | 逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; 输入为 ml.shaping.train + ml.shaping.evaluate 的产物 |
 | [`loss_algorithms_smoke/report.md`](loss_algorithms_smoke/report.md) | `scripts/compare_loss_algorithms.py` | 离线 | 测试用例跑 --quick 生成的冒烟版本 |
 | [`loss_defects/PROCESS.md`](loss_defects/PROCESS.md) | `人工撰写 (+inverse_design_sim_eval.py, inverse_design_accuracy_ladder.py, inverse_design_restarts.py, inverse_restart_selection.py, inverse_objective_alignment.py, inverse_achievable_target.py, gs_vs_gradient_inverse.py, gs_plus_refinement.py, alignment_vs_accuracy.py, roi_robustness.py, restart_claim_robustness.py, freeform_vs_zernike.py)` | 离线 | 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论） |
 | [`loss_defects/README.md`](loss_defects/README.md) | `人工撰写 (+sweep_far_field_padding.py)` | 离线 | 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板 |
@@ -104,4 +104,6 @@
 
 下列报告已在 `REPORTS` 登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件；生成脚本与复现命令见上表同条目：
 
+- `beam_shaping/papers/beam_shaping_papers.md` ← `scripts/generate_beam_shaping_papers_report.py` (离线)
+- `beam_shaping/papers/literature_survey.md` ← `人工撰写` (人工调研)
 - `loss_algorithms/report.md` ← `scripts/compare_loss_algorithms.py` (离线)

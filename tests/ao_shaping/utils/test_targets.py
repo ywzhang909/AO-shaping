@@ -33,6 +33,7 @@ from ao_shaping.utils.image.targets import (
     square_target_from_measurement,
     target_shape_roi,
 )
+from ao_shaping.utils.image.target.metrics import shape_tile_coverage
 
 
 class TestCreateTargetShape:
@@ -590,6 +591,31 @@ class TestShapeMetric:
             shape_metric(
                 frame, (10, 10), target_shape="square", target_size=3, stage="bogus"
             )
+
+    def test_tile_coverage_rewards_filling_the_whole_square(self) -> None:
+        roi = target_shape_roi((150, 150), (75, 75), "square", 100)
+        uniform = roi.astype(float)
+        spot = np.zeros_like(uniform)
+        spot[65:85, 65:85] = 25.0
+        # Both frames keep all of their energy inside the target; the new term
+        # distinguishes a filled square from a narrow bright spot.
+        assert shape_tile_coverage(uniform + 2.0, roi) == pytest.approx(1.0)
+        assert shape_tile_coverage(spot + 2.0, roi) == pytest.approx(0.04)
+        options = dict(
+            center=(75, 75),
+            reference_center=(75, 75),
+            target_shape="square",
+            target_size=100,
+            w_uniformity=0.0,
+            w_peak=0.0,
+        )
+        assert shape_metric(uniform + 2.0, **options, w_coverage=1.0)[0] > shape_metric(
+            spot + 2.0, **options, w_coverage=1.0
+        )[0]
+
+    def test_tile_coverage_dark_frame(self) -> None:
+        roi = target_shape_roi((150, 150), (75, 75), "square", 100)
+        assert shape_tile_coverage(np.ones((150, 150)), roi) == 0.0
 
 
 class TestShapeStage:

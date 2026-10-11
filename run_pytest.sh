@@ -41,6 +41,17 @@ PIDS_LIMIT="${AO_PIDS:-2048}"
 GPU="${AO_GPU:-device=0}"
 AO_TEST_DATA="${AO_TEST_DATA:-$HOME/ao-testdata}"
 
+# Opt-in switches the suite itself reads (golden-file regeneration,
+# fault-handler dumps). They must be forwarded explicitly, otherwise setting
+# them on the host silently does nothing inside the container -- which looks
+# exactly like the regeneration having failed.
+AO_PASSTHROUGH_ENV=""
+for var in AO_UPDATE_HELP_GOLDEN AO_CLI_CONTRACT_UPDATE AO_FAULT_HANDLER AO_FAULT_SECS; do
+    if [ -n "${!var:-}" ]; then
+        AO_PASSTHROUGH_ENV="${AO_PASSTHROUGH_ENV:+$AO_PASSTHROUGH_ENV }${var}=${!var}"
+    fi
+done
+
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker is required; the suite must not run on the host." >&2
     exit 1
@@ -73,6 +84,14 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
     TARGETS=(tests)
 fi
 
+# Regenerating a help golden writes into the repo, which the read-only mount
+# forbids. Opt in explicitly rather than mounting the tree read-write by default
+# -- a plain test run has no business writing to the checkout.
+MOUNT_MODE=ro
+if [ -n "${AO_UPDATE_HELP_GOLDEN:-}${AO_CLI_CONTRACT_UPDATE:-}" ]; then
+    MOUNT_MODE=rw
+fi
+
 exec docker run --rm \
     --name ao-pytest \
     --cpus="$CPU_LIMIT" \
@@ -81,12 +100,13 @@ exec docker run --rm \
     --pids-limit="$PIDS_LIMIT" \
     --gpus "\"$GPU\"" \
     --shm-size=1g \
-    -v "$REPO:$WORKDIR_IN_CONTAINER:ro" \
+    -v "$REPO:$WORKDIR_IN_CONTAINER:$MOUNT_MODE" \
     --tmpfs "$WORKDIR_IN_CONTAINER/logs:size=512m" \
     -v "$AO_TEST_DATA:$WORKDIR_IN_CONTAINER/data" \
     --tmpfs /tmp:size=4g,mode=1777 \
     -e AO_CPU_THREADS="${AO_CPU_THREADS:-16}" \
     -e AO_VRAM_LIMIT_MB="${AO_VRAM_LIMIT_MB:-4096}" \
+    ${AO_PASSTHROUGH_ENV:+-e $AO_PASSTHROUGH_ENV} \
     -e PYTHONPATH="$WORKDIR_IN_CONTAINER/src:$WORKDIR_IN_CONTAINER:$WORKDIR_IN_CONTAINER/scripts" \
     -e PYTHONDONTWRITEBYTECODE=1 \
     -e NUMBA_CACHE_DIR=/tmp/numba-cache \

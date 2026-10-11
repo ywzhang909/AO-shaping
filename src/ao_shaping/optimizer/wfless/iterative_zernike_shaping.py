@@ -23,14 +23,17 @@ from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
     IterativeZernikeShapingOptimizer,
     IterativeZernikeShapingResult,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import (
-    ShapingBenchConfig,
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_score,
     compute_bench_metrics,
-    forward_intensity,
     gs_shape,
-    make_target,
+    make_square_target as make_target,
 )
+from ao_shaping.drivers.sim.slm_shaping_bench import (
+    ShapingBenchConfig,
+    forward_intensity,
+)
+from ao_shaping.drivers.sim.slm_shaping_bench import spgd_shape
 
 __all__ = [
     "IterativeZernikePibConfig",
@@ -206,8 +209,11 @@ def optimize_iterative_zernike_shaping(
             - "converged": bool
             - "metrics": dict (final bench metrics: PIB, CV, score, etc.)
     """
-    logger.info("Starting iterative Zernike+phase shaping: n_grid={}, n_zernike={}",
-                config.n_grid, config.n_zernike)
+    logger.info(
+        "Starting iterative Zernike+phase shaping: n_grid={}, n_zernike={}",
+        config.n_grid,
+        config.n_zernike,
+    )
 
     # Build reference far-field and target
     actual_ff = _build_golden_far_field(config)
@@ -222,16 +228,16 @@ def optimize_iterative_zernike_shaping(
 
     warm_start: np.ndarray | None = None
     if config.gs_warm_start:
-        warm_start = gs_shape(bench_cfg, n_iters=config.gs_iters, seed=config.seed).phase
+        warm_start = gs_shape(
+            bench_cfg, n_iters=config.gs_iters, seed=config.seed
+        ).phase
 
     # Algorithm-layer config and optimizer
     alg_cfg = config.to_alg_config()
     optimizer = IterativeZernikeShapingOptimizer(alg_cfg)
 
     # Run
-    result = optimizer.run(
-        actual_far_field=actual_ff, initial_slm_phase=warm_start
-    )
+    result = optimizer.run(actual_far_field=actual_ff, initial_slm_phase=warm_start)
 
     ff = result.far_field
     ff_norm = ff / (ff.sum() + 1e-12)
@@ -244,8 +250,11 @@ def optimize_iterative_zernike_shaping(
 
     logger.info(
         "Done: final_score={:.4f}, PIB={:.4f}, CV={:.4f}, n_outer={}, converged={}",
-        metrics["score"], metrics.get("PIB", 0), metrics.get("CV", float("inf")),
-        result.n_outer_iters, result.converged,
+        metrics["score"],
+        metrics.get("PIB", 0),
+        metrics.get("CV", float("inf")),
+        result.n_outer_iters,
+        result.converged,
     )
 
     return {

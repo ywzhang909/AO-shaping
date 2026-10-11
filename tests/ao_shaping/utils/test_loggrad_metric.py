@@ -115,7 +115,8 @@ class TestValidation:
         This term runs once per epoch against live camera frames, so raising
         would kill a multi-hour optimisation and leave the SLM holding an
         arbitrary phase. The repo standardises on
-        ``np.where(isfinite(frame), frame, 0.0)`` in ``_prepare_frame`` and both
+        ``np.where(isfinite(frame), frame, 0.0)`` in
+        ``ao_shaping.utils.image.beam_metrics.prepare_frame`` and both
         ``bench_kernels`` prep kernels; the score must stay finite instead.
         """
         frame = make_blob()
@@ -138,7 +139,7 @@ class TestValidation:
         Note the score is *not* necessarily unchanged versus the pristine frame:
         a bad pixel is replaced by ``0.0``, not by its original value. The
         invariant is that callers who clean the frame themselves (as
-        ``slm_gs_refine._prepare_frame`` does) observe no behavioural difference.
+        ``ao_shaping.utils.image.beam_metrics.prepare_frame`` does) observe no behavioural difference.
         """
         frame = make_blob()
         poisoned = frame.copy()

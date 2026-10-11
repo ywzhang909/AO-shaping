@@ -69,6 +69,7 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
         "--target-size",
         "--target-aspect-ratio",
         "--target-center-smooth",
+        "--w-coverage",
     ):
         assert option in result.output
     assert "shape" in result.output

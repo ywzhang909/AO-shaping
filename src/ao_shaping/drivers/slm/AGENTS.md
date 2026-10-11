@@ -14,6 +14,7 @@ slm/
 │   ├── _slm_win.py              # SDK bindings (internal, Windows)
 │   └── wavefront_correction.py  # 波前误差校正 (CSV → correction map)
 ├── slm_calibration.py           # [已合并至 tools/slm/calibration.py] SLM 相位标定 (闪耀光栅法/零级比值法/干涉法/衍射效率法)
+├── factory.py                 # Bench 设备工厂 (open_slm / open_camera / sync_device_wavelength)
 ├── zernike_slm.py               # Zernike 系数驱动 SLM
 ├── README.md                    # SLM 响应标定详细说明
 └── __init__.py

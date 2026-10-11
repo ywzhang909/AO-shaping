@@ -33,6 +33,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import time
 from dataclasses import asdict, dataclass, field
@@ -45,11 +46,19 @@ from loguru import logger
 from torch.utils.data import DataLoader
 
 from ml.hwdataset import (
+    DEFAULT_ROOTS,
+    HwCorpusIndex,
     HwPhaseImageDataset,
+    HwRecordRef,
     MaterialiserConfig,
     build_hw_dataloader,
     build_hw_index,
 )
+
+# ``_discover_pickles`` is the canonical pickle discovery used by
+# ``build_hw_index``. Importing it rather than re-globbing keeps the staleness
+# check's notion of "on disk" exactly in step with the index builder's.
+from ml.hwdataset.index import _discover_pickles
 from ml.zernike.losses import (
     LossConfig,
     composite_loss,
@@ -145,6 +154,13 @@ class AmpTrainConfig:
 
     families: tuple[str, ...] = (DEFAULT_FAMILY,)
     fov_px: int | None = None
+    #: Path to the ``ml.hwdataset`` index cache. Defaults to the shared
+    #: ``data/hw_index_cache.json`` written by ``python -m ml.hwdataset.inspect``;
+    #: pass ``""`` / ``None`` to rebuild from disk every run. A stale cache is
+    #: invisible to ``build_hw_index`` (it validates only version/roots/limit), so
+    #: the run warns and records the mismatch in the summary rather than silently
+    #: training on an out-of-date corpus.
+    index_cache: str | None = "data/hw_index_cache.json"
     #: Substring filter on the artefact path, applied before ``fov_px``. Lets a
     #: run cover one slice of a family -- needed because
     #: ``slm_zernike_shaping`` mixes four optimisation objectives, hence four
@@ -190,6 +206,9 @@ class AmpTrainConfig:
     weight_decay: float = 0.0
     seed: int = 0
     device: str = "cuda"
+    #: Reserved. ``train()`` hard-codes ``num_workers=0`` (the split is already
+    #: resident tensors) and never reads this field; it is kept because external
+    #: scripts import ``AmpTrainConfig`` and construct it with ``num_workers``.
     num_workers: int = 0
 
     #: Training objective. ``"mse"`` is the incumbent pixel MSE on the
@@ -240,12 +259,17 @@ class AmpTrainConfig:
     def optimizer_fit_config(self) -> ZernikeAmpFitConfig:
         """Build the :class:`ZernikeAmpFitConfig` this run's optimiser needs.
 
+        ``lr`` is forwarded so ``--lr`` actually reaches the optimiser. It
+        previously fell through to :class:`ZernikeAmpFitConfig`'s default, making
+        the flag a silent no-op. ``epochs`` is genuinely irrelevant to the factory
+        and is left at its default.
+
         Returns:
-            A fit config carrying only the optimiser-relevant fields; ``epochs`` and
-            ``lr`` are irrelevant to the factory and are left at their defaults.
+            A fit config carrying the optimiser-relevant fields.
         """
         return ZernikeAmpFitConfig(
             optimizer=self.optimizer,  # type: ignore[arg-type]
+            lr=self.lr,
             momentum=self.momentum,
             weight_decay=self.weight_decay,
         )
@@ -269,6 +293,10 @@ class AmpTrainResult:
     seconds: float
     history: list[dict[str, float]] = field(default_factory=list)
     checkpoint: str | None = None
+    #: Corpus provenance: which files were scanned/usable, the record/family/source
+    #: breakdown, the index cache used, and whether it was stale on disk. Mirrors
+    #: :func:`ml.shaping.dataset.corpus_summary` so both trainers report one shape.
+    corpus: dict[str, Any] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +397,152 @@ def collect_split(
         "phase_cos": torch.cat(cos_parts).to(device),
         "phase_sin": torch.cat(sin_parts).to(device),
         "target": torch.cat(img_parts).to(device),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Corpus provenance
+# ---------------------------------------------------------------------------
+def _warn_if_index_stale(
+    index: HwCorpusIndex,
+    roots: tuple[str, ...],
+    limit_files: int | None,
+    index_cache: str | None,
+) -> dict[str, Any]:
+    """Compare the loaded index's files against what is on disk right now.
+
+    ``build_hw_index`` trusts an existing cache as long as its *version*, *roots*
+    and *limit_files* match (see ``_read_index_cache``); it never re-lists the
+    tree. A pickle added or removed since the cache was written is therefore
+    invisible -- the run silently trains on a stale corpus. This re-runs the same
+    discovery and reports the mismatch; it never raises, so a stale cache degrades
+    to a loud warning rather than a crash.
+
+    Args:
+        index: The index actually loaded (before any family filtering).
+        roots: The roots the index was requested with.
+        limit_files: The same cap ``build_hw_index`` was called with, so the
+            on-disk list is truncated identically before comparison.
+        index_cache: Cache path (for the rebuild hint), or ``None``.
+
+    Returns:
+        ``{"stale", "on_disk_not_indexed", "in_index_not_on_disk",
+        "n_on_disk", "n_indexed"}``. The two path lists are sorted and
+        normalised.
+    """
+
+    def _norm(path: str | Path) -> str:
+        return os.path.normcase(os.path.abspath(str(path)))
+
+    disk = [str(p) for p in _discover_pickles(roots)]
+    if limit_files is not None:
+        disk = disk[: max(0, int(limit_files))]
+    disk_set = {_norm(p) for p in disk}
+    index_set = {_norm(record.path) for record in index.records}
+
+    not_indexed = sorted(disk_set - index_set)
+    not_on_disk = sorted(index_set - disk_set)
+    stale = bool(not_indexed or not_on_disk)
+    if stale:
+        logger.warning(
+            "Index cache {} is STALE: {} file(s) on disk are not indexed and {} "
+            "indexed file(s) are missing on disk ({} records in index, {} .pkl on "
+            "disk). Rebuild with: python -m ml.hwdataset.inspect --build-cache",
+            index_cache or "<none>",
+            len(not_indexed),
+            len(not_on_disk),
+            len(index_set),
+            len(disk_set),
+        )
+    return {
+        "stale": stale,
+        "on_disk_not_indexed": not_indexed,
+        "in_index_not_on_disk": not_on_disk,
+        "n_on_disk": len(disk_set),
+        "n_indexed": len(index_set),
+    }
+
+
+def _corpus_summary(
+    index: HwCorpusIndex, index_cache: str | None, stale: bool
+) -> dict[str, Any]:
+    """Summarise the corpus the run actually trained on.
+
+    Mirrors :func:`ml.shaping.dataset.corpus_summary` so both trainers emit one
+    shape. The source breakdown uses ``PhaseSource.value`` (not ``str(enum)``,
+    which would yield ``"PhaseSource.PANEL_GRAY"``).
+
+    Args:
+        index: The loaded index (before family filtering).
+        index_cache: The cache path used, or ``None``.
+        stale: Whether the cache disagreed with disk (from
+            :func:`_warn_if_index_stale`).
+
+    Returns:
+        A JSON-serialisable provenance dict.
+    """
+    by_family = dict(index.counts_by_family())
+    by_source = {
+        getattr(source, "value", str(source)): count
+        for source, count in index.counts_by_source().items()
+    }
+    return {
+        "files_scanned": int(index.files_scanned),
+        "files_usable": int(index.files_usable),
+        "n_records": len(index.records),
+        "n_families": len(by_family),
+        "families": by_family,
+        "sources": by_source,
+        "index_cache": index_cache,
+        "index_cache_stale": bool(stale),
+    }
+
+
+def _cam_size_guard(
+    records: list[HwRecordRef], far_field_padding: int
+) -> dict[str, Any]:
+    """Warn when the selected records mix camera FOVs.
+
+    ``far_field_padding`` is a single physical calibration: it ties the FFT grid
+    to the camera's angular scale, which is per-family (``sidecar['cam_size']``).
+    Records carry no ``fov_px`` field, so ``cam_size`` is the only in-index proxy.
+    Mixing e.g. a 250 px and a 320 px window under one padding rescales the target
+    for one of them. This warns; it does not filter, so the caller keeps full
+    control of the split.
+
+    Args:
+        records: The records the training run will consume.
+        far_field_padding: The single padding value in effect.
+
+    Returns:
+        ``{"cam_size_counts", "distinct_cam_sizes", "unknown_cam_size_records",
+        "mixed"}``.
+    """
+    counts: dict[str, int] = {}
+    unknown = 0
+    for record in records:
+        raw = (record.sidecar or {}).get("cam_size")
+        if raw is None:
+            unknown += 1
+            counts["unknown"] = counts.get("unknown", 0) + 1
+        else:
+            counts[str(raw)] = counts.get(str(raw), 0) + 1
+    distinct = sorted(key for key in counts if key != "unknown")
+    mixed = len(distinct) > 1
+    if mixed:
+        logger.warning(
+            "Selected records mix camera sizes {} under a single "
+            "far_field_padding={}; the padding is calibrated for one FOV, so the "
+            "target angular scale is inconsistent across families. Consider "
+            "--families to train one FOV at a time, or re-calibrate padding.",
+            counts,
+            far_field_padding,
+        )
+    return {
+        "cam_size_counts": counts,
+        "distinct_cam_sizes": distinct,
+        "unknown_cam_size_records": unknown,
+        "mixed": mixed,
     }
 
 
@@ -783,7 +957,12 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
 
-    index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
+    # Keep the unfiltered index: corpus provenance and the staleness check
+    # describe the whole cache, not just the family subset that will be trained.
+    raw_index = build_hw_index(index_cache=cfg.index_cache or None, progress_every=0)
+    stale = _warn_if_index_stale(raw_index, DEFAULT_ROOTS, None, cfg.index_cache)
+    corpus = _corpus_summary(raw_index, cfg.index_cache, stale["stale"])
+    index = raw_index
     if cfg.families:
         index = index.filter(families=list(cfg.families))
     dataset = HwPhaseImageDataset(
@@ -792,6 +971,9 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         use_cache=True,
     )
     train_idx, val_idx = _select_records(dataset, cfg)
+    corpus["cam_size_guard"] = _cam_size_guard(
+        [dataset.records[i] for i in train_idx + val_idx], cfg.far_field_padding
+    )
     # Per-objective labels for the validation samples, aligned to ``val_idx`` order,
     # so the per-objective R^2 breakdown can be reported every epoch.
     val_objectives = [objective_of(dataset.records[i].path) for i in val_idx]
@@ -812,7 +994,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             grid=cfg.grid,
             observable=cfg.observable,
             normalization=cfg.normalization,
-    conserve_energy=cfg.conserve_energy,
+            conserve_energy=cfg.conserve_energy,
             far_field_padding=cfg.far_field_padding,
             center_crop=cfg.center_crop,
             attention=cfg.attention,
@@ -1028,6 +1210,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         seconds=seconds,
         history=history,
         checkpoint=checkpoint,
+        corpus=corpus,
     )
     (out_dir / "summary.json").write_text(
         json.dumps(asdict(result), indent=2, default=str), encoding="utf-8"
@@ -1113,7 +1296,7 @@ def _init_wandb(cfg: AmpTrainConfig, model: ZernikeAmpModel, n_train: int, n_val
                 "n_train_records": n_train,
                 "n_val_records": n_val,
             },
-            reinit=True,
+            reinit="finish_previous",
         )
     except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
@@ -1157,6 +1340,8 @@ def _log_wandb_summary(run, result: AmpTrainResult) -> None:
     run.summary["grad_norm_last"] = result.grad_norm_last
     run.summary["dead_modes"] = result.dead_modes
     run.summary["coefficients"] = result.coefficients
+    if result.corpus:
+        run.summary["corpus"] = result.corpus
 
 
 # ---------------------------------------------------------------------------
@@ -1188,6 +1373,15 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--fov-px", type=int, default=None)
+    parser.add_argument(
+        "--index-cache",
+        default=train_default.index_cache,
+        help=(
+            "JSON index cache path. Reused only when it matches the requested "
+            "roots/limit, and re-validated against the on-disk tree; pass an "
+            "empty string to disable the cache and always rescan."
+        ),
+    )
     parser.add_argument("--grid", type=int, default=model_default.grid)
     parser.add_argument(
         "--image-mode",
@@ -1300,6 +1494,7 @@ def main(argv: list[str] | None = None) -> int:
         families=tuple(args.families),
         file_contains=args.file_contains,
         fov_px=args.fov_px,
+        index_cache=args.index_cache,
         grid=args.grid,
         image_mode=args.image_mode,
         n_max=args.n_max,
@@ -1323,8 +1518,8 @@ def main(argv: list[str] | None = None) -> int:
             w_spot_moment=args.w_spot_moment,
             w_ellipse=args.w_ellipse,
         ),
-    target_size_frac=args.target_size_frac,
-    target_aspect_ratio=args.target_aspect_ratio,
+        target_size_frac=args.target_size_frac,
+        target_aspect_ratio=args.target_aspect_ratio,
         grad_clip=args.grad_clip,
         optimizer=args.optimizer,
         momentum=args.momentum,

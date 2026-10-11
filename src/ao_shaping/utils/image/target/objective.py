@@ -216,6 +216,7 @@ class ShapeScoringParams:
     w_peak: float = 0.5
     w_displacement: float = 0.5
     w_pearson: float = 0.0
+    w_coverage: float = 0.0
     log_uniformity: bool = True
 
 
@@ -786,6 +787,7 @@ class ShapingObjective:
                 stage=stage,
                 log_uniformity=p.scoring.log_uniformity,
                 w_pearson=p.scoring.w_pearson,
+                w_coverage=p.scoring.w_coverage,
             )
             # Monotone: the schedule may only get stricter, never laxer.
             self._shape_state["best_energy"] = max(
@@ -807,6 +809,7 @@ class ShapingObjective:
                     w_displacement=p.scoring.w_displacement,
                     log_uniformity=p.scoring.log_uniformity,
                     w_pearson=p.scoring.w_pearson,
+                    w_coverage=p.scoring.w_coverage,
                 )
             return float(score), float(energy), float(tracking)
 
@@ -937,6 +940,7 @@ class ShapingObjective:
             stage=None,
             log_uniformity=p.scoring.log_uniformity,
             w_pearson=p.scoring.w_pearson,
+            w_coverage=p.scoring.w_coverage,
         )
         pib_term, rms_t = rms_pib_terms(
             img, self._reference_center, p.shape, p.size, p.aspect_ratio

@@ -89,7 +89,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
-# leaf shared with ``tools/slm/params.py``. Defined here, not here.
+# leaf shared with ``tools/slm/params.py``. Parameter classes consume it here.
 from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
@@ -576,6 +576,10 @@ class ObjectiveParamsPib:
     w_pearson: Annotated[
         float,
         option("--w-pearson", help="Weight on correlation with the uniform target shape."),
+    ] = 0.0
+    w_coverage: Annotated[
+        float,
+        option("--w-coverage", help="Weight on spatial coverage across target tiles."),
     ] = 0.0
     w_loggrad: Annotated[
         float,
@@ -1143,7 +1147,11 @@ class SlmSquareParams:
                 "刘卉等, 光子学报 2023, 52(6):0629002。"
             ),
         ),
-    ] = 0.0
+] = 0.0
+    adaptive: Annotated[bool, option("--adaptive", is_flag=True, help="启用自适应 SPGD 闭环: 按 epoch 三等分切换 stage_weights 三元组 (w_uniformity, w_efficiency, w_aspect), 并在 CV 停滞 (最近 stagnate_win 轮 best 改善 < min_improve_frac) 时短暂提升 w_uniformity。默认关闭, 关闭时行为与既有运行完全一致。")] = False
+    stagnate_win: Annotated[int, option("--stagnate-win", help="停滞检测窗口轮数, 与 --adaptive 联用 (default: 10)")] = 10
+    stagnate_boost: Annotated[float, option("--stagnate-boost", help="停滞时 w_uniformity 倍增因子, 1.0=关闭增强 (default: 1.5)")] = 1.5
+    min_improve_frac: Annotated[float, option("--min-improve-frac", help="停滞判定阈值: 窗口内 best CV 改善 < 该比例视为停滞 (default: 0.01)")] = 0.01
     basis: Annotated[
         str,
         option(
@@ -2230,6 +2238,45 @@ class SlmGsRefineParams:
             help="Compute a GS phase and keep it only if it beats flat.",
         ),
     ] = True
+    gs_method: Annotated[
+        str,
+        option(
+            "--gs-method",
+            type=click.Choice(["plain", "weighted", "hio", "hio-weighted"]),
+            help=(
+                "GS variant: plain = today's behaviour; weighted = 加权 GS; "
+                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS."
+            ),
+        ),
+    ] = "plain"
+    gs_gamma: Annotated[
+        float,
+        option(
+            "--gs-gamma",
+            help="Weighted-GS cumulative feedback coefficient gamma (0<=g<1; 0=plain).",
+        ),
+    ] = 0.5
+    gs_weight_clip: Annotated[
+        float,
+        option(
+            "--gs-weight-clip",
+            help="Weighted-GS weight upper clip (must be > 1).",
+        ),
+    ] = 4.0
+    gs_beta: Annotated[
+        float,
+        option(
+            "--gs-beta",
+            help="HIO feedback relaxation beta (Fienup, 0<=b<=1; 0=freeze noise region).",
+        ),
+    ] = 0.9
+    gs_hio_fraction: Annotated[
+        float,
+        option(
+            "--gs-hio-fraction",
+            help="Fraction of HIO iterations in hio-weighted (0<=f<=1).",
+        ),
+    ] = 0.7
 
     # --- bench model -------------------------------------------------------
     panel_pixel_um: Annotated[
