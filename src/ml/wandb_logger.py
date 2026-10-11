@@ -176,16 +176,24 @@ def _shaping_panel_cmap(key: str) -> str:
     Phase panels use a cyclic map (phase is a circle, not a scalar) and any
     residual panel uses a diverging map centred on zero.
 
+    Residual markers are tested **first**, because a key can carry both: with
+    ``phase`` tested first, a ``phase_diff`` panel would be handed
+    ``twilight_shifted``, a cyclic map that cannot represent sign -- so a large
+    negative residual would render the same colour as a large positive one.
+    Ordering the other way is safe for every existing caller: the only keys
+    passed today (``ml.gsnet_debug.train.PANEL_KEYS``) contain "phase" or "diff",
+    never both, so their colours are unchanged.
+
     Args:
         key: Panel key, e.g. ``"pred_phase"`` or ``"far_diff"``.
 
     Returns:
         A matplotlib colormap name.
     """
-    if "phase" in key:
-        return "twilight_shifted"
     if "diff" in key:
         return "RdBu_r"
+    if "phase" in key:
+        return "twilight_shifted"
     return "magma"
 
 
