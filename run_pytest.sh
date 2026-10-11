@@ -55,7 +55,10 @@ SEED_DATA="${AO_TEST_DATA_SEED:-$HOME/ao-testdata}"
 AO_TEST_DATA="${AO_TEST_DATA:-$AO_SCRATCH/data}"
 if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
     "$REPO/scripts/stage_test_data.sh" >/dev/null
-    rm -rf "$AO_TEST_DATA"
+    # A previous run may have left root-owned files here, which the host cannot
+    # delete; docker can, so clean through it rather than failing the run.
+    rm -rf "$AO_TEST_DATA" 2>/dev/null ||         docker run --rm -v "$AO_SCRATCH":/scratch alpine \
+            sh -c "rm -rf /scratch/data" >/dev/null 2>&1
     cp -r "$SEED_DATA" "$AO_TEST_DATA"
 fi
 mkdir -p "$AO_TEST_DATA"
