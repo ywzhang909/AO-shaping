@@ -110,8 +110,8 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     # focal_length_m defaults to 0 = "derive from the measured focal scale and the
     # camera pixel pitch", so echo what will actually be used rather than the raw
     # 0 (the config resolves it in __post_init__).
+    from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
     from ao_shaping.optimizer.wfless.slm_gs_refine import (
-        _DEFAULT_WAVELENGTH_NM,
         _TILT_SHIFT_SCALE_MEASURED_AT_NM,
         _TILT_SHIFT_SCALE_PX,
         focal_length_from_camera_pixel,
@@ -121,7 +121,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     _f_note = "pinned"
     if _f_m <= 0.0:
         _f_m = focal_length_from_camera_pixel(
-            wavelength_nm=float(params.slm_wavelength or _DEFAULT_WAVELENGTH_NM),
+            wavelength_nm=float(params.slm_wavelength or DEFAULT_WAVELENGTH_NM),
             camera_pixel_um=params.camera_pixel_um,
             slm_pixel_um=params.panel_pixel_um,
             focal_scale_px=_TILT_SHIFT_SCALE_PX,

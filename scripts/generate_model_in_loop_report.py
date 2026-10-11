@@ -80,6 +80,7 @@ NEWLINE = "\n"
 HARDWARE = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
 TWIN = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
 OPTIMIZER = "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py"
+BEAM_METRICS = "src/ao_shaping/utils/image/beam_metrics.py"
 RUNNER = "src/ao_shaping/runners/slm/model_in_loop_runner.py"
 PARAMS = "src/ao_shaping/runners/runner_common.py"
 IO = "src/ao_shaping/utils/io/file.py"
@@ -101,6 +102,7 @@ MODULES = {
     "physics": PHYSICS,
     "amp_ckpt": AMP_CKPT,
     "fraunhofer": FRAUNHOFER,
+    "beam_metrics": BEAM_METRICS,
 }
 
 #: Every symbol the two ASCII diagrams name, as ``(module_key, qualified name)``.
@@ -143,8 +145,8 @@ DIAGRAM_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("twin", "simulate_iterative_shaping"),
     ("twin", "StepBConfig"),
     ("twin", "BenchGeometry"),
-    # borrowed helper
-    ("gs_refine", "_prepare_frame"),
+    # borrowed helper (canonical home: the leaf utils layer)
+    ("beam_metrics", "prepare_frame"),
     # algorithm layer
     ("optimizer", "ZernikeCoefficientOptimizer"),
     # recorder
@@ -357,9 +359,9 @@ graph TD
         ZCO["ZernikeCoefficientOptimizer<br/>Adam 作用在 Zernike 系数向量上"]
     end
 
-    subgraph LX["借用的帧预处理 · slm_gs_refine.py"]
+    subgraph LX["借用的帧预处理 · utils/image/beam_metrics.py"]
         direction TB
-        PREP["_prepare_frame"]
+        PREP["prepare_frame"]
     end
 
     subgraph LO["⑥ 记录 · utils/io/file.py"]
@@ -442,7 +444,7 @@ sequenceDiagram
 
     rect rgb(240, 245, 240)
         O->>B: display(flat)
-        B-->>O: _prepare_frame(measure())
+        B-->>O: prepare_frame(measure())
         O->>O: _metrics_at → _quality → score_before
     end
 
@@ -451,7 +453,7 @@ sequenceDiagram
         loop probe_count 次
             O->>O: _probe_phase(region, probe_spread, seed)
             O->>B: display(probe)
-            B-->>O: measure() → _prepare_frame
+            B-->>O: measure() → prepare_frame
             O->>O: _to_model_grid(...) 搬到模型网格
         end
         O->>Z: step_a_iterations 次前向+反向<br/>(轮流喂全部探针, 同一 Adam 状态)
@@ -464,7 +466,7 @@ sequenceDiagram
         O->>Z: step_b_iterations 次全像素相位 Adam
         Z-->>O: shaped
         O->>B: display(shaped)
-        B-->>O: _prepare_frame → _metrics_at → _quality
+        B-->>O: prepare_frame → _metrics_at → _quality
     end
 
     O->>O: acceptance_verdict(loss, score)
@@ -870,7 +872,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("### 4.2 逐步\n")
     A(
         "1. `_probe_phase(region, probe_spread, seed)` 生成零均值高斯**瞳面相位** (raw 未包裹弧度)。\n"
-        "2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `_prepare_frame` 逐帧去背景再裁剪\n"
+        "2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `prepare_frame` 逐帧去背景再裁剪\n"
         "   —— 直接对原始帧算指标会被读出噪声污染 (对称读出噪声让约一半像素为负)。\n"
         "3. `_to_model_grid` 把实测帧搬到**模型自己的网格**上。Step A 的 loss 比较的是\n"
         "   「实测 CCD」与「模型预测」, 两者必须逐像素可比, 所以这一步的尺度关系必须由几何标定保证。\n"

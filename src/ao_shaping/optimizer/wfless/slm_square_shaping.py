@@ -419,7 +419,7 @@ def square_peak_to_background_ratio(
     wrong.
 
     Only clipping is applied -- deliberately NOT median subtraction, unlike
-    ``slm_gs_refine._prepare_frame``. The background occupies most of the frame,
+    ``prepare_frame`` (``ao_shaping.utils.image.beam_metrics``). The background occupies most of the frame,
     so the median *is* the pedestal and subtracting it makes the ratio explode.
     Clipping alone removes the negative half of the read-noise
     distribution while leaving the pedestal intact, so the denominator stays a

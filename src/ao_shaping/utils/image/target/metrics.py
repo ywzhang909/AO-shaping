@@ -652,7 +652,8 @@ def _sanitize_frame(frame: np.ndarray, name: str) -> np.ndarray:
     multi-hour run with the SLM left holding an arbitrary phase. Non-finite
     camera frames are an expected condition, not a programming error, and the
     repo already standardises on ``np.where(isfinite, frame, 0.0)`` in
-    ``slm_gs_refine._prepare_frame`` and both ``tools/slm/bench_kernels.py``
+    ``ao_shaping.utils.image.beam_metrics.prepare_frame`` and both
+    ``tools/slm/bench_kernels.py``
     prep kernels; matching that convention keeps this term from becoming a new
     failure mode. Shape/eps/sigma mistakes still raise - those are caller bugs.
     """

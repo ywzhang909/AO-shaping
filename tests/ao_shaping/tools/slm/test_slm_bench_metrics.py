@@ -41,8 +41,9 @@ class TestPrepDivergence:
 
     ``finite_clip`` mirrors ``slm_square_shaping.square_peak_to_background_ratio``
     (clip only) and ``finite_median_subtract`` mirrors
-    ``slm_gs_refine._prepare_frame`` (median-subtract then clip). Both are
-    correct for their own metric, and swapping them breaks one.
+    ``ao_shaping.utils.image.beam_metrics.prepare_frame`` (median-subtract
+    then clip). Both are correct for their own metric, and swapping them
+    breaks one.
     """
 
     def test_clip_preserves_the_pedestal(self):
@@ -83,11 +84,11 @@ class TestPrepDivergence:
         )
 
     def test_median_subtract_matches_the_live_prepare_frame(self):
-        """Lock against ``slm_gs_refine._prepare_frame`` itself."""
-        from ao_shaping.optimizer.wfless.slm_gs_refine import _prepare_frame
+        """Lock against the canonical ``prepare_frame`` itself."""
+        from ao_shaping.utils.image.beam_metrics import prepare_frame
 
         frame = _pedestal_frame(5.0)
-        assert np.array_equal(finite_median_subtract(frame), _prepare_frame(frame))
+        assert np.array_equal(finite_median_subtract(frame), prepare_frame(frame))
 
     def test_the_two_preps_are_not_interchangeable(self):
         """The load-bearing test.

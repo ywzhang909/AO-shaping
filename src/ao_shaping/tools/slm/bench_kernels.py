@@ -42,6 +42,7 @@ reinvents them wrong.
 """
 from __future__ import annotations
 
+from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,
@@ -508,13 +509,16 @@ def finite_clip(frame: np.ndarray) -> np.ndarray:
 def finite_median_subtract(frame: np.ndarray) -> np.ndarray:
     """Mask non-finite pixels, subtract the median, then clip at 0.
 
-    Mirrors :func:`~ao_shaping.optimizer.wfless.slm_gs_refine._prepare_frame`.
-    Required before any ratio whose denominator is a whole-frame statistic:
-    symmetric read noise leaves ~half of a raw frame negative, which pushes such
-    a ratio above 1 and makes an optimizer chase noise.
+    Float64-coercing wrapper around the canonical
+    :func:`~ao_shaping.utils.image.beam_metrics.prepare_frame`.
+    Required before any ratio whose denominator is a whole-frame
+    statistic: symmetric read noise leaves ~half of a raw frame
+    negative, which pushes such a ratio above 1 and makes an
+    optimizer chase noise.
 
-    The order matters. Clipping first would rectify the noise distribution and
-    invent a DC pedestal proportional to the pixel count.
+    The order matters. Clipping first would rectify the noise
+    distribution and invent a DC pedestal proportional to the
+    pixel count.
 
     Args:
         frame: 2D camera frame.
@@ -522,9 +526,7 @@ def finite_median_subtract(frame: np.ndarray) -> np.ndarray:
     Returns:
         New float64 array, non-negative, same shape.
     """
-    arr = _as_2d_float(frame)
-    clean = np.where(np.isfinite(arr), arr, 0.0)
-    return np.clip(clean - float(np.median(clean)), 0.0, None)
+    return prepare_frame(_as_2d_float(frame))
 
 
 # ---------------------------------------------------------------------------
