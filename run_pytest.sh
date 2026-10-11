@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Run the AO-Shaping test suite in a resource-capped container.
+#
+# The host has 384 cores and two RTX 4090s. An unconstrained `pytest` there
+# saturates both: numeric libraries size their thread pools at 384, and the
+# vendored OOPAO hands `multiprocessing.cpu_count()` to pyfftw and joblib. The
+# first symptom is not a failed test but the shell itself timing out.
+#
+# This wrapper is the sanctioned entry point. It enforces:
+#   --cpus=16          CFS quota. Note this does NOT lower `nproc`.
+#   --pids-limit=2048  the real backstop: threads count as pids in cgroup v2,
+#                      so an explosion fails with EAGAIN instead of taking the
+#                      host down.
+#   --memory=32g       container RAM ceiling, swap disabled so the cgroup OOM
+#                      killer fires here rather than thrashing the host.
+#   --gpus device=0    one RTX 4090. VRAM is NOT capped by docker; the 4 GB
+#                      ceiling is applied by conftest.py to the caching
+#                      allocators, which is where the repo's tensors live.
+#
+# data/ is shadowed by a staged copy that deliberately omits data/debug.
+# That directory holds 18 GB of pickles with individual files up to 3.42 GB,
+# and the tests that consume it gate on the directory EXISTING -- they must see
+# it absent so they skip, which an empty tmpfs cannot achieve because is_dir()
+# would still be true. Everything else under data/ (the r50 wiring CSV, the
+# calibration JSONs, ccd_configs) is copied in, since those tests read it.
+# Refresh the staging area with scripts/stage_test_data.sh after new fixtures
+# land in data/.
+#
+# Usage:
+#   ./run_pytest.sh                          # whole suite
+#   ./run_pytest.sh tests/ao_shaping/runners  # a subtree
+#   ./run_pytest.sh -k "not slow" -- -x      # extra args after --
+set -euo pipefail
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+IMAGE="${AO_IMAGE:-ao-shaping-test:gpu}"
+WORKDIR_IN_CONTAINER=/workspace
+CPU_LIMIT="${AO_CPUS:-16}"
+MEM_LIMIT="${AO_MEMORY:-32g}"
+PIDS_LIMIT="${AO_PIDS:-2048}"
+GPU="${AO_GPU:-device=0}"
+AO_TEST_DATA="${AO_TEST_DATA:-$HOME/ao-testdata}"
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "docker is required; the suite must not run on the host." >&2
+    exit 1
+fi
+
+if ! docker image inspect "$IMAGE" >/dev/null 2>&1; then
+    echo "image $IMAGE not found. Build it with:" >&2
+    echo "  docker build -f docker/Dockerfile.test -t $IMAGE ." >&2
+    exit 1
+fi
+
+# Anything after `--` is forwarded verbatim; everything before it is a target.
+if [ "${1:-}" = "--" ]; then
+    shift
+    TARGETS=()
+    PASSTHROUGH=("$@")
+else
+    TARGETS=()
+    PASSTHROUGH=()
+    while [ $# -gt 0 ] && [ "$1" != "--" ]; do
+        TARGETS+=("$1")
+        shift
+    done
+    if [ "${1:-}" = "--" ]; then
+        shift
+        PASSTHROUGH=("$@")
+    fi
+fi
+if [ ${#TARGETS[@]} -eq 0 ]; then
+    TARGETS=(tests)
+fi
+
+exec docker run --rm \
+    --name ao-pytest \
+    --cpus="$CPU_LIMIT" \
+    --memory="$MEM_LIMIT" \
+    --memory-swap="$MEM_LIMIT" \
+    --pids-limit="$PIDS_LIMIT" \
+    --gpus "\"$GPU\"" \
+    --shm-size=1g \
+    -v "$REPO:$WORKDIR_IN_CONTAINER:ro" \
+    --tmpfs "$WORKDIR_IN_CONTAINER/logs:size=512m" \
+    -v "$AO_TEST_DATA:$WORKDIR_IN_CONTAINER/data" \
+    --tmpfs /tmp:size=4g,mode=1777 \
+    -e AO_CPU_THREADS="${AO_CPU_THREADS:-16}" \
+    -e AO_VRAM_LIMIT_MB="${AO_VRAM_LIMIT_MB:-4096}" \
+    -e PYTHONPATH="$WORKDIR_IN_CONTAINER/src:$WORKDIR_IN_CONTAINER:$WORKDIR_IN_CONTAINER/scripts" \
+    -e PYTHONDONTWRITEBYTECODE=1 \
+    -e NUMBA_CACHE_DIR=/tmp/numba-cache \
+    -e MPLBACKEND=Agg \
+    -e PYTHONUNBUFFERED=1 \
+    -w "$WORKDIR_IN_CONTAINER" \
+    "$IMAGE" \
+    python -m pytest \
+        -p no:cacheprovider \
+        --rootdir "$WORKDIR_IN_CONTAINER" \
+        "${TARGETS[@]}" \
+        ${PASSTHROUGH+"${PASSTHROUGH[@]}"}
