@@ -40,6 +40,11 @@ MEM_LIMIT="${AO_MEMORY:-32g}"
 PIDS_LIMIT="${AO_PIDS:-2048}"
 GPU="${AO_GPU:-device=0}"
 AO_TEST_DATA="${AO_TEST_DATA:-$HOME/ao-testdata}"
+# CWD must be writable: tests legitimately write scratch files relative to
+# it (e.g. savefig("cmp.png")), which the read-only repo mount forbids. The repo
+# itself stays read-only; only this scratch directory is not.
+AO_SCRATCH="${AO_SCRATCH:-$HOME/ao-pytest-scratch}"
+mkdir -p "$AO_SCRATCH"
 
 # Opt-in switches the suite itself reads (golden-file regeneration,
 # fault-handler dumps). They must be forwarded explicitly, otherwise setting
@@ -84,6 +89,18 @@ if [ ${#TARGETS[@]} -eq 0 ]; then
     TARGETS=(tests)
 fi
 
+# The container's CWD is a scratch directory (tests write scratch files
+# relative to it), so relative targets would not resolve. Anchor them to the
+# in-container repo path instead.
+ABS_TARGETS=()
+for target in "${TARGETS[@]}"; do
+    case "$target" in
+        /*) ABS_TARGETS+=("$target") ;;
+        -*) ABS_TARGETS+=("$target") ;;
+        *)  ABS_TARGETS+=("$WORKDIR_IN_CONTAINER/$target") ;;
+    esac
+done
+
 # Regenerating a help golden writes into the repo, which the read-only mount
 # forbids. Opt in explicitly rather than mounting the tree read-write by default
 # -- a plain test run has no business writing to the checkout.
@@ -112,10 +129,11 @@ exec docker run --rm \
     -e NUMBA_CACHE_DIR=/tmp/numba-cache \
     -e MPLBACKEND=Agg \
     -e PYTHONUNBUFFERED=1 \
-    -w "$WORKDIR_IN_CONTAINER" \
+    -w "$AO_SCRATCH" \
+    -e AO_PYTEST_ROOT="$WORKDIR_IN_CONTAINER" \
     "$IMAGE" \
     python -m pytest \
         -p no:cacheprovider \
         --rootdir "$WORKDIR_IN_CONTAINER" \
-        "${TARGETS[@]}" \
+        "${ABS_TARGETS[@]}" \
         ${PASSTHROUGH+"${PASSTHROUGH[@]}"}

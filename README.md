@@ -1475,7 +1475,8 @@ uv run pytest tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_bac
 #### 2f-Fourier 整形台架的唯一入口
 
 前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
-`optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
+它同时把这些符号 re-export 自 `algorithm/signal_processing/square_shaping.py`
+（唯一实现），因此从任一路径 import 得到的都是同一份代码。
 
 > ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份
 > `gs_shape`/`differentiable_shape`/`spgd_shape`，而副本用的是
