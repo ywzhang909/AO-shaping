@@ -85,7 +85,7 @@ from ao_shaping.drivers.slm.factory import (
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.io.file import Recorder
-from ao_shaping.algorithm import make_optimizer
+from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -909,7 +909,9 @@ def _run_gs_refine_session(
     # gradient. It is reshaped only when embedded into the panel.
     grid = max(2, int(config.phase_grid))
     dof = np.zeros(grid * grid, dtype=np.float64)
-    optimizer = make_optimizer(config.optimizer_type, dof.size, _lr_at(config, 0))
+    optimizer = create_optimizer(
+        config.optimizer_type, dof.size, _lr_at(config, 0)
+    )
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return _compose(base_panel, vec.reshape(grid, grid), panel_shape, radius_px)

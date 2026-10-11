@@ -21,11 +21,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm import make_optimizer
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     power_in_bucket,
     uniformity_cv,
 )
+from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
     _compose,
@@ -357,7 +357,7 @@ class TestLearningRate:
 class TestOptimizerFactory:
     @pytest.mark.parametrize("kind", ["adam", "adamw", "adamod", "sgd", "unknown"])
     def test_every_kind_yields_a_working_optimizer(self, kind):
-        opt = make_optimizer(kind, 16, 0.1)
+        opt = create_optimizer(kind, 16, 0.1)
         step = opt.update(np.ones(16))
         assert np.asarray(step).shape == (16,)
         assert np.isfinite(np.asarray(step, dtype=float)).all()
