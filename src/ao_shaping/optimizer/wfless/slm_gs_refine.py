@@ -83,9 +83,18 @@ from ao_shaping.drivers.slm.factory import (
     sync_device_wavelength,
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
-from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
+from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame  # 可选
+from ao_shaping.utils.image.resample import fit_exact, upsample_bilinear_to_shape
+from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.algorithm import make_optimizer
+from ao_shaping.utils.slm.phase_embed import (
+    compose_pupil_dof,
+    embed_pupil_square,
+    panel_shape_from_slm,
+    pupil_side,
+)
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -471,7 +480,7 @@ def _embed_pupil_square(
     """
     ph, pw = panel_shape
     out = np.zeros((ph, pw), dtype=np.float64)
-    side = min(_pupil_side(radius_px), ph, pw)
+    side = min(pupil_side(radius_px), ph, pw)
     y0, x0 = (ph - side) // 2, (pw - side) // 2
     out[y0 : y0 + side, x0 : x0 + side] = _fit_exact(box, (side, side))
     return out
@@ -490,8 +499,8 @@ def _compose(
     """
     if dof is None or not np.any(dof):
         return base_panel
-    box = _upsample_bilinear(dof, (_pupil_side(radius_px),) * 2)
-    return base_panel + _embed_pupil_square(box, panel_shape, radius_px)
+    box = _upsample_bilinear(dof, (pupil_side(radius_px),) * 2)
+    return base_panel + embed_pupil_square(box, panel_shape, radius_px)
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +508,7 @@ def _compose(
 # ---------------------------------------------------------------------------
 
 
-def _display_and_average(
+def display_and_average(
     cam: Any,
     slm: Any,
     phase_rad: np.ndarray,
@@ -590,7 +599,7 @@ def _gs_pupil_phase(
     if not config.gs_warm_start or config.gs_iters <= 0:
         return None
 
-    n_grid = _pupil_side(radius_px)
+    n_grid = pupil_side(radius_px)
     seed = config.seed if config.seed is not None else 0
     aperture_m = n_grid * config.panel_pixel_um * 1e-6
     probe = ShapingBenchConfig(
@@ -759,11 +768,11 @@ def _run_gs_refine_session(
     best_phase: np.ndarray | None = None
     best_frame: np.ndarray | None = None
     sync_device_wavelength(config, slm)
-    panel_shape = _panel_shape(slm)
+    panel_shape = panel_shape_from_slm(slm)
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
     if config.cam_type != "sim":
         # Locate the zero order on the full sensor before restricting the CCD ROI.
-        discovery = _display_and_average(
+        discovery = display_and_average(
             cam,
             slm,
             np.zeros(panel_shape, dtype=np.float64),
@@ -774,7 +783,7 @@ def _run_gs_refine_session(
             settle_max_discard=config.settle_max_discard,
             memory_number=work_slots[2],
         )
-        full_y, full_x = _locate_zero_order(discovery)
+        full_y, full_x = locate_zero_order(discovery)
         cam.reset_window(
             center=(full_x, full_y), size=(config.cam_size, config.cam_size)
         )
@@ -805,7 +814,7 @@ def _run_gs_refine_session(
         if config.cam_type != "sim":
             memory_number = work_slots[measurement_count % len(work_slots)]
             measurement_count += 1
-        return _display_and_average(
+        return display_and_average(
             cam,
             slm,
             phase,
@@ -864,8 +873,8 @@ def _run_gs_refine_session(
     # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
     flat_panel = np.zeros(panel_shape, dtype=np.float64)
     frame0 = measure(flat_panel)
-    cy, cx = _locate_zero_order(frame0)
-    mask = _square_mask(frame0.shape, cy, cx, target_side)
+    cy, cx = locate_zero_order(frame0)
+    mask = square_mask(frame0.shape, cy, cx, target_side)
     if not mask.any():
         raise ValueError(
             f"target square (side={target_side}px at ({cy},{cx})) is empty"
@@ -886,7 +895,7 @@ def _run_gs_refine_session(
     base_panel = flat_panel
     gs_box = _gs_pupil_phase(config, radius_px, target_side)
     if gs_box is not None:
-        gs_panel = _embed_pupil_square(gs_box, panel_shape, radius_px)
+        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px)
         gs_frame = measure(gs_panel)
         score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
         if score_gs > score_flat:
@@ -912,7 +921,9 @@ def _run_gs_refine_session(
     optimizer = make_optimizer(config.optimizer_type, dof.size, _lr_at(config, 0))
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
-        return _compose(base_panel, vec.reshape(grid, grid), panel_shape, radius_px)
+        return compose_pupil_dof(
+            base_panel, vec.reshape(grid, grid), panel_shape, radius_px
+        )
 
     for epoch in range(max(1, int(config.epochs))):
         lr = _lr_at(config, epoch)
