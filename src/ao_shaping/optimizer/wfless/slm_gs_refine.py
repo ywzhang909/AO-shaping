@@ -399,50 +399,6 @@ def _panel_shape(slm: Any) -> tuple[int, int]:
     return 1200, 1920
 
 
-def _pupil_side(radius_px: float) -> int:
-    """Edge length of the square covering the illuminated pupil."""
-    return max(32, int(round(2.0 * radius_px)))
-
-
-def _square_mask(shape: tuple[int, int], cy: int, cx: int, side: int) -> np.ndarray:
-    """Boolean square support of edge ``side`` centred on ``(cy, cx)``.
-
-    Clipped to the frame. The bench metric functions only ever use the *support*
-    of their ``target`` argument, so a boolean mask is a faithful stand-in for a
-    target intensity pattern.
-    """
-    h, w = shape
-    half = side / 2.0
-    y0, y1 = int(round(cy - half)), int(round(cy + half))
-    x0, x1 = int(round(cx - half)), int(round(cx + half))
-    y0c, y1c = max(0, y0), min(h, y1)
-    x0c, x1c = max(0, x0), min(w, x1)
-    mask = np.zeros(shape, dtype=bool)
-    if y1c > y0c and x1c > x0c:
-        mask[y0c:y1c, x0c:x1c] = True
-    return mask
-
-
-def _fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Force ``arr`` to exactly ``shape`` by edge-padding then cropping."""
-    h, w = shape
-    out = np.asarray(arr, dtype=np.float64)
-    ph, pw = max(0, h - out.shape[0]), max(0, w - out.shape[1])
-    if ph or pw:
-        out = np.pad(out, ((0, ph), (0, pw)), mode="edge")
-    return out[:h, :w]
-
-
-def _upsample_bilinear(coarse: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Bilinear upsample of a coarse grid to an exact ``shape``."""
-    from scipy.ndimage import zoom
-
-    if tuple(coarse.shape) == tuple(shape):
-        return np.asarray(coarse, dtype=np.float64)
-    factors = (shape[0] / coarse.shape[0], shape[1] / coarse.shape[1])
-    return _fit_exact(zoom(coarse, factors, order=1, mode="nearest"), shape)
-
-
 def _metrics(
     frame: np.ndarray, mask: np.ndarray, w_pib: float, w_unif: float
 ) -> tuple[float, float, float]:
@@ -453,40 +409,6 @@ def _metrics(
     pib = power_in_bucket(frame, mask)
     cv = uniformity_cv(frame, mask)
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
-
-
-def _embed_pupil_square(
-    box: np.ndarray, panel_shape: tuple[int, int], radius_px: float
-) -> np.ndarray:
-    """Embed a pupil-square array into a full-panel array, centred.
-
-    The freeform DOF and the GS phase are both computed on a square covering
-    only the illuminated pupil. Everything outside stays flat, so no degree of
-    freedom is spent on light that never reaches the far field.
-    """
-    ph, pw = panel_shape
-    out = np.zeros((ph, pw), dtype=np.float64)
-    side = min(pupil_side(radius_px), ph, pw)
-    y0, x0 = (ph - side) // 2, (pw - side) // 2
-    out[y0 : y0 + side, x0 : x0 + side] = _fit_exact(box, (side, side))
-    return out
-
-
-def _compose(
-    base_panel: np.ndarray,
-    dof: np.ndarray | None,
-    panel_shape: tuple[int, int],
-    radius_px: float,
-) -> np.ndarray:
-    """Full-panel raw-radian phase = base (flat or GS) + embedded freeform DOF.
-
-    ``base_panel`` is never mutated, so the accumulated DOF cannot be double
-    counted when the best iterate is promoted.
-    """
-    if dof is None or not np.any(dof):
-        return base_panel
-    box = _upsample_bilinear(dof, (pupil_side(radius_px),) * 2)
-    return base_panel + embed_pupil_square(box, panel_shape, radius_px)
 
 
 # ---------------------------------------------------------------------------
