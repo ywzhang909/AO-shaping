@@ -35,13 +35,21 @@ RUN apt-get update \
 
 # Must be set BEFORE any wheel is imported. OpenBLAS, MKL, OpenMP and numba all
 # read these once at load time; exporting them later leaves every pool sized at
-# the host core count.
-ENV OMP_NUM_THREADS=4 \
-    OPENBLAS_NUM_THREADS=4 \
-    MKL_NUM_THREADS=4 \
-    NUMEXPR_NUM_THREADS=4 \
-    VECLIB_MAXIMUM_THREADS=4 \
-    NUMBA_NUM_THREADS=4 \
+# the host core count (384 here), which is what OOPAO's pyfftw/joblib fan-out
+# turned into ~390 OS threads.
+#
+# The value must equal `CORE_BUDGET` in tests/conftest.py. Both conftests pin
+# with `os.environ.setdefault`, so this ENV is a hard override: leaving it below
+# the budget silently defeats the pinning and
+# test_conventions.py::test_the_thread_budget_is_in_force_in_this_process fails
+# with e.g. OPENBLAS_NUM_THREADS='4', expected 16. It matches the container's
+# --cpus=16 quota, so a bare `docker run` of this image is bounded too.
+ENV OMP_NUM_THREADS=16 \
+    OPENBLAS_NUM_THREADS=16 \
+    MKL_NUM_THREADS=16 \
+    NUMEXPR_NUM_THREADS=16 \
+    VECLIB_MAXIMUM_THREADS=16 \
+    NUMBA_NUM_THREADS=16 \
     PYTHONUNBUFFERED=1 \
     MPLBACKEND=Agg
 
