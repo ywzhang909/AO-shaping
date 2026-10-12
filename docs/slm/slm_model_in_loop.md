@@ -47,14 +47,14 @@ graph TD
 第 t 轮 Step A (蓝)
   ├─ probe_count 次:
   │   ├─ _probe_phase(region, probe_spread, seed) → 零均值高斯瞳面相位
-  │   ├─ display(probe) + measure() → _prepare_frame
+   │   ├─ display(probe) + measure() → prepare_frame
   │   └─ _to_model_grid() 搬到模型网格
   └─ step_a_iterations 次 Adam 更新 (轮流喂全部探针，同一 Adam 状态)
      └─ trust_region_clamp → clamped
 
 第 t 轮 Step B (粉)
   ├─ step_b_iterations 次全像素相位 Adam (梯度穿过解析 FFT)
-  ├─ display(shaped) + measure() → _prepare_frame → _metrics_at → _quality
+   ├─ display(shaped) + measure() → prepare_frame → _metrics_at → _quality
   └─ acceptance_verdict(loss, score)
      ├─ accept: c←clamped, phase←shaped, lr 复原, streak=0
      └─ reject: lr×damp_lr_factor, 探针+escalate, streak+=1

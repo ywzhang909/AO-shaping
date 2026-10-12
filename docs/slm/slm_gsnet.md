@@ -56,7 +56,7 @@ graph TD
 3. **主循环** (每轮 2 帧 SPGD)：
    - 生成扰动场 `u ∈ ℝ^{grid×grid}` (高斯白噪声)
    - `phase ± δ·u` 下发 SLM (`display_data` 自动轮换内存槽)
-   - 读 CCD，`_prepare_frame` (去背景+裁剪到冻结 ROI)
+    - 读 CCD，`prepare_frame` (去背景+裁剪到冻结 ROI)
    - 计算 CV, EE, AR → 综合 `score`
    - 梯度估计：`g = (score(+) - score(-)) / (2δ) * u`
    - Adam/AdaMOD 更新相位网格
@@ -126,7 +126,7 @@ python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam_type sim 
 |--------|------|----------|
 | 目标函数无 EE 项 | 能量被推出目标框 (EE→0.002) | `w_efficiency` 必须非零 |
 | 每轮重定位 ROI | 斑粒场下指标不连续 | 首帧定位后冻结 ROI |
-| 原始帧直接算指标 | 读出噪声负像素污染 PIB/CV | `_prepare_frame` 先减中位数再 clip≥0 |
+| 原始帧直接算指标 | 读出噪声负像素污染 PIB/CV | `prepare_frame` 先减中位数再 clip≥0 |
 
 ## 10. 输出契约
 

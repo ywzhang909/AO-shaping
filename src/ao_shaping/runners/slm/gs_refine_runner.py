@@ -95,7 +95,9 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     click.echo("=" * 64)
     click.echo(f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size}")
     click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
-    click.echo(f"Epochs: {params.epochs}  grid: {params.phase_grid}x{params.phase_grid}")
+    click.echo(
+        f"Epochs: {params.epochs}  grid: {params.phase_grid}x{params.phase_grid}"
+    )
     click.echo(f"SPGD: delta={params.delta} lr={params.lr} opt={params.optimizer_type}")
     click.echo(
         f"GS warm start: {'on' if params.gs_warm_start else 'off'} "
@@ -138,8 +140,12 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         f"(focal scale {_TILT_SHIFT_SCALE_PX:.0f} measured @ "
         f"{_TILT_SHIFT_SCALE_MEASURED_AT_NM:.0f}nm)"
     )
-    click.echo(f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})")
-    click.echo(f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}")
+    click.echo(
+        f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})"
+    )
+    click.echo(
+        f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}"
+    )
     if params.cam_type != "sim":
         click.echo("!" * 64)
         click.echo("硬件模式: 请确认光斑已对准 SLM 且 CCD 已就位。")
@@ -214,7 +220,9 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
             else "rejected (kept flat)"
         )
         click.echo(f"GS warm start : {stage_scores['gs']:.4f}  [{verdict}]")
-    click.echo(f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})")
+    click.echo(
+        f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})"
+    )
     click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
     click.echo(f"  CV : {best_iter.get('cv', float('nan')):.4f}")
 
@@ -225,7 +233,8 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
             {
                 key: value
                 for key, value in row.items()
-                if isinstance(value, (str, int, float, bool, np.generic)) or value is None
+                if isinstance(value, (str, int, float, bool, np.generic))
+                or value is None
             }
             for row in recorder.history
         ],
@@ -263,9 +272,24 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
             recorder,
             root_dir=str(root_dir),
             subdir_prefix="slm_gs_refine",
-            scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
+            scalar_keys=(
+                "score",
+                "pib",
+                "cv",
+                "target_side",
+                "lr",
+                "pos",
+                "neg",
+                "cy",
+                "cx",
+            ),
             img_keys=(
-                "_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"
+                "_img",
+                "_phase",
+                "_img_pos",
+                "_phase_pos",
+                "_img_neg",
+                "_phase_neg",
             ),
             json_payload={
                 key: value

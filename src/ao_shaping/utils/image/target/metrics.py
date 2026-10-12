@@ -2,6 +2,7 @@
 
 Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal, cast
@@ -619,7 +620,9 @@ def _loggrad_blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return out
 
 
-def _loggrad_prepare(frame: np.ndarray, eps: float, kernel: np.ndarray) -> np.ndarray | None:
+def _loggrad_prepare(
+    frame: np.ndarray, eps: float, kernel: np.ndarray
+) -> np.ndarray | None:
     """Clip negatives, peak-normalise, blur, then log one frame.
 
     Returns ``None`` when clipping leaves no dynamic range (constant frame, or

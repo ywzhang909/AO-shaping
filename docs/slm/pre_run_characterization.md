@@ -110,7 +110,7 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 | 函数 | 镜像自 | 用于 | 为什么 |
 |---|---|---|---|
 | `finite_clip` | `slm_square_shaping.square_peak_to_background_ratio` | 峰值/背景类比值 | 背景占满画幅, **中位数就是本底**; 扣掉它会让分母塌掉 |
-| `finite_median_subtract` | `slm_gs_refine._prepare_frame` | 以**全图**为分母的任何比值 | 对称读噪声让约一半像素为负, 不扣本底比值会 **> 1** |
+| `finite_median_subtract` | `ao_shaping.utils.image.beam_metrics.prepare_frame` | 以**全图**为分母的任何比值 | 对称读噪声让约一半像素为负, 不扣本底比值会 **> 1** |
 
 实测差异(合成帧, 本底 3 counts, 峰值 100):
 

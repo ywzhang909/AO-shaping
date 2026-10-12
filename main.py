@@ -1,4 +1,4 @@
-"""Repository entry point for the AO-Shaping command group."""
+"""Repository entry point for the AO-Shaping CLI."""
 
 from ao_shaping.main import cli
 

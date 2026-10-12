@@ -21,6 +21,8 @@ except ImportError:
 
     CYTHON_AVAILABLE = False
 
+from ao_shaping.algorithm.gradient import make_optimizer
+
 try:
     from ao_shaping.algorithm.target_func_cython import ImageTargetFunc
 
@@ -136,6 +138,7 @@ __all__ = [
     "AdamW",
     "AdaMOD",
     "learning_schedule",
+    "make_optimizer",
     "ImageTargetFunc",
     "TabuMemory",
     "AdaptiveSearchState",

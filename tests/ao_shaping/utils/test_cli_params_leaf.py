@@ -184,11 +184,12 @@ def test_mechanism_is_not_duplicated_anywhere_else() -> None:
     )
 
 
-def test_runner_common_uses_leaf_metadata_without_reexporting_with_params() -> None:
-    """Parameter classes use leaf metadata; runners import the collector directly."""
+def test_runner_common_uses_only_the_leaf_metadata_objects() -> None:
+    """Parameter declarations use the leaf metadata without forwarding the decorator."""
     from ao_shaping.runners import runner_common
 
     assert not hasattr(runner_common, "with_params")
+    assert not hasattr(runner_common, "_collect_click_annotations")
     assert runner_common.ClickGroup is cli_params.ClickGroup
     assert runner_common.option is cli_params.option
 
