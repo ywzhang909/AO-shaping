@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_diagnose import (
+from ao_shaping.tools.slm.panel.diagnose import (
     _DIFFRACTION_SCALE_PX,
     frames_same,
     peak_and_bucket,
@@ -70,7 +70,7 @@ class TestDiagnoseVerdicts:
 
     @staticmethod
     def _freeze_verdict(frames: dict[str, np.ndarray]) -> bool:
-        from ao_shaping.tools.slm.slm_diagnose import DiagnoseResult
+        from ao_shaping.tools.slm.panel.diagnose import DiagnoseResult
 
         n_diff = sum(
             1 for name, f in frames.items()

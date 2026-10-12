@@ -50,7 +50,7 @@ graph TD
 ## 6. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_panel_locate --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.panel_locate --exposure-ms 3.0
 ```
 
 ## 7. 输出

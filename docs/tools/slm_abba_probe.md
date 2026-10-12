@@ -66,7 +66,7 @@ ABBA差分 = [J(+δ)₁ - J(-δ)₁] - [J(-δ)₂ - J(+δ)₂]
 ## 5. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ```
 
 ## 6. 输出

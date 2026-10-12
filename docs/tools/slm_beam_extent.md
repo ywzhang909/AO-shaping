@@ -54,10 +54,10 @@ graph TD
 
 ```bash
 # X 轴扫描
-python -m ao_shaping.tools.slm.slm_beam_extent --axis x --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis x --exposure-ms 3.0
 
 # Y 轴扫描
-python -m ao_shaping.tools.slm.slm_beam_extent --axis y --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis y --exposure-ms 3.0
 ```
 
 ## 6. 输出

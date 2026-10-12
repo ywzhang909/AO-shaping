@@ -1,14 +1,21 @@
-"""``ao_shaping.tools.slm`` / ``ao_shaping.tools.micro_dm`` 包级 facade 契约。
+"""``ao_shaping.tools.slm`` / leaf-package facade contracts (post-2026-10-12).
 
-锁定两件事 (TODO.md R-30 / R-40):
+Locked invariants:
 
-1. **包级不做 eager re-export**。子模块在模块作用域 import ``click`` / ``loguru``
-   / numpy / 相机与 SLM 驱动, 所以包级再导出会让 *任何*
-   ``import ao_shaping.tools.slm.<x>`` 付出整套探针模块的导入代价。
-   ``ao_shaping.tools.slm.__all__`` 必须为空, 且模块源码里不得出现
-   ``from ao_shaping...`` / ``import ao_shaping...`` 顶层语句。
-2. **``__init__.py`` 必须存在**。缺 ``__init__.py`` 的目录会被 ``find_packages()``
-   式打包**静默丢弃** (TODO.md R-24)。
+1. **No eager re-export at package level.** The submodules import ``click`` /
+   ``loguru`` / numpy / the SLM and camera drivers at module scope, so a
+   package-level re-export would make *every* ``import ao_shaping.tools.slm.<x>``
+   pay for all of them. ``tools/slm/__init__.py`` (and the shared leaf packages
+   ``kernels`` / ``zernike`` / ``ccd`` / ``wfs``) must contain **no** module-scope
+   ``import`` / ``from ... import`` statement.
+2. **``__init__.py`` must exist.** A directory without one is silently dropped by
+   ``find_packages()``-style packaging.
+
+The 2026-10-12 reorganisation moved the shared measurement kernels and the
+WFS / CCD / Zernike probes out of ``tools/slm/`` into sibling packages; this file
+covers those siblings too. ``slm/calibration/__init__.py`` is the one package
+that *deliberately* re-exports (its public calibrator API), so it is exempt from
+the no-eager-import rule.
 """
 
 from __future__ import annotations
@@ -21,6 +28,10 @@ import pytest
 _PKG_ROOT = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "tools"
 _SLM_PKG = _PKG_ROOT / "slm"
 _MICRO_DM_PKG = _PKG_ROOT / "micro_dm"
+
+#: Sibling packages carved out of ``tools/slm/`` — all must stay import-free at
+#: package level so ``import ao_shaping.tools.<x>.<y>`` stays cheap.
+_LEAF_PACKAGES = ("kernels", "zernike", "ccd", "wfs")
 
 
 def _top_level_imports(path: Path) -> list[ast.Import | ast.ImportFrom]:
@@ -37,34 +48,33 @@ class TestToolsSlmPackage:
     def test_init_exists(self) -> None:
         assert (_SLM_PKG / "__init__.py").is_file()
 
-    # 54d9613 turned this package into a curated facade: __init__ re-exports the shared
-    # bench kernels so callers take them from one place. The contract is no longer "zero
-    # eager imports" but "eager imports stay inside this allowlist" -- an unlisted import
-    # would still be a regression, because it drags a device-facing module into every
-    # `import ao_shaping.tools.slm.<x>`.
-    ALLOWED_EAGER = ('bench_kernels', 'slm_phase_response', 'sweep_analysis', 'slm_zernike_sweep_probe')
-
-    def test_all_lists_the_reexported_surface(self) -> None:
-        import ao_shaping.tools.slm as pkg
-
-        assert pkg.__all__, "the curated facade must declare __all__ so `import *` is explicit"
-
-    def test_eager_imports_stay_inside_the_allowlist(self) -> None:
-        offenders = []
-        for node in _top_level_imports(_SLM_PKG / "__init__.py"):
-            mod = getattr(node, "module", None) or ""
-            leaf = mod.rsplit(".", 1)[-1] if mod else ""
-            if not mod.startswith("ao_shaping.tools.slm") or leaf not in self.ALLOWED_EAGER:
-                offenders.append(mod or ",".join(a.name for a in node.names))
-        assert not offenders, (
-            f"eager import outside {sorted(self.ALLOWED_EAGER)}: {offenders}"
-        )
+    def test_init_has_no_eager_imports(self) -> None:
+        assert _top_level_imports(_SLM_PKG / "__init__.py") == []
 
     @pytest.mark.parametrize("module_name", sorted(p.name for p in _SLM_PKG.glob("*.py")))
     def test_no_facade_star_import_anywhere(self, module_name: str) -> None:
         """``from ao_shaping.tools.slm import *`` would rely on a facade surface."""
         source = (_SLM_PKG / module_name).read_text(encoding="utf-8")
         assert "from ao_shaping.tools.slm import *" not in source
+
+
+class TestLeafPackages:
+    @pytest.mark.parametrize("sub", _LEAF_PACKAGES)
+    def test_init_exists_and_has_no_eager_imports(self, sub: str) -> None:
+        init = _PKG_ROOT / sub / "__init__.py"
+        assert init.is_file(), f"{sub}/__init__.py is missing"
+        assert _top_level_imports(init) == [], f"{sub} does eager re-export"
+
+    @pytest.mark.parametrize("sub", ("slm/panel",))
+    def test_subpackage_init_exists(self, sub: str) -> None:
+        assert (_PKG_ROOT / sub / "__init__.py").is_file()
+
+    def test_calibration_package_reexports_its_api(self) -> None:
+        """The calibration package is the one allowed to re-export its public API."""
+        import ao_shaping.tools.slm.calibration as cal
+
+        for name in ("SantecCalibrator", "SLMCCDCalibrator", "CalibrationMethod"):
+            assert hasattr(cal, name), f"calibration package lost {name}"
 
 
 class TestToolsMicroDmPackage:

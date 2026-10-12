@@ -22,13 +22,13 @@
 
 用法::
 
-    python -m ao_shaping.tools.slm.slm_diagnose [OPTIONS]
+    python -m ao_shaping.tools.slm.panel.diagnose [OPTIONS]
 
 常用::
 
-    python -m ao_shaping.tools.slm.slm_diagnose --period-ref 64 --period-test 32
-    python -m ao_shaping.tools.slm.slm_diagnose --step freeze
-    python -m ao_shaping.tools.slm.slm_diagnose --step modulate
+    python -m ao_shaping.tools.slm.panel.diagnose --period-ref 64 --period-test 32
+    python -m ao_shaping.tools.slm.panel.diagnose --step freeze
+    python -m ao_shaping.tools.slm.panel.diagnose --step modulate
 """
 
 from __future__ import annotations

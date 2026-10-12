@@ -1,14 +1,14 @@
-"""Guard test: the `tools/slm` package docstring must catalogue every module.
+"""Guard test: the `tools/slm` package docstring must catalogue the package.
 
 The package docstring (`src/ao_shaping/tools/slm/__init__.py`) is the index of the
-package: it lists each top-level module with a one-line Chinese description. That
-index drifted silently before (six modules were missing), so this test pins the
-invariant "every module on disk is named in the docstring".
+package. After the 2026-10-12 reorganisation the package holds only SLM-specific
+pieces: the ``panel/`` and ``calibration/`` subpackages, the ``cartographer/``
+subpackage and the ``params`` module. The shared kernels / Zernike / WFS / CCD
+probes moved to sibling packages (``tools/kernels`` etc.) and are documented by
+*their* own package docstrings.
 
-Deliberately loose: it only checks that the module *stem* appears somewhere in the
-docstring. It does not require a bullet, a particular indentation, a particular
-`— description` phrasing, or any ordering — prose style is not what this test is
-protecting.
+The guard is deliberately loose: it only checks that each name appears somewhere
+in the docstring — not a bullet, indentation, phrasing or ordering.
 """
 
 from __future__ import annotations
@@ -20,53 +20,36 @@ import ao_shaping.tools.slm as slm_tools
 PACKAGE_DIR: Path = Path(slm_tools.__file__).parent
 DOCSTRING: str = slm_tools.__doc__ or ""
 
-# Modules that were missing from the catalogue when this guard was written
-# (2026-10-01). Asserted by name so the test documents what it protects.
-# 2026-10-05 merge: `delta_explorer` → `sweep_analysis`, `slm_bench_*` → `bench_kernels`.
-NEWLY_DOCUMENTED: tuple[str, ...] = (
-    "slm_zernike_response",
-    "slm_zernike_correction",
-    "slm_zernike_common",
-    "slm_wfs_probe",
-    "slm_wfs_reference",
-    "sweep_analysis",
-    "bench_kernels",
-)
+#: Subpackages the SLM package must still document.
+_SUBPACKAGES: tuple[str, ...] = ("panel", "calibration", "cartographer")
 
 
 def _module_stems() -> list[str]:
-    """Return the stems of top-level modules in the package, excluding `__init__`.
-
-    Top level only: the `cartographer/` subpackage is documented as a single
-    `cartographer/` entry, so its files must not be demanded individually.
-    """
+    """Return the stems of top-level modules in the package, excluding ``__init__``."""
     return sorted(
         path.stem for path in PACKAGE_DIR.glob("*.py") if path.stem != "__init__"
     )
 
 
-def test_every_module_is_catalogueued() -> None:
-    """Every top-level module stem must appear in the package docstring."""
+def test_every_top_level_module_is_catalogueued() -> None:
     missing = [stem for stem in _module_stems() if stem not in DOCSTRING]
     assert not missing, (
-        "modules/slm package docstring is missing an entry for: "
-        f"{missing}. Add a `- <module>.py — <description>` bullet to the "
-        "module-catalogue block in src/ao_shaping/tools/slm/__init__.py."
+        "tools/slm package docstring is missing an entry for: "
+        f"{missing}. Add a bullet to the catalogue block in "
+        "src/ao_shaping/tools/slm/__init__.py."
     )
 
 
-def test_newly_documented_modules_are_named() -> None:
-    """The six previously-missing modules must be named in the docstring."""
-    missing = [stem for stem in NEWLY_DOCUMENTED if stem not in DOCSTRING]
-    assert not missing, f"docstring regressed: missing {missing}"
+def test_every_subpackage_is_catalogueued() -> None:
+    missing = [name for name in _SUBPACKAGES if name not in DOCSTRING]
+    assert not missing, f"tools/slm docstring does not name subpackage(s): {missing}"
 
 
 def test_enumeration_finds_modules() -> None:
     """Sanity guard: the glob must actually find the package's modules."""
     stems = _module_stems()
     assert stems, f"no modules found in {PACKAGE_DIR}"
-    for stem in NEWLY_DOCUMENTED:
-        assert stem in stems, f"{stem}.py is not on disk; update NEWLY_DOCUMENTED"
+    assert "params" in stems, "params.py is not on disk"
 
 
 def test_docstring_is_not_empty() -> None:

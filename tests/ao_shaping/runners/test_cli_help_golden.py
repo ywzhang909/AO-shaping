@@ -84,22 +84,22 @@ _DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm_type\s+)\[[a-z_0-9|]+\]", re.MULTILI
 _DEFAULT_PATH_RE = re.compile(r"(\[default:[^\]\n]*(?:\n(?![ \t]*-)[^\]\n]*)*)\]")
 
 TOOLS_SLM_MODULES: list[str] = [
-    "calibration",
-    "gray_response",
-    "phase_capture",
-    "slm_beam_extent",
-    "slm_diagnose",
-    "slm_exposure_check",
-    "slm_lut_runner",
-    "slm_panel_locate",
-    "slm_phase_resolution",
-    "slm_phase_response",
-    "slm_tilt_probe",
-    "slm_wfs_probe",
-    "slm_wfs_reference",
-    "slm_zernike_correction",
-    "slm_zernike_response",
-    "slm_zernike_sweep_probe",
+    "tools.slm.calibration.calibration",
+    "tools.slm.calibration.gray_response",
+    "tools.slm.calibration.phase_capture",
+    "tools.slm.calibration.lut_runner",
+    "tools.slm.panel.beam_extent",
+    "tools.slm.panel.diagnose",
+    "tools.slm.panel.panel_locate",
+    "tools.slm.panel.phase_resolution",
+    "tools.slm.panel.phase_response",
+    "tools.slm.panel.tilt_probe",
+    "tools.ccd.exposure_check",
+    "tools.wfs.wfs_probe",
+    "tools.wfs.wfs_reference",
+    "tools.wfs.zernike_correction",
+    "tools.wfs.zernike_response",
+    "tools.zernike.sweep_probe",
 ]
 
 #: Currently-colliding resolved click names in Group B, measured on the
@@ -138,13 +138,13 @@ def main_group_commands() -> dict[str, click.Command]:
 
 
 def tools_slm_commands() -> dict[str, click.Command]:
-    """Group B: every ``click.Command`` attribute of the 17 tools/slm modules."""
+    """Group B: every ``click.Command`` attribute of the tools probe modules."""
     found: dict[str, click.Command] = {}
     for module in TOOLS_SLM_MODULES:
-        mod = importlib.import_module(f"ao_shaping.tools.slm.{module}")
+        mod = importlib.import_module("ao_shaping." + module)
         for attr, obj in sorted(vars(mod).items()):
             if isinstance(obj, click.Command):
-                found[f"tools.slm.{module}:{attr}"] = obj
+                found[f"{module}:{attr}"] = obj
     return dict(sorted(found.items()))
 
 

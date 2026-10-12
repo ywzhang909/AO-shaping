@@ -13,7 +13,7 @@ Method, reusing the existing kernels rather than re-deriving them:
 * the drift floor is the median consecutive flat-to-flat ``roi_l2``
   (:func:`drift_floor_at_exposure`, delegating to ``flat_to_flat_floor``);
 * each dense pattern is measured with the drift-cancelling ``+ - - +``
-  palindrome (:func:`~ao_shaping.tools.slm.sweep_analysis.abba_signal`);
+  palindrome (:func:`~ao_shaping.tools.kernels.sweep_analysis.abba_signal`);
 * ``snr = response / floor`` is graded against the thresholds that
   ``sweep_analysis`` already uses (:data:`SNR_USABLE`, :data:`SNR_STRONG`).
 
@@ -27,7 +27,7 @@ Units discipline (see ``AGENTS.md``): every phase here is **raw unwrapped
 radians** and is converted to grayscale exactly once, by
 ``phase_to_slm_grayscale``. No generator in this file wraps mod 2*pi.
 
-Run it with ``python -m ao_shaping.tools.slm.slm_abba_probe``;
+Run it with ``python -m ao_shaping.tools.zernike.abba_probe``;
 ``--no-hw`` prints the acquisition plan and returns without touching a device.
 """
 
@@ -43,21 +43,21 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     build_block_pattern,
     crop_roi,
     finite_clip,
     flat_to_flat_floor,
     roi_l2,
 )
-from ao_shaping.tools.slm.sweep_analysis import (
+from ao_shaping.tools.kernels.sweep_analysis import (
     SNR_STRONG,
     SNR_USABLE,
     SIGMA_FLOOR,
     abba_signal,
     snr_verdict,
 )
-from ao_shaping.tools.slm.slm_zernike_sweep_probe import (
+from ao_shaping.tools.zernike.sweep_probe import (
     DEFAULT_PANEL_SHAPE,
     capture_settled,
 )

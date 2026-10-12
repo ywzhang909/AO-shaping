@@ -57,7 +57,7 @@ graph TD
 ## 6. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_exposure_check --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.exposure_check --exposure-ms 3.0
 ```
 
 ## 7. 输出

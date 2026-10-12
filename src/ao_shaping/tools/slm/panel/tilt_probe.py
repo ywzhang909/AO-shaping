@@ -25,8 +25,8 @@ Usage
 -----
 ::
 
-    python -m ao_shaping.tools.slm.slm_tilt_probe --exposure-ms 3.0
-    python -m ao_shaping.tools.slm.slm_tilt_probe --periods 480,240,120 --axis y
+    python -m ao_shaping.tools.slm.panel.tilt_probe --exposure-ms 3.0
+    python -m ao_shaping.tools.slm.panel.tilt_probe --periods 480,240,120 --axis y
 
 The axis is in **panel** coordinates. The panel and camera axes are swapped 90
 degrees on this bench, so a panel-x ramp moves the spot in camera-y; the probe
@@ -43,7 +43,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     SLM_PITCH_M,

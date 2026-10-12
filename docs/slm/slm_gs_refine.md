@@ -146,9 +146,9 @@ python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
 ## 8. 上机前必跑表征探针 (顺序不能反)
 
 ```bash
-python -m ao_shaping.tools.slm.slm_drift_probe --exposure-ms 3.0
-python -m ao_shaping.tools.slm.slm_floor_probe --exposure-ms 3.0
-python -m ao_shaping.tools.slm.slm_abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ```
 
 完整流程与危险默认值清单见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。

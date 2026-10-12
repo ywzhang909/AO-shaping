@@ -26,9 +26,9 @@
 排序为**顺序 m 枚举** (非标准 Noll), 详见 `slm_zernike_common`。
 
 用法:
-    python -m ao_shaping.tools.slm.slm_zernike_correction --stage all
-    python -m ao_shaping.tools.slm.slm_zernike_correction --stage auto
-    python -m ao_shaping.tools.slm.slm_zernike_correction --stage matrix --quick
+    python -m ao_shaping.tools.wfs.zernike_correction --stage all
+    python -m ao_shaping.tools.wfs.zernike_correction --stage auto
+    python -m ao_shaping.tools.wfs.zernike_correction --stage matrix --quick
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
-from ao_shaping.tools.slm.slm_zernike_common import (
+from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     MAX_EXPOSURE_MS,
     PANEL_H,
@@ -68,7 +68,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
-from ao_shaping.tools.slm.sweep_analysis import outlier_mask
+from ao_shaping.tools.kernels.sweep_analysis import outlier_mask
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 

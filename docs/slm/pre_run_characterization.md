@@ -22,9 +22,9 @@
 
 | 探针 | 回答的问题 | 命令 |
 |---|---|---|
-| `slm_drift_probe` | 平场**稳不稳**? 曝光**线性吗**? | `python -m ao_shaping.tools.slm.slm_drift_probe` |
-| `slm_floor_probe` | 能分辨**多小的信号**? 噪声是**读噪声还是漂移**? | `python -m ao_shaping.tools.slm.slm_floor_probe` |
-| `slm_abba_probe` | 稠密随机相位**测得出来吗**? | `python -m ao_shaping.tools.slm.slm_abba_probe` |
+| `slm_drift_probe` | 平场**稳不稳**? 曝光**线性吗**? | `python -m ao_shaping.tools.ccd.drift_probe` |
+| `slm_floor_probe` | 能分辨**多小的信号**? 噪声是**读噪声还是漂移**? | `python -m ao_shaping.tools.ccd.floor_probe` |
+| `slm_abba_probe` | 稠密随机相位**测得出来吗**? | `python -m ao_shaping.tools.zernike.abba_probe` |
 
 建议顺序: **drift → floor → abba**。前者定曝光, 中者定本底与稳定判据,
 后者才回答"某个扰动到底有没有效果"。
@@ -32,7 +32,7 @@
 ### 1.1 `slm_drift_probe` — 漂移 + 曝光线性
 
 ```bash
-python -m ao_shaping.tools.slm.slm_drift_probe \
+python -m ao_shaping.tools.ccd.drift_probe \
     --cam-type daheng --cam-id 0 --exposure-ms 0.4 \
     --n-drift 24 --drift-period-s 5.0 \
     --exposure-ladder 0.2,0.3,0.4,0.6,0.8,1.0,1.25,1.5,2.0 \
@@ -58,7 +58,7 @@ peak cv 1.1%、全图 sum cv 0.2%、40 px box sum cv 0.21%、FWHM 13.3–13.74 p
 ### 1.2 `slm_floor_probe` — 本底 / 稳定时间 / SNR-vs-K
 
 ```bash
-python -m ao_shaping.tools.slm.slm_floor_probe \
+python -m ao_shaping.tools.ccd.floor_probe \
     --cam-type daheng --cam-id 0 --exposure-ms 1.5 \
     --n-repeat 20 --settle-curve-s 4.0 --settle-sample-ms 120 \
     --ks 1,4,9 --perturbation-rad 0.6 --out data/slm_floor
@@ -85,7 +85,7 @@ Hamamatsu LCOS 有效更新率约 10–数十 Hz。判定"已稳"的通用做法
 ### 1.3 `slm_abba_probe` — 稠密相位可分辨性
 
 ```bash
-python -m ao_shaping.tools.slm.slm_abba_probe \
+python -m ao_shaping.tools.zernike.abba_probe \
     --cam-type daheng --cam-id 0 --rebracket-exposure \
     --n-patterns 12 --pairs 3 --grid 24 --delta-rad 0.5 \
     --out data/slm_abba

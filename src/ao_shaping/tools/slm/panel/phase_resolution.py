@@ -48,8 +48,8 @@ Usage
 -----
 ::
 
-    python -m ao_shaping.tools.slm.slm_phase_resolution --exposure-ms 3.0
-    python -m ao_shaping.tools.slm.slm_phase_resolution --orders 4,8,14 --scale 0.5
+    python -m ao_shaping.tools.slm.panel.phase_resolution --exposure-ms 3.0
+    python -m ao_shaping.tools.slm.panel.phase_resolution --orders 4,8,14 --scale 0.5
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,

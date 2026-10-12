@@ -16,8 +16,8 @@
   达 4.6~12.8λ)。
 
 用法:
-    python -m ao_shaping.tools.slm.slm_wfs_reference
-    python -m ao_shaping.tools.slm.slm_wfs_reference --tilt-amps 0.1,0.2,0.4,0.8,1.6,3.2
+    python -m ao_shaping.tools.wfs.wfs_reference
+    python -m ao_shaping.tools.wfs.wfs_reference --tilt-amps 0.1,0.2,0.4,0.8,1.6,3.2
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
-from ao_shaping.tools.slm.slm_zernike_common import (
+from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     MAX_EXPOSURE_MS,
     SETTLE_REDUNDANCY_S,

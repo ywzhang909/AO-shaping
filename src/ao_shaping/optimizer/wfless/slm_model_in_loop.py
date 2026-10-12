@@ -62,7 +62,7 @@ from loguru import logger
 #: which corrupts every ratio metric computed afterwards. Canonical home is
 #: the leaf ``utils`` layer, so this import pulls in no driver package.
 from ao_shaping.utils.image.beam_metrics import prepare_frame
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_CENTER_PANEL,
     SLM_PITCH_M,
     crop_around_zero_order,
@@ -816,7 +816,7 @@ class _HardwareBench:
     def __init__(self, config: SlmModelInLoopConfig) -> None:
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm.santec import Santec
-        from ao_shaping.tools.slm.bench_kernels import capture_settled
+        from ao_shaping.tools.kernels.bench_kernels import capture_settled
 
         self._capture = capture_settled
         self._config = config

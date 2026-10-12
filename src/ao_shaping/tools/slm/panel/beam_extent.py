@@ -27,8 +27,8 @@ Usage
 -----
 ::
 
-    python -m ao_shaping.tools.slm.slm_beam_extent --exposure-ms 3.0
-    python -m ao_shaping.tools.slm.slm_beam_extent --axis x --steps 16
+    python -m ao_shaping.tools.slm.panel.beam_extent --exposure-ms 3.0
+    python -m ao_shaping.tools.slm.panel.beam_extent --axis x --steps 16
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     core_fraction,

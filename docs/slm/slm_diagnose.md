@@ -123,21 +123,21 @@ python src/ao_shaping/main.py slm-diagnose --camera-type daheng -o logs/slm_diag
 
 ```bash
 # 面板是否在调制 (最常用，优先跑这个)
-python -m ao_shaping.tools.slm.slm_tilt_probe --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.tilt_probe --exposure-ms 3.0
 
 # 定位光斑 (面板坐标)
-python -m ao_shaping.tools.slm.slm_panel_locate --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.panel_locate --exposure-ms 3.0
 
 # 测光斑半径
-python -m ao_shaping.tools.slm.slm_beam_extent --axis x --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis x --exposure-ms 3.0
 
 # 面板能否分辨像素级相位?
-python -m ao_shaping.tools.slm.slm_phase_resolution --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.phase_resolution --exposure-ms 3.0
 
 # 相机是否手动曝光 / 漂移多少
-python -m ao_shaping.tools.slm.slm_exposure_check --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.exposure_check --exposure-ms 3.0
 
 # 完整光滑 Zernike 扫描 (硬件; 先用 --no-hw 确认采集计划)
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --no-hw
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 --pupil-center 960,600 --zernike-radius 450
+python -m ao_shaping.tools.zernike.sweep_probe --no-hw
+python -m ao_shaping.tools.zernike.sweep_probe --exposure-ms 3.0 --pupil-center 960,600 --zernike-radius 450
 ```

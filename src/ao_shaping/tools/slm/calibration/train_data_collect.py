@@ -47,7 +47,7 @@ import numpy as np
 from loguru import logger
 
 # Canonical imports（模块作用域，均不触发驱动/torch）
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     display_and_average,
     measure_spot,
     zernike_panel,

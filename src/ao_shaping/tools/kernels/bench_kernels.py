@@ -1,8 +1,8 @@
 """Shared measurement kernels for the SLM bench (merged).
 
 Merged from:
-- :mod:`ao_shaping.tools.slm.slm_bench_probe` (442 lines, 19 public symbols)
-- :mod:`ao_shaping.tools.slm.slm_bench_metrics` (372 lines, 10 public symbols)
+- :mod:`slm_bench_probe` (442 lines, 19 public symbols)
+- :mod:`slm_bench_metrics` (372 lines, 10 public symbols)
 
 **Pure measurement + panel geometry, no device construction and no CLI.** Every
 entry point takes already-opened device *instances* (anything with the
@@ -473,7 +473,7 @@ def random_phase(shape: tuple[int, int], seed: int = 0) -> np.ndarray:
     """Uniform random phase in [0, 2*pi) -- scatters the pupil for speckle.
 
     Only useful where the panel can resolve pixel-scale phase. On this bench it
-    measurably does not (see :mod:`ao_shaping.tools.slm.slm_phase_resolution`),
+    measurably does not (see :mod:`ao_shaping.tools.slm.panel.phase_resolution`),
     so a random phase leaves the far field a single tight focus.
     """
     return np.random.default_rng(int(seed)).uniform(

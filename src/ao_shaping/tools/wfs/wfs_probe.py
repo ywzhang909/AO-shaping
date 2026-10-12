@@ -13,8 +13,8 @@
 
 用法
 ----
-    python -m ao_shaping.tools.slm.slm_wfs_probe
-    python -m ao_shaping.tools.slm.slm_wfs_probe --exposure-ms 4.0 --no-save
+    python -m ao_shaping.tools.wfs.wfs_probe
+    python -m ao_shaping.tools.wfs.wfs_probe --exposure-ms 4.0 --no-save
     
 参数
 ----

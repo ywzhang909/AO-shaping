@@ -1,9 +1,9 @@
 """Shared scan/sweep analysis helpers for SLM Zernike scans (merged).
 
 Merged from:
-- :mod:`ao_shaping.tools.slm.slm_scan_analysis` (223 lines, 7 public symbols)
-- :mod:`ao_shaping.tools.slm.delta_explorer` (363 lines, 12 public symbols)
-- :mod:`ao_shaping.tools.slm.slm_snr_probe` (427 lines, 12 public symbols)
+- :mod:`slm_scan_analysis` (223 lines, 7 public symbols)
+- :mod:`delta_explorer` (363 lines, 12 public symbols)
+- :mod:`slm_snr_probe` (427 lines, 12 public symbols)
 
 Phase-1 extraction of the scan-analysis helpers shared by the Zernike report
 scripts and the shift-calibration tool, so the logic can be reused and

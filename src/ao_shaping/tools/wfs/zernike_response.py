@@ -36,8 +36,8 @@
 
 用法
 ----
-    python -m ao_shaping.tools.slm.slm_zernike_response
-    python -m ao_shaping.tools.slm.slm_zernike_response --n-max 4 --amplitude-rad 5
+    python -m ao_shaping.tools.wfs.zernike_response
+    python -m ao_shaping.tools.wfs.zernike_response --n-max 4 --amplitude-rad 5
 """
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ from ao_shaping.optimizer.wf.zernike_response_matrix import (
     load_zernike_response_matrix,
     save_zernike_response_matrix,
 )
-from ao_shaping.tools.slm.slm_zernike_common import (
+from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     DLL_ZERNIKE_NAMES,
     DLL_ZERNIKE_ORDER,

@@ -19,9 +19,9 @@ LCOS 不刷新 (AGENTS.md 硬约束)。相机多帧平均 (n_sample) 降噪; 另
 
 用法::
 
-    python -m ao_shaping.tools.slm.slm_phase_response --probe lens        # 透镜用例, 实物
-    python -m ao_shaping.tools.slm.slm_phase_response --probe defocus     # 离焦用例
-    python -m ao_shaping.tools.slm.slm_phase_response --probe lens --render-only
+    python -m ao_shaping.tools.slm.panel.phase_response --probe lens        # 透镜用例, 实物
+    python -m ao_shaping.tools.slm.panel.phase_response --probe defocus     # 离焦用例
+    python -m ao_shaping.tools.slm.panel.phase_response --probe lens --render-only
 
 注意 (AGENTS.md): SLM 必须 memory 模式 (video_mode=0), 禁止 DVI; 相位写入用
 ``slm.create_phase_from_array`` 或直接 raw uint16 (平场走 np.full, 严禁弧度转换);

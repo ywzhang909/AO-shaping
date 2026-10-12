@@ -112,8 +112,8 @@ from scipy.interpolate import UnivariateSpline
 from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
-from ao_shaping.tools.slm.sweep_analysis import clamp_shift, parabolic_min
-from ao_shaping.tools.slm.slm_zernike_common import make_phase, measure_tilt_defocus
+from ao_shaping.tools.kernels.sweep_analysis import clamp_shift, parabolic_min
+from ao_shaping.tools.zernike.common import make_phase, measure_tilt_defocus
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 

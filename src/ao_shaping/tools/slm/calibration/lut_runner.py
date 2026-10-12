@@ -7,7 +7,7 @@ inverts to a phase LUT, and saves artifacts.
 
 Usage::
 
-    python -m ao_shaping.tools.slm.slm_lut_runner [OPTIONS]
+    python -m ao_shaping.tools.slm.calibration.lut_runner [OPTIONS]
 """
 
 from __future__ import annotations

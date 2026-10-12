@@ -53,10 +53,10 @@ graph TD
 
 ```bash
 # 基础判定面板是否在调制
-python -m ao_shaping.tools.slm.slm_tilt_probe --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.tilt_probe --exposure-ms 3.0
 
 # 大恒相机，自定义斜坡周期
-python -m ao_shaping.tools.slm.slm_tilt_probe --cam-type daheng --period 32 --exposure-ms 1.5
+python -m ao_shaping.tools.slm.panel.tilt_probe --cam-type daheng --period 32 --exposure-ms 1.5
 ```
 
 ## 7. 输出

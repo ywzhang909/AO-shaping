@@ -51,7 +51,7 @@ graph TD
 ## 6. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_phase_resolution --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.phase_resolution --exposure-ms 3.0
 ```
 
 ## 7. 输出

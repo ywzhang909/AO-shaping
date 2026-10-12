@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.tools.slm.slm_lut_runner import (
+from ao_shaping.tools.slm.calibration.lut_runner import (
     _check_spot_drift,
     _joint_exposure_settle,
     _measure_power,

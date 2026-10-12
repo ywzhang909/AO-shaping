@@ -16,7 +16,7 @@ The two causes that actually produce "the bench got 4x dimmer between runs"
    before any write is the previous run's speckle, not a flat field. This is the
    one that bit us: the same 3 ms setting measured 100 counts in one run and 23 in
    the next. The driver is fine; the *reference* was wrong. Use
-   :func:`ao_shaping.tools.slm.bench_kernels.measure_flat_reference`, which
+   :func:`ao_shaping.tools.kernels.bench_kernels.measure_flat_reference`, which
    displays flat first.
 
 What it reports
@@ -31,8 +31,8 @@ Usage
 -----
 ::
 
-    python -m ao_shaping.tools.slm.slm_exposure_check --exposure-ms 3.0
-    python -m ao_shaping.tools.slm.slm_exposure_check --grab-delay-s 1.0 --n-grabs 30
+    python -m ao_shaping.tools.ccd.exposure_check --exposure-ms 3.0
+    python -m ao_shaping.tools.ccd.exposure_check --grab-delay-s 1.0 --n-grabs 30
 """
 
 from __future__ import annotations

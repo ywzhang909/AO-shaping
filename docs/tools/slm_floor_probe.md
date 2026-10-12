@@ -67,7 +67,7 @@ graph TD
 ## 6. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_floor_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
 ```
 
 ## 7. 输出

@@ -45,7 +45,7 @@ from ao_shaping.drivers.slm.santec import (  # noqa: E402
 from ao_shaping.optimizer.wf.zernike_response_matrix import (  # noqa: E402
     load_zernike_response_matrix,
 )
-from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
+from ao_shaping.tools.zernike.common import (  # noqa: E402
     DLL_ZERNIKE_ORDER,
     PANEL_H,
     PANEL_W,

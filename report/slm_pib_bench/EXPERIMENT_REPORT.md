@@ -39,7 +39,7 @@
 | 目标函数 | `pearson_shape_metric` (NumPy canonical) + 方形/PIB 通路贯通; `pearson` 已入 `GUARDED_OBJECTIVES` |
 | 硬件路径 | `slm-gsnet --objective {quality,pearson}`; `slm-pib --objective pearson` |
 | 溯源 | debug JSON sidecar 现记录 objective / cam_type / cam_id / exposure / zernike_radius / 搜索参数 |
-| 参数测量 | `ao_shaping.tools.slm.slm_snr_probe` —— **设备实例由参数传入**, 不构造设备 |
+| 参数测量 | `slm_snr_probe` —— **设备实例由参数传入**, 不构造设备 |
 | 报告 | 离线台架验收报告 + 三目标对比 (离线 & 实机) |
 | 测试 | Pearson 指标/对齐 (24) + Torch 对齐 (6) + 方形搜索 sim (11) + SNR 探针 (33) + 报告回归 (13) |
 
@@ -173,11 +173,11 @@ SPGD 的 `J(+δ) − J(−δ)` 是**两次相邻采样**之差, 漂移在其间�
 
 ## 5. 参数测量工具 (设备无关)
 
-噪底 / ΔJ / SNR 逻辑已抽到 `ao_shaping.tools.slm.slm_snr_probe`, **设备实例由参数传入**,
+噪底 / ΔJ / SNR 逻辑已抽到 `slm_snr_probe`, **设备实例由参数传入**,
 不构造任何设备、不 import 驱动、不读 `.env` —— Daheng / MiiCam / 仿真相机 / fake 通用:
 
 ```python
-from ao_shaping.tools.slm.slm_snr_probe import snr_sweep
+from slm_snr_probe import snr_sweep
 with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
      Santec(slm_number=1, wavelength=1064) as slm:
     r = snr_sweep(cam, slm, n_max=9, radius=480.0)

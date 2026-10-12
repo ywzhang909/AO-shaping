@@ -1201,7 +1201,7 @@ class TestImportIsolation:
         an ``>=`` pin is silence, not an error.
         """
         assert _module_level_imports() >= {
-            "ao_shaping.tools.slm.bench_kernels",
+            "ao_shaping.tools.kernels.bench_kernels",
             "ao_shaping.utils.image.beam_metrics",
         }
 
