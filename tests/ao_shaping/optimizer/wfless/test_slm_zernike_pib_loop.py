@@ -246,7 +246,11 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> _Harness:
     monkeypatch.setattr(pib_mod, "time", fake_time)
     monkeypatch.setattr(pib_mod, "SLM_RESPONSE_TIME_S", 0.0)
     # module-level slot rotation is shared state -> reset for isolation
-    monkeypatch.setitem(pib_mod._SLOT_STATE, "slot", pib_mod._SLOT_MIN - 1)
+    # the rotator is module-level shared state -> reset it for isolation
+    monkeypatch.setattr(
+        pib_mod, "_SLOT_ROTATOR",
+        pib_mod.SlotRotator(slot_min=pib_mod._SLOT_MIN, slot_max=pib_mod._SLOT_MAX),
+    )
     return _Harness(bench, camera, slm, fake_time)
 
 

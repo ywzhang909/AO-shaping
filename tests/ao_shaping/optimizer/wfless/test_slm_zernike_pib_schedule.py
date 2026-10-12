@@ -10,15 +10,22 @@ import degrades gracefully when the SDKs are absent.
 """
 
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
+    IDEAL_SPOT_RADIUS,
     SCHEDULE_MAX_DELTA,
     SCHEDULE_MAX_LR,
     learning_schedule,
 )
 
+from ao_shaping.optimizer.wfless.slm_zernike_common import (
+    learning_schedule as _shared_learning_schedule,
+)
+
+assert learning_schedule is _shared_learning_schedule  # single source of truth
+
 
 class TestScheduleSafetyCaps:
     def test_extreme_radius_is_capped(self):
-        lr, delta = learning_schedule(power_radius=1e6)
+        lr, delta = learning_schedule(power_radius=1e6, ideal_r=IDEAL_SPOT_RADIUS, max_lr=SCHEDULE_MAX_LR, max_delta=SCHEDULE_MAX_DELTA)
         assert lr <= SCHEDULE_MAX_LR
         assert delta <= SCHEDULE_MAX_DELTA
 
@@ -26,7 +33,7 @@ class TestScheduleSafetyCaps:
         """epoch-0 call passes empty history -> early-return branch."""
         lr, delta = learning_schedule(
             power_radius=1e6, gradient_history=[], pib_history=[], epoch=0
-        )
+        , ideal_r=IDEAL_SPOT_RADIUS, max_lr=SCHEDULE_MAX_LR, max_delta=SCHEDULE_MAX_DELTA)
         assert lr <= SCHEDULE_MAX_LR
         assert delta <= SCHEDULE_MAX_DELTA
 
@@ -35,7 +42,7 @@ class TestScheduleSafetyCaps:
         pibs = [1.0 - 0.01 * i for i in range(10)]
         lr, delta = learning_schedule(
             power_radius=1e6, gradient_history=grads, pib_history=pibs, epoch=0
-        )
+        , ideal_r=IDEAL_SPOT_RADIUS, max_lr=SCHEDULE_MAX_LR, max_delta=SCHEDULE_MAX_DELTA)
         assert lr <= SCHEDULE_MAX_LR
         assert delta <= SCHEDULE_MAX_DELTA
 
@@ -46,6 +53,6 @@ class TestScheduleSafetyCaps:
         assert SCHEDULE_MAX_LR < 5.0
 
     def test_small_radius_is_positive(self):
-        lr, delta = learning_schedule(power_radius=1.0)
+        lr, delta = learning_schedule(power_radius=1.0, ideal_r=IDEAL_SPOT_RADIUS, max_lr=SCHEDULE_MAX_LR, max_delta=SCHEDULE_MAX_DELTA)
         assert lr > 0
         assert delta > 0
