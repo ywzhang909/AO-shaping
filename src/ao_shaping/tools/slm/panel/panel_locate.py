@@ -33,7 +33,6 @@ Usage
 
 from __future__ import annotations
 
-from contextlib import contextmanager
 from dataclasses import dataclass
 import json
 from pathlib import Path
@@ -44,6 +43,10 @@ import click
 import numpy as np
 from loguru import logger
 
+from ao_shaping.tools.slm.panel.display_state import (
+    preserve_slm_display as _restore_slm_display,
+)
+
 from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
@@ -53,26 +56,6 @@ from ao_shaping.tools.kernels.bench_kernels import (
     random_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
-
-
-@contextmanager
-def _restore_slm_display(slm):
-    from ao_shaping.drivers.slm.santec import SantecError
-
-    try:
-        original_slot = slm.get_displayed_memory_number()
-    except SantecError as exc:
-        if exc.code != 1:
-            raise
-        original_slot = None
-    original_gray = slm.get_current_grayscale() if original_slot is None else None
-    try:
-        yield
-    finally:
-        if original_slot is None:
-            slm.set_grayscale(original_gray)
-        else:
-            slm._display_memory(original_slot)
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:

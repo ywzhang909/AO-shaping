@@ -2253,10 +2253,11 @@ class SlmGsRefineParams:
         str,
         option(
             "--gs-method",
-            type=click.Choice(["plain", "weighted", "hio", "hio-weighted"]),
+            type=click.Choice(["plain", "weighted", "hio", "hio-weighted", "adaptive-feedback"]),
             help=(
                 "GS variant: plain = today's behaviour; weighted = 加权 GS; "
-                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS."
+                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS; "
+                "adaptive-feedback = 目标域自适应反馈."
             ),
         ),
     ] = "plain"
@@ -2278,7 +2279,7 @@ class SlmGsRefineParams:
         float,
         option(
             "--gs-beta",
-            help="HIO feedback relaxation beta (Fienup, 0<=b<=1; 0=freeze noise region).",
+            help="Feedback beta for HIO or adaptive-feedback (0<=b<=1).",
         ),
     ] = 0.9
     gs_hio_fraction: Annotated[
@@ -2961,7 +2962,7 @@ def save_gs_refine_results(
     """
     from ao_shaping.display.frames import save_best_image
     from ao_shaping.utils.io.file import (
-        gen_date_dir,
+        debug_run_dir,
         gen_date_str,
         save_history,
         save_recorder_debug_artifacts,
@@ -2969,7 +2970,7 @@ def save_gs_refine_results(
 
     config = build_gs_refine_config(params, debug=debug)
 
-    save_dir = gen_date_dir(root_dir / "slm_gs_refine")
+    save_dir = debug_run_dir(root_dir, "slm_gs_refine")
     csv_file = save_dir / f"slm_gs_refine_{gen_date_str()}.csv"
     save_history(
         [
@@ -3011,8 +3012,17 @@ def save_gs_refine_results(
             recorder,
             root_dir=str(root_dir),
             subdir_prefix="slm_gs_refine",
+            output_dir=save_dir,
             scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
             img_keys=("_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"),
+            # This run optimises a freeform phase grid, so there is no ``_c``
+            # and the default "best coefficients" panel would render a
+            # placeholder. ``_phase`` is the uint16 grayscale handed to the SLM
+            # (``create_phase_from_array``), which is what is actually on the
+            # panel -- show that instead. Key name is load-bearing: see
+            # ``ml.hwdataset.index._PHASE_KEY``.
+            top_right_key="_phase",
+            top_right_title="SLM gray (last)",
             json_payload={
                 key: value
                 for key, value in vars(config).items()

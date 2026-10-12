@@ -53,7 +53,7 @@ CCD 帧, 所以硬件分数可与仿真的 0.849 直接对比。
   0 ms, 而面板实际还在弛豫。
 - 连续写入不指定 memory slot: 同槽连写是固件 no-op, 面板不刷新。
 
-结果输出 (默认 ``data/slm_gs_refine/<日期>/``):
+结果输出 (默认 ``data/debug/slm_gs_refine/<日期>/``):
 - 优化历史 CSV (recorder, 每轮一行)
 - 最优相位 ``.npy`` (raw 未包裹弧度, 1200x1920)
 - 最优远场图 PNG (``--save-best-image``)

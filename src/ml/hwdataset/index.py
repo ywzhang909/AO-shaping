@@ -167,6 +167,7 @@ from __future__ import annotations
 import json
 import math
 import pickle
+import re
 import struct
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
@@ -213,6 +214,13 @@ _PHASE_KEY = "_phase"
 _COEFF_KEY = "_c"
 _IMAGE_KEY = "_img"
 _RECORDER_HISTORY_ATTR = "history"
+
+#: A directory whose whole name is a run stamp -- ``YYYYMMDD`` or
+#: ``YYYYMMDD_HHMMSS``. Every run directory in the canonical layout
+#: ``data/debug/<prefix>/<stamp>/`` is named like this, so such a name carries no
+#: family meaning and must never become a family label: :func:`family_of` looks
+#: through it for the ``<prefix>`` directory beside it.
+_RUN_STAMP = re.compile(r"^\d{8}(_\d{6})?$")
 
 #: Families whose ``_c`` is genuinely a freeform ``grid*grid`` control grid rather
 #: than a Noll-order Zernike vector. This set is consulted ONLY to settle the one
@@ -448,25 +456,31 @@ class HwCorpusIndex:
 def family_of(path: Path) -> str:
     """Map a pickle path to a family label by longest-prefix match.
 
-    The debug tree is one to two levels deep, so both
-    ``path.parent.name`` and ``path.parent.parent.name`` are tried, the former
-    first (a file sitting directly in a family directory, e.g.
-    ``data/debug/bench_stability_<ts>/bench_stability_<ts>.pkl``, labels itself
-    from its own parent). Within each candidate name the prefixes in
+    The debug tree is ``data/debug/<prefix>/<stamp>/<prefix>_<stamp>.pkl``, so the
+    run's own directory is named with a bare stamp (see :data:`_RUN_STAMP`) and
+    the family lives one level up, in the ``<prefix>`` directory. Both
+    ``path.parent.name`` and ``path.parent.parent.name`` are therefore tried,
+    parent first (a file sitting directly in a family directory, e.g. an older
+    flat ``data/debug/bench_stability_<stamp>/bench_stability_<stamp>.pkl``,
+    labels itself from its own parent). Within each candidate the prefixes in
     :data:`_FAMILY_PREFIXES` are tried **in order**, and the order is
     load-bearing: ``slm_pib_online`` is listed before ``slm_pib`` because
     ``"slm_pib_online".startswith("slm_pib")``.
 
-    Unrecognised directories (e.g. ``snr_sweep_20260930``) fall back to
-    ``path.parent.name``, which for a two-level dump is the timestamp directory --
-    still a stable, sortable grouping key.
+    Candidates that are themselves bare run stamps are skipped before the
+    fallback, so a two-level dump resolves to its ``<prefix>`` directory rather
+    than to the timestamp. Any remaining candidate is returned **verbatim** --
+    that is what keeps the 15 distinct ``device_*`` families (batch3, individual3,
+    interleaved_average, ...) apart instead of collapsing them into one bucket,
+    and it is why :data:`_FAMILY_PREFIXES` does not need an entry per family.
 
     Args:
         path: Path of a ``.pkl`` (its ancestors are inspected; the file need not
             exist).
 
     Returns:
-        The matched family label, or ``path.parent.name`` when nothing matches.
+        The matched family label, the nearest non-stamp ancestor directory name,
+        or -- when every candidate is a bare stamp -- ``path.parent.name``.
     """
     # NOTE: the grandparent MUST be `path.parent.parent.name`, not `parts[-2]` --
     # `parts[-2]` is always `path.parent.name`, so it would silently collapse to a
@@ -480,6 +494,9 @@ def family_of(path: Path) -> str:
         for prefix in _FAMILY_PREFIXES:
             if name.startswith(prefix):
                 return prefix
+    for name in candidates:
+        if not _RUN_STAMP.match(name):
+            return name
     return path.parent.name
 
 

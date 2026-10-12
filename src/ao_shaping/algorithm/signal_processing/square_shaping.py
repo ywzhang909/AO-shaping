@@ -484,7 +484,9 @@ def gs_shape(
 # 方法 1b: 均匀方形整形的加权 GS / HIO 变体 (class-based)
 # ---------------------------------------------------------------------------
 
-GS_METHODS: tuple[str, ...] = ("weighted", "hio", "hio-weighted")
+GS_METHODS: tuple[str, ...] = (
+    "weighted", "hio", "hio-weighted", "adaptive-feedback"
+)
 GS_SELECT: tuple[str, ...] = ("best", "last")
 
 
@@ -500,6 +502,8 @@ class UniformSquareShaper:
       支撑域外)。
     * ``hio-weighted``: 前 ``hio_fraction`` 比例的迭代走 HIO (探索), 之后走
       weighted (收敛抛光)。
+    * ``adaptive-feedback``: 目标区内按当前/目标振幅比调节反馈。接近目标时
+      保留更多当前振幅, 偏差大时趋向目标振幅。
 
     能量守恒: 构造时把 ``amp_target`` 重标定到与瞳孔总能量一致; 因子 c 在
     ``angle(c*X) = angle(X)`` 下被抵消, 故 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。
@@ -578,6 +582,8 @@ class UniformSquareShaper:
             and self._iter < round(self.hio_fraction * self.n_iters)
         ):
             self._hio_step()
+        elif self.method == "adaptive-feedback":
+            self._adaptive_feedback_step()
         else:
             self._weighted_step()
         self._iter += 1
@@ -598,6 +604,23 @@ class UniformSquareShaper:
             ff * (1 - self.relax)
             + (self.W * self.amp_target) * np.exp(1j * np.angle(ff)) * self.relax
         )
+        self.field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
+        self.field = self.amp_slm * np.exp(1j * np.angle(self.field))
+
+    def _adaptive_feedback_step(self) -> None:
+        ff = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(self.field)))
+        current = np.abs(ff)
+        target = self.amp_target
+        closeness = np.minimum(current, target) / np.maximum(
+            np.maximum(current, target), 1e-12
+        )
+        feedback = self.beta * closeness
+        amplitude = np.where(
+            self.support,
+            feedback * current + (1.0 - feedback) * target,
+            0.0,
+        )
+        ff = amplitude * np.exp(1j * np.angle(ff))
         self.field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
         self.field = self.amp_slm * np.exp(1j * np.angle(self.field))
 

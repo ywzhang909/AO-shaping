@@ -178,12 +178,15 @@ def build_parser() -> argparse.ArgumentParser:
 def _newest_recorder(objective: str, delta: float | None = None):
     """Load the most recent debug pickle for ``objective`` (optionally a delta).
 
-    Run directories are ``slm_pib_<objective>_<timestamp>/``, so the glob must be
-    ``slm_pib_<objective>_*`` — a bare ``slm_pib_<objective>/`` matches nothing.
+    Run directories follow the canonical debug layout
+    ``data/debug/slm_pib_<objective>/<YYYYmmdd_HHMMSS>/``, so the glob is
+    ``slm_pib_<objective>/*/*.pkl`` -- the family directory carries **no**
+    timestamp and the timestamp is the next level down. Matching
+    ``slm_pib_<objective>_*`` instead would find nothing.
     """
     import pickle
 
-    pattern = f"data/debug/slm_pib_{objective}_*/**/*.pkl"
+    pattern = f"data/debug/slm_pib_{objective}/*/*.pkl"
     files = sorted(ROOT.glob(pattern), key=lambda p: p.stat().st_mtime)
     if delta is not None:
         exact = [p for p in files if _delta_of(p) == delta]

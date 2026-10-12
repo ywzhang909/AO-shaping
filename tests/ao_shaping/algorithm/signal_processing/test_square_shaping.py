@@ -424,6 +424,17 @@ class TestUniformSquareShaper:
         assert phase.shape == (N, N)
         assert np.isfinite(phase).all()
 
+    def test_adaptive_feedback_zero_beta_matches_plain(self):
+        cfg = _cfg(target_side_px=20)
+        plain = gs_shape(cfg, n_iters=10, seed=0)
+        feedback = UniformSquareShaper(
+            cfg, method="adaptive-feedback", beta=0.0, n_iters=10,
+            seed=0, select="last",
+        ).run()
+        np.testing.assert_allclose(
+            np.exp(1j * feedback.phase), np.exp(1j * plain.phase), atol=1e-9
+        )
+
     def test_run_returns_shaping_result(self):
         cfg = _cfg(target_side_px=20)
         shaper = UniformSquareShaper(cfg, n_iters=20, seed=0)

@@ -208,13 +208,13 @@ class SlmGsRefineConfig:
     gs_warm_start: bool = True
     gs_relax: float = 1.0
     gs_method: str = "plain"
-    """GS 变体: plain / weighted / hio / hio-weighted。默认 plain = 既有行为。"""
+    """GS 变体: plain / weighted / hio / hio-weighted / adaptive-feedback。"""
     gs_gamma: float = 0.5
     """加权 GS 累积反馈系数 γ, 0≤γ<1。γ=0 是退化哨兵 (权重恒为 1 ⇒ 与 plain GS 等价)。"""
     gs_weight_clip: float = 4.0
     """加权 GS 权重上限 (裁剪, 须 >1)。"""
     gs_beta: float = 0.9
-    """HIO 反馈松弛系数 β (Fienup, 0≤β≤1)。β=0 是退化哨兵 (框外冻结)。"""
+    """HIO 松弛系数或自适应目标域反馈上限 (0≤β≤1)。"""
     gs_hio_fraction: float = 0.7
     """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
 
@@ -296,10 +296,10 @@ class SlmGsRefineConfig:
             )
         if self.gs_relax <= 0:
             raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
-        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted"):
+        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted", "adaptive-feedback"):
             raise ValueError(
                 "gs_method must be one of 'plain', 'weighted', 'hio', "
-                f"'hio-weighted', got {self.gs_method!r}"
+                f"'hio-weighted', 'adaptive-feedback', got {self.gs_method!r}"
             )
         # γ≥1 makes the cumulative feedback unit-gain and it oscillates; γ=0 is a
         # deliberate degenerate sentinel (weight stays 1 ⇒ identical to plain GS)
@@ -593,10 +593,9 @@ def _gs_pupil_phase(
 
     ``config.gs_method`` selects the open-loop GS variant. ``"plain"`` keeps the
     historical path byte-for-byte (it calls :func:`gs_shape` directly); the other
-    variants route through :class:`UniformSquareShaper`, which improves the
-    *uniformity* of the flat-top square rather than plain error-reduction --
-    weighted iterative feedback, Fienup HIO, or the documented
-    "HIO first, weighted GS to polish" combination.
+    variants route through :class:`UniformSquareShaper` for weighted feedback,
+    Fienup HIO, or adaptive target-domain feedback. Their measured uniformity
+    must be compared against plain GS before adoption.
 
     Returns ``None`` when the warm start is disabled or GS degenerates, in which
     case the caller simply proceeds from the flat phase.
