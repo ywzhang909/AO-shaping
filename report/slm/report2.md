@@ -18,7 +18,9 @@
 > 2. **SLM 序列号存疑**：本文写 `#23020026`（532nm），
 >    而 `drivers/AGENTS.md:158` 与 `report/slm/bench_calibration_20261001.md` 均写
 >    **SLM#1 = `22030108`（1064nm，2π=993）**。仓库中同时存在 `22030102`、`22030108`、
->    `23020026` 三个「SLM#1」序列号，尚未收口，见 `TODO.md`。
+>    `23020026` 三个「SLM#1」序列号，尚未统一，见 `TODO.md`。
+
+**本轮结论**：相位生成全链路审计确认驱动层与 GUI 层单位约定正确；定位并修复了三处实质性缺陷——响应矩阵 µm/λ 单位混用（系数放大 1.88×）、反解系数 λ/rad 混淆（相位缩小 2π 倍）、`ZernikeDM.generate_phase` 的 min-max 归一化（使 Zernike 幅度完全不可控）。修复后闭环波前矫正改善率由 5.8% 逐步提升至 **42.1%**（RMS 0.3564λ → 0.2065λ）。模型自检进一步揭示大修正量下存在幅度相关的非线性（预测/实测比 0.35），而理论天花板为 75.4%，表明剩余约 33 个百分点的改善空间主要受非线性机制限制，而非单位或矩阵问题。`zernike-matrix` 命令的原生崩溃未解决，已改用等价工具 `slm_zernike_response.py` 完成重标。
 
 ---
 
@@ -104,17 +106,17 @@ ZernikeDM 系数 ×1 vs ×4:
   PV: 6.2832 rad → 6.2832 rad   (期望 4×)
 ```
 
-**→ 输出对系数缩放不变, Zernike 系数的"幅度"维度被完全抹掉。**
+**→ 输出对系数缩放不变，Zernike 系数的"幅度"维度被完全移除。**
 
 这正是 `AGENTS.md` 已记录的 `PatternHelper._zernike_to_uint16` 反模式
 ("min-max normalises ... making the pattern scale-invariant"),
-但 **`PatternHelper._zernike_to_uint16` 已废弃不用, 而 `ZernikeDM.generate_phase` 仍在服役**。
+但 **`PatternHelper._zernike_to_uint16` 已废弃不用, 而 `ZernikeDM.generate_phase` 仍在使用**。
 
 **受影响链路** (`ZernikeSLM.send_zernike` → `ZernikeDM.generate_phase`):
 
 | 消费方 | 后果 |
 |---|---|
-| `optimizer/wf/zernike_response_matrix.py` (`zernike-matrix` 命令) | 标定出的响应矩阵**与幅度无关** → 用于闭环矫正无意义 |
+| `optimizer/wf/zernike_response_matrix.py` (`zernike-matrix` 命令) | 标定出的响应矩阵**与幅度无关** → 用于闭环矫正失去物理意义 |
 | `optimizer/wf/rms_by_zernike.py` (`rms-zernike`) | 无法按系数幅度做梯度更新 |
 | `optimizer/wf/ga_zernike.py` (`ga-zernike`) | 遗传算法搜索的"系数"维度退化 |
 | `optimizer/wf/greedy_zernike.py` | 同上 |
@@ -146,7 +148,7 @@ return np.mod(phase_raw / (2*np.pi) * max_val, max_val).astype(np.uint16)
 > `2π` 量级的系数:
 > `optimizer/wf/{zernike_response_matrix,rms_by_zernike,ga_zernike,greedy_zernike}.py`、
 > `runners/slm/zernike_matrix_runner.py` / `runners/slm/rms_zernike_runner.py` / `runners/slm_offset_runner.py`、`gui/zernike/`。
-> **建议**: 用 `zernike-matrix` 重标一次响应矩阵 —— 旧矩阵是在归一化下测得的, 幅度维度无意义。
+> **建议**: 用 `zernike-matrix` 重标一次响应矩阵 —— 旧矩阵是在归一化下测得的, 幅度维度无物理意义。
 
 ### 2.4 `csv_to_phase` 用常量 — ✅ 有意设计 (非缺陷)
 
@@ -161,7 +163,7 @@ return np.mod(phase_raw / (2*np.pi) * max_val, max_val).astype(np.uint16)
 
 ### 2.5 修复项: 数值稳定性
 
-矩阵经线性度门控会把不合格列**置零**, 直接 `np.linalg.pinv(M)` 在含零列时条件数爆到 **1e18**
+矩阵经线性度门控会把不合格列**置零**, 直接 `np.linalg.pinv(M)` 在含零列时条件数升至 **1e18**
 (数值秩亏)。已加:
 
 - `slm_zernike_common.safe_pinv(M)`: 仅对**有效列**求伪逆再展开 (零列对应行恒为 0)
@@ -203,9 +205,9 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 
 **残留假设** (驱动层之外, 按可能性排序):
 1. **Santec SLM DLL 写路径**: `0xC000041C` (用户回调内致命异常) 是 SLM/heap 被原生侧破坏后
-   随机延迟爆发的典型签名; 与"rms-zernike / dm-matrix 等 WFS 重负载工具稳定"不矛盾——
+   随机延迟爆发的典型特征; 与"rms-zernike / dm-matrix 等 WFS 重负载工具稳定"不矛盾——
    它们不同时高频写 SLM 内存槽。
-2. **h5py/HDF5 建文件瞬间崩溃** (三轮中第一轮 h5 留在 0 字节的指纹)。
+2. **h5py/HDF5 建文件瞬间崩溃** (三轮中第一轮 h5 留在 0 字节的特征证据)。
 3. **旧 runner 编排时序**: 写 SLM 相位后未等 LCOS 稳定即连续采样; `--debug` 逐样本
    写 18MB `.npy` (实测每帧 18,432,128 B) 的落盘压力。
 
@@ -229,7 +231,7 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 
 | 轮次 | 修复内容 | 闭环改善 (RMS) | 备注 |
 |---|---|---|---|
-| 首轮 | — | 5.8% | 矩阵污染 |
+| 首轮 | — | 5.8% | 矩阵含异常点 |
 | 2 | 半径一致性 (R=200 异常) | 3.4% | 半径诊断被 R=120 异常值污染 |
 | 3 | 半径诊断异常剔除 | 19.7% | 扫描半径修正为 {450,600} |
 | 4 | **矩阵 µm → λ** | 13.8% | 系数不再放大 1.88× |
@@ -274,7 +276,7 @@ span(M) 内占比 96.9%;  正交残差 (不可矫正) = 24.6%
 离线最优单步 (c = −pinv·w): 降幅 75.4%   (符号约定正确: +pinv 会变差 −95.4%)
 ```
 
-当前实测 42.1% vs 理论 75.4% → **仍有 ~33 个百分点的可争取空间**, 主因是 §3.3 的非线性。
+当前实测 42.1% vs 理论 75.4% → **仍有约 33 个百分点的改进空间**, 主因是 §3.3 的非线性。
 
 ---
 
@@ -283,7 +285,7 @@ span(M) 内占比 96.9%;  正交残差 (不可矫正) = 24.6%
 | # | 动作 | 预期收益 |
 |---|---|---|
 | ~~1~~ | ~~修 `ZernikeDM.generate_phase` 的 min-max 归一化 (§2.3)~~ | ✅ **已完成** (系数即弧度, ×1/×4 PV 比 1:4 实测确认) |
-| 1b | **用 `zernike-matrix` 重标响应矩阵** —— 旧矩阵在归一化下测得, 幅度维度无意义 | 使 `ZernikeSLM` 系矫正可用 |
+| 1b | **用 `zernike-matrix` 重标响应矩阵** —— 旧矩阵在归一化下测得, 幅度维度无物理意义 | 使 `ZernikeSLM` 系矫正可用 |
 | 2 | 查 §3.3 非线性: 用 `--save-phase` 的 `phase_gray.npy` 对比"请求相位 vs 实际上屏", 并关闭波前矫正复测 | 42% → 60~75% |
 | 3 | 多轮迭代改用 `leak>0` 或降低 `gain` 抑制大修正量过冲 | 稳定收敛 |
 | 4 | 提高 `n_avg` / 增加幅度档位, 让矩阵在大幅度段也有标定点 | 提升线性度覆盖 |

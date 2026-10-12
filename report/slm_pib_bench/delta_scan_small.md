@@ -7,6 +7,8 @@
 > **说明**: delta 小范围扫描 (实机)
 <!-- provenance:end -->
 
+**本轮结论**：小 delta 档（0.0005/0.001）两档均判为随机游走（dec=0.52），late 增益 −1.4%/+0.1% 均在噪声内。小 delta 下信号被噪声地板淹没（多模式 SNR≈1.3），与理论预期一致：delta 越小，单步差分信号 ∝δ 而噪声不变，SNR 线性恶化。结论与全扫描一致——**不是 delta 选错，而是每步 SPGD 信噪比不足**；优先排查慢漂移对梯度估计的污染，再谈参数选择。
+
 - 目标 `pearson`, n_max=9, epochs=200, lr=0.5, 相机 `daheng`/0, 开窗 320px, 曝光 1.2ms
 - 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_pearson/`
 

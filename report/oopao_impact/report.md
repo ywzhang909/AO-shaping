@@ -7,6 +7,8 @@
 > **说明**: 端到端 AO 环境下的后端影响
 <!-- provenance:end -->
 
+**本轮结论**（AO_OOPAO_BACKEND 端到端消融，SimTurbulenceAOEnv）：切换 OOPAO/numpy 湍流后端会**改变端到端行为**（Strehl 随 Cn² 曲线与 PIB/RMS 收敛特征均有可见差异），但两臂相位屏未标定到同一 r0/phase_std，**当前数据不足以判定哪一臂的绝对 Strehl 更接近物理真值**——本报告对比的是"同一 Cn² 配置下切换后端的影响"，不是"等价实现"验证。若要绝对可比，须先标定两臂相位屏统计再重跑矩阵。
+
 > 生成时间: 2026-09-29T16:39:36 | 脚本: `scripts/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `libs/OOPAO/OOPAO`
 >
 > ⚠️ **OOPAO rev 号本报告写 `e8e9aa6`，`sim/AGENTS.md`「已知约束」第 7 条写

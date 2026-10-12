@@ -7,6 +7,8 @@
 > **说明**: 8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv
 <!-- provenance:end -->
 
+**本轮结论**（8 算法 × 物理 Strehl 目标，dim=64）：除 HILL_CLIMBING 外，7 种算法（GA/PSO/SA/RANDOM_SEARCH/CROSS_ENTROPY/DIFFERENTIAL_EVOLUTION/SPGD）均将 Strehl 从 0.8809 推至 1.0000（近衍射极限），确认该物理景观对梯度无关与梯度类方法均可解。收敛效率上 **SA 最快**（272 loads 达峰、182 loads 破 0.9），CROSS_ENTROPY 次之（279/165）；**SPGD 达到 0.9 所需 loads 最多（761）**，因每步耗 2 次设备加载且高维扰动估计方差大——这与其在实机上的慢收敛一致。HILL_CLIMBING 完全停滞于初始值（严格改进接受准则在平坦景观上失效），为唯一失败算法。与 PIB（dim=4 合成景观）基准的排名不可跨基准比较，SPGD 仅参与本基准，补上了原 PIB 基准未覆盖 SPGD 的缺口。
+
 Benchmark of the 7 heuristic optimizers in `ao_shaping.algorithm` **plus SPGD** on a common offline **Strehl** objective: correcting atmospheric turbulence in the physical simulation `TraditionalAOSystem` (DM influence functions + Fourier focal plane), offline (pure numpy, no hardware), landscape from `ao_shaping.optimizer.wfless.strehl_sim_eval.StrehlLandscape`.
 
 - **dim**: 64 (DM voltage space, dm_actuators=8), **bounds**: (-1.0, 1.0), **seed**: 42

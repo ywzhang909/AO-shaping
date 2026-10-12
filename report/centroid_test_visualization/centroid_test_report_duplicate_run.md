@@ -7,6 +7,8 @@
 > **说明**: 同一次报告的更早一次运行，仅 Generated 时间戳不同；保留作对照，正式版见 centroid_test_report.md
 <!-- provenance:end -->
 
+**本轮结论**：本文件为正式报告（`centroid_test_report.md`）更早一次运行的对照副本，两次运行的 9 组用例误差结果完全一致（最大误差 1.12 px，出现在高斯+噪声用例），证明质心测试结论可复现、不依赖运行随机性。引用时以正式版为准。
+
 Generated: 2026-03-25 13:07:10
 
 ## Test Results Summary

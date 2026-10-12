@@ -6,6 +6,8 @@
 > **说明**: 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式
 <!-- provenance:end -->
 
+**本文档结论**（无模型 AO 综述 × 本项目映射）：Selim 等 2026 综述（DOI `10.1007/s12596-025-03011-z`）与本项目 model-free 栈逐条映射后，筛出 **6 条可借鉴路线**：自适应增益、TIE 相位测量、Cn² 自适应超参、scintillation index 代理、hybrid 调度器（组合已有 GS/SPGD/model-in-loop，不重写 GS 循环）、RL 动态基准。全部 6 条均为**加法**（新增开关/模块），不改现有默认行为；实施依赖序为增益→scintillation→Cn² 超参→TIE→hybrid，验收统一走数字孪生 `--cam_type sim`，硬件后验另列。
+
 > **来源**: 本地 Zotero 库条目 `T2H7VM3S`（副本 `5SCDP36J`），
 > *Model-free adaptive optics for free space optical communications: A comprehensive survey*，
 > Hebat Allah O. Selim, Rania M. Abdallah, Moustafa H. Aly, Islam E. Shaalan，

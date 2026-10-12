@@ -6,6 +6,8 @@
 > **说明**: Zotero 扫描：整形目标函数 / 评价函数目录
 <!-- provenance:end -->
 
+**本文档结论**（Zotero 库扫描：整形目标函数/评价函数目录）：对本地 Zotero 库（11,703 条目、2,836 笔记，262 条笔记命中目标函数/评价指标关键词）完成五轮元数据与正文公式复核，产出**可为 `slm_square_shaping.py` 的 `objective=` 实现的候选度量目录**，每条均带来源标签（严格区分实测与推测）。本文档是目标函数选型的文献基准，与 `model_free_ao_survey` 互补（后者不重复目标函数公式）；所有 PDF 均只读访问，数据库 `PRAGMA quick_check` 通过。
+
 扫描对象：本地 Zotero 库（快照见文末「数据来源与安全性」）。
 目标：为 `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` 的 `objective=` 提供可实现的候选度量。
 

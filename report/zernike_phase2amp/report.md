@@ -9,6 +9,8 @@
 > **说明**: 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生
 <!-- provenance:end -->
 
+**本轮结论**（Zernike 远场模型系统扫描）：(1) 采用 10 折分组交叉验证 + 配对符号翻转精确检验作为权威对比协议（`compare_models_cv.py`），统计唯一来源为 `ml/zernike/eval_stats.py`，报告脚本只做渲染。(2) 物理模型（闭式 Zernike 基合成）与学习式模型在同一语料上对比的结论以 §7 分组 CV 为准，原始对照表（`unet_comparison.md`）已标记 superseded。(3) 复现纪律：本文数字对应修复前的 lr 漏传缺陷（实际 lr=0.05 而非命令行所写 0.02，summary.json history 首行 lr≈0.0498 为实测证据）；该缺陷已修复，**照抄现命令将得到不可比结果**，复现本文轮次必须显式 `--lr 0.05`。此案例确立了"复现命令必须与产生数据的实际超参逐字段核对"的报告规范。
+
 > 生成脚本 `scripts/generate_zernike_amp_report.py`（**全离线**，只读已保存产物，不需要硬件）。
 > 图表数据来自 `logs/zernike_amp_sweep.json`（10 折分组交叉验证扫描）与
 > `logs/zernike_amp_final/summary.json`（训练历史，即当时上传 wandb 的那一组序列）。

@@ -7,6 +7,8 @@
 > **说明**: PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测
 <!-- provenance:end -->
 
+**本文档结论**（PhasorUNet 模型规格基准）：逆向模型确定为 **7,778,482 参数（约 7.78M）的 U-Net**——输入 `(2, 64, 64)`（远场图像 + 标准化对数曝光），输出 `(2, 64, 64)` 连续 phasor 场 `(cos, sin)` 并经 `unit_phasor` 投影到单位圆；训练目标为"监督 phasor L1 + 可微物理往返 L1"。phasor 表示与 unit 投影的必要性由 L1 下界实测支撑（unit vs non-unit），全部形状/参数量来自脚本对真实模型的现场 introspection，本文档与代码不可能不一致——后续训练与消融（`report/inverse_shaping_unet/report.md`）均以本文档为架构基准。
+
 本文详解 `src/ml/shaping/models.py::PhasorUNet` —— 把**远场相机图像**映射回**SLM 瞳面相位**的逆向模型。表格中的通道数、空间尺寸与参数量均由脚本**现场 introspection 真实模型**得到，而非手抄；因此报告不可能与代码不一致。
 
 ## 0. 一句话概括

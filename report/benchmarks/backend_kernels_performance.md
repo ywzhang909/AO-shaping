@@ -7,6 +7,8 @@
 > **说明**: 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）
 <!-- provenance:end -->
 
+**本轮结论**：在光斑分析四个热点函数（sharpness/crop/质心/亮度中心）上，**Numba 全面最优**——较 NumPy 加速约 1.6–3.2 倍（如 sharpness 4.0e-5 s vs 1.3e-4 s）；CuPy 反而最慢（慢 3–50 倍），原因是本工作负载数组尺寸小，主机↔设备传输开销主导，GPU 并行收益无法覆盖。据此默认执行后端选定 Numba，CuPy 路径保留但不启用。
+
 | Function | NumPy (s) | Numba (s) | CuPy (s) |
 |----------|-----------|-----------|----------|
 | calculate_sharpness | 0.00012886199168860913 | 4.0000001899898055e-05 | 0.0019577769935131073 |

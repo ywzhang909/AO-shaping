@@ -6,6 +6,8 @@
 > **说明**: PIB 优化器功能说明 (非实验测量)
 <!-- provenance:end -->
 
+**本文档结论**（功能说明，非实验测量）：PIB 优化器当前实现由四个核心组件构成——TabuMemory（禁忌搜索防重复）、AdaptiveSearchState（搜索半径自适应）、LearningSchedule（扰动幅度调度）与混合稀疏/稠密扰动生成，硬件侧经 MIICamera 采集与 NlightDM 电压约束闭环；同文档另记录 AdaMOD/Muon/Newton-Schulz 优化器族。所有组件均已落地并给出源码行号定位（见文末参考表），性能证据在 `report/heuristic_pib/` 与 `report/slm_pib_*` 系列报告中，本文档仅作机制与接口基准，不含测量数据。
+
 ## 目录
 
 1. [概述](#概述)

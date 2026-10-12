@@ -6,6 +6,8 @@
 > **说明**: 传统 AO 仿真环境 reward 问题分析与解决
 <!-- provenance:end -->
 
+**本轮结论**（TraditionalAOEnv reward 缺陷修复）：定位并修复了传统 AO 仿真环境的三处缺陷——`AOSystem.propagate()` 相位残差计算错误、`compute_strehl()` 归一化错误（导致 Strehl 恒为 1.0）、reward 恒为常数（环境未对执行器动作产生响应）。修复链：`devices.py` 保存 `ideal_peak` 修正 Strehl 基准、`envs.py` 重写 `_calculate_reward()` 并将默认 Cn² 由 1e-14 提至 1e-13、`sac_train.py` 增加 `--Cn2` 参数。修复后验证：episode 回报从 17.18 降至 8.09（算法在学习降低 RMS）、actor_loss 持续下降（−10 → −35.7，梯度流通畅）、entropy 系数 0.98→0.58（探索转利用）。残余说明：Strehl 恒为 1 属当前无衍射仿真的正常现象（高斯振幅分布不变），episode 间 RMS 波动源于湍流随机采样，均为预期行为。
+
 ## 问题描述
 
 在训练 `TraditionalAOEnv` 时发现以下问题：

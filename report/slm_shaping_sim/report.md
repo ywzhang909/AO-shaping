@@ -8,6 +8,8 @@
 > **说明**: SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照
 <!-- provenance:end -->
 
+**本轮结论**（2f-Fourier 数字孪生 runner 矩阵）：(1) SLM 家族 3 个 runner（slm-pib / slm-gsnet / slm-model-in-loop）均可在纯仿真下端到端跑通，且初始→最佳值变化证明仿真链路对相位调制有真实响应；调试产物与硬件同格式，报告可离线再生。(2) DM 家族（pib/combined）当前**仅有控制环可执行性、无物理意义**——SimPibSystem 未建立 DM 电压→相位映射，目标与执行器解耦；其数字不可解读为"SPGD 在 DM-PIB 上不收敛"，需先用 OOPAO `DeformableMirror` 影响力函数构建电压→相位矩阵后重跑。该边界是引用本仿真矩阵数据时的强制限定。
+
 **生成时间**: 2026-10-01 07:50:18
 
 **Fully offline** — 本报告由 `scripts/generate_slm_shaping_sim_report.py` 离线生成, 仅读取磁盘上的调试产物 (PKL / CSV), 不打开任何硬件、不重跑优化。

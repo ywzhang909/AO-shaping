@@ -8,6 +8,8 @@
 > **说明**: 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生
 <!-- provenance:end -->
 
+**本轮结论**：(1) 干扰注入机制已在数据层面验证：`static` 全程复用唯一冻结相位屏（逐次评估干扰 RMS 为常数），`dynamic` 每次光学评估重抽独立相位屏（RMS 逐次变化），判据由 `*_disturbance_rms.png` 直接给出而非文字断言。(2) SPGD 闭环收敛有效：J（maximize）初始 −1.3442 → 最佳 −1.1246（epoch 61），但末轮 −1.2626 劣于最佳 0.1380——**报告成绩必须引用最佳值，且优化器退出时应回写最佳相位而非末轮相位**。(3) 管线与硬件产物格式一致，任何 `--debug` 运行均可离线再生报告。(4) 与 shape_50px 轮一致：n≤4 Zernike 基仅验证目标函数与反馈链路，真正方形成形需 freeform 基。
+
 **生成时间**: 2026-10-01 12:30:57
 
 **Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
