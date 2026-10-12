@@ -26,13 +26,13 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (
     uniformity_cv,
 )
 from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.wfless._measure import locate_zero_order
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
     _compose,
     _derive_target_side,
     _embed_pupil_square,
     _fit_exact,
-    _locate_zero_order,
     _lr_at,
     _metrics,
     _pupil_side,
@@ -95,13 +95,13 @@ class TestLocateZeroOrder:
         frame = np.zeros((100, 100))
         # Deliberately off-centre: the 2f optical axis is NOT the frame centre.
         frame[37, 82] = 5.0
-        assert _locate_zero_order(frame) == (37, 82)
+        assert locate_zero_order(frame) == (37, 82)
 
     def test_nan_is_ignored(self):
         frame = np.zeros((40, 40))
         frame[10, 10] = np.nan
         frame[20, 30] = 1.0
-        assert _locate_zero_order(frame) == (20, 30)
+        assert locate_zero_order(frame) == (20, 30)
 
 
 class TestResizeHelpers:
