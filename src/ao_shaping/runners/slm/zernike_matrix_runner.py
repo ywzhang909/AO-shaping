@@ -510,47 +510,6 @@ def _save_wavefront_log_hdf5(
 # ==================== 辅助函数 (从原run()中提取) ====================
 
 
-def _attach_device_config(
-    result: ZernikeResponseMatrixResult,
-    slm_number: int,
-    wavelength: int,
-    n_max: int,
-    shift_x: int,
-    shift_y: int,
-    correction_csv_path: str | None,
-    mla_index_enum: MlaRes,
-    effective_exp_time: float,
-    high_speed: bool,
-    use_custom_ref: bool,
-    pupil_center: tuple,
-    pupil_diameter: float,
-) -> ZernikeResponseMatrixResult:
-    """在标定结果上附加硬件配置快照
-
-    Args:
-        result: 标定结果 (会原地修改)
-        以及其他硬件参数
-
-    Returns:
-        修改后的 result
-    """
-    result.device_config = {
-        "slm_number": slm_number,
-        "wavelength": wavelength,
-        "n_max": n_max,
-        "shift_x": shift_x,
-        "shift_y": shift_y,
-        "correction_csv_path": correction_csv_path or "",
-        "mla_index": int(mla_index_enum),
-        "exposure_time": effective_exp_time,
-        "high_speed": high_speed,
-        "use_custom_ref": use_custom_ref,
-        "pupil_center": list(pupil_center),
-        "pupil_diameter": pupil_diameter,
-    }
-    return result
-
-
 def _print_calibration_summary(
     results: list[tuple[float | None, ZernikeResponseMatrixResult]],
     output_path: str,
