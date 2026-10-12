@@ -115,8 +115,7 @@ class TestValidation:
         This term runs once per epoch against live camera frames, so raising
         would kill a multi-hour optimisation and leave the SLM holding an
         arbitrary phase. The repo standardises on
-        ``np.where(isfinite(frame), frame, 0.0)`` in
-        ``ao_shaping.utils.image.beam_metrics.prepare_frame`` and both
+        ``np.where(isfinite(frame), frame, 0.0)`` in ``_prepare_frame`` and both
         ``bench_kernels`` prep kernels; the score must stay finite instead.
         """
         frame = make_blob()
@@ -200,9 +199,7 @@ class TestNegativePixels:
 
         target = make_blob(cx=13.0)
         from_noisy = log_gradient_difference_metric(noisy, target)
-        from_clipped = log_gradient_difference_metric(
-            np.clip(noisy, 0.0, None), target
-        )
+        from_clipped = log_gradient_difference_metric(np.clip(noisy, 0.0, None), target)
         assert from_noisy == pytest.approx(from_clipped, abs=1e-12)
         assert np.isfinite(from_noisy)
 
@@ -247,9 +244,7 @@ class TestDiscrimination:
 
     def test_identical_structure_scores_lower_than_mismatched(self) -> None:
         same = log_gradient_difference_metric(make_blob(cx=10.0), make_blob(cx=10.0))
-        other = log_gradient_difference_metric(
-            make_blob(cx=6.0), make_blob(cx=15.0)
-        )
+        other = log_gradient_difference_metric(make_blob(cx=6.0), make_blob(cx=15.0))
         assert same < other
 
     def test_smooth_beam_scores_lower_than_speckle(self) -> None:

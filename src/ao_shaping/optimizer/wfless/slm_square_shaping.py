@@ -223,8 +223,6 @@ def _map_init_to_active_modes(
     return arr[: len(active_modes)]
 
 
-
-
 def _locate_square_center(img: np.ndarray, mode: str) -> tuple[int, int]:
     if mode == "shape":
         return smart_zero_order_center(img)
@@ -1115,7 +1113,9 @@ class SlmSquareConfig:
                 f"init_amplitude_rad must be non-negative, got {self.init_amplitude_rad}"
             )
         if self.stagnate_win < 1:
-            raise ValueError(f"stagnate_win must be at least 1, got {self.stagnate_win}")
+            raise ValueError(
+                f"stagnate_win must be at least 1, got {self.stagnate_win}"
+            )
         if self.stagnate_boost < 1.0:
             raise ValueError(
                 f"stagnate_boost must be >= 1.0, got {self.stagnate_boost}"

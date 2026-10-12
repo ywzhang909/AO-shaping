@@ -40,6 +40,7 @@ reinvents them wrong.
    repeats were masking it. :func:`display_and_average` therefore discards
    frames until two consecutive readings agree.
 """
+
 from __future__ import annotations
 
 from ao_shaping.utils.image.beam_metrics import prepare_frame
@@ -87,7 +88,6 @@ __all__ = [
     "snr_vs_averages",
     "tilt_shift_px",
     "zernike_panel",
-
     "camera_pixel_um_from_focal_scale",
     "focal_length_from_camera_pixel",
     "gaussian_grid",
@@ -114,6 +114,8 @@ BEAM_RADIUS_PANEL = 450
 #: ``f*lambda/(pi*R*camera_pixel)`` = 5.34 cam px per radian of Zernike tilt,
 #: which the same data gives as 4.6-5.3.
 TILT_SHIFT_SCALE = 7400.0
+
+
 @dataclass
 class SpotMeasurement:
     """One frame's spot characterisation, in camera pixels."""
@@ -168,7 +170,11 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     pad = k // 2
     p = np.pad(frame, pad, mode="edge")
     stack = np.stack(
-        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
+        [
+            p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]]
+            for dy in range(k)
+            for dx in range(k)
+        ],
         axis=0,
     )
     return np.median(stack, axis=0)
@@ -205,9 +211,7 @@ def estimate_shift(
     fb = np.fft.fft2(b)
     cross = fb * np.conj(fa)
     magnitude = np.abs(cross)
-    cross = np.divide(
-        cross, magnitude, out=np.zeros_like(cross), where=magnitude > 0
-    )
+    cross = np.divide(cross, magnitude, out=np.zeros_like(cross), where=magnitude > 0)
     corr = np.fft.ifft2(cross).real
     peak_idx = np.unravel_index(int(np.argmax(corr)), corr.shape)
     peak_val = float(corr[peak_idx])
@@ -220,6 +224,7 @@ def estimate_shift(
         dx -= corr.shape[1]
     if max_shift is not None and (abs(dy) > max_shift or abs(dx) > max_shift):
         return float("nan"), float("nan"), peak_val
+
     # Parabolic sub-pixel refinement on the correlation peak:
     # offset = 0.5 * (y[-1] - y[+1]) / (y[-1] - 2*y[0] + y[+1]),
     # taken along each axis with the other index held at the peak.
@@ -464,9 +469,7 @@ def fit_linear_slope(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
     return slope, float(y.mean() - slope * x.mean())
 
 
-def random_phase(
-    shape: tuple[int, int], seed: int = 0
-) -> np.ndarray:
+def random_phase(shape: tuple[int, int], seed: int = 0) -> np.ndarray:
     """Uniform random phase in [0, 2*pi) -- scatters the pupil for speckle.
 
     Only useful where the panel can resolve pixel-scale phase. On this bench it
@@ -476,6 +479,8 @@ def random_phase(
     return np.random.default_rng(int(seed)).uniform(
         0.0, 2.0 * np.pi, (int(shape[0]), int(shape[1]))
     )
+
+
 # ---------------------------------------------------------------------------
 # Frame preparation — the two variants are deliberately different
 # ---------------------------------------------------------------------------
@@ -621,9 +626,7 @@ def crop_around_zero_order(frame: np.ndarray, size: int = 512) -> np.ndarray:
     return out
 
 
-def crop_roi(
-    frame: np.ndarray, center: tuple[int, int], half: int
-) -> np.ndarray:
+def crop_roi(frame: np.ndarray, center: tuple[int, int], half: int) -> np.ndarray:
     """Crop a ``2*half`` square about ``center``, zero-padding off-frame.
 
     The spot is frequently not at the frame centre on this bench (measured
@@ -823,8 +826,11 @@ def exposure_monotonicity(
     if saturation_level is not None:
         saturated = bool(np.any(p >= float(saturation_level)))
     return {
-        "verdict": "monotonic" if bool(np.all(ok)) and not saturated else
-                   "saturated" if saturated else "non_monotonic",
+        "verdict": "monotonic"
+        if bool(np.all(ok)) and not saturated
+        else "saturated"
+        if saturated
+        else "non_monotonic",
         "ratios": [float(v) for v in ratios],
         "expected": [float(v) for v in expected],
         "saturated": saturated,
@@ -864,16 +870,12 @@ def build_block_pattern(
         raise ValueError(f"grid must be positive, got {grid!r}")
     c = np.asarray(coeffs, dtype=np.float64).ravel()
     if c.size != g * g:
-        raise ValueError(
-            f"coeffs must hold grid*grid = {g * g} values, got {c.size}"
-        )
+        raise ValueError(f"coeffs must hold grid*grid = {g * g} values, got {c.size}")
     ph, pw = int(panel_shape[0]), int(panel_shape[1])
     blocks = c.reshape(g, g)
     bh, bw = ph // g, pw // g
     if bh < 1 or bw < 1:
-        raise ValueError(
-            f"grid {g} is too coarse for panel {panel_shape!r}"
-        )
+        raise ValueError(f"grid {g} is too coarse for panel {panel_shape!r}")
     tiled = np.kron(blocks, np.ones((bh, bw), dtype=np.float64))
     # np.kron stops at the first g*bh rows / g*bw cols; pad if the panel is
     # not an exact multiple of the grid.
@@ -920,6 +922,12 @@ def capture_settled(
         The averaged frame.
     """
     return display_and_average(
-        cam, slm, phase_rad, n_frames=n_frames, n_discard=n_discard,
-        wait_time_s=wait_time_s, stable_tol=stable_tol, max_wait_s=max_wait_s,
+        cam,
+        slm,
+        phase_rad,
+        n_frames=n_frames,
+        n_discard=n_discard,
+        wait_time_s=wait_time_s,
+        stable_tol=stable_tol,
+        max_wait_s=max_wait_s,
     )

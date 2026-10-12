@@ -2,7 +2,7 @@
 
 Why this file exists
 --------------------
-``runners/runner_common.with_params`` builds its dataclass by *popping known
+``utils/cli/params.with_params`` builds its dataclass by *popping known
 field names* out of the ``kwargs`` the click parser produced
 (``runner_common.py:305-318``)::
 

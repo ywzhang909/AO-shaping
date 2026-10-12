@@ -52,6 +52,42 @@ def crop_to_aspect(
     return img
 
 
+def fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
+    """Force ``arr`` to exactly ``shape`` by edge-padding then cropping.
+
+    Args:
+        arr: Input array (H, W) or compatible.
+        shape: Target shape ``(height, width)``.
+
+    Returns:
+        Array reshaped/padded/cropped to ``shape``, dtype float64.
+    """
+    h, w = shape
+    out = np.asarray(arr, dtype=np.float64)
+    ph, pw = max(0, h - out.shape[0]), max(0, w - out.shape[1])
+    if ph or pw:
+        out = np.pad(out, ((0, ph), (0, pw)), mode="edge")
+    return out[:h, :w]
+
+
+def upsample_bilinear_to_shape(
+    coarse: np.ndarray, shape: tuple[int, int]
+) -> np.ndarray:
+    """Bilinear upsample of a coarse grid to an exact ``shape``.
+
+    Args:
+        coarse: Coarse input array (H_c, W_c).
+        shape: Target shape ``(height, width)``.
+
+    Returns:
+        Upsampled array of shape ``shape``, dtype float64.
+    """
+    if tuple(coarse.shape) == tuple(shape):
+        return np.asarray(coarse, dtype=np.float64)
+    factors = (shape[0] / coarse.shape[0], shape[1] / coarse.shape[1])
+    return fit_exact(zoom(coarse, factors, order=1, mode="nearest"), shape)
+
+
 def resample_to_grid(
     img: np.ndarray,
     target_shape: tuple[int, int],
@@ -80,7 +116,9 @@ def resample_to_grid(
     if img.ndim != 2:
         raise ValueError(f"img must be 2D, got {img.ndim}D")
     if len(target_shape) != 2 or target_shape[0] < 1 or target_shape[1] < 1:
-        raise ValueError(f"target_shape must be (h, w) positive ints, got {target_shape}")
+        raise ValueError(
+            f"target_shape must be (h, w) positive ints, got {target_shape}"
+        )
 
     th, tw = target_shape
     ih, iw = img.shape

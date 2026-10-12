@@ -210,7 +210,7 @@ CCD 帧带**对称**读出噪声, 所以约一半像素为负。`power_in_bucket
 
 | 约定 | 用在哪 | 做法 | 理由 |
 |---|---|---|---|
-| **先减中位数再 clip** | `slm_gs_refine._prepare_frame`、`slm_model_in_loop` | `clip(frame - median(frame), 0, None)` | 光斑只占画面一小块, 中位数是稳健的本底估计; 相减后再 clip 才让 `PIB <= 1`、`CV` 有限 |
+| **先减中位数再 clip** | `ao_shaping.utils.image.beam_metrics.prepare_frame`、`slm_model_in_loop` | `clip(frame - median(frame), 0, None)` | 光斑只占画面一小块, 中位数是稳健的本底估计; 相减后再 clip 才让 `PIB <= 1`、`CV` 有限 |
 | **只 clip 原始帧** | `slm_square_shaping.square_quality_score` | `clip(frame, 0, None)`，**不做**中位数相减 | 背景占画面大部分, 中位数**就是**本底; 再减会把背景均值压到 ~0 使比值爆炸 (合成帧实测 **1.3e5**, 且与实际背景水平无关) |
 
 ⚠️ **顺序反了就是缺陷**: 直接 clip 原始帧会把对称噪声**整流**成正的、直逼像素数的

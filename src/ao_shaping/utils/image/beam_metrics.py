@@ -38,6 +38,7 @@ __all__ = [
     "median_zero_order_center",
     "clamp_center_to_frame",
     "prepare_frame",
+    "locate_peak",
 ]
 
 
@@ -460,7 +461,11 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     pad = k // 2
     p = np.pad(frame, pad, mode="edge")
     stack = np.stack(
-        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
+        [
+            p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]]
+            for dy in range(k)
+            for dx in range(k)
+        ],
         axis=0,
     )
     return np.median(stack, axis=0)
@@ -667,3 +672,12 @@ def clamp_center_to_frame(
         int(np.clip(int(center[0]), half, max_x)),
         int(np.clip(int(center[1]), half, max_y)),
     )
+
+
+def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
+    """Locate the global peak as (row, col)."""
+    masked = np.asarray(frame, dtype=np.float64)
+    if finite:
+        masked = np.where(np.isfinite(masked), masked, 0.0)
+    iy, ix = np.unravel_index(int(np.argmax(masked)), masked.shape)
+    return int(iy), int(ix)

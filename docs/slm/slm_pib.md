@@ -69,7 +69,7 @@ class SlmZernikePibConfig:
 3. **主循环** (每轮 2 帧：`+δ` / `-δ`)：
    - 扰动向量 `u ~ N(0, I)` (维度 = 活动 Zernike 模式数)
    - `c ± δ·u` 下发 SLM (`Santec.create_phase_from_array`)
-   - 读 CCD，`_prepare_frame` (去背景+裁剪)
+    - 读 CCD，`prepare_frame` (去背景+裁剪)
    - 计算目标函数 `J(c)` (PIB / RMS-PIB / RMSE / 形状匹配等)
    - 梯度估计：`g = (J(+) - J(-)) / (2δ) * u`
    - 优化器更新：`c ← optimizer.update(g)`
@@ -145,7 +145,7 @@ class SlmZernikePibConfig:
 
 ## 8. 关键实现细节
 
-### `_prepare_frame` (逐帧预处理)
+### `prepare_frame` (逐帧预处理)
 - 减去帧中位数 (去对称读出噪声 DC 偏移)
 - `clip(min=0)` (阻止负像素污染 PIB)
 - 裁剪到 ROI

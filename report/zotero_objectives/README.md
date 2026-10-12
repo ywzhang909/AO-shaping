@@ -535,7 +535,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 
 ### 与仓库既有反模式的对应
 
-- §4.4 的设计动机（ROI 半径敏感 → 性能抖动）与 `AGENTS.md` 中「Re-locating the target ROI by `argmax` on **every** iteration」「Computing `PIB`/`CV` on a **raw** CCD frame」两条反模式**同源**。若实现 §4.4，ROI 必须**冻结**且帧须先做中值去噪/截零（参见 `slm_gs_refine._prepare_frame`）。
+- §4.4 的设计动机（ROI 半径敏感 → 性能抖动）与 `AGENTS.md` 中「Re-locating the target ROI by `argmax` on **every** iteration」「Computing `PIB`/`CV` on a **raw** CCD frame」两条反模式**同源**。若实现 §4.4，ROI 必须**冻结**且帧须先做中值去噪/截零（参见 `ao_shaping.utils.image.beam_metrics.prepare_frame`）。
 - §2.5 `J_MR` 与 §3.1 `⟨r²⟩` 依赖质心 `(x_c,y_c)`。`AGENTS.md` 已警示 `reset_window()` 返回中心不可信、0-order 须 `argmax` 重定位 —— 实现时须遵守同一规则。
 
 ---

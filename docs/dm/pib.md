@@ -34,7 +34,7 @@ graph TD
 4. **主优化循环** (每轮 2 帧 SPGD)：
    - 生成随机扰动向量 `u ∈ ℝ^{n_actuators}`
    - `voltage ± δ·u` 下发 DM
-   - 读 CCD，`_prepare_frame` (去背景+裁剪)
+    - 读 CCD，`prepare_frame` (去背景+裁剪)
    - 计算 PIB：桶内功率 / 总功率
    - 梯度估计：`g = (PIB(+δ) - PIB(-δ)) / (2δ) * u`
    - 优化器更新：`v ← optimizer.update(g)` (AdaMOD/Adam/SGD/Muno)

@@ -16,21 +16,29 @@ from matplotlib.colors import LogNorm
 import numpy as np
 from loguru import logger
 
-plt.rcParams["font.sans-serif"] = ["Noto Sans CJK SC", "Microsoft YaHei", "SimHei", "DejaVu Sans"]
+plt.rcParams["font.sans-serif"] = [
+    "Noto Sans CJK SC",
+    "Microsoft YaHei",
+    "SimHei",
+    "DejaVu Sans",
+]
 plt.rcParams["axes.unicode_minus"] = False
 
 from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
     IterativeZernikeShapingConfig,
     IterativeZernikeShapingOptimizer,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import (
-    ShapingBenchConfig,
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_score,
     compute_bench_metrics,
-    forward_intensity,
-    make_target,
+    gs_shape,
+    make_square_target as make_target,
+    spgd_shape,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import gs_shape, spgd_shape
+from ao_shaping.drivers.sim.slm_shaping_bench import (
+    ShapingBenchConfig,
+    forward_intensity,
+)
 from ao_shaping.optimizer.wfless.iterative_zernike_shaping import (
     IterativeZernikePibConfig,
 )
@@ -68,7 +76,9 @@ def build_actual_far_field() -> tuple[np.ndarray, np.ndarray]:
     """
     cfg = bench_cfg()
     zp = np.nan_to_num(
-        np.asarray(generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4), dtype=np.float64),
+        np.asarray(
+            generate_zernike_phase(GOLDEN, resolution=(N, N), n_max=4), dtype=np.float64
+        ),
         nan=0.0,
     )
     ff = forward_intensity(zp, cfg)
@@ -160,7 +170,9 @@ def plot_initial_vs_final(
     fig, axes = plt.subplots(1, 3, figsize=(13, 4))
     for ax, (title, img) in zip(axes, panels):
         im = ax.imshow(
-            img, cmap="inferno", norm=LogNorm(vmin=max(img.max() * 1e-4, 1e-12), vmax=img.max())
+            img,
+            cmap="inferno",
+            norm=LogNorm(vmin=max(img.max() * 1e-4, 1e-12), vmax=img.max()),
         )
         ax.set_title(title)
         plt.colorbar(im, ax=ax, fraction=0.046)
@@ -179,10 +191,20 @@ def plot_score_history(res: dict, gs_score: float, out: Path) -> None:
     scores = [h["score"] for h in hist]
     fig, ax = plt.subplots(figsize=(8, 4))
     ax.plot(iters, scores, "o-", color="#2196F3", linewidth=2, label="GS 预热 + 细化")
-    ax.axhline(gs_score, color="#FF5722", linestyle="--", linewidth=1.5,
-               label=f"GS 单遍 ({gs_score:.3f})")
-    ax.axhline(res["final_score"], color="#4CAF50", linestyle=":", linewidth=1.5,
-               label=f"最终 ({res['final_score']:.3f})")
+    ax.axhline(
+        gs_score,
+        color="#FF5722",
+        linestyle="--",
+        linewidth=1.5,
+        label=f"GS 单遍 ({gs_score:.3f})",
+    )
+    ax.axhline(
+        res["final_score"],
+        color="#4CAF50",
+        linestyle=":",
+        linewidth=1.5,
+        label=f"最终 ({res['final_score']:.3f})",
+    )
     ax.set_xlabel("外迭代次数")
     ax.set_ylabel("综合评分 (PIB + 均匀性)")
     ax.set_title("GS 预热 + 自由相位细化 — 评分收敛")
@@ -241,15 +263,27 @@ def plot_comparison_bars(
     init_score: float, gs_score: float, spgd_score: float, res: dict, out: Path
 ) -> None:
     """Figure 5: bar chart comparing initial / GS / SPGD / iterative scores."""
-    labels = ["初始\n(golden)", "GS 单遍\n(200 it)", "SPGD\n(600 it)", "迭代细化\n(GS 预热)"]
+    labels = [
+        "初始\n(golden)",
+        "GS 单遍\n(200 it)",
+        "SPGD\n(600 it)",
+        "迭代细化\n(GS 预热)",
+    ]
     scores = [init_score, gs_score, spgd_score, res["final_score"]]
     colors = ["#9E9E9E", "#FFC107", "#FF9800", "#4CAF50"]
 
     fig, ax = plt.subplots(figsize=(8, 4))
     bars = ax.bar(labels, scores, color=colors, edgecolor="black", linewidth=0.5)
     for bar, s in zip(bars, scores):
-        ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.01,
-                f"{s:.3f}", ha="center", va="bottom", fontsize=11, fontweight="bold")
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height() + 0.01,
+            f"{s:.3f}",
+            ha="center",
+            va="bottom",
+            fontsize=11,
+            fontweight="bold",
+        )
     ax.set_ylabel("综合评分")
     ax.set_title("评分对比: 初始 vs GS vs SPGD vs 迭代细化")
     ax.set_ylim(0, max(scores) * 1.2)
@@ -273,7 +307,12 @@ def main() -> None:
     ff_init = actual_ff
     m_init = compute_bench_metrics(ff_init, target)
     init_score = composite_score(m_init)
-    logger.info("Initial score={:.4f} PIB={:.4f} CV={:.4f}", init_score, m_init["PIB"], m_init["CV"])
+    logger.info(
+        "Initial score={:.4f} PIB={:.4f} CV={:.4f}",
+        init_score,
+        m_init["PIB"],
+        m_init["CV"],
+    )
 
     # GS baseline
     gs_score, gs_pib, gs_cv, gs_phase = run_gs_baseline()
@@ -289,7 +328,11 @@ def main() -> None:
     m_final = res["metrics"]
     logger.info(
         "Iterative score={:.4f} PIB={:.4f} CV={:.4f} n_outer={} converged={}",
-        final_score, m_final["PIB"], m_final["CV"], res["n_outer_iters"], res["converged"],
+        final_score,
+        m_final["PIB"],
+        m_final["CV"],
+        res["n_outer_iters"],
+        res["converged"],
     )
 
     # Ablation: the Zernike calibration pass (documented negative result)
@@ -297,12 +340,17 @@ def main() -> None:
     z_score = res_z["metrics"]["score"]
     logger.info(
         "Ablation: Zernike calibration ON -> score={:.4f} ({:+.1f}% vs Zernike OFF)",
-        z_score, (z_score - final_score) / final_score * 100,
+        z_score,
+        (z_score - final_score) / final_score * 100,
     )
 
     improvement_vs_gs = (final_score - gs_score) / gs_score * 100 if gs_score > 0 else 0
-    improvement_vs_spgd = (final_score - spgd_score) / spgd_score * 100 if spgd_score > 0 else 0
-    improvement_vs_init = (final_score - init_score) / init_score * 100 if init_score > 0 else 0
+    improvement_vs_spgd = (
+        (final_score - spgd_score) / spgd_score * 100 if spgd_score > 0 else 0
+    )
+    improvement_vs_init = (
+        (final_score - init_score) / init_score * 100 if init_score > 0 else 0
+    )
     ranking = sorted(
         [
             ("iterative", final_score),
@@ -391,7 +439,10 @@ def main() -> None:
     logger.info("SPGD:      score={:.4f}", spgd_score)
     logger.info(
         "Iterative: score={:.4f} ({:+.1f}% vs SPGD, {:+.1f}% vs GS, {:+.1f}% vs initial)",
-        final_score, improvement_vs_spgd, improvement_vs_gs, improvement_vs_init,
+        final_score,
+        improvement_vs_spgd,
+        improvement_vs_gs,
+        improvement_vs_init,
     )
     logger.info(
         "Figures: initial_vs_final.png, score_history.png, zernike_coeffs.png, "
