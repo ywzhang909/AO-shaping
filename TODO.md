@@ -54,6 +54,10 @@
 
 ### 1.2 FourierGSNet 真机验证（`report/fouriergsnet_pipeline/`）
 
+> 📋 2026-10-12: 结合 `slm-gs-refine`（从未真机运行）与 gsnet 系列报告的
+> **下一步尝试方案**见 [`report/fouriergsnet_pipeline/next_attempt_plan.md`](report/fouriergsnet_pipeline/next_attempt_plan.md)
+> （A 离线修复 → B 探针 → C1 bake-off → C2 refine 首跑 → C3 gsnet 复测 → C4 FourierGSNet run）。
+
 | ID | 摘要 | issue |
 |---|---|---|
 | H-3 | §0 前置：设备在线 + 激光开 + 无残留 `python*` + 看门狗硬超时 | [#20](https://github.com/ywzhang909/AO-shaping/issues/20) |

@@ -620,6 +620,11 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="真机光路验证待办清单 (设备 + 激光就绪后执行)",
     ),
+    "report/fouriergsnet_pipeline/next_attempt_plan.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note="GS 家族整形下一步尝试方案 (slm-gs-refine × FourierGSNet, 2026-10-12)",
+    ),
     "report/slm/zernike_response_matrix_report/capture.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
