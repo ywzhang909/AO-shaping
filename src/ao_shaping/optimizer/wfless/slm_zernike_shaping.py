@@ -95,7 +95,7 @@ from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 from ao_shaping.optimizer.constants import create_optimizer
-from ao_shaping.optimizer.wfless.slm_zernike_common import (
+from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,
     default_camera,
     default_slm,

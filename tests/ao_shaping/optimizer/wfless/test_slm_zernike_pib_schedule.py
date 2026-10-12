@@ -16,7 +16,7 @@ from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     learning_schedule,
 )
 
-from ao_shaping.optimizer.wfless.slm_zernike_common import (
+from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     learning_schedule as _shared_learning_schedule,
 )
 

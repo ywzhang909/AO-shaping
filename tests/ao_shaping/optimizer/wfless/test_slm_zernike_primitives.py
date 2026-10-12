@@ -18,7 +18,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ao_shaping.optimizer.wfless import slm_zernike_common as common
+from ao_shaping.optimizer.wfless import slm_zernike_primitives as common
 
 
 class FakeSlm:

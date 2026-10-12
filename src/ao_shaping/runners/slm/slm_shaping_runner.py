@@ -66,7 +66,7 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     _zernike_indices,
     optimize_slm_square,
 )
-from ao_shaping.optimizer.wfless.slm_zernike_common import (
+from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,
     display_rotating,
 )
