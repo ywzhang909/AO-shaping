@@ -541,7 +541,7 @@ class TestEndToEndSim:
         monkeypatch.setattr(module, "sync_device_wavelength", lambda *_: None)
         monkeypatch.setattr(module, "_panel_shape", lambda *_: (8, 8))
         monkeypatch.setattr(
-            module, "_display_and_average", lambda *_args, **_kwargs: frame
+            module, "display_and_average", lambda *_args, **_kwargs: frame
         )
 
         class CameraStub:
