@@ -41,6 +41,20 @@ from ao_shaping.optimizer.wfless.slm_gs_refine import (
     optimize_slm_gs_refine,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.slm.phase_embed import embed_pupil_square
+
+
+def test_pupil_phase_uses_measured_panel_center():
+    panel = embed_pupil_square(np.ones((20, 20)), (80, 100), 10, (70, 50))
+    assert panel[40:60, 60:80].sum() == 400
+    assert panel[:30].sum() == 0
+    with pytest.raises(ValueError, match="beyond"):
+        embed_pupil_square(np.ones((20, 20)), (80, 100), 10, (5, 50))
+
+
+def test_daheng_exposure_above_limit_rejected():
+    with pytest.raises(ValueError, match="0.4 ms"):
+        SlmGsRefineConfig(exposure_time_ms=0.5)
 
 
 def _fast_config(**overrides) -> SlmGsRefineConfig:
@@ -536,17 +550,17 @@ class TestEndToEndSim:
         from ao_shaping.optimizer.wfless import slm_gs_refine as module
         from ao_shaping.utils.io.file import Recorder
 
-        frame = np.zeros((100, 120), dtype=np.float64)
-        frame[42, 77] = 100.0
+        frame = np.zeros((200, 220), dtype=np.float64)
+        frame[102, 117] = 100.0
         monkeypatch.setattr(module, "sync_device_wavelength", lambda *_: None)
-        monkeypatch.setattr(module, "_panel_shape", lambda *_: (8, 8))
+        monkeypatch.setattr(module, "panel_shape_from_slm", lambda *_: (80, 80))
         monkeypatch.setattr(
-            module, "_display_and_average", lambda *_args, **_kwargs: frame
+            module, "display_and_average", lambda *_args, **_kwargs: frame
         )
 
         class CameraStub:
             def reset_window(self, *, center, size):
-                assert center == (77, 42)
+                assert center == (117, 102)
                 assert size == (100, 100)
                 raise RuntimeError("window configured")
 

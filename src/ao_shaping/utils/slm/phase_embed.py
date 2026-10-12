@@ -25,12 +25,16 @@ def fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
 
 
 def embed_pupil_square(
-    box: np.ndarray, panel_shape: tuple[int, int], radius_px: float
+    box: np.ndarray, panel_shape: tuple[int, int], radius_px: float,
+    center_xy: tuple[int, int] | None = None,
 ) -> np.ndarray:
     ph, pw = panel_shape
     out = np.zeros((ph, pw), dtype=np.float64)
-    side = min(pupil_side(radius_px), ph, pw)
-    y0, x0 = (ph - side) // 2, (pw - side) // 2
+    side = pupil_side(radius_px)
+    cx, cy = center_xy if center_xy is not None else (pw // 2, ph // 2)
+    x0, y0 = int(cx) - side // 2, int(cy) - side // 2
+    if x0 < 0 or y0 < 0 or x0 + side > pw or y0 + side > ph:
+        raise ValueError("pupil square extends beyond the SLM panel")
     out[y0 : y0 + side, x0 : x0 + side] = fit_exact(box, (side, side))
     return out
 
@@ -40,10 +44,11 @@ def compose_pupil_dof(
     dof: np.ndarray | None,
     panel_shape: tuple[int, int],
     radius_px: float,
+    center_xy: tuple[int, int] | None = None,
 ) -> np.ndarray:
     if dof is None or not np.any(dof):
         return base_panel
     from ao_shaping.utils.image.resample import upsample_bilinear_to_shape
 
     box = upsample_bilinear_to_shape(dof, (pupil_side(radius_px),) * 2)
-    return base_panel + embed_pupil_square(box, panel_shape, radius_px)
+    return base_panel + embed_pupil_square(box, panel_shape, radius_px, center_xy)

@@ -85,6 +85,11 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """
+    if params.cam_type == "daheng" and params.exposure_time_ms <= 0:
+        raise click.BadParameter(
+            "set an explicit exposure in (0, 0.4] ms for Daheng",
+            param_hint="--exposure-time-ms",
+        )
     debug = resolve_debug(ctx)
     root_dir = (
         Path(ctx.parent.obj.get("dir", "data"))
@@ -145,6 +150,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     click.echo(
         f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})"
     )
+    click.echo(f"SLM pupil center: {params.pupil_center or 'panel center'}")
     click.echo(
         f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}"
     )

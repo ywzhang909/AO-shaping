@@ -2215,6 +2215,9 @@ class SlmGsRefineParams:
     delta: Annotated[
         float, option("--delta", help="SPGD perturbation amplitude in radians.")
     ] = 0.35
+    confirm_best: Annotated[
+        bool, option("--confirm-best/--no-confirm-best", help="Remeasure a record-setting SPGD probe.")
+    ] = False
     lr: Annotated[
         float, option("--lr", help="Learning rate (0 = auto = 0.15*delta).")
     ] = 0.0
@@ -2310,6 +2313,9 @@ class SlmGsRefineParams:
             help="Illuminated pupil radius on the panel, in panel pixels.",
         ),
     ] = 450.0
+    pupil_center: Annotated[
+        str, option("--pupil-center", help="Measured beam center on the SLM panel as x,y.")
+    ] = ""
     focal_length_m: Annotated[
         float,
         option(
@@ -2854,6 +2860,8 @@ def build_gs_refine_config(
         panel_pixel_um=params.panel_pixel_um,
         camera_pixel_um=params.camera_pixel_um,
         beam_radius_px=params.beam_radius_px,
+        pupil_center=parse_point(params.pupil_center) if params.pupil_center else None,
+        confirm_best=params.confirm_best,
         focal_length_m=params.focal_length_m,
         far_field_padding=params.far_field_padding,
         gs_target_side_px=params.gs_target_side_px,

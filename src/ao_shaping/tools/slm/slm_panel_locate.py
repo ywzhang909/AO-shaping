@@ -34,6 +34,9 @@ Usage
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import contextmanager
+import json
+from pathlib import Path
 from typing import Annotated
 
 import click
@@ -49,6 +52,26 @@ from ao_shaping.tools.slm.bench_kernels import (
     random_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
+
+
+@contextmanager
+def _restore_display(slm):
+    from ao_shaping.drivers.slm.santec import SantecError
+
+    try:
+        slot = slm.get_displayed_memory_number()
+    except SantecError as exc:
+        if exc.code != 1:
+            raise
+        slot = None
+    gray = slm.get_current_grayscale() if slot is None else None
+    try:
+        yield
+    finally:
+        if slot is None:
+            slm.set_grayscale(gray)
+        else:
+            slm._display_memory(slot)
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
@@ -99,6 +122,8 @@ class PanelLocateParams:
     ] = "220,480,720,980"
     frames: Annotated[int, option("--frames", help="每帧平均张数 (默认 4)")] = 4
     seed: Annotated[int, option("--seed", help="随机相位种子 (默认 7)")] = 7
+    debug_dir: Annotated[str, option("--debug-dir", help="Save paired raw CCD frames.")] = ""
+    max_flat_drift: Annotated[float, option("--max-flat-drift", help="Maximum paired-flat drift.")] = 0.2
 
 
 @click.command()
@@ -119,6 +144,9 @@ def main(params: PanelLocateParams) -> None:
     grid_ys = params.grid_ys
     frames = params.frames
     seed = params.seed
+    debug_dir = Path(params.debug_dir) if params.debug_dir else None
+    if cam_type == "daheng" and not 0 < exposure_ms <= 0.4:
+        raise click.BadParameter("Daheng exposure must be in (0, 0.4] ms", param_hint="--exposure-ms")
 
     xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
     ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]
@@ -127,7 +155,7 @@ def main(params: PanelLocateParams) -> None:
 
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam:
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_display(slm):
         cam.reset_exposure_time(float(exposure_ms))
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
@@ -138,25 +166,52 @@ def main(params: PanelLocateParams) -> None:
         )
         if base <= 0:
             raise SystemExit("0-order box energy is zero; cannot score patches")
+        if np.max(ref) >= 250:
+            raise ValueError("flat CCD frame saturated; reduce exposure")
+        if debug_dir is not None:
+            debug_dir.mkdir(parents=True, exist_ok=True)
+            np.save(debug_dir / "flat_initial.npy", ref)
+            (debug_dir / "config.json").write_text(json.dumps(vars(params), indent=2), encoding="utf-8")
 
         results: list[tuple[float, int, int, float]] = []
-        for yi, py in enumerate(ys):
+        measurements = []
+        for py in ys:
             row: list[float] = []
-            for xi, px in enumerate(xs):
+            for px in xs:
                 phase = np.zeros(panel, dtype=np.float64)
                 yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
                 m = (yy - py) ** 2 + (xx - px) ** 2 <= int(patch_radius) ** 2
                 phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
+                before, _ = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
                 img = display_and_average(cam, slm, phase, n_frames=frames)
-                delta = float((img[box].sum() - base) / base)
+                after, _ = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+                if debug_dir is not None:
+                    np.savez_compressed(debug_dir / f"x{px}_y{py}.npz", before=before, patch=img, after=after)
+                peak = max(float(np.max(frame)) for frame in (before, img, after))
+                if peak >= 250:
+                    raise ValueError(f"CCD saturated at panel ({px}, {py}); reduce exposure")
+                e0, ep, e1 = (float(frame[box].sum()) for frame in (before, img, after))
+                local_base = (e0 + e1) / 2
+                drift = abs(e1 - e0) / local_base if local_base > 0 else float("inf")
+                delta = (ep - local_base) / local_base if local_base > 0 else float("nan")
+                valid = np.isfinite(delta) and drift <= params.max_flat_drift
                 row.append(delta)
-                results.append((abs(delta), py, px, delta))
-                del xi, yi
+                if valid:
+                    results.append((abs(delta), py, px, delta))
+                measurements.append(dict(x=px, y=py, delta=delta if valid else None,
+                                         flat_drift=drift, flat_before_energy=e0,
+                                         patch_energy=ep, flat_after_energy=e1, peak=peak))
+                if debug_dir is not None:
+                    (debug_dir / "measurements.json").write_text(
+                        json.dumps(measurements, indent=2), encoding="utf-8"
+                    )
             logger.info(
                 "panel y={:>4}: {}", py,
                 "  ".join(f"x={px}:{v:+7.3f}" for px, v in zip(xs, row)),
             )
 
+    if not results:
+        raise ValueError("all panel candidates rejected")
     results.sort(reverse=True)
     logger.info("")
     logger.info("=== strongest patch positions (|0-order energy change|) ===")
