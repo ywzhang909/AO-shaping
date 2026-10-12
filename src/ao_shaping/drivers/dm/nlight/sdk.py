@@ -14,6 +14,7 @@ import findlibs
 import numpy as np
 import numpy.typing as npt
 
+from ao_shaping.drivers.device_base import DeviceNotFoundError
 from ao_shaping.drivers.dm.nlight.nlight_constants import DM_NUM
 
 
@@ -59,7 +60,10 @@ class DMSdk:
         ]
 
         self._dll = dll
-        assert self._dll.GetConnection2(), "device connection error."
+        # Explicit raise, not `assert`: `python -O` strips asserts, and without
+        # this check every later call goes through a DLL with no live connection.
+        if not self._dll.GetConnection2():
+            raise DeviceNotFoundError("device connection error.")
 
     def set_voltages(
         self, vs: npt.NDArray[np.floating], with_echo: bool = False
