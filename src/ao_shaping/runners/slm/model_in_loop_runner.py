@@ -23,32 +23,14 @@ from pathlib import Path
 import click
 import numpy as np
 
-from ao_shaping.runners.runner_common import SlmModelInLoopParams
+from ao_shaping.runners.runner_common import (
+    SlmModelInLoopParams,
+    build_model_in_loop_config,
+    parse_point,
+    save_model_in_loop_results,
+)
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import get_debug_mode
-from ao_shaping.display.frames import save_best_image
-
-
-def _parse_frozen_modes(raw: str) -> tuple[int, ...]:
-    """Parse the ``--frozen-modes`` string into a tuple of Noll indices.
-
-    An empty string means "fit every mode", which is legitimate for simulation
-    but a known trap on hardware: piston and tilt are unidentifiable from a
-    far-field intensity, and leaving them free put 56% of the fitted coefficient
-    norm into those degenerate directions without improving the fit.
-    """
-    text = str(raw).strip()
-    if not text:
-        return ()
-    return tuple(int(part) for part in text.replace(" ", "").split(",") if part)
-
-
-def _parse_point(raw: str) -> tuple[int, int]:
-    """Parse an ``'x,y'`` option into an integer coordinate pair."""
-    parts = str(raw).replace(" ", "").split(",")
-    if len(parts) != 2:
-        raise click.BadParameter(f"expected 'x,y', got {raw!r}")
-    return int(parts[0]), int(parts[1])
 
 
 @click.command()
@@ -118,73 +100,15 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     if params.cam_type != "sim":
         click.echo("!" * 68)
         click.echo("硬件模式: 请确认光斑已对准 SLM 且 CCD 已就位。")
-        click.echo(f"面板坐标下的光斑中心: {_parse_point(params.pupil_center)} (须在面板上实测)")
+        click.echo(f"面板坐标下的光斑中心: {parse_point(params.pupil_center)} (须在面板上实测)")
         click.echo("每一轮都要重新采集探针帧, 耗时按 (probe_count+1) x 轮数 估计。")
         click.echo("Ctrl+C 会在当前轮结束后释放设备。")
         click.echo("!" * 68)
     click.echo("=" * 68)
 
-    from ao_shaping.optimizer.wfless.slm_model_in_loop import (
-        SlmModelInLoopConfig,
-        optimize_slm_model_in_loop,
-    )
-    from ao_shaping.utils.io.file import (
-        gen_date_dir,
-        gen_date_str,
-        save_recorder_debug_artifacts,
-    )
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import optimize_slm_model_in_loop
 
-    config = SlmModelInLoopConfig(
-        show=params.show,
-        n_rounds=params.n_rounds,
-        seed=params.seed,
-        device=params.device,
-        warm_start=params.warm_start,
-        early_stop_score=params.early_stop_score,
-        target_side=params.target_side,
-        w_uniformity=params.w_uniformity,
-        w_efficiency=params.w_efficiency,
-        probe_count=params.probe_count,
-        probe_spread=params.probe_spread,
-        step_a_iterations=params.step_a_iterations,
-        step_a_lr=params.step_a_lr,
-        n_orders=params.n_orders,
-        frozen_modes=_parse_frozen_modes(params.frozen_modes),
-        forward_checkpoint=params.forward_checkpoint,
-        assume_unverified_geometry=params.assume_unverified_geometry,
-        step_b_iterations=params.step_b_iterations,
-        step_b_lr=params.step_b_lr,
-        region=params.region,
-        wavelength_nm=params.wavelength_nm,
-        slm_pixel_um=params.slm_pixel_um,
-        camera_pixel_um=params.camera_pixel_um,
-        panel_span_px=params.panel_span_px,
-        pupil_center=_parse_point(params.pupil_center),
-        far_field_padding=params.far_field_padding,
-        focal_length_m=params.focal_length_m,
-        dtype=params.dtype,
-        n_calibration_probes=params.n_calibration_probes,
-        min_geometry_correlation=params.min_geometry_correlation,
-        trust_region_c_l2=params.trust_region_c_l2,
-        acceptance_loss_delta=params.acceptance_loss_delta,
-        acceptance_score_eps=params.acceptance_score_eps,
-        damp_lr_factor=params.damp_lr_factor,
-        max_rejection_streak=params.max_rejection_streak,
-        escalate_probe_count=params.escalate_probe_count,
-        max_probe_count=params.max_probe_count,
-        cam_type=params.cam_type,
-        cam_id=params.cam_id,
-        exposure_time_ms=params.exposure_time_ms,
-        cam_size=params.cam_size,
-        slm_number=params.slm_number,
-        slm_wavelength=params.slm_wavelength,
-        n_eval_frames=params.n_eval_frames,
-        settle_wait_s=params.settle_wait_s,
-        settle_tol=params.settle_tol,
-        settle_max_wait_s=params.settle_max_wait_s,
-        settle_max_discard=params.settle_max_discard,
-        settle_discard=params.settle_discard,
-    )
+    config = build_model_in_loop_config(params, debug=debug)
 
     try:
         result = optimize_slm_model_in_loop(config)
@@ -243,92 +167,20 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     click.echo(f"Flat baseline score : {result.flat_score:.4f}")
     click.echo(f"Best shaped score   : {result.best_score:.4f}")
 
-    save_dir = gen_date_dir(root_dir / "slm_model_in_loop")
-    csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
-    recorder.save_dataframe(csv_file)
-    click.echo(f"History saved       : {csv_file}")
-
-    best_phase = result.best_phase
-    if best_phase is not None:
-        phase_file = save_dir / "best_phase.npy"
-        # Raw UNWRAPPED radians: the only mod-2pi wrap is inside the driver's
-        # radian -> grayscale conversion.
-        np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+    save_result = save_model_in_loop_results(result, params, root_dir=root_dir, debug=debug)
+    click.echo(f"History saved       : {save_result.csv_file}")
+    if save_result.phase_file is not None:
         click.echo(
-            f"Best phase saved    : {phase_file} "
+            f"Best phase saved    : {save_result.phase_file} "
             "(raw radians; display via Santec.create_phase_from_array)"
         )
-
-    if geometry is not None:
-        import json
-
-        geometry_file = save_dir / "bench_geometry.json"
-        geometry_file.write_text(
-            json.dumps(
-                {
-                    "panel_disc_radius": geometry.panel_disc_radius,
-                    "region": geometry.region,
-                    "beam_waist_panel_px": geometry.beam_waist_panel_px,
-                    "far_field_size": geometry.far_field_size,
-                    "camera_px_per_model_px": geometry.camera_px_per_model_px,
-                    "spot_fwhm_camera_px": geometry.spot_fwhm_camera_px,
-                    "spot_fwhm_model_px": geometry.spot_fwhm_model_px,
-                    "correlation": geometry.correlation,
-                    "method": geometry.method,
-                    "calibration_notes": geometry.calibration_notes,
-                },
-                indent=2,
-            ),
-            encoding="utf-8",
-        )
-        click.echo(f"Geometry saved      : {geometry_file}")
-
-    if params.save_best_image:
-        img = result.best_frame
-        if img is not None:
-            img_file = save_best_image(
-                img,
-                save_dir / "best_far_field.png",
-                title=(
-                    f"slm-model-in-loop best: score={result.best_score:.4f} "
-                    f"(flat {result.flat_score:.4f})"
-                ),
-                hide_axes=True,
-            )
-            click.echo(f"Best image saved    : {img_file}")
-
-    # The recorder pkl is written on EVERY run, not only under --debug.
-    #
-    # It is the run record: the `{epoch: record}` pickle plus its json sidecar is what
-    # offline analysis and the report generators consume, and a hardware run whose only
-    # structured record exists when someone remembered a flag cannot be revisited. This
-    # path was also outright broken before -- the optimizer's records carried no `_epoch`
-    # key, which the shared writer requires, so `--debug` raised KeyError instead of
-    # writing anything. `--debug` still adds the per-round table above.
-    recorder_dir = save_recorder_debug_artifacts(
-        recorder,
-        str(root_dir),
-        "slm_model_in_loop",
-        scalar_keys=(
-            # Numeric only: the shared writer casts every entry here with `float()`.
-            # `reason` is deliberately absent -- it is a string, and having it in this
-            # tuple raised `ValueError: could not convert string to float: 'baseline'`,
-            # a second defect hiding behind the missing-`_epoch` KeyError. The full text
-            # column is preserved in the CSV written above.
-            "round", "accepted", "loss_before", "loss_after",
-            "step_a_iterations", "step_b_iterations", "coeff_step_l2",
-            "coeff_step_applied", "clamp_applied", "coeff_norm",
-            "score_before", "score_after", "cv_after", "ee_after",
-            "uniformity_cv", "probe_count", "step_a_lr", "rejection_streak",
-            "geometry_correlation", "n_calibration_probes",
-        ),
-        img_keys=("_img",),
-        json_payload={"status": result.status, "config": str(config)},
-        title="slm-model-in-loop",
-    )
-    click.echo(f"Recorder pkl/json   : {recorder_dir.parent}")
+    if save_result.geometry_file is not None:
+        click.echo(f"Geometry saved      : {save_result.geometry_file}")
+    if save_result.image_file is not None:
+        click.echo(f"Best image saved    : {save_result.image_file}")
+    click.echo(f"Recorder pkl/json   : {save_result.recorder_png.parent}")
     if debug:
-        click.echo(f"Debug artefacts     : {recorder_dir}")
+        click.echo(f"Debug artefacts     : {save_result.recorder_png}")
 
     if result.status in ("aborted_unidentifiable", "aborted_rejection_streak"):
         click.echo("")
