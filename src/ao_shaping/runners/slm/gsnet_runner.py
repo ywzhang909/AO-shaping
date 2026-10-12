@@ -259,14 +259,9 @@ def _save_debug_artifacts(
         scalar_keys=_DEBUG_SCALAR_KEYS,
         img_keys=_IMG_KEYS,
         d1_keys=_1D_KEYS,
-        json_payload=_config_payload(objective),
+        json_payload=config_payload(objective),
         title=title,
     )
-
-
-def _config_payload(obj: Any) -> dict[str, Any]:
-    """Serialize a parameter dataclass for the JSON debug sidecar."""
-    return config_payload(obj)
 
 
 # --- parameter dataclasses -------------------------------------------------

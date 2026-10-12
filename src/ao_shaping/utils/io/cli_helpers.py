@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from pathlib import Path
+from typing import NoReturn
 
 import click
+from loguru import logger
 
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
@@ -97,10 +100,49 @@ def setup_coredumpy(directory: str = "logs/debug/error"):
         coredumpy.patch_except(directory=directory)
         return True
     except Exception:
-        from loguru import logger
-
         logger.error("coredumpy initialization failed")
         return False
+
+
+def run_selector_dispatch(
+    commands: dict[str, click.Command],
+    default_label: str,
+    argv: list[str] | None = None,
+) -> NoReturn:
+    """Dispatch ``python -m <module> [selector]`` to a Click command.
+
+    Modules exposing several Click commands run this way so that a bare
+    ``python -m`` keeps the shortest invocation: with no selector the
+    ``default_label`` command runs.
+
+    Args:
+        commands: Selector name -> Click command. Must contain ``default_label``.
+        default_label: Selector to use when none is given on the command line.
+        argv: Argument list; defaults to ``sys.argv[1:]``.
+
+    Raises:
+        SystemExit: Always; the chosen Click command decides the code. A
+            non-SystemExit exception is reported and becomes exit code 1.
+    """
+    args = list(sys.argv[1:] if argv is None else argv)
+
+    command: click.Command = commands[default_label]
+    label = default_label
+    if args and args[0] in commands:
+        label = args[0]
+        args = args[1:]
+        command = commands[label]
+
+    try:
+        command(args)
+    except SystemExit:
+        raise
+    except Exception as e:
+        click.echo(f"❌ 运行时错误: {e}")
+        logger.exception("{} runner failed", label)
+        sys.exit(1)
+    else:
+        sys.exit(0)
 
 
 def get_date_dir_name() -> str:

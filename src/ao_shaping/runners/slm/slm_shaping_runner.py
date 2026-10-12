@@ -210,16 +210,6 @@ def _effective_objective_key(name: str, target_shape: Any) -> str:
     return ObjectiveSpec.resolve(name, target_shape).name
 
 
-def _config_payload(obj: Any) -> dict[str, Any]:
-    """Serialize a search-config dataclass for the JSON debug sidecar.
-
-    Drops unset (None) fields and fields left at their dataclass default;
-    the identity field (``algorithm`` / ``name``) is always kept so the
-    search family survives the round trip.
-    """
-    return config_payload(obj)
-
-
 def _save_debug_artifacts(
     res: Recorder,
     camera: "CameraParamsPib",
@@ -243,7 +233,7 @@ def _save_debug_artifacts(
     # Objective identity lives on the camera/objective param bundle.
     target = getattr(camera, "target", None)
     payload = {
-        **_config_payload(obj_or_heur),
+        **config_payload(obj_or_heur),
         "objective": getattr(target, "name", None),
         "target_shape": getattr(target, "target_shape", None),
         "target_size": getattr(camera, "target_size", None),
@@ -655,7 +645,7 @@ def _square_json_payload(
     all. The resolved config is therefore written out field by field, so a
     reader never has to know which default was in force when the run happened.
     """
-    payload = {**_config_payload(params), **_config_payload(slm_params)}
+    payload = {**config_payload(params), **config_payload(slm_params)}
     payload.update(
         {
             "family": "spgd-square",
