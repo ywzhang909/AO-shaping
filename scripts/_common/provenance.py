@@ -649,6 +649,12 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="方斑整形实机对比试验索引；各次试验的目录与结论由此汇总",
     ),
+    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；"
+        "交错重放入口 scripts/replay_gs_refine_hw.py 仅离线部分经测试",
+    ),
     "report/shape_trials/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
