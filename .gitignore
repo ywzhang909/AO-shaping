@@ -149,3 +149,4 @@ report/slm_pib_online*
 # evidence for the `1 - Pearson` objective verdict, so they are reviewed in CI.
 report/shape_trials/device_abba_diagnosis*
 docs/beam_shaping*
+.tmp*
