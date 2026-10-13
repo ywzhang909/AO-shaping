@@ -143,7 +143,7 @@ python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
 python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ```
 
-见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
+见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
 若台架无法被正向模型描述 (bake-off 失败)，改用 `slm-gs-refine`。
 

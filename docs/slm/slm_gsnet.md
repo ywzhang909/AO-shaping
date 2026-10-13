@@ -1,7 +1,5 @@
 # SLM 自由相位方形光斑整形 (slm-gsnet)
 
-> **生成脚本**: [`scripts/generate_slm_gsnet_report.py`](../../scripts/generate_slm_gsnet_report.py)
-> **复现命令**: `python scripts/generate_slm_gsnet_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么

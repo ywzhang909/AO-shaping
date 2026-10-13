@@ -1,7 +1,5 @@
 # SLM Zernike RMS 优化 (rms-zernike)
 
-> **生成脚本**: [`scripts/generate_rms_zernike_report.py`](../../scripts/generate_rms_zernike_report.py)
-> **复现命令**: `python scripts/generate_rms_zernike_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么

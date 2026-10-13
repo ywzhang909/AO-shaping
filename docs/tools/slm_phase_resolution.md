@@ -1,7 +1,5 @@
 # SLM 相位分辨率测量 (slm_phase_resolution)
 
-> **生成脚本**: [`scripts/generate_slm_phase_resolution_report.py`](../../scripts/generate_slm_phase_resolution_report.py)
-> **复现命令**: `python scripts/generate_slm_phase_resolution_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么

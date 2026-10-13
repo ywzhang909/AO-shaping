@@ -1,7 +1,5 @@
 # SLM 方形光斑 SPGD 整形 (spgd-square)
 
-> **生成脚本**: [`scripts/generate_spgd_square_report.py`](../../scripts/generate_spgd_square_report.py)
-> **复现命令**: `python scripts/generate_spgd_square_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么

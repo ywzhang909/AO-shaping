@@ -1050,7 +1050,7 @@ with open("devices.json") as f:
 
 ### 14.1 驱动层惰性加载契约
 
-`src/ao_shaping/drivers/sim/AGENTS.md` 与 `src/ao_shaping/hardware/AGENTS.md` 固化了
+`src/ao_shaping/drivers/sim/AGENTS.md` 与 `src/ao_shaping/drivers/AGENTS.md` 固化了
 惰性加载约定：硬件 SDK 缺失时驱动类为 `None`（如 `MIICamera is None`），包 import
 **不得**因缺 SDK 而失败。新增驱动必须遵守此契约，并用接口契约测试锁定
 （如 `tests/ao_shaping/drivers/sim/test_simulated_wfs.py::TestRunnerFacingSurface`）。
