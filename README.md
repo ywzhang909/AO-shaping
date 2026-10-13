@@ -76,6 +76,7 @@ uv sync
 | [docs/ml_training.md](docs/ml_training.md) | ML 训练入口与报告索引、指标口径红线 (R²/corr, 不用 PSNR/SSIM) |
 | [docs/gui.md](docs/gui.md) | Streamlit GUI 入口一览、multi_slm_controller 与 GS 方形整形 |
 | [docs/dev/coding_conventions.md](docs/dev/coding_conventions.md) | 编码规范、测试规范、贡献流程 |
+| [docs/dev/call_graph_wiki/index.md](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：20 命令逐命令 + 骨架函数逐函数文档（AST 静态分析，脚本在 `scripts/call_graph/` 可重跑） |
 | [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 台架表征流程、验收阈值、四条台架铁律 |
 | [docs/slm/slm_gui_manual.md](docs/slm/slm_gui_manual.md) | SLM GUI 完整操作手册 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.18.0) |
