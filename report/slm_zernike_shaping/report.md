@@ -7,6 +7,8 @@
 > **说明**: 读 slm_zernike_shaping optimizer 的 debug 产物
 <!-- provenance:end -->
 
+**本轮结论**：`slm_zernike_shaping` 优化器调试产物离线复盘显示，本轮 SPGD（square 目标、n=9、delta=0.0005、epochs=200）**未实现净改善**：`rms_pib`（最大化目标）初始 0.6147 → 末值 0.5853，全局最优 0.6237 仅出现在 epoch 66、相对初始增益 +0.0090，处于噪声量级；Zernike 系数范数 ‖c‖₂ 持续增长表明搜索仍在推动相位偏离初始值而非收敛。该结果与 slm_pib_bench 系列"delta=0.0005 低于本台架最小可分辨扰动"的实测结论一致。方法论上本报告确立三条纪律：完全离线可复现（仅读 debug PKL/JSON）、目标极性按 `objective_mode` 显式标注（防止最大化/最小化误读）、缺键容错回退。
+
 **生成时间**: 2026-09-26 16:31:40
 
 **Fully offline** — 本报告由 `scripts/generate_slm_zernike_shaping_report.py` 离线生成, 仅读取 `slm_zernike_shaping` 优化器以 `debug=True` 保存的 PKL/JSON 调试产物, 不打开任何硬件。

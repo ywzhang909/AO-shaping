@@ -273,9 +273,9 @@ if _should_trigger_adaptive_search(epoch, ...):
 
 ## Refactoring to Standalone Module
 
-The algorithm has been refactored into `src/ao_shaping/algorithm/tabu_search.py` for reusability:
+The algorithm has been refactored into `src/ao_shaping/algorithm/tabu/tabu_search.py` for reusability:
 
-| Original (in pib.py) | New (tabu_search.py) |
+| Original (in pib.py) | New (tabu/tabu_search.py) |
 |---------------------|----------------------|
 | `TabuMemory` class | `TabuMemory` dataclass |
 | `AdaptiveSearchState` class | `AdaptiveSearchState` dataclass |

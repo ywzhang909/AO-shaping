@@ -191,6 +191,8 @@ class SlmGsRefineConfig:
     delta: float = 0.35
     """SPGD perturbation amplitude in radians on the coarse grid."""
 
+    confirm_best: bool = False
+
     lr: float = 0.0
     """Adam learning rate (0 = auto -> ``0.15 * delta``)."""
 
@@ -204,13 +206,13 @@ class SlmGsRefineConfig:
     gs_warm_start: bool = True
     gs_relax: float = 1.0
     gs_method: str = "plain"
-    """GS 变体: plain / weighted / hio / hio-weighted。默认 plain = 既有行为。"""
+    """GS 变体: plain / weighted / hio / hio-weighted / adaptive-feedback。"""
     gs_gamma: float = 0.5
     """加权 GS 累积反馈系数 γ, 0≤γ<1。γ=0 是退化哨兵 (权重恒为 1 ⇒ 与 plain GS 等价)。"""
     gs_weight_clip: float = 4.0
     """加权 GS 权重上限 (裁剪, 须 >1)。"""
     gs_beta: float = 0.9
-    """HIO 反馈松弛系数 β (Fienup, 0≤β≤1)。β=0 是退化哨兵 (框外冻结)。"""
+    """HIO 松弛系数或自适应目标域反馈上限 (0≤β≤1)。"""
     gs_hio_fraction: float = 0.7
     """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
 
@@ -225,6 +227,7 @@ class SlmGsRefineConfig:
 
     beam_radius_px: float = _DEFAULT_BEAM_RADIUS_PX
     """Illuminated pupil radius on the panel, in panel pixels."""
+    pupil_center: tuple[int, int] | None = None
 
     focal_length_m: float = 0.0
     """2f lens focal length in metres. 0 (the default) derives it from
@@ -291,10 +294,10 @@ class SlmGsRefineConfig:
             )
         if self.gs_relax <= 0:
             raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
-        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted"):
+        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted", "adaptive-feedback"):
             raise ValueError(
                 "gs_method must be one of 'plain', 'weighted', 'hio', "
-                f"'hio-weighted', got {self.gs_method!r}"
+                f"'hio-weighted', 'adaptive-feedback', got {self.gs_method!r}"
             )
         # γ≥1 makes the cumulative feedback unit-gain and it oscillates; γ=0 is a
         # deliberate degenerate sentinel (weight stays 1 ⇒ identical to plain GS)
@@ -364,6 +367,8 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"exposure_time_ms must be non-negative, got {self.exposure_time_ms}"
             )
+        if self.cam_type == "daheng" and self.exposure_time_ms > 0.4:
+            raise ValueError("Daheng exposure_time_ms must not exceed 0.4 ms")
         if self.early_stop_score < 0:
             raise ValueError(
                 f"early_stop_score must be non-negative, got {self.early_stop_score}"
@@ -438,10 +443,9 @@ def _gs_pupil_phase(
 
     ``config.gs_method`` selects the open-loop GS variant. ``"plain"`` keeps the
     historical path byte-for-byte (it calls :func:`gs_shape` directly); the other
-    variants route through :class:`UniformSquareShaper`, which improves the
-    *uniformity* of the flat-top square rather than plain error-reduction --
-    weighted iterative feedback, Fienup HIO, or the documented
-    "HIO first, weighted GS to polish" combination.
+    variants route through :class:`UniformSquareShaper` for weighted feedback,
+    Fienup HIO, or adaptive target-domain feedback. Their measured uniformity
+    must be compared against plain GS before adoption.
 
     Returns ``None`` when the warm start is disabled or GS degenerates, in which
     case the caller simply proceeds from the flat phase.
@@ -619,6 +623,12 @@ def _run_gs_refine_session(
     best_frame: np.ndarray | None = None
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
+    center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
+    side = pupil_side(config.beam_radius_px)
+    if (center_xy[0] - side // 2 < 0 or center_xy[1] - side // 2 < 0
+            or center_xy[0] - side // 2 + side > panel_shape[1]
+            or center_xy[1] - side // 2 + side > panel_shape[0]):
+        raise ValueError("pupil square extends beyond the SLM panel")
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
     if config.cam_type != "sim":
         # Locate the zero order on the full sensor before restricting the CCD ROI.
@@ -633,7 +643,14 @@ def _run_gs_refine_session(
             settle_max_discard=config.settle_max_discard,
             memory_number=work_slots[2],
         )
+        if config.cam_type == "daheng" and np.max(discovery) >= 250:
+            raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
         full_y, full_x = locate_zero_order(discovery)
+        half = config.cam_size // 2
+        if (full_x - half < 0 or full_y - half < 0
+                or full_x + half >= discovery.shape[1]
+                or full_y + half >= discovery.shape[0]):
+            raise ValueError("CCD zero order too close to edge for requested window")
         cam.reset_window(
             center=(full_x, full_y), size=(config.cam_size, config.cam_size)
         )
@@ -664,7 +681,7 @@ def _run_gs_refine_session(
         if config.cam_type != "sim":
             memory_number = work_slots[measurement_count % len(work_slots)]
             measurement_count += 1
-        return display_and_average(
+        frame = display_and_average(
             cam,
             slm,
             phase,
@@ -675,6 +692,9 @@ def _run_gs_refine_session(
             settle_max_discard=config.settle_max_discard,
             memory_number=memory_number,
         )
+        if config.cam_type == "daheng" and np.max(frame) >= 250:
+            raise ValueError("Daheng CCD frame saturated; reduce exposure before continuing")
+        return frame
 
     def record(
         stage: str,
@@ -745,7 +765,7 @@ def _run_gs_refine_session(
     base_panel = flat_panel
     gs_box = _gs_pupil_phase(config, radius_px, target_side)
     if gs_box is not None:
-        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px)
+        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
         gs_frame = measure(gs_panel)
         score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
         if score_gs > score_flat:
@@ -772,7 +792,7 @@ def _run_gs_refine_session(
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return compose_pupil_dof(
-            base_panel, vec.reshape(grid, grid), panel_shape, radius_px
+            base_panel, vec.reshape(grid, grid), panel_shape, radius_px, center_xy
         )
 
     for epoch in range(max(1, int(config.epochs))):
@@ -792,9 +812,15 @@ def _run_gs_refine_session(
 
         take_pos = pos >= neg
         measured_phase = phase_pos if take_pos else phase_neg
+        probe_score = pos if take_pos else neg
+        measured_frame = frame_pos if take_pos else frame_neg
+        confirmed = False
+        if config.confirm_best and probe_score > best_score:
+            measured_frame = measure(measured_phase)
+            confirmed = True
         score = record(
             _STAGE_REFINE,
-            frame_pos if take_pos else frame_neg,
+            measured_frame,
             mask,
             measured_phase,
             other_frame=frame_neg if take_pos else frame_pos,
@@ -804,11 +830,19 @@ def _run_gs_refine_session(
             lr=lr,
             pos=pos,
             neg=neg,
+            probe_score=probe_score,
+            confirmed=confirmed,
         )
+        if config.record_debug and confirmed:
+            row = recorder.history[-1]
+            row["_img_pos"] = np.asarray(frame_pos).copy()
+            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(phase_pos)).copy()
+            row["_img_neg"] = np.asarray(frame_neg).copy()
+            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(phase_neg)).copy()
         if score > best_score:
             best_score = score
             best_phase = measured_phase
-            best_frame = frame_pos if take_pos else frame_neg
+            best_frame = measured_frame
             best_stage = _STAGE_REFINE
 
         grad = spgd_gradient(pos, neg, delta, maximize=True)

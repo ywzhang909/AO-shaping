@@ -1,4 +1,4 @@
-# Forward-model / loss defect hunt
+# Forward-model / loss defect investigation
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
@@ -7,6 +7,15 @@
 > **说明**: 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板
 <!-- provenance:end -->
 
+**本轮结论**（前向模型 / loss 缺陷排查总括）：
+
+1. **物理 loss 项存在类别错误（已修复）**：`pib_term`/`uniformity_term` 仅读取预测而不参照目标，对"整形"正确、对"拟合前向模型"错误——最优点退化为"忽略数据、输出理想光斑"。实测未锚定物理 loss 使验证 R² 从 +0.7771 跌至 −0.8621，混合目标亦降至 −0.2818。前向模型训练必须锚定于数据似然项。
+2. **四项静默缺陷已定位并修复**：评测面板无法观测 loss 实际优化对象；CCD 强度归一化缺失（`image_mode="robust"`）；可训练自注意力中梯度静默死亡；`far_field_padding=10` 对多数数据族错误。此类缺陷均不报错、只使指标失真，须以梯度/探针面板主动排查。
+3. **容量不是瓶颈（已证伪）**：单一全局系数向量并非容量瓶颈，增加网络容量无证据支持；自注意力组件未测得可度量收益。
+4. **绝对 R² 不可跨运行比较**：仅 split seed 即可使同一配置 R² 在 0.748–0.937 间波动，任何结论只认可配对差值（paired differences）。
+5. **逆向设计部分（§8，修正评测器后重测）**：Zernike 投影瓶颈确认且大于此前报告——直接使用 GS 瞳面相位增益 +0.2128（9/9）；但 freeform 精修摧毁 GS 解（−0.2779，0/9），因 576 自由形式自由度在仅 135 阶 Zernike 的前向模型不可见空间内下降。该结论仅限基于模型的精修，不适用于以测量为前向模型的硬件 `slm_gs_refine`。
+6. **范围限定**：全部数值为仿真断言而非台架断言；"GS 后是否精修"必须按参数化分别重建，不可跨参数化迁移。
+
 Conclusions from metric- and gradient-probing `ZernikeAmpModel` and
 `ml/zernike/losses.py` on the real corpus (`slm_zernike_shaping`, 1010 records,
 10 pickles, `grid=64`, `n_max=15`, `far_field_padding=10`, sim/offline only).
@@ -14,7 +23,7 @@ Conclusions from metric- and gradient-probing `ZernikeAmpModel` and
 Reproduce with `python -m ml.zernike.train_amp` plus the panels described below.
 Absolute R² is **not** comparable across runs — see "Noise floor" at the end.
 
-> **Sections 1–7 are the forward/loss hunt. The inverse (shaping) investigation is a
+> **Sections 1–7 constitute the forward/loss investigation. The inverse (shaping) investigation is a
 > separate, longer record in [`PROCESS.md`](PROCESS.md)** — 16 numbered attempts, of
 > which **four headline conclusions were retracted**: three when the evaluator's ROI
 > geometry was swept, and one more when the evaluator itself was found to have been
@@ -58,6 +67,13 @@ now defaults to `w_mse=1, w_shape_gap=1`.
 R² −0.86 → +0.68; overshoot 34.5% → 9.3%; best epoch 0 → 7. The ×10 row is a
 monotone fidelity/shape trade-off, not a cliff.
 
+**Conclusion (round 1):** This round tested the hypothesis that the negative
+validation R² originated in the unanchored physical loss terms. The diagnosis is
+supported: anchoring the shape term via `shape_gap_term` raised val R² from
+−0.8621 to +0.6764 and reduced the shape-sum overshoot from 34.5% to 9.3% relative
+to the measured frame. The residual concern — that the evaluation panel could not
+detect loss-level changes — motivated round 2 (§2).
+
 ## 2. FIXED — the panel could not see what the loss optimises
 
 `evaluate()` reported correlation / efficiency / spot diameter but nothing about
@@ -67,6 +83,12 @@ optimise. A loss change was literally unmeasurable. Added
 through `evaluate(roi_size_frac=...)` using the same fraction the loss is
 configured with, returning the measured frame's own terms for relative reading.
 
+**Conclusion (round 2):** This round tested whether the evaluation panel could
+resolve the quantities the loss optimises. It could not — `evaluate()` reported no
+in-box placement metric — so `roi_shape_terms` was added via the canonical
+`rms_pib_terms`, making loss-level changes measurable. The panel defect is
+confirmed and fixed; all subsequent measurements depend on it.
+
 ## 3. FIXED — CCD intensity normalisation (`image_mode="robust"`)
 
 `abs255` keeps absolute intensity but leaves per-frame gain in (measured frame
@@ -75,16 +97,23 @@ a *single* pixel, and this bench has hot pixels that outrank the real 0-order
 (peak 22–46 against a frame mean of 0.26).
 
 `robust` median-subtracts then divides by a robust beam level. The first attempt
-used the 99.5th percentile and was **wrong**: taken over the lit pixels — only
+used the 99.5th percentile and was **incorrect**: taken over the lit pixels — only
 ~65 elements for a small beam — a single hot pixel *was* the quantile, so the
 scale became 60000 instead of 255. Now the median of the lit pixels.
 
 **Not fixed here:** a hot pixel that wins the `argmax` in `_anchored_window` and
 moves the crop. That is a locator hazard, not a scaling one, and is still open.
 
+**Conclusion (round 3):** This round tested whether a robust normalisation can
+remove per-frame gain without being corrupted by hot pixels. The
+99.5th-percentile variant was refuted by its own failure mode (scale 60000 instead
+of 255 on a ~65-element lit set); the median-of-lit-pixels variant is adopted. The
+residual hazard — a hot pixel winning the `argmax` in `_anchored_window` and
+displacing the crop — remains open as a locator defect, not a scaling one.
+
 ## 4. FIXED — silent gradient death in the trainable self-attention
 
-The additive-residual + `clamp(min=0)` form was a dead end: Adam's first
+The additive-residual + `clamp(min=0)` form was a degenerate configuration: Adam's first
 sign-based step drove `out_proj` negative enough to zero the whole far field, so
 the output and its gradient were both identically 0 and **every** tensor — the
 coefficients included — stopped training, with nothing raised. Measured: 3 tensors
@@ -92,6 +121,12 @@ with gradient at step 0, then **0** from step 1 onward.
 
 Now a bounded multiplicative gate `intensity * (1 + tanh(·))`, identity at init.
 All 9 tensors receive gradient from step 1.
+
+**Conclusion (round 4):** This round tested whether the trainable self-attention
+block receives gradient. The original form was refuted as trainable: gradient
+reached 3 tensors at step 0 and **0** tensors from step 1 onward, silently. The
+bounded multiplicative gate restores gradient flow to all 9 tensors from step 1;
+whether the attention justifies its parameters is deferred to round 7 (§7).
 
 ---
 
@@ -130,8 +165,16 @@ coefficients, so a Zernike-parameterised model has nothing to fit. Do not read i
 −1.11 as a padding problem.
 
 Added `PADDING_BY_FOV_PX` and `recommended_padding(fov_px)` (unmeasured values fall
-back to the default rather than being guessed at) so this is queryable instead of
-folklore.
+back to the default rather than being guessed at) so the recommendation is
+queryable rather than implicit project lore.
+
+**Conclusion (round 5):** This round tested the hypothesis that the default
+`far_field_padding=10` is adequate across families. It is refuted: the default is
+optimal for exactly one of six families, R² on `model_in_loop_hw_collect` degrades
+from +0.484 (pad 8) to −4.46 (pad 20), and the optimum tracks `fov_px`
+(64→8, 248→14, 320→16) as a zero-padding/angular-extent argument predicts. The
+finding is the trend rather than the argmax (±1 step at this noise floor);
+`PADDING_BY_FOV_PX` encodes it.
 
 ---
 
@@ -154,12 +197,20 @@ Three seeds, paired (identical held-out records, stratified file split):
 **Refuted, and in the opposite direction: 8/9 paired deltas are negative.** A
 per-objective vector is *consistently worse*, because it trains on 43–86% less
 data. The four runs evidently share nearly the same underlying aberration, so one
-vector suffices. **No architecture change is warranted** — do not "fix" this.
+vector suffices. **No architecture change is warranted**; this hypothesis should
+not be revisited as a defect.
 
 Note `roi_pib` is excluded: a single pickle cannot be split by file, and a
 record-level split would leak consecutive epochs of one run across the split.
 
-## 7. NOT DEMONSTRATED — the self-attention buys nothing measurable
+**Conclusion (round 6):** This round tested the hypothesis that a single global
+coefficient vector is a capacity bottleneck for the four-objective
+`slm_zernike_shaping` family. The hypothesis is refuted in the opposite direction:
+per-objective vectors are worse in 8/9 paired comparisons (mean −0.0149 to
+−0.0311), because each trains on 43–86% less data while the four runs share
+nearly the same underlying aberration. No architecture change follows.
+
+## 7. NOT DEMONSTRATED — the self-attention yields no measurable benefit
 
 Same 3 seeds, paired:
 
@@ -173,6 +224,13 @@ Same 3 seeds, paired:
 On a *single* seed this looked like a consistent +0.008/+0.002/+0.010 gain with a
 large physical improvement (`shape_sum` gap cut 24–78%); repeating it collapsed
 that to nothing. The single-seed reading was noise.
+
+**Conclusion (round 7):** This round tested whether the self-attention improves
+held-out R². Across 3 paired seeds the mean delta is +0.001 to +0.005 with spread
+up to 0.018 — inside the noise floor — so the benefit is **not demonstrated**;
+the apparent single-seed gain (+0.008/+0.002/+0.010) did not replicate. The
+module stays `attention=False` by default pending a higher-power protocol
+(grouped CV, ≥10 folds).
 
 The attention is implemented, identity-initialised, gradient-alive and correct —
 but at 4321 parameters (309× the 14-parameter physics) for a mean R² delta of
@@ -204,8 +262,9 @@ grades its own work.** Score is `pib + uniformity`, **higher is better**.
 far field with `[:64, :64]` — the top-left corner, while the 0-order sits at the
 array centre (value `1e-5` against a peak of `100`). All of it therefore described
 off-axis sidelobes. It is now `ml.zernike.inverse_design`, which runs the 64×64 pupil
-directly so its far-field grid matches the grid GS designs on. Caught by *drawing* the
-result: the simulator panel rendered blank while the numbers stayed self-consistent.
+directly so its far-field grid matches the grid GS designs on. Detected by
+visualising the result: the simulator panel rendered blank while the numbers
+remained self-consistent.
 
 ### The results that hold
 
@@ -215,6 +274,14 @@ result: the simulator panel rendered blank while the numbers stayed self-consist
 | **GS beats gradient from a random start.** | **9/9 ROIs**, paired t = **+6.4 … +32.5** (was 34/90 before the fix) |
 | **Gradient refinement carries directional information — it is not a restart.** The better the GS proposal, the *more* refinement gains. | pearson +0.90 / +0.80, spearman **+0.93 / +0.95** over 9 ROI × 2 objectives |
 | **Forward-model accuracy is not an input to the gradient path.** `correction_far_field()` reads only `self.coefficients`, so an unfitted and a fitted+regularised model produce *bit-identical* refinements. | coef norm 0.0000 vs 2.5421 → refined 6.84294, sim 0.997656 in both (proof, not a measurement) |
+
+**Conclusion (inverse round A — corrected re-measurement):** With the corrected
+evaluator, four findings survive: gradient refinement over GS gains **+0.0795**
+mean (`mse`, positive in 78/90) and **+0.0426** (`physical`, 68/90); GS beats
+gradient-from-random in **9/9** ROIs (paired t = +6.4…+32.5); refinement is
+directional rather than a restart (spearman +0.93/+0.95); and forward-model fit
+is irrelevant to the gradient path (bit-identical refinements — a proof rather
+than a measurement).
 
 ### The corrected division of labour
 
@@ -226,7 +293,14 @@ at the canonical ROI. Two facts the broken crop had concealed:
 * **Gradient from a random start is far worse than flat** (−0.3287 mean).
 
 So GS supplies the basin and the gradient does the work. That is the opposite of the
-"refinement degrades strong proposals" story the retracted numbers told.
+"refinement degrades strong proposals" narrative given by the retracted numbers.
+
+**Conclusion (inverse round B — division of labour):** At the canonical ROI the
+corrected ordering is `GS + refine (1.1214) > flat (1.0366) > GS alone (1.0280) >
+gradient-from-random (0.7179)`. The hypothesis that the GS proposal alone improves
+on doing nothing is refuted (`GS − flat` negative in **90/90** runs, −0.0025 to
+−0.0364), and gradient-from-random is far worse than flat (−0.3287 mean). GS
+supplies the basin; the gradient supplies the gain.
 
 ### What was retracted, and why it matters
 
@@ -238,13 +312,22 @@ So GS supplies the basin and the gradient does the work. That is the opposite of
 | "Inverse loss choice is worth +0.0002" | 5 objectives, paired | ROI-conditional |
 | "The Zernike projection costs +0.1272" | 9 ROI × 8 draws | **not yet re-measured** — void until it is |
 
-The first three all had good t-statistics and all were reproducible. Two constants broke
-them, in order: the ROI box (`SIZE_FRAC=0.375`, `ASPECT=4/3`, chosen once and never
-questioned) and then the evaluator's crop. Both are the same failure mode as trusting a
-single split — a nuisance parameter fixed once and never swept. Recorded so the next
-person sweeps the nuisance parameter instead of trusting the conclusion.
+The first three claims each had favourable t-statistics and all were reproducible.
+Two fixed constants invalidated them, in order: the ROI box (`SIZE_FRAC=0.375`,
+`ASPECT=4/3`, chosen once and never questioned) and then the evaluator's crop.
+Both instances share the same failure mode as trusting a single split: a nuisance
+parameter fixed once and never swept. This record exists so that subsequent work
+sweeps the nuisance parameter rather than inheriting the conclusion.
 
-### Freeform does *not* replicate Zernike — and that is the interesting part
+**Conclusion (inverse round C — retractions):** Three headline claims with
+favourable t-statistics were invalidated by evaluator defects rather than by new
+data: "GS beats gradient inverse design" (34/90 → **9/9**, t = +6.4…+32.5),
+"refinement destroys a GS solution" (−0.2206 → **+0.0795**, sign reversed), and
+"refinement is a restart" (spearman −0.87/−0.92 → **+0.93/+0.95**). The
+Zernike-projection cost (+0.1272) has **not yet been re-measured** and is void
+until it is.
+
+### Freeform does *not* replicate Zernike — the divergence is itself informative
 
 `freeform_vs_zernike.py` re-measured on the same corrected evaluator, same 9 ROIs.
 Score is `pib + uniformity`, higher is better.
@@ -271,6 +354,14 @@ Two conclusions, opposite in sign:
 `slm_gs_refine` on hardware, where the forward model is the measurement and therefore
 does span all 576 DOF. It does say a model-based freeform loop is unsound unless the
 model covers the refinement space.
+
+**Conclusion (inverse round D — freeform vs Zernike):** On the same corrected
+evaluator the two parameterisations disagree. The Zernike projection bottleneck is
+confirmed and larger than previously reported (using the GS pupil phase directly
+gains **+0.2128 in 9/9**, vs +0.1272 in 7/9 before), while freeform refinement
+destroys the GS solution (**−0.2779, 0/9**) because 576 freeform DOF descend a
+space the 135-mode forward model cannot represent. The claim is restricted to
+model-based refinement and does not extend to `slm_gs_refine` on hardware.
 
 ### Scope limits that are not optional
 

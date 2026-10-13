@@ -7,6 +7,8 @@
 > **说明**: 读 TensorBoard event 文件
 <!-- provenance:end -->
 
+**本轮结论**（SAC/Robust-RL 训练运行分析）：本报告离线汇总 `models/` 下 44 个 SAC 训练运行（SB3 检查点 + 旁路遥测 config/summary/evaluations.npz/tfevents），按运行前缀映射到 7 个实验家族（阶段 1–3 课程学习、静态湍流长训练、静态聚焦、湍流长训练、湍流聚焦、冒烟/架构对比、临时调试）。分析口径为纯离线读取（不导入 ao_shaping/SB3/tensorboard），保证结论可随产物再生。家族映射规则见附录，是引用各运行分组统计的前提；跨家族比较须注意课程阶段与湍流强度（Cn2）设定不同，不可直接横向比较回报绝对值。
+
 - **生成时间**: 2026-09-17 14:28:54
 - **数据来源**: `models/` 下全部 SAC 训练运行 (SB3 SAC 检查点) + `logs/<run>/` 旁路遥测 (config.json / summary.json / eval/evaluations.npz / TensorBoard tfevents)
 - **运行总数**: 44 个

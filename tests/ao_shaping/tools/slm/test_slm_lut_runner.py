@@ -11,7 +11,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_lut_runner import _expected_x_offset, _locate_spots
+from ao_shaping.tools.slm.calibration.lut_runner import _expected_x_offset, _locate_spots
 
 
 def _make_frame(

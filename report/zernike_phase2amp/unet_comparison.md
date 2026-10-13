@@ -8,6 +8,8 @@
 > **说明**: grouped CV 对比 (physics / hybrid / unet) 的原始对照表
 <!-- provenance:end -->
 
+**本轮结论**（physics / hybrid / U-Net 分组 CV 对照，已被 report.md §7 取代为权威版本）：(1) 物理模型以约 1/58,000 的参数量和 1/3 的墙钟时间达到与最优 U-Net 可比的精度，唯一实质差距在 SSIM——仅 7.8M U-Net 的 SSIM 下界（0.817）高于物理模型上界（0.785），物理解释为 SSIM 奖励局部高频纹理，而 135 模式光滑 Zernike 基无法合成散斑。(2) 物理模型最弱项是质心偏移（1.10 px vs U-Net 0.96–1.01 px），与其低容量一致。(3) **两类模型不可互换**：U-Net 输出图像，从图像恢复可加载 SLM 相位是另一个逆问题；物理模型是唯一能直接给出可实现相位（Σ ZₖBₖ，135 个弧度量纲可解释参数）的模型。(4) 统计纪律：±0.13 噪声地板下 3 种子为下限，任何小于 ~0.1 R² 的差距不得下结论。
+
 > **Superseded.** [`report.md`](report.md) §7 holds the authoritative result:
 > **grouped cross-validation** with exact sign-flip permutation tests, which
 > resolves the comparison that this file could not. The short version: the U-Net

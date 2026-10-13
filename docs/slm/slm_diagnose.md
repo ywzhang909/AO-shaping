@@ -1,7 +1,5 @@
 # SLM 硬件自检 (slm-diagnose)
 
-> **生成脚本**: [`scripts/generate_slm_diagnose_report.py`](../../scripts/generate_slm_diagnose_report.py)
-> **复现命令**: `python scripts/generate_slm_diagnose_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -17,7 +15,7 @@
 ```mermaid
 graph TD
     CLI["main.py · slm-diagnose"]
-    RUN["tools/slm/slm_diagnose.py · run()"]
+    RUN["tools/slm/panel/diagnose.py · run()"]
     CCD["drivers/ccd/ · MIICamera/DahengCamera"]
     SLM["drivers/slm/santec.py · Santec (memory 模式)"]
     
@@ -117,27 +115,27 @@ python src/ao_shaping/main.py slm-diagnose --camera-type daheng -o logs/slm_diag
 
 > **启动 GS / GSNet / SPGD runner 之前先跑表征探针**：
 > `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`。
-> 完整流程、验收阈值与**危险默认值清单**见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
+> 完整流程、验收阈值与**危险默认值清单**见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
 ### 运行示例
 
 ```bash
 # 面板是否在调制 (最常用，优先跑这个)
-python -m ao_shaping.tools.slm.slm_tilt_probe --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.tilt_probe --exposure-ms 3.0
 
 # 定位光斑 (面板坐标)
-python -m ao_shaping.tools.slm.slm_panel_locate --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.panel_locate --exposure-ms 3.0
 
 # 测光斑半径
-python -m ao_shaping.tools.slm.slm_beam_extent --axis x --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis x --exposure-ms 3.0
 
 # 面板能否分辨像素级相位?
-python -m ao_shaping.tools.slm.slm_phase_resolution --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.phase_resolution --exposure-ms 3.0
 
 # 相机是否手动曝光 / 漂移多少
-python -m ao_shaping.tools.slm.slm_exposure_check --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.exposure_check --exposure-ms 3.0
 
 # 完整光滑 Zernike 扫描 (硬件; 先用 --no-hw 确认采集计划)
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --no-hw
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 --pupil-center 960,600 --zernike-radius 450
+python -m ao_shaping.tools.zernike.sweep_probe --no-hw
+python -m ao_shaping.tools.zernike.sweep_probe --exposure-ms 3.0 --pupil-center 960,600 --zernike-radius 450
 ```

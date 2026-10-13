@@ -18,6 +18,15 @@
 > **说明**: 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论）
 <!-- provenance:end -->
 
+**本轮结论**（逆向整形 15 次尝试的总括，截至 attempt 15）：
+
+1. **前向模型精度与逆向整形质量解耦**：逆向设计过程不以前向拟合精度为输入，二者位级无关（attempt 12，bit-identical）。因此不能以模型 R² 预测或筛选逆向整形性能，模型改进与整形收益须分别评估。
+2. **逆向设计稳定优于平坦相位**：在 Zernike 与 freeform 两种参数化下均成立（90/90 与 9/9 配对胜出），这是本文件最稳健的正面结论，也是 `slm_gs_refine` 采用逆向初始化的直接依据。
+3. **梯度精修本质是重启而非梯度下降**：精修增益与初始提案质量强负相关（Spearman −0.87 ~ −0.92，freeform 下 −0.73），即精修只救弱提案、不增强强提案。工程策略应为**按提案质量门控精修**：对弱提案精修、对强提案保留原值。
+4. **"GS 优于梯度下降"结论已被两次撤回**：Zernike 空间（34/90）与 freeform 空间（4/9）均为掷硬币结果；"精修总是有害"同样被撤回。二者均为单一配置下的伪显著（t 值高达 −11），在扫描未受质疑的常数（评测 ROI 几何）后消失。
+5. **Zernike 投影是有代价的瓶颈**：直接使用 GS 自由形式瞳面相位替代 `fit_zernike` 投影，在 7/9 个 ROI 上提升 +0.1272；`n_max=20` 时投影甚至跌破平坦相位基线。硬件路径（freeform）天然规避此损失。
+6. **方法论教训**：本文件共 6 次结论被推翻（attempts 4/5/8/9/10/11），根因均为未扫描"被视为常量的任意参数"（评测 ROI、split seed、重启次数）。任何单配置结论在参数扫描前不得采信；全部数值仍为仿真断言，尚未在台架复现。
+
 Running record of *analyse → propose → attempt → measure → record*. Newest
 sections appended. Two earlier findings live in [`README.md`](README.md); this file
 is the chronological log, including the dead ends.

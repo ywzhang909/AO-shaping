@@ -1806,11 +1806,14 @@ class ThorlabWFS(BaseWFS):
             value: 曝光时间, 单位毫秒。
 
         异常:
-            AssertionError: value 超出合法范围 [0.002, 86] ms。
+            WfsError: value 超出合法范围 [0.002, 86] ms。
         """
-        assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, (
-            f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
-        )
+        # Explicit raise, not `assert`: `python -O` strips asserts, and a
+        # silently-accepted out-of-range exposure is sent straight to the SDK.
+        if not EXP_TIME_LOW <= value <= EXP_TIME_HIGH:
+            raise WfsError(
+                f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
+            )
         actual_exposure = c_double()
         self._lib.WFS_SetExposureTime(
             self._instrument_handle, c_double(value), byref(actual_exposure)

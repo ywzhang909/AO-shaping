@@ -11,6 +11,8 @@
 > **说明**: 验证 R² 被常数基线吞掉：常数预测器在同一 10 折协议下 R²=+0.910，故改用 skill = 1 - mse_model/mse_const 记分；含 image_mode 默认值论证的撤回
 <!-- provenance:end -->
 
+**本轮结论**（R² 基线诊断，方法论关键轮）：(1) 常数预测器在同一 10 折协议下 R²=+0.910，**绝对 R² 被常数基线吞掉、失去判别力**；自此所有模型对比一律改用 skill = 1 − mse_model/mse_const 记分（金丝雀法）。(2) 最终判决：数据处理（image_mode/目标变换/逐帧增益去除）、模型结构（sigmoid vs 线性头、容量 K=1…256）、训练方法（mse/振幅/log 损失）、无模型对照（k-NN）四类改动**全部试过、skill 全部为负**——闭式 4 成分 ridge 反而赢 U-Net 0.56，线性头显著更差（p=0.0059）。(3) 原因已量化而非调参问题：测量噪声地板 |ΔI|≈0.0226–0.031，而系数可解释信号仅 ≈0.008，**信噪比约 1:4、方向相反**；在此信噪比下任何模型的 MSE 必然高于常数输出。(4) 战略结论：**提升精度杠杆在数据采集侧（同相位重复帧平均、曝光归一、漂移拒绝），不在模型侧**；下一步必须先重采"每相位连拍 N 帧"数据并用 `diagnose_snr_ceiling.py` 确认地板降至 ~0.008 以下，再谈建模。
+
 > **生成脚本**: `scripts/diagnose_pod_ridge.py` / `scripts/verify_pod_ridge_canary.py` / `scripts/diagnose_r2_baseline.py` / `scripts/sweep_target_transform.py`
 > **复现命令**: 见各脚本 docstring
 > **运行环境**: `.venv` (torch 2.14.0+cu132, RTX 5080 Laptop GPU), corpus `slm_zernike_shaping` 1010 条 / 10 个 pickle

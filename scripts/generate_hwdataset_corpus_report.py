@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -75,6 +76,10 @@ FAMILY_PREFIXES: tuple[str, ...] = (
     "recorder_",
 )
 
+#: A run directory named with a bare stamp -- ``YYYYMMDD`` / ``YYYYMMDD_HHMMSS``.
+#: Mirrors ``ml/hwdataset/index.py::_RUN_STAMP``; never a family label.
+RUN_STAMP = re.compile(r"^\d{8}(_\d{6})?$")
+
 #: Sidecar keys that stand in for a field of view (px, as recorded by the writer).
 FOV_PROXY_KEYS: tuple[str, ...] = ("region", "cam_size", "far_field_size")
 APERTURE_KEY = "zernike_radius"
@@ -124,14 +129,25 @@ def local_family_of(path: str | Path) -> str:
     """Resolve a family name the way ``ml/hwdataset/index.py`` does.
 
     Checks ``path.parent.name`` then ``path.parent.parent.name`` against
-    :data:`FAMILY_PREFIXES` in order, falling back to the immediate parent
-    directory name.
+    :data:`FAMILY_PREFIXES` in order, then falls back to the first candidate that
+    is **not** a bare run stamp (``YYYYMMDD`` / ``YYYYMMDD_HHMMSS``), returned
+    verbatim. Mirrors ``index.family_of`` -- keep the two in step, they label the
+    same corpus. A stamp-named directory is skipped because every run directory
+    in the canonical ``data/debug/<prefix>/<stamp>/`` layout is named like that,
+    so labelling by it would give every run its own singleton family.
     """
     target = Path(path)
-    for candidate in (target.parent.name, target.parent.parent.name):
+    candidates = [target.parent.name]
+    grandparent = target.parent.parent.name
+    if grandparent and grandparent != candidates[0]:
+        candidates.append(grandparent)
+    for candidate in candidates:
         for prefix in FAMILY_PREFIXES:
             if candidate.startswith(prefix):
                 return prefix
+    for candidate in candidates:
+        if not RUN_STAMP.match(candidate):
+            return candidate
     return target.parent.name
 
 

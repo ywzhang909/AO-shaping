@@ -8,6 +8,8 @@
 > **说明**: 读台架 sweep 落盘的 npz/json/pkl，仪器可断电
 <!-- provenance:end -->
 
+**本轮结论**：本轮基于 2026-09-30 台架扫描落盘数据（55 个扫描点）完成离线标定分析，四项核心结论：(1) 焦面尺度由相位斜坡扫描确定为 S = 7565 相机 px·周期，与 Zernike 倾斜独立路线互证一致到 1.7%，与台架常数 7400 相差 2.2%，确认面板调制与槽位轮换功能正常；(2) Zernike 倾斜斜率 5.446 相机 px/rad 落在物理预测可信带内，证实"按稳定性等待"策略有效，排除了历史上 1.63 px/rad 的未稳定帧误读；(3) 相位相关位移在本台架不可用（shift_corr 峰值 0.041 < 0.30），位移测量必须回退至光斑质心；(4) 宽度响应联合相对 RMS 14.5% 超过阈值，束腰不可辨识，表明台架带有扫描模式未覆盖的残余像差，前向模型应退回平顶默认值并补扫高阶模式。同时固化四条台架标准操作规则（暗帧禁用裸 argmax、下发前须写平场、禁止固定 memory_number、按稳定性而非时间等待），每条均以本数据集具体数字佐证。
+
 本报告由 `scripts/generate_bench_probe_report.py` **完全离线** 生成：只读取硬件运行已经落盘的扫描记录，**从不打开相机或 SLM**，因此可以在仪器断电状态下随时重跑以刷新结论。
 
 ## 1. 数据来源与完整性
@@ -67,7 +69,7 @@ npz 携带的标量：`zernike_radius=450`、`collect_disc=450`、`pupil_center=
 tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase correlation)']), semi-axis 128 model px, P=4096; physical tilt check 1.02x predicted; focal scale from ramp sweep (S=7641 cam px per 1/period, axis y), FOV cross-check 0.829 (36% apart); modes fitted astig_x+astig_y+coma_x+coma_y+defocus+spherical; joint rel-RMS 14.5%; bench offsets astig_x +0.000, astig_y +0.000, coma_x +0.500, coma_y +0.000, defocus -1.000, spherical +0.500 rad; curvatures astig_x 115.8, astig_y 139.9, coma_x 99.8, coma_y 92.2, defocus 219.3, spherical 148.2; defocus asymmetry +70%; waist NOT identifiable, flat-top default
 ```
 
-- 联合相对 RMS **14.5%** > 阈值 10%，**腰包不可辨识**，只能退回平顶默认值（阈值 `_MAX_DEFOCUS_FIT_RMS = 0.10`）。
+- 联合相对 RMS **14.5%** > 阈值 10%，**束腰不可辨识**，只能退回平顶默认值（阈值 `_MAX_DEFOCUS_FIT_RMS = 0.10`）。
 - 视场比交叉核对偏离 **36%**（超过 25% 警戒线，说明照明的孔径半径假设有误）
 
 ## 3. 相位斜坡 (ramp) 线性度 —— 焦面尺度的权威来源
@@ -201,8 +203,8 @@ tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase
 1. 焦面尺度由斜坡扫描确定为 **S = 7565** 相机 px·周期，与台架常数 7400 相差 2.2%，说明面板确实在正常调制、槽位轮换正确。
 2. Zernike 倾斜斜率 **5.446 相机 px/rad** 落在台架预测（450 px 照明半径约 5.34）的可信带内，**不是**历史上那个 1.63 的坏值——稳定性等待是有效的。
 3. 相位相关位移在本台架不可用（shift_corr 峰值 0.041 < 0.30），所有位移量都来自光斑质心；报告与标定器都应保持这一回退路径。
-4. 宽度响应联合相对 RMS **14.5%** 高于阈值 10%，**腰包不可辨识**——台架带有扫描模式未覆盖的像差，应退回平顶默认值，并补扫 coma/spherical。
-5. 视场比交叉核对偏离 **36%**，超过 25% 警戒线；两条路线都与照明孔径半径成正比，请用 `python -m ao_shaping.tools.slm.slm_beam_extent` 重测孔径后再信任任一数值。
+4. 宽度响应联合相对 RMS **14.5%** 高于阈值 10%，**束腰不可辨识**——台架带有扫描模式未覆盖的像差，应退回平顶默认值，并补扫 coma/spherical。
+5. 视场比交叉核对偏离 **36%**，超过 25% 警戒线；两条路线都与照明孔径半径成正比，请用 `python -m ao_shaping.tools.slm.panel.beam_extent` 重测孔径后再信任任一数值。
 6. 宽度筛选共剔除 **6** 个点（环形或同侧非单调）；这些点的「宽度」不是高斯瓣宽，若不剔除会直接毁掉曲率拟合。
 7. **调试 sidecar 与本 npz 不是同一次扫描**，已列出全部不一致字段；任何复现都应以 npz 为准。
 

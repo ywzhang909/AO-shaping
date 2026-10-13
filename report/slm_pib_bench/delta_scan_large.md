@@ -7,6 +7,8 @@
 > **说明**: delta 大范围扫描 (实机)
 <!-- provenance:end -->
 
+**本轮结论**：大 delta 档扫描（0.2/0.3/0.5，epochs=150）同样**无一收敛**：dec=0.52/0.51/0.43 均为随机游走水平；delta=0.5 时 guard 拒绝率高达 84.1%，搜索几乎被能量门完全冻结。与 `delta_scan.md`/`delta_scan_small.md` 合并看，delta 跨 1000× 范围（0.0005→0.5）全档不收敛，进一步排除"delta 选错"假设，锁定瓶颈为慢漂移下的梯度信噪比不足。
+
 - 目标 `pearson`, n_max=9, epochs=150, lr=0.5, 相机 `daheng`/0, 开窗 320px, 曝光 1.2ms
 - 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_pearson/`
 

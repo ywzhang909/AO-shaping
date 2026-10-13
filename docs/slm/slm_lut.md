@@ -1,7 +1,5 @@
 # SLM 灰度→相位 LUT 校准 (slm-lut)
 
-> **生成脚本**: [`scripts/generate_slm_lut_report.py`](../../scripts/generate_slm_lut_report.py)
-> **复现命令**: `python scripts/generate_slm_lut_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -13,7 +11,7 @@
 ```mermaid
 graph TD
     CLI["main.py · slm-lut"]
-    RUN["tools/slm/slm_lut_runner.py · run()"]
+    RUN["tools/slm/calibration/lut_runner.py · run()"]
     CCD["drivers/ccd/ · MIICamera/DahengCamera"]
     SLM["drivers/slm/santec.py · Santec (display_data 直接写 uint16)"]
     

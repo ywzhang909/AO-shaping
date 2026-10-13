@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.tools.slm.slm_zernike_sweep_probe import (
+from ao_shaping.tools.zernike.sweep_probe import (
     AUX_MODES,
     MODE_CODES,
     SINGLE_LOBE_MIN_HOLLOWNESS,
@@ -95,7 +95,7 @@ class TestZernikePanelIsTheKernelOne:
     """
 
     def test_reexported_from_the_kernel(self) -> None:
-        from ao_shaping.tools.slm.bench_kernels import (
+        from ao_shaping.tools.kernels.bench_kernels import (
             zernike_panel as kernel_builder,
         )
 
@@ -236,7 +236,7 @@ class TestRecorderRows:
 
 
 def _fake(mode: str, axis: str):
-    from ao_shaping.tools.slm.slm_zernike_sweep_probe import SweepPointResult
+    from ao_shaping.tools.zernike.sweep_probe import SweepPointResult
 
     return SweepPointResult(
         point=SweepPoint(mode, 1.0, axis), peak=1.0, fwhm_px=1.0, centroid_x=0.0,
@@ -282,7 +282,7 @@ class TestSingleLobeGate:
         assert SINGLE_LOBE_MIN_HOLLOWNESS == _DEFOCUS_MIN_HOLLOWNESS
 
     def test_a_ring_is_flagged_and_a_lobe_is_not(self) -> None:
-        from ao_shaping.tools.slm.slm_zernike_sweep_probe import SweepPointResult
+        from ao_shaping.tools.zernike.sweep_probe import SweepPointResult
 
         def measured(hollow: float) -> SweepPointResult:
             return _fake("spherical", "")
@@ -332,7 +332,7 @@ class TestArtifactTail:
     @staticmethod
     def _run_main(tmp_path, monkeypatch, captured):
         """Drive `main()` end-to-end with mocked devices + a spy backend."""
-        from ao_shaping.tools.slm import slm_zernike_sweep_probe as probe
+        from ao_shaping.tools.zernike import sweep_probe as probe
 
         slm, cam = MockSLM(), WiringCam()
 
@@ -417,7 +417,7 @@ class TestArtifactTail:
         """
         import numpy as np
 
-        from ao_shaping.tools.slm.slm_zernike_sweep_probe import sweep_to_recorder_rows
+        from ao_shaping.tools.zernike.sweep_probe import sweep_to_recorder_rows
 
         slm, cam = MockSLM(), WiringCam()
         result = acquire_sweep(

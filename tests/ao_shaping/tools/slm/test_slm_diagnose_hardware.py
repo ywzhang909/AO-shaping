@@ -26,7 +26,7 @@ import os
 
 import pytest
 
-from ao_shaping.tools.slm.slm_diagnose import (
+from ao_shaping.tools.slm.panel.diagnose import (
     DiagnoseResult,
     step_freezing,
     step_linearity,

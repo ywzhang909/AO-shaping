@@ -9,6 +9,8 @@
 > **说明**: 台架验收总报告；含 Pearson 迁移与参数标定两节
 <!-- provenance:end -->
 
+**本轮结论**（2026-09-29~30 台架验收）：(1) `1 − Pearson` 目标函数**不替换**现有目标，仅作显式可选附加项——实机 4 组对照中仅 2/4 符号正确（秩相关弱且变号），对照组 4/4 正确，评级维持 RISKY 并保留能量门；Torch/NumPy 数值已对齐至 1e-9，问题在目标排序而非数值。(2) **当前台架 SPGD 无法可靠收敛**：全部测试组合 `frac_decreasing≈0.5`（随机游走），accepted 仅 3–9/200；早期"delta≈0.1 可用（sustained +18.8%）"结论已被推翻，系随机游走端点假象。(3) 主因是**慢漂移污染梯度**而非 delta 或自由度——降 DOF 18×（54→3）反而更差，加帧数无效。(4) 收敛判据必须用 `frac_decreasing`/`late_gain`，禁用 final-vs-first。(5) delta=0.2 触发折叠门（144/200 被拒），过大反而更差。(6) 已交付设备无关参数测量工具（`snr_sweep`/`usable_deltas`，按多模式 SNR 过滤），脚本与硬件测试统一委托该工具。
+
 **日期**: 2026-09-29 ~ 09-30
 **台架**: Santec SLM-200 (SN 22030108, 1920×1200, 10-bit, 内存模式, @1064nm 2π=993 灰度)
 + 大恒 MER2-507-23GM NIR (SN FJB24112232, 2592×1944, IP 192.168.0.11)
@@ -39,7 +41,7 @@
 | 目标函数 | `pearson_shape_metric` (NumPy canonical) + 方形/PIB 通路贯通; `pearson` 已入 `GUARDED_OBJECTIVES` |
 | 硬件路径 | `slm-gsnet --objective {quality,pearson}`; `slm-pib --objective pearson` |
 | 溯源 | debug JSON sidecar 现记录 objective / cam_type / cam_id / exposure / zernike_radius / 搜索参数 |
-| 参数测量 | `ao_shaping.tools.slm.slm_snr_probe` —— **设备实例由参数传入**, 不构造设备 |
+| 参数测量 | `slm_snr_probe` —— **设备实例由参数传入**, 不构造设备 |
 | 报告 | 离线台架验收报告 + 三目标对比 (离线 & 实机) |
 | 测试 | Pearson 指标/对齐 (24) + Torch 对齐 (6) + 方形搜索 sim (11) + SNR 探针 (33) + 报告回归 (13) |
 
@@ -173,11 +175,11 @@ SPGD 的 `J(+δ) − J(−δ)` 是**两次相邻采样**之差, 漂移在其间�
 
 ## 5. 参数测量工具 (设备无关)
 
-噪底 / ΔJ / SNR 逻辑已抽到 `ao_shaping.tools.slm.slm_snr_probe`, **设备实例由参数传入**,
+噪底 / ΔJ / SNR 逻辑已抽到 `slm_snr_probe`, **设备实例由参数传入**,
 不构造任何设备、不 import 驱动、不读 `.env` —— Daheng / MiiCam / 仿真相机 / fake 通用:
 
 ```python
-from ao_shaping.tools.slm.slm_snr_probe import snr_sweep
+from slm_snr_probe import snr_sweep
 with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
      Santec(slm_number=1, wavelength=1064) as slm:
     r = snr_sweep(cam, slm, n_max=9, radius=480.0)

@@ -77,7 +77,7 @@ from __future__ import annotations
 import os
 from dataclasses import MISSING, dataclass, field, fields, is_dataclass
 from pathlib import Path
-from typing import Annotated, Any, cast
+from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import click
 import numpy as np
@@ -98,6 +98,14 @@ from ao_shaping.utils.image.target import (
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
 from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
+
+if TYPE_CHECKING:
+    from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import (
+        ModelInLoopResult,
+        SlmModelInLoopConfig,
+    )
+    from ao_shaping.utils.io.file import Recorder
 
 # slm-pib 的 Zernike 孔径半径默认值: SLM 面板短边的一半 (PANEL_RES = (1920, 1200) -> 600 px),
 # 与方形整形 (slm_square_shaping) 及 GUI 的默认值一致; 取短边保证基圆完整落在面板内。
@@ -2207,6 +2215,9 @@ class SlmGsRefineParams:
     delta: Annotated[
         float, option("--delta", help="SPGD perturbation amplitude in radians.")
     ] = 0.35
+    confirm_best: Annotated[
+        bool, option("--confirm-best/--no-confirm-best", help="Remeasure a record-setting SPGD probe.")
+    ] = False
     lr: Annotated[
         float, option("--lr", help="Learning rate (0 = auto = 0.15*delta).")
     ] = 0.0
@@ -2242,10 +2253,11 @@ class SlmGsRefineParams:
         str,
         option(
             "--gs-method",
-            type=click.Choice(["plain", "weighted", "hio", "hio-weighted"]),
+            type=click.Choice(["plain", "weighted", "hio", "hio-weighted", "adaptive-feedback"]),
             help=(
                 "GS variant: plain = today's behaviour; weighted = 加权 GS; "
-                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS."
+                "hio = Fienup HIO; hio-weighted = 前 N 次 HIO + 后 M 次加权 GS; "
+                "adaptive-feedback = 目标域自适应反馈."
             ),
         ),
     ] = "plain"
@@ -2267,7 +2279,7 @@ class SlmGsRefineParams:
         float,
         option(
             "--gs-beta",
-            help="HIO feedback relaxation beta (Fienup, 0<=b<=1; 0=freeze noise region).",
+            help="Feedback beta for HIO or adaptive-feedback (0<=b<=1).",
         ),
     ] = 0.9
     gs_hio_fraction: Annotated[
@@ -2302,6 +2314,9 @@ class SlmGsRefineParams:
             help="Illuminated pupil radius on the panel, in panel pixels.",
         ),
     ] = 450.0
+    pupil_center: Annotated[
+        str, option("--pupil-center", help="Measured beam center on the SLM panel as x,y.")
+    ] = ""
     focal_length_m: Annotated[
         float,
         option(
@@ -2762,3 +2777,368 @@ class SlmModelInLoopParams:
             help="Consecutive unstable frames tolerated before a frame is taken anyway.",
         ),
     ] = 2
+
+
+# ---------------------------------------------------------------------------
+# slm-gs-refine / slm-model-in-loop 共享辅助 (2026-10-12 从两个 runner 抽出)
+#
+# 这些函数把 config 构造与结果持久化从 ``runners/slm/gs_refine_runner.py`` 和
+# ``runners/slm/model_in_loop_runner.py`` 中原样搬出, 供 CLI runner 与 GUI 适配器
+# 复用同一套磁盘布局, 避免重复实现漂移。字段名/顺序/值与原 runner 逐字一致。
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class GsRefineSaveResult:
+    """``save_gs_refine_results`` 的落盘产物路径。"""
+
+    save_dir: Path
+    csv_file: Path
+    phase_file: Path | None
+    image_file: Path | None
+    debug_png: Path | None
+
+
+@dataclass
+class ModelInLoopSaveResult:
+    """``save_model_in_loop_results`` 的落盘产物路径。"""
+
+    save_dir: Path
+    csv_file: Path
+    phase_file: Path | None
+    geometry_file: Path | None
+    image_file: Path | None
+    recorder_png: Path
+
+
+def parse_frozen_modes(raw: str | None) -> tuple[int, ...]:
+    """Parse a comma-separated list of frozen Zernike mode indices."""
+    text = str(raw).strip() if raw is not None else ""
+    if not text:
+        return ()
+    return tuple(int(part) for part in text.replace(" ", "").split(",") if part)
+
+
+def parse_point(raw: str | None) -> tuple[int, int]:
+    """Parse a 'x,y' string into integer coordinates."""
+    parts = str(raw).replace(" ", "").split(",")
+    if len(parts) != 2:
+        raise click.BadParameter(f"expected 'x,y', got {raw!r}")
+    return int(parts[0]), int(parts[1])
+
+
+def build_gs_refine_config(
+    params: SlmGsRefineParams,
+    *,
+    debug: bool,
+) -> SlmGsRefineConfig:
+    """Build the ``SlmGsRefineConfig`` for a GS-refine run.
+
+    Verbatim field mapping from ``runners/slm/gs_refine_runner.py``.
+    """
+    from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
+
+    return SlmGsRefineConfig(
+        epochs=params.epochs,
+        seed=params.seed,
+        early_stop_score=params.early_stop_score,
+        target_side=params.target_side,
+        side_factor=params.side_factor,
+        w_pib=params.w_pib,
+        w_unif=params.w_unif,
+        phase_grid=params.phase_grid,
+        delta=params.delta,
+        lr=params.lr,
+        optimizer_type=params.optimizer_type,
+        lr_schedule=params.lr_schedule,
+        gs_iters=params.gs_iters,
+        gs_warm_start=params.gs_warm_start,
+        gs_method=params.gs_method,
+        gs_gamma=params.gs_gamma,
+        gs_weight_clip=params.gs_weight_clip,
+        gs_beta=params.gs_beta,
+        gs_hio_fraction=params.gs_hio_fraction,
+        panel_pixel_um=params.panel_pixel_um,
+        camera_pixel_um=params.camera_pixel_um,
+        beam_radius_px=params.beam_radius_px,
+        pupil_center=parse_point(params.pupil_center) if params.pupil_center else None,
+        confirm_best=params.confirm_best,
+        focal_length_m=params.focal_length_m,
+        far_field_padding=params.far_field_padding,
+        gs_target_side_px=params.gs_target_side_px,
+        cam_type=params.cam_type,
+        cam_id=params.cam_id,
+        exposure_time_ms=params.exposure_time_ms,
+        cam_size=params.cam_size,
+        slm_number=params.slm_number,
+        slm_wavelength=params.slm_wavelength,
+        n_eval_frames=params.n_eval_frames,
+        settle_wait_s=params.settle_wait_s,
+        settle_tol=params.settle_tol,
+        settle_max_wait_s=params.settle_max_wait_s,
+        record_debug=debug,
+    )
+
+
+def build_model_in_loop_config(
+    params: SlmModelInLoopParams,
+    *,
+    debug: bool,
+) -> SlmModelInLoopConfig:
+    """Build the ``SlmModelInLoopConfig`` for a model-in-loop run.
+
+    Verbatim field mapping from ``runners/slm/model_in_loop_runner.py``.
+
+    Note: ``SlmModelInLoopConfig`` has no ``record_debug`` field, so ``debug``
+    is accepted purely for contract symmetry with ``build_gs_refine_config``
+    (the GUI adapter calls both with the same signature) and is unused here.
+    """
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
+
+    return SlmModelInLoopConfig(
+        show=params.show,
+        n_rounds=params.n_rounds,
+        seed=params.seed,
+        device=params.device,
+        warm_start=params.warm_start,
+        early_stop_score=params.early_stop_score,
+        target_side=params.target_side,
+        w_uniformity=params.w_uniformity,
+        w_efficiency=params.w_efficiency,
+        probe_count=params.probe_count,
+        probe_spread=params.probe_spread,
+        step_a_iterations=params.step_a_iterations,
+        step_a_lr=params.step_a_lr,
+        n_orders=params.n_orders,
+        frozen_modes=parse_frozen_modes(params.frozen_modes),
+        forward_checkpoint=params.forward_checkpoint,
+        assume_unverified_geometry=params.assume_unverified_geometry,
+        step_b_iterations=params.step_b_iterations,
+        step_b_lr=params.step_b_lr,
+        region=params.region,
+        wavelength_nm=params.wavelength_nm,
+        slm_pixel_um=params.slm_pixel_um,
+        camera_pixel_um=params.camera_pixel_um,
+        panel_span_px=params.panel_span_px,
+        pupil_center=parse_point(params.pupil_center),
+        far_field_padding=params.far_field_padding,
+        focal_length_m=params.focal_length_m,
+        dtype=params.dtype,
+        n_calibration_probes=params.n_calibration_probes,
+        min_geometry_correlation=params.min_geometry_correlation,
+        trust_region_c_l2=params.trust_region_c_l2,
+        acceptance_loss_delta=params.acceptance_loss_delta,
+        acceptance_score_eps=params.acceptance_score_eps,
+        damp_lr_factor=params.damp_lr_factor,
+        max_rejection_streak=params.max_rejection_streak,
+        escalate_probe_count=params.escalate_probe_count,
+        max_probe_count=params.max_probe_count,
+        cam_type=params.cam_type,
+        cam_id=params.cam_id,
+        exposure_time_ms=params.exposure_time_ms,
+        cam_size=params.cam_size,
+        slm_number=params.slm_number,
+        slm_wavelength=params.slm_wavelength,
+        n_eval_frames=params.n_eval_frames,
+        settle_wait_s=params.settle_wait_s,
+        settle_tol=params.settle_tol,
+        settle_max_wait_s=params.settle_max_wait_s,
+        settle_max_discard=params.settle_max_discard,
+        settle_discard=params.settle_discard,
+    )
+
+
+def save_gs_refine_results(
+    recorder: Recorder,
+    params: SlmGsRefineParams,
+    *,
+    root_dir: Path,
+    debug: bool,
+) -> GsRefineSaveResult:
+    """Persist a GS-refine run's recorder and debug artefacts.
+
+    Extracted verbatim from ``runners/slm/gs_refine_runner.py`` so the GUI
+    adapter reuses the same disk layout without duplicating the CLI runner.
+    """
+    from ao_shaping.display.frames import save_best_image
+    from ao_shaping.utils.io.file import (
+        debug_run_dir,
+        gen_date_str,
+        save_history,
+        save_recorder_debug_artifacts,
+    )
+
+    config = build_gs_refine_config(params, debug=debug)
+
+    save_dir = debug_run_dir(root_dir, "slm_gs_refine")
+    csv_file = save_dir / f"slm_gs_refine_{gen_date_str()}.csv"
+    save_history(
+        [
+            {
+                key: value
+                for key, value in row.items()
+                if isinstance(value, (str, int, float, bool, np.generic))
+                or value is None
+            }
+            for row in recorder.history
+        ],
+        csv_file,
+    )
+
+    phase_file = None
+    best_phase = getattr(recorder, "best_phase", None)
+    if best_phase is not None:
+        phase_file = save_dir / "best_phase.npy"
+        np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+
+    image_file = None
+    best_frame = getattr(recorder, "best_frame", None)
+    if params.save_best_image and best_frame is not None:
+        best_iter, (_, best_score) = recorder.get_best_iter()
+        image_file = save_dir / "best_far_field.png"
+        save_best_image(
+            best_frame,
+            image_file,
+            title=(
+                f"slm-gs-refine best: score={best_score:.4f} "
+                f"PIB={best_iter.get('pib', 0):.4f} CV={best_iter.get('cv', 0):.4f}"
+            ),
+            hide_axes=True,
+        )
+
+    debug_png = None
+    if debug:
+        debug_png = save_recorder_debug_artifacts(
+            recorder,
+            root_dir=str(root_dir),
+            subdir_prefix="slm_gs_refine",
+            output_dir=save_dir,
+            scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
+            img_keys=("_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"),
+            # This run optimises a freeform phase grid, so there is no ``_c``
+            # and the default "best coefficients" panel would render a
+            # placeholder. ``_phase`` is the uint16 grayscale handed to the SLM
+            # (``create_phase_from_array``), which is what is actually on the
+            # panel -- show that instead. Key name is load-bearing: see
+            # ``ml.hwdataset.index._PHASE_KEY``.
+            top_right_key="_phase",
+            top_right_title="SLM gray (last)",
+            json_payload={
+                key: value
+                for key, value in vars(config).items()
+                if isinstance(value, (str, int, float, bool)) or value is None
+            },
+            title="SLM GS refine",
+        )
+
+    return GsRefineSaveResult(
+        save_dir=save_dir,
+        csv_file=csv_file,
+        phase_file=phase_file,
+        image_file=image_file,
+        debug_png=debug_png,
+    )
+
+
+def save_model_in_loop_results(
+    result: ModelInLoopResult,
+    params: SlmModelInLoopParams,
+    *,
+    root_dir: Path,
+    debug: bool,
+) -> ModelInLoopSaveResult:
+    """Persist a model-in-loop run's recorder and debug artefacts.
+
+    Extracted verbatim from ``runners/slm/model_in_loop_runner.py`` so the GUI
+    adapter reuses the same disk layout without duplicating the CLI runner.
+    """
+    import json
+
+    from ao_shaping.display.frames import save_best_image
+    from ao_shaping.utils.io.file import (
+        gen_date_dir,
+        gen_date_str,
+        save_recorder_debug_artifacts,
+    )
+
+    save_dir = gen_date_dir(root_dir / "slm_model_in_loop")
+    csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
+    result.recorder.save_dataframe(csv_file)
+
+    phase_file = None
+    best_phase = result.best_phase
+    if best_phase is not None:
+        phase_file = save_dir / "best_phase.npy"
+        np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+
+    geometry_file = None
+    if result.geometry is not None:
+        geometry_file = save_dir / "bench_geometry.json"
+        geometry_file.write_text(
+            json.dumps(
+                {
+                    "panel_disc_radius": result.geometry.panel_disc_radius,
+                    "region": result.geometry.region,
+                    "beam_waist_panel_px": result.geometry.beam_waist_panel_px,
+                    "far_field_size": result.geometry.far_field_size,
+                    "camera_px_per_model_px": result.geometry.camera_px_per_model_px,
+                    "spot_fwhm_camera_px": result.geometry.spot_fwhm_camera_px,
+                    "spot_fwhm_model_px": result.geometry.spot_fwhm_model_px,
+                    "correlation": result.geometry.correlation,
+                    "method": result.geometry.method,
+                    "calibration_notes": result.geometry.calibration_notes,
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+
+    image_file = None
+    if params.save_best_image and result.best_frame is not None:
+        image_file = save_dir / "best_far_field.png"
+        save_best_image(
+            result.best_frame,
+            image_file,
+            title=f"slm-model-in-loop best: score={result.best_score:.4f} (flat {result.flat_score:.4f})",
+            hide_axes=True,
+        )
+
+    recorder_png = save_recorder_debug_artifacts(
+        result.recorder,
+        str(root_dir),
+        "slm_model_in_loop",
+        scalar_keys=(
+            "round",
+            "accepted",
+            "loss_before",
+            "loss_after",
+            "step_a_iterations",
+            "step_b_iterations",
+            "coeff_step_l2",
+            "coeff_step_applied",
+            "clamp_applied",
+            "coeff_norm",
+            "score_before",
+            "score_after",
+            "cv_after",
+            "ee_after",
+            "uniformity_cv",
+            "probe_count",
+            "step_a_lr",
+            "rejection_streak",
+            "geometry_correlation",
+            "n_calibration_probes",
+        ),
+        img_keys=("_img",),
+        json_payload={"status": result.status, "config": str(result.config)},
+        title="slm-model-in-loop",
+    )
+
+    return ModelInLoopSaveResult(
+        save_dir=save_dir,
+        csv_file=csv_file,
+        phase_file=phase_file,
+        geometry_file=geometry_file,
+        image_file=image_file,
+        recorder_png=recorder_png,
+    )

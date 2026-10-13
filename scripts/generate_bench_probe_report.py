@@ -29,7 +29,7 @@ What it reports
    field-of-view ratio -- so a disagreement is visible instead of resolved
    silently.
 7. **关键陷阱** -- the four bench traps encoded in
-   ``ao_shaping.tools.slm.bench_kernels``, each with the number that proves it
+   ``ao_shaping.tools.kernels.bench_kernels``, each with the number that proves it
    is still live on this bench.
 
 Usage:
@@ -119,7 +119,7 @@ def _import_bench_constants() -> dict[str, float | bool]:
     fallbacks: list[str] = []
 
     try:
-        from ao_shaping.tools.slm.bench_kernels import (
+        from ao_shaping.tools.kernels.bench_kernels import (
             TILT_SHIFT_SCALE as _kernel_scale,
         )
 
@@ -1919,7 +1919,7 @@ def render_report(
         conclusions.append(
             f"视场比交叉核对偏离 **{notes['fov_rel']:.0f}%**，超过 25% 警戒线；"
             "两条路线都与照明孔径半径成正比，"
-            "请用 `python -m ao_shaping.tools.slm.slm_beam_extent` 重测孔径后再信任任一数值。"
+            "请用 `python -m ao_shaping.tools.slm.panel.beam_extent` 重测孔径后再信任任一数值。"
         )
     dropped_total = sum(len(curve_map[m].dropped) for m in curve_map)
     if dropped_total:

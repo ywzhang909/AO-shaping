@@ -7,6 +7,8 @@
 > **说明**: 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画
 <!-- provenance:end -->
 
+**本轮结论**（3 算法 × 3 目标权威网格）：面积达标（`area_met`）是首要判据，未达标行的均匀性/填充率仅为噪声。结果：**GS 3/3 全达标**（填充率 0.876–0.965，CV 0.15–0.21，耗时 <1.3 s），为 device-less 整形的默认选择；**backprop 1/3**（仅 square 达标，CV 0.006 极优，circle/gaussian 失败），属硬件级算法族；**spgd-sim 0/3**——实测面积全部坍缩至约 1 px（CV 16–34），为已记录的失效模式而非回归，其围阀能量 0.998 是坍缩伪影。另注：`slm_shaping_bench.strehl()` 为去均值余弦相似度而非物理 Strehl，故本表不设 Strehl 列。
+
 > **Read `area_met` before comparing algorithms.** It is the only column that says whether the algorithm produced the requested target *at all*; `uniformity_cv` and `fill_ratio` on a row that failed it describe noise.
 > Area check passed, per algorithm: backprop 1/3, gs 3/3, spgd-sim 0/3.
 > `spgd-sim` currently fails every shape (measured area collapses to ~1 px, CV 16-34), so its uniformity numbers are meaningless device-less -- the documented failure, not a regression. `backprop` is hardware-class: it passes square and fails the other two.

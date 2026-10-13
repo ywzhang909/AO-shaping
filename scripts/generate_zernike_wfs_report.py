@@ -49,7 +49,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 
 from ao_shaping.drivers.slm import Santec  # noqa: E402
 from ao_shaping.drivers.wfs import ThorlabWFS  # noqa: E402
-from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
+from ao_shaping.tools.zernike.common import (  # noqa: E402
     DEFAULT_EXPOSURE_MS,
     DLL_ZERNIKE_NAMES,
     MAX_EXPOSURE_MS,

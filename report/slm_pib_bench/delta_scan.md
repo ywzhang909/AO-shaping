@@ -7,6 +7,8 @@
 > **说明**: SPGD delta 扫描 (实机)
 <!-- provenance:end -->
 
+**本轮结论**：在 pearson 目标、n_max=9、epochs=200、曝光 1.2 ms 条件下扫描 delta∈{0.0005, 0.001, 0.02, 0.05, 0.1}，**无任何候选真正收敛**——全部 `dec` 介于 0.43–0.56（≈0.5 即随机游走），`late` 增益在噪声范围内波动（−16.7%~+21.5%）。delta=0.1 档 guard 拒绝率升至 31.4% 且 late 为 −16.7%，过大反而更差。结论：失败模式不是 delta 选错，而是每步 SPGD 差分信噪比不足，慢漂移污染梯度估计；应优先做漂移对消（ABBA）而非继续调参。
+
 - 目标 `pearson`, n_max=9, epochs=200, lr=0.5, 相机 `daheng`/0, 开窗 320px, 曝光 1.2ms
 - 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_pearson/`
 

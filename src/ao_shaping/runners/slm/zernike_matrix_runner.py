@@ -91,7 +91,7 @@ from ao_shaping.runners.runner_common import (
     ZernikeSlmParams,
 )
 from ao_shaping.utils.cli.params import option, with_params
-from ao_shaping.tools.slm.slm_zernike_common import (
+from ao_shaping.tools.zernike.common import (
     DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
     collect_device_info,
@@ -107,7 +107,7 @@ from ao_shaping.tools.slm.slm_zernike_common import (
     um_to_waves,
     wfs_validity,
 )
-from ao_shaping.tools.slm.sweep_analysis import outlier_mask
+from ao_shaping.tools.kernels.sweep_analysis import outlier_mask
 from ao_shaping.utils.io.cli_helpers import (
     get_timestamp_str,
     setup_coredumpy,

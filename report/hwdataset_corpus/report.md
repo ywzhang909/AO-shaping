@@ -8,6 +8,8 @@
 > **说明**: data/debug 硬件调试语料的纯元数据统计 (14 张图, 含 4 张数组级分布图); 只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据; §10/§11 的数组级实测另读 analyze_hwdataset_distributions.py 预产的 distribution_stats.json (该文件缺失时两节降级为提示, 10 张元数据图不受影响, 两阶段复现命令见报告 §14)。§1.1 的「全量重建是否改变结论」交叉核对需另加 --full-index <扫描过全部 pkl 的索引.json>
 <!-- provenance:end -->
 
+**本轮结论**（hwdataset 语料元数据统计，11,393 条已索引记录）：(1) **索引已陈旧**——缓存仅覆盖磁盘 261/468 个 pkl（55.8%），本报告结论不覆盖磁盘全量；(2) **家族与相位表示完全共线**（7/7 家族单一 source），表示方式与台架/目标差异在本语料内无法解耦；(3) 采集条件跨台架不一致（曝光跨 2.90 个数量级、视场代理 3 种键名、孔径半径 3 种取值 vs 重建端固定 300 px）；(4) **监督标签 `objective` 仅覆盖 32.0%**，缺失 68%；(5) 文件级记录密度极不均匀（最大/最小 183×），训练读取必须按文件分组；(6) 数组级实测（252 条分层物化）显示家族间在尺度无关指标上差异显著（90% 能量环围半径/FOV 0.0131–0.1484、相位展宽 0.005–1.00 rad）。上述各条是 `ml.shaping` 语料切分与预处理决策的直接依据（见 `report/inverse_shaping_unet/report.md`）。
+
 ## 摘要
 
 本报告**只**读取 `data/hw_index_cache.json`、`data/debug/**/*.json` 与 `report/hwdataset_corpus/distribution_stats.json` (后者由 `scripts/analyze_hwdataset_distributions.py` 预先分层物化产生) 三个来源, `data/debug` 下的 `.pkl` 一律只做 `Path.stat()` 元数据检查 (不打开 / 不反序列化 / 不 mmap), 也不 import `ml.hwdataset`。所有数字均在运行时统计, 无硬编码。

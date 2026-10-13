@@ -449,7 +449,7 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     spatially correlated) essentially unchanged.
 
     Lives here, in the leaf ``utils/image`` layer, because **both**
-    :mod:`ao_shaping.tools.slm.slm_bench_probe` (which owns the bench
+    :mod:`slm_bench_probe` (which owns the bench
     measurement kernel) and the dataset transforms need it, and ``utils`` must not
     import upward from ``tools``. ``slm_bench_probe`` re-exports this name, so
     existing callers are unaffected. It was previously defined only there.

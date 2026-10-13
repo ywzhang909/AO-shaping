@@ -92,7 +92,7 @@ KEEP_VOLTAGE_WHEN_EXIT = True
 
 
 # Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
-from ao_shaping.algorithm.tabu.tabu_search import (  # noqa: F401
+from ao_shaping.algorithm.tabu.tabu_search import (
     AdaptiveSearchState,
     TabuMemory,
 )

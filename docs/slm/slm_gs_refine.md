@@ -1,7 +1,5 @@
 # GS 预整形 + 自由相位 SPGD 细化 (slm-gs-refine)
 
-> **生成脚本**: [`scripts/generate_slm_gs_refine_report.py`](../../scripts/generate_slm_gs_refine_report.py)
-> **复现命令**: `python scripts/generate_slm_gs_refine_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -146,12 +144,12 @@ python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
 ## 8. 上机前必跑表征探针 (顺序不能反)
 
 ```bash
-python -m ao_shaping.tools.slm.slm_drift_probe --exposure-ms 3.0
-python -m ao_shaping.tools.slm.slm_floor_probe --exposure-ms 3.0
-python -m ao_shaping.tools.slm.slm_abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ```
 
-完整流程与危险默认值清单见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
+完整流程与危险默认值清单见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
 ## 9. 输出契约
 

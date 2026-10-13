@@ -95,7 +95,7 @@ delta             dec     late %   guard %  结论
            J- = score(−δ)                 →  漂移 d3      d1+d3 ≈ d2+d4
            J+ = score(+δ)                 →  漂移 d4         (线性漂移下精确抵消)
 
-``ao_shaping.tools.slm.sweep_analysis.abba_signal`` 已实现并单测 (``+ - - +``
+``ao_shaping.tools.kernels.sweep_analysis.abba_signal`` 已实现并单测 (``+ - - +``
 可精确对消线性漂移), 但**主循环仍是单次正负采样** —— 这是投入产出比最高的改动。
 
 =============================================================================
@@ -124,7 +124,7 @@ sys.path.insert(0, str(ROOT / "libs"))
 
 from loguru import logger  # noqa: E402
 
-from ao_shaping.tools.slm.sweep_analysis import explore_delta  # noqa: E402
+from ao_shaping.tools.kernels.sweep_analysis import explore_delta  # noqa: E402
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -178,12 +178,15 @@ def build_parser() -> argparse.ArgumentParser:
 def _newest_recorder(objective: str, delta: float | None = None):
     """Load the most recent debug pickle for ``objective`` (optionally a delta).
 
-    Run directories are ``slm_pib_<objective>_<timestamp>/``, so the glob must be
-    ``slm_pib_<objective>_*`` — a bare ``slm_pib_<objective>/`` matches nothing.
+    Run directories follow the canonical debug layout
+    ``data/debug/slm_pib_<objective>/<YYYYmmdd_HHMMSS>/``, so the glob is
+    ``slm_pib_<objective>/*/*.pkl`` -- the family directory carries **no**
+    timestamp and the timestamp is the next level down. Matching
+    ``slm_pib_<objective>_*`` instead would find nothing.
     """
     import pickle
 
-    pattern = f"data/debug/slm_pib_{objective}_*/**/*.pkl"
+    pattern = f"data/debug/slm_pib_{objective}/*/*.pkl"
     files = sorted(ROOT.glob(pattern), key=lambda p: p.stat().st_mtime)
     if delta is not None:
         exact = [p for p in files if _delta_of(p) == delta]

@@ -18,7 +18,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.sweep_analysis import (
+from ao_shaping.tools.kernels.sweep_analysis import (
     FRAC_DECIDING_BAND,
     LATE_GAIN_FLOOR,
     MIN_SAMPLES,
