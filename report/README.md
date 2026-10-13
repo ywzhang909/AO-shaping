@@ -65,7 +65,7 @@
 | [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写` | 硬件 | GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；交错重放入口 scripts/replay_gs_refine_hw.py 仅离线部分经测试 |
 | [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写` | 硬件 | 2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，scripts/compare_shape_debug.py 只渲染对照图 |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
-| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+slm_zernike_sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
+| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
 | [`slm/daily_2026-09-15.md`](slm/daily_2026-09-15.md) | `人工撰写 (+generate_zernike_response_matrix_report.py, generate_zernike_wfs_report.py)` | 硬件 | 硬件实验日报；引用的两个 generate_* 脚本见当日记录 |
 | [`slm/daily_2026-09-16.md`](slm/daily_2026-09-16.md) | `人工撰写 (+wfs_probe.py)` | 硬件 | 硬件实验日报 |
