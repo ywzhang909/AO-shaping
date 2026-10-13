@@ -1041,3 +1041,48 @@ with open("devices.json") as f:
 | 获取所有相机 | `cameras = registry.find_by_type(DeviceType.CAMERA)` |
 | 批量连接 | `results = registry.connect_all()` |
 | 获取数字孪生状态 | `states = registry.get_all_twin_states()` |
+
+---
+
+## 14. 2026-10 更新 (v0.18.0)
+
+> 完整条目见 [CHANGELOG.md](../CHANGELOG.md)。本节只记录**影响驱动层架构约定**的变更。
+
+### 14.1 驱动层惰性加载契约
+
+`src/ao_shaping/drivers/sim/AGENTS.md` 与 `src/ao_shaping/hardware/AGENTS.md` 固化了
+惰性加载约定：硬件 SDK 缺失时驱动类为 `None`（如 `MIICamera is None`），包 import
+**不得**因缺 SDK 而失败。新增驱动必须遵守此契约，并用接口契约测试锁定
+（如 `tests/ao_shaping/drivers/sim/test_simulated_wfs.py::TestRunnerFacingSurface`）。
+
+### 14.2 仿真 WFS 接入 runner 命令面
+
+`SimulatedWFS`（OOPAO Shack-Hartmann，瞳面 slope 模型）与 `ShackHartmannWFS` 对齐接口，
+`--wfs_type sim` 在 8 个 runner 命令透传。实测红线（piston 不可测、slope 行块布局、
+单位写死 532 nm、保真度不足以当波前基准）见
+[docs/hardware_drivers.md](hardware_drivers.md#波前传感器)。
+
+### 14.3 DM→瞳孔相位耦合进入仿真
+
+`SimDmOptics`（可分离高斯影响力函数）经 `SimPibSystem.dm_optics` 在 `far_field()` 的
+cache-miss 分支叠加；DM 电压变化通过 `dm_optics.version` 使远场缓存失效。此前 `pib` /
+`combined` 的仿真结果无物理意义。详见 [docs/simulation.md](simulation.md)。
+
+### 14.4 相机噪声模型修复
+
+`far_field_noisy()` 不再逐帧 `clip(0)`（整流效应造出与像素数成正比的 DC 地板，淹没
+功率比指标）；本底只在量化时裁剪一次，去黑电平靠暗帧扣除。判据改用暗区均值与桶内
+信号占比。锁定测试 `tests/ao_shaping/drivers/sim/test_sim_noise_model.py`。
+
+### 14.5 SLM GUI 8-bit 显示修复
+
+`create_phase_from_array()` 的 8-bit 预览曾把 0–255 灰度塞进 0–255 灰阶 LUT（LUT 每级
+步进 4π/255），导致 2π 锯齿显示为 4π 双周期。修复后预览与下发字节级一致；CSV 加载
+（`load_gray_from_csv` → `csv_to_phase` → `display_phase`）与弧度导出
+（`save_phase_to_csv`，数据区为弧度、不可回灌灰度管线）共用同一入口。
+
+### 14.6 前向模型唯一入口
+
+2f-Fourier 台架的前向模型/指标/参考优化器只在 `drivers/sim/slm_shaping_bench.py`；
+`optimizer/wfless/slm_shaping_bench.py` 为 re-export shim。曾因双实现导致同一方法按
+import 来源返回不同指标（零填充差异）。拆分模块只加 re-export，禁止复制函数体。
