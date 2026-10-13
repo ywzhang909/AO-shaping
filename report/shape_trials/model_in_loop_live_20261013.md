@@ -114,6 +114,47 @@ graph TD
 > 内的 EE 和最小化 CV。深度模型 (U-Net) 作为物理模型的替代方案, 通过
 > 直接学习 phase→intensity 映射, 可补捉物理模型忽略的边缘血环、散射等效应。
 
+#### 深度模型替代方案与反向相位优化的关系
+
+深度模型 (U-Net) 和物理模型 (Zernike FFT) **共享同一个反向相位优化 (Step B)
+流程**, 它们只是替换了正向模型 (model) 这一环节:
+
+```
+物理模型路径:  Zernike 系数 ──> generate_phase ──> FFT ──> intensity
+                              ↑                       ↑
+                            optimizer              autograd
+                              ↓                       ↓
+                        Step B loss     ←     gradient w.r.t. phase
+
+深度模型路径:  相位 (cos/sin) ──> U-Net ──> intensity
+                              ↑              ↑
+                            PyTorch       autograd
+                              ↓              ↓
+                        Step B loss     ←     gradient w.r.t. phase
+```
+
+**关键区别**:
+
+| 维度 | 物理模型 (Zernike FFT) | 深度模型 (U-Net) |
+|---|---|---|
+| **参数量** | 135 (Zernike 系数) | 7,778,465 |
+| **训练数据** | 8 训练探针 | 11,393 硬件样本 |
+| **正向预测** | FFT (解析, 确定性) | 卷积 (学习, 近似) |
+| **反向梯度** | FFT -adjoint (精确) | autograd (数值) |
+| **泛化边界** | Zernike 基不足 | 训练分布覆盖范围 |
+| **相关性** | 0.24–0.57 | 0.69–0.82 |
+| **部署成本** | 零训练, CPU 实时 | 训练+推理, GPU 加速 |
+
+**为什么深度模型提升相关性**: 物理模型假设小角 Fraunhofer 远场, 忽略
+SLM 像素耦合、器件非线性、相机光学通量等。在边缘和散斑区域, 物理模型
+残差 (图 7) 达到 CCD 信号的 15–30%, 深度模型通过训练学习到这些
+非线性修正项, 显著提升预测精度。
+
+**在 Step B 中的影响**: 深度模型的更准确预测意味着 Step B 的梯度
+更接近真实光学响应, 理论上可获得更好的成形结果 (更高 EE, 更低 CV)。
+但深度模型的 780 万参数引入了过拟合风险 —— 在训练分布外的相位,
+物理模型的泛化边界更可预期。
+
 ### Zernike 系数谱 (Step A 拟合)
 
 ![Zernike 谱](images/mil_zernike_spectrum.png)
