@@ -675,6 +675,10 @@ GS 有扰动时开环 GS 相位实测分数仅 0.2707，低于平场 0.4249，�
 | 训练探针选择强度 PSF | **0.8501** / 0.5218 | 0.7758 / 0.6835 |
 | 训练探针选择周期相位平滑 | 0.7851 / 0.5915 | 0.6826 / 0.7297 |
 
+![New session external verification](images/mil_new_session_verification.png)
+
+*Figure: Warm-start vs cold-start phase and CCD comparison from the new session (seed 81). Left to right: holdout phase (64×64 rad), raw CCD frame, model prediction, shaped phase + CCD. (中文解释: 左起: 留出相位 (64×64 rad)、原始 CCD 帧、模型预测、成形相位叠加 CCD. 新会话 (种子 81) 冷启动在自由相位上的相关性 (0.706–0.708) 显著优于热启动 (0.633–0.649).)*
+
 新会话的 PSF 在平滑/Zernike 留出继续提升相关性，但自由相位 NRMSE 再次恶化；相位平滑在自由相位上再次明显失败。两组采集在相同种子、相同相位上重复，不能把它们当成独立统计样本计算显著性；重复的方向足以说明这两个训练损失选择规则尚不适合 Step B。在线算法仍使用原正向模型，不把候选平滑项或曝光曲线偷偷接入。下一轮快速适配实验应比较多起点 Step A，保留训练以外的自由相位探针用于选择，再采未参与选择的新自由相位作最终验收，并继续以 0.4 ms 为 Daheng 上限。
 
 ### 滤光片条件下的背景计数敏感性

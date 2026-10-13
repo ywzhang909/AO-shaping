@@ -793,6 +793,97 @@ def render_probe_phase_ccd_montage() -> Path:
 
 
 # ---------------------------------------------------------------------------
+# Figure 10: New session external verification (phase + CCD images)
+# ---------------------------------------------------------------------------
+
+
+def render_new_session_verification() -> Path:
+    """Render phase and CCD comparison from the new session (seed 81)
+    external verification experiment, showing holdout and shaped phases
+    from both warm-start and cold-start runs.
+    """
+    runs = [
+        (
+            "Warm-start (201100)",
+            ROOT / "data" / "debug" / "slm_model_in_loop" / "20261013_201100",
+        ),
+        (
+            "Cold-start (201229)",
+            ROOT / "data" / "debug" / "slm_model_in_loop" / "20261013_201229",
+        ),
+    ]
+
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+
+    for row_idx, (label, run_dir) in enumerate(runs):
+        probe_dir = run_dir / "probes"
+        holdout_files = sorted(probe_dir.glob("round_*holdout_freeform_*.npz"))
+        if not holdout_files:
+            holdout_files = sorted(probe_dir.glob("round_*holdout_*.npz"))[:2]
+        shaped_files = sorted(probe_dir.glob("round_*shaped_*.npz"))
+
+        # Column 0: Phase image (first holdout)
+        if holdout_files:
+            data = np.load(holdout_files[0])
+            phase = np.array(data["phase"], dtype=np.float64)
+            axes[row_idx, 0].imshow(phase, cmap="twilight", interpolation="none")
+            axes[row_idx, 0].set_title(f"{label}: Holdout Phase", fontsize=10)
+            axes[row_idx, 0].axis("off")
+
+        # Column 1: CCD raw frame (first holdout)
+        if holdout_files:
+            data = np.load(holdout_files[0])
+            ccd = np.array(data["raw_frame"], dtype=np.float64)
+            axes[row_idx, 1].imshow(
+                ccd / max(float(ccd.max()), 1e-12), cmap="gray", interpolation="none"
+            )
+            axes[row_idx, 1].set_title(f"{label}: CCD Frame (raw)", fontsize=10)
+            axes[row_idx, 1].axis("off")
+
+        # Column 2: Model prediction (freeform holdout if available, else first)
+        if holdout_files:
+            data = np.load(holdout_files[-1])
+            pred = np.array(data["prediction"], dtype=np.float64)
+            meas = np.array(data["model_grid"], dtype=np.float64)
+            peak = max(float(np.max(meas)), 1e-12)
+            axes[row_idx, 2].imshow(pred / peak, cmap="hot", interpolation="none")
+            axes[row_idx, 2].set_title(f"{label}: Model Prediction", fontsize=10)
+            axes[row_idx, 2].axis("off")
+
+        # Column 3: Shaped phase + CCD
+        if shaped_files:
+            data = np.load(shaped_files[0])
+            phase_shaped = np.array(data["phase"], dtype=np.float64)
+            ccd_shaped = np.array(data["raw_frame"], dtype=np.float64)
+            phase_resized = np.repeat(np.repeat(phase_shaped, 4, axis=0), 4, axis=1)
+            combined = np.vstack(
+                [
+                    phase_resized / max(float(np.max(np.abs(phase_resized))), 1e-12),
+                    ccd_shaped / max(float(ccd_shaped.max()), 1e-12),
+                ]
+            )
+            im = axes[row_idx, 3].imshow(
+                combined, cmap="RdBu_r", interpolation="none", vmin=-1, vmax=1
+            )
+            axes[row_idx, 3].set_title(
+                f"{label}: Phase (top) + CCD (bottom)", fontsize=10
+            )
+            axes[row_idx, 3].axis("off")
+            fig.colorbar(im, ax=axes[row_idx, 3], fraction=0.046)
+
+    fig.suptitle(
+        "New Session External Verification: Phase & CCD Comparison (seed 81)",
+        fontsize=14,
+        y=1.02,
+    )
+    fig.tight_layout()
+    out = IMG_DIR / "mil_new_session_verification.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -834,6 +925,10 @@ def main() -> None:
     print("Generating probe phase-CCD montage...")
     img9 = render_probe_phase_ccd_montage()
     print(f"  -> {img9.relative_to(ROOT)}")
+
+    print("Generating new session verification...")
+    img10 = render_new_session_verification()
+    print(f"  -> {img10.relative_to(ROOT)}")
 
     print("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
 
