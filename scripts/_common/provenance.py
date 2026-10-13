@@ -614,6 +614,33 @@ REPORTS: dict[str, ReportProvenance] = {
         note="逆向整形中文报告：正向/反向 pred vs true 对比图 + ROI 扫描 + 术语表",
         extra_scripts=("scripts/freeform_vs_zernike.py",),
     ),
+    # -- 方形整形实机记录 ---------------------------------------------------
+    "report/shape_trials/gs_refine_fwdmodel_calibration.md": ReportProvenance(
+        script="scripts/generate_gs_refine_fwdmodel_report.py",
+        command="python scripts/generate_gs_refine_fwdmodel_report.py",
+        environment="离线+硬件",
+        note=(
+            "slm-gs-refine 三栏 GIF 第三栏的正向模型标定；本脚本离线重算标定前后对比、"
+            "补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物"
+        ),
+    ),
+    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染",
+        extra_scripts=("scripts/generate_gif_from_pkl.py",),
+    ),
+    "report/shape_trials/online_20261010.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染",
+        extra_scripts=("scripts/generate_gif_from_pkl.py",),
+    ),
+    "report/shape_trials/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note="方形整形实验目录索引",
+    ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,

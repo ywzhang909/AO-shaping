@@ -8,8 +8,12 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import imageio.v2 as imageio
 from pathlib import Path
+
+from loguru import logger
+
 from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
+    camera_window_from_far_field,
     forward_intensity,
 )
 from ao_shaping.utils.slm.phase_embed import pupil_side
@@ -32,16 +36,32 @@ def _load_config(pkl_path: Path) -> dict:
     return config
 
 
-def _pupil_geometry(pkl_path: Path, center_override: tuple[int, int] | None):
+def _pupil_geometry(
+    pkl_path: Path, center_override: tuple[int, int] | None
+) -> tuple[tuple[float, float], float] | None:
+    """Resolve the pupil geometry needed to simulate panel 3.
+
+    Returns ``None`` when either the pupil centre or the beam radius is unknown.
+    There is deliberately no fallback centre: a hardcoded one silently produces a
+    simulation that is *plausible but wrong*, which is worse than no simulation
+    because the GIF then shows three panels and invites the reader to compare
+    them. Sources, in priority order: explicit CLI override, ``forward_diagnostic.json``
+    (written by the bench probe), then the pkl's JSON sidecar.
+    """
     config = _load_config(pkl_path)
     center = center_override or config.get("pupil_center")
-    if center is None:
-        center = (960, 600)
     radius = config.get("beam_radius_px")
-    if radius is None:
+    if center is None or radius is None:
         return None
-    center = tuple(float(c) for c in center[:2])
-    return center, float(radius)
+    # Validate explicitly rather than trusting the sidecar: a malformed
+    # ``pupil_center`` (wrong length / non-numeric) used to reach the
+    # ``cx, cy = geometry[0]`` unpack and raise mid-render.
+    try:
+        cx, cy = (float(c) for c in center)
+    except (TypeError, ValueError):
+        logger.warning("忽略无法解析的 pupil_center: {!r}", center)
+        return None
+    return (cx, cy), float(radius)
 
 
 def _build_bench_config(config: dict) -> ShapingBenchConfig:
@@ -93,6 +113,13 @@ def generate_gif(
     pupil_center: tuple[int, int] | None = None,
 ) -> Path:
     geometry = _pupil_geometry(pkl_path, pupil_center)
+    if geometry is None:
+        logger.warning(
+            "缺少瞳孔几何, 跳过第三栏仿真 (pupil centre / beam radius unknown). "
+            "来源需为: {}.json, 同目录 forward_diagnostic.json, "
+            "或命令行第三参数 pupil_x,pupil_y。",
+            pkl_path.stem,
+        )
     with open(pkl_path, "rb") as f:
         data = pickle.load(f)
 
@@ -143,18 +170,19 @@ def generate_gif(
             pupil_gray = _extract_pupil_phase(phase, geometry[1], geometry[0])
             pupil_rad = _gray_to_radians(pupil_gray, slm_wavelength)
             sim_far = forward_intensity(pupil_rad, bench_cfg)
-            sim_far = sim_far / max(sim_far.max(), 1e-20)
-            sh, sw = sim_far.shape
-            s_crop = min(sh, sw, 500)
-            sim_crop = sim_far[
-                sh // 2 - s_crop // 2 : sh // 2 + s_crop // 2,
-                sw // 2 - s_crop // 2 : sw // 2 + s_crop // 2,
-            ]
+            # Put the simulation on the SAME camera pixel grid as panel 1, so the
+            # two are directly comparable. Cropping "relative pixels" out of the
+            # far field (what this used to do) leaves panel 3 ~30x larger-scale
+            # than the measured window on this bench and not comparable at all.
+            sim_crop = camera_window_from_far_field(
+                sim_far, bench_cfg, np.asarray(img).shape
+            )
+            sim_crop = sim_crop / max(sim_crop.max(), 1e-20)
             im2 = axes[2].imshow(
                 sim_crop, cmap="hot", vmin=0, vmax=np.percentile(sim_crop, 99)
             )
             axes[2].set_title(
-                "Epoch {} - simulated FFT far field\n(lambda={}nm, f={:.1f}mm)".format(
+                "Epoch {} - simulated far field\n(camera px, lambda={}nm, f={:.1f}mm)".format(
                     k, slm_wavelength, bench_cfg.focal_length * 1000
                 )
             )

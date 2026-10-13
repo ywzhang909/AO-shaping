@@ -181,3 +181,60 @@ def forward_intensity(
     pupil = cfg.make_gaussian_pupil().astype(np.complex128)
     field = pupil * np.exp(1j * np.asarray(phase, dtype=np.complex128))
     return _fraunhofer_intensity_from_field(field, cfg.far_field_size)
+
+
+#: Default camera pixel pitch (um) for the Daheng MER2-507 used on this bench.
+DEFAULT_CAMERA_PIXEL_UM = 2.2
+
+
+def camera_window_from_far_field(
+    intensity: np.ndarray,
+    cfg: SquareShapingConfig | ShapingBenchConfig,
+    window_shape: tuple[int, int],
+    *,
+    camera_pixel_um: float = DEFAULT_CAMERA_PIXEL_UM,
+) -> np.ndarray:
+    """把远场重采样到**相机像元网格**并居中裁剪成 ``window_shape``。
+
+    为什么需要这一步: :func:`forward_intensity` 的远场像元间距是
+    ``lambda*f/(aperture_size*padding)`` (见
+    :attr:`SquareShapingConfig.far_field_pixel_size`), 与相机像元间距**无关**。
+    在本台架上 ``n_grid = pupil_side(450) = 900``、``padding = 3`` 时远场视场约
+    16.6 mm, 而相机 250 px 窗只覆盖 0.55 mm —— 相差约 30 倍。直接并排显示会让
+    第三栏与第一栏无法逐像素比较。
+
+    两个方向都要处理: 远场比相机**细**时抽稀, 比相机**粗**时插值放大 (否则光斑
+    会被画得比真实更小)。本台架 ``padding=3`` 属后者。
+
+    Args:
+        intensity: :func:`forward_intensity` 的输出 (焦平面强度)。
+        cfg: 产生该远场的配置, 用于取 ``far_field_pixel_size``。
+        window_shape: 目标 ``(rows, cols)``, 通常是实测帧的形状。
+        camera_pixel_um: 相机像元间距 (um)。
+
+    Returns:
+        形状为 ``window_shape``、单位为相机像元的强度。
+
+    Raises:
+        ValueError: 若重采样后仍小于请求的窗口。
+    """
+    from scipy.ndimage import zoom
+
+    px_far_m = cfg.far_field_pixel_size
+    px_cam_m = camera_pixel_um * 1e-6
+    if px_far_m <= 0 or px_cam_m <= 0:
+        raise ValueError("pixel sizes must be positive")
+
+    image: np.ndarray = np.asarray(intensity, dtype=np.float64)
+    ratio = px_far_m / px_cam_m  # >1: far field is finer than the camera
+    if abs(ratio - 1.0) > 1e-9:
+        image = np.asarray(zoom(image, ratio, order=1, mode="nearest"))
+
+    rows, cols = window_shape
+    if image.shape[0] < rows or image.shape[1] < cols:
+        raise ValueError(
+            f"far field {image.shape} too small for camera window {window_shape}"
+        )
+    r0 = (image.shape[0] - rows) // 2
+    c0 = (image.shape[1] - cols) // 2
+    return image[r0 : r0 + rows, c0 : c0 + cols]
