@@ -133,7 +133,7 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
         get_camera_exposure_ms,
     )
     from ao_shaping.drivers.slm import Santec
-    from ao_shaping.optimizer.wfless.slm_zernike_common import (
+    from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
         SlotRotator,
         display_rotating,
         zernike_to_phase,

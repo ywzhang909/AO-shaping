@@ -219,6 +219,31 @@ class TestSharedModuleContract:
         ):
             assert hasattr(common, name), name
 
-    def test_importing_common_does_not_import_hardware(self):
-        # Optimizer-layer module: must stay importable without native SDKs.
+    def test_module_defines_no_device_classes(self):
+        # The module owns the *how to drive* layer, not the devices: it must not
+        # bind a driver class, only the MEMORY_MODE_INTERNAL constant.
         assert "Santec" not in common.__dict__
+        assert isinstance(common.MEMORY_MODE_INTERNAL, int)
+
+    def test_import_does_not_load_a_native_sdk(self):
+        """The module docstring claims it stays importable without native SDKs.
+
+        Assert that for real, in a clean interpreter: ``gxipy`` is the Daheng
+        SDK wrapper, so its absence from ``sys.modules`` is the observable
+        proof that no ``ctypes.CDLL`` was taken.
+        """
+        import subprocess
+        import sys
+
+        code = (
+            "import sys;"
+            "import ao_shaping.optimizer.wfless.slm_zernike_primitives;"
+            "assert 'gxipy' not in sys.modules, sorted(m for m in sys.modules if 'gxipy' in m)"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=180,
+        )
+        assert proc.returncode == 0, proc.stderr[-2000:]

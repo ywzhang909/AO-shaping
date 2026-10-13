@@ -144,7 +144,7 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         # coupling + scattering then bias the result badly (measured 40.6 ms with a
         # stale phase vs 3 ms on a flat one).
         from ao_shaping.drivers.slm import Santec
-        from ao_shaping.optimizer.wfless.slm_zernike_common import (
+        from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
             SlotRotator,
             display_rotating,
         )

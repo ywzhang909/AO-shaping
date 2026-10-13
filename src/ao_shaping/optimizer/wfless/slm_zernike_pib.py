@@ -813,11 +813,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 radius(init_img, center=reference_center, energy=0.8),
                 gradient_history=_gradient_history,
                 pib_history=_pib_history,
-                epoch=0,
-            
-                                ideal_r=IDEAL_SPOT_RADIUS,
-                                max_lr=SCHEDULE_MAX_LR,
-                                max_delta=SCHEDULE_MAX_DELTA,)
+                ideal_r=IDEAL_SPOT_RADIUS,
+                max_lr=SCHEDULE_MAX_LR,
+                max_delta=SCHEDULE_MAX_DELTA,
+            )
 
         # Track the objective's OWN value. For "pib" that is the exposure-
         # independent bucket ratio at the FIXED ideal radius (matches the logged
@@ -1481,10 +1480,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                                 gradient_history=_gradient_history,
                                 pib_history=_pib_history,
                                 epoch=epoch,
-                            
                                 ideal_r=IDEAL_SPOT_RADIUS,
                                 max_lr=SCHEDULE_MAX_LR,
-                                max_delta=SCHEDULE_MAX_DELTA,)
+                                max_delta=SCHEDULE_MAX_DELTA,
+                            )
 
                     # Track best result in the objective's own direction.
                     improved = (

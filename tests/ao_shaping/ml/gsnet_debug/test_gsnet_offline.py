@@ -468,7 +468,7 @@ class TestHardwareParity:
     wrong forward model and the run is silently worthless.
 
     The authority is the live path in
-    ``optimizer/wfless/slm_zernike_pib._zernike_to_phase``:
+    ``optimizer/wfless/slm_zernike_primitives.zernike_to_phase``:
 
         parse_zernike_coefficients(c, n_max=n_max)
             -> PatternHelper(resolution=(SLM_WIDTH, SLM_HEIGHT), bits=10)

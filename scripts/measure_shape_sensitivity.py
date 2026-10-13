@@ -87,7 +87,7 @@ def main() -> None:
         set_camera_exposure_ms,
     )
     from ao_shaping.drivers.slm import Santec
-    from ao_shaping.optimizer.wfless.slm_zernike_common import (
+    from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
         SlotRotator,
         display_rotating,
         zernike_to_phase,

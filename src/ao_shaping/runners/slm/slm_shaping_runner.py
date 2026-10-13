@@ -67,9 +67,9 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     optimize_slm_square,
 )
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
-    SlotRotator,
     display_rotating,
 )
+from ao_shaping.optimizer.wfless import slm_zernike_pib as _pib_module
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     SLM_RESOLUTION,
     SlmZernikePibConfig,
@@ -194,7 +194,12 @@ _SQUARE_DEBUG_SCALAR_KEYS = (
 _SQUARE_DEBUG_IMG_KEYS = ("_img",)
 _SQUARE_DEBUG_1D_KEYS = ("_c", "_grad")
 
-_SLOT_ROTATOR = SlotRotator()
+# Shares slm_zernike_pib's counter: the auto-exposure probe below writes a slot
+# before optimize_slm_zernike_pib() starts, and a second counter would restart at
+# the same slot. Consecutive writes to one slot are a firmware no-op, so with
+# --init-c the optimizer's first display (non-zero coefficients) could be
+# swallowed and the first measurement would read the probe's flat phase.
+_SLOT_ROTATOR = _pib_module._SLOT_ROTATOR
 
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:
