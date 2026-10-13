@@ -1352,6 +1352,36 @@ Outputs to `report/slm_pib_rms_pib_hw/`:
 | `--max-runs` | `5` | How many runs to render (newest first) |
 | `-o, --output` | `report/slm_pib_rms_pib_hw` | Output directory |
 
+### generate_gs_refine_fwdmodel_report.py
+
+Generates the **forward-model calibration** report for the three-panel
+`slm-gs-refine` GIFs: `report/shape_trials/gs_refine_fwdmodel_calibration.md` +
+`figures/`. Fully offline — reads only the saved `data/debug/slm_gs_refine/*/*.pkl`
+artefacts (recorded SLM grayscale + measured CCD frame) and drives
+`ao_shaping.utils.slm.gs_debug_optics`. Never opens a device.
+
+**Why it exists**: the GIF's third panel used to be an *uncalibrated* same-size
+FFT — no wavelength, focal length or pixel pitch anywhere, 2π assumed 1023 grey
+instead of the bench's measured 993, an unpadded 1200×1920 transform (1.60×
+anisotropic), and a hard disk instead of the measured illumination. The report
+records the six defects, the two hypotheses it **falsified** (far-field centre
+offset; "Gaussian beam"), the before/after validation, the zero-padding sweep, and
+a negative result: the residual is **not** a PSF/frequency-response effect, so the
+fitted blur knob is left defaulted off and locked by a test.
+
+**Usage:**
+```bash
+python scripts/generate_gs_refine_fwdmodel_report.py
+python scripts/generate_gs_refine_fwdmodel_report.py --data-root <path>/data/debug
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--data-root` | `<repo>/data/debug` | directory holding `slm_gs_refine/`. Needed when running from a worktree, where the gitignored `data/` tree is absent |
+
+Writes the markdown **with** its provenance header stamped via `insert_header`, so
+a re-run cannot delete it. Runtime is minutes (one 4096² FFT per sample).
+
 ### generate_beam_shaping_benchmark_report.py
 
 Regenerates the **authoritative 9-cell beam-shaping benchmark** (3 algorithms x 3

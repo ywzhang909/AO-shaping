@@ -60,6 +60,10 @@
 | [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w_loggrad)、2 类早已存在、3 类否决, 附实测依据 |
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
+| [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 离线+硬件 | 方形整形实验目录索引 |
+| [`shape_trials/gs_refine_fwdmodel_calibration.md`](shape_trials/gs_refine_fwdmodel_calibration.md) | `scripts/generate_gs_refine_fwdmodel_report.py` | 离线+硬件 | slm-gs-refine 三栏 GIF 第三栏的正向模型标定；本脚本离线重算标定前后对比、补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物 |
+| [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染 |
+| [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | 2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染 |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
 | [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+slm_zernike_sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
