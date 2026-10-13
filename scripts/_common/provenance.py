@@ -212,7 +212,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/generate_bench_probe_report.py",
         environment="离线",
         note="读台架 sweep 落盘的 npz/json/pkl，仪器可断电",
-        extra_scripts=("src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py",),
+        extra_scripts=("src/ao_shaping/tools/zernike/sweep_probe.py",),
     ),
     "report/slm/zernike_linearity/linearity.md": ReportProvenance(
         script="scripts/generate_zernike_linearity_report.py",
