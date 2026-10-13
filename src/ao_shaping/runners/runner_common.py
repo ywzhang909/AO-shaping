@@ -2519,7 +2519,7 @@ class SlmModelInLoopParams:
         int, option("--holdout-probe-count", help="Independent phases for forward-model validation per round.")
     ] = 2
     min_holdout_correlation: Annotated[
-        float, option("--min-holdout-correlation", help="Minimum mean CCD/model correlation on held-out phases.")
+        float, option("--min-holdout-correlation", help="Minimum CCD/model correlation for every held-out phase.")
     ] = 0.5
     step_a_lr: Annotated[
         float,
@@ -3085,6 +3085,43 @@ def save_model_in_loop_results(
     save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
     csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
     result.recorder.save_dataframe(csv_file)
+
+    if result.fitted_coefficients is not None:
+        np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
+    if result.source_amplitude is not None:
+        np.save(save_dir / "source_amplitude.npy", result.source_amplitude)
+
+    if debug and result.probe_records:
+        probes_dir = save_dir / "probes"
+        probes_dir.mkdir(parents=True, exist_ok=True)
+        manifest = []
+        for record in result.probe_records:
+            name = (
+                f"round_{record['round']:02d}_{record['split']}_"
+                f"{record['index']:02d}.npz"
+            )
+            arrays = {
+                key: np.asarray(record[key], dtype=np.float32)
+                for key in ("phase", "raw_frame", "frame", "model_grid", "prediction")
+                if record.get(key) is not None
+            }
+            np.savez_compressed(probes_dir / name, **arrays)
+            manifest.append(
+                {
+                    "file": name,
+                    "round": record["round"],
+                    "split": record["split"],
+                    "family": record.get("family"),
+                    "index": record["index"],
+                    "exposure_ms": record.get("exposure_ms"),
+                    "correlation": record.get("correlation"),
+                    "frame_reference_exposure_ms": 0.02,
+                    "raw_frame_note": "separate CCD read after the settled frame",
+                }
+            )
+        (probes_dir / "manifest.json").write_text(
+            json.dumps(manifest, indent=2), encoding="utf-8"
+        )
 
     phase_file = None
     best_phase = result.best_phase

@@ -311,7 +311,7 @@ class SlmModelInLoopConfig:
     """Independent phase probes never used by Step A's fit."""
 
     min_holdout_correlation: float = 0.5
-    """Require this mean CCD/model Pearson correlation before Step B."""
+    """Require each independent CCD/model Pearson correlation before Step B."""
     step_a_lr: float = 0.05
     """Adam lr for the shared aberration fit.
 
@@ -597,6 +597,9 @@ class ModelInLoopResult:
     flat_score: float
     best_score: float
     config: SlmModelInLoopConfig
+    probe_records: list[dict[str, Any]] = field(default_factory=list)
+    fitted_coefficients: np.ndarray | None = None
+    source_amplitude: np.ndarray | None = None
 
 
 @dataclass
@@ -681,7 +684,9 @@ class Bench(Protocol):
 CalibrationRecordLike = Any
 
 
-def _probe_phase(region: int, spread: float, seed: int) -> np.ndarray:
+def _probe_phase(
+    region: int, spread: float, seed: int, *, smooth: bool = False
+) -> np.ndarray:
     """Strong, zero-mean Gaussian pupil phase used to interrogate the bench.
 
     Step A cannot identify a smooth low-order aberration from a near-flat pupil:
@@ -697,9 +702,35 @@ def _probe_phase(region: int, spread: float, seed: int) -> np.ndarray:
     Returns:
         A ``(region, region)`` float64 array of raw radians.
     """
-    return np.random.default_rng(int(seed)).normal(
-        0.0, float(spread), (int(region), int(region))
+    phase = np.random.default_rng(int(seed)).normal(
+        0.0, 1.0, (int(region), int(region))
     )
+    if smooth:
+        from scipy.ndimage import gaussian_filter
+
+        # Vary bandwidth across seeds while keeping the phase reproducible.
+        sigma = max(2.0, int(region) / (8.0 + int(seed) % 5))
+        phase = gaussian_filter(phase, sigma=sigma, mode="reflect")
+    phase -= phase.mean()
+    return phase * (float(spread) / max(float(phase.std()), 1e-12))
+
+
+def _structured_probe_phase(region: int, spread: float, seed: int) -> np.ndarray:
+    """Independent low-order aberration probe for cross-family validation."""
+    from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+
+    rng = np.random.default_rng(int(seed))
+    coefficients = {noll: float(value) for noll, value in zip(
+        range(4, 12), rng.normal(size=8), strict=True
+    )}
+    raw_phase = generate_zernike_phase(
+        coefficients, (int(region), int(region)), n_max=4
+    )
+    aperture = np.isfinite(raw_phase)
+    phase = np.nan_to_num(raw_phase).astype(np.float64)
+    phase[aperture] -= phase[aperture].mean()
+    phase *= float(spread) / max(float(phase[aperture].std()), 1e-12)
+    return phase
 
 
 class _SimBench:
@@ -927,6 +958,7 @@ class _HardwareBench:
         self._pupil_center = config.pupil_center
         self._pending: np.ndarray | None = None
         self.last_exposure_ms: float | None = None
+        self.last_raw_frame: np.ndarray | None = None
         self._closed = False
 
     def display(self, phase_model: np.ndarray) -> None:
@@ -962,6 +994,7 @@ class _HardwareBench:
             if not 0 < actual_ms <= self._config.max_exposure_ms + 1e-9:
                 raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
             raw = self._cam.get_numpy_image(n_sample=1)
+            self.last_raw_frame = np.asarray(raw).copy()
             decision = choose_exposure(
                 raw, actual_ms, max_ms=self._config.max_exposure_ms
             )
@@ -1346,14 +1379,38 @@ def _make_optimizer(
 
 def _prediction_correlation(predicted: np.ndarray, measured: np.ndarray) -> float:
     """Pearson agreement on an independent phase, insensitive to CCD exposure."""
-    a = np.asarray(predicted, dtype=np.float64).ravel()
-    b = np.asarray(measured, dtype=np.float64).ravel()
+    a = np.asarray(predicted, dtype=np.float64).ravel().copy()
+    b = np.asarray(measured, dtype=np.float64).ravel().copy()
     if a.shape != b.shape or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
         return float("nan")
     a -= a.mean()
     b -= b.mean()
     denominator = float(np.linalg.norm(a) * np.linalg.norm(b))
     return float(np.dot(a, b) / denominator) if denominator > 0 else float("nan")
+
+
+def _fit_flat_leakage(
+    optimizer: Any,
+    coefficients: np.ndarray,
+    frames: Sequence[tuple[np.ndarray, np.ndarray]],
+    source_amplitude: np.ndarray,
+    flat_grid: np.ndarray,
+) -> tuple[float, float]:
+    """Fit one nonnegative model gain and one phase-independent flat leakage."""
+    from scipy.optimize import nnls
+
+    features = []
+    measurements = []
+    for measured, phase in frames:
+        predicted = optimizer.forward_intensity(coefficients, phase, source_amplitude)
+        if predicted.shape != measured.shape or predicted.shape != flat_grid.shape:
+            raise ValueError("leakage calibration grids must have identical shapes")
+        features.append(np.stack((predicted.ravel(), flat_grid.ravel()), axis=1))
+        measurements.append(np.asarray(measured, dtype=np.float64).ravel())
+    if not features:
+        raise ValueError("leakage calibration needs a probe frame")
+    weights, _ = nnls(np.concatenate(features), np.concatenate(measurements))
+    return float(weights[0]), float(weights[1])
 
 
 # ---------------------------------------------------------------------------
@@ -1399,6 +1456,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     from ao_shaping.utils.io.file import Recorder
 
     recorder = Recorder()
+    probe_records: list[dict[str, Any]] = []
 
     # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
     # (piston), so its length is the full term count, not the optimizer's
@@ -1426,6 +1484,18 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
         bench.display(flat_phase)
         flat_frame = prepare_frame(bench.measure())
+        if config.cam_type != "sim":
+            probe_records.append(
+                {
+                    "round": 0,
+                    "split": "flat",
+                    "index": 0,
+                    "phase": flat_phase.copy(),
+                    "raw_frame": getattr(bench, "last_raw_frame", None),
+                    "frame": flat_frame.copy(),
+                    "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                }
+            )
         if not np.any(flat_frame > 0):
             raise RuntimeError(
                 "the flat-phase frame is empty after background subtraction; "
@@ -1506,6 +1576,30 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             / float(config.panel_span_px),
         )
         source_amplitude = gaussian_grid(int(config.region), waist_model)
+        flat_grid: np.ndarray | None = None
+        if config.cam_type != "sim":
+            flat_grid = _to_model_grid(
+                flat_frame,
+                roi_center,
+                int(geometry.far_field_size),
+                cell_scale,
+                camera_rotation_quarters,
+            )
+            reference_model = _make_optimizer(
+                config, coefficients, source_amplitude
+            ).forward_intensity(coefficients, flat_phase, source_amplitude)
+            measured_peak = float(np.max(flat_grid))
+            model_peak = float(np.max(reference_model))
+            if measured_peak <= 0 or model_peak <= 0:
+                raise RuntimeError("cannot calibrate model intensity from the flat frame")
+            source_amplitude *= np.sqrt(measured_peak / model_peak)
+            logger.info(
+                "flat-frame intensity anchor: CCD {:.4g}, model {:.4g}, "
+                "amplitude scale {:.4g}",
+                measured_peak,
+                model_peak,
+                np.sqrt(measured_peak / model_peak),
+            )
 
         flat_metrics = _metrics_at(flat_frame, target_camera, roi_center)
         flat_score = _quality(flat_metrics, config.w_efficiency, config.w_uniformity)
@@ -1600,9 +1694,22 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     config.region,
                     config.probe_spread,
                     config.seed + index * 1000 + probe_index,
+                    smooth=config.cam_type != "sim",
                 )
                 bench.display(probe)
                 measured = prepare_frame(bench.measure())
+                if config.cam_type != "sim":
+                    probe_records.append(
+                        {
+                            "round": index + 1,
+                            "split": "train",
+                            "index": probe_index,
+                            "phase": probe.copy(),
+                            "raw_frame": getattr(bench, "last_raw_frame", None),
+                            "frame": measured.copy(),
+                            "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                        }
+                    )
                 if live_display is not None and not live_display.closed:
                     # The most informative frame of the whole loop: the
                     # prediction here uses the coefficients as they stand
@@ -1649,8 +1756,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             )
             loss_before = float(losses[0]) if losses else float("nan")
             loss_after = float(losses[-1]) if losses else float("nan")
-            del frames
-
             # --- Guard 1: trust region on the coefficient change -----------
             clamped, step_l2, clamp_applied = trust_region_clamp(
                 fitted, coefficients, float(config.trust_region_c_l2)
@@ -1662,14 +1767,35 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     float(config.trust_region_c_l2),
                 )
 
+            model_gain, leakage = 1.0, 0.0
+            if flat_grid is not None:
+                model_gain, leakage = _fit_flat_leakage(
+                    optimizer, clamped, frames, source_amplitude, flat_grid
+                )
+                logger.info(
+                    "round {} forward calibration: gain {:.4f}, flat leakage {:.4f}",
+                    index + 1,
+                    model_gain,
+                    leakage,
+                )
+            del frames
+
             holdout_correlation = float("nan")
             if config.cam_type != "sim":
                 holdout_correlations: list[float] = []
                 for holdout_index in range(config.holdout_probe_count):
-                    holdout_phase = _probe_phase(
-                        config.region,
-                        config.probe_spread,
-                        config.seed + 1_000_000 + index * 1000 + holdout_index,
+                    holdout_seed = (
+                        config.seed + 1_000_000 + index * 1000 + holdout_index
+                    )
+                    holdout_phase = (
+                        _probe_phase(
+                            config.region, config.probe_spread, holdout_seed,
+                            smooth=True,
+                        )
+                        if holdout_index < 2
+                        else _structured_probe_phase(
+                            config.region, config.probe_spread, holdout_seed
+                        )
                     )
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
@@ -1683,8 +1809,25 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     prediction = optimizer.forward_intensity(
                         clamped, holdout_phase, source_amplitude
                     )
+                    if flat_grid is not None:
+                        prediction = model_gain * prediction + leakage * flat_grid
                     holdout_correlations.append(
                         _prediction_correlation(prediction, holdout_grid)
+                    )
+                    probe_records.append(
+                        {
+                            "round": index + 1,
+                            "split": "holdout",
+                            "index": holdout_index,
+                            "family": "smooth" if holdout_index < 2 else "zernike",
+                            "phase": holdout_phase.copy(),
+                            "raw_frame": getattr(bench, "last_raw_frame", None),
+                            "frame": holdout_frame.copy(),
+                            "model_grid": holdout_grid.copy(),
+                            "prediction": np.asarray(prediction).copy(),
+                            "correlation": holdout_correlations[-1],
+                            "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                        }
                     )
                 holdout_correlation = float(np.mean(holdout_correlations))
                 logger.info(
@@ -1695,7 +1838,10 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             if config.cam_type != "sim" and (
                 not np.isfinite(holdout_correlation)
-                or holdout_correlation < config.min_holdout_correlation
+                or not all(
+                    np.isfinite(value) and value >= config.min_holdout_correlation
+                    for value in holdout_correlations
+                )
             ):
                 recorder.history.append(
                     {
@@ -1723,9 +1869,51 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 device=config.device,
                 seed=int(config.seed) + index,
                 source_amplitude=source_amplitude,
+                model_gain=model_gain,
+                background_intensity=(
+                    leakage * flat_grid if flat_grid is not None else None
+                ),
             )
             bench.display(np.asarray(shaped, dtype=np.float64))
             shaped_frame = prepare_frame(bench.measure())
+            shaped_prediction_correlation = float("nan")
+            if config.cam_type != "sim":
+                shaped_grid = _to_model_grid(
+                    shaped_frame,
+                    roi_center,
+                    int(geometry.far_field_size),
+                    cell_scale,
+                    camera_rotation_quarters,
+                )
+                shaped_prediction = optimizer.forward_intensity(
+                    clamped, shaped, source_amplitude
+                )
+                if flat_grid is not None:
+                    shaped_prediction = (
+                        model_gain * shaped_prediction + leakage * flat_grid
+                    )
+                shaped_prediction_correlation = _prediction_correlation(
+                    shaped_prediction, shaped_grid
+                )
+                probe_records.append(
+                    {
+                        "round": index + 1,
+                        "split": "shaped",
+                        "index": 0,
+                        "phase": shaped.copy(),
+                        "raw_frame": getattr(bench, "last_raw_frame", None),
+                        "frame": shaped_frame.copy(),
+                        "model_grid": shaped_grid.copy(),
+                        "prediction": np.asarray(shaped_prediction).copy(),
+                        "correlation": shaped_prediction_correlation,
+                        "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                    }
+                )
+                logger.info(
+                    "round {} shaped-phase forward correlation: {:.4f}",
+                    index + 1,
+                    shaped_prediction_correlation,
+                )
             shaped_metrics = _metrics_at(shaped_frame, target_camera, roi_center)
             score_after = _quality(
                 shaped_metrics, config.w_efficiency, config.w_uniformity
@@ -1777,6 +1965,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             }
             if config.cam_type != "sim":
                 row["holdout_correlation"] = holdout_correlation
+                row["shaped_prediction_correlation"] = shaped_prediction_correlation
+                row["model_gain"] = model_gain
+                row["flat_leakage"] = leakage
                 row["exposure_ms"] = getattr(bench, "last_exposure_ms", None)
             recorder.history.append(row)
 
@@ -1910,6 +2101,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             flat_score=float(flat_score),
             best_score=float(best_score),
             config=config,
+            probe_records=probe_records,
+            fitted_coefficients=coefficients.copy(),
+            source_amplitude=source_amplitude.copy(),
         )
     finally:
         if live_display is not None:

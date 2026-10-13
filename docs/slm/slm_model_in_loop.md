@@ -129,18 +129,20 @@ python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam_type daheng --cam-id 0 --exposure_time_ms 1.5 \
-    --slm_number 1 --slm_wavelength 1064 \
-    --panel-span-px 900 --pupil-center 960,600 --camera-pixel-um 2.2 \
-    -r 6
+    --cam-type daheng --cam-id 0 --exposure-time-ms 0.02 \
+    --max-exposure-ms 0.4 --slm-number 1 --slm-wavelength 1064 \
+    --panel-span-px 900 --pupil-center 960,690 --camera-pixel-um 2.2 \
+    --region 64 --far-field-padding 3 \
+    --geometry-file data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json \
+    --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
 ## 10. 上机前必跑表征探针 (顺序不能反)
 
 ```bash
-python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
-python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
-python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 0.4
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 0.4
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 ```
 
 见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。

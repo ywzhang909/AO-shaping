@@ -836,6 +836,8 @@ def shape_phase_with_frozen_aberration(
     device: str | None = None,
     seed: int = 0,
     source_amplitude: np.ndarray | None = None,
+    model_gain: float = 1.0,
+    background_intensity: np.ndarray | None = None,
 ) -> tuple[np.ndarray, list[float]]:
     """Run Step B: optimise a full-pixel phase under a frozen aberration.
 
@@ -900,6 +902,19 @@ def shape_phase_with_frozen_aberration(
     amplitude = torch.from_numpy(
         np.ascontiguousarray(amplitude_grid)
     ).to(device=dev, dtype=tdtype)
+    background = None
+    if background_intensity is not None:
+        background_array = np.asarray(background_intensity, dtype=np.float64)
+        expected = int(getattr(optimizer, "far_field_size", region))
+        if background_array.shape != (expected, expected):
+            raise ValueError("background_intensity must match the far-field grid")
+        if not np.all(np.isfinite(background_array)) or np.any(background_array < 0):
+            raise ValueError("background_intensity must be finite and nonnegative")
+        background = torch.from_numpy(np.ascontiguousarray(background_array)).to(
+            device=dev, dtype=tdtype
+        )
+    if not np.isfinite(model_gain) or model_gain <= 0:
+        raise ValueError("model_gain must be finite and positive")
     aberration = torch.einsum(
         "j,jhw->hw",
         torch.from_numpy(np.ascontiguousarray(coefficients, dtype=np.float64)).to(
@@ -950,6 +965,8 @@ def shape_phase_with_frozen_aberration(
         # intensity against a `far_field_size`-sized target.
         pad = int(getattr(optimizer, "far_field_size", region))
         intensity = focal_intensity(field, pad)
+        if background is not None:
+            intensity = float(model_gain) * intensity + background
         loss = total_loss(
             intensity,
             phase,

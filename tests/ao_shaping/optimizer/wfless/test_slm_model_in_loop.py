@@ -175,8 +175,11 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     ModelInLoopStatus,
     SlmModelInLoopConfig,
     _probe_phase,
+    _prediction_correlation,
+    _fit_flat_leakage,
     _quality,
     _seed_coefficients_from_checkpoint,
+    _structured_probe_phase,
     _to_model_grid,
     acceptance_verdict,
     optimize_slm_model_in_loop,
@@ -927,6 +930,52 @@ class TestProbePhase:
     def test_probe_is_finite(self) -> None:
         """A NaN probe silently blinds the fit rather than raising."""
         assert np.isfinite(_probe_phase(region=32, spread=4.0, seed=0)).all()
+
+    def test_hardware_probe_is_smooth_diverse_and_reproducible(self) -> None:
+        """Hardware probes must vary across seeds without pixel-scale speckle."""
+        smooth = _probe_phase(region=64, spread=4.0, seed=7, smooth=True)
+        other = _probe_phase(region=64, spread=4.0, seed=8, smooth=True)
+        pixel = _probe_phase(region=64, spread=4.0, seed=7)
+        np.testing.assert_array_equal(
+            smooth, _probe_phase(region=64, spread=4.0, seed=7, smooth=True)
+        )
+        assert not np.array_equal(smooth, other)
+        assert float(np.std(smooth)) == pytest.approx(4.0, rel=1e-6)
+        assert np.mean(np.abs(np.diff(smooth, axis=0))) < (
+            np.mean(np.abs(np.diff(pixel, axis=0))) / 3
+        )
+
+    def test_correlation_preserves_intensity_frames(self) -> None:
+        measured = np.arange(16, dtype=np.float64).reshape(4, 4)
+        predicted = measured.copy() * 2
+        original_measured = measured.copy()
+        original_predicted = predicted.copy()
+        assert _prediction_correlation(predicted, measured) == pytest.approx(1.0)
+        np.testing.assert_array_equal(measured, original_measured)
+        np.testing.assert_array_equal(predicted, original_predicted)
+
+    def test_flat_leakage_fit_recovers_shared_gain_on_distinct_probes(self) -> None:
+        class Forward:
+            def forward_intensity(self, coefficients, phase, amplitude):
+                return phase
+
+        flat = np.array([[4.0, 1.0], [1.0, 0.0]])
+        phases = [
+            np.array([[0.0, 2.0], [3.0, 1.0]]),
+            np.array([[2.0, 0.0], [1.0, 4.0]]),
+        ]
+        frames = [(1.5 * phase + 0.06 * flat, phase) for phase in phases]
+        assert _fit_flat_leakage(
+            Forward(), np.zeros(1), frames, np.ones((2, 2)), flat
+        ) == pytest.approx((1.5, 0.06))
+
+    def test_structured_holdout_is_independent_and_finite(self) -> None:
+        first = _structured_probe_phase(64, 4.0, 1)
+        second = _structured_probe_phase(64, 4.0, 2)
+        np.testing.assert_array_equal(first, _structured_probe_phase(64, 4.0, 1))
+        assert np.isfinite(first).all()
+        assert not np.array_equal(first, second)
+        assert float(first.std()) > 1.0
 
 
 # ---------------------------------------------------------------------------

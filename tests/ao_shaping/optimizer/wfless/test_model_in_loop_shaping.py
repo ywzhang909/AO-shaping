@@ -634,6 +634,27 @@ def test_loop_honours_a_wrong_initial_guess() -> None:
                 source_amplitude=np.ones((32, 32)),
             )
 
+    def test_step_b_uses_fixed_camera_background(self) -> None:
+        region = 32
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=4, region=region, dtype="float64", device="cpu", seed=0
+        )
+        coefficients = np.zeros(optimizer.coefficients.size)
+        target = create_target_mask("square", (region, region), 6)
+        start = np.zeros((region, region))
+        config = StepBConfig(iterations=12, lr=0.05, target_side=6)
+        ordinary, _ = shape_phase_with_frozen_aberration(
+            optimizer, coefficients, target, start, config, device="cpu", seed=3
+        )
+        background = np.zeros((region, region))
+        background[region // 2, region // 2] = 100.0
+        corrected, _ = shape_phase_with_frozen_aberration(
+            optimizer, coefficients, target, start, config,
+            device="cpu", seed=3, model_gain=1.5,
+            background_intensity=background,
+        )
+        assert not np.allclose(ordinary, corrected)
+
 
 class TestBenchGeometry:
     """The offline geometry calibration must recover a known bench."""

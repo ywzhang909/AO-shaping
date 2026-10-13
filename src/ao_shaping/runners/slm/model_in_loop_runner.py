@@ -30,7 +30,7 @@ from ao_shaping.runners.runner_common import (
     save_model_in_loop_results,
 )
 from ao_shaping.utils.cli.params import with_params
-from ao_shaping.utils.io.cli_helpers import get_debug_mode
+from ao_shaping.utils.io.cli_helpers import resolve_debug
 
 
 @click.command()
@@ -50,7 +50,7 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
       2  the geometry bake-off failed, or the bench stayed outside the model --
          the run refused to commit a phase. Use slm-gs-refine for that bench.
     """
-    debug = get_debug_mode()
+    debug = resolve_debug(ctx)
     root_dir = (
         Path(ctx.parent.obj.get("dir", "data"))
         if ctx.parent is not None and ctx.parent.obj is not None
