@@ -148,3 +148,4 @@ report/slm_pib_online*
 # the animated record of the Pearson-correlation runs and are the only visual
 # evidence for the `1 - Pearson` objective verdict, so they are reviewed in CI.
 .vscode/settings.json
+.codegraph*
