@@ -62,7 +62,8 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     click.echo("=" * 68)
     click.echo(
         f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size} "
-        f"exposure={params.exposure_time_ms or 'device default'}ms"
+        f"exposure={params.exposure_time_ms or 0.02}ms initial, "
+        f"max={params.max_exposure_ms}ms"
     )
     click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
     click.echo(

@@ -887,6 +887,12 @@ class TestToModelGrid:
         with pytest.raises(ValueError, match="camera_px_per_model_px must be > 0"):
             _to_model_grid(np.zeros((16, 16)), (8, 8), 8, 0.0)
 
+    def test_hardware_camera_rotation_returns_panel_axes(self) -> None:
+        frame = np.zeros((16, 16), dtype=np.float64)
+        frame[3, 8] = 1.0  # camera up is panel right on this bench
+        grid = _to_model_grid(frame, (8, 8), 16, 1.0, camera_rotation_quarters=1)
+        assert grid[8, 12] == 1.0
+
 
 class TestProbePhase:
     """The Step-A probes must be strong and reproducible.

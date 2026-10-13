@@ -1333,7 +1333,9 @@ def calibrate_bench_geometry(
     if not finite:
         raise ValueError("no record has a measurable spot (all zero or degenerate)")
     fwhm_meas = float(np.median(finite))
-    reference = measured[int(np.nanargmax(widths))]
+    reference_index = int(np.nanargmax(widths))
+    reference = measured[reference_index]
+    reference_phase = np.asarray(records[reference_index].phase, dtype=np.float64)
 
     # The model grid spans `panel_span_px` panel pixels, so its physical pitch is
     # that span times the SLM pitch divided by the number of samples. Using
@@ -1372,8 +1374,7 @@ def calibrate_bench_geometry(
         if a < 8:
             return None
         span_panel = 2.0 * a * model_to_panel
-        for record in records:
-            phase = np.asarray(record.phase, dtype=np.float64)
+        for phase in (reference_phase,):
             h, w = phase.shape
             if (h, w) == (region, region):
                 return phase

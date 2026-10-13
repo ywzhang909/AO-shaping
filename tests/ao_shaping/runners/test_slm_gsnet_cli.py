@@ -9,23 +9,26 @@ group registers ``slm-gsnet``.
 from __future__ import annotations
 
 from click.testing import CliRunner
+import click
+import pytest
 
-from ao_shaping.runners.slm.gsnet_runner import run
+from ao_shaping.runners.runner_common import CameraParams
+from ao_shaping.runners.slm.gsnet_runner import _validate_daheng_exposure, run
 
 SHARED_OPTIONS = (
     "-e",
     "--epochs",
-    "--cam_type",
-    "--exposure_time_ms",
-    "--cam_size",
-    "--slm_number",
-    "--slm_wavelength",
-    "--zernike_radius",
+    "--cam-type",
+    "--exposure-time-ms",
+    "--cam-size",
+    "--slm-number",
+    "--slm-wavelength",
+    "--zernike-radius",
     "--target-side",
     "--side-factor",
-    "--w_uniformity",
-    "--w_efficiency",
-    "--w_aspect",
+    "--w-uniformity",
+    "--w-efficiency",
+    "--w-aspect",
 )
 
 
@@ -41,10 +44,10 @@ def test_spgd_subcommand_option_surface():
     result = CliRunner().invoke(run, ["spgd", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in SHARED_OPTIONS + ("--delta", "--lr", "--optimizer_type"):
+    for opt in SHARED_OPTIONS + ("--delta", "--lr", "--optimizer-type"):
         assert opt in result.output, f"missing spgd option: {opt}"
     # heuristic-only knobs must not leak into spgd
-    for opt in ("--algorithm", "--pop_size"):
+    for opt in ("--algorithm", "--pop-size"):
         assert opt not in result.output, f"heuristic-only option leaked: {opt}"
 
 
@@ -52,10 +55,10 @@ def test_heuristic_subcommand_option_surface():
     result = CliRunner().invoke(run, ["heuristic", "--help"])
 
     assert result.exit_code == 0, result.output
-    for opt in SHARED_OPTIONS + ("--algorithm", "--pop_size"):
+    for opt in SHARED_OPTIONS + ("--algorithm", "--pop-size"):
         assert opt in result.output, f"missing heuristic option: {opt}"
     # spgd-only knobs must not leak into heuristic
-    for opt in ("--delta", "--optimizer_type"):
+    for opt in ("--delta", "--optimizer-type"):
         assert opt not in result.output, f"spgd-only option leaked: {opt}"
 
 
@@ -66,3 +69,22 @@ def test_main_cli_registers_slm_gsnet():
 
     assert result.exit_code == 0, result.output
     assert "slm-gsnet" in result.output
+
+
+@pytest.mark.parametrize("exposure", [0, -0.01, 0.401, 1.5])
+def test_daheng_exposure_rejected_before_hardware_open(exposure):
+    with pytest.raises(click.BadParameter, match="0.4"):
+        _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=exposure))
+
+
+def test_daheng_exposure_accepts_safe_fixed_value_and_sim_auto():
+    _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=0.02))
+    _validate_daheng_exposure(CameraParams(cam_type="sim", exposure_time_ms=0))
+
+
+def test_live_cli_rejects_over_limit_exposure_without_opening_devices():
+    result = CliRunner().invoke(
+        run, ["spgd", "--cam-type", "daheng", "--exposure-time-ms", "0.5"]
+    )
+    assert result.exit_code != 0
+    assert "require explicit exposure in (0, 0.4] ms" in result.output

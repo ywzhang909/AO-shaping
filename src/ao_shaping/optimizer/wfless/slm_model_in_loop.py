@@ -62,6 +62,10 @@ from loguru import logger
 #: which corrupts every ratio metric computed afterwards. Canonical home is
 #: the leaf ``utils`` layer, so this import pulls in no driver package.
 from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.image.exposure_control import (
+    choose_exposure,
+    exposure_normalized_frame,
+)
 from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_CENTER_PANEL,
     SLM_PITCH_M,
@@ -303,6 +307,11 @@ class SlmModelInLoopConfig:
     """
 
     step_a_iterations: int = 80
+    holdout_probe_count: int = 2
+    """Independent phase probes never used by Step A's fit."""
+
+    min_holdout_correlation: float = 0.5
+    """Require this mean CCD/model Pearson correlation before Step B."""
     step_a_lr: float = 0.05
     """Adam lr for the shared aberration fit.
 
@@ -387,6 +396,8 @@ class SlmModelInLoopConfig:
     """
 
     n_calibration_probes: int = 8
+    geometry_file: str | None = None
+    """Optional independently measured sweep geometry JSON."""
     min_geometry_correlation: float = 0.5
     """Abort before shaping if the calibrated geometry scores below this.
 
@@ -414,7 +425,10 @@ class SlmModelInLoopConfig:
     cam_type: str = "daheng"
     cam_id: int = 0
     exposure_time_ms: float = 0.0
-    """0 keeps the device default rather than pinning a value."""
+    """0 starts Daheng manual auto exposure at 0.02 ms."""
+
+    max_exposure_ms: float = 0.4
+    """Hard ceiling for Daheng manual exposure, including the initial setting."""
 
     cam_size: int = 300
     slm_number: int = 1
@@ -482,6 +496,10 @@ class SlmModelInLoopConfig:
                 f"probe_count must be >= 2 (a single probe cannot identify the "
                 f"aberration), got {self.probe_count}"
             )
+        if self.holdout_probe_count < 1:
+            raise ValueError("holdout_probe_count must be >= 1")
+        if not -1 <= self.min_holdout_correlation <= 1:
+            raise ValueError("min_holdout_correlation must lie in [-1, 1]")
         if self.probe_spread < 3.0:
             raise ValueError(
                 f"probe_spread must be >= 3.0 rad for the fit to be identifiable "
@@ -506,6 +524,12 @@ class SlmModelInLoopConfig:
             )
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
+        if self.cam_type == "daheng" and (
+            not 0 < self.max_exposure_ms <= 0.4
+            or self.exposure_time_ms < 0
+            or self.exposure_time_ms > self.max_exposure_ms
+        ):
+            raise ValueError("Daheng exposure must stay within (0, 0.4] ms")
         if self.forward_checkpoint is not None:
             # Fail at config time, before any device opens: a typo in the seed
             # path must not burn a hardware run to be discovered in Stage 2.
@@ -513,6 +537,8 @@ class SlmModelInLoopConfig:
                 raise ValueError(
                     f"forward_checkpoint does not exist: {self.forward_checkpoint!r}"
                 )
+        if self.geometry_file is not None and not Path(self.geometry_file).is_file():
+            raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
         # Resolve the focal length once, here, so the runner, a library caller and
         # the tests can never disagree about what geometry a run actually used.
@@ -826,21 +852,81 @@ class _HardwareBench:
         self._cam = create_camera(
             config.cam_type,
             cam_id=config.cam_id,
-            exposure_time_ms=config.exposure_time_ms,
+            exposure_time_ms=(
+                config.exposure_time_ms or min(0.02, config.max_exposure_ms)
+                if config.cam_type == "daheng"
+                else config.exposure_time_ms
+            ),
         )
-        self._cam.open()
-        if config.cam_size > 0:
-            self._cam.reset_window(
-                center=(0, 0), size=(config.cam_size, config.cam_size)
+        self._slm = None
+        try:
+            self._cam.open()
+            if config.cam_type == "daheng":
+                initial_ms = config.exposure_time_ms or min(0.02, config.max_exposure_ms)
+                actual_ms = self._cam.reset_exposure_time(initial_ms)
+                if not 0 < actual_ms <= config.max_exposure_ms + 1e-9:
+                    raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            self._slm = Santec(
+                slm_number=config.slm_number,
+                wavelength=config.slm_wavelength or None,
             )
-        self._slm = Santec(
-            slm_number=config.slm_number,
-            wavelength=config.slm_wavelength or None,
-        )
-        self._slm.open()
+            self._slm.open()
+            if config.cam_size > 0:
+                from ao_shaping.utils.image.beam_metrics import zero_order_center
+
+                blank_panel = phase_to_panel(
+                    np.zeros((config.region, config.region), dtype=np.float64),
+                    int(round(config.panel_span_px / 2)),
+                    config.pupil_center,
+                )
+                full_frame = self._capture(
+                    self._cam,
+                    self._slm,
+                    blank_panel,
+                    n_frames=1,
+                    n_discard=config.settle_max_discard,
+                    wait_time_s=config.settle_wait_s,
+                    stable_tol=config.settle_tol,
+                    max_wait_s=config.settle_max_wait_s,
+                )
+                raw = self._cam.get_numpy_image(n_sample=1)
+                if config.cam_type == "daheng":
+                    decision = choose_exposure(
+                        raw,
+                        float(self._cam.exposure_time),
+                        max_ms=config.max_exposure_ms,
+                    )
+                    if decision.peak_fraction >= 0.9:
+                        raise RuntimeError(
+                            "full-frame CCD saturated at initial exposure; "
+                            "reduce laser power before calibration"
+                        )
+                full_clean = prepare_frame(np.asarray(full_frame, dtype=np.float64))
+                if float(np.max(full_clean)) < 10.0:
+                    raise RuntimeError("full-frame CCD has no detectable zero order")
+                full_x, full_y = zero_order_center(full_clean, refine=False)
+                half = config.cam_size // 2
+                if (
+                    full_x - half < 0
+                    or full_y - half < 0
+                    or full_x + half >= full_clean.shape[1]
+                    or full_y + half >= full_clean.shape[0]
+                ):
+                    raise RuntimeError("CCD zero order is too close to sensor edge")
+                self._cam.reset_window(
+                    center=(full_x, full_y),
+                    size=(config.cam_size, config.cam_size),
+                )
+                logger.info("CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y)
+        except Exception:
+            if self._slm is not None:
+                self._slm.close()
+            self._cam.close()
+            raise
         self._disc_radius = int(round(config.panel_span_px / 2.0))
         self._pupil_center = config.pupil_center
         self._pending: np.ndarray | None = None
+        self.last_exposure_ms: float | None = None
         self._closed = False
 
     def display(self, phase_model: np.ndarray) -> None:
@@ -858,17 +944,43 @@ class _HardwareBench:
     def measure(self) -> np.ndarray:
         if self._pending is None:
             raise RuntimeError("measure() called before display()")
-        frame = self._capture(
-            self._cam,
-            self._slm,
-            self._pending,
-            n_frames=self._config.n_eval_frames,
-            n_discard=self._config.settle_max_discard,
-            wait_time_s=self._config.settle_wait_s,
-            stable_tol=self._config.settle_tol,
-            max_wait_s=self._config.settle_max_wait_s,
-        )
-        return np.asarray(frame, dtype=np.float64)
+        for _ in range(5):
+            frame = self._capture(
+                self._cam,
+                self._slm,
+                self._pending,
+                n_frames=self._config.n_eval_frames,
+                n_discard=self._config.settle_max_discard,
+                wait_time_s=self._config.settle_wait_s,
+                stable_tol=self._config.settle_tol,
+                max_wait_s=self._config.settle_max_wait_s,
+            )
+            if self._config.cam_type != "daheng":
+                return np.asarray(frame, dtype=np.float64)
+            actual_ms = float(self._cam.exposure_time)
+            self.last_exposure_ms = actual_ms
+            if not 0 < actual_ms <= self._config.max_exposure_ms + 1e-9:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            raw = self._cam.get_numpy_image(n_sample=1)
+            decision = choose_exposure(
+                raw, actual_ms, max_ms=self._config.max_exposure_ms
+            )
+            if decision.accepted or (
+                decision.peak_fraction < 0.9
+                and abs(decision.next_ms - actual_ms) < 0.001
+            ):
+                logger.info(
+                    "CCD exposure {:.4f} ms, peak {:.1%} of full scale",
+                    actual_ms,
+                    decision.peak_fraction,
+                )
+                return exposure_normalized_frame(frame, actual_ms, reference_ms=0.02)
+            if abs(decision.next_ms - actual_ms) < 0.001:
+                break
+            next_ms = self._cam.reset_exposure_time(decision.next_ms)
+            if not 0 < next_ms <= self._config.max_exposure_ms + 1e-9:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {next_ms} ms")
+        raise RuntimeError("CCD exposure could not reach an unsaturated stable range")
 
     def close(self) -> None:
         if self._closed:
@@ -962,6 +1074,7 @@ def _to_model_grid(
     center: tuple[int, int],
     region: int,
     camera_px_per_model_px: float,
+    camera_rotation_quarters: int = 0,
 ) -> np.ndarray:
     """Resample a camera frame onto the forward model's ``region`` grid.
 
@@ -1010,10 +1123,9 @@ def _to_model_grid(
             .mean(axis=(1, 3))
         )
         if reduced.shape[0] == region:
-            return np.ascontiguousarray(reduced)
-    return np.ascontiguousarray(
-        _zoom(out, (region / span, region / span), order=1, mode="nearest")
-    )
+            return np.ascontiguousarray(np.rot90(reduced, -camera_rotation_quarters))
+    resized = _zoom(out, (region / span, region / span), order=1, mode="nearest")
+    return np.ascontiguousarray(np.rot90(resized, -camera_rotation_quarters))
 
 
 def _calibrate_geometry(
@@ -1032,12 +1144,26 @@ def _calibrate_geometry(
         and the records it consumed (empty for the simulated bench).
     """
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        BenchGeometry,
         CalibrationRecord,
         calibrate_bench_geometry,
     )
 
     if isinstance(bench, _SimBench):
         return bench.true_geometry(), []
+    if config.geometry_file is not None:
+        import json
+
+        payload = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
+        geometry = BenchGeometry(**payload)
+        if (
+            geometry.region != config.region
+            or geometry.far_field_size != config.region * config.far_field_padding
+            or geometry.method != "sweep"
+        ):
+            raise ValueError("sweep geometry file does not match the model grid")
+        logger.info("using independently measured sweep geometry: {}", config.geometry_file)
+        return geometry, []
 
     records: list[CalibrationRecordLike] = []
     for index in range(int(config.n_calibration_probes)):
@@ -1186,7 +1312,9 @@ def _seed_coefficients_from_checkpoint(
 
 
 def _make_optimizer(
-    config: SlmModelInLoopConfig, coefficients: np.ndarray | None
+    config: SlmModelInLoopConfig,
+    coefficients: np.ndarray | None,
+    source_amplitude: np.ndarray | None = None,
 ) -> Any:
     """Build a :class:`ZernikeCoefficientOptimizer` around ``coefficients``.
 
@@ -1199,7 +1327,7 @@ def _make_optimizer(
         ZernikeCoefficientOptimizer,
     )
 
-    return ZernikeCoefficientOptimizer(
+    optimizer = ZernikeCoefficientOptimizer(
         n_orders=int(config.n_orders),
         region=int(config.region),
         initial_coefficients=coefficients,
@@ -1211,6 +1339,21 @@ def _make_optimizer(
         far_field_size=int(config.region) * int(config.far_field_padding),
         frozen_modes=tuple(config.frozen_modes),
     )
+    if source_amplitude is not None:
+        optimizer.set_source_amplitude(source_amplitude)
+    return optimizer
+
+
+def _prediction_correlation(predicted: np.ndarray, measured: np.ndarray) -> float:
+    """Pearson agreement on an independent phase, insensitive to CCD exposure."""
+    a = np.asarray(predicted, dtype=np.float64).ravel()
+    b = np.asarray(measured, dtype=np.float64).ravel()
+    if a.shape != b.shape or not np.all(np.isfinite(a)) or not np.all(np.isfinite(b)):
+        return float("nan")
+    a -= a.mean()
+    b -= b.mean()
+    denominator = float(np.linalg.norm(a) * np.linalg.norm(b))
+    return float(np.dot(a, b) / denominator) if denominator > 0 else float("nan")
 
 
 # ---------------------------------------------------------------------------
@@ -1325,7 +1468,14 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # SAMPLING without changing its angular extent, so one far-field cell is
         # (region / far_field_size) model pixels. Step A therefore needs the
         # measurement on THAT grid, which is a different span from the target.
-        cell_scale = scale * float(config.region) / float(geometry.far_field_size)
+        # Hardware calibration measures camera pixels per padded FFT cell.
+        # The simulated bench reports camera pixels per unpadded model cell.
+        cell_scale = (
+            scale * float(config.region) / float(geometry.far_field_size)
+            if config.cam_type == "sim"
+            else scale
+        )
+        camera_rotation_quarters = 0 if config.cam_type == "sim" else 1
         logger.info(
             "grid mapping: {:.4f} cam px per model px -> {:.4f} cam px per far-field "
             "cell (far_field_size={})",
@@ -1333,14 +1483,15 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             cell_scale,
             geometry.far_field_size,
         )
-        target_side_model = max(3, int(round(config.target_side / scale)))
+        camera_px_per_target_cell = cell_scale * float(geometry.far_field_size) / float(config.region)
+        target_side_model = max(3, int(round(config.target_side / camera_px_per_target_cell)))
         target_side_model = min(target_side_model, int(config.region) - 2)
-        target_camera = max(3, int(round(target_side_model * scale)))
+        target_camera = max(3, int(round(target_side_model * camera_px_per_target_cell)))
         logger.info(
             "target side: {} camera px -> {} model px (scale {:.4f} cam/model px)",
             config.target_side,
             target_side_model,
-            scale,
+            camera_px_per_target_cell,
         )
         target = create_target_mask(
             "square", (int(config.region), int(config.region)), target_side_model
@@ -1441,7 +1592,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
         for index in range(int(config.n_rounds)):
             # --- Step A: probe the bench, refit one shared aberration -------
-            optimizer = _make_optimizer(config, coefficients)
+            optimizer = _make_optimizer(config, coefficients, source_amplitude)
             step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr
             frames: list[tuple[np.ndarray, np.ndarray]] = []
             for probe_index in range(probe_count):
@@ -1482,6 +1633,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                             roi_center,
                             int(geometry.far_field_size),
                             cell_scale,
+                            camera_rotation_quarters,
                         ),
                         probe,
                     )
@@ -1509,6 +1661,55 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     step_l2,
                     float(config.trust_region_c_l2),
                 )
+
+            holdout_correlation = float("nan")
+            if config.cam_type != "sim":
+                holdout_correlations: list[float] = []
+                for holdout_index in range(config.holdout_probe_count):
+                    holdout_phase = _probe_phase(
+                        config.region,
+                        config.probe_spread,
+                        config.seed + 1_000_000 + index * 1000 + holdout_index,
+                    )
+                    bench.display(holdout_phase)
+                    holdout_frame = prepare_frame(bench.measure())
+                    holdout_grid = _to_model_grid(
+                        holdout_frame,
+                        roi_center,
+                        int(geometry.far_field_size),
+                        cell_scale,
+                        camera_rotation_quarters,
+                    )
+                    prediction = optimizer.forward_intensity(
+                        clamped, holdout_phase, source_amplitude
+                    )
+                    holdout_correlations.append(
+                        _prediction_correlation(prediction, holdout_grid)
+                    )
+                holdout_correlation = float(np.mean(holdout_correlations))
+                logger.info(
+                    "round {} independent phase correlation: {:.4f} (each {})",
+                    index + 1,
+                    holdout_correlation,
+                    holdout_correlations,
+                )
+            if config.cam_type != "sim" and (
+                not np.isfinite(holdout_correlation)
+                or holdout_correlation < config.min_holdout_correlation
+            ):
+                recorder.history.append(
+                    {
+                        "stage": "round",
+                        "round": index + 1,
+                        "_epoch": index + 1,
+                        "accepted": False,
+                        "reason": "holdout_forward_mismatch",
+                        "holdout_correlation": holdout_correlation,
+                        "probe_count": probe_count,
+                    }
+                )
+                status = ModelInLoopStatus.ABORTED_UNIDENTIFIABLE
+                break
 
             # --- Step B: synthesise the square with that aberration frozen --
             warm = phase if config.warm_start else flat_phase
@@ -1574,6 +1775,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 if shaping_loss
                 else float("nan"),
             }
+            if config.cam_type != "sim":
+                row["holdout_correlation"] = holdout_correlation
+                row["exposure_ms"] = getattr(bench, "last_exposure_ms", None)
             recorder.history.append(row)
 
             if live_display is not None and not live_display.closed:
@@ -1686,7 +1890,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 flat_frame,
                 flat_score,
             )
-            status = ModelInLoopStatus.BAKE_OFF_REJECTED
+            if status == ModelInLoopStatus.COMPLETED:
+                status = ModelInLoopStatus.BAKE_OFF_REJECTED
         else:
             logger.info(
                 "final bake-off: shaped {:.4f} beats flat {:.4f}",

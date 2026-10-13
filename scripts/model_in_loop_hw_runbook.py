@@ -253,11 +253,18 @@ def shoot(cam, slm, phase_panel: np.ndarray, args: argparse.Namespace) -> np.nda
     gray-map change, and an unsettled frame silently corrupts a single-shot sweep
     (a ramp sweep came out non-monotone purely for this reason).
     """
-    return capture_settled(
+    frame = capture_settled(
         cam, slm, phase_panel, n_frames=args.frames, n_discard=args.discard,
         wait_time_s=args.settle_s, stable_tol=args.stable_tol,
         max_wait_s=args.max_wait_s,
     )
+    if args.cam_type == "daheng":
+        actual_ms = float(cam.exposure_time)
+        if not 0 < actual_ms <= 0.4:
+            raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+        if float(np.max(frame)) >= 250.0:
+            raise RuntimeError("Daheng CCD saturated during sweep")
+    return frame
 
 
 def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
@@ -1113,7 +1120,7 @@ def main() -> int:
     ap.add_argument("--slm-wavelength", type=int, default=1064)
     ap.add_argument("--cam-type", default="daheng")
     ap.add_argument("--cam-id", type=int, default=0)
-    ap.add_argument("--exposure-ms", type=float, default=1.1)
+    ap.add_argument("--exposure-ms", type=float, default=0.02)
     ap.add_argument("--defocus-rad", type=float, default=1.0,
                     help="Noll-4 defocus injected into the DISPLAYED phase only")
     ap.add_argument("--zernike-radius", type=int, default=200,
@@ -1144,6 +1151,8 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    if args.cam_type == "daheng" and not 0 < args.exposure_ms <= 0.4:
+        ap.error("Daheng exposure must be in (0, 0.4] ms")
     args.sweep_tilt = [float(v) for v in str(args.sweep_tilt).split(",") if v.strip()]
     args.sweep_defocus = [
         float(v) for v in str(args.sweep_defocus).split(",") if v.strip()

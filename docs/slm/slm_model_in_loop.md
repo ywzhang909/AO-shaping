@@ -150,7 +150,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ## 11. 输出契约
 
 - `data/slm_model_in_loop/<日期>/`：逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**)、`bench_geometry.json` (拟合出的几何，供复现)、可选最优远场图 PNG
-- `data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
+- `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
 
 ## 12. 终止状态
 

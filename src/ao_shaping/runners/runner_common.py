@@ -2515,6 +2515,12 @@ class SlmModelInLoopParams:
     step_a_iterations: Annotated[
         int, option("--step-a-iterations", help="Adam steps per round for Step A.")
     ] = 80
+    holdout_probe_count: Annotated[
+        int, option("--holdout-probe-count", help="Independent phases for forward-model validation per round.")
+    ] = 2
+    min_holdout_correlation: Annotated[
+        float, option("--min-holdout-correlation", help="Minimum mean CCD/model correlation on held-out phases.")
+    ] = 0.5
     step_a_lr: Annotated[
         float,
         option(
@@ -2673,6 +2679,10 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = 0.5
+    geometry_file: Annotated[
+        str | None,
+        option("--geometry-file", help="Measured sweep geometry JSON for this optical setup."),
+    ] = None
 
     # --- coupling guards ----------------------------------------------------
     trust_region_c_l2: Annotated[
@@ -2735,8 +2745,12 @@ class SlmModelInLoopParams:
     cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
     exposure_time_ms: Annotated[
         float,
-        option("--exposure-time-ms", help="CCD exposure in ms (0 = device default)."),
+        option("--exposure-time-ms", help="Initial CCD exposure in ms (0 = 0.02 for Daheng)."),
     ] = 0.0
+    max_exposure_ms: Annotated[
+        float,
+        option("--max-exposure-ms", help="Daheng auto-exposure ceiling in ms (max 0.4)."),
+    ] = 0.4
     cam_size: Annotated[
         int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
@@ -2908,6 +2922,8 @@ def build_model_in_loop_config(
         probe_count=params.probe_count,
         probe_spread=params.probe_spread,
         step_a_iterations=params.step_a_iterations,
+        holdout_probe_count=params.holdout_probe_count,
+        min_holdout_correlation=params.min_holdout_correlation,
         step_a_lr=params.step_a_lr,
         n_orders=params.n_orders,
         frozen_modes=parse_frozen_modes(params.frozen_modes),
@@ -2926,6 +2942,7 @@ def build_model_in_loop_config(
         dtype=params.dtype,
         n_calibration_probes=params.n_calibration_probes,
         min_geometry_correlation=params.min_geometry_correlation,
+        geometry_file=params.geometry_file,
         trust_region_c_l2=params.trust_region_c_l2,
         acceptance_loss_delta=params.acceptance_loss_delta,
         acceptance_score_eps=params.acceptance_score_eps,
@@ -2936,6 +2953,7 @@ def build_model_in_loop_config(
         cam_type=params.cam_type,
         cam_id=params.cam_id,
         exposure_time_ms=params.exposure_time_ms,
+        max_exposure_ms=params.max_exposure_ms,
         cam_size=params.cam_size,
         slm_number=params.slm_number,
         slm_wavelength=params.slm_wavelength,
@@ -3024,9 +3042,12 @@ def save_gs_refine_results(
             top_right_key="_phase",
             top_right_title="SLM gray (last)",
             json_payload={
-                key: value
-                for key, value in vars(config).items()
-                if isinstance(value, (str, int, float, bool)) or value is None
+                **{
+                    key: value
+                    for key, value in vars(config).items()
+                    if isinstance(value, (str, int, float, bool)) or value is None
+                },
+                "pupil_center": list(config.pupil_center) if config.pupil_center is not None else None,
             },
             title="SLM GS refine",
         )
@@ -3056,12 +3077,12 @@ def save_model_in_loop_results(
 
     from ao_shaping.display.frames import save_best_image
     from ao_shaping.utils.io.file import (
-        gen_date_dir,
+        debug_run_dir,
         gen_date_str,
         save_recorder_debug_artifacts,
     )
 
-    save_dir = gen_date_dir(root_dir / "slm_model_in_loop")
+    save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
     csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
     result.recorder.save_dataframe(csv_file)
 
@@ -3128,8 +3149,11 @@ def save_model_in_loop_results(
             "rejection_streak",
             "geometry_correlation",
             "n_calibration_probes",
+            "holdout_correlation",
+            "exposure_ms",
         ),
         img_keys=("_img",),
+        output_dir=save_dir,
         json_payload={"status": result.status, "config": str(result.config)},
         title="slm-model-in-loop",
     )

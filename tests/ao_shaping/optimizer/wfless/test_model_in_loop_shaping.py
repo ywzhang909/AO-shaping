@@ -736,10 +736,24 @@ class TestBenchGeometry:
         assert geometry.camera_px_per_model_px == pytest.approx(
             truth["camera_px_per_model_px"], rel=1e-6
         )
-        # A correct mapping reproduces the measured spot, so sigma agrees.
         assert geometry.spot_fwhm_model_px == pytest.approx(
             geometry.spot_fwhm_camera_px, rel=0.6
         )
+
+    def test_reference_frame_keeps_its_own_probe_phase(self) -> None:
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import _spot_fwhm
+
+        records, truth = self._synthetic_bench(region=64)
+        records.sort(key=lambda record: _spot_fwhm(record.image))
+        assert records[0] is not records[-1]
+        geometry = calibrate_bench_geometry(
+            records,
+            region=int(truth["region"]),
+            far_field_size=int(truth["far_field_size"]),
+            disc_candidates=(32,),
+            panel_span_px=2.0 * int(truth["disc"]),
+        )
+        assert geometry.correlation > 0.8
 
     def test_sweep_recovers_the_focal_scale_from_a_tilt_sweep(self) -> None:
         """The tilt slope alone fixes the far-field scale, with no assumptions.
