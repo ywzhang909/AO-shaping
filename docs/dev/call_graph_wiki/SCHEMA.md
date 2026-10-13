@@ -44,7 +44,7 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 - `entry` — 入口（`main.py` / `cli()`）
 - `command` — 一个 CLI 命令（一个 `cli.add_command` 注册的 runner）
 - `function` / `class` — 被命令调用的骨架函数/类（逐函数文档）
-- `diagram` — 调用图总览页
+- `diagram` — 调用图/关系总览页（含 `relations/` 下的相似关系总览）
 
 ## Tag Taxonomy
 
@@ -55,6 +55,7 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 - 硬件/驱动：`dm`, `slm`, `ccd`, `wfs`, `driver`, `registry`
 - 工具/IO：`io`, `utils`, `time`, `recorder`, `lut`, `image`, `spots`, `wavefront`
 - 结构：`module`, `factory`
+- 关系层：`similar`, `relations`（相似函数关联，见 `relations/similar-functions.md`）
 
 规则：页面上的 tag 必须在本分类中。需要新 tag 时先在此登记再用。
 
@@ -80,8 +81,8 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 
 ## Update Policy
 
-- 代码改动后，重跑 `scripts/call_graph/build_call_graph.py` + `gen_wiki_pages.py` 重新生成
-  调用图与命令/函数页（幂等，`source` 行号会更新）。
+- 代码改动后，重跑 `scripts/call_graph/build_call_graph.py` + `build_similarity.py` +
+  `gen_wiki_pages.py` 重新生成调用图、相似关系与命令/函数页（幂等，`source` 行号会更新）。
 - docstring 变更：wiki 页"docstring 原文"段应同步。若 wiki 与源码 docstring 冲突，
   **以源码为准**，更新 wiki 的 `updated` 日期。
 - 新增命令：在 `entry/cli.md` 注册表 + `commands/` 下建页 + `index.md` 登记。

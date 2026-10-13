@@ -63,6 +63,13 @@ run(ctx, device, run, wfs_params)
 
 - [[entry/cli|`cli`]]（`cli.add_command` 注册为 `pipeline`）
 
+## 相似函数（自动）
+
+与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；含义与阈值见 [[relations/similar-functions|相似函数总览]]）：
+
+- 0.444 — [[commands/wf|`run`]]（同名 `run`；共享 7 个被调函数（调用结构高度相似））
+
+
 ## 相关页面
 
 - [[entry/cli]]

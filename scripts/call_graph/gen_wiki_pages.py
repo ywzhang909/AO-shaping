@@ -24,6 +24,36 @@ data = json.loads((CG / "call_graph_final.json").read_text())
 nodes, edges, cmd = data["nodes"], data["edges"], data["cmd_entries"]
 mods = ns["load_modules"]()
 
+# ---- similar-function relations (build_similarity.py output, optional) ----
+SIM_PATH = CG / "similar_functions.json"
+SIM = None
+if SIM_PATH.exists():
+    SIM = json.loads(SIM_PATH.read_text())
+
+def sim_partners(qual):
+    """All linked similar partners of qual: [(qual, score, reason), ...] sorted."""
+    if not SIM:
+        return []
+    out = []
+    for p in SIM["pairs"]:
+        if p["a"] == qual:
+            out.append((p["b"], p["score"], p["reason"]))
+        elif p["b"] == qual:
+            out.append((p["a"], p["score"], p["reason"]))
+    return sorted(out, key=lambda x: -x[1])
+
+def sim_block(qual):
+    """Markdown section '## 相似函数（自动）' for one qual; '' if none."""
+    parts = sim_partners(qual)
+    if not parts:
+        return ""
+    body = "\n## 相似函数（自动）\n\n"
+    body += "与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；" \
+            "含义与阈值见 [[relations/similar-functions|相似函数总览]]）：\n\n"
+    for q, score, reason in parts:
+        body += f"- {score:.3f} — {wiki_link(q)}（{reason}）\n"
+    return body + "\n"
+
 DATE = "2026-10-13"
 
 # ---------- page registry ----------
@@ -369,6 +399,7 @@ def cmd_page(name, desc):
     else:
         body += "- （无）\n"
     body += "\n## 谁调用它\n\n- [[entry/cli|`cli`]]（`cli.add_command` 注册为 `" + name + "`）\n"
+    body += sim_block(qual)
     # cross links
     body += "\n## 相关页面\n\n- [[entry/cli]]\n"
     for a in algset[:4]:
@@ -447,11 +478,68 @@ def func_page(slug):
             body += f"- {wiki_link(t)}\n"
     else:
         body += "- （无仓库内调用方；可能经反射/CLI/测试调用）\n"
+    body += sim_block(qual)
     body += "\n## 相关页面\n\n- [[entry/cli]]\n"
     return f"{slug.split('/')[0]}/{slug.split('/')[1]}.md", body
 
+def similar_functions_page():
+    if not SIM:
+        return None
+    m = SIM["method"]
+    body = fm(
+        "相似函数（自动）— 函数间相似关联总览",
+        ["similar", "relations"],
+        "diagram",
+        "scripts/call_graph/build_similarity.py",
+    )
+    body += "## 这是什么\n\n"
+    body += '调用图回答「谁调用谁」，本页回答**「哪些函数是彼此的同族/同构实现」**：' \
+            "不共享调用边、但结构或职责高度相近的函数对（near-duplicate / sibling " \
+            "implementations）。这是独立于调用图的**第二条关系层**，用于：\n\n"
+    body += "- 改一个函数时，提醒「还有几个同族函数需要同步改」（如两处 `optimize_pib`）；\n"
+    body += "- 重构时识别可合并/可抽象的重复实现；\n"
+    body += "- 新增功能时参考「同类功能在仓库里已有的几种做法」。\n\n"
+    body += "## 判定方法（自动，可重跑）\n\n"
+    body += "由 `scripts/call_graph/build_similarity.py` 对 `call_graph_final.json` 的全部已解析" \
+            "函数两两打分（确定性权重，无随机、无模型）：\n\n"
+    body += "| 信号 | 权重 | 含义 |\n|---|---|---|\n"
+    body += (f"| 被调集合 Jaccard（乘 `min(1, shared/2)` 阻尼） | {m['weights']['jaccard_callees']} | "
+             "两个函数调用结构越像，越可能是同族实现 |\n")
+    body += (f"| 名称相似度 | {m['weights']['name_similarity']} | "
+             "同名（如两处 `optimize_pib`）计 1；通用 CLI 入口名 `run` 计 0（避免假相似） |\n")
+    body += (f"| 同文件 / 同模块 | {m['weights']['same_file_or_module']} | "
+             "同文件 1.0、同模块 0.5 |\n")
+    body += (f"| 调用方集合 Jaccard | {m['weights']['jaccard_callers']} | "
+             "服务对象越像，越可能是同族 |\n")
+    body += (f"| 共享被调 ≥5 奖励 | {m['weights']['many_shared_callees_bonus']} | "
+             "调用结构高度重叠的额外加分 |\n\n")
+    body += (f"得分 ≥ **{m['link_threshold']}** 记为**相似对**（写入各函数页「相似函数（自动）」段）；"
+             f"≥ **{m['cluster_threshold']}** 的相似对合并成**相似簇**（下表）。"
+             "数据文件：`raw/assets/similar_functions.json`（每对含逐维得分与理由）。"
+             "重跑 `python3 scripts/call_graph/build_similarity.py` 即可刷新。\n\n")
+    body += "## 相似簇（≥ 簇阈值，自动）\n\n"
+    if SIM["clusters"]:
+        body += "| 簇 | 成员 |\n|---|---|\n"
+        for c in SIM["clusters"]:
+            body += "| " + " — ".join(wiki_link(x) for x in c) + " |\n"
+    else:
+        body += "（本次运行未发现达到簇阈值的相似簇。）\n"
+    body += "\n## 全部相似对（≥ 链接阈值，按得分降序）\n\n"
+    body += "| 得分 | 函数 A | 函数 B | 判定理由 |\n|---|---|---|---|\n"
+    for p in SIM["pairs"]:
+        body += (f"| {p['score']:.3f} | {wiki_link(p['a'])} | {wiki_link(p['b'])} | "
+                 f"{p['reason']}（同调 {p['jaccard_callees']:.2f} / 共享 {p['shared_callees']} 个被调） |\n")
+    body += "\n## 使用建议\n\n"
+    body += ("1. **改一个函数前**先看本页与它的「相似函数（自动）」段——同族函数通常需要同步修改，"
+             "否则会出现行为漂移（仓库里 `optimize_pib` 双实现是典型例子）。\n")
+    body += ("2. 得分 0.30–0.45 的多数是「同一思路在不同设备域/不同算法上的平行实现」"
+             "（DM 族 vs SLM 族），**不是**复制粘贴——合并前需确认硬件语义是否可抽象。\n")
+    body += ("3. 新代码改动后重跑 `build_call_graph.py` + `build_similarity.py` + `gen_wiki_pages.py`，"
+             "本页与全部函数页自动刷新。\n")
+    return "relations/similar-functions.md", body
+
 def build():
-    for d in ("entry", "commands", "functions", "assets"):
+    for d in ("entry", "commands", "functions", "relations", "assets"):
         (BASE / d).mkdir(parents=True, exist_ok=True)
     (BASE / "raw").mkdir(exist_ok=True)
     (BASE / "raw/assets").mkdir(exist_ok=True)
@@ -472,6 +560,10 @@ def build():
         if slug.startswith(("entry/", "commands/")):
             continue
         f, b = func_page(slug); (BASE / f).write_text(b); written.append(f)
+    # relations overview page (similar functions)
+    page = similar_functions_page()
+    if page:
+        f, b = page; (BASE / f).write_text(b); written.append(f)
     return written
 
 if __name__ == "__main__":
