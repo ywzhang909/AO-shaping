@@ -194,12 +194,13 @@ _SQUARE_DEBUG_SCALAR_KEYS = (
 _SQUARE_DEBUG_IMG_KEYS = ("_img",)
 _SQUARE_DEBUG_1D_KEYS = ("_c", "_grad")
 
-# Shares slm_zernike_pib's counter: the auto-exposure probe below writes a slot
-# before optimize_slm_zernike_pib() starts, and a second counter would restart at
-# the same slot. Consecutive writes to one slot are a firmware no-op, so with
-# --init-c the optimizer's first display (non-zero coefficients) could be
-# swallowed and the first measurement would read the probe's flat phase.
-_SLOT_ROTATOR = _pib_module._SLOT_ROTATOR
+# The auto-exposure probe below writes a slot before optimize_slm_zernike_pib()
+# starts, so it must continue slm_zernike_pib's own counter; a second counter
+# would restart at the same slot, and consecutive writes to one slot are a
+# firmware no-op, so with --init-c the optimizer's first display (non-zero
+# coefficients) could be swallowed and the first measurement would read the
+# probe's flat phase. Read through the module rather than binding an alias, so
+# reassigning slm_zernike_pib._SLOT_ROTATOR (as tests do) is still honoured.
 
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:
@@ -394,7 +395,7 @@ def _resolve_auto_camera(
             flat = probe_slm.create_phase_from_array(
                 np.zeros((SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.float32)
             )
-            display_rotating(probe_slm, flat, _SLOT_ROTATOR)
+            display_rotating(probe_slm, flat, _pib_module._SLOT_ROTATOR)
             time.sleep(0.3)
             probe = open_camera(camera.cam_type, camera.cam_id, camera.exposure_time_ms)
             try:

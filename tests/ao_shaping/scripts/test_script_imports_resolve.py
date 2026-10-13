@@ -31,7 +31,9 @@ def _ao_imports(path: pathlib.Path) -> set[str]:
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 if alias.name.startswith("ao_shaping"):
-                    found.add(alias.name.split(".")[0])
+                    # Full dotted path, not just the root: `import
+                    # ao_shaping.a.b.c as x` fails if any segment is renamed.
+                    found.add(alias.name)
     return found
 
 
