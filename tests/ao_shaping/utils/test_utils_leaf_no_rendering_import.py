@@ -6,11 +6,11 @@ the same argument it must not drag in matplotlib / pygame either -- ``utils`` si
 the import path of essentially everything, so an import-time failure or cost here is
 an import-time failure of ``import ao_shaping`` itself.
 
-One carve-out, on purpose: ``utils/image/display.py`` still imports matplotlib and
-pygame at module level. That file is the subject of its own issue (#50 / R-29,
-"move display.py into display/"), which is deliberately NOT bundled here -- folding
-it in would make this guard fail for a reason that has not been decided yet. When
-#50 lands, delete ``_CARVE_OUT`` and this guard starts covering it for free.
+One carve-out originally existed: ``utils/image/display.py`` imported matplotlib and
+pygame at module level. That file is the subject of #50 / R-29 ("move display.py
+into display/"), now resolved — the module lives at ``ao_shaping.display.image_display``
+and ``utils/image/display.py`` no longer exists (see ``test_old_display_path_raises``).
+``_CARVE_OUT`` is therefore empty and this guard covers ``utils/`` in full.
 """
 
 from __future__ import annotations

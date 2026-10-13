@@ -121,7 +121,7 @@
 
 | ID | 摘要 | issue |
 |---|---|---|
-| R-29 | 作废条目的遗留：把 `utils/image/display.py` 搬到 `display/`（`utils/image/` 最后一块渲染代码，含 `utils/__init__.py:78/80/81` 三个 re-export） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
+| R-29 | ✅ 已完成：`utils/image/display.py` 已搬到 `display/image_display.py`（commit `a9236e9`，2026-10-09），`utils/__init__.py` 的 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` … re-export 已改指 `ao_shaping.display.image_display`；旧路径 `ao_shaping.utils.image.display` 现抛 `ImportError`（`test_utils_leaf_no_rendering_import.py::test_old_display_path_raises` 锁定） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；启用 `R50Controller.__enter__/__exit__`。⚠️ 必须先钉死 Micro-DM 磁盘布局 | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法。⚠️ 只动 CLI 层，**不合并命令体** | [#52](https://github.com/ywzhang909/AO-shaping/issues/52) |
 | R-43 | 补 `micro_dm_image_collect.py` 测试（🟡 `train_data_collect.py` 一半已完成 → archive §5.32） | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
@@ -147,7 +147,7 @@
 |---|---|---|
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（2026-05-26 提出，**决策本身还没做**） | [#55](https://github.com/ywzhang909/AO-shaping/issues/55) |
 | F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
-| F-10 | 🔴 `sim/AGENTS.md`「已知约束」第 4 条声称的代码改写**从未落地** ⇒ 连带第 3 条的实测常数 1.068/2.628 **不可复现**（真实值 5.428/13.354） | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
+| F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
 | F-11 | 🔴 **SLM 序列号三路冲突**：22030108 / 22030102 / 23020026 ⇒ 引用前必须确认并回写 `drivers/AGENTS.md` 硬件表 | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
 | **F-14** | 🔴 **纯离线可修**：`ruff.toml` 的 `exclude = ["src/ml/**"]` 藏着 **30 个 `F821` 未定义名**，其中 `src/ml/zernike/dataset.py:432/439/446` 调用的 `DataLoader` **从未 import** ⇒ `create_zernike_loaders()` 必然 `NameError`，而它被 `src/ml/train.py:724,1186` 调用并作为公开 API 再导出。`src/ml/train.py` 另有 24 处，5 个函数从 `cli()`（`ao-train` 入口）可达。**不是风格问题** | — 待开 issue |
@@ -216,7 +216,7 @@
 | ~~R-56~~ | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | ✅ **item 46 可下沉部分完成**：`sac_common` / `pib` / `pib_sim_eval` / `gready_cam` / `adc_dm_adam` 共 5 文件的模块级 matplotlib/pygame 已下沉到实际使用它的函数（`pib_sim_eval`、`sac_common` 的 `matplotlib.use("Agg")` 全局副作用随同搬走，不可与 pyplot 拆分）。⚠️ **issue 的 item 46 指令「下沉进 `__main__`」对 6 个文件中的 5 个是错的** —— 实测 `lr.py` / `lr_wfs.py` / `rl_wfs.py` 在**模块级**（非 `__main__`）用 plt，且这三个文件**完全没有 `if __name__` 守卫**，无处可下沉 → 拆出 R-61。item 42-45（pygame 状态机迁移）与 47-48 仍开放 | 🟡 |
 | F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | ~~`pyarrow_probe` 两份~~ **已结案**：`scripts/` 副本零导入方且与 `gui/slm` 那份**归一化行尾后逐字节相同**，已删 | ✅ 619d2d0/待本轮 |
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
-| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
+| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | ✅ 已完成：`utils/image/display.py` → `display/image_display.py`（commit `a9236e9`，2026-10-09），re-export 已改指 `ao_shaping.display.image_display`，无兼容 shim | E ✅ |
 | ~~R-58~~ | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | ❌ **误报，已 `not planned` 结案**：`phase_display.py` 的模块级 `PhaseMap` 导入**增量 0 个 `drivers.*` 模块**（原判据的 60 个其实来自父包 `ao_shaping/__init__.py` 的 20 处 eager 再导出）；`model/field.py` 唯一的 `drivers` 导入已在函数内延迟（`model/field.py:43`，注释说明是为规避循环）；`model/` 亦不在 utils 的禁止清单内，且 README 已把 `phase_to_slm_grayscale()` 接受 `PhaseMap` 列为既定契约 | ✅ |
 | R-59 | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 需决策，非机械收口 | D 🔴 || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max-peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
 
