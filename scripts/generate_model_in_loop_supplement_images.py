@@ -7,6 +7,7 @@ initial report generation:
   - Phase bandwidth trial bar charts (baseline vs smooth per phase family)
   - Cross-experiment model candidate comparison
   - Exposure response diagnostics
+  - Fixed-exposure A/B phase replay comparison
 
 All figures are saved to ``report/shape_trials/images/``.
 """
@@ -40,7 +41,7 @@ def _load_csv_as_dicts(path: Path) -> list[dict]:
         return list(csv.DictReader(f))
 
 
-def _group_by_family_family(rows: list[dict]) -> dict:
+def _group_by_family(rows: list[dict]) -> dict:
     """Group rows by phase family, returning {family: {method: avg_metrics}}."""
     result: dict[str, dict[str, dict]] = {}
     for r in rows:
@@ -67,7 +68,6 @@ def render_unet_prediction_montage() -> Path:
     pred_dir = PAIRED_DIR / "20261013_1943_seed_20261013" / "predictions"
     files = sorted(pred_dir.glob("*.npz"))
 
-    # Pick one example from each family
     examples: dict[str, Path] = {}
     for f in files:
         data = np.load(f)
@@ -81,7 +81,12 @@ def render_unet_prediction_montage() -> Path:
     if n == 1:
         axes = axes.reshape(-1, 1)
 
-    titles = ["CCD 测量", "Zernike + NNLS", "U-Net 预训练", "U-Net 10 步微调"]
+    titles = [
+        "CCD Measurement",
+        "Zernike + NNLS",
+        "U-Net Pretrained",
+        "U-Net 10-step Fine-tuned",
+    ]
     for col, (family, fpath) in enumerate(examples.items()):
         data = np.load(fpath)
         images = [
@@ -99,7 +104,7 @@ def render_unet_prediction_montage() -> Path:
             ax.axis("off")
 
     fig.suptitle(
-        "真实 CCD 同帧 U-Net vs 物理模型对比 (0.4 ms, 36×36 目标框)",
+        "Real CCD Frame-by-Frame: U-Net vs Physical Model (0.4 ms, 36x36 target box)",
         fontsize=14,
         y=1.02,
     )
@@ -119,16 +124,20 @@ def render_psf_trial_comparison() -> Path:
     """Bar chart: baseline vs train-selected PSF per phase family."""
     csv_path = PAIRED_DIR / "20261013_psf_trial" / "paired_observable_holdouts.csv"
     rows = _load_csv_as_dicts(csv_path)
-    grouped = _group_by_family_family(rows)
+    grouped = _group_by_family(rows)
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {
+        "smooth": "Smooth",
+        "zernike": "Zernike",
+        "freeform": "Freeform",
+    }
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     metrics = [
-        ("correlation", "Pearson 相关性", "相关性"),
-        ("shape_nrmse", "形状 NRMSE", "NRMSE"),
+        ("correlation", "Pearson Correlation", "Correlation"),
+        ("shape_nrmse", "Shape NRMSE", "NRMSE"),
     ]
 
     for ax_idx, (metric, label, title) in enumerate(metrics):
@@ -141,10 +150,14 @@ def render_psf_trial_comparison() -> Path:
         x = np.arange(len(families))
         width = 0.35
         bars1 = ax.bar(
-            x - width / 2, baseline_vals, width, label="基线 (无 PSF)", color="#4a90d9"
+            x - width / 2,
+            baseline_vals,
+            width,
+            label="Baseline (no PSF)",
+            color="#4a90d9",
         )
         bars2 = ax.bar(
-            x + width / 2, psf_vals, width, label="训练选 PSF", color="#e91e63"
+            x + width / 2, psf_vals, width, label="Train-selected PSF", color="#e91e63"
         )
 
         for bar in bars1:
@@ -174,7 +187,7 @@ def render_psf_trial_comparison() -> Path:
         ax.set_ylim(0, max(max(baseline_vals), max(psf_vals)) * 1.25)
 
     fig.suptitle(
-        "PSF 训练选 vs 基线: 相关性与 NRMSE (新会话 + 旧会话合并, 24 帧/族)",
+        "PSF Width Candidate vs Baseline: Correlation & NRMSE (24 frames/family)",
         fontsize=14,
         y=1.02,
     )
@@ -194,14 +207,18 @@ def render_phase_bandwidth_comparison() -> Path:
     """Bar chart: baseline vs train-selected phase bandwidth per phase family."""
     csv_path = PAIRED_DIR / "20261013_phase_bandwidth_trial" / "paired_holdouts.csv"
     rows = _load_csv_as_dicts(csv_path)
-    grouped = _group_by_family_family(rows)
+    grouped = _group_by_family(rows)
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {
+        "smooth": "Smooth",
+        "zernike": "Zernike",
+        "freeform": "Freeform",
+    }
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
-    metrics = [("correlation", "Pearson 相关性"), ("shape_nrmse", "形状 NRMSE")]
+    metrics = [("correlation", "Pearson Correlation"), ("shape_nrmse", "Shape NRMSE")]
 
     for ax_idx, (metric, label) in enumerate(metrics):
         ax = axes[ax_idx]
@@ -214,10 +231,18 @@ def render_phase_bandwidth_comparison() -> Path:
         x = np.arange(len(families))
         width = 0.35
         bars1 = ax.bar(
-            x - width / 2, baseline_vals, width, label="基线 (无平滑)", color="#4caf50"
+            x - width / 2,
+            baseline_vals,
+            width,
+            label="Baseline (no smoothing)",
+            color="#4caf50",
         )
         bars2 = ax.bar(
-            x + width / 2, smooth_vals, width, label="训练选平滑", color="#ff9800"
+            x + width / 2,
+            smooth_vals,
+            width,
+            label="Train-selected smoothing",
+            color="#ff9800",
         )
 
         for bar in bars1:
@@ -245,7 +270,9 @@ def render_phase_bandwidth_comparison() -> Path:
         ax.legend(fontsize=10)
 
     fig.suptitle(
-        "相位带宽训练选 vs 基线: 相关性与 NRMSE (24 帧/族)", fontsize=14, y=1.02
+        "Phase Bandwidth Candidate vs Baseline: Correlation & NRMSE (24 frames/family)",
+        fontsize=14,
+        y=1.02,
     )
     fig.tight_layout()
     out = IMG_DIR / "mil_phase_bandwidth_comparison.png"
@@ -275,18 +302,22 @@ def render_model_candidate_comparison() -> Path:
     )
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {
+        "smooth": "Smooth",
+        "zernike": "Zernike",
+        "freeform": "Freeform",
+    }
 
     combos = [
-        ("旧会话\n(种子 79)", old_psf, old_bw),
-        ("新会话\n(种子 81)", new_psf, new_bw),
+        ("Old Session (seed 79)", old_psf, old_bw),
+        ("New Session (seed 81)", new_psf, new_bw),
     ]
 
     fig, axes = plt.subplots(2, 3, figsize=(16, 10))
 
     for row_idx, (session_label, psf_rows, bw_rows) in enumerate(combos):
-        psf_grouped = _group_by_family_family(psf_rows)
-        bw_grouped = _group_by_family_family(bw_rows)
+        psf_grouped = _group_by_family(psf_rows)
+        bw_grouped = _group_by_family(bw_rows)
 
         for col_idx, fam in enumerate(families):
             ax = axes[row_idx, col_idx]
@@ -295,7 +326,7 @@ def render_model_candidate_comparison() -> Path:
                 "train_selected_psf",
                 "train_selected_phase_bandwidth",
             ]
-            method_labels = ["基线", "PSF 模型", "相位平滑"]
+            method_labels = ["Baseline", "PSF Model", "Phase Smoothing"]
             colors = ["#2196f3", "#e91e63", "#ff9800"]
 
             corr_vals = [
@@ -316,8 +347,14 @@ def render_model_candidate_comparison() -> Path:
             x = np.arange(len(methods))
             width = 0.35
             ax2 = ax.twinx()
+
             bars1 = ax.bar(
-                x - width / 2, corr_vals, width, label="相关性", color=colors, alpha=0.8
+                x - width / 2,
+                corr_vals,
+                width,
+                label="Correlation",
+                color=colors,
+                alpha=0.8,
             )
             bars2 = ax2.bar(
                 x + width / 2,
@@ -336,10 +373,14 @@ def render_model_candidate_comparison() -> Path:
             ax.set_title(f"{session_label} / {family_names.get(fam, fam)}", fontsize=12)
 
             if row_idx == 0 and col_idx == 0:
-                ax.set_ylabel("相关性", fontsize=11)
+                ax.set_ylabel("Correlation", fontsize=11)
                 ax2.set_ylabel("NRMSE", fontsize=11)
 
-    fig.suptitle("模型候选跨会话比较: 基线 vs PSF vs 相位平滑", fontsize=14, y=1.02)
+    fig.suptitle(
+        "Model Candidate Cross-Session Comparison: Baseline vs PSF vs Phase Smoothing",
+        fontsize=14,
+        y=1.02,
+    )
     fig.tight_layout()
     out = IMG_DIR / "mil_model_candidate_comparison.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
@@ -348,12 +389,14 @@ def render_model_candidate_comparison() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Figure 5: Exposure response curves
+# Figure 5: Exposure response curves + new session PSF/bandwidth
 # ---------------------------------------------------------------------------
 
 
 def render_exposure_response() -> Path:
-    """Plot exposure response curves for flat and shaped phases."""
+    """Plot exposure response curves for flat and shaped phases, plus new-session
+    PSF correlation and phase-bandwidth NRMSE comparisons.
+    """
     analysis_dir = EXP_ANALYSIS_DIR / "20261013_1935"
 
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
@@ -380,7 +423,7 @@ def render_exposure_response() -> Path:
                     signals,
                     "o-",
                     color=color,
-                    label=f"平场 ({sweep['source'].split('/')[-1][-6:]})",
+                    label=f"Flat ({sweep['source'].split('/')[-1][-6:]})",
                 )
         elif "shaped" in sweep["source"].lower():
             exposures = []
@@ -397,22 +440,22 @@ def render_exposure_response() -> Path:
                     signals,
                     "s-",
                     color="red",
-                    label=f"成形 {sweep['source'].split('/')[-1][-6:]}",
+                    label=f"Shaped {sweep['source'].split('/')[-1][-6:]}",
                 )
 
-    ax.set_xlabel("曝光 (ms)")
-    ax.set_ylabel("ROI 信号 (背景扣除后)")
-    ax.set_title("曝光响应曲线")
+    ax.set_xlabel("Exposure (ms)")
+    ax.set_ylabel("ROI Signal (background-subtracted)")
+    ax.set_title("Exposure Response Curves")
     ax.legend(fontsize=9)
     ax.set_xscale("log")
     ax.set_yscale("log")
 
-    # Subplot 2: PSF comparison (reuse psf_paired.csv from new session)
+    # Subplot 2: PSF comparison (new session)
     ax = axes[1]
     new_psf = _load_csv_as_dicts(
         PAIRED_DIR / "20261013_2015_new_session" / "psf_paired.csv"
     )
-    grouped = _group_by_family_family(new_psf)
+    grouped = _group_by_family(new_psf)
     x = np.arange(3)
     width = 0.25
     baseline_corr = [
@@ -423,15 +466,15 @@ def render_exposure_response() -> Path:
         np.mean(grouped[f]["train_selected_psf"]["correlation"])
         for f in ["smooth", "zernike", "freeform"]
     ]
-    ax.bar(x - width / 2, baseline_corr, width, label="基线", color="#4a90d9")
-    ax.bar(x + width / 2, psf_corr, width, label="PSF 模型", color="#e91e63")
+    ax.bar(x - width / 2, baseline_corr, width, label="Baseline", color="#4a90d9")
+    ax.bar(x + width / 2, psf_corr, width, label="PSF Model", color="#e91e63")
     for i, (b, p) in enumerate(zip(baseline_corr, psf_corr)):
         ax.text(i - width / 2, b + 0.01, f"{b:.3f}", ha="center", fontsize=9)
         ax.text(i + width / 2, p + 0.01, f"{p:.3f}", ha="center", fontsize=9)
     ax.set_xticks(x)
-    ax.set_xticklabels(["平滑", "Zernike", "自由"])
-    ax.set_ylabel("相关性")
-    ax.set_title("新会话 PSF 相关性对比")
+    ax.set_xticklabels(["Smooth", "Zernike", "Freeform"])
+    ax.set_ylabel("Correlation")
+    ax.set_title("New Session PSF Correlation")
     ax.legend(fontsize=9)
 
     # Subplot 3: Phase bandwidth comparison (new session)
@@ -439,7 +482,7 @@ def render_exposure_response() -> Path:
     new_bw = _load_csv_as_dicts(
         PAIRED_DIR / "20261013_2015_new_session" / "phase_bandwidth_paired.csv"
     )
-    grouped = _group_by_family_family(new_bw)
+    grouped = _group_by_family(new_bw)
     baseline_nrmse = [
         np.mean(grouped[f]["baseline"]["shape_nrmse"])
         for f in ["smooth", "zernike", "freeform"]
@@ -448,19 +491,21 @@ def render_exposure_response() -> Path:
         np.mean(grouped[f]["train_selected_phase_bandwidth"]["shape_nrmse"])
         for f in ["smooth", "zernike", "freeform"]
     ]
-    ax.bar(x - width / 2, baseline_nrmse, width, label="基线", color="#4caf50")
-    ax.bar(x + width / 2, smooth_nrmse, width, label="相位平滑", color="#ff9800")
+    ax.bar(x - width / 2, baseline_nrmse, width, label="Baseline", color="#4caf50")
+    ax.bar(x + width / 2, smooth_nrmse, width, label="Phase Smoothing", color="#ff9800")
     for i, (b, s) in enumerate(zip(baseline_nrmse, smooth_nrmse)):
         ax.text(i - width / 2, b + 0.01, f"{b:.3f}", ha="center", fontsize=9)
         ax.text(i + width / 2, s + 0.01, f"{s:.3f}", ha="center", fontsize=9)
     ax.set_xticks(x)
-    ax.set_xticklabels(["平滑", "Zernike", "自由"])
+    ax.set_xticklabels(["Smooth", "Zernike", "Freeform"])
     ax.set_ylabel("NRMSE")
-    ax.set_title("新会话相位平滑 NRMSE 对比")
+    ax.set_title("New Session Phase Smoothing NRMSE")
     ax.legend(fontsize=9)
 
     fig.suptitle(
-        "Daheng 曝光响应与模型候选对比 (2026-10-13 19:16–19:38)", fontsize=14, y=1.02
+        "Daheng Exposure Response & Model Candidate Comparison (2026-10-13 19:16-19:38)",
+        fontsize=14,
+        y=1.02,
     )
     fig.tight_layout()
     out = IMG_DIR / "mil_exposure_and_model_comparison.png"
@@ -476,21 +521,16 @@ def render_exposure_response() -> Path:
 
 def render_replay_comparison() -> Path:
     """Render comparison of A/B phase replay with fixed exposure."""
-    replay_dirs = [
-        ("无扰动 AB", REPLAY_DIR / "20261013_1733_four_vs_two"),
-        ("固定曝光 AB", REPLAY_DIR / "20261013_160630_fixed040"),
-    ]
-
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     # Subplot 1: Score comparison
     ax = axes[0]
     categories = [
-        "无扰动\n(2探针)",
-        "固定曝光\n(2探针)",
-        "固定曝光\n(4探针)",
-        "有扰动\n(2探针)",
-        "有扰动\n(4探针)",
+        "No disturbance\n(2-probe)",
+        "Fixed exposure\n(2-probe)",
+        "Fixed exposure\n(4-probe)",
+        "Disturbance\n(2-probe)",
+        "Disturbance\n(4-probe)",
     ]
     scores = [0.7294, 0.73098, 0.7133, 0.716, 0.71940]
     cv_vals = [1.0168, 1.0097, 1.08534, 1.0306, 0.89790]
@@ -498,37 +538,40 @@ def render_replay_comparison() -> Path:
 
     x = np.arange(len(categories))
     width = 0.25
-    ax.bar(x - width, scores, width, label="分数", color="#2196f3")
+    ax.bar(x - width, scores, width, label="Score", color="#2196f3")
     ax2 = ax.twinx()
     ax2.bar(x, cv_vals, width, label="CV", color="#f44336", alpha=0.7)
     ax2.bar(x + width, ee_vals, width, label="EE", color="#4caf50", alpha=0.7)
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=9)
-    ax.set_ylabel("综合分", fontsize=11)
+    ax.set_ylabel("Composite Score", fontsize=11)
     ax2.set_ylabel("CV / EE", fontsize=11)
-    ax.set_title("AB 相位复放对比")
+    ax.set_title("A/B Phase Replay Comparison")
     ax.legend(loc="upper left", fontsize=9)
     ax2.legend(loc="upper right", fontsize=9)
 
-    # Subplot 2: Phase image comparison (load from npz)
+    # Subplot 2: Phase image comparison
     ax = axes[1]
-    replay = REPLAY_DIR / "20261013_1733_four_vs_two"
-    phase_a = np.load(replay / "02_B.npy")  # 2-probe phase
-    phase_b = np.load(replay / "02_B.npy")  # same file, placeholder
-    # Load best phases from main runs
     run_173039 = ROOT / "data/debug/slm_model_in_loop/20261013_173039"
     run_173230 = ROOT / "data/debug/slm_model_in_loop/20261013_173230"
 
+    phase_a = None
+    phase_b = None
     if (run_173039 / "best_phase.npy").exists() and (
         run_173230 / "best_phase.npy"
     ).exists():
         phase_a = np.load(run_173039 / "best_phase.npy")
         phase_b = np.load(run_173230 / "best_phase.npy")
+
+    if phase_a is not None and phase_b is not None:
         phase_diff = phase_a - phase_b
         im = ax.imshow(phase_diff, cmap="RdBu_r", interpolation="none")
-        ax.set_title("2探针 vs 4探针\n相位差 (rad)")
+        ax.set_title("2-probe vs 4-probe\nPhase Difference (rad)")
         ax.axis("off")
         plt.colorbar(im, ax=ax, fraction=0.046)
+    else:
+        ax.text(0.5, 0.5, "Files missing", ha="center", transform=ax.transAxes)
+        ax.axis("off")
 
     # Subplot 3: CCD far-field comparison
     ax = axes[2]
@@ -549,25 +592,201 @@ def render_replay_comparison() -> Path:
     )
 
     if img_a is not None and img_b is not None:
-        ax.imshow(
-            img_a,
-            cmap="gray",
-            interpolation="none",
-            extent=[0, img_a.shape[1], 0, -img_a.shape[0]],
+        img_a_gray = img_a[:, :, 0] if img_a.ndim == 3 else img_a
+        img_b_gray = img_b[:, :, 0] if img_b.ndim == 3 else img_b
+        peak_a = max(float(np.max(img_a_gray)), 1e-12)
+        peak_b = max(float(np.max(img_b_gray)), 1e-12)
+        combined = np.hstack(
+            [
+                img_a_gray / peak_a,
+                np.zeros((img_a_gray.shape[0], 5), dtype=np.float64),
+                img_b_gray / peak_b,
+            ]
         )
-        ax.set_title("2探针远场")
+        ax.imshow(combined, cmap="gray", interpolation="none")
+        ax.set_title("4-probe (left) vs 2-probe (right) Far-field")
         ax.axis("off")
-        ax_inset = ax.inset_axes([1.1, 0, 1, 1])
-        ax_inset.imshow(img_b, cmap="gray", interpolation="none")
-        ax_inset.set_title("4探针远场", fontsize=8)
-        ax_inset.axis("off")
     else:
-        ax.text(0.5, 0.5, "文件缺失", ha="center", transform=ax.transAxes)
+        ax.text(0.5, 0.5, "Files missing", ha="center", transform=ax.transAxes)
         ax.axis("off")
 
-    fig.suptitle("固定曝光 A/B 相位复放对比 (2026-10-13)", fontsize=14, y=1.02)
+    fig.suptitle(
+        "Fixed-Exposure A/B Phase Replay Comparison (2026-10-13)", fontsize=14, y=1.02
+    )
     fig.tight_layout()
     out = IMG_DIR / "mil_replay_comparison.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figure 7: Warm vs Cold replay comparison (fixed exposure CCD frames)
+# ---------------------------------------------------------------------------
+
+
+def render_warm_cold_replay() -> Path:
+    """Render side-by-side CCD frames from the warm vs cold fixed-exposure replay."""
+    replay_dir = REPLAY_DIR / "20261013_2013_warm_vs_cold"
+
+    flat_frame = np.load(replay_dir / "00_flat.npy")
+    warm_a = np.load(replay_dir / "01_A.npy")
+    cold_b = np.load(replay_dir / "02_B.npy")
+
+    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    images = [
+        (flat_frame, "Flat (reference)"),
+        (warm_a, "Warm-start A (4-probe)"),
+        (cold_b, "Cold-start B (2-probe)"),
+    ]
+
+    for ax, (img, title) in zip(axes, images):
+        cmap = "gray" if "Flat" in title else "inferno"
+        peak = max(float(np.max(img)), 1e-12)
+        ax.imshow(img / peak, cmap=cmap, interpolation="none")
+        ax.set_title(title, fontsize=11)
+        ax.axis("off")
+
+    fig.suptitle(
+        "Warm vs Cold Fixed-Exposure CCD Replay (0.400 ms, seed 78)",
+        fontsize=14,
+        y=1.02,
+    )
+    fig.tight_layout()
+    out = IMG_DIR / "mil_warm_cold_replay.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figure 8: Step B result chain (phase, flat baseline, shaped CCD)
+# ---------------------------------------------------------------------------
+
+
+def render_phase_ccd_chain() -> Path:
+    """Render the Step B result chain: best phase, flat baseline CCD, shaped CCD."""
+    run_173039 = ROOT / "data" / "debug" / "slm_model_in_loop" / "20261013_173039"
+    run_173230 = ROOT / "data" / "debug" / "slm_model_in_loop" / "20261013_173230"
+
+    fig, axes = plt.subplots(2, 3, figsize=(12, 7))
+
+    # Row 1: 4-probe run
+    phase_4 = np.load(run_173039 / "best_phase.npy")
+    img_4 = np.array(
+        __import__("PIL.Image", fromlist=["Image"]).open(
+            run_173039 / "best_far_field.png"
+        )
+    )
+
+    axes[0, 0].imshow(phase_4, cmap="twilight", interpolation="none")
+    axes[0, 0].set_title("4-probe: Best Phase (rad)", fontsize=10)
+    axes[0, 0].axis("off")
+
+    axes[0, 1].imshow(
+        img_4[:, :, 0] / max(float(img_4[:, :, 0].max()), 1e-12),
+        cmap="gray",
+        interpolation="none",
+    )
+    axes[0, 1].set_title("4-probe: Shaped CCD (0.4 ms)", fontsize=10)
+    axes[0, 1].axis("off")
+
+    # Flat baseline from replay
+    replay = REPLAY_DIR / "20261013_2013_warm_vs_cold"
+    flat_frame = np.load(replay / "00_flat.npy")
+    axes[0, 2].imshow(
+        flat_frame / max(float(flat_frame.max()), 1e-12),
+        cmap="gray",
+        interpolation="none",
+    )
+    axes[0, 2].set_title("4-probe: Flat Baseline", fontsize=10)
+    axes[0, 2].axis("off")
+
+    # Row 2: 2-probe run
+    phase_2 = np.load(run_173230 / "best_phase.npy")
+    img_2 = np.array(
+        __import__("PIL.Image", fromlist=["Image"]).open(
+            run_173230 / "best_far_field.png"
+        )
+    )
+
+    axes[1, 0].imshow(phase_2, cmap="twilight", interpolation="none")
+    axes[1, 0].set_title("2-probe: Best Phase (rad)", fontsize=10)
+    axes[1, 0].axis("off")
+
+    axes[1, 1].imshow(
+        img_2[:, :, 0] / max(float(img_2[:, :, 0].max()), 1e-12),
+        cmap="gray",
+        interpolation="none",
+    )
+    axes[1, 1].set_title("2-probe: Shaped CCD (0.4 ms)", fontsize=10)
+    axes[1, 1].axis("off")
+
+    flat_2 = np.load(replay / "00_flat.npy")
+    axes[1, 2].imshow(
+        flat_2 / max(float(flat_2.max()), 1e-12), cmap="gray", interpolation="none"
+    )
+    axes[1, 2].set_title("2-probe: Flat Baseline", fontsize=10)
+    axes[1, 2].axis("off")
+
+    fig.suptitle(
+        "Step B Result Chain: Phase → Flat Baseline → Shaped CCD", fontsize=14, y=1.02
+    )
+    fig.tight_layout()
+    out = IMG_DIR / "mil_phase_ccd_chain.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Figure 9: Probe phase + CCD holdout montage (real measured data)
+# ---------------------------------------------------------------------------
+
+
+def render_probe_phase_ccd_montage() -> Path:
+    """Render real measured phase (64x64) and corresponding CCD frames (256x256)
+    from saved probe .npz files for representative holdout and shaped phases.
+    """
+    probe_dir = (
+        ROOT / "data" / "debug" / "slm_model_in_loop" / "20261013_145953" / "probes"
+    )
+
+    files = sorted(probe_dir.glob("round_*holdout_*.npz")) + sorted(
+        probe_dir.glob("round_*shaped_*.npz")
+    )
+
+    selected = files[:6]
+    n = len(selected)
+    fig, axes = plt.subplots(n, 2, figsize=(8, 2.5 * n))
+    if n == 1:
+        axes = axes.reshape(1, -1)
+
+    for row_idx, fpath in enumerate(selected):
+        data = np.load(fpath)
+        phase = np.array(data["phase"], dtype=np.float64)
+        ccd_frame = np.array(data["raw_frame"], dtype=np.float64)
+
+        split = fpath.stem.split("_")[-1]
+        title_suffix = "Holdout" if "holdout" in fpath.stem else "Shaped"
+
+        axes[row_idx, 0].imshow(phase, cmap="twilight", interpolation="none")
+        axes[row_idx, 0].set_title(f"{title_suffix} Phase ({split})", fontsize=10)
+        axes[row_idx, 0].axis("off")
+
+        axes[row_idx, 1].imshow(
+            ccd_frame / max(float(ccd_frame.max()), 1e-12),
+            cmap="gray",
+            interpolation="none",
+        )
+        axes[row_idx, 1].set_title(
+            f"{title_suffix} CCD Frame (raw, 0.4 ms)", fontsize=10
+        )
+        axes[row_idx, 1].axis("off")
+
+    fig.suptitle("Measured Phase (64x64) and CCD Frames (256x256)", fontsize=13, y=1.02)
+    fig.tight_layout()
+    out = IMG_DIR / "mil_phase_ccd_montage.png"
     fig.savefig(out, dpi=150, bbox_inches="tight")
     plt.close(fig)
     return out
@@ -603,6 +822,18 @@ def main() -> None:
     print("Generating replay comparison...")
     img6 = render_replay_comparison()
     print(f"  -> {img6.relative_to(ROOT)}")
+
+    print("Generating warm-cold replay comparison...")
+    img7 = render_warm_cold_replay()
+    print(f"  -> {img7.relative_to(ROOT)}")
+
+    print("Generating phase-CCD result chain...")
+    img8 = render_phase_ccd_chain()
+    print(f"  -> {img8.relative_to(ROOT)}")
+
+    print("Generating probe phase-CCD montage...")
+    img9 = render_probe_phase_ccd_montage()
+    print(f"  -> {img9.relative_to(ROOT)}")
 
     print("\nAll images generated in:", IMG_DIR.relative_to(ROOT))
 
