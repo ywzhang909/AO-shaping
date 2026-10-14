@@ -5,6 +5,7 @@ attempt including the dead ends), while this is the answer to "what did each ide
 with the terminology and the figures explained rather than assumed.
 """
 
+from __future__ import annotations
 from pathlib import Path
 
 ROOT = Path(r"D:\Projects\TIFO\AO-shaping")

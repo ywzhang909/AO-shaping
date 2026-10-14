@@ -6,6 +6,7 @@ SLM-200 专属设备硬件参数见 ``slm200_constants`` (SLM-300 等后续型�
 提供各自的设备常量模块)。
 """
 
+from __future__ import annotations
 from enum import IntEnum
 
 # SDK基础常量

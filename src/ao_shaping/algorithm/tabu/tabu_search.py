@@ -33,6 +33,7 @@ Author: AO-Shaping Development Team
 Created: 2026-03-26
 """
 
+from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 from collections.abc import Callable

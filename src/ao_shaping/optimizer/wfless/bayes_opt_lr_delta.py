@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from skopt import gp_minimize
 from skopt.space import Real

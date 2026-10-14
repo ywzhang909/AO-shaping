@@ -56,6 +56,7 @@ TODO (实机待测试清单, 完整清单见 run() docstring):
     待测项逐条列于 `run()` docstring 的 TODO 清单。
 """
 
+from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path

@@ -5,6 +5,7 @@ Uses the ao_shaping.sim simulation tools, integrating Adam/Momentum optimizers
 and heuristic search algorithms (PSO, GA, SA).
 """
 
+from __future__ import annotations
 import numpy as np
 import tqdm
 

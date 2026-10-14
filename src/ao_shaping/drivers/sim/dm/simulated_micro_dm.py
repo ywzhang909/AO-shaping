@@ -1,5 +1,6 @@
 """用于无硬件测试与开发的模拟 MicroDM。"""
 
+from __future__ import annotations
 from typing import Any
 
 import numpy as np

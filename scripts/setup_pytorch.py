@@ -1,5 +1,7 @@
 #!/usr/bin/env python
 """自动检测 GPU 并安装合适的 PyTorch 版本"""
+
+from __future__ import annotations
 import subprocess
 import sys
 

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import numpy as np
 from scipy.sparse import dia_matrix
 from numpy.linalg import svd, lstsq

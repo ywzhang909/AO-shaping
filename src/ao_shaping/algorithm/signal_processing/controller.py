@@ -6,6 +6,7 @@ This module contains pure control law implementations and a high-level orchestra
 Hardware-specific measurement and actuation are injected via callbacks.
 """
 
+from __future__ import annotations
 import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field

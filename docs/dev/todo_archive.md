@@ -1665,3 +1665,37 @@ H-22（`slm-pib` 未变）、H-24（新 family ⇒ 新 `fov_px` ⇒ `far_field_p
 pib 那半不 reset、两半真能离线跑通）。
 
 ---
+
+### 5.36 F-5 切片 1 —— `from __future__ import annotations` 补齐（2026-10-14）
+
+F-5（#56）按「按切片做」的建议落地第一片：§11.7 的 `__future__` 覆盖率整改。
+
+**作用域**：`src/ao_shaping/**` + `scripts/**`（非 `__init__.py`、非 vendored
+`src/calculators`）。**共 41 个文件**：src 33 + scripts 8。
+
+**数字对账**（与 §5.33 重扫的 110 个「真实目标」差异说明）：§5.33 的 110 含
+`tests/` 67 个 —— 本切片**不含 tests**（测试模块无延迟求值需求，且 67 个文件的
+churn 不值当）；含 `__init__.py` 39 个 —— **有意跳过**（§11.7 原文即「部分为
+`__init__.py` 可忽略」，且惰性 re-export 的 `__init__.py` 加 `__future__` 收益
+为零、还可能掩盖 re-export 的真实导入语义）。
+
+**插入规则**（纯机械，AST 定位，非文本替换）：
+- 有 docstring 的：docstring 与首个顶层 import 之间（保持 ruff 的
+  `E402`/future 必须居前的约束）；
+- 无 docstring 的：文件头（首个 import 之前）；
+- 无 import 的两个常量/注册表模块（`slm200_constants.py`、
+  `utils/io/handler.py`）：docstring 之后。
+
+**风险核验**：
+- 41 个文件里 7 个含 `@dataclass` / `typing.cast` —— py3.13 下 dataclass
+  对字符串注解安全（仅 `kw_only`/`slots` 等少数场景需运行期求值，本仓未用），
+  `cast` 与 `__future__` 无关。
+- ruff：改动前后 `src/ scripts/` 错误数一致（55 个存量，全在 `scripts/call_graph/`
+  的 E401 等，与本切片无关）。
+- 全量 `compileall` 通过；pytest 全量回归通过（见 commit 记录）。
+
+**未动**（留给后续切片）：`tests/` 67 个、`__init__.py` 39 个（决策：不补）、
+print→loguru（切片 2，src 96 处）、宽泛 except（切片 3，风险最高）、大文件
+（切片 4）。
+
+---

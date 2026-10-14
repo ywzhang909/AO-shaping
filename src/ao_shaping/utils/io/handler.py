@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 class Register:
     def __init__(self) -> None:
         self.members = {}

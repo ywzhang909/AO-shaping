@@ -6,6 +6,8 @@ SLM-300 等型号: 后续型号可提供各自的设备常量模块 (如 ``slm30
 SDK 协议/模式/范围等驱动常量见 ``constants``。
 """
 
+from __future__ import annotations
+
 # 设备硬件参数常量
 PIXEL_SIZE_UM = 7.8  # 像素尺寸 (微米)
 PITCH_UM = 8  # 像素间距 (微米)
