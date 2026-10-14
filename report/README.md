@@ -66,6 +66,7 @@
 | [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写` | 硬件 | GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；交错重放入口 scripts/slm/replay_gs_refine_hw.py 仅离线部分经测试 |
 | [`shape_trials/gsnet_hybrid_offline_20261013.md`](shape_trials/gsnet_hybrid_offline_20261013.md) | `人工撰写` | 离线 | 2026-10-13 GSNet 混合瞳孔相位离线验证；8 阶 Zernike + 可训练残差参数化合成验证 |
 | [`shape_trials/model_in_loop_live_20261013.md`](shape_trials/model_in_loop_live_20261013.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | 2026-10-13 正向模型闭环整形上机记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染 |
+| [`shape_trials/model_in_loop_live_20261014.md`](shape_trials/model_in_loop_live_20261014.md) | `人工撰写` | 硬件 | 2026-10-14 正向模型闭环实机复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准 |
 | [`shape_trials/model_in_loop_next_steps_20261013.md`](shape_trials/model_in_loop_next_steps_20261013.md) | `人工撰写` | 硬件 | 2026-10-13 正向模型闭环暂停后续步骤记录 |
 | [`shape_trials/model_in_loop_pause_handoff_20261013.md`](shape_trials/model_in_loop_pause_handoff_20261013.md) | `人工撰写` | 离线+硬件 | 2026-10-13 正向模型闭环暂停交接记录；当前状态、证据、工程变更摘要 |
 | [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写` | 硬件 | 2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，scripts/slm/compare_shape_debug.py 只渲染对照图 |

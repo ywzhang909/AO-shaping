@@ -1,5 +1,11 @@
 # Model-in-loop 实机复核（2026-10-14）
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件
+> **说明**: 2026-10-14 正向模型闭环实机复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准
+<!-- provenance:end -->
+
 本报告为 `banckend` 本地分支派生的 `exp/model-in-loop-20261014` worktree 新增记录，不改写 2026-10-13 报告。代码工作目录为 `data/debug/worktrees/model-in-loop-20261014/`，所有采集数据保存在主仓库 `data/debug/slm_model_in_loop/`。设备为 Santec SLM #1（`22030108`）和 Daheng CCD（`FJB24112232`），波长 1064 nm；每轮设备独立打开、关闭并恢复 SLM 原显示。
 
 ## 光路和预检
