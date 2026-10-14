@@ -2,7 +2,7 @@
 
 > 从 `main.py` 出发的函数调用图 + 逐函数优化文档（llm-wiki 式互链 Markdown）。
 > 数据源：AST 静态调用图 `raw/assets/call_graph_final.json`（`scripts/call_graph/build_call_graph.py` 生成，可重跑）
-> + 源码 docstring 逐字摘录。Last updated: 2026-10-13 | 总页数: 48
+> + 源码 docstring 逐字摘录。Last updated: 2026-10-14 | 总页数: 50
 
 ## 入口 (entry)
 
@@ -11,6 +11,8 @@
 | [[entry/main-py]] | `main.py` 仓库根入口（7 行，转交 `cli()`） |
 | [[entry/cli]] | `cli()` Click 根命令组：全局选项 + 20 命令注册表（懒加载） |
 | [[diagram/call-graph-overview]] | 调用图总览（分层 mermaid 图 + 阅读方法） |
+| [[diagram/global-call-graph]] | **全局调用图**（包级聚合 mermaid，8 个一级包间的调用流向/强度） |
+| [[diagram/class-diagram]] | **全局类图**（mermaid classDiagram：设备/模型/优化器/标定/控制 7 域继承与协作） |
 
 ## CLI 命令 (commands) — 20 个
 
@@ -125,8 +127,11 @@
 - `raw/assets/call_graph_final.json` — 完整调用图（193 已解析节点 / 290 边）+ `recovered.json` 恢复映射
 - `raw/assets/similar_functions.json` — 相似函数关联（5 相似对 / 4 相似簇，含逐维得分与理由）
 - `assets/diagram_layers.svg` / `.png` — 分层调用图
+- `assets/global-call-graph.svg` / `.png` — 全局调用图（包级聚合）
+- `assets/class-diagram.svg` / `.png` — 全局类图（继承 + 协作）
 - 生成脚本：`scripts/call_graph/build_call_graph.py`（AST 分析）、`finalize_graph.py`（恢复映射合并）、
-  `build_similarity.py`（相似函数打分，可独立重跑）、`gen_wiki_pages.py`（页面生成，幂等）
+  `build_module_graph.py`（包级全局调用图 mermaid，可独立重跑）、`build_similarity.py`（相似函数打分，可独立重跑）、
+  `gen_wiki_pages.py`（页面生成，幂等）
 
 ## 使用建议
 

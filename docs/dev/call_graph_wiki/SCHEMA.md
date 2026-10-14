@@ -56,6 +56,7 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 - 工具/IO：`io`, `utils`, `time`, `recorder`, `lut`, `image`, `spots`, `wavefront`
 - 结构：`module`, `factory`
 - 关系层：`similar`, `relations`（相似函数关联，见 `relations/similar-functions.md`）
+- 图类型：`class`（类图，`diagram/class-diagram.md`；`global` 表示包级/全库聚合视图）
 
 规则：页面上的 tag 必须在本分类中。需要新 tag 时先在此登记再用。
 
@@ -81,8 +82,13 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 
 ## Update Policy
 
-- 代码改动后，重跑 `scripts/call_graph/build_call_graph.py` + `build_similarity.py` +
-  `gen_wiki_pages.py` 重新生成调用图、相似关系与命令/函数页（幂等，`source` 行号会更新）。
+- 代码改动后，重跑 `scripts/call_graph/build_call_graph.py` + `build_module_graph.py` +
+  `build_similarity.py` + `gen_wiki_pages.py` 重新生成调用图、全局图与命令/函数页（幂等，`source` 行号会更新）。
+- `diagram/global-call-graph.mmd` 由 `build_module_graph.py` 生成（幂等）；`diagram/class-diagram.mmd`
+  为手写（类继承变化时人工更新，mermaid 语法注意：`class X {` 块首行用 `<<abstract>>` 成员，
+  不要写 `abstract class X`；`%%` 注释行须顶格无缩进）。
+- SVG/PNG 用 `npx -y @mermaid-js/mermaid-cli -p puppeteer-config.json`（executablePath 指向
+  `/tmp/chromium`）渲染，kroki.io 线上服务在本环境不可达。
 - docstring 变更：wiki 页"docstring 原文"段应同步。若 wiki 与源码 docstring 冲突，
   **以源码为准**，更新 wiki 的 `updated` 日期。
 - 新增命令：在 `entry/cli.md` 注册表 + `commands/` 下建页 + `index.md` 登记。
