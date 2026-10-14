@@ -70,7 +70,7 @@
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
 
-## SLM 空间光调制器 — 15 篇
+## SLM 空间光调制器 — 16 篇
 
 | 文档 | 说明 |
 |---|---|
