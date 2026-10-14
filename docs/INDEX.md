@@ -32,7 +32,7 @@
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
 
-## 开发手册（call_graph_wiki）— 56 篇
+## 开发手册（call_graph_wiki）— 54 篇
 
 `dev/call_graph_wiki/` 是**函数级开发手册**，独立索引见 [`dev/call_graph_wiki/index.md`](dev/call_graph_wiki/index.md)：
 
@@ -43,7 +43,7 @@
 | `functions/` | 25 | 骨架函数：签名 + docstring + 入/出边 |
 | `diagram/` | 3 | 分层调用图、**全局调用图**（包级聚合）、**全局类图**（继承+协作） |
 | `relations/` | 1 | 相似函数关联总览（5 相似对 / 4 簇，含逐维得分） |
-| `raw/assets/` | 6 | 机器可读数据：call_graph_final.json（193 节点/290 边）、similar_functions.json、mmd/svg |
+| `raw/assets/` | 8 | 机器可读数据：call_graph_final.json（193 节点/290 边）、similar_functions.json、mmd/svg |
 | 根 | 3 | `index.md`（总索引）/ `SCHEMA.md`（结构与更新策略）/ `log.md`（操作日志） |
 
 ## DM 变形镜（NLight / 微驱）— 6 条命令
