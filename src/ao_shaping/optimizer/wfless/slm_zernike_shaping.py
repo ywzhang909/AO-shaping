@@ -53,7 +53,6 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
@@ -122,7 +121,12 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = None
+# 0.0: the Santec driver's ``display_data`` (wait_time_s=None) auto-estimates
+# the pixel-flip wait from the frame-to-frame gray delta and sleeps internally
+# (see drivers/slm/santec/driver.py), so no extra optimizer-level wait is
+# needed. (Was None, which crashed ``time.sleep``; was 0.3 before the driver
+# gained dynamic pixel-flip waiting.)
+SLM_RESPONSE_TIME_S = 0.0
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -133,6 +137,7 @@ SLM_APPLY_BEST_ON_EXIT = True
 # SLM resolution. Sourced from the driver rather than repeated here -- see the
 # note in slm_zernike_pib.py. Names kept because tests import them.
 SLM_WIDTH, SLM_HEIGHT = PANEL_RES
+SLM_RESOLUTION = tuple(PANEL_RES)
 
 
 # Search-family selection: "spgd" runs the SPGD gradient loop below; every other

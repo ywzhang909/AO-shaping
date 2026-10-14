@@ -435,9 +435,6 @@ class SlmModelInLoopConfig:
     """Additional independent pixel-wise phase probes before Step B (runner
     option ``--freeform-holdout-count``). Zero keeps the historical run."""
 
-    freeform_holdout_count: int = 0
-    """Additional independent pixel-wise holdouts after the standard probes."""
-
     probe_split_hook: ProbeSplitHook | None = None
     """Override which probes train Step A and which are held out.
 
@@ -2388,7 +2385,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                         holdout_index,
                         int(config.holdout_probe_count),
                     )
-                    holdout_family = "random" if holdout_index < 2 else "structured"
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
                     holdout_grid = _to_model_grid(
