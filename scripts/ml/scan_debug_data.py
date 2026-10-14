@@ -10,6 +10,7 @@ walking ancestors and skipping bare run stamps (``YYYYMMDD`` /
 ``YYYYmmdd_HHMMSS``), not by taking ``parent.parent`` blindly.
 """
 
+from __future__ import annotations
 import json
 import pickle
 import re

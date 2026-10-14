@@ -2,6 +2,16 @@
 
 > 本文件从 README.md 拆出（2026-10-13）。README 只保留索引，完整版本历史在此维护。
 
+## Unreleased
+
+- **F-5 切片 1**（#56）：`src/ao_shaping/` + `scripts/` 共 **41 个文件**补齐
+  `from __future__ import annotations`（AST 定位插入：docstring 与首个 import
+  之间 / 文件头 / 无 import 模块的 docstring 后）。`tests/` 67 个与
+  `__init__.py` 39 个有意跳过（惰性 re-export 无收益）。ruff 错误数改动前后
+  一致（55 个存量全在 `scripts/call_graph/`）；`compileall` 与全量 pytest 通过。
+  余 3 片（print→loguru、宽泛 except、大文件）待后续切片。详见
+  [docs/dev/todo_archive.md §5.36](docs/dev/todo_archive.md)。
+
 ## v0.18.0 (2026-10-07 → 2026-10-12, 107 个提交)
 
 **逆向整形模型、自适应 SPGD、GS 预矫正上硬件、台架工具重组**

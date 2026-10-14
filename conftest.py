@@ -49,15 +49,19 @@ THREAD_ALARM = 4000
 
 
 def _os_thread_count() -> int | None:
-    """Live OS thread count, or ``None`` where ``/proc`` does not exist.
+    """Live OS thread count, or ``None`` when nothing can supply one.
 
-    ``/proc/self/status`` is Linux-only. Returning ``None`` rather than raising
-    keeps the Windows callers honest instead of letting the read escape as an
-    unhandled ``FileNotFoundError`` -- which it did from
-    ``pytest_sessionfinish``, aborting the session *after* the tests had already
-    run and thereby suppressing pytest's whole summary (counts, failure
-    list, exit code). That made an otherwise-green run indistinguishable from a
-    broken one on any non-Linux checkout.
+    ``/proc/self/status`` is Linux-only. Returning ``None`` straight away off
+    Linux stopped the crash but also **disarmed the watch**: ``_monitor`` skips
+    ``None`` counts, so ``WATCH["peak"]`` stayed at ``0`` on Windows,
+    ``THREAD_ALARM`` could never fire, and the teardown line always read
+    ``peak = 0``. ``psutil`` reports the same quantity there, so the count is now
+    real on every platform and ``None`` means only "no source available".
+
+    Never raises. The read escaping as an unhandled ``FileNotFoundError`` from
+    ``pytest_sessionfinish`` aborted the session *after* the tests had already
+    run, suppressing pytest's whole summary (counts, failure list, exit code)
+    and making an otherwise-green run indistinguishable from a broken one.
     """
     try:
         with open("/proc/self/status") as fh:
@@ -65,8 +69,14 @@ def _os_thread_count() -> int | None:
                 if line.startswith("Threads:"):
                     return int(line.split()[1])
     except OSError:
+        pass  # no /proc on this platform -- fall through to psutil
+
+    try:
+        import psutil
+
+        return int(psutil.Process().num_threads())
+    except Exception:  # pragma: no cover - psutil is an optional extra
         return None
-    return 0
 
 
 def _monitor() -> None:

@@ -100,6 +100,13 @@ REPORTS: dict[str, ReportProvenance] = {
         note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
         extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
     ),
+    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
+        script="scripts/generate_asm_vs_fraunhofer_report.py",
+        command="python scripts/generate_asm_vs_fraunhofer_report.py",
+        environment="离线",
+        note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
+        extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
+    ),
 
     "report/inverse_shaping_unet/report.md": ReportProvenance(
         script="scripts/ml/generate_inverse_shaping_report.py",

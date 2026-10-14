@@ -5,6 +5,7 @@ Follows the existing per-sample accumulation pattern exactly: each enabled term 
 opaque scalar.
 """
 
+from __future__ import annotations
 from pathlib import Path
 
 LOSSES = Path("src/ml/zernike/losses.py")

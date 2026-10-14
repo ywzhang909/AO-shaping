@@ -431,6 +431,9 @@ class SlmModelInLoopConfig:
     step_a_iterations: int = 80
     holdout_probe_count: int = 2
     """Independent phase probes never used by Step A's fit."""
+    freeform_holdout_count: int = 0
+    """Additional independent pixel-wise phase probes before Step B (runner
+    option ``--freeform-holdout-count``). Zero keeps the historical run."""
 
     freeform_holdout_count: int = 0
     """Additional independent pixel-wise holdouts after the standard probes."""
@@ -705,10 +708,10 @@ class SlmModelInLoopConfig:
       ``(region, region)``, float64. Never the panel array: the panel is a
       different coordinate frame (on this bench the axes are swapped and the
       scales differ by >10x).
-    * ``frame`` -- the *prepared* frame (the output of ``_prepare_frame``), i.e.
-      background-subtracted and non-negative.
+    * ``frame`` -- the *prepared* frame (the output of :func:`prepare_frame`),
+      i.e. background-subtracted and non-negative.
     * ``raw_peak`` / ``raw_p999`` / ``raw_mean`` -- ``float`` scalars of the
-      **raw** ``bench.measure()`` return, taken *before* ``_prepare_frame``.
+      **raw** ``bench.measure()`` return, taken *before* :func:`prepare_frame`.
       Median subtraction and clipping destroy the saturation ceiling, and
       detecting an over- or under-exposed frame is one of the main reasons to
       dump a step at all.
@@ -936,7 +939,7 @@ def _raw_frame_scalars(raw: np.ndarray) -> tuple[float, float, float]:
     """``(peak, p99, mean)`` of a **raw** detector frame.
 
     Call this on ``bench.measure()``'s return value *before* handing that array to
-    :func:`~ao_shaping.optimizer.wfless.slm_gs_refine._prepare_frame`: median
+    :func:`prepare_frame`: median
     subtraction and clipping at zero remove the saturation ceiling, and knowing
     whether a step was over- or under-exposed is one of the reasons to dump it.
 
@@ -975,7 +978,7 @@ def _step_payload(
 
     Args:
         phase_rad: Model-grid phase that produced the frame, raw unwrapped radians.
-        frame: Prepared frame (output of ``_prepare_frame``).
+        frame: Prepared frame (output of :func:`prepare_frame`).
         raw_scalars: Output of :func:`_raw_frame_scalars`, taken before
             preparation.
         round_index: ``0`` for the pre-loop stages, else ``index + 1``.
@@ -2385,6 +2388,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                         holdout_index,
                         int(config.holdout_probe_count),
                     )
+                    holdout_family = "random" if holdout_index < 2 else "structured"
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
                     holdout_grid = _to_model_grid(
