@@ -2632,6 +2632,65 @@ solve) and is how the logic is verified while the bench is offline.
 > failure modes this works around are documented in
 > [`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md).
 
+### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
+
+Five evaluators that answer one design question each **without touching the
+bench**: they read a completed `slm-model-in-loop --debug` directory
+(`probes/manifest.json` + `bench_geometry.json` + `source_amplitude.npy` +
+`probes/*.npz`) and re-score it under a different modelling assumption. Because
+the input is a saved artefact, the instruments may be powered down.
+
+```bash
+python scripts/evaluate_model_in_loop_refit.py       data/debug/slm_model_in_loop/<ts> --output logs/refit.json
+python scripts/evaluate_model_in_loop_geometry.py    data/debug/slm_model_in_loop/<ts> --output logs/geometry.json
+python scripts/evaluate_model_in_loop_order.py       data/debug/slm_model_in_loop/<ts> --output logs/order.json
+python scripts/evaluate_model_in_loop_probe_mix.py   data/debug/slm_model_in_loop/<ts> --output logs/probe_mix.json
+python scripts/evaluate_model_in_loop_oversampling.py data/debug/slm_model_in_loop/<ts> --output logs/oversampling.json
+```
+
+| Script | Question it answers |
+|---|---|
+| `..._refit.py` | Is a zero-iteration refit as good as a short one? (compares forward models on archived holdouts) |
+| `..._geometry.py` | Does a three-parameter camera-grid correction beat the single-scale geometry? |
+| `..._order.py` | How many Zernike orders should Step A refit? (`--orders`, default `3 4 6 10`) |
+| `..._probe_mix.py` | Which Step-A probe family should be fitted — does mixing beat a single family? |
+| `..._oversampling.py` | Does bilinearly oversampling the pupil (`--factors`, default `1 2 4`) improve the held-out speckle correlation? |
+
+All five take one or more `run_dirs` plus a required `--output` JSON path and
+print a per-factor / per-order table. They fit on the `train` split and score on
+`holdout` / `shaped`, so the reported number is always out-of-sample.
+
+> ⚠️ **Read the split sizes before quoting any single family.** These scripts
+> print bare means; on a typical one-round run `holdout` has 6 records while
+> `freeform` has 2 and `shaped` has 1, so a one-sample "correlation" sits beside
+> a six-sample mean with no spread shown. Treat single-split rows as anecdotes.
+
+> ⚠️ `..._oversampling.py` re-implements the propagation in NumPy/SciPy rather
+> than calling the canonical torch
+> `ao_shaping.utils.wavefront.fraunhofer.interpolated_pupil_intensity`, so it
+> runs without the `ml` dependency group. The two are **verified numerically
+> identical** (max relative difference ~1e-15 for factors 1/2/4); if you change
+> one, change both.
+
+### replay_model_in_loop_config.py
+
+Re-runs a **saved** `slm-model-in-loop` configuration on real hardware with a
+different probe seed — the way to separate "the seed was unlucky" from "the
+configuration is bad" without re-deriving the CLI flags by hand. **Needs
+hardware** (Santec SLM + camera); it calls the genuine
+`optimize_slm_model_in_loop`.
+
+```bash
+python scripts/replay_model_in_loop_config.py data/debug/slm_model_in_loop/<ts> --seed 87 --output-dir data/debug/slm_model_in_loop/replay87
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `source_run` | (required) | Saved run dir to take the configuration from |
+| `--seed` | (required) | New Step-A probe seed |
+| `--step-a-iterations` | `0` | Override Step-A budget (`0` = keep the saved value) |
+| `output_dir` | (optional) | Output root; defaults to the source run's debug root |
+
 ### verify_correction_csv.py
 
 Offline verification for the `--export-correction` gray-offset CSV
