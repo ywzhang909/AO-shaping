@@ -2678,7 +2678,7 @@ solve) and is how the logic is verified while the bench is offline.
 
 ### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
 
-Five evaluators that answer one design question each **without touching the
+Seven evaluators that answer one design question each **without touching the
 bench**: they read a completed `slm-model-in-loop --debug` directory
 (`probes/manifest.json` + `bench_geometry.json` + `source_amplitude.npy` +
 `probes/*.npz`) and re-score it under a different modelling assumption. Because
@@ -2690,6 +2690,8 @@ python scripts/slm/evaluate_model_in_loop_geometry.py    data/debug/slm_model_in
 python scripts/slm/evaluate_model_in_loop_order.py       data/debug/slm_model_in_loop/<ts> --output logs/order.json
 python scripts/slm/evaluate_model_in_loop_probe_mix.py   data/debug/slm_model_in_loop/<ts> --output logs/probe_mix.json
 python scripts/slm/evaluate_model_in_loop_oversampling.py data/debug/slm_model_in_loop/<ts> --output logs/oversampling.json
+python scripts/slm/evaluate_model_in_loop_psf.py         logs/psf.csv data/debug/slm_model_in_loop/<ts>
+python scripts/slm/evaluate_model_in_loop_phase_bandwidth.py logs/phase_bandwidth.csv data/debug/slm_model_in_loop/<ts>
 ```
 
 | Script | Question it answers |
@@ -2699,10 +2701,14 @@ python scripts/slm/evaluate_model_in_loop_oversampling.py data/debug/slm_model_i
 | `..._order.py` | How many Zernike orders should Step A refit? (`--orders`, default `3 4 6 10`) |
 | `..._probe_mix.py` | Which Step-A probe family should be fitted — does mixing beat a single family? |
 | `..._oversampling.py` | Does bilinearly oversampling the pupil (`--factors`, default `1 2 4`) improve the held-out speckle correlation? |
+| `..._psf.py` | Does a small Gaussian PSF selected on `train` probes deblur the frozen hardware `holdout` / `shaped` frames? |
+| `..._phase_bandwidth.py` | How much circular phase smoothing (Gaussian σ, phase space) can be applied to the frozen model without degrading the frozen holdouts? |
 
-All five take one or more `run_dirs` plus a required `--output` JSON path and
-print a per-factor / per-order table. They fit on the `train` split and score on
-`holdout` / `shaped`, so the reported number is always out-of-sample.
+The first five take one or more `run_dirs` plus a required `--output` JSON path
+and print a per-factor / per-order table; the last two take an `output_csv`
+plus `run_dirs` and write one CSV row per sigma (no `--output` flag). All seven
+fit on the `train` split and score on `holdout` / `shaped`, so the reported
+number is always out-of-sample.
 
 > ⚠️ **Read the split sizes before quoting any single family.** These scripts
 > print bare means; on a typical one-round run `holdout` has 6 records while
