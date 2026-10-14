@@ -21,8 +21,7 @@ rather than decorative:
 
 * ``slm/zernike_matrix_runner.py`` -> ``zernike_matrix_run`` / ``zernike_closed_loop_run``
 * ``slm/slm_shaping_runner.py`` -> ``slm_pib_run`` (the click group ``run``, i.e.
-  ``slm-pib``) / ``slm_square_run`` (its ``square`` subcommand, i.e.
-  ``spgd-square``)
+  ``slm-pib``)
 * ``matrix_runner.py`` -> ``dm_matrix_run`` / ``hadamard_matrix_run``
 * ``micro_drive/voltage_runner.py`` -> ``alt_voltage_run`` / ``full_voltage_run``
 
@@ -50,7 +49,6 @@ __all__ = [
     "full_voltage_run",
     "hadamard_matrix_run",
     "combined_run",
-    "slm_square_run",
     "slm_pib_run",
     "slm_gs_refine_run",
     "slm_gsnet_run",
@@ -73,10 +71,6 @@ _LAZY_RUNNERS: dict[str, str] = {
     "full_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner",
     "hadamard_matrix_run": "ao_shaping.runners.matrix_runner",
     "combined_run": "ao_shaping.runners.nlight_dm.combined_runner",
-    # Both commands live in one module (the slm-pib and spgd-square halves of
-    # the shaping family), so they need distinct attributes -- see the
-    # _IMPORT_ATTRS note below.
-    "slm_square_run": "ao_shaping.runners.slm.slm_shaping_runner",
     "slm_pib_run": "ao_shaping.runners.slm.slm_shaping_runner",
     "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner",
     # Was in neither __all__ nor _LAZY_RUNNERS. It resolved only because of the
@@ -91,7 +85,6 @@ _LAZY_RUNNERS: dict[str, str] = {
 _IMPORT_ATTRS: dict[str, str] = {
     "zernike_matrix_run": "run",
     "zernike_closed_loop_run": "closed_loop_run",
-    "slm_square_run": "square",
     "slm_pib_run": "run",
     "slm_gs_refine_run": "run",
     # Names that are shared with a sibling export must be listed explicitly.

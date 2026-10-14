@@ -21,7 +21,6 @@ from loguru import logger
 from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
     IterativeZernikeShapingConfig,
     IterativeZernikeShapingOptimizer,
-    IterativeZernikeShapingResult,
 )
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_score,
@@ -33,7 +32,6 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     forward_intensity,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import spgd_shape
 
 __all__ = [
     "IterativeZernikePibConfig",

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import io
 from abc import ABC, abstractmethod
-from pathlib import Path
 from typing import Any, Callable, ClassVar
 
 import numpy as np

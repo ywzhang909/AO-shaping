@@ -1,7 +1,7 @@
 ---
 title: Recorder（优化过程记录器）
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-14
 type: class
 tags: [io, recorder, utils]
 source: src/ao_shaping/utils/io/file.py:426
@@ -22,7 +22,6 @@ class Recorder:
     def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max")
     def append(self, record: dict)                    # 追加一行（自动补 _id）
     def postprocess_feature(self, feature_name, func, column="")  # 注册派生特征列
-    def _apply_postprocess_to_record(self, record) -> dict
     def _ensure_postprocess_applied(self, df) -> DataFrame
 ```
 

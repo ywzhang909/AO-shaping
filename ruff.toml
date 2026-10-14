@@ -28,7 +28,7 @@ ignore = [
     "E501",
     
     # Unused - too noisy
-    "F401", "F841", "F811",
+    "F841", "F811",
     
     # Import patterns
     "PLC0415", "E402",
@@ -38,11 +38,19 @@ ignore = [
 ]
 
 [lint.per-file-ignores]
-"tests/*" = ["PLR0913", "PLR2004", "T20"]
-"scripts/*" = ["E501", "PLC0415"]
+"tests/*" = ["PLR0913", "PLR2004", "T20", "F401"]
+"scripts/*" = ["E501", "PLC0415", "F401"]
 "demo*/*" = ["E501", "PLC0415"]
 # Lazy loading in __init__.py is intentional to avoid circular imports
-"__init__.py" = ["PLC0415", "PLR0911", "PLR0912"]
+"__init__.py" = ["PLC0415", "PLR0911", "PLR0912", "F401"]
+
+# F401 moved out of the global `ignore` into per-file-ignores (R-63 step 2).
+# TODO.md 8.2 predicted the noise would be "mostly __init__.py re-exports"; measured,
+# it was the inverse -- 157 in ordinary modules vs 5 in __init__.py -- so that
+# estimate was wrong and the order was backwards. src/ is now clean and enforced.
+# gui/slm/__init__.py imports pyarrow_probe purely for its import side effect, which is
+# a third reason __init__.py cannot be swept by F401.
+# tests/ (110) and scripts/ (68) are real findings left for a later slice, TODO.md R-63.
 
 
 [format]

@@ -43,6 +43,8 @@ x 与 y 上是*可分离*的。正是这种可分离性让实现变得可负担:
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 from loguru import logger
 
@@ -86,6 +88,21 @@ class SimDmOptics:
         n_act: int = int(NLight.DM_NUM if n_actuators is None else n_actuators)
         if n_act < 1:
             raise ValueError(f"n_actuators must be >= 1, got {n_act}")
+        # 布局守卫 —— 本模型只覆盖**方阵**致动器网格。每个致动器贡献一个轴对称高斯凸包,
+        # 故只有 ``side x side`` 的布局才能定出唯一的间距; 矩形/带短行的填充是凭空捏造的
+        # 布局 (R50Power 单台 controller 的 50 个通道是**线性**排列, 不是 5x10)。
+        #
+        # ⚠️ 这个守卫曾被删掉以迁就 50, 那是误诊: 50 并非本模块"所镜像设备"的规格
+        # (``MIRRORED_DEVICE`` 是 NLight, 64 = 8x8), 而是**调用方** ``SimPibSystem``
+        # 传入的 ``config.DM_N_ACTUATORS`` —— 一次活的硬件可达性探测的结果。删守卫把
+        # 50 塞进 7x8 布局, 却没解决真问题, 反而让
+        # ``SimulateDM._publish_to_optics`` 因计数不匹配而静默跳过 (50 != 64), 致 DM
+        # 电压永远到不了瞳孔 (实测远场 max|Δ| = 0.0)。调用方现在传的是方阵数, 守卫恢复生效。
+        side = math.isqrt(n_act)
+        if side * side != n_act:
+            raise ValueError(
+                f"n_actuators must be a perfect square for a grid layout, got {n_act}"
+            )
         v_lo: float = float(NLight.V_Min if v_min is None else v_min)
         v_hi: float = float(NLight.V_Max if v_max is None else v_max)
         if stroke_um == UNCALIBRATED_STROKE_UM:
@@ -95,21 +112,8 @@ class SimDmOptics:
                 MIRRORED_DEVICE,
                 stroke_um,
             )
-        # Non-square actuator counts are real, not a mistake: the mirrored R50Power
-        # DM has 50 channels, and this module deliberately defaults to that device's
-        # declared specs. Rejecting 50 therefore meant the model could not represent
-        # the very hardware it mirrors, which broke every default-constructed
-        # SimPibSystem (and so `inverse_design.sim_far_field` and
-        # `augment.strong_phase_pairs`) out of the box.
-        #
-        # Layout: as square as possible, then place exactly ``n_actuators`` positions.
-        # For a perfect square this is byte-identical to the old ``side * side`` grid.
-        # Otherwise the final row is short (row-major fill of the last row only).
-        self.n_cols = int(np.ceil(np.sqrt(n_act)))
-        self.n_rows = int(np.ceil(n_act / self.n_cols))
         self.n_actuators = n_act
-        # Largest dimension; equals the old ``n_side`` for square grids.
-        self.n_side = max(self.n_rows, self.n_cols)
+        self.n_side = side
         self.slm_h, self.slm_w = int(slm_shape[0]), int(slm_shape[1])
         self.v_min = v_lo
         self.v_max = v_hi
@@ -117,12 +121,8 @@ class SimDmOptics:
         self.wavelength_nm = float(wavelength_nm)
 
         span = DEFAULT_SPAN_FRACTION * min(self.slm_h, self.slm_w)
-        # The finer of the two pitches, so the isotropic Gaussian is never wider than
-        # the actuator spacing on either axis. Equals span/(side-1) for square grids.
-        pitches = [
-            span / (n - 1) if n > 1 else span for n in (self.n_rows, self.n_cols)
-        ]
-        self.pitch_px = min(pitches)
+        # 单一间距: 布局是方的, 故这个各向同性高斯在任一轴上都不比致动器间距更宽。
+        self.pitch_px = span / (side - 1) if side > 1 else span
         self.sigma_px = max(self.pitch_px * sigma_fraction, 1.0)
 
         self.actuator_grid = self._build_grid(span)
@@ -150,19 +150,15 @@ class SimDmOptics:
         return 3.0 * self.sigma_px
 
     def _build_grid(self, span: float) -> np.ndarray:
-        """致动器中心的 ``(行, 列)`` 像素坐标, 按网格行优先排列。
-
-        矩形布局下最后一行可能不满 (``n_actuators`` 不是 ``n_rows * n_cols``),
-        因此只取前 ``n_actuators`` 个位置。
-        """
+        """致动器中心的 ``(行, 列)`` 像素坐标, 按网格行优先排列。"""
         half = span / 2.0
         cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
-        rows = np.rint(np.linspace(cy - half, cy + half, self.n_rows)).astype(int)
-        cols = np.rint(np.linspace(cx - half, cx + half, self.n_cols)).astype(int)
+        rows = np.rint(np.linspace(cy - half, cy + half, self.n_side)).astype(int)
+        cols = np.rint(np.linspace(cx - half, cx + half, self.n_side)).astype(int)
         rows = np.clip(rows, 0, self.slm_h - 1)
         cols = np.clip(cols, 0, self.slm_w - 1)
         yy, xx = np.meshgrid(rows, cols, indexing="ij")
-        return np.column_stack((yy.ravel(), xx.ravel()))[: self.n_actuators]
+        return np.column_stack((yy.ravel(), xx.ravel()))
 
     def _build_box(self) -> tuple[int, int, int, int]:
         pad = int(np.ceil(self.influence_radius_px))

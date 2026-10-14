@@ -94,6 +94,7 @@
 | [`slm_shaping_sim/report.md`](slm_shaping_sim/report.md) | `scripts/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
 | [`slm_zernike_shaping/report.md`](slm_zernike_shaping/report.md) | `scripts/generate_slm_zernike_shaping_report.py` | 离线 | 读 slm_zernike_shaping optimizer 的 debug 产物 |
 | [`strehl_benchmark/report.md`](strehl_benchmark/report.md) | `scripts/generate_strehl_benchmark_report.py` | 离线 | 8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv |
+| [`zernike_coeff2amp/asm_vs_fraunhofer.md`](zernike_coeff2amp/asm_vs_fraunhofer.md) | `scripts/generate_asm_vs_fraunhofer_report.py (+test_angular_spectrum.py)` | 离线 | 角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位 |
 | [`zernike_coeff2amp/report.md`](zernike_coeff2amp/report.md) | `scripts/generate_zernike_coeff_report.py (+sweep_coeff_models.py)` | 离线 | 系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练 |
 | [`zernike_farfield_sim/report.md`](zernike_farfield_sim/report.md) | `scripts/generate_zernike_farfield_sim_report.py` | 离线 | Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物 |
 | [`zernike_phase2amp/report.md`](zernike_phase2amp/report.md) | `scripts/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |

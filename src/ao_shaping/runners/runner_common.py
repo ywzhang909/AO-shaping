@@ -75,7 +75,7 @@ comments verbatim — they start unicode escapes and raise ``SyntaxError``.
 from __future__ import annotations
 
 import os
-from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+from dataclasses import MISSING, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -2749,7 +2749,7 @@ class SlmModelInLoopParams:
             "--slm-wavelength",
             help="SLM operating wavelength (nm); 0 asks the device.",
         ),
-    ] = 1064
+    ] = 0
 
     n_eval_frames: Annotated[
         int, option("--n-eval-frames", help="Frames averaged per measurement.")

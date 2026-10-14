@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import inspect
 import os
 import time
 from collections import deque
@@ -39,15 +38,6 @@ import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-from ao_shaping.algorithm.gradient.adam import (
-    SGD,
-    Adam,
-    AdaMOD,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-)
 from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
@@ -59,17 +49,15 @@ from ao_shaping.drivers.ccd.common import (
     full_scale,
     get_camera_exposure_ms,
     is_saturated,
-    list_camera_types,
     resample_on_saturation,
-    resolve_initial_exposure,
+    resolve_initial_exposure,  # noqa: F401 -- intentional re-export, documented at the module header
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
+from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
-    smart_zero_order_center,
     zero_order_center,
 )
 from ao_shaping.utils.image.hardware_utils import (
@@ -82,31 +70,25 @@ from ao_shaping.utils.image.targets import (
     # (ObjectiveSpec.resolve validates the shape), but it is re-exported here for
     # backward compatibility with existing importers/tests.
     DEFAULT_SHAPE_OBJECTIVES,
-    SHAPE_STAGE_WEIGHTS,
-    TARGET_SHAPE_CHOICES,
+    TARGET_SHAPE_CHOICES,  # noqa: F401 -- intentional re-export, documented at the module header
     ObjectiveResult,
     ObjectiveSpec,
     ShapeScoringParams,
     ShapingObjective,
     ShapingObjectiveParams,
-    _resolve_init_weights,
-    _update_dynamic_weights,
-    create_target_shape,
-    rms_pib_terms,
-    rmse_shape_metric,
-    roi_energy_loss,
-    roi_pib_metric,
-    shape_metric,
-    shape_stage,
-    shape_stage_from_energy,
+    _resolve_init_weights,  # noqa: F401 -- intentional re-export, documented at the module header
+    _update_dynamic_weights,  # noqa: F401 -- intentional re-export, documented at the module header
+    rms_pib_terms,  # noqa: F401 -- intentional re-export, documented at the module header
+    rmse_shape_metric,  # noqa: F401 -- intentional re-export, documented at the module header
+    roi_energy_loss,  # noqa: F401 -- intentional re-export, documented at the module header
+    roi_pib_metric,  # noqa: F401 -- intentional re-export, documented at the module header
+    shape_metric,  # noqa: F401 -- intentional re-export, documented at the module header
     spot_waist_sigma,
-    target_shape_roi,
+    target_shape_roi,  # noqa: F401 -- intentional re-export, documented at the module header
 )
-from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,

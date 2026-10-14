@@ -310,10 +310,6 @@ class TextFrame(BaseFrame):
         super().render()
 
     @staticmethod
-    def __font_pt_to_pixel(pt: int):
-        return int(pt * DPI / 72)
-
-    @staticmethod
     def __font_pixel_to_pt(px: int):
         return int(px * 72 / DPI)
 
@@ -460,6 +456,139 @@ class EpochCurveFrame(BaseFrame):
                 )
 
         super().render()
+
+
+@register_frame("MultiCurve")
+class MultiCurveFrame(BaseFrame):
+    """Multi-curve panel: one EpochCurveFrame-like plot per metric series.
+
+    The square-shaping display needs quality / CV / EE on the SAME panel rather
+    than three separate curve frames, so this composes per-series history with
+    independent y-axes (each series auto-scaled to its own range) and a shared
+    legend. It reuses EpochCurveFrame's x-mapping (``epoch / total_epochs``)
+    so the curves advance in proportion to the configured epoch count.
+
+    Each render records (or updates) one point per series at the same epoch.
+    """
+
+    LINE_W = 2
+    POINT_R = 3
+    LABEL_FONT_SIZE = 18
+    MAX_POINTS = 10000
+
+    def __init__(
+        self,
+        series: list[dict] | None = None,
+        y_pad: float = 0.05,
+        background_color=BACKGROUND_COLOR,
+        **kwargs,
+    ) -> None:
+        super().__init__(**kwargs)
+        self.background_color = background_color
+        self.y_pad = float(y_pad)
+        self.series = list(series) if series else []
+        self._epochs: list[float] = []
+        self._values: dict[str, list[float]] = {
+            s.get("name", str(i)): [] for i, s in enumerate(self.series)
+        }
+        self._label_font = None
+
+    @property
+    def data(self) -> dict:
+        return {
+            "epoch": list(self._epochs),
+            "values": {k: list(v) for k, v in self._values.items()},
+        }
+
+    def close(self):
+        self._epochs.clear()
+        for v in self._values.values():
+            v.clear()
+
+    def _x_of_epoch(self, epoch: float, total_epochs: int | None, n_points: int) -> int:
+        x0, x1 = self.left, self.left + self.width - 1
+        if total_epochs and total_epochs > 0:
+            frac = float(epoch) / float(total_epochs)
+        else:
+            frac = float(epoch) / max(n_points - 1, 1)
+        return max(x0, min(x1, int(round(x0 + frac * (x1 - x0)))))
+
+    def _y_range(self, vals: list[float]) -> tuple[float, float]:
+        lo = min(vals) if vals else 0.0
+        hi = max(vals) if vals else 1.0
+        if hi <= lo:
+            hi = lo + 1.0
+        pad = (hi - lo) * self.y_pad
+        return lo - pad, hi + pad
+
+    def render(self, values: dict[str, float] | None = None, epoch=None, total_epochs=None, label: str = ""):
+        import pygame
+
+        if values is not None:
+            _epoch = float(epoch) if epoch is not None else float(len(self._epochs))
+            if self._epochs and _epoch == self._epochs[-1]:
+                for k, v in values.items():
+                    if k in self._values:
+                        self._values[k][-1] = float(v)
+                    else:
+                        self._values[k] = [float(v)]
+            else:
+                self._epochs.append(_epoch)
+                for k, v in values.items():
+                    if k in self._values:
+                        self._values[k].append(float(v))
+                    else:
+                        self._values[k] = [float(v)]
+            if len(self._epochs) > self.MAX_POINTS:
+                self._epochs.pop(0)
+                for k in self._values:
+                    self._values[k].pop(0)
+
+        self.window.fill(self.background_color, self.plot_area)
+
+        if self._epochs:
+            n = len(self._epochs)
+            x0, x1 = self.left, self.left + self.width - 1
+            y0, y1 = self.top, self.top + self.height - 1
+
+            def x_of(e: float) -> int:
+                return self._x_of_epoch(e, total_epochs, n)
+
+            for spec in self.series:
+                name = spec.get("name", "")
+                color = spec.get("color", (0, 255, 0))
+                vals = self._values.get(name, [])
+                if len(vals) < 2:
+                    continue
+                y_lo, y_hi = self._y_range(vals)
+                span = max(y_hi - y_lo, 1e-12)
+
+                def y_of(v: float, y_lo=y_lo, y_hi=y_hi, span=span, y0=y0, y1=y1):
+                    return max(y0, min(y1, int(round(y1 - (float(v) - y_lo) / span * (y1 - y0)))))
+
+                points = [(x_of(e), y_of(v)) for e, v in zip(self._epochs, vals)]
+                pygame.draw.lines(self.window, color, False, points, self.LINE_W)
+                pygame.draw.circle(self.window, color, points[-1], self.POINT_R)
+
+            lx = self.left + 10
+            for spec in self.series:
+                name = spec.get("name", "")
+                color = spec.get("color", (0, 255, 0))
+                t = pygame.font.Font(None, self.LABEL_FONT_SIZE).render(name, True, color)
+                self.window.blit(t, (lx, self.top + 2))
+                lx += t.get_width() + 16
+
+            if label:
+                if self._label_font is None:
+                    self._label_font = pygame.font.Font(None, self.LABEL_FONT_SIZE)
+                self.window.blit(
+                    self._label_font.render(label, True, (0, 255, 255)),
+                    (self.left + 2, self.top + self.height - 22),
+                )
+
+        super().render()
+
+
 
 
 def save_best_image(

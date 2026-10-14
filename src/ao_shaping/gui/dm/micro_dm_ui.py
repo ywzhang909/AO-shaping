@@ -16,17 +16,14 @@ from __future__ import annotations
 
 import collections
 import io
-import sys
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.dm.micro import R50Controller
-from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 # =============================================================================
 # Constants

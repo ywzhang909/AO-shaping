@@ -23,6 +23,7 @@ from typing import Any, ClassVar, Literal
 
 import numpy as np
 import numpy.typing as npt
+from loguru import logger
 
 from ao_shaping.algorithm.base import RegisteredBase
 
@@ -651,26 +652,24 @@ def search_optimal_delta(
         (optimal_delta, info_dict) 二元组
     """
     if verbose:
-        print(f"\n{'=' * 60}")
-        print("Auto Delta Detection (Magnitude Scan)")
-        print(
+        logger.debug("Auto Delta Detection (Magnitude Scan)")
+        logger.debug(
             f"Range: [{min_delta}, {max_delta}], Magnitude steps: {n_magnitude_steps}"
         )
-        print(f"Samples per delta: {n_samples_per_delta}")
-        print(f"{'=' * 60}\n")
+        logger.debug(f"Samples per delta: {n_samples_per_delta}")
 
     init_params = np.zeros(param_dim, dtype=np.float64)
     apply_fn(init_params)
 
     baseline_obj = objective_fn(init_params)
     if verbose:
-        print(f"Baseline objective: {baseline_obj:.4f}")
+        logger.debug(f"Baseline objective: {baseline_obj:.4f}")
 
     magnitude_results = []
     magnitude_values = np.linspace(-2, 2, n_magnitude_steps)
 
     if verbose:
-        print("\n--- Phase 1: Magnitude Scan ---")
+        logger.debug("\n--- Phase 1: Magnitude Scan ---")
 
     for mag in magnitude_values:
         test_delta = 10.0**mag
@@ -678,7 +677,7 @@ def search_optimal_delta(
             continue
 
         if verbose:
-            print(f"\nTesting magnitude 10^{mag:.1f} (delta={test_delta:.4f}):")
+            logger.debug(f"\nTesting magnitude 10^{mag:.1f} (delta={test_delta:.4f}):")
 
         pos_improvements = []
         neg_improvements = []
@@ -707,7 +706,7 @@ def search_optimal_delta(
             neg_improvements.append(neg_imp)
 
             if verbose:
-                print(
+                logger.debug(
                     f"  Sample {sample_idx + 1}: pos_imp={pos_imp:.4f}, neg_imp={neg_imp:.4f}"
                 )
 
@@ -729,7 +728,7 @@ def search_optimal_delta(
         )
 
         if verbose:
-            print(
+            logger.debug(
                 f"  Summary: avg_pos={avg_pos_imp:.4f}, avg_neg={avg_neg_imp:.4f}, consistency={consistency:.2f}"
             )
 
@@ -737,10 +736,10 @@ def search_optimal_delta(
     best_magnitude = best_mag_result["magnitude"]
 
     if verbose:
-        print(
+        logger.debug(
             f"\nBest magnitude: 10^{best_magnitude:.1f} (delta={best_mag_result['delta']:.4f})"
         )
-        print("\n--- Phase 2: Fine Scan ---")
+        logger.debug("\n--- Phase 2: Fine Scan ---")
 
     fine_delta_min = 10.0 ** (best_magnitude - 0.5)
     fine_delta_max = 10.0 ** (best_magnitude + 0.5)
@@ -754,7 +753,7 @@ def search_optimal_delta(
 
     for delta in fine_deltas:
         if verbose:
-            print(f"\nTesting delta = {delta:.4f}:")
+            logger.debug(f"\nTesting delta = {delta:.4f}:")
 
         pos_improvements = []
         neg_improvements = []
@@ -802,7 +801,7 @@ def search_optimal_delta(
 
         status = "✓" if both_positive else "✗"
         if verbose:
-            print(
+            logger.debug(
                 f"  pos_imp={avg_pos_imp:.4f}±{np.std(pos_improvements):.4f}, neg_imp={avg_neg_imp:.4f}±{np.std(neg_improvements):.4f} {status}"
             )
 
@@ -818,13 +817,11 @@ def search_optimal_delta(
     apply_fn(init_params)
 
     if verbose:
-        print("\n{'='*60}")
-        print("Auto Delta Detection Complete")
-        print(f"Optimal delta: {optimal_delta:.4f}")
-        print(
+        logger.info("Auto Delta Detection Complete")
+        logger.info(f"Optimal delta: {optimal_delta:.4f}")
+        logger.info(
             f"Improvement: pos={best_result['avg_pos_imp']:.4f}, neg={best_result['avg_neg_imp']:.4f}"
         )
-        print(f"{'=' * 60}\n")
 
     return float(optimal_delta), {
         "baseline_obj": float(baseline_obj),

@@ -83,7 +83,6 @@ from ao_shaping.drivers.slm.factory import (
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
-from ao_shaping.utils.image.resample import fit_exact, upsample_bilinear_to_shape
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.algorithm import make_optimizer
@@ -394,14 +393,6 @@ class SlmGsRefineConfig:
 # ---------------------------------------------------------------------------
 # Geometry / image helpers
 # ---------------------------------------------------------------------------
-
-
-def _panel_shape(slm: Any) -> tuple[int, int]:
-    """Return the panel ``(height, width)`` for a real or simulated SLM."""
-    res = getattr(slm, "Panel_Res", None)
-    if res is not None:
-        return int(res[1]), int(res[0])
-    return 1200, 1920
 
 
 def _metrics(

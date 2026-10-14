@@ -4,9 +4,7 @@ from enum import Enum, auto
 from typing import Literal
 
 import numpy as np
-from loguru import logger
-from scipy.ndimage import gaussian_filter, laplace
-from scipy.signal import convolve2d
+from scipy.ndimage import gaussian_filter
 
 
 class UnwrapStrategy(Enum):

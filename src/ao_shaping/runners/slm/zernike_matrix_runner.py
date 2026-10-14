@@ -56,7 +56,6 @@ TODO (实机待测试清单, 完整清单见 run() docstring):
     待测项逐条列于 `run()` docstring 的 TODO 清单。
 """
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +72,7 @@ from ao_shaping.algorithm.signal_processing.controller import (
     HardwareConfig,
     LoopConfig,
 )
-from ao_shaping.drivers.slm import Santec, ZernikeSLM
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -92,7 +91,6 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.tools.zernike.common import (
-    DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
     collect_device_info,
     effective_cond,
@@ -433,45 +431,6 @@ def _save_init_state_hdf5(
 # ==================== 新增: 全过程波前跟踪 ====================
 
 
-def _make_wavefront_tracking_callback(
-    wfs: ThorlabWFS,
-    cancel_tile: bool = False,
-    zernike_order: int = 10,
-) -> tuple[Callable[[int, int, np.ndarray, np.ndarray], None], list[WfsStateSnapshot]]:
-    """创建校准过程中的波前跟踪回调
-
-    在校准完每个模式后捕获当前WFS完整状态 (SLM处于平面),
-    累积到返回的列表中供后续保存.
-
-    Args:
-        wfs: ThorlabWFS实例
-        cancel_tile: 是否去除WFS tip/tilt
-        zernike_order: Zernike阶数
-
-    Returns:
-        (callback_function, records_list)
-            - callback: 兼容 calibrate_zernike_response_matrix 的 callback 参数
-            - records_list: 校准完成后包含每个模式的 WfsStateSnapshot
-    """
-    records: list[WfsStateSnapshot] = []
-
-    def _callback(
-        mode_index: int, n_total: int, mean_resp: np.ndarray, var_resp: np.ndarray
-    ) -> None:
-        """在每个模式校准后记录当前波前"""
-        try:
-            state = _capture_wfs_full_state(
-                wfs,
-                cancel_tile=cancel_tile,
-                zernike_order=zernike_order,
-            )
-            records.append(state)
-        except Exception as e:
-            logger.warning(f"Failed to capture wavefront after mode {mode_index}: {e}")
-
-    return _callback, records
-
-
 def _save_wavefront_log_hdf5(
     records: list[WfsStateSnapshot],
     output_path: str,
@@ -483,7 +442,7 @@ def _save_wavefront_log_hdf5(
     包含 deviation_x/y, zernike_coeffs, wavefront, rms属性
 
     Args:
-        records: _make_wavefront_tracking_callback 返回的记录列表
+        records: 波前跟踪快照列表 (``WfsStateSnapshot``, 由 ``_capture_wfs_full_state`` 逐模式采集)
         output_path: 输出基础路径
     """
     if not records:
@@ -1619,7 +1578,6 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     from datetime import datetime
 
     import matplotlib.pyplot as plt
-    from loguru import logger
 
     from ao_shaping.drivers.slm import ZernikeSLM
     from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS

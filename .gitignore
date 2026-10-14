@@ -152,3 +152,4 @@ docs/beam_shaping*
 
 # .auto_doc_review: runtime dedup state is machine-local (see poll_repo_changes.py)
 .auto_doc_review/state.json
+.worktree*

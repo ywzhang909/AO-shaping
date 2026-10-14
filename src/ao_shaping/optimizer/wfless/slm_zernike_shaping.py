@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import inspect
 import os
 import time
 from collections import deque
@@ -39,15 +38,6 @@ import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-from ao_shaping.algorithm.gradient.adam import (
-    SGD,
-    Adam,
-    AdaMOD,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-)
 from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
@@ -63,7 +53,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
+from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
@@ -93,7 +83,6 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,
@@ -133,7 +122,7 @@ SCHEDULE_MAX_LR = 1.0
 SCHEDULE_MAX_DELTA = 0.5
 
 # slm parameters
-SLM_RESPONSE_TIME_S = 0.0
+SLM_RESPONSE_TIME_S = None
 # On exit, leave the best-found phase on the SLM. The candidate set includes
 # the initial (flat when starting from zeros, or a loaded) phase: if the search
 # never improved on it, that phase is restored instead. Set False to skip
@@ -144,7 +133,6 @@ SLM_APPLY_BEST_ON_EXIT = True
 # SLM resolution. Sourced from the driver rather than repeated here -- see the
 # note in slm_zernike_pib.py. Names kept because tests import them.
 SLM_WIDTH, SLM_HEIGHT = PANEL_RES
-SLM_RESOLUTION = tuple(PANEL_RES)
 
 
 # Search-family selection: "spgd" runs the SPGD gradient loop below; every other
@@ -491,7 +479,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     zernike_modes = _zernike_indices(n_max)
 
     # SLM pattern helper
-    pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
+    pattern_helper = PatternHelper(resolution=PANEL_RES, bits=10)
 
     if show:
         # PIB (bucket ratio) is bounded 0..1 -> fixed y-axis; other objectives auto-scale.

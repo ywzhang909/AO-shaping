@@ -120,17 +120,6 @@ def _debug_log_packet(cmd_name: str, packet: bytes) -> None:
         )
 
 
-def _debug_tcp_connect() -> None:
-    """(重新)连接外部 TCP 调试通道。"""
-    if st.session_state.get(f"{P}_debug", False):
-        st.session_state[f"{P}_debug_tcp_client"].connect()
-
-
-def _debug_tcp_disconnect() -> None:
-    """断开外部 TCP 调试通道。"""
-    st.session_state[f"{P}_debug_tcp_client"].disconnect()
-
-
 def _debug_add_op(operation: str, detail: str, ip: str = "") -> None:
     """向操作日志追加一行 (仅 UI 层记录)。"""
     ts = time.strftime("%H:%M:%S", time.localtime(time.time()))
@@ -140,20 +129,6 @@ def _debug_add_op(operation: str, detail: str, ip: str = "") -> None:
     if detail:
         line += f" | {detail}"
     st.session_state[f"{P}_debug_op_log"].append(line)
-
-
-def _debug_log_voltage_command(cmd_name: str, ip: str, channels: str, voltage: float) -> None:
-    """Human-readable voltage command log entry.
-
-    Appends a timestamped line to the debug log:
-        ``[HH:MM:SS] CMD_NAME @IP | ch=CHANNELS V=VOLTAGE``
-
-    Always writes regardless of debug toggle.
-    """
-    ts = time.strftime("%H:%M:%S", time.localtime())
-    line = f"[{ts}] {cmd_name} @{ip} | ch={channels} V={voltage:.2f}"
-    st.session_state[f"{P}_debug_log"].append(line)
-    _debug_add_op(cmd_name, f"@{ip} ch={channels} V={voltage:.2f}", ip)
 
 
 # ---------------------------------------------------------------------------
@@ -172,71 +147,3 @@ def _drain_local_debug_buffer() -> None:
         _local_debug_buffer.clear()
     if lines:
         st.session_state[f"{P}_local_debug_logs"].extend(lines)
-
-
-def _debug_tcp_start_local_server() -> None:
-    """启动本地调试 TCP 服务器 (后台线程, 127.0.0.1:port)。"""
-    global _local_debug_server_error
-    port = int(st.session_state.get(f"{P}_debug_tcp_port", DEBUG_PORT))
-    _local_debug_server_error = None
-    _local_debug_server_event.set()
-    st.session_state[f"{P}_local_debug_server"] = True
-    st.session_state[f"{P}_local_debug_logs"].clear()
-    st.session_state[f"{P}_debug_tcp_host"] = "127.0.0.1"
-    st.session_state[f"{P}_debug_tcp_port"] = port
-    client = st.session_state[f"{P}_debug_tcp_client"]
-    client.configure("127.0.0.1", port)
-    client.connect()
-
-    def _run() -> None:
-        server_sock: socket.socket | None = None
-        try:
-            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_sock.bind(("127.0.0.1", port))
-            server_sock.listen(1)
-            server_sock.settimeout(0.2)
-            while _local_debug_server_event.is_set():
-                try:
-                    conn, _addr = server_sock.accept()
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-                try:
-                    conn.settimeout(0.2)
-                    while _local_debug_server_event.is_set():
-                        data = conn.recv(4096)
-                        if not data:
-                            break
-                        for line in data.decode("utf-8", errors="replace").splitlines():
-                            if line.strip():
-                                with _local_debug_lock:
-                                    _local_debug_buffer.append(line)
-                except socket.timeout:
-                    pass
-                finally:
-                    try:
-                        conn.close()
-                    except OSError:
-                        pass
-        except OSError as exc:
-            _local_debug_server_error = str(exc)
-            logger.error(f"[DebugTcpServer] 绑定失败: {exc}")
-        finally:
-            _local_debug_server_event.clear()
-            if server_sock is not None:
-                try:
-                    server_sock.close()
-                except OSError:
-                    pass
-
-    threading.Thread(target=_run, name="debug-tcp-server", daemon=True).start()
-
-
-def _debug_tcp_stop_local_server() -> None:
-    """停止本地调试 TCP 服务器。"""
-    _local_debug_server_event.clear()
-    st.session_state[f"{P}_local_debug_server"] = False
-    with _local_debug_lock:
-        _local_debug_buffer.clear()
