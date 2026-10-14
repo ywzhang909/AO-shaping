@@ -411,8 +411,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 68,
-    "body_literals_sha256": "c6cd47f0699bde37",
+    "body_literals": 96,
+    "body_literals_sha256": "0e7f5ade195a6893",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -506,6 +506,20 @@
       "--slm-wavelength",
       "--slot-max",
       "--slot-min"
+    ]
+  },
+  "slm_short_exposure_probe": {
+    "body_literals": 47,
+    "body_literals_sha256": "54099f362fb6a381",
+    "declared": [
+      "--exposures-ms",
+      "--phase-run-dir"
+    ],
+    "help": "usage: <prog>[-h] [--exposures-ms EXPOSURES_MS] [--phase-run-dir PHASE_RUN_DIR] output_dir\n\nShort-exposure fixed-phase probe with raw frames and exposure readback.\n\npositional arguments:\n  output_dir\n\noptions:\n  -h, --help            show this help message and exit\n  --exposures-ms EXPOSURES_MS\n  --phase-run-dir PHASE_RUN_DIR",
+    "help_flags": [
+      "--exposures-ms",
+      "--help",
+      "--phase-run-dir"
     ]
   },
   "slm_tilt_probe": {

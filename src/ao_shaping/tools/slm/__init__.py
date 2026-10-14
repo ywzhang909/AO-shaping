@@ -19,6 +19,14 @@ and the camera-only / WFS probes now live beside it::
                        dynamic_compensation
         gs_refine_replay.py  interleaved hardware replay of GS-refine phases
                        saved in one run directory
+        analyze_disturbance.py  paired-run metrics with the optical axis
+                       frozen from each flat (offline)
+        compare_disturbance.py  paired GS-refine / model-in-loop comparison
+                       with a fixed SLM aberration
+        model_in_loop_replay.py  interleaved CCD replay of two saved
+                       model-in-loop phases
+        replay_disturbance.py  interleaved fixed-exposure CCD replay of the
+                       four saved comparison phases
         params.py      shared click parameter groups
                        (``SlmBenchParams`` / ``SlmAcquireParams``)
 
