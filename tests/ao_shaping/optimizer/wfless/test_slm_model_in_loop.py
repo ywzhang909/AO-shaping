@@ -1365,17 +1365,25 @@ class TestImportIsolation:
         ``beam_metrics`` layer, and naming that here is what makes the
         attribution auditable.
 
-        The second name is ``bench_kernels``, not the older ``slm_bench_probe``:
-        commit ``54d9613`` merged that module and five siblings into two kernels, and
-        this assertion had not been updated. A stale member of a ``>=`` set does not
-        fail -- the set only grows -- so the pin quietly stopped pinning anything, and
-        the whole file stopped importing. Kept explicit here because the failure mode of
-        an ``>=`` pin is silence, not an error.
+        The second name used to be ``bench_kernels`` (and before that the older
+        ``slm_bench_probe``). R-46 (#62) sank the one pure function this module
+        pulled from there -- ``gaussian_grid`` -- to the leaf
+        ``utils.wavefront.beam_amplitude``, removing the last module-scope
+        ``optimizer -> tools`` edge; the device-kernel ``capture_settled`` stays a
+        deferred, function-local import and is not a module-scope dependency. A
+        stale member of a ``>=`` set does not fail -- the set only grows -- so the
+        pin quietly stopped pinning anything. Kept explicit here because the
+        failure mode of an ``>=`` pin is silence, not an error.
         """
         assert _module_level_imports() >= {
-            "ao_shaping.tools.kernels.bench_kernels",
+            "ao_shaping.utils.wavefront.beam_amplitude",
             "ao_shaping.utils.image.beam_metrics",
         }
+        assert "ao_shaping.tools.kernels.bench_kernels" not in _module_level_imports(), (
+            "R-46 removed the module-scope optimizer->tools edge; if it is back, "
+            "either gaussian_grid was re-pointed at bench_kernels or a new tools "
+            "import was added -- both reopen #62."
+        )
 
     def test_import_is_driver_free(self) -> None:
         """The runner's own graph no longer touches ``slm_gs_refine``.

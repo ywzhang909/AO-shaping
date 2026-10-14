@@ -73,6 +73,7 @@ from ao_shaping.utils.slm.bench_constants import (
     TILT_SHIFT_SCALE,
 )
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
+from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,
@@ -301,24 +302,6 @@ def random_phase(shape: tuple[int, int], seed: int = 0) -> np.ndarray:
     return np.random.default_rng(int(seed)).uniform(
         0.0, 2.0 * np.pi, (int(shape[0]), int(shape[1]))
     )
-
-
-def gaussian_grid(region: int, waist_grid: float) -> np.ndarray:
-    """Gaussian illumination on the model grid, masked to the inscribed circle.
-
-    Args:
-        region: Model grid edge length in pixels.
-        waist_grid: Gaussian waist in **model pixels**.
-
-    Returns:
-        A ``(region, region)`` amplitude array, zero outside the inscribed
-        circle of radius ``region / 2``.
-    """
-    yy, xx = np.mgrid[0:region, 0:region]
-    r2 = (xx - region / 2.0) ** 2 + (yy - region / 2.0) ** 2
-    amp = np.exp(-r2 / (2.0 * max(float(waist_grid), 1e-6) ** 2))
-    amp[r2 > (region / 2.0) ** 2] = 0.0
-    return amp
 
 
 # ---------------------------------------------------------------------------

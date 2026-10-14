@@ -62,12 +62,10 @@ from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegion,
     AdaptiveTrustRegionConfig,
 )
-from ao_shaping.tools.kernels.bench_kernels import (
-    gaussian_grid,  # R-46: last remaining optimizer->tools edge (no utils home yet)
-)
 from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
 from ao_shaping.utils.slm.bench_constants import BEAM_CENTER_PANEL, SLM_PITCH_M
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
+from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 
 #: Reused rather than reimplemented: median-subtract THEN clip. Clipping the raw
 #: frame would rectify symmetric read noise into a positive pedestal
