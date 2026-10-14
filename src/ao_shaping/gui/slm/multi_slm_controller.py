@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import ctypes
-import io
 import threading
 import time
-from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -23,6 +21,7 @@ from ao_shaping.gui.slm.pattern_controls import (
     generate_phase_gray,
     refresh_phase_preview,
 )
+from ao_shaping.gui.slm.shaping_controls import render_closed_loop_shaping
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # Timeout (s) for probing a single SLM during device discovery.  The Santec SDK
@@ -112,27 +111,6 @@ def _stop_toggle(slm_num: int) -> None:
     st.session_state[f"{prefix}_toggle_stop_event"] = None
     st.session_state[f"{prefix}_toggle_freq_ref"] = None
     st.session_state[f"{prefix}_toggle_slm_container"] = None
-
-
-def _pick_next_memory(slm_num: int) -> int:
-    """Pick the next SLM memory slot in 2..125, excluding the currently
-    displayed one.
-
-    The Santec firmware treats ``display_memory(slot)`` as a no-op when
-    that slot is already displayed, so consecutive writes MUST target
-    different slots.  This helper survives process restarts because the
-    currently-displayed slot is queried from the device at call time.
-    """
-    prefix = f"slm{slm_num}"
-    slm = st.session_state.get(prefix)
-    last_slot: int | None = None
-    if slm is not None and getattr(slm, "is_open", False):
-        try:
-            last_slot = slm.get_displayed_memory_number()
-        except Exception:
-            last_slot = None
-    candidates = [s for s in range(2, 126) if s != last_slot]
-    return int(np.random.choice(candidates))
 
 
 def _probe_slm(slm_num: int) -> dict | None:
@@ -449,6 +427,7 @@ def main():
         display_slm_status(slm_num)
         render_phase_control(slm_num)
         render_phase_preview(slm_num)
+        render_closed_loop_shaping(slm_num)
     else:
         col1, col2 = st.columns(2)
         with col1:
@@ -456,12 +435,51 @@ def main():
             display_slm_status(1)
             render_phase_control(1)
             render_phase_preview(1)
+            render_closed_loop_shaping(1)
 
         with col2:
             st.header("SLM 2 相位控制")
             display_slm_status(2)
             render_phase_control(2)
             render_phase_preview(2)
+            render_closed_loop_shaping(2)
+
+
+def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
+    """Mirror a freshly opened SLM's resolved state into session state.
+
+    Shared by ``connect_slm`` and the closed-loop shaping re-acquisition path
+    (``shaping_controls._reacquire_slm_handle``): after ``Santec.open()`` the
+    device has read its serial, loaded its per-serial config file and applied
+    defaults, so every derived widget default (wavelength, shift, panel
+    geometry, 2π gray) must be re-synced from the device, not kept stale.
+    """
+    prefix = f"slm{slm_num}"
+    st.session_state[f"{prefix}_video_mode"] = (
+        "内存模式" if slm.video_mode == 0 else "DVI模式"
+    )
+    st.session_state[f"{prefix}_shift_x"] = slm.shift_x
+    st.session_state[f"{prefix}_shift_y"] = slm.shift_y
+    st.session_state[f"{prefix}_wavelength"] = slm.wavelength
+    st.session_state[f"{prefix}_phase_preview"] = None
+    st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
+    st.session_state[f"{prefix}_width"] = slm.Panel_Res[0]
+    st.session_state[f"{prefix}_height"] = slm.Panel_Res[1]
+    st.session_state[f"{prefix}_pixel_pitch_um"] = slm.Pitch_um
+    st.session_state[f"{prefix}_bits"] = slm.Gray_Scale_bits
+    st.session_state[f"{prefix}_use_120hz"] = slm._use_120hz
+    st.session_state[f"{prefix}_loaded_config"] = (
+        slm.load_config() if slm._serial_number else {}
+    )
+
+    serial = slm._serial_number
+    if serial:
+        st.session_state[f"{prefix}_wavelength_mismatch"] = {
+            "serial": serial,
+            "wavelength": slm.wavelength,
+        }
+    else:
+        st.session_state[f"{prefix}_wavelength_mismatch"] = None
 
 
 def connect_slm(slm_num: int):
@@ -477,11 +495,6 @@ def connect_slm(slm_num: int):
     sidebar device list and reveal per-SLM controls.
     """
     prefix = f"slm{slm_num}"
-    wavelength_key = f"{prefix}_wavelength"
-    video_mode_key = f"{prefix}_video_mode"
-    shift_x_key = f"{prefix}_shift_x"
-    shift_y_key = f"{prefix}_shift_y"
-    mismatch_key = f"{prefix}_wavelength_mismatch"
 
     # Clean up any stale SLM object before connecting
     old_slm = st.session_state.get(prefix)
@@ -503,31 +516,7 @@ def connect_slm(slm_num: int):
         st.session_state[prefix] = slm
         st.session_state[f"{prefix}_connected"] = True
 
-        st.session_state[video_mode_key] = (
-            "内存模式" if slm.video_mode == 0 else "DVI模式"
-        )
-        st.session_state[shift_x_key] = slm.shift_x
-        st.session_state[shift_y_key] = slm.shift_y
-        st.session_state[wavelength_key] = slm.wavelength
-        st.session_state[f"{prefix}_phase_preview"] = None
-        st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
-        st.session_state[f"{prefix}_width"] = slm.Panel_Res[0]
-        st.session_state[f"{prefix}_height"] = slm.Panel_Res[1]
-        st.session_state[f"{prefix}_pixel_pitch_um"] = slm.Pitch_um
-        st.session_state[f"{prefix}_bits"] = slm.Gray_Scale_bits
-        st.session_state[f"{prefix}_use_120hz"] = slm._use_120hz
-        st.session_state[f"{prefix}_loaded_config"] = (
-            slm.load_config() if slm._serial_number else {}
-        )
-
-        serial = slm._serial_number
-        if serial:
-            st.session_state[mismatch_key] = {
-                "serial": serial,
-                "wavelength": slm.wavelength,
-            }
-        else:
-            st.session_state[mismatch_key] = None
+        _sync_slm_session_state(slm_num, slm)
 
         _refresh_device_list()
         st.rerun()
@@ -1102,40 +1091,9 @@ def render_phase_control(slm_num: int):
             if st.session_state.get(f"{prefix}_toggle_active", False):
                 st.info("已停止周期切换")
 
-            slm: Santec = st.session_state[prefix]
+            slm = st.session_state[prefix]
 
-            # Show live GS progress when generating a GS square-shaping phase.
-            progress_cb = None
-            status_ctx = None
-            progress_bar = None
-            if pattern_type == "GS方形整形":
-                status_ctx = st.status(
-                    "正在计算 GS 相位…", expanded=True, state="running"
-                )
-                status_ctx.write("准备 GS 迭代…")
-                progress_bar = status_ctx.progress(0.0)
-                if params.get("gs_live_display"):
-                    status_ctx.write("实时显示已启用：每轮迭代都会把当前相位下发到 SLM")
-
-                def _gs_progress(iteration: int, total: int, mse: float) -> None:
-                    # Runs synchronously on the main Streamlit thread.
-                    pct = iteration / total if total else 0.0
-                    progress_bar.progress(pct)
-                    status_ctx.write(f"GS 迭代 {iteration}/{total} — MSE={mse:.6f}")
-                    logger.debug("GS iteration {}/{} MSE={:.6f}", iteration, total, mse)
-
-                progress_cb = _gs_progress
-
-            phase = generate_phase_gray(
-                slm,
-                pattern_type,
-                params,
-                progress_cb=progress_cb,
-            )
-
-            if status_ctx is not None:
-                status_ctx.write("GS 迭代完成")
-                status_ctx.update(state="complete")
+            phase = generate_phase_gray(slm, pattern_type, params)
 
             # generate_phase_gray() already applies the configured shift
             # internally via slm.create_phase_from_array() → Santec.shift_phase().
@@ -1156,22 +1114,6 @@ def render_phase_control(slm_num: int):
     st.divider()
     st.subheader("周期切换")
     st.caption("在相位 A 与相位 B 之间持续来回切换")
-
-    def _export_phase_csv(phase: np.ndarray, default_name: str) -> None:
-        """Save a displayed phase as a radian CSV and offer it for download."""
-        slm = st.session_state.get(prefix)
-        max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-        phase_rad = np.asarray(phase, dtype=np.float64) / float(max_gray) * 2 * np.pi
-        buf = io.BytesIO()
-        Santec.save_phase_to_csv(phase_rad, buf)
-        buf.seek(0)
-        st.download_button(
-            f"导出 {default_name}",
-            data=buf,
-            file_name=default_name,
-            mime="text/csv",
-            key=f"{prefix}_export_{default_name}",
-        )
 
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:

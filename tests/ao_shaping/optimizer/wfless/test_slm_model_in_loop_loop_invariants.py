@@ -95,9 +95,12 @@ class TestRoiIsFrozenOnce:
         seen: list[tuple[int, int]] = []
         original = mod._metrics_at
 
-        def _spy(frame, target_side, center):  # noqa: ANN001, ANN202
+        def _spy(frame, target_side, center, **_kw):  # noqa: ANN001, ANN202
+            # ``_metrics_at`` is keyword-only for ``target_shape`` /
+            # ``camera_rotation_quarters``; a 3-arg spy made every round raise
+            # TypeError before the anchor could be observed at all.
             seen.append((int(center[0]), int(center[1])))
-            return original(frame, target_side, center)
+            return original(frame, target_side, center, **_kw)
 
         mod._metrics_at = _spy
         try:
@@ -343,31 +346,26 @@ class TestCliInvocation:
         result = runner.invoke(
             run,
             [
-                "--cam-type",
-                "sim",
-                "--n-rounds",
-                "1",
-                "--probe-count",
-                "2",
-                "--step-a-iterations",
-                "4",
-                "--step-b-iterations",
-                "4",
-                "--target-side",
-                "64",
-                "--n-orders",
-                "4",
-                "--dtype",
-                "float32",
-                "--device",
-                "cpu",
-                "--seed",
-                "0",
+                "--cam-type", "sim",
+                "--n-rounds", "1",
+                "--probe-count", "2",
+                "--step-a-iterations", "4",
+                "--step-b-iterations", "4",
+                "--target-side", "64",
+                "--n-orders", "4",
+                "--dtype", "float32",
+                "--device", "cpu",
+                "--seed", "0",
             ],
         )
         assert result.exit_code == 0, result.output
         assert "Per-round summary" in result.output
-        assert "Target side" in result.output
+        # The summary labels this row "Target width"; asserting the label *and*
+        # the forwarded value is what makes the forwarding observable -- an
+        # unfetched --target-side would silently arrive as the dataclass default
+        # and still satisfy a label-only check.
+        assert "Target width" in result.output
+        assert "64 cam px" in result.output
         assert "Done." in result.output
 
     def test_the_command_is_registered_on_main(self) -> None:

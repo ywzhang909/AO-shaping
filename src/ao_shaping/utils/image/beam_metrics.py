@@ -18,7 +18,6 @@ from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
-
 from loguru import logger
 
 from ao_shaping.utils.image.spots_calc import centroid, radius

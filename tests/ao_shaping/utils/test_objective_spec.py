@@ -44,7 +44,7 @@ from ao_shaping.utils.io.file import _DATA_MODE_OBJECTIVE_KEYS
 
 #: Repo root, so the offline analysis script can be loaded from ``scripts/``.
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_ANALYSIS_SCRIPT = _REPO_ROOT / "scripts" / "diff_beam_frame_analysis.py"
+_ANALYSIS_SCRIPT = _REPO_ROOT / "scripts" / "slm" / "diff_beam_frame_analysis.py"
 
 #: The objective vocabulary, in the exact declared order. A pure *set* assertion
 #: would tolerate a reordering that silently renames recorded columns, so the
@@ -104,7 +104,7 @@ _REJECT_TABLE: tuple[tuple[str, str | None, str], ...] = (
 
 
 def _load_analyze_run() -> Any:
-    """Import ``scripts/diff_beam_frame_analysis.py`` by file path.
+    """Import ``scripts/slm/diff_beam_frame_analysis.py`` by file path.
 
     The analysis script is a standalone ``scripts/`` entry point rather than an
     importable package member, so it is loaded from its path. Kept in a helper

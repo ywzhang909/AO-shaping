@@ -9,9 +9,10 @@ Two failure modes are covered, and the second is the one that actually bites:
    it -- that produces a ``NameError`` only when that function is called with the
    plotting path taken, so it survives import-only smoke tests.
 
-``optimizer/rl/lr.py``, ``lr_wfs.py`` and ``rl_wfs.py`` are carved out: they use
-matplotlib at module scope with no ``__main__`` block at all, so there is nothing to
-defer into. They are tracked by their own issue.
+``optimizer/rl/lr.py``, ``lr_wfs.py`` and ``rl_wfs.py`` used to be carved out: they
+used matplotlib at module scope with no ``__main__`` block at all, so there was nothing
+to defer into. They now guard their driver code behind ``if __name__ == "__main__":``
+and are covered like any other file.
 """
 
 from __future__ import annotations
@@ -26,11 +27,7 @@ STACK = ("pygame", "matplotlib", "pyplot")
 NAMES = ("plt", "pygame")
 
 #: files whose module-level rendering import cannot be deferred (no __main__ block)
-CARVE_OUT = {
-    "src/ao_shaping/optimizer/rl/lr.py",
-    "src/ao_shaping/optimizer/rl/lr_wfs.py",
-    "src/ao_shaping/optimizer/rl/rl_wfs.py",
-}
+CARVE_OUT: set[str] = set()
 
 
 class ScopeWalker(ast.NodeVisitor):

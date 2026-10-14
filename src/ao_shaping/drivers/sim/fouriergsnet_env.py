@@ -48,12 +48,12 @@ SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅�
 * 下游主要消费者:
   - ``optimizer/wfless/model_in_loop_shaping.py`` — 仅仿真, 用 ``BeamParams(native=True)``
     让面板网格就是模型网格, 环路内不引入任何重采样;
-  - ``scripts/fouriergsnet_sim_train.py`` — 场景矩阵离线训练 (该脚本依赖的独立 CLI
+  - ``scripts/slm/fouriergsnet_sim_train.py`` — 场景矩阵离线训练 (该脚本依赖的独立 CLI
     ``fouriergsnet_optimize.py`` 已于 f19dced 从仓库根删除, 脚本目前不可运行);
   - 物理回归测试 ``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py`` 与湍流测试
     ``test_sim_fouriergsnet_turbulence.py``。
 * 与 ``drivers/sim/slm_pib_sim.py`` 的区别: 后者是 SLM-PIB 族的台架孪生并注册为
-  ``--cam_type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
+  ``--cam-type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
 """
 from __future__ import annotations
 

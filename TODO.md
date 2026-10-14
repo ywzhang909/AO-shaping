@@ -48,9 +48,9 @@
 | H-20 | `spgd-square` 合并成 `slm_shaping_runner` 后未上真机光学回归 | [#37](https://github.com/ywzhang909/AO-shaping/issues/37) |
 | H-21 | `spgd-square` 的 `--delta` 语义变了（空操作 → 可钉住），需真机 A/B | [#38](https://github.com/ywzhang909/AO-shaping/issues/38) |
 | H-22 | `slm-pib` 合并后未上真机回归（新增一次 `patch_sim_pib_shaping`） | [#39](https://github.com/ywzhang909/AO-shaping/issues/39) |
-| H-23 | 🟡 **纯离线可修**：方形家族 `--debug` 产物只有 freeform 基能进 ML 语料，zernike 基 0% | [#40](https://github.com/ywzhang909/AO-shaping/issues/40) |
+| H-23 | 🔴 **纯离线可修，但比 issue 说的多一处**（2026-10-14 核实）：方形家族 `--debug` 产物只有 freeform 基能进 ML 语料，zernike 基 0%。根因已确认：`slm_square_shaping.py:1161` 载明 `_c` 是**活动模式**向量，`ZERNIKE_ACTIVE_MODES = ((2,0),(4,0))` ⇒ 默认 `len(_c) == 2`；而 `ml/hwdataset/index.py::_classify` 的规则 1-5 全不匹配长度为 2 的值 ⇒ 落到规则 5 `ODD_COEFFICIENT_LENGTH` 全族排除。sidecar（`slm_shaping_runner.py:645 _square_json_payload`）**已记** `family`/`basis`/`n_max`/`zernike_radius`/`zernike_mask`，但 `zernike_mask` 默认 `None`，故默认跑**没有留下任何可识别活动集的信息**。⚠️ **issue 只说了两处，实际要改三处**：实测 `zernike_coeffs_to_panel(len=2, n_max=4)` 抛 `ValueError: len(c)=2 does not match n_max=4 (expected 15 modes)` —— 即**只改分类会把「被排除」变成「materialise 时报错」**（不会静默产出错相位，但仍是坏的）。故需①sidecar 增记 `active_modes`（`_active_zernike_modes(n_max, mask)` 已能算出 `(active_positions, active_modes)`）；②`index.py` 增 `_Verdict.active_modes` / `HwRecordRef.active_modes` + 规则 5 之前的新规则；③`records.py` 在 `zernike_coeffs_to_panel` 前按 `active_positions` **散射回全长 Noll 向量**（用 canonical `noll_indices`）—— ③是正确性关键，漏掉它就是静默错数据 | [#40](https://github.com/ywzhang909/AO-shaping/issues/40)（**未关闭**：三处改动未实施） |
 | H-24 | 方形家族进 `hwdataset` 会换 `fov_px` ⇒ `far_field_padding` 标定必须重扫 | [#41](https://github.com/ywzhang909/AO-shaping/issues/41) |
-| **H-25** | **`--w_loggrad` 结构项已落地但未实机验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
+| **H-25** | **`--w-loggrad` 结构项已落地但未实机验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
 
 ### 1.2 FourierGSNet 真机验证（`report/fouriergsnet_pipeline/`）
 
@@ -76,7 +76,7 @@
 | H-7 | 方形路径**无 encircled-energy guard** → 任何 `w_efficiency` 权重都会被「散光换 CV」击败 | [#24](https://github.com/ywzhang909/AO-shaping/issues/24) |
 | H-8 | 随机初始化是满幅 `uniform(-π,π)`，与 docstring 的 "small init" **矛盾**，且满幅起点 EE 最高 | [#25](https://github.com/ywzhang909/AO-shaping/issues/25) |
 | H-9 | 方形路径**无 ABBA / 漂移对消**（三个采集点全是相邻两帧）。**2026-10-02 起成本大降**：`slm-pib` 已有可照搬的同款实现 | [#26](https://github.com/ywzhang909/AO-shaping/issues/26) |
-| H-10 | `--exposure_time_ms` 默认 **80.0 ms**（本台架近饱和基线 ~0.02 ms），且传它会**关掉饱和保护**使其成死代码 | [#27](https://github.com/ywzhang909/AO-shaping/issues/27) |
+| H-10 | `--exposure-time-ms` 默认 **80.0 ms**（本台架近饱和基线 ~0.02 ms），且传它会**关掉饱和保护**使其成死代码 | [#27](https://github.com/ywzhang909/AO-shaping/issues/27) |
 | H-11 | 焦距标定常数自相矛盾：文档同写 `132940/P` 与 `7600/P`（**差 17.5×**） | [#28](https://github.com/ywzhang909/AO-shaping/issues/28) |
 | H-12 | `lr=0` 时 `learning_schedule()` **静默覆盖 `--delta`**；`_param_scale` 两基不同；"freeform per-pixel" 名不副实（`np.kron` 分块） | [#29](https://github.com/ywzhang909/AO-shaping/issues/29) |
 | H-13 | 可达目标需重新定义：本台架 80 px staircase 只能影响**大尺度**结构，刻 50 px 平顶方块不可达 | [#30](https://github.com/ywzhang909/AO-shaping/issues/30) |
@@ -121,10 +121,10 @@
 
 | ID | 摘要 | issue |
 |---|---|---|
-| R-29 | 作废条目的遗留：把 `utils/image/display.py` 搬到 `display/`（`utils/image/` 最后一块渲染代码，含 `utils/__init__.py:78/80/81` 三个 re-export） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
-| R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；启用 `R50Controller.__enter__/__exit__`。⚠️ 必须先钉死 Micro-DM 磁盘布局 | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
-| R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法。⚠️ 只动 CLI 层，**不合并命令体** | [#52](https://github.com/ywzhang909/AO-shaping/issues/52) |
-| R-43 | 补 `micro_dm_image_collect.py` 测试（🟡 `train_data_collect.py` 一半已完成 → archive §5.32） | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
+| R-29 | ✅ 已完成：`utils/image/display.py` 已搬到 `display/image_display.py`（commit `a9236e9`，2026-10-09），`utils/__init__.py` 的 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` … re-export 已改指 `ao_shaping.display.image_display`；旧路径 `ao_shaping.utils.image.display` 现抛 `ImportError`（`test_utils_leaf_no_rendering_import.py::test_old_display_path_raises` 锁定） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
+| ~~R-33~~ | ✅ **已由上游实现**（2026-10-14 核实）：`@with_params(MicroDMImageCollectParams, kw_name="params")` 已接线（`micro_dm_image_collect.py:465-467`，docstring 自述 "R-33: migrated to with_params"）；手写 `_resolve_ips` 已删除，`resolve_ips` 现住 `drivers/dm/micro/wiring_map.py` 并在 `tests/ao_shaping/drivers/dm/test_micro_resolve_ips.py` 有测试。**issue 的「7 个驱动内部符号导入」判据已失效**：实测剩余 6 个 driver 导入（`BaseCamera` / `MAX_CHANNELS` / `VOLTAGE_MAX` / `VOLTAGE_MIN` / `R50Controller` / `resolve_ips`）**全部在各自 `__all__` 内**，即公开再导出，driver-internal 导入数为 **0** | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
+| ~~R-39~~ | ✅ **实测后判定无需改代码**（2026-10-14）：两个子项都**不可离线收口**，issue 的指令照做会引入危害。**曝光默认值**：issue 自己写明「不能一刀切成同一个值 —— 那是台架相关物理事实，不是笔误」，需逐探针确认可用区间 = 硬件。**内存槽轮换**：实测为**两份不同策略**而非重复实现 —— 驱动 `santec/driver.py::SlotRotator` **随机**取槽且从面板 `get_displayed_memory_number()` 读当前显示槽（跨进程有效），`wfless/slm_zernike_primitives.py::SlotRotator` **顺序**递增、无设备引用（可复现）；合并会静默改变台架写入的物理槽位，正是 issue §2.3 警告的「看似可信的错数据」。第三种写法 `phase_capture.py` 的 `% 128 + 1` 覆盖 1..128（其余路径 2..125），属台架事实，未动。**已用测试钉死该差异**：`tests/ao_shaping/tools/slm/test_slot_rotation_policies.py`（6 项），使「同名两份 = 重复」不再看起来像显然的清理目标 | [#52](https://github.com/ywzhang909/AO-shaping/issues/52)（**不关闭**：仍需硬件确认） |
+| ~~R-43~~ | ✅ **已补**（2026-10-14）：新增 `tests/ao_shaping/tools/micro_dm/test_micro_dm_image_collect.py`（**38 项**，含参数化展开），覆盖既有 CLI / 磁盘布局两个测试都到不了的「解析 → 下发」这段纯逻辑：`_parse_channels`（all 大小写/空白、单通道不被 `all` 前缀吞掉、越界与畸形各自 exit 1、上界含端点）、`_resolve_ip_port`（`10000+末段` 规则、显式端口优先、末段 0 合法、畸形/越界各自报错、**有效 IP 永不漏出 `port=None`**）、`_voltage_array`（仅目标通道带电压、`ch=None` 全归位、home 值生效、首末通道可达）、`_send_voltage`/`_home_channel`（**开关两侧都跑**，断言互斥不双发）。⚠️ 顺带修正一个**我自己的坏测试**：原打算构造输入去撞 `无法解析端口` 分支，实测该分支**不可达**（IP 先被完整校验，`controller_tcp_port` 不可能返回 None），故改为断言可观测不变式而非伪造错误路径 | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
 | R-44 | 🔴 `algorithm.learning_schedule` 的 `cosin` 分支在 `epoch > epochs/2` 后返回**负学习率**（实测 `-3.09e-4`）。已用测试钉住现状，改它会动到所有调用者轨迹 | [#54](https://github.com/ywzhang909/AO-shaping/issues/54) |
 
 > **旧账本 §2.2 的 R-30 / R-31 两行是陈旧的** —— 它们实际已于 2026-10-03 完成
@@ -210,13 +210,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 |---|---|---|
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（2026-05-26 提出，**决策本身还没做**） | [#55](https://github.com/ywzhang909/AO-shaping/issues/55) |
 | F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
-| F-10 | 🔴 `sim/AGENTS.md`「已知约束」第 4 条声称的代码改写**从未落地** ⇒ 连带第 3 条的实测常数 1.068/2.628 **不可复现**（真实值 5.428/13.354） | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
+| F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
 | F-11 | 🔴 **SLM 序列号三路冲突**：22030108 / 22030102 / 23020026 ⇒ 引用前必须确认并回写 `drivers/AGENTS.md` 硬件表 | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
-| **F-14** | 🔴 **纯离线可修**：`ruff.toml` 的 `exclude = ["src/ml/**"]` 藏着 **30 个 `F821` 未定义名**，其中 `src/ml/zernike/dataset.py:432/439/446` 调用的 `DataLoader` **从未 import** ⇒ `create_zernike_loaders()` 必然 `NameError`，而它被 `src/ml/train.py:724,1186` 调用并作为公开 API 再导出。`src/ml/train.py` 另有 24 处，5 个函数从 `cli()`（`ao-train` 入口）可达。**不是风格问题** | — 待开 issue |
+| ~~F-14~~ | ✅ **已修**（2026-10-14）：**30 → 0 个 `F821`**，`ruff.toml` 的 `exclude = ["src/ml/**"]` 已删除。根因比原判断更严重 —— 不只是 `DataLoader`：`build_gan_models`（`ml.train` 3 处引用）**在全部提交历史里从未被定义过**；`build_model` 在 `40d65af` 删除后**接线被遗忘**（`_zernike_regression_removed` 定义了却零调用）；另有 `d1645486` 把 coeffs 模式整块误粘进了 `_train_phase_mode`。`ao-train`（`pyproject.toml` 注册的 console script）三条命令**全部**因 `NameError` 不可运行，且零测试覆盖。证据与守卫见 `tests/ao_shaping/ml/test_train_cli_runnable.py` | — 待开 issue（API 被网络拦截，无法从本机创建） |
 
 > **F-12 未定案前不要单独改 H-16 的 `K`** —— 否则只是把一个未验证的数从一处搬到另外两处。
 > **F-14 与 §8 的 R-63 互为前置**：F-14 是 R-63 第 4 步（放开 `src/ml/**`）必须先清掉的真实缺陷。
+> **F-14 已于 2026-10-14 完成 ⇒ §8.6 第 4 步的前置已清**，且 `exclude` 已实际删除。
+> ⚠️ 但 §8.6 的**顺序仍然有效**：下一步（§6「第 1.7 批」）是先做 R-63 的**第 1–3 步**
+> （代码层 noqa + 配置分层），**最后**才轮到第 4 步；RUF100 仍不得先跑。
 
 ---
 
@@ -243,10 +246,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 |---|---|
 | ~~第 1 批（纯收益，零行为风险）~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ 2026-10-03 → archive §5.1 |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K` |
-| **第 1.7 批（lint 抑制层，纯离线，见 §8）** | **F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）→ **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**）→ **R-64**（312 处无标注 `except Exception` + 111 处 `assert` 护栏；后者含硬件安全检查，`python -O` 下会消失，**应先于任何硬件复测处理**）。⚠️ 三个都**不要**先跑 RUF100 |
+| ~~第 1.7 批 首项（lint 抑制层，纯离线，见 §8）~~ | ~~**F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）~~ ✅ 2026-10-14 |
+| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（312 处无标注 `except Exception` + 111 处 `assert` 护栏；后者含硬件安全检查，`python -O` 下会消失，**应先于任何硬件复测处理**） |
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
-| **第 3 批剩余（离线）** | **R-29**（#50，`display.py` 搬 `display/`）⇒ **R-33 / R-43**（同一文件，#51 / #53）⇒ **R-39**（#52） |
+| **第 3 批剩余（离线）** | ~~**R-29**~~ ✅ #50 ⇒ ~~**R-33**~~ ✅ #51（上游已实现，判据已失效）⇒ ~~**R-43**~~ ✅ #53（补 38 项测试）⇒ ~~**R-39**~~ ✅ 实测判定无需改代码（见 §2.2；#52 仍开放待硬件） |
 | **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | **R-45**（#61 叶子层 14 处）⇒ **R-46**（#62 optimizer→tools）⇒ **R-47**（#63 面板几何下沉）⇒ **R-48**（#64 帧分析下沉）⇒ **R-49**（#65 新建 `utils/math`）⇒ **R-50**（#66 Zernike 第三套 API 层）⇒ **R-51**（#67 重复收口）⇒ **R-52**（#68 报告脚本参数化）⇒ **R-53**（#69 `compute_metrics` 改名）⇒ **R-54**（#70 runner 重复）⇒ **R-55**（#71 叶子层 matplotlib）⇒ **R-56**（#72 optimizer 内渲染面）。**X-4**（#74 死分叉单向移植）与 **F-13**（#73 先 diff）是两个前置决策项，建议先做 |
 | **第 4 批（内部重构，需先补特征测试）** | **R-19**（#49，父项）⇒ **R-5 / R-6 / R-7 / R-8**（#42–#45）；**R-14**（#47，需先做产品决策）；**R-13**（#46）；**R-44**（#54，需先决定是否动所有调用者轨迹）；**R-18**（#48，接入已有实现或删注释） |
 | **纯离线但要台架数据** | **F-4**（#55，先做「`ml` 算不算主包」的决策）；**F-5**（#56，先切片）；**H-23**（#40，修 `hwdataset` 索引）；**X-2**（#60，加误报标记） |
@@ -279,9 +283,9 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ~~R-56~~ | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | ✅ **item 46 可下沉部分完成**：`sac_common` / `pib` / `pib_sim_eval` / `gready_cam` / `adc_dm_adam` 共 5 文件的模块级 matplotlib/pygame 已下沉到实际使用它的函数（`pib_sim_eval`、`sac_common` 的 `matplotlib.use("Agg")` 全局副作用随同搬走，不可与 pyplot 拆分）。⚠️ **issue 的 item 46 指令「下沉进 `__main__`」对 6 个文件中的 5 个是错的** —— 实测 `lr.py` / `lr_wfs.py` / `rl_wfs.py` 在**模块级**（非 `__main__`）用 plt，且这三个文件**完全没有 `if __name__` 守卫**，无处可下沉 → 拆出 R-61。item 42-45（pygame 状态机迁移）与 47-48 仍开放 | 🟡 |
 | F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | ~~`pyarrow_probe` 两份~~ **已结案**：`scripts/` 副本零导入方且与 `gui/slm` 那份**归一化行尾后逐字节相同**，已删 | ✅ 619d2d0/待本轮 |
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
-| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
+| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | ✅ 已完成：`utils/image/display.py` → `display/image_display.py`（commit `a9236e9`，2026-10-09），re-export 已改指 `ao_shaping.display.image_display`，无兼容 shim | E ✅ |
 | ~~R-58~~ | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | ❌ **误报，已 `not planned` 结案**：`phase_display.py` 的模块级 `PhaseMap` 导入**增量 0 个 `drivers.*` 模块**（原判据的 60 个其实来自父包 `ao_shaping/__init__.py` 的 20 处 eager 再导出）；`model/field.py` 唯一的 `drivers` 导入已在函数内延迟（`model/field.py:43`，注释说明是为规避循环）；`model/` 亦不在 utils 的禁止清单内，且 README 已把 `phase_to_slm_grayscale()` 接受 `PhaseMap` 列为既定契约 | ✅ |
-| R-59 | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 需决策，非机械收口 | D 🔴 || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max_peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
+| R-59 | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 需决策，非机械收口 | D 🔴 || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max-peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
 
 | ~~R-62~~ | [#83](https://github.com/ywzhang909/AO-shaping/issues/83) | ✅ **收敛完成**：3 处 best-frame PNG saver 提为 `display/frames.py::save_best_image(img, out_path, *, title, marker_side=None, hide_axes=False)`（从 `display` **子模块**导入，避免拉进 `windows.py` 的 pygame —— 实测导入后 pygame 未加载）。差异全部参数化而非抹平：**红色十字**（方形 runner 的目标方斑半对角参考）、`axis("off")`、文件名（`best_square.png` vs `best_far_field.png`）、各 runner 自己的标题指标。第三份原用 `plt.savefig`，统一为 `fig.savefig`（新建 figure 上等价，且不依赖 pyplot 隐式当前图）。文件名与标题不变 ⇒ 不改写任何已提交报告 | ✅ |
 | R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | 🟡 **item 2 完成，item 1 阻塞于 #63**：`capture_settled` 已从探针模块 `slm_zernike_sweep_probe` 移入 `tools/slm/bench_kernels.py`（其唯一依赖 `display_and_average` **本就在** bench_kernels，故**不产生新边、无环**），探针 re-export 保持公开面不变（`a is b` 已验证）。`slm_model_in_loop` 的 optimizer→**探针**依赖已清零，仅剩 →`bench_kernels`。❌ item 1（`phase_to_panel` + 面板常量下沉到 `utils/slm/`）属 #63 (R-47) 的「三段下沉」大原子单元，需先补特征测试，故 #62 保持开放 | 🟡 |
@@ -480,6 +484,30 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 不要把 ~40 条内部不变式一并改成 `raise` | 它们校验的是本函数刚算出来的值，外部到不了；改 `raise` 只会抬高运行开销并让 traceback 变噪声 |
 | 不要动 `spots_calc` 那 3 条 | 被测试锁成 `AssertionError` 契约（见 8.9 前置 1） |
 | 不要把 `--max_peak` 搬进驱动 | 它是策略不是机制，且已明文声明不是联锁（见 8.9） |
+
+### 8.12 `__main__` demo blocks in library modules (#90 / R-68) — 2026-10-14 实测
+
+AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 `if __name__ == "__main__":` 块（issue 说 7）。逐个核实结果一致：
+
+| 文件 | 块行数 | `__main__` 守卫 | 裸模块级语句 |
+|---|---|---|---|
+| `optimizer/wfless/slm_zernike_shaping.py` | 119 | 1 | **0** |
+| `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
+| `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
+| `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |
+| `optimizer/wfless/bayes_opt_lr_delta.py` | 33 | 1 | **0** |
+| `optimizer/wfless/adc_dm_adam.py` | 29 | 1 | **0** |
+| `optimizer/wf/interaction_matrix.py` | 21 | 1 | **0** |
+
+⚠️ **判定：#90 是整洁性问题，不是正确性问题。** 与 #81（R-61）性质不同 —— #81 的三个
+`rl/` 文件**根本没有守卫**，`import` 即训练+弹图；此处 10 个文件**全部已有守卫**且
+**零裸模块级语句**，即 `import` 不会执行任何 demo 代码。因此「库模块 import 不应有副作用」
+这条红线**并未被违反**，不应按 #81 的紧急度处理。
+
+剩余动作只是把守卫块内的 demo 内容**搬到 `scripts/`**，属搬移而非修复。最大两块
+（119 / 113 行）另有既有裁决：`slm_zernike_shaping.py` 的 fork `__main__` 见 #74
+（判「删，不移植」）。**未实施** —— 纯搬移无行为收益，且需逐块核对是否有其它代码依赖。
+
 
 ## 来源清单
 

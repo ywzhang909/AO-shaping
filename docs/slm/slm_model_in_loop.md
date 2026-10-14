@@ -1,7 +1,7 @@
 # 正向模型闭环整形 (slm-model-in-loop)
 
-> **生成脚本**: [`scripts/generate_model_in_loop_report.py`](../../scripts/generate_model_in_loop_report.py)
-> **复现命令**: `python scripts/generate_model_in_loop_report.py`
+> **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
+> **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
 > **详细算法文档**: [`docs/slm/model_in_loop_algorithm.md`](model_in_loop_algorithm.md)
 
@@ -81,7 +81,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ### 孪生与硬件共享数学
 `model_in_loop_shaping.py` 含 `calibrate_bench_geometry` / `_probe_phase` / `_fit_aberration_at_probes` / `shape_phase_with_frozen_aberration` / `simulate_iterative_shaping`。
-`--cam_type sim` 只替换 `Bench` 实现 (`_SimBench` vs `_HardwareBench`)，数学逐位相同。
+`--cam-type sim` 只替换 `Bench` 实现 (`_SimBench` vs `_HardwareBench`)，数学逐位相同。
 
 ## 5. 主要选项
 
@@ -94,6 +94,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 600 / 0.05 |
 | `--frozen-modes` | 冻结的 1-based Noll 序号 | 1,2,3 |
 | `--region` / `--far-field-padding` | 正向模型瞳孔网格 / 远场补零倍数 | 64 / 8 |
+| `--pupil-oversampling` | 瞳孔双线性过采样 (Step A/B 子像素插值, 放大瞳孔后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
 | `--panel-span-px` / `--pupil-center` | 探针覆盖面板宽度 / 光斑面板坐标 | 900 / (960,600) |
 | `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
@@ -101,8 +102,8 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--min-geometry-correlation` | 几何 bake-off 阈值；低于直接中止 (退出码 2) | 0.5 |
 | `--warm-start/--no-warm-start` | 热启动 | True |
 | `--early-stop-score` / `--save-best-image` | 早停分数 / 保存最优图 | - |
-| `--cam_type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure_time_ms` / `--cam_size` | 相机配置 | - |
-| `--slm_number` / `--slm_wavelength` / `--device` / `--dtype` / `--seed` | SLM/设备/种子 | - |
+| `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
+| `--slm-number` / `--slm-wavelength` / `--device` / `--dtype` / `--seed` | SLM/设备/种子 | - |
 
 ## 6. 两个守卫
 
@@ -116,13 +117,13 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ## 7. 曝光默认值陷阱 (红线)
 
-> **`--exposure_time_ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
+> **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
 > **上机前必须显式传入按当前激光功率实测的曝光** (本台架历史参考 1.5 ms)。
 
 ## 8. 仿真模式
 
 ```bash
-python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2
+python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 ```
 
 ## 9. 硬件示例
@@ -145,7 +146,7 @@ python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 0.4
 python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 ```
 
-见 [`docs/slm/pre_run_characterization.md`](docs/slm/pre_run_characterization.md)。
+见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
 若台架无法被正向模型描述 (bake-off 失败)，改用 `slm-gs-refine`。
 

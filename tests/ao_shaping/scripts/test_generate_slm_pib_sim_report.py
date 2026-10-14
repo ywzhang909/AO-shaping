@@ -1,4 +1,4 @@
-"""Regression tests for ``scripts/generate_slm_pib_sim_report.py``.
+"""Regression tests for ``scripts/slm/generate_slm_pib_sim_report.py``.
 
 Motivation (real defect found 2026-10-01): the generated report labelled the
 **last epoch's** objective as "最终 J" and described the ``shape`` objective as
@@ -34,7 +34,7 @@ if str(ROOT) not in sys.path:
 
 def _load_generator():
     """Import the generator script by path (it is not an importable package)."""
-    script = ROOT / "scripts" / "generate_slm_pib_sim_report.py"
+    script = ROOT / "scripts" / "slm" / "generate_slm_pib_sim_report.py"
     spec = importlib.util.spec_from_file_location("_slm_pib_sim_report", script)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)

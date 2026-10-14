@@ -1,9 +1,9 @@
 # Zernike 系数 -> 远场强度 前向网络 —— 开发报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_zernike_coeff_report.py`](../../scripts/generate_zernike_coeff_report.py)
-> **复现命令**: `python scripts/generate_zernike_coeff_report.py`
-> **数据/关联脚本**: [`scripts/sweep_coeff_models.py`](../../scripts/sweep_coeff_models.py)
+> **生成脚本**: [`scripts/ml/generate_zernike_coeff_report.py`](../../scripts/ml/generate_zernike_coeff_report.py)
+> **复现命令**: `python scripts/ml/generate_zernike_coeff_report.py`
+> **数据/关联脚本**: [`scripts/ml/sweep_coeff_models.py`](../../scripts/ml/sweep_coeff_models.py)
 > **运行环境**: 离线
 > **说明**: 系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练
 <!-- provenance:end -->
@@ -261,12 +261,12 @@ CCD 测的是强度而不是场振幅，所以这是强度而非 amplitude。
 
 ```bash
 # 交叉验证（两个协议）
-python scripts/sweep_coeff_models.py --protocol file --epochs 15 --arms conv mlp
-python scripts/sweep_coeff_models.py --protocol objective --epochs 30 --arms conv mlp
+python scripts/ml/sweep_coeff_models.py --protocol file --epochs 15 --arms conv mlp
+python scripts/ml/sweep_coeff_models.py --protocol objective --epochs 30 --arms conv mlp
 # 单折完整训练
 python -m ml.zernike.train_coeff --fold 13 --epochs 80 --wandb-name coeff_conv_fold13
 # 本报告
-python scripts/generate_zernike_coeff_report.py
+python scripts/ml/generate_zernike_coeff_report.py
 ```
 
 

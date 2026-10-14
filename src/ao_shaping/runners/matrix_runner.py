@@ -36,7 +36,6 @@ Or via the unified CLI::
 
 from __future__ import annotations
 
-import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
@@ -65,6 +64,7 @@ from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import (
     get_debug_mode,
     get_timestamp_str,
+    run_selector_dispatch,
     setup_coredumpy,
 )
 from ao_shaping.utils.wavefront.hadamard_calc import calc_n_hadamard_modes
@@ -74,7 +74,6 @@ from ao_shaping.utils.wavefront.wfs_utils import (
 )
 
 #: Selectors accepted by :func:`main` for `python -m` dispatch.
-COMMAND_SELECTORS = ("dm-matrix", "hadamard-matrix")
 
 
 @contextmanager
@@ -146,7 +145,7 @@ def run(
         [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂
             时正常; 非合法值应报清晰错误
         [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善
-        [ ] report3: scripts/generate_dm_response_matrix_report.py 以真实 h5
+        [ ] report3: scripts/dm/generate_dm_response_matrix_report.py 以真实 h5
             生成报告 (图/表齐全), 结果写入 docs/slm 日报
     """
     debug = params.debug
@@ -413,25 +412,11 @@ def main(argv: list[str] | None = None) -> NoReturn:
     Raises:
         SystemExit: Always; the chosen Click command decides the code.
     """
-    args = list(sys.argv[1:] if argv is None else argv)
-
-    command: click.Command = run
-    label = "dm-matrix"
-    if args and args[0] in COMMAND_SELECTORS:
-        label = args[0]
-        args = args[1:]
-        command = hadamard_matrix_run
-
-    try:
-        command(args)
-    except SystemExit:
-        raise
-    except Exception as e:
-        click.echo(f"❌ 运行时错误: {e}")
-        logger.exception("{} runner failed", label)
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    run_selector_dispatch(
+        {"dm-matrix": run, "hadamard-matrix": hadamard_matrix_run},
+        "dm-matrix",
+        argv,
+    )
 
 
 if __name__ == "__main__":

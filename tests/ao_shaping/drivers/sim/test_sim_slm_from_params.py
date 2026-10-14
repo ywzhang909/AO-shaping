@@ -2,8 +2,8 @@
 
 ``optimize_slm_zernike_pib`` 已迁移到纯 dataclass 单参数 API, 内部用
 ``Santec.from_params(config.slm)`` 构造 SLM (见 AGENTS.md ``slm-pib 配置容器``)。
-但 ``scripts/slm_pib_sim_run.py`` 把 ``opt.Santec`` 换成的 ``SimSLMPib`` 当初
-没有跟上, 于是 ``--cam_type sim`` 这条离线通路直接崩在
+但 ``scripts/slm/slm_pib_sim_run.py`` 把 ``opt.Santec`` 换成的 ``SimSLMPib`` 当初
+没有跟上, 于是 ``--cam-type sim`` 这条离线通路直接崩在
 
     AttributeError: type object 'SimSLMPib' has no attribute 'from_params'
 

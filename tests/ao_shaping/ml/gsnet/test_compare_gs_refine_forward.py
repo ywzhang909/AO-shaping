@@ -5,7 +5,7 @@ import pickle
 import numpy as np
 import pytest
 
-from compare_gs_refine_forward import compare_run, image_metrics, sample_camera
+from scripts.slm.compare_gs_refine_forward import compare_run, image_metrics, sample_camera
 
 
 def test_camera_sampling_uses_fixed_optical_axis_and_pixel_scale() -> None:

@@ -95,7 +95,7 @@
 | `report/slm/report2.md` §2.3：`ZernikeDM.generate_phase` min-max 归一化 | ✅ 2026-09-16 已移除，`zernike_dm.py:90,117-118` 注明；系数即弧度 |
 | `OBJECTIVE_TARGET_SHAPE_MERGE_PLAN.md`（2026-09-26）：`objective`/`target_shape` 合并 | ✅ 已落地为 `runner_common.py:622` 的 `ObjectiveTarget`（`target_shape` 成为 objective 下级字段） |
 | `docs/refactor/TODO.md` §一：`tools/` 是中间层、`scripts/` 是同级 | ✅ 架构结论已采纳为文档，不再是待办 |
-| `README.md` `--wfs_type` / `--disturbance-cn2` / `--lr` / `--delta` CLI 文档（2026-10-01 merge 引入） | ✅ 已补文档 |
+| `README.md` `--wfs-type` / `--disturbance-cn2` / `--lr` / `--delta` CLI 文档（2026-10-01 merge 引入） | ✅ 已补文档 |
 | **slm-pib ABBA 漂移对消（2026-10-02）** | ✅ 提交 `e9d1769`（`_spgd_capture_signs` + `SlmZernikePibConfig.abba_sampling` + 采集循环改为按符号序列驱动，fold 门/基线 EMA/饱和检查/符号均值全部覆盖每一帧）、`139a461`（`--abba-sampling` + `_build_slm_pib_config` 透传）、`796d3ce`（执行真实 epoch 循环的回归测试，断言每轮采集 2 vs 4 帧 + `_pos_c` 绑定）、`1d6329e`（README）。**opt-in，默认 `False` ⇒ 2 帧路径逐字节不变。** 过程中修掉一个 subagent 引入的**首轮必崩 bug**（4 元组切 `[2:]` 得 2 元组却解包 3 名 ⇒ `ValueError`，默认模式同样崩），并补上缺失的循环级测试（原有 12 个测试只测符号助手与漂移代数，不执行循环，故漏检）；变异测试确认可捕获。⚠️ **实机验收仍未做 → 转 H-19** |
 
 ### 5.1 第 1 批（纯收益，零行为风险）—— 2026-10-03
@@ -131,7 +131,7 @@
 **⚠️ 副本漂移（R-1~R-11 之外的额外发现，尚未处理）**：`slm_zernike_pib.py` 与
 `slm_zernike_shaping.py` 是近乎逐行的副本，且**同名常量已经不同**
 `ZERNIKE_APERTURE_RADIUS`：pib = `300.0`，shaping = `min(PANEL_RES)/2.0` = **600**。
-README 记 `--zernike_radius` 默认 **600**。两者都是生产入口
+README 记 `--zernike-radius` 默认 **600**。两者都是生产入口
 （`slm-pib` / `rms-zernike`），默认值不同意味着**同一硬件上台架的 Zernike 光阑
 取决于走了哪个 runner**，而 300 vs 600 正是 R-9 那段注释里"只有内一半落在光束上
 ⇒ 修正静默无效"的分界。**需硬件判定哪个正确**，暂记为 **X-3**（见 §4）。
@@ -150,11 +150,11 @@ README 记 `--zernike_radius` 默认 **600**。两者都是生产入口
 钉住 5 类可观测行为，全部离线（`--help` 不碰硬件）：
 
 1. **命令清单**：19 个注册名冻结（README 记 19，一致）。
-2. **`--dm_type` 选项列表**：⚠️ **实测只有 5 个命令暴露它**（`wf` / `pib` / `pipeline` /
+2. **`--dm-type` 选项列表**：⚠️ **实测只有 5 个命令暴露它**（`wf` / `pib` / `pipeline` /
    `combined` / `dm-matrix`），**TODO 记的 8 个不准**。冻结了各自的 choice 元组，并**单独
    钉住 `dm-matrix` 比其余 4 个少一项**（缺 `asyn_micro`）—— 这不是 bug 而是
    `runner_common.py:137-152` 的 `DM_TYPES_PRE_ASYN_MICRO` 刻意快照，为的是
-   `dm_matrix_runner` 的 help 与注册前逐字节一致。另加一条"任何命令**新增** `--dm_type`
+   `dm_matrix_runner` 的 help 与注册前逐字节一致。另加一条"任何命令**新增** `--dm-type`
    都算行为变更"的守卫。
 3. **`--help` 全文 golden**：19 条命令的完整 help 冻结进
    `tests/ao_shaping/runners/cli_help_golden.json`（45 KB）。有意改动后用
@@ -170,11 +170,11 @@ README 记 `--zernike_radius` 默认 **600**。两者都是生产入口
 **变异验证**：① 把 golden 里一个字符 `Usage:` → `Usage :` ⇒ 对应 help 比对失败；
 ② 让 `DM_TYPES` 去掉 `asyn_micro` ⇒ 4 条 choice 冻结 + 1 条 help golden 同时失败。
 
-⚠️ **第一版 golden 有测试污染，已修**：`--dm_type` 的 choice 列表来自**活的 DM 注册表**，
+⚠️ **第一版 golden 有测试污染，已修**：`--dm-type` 的 choice 列表来自**活的 DM 注册表**，
 全量套件里别的测试先注册了 DM 类型 ⇒ `dm-matrix` 的选项比裸跑时多一项 ⇒ golden 与
 choice 冻结双双变红。已改为：① choice 只断言"**声明的 7 个都在、且顺序前缀不变**"
 （真实内容由 `DM_TYPES_PRE_ASYN_MICRO` 的接线断言单独钉）；② golden 里**只**把
-`--dm_type` 那一行的方括号内容归一化为 `[<DM_TYPES>]`，其余选项列表（`--wfs_type` /
+`--dm-type` 那一行的方括号内容归一化为 `[<DM_TYPES>]`，其余选项列表（`--wfs-type` /
 `--mode` / `--mla-index` …）**仍逐字节冻结**。已复测：干净跑与"先跑污染测试再跑"两种
 顺序均全绿。
 
@@ -598,7 +598,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 |---|---|---|---|
 | `micro_drive/alt_voltage_runner.py` | **5** | `runners.alt_voltage_runner` | `runners.micro_drive.alt_voltage_runner` |
 | `micro_drive/full_voltage_runner.py` | **4** | `runners.full_voltage_runner` | `runners.micro_drive.full_voltage_runner` |
-| `scripts/generate_zernike_response_matrix_report.py` | 1 | `runners.zernike_matrix_runner` | `runners.slm.zernike_matrix_runner` |
+| `scripts/zernike_bench/generate_zernike_response_matrix_report.py` | 1 | `runners.zernike_matrix_runner` | `runners.slm.zernike_matrix_runner` |
 | `tools/slm/cartographer/__init__.py` | 1 | `ao_shaping.tools.slm.cartographer`（**包无 `__main__`**） | `...cartographer.slm_cartographer_ui` |
 
 ⚠️ **第一处最严重**：那条路径是被 `md.append(...)` **写进生成报告里**的，
@@ -609,7 +609,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 
 **2 条合法不解析，走白名单（各带理由）**：
 - `utils/io/cli_helpers.py` 里的 `python -m ao_shaping.runners...` 是散文式 glob；
-- `scripts/generate_gsnet_offline_report.py` 明说 `gsnet_train` 是库模块、
+- `scripts/slm/generate_gsnet_offline_report.py` 明说 `gsnet_train` 是库模块、
   **该调用方式无效** —— 是**文档在正确地报错**。
 
 **历史文档按路径排除**：带日期的日报、已封存的报告**本来就应该**记录当时的路径，
@@ -671,7 +671,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 | `to_dataframe(rows)` | 它是 `run_benchmark_suite` **返回值**里的 DataFrame 投影，返回类型属于 API |
 | `HPRINT_KEYS` | 列契约 |
 
-序列化全部移到 `scripts/generate_beam_shaping_benchmark_report.py`；
+序列化全部移到 `scripts/slm/generate_beam_shaping_benchmark_report.py`；
 `run_device_less_full.py` 因被文档引用而保留为转发壳。
 
 #### F-15：权威产物从「不可用」变成「已提交」
@@ -1236,7 +1236,7 @@ logger.debug(
 1. **直接赋值**而非 `setattr`（意图明确，不靠读者推断）；
 2. **写明为什么是属性而不是列**（避免下次有人"顺手"改成列）；
 3. **加测试钉住**：断言两侧都不用 `setattr`、都直接赋值，
-   并断言唯一消费者 `scripts/compare_shape_objectives.py:258`
+   并断言唯一消费者 `scripts/slm/compare_shape_objectives.py:258`
    的 `getattr(rec, "energy_loss_violations", 0)` 读法成立。
 
 #### 过程失误：同一个错误犯两次
@@ -1293,7 +1293,7 @@ that calls them"）。
 第 1 个 variant 的第 1 次运行和最后 1 个 variant 的第 1 次运行打印出的字符串完全一样。
 操作者无法回答"现在到第几个了、还剩多少"。
 
-**改动**（`scripts/repeat_shape_objectives.py`）：
+**改动**（`scripts/slm/repeat_shape_objectives.py`）：
 
 * 抽出纯函数 `_progress_label(...)`，把三层计数拼成一行：
   `=== run {i}/{N} | variant {v}/{V} '{slug}' | rep {r}/{R} ===`；
@@ -1578,7 +1578,7 @@ R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那�
 | 位置 | 覆盖的模块 |
 |---|---|
 | `runners/slm_gsnet_runner.py:220 _maybe_sim_patch` | `slm_square_shaping` |
-| `scripts/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
+| `scripts/slm/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
 
 > ⚠️ **2026-10-05 后续**：两份 runner 侧补丁已抽成
 > `runners/runner_common.py::patch_sim_square_shaping` / `patch_sim_pib_shaping`
@@ -1634,7 +1634,7 @@ R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那�
 `python -m ao_shaping.runners.slm.shaping_runner square`。
 
 **合并的理由不是排版**。两个模块驱动同一对设备（Santec SLM + CCD，相机反馈，
-Zernike 系数），但漂移已经产生**行为差异**：`--cam_type sim` 号称"无需设备"，
+Zernike 系数），但漂移已经产生**行为差异**：`--cam-type sim` 号称"无需设备"，
 而 `spgd-square` **从未注册**模拟相机（"离线试跑"实际去开真实 Santec，
 `SantecError -10002`），`slm-pib` 只换了相机却仍构造真实 `Santec`，且是在烧掉
 自动曝光探针之后。两半统一走 `runner_common.patch_sim_square_shaping` /

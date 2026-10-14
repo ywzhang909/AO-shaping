@@ -127,7 +127,7 @@ def stub_execution(monkeypatch):
     """Neutralise the whole execution path so invoking the CLI is inert.
 
     Replaces ``optimize_slm_square`` with a recorder-returning stub and drops
-    the two side-effecting helpers (``setup_coredumpy`` and the ``--cam_type
+    the two side-effecting helpers (``setup_coredumpy`` and the ``--cam-type
     sim`` global monkey-patch of ``Santec``). Guarantees no device is opened
     and no global module state is mutated.
     """

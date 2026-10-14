@@ -8,7 +8,6 @@ from loguru import logger
 import uuid
 from pathlib import Path
 from glob import glob
-from datetime import datetime
 
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
@@ -452,18 +451,6 @@ class Recorder:
         self._postprocess_funcs[feature_name] = (func, column)
         self._all_columns.add(column)
 
-    def _apply_postprocess_to_record(self, record: dict) -> dict:
-        """对单条记录应用所有已注册的后处理函数。"""
-        result = dict(record)
-        for feature_name, (func, column) in self._postprocess_funcs.items():
-            if column not in result:
-                try:
-                    result[column] = func(result)
-                except Exception as e:
-                    logger.warning(f"postprocess_feature '{feature_name}' failed: {e}")
-                    result[column] = None
-        return result
-
     def _ensure_postprocess_applied(self, df: pd.DataFrame) -> pd.DataFrame:
         """确保 DataFrame 包含所有后处理列。"""
         for feature_name, (func, column) in self._postprocess_funcs.items():
@@ -861,6 +848,8 @@ def save_recorder_debug_artifacts(
     subdir_prefix: str,
     *,
     scalar_keys: tuple[str, ...] = (),
+    text_keys: tuple[str, ...] = (),
+    object_keys: tuple[str, ...] = (),
     objective_keys: tuple[str, ...] = (),
     img_keys: tuple[str, ...] = ("_img",),
     d1_keys: tuple[str, ...] = (),
@@ -889,6 +878,8 @@ def save_recorder_debug_artifacts(
         subdir_prefix:   Runner-specific script name, used for both the
                          directory and the file stem (e.g. ``"slm_pib_shape"``).
         scalar_keys:     Keys whose values are cast to ``float``.
+        text_keys:       Keys copied as strings (for example UTC capture times).
+        object_keys:     JSON-like values copied into the pickle without conversion.
         objective_keys:  Like ``scalar_keys`` but searched first; merged into
                          the scalar set.
         img_keys:        Keys whose values are 2D image arrays.
@@ -925,6 +916,16 @@ def save_recorder_debug_artifacts(
         for k in tuple(scalar_keys) + tuple(objective_keys):
             if k in rec:
                 item[k] = float(rec[k])
+        for k in text_keys:
+            if rec.get(k) is not None:
+                item[k] = str(rec[k])
+        for k in object_keys:
+            if k in rec:
+                item[k] = rec[k]
+        extra = getattr(res, "iteration_traces", {}).get(int(rec["_epoch"]), {})
+        for k in object_keys:
+            if k in extra:
+                item[k] = extra[k]
         for k in img_keys:
             if k in rec:
                 item[k] = np.asarray(rec[k])

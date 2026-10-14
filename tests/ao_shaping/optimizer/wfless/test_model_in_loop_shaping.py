@@ -24,7 +24,19 @@ from scipy.ndimage import zoom
 # coefficient error 0.2922 and encircled energy 0.3658 from 1 to 24 threads), so
 # the pool size is a pure performance knob here and pinning it keeps the suite
 # inside its time budget without perturbing any assertion.
-torch.set_num_threads(1)
+@pytest.fixture(autouse=True)
+def _single_threaded_torch():
+    """Pin torch to one thread for this module, then hand the pool back.
+
+    Scoped rather than set at import: a module-level set_num_threads(1) is a
+    process-global mutation that leaks into every test collected afterwards, and
+    it did -- test_conventions.py::test_the_thread_budget_is_in_force_in_this_process
+    asserts the harness' 16-thread budget and read 1.
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    yield
+    torch.set_num_threads(previous)
 
 
 from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
@@ -47,6 +59,7 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     StepBConfig,
     _crop_to_grid,
     _fit_aberration_at_probes,
+    _probe_set_loss,
     _probe_phase,
     _resize_grid,
 
@@ -454,6 +467,26 @@ def test_step_a_keeps_the_same_optimizer_when_no_rearm_is_given() -> None:
     assert stub.updates == taken == 4
     assert np.allclose(fitted, coefficients)
     assert len(losses) == 4
+
+
+def test_probe_set_loss_compares_the_same_phases_regardless_of_order() -> None:
+    optimizer = ZernikeCoefficientOptimizer(
+        n_orders=4, region=16, dtype="float64", device="cpu"
+    )
+    zero = np.zeros_like(optimizer.coefficients)
+    truth = zero.copy()
+    truth[3] = 0.6
+    truth[4] = -0.3
+    phases = [_probe_phase(16, 4.0, seed) for seed in (11, 29)]
+    frames = [(optimizer.forward_intensity(truth, phase), phase) for phase in phases]
+
+    initial = _probe_set_loss(optimizer, zero, frames)
+    fitted = _probe_set_loss(optimizer, truth, frames)
+    assert initial > 1e-6
+    assert fitted < 1e-20
+    assert _probe_set_loss(optimizer, zero, frames[::-1]) == pytest.approx(initial)
+    with pytest.raises(ValueError, match="at least one frame"):
+        _probe_set_loss(optimizer, zero, [])
 
 
 def test_step_a_rejects_an_empty_frame_set_or_a_non_positive_budget() -> None:

@@ -102,11 +102,11 @@ SimulatedDevice (Device)
 > (L305-307), 既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
 > `SimDisturbance`(负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延展到光束半径之外)。
 
-> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam_type sim` 时调用
+> ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam-type sim` 时调用
 > `reset_system(seed=42)` (现为 `runners/runner_common.py::patch_sim_square_shaping`; 2026-10-05 前
 > 该函数只服务 `slm-pib`/`slm-gsnet`, `slm-pib` 那一份后来被移除), 这会**替换**进程级 system 并清掉
 > 已注入的干扰 —— 运行会静默地以**无干扰**方式执行, 而 companion 清单却声称有干扰。
-> `scripts/slm_pib_sim_run.py` 因此包装了 `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
+> `scripts/slm/slm_pib_sim_run.py` 因此包装了 `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
 > `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` 锁定)。
 
 ## SimulatedDevice 接口
@@ -212,7 +212,7 @@ SimulatedDevice (Device)
 修复: **不再逐帧裁剪**。真实探测器的本底位于其阈值**之下**, 只在量化时裁剪一次,
 raw 帧本就允许略微低于黑电平; 去黑电平靠暗帧扣除, 不是每帧 clip。
 
-修复后实测 `main.py pib --cam_type sim --dm_type sim -e 200`, 目标函数真实上升:
+修复后实测 `main.py pib --cam-type sim --dm-type sim -e 200`, 目标函数真实上升:
 
 | epoch | 0 | ~100 | ~200 |
 |-------|---|------|------|
@@ -273,7 +273,7 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 镜像 DM 的 `_registry.py` (`register_wfs`/`create_wfs`/`list_wfs_types`/
 `resolve_wfs`, 同样的延迟绑定, 因此硬件包不会 import 仿真包)。
 
-`--wfs_type [thorlab|sim]` 定义在共享的 `WfsParams` 上, 8 个已注册命令**既暴露
+`--wfs-type [thorlab|sim]` 定义在共享的 `WfsParams` 上, 8 个已注册命令**既暴露
 也真正透传**该 flag: `wf`、`pipeline`、`rms-zernike`、`ga-zernike`、
 `greedy-zernike`、`dm-matrix`、`hadamard-matrix`、`zernike-matrix`。
 `closed-loop` **刻意没有** —— 它回放已保存的响应矩阵 (`ClosedLoopParams`)。
@@ -291,14 +291,14 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
 ⚠️ 以前只发布到远场, 于是 `wf` 永远读到平 pupil、无论 DM 怎么动 RMS 都是 0。
 
-⚠️ **`wf --wfs_type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
+⚠️ **`wf --wfs-type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
 扰动/像差时, DM 只能**增加**相位, 因此平场 (`wighted_rms ≈ 2.8e-05`) 才是
 RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正过程, 必须先注入
 像差 —— 已加 `--disturbance-cn2` (经 `SimDisturbance` 注入**瞳孔**, 默认 `0`
 = 不注入)。
 
 ⚠️ **注入了像差后 SPGD 能收敛, 但比硬件慢约一个数量级 —— 要加 epoch 或提 lr**
-(实测 2026-10-01, `wf --wfs_type sim --dm_type sim --disturbance-cn2 2e-13`)。
+(实测 2026-10-01, `wf --wfs-type sim --dm-type sim --disturbance-cn2 2e-13`)。
 `schedule_lr_delta` 是按**真实硬件**的电压-相位标度标定的; 对仿真 DM,
 `delta=3 V` 时单致动器峰值相位只有 **0.017 waves ≈ 目标量的 2.6%**, 梯度信号偏弱。
 **这不是不收敛, 只是慢** —— 逐轮目标量单调下降:
@@ -347,29 +347,36 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 2. **静默回退**: `_oopao_enabled()` 在 OOPAO 不可导入或不可用时返回 `False` 并**静默退回
    numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
 3. **两后端不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
-   oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化** (实测
-   **open 模式 5.428× / closed 模式 13.354×**, 跨 1e-16→5e-14 两个数量级相对
-   离散度 ≤1.8e-09), 详见 `report/oopao_impact/report.md` §4.3。**不要把某次配置的
-   常数当成普适标定系数。** 绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
+   oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化**, 详见
+   `report/oopao_impact/report.md` §4.3。**不要把某次配置的常数当成普适标定系数。**
+   绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
    ⚠️ 比较时注意 `init_rms` (`compat.py::_phase_rms()` = **截瞳后总波前** RMS, 含像差与 DM)
    与 `disturbance_rms` (`env._disturbance_rms` = **全网格未截瞳**原始相位屏 RMS) 是**两个不同的量**,
    不可互相推断 —— 前者可因像差项跨臂反向。
-   > 🔴 **2026-10-01 复核：上面这个 5.428/13.354 之前在此处被写成 1.068/2.628，
-   > 那是错的且不可复现。** 本报告的正交来源 `report/oopao_impact/report.md:62-63,100-101`
-   > 给的也是 5.428/13.354，与下面第 4 条描述的**未改动**的代码一致，已按实测统一。
+   > 📌 **常数溯源 (2026-10-13 复核)**: `report/oopao_impact/report.md` §4.3 实测
+   > **open 1.068× / closed 2.628×** (离散度 ≤1.8e-09) —— 该报告生成于 2026-09-29,
+   > 当时 `_rescale_for` 还是**多因子**版本 (commit `5e12fa2`)。此前本条一度被写成
+   > 5.428/13.354, 但那并非报告实测值: 5.428 = 1.068 × 5.08、13.354 = 2.628 × 5.08,
+   > 其中 5.08 正是旧多因子重缩放里相对单因子的乘性因子 (波长/归一化项)。代码 2026-10-02
+   > 改为单因子 (commit `284fbb5`, 见下条) 后, **1.068/2.628 不再可复现**; 5.428/13.354
+   > 自始就不是实测, 而是旧公式的乘性产物。
 
-4. **相位屏标定 —— ⚠️ 2026-09 的「只留 r0 因子」改写从未落地 (2026-10-01 复核)**:
-   本文档此前声称 `_rescale_for(r0_slab) = (_R0_REF_500/r0_slab)**(5/6)` **只此一项**，
-   并称已移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`。**代码里三者仍在**:
-   `oopao_backend.py:96,101-103` 至今是
+4. **相位屏标定 —— 2026-09 的「只留 r0 因子」改写已于 2026-10-02 落地 (commit `284fbb5`)**:
+   `_rescale_for(r0_slab)` 现在**只**是 `(_R0_REF_500/r0_slab)**(5/6)` 单因子
+   (`oopao_backend.py` 现 `:137`)。2026-10-01 复核曾判它「从未落地、代码里三者仍在」,
+   那是**基于 2026-10-02 改写之前代码的过期结论**。改写前 (`5e12fa2`, 2026-09-29)
+   的 `oopao_backend.py:96,101-103` 确实是
    `M = (lam/_LAM_REF_500) * (r0_ref/r0_slab)**(5/6) * sqrt(1.03) / _CAL_REF`
-   （`_CAL_REF = 0.6191`，`oopao_backend.py:71`），docstring 也是按旧公式写的。
-   **下面的论证本身仍然成立、仍是正确的目标态**（`lam` 因子与 `r0_slab` 里的
-   `r0 ∝ λ^(6/5)` 重复计入会抵消 1/λ 依赖；经验常数掩盖真实差异；OOPAO 次谐波增强
-   使其方差更接近解析 von-Karman），但**尚未实施**。
+   (`_CAL_REF = 0.6191`, `_LAM_REF_500 = 5.0e-7`); 改写已移除 `lam/_LAM_REF_500`、
+   `/_CAL_REF`、`*sqrt(1.03)` 三者, 它们现在**仅存于 docstring** 作为「为何去掉」的说明,
+   不再是可执行代码 (见 `oopao_backend.py` 的 docstring)。
+   **为何改** (论证仍成立): `lam` 因子会与 `r0_slab` 里的 `r0 ∝ λ^(6/5)` 重复计入,
+   把 1/λ 依赖完全抵消 —— 对一张以弧度计的相位屏不符合物理; 经验常数 `_CAL_REF`
+   掩盖真实差异; OOPAO 次谐波增强使其方差更接近解析 von-Karman。
    **不要再引入独立的 λ 因子** —— 波长已由 `compute_r0()` 里的 `r0_slab` 携带。
-   落地后必须重跑 `scripts/generate_oopao_impact_report.py` 并同步本条与第 3 条的常数。
-   已开 `TODO.md` 追踪。
+   ⚠️ 因公式已变, 第 3 条引用 2026-09-29 报告的常数 (1.068/2.628) **对应旧公式, 现已
+   不可复现**; 与当前单因子代码一致的两后端比值须重跑
+   `scripts/oopao/generate_oopao_impact_report.py` 后更新本条 (OOPAO 环境可用时)。
 
 5. **内尺度 `l_min` 无法兑现 (OOPAO 限制)**: `OOPAO/Atmosphere.py` `__init__` **没有 `l0`
    参数**, `generateNewPhaseScreen` 也不传, 故 OOPAO 恒用 `l0=1e-10` —— 内尺度滚降
@@ -383,7 +390,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
 
 对比报告与图片见 [`report/oopao_vs_numpy/report.md`](../../../../report/oopao_vs_numpy/report.md)
-(生成器 `scripts/generate_oopao_vs_numpy_report.py`); 后端回归测试
+(生成器 `scripts/oopao/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 
 ## 与 mock_devices 的区别

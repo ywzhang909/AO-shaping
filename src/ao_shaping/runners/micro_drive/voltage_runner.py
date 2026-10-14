@@ -69,7 +69,7 @@ from ao_shaping.runners.runner_common import (
     FullVoltageRunnerParams,
 )
 from ao_shaping.utils.cli.params import with_params
-from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+from ao_shaping.utils.io.cli_helpers import run_selector_dispatch, setup_coredumpy
 from ao_shaping.utils.io.network import ping_reachable
 
 # Optional ADC driver — TYPE_CHECKING lets us annotate while handling runtime absence
@@ -92,7 +92,6 @@ HW_VOLTAGE_MAX = 120.0
 SINGLE_CHANNELS = 50
 
 #: Selectors accepted by :func:`main` for `python -m` dispatch.
-COMMAND_SELECTORS = ("alt-voltage", "full-voltage")
 
 # Global state for signal handler
 _running = True
@@ -663,38 +662,18 @@ def full_voltage_run(ctx: click.Context, params: FullVoltageRunnerParams) -> Non
 def main(argv: list[str] | None = None) -> NoReturn:
     """Dispatch to a command by selector for `python -m` execution.
 
-    ``python -m ao_shaping.runners.micro_drive.voltage_runner [selector] [opts]``
-
-    With no selector the module runs ``alt-voltage``, preserving the
-    shortest invocation. ``full-voltage`` must be named explicitly since its
-    options do not overlap the default command's.
-
-    Args:
-        argv: Argument vector without the program name. Defaults to
-            ``sys.argv[1:]``.
+    With no selector the module runs ``alt-voltage``, preserving the shortest
+    invocation. ``full-voltage`` must be named explicitly.
 
     Raises:
         SystemExit: Always; the chosen Click command decides the code.
     """
-    args = list(sys.argv[1:] if argv is None else argv)
+    run_selector_dispatch(
+        {"alt-voltage": run, "full-voltage": full_voltage_run},
+        "alt-voltage",
+        argv,
+    )
 
-    command: click.Command = run
-    label = "alt-voltage"
-    if args and args[0] in COMMAND_SELECTORS:
-        label = args[0]
-        args = args[1:]
-        command = full_voltage_run
-
-    try:
-        command(args)
-    except SystemExit:
-        raise
-    except Exception as e:
-        click.echo(f"❌ 运行时错误: {e}")
-        logger.exception("{} runner failed", label)
-        sys.exit(1)
-    else:
-        sys.exit(0)
 
 
 if __name__ == "__main__":

@@ -271,7 +271,7 @@ class Santec:
         （``np.full((h, w), gray, dtype=np.uint16)``），禁止经 ``create_phase_from_array()``
         —— 该函数按弧度处理输入（mod 2π），会把 uint16 灰度值静默损坏。
       - 振幅耦合: 1064nm 下不同平场灰度值产生不同相机亮度，周期 ≈2π ≈993 灰度
-        （见 ``scripts/validate_flat_phase_gray.py``）。
+        （见 ``scripts/slm/validate_flat_phase_gray.py``）。
       - 像素标定（GS 方形整形）: SLM→相机物理距离约 1000mm，但实测
         k = SLM 网格边长 / 相机亮区宽度 ≈ 0.414（每 SLM 8µm 像素 ≈ 2.417 相机像素，
         等效成像距离 ≈115mm）—— 光路中存在成像元件或非标称傅里叶配置。光路调整后
@@ -1896,8 +1896,8 @@ class Santec:
         """选取下一个内存槽 (2..125, 排除当前显示槽).
 
         Santec 固件对 "正在显示的同一槽位" 的 ``display_memory`` 视为 no-op,
-        LCOS 面板不会刷新 —— 每次平移重写必须换槽。与多SLM控制器
-        ``_pick_next_memory`` 同策略 (随机槽 2..125), 跨进程亦不冲突。
+        LCOS 面板不会刷新 —— 每次平移重写必须换槽。与多SLM控制器 GUI 周期切换
+        ``_toggle_phases_task`` 同策略 (随机槽 2..125), 跨进程亦不冲突。
 
         Returns:
             下一个可用的内存槽编号
@@ -1975,7 +1975,7 @@ class Santec:
 
     def _setup_wavelength(self) -> None:
         """设置工作波长（open() 子步骤）"""
-        if self.wavelength is None:
+        if self.wavelength is None or self.wavelength < 450 or self.wavelength >1600:
             self.wavelength, self._max_gray = self.get_wavelength_info()
         else:
             device_wavelength, device_max_gray = self.get_wavelength_info()

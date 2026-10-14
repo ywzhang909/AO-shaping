@@ -1,14 +1,12 @@
 # SLM Zernike 扫描探针 (slm_zernike_sweep_probe)
 
-> **生成脚本**: [`scripts/generate_slm_zernike_sweep_probe_report.py`](../../scripts/generate_slm_zernike_sweep_probe_report.py)
-> **复现命令**: `python scripts/generate_slm_zernike_sweep_probe_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么
 
 **光滑 Zernike 扫描探针**：ramp + tilt + defocus + astig + coma + spherical 共 42 点，逐点稳定判据读帧，落盘 npz + Recorder (含相位与 CCD 帧)。`--no-hw` 只打印采集计划。
 
-这是 `scripts/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
+这是 `scripts/slm/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
 
 ## 2. 调用关系
 

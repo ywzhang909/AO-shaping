@@ -1,4 +1,3 @@
-import inspect
 import os
 from contextlib import contextmanager
 
@@ -12,7 +11,7 @@ from ao_shaping.drivers.ccd.common import (
 )
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
-from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
+from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.spots_calc import radius
@@ -36,7 +35,7 @@ def _camera_cls(cam_type: str = "") -> type:
     MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->
     ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy
     contract and forcing the SDK onto offline consumers such as
-    ``scripts/generate_shape_objective_comparison.py``. Resolving here keeps
+    ``scripts/slm/generate_shape_objective_comparison.py``. Resolving here keeps
     the optimizer importable without the side effect.
 
     Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force

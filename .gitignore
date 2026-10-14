@@ -90,6 +90,7 @@ libs/micro_drive1300/**/*.dll
 libs/micro_drive1300/**/*.lib
 libs/micro_drive1300/**/*.exe
 libs/micro_drive1300/c/std*.txt
+libs/Galaxy_Linux_Python*
 performance_comparison.md
 # ...but the report generators write under report/<topic>/, and the committed
 # Cython benchmark is the one artefact that must stay reviewable there. Without
@@ -149,4 +150,8 @@ report/slm_pib_online*
 # evidence for the `1 - Pearson` objective verdict, so they are reviewed in CI.
 report/shape_trials/device_abba_diagnosis*
 docs/beam_shaping*
+
+# .auto_doc_review: runtime dedup state is machine-local (see poll_repo_changes.py)
+.auto_doc_review/state.json
+.worktree*
 .tmp*

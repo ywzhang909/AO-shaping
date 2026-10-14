@@ -8,7 +8,7 @@ The rewritten ``XXXControl`` classes must:
   radians (no mod-2pi, no uint16 conversion);
 - keep binary patterns (棋盘格/二元光栅/达曼光栅) at exactly 0.0/pi;
 - keep the raw-uint16 gray contract for 平场 (amplitude coupling) and the
-  slm-required contract for the default driver conversion + GS方形整形;
+  slm-required contract for the default driver conversion;
 - dispatch through ``_build_control`` from the SLM object's own properties.
 """
 
@@ -26,12 +26,10 @@ from ao_shaping.gui.slm.pattern_controls import (
     BlazedGratingControl,
     CircularGratingControl,
     FlatControl,
-    GSSquareControl,
     HalfHalfPhaseControl,
     LensControl,
     LinearGratingControl,
     PatternControl,
-    SteadyPhaseControl,
     VortexPhaseControl,
     ZernikeControl,
     _build_control,
@@ -55,9 +53,6 @@ CANONICAL_REGISTRY_ORDER = [
     "达曼光栅",
     "涡旋相位",
     "半半相位",
-    "GS方形整形",
-    "GS方形整形(高斯版)",
-    "稳像法整形",
 ]
 
 
@@ -199,11 +194,6 @@ class TestSlmRequiredPaths:
         with pytest.raises(ValueError, match="需要 slm 对象"):
             ctrl.generate_phase_gray({"period": 64.0, "phase_range": 2.0})
 
-    def test_gs_square_requires_slm(self) -> None:
-        ctrl = GSSquareControl(width=128, height=128)
-        with pytest.raises(ValueError):
-            ctrl.generate_phase_rad({})
-
     def test_dispatcher_unknown_pattern_raises(self) -> None:
         with pytest.raises(ValueError, match="未知相位图类型"):
             generate_phase_gray(_mock_slm(), "不存在的图案", {})
@@ -267,7 +257,7 @@ class TestRenderEmbedsDefaults:
 
     @pytest.mark.parametrize(
         "pattern_type",
-        ["线性光栅", "圆形光栅", "透镜", "涡旋相位", "稳像法整形", "GS方形整形"],
+        ["线性光栅", "圆形光栅", "透镜", "涡旋相位"],
     )
     def test_render_params_embed_defaults(self, pattern_type: str) -> None:
         cls = PATTERN_REGISTRY[pattern_type]
@@ -306,14 +296,6 @@ class TestContextDerivedDefaults:
     def test_vortex_wavelength_defaults_to_slm_wavelength(self) -> None:
         ctrl = VortexPhaseControl(width=128, height=96, wavelength=1064.0)
         assert ctrl.defaults["wavelength_nm"] == int(ctrl.wavelength) == 1064
-
-    def test_steady_phase_defaults_are_physical(self) -> None:
-        ctrl = SteadyPhaseControl(width=128, height=96)
-        assert ctrl.defaults["focal_length_mm"] == 300.0
-        assert ctrl.defaults["waist_radius_um"] == 3600.0
-        assert ctrl.defaults["flat_top_half_length_um"] == 150.0
-        assert ctrl.defaults["blaze_period"] == 4.0
-        assert ctrl.defaults["blaze_angle_deg"] == 45.0
 
 
 class TestZernikeEditorFallback:

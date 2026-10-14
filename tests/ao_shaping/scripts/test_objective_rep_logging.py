@@ -1,6 +1,6 @@
 """Offline tests for the per-repeat light-stability helpers (no hardware).
 
-``scripts/objective_rep_logging.py`` is loaded by *file path* (``importlib``)
+``scripts/slm/objective_rep_logging.py`` is loaded by *file path* (``importlib``)
 because ``scripts/`` is not an importable package. The tests cover the drift
 split (no drift / one outlier / missing-zero / boundary), the nan-safe column
 median and the kept-row summary.
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
-_MODULE_PATH = _REPO_ROOT / "scripts" / "objective_rep_logging.py"
+_MODULE_PATH = _REPO_ROOT / "scripts" / "slm" / "objective_rep_logging.py"
 
 
 @pytest.fixture(scope="module")

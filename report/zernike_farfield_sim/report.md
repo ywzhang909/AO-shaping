@@ -1,8 +1,8 @@
 # Zernike 各模式/系数幅度下远场光斑形貌仿真报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_zernike_farfield_sim_report.py`](../../scripts/generate_zernike_farfield_sim_report.py)
-> **复现命令**: `python scripts/generate_zernike_farfield_sim_report.py`
+> **生成脚本**: [`scripts/zernike_bench/generate_zernike_farfield_sim_report.py`](../../scripts/zernike_bench/generate_zernike_farfield_sim_report.py)
+> **复现命令**: `python scripts/zernike_bench/generate_zernike_farfield_sim_report.py`
 > **运行环境**: 离线
 > **说明**: Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物
 <!-- provenance:end -->
@@ -155,7 +155,7 @@ Airy 基线 (A=0): FWHM(半宽) = 16.15 px, EE50 = 8.11 px, EE90 = 29.90 px。
 
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_zernike_farfield_sim_report.py
+python scripts/zernike/generate_zernike_farfield_sim_report.py
 ```
 
 全量逐例数据见 `metrics.csv` (96 行: mode_noll, n, m, name, amp_waves, strehl, fwhm_px, ee50_r_px, ee90_r_px, peak_dx, peak_dy, peak_r_px)。

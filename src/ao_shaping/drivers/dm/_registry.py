@@ -261,12 +261,12 @@ def resolve_dm(dm_type: str | None = None, **kwargs) -> DM:
             logger.info("Auto-detected reachable DM: {}", dm_type)
         elif len(reachable) == 0:
             raise RuntimeError(
-                "No DM reachable. Specify --dm_type explicitly or connect a DM."
+                "No DM reachable. Specify --dm-type explicitly or connect a DM."
             )
         else:
             raise RuntimeError(
                 f"Multiple DMs reachable ({', '.join(reachable)}). "
-                f"Specify --dm_type explicitly to choose one."
+                f"Specify --dm-type explicitly to choose one."
             )
 
     return create_dm(dm_type, **kwargs)

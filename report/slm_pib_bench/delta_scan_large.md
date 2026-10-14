@@ -1,8 +1,8 @@
 # SPGD delta 扫描 (实机)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/explore_delta.py`](../../scripts/explore_delta.py)
-> **复现命令**: `python scripts/explore_delta.py`
+> **生成脚本**: [`scripts/slm/explore_delta.py`](../../scripts/slm/explore_delta.py)
+> **复现命令**: `python scripts/slm/explore_delta.py`
 > **运行环境**: 硬件
 > **说明**: delta 大范围扫描 (实机)
 <!-- provenance:end -->

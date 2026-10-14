@@ -1,7 +1,5 @@
 # 串行 WF→PIB 流水线 (pipeline)
 
-> **生成脚本**: [`scripts/generate_pipeline_report.py`](../../scripts/generate_pipeline_report.py)
-> **复现命令**: `python scripts/generate_pipeline_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -41,12 +39,12 @@ graph TD
 ### 算法流程
 
 #### 第一阶段：波前优化 (RMS 优化)
-1. 初始化 DM 电压为零或从文件加载初始电压 (`--load_file`)
+1. 初始化 DM 电压为零或从文件加载初始电压 (`--load-file`)
 2. 使用 WFS 测量当前波前，计算 RMS 值
 3. 应用扰动法，分别向正负方向施加随机扰动电压
 4. 测量扰动后的波前 RMS 值
 5. 根据 RMS 差异计算梯度，更新 DM 电压 (Adam/AdaMOD)
-6. 重复直到 RMS 达到阈值 (`--rms_threshold`) 或完成预定迭代次数
+6. 重复直到 RMS 达到阈值 (`--rms-threshold`) 或完成预定迭代次数
 
 #### 第二阶段：PIB 优化 (远场光斑优化)
 1. 基于第一阶段优化结果初始化 DM 电压
@@ -77,21 +75,21 @@ graph TD
 
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
-| `-f, --load_file` | 加载优化结果文件 | - |
+| `-f, --load-file` | 加载优化结果文件 | - |
 | `-e, --epochs` | 优化迭代次数 (WF+PIB 总轮数) | 8000 |
-| `-R, --wfs_res` | WFS 分辨率 | 768 |
-| `-p, --pupil_diameter` | 瞳孔直径 | 2.7 |
-| `-c, --cam_id` | 远场光斑 CCD 设备 ID | 0 |
-| `-t, --exposure_time_ms` | CCD 曝光时间 (ms) | 500 |
-| `-s, --cam_size` | 相机开窗大小 | 160 |
-| `-r, --rms_threshold` | RMS 阈值 (WF 阶段早停) | 0.12 |
-| `-u, --dm_unit_mask` | DM 单元掩码 | all |
-| `--wfs_type` | WFS 类型 (thorlab/sim) | thorlab |
+| `-R, --wfs-res` | WFS 分辨率 | 768 |
+| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-c, --cam-id` | 远场光斑 CCD 设备 ID | 0 |
+| `-t, --exposure-time-ms` | CCD 曝光时间 (ms) | 500 |
+| `-s, --cam-size` | 相机开窗大小 | 160 |
+| `-r, --rms-threshold` | RMS 阈值 (WF 阶段早停) | 0.12 |
+| `-u, --dm-unit-mask` | DM 单元掩码 | all |
+| `--wfs-type` | WFS 类型 (thorlab/sim) | thorlab |
 
 ## 5. 仿真模式
 
 ```bash
-DEBUG=1 python src/ao_shaping/main.py pipeline --wfs_type sim --dm_type sim -e 1000
+DEBUG=1 python src/ao_shaping/main.py pipeline --wfs-type sim --dm-type sim -e 1000
 ```
 
 ## 6. 输出契约

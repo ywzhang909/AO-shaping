@@ -328,7 +328,7 @@ def test_the_reorganisation_stale_paths_are_gone_from_the_files_that_had_them() 
             "python -m ao_shaping.runners.full_voltage_runner",
         ),
         (
-            "scripts/generate_zernike_response_matrix_report.py",
+            "scripts/zernike_bench/generate_zernike_response_matrix_report.py",
             "python -m ao_shaping.runners.zernike_matrix_runner",
         ),
         (
@@ -510,7 +510,7 @@ def test_the_docs_targets_the_harness_writes_to_are_known() -> None:
 #: functions. It now computes only -- `run_benchmark` / `run_benchmark_suite`
 #: no longer take an `output_dir` at all -- while the three helpers that are not
 #: I/O (`build_gif_frames`, `to_dataframe`, `HPRINT_KEYS`) stay with the producer.
-#: Serialisation moved to scripts/generate_beam_shaping_benchmark_report.py.
+#: Serialisation moved to scripts/slm/generate_beam_shaping_benchmark_report.py.
 _WRITE_CALLS = re.compile(
     r"\b(?:to_csv|write_text|write_bytes|savefig|imsave|mkdir)\s*\(|"
     r"\.save\s*\(|open\s*\([^)]*[\"'][wax]"
@@ -536,7 +536,7 @@ def test_algorithm_layer_writes_no_reports() -> None:
 
 def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
     """Pins where the serialisation went, so it cannot quietly move back."""
-    writer = REPO / "scripts" / "generate_beam_shaping_benchmark_report.py"
+    writer = REPO / "scripts" / "slm" / "generate_beam_shaping_benchmark_report.py"
     assert writer.is_file(), "the report writer moved; update this guard"
     text = writer.read_text(encoding="utf-8")
     assert "def write_table(" in text and "def write_artifacts(" in text

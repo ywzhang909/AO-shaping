@@ -51,7 +51,6 @@ from ml.hwdataset import (
     HwPhaseImageDataset,
     HwRecordRef,
     MaterialiserConfig,
-    build_hw_dataloader,
     build_hw_index,
 )
 
@@ -59,6 +58,7 @@ from ml.hwdataset import (
 # ``build_hw_index``. Importing it rather than re-globbing keeps the staleness
 # check's notion of "on disk" exactly in step with the index builder's.
 from ml.hwdataset.index import _discover_pickles
+from ml.zernike.augment import GEOMETRIC_TRANSFORMS, geometric_pair
 from ml.zernike.losses import (
     LossConfig,
     composite_loss,
@@ -112,7 +112,7 @@ DEFAULT_MAX_RECORDS: int = 512
 #: A stem looks like ``slm_zernike_shaping_<objective>_<YYYYMMDD>_<HHMMSS>[_...].pkl``
 #: and carries a timestamp (sometimes two), so the objective group is matched
 #: **lazily** -- the first ``_<objective>`` before the first date stamp -- mirroring
-#: ``scripts/compare_models_cv.py`` so the two never drift.
+#: ``scripts/ml/compare_models_cv.py`` so the two never drift.
 _OBJECTIVE_RE = re.compile(r"^slm_zernike_shaping_(?P<objective>.+?)_\d{8}_\d{6}")
 
 
@@ -194,6 +194,18 @@ class AmpTrainConfig:
     max_train: int = DEFAULT_MAX_RECORDS
     max_val: int = 128
     val_fraction: float = 0.25
+    #: Probability of applying one synchronous geometric transform (flip / rot90)
+    #: to BOTH the pupil phasor and the far-field target of a training batch.
+    #:
+    #: ⚠️ **This biases the learned coefficients, by construction.** The model holds
+    #: ONE global coefficient vector shared by all samples, and a geometric
+    #: transform acts on it by an exact orthogonal operator ``D`` (see
+    #: :func:`ml.zernike.augment.basis_transform`). Per-sample transforms therefore
+    #: demand ``c ~ c*`` AND ``c ~ D c*``; at probability 1 the optimum is confined
+    #: to the ``D``-invariant subspace, which drives the odd-signature modes
+    #: (tilt, coma) to zero. The bench is not reflection-symmetric, so that is a real
+    #: bias, not a regulariser. Default 0 (off).
+    geometric_augment: float = 0.0
     beam_samples: int = 64
 
     epochs: int = 40
@@ -210,6 +222,17 @@ class AmpTrainConfig:
     #: resident tensors) and never reads this field; it is kept because external
     #: scripts import ``AmpTrainConfig`` and construct it with ``num_workers``.
     num_workers: int = 0
+
+    #: Run the training step under ``torch.autocast(float16)`` + ``torch.amp.GradScaler``.
+    #: **Off by default, and the physics is the reason.** ``torch.fft`` has no
+    #: half-precision kernel on CUDA and complex tensors are not autocast-eligible, so
+    #: the model's ``complex`` / ``polar`` / ``fft2`` / ``|F|^2`` propagation is
+    #: explicitly excluded from autocast and stays in fp32 regardless; only the loss
+    #: region is inside the autocast window. Second reason, the hardware: this box is a
+    #: Pascal GTX 1070 Max-Q (sm_61), whose fp16 tensor-core throughput is negligible,
+    #: so even the parts that *could* be cast would gain ~nothing while paying the
+    #: GradScaler bookkeeping. Enable it to measure, not by default.
+    amp: bool = False
 
     #: Training objective. ``"mse"`` is the incumbent pixel MSE on the
     #: normalised frame and is bit-identical to the pre-``losses.py`` behaviour.
@@ -690,6 +713,35 @@ def _select_records(
 # ---------------------------------------------------------------------------
 # Evaluation / imaging
 # ---------------------------------------------------------------------------
+def _roi_mask_on(
+    image_shape: tuple[int, int],
+    center: tuple[float, float],
+    size: float,
+    aspect_ratio: float,
+    device: torch.device,
+) -> torch.Tensor:
+    """Canonical ROI mask, already on ``device``.
+
+    :func:`ml.zernike.losses.roi_mask` is a thin wrapper over a **module-level**
+    ``@lru_cache`` (``losses._cached_mask``) keyed only on the geometry, and it
+    always returns a **CPU** tensor -- the cache has no device in its key. Every
+    consumer in ``losses.py`` therefore re-issues ``mask.to(device=...)`` itself,
+    which is why the CPU tensor never broke correctness, but it also means a
+    pageable host-to-device copy *per batch, per term*, hidden inside the loss.
+    Moving the mask once here makes the device correct at the source.
+
+    ``Tensor.to(device)`` is out-of-place, so the shared cache can never hand a
+    later epoch a tensor on the wrong device: on CUDA it returns a fresh device
+    tensor and leaves the cached CPU one untouched, and on CPU it returns the
+    cached tensor itself, which is safe because the mask is only ever read (a bool
+    ROI, never written in place). ``device`` is resolved by the caller -- this
+    function deliberately does no device selection of its own.
+    """
+    return roi_mask(image_shape, center, "rectangle", size, aspect_ratio).to(
+        device=device
+    )
+
+
 @torch.no_grad()
 def evaluate(
     model: ZernikeAmpModel,
@@ -762,11 +814,18 @@ def evaluate(
     # >1 rougher. See `ml.zernike.metrics.total_variation_ratio` for the sweep that chose it.
     out["tv_ratio"] = total_variation_ratio(prediction, reference)
 
+    # One host transfer per tensor for the whole beam-sample prefix, instead of one
+    # per sample per call: the two comprehensions below score the *same* `k` samples,
+    # so the original spelling paid 2k device syncs here. The values are bit-identical
+    # -- `.float()` is the identity on the fp32 tensors this path produces, and
+    # `host[i, 0]` is exactly the element the per-sample `.cpu().numpy()` returned.
+    k = min(beam_samples, n)
+    host_prediction = prediction[:k].detach().float().cpu().numpy()
+    host_reference = reference[:k].detach().float().cpu().numpy()
+
     rows = [
-        per_sample_beam_metrics(
-            prediction[i, 0].cpu().numpy(), reference[i, 0].cpu().numpy()
-        )
-        for i in range(min(beam_samples, n))
+        per_sample_beam_metrics(host_prediction[i, 0], host_reference[i, 0])
+        for i in range(k)
     ]
     out.update(summarise_beam_metrics(rows))
 
@@ -776,24 +835,25 @@ def evaluate(
         centre = (grid / 2.0, grid / 2.0)
         roi_rows = [
             roi_shape_terms(
-                prediction[i, 0].cpu().numpy(),
-                reference[i, 0].cpu().numpy(),
+                host_prediction[i, 0],
+                host_reference[i, 0],
                 center=centre,
                 size=side,
             )
-            for i in range(min(beam_samples, n))
+            for i in range(k)
         ]
         out.update(summarise_beam_metrics(roi_rows))
         # The anchored spot-size gap the new term optimises, on the same ROI, so a run
         # that enables the term is observable rather than assumed. One batched call on
         # the concatenated tensor -- `prediction` is (N, 1, g, g); `predictions` is the
         # list of per-batch chunks and indexing that indexes BATCHES, not samples.
-        k = min(beam_samples, n)
         out["spot_moment_gap"] = float(
             spot_moment_gap_term(
                 prediction[:k],
                 reference[:k],
-                roi_mask((grid, grid), centre, "rectangle", side, roi_aspect),
+                _roi_mask_on(
+                    (grid, grid), centre, side, roi_aspect, prediction.device
+                ),
             ).mean()
         )
     return out
@@ -948,6 +1008,10 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         An :class:`AmpTrainResult` with the best coefficients and the full history.
     """
     torch.manual_seed(cfg.seed)
+    # Dedicated stream for the geometric augmentation, seeded off `cfg.seed`, so the
+    # draw neither depends on nor perturbs the main RNG (which drives the permutation).
+    aug_generator = torch.Generator()
+    aug_generator.manual_seed(cfg.seed + 9973)
     # Validate the objective name up front. Falling through to MSE on an
     # unrecognised value would make a typo (e.g. "physcial") silently reproduce
     # the incumbent run, which is the one outcome this switch must not have.
@@ -956,6 +1020,15 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     out_dir = Path(cfg.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
+    # AMP is CUDA-only: GradScaler is a documented no-op when disabled, so gating it
+    # here keeps the CPU path byte-identical to the pre-AMP one (see AmpTrainConfig.amp).
+    amp_enabled = bool(cfg.amp) and device.type == "cuda"
+    if cfg.amp and not amp_enabled:
+        logger.info(
+            "amp requested but disabled: autocast/GradScaler need a CUDA device, "
+            "resolved device is {}",
+            device,
+        )
 
     # Keep the unfiltered index: corpus provenance and the staleness check
     # describe the whole cache, not just the family subset that will be trained.
@@ -1006,6 +1079,9 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
     fit_target = model._normalize(train_t["target"].clone())  # noqa: SLF001
     optimizer = _build_optimizer(model, cfg)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
+    # `enabled=False` makes scale()/step()/update() exact pass-throughs, so the same
+    # three lines serve the AMP and non-AMP runs without a branch in the hot loop.
+    scaler = torch.amp.GradScaler(device.type, enabled=amp_enabled)
 
     run = _init_wandb(cfg, model, len(train_idx), len(val_idx))
     perceptual = available_perceptual_metrics()
@@ -1030,12 +1106,12 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         or cfg.loss_weights.w_spot_moment > 0.0
         or cfg.loss_weights.w_ellipse > 0.0
     ):
-        loss_mask = roi_mask(
+        loss_mask = _roi_mask_on(
             (grid, grid),
             (grid / 2.0, grid / 2.0),
-            "rectangle",
             cfg.target_size_frac * grid,
             cfg.target_aspect_ratio,
+            device,
         )
         logger.info(
             "physical loss: ROI {:.1f}x{:.1f} px of a {}x{} grid, weights={}",
@@ -1054,23 +1130,65 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         for start in range(0, n_train, cfg.batch_size):
             idx = permutation[start : start + cfg.batch_size]
             optimizer.zero_grad(set_to_none=True)
-            prediction = model(train_t["phase_cos"][idx], train_t["phase_sin"][idx])
-            # Always measured, for every loss: model selection and the reported
-            # history stay on val MSE so runs remain comparable across objectives.
-            data_mse = torch.mean((prediction - fit_target[idx]) ** 2)
-            if loss_mask is not None:
-                terms = composite_loss(
-                    prediction, fit_target[idx], loss_mask, cfg.loss_weights
-                )
-                loss = terms["_mean_total"]
-            else:
-                loss = data_mse
-            if cfg.l2_penalty:
-                loss = loss + cfg.l2_penalty * torch.sum(model.coefficients**2)
-            loss.backward()
+            phase_cos = train_t["phase_cos"][idx]
+            phase_sin = train_t["phase_sin"][idx]
+            target = fit_target[idx]
+            if cfg.geometric_augment > 0.0:
+                # One transform per batch, drawn from a DEDICATED generator so the
+                # main RNG stream (which drives the permutation above) is untouched
+                # and the run stays reproducible. The target is transformed by the
+                # SAME operator as the input -- that is what makes the pair
+                # self-consistent. See the config field for why this still biases
+                # the shared coefficient vector.
+                if float(torch.rand(1, generator=aug_generator)) < cfg.geometric_augment:
+                    pick = int(
+                        torch.randint(
+                            0,
+                            len(GEOMETRIC_TRANSFORMS),
+                            (1,),
+                            generator=aug_generator,
+                        )
+                    )
+                    phase_cos, phase_sin, target, _ = geometric_pair(
+                        phase_cos, phase_sin, target, GEOMETRIC_TRANSFORMS[pick]
+                    )
+            # Autocast is DISABLED around the forward: torch.fft has no half-precision
+            # kernel on CUDA and complex tensors are not autocast-eligible, so letting
+            # autocast cover the propagation would either raise or silently push the
+            # physics through fp16. `models.py` therefore needs no change -- the
+            # exclusion is applied here, at the single call site.
+            with torch.autocast(device_type=device.type, enabled=False):
+                prediction = model(phase_cos, phase_sin)
+            # Everything below the propagation is plain real arithmetic, so it is the
+            # part autocast is allowed to cover.
+            with torch.autocast(
+                device_type=device.type, dtype=torch.float16, enabled=amp_enabled
+            ):
+                # Always measured, for every loss: model selection and the reported
+                # history stay on val MSE so runs remain comparable across objectives.
+                # `target` (not `fit_target[idx]`) so the geometric augmentation
+                # above is actually reflected in the supervision.
+                data_mse = torch.mean((prediction - target) ** 2)
+                if loss_mask is not None:
+                    terms = composite_loss(
+                        prediction, target, loss_mask, cfg.loss_weights
+                    )
+                    loss = terms["_mean_total"]
+                else:
+                    loss = data_mse
+                if cfg.l2_penalty:
+                    loss = loss + cfg.l2_penalty * torch.sum(model.coefficients**2)
+            scaler.scale(loss).backward()
             if cfg.grad_clip:
+                # Unscale BEFORE clipping, or the threshold would silently mean
+                # `grad_clip * init_scale` while the gradients still carry the loss
+                # scale. `unscale_` is a no-op when the scaler is disabled, and
+                # `scaler.step` sees the already-unscaled state and does not redo it,
+                # so the non-AMP path clips exactly as it always did.
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(_trainable_params(model), cfg.grad_clip)
-            optimizer.step()
+            scaler.step(optimizer)
+            scaler.update()
             se += float(data_mse.detach()) * idx.numel()
             penalty += float(loss.detach()) * idx.numel()
         scheduler.step()
@@ -1276,6 +1394,10 @@ def _init_wandb(cfg: AmpTrainConfig, model: ZernikeAmpModel, n_train: int, n_val
     Offline mode is the default: this machine has no ``WANDB_API_KEY``, so an
     online run would fail. The offline directory syncs later with
     ``wandb sync <dir>``.
+
+    Deliberately **no** ``reinit=True``: that flag silently finishes any live run
+    and starts a fresh one on every call, so it breaks resume and makes the later
+    ``run.finish()`` apply to a dead run instead of this one.
     """
     if not cfg.use_wandb:
         return None
@@ -1413,6 +1535,20 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-train", type=int, default=DEFAULT_MAX_RECORDS)
     parser.add_argument("--max-val", type=int, default=128)
     parser.add_argument("--val-fraction", type=float, default=0.25)
+    # Default read from the dataclass, NOT a literal: a CLI literal here once
+    # silently shadowed the calibrated `far_field_padding` and every run started
+    # from R2 = -0.38.
+    parser.add_argument(
+        "--geometric-augment",
+        type=float,
+        default=AmpTrainConfig.geometric_augment,
+        help=(
+            "probability of applying one synchronous geometric transform (flip / "
+            "rot90) to both the pupil phasor and the target of a batch; biases the "
+            "shared coefficient vector toward the transform's invariant subspace "
+            "(default: %(default)s, i.e. off)"
+        ),
+    )
     parser.add_argument("--beam-samples", type=int, default=64)
     parser.add_argument("--epochs", type=int, default=40)
     parser.add_argument("--batch-size", type=int, default=64)
@@ -1469,6 +1605,17 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--weight-decay", type=float, default=0.0)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--device", default="cuda")
+    parser.add_argument(
+        "--amp",
+        action="store_true",
+        default=train_default.amp,
+        help=(
+            "Run the loss region under torch.autocast(float16) with a "
+            "torch.amp.GradScaler. The model's complex/FFT propagation is always "
+            "excluded from autocast (no half-precision cuFFT kernel), so this only "
+            "affects the loss. Off by default -- see AmpTrainConfig.amp for why."
+        ),
+    )
     parser.add_argument("--out-dir", default="logs/zernike_amp")
     parser.add_argument("--log-every", type=int, default=1)
     parser.add_argument("--image-every", type=int, default=5)
@@ -1527,6 +1674,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         device=args.device,
         num_workers=0,
+        amp=args.amp,
         out_dir=args.out_dir,
         log_every=args.log_every,
         image_every=args.image_every,

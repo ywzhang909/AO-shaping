@@ -2,6 +2,50 @@
 
 This directory contains various utility scripts for the AO-Shaping project, including build scripts, simulation scripts, training scripts, and analysis tools.
 
+## Layout
+
+Scripts are grouped by **what they process** — a specific device, a specific
+data type — rather than left flat. The subfolder is the primary axis; run each
+script from the repository root so its `data/` and `report/` paths resolve.
+
+| Subfolder | What it processes |
+|---|---|
+| `slm/` | The Santec SLM-200 + CCD far-field bench (2f-Fourier), hardware and its simulation twin: `slm-pib`, `spgd-square`, `slm-gsnet`, diff-beam, bench probes, model-in-loop runbook, the shape-objective studies, and the beam-shaping benchmark family. |
+| `zernike_bench/` | The Zernike calibration bench — Zernike phase written to the SLM and read back by the WFS: response matrix, linearity, far-field morphology, phase→WFS readout, and the WFS-only probe. |
+| `dm/` | Deformable mirrors: Micro-DM (R50Power) per-channel image diff pipeline, 1300-channel wiring tables, the DM response-matrix report, and the DM-side simulation references. |
+| `wfs/` | The Thorlabs WFS driver on its own: spot-field function comparison and the driver hardware smoke test. |
+| `ml/` | **Data and models, no device.** Two families: the `ml/hwdataset` + `data/debug` corpus pipeline (index, distribution scan, reorganise, GIF render), and the Zernike coefficient→far-field model plus inverse shaping — forward/inverse search, U-Net vs physics, loss and metric diagnostics. |
+| `rl/` | Reinforcement learning and atmospheric turbulence: SAC / Mamba curriculum, sweeps, and run visualisation. |
+| `oopao/` | The OOPAO backend vs the legacy numpy/FFT backend, in isolation (`vs_numpy`) and end-to-end through an AO environment (`impact`). |
+| `build/` | Build, environment setup and repo hygiene: Cython/Nuitka builds, CUDA-matched PyTorch install, CLI-flag rewriting, test-data staging. |
+
+Three files stay at the top level because they are the directory's own
+infrastructure rather than a domain: `sync_report_provenance.py` (the provenance
+writer), `__init__.py`, and `eval_pib_hybrid_sim.py`.
+
+Pre-existing subdirectories keep their original meaning: `_common/` (shared
+report helpers + the provenance registry), `call_graph/` (the `main.py` call-graph
+pipeline), `dm_sim/` (MATLAB DM simulation), `tuning_devices/` (device tuning).
+
+### Rules for scripts under `scripts/`
+
+- **Repo root must come from the file's own depth.** A script one level down uses
+  `Path(__file__).resolve().parents[2]`; at the top level it is `parents[1]`.
+  Getting this wrong makes every `data/`, `report/` and output path resolve under
+  `scripts/` and fails nothing until someone runs it. Guarded by
+  `tests/ao_shaping/scripts/test_script_repo_root_bootstrap.py`.
+- **A subfolder name must not shadow an importable module.** `scripts/` is on
+  `pythonpath`, so `scripts/zernike/` silently stole the name from the PyPI
+  `zernike` distribution and broke `from zernike import RZern` repo-wide. Hence
+  `zernike_bench/`, not `zernike/`. Guarded by
+  `tests/ao_shaping/scripts/test_scripts_subpackage_names.py`.
+- **Import siblings by package path**, not by bare name: `from scripts.ml.compare_unet_baseline import ...`.
+  A bare `from compare_unet_baseline import ...` only worked while the directory
+  was flat and breaks the moment the file moves.
+- Report generation still lives here and nowhere else (naming
+  `generate_*_report.py`), and report output goes to `report/<topic>/` at the repo
+  root — see the provenance notes below.
+
 ## Build Scripts
 
 ### build.ps1
@@ -35,7 +79,7 @@ Installs a CUDA-version-matched PyTorch into the current environment.
 
 **Usage:**
 ```bash
-python scripts/setup_pytorch.py
+python scripts/build/setup_pytorch.py
 ```
 
 **What it does:**
@@ -67,7 +111,7 @@ Generates comparison images of different atmospheric turbulence conditions.
 
 **Usage:**
 ```bash
-python scripts/simulate_atmospheric_comparison.py
+python scripts/rl/simulate_atmospheric_comparison.py
 ```
 
 **What it does:**
@@ -80,7 +124,7 @@ Generates analysis figures for turbulence validation.
 
 **Usage:**
 ```bash
-python scripts/sim_turbulence_analysis.py
+python scripts/rl/sim_turbulence_analysis.py
 ```
 
 **What it does:**
@@ -93,7 +137,7 @@ Generates comprehensive visual reports for simulation studies.
 
 **Usage:**
 ```bash
-python scripts/generate_sim_visual_report.py
+python scripts/rl/generate_sim_visual_report.py
 ```
 
 **What it does:**
@@ -114,7 +158,7 @@ turbulence + DM bench.
 
 **Usage:**
 ```bash
-python scripts/optimize_pib_reference.py
+python scripts/dm/optimize_pib_reference.py
 ```
 
 **What it does:**
@@ -130,7 +174,7 @@ Runs the full device-less benchmark suite and GIF generation in one shot.
 
 **Usage:**
 ```bash
-python scripts/run_device_less_full.py
+python scripts/slm/run_device_less_full.py
 ```
 
 **What it does:**
@@ -149,8 +193,8 @@ SET × TURBULENCE LEVEL cell, saving per-step dynamic frames.
 
 **Usage:**
 ```bash
-.venv/bin/python scripts/fouriergsnet_sim_train.py
-.venv/bin/python scripts/fouriergsnet_sim_train.py --shapes square,circle,gaussian \
+.venv/bin/python scripts/slm/fouriergsnet_sim_train.py
+.venv/bin/python scripts/slm/fouriergsnet_sim_train.py --shapes square,circle,gaussian \
     --aberrations none,defocus,mixed --turbulence off,slow,fast \
     --steps 30 --k-px 512 --no-replay --out data/fouriergsnet_sim
 ```
@@ -197,7 +241,7 @@ Runs curriculum learning for Mamba-based turbulence training.
 
 **Usage:**
 ```bash
-python scripts/run_curriculum_mamba_turbulence.py
+python scripts/rl/run_curriculum_mamba_turbulence.py
 ```
 
 **What it does:**
@@ -211,7 +255,7 @@ Runs long SAC experiments for both static and turbulent environments.
 
 **Usage:**
 ```bash
-python scripts/run_long_sac_experiments.py
+python scripts/rl/run_long_sac_experiments.py
 ```
 
 **What it does:**
@@ -225,7 +269,7 @@ Performs parameter sweep for Mamba turbulence training and generates reports.
 
 **Usage:**
 ```bash
-python scripts/sweep_mamba_turbulence_report.py
+python scripts/rl/sweep_mamba_turbulence_report.py
 ```
 
 **What it does:**
@@ -240,7 +284,7 @@ Performs hyperparameter sweep for SAC RL training.
 
 **Usage:**
 ```bash
-python scripts/sweep_sac_rl.py
+python scripts/rl/sweep_sac_rl.py
 ```
 
 **What it does:**
@@ -254,7 +298,7 @@ Sweeps parameters for stage 3 target in curriculum learning.
 
 **Usage:**
 ```bash
-python scripts/sweep_stage3_target.py
+python scripts/rl/sweep_stage3_target.py
 ```
 
 **What it does:
@@ -290,7 +334,7 @@ for 252 samples across 112 pkls.
 
 **Usage:**
 ```bash
-python scripts/analyze_hwdataset_distributions.py
+python scripts/ml/analyze_hwdataset_distributions.py
 ```
 
 **Output:** `report/hwdataset_corpus/distribution_stats.json` — the *only*
@@ -321,9 +365,9 @@ axis (the repo's canonical ROI terms) rather than pretending to be one knob.
 
 **Usage:**
 ```bash
-python scripts/compare_loss_algorithms.py --quick          # smoke: 2 epochs, 4 cells
-python scripts/compare_loss_algorithms.py --workers 8 --epochs 20 --seeds 3
-python scripts/compare_loss_algorithms.py --ao-algorithms spgd --ao-spgd-optimizers adam,adamod,muno
+python scripts/ml/compare_loss_algorithms.py --quick          # smoke: 2 epochs, 4 cells
+python scripts/ml/compare_loss_algorithms.py --workers 8 --epochs 20 --seeds 3
+python scripts/ml/compare_loss_algorithms.py --ao-algorithms spgd --ao-spgd-optimizers adam,adamod,muno
 ```
 
 Writes `results.csv`, `report.md` and `summary.png` under `--out`
@@ -373,7 +417,7 @@ Tunes parameters for SPGD Zernike optimization.
 
 **Usage:**
 ```bash
-python scripts/tune_sim_spgd_zernike.py
+python scripts/dm/tune_sim_spgd_zernike.py
 ```
 
 **What it does:**
@@ -388,7 +432,7 @@ Visualizes SAC training runs with plots and metrics.
 
 **Usage:**
 ```bash
-python scripts/visualize_sac_runs.py
+python scripts/rl/visualize_sac_runs.py
 ```
 
 **What it does:**
@@ -406,7 +450,7 @@ information.
 
 **Usage:**
 ```bash
-python scripts/process_1300_data.py
+python scripts/dm/process_1300_data.py
 ```
 
 **What it does:**
@@ -466,18 +510,18 @@ automatically and generates all outputs in one command:
 
 ```bash
 # Complete pipeline for a voltage group
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v
-python scripts/md_img_pipeline.py --input data/md_test/md_img-100v
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-100v
 
 # Skip FFT notch filter (faster, ~30s per IP vs ~2min)
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
 
 # Custom parameters
-python scripts/md_img_pipeline.py --input data/md_test/md_img-100v \
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-100v \
     --threshold 12 --scale 0.5 --fps 10
 
 # Re-run GIF/overlay only (skip diff computation)
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 ```
 
 **Output structure:**
@@ -512,15 +556,15 @@ For more control, run each step individually:
 
 ```bash
 # 1. Diff computation, denoising & centroid (per channel)
-python scripts/md_img_diff_centroid.py --ref <ref.png> --input data/md_test/md_img-100v \
+python scripts/dm/md_img_diff_centroid.py --ref <ref.png> --input data/md_test/md_img-100v \
     --output data/md_test/md_img-100v_diff --threshold 15
 
 # 2a. Merge analysis: pixel-wise maximum over all diff images
-python scripts/md_img_diff_overlay.py --input data/md_test/md_img-100v_diff \
+python scripts/dm/md_img_diff_overlay.py --input data/md_test/md_img-100v_diff \
     --output data/md_test/md_img-100v_overlay.png
 
 # 2b. Per-IP animation: 50 per-channel diff PNGs -> one animated GIF per IP
-python scripts/md_img_diff_to_gif.py --input data/md_test/md_img-100v_diff_jet \
+python scripts/dm/md_img_diff_to_gif.py --input data/md_test/md_img-100v_diff_jet \
     --output data/md_test/md_img-100v_gif --scale 0.25 --fps 8
 ```
 
@@ -594,7 +638,7 @@ Rationale from the code comments:
 
 **Usage:**
 ```bash
-python scripts/md_img_diff_centroid.py --ref <reference.png> \
+python scripts/dm/md_img_diff_centroid.py --ref <reference.png> \
     --input data/md_test/md_img-100v \
     --output data/md_test/md_img-100v_diff \
     --threshold 15 --cmap jet
@@ -622,7 +666,7 @@ and the max intensity.
 
 **Usage:**
 ```bash
-python scripts/md_img_diff_overlay.py \
+python scripts/dm/md_img_diff_overlay.py \
     --input data/md_test/md_img-100v_diff \
     --output data/md_test/md_img-100v_overlay.png
 ```
@@ -648,7 +692,7 @@ per-channel diff PNGs into an animated GIF, one per IP. Key mechanics:
 
 **Usage:**
 ```bash
-python scripts/md_img_diff_to_gif.py \
+python scripts/dm/md_img_diff_to_gif.py \
     --input data/md_test/md_img-100v_diff_jet \
     --output data/md_test/md_img-100v_gif \
     --scale 0.25 --fps 8
@@ -678,17 +722,17 @@ GIFs, global overlay, and a combined master GIF with IP labels and metadata.
 **Usage:**
 ```bash
 # Full pipeline
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v
 
 # Custom parameters
-python scripts/md_img_pipeline.py --input data/md_test/md_img-100v \
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-100v \
     --threshold 12 --scale 0.5 --fps 10
 
 # Skip FFT notch filter (faster)
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v --no-notch
 
 # Re-run GIF/overlay only
-python scripts/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
+python scripts/dm/md_img_pipeline.py --input data/md_test/md_img-80v --skip-diff
 ```
 
 | Option | Default | Description |
@@ -718,7 +762,7 @@ Santec SLM + MiiCam).
 
 **Usage:**
 ```bash
-uv run --group ml python scripts/diff_beam_capture_flat.py --exposure-us 1200 --output data/diff_beam/flat_tiff
+uv run --group ml python scripts/slm/diff_beam_capture_flat.py --exposure-us 1200 --output data/diff_beam/flat_tiff
 ```
 
 **What it does:**
@@ -748,8 +792,8 @@ reads saved artefacts, no hardware.
 
 **Usage:**
 ```bash
-python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
-python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot
+python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
+python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot
 ```
 
 **What it does:**
@@ -809,8 +853,8 @@ cross-check; `--no-figures` renders markdown only.
 **Usage:**
 ```bash
 # two-stage reproduction (§14)
-python scripts/analyze_hwdataset_distributions.py
-python scripts/generate_hwdataset_corpus_report.py
+python scripts/ml/analyze_hwdataset_distributions.py
+python scripts/ml/generate_hwdataset_corpus_report.py
 ```
 
 ### generate_zernike_amp_report.py
@@ -821,12 +865,12 @@ model: `report/zernike_phase2amp/report.md` + `report/zernike_phase2amp/figures/
 
 **Usage:**
 ```bash
-python scripts/generate_zernike_amp_report.py
-python scripts/generate_zernike_amp_report.py --no-figures
+python scripts/ml/generate_zernike_amp_report.py
+python scripts/ml/generate_zernike_amp_report.py --no-figures
 ```
 
 **Inputs** (both produced by other scripts, so the report is regenerable):
-- `logs/zernike_amp_sweep.json` ← `scripts/sweep_zernike_models.py` (grouped-CV grids,
+- `logs/zernike_amp_sweep.json` ← `scripts/ml/sweep_zernike_models.py` (grouped-CV grids,
   the tuned final comparison, paired per-fold differences, per-objective breakdown)
 - `logs/zernike_amp_final/summary.json` ← `ml.zernike.train_amp` per-epoch history
   (the same series the run logged to wandb)
@@ -861,9 +905,9 @@ protocol that has statistical power: leave-one-pickle-out (10 grouped folds).
 
 **Usage:**
 ```bash
-python scripts/sweep_zernike_models.py                 # full, ~30 min on one GPU
-python scripts/sweep_zernike_models.py --quick         # 2 folds, smoke only
-python scripts/sweep_zernike_models.py --final-only    # reuse grids, redo the tuned block
+python scripts/ml/sweep_zernike_models.py                 # full, ~30 min on one GPU
+python scripts/ml/sweep_zernike_models.py --quick         # 2 folds, smoke only
+python scripts/ml/sweep_zernike_models.py --final-only    # reuse grids, redo the tuned block
 ```
 
 **Why it exists**: the report's numbers must come from a saved artefact rather than
@@ -881,7 +925,7 @@ Writes `logs/zernike_amp_sweep.json`. The repo has **no sklearn dependency**, so
 folds are built by hand on `str(record.path)`, matching the group key
 `_select_records` already uses.
 
-**Related**: `scripts/compare_models_cv.py` is the general-purpose CV harness
+**Related**: `scripts/ml/compare_models_cv.py` is the general-purpose CV harness
 (arbitrary models, two protocols, `--analyse` to recompute statistics from saved
 folds without retraining); this script is the batch sweep that feeds the report.
 
@@ -893,8 +937,8 @@ Generates the illustrated **Zernike phase → WFS readout distribution** report
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_zernike_wfs_report.py
-python scripts/generate_zernike_wfs_report.py -o report/slm/zernike_wfs_report
+python scripts/zernike_bench/generate_zernike_wfs_report.py
+python scripts/zernike_bench/generate_zernike_wfs_report.py -o report/slm/zernike_wfs_report
 ```
 
 **What it does:**
@@ -923,8 +967,8 @@ hardware.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_zernike_response_matrix_report.py
-python scripts/generate_zernike_response_matrix_report.py --h5 <path> -o report/slm/<dir>
+python scripts/zernike_bench/generate_zernike_response_matrix_report.py
+python scripts/zernike_bench/generate_zernike_response_matrix_report.py --h5 <path> -o report/slm/<dir>
 ```
 
 **What it does** (writes `report.md` + `figures/`):
@@ -964,8 +1008,8 @@ proportionally? **Fully offline** — reads saved scan artefacts, no hardware.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_zernike_linearity_report.py
-python scripts/generate_zernike_linearity_report.py -o report/slm/zernike_linearity
+python scripts/zernike_bench/generate_zernike_linearity_report.py
+python scripts/zernike_bench/generate_zernike_linearity_report.py -o report/slm/zernike_linearity
 ```
 
 **What it does** (writes `linearity.md` + `figures/`):
@@ -992,7 +1036,7 @@ Generates the illustrated **Zernike far-field spot-morphology** report — a 2f-
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_zernike_farfield_sim_report.py
+python scripts/zernike_bench/generate_zernike_farfield_sim_report.py
 ```
 
 **What it does** (writes `report.md` + `figures/` + `metrics.csv` to `report/zernike_farfield_sim/`):
@@ -1014,7 +1058,7 @@ seed 42).
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/generate_heuristic_pib_report.py
+python scripts/slm/generate_heuristic_pib_report.py
 ```
 
 **What it does** (writes to `report/heuristic_pib/`):
@@ -1047,7 +1091,7 @@ physical bench (Santec SLM-200 + Daheng MER2-507 NIR) through
 
 ```powershell
 $env:PYTHONPATH = "src;libs"   # libs/ REQUIRED for gxipy (Daheng); without it Daheng is unavailable
-python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
+python scripts/slm/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 ```
 
 | Option | Default | Description |
@@ -1074,9 +1118,9 @@ while the instruments are powered down) to refresh the conclusions.
 
 **Usage:**
 ```bash
-python scripts/generate_pib_bench_report.py
-python scripts/generate_pib_bench_report.py --root data/debug -o report/slm_pib_bench
-python scripts/generate_pib_bench_report.py --no-figures
+python scripts/slm/generate_pib_bench_report.py
+python scripts/slm/generate_pib_bench_report.py --root data/debug -o report/slm_pib_bench
+python scripts/slm/generate_pib_bench_report.py --no-figures
 ```
 
 **What it does** (writes `report/slm_pib_bench/report.md` + `figures/`):
@@ -1116,8 +1160,8 @@ real bench — the check that says whether SPGD can see its own gradient at all
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/measure_shape_sensitivity.py
-python scripts/measure_shape_sensitivity.py --deltas 0.02,0.05,0.1,0.2,0.3
+python scripts/slm/measure_shape_sensitivity.py
+python scripts/slm/measure_shape_sensitivity.py --deltas 0.02,0.05,0.1,0.2,0.3
 ```
 
 **What it does** (writes `sensitivity.json` + `sensitivity.md` (+ `sensitivity.png`)
@@ -1162,8 +1206,8 @@ search, on the real bench (needs hardware: Santec SLM-200 + camera).
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/compare_shape_objectives.py
-python scripts/compare_shape_objectives.py --epochs 80 --algorithm sa
+python scripts/slm/compare_shape_objectives.py
+python scripts/slm/compare_shape_objectives.py --epochs 80 --algorithm sa
 ```
 
 **What it does** — the ONLY variable is the objective; everything else is fixed:
@@ -1371,8 +1415,8 @@ fitted blur knob is left defaulted off and locked by a test.
 
 **Usage:**
 ```bash
-python scripts/generate_gs_refine_fwdmodel_report.py
-python scripts/generate_gs_refine_fwdmodel_report.py --data-root <path>/data/debug
+python scripts/slm/generate_gs_refine_fwdmodel_report.py
+python scripts/slm/generate_gs_refine_fwdmodel_report.py --data-root <path>/data/debug
 ```
 
 | Option | Default | Description |
@@ -1500,7 +1544,7 @@ shapes) into `report/benchmarks/device_less_full/`: `beam_shaping_benchmark_metr
 -- pure numpy/PIL, ~100 s.
 
 ```bash
-python scripts/generate_beam_shaping_benchmark_report.py
+python scripts/slm/generate_beam_shaping_benchmark_report.py
 ```
 
 This is the report writer for
@@ -1548,7 +1592,7 @@ arguments.
 
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/generate_cython_optimizer_report.py
+python scripts/dm/generate_cython_optimizer_report.py
 ```
 
 ### generate_strehl_benchmark_report.py
@@ -1566,8 +1610,8 @@ gradient-based reference that the PIB benchmark leaves out (it is not a
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/generate_strehl_benchmark_report.py              # n_grid=256 (~20 min)
-python scripts/generate_strehl_benchmark_report.py --n-grid 128 # fast smoke (~5 min)
+python scripts/slm/generate_strehl_benchmark_report.py              # n_grid=256 (~20 min)
+python scripts/slm/generate_strehl_benchmark_report.py --n-grid 128 # fast smoke (~5 min)
 ```
 
 **What it does** (writes to `report/strehl_benchmark/`):
@@ -1604,8 +1648,8 @@ hardware.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_dm_response_matrix_report.py
-python scripts/generate_dm_response_matrix_report.py --h5 <path> -o report/dm_response_matrix
+python scripts/dm/generate_dm_response_matrix_report.py
+python scripts/dm/generate_dm_response_matrix_report.py --h5 <path> -o report/dm_response_matrix
 ```
 
 **What it does** (writes `report.md` + `figures/`):
@@ -1639,7 +1683,7 @@ pure numpy, no hardware.
 
 **Usage:**
 ```bash
-python scripts/generate_centroid_test_visualization.py
+python scripts/slm/generate_centroid_test_visualization.py
 ```
 
 **What it does:**
@@ -1655,7 +1699,7 @@ differentiable shaping). GPU recommended, CPU fallback available.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_diff_shaping_report.py
+python scripts/slm/generate_diff_shaping_report.py
 ```
 
 **What it does** (writes to `report/slm_differential_shaping/`):
@@ -1667,15 +1711,15 @@ python scripts/generate_diff_shaping_report.py
 ### generate_fouriergsnet_sim_report.py
 
 Generates the illustrated **FourierGSNet turbulence-sim matrix** report from a
-`scripts/fouriergsnet_sim_train.py` output directory. **Fully offline** — reads
+`scripts/slm/fouriergsnet_sim_train.py` output directory. **Fully offline** — reads
 saved artefacts only (config/summary/metrics/frames), no hardware, no pipeline
 code.
 
 **Usage:**
 ```bash
-python scripts/generate_fouriergsnet_sim_report.py
-python scripts/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_probe512b
-python scripts/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o report/fouriergsnet_sim
+python scripts/slm/generate_fouriergsnet_sim_report.py
+python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_probe512b
+python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o report/fouriergsnet_sim
 ```
 
 **What it does** (writes `report/fouriergsnet_sim/report.md` + `figures/` + `gifs/`):
@@ -1720,10 +1764,10 @@ to produce the comparison, driving `beam_backend` directly.
 
 **Usage:**
 ```bash
-python scripts/generate_oopao_vs_numpy_report.py
-python scripts/generate_oopao_vs_numpy_report.py --quick
-python scripts/generate_oopao_vs_numpy_report.py --n-grid 128 --seed 7
-python scripts/generate_oopao_vs_numpy_report.py --aberrations none,defocus --turbulence none,weak
+python scripts/oopao/generate_oopao_vs_numpy_report.py
+python scripts/oopao/generate_oopao_vs_numpy_report.py --quick
+python scripts/oopao/generate_oopao_vs_numpy_report.py --n-grid 128 --seed 7
+python scripts/oopao/generate_oopao_vs_numpy_report.py --aberrations none,defocus --turbulence none,weak
 ```
 
 **What it does** (writes `--out-dir` / `report.md` + `summary.csv` + `figures/`):
@@ -1783,9 +1827,9 @@ hardware); runs both backends in-process.
 
 **Usage:**
 ```bash
-python scripts/generate_oopao_impact_report.py
-python scripts/generate_oopao_impact_report.py --quick
-python scripts/generate_oopao_impact_report.py --cn2 0,5e-15 --steps 100
+python scripts/oopao/generate_oopao_impact_report.py
+python scripts/oopao/generate_oopao_impact_report.py --quick
+python scripts/oopao/generate_oopao_impact_report.py --cn2 0,5e-15 --steps 100
 ```
 
 **What it does** (writes `report.md` + `summary.csv` + `figures/`):
@@ -1838,14 +1882,14 @@ and the `slm_shaping_bench` dead-config trap.
 ### generate_slm_gsnet_sim_gif.py
 
 Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
-snippet) from a `slm-gsnet spgd --cam_type sim --debug` artifact directory.
+snippet) from a `slm-gsnet spgd --cam-type sim --debug` artifact directory.
 **Fully offline** — reads the saved PKL only, no hardware, no pipeline code.
 
 **Usage:**
 ```bash
-python scripts/generate_slm_gsnet_sim_gif.py
-python scripts/generate_slm_gsnet_sim_gif.py --pkl data/debug/slm_gsnet_<ts>/<ts>/xxx.pkl
-python scripts/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
+python scripts/slm/generate_slm_gsnet_sim_gif.py
+python scripts/slm/generate_slm_gsnet_sim_gif.py --pkl data/debug/slm_gsnet_<ts>/<ts>/xxx.pkl
+python scripts/slm/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 ```
 
 **What it does** (writes `report/fouriergsnet_sim/gifs/`):
@@ -1878,9 +1922,9 @@ as produced by `slm-gsnet`).
 
 **Usage:**
 ```bash
-python scripts/generate_pearson_pkl_gif.py
-python scripts/generate_pearson_pkl_gif.py --pearson-only --max-frames 200 --max-dim 384
-python scripts/generate_pearson_pkl_gif.py --pkl data/debug/<run>/<ts>/<name>.pkl
+python scripts/slm/generate_pearson_pkl_gif.py
+python scripts/slm/generate_pearson_pkl_gif.py --pearson-only --max-frames 200 --max-dim 384
+python scripts/slm/generate_pearson_pkl_gif.py --pkl data/debug/<run>/<ts>/<name>.pkl
 ```
 
 **What it does** (writes `report/pearson_gifs/<pkl_stem>.gif`):
@@ -1910,13 +1954,13 @@ disturbance regime.
 
 **Usage:**
 ```bash
-python scripts/slm_pib_sim_run.py
-python scripts/slm_pib_sim_run.py --epochs 300 --target-shape square
-python scripts/slm_pib_sim_run.py --epochs 60 --objective pearson
+python scripts/slm/slm_pib_sim_run.py
+python scripts/slm/slm_pib_sim_run.py --epochs 300 --target-shape square
+python scripts/slm/slm_pib_sim_run.py --epochs 60 --objective pearson
 
 # disturbance runs (the static/dynamic pair the report compares)
-python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
-python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
+python scripts/slm/slm_pib_sim_run.py --epochs 300 --disturbance static
+python scripts/slm/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
 ```
 
 | Option | Default | Description |
@@ -1967,13 +2011,13 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
 > 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
 > (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
-> 不钉住的话两次 `spgd-square --cam_type sim` 的干扰流不可比
+> 不钉住的话两次 `spgd-square --cam-type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
 > `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
-  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam_type`
+  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam-type`
   `click.Choice` was extended to include `"sim"`)
 - monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
   `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
@@ -1983,7 +2027,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   without the classmethod the sim path dies with
   `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
   (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
-- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam_type sim`
+- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam-type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
@@ -2050,17 +2094,17 @@ manifest, so a report can be produced offline without re-running anything.
 
 **Usage:**
 ```bash
-python scripts/run_sim_bench.py --list
-python scripts/run_sim_bench.py --epochs 20 --out data/sim_bench
-python scripts/run_sim_bench.py --only slm-pib spgd-square --epochs 200
+python scripts/slm/run_sim_bench.py --list
+python scripts/slm/run_sim_bench.py --epochs 20 --out data/sim_bench
+python scripts/slm/run_sim_bench.py --only slm-pib spgd-square --epochs 200
 ```
 
 **What it does** (writes `data/sim_bench/summary.json`):
 - Drives the genuine Click entries via `main.py`, not the optimizer functions, so
   the CLI wiring is exercised too: `pib` / `combined` with
-  `--cam_type sim --dm_type sim`; `spgd-square` with
-  `--cam_type sim --slm_type sim`; `slm-gsnet` / `slm-pib` with
-  `--cam_type sim --debug`
+  `--cam-type sim --dm-type sim`; `spgd-square` with
+  `--cam-type sim --slm-type sim`; `slm-gsnet` / `slm-pib` with
+  `--cam-type sim --debug`
 - Records per runner: `ok`, `returncode`, `wall_s`, the artefact paths it wrote,
   best-effort headline metrics parsed from the CSV, and a `note`
 - **Per-run isolation**: a failure is captured into the manifest rather than
@@ -2092,9 +2136,9 @@ opens a device and never re-optimises.
 
 **Usage:**
 ```bash
-python scripts/generate_slm_shaping_sim_report.py
-python scripts/generate_slm_shaping_sim_report.py --out report/slm_shaping_sim
-python scripts/generate_slm_shaping_sim_report.py --no-figures
+python scripts/slm/generate_slm_shaping_sim_report.py
+python scripts/slm/generate_slm_shaping_sim_report.py --out report/slm_shaping_sim
+python scripts/slm/generate_slm_shaping_sim_report.py --no-figures
 ```
 
 **What it does** (writes `report/slm_shaping_sim/report.md` + `figures/`):
@@ -2132,7 +2176,7 @@ FourierGSNet `1 - Pearson` loss may be promoted onto the hardware path.
 
 **Usage:**
 ```bash
-python scripts/generate_shape_objective_comparison.py
+python scripts/slm/generate_shape_objective_comparison.py
 ```
 
 **What it does** (writes `report/slm_pib_online/objective_comparison.md` +
@@ -2204,7 +2248,7 @@ single pass, and the unshaped initial state.
 
 **Usage:**
 ```bash
-.venv/bin/python scripts/generate_iterative_zernike_shaping_report.py
+.venv/bin/python scripts/slm/generate_iterative_zernike_shaping_report.py
 ```
 
 **What it does** (writes to `report/iterative_zernike_shaping/`):
@@ -2292,9 +2336,9 @@ PKL/JSON only, no hardware, no pipeline code.
 
 **Usage:**
 ```bash
-python scripts/generate_slm_pib_sim_report.py
-python scripts/generate_slm_pib_sim_report.py --debug-dir data/debug/slm_pib_shape_<ts>
-python scripts/generate_slm_pib_sim_report.py --max-runs 3
+python scripts/slm/generate_slm_pib_sim_report.py
+python scripts/slm/generate_slm_pib_sim_report.py --debug-dir data/debug/slm_pib_shape_<ts>
+python scripts/slm/generate_slm_pib_sim_report.py --max-runs 3
 ```
 
 **What it does** (writes `report/slm_pib_sim/report.md` + `figures/` + `gifs/`):
@@ -2328,9 +2372,9 @@ reads the saved PKL/JSON only, no hardware, no pipeline code.
 
 **Usage:**
 ```bash
-python scripts/generate_slm_zernike_shaping_report.py
-python scripts/generate_slm_zernike_shaping_report.py --debug-dir data/debug/slm_zernike_shaping_rmse_out_<ts>
-python scripts/generate_slm_zernike_shaping_report.py --debug-root data/debug --max-runs 2
+python scripts/slm/generate_slm_zernike_shaping_report.py
+python scripts/slm/generate_slm_zernike_shaping_report.py --debug-dir data/debug/slm_zernike_shaping_rmse_out_<ts>
+python scripts/slm/generate_slm_zernike_shaping_report.py --debug-root data/debug --max-runs 2
 ```
 
 **Artifacts read** (`<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/<ts>/`):
@@ -2363,8 +2407,8 @@ pure markdown, no hardware, no figures.
 
 **Usage:**
 ```bash
-python scripts/generate_fouriergsnet_pipeline_report.py
-python scripts/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
+python scripts/slm/generate_fouriergsnet_pipeline_report.py
+python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 ```
 
 **What it does** (writes `report/fouriergsnet_pipeline/report.md`):
@@ -2396,9 +2440,9 @@ hardware, no network.
 
 **Usage:**
 ```bash
-python scripts/generate_gsnet_offline_report.py
-python scripts/generate_gsnet_offline_report.py --run-dir data/gsnet_train/run-20260929_225847
-python scripts/generate_gsnet_offline_report.py -o report/fouriergsnet_pipeline/offline_training
+python scripts/slm/generate_gsnet_offline_report.py
+python scripts/slm/generate_gsnet_offline_report.py --run-dir data/gsnet_train/run-20260929_225847
+python scripts/slm/generate_gsnet_offline_report.py -o report/fouriergsnet_pipeline/offline_training
 ```
 
 **What it does** (writes `report/fouriergsnet_pipeline/offline_training/report.md` + `figures/`):
@@ -2445,7 +2489,7 @@ Generates the ML model training analysis report from TensorBoard event files.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python scripts/generate_models_report.py
+python scripts/rl/generate_models_report.py
 ```
 
 **What it does** (writes to `report/models_analysis/`):
@@ -2582,9 +2626,9 @@ instruments are powered down.
 
 **Usage:**
 ```powershell
-python scripts/generate_bench_probe_report.py            # default paths
-python scripts/generate_bench_probe_report.py -o report/slm/bench_probe
-python scripts/generate_bench_probe_report.py --no-figures
+python scripts/slm/generate_bench_probe_report.py            # default paths
+python scripts/slm/generate_bench_probe_report.py -o report/slm/bench_probe
+python scripts/slm/generate_bench_probe_report.py --no-figures
 ```
 
 **What it does** (writes `report/slm/bench_probe/report.md` + `figures/`):
@@ -2653,9 +2697,9 @@ and does not need to.**
 
 **Usage:**
 ```bash
-python scripts/generate_model_in_loop_report.py
-python scripts/generate_model_in_loop_report.py --no-figures    # skip the matplotlib figure
-python scripts/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
+python scripts/slm/generate_model_in_loop_report.py
+python scripts/slm/generate_model_in_loop_report.py --no-figures    # skip the matplotlib figure
+python scripts/slm/generate_model_in_loop_report.py --out docs/slm/model_in_loop_algorithm.md
 ```
 
 **Diagrams are mermaid** (`graph TD`, `sequenceDiagram`, `stateDiagram-v2`,
@@ -2698,10 +2742,10 @@ it, display it, and measure the result (needs hardware: Santec SLM-200 + camera)
 
 **Usage:**
 ```bash
-python scripts/model_in_loop_hw_runbook.py --stage all --target-cam-px 40
-python scripts/model_in_loop_hw_runbook.py --stage collect --probes 12
-python scripts/model_in_loop_hw_runbook.py --stage calibrate
-python scripts/model_in_loop_hw_runbook.py --stage shape --dry-run
+python scripts/slm/model_in_loop_hw_runbook.py --stage all --target-cam-px 40
+python scripts/slm/model_in_loop_hw_runbook.py --stage collect --probes 12
+python scripts/slm/model_in_loop_hw_runbook.py --stage calibrate
+python scripts/slm/model_in_loop_hw_runbook.py --stage shape --dry-run
 ```
 
 **What it does** — three stages, resumable, artefacts under
@@ -2742,6 +2786,71 @@ solve) and is how the logic is verified while the bench is offline.
 > failure modes this works around are documented in
 > [`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md).
 
+### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
+
+Seven evaluators that answer one design question each **without touching the
+bench**: they read a completed `slm-model-in-loop --debug` directory
+(`probes/manifest.json` + `bench_geometry.json` + `source_amplitude.npy` +
+`probes/*.npz`) and re-score it under a different modelling assumption. Because
+the input is a saved artefact, the instruments may be powered down.
+
+```bash
+python scripts/slm/evaluate_model_in_loop_refit.py       data/debug/slm_model_in_loop/<ts> --output logs/refit.json
+python scripts/slm/evaluate_model_in_loop_geometry.py    data/debug/slm_model_in_loop/<ts> --output logs/geometry.json
+python scripts/slm/evaluate_model_in_loop_order.py       data/debug/slm_model_in_loop/<ts> --output logs/order.json
+python scripts/slm/evaluate_model_in_loop_probe_mix.py   data/debug/slm_model_in_loop/<ts> --output logs/probe_mix.json
+python scripts/slm/evaluate_model_in_loop_oversampling.py data/debug/slm_model_in_loop/<ts> --output logs/oversampling.json
+python scripts/slm/evaluate_model_in_loop_psf.py         logs/psf.csv data/debug/slm_model_in_loop/<ts>
+python scripts/slm/evaluate_model_in_loop_phase_bandwidth.py logs/phase_bandwidth.csv data/debug/slm_model_in_loop/<ts>
+```
+
+| Script | Question it answers |
+|---|---|
+| `..._refit.py` | Is a zero-iteration refit as good as a short one? (compares forward models on archived holdouts) |
+| `..._geometry.py` | Does a three-parameter camera-grid correction beat the single-scale geometry? |
+| `..._order.py` | How many Zernike orders should Step A refit? (`--orders`, default `3 4 6 10`) |
+| `..._probe_mix.py` | Which Step-A probe family should be fitted — does mixing beat a single family? |
+| `..._oversampling.py` | Does bilinearly oversampling the pupil (`--factors`, default `1 2 4`) improve the held-out speckle correlation? |
+| `..._psf.py` | Does a small Gaussian PSF selected on `train` probes deblur the frozen hardware `holdout` / `shaped` frames? |
+| `..._phase_bandwidth.py` | How much circular phase smoothing (Gaussian σ, phase space) can be applied to the frozen model without degrading the frozen holdouts? |
+
+The first five take one or more `run_dirs` plus a required `--output` JSON path
+and print a per-factor / per-order table; the last two take an `output_csv`
+plus `run_dirs` and write one CSV row per sigma (no `--output` flag). All seven
+fit on the `train` split and score on `holdout` / `shaped`, so the reported
+number is always out-of-sample.
+
+> ⚠️ **Read the split sizes before quoting any single family.** These scripts
+> print bare means; on a typical one-round run `holdout` has 6 records while
+> `freeform` has 2 and `shaped` has 1, so a one-sample "correlation" sits beside
+> a six-sample mean with no spread shown. Treat single-split rows as anecdotes.
+
+> ⚠️ `..._oversampling.py` re-implements the propagation in NumPy/SciPy rather
+> than calling the canonical torch
+> `ao_shaping.utils.wavefront.fraunhofer.interpolated_pupil_intensity`, so it
+> runs without the `ml` dependency group. The two are **verified numerically
+> identical** (max relative difference ~1e-15 for factors 1/2/4); if you change
+> one, change both.
+
+### replay_model_in_loop_config.py
+
+Re-runs a **saved** `slm-model-in-loop` configuration on real hardware with a
+different probe seed — the way to separate "the seed was unlucky" from "the
+configuration is bad" without re-deriving the CLI flags by hand. **Needs
+hardware** (Santec SLM + camera); it calls the genuine
+`optimize_slm_model_in_loop`.
+
+```bash
+python scripts/slm/replay_model_in_loop_config.py data/debug/slm_model_in_loop/<ts> --seed 87 --output-dir data/debug/slm_model_in_loop/replay87
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `source_run` | (required) | Saved run dir to take the configuration from |
+| `--seed` | (required) | New Step-A probe seed |
+| `--step-a-iterations` | `0` | Override Step-A budget (`0` = keep the saved value) |
+| `output_dir` | (optional) | Output root; defaults to the source run's debug root |
+
 ### verify_correction_csv.py
 
 Offline verification for the `--export-correction` gray-offset CSV
@@ -2752,8 +2861,8 @@ saved artefacts, no hardware.
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src;libs"
-python scripts/verify_correction_csv.py
-python scripts/verify_correction_csv.py --h5 <matrix.h5> --w <w_before.json> --csv <corr.csv>
+python scripts/slm/verify_correction_csv.py
+python scripts/slm/verify_correction_csv.py --h5 <matrix.h5> --w <w_before.json> --csv <corr.csv>
 ```
 
 | Option | Default | Description |
@@ -2783,8 +2892,8 @@ levels produce different camera intensities, periodic with 2π ≈ 993 gray.
 
 **Usage:**
 ```bash
-python scripts/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3
-python scripts/validate_flat_phase_gray.py --scan --gray-step 50
+python scripts/slm/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3
+python scripts/slm/validate_flat_phase_gray.py --scan --gray-step 50
 ```
 
 **What it does:**
@@ -2815,7 +2924,7 @@ hardware: Thorlabs WFS).
 
 **Usage:**
 ```bash
-python scripts/wfs_compare_image_functions.py
+python scripts/wfs/wfs_compare_image_functions.py
 ```
 
 **What it does:**
@@ -2846,7 +2955,7 @@ hardware: Thorlabs WFS).
 **Usage:**
 ```powershell
 $env:PYTHONPATH = "src"
-python -X faulthandler scripts/wfs_probe.py --iters 80 --mla 512 --exp 4.0
+python -X faulthandler scripts/zernike_bench/wfs_probe.py --iters 80 --mla 512 --exp 4.0
 ```
 
 **What it does:**

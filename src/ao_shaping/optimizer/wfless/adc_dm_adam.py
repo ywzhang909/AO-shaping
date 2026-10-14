@@ -3,6 +3,7 @@ import pandas as pd
 import time
 import os
 import tqdm
+from loguru import logger
 
 from ao_shaping.algorithm.gradient.acceleration import _njit
 
@@ -60,9 +61,9 @@ def save_list_to_txt(lst, file_path):
         with open(file_path, "w") as file:
             for item in lst:
                 file.write(str(item) + "\n")
-        print(f"列表已成功保存到 {file_path}")
+        logger.info(f"列表已成功保存到 {file_path}")
     except Exception as e:
-        print(f"保存文件时出错: {e}")
+        logger.error(f"保存文件时出错: {e}")
 
 
 def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):

@@ -69,7 +69,7 @@ from ao_shaping.utils.image.targets import crop_resize_to_grid
 # every ``import ao_shaping`` — defeating the guard entirely. It is therefore
 # resolved inside ``_auto_create_ccd``, where it is actually needed.
 if TYPE_CHECKING:
-    from ao_shaping.drivers.ccd.miicam.driver import MIICamera
+    pass
 
 try:
     from ao_shaping.drivers.slm.santec import Santec

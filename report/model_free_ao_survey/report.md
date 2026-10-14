@@ -86,7 +86,7 @@
 ## 3. 可借鉴清单（按优先级）
 
 > 优先级 = (对本项目 model-free 闭环的实际收益) × (落地成本)。
-> 每条给出落点文件与验收口径，全部**离线可验证**（数字孪生 `--cam_type sim`）先行，硬件后验。
+> 每条给出落点文件与验收口径，全部**离线可验证**（数字孪生 `--cam-type sim`）先行，硬件后验。
 
 ### 3.1 ⭐ 自适应 SPGD 增益（论文 §"SPGD" 的 γ = γ0/J + C）
 
@@ -100,7 +100,7 @@
   与现有 `shrink_ratio` 的正则衰减正交，可能进一步缩短收敛。
 - **落点**：`optimizer/wfless/slm_zernike_pib.py` 的 SPGD 主循环；新增 `SlmZernikePibConfig`
   字段 `adaptive_gain: bool` / `gamma0` / `gain_c`（默认关闭，保持现有行为可复现）。
-- **验收**：`--cam_type sim` 数字孪生（`drivers/sim/slm_shaping_bench.py`），固定 seed，
+- **验收**：`--cam-type sim` 数字孪生（`drivers/sim/slm_shaping_bench.py`），固定 seed，
   对比 `lr=固定` vs `lr=J 自适应` 的"达到 best J 的 80% 所需迭代数"（与论文 [43] 的口径一致）。
   目标：迭代数下降，且 best J 不劣化。
 
@@ -224,4 +224,4 @@
 6. **§3.5 hybrid 调度器**（组合已有 GS/SPGD/model-in-loop，**不重写 GS 循环**）— 依赖 §3.1+§3.3。
 
 > 全部 6 条都是**加法**（新增开关/模块），不改现有默认行为，保持可复现。
-> 验收统一走数字孪生 `--cam_type sim`（`patch_sim_*_shaping`），硬件后验另列。
+> 验收统一走数字孪生 `--cam-type sim`（`patch_sim_*_shaping`），硬件后验另列。

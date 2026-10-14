@@ -1,6 +1,6 @@
-"""Offline contract for the ``--cam_type sim`` wiring of both shaping halves.
+"""Offline contract for the ``--cam-type sim`` wiring of both shaping halves.
 
-Both commands advertise ``--cam_type sim`` as "no hardware required", so the
+Both commands advertise ``--cam-type sim`` as "no hardware required", so the
 invariant is narrow and absolute: **on that path neither command may touch a
 real device**. It was not, on either half —
 
@@ -71,7 +71,7 @@ class TestPatchInstallsTheTwin:
     def test_pib_helper_does_not_reset_the_simulated_system(self):
         """The PIB sim harness owns the system; a reset here would drop it.
 
-        ``scripts/slm_pib_sim_run.py`` installs a seeded system *with* a
+        ``scripts/slm/slm_pib_sim_run.py`` installs a seeded system *with* a
         disturbance and wraps ``reset_system`` so every call re-attaches it. If
         the runner reset the system itself, a run whose manifest claims a
         disturbance would run without one.
@@ -110,9 +110,9 @@ class TestOfflineRunsReachTheTwin:
             [
                 "-e",
                 "2",
-                "--cam_type",
+                "--cam-type",
                 "sim",
-                "--slm_type",
+                "--slm-type",
                 "sim",
                 "--basis",
                 "freeform",
@@ -131,7 +131,7 @@ class TestOfflineRunsReachTheTwin:
 
         result = CliRunner().invoke(
             spgd,
-            ["-e", "2", "--cam_type", "sim", "-d", str(tmp_path)],
+            ["-e", "2", "--cam-type", "sim", "-d", str(tmp_path)],
         )
         assert result.exit_code == 0, result.output
 

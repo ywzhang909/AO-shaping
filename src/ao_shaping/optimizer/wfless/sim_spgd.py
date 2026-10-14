@@ -9,7 +9,6 @@ import numpy as np
 import tqdm
 
 from ao_shaping.drivers.sim.compat import AOConfig, TraditionalAOSystem
-from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
 from ao_shaping.utils.image.spots_calc import power_bucket, radius
 from ao_shaping.utils import logger, Recorder
 

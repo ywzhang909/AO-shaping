@@ -2,16 +2,16 @@
 
 Reproduced 2026-10-01 through the real CLI::
 
-    python src/ao_shaping/main.py slm-pib spgd --cam_type sim -e 3
+    python src/ao_shaping/main.py slm-pib spgd --cam-type sim -e 3
     ...
     ValueError: Unknown camera type: 'sim'.
              Available: ['daheng', 'ffmpeg', 'image_folder', 'miicam']
 
-``--cam_type sim`` is an advertised choice on the ``slm-pib`` / ``slm-gsnet``
-families and the README documents ``slm-pib spgd --cam_type sim`` as a working
+``--cam-type sim`` is an advertised choice on the ``slm-pib`` / ``slm-gsnet``
+families and the README documents ``slm-pib spgd --cam-type sim`` as a working
 command, yet the only registration call sites were
 ``runners/slm/gsnet_runner.py`` (inside its ``_maybe_sim_patch``) and the
-``scripts/slm_pib_sim_run.py`` harness — so the plain CLI path could never work.
+``scripts/slm/slm_pib_sim_run.py`` harness — so the plain CLI path could never work.
 
 The fix makes the invariant explicit: importing the simulated optical system
 registers the simulated camera that reads its far field. Anyone who has the sim

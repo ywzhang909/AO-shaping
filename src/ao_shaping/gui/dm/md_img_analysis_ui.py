@@ -1,6 +1,6 @@
 """Micro-DM 差分分析 UI (Streamlit)
 
-包装 ``scripts/md_img_pipeline.py`` 的完整 diff→overlay→GIF→combined 流水线:
+包装 ``scripts/dm/md_img_pipeline.py`` 的完整 diff→overlay→GIF→combined 流水线:
 
 1. 运行模式: 选择数据集 → 调整流水线参数 → 后台线程运行完整流水线,
    实时显示进度 (每 IP 的 diff/overlay/gif 状态 + 全局 overlay + combined GIF),
@@ -17,7 +17,6 @@ from __future__ import annotations
 import re
 import sys
 import threading
-import time
 import uuid
 from pathlib import Path
 
@@ -35,7 +34,7 @@ from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 DATA_ROOT = PROJECT_ROOT / "data" / "md_test"
 
-# 流水线默认参数 (与 scripts/md_img_pipeline.py 保持一致)
+# 流水线默认参数 (与 scripts/dm/md_img_pipeline.py 保持一致)
 DEFAULT_THRESHOLD = 15.0
 DEFAULT_CMAP = "jet"
 DEFAULT_SCALE = 0.25

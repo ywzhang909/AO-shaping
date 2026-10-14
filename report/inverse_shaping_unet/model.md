@@ -1,8 +1,8 @@
 # 逆向光束整形模型详解 (PhasorUNet)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_inverse_shaping_model_report.py`](../../scripts/generate_inverse_shaping_model_report.py)
-> **复现命令**: `python scripts/generate_inverse_shaping_model_report.py`
+> **生成脚本**: [`scripts/ml/generate_inverse_shaping_model_report.py`](../../scripts/ml/generate_inverse_shaping_model_report.py)
+> **复现命令**: `python scripts/ml/generate_inverse_shaping_model_report.py`
 > **运行环境**: 离线
 > **说明**: PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测
 <!-- provenance:end -->
@@ -279,9 +279,9 @@ L_total = 1.0·L_sup + 1.0·L_phy + 0.0·L_smooth
 
 ```bash
 # 只需模型即可重生成（本报告主体不读语料）
-python scripts/generate_inverse_shaping_model_report.py
+python scripts/ml/generate_inverse_shaping_model_report.py
 
 # 含 §7.1 的语料地板表时需要快照
 python -c "from ml.hwdataset.index import build_hw_index; build_hw_index('data/debug', index_cache='data/hw_index_snapshot.json')"
-python scripts/generate_inverse_shaping_model_report.py
+python scripts/ml/generate_inverse_shaping_model_report.py
 ```

@@ -28,6 +28,7 @@ EXTRACTED = {
     "_savefig": "savefig",
     "iters_to_threshold": "iters_to_threshold",
     "format_iters": "format_iters",
+    "oopao_package_dir": "scripts/_common/oopao_probe.py (both scripts/oopao/ generators)",
 }
 
 #: Generators migrated onto ``scripts._common``.
@@ -59,6 +60,40 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8-sig")
 
 
+def _script_files() -> list[Path]:
+    """Every generator under ``scripts/``, recursively, excluding ``_common``.
+
+    Recursive because ``scripts/`` is grouped into domain subfolders
+    (``slm/``, ``dm/``, ``wfs/``, ``ml/``, ``rl/``, ``zernike/``, ``oopao/``,
+    ``build/``). A ``glob("*.py")`` would silently scan **nothing** once the
+    generators move, and every guard below would pass vacuously -- a green test
+    that checks nothing is worse than a red one.
+
+    ``_common`` is excluded because it is where the extracted helpers are
+    *defined*; scanning it would make this guard fire on its own canonical home.
+    """
+    return sorted(
+        p
+        for p in _SCRIPTS.rglob("*.py")
+        if "__pycache__" not in p.parts
+        and "_common" not in p.relative_to(_SCRIPTS).parts
+    )
+
+
+def _find_script(name: str) -> Path | None:
+    """Locate ``name`` anywhere under ``scripts/``, at any depth."""
+    matches = [p for p in _script_files() if p.name == name]
+    if not matches:
+        return None
+    assert len(matches) == 1, f"{name} exists at {len(matches)} locations: {matches}"
+    return matches[0]
+
+
+def _repo_root_depth(path: Path) -> int:
+    """``N`` such that ``Path(__file__).resolve().parents[N]`` is the repo root."""
+    return len(path.relative_to(_ROOT).parts) - 1
+
+
 def _local_defs(path: Path) -> set[str]:
     tree = ast.parse(_read(path), filename=str(path))
     return {n.name for n in tree.body if isinstance(n, ast.FunctionDef)}
@@ -66,10 +101,11 @@ def _local_defs(path: Path) -> set[str]:
 
 @pytest.mark.parametrize("name", sorted(EXTRACTED))
 def test_no_generator_redefines_an_extracted_helper(name: str) -> None:
-    offenders: list[str] = []
-    for path in sorted(_SCRIPTS.glob("*.py")):
-        if name in _local_defs(path):
-            offenders.append(path.name)
+    offenders = [
+        str(p.relative_to(_SCRIPTS))
+        for p in _script_files()
+        if name in _local_defs(p)
+    ]
     assert not offenders, (
         f"`def {name}` is back in {offenders}; it lives in scripts/_common as "
         f"{EXTRACTED[name]} and a second copy will drift from it"
@@ -78,8 +114,7 @@ def test_no_generator_redefines_an_extracted_helper(name: str) -> None:
 
 @pytest.mark.parametrize("name", MIGRATED)
 def test_migrated_generator_imports_from_common(name: str) -> None:
-    path = _SCRIPTS / name
-    assert path.is_file(), name
+    path = _require(name)
     text = _read(path)
     assert "from scripts._common import " in text, (
         f"{name} must import its helper from scripts/_common, not define it"
@@ -88,11 +123,35 @@ def test_migrated_generator_imports_from_common(name: str) -> None:
 
 @pytest.mark.parametrize("name", MIGRATED)
 def test_migrated_generator_bootstraps_the_repo_root(name: str) -> None:
-    """``from scripts._common import ...`` fails on a bare ``python scripts/x.py``."""
-    text = _read(_SCRIPTS / name)
-    assert "sys.path.insert(0, str(Path(__file__).resolve().parents[1]))" in text, (
-        f"{name} imports scripts._common without putting the repo root on sys.path"
+    """``from scripts._common import ...`` fails on a bare ``python scripts/x.py``.
+
+    Depth-aware: the expected ``parents[N]`` is derived from where the file
+    actually lives, so a generator still works after ``scripts/`` is regrouped
+    into domain subfolders. Pinning ``parents[1]`` here would have made every
+    legitimate move a test failure and invited someone to delete the guard.
+    """
+    path = _require(name)
+    expected = _repo_root_depth(path)
+    text = _read(path)
+    bootstrap = f"sys.path.insert(0, str(Path(__file__).resolve().parents[{expected}]))"
+    assert bootstrap in text, (
+        f"{name} imports scripts._common without putting the repo root on "
+        f"sys.path; at {path.relative_to(_ROOT)} that means parents[{expected}]"
     )
+
+
+def _require(name: str) -> Path:
+    """Resolve a MIGRATED generator, failing loudly when it has gone missing.
+
+    A generator that cannot be found must NEVER read as a pass -- that is how a
+    rename silently drops a migration contract.
+    """
+    path = _find_script(name)
+    assert path is not None, (
+        f"{name} is not anywhere under scripts/; if it was renamed or deleted, "
+        "update the MIGRATED contract instead of letting this scan pass"
+    )
+    return path
 
 
 def test_scripts_is_an_importable_package() -> None:
@@ -113,7 +172,7 @@ def test_migrated_generator_import_actually_resolves(name: str) -> None:
     """
     import importlib.util
 
-    path = _SCRIPTS / name
+    path = _require(name)
     spec = importlib.util.spec_from_file_location(f"_probe_{path.stem}", path)
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)

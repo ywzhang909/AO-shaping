@@ -56,7 +56,6 @@ TODO (实机待测试清单, 完整清单见 run() docstring):
     待测项逐条列于 `run()` docstring 的 TODO 清单。
 """
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +72,7 @@ from ao_shaping.algorithm.signal_processing.controller import (
     HardwareConfig,
     LoopConfig,
 )
-from ao_shaping.drivers.slm import Santec, ZernikeSLM
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -92,7 +91,6 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.tools.zernike.common import (
-    DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
     collect_device_info,
     effective_cond,
@@ -433,45 +431,6 @@ def _save_init_state_hdf5(
 # ==================== 新增: 全过程波前跟踪 ====================
 
 
-def _make_wavefront_tracking_callback(
-    wfs: ThorlabWFS,
-    cancel_tile: bool = False,
-    zernike_order: int = 10,
-) -> tuple[Callable[[int, int, np.ndarray, np.ndarray], None], list[WfsStateSnapshot]]:
-    """创建校准过程中的波前跟踪回调
-
-    在校准完每个模式后捕获当前WFS完整状态 (SLM处于平面),
-    累积到返回的列表中供后续保存.
-
-    Args:
-        wfs: ThorlabWFS实例
-        cancel_tile: 是否去除WFS tip/tilt
-        zernike_order: Zernike阶数
-
-    Returns:
-        (callback_function, records_list)
-            - callback: 兼容 calibrate_zernike_response_matrix 的 callback 参数
-            - records_list: 校准完成后包含每个模式的 WfsStateSnapshot
-    """
-    records: list[WfsStateSnapshot] = []
-
-    def _callback(
-        mode_index: int, n_total: int, mean_resp: np.ndarray, var_resp: np.ndarray
-    ) -> None:
-        """在每个模式校准后记录当前波前"""
-        try:
-            state = _capture_wfs_full_state(
-                wfs,
-                cancel_tile=cancel_tile,
-                zernike_order=zernike_order,
-            )
-            records.append(state)
-        except Exception as e:
-            logger.warning(f"Failed to capture wavefront after mode {mode_index}: {e}")
-
-    return _callback, records
-
-
 def _save_wavefront_log_hdf5(
     records: list[WfsStateSnapshot],
     output_path: str,
@@ -483,7 +442,7 @@ def _save_wavefront_log_hdf5(
     包含 deviation_x/y, zernike_coeffs, wavefront, rms属性
 
     Args:
-        records: _make_wavefront_tracking_callback 返回的记录列表
+        records: 波前跟踪快照列表 (``WfsStateSnapshot``, 由 ``_capture_wfs_full_state`` 逐模式采集)
         output_path: 输出基础路径
     """
     if not records:
@@ -508,47 +467,6 @@ def _save_wavefront_log_hdf5(
 
 
 # ==================== 辅助函数 (从原run()中提取) ====================
-
-
-def _attach_device_config(
-    result: ZernikeResponseMatrixResult,
-    slm_number: int,
-    wavelength: int,
-    n_max: int,
-    shift_x: int,
-    shift_y: int,
-    correction_csv_path: str | None,
-    mla_index_enum: MlaRes,
-    effective_exp_time: float,
-    high_speed: bool,
-    use_custom_ref: bool,
-    pupil_center: tuple,
-    pupil_diameter: float,
-) -> ZernikeResponseMatrixResult:
-    """在标定结果上附加硬件配置快照
-
-    Args:
-        result: 标定结果 (会原地修改)
-        以及其他硬件参数
-
-    Returns:
-        修改后的 result
-    """
-    result.device_config = {
-        "slm_number": slm_number,
-        "wavelength": wavelength,
-        "n_max": n_max,
-        "shift_x": shift_x,
-        "shift_y": shift_y,
-        "correction_csv_path": correction_csv_path or "",
-        "mla_index": int(mla_index_enum),
-        "exposure_time": effective_exp_time,
-        "high_speed": high_speed,
-        "use_custom_ref": use_custom_ref,
-        "pupil_center": list(pupil_center),
-        "pupil_diameter": pupil_diameter,
-    }
-    return result
 
 
 def _print_calibration_summary(
@@ -1660,7 +1578,6 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     from datetime import datetime
 
     import matplotlib.pyplot as plt
-    from loguru import logger
 
     from ao_shaping.drivers.slm import ZernikeSLM
     from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS

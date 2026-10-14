@@ -1,8 +1,8 @@
 # 逆向光束整形 U-Net —— 首个真实语料结果
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_inverse_shaping_report.py`](../../scripts/generate_inverse_shaping_report.py)
-> **复现命令**: `python scripts/generate_inverse_shaping_report.py`
+> **生成脚本**: [`scripts/ml/generate_inverse_shaping_report.py`](../../scripts/ml/generate_inverse_shaping_report.py)
+> **复现命令**: `python scripts/ml/generate_inverse_shaping_report.py`
 > **运行环境**: 离线
 > **说明**: 逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; 输入为 ml.shaping.train + ml.shaping.evaluate 的产物
 <!-- provenance:end -->
@@ -139,7 +139,7 @@ python -m ml.shaping.train --index-cache data/hw_index_snapshot.json --epochs 6 
 python -m ml.shaping.evaluate --checkpoint logs/shaping_main/last.pt --index-cache data/hw_index_snapshot.json --batch-size 32 --num-workers 4 --device cuda --checkpoint-dir logs/shaping_main
 
 # 4) 重新生成本报告（离线，只读上述产物）
-python scripts/generate_inverse_shaping_report.py
+python scripts/ml/generate_inverse_shaping_report.py
 ```
 
 训练环境：cuda；W&B project `ao-shaping`（mode `offline`，本机无 API key 故离线）。

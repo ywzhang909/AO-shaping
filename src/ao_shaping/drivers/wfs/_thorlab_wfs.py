@@ -1,7 +1,6 @@
 import ctypes
 from ctypes import (
     POINTER,
-    byref,
     c_bool,
     c_char,
     c_char_p,
@@ -12,7 +11,6 @@ from ctypes import (
     c_uint8,
     c_ulong,
     cdll,
-    create_string_buffer,
 )
 
 import numpy as np
