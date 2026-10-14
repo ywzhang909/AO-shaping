@@ -93,7 +93,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练",
         extra_scripts=("scripts/sweep_coeff_models.py",),
     ),
-
     "report/inverse_shaping_unet/report.md": ReportProvenance(
         script="scripts/generate_inverse_shaping_report.py",
         command="python scripts/generate_inverse_shaping_report.py",
@@ -109,7 +108,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; "
         "含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测",
     ),
-
     # -- beam shaping / benchmark suite -------------------------------------
     "report/beam_shaping/papers/beam_shaping_papers.md": ReportProvenance(
         script="scripts/generate_beam_shaping_papers_report.py",
@@ -636,6 +634,27 @@ REPORTS: dict[str, ReportProvenance] = {
         note="2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染",
         extra_scripts=("scripts/generate_gif_from_pkl.py",),
     ),
+    "report/shape_trials/model_in_loop_live_20261013.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-13 正向模型闭环整形上机记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染",
+        extra_scripts=("scripts/generate_gif_from_pkl.py",),
+    ),
+    "report/shape_trials/model_in_loop_next_steps_20261013.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-13 正向模型闭环暂停后续步骤记录",
+    ),
+    "report/shape_trials/model_in_loop_pause_handoff_20261013.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note="2026-10-13 正向模型闭环暂停交接记录；当前状态、证据、工程变更摘要",
+    ),
+    "report/shape_trials/gsnet_hybrid_offline_20261013.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note="2026-10-13 GSNet 混合瞳孔相位离线验证；8 阶 Zernike + 可训练残差参数化合成验证",
+    ),
     "report/shape_trials/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
@@ -806,7 +825,11 @@ def index_rows() -> list[tuple[str, str, str, str]]:
         prov = REPORTS[key]
         shown = prov.script or "人工撰写"
         if prov.extra_scripts:
-            shown += " (+" + ", ".join(p.rsplit("/", 1)[-1] for p in prov.extra_scripts) + ")"
+            shown += (
+                " (+"
+                + ", ".join(p.rsplit("/", 1)[-1] for p in prov.extra_scripts)
+                + ")"
+            )
         rows.append((key, shown, prov.environment, prov.note))
     return rows
 
@@ -864,7 +887,9 @@ def render_index() -> str:
     )
     out.append("")
     for report, prov in pending:
-        out.append(f"- `{report[len('report/'):]}` ← `{prov.script or '人工撰写'}` ({prov.environment})")
+        out.append(
+            f"- `{report[len('report/') :]}` ← `{prov.script or '人工撰写'}` ({prov.environment})"
+        )
     if pending:
         out.append("")
     return "\n".join(out)
