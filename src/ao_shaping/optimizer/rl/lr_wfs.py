@@ -7,7 +7,6 @@ from copy import deepcopy
 from glob import glob
 
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
 import torch as th
 from gymnasium import spaces
@@ -94,6 +93,7 @@ class LaserCastEnv(gym.Env):
         self.init_voltages = deepcopy(self.last_voltage)
 
     def render(self)->Any:
+        import matplotlib.pyplot as plt
         import pygame
         if self.window is None and self.render_mode == 'human':
             pygame.init()
@@ -213,6 +213,7 @@ class TensorboardCallback(BaseCallback):
         self.best_rms = None
 
     def _on_step(self, **kwargs):
+        import matplotlib.pyplot as plt
         if not self.best_rms:
             self.best_rms = self.training_env.get_attr('init_rms')
 
@@ -317,60 +318,62 @@ class CustomCombineImageAndVetorExtractor(BaseFeaturesExtractor):
 
 
 train = True
-device = 'cuda' if th.cuda.is_available() else 'cpu'
-img_size = (192, 192)
-env = LaserCastEnv(render_mode='rgb_array', max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)
-policy_kwargs = dict(
-    features_extractor_class=CustomCombineImageAndVetorExtractor,
-    features_extractor_kwargs=dict(features_dim=128),
-)
-agent = SAC('MultiInputPolicy', env,
-            verbose=1, device=device, tensorboard_log='logs/sac_tensorboard',
-            use_sde=True, use_sde_at_warmup=True,
-            learning_starts=200, buffer_size=3000, batch_size=100, learning_rate=0.004,
-            policy_kwargs=policy_kwargs)
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    device = 'cuda' if th.cuda.is_available() else 'cpu'
+    img_size = (192, 192)
+    env = LaserCastEnv(render_mode='rgb_array', max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)
+    policy_kwargs = dict(
+        features_extractor_class=CustomCombineImageAndVetorExtractor,
+        features_extractor_kwargs=dict(features_dim=128),
+    )
+    agent = SAC('MultiInputPolicy', env,
+                verbose=1, device=device, tensorboard_log='logs/sac_tensorboard',
+                use_sde=True, use_sde_at_warmup=True,
+                learning_starts=200, buffer_size=3000, batch_size=100, learning_rate=0.004,
+                policy_kwargs=policy_kwargs)
 
-if train:
-    # ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
-    # latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-    # print(latest_ckpt_path)
-    # agent.load(latest_ckpt_path, print_system_info=False)
-    # agent.load_replay_buffer('ckpts/rl/rl_model_replay_buffer_800_steps.pkl', truncate_last_traj=True)
-    callbacks = CallbackList([
-        TensorboardCallback(),
-        CheckpointCallback(save_freq=1000, save_path='ckpts/rl', save_replay_buffer=False, verbose=1)
-    ])
-    agent.learn(50000, progress_bar=True, callback=callbacks, log_interval=1)
+    if train:
+        # ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
+        # latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
+        # print(latest_ckpt_path)
+        # agent.load(latest_ckpt_path, print_system_info=False)
+        # agent.load_replay_buffer('ckpts/rl/rl_model_replay_buffer_800_steps.pkl', truncate_last_traj=True)
+        callbacks = CallbackList([
+            TensorboardCallback(),
+            CheckpointCallback(save_freq=1000, save_path='ckpts/rl', save_replay_buffer=False, verbose=1)
+        ])
+        agent.learn(50000, progress_bar=True, callback=callbacks, log_interval=1)
 
-    agent.save('laser_agent')
-    agent.save_replay_buffer('laser_buffer')
+        agent.save('laser_agent')
+        agent.save_replay_buffer('laser_buffer')
 
-else:
-    ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
-    latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-    print(latest_ckpt_path)
-    agent.load(latest_ckpt_path, env=env)
+    else:
+        ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
+        latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
+        print(latest_ckpt_path)
+        agent.load(latest_ckpt_path, env=env)
 
-    env = LaserCastEnv(render_mode='human', max_iter=500, target_power=1.8e6)
-    obs,_ = env.reset()
-    env.render()
-    history = []
-
-    s_time = time.time()
-    while True:
-        action,_ = agent.predict(obs, deterministic=True)
-        obs, reward, done, trunk, info = env.step(action)
-        # info = info[0]
-        # trunk = info['TimeLimit.truncated']
-        history.append(info['J'])
+        env = LaserCastEnv(render_mode='human', max_iter=500, target_power=1.8e6)
+        obs,_ = env.reset()
         env.render()
-        if done or trunk:
-            time_cost = time.time() - s_time
-            env.reset()
-            plt.plot(history)
-            plt.title(f'{trunk=} {done=}')
-            plt.show()
-            plt.close()
+        history = []
 
-            break
+        s_time = time.time()
+        while True:
+            action,_ = agent.predict(obs, deterministic=True)
+            obs, reward, done, trunk, info = env.step(action)
+            # info = info[0]
+            # trunk = info['TimeLimit.truncated']
+            history.append(info['J'])
+            env.render()
+            if done or trunk:
+                time_cost = time.time() - s_time
+                env.reset()
+                plt.plot(history)
+                plt.title(f'{trunk=} {done=}')
+                plt.show()
+                plt.close()
+
+                break
 

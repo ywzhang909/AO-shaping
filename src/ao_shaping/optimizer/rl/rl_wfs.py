@@ -6,7 +6,6 @@ import time
 from glob import glob
 
 import gymnasium as gym
-import matplotlib.pyplot as plt
 import numpy as np
 import torch as th
 from gymnasium import spaces
@@ -231,6 +230,7 @@ class TensorboardCallback(BaseCallback):
         self.best_rms = float('inf')
 
     def _on_step(self, **kwargs):
+        import matplotlib.pyplot as plt
         if self.n_calls >= 0:
             info:dict = self.locals["infos"][0]
             self.history.append(info)
@@ -344,62 +344,64 @@ class CustomCombineWFAndVectorExtractor(BaseFeaturesExtractor):
 
 # 训练模式
 train = True
-device = 'cuda' if th.cuda.is_available() else 'cpu'
+if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    device = 'cuda' if th.cuda.is_available() else 'cpu'
 
-# 创建环境
-env = WFSLaserCastEnv(render_mode='rgb_array', max_iter=200)
+    # 创建环境
+    env = WFSLaserCastEnv(render_mode='rgb_array', max_iter=200)
 
-# 策略网络参数
-policy_kwargs = dict(
-    features_extractor_class=CustomCombineWFAndVectorExtractor,
-    features_extractor_kwargs=dict(features_dim=128),
-)
+    # 策略网络参数
+    policy_kwargs = dict(
+        features_extractor_class=CustomCombineWFAndVectorExtractor,
+        features_extractor_kwargs=dict(features_dim=128),
+    )
 
-# 创建SAC agent
-agent = SAC('MultiInputPolicy', env,
-            verbose=1, device=device, tensorboard_log='logs/sac_tensorboard_wfs',
-            use_sde=True, use_sde_at_warmup=True,
-            learning_starts=200, buffer_size=3000, batch_size=100, learning_rate=0.004,
-            policy_kwargs=policy_kwargs)
+    # 创建SAC agent
+    agent = SAC('MultiInputPolicy', env,
+                verbose=1, device=device, tensorboard_log='logs/sac_tensorboard_wfs',
+                use_sde=True, use_sde_at_warmup=True,
+                learning_starts=200, buffer_size=3000, batch_size=100, learning_rate=0.004,
+                policy_kwargs=policy_kwargs)
 
-if train:
-    # 回调函数
-    callbacks = CallbackList([
-        TensorboardCallback(),
-        CheckpointCallback(save_freq=1000, save_path='ckpts/rl_wfs', save_replay_buffer=False, verbose=1)
-    ])
+    if train:
+        # 回调函数
+        callbacks = CallbackList([
+            TensorboardCallback(),
+            CheckpointCallback(save_freq=1000, save_path='ckpts/rl_wfs', save_replay_buffer=False, verbose=1)
+        ])
 
-    # 开始训练
-    agent.learn(50000, progress_bar=True, callback=callbacks, log_interval=1)
+        # 开始训练
+        agent.learn(50000, progress_bar=True, callback=callbacks, log_interval=1)
 
-    # 保存模型
-    agent.save('wfs_laser_agent')
-    agent.save_replay_buffer('wfs_laser_buffer')
+        # 保存模型
+        agent.save('wfs_laser_agent')
+        agent.save_replay_buffer('wfs_laser_buffer')
 
-else:
-    # 加载最新的检查点
-    ckpt_paths = glob('ckpts/rl_wfs/rl_model_*_steps.zip')
-    if ckpt_paths:
-        latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-        print(latest_ckpt_path)
-        agent.load(latest_ckpt_path, env=env)
+    else:
+        # 加载最新的检查点
+        ckpt_paths = glob('ckpts/rl_wfs/rl_model_*_steps.zip')
+        if ckpt_paths:
+            latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
+            print(latest_ckpt_path)
+            agent.load(latest_ckpt_path, env=env)
 
-        # 创建测试环境
-        env = WFSLaserCastEnv(render_mode='ansi', max_iter=500, target_rms=0.05)
-        obs,_ = env.reset()
-        history = []
+            # 创建测试环境
+            env = WFSLaserCastEnv(render_mode='ansi', max_iter=500, target_rms=0.05)
+            obs,_ = env.reset()
+            history = []
 
-        s_time = time.time()
-        while True:
-            action,_ = agent.predict(obs, deterministic=True)
-            obs, reward, done, trunk, info = env.step(action)
-            history.append(info['RMS'])
+            s_time = time.time()
+            while True:
+                action,_ = agent.predict(obs, deterministic=True)
+                obs, reward, done, trunk, info = env.step(action)
+                history.append(info['RMS'])
 
-            if done or trunk:
-                time_cost = time.time() - s_time
-                env.reset()
-                plt.plot(history)
-                plt.title(f'{trunk=} {done=}')
-                plt.show()
-                plt.close()
-                break
+                if done or trunk:
+                    time_cost = time.time() - s_time
+                    env.reset()
+                    plt.plot(history)
+                    plt.title(f'{trunk=} {done=}')
+                    plt.show()
+                    plt.close()
+                    break
