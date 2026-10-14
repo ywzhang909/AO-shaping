@@ -1,4 +1,5 @@
 """Shared SLM bench measurement kernels and scan/sweep analysis.
+from __future__ import annotations
 
 Split out of ``tools/slm/`` (2026-10-12) so the CCD, panel, WFS and Zernike
 probes can share one source for frame maths and scan analysis without importing

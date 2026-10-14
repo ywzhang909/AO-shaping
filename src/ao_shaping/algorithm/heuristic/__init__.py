@@ -1,4 +1,5 @@
 """启发式 / 黑盒优化器 (GA、PSO、SA、HC、Random、CEM、DE)。
+from __future__ import annotations
 
 子模块可按全路径直接导入, 例如::
 

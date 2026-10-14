@@ -1,4 +1,5 @@
 """MIICAM 相机驱动包。"""
+from __future__ import annotations
 
 from ao_shaping.drivers.ccd.miicam._sdk_setup import (
     _find_miicam_sdk_path,

@@ -1,3 +1,4 @@
+from __future__ import annotations
 try:
     from ao_shaping.algorithm.adam_cython import (
         Base,

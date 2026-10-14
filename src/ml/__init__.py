@@ -1,4 +1,5 @@
 """ML - Phase prediction models for AO-Shaping.
+from __future__ import annotations
 
 This package contains machine learning models for adaptive optics phase prediction:
 

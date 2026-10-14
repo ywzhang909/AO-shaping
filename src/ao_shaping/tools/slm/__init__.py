@@ -1,4 +1,5 @@
 """SLM-specific bench tools (panel probes + calibration + cartographer).
+from __future__ import annotations
 
 After the 2026-10-12 ``tools/`` reorganisation this package holds only the
 SLM-specific pieces; the shared measurement kernels, the shared Zernike tools

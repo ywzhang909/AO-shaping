@@ -1,4 +1,5 @@
 """Micro-DM (R50Power) 台架工具。
+from __future__ import annotations
 
 包含:
 - micro_dm_image_collect.py — 逐单元图像采集 (CLI:

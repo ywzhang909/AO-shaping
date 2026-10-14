@@ -1,4 +1,5 @@
 """禁忌搜索算法组件。
+from __future__ import annotations
 
 按全路径直接导入::
 

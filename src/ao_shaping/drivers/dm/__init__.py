@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from ao_shaping.drivers._lazy import install_lazy_attrs

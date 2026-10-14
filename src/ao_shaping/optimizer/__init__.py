@@ -1,4 +1,5 @@
 """
+from __future__ import annotations
 AO-Shaping Optimizer Package
 
 Exports all public optimizer classes and functions for easy access:

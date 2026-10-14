@@ -1,4 +1,5 @@
 """目标函数 / 质量函数 (图像目标度量)。
+from __future__ import annotations
 
 按全路径直接导入::
 

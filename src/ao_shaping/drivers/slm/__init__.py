@@ -1,4 +1,5 @@
 """SLM (Spatial Light Modulator) 驱动模块
+from __future__ import annotations
 
 提供空间光调制器设备的驱动支持。
 

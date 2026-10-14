@@ -1,4 +1,5 @@
 """Phase prediction submodule - U-Net + PatchGAN for phase map prediction."""
+from __future__ import annotations
 
 from .unet import (
     UNetGenerator,

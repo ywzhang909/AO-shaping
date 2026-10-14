@@ -1,4 +1,5 @@
 """Wavefront-sensorless optimizers (PIB, SPGD, Bayesian)."""
+from __future__ import annotations
 
 from ao_shaping.optimizer.wfless.differentiable_beam import (
     DifferentiableBeamOptimizer,

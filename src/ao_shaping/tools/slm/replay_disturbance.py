@@ -1,4 +1,5 @@
 """Interleaved fixed-exposure CCD replay of the four saved comparison phases."""
+from __future__ import annotations
 
 import argparse
 from datetime import datetime, timezone

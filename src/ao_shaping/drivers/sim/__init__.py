@@ -1,4 +1,5 @@
 """模拟设备子包。
+from __future__ import annotations
 
 本子包提供与设备驱动框架集成的仿真硬件设备。这些仿真设备把 sim.digitaltwin 的
 数值仿真代码包装起来, 同时对外呈现与 Device 兼容的接口。
