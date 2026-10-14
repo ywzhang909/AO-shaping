@@ -75,10 +75,13 @@ def create_target_mask(
     """创建归一化的目标强度掩码。
 
     Args:
-        shape: ``"square"``、``"circle"``、``"gaussian"``、``"spot"`` 之一。
+        shape: ``"square"``, ``"rectangle"``, ``"triangle"``, ``"star"``,
+            ``"circle"``, ``"gaussian"`` or ``"spot"``.
         grid_size: 输出数组的 ``(H, W)``。
         size: 以像素为单位的特征尺寸。
-            * square —— 边长
+            * square —— side length
+            * rectangle —— width (height is half the width)
+            * triangle/star —— bounding diameter
             * circle —— 直径
             * gaussian —— 若未给出, ``sigma`` 默认为 ``size / 6``
             * spot —— 直径 (聚焦光斑, 与 circle 相同)
@@ -90,11 +93,13 @@ def create_target_mask(
     Raises:
         ValueError: *shape* 无效或 *grid_size* 不是二维时。
     """
-    valid_shapes = {"square", "circle", "gaussian", "spot"}
+    valid_shapes = {"square", "rectangle", "triangle", "star", "circle", "gaussian", "spot"}
     if shape not in valid_shapes:
         raise ValueError(f"Invalid shape {shape!r}. Must be one of {valid_shapes}")
     if len(grid_size) != 2:
         raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
+    if size <= 0:
+        raise ValueError(f"size must be positive, got {size}")
 
     H, W = grid_size
     cy, cx = H / 2.0, W / 2.0
@@ -105,6 +110,26 @@ def create_target_mask(
         mask = ((np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)).astype(
             np.float64
         )
+
+    elif shape == "rectangle":
+        mask = ((np.abs(xx - cx) <= size / 2.0) &
+                (np.abs(yy - cy) <= size / 4.0)).astype(np.float64)
+
+    elif shape in {"triangle", "star"}:
+        if shape == "triangle":
+            angles = np.deg2rad([-90.0, 30.0, 150.0])
+            radii = np.full(3, size / 2.0)
+        else:
+            angles = np.deg2rad(-90.0 + np.arange(10) * 36.0)
+            radii = np.where(np.arange(10) % 2 == 0, size / 2.0, size * 0.21)
+        vertices = np.column_stack((cx + radii * np.cos(angles),
+                                    cy + radii * np.sin(angles)))
+        inside = np.zeros((H, W), dtype=bool)
+        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0)):
+            crossing = (y0 > yy) != (y1 > yy)
+            edge_x = (x1 - x0) * (yy - y0) / (y1 - y0 + 1e-12) + x0
+            inside ^= crossing & (xx < edge_x)
+        mask = inside.astype(np.float64)
 
     elif shape in {"circle", "spot"}:
         radius = size / 2.0

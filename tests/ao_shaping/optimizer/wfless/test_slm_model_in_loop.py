@@ -175,8 +175,14 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     ModelInLoopStatus,
     SlmModelInLoopConfig,
     _probe_phase,
+    _prediction_correlation,
+    _fit_flat_leakage,
+    _metrics_at,
     _quality,
     _seed_coefficients_from_checkpoint,
+    _seed_coefficients_from_run,
+    _save_preflight_capture,
+    _structured_probe_phase,
     _to_model_grid,
     acceptance_verdict,
     optimize_slm_model_in_loop,
@@ -185,6 +191,7 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (
 from ao_shaping.runners.runner_common import SlmModelInLoopParams
 from ao_shaping.runners.slm.model_in_loop_runner import run
 from ao_shaping.utils.image.beam_metrics import compute_quality_score
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import create_target_mask
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +249,47 @@ class TestConfigValidation:
         """A zero-width target box has zero area and no gradient."""
         with pytest.raises(ValueError, match="target_side must be >= 1"):
             SlmModelInLoopConfig(target_side=0)
+
+    def test_target_shape_is_validated(self) -> None:
+        with pytest.raises(ValueError, match="unsupported target_shape"):
+            SlmModelInLoopConfig(target_shape="hexagon")
+
+    def test_rectangle_metric_tracks_camera_rotation(self) -> None:
+        target = create_target_mask("rectangle", (128, 128), 40)
+        camera_frame = np.rot90(target, 1)
+        aligned = _metrics_at(
+            camera_frame, 40, (64, 64), target_shape="rectangle",
+            camera_rotation_quarters=1,
+        )
+        misaligned = _metrics_at(
+            camera_frame, 40, (64, 64), target_shape="rectangle",
+            camera_rotation_quarters=0,
+        )
+        assert aligned["encircled_energy"] == pytest.approx(1.0)
+        assert aligned["uniformity_cv"] == pytest.approx(0.0)
+        assert misaligned["encircled_energy"] < 0.7
+
+    def test_preflight_capture_survives_a_later_geometry_rejection(self, tmp_path: Path) -> None:
+        class BenchStub:
+            last_raw_frame = np.full((8, 8), 2, dtype=np.uint8)
+            last_exposure_ms = 0.4
+            last_capture_utc = "2026-10-13T12:00:00.123456+00:00"
+
+        config = SlmModelInLoopConfig(
+            cam_type="daheng", debug_dir=str(tmp_path),
+        )
+        phase = np.ones((4, 4))
+        frame = np.ones((8, 8))
+        _save_preflight_capture(config, "calibration_00", phase, frame, BenchStub())
+        with np.load(tmp_path / "preflight" / "calibration_00.npz") as saved:
+            assert np.array_equal(saved["phase"], phase)
+            assert np.array_equal(saved["frame"], frame)
+            assert np.array_equal(saved["raw_frame"], BenchStub.last_raw_frame)
+        metadata = json.loads(
+            (tmp_path / "preflight" / "calibration_00.json").read_text()
+        )
+        assert metadata["exposure_ms"] == 0.4
+        assert metadata["timestamp_utc"].endswith("123456+00:00")
 
     def test_region_must_be_at_least_two(self) -> None:
         """A 1x1 pupil grid cannot support a Zernike fit."""
@@ -319,6 +367,52 @@ def _write_amp_checkpoint(
         path,
     )
     return path
+
+
+def test_prior_hardware_run_seed_validates_geometry_and_acceptance(tmp_path: Path) -> None:
+    """A previous accepted fit is reusable; a changed optical scale is refused."""
+    run_dir = tmp_path / "prior"
+    run_dir.mkdir()
+    geometry = {
+        "region": 8, "far_field_size": 8,
+        "panel_disc_radius": 450, "camera_px_per_model_px": 2.8,
+    }
+    (run_dir / "bench_geometry.json").write_text(json.dumps(geometry), encoding="utf-8")
+    current = tmp_path / "current_geometry.json"
+    current.write_text(json.dumps(geometry), encoding="utf-8")
+    config = SlmModelInLoopConfig(
+        region=8, n_orders=4, far_field_padding=1,
+        geometry_file=str(current), prior_run_dir=str(run_dir),
+    )
+    metadata = {
+        key: getattr(config, key)
+        for key in (
+            "cam_type", "cam_id", "slm_number", "slm_wavelength",
+            "panel_span_px", "n_orders", "region", "far_field_padding",
+            "pupil_center",
+        )
+    }
+    (run_dir / "run_config.json").write_text(json.dumps(metadata), encoding="utf-8")
+    (run_dir / "slm_model_in_loop_1.csv").write_text(
+        "stage,accepted\nround,True\n", encoding="utf-8"
+    )
+    saved = np.arange(calc_n_zernike_terms(4), dtype=np.float64)
+    np.save(run_dir / "fitted_coefficients.npy", saved)
+    seeded = _seed_coefficients_from_run(config)
+    np.testing.assert_array_equal(seeded[3:], saved[3:])
+    np.testing.assert_array_equal(seeded[:3], np.zeros(3))
+
+    geometry["camera_px_per_model_px"] = 3.0
+    current.write_text(json.dumps(geometry), encoding="utf-8")
+    with pytest.raises(ValueError, match="geometry mismatch"):
+        _seed_coefficients_from_run(config)
+
+    current.write_text(json.dumps({**geometry, "camera_px_per_model_px": 2.8}), encoding="utf-8")
+    (run_dir / "slm_model_in_loop_1.csv").write_text(
+        "stage,accepted\nround,False\n", encoding="utf-8"
+    )
+    with pytest.raises(ValueError, match="no accepted shaped round"):
+        _seed_coefficients_from_run(config)
 
 
 class TestForwardCheckpointSeeding:
@@ -887,6 +981,12 @@ class TestToModelGrid:
         with pytest.raises(ValueError, match="camera_px_per_model_px must be > 0"):
             _to_model_grid(np.zeros((16, 16)), (8, 8), 8, 0.0)
 
+    def test_hardware_camera_rotation_returns_panel_axes(self) -> None:
+        frame = np.zeros((16, 16), dtype=np.float64)
+        frame[3, 8] = 1.0  # camera up is panel right on this bench
+        grid = _to_model_grid(frame, (8, 8), 16, 1.0, camera_rotation_quarters=1)
+        assert grid[8, 12] == 1.0
+
 
 class TestProbePhase:
     """The Step-A probes must be strong and reproducible.
@@ -921,6 +1021,69 @@ class TestProbePhase:
     def test_probe_is_finite(self) -> None:
         """A NaN probe silently blinds the fit rather than raising."""
         assert np.isfinite(_probe_phase(region=32, spread=4.0, seed=0)).all()
+
+    def test_hardware_probe_is_smooth_diverse_and_reproducible(self) -> None:
+        """Hardware probes must vary across seeds without pixel-scale speckle."""
+        smooth = _probe_phase(region=64, spread=4.0, seed=7, smooth=True)
+        other = _probe_phase(region=64, spread=4.0, seed=8, smooth=True)
+        pixel = _probe_phase(region=64, spread=4.0, seed=7)
+        np.testing.assert_array_equal(
+            smooth, _probe_phase(region=64, spread=4.0, seed=7, smooth=True)
+        )
+        assert not np.array_equal(smooth, other)
+        assert float(np.std(smooth)) == pytest.approx(4.0, rel=1e-6)
+        assert np.mean(np.abs(np.diff(smooth, axis=0))) < (
+            np.mean(np.abs(np.diff(pixel, axis=0))) / 3
+        )
+
+    def test_correlation_preserves_intensity_frames(self) -> None:
+        measured = np.arange(16, dtype=np.float64).reshape(4, 4)
+        predicted = measured.copy() * 2
+        original_measured = measured.copy()
+        original_predicted = predicted.copy()
+        assert _prediction_correlation(predicted, measured) == pytest.approx(1.0)
+        np.testing.assert_array_equal(measured, original_measured)
+        np.testing.assert_array_equal(predicted, original_predicted)
+
+    def test_flat_leakage_fit_recovers_shared_gain_on_distinct_probes(self) -> None:
+        class Forward:
+            def forward_intensity(self, coefficients, phase, amplitude):
+                return phase
+
+        flat = np.array([[4.0, 1.0], [1.0, 0.0]])
+        phases = [
+            np.array([[0.0, 2.0], [3.0, 1.0]]),
+            np.array([[2.0, 0.0], [1.0, 4.0]]),
+        ]
+        frames = [(1.5 * phase + 0.06 * flat, phase) for phase in phases]
+        assert _fit_flat_leakage(
+            Forward(), np.zeros(1), frames, np.ones((2, 2)), flat
+        ) == pytest.approx((1.5, 0.06))
+
+    def test_structured_holdout_is_independent_and_finite(self) -> None:
+        first = _structured_probe_phase(64, 4.0, 1)
+        second = _structured_probe_phase(64, 4.0, 2)
+        np.testing.assert_array_equal(first, _structured_probe_phase(64, 4.0, 1))
+        assert np.isfinite(first).all()
+        assert not np.array_equal(first, second)
+        assert float(first.std()) > 1.0
+
+    def test_freeform_holdout_is_reproducible_and_separate(self) -> None:
+        from ao_shaping.optimizer.wfless.slm_model_in_loop import _holdout_phase
+
+        smooth, smooth_family = _holdout_phase(64, 4.0, 100, 0, 4)
+        freeform, family = _holdout_phase(64, 4.0, 100, 4, 4)
+        assert smooth_family == "smooth"
+        assert family == "freeform"
+        np.testing.assert_array_equal(
+            freeform, _holdout_phase(64, 4.0, 100, 4, 4)[0]
+        )
+        assert not np.array_equal(freeform, smooth)
+        assert float(freeform.std()) == pytest.approx(4.0)
+
+    def test_negative_freeform_holdout_count_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="freeform_holdout_count"):
+            SlmModelInLoopConfig(freeform_holdout_count=-1)
 
 
 # ---------------------------------------------------------------------------
@@ -1065,6 +1228,15 @@ class TestCliLibraryParity:
         assert shared, "no shared fields at all -- the mapping is broken"
         assert shared <= config_fields
         assert shared <= param_fields
+
+    def test_fixed_panel_disturbance_reaches_optimizer(self) -> None:
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        config = build_model_in_loop_config(
+            SlmModelInLoopParams(phase_disturbance_file="panel_bias.npy"),
+            debug=True,
+        )
+        assert config.phase_disturbance_file == "panel_bias.npy"
 
     def test_no_cli_option_exists_for_the_simulated_aberration(self) -> None:
         """LATENT BUG: the CLI cannot reproduce a simulated library run.
@@ -1268,6 +1440,17 @@ _SIM_KWARGS: dict = {
     "max_rejection_streak": 3,
     "sim_aberration": {},
 }
+
+
+@pytest.mark.parametrize("target_shape", ["rectangle", "triangle", "star"])
+def test_non_square_target_runs_on_simulated_bench(target_shape: str) -> None:
+    config = SlmModelInLoopConfig(
+        **{**_SIM_KWARGS, "n_rounds": 1, "target_shape": target_shape}
+    )
+    result = optimize_slm_model_in_loop(config)
+    assert result.target_side_model > 0
+    assert np.isfinite(result.flat_score)
+    assert np.isfinite(result.recorder.history[-1]["score_after"])
 
 #: Keys on *every* history row -- the calibration baseline and the rounds alike.
 _SHARED_KEYS = {

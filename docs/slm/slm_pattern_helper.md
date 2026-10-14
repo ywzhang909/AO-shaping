@@ -110,6 +110,13 @@ ph.generate_zernike(n=3, m=-3, amplitude=1.0)  # 三叶草 X
 ph.generate_zernike(n=3, m=3, amplitude=1.0)   # 三叶草 Y
 ```
 
+> ⚠️ **Zernike 纯数学的唯一入口是 `utils/wavefront/` 两层**:
+> API 层 `zernike_utils.generate_zernike_phase` → 引擎层 `ZernikeGenerator`。
+> `PatternHelper` 的 `generate_zernike` / `generate_zernike_polynomial` 是**面板尺寸/
+> 孔径/位深相关的便捷封装**, 内部委托 canonical 引擎, **不重实现任何 Zernike 数学**,
+> 但**不要**把它们当成"弧度相位的唯一入口", 也不要在本文件里继续堆叠 Zernike 数学。
+> 需要按系数生成相位时优先直接用 `zernike_utils.generate_zernike_phase`。
+
 Zernike 示例（参数是 **(n, m)**，不是 Noll 序号 —— 见文末 Noll 参考表）:
 
 ```python

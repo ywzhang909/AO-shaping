@@ -103,6 +103,17 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "exists nowhere. The embed has always rendered broken."
         ),
     },
+    "report/shape_trials/model_in_loop_live_20261013.md": {
+        "../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
+            "points into data/, which .gitignore excludes wholesale ('data/*'), so "
+            "the frame cannot be committed and this href cannot resolve in a fresh "
+            "clone. Baselined deliberately rather than depth-corrected: on a machine "
+            "that still holds the bench data `../../data/...` would resolve, which "
+            "would make the guard pass locally and fail everywhere else -- the "
+            "opposite of what it is for. The report is 人工撰写 and is not "
+            "regenerated, so the link stays as the run author wrote it."
+        ),
+    },
 }
 
 

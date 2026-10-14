@@ -139,6 +139,69 @@
 |---|---|---|
 | — | ~~R-37 迁 19 个探针 / R-42 迁 4 个 argparse 探针 / R-38 拒做 / R-41 保留两种 flag 拼写~~ | ✅ 全部完成 → archive §5.15 / §5.31 / §5.19 / §5.18 |
 
+### 2.4 `src/sim/` 顶层仿真包迁移
+
+> **起因**: `drivers/sim/` 把仿真设备层深埋在硬件 drivers 内, 违反「硬件包不得
+> import 仿真包」的分层原则 (F-10 #57); 同时 13 个根目录散 .py 文件组织混乱,
+> internal import 路径冗长 (`ao_shaping.drivers.sim.*`).
+> **方案**: 提升为顶层 `src/sim/` 包 (与 `ml/` 同级), 并按功能重组目录结构.
+
+**迁移内容 (2 大类):**
+
+| 来源 | 目标 | 说明 |
+|---|---|---|
+| `drivers/sim/` **27 个 .py** | `sim/` 顶层包 | 设备模拟层 (约 5,000 LOC) |
+| `optimizer/wfless/strehl_sim_eval.py` | `sim/optimizer/strehl_eval.py` | `StrehlLandscape`, 无 optimizer 依赖 |
+| `optimizer/wfless/sim_spgd.py` | **保留** `optimizer/wfless/sim_spgd.py` | ❌ 依赖 `optimizer.constants.create_optimizer`, 违反 sim→optimizer 禁止原则 |
+| `optimizer/rl/envs.py` 中的 3 个类 | `sim/rl/turbulence_env.py` | `SimTurbulenceAOEnv`, `_BaseSimAOEnv`, `StaticAberrationAOEnv` |
+| `optimizer/rl/envs.py` 中余下类 | **保留** `envs.py` | `LaserCastEnv`, `TraditionalAOEnv` (非 sim) |
+| `utils/slm/gs_debug_optics.py` | **保留** | `grayscale_to_radians` 仍被 scripts/tests 使用; `idealized_far_field` 已弃用 (AGANTS anti-pattern) |
+
+**新包结构 (根目录散文件 → 子目录归类):**
+
+| 原位置 (驱动层) | 新位置 | 归类理由 |
+|---|---|---|
+| `drivers/sim/base.py` | `sim/base.py` | 基类, 留在根 |
+| `drivers/sim/compat.py` | `sim/compat.py` | `AOConfig`/`TraditionalAOSystem`, 留在根 |
+| `drivers/sim/_oopao_compat.py` | `sim/_oopao_compat.py` | OOPAO shim, 留在根 |
+| `drivers/sim/beam_backend.py` | `sim/physics/beam.py` | 光学传播 + GS 算法 |
+| `drivers/sim/beam_simulation.py` | `sim/physics/beam.py` | **合并** (adapter 模式, 见 archive §7.1) |
+| `drivers/sim/wave.py` | `sim/physics/wave.py` | 波传播器 |
+| `drivers/sim/disturbance.py` | `sim/physics/disturbance.py` | 干扰/湍流 |
+| `drivers/sim/dm_optics.py` | `sim/physics/dm_optics.py` | DM 光学耦合 |
+| `drivers/sim/oopao_backend.py` | `sim/oopao/backend.py` | OOPAO 后端 |
+| `drivers/sim/slm_shaping_bench.py` | `sim/bench/shaping.py` | SLM 整形台 |
+| `drivers/sim/slm_pib_sim.py` | `sim/bench/pib.py` | SimSLMPib + register_sim_camera |
+| `drivers/sim/sim_bench_patch.py` | `sim/bench/patch.py` | runner patch helper |
+| `drivers/sim/fouriergsnet_env.py` | `sim/bench/fouriergsnet.py` | FourierGSNet env |
+| `drivers/sim/atmos/` | `sim/device/atmos/` | 设备模拟器 |
+| `drivers/sim/ccd/` | `sim/device/ccd/` | 设备模拟器 |
+| `drivers/sim/dm/` | `sim/device/dm/` | 设备模拟器 |
+| `drivers/sim/laser/` | `sim/device/laser/` | 设备模拟器 |
+| `drivers/sim/optics/` | `sim/device/optics/` | 设备模拟器 |
+| `drivers/sim/wfs/` | `sim/device/wfs/` | 设备模拟器 |
+
+**依赖方向 (迁移后):**
+```
+sim.* ──→ ao_shaping.drivers.* (设备基类, 单向: sim → hardware base)
+sim.* ──→ ao_shaping.utils.* / algorithm.* / model.* (单向)
+ao_shaping.drivers.* ─lazy─→ sim.* (PEP 562 __getattr__, 现有机制)
+ao_shaping.optimizer.* ─func-local─→ sim.* (现有模式)
+ao_shaping.runners.* ─func-local─→ sim.* (现有模式)
+ao_shaping/__init__.py ─lazy/shim─→ sim.*
+```
+
+> **硬约束**: `sim/` **不得** import `ao_shaping.optimizer.*` — `sim_spgd.py` 因依赖 `optimizer.constants.create_optimizer` 无法移动。`optimizer.constants` 仅 import `ao_shaping.algorithm.gradient.adam`, 如需解耦可考虑将 `create_optimizer` 下沉到 `algorithm/gradient/factory.py` (R-46 #62 前置).
+
+**关键更改清单:**
+
+1. `pyproject.toml`: `include = ["ao_shaping*", "ml*", "sim*"]`
+2. `drivers/__init__.py` `_LAZY_BACKENDS`: `ao_shaping.drivers.sim.dm` → `sim.device.dm.simulated_dm`
+3. `drivers/dm/__init__.py` + `_registry.py`: `ao_shaping.drivers.sim.dm` → `sim.device.dm.*`
+4. `ao_shaping/__init__.py`: 直接 `from ao_shaping.drivers.sim.*` 改为 lazy/shim
+5. 38 src + 14 scripts + 20 tests: `sed s/ao_shaping.drivers.sim/sim/g` (注意 `sim.atmos/` → `sim/device/atmos/`)
+6. **shim 包** `src/ao_shaping/drivers/sim/__init__.py` (6 个月过渡, DeprecationWarning)
+
 ---
 
 ## 3. 离线缺陷修复 / 文档（无需硬件）

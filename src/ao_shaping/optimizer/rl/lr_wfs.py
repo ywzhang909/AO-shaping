@@ -93,6 +93,7 @@ class LaserCastEnv(gym.Env):
         self.init_voltages = deepcopy(self.last_voltage)
 
     def render(self)->Any:
+        import matplotlib.pyplot as plt
         import pygame
         if self.window is None and self.render_mode == 'human':
             pygame.init()

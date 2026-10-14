@@ -630,6 +630,18 @@ class MIICamera(BaseCamera):
         )
         return img
 
+    def get_exposure_time_ms(self) -> float:
+        """当前生效的曝光时间 (ms) —— 与 :meth:`DahengCamera.get_exposure_time_ms` 对称。
+
+        MiiCam SDK 没有可靠回读 ``ExpoTime`` 的 API (``put_ExpoTime`` 写入后
+        只能靠帧信息 ``MIICAM_FRAMEINFO_FLAG_EXPOTIME`` 间接读, 需要额外采一帧),
+        因此以驱动侧缓存 ``exposure_time_ms`` 为权威 —— 它在
+        :meth:`reset_exposure_time` 里已经过**钳制 + 量化到整数微秒**
+        (``put_ExpoTime(int(ms*1000))``), 与设备实际使用的值一致。
+        绝不可返回未经量化的原始请求 (那会虚报一个设备并未使用的曝光)。
+        """
+        return float(self.exposure_time_ms)
+
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """启用或关闭自动曝光。
 

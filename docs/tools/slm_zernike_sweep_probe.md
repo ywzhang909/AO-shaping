@@ -60,7 +60,7 @@ graph TD
 | `--settle-max-wait-s` | 最大稳定等待 (s) | 5.0 |
 | `--n-frames` | 稳定后保存帧数 | 3 |
 | `--no-hw` | 只打印采集计划，不开设备 | False |
-| `-o, --output` | 输出目录 | data/debug/slm_zernike_sweep_<ts> |
+| `-o, --output` | 输出目录 | data/slm_zernike_sweep |
 
 ## 5. 示例
 
@@ -75,11 +75,14 @@ python -m ao_shaping.tools.zernike.sweep_probe --exposure-ms 3.0 \
 
 ## 6. 输出契约
 
-- `data/debug/slm_zernike_sweep_<ts>/`：
+- `data/slm_zernike_sweep/<ts>/` (探针原始产物, 即 `-o` 指定的目录)：
   - `records.pkl`：Recorder 结构 `{epoch: record}`，含相位 (raw 弧度)、CCD 帧、模式元数据
   - `records.json`：sidecar，含完整配置
   - `sweep_plan.json`：扫描计划 (42 点列表)
   - 逐模式 NPZ：`mode_<noll>_amp_<val>.npz` (相位 + 稳定帧)
+- `data/debug/slm_zernike_sweep/<ts>/slm_zernike_sweep_<ts>.{json,png,pkl}`：
+  标准 debug 三件套, 由 `save_recorder_debug_artifacts` 写出 (统一走
+  `data/debug/<前缀>/<时间戳>/` 布局)。
 
 ## 7. 共用内核
 

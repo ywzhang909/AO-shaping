@@ -158,7 +158,8 @@ def train_gsnet(
                         "loss": best_loss,
                         "config": {
                             "num_layers": model.num_layers,
-                            "base_channels": model.layers[0].phase_net.down1[0].out_channels,
+                            "base_channels": model.base_channels,
+                            "shared_weights": model.shared_weights,
                         },
                     },
                     ckpt_path,

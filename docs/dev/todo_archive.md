@@ -1653,7 +1653,7 @@ reset** 模拟系统 —— `slm_pib_sim_run.py` harness 自己装了带干扰�
 - `spgd-square --delta` 曾是**空操作**（`SlmSquareParams.delta` 硬编码 `0.1`，
   Click 无法区分"没传"与"传了 0.1"，默认 `lr=0` 的自适应调度每轮改写它）。
   现 `None` + `resolve_spgd_delta`，与 `slm-gsnet` / `slm-pib` 一致。⇒ **H-21 需真机 A/B**。
-- `spgd-square --debug` 过去什么都不产出；现写 `data/debug/slm_square_<ts>/`。
+- `spgd-square --debug` 过去什么都不产出；现写 `data/debug/slm_square/<ts>/`。
   ⚠️ 但实测只有 `--basis freeform` 能进 `ml/hwdataset`（Zernike 基 0/3）⇒ **H-23**。
 - **上一提交遗留的破仓**：`gsnet_runner` 已 import `patch_sim_square_shaping` 而定义
   没跟着进 `runner_common`，`import ao_shaping.main` 直接 ImportError（clean checkout

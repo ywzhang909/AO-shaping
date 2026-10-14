@@ -739,6 +739,7 @@ def _fit_aberration_at_probes(
     frames: Sequence[tuple[np.ndarray, np.ndarray]],
     iterations: int,
     rearm: Callable[[np.ndarray], _StepAOptimizerT] | None = None,
+    on_iteration: Callable[[int, float | None], None] | None = None,
 ) -> tuple[np.ndarray, list[float], int, _StepAOptimizerT]:
 
     """Run Step A for a fixed number of Adam steps over cycling probe frames.
@@ -815,6 +816,8 @@ def _fit_aberration_at_probes(
         loss = optimizer.last_loss
         if loss is not None:
             losses.append(float(loss))
+        if on_iteration is not None:
+            on_iteration(index, None if loss is None else float(loss))
         taken += 1
     return (
         np.asarray(optimizer.coefficients, dtype=np.float64),
@@ -824,6 +827,29 @@ def _fit_aberration_at_probes(
     )
 
 
+
+
+def _probe_set_loss(
+    optimizer: ZernikeCoefficientOptimizer,
+    coefficients: np.ndarray,
+    frames: Sequence[tuple[np.ndarray, np.ndarray]],
+) -> float:
+    """Evaluate one coefficient vector on the same complete probe set."""
+    if not frames:
+        raise ValueError("probe loss needs at least one frame")
+    losses = []
+    for measured, phase in frames:
+        predicted = optimizer.forward_intensity(coefficients, phase)
+        measured_peak = float(np.max(measured))
+        predicted_peak = float(np.max(predicted))
+        if measured_peak <= 0 or predicted_peak <= 0:
+            raise ValueError("probe loss requires nonempty finite intensities")
+        target = np.asarray(measured, dtype=np.float64) / measured_peak
+        estimate = np.asarray(predicted, dtype=np.float64) / predicted_peak
+        if not np.isfinite(target).all() or not np.isfinite(estimate).all():
+            raise ValueError("probe loss requires nonempty finite intensities")
+        losses.append(float(np.mean((estimate - target) ** 2)))
+    return float(np.mean(losses))
 
 
 def shape_phase_with_frozen_aberration(
@@ -836,6 +862,10 @@ def shape_phase_with_frozen_aberration(
     device: str | None = None,
     seed: int = 0,
     source_amplitude: np.ndarray | None = None,
+    model_gain: float = 1.0,
+    background_intensity: np.ndarray | None = None,
+    psf_sigma: float = 0.0,
+    on_iteration: Callable[[int, float], None] | None = None,
 ) -> tuple[np.ndarray, list[float]]:
     """Run Step B: optimise a full-pixel phase under a frozen aberration.
 
@@ -900,6 +930,28 @@ def shape_phase_with_frozen_aberration(
     amplitude = torch.from_numpy(
         np.ascontiguousarray(amplitude_grid)
     ).to(device=dev, dtype=tdtype)
+    background = None
+    if background_intensity is not None:
+        background_array = np.asarray(background_intensity, dtype=np.float64)
+        expected = int(getattr(optimizer, "far_field_size", region))
+        if background_array.shape != (expected, expected):
+            raise ValueError("background_intensity must match the far-field grid")
+        if not np.all(np.isfinite(background_array)) or np.any(background_array < 0):
+            raise ValueError("background_intensity must be finite and nonnegative")
+        background = torch.from_numpy(np.ascontiguousarray(background_array)).to(
+            device=dev, dtype=tdtype
+        )
+    if not np.isfinite(model_gain) or model_gain <= 0:
+        raise ValueError("model_gain must be finite and positive")
+    if not np.isfinite(psf_sigma) or psf_sigma < 0:
+        raise ValueError("psf_sigma must be finite and nonnegative")
+    gaussian_kernel = None
+    if psf_sigma > 0:
+        radius = int(4 * psf_sigma + 0.5)
+        coords = torch.arange(-radius, radius + 1, device=dev, dtype=tdtype)
+        weights = torch.exp(-0.5 * (coords / psf_sigma) ** 2)
+        weights /= weights.sum()
+        gaussian_kernel = torch.outer(weights, weights)[None, None]
     aberration = torch.einsum(
         "j,jhw->hw",
         torch.from_numpy(np.ascontiguousarray(coefficients, dtype=np.float64)).to(
@@ -950,6 +1002,16 @@ def shape_phase_with_frozen_aberration(
         # intensity against a `far_field_size`-sized target.
         pad = int(getattr(optimizer, "far_field_size", region))
         intensity = focal_intensity(field, pad)
+        if gaussian_kernel is not None:
+            import torch.nn.functional as F
+
+            radius = gaussian_kernel.shape[-1] // 2
+            intensity = F.conv2d(
+                F.pad(intensity[None, None], (radius,) * 4, mode="reflect"),
+                gaussian_kernel,
+            )[0, 0]
+        if background is not None:
+            intensity = float(model_gain) * intensity + background
         loss = total_loss(
             intensity,
             phase,
@@ -963,9 +1025,12 @@ def shape_phase_with_frozen_aberration(
         return loss
 
     history: list[float] = []
-    for _ in range(config.iterations):
-        history.append(float(closure().detach().cpu().item()))
+    for index in range(config.iterations):
+        loss_value = float(closure().detach().cpu().item())
+        history.append(loss_value)
         opt.step()
+        if on_iteration is not None:
+            on_iteration(index, loss_value)
     logger.debug(
         "Step B done: iterations={} loss {} -> {}",
         len(history),
@@ -1080,16 +1145,18 @@ def simulate_iterative_shaping(config: ModelInLoopConfig) -> ModelInLoopResult:
                 config.seed + index * config.step_a.probe_count + probe_index,
             )
             frames.append((display_and_measure(env, probe, config.env.n_frames), probe))
-        fitted, losses, step_a_iterations, optimizer = _fit_aberration_at_probes(
+        loss_before = _probe_set_loss(optimizer, optimizer.coefficients, frames)
+        fitted, _, step_a_iterations, optimizer = _fit_aberration_at_probes(
             optimizer, frames, config.step_a.iterations, rearm
         )
+        loss_after = _probe_set_loss(optimizer, fitted, frames)
 
         logger.info(
             "round {}/{}: Step A loss {} -> {} over {} steps (coeff error {:.4g} rad)",
             index + 1,
             config.n_rounds,
-            losses[0] if losses else float("nan"),
-            losses[-1] if losses else float("nan"),
+            loss_before,
+            loss_after,
             step_a_iterations,
             error(fitted),
         )
@@ -1115,8 +1182,8 @@ def simulate_iterative_shaping(config: ModelInLoopConfig) -> ModelInLoopResult:
                 round_index=index,
                 coefficients=np.array(fitted, dtype=np.float64),
                 coeff_error=error(fitted),
-                step_a_loss_initial=float(losses[0]) if losses else float("nan"),
-                step_a_loss_final=float(losses[-1]) if losses else float("nan"),
+                step_a_loss_initial=loss_before,
+                step_a_loss_final=loss_after,
                 step_a_iterations=step_a_iterations,
                 step_b_loss_initial=shaping_loss[0],
                 step_b_loss_final=shaping_loss[-1],
@@ -1333,7 +1400,9 @@ def calibrate_bench_geometry(
     if not finite:
         raise ValueError("no record has a measurable spot (all zero or degenerate)")
     fwhm_meas = float(np.median(finite))
-    reference = measured[int(np.nanargmax(widths))]
+    reference_index = int(np.nanargmax(widths))
+    reference = measured[reference_index]
+    reference_phase = np.asarray(records[reference_index].phase, dtype=np.float64)
 
     # The model grid spans `panel_span_px` panel pixels, so its physical pitch is
     # that span times the SLM pitch divided by the number of samples. Using
@@ -1372,8 +1441,7 @@ def calibrate_bench_geometry(
         if a < 8:
             return None
         span_panel = 2.0 * a * model_to_panel
-        for record in records:
-            phase = np.asarray(record.phase, dtype=np.float64)
+        for phase in (reference_phase,):
             h, w = phase.shape
             if (h, w) == (region, region):
                 return phase
