@@ -64,6 +64,21 @@ class TestTargetMask:
         # Corners dark (filled disk)
         assert float(mask[0, 0]) == 0.0
 
+    @pytest.mark.parametrize("shape", ["rectangle", "triangle", "star"])
+    def test_geometric_shapes_are_filled_and_distinct(self, shape):
+        mask = create_target_mask(shape, (65, 65), 30)
+        assert mask.shape == (65, 65)
+        assert set(np.unique(mask)).issubset({0.0, 1.0})
+        assert mask[32, 32] == 1.0
+        assert mask[0, 0] == 0.0
+        square = create_target_mask("square", (65, 65), 30)
+        assert not np.array_equal(mask, square)
+
+    def test_rectangle_is_twice_as_wide_as_high(self):
+        mask = create_target_mask("rectangle", (65, 65), 30)
+        ys, xs = np.nonzero(mask)
+        assert (xs.max() - xs.min()) >= 1.8 * (ys.max() - ys.min())
+
     def test_spot_is_filled_disk(self):
         mask = create_target_mask("spot", GRID, SIZE)
         assert mask.shape == GRID
