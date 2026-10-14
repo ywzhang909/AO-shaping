@@ -33,7 +33,7 @@ EXPECTED_OPTIONS = [
     "wfs_res",
     "pupil_diameter",
     "pupil_center",
-    "exposure_time_ms",
+    "wfs_exposure_ms",
     "remove_tilt",
     "wfs_type",
     # ZernikeSlmParams (5)
@@ -107,7 +107,7 @@ class TestRunFunction:
             return CliRunner().invoke(run, args)
 
     def test_run_completes_with_mocked_optimizer(self):
-        result = self._invoke(["--epochs", "2", "--n-max", "4", "--wfs_res", "1024"])
+        result = self._invoke(["--epochs", "2", "--n-max", "4", "--wfs-res", "1024"])
 
         assert result.exit_code == 0, f"CLI failed: {result.output}"
         assert "完成" in result.output and "RMS" in result.output
@@ -121,7 +121,7 @@ class TestRunFunction:
                 "5",
                 "--n-max",
                 "3",
-                "--early_stop_threshold",
+                "--early-stop-threshold",
                 "0.05",
                 "--n-init",
                 "7",
@@ -131,16 +131,16 @@ class TestRunFunction:
                 "2.5",
                 "--algorithm",
                 "ga",
-                "--pop_size",
+                "--pop-size",
                 "12",
-                "--wfs_res",
+                "--wfs-res",
                 "512",
-                "--pupil_diameter",
+                "--pupil-diameter",
                 "3.0",
-                "--pupil_center",
+                "--pupil-center",
                 "1.5,-2.5",
                 "--remove-tilt",
-                "--exposure-time-ms",
+                "--wfs-exposure-ms",
                 "40.0",
                 "--wavelength",
                 "633",

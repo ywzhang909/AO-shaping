@@ -75,7 +75,7 @@ comments verbatim — they start unicode escapes and raise ``SyntaxError``.
 from __future__ import annotations
 
 import os
-from dataclasses import MISSING, dataclass, field, fields, is_dataclass
+from dataclasses import MISSING, dataclass, field, is_dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Annotated, Any, cast
 
@@ -290,10 +290,10 @@ class WfsParams:
             help="瞳孔中心坐标 (default: (0,0))",
         ),
     ] = "(0,0)"
-    exposure_time_ms: Annotated[
+    wfs_exposure_ms: Annotated[
         float,
         option(
-            "--exposure-time-ms",
+            "--wfs-exposure-ms",
             type=float,
             help="WFS曝光时间 (毫秒, default: 0.0=自动曝光)",
         ),
@@ -2674,6 +2674,20 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = 8
+    pupil_oversampling: Annotated[
+        int,
+        option(
+            "--pupil-oversampling",
+            type=click.Choice([1, 2, 4]),
+            help=(
+                "Bilinear sub-pixel pupil interpolation in Step A and Step B. "
+                "Enlarges the pupil, propagates it at the matching finer "
+                "far-field sampling, and crops back to --region, so the field "
+                "of view is unchanged and only the sampling improves. Costs "
+                "factor**2 in FFT time."
+            ),
+        ),
+    ] = 1
     focal_length_m: Annotated[
         float,
         option(
@@ -2802,7 +2816,7 @@ class SlmModelInLoopParams:
             "--slm-wavelength",
             help="SLM operating wavelength (nm); 0 asks the device.",
         ),
-    ] = 1064
+    ] = 0
 
     n_eval_frames: Annotated[
         int, option("--n-eval-frames", help="Frames averaged per measurement.")
@@ -2980,6 +2994,7 @@ def build_model_in_loop_config(
         panel_span_px=params.panel_span_px,
         pupil_center=parse_point(params.pupil_center),
         far_field_padding=params.far_field_padding,
+        pupil_oversampling=params.pupil_oversampling,
         focal_length_m=params.focal_length_m,
         dtype=params.dtype,
         n_calibration_probes=params.n_calibration_probes,

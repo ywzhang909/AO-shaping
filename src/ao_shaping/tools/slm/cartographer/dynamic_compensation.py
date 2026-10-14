@@ -21,7 +21,6 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS
 
 
 @dataclass

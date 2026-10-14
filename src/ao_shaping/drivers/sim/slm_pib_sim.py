@@ -28,9 +28,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
-from ao_shaping.drivers.device_base import DeviceState
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
-from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
 
 try:  # scipy 的 pocketfft 是多线程的, 而补零后的变换需要它。
@@ -87,7 +85,6 @@ class SimPibSystem:
         seed: int | None = None,
         *,
         disturbance: SimDisturbance | None = None,
-        dm_optics: SimDmOptics | None = None,
         far_field_padding: int = FAR_FIELD_PADDING,
         far_field_window: int = FAR_FIELD_WINDOW,
     ) -> None:
@@ -103,14 +100,7 @@ class SimPibSystem:
                 每个现有调用方都保持原先无干扰的行为。它的相位屏在 :meth:`far_field`
                 内部被加到 SLM 命令相位上; ``self._phase`` 从不被修改, 因此干扰不会
                 被重复计入。
-            dm_optics: 可选的 DM 电压 → 相位耦合。与干扰一样, 它在求值时被累加,
-                从不烘进 ``self._phase``。它默认是一个平的、零电压的实例而非 ``None``,
-                于是 DM 驱动的 runner 在构造上就已耦合, 不会静默退化成什么都没驱动。
         """
-        # 延迟 import: config.DM_N_ACTUATORS 是经一次活的 DM 可达性探测解析的,
-        # 所以在模块作用域 import 它会阻塞在 socket 上。
-        from ao_shaping.config import DM_N_ACTUATORS
-
         self.slm_h, self.slm_w = slm_shape
         self.ccd_h, self.ccd_w = ccd_res
         self.beam_w0 = float(beam_w0)
@@ -118,10 +108,6 @@ class SimPibSystem:
         self.disturbance = disturbance
         self.far_field_padding = max(1, int(far_field_padding))
         self.far_field_window = max(1, int(far_field_window))
-        self.dm_optics = dm_optics or SimDmOptics(
-            n_actuators=DM_N_ACTUATORS, slm_shape=slm_shape
-        )
-        self._dm_version = self.dm_optics.version
         self._rng = np.random.default_rng(seed)
         self._lock = threading.Lock()
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
@@ -161,12 +147,6 @@ class SimPibSystem:
         与 ``AGENTS.md`` 里的 2f 台架约定一致。
         """
         with self._lock:
-            # DM 是一个独立的光学状态, 所以电压变化必须让缓存失效。没有这一步,
-            # 缓存会一直供应 DM 作用之前的那张图, 于是 DM 驱动的环路读起来就像
-            # DM 什么都没做。
-            if self.dm_optics.version != self._dm_version:
-                self._far_field = None
-                self._dm_version = self.dm_optics.version
             if self._far_field is not None:
                 return self._far_field.copy()
             phase = self._phase
@@ -175,10 +155,6 @@ class SimPibSystem:
             # 纯命令 —— 把干扰烘进去会被重复计入。
             if self.disturbance is not None:
                 phase = phase + self.disturbance.phase()
-            # DM 同理: 在此累加, 从不烘进 `self._phase`。
-            dm_phase = self.dm_optics.phase()
-            if dm_phase.any():
-                phase = phase + dm_phase
             # SLM 网格上的高斯入射光束幅度。
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
@@ -481,10 +457,10 @@ def register_sim_camera() -> None:
         logger.debug("sim camera already registered: {}", exc)
 
 
-# 在此处注册 (而不只是放在 ``register_sim_camera()`` 里) 使 ``--cam_type sim`` 对每一个
+# 在此处注册 (而不只是放在 ``register_sim_camera()`` 里) 使 ``--cam-type sim`` 对每一个
 # 消费者都可用。此前它恰好只有两个调用点 (slm-gsnet runner 的 ``_maybe_sim_patch`` 与
 # ``scripts/slm_pib_sim_run.py`` 那套脚手架), 因此文档里写的命令
-# ``main.py slm-pib spgd --cam_type sim`` 会死于
+# ``main.py slm-pib spgd --cam-type sim`` 会死于
 # ``ValueError: Unknown camera type: 'sim'``。持有仿真远场本就意味着持有读取它的仿真
 # 相机, 所以 import 本模块就是把两者绑在一起的自然位置。
 register_sim_camera()

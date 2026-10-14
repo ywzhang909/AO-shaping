@@ -29,7 +29,7 @@ from typing import Any, Self
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.wfs._registry import register_wfs
 from ao_shaping.drivers.wfs.base import BaseWFS
 from ao_shaping.drivers.wfs._thorlab_wfs import (
@@ -1438,44 +1438,6 @@ class ThorlabWFS(BaseWFS):
             if not self.stable_sample_enable
             else float(np.std(wavefront)),
         }
-
-    def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
-        """通过拟合平面并减去它来去除波前中的倾斜 (tip/tilt)。
-
-        参数:
-            wavefront: 二维波前数组。
-
-        返回:
-            去掉倾斜后的波前。
-        """
-        # 建立坐标网格 (归一化到 [-1, 1] 以保证数值稳定性)
-        ny, nx = wavefront.shape
-        y, x = np.meshgrid(
-            np.linspace(-1, 1, ny), np.linspace(-1, 1, nx), indexing="ij"
-        )
-
-        # 展平以便拟合
-        z = wavefront.flatten()
-
-        # 构造平面的设计矩阵: z = a*x + b*y + c
-        A = np.column_stack([x.flatten(), y.flatten(), np.ones_like(x.flatten())])
-
-        # 用最小二乘解出系数
-        try:
-            coeffs, _, _, _ = np.linalg.lstsq(A, z, rcond=None)
-            a, b, c = coeffs
-
-            # 构造倾斜平面
-            tilt_plane = a * x + b * y + c
-
-            # 减去倾斜
-            wavefront_no_tilt = wavefront - tilt_plane
-        except Exception:
-            # 拟合失败就原样返回
-            logger.warning("Failed to fit tilt plane, returning original wavefront")
-            return wavefront
-
-        return wavefront_no_tilt
 
     @staticmethod
     def calc_n_zernike_terms(n: int) -> int:

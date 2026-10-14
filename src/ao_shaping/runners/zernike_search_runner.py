@@ -27,13 +27,11 @@ Or via the unified CLI::
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import NoReturn
 
 import click
 import numpy as np
-from loguru import logger
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga
@@ -49,6 +47,7 @@ from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     get_debug_mode,
     resolve_debug,
+    run_selector_dispatch,
     setup_coredumpy,
 )
 from ao_shaping.utils.io.file import (
@@ -57,7 +56,6 @@ from ao_shaping.utils.io.file import (
 )
 
 #: Selectors accepted by :func:`main` for `python -m` dispatch.
-COMMAND_SELECTORS = ("ga-zernike", "greedy-zernike")
 
 
 def _persist_results(
@@ -262,30 +260,17 @@ def greedy_zernike_run(
 def main(argv: list[str] | None = None) -> NoReturn:
     """Dispatch to a command by selector for `python -m` execution.
 
-    With no selector the module runs ``ga-zernike``.
+    With no selector the module runs ``ga-zernike``, preserving the shortest
+    invocation. ``greedy-zernike`` must be named explicitly.
 
     Raises:
         SystemExit: Always; the chosen Click command decides the code.
     """
-    args = list(sys.argv[1:] if argv is None else argv)
-
-    command: click.Command = run
-    label = "ga-zernike"
-    if args and args[0] in COMMAND_SELECTORS:
-        label = args[0]
-        args = args[1:]
-        command = greedy_zernike_run
-
-    try:
-        command(args)
-    except SystemExit:
-        raise
-    except Exception as e:
-        click.echo(f"❌ 运行时错误: {e}")
-        logger.exception("{} runner failed", label)
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    run_selector_dispatch(
+        {"ga-zernike": run, "greedy-zernike": greedy_zernike_run},
+        "ga-zernike",
+        argv,
+    )
 
 
 if __name__ == "__main__":

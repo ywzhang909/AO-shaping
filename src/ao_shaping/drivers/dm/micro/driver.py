@@ -69,7 +69,6 @@ from ao_shaping.drivers.dm.micro.micro_constants import (
     VOLTAGE_MIN,
 )
 from ao_shaping.drivers.dm.micro.wiring_map import ChannelInfo, WiringMap
-from ao_shaping.model.quantities import DmCommands
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR
 

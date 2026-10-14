@@ -9,9 +9,10 @@ Two failure modes are covered, and the second is the one that actually bites:
    it -- that produces a ``NameError`` only when that function is called with the
    plotting path taken, so it survives import-only smoke tests.
 
-``optimizer/rl/lr.py``, ``lr_wfs.py`` and ``rl_wfs.py`` now carry an
-``if __name__ == "__main__":`` guard, so their rendering import is deferred like every
-other module here and they are no longer carved out.
+``optimizer/rl/lr.py``, ``lr_wfs.py`` and ``rl_wfs.py`` used to be carved out: they
+used matplotlib at module scope with no ``__main__`` block at all, so there was nothing
+to defer into. They now guard their driver code behind ``if __name__ == "__main__":``
+and are covered like any other file.
 """
 
 from __future__ import annotations
@@ -25,8 +26,7 @@ OPTIMIZER_ROOT = REPO_ROOT / "src" / "ao_shaping" / "optimizer"
 STACK = ("pygame", "matplotlib", "pyplot")
 NAMES = ("plt", "pygame")
 
-#: files whose module-level rendering import cannot be deferred (no __main__ block).
-#: Empty: the rl scripts gained a ``__main__`` guard, so they are covered too.
+#: files whose module-level rendering import cannot be deferred (no __main__ block)
 CARVE_OUT: set[str] = set()
 
 

@@ -42,7 +42,7 @@ python -m ao_shaping.tools.ccd.drift_probe \
 用**区域范数 / box sum**判漂移, **不用峰值** —— 实测同一 3 ms 设置两次运行
 峰值读到 100 与 23 counts, 而 box sum 稳定到 0.2%。
 
-曝光阶梯判据 (`slm_bench_metrics.exposure_monotonicity`):
+曝光阶梯判据 (`bench_kernels.exposure_monotonicity`):
 - `verdict == "monotonic"` 且 `saturated == False` → 该区间线性可用
 - `verdict == "non_monotonic"` → 中间档掉回去了, 别用
 - `verdict == "saturated"` → 撞满量程, 降曝光
@@ -137,7 +137,7 @@ python -m ao_shaping.tools.zernike.abba_probe \
 实测焦点标度只约束**比值** `f / p_cam`:
 
 ```
-K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_SCALE
+K = λ·f / (d_slm · p_cam)          K = tools/kernels/bench_kernels.TILT_SHIFT_SCALE
 ```
 
 `K` = 7400(实测 @1064 nm)。**因此数学上必然需要一个外部锚点**才能解出 `f` 或
@@ -161,7 +161,7 @@ K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_S
 实现: `utils/wavefront/matrix_utils.py` 的 `camera_pixel_um_from_focal_scale`
 与 `focal_length_from_camera_pixel`(互为精确反函数, 双向 round-trip 有测试),
 由 `runner_common` 与 `slm_gs_refine` **各自调用同一个函数**, 因此两层不会漂移;
-`tools/slm/slm_bench_metrics.py` 只做再导出, 不留第三份定义。
+`tools/kernels/bench_kernels.py` 只做再导出, 不留第三份定义。
 
 ### 3.0.1 ⚠️ `K` 正比于波长 —— 换波长必须先换算 `K`
 
@@ -221,14 +221,14 @@ K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_S
 | 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f` + `d4a071b`)**。原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%); 先改为由实测焦点标度反推, 最终改为**以像元间距为锚点**(2.2 µm 数据手册值)、**焦距改为派生**(见 §3) |
 | 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实机 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
 | 7 | `optimizer/wfless/slm_gs_refine.py` | `focal_length_m` | **已修(`d4a071b`)**: 写死的 `0.125` 已改为 `0` = 由实测标度派生。GUI 侧仍不一致(`gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm), 换成透镜后请一并复核 |
-| 8 | `tools/slm/slm_bench_probe.py:78` | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
+| 8 | `tools/kernels/bench_kernels.py` (原 `tools/slm/slm_bench_probe.py:78`) | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
 | 9 | `optimizer/wfless/slm_zernike_pib.py:1214,1443,1470` | 每次迭代 `set_reference_center(zero_order_center(...))` | 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框 |
 | 10 | `utils/image/beam_metrics.py:371,414,462,512` | 4 个 0 阶定位实现 | 暗帧上裸 `argmax`: 峰值 22–46 而帧均值 0.26, 单个热像素即可取胜; 参考质心曾在 60 px 内自漂 |
 | 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |
 | 12 | `utils/image/beam_metrics.py:223` 等三处 | EE 分母约定不统一 | 见 §3 |
 | 13 | ~~`MAX_GRAYSCALE_VALUE` 1023 vs 993~~ | — | **不是冲突, 已撤回**。1023 = `2^bits−1`(满量程, 与波长无关, 矫正 CSV 契约); 993 = 设备在 1064 nm 动态查询的 2π 灰度。**两个不同的量** |
-| 14 | `tools/slm/slm_bench_probe.py:262`<br>vs `optimizer/wfless/slm_gs_refine.py:351` | 两份 settle 实现 | 后者是私有第三份拷贝, **不要照抄**。`slm_zernike_sweep_probe.capture_settled` 是认可的薄封装 |
-| 15 | `tools/slm/slm_zernike_common.py:41` | `WFS_ZERNIKE_ORDER = 10` | 注释警告 15 阶非法 → 66 项。阶数写错会静默改变矩阵维度 |
+| 14 | `tools/kernels/bench_kernels.py:capture_settled` (原 `tools/slm/slm_bench_probe.py:262`)<br>vs `optimizer/wfless/slm_gs_refine.py:351` | 两份 settle 实现 | 后者是私有第三份拷贝, **不要照抄**。`slm_zernike_sweep_probe.capture_settled` 是认可的薄封装 |
+| 15 | `tools/zernike/common.py:41` (原 `tools/slm/slm_zernike_common.py:41`) | `WFS_ZERNIKE_ORDER = 10` | 注释警告 15 阶非法 → 66 项。阶数写错会静默改变矩阵维度 |
 
 ### 4.1 曝光默认值的语义(重要)
 
@@ -299,8 +299,7 @@ K = λ·f / (d_slm · p_cam)          K = tools/slm/slm_bench_probe.TILT_SHIFT_S
 
 ## 7. 相关文件
 
-- 探针: `src/ao_shaping/tools/slm/slm_{drift,floor,abba}_probe.py`
-- 纯分析内核: `src/ao_shaping/tools/slm/slm_bench_metrics.py`
-- 规范测量内核(设备注入): `src/ao_shaping/tools/slm/slm_bench_probe.py`
+- 探针: `src/ao_shaping/tools/ccd/{drift,floor}_probe.py` 与 `src/ao_shaping/tools/zernike/abba_probe.py`（2026-10 前位于 `tools/slm/slm_{drift,floor,abba}_probe.py`）
+- 测量/分析内核: `src/ao_shaping/tools/kernels/bench_kernels.py`（合并自 `tools/slm/slm_bench_probe.py` + `slm_bench_metrics.py`，设备由参数注入）
 - 目录说明: [`src/ao_shaping/tools/slm/README.md`](../../src/ao_shaping/tools/slm/README.md)
 - 实测标定报告: [`report/slm/bench_calibration_20261001.md`](../../report/slm/bench_calibration_20261001.md)

@@ -448,6 +448,47 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _portable(help_text: str) -> str:
+    """Strip the parts of rendered ``--help`` that depend on the OS, not the probe.
+
+    Two sources, both verified against the committed golden: argparse's ``prog``
+    plus its wrapping of the usage block (2 probes), and click rendering a
+    ``Path`` default with the native separator (2 probes). Neither reflects a
+    change to the probe, so neither may read as drift -- otherwise the golden is
+    only ever valid on the platform that wrote it, and X-7's "just regenerate
+    it" is guaranteed to break the other one.
+
+    The usage block is collapsed rather than just having its program token
+    blanked: argparse wraps that block to the terminal width *after* accounting
+    for the program name, so a 35-character ``python.exe -m pkg.mod`` breaks it
+    differently from a 6-character ``mod.py``. Re-wrapping is downstream of the
+    one thing we are discarding, so it has to go with it.
+
+    Normalising to ``/`` (POSIX) is safe in both directions: on Linux this is a
+    no-op, so a backslash that really is a literal in the help text survives.
+    """
+    lines = help_text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("usage: "):
+            continue
+        block = [line.removeprefix("usage: ")]
+        for cont in lines[i + 1 :]:
+            if not cont[:1].isspace():
+                break
+            block.append(cont.strip())
+        usage = " ".join(" ".join(block).split())
+        # The program name is whatever precedes the first option/positional token.
+        head, sep, tail = usage.partition("[")
+        if not sep:
+            head, sep, tail = usage.partition(" ")
+        lines[i : i + 1 + len(block) - 1] = [f"usage: <prog>{sep}{tail}"]
+        break
+    text = "\n".join(lines)
+    if os.sep != "/":
+        text = text.replace(os.sep, "/")
+    return text
+
+
 def _rendered_help(probe: str) -> str:
     result = subprocess.run(
         [sys.executable, "-m", PROBE_MODULES[probe], "--help"],
@@ -455,7 +496,7 @@ def _rendered_help(probe: str) -> str:
         timeout=300, cwd=str(REPO), check=False,
     )
     assert result.returncode == 0, f"{probe}: rc={result.returncode}\n{result.stderr[-400:]}"
-    return result.stdout.replace("\r\n", "\n").rstrip("\n")
+    return _portable(result.stdout.replace("\r\n", "\n").rstrip("\n"))
 
 
 def _golden_entry(probe: str, help_text: str) -> dict:
@@ -481,6 +522,31 @@ def _golden_entry(probe: str, help_text: str) -> dict:
             json.dumps(lits, ensure_ascii=False).encode()
         ).hexdigest()[:16],
     }
+
+
+def test_stored_golden_is_platform_neutral() -> None:
+    """The committed golden must not bake in the platform that happened to write it.
+
+    ``AO_PROBE_HELP_UPDATE=1`` writes whatever the current OS rendered, so a
+    Windows-baselined golden can never match on Linux and vice versa -- and
+    since the rendered-help comparison is opt-in, that rot is invisible in a
+    normal run. This is the always-on half of :func:`_portable`, and it costs
+    nothing because it reads the golden instead of re-rendering 20 probes.
+    """
+    offenders = {
+        probe: reason
+        for probe, entry in _golden().items()
+        for reason in (
+            "windows path separator" if "\\" in str(entry["help"]) else "",
+            "bare python.exe prog" if "python.exe" in str(entry["help"]) else "",
+            "un-normalised argparse prog" if re.search(r"(?m)^usage: (?!<prog>)", str(entry["help"])) else "",
+        )
+        if reason
+    }
+    assert not offenders, (
+        f"golden stores platform-specific help text: {offenders}. "
+        "Re-baseline after `_portable`, not before it."
+    )
 
 
 @pytest.mark.parametrize("probe", PROBES)

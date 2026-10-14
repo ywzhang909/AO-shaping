@@ -1,7 +1,5 @@
 # Micro-DM 逐单元图像采集 (micro_dm_image_collect)
 
-> **生成脚本**: [`scripts/generate_micro_dm_image_collect_report.py`](../../scripts/generate_micro_dm_image_collect_report.py)
-> **复现命令**: `python scripts/generate_micro_dm_image_collect_report.py`
 > **运行环境**: 硬件实测 (需 R50Power Micro-DM + 相机)
 
 ## 1. 这条工具做什么

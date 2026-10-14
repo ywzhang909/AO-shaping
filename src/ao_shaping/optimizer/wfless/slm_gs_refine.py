@@ -58,7 +58,6 @@ slot twice is a firmware no-op that does not refresh the panel.
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any

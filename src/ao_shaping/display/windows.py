@@ -8,7 +8,6 @@ from loguru import logger
 
 import importlib
 
-from ao_shaping.display import Image2DFrame, VoltageFrame
 from ao_shaping.display.frames import (
     BACKGROUND_COLOR,
     BaseFrame,
@@ -172,7 +171,6 @@ class AutoDisplay(BaseDisplay):
         return n_cols, n_rows
 
     def init_window(self) -> None:
-        import pygame
 
         super().init_window()
         screen_w, screen_h = self.total_size
@@ -567,3 +565,153 @@ class SlmModelInLoopDisplay(SlmZernikeDisplay):
         if not alive:
             self._window_closed = True
         return bool(alive)
+
+class SlmSquareDisplay(AutoDisplay):
+    """Live pygame view for SPGD square-beam shaping.
+
+    Shares the four-panel window geometry with :class:`SlmZernikeDisplay` --
+    the same 2x2 layout, the same ``FrameInfo`` panel descriptors, the same
+    ``closed`` / ``close()`` contract -- and swaps exactly two panels:
+
+    * the Zernike coefficient bars (``coeff``) are replaced by the **SLM
+      phase** panel (the actual per-pixel pattern sent to the SLM), because
+      square shaping with a freeform basis has no Zernike coefficients to
+      show;
+    * the single PIB curve is replaced by a **multi-curve** panel
+      (``MultiCurveFrame``) plotting quality / CV / EE on independent
+      y-axes, so the trade-off between uniformity and encircled energy is
+      visible in one place.
+
+    Panel contents:
+
+    ``ccd``
+        The measured camera frame with the square target outlined, in
+        source-image coordinates.
+    ``phase``
+        The raw unwrapped-radian phase currently on the SLM panel.
+    ``curve``
+        The per-epoch metric log (quality / CV / EE).
+    """
+
+    DEFAULT_FRAME_SIZE = (620, 340)
+    DEFAULT_DISPLAY_SIZE = (1280, 720)
+
+    def __init__(
+        self,
+        frame_size: tuple[int, int] = DEFAULT_FRAME_SIZE,
+        display_size: tuple[int, int] = DEFAULT_DISPLAY_SIZE,
+        margin: int = 10,
+        grid: tuple[int, int] = (2, 2),
+        curve_title: str = "square curve",
+        curve_y_range: tuple[float, float] | None = None,
+        target_shape: str | None = "square",
+        target_size: float | None = None,
+        target_aspect_ratio: float = 1.0,
+    ) -> None:
+        curve_y_min, curve_y_max = (
+            curve_y_range if curve_y_range is not None else (None, None)
+        )
+        self.target_shape = target_shape
+        self.target_size = target_size
+        self.target_aspect_ratio = float(target_aspect_ratio)
+        self.frame_list = [
+            FrameInfo(
+                "ccd",
+                "CCD (measured)",
+                "Image2DWithBucketFrame",
+                {
+                    "target_shape": target_shape,
+                    "target_size": target_size,
+                    "target_aspect_ratio": target_aspect_ratio,
+                },
+            ),
+            FrameInfo("phase", "SLM phase (sent)", "Image2DFrame", {}),
+            FrameInfo(
+                "curve",
+                curve_title,
+                "MultiCurveFrame",
+                {
+                    "series": [
+                        {"name": "quality", "color": (0, 255, 0)},
+                        {"name": "cv", "color": (100, 180, 255)},
+                        {"name": "ee", "color": (255, 200, 0)},
+                    ],
+                },
+            ),
+        ]
+        super().__init__(
+            self.frame_list,
+            frame_size=frame_size,
+            display_size=display_size,
+            margin=margin,
+            grid=grid,
+        )
+        self._window_closed = False
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """True once the user has closed the window (or :meth:`close` ran)."""
+        return self._window_closed or self._closed
+
+    def update(
+        self,
+        img: np.ndarray,
+        phase: np.ndarray,
+        center: tuple[int, int] = (0, 0),
+        r: float = 0.0,
+        info: str = "",
+        quality: float | None = None,
+        cv: float | None = None,
+        ee: float | None = None,
+        epoch: int | None = None,
+        total_epochs: int | None = None,
+        target_size: float | None = None,
+    ) -> bool:
+        """Render one frame; returns ``False`` once the window has been closed."""
+        if self.closed:
+            return False
+
+        import pygame
+
+        _target_size = target_size if target_size is not None else self.target_size
+        values: dict[str, float] = {}
+        if quality is not None:
+            values["quality"] = float(quality)
+        if cv is not None:
+            values["cv"] = float(cv)
+        if ee is not None:
+            values["ee"] = float(ee)
+        frame_data = {
+            "ccd": {
+                "img": img,
+                "center": center,
+                "r": r,
+                "target_shape": self.target_shape,
+                "target_size": _target_size,
+                "target_aspect_ratio": self.target_aspect_ratio,
+            },
+            "phase": {"img": phase_for_display(phase)},
+            "curve": {
+                "values": values,
+                "epoch": epoch,
+                "total_epochs": total_epochs,
+                "label": info,
+            },
+        }
+        try:
+            alive = self.render(frame_data, info=info)
+        except pygame.error:
+            alive = False
+        if not alive:
+            self._window_closed = True
+        return bool(alive)
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if getattr(self, "_frames", None):
+            super().close()
+
+

@@ -10,6 +10,12 @@ from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame
 
 
 def locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
+    """Locate the 0-order as the frame global maximum, returned as ``(cy, cx)``.
+
+    On a 2f-Fourier bench the optical axis lands at the camera centre only by
+    luck, so geometry must never be used to find it -- always ``argmax`` the
+    frame (non-finite pixels are excluded).
+    """
     return locate_peak(frame, finite=True)
 
 
@@ -25,6 +31,18 @@ def display_and_average(
     settle_max_discard: int,
     memory_number: int | None = None,
 ) -> np.ndarray:
+    """Write ``phase_rad`` (raw radians), wait for the panel to settle, average.
+
+    Settling is judged by *stability*, not elapsed time: the LCOS flip-time
+    estimate is driven by how much the gray map changed, so two similar phases
+    can report a 0.0 ms wait while the panel is still relaxing. Frames are
+    discarded until consecutive readings agree within ``settle_tol`` (bounded by
+    ``settle_max_discard`` / ``settle_max_wait_s``), then averaged.
+
+    Real hardware uses a pair of explicit memory slots that exclude the slot
+    displayed before the run. The simulator receives only the gray map because
+    its ``display_data`` does not accept hardware slot arguments.
+    """
     gray = slm.create_phase_from_array(phase_rad)
     if memory_number is None:
         slm.display_data(gray)

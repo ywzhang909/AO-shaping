@@ -95,8 +95,8 @@ def make_config(
     n_eval_frames: int = 1,
 ) -> SlmZernikePibConfig:
     """SPGD-branch config equivalent to the reference CLI invocation:
-    ``spgd -c max --target_shape square --target_size 50 --delta 0.0005
-    --exposure_time_ms 1.2 -e <epochs> --zernike_radius 480 -n 7 --lr 0.5``."""
+    ``spgd -c max --target-shape square --target-size 50 --delta 0.0005
+    --exposure-time-ms 1.2 -e <epochs> --zernike-radius 480 -n 7 --lr 0.5``."""
     camera = CameraParamsPib(
         center="max",
         cam_id=CAM_ID,

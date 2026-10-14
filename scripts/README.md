@@ -1728,7 +1728,7 @@ and the `slm_shaping_bench` dead-config trap.
 ### generate_slm_gsnet_sim_gif.py
 
 Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
-snippet) from a `slm-gsnet spgd --cam_type sim --debug` artifact directory.
+snippet) from a `slm-gsnet spgd --cam-type sim --debug` artifact directory.
 **Fully offline** — reads the saved PKL only, no hardware, no pipeline code.
 
 **Usage:**
@@ -1857,13 +1857,13 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
 > 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
 > (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
-> 不钉住的话两次 `spgd-square --cam_type sim` 的干扰流不可比
+> 不钉住的话两次 `spgd-square --cam-type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
 > `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
-  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam_type`
+  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam-type`
   `click.Choice` was extended to include `"sim"`)
 - monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
   `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
@@ -1873,7 +1873,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   without the classmethod the sim path dies with
   `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
   (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
-- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam_type sim`
+- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam-type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
@@ -1948,9 +1948,9 @@ python scripts/run_sim_bench.py --only slm-pib spgd-square --epochs 200
 **What it does** (writes `data/sim_bench/summary.json`):
 - Drives the genuine Click entries via `main.py`, not the optimizer functions, so
   the CLI wiring is exercised too: `pib` / `combined` with
-  `--cam_type sim --dm_type sim`; `spgd-square` with
-  `--cam_type sim --slm_type sim`; `slm-gsnet` / `slm-pib` with
-  `--cam_type sim --debug`
+  `--cam-type sim --dm-type sim`; `spgd-square` with
+  `--cam-type sim --slm-type sim`; `slm-gsnet` / `slm-pib` with
+  `--cam-type sim --debug`
 - Records per runner: `ok`, `returncode`, `wall_s`, the artefact paths it wrote,
   best-effort headline metrics parsed from the CSV, and a `note`
 - **Per-run isolation**: a failure is captured into the manifest rather than
@@ -2631,6 +2631,65 @@ solve) and is how the logic is verified while the bench is offline.
 > Bench constants, the measured 29.5× far-field sampling mismatch, and the
 > failure modes this works around are documented in
 > [`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md).
+
+### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
+
+Five evaluators that answer one design question each **without touching the
+bench**: they read a completed `slm-model-in-loop --debug` directory
+(`probes/manifest.json` + `bench_geometry.json` + `source_amplitude.npy` +
+`probes/*.npz`) and re-score it under a different modelling assumption. Because
+the input is a saved artefact, the instruments may be powered down.
+
+```bash
+python scripts/evaluate_model_in_loop_refit.py       data/debug/slm_model_in_loop/<ts> --output logs/refit.json
+python scripts/evaluate_model_in_loop_geometry.py    data/debug/slm_model_in_loop/<ts> --output logs/geometry.json
+python scripts/evaluate_model_in_loop_order.py       data/debug/slm_model_in_loop/<ts> --output logs/order.json
+python scripts/evaluate_model_in_loop_probe_mix.py   data/debug/slm_model_in_loop/<ts> --output logs/probe_mix.json
+python scripts/evaluate_model_in_loop_oversampling.py data/debug/slm_model_in_loop/<ts> --output logs/oversampling.json
+```
+
+| Script | Question it answers |
+|---|---|
+| `..._refit.py` | Is a zero-iteration refit as good as a short one? (compares forward models on archived holdouts) |
+| `..._geometry.py` | Does a three-parameter camera-grid correction beat the single-scale geometry? |
+| `..._order.py` | How many Zernike orders should Step A refit? (`--orders`, default `3 4 6 10`) |
+| `..._probe_mix.py` | Which Step-A probe family should be fitted — does mixing beat a single family? |
+| `..._oversampling.py` | Does bilinearly oversampling the pupil (`--factors`, default `1 2 4`) improve the held-out speckle correlation? |
+
+All five take one or more `run_dirs` plus a required `--output` JSON path and
+print a per-factor / per-order table. They fit on the `train` split and score on
+`holdout` / `shaped`, so the reported number is always out-of-sample.
+
+> ⚠️ **Read the split sizes before quoting any single family.** These scripts
+> print bare means; on a typical one-round run `holdout` has 6 records while
+> `freeform` has 2 and `shaped` has 1, so a one-sample "correlation" sits beside
+> a six-sample mean with no spread shown. Treat single-split rows as anecdotes.
+
+> ⚠️ `..._oversampling.py` re-implements the propagation in NumPy/SciPy rather
+> than calling the canonical torch
+> `ao_shaping.utils.wavefront.fraunhofer.interpolated_pupil_intensity`, so it
+> runs without the `ml` dependency group. The two are **verified numerically
+> identical** (max relative difference ~1e-15 for factors 1/2/4); if you change
+> one, change both.
+
+### replay_model_in_loop_config.py
+
+Re-runs a **saved** `slm-model-in-loop` configuration on real hardware with a
+different probe seed — the way to separate "the seed was unlucky" from "the
+configuration is bad" without re-deriving the CLI flags by hand. **Needs
+hardware** (Santec SLM + camera); it calls the genuine
+`optimize_slm_model_in_loop`.
+
+```bash
+python scripts/replay_model_in_loop_config.py data/debug/slm_model_in_loop/<ts> --seed 87 --output-dir data/debug/slm_model_in_loop/replay87
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `source_run` | (required) | Saved run dir to take the configuration from |
+| `--seed` | (required) | New Step-A probe seed |
+| `--step-a-iterations` | `0` | Override Step-A budget (`0` = keep the saved value) |
+| `output_dir` | (optional) | Output root; defaults to the source run's debug root |
 
 ### verify_correction_csv.py
 

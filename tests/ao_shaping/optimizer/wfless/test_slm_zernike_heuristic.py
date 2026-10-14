@@ -164,7 +164,7 @@ def test_explicit_nested_groups_are_used_verbatim():
     camera = CameraParamsPib(
         target=ObjectiveTarget(name="pib"), r_bucket=7, cam_type="sim"
     )
-    slm = SlmParamsPib(slm_number=3, zernike_radius=0.0)
+    slm = SlmParamsPib(slm_number=3, zernike_radius=480.0)
 
     config = SlmZernikePibConfig(
         center="shape",
@@ -178,3 +178,33 @@ def test_explicit_nested_groups_are_used_verbatim():
     assert config.camera.name == "pib"
     assert config.camera.r_bucket == 7
     assert config.slm.n_max == 4
+    assert config.slm.zernike_radius == 480.0
+
+
+def test_pib_rejects_a_zero_radius_while_the_parent_class_keeps_zero_as_default():
+    """The two SLM param classes disagree on what ``0`` means, and both are right.
+
+    X-6 filed this as "new validation rejects old fixtures" and left the decision
+    open. It is not ambiguous once the class definitions are read:
+
+    * ``SlmParams`` (slm-gsnet family) defaults ``zernike_radius`` to ``0.0`` and
+      its help says "0 = default" -- the optimizers then substitute their own
+      aperture radius. Zero genuinely means "unset" there.
+    * ``SlmParamsPib`` (slm-pib family) *overrides* the field with
+      ``DEFAULT_ZERNIKE_RADIUS`` and its help says "default = 600 px". Its
+      ``__post_init__`` rejects a non-positive radius, because for this class 0
+      is a typo, not a request for the default.
+
+    Loosening the check to satisfy a fixture would have quietly given the
+    slm-pib family the parent's sentinel and made the documented 600 px default
+    unreachable. Pin both sides instead, so neither contract can drift.
+    """
+    from ao_shaping.runners.runner_common import SlmParams, SlmParamsPib
+
+    assert SlmParamsPib().zernike_radius == 600.0
+    with pytest.raises(ValueError, match="zernike_radius must be positive"):
+        SlmParamsPib(zernike_radius=0.0)
+    with pytest.raises(ValueError, match="zernike_radius must be positive"):
+        SlmParamsPib(zernike_radius=-1.0)
+
+    assert SlmParams().zernike_radius == 0.0

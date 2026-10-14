@@ -67,13 +67,13 @@ EXIT_SUFFIX = ":exit"
 PROG = "<prog>"
 REGENERATE_ENV_VAR = "AO_UPDATE_HELP_GOLDEN"
 _USAGE_RE = re.compile(r"^Usage: .*$", re.MULTILINE)
-# `--dm_type` renders click.Choice(DM_TYPES) -- the *live* DM registry -- so its contents depend on
+# `--dm-type` renders click.Choice(DM_TYPES) -- the *live* DM registry -- so its contents depend on
 # which modules a process imported first: DM types self-register as an import side effect, and
 # runner_common deliberately snapshots the registry before importing asyn_micro_dm. That makes the
-# choice list import-order dependent, not a behavioural contract. Scoped to --dm_type on purpose:
+# choice list import-order dependent, not a behavioural contract. Scoped to --dm-type on purpose:
 # a broader "any [a|b|c]" rule would also hide changes to STATIC choice lists (--camera-type,
-# --wfs_type, --objective), which this golden exists to catch.
-_DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm_type\s+)\[[a-z_0-9|]+\]", re.MULTILINE)
+# --wfs-type, --objective), which this golden exists to catch.
+_DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm-type\s+)\[[a-z_0-9|]+\]", re.MULTILINE)
 # Click renders a `click.Path` default through `os.path.sep`, so one and the same command
 # prints `data\x.csv` on Windows and `data/x.csv` everywhere else. Comparing that verbatim
 # would make this snapshot machine-dependent: the committed one was produced off-Windows, so
@@ -111,7 +111,7 @@ EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 13, "run": 3}
 def normalize(text: str) -> str:
     """Normalise the three parts of ``--help`` that are not behavioural contract.
 
-    The ``Usage:`` line carries the prog name, ``--dm_type``'s choice list is the live DM
+    The ``Usage:`` line carries the prog name, ``--dm-type``'s choice list is the live DM
     registry (see ``_DM_TYPE_CHOICE_RE``), and a ``click.Path`` default carries the platform
     separator (see ``_DEFAULT_PATH_RE``). Everything else - flag names, their order, types,
     defaults and help prose - is compared verbatim.

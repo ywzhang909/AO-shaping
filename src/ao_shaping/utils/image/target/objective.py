@@ -8,6 +8,7 @@ from contextlib import contextmanager
 
 import math
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Iterator, cast
 
 import numpy as np
@@ -18,7 +19,6 @@ from ao_shaping.utils.image.target.metrics import (
     TARGET_SHAPE_CHOICES,
     TargetShape,
     log_gradient_difference_from_fields,
-    log_gradient_difference_metric,
     log_gradient_field,
     rmse_out_metric,
     rmse_shape_metric,
@@ -226,8 +226,11 @@ class ShapingObjectiveParams:
 
     Attributes:
         objective: one of :data:`SHAPING_OBJECTIVE_CHOICES`.
-        mode: ``"max"`` or ``"min"`` - the direction the search ascends, which
-            also selects the sign of the guard penalty.
+        mode: the direction the search ascends, given either as a
+            :class:`ShapingObjectiveParams.Mode` enum or the legacy
+            ``"max"`` / ``"min"`` string. ``__post_init__`` normalises to the
+            enum, so the typed member is the single source of truth
+            downstream (penalty polarity, guard sign, log line).
         shape: target shape used by the ROI-based objectives.
         size: target ROI short side in pixels.
         aspect_ratio: long/short side of the target ROI.
@@ -250,8 +253,43 @@ class ShapingObjectiveParams:
         w_pib_init / w_rms_init / w_ee_init: ``rms_pib`` initial weights.
     """
 
+    class Mode(Enum):
+        """Direction the shaping search ascends.
+
+        Static member of :class:`ShapingObjectiveParams` so every shaping
+        objective carries its polarity in a typed, single-source constant
+        instead of the bare ``"max"`` / ``"min"`` string.
+        """
+
+        MAX = "max"
+        MIN = "min"
+
+        @classmethod
+        def from_string(cls, value: "str | ShapingObjectiveParams.Mode") -> "ShapingObjectiveParams.Mode":
+            """Coerce a string or enum into a canonical ``Mode``."""
+            if isinstance(value, cls):
+                return value
+            text = str(value).lower()
+            for member in cls:
+                if member.value == text:
+                    return member
+            raise ValueError(f"mode must be 'max' or 'min', got {value!r}")
+
+        @property
+        def maximizing(self) -> bool:
+            """``True`` when higher objective values are better."""
+            return self is ShapingObjectiveParams.Mode.MAX
+
+        @property
+        def sign(self) -> float:
+            """``-1`` in max mode, ``+1`` in min mode (the penalty polarity)."""
+            return -1.0 if self is ShapingObjectiveParams.Mode.MAX else 1.0
+
+        def __str__(self) -> str:
+            return self.value
+
     objective: str
-    mode: str
+    mode: Mode
     shape: TargetShape
     size: float
     aspect_ratio: float
@@ -271,6 +309,13 @@ class ShapingObjectiveParams:
     w_loggrad: float = 0.0
 
     def __post_init__(self) -> None:
+        if not isinstance(self.mode, ShapingObjectiveParams.Mode):
+            # Coerce the legacy "max"/"min" string (or any caller-supplied
+            # value) into the canonical enum so the typed member is the
+            # single source of truth downstream.
+            object.__setattr__(
+                self, "mode", ShapingObjectiveParams.Mode.from_string(self.mode)
+            )
         if not np.isfinite(self.w_loggrad) or self.w_loggrad < 0.0:
             raise ValueError(f"w_loggrad must be >= 0 and finite, got {self.w_loggrad!r}")
 
@@ -527,13 +572,25 @@ class ShapingObjective:
                 f"objective must be one of {SHAPING_OBJECTIVE_CHOICES}, "
                 f"got {params.objective!r}"
             )
-        if params.mode not in ("max", "min"):
-            raise ValueError(f"mode must be 'max' or 'min', got {params.mode!r}")
+        # ``__post_init__`` already normalised ``mode`` to the enum, so the
+        # guard here is a no-op for valid callers and still rejects bad
+        # strings that slipped past the dataclass coercion.
+        if not isinstance(params.mode, ShapingObjectiveParams.Mode):
+            raise ValueError(
+                f"mode must be 'max' or 'min', got {params.mode!r}"
+            )
         if params.objective in ("pib", "radiu", "avg_radiu") and target_func is None:
             raise ValueError(
                 f"objective {params.objective!r} needs a target_func providing "
                 f"pib()/radius()/avg_radius()"
             )
+
+        logger.info(
+            "Shaping objective armed: objective=%s mode=%s (%s)",
+            params.objective,
+            params.mode.value,
+            "maximizing" if params.mode.maximizing else "minimizing",
+        )
 
         self._params = params
         self._target_func = target_func
@@ -663,7 +720,7 @@ class ShapingObjective:
         penalty into "uniformly bad" before it is handed to an optimiser that
         minimises.
         """
-        return -1.0 if self._params.mode == "max" else 1.0
+        return self._params.mode.sign
 
     def _get_loggrad_term(self, img: np.ndarray) -> float | None:
         """Structure term against the bench's natural spot profile, or ``None``.

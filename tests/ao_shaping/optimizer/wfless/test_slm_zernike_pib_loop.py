@@ -78,7 +78,7 @@ R_BUCKET = 2  # small bucket on purpose: the flat spot LEAKS energy, so a tighte
 # pair gives both a strictly improving positive frame (tight, brighter spot) and
 # a non-zero +/- asymmetry for the SPGD difference. The spread is normalised
 # through ``s / (s + 1)`` so the coupling is scale-free: it works whatever
-# amplitude ``_zernike_to_phase`` happens to produce, and stays monotone.
+# amplitude ``zernike_to_phase`` happens to produce, and stays monotone.
 SPREAD_SHRINK = 0.60  # sigma *= (1 - SPREAD_SHRINK * spread_norm)
 SPREAD_GROW = 0.80  # peak *= (1 + SPREAD_GROW * spread_norm)
 TILT_GAIN = 2.0  # tanh() pre-gain applied to the odd term
@@ -246,7 +246,11 @@ def _install_fakes(monkeypatch: pytest.MonkeyPatch) -> _Harness:
     monkeypatch.setattr(pib_mod, "time", fake_time)
     monkeypatch.setattr(pib_mod, "SLM_RESPONSE_TIME_S", 0.0)
     # module-level slot rotation is shared state -> reset for isolation
-    monkeypatch.setitem(pib_mod._SLOT_STATE, "slot", pib_mod._SLOT_MIN - 1)
+    # the rotator is module-level shared state -> reset it for isolation
+    monkeypatch.setattr(
+        pib_mod, "_SLOT_ROTATOR",
+        pib_mod.SlotRotator(slot_min=pib_mod._SLOT_MIN, slot_max=pib_mod._SLOT_MAX),
+    )
     return _Harness(bench, camera, slm, fake_time)
 
 

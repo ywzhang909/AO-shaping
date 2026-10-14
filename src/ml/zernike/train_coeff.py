@@ -40,6 +40,14 @@ is deliberately raw and unbounded (a hard-wired ``sigmoid`` -- as
 :func:`~ml.zernike.forward_model.peak_normalize` is applied here to put the
 prediction on the same [0, 1] scale as the target.
 
+**AMP is off by default and never touches a reported number.** ``cfg.amp`` wraps
+``torch.autocast`` around the **training** forward/loss only, with a
+``torch.amp.GradScaler`` for the backward/step. :func:`_evaluate` -- which produces
+the ``r2`` that selects the checkpoint -- and :func:`_save_comparison` stay fp32, so
+flipping the flag cannot move the selection or any logged metric. It is off because
+the bench GPU is an sm_61 consumer Pascal part, whose fp16 path runs at fp32 rate;
+see :attr:`CoeffTrainConfig.amp`.
+
 ============================  Reproducibility  ============================
 The seed pins the search and nothing else, because the training data is a fixed
 on-disk corpus rather than a live measurement: two same-seed runs here ARE
@@ -65,7 +73,7 @@ from loguru import logger
 from torch.utils.data import DataLoader, Subset
 
 from ml.hwdataset.dataset import FileGroupedSampler
-from ml.hwdataset.index import PhaseSource, build_hw_index
+from ml.hwdataset.index import build_hw_index
 from ml.hwdataset.records import MaterialiserConfig
 from ml.hwdataset.zernike_dataset import (
     DEFAULT_N_MAX,
@@ -73,12 +81,19 @@ from ml.hwdataset.zernike_dataset import (
     ZernikeCoeffDataset,
     fit_coeff_stats,
 )
+from ml.zernike.augment import (
+    GEOMETRIC_TRANSFORMS,
+    basis_transform,
+    geometric_pair,
+)
 from ml.zernike.forward_model import (
     ZernikeCoeffConfig,
     build_forward_model,
     count_parameters,
     peak_normalize,
 )
+from ml.zernike.models import ZernikeBasis
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ml.zernike.metrics import constant_baseline_metrics
 
 __all__ = [
@@ -120,6 +135,23 @@ class CoeffTrainConfig:
     # -- data / geometry (forwarded to ZernikeCoeffDataset + MaterialiserConfig)
     n_max: int = DEFAULT_N_MAX
     grid: int = 64
+#: Probability of applying one synchronous geometric transform per batch.
+    #:
+    #: Unlike the physics model in ``train_amp``, this arm is a plain
+    #: per-sample-capacity network, so the transform is sound ordinary
+    #: augmentation — **but only if the coefficient vector is transformed too**.
+    #: A flip acts on a Noll vector as a signed permutation and ``rot90`` as an
+    #: exact orthogonal matrix that *preserves* radial order ``n`` (both measured
+    #: orthogonal to ~1e-15), so the correct pairing is
+    #: ``(image -> g(image), coeffs -> D @ coeffs)`` with ``D`` obtained from
+    #: :func:`ml.zernike.augment.basis_transform`. Transforming the image alone
+    #: would ask the network to predict a rotated spot from unrotated
+    #: coefficients.
+    #:
+    #: Requires ``n_input == calc_n_zernike_terms(n_max)`` (i.e. no
+    #: ``--input-terms`` trimming), because ``D`` is a square operator on the
+    #: full basis; it is silently skipped when the input is trimmed.
+    geometric_augment: float = 0.0
     #: Target normalisation. ``"peak"`` divides each far-field frame by its
     #: brightest pixel; ``"abs255"`` keeps the absolute detector level.
     #:
@@ -172,6 +204,24 @@ class CoeffTrainConfig:
     seed: int = 0
     device: str = "cuda"
     num_workers: int = 0
+    #: Opt-in ``torch.autocast(dtype=float16)`` around the TRAINING forward/loss,
+    #: with a ``torch.amp.GradScaler`` for the backward/step.
+    #:
+    #: **Off by default, and that is a hardware statement, not timidity.** The bench
+    #: GPU is an sm_61 GTX 1070 Max-Q (Pascal). Its fp16 arithmetic runs at the same
+    #: rate as fp32 -- GP100/GP102 consumer parts have no usable fp16 tensor-core
+    #: throughput, so the tensor cores only serve fp16 *storage* with fp32-rate math.
+    #: A small coefficient-projection + conv decoder is memory-bandwidth bound, so
+    #: AMP buys nothing measurable here and only adds fp16 rounding to the gradient
+    #: path. Treat it as a speed knob to A/B on a newer card, not a free win.
+    #:
+    #: Scope is deliberately narrow: **only** the training step is autocast.
+    #: ``_evaluate`` (which produces the R^2 that selects the checkpoint) and
+    #: ``_save_comparison`` stay fp32, so no reported number can move when this flag
+    #: flips. The model is a plain conv/MLP decoder -- no ``torch.fft``, no complex
+    #: tensors -- so nothing in its forward needs autocast excluded.
+    #: Silently ignored (with a log line) when the resolved device is not CUDA.
+    amp: bool = False
 
     # -- fold selection
     protocol: Literal["file", "objective"] = "file"
@@ -507,7 +557,9 @@ def _init_wandb(
                 "n_val_records": int(n_val),
                 "held_out": str(held_out),
             },
-            reinit=True,
+            # No reinit=True: it silently terminates an already-live run and starts a
+            # fresh one on every call, so a resume in the same process orphans its own
+            # history and _finish_wandb below then closes the wrong run object.
         )
     except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
@@ -644,10 +696,21 @@ def _evaluate(
     preds: list[np.ndarray] = []
     targets: list[np.ndarray] = []
     with torch.no_grad():
+        # HOST TRANSFER INVARIANT: `.cpu()` belongs on the BATCH, never on a sample.
+        # This loop is over `loader` batches, so each of `pred` / `image` crosses
+        # the bus exactly once per batch as a contiguous (B, 1, g, g) block; the
+        # concatenation below only re-lays-out arrays that are already host-side.
+        # Do NOT "helpfully" move a `.cpu()` (or an index) inside a per-sample loop
+        # below: that turns 2 device syncs per batch into 2*B, which dominates the
+        # epoch time for a 64x64 target. Numerically the two are bit-identical
+        # (`.cpu()` copies bytes; it does not reassociate arithmetic).
         for batch in loader:
             coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
             image = batch["image"].to(device, non_blocking=True)
             pred = _predict(model, coeffs)
+            # `.detach()` before `.cpu()`, then `.float()`: the metrics below are
+            # fp32 by construction, so an AMP (fp16) forward must be upcast on the
+            # way off the device rather than reaching numpy in half precision.
             preds.append(pred.detach().float().cpu().numpy())
             targets.append(image.detach().float().cpu().numpy())
     pred_arr = np.concatenate(preds, axis=0) if preds else np.zeros((0, 1, 1, 1), np.float32)
@@ -697,8 +760,13 @@ def _save_comparison(
         count = min(4, batch["coeffs"].shape[0])
         width = batch["coeffs"].shape[1] if n_input is None else n_input
         coeffs = batch["coeffs"][:count, :width].to(device)
-        pred = _predict(model, coeffs).detach().cpu().numpy()
-        true = batch["image"][:count].detach().cpu().numpy()
+        # Same host-transfer invariant as `_evaluate`: one transfer per call, over
+        # the whole `count`-sample sub-slice. `[:count]` stays a slice of the batch
+        # tensor, NOT a Python loop over samples. `.float()` is a no-op for the fp32
+        # path (Tensor.float() returns self when the dtype already matches) and
+        # upcasts an AMP forward so the figure and its R^2 stay fp32.
+        pred = _predict(model, coeffs).detach().float().cpu().numpy()
+        true = batch["image"][:count].detach().float().cpu().numpy()
         fig, axes = plt.subplots(2, count, figsize=(3.0 * count, 6.4))
         for column in range(count):
             axes[0, column].imshow(true[column, 0], cmap="inferno", vmin=0.0, vmax=1.0)
@@ -756,6 +824,10 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     torch.manual_seed(cfg.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(cfg.seed)
+    # Dedicated stream for geometric augmentation, so the draw neither depends on
+    # nor perturbs the main RNG (which drives shuffling / init).
+    geom_generator = torch.Generator()
+    geom_generator.manual_seed(cfg.seed + 9973)
     device = torch.device(cfg.device if torch.cuda.is_available() else "cpu")
     if cfg.image_mode == "sum":
         # Not a style preference: "sum" is the measured trap (R^2 worse than a
@@ -837,6 +909,40 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     )
 
     n_input = _n_input_terms(dataset, cfg)
+    # Geometric augmentation is only meaningful when the coefficient vector spans
+    # the whole Zernike basis: `D` is a square operator, so a trimmed
+    # `--input-terms` input cannot be transformed consistently. Skip it loudly
+    # rather than silently applying half the transform.
+    geom_ops: dict[str, torch.Tensor] = {}
+    if cfg.geometric_augment > 0.0:
+        if n_input != calc_n_zernike_terms(cfg.n_max):
+            logger.warning(
+                "geometric_augment ignored: n_input={} != full basis {} "
+                "(do not combine with --input-terms)",
+                n_input,
+                calc_n_zernike_terms(cfg.n_max),
+            )
+        else:
+            basis = ZernikeBasis(cfg.grid, cfg.n_max).as_tensor()
+            geom_ops = {}
+            for transform in GEOMETRIC_TRANSFORMS:
+                operator = basis_transform(basis, transform).to(device)
+                # HARD guard: the dataset's vector is Noll-ordered INCLUDING
+                # piston (`calc_n_zernike_terms`), while `ZernikeBasis` EXCLUDES
+                # it -- so the operator can be one column short (measured:
+                # n_max=3 -> vector 10, basis K=9). Applying a mismatched D would
+                # silently corrupt the coefficients, so refuse instead.
+                if operator.shape[0] != n_input:
+                    logger.warning(
+                        "geometric_augment ignored: basis operator is {}x{} but the "
+                        "coefficient vector is {} (piston convention mismatch)",
+                        operator.shape[0],
+                        operator.shape[1],
+                        n_input,
+                    )
+                    geom_ops = {}
+                    break
+                geom_ops[transform[0]] = operator
     model_config = ZernikeCoeffConfig(
         n_coeffs=n_input,
         grid=cfg.grid,
@@ -861,6 +967,28 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
     optimizer = _build_optimizer(model, cfg)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
 
+    # ---- AMP gate ----------------------------------------------------------
+    # `device.type` is the resolved device: `cfg.device` is already coerced to CPU
+    # above when CUDA is missing, so this also covers `--device cuda` on a CPU-only
+    # box. The scaler is constructed ONLY when autocast is actually on -- it is a
+    # no-op passthrough when disabled, but not constructing it at all is what makes
+    # "skipped cleanly on CPU / when amp=False" true by construction rather than by
+    # relying on torch's internal disabled-scaler short circuits.
+    device_type = device.type
+    amp_enabled = bool(cfg.amp) and device_type == "cuda"
+    if cfg.amp and not amp_enabled:
+        logger.info(
+            "--amp was requested but the resolved device is {} (not CUDA); training "
+            "in fp32 and skipping GradScaler",
+            device,
+        )
+    scaler = torch.amp.GradScaler(device_type) if amp_enabled else None
+    logger.info(
+        "AMP (fp16 autocast + GradScaler): {}{}",
+        "on" if amp_enabled else "off",
+        "" if amp_enabled else " -- fp32 forward/backward",
+    )
+
     run = _init_wandb(
         cfg,
         model,
@@ -882,13 +1010,59 @@ def train(cfg: CoeffTrainConfig) -> CoeffTrainResult:
             coeffs = batch["coeffs"][..., :n_input].to(device, non_blocking=True)
             image = batch["image"].to(device, non_blocking=True)
             optimizer.zero_grad(set_to_none=True)
-            prediction = _predict(model, coeffs)
-            loss = F.mse_loss(prediction, image)
-            loss.backward()
-            if cfg.grad_clip:
-                torch.nn.utils.clip_grad_norm_(model.parameters(), float(cfg.grad_clip))
-            optimizer.step()
-            running += float(loss.detach()) * coeffs.shape[0]
+            if geom_ops:
+                # Same transform on BOTH sides: the image geometrically, and the
+                # coefficient vector through the induced operator `D`. Drawn from a
+                # dedicated generator so the main RNG stream is untouched.
+                if float(torch.rand(1, generator=geom_generator)) < cfg.geometric_augment:
+                    pick = int(
+                        torch.randint(
+                            0, len(GEOMETRIC_TRANSFORMS), (1,), generator=geom_generator
+                        )
+                    )
+                    transform = GEOMETRIC_TRANSFORMS[pick]
+                    _, _, image, _ = geometric_pair(
+                        torch.zeros_like(image),
+                        torch.zeros_like(image),
+                        image,
+                        transform,
+                    )
+                    coeffs = torch.nn.functional.linear(
+                        coeffs, geom_ops[transform[0]]
+                    )
+            # Only the TRAINING step is autocast. `_evaluate` below -- which
+            # produces the R^2 that selects the checkpoint -- stays fp32, so the
+            # selection decision cannot move when `amp` flips. Safe to autocast here
+            # because the model is a plain conv/MLP decoder: no torch.fft, no complex
+            # tensors anywhere in its forward (see forward_model.py).
+            with torch.autocast(
+                device_type=device_type, dtype=torch.float16, enabled=amp_enabled
+            ):
+                prediction = _predict(model, coeffs)
+                loss = F.mse_loss(prediction, image)
+            if scaler is None:
+                loss.backward()
+                if cfg.grad_clip:
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), float(cfg.grad_clip)
+                    )
+                optimizer.step()
+            else:
+                scaler.scale(loss).backward()
+                if cfg.grad_clip:
+                    # Unscale BEFORE clipping: clip_grad_norm_ on scaled gradients
+                    # would clip against the wrong magnitude and the threshold would
+                    # mean something entirely different.
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(
+                        model.parameters(), float(cfg.grad_clip)
+                    )
+                scaler.step(optimizer)
+                scaler.update()
+            # `.float()` before the float(): autocast promotes mse_loss to fp32 (so
+            # this is currently a no-op) but the reported train_mse must not be able
+            # to depend on that policy staying put.
+            running += float(loss.detach().float()) * coeffs.shape[0]
             seen += coeffs.shape[0]
         scheduler.step()
 
@@ -1062,6 +1236,16 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--device", default=cfg_default.device)
     parser.add_argument("--num-workers", type=int, default=cfg_default.num_workers)
     parser.add_argument(
+        "--amp",
+        action="store_true",
+        default=cfg_default.amp,
+        help=(
+            "opt-in fp16 autocast + GradScaler for the TRAINING step only "
+            "(off by default: the sm_61 bench GPU has no usable fp16 tensor-core "
+            "throughput for this workload, so it is a speed knob to A/B, not a win)"
+        ),
+    )
+    parser.add_argument(
         "--protocol",
         choices=["file", "objective"],
         default=cfg_default.protocol,
@@ -1130,6 +1314,7 @@ def main(argv: list[str] | None = None) -> int:
         seed=args.seed,
         device=args.device,
         num_workers=args.num_workers,
+        amp=bool(args.amp),
         protocol=args.protocol,
         fold=args.fold,
         held_out_path=args.held_out_path,

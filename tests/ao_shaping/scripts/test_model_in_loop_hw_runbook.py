@@ -435,14 +435,15 @@ class TestStagesWithMocks:
         runbook.stage_sweep(args, tmp_path)
 
         debug = runbook.ROOT / "data" / "debug"
-        # debug_run_dir nests a date-stamped dir INSIDE the prefixed one
-        # (data/debug/<prefix>/<YYYYmmdd_HHMMSS>/), so the directory name carries
-        # no timestamp suffix -- globbing "<prefix>_*" matched nothing.
+        # debug_run_dir() nests a date-stamped dir INSIDE the prefixed one, i.e.
+        # debug/model_in_loop_hw_sweep/<stamp>/. The old flat layout was
+        # debug/model_in_loop_hw_sweep_<stamp>/, which is what this glob used to
+        # match and which no longer exists.
         runs = sorted(
-            (p for p in debug.glob("model_in_loop_hw_sweep") if p.is_dir()),
+            (p for p in debug.glob("model_in_loop_hw_sweep/*") if p.is_dir()),
             key=lambda p: p.stat().st_mtime,
         )
-        assert runs, "no model_in_loop_hw_sweep debug dir written"
+        assert runs, "no model_in_loop_hw_sweep/<stamp>/ debug dir written"
         pkls = sorted(runs[-1].rglob("*.pkl"))
         assert pkls, f"no pkl under {runs[-1]}"
         with open(pkls[0], "rb") as fh:

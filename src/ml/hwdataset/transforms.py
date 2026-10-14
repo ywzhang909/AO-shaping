@@ -333,7 +333,7 @@ def zernike_coeffs_to_panel(
     """Expand flat Noll-order Zernike coefficients into a panel phase map.
 
     Units contract: **radians**, Noll order (1-based), piston included. This
-    traces to the hardware path, where ``slm_zernike_pib._zernike_to_phase``
+    traces to the hardware path, where ``slm_zernike_primitives.zernike_to_phase``
     feeds the coefficient vector straight into the radian APIs; no
     ``um_to_waves`` / ``* 2*pi`` conversion applies (doing one is the unit bug
     documented in ``AGENTS.md``).

@@ -24,7 +24,19 @@ from scipy.ndimage import zoom
 # coefficient error 0.2922 and encircled energy 0.3658 from 1 to 24 threads), so
 # the pool size is a pure performance knob here and pinning it keeps the suite
 # inside its time budget without perturbing any assertion.
-torch.set_num_threads(1)
+@pytest.fixture(autouse=True)
+def _single_threaded_torch():
+    """Pin torch to one thread for this module, then hand the pool back.
+
+    Scoped rather than set at import: a module-level set_num_threads(1) is a
+    process-global mutation that leaks into every test collected afterwards, and
+    it did -- test_conventions.py::test_the_thread_budget_is_in_force_in_this_process
+    asserts the harness' 16-thread budget and read 1.
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    yield
+    torch.set_num_threads(previous)
 
 
 from ao_shaping.algorithm.signal_processing.differentiable_shaping import (

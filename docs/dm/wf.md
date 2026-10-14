@@ -1,7 +1,5 @@
 # 波前 RMS 优化 (wf)
 
-> **生成脚本**: [`scripts/generate_wf_report.py`](../../scripts/generate_wf_report.py)
-> **复现命令**: `python scripts/generate_wf_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -45,10 +43,10 @@ graph TD
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `-e, --epochs` | 优化迭代次数 | 20000 |
-| `-r, --wfs_res` | WFS 分辨率 | 768 |
-| `-p, --pupil_diameter` | 瞳孔直径 | 2.7 |
-| `-t, --early_stop_threshold` | 早停阈值 | 0.0 |
-| `--wfs_type` | WFS 类型 (thorlab/sim) | thorlab |
+| `-r, --wfs-res` | WFS 分辨率 | 768 |
+| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-t, --early-stop-threshold` | 早停阈值 | 0.0 |
+| `--wfs-type` | WFS 类型 (thorlab/sim) | thorlab |
 | `--disturbance-cn2` | 仿真 WFS 湍流强度 cn2 (0=不注入像差) | 0 |
 | `--lr` | 覆盖自动学习率 | 自动调度 |
 | `--delta` | 覆盖 SPGD 扰动幅度 δ (V) | 自动调度 |
@@ -57,7 +55,7 @@ graph TD
 
 ```bash
 # 无硬件全仿真 (仿真 DM + 仿真 Shack-Hartmann WFS)
-python src/ao_shaping/main.py wf --wfs_type sim --dm_type sim \
+python src/ao_shaping/main.py wf --wfs-type sim --dm-type sim \
     --disturbance-cn2 2e-13 --lr 8 -e 400
 ```
 

@@ -93,6 +93,14 @@ REPORTS: dict[str, ReportProvenance] = {
         note="系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练",
         extra_scripts=("scripts/sweep_coeff_models.py",),
     ),
+    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
+        script="scripts/generate_asm_vs_fraunhofer_report.py",
+        command="python scripts/generate_asm_vs_fraunhofer_report.py",
+        environment="离线",
+        note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
+        extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
+    ),
+
     "report/inverse_shaping_unet/report.md": ReportProvenance(
         script="scripts/generate_inverse_shaping_report.py",
         command="python scripts/generate_inverse_shaping_report.py",
@@ -525,7 +533,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note=(
             "闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类"
-            "(对数强度梯度差分, --w_loggrad)、2 类早已存在、3 类否决, 附实测依据"
+            "(对数强度梯度差分, --w-loggrad)、2 类早已存在、3 类否决, 附实测依据"
         ),
     ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
@@ -688,6 +696,25 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/compare_loss_algorithms.py --quick --out report/loss_algorithms_smoke",
         environment="离线",
         note="测试用例跑 --quick 生成的冒烟版本",
+    ),
+    # -- shape trials ---------------------------------------------------------
+    "report/shape_trials/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="方斑整形实机对比试验索引；各次试验的目录与结论由此汇总",
+    ),
+    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；"
+        "交错重放入口 scripts/replay_gs_refine_hw.py 仅离线部分经测试",
+    ),
+    "report/shape_trials/online_20261010.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD "
+        "FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，"
+        "scripts/compare_shape_debug.py 只渲染对照图",
     ),
 }
 

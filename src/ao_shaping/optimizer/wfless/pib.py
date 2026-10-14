@@ -1,4 +1,3 @@
-import inspect
 import os
 from contextlib import contextmanager
 
@@ -12,7 +11,7 @@ from ao_shaping.drivers.ccd.common import (
 )
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
-from ao_shaping.algorithm.gradient.adam import AdaMOD, Base
+from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.spots_calc import radius

@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from pathlib import Path
 from typing import Literal
 
 import numpy as np
 import torch
 import wandb
 import matplotlib.pyplot as plt
-from matplotlib import colormaps
 from matplotlib.colors import Normalize
 
 

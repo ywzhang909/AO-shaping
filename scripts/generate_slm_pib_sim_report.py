@@ -665,13 +665,13 @@ def build_markdown(
         "2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。"
     )
     lines.append("")
-    lines.append("- **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)")
+    lines.append("- **相机**: `--cam-type sim` (注册到相机注册表, 读取仿真远场)")
     lines.append(
         "- **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)"
     )
-    lines.append("- **目标**: 方形 (`--target_shape square`, `--target_size` 相机像素)")
+    lines.append("- **目标**: 方形 (`--target-shape square`, `--target-size` 相机像素)")
     lines.append(
-        "- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)"
+        "- **搜索**: SPGD 梯度法 (`--optimizer-type adamod`), Zernike 系数 n≤4 (15 个模式)"
     )
     lines.append("")
     lines.append(

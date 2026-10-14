@@ -231,6 +231,7 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self, **kwargs):
         import matplotlib.pyplot as plt
+
         if self.n_calls >= 0:
             info:dict = self.locals["infos"][0]
             self.history.append(info)
@@ -342,10 +343,11 @@ class CustomCombineWFAndVectorExtractor(BaseFeaturesExtractor):
         return th.cat(encoder_list, dim=1)
 
 
-# 训练模式
-train = True
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+
+    # 训练模式
+    train = True
     device = 'cuda' if th.cuda.is_available() else 'cpu'
 
     # 创建环境

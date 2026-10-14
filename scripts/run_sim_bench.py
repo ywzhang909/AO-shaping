@@ -1,8 +1,8 @@
 """Run the optical runners headlessly under simulation and record a manifest.
 
 Every optical runner can now be exercised without hardware: the camera and SLM
-resolve through the device registries (``--cam_type`` / ``--slm_type``) and the
-DM through ``--dm_type sim``. This script drives those runs with the smallest
+resolve through the device registries (``--cam-type`` / ``--slm-type``) and the
+DM through ``--dm-type sim``. This script drives those runs with the smallest
 useful budget and records what each one produced, so a report generator can read
 artefacts offline instead of re-running anything.
 
@@ -154,28 +154,28 @@ def _build_command(runner: str, epochs: int, out: Path) -> list[str]:
     base = [sys.executable, str(ROOT / "src" / "ao_shaping" / "main.py"), runner]
     if runner == "pib":
         return base + [
-            "--cam_type", "sim", "--dm_type", "sim",
-            "-e", str(epochs), "--root_dir", str(out / "pib"),
+            "--cam-type", "sim", "--dm-type", "sim",
+            "-e", str(epochs), "--root-dir", str(out / "pib"),
         ]
     if runner == "combined":
         return base + [
-            "--cam_type", "sim", "--dm_type", "sim", "-e", str(epochs),
+            "--cam-type", "sim", "--dm-type", "sim", "-e", str(epochs),
             "-d", str(out / "combined"),
         ]
     if runner == "spgd-square":
         return base + [
-            "--cam_type", "sim", "--slm_type", "sim",
+            "--cam-type", "sim", "--slm-type", "sim",
             "-e", str(epochs), "--cam-size", "256", "--zernike-radius", "200",
         ]
     if runner == "slm-gsnet":
         return base + [
-            "spgd", "--cam_type", "sim", "-e", str(epochs),
-            "--cam_size", "256", "--debug",
+            "spgd", "--cam-type", "sim", "-e", str(epochs),
+            "--cam-size", "256", "--debug",
         ]
     if runner == "slm-pib":
         return base + [
-            "spgd", "--cam_type", "sim", "-e", str(epochs),
-            "--cam_size", "256", "--debug",
+            "spgd", "--cam-type", "sim", "-e", str(epochs),
+            "--cam-size", "256", "--debug",
         ]
     raise ValueError(f"unknown runner {runner!r}")
 
