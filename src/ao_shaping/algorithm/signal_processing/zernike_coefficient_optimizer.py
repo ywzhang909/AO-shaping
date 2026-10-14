@@ -201,6 +201,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         dtype: str = "float32",
         far_field_size: int | None = None,
         frozen_modes: tuple[int, ...] = (),
+        pupil_oversampling: int = 1,
     ) -> None:
         """初始化优化器并校验所有输入。
 
@@ -272,6 +273,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 f"({region}), got {far_field_size!r}"
             )
         self._far_field_size = int(far_field_size)
+        if not isinstance(pupil_oversampling, int) or isinstance(pupil_oversampling, bool) or pupil_oversampling < 1:
+            raise ValueError("pupil_oversampling must be a positive integer")
+        self._pupil_oversampling = pupil_oversampling
 
         mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
         for noll in frozen_modes:
@@ -740,12 +744,15 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         (FAR_N = 8192)。
         """
         torch = _torch()
-        from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+        from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
 
         aberration = torch.einsum("j,jhw->hw", coefficients, self._basis_t)
-        patch = (phase_slm + aberration) * self._aperture_t
-        field = amplitude * torch.exp(1j * patch)
-        return focal_intensity(field, self._far_field_size)
+        patch = phase_slm + aberration
+        if self._pupil_oversampling == 1:
+            patch = patch * self._aperture_t
+        return interpolated_pupil_intensity(
+            patch, amplitude, self._far_field_size, self._pupil_oversampling
+        )
 
     def _intensity_loss(
         self, intensity: torch.Tensor, target: torch.Tensor
