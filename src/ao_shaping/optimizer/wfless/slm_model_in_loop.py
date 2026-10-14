@@ -75,7 +75,15 @@ from ao_shaping.tools.kernels.bench_kernels import (
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
+# Device-free (NumPy + stdlib only), so importing it cannot pull in a driver.
+from ao_shaping.optimizer.wfless.adaptive_trust_region import (
+    AdaptiveTrustRegion,
+    AdaptiveTrustRegionConfig,
+)
+
 __all__ = [
+    "AdaptiveTrustRegion",
+    "AdaptiveTrustRegionConfig",
     "Bench",
     "ModelInLoopStatus",
     "RoundRecord",
@@ -234,6 +242,116 @@ def acceptance_verdict(
 
 
 # ---------------------------------------------------------------------------
+# Probe split (train / holdout) resolution
+
+ProbeSplitHook = Callable[
+    [int, int, int, int], tuple[Sequence[int], Sequence[int]]
+]
+"""Signature of an injectable probe-split hook.
+
+Called as ``hook(seed, index, probe_count, holdout_probe_count)`` and expected
+to return ``(train_seeds, holdout_seeds)`` for one round. It exists so a
+cross-validation harness can *choose* which probes train the forward model and
+which are reserved for scoring, without this module knowing anything about
+folds. The default is ``None``, which reproduces the historical arithmetic.
+"""
+
+
+def _coerce_seed_list(values: Sequence[int], expected: int, label: str) -> list[int]:
+    """Validate and normalise one half of a hook-provided split."""
+    try:
+        items = list(values)
+    except TypeError as exc:
+        # A flat pair like ``(1, 2)`` unpacks into two scalars, so the unpack in
+        # the caller cannot be the only guard: report the same ValueError the
+        # documented contract promises instead of leaking a raw TypeError.
+        raise ValueError(
+            f"probe split hook must return a sequence of {expected} {label} "
+            f"seeds, got {values!r}"
+        ) from exc
+    if len(items) != expected:
+        raise ValueError(
+            f"probe split hook returned {len(items)} {label} seeds, expected {expected}"
+        )
+    out: list[int] = []
+    for value in items:
+        as_int = int(value)
+        # Reject 1.5 rather than silently truncating to 1: a fold that indexes
+        # the wrong probe is a wrong *number*, not a rounding nuisance.
+        if as_int != value:
+            raise ValueError(
+                f"probe split hook returned a non-integer {label} seed: {value!r}"
+            )
+        out.append(as_int)
+    return out
+
+
+def _resolve_probe_seeds(
+    seed: int,
+    index: int,
+    probe_count: int,
+    holdout_probe_count: int,
+    hook: ProbeSplitHook | None = None,
+) -> tuple[list[int], list[int]]:
+    """Resolve one round's train and holdout probe seeds.
+
+    With ``hook=None`` this is the historical arithmetic verbatim --
+    ``seed + index * 1000 + k`` for the fit probes and the same expression
+    offset by ``1_000_000`` for the held-out ones -- so a run with no hook is
+    bit-for-bit unchanged.
+
+    A hook must return exactly ``probe_count`` train seeds and
+    ``holdout_probe_count`` holdout seeds, and the two sets must be disjoint:
+    independence of the holdout is the entire point of the split, and a hook
+    that reuses a seed would silently turn the held-out correlation into an
+    in-sample one.
+
+    Args:
+        seed: Base seed from the config.
+        index: Zero-based round index.
+        probe_count: Number of probes Step A cycles through.
+        holdout_probe_count: Number of reserved scoring probes.
+        hook: Optional override; ``None`` selects the legacy arithmetic.
+
+    Returns:
+        A ``(train_seeds, holdout_seeds)`` tuple of integer seeds.
+
+    Raises:
+        ValueError: If the hook returns the wrong shape, a non-integer seed, or
+            seeds that overlap between the two halves.
+    """
+    if hook is None:
+        base = int(seed) + int(index) * 1000
+        return (
+            [base + k for k in range(int(probe_count))],
+            [base + 1_000_000 + k for k in range(int(holdout_probe_count))],
+        )
+
+    result = hook(
+        int(seed), int(index), int(probe_count), int(holdout_probe_count)
+    )
+    try:
+        train_values, holdout_values = result
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "probe split hook must return a (train_seeds, holdout_seeds) pair, "
+            f"got {result!r}"
+        ) from exc
+
+    train = _coerce_seed_list(train_values, int(probe_count), "train")
+    holdout = _coerce_seed_list(
+        holdout_values, int(holdout_probe_count), "holdout"
+    )
+    overlap = sorted(set(train) & set(holdout))
+    if overlap:
+        raise ValueError(
+            "probe split hook reused seed(s) across the split, so the holdout "
+            f"would not be independent: {overlap}"
+        )
+    return train, holdout
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -310,8 +428,40 @@ class SlmModelInLoopConfig:
     holdout_probe_count: int = 2
     """Independent phase probes never used by Step A's fit."""
 
+    probe_split_hook: ProbeSplitHook | None = None
+    """Override which probes train Step A and which are held out.
+
+    ``None`` (default) keeps the historical seed arithmetic exactly:
+    ``seed + index * 1000 + k`` for the fit probes and the same offset by
+    ``1_000_000`` for the held-out ones. A hook is called as
+    ``hook(seed, index, probe_count, holdout_probe_count)`` and returns
+    ``(train_seeds, holdout_seeds)``; it must supply the exact requested
+    counts and must not overlap the two halves, because a reused seed turns
+    the held-out correlation into an in-sample one.
+    """
+
     min_holdout_correlation: float = 0.5
     """Require each independent CCD/model Pearson correlation before Step B."""
+
+    holdout_on_sim: bool = False
+    """Measure the held-out probes on the simulated backend too.
+
+    ``False`` (default) keeps the historical behaviour: on ``cam_type="sim"`` the
+    independent probes are never measured, so ``holdout_correlation`` stays NaN
+    and the forward-model mismatch guard cannot fire. That is right for a smoke
+    run -- the guard exists to stop *hardware* from committing a phase the model
+    merely likes, and there is no such risk in simulation.
+
+    Set it when the held-out score itself is the measurement, which is what the
+    K-fold cross-validation harness does: it needs a number per fold, and it
+    obtains it by running the real loop rather than a re-implementation of Step A.
+
+    Note this changes *what is measured* on sim (extra
+    ``holdout_probe_count`` probe round-trips per round), so it is opt-in. The
+    mismatch **abort** stays gated on ``cam_type != "sim"`` even when this is on:
+    a simulation that aborts would turn a fold into a missing score, and the
+    harness wants the score, not a pass/fail verdict.
+    """
     step_a_lr: float = 0.05
     """Adam lr for the shared aberration fit.
 
@@ -408,6 +558,27 @@ class SlmModelInLoopConfig:
 
     # --- coupling guards ----------------------------------------------------
     trust_region_c_l2: float = 0.5
+    """Fixed per-round L2 cap on the coefficient step, radians.
+
+    ``<= 0`` disables the guard, which is only appropriate when the fit is
+    externally constrained. Used verbatim when
+    :attr:`adaptive_trust_region` is off.
+    """
+
+    adaptive_trust_region: bool = False
+    """Let the cap adapt to accept/reject evidence instead of staying fixed.
+
+    **Defaults to False, and the default path is unchanged**: with the flag off
+    the loop clamps with :attr:`trust_region_c_l2` on every round, exactly as
+    before. With it on, the cap grows after consecutive accepts and shrinks hard on
+    any rejection, bounded by ``[0.25x, 4x]`` of the configured radius.
+
+    The clamp itself is still
+    :func:`trust_region_clamp`; only the radius becomes a schedule. Keeping the
+    single clamp implementation is the point -- a second opinion about where the
+    boundary is would be exactly the drift this worktree has been guarding
+    against elsewhere.
+    """
     """Max L2 norm of the per-round coefficient change (0 disables the guard)."""
 
     acceptance_loss_delta: float = 1e-4
@@ -1684,16 +1855,36 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             w_efficiency=float(config.w_efficiency),
         )
 
+        # Built before any device work so an unusable schedule fails at config
+        # time. ``None`` keeps the fixed-radius default path untouched.
+        trust_region: AdaptiveTrustRegion | None = None
+        if config.adaptive_trust_region:
+            base_radius = float(config.trust_region_c_l2)
+            trust_region = AdaptiveTrustRegion(
+                AdaptiveTrustRegionConfig(
+                    initial_c_l2=max(base_radius, 1e-6),
+                    min_c_l2=max(base_radius, 1e-6) * 0.25,
+                    max_c_l2=max(base_radius, 1e-6) * 4.0,
+                )
+            )
+
         for index in range(int(config.n_rounds)):
             # --- Step A: probe the bench, refit one shared aberration -------
             optimizer = _make_optimizer(config, coefficients, source_amplitude)
             step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr
+            train_seeds, holdout_seeds = _resolve_probe_seeds(
+                config.seed,
+                index,
+                probe_count,
+                int(config.holdout_probe_count),
+                config.probe_split_hook,
+            )
             frames: list[tuple[np.ndarray, np.ndarray]] = []
-            for probe_index in range(probe_count):
+            for probe_index, probe_seed in enumerate(train_seeds):
                 probe = _probe_phase(
                     config.region,
                     config.probe_spread,
-                    config.seed + index * 1000 + probe_index,
+                    probe_seed,
                     smooth=config.cam_type != "sim",
                 )
                 bench.display(probe)
@@ -1757,14 +1948,21 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             loss_before = float(losses[0]) if losses else float("nan")
             loss_after = float(losses[-1]) if losses else float("nan")
             # --- Guard 1: trust region on the coefficient change -----------
+            # The radius is fixed config.trust_region_c_l2 unless the adaptive
+            # schedule is on; the clamp itself is unchanged either way.
+            radius_now = (
+                float(trust_region.radius)
+                if trust_region is not None
+                else float(config.trust_region_c_l2)
+            )
             clamped, step_l2, clamp_applied = trust_region_clamp(
-                fitted, coefficients, float(config.trust_region_c_l2)
+                fitted, coefficients, radius_now
             )
             if clamp_applied:
                 logger.info(
                     "trust region clipped a {:.3f} rad coefficient step to {:.3f} rad",
                     step_l2,
-                    float(config.trust_region_c_l2),
+                    radius_now,
                 )
 
             model_gain, leakage = 1.0, 0.0
@@ -1781,12 +1979,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             del frames
 
             holdout_correlation = float("nan")
-            if config.cam_type != "sim":
+            if config.cam_type != "sim" or config.holdout_on_sim:
                 holdout_correlations: list[float] = []
-                for holdout_index in range(config.holdout_probe_count):
-                    holdout_seed = (
-                        config.seed + 1_000_000 + index * 1000 + holdout_index
-                    )
+                for holdout_index, holdout_seed in enumerate(holdout_seeds):
                     holdout_phase = (
                         _probe_phase(
                             config.region, config.probe_spread, holdout_seed,
@@ -1929,6 +2124,17 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 score_eps=float(config.acceptance_score_eps),
             )
             applied_l2 = float(np.linalg.norm(clamped - coefficients))
+            if trust_region is not None:
+                # Feed the verdict back, then record both radii: the one this
+                # round actually clamped with, and the schedule state after the
+                # update. Reporting only the post-update radius would misdescribe
+                # the step the round committed.
+                trust_region.update(accepted=bool(verdict.accepted))
+                row_trust_state = trust_region.state()
+                row_trust_state["trust_region_c_l2"] = radius_now
+                row_trust_state["trust_region_next_c_l2"] = float(trust_region.radius)
+            else:
+                row_trust_state = {}
             row = {
                 "stage": "round",
                 "round": index + 1,
@@ -1963,8 +2169,17 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 if shaping_loss
                 else float("nan"),
             }
-            if config.cam_type != "sim":
+            if config.cam_type != "sim" or config.holdout_on_sim:
+                # Recorded whenever the held-out probes were actually measured,
+                # which on sim is only under the explicit opt-in. The remaining
+                # fields stay hardware-only: they come from measurements the sim
+                # path does not take.
                 row["holdout_correlation"] = holdout_correlation
+            if row_trust_state:
+                # Opt-in only, so the default history keeps exactly the keys it
+                # had before the adaptive schedule existed.
+                row.update(row_trust_state)
+            if config.cam_type != "sim":
                 row["shaped_prediction_correlation"] = shaped_prediction_correlation
                 row["model_gain"] = model_gain
                 row["flat_leakage"] = leakage

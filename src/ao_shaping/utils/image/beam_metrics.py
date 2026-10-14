@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import Literal
 
 import numpy as np
@@ -39,6 +40,12 @@ __all__ = [
     "clamp_center_to_frame",
     "prepare_frame",
     "locate_peak",
+    "strehl_ratio",
+    "ideal_peak_from_pupil",
+    "beam_radius_second_moment",
+    "m2_from_focus_stack",
+    "m2_reference_relative",
+    "m2_marechal_crosscheck",
 ]
 
 
@@ -681,3 +688,368 @@ def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
         masked = np.where(np.isfinite(masked), masked, 0.0)
     iy, ix = np.unravel_index(int(np.argmax(masked)), masked.shape)
     return int(iy), int(ix)
+
+
+# ---------------------------------------------------------------------------
+# Canonical optical metrics: Strehl ratio and M^2 (ISO-11146 second moment)
+# ---------------------------------------------------------------------------
+
+
+def _clean_frame(frame: np.ndarray, name: str) -> np.ndarray:
+    """Return a finite, 2D float64 copy of *frame* (NaN/Inf -> 0)."""
+    arr = np.asarray(frame, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"{name} must be 2D, got shape {arr.shape}")
+    return np.where(np.isfinite(arr), arr, 0.0)
+
+
+def _second_moment_radii(
+    weight: np.ndarray,
+    pitch_x: float,
+    pitch_y: float,
+) -> tuple[float, float]:
+    """ISO-11146 second-moment radii (w_x, w_y) of a non-negative weight map.
+
+    Per axis w = sqrt(2) * sigma, where sigma is the weighted standard
+    deviation of the coordinate. Negative weights are clipped to zero.
+    """
+    w = np.clip(weight, 0.0, None)
+    total = float(w.sum())
+    if total <= 0.0:
+        return (0.0, 0.0)
+    ny, nx = w.shape
+    ys = np.arange(ny, dtype=np.float64)
+    xs = np.arange(nx, dtype=np.float64)
+    wy = w.sum(axis=1)  # marginal over rows (varies with y)
+    wx = w.sum(axis=0)  # marginal over cols (varies with x)
+    cy = float((ys * wy).sum() / total)
+    cx = float((xs * wx).sum() / total)
+    var_y = float((((ys - cy) ** 2) * wy).sum() / total)
+    var_x = float((((xs - cx) ** 2) * wx).sum() / total)
+    w_y = math.sqrt(2.0 * max(var_y, 0.0)) * pitch_y
+    w_x = math.sqrt(2.0 * max(var_x, 0.0)) * pitch_x
+    return (w_x, w_y)
+
+
+def strehl_ratio(
+    measured: np.ndarray,
+    ideal_peak: float,
+    *,
+    clip: bool = True,
+) -> float:
+    """Optical Strehl ratio: measured far-field peak / ideal far-field peak.
+
+    The optical Strehl ratio is the ratio of the peak intensity of the
+    measured far field to that of a diffraction-limited reference **under
+    identical normalization** (same total energy / exposure / pixel scale).
+    This is a different quantity from
+    :func:`ao_shaping.algorithm.signal_processing.square_shaping.strehl`,
+    which is a mean-centred cosine similarity (shape metric, scale
+    invariant) and is NOT an optical Strehl.
+
+    Args:
+        measured: 2D far-field intensity image (background already removed,
+            e.g. via :func:`prepare_frame`).
+        ideal_peak: Diffraction-limited far-field peak under the same
+            normalization; must be a positive finite number. Compute it
+            with :func:`ideal_peak_from_pupil` through the same FFT
+            pipeline that produced *measured*.
+        clip: Clamp the ratio to ``[0, 1]`` (default ``True``). Detector
+            noise can push a measured peak above the ideal; pass
+            ``clip=False`` to keep the raw ratio for diagnostics.
+
+    Returns:
+        Strehl ratio in ``[0, 1]`` (raw ratio when ``clip=False``).
+
+    Raises:
+        ValueError: if *measured* is not 2D or *ideal_peak* is not positive
+            and finite.
+    """
+    frame = _clean_frame(measured, "measured")
+    ideal = float(ideal_peak)
+    if not math.isfinite(ideal) or ideal <= 0.0:
+        raise ValueError(f"ideal_peak must be positive and finite, got {ideal_peak!r}")
+    ratio = float(frame.max()) / ideal
+    if clip:
+        ratio = min(max(ratio, 0.0), 1.0)
+    return ratio
+
+
+def ideal_peak_from_pupil(
+    amplitude: np.ndarray,
+    *,
+    far_field_padding: float = 1.0,
+) -> float:
+    """Fraunhofer far-field peak of a pupil amplitude (diffraction-limited reference).
+
+    Computes ``max(|FFT2(amplitude)|^2)`` with ``fftshift`` centering, using
+    numpy's unnormalized FFT convention. The value is only meaningful
+    together with a measured far field produced by the **same** pipeline
+    (same padding, same normalization) — see :func:`strehl_ratio`.
+
+    Args:
+        amplitude: 2D pupil field amplitude (real or complex).
+        far_field_padding: Zero-pad the pupil to ``round(size * padding)``
+            (centered) before the FFT to supersample the far field
+            (default ``1.0`` = no padding).
+
+    Returns:
+        Far-field peak intensity (unnormalized FFT units).
+
+    Raises:
+        ValueError: if *amplitude* is not 2D or *far_field_padding* < 1.
+    """
+    amp = np.asarray(amplitude, dtype=np.complex128)
+    if amp.ndim != 2:
+        raise ValueError(f"amplitude must be 2D, got shape {amp.shape}")
+    pad = float(far_field_padding)
+    if not math.isfinite(pad) or pad < 1.0:
+        raise ValueError(f"far_field_padding must be >= 1.0, got {far_field_padding!r}")
+    if pad > 1.0:
+        h, w = amp.shape
+        nh, nw = int(round(h * pad)), int(round(w * pad))
+        canvas = np.zeros((nh, nw), dtype=np.complex128)
+        y0, x0 = (nh - h) // 2, (nw - w) // 2
+        canvas[y0 : y0 + h, x0 : x0 + w] = amp
+        amp = canvas
+    ff = np.fft.fftshift(np.fft.fft2(amp))
+    return float(np.max(np.abs(ff) ** 2))
+
+
+def beam_radius_second_moment(
+    intensity: np.ndarray,
+    *,
+    pixel_pitch_m: float = 1.0,
+) -> float:
+    """ISO-11146 second-moment beam radius (geometric mean of the two axes).
+
+    Per axis ``w = sqrt(2) * sigma`` (sigma = intensity-weighted standard
+    deviation); the returned radius is ``sqrt(w_x * w_y)``. For a Gaussian
+    this equals the 1/e^2 radius exactly.
+
+    Remove the background first (e.g. :func:`prepare_frame`): read noise
+    inflates the second moment quadratically with frame size.
+
+    Args:
+        intensity: 2D intensity image.
+        pixel_pitch_m: Physical pixel pitch in meters (default ``1.0`` =
+            result in pixels).
+
+    Returns:
+        Beam radius (pitch-scaled). ``0.0`` for an all-zero frame.
+
+    Raises:
+        ValueError: if *intensity* is not 2D or *pixel_pitch_m* <= 0.
+    """
+    frame = _clean_frame(intensity, "intensity")
+    pitch = float(pixel_pitch_m)
+    if not math.isfinite(pitch) or pitch <= 0.0:
+        raise ValueError(f"pixel_pitch_m must be positive, got {pixel_pitch_m!r}")
+    w_x, w_y = _second_moment_radii(frame, pitch, pitch)
+    return float(math.sqrt(w_x * w_y))
+
+
+def m2_from_focus_stack(
+    fields: Sequence[np.ndarray],
+    z_positions_m: Sequence[float],
+    *,
+    wavelength_m: float,
+    pixel_pitch_m: float,
+) -> float:
+    """ISO-11146 M^2 from a focus stack (absolute method; multi-plane only).
+
+    Fits ``w^2(z) = A z^2 + B z + C`` to second-moment radii measured at
+    several known axial positions, then
+
+        w0^2 = C - B^2 / (4A),   M^2 = (pi * w0 * sqrt(A)) / lambda
+
+    which is the ISO-11146 parabola fit of ``w^2(z) = w0^2 +
+    (M^2 lambda / (pi w0))^2 (z - z0)^2``.
+
+    **A single focal plane cannot measure M^2 absolutely** — the divergence
+    term requires propagation. For the single-plane bench use
+    :func:`m2_reference_relative`; this function is the absolute reference
+    for simulation / focus-stack data only.
+
+    Args:
+        fields: Intensity images at the given z positions (background
+            removed).
+        z_positions_m: Axial positions in meters (>= 3 distinct values).
+        wavelength_m: Wavelength in meters.
+        pixel_pitch_m: Physical pixel pitch in meters.
+
+    Returns:
+        M^2 (dimensionless). ``float('inf')`` when the fit is
+        non-physical (A <= 0 or w0^2 <= 0).
+
+    Raises:
+        ValueError: on length mismatch, < 3 planes, or non-positive
+            wavelength / pitch.
+    """
+    if len(fields) != len(z_positions_m):
+        raise ValueError(
+            f"fields ({len(fields)}) and z_positions_m ({len(z_positions_m)}) "
+            "must have the same length"
+        )
+    if len(fields) < 3:
+        raise ValueError(
+            "M^2 cannot be measured absolutely from fewer than 3 focal planes; "
+            "use m2_reference_relative for a single plane"
+        )
+    lam = float(wavelength_m)
+    pitch = float(pixel_pitch_m)
+    if not math.isfinite(lam) or lam <= 0.0:
+        raise ValueError(f"wavelength_m must be positive, got {wavelength_m!r}")
+    if not math.isfinite(pitch) or pitch <= 0.0:
+        raise ValueError(f"pixel_pitch_m must be positive, got {pixel_pitch_m!r}")
+    z = np.asarray(z_positions_m, dtype=np.float64)
+    if len(np.unique(z)) < 3:
+        raise ValueError("z_positions_m must contain at least 3 distinct values")
+    w = np.array(
+        [beam_radius_second_moment(f, pixel_pitch_m=pitch) for f in fields],
+        dtype=np.float64,
+    )
+    if np.any(w <= 0.0):
+        return float("inf")
+    a, b, c = (float(v) for v in np.polyfit(z, w**2, 2))
+    if a <= 0.0:
+        return float("inf")
+    w0_sq = c - (b * b) / (4.0 * a)
+    if w0_sq <= 0.0:
+        return float("inf")
+    return float(math.pi * math.sqrt(w0_sq) * math.sqrt(a) / lam)
+
+
+def m2_reference_relative(
+    field: np.ndarray,
+    ideal_field: np.ndarray,
+    *,
+    wavelength_m: float,
+    pixel_pitch_m: float,
+) -> float:
+    """Reference-relative M^2 at a single plane (primary API for this bench).
+
+    The second-moment beam parameter product ``BPP = w * theta`` is
+    invariant under free propagation, with ``theta = lambda * sigma_k``
+    where ``sigma_k`` is the second-moment radius of the angular spectrum
+    ``|FFT(field)|^2``. The absolute ``M^2 = pi * w * sigma_k`` is
+    wavelength-independent (lambda cancels between theta and sigma_k); the
+    practical single-plane quantity is the ratio against a known
+    diffraction-limited reference field sampled at the same plane:
+
+        M^2_rel = (w * sigma_k) / (w_ref * sigma_k_ref)
+
+    **This is relative to ideal_field, not an absolute M^2.** An absolute
+    value requires a focus stack — see :func:`m2_from_focus_stack`.
+
+    Args:
+        field: Complex (or real) field amplitude at the measurement plane.
+        ideal_field: Diffraction-limited reference field amplitude at the
+            same plane (same pixel pitch and sampling).
+        wavelength_m: Wavelength in meters. Cancels in the ratio; accepted
+            for API symmetry with the other M^2 helpers.
+        pixel_pitch_m: Physical pixel pitch in meters.
+
+    Returns:
+        Relative M^2 (>= ~1 for a well-sampled beam; 1.0 when *field*
+        matches *ideal_field*). ``float('inf')`` when the reference has
+        zero power.
+
+    Raises:
+        ValueError: on non-2D inputs, shape mismatch, or non-positive
+            wavelength / pitch.
+    """
+    amp = np.asarray(field, dtype=np.complex128)
+    ref = np.asarray(ideal_field, dtype=np.complex128)
+    if amp.ndim != 2 or ref.ndim != 2:
+        raise ValueError(
+            f"field and ideal_field must be 2D, got {amp.shape} and {ref.shape}"
+        )
+    if amp.shape != ref.shape:
+        raise ValueError(
+            f"field shape {amp.shape} != ideal_field shape {ref.shape}"
+        )
+    lam = float(wavelength_m)
+    pitch = float(pixel_pitch_m)
+    if not math.isfinite(lam) or lam <= 0.0:
+        raise ValueError(f"wavelength_m must be positive, got {wavelength_m!r}")
+    if not math.isfinite(pitch) or pitch <= 0.0:
+        raise ValueError(f"pixel_pitch_m must be positive, got {pixel_pitch_m!r}")
+
+    def bpp(amp2d: np.ndarray) -> float:
+        near = np.abs(amp2d) ** 2
+        near = np.where(np.isfinite(near), near, 0.0)
+        if near.sum() <= 0.0:
+            return float("nan")
+        w_x, w_y = _second_moment_radii(near, pitch, pitch)
+        w = math.sqrt(w_x * w_y)
+        power = np.abs(np.fft.fftshift(np.fft.fft2(amp2d))) ** 2
+        ny, nx = power.shape
+        fy = np.fft.fftshift(np.fft.fftfreq(ny, d=pitch))
+        fx = np.fft.fftshift(np.fft.fftfreq(nx, d=pitch))
+        sk_x, sk_y = _second_moment_radii(power, 1.0 / (nx * pitch), 1.0 / (ny * pitch))
+        sigma_k = math.sqrt(sk_x * sk_y)
+        return w * sigma_k
+
+    bpp_meas = bpp(amp)
+    bpp_ref = bpp(ref)
+    if not math.isfinite(bpp_ref) or bpp_ref <= 0.0:
+        return float("inf")
+    if not math.isfinite(bpp_meas):
+        return float("inf")
+    return float(bpp_meas / bpp_ref)
+
+
+def m2_marechal_crosscheck(
+    phase_rad: np.ndarray,
+    *,
+    wavelength_m: float,
+    aperture_weight: np.ndarray | None = None,
+) -> float:
+    """Maréchal cross-check: Strehl ~ exp(-sigma_phi^2), M^2 ~ 1/Strehl.
+
+    ``phase_rad`` is wavefront phase in **radians**, so the Maréchal
+    exponent is simply ``-(sigma_phi_rad)^2``: the ``2*pi/lambda`` factor
+    converts OPD-in-meters to radians and cancels here. ``wavelength_m``
+    is accepted for API symmetry with the other M^2 helpers and is not
+    used when the phase is already in radians.
+
+    This is a **sanity check, not a measurement**: the Maréchal
+    approximation is only valid for low aberration
+    (``sigma_phi <~ pi/2`` rad). Use :func:`m2_reference_relative` (single
+    plane) or :func:`m2_from_focus_stack` (focus stack) for real values.
+
+    Args:
+        phase_rad: 2D phase map in radians.
+        wavelength_m: Wavelength in meters (unused for radian input; kept
+            for API symmetry).
+        aperture_weight: Optional non-negative aperture mask / weight; the
+            phase variance is computed weighted by it. ``None`` = all ones.
+
+    Returns:
+        ``exp(sigma_phi_rad^2)`` — the Maréchal-approximated M^2 proxy
+        (1.0 for a perfect wavefront). ``float('inf')`` when the aperture
+        weight sums to zero.
+
+    Raises:
+        ValueError: if *phase_rad* is not 2D or *wavelength_m* <= 0.
+    """
+    ph = _clean_frame(phase_rad, "phase_rad")
+    lam = float(wavelength_m)
+    if not math.isfinite(lam) or lam <= 0.0:
+        raise ValueError(f"wavelength_m must be positive, got {wavelength_m!r}")
+    if aperture_weight is None:
+        wt = np.ones_like(ph)
+    else:
+        wt = _clean_frame(aperture_weight, "aperture_weight")
+        if wt.shape != ph.shape:
+            raise ValueError(
+                f"aperture_weight shape {wt.shape} != phase_rad shape {ph.shape}"
+            )
+        wt = np.clip(wt, 0.0, None)
+    wsum = float(wt.sum())
+    if wsum <= 0.0:
+        return float("inf")
+    mean = float((wt * ph).sum() / wsum)
+    var = float((wt * (ph - mean) ** 2).sum() / wsum)
+    return float(math.exp(var))

@@ -636,10 +636,54 @@ REPORTS: dict[str, ReportProvenance] = {
         note="2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染",
         extra_scripts=("scripts/generate_gif_from_pkl.py",),
     ),
+    "report/shape_trials/sim_metrics_waves.md": ReportProvenance(
+        script=HANDWRITTEN,
+        command=(
+            "python -m pytest tests/ao_shaping/utils/test_beam_metrics.py "
+            "tests/ao_shaping/algorithm/signal_processing/test_square_shaping.py "
+            "tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py "
+            "tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_loop_invariants.py "
+            "tests/ao_shaping/optimizer/wfless/test_adaptive_trust_region.py "
+            "tests/ao_shaping/display/test_slm_model_in_loop_display.py "
+            "tests/ao_shaping/ml/shaping/test_gs_reference.py "
+            "tests/ao_shaping/ml/zernike/test_cv_harness.py "
+            "tests/ao_shaping/ml/zernike/test_promotion_gate.py "
+            "tests/ao_shaping/scripts/test_report_provenance.py"
+        ),
+        environment="离线",
+        note=(
+            "五波交付记录 (规范化 Strehl/M² 指标 / GS 金标 / 留出探针 K 折 / "
+            "强度域开关 + 晋升门 / 自适应信赖域), 重点是「默认路径逐位不变」的钉法与"
+            "已知的既有基线失败; 两次真实测量见同目录 model_in_loop_cv.md 与 "
+            "gs_golden_reference.md"
+        ),
+    ),
     "report/shape_trials/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note="方形整形实验目录索引",
+    ),
+    "report/shape_trials/gs_golden_reference.md": ReportProvenance(
+        script="scripts/generate_gs_golden_reference.py",
+        command="python scripts/generate_gs_golden_reference.py",
+        environment="离线",
+        note=(
+            "GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; "
+            "相位由 ml.shaping.gs_reference 委托 canonical gs_shape 产出, 远场用 canonical "
+            "forward_intensity, 指标 (含 Strehl / 相对 M²) 全取自 "
+            "ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实机记录为 GS 输给平相"
+        ),
+    ),
+    "report/shape_trials/model_in_loop_cv.md": ReportProvenance(
+        script="scripts/generate_model_in_loop_cv_report.py",
+        command="python scripts/generate_model_in_loop_cv_report.py",
+        environment="离线",
+        note=(
+            "model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "
+            "轮换划分的配对对比; 经 probe_split_hook / holdout_on_sim 两个默认关闭的 "
+            "开关驱动真实 optimize_slm_model_in_loop, 不复刻 Step A; "
+            "统计量全部取自 ml.zernike.cv_harness 与 ml.zernike.eval_stats"
+        ),
     ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(

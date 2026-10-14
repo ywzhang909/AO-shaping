@@ -22,6 +22,7 @@ torch 仅 ``differentiable_shape`` 需用, 导入是惰性的。
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -87,6 +88,25 @@ class SquareShapingConfig:
     zero_order_margin_px: float = 10.0
     far_field_padding: int = 8
     seed: int = 0
+    w_loggrad: float = 0.0
+    """Weight of the intensity-space structural term (default OFF).
+
+    ``0.0`` reproduces the pre-existing behaviour **bit for bit**: the term is
+    skipped entirely rather than added with a zero coefficient, so turning it on
+    is a deliberate act and turning it off restores the exact previous numbers.
+
+    When > 0 the shaping score becomes
+    ``composite_score(metrics) - w_loggrad * log_gradient_difference_metric(...)``.
+    The term is the repo's already-canonical intensity-space structural metric
+    (:func:`ao_shaping.utils.image.target.log_gradient_difference_metric`), chosen
+    over inventing a new one: a speckled frame and a smooth one can enclose the
+    same power but have very different log gradients, which is exactly the
+    discrimination ``PIB`` / ``CV`` cannot make.
+
+    This flag does **not** affect :func:`gs_shape`: GS is an alternating
+    projection, not a descent on a scalar loss, so it has nowhere to consume a
+    penalty term. It applies to the scalar-scored methods (:func:`spgd_shape`).
+    """
 
     def __post_init__(self) -> None:
         if self.far_field_padding < 1:
@@ -95,6 +115,10 @@ class SquareShapingConfig:
             )
         if self.target_kind not in ("square", "circle", "gaussian", "annulus"):
             raise ValueError(f"unknown target_kind {self.target_kind!r}")
+        if not math.isfinite(self.w_loggrad) or self.w_loggrad < 0.0:
+            raise ValueError(
+                f"w_loggrad must be >= 0 and finite, got {self.w_loggrad!r}"
+            )
 
     @property
     def far_field_size(self) -> int:
@@ -316,7 +340,15 @@ def uniformity_cv(
 
 
 def strehl(intensity: np.ndarray, target: np.ndarray) -> float:
-    """仿真图样与目标图样的归一化重叠 (类 Strehl)。"""
+    """仿真图样与目标图样的归一化重叠 (类 Strehl)。
+
+    .. deprecated:: naming
+        这是**均值中心化的余弦相似度** (形状相似度量), 不是光学 Strehl 比:
+        它对整体尺度不变, 也不参照衍射极限理想远场。光学 Strehl 请使用
+        :func:`ao_shaping.utils.image.beam_metrics.strehl_ratio`。
+        数值行为已冻结 —— ``compute_bench_metrics["Strehl"]`` 与既有测试
+        逐字节依赖本实现, 不得改动。
+    """
     a = intensity
     b = target
     a = a - a.mean()
@@ -400,6 +432,54 @@ def composite_score(
     pib = m.get("PIB", 0.0)
     cv = m.get("CV", float("inf"))
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif)
+
+
+def shaping_score(
+    intensity: np.ndarray,
+    target: np.ndarray,
+    *,
+    center: tuple[int, int] | None = None,
+    w_loggrad: float = 0.0,
+) -> float:
+    """Scalar shaping score, optionally including the intensity-space term.
+
+    With ``w_loggrad == 0`` this is **exactly** :func:`composite_score` applied to
+    :func:`compute_bench_metrics` -- the branch returns early rather than adding a
+    zero coefficient, so the default path stays bit-for-bit identical and no new
+    computation is performed on it.
+
+    With ``w_loggrad > 0`` the returned value is
+    ``composite - w_loggrad * log_gradient_difference_metric(intensity, target)``.
+    Both halves are "higher is better", so the penalty is *subtracted*.
+
+    The structural term is the repo's canonical intensity-space metric
+    (:func:`~ao_shaping.utils.image.target.log_gradient_difference_metric`), not a
+    new one: a speckled frame and a smooth frame can enclose the same power yet
+    differ enormously in log gradient, which is the discrimination ``PIB``/``CV``
+    cannot make and which matters when a shaping run is scored on structure rather
+    than throughput.
+
+    Args:
+        intensity: Far-field intensity.
+        target: Target intensity on the same grid.
+        center: 0-order as ``(cx, cy)``; located by ``argmax`` when ``None``.
+        w_loggrad: Weight of the structural penalty; must be >= 0 and finite.
+
+    Returns:
+        A scalar to maximise.
+
+    Raises:
+        ValueError: if ``w_loggrad`` is negative or non-finite.
+    """
+    if not math.isfinite(w_loggrad) or w_loggrad < 0.0:
+        raise ValueError(f"w_loggrad must be >= 0 and finite, got {w_loggrad!r}")
+    if w_loggrad <= 0.0:
+        return composite_score(compute_bench_metrics(intensity, target, center=center))
+
+    from ao_shaping.utils.image.target import log_gradient_difference_metric
+
+    base = composite_score(compute_bench_metrics(intensity, target, center=center))
+    return base - w_loggrad * log_gradient_difference_metric(intensity, target)
 
 
 # ---------------------------------------------------------------------------
@@ -807,8 +887,11 @@ def spgd_shape(
         inten = _forward_intensity(upsample(vec), cfg)
         inten = inten / inten.max()
         center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
-        m = compute_bench_metrics(inten, target, center=center)
-        return composite_score(m)
+        # Default cfg.w_loggrad == 0 -> shaping_score == the historical
+        # composite_score, bit for bit.
+        return shaping_score(
+            inten, target, center=center, w_loggrad=float(cfg.w_loggrad)
+        )
 
     score = eval_score(phase_flat)
     g = np.zeros(n_par)
