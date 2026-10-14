@@ -251,20 +251,17 @@ class PhaseUnwrapper:
 
     def unwrap(self, wrapped: np.ndarray, strategy: UnwrapStrategy | None = None) -> np.ndarray:
         strategy = strategy or self.strategy
-        if strategy == UnwrapStrategy.GOLDSTEIN:
-            return self.goldstein_unwrap(wrapped)
-        elif strategy == UnwrapStrategy.QUALITY_GUIDED:
-            return self.quality_guided_unwrap(wrapped)
-        elif strategy == UnwrapStrategy.ITERATIVE:
-            return self.iterative_unwrap(wrapped)
-        elif strategy == UnwrapStrategy.LEAST_SQUARES:
-            return self.least_squares_unwrap(wrapped)
-        elif strategy == UnwrapStrategy.REGION_GROWING:
-            return self.region_growing_unwrap(wrapped)
-        elif strategy == UnwrapStrategy.SIMPLE:
-            return self.simple_unwrap(wrapped)
-        else:
-            return self.iterative_unwrap(wrapped)
+        handlers = {
+            UnwrapStrategy.GOLDSTEIN: self.goldstein_unwrap,
+            UnwrapStrategy.QUALITY_GUIDED: self.quality_guided_unwrap,
+            UnwrapStrategy.ITERATIVE: self.iterative_unwrap,
+            UnwrapStrategy.LEAST_SQUARES: self.least_squares_unwrap,
+            UnwrapStrategy.REGION_GROWING: self.region_growing_unwrap,
+            UnwrapStrategy.SIMPLE: self.simple_unwrap,
+        }
+        # Unknown / missing strategy falls back to iterative, matching the
+        # historical else-branch behaviour.
+        return handlers.get(strategy, self.iterative_unwrap)(wrapped)
 
     def unwrap_fast(self, wrapped: np.ndarray) -> np.ndarray:
         h, w = wrapped.shape

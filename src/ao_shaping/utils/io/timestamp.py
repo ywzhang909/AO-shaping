@@ -188,30 +188,27 @@ class TimestampParser:
         # Extract basename if path provided
         name = Path(filename).stem
 
+        # unix-epoch formats map to a divisor (seconds per tick); anything else
+        # is a strptime format string handled in the ``else`` below.
+        unix_divisors = {"unix_ms": 1_000, "unix_s": 1, "unix_us": 1_000_000}
+
         # Try each pattern
         for pattern_name, pattern, fmt in self.PATTERNS:
             match = pattern.match(name)
-            if match:
-                if fmt == "unix_ms":
-                    ts = int(match.group(1))
-                    return datetime.fromtimestamp(ts / 1000)
-                elif fmt == "unix_s":
-                    ts = int(match.group(1))
-                    return datetime.fromtimestamp(ts)
-                elif fmt == "unix_us":
-                    ts = int(match.group(1))
-                    return datetime.fromtimestamp(ts / 1_000_000)
-                else:
-                    last_group_end = max(
-                        match.end(i)
-                        for i in range(1, len(match.groups()) + 1)
-                        if match.group(i) is not None
-                    )
-                    ts_portion = name[:last_group_end]
-                    try:
-                        return datetime.strptime(ts_portion, fmt)
-                    except ValueError:
-                        continue
+            if not match:
+                continue
+            if fmt in unix_divisors:
+                return datetime.fromtimestamp(int(match.group(1)) / unix_divisors[fmt])
+            last_group_end = max(
+                match.end(i)
+                for i in range(1, len(match.groups()) + 1)
+                if match.group(i) is not None
+            )
+            ts_portion = name[:last_group_end]
+            try:
+                return datetime.strptime(ts_portion, fmt)
+            except ValueError:
+                continue
 
         # Try custom formats
         for fmt in self.CUSTOM_FORMATS:
