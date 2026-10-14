@@ -3,6 +3,8 @@
 import numpy as np
 
 from scripts.slm.compare_model_in_loop_unet import _input, _score
+from scripts.slm.compare_model_in_loop_saved_checkpoints import check_disjoint
+import pytest
 
 
 def test_unobserved_energy_does_not_change_metrics() -> None:
@@ -26,3 +28,17 @@ def test_phase_input_is_two_channel_phasor() -> None:
                            exposure_channel=True)
     assert tuple(with_exposure.shape) == (3, 192, 192)
     assert np.allclose(with_exposure[2], np.log10(0.5))
+
+
+def test_shape_score_uses_shape_mask() -> None:
+    mask = np.ones((192, 192), dtype=bool)
+    image = np.zeros((192, 192), dtype=float)
+    image[78:114, 78:114] = 1
+    square = _score(image, image, 36, mask, target_shape="square")
+    circle = _score(image, image, 36, mask, target_shape="circle")
+    assert square["ee"] != circle["ee"]
+
+
+def test_checkpoint_phase_overlap_is_rejected() -> None:
+    with pytest.raises(ValueError, match="overlaps"):
+        check_disjoint({"shared", "train"}, {"shared", "eval"})

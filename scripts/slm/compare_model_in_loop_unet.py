@@ -20,7 +20,8 @@ import torch
 from torch.nn import functional as F
 
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid
-from ao_shaping.utils.image.beam_metrics import compute_square_metrics, zero_order_center
+from ao_shaping.optimizer.wfless.slm_model_in_loop import _metrics_at
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ml.phase.unet import UNetGenerator
 
 
@@ -146,11 +147,12 @@ def _fit(
 
 def _score(
     image: np.ndarray, measured: np.ndarray, side: int, observed_mask: np.ndarray,
+    *, target_shape: str = "square",
 ) -> dict[str, float]:
     a = np.where(observed_mask, np.maximum(np.asarray(image, dtype=np.float64), 0), 0)
     b = np.where(observed_mask, np.maximum(np.asarray(measured, dtype=np.float64), 0), 0)
     corr = float(np.corrcoef(a[observed_mask], b[observed_mask])[0, 1])
-    metric = compute_square_metrics(a, side, (96.0, 96.0))
+    metric = _metrics_at(a, side, (96, 96), target_shape=target_shape)
     return {
         "correlation": corr,
         "cv": float(metric["uniformity_cv"]),

@@ -378,20 +378,15 @@ class TestStepSinkCallContract:
         assert [p["round"] for p in shaped] == [1, 2]
         assert all(p["probe_index"] is None and p["probe_count"] is None for p in shaped)
 
-    def test_raw_saturation_scalars_are_finite_and_ordered(self, run: dict) -> None:
-        """``raw_peak >= raw_p999 >= raw_mean``, finite, and plain ``float``.
-
-        The ordering holds for any real frame, so it is a cheap check that the
-        three scalars came from ONE array rather than being mixed across
-        measurements. ``type is float`` is pinned because a ``numpy.float64``
-        would survive arithmetic but break a JSON/CSV sink in the consumer.
-        """
+    def test_raw_saturation_scalars_are_finite_and_bounded(self, run: dict) -> None:
+        """A sparse bright spot can put the mean above the 99th percentile."""
         for stage, payload in run["sink"].calls:
             for key in ("raw_peak", "raw_p999", "raw_mean"):
                 value = payload[key]
                 assert type(value) is float, f"{stage}/{key} is {type(value).__name__}"
                 assert np.isfinite(value), f"{stage}/{key}"
-            assert payload["raw_peak"] >= payload["raw_p999"] >= payload["raw_mean"], stage
+            assert payload["raw_peak"] >= payload["raw_p999"], stage
+            assert payload["raw_peak"] >= payload["raw_mean"], stage
 
 
 # ---------------------------------------------------------------------------
@@ -457,7 +452,7 @@ class TestSinkFiresOnRejectedAndAbortingRounds:
     the round that got rolled back -- and the round that ended the run -- would
     leave no trace in a ``--debug`` dump built on ``callback``.
 
-    ``acceptance_score_eps`` is set absurdly large so every round from the second
+    ``acceptance_score_eps`` is set strongly negative so every round from the second
     onward is rejected on the score axis, and ``max_rejection_streak=1`` makes the
     first rejection abort. Neither field is validated, so this is a legal config,
     and it drives the run down the exact ``break`` this test cares about.
@@ -471,7 +466,7 @@ class TestSinkFiresOnRejectedAndAbortingRounds:
                 monkeypatch,
                 {
                     "n_rounds": 3,
-                    "acceptance_score_eps": 1e9,
+                    "acceptance_score_eps": -1e9,
                     "max_rejection_streak": 1,
                 },
             )
@@ -573,7 +568,14 @@ class TestRecorderContractIsUntouched:
         self, with_sink: dict, without_sink: dict
     ) -> None:
         """Not just the same keys -- the same values, to the bit."""
-        assert with_sink["history"] == without_sink["history"]
+        for actual, expected in zip(with_sink["history"], without_sink["history"], strict=True):
+            assert actual.keys() == expected.keys()
+            for key in actual:
+                a, b = actual[key], expected[key]
+                assert a == b or (
+                    isinstance(a, float) and isinstance(b, float)
+                    and np.isnan(a) and np.isnan(b)
+                ), key
 
     def test_rows_stay_flat_scalars_only(self, with_sink: dict) -> None:
         """Every value must still survive a CSV/DataFrame round trip."""

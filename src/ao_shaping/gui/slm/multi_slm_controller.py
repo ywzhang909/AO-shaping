@@ -12,6 +12,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
+from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
@@ -28,6 +29,29 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # has historically hung on SLM_Ctrl_ReadSD after rapid open/close cycles, so the
 # probe runs in a daemon thread and is abandoned after this interval.
 SLM_PROBE_TIMEOUT_S = 3.0
+
+
+def force_close_daheng_camera(cam_id: int = 0) -> bool:
+    """Force-close the Daheng camera by creating a temporary instance and closing it.
+
+    This helps when the camera is stuck in "Access denied" state from a previous
+    session that didn't close properly. Creates a new DahengCamera instance with
+    the given cam_id and calls close() to release the device handle.
+
+    Args:
+        cam_id: Camera ID (default 0 for the first camera)
+
+    Returns:
+        True if close was attempted, False if DahengCamera is not available
+    """
+    try:
+        cam = DahengCamera(cam_id=cam_id)
+        cam.close()
+        logger.info(f"Daheng camera {cam_id} force-closed")
+        return True
+    except Exception as e:
+        logger.warning(f"Failed to force-close Daheng camera {cam_id}: {e}")
+        return False
 
 
 # ============================================================================
@@ -68,6 +92,11 @@ def _initialize_slm_state() -> None:
             st.session_state[f"{prefix}_preview_colormap"] = PREVIEW_COLORMAP_DEFAULT
             st.session_state[f"{prefix}_shift_x"] = 0
             st.session_state[f"{prefix}_shift_y"] = 0
+            st.session_state[f"{prefix}_width"] = 1920
+            st.session_state[f"{prefix}_height"] = 1200
+            st.session_state[f"{prefix}_pixel_pitch_um"] = 8.0
+            st.session_state[f"{prefix}_bits"] = 10
+            st.session_state[f"{prefix}_use_120hz"] = False
             st.session_state[f"{prefix}_use_correction"] = True
             st.session_state[f"{prefix}_toggle_phase_a"] = None
             st.session_state[f"{prefix}_toggle_phase_b"] = None
@@ -451,23 +480,18 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     Shared by ``connect_slm`` and the closed-loop shaping re-acquisition path
     (``shaping_controls._reacquire_slm_handle``): after ``Santec.open()`` the
     device has read its serial, loaded its per-serial config file and applied
-    defaults, so every derived widget default (wavelength, shift, panel
-    geometry, 2π gray) must be re-synced from the device, not kept stale.
+    defaults.
+
+    Note: Widget-backed keys (video_mode, shift_x, shift_y, wavelength, width,
+    height, pixel_pitch_um, bits, use_120hz) are intentionally NOT synced here
+    because the sidebar widgets for them have already been instantiated.
+    Modifying their session state keys after widget instantiation raises a
+    StreamlitAPIException. The SLM object itself retains the correct values;
+    widgets will reflect reality on the next rerun.
     """
     prefix = f"slm{slm_num}"
-    st.session_state[f"{prefix}_video_mode"] = (
-        "内存模式" if slm.video_mode == 0 else "DVI模式"
-    )
-    st.session_state[f"{prefix}_shift_x"] = slm.shift_x
-    st.session_state[f"{prefix}_shift_y"] = slm.shift_y
-    st.session_state[f"{prefix}_wavelength"] = slm.wavelength
     st.session_state[f"{prefix}_phase_preview"] = None
     st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
-    st.session_state[f"{prefix}_width"] = slm.Panel_Res[0]
-    st.session_state[f"{prefix}_height"] = slm.Panel_Res[1]
-    st.session_state[f"{prefix}_pixel_pitch_um"] = slm.Pitch_um
-    st.session_state[f"{prefix}_bits"] = slm.Gray_Scale_bits
-    st.session_state[f"{prefix}_use_120hz"] = slm._use_120hz
     st.session_state[f"{prefix}_loaded_config"] = (
         slm.load_config() if slm._serial_number else {}
     )
@@ -766,6 +790,31 @@ def render_slm_sidebar():
 
     if st.button("刷新设备列表", key="refresh_devices_btn", type="secondary"):
         _refresh_device_list()
+
+    st.divider()
+
+    st.caption("相机工具")
+    col_cam1, col_cam2 = st.columns(2)
+    with col_cam1:
+        if st.button(
+            "强制关闭大恒相机",
+            key="force_close_daheng_cam0",
+            help="释放被占用的大恒相机句柄 (ID=0)",
+        ):
+            if force_close_daheng_camera(0):
+                st.success("大恒相机 0 已尝试关闭")
+            else:
+                st.error("关闭失败 (可能未安装 Daheng SDK)")
+    with col_cam2:
+        if st.button(
+            "强制关闭大恒相机",
+            key="force_close_daheng_cam1",
+            help="释放被占用的大恒相机句柄 (ID=1)",
+        ):
+            if force_close_daheng_camera(1):
+                st.success("大恒相机 1 已尝试关闭")
+            else:
+                st.error("关闭失败 (可能未安装 Daheng SDK)")
 
     st.divider()
 

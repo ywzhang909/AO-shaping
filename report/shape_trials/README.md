@@ -1,9 +1,11 @@
 # 形状目标试验（2026-10-09）
 
 <!-- provenance:start -->
+
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 硬件
 > **说明**: 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总
+
 <!-- provenance:end -->
 
 **本轮结论**（100 像素均匀方形目标，Santec SLM #1 + Daheng CCD 在线）：平/blaze/平重放证实光斑位置移动**可逆**，光路状态可信；但 100 像素均匀方形**未实现**——最佳交替重放仅将箱内 CV 改善至约 2.46，远未达均匀。已覆盖《SLM远程光斑整形》文档八项改进中的得分变更与噪声校准两类；背景/注册与自适应搜索仍需用同一调试与重放协议孤立测试。注意该文档示例为 44×33 矩形/八阶模式，其数值设置不直接适用于本 100 像素方形/n_max=8 台架。
@@ -57,88 +59,86 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 背景像素。因此，本表旧记录中不同 `n_eval_frames` 设置下的指标并非直接可比。
 新的多帧读取保留分数计数，为 float32。
 
-| 试验 | 变更因素 | 观察 |
-| --- | --- | --- |
-| `baseline_rmse/` | `rmse`，模拟器，3 轮 | 初始 CLI 基线。 |
-| `hardware_shape_baseline/` | `shape`，Daheng，8 轮 | 每帧保存的峰值均为 255/255；箱内 CV 约 3.16；Pearson 约 0.265。无明显改善。 |
-| `hardware_device_verification/` | 曝光探测前平的 SLM，Daheng，3 轮 | SLM 和 CCD 均能打开并完成运行，但整帧峰值始终为 1/255。这验证了设备通信，而非光学整形。 |
-| `device_modulate_diagnosis/` | 实时全帧相机与 SLM 图案/灰度检查，10 ms | 2026-10-09，SLM #1 (`22030108`) 和 Daheng CCD (`FJB24112232`) 均能打开。一帧 2592×1944 的峰值
-  为 93/255 位于 (674,1027)，因此更早的暗裁剪帧并不代表失光。平/光栅/平的峰值分别为
-  93/94/94；平到光栅的平均绝对差（0.168）不大于平到平（0.170）。
-  `slm-diagnose --step modulate` 的灰度扫描正确读取 0..1023，但桶宽展开仅 9.4%，低于
-  其 15% 的响应门限。`diagnose_modulate.npz` 记录了其指标。诊断后 SLM 已恢复为平相。光学调制
-  未确立，因此这些帧不支持有效的硬件形状比较。 |
-| `device_freeze_diagnosis/` | 10 ms 下的光栅自检 | 报告为 PASS，但平帧饱和为 255/255。单凭不同帧判断无法区分图案响应与照明变化。 |
-| `device_abba_diagnosis/` | 3 ms 平/光栅交替，原始全帧 | 峰值在 y=793、909 和 1029 之间移动；相邻平帧也不同。保存全帧 PNG/NPZ/JSON。切换瞬态使
-  此比较无法确定。 |
-| `device_flat_stability/` | 单一平 SLM 相位，20 帧全帧于 1 ms | 峰值在 x=672-673、y=1027-1029 保持 153-157/255。相同相位下短期相机采集稳定。保存原始 NPZ 和 JSON。 |
-| `device_settled_modulation/` | 1 ms 下平/64-像素blaze/平，2 s 静 settling 与 8 帧丢弃 | 光栅下峰值从 (672,1028) 移动到 (672,909)，随后在平相下返回到 (672,1027)。无饱和。全帧
-  PNG/NPZ/JSON 确立了 SLM 对 CCD 光斑的可逆影响；更早的 10 ms 空结果不足。 |
-| `device_phase_step_newest/` | Daheng 流模式从 `OldestFirst` 改为 `NewestOnly`，随后 1 ms 相位步进 | 驱动修复前，相位切换后最初的 4 帧仍显示旧相位；使用 `NewestOnly` 后，第一帧即可响应。
-  保存原始相位步进 PNG 与 JSON。这消除了直接导致错误 SPGD 梯度的一个来源。 |
-| `hardware_shape_newest_baseline/` | `main.py slm-pib spgd`、`shape`，固定 1 ms，3 帧评估，24 轮（`NewestOnly` 后） | 完整 `--debug` PNG/PKL/JSON。记录的初始帧 CV 3.144，Pearson 0.253，箱内能量 0.661。第 24 轮
-  最佳记录为 CV 2.939，Pearson 0.283，能量 0.794。异常低的轮次 0 能量在下文受控重放中未重现，不
-  应计为优化改进。 |
-| `device_phase_replay_newest/` | 固定 1 ms 与 0.5 s 相位静 settling 下交替播放相位 0/1/0/24/0 | 标准调试 PNG/PKL/JSON 包含原始全帧。平相能量为 0.803/0.805/0.807，CV 3.247/3.258/3.257，
-  Pearson 0.259/0.258/0.259。轮次 1 小于相邻平相（形状分数 -1.2004 对应约 -1.1985）。轮次 24
-  可再现地改善 CV 到 3.041，Pearson 到 0.275，能量 0.796，无饱和像素。这是一个 modest 的因果改进，
-  而非均匀的方形光斑。 |
-| `device_flat_fast_replay/` | 1 ms 下 6 帧平相，每次读取单帧，无额外 settling | 标准调试 PNG/PKL/JSON。首次采集后，箱内能量稳定在 0.665–0.666，裁剪中位数为 1，匹配旧的轮次 0
-  记录。三帧平均时，同一平相能量约 0.805，中位数 0。旧初始采集使用 `CAM_SAMPLE_ITER=1`
-  而每次 SPGD 评估使用 `--n-eval-frames 3`；整数平均改变了低计数背景与指标分母。首次快速采集
- （能量 0.582）是一次独立的启动瞬态。 |
-| `hardware_shape_initial_sampling_fixed/` | `main.py slm-pib spgd`，1 轮，固定 1 ms，3 帧评估（初始采集修复后） | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.800，中位数 0，总和 58,873；轮次 1 能量 0.785，
-  中位数 0，总和 56,928。虚假的 0.66→0.79 跳跃已消失；候选未能战胜平相，SLM 已恢复为平相。 |
-| `hardware_shape_pearson1_newest/` | 与 `hardware_shape_newest_baseline/` 仅增加 `--w-pearson 1` | 完整 `--debug` PNG/PKL/JSON。本次运行早于初始采集修复，因此记录的轮次 0 具有相同的有偏单帧能量
-  (0.660)。因增加 Pearson 项，最终运行内形状分数处于不同尺度；请比较重放指标。 |
-| `device_phase_replay_pearson1/` | Pearson 加权相位 0/1/0/24/0 用 3 帧平均与 0.5 s settling 重放 | 标准调试 PNG/PKL/JSON。交替平相 CV 3.223–3.246，Pearson 0.259–0.261，能量 0.804–0.806。轮次 24
-  CV 2.937，Pearson 0.284，能量 0.797。略优于独立零 Pearson 的最佳相位重放，但仍需在完成初始采集
-  修复后进行配对比较，以归因于 `w-pearson`。 |
-| `hardware_shape_sampling_fixed_baseline/` | 修正的 3 帧基线，固定 1 ms，24 轮 | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.809，背景中位数 0；最佳 canon `shape` 为轮次 19 的
-  -1.156。 |
-| `hardware_shape_sampling_fixed_pearson1/` | 仅改变 `--w-pearson 1` 的匹配运行 | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.803，背景中位数 0；自身最佳分数在轮次 14。由于目标分
-  使用不同权重，需在配对重放中比较物理指标。 |
-| `device_phase_replay_paired/` | 交替播放 平/基线轮次 19/平/Pearson轮次 14/平，反向重复一次 | 标准调试 PNG/PKL/JSON。基线最佳 CV 3.011/3.016，Pearson 0.2766/0.2764，能量 0.789/0.791。
-  Pearson 加权最佳 CV 2.984/2.984，Pearson 0.2780/0.2782，能量 0.779/0.781。Pearson 加权略微压扁光斑，
-  但损失约 1 个百分点箱内能量；其在常用默认指标下的分数低于未加权基线。 |
-| `hardware_shape_sampling_fixed_schedule/` | 仅改变 `--shape-schedule` 的匹配运行 | 完整 `--debug` PNG/PKL/JSON。最佳 canon `shape` 为轮次 8 的 -1.175。阶段相关的 `J` 在轮次间
-  及与固定权重试验间不可比。 |
-| `device_phase_replay_schedule/` | 交替播放 平/基线轮次 19/平/调度轮次 8/平，反向重复一次 | 标准调试 PNG/PKL/JSON。两个候选 CV 约 3.00–3.02，Pearson 约 0.278；调度候选箱内能量约 0.802，
-  固定权重基线约 0.811。24 轮未见明显调度收益。 |
-| `device_shape_noise_floor/` | 10 次固定平读取，每次 3 帧，1 ms 曝光 | 标准调试 PNG/PKL/JSON。样本标准差：CV 0.0089，Pearson 0.00072，箱内能量 0.00144，
-  默认 `shape` 分数 0.00230。这代表会话内噪声底，再会话间的光学漂移尚不足为据。 |
-| `hardware_shape_sampling_fixed_log_uniformity/` | 仅改变 `--log-uniformity` 的匹配 24 轮运行 | 完整 `--debug` PNG/PKL/JSON。最佳对数加权分数在轮次 18。分数尺度不同于有界 CV 基线；参考下文重放。 |
-| `device_phase_replay_log_uniformity/` | 交替播放有界 CV 基线轮次 19 与对数均匀轮次 18 | 标准调试 PNG/PKL/JSON。对数均匀 CV 2.955–2.966，Pearson 0.281–0.282；有界 CV 基线 CV 3.031–3.038，
-  Pearson 0.276。箱内能量下降约 0.005；通用默认形状分数上升约 0.005。 |
-| `hardware_shape_log_uniformity_100ep/` | 对数均匀设置从 24 轮扩展到 100 轮 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 68；内运行能量 0.799，峰值 115。 |
-| `device_phase_replay_log_100ep/` | 交替播放 100 轮对数最佳（轮次 68）与 24 轮有界 CV 基线最佳（轮次 19） | 标准调试 PNG/PKL/JSON。长对数运行 CV 2.689–2.690，Pearson 0.3083，能量 0.8083–0.8087；
-  短基线 CV 3.043–3.050，Pearson 0.275，能量 0.8070–0.8086。长运行改善形状同时保持基本相同的箱内能量。
-  保存的 PNG 中光斑仍居中峰值。 |
-| `hardware_shape_log_nmax15_24ep/` | 同一 24 轮对数均匀设置，将 `--n-max` 从 8 提升到 15 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 22；内运行能量 0.792，峰值 100。这同时改变了基覆盖
-  范围与随机扰动范数。 |
-| `device_phase_replay_nmax15/` | 交替播放 n_max=8 对数最佳（轮次 18）与 n_max=15 对数最佳（轮次 22） | 标准调试 PNG/PKL/JSON。n_max=15 CV 2.471–2.472，Pearson 0.331，能量 0.792–0.794；
-  n_max=8 CV 2.981–2.983，Pearson 0.281，能量 0.809–0.811。在这个短期运行中，更高阶明显
-  改善形状，代价约 0.017 箱内能量。 |
-| `hardware_shape_log_nmax15_100ep/` | 同一 n_max=15 对数均匀设置扩展到 100 轮 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 59，内运行能量 0.776，峰值 104。内运行最佳分数低于
-  24 轮高阶运行；单靠延长轮次未持续改进。 |
-| `device_phase_replay_nmax15_100ep/` | 交替播放 n_max=15 短期最佳（轮次 22）与长期最佳（轮次 59） | 标准调试 PNG/PKL/JSON。短期最佳 CV 2.461–2.467，Pearson 0.331–0.332；长期最佳 CV 2.483–2.494，
-  Pearson 0.328–0.330。两者均保持约 0.79–0.80 箱内能量。在 100×100 目标框内，短期最佳仅有 164/10,000
-  个像素超过半峰；FWHM 约 20×11 像素。仍为紧凑光斑，非方形光束。 |
-| `hardware_rmse_1ms/` | `main.py slm-pib spgd`，`rmse`，固定 1 ms，3 帧读取，8 轮 | 完整 `--debug` PNG/PKL/JSON。ROI CV 从 3.10 升至 3.26；相比初始相位，最佳目标分数无改进。 |
-| `hardware_shape_1ms/` | 同一运行设置，目标改为 `shape` | 完整 `--debug` PNG/PKL/JSON，含初始全帧。内运行 CV 从 3.11 降至轮次 8 的 1.71，但峰值从 156
-  降至 49，且系数范数仅为 0.0058 rad。这尚非因果性整形改进的证据。 |
-| `hardware_shape_best_replay/` | 固定 1 ms 下交替播放记录的最佳轮次 4 相位与平相 | 五份全帧 PNG/NPZ/JSON。平相 CV 自身漂移为 3.29 → 2.98 → 2.84；最佳相位 CV 在相邻平相间
-  为 3.06 和 3.11。内运行的改进无法经受这次因果性重放。恒定背景减除未能消除平相趋势。 |
-| `sim_shape_before_pearson/` | `shape`，模拟器 seed 42，8 轮 | 轮次 8：CV 14.00，Pearson 0.0623。模拟器的有符号读噪声会使报告的能量比超过 1。 |
-| `sim_shape_clipped/` | 仅在指标中裁剪负像素 | 已拒绝：正读噪声随后提升了分母；报告能量降至约 0.3。代码变更已移除，保留原始记录。 |
-| `sim_shape_pearson_1/` | 与前述未修改的 `shape` 运行相同的模拟器 seed 与参数，增加 `--w-pearson 1` | 轮次 8：CV 13.87，Pearson 0.0626。方向有利，但幅度过小，无法确立有用的整形效果。新增权重默认为 0。 |
-| `sim_shape_size7_fixed/` | 7 像素目标，固定权重，seed 42，8 轮 | 最佳 canon 形状分数停留在平相值 -0.2746。 |
-| `sim_shape_size7_scheduled/` | 增加 `--shape-schedule` 的同一 7 像素试验 | 最佳 canon 形状分数亦停留在 -0.2746。`J` 随阶段权重变化，而 `shape` 列在轮次间仍可比。
-  未确立整形收益。 |
+| 试验                                                                                                   | 变更因素                                                                             | 观察                                                                                                  |
+| ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `baseline_rmse/`                                                                                     | `rmse`，模拟器，3 轮                                                               | 初始 CLI 基线。                                                                                       |
+| `hardware_shape_baseline/`                                                                           | `shape`，Daheng，8 轮                                                              | 每帧保存的峰值均为 255/255；箱内 CV 约 3.16；Pearson 约 0.265。无明显改善。                           |
+| `hardware_device_verification/`                                                                      | 曝光探测前平的 SLM，Daheng，3 轮                                                     | SLM 和 CCD 均能打开并完成运行，但整帧峰值始终为 1/255。这验证了设备通信，而非光学整形。               |
+| `device_modulate_diagnosis/`                                                                         | 实时全帧相机与 SLM 图案/灰度检查，10 ms                                              | 2026-10-09，SLM #1 (`22030108`) 和 Daheng CCD (`FJB24112232`) 均能打开。一帧 2592×1944 的峰值    |
+| 为 93/255 位于 (674,1027)，因此更早的暗裁剪帧并不代表失光。平/光栅/平的峰值分别为                      |                                                                                      |                                                                                                       |
+| 93/94/94；平到光栅的平均绝对差（0.168）不大于平到平（0.170）。                                         |                                                                                      |                                                                                                       |
+| `slm-diagnose --step modulate` 的灰度扫描正确读取 0..1023，但桶宽展开仅 9.4%，低于                   |                                                                                      |                                                                                                       |
+| 其 15% 的响应门限。`diagnose_modulate.npz` 记录了其指标。诊断后 SLM 已恢复为平相。光学调制           |                                                                                      |                                                                                                       |
+| 未确立，因此这些帧不支持有效的硬件形状比较。                                                           |                                                                                      |                                                                                                       |
+| `device_freeze_diagnosis/`                                                                           | 10 ms 下的光栅自检                                                                   | 报告为 PASS，但平帧饱和为 255/255。单凭不同帧判断无法区分图案响应与照明变化。                         |
+| `device_abba_diagnosis/`                                                                             | 3 ms 平/光栅交替，原始全帧                                                           | 峰值在 y=793、909 和 1029 之间移动；相邻平帧也不同。保存全帧 PNG/NPZ/JSON。切换瞬态使                 |
+| 此比较无法确定。                                                                                       |                                                                                      |                                                                                                       |
+| `device_flat_stability/`                                                                             | 单一平 SLM 相位，20 帧全帧于 1 ms                                                    | 峰值在 x=672-673、y=1027-1029 保持 153-157/255。相同相位下短期相机采集稳定。保存原始 NPZ 和 JSON。    |
+| `device_settled_modulation/`                                                                         | 1 ms 下平/64-像素blaze/平，2 s 静 settling 与 8 帧丢弃                               | 光栅下峰值从 (672,1028) 移动到 (672,909)，随后在平相下返回到 (672,1027)。无饱和。全帧                 |
+| PNG/NPZ/JSON 确立了 SLM 对 CCD 光斑的可逆影响；更早的 10 ms 空结果不足。                               |                                                                                      |                                                                                                       |
+| `device_phase_step_newest/`                                                                          | Daheng 流模式从 `OldestFirst` 改为 `NewestOnly`，随后 1 ms 相位步进              | 驱动修复前，相位切换后最初的 4 帧仍显示旧相位；使用 `NewestOnly` 后，第一帧即可响应。               |
+| 保存原始相位步进 PNG 与 JSON。这消除了直接导致错误 SPGD 梯度的一个来源。                               |                                                                                      |                                                                                                       |
+| `hardware_shape_newest_baseline/`                                                                    | `main.py slm-pib spgd`、`shape`，固定 1 ms，3 帧评估，24 轮（`NewestOnly` 后） | 完整 `--debug` PNG/PKL/JSON。记录的初始帧 CV 3.144，Pearson 0.253，箱内能量 0.661。第 24 轮         |
+| 最佳记录为 CV 2.939，Pearson 0.283，能量 0.794。异常低的轮次 0 能量在下文受控重放中未重现，不          |                                                                                      |                                                                                                       |
+| 应计为优化改进。                                                                                       |                                                                                      |                                                                                                       |
+| `device_phase_replay_newest/`                                                                        | 固定 1 ms 与 0.5 s 相位静 settling 下交替播放相位 0/1/0/24/0                         | 标准调试 PNG/PKL/JSON 包含原始全帧。平相能量为 0.803/0.805/0.807，CV 3.247/3.258/3.257，              |
+| Pearson 0.259/0.258/0.259。轮次 1 小于相邻平相（形状分数 -1.2004 对应约 -1.1985）。轮次 24             |                                                                                      |                                                                                                       |
+| 可再现地改善 CV 到 3.041，Pearson 到 0.275，能量 0.796，无饱和像素。这是一个 modest 的因果改进，       |                                                                                      |                                                                                                       |
+| 而非均匀的方形光斑。                                                                                   |                                                                                      |                                                                                                       |
+| `device_flat_fast_replay/`                                                                           | 1 ms 下 6 帧平相，每次读取单帧，无额外 settling                                      | 标准调试 PNG/PKL/JSON。首次采集后，箱内能量稳定在 0.665–0.666，裁剪中位数为 1，匹配旧的轮次 0        |
+| 记录。三帧平均时，同一平相能量约 0.805，中位数 0。旧初始采集使用 `CAM_SAMPLE_ITER=1`                 |                                                                                      |                                                                                                       |
+| 而每次 SPGD 评估使用 `--n-eval-frames 3`；整数平均改变了低计数背景与指标分母。首次快速采集           |                                                                                      |                                                                                                       |
+| （能量 0.582）是一次独立的启动瞬态。                                                                   |                                                                                      |                                                                                                       |
+| `hardware_shape_initial_sampling_fixed/`                                                             | `main.py slm-pib spgd`，1 轮，固定 1 ms，3 帧评估（初始采集修复后）                | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.800，中位数 0，总和 58,873；轮次 1 能量 0.785，          |
+| 中位数 0，总和 56,928。虚假的 0.66→0.79 跳跃已消失；候选未能战胜平相，SLM 已恢复为平相。              |                                                                                      |                                                                                                       |
+| `hardware_shape_pearson1_newest/`                                                                    | 与 `hardware_shape_newest_baseline/` 仅增加 `--w-pearson 1`                      | 完整 `--debug` PNG/PKL/JSON。本次运行早于初始采集修复，因此记录的轮次 0 具有相同的有偏单帧能量      |
+| (0.660)。因增加 Pearson 项，最终运行内形状分数处于不同尺度；请比较重放指标。                           |                                                                                      |                                                                                                       |
+| `device_phase_replay_pearson1/`                                                                      | Pearson 加权相位 0/1/0/24/0 用 3 帧平均与 0.5 s settling 重放                        | 标准调试 PNG/PKL/JSON。交替平相 CV 3.223–3.246，Pearson 0.259–0.261，能量 0.804–0.806。轮次 24     |
+| CV 2.937，Pearson 0.284，能量 0.797。略优于独立零 Pearson 的最佳相位重放，但仍需在完成初始采集         |                                                                                      |                                                                                                       |
+| 修复后进行配对比较，以归因于 `w-pearson`。                                                           |                                                                                      |                                                                                                       |
+| `hardware_shape_sampling_fixed_baseline/`                                                            | 修正的 3 帧基线，固定 1 ms，24 轮                                                    | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.809，背景中位数 0；最佳 canon `shape` 为轮次 19 的     |
+| -1.156。                                                                                               |                                                                                      |                                                                                                       |
+| `hardware_shape_sampling_fixed_pearson1/`                                                            | 仅改变 `--w-pearson 1` 的匹配运行                                                  | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.803，背景中位数 0；自身最佳分数在轮次 14。由于目标分     |
+| 使用不同权重，需在配对重放中比较物理指标。                                                             |                                                                                      |                                                                                                       |
+| `device_phase_replay_paired/`                                                                        | 交替播放 平/基线轮次 19/平/Pearson轮次 14/平，反向重复一次                           | 标准调试 PNG/PKL/JSON。基线最佳 CV 3.011/3.016，Pearson 0.2766/0.2764，能量 0.789/0.791。             |
+| Pearson 加权最佳 CV 2.984/2.984，Pearson 0.2780/0.2782，能量 0.779/0.781。Pearson 加权略微压扁光斑，   |                                                                                      |                                                                                                       |
+| 但损失约 1 个百分点箱内能量；其在常用默认指标下的分数低于未加权基线。                                  |                                                                                      |                                                                                                       |
+| `hardware_shape_sampling_fixed_schedule/`                                                            | 仅改变 `--shape-schedule` 的匹配运行                                               | 完整 `--debug` PNG/PKL/JSON。最佳 canon `shape` 为轮次 8 的 -1.175。阶段相关的 `J` 在轮次间     |
+| 及与固定权重试验间不可比。                                                                             |                                                                                      |                                                                                                       |
+| `device_phase_replay_schedule/`                                                                      | 交替播放 平/基线轮次 19/平/调度轮次 8/平，反向重复一次                               | 标准调试 PNG/PKL/JSON。两个候选 CV 约 3.00–3.02，Pearson 约 0.278；调度候选箱内能量约 0.802，        |
+| 固定权重基线约 0.811。24 轮未见明显调度收益。                                                          |                                                                                      |                                                                                                       |
+| `device_shape_noise_floor/`                                                                          | 10 次固定平读取，每次 3 帧，1 ms 曝光                                                | 标准调试 PNG/PKL/JSON。样本标准差：CV 0.0089，Pearson 0.00072，箱内能量 0.00144，                     |
+| 默认 `shape` 分数 0.00230。这代表会话内噪声底，再会话间的光学漂移尚不足为据。                        |                                                                                      |                                                                                                       |
+| `hardware_shape_sampling_fixed_log_uniformity/`                                                      | 仅改变 `--log-uniformity` 的匹配 24 轮运行                                         | 完整 `--debug` PNG/PKL/JSON。最佳对数加权分数在轮次 18。分数尺度不同于有界 CV 基线；参考下文重放。  |
+| `device_phase_replay_log_uniformity/`                                                                | 交替播放有界 CV 基线轮次 19 与对数均匀轮次 18                                        | 标准调试 PNG/PKL/JSON。对数均匀 CV 2.955–2.966，Pearson 0.281–0.282；有界 CV 基线 CV 3.031–3.038， |
+| Pearson 0.276。箱内能量下降约 0.005；通用默认形状分数上升约 0.005。                                    |                                                                                      |                                                                                                       |
+| `hardware_shape_log_uniformity_100ep/`                                                               | 对数均匀设置从 24 轮扩展到 100 轮                                                    | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 68；内运行能量 0.799，峰值 115。                            |
+| `device_phase_replay_log_100ep/`                                                                     | 交替播放 100 轮对数最佳（轮次 68）与 24 轮有界 CV 基线最佳（轮次 19）                | 标准调试 PNG/PKL/JSON。长对数运行 CV 2.689–2.690，Pearson 0.3083，能量 0.8083–0.8087；              |
+| 短基线 CV 3.043–3.050，Pearson 0.275，能量 0.8070–0.8086。长运行改善形状同时保持基本相同的箱内能量。 |                                                                                      |                                                                                                       |
+| 保存的 PNG 中光斑仍居中峰值。                                                                          |                                                                                      |                                                                                                       |
+| `hardware_shape_log_nmax15_24ep/`                                                                    | 同一 24 轮对数均匀设置，将 `--n-max` 从 8 提升到 15                                | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 22；内运行能量 0.792，峰值 100。这同时改变了基覆盖          |
+| 范围与随机扰动范数。                                                                                   |                                                                                      |                                                                                                       |
+| `device_phase_replay_nmax15/`                                                                        | 交替播放 n_max=8 对数最佳（轮次 18）与 n_max=15 对数最佳（轮次 22）                  | 标准调试 PNG/PKL/JSON。n_max=15 CV 2.471–2.472，Pearson 0.331，能量 0.792–0.794；                   |
+| n_max=8 CV 2.981–2.983，Pearson 0.281，能量 0.809–0.811。在这个短期运行中，更高阶明显                |                                                                                      |                                                                                                       |
+| 改善形状，代价约 0.017 箱内能量。                                                                      |                                                                                      |                                                                                                       |
+| `hardware_shape_log_nmax15_100ep/`                                                                   | 同一 n_max=15 对数均匀设置扩展到 100 轮                                              | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 59，内运行能量 0.776，峰值 104。内运行最佳分数低于          |
+| 24 轮高阶运行；单靠延长轮次未持续改进。                                                                |                                                                                      |                                                                                                       |
+| `device_phase_replay_nmax15_100ep/`                                                                  | 交替播放 n_max=15 短期最佳（轮次 22）与长期最佳（轮次 59）                           | 标准调试 PNG/PKL/JSON。短期最佳 CV 2.461–2.467，Pearson 0.331–0.332；长期最佳 CV 2.483–2.494，     |
+| Pearson 0.328–0.330。两者均保持约 0.79–0.80 箱内能量。在 100×100 目标框内，短期最佳仅有 164/10,000  |                                                                                      |                                                                                                       |
+| 个像素超过半峰；FWHM 约 20×11 像素。仍为紧凑光斑，非方形光束。                                        |                                                                                      |                                                                                                       |
+| `hardware_rmse_1ms/`                                                                                 | `main.py slm-pib spgd`，`rmse`，固定 1 ms，3 帧读取，8 轮                        | 完整 `--debug` PNG/PKL/JSON。ROI CV 从 3.10 升至 3.26；相比初始相位，最佳目标分数无改进。           |
+| `hardware_shape_1ms/`                                                                                | 同一运行设置，目标改为 `shape`                                                     | 完整 `--debug` PNG/PKL/JSON，含初始全帧。内运行 CV 从 3.11 降至轮次 8 的 1.71，但峰值从 156         |
+| 降至 49，且系数范数仅为 0.0058 rad。这尚非因果性整形改进的证据。                                       |                                                                                      |                                                                                                       |
+| `hardware_shape_best_replay/`                                                                        | 固定 1 ms 下交替播放记录的最佳轮次 4 相位与平相                                      | 五份全帧 PNG/NPZ/JSON。平相 CV 自身漂移为 3.29 → 2.98 → 2.84；最佳相位 CV 在相邻平相间              |
+| 为 3.06 和 3.11。内运行的改进无法经受这次因果性重放。恒定背景减除未能消除平相趋势。                    |                                                                                      |                                                                                                       |
+| `sim_shape_before_pearson/`                                                                          | `shape`，模拟器 seed 42，8 轮                                                      | 轮次 8：CV 14.00，Pearson 0.0623。模拟器的有符号读噪声会使报告的能量比超过 1。                        |
+| `sim_shape_clipped/`                                                                                 | 仅在指标中裁剪负像素                                                                 | 已拒绝：正读噪声随后提升了分母；报告能量降至约 0.3。代码变更已移除，保留原始记录。                    |
+| `sim_shape_pearson_1/`                                                                               | 与前述未修改的 `shape` 运行相同的模拟器 seed 与参数，增加 `--w-pearson 1`        | 轮次 8：CV 13.87，Pearson 0.0626。方向有利，但幅度过小，无法确立有用的整形效果。新增权重默认为 0。    |
+| `sim_shape_size7_fixed/`                                                                             | 7 像素目标，固定权重，seed 42，8 轮                                                  | 最佳 canon 形状分数停留在平相值 -0.2746。                                                             |
+| `sim_shape_size7_scheduled/`                                                                         | 增加 `--shape-schedule` 的同一 7 像素试验                                          | 最佳 canon 形状分数亦停留在 -0.2746。`J` 随阶段权重变化，而 `shape` 列在轮次间仍可比。            |
+| 未确立整形收益。                                                                                       |                                                                                      |                                                                                                       |
 
-这两个 Pearson 模拟器运行使用 `--cam-type sim --seed 42 -c max
---objective shape --target-shape square --target-size 100 --delta 0.05
---lr 1 --n-max 8 --epochs 8`。每次调用前共享模拟器以 seed 42 重置。早期硬件基线
+这两个 Pearson 模拟器运行使用 `--cam-type sim --seed 42 -c max --objective shape --target-shape square --target-size 100 --delta 0.05 --lr 1 --n-max 8 --epochs 8`。每次调用前共享模拟器以 seed 42 重置。早期硬件基线
 使用 `--auto-exposure` 及相同的整形/搜索设置。当前现场检查确认了光学响应，且后续
 硬件运行使用非饱和固定 1 ms 曝光。初始能量差异源于基线使用 1 帧而 SPGD 评估使用 3 帧；
 优化器现两处均使用 `config.n_eval_frames`。上述配对比较覆盖了测试过的形状权重与调度。
@@ -152,3 +152,8 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 目标仍远非均匯：最佳重放 CV 约 2.46。背景/注册与自适应搜索想法仍需用相同的调试与重放
 协议予以孤立测试。该文档的例子是 44×33 矩形使用八阶模式，因此其数值设置不直接适用于
 本 100 像素方形 / n_max=8 台架。
+
+
+![1791968052647](image/README/1791968052647.png)
+
+![1791968216537](image/README/1791968216537.png)

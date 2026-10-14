@@ -63,7 +63,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec import Santec, MEMORY_MODE_INTERNAL
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
@@ -137,6 +137,7 @@ DAHENG_MAX_EXPOSURE_MS = 0.4
 #: value from ``SlmModelInLoopConfig`` and this table only documents intent.
 MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "n_rounds": 6,
+    "target_shape": "square",
     "target_side": 60,
     "seed": 0,
     "probe_count": 8,
@@ -144,10 +145,19 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "step_a_iterations": 80,
     "step_b_iterations": 600,
     "holdout_probe_count": 2,
+    "freeform_holdout_count": 0,
     "panel_span_px": 900.0,
     "region": 64,
     "far_field_padding": 8,
     "pupil_center": "960,690",
+}
+
+MIL_TARGET_SHAPE_LABELS: dict[str, str] = {
+    "square": "正方形",
+    "rectangle": "长方形（2:1）",
+    "triangle": "三角形",
+    "star": "五角星",
+    "circle": "圆形",
 }
 
 
@@ -352,7 +362,9 @@ def shaping_session(
     """
 
     @functools.wraps(run)
-    def wrapper(self: ShapingMethod, *args: Any, **kwargs: Any) -> ShapingOutcome | None:
+    def wrapper(
+        self: ShapingMethod, *args: Any, **kwargs: Any
+    ) -> ShapingOutcome | None:
         slm_num = self.slm_num
         outcome: ShapingOutcome | None = None
         _stop_background_toggle(slm_num)
@@ -478,11 +490,14 @@ class ShapingMethod(ABC):
         Called by :func:`shaping_session` after re-acquiring the handle, so the
         raw-radian panel phase goes through the normal driver pipeline
         (correction + LUT + shift) exactly like every other phase in this GUI.
+        Uses ``display_data`` directly (same as optimizer modules) for explicit
+        control over memory slot rotation and internal memory mode.
         """
         if outcome is None or outcome.panel_phase is None:
             return
         try:
-            slm.display_phase(outcome.panel_phase)
+            phase_gray = slm.create_phase_from_array(outcome.panel_phase)
+            slm.display_data(phase_gray, memory_mode=MEMORY_MODE_INTERNAL)
             refresh_phase_preview(self.slm_num)
             max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
             st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
@@ -518,7 +533,9 @@ class ShapingMethod(ABC):
         table-driven. The value type follows the *bounds*, so a table row only
         has to spell out its bounds.
         """
-        is_float = isinstance(lo, float) or isinstance(hi, float) or isinstance(step, float)
+        is_float = (
+            isinstance(lo, float) or isinstance(hi, float) or isinstance(step, float)
+        )
         value = float(default) if is_float else int(default)
         return st.number_input(
             label,
@@ -548,7 +565,9 @@ class ShapingMethod(ABC):
             values["cam_type"] = st.selectbox(
                 "相机",
                 options=CAM_TYPE_OPTIONS,
-                index=list(CAM_TYPE_OPTIONS).index(str(values.get("cam_type", "daheng")))
+                index=list(CAM_TYPE_OPTIONS).index(
+                    str(values.get("cam_type", "daheng"))
+                )
                 if values.get("cam_type") in CAM_TYPE_OPTIONS
                 else 0,
                 key=self.wkey("cam_type"),
@@ -724,7 +743,9 @@ class GsRefineMethod(ShapingMethod):
             st.columns(4), objective_fields
         ):
             with cell:
-                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, r[key], lo, hi, step, help=help_
+                )
 
         st.caption("SPGD 细化（粗网格自由相位）")
         spgd_fields = (
@@ -733,11 +754,11 @@ class GsRefineMethod(ShapingMethod):
             ("delta", "扰动 δ (rad)", 0.0, 2.0, 0.05, None),
             ("seed", "随机种子", 0, 99999, 1, None),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(5), spgd_fields
-        ):
+        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), spgd_fields):
             with cell:
-                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, r[key], lo, hi, step, help=help_
+                )
         with st.columns(5)[4]:
             values["confirm_best"] = st.checkbox(
                 "confirm-best 复测",
@@ -759,7 +780,13 @@ class GsRefineMethod(ShapingMethod):
                 "gs_iters", "GS 迭代", r["gs_iters"], 1, 2000, 1
             )
         with c3:
-            gs_methods = ("plain", "weighted", "hio", "hio-weighted", "adaptive-feedback")
+            gs_methods = (
+                "plain",
+                "weighted",
+                "hio",
+                "hio-weighted",
+                "adaptive-feedback",
+            )
             values["gs_method"] = st.selectbox(
                 "GS 变体",
                 options=gs_methods,
@@ -778,13 +805,20 @@ class GsRefineMethod(ShapingMethod):
         bench_fields = (
             ("beam_radius_px", "照明半径 (面板px)", 8.0, 1000.0, 10.0, None),
             ("far_field_padding", "远场补零", 1, 8, 1, None),
-            ("camera_pixel_um", "相机像素 (μm)", 0.5, 50.0, 0.1, "测量锚点: 大恒 MER2-507 为 2.2 μm"),
+            (
+                "camera_pixel_um",
+                "相机像素 (μm)",
+                0.5,
+                50.0,
+                0.1,
+                "测量锚点: 大恒 MER2-507 为 2.2 μm",
+            ),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(3), bench_fields
-        ):
+        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(3), bench_fields):
             with cell:
-                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, r[key], lo, hi, step, help=help_
+                )
         values["panel_pixel_um"] = float(r["panel_pixel_um"])
 
         st.caption("硬件")
@@ -908,16 +942,17 @@ class ModelInLoopMethod(ShapingMethod):
             ("target_side", "目标边长 (相机px)", 3, 1000, 5, None),
             ("seed", "随机种子", 0, 99999, 1, None),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(4), round_fields
-        ):
+        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(4), round_fields):
             with cell:
-                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, d[key], lo, hi, step, help=help_
+                )
         with st.columns(4)[3]:
             values["target_shape"] = st.selectbox(
                 "目标形状",
-                options=["square", "rectangle", "triangle", "star", "circle"],
-                index=0,
+                options=list(MIL_TARGET_SHAPE_LABELS),
+                index=list(MIL_TARGET_SHAPE_LABELS).index(str(d["target_shape"])),
+                format_func=MIL_TARGET_SHAPE_LABELS.__getitem__,
                 key=self.wkey("target_shape"),
             )
         c1, c2 = st.columns(2)
@@ -939,16 +974,32 @@ class ModelInLoopMethod(ShapingMethod):
         st.caption("Step A 探针拟合 / Step B 相位合成")
         step_fields = (
             ("probe_count", "探针数", 1, 32, 1, None),
-            ("probe_spread", "探针 σ (rad)", 3.0, 8.0, 0.5, "必须 ≳3 rad，否则拟合对像差不敏感"),
-            ("step_a_iterations", "Step A 步数", 1, 2000, 10, None),
+            (
+                "probe_spread",
+                "探针 σ (rad)",
+                3.0,
+                8.0,
+                0.5,
+                "必须 ≳3 rad，否则拟合对像差不敏感",
+            ),
+            ("step_a_iterations", "Step A 步数", 0, 2000, 10, None),
             ("step_b_iterations", "Step B 步数", 1, 4000, 50, None),
-            ("holdout_probe_count", "留出探针", 0, 8, 1, None),
+            ("holdout_probe_count", "留出探针", 1, 8, 1, None),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(5), step_fields
-        ):
+        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), step_fields):
             with cell:
-                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, d[key], lo, hi, step, help=help_
+                )
+        with st.columns(5)[0]:
+            values["freeform_holdout_count"] = self.num_input(
+                "freeform_holdout_count",
+                "自由相位留出探针",
+                d["freeform_holdout_count"],
+                0,
+                8,
+                1,
+            )
         values["min_holdout_correlation"] = 0.5
 
         st.caption("前向模型几何（实测标定值）")
@@ -974,7 +1025,9 @@ class ModelInLoopMethod(ShapingMethod):
             st.columns(3), geometry_fields
         ):
             with cell:
-                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, d[key], lo, hi, step, help=help_
+                )
 
         st.caption("硬件")
         self.render_camera_inputs(
@@ -998,6 +1051,7 @@ class ModelInLoopMethod(ShapingMethod):
             step_a_iterations=int(values["step_a_iterations"]),
             step_b_iterations=int(values["step_b_iterations"]),
             holdout_probe_count=int(values["holdout_probe_count"]),
+            freeform_holdout_count=int(values.get("freeform_holdout_count", 0)),
             min_holdout_correlation=float(values["min_holdout_correlation"]),
             region=int(values["region"]),
             panel_span_px=float(values["panel_span_px"]),
@@ -1106,9 +1160,10 @@ def render_closed_loop_shaping(slm_num: int) -> None:
         "（另一台 SLM 不受影响）。"
     )
 
-    if not st.session_state.get(f"{prefix}_connected") or st.session_state.get(
-        prefix
-    ) is None:
+    if (
+        not st.session_state.get(f"{prefix}_connected")
+        or st.session_state.get(prefix) is None
+    ):
         st.info("请先在左侧连接 SLM 后再运行闭环整形。")
         return
 

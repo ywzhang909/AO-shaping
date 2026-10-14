@@ -495,14 +495,25 @@ class TestSplitHookIsWiredIntoTheRun:
         assert np.array_equal(baseline["result"].best_phase, via_hook["result"].best_phase)
         assert _nan_safe(baseline["history"]) == _nan_safe(via_hook["history"])
 
-    def test_a_custom_hook_changes_the_run(self) -> None:
-        """Guard the guard: if a hook changed nothing the test above would be vacuous."""
-        baseline = _sim_result()
-        shifted = _sim_result(probe_split_hook=lambda s, i, pc, hc: ([500 + i * 10 + k for k in range(pc)], [900 + i * 10 + k for k in range(hc)]))
+    def test_a_custom_hook_changes_the_measured_probes(self, monkeypatch) -> None:
+        """The hook must affect probes even when both runs keep the flat phase."""
+        from ao_shaping.optimizer.wfless import slm_model_in_loop as mod
 
-        assert not np.array_equal(
-            baseline["result"].best_phase, shifted["result"].best_phase
-        ), "a different probe family produced the same phase, so this cannot discriminate"
+        seen: list[int] = []
+        original = mod._probe_phase
+
+        def record(region, spread, seed, **kwargs):  # noqa: ANN001, ANN202
+            seen.append(seed)
+            return original(region, spread, seed, **kwargs)
+
+        monkeypatch.setattr(mod, "_probe_phase", record)
+        optimize_slm_model_in_loop(
+            SlmModelInLoopConfig(**_SIM_KWARGS, probe_split_hook=lambda s, i, pc, hc: (
+                [500 + i * 10 + k for k in range(pc)],
+                [900 + i * 10 + k for k in range(hc)],
+            ))
+        )
+        assert {500, 501, 510, 511}.issubset(seen)
 
     def test_each_round_asks_the_hook_for_its_own_split(self) -> None:
         """The hook is consulted per round, so folds can vary probes by round."""
@@ -522,6 +533,35 @@ class TestHoldoutOnSim:
 
     def test_the_flag_defaults_to_off(self) -> None:
         assert SlmModelInLoopConfig().holdout_on_sim is False
+
+    def test_freeform_holdouts_are_measured_and_labelled(self) -> None:
+        result = _sim_result(
+            n_rounds=1,
+            holdout_on_sim=True,
+            holdout_probe_count=3,
+            freeform_holdout_count=2,
+        )["result"]
+        records = [r for r in result.probe_records if r.get("split") == "holdout"]
+        assert [r["family"] for r in records] == [
+            "smooth", "smooth", "zernike", "freeform", "freeform"
+        ]
+        assert len({r["phase"].tobytes() for r in records}) == len(records)
+
+    def test_split_hook_receives_total_holdout_count(self) -> None:
+        counts: list[int] = []
+
+        def split(seed, index, probe_count, holdout_count):  # noqa: ANN001, ANN202
+            counts.append(holdout_count)
+            return _legacy_hook(seed, index, probe_count, holdout_count)
+
+        config = SlmModelInLoopConfig(
+            **_SIM_KWARGS,
+            holdout_on_sim=True,
+            freeform_holdout_count=2,
+            probe_split_hook=split,
+        )
+        optimize_slm_model_in_loop(config)
+        assert counts == [config.holdout_probe_count + 2] * config.n_rounds
 
     def test_the_default_sim_run_measures_no_holdout(self) -> None:
         """Off by default: the sim path is a smoke run, so it stays unmeasured."""

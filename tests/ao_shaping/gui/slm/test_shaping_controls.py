@@ -68,6 +68,13 @@ class _FakeSLM:
     def display_phase(self, phase: np.ndarray, wait_time_s: float | None = 0.0) -> None:
         self.displayed.append(np.asarray(phase))
 
+    def create_phase_from_array(self, phase: np.ndarray) -> np.ndarray:
+        return np.asarray(phase * 10, dtype=np.uint16)
+
+    def display_data(self, phase_gray: np.ndarray, *, memory_mode: int) -> None:
+        self.displayed.append(np.asarray(phase_gray))
+        self.memory_mode = memory_mode
+
     def get_displayed_phase(self) -> tuple[None, str]:
         # refresh_phase_preview falls back to "no preview" without crashing.
         return None, "fake"
@@ -165,6 +172,41 @@ class TestParamsMapping:
         assert params.target_side == 80
         assert params.step_b_iterations == 300
         assert params.pupil_center == "960,690"
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        config = build_model_in_loop_config(params, debug=False)
+        assert config.freeform_holdout_count == 0
+        assert config.holdout_probe_count == 2
+
+        from dataclasses import replace
+
+        config = build_model_in_loop_config(
+            replace(params, freeform_holdout_count=3), debug=False
+        )
+        assert config.freeform_holdout_count == 3
+
+    @pytest.mark.parametrize("shape", ["square", "rectangle", "triangle", "star", "circle"])
+    def test_model_in_loop_shape_selection_reaches_config(self, shape: str) -> None:
+        from ao_shaping.gui.slm.shaping_controls import MIL_TARGET_SHAPE_LABELS
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        assert shape in MIL_TARGET_SHAPE_LABELS
+        values = {
+            "n_rounds": 1, "seed": 0, "target_shape": shape, "target_side": 60,
+            "w_uniformity": 0.4, "w_efficiency": 0.6, "probe_count": 2,
+            "probe_spread": 4.0, "step_a_iterations": 0,
+            "step_b_iterations": 4, "holdout_probe_count": 2,
+            "freeform_holdout_count": 1, "min_holdout_correlation": 0.5,
+            "region": 32, "panel_span_px": 900.0,
+            "pupil_center": "960,670", "far_field_padding": 4,
+            "cam_type": "sim", "cam_id": 0, "exposure_time_ms": 0.0,
+            "max_exposure_ms": 0.4, "cam_size": 128, "slm_number": 1,
+        }
+        config = build_model_in_loop_config(
+            build_model_in_loop_params(values), debug=False
+        )
+        assert config.target_shape == shape
+        assert config.freeform_holdout_count == 1
 
 
 class TestExposureGuards:
@@ -227,7 +269,8 @@ class TestDeviceLifecycle:
         assert slm.is_open
         assert state["slm1"] is slm
         assert state["slm1_connected"] is True
-        assert state["slm1_width"] == 128
+        assert state["slm1_phase_preview"] is None
+        assert state["slm1_loaded_config"] == {}
 
     def test_run_reacquires_even_when_optimizer_raises(self, monkeypatch) -> None:
         """The ``@shaping_session`` contract: the GUI must own the handle again
@@ -304,7 +347,11 @@ class TestDeviceLifecycle:
         reacquired = state.get("slm1")
         assert reacquired is not None
         assert len(reacquired.displayed) == 1
-        assert np.array_equal(reacquired.displayed[0], recorder.best_phase)
+        assert np.array_equal(
+            reacquired.displayed[0],
+            reacquired.create_phase_from_array(recorder.best_phase),
+        )
+        assert reacquired.memory_mode == shaping_controls.MEMORY_MODE_INTERNAL
 
 
 class TestMethodRegistry:

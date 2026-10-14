@@ -432,6 +432,9 @@ class SlmModelInLoopConfig:
     holdout_probe_count: int = 2
     """Independent phase probes never used by Step A's fit."""
 
+    freeform_holdout_count: int = 0
+    """Additional independent pixel-wise holdouts after the standard probes."""
+
     probe_split_hook: ProbeSplitHook | None = None
     """Override which probes train Step A and which are held out.
 
@@ -440,7 +443,9 @@ class SlmModelInLoopConfig:
     ``1_000_000`` for the held-out ones. A hook is called as
     ``hook(seed, index, probe_count, holdout_probe_count)`` and returns
     ``(train_seeds, holdout_seeds)``; it must supply the exact requested
-    counts and must not overlap the two halves, because a reused seed turns
+    counts. When freeform holdouts are enabled, ``holdout_probe_count`` passed
+    to the hook is the standard count plus ``freeform_holdout_count``. Seeds
+    must not overlap the two halves, because a reused seed turns
     the held-out correlation into an in-sample one.
     """
 
@@ -543,9 +548,6 @@ class SlmModelInLoopConfig:
     Also the cost driver: the FFT is quadratic in the padded size, so this is
     squared in both time and memory.
     """
-    pupil_oversampling: int = 1
-    """Panel-phase interpolation factor used by both Step A and Step B."""
-
     pupil_oversampling: int = 1
     """Bilinear sub-pixel pupil interpolation before the far-field FFT.
 
@@ -1612,7 +1614,20 @@ def _calibrate_geometry(
             config.region, config.probe_spread, config.seed + 50_000 + index
         )
         bench.display(probe)
-        image = prepare_frame(bench.measure())
+        raw_image = bench.measure()
+        image = prepare_frame(raw_image)
+        if config.step_sink is not None:
+            config.step_sink(
+                "calib-probe",
+                _step_payload(
+                    phase_rad=probe,
+                    frame=image,
+                    raw_scalars=_raw_frame_scalars(raw_image),
+                    round_index=0,
+                    probe_index=index,
+                    probe_count=int(config.n_calibration_probes),
+                ),
+            )
         _save_preflight_capture(config, f"calibration_{index:02d}", probe, image, bench)
         records.append(
             CalibrationRecord(image=image, phase=probe, label=f"calib{index}")
@@ -1989,7 +2004,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
         bench.display(flat_phase)
-        flat_frame = prepare_frame(bench.measure())
+        raw_flat = bench.measure()
+        flat_frame = prepare_frame(raw_flat)
+        if config.step_sink is not None:
+            config.step_sink(
+                "flat",
+                _step_payload(
+                    phase_rad=flat_phase,
+                    frame=flat_frame,
+                    raw_scalars=_raw_frame_scalars(raw_flat),
+                    round_index=0,
+                    probe_index=None,
+                    probe_count=None,
+                ),
+            )
         _save_preflight_capture(config, "flat", flat_phase, flat_frame, bench)
         flat_capture_utc = getattr(bench, "last_capture_utc", None)
         if config.cam_type != "sim":
@@ -2220,7 +2248,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 config.seed,
                 index,
                 probe_count,
-                int(config.holdout_probe_count),
+                int(config.holdout_probe_count + config.freeform_holdout_count),
                 config.probe_split_hook,
             )
             frames: list[tuple[np.ndarray, np.ndarray]] = []
@@ -2232,7 +2260,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     smooth=config.cam_type != "sim",
                 )
                 bench.display(probe)
-                measured = prepare_frame(bench.measure())
+                raw_probe = bench.measure()
+                measured = prepare_frame(raw_probe)
+                if config.step_sink is not None:
+                    config.step_sink(
+                        "stepA-probe",
+                        _step_payload(
+                            phase_rad=probe,
+                            frame=measured,
+                            raw_scalars=_raw_frame_scalars(raw_probe),
+                            round_index=index + 1,
+                            probe_index=probe_index,
+                            probe_count=probe_count,
+                        ),
+                    )
                 if config.cam_type != "sim":
                     probe_records.append(
                         {
@@ -2337,15 +2378,12 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             if config.cam_type != "sim" or config.holdout_on_sim:
                 holdout_correlations: list[float] = []
                 for holdout_index, holdout_seed in enumerate(holdout_seeds):
-                    holdout_phase = (
-                        _probe_phase(
-                            config.region, config.probe_spread, holdout_seed,
-                            smooth=True,
-                        )
-                        if holdout_index < 2
-                        else _structured_probe_phase(
-                            config.region, config.probe_spread, holdout_seed
-                        )
+                    holdout_phase, holdout_family = _holdout_phase(
+                        config.region,
+                        config.probe_spread,
+                        holdout_seed,
+                        holdout_index,
+                        int(config.holdout_probe_count),
                     )
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
@@ -2435,7 +2473,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
             shaped_phase = np.asarray(shaped, dtype=np.float64)
             bench.display(shaped_phase)
-            shaped_frame = prepare_frame(bench.measure())
+            raw_shaped = bench.measure()
+            shaped_frame = prepare_frame(raw_shaped)
+            if config.step_sink is not None:
+                config.step_sink(
+                    "stepB-shaped",
+                    _step_payload(
+                        phase_rad=shaped_phase,
+                        frame=shaped_frame,
+                        raw_scalars=_raw_frame_scalars(raw_shaped),
+                        round_index=index + 1,
+                        probe_index=None,
+                        probe_count=None,
+                    ),
+                )
             shaped_prediction_correlation = float("nan")
             if config.cam_type != "sim":
                 shaped_grid = _to_model_grid(
