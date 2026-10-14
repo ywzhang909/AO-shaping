@@ -8,8 +8,10 @@ select = [
     "F",      # pyflakes
 ]
 
-# Exclude ml/ from linting (legacy code with syntax errors)
-exclude = ["src/ml/**"]
+# Deliberately no `exclude`. It used to hold `exclude = ["src/ml/**"]`, justified as
+# "legacy code with syntax errors" -- false: the 30 F821 names it hid were runtime
+# NameErrors in `ao-train` entry points. Guarded by
+# tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src.
 
 # Ignore rules that are too noisy for this legacy codebase
 ignore = [
@@ -20,7 +22,7 @@ ignore = [
     "I001", "I002",
     
     # Pyupgrade
-    "UP007", "UP038",
+    "UP007",
     
     # Line length
     "E501",
