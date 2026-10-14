@@ -23,8 +23,8 @@
 # it absent so they skip, which an empty tmpfs cannot achieve because is_dir()
 # would still be true. Everything else under data/ (the r50 wiring CSV, the
 # calibration JSONs, ccd_configs) is copied in, since those tests read it.
-# Refresh the staging area with scripts/stage_test_data.sh after new fixtures
-# land in data/.
+# Refresh the staging area with scripts/build/stage_test_data.sh after new
+# fixtures land in data/.
 #
 # Usage:
 #   ./run_pytest.sh                          # whole suite
@@ -54,7 +54,7 @@ mkdir -p "$AO_SCRATCH"
 SEED_DATA="${AO_TEST_DATA_SEED:-$HOME/ao-testdata}"
 AO_TEST_DATA="${AO_TEST_DATA:-$AO_SCRATCH/data}"
 if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
-    "$REPO/scripts/stage_test_data.sh" >/dev/null
+    "$REPO/scripts/build/stage_test_data.sh" >/dev/null
     # A previous run may have left root-owned files here, which the host cannot
     # delete; docker can, so clean through it rather than failing the run.
     rm -rf "$AO_TEST_DATA" 2>/dev/null ||         docker run --rm -v "$AO_SCRATCH":/scratch alpine \
