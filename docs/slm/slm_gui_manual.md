@@ -57,8 +57,6 @@ classDiagram
     class DammannGratingControl
     class VortexPhaseControl
     class HalfHalfPhaseControl
-    class GSSquareControl
-    class SteadyPhaseControl
     class PatternHelper
     class Santec {
         +open()
@@ -103,8 +101,6 @@ classDiagram
     PatternControl <|-- DammannGratingControl
     PatternControl <|-- VortexPhaseControl
     PatternControl <|-- HalfHalfPhaseControl
-    PatternControl <|-- GSSquareControl
-    PatternControl <|-- SteadyPhaseControl
     SLMController --> Santec : 驱动
     Santec --> WavefrontCorrection : 使用
     Santec --> SLMConfigManager : 使用
@@ -117,6 +113,7 @@ classDiagram
 | ----------------------- | ---------------------------------------------------------- |
 | multi_slm_controller.py | Streamlit 页面：设备发现、连接、相位控制、周期切换后台线程 |
 | pattern_controls.py     | 图案类型注册表 + 相位生成流水线（generate_phase_gray）     |
+| shaping_controls.py     | 闭环整形区：GS+SPGD 闭环 / 正向模型闭环（render_closed_loop_shaping） |
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 
 ---
@@ -214,18 +211,9 @@ sequenceDiagram
     U->>PC: 点击"从模式生成器生成相位"
     PC->>PC: _stop_toggle(slm_num)
     PC->>C: generate_phase_gray(slm, pattern_type, params)
-    alt GS方形整形
-        PC->>PC: 创建 st.status 进度条
-        C->>C: measure_spot_diameter_cam()
-        C->>C: compute_square_side()
-        C->>C: build_square_target_amplitude()
-        C->>C: gerchberg_saxton(...)
-        Note over C,SLM: 可选 live_display 回调每轮迭代推送相位
-    else 其他图案
-        C->>C: PatternHelper.<method></method>()
-        C->>SLM: create_phase_from_array(phase_rad)
-        Note over SLM: 内部叠加矫正 + LUT + 平移
-    end
+    C->>C: PatternHelper.<method></method>()
+    C->>SLM: create_phase_from_array(phase_rad)
+    Note over SLM: 内部叠加矫正 + LUT + 平移
     C-->>PC: uint16 phase_gray
     PC->>SLM: slm.display_data(phase)
     Note over SLM: 自动轮换内存槽，等待像素翻转
@@ -529,12 +517,11 @@ flowchart LR
         PR --> DG[达曼光栅]
         PR --> VP[涡旋相位]
         PR --> HH[半半相位]
-        PR --> GS[GS方形整形]
-        PR --> SP[稳像法整形]
     end
 
     SL -->|渲染| PR
     PAT -->|生成| PR
+    SL -->|渲染| CL[闭环整形]
 
 ---
 
@@ -556,9 +543,6 @@ flowchart LR
 | 达曼光栅   | `DammannGratingControl`   | `PatternHelper.generate_dammann_grating` → `create_phase_from_array`（**弧度**）      |
 | 涡旋相位   | `VortexPhaseControl`      | `PatternHelper.generate_vortex` → `create_phase_from_array`（**始终弧度，驱动负责 wrap**）|
 | 半半相位   | `HalfHalfPhaseControl`    | 平场半区（原始）+ 闪耀半区（`create_phase_from_array`）拼接                            |
-| GS方形整形 | `GSSquareControl`         | `generate_gs_square_phase` → GS → `create_phase_from_array`                        |
-| GS方形整形(高斯版) | `GSSquareGaussianControl` | `generate_gs_square_phase` → GS → `create_phase_from_array`                    |
-| 稳像法整形 | `SteadyPhaseControl`      | SPM + 闪耀光栅 →`create_phase_from_array`                                             |
 
 > ⚠️ **2026-10-01 修正**：
 > 1. 原表把 5 个控制类（棋盘格 / 二元光栅 / 微透镜阵列 / 达曼光栅 / 涡旋）标成
@@ -568,14 +552,56 @@ flowchart LR
 >    且这些 `PatternHelper` 方法现在返回**弧度**（`pattern_helper.py:338-353/355-380/382-416/595-630`）。
 >    涡旋类的 docstring 更明确写着 "no mod-2π, no wrap checkbox — the driver applies wrapping"
 >    (`pattern_controls.py:707-708`)。**真正走原始 uint16 的只有平场与半半相位的平场半区。**
-> 2. 原表漏登记 `GSSquareGaussianControl`（类定义 `pattern_controls.py:1371`，
->    注册表条目 `pattern_controls.py:1880`，键 `"GS方形整形(高斯版)"`）。
+
+> 🔴 **2026-10-13 变更**：原注册表中的三个**开环**方形整形控制 —— `GSSquareControl`
+> （"GS方形整形"）、`GSSquareGaussianControl`（"GS方形整形(高斯版)"）与 `SteadyPhaseControl`
+> （"稳像法整形"），连同助手 `_gs_square_phase_radians` / `generate_gs_square_phase` —— **已移除**。
+> 原因：在本 2f-Fourier 台架上，用未标定台架参数做开环方形整形已被实测证明行不通
+> （Zernike SPGD 与未标定 GS 从未产出过均匀方形），见
+> [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与
+> [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
+> 取而代之的是下方 §8「闭环整形」区（GS+SPGD 闭环 / 正向模型闭环，均走已验证的闭环管线）。
 
 ---
 
-## 8. 关键设计规则（来自 AGENTS.md）
+## 8. 闭环整形
 
-1. **内存槽轮换**：对**同一**槽位连续 `write_phase` + `display_memory` 会被固件判为 no-op，LCOS 面板不刷新。`_pick_next_memory` 随机选取 2..125 中除当前显示槽外的槽位，进程重启后仍有效。
+`render_closed_loop_shaping(slm_num)`（`src/ao_shaping/gui/slm/shaping_controls.py`）在
+单/双 SLM 布局中渲染为独立的「闭环整形」区，取代上文已移除的开环方形整形。两种方法均
+**在 GUI 内调用 canonical 优化器管线**（与对应 CLI 同一代码路径），并在结束后把最佳
+相位（raw 弧度）经常规 `display_phase` 路径下发显示。
+
+| 方法 | 代码路径（与 CLI 等价） | 说明 |
+| --- | --- | --- |
+| **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
+| **正向模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
+
+1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off，仅当实测优于平场才采用）
+   + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
+   （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
+   `cam_type=daheng`、曝光 `0.05 ms`（大恒硬限 ≤0.4 ms）、`pupil_center=960,690`、
+   `beam_radius_px=450`、`target_side=100`、`cam_size=250`、`gs_iters=12`、
+   `far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、
+   `gs_method=plain`。验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**
+   （两次一致的交替重放）。
+
+2. **正向模型闭环整形（前沿）**：每轮用强随机探针重拟合正向模型的 Zernike 像差
+   （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
+   需 `torch`。目前最佳均匀性 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，
+   见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
+
+> **设备生命周期**：上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
+> 因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，
+> 另一台 SLM 保持连接）。
+>
+> **GUI 显示**：flat / GS / best 各阶段得分、PIB、CV，以及 GS bake-off 判定
+> （adopted / rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
+
+---
+
+## 9. 关键设计规则（来自 AGENTS.md）
+
+1. **内存槽轮换**：对**同一**槽位连续 `write_phase` + `display_memory` 会被固件判为 no-op，LCOS 面板不刷新。换槽在 2..125 中随机选取**除当前显示槽外**的槽位、进程重启后仍有效；现由 GUI 周期切换 `_toggle_phases_task`（内联）与驱动 `_pick_next_memory_slot`（平移路径）两处实现（原独立助手 `_pick_next_memory` 已随 #85 删除并内联）。
 2. **DVI 模式已禁用**：`video_mode=1` 的 `open()` 可能挂起 120s/300s，且挂起后 memory 模式 `open()` 也挂起，需物理断电恢复。仅提供内存模式。
 3. **平场灰度 RAW 路径**：始终通过 `np.full((h,w), gray, dtype=np.uint16)` 发送原始 uint16 灰度。切勿将平场相位走 `create_phase_from_array()`（弧度转换）。
 4. **平移数学**：唯一实现在驱动层的静态 `Santec.shift_phase`。重写缓存相位必须走驱动层 `apply_shift()`，绝不能对缓存相位再跑 `write_phase`（会二次叠加矫正）。

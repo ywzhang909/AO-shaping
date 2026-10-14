@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
-from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 from scipy.special import factorial
 
 
@@ -69,28 +68,6 @@ def normalize_rho(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     radius = np.sqrt(x**2 + y**2)
     r_max = np.max(radius)
     return radius / r_max if r_max > 0 else radius
-
-
-def zernike_polynomial(n: int, m: int, rho: np.ndarray, theta: np.ndarray) -> np.ndarray:
-    if m >= 0:
-        angular = np.cos(m * theta)
-    else:
-        m = abs(m)
-        angular = np.sin(m * theta)
-
-    radial = np.zeros_like(rho)
-    for k in range((n - m) // 2 + 1):
-        coeff = (
-            (-1) ** k
-            * factorial(n - k)
-            / (
-                factorial(k)
-                * factorial((n + m) // 2 - k)
-                * factorial((n - m) // 2 - k)
-            )
-        )
-        radial += coeff * rho ** (n - 2 * k)
-    return radial * angular
 
 
 __all__ = [

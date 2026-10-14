@@ -338,6 +338,14 @@ def apply(plan_list: list[RunPlan], keep_duplicates: bool) -> dict[str, int]:
                 stats["dupes"] += 1
             continue
 
+        # The cache ``meta.json`` records the pickle's ABSOLUTE path, so it must
+        # be rewritten **before** the cache directory is moved -- afterwards the
+        # old location is gone and the write is silently lost, leaving a stale
+        # ``source`` that re-arms the full rebuild cost on the next epoch.
+        for meta in plan.meta_rewrites:
+            if _rewrite_meta_source(meta, plan):
+                stats["metas"] += 1
+
         for move in plan.files:
             move.dst.parent.mkdir(parents=True, exist_ok=True)
             if move.src != move.dst:
@@ -348,12 +356,11 @@ def apply(plan_list: list[RunPlan], keep_duplicates: bool) -> dict[str, int]:
             if src != dst:
                 shutil.move(str(src), str(dst))
             stats["caches"] += 1
-        for meta in plan.meta_rewrites:
-            _rewrite_meta_source(meta, plan)
-            stats["metas"] += 1
         stats["runs"] += 1
 
-        # drop the now-empty legacy directories, deepest first
+        # drop the emptied cache shells, then the legacy directory chain
+        for cache_name in CACHE_DIRS:
+            _prune_empty(plan.old_dir / cache_name)
         _prune_empty(plan.old_dir)
 
     if not keep_duplicates:
@@ -361,7 +368,38 @@ def apply(plan_list: list[RunPlan], keep_duplicates: bool) -> dict[str, int]:
             if plan.duplicate_of is not None:
                 shutil.rmtree(plan.old_dir, ignore_errors=True)
                 stats["dupes"] += 1
+    else:
+        for plan in plan_list:
+            if plan.duplicate_of is not None:
+                stats["dupes"] += 1
+                # the quarantined copy left its old ancestors empty
+                _prune_empty(plan.old_dir)
+
+    # Final sweep: an emptied legacy directory is never a run, and leaving it
+    # behind would keep the old shape visible in the tree.
+    stats["empty_dirs"] = _remove_empty_dirs()
     return stats
+
+
+def _remove_empty_dirs() -> int:
+    """Delete every empty directory under ``DEBUG``, deepest first."""
+    removed = 0
+    for path in sorted(
+        (p for p in DEBUG.rglob("*") if p.is_dir()),
+        key=lambda p: len(p.parts),
+        reverse=True,
+    ):
+        try:
+            next(path.iterdir())
+        except StopIteration:
+            try:
+                path.rmdir()
+                removed += 1
+            except OSError:
+                pass
+        except OSError:
+            pass
+    return removed
 
 
 def _move_duplicate_to_quarantine(plan: RunPlan) -> None:
@@ -372,35 +410,65 @@ def _move_duplicate_to_quarantine(plan: RunPlan) -> None:
         shutil.move(str(plan.old_dir), str(quarantine))
 
 
-def _rewrite_meta_source(meta: Path, plan: RunPlan) -> None:
-    """Point a cache ``meta.json``'s ``source`` at the relocated pickle."""
+def _rewrite_meta_source(meta: Path, plan: RunPlan) -> bool:
+    """Point a cache ``meta.json``'s ``source`` at the relocated pickle.
+
+    Rewritten **by filename transformation, not by the move list**, so it is
+    idempotent: re-running the migration after the files have already moved still
+    repairs a stale ``source``, which a move-list version cannot do (by then
+    ``move.src == move.dst`` carries no information about the old name).
+
+    A ``meta.json`` that cannot be read, is not an object, or carries no
+    ``source`` string returns ``False`` rather than a silent success -- a stale
+    ``source`` is exactly what re-arms the full rebuild cost.
+
+    Returns:
+        ``True`` when the file was rewritten.
+    """
     try:
         payload = json.loads(meta.read_text(encoding="utf-8"))
     except (OSError, ValueError):
-        return
+        return False
     if not isinstance(payload, dict):
-        return
+        return False
     source = payload.get("source")
     if not isinstance(source, str):
-        return
-    for move in plan.files:
-        if move.src.suffix != ".pkl":
-            continue
-        if str(move.src).replace("\\", "/").lower() in source.replace("\\", "/").lower():
-            payload["source"] = str(move.dst)
-            meta.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-            return
+        return False
+
+    old_name = Path(source.replace("\\", "/")).name
+    new_name = target_name(old_name, plan.prefix, plan.stamp)
+    current = str(plan.new_dir / new_name)
+    if old_name == new_name and source.replace("\\", "/") == current.replace("\\", "/"):
+        return False  # already correct
+
+    payload["source"] = current
+    try:
+        meta.write_text(
+            json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+    except OSError:
+        return False
+    return True
 
 
 def _prune_empty(path: Path) -> None:
-    """Remove *path* and its now-empty ancestors, stopping at ``DEBUG``."""
+    """Remove *path* and its now-empty ancestors, stopping at ``DEBUG``.
+
+    Silently does nothing when the directory still holds anything, so it is safe
+    to call speculatively (e.g. on an emptied cache shell).
+    """
+    if not path.is_dir():
+        return
     current = path
     while current != DEBUG and DEBUG in current.parents:
         try:
             next(current.iterdir())
             return  # not empty, stop
         except StopIteration:
-            current.rmdir()
+            try:
+                current.rmdir()
+            except OSError:
+                return
             current = current.parent
         except OSError:
             return

@@ -144,6 +144,49 @@ def test_exposure_range_prefers_backend_properties():
     assert hi == pytest.approx(350.0)
 
 
+def test_get_exposure_prefers_live_readback_over_stale_cache():
+    """Issue #32: the live device readback must win over a stale local cache.
+
+    ``reset_exposure_time`` clamps + quantises to integer µs, so the value the
+    device actually uses differs from the unquantised request that a local cache
+    keeps. The helper must report what the sensor really used, not the stale
+    request.
+    """
+
+    class _LiveReadbackCamera:
+        def __init__(self):
+            # Stale cache: the raw unquantised request the caller remembered.
+            self.exposure_time_ms = 3.0
+            # Live device value: what the sensor is actually running.
+            self._live = 2.997  # 2997 µs, the quantised effective exposure
+
+        def get_exposure_time_ms(self) -> float:
+            return self._live
+
+    assert get_camera_exposure_ms(_LiveReadbackCamera()) == pytest.approx(2.997)
+
+
+def test_get_exposure_falls_back_to_cache_without_live_readback():
+    """Backends without a live readback (ffmpeg/sim) still report the cache."""
+
+    class _CacheOnlyCamera:
+        exposure_time_ms = 12.5
+
+    assert get_camera_exposure_ms(_CacheOnlyCamera()) == pytest.approx(12.5)
+
+
+def test_get_exposure_live_returning_non_number_falls_back_to_cache():
+    """A live readback that is not numeric (e.g. an error string) must fall back."""
+
+    class _FlakyLiveCamera:
+        exposure_time_ms = 5.0
+
+        def get_exposure_time_ms(self):  # device not ready -> non-numeric sentinel
+            return "unavailable"
+
+    assert get_camera_exposure_ms(_FlakyLiveCamera()) == pytest.approx(5.0)
+
+
 def test_get_exposure_raises_when_unsupported():
     class _NoExposureCamera:
         pass

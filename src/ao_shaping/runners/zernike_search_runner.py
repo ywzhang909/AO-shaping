@@ -32,7 +32,6 @@ from typing import NoReturn
 
 import click
 import numpy as np
-from loguru import logger
 
 from ao_shaping.drivers import MlaRes
 from ao_shaping.optimizer.wf.ga_zernike import optimizer_ga

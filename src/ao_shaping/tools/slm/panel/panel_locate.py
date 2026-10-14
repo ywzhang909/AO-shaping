@@ -53,7 +53,6 @@ from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_W,
     display_and_average,
     measure_flat_reference,
-    random_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
 
@@ -126,10 +125,20 @@ class PanelLocateParams:
     ] = 0.2
 
 
-@click.command()
-@with_params(PanelLocateParams, kw_name="params")
-def main(params: PanelLocateParams) -> None:
-    """在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。"""
+@dataclass(frozen=True)
+class PanelLocateResult:
+    center: tuple[int, int]
+    response: float
+    max_pair_drift: float
+    session_drift: float
+    rejected_count: int
+
+
+def scan_panel(
+    params: PanelLocateParams, *, strict: bool = False,
+    max_session_drift: float = 0.05,
+) -> PanelLocateResult:
+    """Scan candidate panel positions and verify paired and session flat stability."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
 
@@ -151,6 +160,8 @@ def main(params: PanelLocateParams) -> None:
         raise click.BadParameter("Daheng exposure must be in (0, 0.4] ms", param_hint="--exposure-ms")
     if not 0 <= max_flat_drift < 1:
         raise click.BadParameter("must be in [0, 1)", param_hint="--max-flat-drift")
+    if not 0 <= max_session_drift < 1:
+        raise ValueError("max_session_drift must be in [0, 1)")
 
     xs = [int(float(v)) for v in str(grid_xs).split(",") if v.strip()]
     ys = [int(float(v)) for v in str(grid_ys).split(",") if v.strip()]
@@ -160,7 +171,10 @@ def main(params: PanelLocateParams) -> None:
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_slm_display(slm):
-        cam.reset_exposure_time(float(exposure_ms))
+        actual_ms = cam.reset_exposure_time(float(exposure_ms))
+        if cam_type.lower() == "daheng":
+            if actual_ms is None or not 0 < float(actual_ms) <= 0.4 + 1e-9:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)
@@ -224,7 +238,10 @@ def main(params: PanelLocateParams) -> None:
                 try:
                     delta, drift = _paired_delta(before, img, after, box, max_flat_drift)
                 except ValueError as exc:
-                    delta, drift = float("nan"), float("nan")
+                    delta = float("nan")
+                    pair_reference = (float(before[box].sum()) + float(after[box].sum())) / 2
+                    drift = (abs(float(after[box].sum()) - float(before[box].sum()))
+                             / pair_reference if pair_reference > 0 else float("nan"))
                     logger.warning("panel ({}, {}): {}", px, py, exc)
                 row.append(delta)
                 if np.isfinite(delta):
@@ -245,8 +262,35 @@ def main(params: PanelLocateParams) -> None:
                     encoding="utf-8",
                 )
 
+    if not measurements:
+        raise ValueError("panel scan has no candidates")
+    first_flat = measurements[0]["flat_before_energy"]
+    last_flat = measurements[-1]["flat_after_energy"]
+    session_reference = (first_flat + last_flat) / 2
+    session_drift = abs(last_flat - first_flat) / session_reference if session_reference > 0 else float("inf")
+    rejected_count = sum(item["delta"] is None for item in measurements)
+    max_pair_drift = max(
+        (item["flat_drift"] for item in measurements if item["flat_drift"] is not None),
+        default=float("inf"),
+    )
+    if debug_dir is not None:
+        (debug_dir / "summary.json").write_text(
+            json.dumps({"session_drift": session_drift, "max_pair_drift": max_pair_drift,
+                        "rejected_count": rejected_count,
+                        "max_flat_drift": max_flat_drift,
+                        "max_session_drift": max_session_drift,
+                        "strict": strict,
+                        "best_center": [max(results)[2], max(results)[1]] if results else None}, indent=2),
+            encoding="utf-8",
+        )
     if not results:
         raise ValueError("all panel candidates rejected; check laser stability")
+    if strict and rejected_count:
+        raise ValueError(f"{rejected_count} panel candidates rejected by flat drift")
+    if session_drift > max_session_drift:
+        raise ValueError(
+            f"session flat drift {session_drift:.1%} exceeds {max_session_drift:.1%}"
+        )
     results.sort(reverse=True)
     logger.info("")
     logger.info("=== strongest patch positions (|0-order energy change|) ===")
@@ -263,6 +307,15 @@ def main(params: PanelLocateParams) -> None:
         "runbook as --pupil-center, never a camera coordinate",
         bx - SLM_PANEL_W // 2, by - SLM_PANEL_H // 2,
     )
+    logger.info("flat drift: max paired {:.2%}, whole scan {:.2%}", max_pair_drift, session_drift)
+    return PanelLocateResult((bx, by), results[0][3], max_pair_drift, session_drift, rejected_count)
+
+
+@click.command()
+@with_params(PanelLocateParams, kw_name="params")
+def main(params: PanelLocateParams) -> None:
+    """在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。"""
+    scan_panel(params)
 
 
 if __name__ == "__main__":

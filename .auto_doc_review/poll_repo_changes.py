@@ -53,11 +53,18 @@ MAX_ISSUES = 10              # cap issues per digest
 MAX_ISSUE_BODY_CHARS = 2500  # truncate issue bodies
 STATE_CAP = 50               # cap seen_commits / own_pushes list growth
 
-# --- PATH bootstrap -------------------------------------------------------
-# Cron script runs have a minimal PATH; gh lives in ~/.local/bin (or user
-# scripts dirs). Prepend the known locations so subprocess calls find it.
+# --- PATH/HOME bootstrap ----------------------------------------------------
+# Cron script runs have a minimal PATH and — since 2026-10-14 — may run with
+# HOME unset, which makes `gh` fail with "gh auth login" (rc=4) even though
+# the token exists at /opt/data/home/.config/gh/hosts.yml. Prepend the known
+# binary locations and restore HOME so subprocess `gh` auth works.
 import shutil
 import os
+_GH_HOME = "/opt/data/home"
+if not os.environ.get("HOME") or not os.path.exists(
+    os.path.join(os.environ["HOME"], ".config", "gh", "hosts.yml")
+):
+    os.environ["HOME"] = _GH_HOME
 for _d in (
     "/opt/data/home/.local/bin",
     "/usr/local/bin",
@@ -66,7 +73,7 @@ for _d in (
 ):
     if _d not in os.environ.get("PATH", ""):
         os.environ["PATH"] = _d + os.pathsep + os.environ.get("PATH", "")
-
+# ---------------------------------------------------------------------------
 _GH_BIN: str | None = None
 def _gh() -> str | None:
     global _GH_BIN

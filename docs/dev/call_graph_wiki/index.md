@@ -2,7 +2,7 @@
 
 > 从 `main.py` 出发的函数调用图 + 逐函数优化文档（llm-wiki 式互链 Markdown）。
 > 数据源：AST 静态调用图 `raw/assets/call_graph_final.json`（`scripts/call_graph/build_call_graph.py` 生成，可重跑）
-> + 源码 docstring 逐字摘录。Last updated: 2026-10-13 | 总页数: 48
+> + 源码 docstring 逐字摘录。Last updated: 2026-10-14 | 总页数: 50
 
 ## 入口 (entry)
 
@@ -11,6 +11,8 @@
 | [[entry/main-py]] | `main.py` 仓库根入口（7 行，转交 `cli()`） |
 | [[entry/cli]] | `cli()` Click 根命令组：全局选项 + 20 命令注册表（懒加载） |
 | [[diagram/call-graph-overview]] | 调用图总览（分层 mermaid 图 + 阅读方法） |
+| [[diagram/global-call-graph]] | **全局调用图**（包级聚合 mermaid，8 个一级包间的调用流向/强度） |
+| [[diagram/class-diagram]] | **全局类图**（mermaid classDiagram：设备/模型/优化器/标定/控制 7 域继承与协作） |
 
 ## CLI 命令 (commands) — 20 个
 
@@ -109,12 +111,27 @@
 | [[functions/slm-lut]] | `build_inverse_lut()` / `invert_depth_scan()` / `depth_pattern()` | `utils/slm/slm_lut.py:43` |
 | [[functions/runner-common]] | `runner_common` 共享工具（center 解析 / 配置构建 / 结果保存） | `runners/runner_common.py` |
 
+## 关系层 (relations) — 相似函数
+
+| 页面 | 说明 |
+|---|---|
+| [[relations/similar-functions]] | 相似函数（自动）：函数间相似关联总览（相似簇 + 全部相似对 + 判定方法） |
+
+> 除调用边外，wiki 还维护一条**相似关系层**：调用图回答"谁调用谁"，
+> 相似关系回答"哪些函数是同族/同构实现"。数据源 `raw/assets/similar_functions.json`
+> （`scripts/call_graph/build_similarity.py` 生成，可重跑）；每个有相似对的函数页/命令页
+> 末尾有"相似函数（自动）"段。
+
 ## 原始数据 (raw)
 
 - `raw/assets/call_graph_final.json` — 完整调用图（193 已解析节点 / 290 边）+ `recovered.json` 恢复映射
+- `raw/assets/similar_functions.json` — 相似函数关联（5 相似对 / 4 相似簇，含逐维得分与理由）
 - `assets/diagram_layers.svg` / `.png` — 分层调用图
-- 生成脚本：`projects/AO-shaping/_scripts/build_call_graph.py`（AST 分析）
-  、`finalize_graph.py`（恢复映射合并）、`gen_wiki_pages.py`（页面生成，幂等）
+- `assets/global-call-graph.svg` / `.png` — 全局调用图（包级聚合）
+- `assets/class-diagram.svg` / `.png` — 全局类图（继承 + 协作）
+- 生成脚本：`scripts/call_graph/build_call_graph.py`（AST 分析）、`finalize_graph.py`（恢复映射合并）、
+  `build_module_graph.py`（包级全局调用图 mermaid，可独立重跑）、`build_similarity.py`（相似函数打分，可独立重跑）、
+  `gen_wiki_pages.py`（页面生成，幂等）
 
 ## 使用建议
 

@@ -70,6 +70,13 @@ Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.
 
 - [[commands/combined|`run`]]
 
+## 相似函数（自动）
+
+与本页函数结构/职责相近的函数（相似度得分，来自 `build_similarity.py`；含义与阈值见 [[relations/similar-functions|相似函数总览]]）：
+
+- 0.425 — [[functions/optimize-pib-wfless|`optimize_pib`]]（同名 `optimize_pib`；共享 12 个被调函数（调用结构高度相似））
+
+
 ## 相关页面
 
 - [[entry/cli]]

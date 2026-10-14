@@ -340,6 +340,7 @@ def _build_slm_pib_config(
         "slm": slm,
         "record_phase": run.debug,
         "random_seed": run.seed,
+        "fix_target": camera.fix_target,
     }
 
     if isinstance(search, SpgdParamsPib):
@@ -633,6 +634,7 @@ def _build_square_config(
         rotation_search_deg=params.rotation_search_deg,
         algorithm=params.algorithm,
         pop_size=params.pop_size,
+fix_target=params.fix,
         adaptive=params.adaptive,
         stagnate_win=params.stagnate_win,
         stagnate_boost=params.stagnate_boost,

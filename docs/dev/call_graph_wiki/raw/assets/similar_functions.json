@@ -1,0 +1,95 @@
+{
+ "generated_on": "2026-10-13",
+ "method": {
+  "source": "call_graph_final.json (AST static call graph)",
+  "script": "scripts/call_graph/build_similarity.py",
+  "weights": {
+   "jaccard_callees": 0.45,
+   "name_similarity": 0.15,
+   "same_file_or_module": 0.1,
+   "jaccard_callers": 0.05,
+   "many_shared_callees_bonus": 0.05
+  },
+  "link_threshold": 0.3,
+  "cluster_threshold": 0.35,
+  "notes": [
+   "callees Jaccard is damped by min(1, shared/2) to avoid inflation from a single trivial shared callee",
+   "generic CLI entry name 'run' contributes 0 to name similarity"
+  ]
+ },
+ "pairs": [
+  {
+   "a": "ao_shaping.runners.nlight_dm.wf_runner.run",
+   "b": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "score": 0.444,
+   "jaccard_callees": 0.875,
+   "shared_callees": 7,
+   "name_sim": 0.0,
+   "jaccard_callers": 0.0,
+   "fam": "不同模块",
+   "reason": "同名 `run`；共享 7 个被调函数（调用结构高度相似）"
+  },
+  {
+   "a": "ao_shaping.optimizer.wfless.pib.optimize_pib",
+   "b": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
+   "score": 0.425,
+   "jaccard_callees": 0.5,
+   "shared_callees": 12,
+   "name_sim": 1.0,
+   "jaccard_callers": 0.0,
+   "fam": "不同模块",
+   "reason": "同名 `optimize_pib`；共享 12 个被调函数（调用结构高度相似）"
+  },
+  {
+   "a": "ao_shaping.utils.slm.slm_lut.depth_pattern",
+   "b": "ao_shaping.utils.slm.slm_lut.offset_pattern",
+   "score": 0.375,
+   "jaccard_callees": 1.0,
+   "shared_callees": 1,
+   "name_sim": 0.0,
+   "jaccard_callers": 1.0,
+   "fam": "同文件 slm_lut.py",
+   "reason": "同文件 slm_lut.py；调用方高度重叠"
+  },
+  {
+   "a": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "b": "ao_shaping.runners.nlight_dm.combined_runner.run",
+   "score": 0.35,
+   "jaccard_callees": 0.667,
+   "shared_callees": 6,
+   "name_sim": 0.0,
+   "jaccard_callers": 0.0,
+   "fam": "不同模块",
+   "reason": "同名 `run`；共享 6 个被调函数（调用结构高度相似）"
+  },
+  {
+   "a": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
+   "b": "ao_shaping.utils.io.cli_helpers.get_timestamp_str",
+   "score": 0.325,
+   "jaccard_callees": 1.0,
+   "shared_callees": 1,
+   "name_sim": 0.0,
+   "jaccard_callers": 0.0,
+   "fam": "同文件 cli_helpers.py",
+   "reason": "同文件 cli_helpers.py"
+  }
+ ],
+ "clusters": [
+  [
+   "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "ao_shaping.runners.nlight_dm.wf_runner.run"
+  ],
+  [
+   "ao_shaping.optimizer.combined_optimizer.optimize_pib",
+   "ao_shaping.optimizer.wfless.pib.optimize_pib"
+  ],
+  [
+   "ao_shaping.utils.slm.slm_lut.depth_pattern",
+   "ao_shaping.utils.slm.slm_lut.offset_pattern"
+  ],
+  [
+   "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "ao_shaping.runners.nlight_dm.combined_runner.run"
+  ]
+ ]
+}

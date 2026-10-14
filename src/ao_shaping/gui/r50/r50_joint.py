@@ -507,67 +507,6 @@ def _jc_colormap_image(matrix: np.ndarray, vmin: float, vmax: float) -> np.ndarr
     return img
 
 
-def _jc_render_matrix_image(matrix: np.ndarray) -> None:
-    """Streamlit ``st.image`` 显示彩色热力图。"""
-    vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
-    vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
-    img = _jc_colormap_image(matrix, vmin, vmax)
-    st.image(img, caption="36×36 电压分布 (蓝色低 · 红色高)", width="stretch")
-
-
-def _jc_render_matrix_dataframe(matrix: np.ndarray) -> None:
-    """分块显示带颜色的 36×36 数值矩阵 (6 块 × 6 列)。"""
-    vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
-    vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
-    blocks = 6
-    cols_per_block = 6
-    for block_idx in range(blocks):
-        start_col = block_idx * cols_per_block
-        end_col = min(start_col + cols_per_block, GRID_SIZE)
-        col_labels = [str(c + 1) for c in range(start_col, end_col)]
-        df_block = pd.DataFrame(
-            matrix[:, start_col:end_col],
-            index=[f"行{r + 1}" for r in range(GRID_SIZE)],
-            columns=col_labels,
-        )
-        with st.expander(
-            f"📍 第 {start_col + 1}–{end_col} 列", expanded=(block_idx == 0)
-        ):
-            col_config = {}
-            for i, c in enumerate(col_labels):
-                col_config[c] = st.column_config.NumberColumn(
-                    label=c,
-                    min_value=vmin,
-                    max_value=vmax,
-                    format="%.1f",
-                )
-            st.dataframe(
-                df_block,
-                column_config=col_config,
-                height=min(36 * 35 + 40, 800),
-                width="stretch",
-            )
-
-
-def _jc_render_profile(matrix: np.ndarray) -> None:
-    """行/列均值剖面图表。"""
-    row_means = matrix.mean(axis=1)
-    col_means = matrix.mean(axis=0)
-    with st.container(border=True):
-        st.markdown("##### 电压剖面")
-        tab_r, tab_c = st.tabs(["📊 行均值", "📊 列均值"])
-        with tab_r:
-            df_row = pd.DataFrame(
-                {"行号": list(range(1, GRID_SIZE + 1)), "均值 (V)": row_means}
-            ).set_index("行号")
-            st.bar_chart(df_row, height=200, width="stretch")
-        with tab_c:
-            df_col = pd.DataFrame(
-                {"列号": list(range(1, GRID_SIZE + 1)), "均值 (V)": col_means}
-            ).set_index("列号")
-            st.bar_chart(df_col, height=200, width="stretch")
-
-
 def _jc_render_stats(matrix: np.ndarray) -> None:
     """显示矩阵统计指标。"""
     vals = matrix.flatten()

@@ -59,6 +59,7 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     StepBConfig,
     _crop_to_grid,
     _fit_aberration_at_probes,
+    _probe_set_loss,
     _probe_phase,
     _resize_grid,
 
@@ -468,6 +469,26 @@ def test_step_a_keeps_the_same_optimizer_when_no_rearm_is_given() -> None:
     assert len(losses) == 4
 
 
+def test_probe_set_loss_compares_the_same_phases_regardless_of_order() -> None:
+    optimizer = ZernikeCoefficientOptimizer(
+        n_orders=4, region=16, dtype="float64", device="cpu"
+    )
+    zero = np.zeros_like(optimizer.coefficients)
+    truth = zero.copy()
+    truth[3] = 0.6
+    truth[4] = -0.3
+    phases = [_probe_phase(16, 4.0, seed) for seed in (11, 29)]
+    frames = [(optimizer.forward_intensity(truth, phase), phase) for phase in phases]
+
+    initial = _probe_set_loss(optimizer, zero, frames)
+    fitted = _probe_set_loss(optimizer, truth, frames)
+    assert initial > 1e-6
+    assert fitted < 1e-20
+    assert _probe_set_loss(optimizer, zero, frames[::-1]) == pytest.approx(initial)
+    with pytest.raises(ValueError, match="at least one frame"):
+        _probe_set_loss(optimizer, zero, [])
+
+
 def test_step_a_rejects_an_empty_frame_set_or_a_non_positive_budget() -> None:
     """Step A refuses to run without a measurement or without a budget."""
     coefficients = np.array([0.1, 0.2], dtype=np.float64)
@@ -646,6 +667,27 @@ def test_loop_honours_a_wrong_initial_guess() -> None:
                 source_amplitude=np.ones((32, 32)),
             )
 
+    def test_step_b_uses_fixed_camera_background(self) -> None:
+        region = 32
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=4, region=region, dtype="float64", device="cpu", seed=0
+        )
+        coefficients = np.zeros(optimizer.coefficients.size)
+        target = create_target_mask("square", (region, region), 6)
+        start = np.zeros((region, region))
+        config = StepBConfig(iterations=12, lr=0.05, target_side=6)
+        ordinary, _ = shape_phase_with_frozen_aberration(
+            optimizer, coefficients, target, start, config, device="cpu", seed=3
+        )
+        background = np.zeros((region, region))
+        background[region // 2, region // 2] = 100.0
+        corrected, _ = shape_phase_with_frozen_aberration(
+            optimizer, coefficients, target, start, config,
+            device="cpu", seed=3, model_gain=1.5,
+            background_intensity=background,
+        )
+        assert not np.allclose(ordinary, corrected)
+
 
 class TestBenchGeometry:
     """The offline geometry calibration must recover a known bench."""
@@ -748,10 +790,24 @@ class TestBenchGeometry:
         assert geometry.camera_px_per_model_px == pytest.approx(
             truth["camera_px_per_model_px"], rel=1e-6
         )
-        # A correct mapping reproduces the measured spot, so sigma agrees.
         assert geometry.spot_fwhm_model_px == pytest.approx(
             geometry.spot_fwhm_camera_px, rel=0.6
         )
+
+    def test_reference_frame_keeps_its_own_probe_phase(self) -> None:
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import _spot_fwhm
+
+        records, truth = self._synthetic_bench(region=64)
+        records.sort(key=lambda record: _spot_fwhm(record.image))
+        assert records[0] is not records[-1]
+        geometry = calibrate_bench_geometry(
+            records,
+            region=int(truth["region"]),
+            far_field_size=int(truth["far_field_size"]),
+            disc_candidates=(32,),
+            panel_span_px=2.0 * int(truth["disc"]),
+        )
+        assert geometry.correlation > 0.8
 
     def test_sweep_recovers_the_focal_scale_from_a_tilt_sweep(self) -> None:
         """The tilt slope alone fixes the far-field scale, with no assumptions.

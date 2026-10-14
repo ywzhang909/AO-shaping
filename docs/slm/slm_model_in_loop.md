@@ -129,18 +129,20 @@ python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam-type daheng --cam-id 0 --exposure-time-ms 1.5 \
-    --slm-number 1 --slm-wavelength 1064 \
-    --panel-span-px 900 --pupil-center 960,600 --camera-pixel-um 2.2 \
-    -r 6
+    --cam-type daheng --cam-id 0 --exposure-time-ms 0.02 \
+    --max-exposure-ms 0.4 --slm-number 1 --slm-wavelength 1064 \
+    --panel-span-px 900 --pupil-center 960,690 --camera-pixel-um 2.2 \
+    --region 64 --far-field-padding 3 \
+    --geometry-file data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json \
+    --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
 ## 10. 上机前必跑表征探针 (顺序不能反)
 
 ```bash
-python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
-python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
-python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 0.4
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 0.4
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 ```
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
@@ -150,7 +152,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ## 11. 输出契约
 
 - `data/slm_model_in_loop/<日期>/`：逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**)、`bench_geometry.json` (拟合出的几何，供复现)、可选最优远场图 PNG
-- `data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
+- `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
 
 ## 12. 终止状态
 

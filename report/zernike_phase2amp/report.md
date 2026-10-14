@@ -40,6 +40,56 @@ loss   = MSE(observable(focal), ccd)
 - **排除 piston**：`K = (n_max+1)(n_max+2)/2 − 1`。因为 `|FFT(e^{iφ₀}U)| ≡ |FFT(U)|`
   恒成立，piston 系数的梯度**永远**为零。
 
+### U-Net 对比模型
+
+U-Net 是 `ml.phase.unet.UNetGenerator`（`src/ml/phase/unet.py`）的一个**img2img**
+回归器，作为物理模型的非可解释替代基线。它**不包含任何 Zernike 数学**：
+
+```
+图像输入 (B, 2, g, g)                    # (phase_cos, phase_sin) 拼接
+  → Encoder: [DoubleConv↓] × 5            # 特征通道 [f, 2f, 4f, 8f, 16f]
+  → Bottleneck: DoubleConv(16f → 32f)    # + MaxPool
+  → Decoder: [ConvTranspose2d↑ + DoubleConv] × 4  # skip-connection concat
+    ↓
+图像输出 (B, 1, g, g)                    # sigmoid 输出 (peak 正规化后的远场强度)
+```
+
+| 字段 | 值 | 含义 |
+|---|---|---|
+| `in_channels` | 2 | `(phase_cos, phase_sin)` 拼接 |
+| `features` | `[16, 32, 64, 128, 256]` | 编码器特征通道 |
+| `output_mode` | `"phase"` | 输出头：sigmoid 压缩到 `[0,1]` |
+| 参数量 | **7,778,465** | (width 16–256 配置) |
+
+**输入/输出契约**:
+
+- **输入**: `phase_cos` 与 `phase_sin` 沿通道维拼接 → `(B, 2, 64, 64)`，范围 `[−1, 1]`。
+- **输出**: `(B, 1, 64, 64)`，经 `sigmoid` 压缩 → `[0, 1]`，代表**峰值归一化后的远场强度**。
+- **目标**: `ml.hwdataset.HwPhaseImageDataset` 中的 `image` 字段，经 `_peak_normalise`
+  标准化（除以每个样本的最大值）。
+- **损失**: MSE (`F.mse_loss(prediction, target)`)，与物理模型的 `_normalize("peak")`
+  搭配。`output_mode="image"` (线性头) 曾测评但表现更差（见
+  `report/zernike_r2_baseline/report.md` §9），故不使用。
+
+**训练数据与过程**:
+
+- **语料**: `slm_zernike_shaping` family，1010 条记录（10 pickle × 101 条），均匀分布在 4 个优化目标上（`rms_pib` 404 / `rmse_out` 303 / `shape` 202 / `roi_pib` 101）。
+- **分割**: 按 `objective` 分层的按文件划分 —— 验证集恒为 `{rms_pib, rmse_out, shape}`
+  的 1-1-1 文件 (25%)，训练集为剩余 7 个文件 (75%)；`roi_pib` 因只有 1 文件无法拆分，
+  仅进入训练集。详见 §5.1。
+- **训练循环**: 共享 `compare_unet_baseline.fit()` —— Adam + cosine annealing，
+  batch_size=64，25 epoch (单次比较脚本) 或 50 epoch (分组 CV)；
+  **与物理模型完全相同的训练循环、优化器、学习率表、epoch 预算**。
+- **评估**: 同一轮次下 `batch_image_metrics` + `per_sample_beam_metrics`
+  (`ml.zernike.metrics`)，包括 R² / SSIM / PSNR / NRMSE / 相关系数 /
+  质心偏移 / 90% 环半径比 / 峰值比。
+
+> ⚠️ **两个模型不是同一个模型簇**：物理模型有一个**全局** Zernike 向量 `Z`（135–495 个
+> 共享参数，对整个语料）；U-Net 是一个**逐样本**函数近似器（7.8M 参数，每个输入都
+> 得到不同的输出）。U-Net 胜出**并非意外** —— 它可以表示语料中任何局部散斑，而物理
+> 模型只能拟合全局系统性像差。但物理模型是唯一能**闭式给出可下发的 SLM 相位**
+> (`Σ Zₖ Bₖ`) 的模型，详见 §7 结论 3。
+
 ## 2. 数据管线
 
 `src/ml/hwdataset` 提供 `(phase_cos, phase_sin, image, exposure_log10, …)`。三个关键决定：
@@ -215,9 +265,13 @@ Cohen's `d_z`、以及跨模型×指标族的 Holm–Bonferroni 校正。
 
 | 模型 | 参数量 | R² (10 折) | SSIM (10 折) | PSNR dB (10 折) | NRMSE |
 |---|---|---|---|---|---|
-| 物理模型 physics | 230 | +0.8803 ± 0.0823 | 0.7646 ± 0.0827 | 29.60 ± 2.65 | 0.0401 |
-| 混合 hybrid | 10,408 | +0.8522 ± 0.0653 | 0.6985 ± 0.0800 | 28.00 ± 2.08 | 0.0457 |
-| U-Net | 7,778,465 | +0.8997 ± 0.0643 | 0.8380 ± 0.0610 | 30.98 ± 2.50 | 0.0370 |
+| 物理模型 physics | 230 (全局 Zernike 向量) | +0.8803 ± 0.0823 | 0.7646 ± 0.0827 | 29.60 ± 2.65 | 0.0401 |
+| 混合 hybrid | 10,408 (物理 + 零初始化 CNN 残差) | +0.8522 ± 0.0653 | 0.6985 ± 0.0800 | 28.00 ± 2.08 | 0.0457 |
+| U-Net | 7,778,465 (img2img 回归器) | +0.8997 ± 0.0643 | 0.8380 ± 0.0610 | 30.98 ± 2.50 | 0.0370 |
+
+**架构速览** (详见 §1.1)：`physics` 用一个全局 Zernike 向量 `Z` 拟合整个语料的系统性像差；
+`hybrid` = `physics` + 零初始化残差 CNN (width=32)；`U-Net` = `ml.phase.unet.UNetGenerator`
+(img2img，Encoder `[16→32→64→128→256]` → Bottleneck → Decoder with skip concat, sigmoid 输出)。
 
 配置：`physics` n_max=20 / lr=0.02；
 `hybrid` 同物理配置 + 残差宽度 32；
@@ -363,6 +417,85 @@ U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问�
 
 ![相位合成](figures/10_phase_synthesis.png)
 
+```mermaid
+graph LR
+    subgraph "代理空间 (Surrogate Space)"
+        direction TB
+        subgraph "物理代理<br/>Physics Proxy"
+            P1[ZernikeAmpModel<br/>全局 Z 向量，135 参数]
+            P2[FFT 前向模型<br/>far_field_padding=10 + center_crop]
+            P3[Frozen weights<br/>requires_grad=False]
+            P4[NNLS 校准<br/>模型增益 g ≥ 0 + flat leakage]
+            P1 --> P2 --> P4 --> P3
+        end
+
+        subgraph "U-Net 代理<br/>U-Net Proxy"
+            U1[UNetGenerator<br/>img2img 回归器，7.8M 参数]
+            U2[Encoder-Decoder<br/>特征 [16→256] skip-concat]
+            U3[Sigmoid 输出<br/>峰值归一强度]
+            U1 --> U2 --> U3
+        end
+    end
+
+    subgraph "优化变量 (Optimization Variable)"
+        direction TB
+        F1[SLM 相位 φ<br/>(64×64 网格)<br/>可自由参数化]
+        F2[Zernike 带限φ<br/>n_max≤15，135 DOF]
+        F3[Freeform φ<br/>4096 DOF]
+        F1 --> F2
+        F1 --> F3
+    end
+
+    subgraph "硬件闭环 (Hardware Closed Loop)"
+        direction TB
+        H1[显示 φ 到 SLM<br/>Santec.create_phase_from_array]
+        H2[CCD 拍照<br/>远场强度]
+        H3[SPGD 优化<br/>每次 2 次读数]
+        H1 --> H2 --> H3
+    end
+
+    subgraph "目标 (Target)"
+        T1[50×50 px 均匀方斑<br/>quality = CV + EE]
+        T1
+    end
+
+    %% Connections
+    P3 -->|预测远场| T1
+    U3 -->|预测远场| T1
+
+    F1 -->|输入给代理| P3
+    F1 -->|输入给代理| U3
+
+    %% Dashed: the relationship
+    P3 -.->|Frozen surrogate<br/>替代硬件| H3
+    U3 -.->|Frozen surrogate<br/>替代硬件| H3
+
+    %% Annotation
+    style P3 fill:#e1f5fe
+    style U3 fill:#e1f5fe
+    style H3 fill:#fff3e0
+    style T1 fill:#f3e5f5
+```
+
+**图 10.1 — 代理模型、优化变量与硬件闭环的关系。**
+
+三个平行通道（实线）代表不同的评估方式评估同一个 SLM 相位 φ：
+
+1. **物理代理** (§1): 全局 Zernike 向量 + FFT 前向模型，135 参数，**闭式可逆**回 SLM 相位 (`Σ Zₖ Bₖ`)。
+2. **U-Net 代理**: img2img 回归器，7.8M 参数，**不可逆** —— 输出图像而非相位，反解需要额外逆问题求解。
+3. **硬件闭环**: SPGD 每轮 2 次 CCD 读数，**昂贵**，是终极真相但成本高。
+
+**关键结构**: 方向相位优化 (§10.4) 用**冻结的代理** (实线)替代硬件读数 (虚线)。代理决定论可微但非自足 —— 它在语料流形外的预测不可信 (§10.2, §10.5)。U-Net 与物理代理共享训练语料 (`slm_zernike_shaping`)，因此 U-Net 可作为物理代理的**更高容量替代**，但其 7.8M 参数无法直接给出可下发相位。
+
+| 关系 | 物理代理 | U-Net 代理 |
+|---|---|---|
+| 训练语料 | `slm_zernike_shaping` (1010 条) | `slm_zernike_shaping` (1010 条) |
+| 输入 | `(phase_cos, phase_sin)` | `(phase_cos, phase_sin)` |
+| 输出 | `(B, 1, g, g)` 远场强度 | `(B, 1, g, g)` 远场强度 |
+| 优化变量 | `Z` (135 参数, 全局) | φ (4096 参数, 逐样本) |
+| 可逆性 | ✅ 闭式 `Σ Zₖ Bₖ` | ❌ 输出图像, 反解另需求解 |
+| FLOPs (单次前向) | ~O(g²K) | ~O(g² · 16K) |
+
 | 方案 | 参数量 | CV | EE | quality | 评判者 |
 |---|---|---|---|---|---|
 | 平相位（基线） | — | 1.6910 | 0.9124 | 0.4235 | 物理代理 |
@@ -371,6 +504,12 @@ U-Net 出的是**图像**，反解成可下发的 SLM 相位是另一个反问�
 | 同一代理看平相位 | — | 1.6345 | — | 0.2758 | 独立 U-Net |
 | 仓库参照：GS 单次 | — | 0.41 | — | — | 数值仿真 |
 | 仓库参照：GS + 自由相位细化 | — | 0.12 | — | — | 数值仿真 |
+
+> **NNLS (Nonnegative Least Squares)**: 在 Step A (forward-model calibration)
+> 中，使用 `scipy.optimize.nnls` 拟合一个非负的模型增益 `g ≥ 0` 和一个与相位
+> 无关的 flat leakage `b` 项，使得 `predicted = g · predicted_base + b` 最小化
+> 预测与测量的残差。NNLS 约束 `g ≥ 0` 防止标定出物理上不可能的反向增益。
+> 实现见 `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py:_fit_flat_leakage`。
 
 ### 三个结果
 
@@ -534,3 +673,31 @@ python scripts/ml/compare_models_cv.py --analyse logs/models_cv_objective.json
 python -m pytest tests/ao_shaping/ml/zernike -q                        # 67
 python -m pytest tests/ao_shaping/scripts/test_compare_models_cv.py -q  # 19
 ```
+
+---
+
+## 附录 A: 名词解释 (Glossary)
+
+| 缩写/术语 | 完整名称 | 定义 |
+|---|---|---|
+| **NNLS** | Nonnegative Least Squares | 约束最小二乘法，要求解向量 `x ≥ 0`。在本项目用于 `slm_model_in_loop.py:_fit_flat_leakage`，拟合物理上不可为负的模型增益 `g ≥ 0`。实现: `scipy.optimize.nnls`。 |
+| **CV** | Coefficient of Variation | 质量分中的均匀性项: `CV = std(box) / mean(box)`。越小表示光斑越均匀。CV=0 获得最大奖励。 |
+| **EE** | Encircled Energy | 质量分中的能量项: 落在目标 box 内的总能量 / 全帧总能量。衡量目标框内光斑能量覆盖率。 |
+| **R²** | Coefficient of Determination | 决定系数: `R² = 1 - SS_res / SS_tot`。衡量模型解释方差的比例。本文使用 `ml.zernike.metrics` 的实现。 |
+| **SSIM** | Structural Similarity Index | 结构相似性指标。衡量亮度、对比度、结构三个维度的相似度。注意: SSIM 在散斑场上偏弱，详见 §9 局限。 |
+| **PSNR** | Peak Signal-to-Noise Ratio | 峰值信噪比: `PSNR = 10 · log10(MAX² / MSE)`。图像质量指标，单位 dB。 |
+| **NRMSE** | Normalized RMSE | 归一化均方根误差: `RMSE / (max - min)`。 |
+| **DOF** | Degrees of Freedom | 可优化参数的维度。物理模型: 135 (Zernike 系数); U-Net: 7,778,465; Freeform: 4,096 (64×64 网格)。 |
+| **FOV** | Field of View | 视场角 / 相机视野范围。各 family 的 `fov_px` 不同: 64 / 248 / 320 / 1944 px。详见 §2 数据管线。 |
+| **Zernike** | Zernike polynomials | 圆形瞳孔上的正交多项式基。Noll 1976 约定 (Noll 4 = defocus, Noll 5 = astigmatism x²−y²)。 |
+| **FFT** | Fast Fourier Transform | 快速傅里叶变换。用于 Fraunhofer 远场传播: `fftshift(fft2(ifftshift(field)))`。 |
+| **SPGD** | Stochastic Parallel Gradient Descent | 无感知优化算法。通过比较带正负扰动的两次测量估计梯度，每次迭代需 2 次相机读数。 |
+| **GS** | Gerchberg-Saxton | 迭代相位恢复算法。用于没有 WFS 的闭环校正，仓库实现见 `algorithm/signal_processing/gerchberg_saxton.py`。 |
+| **PIB** | Power-in-Bucket | 桶内功率: 落在目标半径内的光功率总和。整形质量的一个指标。 |
+| **piston** | Zernike Noll 1 (0,0) | 常数相位项。远场强度不受 piston 影响 (`|FFT(e^{iφ₀}U)| = |FFT(U)|`), 因此从可学习参数中排除。 |
+| **far_field_padding** | -- | FFT 网格相对于瞳孔网格的 padding 倍数。标定物理尺度以匹配相机视场。默认 10 (适用于 248 px fov)。详见 §3.1。 |
+| **zfrac** | Zernike energy fraction | 合成相位中落在 Zernike 张成空间的能量占比。衡量相位是否"出流形"。 |
+| **wfs** | Wavefront Sensor | 波前传感器。Thorlabs 模块，详见 `drivers/wfs/`。 |
+| **CCD** | Charge-Coupled Device | 电荷耦合器件，相机传感器。详见 `drivers/ccd/`。 |
+| **SLM** | Spatial Light Modulator | 空间光调制器。Santec 设备，详见 `drivers/slm/`。 |
+| **DM** | Deformable Mirror | 可变反射镜。NLight 设备，详见 `drivers/dm/`。 |

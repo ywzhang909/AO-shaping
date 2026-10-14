@@ -93,8 +93,8 @@ META_FIELDS: tuple[tuple[str, str], ...] = (
 def find_debug_dirs(debug_root: Path) -> list[Path]:
     """Return every shaping artifact leaf dir under ``debug_root``, newest first.
 
-    The optimizer writes ``<debug_dir>/debug/<prefix><objective>_<ts>/<ts>/``
-    (``save_recorder_debug_artifacts`` appends its own ``debug`` segment), so
+The optimizer writes ``<debug_dir>/debug/<prefix><objective>/<ts>/``
+        (``save_recorder_debug_artifacts`` appends its own ``debug`` segment), so
     both ``<root>/debug/<prefix>*/*`` and ``<root>/<prefix>*/*`` are scanned —
     that makes ``--debug-root data`` and ``--debug-root data/debug`` both work.
     Only leaves that actually hold a ``.pkl`` are returned.
@@ -399,10 +399,10 @@ def build_markdown(
     lines.append("每个运行对应一个产物目录:")
     lines.append("")
     lines.append("```")
-    lines.append("<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/<ts>/")
-    lines.append("  ├── slm_zernike_shaping_<objective>_<ts>_<ts>.pkl   # {epoch: record}")
-    lines.append("  ├── slm_zernike_shaping_<objective>_<ts>_<ts>.json  # 配置 payload")
-    lines.append("  └── slm_zernike_shaping_<objective>_<ts>_<ts>.png   # 运行期汇总图")
+    lines.append("<debug_dir>/debug/slm_zernike_shaping_<objective>/<ts>/")
+    lines.append("  ├── slm_zernike_shaping_<objective>_<ts>.pkl   # {epoch: record}")
+    lines.append("  ├── slm_zernike_shaping_<objective>_<ts>.json  # 配置 payload")
+    lines.append("  └── slm_zernike_shaping_<objective>_<ts>.png   # 运行期汇总图")
     lines.append("```")
     lines.append("")
     lines.append(

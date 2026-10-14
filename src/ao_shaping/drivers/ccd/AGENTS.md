@@ -73,10 +73,16 @@ cam.auto_exposure(
 
 | 函数 | 说明 |
 |------|------|
-| `get_camera_exposure_ms(cam)` | 读取当前曝光 (ms) |
+| `get_camera_exposure_ms(cam)` | 读取当前**生效**曝光 (ms), **优先设备实时回读** `cam.get_exposure_time_ms()`; 后端无回读 (ffmpeg/image_folder/sim) 才回落 `exposure_time_ms` / `exposure_time` 缓存 |
 | `set_camera_exposure_ms(cam, ms)` | 写曝光, 优先 `reset_exposure_time()` (MiiCam 必需) |
 | `get_camera_exposure_range(cam)` | `(min_ms, max_ms)`, 后端未暴露时回退 `0.011–10000` |
 | `auto_exposure(cam, target_max, tolerance=5.0, max_iterations=20, n_sample=1)` | 有原生 `auto_exposure` (Daheng/MiiCam) 则委托, 否则通用比例环 (ffmpeg) |
+
+> **曝光「回读」= 设备实际生效值, 不是你请求的值** (见下方已知坑第 2 条)。
+> 后端实现该契约的单一入口是 `get_exposure_time_ms()`:
+> `DahengCamera` 读 GenICam `ExposureTime` 特征 (设备真值);
+> `MIICamera` 返回驱动侧已钳制+量化的缓存 (SDK 无可靠 `ExpoTime` getter)。
+> 新增后端请实现它, 否则会静默退回缓存 —— 那正是 issue #32 的缺陷形态。
 
 ## BaseCamera 接口
 
@@ -101,6 +107,7 @@ cam.auto_exposure(
 
 - **Daheng gxipy `IntFeature.set` 越界会「静默保留旧窗口」** (SDK gxiapi.py `IntFeature.set`/`range_check`): 请求值不在特征 `[min, max, inc]` 网格 (如 `Height.range=[2, 1138, 2]`) 时, gxipy **不抛异常**, 只 `print()` 噪声 "IntFeature.set: int_value out of bounds, ..." 然后**保留上一次的窗口** — 调用方拿到的仍是旧窗口而无从知晓 (2026-09-23 实测: 开窗设置/关闭时缓冲报错, 窗口被钳到 930×632)。修复: `DahengCamera.reset_window` 在 set 前用 `_clamp_int(value, feature.get_range())` 把宽高/偏移钳到合法网格 (warning 记录钳制), 并 readback (`Width.get()`/`Height.get()`/`OffsetX.get()`) 校验 — 若 SDK 确保留旧值则 warning + 返回实际生效窗口 `((w,h), center)`。调用方必须用返回的生效尺寸/中心, 不要拿请求值当生效值。新代码一律经 `reset_window` 返回的 readback 值; 已在 `tests/ao_shaping/drivers/ccd/daheng/test_reset_window.py` 离线锁定 (钳制/读回/全帧分支)。
 - **MiiCam 曝光修改**: 须通过 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流); 曝光 <0.1ms 信号淹没在噪声 (max≤10), 建议 ≥0.2ms; 峰值可能锁在 ~85, 质量指标优先用 mean/亮区而非 max。
+- **曝光回读 ≠ 缓存值, 差一个微秒也会骗人** (issue #32, `get_camera_exposure_ms` 回读失真): 两个后端都会把曝光**钳制并量化到整数微秒**才下发给 SDK —— Daheng 是 `ExposureTime.set(int(ms*1000))`, MiiCam 是 `put_ExpoTime(int(ms*1000))` —— 但驱动侧的 `exposure_time_ms` 缓存保留的是**未经量化的原始请求**, 且从不随设备回读刷新。于是「日志里记的曝光」与「传感器实际用的曝光」长期漂移, 一切依赖曝光真值的判据 (饱和保护、δ 扫描、线性度) 都建立在错值上。**契约: 一律经 `get_exposure_time_ms()` 取值** —— Daheng 读 GenICam 特征拿设备真值; MiiCam 因 SDK 无可靠 getter, 以「已钳制+量化」的缓存为权威 (**不可**改回未量化的请求, 那会虚报一个设备并未使用的曝光)。`get_camera_exposure_ms()` 已按此优先级实现, 离线锁定于 `tests/ao_shaping/drivers/ccd/test_camera_registry.py`。
 - **MiiCam 位深**: 实测该硬件 `_detect_raw_format` 报 `MONO16` 而非 `MONO14` (test_ccd.py::test_cam_bit_depth_initialization 预期 MONO14 会失败 — 硬件现实, 非代码缺陷)。
 
 ## 包入口

@@ -3,5 +3,7 @@
         "src",
         "libs"
     ],
+    "venvPath": ".",
+    "venv": ".venv",
     "typeCheckingMode": "basic"
 }

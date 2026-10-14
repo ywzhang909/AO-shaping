@@ -79,15 +79,18 @@ Example:
 from __future__ import annotations
 
 import contextlib
-import inspect
 import os
 import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-import tqdm
 import numpy as np
+import tqdm
 
+from ao_shaping.algorithm.heuristic.search import (
+    run_heuristic_search,
+)
+from ao_shaping.display import SlmSquareDisplay
 from ao_shaping.drivers.ccd.common import (
     capture_with_exposure,
     create_camera,
@@ -95,39 +98,26 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.algorithm.gradient.adam import (
-    AdaMOD,
-    Adam,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-    SGD,
-)
-from ao_shaping.algorithm.heuristic.search import (
-    heuristic_algorithm_choices,
-    run_heuristic_search,
-)
-from ao_shaping.utils import logger, Recorder
-from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
-from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
-from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
-from ao_shaping.utils.image.spots_calc import centroid, radius
-from ao_shaping.utils.image.hardware_utils import log_center_brightness
-from ao_shaping.utils.image.targets import (
-    SQUARE_OBJECTIVE_CHOICES,
-    pearson_shape_metric,
-)
-from ao_shaping.utils.wavefront.zernike_calc import (
-    ZernikeGenerator,
-    calc_n_zernike_terms,
-    noll_indices,
-)
 from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
     AdaptiveSpgdConfig,
     get_stage_weights,
     should_boost_stagnation,
+)
+from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
+from ao_shaping.utils.image.hardware_utils import log_center_brightness
+from ao_shaping.utils.image.spots_calc import centroid
+from ao_shaping.utils.image.targets import (
+    SQUARE_OBJECTIVE_CHOICES,
+    pearson_shape_metric,
+)
+from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
+from ao_shaping.utils.wavefront.zernike_calc import (
+    ZernikeGenerator,
+    calc_n_zernike_terms,
+    noll_indices,
 )
 
 if TYPE_CHECKING:
@@ -221,6 +211,50 @@ def _map_init_to_active_modes(
         padded[: len(arr)] = arr
         return padded
     return arr[: len(active_modes)]
+
+
+def _scatter_active_to_noll(
+    vec: np.ndarray,
+    active_pos: list[int],
+    nk: int,
+    has_rotation: bool = False,
+) -> np.ndarray:
+    """Scatter an active-mode parameter vector into a full Noll-order vector.
+
+    The ``spgd-square --debug`` sidecar records ``_c`` for the ML corpus
+    (``ml/hwdataset``). ``ml.hwdataset.index`` classifies a ``_c`` as
+    ``PhaseSource.ZERNIKE`` only when its length is the FULL Noll count
+    ``(n_max+1)(n_max+2)//2`` (rule 1, matching the sidecar ``n_max``). The
+    optimiser works in ACTIVE-mode space (e.g. two modes), and a length-2 vector
+    is neither triangular nor a perfect square, so such a record is dropped as
+    ``odd_coefficient_length`` (TODO H-23).
+
+    This maps the work-vector onto full Noll order (zeros on inactive slots)
+    WITHOUT touching the optimiser's own state. The recorded representation is
+    the same one ``--init-coeffs`` accepts, so the Zernike forward
+    reconstruction in ``ml.hwdataset.transforms`` reads it faithfully.
+
+    Args:
+        vec: Active-mode parameters, length ``len(active_pos)`` (plus one
+            trailing rotation DOF when ``has_rotation``).
+        active_pos: Noll indices of the optimised modes, in ``vec`` order.
+        nk: Full Noll length, ``(n_max+1)(n_max+2)//2``.
+        has_rotation: When True the last element of ``vec`` is a rotation DOF
+            appended AFTER the ``nk`` Noll slots; the result is length ``nk+1``
+            and deliberately does NOT classify as a pure Zernike record (the
+            commanded phase really did carry a rotation).
+
+    Returns:
+        A ``float64`` array of length ``nk`` (or ``nk+1`` with rotation).
+    """
+    arr = np.asarray(vec, dtype=np.float64).ravel()
+    n_active = len(active_pos)
+    out = np.zeros(nk + (1 if has_rotation else 0), dtype=np.float64)
+    if n_active:
+        out[np.asarray(active_pos, dtype=int)] = arr[:n_active]
+    if has_rotation:
+        out[-1] = float(arr[n_active])
+    return out
 
 
 def _locate_square_center(img: np.ndarray, mode: str) -> tuple[int, int]:
@@ -747,241 +781,6 @@ def learning_schedule(
 
     return base_lr * lr_factor, base_delta * delta_factor
 
-
-class _SPGDDisplay:
-    """SPGD square-beam 优化实时 pygame 可视化窗口.
-
-    2×2 面板:
-        - 左上: SLM 下发相位 (grayscale)
-        - 右上: Zernike 系数 (柱状图)
-        - 左下: CCD 远场图像
-        - 右下: 优化指标曲线 (quality / CV / EE)
-
-    用法::
-
-        with _SPGDDisplay() as disp:
-            disp.update(phase_gray, coeffs, img, epoch, quality, cv, ee)
-    """
-
-    PANEL_W: int = 480
-    PANEL_H: int = 480
-    PAD: int = 8
-    TITLE_H: int = 28
-    BG: tuple[int, int, int] = (25, 25, 25)
-
-    def __init__(self, active_modes: tuple[tuple[int, int], ...]) -> None:
-        w = self.PANEL_W * 2 + self.PAD * 3
-        h = self.PANEL_H * 2 + self.PAD * 3 + self.TITLE_H
-        self._window_size = (w, h)
-        self._active_modes = active_modes  # e.g. ((2,0),(4,0))
-        self._phase: np.ndarray | None = None
-        self._image: np.ndarray | None = None
-        self._coeffs: np.ndarray | None = None
-        self._quality_curve: list[float] = []
-        self._cv_curve: list[float] = []
-        self._ee_curve: list[float] = []
-        self._epoch = 0
-
-    def __enter__(self) -> "_SPGDDisplay":
-        import pygame
-
-        pygame.init()
-        pygame.display.set_caption("SPGD Square 闭环优化")
-        self._screen = pygame.display.set_mode(self._window_size)
-        self._font = pygame.font.SysFont("consolas", 16)
-        self._clock = pygame.time.Clock()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
-        import pygame
-
-        pygame.quit()
-
-    @staticmethod
-    def _to_surface(arr: np.ndarray, cmap: str = "gray") -> "pygame.Surface":
-        """numpy array → pygame Surface (with swapaxes for surfarray convention)."""
-        import pygame
-
-        arr = np.asarray(arr, dtype=np.float64)
-        if arr.size == 0:
-            arr = np.zeros((16, 16), dtype=np.float64)
-        vmin, vmax = float(arr.min()), float(arr.max())
-        if vmax - vmin < 1e-9:
-            norm = np.zeros_like(arr, dtype=np.uint8)
-        else:
-            norm = ((arr - vmin) / (vmax - vmin) * 255.0).astype(np.uint8)
-        if cmap == "heat" and norm.ndim == 2:
-            f = norm.astype(np.float64) / 255.0
-            r = np.clip(1.5 - np.abs(4 * f - 3.0), 0.0, 1.0)
-            g = np.clip(1.5 - np.abs(4 * f - 2.0), 0.0, 1.0)
-            b = np.clip(1.5 - np.abs(4 * f - 1.0), 0.0, 1.0)
-            rgb = np.dstack((r, g, b))
-            rgb = (rgb * 255.0).astype(np.uint8)
-            return pygame.surfarray.make_surface(rgb.swapaxes(0, 1))
-        if norm.ndim == 2:
-            norm = np.dstack((norm, norm, norm))
-        return pygame.surfarray.make_surface(norm.swapaxes(0, 1))
-
-    def update(
-        self,
-        phase_gray: np.ndarray,
-        coeffs: np.ndarray,
-        img: np.ndarray,
-        epoch: int,
-        quality: float,
-        cv: float,
-        ee: float,
-    ) -> None:
-        """Update all panels and render."""
-        self._phase = phase_gray
-        self._coeffs = coeffs
-        self._image = img
-        self._epoch = epoch
-        self._quality_curve.append(quality)
-        self._cv_curve.append(cv)
-        self._ee_curve.append(ee)
-        self._render()
-
-    def _draw_panel(self, index: int, title: str, surface: "pygame.Surface") -> None:
-        import pygame
-
-        col = index % 2
-        row = index // 2
-        x = self.PAD + col * (self.PANEL_W + self.PAD)
-        y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
-        title_surf = self._font.render(title, True, (255, 255, 0))
-        self._screen.blit(title_surf, (x + 4, y - self.TITLE_H + 2))
-        scaled = pygame.transform.scale(surface, (self.PANEL_W, self.PANEL_H))
-        self._screen.blit(scaled, (x, y))
-        pygame.draw.rect(
-            self._screen, (120, 120, 120), (x, y, self.PANEL_W, self.PANEL_H), 1
-        )
-
-    def _draw_coeffs_bar(self) -> None:
-        """Panel 1 (index=1): bar chart of Zernike coefficients."""
-        import pygame
-
-        col = 1
-        row = 0
-        x = self.PAD + col * (self.PANEL_W + self.PAD)
-        y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
-        area = pygame.Rect(x, y, self.PANEL_W, self.PANEL_H)
-        self._screen.fill((0, 0, 0), area)
-        if self._coeffs is None:
-            return
-        coeffs = self._coeffs
-        n = len(coeffs)
-        if n == 0:
-            return
-        bar_w = max(min((self.PANEL_W - 40) // n, 80), 10)
-        gap = 8
-        total_w = n * bar_w + (n - 1) * gap
-        start_x = x + (self.PANEL_W - total_w) // 2
-        cmax = max(abs(float(c)) for c in coeffs) or 1.0
-        mid_y = y + self.PANEL_H // 2
-        for i, c in enumerate(coeffs):
-            bx = start_x + i * (bar_w + gap)
-            val = float(c)
-            bar_h = int(abs(val) / cmax * (self.PANEL_H // 2 - 20))
-            color = (0, 180, 255) if val >= 0 else (255, 100, 100)
-            if val >= 0:
-                rect = pygame.Rect(bx, mid_y - bar_h, bar_w, bar_h)
-            else:
-                rect = pygame.Rect(bx, mid_y, bar_w, bar_h)
-            pygame.draw.rect(self._screen, color, rect)
-            # Label: Noll index
-            noll = self._active_modes[i] if i < len(self._active_modes) else (0, 0)
-            label = self._font.render(f"({noll[0]},{noll[1]})", True, (200, 200, 200))
-            self._screen.blit(label, (bx + 2, y + self.PANEL_H - 18))
-            # Value
-            vlabel = self._font.render(f"{val:.2f}", True, (255, 255, 255))
-            self._screen.blit(
-                vlabel, (bx + 2, y + 6 if val >= 0 else y + self.PANEL_H - 34)
-            )
-        # Center line
-        pygame.draw.line(
-            self._screen, (80, 80, 80), (x, mid_y), (x + self.PANEL_W, mid_y), 1
-        )
-
-    def _draw_metrics_curve(self) -> None:
-        """Panel 3 (index=3): multi-curve quality/CV/EE."""
-        import pygame
-
-        col = 1
-        row = 1
-        x = self.PAD + col * (self.PANEL_W + self.PAD)
-        y = self.TITLE_H + self.PAD + row * (self.PANEL_H + self.PAD)
-        area = pygame.Rect(x, y, self.PANEL_W, self.PANEL_H)
-        self._screen.fill((0, 0, 0), area)
-        curves = [
-            (self._quality_curve, (0, 255, 0), "Quality"),
-            (self._cv_curve, (100, 180, 255), "CV"),
-            (self._ee_curve, (255, 200, 0), "EE"),
-        ]
-        # Draw legend
-        for ci, (data, color, name) in enumerate(curves):
-            lx = x + 10 + ci * 100
-            pygame.draw.line(self._screen, color, (lx, y + 8), (lx + 20, y + 8), 2)
-            t = self._font.render(name, True, color)
-            self._screen.blit(t, (lx + 24, y + 2))
-        if len(self._quality_curve) < 2:
-            t = self._font.render("Waiting for data...", True, (150, 150, 150))
-            self._screen.blit(t, (x + 20, y + self.PANEL_H // 2))
-            return
-        # Draw each curve
-        for data, color, _name in curves:
-            if len(data) < 2:
-                continue
-            cmin, cmax = min(data), max(data)
-            span = (cmax - cmin) or 1.0
-            points = []
-            for i, val in enumerate(data):
-                px = x + 10 + int(i * (self.PANEL_W - 20) / max(len(data) - 1, 1))
-                py = (
-                    y
-                    + self.PANEL_H
-                    - 30
-                    - int((val - cmin) / span * (self.PANEL_H - 50))
-                )
-                points.append((px, py))
-            pygame.draw.lines(self._screen, color, False, points, 2)
-        # Epoch label
-        t = self._font.render(
-            f"Epoch {self._epoch} | Q={self._quality_curve[-1]:.4f}",
-            True,
-            (255, 255, 255),
-        )
-        self._screen.blit(t, (x + 10, y + self.PANEL_H - 22))
-
-    def _render(self) -> None:
-        import pygame
-
-        self._screen.fill(self.BG)
-        header = (
-            f"SPGD Square | Epoch {self._epoch} | CV={self._cv_curve[-1]:.4f}"
-            if self._cv_curve
-            else "SPGD Square 闭环优化"
-        )
-        head_surf = self._font.render(header, True, (0, 255, 255))
-        self._screen.blit(head_surf, (self.PAD, 6))
-        # Panel 0: SLM phase
-        if self._phase is not None:
-            self._draw_panel(
-                0, "SLM Phase (grayscale)", self._to_surface(self._phase, "gray")
-            )
-        # Panel 1: Zernike coefficients
-        self._draw_coeffs_bar()
-        # Panel 2: CCD image
-        if self._image is not None:
-            self._draw_panel(
-                2, "CCD Far-field Image", self._to_surface(self._image, "heat")
-            )
-        # Panel 3: Metrics curve
-        self._draw_metrics_curve()
-        pygame.display.update()
-        self._clock.tick(30)
-
-
 @dataclass
 class SlmSquareConfig:
     """Configuration bundle for :func:`optimize_slm_square`.
@@ -1030,6 +829,12 @@ class SlmSquareConfig:
     #: may only update the learning rate. Set by the CLI when the user actually
     #: typed ``--delta``; otherwise the schedule owns ``delta`` as before.
     delta_pinned: bool = False
+#: When True (default), the target box center is fixed from the initial
+    #: detection and NOT re-detected after exposure adjustment. When False, the
+    #: center is re-detected on the post-exposure frame (legacy behavior).
+    fix_target: bool = True
+    #: Adaptive closed-loop SPGD (T4): widen the perturbation and switch the
+    #: objective when the score stagnates for ``stagnate_win`` epochs.
     adaptive: bool = False
     stagnate_win: int = 10
     stagnate_boost: float = 1.5
@@ -1330,6 +1135,7 @@ def optimize_slm_square(
     max_roi_energy_loss = float(config.max_roi_energy_loss)
     init_amplitude_rad = float(config.init_amplitude_rad)
     _delta_pinned = _delta_pinned or bool(config.delta_pinned)
+    _fix_target = bool(config.fix_target)
     kwargs = config.kwargs
 
     # Adaptive SPGD closed loop (opt-in via config.adaptive). The base weights
@@ -1501,6 +1307,24 @@ def optimize_slm_square(
     _heuristic_bounds: tuple[float, float] = (
         _param_clip if _param_clip is not None else (-np.pi, np.pi)
     )
+
+    # --- Debug-record representation -------------------------------------
+    # `_c` / `_grad` are recorded in FULL Noll order for the Zernike basis so
+    # `ml.hwdataset.index` classifies the debug record as ZERNIKE (rule 1) --
+    # an active-mode vector of length 2 matches no accepted length (TODO H-23).
+    # The optimiser's own work-vector stays active-mode; this only remaps what is
+    # *recorded*. Freeform (`_c` = grid*grid radians) is passed through untouched.
+    if basis == "zernike":
+        _noll_position = {mode: i for i, mode in enumerate(_noll_modes)}
+        _active_pos = [_noll_position[m] for m in _active_modes]
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return _scatter_active_to_noll(vec, _active_pos, nk, _has_rotation)
+
+    else:
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return vec
 
     with (
         create_camera(
@@ -1680,10 +1504,11 @@ def optimize_slm_square(
         # is guaranteed to sit on the beam (AGENTS.md: 0-order located by argmax,
         # never by geometry — it can sit off the frame centre).
         # Post-exposure re-detection by the selected mode; explicit (x, y) tuples
-        # are fixed and not re-detected.
-        if _center_mode != "fixed":
+        # are fixed and not re-detected. When fix_target=True (default), the
+        # initial center is kept and NOT re-detected after exposure adjustment.
+        if _center_mode != "fixed" and not _fix_target:
             center = _locate_square_center(init_img, _center_mode)
-        logger.info(f"target box center @ {center}")
+        logger.info(f"target box center @ {center} (fix_target={_fix_target})")
 
         # Compute target square side length
         if target_mean_brightness > 0:
@@ -1796,7 +1621,7 @@ def optimize_slm_square(
                 "ar": ar,
                 "pbr": pbr,
                 "side": target_side,
-                "_c": _params,
+                "_c": _record_vec(_params),
                 "_img": init_img,
                 "_diff": 0,
                 "lr": lr,
@@ -1806,7 +1631,7 @@ def optimize_slm_square(
                 "max_brt": np.max(init_img),
                 "mean_b": mean_int,
                 "target_mean_b": target_mean_brightness,
-                "_grad": np.zeros_like(_params),
+                "_grad": _record_vec(np.zeros_like(_params)),
                 "optimizer": optimizer_type,
                 f"best_{_score_column}": best_quality,
             }
@@ -1814,10 +1639,10 @@ def optimize_slm_square(
 
         # pygame 实时显示 (2×2 面板), 初始化失败则禁用显示但不中断优化
         display_stack = contextlib.ExitStack()
-        display_ctx: _SPGDDisplay | None = None
+        display_ctx: SlmSquareDisplay | None = None
         if show:
             try:
-                display_ctx = _SPGDDisplay(active_modes=_active_modes)
+                display_ctx = SlmSquareDisplay()
                 display_stack.enter_context(display_ctx)
             except Exception as _e:
                 logger.warning("pygame显示初始化失败, 本次运行禁用显示: {}", _e)
@@ -1890,7 +1715,7 @@ def optimize_slm_square(
                         "ar": last_eval["ar"],
                         "pbr": last_eval["pbr"],
                         "side": target_side,
-                        "_c": np.asarray(params, dtype=np.float64),
+                        "_c": _record_vec(np.asarray(params, dtype=np.float64)),
                         "_img": last_eval["img"],
                         "_diff": 0.0,
                         "lr": 0.0,
@@ -1900,7 +1725,7 @@ def optimize_slm_square(
                         "max_brt": float(np.max(last_eval["img"])),
                         "mean_b": last_eval["mean"],
                         "target_mean_b": target_mean_brightness,
-                        "_grad": np.zeros_like(params),
+                        "_grad": _record_vec(np.zeros_like(params)),
                         "optimizer": algorithm,
                     }
                     recorder.append(row)
@@ -1908,13 +1733,13 @@ def optimize_slm_square(
                     if display_ctx is not None:
                         try:
                             display_ctx.update(
-                                phase_gray=last_eval["gray"],
-                                coeffs=np.asarray(params, dtype=np.float64),
                                 img=last_eval["img"],
-                                epoch=index,
+                                phase=last_eval["gray"],
                                 quality=float(value),
                                 cv=last_eval["cv"],
                                 ee=last_eval["ee"],
+                                epoch=index,
+                                total_epochs=epochs,
                             )
                         except Exception:
                             pass
@@ -2124,13 +1949,13 @@ def optimize_slm_square(
                             "lr": optimizer.lr,
                             "delta": delta,
                             "_epoch": epoch,
-                            "_c": _params.copy(),
+                            "_c": _record_vec(_params.copy()),
                             "_img": pos_img,
                             "exp_t": get_camera_exposure_ms(cam),
                             "max_brt": max_brightness,
                             "mean_b": (pos_mean + neg_mean) / 2,
                             "target_mean_b": target_mean_brightness,
-                            "_grad": np.zeros_like(disturb_c),
+                            "_grad": _record_vec(np.zeros_like(disturb_c)),
                             "gate": _gate,
                         }
                     )
@@ -2271,26 +2096,26 @@ def optimize_slm_square(
                     "lr": optimizer.lr,
                     "delta": delta,
                     "_epoch": epoch,
-                    "_c": eval_c,
+                    "_c": _record_vec(eval_c),
                     "_img": eval_img,
                     "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": max_brightness,
                     "mean_b": (pos_mean + neg_mean) / 2,
                     "target_mean_b": target_mean_brightness,
-                    "_grad": gradient,
+                    "_grad": _record_vec(gradient),
                 }
                 recorder.append(log)
 
                 if display_ctx is not None:
                     try:
                         display_ctx.update(
-                            phase_gray=_params_to_gray(eval_c),
-                            coeffs=(eval_c[:-1] if _has_rotation else eval_c),
                             img=eval_img,
-                            epoch=epoch,
+                            phase=_params_to_gray(eval_c),
                             quality=quality,
                             cv=eval_cv,
                             ee=eval_ee,
+                            epoch=epoch,
+                            total_epochs=epochs,
                         )
                     except Exception:
                         pass

@@ -10,7 +10,7 @@ from typing import Literal
 import numpy as np
 import torch
 from scipy import ndimage
-from torch.utils.data import Dataset
+from torch.utils.data import DataLoader, Dataset
 
 # External dependency - keep as absolute import
 from ao_shaping.utils.wavefront.zernike_calc import (

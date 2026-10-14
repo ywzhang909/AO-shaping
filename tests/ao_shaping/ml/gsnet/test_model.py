@@ -16,6 +16,19 @@ from ml.gsnet.model import (
 
 
 class TestFourierGSNetForward:
+    def test_shared_physics_steps_reduce_parameters_and_backpropagate(self):
+        dense = FourierGSNet(num_layers=10, base_channels=8)
+        shared = FourierGSNet(num_layers=10, base_channels=8, shared_weights=True)
+        assert len(shared.layers) == 1
+        assert count_parameters(shared) * 10 == count_parameters(dense)
+        src = torch.rand(1, 1, 16, 16)
+        tgt = torch.zeros_like(src)
+        tgt[:, :, 5:11, 5:11] = 1.0
+        phase = shared(src, tgt)
+        phase.square().mean().backward()
+        assert torch.isfinite(phase).all()
+        assert shared.layers[0].phase_net.out_conv.weight.grad is not None
+
     def test_output_shape_and_dtype(self):
         model = FourierGSNet(num_layers=4, base_channels=8)
         src = torch.rand(2, 1, 32, 32)

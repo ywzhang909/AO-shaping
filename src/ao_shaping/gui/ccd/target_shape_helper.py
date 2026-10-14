@@ -25,7 +25,7 @@ import streamlit as st
 from loguru import logger
 from plotly.subplots import make_subplots
 
-from ao_shaping.utils.image.targets import create_target_shape, generate_target_mask
+from ao_shaping.utils.image.targets import generate_target_mask
 from ao_shaping.drivers.ccd.daheng import DahengCamera
 from ao_shaping.utils.image.spots_calc import center_of_brightness, centroid
 
