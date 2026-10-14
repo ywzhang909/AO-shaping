@@ -496,10 +496,10 @@ class SlmModelInLoopConfig:
       ``(region, region)``, float64. Never the panel array: the panel is a
       different coordinate frame (on this bench the axes are swapped and the
       scales differ by >10x).
-    * ``frame`` -- the *prepared* frame (the output of ``_prepare_frame``), i.e.
-      background-subtracted and non-negative.
+    * ``frame`` -- the *prepared* frame (the output of :func:`prepare_frame`),
+      i.e. background-subtracted and non-negative.
     * ``raw_peak`` / ``raw_p999`` / ``raw_mean`` -- ``float`` scalars of the
-      **raw** ``bench.measure()`` return, taken *before* ``_prepare_frame``.
+      **raw** ``bench.measure()`` return, taken *before* :func:`prepare_frame`.
       Median subtraction and clipping destroy the saturation ceiling, and
       detecting an over- or under-exposed frame is one of the main reasons to
       dump a step at all.
@@ -701,7 +701,7 @@ def _raw_frame_scalars(raw: np.ndarray) -> tuple[float, float, float]:
     """``(peak, p99, mean)`` of a **raw** detector frame.
 
     Call this on ``bench.measure()``'s return value *before* handing that array to
-    :func:`~ao_shaping.optimizer.wfless.slm_gs_refine._prepare_frame`: median
+    :func:`prepare_frame`: median
     subtraction and clipping at zero remove the saturation ceiling, and knowing
     whether a step was over- or under-exposed is one of the reasons to dump it.
 
@@ -740,7 +740,7 @@ def _step_payload(
 
     Args:
         phase_rad: Model-grid phase that produced the frame, raw unwrapped radians.
-        frame: Prepared frame (output of ``_prepare_frame``).
+        frame: Prepared frame (output of :func:`prepare_frame`).
         raw_scalars: Output of :func:`_raw_frame_scalars`, taken before
             preparation.
         round_index: ``0`` for the pre-loop stages, else ``index + 1``.
@@ -1153,7 +1153,21 @@ def _calibrate_geometry(
             config.region, config.probe_spread, config.seed + 50_000 + index
         )
         bench.display(probe)
-        image = prepare_frame(bench.measure())
+        raw = bench.measure()
+        raw_scalars = _raw_frame_scalars(raw)
+        image = prepare_frame(raw)
+        if config.step_sink is not None:
+            config.step_sink(
+                "calib-probe",
+                _step_payload(
+                    phase_rad=probe,
+                    frame=image,
+                    raw_scalars=raw_scalars,
+                    round_index=0,
+                    probe_index=index,
+                    probe_count=int(config.n_calibration_probes),
+                ),
+            )
         records.append(
             CalibrationRecord(image=image, phase=probe, label=f"calib{index}")
         )
@@ -1390,7 +1404,21 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # ---------------- Stage 0: flat baseline, frozen ROI ---------------
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
         bench.display(flat_phase)
-        flat_frame = prepare_frame(bench.measure())
+        flat_raw = bench.measure()
+        flat_scalars = _raw_frame_scalars(flat_raw)
+        flat_frame = prepare_frame(flat_raw)
+        if config.step_sink is not None:
+            config.step_sink(
+                "flat",
+                _step_payload(
+                    phase_rad=flat_phase,
+                    frame=flat_frame,
+                    raw_scalars=flat_scalars,
+                    round_index=0,
+                    probe_index=None,
+                    probe_count=None,
+                ),
+            )
         if not np.any(flat_frame > 0):
             raise RuntimeError(
                 "the flat-phase frame is empty after background subtraction; "
@@ -1559,7 +1587,21 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     config.seed + index * 1000 + probe_index,
                 )
                 bench.display(probe)
-                measured = prepare_frame(bench.measure())
+                measured_raw = bench.measure()
+                measured_scalars = _raw_frame_scalars(measured_raw)
+                measured = prepare_frame(measured_raw)
+                if config.step_sink is not None:
+                    config.step_sink(
+                        "stepA-probe",
+                        _step_payload(
+                            phase_rad=probe,
+                            frame=measured,
+                            raw_scalars=measured_scalars,
+                            round_index=index + 1,
+                            probe_index=probe_index,
+                            probe_count=probe_count,
+                        ),
+                    )
                 if live_display is not None and not live_display.closed:
                     # The most informative frame of the whole loop: the
                     # prediction here uses the coefficients as they stand
@@ -1631,8 +1673,31 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 seed=int(config.seed) + index,
                 source_amplitude=source_amplitude,
             )
-            bench.display(np.asarray(shaped, dtype=np.float64))
-            shaped_frame = prepare_frame(bench.measure())
+            # One named local for the shaped phase: it is displayed, optionally
+            # predicted, optionally reported to the step sink and (on acceptance)
+            # carried into the next round, and recomputing `np.asarray` at each of
+            # those sites invited exactly one of them to drift.
+            shaped_phase = np.asarray(shaped, dtype=np.float64)
+            bench.display(shaped_phase)
+            shaped_raw = bench.measure()
+            shaped_scalars = _raw_frame_scalars(shaped_raw)
+            shaped_frame = prepare_frame(shaped_raw)
+            if config.step_sink is not None:
+                # Before the acceptance verdict and therefore before all three
+                # `break`s: a rejected or run-ending round is exactly the one a
+                # debug dump must capture, and `callback` (last statement of the
+                # round body) misses both.
+                config.step_sink(
+                    "stepB-shaped",
+                    _step_payload(
+                        phase_rad=shaped_phase,
+                        frame=shaped_frame,
+                        raw_scalars=shaped_scalars,
+                        round_index=index + 1,
+                        probe_index=None,
+                        probe_count=None,
+                    ),
+                )
             shaped_metrics = _metrics_at(shaped_frame, target_camera, roi_center)
             score_after = _quality(
                 shaped_metrics, config.w_efficiency, config.w_uniformity

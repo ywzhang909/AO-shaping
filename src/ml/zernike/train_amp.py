@@ -58,6 +58,7 @@ from ml.hwdataset import (
 # ``build_hw_index``. Importing it rather than re-globbing keeps the staleness
 # check's notion of "on disk" exactly in step with the index builder's.
 from ml.hwdataset.index import _discover_pickles
+from ml.zernike.augment import GEOMETRIC_TRANSFORMS, geometric_pair
 from ml.zernike.losses import (
     LossConfig,
     composite_loss,
