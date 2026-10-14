@@ -49,11 +49,35 @@ THREAD_ALARM = 4000
 
 
 def _os_thread_count() -> int:
-    with open("/proc/self/status") as fh:
-        for line in fh:
-            if line.startswith("Threads:"):
-                return int(line.split()[1])
-    return 0
+    """OS thread count for this process, or ``-1`` when it cannot be read.
+
+    Linux reads ``/proc/self/status``. Windows has no ``/proc``, so it goes
+    through ``psutil`` when that is importable and otherwise falls back to
+    ``threading.active_count()`` -- which sees Python-level threads only, and so
+    *under*-counts the native pools this module exists to watch.
+
+    Returning ``-1`` instead of raising is the point of this function: its only
+    callers are the monitor thread and the teardown report, and letting the
+    ``open`` escape aborted every ``pytest`` run on Windows with
+    ``FileNotFoundError: /proc/self/status`` -- *after* the tests had passed, so
+    the run still reported a non-zero exit status.
+    """
+    if os.path.exists("/proc/self/status"):
+        try:
+            with open("/proc/self/status") as fh:
+                for line in fh:
+                    if line.startswith("Threads:"):
+                        return int(line.split()[1])
+        except OSError:  # pragma: no cover - unreadable /proc
+            return -1
+        return -1  # /proc present but carries no Threads: line
+
+    try:
+        import psutil
+
+        return int(psutil.Process().num_threads())
+    except Exception:  # pragma: no cover - psutil optional
+        return threading.active_count()
 
 
 def _monitor() -> None:

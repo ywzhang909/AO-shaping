@@ -43,6 +43,7 @@ import importlib.util
 import os
 import re
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -685,3 +686,108 @@ def test_the_thread_budget_is_in_force_in_this_process() -> None:
     # Inter-op is reachable through no env var at all and is idle outside JIT,
     # so it is held at 1 rather than taking a share of the budget it never uses.
     assert torch.get_num_interop_threads() == 1
+
+
+# --------------------------------------------------------------------------- #
+# Root conftest: the resource guards (CPU/VRAM caps, the OS-thread watch).
+#
+# A separate file from ``tests/conftest.py`` above, which owns the thread
+# *budget*. This one owns the *watch*: it samples the process thread count so a
+# pool explosion gets attributed rather than guessed at.
+# --------------------------------------------------------------------------- #
+
+#: The repo-root ``conftest.py``. Deliberately not ``tests/conftest.py``: that
+#: one is the budget, and the two have been confused before.
+_RESOURCE_CONFTEST = REPO / "conftest.py"
+
+
+def _load_resource_conftest() -> ModuleType:
+    """Import the root conftest as a module.
+
+    Loading it again is safe: module scope only reads the environment and
+    builds ``WATCH``; the monitor thread starts in ``pytest_configure``, which
+    this does not call.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_ao_resource_conftest_probe", _RESOURCE_CONFTEST
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_thread_watch_reads_a_thread_count_on_this_platform() -> None:
+    """The behavioural half, and the one that actually failed.
+
+    ``_os_thread_count`` reads ``/proc/self/status``, which exists on Linux and
+    nowhere else. Unguarded, ``pytest_sessionfinish`` raised
+    ``FileNotFoundError`` on Windows -- *after* the tests had passed, so the run
+    still exited non-zero and a green suite reported failure for a reason
+    unrelated to it. The counter must answer on every platform.
+    """
+    count = _load_resource_conftest()._os_thread_count()
+
+    assert isinstance(count, int), f"thread count should be an int, got {count!r}"
+    assert count >= 1, (
+        f"thread count should be a real number, got {count!r} -- a platform "
+        "without a usable source must report -1 ('unknown'), never a 0/None that "
+        "reads like 'this process has no threads'"
+    )
+
+
+def test_the_proc_read_stays_guarded_so_the_guard_above_is_not_vacuous() -> None:
+    """On Linux the test above would pass even with the old unguarded read.
+
+    So pin the shape: the ``open("/proc/self/status")`` call itself must sit
+    inside a ``try`` or behind an existence check on that path. It is checked
+    per-call rather than "the function mentions a ``try`` somewhere", because
+    this function has an unrelated ``try`` around the ``psutil`` import -- a
+    coarser test passes on the broken version.
+    """
+    tree = ast.parse(_conftest_source_of_resource_plugin())
+    fn = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.FunctionDef) and node.name == "_os_thread_count"
+    )
+
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(fn):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    proc_opens = [
+        node
+        for node in ast.walk(fn)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == "open"
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and "/proc/self/status" in str(node.args[0].value)
+    ]
+    assert proc_opens, (
+        "no open(\"/proc/self/status\") in _os_thread_count -- the thread watch "
+        "no longer reads /proc at all, so confirm the replacement is deliberate"
+    )
+
+    for call in proc_opens:
+        node: ast.AST | None = call
+        guarded = False
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.Try):
+                guarded = True
+                break
+            if isinstance(node, ast.If) and "/proc" in ast.unparse(node.test):
+                guarded = True
+                break
+        assert guarded, (
+            f"the /proc read at line {call.lineno} is unguarded; on a platform "
+            "without /proc it raises FileNotFoundError and kills pytest teardown"
+        )
+
+
+def _conftest_source_of_resource_plugin() -> str:
+    return _RESOURCE_CONFTEST.read_text(encoding="utf-8-sig")
