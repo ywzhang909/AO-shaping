@@ -1896,8 +1896,8 @@ class Santec:
         """选取下一个内存槽 (2..125, 排除当前显示槽).
 
         Santec 固件对 "正在显示的同一槽位" 的 ``display_memory`` 视为 no-op,
-        LCOS 面板不会刷新 —— 每次平移重写必须换槽。与多SLM控制器
-        ``_pick_next_memory`` 同策略 (随机槽 2..125), 跨进程亦不冲突。
+        LCOS 面板不会刷新 —— 每次平移重写必须换槽。与多SLM控制器 GUI 周期切换
+        ``_toggle_phases_task`` 同策略 (随机槽 2..125), 跨进程亦不冲突。
 
         Returns:
             下一个可用的内存槽编号

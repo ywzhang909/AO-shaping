@@ -429,7 +429,6 @@ def func_page_recorder():
         "    def __init__(self, mark: str = \"J\", mode: Literal[\"max\", \"min\"] = \"max\")\n"
         "    def append(self, record: dict)                    # 追加一行（自动补 _id）\n"
         "    def postprocess_feature(self, feature_name, func, column=\"\")  # 注册派生特征列\n"
-        "    def _apply_postprocess_to_record(self, record) -> dict\n"
         "    def _ensure_postprocess_applied(self, df) -> DataFrame\n```\n\n"
         "- `mark`：记录行的标记列名（断言 `mark in record`），用于区分不同优化器/阶段的行。\n"
         "- `mode`：`\"max\"`/`\"min\"`，决定 `get_best_*` 取最大还是最小。\n"

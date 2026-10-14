@@ -442,7 +442,7 @@ def _save_wavefront_log_hdf5(
     包含 deviation_x/y, zernike_coeffs, wavefront, rms属性
 
     Args:
-        records: _make_wavefront_tracking_callback 返回的记录列表
+        records: 波前跟踪快照列表 (``WfsStateSnapshot``, 由 ``_capture_wfs_full_state`` 逐模式采集)
         output_path: 输出基础路径
     """
     if not records:
