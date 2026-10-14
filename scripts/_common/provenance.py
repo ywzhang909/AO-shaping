@@ -636,6 +636,13 @@ REPORTS: dict[str, ReportProvenance] = {
         note="GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染",
         extra_scripts=("scripts/generate_gif_from_pkl.py",),
     ),
+    "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-14 正向模型闭环实机复核（exp/model-in-loop-20261014 worktree）；"
+        "随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，"
+        "本日未重新独立标定其尺度/入射振幅/面板配准",
+    ),
     "report/shape_trials/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
