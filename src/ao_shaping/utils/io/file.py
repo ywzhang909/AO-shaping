@@ -452,18 +452,6 @@ class Recorder:
         self._postprocess_funcs[feature_name] = (func, column)
         self._all_columns.add(column)
 
-    def _apply_postprocess_to_record(self, record: dict) -> dict:
-        """对单条记录应用所有已注册的后处理函数。"""
-        result = dict(record)
-        for feature_name, (func, column) in self._postprocess_funcs.items():
-            if column not in result:
-                try:
-                    result[column] = func(result)
-                except Exception as e:
-                    logger.warning(f"postprocess_feature '{feature_name}' failed: {e}")
-                    result[column] = None
-        return result
-
     def _ensure_postprocess_applied(self, df: pd.DataFrame) -> pd.DataFrame:
         """确保 DataFrame 包含所有后处理列。"""
         for feature_name, (func, column) in self._postprocess_funcs.items():

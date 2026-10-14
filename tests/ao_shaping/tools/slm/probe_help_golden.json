@@ -1,7 +1,7 @@
 {
   "calibration": {
-    "body_literals": 629,
-    "body_literals_sha256": "31db4b4589d64c31",
+    "body_literals": 628,
+    "body_literals_sha256": "60a2a988177020ab",
     "declared": [
       "--align-margin",
       "--align-min-window",
@@ -367,8 +367,8 @@
     ]
   },
   "slm_lut_runner": {
-    "body_literals": 115,
-    "body_literals_sha256": "43c7969e87031671",
+    "body_literals": 114,
+    "body_literals_sha256": "6ce89cc76250fad0",
     "declared": [
       "--bright-floor",
       "--cam-id",

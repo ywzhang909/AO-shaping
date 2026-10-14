@@ -310,10 +310,6 @@ class TextFrame(BaseFrame):
         super().render()
 
     @staticmethod
-    def __font_pt_to_pixel(pt: int):
-        return int(pt * DPI / 72)
-
-    @staticmethod
     def __font_pixel_to_pt(px: int):
         return int(px * 72 / DPI)
 

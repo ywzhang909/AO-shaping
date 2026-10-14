@@ -472,12 +472,12 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
         z = measure_zernike(wfs, n_avg)
         if z is None:
             if verbose:
-                print(f"   R={r:5.0f}px  无有效读数")
+                logger.debug(f"   R={r:5.0f}px  无有效读数")
             continue
         d = float(z[5]) / 0.532           # DLL [5] = (2,0) defocus
         out.append({"radius": float(r), "defocus_lam": d})
         if verbose:
-            print(f"   R={r:5.0f}px  defocus[5]={d:+.4f}λ")
+            logger.debug(f"   R={r:5.0f}px  defocus[5]={d:+.4f}λ")
     if not out:
         raise RuntimeError("光束半径诊断无有效数据")
 
@@ -488,7 +488,7 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
     if not keep.all():
         for r, kp in zip(out, keep):
             if not kp:
-                print(f"   [剔除异常] R={r['radius']:.0f}px "
+                logger.debug(f"   [剔除异常] R={r['radius']:.0f}px "
                       f"defocus={r['defocus_lam']:+.1f}λ (> {outlier_factor}×中位数 "
                       f"{med:.3f}λ) — 盘裁切光束致拟合崩溃")
         out = [r for r, kp in zip(out, keep) if kp]
@@ -497,7 +497,7 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
 
     best = max(out, key=lambda r: abs(r["defocus_lam"]))
     if verbose:
-        print(f"   → 光束半径 ≈ {best['radius']:.0f}px (剔除后 {len(out)} 个有效点)")
+        logger.debug(f"   → 光束半径 ≈ {best['radius']:.0f}px (剔除后 {len(out)} 个有效点)")
     return float(best["radius"]), out
 
 
@@ -547,7 +547,7 @@ def calibrate_center_shift(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
             if m < best_m:
                 best_m, best_v = m, float(v)
         if verbose:
-            print(f"   {axis} 轴最优 {best_v:.0f} (‖Δ‖={best_m:.4f}λ)")
+            logger.debug(f"   {axis} 轴最优 {best_v:.0f} (‖Δ‖={best_m:.4f}λ)")
         return best_v
 
     def fine_around(center: float) -> list[float]:
@@ -559,7 +559,7 @@ def calibrate_center_shift(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
     sy0 = scan_axis("y", coarse, int(sx))
     sy = scan_axis("y", fine_around(sy0), int(sx))
     if verbose:
-        print(f"   → shift=({int(sx)},{int(sy)})")
+        logger.debug(f"   → shift=({int(sx)},{int(sy)})")
     return int(sx), int(sy), scan
 
 

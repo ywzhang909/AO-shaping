@@ -1255,30 +1255,6 @@ class DiffractionEfficiencyCalibrator(SLMCalibratorBase):
             roi_size=roi_size,
         )
 
-    def _calculate_diffraction_efficiency(
-        self, phase_depth: float, order: int = 1
-    ) -> float:
-        """计算理论衍射效率
-
-        使用贝塞尔函数计算一级衍射效率。
-
-        Args:
-            phase_depth: 相位深度（弧度）
-            order: 衍射级次
-
-        Returns:
-            衍射效率
-        """
-        from scipy.special import jn
-
-        if abs(phase_depth) < 1e-10:
-            return 0.0
-
-        # 一级衍射效率
-        j_val = jn(order, phase_depth)
-        efficiency = (2 * j_val / phase_depth) ** 2
-        return efficiency
-
     def calibrate(
         self,
         grayscale_range: tuple[int, int] = (50, 1023),

@@ -433,45 +433,6 @@ def _save_init_state_hdf5(
 # ==================== 新增: 全过程波前跟踪 ====================
 
 
-def _make_wavefront_tracking_callback(
-    wfs: ThorlabWFS,
-    cancel_tile: bool = False,
-    zernike_order: int = 10,
-) -> tuple[Callable[[int, int, np.ndarray, np.ndarray], None], list[WfsStateSnapshot]]:
-    """创建校准过程中的波前跟踪回调
-
-    在校准完每个模式后捕获当前WFS完整状态 (SLM处于平面),
-    累积到返回的列表中供后续保存.
-
-    Args:
-        wfs: ThorlabWFS实例
-        cancel_tile: 是否去除WFS tip/tilt
-        zernike_order: Zernike阶数
-
-    Returns:
-        (callback_function, records_list)
-            - callback: 兼容 calibrate_zernike_response_matrix 的 callback 参数
-            - records_list: 校准完成后包含每个模式的 WfsStateSnapshot
-    """
-    records: list[WfsStateSnapshot] = []
-
-    def _callback(
-        mode_index: int, n_total: int, mean_resp: np.ndarray, var_resp: np.ndarray
-    ) -> None:
-        """在每个模式校准后记录当前波前"""
-        try:
-            state = _capture_wfs_full_state(
-                wfs,
-                cancel_tile=cancel_tile,
-                zernike_order=zernike_order,
-            )
-            records.append(state)
-        except Exception as e:
-            logger.warning(f"Failed to capture wavefront after mode {mode_index}: {e}")
-
-    return _callback, records
-
-
 def _save_wavefront_log_hdf5(
     records: list[WfsStateSnapshot],
     output_path: str,

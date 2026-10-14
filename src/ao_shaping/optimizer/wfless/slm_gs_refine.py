@@ -396,14 +396,6 @@ class SlmGsRefineConfig:
 # ---------------------------------------------------------------------------
 
 
-def _panel_shape(slm: Any) -> tuple[int, int]:
-    """Return the panel ``(height, width)`` for a real or simulated SLM."""
-    res = getattr(slm, "Panel_Res", None)
-    if res is not None:
-        return int(res[1]), int(res[0])
-    return 1200, 1920
-
-
 def _metrics(
     frame: np.ndarray, mask: np.ndarray, w_pib: float, w_unif: float
 ) -> tuple[float, float, float]:

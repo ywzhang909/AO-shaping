@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 import tqdm
+from loguru import logger
 from ao_shaping.utils import centroid
 from ao_shaping.drivers import MIICamera, NlightDM
 
@@ -36,7 +37,7 @@ V_MIN = -300
 UPDATE_MAX = 20
 DM_Adj = np.loadtxt(r'data\dm_adj.txt')
 Tolerance = 300
-print(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
+logger.info(f"相邻单元矩阵加载完成:{DM_Adj.shape},最大压差:{Tolerance}")
 
 def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
     assert len(vs) == DM_Adj.shape[0] == DM_Adj.shape[1]
@@ -111,7 +112,7 @@ def optimizer(
         else:
             center = center
 
-        print(f"{center=}")
+        logger.debug(f"{center=}")
         img_size, center = cam.reset_window(center, IMG_SIZE)
 
         init_img = cam.get_numpy_image()
@@ -188,7 +189,7 @@ def optimizer(
                 if check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    print("相邻单元压差过大，放弃本次结果")
+                    logger.warning("相邻单元压差过大，放弃本次结果")
 
                 log = {
                     "J": (pos_j + neg_j) / 2,
@@ -208,7 +209,7 @@ def optimizer(
 
                 if np.sum(img[img == 255]) / 255 > 2 and CAM_EXP_TIME_ADJ_RATE > 1:
                     cam.exposure_time = cam.exposure_time * CAM_EXP_TIME_ADJ_RATE
-                    print(f"exp time = {cam.exposure_time}")
+                    logger.debug(f"exp time = {cam.exposure_time}")
 
                 if show:
                     render(
@@ -247,7 +248,7 @@ def run():
     res_df.to_pickle('record.pkl', compression=None)
     max_j_id = -1
     last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
+    logger.info(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
     def get_nerbors(unit_id):
         return (a for a in np.where(DM_Adj[unit_id, :] == 1)[0])

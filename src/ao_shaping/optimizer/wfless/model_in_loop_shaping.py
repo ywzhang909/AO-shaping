@@ -2108,10 +2108,6 @@ def calibrate_bench_geometry_from_sweep(
         calibration_notes=notes,
     )
 
-def _defocus_phase(region: int, semi_axis_model_px: int, coefficient: float) -> np.ndarray:
-    """A unit-RMS Zernike defocus of the given coefficient on the model grid."""
-    return _zernike_phase(region, semi_axis_model_px, (2, 0), coefficient)
-
 
 # Zernike modes the width sweep drives, and the grid the model response is
 # precomputed on. The grid must span the measured coefficients plus a margin so

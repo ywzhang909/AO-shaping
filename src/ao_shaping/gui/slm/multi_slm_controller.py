@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import ctypes
-import io
 import threading
 import time
 from collections.abc import Callable
@@ -112,27 +111,6 @@ def _stop_toggle(slm_num: int) -> None:
     st.session_state[f"{prefix}_toggle_stop_event"] = None
     st.session_state[f"{prefix}_toggle_freq_ref"] = None
     st.session_state[f"{prefix}_toggle_slm_container"] = None
-
-
-def _pick_next_memory(slm_num: int) -> int:
-    """Pick the next SLM memory slot in 2..125, excluding the currently
-    displayed one.
-
-    The Santec firmware treats ``display_memory(slot)`` as a no-op when
-    that slot is already displayed, so consecutive writes MUST target
-    different slots.  This helper survives process restarts because the
-    currently-displayed slot is queried from the device at call time.
-    """
-    prefix = f"slm{slm_num}"
-    slm = st.session_state.get(prefix)
-    last_slot: int | None = None
-    if slm is not None and getattr(slm, "is_open", False):
-        try:
-            last_slot = slm.get_displayed_memory_number()
-        except Exception:
-            last_slot = None
-    candidates = [s for s in range(2, 126) if s != last_slot]
-    return int(np.random.choice(candidates))
 
 
 def _probe_slm(slm_num: int) -> dict | None:
@@ -1156,22 +1134,6 @@ def render_phase_control(slm_num: int):
     st.divider()
     st.subheader("周期切换")
     st.caption("在相位 A 与相位 B 之间持续来回切换")
-
-    def _export_phase_csv(phase: np.ndarray, default_name: str) -> None:
-        """Save a displayed phase as a radian CSV and offer it for download."""
-        slm = st.session_state.get(prefix)
-        max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-        phase_rad = np.asarray(phase, dtype=np.float64) / float(max_gray) * 2 * np.pi
-        buf = io.BytesIO()
-        Santec.save_phase_to_csv(phase_rad, buf)
-        buf.seek(0)
-        st.download_button(
-            f"导出 {default_name}",
-            data=buf,
-            file_name=default_name,
-            mime="text/csv",
-            key=f"{prefix}_export_{default_name}",
-        )
 
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:
