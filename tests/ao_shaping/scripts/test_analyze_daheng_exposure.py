@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from scripts.analyze_daheng_exposure import pixelwise_response_diagnostic, response_fits
+from scripts.slm.analyze_daheng_exposure import pixelwise_response_diagnostic, response_fits
 
 
 def test_affine_response_recovers_offset_without_claiming_dark_frame() -> None:

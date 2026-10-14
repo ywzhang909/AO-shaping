@@ -1,4 +1,4 @@
-"""Tests for the sweep progress line of ``scripts/repeat_shape_objectives.py``.
+"""Tests for the sweep progress line of ``scripts/slm/repeat_shape_objectives.py``.
 
 The hardware sweep is a ``variant x repeat`` matrix whose variants have wildly
 different runtimes, so the only way an operator can tell how far the *whole*
@@ -18,9 +18,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 
-from repeat_shape_objectives import _progress_label  # noqa: E402
+from scripts.slm import repeat_shape_objectives  # noqa: E402
+from scripts.slm.repeat_shape_objectives import _progress_label  # noqa: E402
 
 
 def test_progress_label_reports_all_three_counters():
@@ -63,7 +64,7 @@ def test_progress_walk_over_matrix_is_monotonic_and_bounded():
 
 
 def test_main_derives_total_from_variants_and_increments_inside_the_loop():
-    src = inspect.getsource(sys.modules["repeat_shape_objectives"].main)
+    src = inspect.getsource(sys.modules[repeat_shape_objectives.__name__].main)
     assert "n_runs = len(variants) * args.repeats" in src
     assert "for idx, (slug, label, kwargs) in enumerate(variants, start=1):" in src
     # The increment must precede the log call, otherwise the first run would

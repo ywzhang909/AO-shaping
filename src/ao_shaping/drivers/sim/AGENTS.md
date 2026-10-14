@@ -106,7 +106,7 @@ SimulatedDevice (Device)
 > `reset_system(seed=42)` (现为 `runners/runner_common.py::patch_sim_square_shaping`; 2026-10-05 前
 > 该函数只服务 `slm-pib`/`slm-gsnet`, `slm-pib` 那一份后来被移除), 这会**替换**进程级 system 并清掉
 > 已注入的干扰 —— 运行会静默地以**无干扰**方式执行, 而 companion 清单却声称有干扰。
-> `scripts/slm_pib_sim_run.py` 因此包装了 `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
+> `scripts/slm/slm_pib_sim_run.py` 因此包装了 `slm_pib_sim.reset_system`, 使每次调用都重新挂上干扰 (由
 > `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` 锁定)。
 
 ## SimulatedDevice 接口
@@ -376,7 +376,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    **不要再引入独立的 λ 因子** —— 波长已由 `compute_r0()` 里的 `r0_slab` 携带。
    ⚠️ 因公式已变, 第 3 条引用 2026-09-29 报告的常数 (1.068/2.628) **对应旧公式, 现已
    不可复现**; 与当前单因子代码一致的两后端比值须重跑
-   `scripts/generate_oopao_impact_report.py` 后更新本条 (OOPAO 环境可用时)。
+   `scripts/oopao/generate_oopao_impact_report.py` 后更新本条 (OOPAO 环境可用时)。
 
 5. **内尺度 `l_min` 无法兑现 (OOPAO 限制)**: `OOPAO/Atmosphere.py` `__init__` **没有 `l0`
    参数**, `generateNewPhaseScreen` 也不传, 故 OOPAO 恒用 `l0=1e-10` —— 内尺度滚降
@@ -390,7 +390,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
 
 对比报告与图片见 [`report/oopao_vs_numpy/report.md`](../../../../report/oopao_vs_numpy/report.md)
-(生成器 `scripts/generate_oopao_vs_numpy_report.py`); 后端回归测试
+(生成器 `scripts/oopao/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 
 ## 与 mock_devices 的区别

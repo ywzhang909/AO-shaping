@@ -1,9 +1,9 @@
 # physics vs U-Net on `slm_zernike_shaping`
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/compare_models_cv.py`](../../scripts/compare_models_cv.py)
-> **复现命令**: `python scripts/compare_models_cv.py --analyse`
-> **数据/关联脚本**: [`scripts/compare_unet_baseline.py`](../../scripts/compare_unet_baseline.py)
+> **生成脚本**: [`scripts/ml/compare_models_cv.py`](../../scripts/ml/compare_models_cv.py)
+> **复现命令**: `python scripts/ml/compare_models_cv.py --analyse`
+> **数据/关联脚本**: [`scripts/ml/compare_unet_baseline.py`](../../scripts/ml/compare_unet_baseline.py)
 > **运行环境**: 离线
 > **说明**: grouped CV 对比 (physics / hybrid / unet) 的原始对照表
 <!-- provenance:end -->
@@ -23,7 +23,7 @@
 > a nearly orthogonal image distribution, which is what produced the ±0.07
 > seed-to-seed swing. Read it as history, not as the verdict.
 
-Head-to-head produced by `python scripts/compare_unet_baseline.py --seeds 3`.
+Head-to-head produced by `python scripts/ml/compare_unet_baseline.py --seeds 3`.
 
 Identical split (same `_select_records`, same files), identical inputs
 `(phase_cos, phase_sin)`, identical target (peak-normalised `image`), identical

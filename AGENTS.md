@@ -54,7 +54,10 @@ AO-shaping/
 │   └── optical_ui/                # [DEPRECATED] Empty package
 ├── tests/ao_shaping/              # Tests (mirrors src structure)
 ├── libs/                          # Third-party SDK binaries (gxipy, Drv_UDPST)
-└── scripts/                       # Utility scripts
+└── scripts/                       # Utility scripts, grouped by what they process
+    ├── slm/ zernike_bench/ dm/ wfs/    # device domains (SLM bench / Zernike calib / DM / WFS)
+    ├── ml/ rl/ oopao/ build/            # data+model / RL+turbulence / OOPAO backend / build
+    └── _common/ call_graph/ dm_sim/ tuning_devices/   # shared helpers + pipelines + MATLAB
 ```
 
 ## WHERE TO LOOK
@@ -124,8 +127,8 @@ AO-shaping/
 > 嵌套 `camera: CameraParamsPib` / `slm: SlmParamsPib` (惰性默认, 定义于 `runners/runner_common.py`),
 > 保留 `kwargs` 逃生口 (`**config.kwargs`)。**不再接受任何平铺关键字参数 / `cam=` / `slm=`**;
 > 设备由优化器内部经 `create_camera(config.camera)` / `Santec.from_params(config.slm)` 上下文管理器
-> 自行打开/关闭 (禁止跨 run 复用设备)。调用方: `runners/slm/slm_shaping_runner.py`、`scripts/compare_shape_objectives.py`、
-> `scripts/generate_slm_pib_heuristic_hw_report.py`、`scripts/repeat_shape_objectives.py`、
+> 自行打开/关闭 (禁止跨 run 复用设备)。调用方: `runners/slm/slm_shaping_runner.py`、`scripts/slm/compare_shape_objectives.py`、
+> `scripts/slm/generate_slm_pib_heuristic_hw_report.py`、`scripts/slm/repeat_shape_objectives.py`、
 > `tests/ao_shaping/optimizer/wfless/test_slm_zernike_*`。
 > 内部重命名 (非公开 API): `test_pib`→`ideal_pib_ratio`、`intellij_center`→`_smart_center`
 > (本文件内, 与 `pib.py` 的 `intellij_center` 无关)、`to_min` 标量删除 → 由 `objective_mode`
@@ -431,7 +434,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
 > ⚠️ `HWRecordRef.source` 是**相位表示** (`panel_gray`/`panel_rad`/`zernike`/`freeform`),
 > **不是来源文件**; 文件标识是 `HWRecordRef.path`。
 
-> **与 U-Net 的对比 — 权威结论是 grouped CV (`scripts/compare_models_cv.py`)**
+> **与 U-Net 的对比 — 权威结论是 grouped CV (`scripts/ml/compare_models_cv.py`)**
 > 仓库**完全没有 sklearn 依赖** (全树零引用), 故折按 `str(record.path)` 手工构造。
 > 统计用**精确 sign-flip 置换检验** (2¹⁰=1024 次枚举, 最小 p=0.00195, 不假设正态)
 > + Cohen's `d_z` + Holm-Bonferroni。同 split / 同输入 / 同 loss / 同 50 epoch 预算:
@@ -1027,7 +1030,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 | Vector-beam demo `sim.py` living in `algorithm/` | The vector-beam demo `sim.py` lives in `algorithm/` — it belongs in `scripts/`. |
 | `utils/slm/pattern_helper.py` importing `from ao_shaping.algorithm.phase_wrap` at module top level | utils is the leaf layer and must not depend on `algorithm/` at import time — use deferred function-local imports. |
 | 脚本/runner/tools/GUI 内**重复实现 Zernike 数学** (Noll↔(n,m) 查表、多项式求值、相位生成) | Canonical 入口唯一: `utils/wavefront/zernike_utils.py` (API 层) + `utils/wavefront/zernike_calc.py` (引擎层), 单向依赖 `zernike_utils → zernike_calc`。2026-09 去重重构前 `gui/slm/`、`optimizer/wfless/`、`tools/slm/` 各有一套, 已全数收敛。新代码一律 `from ao_shaping.utils.wavefront.zernike_utils import ...`, 禁止 `import aotools`/自写 `RZern`/自写 `noll2nm` 表。详见 README `## Zernike 使用指南` 与 AGENTS `## Zernike 使用规范`。 |
-| **配对检验只在"变化的轴"上配对** — 拿 N 折当 N 个独立样本 | 全部折共用同一个 `seed` 时, 各折共享**同一条权重初始化随机流**, 于是 N 折是"同一对初始化"被测了 N 次, **不是**该对比的 N 次独立采样; sign-flip 检验仍按独立处理, p 值**偏保守 (过于乐观)**。实测: `input_terms` 136→78 的 18 折配对给出 `p = 0.0144`, 但固定一折只换 seed 后**符号翻转**、差值量级小 30 倍 ⇒ 那是初始化噪声不是效应。规则: **换 seed 就对 seed 配对, 换折就对折配对**, 两者不可互相冒充; 判定前跑 `scripts/seed_sensitivity_coeff.py`。另: `min_attainable_pvalue(n) = 2/2**n`, 故 4 折协议**结构上**到不了 p<0.05, 那里只报效应量不报结论。统计实现唯一入口 `ml/zernike/eval_stats.py` |
+| **配对检验只在"变化的轴"上配对** — 拿 N 折当 N 个独立样本 | 全部折共用同一个 `seed` 时, 各折共享**同一条权重初始化随机流**, 于是 N 折是"同一对初始化"被测了 N 次, **不是**该对比的 N 次独立采样; sign-flip 检验仍按独立处理, p 值**偏保守 (过于乐观)**。实测: `input_terms` 136→78 的 18 折配对给出 `p = 0.0144`, 但固定一折只换 seed 后**符号翻转**、差值量级小 30 倍 ⇒ 那是初始化噪声不是效应。规则: **换 seed 就对 seed 配对, 换折就对折配对**, 两者不可互相冒充; 判定前跑 `scripts/ml/seed_sensitivity_coeff.py`。另: `min_attainable_pvalue(n) = 2/2**n`, 故 4 折协议**结构上**到不了 p<0.05, 那里只报效应量不报结论。统计实现唯一入口 `ml/zernike/eval_stats.py` |
 | 用 **MSE/PSNR/SSIM** 给 `normalization` 选开关 | 任何含 `sum` 归一化的指标都在度量**归一化本身**而不是拟合质量。实测同一配置: `normalization="sum"` 给 PSNR **72.1 dB** / SSIM 0.9996, 而 R² 反而**更差**于 `peak`。判据只看 **R² / corr / 光斑域指标** |
 
 > 方形光斑 SPGD 整形的完整分析、硬件实测与修复记录见 [`report/slm/slm_square_spgd/README.md`](report/slm/slm_square_spgd/README.md)。
@@ -1043,7 +1046,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 - **Recorder pattern**: Optimization tests validate history dictionaries with expected fields
 - **Optional backend testing**: CuPy/Numba tested conditionally with try/except guards
 - **No fixtures**: No `conftest.py`, fixtures defined inline in test methods
-- **SLM flat-phase gray RAW path**: Always send raw uint16 grayscale values to SLM via `np.full((h,w), gray, dtype=np.uint16)`. Never route flat phase through `create_phase_from_array()` (radian conversion). The SLM has amplitude coupling: different flat-phase gray levels produce different camera intensities at 1064nm (periodic with 2π ≈ 993 gray). Use `scripts/validate_flat_phase_gray.py` to verify. Parameters for stable observation: `--exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3`.
+- **SLM flat-phase gray RAW path**: Always send raw uint16 grayscale values to SLM via `np.full((h,w), gray, dtype=np.uint16)`. Never route flat phase through `create_phase_from_array()` (radian conversion). The SLM has amplitude coupling: different flat-phase gray levels produce different camera intensities at 1064nm (periodic with 2π ≈ 993 gray). Use `scripts/slm/validate_flat_phase_gray.py` to verify. Parameters for stable observation: `--exposure-ms 0.8 --wait-time-s 0.3 --discard-count 3`.
 - **SLM phase raw-only contract + unified grayscale entry** (2026-09): Every SLM phase generator (optimizer/runner layer) returns **raw unwrapped radians**; do NOT `mod 2π` in generators — the driver `create_phase_from_array()` is the single wrap point (radian→grayscale, `santec/driver.py` L1382). Convert radian phase to grayscale through `utils/slm/phase_display.phase_to_slm_grayscale(phase, slm=slm)` — passes a live SLM it delegates to the driver pipeline (grayscale + wavefront correction + LUT + shift, 2π = device `_max_gray`); `slm=None` (simulation/offline save/unit tests) falls back to the built-in pure math conversion (wrap→scale→clip→uint16, default 1023). Counter-example **history** (both since fixed/removed in 2026-09 — do NOT reintroduce): `PatternHelper._zernike_to_uint16` (**deleted**, `pattern_helper.py:499-500`) and `ZernikeDM.generate_phase` (**fixed**, `zernike_dm.py:117-118`). A live scale-invariant min-max normaliser remains a defect; the two names above no longer exist in the tree.
 - **SLM memory-slot rotation**: When writing consecutive phases to memory mode, always target **different** slots — calling `display_memory(slot)` for the slot already displayed is a no-op and the LCOS panel will not refresh. Preferred pattern (diff-shaping runner): random slot in **2..125**, excluding the currently displayed one (`get_displayed_memory_number()` on start, survives process restarts). Older tools rotate a small pool (`itertools.cycle([3,4,5])`) — in-process only. `display_data()` cycles all 127 slots internally.
 - **Streamlit background threads**: Any background loop that drives hardware must never touch `st.session_state` directly — it causes `missing ScriptRunContext` warnings and race conditions. Use the R50 `run_loop` pattern: pass a snapshot of parameters as a plain `dict`, communicate state changes via `threading.Event` for stop signals and mutable containers (e.g. `list`) for live-updated values like frequency, and drain feedback through a `queue.Queue`. The main thread reads/writes `st.session_state` only on rerun. See `src/ao_shaping/gui/r50/r50_voltage_send.py:run_loop` and `src/ao_shaping/gui/slm/multi_slm_controller.py:_toggle_phases_task` for implementations.

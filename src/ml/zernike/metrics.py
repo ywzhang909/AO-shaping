@@ -23,7 +23,7 @@ Adding a perceptual metric is therefore a dependency decision, not a code change
 * **speckle / detail** -- :func:`total_variation_ratio`. SSIM is blind to over-smoothing
 (0.98 under a blur that TV registers as -25%), which matters because the strongest arm in the
 architecture search won on SSIM while being measurably blurrier. The ratio is reported for
-that reason, not as a generic extra; ``scripts/metric_discrimination.py`` is the measurement
+that reason, not as a generic extra; ``scripts/ml/metric_discrimination.py`` is the measurement
 that selected it and the four metrics it rejected.
 
 Canonical helpers are reused rather than reimplemented, per ``AGENTS.md``:
@@ -85,7 +85,7 @@ def total_variation_ratio(pred: torch.Tensor, target: torch.Tensor) -> float:
     the truth, below 1.0 means it is smoother than the truth, above 1.0 means it is rougher.
 
     Why this one earned a place when four other candidates did not
-    (``scripts/metric_discrimination.py``, 48 real validation targets):
+    (``scripts/ml/metric_discrimination.py``, 48 real validation targets):
 
     ============================ ========= =========
     corruption                    SSIM      TV ratio

@@ -31,7 +31,7 @@ def _load_report():
     global _report
     if _report is None:
         spec = importlib.util.spec_from_file_location(
-            _MODULE_NAME, ROOT / "scripts" / "generate_slm_pib_sim_report.py"
+            _MODULE_NAME, ROOT / "scripts" / "slm" / "generate_slm_pib_sim_report.py"
         )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)

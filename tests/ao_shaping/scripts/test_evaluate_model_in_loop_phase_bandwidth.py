@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from scripts.evaluate_model_in_loop_phase_bandwidth import circular_phase_blur
+from scripts.slm.evaluate_model_in_loop_phase_bandwidth import circular_phase_blur
 
 
 def test_circular_phase_blur_is_invariant_to_full_turns() -> None:

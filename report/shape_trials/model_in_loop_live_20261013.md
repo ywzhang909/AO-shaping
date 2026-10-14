@@ -2,7 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/generate_gif_from_pkl.py`](../../scripts/generate_gif_from_pkl.py)
+> **数据/关联脚本**: [`scripts/slm/generate_gif_from_pkl.py`](../../scripts/slm/generate_gif_from_pkl.py)
 > **运行环境**: 硬件
 > **说明**: 2026-10-13 正向模型闭环整形上机记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染
 <!-- provenance:end -->
@@ -563,7 +563,7 @@ GS 有扰动时开环 GS 相位实测分数仅 0.2707，低于平场 0.4249，�
 
 本节回答“真实 Santec SLM #1 / Daheng CCD 上是否已有 U-Net 优于物理模型的量化证据”。上文图 6–8 的深度预测是示意模拟，历史 `slm_zernike_shaping` 的 U-Net 交叉验证属于另一光路和语料，均不能代替当前台架的同帧对照。本次使用四个真实运行 `173039/173230/174628/174740` 中 **24 张 0.400 ms 留出 CCD 帧**，每组 2 张平滑、2 张 Zernike、2 张逐像素自由相位。每张 CCD 网格、该次 Step A 后保存的物理 Zernike 预测、U-Net 预测和原相位完全配对。相同种子 79 的六张指令相位跨四组重复，所以表中的每族 8 张**不是 8 个独立相位**；扰动组额外在 SLM 面板叠加同一固定相差。
 
-补充实验脚本为 `scripts/compare_model_in_loop_unet.py`。小型直接 U-Net（121,177 参数，`UNetGenerator[8,16,32]`）只用更早的同台架记录预训练：44 个互异相位，混合历史曝光作为第三输入通道 `log10(exposure_ms/0.4)`；冻结留出相位的哈希从预训练集排除。目标逐帧峰值归一，亮区加权 MSE 训练 80 epoch；每个评价运行仅用其 2 或 4 张训练探针做 10 步微调，留出帧不参与。物理模型用该运行已保存的 10 步 Step A 拟合与非负增益/平场泄漏预测。比较目标统一为 CCD 模型网格的中心 **36×36 像素**，约对应 CCD 100×100 像素；先用平场几何生成共同 CCD 可观测掩码，视场外预测不参与 Pearson 相关或 EE 分母。下面 U-Net 数值为三个训练种子 `20261013/14/15` 的平均；“±”仅表示种子间标准差。
+补充实验脚本为 `scripts/slm/compare_model_in_loop_unet.py`。小型直接 U-Net（121,177 参数，`UNetGenerator[8,16,32]`）只用更早的同台架记录预训练：44 个互异相位，混合历史曝光作为第三输入通道 `log10(exposure_ms/0.4)`；冻结留出相位的哈希从预训练集排除。目标逐帧峰值归一，亮区加权 MSE 训练 80 epoch；每个评价运行仅用其 2 或 4 张训练探针做 10 步微调，留出帧不参与。物理模型用该运行已保存的 10 步 Step A 拟合与非负增益/平场泄漏预测。比较目标统一为 CCD 模型网格的中心 **36×36 像素**，约对应 CCD 100×100 像素；先用平场几何生成共同 CCD 可观测掩码，视场外预测不参与 Pearson 相关或 EE 分母。下面 U-Net 数值为三个训练种子 `20261013/14/15` 的平均；“±”仅表示种子间标准差。
 
 ![U-Net prediction montage](images/mil_unet_prediction_montage.png)
 
@@ -608,13 +608,13 @@ GS 有扰动时开环 GS 相位实测分数仅 0.2707，低于平场 0.4249，�
 
 ### 固定相位亮区像素的跨曝光形状诊断
 
-在 `scripts/analyze_daheng_exposure.py` 增加逐像素诊断，结果为 [`analysis_pixelwise.json`](../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json)。每组单独选择最高安全曝光为参照，仅保留两档均为 12–239/255 的共同亮像素；先用中位数比例对齐，再计算亮像素相对 RMS 形状残差。两组成形相位扫描在 **0.20/0.30/0.40 ms** 的残差分别为 **4.70%/3.27%/0%** 和 **3.04%/1.65%/0%**；后一组 0.25/0.35 ms 分别为 **1.95%/3.31%**。平场 0.02/0.06/0.10 ms 对 0.12 ms 的残差为 **2.06%/2.62%/1.75%**。参照档位的 0% 是定义所致，并非测量精度。因亮像素掩码随曝光改变、未采遮光暗场且光功率可能漂移，这些残差不能单独归因于 CCD 像素非线性，也不能直接用作逆响应 LUT；它们说明单一 `frame/t` 比例不足以证明跨曝光的图像质量可比。
+在 `scripts/slm/analyze_daheng_exposure.py` 增加逐像素诊断，结果为 [`analysis_pixelwise.json`](../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json)。每组单独选择最高安全曝光为参照，仅保留两档均为 12–239/255 的共同亮像素；先用中位数比例对齐，再计算亮像素相对 RMS 形状残差。两组成形相位扫描在 **0.20/0.30/0.40 ms** 的残差分别为 **4.70%/3.27%/0%** 和 **3.04%/1.65%/0%**；后一组 0.25/0.35 ms 分别为 **1.95%/3.31%**。平场 0.02/0.06/0.10 ms 对 0.12 ms 的残差为 **2.06%/2.62%/1.75%**。参照档位的 0% 是定义所致，并非测量精度。因亮像素掩码随曝光改变、未采遮光暗场且光功率可能漂移，这些残差不能单独归因于 CCD 像素非线性，也不能直接用作逆响应 LUT；它们说明单一 `frame/t` 比例不足以证明跨曝光的图像质量可比。
 
 另外核查四个 U-Net 对照运行的 `probes/manifest.json`：用于当轮 Step A 和 NNLS 的训练探针与 24 张留出帧均为 **0.400 ms**。因此当前同帧 U-Net/物理模型的巨大预测差距不能归咎于这四轮的训练探针混合曝光；历史其他运行仍可能受该项影响。真正遮光暗场、独立曝光档位及新相位验收完成前，在线 NNLS 保持现状。
 
 ## 2026-10-13 低参数 CCD PSF 候选的冻结留出检验
 
-为检查物理正向模型能否低成本吸收 CCD 采样模糊，新增 `scripts/evaluate_model_in_loop_psf.py`。对上述四个真实运行分别在当轮 **2 或 4 张 0.400 ms 训练探针**上，从 `sigma=0/0.5/1/1.5/2` 个模型网格像素中选高斯强度 PSF 宽度；每个候选重新拟合非负模型增益和平场泄漏。选择完成后才对该运行六张冻结留出相位计分，相关性与形状 NRMSE 只看 CCD 可观测视场。逐帧结果在 [`paired_observable_holdouts.csv`](../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv)。早期 `paired_holdouts.csv` 包含视场外预测，不能作为结论。
+为检查物理正向模型能否低成本吸收 CCD 采样模糊，新增 `scripts/slm/evaluate_model_in_loop_psf.py`。对上述四个真实运行分别在当轮 **2 或 4 张 0.400 ms 训练探针**上，从 `sigma=0/0.5/1/1.5/2` 个模型网格像素中选高斯强度 PSF 宽度；每个候选重新拟合非负模型增益和平场泄漏。选择完成后才对该运行六张冻结留出相位计分，相关性与形状 NRMSE 只看 CCD 可观测视场。逐帧结果在 [`paired_observable_holdouts.csv`](../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv)。早期 `paired_holdouts.csv` 包含视场外预测，不能作为结论。
 
 ![PSF trial comparison](images/mil_psf_trial_comparison.png)
 
@@ -631,7 +631,7 @@ GS 有扰动时开环 GS 相位实测分数仅 0.2707，低于平场 0.4249，�
 
 ## 2026-10-13 相位带宽候选的反例
 
-在相同四个真实运行上，`scripts/evaluate_model_in_loop_phase_bandwidth.py` 检验输入相位局部平滑。对 `exp(i*phase)` 的实、虚部分别平滑后取角度，使相差整周的指令等价；候选宽度为 `0/0.25/0.5/0.75/1` 模型像素。仍仅用当轮 2 或 4 张训练探针选择宽度、重拟合 NNLS 增益与平场泄漏，再在同一批六张冻结留出帧和 CCD 可观测视场评分。逐帧结果见 [`paired_holdouts.csv`](../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv)。本项只对保存帧离线重算，没有新硬件采集。
+在相同四个真实运行上，`scripts/slm/evaluate_model_in_loop_phase_bandwidth.py` 检验输入相位局部平滑。对 `exp(i*phase)` 的实、虚部分别平滑后取角度，使相差整周的指令等价；候选宽度为 `0/0.25/0.5/0.75/1` 模型像素。仍仅用当轮 2 或 4 张训练探针选择宽度、重拟合 NNLS 增益与平场泄漏，再在同一批六张冻结留出帧和 CCD 可观测视场评分。逐帧结果见 [`paired_holdouts.csv`](../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv)。本项只对保存帧离线重算，没有新硬件采集。
 
 ![Phase bandwidth comparison](images/mil_phase_bandwidth_comparison.png)
 

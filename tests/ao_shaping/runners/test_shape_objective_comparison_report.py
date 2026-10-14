@@ -25,9 +25,9 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from generate_shape_objective_comparison import (  # noqa: E402
+from scripts.slm.generate_shape_objective_comparison import (  # noqa: E402
     _disagreement_order,
     load_frame_sets,
 )
@@ -84,7 +84,7 @@ class TestDisagreementTieBreak:
         only difference from :func:`_disagreement_order` is the ``lexsort`` key
         order.
         """
-        from generate_shape_objective_comparison import _higher_is_better
+        from scripts.slm.generate_shape_objective_comparison import _higher_is_better
 
         comp_n = _higher_is_better(_TIE_COMP, lower_is_better=False)
         loss_n = _higher_is_better(_TIE_LOSS, lower_is_better=True)

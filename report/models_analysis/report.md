@@ -1,8 +1,8 @@
 # SAC / Robust-RL 训练运行分析报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_models_report.py`](../../scripts/generate_models_report.py)
-> **复现命令**: `python scripts/generate_models_report.py`
+> **生成脚本**: [`scripts/rl/generate_models_report.py`](../../scripts/rl/generate_models_report.py)
+> **复现命令**: `python scripts/rl/generate_models_report.py`
 > **运行环境**: 离线
 > **说明**: 读 TensorBoard event 文件
 <!-- provenance:end -->
@@ -12,7 +12,7 @@
 - **生成时间**: 2026-09-17 14:28:54
 - **数据来源**: `models/` 下全部 SAC 训练运行 (SB3 SAC 检查点) + `logs/<run>/` 旁路遥测 (config.json / summary.json / eval/evaluations.npz / TensorBoard tfevents)
 - **运行总数**: 44 个
-- **生成脚本**: `scripts/generate_models_report.py` (纯离线读取, 不导入 ao_shaping / stable_baselines3 / tensorboard)
+- **生成脚本**: `scripts/rl/generate_models_report.py` (纯离线读取, 不导入 ao_shaping / stable_baselines3 / tensorboard)
 
 ---
 
@@ -188,4 +188,4 @@
 
 ---
 
-*报告由 `scripts/generate_models_report.py` 自动生成于 2026-09-17 14:28:54。*
+*报告由 `scripts/rl/generate_models_report.py` 自动生成于 2026-09-17 14:28:54。*

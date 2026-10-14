@@ -1,8 +1,8 @@
 # FourierGSNet 离线训练报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_gsnet_offline_report.py`](../../../scripts/generate_gsnet_offline_report.py)
-> **复现命令**: `python scripts/generate_gsnet_offline_report.py`
+> **生成脚本**: [`scripts/slm/generate_gsnet_offline_report.py`](../../../scripts/slm/generate_gsnet_offline_report.py)
+> **复现命令**: `python scripts/slm/generate_gsnet_offline_report.py`
 > **运行环境**: 离线
 > **说明**: 读 data/gsnet_train/run-*/summary.json
 <!-- provenance:end -->
@@ -12,7 +12,7 @@
 **生成时间**: 2026-09-30 04:21:28
 **数据来源**: `data/gsnet_train/run-20260929_225847`
 
-**Fully offline** — 本报告由 `scripts/generate_gsnet_offline_report.py` 离线生成, 仅读取该次训练已保存的 `summary.json` / `comparison.png` / `train_history.png`, **不导入 torch, 不打开任何硬件, 不访问网络**。
+**Fully offline** — 本报告由 `scripts/slm/generate_gsnet_offline_report.py` 离线生成, 仅读取该次训练已保存的 `summary.json` / `comparison.png` / `train_history.png`, **不导入 torch, 不打开任何硬件, 不访问网络**。
 
 ## 1. 训练配置
 
@@ -161,4 +161,4 @@ python src/ao_shaping/main.py slm-gsnet train \
 
 ---
 
-本报告由 `scripts/generate_gsnet_offline_report.py` 离线生成。
+本报告由 `scripts/slm/generate_gsnet_offline_report.py` 离线生成。

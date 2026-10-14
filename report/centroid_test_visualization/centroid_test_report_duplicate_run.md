@@ -1,8 +1,8 @@
 # Centroid Test Visualization Report
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_centroid_test_visualization.py`](../../scripts/generate_centroid_test_visualization.py)
-> **复现命令**: `python scripts/generate_centroid_test_visualization.py`
+> **生成脚本**: [`scripts/slm/generate_centroid_test_visualization.py`](../../scripts/slm/generate_centroid_test_visualization.py)
+> **复现命令**: `python scripts/slm/generate_centroid_test_visualization.py`
 > **运行环境**: 离线
 > **说明**: 同一次报告的更早一次运行，仅 Generated 时间戳不同；保留作对照，正式版见 centroid_test_report.md
 <!-- provenance:end -->

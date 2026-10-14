@@ -1,19 +1,19 @@
 # Zernike 前向模型:验证 R² 被"常数基线"吞掉了
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/diagnose_pod_ridge.py`](../../scripts/diagnose_pod_ridge.py)
-> **复现命令**: `python scripts/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256 # 再跑 verify_pod_ridge_canary.py / diagnose_r2_baseline.py / sweep_target_transform.py`
-> **数据/关联脚本**: [`scripts/diagnose_pod_ridge.py`](../../scripts/diagnose_pod_ridge.py)
-> **数据/关联脚本**: [`scripts/verify_pod_ridge_canary.py`](../../scripts/verify_pod_ridge_canary.py)
-> **数据/关联脚本**: [`scripts/diagnose_r2_baseline.py`](../../scripts/diagnose_r2_baseline.py)
-> **数据/关联脚本**: [`scripts/sweep_target_transform.py`](../../scripts/sweep_target_transform.py)
+> **生成脚本**: [`scripts/ml/diagnose_pod_ridge.py`](../../scripts/ml/diagnose_pod_ridge.py)
+> **复现命令**: `python scripts/ml/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256 # 再跑 verify_pod_ridge_canary.py / diagnose_r2_baseline.py / sweep_target_transform.py`
+> **数据/关联脚本**: [`scripts/ml/diagnose_pod_ridge.py`](../../scripts/ml/diagnose_pod_ridge.py)
+> **数据/关联脚本**: [`scripts/ml/verify_pod_ridge_canary.py`](../../scripts/ml/verify_pod_ridge_canary.py)
+> **数据/关联脚本**: [`scripts/ml/diagnose_r2_baseline.py`](../../scripts/ml/diagnose_r2_baseline.py)
+> **数据/关联脚本**: [`scripts/ml/sweep_target_transform.py`](../../scripts/ml/sweep_target_transform.py)
 > **运行环境**: 离线
 > **说明**: 验证 R² 被常数基线吞掉：常数预测器在同一 10 折协议下 R²=+0.910，故改用 skill = 1 - mse_model/mse_const 记分；含 image_mode 默认值论证的撤回
 <!-- provenance:end -->
 
 **本轮结论**（R² 基线诊断，方法论关键轮）：(1) 常数预测器在同一 10 折协议下 R²=+0.910，**绝对 R² 被常数基线吞掉、失去判别力**；自此所有模型对比一律改用 skill = 1 − mse_model/mse_const 记分（金丝雀法）。(2) 最终判决：数据处理（image_mode/目标变换/逐帧增益去除）、模型结构（sigmoid vs 线性头、容量 K=1…256）、训练方法（mse/振幅/log 损失）、无模型对照（k-NN）四类改动**全部试过、skill 全部为负**——闭式 4 成分 ridge 反而赢 U-Net 0.56，线性头显著更差（p=0.0059）。(3) 原因已量化而非调参问题：测量噪声地板 |ΔI|≈0.0226–0.031，而系数可解释信号仅 ≈0.008，**信噪比约 1:4、方向相反**；在此信噪比下任何模型的 MSE 必然高于常数输出。(4) 战略结论：**提升精度杠杆在数据采集侧（同相位重复帧平均、曝光归一、漂移拒绝），不在模型侧**；下一步必须先重采"每相位连拍 N 帧"数据并用 `diagnose_snr_ceiling.py` 确认地板降至 ~0.008 以下，再谈建模。
 
-> **生成脚本**: `scripts/diagnose_pod_ridge.py` / `scripts/verify_pod_ridge_canary.py` / `scripts/diagnose_r2_baseline.py` / `scripts/sweep_target_transform.py`
+> **生成脚本**: `scripts/ml/diagnose_pod_ridge.py` / `scripts/ml/verify_pod_ridge_canary.py` / `scripts/ml/diagnose_r2_baseline.py` / `scripts/ml/sweep_target_transform.py`
 > **复现命令**: 见各脚本 docstring
 > **运行环境**: `.venv` (torch 2.14.0+cu132, RTX 5080 Laptop GPU), corpus `slm_zernike_shaping` 1010 条 / 10 个 pickle
 > **协议**: 10 折 leave-one-pickle-out(`str(record.path)` 分组,与 `compare_models_cv.py` / `train_coeff.file_folds` 一致),判据 `ml.zernike.metrics.batch_image_metrics`
@@ -63,7 +63,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 ## 4. 泄漏排查(canary 通过)
 
 因为这个结果"看起来像 bug",按仓库既有的 canary 风格做了对照
-(`scripts/verify_pod_ridge_canary.py`,10 折):
+(`scripts/ml/verify_pod_ridge_canary.py`,10 折):
 
 | 对照臂 | val R² | 期望 |
 |---|---|---|
@@ -76,7 +76,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 
 ## 5. 可操作结论:系数信息主要在**绝对亮度**里,不在形状里
 
-`scripts/sweep_target_transform.py`,同一 10 折、同一 K=4 ridge、同一 skill 记分牌:
+`scripts/ml/sweep_target_transform.py`,同一 10 折、同一 K=4 ridge、同一 skill 记分牌:
 
 | 目标变换 | R² 模型 | R² 常数 | **skill** | 为负的折数 |
 |---|---|---|---|---|
@@ -118,7 +118,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 
 ## 7. 权威协议下的重测:三个训练模型**全部不如常数**
 
-`scripts/compare_models_cv.py`(10 折 file 协议,已加上 `skill` 口径;`logs/cv_skill.json`):
+`scripts/ml/compare_models_cv.py`(10 折 file 协议,已加上 `skill` 口径;`logs/cv_skill.json`):
 
 | 模型 | val R² | **skill** | R² 均值 sd |
 |---|---|---|---|
@@ -138,7 +138,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 
 ## 8. 闭式线性基线同样赢过所有训练模型
 
-`scripts/compare_linear_vs_trained.py` 把 **K=4 POD + ridge(闭式解)** 放到与上面
+`scripts/ml/compare_linear_vs_trained.py` 把 **K=4 POD + ridge(闭式解)** 放到与上面
 **完全相同**的管线(同一 1010 条语料、同一 `str(record.path)` 折、
 同一 `MaterialiserConfig(grid=64)` 目标 + `_peak_normalise`):
 
@@ -155,7 +155,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 
 ### 8.1 这 0.03 差异已定位(不是缓存 bug,是两条不同的裁剪+归一化实现)
 
-**排查过程**(`scripts/diagnose_peak_pipeline_gap.py`、`scripts/diagnose_peak_cache_key.py`):
+**排查过程**(`scripts/ml/diagnose_peak_pipeline_gap.py`、`scripts/ml/diagnose_peak_cache_key.py`):
 
 1. `direct(peak)` 与 `abs255` 后手动 `/max` 有 **48.6% 像素不同**(max|d| = 0.358);
    两者代数上应恒等 ⇒ 差异来自别处。
@@ -222,7 +222,7 @@ K 几乎不敏感(K=4 → +0.9163,K=256 → +0.9144;配对差 −0.0019,p=0.64),
 **假设**:目标是"大面积近 0 暗背景 + 小面积亮核"(mean ≈ 0.014),
 未加权 MSE 会被亮核主导,暗背景(几乎全部形状信息)学不到 ⇒ 改损失空间应能提 skill。
 
-**做法**(`scripts/diagnose_loss_geometry.py`):用**闭式 ridge**(排除优化噪声)在同一
+**做法**(`scripts/ml/diagnose_loss_geometry.py`):用**闭式 ridge**(排除优化噪声)在同一
 10 折上比较三种损失空间,全部**在原强度空间打分**以便可比:
 
 | 损失空间 | mean skill | min | max | mean mse |
@@ -278,20 +278,20 @@ U-Net(它离噪声地板更近,不是因为它"更对")。
 ## 8. 复现
 
 ```bash
-python scripts/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256   # logs/pod_ridge_full.json
-python scripts/verify_pod_ridge_canary.py                        # logs/pod_ridge_canary.json
-python scripts/diagnose_r2_baseline.py                           # logs/r2_baseline.json
-python scripts/sweep_target_transform.py                         # logs/target_transform.json
-python scripts/compare_linear_vs_trained.py --k 4                # logs/linear_vs_trained.json
-python scripts/diagnose_peak_pipeline_gap.py                     # logs/peak_pipeline_gap.json
-python scripts/diagnose_peak_cache_key.py                        # logs/peak_cache_key.json
-python scripts/diagnose_loss_geometry.py                         # logs/loss_geometry.json
-python scripts/diagnose_snr_ceiling.py                           # logs/snr_ceiling.json
-python scripts/diagnose_label_alignment.py                       # logs/label_alignment.json
-python scripts/diagnose_gain_drift.py                            # logs/gain_drift.json
-python scripts/compare_models_cv.py --protocol file --models physics hybrid unet \
+python scripts/ml/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256   # logs/pod_ridge_full.json
+python scripts/ml/verify_pod_ridge_canary.py                        # logs/pod_ridge_canary.json
+python scripts/ml/diagnose_r2_baseline.py                           # logs/r2_baseline.json
+python scripts/ml/sweep_target_transform.py                         # logs/target_transform.json
+python scripts/ml/compare_linear_vs_trained.py --k 4                # logs/linear_vs_trained.json
+python scripts/ml/diagnose_peak_pipeline_gap.py                     # logs/peak_pipeline_gap.json
+python scripts/ml/diagnose_peak_cache_key.py                        # logs/peak_cache_key.json
+python scripts/ml/diagnose_loss_geometry.py                         # logs/loss_geometry.json
+python scripts/ml/diagnose_snr_ceiling.py                           # logs/snr_ceiling.json
+python scripts/ml/diagnose_label_alignment.py                       # logs/label_alignment.json
+python scripts/ml/diagnose_gain_drift.py                            # logs/gain_drift.json
+python scripts/ml/compare_models_cv.py --protocol file --models physics hybrid unet \
     --epochs 50 --out logs/cv_skill.json                         # 权威 10 折(含 skill)
-python scripts/compare_models_cv.py --protocol file --models unet \
+python scripts/ml/compare_models_cv.py --protocol file --models unet \
     --unet-output-mode image --epochs 50 --out logs/cv_unet_image.json   # 输出头 A/B
 ```
 
@@ -299,7 +299,7 @@ python scripts/compare_models_cv.py --protocol file --models unet \
 
 # 判决:信噪比天花板(已测,非推断)
 
-`scripts/diagnose_snr_ceiling.py`。判据用一个**没有容量、没有优化器、没有损失函数**的模型:
+`scripts/ml/diagnose_snr_ceiling.py`。判据用一个**没有容量、没有优化器、没有损失函数**的模型:
 系数空间里的 **k 近邻**(训练集标准化,预测 = k 个邻居图像的均值),同样在 10 折上打分。
 
 | k | mean skill | min | max |
@@ -335,7 +335,7 @@ python scripts/compare_models_cv.py --protocol file --models unet \
 
 ## 标签完整性:已排除错位
 
-`scripts/diagnose_label_alignment.py`(**完全不需要模型**)。相邻 epoch 是同一次优化的连续两步:
+`scripts/ml/diagnose_label_alignment.py`(**完全不需要模型**)。相邻 epoch 是同一次优化的连续两步:
 
 | 量 | 相邻/随机 比值 |
 |---|---|
@@ -349,7 +349,7 @@ python scripts/compare_models_cv.py --protocol file --models unet \
 
 ## 逐帧增益漂移:不是主因
 
-`scripts/diagnose_gain_drift.py`。逐帧拟合 `I_i ≈ a_i·mean + b_i`(只用训练集拟合,不泄漏):
+`scripts/ml/diagnose_gain_drift.py`。逐帧拟合 `I_i ≈ a_i·mean + b_i`(只用训练集拟合,不泄漏):
 
 * **逐帧增益的离散度只有 sd/mean ≈ 0.048–0.058**,即约 **5%** —— 逐帧增益漂移很小;
 * 去掉逐帧增益+偏置后(ridge 臂):`none −0.4133 → affine −0.3570`,
@@ -384,7 +384,7 @@ python scripts/compare_models_cv.py --protocol file --models unet \
 
 1. **重新采一组"同相位重复帧"数据**(每个相位连拍 N 帧)。这是唯一能把噪声地板
    压到信号量级以下的办法;在现有语料上任何建模工作都做不了这件事。
-2. 采到之后先跑 `scripts/diagnose_snr_ceiling.py` 确认地板降到 ~0.008 以下,
+2. 采到之后先跑 `scripts/ml/diagnose_snr_ceiling.py` 确认地板降到 ~0.008 以下,
    再谈模型。
 3. **口径澄清**:若业务只需要"由系数预测图"的点估计,常数基线 + skill 口径已经够了;
    若需要"由系数反推可下发相位",那是**逆设计**(`ml/zernike/inverse_design.py`)，

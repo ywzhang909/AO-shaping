@@ -1,9 +1,9 @@
 # slm-pib 仿真运行报告 (SPGD 方形目标, 2f-Fourier 数字孪生)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_pib_sim_report.py`](../../scripts/generate_slm_pib_sim_report.py)
-> **复现命令**: `python scripts/generate_slm_pib_sim_report.py`
-> **数据/关联脚本**: [`scripts/slm_pib_sim_run.py`](../../scripts/slm_pib_sim_run.py)
+> **生成脚本**: [`scripts/slm/generate_slm_pib_sim_report.py`](../../scripts/slm/generate_slm_pib_sim_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_pib_sim_report.py`
+> **数据/关联脚本**: [`scripts/slm/slm_pib_sim_run.py`](../../scripts/slm/slm_pib_sim_run.py)
 > **运行环境**: 离线
 > **说明**: 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生
 <!-- provenance:end -->
@@ -12,7 +12,7 @@
 
 **生成时间**: 2026-10-01 12:30:57
 
-**Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
+**Fully offline** — 本报告由 `scripts/slm/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 
 ## 1. 运行说明
 

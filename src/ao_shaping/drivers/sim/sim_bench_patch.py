@@ -5,7 +5,7 @@
 数字孪生上而非硬件上, 而有三处各自在手动利用它:
 
 * ``runner_common.patch_sim_square_shaping`` -> ``slm_square_shaping``
-* ``scripts/slm_pib_sim_run.py::_patch_santec`` -> ``slm_zernike_pib``
+* ``scripts/slm/slm_pib_sim_run.py::_patch_santec`` -> ``slm_zernike_pib``
 * ``tests/.../test_slm_zernike_objectives_sim.py::_patch_slm`` -> 两者
 
 这种重复并非无害, 因为**每处打的模块集合都不一样**。于是端到端离线测试测的是

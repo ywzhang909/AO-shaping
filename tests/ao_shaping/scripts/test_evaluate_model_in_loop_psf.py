@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from scripts.evaluate_model_in_loop_psf import _score, fit_gain_leakage
+from scripts.slm.evaluate_model_in_loop_psf import _score, fit_gain_leakage
 
 
 def test_gain_leakage_recovers_nonnegative_components() -> None:

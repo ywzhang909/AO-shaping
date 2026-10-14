@@ -125,7 +125,7 @@
 
 > **⚠️ SLM 平场灰度生成注意事项**
 >
-> Santec SLM200在1064nm附近存在**振幅耦合**效应——SLM加载不同灰度值的平场相位时，相机采集到的光斑亮度会随灰度值变化（周期 ≈ 2π，即约993灰度值）。这是SLM的固有特性，已在实验中验证（参见 `scripts/validate_flat_phase_gray.py`）。
+> Santec SLM200在1064nm附近存在**振幅耦合**效应——SLM加载不同灰度值的平场相位时，相机采集到的光斑亮度会随灰度值变化（周期 ≈ 2π，即约993灰度值）。这是SLM的固有特性，已在实验中验证（参见 `scripts/slm/validate_flat_phase_gray.py`）。
 >
 > **关键规则1（灰度值路径）**: 平场相位（以及其他直接灰度图案）**必须**使用 `np.full((height, width), gray, dtype=np.uint16)` 生成，**不能**通过 `create_phase_from_array()` 传递。因为 `create_phase_from_array()` 将输入作为**弧度**处理（mod 2π → 弧度/2π × 1023），uint16灰度值会经过不必要的弧度转换而被静默损坏。
 >
@@ -133,7 +133,7 @@
 >
 > 验证命令:
 > ```bash
-> python scripts/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3
+> python scripts/slm/validate_flat_phase_gray.py --exposure-ms 0.8 --wait-time-s 0.3
 > ```
 
 ## 数据采集卡

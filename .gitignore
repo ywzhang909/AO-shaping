@@ -80,6 +80,7 @@ checkpoints*
 /wandb*
 
 .kilo*
+libs*
 libs/micro_drive1300/docs*
 libs/miicamsdk.20240728*
 !libs/miicamsdk.20240728/python/samples*
@@ -154,3 +155,4 @@ docs/beam_shaping*
 .auto_doc_review/state.json
 .worktree*
 .tmp*
+
