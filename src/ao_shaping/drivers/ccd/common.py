@@ -441,17 +441,34 @@ def resolve_exposure_ms(
 def get_camera_exposure_ms(cam: BaseCamera) -> float:
     """Read the current exposure time in ms from any supported backend.
 
+    Prefers the backend's **live readback** ``get_exposure_time_ms()`` (the value
+    the device actually reports, already clamped and quantised to its integer
+    microsecond grid), and only then falls back to the driver's own
+    ``exposure_time_ms`` / ``exposure_time`` cache.
+
+    The fallback exists for the non-hardware backends (ffmpeg / image_folder /
+    sim) and for any future driver that has no device-side readback. Relying on
+    the cache alone was the historical bug: ``reset_exposure_time`` clamps +
+    quantises to integer µs and the device then reports that effective value,
+    while the cache kept the raw (unquantised) request — so the "read-back"
+    drifted from what the sensor actually used (issue #32, ``回读恒为 3.0``).
+
     Raises:
-        AttributeError: The camera exposes neither ``exposure_time_ms`` nor
-            ``exposure_time``.
+        AttributeError: The camera exposes none of ``get_exposure_time_ms``,
+            ``exposure_time_ms`` or ``exposure_time``.
     """
+    live = getattr(cam, "get_exposure_time_ms", None)
+    if callable(live):
+        value = live()
+        if isinstance(value, (int, float)):
+            return float(value)
     for attr in ("exposure_time_ms", "exposure_time"):
         value = getattr(cam, attr, None)
         if isinstance(value, (int, float)):
             return float(value)
     raise AttributeError(
         f"{type(cam).__name__} exposes no exposure time attribute "
-        "(tried 'exposure_time_ms', 'exposure_time')"
+        "(tried 'get_exposure_time_ms', 'exposure_time_ms', 'exposure_time')"
     )
 
 
