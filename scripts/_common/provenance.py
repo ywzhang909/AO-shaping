@@ -648,6 +648,11 @@ REPORTS: dict[str, ReportProvenance] = {
         note="2026-10-13 正向模型闭环整形上机记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染",
         extra_scripts=("scripts/generate_gif_from_pkl.py",),
     ),
+    "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note="2026-10-14 正向模型闭环实机复核记录；沿用 20261013_105911 的 bench_geometry.json（本日未重验尺度/入射振幅/面板配准），强随机探针标定本日两次失败故未重复",
+    ),
     "report/shape_trials/model_in_loop_next_steps_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
