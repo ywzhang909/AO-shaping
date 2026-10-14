@@ -31,7 +31,6 @@ from ao_shaping.runners.slm.slm_shaping_runner import (
 from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     ObjectiveTarget,
-    SlmParamsPib,
     SpgdParamsPib,
 )
 from ao_shaping.utils.io.file import Recorder

@@ -229,8 +229,6 @@ class TestLoadTargetImage:
 
     def test_image_branch_with_skimage(self, tmp_path) -> None:
         """When scikit-image is installed, PNG loading succeeds."""
-        import importlib
-
         from PIL import Image
 
         img = Image.fromarray(np.array([[0, 64], [255, 128]], dtype=np.uint8))

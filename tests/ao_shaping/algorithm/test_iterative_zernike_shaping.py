@@ -299,8 +299,6 @@ def test_s7_objective_consistency_and_shaping_discrimination():
     is non-degenerate; it was an artefact of the aliased forward field plus a
     uniformly-saturated CV term. See ``report/iterative_zernike_shaping/data.json``.
     """
-    from ao_shaping.algorithm.signal_processing.square_shaping import spgd_shape
-
     cfg = _bench_cfg()
     target = make_target(cfg)
 

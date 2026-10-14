@@ -84,7 +84,7 @@ def _patch_slm(monkeypatch):
     # wrong leaves the engine opening real hardware while the test passes.
     import importlib
 
-    from ao_shaping.drivers.sim.sim_bench_patch import SimSLMPib, install_sim_slm
+    from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 
     for mod_name in (
         "ao_shaping.optimizer.wfless.slm_zernike_pib",

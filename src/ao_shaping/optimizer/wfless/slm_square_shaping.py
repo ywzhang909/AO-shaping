@@ -82,7 +82,7 @@ import contextlib
 import os
 import time
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 import tqdm
@@ -119,9 +119,6 @@ from ao_shaping.utils.wavefront.zernike_calc import (
     calc_n_zernike_terms,
     noll_indices,
 )
-
-if TYPE_CHECKING:
-    import pygame
 
 # Adam parameters
 beta1 = 0.9

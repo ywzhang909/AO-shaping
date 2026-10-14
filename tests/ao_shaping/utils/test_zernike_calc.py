@@ -376,8 +376,6 @@ class TestZernikeModes:
     """
 
     def test_modes_count_matches_calc_n_zernike_terms(self) -> None:
-        from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
-
         for n_max in (0, 1, 2, 5, 10):
             assert len(zernike_modes(n_max)) == calc_n_zernike_terms(n_max), (
                 f"n_max={n_max}: 模式数应为 (n+1)(n+2)//2 = "

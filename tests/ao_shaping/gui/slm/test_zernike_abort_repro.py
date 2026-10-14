@@ -21,8 +21,6 @@ from streamlit.testing.v1 import AppTest
 # App scripts (each runs in its own fresh Streamlit script context).
 # ---------------------------------------------------------------------------
 def app_zernike_alone() -> None:
-    import streamlit as st
-
     from ao_shaping.gui.slm.pattern_controls import ZernikeControl
 
     ctrl = ZernikeControl(slm_id=1)
@@ -31,8 +29,6 @@ def app_zernike_alone() -> None:
 
 
 def app_pattern_select() -> None:
-    import streamlit as st
-
     from ao_shaping.gui.slm.multi_slm_controller import render_pattern_controls
 
     pattern_type, _params = render_pattern_controls(1)

@@ -13,8 +13,6 @@ class TestGetWfsRes:
 
     def test_all_resolutions(self):
         """Test all supported WFS resolutions."""
-        from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
-
         assert MlaRes.from_str("320") == MlaRes.Res320
         assert MlaRes.from_str("512") == MlaRes.Res512
         assert MlaRes.from_str("768") == MlaRes.Res768
@@ -23,8 +21,6 @@ class TestGetWfsRes:
 
     def test_default_fallback(self):
         """Test unknown resolution falls back to Res1024."""
-        from ao_shaping.drivers.wfs.thorlab_wfs import MlaRes
-
         assert MlaRes.from_str("999", default=MlaRes.Res1024) == MlaRes.Res1024
         assert MlaRes.from_str("invalid", default=MlaRes.Res1024) == MlaRes.Res1024
 
