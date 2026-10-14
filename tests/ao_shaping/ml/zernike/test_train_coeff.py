@@ -365,7 +365,7 @@ class TestLossContract:
         # R^2 +0.920 under `peak` and +0.799 under `abs255`, so raw R^2 differences
         # of that size sit inside the metric's own floor. Scored on
         # `skill = 1 - mse_model/mse_constant` the ordering reverses
-        # (scripts/sweep_target_transform.py), and `zscore` -- which strips the
+        # (scripts/ml/sweep_target_transform.py), and `zscore` -- which strips the
         # per-frame level entirely -- leaves skill +0.006, i.e. the coefficients
         # live mostly in the absolute level. So the earlier argument is withdrawn
         # and the incumbent is kept until the ConvNet itself is scored on skill.

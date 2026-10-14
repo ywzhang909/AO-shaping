@@ -16,9 +16,9 @@ import pytest
 import torch
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 
-from optimize_uniform_spot_phase import (  # noqa: E402
+from scripts.ml.optimize_uniform_spot_phase import (  # noqa: E402
     PhaseVariable,
     box_slice,
     box_target,
@@ -194,7 +194,7 @@ class TestFrozenWeights:
 
     def test_checkpoint_geometry_is_used_not_current_defaults(self, tmp_path) -> None:
         """A checkpoint trained at padding=10 must not be rebuilt at the default."""
-        from optimize_uniform_spot_phase import load_frozen_model
+        from scripts.ml.optimize_uniform_spot_phase import load_frozen_model
 
         checkpoint = tmp_path / "ckpt.pt"
         torch.save(
@@ -211,7 +211,7 @@ class TestFrozenWeights:
         assert all(not p.requires_grad for p in model.parameters())
 
     def test_coefficient_count_mismatch_is_refused(self, tmp_path) -> None:
-        from optimize_uniform_spot_phase import load_frozen_model
+        from scripts.ml.optimize_uniform_spot_phase import load_frozen_model
 
         checkpoint = tmp_path / "bad.pt"
         torch.save(

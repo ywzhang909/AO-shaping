@@ -71,7 +71,7 @@ class TestPatchInstallsTheTwin:
     def test_pib_helper_does_not_reset_the_simulated_system(self):
         """The PIB sim harness owns the system; a reset here would drop it.
 
-        ``scripts/slm_pib_sim_run.py`` installs a seeded system *with* a
+        ``scripts/slm/slm_pib_sim_run.py`` installs a seeded system *with* a
         disturbance and wraps ``reset_system`` so every call re-attaches it. If
         the runner reset the system itself, a run whose manifest claims a
         disturbance would run without one.

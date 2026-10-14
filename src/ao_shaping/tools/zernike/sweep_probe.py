@@ -1,6 +1,6 @@
 """Smooth-Zernike sweep probe: acquire bench response curves with a *stable* read.
 
-This is the reusable core behind ``scripts/model_in_loop_hw_runbook.py
+This is the reusable core behind ``scripts/slm/model_in_loop_hw_runbook.py
 --stage sweep``. It was extracted because the acquisition logic -- pattern
 building, the settle criterion, the per-point metrics, the Recorder bookkeeping
 and the ``.npz`` round-trip -- is useful to anything that needs to characterise

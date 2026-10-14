@@ -233,13 +233,18 @@ class FourierGSNet(nn.Module):
         base_channels: CNN width of each `FFTLayer`.
     """
 
-    def __init__(self, num_layers: int = 10, base_channels: int = 32) -> None:
+    def __init__(
+        self, num_layers: int = 10, base_channels: int = 32,
+        shared_weights: bool = False,
+    ) -> None:
         super().__init__()
         if num_layers < 1:
             raise ValueError(f"num_layers must be >= 1, got {num_layers}")
         self.num_layers = num_layers
+        self.base_channels = base_channels
+        self.shared_weights = shared_weights
         self.layers = nn.ModuleList(
-            [FFTLayer(base_channels) for _ in range(num_layers)]
+            [FFTLayer(base_channels) for _ in range(1 if shared_weights else num_layers)]
         )
 
     def forward(
@@ -277,7 +282,8 @@ class FourierGSNet(nn.Module):
         )
         phase = torch.angle(init_field)
 
-        for layer in self.layers:
+        for step in range(self.num_layers):
+            layer = self.layers[0] if self.shared_weights else self.layers[step]
             phase = layer(phase, source_amp, target_amp)
 
         return phase

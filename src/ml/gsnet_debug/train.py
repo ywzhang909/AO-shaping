@@ -178,6 +178,10 @@ class GsnetTrainParams:
     base_channels: Annotated[
         int, option("--base-channels", help="CNN width per layer (default: 32).")
     ] = 32
+    shared_weights: Annotated[
+        bool, option("--shared-weights", is_flag=True,
+                     help="Reuse one learned update across all physical GS steps.")
+    ] = False
     grid: Annotated[
         int, option("--grid", help="Sample grid side length (default: 64).")
     ] = 64
@@ -711,7 +715,8 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
 
     _seed_everything(seed)
     model = FourierGSNet(
-        num_layers=params.num_layers, base_channels=params.base_channels
+        num_layers=params.num_layers, base_channels=params.base_channels,
+        shared_weights=params.shared_weights,
     )
     logger.info(
         "FourierGSNet: {} layers, base_channels={}, {} parameters, device={}",
@@ -802,6 +807,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
             "model": {
                 "num_layers": params.num_layers,
                 "base_channels": params.base_channels,
+                "shared_weights": params.shared_weights,
                 "n_parameters": count_parameters(model),
             },
             "training": {

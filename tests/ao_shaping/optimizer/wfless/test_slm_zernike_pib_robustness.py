@@ -670,9 +670,9 @@ class TestEnergyLossViolationsIsAnExplicitRunLevelField:
         assert getattr(rec, "energy_loss_violations", 0) == 3
 
     def test_the_only_consumer_reads_it_defensively(self) -> None:
-        """``scripts/compare_shape_objectives.py`` is the single reader."""
+        """``scripts/slm/compare_shape_objectives.py`` is the single reader."""
         import pathlib
 
-        script = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "compare_shape_objectives.py"
+        script = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "slm" / "compare_shape_objectives.py"
         src = script.read_text(encoding="utf-8")
         assert 'getattr(rec, "energy_loss_violations", 0)' in src

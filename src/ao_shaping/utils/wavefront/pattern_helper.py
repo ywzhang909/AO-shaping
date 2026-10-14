@@ -528,7 +528,14 @@ class PatternHelper:
         SLM 驱动 ``slm.create_phase_from_array()`` 完成 (2π = max_grayscale +
         波前校正 + LUT), 不在本工具内做 —— 2026-09 移除
         ``generate_zernike_polynomial_phase`` (冗余) 与 ``_zernike_to_uint16``
-        (min-max 归一化抹掉系数幅度), 本方法是唯一弧度相位入口。
+        (min-max 归一化抹掉系数幅度)。
+
+        ⚠️ **本方法不是弧度相位的唯一入口**。Zernike 纯数学在仓库里只有两层,
+        `zernike_utils` (API) → `zernike_calc` (引擎); 新代码请直接用
+        :func:`ao_shaping.utils.wavefront.zernike_utils.generate_zernike_phase`。
+        本方法是面板尺寸/孔径/位深相关的**便捷封装**, 内部委托 canonical
+        ``ZernikeGenerator.generate_polynomial``(引擎层), 不重实现任何 Zernike
+        数学 —— 但它**不得**被当成"唯一入口", 也不得在此继续堆叠 Zernike 数学。
 
         Args:
             coefficients: ``{(n, m): amplitude}`` dictionary.

@@ -1,8 +1,8 @@
 # 整形目标函数灵敏度 (噪声地板) 实测
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/measure_shape_sensitivity.py`](../../scripts/measure_shape_sensitivity.py)
-> **复现命令**: `python scripts/measure_shape_sensitivity.py`
+> **生成脚本**: [`scripts/slm/measure_shape_sensitivity.py`](../../scripts/slm/measure_shape_sensitivity.py)
+> **复现命令**: `python scripts/slm/measure_shape_sensitivity.py`
 > **运行环境**: 硬件
 > **说明**: 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py
 <!-- provenance:end -->

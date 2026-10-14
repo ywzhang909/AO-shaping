@@ -10,8 +10,8 @@ a uniform, high-energy square, scored by the combined quality score
 objective as the ``spgd-square`` command, but freeform-first.
 
 Usage:
-    python src/ao_shaping/main.py slm-gsnet                    # SPGD (default, no options)
-    python src/ao_shaping/main.py slm-gsnet spgd [OPTIONS]     # SPGD gradient search
+    python src/ao_shaping/main.py slm-gsnet spgd --exposure-time-ms 0.02 [OPTIONS]
+                                                            # Daheng SPGD search
     python src/ao_shaping/main.py slm-gsnet heuristic [OPTIONS]  # black-box heuristic
     python src/ao_shaping/main.py slm-gsnet train [OPTIONS]    # offline GSNet training
 
@@ -22,6 +22,7 @@ Offline dry-run (no hardware) — options live on the subcommand, not the group:
 
 ``train`` never opens a device: it reads the ``data/debug`` pickles the
 optimizers already recorded and trains FourierGSNet on them in simulation.
+Live Daheng searches require a measured fixed exposure in (0, 0.4] ms.
 """
 
 from __future__ import annotations
@@ -443,6 +444,15 @@ run.add_command(heuristic, name="heuristic")
 run.add_command(train, name="train")
 
 
+def _validate_daheng_exposure(camera: CameraParams) -> None:
+    """Reject auto or over-limit exposure before opening the live camera."""
+    if camera.cam_type.lower() == "daheng" and not 0 < camera.exposure_time_ms <= 0.4:
+        raise click.BadParameter(
+            "Daheng GSNet runs require explicit exposure in (0, 0.4] ms",
+            param_hint="--exposure-time-ms",
+        )
+
+
 def _execute(cfg: SlmGsnetConfig) -> None:
     """Shared execution path for both search families.
 
@@ -452,6 +462,7 @@ def _execute(cfg: SlmGsnetConfig) -> None:
     Zernike coefficient panel is empty (freeform has 576 DOF, not Zernike modes).
     This function adds a post-run best-result viewer when ``--show`` is used.
     """
+    _validate_daheng_exposure(cfg.camera)
     setup_coredumpy()
     _maybe_sim_patch(cfg.camera.cam_type)
 

@@ -654,6 +654,16 @@ class DahengCamera(BaseCamera):
         assert self.cam, "camera not initialized"
         return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
 
+    def get_exposure_time_ms(self) -> float:
+        """从设备**回读**当前生效的曝光时间 (ms)。
+
+        直接读 SDK 的 ``ExposureTime`` 特征 (即设备实际在用的值), 而非本地
+        ``__exposure_time_ms`` 缓存 —— 后者在 ``reset_exposure_time`` 里经
+        钳制 + 量化到整数微秒后才下发, 与原始请求可能差 1 µs, 且本地缓存从不
+        随设备回读更新, 故只读缓存会得到漂移值 (issue #32)。
+        """
+        return float(self.exposure_time)
+
     def enable_auto_exposure(self, enable: bool = True, mode: int = 1) -> bool:
         """启用或关闭自动曝光。
 

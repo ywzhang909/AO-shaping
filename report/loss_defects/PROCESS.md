@@ -2,18 +2,18 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/inverse_design_sim_eval.py`](../../scripts/inverse_design_sim_eval.py)
-> **数据/关联脚本**: [`scripts/inverse_design_accuracy_ladder.py`](../../scripts/inverse_design_accuracy_ladder.py)
-> **数据/关联脚本**: [`scripts/inverse_design_restarts.py`](../../scripts/inverse_design_restarts.py)
-> **数据/关联脚本**: [`scripts/inverse_restart_selection.py`](../../scripts/inverse_restart_selection.py)
-> **数据/关联脚本**: [`scripts/inverse_objective_alignment.py`](../../scripts/inverse_objective_alignment.py)
-> **数据/关联脚本**: [`scripts/inverse_achievable_target.py`](../../scripts/inverse_achievable_target.py)
-> **数据/关联脚本**: [`scripts/gs_vs_gradient_inverse.py`](../../scripts/gs_vs_gradient_inverse.py)
-> **数据/关联脚本**: [`scripts/gs_plus_refinement.py`](../../scripts/gs_plus_refinement.py)
-> **数据/关联脚本**: [`scripts/alignment_vs_accuracy.py`](../../scripts/alignment_vs_accuracy.py)
-> **数据/关联脚本**: [`scripts/roi_robustness.py`](../../scripts/roi_robustness.py)
-> **数据/关联脚本**: [`scripts/restart_claim_robustness.py`](../../scripts/restart_claim_robustness.py)
-> **数据/关联脚本**: [`scripts/freeform_vs_zernike.py`](../../scripts/freeform_vs_zernike.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_design_sim_eval.py`](../../scripts/ml/inverse_design_sim_eval.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_design_accuracy_ladder.py`](../../scripts/ml/inverse_design_accuracy_ladder.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_design_restarts.py`](../../scripts/ml/inverse_design_restarts.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_restart_selection.py`](../../scripts/ml/inverse_restart_selection.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_objective_alignment.py`](../../scripts/ml/inverse_objective_alignment.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_achievable_target.py`](../../scripts/ml/inverse_achievable_target.py)
+> **数据/关联脚本**: [`scripts/ml/gs_vs_gradient_inverse.py`](../../scripts/ml/gs_vs_gradient_inverse.py)
+> **数据/关联脚本**: [`scripts/ml/gs_plus_refinement.py`](../../scripts/ml/gs_plus_refinement.py)
+> **数据/关联脚本**: [`scripts/ml/alignment_vs_accuracy.py`](../../scripts/ml/alignment_vs_accuracy.py)
+> **数据/关联脚本**: [`scripts/ml/roi_robustness.py`](../../scripts/ml/roi_robustness.py)
+> **数据/关联脚本**: [`scripts/ml/restart_claim_robustness.py`](../../scripts/ml/restart_claim_robustness.py)
+> **数据/关联脚本**: [`scripts/ml/freeform_vs_zernike.py`](../../scripts/ml/freeform_vs_zernike.py)
 > **运行环境**: 离线
 > **说明**: 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论）
 <!-- provenance:end -->
@@ -199,7 +199,7 @@ accuracy point, so accuracy has never been varied as a variable.
 
 ### Attempt 4 — accuracy ladder: more accuracy is NOT better
 
-`scripts/inverse_design_accuracy_ladder.py`. Ladder rung = AdamW steps used to fit
+`scripts/ml/inverse_design_accuracy_ladder.py`. Ladder rung = AdamW steps used to fit
 the forward model (`fit_steps=0` = random init = the "no information" control).
 Accuracy is **held-out** forward MSE on a different real sample than the one
 fitted — otherwise the rungs are not ordered by generalisation and the ladder is
@@ -1164,7 +1164,7 @@ Recommendation, given the measurements rather than the intent:
 
 That ablation fitted **one sample for 150 steps** and read the moment gap off the *same*
 sample. Retested properly as 5-seed paired full training runs on `slm_zernike_shaping`
-(60 epochs, `scripts/spot_moment_sweep.py`, ranked on R² per the repo rule), the term
+(60 epochs, `scripts/ml/spot_moment_sweep.py`, ranked on R² per the repo rule), the term
 **fails on both counts**:
 
 | config | R² mean | sd | ΔR² vs incumbent | paired sd | positives | moment gap |
@@ -1224,7 +1224,7 @@ Rendering the report surfaced bugs the numbers had hidden:
 The first hypothesis for the inverse panel's disagreement was an angular-scale mismatch —
 the checkpoint is fitted at `far_field_padding=10`, the evaluator runs at padding 1, and a
 centre-cropped padding-`p` FFT covers `1/p` of the padded extent. `sim_far_field` now takes
-`padding` so the two can be put on one scale, and `scripts/padding_alignment.py` sweeps it:
+`padding` so the two can be put on one scale, and `scripts/ml/padding_alignment.py` sweeps it:
 
 | sim padding | pearson | spearman | var_r sim | var_r pred / sim |
 |---|---|---|---|---|
@@ -1252,7 +1252,7 @@ Gerchberg-Saxton designs on and every re-measured result in this file was measur
 
 Asked to fix overfitting. Measured instead of assumed: train-vs-validation error at the
 best epoch across training-set size, plus every regularisation lever
-(`scripts/overfit_diagnose.py`, 3 seeds, paired).
+(`scripts/ml/overfit_diagnose.py`, 3 seeds, paired).
 
 **Learning curve** (`n_max=20`, varying the number of training records):
 
@@ -1297,7 +1297,7 @@ and the measurements say so at three seeds each.**
 
 ### Both options tried — and the architecture does not decide the thing that matters
 
-`scripts/physics_vs_unet_inverse.py`, 3 seeds paired, identical budget, **one shared
+`scripts/ml/physics_vs_unet_inverse.py`, 3 seeds paired, identical budget, **one shared
 adapter** (`coefficients → canonical basis → phase → phasor → model`) so the
 parameterisation, basis, loss and optimiser are the same objects in both arms. Without that
 the comparison would be rigged — physics would be invertible by construction and the U-Net

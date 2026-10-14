@@ -60,6 +60,7 @@ from __future__ import annotations
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -92,6 +93,7 @@ from ao_shaping.utils.slm.phase_embed import (
     panel_shape_from_slm,
     pupil_side,
 )
+from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -243,6 +245,8 @@ class SlmGsRefineConfig:
     """0 = keep the device default."""
     cam_size: int = 300
     slm_number: int = 1
+    phase_disturbance_file: str | None = None
+    """Fixed raw-radian panel bias added to every displayed phase."""
     slm_wavelength: int = 0
     """SLM operating wavelength in nm. 0 (the default) asks the DEVICE for its
     configured wavelength instead of assuming this bench's 1064nm -- the lab has
@@ -391,7 +395,15 @@ class SlmGsRefineConfig:
 
 
 # ---------------------------------------------------------------------------
-# Geometry / image helpers
+# Objective metrics
+#
+# Geometry and image helpers (panel shape, pupil side, square mask, phase
+# embedding, zero-order location) are deliberately NOT re-implemented here: this
+# module already imports them from ``utils.slm.phase_embed``,
+# ``utils.image.targets``, ``utils.image.resample`` and
+# ``optimizer.wfless._measure``. Local copies of those lived here once and
+# drifted (``_embed_pupil_square`` clamped where the canonical raises), so they
+# were deleted rather than kept in sync.
 # ---------------------------------------------------------------------------
 
 
@@ -614,6 +626,11 @@ def _run_gs_refine_session(
     best_frame: np.ndarray | None = None
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
+    disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
+
+    def displayed_phase(phase: np.ndarray) -> np.ndarray:
+        return phase if disturbance is None else phase + disturbance
+
     center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
     side = pupil_side(config.beam_radius_px)
     if (center_xy[0] - side // 2 < 0 or center_xy[1] - side // 2 < 0
@@ -626,7 +643,7 @@ def _run_gs_refine_session(
         discovery = display_and_average(
             cam,
             slm,
-            np.zeros(panel_shape, dtype=np.float64),
+            displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
             n_frames=1,
             settle_wait_s=config.settle_wait_s,
             settle_tol=config.settle_tol,
@@ -665,9 +682,10 @@ def _run_gs_refine_session(
 
     work_slots = work_slots[:2]
     measurement_count = 0
+    last_capture_utc = ""
 
     def measure(phase: np.ndarray) -> np.ndarray:
-        nonlocal measurement_count
+        nonlocal measurement_count, last_capture_utc
         memory_number = None
         if config.cam_type != "sim":
             memory_number = work_slots[measurement_count % len(work_slots)]
@@ -675,7 +693,7 @@ def _run_gs_refine_session(
         frame = display_and_average(
             cam,
             slm,
-            phase,
+            displayed_phase(phase),
             n_frames=config.n_eval_frames,
             settle_wait_s=config.settle_wait_s,
             settle_tol=config.settle_tol,
@@ -685,6 +703,7 @@ def _run_gs_refine_session(
         )
         if config.cam_type == "daheng" and np.max(frame) >= 250:
             raise ValueError("Daheng CCD frame saturated; reduce exposure before continuing")
+        last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         return frame
 
     def record(
@@ -706,14 +725,15 @@ def _run_gs_refine_session(
             "cv": cv,
             "target_side": target_side,
             "_epoch": len(recorder.history),
+            "timestamp_utc": last_capture_utc,
             **extra,
         }
         if config.record_debug:
             row["_img"] = np.asarray(frame).copy()
-            row["_phase"] = np.asarray(slm.create_phase_from_array(phase)).copy()
+            row["_phase"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase))).copy()
             if other_frame is not None and other_phase is not None:
                 other_img = np.asarray(other_frame).copy()
-                other_gray = np.asarray(slm.create_phase_from_array(other_phase)).copy()
+                other_gray = np.asarray(slm.create_phase_from_array(displayed_phase(other_phase))).copy()
                 if positive_wins:
                     row.update(
                         _img_pos=row["_img"],
@@ -797,7 +817,9 @@ def _run_gs_refine_session(
         phase_pos = phase_of(dof + delta)
         phase_neg = phase_of(dof - delta)
         frame_pos = measure(phase_pos)
+        pos_timestamp = last_capture_utc
         frame_neg = measure(phase_neg)
+        neg_timestamp = last_capture_utc
         pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif)[0]
         neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif)[0]
 
@@ -823,13 +845,15 @@ def _run_gs_refine_session(
             neg=neg,
             probe_score=probe_score,
             confirmed=confirmed,
+            pos_timestamp_utc=pos_timestamp,
+            neg_timestamp_utc=neg_timestamp,
         )
         if config.record_debug and confirmed:
             row = recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
-            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(phase_pos)).copy()
+            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_pos))).copy()
             row["_img_neg"] = np.asarray(frame_neg).copy()
-            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(phase_neg)).copy()
+            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_neg))).copy()
         if score > best_score:
             best_score = score
             best_phase = measured_phase

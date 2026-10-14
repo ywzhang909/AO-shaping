@@ -1,8 +1,8 @@
 # Centroid Test Visualization Report
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_centroid_test_visualization.py`](../../scripts/generate_centroid_test_visualization.py)
-> **复现命令**: `python scripts/generate_centroid_test_visualization.py`
+> **生成脚本**: [`scripts/slm/generate_centroid_test_visualization.py`](../../scripts/slm/generate_centroid_test_visualization.py)
+> **复现命令**: `python scripts/slm/generate_centroid_test_visualization.py`
 > **运行环境**: 离线
 > **说明**: 同目录 10 张 png 为本脚本产物
 <!-- provenance:end -->

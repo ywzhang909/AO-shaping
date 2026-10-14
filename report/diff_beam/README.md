@@ -1,8 +1,8 @@
 # diff-beam 固定边长方形整形 — 硬件经验记录 (Santec SLM200 + 大恒 CCD)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/diff_beam_frame_analysis.py`](../../scripts/diff_beam_frame_analysis.py)
-> **复现命令**: `python scripts/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot`
+> **生成脚本**: [`scripts/slm/diff_beam_frame_analysis.py`](../../scripts/slm/diff_beam_frame_analysis.py)
+> **复现命令**: `python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot`
 > **运行环境**: 离线+硬件
 > **说明**: 正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物
 <!-- provenance:end -->
@@ -210,7 +210,7 @@ MSE: 0.000000   Correlation: 0.8776   Efficiency: 0.0761   (归一化对比)
 - 0 级定位: 帧 `argmax`, 不要用几何中心/任何质心 (见 §2; 2f 光路轴心不居中)
 - **看门狗**: runner 对 SLM open / 相机首帧采集有 `--capture-timeout` 超时;
   挂死处置见 AGENTS.md (diff-shaping 硬件闭环挂起条目, 同 SLM/相机)
-- 分析: `uv run --group ml python scripts/diff_beam_frame_analysis.py
+- 分析: `uv run --group ml python scripts/slm/diff_beam_frame_analysis.py
   --run-dir <dir> --plot` → `frames_overview.png` + `spot_vs_target.png`
 
 ## 7. 产物目录 (示例: data/diff_beam/backprop_square_20260910_212934)

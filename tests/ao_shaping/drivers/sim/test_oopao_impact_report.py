@@ -1,6 +1,6 @@
 """Tests for the OOPAO backend impact report generator.
 
-Covers the offline report script ``scripts/generate_oopao_impact_report.py``,
+Covers the offline report script ``scripts/oopao/generate_oopao_impact_report.py``,
 which drives ``SimTurbulenceAOEnv`` under both AO backends and writes
 ``report/oopao_impact/{report.md,summary.csv,figures/}``.
 
@@ -40,7 +40,7 @@ import pytest
 oopao_backend = pytest.importorskip("ao_shaping.drivers.sim.oopao_backend")
 
 ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = ROOT / "scripts" / "generate_oopao_impact_report.py"
+SCRIPT = ROOT / "scripts" / "oopao" / "generate_oopao_impact_report.py"
 
 
 def _load_script() -> ModuleType:

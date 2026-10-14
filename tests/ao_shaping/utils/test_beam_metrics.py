@@ -19,17 +19,23 @@ import numpy as np
 import pytest
 
 from ao_shaping.utils.image.beam_metrics import (
+    beam_radius_second_moment,
     clamp_side,
     compute_beam_metrics,
     compute_quality_score,
     compute_shaping_metrics,
     compute_square_metrics,
+    ideal_peak_from_pupil,
     intensity_to_amplitude,
+    m2_from_focus_stack,
+    m2_marechal_crosscheck,
+    m2_reference_relative,
     measure_bright_span,
     measure_spot_diameter_cam,
     median_zero_order_center,
     normalize_pattern,
     smart_zero_order_center,
+    strehl_ratio,
     zero_order_center,
 )
 
@@ -612,3 +618,239 @@ class TestClampCenterToFrame:
 
         x, y = ccf((5, 5), (120, 90), 250)
         assert 0 <= x < 90 and 0 <= y < 120
+
+
+# ---------------------------------------------------------------------------
+# Canonical optical metrics: Strehl ratio + M^2 (ISO-11146)
+# ---------------------------------------------------------------------------
+
+
+def _gaussian_image(n: int, sigma_px: float) -> np.ndarray:
+    """Centered Gaussian intensity with standard deviation ``sigma_px``."""
+    c = (n - 1) / 2.0
+    y, x = np.mgrid[0:n, 0:n]
+    return np.exp(-((x - c) ** 2 + (y - c) ** 2) / (2.0 * sigma_px**2))
+
+
+class TestStrehlRatio:
+    def test_ideal_against_itself_is_one(self):
+        ideal = _gaussian_image(64, 6.0)
+        assert strehl_ratio(ideal, float(ideal.max())) == pytest.approx(1.0)
+
+    def test_half_peak_is_half_strehl(self):
+        ideal = _gaussian_image(64, 6.0)
+        assert strehl_ratio(0.5 * ideal, float(ideal.max())) == pytest.approx(0.5)
+
+    def test_clip_true_caps_at_one(self):
+        ideal = _gaussian_image(64, 6.0)
+        assert strehl_ratio(2.0 * ideal, float(ideal.max())) == pytest.approx(1.0)
+
+    def test_clip_false_keeps_raw_ratio(self):
+        ideal = _gaussian_image(64, 6.0)
+        assert strehl_ratio(2.0 * ideal, float(ideal.max()), clip=False) == pytest.approx(2.0)
+
+    def test_nonpositive_ideal_peak_raises(self):
+        with pytest.raises(ValueError):
+            strehl_ratio(np.ones((4, 4)), 0.0)
+
+    def test_non2d_raises(self):
+        with pytest.raises(ValueError):
+            strehl_ratio(np.ones(4), 1.0)
+
+
+class TestIdealPeakFromPupil:
+    def test_uniform_pupil_peak_is_sum_squared(self):
+        # numpy unnormalized FFT2: DC = sum = 64 -> peak = 4096
+        assert ideal_peak_from_pupil(np.ones((8, 8))) == pytest.approx(4096.0)
+
+    def test_self_consistent_with_strehl_ratio(self):
+        y, x = np.mgrid[0:32, 0:32]
+        pupil = np.where((x - 15.5) ** 2 + (y - 15.5) ** 2 <= 12.0**2, 1.0, 0.0)
+        ff = np.abs(np.fft.fftshift(np.fft.fft2(pupil))) ** 2
+        peak = ideal_peak_from_pupil(pupil)
+        assert strehl_ratio(ff, peak) == pytest.approx(1.0)
+
+    def test_padding_preserves_uniform_peak(self):
+        assert ideal_peak_from_pupil(np.ones((8, 8)), far_field_padding=2.0) == pytest.approx(4096.0)
+
+    def test_padding_below_one_raises(self):
+        with pytest.raises(ValueError):
+            ideal_peak_from_pupil(np.ones((8, 8)), far_field_padding=0.5)
+
+
+class TestBeamRadiusSecondMoment:
+    def test_gaussian_radius_is_sqrt2_sigma(self):
+        # ISO-11146: w = sqrt(2) * sigma for a Gaussian; sigma = 8 px
+        w = beam_radius_second_moment(_gaussian_image(128, 8.0))
+        assert w == pytest.approx(math.sqrt(2.0) * 8.0, rel=1e-3)
+
+    def test_point_source_is_zero(self):
+        frame = np.zeros((32, 32))
+        frame[16, 16] = 1.0
+        assert beam_radius_second_moment(frame) == pytest.approx(0.0)
+
+    def test_all_zero_is_zero(self):
+        assert beam_radius_second_moment(np.zeros((16, 16))) == 0.0
+
+    def test_pitch_scales_the_radius(self):
+        w_px = beam_radius_second_moment(_gaussian_image(128, 8.0))
+        w_m = beam_radius_second_moment(_gaussian_image(128, 8.0), pixel_pitch_m=1e-5)
+        assert w_m == pytest.approx(w_px * 1e-5)
+
+    def test_nonpositive_pitch_raises(self):
+        with pytest.raises(ValueError):
+            beam_radius_second_moment(np.ones((4, 4)), pixel_pitch_m=0.0)
+
+
+class TestM2FromFocusStack:
+    PITCH = 1e-5
+    LAM = 1e-6
+    W0 = 1e-4  # waist radius, m (= 10 px)
+
+    def _stack(self, m2: float, zs: list[float], n: int) -> list[np.ndarray]:
+        fields = []
+        for z in zs:
+            w = math.sqrt(self.W0**2 + (m2 * self.LAM / (math.pi * self.W0)) ** 2 * z**2)
+            fields.append(_gaussian_image(n, w / (math.sqrt(2.0) * self.PITCH)))
+        return fields
+
+    def test_recovers_m2_one(self):
+        zs = [-0.05, 0.0, 0.05]
+        m2 = m2_from_focus_stack(
+            self._stack(1.0, zs, 128), zs,
+            wavelength_m=self.LAM, pixel_pitch_m=self.PITCH,
+        )
+        assert m2 == pytest.approx(1.0, rel=0.05)
+
+    def test_recovers_m2_three(self):
+        zs = [-0.03, 0.0, 0.03]
+        m2 = m2_from_focus_stack(
+            self._stack(3.0, zs, 192), zs,
+            wavelength_m=self.LAM, pixel_pitch_m=self.PITCH,
+        )
+        assert m2 == pytest.approx(3.0, rel=0.05)
+
+    def test_fewer_than_three_planes_raises(self):
+        with pytest.raises(ValueError):
+            m2_from_focus_stack(
+                [np.ones((8, 8))] * 2, [0.0, 1.0],
+                wavelength_m=self.LAM, pixel_pitch_m=self.PITCH,
+            )
+
+    def test_length_mismatch_raises(self):
+        with pytest.raises(ValueError):
+            m2_from_focus_stack(
+                [np.ones((8, 8))] * 3, [0.0, 1.0],
+                wavelength_m=self.LAM, pixel_pitch_m=self.PITCH,
+            )
+
+
+class TestM2ReferenceRelative:
+    PITCH = 1e-5
+    LAM = 1e-6
+
+    def _ideal_field(self, n: int = 128, sigma_px: float = 10.0) -> np.ndarray:
+        return np.sqrt(_gaussian_image(n, sigma_px))
+
+    def test_identical_field_is_one(self):
+        ideal = self._ideal_field()
+        assert m2_reference_relative(
+            ideal, ideal, wavelength_m=self.LAM, pixel_pitch_m=self.PITCH
+        ) == pytest.approx(1.0)
+
+    def test_pure_tilt_does_not_change_m2(self):
+        # A linear phase ramp shifts the far field but leaves the
+        # centroid-referenced second moments (hence BPP) invariant.
+        n = 128
+        ideal = self._ideal_field(n)
+        y, x = np.mgrid[0:n, 0:n]
+        tilt = np.exp(1j * 2.0 * math.pi * 4.0 * x / n)
+        assert m2_reference_relative(
+            ideal * tilt, ideal, wavelength_m=self.LAM, pixel_pitch_m=self.PITCH
+        ) == pytest.approx(1.0, rel=1e-6)
+
+    def test_defocus_aberration_increases_m2(self):
+        n = 128
+        ideal = self._ideal_field(n)
+        c = (n - 1) / 2.0
+        y, x = np.mgrid[0:n, 0:n]
+        defocus = np.exp(1j * 16.0 * ((x - c) ** 2 + (y - c) ** 2) / (n / 2.0) ** 2)
+        m2 = m2_reference_relative(
+            ideal * defocus, ideal, wavelength_m=self.LAM, pixel_pitch_m=self.PITCH
+        )
+        assert m2 > 1.1
+
+    def test_shape_mismatch_raises(self):
+        with pytest.raises(ValueError):
+            m2_reference_relative(
+                np.ones((8, 8)), np.ones((16, 16)),
+                wavelength_m=self.LAM, pixel_pitch_m=self.PITCH,
+            )
+
+
+class TestM2MarechalCrosscheck:
+    LAM = 1.064e-6
+
+    def test_flat_wavefront_is_one(self):
+        assert m2_marechal_crosscheck(np.zeros((32, 32)), wavelength_m=self.LAM) == pytest.approx(1.0)
+
+    def test_matches_exp_of_phase_variance(self):
+        rng = np.random.default_rng(7)
+        ph = rng.normal(0.0, 0.5, (64, 64))
+        expected = math.exp(float(np.var(ph)))
+        assert m2_marechal_crosscheck(ph, wavelength_m=self.LAM) == pytest.approx(expected, rel=1e-9)
+
+    def test_larger_aberration_larger_proxy(self):
+        rng = np.random.default_rng(11)
+        ph = rng.normal(0.0, 0.3, (64, 64))
+        assert m2_marechal_crosscheck(2.0 * ph, wavelength_m=self.LAM) > m2_marechal_crosscheck(
+            ph, wavelength_m=self.LAM
+        )
+
+    def test_aperture_weight_ignores_outside_phase(self):
+        n = 64
+        c = (n - 1) / 2.0
+        y, x = np.mgrid[0:n, 0:n]
+        inside = (x - c) ** 2 + (y - c) ** 2 <= 20.0**2
+        ph = np.where(inside, 0.0, 100.0)
+        wt = inside.astype(float)
+        assert m2_marechal_crosscheck(ph, wavelength_m=self.LAM, aperture_weight=wt) == pytest.approx(1.0)
+
+    def test_aperture_weight_shape_mismatch_raises(self):
+        with pytest.raises(ValueError):
+            m2_marechal_crosscheck(
+                np.zeros((8, 8)), wavelength_m=self.LAM, aperture_weight=np.ones((16, 16))
+            )
+
+
+class TestStrehlDivergenceFromShapeMetric:
+    """beam_metrics.strehl_ratio and square_shaping.strehl are DIFFERENT quantities.
+
+    square_shaping.strehl is a mean-centred cosine similarity (scale
+    invariant, no diffraction-limited reference); beam_metrics.strehl_ratio
+    is the optical peak ratio. These assertions pin the divergence so the
+    naming collision can never silently merge the two again.
+    """
+
+    def test_scale_invariance_divergence(self):
+        from ao_shaping.algorithm.signal_processing.square_shaping import strehl as shape_strehl
+
+        ideal = _gaussian_image(64, 6.0)
+        # shape similarity is scale invariant: 2x ideal still scores 1.0
+        assert shape_strehl(2.0 * ideal, ideal) == pytest.approx(1.0)
+        # optical Strehl is NOT: 2x peak scores 2.0 unclipped
+        assert strehl_ratio(2.0 * ideal, float(ideal.max()), clip=False) == pytest.approx(2.0)
+
+    def test_blurred_beam_scores_higher_on_shape_than_on_strehl(self):
+        from ao_shaping.algorithm.signal_processing.square_shaping import strehl as shape_strehl
+
+        n = 64
+        ideal = _gaussian_image(n, 6.0)
+        # defocused copy = Gaussian convolved with sigma 2; energy
+        # conservation puts its peak at 6^2/(6^2+2^2) = 0.9 of ideal while
+        # shape similarity stays ~0.99
+        blurred = 0.9 * _gaussian_image(n, math.sqrt(6.0**2 + 2.0**2))
+        s_shape = shape_strehl(blurred, ideal)
+        s_opt = strehl_ratio(blurred, float(ideal.max()))
+        assert s_opt == pytest.approx(36.0 / 40.0, rel=1e-3)
+        assert s_shape - s_opt > 0.03

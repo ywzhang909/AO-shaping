@@ -112,7 +112,7 @@ DEFAULT_MAX_RECORDS: int = 512
 #: A stem looks like ``slm_zernike_shaping_<objective>_<YYYYMMDD>_<HHMMSS>[_...].pkl``
 #: and carries a timestamp (sometimes two), so the objective group is matched
 #: **lazily** -- the first ``_<objective>`` before the first date stamp -- mirroring
-#: ``scripts/compare_models_cv.py`` so the two never drift.
+#: ``scripts/ml/compare_models_cv.py`` so the two never drift.
 _OBJECTIVE_RE = re.compile(r"^slm_zernike_shaping_(?P<objective>.+?)_\d{8}_\d{6}")
 
 

@@ -31,7 +31,7 @@ def _load_runner():
     global _runner
     if _runner is None:
         spec = importlib.util.spec_from_file_location(
-            _MODULE_NAME, ROOT / "scripts" / "slm_pib_sim_run.py"
+            _MODULE_NAME, ROOT / "scripts" / "slm" / "slm_pib_sim_run.py"
         )
         assert spec is not None and spec.loader is not None
         module = importlib.util.module_from_spec(spec)

@@ -1,8 +1,8 @@
 # Loss x algorithm comparison (offline sim bench)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/compare_loss_algorithms.py`](../../scripts/compare_loss_algorithms.py)
-> **复现命令**: `python scripts/compare_loss_algorithms.py --quick --out report/loss_algorithms_smoke`
+> **生成脚本**: [`scripts/ml/compare_loss_algorithms.py`](../../scripts/ml/compare_loss_algorithms.py)
+> **复现命令**: `python scripts/ml/compare_loss_algorithms.py --quick --out report/loss_algorithms_smoke`
 > **运行环境**: 离线
 > **说明**: 测试用例跑 --quick 生成的冒烟版本
 <!-- provenance:end -->

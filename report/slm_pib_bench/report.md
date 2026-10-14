@@ -1,8 +1,8 @@
 # SLM PIB 整形台架验收报告 (离线分析)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_pib_bench_report.py`](../../scripts/generate_pib_bench_report.py)
-> **复现命令**: `python scripts/generate_pib_bench_report.py`
+> **生成脚本**: [`scripts/slm/generate_pib_bench_report.py`](../../scripts/slm/generate_pib_bench_report.py)
+> **复现命令**: `python scripts/slm/generate_pib_bench_report.py`
 > **运行环境**: 离线
 > **说明**: 离线分析报告 (噪声地板 / 门控 / best-vs-sustained)
 <!-- provenance:end -->
@@ -168,7 +168,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
 | `snr_verdict` | 阈值 → strong / usable / unusable |
 | `SnrSweepResult.usable_deltas` | **按多模式 SNR** 给出的可用 delta |
 
-消费者: `scripts/measure_shape_sensitivity.py` 与硬件门控测试 `tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py` 均改为委托该工具, 二者不会再各自漂移。离线可测: `tests/ao_shaping/tools/test_slm_snr_probe.py` (纯 fake 设备, 无需硬件)。
+消费者: `scripts/slm/measure_shape_sensitivity.py` 与硬件门控测试 `tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py` 均改为委托该工具, 二者不会再各自漂移。离线可测: `tests/ao_shaping/tools/test_slm_snr_probe.py` (纯 fake 设备, 无需硬件)。
 
 > ⚠️ `usable_deltas()` 刻意按**多模式** SNR 过滤: 单模式列会高估 SPGD 实际能分辨的信号, 直接采信会再次把 delta 选到不可用的区间。
 
@@ -187,7 +187,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
 
 1. 用新工具重跑一次完整 SNR 扫描: `AO_RUN_HARDWARE=1 pytest tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py -v -s`, 读取 `multi_snrs` 列选 delta。
 2. 用选定 delta 跑 `n_max=9` 的方形/PIB 各一次 ≥200 epoch, 确认 sustained > 5%。
-3. 硬件验收脚本: `scripts/measure_shape_sensitivity.py` (已改为委托同一工具, 与门控测试结果一致)。
+3. 硬件验收脚本: `scripts/slm/measure_shape_sensitivity.py` (已改为委托同一工具, 与门控测试结果一致)。
 
 ---
 

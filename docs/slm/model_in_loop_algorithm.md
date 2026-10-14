@@ -1,7 +1,7 @@
 # 正向模型闭环整形 (slm-model-in-loop) —— 调用关系 / 计算时序 / 算法说明
 
-> **生成脚本**: [`scripts/generate_model_in_loop_report.py`](../../scripts/generate_model_in_loop_report.py)
-> **复现命令**: `python scripts/generate_model_in_loop_report.py`
+> **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
+> **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
 > **说明**: 本文档是**使用/结构说明**, 不是测量结论 —— 硬件实测另见
 > [`report/slm/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_bench_calibration.md)。
@@ -569,7 +569,7 @@ Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起�
 - `data/slm_model_in_loop/<日期>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**, 用
   `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、
   可选最优远场图 PNG。
-- `data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`: **每次运行都写**, 不依赖 `--debug`。
+- `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`: **每次运行都写**, 不依赖 `--debug`。
   结构 `{epoch: record}`, 带 `_epoch` 索引键, 配 `.json` sidecar (含完整已解析配置)。
   ⚠️ 行内**只有标量** (由测试锁定), 逐帧图像不在其中; 最优帧另存 PNG。
   CSV 额外保留字符串列 `reason`, 它不能进 pkl 的标量集 (writer 用 `float()` 转换)。

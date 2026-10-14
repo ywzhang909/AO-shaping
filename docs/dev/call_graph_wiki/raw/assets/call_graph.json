@@ -464,7 +464,7 @@
     "cam_type"
    ],
    "returns": "type",
-   "doc": "Resolve the camera driver class on demand.\n\n    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562\n    ``__getattr__``, so a module-level ``from ao_shaping.drivers import\n    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->\n    ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy\n    contract and forcing the SDK onto offline consumers such as\n    ``scripts/generate_shape_objective_comparison.py``. Resolving here keeps\n    the optimizer importable without the side effect.\n\n    Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force\n    any class; then ``cam_type=\"sim\"`` for the 2f-Fourier simulator; otherwise\n    the real MiiCam driver.\n    ",
+   "doc": "Resolve the camera driver class on demand.\n\n    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562\n    ``__getattr__``, so a module-level ``from ao_shaping.drivers import\n    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->\n    ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy\n    contract and forcing the SDK onto offline consumers such as\n    ``scripts/slm/generate_shape_objective_comparison.py``. Resolving here keeps\n    the optimizer importable without the side effect.\n\n    Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force\n    any class; then ``cam_type=\"sim\"`` for the 2f-Fourier simulator; otherwise\n    the real MiiCam driver.\n    ",
    "decorators": []
   },
   "ao_shaping.drivers.ccd.common.capture_with_exposure": {
@@ -1696,7 +1696,7 @@
     "wfs_drv"
    ],
    "returns": "None",
-   "doc": "获取DM变形镜响应矩阵\n\n    依次对每个DM单元施加正负电压扰动, 记录WFS子孔径斜率偏差,\n    构建 DM -> WFS 的响应矩阵。\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 +\n    方差跟踪 + 逆矩阵计算 + 自动电压优化。\n\n    调试模式 (--debug):\n        保存每次测量的原始WFS deviation数据。\n\n    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):\n        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:\n            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)\n        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数\n            同量级), 测量时间显著减少 (所有有效单元同时扰动)\n        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂\n            时正常; 非合法值应报清晰错误\n        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善\n        [ ] report3: scripts/generate_dm_response_matrix_report.py 以真实 h5\n            生成报告 (图/表齐全), 结果写入 docs/slm 日报\n    ",
+   "doc": "获取DM变形镜响应矩阵\n\n    依次对每个DM单元施加正负电压扰动, 记录WFS子孔径斜率偏差,\n    构建 DM -> WFS 的响应矩阵。\n\n    支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 +\n    方差跟踪 + 逆矩阵计算 + 自动电压优化。\n\n    调试模式 (--debug):\n        保存每次测量的原始WFS deviation数据。\n\n    TODO (实机待测试清单 —— sequential/hadamard 双模式尚未上设备实测):\n        [ ] sequential 模式真实 DM+WFS n=5 重跑 (n-averages 10) + 自动电压优化:\n            矩阵形状/条件数与仿真一致, 平均方差正常 (无死执行器误报)\n        [ ] hadamard 模式自动阶数实测: 与 sequential 矩阵一致性 (相关性/条件数\n            同量级), 测量时间显著减少 (所有有效单元同时扰动)\n        [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂\n            时正常; 非合法值应报清晰错误\n        [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善\n        [ ] report3: scripts/dm/generate_dm_response_matrix_report.py 以真实 h5\n            生成报告 (图/表齐全), 结果写入 docs/slm 日报\n    ",
    "decorators": [
     "click.command('dm-matrix')",
     "click.pass_context",

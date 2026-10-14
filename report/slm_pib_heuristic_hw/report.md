@@ -1,8 +1,8 @@
 # SLM 相位优化真机基准报告 (目标: 整形评分 (shape))
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_pib_heuristic_hw_report.py`](../../scripts/generate_slm_pib_heuristic_hw_report.py)
-> **复现命令**: `python scripts/generate_slm_pib_heuristic_hw_report.py`
+> **生成脚本**: [`scripts/slm/generate_slm_pib_heuristic_hw_report.py`](../../scripts/slm/generate_slm_pib_heuristic_hw_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_pib_heuristic_hw_report.py`
 > **运行环境**: 硬件
 > **说明**: 真机基准 (Santec SLM-200 + 大恒 MER2-507)；figures/ + summary.csv 为本脚本产物
 <!-- provenance:end -->
@@ -118,7 +118,7 @@
 
 ```powershell
 $env:PYTHONPATH = "src;libs"    # libs/ 必须包含, 否则 gxipy (Daheng SDK) 不可用
-python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
+python scripts/slm/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 ```
 
 产物: `camera_frame.png` / `pib_curves.png` / `convergence_speed.png` /
@@ -184,7 +184,7 @@ python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 ## 硬件确认与收尾记录（2026-09-21 晚）
 
 - **CCD 像元尺寸（用户权威确认）: 2.2 µm**。此前按 Daheng datasheet 假设 4.8 µm 推导的 2f 衍射尺度 K = λ·f/p = 5021 应更新为 **K ≈ 10954**（×2.18）。受影响：`test_slm_diagnose.py:_DIFFRACTION_SCALE_PX`、`test_slm_calibration_windowed.py:K`、AGENTS.md 的 `5021/Λ` 偏移表（P64 78→170px, P32 157→342px, P96 52→114px, P40 126→274px）。整形目标函数/靶框/束腰均为像素域计算，**不受影响**（束腰 10.6–14.2 px = 23–31 µm）。待硬件在线时用光栅偏移实测复核后统一更新。
-- **光照双态漂移（本晚实测）**：同一平场下亮度在 ~86× 间切换（19:49 亮态 1.35 ms→183 vs 20:14 暗态 173.6 ms→180；期间 19:16 为 191.5 ms→14）。`resolve_exposure_ms`（现场二分）与 `scripts/objective_rep_logging.py`（按 frame_peak 离群剔除，max_rel_dev=0.25）已落地应对；subagent 产物：逻辑 12 单测通过、ruff clean。
+- **光照双态漂移（本晚实测）**：同一平场下亮度在 ~86× 间切换（19:49 亮态 1.35 ms→183 vs 20:14 暗态 173.6 ms→180；期间 19:16 为 191.5 ms→14）。`resolve_exposure_ms`（现场二分）与 `scripts/slm/objective_rep_logging.py`（按 frame_peak 离群剔除，max_rel_dev=0.25）已落地应对；subagent 产物：逻辑 12 单测通过、ruff clean。
 - **目标函数对比（n=6, 曝光现场解析 173.6 ms, 稳定暗态）→ 首次统计可判优**：
   | 目标函数 | median CV | ± | energy | 
   |---|---|---|---|
@@ -232,7 +232,7 @@ python scripts/generate_slm_pib_heuristic_hw_report.py --exposure-ms 3.0
 默认目标与全部次优的 ± 区间**不重叠 → `e−2u−0.5pk` 为本次设备实测最优目标函数**（注：logu 仅 n=5，1 轮被剔除/失败）。
 
 ### 4. 光照漂移证据（同平场）
-19:16: 191.5 ms→max 14；19:49: 1.35 ms→183；20:08: 2.02 ms→121/180；20:14: 173.6 ms→255。亮度呈 ~86× 双态 → 已落地对策：每轮记录 `frame_peak` 等 5 列（`exposure_ms/frame_peak/waist_px/box_size_px/center`）并按中位数 ±25% 剔除漂移轮次（`scripts/objective_rep_logging.py`, 12 单测通过）。
+19:16: 191.5 ms→max 14；19:49: 1.35 ms→183；20:08: 2.02 ms→121/180；20:14: 173.6 ms→255。亮度呈 ~86× 双态 → 已落地对策：每轮记录 `frame_peak` 等 5 列（`exposure_ms/frame_peak/waist_px/box_size_px/center`）并按中位数 ±25% 剔除漂移轮次（`scripts/slm/objective_rep_logging.py`, 12 单测通过）。
 
 ### 5. 原始产物
 - `objectives_repeats.csv`（含上述 5 列 + 全部指标列 + MEDIAN(n) 行）

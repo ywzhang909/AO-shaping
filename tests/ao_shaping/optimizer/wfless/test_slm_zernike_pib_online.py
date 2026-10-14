@@ -13,7 +13,7 @@ What is validated (user constraints: daheng CCD, n_max > 6, delta < 0.001):
    **device-agnostic** probe
    :func:`ao_shaping.tools.kernels.sweep_analysis.snr_sweep` (already-open cam/slm are
    passed in; the probe never constructs a device), so this bench test and
-   ``scripts/measure_shape_sensitivity.py`` measure identically and cannot drift
+   ``scripts/slm/measure_shape_sensitivity.py`` measure identically and cannot drift
    apart. The J measurement noise floor at a fixed phase is finite and positive,
    and the perturbation signal grows with delta. It records **both** the
    single-mode SNR and the SPGD-style multi-mode SNR: the per-delta verdict
@@ -230,7 +230,7 @@ class TestNoiseFloorAndSnr:
         with create_camera(cfg.camera) as cam, Santec.from_params(cfg.slm) as slm:
             # The measurement itself is delegated to the shared, device-agnostic
             # probe (cam/slm passed in; it never constructs a device), so this
-            # bench test and scripts/measure_shape_sensitivity.py measure
+            # bench test and scripts/slm/measure_shape_sensitivity.py measure
             # identically and cannot drift apart.
             result = snr_sweep(
                 cam,

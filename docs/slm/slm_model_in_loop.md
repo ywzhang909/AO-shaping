@@ -1,7 +1,7 @@
 # 正向模型闭环整形 (slm-model-in-loop)
 
-> **生成脚本**: [`scripts/generate_model_in_loop_report.py`](../../scripts/generate_model_in_loop_report.py)
-> **复现命令**: `python scripts/generate_model_in_loop_report.py`
+> **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
+> **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
 > **详细算法文档**: [`docs/slm/model_in_loop_algorithm.md`](model_in_loop_algorithm.md)
 
@@ -94,6 +94,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 600 / 0.05 |
 | `--frozen-modes` | 冻结的 1-based Noll 序号 | 1,2,3 |
 | `--region` / `--far-field-padding` | 正向模型瞳孔网格 / 远场补零倍数 | 64 / 8 |
+| `--pupil-oversampling` | 瞳孔双线性过采样 (Step A/B 子像素插值, 放大瞳孔后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
 | `--panel-span-px` / `--pupil-center` | 探针覆盖面板宽度 / 光斑面板坐标 | 900 / (960,600) |
 | `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
@@ -129,18 +130,20 @@ python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam-type daheng --cam-id 0 --exposure-time-ms 1.5 \
-    --slm-number 1 --slm-wavelength 1064 \
-    --panel-span-px 900 --pupil-center 960,600 --camera-pixel-um 2.2 \
-    -r 6
+    --cam-type daheng --cam-id 0 --exposure-time-ms 0.02 \
+    --max-exposure-ms 0.4 --slm-number 1 --slm-wavelength 1064 \
+    --panel-span-px 900 --pupil-center 960,690 --camera-pixel-um 2.2 \
+    --region 64 --far-field-padding 3 \
+    --geometry-file data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json \
+    --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
 ## 10. 上机前必跑表征探针 (顺序不能反)
 
 ```bash
-python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
-python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
-python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 0.4
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 0.4
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 ```
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
@@ -150,7 +153,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 ## 11. 输出契约
 
 - `data/slm_model_in_loop/<日期>/`：逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**)、`bench_geometry.json` (拟合出的几何，供复现)、可选最优远场图 PNG
-- `data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
+- `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
 
 ## 12. 终止状态
 

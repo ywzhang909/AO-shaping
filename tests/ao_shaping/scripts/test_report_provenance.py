@@ -103,6 +103,13 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "exists nowhere. The embed has always rendered broken."
         ),
     },
+    "report/shape_trials/model_in_loop_live_20261013.md": {
+        "../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+    },
 }
 
 
@@ -281,12 +288,33 @@ def test_report_relative_links_resolve(path: Path) -> None:
     )
 
 
+def _is_gitignored(path: Path) -> bool:
+    """True when git refuses to track ``path``, i.e. a clean clone will not have it."""
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(path)],
+        cwd=str(REPO),
+        capture_output=True,
+        check=False,
+    )
+    return proc.returncode == 0
+
+
 def test_the_preexisting_baseline_is_still_justified() -> None:
-    """Each baselined link needs a real reason, and must still be broken.
+    """Each baselined link needs a real reason, and must still be unresolvable.
 
     The second half matters as much as the first: if someone re-attaches the
     missing screenshots, the entry must be removed rather than left guarding
     nothing, which is how a baseline rots into a no-op.
+
+    "Unresolvable" deliberately means *in a clean clone*, not *on this machine*.
+    A link into ``data/`` is gitignored (``.gitignore`` has ``data/*``), so it is
+    absent for everyone who has not run the bench -- yet on the machine that
+    collected it the file is sitting on disk and the href resolves fine. Keying
+    the guard on ``.exists()`` alone therefore made it environment-dependent: it
+    passed in CI and failed on the collecting machine, which is precisely the
+    machine whose reports these entries were written for. Accepting either
+    "broken" or "gitignored" keeps the anti-rot intent for genuinely re-attached
+    files while making the check reproducible on both sides.
     """
     for key, links in _PREEXISTING_BROKEN.items():
         path = REPO / key
@@ -297,7 +325,9 @@ def test_the_preexisting_baseline_is_still_justified() -> None:
         }
         for href, reason in links.items():
             assert reason and not reason.startswith("TBD"), f"{key} {href}: no reason"
-            assert href in broken, (
-                f"{key}: {href} is baselined as broken but now resolves — remove the "
-                "entry so new breakage in this report is caught again"
+            target = path.parent / href
+            assert href in broken or _is_gitignored(target), (
+                f"{key}: {href} is baselined as unresolvable but now resolves AND is "
+                "tracked by git — remove the entry so new breakage in this report is "
+                "caught again"
             )

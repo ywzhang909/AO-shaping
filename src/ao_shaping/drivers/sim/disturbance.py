@@ -9,7 +9,7 @@
 -------------
 ``static``
     首次使用时生成一张相位屏, 之后永远复用。这就是冻结屏的情形, 对应
-    ``scripts/generate_oopao_impact_report.py`` 所用的 ``closed`` 湍流模式。
+    ``scripts/oopao/generate_oopao_impact_report.py`` 所用的 ``closed`` 湍流模式。
 ``dynamic``
     **每一次**光学求值都抽一张全新的独立相位屏 —— 即 ``open``/滑动的对应物。
     它建模的是*完全去相关* ("时间上白") 极限。该极限在此是正确的渐近: 真实大气的

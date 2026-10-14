@@ -25,7 +25,7 @@ from ml.zernike.models import (
 def test_the_default_is_optimal_for_at_most_one_measured_family():
     """The reason this exists at all.
 
-    Measured (scripts/sweep_far_field_padding.py, Z=0, 48 samples/family):
+    Measured (scripts/ml/sweep_far_field_padding.py, Z=0, 48 samples/family):
     fov 64 -> 8, fov 248 -> 14, fov 320 -> 16. Only the mixed 64/1944
     ``model_in_loop_hw_sweep`` family peaks at the default 10.
     """

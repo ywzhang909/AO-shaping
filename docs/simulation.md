@@ -96,9 +96,9 @@ read noise 经 clip 后 **4598×** (缺陷)。光斑只占 ~150 px 而画幅 2.3
 
 配套运行与报告 (完全离线，见 `scripts/README.md`):
 ```bash
-python scripts/slm_pib_sim_run.py --epochs 300 --disturbance static
-python scripts/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
-python scripts/generate_slm_pib_sim_report.py --max-runs 2   # → report/slm_pib_sim/report.md
+python scripts/slm/slm_pib_sim_run.py --epochs 300 --disturbance static
+python scripts/slm/slm_pib_sim_run.py --epochs 300 --disturbance dynamic
+python scripts/slm/generate_slm_pib_sim_report.py --max-runs 2   # → report/slm_pib_sim/report.md
 ```
 
 实测 (300 epochs，各 604 次光学评估): static 用 1 张屏、逐次 RMS 恒定 (σ≈0.566 rad ≈0.090 waves)；

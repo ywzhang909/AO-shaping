@@ -1,8 +1,8 @@
 ﻿# Model-in-the-loop bench calibration (SLM-200 + Daheng)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/model_in_loop_hw_runbook.py`](../../scripts/model_in_loop_hw_runbook.py)
-> **复现命令**: `python scripts/model_in_loop_hw_runbook.py --stage all --target-cam-px 40`
+> **生成脚本**: [`scripts/slm/model_in_loop_hw_runbook.py`](../../scripts/slm/model_in_loop_hw_runbook.py)
+> **复现命令**: `python scripts/slm/model_in_loop_hw_runbook.py --stage all --target-cam-px 40`
 > **运行环境**: 硬件
 > **说明**: 正向模型台架几何标定；runbook 采集 + 本文档结论
 <!-- provenance:end -->
@@ -169,11 +169,11 @@ together, which separates the two contributions and makes the waist meaningful.
 
 ```bash
 # smooth Zernike tilt + defocus sweep, with phase/CCD images
-python scripts/model_in_loop_hw_runbook.py --stage sweep \
+python scripts/slm/model_in_loop_hw_runbook.py --stage sweep \
     --exposure-ms 3.0 --pupil-center 960,600 --zernike-radius 450 --collect-disc 450
 
 # fit (offline, re-runnable against the saved npz)
-python scripts/model_in_loop_hw_runbook.py --stage calibrate --method sweep \
+python scripts/slm/model_in_loop_hw_runbook.py --stage calibrate --method sweep \
     --region 256 --far-field-size 4096 --collect-disc 450
 ```
 
