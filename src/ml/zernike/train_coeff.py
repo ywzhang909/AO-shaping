@@ -156,7 +156,7 @@ class CoeffTrainConfig:
     #: brightest pixel; ``"abs255"`` keeps the absolute detector level.
     #:
     #: ⚠️ **The default is not settled — measured, and deliberately left alone.**
-    #: `scripts/sweep_target_transform.py` scores a 4-component POD + ridge on the
+    #: `scripts/ml/sweep_target_transform.py` scores a 4-component POD + ridge on the
     #: 10-fold protocol under each transform, and reports ``skill =
     #: 1 - mse_model / mse_constant`` rather than raw R^2. Raw R^2 is unusable
     #: here: a *constant* predictor scores +0.80..+0.95 depending only on the

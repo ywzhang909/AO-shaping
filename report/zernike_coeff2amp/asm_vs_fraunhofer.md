@@ -1,8 +1,8 @@
 # 角谱法 (ASM) 与夫琅禾费 FFT 的分界 —— 实测记录
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_asm_vs_fraunhofer_report.py`](../../scripts/generate_asm_vs_fraunhofer_report.py)
-> **复现命令**: `python scripts/generate_asm_vs_fraunhofer_report.py`
+> **生成脚本**: [`scripts/oopao/generate_asm_vs_fraunhofer_report.py`](../../scripts/oopao/generate_asm_vs_fraunhofer_report.py)
+> **复现命令**: `python scripts/oopao/generate_asm_vs_fraunhofer_report.py`
 > **数据/关联脚本**: [`tests/ao_shaping/algorithm/test_angular_spectrum.py`](../../tests/ao_shaping/algorithm/test_angular_spectrum.py)
 > **运行环境**: 离线
 > **说明**: 角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位
@@ -13,7 +13,7 @@
 本文件回答一个问题：**能否用角谱传播 (ASM) 替换本仓库的夫琅禾费 FFT 远场模型？**
 
 结论是**不能**，而且理由不是实现细节，是物理。下文每一行数字都由
-`scripts/generate_asm_vs_fraunhofer_report.py` 在本仓库自己的传播子上重算，
+`scripts/oopao/generate_asm_vs_fraunhofer_report.py` 在本仓库自己的传播子上重算，
 并由 `tests/ao_shaping/algorithm/test_angular_spectrum.py` 锁定。
 
 ## 1. 规范 ASM 实现本身是正确的

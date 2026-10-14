@@ -383,7 +383,7 @@ def speckle_detail_term(
 
     Returns ``tv_ratio`` (the loss) plus ``tv_pred`` / ``tv_ref`` for logging.
 
-    Why this form, measured rather than argued (``scripts/speckle_loss_bench.py``, 48 real
+    Why this form, measured rather than argued (``scripts/ml/speckle_loss_bench.py``, 48 real
     validation targets, three corruption families and two degenerate probes):
 
     =================================== ============ ===============

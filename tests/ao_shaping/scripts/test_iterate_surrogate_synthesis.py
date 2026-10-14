@@ -17,9 +17,9 @@ import pytest
 import torch
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 
-from iterate_surrogate_synthesis import (  # noqa: E402
+from scripts.ml.iterate_surrogate_synthesis import (  # noqa: E402
     SYNTH_N_MAX,
     ZOO,
     _peak_norm,

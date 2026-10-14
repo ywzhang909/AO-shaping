@@ -1,8 +1,8 @@
 # FourierGSNet 管线集成测试报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_fouriergsnet_pipeline_report.py`](../../scripts/generate_fouriergsnet_pipeline_report.py)
-> **复现命令**: `python scripts/generate_fouriergsnet_pipeline_report.py`
+> **生成脚本**: [`scripts/slm/generate_fouriergsnet_pipeline_report.py`](../../scripts/slm/generate_fouriergsnet_pipeline_report.py)
+> **复现命令**: `python scripts/slm/generate_fouriergsnet_pipeline_report.py`
 > **运行环境**: 离线
 > **说明**: 5 项集成测试的结果记录
 <!-- provenance:end -->
@@ -54,7 +54,7 @@ test_sim_fouriergsnet_turbulence.py + test_fouriergsnet_optimize.py)。
 `phi` 经可训练卷积层, 带梯度)。当时**真实 CLI `run()` 同样受影响** ——
 这是管线自身的 bug, 非测试引入。
 
-`scripts/fouriergsnet_sim_train.py` 曾用 `replay=False` + `torch.no_grad()` 绕过。
+`scripts/slm/fouriergsnet_sim_train.py` 曾用 `replay=False` + `torch.no_grad()` 绕过。
 
 ### 2.3 SETTLE_S=0.0
 
@@ -127,4 +127,4 @@ recorder.append({"step": step, "uniformity": uni, "encircled": ee,
 | `fouriergsnet_optimize.py` | 被测独立脚本 (L938 bug, L814 无信号, L905 _metrics) |
 | `src/ao_shaping/drivers/sim/fouriergsnet_env.py` | 数字孪生环境 (configure_turbulence L282, advance_time L320) |
 | `src/ao_shaping/utils/io/file.py` | Recorder (L221) |
-| `scripts/fouriergsnet_sim_train.py` | 场景矩阵离线训练 (同一 no_grad workaround) |
+| `scripts/slm/fouriergsnet_sim_train.py` | 场景矩阵离线训练 (同一 no_grad workaround) |

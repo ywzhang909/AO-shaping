@@ -1,8 +1,8 @@
 # Zernike 响应矩阵报告 (创建 / 分析 / 检测)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_zernike_response_matrix_report.py`](../../../scripts/generate_zernike_response_matrix_report.py)
-> **复现命令**: `python scripts/generate_zernike_response_matrix_report.py`
+> **生成脚本**: [`scripts/zernike_bench/generate_zernike_response_matrix_report.py`](../../../scripts/zernike_bench/generate_zernike_response_matrix_report.py)
+> **复现命令**: `python scripts/zernike_bench/generate_zernike_response_matrix_report.py`
 > **运行环境**: 离线
 > **说明**: 创建/分析/检测三段；figures/ 为本脚本产物
 <!-- provenance:end -->

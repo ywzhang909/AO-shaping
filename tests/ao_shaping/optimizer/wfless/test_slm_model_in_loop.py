@@ -227,7 +227,7 @@ class TestConfigValidation:
     @pytest.mark.parametrize(
         "build",
         [
-            lambda: SlmModelInLoopConfig(step_a_iterations=0),
+            lambda: SlmModelInLoopConfig(step_a_iterations=-1),
             lambda: SlmModelInLoopConfig(step_b_iterations=0),
         ],
         ids=["step_a_iterations", "step_b_iterations"],
@@ -235,8 +235,8 @@ class TestConfigValidation:
     def test_step_iterations_must_be_at_least_one(
         self, build: Callable[[], SlmModelInLoopConfig]
     ) -> None:
-        """Zero iterations in either step would commit an unshaped phase."""
-        with pytest.raises(ValueError, match="must be >= 1"):
+        """Negative fitting steps or zero shaping steps are invalid."""
+        with pytest.raises(ValueError, match="must be >="):
             build()
 
     @pytest.mark.parametrize("factor", [0.0, 1.0, -0.1, 1.5])
@@ -1450,6 +1450,16 @@ def test_non_square_target_runs_on_simulated_bench(target_shape: str) -> None:
     result = optimize_slm_model_in_loop(config)
     assert result.target_side_model > 0
     assert np.isfinite(result.flat_score)
+    assert np.isfinite(result.recorder.history[-1]["score_after"])
+
+
+def test_zero_step_a_keeps_seed_and_still_shapes_on_simulated_bench() -> None:
+    config = SlmModelInLoopConfig(
+        **{**_SIM_KWARGS, "n_rounds": 1, "step_a_iterations": 0}
+    )
+    result = optimize_slm_model_in_loop(config)
+    assert np.array_equal(result.fitted_coefficients, np.zeros_like(result.fitted_coefficients))
+    assert result.recorder.history[-1]["step_a_iterations"] == 0
     assert np.isfinite(result.recorder.history[-1]["score_after"])
 
 #: Keys on *every* history row -- the calibration baseline and the rounds alike.

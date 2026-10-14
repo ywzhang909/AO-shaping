@@ -145,7 +145,7 @@ def run(
         [ ] hadamard 显式阶数: --hadamard-order 指定 ≥有效单元数的最小 2 的幂
             时正常; 非合法值应报清晰错误
         [ ] 矫正闭环验证: 以标定矩阵 (pinv_matrix) 做波前矫正, RMS 明显改善
-        [ ] report3: scripts/generate_dm_response_matrix_report.py 以真实 h5
+        [ ] report3: scripts/dm/generate_dm_response_matrix_report.py 以真实 h5
             生成报告 (图/表齐全), 结果写入 docs/slm 日报
     """
     debug = params.debug

@@ -1,8 +1,8 @@
 # slm-gs-refine 正向模型标定 (2026-10-13)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_gs_refine_fwdmodel_report.py`](../../scripts/generate_gs_refine_fwdmodel_report.py)
-> **复现命令**: `python scripts/generate_gs_refine_fwdmodel_report.py`
+> **生成脚本**: [`scripts/slm/generate_gs_refine_fwdmodel_report.py`](../../scripts/slm/generate_gs_refine_fwdmodel_report.py)
+> **复现命令**: `python scripts/slm/generate_gs_refine_fwdmodel_report.py`
 > **运行环境**: 离线+硬件
 > **说明**: slm-gs-refine 三栏 GIF 第三栏的正向模型标定；本脚本离线重算标定前后对比、补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物
 <!-- provenance:end -->

@@ -1,8 +1,8 @@
 # Performance Comparison
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_cython_optimizer_report.py`](../../scripts/generate_cython_optimizer_report.py)
-> **复现命令**: `python scripts/generate_cython_optimizer_report.py`
+> **生成脚本**: [`scripts/dm/generate_cython_optimizer_report.py`](../../scripts/dm/generate_cython_optimizer_report.py)
+> **复现命令**: `python scripts/dm/generate_cython_optimizer_report.py`
 > **运行环境**: 离线
 > **说明**: 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成
 <!-- provenance:end -->

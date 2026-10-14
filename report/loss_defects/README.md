@@ -2,7 +2,7 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
-> **数据/关联脚本**: [`scripts/sweep_far_field_padding.py`](../../scripts/sweep_far_field_padding.py)
+> **数据/关联脚本**: [`scripts/ml/sweep_far_field_padding.py`](../../scripts/ml/sweep_far_field_padding.py)
 > **运行环境**: 离线
 > **说明**: 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板
 <!-- provenance:end -->
@@ -136,7 +136,7 @@ whether the attention justifies its parameters is deferred to round 7 (§7).
 "the right value depends on the family's `fov_px`, so re-run the sweep for a new
 family rather than copying the default". That warning was never acted on.
 
-Swept all 6 usable families (`scripts/sweep_far_field_padding.py`, coefficients
+Swept all 6 usable families (`scripts/ml/sweep_far_field_padding.py`, coefficients
 at Z = 0 so this is *purely* geometric agreement — no training, no fitting;
 48 samples/family, `grid=64`, `n_max=15`, `normalization="peak"`, judged on R²):
 

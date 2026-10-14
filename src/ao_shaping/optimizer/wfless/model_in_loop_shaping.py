@@ -904,7 +904,7 @@ def shape_phase_with_frozen_aberration(
     torch = _require_torch()
     # Function-local, like every other torch touch in this module: the package
     # must stay importable without PyTorch so the CPU-only paths still work.
-    from ao_shaping.utils.wavefront.fraunhofer import focal_intensity
+    from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
 
     tdtype = getattr(torch, dtype)
     dev = torch.device(device) if device is not None else _auto_device(torch)
@@ -994,14 +994,16 @@ def shape_phase_with_frozen_aberration(
 
     def closure() -> Any:
         opt.zero_grad()
-        patch = (phase + aberration) * aperture
-        field = amplitude * torch.exp(1j * patch)
+        oversampling = int(getattr(optimizer, "_pupil_oversampling", 1))
+        patch = phase + aberration
+        if oversampling == 1:
+            patch = patch * aperture
         # Honour the optimizer's zero-padding so the far field is sampled at the
         # same pitch as Step A and as the measurement. Without this the FFT
         # always ran at `region`, so a padded run compared a `region`-sized
         # intensity against a `far_field_size`-sized target.
         pad = int(getattr(optimizer, "far_field_size", region))
-        intensity = focal_intensity(field, pad)
+        intensity = interpolated_pupil_intensity(patch, amplitude, pad, oversampling)
         if gaussian_kernel is not None:
             import torch.nn.functional as F
 

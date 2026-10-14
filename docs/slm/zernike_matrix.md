@@ -1,7 +1,7 @@
 # Zernike 响应矩阵标定 (zernike-matrix)
 
-> **生成脚本**: [`scripts/generate_zernike_response_matrix_report.py`](../../scripts/generate_zernike_response_matrix_report.py)
-> **复现命令**: `python scripts/generate_zernike_response_matrix_report.py`
+> **生成脚本**: [`scripts/zernike_bench/generate_zernike_response_matrix_report.py`](../../scripts/zernike_bench/generate_zernike_response_matrix_report.py)
+> **复现命令**: `python scripts/zernike_bench/generate_zernike_response_matrix_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么

@@ -172,15 +172,15 @@ Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第
 共用内核 (无 CLI, 纯 numpy, 设备由参数传入): `tools/kernels/bench_kernels.py`
 (帧数学 / 光斑测量 / 面板相位放置 / `display_and_average` / `capture_settled`) 与
 `tools/kernels/sweep_analysis.py` (扫描线性 / `delta` 探索 / SNR)。Zernike 共用量在
-`tools/zernike/common.py`。`scripts/model_in_loop_hw_runbook.py --stage sweep` 的采集内核
+`tools/zernike/common.py`。`scripts/slm/model_in_loop_hw_runbook.py --stage sweep` 的采集内核
 收敛自 `tools/zernike/sweep_probe.py`; 面板与几何常数来源见
 [`report/slm/model_in_loop_bench_calibration.md`](report/slm/model_in_loop_bench_calibration.md)。
 
 ### Micro-DM 数据目录
 
 `micro_dm_image_collect` 采集的图像按 `IP-通道号` 落盘, 磁盘布局 (`data/md_test/`)
-承重于 `scripts/` 侧的 Micro-DM diff 分析流水线, **改动落盘命名/目录前先看
-`scripts/md_img_*.py`**。完整布局 (原始灰度图 / 100V 差分图 / GIF) 与
+承重于 `scripts/dm/` 侧的 Micro-DM diff 分析流水线, **改动落盘命名/目录前先看
+`scripts/dm/md_img_*.py`**。完整布局 (原始灰度图 / 100V 差分图 / GIF) 与
 网格坐标 → IP 组 → 图像文件的映射表见
 `data/md_test/README.md` (随采集数据落盘, 不在仓库中);
 工具说明见 [docs/tools/micro_dm_image_collect.md](docs/tools/micro_dm_image_collect.md)。
@@ -229,7 +229,8 @@ AO-shaping/
 │   ├── calculators/    # Cython扩展 (standalone)
 │   └── optical_ui/     # [DEPRECATED] Empty package
 ├── tests/ao_shaping/   # Tests (镜像 src 结构)
-├── scripts/            # 实用脚本 (含报告生成 generate_*_report.py)
+├── scripts/            # 实用脚本, 按处理对象分组 (含报告生成 generate_*_report.py)
+│                     # slm/ zernike_bench/ dm/ wfs/ = 设备域; ml/ rl/ oopao/ build/ = 数据与用途
 ├── docs/               # 设备说明与指南文档
 ├── report/             # 实验报告 (结论的唯一事实源)
 ├── libs/               # 第三方SDK二进制 (gxipy, Drv_UDPST) + OOPAO 子模块

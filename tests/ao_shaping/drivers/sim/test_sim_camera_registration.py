@@ -11,7 +11,7 @@ Reproduced 2026-10-01 through the real CLI::
 families and the README documents ``slm-pib spgd --cam-type sim`` as a working
 command, yet the only registration call sites were
 ``runners/slm/gsnet_runner.py`` (inside its ``_maybe_sim_patch``) and the
-``scripts/slm_pib_sim_run.py`` harness — so the plain CLI path could never work.
+``scripts/slm/slm_pib_sim_run.py`` harness — so the plain CLI path could never work.
 
 The fix makes the invariant explicit: importing the simulated optical system
 registers the simulated camera that reads its far field. Anyone who has the sim

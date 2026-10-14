@@ -14,16 +14,16 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT))
 
-from generate_zernike_amp_report import (  # noqa: E402
+from scripts.ml.generate_zernike_amp_report import (  # noqa: E402
     MODELS,
     build_report,
     final_table,
     grid_table,
     paired_table,
 )
-from sweep_zernike_models import METRICS, PHYSICS_GRID, UNET_GRID  # noqa: E402
+from scripts.ml.sweep_zernike_models import METRICS, PHYSICS_GRID, UNET_GRID  # noqa: E402
 
 
 def _entry(model: str, r2: float, ssim: float, **extra) -> dict:
@@ -107,7 +107,7 @@ class TestSweepGrid:
 
 class TestTables:
     def test_final_table_lists_every_model(self, sweep: dict) -> None:
-        from generate_zernike_amp_report import LABELS
+        from scripts.ml.generate_zernike_amp_report import LABELS
 
         table = final_table(sweep)
         # The table renders display labels, not the raw model keys.

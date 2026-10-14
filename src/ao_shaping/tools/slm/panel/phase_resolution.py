@@ -40,7 +40,7 @@ Consequences
 2. The **sweep** route works instead: smooth Zernike modes produce a measurable
    response, and a tilt sweep fixes the far-field scale with no assumption about
    focal length, pixel pitch or the camera pixel size. See
-   ``scripts/model_in_loop_hw_runbook.py --stage sweep``.
+   ``scripts/slm/model_in_loop_hw_runbook.py --stage sweep``.
 3. Any pixel-level work needs the panel transfer function characterised and
    pre-compensated first (``slm_lut_runner`` does grayscale->phase).
 

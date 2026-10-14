@@ -6,7 +6,7 @@
 
 **光滑 Zernike 扫描探针**：ramp + tilt + defocus + astig + coma + spherical 共 42 点，逐点稳定判据读帧，落盘 npz + Recorder (含相位与 CCD 帧)。`--no-hw` 只打印采集计划。
 
-这是 `scripts/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
+这是 `scripts/slm/model_in_loop_hw_runbook.py --stage sweep` 的采集内核来源。
 
 ## 2. 调用关系
 

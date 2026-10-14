@@ -1,8 +1,8 @@
 # SLM-PIB 在线验收报告 (Daheng CCD)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_pib_online_report.py`](../../scripts/generate_slm_pib_online_report.py)
-> **复现命令**: `python scripts/generate_slm_pib_online_report.py`
+> **生成脚本**: [`scripts/slm/generate_slm_pib_online_report.py`](../../scripts/slm/generate_slm_pib_online_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_pib_online_report.py`
 > **运行环境**: 离线
 > **说明**: 在线回归套件验收报告 (读 data/debug/slm_pib_online/)
 <!-- provenance:end -->
@@ -252,7 +252,7 @@
 
 ```bash
 # 重新生成此报告 (离线)
-python scripts/generate_slm_pib_online_report.py
+python scripts/slm/generate_slm_pib_online_report.py
 
 # 重跑硬件套件 (需 AO_RUN_HARDWARE=1 + 在线设备)
 AO_RUN_HARDWARE=1 uv run pytest tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py -v

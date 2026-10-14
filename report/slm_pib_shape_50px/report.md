@@ -1,8 +1,8 @@
 # slm-pib 仿真运行报告 (SPGD 方形目标, 2f-Fourier 数字孪生)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_pib_sim_report.py`](../../scripts/generate_slm_pib_sim_report.py)
-> **复现命令**: `python scripts/generate_slm_pib_sim_report.py`
+> **生成脚本**: [`scripts/slm/generate_slm_pib_sim_report.py`](../../scripts/slm/generate_slm_pib_sim_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_pib_sim_report.py`
 > **运行环境**: 离线
 > **说明**: 50px target 的仿真运行报告
 <!-- provenance:end -->
@@ -22,7 +22,7 @@
 > 3. 下文的图片链接使用了 Windows 反斜杠，Markdown 渲染为文本（已修正为正斜杠）。
 > 需要当前可信数据请读 `report/slm_pib_sim/report.md`（2026-10-01 生成）。
 
-**Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
+**Fully offline** — 本报告由 `scripts/slm/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 
 ## 1. 运行说明
 

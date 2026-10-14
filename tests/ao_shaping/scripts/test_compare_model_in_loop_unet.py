@@ -2,7 +2,7 @@
 
 import numpy as np
 
-from scripts.compare_model_in_loop_unet import _input, _score
+from scripts.slm.compare_model_in_loop_unet import _input, _score
 
 
 def test_unobserved_energy_does_not_change_metrics() -> None:

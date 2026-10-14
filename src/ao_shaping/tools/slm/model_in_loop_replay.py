@@ -23,7 +23,7 @@ SEQUENCE = ("flat", "A", "B", "flat", "B", "A", "flat")
 MATCH_FIELDS = (
     "cam_type", "cam_id", "cam_size", "slm_number", "slm_wavelength",
     "wavelength_nm", "region", "panel_span_px", "pupil_center",
-    "target_side", "w_efficiency", "w_uniformity", "far_field_padding",
+    "target_shape", "target_side", "w_efficiency", "w_uniformity", "far_field_padding",
     "phase_disturbance_file",
 )
 
@@ -35,11 +35,13 @@ class ReplayPlan:
     phases: dict[str, np.ndarray]
     output_dir: Path
     fixed_shaped_exposure_ms: float | None = None
+    fixed_flat_exposure_ms: float | None = None
 
 
 def load_plan(
     source_a: Path, source_b: Path, output_dir: Path,
     fixed_shaped_exposure_ms: float | None = None,
+    fixed_flat_exposure_ms: float | None = None,
 ) -> ReplayPlan:
     """Validate saved phases and bench settings before opening any device."""
     sources = (Path(source_a).resolve(), Path(source_b).resolve())
@@ -67,7 +69,10 @@ def load_plan(
     config = SlmModelInLoopConfig(**values)
     if fixed_shaped_exposure_ms is not None and not 0 < fixed_shaped_exposure_ms <= config.max_exposure_ms:
         raise ValueError("fixed shaped exposure exceeds the Daheng limit")
-    return ReplayPlan(config, sources, phases, Path(output_dir), fixed_shaped_exposure_ms)
+    if fixed_flat_exposure_ms is not None and not 0 < fixed_flat_exposure_ms <= config.max_exposure_ms:
+        raise ValueError("fixed flat exposure exceeds the Daheng limit")
+    return ReplayPlan(config, sources, phases, Path(output_dir),
+                      fixed_shaped_exposure_ms, fixed_flat_exposure_ms)
 
 
 def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
@@ -78,7 +83,8 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
                     "sequence": SEQUENCE, "config": {
                         name: getattr(plan.config, name) for name in MATCH_FIELDS},
                     "max_exposure_ms": plan.config.max_exposure_ms,
-                    "fixed_shaped_exposure_ms": plan.fixed_shaped_exposure_ms},
+                    "fixed_shaped_exposure_ms": plan.fixed_shaped_exposure_ms,
+                    "fixed_flat_exposure_ms": plan.fixed_flat_exposure_ms},
                    indent=2, default=list), encoding="utf-8",
     )
     flat = np.zeros_like(plan.phases["A"], dtype=np.float64)
@@ -89,15 +95,21 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
         center: tuple[int, int] | None = None
         for index, name in enumerate(SEQUENCE):
             bench.display(phases[name])
-            if name != "flat" and plan.fixed_shaped_exposure_ms is not None:
+            fixed_exposure = (plan.fixed_flat_exposure_ms if name == "flat"
+                              else plan.fixed_shaped_exposure_ms)
+            if fixed_exposure is not None:
                 frame = prepare_frame(
-                    bench.measure_fixed_exposure(plan.fixed_shaped_exposure_ms)
+                    bench.measure_fixed_exposure(fixed_exposure)
                 )
             else:
                 frame = prepare_frame(bench.measure())
             if center is None:
                 center = zero_order_center(frame, refine=False)
-            metrics = _metrics_at(frame, plan.config.target_side, center)
+            metrics = _metrics_at(
+                frame, plan.config.target_side, center,
+                target_shape=plan.config.target_shape,
+                camera_rotation_quarters=1,
+            )
             path = plan.output_dir / f"{index:02d}_{name}"
             np.save(path.with_suffix(".npy"), frame)
             if bench.last_raw_frame is not None:
@@ -105,6 +117,7 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
             row = {
                 "index": index, "phase": name,
                 "time_local": datetime.now().astimezone().isoformat(),
+                "capture_utc": bench.last_capture_utc,
                 "exposure_ms": float(bench.last_exposure_ms),
                 "score": _quality(metrics, plan.config.w_efficiency,
                                   plan.config.w_uniformity),
@@ -123,7 +136,10 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
     finally:
         try:
             bench.display(flat)
-            bench.measure()
+            if plan.fixed_flat_exposure_ms is None:
+                bench.measure()
+            else:
+                bench.measure_fixed_exposure(plan.fixed_flat_exposure_ms)
         finally:
             bench.close()
     return rows
@@ -135,10 +151,11 @@ def main() -> None:
     parser.add_argument("source_b", type=Path)
     parser.add_argument("output_dir", type=Path)
     parser.add_argument("--fixed-shaped-exposure-ms", type=float)
+    parser.add_argument("--fixed-flat-exposure-ms", type=float)
     args = parser.parse_args()
     try:
         plan = load_plan(args.source_a, args.source_b, args.output_dir,
-                         args.fixed_shaped_exposure_ms)
+                         args.fixed_shaped_exposure_ms, args.fixed_flat_exposure_ms)
     except (OSError, KeyError, TypeError, ValueError) as exc:
         parser.error(str(exc))
     run_replay(plan)

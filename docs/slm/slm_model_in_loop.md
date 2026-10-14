@@ -1,7 +1,7 @@
 # 正向模型闭环整形 (slm-model-in-loop)
 
-> **生成脚本**: [`scripts/generate_model_in_loop_report.py`](../../scripts/generate_model_in_loop_report.py)
-> **复现命令**: `python scripts/generate_model_in_loop_report.py`
+> **生成脚本**: [`scripts/slm/generate_model_in_loop_report.py`](../../scripts/slm/generate_model_in_loop_report.py)
+> **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
 > **详细算法文档**: [`docs/slm/model_in_loop_algorithm.md`](model_in_loop_algorithm.md)
 

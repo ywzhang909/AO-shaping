@@ -1,6 +1,6 @@
 """Tests for the OOPAO vs legacy-numpy comparison report generator.
 
-Covers ``scripts/generate_oopao_vs_numpy_report.py``, which compares the two
+Covers ``scripts/oopao/generate_oopao_vs_numpy_report.py``, which compares the two
 phase-screen / focal-plane backends across an aberration x turbulence matrix and
 writes ``report/oopao_vs_numpy/{report.md,summary.csv,figures/}``.
 
@@ -39,7 +39,7 @@ import numpy as np
 oopao_backend = pytest.importorskip("ao_shaping.drivers.sim.oopao_backend")
 
 ROOT = Path(__file__).resolve().parents[4]
-SCRIPT = ROOT / "scripts" / "generate_oopao_vs_numpy_report.py"
+SCRIPT = ROOT / "scripts" / "oopao" / "generate_oopao_vs_numpy_report.py"
 
 
 def _load_script() -> ModuleType:

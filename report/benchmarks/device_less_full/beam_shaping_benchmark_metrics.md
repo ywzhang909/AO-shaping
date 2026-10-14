@@ -1,8 +1,8 @@
 # Beam-Shaping Benchmark (simulation)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_beam_shaping_benchmark_report.py`](../../../scripts/generate_beam_shaping_benchmark_report.py)
-> **复现命令**: `python scripts/generate_beam_shaping_benchmark_report.py`
+> **生成脚本**: [`scripts/slm/generate_beam_shaping_benchmark_report.py`](../../../scripts/slm/generate_beam_shaping_benchmark_report.py)
+> **复现命令**: `python scripts/slm/generate_beam_shaping_benchmark_report.py`
 > **运行环境**: 离线
 > **说明**: 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画
 <!-- provenance:end -->
@@ -16,7 +16,7 @@
 > ⚠️ `slm_shaping_bench.strehl()` is a mean-removed cosine similarity, not a physical Strehl ratio. No Strehl column appears here for that reason.
 >
 - Grid: 9 cells (3 algorithms x 3 shapes)
-- Regenerate: `python scripts/generate_beam_shaping_benchmark_report.py` (fully offline, ~100 s)
+- Regenerate: `python scripts/slm/generate_beam_shaping_benchmark_report.py` (fully offline, ~100 s)
 > The sibling `.csv` is written too but is **not committed** -- the repo has a global `*.csv` ignore rule and no CSV under `docs/` is tracked. Re-run to get it; this markdown is the tracked artefact.
 
 | algorithm | shape | requested | measured | area_met | fill_ratio | uniformity_cv | encircled_energy | elapsed_s |

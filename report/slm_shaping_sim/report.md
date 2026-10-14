@@ -1,9 +1,9 @@
 # SLM 整形仿真运行报告 (2f-Fourier 数字孪生)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_shaping_sim_report.py`](../../scripts/generate_slm_shaping_sim_report.py)
-> **复现命令**: `python scripts/generate_slm_shaping_sim_report.py`
-> **数据/关联脚本**: [`scripts/run_sim_bench.py`](../../scripts/run_sim_bench.py)
+> **生成脚本**: [`scripts/slm/generate_slm_shaping_sim_report.py`](../../scripts/slm/generate_slm_shaping_sim_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_shaping_sim_report.py`
+> **数据/关联脚本**: [`scripts/slm/run_sim_bench.py`](../../scripts/slm/run_sim_bench.py)
 > **运行环境**: 离线
 > **说明**: SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照
 <!-- provenance:end -->
@@ -12,7 +12,7 @@
 
 **生成时间**: 2026-10-01 07:50:18
 
-**Fully offline** — 本报告由 `scripts/generate_slm_shaping_sim_report.py` 离线生成, 仅读取磁盘上的调试产物 (PKL / CSV), 不打开任何硬件、不重跑优化。
+**Fully offline** — 本报告由 `scripts/slm/generate_slm_shaping_sim_report.py` 离线生成, 仅读取磁盘上的调试产物 (PKL / CSV), 不打开任何硬件、不重跑优化。
 
 ## 1. 光学模型与适用范围
 

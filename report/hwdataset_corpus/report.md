@@ -1,9 +1,9 @@
 # hwdataset 语料分布与特征分析
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_hwdataset_corpus_report.py`](../../scripts/generate_hwdataset_corpus_report.py)
-> **复现命令**: `python scripts/generate_hwdataset_corpus_report.py`
-> **数据/关联脚本**: [`scripts/analyze_hwdataset_distributions.py`](../../scripts/analyze_hwdataset_distributions.py)
+> **生成脚本**: [`scripts/ml/generate_hwdataset_corpus_report.py`](../../scripts/ml/generate_hwdataset_corpus_report.py)
+> **复现命令**: `python scripts/ml/generate_hwdataset_corpus_report.py`
+> **数据/关联脚本**: [`scripts/ml/analyze_hwdataset_distributions.py`](../../scripts/ml/analyze_hwdataset_distributions.py)
 > **运行环境**: 离线
 > **说明**: data/debug 硬件调试语料的纯元数据统计 (14 张图, 含 4 张数组级分布图); 只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据; §10/§11 的数组级实测另读 analyze_hwdataset_distributions.py 预产的 distribution_stats.json (该文件缺失时两节降级为提示, 10 张元数据图不受影响, 两阶段复现命令见报告 §14)。§1.1 的「全量重建是否改变结论」交叉核对需另加 --full-index <扫描过全部 pkl 的索引.json>
 <!-- provenance:end -->
@@ -12,7 +12,7 @@
 
 ## 摘要
 
-本报告**只**读取 `data/hw_index_cache.json`、`data/debug/**/*.json` 与 `report/hwdataset_corpus/distribution_stats.json` (后者由 `scripts/analyze_hwdataset_distributions.py` 预先分层物化产生) 三个来源, `data/debug` 下的 `.pkl` 一律只做 `Path.stat()` 元数据检查 (不打开 / 不反序列化 / 不 mmap), 也不 import `ml.hwdataset`。所有数字均在运行时统计, 无硬编码。
+本报告**只**读取 `data/hw_index_cache.json`、`data/debug/**/*.json` 与 `report/hwdataset_corpus/distribution_stats.json` (后者由 `scripts/ml/analyze_hwdataset_distributions.py` 预先分层物化产生) 三个来源, `data/debug` 下的 `.pkl` 一律只做 `Path.stat()` 元数据检查 (不打开 / 不反序列化 / 不 mmap), 也不 import `ml.hwdataset`。所有数字均在运行时统计, 无硬编码。
 
 - **索引已陈旧**: 索引缓存覆盖磁盘 261/468 个 pkl (55.8%); 另有 207 个 pkl 未进索引 (其中 203 个比缓存更新, 4 个比缓存旧)。任何以该缓存为输入的结论都只覆盖 11,393 条记录, 不覆盖当前磁盘全量。
 - **家族与相位表示完全共线**: 7 个家族中有 7 个只对应单一 `source` (占记录 100.0%)。因此「表示方式的差异」与「家族/台架/目标的差异」在本语料内**无法解耦**。
@@ -400,10 +400,10 @@
 
 ```bash
 # 第一阶段: 分层物化 252 条记录, 统计数组级分布 (~90 s, 需 pkl 可读)
-python scripts/analyze_hwdataset_distributions.py
+python scripts/ml/analyze_hwdataset_distributions.py
 
 # 第二阶段: 渲染本报告 (元数据 + 上面的 JSON, 不碰 pkl)
-python scripts/generate_hwdataset_corpus_report.py
+python scripts/ml/generate_hwdataset_corpus_report.py
 ```
 
 - 数据源: `data/hw_index_cache.json` (version 2, roots `['data\\debug']`), `data/debug/**/*.json`

@@ -1,8 +1,8 @@
 # SLM-Zernike 整形优化器报告 (slm_zernike_shaping)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_slm_zernike_shaping_report.py`](../../scripts/generate_slm_zernike_shaping_report.py)
-> **复现命令**: `python scripts/generate_slm_zernike_shaping_report.py`
+> **生成脚本**: [`scripts/slm/generate_slm_zernike_shaping_report.py`](../../scripts/slm/generate_slm_zernike_shaping_report.py)
+> **复现命令**: `python scripts/slm/generate_slm_zernike_shaping_report.py`
 > **运行环境**: 离线
 > **说明**: 读 slm_zernike_shaping optimizer 的 debug 产物
 <!-- provenance:end -->
@@ -11,7 +11,7 @@
 
 **生成时间**: 2026-09-26 16:31:40
 
-**Fully offline** — 本报告由 `scripts/generate_slm_zernike_shaping_report.py` 离线生成, 仅读取 `slm_zernike_shaping` 优化器以 `debug=True` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
+**Fully offline** — 本报告由 `scripts/slm/generate_slm_zernike_shaping_report.py` 离线生成, 仅读取 `slm_zernike_shaping` 优化器以 `debug=True` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 
 ## 1. 产物格式
 
