@@ -64,7 +64,15 @@ from ao_shaping.utils.math.stability import (
     settle_time_s,
     snr_vs_averages,
 )
-from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+from ao_shaping.utils.slm.bench_constants import (
+    BEAM_CENTER_PANEL,
+    BEAM_RADIUS_PANEL,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+    TILT_SHIFT_SCALE,
+)
+from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,
@@ -73,7 +81,6 @@ from ao_shaping.utils.wavefront.matrix_utils import (
 from typing import Any
 
 import numpy as np
-from scipy.ndimage import zoom
 
 #: Union of both sources' star-export surfaces (`slm_bench_probe` had no `__all__`,
 #: `slm_bench_metrics` declared 9). Keeping the union stops `import *` narrowing.
@@ -113,14 +120,10 @@ __all__ = [
     "phase_to_panel",
 ]
 
-# Bench constants measured 2026-09-30 (Santec SLM-200 #1 22030108, 1920x1200,
-# 10-bit, 2pi = 993 gray at 1064 nm; Daheng MER2-507, 2592x1944, 2.2 um pixel).
-# See docs/slm/model_in_loop_bench_calibration.md.
-SLM_PANEL_W = 1920
-SLM_PANEL_H = 1200
-SLM_PITCH_M = 8e-6
-BEAM_CENTER_PANEL = (960, 600)
-BEAM_RADIUS_PANEL = 450
+# Panel-geometry constants (SLM_PANEL_W/H, SLM_PITCH_M, BEAM_CENTER_PANEL,
+# BEAM_RADIUS_PANEL) and phase_to_panel are defined once in the utils/slm leaf
+# (R-47) and imported above; re-exported here for existing ``bench_kernels``
+# callers.
 #: Empirical focal scale: a 2*pi phase ramp over ``P`` panel px moves the spot by
 #: ``TILT_SHIFT_SCALE / P`` camera px. The naive ``f*lambda/d_slm`` is ~17.5x
 #: larger on this bench, and the panel/camera axes are swapped 90 deg, so neither
@@ -316,47 +319,6 @@ def gaussian_grid(region: int, waist_grid: float) -> np.ndarray:
     amp = np.exp(-r2 / (2.0 * max(float(waist_grid), 1e-6) ** 2))
     amp[r2 > (region / 2.0) ** 2] = 0.0
     return amp
-
-
-def phase_to_panel(
-    phase_model: np.ndarray, disc_radius: int, pupil_center: tuple[int, int]
-) -> np.ndarray:
-    """Resize a model-grid phase onto the panel disc, centred on the beam.
-
-    Args:
-        phase_model: ``(region, region)`` phase, raw unwrapped radians.
-        disc_radius: Half-width of the target window, **panel** pixels.
-        pupil_center: Beam centre in **panel** pixels as ``(x, y)``.
-
-    Returns:
-        A ``(SLM_PANEL_H, SLM_PANEL_W)`` float64 array holding the phase inside
-        the disc and zero elsewhere -- the shape the Santec driver expects.
-
-    Raises:
-        ValueError: If ``phase_model`` is not square.
-
-    Note:
-        ``pupil_center`` must be measured **on the panel**. The camera's 0-order
-        is a different coordinate frame entirely (on this bench the two axes are
-        swapped and the scales differ by more than 10x), so deriving one from the
-        other silently writes the phase where the beam is not.
-    """
-    phase_model = np.asarray(phase_model, dtype=np.float64)
-    if phase_model.ndim != 2 or phase_model.shape[0] != phase_model.shape[1]:
-        raise ValueError(f"phase_model must be square, got {phase_model.shape}")
-    r = int(disc_radius)
-    region = phase_model.shape[0]
-    sub = np.asarray(
-        zoom(phase_model, (2 * r / region, 2 * r / region), order=1), dtype=np.float64
-    )
-    panel = np.zeros((SLM_PANEL_H, SLM_PANEL_W), dtype=np.float64)
-    cx, cy = int(pupil_center[0]), int(pupil_center[1])
-    # Clip the window so an off-centre or oversized disc stays in bounds.
-    x0, x1 = max(cx - r, 0), min(cx + r, SLM_PANEL_W)
-    y0, y1 = max(cy - r, 0), min(cy + r, SLM_PANEL_H)
-    sub = sub[y0 - (cy - r) : y1 - (cy - r), x0 - (cx - r) : x1 - (cx - r)]
-    panel[y0:y1, x0:x1] = sub
-    return panel
 
 
 # ---------------------------------------------------------------------------

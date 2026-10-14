@@ -1,4 +1,4 @@
-"""Zero-import leaf for bench-tuning constants that must be defined exactly once.
+"""Zero-import leaf for bench constants that must be defined exactly once.
 
 The 2f focal-scale constant ``TILT_SHIFT_SCALE`` was spelled out as four
 separate literal assignments (``bench_kernels``, ``runner_common``,
@@ -6,8 +6,15 @@ separate literal assignments (``bench_kernels``, ``runner_common``,
 change would update one copy and silently leave the other three stale -- the
 same failure mode the stale-geometry guard exists to catch, but in the code.
 
-Every consumer now imports this one value from here instead of re-declaring
-it. This module must stay a **leaf**: no ``import``/``from`` of anything
+The SLM panel-geometry constants (``SLM_PANEL_W`` / ``SLM_PANEL_H`` /
+``SLM_PITCH_M`` / ``BEAM_CENTER_PANEL`` / ``BEAM_RADIUS_PANEL``) joined here
+under R-47: they were declared in ``tools/kernels/bench_kernels`` yet are pure
+bench geometry, imported by 13+ modules across ``tools/``, ``scripts/``,
+``runners/`` and ``optimizer/``. Keeping them in the leaf lets ``optimizer/``
+reach panel geometry without importing ``tools/`` (the R-46 reverse edge).
+
+Every consumer now imports these values from here instead of re-declaring
+them. This module must stay a **leaf**: no ``import``/``from`` of anything
 non-stdlib, and no module-level side effects, so that importing it never
 drags in a hardware SDK / ``ctypes`` / ``torch``. The guard is
 ``tests/ao_shaping/utils/slm/test_bench_constants_leaf.py``.
@@ -27,3 +34,22 @@ from __future__ import annotations
 #: Measured 2f focal scale (camera px per full 2*pi ramp per panel pixel): see
 #: module docstring. The single source of truth -- do not re-declare it.
 TILT_SHIFT_SCALE = 7400.0
+
+# ---------------------------------------------------------------------------
+# SLM panel geometry (measured 2026-09-30; single source of truth, R-47).
+# Santec SLM-200 #1 22030108, 1920x1200, 10-bit, 2pi = 993 gray at 1064 nm;
+# Daheng MER2-507, 2592x1944, 2.2 um pixel. Provenance:
+# report/slm/model_in_loop_bench_calibration.md
+# ---------------------------------------------------------------------------
+
+#: Panel width in px (the shape the Santec driver expects, last axis).
+SLM_PANEL_W = 1920
+#: Panel height in px (first axis of every panel-sized array).
+SLM_PANEL_H = 1200
+#: SLM pixel pitch in metres.
+SLM_PITCH_M = 8e-6
+#: Illuminated beam centre in **panel** px (x, y). NOT a camera coordinate: the
+#: two frames are swapped 90 deg and differ >10x in scale.
+BEAM_CENTER_PANEL = (960, 600)
+#: Illuminated beam radius in panel px.
+BEAM_RADIUS_PANEL = 450

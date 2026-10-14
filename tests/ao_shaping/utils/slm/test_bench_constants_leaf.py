@@ -21,7 +21,14 @@ import sys
 from pathlib import Path
 
 import ao_shaping.utils.slm.bench_constants as bench_constants
-from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
+from ao_shaping.utils.slm.bench_constants import (
+    BEAM_CENTER_PANEL,
+    BEAM_RADIUS_PANEL,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+    TILT_SHIFT_SCALE,
+)
 
 _MODULE = Path(bench_constants.__file__).resolve()
 _REPO_ROOT = _MODULE.parents[4]
@@ -76,3 +83,11 @@ def test_no_deferred_ao_shaping_import_can_hide_in_a_function() -> None:
 def test_value_is_the_bench_scale() -> None:
     """The constant is the measured 2f focal scale, not a drifted copy."""
     assert float(TILT_SHIFT_SCALE) == 7400.0
+
+
+def test_panel_geometry_constants_are_the_bench_values() -> None:
+    """The R-47 panel constants are the measured bench geometry, not drifted copies."""
+    assert (SLM_PANEL_W, SLM_PANEL_H) == (1920, 1200)
+    assert float(SLM_PITCH_M) == 8e-6
+    assert BEAM_CENTER_PANEL == (960, 600)
+    assert BEAM_RADIUS_PANEL == 450
