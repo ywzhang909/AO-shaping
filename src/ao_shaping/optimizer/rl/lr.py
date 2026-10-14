@@ -5,6 +5,7 @@ from glob import glob
 import time
 
 import numpy as np
+from loguru import logger
 
 import torch as th
 from torch import nn
@@ -26,6 +27,7 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self, **kwargs):
         import matplotlib.pyplot as plt
+
         if self.best_power < 0:
             self.best_power = self.training_env.get_attr('init_power')[0]
 
@@ -142,9 +144,10 @@ class CustomCombineImageAndVetorExtractor(BaseFeaturesExtractor):
         return nn.Sequential(cnn, linear)
 
 
-train = True
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+
+    train = True
     device = 'cuda' if th.cuda.is_available() else 'cpu'
     img_size = (192, 192)
     env = LaserCastEnv(render_mode='rgb_array', target_power=8_000, max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)
@@ -162,7 +165,7 @@ if __name__ == "__main__":
         ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
         if len(ckpt_paths) > 0:
             latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-            print(latest_ckpt_path)
+            logger.info(latest_ckpt_path)
             agent = agent.load(latest_ckpt_path, env=env)
         callbacks = CallbackList([
             TensorboardCallback(),
@@ -174,7 +177,7 @@ if __name__ == "__main__":
     else:
         ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
         latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-        print(latest_ckpt_path)
+        logger.info(latest_ckpt_path)
         agent.load(latest_ckpt_path, env=env)
 
         env = LaserCastEnv(render_mode='human', max_iter=200)

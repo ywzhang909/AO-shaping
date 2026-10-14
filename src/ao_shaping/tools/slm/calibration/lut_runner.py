@@ -46,21 +46,6 @@ def _expected_x_offset(period: int) -> int:
     return int(round(_DIFFRACTION_SCALE_PX / period))
 
 
-def _peak_in_region(
-    frame: np.ndarray,
-    y0: int,
-    y1: int,
-    x0: int,
-    x1: int,
-) -> tuple[int, int, float] | None:
-    """Peak ``(gx, gy, value)`` within a rectangular region, or ``None``."""
-    region = frame[y0:y1, x0:x1]
-    if region.size == 0:
-        return None
-    idx = np.unravel_index(np.argmax(region), region.shape)
-    return int(x0 + idx[1]), int(y0 + idx[0]), float(region[idx])
-
-
 def _locate_spots(
     calib_frame: np.ndarray,
     period_ref: int,

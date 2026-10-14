@@ -43,6 +43,6 @@ def test_runner_exposes_algorithm_and_pop_size(module_path, name, attr):
 
     assert result.exit_code == 0, f"{name}: {result.output}"
     assert "--algorithm" in result.output, name
-    assert "--pop_size" in result.output, name
+    assert "--pop-size" in result.output, name
     for algo in EXPECTED_ALGORITHMS:
         assert algo in result.output, f"{name} missing {algo}"

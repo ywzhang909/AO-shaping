@@ -1,7 +1,5 @@
 # SLM Zernike PIB 优化 (slm-pib)
 
-> **生成脚本**: [`scripts/generate_slm_pib_report.py`](../../scripts/generate_slm_pib_report.py)
-> **复现命令**: `python scripts/generate_slm_pib_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -103,24 +101,24 @@ class SlmZernikePibConfig:
 | `-d, --dir` | 数据保存根目录 | data |
 | `--debug` | 调试模式 | False |
 | `--seed` | 随机种子 (仅 sim 可复现) | None |
-| `--cam_type` | 相机类型 (miicam/daheng/sim) | daheng |
-| `--cam_id` | 相机设备 ID | 0 |
-| `--exposure_time_ms` | 曝光 ms (0=不固定) | 0 |
-| `--cam_size` | 相机开窗大小 | 250 |
+| `--cam-type` | 相机类型 (miicam/daheng/sim) | daheng |
+| `--cam-id` | 相机设备 ID | 0 |
+| `--exposure-time-ms` | 曝光 ms (0=不固定) | 0 |
+| `--cam-size` | 相机开窗大小 | 250 |
 | `-c, --center` | 光斑中心检测 (auto/mass/max/shape/centroid_thresh/'x,y') | auto |
 | `--auto-exposure` | 自动寻找安全曝光 | False |
 | `--objective` | 优化目标 | pib |
-| `--target_shape` | 目标形状 (circle/square/...) | circle |
-| `--target_size` | 目标尺寸 (像素) | 0 |
-| `--r_bucket` | 桶半径 (0=自动) | 0 |
-| `--w_uniformity/--w_peak/--w_displacement` | 惩罚权重 | 0 |
-| `--zernike_radius` | Zernike 孔径半径 px | 600 |
-| `--slm_number` | SLM 设备编号 | 1 |
-| `--slm_wavelength` | SLM 波长 nm | 1064 |
-| `--n_max` | Zernike 最大阶数 | 4 |
-| `--shift_x/--shift_y` | SLM 相位平移 (像素) | 0 |
-| `--init_c` | 初始系数 (JSON/逗号分隔) | None |
-| `--load_file` | 从文件加载初始系数 | None |
+| `--target-shape` | 目标形状 (circle/square/...) | circle |
+| `--target-size` | 目标尺寸 (像素) | 0 |
+| `--r-bucket` | 桶半径 (0=自动) | 0 |
+| `--w-uniformity/--w-peak/--w-displacement` | 惩罚权重 | 0 |
+| `--zernike-radius` | Zernike 孔径半径 px | 600 |
+| `--slm-number` | SLM 设备编号 | 1 |
+| `--slm-wavelength` | SLM 波长 nm | 1064 |
+| `--n-max` | Zernike 最大阶数 | 4 |
+| `--shift-x/--shift-y` | SLM 相位平移 (像素) | 0 |
+| `--init-c` | 初始系数 (JSON/逗号分隔) | None |
+| `--load-file` | 从文件加载初始系数 | None |
 
 ### SPGD 专属
 | 选项 | 说明 | 默认值 |
@@ -128,19 +126,19 @@ class SlmZernikePibConfig:
 | `-e, --epochs` | 优化迭代次数 | 2000 |
 | `--delta` | 扰动幅度 (rad) | 0.2 |
 | `--lr` | 学习率 (0=自动) | 0.0 |
-| `--optimizer_type` | adam/adamod/sgd/muno | adamod |
-| `--shrink_iter` | 收缩半径桶迭代间隔 (0=不收缩) | 0 |
-| `--shrink_ratio` | 收缩比例 | 0.9 |
+| `--optimizer-type` | adam/adamod/sgd/muno | adamod |
+| `--shrink-iter` | 收缩半径桶迭代间隔 (0=不收缩) | 0 |
+| `--shrink-ratio` | 收缩比例 | 0.9 |
 | `--n-eval-frames` | 每次读取平均帧数 | 1 |
-| `--fold_ratio` | 亮度折减门控比率 | 0.5 |
-| `--noise_gate_k` | 噪声感知更新门 σ 倍数 | 3.0 |
+| `--fold-ratio` | 亮度折减门控比率 | 0.5 |
+| `--noise-gate-k` | 噪声感知更新门 σ 倍数 | 3.0 |
 | `--abba-sampling` | 启用 ABBA 采样 (+ - - +) | False |
 
 ### Heuristic 专属
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
 | `--algorithm` | ga/pso/sa/hc/rs/cem/de | ga |
-| `--pop_size` | 种群大小 | - |
+| `--pop-size` | 种群大小 | - |
 | `--epochs` | 迭代次数 | 2000 |
 
 ## 8. 关键实现细节
@@ -160,9 +158,9 @@ class SlmZernikePibConfig:
 
 ### 仿真模式
 ```bash
-python src/ao_shaping/main.py slm-pib spgd --cam_type sim --slm_type sim -e 5
+python src/ao_shaping/main.py slm-pib spgd --cam-type sim --slm-type sim -e 5
 ```
-`--slm_type sim` 必须与 `--cam_type sim` 同时给 (模拟 SLM 只在装上孪生台架后存在)。
+`--slm-type sim` 必须与 `--cam-type sim` 同时给 (模拟 SLM 只在装上孪生台架后存在)。
 
 ## 9. 输出契约
 

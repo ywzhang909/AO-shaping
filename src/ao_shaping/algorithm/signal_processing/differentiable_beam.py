@@ -39,7 +39,6 @@ import numpy as np
 import numpy.typing as npt
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
-from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     import torch
@@ -87,6 +86,15 @@ def differentiable_far_field(
     Note:
         ``fftshift`` 与复指数都可微, 因此返回的光场带有回连到 ``phase``
         的 grad_fn。
+
+    ⚠️ **不要把这里换成角谱 (ASM) 传播** —— 已实测, 它不是傅里叶远场的等价物。
+    规范实现见 ``signal_processing/angular_spectrum.py``; 边界由
+    ``tests/ao_shaping/algorithm/test_angular_spectrum.py::TestNotAFraunhoferSubstitute``
+    锁定。在 2f 傅里叶台架几何 (口径 12 mm, ``f = 0.125 m``, ``lambda = 532 nm``)
+    实测: FFT 峰值在阵列中心、``max|F| = 4057``; 而 ASM 在 ``z = f`` 处
+    ``max|out| = 1.0066`` (纯相位瞳孔的入射模长就是 1) 且峰值落在**瞳孔位置** ——
+    ASM 返回的是**传播后的光束**, 而远场是**透镜的傅里叶变换**。真正的夫琅禾费
+    图样需要 ``z >> a**2/lambda = 271 m``, 比台架焦距大三个数量级。
     """
     torch = _torch()
     amp = _to_tensor(amplitude, phase.device)

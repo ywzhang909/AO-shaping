@@ -377,11 +377,11 @@ def test_cli_help_lists_rms_pib_objective() -> None:
     assert result.exit_code == 0, result.output
     assert "rms_pib" in result.output
     for opt in (
-        "--w_ema_decay",
-        "--w_floor",
-        "--w_temperature",
-        "--w_pib_init",
-        "--w_rms_init",
-        "--w_ee_init",
+        "--w-ema-decay",
+        "--w-floor",
+        "--w-temperature",
+        "--w-pib-init",
+        "--w-rms-init",
+        "--w-ee-init",
     ):
         assert opt in result.output

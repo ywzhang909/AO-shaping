@@ -133,11 +133,12 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
         get_camera_exposure_ms,
     )
     from ao_shaping.drivers.slm import Santec
-    from ao_shaping.optimizer.wfless.slm_zernike_pib import (
-        PatternHelper,
-        _display,
-        _zernike_to_phase,
+    from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+        SlotRotator,
+        display_rotating,
+        zernike_to_phase,
     )
+    from ao_shaping.optimizer.wfless.slm_zernike_pib import PatternHelper
 
     cam = create_camera(args.cam_type, cam_id=args.cam_id, exposure_time_ms=3.0)
     cam.open()
@@ -146,7 +147,13 @@ def setup_bench(args, n_center: int = 12) -> tuple[float, tuple[int, int], float
     try:
         ph = PatternHelper(resolution=(1920, 1200), bits=10)
         zeros = np.zeros(15, dtype=np.float64)
-        _display(slm, slm.create_phase_from_array(_zernike_to_phase(zeros, args.n_max, ph)))
+        display_rotating(
+            slm,
+            slm.create_phase_from_array(
+                zernike_to_phase(zeros, args.n_max, ph, default_radius=300.0)
+            ),
+            SlotRotator(),
+        )
         time.sleep(0.3)
 
         if args.exposure_ms > 0:

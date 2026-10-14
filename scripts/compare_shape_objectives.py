@@ -144,13 +144,20 @@ def setup_bench(args) -> tuple[float, tuple[int, int], float, tuple[int, int]]:
         # coupling + scattering then bias the result badly (measured 40.6 ms with a
         # stale phase vs 3 ms on a flat one).
         from ao_shaping.drivers.slm import Santec
-        from ao_shaping.optimizer.wfless.slm_zernike_pib import _display
+        from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+            SlotRotator,
+            display_rotating,
+        )
 
         slm = Santec(slm_number=args.slm_number, wavelength=args.wavelength)
         slm.open()
         # Raw gray-0 flat: send uint16 grayscale directly (never via
         # create_phase_from_array, which treats the input as radians).
-        _display(slm, np.full((1200, 1920), 0, dtype=np.uint16))
+        display_rotating(
+            slm,
+            np.full((1200, 1920), 0, dtype=np.uint16),
+            SlotRotator(),
+        )
         time.sleep(0.3)
         logger.info("SLM set to flat gray 0 (raw path) before metering")
 

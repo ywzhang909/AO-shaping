@@ -22,6 +22,7 @@ assertions are about.
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import subprocess
@@ -32,6 +33,7 @@ from typing import Any
 import pytest
 
 from ao_shaping.drivers.dm._registry import list_dm_types
+from tests.ao_shaping.drivers._subprocess_env import subprocess_env_with_pythonpath
 
 # Bound generous enough for a slow import on a loaded box; the assertions below
 # are about connect counts and elapsed time, not about the timeout.
@@ -58,8 +60,17 @@ socket.socket.connect_ex = _counting_connect_ex
 
 
 def _repo_root() -> Path:
-    """Return the repository root derived from this test file's location."""
-    return Path(__file__).resolve().parents[3]
+    """Return the repository root derived from this test file's location.
+
+    ``parents[2]``, not ``parents[3]``: this file sits at ``tests/ao_shaping/``, so
+    parents[0] is ``ao_shaping``, parents[1] is ``tests`` and parents[2] is the root.
+    The off-by-one handed ``/`` to ``PYTHONPATH`` and to ``cwd``, so every child
+    interpreter in this file died with ModuleNotFoundError before running a line of
+    the snippet under test -- which is why six tests here could report a contract
+    violation that was purely the harness. ``_subprocess_env`` records the same
+    mistake in two other files.
+    """
+    return Path(__file__).resolve().parents[2]
 
 
 def _src_dir() -> Path:
@@ -80,7 +91,7 @@ def _run_python(code: str, timeout: float = SUBPROCESS_TIMEOUT_S) -> subprocess.
     Returns:
         The completed process, with captured stdout/stderr.
     """
-    env = {**os.environ, "PYTHONPATH": str(_src_dir())}
+    env = subprocess_env_with_pythonpath(("src",), absolute=True, root=str(_repo_root()))
     return subprocess.run(
         [sys.executable, "-c", code],
         capture_output=True,
@@ -205,7 +216,7 @@ def test_list_dm_types_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> None
     an import side effect (``runner_common`` imports ``asyn_micro_dm``, which
     registers ``asyn_micro``), so the count is 6 in a bare process and 7 once
     ``runner_common`` has been imported. That import-order sensitivity is the very
-    hazard documented for the ``--dm_type`` choice list, and pinning a count here
+    hazard documented for the ``--dm-type`` choice list, and pinning a count here
     would have made this test order-dependent.
     """
     import socket
@@ -246,4 +257,103 @@ assert _after_second == _after_first, "second access performed extra socket prob
     assert proc.returncode == 0, (
         f"DM_N_ACTUATORS resolution is not memoized (rc={proc.returncode})\n"
         f"--- stderr tail ---\n{_stderr_tail(proc.stderr)}"
+    )
+
+#: Modules that ``import ao_shaping`` must not drag in. R-20 as written in
+#: ``utils/__init__.py`` names numpy / matplotlib / aotools and "any optional
+#: SDK"; pandas and scipy are included because they were measured coming in too,
+#: and aotools does not exist in this tree. ``gxipy`` is the native SDK the
+#: drivers contract already forbids.
+_HEAVY_IMPORT_CONTRACT = (
+    "numpy",
+    "matplotlib",
+    "matplotlib.pyplot",
+    "pandas",
+    "scipy",
+    "gxipy",
+)
+
+
+@pytest.mark.parametrize("import_stmt", ["import ao_shaping", "import ao_shaping.utils"])
+def test_import_does_not_drag_heavy_dependencies(import_stmt: str) -> None:
+    """R-20: the package root must not import numpy/matplotlib/pandas/scipy.
+
+    This is the half of the contract that ``test_import_performs_zero_socket_connects``
+    does not cover. That one counts TCP attempts; this one counts *modules*, and
+    it is the reason ``ao_shaping/__init__.py`` now resolves its 46 re-exports
+    through PEP 562 instead of importing them eagerly -- Python initialises the
+    root package before any submodule, so its eager imports were charged to every
+    ``import ao_shaping.<anything>`` in the repo, offline tooling included.
+
+    Subprocess, for the same reason as the socket probes: ``ao_shaping`` is
+    already in ``sys.modules`` here, so an in-process check would be vacuous.
+    """
+    code = (
+        "import sys\n"
+        f"{import_stmt}\n"
+        f"dragged = [m for m in {list(_HEAVY_IMPORT_CONTRACT)!r} if m in sys.modules]\n"
+        "sys.stderr.write('DRAGGED ' + repr(dragged) + '\\n')\n"
+    )
+    proc = _run_python(code)
+    assert proc.returncode == 0, (
+        f"{import_stmt} failed (rc={proc.returncode})\n"
+        f"--- stderr tail ---\n{_stderr_tail(proc.stderr)}"
+    )
+    match = re.search(r"DRAGGED (\[.*?\])", proc.stderr)
+    assert match is not None, f"probe produced no verdict:\n{_stderr_tail(proc.stderr)}"
+    dragged = ast.literal_eval(match.group(1))
+    assert not dragged, (
+        f"{import_stmt} dragged in {dragged}. The root package must resolve its "
+        "public API lazily (PEP 562); an eager `from ao_shaping... import` in "
+        "ao_shaping/__init__.py reappears here as a cost paid by every consumer."
+    )
+
+
+def test_every_public_name_still_resolves() -> None:
+    """Laziness must not cost a single public name, nor change what it is.
+
+    Guards the regression that laziness invites: a name dropped from ``__all__``
+    or left pointing at the wrong module fails only at call time, and only for
+    the caller who needed it. Every entry is resolved and its fully-qualified
+    origin recorded, so a swap is caught here instead.
+    """
+    code = (
+        "import sys\n"
+        "import ao_shaping\n"
+        "out = {}\n"
+        "for name in ao_shaping.__all__:\n"
+        "    try:\n"
+        "        value = getattr(ao_shaping, name)\n"
+        "        qn = getattr(value, '__qualname__', None)\n"
+        "        out[name] = ('None' if value is None else\n"
+        "                      f'{type(value).__module__}.{qn}' if qn else\n"
+        "                      f'{type(value).__module__}.{type(value).__name__}')\n"
+        "    except Exception as exc:\n"
+        "        out[name] = f'ERROR:{type(exc).__name__}'\n"
+        "sys.stderr.write('API ' + repr(sorted(out.items())) + '\\n')\n"
+    )
+    proc = _run_python(code)
+    assert proc.returncode == 0, (
+        f"resolving __all__ failed (rc={proc.returncode})\n"
+        f"--- stderr tail ---\n{_stderr_tail(proc.stderr)}"
+    )
+    match = re.search(r"API (\[.*?\])\n", proc.stderr, re.S)
+    assert match is not None, f"probe produced no verdict:\n{_stderr_tail(proc.stderr)}"
+    resolved = dict(ast.literal_eval(match.group(1)))
+
+    assert "__version__" in resolved
+    assert len(resolved) == len(set(resolved))
+    broken = {k: v for k, v in resolved.items() if v.startswith("ERROR:")}
+    assert not broken, f"public names no longer resolve: {broken}"
+
+    # The hardware backends may legitimately be None where no SDK is installed, and
+    # legitimately be real classes where one is (sim/mock stand them in). Nothing else
+    # may ever be None: that is what a half-applied lazy map looks like.
+    soft = {"NlightDM", "ThorlabWFS", "Santec", "FFmpegCamera", "MlaRes"}
+    unexpected_none = {
+        k for k, v in resolved.items() if v == "None" and k not in soft
+    }
+    assert not unexpected_none, (
+        f"these resolve to None but are not optional-SDK backends: {unexpected_none}. "
+        "A hard-fail name whose module failed to import is raising, not degrading."
     )

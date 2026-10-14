@@ -28,7 +28,7 @@ from torch.utils.data import DataLoader
 from loguru import logger
 
 from ml.gsnet.dataset import GSShapingDataset
-from ml.gsnet.evaluate import EvalSummary, compute_sample_metrics, evaluate_model
+from ml.gsnet.evaluate import EvalSummary, evaluate_model
 from ml.gsnet.model import FourierGSNet, count_parameters
 from ml.gsnet.train import train_gsnet
 

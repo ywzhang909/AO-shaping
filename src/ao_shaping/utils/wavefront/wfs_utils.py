@@ -12,7 +12,6 @@ from loguru import logger
 from scipy.ndimage import gaussian_filter
 
 if TYPE_CHECKING:
-    from ao_shaping.drivers.slm import ZernikeSLM
     from ao_shaping.drivers.wfs import ThorlabWFS
 
 

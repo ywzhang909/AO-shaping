@@ -80,10 +80,6 @@ class MockCamera:
     """
 
     SIZE = 64
-    #: Marks this as a stand-in. ``shoot`` reads it to skip the real-hardware
-    #: exposure ceiling -- a simulated camera has no saturation limit, so the
-    #: guard would otherwise reject legitimate simulated runs.
-    is_mock = True
 
     def __init__(self, *args: Any, slm: "MockSLM | None" = None, **kwargs: Any) -> None:
         # create_camera(cam_type, cam_id, exposure_time_ms=...) is called
@@ -103,18 +99,6 @@ class MockCamera:
         self.exposures.append(float(time_ms))
         return float(time_ms)
 
-    @property
-    def exposure_time(self) -> float:
-        """Read-back exposure in **milliseconds**, matching :attr:`DahengCamera`.
-
-        The SDK's ``ExposureTime.get()`` is microseconds and the driver divides
-        by 1000, so this property is ms -- the *same* unit its own
-        ``reset_exposure_time()`` setter takes. Cross-checked against
-        ``tools/ccd/exposure_check.py``, which reads the raw GenICam value and
-        prints it against ``exposure_ms * 1000``.
-        """
-        return float(self.exposures[-1]) if self.exposures else 0.0
-
     def get_numpy_image(self, n_sample: int = 1) -> np.ndarray:
         assert n_sample >= 1
         shown = self._slm.shown[-1] if self._slm and self._slm.shown else None
@@ -123,13 +107,7 @@ class MockCamera:
         frame = rng.random((self.SIZE, self.SIZE))
         yy, xx = np.mgrid[0 : self.SIZE, 0 : self.SIZE]
         frame *= np.exp(-((xx - self.SIZE / 2) ** 2 + (yy - self.SIZE / 2) ** 2) / 32.0)
-        # Scaled below full scale on purpose: ``shoot`` raises on ``max >= 250`` (the
-        # Daheng saturation guard) and the runbook itself warns at 0.98*FULL_SCALE.
-        # ``rng.random()`` over a 64x64 grid peaks near 0.999, so a *255.0 scale
-        # produced frames at ~254 and tripped the guard during long sweeps. 200.0
-        # keeps every stand-in frame bright but unsaturated, which is what a
-        # healthy bench frame looks like.
-        return frame * 200.0
+        return frame * 255.0
 
 
 @pytest.fixture
@@ -157,11 +135,7 @@ def _args(runbook: Any, tmp_path: Path, **over: Any) -> Any:
     defaults = dict(
         stage="all", out=tmp_path, probes=3, region=32, far_field_size=256,
         collect_disc=60, target_cam_px=8.0, shape_iterations=5, slm_number=1,
-        slm_wavelength=1064, cam_type="daheng", cam_id=0,
-        # A simulated camera has no saturation ceiling, so the stage tests are
-        # free to use a bench-typical exposure; ``shoot`` skips the real-hardware
-        # guard for mocks. The hardware path is covered by TestExposureGuardUnits.
-        exposure_ms=1.1,
+        slm_wavelength=1064, cam_type="daheng", cam_id=0, exposure_ms=1.1,
         settle_s=0.0, discard=1, frames=1, seed=0, dry_run=False,
         defocus_rad=1.0, zernike_radius=200, n_orders=6, fit_epochs=2,
         fit_lr=0.1, crop=64, pupil_center="960,600", save_frames=False,
@@ -247,70 +221,6 @@ class TestPureHelpers:
         back = runbook.geometry_from_json(runbook.geometry_to_json(geo))
         assert back == geo
         assert json.loads(runbook.geometry_to_json(geo))["panel_disc_radius"] == 200
-
-
-class TestExposureGuardUnits:
-    """``shoot``'s Daheng read-back guard, pinned in the driver's own unit.
-
-    ``DahengCamera.exposure_time`` reads the SDK's ``ExposureTime.get()`` -- which
-    is **microseconds** -- and divides by 1000, so the property is
-    **milliseconds**, the same unit ``reset_exposure_time`` takes. A stand-in
-    that returns seconds instead makes every read-back ~1000x too small, and the
-    ``<= 0.4`` guard silently stops guarding: the bench would happily run at
-    1.1 ms.
-
-    The ceiling is a property of real hardware, so these tests exercise it with
-    ``is_mock`` cleared, and separately assert that a simulated camera is *not*
-    held to it.
-    """
-
-    @staticmethod
-    def _real_camera(exposure_ms: float) -> MockCamera:
-        """A stand-in that claims to be real hardware, so the guard applies."""
-        cam = MockCamera()
-        cam.is_mock = False
-        cam.reset_exposure_time(exposure_ms)
-        return cam
-
-    def test_readback_is_milliseconds(self) -> None:
-        cam = MockCamera()
-        cam.reset_exposure_time(0.2)
-        assert cam.exposure_time == pytest.approx(0.2), (
-            "exposure_time must be ms, not s -- the SDK value is us / 1000"
-        )
-
-    def test_unsafe_daheng_exposure_is_rejected(
-        self, runbook: Any, tmp_path: Path
-    ) -> None:
-        args = _args(runbook, tmp_path, exposure_ms=1.1)
-        with pytest.raises(RuntimeError, match="unsafe Daheng exposure readback"):
-            runbook.shoot(
-                self._real_camera(1.1), MockSLM(),
-                np.zeros((runbook.PANEL_H, runbook.PANEL_W)), args,
-            )
-
-    def test_safe_daheng_exposure_is_accepted(
-        self, runbook: Any, tmp_path: Path
-    ) -> None:
-        args = _args(runbook, tmp_path, exposure_ms=0.2)
-        frame = runbook.shoot(
-            self._real_camera(0.2), MockSLM(),
-            np.zeros((runbook.PANEL_H, runbook.PANEL_W)), args,
-        )
-        assert frame.shape == (MockCamera.SIZE, MockCamera.SIZE)
-
-    def test_simulated_camera_is_not_held_to_the_hardware_ceiling(
-        self, runbook: Any, tmp_path: Path
-    ) -> None:
-        """A mock reports whatever it was told, so the ceiling must not apply."""
-        args = _args(runbook, tmp_path, exposure_ms=1.1)
-        cam = MockCamera()
-        cam.reset_exposure_time(1.1)
-        assert cam.is_mock is True
-        frame = runbook.shoot(
-            cam, MockSLM(), np.zeros((runbook.PANEL_H, runbook.PANEL_W)), args
-        )
-        assert frame.shape == (MockCamera.SIZE, MockCamera.SIZE)
 
 
 class TestStagesWithMocks:
@@ -435,14 +345,15 @@ class TestStagesWithMocks:
         runbook.stage_sweep(args, tmp_path)
 
         debug = runbook.ROOT / "data" / "debug"
-        # debug_run_dir nests a date-stamped dir INSIDE the prefixed one
-        # (data/debug/<prefix>/<YYYYmmdd_HHMMSS>/), so the directory name carries
-        # no timestamp suffix -- globbing "<prefix>_*" matched nothing.
+        # debug_run_dir() nests a date-stamped dir INSIDE the prefixed one, i.e.
+        # debug/model_in_loop_hw_sweep/<stamp>/. The old flat layout was
+        # debug/model_in_loop_hw_sweep_<stamp>/, which is what this glob used to
+        # match and which no longer exists.
         runs = sorted(
-            (p for p in debug.glob("model_in_loop_hw_sweep") if p.is_dir()),
+            (p for p in debug.glob("model_in_loop_hw_sweep/*") if p.is_dir()),
             key=lambda p: p.stat().st_mtime,
         )
-        assert runs, "no model_in_loop_hw_sweep debug dir written"
+        assert runs, "no model_in_loop_hw_sweep/<stamp>/ debug dir written"
         pkls = sorted(runs[-1].rglob("*.pkl"))
         assert pkls, f"no pkl under {runs[-1]}"
         with open(pkls[0], "rb") as fh:

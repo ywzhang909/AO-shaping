@@ -1,0 +1,12 @@
+# Keep the build context small and hermetic. data/ is 87 GB and logs/ is
+# regenerated per run; the test image never needs either.
+data/
+logs/
+.venv/
+.git/
+.codegraph/
+**/__pycache__/
+*.pkl
+*.h5
+*.npy
+*.pt

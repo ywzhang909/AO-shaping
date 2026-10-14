@@ -4,7 +4,6 @@ from typing import Annotated
 
 import click
 import numpy as np
-from loguru import logger
 
 from ao_shaping.drivers import MlaRes, ThorlabWFS
 from ao_shaping.drivers.slm import ZernikeSLM
@@ -17,7 +16,6 @@ from ao_shaping.utils.io.cli_helpers import (
     get_date_dir_name,
     setup_coredumpy,
 )
-from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 
 
 def measure_rms(wfs: ThorlabWFS) -> float:

@@ -17,6 +17,8 @@ and the camera-only / WFS probes now live beside it::
         cartographer/  cosine_pattern, hartmann_capture,
                        wavefront_reconstruction, phase_grayscale_lut,
                        dynamic_compensation
+        gs_refine_replay.py  interleaved hardware replay of GS-refine phases
+                       saved in one run directory
         params.py      shared click parameter groups
                        (``SlmBenchParams`` / ``SlmAcquireParams``)
 

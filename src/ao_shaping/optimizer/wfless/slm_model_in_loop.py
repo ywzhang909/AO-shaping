@@ -48,10 +48,9 @@ import is deferred into the functions that open it.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -398,6 +397,15 @@ class SlmModelInLoopConfig:
     squared in both time and memory.
     """
 
+    pupil_oversampling: int = 1
+    """Bilinear sub-pixel pupil interpolation before the far-field FFT.
+
+    ``1`` keeps the model on the command grid. Higher factors enlarge the pupil
+    by that factor, propagate it at the matching finer far-field sampling, and
+    crop back to ``region`` -- so the far-field *field of view* is unchanged and
+    only its sampling improves. Costs ``factor**2`` in FFT time and memory.
+    """
+
     focal_length_m: float = 0.0
     """2f lens focal length in metres; 0 derives it from the measured scale.
 
@@ -498,6 +506,48 @@ class SlmModelInLoopConfig:
     callback: Callable[[int, dict[str, Any]], None] | None = field(
         default=None, repr=False
     )
+    step_sink: Callable[[str, dict[str, Any]], None] | None = field(
+        default=None, repr=False
+    )
+    """Per-**MEASUREMENT** hook for the ``--debug`` per-step artefact dump.
+
+    Called as ``step_sink(stage, payload)`` once for every frame this run
+    measures, and *before* any ``break``.
+
+    WHY this cannot be folded into ``callback``: ``callback`` fires once per
+    round, as the very last statement of the round body, and three ``break``
+    statements precede it -- the rejection-streak abort, the early stop and the
+    display-closed stop. So it is structurally blind to exactly the rounds a
+    debug dump exists for: the one that was rolled back and the one that ended
+    the run. It also never sees the probe loops' per-probe arrays at all, because
+    the only thing it receives is the round row, and that row is scalars-only by
+    contract.
+
+    ``stage`` is a closed vocabulary of exactly four strings, and the runner-side
+    consumer switches on them: ``"flat"`` (the flat baseline), ``"calib-probe"``
+    (the geometry bake-off probes), ``"stepA-probe"`` (the Step-A probe loop --
+    the hot path, ``probe_count`` per round) and ``"stepB-shaped"`` (the Step-B
+    shaped display). ``payload`` always carries the same eight keys:
+
+    * ``phase_rad`` -- the **model-grid** phase in raw unwrapped radians, shape
+      ``(region, region)``, float64. Never the panel array: the panel is a
+      different coordinate frame (on this bench the axes are swapped and the
+      scales differ by >10x).
+    * ``frame`` -- the *prepared* frame (the output of ``_prepare_frame``), i.e.
+      background-subtracted and non-negative.
+    * ``raw_peak`` / ``raw_p999`` / ``raw_mean`` -- ``float`` scalars of the
+      **raw** ``bench.measure()`` return, taken *before* ``_prepare_frame``.
+      Median subtraction and clipping destroy the saturation ceiling, and
+      detecting an over- or under-exposed frame is one of the main reasons to
+      dump a step at all.
+    * ``round`` -- ``0`` for the two pre-loop stages, ``index + 1`` in the loop.
+    * ``probe_index`` / ``probe_count`` -- the probe ordinal inside its own loop
+      and that loop's denominator, so a consumer can print ``3/8``; ``None`` when
+      the stage is not a probe stage.
+
+    An exception raised here propagates: a silently swallowed failure would burn
+    hardware minutes writing nothing.
+    """
     progress_every: int = 1
 
     def __post_init__(self) -> None:
@@ -540,6 +590,11 @@ class SlmModelInLoopConfig:
         if self.far_field_padding < 1:
             raise ValueError(
                 f"far_field_padding must be >= 1, got {self.far_field_padding}"
+            )
+        if self.pupil_oversampling not in (1, 2, 4):
+            raise ValueError(
+                "pupil_oversampling must be 1, 2 or 4, got "
+                f"{self.pupil_oversampling}"
             )
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
@@ -706,6 +761,72 @@ class Bench(Protocol):
 #: Structural stand-in for ``CalibrationRecord``; the concrete class is imported
 #: lazily so this module's import graph stays shallow.
 CalibrationRecordLike = Any
+
+
+def _raw_frame_scalars(raw: np.ndarray) -> tuple[float, float, float]:
+    """``(peak, p99, mean)`` of a **raw** detector frame.
+
+    Call this on ``bench.measure()``'s return value *before* handing that array to
+    :func:`~ao_shaping.optimizer.wfless.slm_gs_refine._prepare_frame`: median
+    subtraction and clipping at zero remove the saturation ceiling, and knowing
+    whether a step was over- or under-exposed is one of the reasons to dump it.
+
+    ``p99`` rather than the median because the frame is overwhelmingly background,
+    so the median says nothing about the beam; ``peak`` because a clipped top
+    pixel is the one symptom that is unambiguous. Returned as plain ``float`` so a
+    JSON/CSV consumer is not handed ``numpy.float64``.
+
+    Args:
+        raw: One frame exactly as ``bench.measure()`` produced it.
+
+    Returns:
+        ``(float(frame.max()), float(percentile(frame, 99)), float(frame.mean()))``.
+    """
+    return float(raw.max()), float(np.percentile(raw, 99)), float(raw.mean())
+
+
+def _step_payload(
+    *,
+    phase_rad: np.ndarray,
+    frame: np.ndarray,
+    raw_scalars: tuple[float, float, float],
+    round_index: int,
+    probe_index: int | None,
+    probe_count: int | None,
+) -> dict[str, Any]:
+    """Build the ``step_sink`` payload from one measurement.
+
+    A single constructor rather than four dict literals, so the eight keys cannot
+    drift between the four call sites -- the runner-side consumer binds to these
+    names exactly.
+
+    ``phase_rad`` and ``frame`` are passed through by reference, not copied: the
+    hook is on the hot path (``probe_count`` per round), and none of the four
+    sites mutates either array afterwards.
+
+    Args:
+        phase_rad: Model-grid phase that produced the frame, raw unwrapped radians.
+        frame: Prepared frame (output of ``_prepare_frame``).
+        raw_scalars: Output of :func:`_raw_frame_scalars`, taken before
+            preparation.
+        round_index: ``0`` for the pre-loop stages, else ``index + 1``.
+        probe_index: Ordinal within the owning probe loop, else ``None``.
+        probe_count: Denominator for that loop, else ``None``.
+
+    Returns:
+        The payload dict with exactly the eight documented keys.
+    """
+    raw_peak, raw_p999, raw_mean = raw_scalars
+    return {
+        "phase_rad": phase_rad,
+        "frame": frame,
+        "raw_peak": raw_peak,
+        "raw_p999": raw_p999,
+        "raw_mean": raw_mean,
+        "round": int(round_index),
+        "probe_index": None if probe_index is None else int(probe_index),
+        "probe_count": None if probe_count is None else int(probe_count),
+    }
 
 
 def _probe_phase(
@@ -1520,6 +1641,7 @@ def _make_optimizer(
         dtype=str(config.dtype),
         far_field_size=int(config.region) * int(config.far_field_padding),
         frozen_modes=tuple(config.frozen_modes),
+        pupil_oversampling=int(config.pupil_oversampling),
     )
     if source_amplitude is not None:
         optimizer.set_source_amplitude(source_amplitude)
@@ -2111,7 +2233,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             )
             if config.cam_type != "sim":
                 recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
-            bench.display(np.asarray(shaped, dtype=np.float64))
+            shaped_phase = np.asarray(shaped, dtype=np.float64)
+            bench.display(shaped_phase)
             shaped_frame = prepare_frame(bench.measure())
             shaped_prediction_correlation = float("nan")
             if config.cam_type != "sim":
@@ -2218,12 +2341,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 # Prediction under the *clamped* coefficients -- the ones the
                 # acceptance test actually judged -- not the raw fit, so the
                 # picture matches the verdict in ``reason``.
-                _shaped_phase = np.asarray(shaped, dtype=np.float64)
                 live_display.update(
                     measured=shaped_frame,
-                    phase=_shaped_phase,
+                    phase=shaped_phase,
                     predicted=_predicted_far_field(
-                        optimizer, clamped, _shaped_phase, source_amplitude
+                        optimizer, clamped, shaped_phase, source_amplitude
                     ),
                     center=roi_center,
                     r=target_camera / 2.0,
@@ -2241,7 +2363,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
             if verdict.accepted:
                 coefficients = clamped
-                phase = np.asarray(shaped, dtype=np.float64)
+                # `.copy()` is load-bearing: `phase` is the warm start for the next
+                # round's Step B, and `np.asarray` on an already-float64 array is a
+                # no-op, so without it the committed phase would alias the one the
+                # live view and the step sink were handed.
+                phase = shaped_phase.copy()
                 score_before = score_after
                 rejection_streak = 0
                 if score_after > best_score:

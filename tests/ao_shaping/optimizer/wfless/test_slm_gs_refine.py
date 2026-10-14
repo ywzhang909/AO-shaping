@@ -1,7 +1,7 @@
 """Tests for the GS-warm-started freeform SLM square-shaping hardware loop.
 
 The hardware path cannot be exercised without a Santec SLM and a CCD, so the
-end-to-end coverage runs against ``--cam_type sim`` (the 2f-Fourier digital
+end-to-end coverage runs against ``--cam-type sim`` (the 2f-Fourier digital
 twin). That still exercises the real control flow: ROI location and freezing,
 the GS bake-off, settle-then-average acquisition, SPGD gradient estimation and
 the phase/panel embedding.
@@ -21,11 +21,11 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.algorithm import make_optimizer
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     power_in_bucket,
     uniformity_cv,
 )
+from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless._measure import locate_zero_order
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
@@ -372,7 +372,7 @@ class TestLearningRate:
 class TestOptimizerFactory:
     @pytest.mark.parametrize("kind", ["adam", "adamw", "adamod", "sgd", "unknown"])
     def test_every_kind_yields_a_working_optimizer(self, kind):
-        opt = make_optimizer(kind, 16, 0.1)
+        opt = create_optimizer(kind, 16, 0.1)
         step = opt.update(np.ones(16))
         assert np.asarray(step).shape == (16,)
         assert np.isfinite(np.asarray(step, dtype=float)).all()

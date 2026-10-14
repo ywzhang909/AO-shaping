@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Sequence

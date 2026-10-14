@@ -93,7 +93,6 @@ class LaserCastEnv(gym.Env):
         self.init_voltages = deepcopy(self.last_voltage)
 
     def render(self)->Any:
-        import matplotlib.pyplot as plt
         import pygame
         if self.window is None and self.render_mode == 'human':
             pygame.init()
@@ -214,6 +213,7 @@ class TensorboardCallback(BaseCallback):
 
     def _on_step(self, **kwargs):
         import matplotlib.pyplot as plt
+
         if not self.best_rms:
             self.best_rms = self.training_env.get_attr('init_rms')
 
@@ -317,9 +317,10 @@ class CustomCombineImageAndVetorExtractor(BaseFeaturesExtractor):
         return nn.Sequential(cnn, linear)
 
 
-train = True
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
+
+    train = True
     device = 'cuda' if th.cuda.is_available() else 'cpu'
     img_size = (192, 192)
     env = LaserCastEnv(render_mode='rgb_array', max_iter=200, img_size=img_size, img_noise=True, r_bucket=5)

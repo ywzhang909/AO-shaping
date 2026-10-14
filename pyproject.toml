@@ -105,17 +105,27 @@ data = [
 # `uv sync --extra torch-cu128` able to pick the index at all.
 #
 # Pick the extra by your GPU's compute capability -- the deciding fact is that
-# NVIDIA Blackwell (RTX 50xx, sm_120) needs CUDA >= 12.8. A cu124/cu121 build
+# NVIDIA Blackwell (RTX 50xx, sm_120) needs CUDA >= 12.8, and NVIDIA Pascal
+# (GTX 10xx, sm_61) was DROPPED from the 12.8/12.9 builds. A mismatched build
 # installs cleanly and then fails at runtime with
 #     RuntimeError: CUDA error: no kernel image is available for execution on the device
-# (pytorch/pytorch#159207). Verify before choosing:
+# (pytorch/pytorch#159207, pytorch/pytorch#157517). Verify before choosing:
 #     python -c "import torch; print(torch.cuda.get_device_capability(0))"
 #   sm_120 (RTX 50xx)  -> torch-cu128 / torch-cu130 / torch-cu132
 #   sm_90  (RTX 40xx)  -> torch-cu126 or newer
+#   sm_61  (GTX 10xx)  -> torch-cu126 ONLY (last CUDA 12.x with Pascal)
 #   no CUDA            -> torch-cpu
+#
+# torch-cu126 is capped at <2.15: NVIDIA stopped publishing cu126 wheels from
+# PyTorch 2.15 onward, so an uncapped requirement silently resolves to a CPU
+# wheel from the default index and silently loses the GPU.
 [project.optional-dependencies]
 torch-cpu = [
     "torch>=2.4.0",
+    "torchvision>=0.20",
+]
+torch-cu126 = [
+    "torch>=2.4.0,<2.15",
     "torchvision>=0.20",
 ]
 torch-cu128 = [
@@ -137,6 +147,7 @@ torch-cu132 = [
 conflicts = [
     [
         { extra = "torch-cpu" },
+        { extra = "torch-cu126" },
         { extra = "torch-cu128" },
         { extra = "torch-cu130" },
         { extra = "torch-cu132" },
@@ -153,6 +164,11 @@ default = true
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [[tool.uv.index]]
@@ -173,12 +189,14 @@ explicit = true
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cpu", extra = "torch-cpu" },
+  { index = "pytorch-cu126", extra = "torch-cu126" },
   { index = "pytorch-cu128", extra = "torch-cu128" },
   { index = "pytorch-cu130", extra = "torch-cu130" },
   { index = "pytorch-cu132", extra = "torch-cu132" },
 ]
 torchvision = [
   { index = "pytorch-cpu", extra = "torch-cpu" },
+  { index = "pytorch-cu126", extra = "torch-cu126" },
   { index = "pytorch-cu128", extra = "torch-cu128" },
   { index = "pytorch-cu130", extra = "torch-cu130" },
   { index = "pytorch-cu132", extra = "torch-cu132" },

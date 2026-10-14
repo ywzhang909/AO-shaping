@@ -126,7 +126,7 @@ if _has_environment:
 
 __version__ = "1.0.0"
 
-# 在此处绑定仿真相机, 使 ``--cam_type sim`` 对本子包的**每一个**消费者都可用,
+# 在此处绑定仿真相机, 使 ``--cam-type sim`` 对本子包的**每一个**消费者都可用,
 # 而不只是那些恰好自己调用了 ``register_sim_camera()`` 的 runner
 # (原始 bug 见 slm_pib_sim)。
 from ao_shaping.drivers.sim.slm_pib_sim import register_sim_camera as _register_sim
