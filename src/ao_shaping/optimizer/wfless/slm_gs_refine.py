@@ -58,7 +58,7 @@ slot twice is a firmware no-op that does not refresh the panel.
 from __future__ import annotations
 
 import math
-import time
+from datetime import datetime, timezone
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -84,8 +84,6 @@ from ao_shaping.drivers.slm.factory import (
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
-from ao_shaping.utils.image.beam_metrics import locate_peak, prepare_frame  # 可选
-from ao_shaping.utils.image.resample import fit_exact, upsample_bilinear_to_shape
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.algorithm import make_optimizer
@@ -95,6 +93,7 @@ from ao_shaping.utils.slm.phase_embed import (
     panel_shape_from_slm,
     pupil_side,
 )
+from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -246,6 +245,8 @@ class SlmGsRefineConfig:
     """0 = keep the device default."""
     cam_size: int = 300
     slm_number: int = 1
+    phase_disturbance_file: str | None = None
+    """Fixed raw-radian panel bias added to every displayed phase."""
     slm_wavelength: int = 0
     """SLM operating wavelength in nm. 0 (the default) asks the DEVICE for its
     configured wavelength instead of assuming this bench's 1064nm -- the lab has
@@ -394,72 +395,16 @@ class SlmGsRefineConfig:
 
 
 # ---------------------------------------------------------------------------
-# Geometry / image helpers
+# Objective metrics
+#
+# Geometry and image helpers (panel shape, pupil side, square mask, phase
+# embedding, zero-order location) are deliberately NOT re-implemented here: this
+# module already imports them from ``utils.slm.phase_embed``,
+# ``utils.image.targets``, ``utils.image.resample`` and
+# ``optimizer.wfless._measure``. Local copies of those lived here once and
+# drifted (``_embed_pupil_square`` clamped where the canonical raises), so they
+# were deleted rather than kept in sync.
 # ---------------------------------------------------------------------------
-
-
-def _panel_shape(slm: Any) -> tuple[int, int]:
-    """Return the panel ``(height, width)`` for a real or simulated SLM."""
-    res = getattr(slm, "Panel_Res", None)
-    if res is not None:
-        return int(res[1]), int(res[0])
-    return 1200, 1920
-
-
-def _pupil_side(radius_px: float) -> int:
-    """Edge length of the square covering the illuminated pupil."""
-    return max(32, int(round(2.0 * radius_px)))
-
-
-def _square_mask(shape: tuple[int, int], cy: int, cx: int, side: int) -> np.ndarray:
-    """Boolean square support of edge ``side`` centred on ``(cy, cx)``.
-
-    Clipped to the frame. The bench metric functions only ever use the *support*
-    of their ``target`` argument, so a boolean mask is a faithful stand-in for a
-    target intensity pattern.
-    """
-    h, w = shape
-    half = side / 2.0
-    y0, y1 = int(round(cy - half)), int(round(cy + half))
-    x0, x1 = int(round(cx - half)), int(round(cx + half))
-    y0c, y1c = max(0, y0), min(h, y1)
-    x0c, x1c = max(0, x0), min(w, x1)
-    mask = np.zeros(shape, dtype=bool)
-    if y1c > y0c and x1c > x0c:
-        mask[y0c:y1c, x0c:x1c] = True
-    return mask
-
-
-def _fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Force ``arr`` to exactly ``shape`` by edge-padding then cropping."""
-    h, w = shape
-    out = np.asarray(arr, dtype=np.float64)
-    ph, pw = max(0, h - out.shape[0]), max(0, w - out.shape[1])
-    if ph or pw:
-        out = np.pad(out, ((0, ph), (0, pw)), mode="edge")
-    return out[:h, :w]
-
-
-def _upsample_bilinear(coarse: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Bilinear upsample of a coarse grid to an exact ``shape``."""
-    from scipy.ndimage import zoom
-
-    if tuple(coarse.shape) == tuple(shape):
-        return np.asarray(coarse, dtype=np.float64)
-    factors = (shape[0] / coarse.shape[0], shape[1] / coarse.shape[1])
-    return _fit_exact(zoom(coarse, factors, order=1, mode="nearest"), shape)
-
-
-def _locate_zero_order(frame: np.ndarray) -> tuple[int, int]:
-    """Locate the 0-order as the frame global maximum, returned as ``(cy, cx)``.
-
-    On a 2f-Fourier bench the optical axis lands at the camera centre only by
-    luck (measured: frame centre (1344, 760) vs 0-order (1441, 705)), so geometry
-    must never be used for this.
-    """
-    masked = np.where(np.isfinite(frame), frame, 0.0)
-    iy, ix = np.unravel_index(int(np.argmax(masked)), masked.shape)
-    return int(iy), int(ix)
 
 
 def _metrics(
@@ -472,98 +417,6 @@ def _metrics(
     pib = power_in_bucket(frame, mask)
     cv = uniformity_cv(frame, mask)
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
-
-
-def _embed_pupil_square(
-    box: np.ndarray, panel_shape: tuple[int, int], radius_px: float
-) -> np.ndarray:
-    """Embed a pupil-square array into a full-panel array, centred.
-
-    The freeform DOF and the GS phase are both computed on a square covering
-    only the illuminated pupil. Everything outside stays flat, so no degree of
-    freedom is spent on light that never reaches the far field.
-    """
-    ph, pw = panel_shape
-    out = np.zeros((ph, pw), dtype=np.float64)
-    side = min(pupil_side(radius_px), ph, pw)
-    y0, x0 = (ph - side) // 2, (pw - side) // 2
-    out[y0 : y0 + side, x0 : x0 + side] = _fit_exact(box, (side, side))
-    return out
-
-
-def _compose(
-    base_panel: np.ndarray,
-    dof: np.ndarray | None,
-    panel_shape: tuple[int, int],
-    radius_px: float,
-) -> np.ndarray:
-    """Full-panel raw-radian phase = base (flat or GS) + embedded freeform DOF.
-
-    ``base_panel`` is never mutated, so the accumulated DOF cannot be double
-    counted when the best iterate is promoted.
-    """
-    if dof is None or not np.any(dof):
-        return base_panel
-    box = _upsample_bilinear(dof, (pupil_side(radius_px),) * 2)
-    return base_panel + embed_pupil_square(box, panel_shape, radius_px)
-
-
-# ---------------------------------------------------------------------------
-# Measurement
-# ---------------------------------------------------------------------------
-
-
-def display_and_average(
-    cam: Any,
-    slm: Any,
-    phase_rad: np.ndarray,
-    *,
-    n_frames: int,
-    settle_wait_s: float,
-    settle_tol: float,
-    settle_max_wait_s: float,
-    settle_max_discard: int,
-    memory_number: int | None = None,
-) -> np.ndarray:
-    """Write ``phase_rad`` (raw radians), wait for the panel to settle, average.
-
-    Real hardware uses a pair of explicit memory slots that exclude the slot
-    displayed before the run. The simulator receives only the gray map because
-    its ``display_data`` does not accept hardware slot arguments.
-    """
-    gray = slm.create_phase_from_array(phase_rad)
-    if memory_number is None:
-        slm.display_data(gray)
-    else:
-        slm.display_data(gray, memory_number=memory_number)
-
-    if settle_wait_s > 0:
-        time.sleep(settle_wait_s)
-
-    def probe() -> tuple[float, float, float]:
-        img = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
-        cy, cx = _locate_zero_order(img)
-        return float(img[cy, cx]), float(cy), float(cx)
-
-    prev = probe()
-    deadline = time.time() + max(0.0, settle_max_wait_s - settle_wait_s)
-    for _ in range(int(settle_max_discard)):
-        if time.time() >= deadline:
-            break
-        cur = probe()
-        if (
-            abs(cur[0] - prev[0]) <= settle_tol * max(prev[0], 1.0)
-            and abs(cur[1] - prev[1]) <= settle_tol * 40.0
-            and abs(cur[2] - prev[2]) <= settle_tol * 40.0
-        ):
-            break
-        prev = cur
-
-    acc = [
-        np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
-        for _ in range(max(1, int(n_frames)))
-    ]
-    return prepare_frame(np.mean(acc, axis=0))
 
 
 # ---------------------------------------------------------------------------
@@ -773,6 +626,11 @@ def _run_gs_refine_session(
     best_frame: np.ndarray | None = None
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
+    disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
+
+    def displayed_phase(phase: np.ndarray) -> np.ndarray:
+        return phase if disturbance is None else phase + disturbance
+
     center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
     side = pupil_side(config.beam_radius_px)
     if (center_xy[0] - side // 2 < 0 or center_xy[1] - side // 2 < 0
@@ -785,7 +643,7 @@ def _run_gs_refine_session(
         discovery = display_and_average(
             cam,
             slm,
-            np.zeros(panel_shape, dtype=np.float64),
+            displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
             n_frames=1,
             settle_wait_s=config.settle_wait_s,
             settle_tol=config.settle_tol,
@@ -824,9 +682,10 @@ def _run_gs_refine_session(
 
     work_slots = work_slots[:2]
     measurement_count = 0
+    last_capture_utc = ""
 
     def measure(phase: np.ndarray) -> np.ndarray:
-        nonlocal measurement_count
+        nonlocal measurement_count, last_capture_utc
         memory_number = None
         if config.cam_type != "sim":
             memory_number = work_slots[measurement_count % len(work_slots)]
@@ -834,7 +693,7 @@ def _run_gs_refine_session(
         frame = display_and_average(
             cam,
             slm,
-            phase,
+            displayed_phase(phase),
             n_frames=config.n_eval_frames,
             settle_wait_s=config.settle_wait_s,
             settle_tol=config.settle_tol,
@@ -844,6 +703,7 @@ def _run_gs_refine_session(
         )
         if config.cam_type == "daheng" and np.max(frame) >= 250:
             raise ValueError("Daheng CCD frame saturated; reduce exposure before continuing")
+        last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         return frame
 
     def record(
@@ -865,14 +725,15 @@ def _run_gs_refine_session(
             "cv": cv,
             "target_side": target_side,
             "_epoch": len(recorder.history),
+            "timestamp_utc": last_capture_utc,
             **extra,
         }
         if config.record_debug:
             row["_img"] = np.asarray(frame).copy()
-            row["_phase"] = np.asarray(slm.create_phase_from_array(phase)).copy()
+            row["_phase"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase))).copy()
             if other_frame is not None and other_phase is not None:
                 other_img = np.asarray(other_frame).copy()
-                other_gray = np.asarray(slm.create_phase_from_array(other_phase)).copy()
+                other_gray = np.asarray(slm.create_phase_from_array(displayed_phase(other_phase))).copy()
                 if positive_wins:
                     row.update(
                         _img_pos=row["_img"],
@@ -956,7 +817,9 @@ def _run_gs_refine_session(
         phase_pos = phase_of(dof + delta)
         phase_neg = phase_of(dof - delta)
         frame_pos = measure(phase_pos)
+        pos_timestamp = last_capture_utc
         frame_neg = measure(phase_neg)
+        neg_timestamp = last_capture_utc
         pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif)[0]
         neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif)[0]
 
@@ -982,13 +845,15 @@ def _run_gs_refine_session(
             neg=neg,
             probe_score=probe_score,
             confirmed=confirmed,
+            pos_timestamp_utc=pos_timestamp,
+            neg_timestamp_utc=neg_timestamp,
         )
         if config.record_debug and confirmed:
             row = recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
-            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(phase_pos)).copy()
+            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_pos))).copy()
             row["_img_neg"] = np.asarray(frame_neg).copy()
-            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(phase_neg)).copy()
+            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_neg))).copy()
         if score > best_score:
             best_score = score
             best_phase = measured_phase
