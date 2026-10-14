@@ -1,7 +1,5 @@
 # SLM Zernike 扫描探针 (slm_zernike_sweep_probe)
 
-> **生成脚本**: [`scripts/generate_slm_zernike_sweep_probe_report.py`](../../scripts/generate_slm_zernike_sweep_probe_report.py)
-> **复现命令**: `python scripts/generate_slm_zernike_sweep_probe_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么
@@ -68,10 +66,10 @@ graph TD
 
 ```bash
 # 只打印采集计划 (先跑这个确认)
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --no-hw
+python -m ao_shaping.tools.zernike.sweep_probe --no-hw
 
 # 完整硬件扫描
-python -m ao_shaping.tools.slm.slm_zernike_sweep_probe --exposure-ms 3.0 \
+python -m ao_shaping.tools.zernike.sweep_probe --exposure-ms 3.0 \
     --pupil-center 960,600 --zernike-radius 450
 ```
 

@@ -5,8 +5,8 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-import ao_shaping.tools.slm.slm_phase_response as phase_response
-from ao_shaping.tools.slm.slm_phase_response import (
+import ao_shaping.tools.slm.panel.phase_response as phase_response
+from ao_shaping.tools.slm.panel.phase_response import (
     PhaseCase,
     _delta,
     _metrics,

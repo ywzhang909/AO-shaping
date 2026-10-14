@@ -66,10 +66,13 @@ from ao_shaping.optimizer.wfless.slm_square_shaping import (
     _zernike_indices,
     optimize_slm_square,
 )
+from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+    display_rotating,
+)
+from ao_shaping.optimizer.wfless import slm_zernike_pib as _pib_module
 from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     SLM_RESOLUTION,
     SlmZernikePibConfig,
-    _display,
     optimize_slm_zernike_pib,
 )
 from ao_shaping.runners.runner_common import (
@@ -191,6 +194,14 @@ _SQUARE_DEBUG_SCALAR_KEYS = (
 _SQUARE_DEBUG_IMG_KEYS = ("_img",)
 _SQUARE_DEBUG_1D_KEYS = ("_c", "_grad")
 
+# The auto-exposure probe below writes a slot before optimize_slm_zernike_pib()
+# starts, so it must continue slm_zernike_pib's own counter; a second counter
+# would restart at the same slot, and consecutive writes to one slot are a
+# firmware no-op, so with --init-c the optimizer's first display (non-zero
+# coefficients) could be swallowed and the first measurement would read the
+# probe's flat phase. Read through the module rather than binding an alias, so
+# reassigning slm_zernike_pib._SLOT_ROTATOR (as tests do) is still honoured.
+
 
 def _effective_objective_key(name: str, target_shape: Any) -> str:
     """Return the dict key the optimizer actually records for the objective value.
@@ -203,16 +214,6 @@ def _effective_objective_key(name: str, target_shape: Any) -> str:
     panel column for the best-row of a Pearson run: wrong numbers, no error.
     """
     return ObjectiveSpec.resolve(name, target_shape).name
-
-
-def _config_payload(obj: Any) -> dict[str, Any]:
-    """Serialize a search-config dataclass for the JSON debug sidecar.
-
-    Drops unset (None) fields and fields left at their dataclass default;
-    the identity field (``algorithm`` / ``name``) is always kept so the
-    search family survives the round trip.
-    """
-    return config_payload(obj)
 
 
 def _save_debug_artifacts(
@@ -238,7 +239,7 @@ def _save_debug_artifacts(
     # Objective identity lives on the camera/objective param bundle.
     target = getattr(camera, "target", None)
     payload = {
-        **_config_payload(obj_or_heur),
+        **config_payload(obj_or_heur),
         "objective": getattr(target, "name", None),
         "target_shape": getattr(target, "target_shape", None),
         "target_size": getattr(camera, "target_size", None),
@@ -395,7 +396,7 @@ def _resolve_auto_camera(
             flat = probe_slm.create_phase_from_array(
                 np.zeros((SLM_RESOLUTION[1], SLM_RESOLUTION[0]), dtype=np.float32)
             )
-            _display(probe_slm, flat)
+            display_rotating(probe_slm, flat, _pib_module._SLOT_ROTATOR)
             time.sleep(0.3)
             probe = open_camera(camera.cam_type, camera.cam_id, camera.exposure_time_ms)
             try:
@@ -652,7 +653,7 @@ def _square_json_payload(
     all. The resolved config is therefore written out field by field, so a
     reader never has to know which default was in force when the run happened.
     """
-    payload = {**_config_payload(params), **_config_payload(slm_params)}
+    payload = {**config_payload(params), **config_payload(slm_params)}
     payload.update(
         {
             "family": "spgd-square",

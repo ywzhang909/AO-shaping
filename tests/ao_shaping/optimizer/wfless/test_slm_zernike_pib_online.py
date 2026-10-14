@@ -11,7 +11,7 @@ What is validated (user constraints: daheng CCD, n_max > 6, delta < 0.001):
 
 1. ``test_noise_floor_and_snr_monotone_with_delta`` — delegates to the shared,
    **device-agnostic** probe
-   :func:`ao_shaping.tools.slm.sweep_analysis.snr_sweep` (already-open cam/slm are
+   :func:`ao_shaping.tools.kernels.sweep_analysis.snr_sweep` (already-open cam/slm are
    passed in; the probe never constructs a device), so this bench test and
    ``scripts/measure_shape_sensitivity.py`` measure identically and cannot drift
    apart. The J measurement noise floor at a fixed phase is finite and positive,
@@ -95,8 +95,8 @@ def make_config(
     n_eval_frames: int = 1,
 ) -> SlmZernikePibConfig:
     """SPGD-branch config equivalent to the reference CLI invocation:
-    ``spgd -c max --target_shape square --target_size 50 --delta 0.0005
-    --exposure_time_ms 1.2 -e <epochs> --zernike_radius 480 -n 7 --lr 0.5``."""
+    ``spgd -c max --target-shape square --target-size 50 --delta 0.0005
+    --exposure-time-ms 1.2 -e <epochs> --zernike-radius 480 -n 7 --lr 0.5``."""
     camera = CameraParamsPib(
         center="max",
         cam_id=CAM_ID,
@@ -225,7 +225,7 @@ class TestNoiseFloorAndSnr:
 
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm import Santec
-        from ao_shaping.tools.slm.sweep_analysis import snr_sweep
+        from ao_shaping.tools.kernels.sweep_analysis import snr_sweep
 
         with create_camera(cfg.camera) as cam, Santec.from_params(cfg.slm) as slm:
             # The measurement itself is delegated to the shared, device-agnostic

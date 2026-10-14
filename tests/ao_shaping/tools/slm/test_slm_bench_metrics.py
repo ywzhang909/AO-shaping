@@ -14,7 +14,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.bench_kernels import (
+from ao_shaping.tools.kernels.bench_kernels import (
     build_block_pattern,
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,
@@ -41,8 +41,9 @@ class TestPrepDivergence:
 
     ``finite_clip`` mirrors ``slm_square_shaping.square_peak_to_background_ratio``
     (clip only) and ``finite_median_subtract`` mirrors
-    ``slm_gs_refine._prepare_frame`` (median-subtract then clip). Both are
-    correct for their own metric, and swapping them breaks one.
+    ``ao_shaping.utils.image.beam_metrics.prepare_frame`` (median-subtract
+    then clip). Both are correct for their own metric, and swapping them
+    breaks one.
     """
 
     def test_clip_preserves_the_pedestal(self):
@@ -83,11 +84,11 @@ class TestPrepDivergence:
         )
 
     def test_median_subtract_matches_the_live_prepare_frame(self):
-        """Lock against ``slm_gs_refine._prepare_frame`` itself."""
-        from ao_shaping.optimizer.wfless.slm_gs_refine import _prepare_frame
+        """Lock against the canonical ``prepare_frame`` itself."""
+        from ao_shaping.utils.image.beam_metrics import prepare_frame
 
         frame = _pedestal_frame(5.0)
-        assert np.array_equal(finite_median_subtract(frame), _prepare_frame(frame))
+        assert np.array_equal(finite_median_subtract(frame), prepare_frame(frame))
 
     def test_the_two_preps_are_not_interchangeable(self):
         """The load-bearing test.
@@ -279,8 +280,10 @@ class TestCameraPixelFromFocalScale:
     def test_measured_scale_recovers_the_measured_pitch(self):
         # 1064 nm, f = 125 mm, d_slm = 8 um, K = 7400 -> 2.247 um.
         got = camera_pixel_um_from_focal_scale(
-            wavelength_nm=1064.0, focal_length_m=0.125,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            focal_length_m=0.125,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         )
         assert got == pytest.approx(2.247, rel=1e-3)
 
@@ -291,8 +294,10 @@ class TestCameraPixelFromFocalScale:
                 1064e-9 * 0.125 / ((8e-6) * (p_um * 1e-6))
             )  # forward: K = lam*f/(d_slm*p_cam)
             back = camera_pixel_um_from_focal_scale(
-                wavelength_nm=1064.0, focal_length_m=0.125,
-                slm_pixel_um=8.0, focal_scale_px=k,
+                wavelength_nm=1064.0,
+                focal_length_m=0.125,
+                slm_pixel_um=8.0,
+                focal_scale_px=k,
             )
             assert back == pytest.approx(p_um, rel=1e-6)
 
@@ -302,17 +307,39 @@ class TestCameraPixelFromFocalScale:
         k_from_stale = 1064e-9 * 0.125 / (8e-6 * 3.31e-6)
         assert k_from_stale == pytest.approx(5023.0, rel=0.01)
         derived = camera_pixel_um_from_focal_scale(
-            wavelength_nm=1064.0, focal_length_m=0.125,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            focal_length_m=0.125,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         )
         assert derived < 2.4, "must not reproduce the stale 3.31 um"
 
     def test_rejects_degenerate_inputs(self):
         for bad in (
-            dict(wavelength_nm=0.0, focal_length_m=0.125, slm_pixel_um=8.0, focal_scale_px=7400.0),
-            dict(wavelength_nm=1064.0, focal_length_m=0.0, slm_pixel_um=8.0, focal_scale_px=7400.0),
-            dict(wavelength_nm=1064.0, focal_length_m=0.125, slm_pixel_um=0.0, focal_scale_px=7400.0),
-            dict(wavelength_nm=1064.0, focal_length_m=0.125, slm_pixel_um=8.0, focal_scale_px=0.0),
+            dict(
+                wavelength_nm=0.0,
+                focal_length_m=0.125,
+                slm_pixel_um=8.0,
+                focal_scale_px=7400.0,
+            ),
+            dict(
+                wavelength_nm=1064.0,
+                focal_length_m=0.0,
+                slm_pixel_um=8.0,
+                focal_scale_px=7400.0,
+            ),
+            dict(
+                wavelength_nm=1064.0,
+                focal_length_m=0.125,
+                slm_pixel_um=0.0,
+                focal_scale_px=7400.0,
+            ),
+            dict(
+                wavelength_nm=1064.0,
+                focal_length_m=0.125,
+                slm_pixel_um=8.0,
+                focal_scale_px=0.0,
+            ),
         ):
             with pytest.raises(ValueError):
                 camera_pixel_um_from_focal_scale(**bad)
@@ -330,8 +357,10 @@ class TestFocalLengthFromCameraPixel:
     def test_measured_scale_recovers_the_nominal_lens(self):
         # p_cam = 2.2 um, d_slm = 8 um, K = 7400 @1064nm -> 122.4 mm.
         got = focal_length_from_camera_pixel(
-            wavelength_nm=1064.0, camera_pixel_um=2.2,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            camera_pixel_um=2.2,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
             scale_measured_at_nm=1064.0,
         )
         assert got == pytest.approx(0.1224, rel=1e-3)
@@ -340,19 +369,25 @@ class TestFocalLengthFromCameraPixel:
         for f_m in (0.1, 0.125, 0.2, 0.5):
             k = 1064e-9 * f_m / (8e-6 * 2.2e-6)  # forward: K = lam*f/(d_slm*p_cam)
             back = focal_length_from_camera_pixel(
-                wavelength_nm=1064.0, camera_pixel_um=2.2,
-                slm_pixel_um=8.0, focal_scale_px=k,
+                wavelength_nm=1064.0,
+                camera_pixel_um=2.2,
+                slm_pixel_um=8.0,
+                focal_scale_px=k,
             )
             assert back == pytest.approx(f_m, rel=1e-6)
 
     def test_is_the_exact_inverse_of_the_pitch_helper(self):
         f = focal_length_from_camera_pixel(
-            wavelength_nm=1064.0, camera_pixel_um=2.2,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            camera_pixel_um=2.2,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         )
         assert camera_pixel_um_from_focal_scale(
-            wavelength_nm=1064.0, focal_length_m=f,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            focal_length_m=f,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         ) == pytest.approx(2.2, rel=1e-9)
 
     def test_scale_measured_elsewhere_makes_f_wavelength_invariant(self):
@@ -365,8 +400,10 @@ class TestFocalLengthFromCameraPixel:
         """
         referred = [
             focal_length_from_camera_pixel(
-                wavelength_nm=lam, camera_pixel_um=2.2,
-                slm_pixel_um=8.0, focal_scale_px=7400.0,
+                wavelength_nm=lam,
+                camera_pixel_um=2.2,
+                slm_pixel_um=8.0,
+                focal_scale_px=7400.0,
                 scale_measured_at_nm=1064.0,
             )
             for lam in (1064.0, 532.0, 780.0)
@@ -375,8 +412,10 @@ class TestFocalLengthFromCameraPixel:
         assert referred[0] == pytest.approx(referred[2], rel=1e-9)
 
         unreferred = focal_length_from_camera_pixel(
-            wavelength_nm=532.0, camera_pixel_um=2.2,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=532.0,
+            camera_pixel_um=2.2,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         )
         assert unreferred == pytest.approx(2.0 * referred[0], rel=1e-6), (
             "without the reference the focal length must scale with wavelength"
@@ -384,8 +423,10 @@ class TestFocalLengthFromCameraPixel:
 
     def test_rejects_degenerate_inputs(self):
         base = dict(
-            wavelength_nm=1064.0, camera_pixel_um=2.2,
-            slm_pixel_um=8.0, focal_scale_px=7400.0,
+            wavelength_nm=1064.0,
+            camera_pixel_um=2.2,
+            slm_pixel_um=8.0,
+            focal_scale_px=7400.0,
         )
         for override in (
             {"wavelength_nm": 0.0},

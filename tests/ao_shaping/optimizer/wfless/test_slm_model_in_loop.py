@@ -33,13 +33,20 @@ pin here.
 These tests run with no hardware and no SDK: the bench is the in-repo simulated
 backend and the forward model is torch on ``device="cpu"``.
 
-One fact about the runtime budget shaped the layout of this file: importing
-``slm_model_in_loop`` costs ~28 s, because its module-level import of
-``slm_gs_refine`` (needed for ``_prepare_frame``) drags in the driver package.
-The import-isolation probe needs a *clean* interpreter, so it necessarily pays
-that cost a second time; it is therefore wrapped in ``lru_cache`` and shared by
-every isolation test, making it 28 s rather than 28 s each. The remaining ~2 s is
-the simulated end-to-end round.
+One fact about the runtime budget shaped the layout of this file: the
+import-isolation probe needs a *clean* interpreter, so it necessarily
+pays the import cost a second time; it is therefore wrapped in
+``lru_cache`` and shared by every isolation test. Importing
+``slm_model_in_loop`` used to cost far more, because its module-level
+import of ``slm_gs_refine`` (needed for ``_prepare_frame``) dragged
+that module's whole bench into a clean import. ``_prepare_frame`` now
+lives in the leaf ``ao_shaping.utils.image.beam_metrics`` layer, so
+that edge is gone -- a clean import no longer loads ``slm_gs_refine``
+or the sim bench at all. What a clean import still pays for is the
+``ao_shaping`` package facade, which eagerly imports the optimizer
+chain (torch included); that is a separate, known defect of the
+facade, not of this runner. The remaining ~2 s is the simulated
+end-to-end round.
 
 An earlier revision ran the probe on a background thread to overlap it with the
 parent's own import. That was reverted: two concurrent ~1.5 GB torch imports
@@ -93,6 +100,7 @@ print("@@PROBE@@" + json.dumps({
     "n_added": len(added),
     "n_drivers": len([m for m in added if m.startswith("ao_shaping.drivers")]),
     "bench_loaded": "ao_shaping.drivers.sim.slm_shaping_bench" in sys.modules,
+    "gs_refine_loaded": "ao_shaping.optimizer.wfless.slm_gs_refine" in sys.modules,
     "sdk_loaded": sorted(
         m for m in added if m.split(".")[0] in {"gxipy", "gxi", "MvCameraControl"}
     ),
@@ -106,9 +114,12 @@ _probe_result: dict = {}
 def _probe() -> dict:
     """Run the import probe once per session and memoise the verdict.
 
-    Costs ~28 s, so both isolation tests share this single call. Any failure is
-    turned into a ``pytest.fail`` here rather than returned, so a broken probe
-    can never look like a passing one.
+    Costs a clean-interpreter import of the runner (a few seconds;
+    the ``ao_shaping`` package facade eagerly imports the optimizer
+    chain, torch included), so both isolation tests share this
+    single call. Any failure is turned into a ``pytest.fail`` here
+    rather than returned, so a broken probe can never look like a
+    passing one.
     """
     if _probe_result:
         return _probe_result
@@ -148,12 +159,14 @@ def _probe() -> dict:
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.sim.slm_shaping_bench import composite_from_pib_cv
+from ao_shaping.algorithm.signal_processing.square_shaping import (
+    composite_from_pib_cv,
+)
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     _TILT_SHIFT_SCALE_MEASURED_AT_NM,
     _TILT_SHIFT_SCALE_PX,
-    _prepare_frame,
 )
+from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.wavefront import focal_length_from_camera_pixel
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.optimizer.wfless.slm_model_in_loop import (
@@ -329,12 +342,18 @@ class TestForwardCheckpointSeeding:
         # K = 14, piston-excluded: index 0 = Noll 2 (tip). Distinctive values.
         ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
         path = _write_amp_checkpoint(
-            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            tmp_path / "c.pt",
+            coeffs=ckpt,
+            n_max=n_orders,
+            grid=region,
             far_field_padding=padding,
         )
         config = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=True,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=True,
         )
         seed = _seed_coefficients_from_checkpoint(config)
         assert seed is not None
@@ -352,12 +371,18 @@ class TestForwardCheckpointSeeding:
         ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
         assert ckpt[0] != 0.0 and ckpt[1] != 0.0  # Noll 2 (tip), Noll 3 (tilt)
         path = _write_amp_checkpoint(
-            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            tmp_path / "c.pt",
+            coeffs=ckpt,
+            n_max=n_orders,
+            grid=region,
             far_field_padding=padding,
         )
         config = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=True,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=True,
         )
         seed = _seed_coefficients_from_checkpoint(config)
         assert seed is not None
@@ -373,12 +398,18 @@ class TestForwardCheckpointSeeding:
         n_coeffs = calc_n_zernike_terms(n_orders)
         ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
         path = _write_amp_checkpoint(
-            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=16,
+            tmp_path / "c.pt",
+            coeffs=ckpt,
+            n_max=n_orders,
+            grid=16,
             far_field_padding=padding,  # grid 16 != region 8
         )
         config = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=True,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=True,
         )
         with pytest.raises(ValueError) as exc:
             _seed_coefficients_from_checkpoint(config)
@@ -391,12 +422,18 @@ class TestForwardCheckpointSeeding:
         k = calc_n_zernike_terms(n_max_ckpt) - 1
         ckpt = np.arange(1, k + 1, dtype=np.float32) * 0.25  # length matches K
         path = _write_amp_checkpoint(
-            tmp_path / "c.pt", coeffs=ckpt, n_max=n_max_ckpt, grid=region,
+            tmp_path / "c.pt",
+            coeffs=ckpt,
+            n_max=n_max_ckpt,
+            grid=region,
             far_field_padding=padding,
         )
         config = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=True,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=True,
         )
         with pytest.raises(ValueError) as exc:
             _seed_coefficients_from_checkpoint(config)
@@ -411,27 +448,39 @@ class TestForwardCheckpointSeeding:
         n_coeffs = calc_n_zernike_terms(n_orders)
         ckpt = np.arange(1, n_coeffs, dtype=np.float32) * 0.25
         path = _write_amp_checkpoint(
-            tmp_path / "c.pt", coeffs=ckpt, n_max=n_orders, grid=region,
+            tmp_path / "c.pt",
+            coeffs=ckpt,
+            n_max=n_orders,
+            grid=region,
             far_field_padding=padding,
         )
         cfg_off = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=False,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=False,
         )
         with pytest.raises(ValueError) as exc:
             _seed_coefficients_from_checkpoint(cfg_off)
         assert "radius" in str(exc.value)  # the error names the unrecorded fields
 
         cfg_on = SlmModelInLoopConfig(
-            n_orders=n_orders, region=region, far_field_padding=padding,
-            forward_checkpoint=str(path), assume_unverified_geometry=True,
+            n_orders=n_orders,
+            region=region,
+            far_field_padding=padding,
+            forward_checkpoint=str(path),
+            assume_unverified_geometry=True,
         )
         seed = _seed_coefficients_from_checkpoint(cfg_on)
         assert seed is not None
         loaded = load_trained_forward_model(path)
         report = check_geometry(
-            loaded, region=region, n_orders=n_orders,
-            far_field_size=region * padding, assume_unverified_geometry=True,
+            loaded,
+            region=region,
+            n_orders=n_orders,
+            far_field_size=region * padding,
+            assume_unverified_geometry=True,
         )
         assert report.ok
         joined = " ".join(report.notes)
@@ -525,9 +574,7 @@ class TestUnvalidatedInvariants:
 
     def test_frozen_modes_silently_truncate_floats(self) -> None:
         """LATENT BUG: ``int(m)`` truncates rather than rejecting a fractional index."""
-        config = SlmModelInLoopConfig(
-            frozen_modes=cast("tuple[int, ...]", (1.9,))
-        )
+        config = SlmModelInLoopConfig(frozen_modes=cast("tuple[int, ...]", (1.9,)))
         assert config.frozen_modes == (1,)
 
     def test_camera_pixel_pitch_is_not_validated(self) -> None:
@@ -760,34 +807,34 @@ class TestPrepareFrame:
     def test_output_is_non_negative(self) -> None:
         """Clipping after subtraction is what makes PIB <= 1 and CV finite."""
         frame = np.array([[-5.0, 0.0], [1.0, 2.0]], dtype=np.float64)
-        out = _prepare_frame(frame)
+        out = prepare_frame(frame)
         assert float(out.min()) >= 0.0
 
     def test_output_is_contiguous_and_floating(self) -> None:
         """The resampler downstream requires a contiguous float array."""
-        out = _prepare_frame(np.arange(16, dtype=np.float64).reshape(4, 4))
+        out = prepare_frame(np.arange(16, dtype=np.float64).reshape(4, 4))
         assert out.flags["C_CONTIGUOUS"]
         assert np.issubdtype(out.dtype, np.floating)
 
     def test_floating_input_preserves_its_precision(self) -> None:
         """float32 in, float32 out -- no silent upcast or downcast."""
-        assert _prepare_frame(np.zeros((4, 4), dtype=np.float32)).dtype == np.float32
-        assert _prepare_frame(np.zeros((4, 4), dtype=np.float64)).dtype == np.float64
+        assert prepare_frame(np.zeros((4, 4), dtype=np.float32)).dtype == np.float32
+        assert prepare_frame(np.zeros((4, 4), dtype=np.float64)).dtype == np.float64
 
     def test_integer_input_is_promoted_to_float(self) -> None:
         """An integer detector frame cannot be background-subtracted in place."""
-        out = _prepare_frame(np.arange(16, dtype=np.uint8).reshape(4, 4))
+        out = prepare_frame(np.arange(16, dtype=np.uint8).reshape(4, 4))
         assert np.issubdtype(out.dtype, np.floating)
 
     def test_non_finite_pixels_are_zeroed_before_the_median(self) -> None:
         """NaNs would otherwise poison the median that estimates the background."""
         frame = np.array([[1.0, np.nan], [1.0, 1.0]], dtype=np.float64)
-        out = _prepare_frame(frame)
+        out = prepare_frame(frame)
         assert np.isfinite(out).all()
 
     def test_flat_field_collapses_to_zero(self) -> None:
         """A uniform frame has no beam, so nothing may survive the background."""
-        out = _prepare_frame(np.full((8, 8), 17.0, dtype=np.float64))
+        out = prepare_frame(np.full((8, 8), 17.0, dtype=np.float64))
         np.testing.assert_array_equal(out, np.zeros((8, 8)))
 
 
@@ -926,6 +973,7 @@ class TestQualityScore:
         reopen. This test no longer asserts the saturation exists; it asserts the
         ordering is correct, and records the retired numbers as the reason.
         """
+
         # Retired saturating kernel, reproduced locally so the failure mode stays
         # visible without depending on `compute_quality_score` regressing to it.
         def legacy(cv: float, ee: float) -> float:
@@ -999,7 +1047,12 @@ class TestCliLibraryParity:
     """
 
     #: Config fields with no ``SlmModelInLoopParams`` counterpart.
-    LIBRARY_ONLY_FIELDS = {"sim_aberration", "output_subdir", "progress_every", "callback"}
+    LIBRARY_ONLY_FIELDS = {
+        "sim_aberration",
+        "output_subdir",
+        "progress_every",
+        "callback",
+    }
 
     #: Param fields with no ``SlmModelInLoopConfig`` counterpart.
     CLI_ONLY_FIELDS = {"save_best_image"}
@@ -1089,17 +1142,25 @@ class TestImportIsolation:
        statically from its AST (free). This is the code-hygiene contract, and it
        is what makes claim 1 sufficient: the runner adds no driver *of its own*.
 
-    LATENT FINDING (measured, not papered over)
+    RESOLVED FINDING (was: a measured latent defect)
     --------------------------------------------
-    A clean import of this runner loads **62** ``ao_shaping.drivers.*`` modules,
-    which violates the "package import is side-effect free" spirit of the lazy
-    contract. The attribution is exact: the runner imports
-    ``slm_gs_refine`` for ``_prepare_frame``, and that module's line 70 does
-    ``from ao_shaping.drivers.sim.slm_shaping_bench import ...`` at module level,
-    which in turn runs ``drivers.ccd.common``'s ``register_camera`` side effect.
-    Fixing it needs a source change in ``slm_gs_refine``, so it is reported, not
-    patched here. The ``*_transitively`` canary below pins the current behaviour
-    so that fixing it turns this file red.
+    A clean import of this runner used to load **62**
+    ``ao_shaping.drivers.*`` modules, two of which were
+    attributable to this runner: it imported ``slm_gs_refine``
+    for ``_prepare_frame``, and that module's line 70 did
+    ``from ao_shaping.drivers.sim.slm_shaping_bench import ...``
+    at module level, which ran ``drivers.ccd.common``'s
+    ``register_camera`` side effect. The fix was a source
+    change: ``prepare_frame`` moved to the leaf
+    ``ao_shaping.utils.image.beam_metrics`` layer, so the
+    runner's own graph no longer touches any driver -- a clean
+    import neither loads ``slm_gs_refine`` nor the sim bench.
+    The residual ~60 driver modules all arrive through the
+    ``ao_shaping`` package facade (``ao_shaping/__init__.py``
+    eagerly imports the optimizer chain), which is a separate
+    defect of the facade, reported and not patched here.
+    ``test_import_is_driver_free`` below pins the fixed
+    behaviour.
     """
 
     def test_import_loads_no_vendor_sdk_module(self) -> None:
@@ -1120,15 +1181,17 @@ class TestImportIsolation:
             or name.split(".")[0] in _VENDOR_SDK_ROOTS
         )
         assert offenders == [], (
-            "the runner's module body imports driver/SDK modules directly: "
-            f"{offenders}"
+            f"the runner's module body imports driver/SDK modules directly: {offenders}"
         )
 
     def test_declared_module_level_dependencies_are_the_documented_ones(self) -> None:
         """Pin the dependency set so a refactor cannot silently widen the graph.
 
-        ``slm_gs_refine`` is the module that drags in the driver package (see the
-        class docstring); naming it here is what makes the attribution auditable.
+        ``prepare_frame`` used to arrive via ``slm_gs_refine``, which is
+        what dragged the driver package into the runner's import graph
+        (see the class docstring); it now comes from the leaf
+        ``beam_metrics`` layer, and naming that here is what makes the
+        attribution auditable.
 
         The second name is ``bench_kernels``, not the older ``slm_bench_probe``:
         commit ``54d9613`` merged that module and five siblings into two kernels, and
@@ -1138,26 +1201,40 @@ class TestImportIsolation:
         an ``>=`` pin is silence, not an error.
         """
         assert _module_level_imports() >= {
-            "ao_shaping.optimizer.wfless.slm_gs_refine",
-            "ao_shaping.tools.slm.bench_kernels",
+            "ao_shaping.tools.kernels.bench_kernels",
+            "ao_shaping.utils.image.beam_metrics",
         }
 
-    def test_driver_modules_arrive_transitively_via_slm_gs_refine(self) -> None:
-        """LATENT FINDING canary: the clean import is *not* driver-free.
+    def test_import_is_driver_free(self) -> None:
+        """The runner's own graph no longer touches ``slm_gs_refine``.
 
-        Measured 62 driver modules. This is the eager-import defect described in
-        the class docstring. When someone defers ``slm_gs_refine``'s bench import
-        and the graph goes clean, ``n_drivers`` drops to 0 and this test fails,
-        which is the intended prompt to rewrite it as an assertion of 0.
+        This is the fixed form of the latent-finding canary: the
+        runner used to import ``slm_gs_refine`` for
+        ``_prepare_frame``, which pulled
+        ``ao_shaping.drivers.sim.slm_shaping_bench`` (and its
+        ``register_camera`` side effect) into a clean import.
+        ``prepare_frame`` now lives in
+        ``ao_shaping.utils.image.beam_metrics``, so the sim bench
+        is gone from the graph and ``slm_gs_refine`` never loads.
+
+        ``n_drivers`` is deliberately NOT asserted to be 0: a clean
+        import still loads ~60 ``ao_shaping.drivers.*`` modules,
+        but they all arrive through the ``ao_shaping`` package
+        facade (``ao_shaping/__init__.py`` eagerly imports the
+        optimizer chain), not through this runner's own imports.
+        That is a separate defect of the facade, out of scope here.
         """
         payload = _probe()
-        assert payload["n_drivers"] > 0, (
-            "the runner's import graph is now driver-free -- good, but this "
-            "canary must be rewritten to assert the fixed behaviour"
+        assert payload["bench_loaded"] is False, (
+            "the runner must not pull the sim bench; prepare_frame "
+            "moved to ao_shaping.utils.image.beam_metrics, so "
+            "slm_gs_refine's module-level drivers.sim.slm_shaping_bench "
+            "import is no longer in this graph"
         )
-        assert payload["bench_loaded"] is True, (
-            "the driver modules should arrive via slm_gs_refine's line-70 "
-            "import of ao_shaping.drivers.sim.slm_shaping_bench"
+        assert payload["gs_refine_loaded"] is False, (
+            "the runner must not import slm_gs_refine at all; "
+            "prepare_frame's canonical home is "
+            "ao_shaping.utils.image.beam_metrics"
         )
 
     def test_the_import_really_happened(self) -> None:
@@ -1335,9 +1412,9 @@ class TestSimEndToEnd:
         """
         for row in _sim_result()["history"]:
             for key, value in row.items():
-                assert isinstance(
-                    value, (bool, int, float, str)
-                ), f"{key} is {type(value).__name__}, not a scalar"
+                assert isinstance(value, (bool, int, float, str)), (
+                    f"{key} is {type(value).__name__}, not a scalar"
+                )
 
     def test_acceptance_flags_are_real_booleans(self) -> None:
         """``accepted`` gates a coefficient commit; a truthy int would not do."""
@@ -1422,7 +1499,10 @@ def _seeded_sim_result() -> dict:
         os.close(fd)
         ckpt_path = Path(raw_path)
         _write_amp_checkpoint(
-            ckpt_path, coeffs=coeffs, n_max=n_orders, grid=region,
+            ckpt_path,
+            coeffs=coeffs,
+            n_max=n_orders,
+            grid=region,
             far_field_padding=padding,
         )
         kwargs = dict(_SIM_KWARGS)

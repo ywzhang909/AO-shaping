@@ -48,8 +48,12 @@ from ml.phase.dataset import (
 # `create_zernike_loaders` has always lived in ml.zernike.dataset, not
 # ml.phase.dataset; this import was broken before the Zernike-model rewrite and
 # made `python -m ml.train` unrunnable.
-from ml.zernike.dataset import create_zernike_loaders
-from ml.phase import build_unet, build_discriminator
+from ml.phase import (
+    PatchGANDiscriminator,
+    UNetGenerator,
+    build_discriminator,
+    build_unet,
+)
 from ml.phase.trainer import PhaseGANTrainer
 
 
@@ -88,6 +92,28 @@ def _zernike_regression_removed(model_type: str) -> RuntimeError:
     )
 
 
+def build_gan_models(
+    in_channels: int = 2,
+    device: str | torch.device = "cpu",
+) -> tuple[UNetGenerator, PatchGANDiscriminator]:
+    """Build the U-Net generator and its PatchGAN discriminator.
+
+    This is the one place that pairs the two halves of the phase (U-Net+GAN)
+    model. It used to be referenced here without ever having been defined, so
+    every phase-path entry point (``train --output-mode phase``, ``predict``,
+    ``sweep``) died with ``NameError: name 'build_gan_models' is not defined``.
+
+    The discriminator sees ``in_channels + 1`` because the generator's output
+    (the predicted phase map) is concatenated onto the input image as the
+    conditioning channel -- the same pairing ``train_model`` already used
+    inline before this helper existed, kept here so the three call sites
+    cannot drift apart again.
+    """
+    generator = build_unet(in_channels=in_channels, device=device)
+    discriminator = build_discriminator(in_channels=in_channels + 1, device=device)
+    return generator, discriminator
+
+
 # =============================================================================
 # WandB Sweep Configuration (Universal - supports ALL model types)
 # =============================================================================
@@ -97,14 +123,13 @@ SWEEP_CONFIG = {
     "metric": {"name": "val_loss", "goal": "minimize"},
     "parameters": {
         "lr": {"values": [1e-4, 5e-4, 1e-3, 5e-3]},
-        "model_type": {"values": ["resnet18", "resnet34", "simple_cnn", "unet"]},
-        # Zernike-specific parameters (ignored for unet)
+        "model_type": {"values": ["unet"]},
         "input_mode": {"values": ["focus", "pupil", "combined"]},
-        "output_mode": {"values": ["coeffs", "phase"]},
+        "output_mode": {"values": ["phase"]},
         "n_zernike_terms": {"values": [28, 55]},
-        # UNet-specific parameters (ignored for zernike models)
+        # UNet-specific parameters
         "lambda_l1": {"values": [50.0, 100.0, 200.0]},
-        "gan_mode": {"values": ["lsgan", "vanilla"]},
+        "gan_mode": {"values": ["vanilla", "lsgan"]},
     },
 }
 
@@ -360,9 +385,9 @@ def train_model(
 @click.option(
     "--model-type",
     "model_type",
-    default="resnet18",
+    default="unet",
     type=click.Choice(["unet", "resnet18", "resnet34", "simple_cnn"]),
-    help="模型类型: unet=相位图, 其他=Zernike系数",
+    help="模型类型: unet=相位图, 其他=Zernike系数 (已移除，见 40d65af)",
 )
 @click.option("--epochs", default=100, help="训练轮数")
 @click.option("--batch-size", default=8, help="批次大小")
@@ -544,7 +569,6 @@ def train(
             use_wandb=use_wandb,
             wandb_project=wandb_project,
             wandb_name=wandb_name,
-            log_images=log_images,
             resume=resume,
         )
 
@@ -569,8 +593,8 @@ def _train_phase_mode(
     use_wandb: bool,
     wandb_project: str,
     wandb_name: str | None,
-    log_images: bool,
     resume: str | None,
+    log_images: bool = True,
 ):
     """Train U-Net+GAN for phase map prediction."""
     # Determine input channels
@@ -600,65 +624,29 @@ def _train_phase_mode(
     # Build models
     generator, discriminator = build_gan_models(
         in_channels=in_channels,
-        n_coeffs=n_zernike_terms,
         device=device,
     )
-    logger.info(f"Model: {model_type}, params: {sum(p.numel() for p in model.parameters()):,}")
+    logger.info(
+        f"Generator params: {sum(p.numel() for p in generator.parameters()):,}, "
+        f"discriminator params: {sum(p.numel() for p in discriminator.parameters()):,}"
+    )
 
-    # Save config
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    config = {
-        "model_type": model_type,
-        "input_mode": input_mode,
-        "n_zernike_terms": n_zernike_terms,
-        "n_max": n_max,
-        "target_size": target_size,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "train_split": train_split,
-        "val_split": val_split,
-        "seed": seed,
-    }
-    if is_phase_model:
-        config.update({
-            "lambda_l1": lambda_l1,
-            "lambda_adv": lambda_adv,
-            "gan_mode": gan_mode,
-            "loss_type": loss_type,
-        })
-    with (Path(output_dir) / "config.json").open("w") as f:
-        json.dump(config, f, indent=2)
-
-    # Train using unified training function
-    logger.info(f"Starting {model_type} training for {epochs} epochs...")
-    history = train_model(
-        model=model,
-        train_loader=train_loader,
-        val_loader=val_loader,
-        test_loader=test_loader,
+    trainer = PhaseGANTrainer(
+        generator=generator,
+        discriminator=discriminator,
         device=device,
-        epochs=epochs,
-        lr=lr,
-        weight_decay=weight_decay,
-        model_type=model_type,
-        is_phase_model=is_phase_model,
+        lr_gen=lr,
+        lr_disc=lr,
         lambda_l1=lambda_l1,
         lambda_adv=lambda_adv,
         gan_mode=gan_mode,
-        loss_type=loss_type,
         checkpoint_dir=output_dir,
+        loss_type=loss_type,
         use_wandb=use_wandb,
         wandb_project=wandb_project,
-        wandb_name=wandb_name,
-        resume=resume,
+        wandb_run_name=wandb_name,
+        log_images=log_images,
     )
-
-    # Resume if requested
-    if resume:
-        logger.info(f"Resuming from {resume}")
-        trainer.load_checkpoint(resume)
 
     # Save config
     config = {
@@ -682,6 +670,11 @@ def _train_phase_mode(
 
     with (Path(output_dir) / "config.json").open("w") as f:
         json.dump(config, f, indent=2)
+
+    # Resume if requested
+    if resume:
+        logger.info(f"Resuming from {resume}")
+        trainer.load_checkpoint(resume)
 
     # Train
     logger.info("Starting phase map training...")
@@ -716,259 +709,13 @@ def _train_coeffs_mode(
     wandb_name: str | None,
     resume: str | None,
 ):
-    """Train model for Zernike coefficient prediction."""
-    in_channels = 2 if input_mode == "combined" else 1
+    """Zernike coefficient prediction training -- removed, see 40d65af.
 
-    # Create dataloaders (3-way split)
-    logger.info(f"Loading data from {data_dir}")
-    train_loader, val_loader, test_loader = create_zernike_loaders(
-        data_dir=data_dir,
-        batch_size=batch_size,
-        train_split=train_split,
-        val_split=val_split,
-        input_mode=input_mode,
-        n_zernike_terms=n_zernike_terms,
-        target_size=target_size,
-        num_workers=num_workers,
-        seed=seed,
-    )
-
-    n_train = len(train_loader.dataset)
-    n_val = len(val_loader.dataset)
-    n_test = len(test_loader.dataset)
-    n_batches = len(train_loader)
-    logger.info(f"Dataset: train={n_train}, val={n_val}, test={n_test} samples")
-    logger.info(f"Batch size: {batch_size}, steps per epoch: {n_batches}")
-
-    # Build model (default to resnet18 for coeffs mode)
-    model = build_model(
-        "resnet18",
-        in_channels=in_channels,
-        n_coeffs=n_zernike_terms,
-        device=device,
-    )
-    logger.info(
-        f"Model: resnet18, params: {sum(p.numel() for p in model.parameters()):,}"
-    )
-
-    # Optimizer
-    optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-    scheduler = optim.lr_scheduler.ReduceLROnPlateau(
-        optimizer, mode="min", factor=0.5, patience=10
-    )
-    criterion = nn.MSELoss()
-
-    # WandB
-    wandb_run = None
-    if use_wandb:
-        try:
-            import wandb
-
-            wandb_run = wandb.init(
-                project=wandb_project,
-                name=wandb_name,
-                config={
-                    "model_type": "resnet18",
-                    "input_mode": input_mode,
-                    "n_zernike_terms": n_zernike_terms,
-                    "target_size": target_size,
-                    "lr": lr,
-                    "weight_decay": weight_decay,
-                    "batch_size": batch_size,
-                    "train_split": train_split,
-                    "val_split": val_split,
-                    "seed": seed,
-                    "output_mode": "coeffs",
-                },
-            )
-        except ImportError:
-            logger.warning("wandb not installed, skipping")
-
-    # Resume
-    start_epoch = 0
-    best_val_loss = float("inf")
-    if resume:
-        logger.info(f"Resuming from {resume}")
-        ckpt = torch.load(resume, map_location=device)
-        model.load_state_dict(ckpt["model"])
-        optimizer.load_state_dict(ckpt["optimizer"])
-        start_epoch = ckpt.get("epoch", 0)
-        best_val_loss = ckpt.get("val_loss", float("inf"))
-
-    # Save config
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-    config = {
-        "model_type": "resnet18",
-        "input_mode": input_mode,
-        "n_zernike_terms": n_zernike_terms,
-        "target_size": target_size,
-        "lr": lr,
-        "weight_decay": weight_decay,
-        "batch_size": batch_size,
-        "epochs": epochs,
-        "train_split": train_split,
-        "val_split": val_split,
-        "seed": seed,
-        "output_mode": "coeffs",
-    }
-    with (Path(output_dir) / "config.json").open("w") as f:
-        json.dump(config, f, indent=2)
-
-    # Training loop
-    logger.info(f"Starting Zernike coefficient training for {epochs} epochs...")
-    history = {"train_loss": [], "val_loss": [], "test_loss": []}
-
-    val_loss = np.inf
-    for epoch in range(start_epoch, epochs):
-        # Train
-        model.train()
-        train_loss = 0.0
-        n_processed = 0
-        for batch_idx, batch in enumerate(train_loader):
-            images = batch["image"].to(device)
-            coeffs = batch["coefficients"].to(device)
-
-            optimizer.zero_grad()
-            pred = model(images)
-            loss = criterion(pred, coeffs)
-            loss.backward()
-            optimizer.step()
-
-            train_loss += loss.item() * images.size(0)
-            n_processed += images.size(0)
-
-            # Log every 50 steps
-            if (batch_idx + 1) % 50 == 0:
-                logger.info(
-                    f"  Step {batch_idx + 1}/{n_batches}, batch_loss={loss.item():.6f}"
-                )
-
-        train_loss /= n_train
-
-        # Validate
-        model.eval()
-        val_loss = 0.0
-        n_val_processed = 0
-        with torch.no_grad():
-            for batch in val_loader:
-                images = batch["image"].to(device)
-                coeffs = batch["coefficients"].to(device)
-                pred = model(images)
-                loss = criterion(pred, coeffs)
-                val_loss += loss.item() * images.size(0)
-                n_val_processed += images.size(0)
-
-        val_loss /= n_val
-
-        # Update scheduler
-        old_lr = optimizer.param_groups[0]["lr"]
-        scheduler.step(val_loss)
-        new_lr = optimizer.param_groups[0]["lr"]
-
-        history["train_loss"].append(train_loss)
-        history["val_loss"].append(val_loss)
-
-        # Log epoch
-        lr_info = f", lr={new_lr:.2e}" if new_lr != old_lr else ""
-        logger.info(
-            f"Epoch {epoch + 1}/{epochs}: "
-            f"train_loss={train_loss:.6f}, "
-            f"val_loss={val_loss:.6f}{lr_info}"
-        )
-
-        # Log test images to wandb every 10 epochs or on best
-        if wandb_run and (epoch + 1) % 10 == 0:
-            # Log a random sample from test set
-            test_sample_idx = np.random.randint(0, len(test_loader.dataset))
-            test_sample = test_loader.dataset[test_sample_idx]
-
-            # Get prediction
-            model.eval()
-            with torch.no_grad():
-                test_img = test_sample["image"].unsqueeze(0).to(device)
-                test_coeff = test_sample["coefficients"]
-                pred_coeff = model(test_img).cpu().squeeze(0).numpy()
-
-            # Generate phase maps
-            from ml.phase.dataset import coefficients_to_phase_map
-
-            target_phase = coefficients_to_phase_map(
-                test_coeff.numpy(), size=target_size
-            )
-            pred_phase = coefficients_to_phase_map(pred_coeff, size=target_size)
-
-            # Log image grid
-            wandb_run.log(
-                {
-                    "test_sample": wandb.Image(
-                        np.concatenate([target_phase, pred_phase], axis=1),
-                        caption=f"Epoch {epoch + 1}: target vs prediction",
-                    )
-                }
-            )
-
-        if wandb_run:
-            wandb_run.log(
-                {
-                    "epoch": epoch + 1,
-                    "train_loss": train_loss,
-                    "val_loss": val_loss,
-                    "lr": new_lr,
-                }
-            )
-
-        # Save best
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            logger.info(f"  -> New best model! val_loss={val_loss:.6f}")
-            torch.save(
-                {
-                    "model": model.state_dict(),
-                    "optimizer": optimizer.state_dict(),
-                    "scheduler": scheduler.state_dict(),
-                    "epoch": epoch + 1,
-                    "val_loss": val_loss,
-                    "config": config,
-                },
-                Path(output_dir) / "best.pt",
-            )
-            logger.info(f"Saved best (val={val_loss:.6f})")
-
-    # Final test
-    model.eval()
-    test_loss = 0.0
-    with torch.no_grad():
-        for batch in test_loader:
-            images = batch["image"].to(device)
-            coeffs = batch["coefficients"].to(device)
-            pred = model(images)
-            test_loss += criterion(pred, coeffs).item() * images.size(0)
-
-    test_loss /= n_test
-    history["test_loss"] = test_loss
-    logger.info(f"Test loss: {test_loss:.6f}")
-
-    # Save final with scheduler state
-    torch.save(
-        {
-            "model": model.state_dict(),
-            "optimizer": optimizer.state_dict(),
-            "scheduler": scheduler.state_dict(),
-            "epoch": epochs,
-            "val_loss": val_loss,
-            "test_loss": test_loss,
-            "config": config,
-        },
-        Path(output_dir) / "final.pt",
-    )
-
-    with (Path(output_dir) / "history.json").open("w") as f:
-        json.dump(history, f)
-
-    if wandb_run:
-        wandb_run.finish()
-
-    logger.info(f"Done! Best val={best_val_loss:.6f}, test={test_loss:.6f}")
+    The signature is kept so `train()`'s dispatch stays intact; every argument
+    is now unused because the function cannot run. The physics-based successor
+    is `ml.zernike.train_amp` / `ml.zernike.models.ZernikeAmpModel`.
+    """
+    raise _zernike_regression_removed("resnet18")
 
 
 @cli.command()
@@ -1120,12 +867,12 @@ def sweep(
         # Use CLI overrides or sweep config values
         cfg_input_mode = input_mode if input_mode else cfg.get("input_mode", "combined")
         cfg_output_mode = (
-            output_mode if output_mode else cfg.get("output_mode", "coeffs")
+            output_mode if output_mode else cfg.get("output_mode", "phase")
         )
         cfg_n_terms = (
             n_zernike_terms if n_zernike_terms else cfg.get("n_zernike_terms", 55)
         )
-        cfg_model_type = cfg.get("model_type", "resnet18")
+        cfg_model_type = cfg.get("model_type", "unet")
         cfg_lr = cfg.get("lr", 1e-3)
 
         logger.info(
@@ -1175,115 +922,8 @@ def _sweep_coeffs_agent(
     device: torch.device,
     use_wandb: bool,
 ):
-    """Sweep agent for Zernike coefficient prediction."""
-    import wandb
-
-    in_ch = 2 if input_mode == "combined" else 1
-    model = build_model(
-        model_type, in_channels=in_ch, n_coeffs=n_zernike_terms, device=device
-    )
-
-    train_loader, val_loader, test_loader = create_zernike_loaders(
-        data_dir=data_dir,
-        batch_size=batch_size,
-        input_mode=input_mode,
-        n_zernike_terms=n_zernike_terms,
-        target_size=target_size,
-        num_workers=0,
-    )
-
-    opt = optim.Adam(model.parameters(), lr=lr)
-    crit = nn.MSELoss()
-
-    best_val = float("inf")
-    for epoch in range(epochs):
-        model.train()
-        for batch in train_loader:
-            imgs = batch["image"].to(device)
-            cs = batch["coefficients"].to(device)
-            opt.zero_grad()
-            loss = crit(model(imgs), cs)
-            loss.backward()
-            opt.step()
-
-        model.eval()
-        v_loss = 0.0
-        n_val = 0
-        with torch.no_grad():
-            for batch in val_loader:
-                imgs = batch["image"].to(device)
-                cs = batch["coefficients"].to(device)
-                v_loss += crit(model(imgs), cs).item() * imgs.size(0)
-                n_val += imgs.size(0)
-
-        v_loss /= n_val
-        best_val = min(best_val, v_loss)
-
-        if use_wandb:
-            wandb.log({"val_loss": v_loss, "epoch": epoch + 1})
-
-        # Log test samples every 10 epochs
-        if use_wandb and (epoch + 1) % 10 == 0 and len(test_loader.dataset) > 0:
-            from ml.phase.dataset import coefficients_to_phase_map
-
-            sample_idx = np.random.randint(0, len(test_loader.dataset))
-            sample = test_loader.dataset[sample_idx]
-
-            with torch.no_grad():
-                test_img = sample["image"].unsqueeze(0).to(device)
-                test_coeff = sample["coefficients"].numpy()
-                pred_coeff = model(test_img).cpu().squeeze(0).numpy()
-
-            target_phase = coefficients_to_phase_map(test_coeff, size=target_size)
-            pred_phase = coefficients_to_phase_map(pred_coeff, size=target_size)
-
-            # Log phase comparison
-            wandb.log(
-                {
-                    "phase_comparison": wandb.Image(
-                        np.concatenate([target_phase, pred_phase], axis=1),
-                        caption=f"Epoch {epoch + 1}: target (left) vs pred (right)",
-                    )
-                }
-            )
-
-            # Log coefficient comparison
-            x = np.arange(len(test_coeff))
-            fig, axes = plt.subplots(2, 1, figsize=(12, 8))
-            axes[0].bar(x - 0.2, test_coeff, 0.4, label="Ground Truth", alpha=0.8)
-            axes[0].bar(x + 0.2, pred_coeff, 0.4, label="Prediction", alpha=0.8)
-            axes[0].set_xlabel("Zernike Index")
-            axes[0].set_ylabel("Coefficient Value")
-            axes[0].set_title(f"Zernike Coefficients (Epoch {epoch + 1})")
-            axes[0].legend()
-            axes[0].grid(True, alpha=0.3)
-
-            diff = pred_coeff - test_coeff
-            colors = ["green" if d >= 0 else "red" for d in diff]
-            axes[1].bar(x, diff, color=colors, alpha=0.7)
-            axes[1].axhline(y=0, color="black", linestyle="-", linewidth=0.5)
-            axes[1].set_xlabel("Zernike Index")
-            axes[1].set_ylabel("Difference")
-            axes[1].set_title("Prediction Error")
-            axes[1].grid(True, alpha=0.3)
-
-            plt.tight_layout()
-
-            with tempfile.TemporaryDirectory() as temp_dir:
-                coeff_path = Path(temp_dir) / "coeff_comparison.png"
-                plt.savefig(coeff_path)
-                plt.close()
-                wandb.log(
-                    {
-                        "coeff_comparison": wandb.Image(
-                            Image.open(coeff_path),
-                            caption=f"Epoch {epoch + 1}: coefficients",
-                        )
-                    }
-                )
-
-    if use_wandb:
-        wandb.log({"best_val_loss": best_val})
+    """Zernike coefficient sweep agent -- removed, see 40d65af and _train_coeffs_mode."""
+    raise _zernike_regression_removed(model_type)
 
 
 def _sweep_phase_agent(

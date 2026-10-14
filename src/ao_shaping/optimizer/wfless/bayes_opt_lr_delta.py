@@ -162,7 +162,7 @@ def grid_search_lr_delta(
     for lr in lr_values:
         for delta in delta_values:
             current_combination += 1
-            print(f"测试参数组合 {current_combination}/{total_combinations}: lr={lr}, delta={delta}")
+            logger.debug(f"测试参数组合 {current_combination}/{total_combinations}: lr={lr}, delta={delta}")
 
             try:
                 score = -objective_function(
@@ -184,10 +184,10 @@ def grid_search_lr_delta(
                     best_score = score
                     best_params = {'lr': lr, 'delta': delta}
 
-                print(f"  得分: {score:.4f}")
+                logger.debug(f"  得分: {score:.4f}")
 
             except Exception as e:
-                print(f"  错误: {e}")
+                logger.error(f"  错误: {e}")
                 results.append({
                     'lr': lr,
                     'delta': delta,

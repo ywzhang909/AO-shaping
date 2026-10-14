@@ -50,9 +50,13 @@
 | H-22 | `slm-pib` 合并后未上真机回归（新增一次 `patch_sim_pib_shaping`） | [#39](https://github.com/ywzhang909/AO-shaping/issues/39) |
 | H-23 | 🟡 **纯离线可修**：方形家族 `--debug` 产物只有 freeform 基能进 ML 语料，zernike 基 0% | [#40](https://github.com/ywzhang909/AO-shaping/issues/40) |
 | H-24 | 方形家族进 `hwdataset` 会换 `fov_px` ⇒ `far_field_padding` 标定必须重扫 | [#41](https://github.com/ywzhang909/AO-shaping/issues/41) |
-| **H-25** | **`--w_loggrad` 结构项已落地但未实机验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
+| **H-25** | **`--w-loggrad` 结构项已落地但未实机验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
 
 ### 1.2 FourierGSNet 真机验证（`report/fouriergsnet_pipeline/`）
+
+> 📋 2026-10-12: 结合 `slm-gs-refine`（从未真机运行）与 gsnet 系列报告的
+> **下一步尝试方案**见 [`report/fouriergsnet_pipeline/next_attempt_plan.md`](report/fouriergsnet_pipeline/next_attempt_plan.md)
+> （A 离线修复 → B 探针 → C1 bake-off → C2 refine 首跑 → C3 gsnet 复测 → C4 FourierGSNet run）。
 
 | ID | 摘要 | issue |
 |---|---|---|
@@ -72,7 +76,7 @@
 | H-7 | 方形路径**无 encircled-energy guard** → 任何 `w_efficiency` 权重都会被「散光换 CV」击败 | [#24](https://github.com/ywzhang909/AO-shaping/issues/24) |
 | H-8 | 随机初始化是满幅 `uniform(-π,π)`，与 docstring 的 "small init" **矛盾**，且满幅起点 EE 最高 | [#25](https://github.com/ywzhang909/AO-shaping/issues/25) |
 | H-9 | 方形路径**无 ABBA / 漂移对消**（三个采集点全是相邻两帧）。**2026-10-02 起成本大降**：`slm-pib` 已有可照搬的同款实现 | [#26](https://github.com/ywzhang909/AO-shaping/issues/26) |
-| H-10 | `--exposure_time_ms` 默认 **80.0 ms**（本台架近饱和基线 ~0.02 ms），且传它会**关掉饱和保护**使其成死代码 | [#27](https://github.com/ywzhang909/AO-shaping/issues/27) |
+| H-10 | `--exposure-time-ms` 默认 **80.0 ms**（本台架近饱和基线 ~0.02 ms），且传它会**关掉饱和保护**使其成死代码 | [#27](https://github.com/ywzhang909/AO-shaping/issues/27) |
 | H-11 | 焦距标定常数自相矛盾：文档同写 `132940/P` 与 `7600/P`（**差 17.5×**） | [#28](https://github.com/ywzhang909/AO-shaping/issues/28) |
 | H-12 | `lr=0` 时 `learning_schedule()` **静默覆盖 `--delta`**；`_param_scale` 两基不同；"freeform per-pixel" 名不副实（`np.kron` 分块） | [#29](https://github.com/ywzhang909/AO-shaping/issues/29) |
 | H-13 | 可达目标需重新定义：本台架 80 px staircase 只能影响**大尺度**结构，刻 50 px 平顶方块不可达 | [#30](https://github.com/ywzhang909/AO-shaping/issues/30) |
@@ -117,7 +121,7 @@
 
 | ID | 摘要 | issue |
 |---|---|---|
-| R-29 | 作废条目的遗留：把 `utils/image/display.py` 搬到 `display/`（`utils/image/` 最后一块渲染代码，含 `utils/__init__.py:78/80/81` 三个 re-export） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
+| R-29 | ✅ 已完成：`utils/image/display.py` 已搬到 `display/image_display.py`（commit `a9236e9`，2026-10-09），`utils/__init__.py` 的 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` … re-export 已改指 `ao_shaping.display.image_display`；旧路径 `ao_shaping.utils.image.display` 现抛 `ImportError`（`test_utils_leaf_no_rendering_import.py::test_old_display_path_raises` 锁定） | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) |
 | R-33 | `micro_dm_image_collect.py` → `with_params(MicroDMParams)`；删 7 个驱动内部符号导入与手写 `_resolve_ips`；启用 `R50Controller.__enter__/__exit__`。⚠️ 必须先钉死 Micro-DM 磁盘布局 | [#51](https://github.com/ywzhang909/AO-shaping/issues/51) |
 | R-39 | 曝光默认值 7 种并存（0.02/0.03/1.1/1.2/2.0/3.0/4.0 ms）；内存槽轮换 3 种写法。⚠️ 只动 CLI 层，**不合并命令体** | [#52](https://github.com/ywzhang909/AO-shaping/issues/52) |
 | R-43 | 补 `micro_dm_image_collect.py` 测试（🟡 `train_data_collect.py` 一半已完成 → archive §5.32） | [#53](https://github.com/ywzhang909/AO-shaping/issues/53) |
@@ -143,11 +147,16 @@
 |---|---|---|
 | F-4 | `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用（2026-05-26 提出，**决策本身还没做**） | [#55](https://github.com/ywzhang909/AO-shaping/issues/55) |
 | F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
-| F-10 | 🔴 `sim/AGENTS.md`「已知约束」第 4 条声称的代码改写**从未落地** ⇒ 连带第 3 条的实测常数 1.068/2.628 **不可复现**（真实值 5.428/13.354） | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
+| F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
 | F-11 | 🔴 **SLM 序列号三路冲突**：22030108 / 22030102 / 23020026 ⇒ 引用前必须确认并回写 `drivers/AGENTS.md` 硬件表 | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
+| ~~F-14~~ | ✅ **已修**（2026-10-14）：**30 → 0 个 `F821`**，`ruff.toml` 的 `exclude = ["src/ml/**"]` 已删除。根因比原判断更严重 —— 不只是 `DataLoader`：`build_gan_models`（`ml.train` 3 处引用）**在全部提交历史里从未被定义过**；`build_model` 在 `40d65af` 删除后**接线被遗忘**（`_zernike_regression_removed` 定义了却零调用）；另有 `d1645486` 把 coeffs 模式整块误粘进了 `_train_phase_mode`。`ao-train`（`pyproject.toml` 注册的 console script）三条命令**全部**因 `NameError` 不可运行，且零测试覆盖。证据与守卫见 `tests/ao_shaping/ml/test_train_cli_runnable.py` | — 待开 issue（API 被网络拦截，无法从本机创建） |
 
 > **F-12 未定案前不要单独改 H-16 的 `K`** —— 否则只是把一个未验证的数从一处搬到另外两处。
+> **F-14 与 §8 的 R-63 互为前置**：F-14 是 R-63 第 4 步（放开 `src/ml/**`）必须先清掉的真实缺陷。
+> **F-14 已于 2026-10-14 完成 ⇒ §8.6 第 4 步的前置已清**，且 `exclude` 已实际删除。
+> ⚠️ 但 §8.6 的**顺序仍然有效**：下一步（§6「第 1.7 批」）是先做 R-63 的**第 1–3 步**
+> （代码层 noqa + 配置分层），**最后**才轮到第 4 步；RUF100 仍不得先跑。
 
 ---
 
@@ -174,6 +183,8 @@
 |---|---|
 | ~~第 1 批（纯收益，零行为风险）~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ 2026-10-03 → archive §5.1 |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K` |
+| ~~第 1.7 批 首项（lint 抑制层，纯离线，见 §8）~~ | ~~**F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）~~ ✅ 2026-10-14 |
+| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（312 处无标注 `except Exception` + 111 处 `assert` 护栏；后者含硬件安全检查，`python -O` 下会消失，**应先于任何硬件复测处理**） |
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | **R-29**（#50，`display.py` 搬 `display/`）⇒ **R-33 / R-43**（同一文件，#51 / #53）⇒ **R-39**（#52） |
@@ -209,9 +220,9 @@
 | ~~R-56~~ | [#72](https://github.com/ywzhang909/AO-shaping/issues/72) | ✅ **item 46 可下沉部分完成**：`sac_common` / `pib` / `pib_sim_eval` / `gready_cam` / `adc_dm_adam` 共 5 文件的模块级 matplotlib/pygame 已下沉到实际使用它的函数（`pib_sim_eval`、`sac_common` 的 `matplotlib.use("Agg")` 全局副作用随同搬走，不可与 pyplot 拆分）。⚠️ **issue 的 item 46 指令「下沉进 `__main__`」对 6 个文件中的 5 个是错的** —— 实测 `lr.py` / `lr_wfs.py` / `rl_wfs.py` 在**模块级**（非 `__main__`）用 plt，且这三个文件**完全没有 `if __name__` 守卫**，无处可下沉 → 拆出 R-61。item 42-45（pygame 状态机迁移）与 47-48 仍开放 | 🟡 |
 | F-13 | [#73](https://github.com/ywzhang909/AO-shaping/issues/73) | ~~`pyarrow_probe` 两份~~ **已结案**：`scripts/` 副本零导入方且与 `gui/slm` 那份**归一化行尾后逐字节相同**，已删 | ✅ 619d2d0/待本轮 |
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
-| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | `utils/image/display.py` → `display/`（既有 issue，本次只补了 `Register` 循环导入裁决） | E 🟡 |
+| R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | ✅ 已完成：`utils/image/display.py` → `display/image_display.py`（commit `a9236e9`，2026-10-09），re-export 已改指 `ao_shaping.display.image_display`，无兼容 shim | E ✅ |
 | ~~R-58~~ | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | ❌ **误报，已 `not planned` 结案**：`phase_display.py` 的模块级 `PhaseMap` 导入**增量 0 个 `drivers.*` 模块**（原判据的 60 个其实来自父包 `ao_shaping/__init__.py` 的 20 处 eager 再导出）；`model/field.py` 唯一的 `drivers` 导入已在函数内延迟（`model/field.py:43`，注释说明是为规避循环）；`model/` 亦不在 utils 的禁止清单内，且 README 已把 `phase_to_slm_grayscale()` 接受 `PhaseMap` 列为既定契约 | ✅ |
-| R-59 | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 需决策，非机械收口 | D 🔴 || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max_peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
+| R-59 | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 需决策，非机械收口 | D 🔴 || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max-peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
 
 | ~~R-62~~ | [#83](https://github.com/ywzhang909/AO-shaping/issues/83) | ✅ **收敛完成**：3 处 best-frame PNG saver 提为 `display/frames.py::save_best_image(img, out_path, *, title, marker_side=None, hide_axes=False)`（从 `display` **子模块**导入，避免拉进 `windows.py` 的 pygame —— 实测导入后 pygame 未加载）。差异全部参数化而非抹平：**红色十字**（方形 runner 的目标方斑半对角参考）、`axis("off")`、文件名（`best_square.png` vs `best_far_field.png`）、各 runner 自己的标题指标。第三份原用 `plt.savefig`，统一为 `fig.savefig`（新建 figure 上等价，且不依赖 pyplot 隐式当前图）。文件名与标题不变 ⇒ 不改写任何已提交报告 | ✅ |
 | R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | 🟡 **item 2 完成，item 1 阻塞于 #63**：`capture_settled` 已从探针模块 `slm_zernike_sweep_probe` 移入 `tools/slm/bench_kernels.py`（其唯一依赖 `display_and_average` **本就在** bench_kernels，故**不产生新边、无环**），探针 re-export 保持公开面不变（`a is b` 已验证）。`slm_model_in_loop` 的 optimizer→**探针**依赖已清零，仅剩 →`bench_kernels`。❌ item 1（`phase_to_panel` + 面板常量下沉到 `utils/slm/`）属 #63 (R-47) 的「三段下沉」大原子单元，需先补特征测试，故 #62 保持开放 | 🟡 |
@@ -232,6 +243,184 @@
 
 > 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有
 > 大量未提交改动，行号大概率已漂移。
+
+## 8. lint 抑制层审计（2026-10-11）
+
+> **起因**：排查「unbounded pytest fan-out」时顺带翻到 `ruff.toml`，发现它的
+> `ignore` 列表里有 `F401` / `E402`，而 `src/ml/**` 被整体 `exclude`。
+> 于是 **73 条 `# noqa` 里几乎没一条在压制真实告警**（`RUF100` 实测 33 条确认为死），
+> 但同一套配置把 **30 个 `F821` 未定义名**藏了起来 —— 那不是风格问题，是必然抛出的 `NameError`。
+>
+> **方法**：全量 `rg "noqa" src/` + `ruff check --extend-select RUF100`
+> + `ruff check --isolated --select F,E,BLE,SLF,S,A`（绕过本仓配置量真实爆炸半径）
+> + 4 路并行 agent 逐点分类。**结论全部经 CLI 实测；未改动任何代码。**
+
+| ID | 摘要 | issue | 波次 |
+|---|---|---|---|
+| R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | — 待开 issue | A 🟢 |
+| R-64 | `src/` 还有 **312 处无标注 `except Exception`**（带 noqa 的只占 9%）+ **111 处 `assert` 当运行期护栏**（`python -O` 下消失，含硬件安全检查） | — 待开 issue | A 🟢 |
+
+### 8.1 根因：压制发生在**配置层**，不在代码层
+
+| 事实 | 证据 |
+|---|---|
+| `select = ["E","F"]` ⇒ `BLE001` / `SLF001` / `S301` / `A002` **根本没启用** | `ruff.toml:6-9` |
+| 全局 `ignore` 含 `F401`、`E402` ⇒ 对应 30 条 noqa 压制的是**已被忽略**的规则 | `ruff.toml:29,32` |
+| `exclude = ["src/ml/**"]`（注释写的是 "legacy code with syntax errors"） | `ruff.toml:12` |
+| **实测 33 条 noqa 为死** —— 恰好等于 `src/` 里非 `src/ml/` 的**全部** | `ruff check src/ --extend-select RUF100` |
+| 另 42 条在 `src/ml/` 内，ruff **根本看不到** | 同上 |
+
+⇒ **结论要反转**：把 noqa 当"压制静态检查"是不准确的 —— 它们几乎全是装饰品。
+真正的问题是 `ignore` / `exclude` 让**规则失效**，于是真实缺陷（§3 的 F-14）无人看见。
+
+### 8.2 爆炸半径（`--isolated` 绕过本仓配置后，`src/` 全树）
+
+| 规则 | 命中 | 其中在 `src/ml/` |
+|---|---|---|
+| `F401` 未用导入 | 155 | 11 |
+| `BLE001` 盲 except | 299 | 12 |
+| `SLF001` 私有成员访问 | 129 | 0 |
+| `F841` 未用变量 | 71 | 4 |
+| `S110` try-except-pass | 60 | 0 |
+| `E402` 非顶部导入 | 44 | 18 |
+| **`F821` 未定义名** | **30** | **30（全在排除区）** |
+| `E741` / `A002` / `F811` | 13 / 5 / 9 | 0 |
+
+⚠️ **不能一次性开**。`F401` 那 155 条里绝大多数是包级 `__init__.py` 再导出
+（`ao_shaping/__init__.py`、`optimizer/__init__.py`、`gui/slm/__init__.py` …），
+必须先补 `__all__` 再开，否则一次性 155 条噪声 → 按 §8.6 分批。
+
+### 8.3 73 条 noqa 的分类（agent 逐点核对）
+
+| 类别 | 条数 | 处置 |
+|---|---|---|
+| **真缺陷** | 1 | `tools/slm/slm_zernike_sweep_probe.py:44` —— re-export 块里 `core_fraction` / `display_and_average` 确实未被使用 ⇒ **删这两个名字** |
+| **noqa 已多余**（别名其实被用了） | 3 | `utils/wavefront/matrix_utils.py:51`（用在 `:58`）、`drivers/sim/beam_backend.py:209`（用在 `:212`）、`optimizer/wfless/pib.py:95`（用在 L525/L545）⇒ 直接删 noqa |
+| **应改为正式再导出** | 1 | `display/image_display.py:15` ⇒ 补 `__all__`，让 F401 不再是问题。⚠️ 不能改成 `import as` 冗余别名 —— `tests/ao_shaping/display/test_image_voltages_display.py` 有身份断言（`a is b`） |
+| **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:703`（注册 sim 相机；`test_sim_camera_registration.py` 依赖）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
+| **全域 `E402` ignore 是错的工具** | — | `scripts/` 的 **435 条** E402 是仓库**明文约定**的 `sys.path` bootstrap ⇒ 正确做法是 `lint.per-file-ignores` 给 `scripts/*` 加 E402，而不是全局 ignore，这样 `src/` 与 `tests/` 才能被检查 |
+| **matplotlib Agg 那批多半不需要** | ~18 | ruff 的 E402 **已豁免** `sys.path` / `os.environ` 修改与 `matplotlib.use()` 激活（`is_matplotlib_activation`，PR #9094 修 #9091）⇒ `src/ml/shaping/viz.py:50-55`、`src/ml/gsnet_debug/train.py:43-66` 的 noqa 即使开 E402 也很可能仍不需要，**先验证再删** |
+
+### 8.4 `BLE001` 31 条：遵守规范 = **收窄类型**，而非删 noqa
+
+⚠️ 先纠正两条常见误解：
+
+* **`except Exception` 不捕获 `KeyboardInterrupt` / `SystemExit`**（二者继承 `BaseException`）
+  ⇒ 遥测类 `except Exception` 对 Ctrl-C 是**安全**的，不必收窄。
+* 真风险只有 **2 处 `except BaseException`**，而其中
+  `utils/image/hardware_utils.py:628` **必须保持 `BaseException`**：它跑在 daemon
+  工作线程里，目的就是把工作线程的任何异常搬到调用线程重抛。收窄成 `Exception`
+  会让工作线程的 `KeyboardInterrupt`/`SystemExit` 静默消失，`call_with_timeout`
+  改为返回 `None`（静默行为变更）。它**不影响**主线程 Ctrl-C（`join` 可中断）。
+
+| 处置 | 站点 | 收窄到 |
+|---|---|---|
+| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:628` | 不改，仅把线程边界语义写进注释 |
+| **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:720` `except SantecError as exc: if exc.code != 1: raise` |
+| 收窄 | `gui/r50/r50_channel_select.py:360` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） |
+| 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
+| 收窄 | `runners/slm/zernike_matrix_runner.py:733,774,840` | `(WfsError, RuntimeError, ValueError, AssertionError)` |
+| 收窄（teardown / close） | `zernike_matrix_runner.py:1458`、`slm_gs_refine.py:745`、`slm_model_in_loop.py:880` | `(DeviceError, OSError, RuntimeError)` |
+| **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
+| **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
+| 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
+| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1182`（`BaseException`，在 finally 清理里）、`:1194` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛 |
+
+⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
+**不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
+`lint.logger-objects`（用 `exc_info` 记到已登记 logger 对象上不算盲吞）。
+⇒ 对确实必须宽的站点只有两条路：**收窄类型**，或保留**带理由的定点** `# noqa`。
+
+### 8.5 noqa 之外：更大的两片（R-64）
+
+| 项 | 数量 | 说明 |
+|---|---|---|
+| **`src/` 无标注的 `except Exception`** | **312** | 上表 31 条带 noqa 的只占 **9%**；主流写法是**完全不标注**，而 `BLE001` 不在 `select` ⇒ 这 312 条从未被任何工具看见。热点：`gui/zernike/zernike_response_matrix_ui.py` 19、`gui/slm/multi_slm_controller.py` 19、`gui/ccd/ccd_analyzer.py` 18、`drivers/ccd/miicam/driver.py` 16 |
+| **`src/` 把 `assert` 当运行期护栏** | **111**（37 文件） | `drivers/ccd/miicam/driver.py` 21、`daheng/driver.py` 18、`ffmpeg/driver.py` 8。含**设备已打开断言、曝光范围检查、安全检查** ⇒ `python -O` 下**全部消失**。对硬件安全护栏这是正确性问题，不是风格问题 |
+| `# type: ignore` | `src/` 44 · `scripts/` 7 · `tests/` 53 | 仅 4 处无理由：`utils/image/target/patterns.py:233`、`tools/slm/slm_train_data_collect.py:183,848,849` |
+| 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 缺失；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
+
+### 8.6 `ruff.toml` 重构顺序（**必须按序**）
+
+> ⚠️ **顺序错了会误删**：`RUF100` 对「规则未启用」的 noqa 同样报 `non-enabled`
+> **且可自动修复**。若先跑 RUF100 再开规则，`BLE001`/`SLF001`/`S301` 那 40 条
+> 会被删掉，等规则真正启用时就变成裸奔。故顺序为：
+
+1. **先改代码** —— §8.3 的 1 条真缺陷 + 3 条多余 noqa；§8.4 的收窄项
+2. **再改配置** —— 从全局 `ignore` 移除 `F401`、`E402`；改用 `lint.per-file-ignores`
+   给 `scripts/*` 加 `E402`（保住 435 条 bootstrap 约定）、给 `__init__.py` 加 `F401`
+   （AGENTS.md 的再导出 shim 约定）
+3. **然后**清理剩余死 noqa：`ruff check src/ --extend-select RUF100 --fix`
+   —— **必须 `--extend-select`**；用 `--select RUF100` 会替换整条选择链导致全量误报
+4. **最后**处理 `exclude = ["src/ml/**"]`：先清 F-14，再逐族放开（建议先只放开 `F` 族）
+5. `BLE001` / `SLF001` / `S301` **暂不整族启用** —— 等 §8.4 收窄完成，否则一次性 299+129+6 条
+
+### 8.7 护栏：以下**不是**待办，**不得**当作「顺手清理」去做
+
+| 项 | 为什么不能 |
+|---|---|
+| 不要为「让 lint 变绿」给 `src/ml/` 加 noqa | 那 30 个 F821 是真缺陷，加 noqa 等于把 `NameError` 藏得更深 |
+| 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 435 条 bootstrap 约定瞬间爆红 |
+| 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
+| 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
+| 不要把 `except BaseException`（`hardware_utils.py:628`）改成 `Exception` | 会造成静默行为变更，已推理见 §8.4 |
+
+### 8.8 一处不一致（非缺陷，但值得知道）
+
+`tools/slm/slm_zernike_common.py:382`（`measure_zernike`）有 `except Exception`
+却**没有** noqa，而同文件 `:114-166` 五处都带。说明 noqa 是**逐点手工加的**，
+不反映「哪些是故意宽的」这一信息 ⇒ 收窄时应以**代码语义**为准，不要以
+「有没有 noqa」为准。
+
+### 8.9 `assert` 当运行期护栏（111 处）→ 按层收口
+
+> Python 文档明确：`assert` 用于**内部不变量**，**不得**用于校验外部输入；
+> 且 `python -O` 会**整条移除**（连同被保护的表达式）。因此下列检查在 `-O` 下全部消失。
+
+**关键事实：正确的范式本仓库已经有了，不需要引入新概念。**
+
+| | 现状 | 判定 |
+|---|---|---|
+| **SLM（范式）** | `Santec._ensure_open()`（`santec/driver.py:1807`，**18 处**调用）+ `ZernikeSLM._ensure_open()`（`zernike_slm.py:100`，**5 处**）—— 单一入口、`raise RuntimeError` | ✅ 照抄这个 |
+| **CCD（反范式）** | `assert self.cam, "camera not initialized"` 在 `miicam/driver.py` 重复 **18 处**、`daheng/driver.py` **13 处**、`ffmpeg/driver.py` **6 处**（两种写法）| ❌ 收口到 `BaseCamera._ensure_open()`，抛 `CameraError` |
+
+| 簇 | 条数 | 现状 | 应收口到 |
+|---|---|---|---|
+| CCD 设备已打开 | **37** | 见上 | `BaseCamera._ensure_open()`，照抄 SLM 范式 |
+| WFS 曝光**安全上限** | 5 | `MAX_EXPOSURE_MS = 7.0` 在 `tools/slm/` **声明 3 处**（`calibration.py:127`、`slm_wfs_probe.py:44`、`slm_zernike_common.py:38`）、5 个脚本各查**两遍**（CLI 层 `if…raise` + 内层 `assert`，后者 `-O` 下失效）| 移进 `ThorlabWFS.exposure_time` setter（`thorlab_wfs.py:1801-1818` **已在此校验硬件边界** `EXP_TIME_LOW/HIGH`），安全上限与硬件边界并列 |
+| 曝光/范围校验（**层已对，机制错**）| 9 | `drivers/ccd/common.py:66,81,86,95`、`thorlab_wfs.py:1811`、`nlight/driver.py:147,148` 用 `assert` | 就地改 `raise`（`ExposureTime` 越界 → `CameraError`；`EXP_TIME_*` → `WfsError`；DM 梯度 → `DeviceError`）。**位置不用动，只换机制** |
+| NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
+| 参数校验 | 10 | `n_sample > 0` / `tolerance > 0` / `width and height` / offset ≥0，散在 3 个相机驱动 | 相机侧入口统一 `raise ValueError`；调用侧的重复项删 |
+| cartographer 设备前置 | 13 | `assert self.slm.is_open` / `assert self.wfs.is_connected()` | **删** —— 驱动的 `_ensure_open` 已覆盖；`is_connected()` 是**询问**，不是断言 |
+| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:721` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证 |
+| 编程不变式 | ~40 | `assert img.ndim == 2`、`assert best_q is not None`、`assert G.ndim >= 2` 等 | **保留 `assert`**（内部不变量，外部输入到不了）|
+
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1456-1474`），不在驱动；
+> 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
+> 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
+> 与 TODO 里 R-57 的结论直接冲突。
+
+**三个必须先解决的前置**
+
+1. ⚠️ **`spots_calc.py:77,119,133` 不许批量转换** ——
+   `tests/ao_shaping/utils/test_spots_calc.py:104`（`test_crop_3d_image_raises_assertion`）
+   用 `pytest.raises(AssertionError)` 把 `assert` **锁成了公开契约**。要改必须先改测试契约。
+2. 🔴 **`MAX_EXPOSURE_MS` 命名冲突，同名差 1400 倍**：工具层 `7.0`（WFS 激光安全上限）
+   vs `drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）。
+   合并前必须先改名（如 `WFS_EXPOSURE_SAFETY_MAX_MS`），否则移动过程中必然误用。
+3. 💡 **`DeviceParameter` 的边界是"已声明但未接线"**：WFS 已用
+   `register_parameter` 登记了 `exposure_time_ms` 的 `EXP_TIME_LOW/HIGH`，
+   但 `set_parameter_value`（`device_base.py:354`，内部 `:375` 调 `validate()`）
+   **只被** `sync_from_twin`（`:519`）、`mock_devices.py`、`simulated_laser.py` 调用
+   ⇒ **硬件写路径上从不生效**。所以不是"要新建校验层"，而是**把已有的声明接到写路径上**。
+
+### 8.10 `assert` → 驱动层：三条护栏
+
+| 项 | 为什么不能 |
+|---|---|
+| 不要把 ~40 条内部不变式一并改成 `raise` | 它们校验的是本函数刚算出来的值，外部到不了；改 `raise` 只会抬高运行开销并让 traceback 变噪声 |
+| 不要动 `spots_calc` 那 3 条 | 被测试锁成 `AssertionError` 契约（见 8.9 前置 1） |
+| 不要把 `--max_peak` 搬进驱动 | 它是策略不是机制，且已明文声明不是联锁（见 8.9） |
 
 ## 来源清单
 

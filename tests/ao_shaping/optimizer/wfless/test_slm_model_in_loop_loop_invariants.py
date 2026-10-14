@@ -123,16 +123,14 @@ class TestRoiIsFrozenOnce:
         anchors genuinely differ, which is why the runner locates the axis with
         ``argmax`` and freezes it.
         """
-        from ao_shaping.optimizer.wfless.slm_model_in_loop import (
-            _prepare_frame,
-            _SimBench,
-        )
+        from ao_shaping.optimizer.wfless.slm_model_in_loop import _SimBench
+        from ao_shaping.utils.image.beam_metrics import prepare_frame
 
         config = SlmModelInLoopConfig(**_SIM_KWARGS)
         bench = _SimBench(config)
         try:
             bench.display(np.zeros((config.region, config.region)))
-            frame = _prepare_frame(bench.measure())
+            frame = prepare_frame(bench.measure())
         finally:
             bench.close()
 
@@ -298,7 +296,9 @@ class TestToModelGridCentreSelection:
         # 4x4 block average lands on grid cell (row 5, col 7).
         frame[20:24, 28:32] = 100.0
         centre = (side // 2, side // 2)
-        reduced = _to_model_grid(frame, centre, region=region, camera_px_per_model_px=scale)
+        reduced = _to_model_grid(
+            frame, centre, region=region, camera_px_per_model_px=scale
+        )
 
         peak_row, peak_col = np.unravel_index(int(np.argmax(reduced)), reduced.shape)
         assert (int(peak_row), int(peak_col)) == (5, 7), (peak_row, peak_col)
@@ -341,7 +341,7 @@ class TestCliInvocation:
         result = runner.invoke(
             run,
             [
-                "--cam_type", "sim",
+                "--cam-type", "sim",
                 "--n-rounds", "1",
                 "--probe-count", "2",
                 "--step-a-iterations", "4",

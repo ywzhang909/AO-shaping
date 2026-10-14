@@ -7,11 +7,11 @@ Attributes:
     v_max: 最大电压 (499)。
 """
 
-from typing import Any
 
 import sys
 
 import numpy as np
+from loguru import logger
 
 from ao_shaping.drivers.dm._adjacency import load_adjacency
 from ao_shaping.drivers.dm._registry import register_dm
@@ -91,15 +91,15 @@ class SimulateDM(DM):
     def open(self) -> None:
         """打开仿真连接并初始化。"""
         self.initialize()
-        print("Simulated DM initialized successfully")
+        logger.info("Simulated DM initialized successfully")
 
     def close(self) -> None:
         """关闭仿真连接。"""
         if not self.__keep_when_exit:
             self.reset_all()
             self.set_hv(False)
-            print("Simulated DM turned off")
-        print("Simulated DM connection closed")
+            logger.info("Simulated DM turned off")
+        logger.info("Simulated DM connection closed")
 
     def transform(self, cmd: np.ndarray) -> np.ndarray:
         """把归一化指令变换到电压量程。"""

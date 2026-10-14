@@ -138,7 +138,7 @@ DEFAULT_PANEL_RESOLUTION: tuple[int, int] = (1920, 1200)
 _ZERNIKE_APERTURE_RADIUS: float = 300.0
 
 #: Documented bench illumination radius on the panel, in pixels (measured by
-#: ``ao_shaping.tools.slm.slm_beam_extent``: r = 450 px at ``(960, 600)``). The
+#: ``ao_shaping.tools.slm.panel.beam_extent``: r = 450 px at ``(960, 600)``). The
 #: freeform reconstruction does not currently consume it --
 #: :func:`~ml.hwdataset.transforms.freeform_grid_to_panel` replicates cells
 #: unmasked, because the driver and the beam do the masking -- but it is part of

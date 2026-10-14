@@ -162,6 +162,6 @@ class TestSlmSquareCliGuards:
 
     def test_sim_slm_without_sim_camera_is_rejected(self):
         """Silently opening a real SLM would hang the controller, not fail."""
-        result, _ = _invoke(["-e", "1", "--slm_type", "sim"])
+        result, _ = _invoke(["-e", "1", "--slm-type", "sim"])
         assert result.exit_code != 0
-        assert "--cam_type sim" in result.output
+        assert "--cam-type sim" in result.output

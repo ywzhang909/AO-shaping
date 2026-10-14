@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import inspect
 import os
 import time
 from collections import deque
@@ -39,15 +38,6 @@ import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-from ao_shaping.algorithm.gradient.adam import (
-    SGD,
-    Adam,
-    AdaMOD,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-)
 from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
@@ -63,7 +53,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
+from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
@@ -93,8 +83,15 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+    SlotRotator,
+    default_camera,
+    default_slm,
+    display_rotating,
+    learning_schedule,
+    zernike_to_phase,
+)
 
 TargetShape = Literal[
     "gaussian",
@@ -198,148 +195,14 @@ CAM_WINDOW_TARGET_MARGIN = 1.5
 # shaping headroom at all.)
 TARGET_BOX_WAIST_FACTOR = 2.0
 
-def _zernike_to_phase(
-    coeffs: np.ndarray,
-    n_max: int,
-    pattern_helper: PatternHelper,
-    radius: float | None = None,
-) -> np.ndarray:
-    """Convert a flat Noll-order Zernike coefficient array to a
-    canonical (n, m)→amplitude dict via `parse_zernike_coefficients`
-    (skips |amp| < 1e-15 and n > n_max — both contribute zero phase).
-    """
-    coeffs_dict: dict[tuple[int, int], float] = parse_zernike_coefficients(
-        coeffs, n_max=n_max
-    )
-    return pattern_helper.generate_zernike_polynomial(
-        n_max=n_max,
-        coefficients=coeffs_dict,
-        radius=ZERNIKE_APERTURE_RADIUS if radius is None else radius,
-    )
 
-
-def learning_schedule(
-    power_radius: float,
-    ideal_r: float = IDEAL_SPOT_RADIUS,
-    gradient_history: list[float] | None = None,
-    pib_history: list[float] | None = None,
-    epoch: int = 0,
-) -> tuple[float, float]:
-    """Dynamic learning rate scheduler based on power radius and convergence state.
-
-    Args:
-        power_radius: Current power radius.
-        ideal_r: Ideal spot radius.
-        gradient_history: Recent gradient magnitude history for convergence detection.
-        pib_history: Recent PIB value history for convergence detection.
-        epoch: Current iteration number.
-
-    Returns:
-        (lr, delta): Learning rate and perturbation amplitude.
-    """
-    # Base parameters: segmented by power_radius
-    if power_radius <= ideal_r:
-        base_lr, base_delta = 1.5, 1
-    elif power_radius <= 2 * ideal_r:
-        base_lr, base_delta = 2, 2
-    elif power_radius <= 3 * ideal_r:
-        base_lr, base_delta = 2.5, 3
-    elif power_radius <= 4 * ideal_r:
-        base_lr, base_delta = 3, 4
-    elif power_radius <= 5 * ideal_r:
-        base_lr, base_delta = 4.5, 5
-    else:
-        base_lr, base_delta = 6, 5
-
-    # If no convergence history, return base parameters directly (still capped)
-    if gradient_history is None or pib_history is None or len(gradient_history) < 5:
-        return (
-            min(base_lr, SCHEDULE_MAX_LR),
-            min(base_delta, SCHEDULE_MAX_DELTA),
-        )
-
-    # Convergence state detection
-    recent_grads = (
-        list(gradient_history[-10:])
-        if len(gradient_history) >= 10
-        else gradient_history
-    )
-    recent_pibs = list(pib_history[-10:]) if len(pib_history) >= 10 else pib_history
-
-    # Gradient trend (lower variance = more stable convergence)
-    grad_mean = np.mean(recent_grads)
-    grad_std = np.std(recent_grads) if len(recent_grads) > 1 else 0
-    grad_cv = grad_std / (grad_mean + 1e-8)  # Coefficient of variation
-
-    # PIB trend
-    pib_mean = np.mean(recent_pibs)
-    pib_std = np.std(recent_pibs) if len(recent_pibs) > 1 else 0
-    pib_trend = (
-        (recent_pibs[-1] - recent_pibs[0]) / (len(recent_pibs) + 1e-8)
-        if len(recent_pibs) > 1
-        else 0
-    )
-
-    # Dynamic adjustment factors
-    lr_factor = 1.0
-    delta_factor = 1.0
-
-    # Case 1: Small gradient variance (stable convergence) → reduce lr and delta
-    if grad_cv < 0.1:
-        lr_factor = 0.5
-        delta_factor = 0.5
-    # Case 2: Medium gradient variance (normal fluctuation) → keep
-    elif grad_cv < 0.3:
-        lr_factor = 0.8
-        delta_factor = 0.8
-    # Case 3: Large gradient variance (oscillation) → reduce lr significantly
-    elif grad_cv > 0.8:
-        lr_factor = 0.3
-        delta_factor = 1.2  # Increase exploration
-
-    # Case 4: PIB not improving (possible local optimum)
-    if abs(pib_trend) < 1e-5 and pib_std < 0.01:
-        delta_factor = max(delta_factor, 1.5)
-        lr_factor = min(lr_factor, 0.7)
-    # Case 5: PIB decreasing (diverging) → reduce lr
-    elif pib_trend < -0.001:
-        lr_factor = 0.4
-        delta_factor = 0.6
-    # Case 6: PIB increasing (normal convergence) → keep or fine-tune
-    elif pib_trend > 0.001:
-        lr_factor = min(lr_factor, 1.1)
-
-    # Early epoch warmup
-    if epoch < 20:
-        lr_factor *= 1.2
-        delta_factor *= 1.1
-
-    # Clamp adjustment range
-    lr_factor = np.clip(lr_factor, 0.2, 2.0)
-    delta_factor = np.clip(delta_factor, 0.3, 2.5)
-
-    final_lr = min(base_lr * lr_factor, SCHEDULE_MAX_LR)
-    final_delta = min(base_delta * delta_factor, SCHEDULE_MAX_DELTA)
-
-    return final_lr, final_delta
+# Memory-slot range used for phase writes (never repeat a slot consecutively).
+_SLOT_MIN, _SLOT_MAX = 2, 125
+_SLOT_ROTATOR = SlotRotator(slot_min=_SLOT_MIN, slot_max=_SLOT_MAX)
 
 
 if TYPE_CHECKING:
     from ao_shaping.runners.runner_common import CameraParamsPib, SlmParamsPib
-
-
-def _default_camera() -> CameraParamsPib:
-    """Create the canonical camera/objective group without a module-level cycle."""
-    from ao_shaping.runners.runner_common import CameraParamsPib
-
-    return CameraParamsPib()
-
-
-def _default_slm() -> SlmParamsPib:
-    """Create the canonical SLM group without a module-level cycle."""
-    from ao_shaping.runners.runner_common import SlmParamsPib
-
-    return SlmParamsPib()
 
 
 @dataclass
@@ -391,8 +254,8 @@ class SlmZernikePibConfig:
     #: (``J = RMSE_norm + w_outside * (1 - in_target_energy)``).
     w_outside: float = 1.0
     # --- Hardware / objective groups -------------------------------------------
-    camera: CameraParamsPib = field(default_factory=_default_camera)
-    slm: SlmParamsPib = field(default_factory=_default_slm)
+    camera: CameraParamsPib = field(default_factory=default_camera)
+    slm: SlmParamsPib = field(default_factory=default_slm)
     show: bool = False
     # --- Recording ---------------------------------------------------------------
     record_phase: bool = False
@@ -659,9 +522,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
         # Reset SLM to flat phase
         initial_phase = slm.create_phase_from_array(
-            _zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius)
+            zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
         )
-        slm.display_data(initial_phase, SLM_RESPONSE_TIME_S)
+        display_rotating(slm, initial_phase, _SLOT_ROTATOR)
+        time.sleep(SLM_RESPONSE_TIME_S)
 
         # Initial acquisition used to locate the spot. When a fixed exposure was
         # requested we honour it here too: auto-exposing to
@@ -695,8 +559,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         img_size, center = cam.reset_window(center, img_size)
         logger.info("reset window center @ {}", center)
 
-        # Precedence: fixed exposure (`--exposure_time_ms > 0`) wins over
-        # auto-exposure (`--target_max_brightness > 0`); `0/0` keeps the current
+        # Precedence: fixed exposure (`--exposure-time-ms > 0`) wins over
+        # auto-exposure (`--target-max-brightness > 0`); `0/0` keeps the current
         # exposure ("若为0则不自动调整曝光时间", matching the runner help).
         init_img = capture_with_exposure(
             cam,
@@ -888,7 +752,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 radius(init_img, center=reference_center, energy=0.8),
                 gradient_history=_gradient_history,
                 pib_history=_pib_history,
-                epoch=0,
+                ideal_r=IDEAL_SPOT_RADIUS,
+                max_lr=SCHEDULE_MAX_LR,
+                max_delta=SCHEDULE_MAX_DELTA,
             )
 
         # Track the objective's OWN value. For "pib" that is the exposure-
@@ -999,9 +865,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             )
             if improved:
                 best_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius)
+                    zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                 )
-                slm.display_data(best_phase, 0.2)
+                display_rotating(slm, best_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
                 # Un-windowed (full-frame) before/after for the report: the metric
                 # window hides the energy that leaves the box, so the illustrative
                 # comparison must be captured on the raw sensor.
@@ -1039,13 +906,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             break
                         _raw_w = max(400, _raw_w // 2)
                         _raw_h = max(400, _raw_h // 2)
-                    slm.display_data(initial_phase, 0.2)
+                    display_rotating(slm, initial_phase, _SLOT_ROTATOR)
+                    time.sleep(SLM_RESPONSE_TIME_S)
                     setattr(
                         recorder,
                         "raw_before_img",
                         cam.get_numpy_image(CAM_SAMPLE_ITER),
                     )
-                    slm.display_data(best_phase, 0.2)
+                    display_rotating(slm, best_phase, _SLOT_ROTATOR)
+                    time.sleep(SLM_RESPONSE_TIME_S)
                     setattr(
                         recorder,
                         "raw_after_img",
@@ -1105,9 +974,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 """Display one candidate and return its RAW objective value."""
                 candidate = np.asarray(coeffs, dtype=np.float64)
                 candidate_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius)
+                    zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                 )
-                slm.display_data(candidate_phase, SLM_RESPONSE_TIME_S)
+                display_rotating(slm, candidate_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
                 img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 if exposure_time_ms == 0 and is_saturated(img):
                     # Saturated: re-auto-expose to the requested target, mirroring
@@ -1239,9 +1109,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # Positive perturbation
                 _pos_c = np.clip(_init_c + disturb_c, -ZERNIKE_CLIP, ZERNIKE_CLIP)
                 pos_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_pos_c, n_max, pattern_helper, zernike_radius)
+                    zernike_to_phase(_pos_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                 )
-                slm.display_data(pos_phase, SLM_RESPONSE_TIME_S)
+                display_rotating(slm, pos_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
                 pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 pos_res = shaping(pos_img)
                 pos_obj, pos_obj_ratio = pos_res.j, pos_res.ratio
@@ -1249,9 +1120,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 # Negative perturbation
                 _neg_c = np.clip(_init_c - disturb_c, -ZERNIKE_CLIP, ZERNIKE_CLIP)
                 neg_phase = slm.create_phase_from_array(
-                    _zernike_to_phase(_neg_c, n_max, pattern_helper, zernike_radius)
+                    zernike_to_phase(_neg_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                 )
-                slm.display_data(neg_phase, SLM_RESPONSE_TIME_S)
+                display_rotating(slm, neg_phase, _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
                 neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
                 neg_res = shaping(neg_img)
                 neg_obj, neg_obj_ratio = neg_res.j, neg_res.ratio
@@ -1339,6 +1211,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             gradient_history=_gradient_history,
                             pib_history=_pib_history,
                             epoch=epoch,
+                            ideal_r=IDEAL_SPOT_RADIUS,
+                            max_lr=SCHEDULE_MAX_LR,
+                            max_delta=SCHEDULE_MAX_DELTA,
                         )
 
                 # Track best result in the objective's own direction.
@@ -1454,37 +1329,37 @@ if __name__ == "__main__":
         "-e", "--epochs", type=int, default=2000, help="Number of iterations"
     )
     parser.add_argument(
-        "-n", "--n_max", type=int, default=4, help="Max Zernike radial order"
+        "-n", "--n-max", type=int, default=4, help="Max Zernike radial order"
     )
     parser.add_argument(
         "-c", "--center", type=str, default="shape", help="Center detection method"
     )
     parser.add_argument(
-        "-r", "--r_bucket", type=float, default=0, help="Bucket radius (0=auto)"
+        "-r", "--r-bucket", type=float, default=0, help="Bucket radius (0=auto)"
     )
     parser.add_argument(
         "-d", "--delta", type=float, default=0.1, help="Perturbation amplitude"
     )
     parser.add_argument("--lr", type=float, default=0, help="Learning rate (0=auto)")
     parser.add_argument(
-        "-t", "--exposure_time_ms", type=float, default=80.0, help="Exposure time (ms)"
+        "-t", "--exposure-time-ms", type=float, default=80.0, help="Exposure time (ms)"
     )
     parser.add_argument(
-        "--cam_id",
+        "--cam-id",
         type=str,
         default="0",
         help="Camera device ID (int) or path/URL for file-based backends",
     )
     parser.add_argument(
-        "--cam_type",
+        "--cam-type",
         type=str,
         default="daheng",
         choices=list_camera_types(),
         help="Camera backend (registry type)",
     )
-    parser.add_argument("--slm_number", type=int, default=1, help="SLM device number")
+    parser.add_argument("--slm-number", type=int, default=1, help="SLM device number")
     parser.add_argument(
-        "--slm_wavelength", type=int, default=1064, help="SLM wavelength (nm)"
+        "--slm-wavelength", type=int, default=1064, help="SLM wavelength (nm)"
     )
     parser.add_argument(
         "--optimizer", type=str, default="adamod", help="Optimizer type"
@@ -1497,7 +1372,7 @@ if __name__ == "__main__":
         help="Search algorithm: spgd (gradient) or a black-box heuristic",
     )
     parser.add_argument(
-        "--pop_size",
+        "--pop-size",
         type=int,
         default=None,
         help="Population size for ga/pso/cem/de (default: heuristic default)",
@@ -1509,7 +1384,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--show", action="store_true", help="Show images during optimization"
     )
-    parser.add_argument("--cam_size", type=int, default=250, help="Camera window size")
+    parser.add_argument("--cam-size", type=int, default=250, help="Camera window size")
 
     args = parser.parse_args()
 

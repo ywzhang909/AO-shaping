@@ -8,6 +8,8 @@
 > **说明**: 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生
 <!-- provenance:end -->
 
+**本轮结论**：(1) 干扰注入机制已在数据层面验证：`static` 全程复用唯一冻结相位屏（逐次评估干扰 RMS 为常数），`dynamic` 每次光学评估重抽独立相位屏（RMS 逐次变化），判据由 `*_disturbance_rms.png` 直接给出而非文字断言。(2) SPGD 闭环收敛有效：J（maximize）初始 −1.3442 → 最佳 −1.1246（epoch 61），但末轮 −1.2626 劣于最佳 0.1380——**报告成绩必须引用最佳值，且优化器退出时应回写最佳相位而非末轮相位**。(3) 管线与硬件产物格式一致，任何 `--debug` 运行均可离线再生报告。(4) 与 shape_50px 轮一致：n≤4 Zernike 基仅验证目标函数与反馈链路，真正方形成形需 freeform 基。
+
 **生成时间**: 2026-10-01 12:30:57
 
 **Fully offline** — 本报告由 `scripts/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
@@ -16,10 +18,10 @@
 
 本运行使用 `src/ao_shaping/runners/slm/slm_shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy 2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。
 
-- **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)
+- **相机**: `--cam-type sim` (注册到相机注册表, 读取仿真远场)
 - **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)
-- **目标**: 方形 (`--target_shape square`, `--target_size` 相机像素)
-- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)
+- **目标**: 方形 (`--target-shape square`, `--target-size` 相机像素)
+- **搜索**: SPGD 梯度法 (`--optimizer-type adamod`), Zernike 系数 n≤4 (15 个模式)
 
 光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。
 

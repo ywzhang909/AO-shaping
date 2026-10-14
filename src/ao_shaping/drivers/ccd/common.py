@@ -63,9 +63,13 @@ class ExposureTime:
 
     @ms.setter
     def ms(self, value):
-        assert self.min <= value <= self.max, (
-            f"Exposure time must be between {self.min}ms and {self.max}ms"
-        )
+        # Explicit raise, not `assert`: this is a value the caller supplies, and
+        # `assert` is stripped under `python -O`, which would silently let an
+        # out-of-range exposure reach the SDK.
+        if not self.min <= value <= self.max:
+            raise ValueError(
+                f"Exposure time must be between {self.min}ms and {self.max}ms"
+            )
         self.current = float(value)
 
     @property
@@ -78,12 +82,14 @@ class ExposureTime:
 
     @property
     def max(self):
-        assert self._max > 0, "Max exposure time must be set"
+        if self._max <= 0:
+            raise ValueError("Max exposure time must be set")
         return self._max
 
     @max.setter
     def max(self, value):
-        assert value > 0, "Max exposure time must be positive"
+        if value <= 0:
+            raise ValueError("Max exposure time must be positive")
         self._max = float(value)
 
     @property
@@ -92,7 +98,8 @@ class ExposureTime:
 
     @min.setter
     def min(self, value):
-        assert value >= 0, "Min exposure time must be non-negative"
+        if value < 0:
+            raise ValueError("Min exposure time must be non-negative")
         self._min = float(value)
 
 

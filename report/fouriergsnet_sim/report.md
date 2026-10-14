@@ -9,6 +9,8 @@
 > **说明**: 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加
 <!-- provenance:end -->
 
+**本轮结论**：FourierGSNet（GS 物理展开 + CNN 残差回归，24 阶 Zernike 像差估计）在 12 场景湍流仿真矩阵（K=512、30 步闭环、50000 峰值光子、读出噪声 2e⁻、含标定噪声 ΔK=0.02/中心偏移 2px/旋转 0.3°）中**全部成功**：(1) 方形目标均匀度 CV 达 0.01–0.05、高斯目标近 0，环围能量高，闭环在 defocus/mixed/无像差三种静态像差下均收敛；(2) 慢湍流（slow OU）下均匀度不升反降（square+defocus 0.0138→0.0106），表明闭环对缓变湍流具有跟踪能力；fast 湍流档未跑满，跟踪上限未标定；(3) 仿真含光子噪声与标定误差，结论可信度高于无噪声仿真，但仍为**仿真断言**——真机验证未完成，且 §5.6 的 freeform SPGD 仿真演示（quality 0.587）与 2026-10-01 真机随机游走形成对照，说明仿真与台架之间存在尚未闭合的差距（漂移、SNR、目标可达性）。
+
 **生成时间**: 2026-09-29 11:06:15
 **数据来源**: `data/fouriergsnet_sim/native_w4b` (⚠️ 2026-10-01: 原文是 POSIX 绝对路径 `<repo-root>/...`, 来自另一台机器, 本 checkout 不可用) (矩阵运行时间 2026-09-22 23:46:10)
 
@@ -413,14 +415,14 @@ recorder.append({step, uniformity, encircled, inference_ms, ccd, phase})
 > 帧语义: `*_0000` = 初值 (GS 后, 闭环前); `*_%04d` (i=1..30) = 第 i 步 `display` 后。
 > 逐帧播放即"整形相位 + 目标光斑演化"动画 (对应第 3 节 GIF)。
 
-### 5.6 slm-gsnet 无硬件仿真演示 (Freeform SPGD, `--cam_type sim`)
+### 5.6 slm-gsnet 无硬件仿真演示 (Freeform SPGD, `--cam-type sim`)
 
 本小节用 **`slm-gsnet`** 命令 (自由相位 per-pixel SPGD 方形整形, 见 README `slm-gsnet` 节)
 在纯数值仿真下跑一次完整搜索, 展示 freeform 相位自由度如何把远场整形成方形。
 
 **运行命令** (无硬件, 无 DVI 挂起风险):
 ```bash
-python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 40 --debug
+python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 40 --debug
 ```
 
 **结果** (本次运行): best quality = 0.5874 @ epoch 8 (CV=5.60, EE=0.979, AR=1.05),

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from click.testing import CliRunner
 
-from ao_shaping.tools.slm.slm_drift_probe import (
+from ao_shaping.tools.ccd.drift_probe import (
     LADDER_DEFAULT,
     ROW_KEYS,
     drift_series,

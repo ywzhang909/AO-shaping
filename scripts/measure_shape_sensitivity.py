@@ -87,13 +87,16 @@ def main() -> None:
         set_camera_exposure_ms,
     )
     from ao_shaping.drivers.slm import Santec
+    from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+        SlotRotator,
+        display_rotating,
+        zernike_to_phase,
+    )
     from ao_shaping.optimizer.wfless.slm_zernike_pib import (
         ImageTargetFunc,
         PatternHelper,
-        _display,
-        _zernike_to_phase,
     )
-    from ao_shaping.tools.slm.sweep_analysis import snr_sweep, snr_verdict
+    from ao_shaping.tools.kernels.sweep_analysis import snr_sweep, snr_verdict
     from ao_shaping.utils.image.beam_metrics import (
         clamp_center_to_frame,
         zero_order_center,
@@ -114,7 +117,13 @@ def main() -> None:
         coeff = np.zeros(15, dtype=np.float64)
 
         def show(c: np.ndarray) -> None:
-            _display(slm, slm.create_phase_from_array(_zernike_to_phase(c, args.n_max, ph)))
+            display_rotating(
+                slm,
+                slm.create_phase_from_array(
+                    zernike_to_phase(c, args.n_max, ph, default_radius=300.0)
+                ),
+                SlotRotator(),
+            )
             time.sleep(args.settle_s)
 
         show(coeff)
@@ -235,7 +244,7 @@ def main() -> None:
             f"- 目标尺寸 {target_size:.1f} px (2x99% 能量半径 {2.0 * float(radius):.1f}, 开窗长边上限 {fit:.1f})",
             f"- **噪声地板 dJ_noise = {noise:.8f}** ({args.n_frames} 帧同相位, 均值 {noise_mean:.8f})",
             f"- 探测自由度 {result.n_dof} (n_max={args.n_max}); 测量委托 "
-            f"`ao_shaping.tools.slm.sweep_analysis.snr_sweep` (设备实例由参数传入)",
+            f"`ao_shaping.tools.kernels.sweep_analysis.snr_sweep` (设备实例由参数传入)",
             "",
             "| Δa (rad) | ΔJ | SNR | 判定 |",
             "|---|---|---|---|",

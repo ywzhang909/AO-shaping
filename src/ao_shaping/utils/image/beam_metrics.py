@@ -13,7 +13,6 @@
 
 from __future__ import annotations
 
-import math
 from typing import Literal
 
 import numpy as np
@@ -37,6 +36,8 @@ __all__ = [
     "smart_zero_order_center",
     "median_zero_order_center",
     "clamp_center_to_frame",
+    "prepare_frame",
+    "locate_peak",
 ]
 
 
@@ -447,7 +448,7 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     spatially correlated) essentially unchanged.
 
     Lives here, in the leaf ``utils/image`` layer, because **both**
-    :mod:`ao_shaping.tools.slm.slm_bench_probe` (which owns the bench
+    :mod:`slm_bench_probe` (which owns the bench
     measurement kernel) and the dataset transforms need it, and ``utils`` must not
     import upward from ``tools``. ``slm_bench_probe`` re-exports this name, so
     existing callers are unaffected. It was previously defined only there.
@@ -459,10 +460,44 @@ def despike_frame(img: np.ndarray, k: int = 3) -> np.ndarray:
     pad = k // 2
     p = np.pad(frame, pad, mode="edge")
     stack = np.stack(
-        [p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]] for dy in range(k) for dx in range(k)],
+        [
+            p[dy : dy + frame.shape[0], dx : dx + frame.shape[1]]
+            for dy in range(k)
+            for dx in range(k)
+        ],
         axis=0,
     )
     return np.median(stack, axis=0)
+
+
+def prepare_frame(frame: np.ndarray) -> np.ndarray:
+    """Remove the detector background and return a non-negative frame.
+
+    A CCD frame carries symmetric read noise, so roughly half its pixels are
+    negative and an unprocessed frame yields ``PIB > 1`` (measured 1.012). The
+    beam occupies a small fraction of the frame, so the median is a robust
+    background estimate; clipping **after** subtraction is what makes ``PIB <= 1``
+    and ``CV`` finite. Clipping the raw frame instead would rectify that noise
+    into a pixel-count-sized DC pedestal.
+
+    Note this is deliberately *not* the same convention as
+    ``slm_square_shaping.square_quality_score``, which clips without subtracting:
+    there the background fills the frame, so the median *is* the pedestal and
+    subtracting it makes the ratio explode. The measurements behind both, and the
+    4598x read-noise pedestal figure, are in
+    ``report/slm_pib_bench/report.md`` §7.
+
+    The input dtype is preserved (a float32 frame stays float32); only
+    non-finite samples are masked to 0.
+
+    Args:
+        frame: 2D camera frame.
+
+    Returns:
+        Non-negative array, same shape and dtype as ``frame``.
+    """
+    clean = np.where(np.isfinite(frame), frame, 0.0)
+    return np.clip(clean - np.median(clean), 0.0, None)
 
 
 def zero_order_center(
@@ -636,3 +671,12 @@ def clamp_center_to_frame(
         int(np.clip(int(center[0]), half, max_x)),
         int(np.clip(int(center[1]), half, max_y)),
     )
+
+
+def locate_peak(frame: np.ndarray, finite: bool = True) -> tuple[int, int]:
+    """Locate the global peak as (row, col)."""
+    masked = np.asarray(frame, dtype=np.float64)
+    if finite:
+        masked = np.where(np.isfinite(masked), masked, 0.0)
+    iy, ix = np.unravel_index(int(np.argmax(masked)), masked.shape)
+    return int(iy), int(ix)

@@ -4,8 +4,9 @@ This package is organized into domain subpackages:
 - ``io``: File operations, timestamps, config, networking (file, timestamp,
   cli_helpers, device_config, network, handler)
 - ``image``: Spot analysis and image helpers (spots_calc, beam_metrics,
-  targets, resample, display, hardware_utils). **Visualization/rendering
-  lives in ``ao_shaping.display``**, not here (repo anti-pattern).
+  targets, resample, hardware_utils). **Visualization/rendering
+  lives in ``ao_shaping.display``**, not here (repo anti-pattern) — the
+  former ``utils/image/display.py`` was moved to ``ao_shaping.display.image_display``.
 - ``wavefront``: Wavefront and mode-mixing math (zernike_calc, zernike_utils,
   wavefront_calc, wfs_utils, phase_unwrap, hadamard_calc, matrix_utils,
   pattern_helper, vi)
@@ -31,7 +32,7 @@ from typing import TYPE_CHECKING, Any
 from loguru import logger
 
 if TYPE_CHECKING:  # pragma: no cover - for static analysers only
-    from ao_shaping.utils.image import display as display
+    from ao_shaping.display import image_display as display
     from ao_shaping.utils.image import spots_calc as spots_calc
     from ao_shaping.utils.io import file as file
     from ao_shaping.utils.io import timestamp as timestamp

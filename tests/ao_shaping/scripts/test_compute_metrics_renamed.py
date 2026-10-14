@@ -34,7 +34,9 @@ SCAN_ROOTS = ("src", "scripts", "tests")
 # new name -> defining module (relative to repo root)
 CANONICAL = {
     "compute_beam_metrics": "src/ao_shaping/utils/image/beam_metrics.py",
-    "compute_bench_metrics": "src/ao_shaping/drivers/sim/slm_shaping_bench.py",
+    "compute_bench_metrics": (
+        "src/ao_shaping/algorithm/signal_processing/square_shaping.py"
+    ),
     "compute_cv_ee": "scripts/generate_diff_shaping_report.py",
 }
 

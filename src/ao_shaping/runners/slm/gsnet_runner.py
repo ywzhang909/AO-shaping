@@ -26,7 +26,6 @@ optimizers already recorded and trains FourierGSNet on them in simulation.
 
 from __future__ import annotations
 
-import contextlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -55,12 +54,6 @@ from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.display import AutoDisplay, FrameInfo
-from ao_shaping.display.frames import (
-    Image2DFrame,
-    Image2DWithBucketFrame,
-    EpochCurveFrame,
-)
-from ao_shaping.utils.image.beam_metrics import zero_order_center
 
 # --- debug artifact fields -------------------------------------------------
 # The square-shaping recorder stores the metric keys below. Image-like entries
@@ -259,14 +252,9 @@ def _save_debug_artifacts(
         scalar_keys=_DEBUG_SCALAR_KEYS,
         img_keys=_IMG_KEYS,
         d1_keys=_1D_KEYS,
-        json_payload=_config_payload(objective),
+        json_payload=config_payload(objective),
         title=title,
     )
-
-
-def _config_payload(obj: Any) -> dict[str, Any]:
-    """Serialize a parameter dataclass for the JSON debug sidecar."""
-    return config_payload(obj)
 
 
 # --- parameter dataclasses -------------------------------------------------

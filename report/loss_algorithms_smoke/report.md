@@ -7,6 +7,8 @@
 > **说明**: 测试用例跑 --quick 生成的冒烟版本
 <!-- provenance:end -->
 
+**本轮结论**（loss × 算法冒烟基准）：本轮为 `--quick` 冒烟档（epochs=2、单种子），仅验证两条评测轨道的管线可执行性，**不构成性能结论**：Track A（ML 目标 × torch 优化器）mse/adam 与 physical/adam 的 val R² 分别为 +0.616/+0.585，差距在 2 epoch 下无判别力；Track B（AO 目标 × 搜索算法）SPGD-adamod 的 m_pib=0.765 显著优于 GA 的 0.031，但 n=1 且 GA 系数范数（7.01）远大于 SPGD（0.0001），提示 GA 在 2 epoch 预算内尚未进入有效搜索。正式对比需增加种子数与 epochs 后重跑。
+
 - epochs per cell: 2
 - paired seeds: 1 (same list for every cell)
 - grid 32, n_max 4, cam_size 128

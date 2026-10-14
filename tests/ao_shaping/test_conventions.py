@@ -25,11 +25,22 @@ What each guard is for, and why a plain grep is not enough:
   behind, so 11 references pointed at modules that no longer exist -- including
   one emitted into a generated report, which is how a stale path reaches a user.
   All fixed; the baseline below is what legitimately does not resolve.
+
+* **Thread budget.** Every native runtime sizes its thread pool once, at load
+  time, and each one reads a *different* env var -- so a plausible-looking
+  subset is silently useless and the regression is invisible in the diff. A
+  single pytest process asked for 24 (OpenBLAS) + 24 (torch intra-op) + 24
+  (torch inter-op) = 72 threads on 32 CPUs, multiplied again by each worker.
+  The policy lives in ``tests/conftest.py``; the guard below pins both the var
+  set and its position *above* the first native import, which is the part that
+  silently rots when someone tidies the imports.
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.util
+import os
 import re
 from pathlib import Path
 
@@ -541,3 +552,136 @@ def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
     assert "output_dir" not in algo, (
         "beam_shaping_benchmark still takes an output_dir, so it is still a writer"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. the thread budget is pinned before any native pool loads
+# ---------------------------------------------------------------------------
+
+#: ``tests/conftest.py`` owns the suite's thread budget (16 cores, divided by
+#: the worker count). Grep cannot protect this: the pinned vars are load-bearing
+#: one runtime at a time -- a plausible-looking subset is silently useless --
+#: and their *position*, above the first pool-forming import, is invisible in a
+#: diff and rots silently the next time someone tidies the imports.
+_ROOT_CONFTEST = REPO / "tests" / "conftest.py"
+
+#: Must match ``CORE_BUDGET`` in the conftest. The first assertion below is what
+#: makes that duplication safe: it fails loudly on drift instead of trusting it.
+_EXPECTED_CORE_BUDGET = 16
+
+_EXPECTED_THREAD_ENV_VARS = (
+    "OPENBLAS_NUM_THREADS",
+    "OPENBLAS_DEFAULT_NUM_THREADS",
+    "GOTO_NUM_THREADS",
+    "OMP_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "BLIS_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "NUMEXPR_MAX_THREADS",
+    "NUMBA_NUM_THREADS",
+)
+
+#: Runtimes that freeze a pool size at import. ``cupy`` has no CPU pool -- its
+#: "threads" are CUDA grid/block -- but it is listed so that a future CPU pool
+#: cannot land above the pinning block unnoticed.
+_POOL_FORMING_IMPORTS = frozenset(
+    {"numpy", "scipy", "torch", "numba", "cupy", "sklearn"}
+)
+
+
+def _conftest_source() -> str:
+    return _ROOT_CONFTEST.read_text(encoding="utf-8-sig")
+
+
+def _module_scope_literal(tree: ast.Module, name: str) -> object:
+    """Value of a module-scope assignment to ``name``, or None."""
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id == name
+            for target in node.targets
+        ):
+            try:
+                return ast.literal_eval(node.value)
+            except ValueError:
+                return None
+    return None
+
+
+def test_the_conftest_pins_exactly_the_vars_that_are_load_bearing() -> None:
+    tree = ast.parse(_conftest_source())
+    assert _module_scope_literal(tree, "CORE_BUDGET") == _EXPECTED_CORE_BUDGET, (
+        "CORE_BUDGET moved; update _EXPECTED_CORE_BUDGET here in the same commit"
+    )
+    assert (
+        _module_scope_literal(tree, "_THREAD_ENV_VARS") == _EXPECTED_THREAD_ENV_VARS
+    ), "the pinned var set drifted -- each var covers a different runtime, "\
+       "so dropping one silently restores the oversubscription for that library"
+    # MKL_DYNAMIC defaults to TRUE, which makes MKL_NUM_THREADS advisory.
+    assert 'os.environ.setdefault("MKL_DYNAMIC", "FALSE")' in _conftest_source(), (
+        "without MKL_DYNAMIC=FALSE, MKL is free to pick its own (higher) thread "
+        "count and silently ignore MKL_NUM_THREADS"
+    )
+
+
+def test_the_pinning_precedes_every_pool_forming_import() -> None:
+    """Position is the half of the policy a diff cannot show.
+
+    A pool sizes itself once, when its library is imported; a later
+    ``os.environ`` write does not shrink it, so a reordering here is a silent
+    reintroduction of the 72-thread-per-process state.
+    """
+    pin_lines: list[int] = []
+    load_lines: list[str] = []
+    for node in ast.parse(_conftest_source()).body:
+        # Function bodies run later; only module-scope execution order matters,
+        # and the helpers legitimately re-read the environment at call time.
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if "os.environ" in ast.unparse(node):
+            pin_lines.append(node.lineno)
+        names: list[str] = []
+        if isinstance(node, ast.Import):
+            names = [alias.name for alias in node.names]
+        elif isinstance(node, ast.ImportFrom):
+            names = [node.module or ""]
+        for name in names:
+            if name.split(".")[0] in _POOL_FORMING_IMPORTS:
+                load_lines.append(f"{node.lineno}:{name}")
+
+    assert load_lines, (
+        "no module-scope pool-forming import is left in tests/conftest.py, so "
+        "this guard now proves nothing -- restore the import above the pinning "
+        "block, or drop the guard deliberately"
+    )
+    first_load = min(int(entry.split(":", 1)[0]) for entry in load_lines)
+    assert max(pin_lines) < first_load, (
+        f"thread pinning runs after a pool-forming import ({load_lines}); the "
+        "pool is already sized by then and no env var can shrink it"
+    )
+
+
+def test_the_thread_budget_is_in_force_in_this_process() -> None:
+    """The behavioural half: not just that the conftest says so, but that it is."""
+    workers = max(1, int(os.environ.get("PYTEST_XDIST_WORKER_COUNT") or "1"))
+    override = os.environ.get("AO_TEST_THREADS")
+    expected = max(1, (int(override) if override else _EXPECTED_CORE_BUDGET) // workers)
+
+    for var in _EXPECTED_THREAD_ENV_VARS:
+        assert os.environ.get(var) == str(expected), (
+            f"{var}={os.environ.get(var)!r}, expected {expected} -- the conftest "
+            "pinning did not run, so every pool is free to grab all cores"
+        )
+    assert os.environ.get("MKL_DYNAMIC") == "FALSE"
+
+    if importlib.util.find_spec("torch") is None:
+        pytest.skip("torch is an optional extra; only the env vars apply")
+
+    import torch
+
+    # The intra-op pool's *default* honours OMP_NUM_THREADS/MKL_NUM_THREADS,
+    # but only if nothing sized the pool first, hence the API call as well.
+    assert torch.get_num_threads() == expected
+    # Inter-op is reachable through no env var at all and is idle outside JIT,
+    # so it is held at 1 rather than taking a share of the budget it never uses.
+    assert torch.get_num_interop_threads() == 1

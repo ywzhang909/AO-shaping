@@ -7,6 +7,8 @@
 > **说明**: 读 slm_zernike_shaping optimizer 的 debug 产物
 <!-- provenance:end -->
 
+**本轮结论**：`slm_zernike_shaping` 优化器调试产物离线复盘显示，本轮 SPGD（square 目标、n=9、delta=0.0005、epochs=200）**未实现净改善**：`rms_pib`（最大化目标）初始 0.6147 → 末值 0.5853，全局最优 0.6237 仅出现在 epoch 66、相对初始增益 +0.0090，处于噪声量级；Zernike 系数范数 ‖c‖₂ 持续增长表明搜索仍在推动相位偏离初始值而非收敛。该结果与 slm_pib_bench 系列"delta=0.0005 低于本台架最小可分辨扰动"的实测结论一致。方法论上本报告确立三条纪律：完全离线可复现（仅读 debug PKL/JSON）、目标极性按 `objective_mode` 显式标注（防止最大化/最小化误读）、缺键容错回退。
+
 **生成时间**: 2026-09-26 16:31:40
 
 **Fully offline** — 本报告由 `scripts/generate_slm_zernike_shaping_report.py` 离线生成, 仅读取 `slm_zernike_shaping` 优化器以 `debug=True` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
@@ -50,13 +52,13 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 - 初始值 0.536862 → 末值 0.665692 (未改善); 最优相对初始 0.0040449
 - 优化器内部跟踪的 `best_<objective>` 未写入调试产物 (`_DEBUG_SCALAR_KEYS` 不含该键), 故最优值由本脚本从目标列重算。
 
-![run0_objective](figures\run0_objective.png)
+![run0_objective](figures/run0_objective.png)
 
-![run0_zernike](figures\run0_zernike.png)
+![run0_zernike](figures/run0_zernike.png)
 
-![run0_frames](figures\run0_frames.png)
+![run0_frames](figures/run0_frames.png)
 
-![run0_spot](figures\run0_spot.gif)
+![run0_spot](figures/run0_spot.gif)
 
 ### 2.3 解读
 
@@ -90,13 +92,13 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 - 初始值 0.614717 → 末值 0.585336 (未改善); 最优相对初始 0.00897115
 - 优化器内部跟踪的 `best_<objective>` 未写入调试产物 (`_DEBUG_SCALAR_KEYS` 不含该键), 故最优值由本脚本从目标列重算。
 
-![run1_objective](figures\run1_objective.png)
+![run1_objective](figures/run1_objective.png)
 
-![run1_zernike](figures\run1_zernike.png)
+![run1_zernike](figures/run1_zernike.png)
 
-![run1_frames](figures\run1_frames.png)
+![run1_frames](figures/run1_frames.png)
 
-![run1_spot](figures\run1_spot.gif)
+![run1_spot](figures/run1_spot.gif)
 
 ### 2.3 解读
 
@@ -112,6 +114,6 @@ PKL 记录的键来自优化器的 `_DEBUG_SCALAR_KEYS` / `_DEBUG_IMG_KEYS` / `_
 
 ## 4. SPGD
 
-> uv run -m ao_shaping.runners.slm_pib_runner spgd -c "max" --target_shape square --target_size 50 --delta 0.0005 --exposure_time_ms 1.2 --show -e 200 --zernike_radius 480 -n 9 --debug --lr 0.5
+> uv run -m ao_shaping.runners.slm_pib_runner spgd -c "max" --target-shape square --target-size 50 --delta 0.0005 --exposure-time-ms 1.2 --show -e 200 --zernike-radius 480 -n 9 --debug --lr 0.5
 
 ![1790602621794](image/report/1790602621794.png)

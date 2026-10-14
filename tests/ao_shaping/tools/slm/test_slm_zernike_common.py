@@ -5,7 +5,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_zernike_common import (
+from ao_shaping.tools.zernike.common import (
     added_tilt,
     collect_device_info,
     correction_artifact_name,

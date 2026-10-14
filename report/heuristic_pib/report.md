@@ -7,6 +7,8 @@
 > **说明**: 7 种启发式 + PIB 目标；summary.csv 为本脚本产物
 <!-- provenance:end -->
 
+**本轮结论**（7 启发式算法 × PIB 合成地形基准）：在 4 维双盆地合成地形（全局中心 [-4.8,-4.2,-4.5,-4.0]、局部中心 [2.5,3.2,2.2,2.8]，seed=42）上，各算法按"PIB≥0.9 且 best_x 落于全局中心附近 = 找到全局盆地；0.6–0.9 = 局部盆地；其余 = 未收敛"判据评估，收敛速度以首次达到最大值/越过 0.9/越过 0.5 的迭代数刻画（best-so-far 曲线单调）。该基准的意义在于为真机 PIB 优化提供无梯度算法的先验排序与迭代预算参考；因合成地形不含测量噪声与慢漂移，其排序不能直接外推到硬件场景（硬件侧结论以 slm_pib_bench 系列为准）。
+
 Benchmark of all 7 heuristic optimizers in `ao_shaping.algorithm` on the PIB (power-in-bucket) optimization problem, offline (pure numpy, no hardware), using the synthetic landscape from `ao_shaping.optimizer.wfless.pib_sim_eval.SimLandscape`.
 
 - **dim**: 4, **bounds**: (-12.0, 12.0), **seed**: 42

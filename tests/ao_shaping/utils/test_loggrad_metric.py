@@ -138,7 +138,7 @@ class TestValidation:
         Note the score is *not* necessarily unchanged versus the pristine frame:
         a bad pixel is replaced by ``0.0``, not by its original value. The
         invariant is that callers who clean the frame themselves (as
-        ``slm_gs_refine._prepare_frame`` does) observe no behavioural difference.
+        ``ao_shaping.utils.image.beam_metrics.prepare_frame`` does) observe no behavioural difference.
         """
         frame = make_blob()
         poisoned = frame.copy()
@@ -199,9 +199,7 @@ class TestNegativePixels:
 
         target = make_blob(cx=13.0)
         from_noisy = log_gradient_difference_metric(noisy, target)
-        from_clipped = log_gradient_difference_metric(
-            np.clip(noisy, 0.0, None), target
-        )
+        from_clipped = log_gradient_difference_metric(np.clip(noisy, 0.0, None), target)
         assert from_noisy == pytest.approx(from_clipped, abs=1e-12)
         assert np.isfinite(from_noisy)
 
@@ -246,9 +244,7 @@ class TestDiscrimination:
 
     def test_identical_structure_scores_lower_than_mismatched(self) -> None:
         same = log_gradient_difference_metric(make_blob(cx=10.0), make_blob(cx=10.0))
-        other = log_gradient_difference_metric(
-            make_blob(cx=6.0), make_blob(cx=15.0)
-        )
+        other = log_gradient_difference_metric(make_blob(cx=6.0), make_blob(cx=15.0))
         assert same < other
 
     def test_smooth_beam_scores_lower_than_speckle(self) -> None:

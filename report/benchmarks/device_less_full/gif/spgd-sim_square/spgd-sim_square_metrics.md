@@ -7,6 +7,8 @@
 > **说明**: 9 单元网格中 spgd-sim x square 的逐 GIF 指标；area 已坍缩，勿据此比均匀性
 <!-- provenance:end -->
 
+**本轮结论**：spgd-sim 在 square 目标上失败（已知失效模式，非回归）：实测面积坍缩至约 1 px，CV≈16；均匀性指标不具判别力。
+
 - requested_area: 256
 - measured_area: 1  (met: False, fill_ratio: 0.004)
 - uniformity_cv: 15.9681

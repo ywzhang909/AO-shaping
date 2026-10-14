@@ -111,6 +111,8 @@ def test_gs_refine_honours_main_group_debug(tmp_path, monkeypatch):
         recorder.append(
             {"_epoch": 2, "stage": "refine", "score": 0.4, "pib": 0.3, "cv": 0.7}
         )
+        recorder.best_phase = np.zeros((4, 4), dtype=float)
+        recorder.best_frame = np.ones((4, 4), dtype=float)
         return recorder
 
     monkeypatch.setattr(slm_gs_refine, "optimize_slm_gs_refine", fake_optimize)
@@ -123,9 +125,16 @@ def test_gs_refine_honours_main_group_debug(tmp_path, monkeypatch):
     assert seen == [True]
     assert "Debug data saved to:" in result.output
     assert "[adopted]" in result.output
-    assert list((tmp_path / "debug").rglob("*.pkl"))
-    csv_files = list((tmp_path / "slm_gs_refine").rglob("*.csv"))
+    csv_files = list((tmp_path / "debug" / "slm_gs_refine").rglob("*.csv"))
     assert len(csv_files) == 1
+    run_dir = csv_files[0].parent
+    assert run_dir.parent == tmp_path / "debug" / "slm_gs_refine"
+    assert (run_dir / "best_phase.npy").is_file()
+    assert (run_dir / "best_far_field.png").is_file()
+    assert len(list(run_dir.glob("*.pkl"))) == 1
+    assert len(list(run_dir.glob("*.json"))) == 1
+    assert len(list(run_dir.glob("slm_gs_refine_*.png"))) == 1
+    assert len(list((tmp_path / "debug").rglob("*.pkl"))) == 1
     csv_text = csv_files[0].read_text(encoding="utf-8")
     assert "score" in csv_text
     assert "_img" not in csv_text

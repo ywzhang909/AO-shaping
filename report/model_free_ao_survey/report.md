@@ -6,6 +6,8 @@
 > **说明**: 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式
 <!-- provenance:end -->
 
+**本文档结论**（无模型 AO 综述 × 本项目映射）：Selim 等 2026 综述（DOI `10.1007/s12596-025-03011-z`）与本项目 model-free 栈逐条映射后，筛出 **6 条可借鉴路线**：自适应增益、TIE 相位测量、Cn² 自适应超参、scintillation index 代理、hybrid 调度器（组合已有 GS/SPGD/model-in-loop，不重写 GS 循环）、RL 动态基准。全部 6 条均为**加法**（新增开关/模块），不改现有默认行为；实施依赖序为增益→scintillation→Cn² 超参→TIE→hybrid，验收统一走数字孪生 `--cam_type sim`，硬件后验另列。
+
 > **来源**: 本地 Zotero 库条目 `T2H7VM3S`（副本 `5SCDP36J`），
 > *Model-free adaptive optics for free space optical communications: A comprehensive survey*，
 > Hebat Allah O. Selim, Rania M. Abdallah, Moustafa H. Aly, Islam E. Shaalan，
@@ -84,7 +86,7 @@
 ## 3. 可借鉴清单（按优先级）
 
 > 优先级 = (对本项目 model-free 闭环的实际收益) × (落地成本)。
-> 每条给出落点文件与验收口径，全部**离线可验证**（数字孪生 `--cam_type sim`）先行，硬件后验。
+> 每条给出落点文件与验收口径，全部**离线可验证**（数字孪生 `--cam-type sim`）先行，硬件后验。
 
 ### 3.1 ⭐ 自适应 SPGD 增益（论文 §"SPGD" 的 γ = γ0/J + C）
 
@@ -98,7 +100,7 @@
   与现有 `shrink_ratio` 的正则衰减正交，可能进一步缩短收敛。
 - **落点**：`optimizer/wfless/slm_zernike_pib.py` 的 SPGD 主循环；新增 `SlmZernikePibConfig`
   字段 `adaptive_gain: bool` / `gamma0` / `gain_c`（默认关闭，保持现有行为可复现）。
-- **验收**：`--cam_type sim` 数字孪生（`drivers/sim/slm_shaping_bench.py`），固定 seed，
+- **验收**：`--cam-type sim` 数字孪生（`drivers/sim/slm_shaping_bench.py`），固定 seed，
   对比 `lr=固定` vs `lr=J 自适应` 的"达到 best J 的 80% 所需迭代数"（与论文 [43] 的口径一致）。
   目标：迭代数下降，且 best J 不劣化。
 
@@ -222,4 +224,4 @@
 6. **§3.5 hybrid 调度器**（组合已有 GS/SPGD/model-in-loop，**不重写 GS 循环**）— 依赖 §3.1+§3.3。
 
 > 全部 6 条都是**加法**（新增开关/模块），不改现有默认行为，保持可复现。
-> 验收统一走数字孪生 `--cam_type sim`（`patch_sim_*_shaping`），硬件后验另列。
+> 验收统一走数字孪生 `--cam-type sim`（`patch_sim_*_shaping`），硬件后验另列。

@@ -1,7 +1,5 @@
 # SLM 光斑范围测量 (slm_beam_extent)
 
-> **生成脚本**: [`scripts/generate_slm_beam_extent_report.py`](../../scripts/generate_slm_beam_extent_report.py)
-> **复现命令**: `python scripts/generate_slm_beam_extent_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么
@@ -54,10 +52,10 @@ graph TD
 
 ```bash
 # X 轴扫描
-python -m ao_shaping.tools.slm.slm_beam_extent --axis x --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis x --exposure-ms 3.0
 
 # Y 轴扫描
-python -m ao_shaping.tools.slm.slm_beam_extent --axis y --exposure-ms 3.0
+python -m ao_shaping.tools.slm.panel.beam_extent --axis y --exposure-ms 3.0
 ```
 
 ## 6. 输出

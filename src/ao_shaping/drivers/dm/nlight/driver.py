@@ -144,8 +144,19 @@ class NLight(DM):
         # 使用 defaults + __init__ 参数解析（NLight 无序列号，使用默认配置）
         params = NLIGHT_CONFIG.resolve_from_config({}, init_values=self._init_values)
 
-        assert params.max_iter_diff <= MAX_ITER_DIFF_LIMIT
-        assert params.max_neibor_diff <= MAX_NEIBOR_DIFF_LIMIT
+        # Hardware safety limits on the DM command ramp. Explicit raise, not
+        # `assert`: `python -O` strips asserts, and exceeding these limits
+        # overdrives the mirror.
+        if params.max_iter_diff > MAX_ITER_DIFF_LIMIT:
+            raise ValueError(
+                f"max_iter_diff {params.max_iter_diff} exceeds hardware limit "
+                f"{MAX_ITER_DIFF_LIMIT}"
+            )
+        if params.max_neibor_diff > MAX_NEIBOR_DIFF_LIMIT:
+            raise ValueError(
+                f"max_neibor_diff {params.max_neibor_diff} exceeds hardware limit "
+                f"{MAX_NEIBOR_DIFF_LIMIT}"
+            )
 
         super().__init__(safety_mode=params.safety_mode)
         self.max_iter_diff = params.max_iter_diff

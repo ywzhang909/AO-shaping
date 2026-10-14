@@ -103,7 +103,7 @@
 
 - [ ] 对每个命令对象冻结 ① `--help` 全文
 - [ ] 冻结 ② 固定**非默认** argv 下组装出的 dataclass repr
-- [ ] 冻结 ③ 8 个已注册命令的 `--dm_type` 选项列表
+- [ ] 冻结 ③ 8 个已注册命令的 `--dm-type` 选项列表
 - [ ] 断言"固定 argv 下**没有任何字段等于其默认值**"（见风险 R3）
 - [ ] 钉住 `pupil_center` 的「二元联合 + callback」耦合（见风险 R4）
 
@@ -177,7 +177,7 @@
 | ID | 风险 | 后果 | 缓解 |
 |---|---|---|---|
 | **R1** | settle / slot / dark-frame 步骤**位置**被挪动 | 数据"看起来对"但斜率读错 **3.3×**（同斜坡首读 FWHM 43.2px、3 s 后 12.8px、质心移 62px） | 本次**只动 CLI 层**，命令体逐字不动|
-| **R2** | `runners/__init__.py` 改 lazy 会改变 `--help` | `runner_common.py:95-109` 记录 `DM_TYPES` 依赖导入顺序；改 lazy 后 `dm_matrix_runner` 可能在 `asyn_micro` 注册之后才导入 → `--dm_type` **5 项变 6 项** | **本次不碰 lazy**；若要修须单独立项 + 加 `DM_TYPES` 快照测试 |
+| **R2** | `runners/__init__.py` 改 lazy 会改变 `--help` | `runner_common.py:95-109` 记录 `DM_TYPES` 依赖导入顺序；改 lazy 后 `dm_matrix_runner` 可能在 `asyn_micro` 注册之后才导入 → `--dm-type` **5 项变 6 项** | **本次不碰 lazy**；若要修须单独立项 + 加 `DM_TYPES` 快照测试 |
 | **R3** | 跨 `with_params` 的字段名**静默**冲突 | `_collect_click_annotations` 只在单个类树内去重；两个 `@with_params` 各自收集，内层 wrapper 先 pop 同名字段，**外层类静默退回自己默认值**，而 `--help` 完全不变 | Step 0 断言"固定 argv 下无字段等于默认值" |
 | **R4** | `pupil_center` 的「二元联合 + callback」耦合被"清理" | `runner_common.py:394-402` 靠 `_patch_click_types:173-180` 在 `callback` 存在时提前 return，绕过会对二元联合 `raise` 的 `_strip_optional:156-164`。注解改成裸 `str` 且删掉 callback → **导入即炸** | Step 1 钉住该耦合的测试 |
 | **R5** | argparse → click 改退出码 / stdout | `scripts/generate_*` 若解析探针输出或依赖产物路径会断 | 先 grep `scripts/` 是否消费其 stdout / 产物路径 |

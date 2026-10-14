@@ -1,7 +1,5 @@
 # SLM 本底探针 (slm_floor_probe)
 
-> **生成脚本**: [`scripts/generate_slm_floor_probe_report.py`](../../scripts/generate_slm_floor_probe_report.py)
-> **复现命令**: `python scripts/generate_slm_floor_probe_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么
@@ -67,7 +65,7 @@ graph TD
 ## 6. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_floor_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
 ```
 
 ## 7. 输出

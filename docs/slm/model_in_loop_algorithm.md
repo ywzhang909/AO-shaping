@@ -65,7 +65,7 @@ graph TD
         FR["focal_field / focal_intensity<br/>中心补零 + fftshift(fft2(ifftshift))"]
     end
 
-    subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
+    subgraph LB["③ 设备抽象 · 唯一随 --cam-type 改变的一层"]
         direction TB
         BENCH["Bench (Protocol)<br/>display / measure / close"]
         SIM["_SimBench<br/>2f-Fourier 数字孪生"]
@@ -80,7 +80,7 @@ graph TD
         PROBE["_probe_phase(...)"]
         STEPA["_fit_aberration_at_probes(...)"]
         STEPB["shape_phase_with_frozen_aberration(...)"]
-        TWINRUN["simulate_iterative_shaping(config)<br/>--cam_type sim 走的就是这条"]
+        TWINRUN["simulate_iterative_shaping(config)<br/>--cam-type sim 走的就是这条"]
     end
 
     subgraph L4["⑤ 算法层 · algorithm/signal_processing"]
@@ -88,9 +88,9 @@ graph TD
         ZCO["ZernikeCoefficientOptimizer<br/>Adam 作用在 Zernike 系数向量上"]
     end
 
-    subgraph LX["借用的帧预处理 · slm_gs_refine.py"]
+    subgraph LX["借用的帧预处理 · utils/image/beam_metrics.py"]
         direction TB
-        PREP["_prepare_frame"]
+        PREP["prepare_frame"]
     end
 
     subgraph LO["⑥ 记录 · utils/io/file.py"]
@@ -138,7 +138,7 @@ graph TD
 
 孪生与硬件的关系是这个模块的全部设计要点: 标 `[孪生]` 的行**不是**一份会腐烂的平行实现,
 而是硬件层 import 进来的共享数学 (`model_in_loop_shaping`), 且 import 全部延迟到函数内 ——
-`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam_type sim` 只替换 `Bench` 的实现,
+`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam-type sim` 只替换 `Bench` 的实现,
 其余数学逐位相同; 反过来, 仿真里验证过的 Step A/B 逻辑不会在硬件路径上悄悄漂移。
 
 两个模块共享数学, 共享的**不是** config/result 类型 —— 孪生用
@@ -193,12 +193,18 @@ sequenceDiagram
         end
     end
 
+    rect rgb(240, 245, 240)
+        O->>B: display(flat)
+        B-->>O: prepare_frame(measure())
+        O->>O: _metrics_at → _quality → score_before
+    end
+
     rect rgb(238, 243, 249)
         Note over O,Z: 第 t 轮 —— Step A: 重拟合一个共享像差
         loop probe_count 次
             O->>O: _probe_phase(region, probe_spread, seed)
             O->>B: display(probe)
-            B-->>O: measure() → _prepare_frame
+            B-->>O: measure() → prepare_frame
             O->>O: _to_model_grid(...) 搬到模型网格
         end
         O->>Z: step_a_iterations 次前向+反向<br/>(轮流喂全部探针, 同一 Adam 状态)
@@ -211,7 +217,7 @@ sequenceDiagram
         O->>Z: step_b_iterations 次全像素相位 Adam
         Z-->>O: shaped
         O->>B: display(shaped)
-        B-->>O: _prepare_frame → _metrics_at → _quality
+        B-->>O: prepare_frame → _metrics_at → _quality
     end
 
     O->>O: acceptance_verdict(loss, score)
@@ -253,7 +259,7 @@ re-arm 必须绕着**当前**系数重建优化器。
 ### 4.2 逐步
 
 1. `_probe_phase(region, probe_spread, seed)` 生成零均值高斯**瞳面相位** (raw 未包裹弧度)。
-2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `_prepare_frame` 逐帧去背景再裁剪
+2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `prepare_frame` 逐帧去背景再裁剪
    —— 直接对原始帧算指标会被读出噪声污染 (对称读出噪声让约一半像素为负)。
 3. `_to_model_grid` 把实测帧搬到**模型自己的网格**上。Step A 的 loss 比较的是
    「实测 CCD」与「模型预测」, 两者必须逐像素可比, 所以这一步的尺度关系必须由几何标定保证。

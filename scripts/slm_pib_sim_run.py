@@ -8,7 +8,7 @@ real ``slm-pib`` CLI path:
 * monkeypatches ``ao_shaping.optimizer.wfless.slm_zernike_pib.Santec`` to
   :class:`SimSLMPib` so the optimizer's SLM context manager instantiates the
   sim instead of the real Santec driver (no hardware, no DVI hang);
-* invokes the genuine ``slm_shaping_runner.run`` Click entry with ``--cam_type sim``
+* invokes the genuine ``slm_shaping_runner.run`` Click entry with ``--cam-type sim``
   and ``--debug`` so the standard debug artifacts (PNG / PKL / JSON) are written.
 
 An optional wavefront disturbance -- atmospheric turbulence plus a thermal halo
@@ -352,37 +352,37 @@ def main() -> None:
         "-d",
         str(args.data_root),
         "--debug",
-        "--cam_type",
+        "--cam-type",
         "sim",
         "--cam-id",
         "0",
-        "--exposure_time_ms",
+        "--exposure-time-ms",
         "80",
-        "--cam_size",
+        "--cam-size",
         "512",
         "-c",
         "shape",
-        "--slm_number",
+        "--slm-number",
         "1",
-        "--slm_wavelength",
+        "--slm-wavelength",
         "1064",
         "-n",
         "4",
         "--objective",
         args.objective,
-        "--target_shape",
+        "--target-shape",
         args.target_shape,
-        "--target_size",
+        "--target-size",
         "120",
         "-e",
         str(args.epochs),
         "--delta",
         "0.5",
-        "--optimizer_type",
+        "--optimizer-type",
         "adamod",
-        "--w_uniformity",
+        "--w-uniformity",
         "2.0",
-        "--w_peak",
+        "--w-peak",
         "0.5",
     ]
     if args.algorithm:

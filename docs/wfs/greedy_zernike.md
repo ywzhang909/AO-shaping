@@ -1,7 +1,5 @@
 # Zernike 波前优化器 - 贪婪局部搜索 (greedy-zernike)
 
-> **生成脚本**: [`scripts/generate_greedy_zernike_report.py`](../../scripts/generate_greedy_zernike_report.py)
-> **复现命令**: `python scripts/generate_greedy_zernike_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -56,10 +54,10 @@ graph TD
 |------|------|--------|
 | `-e, --epochs` | 优化迭代次数 | 2000 |
 | `-n, --n-max` | Zernike 最大阶数 | 4 |
-| `-r, --wfs_res` | WFS 分辨率 | 1024 |
-| `-p, --pupil_diameter` | 瞳孔直径 | 2.7 |
-| `-c, --pupil_center` | 瞳孔中心坐标 | (0,0) |
-| `-t, --early_stop_threshold` | 早停阈值 | 0.12 |
+| `-r, --wfs-res` | WFS 分辨率 | 1024 |
+| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-c, --pupil-center` | 瞳孔中心坐标 | (0,0) |
+| `-t, --early-stop-threshold` | 早停阈值 | 0.12 |
 | `--wavelength` | SLM 波长 (nm) | 532 |
 | `--slm-number` | SLM 设备编号 | 1 |
 | `--remove-tilt` | 移除波前测量中的倾斜项 | False |
@@ -67,7 +65,7 @@ graph TD
 | `--n-directions` | 每次迭代的随机方向数量 | 5 |
 | `--perturbation-scale` | 扰动幅度缩放因子 | 5.0 |
 | `--algorithm` | 内部搜索算法 (spgd/ga/pso/sa/hc/rs/cem/de) | spgd |
-| `--pop_size` | 种群规模 (ga/pso/cem/de 时使用) | 算法默认值 |
+| `--pop-size` | 种群规模 (ga/pso/cem/de 时使用) | 算法默认值 |
 
 ## 6. 示例
 
@@ -75,7 +73,7 @@ graph TD
 DEBUG=1 python src/ao_shaping/main.py greedy-zernike --n-init 20 --n-directions 8
 
 # 使用 PSO 内部搜索
-python src/ao_shaping/main.py greedy-zernike --algorithm pso --pop_size 30 --epochs 1000
+python src/ao_shaping/main.py greedy-zernike --algorithm pso --pop-size 30 --epochs 1000
 
 # 使用模拟退火
 python src/ao_shaping/main.py greedy-zernike --algorithm sa --epochs 5000

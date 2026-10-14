@@ -111,7 +111,6 @@ from torch.utils.data import (
     DataLoader,
     Dataset,
     Sampler,
-    SequentialSampler,
     Subset,
 )
 
@@ -826,6 +825,7 @@ def create_hw_dataloaders(
     require_exposure: bool = True,
     use_cache: bool = True,
     cache_root: str | Path | None = None,
+    index: HwCorpusIndex | None = None,
 ) -> tuple[DataLoader, DataLoader, DataLoader]:
     """Build seeded train/val/test loaders.
 
@@ -856,6 +856,18 @@ def create_hw_dataloaders(
             Bit-identical to the direct path; defaults to ``True``.
         cache_root: Root for the cache directories, or ``None`` for the sibling
             ``.hw_cache`` directory next to each pickle.
+        index: A prebuilt corpus index to split instead of scanning. This exists so
+            the repo-wide ``build_hw_index(...).filter(...)`` idiom -- used by
+            ~50 call sites in ``scripts/`` and ``ml/zernike`` -- also works for the
+            splitting loader. Filtering *before* the split matters: filtering after
+            it can leave a split empty, and the file-level split is inline in this
+            function rather than a reusable helper, so a caller cannot re-derive it
+            without duplicating it. Mutually exclusive with ``limit_files``,
+            which belongs to the scan.
+
+index: Corpus index to split. When ``None`` (the default) the index is built by
+            scanning ``roots``. See the parameter description for why passing a
+            filtered index is preferred over filtering the loaders afterwards.
 
     Returns:
         ``(train_loader, val_loader, test_loader)``. The train loader is shuffled
@@ -864,8 +876,9 @@ def create_hw_dataloaders(
 
     Raises:
         ValueError: If a split fraction is out of range, if the fractions leave no
-            room for a third split, if the corpus is empty, or if any of the three
-            partitions would contain no record.
+            room for a third split, if the corpus is empty, if any of the three
+            partitions would contain no record, or if ``index`` is combined with
+            ``limit_files``.
     """
     train_fraction = float(train_split)
     val_fraction = float(val_split)
@@ -881,12 +894,22 @@ def create_hw_dataloaders(
             "for a non-empty test split"
         )
 
-    index = build_hw_index(
-        roots,
-        limit_files=limit_files,
-        index_cache=index_cache,
-        progress_every=0,
-    )
+    if index is None:
+        index = build_hw_index(
+            roots,
+            limit_files=limit_files,
+            index_cache=index_cache,
+            progress_every=0,
+        )
+    elif limit_files is not None:
+        # Silently ignoring `limit_files` would build a different corpus than the
+        # caller asked for -- the exact class of quiet divergence this parameter
+        # exists to let callers avoid.
+        raise ValueError(
+            "limit_files belongs to the scan and cannot be combined with a "
+            "prebuilt index; apply limit_files in build_hw_index(...) before "
+            "passing the result here"
+        )
     dataset = HwPhaseImageDataset(
         index,
         config=config,

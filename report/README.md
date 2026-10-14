@@ -23,8 +23,6 @@
 
 | 报告 | 生成脚本 | 运行环境 | 说明 |
 |---|---|---|---|
-| [`beam_shaping/papers/beam_shaping_papers.md`](beam_shaping/papers/beam_shaping_papers.md) | `scripts/generate_beam_shaping_papers_report.py` | 离线 | 文献方法在同一光学模型 + 同一 target 上的仿真对比 |
-| [`beam_shaping/papers/literature_survey.md`](beam_shaping/papers/literature_survey.md) | `人工撰写` | 人工调研 | 2026-09 文献调研，非生成产物 |
 | [`benchmarks/backend_kernels_performance.md`](benchmarks/backend_kernels_performance.md) | `tests/ao_shaping/utils/test_spots_calc.py` | 离线 | 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时） |
 | [`benchmarks/cython_optimizer_performance.md`](benchmarks/cython_optimizer_performance.md) | `scripts/generate_cython_optimizer_report.py` | 离线 | 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成 |
 | [`benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`](benchmarks/device_less_full/beam_shaping_benchmark_metrics.md) | `scripts/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画 |
@@ -39,11 +37,14 @@
 | [`diff_beam/README.md`](diff_beam/README.md) | `scripts/diff_beam_frame_analysis.py` | 离线+硬件 | 正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物 |
 | [`fouriergsnet_pipeline/TODO.md`](fouriergsnet_pipeline/TODO.md) | `人工撰写` | 硬件 | 真机光路验证待办清单 (设备 + 激光就绪后执行) |
 | [`fouriergsnet_pipeline/hardware_run_20261001.md`](fouriergsnet_pipeline/hardware_run_20261001.md) | `人工撰写 (+gsnet_runner.py)` | 硬件 | 实机方形整形运行报告；由 slm-gsnet 命令产生 |
+| [`fouriergsnet_pipeline/next_attempt_plan.md`](fouriergsnet_pipeline/next_attempt_plan.md) | `人工撰写` | 离线+硬件 | GS 家族整形下一步尝试方案 (slm-gs-refine × FourierGSNet, 2026-10-12) |
 | [`fouriergsnet_pipeline/offline_training/report.md`](fouriergsnet_pipeline/offline_training/report.md) | `scripts/generate_gsnet_offline_report.py` | 离线 | 读 data/gsnet_train/run-*/summary.json |
 | [`fouriergsnet_pipeline/report.md`](fouriergsnet_pipeline/report.md) | `scripts/generate_fouriergsnet_pipeline_report.py` | 离线 | 5 项集成测试的结果记录 |
 | [`fouriergsnet_sim/report.md`](fouriergsnet_sim/report.md) | `scripts/generate_fouriergsnet_sim_report.py (+fouriergsnet_sim_train.py, generate_slm_gsnet_sim_gif.py)` | 离线 | 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加 |
 | [`heuristic_pib/report.md`](heuristic_pib/report.md) | `scripts/generate_heuristic_pib_report.py` | 离线 | 7 种启发式 + PIB 目标；summary.csv 为本脚本产物 |
 | [`hwdataset_corpus/report.md`](hwdataset_corpus/report.md) | `scripts/generate_hwdataset_corpus_report.py (+analyze_hwdataset_distributions.py)` | 离线 | data/debug 硬件调试语料的纯元数据统计 (14 张图, 含 4 张数组级分布图); 只读 hw_index_cache.json 与 data/debug/**/*.json, .pkl 仅取元数据; §10/§11 的数组级实测另读 analyze_hwdataset_distributions.py 预产的 distribution_stats.json (该文件缺失时两节降级为提示, 10 张元数据图不受影响, 两阶段复现命令见报告 §14)。§1.1 的「全量重建是否改变结论」交叉核对需另加 --full-index <扫描过全部 pkl 的索引.json> |
+| [`inverse_shaping_unet/model.md`](inverse_shaping_unet/model.md) | `scripts/generate_inverse_shaping_model_report.py` | 离线 | PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测 |
+| [`inverse_shaping_unet/report.md`](inverse_shaping_unet/report.md) | `scripts/generate_inverse_shaping_report.py` | 离线 | 逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; 输入为 ml.shaping.train + ml.shaping.evaluate 的产物 |
 | [`loss_algorithms_smoke/report.md`](loss_algorithms_smoke/report.md) | `scripts/compare_loss_algorithms.py` | 离线 | 测试用例跑 --quick 生成的冒烟版本 |
 | [`loss_defects/PROCESS.md`](loss_defects/PROCESS.md) | `人工撰写 (+inverse_design_sim_eval.py, inverse_design_accuracy_ladder.py, inverse_design_restarts.py, inverse_restart_selection.py, inverse_objective_alignment.py, inverse_achievable_target.py, gs_vs_gradient_inverse.py, gs_plus_refinement.py, alignment_vs_accuracy.py, roi_robustness.py, restart_claim_robustness.py, freeform_vs_zernike.py)` | 离线 | 逆向整形 14 次尝试的完整过程记录（含 3 处被推翻的结论） |
 | [`loss_defects/README.md`](loss_defects/README.md) | `人工撰写 (+sweep_far_field_padding.py)` | 离线 | 前向模型/loss 缺陷排查结论（人工撰写）；同目录 *.json 为各探针面板 |
@@ -56,11 +57,14 @@
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
 | [`oopao_impact/report.md`](oopao_impact/report.md) | `scripts/generate_oopao_impact_report.py` | 离线 | 端到端 AO 环境下的后端影响 |
 | [`oopao_vs_numpy/report.md`](oopao_vs_numpy/report.md) | `scripts/generate_oopao_vs_numpy_report.py` | 离线 | 像差 x 湍流 12 场景 x 2 后端对比 |
-| [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w_loggrad)、2 类早已存在、3 类否决, 附实测依据 |
+| [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w-loggrad)、2 类早已存在、3 类否决, 附实测依据 |
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
+| [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 硬件 | 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总 |
+| [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写` | 硬件 | GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；交错重放入口 scripts/replay_gs_refine_hw.py 仅离线部分经测试 |
+| [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写` | 硬件 | 2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，scripts/compare_shape_debug.py 只渲染对照图 |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
-| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+slm_zernike_sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
+| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
 | [`slm/daily_2026-09-15.md`](slm/daily_2026-09-15.md) | `人工撰写 (+generate_zernike_response_matrix_report.py, generate_zernike_wfs_report.py)` | 硬件 | 硬件实验日报；引用的两个 generate_* 脚本见当日记录 |
 | [`slm/daily_2026-09-16.md`](slm/daily_2026-09-16.md) | `人工撰写 (+wfs_probe.py)` | 硬件 | 硬件实验日报 |
@@ -101,8 +105,9 @@
 
 下列报告已在 `REPORTS` 登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件；生成脚本与复现命令见上表同条目：
 
+- `beam_shaping/papers/beam_shaping_papers.md` ← `scripts/generate_beam_shaping_papers_report.py` (离线)
+- `beam_shaping/papers/literature_survey.md` ← `人工撰写` (人工调研)
 - `loss_algorithms/report.md` ← `scripts/compare_loss_algorithms.py` (离线)
-- `miicam_simulation/miicam_report.md` ← `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py` (离线)
 - `models_analysis/tmp_sac_run_showcase.md` ← `scripts/generate_models_report.py` (离线)
 - `slm_pib_online/sensitivity.md` ← `scripts/measure_shape_sensitivity.py` (硬件)
 - `slm_pib_online_hw/objective_comparison.md` ← `scripts/generate_shape_objective_comparison.py` (离线)

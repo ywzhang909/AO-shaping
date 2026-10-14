@@ -6,6 +6,7 @@ import time
 import matplotlib.pyplot as plt
 
 import numpy as np
+from loguru import logger
 
 import torch as th
 from torch import nn
@@ -160,7 +161,7 @@ if train:
     ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
     if len(ckpt_paths) > 0:
         latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-        print(latest_ckpt_path)
+        logger.info(latest_ckpt_path)
         agent = agent.load(latest_ckpt_path, env=env)
     callbacks = CallbackList([
         TensorboardCallback(),
@@ -172,7 +173,7 @@ if train:
 else:
     ckpt_paths = glob('ckpts/rl/rl_model_*_steps.zip')
     latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-    print(latest_ckpt_path)
+    logger.info(latest_ckpt_path)
     agent.load(latest_ckpt_path, env=env)
 
     env = LaserCastEnv(render_mode='human', max_iter=200)

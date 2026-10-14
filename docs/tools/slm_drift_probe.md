@@ -1,7 +1,5 @@
 # SLM 漂移探针 (slm_drift_probe)
 
-> **生成脚本**: [`scripts/generate_slm_drift_probe_report.py`](../../scripts/generate_slm_drift_probe_report.py)
-> **复现命令**: `python scripts/generate_slm_drift_probe_report.py`
 > **运行环境**: 硬件实测 (需 SLM + 相机)
 
 ## 1. 这条工具做什么
@@ -58,7 +56,7 @@ graph TD
 ## 5. 示例
 
 ```bash
-python -m ao_shaping.tools.slm.slm_drift_probe --exposure-ms 3.0
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
 ```
 
 ## 6. 输出

@@ -935,8 +935,32 @@ class TestFamilyOf:
         assert family_of(Path("d/slm_pib_online/ts/x.pkl")) == "slm_pib_online"
 
     def test_unknown_directory_falls_back_to_parent_name(self) -> None:
-        assert family_of(Path("d/snr_sweep_20260930/ts/x.pkl")) == "ts"
+        """A file directly in an unrecognised dir labels itself from that dir."""
         assert family_of(Path("d/snr_sweep_20260930/x.pkl")) == "snr_sweep_20260930"
+
+    @pytest.mark.parametrize("stamp", ["20260101_000000", "20260101"])
+    def test_run_stamp_directory_is_never_the_family(self, stamp: str) -> None:
+        """``data/debug/<prefix>/<stamp>/`` -- the stamp is not a family label.
+
+        Every run directory in the canonical layout is named with a bare stamp,
+        so labelling a pickle by it would hand each run its own singleton
+        "family". The family is the ``<prefix>`` directory beside it, and the
+        fallback returns it verbatim -- which is also what keeps the 15 distinct
+        ``device_*`` families apart instead of collapsing them.
+        """
+        path = Path("data", "debug", "device_flat_batch3", stamp, "phase_replay.pkl")
+        assert family_of(path) == "device_flat_batch3"
+
+    def test_unregistered_prefix_is_returned_verbatim(self) -> None:
+        """No ``_FAMILY_PREFIXES`` entry needed per family -- the name is the label."""
+        assert family_of(Path("d/slm_gs_refine/20261010_100032/x.pkl")) == "slm_gs_refine"
+        assert family_of(Path("d/slm_square/20261010_094134/x.pkl")) == "slm_square"
+
+    def test_all_stamp_candidates_still_fall_back_to_parent(self) -> None:
+        """With nothing but stamps above it, the parent name is the last resort."""
+        assert family_of(Path("d/20260101_000000/20260102_000000/x.pkl")) == (
+            "20260102_000000"
+        )
 
     def test_parent_name_is_preferred_over_grandparent(self) -> None:
         """A timestamp directory is checked first, so a nested match wins."""

@@ -1,7 +1,5 @@
 # SLM 方形光斑 SPGD 整形 (spgd-square)
 
-> **生成脚本**: [`scripts/generate_spgd_square_report.py`](../../scripts/generate_spgd_square_report.py)
-> **复现命令**: `python scripts/generate_spgd_square_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -58,7 +56,7 @@ score = w_uniformity * (1 - CV) + w_efficiency * EE + w_aspect * (1 - |AR - 1|)
 4. **主循环** (每轮 2 帧 SPGD)：
    - 生成扰动向量 `u` (Zernike 模式数 / grid² 维)
    - `phase ± δ·u` 下发 SLM
-   - 读 CCD，`_prepare_frame` (去背景+裁剪到冻结 ROI)
+    - 读 CCD，`prepare_frame` (去背景+裁剪到冻结 ROI)
    - 计算 CV, EE, AR → 综合 `score`
    - 梯度估计：`g = (score(+) - score(-)) / (2δ) * u`
    - 优化器更新参数
@@ -98,10 +96,10 @@ score = w_uniformity * (1 - CV) + w_efficiency * EE + w_aspect * (1 - |AR - 1|)
 
 ```bash
 # 无硬件仿真
-python src/ao_shaping/main.py spgd-square --cam_type sim --slm_type sim -e 5
+python src/ao_shaping/main.py spgd-square --cam-type sim --slm-type sim -e 5
 ```
 
-- `--cam_type sim` / `--slm_type sim` 走 2f-Fourier 数字孪生
+- `--cam-type sim` / `--slm-type sim` 走 2f-Fourier 数字孪生
 - 必须**同时给**两个 flag，否则报 UsageError
 - ⚠️ `--debug` 产物目前只有 `--basis freeform` 能进 `ml/hwdataset` 语料
 
@@ -125,7 +123,7 @@ python src/ao_shaping/main.py spgd-square --cam_type sim --slm_type sim -e 5
 | 低阶 Zernike (n≤4) 合成方形 | 物理上无法合成方形远场 (需 2D-sinc/高频) | 用 `freeform` 全像素自由度 |
 | 仅优化 `-CV` 无 EE 项 | 能量被推出目标框 (EE→0.002) | 必须含 `w_efficiency > 0` |
 | 每轮 `argmax` 重定位 ROI | 斑粒场下全局最大值跳变 → 指标不连续 | 首帧定位后**冻结 ROI** |
-| 原始 CCD 帧直接算指标 | 读出噪声负像素 → PIB>1、CV 被污染 | `_prepare_frame` 先减中位数再 clip≥0 |
+| 原始 CCD 帧直接算指标 | 读出噪声负像素 → PIB>1、CV 被污染 | `prepare_frame` 先减中位数再 clip≥0 |
 
 ## 9. 输出契约
 

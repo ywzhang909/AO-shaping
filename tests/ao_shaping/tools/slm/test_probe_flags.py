@@ -60,35 +60,61 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[4]
-SLM_PKG_DIR = REPO / "src" / "ao_shaping" / "tools" / "slm"
+TOOLS_ROOT = REPO / "src" / "ao_shaping" / "tools"
 GOLDEN = Path(__file__).with_name("probe_help_golden.json")
 UPDATE = os.environ.get("AO_PROBE_HELP_UPDATE") == "1"
 
-#: Every probe that is a ``python -m`` entry point. The six library modules
-#: (bench_metrics, bench_probe, scan_analysis, zernike_common, snr_probe,
-#: delta_explorer) are deliberately absent: they have no CLI.
-PROBES = [
-    "calibration",
-    "gray_response",
-    "phase_capture",
-    "slm_abba_probe",
-    "slm_beam_extent",
-    "slm_diagnose",
-    "slm_drift_probe",
-    "slm_exposure_check",
-    "slm_floor_probe",
-    "slm_lut_runner",
-    "slm_panel_locate",
-    "slm_phase_resolution",
-    "slm_phase_response",
-    "slm_tilt_probe",
-    "slm_train_data_collect",
-    "slm_wfs_probe",
-    "slm_wfs_reference",
-    "slm_zernike_correction",
-    "slm_zernike_response",
-    "slm_zernike_sweep_probe",
-]
+#: probe key (golden key, kept stable across the move) -> full module dotted path.
+#: After the 2026-10-12 reorganisation the probes span sibling packages
+#: (``slm/panel``, ``slm/calibration``, ``ccd``, ``wfs``, ``zernike``), not just
+#: ``tools/slm``.
+PROBE_MODULES: dict[str, str] = {
+    "calibration": "ao_shaping.tools.slm.calibration",
+    "gray_response": "ao_shaping.tools.slm.calibration.gray_response",
+    "phase_capture": "ao_shaping.tools.slm.calibration.phase_capture",
+    "slm_abba_probe": "ao_shaping.tools.zernike.abba_probe",
+    "slm_beam_extent": "ao_shaping.tools.slm.panel.beam_extent",
+    "slm_diagnose": "ao_shaping.tools.slm.panel.diagnose",
+    "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
+    "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
+    "slm_floor_probe": "ao_shaping.tools.ccd.floor_probe",
+    "slm_lut_runner": "ao_shaping.tools.slm.calibration.lut_runner",
+    "slm_panel_locate": "ao_shaping.tools.slm.panel.panel_locate",
+    "slm_phase_resolution": "ao_shaping.tools.slm.panel.phase_resolution",
+    "slm_phase_response": "ao_shaping.tools.slm.panel.phase_response",
+    "slm_tilt_probe": "ao_shaping.tools.slm.panel.tilt_probe",
+    "slm_train_data_collect": "ao_shaping.tools.slm.calibration.train_data_collect",
+    "slm_wfs_probe": "ao_shaping.tools.wfs.wfs_probe",
+    "slm_wfs_reference": "ao_shaping.tools.wfs.wfs_reference",
+    "slm_zernike_correction": "ao_shaping.tools.wfs.zernike_correction",
+    "slm_zernike_response": "ao_shaping.tools.wfs.zernike_response",
+    "slm_zernike_sweep_probe": "ao_shaping.tools.zernike.sweep_probe",
+}
+
+#: Every probe that is a ``python -m`` entry point. The library modules
+#: (bench_kernels, sweep_analysis, zernike common, ...) are deliberately absent:
+#: they have no CLI.
+PROBES = list(PROBE_MODULES)
+
+#: Directories the probes live in, for the on-disk discovery guard.
+_PROBE_DIRS = ("slm/panel", "slm/calibration", "ccd", "wfs", "zernike")
+
+
+def _module_file(mod: str) -> Path:
+    """Source file behind a dotted module (handles package entry points)."""
+    rel = mod.split("ao_shaping.", 1)[1].replace(".", "/")
+    base = TOOLS_ROOT.parent / rel  # src/ao_shaping/<rel>
+    f = base.with_suffix(".py")
+    if f.is_file():
+        return f
+    inner = base / (base.name + ".py")  # package: <pkg>/<pkg>.py (calibration)
+    if inner.is_file():
+        return inner
+    return base / "__init__.py"
+
+
+def _source_path(probe: str) -> Path:
+    return _module_file(PROBE_MODULES[probe])
 
 _FLAG = re.compile(r"^--[a-z0-9][a-z0-9-]*$")
 _HELP_FLAG = re.compile(r"--[a-z0-9][a-z0-9-]*")
@@ -219,13 +245,15 @@ def test_the_probe_list_matches_the_package() -> None:
     """A new probe must be added here or it gets no protection at all."""
     on_disk = {
         p.stem
-        for p in SLM_PKG_DIR.glob("*.py")
-        if p.stem != "__init__"
+        for sub in _PROBE_DIRS
+        for p in (TOOLS_ROOT / sub).glob("*.py")
+        if p.stem not in {"__init__", "__main__"}
         and "__main__" in p.read_text(encoding="utf-8-sig", errors="replace")
     }
-    assert set(PROBES) == on_disk, (
-        f"only in PROBES: {sorted(set(PROBES) - on_disk)}; "
-        f"only on disk: {sorted(on_disk - set(PROBES))}"
+    declared = {mod.rsplit(".", 1)[-1] for mod in PROBE_MODULES.values()}
+    assert declared == on_disk, (
+        f"only in PROBE_MODULES: {sorted(declared - on_disk)}; "
+        f"only on disk: {sorted(on_disk - declared)}"
     )
 
 
@@ -233,7 +261,7 @@ def test_the_probe_list_matches_the_package() -> None:
 def test_probe_declared_flags_are_unchanged(probe: str) -> None:
     """The always-on guard: what the source DECLARES, not what help renders."""
     expected = _golden()[probe]["declared"]
-    actual = _declared_flags(SLM_PKG_DIR / f"{probe}.py")
+    actual = _declared_flags(_source_path(probe))
     assert actual == expected, (
         f"{probe}: flag surface changed.\n"
         f"  dropped:  {sorted(set(expected) - set(actual))}\n"
@@ -244,7 +272,7 @@ def test_probe_declared_flags_are_unchanged(probe: str) -> None:
 @pytest.mark.parametrize("probe", PROBES)
 def test_probe_has_no_duplicate_flag(probe: str) -> None:
     """Click silently keeps the last of two identical flags."""
-    groups = _declarations(_parse(SLM_PKG_DIR / f"{probe}.py"))
+    groups = _declarations(_parse(_source_path(probe)))
     counts: dict[str, int] = {}
     for group in groups:
         for flag in group:
@@ -273,7 +301,7 @@ def test_probe_body_literals_are_unchanged(probe: str) -> None:
     is the one change that is *supposed* to move those strings.
     """
     expected = _golden()[probe]
-    lits = _body_literals(SLM_PKG_DIR / f"{probe}.py")
+    lits = _body_literals(_source_path(probe))
     digest = hashlib.sha256(json.dumps(lits, ensure_ascii=False).encode()).hexdigest()[:16]
     assert len(lits) == expected["body_literals"], (
         f"{probe}: in-body string literal count {len(lits)} != {expected['body_literals']}"
@@ -312,7 +340,7 @@ def test_no_dataclass_option_carries_a_default(probe: str) -> None:
     present and correct. Only ``--help`` failing to load revealed it -- and a guard
     that needs a 28 s subprocess per module to notice is a guard that gets skipped.
     """
-    path = SLM_PKG_DIR / f"{probe}.py"
+    path = _source_path(probe)
     tree = _parse(path)
     decorator_calls = {
         id(sub)
@@ -383,7 +411,7 @@ def test_other_split_flag_spellings_survive(
 
 
 def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
-    """314 declared flags across 20 probes. A drop here means the scan went blind.
+    """316 declared flags across 20 probes. A drop here means the scan went blind.
 
     Declared and help-visible counts differ legitimately: click adds a built-in
     ``--help`` to all 20, and some probes declare ``hidden=True`` options that
@@ -400,12 +428,18 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     ``slm_train_data_collect`` landed with 37 declared and 38 help-visible flags
     (click's built-in ``--help`` accounts for the difference). Both deltas equal
     that probe's own counts exactly, so the totals moved only by the addition.
+
+    314 -> 316 / 327 -> 329 on 2026-10-12: two flags were added upstream without
+    re-baselining this guard -- ``--max-flat-drift`` on ``panel_locate`` (flat
+    drift rejection before trusting a locate) and a settle-sampling knob on
+    ``floor_probe``. The probe golden was stale for both files and had to be
+    regenerated; these pins follow it.
     """
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 314, f"declared flag inventory is {declared}, expected 314"
-    assert visible == 327, f"help-visible flag inventory is {visible}, expected 327"
+    assert declared == 316, f"declared flag inventory is {declared}, expected 316"
+    assert visible == 329, f"help-visible flag inventory is {visible}, expected 329"
     assert len(PROBES) == 20
 
 
@@ -414,14 +448,55 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _portable(help_text: str) -> str:
+    """Strip the parts of rendered ``--help`` that depend on the OS, not the probe.
+
+    Two sources, both verified against the committed golden: argparse's ``prog``
+    plus its wrapping of the usage block (2 probes), and click rendering a
+    ``Path`` default with the native separator (2 probes). Neither reflects a
+    change to the probe, so neither may read as drift -- otherwise the golden is
+    only ever valid on the platform that wrote it, and X-7's "just regenerate
+    it" is guaranteed to break the other one.
+
+    The usage block is collapsed rather than just having its program token
+    blanked: argparse wraps that block to the terminal width *after* accounting
+    for the program name, so a 35-character ``python.exe -m pkg.mod`` breaks it
+    differently from a 6-character ``mod.py``. Re-wrapping is downstream of the
+    one thing we are discarding, so it has to go with it.
+
+    Normalising to ``/`` (POSIX) is safe in both directions: on Linux this is a
+    no-op, so a backslash that really is a literal in the help text survives.
+    """
+    lines = help_text.splitlines()
+    for i, line in enumerate(lines):
+        if not line.startswith("usage: "):
+            continue
+        block = [line.removeprefix("usage: ")]
+        for cont in lines[i + 1 :]:
+            if not cont[:1].isspace():
+                break
+            block.append(cont.strip())
+        usage = " ".join(" ".join(block).split())
+        # The program name is whatever precedes the first option/positional token.
+        head, sep, tail = usage.partition("[")
+        if not sep:
+            head, sep, tail = usage.partition(" ")
+        lines[i : i + 1 + len(block) - 1] = [f"usage: <prog>{sep}{tail}"]
+        break
+    text = "\n".join(lines)
+    if os.sep != "/":
+        text = text.replace(os.sep, "/")
+    return text
+
+
 def _rendered_help(probe: str) -> str:
     result = subprocess.run(
-        [sys.executable, "-m", f"ao_shaping.tools.slm.{probe}", "--help"],
+        [sys.executable, "-m", PROBE_MODULES[probe], "--help"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=300, cwd=str(REPO), check=False,
     )
     assert result.returncode == 0, f"{probe}: rc={result.returncode}\n{result.stderr[-400:]}"
-    return result.stdout.replace("\r\n", "\n").rstrip("\n")
+    return _portable(result.stdout.replace("\r\n", "\n").rstrip("\n"))
 
 
 def _golden_entry(probe: str, help_text: str) -> dict:
@@ -436,7 +511,7 @@ def _golden_entry(probe: str, help_text: str) -> dict:
     right semantics: this path is the explicit re-baseline, exactly like
     ``help``/``help_flags``/``declared`` beside it.
     """
-    path = SLM_PKG_DIR / f"{probe}.py"
+    path = _source_path(probe)
     lits = _body_literals(path)
     return {
         "help": help_text,
@@ -447,6 +522,31 @@ def _golden_entry(probe: str, help_text: str) -> dict:
             json.dumps(lits, ensure_ascii=False).encode()
         ).hexdigest()[:16],
     }
+
+
+def test_stored_golden_is_platform_neutral() -> None:
+    """The committed golden must not bake in the platform that happened to write it.
+
+    ``AO_PROBE_HELP_UPDATE=1`` writes whatever the current OS rendered, so a
+    Windows-baselined golden can never match on Linux and vice versa -- and
+    since the rendered-help comparison is opt-in, that rot is invisible in a
+    normal run. This is the always-on half of :func:`_portable`, and it costs
+    nothing because it reads the golden instead of re-rendering 20 probes.
+    """
+    offenders = {
+        probe: reason
+        for probe, entry in _golden().items()
+        for reason in (
+            "windows path separator" if "\\" in str(entry["help"]) else "",
+            "bare python.exe prog" if "python.exe" in str(entry["help"]) else "",
+            "un-normalised argparse prog" if re.search(r"(?m)^usage: (?!<prog>)", str(entry["help"])) else "",
+        )
+        if reason
+    }
+    assert not offenders, (
+        f"golden stores platform-specific help text: {offenders}. "
+        "Re-baseline after `_portable`, not before it."
+    )
 
 
 @pytest.mark.parametrize("probe", PROBES)

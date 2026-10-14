@@ -8,7 +8,6 @@ from loguru import logger
 import uuid
 from pathlib import Path
 from glob import glob
-from datetime import datetime
 
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
@@ -27,6 +26,9 @@ import pandas as pd
 
 # Project root directory (workspace root)
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent
+
+#: Sub-directory of a run root that holds optimisation-debug artefacts.
+DEBUG_DIR_NAME = "debug"
 
 # Image file extensions to search
 _IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
@@ -115,6 +117,52 @@ def gen_date_dir(base_dir: str | Path = "data"):
     stamp rather than being folded into this one.
     """
     return make_date_dir(base_dir)
+
+
+def debug_run_dir(root_dir: str | Path, prefix: str) -> Path:
+    """Create and return the canonical debug run directory.
+
+    Every optimisation-debug artefact set lands in one directory per run::
+
+        <root_dir>/debug/<prefix>/<YYYYmmdd_HHMMSS>/
+
+    where ``<prefix>`` is the runner's *script* name (``slm_gs_refine``,
+    ``slm_pib_shape``, ``slm_model_in_loop``, …) and the second level is the run
+    stamp. This two-level shape is the single on-disk convention for
+    ``data/debug``; :func:`debug_run_stem` names the files inside it. Runners
+    that also emit non-debug companions (CSV, best phase / best image) pass the
+    returned directory as ``output_dir`` to
+    :func:`save_recorder_debug_artifacts` so everything from one run stays
+    together.
+
+    Args:
+        root_dir:  Top-level run-output root (e.g. ``"data"``).
+        prefix:    Runner-specific script name; used as the directory name.
+
+    Returns:
+        The created ``<root_dir>/debug/<prefix>/<stamp>`` directory.
+    """
+    return gen_date_dir(Path(root_dir) / DEBUG_DIR_NAME / prefix)
+
+
+def debug_run_stem(run_dir: str | Path, prefix: str) -> Path:
+    """Return the shared, extension-less artefact stem for one run directory.
+
+    Paired with :func:`debug_run_dir`, which supplies ``run_dir``; the stem is
+    ``<prefix>_<stamp>``, and ``.json`` / ``.png`` / ``.pkl`` are derived from it
+    with :meth:`~pathlib.Path.with_suffix`.
+
+    Args:
+        run_dir: A run directory as returned by :func:`debug_run_dir`; its own
+            name is the run stamp.
+        prefix: The same ``prefix`` passed to :func:`debug_run_dir`.
+
+    Returns:
+        ``<run_dir>/<prefix>_<stamp>`` -- a :class:`~pathlib.Path` with no
+        suffix.
+    """
+    run_dir = Path(run_dir)
+    return run_dir / f"{prefix}_{run_dir.name}"
 
 
 def build_debug_save_paths(
@@ -403,18 +451,6 @@ class Recorder:
         self._postprocess_funcs[feature_name] = (func, column)
         self._all_columns.add(column)
 
-    def _apply_postprocess_to_record(self, record: dict) -> dict:
-        """对单条记录应用所有已注册的后处理函数。"""
-        result = dict(record)
-        for feature_name, (func, column) in self._postprocess_funcs.items():
-            if column not in result:
-                try:
-                    result[column] = func(result)
-                except Exception as e:
-                    logger.warning(f"postprocess_feature '{feature_name}' failed: {e}")
-                    result[column] = None
-        return result
-
     def _ensure_postprocess_applied(self, df: pd.DataFrame) -> pd.DataFrame:
         """确保 DataFrame 包含所有后处理列。"""
         for feature_name, (func, column) in self._postprocess_funcs.items():
@@ -600,12 +636,23 @@ def _save_data_mode_debug_artifacts(
     json_path: Path,
     title: str,
     json_payload: dict | None,
+    top_right_key: str | None = None,
+    top_right_title: str | None = None,
 ) -> Path:
     """Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.
 
-    Figure layout (2×2): objective history line plot (top-left), best
-    coefficient bar chart (top-right), first ``_img`` (bottom-left), last
-    ``_img`` (bottom-right).
+    Figure layout (2×2): objective history line plot (top-left), first
+    ``_img`` (bottom-left), last ``_img`` (bottom-right).
+
+    The top-right panel is chosen by ``top_right_key``:
+
+    * ``None`` (default) -> best ``_c`` coefficient bar chart, the historical
+      behaviour for Zernike-parameterised runs.
+    * a record key -> ``imshow`` of that key's **last** epoch. Callers whose
+      control vector is not a coefficient vector (e.g. freeform SLM shaping,
+      which has no ``_c`` at all) pass ``"_phase"`` to show the uint16
+      grayscale actually sent to the SLM instead of a meaningless
+      "no _c" placeholder.
     """
     epochs = sorted(data.keys())
 
@@ -622,16 +669,36 @@ def _save_data_mode_debug_artifacts(
         ax[0, 0].set_ylabel(obj_key)
     ax[0, 0].set_title(title)
 
-    c_arr = None
-    for e in reversed(epochs):
-        if "_c" in data[e]:
-            c_arr = np.asarray(data[e]["_c"])
-            break
-    ax[0, 1].set_title("best coefficients")
-    if c_arr is not None:
-        ax[0, 1].bar(range(len(c_arr)), c_arr)
+    ax_tr = ax[0, 1]
+    panel = None
+    if top_right_key is not None:
+        for e in reversed(epochs):
+            if top_right_key in data[e]:
+                panel = np.asarray(data[e][top_right_key])
+                break
+    if panel is not None:
+        ax_tr.set_title(
+            top_right_title if top_right_title else f"last {top_right_key}"
+        )
+        # uint16 panels are SLM grayscale (2pi == device _max_gray); render them
+        # with a gray ramp so the wrap period is legible. Anything else keeps
+        # matplotlib's default map (far-field intensity frames).
+        if panel.dtype == np.uint16:
+            ax_tr.imshow(panel, cmap="gray", vmin=0.0, vmax=float(panel.max()))
+        else:
+            ax_tr.imshow(panel)
     else:
-        ax[0, 1].text(0.5, 0.5, "no _c", ha="center", va="center")
+        c_arr = None
+        for e in reversed(epochs):
+            if "_c" in data[e]:
+                c_arr = np.asarray(data[e]["_c"])
+                break
+        ax_tr.set_title("best coefficients")
+        if c_arr is not None:
+            ax_tr.bar(range(len(c_arr)), c_arr)
+        else:
+            missing = top_right_key or "_c"
+            ax_tr.text(0.5, 0.5, f"no {missing}", ha="center", va="center")
 
     imgs = [data[e]["_img"] for e in epochs if "_img" in data[e]]
     for ax_i, label, img in (
@@ -675,6 +742,8 @@ def save_optimization_debug_artifacts(
     json_path: Path | None = None,
     title: str = "",
     json_payload: dict | None = None,
+    top_right_key: str | None = None,
+    top_right_title: str | None = None,
 ) -> Path | None:
     """Emit the standard debug artifacts for a completed optimisation run.
 
@@ -713,6 +782,10 @@ def save_optimization_debug_artifacts(
         json_path:         Output path for the JSON ``json_payload``. (data mode)
         title:             Figure title. (data mode)
         json_payload:      Dict serialised to ``json_path``. (data mode)
+        top_right_key:     Record key rendered in the top-right panel. When set,
+                           that key's last-epoch array is shown instead of the
+                           ``_c`` bar chart. (data mode)
+        top_right_title:   Panel title override for ``top_right_key``. (data mode)
 
     Returns:
         ``png_path`` in data mode, ``None`` in wavefront mode.
@@ -730,6 +803,8 @@ def save_optimization_debug_artifacts(
             json_path=json_path,
             title=title,
             json_payload=json_payload,
+            top_right_key=top_right_key,
+            top_right_title=top_right_title,
         )
 
     # --- wavefront mode (historical behaviour) ---
@@ -779,6 +854,9 @@ def save_recorder_debug_artifacts(
     d2_keys: tuple[str, ...] = (),
     json_payload: dict | None = None,
     title: str = "",
+    top_right_key: str | None = None,
+    top_right_title: str | None = None,
+    output_dir: Path | None = None,
 ) -> Path:
     """Convert a :class:`Recorder` into the data-mode debug artifacts.
 
@@ -787,11 +865,16 @@ def save_recorder_debug_artifacts(
     extracts the configured key sets into a ``{epoch: record}`` dict and
     delegates to :func:`save_optimization_debug_artifacts` (data mode).
 
+    Unless ``output_dir`` is given, the run lands in the canonical debug layout
+    ``<root_dir>/debug/<subdir_prefix>/<YYYYmmdd_HHMMSS>/`` and its artefacts are
+    named ``<subdir_prefix>_<stamp>.{json,png,pkl}`` -- see :func:`debug_run_dir`
+    and :func:`debug_run_stem`.
+
     Args:
         res:             Recorder object whose ``.history`` is a list of dicts.
         root_dir:        Top-level run-output root (e.g. ``"data"``).
-        subdir_prefix:   Runner-specific sub-path relative to ``root_dir``
-                         (e.g. ``"slm_pib_pib"``). A timestamp is appended.
+        subdir_prefix:   Runner-specific script name, used for both the
+                         directory and the file stem (e.g. ``"slm_pib_shape"``).
         scalar_keys:     Keys whose values are cast to ``float``.
         objective_keys:  Like ``scalar_keys`` but searched first; merged into
                          the scalar set.
@@ -800,16 +883,25 @@ def save_recorder_debug_artifacts(
         d2_keys:         Keys whose values are 2D gradient arrays.
         json_payload:    Dict serialised to the ``.json`` sidecar.
         title:           Figure title.
+        top_right_key:   Record key rendered in the top-right panel instead of
+                         the ``_c`` coefficient bar chart. Set this for runs
+                         whose control vector is not a coefficient vector.
+        top_right_title: Panel title override for ``top_right_key``.
+        output_dir:     Existing run directory. When set, write directly there
+                        instead of creating a timestamped one. Pass the return
+                        value of :func:`debug_run_dir` when the run also writes
+                        non-debug companions (CSV, best phase / image) that must
+                        sit beside these three.
 
     Returns:
         The ``.png`` path written.
     """
-    from datetime import datetime as _dt
-
-    save_dir, saved_file_name = build_debug_save_paths(
-        os.path.join(root_dir, "debug"),
-        f"{subdir_prefix}_{_dt.now():%Y%m%d_%H%M%S}",
-    )
+    if output_dir is None:
+        save_dir = debug_run_dir(root_dir, subdir_prefix)
+    else:
+        save_dir = Path(output_dir)
+        save_dir.mkdir(parents=True, exist_ok=True)
+    saved_file_name = debug_run_stem(save_dir, subdir_prefix)
     png_path = saved_file_name.with_suffix(".png")
     pkl_path = saved_file_name.with_suffix(".pkl")
     json_path = saved_file_name.with_suffix(".json")
@@ -838,6 +930,8 @@ def save_recorder_debug_artifacts(
         json_path=json_path,
         title=title,
         json_payload=json_payload,
+        top_right_key=top_right_key,
+        top_right_title=top_right_title,
     )
     return png_path
 

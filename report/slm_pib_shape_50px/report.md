@@ -7,6 +7,8 @@
 > **说明**: 50px target 的仿真运行报告
 <!-- provenance:end -->
 
+**本轮结论**：`slm-pib` SPGD 闭环在 2f-Fourier 数字孪生下端到端验证通过：目标 J（maximize 极性）从 −1.2017 改善至 −0.9127（+0.2890），但框内能量同步从 0.4942 降至 0.3893——优化器以能量换均匀性/形状分数，该 trade-off 只有在纠正"最小化"误标（2026-10-01 确认的生成器缺陷，实际为最大化目标）后才可读。n≤4 低阶 Zernike 基只能做波前校正/聚焦，无法合成真正方形远场；本轮验证的是目标函数+反馈链路，真正方形成形需 freeform 全像素相位基。
+
 **生成时间**: 2026-09-26 17:41:32
 
 > ⚠️ **本报告的数值已过时且结论方向写反，勿引用 (2026-10-01 复核)**：
@@ -26,10 +28,10 @@
 
 本运行使用 `src/ao_shaping/runners/slm/slm_shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy 2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。
 
-- **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)
+- **相机**: `--cam-type sim` (注册到相机注册表, 读取仿真远场)
 - **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)
-- **目标**: 方形 (`--target_shape square`, `--target_size` 相机像素)
-- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)
+- **目标**: 方形 (`--target-shape square`, `--target-size` 相机像素)
+- **搜索**: SPGD 梯度法 (`--optimizer-type adamod`), Zernike 系数 n≤4 (15 个模式)
 
 光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。
 

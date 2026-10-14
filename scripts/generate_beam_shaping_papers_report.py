@@ -45,17 +45,18 @@ rcParams["axes.unicode_minus"] = False
 
 from loguru import logger  # noqa: E402
 
+from ao_shaping.algorithm.signal_processing.square_shaping import (
+    ShapingResult,
+    analytic_amplitude_target,
+    differentiable_shape,
+    gs_shape,
+    make_square_target as make_target,
+    spgd_shape,
+)
 from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     ShapingBenchConfig,
     compute_bench_metrics,
     forward_intensity,
-    make_target,
-)
-from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
-    analytic_amplitude_target,
-    differentiable_shape,
-    gs_shape,
-    spgd_shape,
 )
 
 OUT_DIR = ROOT / "report" / "beam_shaping" / "papers"
@@ -183,7 +184,9 @@ def main() -> int:
 
     # --- persist JSON -------------------------------------------------------
     with open(OUT_DIR / f"results_{STAMP}.json", "w") as fh:
-        json.dump({"config": vars(CONFIG), "results": results}, fh, indent=2, default=float)
+        json.dump(
+            {"config": vars(CONFIG), "results": results}, fh, indent=2, default=float
+        )
 
     # --- markdown report ----------------------------------------------------
     md = [
@@ -191,8 +194,8 @@ def main() -> int:
         "",
         f"> 生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}  ",
         "> 模型: 2f-Fourier 单相位 SLM (高斯入射 × 相位板 → 透镜 + 传播 → 焦平面)  ",
-        f"> 配置: n_grid={CONFIG.n_grid}, aperture={CONFIG.aperture_size*1e3:.0f}mm, "
-        f"λ={CONFIG.wavelength*1e9:.0f}nm, f={CONFIG.focal_length*1e3:.0f}mm, "
+        f"> 配置: n_grid={CONFIG.n_grid}, aperture={CONFIG.aperture_size * 1e3:.0f}mm, "
+        f"λ={CONFIG.wavelength * 1e9:.0f}nm, f={CONFIG.focal_length * 1e3:.0f}mm, "
         f"target={CONFIG.target_kind} {CONFIG.target_side_px}px",
         "",
         "## 方法对比",

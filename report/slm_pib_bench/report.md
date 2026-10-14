@@ -7,6 +7,8 @@
 > **说明**: 离线分析报告 (噪声地板 / 门控 / best-vs-sustained)
 <!-- provenance:end -->
 
+**本轮结论**（51 个历史运行的离线复盘）：(1) 噪声地板单日波动达 21×，`delta` 必须按每次实测的多模式 SNR 现选（`snr_sweep(...).usable_deltas()`），不可沿用历史值；(2) **能量门频繁触发的运行等价于未优化**——6 个含 guard 惩罚行的运行 sustained 改善中位数为 −11.3%，而无 guard 的 45 个为 +0.6%；排查顺序应为"先 guard 计数、后 delta"；(3) `delta<0.001` 在 n_max=9（54 自由度）下不可用（多模式 SNR≈1.3，95% 迭代被门控），可用区间为 delta≈0.1，0.2 触发亮度折叠门；(4) 增加评测帧数不能降噪，唯一有效手段是 `+−−+`（ABBA）漂移对消；(5) 收敛判定必须区分 `best` 与 `sustained`——多个运行 best +39% 而 sustained 为负，末帧改善是随机游走的端点假象。注：本文件与 `EXPERIMENT_REPORT.md` 的运行分母（51 vs 44）未对账，引用总数时须注明出处；−11.3% 与"门控=原地踏步"结论两处一致。
+
 > **Fully offline.** 本报告只读取 `data/debug` 下已保存的 debug 产物
 > (recorder pickle + JSON sidecar), 从不打开相机或 SLM。设备离线期间可
 > 随时重跑刷新结论。数据根目录: `data\debug`
@@ -148,10 +150,10 @@
 
 ## 5. 参数测量工具 (设备无关)
 
-本报告引用的 SNR / 噪声地板测量已抽到 **`ao_shaping.tools.slm.slm_snr_probe`**, 设备实例由参数传入, 不构造任何设备:
+本报告引用的 SNR / 噪声地板测量已抽到 **`slm_snr_probe`**, 设备实例由参数传入, 不构造任何设备:
 
 ```python
-from ao_shaping.tools.slm.slm_snr_probe import snr_sweep
+from slm_snr_probe import snr_sweep
 with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
      Santec(slm_number=1, wavelength=1064) as slm:
     result = snr_sweep(cam, slm, n_max=9, radius=480.0)
@@ -210,7 +212,7 @@ CCD 帧带**对称**读出噪声, 所以约一半像素为负。`power_in_bucket
 
 | 约定 | 用在哪 | 做法 | 理由 |
 |---|---|---|---|
-| **先减中位数再 clip** | `slm_gs_refine._prepare_frame`、`slm_model_in_loop` | `clip(frame - median(frame), 0, None)` | 光斑只占画面一小块, 中位数是稳健的本底估计; 相减后再 clip 才让 `PIB <= 1`、`CV` 有限 |
+| **先减中位数再 clip** | `ao_shaping.utils.image.beam_metrics.prepare_frame`、`slm_model_in_loop` | `clip(frame - median(frame), 0, None)` | 光斑只占画面一小块, 中位数是稳健的本底估计; 相减后再 clip 才让 `PIB <= 1`、`CV` 有限 |
 | **只 clip 原始帧** | `slm_square_shaping.square_quality_score` | `clip(frame, 0, None)`，**不做**中位数相减 | 背景占画面大部分, 中位数**就是**本底; 再减会把背景均值压到 ~0 使比值爆炸 (合成帧实测 **1.3e5**, 且与实际背景水平无关) |
 
 ⚠️ **顺序反了就是缺陷**: 直接 clip 原始帧会把对称噪声**整流**成正的、直逼像素数的

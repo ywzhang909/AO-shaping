@@ -719,3 +719,44 @@ def test_create_dataloaders_rejects_impossible_splits(tmp_path: Path) -> None:
         # 4 files, 0.5 train + 0.25 val leaves test=1, but 0.9+0.05 rounding
         # starves the val split; assert the guard fires for some impossible combo.
         create_hw_dataloaders(root, config=_config(), train_split=0.5, val_split=0.0001)
+
+
+def test_create_dataloaders_accepts_a_prebuilt_index(tmp_path: Path) -> None:
+    """A caller-supplied index is split instead of rescanning ``roots``.
+
+    This is the seam that lets the repo-wide ``build_hw_index(...).filter(...)``
+    idiom narrow the corpus *before* the file-level split, which matters because
+    the split is inline here rather than a reusable helper.
+    """
+    root = _four_file_corpus(tmp_path)
+    scanned = build_hw_index(root)
+    narrowed = scanned.filter(families=["nonexistent_family"])
+
+    with pytest.raises(ValueError, match="no usable records"):
+        # Proof the index is what gets split: an empty one is rejected outright,
+        # whereas the unfiltered 4-file corpus would have split fine. The dataset
+        # constructor catches this before the split arithmetic runs, and its
+        # message names the filter -- so an over-narrow family/source allowlist
+        # reports itself instead of surfacing as an empty validation split.
+        create_hw_dataloaders(
+            root, config=_config(), index=narrowed, train_split=0.5, val_split=0.25
+        )
+
+    tr, va, te = create_hw_dataloaders(
+        root, config=_config(), index=scanned, batch_size=2,
+        train_split=0.5, val_split=0.25, seed=11,
+    )
+    assert _loader_paths(tr) and _loader_paths(va) and _loader_paths(te)
+    assert len(_loader_paths(tr) | _loader_paths(va) | _loader_paths(te)) == 4
+
+
+def test_create_dataloaders_rejects_limit_files_with_index(tmp_path: Path) -> None:
+    """``limit_files`` belongs to the scan, so pairing it with an index is an error.
+
+    Silently ignoring it would build a different corpus than the caller asked
+    for -- the exact quiet divergence the parameter exists to let callers avoid.
+    """
+    root = _four_file_corpus(tmp_path)
+    index = build_hw_index(root)
+    with pytest.raises(ValueError, match="limit_files"):
+        create_hw_dataloaders(root, config=_config(), index=index, limit_files=2)

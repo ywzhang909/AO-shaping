@@ -29,7 +29,7 @@ from typing import Any, Self
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.wfs._registry import register_wfs
 from ao_shaping.drivers.wfs.base import BaseWFS
 from ao_shaping.drivers.wfs._thorlab_wfs import (
@@ -1439,44 +1439,6 @@ class ThorlabWFS(BaseWFS):
             else float(np.std(wavefront)),
         }
 
-    def _remove_tilt(self, wavefront: np.ndarray) -> np.ndarray:
-        """通过拟合平面并减去它来去除波前中的倾斜 (tip/tilt)。
-
-        参数:
-            wavefront: 二维波前数组。
-
-        返回:
-            去掉倾斜后的波前。
-        """
-        # 建立坐标网格 (归一化到 [-1, 1] 以保证数值稳定性)
-        ny, nx = wavefront.shape
-        y, x = np.meshgrid(
-            np.linspace(-1, 1, ny), np.linspace(-1, 1, nx), indexing="ij"
-        )
-
-        # 展平以便拟合
-        z = wavefront.flatten()
-
-        # 构造平面的设计矩阵: z = a*x + b*y + c
-        A = np.column_stack([x.flatten(), y.flatten(), np.ones_like(x.flatten())])
-
-        # 用最小二乘解出系数
-        try:
-            coeffs, _, _, _ = np.linalg.lstsq(A, z, rcond=None)
-            a, b, c = coeffs
-
-            # 构造倾斜平面
-            tilt_plane = a * x + b * y + c
-
-            # 减去倾斜
-            wavefront_no_tilt = wavefront - tilt_plane
-        except Exception:
-            # 拟合失败就原样返回
-            logger.warning("Failed to fit tilt plane, returning original wavefront")
-            return wavefront
-
-        return wavefront_no_tilt
-
     @staticmethod
     def calc_n_zernike_terms(n: int) -> int:
         """计算给定阶数下的 Zernike 项数。
@@ -1806,11 +1768,14 @@ class ThorlabWFS(BaseWFS):
             value: 曝光时间, 单位毫秒。
 
         异常:
-            AssertionError: value 超出合法范围 [0.002, 86] ms。
+            WfsError: value 超出合法范围 [0.002, 86] ms。
         """
-        assert EXP_TIME_LOW <= value <= EXP_TIME_HIGH, (
-            f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
-        )
+        # Explicit raise, not `assert`: `python -O` strips asserts, and a
+        # silently-accepted out-of-range exposure is sent straight to the SDK.
+        if not EXP_TIME_LOW <= value <= EXP_TIME_HIGH:
+            raise WfsError(
+                f"exposure time must be in range [{EXP_TIME_LOW}, {EXP_TIME_HIGH}] ms"
+            )
         actual_exposure = c_double()
         self._lib.WFS_SetExposureTime(
             self._instrument_handle, c_double(value), byref(actual_exposure)

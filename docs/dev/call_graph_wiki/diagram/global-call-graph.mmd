@@ -1,0 +1,114 @@
+flowchart TD
+    n_ao_shaping_display["ao_shaping.display (外部引用包)"]
+    n_ao_shaping_main["ao_shaping.main (1 函数)"]
+    subgraph sg_runners ['ao_shaping.runners']
+        n_ao_shaping_runners_matrix_runner["runners.matrix_runner (2 函数)"]
+        n_ao_shaping_runners_micro_drive["runners.micro_drive (2 函数)"]
+        n_ao_shaping_runners_nlight_dm["runners.nlight_dm (4 函数)"]
+        n_ao_shaping_runners_runner_common["runners.runner_common (7 函数)"]
+        n_ao_shaping_runners_slm["runners.slm (8 函数)"]
+        n_ao_shaping_runners_zernike_search_runner["runners.zernike_search_runner (2 函数)"]
+    end
+    subgraph sg_optimizer ['ao_shaping.optimizer']
+        n_ao_shaping_optimizer_combined_optimizer["optimizer.combined_optimizer (1 函数)"]
+        n_ao_shaping_optimizer_constants["optimizer.constants (1 函数)"]
+        n_ao_shaping_optimizer_spgd["optimizer.spgd (1 函数)"]
+        n_ao_shaping_optimizer_wf["optimizer.wf (7 函数)"]
+        n_ao_shaping_optimizer_wfless["optimizer.wfless (4 函数)"]
+    end
+    subgraph sg_drivers ['ao_shaping.drivers']
+        n_ao_shaping_drivers["drivers (外部引用包)"]
+        n_ao_shaping_drivers_ccd["drivers.ccd (4 函数)"]
+        n_ao_shaping_drivers_dm["drivers.dm (2 函数)"]
+        n_ao_shaping_drivers_slm["drivers.slm (外部引用包)"]
+        n_ao_shaping_drivers_wfs["drivers.wfs (1 函数)"]
+    end
+    subgraph sg_algorithm ['ao_shaping.algorithm']
+        n_ao_shaping_algorithm_goal_functions["algorithm.goal_functions (外部引用包)"]
+        n_ao_shaping_algorithm_gradient["algorithm.gradient (外部引用包)"]
+        n_ao_shaping_algorithm_heuristic["algorithm.heuristic (2 函数)"]
+        n_ao_shaping_algorithm_signal_processing["algorithm.signal_processing (外部引用包)"]
+        n_ao_shaping_algorithm_tabu["algorithm.tabu (外部引用包)"]
+    end
+    subgraph sg_utils ['ao_shaping.utils']
+        n_ao_shaping_utils["utils (外部引用包)"]
+        n_ao_shaping_utils_cli["utils.cli (1 函数)"]
+        n_ao_shaping_utils_image["utils.image (7 函数)"]
+        n_ao_shaping_utils_io["utils.io (13 函数)"]
+        n_ao_shaping_utils_slm["utils.slm (7 函数)"]
+        n_ao_shaping_utils_wavefront["utils.wavefront (8 函数)"]
+    end
+    subgraph sg_tools ['ao_shaping.tools']
+        n_ao_shaping_tools_slm["tools.slm (2 函数)"]
+        n_ao_shaping_tools_zernike["tools.zernike (3 函数)"]
+    end
+    n___bare_helpers__["文件内私有 helper（裸名，103 个）"]
+    n___unresolved__["未解析目标（动态分发/未恢复裸名）"]
+    n_ao_shaping_utils_cli -->|220| n___unresolved__
+    n_ao_shaping_optimizer_wfless -->|48| n___unresolved__
+    n_ao_shaping_optimizer_wfless -->|26| n_ao_shaping_drivers_ccd
+    n_ao_shaping_drivers_ccd -->|22| n___unresolved__
+    n_ao_shaping_runners_slm -->|22| n___unresolved__
+    n_ao_shaping_optimizer_wf -->|21| n___unresolved__
+    n_ao_shaping_runners_nlight_dm -->|14| n_ao_shaping_utils_cli
+    n_ao_shaping_runners_slm -->|14| n_ao_shaping_utils_cli
+    n_ao_shaping_runners_nlight_dm -->|13| n_ao_shaping_utils_io
+    n_ao_shaping_utils_io -->|13| n___unresolved__
+    n_ao_shaping_optimizer_combined_optimizer -->|12| n_ao_shaping_utils_image
+    n_ao_shaping_tools_slm -->|11| n_ao_shaping_utils_slm
+    n_ao_shaping_drivers_dm -->|10| n___unresolved__
+    n_ao_shaping_optimizer_wf -->|10| n_ao_shaping_utils_wavefront
+    n_ao_shaping_optimizer_wfless -->|9| n_ao_shaping_utils_image
+    n_ao_shaping_runners_slm -->|9| n_ao_shaping_utils_io
+    n_ao_shaping_tools_slm -->|9| n___unresolved__
+    n_ao_shaping_runners_micro_drive -->|8| n___unresolved__
+    n_ao_shaping_utils_slm -->|8| n___unresolved__
+    n_ao_shaping_optimizer_combined_optimizer -->|7| n_ao_shaping_drivers_ccd
+    n_ao_shaping_runners_slm -->|7| n_ao_shaping_runners_runner_common
+    n_ao_shaping_utils_image -->|7| n___unresolved__
+    n_ao_shaping_optimizer_wf -->|6| n_ao_shaping_algorithm_heuristic
+    n_ao_shaping_runners_matrix_runner -->|6| n_ao_shaping_utils_cli
+    n_ao_shaping_runners_zernike_search_runner -->|6| n_ao_shaping_utils_cli
+    n_ao_shaping_optimizer_wf -->|5| n_ao_shaping_drivers_wfs
+    n_ao_shaping_optimizer_wf -->|5| n_ao_shaping_utils
+    n_ao_shaping_optimizer_wfless -->|5| n_ao_shaping_utils
+    n_ao_shaping_runners_matrix_runner -->|5| n_ao_shaping_utils_wavefront
+    n_ao_shaping_runners_runner_common -->|5| n___unresolved__
+    n_ao_shaping_optimizer_wf -->|4| n_ao_shaping_algorithm_gradient
+    n_ao_shaping_optimizer_wfless -->|4| n_ao_shaping_algorithm_tabu
+    n_ao_shaping_runners_matrix_runner -->|4| n___unresolved__
+    n_ao_shaping_runners_nlight_dm -->|4| n_ao_shaping_drivers_dm
+    n_ao_shaping_runners_nlight_dm -->|4| n_ao_shaping_utils
+    n_ao_shaping_runners_slm -->|4| n_ao_shaping_tools_zernike
+    n_ao_shaping_algorithm_heuristic -->|3| n___unresolved__
+    n_ao_shaping_optimizer_combined_optimizer -->|3| n___unresolved__
+    n_ao_shaping_optimizer_wf -->|3| n_ao_shaping_drivers
+    n_ao_shaping_optimizer_wf -->|3| n_ao_shaping_optimizer_spgd
+    n_ao_shaping_optimizer_wfless -->|3| n_ao_shaping_optimizer_constants
+    n_ao_shaping_runners_slm -->|3| n_ao_shaping_drivers_wfs
+    n_ao_shaping_runners_slm -->|3| n_ao_shaping_optimizer_wf
+    n_ao_shaping_optimizer_combined_optimizer -->|2| n_ao_shaping_utils
+    n_ao_shaping_optimizer_wfless -->|2| n_ao_shaping_algorithm_goal_functions
+    n_ao_shaping_optimizer_wfless -->|2| n_ao_shaping_drivers_dm
+    n_ao_shaping_optimizer_wfless -->|2| n_ao_shaping_optimizer_spgd
+    n_ao_shaping_runners_matrix_runner -->|2| n_ao_shaping_drivers_dm
+    n_ao_shaping_runners_matrix_runner -->|2| n_ao_shaping_optimizer_wf
+    n_ao_shaping_runners_matrix_runner -->|2| n_ao_shaping_utils_io
+    n_ao_shaping_runners_micro_drive -->|2| n_ao_shaping_utils_cli
+    n_ao_shaping_runners_nlight_dm -->|2| n_ao_shaping_optimizer_wf
+    n_ao_shaping_runners_nlight_dm -->|2| n_ao_shaping_optimizer_wfless
+    n_ao_shaping_runners_slm -->|2| n_ao_shaping_algorithm_signal_processing
+    n_ao_shaping_runners_slm -->|2| n_ao_shaping_drivers
+    n_ao_shaping_runners_slm -->|2| n_ao_shaping_utils_wavefront
+    n_ao_shaping_runners_zernike_search_runner -->|2| n___unresolved__
+    n_ao_shaping_runners_zernike_search_runner -->|2| n_ao_shaping_optimizer_wf
+    n_ao_shaping_runners_zernike_search_runner -->|2| n_ao_shaping_utils_io
+    n_ao_shaping_tools_slm -->|2| n_ao_shaping_utils_cli
+    n_ao_shaping_tools_slm -->|2| n_ao_shaping_utils_image
+    n_ao_shaping_utils_wavefront -->|2| n___unresolved__
+
+%% 193 个已解析函数聚合为 90 个包级节点；
+%% 另有 103 个文件内私有 helper（裸名）归入单桶。
+%% 290 条边按包聚合，边权 = 调用次数（权重 1 的边与包内自环已隐去，全量见 raw/assets/call_graph_final.json）。
+%% 包内自环共 32 次调用未画；类引用目标（如 AdaMOD / Recorder）已并入其所在包。
+%% 生成: scripts/call_graph/build_module_graph.py（幂等）。

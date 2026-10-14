@@ -1102,7 +1102,7 @@ python scripts/generate_pib_bench_report.py --no-figures
 
 ### measure_shape_sensitivity.py
 
-> **Now a thin CLI over `ao_shaping.tools.slm.sweep_analysis`** (see the
+> **Now a thin CLI over `ao_shaping.tools.kernels.sweep_analysis`** (see the
 > hardware-tools section). It keeps its own device construction, target-size
 > derivation and markdown output, but the noise-floor / ΔJ / SNR measurement is
 > delegated so this script, the report generator and the hardware-gated test
@@ -1131,7 +1131,7 @@ into `-o/--output`, default `report/slm_pib_heuristic_hw/`):
   unusable (raise `Δa` toward 0.2 rad, or average more frames per perturbation).
 
 > ⚠️ **Measurement core now shared.** The noise-floor / ΔJ / SNR logic lives in
-> `ao_shaping.tools.slm.sweep_analysis` and this script delegates to it, so it
+> `ao_shaping.tools.kernels.sweep_analysis` and this script delegates to it, so it
 > also gains the **multi-mode (SPGD-style)** SNR column. Judge `--delta` by
 > `multi_snrs` / `usable_deltas()` — the single-mode column over-reports what
 > SPGD can resolve (bench, same `delta=0.0005`: 2.25 single vs 1.34 at 54 DOF).
@@ -1698,7 +1698,7 @@ and the `slm_shaping_bench` dead-config trap.
 ### generate_slm_gsnet_sim_gif.py
 
 Generates the slm-gsnet offline-sim verification GIFs (+ prints the markdown
-snippet) from a `slm-gsnet spgd --cam_type sim --debug` artifact directory.
+snippet) from a `slm-gsnet spgd --cam-type sim --debug` artifact directory.
 **Fully offline** — reads the saved PKL only, no hardware, no pipeline code.
 
 **Usage:**
@@ -1827,13 +1827,13 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
 > 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
 > (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
-> 不钉住的话两次 `spgd-square --cam_type sim` 的干扰流不可比
+> 不钉住的话两次 `spgd-square --cam-type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
 > `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。
 
 **What it does:**
 - registers the `"sim"` camera type so `create_camera("sim", ...)` returns a
-  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam_type`
+  `SimPibCCD` reading the shared far-field state (the `slm-pib --cam-type`
   `click.Choice` was extended to include `"sim"`)
 - monkeypatches `ao_shaping.optimizer.wfless.slm_zernike_pib.Santec` →
   `SimSLMPib` so the optimizer's SLM context manager instantiates the sim
@@ -1843,7 +1843,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   without the classmethod the sim path dies with
   `AttributeError: type object 'SimSLMPib' has no attribute 'from_params'`
   (locked by `tests/ao_shaping/drivers/sim/test_sim_slm_from_params.py`)
-- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam_type sim`
+- invokes the genuine `slm_shaping_runner.run` Click entry with `--cam-type sim`
   `--debug` (square target, Zernike n≤4, SPGD + AdaMOD)
 - optical model: SLM = 2f front focal plane, CCD = back focal plane, so the CCD
   image is the 2D FFT (Fraunhofer far field) of the SLM pupil field — the
@@ -1918,9 +1918,9 @@ python scripts/run_sim_bench.py --only slm-pib spgd-square --epochs 200
 **What it does** (writes `data/sim_bench/summary.json`):
 - Drives the genuine Click entries via `main.py`, not the optimizer functions, so
   the CLI wiring is exercised too: `pib` / `combined` with
-  `--cam_type sim --dm_type sim`; `spgd-square` with
-  `--cam_type sim --slm_type sim`; `slm-gsnet` / `slm-pib` with
-  `--cam_type sim --debug`
+  `--cam-type sim --dm-type sim`; `spgd-square` with
+  `--cam-type sim --slm-type sim`; `slm-gsnet` / `slm-pib` with
+  `--cam-type sim --debug`
 - Records per runner: `ok`, `returncode`, `wall_s`, the artefact paths it wrote,
   best-effort headline metrics parsed from the CSV, and a `note`
 - **Per-run isolation**: a failure is captured into the manifest rather than

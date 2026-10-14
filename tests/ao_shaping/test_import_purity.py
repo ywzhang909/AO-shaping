@@ -205,7 +205,7 @@ def test_list_dm_types_needs_no_network(monkeypatch: pytest.MonkeyPatch) -> None
     an import side effect (``runner_common`` imports ``asyn_micro_dm``, which
     registers ``asyn_micro``), so the count is 6 in a bare process and 7 once
     ``runner_common`` has been imported. That import-order sensitivity is the very
-    hazard documented for the ``--dm_type`` choice list, and pinning a count here
+    hazard documented for the ``--dm-type`` choice list, and pinning a count here
     would have made this test order-dependent.
     """
     import socket

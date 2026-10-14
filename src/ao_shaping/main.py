@@ -22,14 +22,13 @@ Commands:
 
 Examples:
     python main.py --debug wf --epochs 10000
-    python main.py --debug pib --cam_id 1 --epochs 5000
+    python main.py --debug pib --cam-id 1 --epochs 5000
     python main.py --debug gs --target-shape gaussian --use-hardware
     python main.py --debug zernike-matrix --n-max 10
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -63,8 +62,8 @@ from ao_shaping.runners import (
 )
 
 # Tools commands (standalone tools under tools/)
-from ao_shaping.tools.slm.slm_diagnose import main as slm_diagnose_run
-from ao_shaping.tools.slm.slm_lut_runner import run as slm_lut_run
+from ao_shaping.tools.slm.panel.diagnose import main as slm_diagnose_run
+from ao_shaping.tools.slm.calibration.lut_runner import run as slm_lut_run
 from ao_shaping.utils.io.cli_helpers import get_debug_mode
 
 

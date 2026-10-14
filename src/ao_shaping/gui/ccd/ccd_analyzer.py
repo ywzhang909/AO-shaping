@@ -12,7 +12,6 @@ Features:
 from __future__ import annotations
 
 import queue
-import socketserver
 import sys
 import threading
 import time

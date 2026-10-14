@@ -53,7 +53,7 @@ CCD 帧, 所以硬件分数可与仿真的 0.849 直接对比。
   0 ms, 而面板实际还在弛豫。
 - 连续写入不指定 memory slot: 同槽连写是固件 no-op, 面板不刷新。
 
-结果输出 (默认 ``data/slm_gs_refine/<日期>/``):
+结果输出 (默认 ``data/debug/slm_gs_refine/<日期>/``):
 - 优化历史 CSV (recorder, 每轮一行)
 - 最优相位 ``.npy`` (raw 未包裹弧度, 1200x1920)
 - 最优远场图 PNG (``--save-best-image``)
@@ -64,12 +64,14 @@ from __future__ import annotations
 from pathlib import Path
 
 import click
-import numpy as np
 
-from ao_shaping.runners.runner_common import SlmGsRefineParams
+from ao_shaping.runners.runner_common import (
+    SlmGsRefineParams,
+    build_gs_refine_config,
+    save_gs_refine_results,
+)
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import resolve_debug
-from ao_shaping.display.frames import save_best_image
 
 
 @click.command()
@@ -83,6 +85,11 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """
+    if params.cam_type == "daheng" and params.exposure_time_ms <= 0:
+        raise click.BadParameter(
+            "set an explicit exposure in (0, 0.4] ms for Daheng",
+            param_hint="--exposure-time-ms",
+        )
     debug = resolve_debug(ctx)
     root_dir = (
         Path(ctx.parent.obj.get("dir", "data"))
@@ -95,17 +102,25 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     click.echo("=" * 64)
     click.echo(f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size}")
     click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")
-    click.echo(f"Epochs: {params.epochs}  grid: {params.phase_grid}x{params.phase_grid}")
+    click.echo(
+        f"Epochs: {params.epochs}  grid: {params.phase_grid}x{params.phase_grid}"
+    )
     click.echo(f"SPGD: delta={params.delta} lr={params.lr} opt={params.optimizer_type}")
     click.echo(
         f"GS warm start: {'on' if params.gs_warm_start else 'off'} "
         f"(iters={params.gs_iters})"
     )
+    if params.gs_method != "plain":
+        click.echo(
+            f"GS strategy: {params.gs_method}  gamma={params.gs_gamma} "
+            f"clip={params.gs_weight_clip} beta={params.gs_beta} "
+            f"hio_fraction={params.gs_hio_fraction}"
+        )
     # focal_length_m defaults to 0 = "derive from the measured focal scale and the
     # camera pixel pitch", so echo what will actually be used rather than the raw
     # 0 (the config resolves it in __post_init__).
+    from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
     from ao_shaping.optimizer.wfless.slm_gs_refine import (
-        _DEFAULT_WAVELENGTH_NM,
         _TILT_SHIFT_SCALE_MEASURED_AT_NM,
         _TILT_SHIFT_SCALE_PX,
         focal_length_from_camera_pixel,
@@ -115,7 +130,7 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     _f_note = "pinned"
     if _f_m <= 0.0:
         _f_m = focal_length_from_camera_pixel(
-            wavelength_nm=float(params.slm_wavelength or _DEFAULT_WAVELENGTH_NM),
+            wavelength_nm=float(params.slm_wavelength or DEFAULT_WAVELENGTH_NM),
             camera_pixel_um=params.camera_pixel_um,
             slm_pixel_um=params.panel_pixel_um,
             focal_scale_px=_TILT_SHIFT_SCALE_PX,
@@ -132,8 +147,13 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         f"(focal scale {_TILT_SHIFT_SCALE_PX:.0f} measured @ "
         f"{_TILT_SHIFT_SCALE_MEASURED_AT_NM:.0f}nm)"
     )
-    click.echo(f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})")
-    click.echo(f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}")
+    click.echo(
+        f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})"
+    )
+    click.echo(f"SLM pupil center: {params.pupil_center or 'panel center'}")
+    click.echo(
+        f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}"
+    )
     if params.cam_type != "sim":
         click.echo("!" * 64)
         click.echo("硬件模式: 请确认光斑已对准 SLM 且 CCD 已就位。")
@@ -141,45 +161,9 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
         click.echo("!" * 64)
     click.echo("=" * 64)
 
-    from ao_shaping.optimizer.wfless.slm_gs_refine import (
-        SlmGsRefineConfig,
-        optimize_slm_gs_refine,
-    )
-    from ao_shaping.utils.io.file import gen_date_dir, gen_date_str, save_history
+    from ao_shaping.optimizer.wfless.slm_gs_refine import optimize_slm_gs_refine
 
-    config = SlmGsRefineConfig(
-        epochs=params.epochs,
-        seed=params.seed,
-        early_stop_score=params.early_stop_score,
-        target_side=params.target_side,
-        side_factor=params.side_factor,
-        w_pib=params.w_pib,
-        w_unif=params.w_unif,
-        phase_grid=params.phase_grid,
-        delta=params.delta,
-        lr=params.lr,
-        optimizer_type=params.optimizer_type,
-        lr_schedule=params.lr_schedule,
-        gs_iters=params.gs_iters,
-        gs_warm_start=params.gs_warm_start,
-        panel_pixel_um=params.panel_pixel_um,
-        camera_pixel_um=params.camera_pixel_um,
-        beam_radius_px=params.beam_radius_px,
-        focal_length_m=params.focal_length_m,
-        far_field_padding=params.far_field_padding,
-        gs_target_side_px=params.gs_target_side_px,
-        cam_type=params.cam_type,
-        cam_id=params.cam_id,
-        exposure_time_ms=params.exposure_time_ms,
-        cam_size=params.cam_size,
-        slm_number=params.slm_number,
-        slm_wavelength=params.slm_wavelength,
-        n_eval_frames=params.n_eval_frames,
-        settle_wait_s=params.settle_wait_s,
-        settle_tol=params.settle_tol,
-        settle_max_wait_s=params.settle_max_wait_s,
-        record_debug=debug,
-    )
+    config = build_gs_refine_config(params, debug=debug)
 
     recorder = optimize_slm_gs_refine(config)
 
@@ -203,67 +187,23 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
             else "rejected (kept flat)"
         )
         click.echo(f"GS warm start : {stage_scores['gs']:.4f}  [{verdict}]")
-    click.echo(f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})")
+    click.echo(
+        f"Best score    : {best_score:.4f} (stage={best_iter['stage']}, epoch={best_epoch})"
+    )
     click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
     click.echo(f"  CV : {best_iter.get('cv', float('nan')):.4f}")
 
-    save_dir = gen_date_dir(root_dir / "slm_gs_refine")
-    csv_file = save_dir / f"slm_gs_refine_{gen_date_str()}.csv"
-    save_history(
-        [
-            {
-                key: value
-                for key, value in row.items()
-                if isinstance(value, (str, int, float, bool, np.generic)) or value is None
-            }
-            for row in recorder.history
-        ],
-        csv_file,
-    )
-    click.echo(f"History saved: {csv_file}")
-
-    best_phase = getattr(recorder, "best_phase", None)
-    if best_phase is not None:
-        phase_file = save_dir / "best_phase.npy"
-        np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+    save_result = save_gs_refine_results(recorder, params, root_dir=root_dir, debug=debug)
+    click.echo(f"History saved: {save_result.csv_file}")
+    if save_result.phase_file is not None:
         click.echo(
-            f"Best phase saved: {phase_file} "
+            f"Best phase saved: {save_result.phase_file} "
             "(raw radians; display via Santec.create_phase_from_array)"
         )
-
-    if params.save_best_image:
-        img = getattr(recorder, "best_frame", None)
-        if img is not None:
-            img_file = save_best_image(
-                img,
-                save_dir / "best_far_field.png",
-                title=(
-                    f"slm-gs-refine best: score={best_score:.4f} "
-                    f"PIB={best_iter.get('pib', 0):.4f} CV={best_iter.get('cv', 0):.4f}"
-                ),
-                hide_axes=True,
-            )
-            click.echo(f"Best image saved: {img_file}")
-
+    if save_result.image_file is not None:
+        click.echo(f"Best image saved: {save_result.image_file}")
     if debug:
-        from ao_shaping.utils.io.file import save_recorder_debug_artifacts
-
-        debug_png = save_recorder_debug_artifacts(
-            recorder,
-            root_dir=str(root_dir),
-            subdir_prefix="slm_gs_refine",
-            scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
-            img_keys=(
-                "_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"
-            ),
-            json_payload={
-                key: value
-                for key, value in vars(config).items()
-                if isinstance(value, (str, int, float, bool)) or value is None
-            },
-            title="SLM GS refine",
-        )
-        click.echo(f"Debug data saved to: {debug_png}")
+        click.echo(f"Debug data saved to: {save_result.debug_png}")
 
 
 if __name__ == "__main__":

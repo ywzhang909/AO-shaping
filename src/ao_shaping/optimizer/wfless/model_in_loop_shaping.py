@@ -1740,7 +1740,7 @@ def calibrate_bench_geometry_from_sweep(
             "no usable ramp sweep, so the focal scale comes from the Zernike tilt "
             "slope -- which has measured 3x too small on this bench when the spot "
             "deforms. Run --stage sweep with a ramp sweep included, or calibrate "
-            "with `python -m ao_shaping.tools.slm.slm_tilt_probe`."
+            "with `python -m ao_shaping.tools.slm.panel.tilt_probe`."
         )
 
     # Independent cross-check, derived a completely different way: the model's
@@ -1775,7 +1775,7 @@ def calibrate_bench_geometry_from_sweep(
                     "from the FOV ratio). At least one assumption is wrong -- most "
                     "likely the illuminated aperture radius, which is what both "
                     "routes scale with. Re-measure it with "
-                    "`python -m ao_shaping.tools.slm.slm_beam_extent` before "
+                    "`python -m ao_shaping.tools.slm.panel.beam_extent` before "
                     "trusting either number.",
                     rel, focal_source, fov_ratio,
                 )
@@ -2107,10 +2107,6 @@ def calibrate_bench_geometry_from_sweep(
         method="sweep",
         calibration_notes=notes,
     )
-
-def _defocus_phase(region: int, semi_axis_model_px: int, coefficient: float) -> np.ndarray:
-    """A unit-RMS Zernike defocus of the given coefficient on the model grid."""
-    return _zernike_phase(region, semi_axis_model_px, (2, 0), coefficient)
 
 
 # Zernike modes the width sweep drives, and the grid the model response is

@@ -2,6 +2,7 @@
 
 Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 """
+
 from __future__ import annotations
 
 from typing import Any, Literal, cast
@@ -619,7 +620,9 @@ def _loggrad_blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return out
 
 
-def _loggrad_prepare(frame: np.ndarray, eps: float, kernel: np.ndarray) -> np.ndarray | None:
+def _loggrad_prepare(
+    frame: np.ndarray, eps: float, kernel: np.ndarray
+) -> np.ndarray | None:
     """Clip negatives, peak-normalise, blur, then log one frame.
 
     Returns ``None`` when clipping leaves no dynamic range (constant frame, or
@@ -652,7 +655,8 @@ def _sanitize_frame(frame: np.ndarray, name: str) -> np.ndarray:
     multi-hour run with the SLM left holding an arbitrary phase. Non-finite
     camera frames are an expected condition, not a programming error, and the
     repo already standardises on ``np.where(isfinite, frame, 0.0)`` in
-    ``slm_gs_refine._prepare_frame`` and both ``tools/slm/bench_kernels.py``
+    ``ao_shaping.utils.image.beam_metrics.prepare_frame`` and both
+    ``tools/slm/bench_kernels.py``
     prep kernels; matching that convention keeps this term from becoming a new
     failure mode. Shape/eps/sigma mistakes still raise - those are caller bugs.
     """

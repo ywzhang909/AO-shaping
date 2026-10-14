@@ -19,8 +19,8 @@ import numpy as np
 import pytest
 from loguru import logger
 
-from ao_shaping.tools.slm import slm_floor_probe as probe
-from ao_shaping.tools.slm.slm_floor_probe import (
+from ao_shaping.tools.ccd import floor_probe as probe
+from ao_shaping.tools.ccd.floor_probe import (
     DEFAULT_EXPOSURE_MS,
     DEFAULT_GRID,
     DEFAULT_KS,

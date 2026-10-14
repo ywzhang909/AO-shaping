@@ -1,7 +1,7 @@
 """Tests for the GS-warm-started freeform SLM square-shaping hardware loop.
 
 The hardware path cannot be exercised without a Santec SLM and a CCD, so the
-end-to-end coverage runs against ``--cam_type sim`` (the 2f-Fourier digital
+end-to-end coverage runs against ``--cam-type sim`` (the 2f-Fourier digital
 twin). That still exercises the real control flow: ROI location and freezing,
 the GS bake-off, settle-then-average acquisition, SPGD gradient estimation and
 the phase/panel embedding.
@@ -21,23 +21,41 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.drivers.sim.slm_shaping_bench import power_in_bucket, uniformity_cv
+from ao_shaping.algorithm.signal_processing.square_shaping import (
+    power_in_bucket,
+    uniformity_cv,
+)
+from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.wfless._measure import locate_zero_order
 from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
-    _compose,
     _derive_target_side,
-    _embed_pupil_square,
-    _fit_exact,
-    _locate_zero_order,
     _lr_at,
-    _make_optimizer,
     _metrics,
-    _prepare_frame,
-    _pupil_side,
-    _square_mask,
-    _upsample_bilinear,
     optimize_slm_gs_refine,
 )
+from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.image.resample import upsample_bilinear_to_shape
+from ao_shaping.utils.image.targets import square_mask
+from ao_shaping.utils.slm.phase_embed import (
+    compose_pupil_dof,
+    embed_pupil_square,
+    fit_exact,
+    pupil_side,
+)
+
+
+def test_pupil_phase_uses_measured_panel_center():
+    panel = embed_pupil_square(np.ones((20, 20)), (80, 100), 10, (70, 50))
+    assert panel[40:60, 60:80].sum() == 400
+    assert panel[:30].sum() == 0
+    with pytest.raises(ValueError, match="beyond"):
+        embed_pupil_square(np.ones((20, 20)), (80, 100), 10, (5, 50))
+
+
+def test_daheng_exposure_above_limit_rejected():
+    with pytest.raises(ValueError, match="0.4 ms"):
+        SlmGsRefineConfig(exposure_time_ms=0.5)
 
 
 def _fast_config(**overrides) -> SlmGsRefineConfig:
@@ -69,21 +87,21 @@ def _fast_config(**overrides) -> SlmGsRefineConfig:
 
 class TestSquareMask:
     def test_area_and_centering(self):
-        mask = _square_mask((100, 100), 50, 50, 20)
+        mask = square_mask((100, 100), 50, 50, 20)
         assert mask.shape == (100, 100)
         assert mask.sum() == 400
         assert mask[50, 50] and mask[40, 40] and mask[59, 59]
 
     def test_clipped_at_frame_edge(self):
-        mask = _square_mask((50, 50), 0, 0, 20)
+        mask = square_mask((50, 50), 0, 0, 20)
         assert mask.any()
         assert mask[:10, :10].all()
 
     def test_completely_outside_frame_is_empty(self):
-        assert not _square_mask((50, 50), 200, 200, 10).any()
+        assert not square_mask((50, 50), 200, 200, 10).any()
 
     def test_odd_side_does_not_crash(self):
-        mask = _square_mask((64, 64), 32, 32, 7)
+        mask = square_mask((64, 64), 32, 32, 7)
         assert mask.sum() >= 49
 
 
@@ -92,33 +110,33 @@ class TestLocateZeroOrder:
         frame = np.zeros((100, 100))
         # Deliberately off-centre: the 2f optical axis is NOT the frame centre.
         frame[37, 82] = 5.0
-        assert _locate_zero_order(frame) == (37, 82)
+        assert locate_zero_order(frame) == (37, 82)
 
     def test_nan_is_ignored(self):
         frame = np.zeros((40, 40))
         frame[10, 10] = np.nan
         frame[20, 30] = 1.0
-        assert _locate_zero_order(frame) == (20, 30)
+        assert locate_zero_order(frame) == (20, 30)
 
 
 class TestResizeHelpers:
     def test_fit_exact_pads_and_crops(self):
-        assert _fit_exact(np.ones((3, 3)), (5, 5)).shape == (5, 5)
-        assert _fit_exact(np.ones((9, 9)), (4, 4)).shape == (4, 4)
+        assert fit_exact(np.ones((3, 3)), (5, 5)).shape == (5, 5)
+        assert fit_exact(np.ones((9, 9)), (4, 4)).shape == (4, 4)
 
     def test_upsample_reaches_exact_shape(self):
         for shape in ((10, 10), (24, 24), (37, 41)):
-            out = _upsample_bilinear(np.arange(9, dtype=float).reshape(3, 3), shape)
+            out = upsample_bilinear_to_shape(np.arange(9, dtype=float).reshape(3, 3), shape)
             assert out.shape == shape
             assert np.isfinite(out).all()
 
     def test_upsample_is_identity_when_shape_matches(self):
         coarse = np.arange(16, dtype=float).reshape(4, 4)
-        assert np.array_equal(_upsample_bilinear(coarse, (4, 4)), coarse)
+        assert np.array_equal(upsample_bilinear_to_shape(coarse, (4, 4)), coarse)
 
     def test_pupil_side_has_a_floor(self):
-        assert _pupil_side(1.0) == 32
-        assert _pupil_side(450.0) == 900
+        assert pupil_side(1.0) == 32
+        assert pupil_side(450.0) == 900
 
 
 # ---------------------------------------------------------------------------
@@ -130,14 +148,14 @@ class TestPrepareFrame:
     def test_removes_negative_read_noise(self):
         rng = np.random.default_rng(0)
         frame = rng.normal(50.0, 20.0, size=(80, 80))
-        clean = _prepare_frame(frame)
+        clean = prepare_frame(frame)
         assert clean.min() >= 0.0
         # The ~50 background is gone. Clipping piles the negative half onto zero,
         # so the surviving mean is a fraction of sigma rather than exactly zero.
         assert clean.mean() < 0.5 * frame.std()
 
     def test_removes_a_constant_pedestal(self):
-        assert np.allclose(_prepare_frame(np.full((40, 40), 37.0)), 0.0)
+        assert np.allclose(prepare_frame(np.full((40, 40), 37.0)), 0.0)
 
     def test_pib_stays_within_unit_interval(self):
         """Uncorrected frames give PIB > 1, which is physically impossible.
@@ -150,34 +168,36 @@ class TestPrepareFrame:
         frame[50:70, 50:70] = 100.0  # beam
         frame[:40, :40] = -12.0  # negative pedestal, entirely outside the target
 
-        mask = _square_mask(frame.shape, 60, 60, 40)
+        mask = square_mask(frame.shape, 60, 60, 40)
         assert power_in_bucket(frame, mask) == pytest.approx(1.923, abs=0.01)
-        assert power_in_bucket(_prepare_frame(frame), mask) <= 1.0
+        assert power_in_bucket(prepare_frame(frame), mask) <= 1.0
 
     def test_nan_is_neutralised(self):
         frame = np.full((20, 20), np.nan)
         frame[5, 5] = 2.0
-        assert np.isfinite(_prepare_frame(frame)).all()
+        assert np.isfinite(prepare_frame(frame)).all()
 
     def test_metrics_are_finite_and_bounded(self):
         rng = np.random.default_rng(1)
         frame = np.zeros((60, 60))
         frame[20:40, 20:40] = 80.0
         frame += rng.normal(0.0, 4.0, size=frame.shape)
-        clean = _prepare_frame(frame)
-        mask = _square_mask(clean.shape, 30, 30, 24)
+        clean = prepare_frame(frame)
+        mask = square_mask(clean.shape, 30, 30, 24)
         score, pib, cv = _metrics(clean, mask, 0.5, 0.5)
         assert 0.0 <= pib <= 1.0
         assert np.isfinite(cv) and cv >= 0.0
         assert 0.0 <= score <= 1.0
 
     def test_uniform_beat_peaked_beat(self):
-        mask = _square_mask((64, 64), 32, 32, 24)
+        mask = square_mask((64, 64), 32, 32, 24)
         uniform = np.zeros((64, 64))
         uniform[20:44, 20:44] = 1.0
         peaked = np.zeros((64, 64))
         peaked[32, 32] = 1.0
-        assert _metrics(uniform, mask, 0.5, 0.5)[0] > _metrics(peaked, mask, 0.5, 0.5)[0]
+        assert (
+            _metrics(uniform, mask, 0.5, 0.5)[0] > _metrics(peaked, mask, 0.5, 0.5)[0]
+        )
         assert uniformity_cv(uniform, mask) == pytest.approx(0.0, abs=1e-12)
 
 
@@ -189,32 +209,32 @@ class TestPrepareFrame:
 class TestPhaseComposition:
     def test_embed_places_the_pupil_at_the_panel_centre(self):
         panel = (200, 320)
-        emb = _embed_pupil_square(np.ones((10, 10)), panel, 20.0)
+        emb = embed_pupil_square(np.ones((10, 10)), panel, 20.0)
         assert emb.shape == panel
-        side = _pupil_side(20.0)
+        side = pupil_side(20.0)
         assert emb.sum() == side * side
         ys, xs = np.nonzero(emb)
         assert ys.min() == (200 - side) // 2 and xs.min() == (320 - side) // 2
 
     def test_compose_adds_dof_to_base(self):
         panel = (120, 160)
-        base = _embed_pupil_square(np.zeros((8, 8)), panel, 10.0)
+        base = embed_pupil_square(np.zeros((8, 8)), panel, 10.0)
         dof = np.full((4, 4), 0.5)
-        out = _compose(base, dof, panel, 10.0)
+        out = compose_pupil_dof(base, dof, panel, 10.0)
         assert out.shape == panel
         assert out.max() == pytest.approx(0.5)
 
     def test_compose_with_zero_dof_returns_base_unchanged(self):
         panel = (60, 80)
         base = np.zeros(panel)
-        assert _compose(base, np.zeros((4, 4)), panel, 10.0) is base
-        assert _compose(base, None, panel, 10.0) is base
+        assert compose_pupil_dof(base, np.zeros((4, 4)), panel, 10.0) is base
+        assert compose_pupil_dof(base, None, panel, 10.0) is base
 
     def test_base_is_not_mutated(self):
         panel = (60, 80)
         base = np.zeros(panel)
         before = base.copy()
-        _compose(base, np.ones((4, 4)), panel, 10.0)
+        compose_pupil_dof(base, np.ones((4, 4)), panel, 10.0)
         assert np.array_equal(base, before)
 
 
@@ -238,10 +258,16 @@ class TestTargetSide:
         cfg = SlmGsRefineConfig()
         radius = 450.0
         expected = (
-            2 * radius * cfg.panel_pixel_um * 1e-6 * cfg.focal_length_m
+            2
+            * radius
+            * cfg.panel_pixel_um
+            * 1e-6
+            * cfg.focal_length_m
             / (cfg.camera_pixel_um * 1e-6)
         )
-        assert _derive_target_side(cfg, radius) == pytest.approx(round(expected), rel=0.01)
+        assert _derive_target_side(cfg, radius) == pytest.approx(
+            round(expected), rel=0.01
+        )
 
     def test_camera_pitch_is_the_anchor_and_focal_length_is_derived(self):
         """The pitch is the ANCHOR; the focal length is derived from it.
@@ -265,7 +291,11 @@ class TestTargetSide:
 
         # f = p_cam * d_slm * K / lambda  ->  the 125mm nominal lens to ~2%
         expected_f = (
-            _DEFAULT_CAMERA_PIXEL_UM * 1e-6 * 8.0 * 1e-6 * _TILT_SHIFT_SCALE_PX
+            _DEFAULT_CAMERA_PIXEL_UM
+            * 1e-6
+            * 8.0
+            * 1e-6
+            * _TILT_SHIFT_SCALE_PX
             / (_TILT_SHIFT_SCALE_MEASURED_AT_NM * 1e-9)
         )
         assert _DEFAULT_FOCAL_LENGTH_M == pytest.approx(expected_f, rel=1e-9)
@@ -283,7 +313,9 @@ class TestTargetSide:
 
         for lam in (1064.0, 532.0, 780.0):
             cfg = SlmGsRefineConfig(slm_wavelength=lam)
-            assert cfg.focal_length_m == pytest.approx(_DEFAULT_FOCAL_LENGTH_M, rel=1e-9)
+            assert cfg.focal_length_m == pytest.approx(
+                _DEFAULT_FOCAL_LENGTH_M, rel=1e-9
+            )
 
     def test_explicit_focal_length_is_respected_not_overwritten(self):
         cfg = SlmGsRefineConfig(focal_length_m=0.125)
@@ -292,7 +324,7 @@ class TestTargetSide:
 
     def test_wavelength_zero_asks_the_device_then_falls_back(self):
         """0 means "ask the device", and math must never see a 0 wavelength."""
-        from ao_shaping.optimizer.wfless.slm_gs_refine import _sync_device_wavelength
+        from ao_shaping.drivers.slm.factory import sync_device_wavelength
 
         class Reports532:
             wavelength = 532
@@ -302,15 +334,15 @@ class TestTargetSide:
 
         cfg = SlmGsRefineConfig()
         assert cfg.slm_wavelength == 0
-        _sync_device_wavelength(cfg, Reports532())
+        sync_device_wavelength(cfg, Reports532())
         assert cfg.slm_wavelength == 532
 
         silent = SlmGsRefineConfig()
-        _sync_device_wavelength(silent, ReportsNothing())
+        sync_device_wavelength(silent, ReportsNothing())
         assert silent.slm_wavelength > 0, "must not leave 0 for the GS math"
 
         pinned = SlmGsRefineConfig(slm_wavelength=1064)
-        _sync_device_wavelength(pinned, Reports532())
+        sync_device_wavelength(pinned, Reports532())
         assert pinned.slm_wavelength == 1064, "an explicit wavelength must win"
 
     def test_never_degenerate(self):
@@ -340,7 +372,7 @@ class TestLearningRate:
 class TestOptimizerFactory:
     @pytest.mark.parametrize("kind", ["adam", "adamw", "adamod", "sgd", "unknown"])
     def test_every_kind_yields_a_working_optimizer(self, kind):
-        opt = _make_optimizer(kind, 16, 0.1)
+        opt = create_optimizer(kind, 16, 0.1)
         step = opt.update(np.ones(16))
         assert np.asarray(step).shape == (16,)
         assert np.isfinite(np.asarray(step, dtype=float)).all()
@@ -411,7 +443,12 @@ class TestEndToEndSim:
             subdir_prefix="slm_gs_refine",
             scalar_keys=("score", "pib", "cv"),
             img_keys=(
-                "_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"
+                "_img",
+                "_phase",
+                "_img_pos",
+                "_phase_pos",
+                "_img_neg",
+                "_phase_neg",
             ),
             json_payload={"record_debug": True},
         )
@@ -514,15 +551,17 @@ class TestEndToEndSim:
         from ao_shaping.optimizer.wfless import slm_gs_refine as module
         from ao_shaping.utils.io.file import Recorder
 
-        frame = np.zeros((100, 120), dtype=np.float64)
-        frame[42, 77] = 100.0
-        monkeypatch.setattr(module, "_sync_device_wavelength", lambda *_: None)
-        monkeypatch.setattr(module, "_panel_shape", lambda *_: (8, 8))
-        monkeypatch.setattr(module, "_display_and_average", lambda *_args, **_kwargs: frame)
+        frame = np.zeros((200, 220), dtype=np.float64)
+        frame[102, 117] = 100.0
+        monkeypatch.setattr(module, "sync_device_wavelength", lambda *_: None)
+        monkeypatch.setattr(module, "panel_shape_from_slm", lambda *_: (80, 80))
+        monkeypatch.setattr(
+            module, "display_and_average", lambda *_args, **_kwargs: frame
+        )
 
         class CameraStub:
             def reset_window(self, *, center, size):
-                assert center == (77, 42)
+                assert center == (117, 102)
                 assert size == (100, 100)
                 raise RuntimeError("window configured")
 

@@ -48,7 +48,7 @@ def compute_lstsq(matrix: np.ndarray) -> np.ndarray:
         return result
 
 
-from ao_shaping.utils.wavefront.zernike_calc import (  # noqa: F401
+from ao_shaping.utils.wavefront.zernike_calc import (
     calc_n_zernike_terms as _calc_n_zernike_terms,
 )
 

@@ -1,4 +1,4 @@
-"""Offline tests for :mod:`ao_shaping.tools.slm.slm_train_data_collect`.
+"""Offline tests for :mod:`ao_shaping.tools.slm.calibration.train_data_collect`.
 
 The collector drives real hardware, so everything here runs against fakes or
 against the pure planning/sidecar helpers. Nothing opens a device.
@@ -25,7 +25,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from ao_shaping.tools.slm.slm_train_data_collect import (
+from ao_shaping.tools.slm.calibration.train_data_collect import (
     CollectParams,
     _effective_store_panel,
     build_plan,
@@ -210,7 +210,7 @@ class TestClassifyRoundTrip:
 
     @staticmethod
     def _record(params: CollectParams):
-        from ao_shaping.tools.slm.slm_train_data_collect import acquire
+        from ao_shaping.tools.slm.calibration.train_data_collect import acquire
 
         plan = build_plan(params)
         rows = list(acquire(_FakeCamera(), _FakeSlm(), None, plan, params))
@@ -261,7 +261,7 @@ class TestClassifyRoundTrip:
         """A repeated slot is a firmware no-op; the kernel handles rotation."""
         params = _params(samples=2)
         slm = _FakeSlm()
-        from ao_shaping.tools.slm.slm_train_data_collect import acquire
+        from ao_shaping.tools.slm.calibration.train_data_collect import acquire
 
         list(acquire(_FakeCamera(), slm, None, build_plan(params), params))
         assert slm.displayed, "nothing was displayed"
@@ -287,7 +287,7 @@ class TestWriterContract:
         from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
         from ml.hwdataset.index import PhaseSource, _classify
 
-        from ao_shaping.tools.slm.slm_train_data_collect import acquire
+        from ao_shaping.tools.slm.calibration.train_data_collect import acquire
 
         params = _params(samples=3, n_max=4)
         plan = build_plan(params)
@@ -332,7 +332,7 @@ class TestNoHardware:
     """``--no-hw`` must work on a machine with no SLM/CCD and no SDK."""
 
     def test_main_no_hw_exits_zero_and_prints_plan(self, capsys) -> None:
-        from ao_shaping.tools.slm.slm_train_data_collect import main
+        from ao_shaping.tools.slm.calibration.train_data_collect import main
 
         code = main(
             [
@@ -368,7 +368,7 @@ class TestNoHardware:
         ``tools/slm`` forbids driver imports at module scope.
         """
         code = (
-            "import sys, ao_shaping.tools.slm.slm_train_data_collect;"
+            "import sys, ao_shaping.tools.slm.calibration.train_data_collect;"
             "native = [n for n in sys.modules if n in {"
             "'ao_shaping.drivers.ccd.daheng.driver',"
             "'ao_shaping.drivers.ccd.miicam.driver'}];"

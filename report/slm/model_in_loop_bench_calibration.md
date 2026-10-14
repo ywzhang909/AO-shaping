@@ -7,12 +7,15 @@
 > **说明**: 正向模型台架几何标定；runbook 采集 + 本文档结论
 <!-- provenance:end -->
 
+**本轮结论**：本轮（2026-09-29 至 10-01）在 SLM-200（1064 nm）+ Daheng 相机真实 2f-Fourier 台架上完成正向模型几何标定与 model-in-the-loop 验证，六项核心结论：(1) 面板有效相位分辨率远粗于单像素——逐像素随机相位对远场无可测影响（core40 0.0261→0.0247），散斑相关标定路线在本台架不可实现（相关系数上限 ~0.07），正式放弃；(2) 平滑 Zernike 倾斜扫频是唯一可靠的几何标定途径，k_tilt = 3.411 cam px/rad（三次重复 ~3%），光栅斜坡（7615）与 Zernike 倾斜（7579）两条独立路线在 0.5% 内一致；(3) 束腰参数在无 WFS 条件下不可辨识（六模式联合拟合残差 14.5%、离焦响应不对称 +70%），标定器按设计拒绝输出并显式标注；(4) 零像差模型 MSE 已达 0.0068，任何拟合系数均使一致性变差，确认本台架无低阶像差可拟合，残差为散斑级模型失配；(5) 在硬件有效采样（far_field_size=4096）下，Step B 150 步将均匀性 CV 从 13.83 改善至 0.651（21 倍）且能量无损失（EE 保持 1.0000），验证数字孪生闭环在真实尺度下有效；(6) 撤回"面板冻结"误诊——该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 memory_number 固件空操作），并固化三条测量纪律。注意：焦面标定常数在三处文档存在未收口冲突（TODO.md H-11/H-16），引用前须确认所用基准。
+
 Measured constants and known failure modes for running
 `ZernikeCoefficientOptimizer` (Step A) and the A→B loop against the **real**
 2f-Fourier bench, as opposed to `SimFourierGSNetEnv`.
 
-Everything here was measured on 2026-09-29 with the devices online; the numbers
-are what the model needs, not what the twin assumes.
+All measurements reported here were obtained on 2026-09-29 with the devices
+online; the reported values are those required by the forward model, rather
+than those assumed by the digital twin.
 
 > ⚠️ **2026-10-01 复核，3 处已订正**（其余内容仍有效）：
 > 1. §L459 焦面标定常数 `132940/P` → **`7600/P`**（本文档内部原本自相矛盾）。
@@ -26,10 +29,20 @@ are what the model needs, not what the twin assumes.
 > （对应 2.2 µm 像元）、`report/slm_pib_heuristic_hw/report.md:159` 主张改 **10954**。
 > 2.2 µm 像元推得的是 ~7557 而非 10954，故该主张本身也待复核。**引用本文件前请先确认用哪一套。**
 
+## 主要结论总览（按测定日期）
+
+1. **面板相位分辨率结论（2026-09-30）**：逐像素随机相位对远场无可测影响（`core40` 0.0261→0.0247），而平滑 Zernike 像差随阶数单调劣化聚焦；面板的有效相位分辨率远粗于单像素，散斑相关路线在本台架不可实现（相关系数上限 ~0.07），该路线已正式放弃。
+2. **扫频标定路线（2026-09-30）**：以平滑 Zernike 倾斜模式测质心位移是唯一可靠的几何标定途径；`k_tilt` = 3.411 cam px/rad（三次重复 0.325/0.331/0.335，重复性 ~3%），两条独立路线（光栅斜坡 7615 与 Zernike 倾斜 7579）在 0.5% 内一致，物理交叉校验比值 1.00×。
+3. **束腰不可辨识结论**：离焦响应关于自身极小值不对称 +70%，六模式联合拟合残差 14.5%，表明台架携带所扫模式基不完备的像差；束腰参数在缺少 WFS 的条件下不可辨识，标定器按设计拒绝输出并标注 `NOT identifiable`。
+4. **Step A 结论**：在 733 条实测记录上，零像差模型的 MSE 已达 0.0068，任何拟合系数使一致性变差（+0.21%~+0.32%）；本台架无低阶像差可拟合，残差为散斑级模型失配。
+5. **Step B 结论（数字孪生验证）**：在硬件有效采样（`far_field_size=4096`）下，150 步 Step B 将均匀性 CV 从 13.83 改善至 0.651（21×）且能量无损失（EE 保持 1.0000）。
+6. **"面板冻结"误诊撤回（2026-09-30）**：该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 `memory_number` 固件空操作）；倾斜探针证明面板调制正常，焦面尺度实测为 `7600/P` 而非朴素估计的 17.5 倍。
+
 ## Bench capability limit: the panel cannot resolve pixel-scale phase
 
-**This retires the speckle-correlation route on this bench, and no amount of
-re-scaling fixes it.** Measured 2026-09-30 by driving the pupil and reading the
+**This result rules out the speckle-correlation calibration route on this
+bench; re-scaling of model parameters cannot restore its validity.** Measured
+2026-09-30 by driving the pupil and reading the
 far field (`core40` = fraction of frame energy within 40 px of the 0-order,
 exposure 3.0 ms, beam radius 450 px at panel centre):
 
@@ -41,8 +54,9 @@ exposure 3.0 ms, beam radius 450 px at panel centre):
 | random Zernike n≤8 | 24 | 0.0250 |
 | random Zernike n≤14 | 12 | 0.0127 |
 
-Per-pixel random phase does **nothing**; smooth Zernike phase degrades the focus
-monotonically with order. So the panel's effective phase resolution is far
+Per-pixel random phase produces **no measurable change** in the far field,
+whereas smooth Zernike phase degrades the focus monotonically with radial
+order. Hence the panel's effective phase resolution is far
 coarser than one pixel — high spatial frequencies are strongly low-pass filtered
 by the LCOS and the optics.
 
@@ -54,8 +68,9 @@ realisable here, so the speckle correlation cannot rise above ~0.07 no matter
 how the geometry is fitted, and **any Step A / Step B coefficient derived from it
 would be meaningless**.
 
-Do not spend more time tuning `disc_candidates`, `far_field_size` or the waist
-search against this bench. The options are:
+Further tuning of `disc_candidates`, `far_field_size` or the waist search
+against this bench is not expected to improve the situation. The viable
+options are:
 
 1. **Band-limit the probes** and accept a smooth pupil model — then the far field
    is a perturbed focus, not a speckle field, and the calibration metric has to
@@ -67,9 +82,19 @@ search against this bench. The options are:
 3. **Use a different bench or a smaller beam** where the beam only illuminates a
    region small enough that the panel's resolution is not the limit.
 
+**Conclusion of this round.** The measured `core40` for per-pixel random phase
+(0.0247) is statistically indistinguishable from the flat-phase value (0.0261),
+whereas smooth Zernike phase degrades the focus monotonically with order
+(peak 86 → 12 from n≤4 to n≤14). This supports the hypothesis that the panel
+low-pass filters high spatial frequencies, and refutes the premise that random
+pupil phase produces a far-field speckle pattern on this bench. The attainable
+speckle correlation is bounded at ~0.07 regardless of geometric fitting; the
+speckle-correlation calibration route is therefore abandoned in favour of the
+band-limited sweep route described in the next section.
+
 ## Sweep calibration (the route that works on this bench)
 
-Speckle correlation is out (see above). The replacement drives **smooth Zernike
+Speckle correlation is excluded (see above). The replacement drives **smooth Zernike
 modes** and reads the **spot centroid and width**, which the panel can realise.
 
 ### Why tilt is the right measurement
@@ -85,8 +110,9 @@ camera_px_per_model_px = k_tilt · π · a / P
 ```
 
 where `k_tilt` is the **measured** centroid shift in camera pixels per radian of
-tilt coefficient. Nothing about the bench has to be assumed — which is the whole
-point, since every assumed constant was wrong before.
+tilt coefficient. No bench parameter has to be assumed; this is precisely the
+purpose of the route, since every previously assumed constant proved
+incorrect.
 
 ### Measured (2026-09-30, 3.0 ms, aperture r=450 px at panel centre)
 
@@ -103,6 +129,14 @@ point, since every assumed constant was wrong before.
 The two tilt slopes agreeing to 3 % is also a direct confirmation of the **90°
 axis swap** — a run whose slopes disagree means the panel was indexed
 inconsistently.
+
+**Conclusion of this round.** The tilt slopes (−3.467 and −3.355 cam px/rad)
+agree to 3 %, confirming both the 90° axis swap and a consistent panel
+indexing. The derived scale `camera_px_per_model_px = 0.335` reproduces to
+~3 % across three sweeps (0.325 / 0.331 / 0.335), and the bench defocus offset
+is −0.171 rad. These values support the tilt-based calibration route as the
+authoritative geometric measurement on this bench; the beam waist, however,
+cannot be obtained from the same sweep (next subsection).
 
 ### What the sweep does NOT give: the beam waist
 
@@ -123,7 +157,7 @@ The defocus response is usable but not fittable to a pure-defocus model:
   residual is non-defocus aberration (astigmatism/coma) that a defocus sweep does
   not contain, so the illumination profile is **not identifiable**.
 
-The code reflects this honestly: when the defocus fit residual exceeds 10 %,
+The implementation records this explicitly: when the defocus fit residual exceeds 10 %,
 `beam_waist_panel_px` is emitted as the flat-top default and
 `calibration_notes` says `waist NOT identifiable, flat-top default`. The
 tilt-derived scale is unaffected — it never used the width data.

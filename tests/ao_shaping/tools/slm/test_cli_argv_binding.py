@@ -2,7 +2,7 @@
 
 Why this file exists
 --------------------
-``runners/runner_common.with_params`` builds its dataclass by *popping known
+``utils/cli/params.with_params`` builds its dataclass by *popping known
 field names* out of the ``kwargs`` the click parser produced
 (``runner_common.py:305-318``)::
 
@@ -61,7 +61,74 @@ from click.testing import CliRunner
 from loguru import logger
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
-TOOLS_SLM_DIR = REPO_ROOT / "src" / "ao_shaping" / "tools" / "slm"
+TOOLS_DIR = REPO_ROOT / "src" / "ao_shaping" / "tools"
+TOOLS_SLM_DIR = TOOLS_DIR / "slm"
+
+#: ``Case.module`` (the historical flat ``tools/slm`` stem) -> current module path.
+#: The 2026-10-12 reorganisation spread the probes over sibling packages, so the
+#: guard table keeps the old stems as stable ids and resolves them through here.
+_MODULE_PATHS: dict[str, str] = {
+    "calibration": "ao_shaping.tools.slm.calibration",
+    "gray_response": "ao_shaping.tools.slm.calibration.gray_response",
+    "phase_capture": "ao_shaping.tools.slm.calibration.phase_capture",
+    "slm_abba_probe": "ao_shaping.tools.zernike.abba_probe",
+    "slm_beam_extent": "ao_shaping.tools.slm.panel.beam_extent",
+    "slm_diagnose": "ao_shaping.tools.slm.panel.diagnose",
+    "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
+    "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
+    "slm_floor_probe": "ao_shaping.tools.ccd.floor_probe",
+    "slm_lut_runner": "ao_shaping.tools.slm.calibration.lut_runner",
+    "slm_panel_locate": "ao_shaping.tools.slm.panel.panel_locate",
+    "slm_phase_resolution": "ao_shaping.tools.slm.panel.phase_resolution",
+    "slm_phase_response": "ao_shaping.tools.slm.panel.phase_response",
+    "slm_tilt_probe": "ao_shaping.tools.slm.panel.tilt_probe",
+    "slm_train_data_collect": "ao_shaping.tools.slm.calibration.train_data_collect",
+    "slm_wfs_probe": "ao_shaping.tools.wfs.wfs_probe",
+    "slm_wfs_reference": "ao_shaping.tools.wfs.wfs_reference",
+    "slm_zernike_correction": "ao_shaping.tools.wfs.zernike_correction",
+    "slm_zernike_response": "ao_shaping.tools.wfs.zernike_response",
+    "slm_zernike_sweep_probe": "ao_shaping.tools.zernike.sweep_probe",
+}
+
+#: Reverse map (file stem -> guard-table id) so static discovery can label a file
+#: with the id the ``CASES`` table uses.
+_STEM_TO_ID: dict[str, str] = {
+    mod.rsplit(".", 1)[-1]: key for key, mod in _MODULE_PATHS.items()
+}
+
+#: Directories the probes now live in.
+_PROBE_DIRS = ("slm/panel", "slm/calibration", "ccd", "wfs", "zernike")
+
+#: Directories scanned by the device-session census (probes + shared kernels +
+#: the SLM package itself). ``micro_dm`` is excluded: it is a different bench.
+_CENSUS_DIRS = ("slm", "ccd", "wfs", "zernike", "kernels")
+
+
+def _module_path(name: str) -> str:
+    """Importable dotted path for a guard-table module id."""
+    return _MODULE_PATHS[name]
+
+
+def _source_file(name: str) -> Path:
+    """Source file for a guard-table module id (handles package entry points)."""
+    rel = _module_path(name).split("ao_shaping.", 1)[1].replace(".", "/")
+    base = TOOLS_DIR.parent / rel
+    if base.with_suffix(".py").is_file():
+        return base.with_suffix(".py")
+    inner = base / (base.name + ".py")  # package: <pkg>/<pkg>.py (calibration)
+    return inner if inner.is_file() else base / "__init__.py"
+
+
+def _iter_probe_sources() -> list[Path]:
+    """Every probe source file, in a stable order."""
+    paths: list[Path] = []
+    for sub in _PROBE_DIRS:
+        paths += [
+            p
+            for p in sorted((TOOLS_DIR / sub).glob("*.py"))
+            if p.stem not in {"__init__", "__main__"}
+        ]
+    return paths
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +178,22 @@ _DEVICE_NAMES: frozenset[str] = frozenset(
 
 
 def _block_device_opens(monkeypatch: pytest.MonkeyPatch, module: ModuleType) -> None:
-    """Rebind every device-construction symbol reachable from ``module``."""
+    """Rebind every device-construction symbol reachable from ``module``.
+
+    A package facade (``ao_shaping.tools.slm.calibration``) exposes the click
+    command but not the device symbols — those live in its implementation
+    module (``...calibration.calibration``). Patching only the facade would let
+    the command reach **real hardware**, so every patched facade also patches the
+    module that actually defines the symbol.
+    """
+    targets: list[ModuleType] = [module]
+    impl = getattr(module, "__dict__", {}).get("_IMPL")
+    if isinstance(impl, str):
+        try:
+            targets.append(importlib.import_module(impl))
+        except ImportError:  # pragma: no cover - defensive
+            pass
+
     for path, attr in _DEVICE_SOURCES:
         try:
             source = importlib.import_module(path)
@@ -120,8 +202,9 @@ def _block_device_opens(monkeypatch: pytest.MonkeyPatch, module: ModuleType) -> 
         if hasattr(source, attr):
             monkeypatch.setattr(source, attr, _blocked)
     for name in _DEVICE_NAMES:
-        if hasattr(module, name):
-            monkeypatch.setattr(module, name, _blocked)
+        for target in targets:
+            if hasattr(target, name):
+                monkeypatch.setattr(target, name, _blocked)
 
 
 # ---------------------------------------------------------------------------
@@ -406,6 +489,8 @@ CASES: tuple[Case, ...] = (
             "--grid-ys", "200,460,700,960",
             "--frames", "3",
             "--seed", "13",
+            "--max-flat-drift", "0.7",
+            "--debug-dir", "{out}",
         ),
     ),
     Case(
@@ -614,8 +699,9 @@ def _discover_click_commands() -> set[tuple[str, str]]:
     past the guard table unnoticed.
     """
     found: set[tuple[str, str]] = set()
-    for path in sorted(TOOLS_SLM_DIR.glob("*.py")):
+    for path in _iter_probe_sources():
         tree = ast.parse(path.read_text(encoding="utf-8"))
+        module_id = _STEM_TO_ID.get(path.stem, path.stem)
         for node in tree.body:
             if not isinstance(node, ast.FunctionDef):
                 continue
@@ -627,7 +713,7 @@ def _discover_click_commands() -> set[tuple[str, str]]:
                     and isinstance(target.value, ast.Name)
                     and target.value.id == "click"
                 ):
-                    found.add((path.stem, node.name))
+                    found.add((module_id, node.name))
     return found
 
 
@@ -665,7 +751,7 @@ def _tested_names(test: ast.AST) -> set[str]:
 
 def _diverges_before_device_open(module_name: str, attr: str, field: str) -> bool:
     """True if ``attr`` returns/raises on ``field`` before its first device open."""
-    source = TOOLS_SLM_DIR / f"{module_name}.py"
+    source = _source_file(module_name)
     tree = ast.parse(source.read_text(encoding="utf-8"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
     for node in tree.body:
@@ -704,7 +790,7 @@ def _gates_device_open(module_name: str, attr: str, field: str) -> bool:
     skips the very open the hardware sentinel relies on, so the command would
     run on without ever reaching the blocked device.
     """
-    source = TOOLS_SLM_DIR / f"{module_name}.py"
+    source = _source_file(module_name)
     tree = ast.parse(source.read_text(encoding="utf-8"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
     for node in tree.body:
@@ -739,7 +825,7 @@ def test_no_field_equals_its_default(
     to its dataclass default shows up here as a name in
     ``still_at_default``.
     """
-    module = importlib.import_module(f"ao_shaping.tools.slm.{case.module}")
+    module = importlib.import_module(_module_path(case.module))
     command = getattr(module, case.attr)
     assert isinstance(command, Command), f"{case.module}.{case.attr} is not a Command"
 
@@ -952,7 +1038,7 @@ def test_sweep_cli_namespace_is_pinned() -> None:
     One key is *expected* to differ from the old argparse snapshot:
     ``save_frames`` (see :data:`EXPECTED_SWEEP_NAMESPACE`).
     """
-    from ao_shaping.tools.slm.slm_zernike_sweep_probe import main
+    from ao_shaping.tools.zernike.sweep_probe import main
 
     actual = dict(main.make_context("slm_zernike_sweep_probe", list(SWEEP_ARGV)).params)
 
@@ -1004,13 +1090,14 @@ def _construction_sites(pattern: re.Pattern[str]) -> dict[str, int]:
     cannot move the numbers.
     """
     counts: dict[str, int] = {}
-    for path in sorted(TOOLS_SLM_DIR.rglob("*.py")):
-        if "__pycache__" in path.parts:
-            continue
-        hits = len(pattern.findall(_code_only(path)))
-        hits += len(pattern.findall(_module_docstring(path)))
-        if hits:
-            counts[path.relative_to(TOOLS_SLM_DIR).as_posix()] = hits
+    for sub in _CENSUS_DIRS:
+        for path in sorted((TOOLS_DIR / sub).rglob("*.py")):
+            if "__pycache__" in path.parts:
+                continue
+            hits = len(pattern.findall(_code_only(path)))
+            hits += len(pattern.findall(_module_docstring(path)))
+            if hits:
+                counts[path.relative_to(TOOLS_DIR).as_posix()] = hits
     return counts
 
 
@@ -1029,54 +1116,57 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
 
     # 18 -> 21 and 15 -> 18 when slm_abba_probe / slm_drift_probe / slm_floor_probe
     # were added upstream; 21 -> 22 and 18 -> 20 when slm_train_data_collect landed
-    # (1 Santec session + 2 camera opens). This guard pins the census so a *refactor*
+    # (1 Santec session + 2 camera opens); 22 -> 23 when gs_refine_replay landed
+    # (1 Santec session, 0 camera opens). This guard pins the census so a *refactor*
     # cannot quietly consolidate device sessions; adding a genuinely new probe is a
     # legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 22, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 20, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 23, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 21, f"camera-open call sites changed: {camera}"
 
     assert santec == {
-        "calibration.py": 2,
-        "cartographer/slm_cartographer_ui.py": 1,
-        "gray_response.py": 1,
-        "phase_capture.py": 1,
-        "slm_abba_probe.py": 1,
-        "slm_beam_extent.py": 1,
-        "slm_diagnose.py": 1,
-        "slm_drift_probe.py": 1,
-        "slm_floor_probe.py": 1,
-        "slm_lut_runner.py": 1,
-        "slm_panel_locate.py": 1,
-        "slm_phase_resolution.py": 1,
-        "slm_phase_response.py": 1,
-        "slm_tilt_probe.py": 1,
-        "slm_train_data_collect.py": 1,
-        "slm_wfs_probe.py": 1,
-        "slm_wfs_reference.py": 1,
-        "slm_zernike_correction.py": 1,
-        "slm_zernike_response.py": 1,
-        "slm_zernike_sweep_probe.py": 1,
-        "sweep_analysis.py": 1,
+        "slm/calibration/calibration.py": 2,
+        "slm/calibration/gray_response.py": 1,
+        "slm/calibration/lut_runner.py": 1,
+        "slm/calibration/phase_capture.py": 1,
+        "slm/calibration/train_data_collect.py": 1,
+        "slm/cartographer/slm_cartographer_ui.py": 1,
+        "slm/gs_refine_replay.py": 1,
+        "slm/panel/beam_extent.py": 1,
+        "slm/panel/diagnose.py": 1,
+        "slm/panel/panel_locate.py": 1,
+        "slm/panel/phase_resolution.py": 1,
+        "slm/panel/phase_response.py": 1,
+        "slm/panel/tilt_probe.py": 1,
+        "ccd/drift_probe.py": 1,
+        "ccd/floor_probe.py": 1,
+        "wfs/wfs_probe.py": 1,
+        "wfs/wfs_reference.py": 1,
+        "wfs/zernike_correction.py": 1,
+        "wfs/zernike_response.py": 1,
+        "zernike/abba_probe.py": 1,
+        "zernike/sweep_probe.py": 1,
+        "kernels/sweep_analysis.py": 1,
     }, f"Santec( per-file census drifted: {santec}"
 
     assert camera == {
-        "calibration.py": 1,
-        "gray_response.py": 1,
-        "phase_capture.py": 2,
-        "slm_abba_probe.py": 1,
-        "slm_beam_extent.py": 1,
-        "slm_diagnose.py": 1,
-        "slm_drift_probe.py": 1,
-        "slm_exposure_check.py": 1,
-        "slm_floor_probe.py": 1,
-        "slm_lut_runner.py": 2,
-        "slm_panel_locate.py": 1,
-        "slm_phase_resolution.py": 1,
-        "slm_phase_response.py": 1,
-        "slm_tilt_probe.py": 1,
-        "slm_train_data_collect.py": 2,
-        "slm_zernike_sweep_probe.py": 1,
-        "sweep_analysis.py": 1,
+        "slm/calibration/calibration.py": 1,
+        "slm/calibration/gray_response.py": 1,
+        "slm/calibration/lut_runner.py": 2,
+        "slm/calibration/phase_capture.py": 2,
+        "slm/calibration/train_data_collect.py": 2,
+        "slm/gs_refine_replay.py": 1,
+        "slm/panel/beam_extent.py": 1,
+        "slm/panel/diagnose.py": 1,
+        "slm/panel/panel_locate.py": 1,
+        "slm/panel/phase_resolution.py": 1,
+        "slm/panel/phase_response.py": 1,
+        "slm/panel/tilt_probe.py": 1,
+        "ccd/drift_probe.py": 1,
+        "ccd/exposure_check.py": 1,
+        "ccd/floor_probe.py": 1,
+        "zernike/abba_probe.py": 1,
+        "zernike/sweep_probe.py": 1,
+        "kernels/sweep_analysis.py": 1,
     }, f"camera-open per-file census drifted: {camera}"
 
     # ``sweep_analysis`` (merged from ``slm_scan_analysis`` + ``delta_explorer`` +
@@ -1084,7 +1174,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # full control of settle/slot/dark-frame ordering (the R1 hazard). Its
     # ``Santec(`` hits are the ``Typical use::`` module-docstring example — hence
     # the census key above is 1, not 0.
-    snr_path = TOOLS_SLM_DIR / "sweep_analysis.py"
+    snr_path = TOOLS_DIR / "kernels" / "sweep_analysis.py"
     snr_source = snr_path.read_text(encoding="utf-8")
     assert "import click" not in snr_source, "sweep_analysis must stay CLI-free"
     assert "@click.command" not in snr_source

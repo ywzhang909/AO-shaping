@@ -206,7 +206,7 @@ def _oopao_enabled() -> bool:
     if not enabled:
         return False
     try:
-        from ao_shaping.drivers.sim import oopao_backend  # noqa: F401
+        from ao_shaping.drivers.sim import oopao_backend
     except Exception:
         return False
     return oopao_backend._oopao_available()

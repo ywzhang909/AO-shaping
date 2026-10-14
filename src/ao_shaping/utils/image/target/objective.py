@@ -19,7 +19,6 @@ from ao_shaping.utils.image.target.metrics import (
     TARGET_SHAPE_CHOICES,
     TargetShape,
     log_gradient_difference_from_fields,
-    log_gradient_difference_metric,
     log_gradient_field,
     rmse_out_metric,
     rmse_shape_metric,

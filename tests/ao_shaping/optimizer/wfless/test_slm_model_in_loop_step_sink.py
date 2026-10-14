@@ -47,7 +47,7 @@ import pytest
 
 from ao_shaping.optimizer.wfless import model_in_loop_shaping as mils
 from ao_shaping.optimizer.wfless import slm_model_in_loop as mod
-from ao_shaping.optimizer.wfless.slm_gs_refine import _prepare_frame
+from ao_shaping.utils.image.beam_metrics import prepare_frame as _prepare_frame
 from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     ModelInLoopStatus,
     SlmModelInLoopConfig,

@@ -1,0 +1,159 @@
+classDiagram
+    class Device {
+        <<abstract>>
+        +open()
+        +close()
+        +is_connected
+    }
+    class DM {
+        <<abstract>>
+        +send()
+        +send_voltages()
+        +set_all_voltage_by_arr()
+        +min_voltage
+        +max_voltage
+        +DM_Num
+    }
+    class BaseWFS {
+        <<abstract>>
+        +get_wavefront()
+        +get_zernike()
+        +take_image()
+        +get_spot_deviation()
+    }
+    class BaseCamera {
+        <<abstract>>
+        +initialize()
+        +open()
+        +close()
+        +get_numpy_image()
+        +enable_auto_exposure()
+    }
+    class SimulatedDevice {
+        +无硬件仿真基类
+    }
+    class OpticalDevice {
+        +正向光学模型基类
+    }
+    class NLight
+    class AsyncMicroDM
+    class HadamardDM
+    class ZernikeDM
+    class SimulateDM
+    class SimMicroDM
+    class ThorlabWFS
+    class MIICamera
+    class DahengCamera
+    class FFmpegCamera
+    class SimulatedCCD
+    class ZernikeSLM
+    class Santec
+    Device <|-- BaseWFS
+    Device <|-- SimulatedDevice
+    SimulatedDevice <|-- OpticalDevice
+    DM <|-- NLight
+    DM <|-- AsyncMicroDM
+    DM <|-- HadamardDM
+    DM <|-- ZernikeDM
+    DM <|-- SimulateDM
+    DM <|-- SimMicroDM
+    BaseWFS <|-- ThorlabWFS
+    BaseCamera <|-- MIICamera
+    BaseCamera <|-- DahengCamera
+    BaseCamera <|-- FFmpegCamera
+    BaseCamera <|-- SimulatedCCD
+    class DMRegistry {
+        +get_class(name)
+        +create_dm(name)
+    }
+    class WFSRegistry {
+        +get_class(name)
+        +create_wfs(name)
+    }
+    DMRegistry ..> NLight : 注册
+    DMRegistry ..> SimulateDM : 注册
+    DMRegistry ..> AsyncMicroDM : 注册
+    WFSRegistry ..> ThorlabWFS : 注册
+    class PhaseMap
+    class AmplitudeMap
+    class ComplexField
+    class OPDMap
+    class WfsSlopes
+    class ZernikeCoefficients
+    class DmCommands
+    class BeamMetrics
+    class TurbulenceParameters
+    class FieldMetadata
+    ComplexField --> PhaseMap : 实部
+    ComplexField --> AmplitudeMap : 幅值
+    OPDMap ..> PhaseMap : 换算
+    WfsSlopes ..> ZernikeCoefficients : 拟合
+    PhaseMap o-- FieldMetadata
+    AmplitudeMap o-- FieldMetadata
+    class RegisteredBase {
+        <<abstract>>
+        +create(name)
+        +update()
+        +reset()
+        +scale_momentum()
+    }
+    class SGD
+    class Adam
+    class AdamW
+    class AdaMOD
+    class Muon
+    RegisteredBase <|-- SGD
+    RegisteredBase <|-- Adam
+    RegisteredBase <|-- Muon
+    Adam <|-- AdamW
+    Adam <|-- AdaMOD
+    class ShapingObjective
+    class ObjectiveSpec
+    class ObjectiveResult
+    class ImageTargetFunc
+    ShapingObjective --> ObjectiveSpec
+    ShapingObjective --> ObjectiveResult
+    ShapingObjective ..> ImageTargetFunc : 可调用目标
+    class SLMCalibratorBase {
+        <<abstract>>
+        +calibrate()
+    }
+    class SantecCalibrator
+    class InterferometerCalibrator
+    class DiffractionEfficiencyCalibrator
+    class SLMCCDCalibrator
+    class SLMLUTCalibrator
+    class SLMProtocol {
+        <<Protocol>>
+    }
+    class CameraProtocol {
+        <<Protocol>>
+    }
+    class CameraWithExposureProtocol {
+        <<Protocol>>
+    }
+    SLMCalibratorBase <|-- SantecCalibrator
+    SLMCalibratorBase <|-- InterferometerCalibrator
+    SLMCalibratorBase <|-- DiffractionEfficiencyCalibrator
+    CameraProtocol <|-- CameraWithExposureProtocol
+    SLMCalibratorBase ..> SLMProtocol : 依赖注入
+    SLMCalibratorBase ..> CameraProtocol : 依赖注入
+    class BaseController {
+        <<abstract>>
+        +update()
+    }
+    class PIDController
+    class LeakyIntegratorController
+    class QuadraticGaussianController
+    class LQGController
+    class PredictiveController
+    class AdaptiveGainController
+    class HardwareConfig
+    class LoopConfig
+    BaseController <|-- PIDController
+    BaseController <|-- LeakyIntegratorController
+    BaseController <|-- QuadraticGaussianController
+    BaseController <|-- LQGController
+    BaseController <|-- PredictiveController
+    BaseController <|-- AdaptiveGainController
+    BaseController ..> LoopConfig : 配置

@@ -29,14 +29,17 @@ from ao_shaping.algorithm.signal_processing.iterative_zernike_shaping import (
     IterativeZernikeShapingConfig,
     IterativeZernikeShapingOptimizer,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import (
-    ShapingBenchConfig,
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_score,
     compute_bench_metrics,
-    forward_intensity,
-    make_target,
+    gs_shape,
+    make_square_target as make_target,
+    spgd_shape,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import gs_shape, spgd_shape
+from ao_shaping.drivers.sim.slm_shaping_bench import (
+    ShapingBenchConfig,
+    forward_intensity,
+)
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 N = 64
@@ -132,7 +135,9 @@ def test_s2_shaping_raises_score():
     ff_out = ff_out / ff_out.sum()
     score_out = composite_score(compute_bench_metrics(ff_out, target))
 
-    assert score_out > score_init, f"shaped score {score_out} not > initial {score_init}"
+    assert score_out > score_init, (
+        f"shaped score {score_out} not > initial {score_init}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +152,11 @@ def test_s3_iteration_converges_and_beats_single_pass():
     result = opt.run(actual_far_field=actual, initial_slm_phase=init_slm)
 
     # single-pass = first outer iteration score
-    single = result.score_history[1]["score"] if len(result.score_history) > 1 else result.score_history[0]["score"]
+    single = (
+        result.score_history[1]["score"]
+        if len(result.score_history) > 1
+        else result.score_history[0]["score"]
+    )
     final = result.final_score
     assert final >= single - 1e-6, f"final {final} < single-pass {single}"
     # history strictly has at least 2 entries (init + >=1 outer)
@@ -195,8 +204,12 @@ def test_s4b_raw_only_phase_not_wrapped():
 
 def test_s4c_determinism():
     actual = _make_actual_far_field()
-    r1 = _optimizer(n_zernike=4, calib_iters=30, shaping_iters=40).run(actual_far_field=actual)
-    r2 = _optimizer(n_zernike=4, calib_iters=30, shaping_iters=40).run(actual_far_field=actual)
+    r1 = _optimizer(n_zernike=4, calib_iters=30, shaping_iters=40).run(
+        actual_far_field=actual
+    )
+    r2 = _optimizer(n_zernike=4, calib_iters=30, shaping_iters=40).run(
+        actual_far_field=actual
+    )
     assert np.allclose(r1.slm_phase, r2.slm_phase, atol=1e-8)
     assert r1.final_score == pytest.approx(r2.final_score, abs=1e-8)
     assert r1.zernike_coeffs == r2.zernike_coeffs
@@ -216,9 +229,16 @@ def test_s5_no_hardware_full_pipeline():
     )
     out = optimize_iterative_zernike_shaping(cfg)
     for key in (
-        "zernike_coeffs", "slm_phase", "far_field", "target",
-        "actual_far_field", "score_history", "final_score",
-        "n_outer_iters", "converged", "metrics",
+        "zernike_coeffs",
+        "slm_phase",
+        "far_field",
+        "target",
+        "actual_far_field",
+        "score_history",
+        "final_score",
+        "n_outer_iters",
+        "converged",
+        "metrics",
     ):
         assert key in out, f"missing key {key}"
     # metrics use the canonical bench keys
@@ -261,9 +281,7 @@ def test_s6_torch_zernike_matches_canonical_numpy():
 def test_s6_every_basis_mode_matches_canonical_generator():
     opt = _optimizer(n_zernike=4)
     for n, m, basis in opt._zernike_basis():
-        expected = generate_zernike_phase(
-            {(n, m): 1.0}, resolution=(N, N), n_max=4
-        )
+        expected = generate_zernike_phase({(n, m): 1.0}, resolution=(N, N), n_max=4)
         np.testing.assert_allclose(
             basis.numpy(), np.nan_to_num(expected, nan=0.0), rtol=0, atol=1e-12
         )
@@ -281,7 +299,7 @@ def test_s7_objective_consistency_and_shaping_discrimination():
     is non-degenerate; it was an artefact of the aliased forward field plus a
     uniformly-saturated CV term. See ``report/iterative_zernike_shaping/data.json``.
     """
-    from ao_shaping.drivers.sim.slm_shaping_bench import spgd_shape
+    from ao_shaping.algorithm.signal_processing.square_shaping import spgd_shape
 
     cfg = _bench_cfg()
     target = make_target(cfg)
@@ -388,9 +406,13 @@ def test_s10_calibration_is_finite_and_reduces_mismatch():
         assert np.isfinite(value), f"non-finite coefficient for {mode}: {value}"
 
     zero = _zero_vec(opt)
-    m_base = _mse(opt._far_field(zero, torch.as_tensor(init, dtype=torch.float64)).numpy(), actual)
+    m_base = _mse(
+        opt._far_field(zero, torch.as_tensor(init, dtype=torch.float64)).numpy(), actual
+    )
     m_cal = _mse(
-        opt._far_field(_coeff_vec(opt, coeffs), torch.as_tensor(init, dtype=torch.float64)).numpy(),
+        opt._far_field(
+            _coeff_vec(opt, coeffs), torch.as_tensor(init, dtype=torch.float64)
+        ).numpy(),
         actual,
     )
     assert m_cal < m_base, f"calibrated MSE {m_cal} not < baseline {m_base}"

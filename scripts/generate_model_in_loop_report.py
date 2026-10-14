@@ -79,7 +79,9 @@ NEWLINE = "\n"
 #: Repo-root-relative modules the diagrams and tables are derived from.
 HARDWARE = "src/ao_shaping/optimizer/wfless/slm_model_in_loop.py"
 TWIN = "src/ao_shaping/optimizer/wfless/model_in_loop_shaping.py"
-OPTIMIZER = "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py"
+OPTIMIZER = (
+    "src/ao_shaping/algorithm/signal_processing/zernike_coefficient_optimizer.py"
+)
 RUNNER = "src/ao_shaping/runners/slm/model_in_loop_runner.py"
 PARAMS = "src/ao_shaping/runners/runner_common.py"
 IO = "src/ao_shaping/utils/io/file.py"
@@ -88,6 +90,7 @@ LEARNED = "src/ml/zernike/forward_model.py"
 PHYSICS = "src/ml/zernike/models.py"
 AMP_CKPT = "src/ml/zernike/amp_checkpoint.py"
 FRAUNHOFER = "src/ao_shaping/utils/wavefront/fraunhofer.py"
+BEAM_METRICS = "src/ao_shaping/utils/image/beam_metrics.py"
 
 MODULES = {
     "hardware": HARDWARE,
@@ -101,6 +104,7 @@ MODULES = {
     "physics": PHYSICS,
     "amp_ckpt": AMP_CKPT,
     "fraunhofer": FRAUNHOFER,
+    "beam_metrics": BEAM_METRICS,
 }
 
 #: Every symbol the two ASCII diagrams name, as ``(module_key, qualified name)``.
@@ -143,8 +147,8 @@ DIAGRAM_SYMBOLS: tuple[tuple[str, str], ...] = (
     ("twin", "simulate_iterative_shaping"),
     ("twin", "StepBConfig"),
     ("twin", "BenchGeometry"),
-    # borrowed helper
-    ("gs_refine", "_prepare_frame"),
+    # borrowed helper (canonical home: the leaf utils layer)
+    ("beam_metrics", "prepare_frame"),
     # algorithm layer
     ("optimizer", "ZernikeCoefficientOptimizer"),
     # recorder
@@ -272,7 +276,9 @@ def _dataclass_defaults(rel: str, cls: str) -> dict[str, str]:
     for node in tree.body:
         if isinstance(node, ast.ClassDef) and node.name == cls:
             for stmt in node.body:
-                if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                if isinstance(stmt, ast.AnnAssign) and isinstance(
+                    stmt.target, ast.Name
+                ):
                     out[stmt.target.id] = str(_literal(stmt.value))
     return out
 
@@ -334,7 +340,7 @@ graph TD
         FR["focal_field / focal_intensity<br/>中心补零 + fftshift(fft2(ifftshift))"]
     end
 
-    subgraph LB["③ 设备抽象 · 唯一随 --cam_type 改变的一层"]
+    subgraph LB["③ 设备抽象 · 唯一随 --cam-type 改变的一层"]
         direction TB
         BENCH["Bench (Protocol)<br/>display / measure / close"]
         SIM["_SimBench<br/>2f-Fourier 数字孪生"]
@@ -349,7 +355,7 @@ graph TD
         PROBE["_probe_phase(...)"]
         STEPA["_fit_aberration_at_probes(...)"]
         STEPB["shape_phase_with_frozen_aberration(...)"]
-        TWINRUN["simulate_iterative_shaping(config)<br/>--cam_type sim 走的就是这条"]
+        TWINRUN["simulate_iterative_shaping(config)<br/>--cam-type sim 走的就是这条"]
     end
 
     subgraph L4["⑤ 算法层 · algorithm/signal_processing"]
@@ -357,9 +363,9 @@ graph TD
         ZCO["ZernikeCoefficientOptimizer<br/>Adam 作用在 Zernike 系数向量上"]
     end
 
-    subgraph LX["借用的帧预处理 · slm_gs_refine.py"]
+    subgraph LX["借用的帧预处理 · utils/image/beam_metrics.py"]
         direction TB
-        PREP["_prepare_frame"]
+        PREP["prepare_frame"]
     end
 
     subgraph LO["⑥ 记录 · utils/io/file.py"]
@@ -449,12 +455,18 @@ sequenceDiagram
         end
     end
 
+    rect rgb(240, 245, 240)
+        O->>B: display(flat)
+        B-->>O: prepare_frame(measure())
+        O->>O: _metrics_at → _quality → score_before
+    end
+
     rect rgb(238, 243, 249)
         Note over O,Z: 第 t 轮 —— Step A: 重拟合一个共享像差
         loop probe_count 次
             O->>O: _probe_phase(region, probe_spread, seed)
             O->>B: display(probe)
-            B-->>O: measure() → _prepare_frame
+            B-->>O: measure() → prepare_frame
             O->>O: _to_model_grid(...) 搬到模型网格
         end
         O->>Z: step_a_iterations 次前向+反向<br/>(轮流喂全部探针, 同一 Adam 状态)
@@ -467,7 +479,7 @@ sequenceDiagram
         O->>Z: step_b_iterations 次全像素相位 Adam
         Z-->>O: shaped
         O->>B: display(shaped)
-        B-->>O: _prepare_frame → _metrics_at → _quality
+        B-->>O: prepare_frame → _metrics_at → _quality
     end
 
     O->>O: acceptance_verdict(loss, score)
@@ -594,12 +606,13 @@ def _fig_timeline(path: Path, cfg: dict[str, str]) -> None:
         fontsize=11.5,
     )
     for i, (d, c) in enumerate(zip(device, compute)):
-        ax.text(max(d, c) * 1.15, i, f"{d + c}", va="center", fontsize=9, color="#333333")
+        ax.text(
+            max(d, c) * 1.15, i, f"{d + c}", va="center", fontsize=9, color="#333333"
+        )
     ax.legend(loc="lower right", fontsize=9.4)
     ax.grid(axis="x", alpha=0.25)
     fig.savefig(path, dpi=150, bbox_inches="tight")
     plt.close(fig)
-
 
 
 # ---------------------------------------------------------------------------
@@ -652,8 +665,10 @@ def _learned_model_facts() -> dict[str, int]:
             count_parameters,
         )
     except Exception as exc:  # torch missing / ml dependency group not installed
-        print(f"note: cannot measure the learned model's facts "
-              f"({type(exc).__name__}: {exc}); that section omits those numbers")
+        print(
+            f"note: cannot measure the learned model's facts "
+            f"({type(exc).__name__}: {exc}); that section omits those numbers"
+        )
         return {}
     config = ZernikeCoeffConfig()
     return {
@@ -680,9 +695,15 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
         "本项目已经付出过代价: 离线 checkpoint 的 piston 约定与闭环约定差一位 (§9)。\n"
     )
     A("| 模型 | 模块 | 形态 | 谁在用 |\n|---|---|---|---|")
-    A("| **解析 FFT** (闭环使用) | `utils/wavefront/fraunhofer.focal_intensity` | 无参数: `exp(i·patch)` → 中心补零 → `fftshift(fft2(ifftshift))` → `\\|F\\|²` | **`slm-model-in-loop` 的 Step A 真正在优化的那个**; Step B 的梯度也穿过它 |")
-    A("| **物理 + 可学习系数** | `ZernikeAmpModel` | 整个数据集共享**一个**系数向量 (`nn.Parameter`, 零初始化) | 离线标定与逆向设计; `K = calc_n_zernike_terms(n_max) − 1` (不含 piston) |")
-    A("| **学习式前向网络** | `ZernikeCoeffConvNet` / `ZernikeCoeffMLP` | 系数投影 + 卷积解码器 | 离线训练与评测; 本节余下部分讲它 |\n")
+    A(
+        "| **解析 FFT** (闭环使用) | `utils/wavefront/fraunhofer.focal_intensity` | 无参数: `exp(i·patch)` → 中心补零 → `fftshift(fft2(ifftshift))` → `\\|F\\|²` | **`slm-model-in-loop` 的 Step A 真正在优化的那个**; Step B 的梯度也穿过它 |"
+    )
+    A(
+        "| **物理 + 可学习系数** | `ZernikeAmpModel` | 整个数据集共享**一个**系数向量 (`nn.Parameter`, 零初始化) | 离线标定与逆向设计; `K = calc_n_zernike_terms(n_max) − 1` (不含 piston) |"
+    )
+    A(
+        "| **学习式前向网络** | `ZernikeCoeffConvNet` / `ZernikeCoeffMLP` | 系数投影 + 卷积解码器 | 离线训练与评测; 本节余下部分讲它 |\n"
+    )
     A(
         "> 也就是说: **闭环跑的是解析 FFT 那一个**, 不是下面的神经网络。讲后者是因为 §9 的\n"
         "> checkpoint 来自它, 而它与闭环约定的差异正是那条坑。\n"
@@ -691,7 +712,7 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
         "解析那一条的完整链条很短, 也正因如此才值得写下来: "
         "`patch = (phase_slm + aberration) × aperture_t` → `field = amplitude × exp(i·patch)`\n"
         "→ 中心补零到 `far_field_size` → `focal_field(field, far_field_size)`, 即\n"
-        "`fftshift(fft2(ifftshift(field), norm=\"ortho\"))` → `focal_intensity` 取 `re² + im²`。\n"
+        '`fftshift(fft2(ifftshift(field), norm="ortho"))` → `focal_intensity` 取 `re² + im²`。\n'
         "预测入口是 `forward_intensity`, 损失是 `_intensity_loss` —— 它把强度\n"
         "按 `intensity / (max + PEAK_EPS)` 归一化后取 MSE(`PEAK_EPS = 1e-8`)。\n"
         "**这条链不再内联在闭环里**: 传播本身只有 `utils/wavefront/fraunhofer.py` 一份实现, 闭环与\n"
@@ -761,7 +782,7 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
 
     A("### 8.4 基线臂与参数量\n")
     A(
-        "`build_forward_model(config)` 按 `config.architecture` (`\"conv\"` / `\"mlp\"`) 实例化其中一条臂。\n"
+        '`build_forward_model(config)` 按 `config.architecture` (`"conv"` / `"mlp"`) 实例化其中一条臂。\n'
         "`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 臂完全一致 (raw、无界、`(B,1,g,g)`),\n"
         "但把 `grid*grid` 全部从一个 `Linear` 里吐出来 —— 丢掉的正是 2-D 局部性, 而这正是该对照要\n"
         "检验的假设。\n"
@@ -773,7 +794,9 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
             "这正是「结构对, 而不是容量大」的论据。\n"
         )
     else:
-        A("_参数量需要 torch 才能测; 本次运行环境缺 torch, 故不填数字 —— 不用手算的数代替实测。_\n")
+        A(
+            "_参数量需要 torch 才能测; 本次运行环境缺 torch, 故不填数字 —— 不用手算的数代替实测。_\n"
+        )
 
     A("### 8.5 评测口径\n")
     A(
@@ -1256,7 +1279,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A(
         "孪生与硬件的关系是这个模块的全部设计要点: 标 `[孪生]` 的行**不是**一份会腐烂的平行实现,\n"
         "而是硬件层 import 进来的共享数学 (`model_in_loop_shaping`), 且 import 全部延迟到函数内 ——\n"
-        "`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam_type sim` 只替换 `Bench` 的实现,\n"
+        "`ao_shaping.drivers` 在 import 期就会碰硬件。于是 `--cam-type sim` 只替换 `Bench` 的实现,\n"
         "其余数学逐位相同; 反过来, 仿真里验证过的 Step A/B 逻辑不会在硬件路径上悄悄漂移。\n"
     )
     A(
@@ -1305,7 +1328,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("### 4.2 逐步\n")
     A(
         "1. `_probe_phase(region, probe_spread, seed)` 生成零均值高斯**瞳面相位** (raw 未包裹弧度)。\n"
-        "2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `_prepare_frame` 逐帧去背景再裁剪\n"
+        "2. `bench.display(probe)` 下发, `bench.measure()` 读一帧, `prepare_frame` 逐帧去背景再裁剪\n"
         "   —— 直接对原始帧算指标会被读出噪声污染 (对称读出噪声让约一半像素为负)。\n"
         "3. `_to_model_grid` 把实测帧搬到**模型自己的网格**上。Step A 的 loss 比较的是\n"
         "   「实测 CCD」与「模型预测」, 两者必须逐像素可比, 所以这一步的尺度关系必须由几何标定保证。\n"
@@ -1328,7 +1351,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A(
         "**远场传播只有一份实现.** Step A 的解析远场、Step B 的可微远场, 以及离线 `ZernikeAmpModel`\n"
         "的 `_propagate`, 三者都调用 `utils/wavefront/fraunhofer.py` 的 `focal_intensity` /\n"
-        "`focal_field`(中心补零 + `fftshift(fft2(ifftshift(·), norm=\"ortho\"))` + `re²+im²`)。\n"
+        '`focal_field`(中心补零 + `fftshift(fft2(ifftshift(·), norm="ortho"))` + `re²+im²`)。\n'
         "改动前这三处是三份彼此独立的拷贝; 现在只有目标网格尺寸不同(绝对 `far_field_size` vs\n"
         "`n × far_field_padding`), 其余完全相同 —— 收敛前逐位比对过。物理参数化差异(piston 处理、\n"
         "瞳面振幅、孔径掩模、是否中心裁回 `grid`)**刻意不统一**, 那是模型差异不是复制粘贴。\n"
@@ -1374,35 +1397,67 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
 
     # -- 7 配置 -----------------------------------------------------------
     A("## 7. 默认配置 (从 dataclass AST 读出, 非手抄)\n")
-    A(_table([
-        ("n_rounds", cfg["n_rounds"]),
-        ("probe_count / probe_spread", f"{cfg['probe_count']} / {cfg['probe_spread']} rad"),
-        ("step_a_iterations / step_a_lr", f"{cfg['step_a_iterations']} / {cfg['step_a_lr']}"),
-        ("step_b_iterations / step_b_lr", f"{cfg['step_b_iterations']} / {cfg['step_b_lr']}"),
-        ("n_orders", cfg["n_orders"]),
-        ("frozen_modes", cfg["frozen_modes"]),
-        ("region / far_field_padding", f"{cfg['region']} / {cfg['far_field_padding']}"),
-        ("target_side", cfg["target_side"]),
-        ("w_uniformity / w_efficiency", f"{cfg['w_uniformity']} / {cfg['w_efficiency']}"),
-        ("warm_start", cfg["warm_start"]),
-        ("n_calibration_probes", cfg["n_calibration_probes"]),
-        ("min_geometry_correlation", cfg["min_geometry_correlation"]),
-        ("acceptance_loss_delta", cfg["acceptance_loss_delta"]),
-        ("acceptance_score_eps", cfg["acceptance_score_eps"]),
-        ("damp_lr_factor", cfg["damp_lr_factor"]),
-        ("escalate_probe_count / max_probe_count",
-         f"{cfg['escalate_probe_count']} / {cfg['max_probe_count']}"),
-        ("max_rejection_streak", cfg["max_rejection_streak"]),
-        ("settle_discard / n_eval_frames", f"{cfg['settle_discard']} / {cfg['n_eval_frames']}"),
-        ("cam_type / cam_id / cam_size",
-         f"{cfg['cam_type']} / {cfg['cam_id']} / {cfg['cam_size']}"),
-        ("panel_span_px / pupil_center",
-         f"{cfg['panel_span_px']} / {cfg['pupil_center']}"),
-        ("camera_pixel_um / slm_pixel_um",
-         f"{cfg['camera_pixel_um']} / {cfg['slm_pixel_um']}"),
-        ("wavelength_nm / focal_length_m",
-         f"{cfg['wavelength_nm']} / {cfg['focal_length_m']}"),
-    ]))
+    A(
+        _table(
+            [
+                ("n_rounds", cfg["n_rounds"]),
+                (
+                    "probe_count / probe_spread",
+                    f"{cfg['probe_count']} / {cfg['probe_spread']} rad",
+                ),
+                (
+                    "step_a_iterations / step_a_lr",
+                    f"{cfg['step_a_iterations']} / {cfg['step_a_lr']}",
+                ),
+                (
+                    "step_b_iterations / step_b_lr",
+                    f"{cfg['step_b_iterations']} / {cfg['step_b_lr']}",
+                ),
+                ("n_orders", cfg["n_orders"]),
+                ("frozen_modes", cfg["frozen_modes"]),
+                (
+                    "region / far_field_padding",
+                    f"{cfg['region']} / {cfg['far_field_padding']}",
+                ),
+                ("target_side", cfg["target_side"]),
+                (
+                    "w_uniformity / w_efficiency",
+                    f"{cfg['w_uniformity']} / {cfg['w_efficiency']}",
+                ),
+                ("warm_start", cfg["warm_start"]),
+                ("n_calibration_probes", cfg["n_calibration_probes"]),
+                ("min_geometry_correlation", cfg["min_geometry_correlation"]),
+                ("acceptance_loss_delta", cfg["acceptance_loss_delta"]),
+                ("acceptance_score_eps", cfg["acceptance_score_eps"]),
+                ("damp_lr_factor", cfg["damp_lr_factor"]),
+                (
+                    "escalate_probe_count / max_probe_count",
+                    f"{cfg['escalate_probe_count']} / {cfg['max_probe_count']}",
+                ),
+                ("max_rejection_streak", cfg["max_rejection_streak"]),
+                (
+                    "settle_discard / n_eval_frames",
+                    f"{cfg['settle_discard']} / {cfg['n_eval_frames']}",
+                ),
+                (
+                    "cam_type / cam_id / cam_size",
+                    f"{cfg['cam_type']} / {cfg['cam_id']} / {cfg['cam_size']}",
+                ),
+                (
+                    "panel_span_px / pupil_center",
+                    f"{cfg['panel_span_px']} / {cfg['pupil_center']}",
+                ),
+                (
+                    "camera_pixel_um / slm_pixel_um",
+                    f"{cfg['camera_pixel_um']} / {cfg['slm_pixel_um']}",
+                ),
+                (
+                    "wavelength_nm / focal_length_m",
+                    f"{cfg['wavelength_nm']} / {cfg['focal_length_m']}",
+                ),
+            ]
+        )
+    )
     A("")
     A(
         f"孪生侧的 `region` 原生光斑腰 `native_w0(region)` 由 `TWIN_REGION = {twin_region}` 线性缩放;\n"
@@ -1441,7 +1496,9 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "离线 `K = calc_n_zernike_terms(n_max) - 1`(排除 Noll 1), 硬件\n"
         "`n_coefficients = calc_n_zernike_terms(n_orders)`(包含 Noll 1):\n"
     )
-    A("| | 系数个数 |\n|---|---|\n| 离线 `n_max=4` → K | **14** |\n| 硬件 `--n-orders 4` | **15** |\n")
+    A(
+        "| | 系数个数 |\n|---|---|\n| 离线 `n_max=4` → K | **14** |\n| 硬件 `--n-orders 4` | **15** |\n"
+    )
     A(
         "所以装载器把离线向量放在**偏移 1** 处(前面补 `0.0` 当 piston), 两侧随即按 Noll 序精确对齐。\n"
         "补 0 恰好无害: `--frozen-modes` 默认已把 piston 冻在 0, 且装载器**再施加一次**冻结 ——\n"
@@ -1489,10 +1546,12 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "3. **未记录几何的假设到底成不成立.** `radius=None` / `center_crop=True` / `conserve_energy=False`\n"
         "   是装载器的默认值, 不是 checkpoint 的记录。台架上如果装配口径与之不同 (例如实际有效口径不是\n"
         "   内切圆), `--assume-unverified-geometry` 会掩盖这个差异 —— 需要一次**不带**该开关、改为显式\n"
-        "   指定真实口径的对照。\n")
+        "   指定真实口径的对照。\n"
+    )
     A(
         "4. **每轮重拟合会不会把种子吃掉.** §9.3 断言种子只影响第 1 轮, 这一点在 sim 里可测; 台架上\n"
-        "   要确认的是漂移与 LCOS 弛豫下, 「正确盆地」的收益能否撑过多轮漂移。\n")
+        "   要确认的是漂移与 LCOS 弛豫下, 「正确盆地」的收益能否撑过多轮漂移。\n"
+    )
     A(
         "5. **真机前置条件不变.** 曝光不可留 `0`(大恒会钳到量程端点, 暗 20–75 倍); 开机前按\n"
         "   `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。\n"
@@ -1570,22 +1629,28 @@ def _doc_header(key: str) -> str:
     """
     depth = len(Path(key).parts) - 1
     script = "scripts/generate_model_in_loop_report.py"
-    return "\n".join((
-        f"> **生成脚本**: {script_link(script, depth)}",
-        "> **复现命令**: `python scripts/generate_model_in_loop_report.py`",
-        "> **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)",
-        "> **说明**: 本文档是**使用/结构说明**, 不是测量结论 —— 硬件实测另见",
-        "> [`report/slm/model_in_loop_bench_calibration.md`]"
-        "(../../report/slm/model_in_loop_bench_calibration.md)。",
-    ))
+    return "\n".join(
+        (
+            f"> **生成脚本**: {script_link(script, depth)}",
+            "> **复现命令**: `python scripts/generate_model_in_loop_report.py`",
+            "> **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)",
+            "> **说明**: 本文档是**使用/结构说明**, 不是测量结论 —— 硬件实测另见",
+            "> [`report/slm/model_in_loop_bench_calibration.md`]"
+            "(../../report/slm/model_in_loop_bench_calibration.md)。",
+        )
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--out", default=DOC_KEY,
-                        help="output path, repo-root relative")
-    parser.add_argument("--no-figures", action="store_true",
-                        help="skip the matplotlib figure (mermaid always renders)")
+    parser.add_argument(
+        "--out", default=DOC_KEY, help="output path, repo-root relative"
+    )
+    parser.add_argument(
+        "--no-figures",
+        action="store_true",
+        help="skip the matplotlib figure (mermaid always renders)",
+    )
     args = parser.parse_args()
 
     _verify_symbols()
@@ -1617,7 +1682,7 @@ def main() -> int:
     header = _doc_header(args.out)
     lines = body.splitlines()
     at = next((i for i, ln in enumerate(lines) if ln.startswith("# ")), 0)
-    rest = lines[at + 1:]
+    rest = lines[at + 1 :]
     while rest and not rest[0].strip():
         rest.pop(0)
     stamped = "\n".join(lines[: at + 1] + ["", header, ""] + rest).rstrip("\n") + "\n"

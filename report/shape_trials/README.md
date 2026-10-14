@@ -1,223 +1,154 @@
-# Shape objective trials (2026-10-09 to 2026-10-10)
+# 形状目标试验（2026-10-09）
 
-All completed optimization runs below used `--debug` and have their own
-PNG/PKL/JSON record set under the named directory. Epoch 0 is the initial
-phase; later rows are measurements from the search. These short runs are
-diagnostic and do not establish a uniform square beam.
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件
+> **说明**: 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总
+<!-- provenance:end -->
 
-## Confirmed outcome and open issues
+**本轮结论**（100 像素均匀方形目标，Santec SLM #1 + Daheng CCD 在线）：平/blaze/平重放证实光斑位置移动**可逆**，光路状态可信；但 100 像素均匀方形**未实现**——最佳交替重放仅将箱内 CV 改善至约 2.46，远未达均匀。已覆盖《SLM远程光斑整形》文档八项改进中的得分变更与噪声校准两类；背景/注册与自适应搜索仍需用同一调试与重放协议孤立测试。注意该文档示例为 44×33 矩形/八阶模式，其数值设置不直接适用于本 100 像素方形/n_max=8 台架。
 
-The Santec SLM #1 and Daheng CCD were online for these trials, and a settled
-flat / 64-px blaze / flat replay showed a reversible spot movement. The 100-px
-uniform square **was not achieved**. The best 2026-10-09 Zernike interleaved replay
-improved the in-box CV to about 2.46 (from about 3.0 for the lower-order
-comparison), but only 164 of 10,000 target pixels exceeded half peak and the
-spot FWHM was about 20 x 11 px. It remained a compact peak. Both devices were
-online again for the 2026-10-10 tests below. Availability after that session is
-not inferred from these records.
+以下所有完整的优化运行均使用 `--debug`，并在各自命名的目录下保存有 PNG/PKL/JSON 记录集。
+轮次 0 为初始相位；后续行记录搜索过程中的测量值。这些短期运行仅为诊断性测试，不会建立
+一个均匀的方形光束。
 
-## Online retest after the fractional-mean fix (2026-10-10)
+2026-10-10 的设备在线复测、CCD/SLM 动画与最佳帧见[在线复测报告](online_20261010.md)。
 
-The Santec SLM (`22030108`) and Daheng CCD (`FJB24112232`) were used at fixed
-1 ms exposure. New `slm-pib` runs used three frames per evaluation and the
-float32 fractional-mean camera path. The commands below show the significant
-CLI settings; each run's `debug/` JSON is the authority for its full resolved
-configuration. Invoke through `main.py` with the Daheng SDK on `PYTHONPATH`.
+## 确认的结论与悬而未决的问题
 
-```powershell
-python main.py --dir report/shape_trials/hardware_fractional_baseline_20261010 --debug slm-pib spgd --cam-type daheng --exposure-time-ms 1 --cam-size 250 --center max --objective shape --target-shape square --target-size 100 --n-eval-frames 3 --n-max 15 --delta 0.05 --lr 1 --epochs 24 --log-uniformity --w-uniformity 2
-python main.py --dir report/shape_trials/hardware_fractional_wuniformity4_20261010 --debug slm-pib spgd --cam-type daheng --exposure-time-ms 1 --cam-size 250 --center max --objective shape --target-shape square --target-size 100 --n-eval-frames 3 --n-max 15 --delta 0.05 --lr 1 --epochs 24 --log-uniformity --w-uniformity 4
-python main.py --dir report/shape_trials/hardware_freeform_square_20261010 --debug spgd-square --cam-type daheng --exposure-ms 1 --cam-size 250 --center max --target-side 100 --basis freeform --phase-grid 12 --delta 0.5 --lr 0.1 --epochs 24 --wavelength 1064
-python main.py --dir report/shape_trials/hardware_gs_centered_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 1 --phase-grid 12 --epochs 1
-python main.py --dir report/shape_trials/hardware_gs_100iter_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 100 --far-field-padding 1 --phase-grid 12 --epochs 1
-python main.py --dir report/shape_trials/hardware_gs_pad2_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 2 --phase-grid 12 --epochs 1
-python main.py --dir report/shape_trials/hardware_gs_pad3_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 3 --phase-grid 12 --epochs 1
-python main.py --dir report/shape_trials/hardware_gs_pad4_20261010 --debug slm-gs-refine --cam-type daheng --exposure-time-ms 1 --cam-size 250 --slm-wavelength 1064 --target-side 100 --side-factor 1 --n-eval-frames 3 --gs-iters 12 --far-field-padding 4 --phase-grid 12 --epochs 1
-```
+Santec SLM #1 和 Daheng CCD 在这些试验中在线，平/64像素blaze/平的重放显示光斑位置移动
+可逆。但 100 像素均匀方形 **未能实现**。本组试验中最好的交替重放将箱内 CV 改善到约 2.46
+（从约 3.0 的低阶对比开始），但仅有 164/10,000 个目标像素超过半峰，光斑 FWHM 约
+20×11 像素，仍保持为一个紧凑的峰值。设备于 2026-10-10 重新上线完成上述复测；后续状态不由这些记录推断。
 
-The Zernike runs' saved config records `slm_wavelength=0`; the freeform and GS
-runs record 1064 nm. That setting difference and the distinct objectives prevent
-a direct ranking of their objective scores. `spgd-square` used its default
-`side_factor=1.5`, uniformity/efficiency weights 0.4/0.6, and its own EE
-definition. Its EE must not be compared numerically with `slm-pib` in-box
-energy.
+已确认的测量缺陷与修复：
 
-| Record directory | Observation |
-| --- | --- |
-| `device_replay_fractional_mean_20261010/` | Replayed the 2026-10-09 n_max=15 epoch-22 phase between flats after the mean fix. Flat CV was about 2.84; candidate CV 2.074, Pearson 0.373 versus about 0.283 for flat, while in-box energy fell from about 0.704 to 0.690. Background median 0.6666667 count confirms fractional values survived averaging. A reproducible shape change is visible, but the spot is still centrally peaked. |
-| `hardware_fractional_baseline_20261010/` | 24-epoch `slm-pib` run with log uniformity and weight 2. Best recorded epoch 5 had shape score -1.918 versus -2.453 at epoch 0. Saved PNG/PKL/JSON contain the run. |
-| `hardware_fractional_wuniformity4_20261010/` and `device_replay_wuniformity_paired_20261010/` | Increased only uniformity weight from 2 to 4; best recorded epoch was 4. Interleaved replay of the two best phases gave CV 2.240-2.265, Pearson 0.347-0.351, energy about 0.699 for weight 2; weight 4 gave CV 2.614-2.636, Pearson 0.302-0.304, energy about 0.688. Flanking flats had CV about 2.92. Raising the weight did not help; the better candidate lit only about 140/10,000 target pixels above half peak. |
-| `device_flat_batch3_20261010/` and `device_flat_individual3_20261010/` | Separate camera sessions differed in light level by about 2.5%, so this pair alone cannot isolate the capture method. |
-| `device_flat_interleaved_average_20261010/` | Within one camera connection, alternated three-frame batch means with software means of three single-frame reads, five of each. Both background medians were 0.66667 count. Mean CV was 2.93998 versus 2.93873; in-box energy 0.69533 versus 0.69461; Pearson 0.27406 versus 0.27409. Differences are within observed flat-phase drift. This supports practical consistency, not pixelwise equality: the two methods captured different frames. |
-| `hardware_freeform_square_20261010/` | `spgd-square` freeform 12x12, 24 epochs. Best was epoch 0 flat: quality 0.02793, CV 2.988, EE 0.04486. Later frames sometimes lowered CV toward 2.3 but lost efficiency, and no quality improvement was accepted. |
-| `hardware_gs_bakeoff_20261010/` | First `slm-gs-refine` attempt placed the camera ROI at the upper-left instead of the beam. Its scores cannot support an optical conclusion and are excluded from the GS comparison. |
-| `hardware_gs_centered_20261010/` | After locating the zero order in the full frame at (x=668, y=1026), a 12-iteration GS warm start changed the composite score from 0.5726 (flat) to 0.6880 (GS), PIB from 0.9144 to 0.8340, and CV from 3.331 to 0.8451. One SPGD refinement epoch scored 0.6871, slightly below GS. Standard debug PNG/PKL/JSON record the displayed phase and measured image at each stage. |
-| `hardware_gs_100iter_20261010/` | At the same 100 px target, 1 ms exposure and three-frame mean, 100 GS iterations gave score 0.6803 versus 0.5701 for flat. One refinement epoch reached 0.6823 (PIB 0.8137, CV 0.8153). Standard debug PNG/PKL/JSON are saved. This run does not establish a gain over the 12-iteration run because the flat reference and camera state were measured in a separate session. |
-| `hardware_gs_pad2_20261010/` | Changed the 12-iteration GS far-field padding from 1 to 2. Flat scored 0.5713, GS 0.7195 and one refinement epoch 0.7225 (PIB 0.8923, CV 0.8092). Standard debug PNG/PKL/JSON are saved. The image still consists of nonuniform hotspots. Across sessions, the larger score alone does not isolate padding as the cause. |
-| `hardware_gs_pad3_20261010/` | With 12 GS iterations and padding 3, flat scored 0.5712 and GS scored 0.7546 (PIB 0.9356, CV 0.7437). GS was the best stage in this short run. A later 24-epoch refinement reached 0.7635; see the online report. Standard debug PNG/PKL/JSON are saved. |
-| `hardware_gs_pad4_20261010/` | With 12 GS iterations and padding 4, flat scored 0.5677, GS 0.7460 and one refinement epoch 0.7492 (PIB 0.9217, CV 0.7336). Refinement was the best stage, but its score did not exceed the padding-3 trial. Standard debug PNG/PKL/JSON are saved. |
+- Daheng 的 `OldestFirst` 缓冲流在 SLM 相位改变后会返回过期帧。一次相位步进重放表明，
+  变化后最初的四帧仍可能代表前一相位。驱动程序现在在流式传输前设置并验证
+  `NewestOnly`，附带离线 SDK-mock 测试。
+- 初始 SLM-PIB 图像使用单帧，而 SPGD 评估使用 `--n-eval-frames`。现已统一使用请求的帧数，
+  由一次生产引擎仿真测试覆盖。
+- 多帧相机平均被量化回整数计数。这导致低计数背景像素消失，使固定平相位的箱内能量从约
+  0.665（单帧）变为 0.805（三帧截断均值）。Daheng、MiiCam 和 FFmpeg 现均保留分数平均值；
+  固定帧数的测试将批量均值与单独读取的相同帧进行比较。这些测试建立的是算术等价性，
+  而非实时光学稳定性。
+- 自动曝光探测可能观察到前一轮遗留的相位。运行器现会在探测前显示一个平的 SLM 相位；
+  一个 mock 测试检查设备与探测顺序。调试记录现包含初始完整相机帧以及解释每个试验所需的
+  形状权重。
 
-### Measured image and phase evolution
+来自受控重放的形状方法结果：
 
-The animations below were rendered from the saved debug PKLs with
-`scripts/generate_pearson_pkl_gif.py`. The left panel is the CCD image and the
-right panel is the SLM phase. The GS animation shows flat, GS and one SPGD
-measurement; the Zernike animation samples 12 frames from the 24-epoch run.
-The generator normalizes **each CCD frame separately** before applying its
-colormap. Use these animations to inspect shape, not to compare absolute
-brightness or energy between frames or algorithms.
+- 添加 Pearson 权重 1 轻微改善了 CV，但损失约 1 个百分点箱内能量；其在常用默认指标下的
+  分数更低于未加权基线。它仍保持为可选（`--w-pearson`）。
+- 分段形状调度在配对的 24 轮重放中未显示出明显优势。阶段权重现于每个符号对内保持固定，
+  且最佳相位选择在各阶段使用固定分数尺度。
+- `--log-uniformity` 在短的配对运行中略微改善 CV 与 Pearson，代价是少量能量损失。
+  将该配置扩展到 100 轮进一步改善 CV（约 2.69），同时保持约 0.808 的箱内能量。
+- 将 `--n-max` 从 8 提升到 15，在一次短期运行中给出了最明显的形状变化，能量代价约
+  0.017。将 n_max=15 运行扩展到 100 轮未能超越其 24 轮结果。
 
-![GS padding-3 flat, GS and refinement frames](figures/slm_gs_refine_20261010_100439_20261010_100439.gif)
+剩余的约束在控制基和光学设置：低阶 Zernike 模式主要移动并展宽紧凑的光斑，未能填充
+100 像素方形。下一轮硬件测试应在固定曝光与帧数下，用交替平/候选重放及现有的调试
+PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线。完成分数平均修复后，
+需在现场重新检查 N 帧与 N 单帧测量之间的关系，再将新指标与本表进行比较。
 
-![Zernike SPGD frames sampled from the fractional-mean baseline](figures/slm_pib_shape_20261010_093101_20261010_093101.gif)
+本表中的硬件试验早于 2026-10-09 的相机平均修复。此前，`get_numpy_image(n_sample=N)`
+将每个像素平均量化回整数，而 N 次单帧读取保留了各自的原始计数。这尤其抑制了低计数
+背景像素。因此，本表旧记录中不同 `n_eval_frames` 设置下的指标并非直接可比。
+新的多帧读取保留分数计数，为 float32。
 
-The GS padding-3 best frame and its standard debug overview are shown below.
-The 100 px target region contains distinct bright islands and dark gaps, even
-though the run reached composite score 0.7546, PIB 0.9356 and CV 0.7437. The
-overview plots the recorded score; the best-frame image is for spatial
-inspection. Neither image establishes a filled uniform square.
-
-![GS padding-3 best measured far field](figures/gs_pad3_best_far_field.png)
-
-![GS padding-3 debug score and measured frames](figures/gs_pad3_debug_summary.png)
-
-The later 24-epoch GS refinement and the optional coverage-weight trial,
-including complete reproduction commands and measured GIFs, are documented in
-[the 2026-10-10 online report](online_20261010.md).
-
-Regenerate the GIFs by passing the respective run's `debug/` PKL to
-`scripts/generate_pearson_pkl_gif.py --pkl <path> --output-dir
-report/shape_trials/figures`; the GS render used `--max-frames 3 --fps 2
---max-dim 512` and the Zernike render used `--max-frames 12 --fps 3
---max-dim 512`. The static images are copies of that GS run's
-`best_far_field.png` and standard debug PNG.
-
-The 100 x 100 px uniform square remains **unachieved**. Increasing the
-uniformity weight and the short freeform SPGD search did not solve it. The
-paired replay shows a real change in the Zernike spot, yet only a small portion
-of the target area is bright. The centered GS trials improved their composite
-score and CV, but even the later 0.7635 padding-3 refinement has hotspots and
-empty regions instead of a filled, uniform square. The padding-4 run did not
-improve the composite score further. A future live comparison should
-interleave flat and GS phases at the same exposure and frame count and assess
-spatial coverage as well as CV, PIB and the composite score. During these trials,
-the runner's GS verdict text was found to depend on the final best stage. When
-refinement beat GS, it could say "GS rejected" even though GS had been accepted
-as the warm start.
-That reporting bug was fixed; the recorded `flat`, `gs` and `refine` stages
-remain the source for these historical comparisons.
-
-Confirmed measurement defects and fixes:
-
-- Daheng's `OldestFirst` stream buffer returned stale frames after an SLM phase
-  change. A phase-step replay showed the first four frames could still represent
-  the previous phase. The driver now sets and verifies `NewestOnly` before
-  streaming, with an offline SDK-mock test.
-- The initial SLM-PIB image used one frame while SPGD evaluations used
-  `--n-eval-frames`. It now uses the same requested frame count, covered by a
-  production-engine simulation test.
-- Multi-frame camera means were quantized back to integer counts. This made
-  low-count background pixels disappear and changed in-box energy from roughly
-  0.665 (single frame) to 0.805 (three-frame truncated mean) on a fixed flat
-  phase. Daheng, MiiCam and FFmpeg now retain fractional means; fixed-frame
-  tests compare batch means with the same frames read individually. These tests
-  establish arithmetic equivalence, not live optical stability.
-- The auto-exposure probe could observe a phase left by the previous run. The
-  runner now displays a flat SLM phase before probing; a mock test checks the
-  device and probe order. Debug records now include the initial full camera
-  frame and the shape weights needed to interpret each trial.
-
-Shape-method results from controlled replays:
-
-- Adding Pearson weight 1 improved CV slightly but lost about one percentage
-  point of in-box energy; its score under the common default metric was worse
-  than the unweighted baseline. It remains opt-in (`--w-pearson`).
-- The staged shape schedule gave no clear advantage in the paired 24-epoch
-  replay. Stage weights now stay fixed within a sign pair and best-phase
-  selection uses a fixed score scale across stages.
-- `--log-uniformity` improved CV and Pearson slightly in the paired short run,
-  with a small energy cost. Extending that configuration to 100 epochs improved
-  CV further (about 2.69) while retaining approximately 0.808 in-box energy.
-- Raising `--n-max` from 8 to 15 gave the clearest visible shape change in a
-  short run, at an energy cost of about 0.017. Extending the n_max=15 run to
-  100 epochs did not improve the paired replay over its 24-epoch result.
-
-The remaining constraint is the control basis and optical setup: low-order
-Zernike modes mainly move and broaden a compact spot and have not filled the
-100-px square. The 2026-10-10 session tested a short freeform search and
-interleaved `N`-frame versus N single-frame capture; see the online retest
-above. A GS candidate still needs the same controlled flat/candidate replay.
-
-The hardware trials in this table predate the 2026-10-09 camera averaging fix.
-Previously, `get_numpy_image(n_sample=N)` truncated each pixel mean back to an
-integer, while N separate single-frame reads retained each raw count. This
-especially suppressed low-count background pixels. Metrics from different
-`n_eval_frames` settings in these old records are therefore not directly
-comparable. New multi-frame reads retain fractional counts as float32.
-
-| Trial | Changed factor | Observation |
+| 试验 | 变更因素 | 观察 |
 | --- | --- | --- |
-| `baseline_rmse/` | `rmse`, simulator, 3 epochs | Initial CLI baseline. |
-| `hardware_shape_baseline/` | `shape`, Daheng, 8 epochs | Peak 255/255 in every saved frame; in-box CV about 3.16; Pearson about 0.265. No clear improvement. |
-| `hardware_device_verification/` | Flat SLM before exposure probe, Daheng, 3 epochs | SLM and CCD opened and completed the run, but frame peak was 1/255 throughout. This verifies device communication, not optical shaping. |
-| `device_modulate_diagnosis/` | Live full-frame camera and SLM pattern/gray checks, 10 ms | On 2026-10-09, SLM #1 (`22030108`) and Daheng CCD (`FJB24112232`) both opened. A 2592x1944 full frame had a peak of 93/255 at (674,1027), so the earlier dark cropped frames do not establish loss of light. Flat/grating/flat had peaks 93/94/94; flat-to-grating mean absolute difference (0.168) was no larger than flat-to-flat (0.170). The `slm-diagnose --step modulate` gray sweep read back 0..1023 correctly, but bucket spread was 9.4%, below its 15% response threshold. `diagnose_modulate.npz` records its metrics. The SLM was returned to flat after diagnosis. Optical modulation is not established, so no valid hardware shape comparison follows from these frames. |
-| `device_freeze_diagnosis/` | Existing grating self-check at 10 ms | Reported PASS, but the flat frame was saturated at 255/255. Its different-frame predicate alone cannot distinguish pattern response from changing illumination. |
-| `device_abba_diagnosis/` | 3 ms flat/grating alternation, raw full frames | Peaks moved among y=793, 909, and 1029; even successive flat frames differed. Full-frame PNG/NPZ/JSON are saved. The switching transient made this comparison inconclusive. |
-| `device_flat_stability/` | One flat SLM phase, 20 full frames at 1 ms | Peak remained 153-157/255 at x=672-673, y=1027-1029. Same-phase short-term camera capture is stable. Raw NPZ and JSON are saved. |
-| `device_settled_modulation/` | Flat / 64-px blaze / flat at 1 ms, 2 s settling and 8 discarded frames | Peak moved from (672,1028) to (672,909) under the grating, then returned to (672,1027) under flat. No saturation. Full-frame PNG/NPZ/JSON establish reversible SLM influence on the CCD spot; the earlier 10 ms null result was insufficient. |
-| `device_phase_step_newest/` | Daheng stream mode changed from `OldestFirst` to `NewestOnly`, followed by a phase step at 1 ms | Before the driver fix, the first four frames after a phase switch still showed the old phase; with `NewestOnly`, the first frame responds. Raw phase-step PNGs and JSON are saved. This removes a direct source of incorrect SPGD gradients. |
-| `hardware_shape_newest_baseline/` | `main.py slm-pib spgd`, `shape`, fixed 1 ms, 3-frame evaluations, 24 epochs after `NewestOnly` | Complete `--debug` PNG/PKL/JSON. The recorded initial frame had CV 3.144, Pearson 0.253, and in-box energy 0.661. The best recorded epoch 24 had CV 2.939, Pearson 0.283, and energy 0.794. The unusually low epoch-0 energy did not reproduce in the controlled replay below and must not be counted as optimization gain. |
-| `device_phase_replay_newest/` | Recorded phases 0/1/0/24/0 alternated at fixed 1 ms and 0.5 s phase settling | Standard debug PNG/PKL/JSON include raw full frames. Flat-phase energy was 0.803/0.805/0.807, CV 3.247/3.258/3.257, Pearson 0.259/0.258/0.259. Epoch 1 was worse than adjacent flats by the shape score (-1.2004 vs about -1.1985). Epoch 24 reproducibly improved CV to 3.041 and Pearson to 0.275, with energy 0.796 and no saturated pixels. This is a modest causal improvement, not a uniform square spot. |
-| `device_flat_fast_replay/` | Six flat-phase frames at 1 ms with one frame per read and no extra settling | Standard debug PNG/PKL/JSON. After the first capture, in-box energy stayed at 0.665–0.666 and crop median at 1, matching the old epoch-0 records. With 3-frame averaging, the same flat phase had energy about 0.805 and median 0. The old initial acquisition used `CAM_SAMPLE_ITER=1` while each SPGD evaluation used `--n-eval-frames 3`; integer averaging changes the low-count background and metric denominator. The first fast capture (energy 0.582) is a separate startup transient. |
-| `hardware_shape_initial_sampling_fixed/` | `main.py slm-pib spgd`, 1 epoch, fixed 1 ms, 3-frame evaluations after initial-capture fix | Complete `--debug` PNG/PKL/JSON. Epoch 0 now has energy 0.800, median 0, sum 58,873; epoch 1 has energy 0.785, median 0, sum 56,928. The spurious 0.66-to-0.79 jump is gone; the candidate did not beat flat and the SLM was left flat. |
-| `hardware_shape_pearson1_newest/` | Same 24-epoch settings as `hardware_shape_newest_baseline/`, only `--w-pearson 1` added | Complete `--debug` PNG/PKL/JSON. This run preceded the initial-capture fix, so its recorded epoch 0 has the same biased 1-frame energy (0.660). The final in-run shape score is on a different scale because of the added Pearson term; compare replay metrics instead. |
-| `device_phase_replay_pearson1/` | Recorded Pearson-weighted phases 0/1/0/24/0 replayed with 3-frame averages and 0.5 s settling | Standard debug PNG/PKL/JSON. Interleaved flats had CV 3.223–3.246, Pearson 0.259–0.261 and energy 0.804–0.806. Epoch 24 had CV 2.937, Pearson 0.284 and energy 0.797. This is slightly better than the separate zero-Pearson best-phase replay, but a paired comparison after the initial-capture fix is still needed to attribute the difference to `w-pearson`. |
-| `hardware_shape_sampling_fixed_baseline/` | Corrected 3-frame baseline, fixed 1 ms, 24 epochs | Complete `--debug` PNG/PKL/JSON. Epoch-0 energy 0.809, median background 0; best canonical `shape` was -1.156 at epoch 19. |
-| `hardware_shape_sampling_fixed_pearson1/` | Matched run with only `--w-pearson 1` changed | Complete `--debug` PNG/PKL/JSON. Epoch-0 energy 0.803, median background 0; best own score at epoch 14. Compare physical metrics in the paired replay, since the objective scores use different weights. |
-| `device_phase_replay_paired/` | Interleaved flat / baseline epoch 19 / flat / Pearson epoch 14 / flat, repeated in reverse order | Standard debug PNG/PKL/JSON. Baseline best CV 3.011/3.016, Pearson 0.2766/0.2764, energy 0.789/0.791. Pearson-weighted best CV 2.984/2.984, Pearson 0.2780/0.2782, energy 0.779/0.781. Pearson weighting slightly flattens the spot but loses about 1 percentage point of in-box energy; its score under the common default metric is lower than the unweighted baseline. |
-| `hardware_shape_sampling_fixed_schedule/` | Matched run with only `--shape-schedule` changed | Complete `--debug` PNG/PKL/JSON. Best canonical `shape` was -1.175 at epoch 8. The stage-dependent `J` is not comparable across epochs or with the fixed-weight trials. |
-| `device_phase_replay_schedule/` | Interleaved flat / baseline epoch 19 / flat / schedule epoch 8 / flat, repeated in reverse order | Standard debug PNG/PKL/JSON. Both candidates have CV about 3.00–3.02 and Pearson about 0.278; the scheduled candidate has about 0.802 in-box energy versus 0.811 for the fixed-weight baseline. No clear schedule benefit at 24 epochs. |
-| `device_shape_noise_floor/` | Ten fixed-flat reads, 3 frames each, 1 ms exposure | Standard debug PNG/PKL/JSON. Sample standard deviations: CV 0.0089, Pearson 0.00072, in-box energy 0.00144, default `shape` score 0.00230. These are within-session noise floors, not a bound on between-run optical drift. |
-| `hardware_shape_sampling_fixed_log_uniformity/` | Matched 24-epoch run with only `--log-uniformity` changed | Complete `--debug` PNG/PKL/JSON. Best log-weighted score at epoch 18. The score scale differs from the bounded-CV baseline; use the replay comparison below. |
-| `device_phase_replay_log_uniformity/` | Interleaved bounded-CV baseline epoch 19 and log-uniformity epoch 18 | Standard debug PNG/PKL/JSON. Log-uniformity CV 2.955–2.966 and Pearson 0.281–0.282 versus bounded-CV baseline CV 3.031–3.038 and Pearson 0.276. In-box energy falls about 0.005; common default shape score improves about 0.005. |
-| `hardware_shape_log_uniformity_100ep/` | Same log-uniformity settings extended from 24 to 100 epochs | Complete `--debug` PNG/PKL/JSON. Best at epoch 68; in-run energy 0.799 and peak 115. |
-| `device_phase_replay_log_100ep/` | Interleaved 100-epoch log best (epoch 68) with 24-epoch bounded-CV baseline best (epoch 19) | Standard debug PNG/PKL/JSON. Long log run CV 2.689–2.690, Pearson 0.3083, energy 0.8083–0.8087; short baseline CV 3.043–3.050, Pearson 0.275, energy 0.8070–0.8086. The longer run improves shape while retaining essentially the same box energy. The spot remains centrally peaked in the saved PNG. |
-| `hardware_shape_log_nmax15_24ep/` | Same 24-epoch log-uniformity settings, `--n-max` raised from 8 to 15 | Complete `--debug` PNG/PKL/JSON. Best at epoch 22; in-run energy 0.792, peak 100. This changes both basis coverage and total random perturbation norm. |
-| `device_phase_replay_nmax15/` | Interleaved n_max=8 log best (epoch 18) and n_max=15 log best (epoch 22) | Standard debug PNG/PKL/JSON. n_max=15 CV 2.471–2.472, Pearson 0.331 and energy 0.792–0.794; n_max=8 CV 2.981–2.983, Pearson 0.281 and energy 0.809–0.811. Higher order helps visibly but costs about 0.017 box energy in this short run. |
-| `hardware_shape_log_nmax15_100ep/` | Same n_max=15 log-uniformity settings extended to 100 epochs | Complete `--debug` PNG/PKL/JSON. Best at epoch 59, with in-run energy 0.776 and peak 104. The in-run best score is below the 24-epoch high-order run; duration alone did not give continued improvement. |
-| `device_phase_replay_nmax15_100ep/` | Interleaved n_max=15 short best (epoch 22) and long best (epoch 59) | Standard debug PNG/PKL/JSON. Short best CV 2.461–2.467, Pearson 0.331–0.332; long best CV 2.483–2.494, Pearson 0.328–0.330. Both keep about 0.79–0.80 in-box energy. In the 100x100 target box, the short best lights only 164/10,000 pixels above half peak; its FWHM is about 20x11 px. It is still a compact spot, not a square beam. |
-| `hardware_rmse_1ms/` | `main.py slm-pib spgd`, rmse, fixed 1 ms, 3-frame reads, 8 epochs | Complete `--debug` PNG/PKL/JSON. ROI CV began at 3.10 and ended at 3.26; no best objective improvement over the initial phase. |
-| `hardware_shape_1ms/` | Same run settings, objective changed to shape | Complete `--debug` PNG/PKL/JSON, including the initial full frame. In-run CV fell from 3.11 to 1.71 at epoch 8, but peak fell from 156 to 49 while coefficient norm was only 0.0058 rad. This is not yet evidence of a causal shaping improvement. |
-| `hardware_shape_best_replay/` | Recorded best epoch-4 phase alternated with flat, fixed 1 ms | Five full-frame PNGs/NPZ/JSON. Flat CV itself drifted 3.29 -> 2.98 -> 2.84; best-phase CV was 3.06 and 3.11 between those flats. The in-run improvement did not survive this causal replay. A constant background subtraction did not remove the flat-phase trend. |
-| `sim_shape_before_pearson/` | `shape`, simulator seed 42, 8 epochs | At epoch 8: CV 14.00, Pearson 0.0623. Simulator's signed read noise can make the reported energy ratio exceed 1. |
-| `sim_shape_clipped/` | Clip negative pixels in the metric only | Rejected: positive read noise then raised the denominator; reported energy fell to about 0.3. Code change was removed. Raw record retained. |
-| `sim_shape_pearson_1/` | Same simulator seed and parameters as the preceding unmodified `shape` run, plus `--w-pearson 1` | At epoch 8: CV 13.87, Pearson 0.0626. Direction is favorable but the change is too small to establish useful shaping. The new weight defaults to 0. |
-| `sim_shape_size7_fixed/` | 7-px target, fixed weights, seed 42, 8 epochs | Best canonical shape score stayed at the flat-phase value, -0.2746. |
-| `sim_shape_size7_scheduled/` | Same 7-px trial plus `--shape-schedule` | Best canonical shape score also stayed at -0.2746. `J` changed with the stage weights, while the `shape` column remained comparable across epochs. No shaping benefit established. |
+| `baseline_rmse/` | `rmse`，模拟器，3 轮 | 初始 CLI 基线。 |
+| `hardware_shape_baseline/` | `shape`，Daheng，8 轮 | 每帧保存的峰值均为 255/255；箱内 CV 约 3.16；Pearson 约 0.265。无明显改善。 |
+| `hardware_device_verification/` | 曝光探测前平的 SLM，Daheng，3 轮 | SLM 和 CCD 均能打开并完成运行，但整帧峰值始终为 1/255。这验证了设备通信，而非光学整形。 |
+| `device_modulate_diagnosis/` | 实时全帧相机与 SLM 图案/灰度检查，10 ms | 2026-10-09，SLM #1 (`22030108`) 和 Daheng CCD (`FJB24112232`) 均能打开。一帧 2592×1944 的峰值
+  为 93/255 位于 (674,1027)，因此更早的暗裁剪帧并不代表失光。平/光栅/平的峰值分别为
+  93/94/94；平到光栅的平均绝对差（0.168）不大于平到平（0.170）。
+  `slm-diagnose --step modulate` 的灰度扫描正确读取 0..1023，但桶宽展开仅 9.4%，低于
+  其 15% 的响应门限。`diagnose_modulate.npz` 记录了其指标。诊断后 SLM 已恢复为平相。光学调制
+  未确立，因此这些帧不支持有效的硬件形状比较。 |
+| `device_freeze_diagnosis/` | 10 ms 下的光栅自检 | 报告为 PASS，但平帧饱和为 255/255。单凭不同帧判断无法区分图案响应与照明变化。 |
+| `device_abba_diagnosis/` | 3 ms 平/光栅交替，原始全帧 | 峰值在 y=793、909 和 1029 之间移动；相邻平帧也不同。保存全帧 PNG/NPZ/JSON。切换瞬态使
+  此比较无法确定。 |
+| `device_flat_stability/` | 单一平 SLM 相位，20 帧全帧于 1 ms | 峰值在 x=672-673、y=1027-1029 保持 153-157/255。相同相位下短期相机采集稳定。保存原始 NPZ 和 JSON。 |
+| `device_settled_modulation/` | 1 ms 下平/64-像素blaze/平，2 s 静 settling 与 8 帧丢弃 | 光栅下峰值从 (672,1028) 移动到 (672,909)，随后在平相下返回到 (672,1027)。无饱和。全帧
+  PNG/NPZ/JSON 确立了 SLM 对 CCD 光斑的可逆影响；更早的 10 ms 空结果不足。 |
+| `device_phase_step_newest/` | Daheng 流模式从 `OldestFirst` 改为 `NewestOnly`，随后 1 ms 相位步进 | 驱动修复前，相位切换后最初的 4 帧仍显示旧相位；使用 `NewestOnly` 后，第一帧即可响应。
+  保存原始相位步进 PNG 与 JSON。这消除了直接导致错误 SPGD 梯度的一个来源。 |
+| `hardware_shape_newest_baseline/` | `main.py slm-pib spgd`、`shape`，固定 1 ms，3 帧评估，24 轮（`NewestOnly` 后） | 完整 `--debug` PNG/PKL/JSON。记录的初始帧 CV 3.144，Pearson 0.253，箱内能量 0.661。第 24 轮
+  最佳记录为 CV 2.939，Pearson 0.283，能量 0.794。异常低的轮次 0 能量在下文受控重放中未重现，不
+  应计为优化改进。 |
+| `device_phase_replay_newest/` | 固定 1 ms 与 0.5 s 相位静 settling 下交替播放相位 0/1/0/24/0 | 标准调试 PNG/PKL/JSON 包含原始全帧。平相能量为 0.803/0.805/0.807，CV 3.247/3.258/3.257，
+  Pearson 0.259/0.258/0.259。轮次 1 小于相邻平相（形状分数 -1.2004 对应约 -1.1985）。轮次 24
+  可再现地改善 CV 到 3.041，Pearson 到 0.275，能量 0.796，无饱和像素。这是一个 modest 的因果改进，
+  而非均匀的方形光斑。 |
+| `device_flat_fast_replay/` | 1 ms 下 6 帧平相，每次读取单帧，无额外 settling | 标准调试 PNG/PKL/JSON。首次采集后，箱内能量稳定在 0.665–0.666，裁剪中位数为 1，匹配旧的轮次 0
+  记录。三帧平均时，同一平相能量约 0.805，中位数 0。旧初始采集使用 `CAM_SAMPLE_ITER=1`
+  而每次 SPGD 评估使用 `--n-eval-frames 3`；整数平均改变了低计数背景与指标分母。首次快速采集
+ （能量 0.582）是一次独立的启动瞬态。 |
+| `hardware_shape_initial_sampling_fixed/` | `main.py slm-pib spgd`，1 轮，固定 1 ms，3 帧评估（初始采集修复后） | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.800，中位数 0，总和 58,873；轮次 1 能量 0.785，
+  中位数 0，总和 56,928。虚假的 0.66→0.79 跳跃已消失；候选未能战胜平相，SLM 已恢复为平相。 |
+| `hardware_shape_pearson1_newest/` | 与 `hardware_shape_newest_baseline/` 仅增加 `--w-pearson 1` | 完整 `--debug` PNG/PKL/JSON。本次运行早于初始采集修复，因此记录的轮次 0 具有相同的有偏单帧能量
+  (0.660)。因增加 Pearson 项，最终运行内形状分数处于不同尺度；请比较重放指标。 |
+| `device_phase_replay_pearson1/` | Pearson 加权相位 0/1/0/24/0 用 3 帧平均与 0.5 s settling 重放 | 标准调试 PNG/PKL/JSON。交替平相 CV 3.223–3.246，Pearson 0.259–0.261，能量 0.804–0.806。轮次 24
+  CV 2.937，Pearson 0.284，能量 0.797。略优于独立零 Pearson 的最佳相位重放，但仍需在完成初始采集
+  修复后进行配对比较，以归因于 `w-pearson`。 |
+| `hardware_shape_sampling_fixed_baseline/` | 修正的 3 帧基线，固定 1 ms，24 轮 | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.809，背景中位数 0；最佳 canon `shape` 为轮次 19 的
+  -1.156。 |
+| `hardware_shape_sampling_fixed_pearson1/` | 仅改变 `--w-pearson 1` 的匹配运行 | 完整 `--debug` PNG/PKL/JSON。轮次 0 能量 0.803，背景中位数 0；自身最佳分数在轮次 14。由于目标分
+  使用不同权重，需在配对重放中比较物理指标。 |
+| `device_phase_replay_paired/` | 交替播放 平/基线轮次 19/平/Pearson轮次 14/平，反向重复一次 | 标准调试 PNG/PKL/JSON。基线最佳 CV 3.011/3.016，Pearson 0.2766/0.2764，能量 0.789/0.791。
+  Pearson 加权最佳 CV 2.984/2.984，Pearson 0.2780/0.2782，能量 0.779/0.781。Pearson 加权略微压扁光斑，
+  但损失约 1 个百分点箱内能量；其在常用默认指标下的分数低于未加权基线。 |
+| `hardware_shape_sampling_fixed_schedule/` | 仅改变 `--shape-schedule` 的匹配运行 | 完整 `--debug` PNG/PKL/JSON。最佳 canon `shape` 为轮次 8 的 -1.175。阶段相关的 `J` 在轮次间
+  及与固定权重试验间不可比。 |
+| `device_phase_replay_schedule/` | 交替播放 平/基线轮次 19/平/调度轮次 8/平，反向重复一次 | 标准调试 PNG/PKL/JSON。两个候选 CV 约 3.00–3.02，Pearson 约 0.278；调度候选箱内能量约 0.802，
+  固定权重基线约 0.811。24 轮未见明显调度收益。 |
+| `device_shape_noise_floor/` | 10 次固定平读取，每次 3 帧，1 ms 曝光 | 标准调试 PNG/PKL/JSON。样本标准差：CV 0.0089，Pearson 0.00072，箱内能量 0.00144，
+  默认 `shape` 分数 0.00230。这代表会话内噪声底，再会话间的光学漂移尚不足为据。 |
+| `hardware_shape_sampling_fixed_log_uniformity/` | 仅改变 `--log-uniformity` 的匹配 24 轮运行 | 完整 `--debug` PNG/PKL/JSON。最佳对数加权分数在轮次 18。分数尺度不同于有界 CV 基线；参考下文重放。 |
+| `device_phase_replay_log_uniformity/` | 交替播放有界 CV 基线轮次 19 与对数均匀轮次 18 | 标准调试 PNG/PKL/JSON。对数均匀 CV 2.955–2.966，Pearson 0.281–0.282；有界 CV 基线 CV 3.031–3.038，
+  Pearson 0.276。箱内能量下降约 0.005；通用默认形状分数上升约 0.005。 |
+| `hardware_shape_log_uniformity_100ep/` | 对数均匀设置从 24 轮扩展到 100 轮 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 68；内运行能量 0.799，峰值 115。 |
+| `device_phase_replay_log_100ep/` | 交替播放 100 轮对数最佳（轮次 68）与 24 轮有界 CV 基线最佳（轮次 19） | 标准调试 PNG/PKL/JSON。长对数运行 CV 2.689–2.690，Pearson 0.3083，能量 0.8083–0.8087；
+  短基线 CV 3.043–3.050，Pearson 0.275，能量 0.8070–0.8086。长运行改善形状同时保持基本相同的箱内能量。
+  保存的 PNG 中光斑仍居中峰值。 |
+| `hardware_shape_log_nmax15_24ep/` | 同一 24 轮对数均匀设置，将 `--n-max` 从 8 提升到 15 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 22；内运行能量 0.792，峰值 100。这同时改变了基覆盖
+  范围与随机扰动范数。 |
+| `device_phase_replay_nmax15/` | 交替播放 n_max=8 对数最佳（轮次 18）与 n_max=15 对数最佳（轮次 22） | 标准调试 PNG/PKL/JSON。n_max=15 CV 2.471–2.472，Pearson 0.331，能量 0.792–0.794；
+  n_max=8 CV 2.981–2.983，Pearson 0.281，能量 0.809–0.811。在这个短期运行中，更高阶明显
+  改善形状，代价约 0.017 箱内能量。 |
+| `hardware_shape_log_nmax15_100ep/` | 同一 n_max=15 对数均匀设置扩展到 100 轮 | 完整 `--debug` PNG/PKL/JSON。最佳在轮次 59，内运行能量 0.776，峰值 104。内运行最佳分数低于
+  24 轮高阶运行；单靠延长轮次未持续改进。 |
+| `device_phase_replay_nmax15_100ep/` | 交替播放 n_max=15 短期最佳（轮次 22）与长期最佳（轮次 59） | 标准调试 PNG/PKL/JSON。短期最佳 CV 2.461–2.467，Pearson 0.331–0.332；长期最佳 CV 2.483–2.494，
+  Pearson 0.328–0.330。两者均保持约 0.79–0.80 箱内能量。在 100×100 目标框内，短期最佳仅有 164/10,000
+  个像素超过半峰；FWHM 约 20×11 像素。仍为紧凑光斑，非方形光束。 |
+| `hardware_rmse_1ms/` | `main.py slm-pib spgd`，`rmse`，固定 1 ms，3 帧读取，8 轮 | 完整 `--debug` PNG/PKL/JSON。ROI CV 从 3.10 升至 3.26；相比初始相位，最佳目标分数无改进。 |
+| `hardware_shape_1ms/` | 同一运行设置，目标改为 `shape` | 完整 `--debug` PNG/PKL/JSON，含初始全帧。内运行 CV 从 3.11 降至轮次 8 的 1.71，但峰值从 156
+  降至 49，且系数范数仅为 0.0058 rad。这尚非因果性整形改进的证据。 |
+| `hardware_shape_best_replay/` | 固定 1 ms 下交替播放记录的最佳轮次 4 相位与平相 | 五份全帧 PNG/NPZ/JSON。平相 CV 自身漂移为 3.29 → 2.98 → 2.84；最佳相位 CV 在相邻平相间
+  为 3.06 和 3.11。内运行的改进无法经受这次因果性重放。恒定背景减除未能消除平相趋势。 |
+| `sim_shape_before_pearson/` | `shape`，模拟器 seed 42，8 轮 | 轮次 8：CV 14.00，Pearson 0.0623。模拟器的有符号读噪声会使报告的能量比超过 1。 |
+| `sim_shape_clipped/` | 仅在指标中裁剪负像素 | 已拒绝：正读噪声随后提升了分母；报告能量降至约 0.3。代码变更已移除，保留原始记录。 |
+| `sim_shape_pearson_1/` | 与前述未修改的 `shape` 运行相同的模拟器 seed 与参数，增加 `--w-pearson 1` | 轮次 8：CV 13.87，Pearson 0.0626。方向有利，但幅度过小，无法确立有用的整形效果。新增权重默认为 0。 |
+| `sim_shape_size7_fixed/` | 7 像素目标，固定权重，seed 42，8 轮 | 最佳 canon 形状分数停留在平相值 -0.2746。 |
+| `sim_shape_size7_scheduled/` | 增加 `--shape-schedule` 的同一 7 像素试验 | 最佳 canon 形状分数亦停留在 -0.2746。`J` 随阶段权重变化，而 `shape` 列在轮次间仍可比。
+  未确立整形收益。 |
 
-The two Pearson simulator runs used `--cam-type sim --seed 42 -c max
+这两个 Pearson 模拟器运行使用 `--cam-type sim --seed 42 -c max
 --objective shape --target-shape square --target-size 100 --delta 0.05
---lr 1 --n-max 8 --epochs 8`. The shared simulator was reset with seed 42
-before each invocation. The early hardware baseline used `--auto-exposure` and
-the same shaping/search settings. Current live checks confirm optical response,
-and the later hardware runs use non-saturated fixed 1 ms exposure. The initial
-energy discrepancy came from using 1 frame for the baseline but 3 frames for
-SPGD evaluations; the optimizer now uses `config.n_eval_frames` in both places.
-The paired comparisons above cover the tested shape weights and schedule. A
-uniform 100-px square still needs a stronger candidate and a controlled
-hardware comparison. The 2026-10-10 online retest is documented above.
+--lr 1 --n-max 8 --epochs 8`。每次调用前共享模拟器以 seed 42 重置。早期硬件基线
+使用 `--auto-exposure` 及相同的整形/搜索设置。当前现场检查确认了光学响应，且后续
+硬件运行使用非饱和固定 1 ms 曝光。初始能量差异源于基线使用 1 帧而 SPGD 评估使用 3 帧；
+优化器现两处均使用 `config.n_eval_frames`。上述配对比较覆盖了测试过的形状权重与调度。
+一个均匀的 100 像素方形仍需更宽的控制基与新硬件比较，一旦双设备在线。
 
-## Document ideas and next comparisons
+## 文档想法与后续比较
 
-`D:\Projects\TIFO\AO-shaping\docs\SLM远程光斑整形.docx` proposes separate
-Pearson/CV/out-of-box-energy terms, stage weights, repeated-frame noise
-calibration, corner-background subtraction before normalization, geometric
-registration, gradient-scale balancing, adaptive perturbation, a trust region,
-and backtracking acceptance. The trials above cover the first two scoring
-changes and the noise calibration. The 100-px target is still far from uniform:
-the best 2026-10-09 Zernike replay CV is about 2.46. The later GS trials have
-lower CV but separated hotspots. Background/registration and adaptive
-search ideas remain to be isolated and tested with the same debug and replay
-protocol. The document's example is a 44x33 rectangle with eight modes, so its
-numerical settings do not transfer directly to this 100-px square / n_max=8
-bench.
+`D:\Projects\TIFO\AO-shaping\docs\SLM远程光斑整形.docx` 提出了独立的 Pearson/CV/
+箱外能量项、阶段权重、重复帧噪声校准、归一化前角背景减除、几何注册、梯度尺度平衡、
+自适应扰动、信赖域与回溯接受策略。上述试验覆盖了前两类得分变更与噪声校准。100 像素
+目标仍远非均匯：最佳重放 CV 约 2.46。背景/注册与自适应搜索想法仍需用相同的调试与重放
+协议予以孤立测试。该文档的例子是 44×33 矩形使用八阶模式，因此其数值设置不直接适用于
+本 100 像素方形 / n_max=8 台架。

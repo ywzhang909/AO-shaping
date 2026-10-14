@@ -6,6 +6,8 @@
 > **说明**: Zotero 扫描：整形目标函数 / 评价函数目录
 <!-- provenance:end -->
 
+**本文档结论**（Zotero 库扫描：整形目标函数/评价函数目录）：对本地 Zotero 库（11,703 条目、2,836 笔记，262 条笔记命中目标函数/评价指标关键词）完成五轮元数据与正文公式复核，产出**可为 `slm_square_shaping.py` 的 `objective=` 实现的候选度量目录**，每条均带来源标签（严格区分实测与推测）。本文档是目标函数选型的文献基准，与 `model_free_ao_survey` 互补（后者不重复目标函数公式）；所有 PDF 均只读访问，数据库 `PRAGMA quick_check` 通过。
+
 扫描对象：本地 Zotero 库（快照见文末「数据来源与安全性」）。
 目标：为 `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` 的 `objective=` 提供可实现的候选度量。
 
@@ -535,7 +537,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 
 ### 与仓库既有反模式的对应
 
-- §4.4 的设计动机（ROI 半径敏感 → 性能抖动）与 `AGENTS.md` 中「Re-locating the target ROI by `argmax` on **every** iteration」「Computing `PIB`/`CV` on a **raw** CCD frame」两条反模式**同源**。若实现 §4.4，ROI 必须**冻结**且帧须先做中值去噪/截零（参见 `slm_gs_refine._prepare_frame`）。
+- §4.4 的设计动机（ROI 半径敏感 → 性能抖动）与 `AGENTS.md` 中「Re-locating the target ROI by `argmax` on **every** iteration」「Computing `PIB`/`CV` on a **raw** CCD frame」两条反模式**同源**。若实现 §4.4，ROI 必须**冻结**且帧须先做中值去噪/截零（参见 `ao_shaping.utils.image.beam_metrics.prepare_frame`）。
 - §2.5 `J_MR` 与 §3.1 `⟨r²⟩` 依赖质心 `(x_c,y_c)`。`AGENTS.md` 已警示 `reset_window()` 返回中心不可信、0-order 须 `argmax` 重定位 —— 实现时须遵守同一规则。
 
 ---

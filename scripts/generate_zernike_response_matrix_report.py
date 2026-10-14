@@ -54,11 +54,11 @@ import matplotlib.pyplot as plt  # noqa: E402
 from ao_shaping.optimizer.wf.zernike_response_matrix import (  # noqa: E402
     load_zernike_response_matrix,
 )
-from ao_shaping.tools.slm.slm_zernike_common import (  # noqa: E402
+from ao_shaping.tools.zernike.common import (  # noqa: E402
     DLL_ZERNIKE_NAMES,
     linearity_metrics,
 )
-from ao_shaping.tools.slm.sweep_analysis import (  # noqa: E402
+from ao_shaping.tools.kernels.sweep_analysis import (  # noqa: E402
     group_raw_scan,
     latest_match,
 )
