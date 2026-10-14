@@ -100,13 +100,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
         extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
     ),
-    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
-        script="scripts/generate_asm_vs_fraunhofer_report.py",
-        command="python scripts/generate_asm_vs_fraunhofer_report.py",
-        environment="离线",
-        note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
-        extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
-    ),
 
     "report/inverse_shaping_unet/report.md": ReportProvenance(
         script="scripts/ml/generate_inverse_shaping_report.py",
@@ -637,24 +630,12 @@ REPORTS: dict[str, ReportProvenance] = {
             "补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物"
         ),
     ),
-    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
-    ),
     "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-14 正向模型闭环实机复核（exp/model-in-loop-20261014 worktree）；"
         "随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，"
         "本日未重新独立标定其尺度/入射振幅/面板配准",
-    ),
-    "report/shape_trials/online_20261010.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
     ),
     "report/shape_trials/model_in_loop_live_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -698,11 +679,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "已知的既有基线失败; 两次真实测量见同目录 model_in_loop_cv.md 与 "
             "gs_golden_reference.md"
         ),
-    ),
-    "report/shape_trials/README.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note="方形整形实验目录索引",
     ),
     "report/shape_trials/online_recal_efficiency.md": ReportProvenance(
         script="scripts/generate_online_recal_efficiency_report.py",
