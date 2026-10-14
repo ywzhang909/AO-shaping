@@ -1,7 +1,7 @@
 """Generate the fast-recalibration adaptation experiment report.
 
 Fully offline: reads ``logs/fast_recal_adapter/results.json`` written by
-``scripts/exp_fast_recal_adapter.py`` and renders the tables, the paired
+``scripts/slm/exp_fast_recal_adapter.py`` and renders the tables, the paired
 statistics and the figures. Never opens a device and never re-runs the
 experiment.
 
@@ -18,7 +18,7 @@ Writes ``report/shape_trials/fast_recal_adapter.md`` + ``figures/``.
 Provenance is stamped at write time so a re-run cannot delete it.
 
 Run:
-    python scripts/exp_fast_recal_adapter_report.py
+    python scripts/ml/exp_fast_recal_adapter_report.py
 """
 
 from __future__ import annotations
@@ -36,12 +36,12 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib import rcParams  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from _common.provenance import insert_header  # noqa: E402
-from exp_fast_recal_adapter import ARMS, K, KINDS  # noqa: E402
+from scripts.slm.exp_fast_recal_adapter import ARMS, K, KINDS  # noqa: E402
 from ml.zernike.eval_stats import (  # noqa: E402
     cohens_dz,
     holm_bonferroni,
@@ -69,7 +69,7 @@ ARM_LABEL = {
 def load() -> list[dict]:
     if not RESULTS.is_file():
         raise SystemExit(
-            f"missing {RESULTS} -- run scripts/exp_fast_recal_adapter.py first"
+            f"missing {RESULTS} -- run scripts/slm/exp_fast_recal_adapter.py first"
         )
     return json.loads(RESULTS.read_text(encoding="utf-8"))
 

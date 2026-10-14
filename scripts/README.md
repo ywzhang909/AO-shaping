@@ -1457,8 +1457,8 @@ this repo has measured to be degenerate under sum normalisation.
 
 **Usage:**
 ```bash
-python scripts/exp_fast_recal_adapter.py --smoke                        # 1 seed, tiny
-python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8      # ~1.8 h
+python scripts/slm/exp_fast_recal_adapter.py --smoke                        # 1 seed, tiny
+python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8      # ~1.8 h
 ```
 | Option | Default | Description |
 |---|---|---|
@@ -1484,7 +1484,7 @@ protocol the script no longer implements.
 
 **Usage:**
 ```bash
-python scripts/exp_fast_recal_adapter_report.py
+python scripts/ml/exp_fast_recal_adapter_report.py
 ```
 
 Reports the paired per-seed differences as well as means, because a mean hides
@@ -1534,8 +1534,8 @@ No statistics are recomputed here — every number comes from
 nowhere because the repo ignores `*.csv`; the markdown is the tracked artefact.
 
 ```bash
-python scripts/generate_model_in_loop_cv_report.py            # 5 folds, ~5 s
-python scripts/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 round
+python scripts/slm/generate_model_in_loop_cv_report.py            # 5 folds, ~5 s
+python scripts/slm/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 round
 ```
 
 | Option | Default | Description |
@@ -1584,8 +1584,8 @@ and every metric — including the Strehl / relative-M² APIs — from
 `ao_shaping.utils.image.beam_metrics`.
 
 ```bash
-python scripts/generate_gs_golden_reference.py
-python scripts/generate_gs_golden_reference.py --quick    # 3 budgets, 32-px grid
+python scripts/slm/generate_gs_golden_reference.py
+python scripts/slm/generate_gs_golden_reference.py --quick    # 3 budgets, 32-px grid
 ```
 
 | Option | Default | Description |

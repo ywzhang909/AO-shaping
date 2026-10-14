@@ -1,8 +1,8 @@
 # model-in-loop 留出探针的 K 折交叉验证
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_model_in_loop_cv_report.py`](../../scripts/generate_model_in_loop_cv_report.py)
-> **复现命令**: `python scripts/generate_model_in_loop_cv_report.py`
+> **生成脚本**: [`scripts/slm/generate_model_in_loop_cv_report.py`](../../scripts/slm/generate_model_in_loop_cv_report.py)
+> **复现命令**: `python scripts/slm/generate_model_in_loop_cv_report.py`
 > **运行环境**: 离线
 > **说明**: model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs 轮换划分的配对对比; 经 probe_split_hook / holdout_on_sim 两个默认关闭的 开关驱动真实 optimize_slm_model_in_loop, 不复刻 Step A; 统计量全部取自 ml.zernike.cv_harness 与 ml.zernike.eval_stats
 <!-- provenance:end -->
@@ -54,7 +54,7 @@
 ## 4. 复现
 
 ```bash
-python scripts/generate_model_in_loop_cv_report.py
+python scripts/slm/generate_model_in_loop_cv_report.py
 ```
 
 本报告由 `--folds 5 --pool-size 16 --fold-seed 20261014` 生成；统计量全部来自 `ml/zernike/cv_harness.py` 与 `ml/zernike/eval_stats.py`，脚本内不复算。

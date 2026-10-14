@@ -681,8 +681,8 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/online_recal_efficiency.md": ReportProvenance(
-        script="scripts/generate_online_recal_efficiency_report.py",
-        command="python scripts/generate_online_recal_efficiency_report.py",
+        script="scripts/slm/generate_online_recal_efficiency_report.py",
+        command="python scripts/slm/generate_online_recal_efficiency_report.py",
         environment="离线",
         note=(
             "光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导"
@@ -692,10 +692,10 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/fast_recal_adapter.md": ReportProvenance(
-        script="scripts/exp_fast_recal_adapter_report.py",
+        script="scripts/ml/exp_fast_recal_adapter_report.py",
         command=(
-            "python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
-            "&& python scripts/exp_fast_recal_adapter_report.py"
+            "python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
+            "&& python scripts/ml/exp_fast_recal_adapter_report.py"
         ),
         environment="离线",
         note=(
@@ -704,11 +704,11 @@ REPORTS: dict[str, ReportProvenance] = {
             "sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; "
             "数据为仿真, 非台架实测"
         ),
-        extra_scripts=("scripts/exp_fast_recal_adapter.py",)
+        extra_scripts=("scripts/slm/exp_fast_recal_adapter.py",)
     ),
     "report/shape_trials/gs_golden_reference.md": ReportProvenance(
-        script="scripts/generate_gs_golden_reference.py",
-        command="python scripts/generate_gs_golden_reference.py",
+        script="scripts/slm/generate_gs_golden_reference.py",
+        command="python scripts/slm/generate_gs_golden_reference.py",
         environment="离线",
         note=(
             "GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; "
@@ -718,8 +718,8 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/model_in_loop_cv.md": ReportProvenance(
-        script="scripts/generate_model_in_loop_cv_report.py",
-        command="python scripts/generate_model_in_loop_cv_report.py",
+        script="scripts/slm/generate_model_in_loop_cv_report.py",
+        command="python scripts/slm/generate_model_in_loop_cv_report.py",
         environment="离线",
         note=(
             "model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "

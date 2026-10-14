@@ -1,4 +1,4 @@
-﻿"""Generate supplementary images for the 2026-10-14 model-in-loop live report.
+"""Generate supplementary images for the 2026-10-14 model-in-loop live report.
 
 This script renders figures showing phase and CCD images for each experimental condition:
 - Phase images from best_phase.npy files

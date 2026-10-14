@@ -39,8 +39,8 @@ default-off and documented in the config:
 **Fully offline.** Simulated bench only; no camera, no SLM.
 
 Run:
-    python scripts/generate_model_in_loop_cv_report.py
-    python scripts/generate_model_in_loop_cv_report.py --folds 8 --quick
+    python scripts/slm/generate_model_in_loop_cv_report.py
+    python scripts/slm/generate_model_in_loop_cv_report.py --folds 8 --quick
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from loguru import logger  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
@@ -465,7 +465,7 @@ def _body(
     lines.append("## 4. 复现")
     lines.append("")
     lines.append("```bash")
-    lines.append("python scripts/generate_model_in_loop_cv_report.py")
+    lines.append("python scripts/slm/generate_model_in_loop_cv_report.py")
     lines.append("```")
     lines.append("")
     lines.append(
