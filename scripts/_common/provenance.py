@@ -675,6 +675,32 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note="方形整形实验目录索引",
     ),
+    "report/shape_trials/online_recal_efficiency.md": ReportProvenance(
+        script="scripts/generate_online_recal_efficiency_report.py",
+        command="python scripts/generate_online_recal_efficiency_report.py",
+        environment="离线",
+        note=(
+            "光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导"
+            "(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 "
+            "default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; "
+            "§7 为提案, 本报告不含任何新测量"
+        ),
+    ),
+    "report/shape_trials/fast_recal_adapter.md": ReportProvenance(
+        script="scripts/exp_fast_recal_adapter_report.py",
+        command=(
+            "python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
+            "&& python scripts/exp_fast_recal_adapter_report.py"
+        ),
+        environment="离线",
+        note=(
+            "光路变化后少参数在线适配实验 (14 低阶 Zernike / 2 几何标量 / 冻结 CNN 三组"
+            "互不相交参数); 三类扰动 (低阶像差 / 高阶像差对照 / 几何漂移) x 6 seed 配对, "
+            "sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; "
+            "数据为仿真, 非台架实测"
+        ),
+        extra_scripts=("scripts/exp_fast_recal_adapter.py",),
+    ),
     # -- 附属记录 ------------------------------------------------------------
     "report/fouriergsnet_pipeline/TODO.md": ReportProvenance(
         script=HANDWRITTEN,

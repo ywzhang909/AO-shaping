@@ -1426,6 +1426,72 @@ python scripts/slm/generate_gs_refine_fwdmodel_report.py --data-root <path>/data
 Writes the markdown **with** its provenance header stamped via `insert_header`, so
 a re-run cannot delete it. Runtime is minutes (one 4096² FFT per sample).
 
+### exp_fast_recal_adapter.py
+
+Offline experiment: **how fast can a model adapt to an optical-path change with
+the fewest fitted parameters?** The "reserve a subset of parameters to fit the
+aberration" split, made concrete as three disjoint groups:
+
+| group | what | trained | params |
+|---|---|---|---|
+| `c` | low-order Zernike (Noll, piston excluded) | **online**, on a few measurement frames | 14 |
+| `dtheta` | 2 identifiable geometry scalars | online | 2 |
+| `g` | small residual CNN image correction | **offline** once, then **frozen** | 9857 |
+
+Three perturbation families, deliberately separate: `P-A-low` (low-order
+aberration), `P-A-high` (**high-order control** — this is what makes the "low
+order dominates" premise falsifiable), `P-B-geom` (pixel scale / aperture drift).
+
+Model and "true bench" share the **same** canonical numpy propagator and Zernike
+basis and differ **only** in the geometry vector; if they matched exactly, zero
+measurements would suffice and the experiment would measure nothing. The frozen
+geometry is deliberately mis-calibrated, because that standing residual is the
+only thing the offline CNN can absorb — with a perfect calibration `c_img` would
+silently degrade into `c_only` and the control would be fake.
+
+`focal_length` is **not** perturbed: it and `camera_pixel_um` both set the
+far-field scale, so perturbing both is unidentifiable.
+
+Judged on corr / R2 / beam-domain (EE90, CV) only — never MSE/PSNR/SSIM, which
+this repo has measured to be degenerate under sum normalisation.
+
+**Usage:**
+```bash
+python scripts/exp_fast_recal_adapter.py --smoke                        # 1 seed, tiny
+python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8      # ~1.8 h
+```
+| Option | Default | Description |
+|---|---|---|
+| `--seeds` | 6 | perturbation seeds per family |
+| `--frames` | 1 2 4 8 | measurement-frame budgets |
+| `--out` | `logs/fast_recal_adapter/results.json` | per-cell rows |
+| `--smoke` / `--quick` | — | 1 seed / 6 seeds |
+
+> ⚠️ Two traps this script had to work around, both recorded because they are
+> easy to hit again: `generate_zernike_phase` returns **NaN outside the aperture
+> disc** (every consumer must `nan_to_num`, or all metrics silently read 0), and
+> it costs 63 ms/call — the basis is precomputed once (verified bit-identical,
+> max diff 6e-15, and ~290× faster). Runtime is dominated by the FFT, so the
+> coordinate-descent search is deliberately coarse; see the report's §8 for why
+> that makes the geometry arm's numbers an upper bound.
+
+### exp_fast_recal_adapter_report.py
+
+Renders `report/shape_trials/fast_recal_adapter.md` + `figures/` from the JSON
+above. Reads the protocol constants (adapter size, arm list, perturbation
+families) **from the experiment module**, so the report cannot describe a
+protocol the script no longer implements.
+
+**Usage:**
+```bash
+python scripts/exp_fast_recal_adapter_report.py
+```
+
+Reports the paired per-seed differences as well as means, because a mean hides
+a 5/6-consistent effect that is really a 1/6-complete search failure — and states
+the design's **power limit** (`min_attainable_pvalue`) next to every p-value, so
+"not significant" is not misread as "no effect".
+
 ### generate_beam_shaping_benchmark_report.py
 
 Regenerates the **authoritative 9-cell beam-shaping benchmark** (3 algorithms x 3
