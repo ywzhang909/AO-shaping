@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from generate_gif_from_pkl import _pupil_geometry
+from scripts.slm.generate_gif_from_pkl import _pupil_geometry
 from ao_shaping.utils.slm.gs_debug_optics import grayscale_to_radians, idealized_far_field
 
 

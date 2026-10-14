@@ -14,11 +14,30 @@ from __future__ import annotations
 import ast
 import importlib.util
 import pathlib
+import subprocess
 
 import pytest
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 SRC = REPO_ROOT / "src"
+
+
+def _gitignored(path: pathlib.Path) -> bool:
+    """True when git refuses to track ``path``, i.e. a clean clone will not have it.
+
+    The sweep below walks the filesystem, so without this it also judges scratch
+    files that only exist on one machine. ``scripts/dev/`` is ignored wholesale by
+    ``.gitignore`` (``scripts/dev**``), so a stale import in one of those files
+    fails the guard *here* while a clean checkout has nothing to fail on -- the
+    guard would be green in CI and red on the machine it is meant to protect.
+    """
+    proc = subprocess.run(
+        ["git", "check-ignore", "-q", "--", str(path)],
+        cwd=str(REPO_ROOT),
+        capture_output=True,
+        check=False,
+    )
+    return proc.returncode == 0
 
 
 def _ao_imports(path: pathlib.Path) -> set[str]:
@@ -38,7 +57,11 @@ def _ao_imports(path: pathlib.Path) -> set[str]:
 
 
 def _scripts() -> list[pathlib.Path]:
-    return sorted(p for p in (REPO_ROOT / "scripts").rglob("*.py") if "__pycache__" not in str(p))
+    return sorted(
+        p
+        for p in (REPO_ROOT / "scripts").rglob("*.py")
+        if "__pycache__" not in str(p) and not _gitignored(p)
+    )
 
 
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
