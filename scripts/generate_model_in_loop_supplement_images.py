@@ -1,4 +1,4 @@
-﻿"""Generate supplementary images for the 2026-10-13 model-in-loop live report.
+"""Generate supplementary images for the 2026-10-13 model-in-loop live report.
 
 This script renders figures for the new experimental sections added after the
 initial report generation:
