@@ -35,19 +35,60 @@ def _resolve_class_attribute(cls: type, name: str) -> Any:
     return value
 
 
+#: Modules whose ``DM_NUM`` is NOT a physical actuator count, so they must never
+#: define :data:`DM_N_ACTUATORS`. ``ZernikeDM.DM_NUM`` returns ``n_modes`` -- the
+#: Zernike *modal order* (15 on this bench), a different quantity that happened
+#: to be reachable on a machine with no DM attached.
+_NON_ACTUATOR_DM_MODULES = ("ao_shaping.drivers.dm.zernike_dm",)
+
+#: Package prefix holding the simulated DMs. Their counts describe a virtual
+#: device, not the bench.
+_SIM_DM_PACKAGE = "ao_shaping.drivers.sim"
+
+
+def _counts_physical_actuators(cls: type) -> bool:
+    """Whether ``cls`` describes a DM whose count is a physical actuator count.
+
+    ``registry.is_reachable()`` cannot answer this. Its base implementation does
+    probe the network, but the classes that hardcode ``True`` are precisely the
+    ones with no device behind them: the simulated DM, and the Zernike mirror.
+    Both sort ahead of a real NLight entry, so "first reachable" resolved the
+    actuator count from a simulated or modal quantity.
+    """
+    module = getattr(cls, "__module__", "")
+    return not (module.startswith(_SIM_DM_PACKAGE) or module.startswith(_NON_ACTUATOR_DM_MODULES))
+
+
+def _first_reachable_hardware_dm_cls():
+    """Class of the first reachable DM that is a real actuator-count source.
+
+    Returns ``None`` when no attached DM can be identified, so the caller can
+    fall back to its documented default.
+    """
+    from ao_shaping.drivers.dm._registry import get_dm_registry
+
+    registry = get_dm_registry()
+    for name in registry.list_reachable_types():
+        try:
+            cls = registry.get_class(name)
+        except Exception:
+            continue
+        if _counts_physical_actuators(cls):
+            return cls
+    return None
+
+
 @functools.lru_cache(maxsize=1)
 def _resolve_dm_n_actuators() -> int:
     """Resolve DM actuator count from device driver.
 
-    Uses the DM registry to find the first reachable DM type.
-    Falls back to 64 (NLight default) if no DM is reachable.
+    Uses the DM registry to find the first reachable DM type that actually
+    describes physical actuators. Falls back to 64 (NLight default) if no such
+    DM is present -- which is the normal case off-bench.
     """
     try:
-        from ao_shaping.drivers.dm._registry import get_dm_registry
-        registry = get_dm_registry()
-        reachable = registry.list_reachable_types()
-        if len(reachable) >= 1:
-            cls = registry.get_class(reachable[0])
+        cls = _first_reachable_hardware_dm_cls()
+        if cls is not None:
             dm_num = _resolve_class_attribute(cls, "DM_NUM")
             if isinstance(dm_num, int):
                 return dm_num
@@ -60,15 +101,12 @@ def _resolve_dm_n_actuators() -> int:
 def _resolve_disabled_actuators() -> list[int]:
     """Resolve disabled actuators from device driver.
 
-    Uses the DM registry to find the first reachable DM type.
-    Falls back to [0] if no DM is reachable.
+    Uses the DM registry to find the first reachable DM type that actually
+    describes physical actuators. Falls back to [0] if none is present.
     """
     try:
-        from ao_shaping.drivers.dm._registry import get_dm_registry
-        registry = get_dm_registry()
-        reachable = registry.list_reachable_types()
-        if len(reachable) >= 1:
-            cls = registry.get_class(reachable[0])
+        cls = _first_reachable_hardware_dm_cls()
+        if cls is not None:
             disabled = _resolve_class_attribute(cls, "disabled_actuators")
             if isinstance(disabled, list):
                 return disabled
