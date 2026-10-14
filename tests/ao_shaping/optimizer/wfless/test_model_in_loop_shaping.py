@@ -47,6 +47,7 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     StepBConfig,
     _crop_to_grid,
     _fit_aberration_at_probes,
+    _probe_set_loss,
     _probe_phase,
     _resize_grid,
 
@@ -454,6 +455,26 @@ def test_step_a_keeps_the_same_optimizer_when_no_rearm_is_given() -> None:
     assert stub.updates == taken == 4
     assert np.allclose(fitted, coefficients)
     assert len(losses) == 4
+
+
+def test_probe_set_loss_compares_the_same_phases_regardless_of_order() -> None:
+    optimizer = ZernikeCoefficientOptimizer(
+        n_orders=4, region=16, dtype="float64", device="cpu"
+    )
+    zero = np.zeros_like(optimizer.coefficients)
+    truth = zero.copy()
+    truth[3] = 0.6
+    truth[4] = -0.3
+    phases = [_probe_phase(16, 4.0, seed) for seed in (11, 29)]
+    frames = [(optimizer.forward_intensity(truth, phase), phase) for phase in phases]
+
+    initial = _probe_set_loss(optimizer, zero, frames)
+    fitted = _probe_set_loss(optimizer, truth, frames)
+    assert initial > 1e-6
+    assert fitted < 1e-20
+    assert _probe_set_loss(optimizer, zero, frames[::-1]) == pytest.approx(initial)
+    with pytest.raises(ValueError, match="at least one frame"):
+        _probe_set_loss(optimizer, zero, [])
 
 
 def test_step_a_rejects_an_empty_frame_set_or_a_non_positive_budget() -> None:

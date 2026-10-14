@@ -2404,11 +2404,10 @@ class SlmGsRefineParams:
 
 @dataclass
 class SlmModelInLoopParams:
-    """Model-in-the-loop square shaping (slm-model-in-loop).
+    """Model-in-the-loop target shaping (slm-model-in-loop).
 
-    Every field maps 1:1 onto :class:`~ao_shaping.optimizer.wfless.slm_model_in_loop.SlmModelInLoopConfig`;
-    the runner does no defaulting of its own so the library and the CLI can never
-    disagree about what a run actually did.
+    Optimizer fields map to SlmModelInLoopConfig; panel-scan fields control the
+    CLI's optional hardware preflight before the optimizer opens its devices.
     """
 
     # --- control -----------------------------------------------------------
@@ -2445,6 +2444,21 @@ class SlmModelInLoopParams:
     save_best_image: Annotated[
         bool, option("--save-best-image", help="Save the best far-field PNG.")
     ] = True
+    panel_scan: Annotated[
+        bool, option("--panel-scan", is_flag=True, help="Run a 3x3 panel-position and flat-drift preflight.")
+    ] = False
+    panel_scan_step_px: Annotated[
+        int, option("--panel-scan-step-px", help="3x3 grid spacing in panel pixels.")
+    ] = 120
+    panel_scan_radius_px: Annotated[
+        int, option("--panel-scan-radius-px", help="Random-phase disc radius in panel pixels.")
+    ] = 150
+    panel_scan_max_flat_drift: Annotated[
+        float, option("--panel-scan-max-flat-drift", help="Maximum drift within each flat/candidate/flat triplet.")
+    ] = 0.02
+    panel_scan_max_session_drift: Annotated[
+        float, option("--panel-scan-max-session-drift", help="Maximum first-to-last flat drift across the scan.")
+    ] = 0.05
 
     # --- live view ---------------------------------------------------------
     show: Annotated[
@@ -2462,12 +2476,20 @@ class SlmModelInLoopParams:
     ] = False
 
     # --- target ------------------------------------------------------------
+    target_shape: Annotated[
+        str,
+        option(
+            "--target-shape",
+            type=click.Choice(["square", "rectangle", "triangle", "star", "circle"]),
+            help="Far-field target shape; rectangle has a 2:1 width-to-height ratio.",
+        ),
+    ] = "square"
     target_side: Annotated[
         int,
         option(
             "--target-side",
             help=(
-                "Target square side in CAMERA pixels. The bench model only sees "
+                "Target bounding width in CAMERA pixels. The bench model only sees "
                 "its own far-field grid, so this is converted via the calibrated "
                 "camera_px_per_model_px."
             ),
@@ -2518,6 +2540,9 @@ class SlmModelInLoopParams:
     holdout_probe_count: Annotated[
         int, option("--holdout-probe-count", help="Independent phases for forward-model validation per round.")
     ] = 2
+    freeform_holdout_count: Annotated[
+        int, option("--freeform-holdout-count", help="Additional independent pixel-wise phase probes before Step B.")
+    ] = 0
     min_holdout_correlation: Annotated[
         float, option("--min-holdout-correlation", help="Minimum CCD/model correlation for every held-out phase.")
     ] = 0.5
@@ -2561,6 +2586,13 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = None
+    prior_run_dir: Annotated[
+        str | None,
+        option(
+            "--prior-run-dir",
+            help="Accepted model-in-loop debug run to seed a fast hardware refit.",
+        ),
+    ] = None
     assume_unverified_geometry: Annotated[
         bool,
         option(
@@ -2574,7 +2606,7 @@ class SlmModelInLoopParams:
         ),
     ] = False
 
-    # --- Step B: square synthesis with the aberration frozen ----------------
+    # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: Annotated[
         int, option("--step-b-iterations", help="Adam steps per round for Step B.")
     ] = 600
@@ -2757,6 +2789,13 @@ class SlmModelInLoopParams:
     slm_number: Annotated[
         int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
+    phase_disturbance_file: Annotated[
+        str | None,
+        option(
+            "--phase-disturbance-file",
+            help="Fixed panel-radian .npy bias added to every displayed SLM phase.",
+        ),
+    ] = None
     slm_wavelength: Annotated[
         int,
         option(
@@ -2916,6 +2955,7 @@ def build_model_in_loop_config(
         device=params.device,
         warm_start=params.warm_start,
         early_stop_score=params.early_stop_score,
+        target_shape=params.target_shape,
         target_side=params.target_side,
         w_uniformity=params.w_uniformity,
         w_efficiency=params.w_efficiency,
@@ -2923,11 +2963,13 @@ def build_model_in_loop_config(
         probe_spread=params.probe_spread,
         step_a_iterations=params.step_a_iterations,
         holdout_probe_count=params.holdout_probe_count,
+        freeform_holdout_count=params.freeform_holdout_count,
         min_holdout_correlation=params.min_holdout_correlation,
         step_a_lr=params.step_a_lr,
         n_orders=params.n_orders,
         frozen_modes=parse_frozen_modes(params.frozen_modes),
         forward_checkpoint=params.forward_checkpoint,
+        prior_run_dir=params.prior_run_dir,
         assume_unverified_geometry=params.assume_unverified_geometry,
         step_b_iterations=params.step_b_iterations,
         step_b_lr=params.step_b_lr,
@@ -2956,6 +2998,7 @@ def build_model_in_loop_config(
         max_exposure_ms=params.max_exposure_ms,
         cam_size=params.cam_size,
         slm_number=params.slm_number,
+        phase_disturbance_file=params.phase_disturbance_file,
         slm_wavelength=params.slm_wavelength,
         n_eval_frames=params.n_eval_frames,
         settle_wait_s=params.settle_wait_s,
@@ -3032,6 +3075,7 @@ def save_gs_refine_results(
             subdir_prefix="slm_gs_refine",
             output_dir=save_dir,
             scalar_keys=("score", "pib", "cv", "target_side", "lr", "pos", "neg", "cy", "cx"),
+            text_keys=("timestamp_utc", "pos_timestamp_utc", "neg_timestamp_utc"),
             img_keys=("_img", "_phase", "_img_pos", "_phase_pos", "_img_neg", "_phase_neg"),
             # This run optimises a freeform phase grid, so there is no ``_c``
             # and the default "best coefficients" panel would render a
@@ -3061,12 +3105,28 @@ def save_gs_refine_results(
     )
 
 
+def save_model_in_loop_config(config: SlmModelInLoopConfig, save_dir: Path) -> Path:
+    """Persist the run configuration before hardware preflight can fail."""
+    import json
+
+    save_dir.mkdir(parents=True, exist_ok=True)
+    path = save_dir / "run_config.json"
+    run_config = {
+        field.name: getattr(config, field.name)
+        for field in fields(config)
+        if field.name != "callback"
+    }
+    path.write_text(json.dumps(run_config, indent=2, default=str), encoding="utf-8")
+    return path
+
+
 def save_model_in_loop_results(
     result: ModelInLoopResult,
     params: SlmModelInLoopParams,
     *,
     root_dir: Path,
     debug: bool,
+    save_dir: Path | None = None,
 ) -> ModelInLoopSaveResult:
     """Persist a model-in-loop run's recorder and debug artefacts.
 
@@ -3082,9 +3142,12 @@ def save_model_in_loop_results(
         save_recorder_debug_artifacts,
     )
 
-    save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
+    save_dir = save_dir if save_dir is not None else debug_run_dir(root_dir, "slm_model_in_loop")
+    save_dir.mkdir(parents=True, exist_ok=True)
     csv_file = save_dir / f"slm_model_in_loop_{gen_date_str()}.csv"
     result.recorder.save_dataframe(csv_file)
+
+    save_model_in_loop_config(result.config, save_dir)
 
     if result.fitted_coefficients is not None:
         np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
@@ -3114,6 +3177,7 @@ def save_model_in_loop_results(
                     "family": record.get("family"),
                     "index": record["index"],
                     "exposure_ms": record.get("exposure_ms"),
+                    "timestamp_utc": record.get("timestamp_utc"),
                     "correlation": record.get("correlation"),
                     "frame_reference_exposure_ms": 0.02,
                     "raw_frame_note": "separate CCD read after the settled frame",
@@ -3190,6 +3254,8 @@ def save_model_in_loop_results(
             "exposure_ms",
         ),
         img_keys=("_img",),
+        text_keys=("timestamp_utc",),
+        object_keys=("step_a_trace", "step_b_trace"),
         output_dir=save_dir,
         json_payload={"status": result.status, "config": str(result.config)},
         title="slm-model-in-loop",

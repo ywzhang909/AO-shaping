@@ -1,4 +1,4 @@
-"""Model-in-the-loop square shaping on real SLM + CCD hardware.
+"""Model-in-the-loop target shaping on real SLM + CCD hardware.
 
 This is the hardware port of :func:`simulate_iterative_shaping` in
 :mod:`ao_shaping.optimizer.wfless.model_in_loop_shaping`, which runs the same
@@ -9,8 +9,8 @@ alternating loop against the digital twin. Each round does two things:
   frames are measured. A single :class:`ZernikeCoefficientOptimizer` cycles
   through every probe so all of them inform one shared Zernike aberration
   vector, fitted by minimising loss(measured CCD, predicted far field).
-* **Step B -- square synthesis.** The fitted aberration is **frozen** and a
-  full-pixel SLM phase is optimised against a square target. That phase is
+* **Step B -- target synthesis.** The fitted aberration is **frozen** and a
+  full-pixel SLM phase is optimised against the configured target. That phase is
   displayed, measured, and becomes the warm start for the next round.
 
 The module is a thin orchestration layer. No Zernike math, no forward model, no
@@ -47,6 +47,8 @@ import is deferred into the functions that open it.
 """
 
 from __future__ import annotations
+
+from datetime import datetime, timezone
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -275,8 +277,11 @@ class SlmModelInLoopConfig:
     """Consecutive unstable frames tolerated before a measurement is taken anyway."""
 
     # --- target ------------------------------------------------------------
+    target_shape: str = "square"
+    """Far-field target: square, rectangle, triangle, star or circle."""
+
     target_side: int = 60
-    """Target square side in **camera** pixels.
+    """Target bounding width in **camera** pixels.
 
     The forward model only ever sees its own far-field grid, so this is
     converted with the calibrated ``camera_px_per_model_px``.
@@ -310,6 +315,9 @@ class SlmModelInLoopConfig:
     holdout_probe_count: int = 2
     """Independent phase probes never used by Step A's fit."""
 
+    freeform_holdout_count: int = 0
+    """Additional independent pixel-wise phase probes before Step B."""
+
     min_holdout_correlation: float = 0.5
     """Require each independent CCD/model Pearson correlation before Step B."""
     step_a_lr: float = 0.05
@@ -336,6 +344,9 @@ class SlmModelInLoopConfig:
     starting point; a mismatch is refused rather than silently ignored.
     """
 
+    prior_run_dir: str | None = None
+    """Previous accepted hardware run used to warm-start a short Step-A refit."""
+
     assume_unverified_geometry: bool = False
     """Acknowledge that the checkpoint records no ``radius``/``center_crop``/
     ``conserve_energy`` (it cannot), so those were reconstructed from defaults.
@@ -345,7 +356,7 @@ class SlmModelInLoopConfig:
     if it were checked.
     """
 
-    # --- Step B: square synthesis with the aberration frozen ----------------
+    # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: int = 600
     step_b_lr: float = 0.05
 
@@ -432,6 +443,8 @@ class SlmModelInLoopConfig:
 
     cam_size: int = 300
     slm_number: int = 1
+    phase_disturbance_file: str | None = None
+    """Fixed raw-radian panel bias added to every hardware phase display."""
     slm_wavelength: int = 1064
     """SLM operating wavelength in nm.
 
@@ -480,6 +493,8 @@ class SlmModelInLoopConfig:
 
     # --- bookkeeping --------------------------------------------------------
     output_subdir: str = "slm_model_in_loop"
+    debug_dir: str | None = None
+    """Optional preallocated run directory for preflight evidence on failure."""
     callback: Callable[[int, dict[str, Any]], None] | None = field(
         default=None, repr=False
     )
@@ -498,6 +513,8 @@ class SlmModelInLoopConfig:
             )
         if self.holdout_probe_count < 1:
             raise ValueError("holdout_probe_count must be >= 1")
+        if self.freeform_holdout_count < 0:
+            raise ValueError("freeform_holdout_count must be >= 0")
         if not -1 <= self.min_holdout_correlation <= 1:
             raise ValueError("min_holdout_correlation must lie in [-1, 1]")
         if self.probe_spread < 3.0:
@@ -514,6 +531,8 @@ class SlmModelInLoopConfig:
             )
         if self.target_side < 1:
             raise ValueError(f"target_side must be >= 1, got {self.target_side}")
+        if self.target_shape not in {"square", "rectangle", "triangle", "star", "circle"}:
+            raise ValueError(f"unsupported target_shape: {self.target_shape}")
         if self.region < 2:
             raise ValueError(f"region must be >= 2, got {self.region}")
         if self.n_orders < 1:
@@ -537,6 +556,11 @@ class SlmModelInLoopConfig:
                 raise ValueError(
                     f"forward_checkpoint does not exist: {self.forward_checkpoint!r}"
                 )
+        if self.prior_run_dir is not None:
+            if self.forward_checkpoint is not None:
+                raise ValueError("prior_run_dir and forward_checkpoint are exclusive")
+            if not Path(self.prior_run_dir).is_dir():
+                raise ValueError(f"prior_run_dir does not exist: {self.prior_run_dir!r}")
         if self.geometry_file is not None and not Path(self.geometry_file).is_file():
             raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
@@ -580,7 +604,7 @@ class ModelInLoopResult:
         best_frame: The far-field frame that phase actually produced.
         geometry: The bench geometry used, fitted on hardware and taken by
             construction on the simulated bench.
-        target_side_camera: Target square side in camera pixels.
+        target_side_camera: Target bounding width in camera pixels.
         target_side_model: The same side in forward-model pixels.
         flat_score: Composite score of the flat baseline.
         best_score: Composite score of ``best_phase``.
@@ -733,6 +757,16 @@ def _structured_probe_phase(region: int, spread: float, seed: int) -> np.ndarray
     return phase
 
 
+def _holdout_phase(
+    region: int, spread: float, seed: int, index: int, standard_count: int
+) -> tuple[np.ndarray, str]:
+    if index >= standard_count:
+        return _probe_phase(region, spread, seed), "freeform"
+    if index < 2:
+        return _probe_phase(region, spread, seed, smooth=True), "smooth"
+    return _structured_probe_phase(region, spread, seed), "zernike"
+
+
 class _SimBench:
     """Numerical stand-in for the 2f bench, used for CI and offline QA.
 
@@ -874,6 +908,7 @@ class _HardwareBench:
         from ao_shaping.drivers.ccd.common import create_camera
         from ao_shaping.drivers.slm.santec import Santec
         from ao_shaping.tools.kernels.bench_kernels import capture_settled
+        from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
 
         self._capture = capture_settled
         self._config = config
@@ -890,6 +925,8 @@ class _HardwareBench:
             ),
         )
         self._slm = None
+        self._original_slot = None
+        self._original_gray = None
         try:
             self._cam.open()
             if config.cam_type == "daheng":
@@ -902,6 +939,22 @@ class _HardwareBench:
                 wavelength=config.slm_wavelength or None,
             )
             self._slm.open()
+            from ao_shaping.drivers.slm.santec import SantecError
+
+            try:
+                self._original_slot = self._slm.get_displayed_memory_number()
+            except SantecError as exc:
+                if exc.code != 1:
+                    raise
+            if self._original_slot is None:
+                self._original_gray = self._slm.get_current_grayscale()
+            panel_shape = phase_to_panel(
+                np.zeros((config.region, config.region), dtype=np.float64),
+                int(round(config.panel_span_px / 2)), config.pupil_center,
+            ).shape
+            self._disturbance = load_panel_disturbance(
+                config.phase_disturbance_file, panel_shape
+            )
             if config.cam_size > 0:
                 from ao_shaping.utils.image.beam_metrics import zero_order_center
 
@@ -913,7 +966,7 @@ class _HardwareBench:
                 full_frame = self._capture(
                     self._cam,
                     self._slm,
-                    blank_panel,
+                    blank_panel if self._disturbance is None else blank_panel + self._disturbance,
                     n_frames=1,
                     n_discard=config.settle_max_discard,
                     wait_time_s=config.settle_wait_s,
@@ -951,6 +1004,7 @@ class _HardwareBench:
                 logger.info("CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y)
         except Exception:
             if self._slm is not None:
+                self._restore_display()
                 self._slm.close()
             self._cam.close()
             raise
@@ -958,6 +1012,7 @@ class _HardwareBench:
         self._pupil_center = config.pupil_center
         self._pending: np.ndarray | None = None
         self.last_exposure_ms: float | None = None
+        self.last_capture_utc: str | None = None
         self.last_raw_frame: np.ndarray | None = None
         self._closed = False
 
@@ -972,6 +1027,8 @@ class _HardwareBench:
             self._disc_radius,
             self._pupil_center,
         )
+        if self._disturbance is not None:
+            self._pending += self._disturbance
 
     def measure(self) -> np.ndarray:
         if self._pending is None:
@@ -988,6 +1045,7 @@ class _HardwareBench:
                 max_wait_s=self._config.settle_max_wait_s,
             )
             if self._config.cam_type != "daheng":
+                self.last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
                 return np.asarray(frame, dtype=np.float64)
             actual_ms = float(self._cam.exposure_time)
             self.last_exposure_ms = actual_ms
@@ -1007,6 +1065,7 @@ class _HardwareBench:
                     actual_ms,
                     decision.peak_fraction,
                 )
+                self.last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
                 return exposure_normalized_frame(frame, actual_ms, reference_ms=0.02)
             if abs(decision.next_ms - actual_ms) < 0.001:
                 break
@@ -1015,15 +1074,56 @@ class _HardwareBench:
                 raise RuntimeError(f"unsafe Daheng exposure readback: {next_ms} ms")
         raise RuntimeError("CCD exposure could not reach an unsaturated stable range")
 
+    def measure_fixed_exposure(self, exposure_ms: float) -> np.ndarray:
+        """Capture a shaped-phase comparison at one bounded Daheng exposure."""
+        if self._config.cam_type != "daheng":
+            raise ValueError("fixed-exposure comparison requires Daheng CCD")
+        if self._pending is None:
+            raise RuntimeError("measure_fixed_exposure() called before display()")
+        if not 0 < exposure_ms <= self._config.max_exposure_ms:
+            raise ValueError("fixed exposure exceeds the configured Daheng limit")
+        actual_ms = float(self._cam.reset_exposure_time(exposure_ms))
+        if not 0 < actual_ms <= self._config.max_exposure_ms + 1e-9:
+            raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+        frame = self._capture(
+            self._cam, self._slm, self._pending,
+            n_frames=self._config.n_eval_frames,
+            n_discard=self._config.settle_max_discard,
+            wait_time_s=self._config.settle_wait_s,
+            stable_tol=self._config.settle_tol,
+            max_wait_s=self._config.settle_max_wait_s,
+        )
+        raw = np.asarray(self._cam.get_numpy_image(n_sample=1))
+        self.last_exposure_ms = actual_ms
+        self.last_raw_frame = raw.copy()
+        self.last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
+        full_scale = float(np.iinfo(raw.dtype).max)
+        if max(float(np.max(raw)), float(np.max(frame))) >= 0.9 * full_scale:
+            raise RuntimeError("fixed-exposure CCD frame is saturated")
+        return exposure_normalized_frame(frame, actual_ms, reference_ms=0.02)
+
     def close(self) -> None:
         if self._closed:
             return
         self._closed = True
+        self._restore_display()
         for device in (self._slm, self._cam):
             try:
                 device.close()
             except Exception as exc:  # noqa: BLE001 - teardown must not mask the run
                 logger.warning("failed to close {}: {}", type(device).__name__, exc)
+
+    def _restore_display(self) -> None:
+        if self._slm is None:
+            return
+        try:
+            if self._original_slot is None:
+                if self._original_gray is not None:
+                    self._slm.set_grayscale(self._original_gray)
+            else:
+                self._slm._display_memory(self._original_slot)
+        except Exception as exc:  # noqa: BLE001 - still close both devices
+            logger.warning("failed to restore initial SLM display: {}", exc)
 
 
 def _open_bench(config: SlmModelInLoopConfig) -> Bench:
@@ -1039,9 +1139,10 @@ def _open_bench(config: SlmModelInLoopConfig) -> Bench:
 
 
 def _metrics_at(
-    frame: np.ndarray, target_side: int, center: tuple[int, int]
+    frame: np.ndarray, target_side: int, center: tuple[int, int],
+    *, target_shape: str = "square", camera_rotation_quarters: int = 0,
 ) -> dict[str, float]:
-    """Square metrics on ``frame`` about a **frozen** ``center``.
+    """Target-region metrics on ``frame`` about a **frozen** ``center``.
 
     The anchor is passed in rather than re-derived. On a speckle field the global
     maximum hops between near-equal grains under a ~1e-3 perturbation, so an
@@ -1050,7 +1151,7 @@ def _metrics_at(
 
     Args:
         frame: Preprocessed far-field frame.
-        target_side: Target square side in the frame's own pixels.
+        target_side: Target bounding width in the frame's own pixels.
         center: The frozen ``(x, y)`` optical axis.
 
     Returns:
@@ -1059,15 +1160,32 @@ def _metrics_at(
     """
     from ao_shaping.utils.image.beam_metrics import compute_square_metrics
 
-    return compute_square_metrics(
-        frame, int(target_side), (float(center[0]), float(center[1]))
-    )
+    if target_shape == "square":
+        return compute_square_metrics(
+            frame, int(target_side), (float(center[0]), float(center[1]))
+        )
+    from ao_shaping.algorithm.signal_processing.differentiable_shaping import create_target_mask
+
+    image = np.asarray(frame, dtype=np.float64)
+    target = create_target_mask(target_shape, image.shape, int(target_side))
+    target = np.rot90(target, int(camera_rotation_quarters))
+    target = np.roll(target, (int(center[1]) - image.shape[0] // 2,
+                              int(center[0]) - image.shape[1] // 2), axis=(0, 1))
+    values = image[target > 0.5]
+    total = float(np.maximum(image, 0).sum())
+    mean = float(np.mean(values)) if values.size else 0.0
+    return {
+        "uniformity_cv": float(np.std(values) / mean) if mean > 0 else 0.0,
+        "encircled_energy": float(np.maximum(values, 0).sum() / total) if total > 0 else 0.0,
+        "intensity_max": float(image.max()),
+        "intensity_mean": mean,
+    }
 
 
 def _quality(
     metrics: dict[str, float], w_efficiency: float = 0.6, w_uniformity: float = 0.4
 ) -> float:
-    """Composite score to maximise, from a square-metrics dict.
+    """Composite score to maximise, from target-region metrics.
 
     Uses the canonical :func:`composite_from_pib_cv`
     (re-exported via ``ao_shaping.drivers.sim.slm_shaping_bench`` for historical
@@ -1205,6 +1323,7 @@ def _calibrate_geometry(
         )
         bench.display(probe)
         image = prepare_frame(bench.measure())
+        _save_preflight_capture(config, f"calibration_{index:02d}", probe, image, bench)
         records.append(
             CalibrationRecord(image=image, phase=probe, label=f"calib{index}")
         )
@@ -1219,7 +1338,37 @@ def _calibrate_geometry(
         far_field_size=int(config.region) * int(config.far_field_padding),
         panel_span_px=float(config.panel_span_px),
     )
+    if config.debug_dir is not None:
+        from dataclasses import asdict
+        import json
+
+        path = Path(config.debug_dir) / "preflight" / "geometry.json"
+        path.write_text(json.dumps(asdict(geometry), indent=2), encoding="utf-8")
     return geometry, records
+
+
+def _save_preflight_capture(
+    config: SlmModelInLoopConfig, name: str, phase: np.ndarray,
+    frame: np.ndarray, bench: Bench,
+) -> None:
+    """Persist a hardware capture before geometry acceptance can abort the run."""
+    if config.debug_dir is None or config.cam_type == "sim":
+        return
+    import json
+
+    directory = Path(config.debug_dir) / "preflight"
+    directory.mkdir(parents=True, exist_ok=True)
+    arrays = {"phase": np.asarray(phase, dtype=np.float32),
+              "frame": np.asarray(frame, dtype=np.float32)}
+    raw = getattr(bench, "last_raw_frame", None)
+    if raw is not None:
+        arrays["raw_frame"] = np.asarray(raw)
+    np.savez_compressed(directory / f"{name}.npz", **arrays)
+    (directory / f"{name}.json").write_text(json.dumps({
+        "exposure_ms": getattr(bench, "last_exposure_ms", None),
+        "timestamp_utc": getattr(bench, "last_capture_utc", None),
+        "raw_frame_note": "separate CCD read after the settled frame",
+    }, indent=2), encoding="utf-8")
 
 
 def _predicted_far_field(
@@ -1413,19 +1562,81 @@ def _fit_flat_leakage(
     return float(weights[0]), float(weights[1])
 
 
+def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | None:
+    """Load an accepted run seed, refusing incompatible optical geometry."""
+    if config.prior_run_dir is None:
+        return None
+    import ast
+    import json
+
+    run_dir = Path(config.prior_run_dir)
+    if config.geometry_file is None:
+        raise ValueError("prior_run_dir requires an explicit geometry_file")
+    geometry = json.loads((run_dir / "bench_geometry.json").read_text(encoding="utf-8"))
+    current = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
+    for key in ("region", "far_field_size", "panel_disc_radius", "camera_px_per_model_px"):
+        if not np.isclose(float(geometry[key]), float(current[key]), rtol=1e-6):
+            raise ValueError(f"prior run geometry mismatch: {key}")
+    metadata_file = run_dir / "run_config.json"
+    if metadata_file.is_file():
+        previous = json.loads(metadata_file.read_text(encoding="utf-8"))
+    else:
+        # Older runs persisted the dataclass repr; parse only literal keyword values.
+        result_files = sorted(run_dir.glob("slm_model_in_loop_*.json"))
+        if len(result_files) != 1:
+            raise ValueError("prior run lacks unambiguous configuration metadata")
+        representation = json.loads(result_files[0].read_text(encoding="utf-8"))["config"]
+        expression = ast.parse(representation, mode="eval").body
+        if not isinstance(expression, ast.Call) or not isinstance(expression.func, ast.Name) or expression.func.id != "SlmModelInLoopConfig":
+            raise ValueError("prior run configuration is not a model-in-loop record")
+        previous = {
+            keyword.arg: ast.literal_eval(keyword.value)
+            for keyword in expression.keywords
+            if keyword.arg in {"cam_type", "cam_id", "slm_number", "slm_wavelength", "panel_span_px", "n_orders", "region", "far_field_padding", "pupil_center"}
+        }
+    for key in ("cam_type", "cam_id", "slm_number", "slm_wavelength", "panel_span_px", "n_orders", "region", "far_field_padding"):
+        if previous.get(key) != getattr(config, key):
+            raise ValueError(f"prior run configuration mismatch: {key}")
+    previous_center = previous.get("pupil_center")
+    if previous_center is not None:
+        previous_center = tuple(previous_center)
+    if previous_center != config.pupil_center:
+        logger.warning(
+            "prior pupil centre {} -> current {}; remeasure holdouts before shaping",
+            previous_center, config.pupil_center,
+        )
+    records = sorted(run_dir.glob("slm_model_in_loop_*.csv"))
+    if len(records) != 1:
+        raise ValueError("prior run must contain exactly one result CSV")
+    import csv
+
+    with records[0].open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    if not any(row.get("stage") == "round" and row.get("accepted") == "True" for row in rows):
+        raise ValueError("prior run has no accepted shaped round")
+    coefficients = np.asarray(np.load(run_dir / "fitted_coefficients.npy"), dtype=np.float64)
+    expected = calc_n_zernike_terms(int(config.n_orders))
+    if coefficients.shape != (expected,) or not np.isfinite(coefficients).all():
+        raise ValueError(f"prior run coefficients must be {expected} finite values")
+    coefficients = coefficients.copy()
+    for mode in config.frozen_modes:
+        coefficients[mode - 1] = 0.0
+    return coefficients
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
 
 def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResult:
-    """Shape the far field into a uniform square on real SLM + CCD hardware.
+    """Shape the far field into a target on real SLM + CCD hardware.
 
     Alternates two steps every round. **Step A** displays strong, varied random
     pupil probes and refits one shared Zernike aberration of the forward model
     against the measured frames, minimising loss(measured, predicted). **Step
     B** freezes that aberration and optimises a full-pixel SLM phase for a
-    square target, displays it, and measures the result. Each round's phase warm
+    configured target, displays it, and measures the result. Each round's phase warm
     starts the next.
 
     Two guards keep the steps from chasing each other -- a trust region on the
@@ -1450,12 +1661,14 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
         StepBConfig,
         _fit_aberration_at_probes,
+        _probe_set_loss,
         shape_phase_with_frozen_aberration,
     )
     from ao_shaping.utils.image.beam_metrics import zero_order_center
     from ao_shaping.utils.io.file import Recorder
 
     recorder = Recorder()
+    recorder.iteration_traces = {}
     probe_records: list[dict[str, Any]] = []
 
     # The loop's coefficient vector is piston-inclusive: index 0 is Noll 1
@@ -1468,7 +1681,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
     # measurement on hardware to discover a mistake that is knowable offline.
     # With no checkpoint the seed is None and the historical all-zero start is
     # used verbatim.
-    seeded = _seed_coefficients_from_checkpoint(config)
+    seeded = _seed_coefficients_from_run(config)
+    if seeded is None:
+        seeded = _seed_coefficients_from_checkpoint(config)
     if seeded is None:
         coefficients = np.zeros(n_coeffs, dtype=np.float64)
     else:
@@ -1484,6 +1699,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         flat_phase = np.zeros((config.region, config.region), dtype=np.float64)
         bench.display(flat_phase)
         flat_frame = prepare_frame(bench.measure())
+        _save_preflight_capture(config, "flat", flat_phase, flat_frame, bench)
+        flat_capture_utc = getattr(bench, "last_capture_utc", None)
         if config.cam_type != "sim":
             probe_records.append(
                 {
@@ -1494,6 +1711,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     "raw_frame": getattr(bench, "last_raw_frame", None),
                     "frame": flat_frame.copy(),
                     "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                    "timestamp_utc": getattr(bench, "last_capture_utc", None),
                 }
             )
         if not np.any(flat_frame > 0):
@@ -1564,7 +1782,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             camera_px_per_target_cell,
         )
         target = create_target_mask(
-            "square", (int(config.region), int(config.region)), target_side_model
+            config.target_shape, (int(config.region), int(config.region)), target_side_model
         )
 
         # Illumination on the model grid, from the CALIBRATED waist. Omitting it
@@ -1601,7 +1819,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 np.sqrt(measured_peak / model_peak),
             )
 
-        flat_metrics = _metrics_at(flat_frame, target_camera, roi_center)
+        flat_metrics = _metrics_at(
+            flat_frame, target_camera, roi_center,
+            target_shape=config.target_shape,
+            camera_rotation_quarters=camera_rotation_quarters,
+        )
         flat_score = _quality(flat_metrics, config.w_efficiency, config.w_uniformity)
         recorder.history.append(
             {
@@ -1631,6 +1853,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 "n_calibration_probes": len(calib_records),
             }
         )
+        if config.cam_type != "sim":
+            recorder.history[-1]["timestamp_utc"] = flat_capture_utc
         logger.info(
             "flat baseline: score={:.4f} CV={:.4f} EE={:.4f}",
             flat_score,
@@ -1647,7 +1871,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
             live_display = SlmModelInLoopDisplay(
                 curve_title="score curve",
-                target_shape="square",
+                target_shape=config.target_shape,
             )
             live_display.init_window()
             live_display.update(
@@ -1678,7 +1902,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         step_b_cfg = StepBConfig(
             iterations=int(config.step_b_iterations),
             lr=float(config.step_b_lr),
-            target_shape="square",
+            target_shape=config.target_shape,
             target_side=int(target_side_model),
             w_uniformity=float(config.w_uniformity),
             w_efficiency=float(config.w_efficiency),
@@ -1708,6 +1932,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                             "raw_frame": getattr(bench, "last_raw_frame", None),
                             "frame": measured.copy(),
                             "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                            "timestamp_utc": getattr(bench, "last_capture_utc", None),
                         }
                     )
                 if live_display is not None and not live_display.closed:
@@ -1751,15 +1976,22 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 config.n_rounds,
                 probe_count,
             )
-            fitted, losses, step_a_iters, optimizer = _fit_aberration_at_probes(
-                optimizer, frames, int(config.step_a_iterations)
+            loss_before = _probe_set_loss(optimizer, coefficients, frames)
+            step_a_trace: list[dict[str, Any]] = []
+            fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
+                optimizer, frames, int(config.step_a_iterations),
+                on_iteration=lambda iteration, loss: step_a_trace.append({
+                    "iteration": iteration, "loss": loss,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                }),
             )
-            loss_before = float(losses[0]) if losses else float("nan")
-            loss_after = float(losses[-1]) if losses else float("nan")
+            if config.cam_type != "sim":
+                recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
             # --- Guard 1: trust region on the coefficient change -----------
             clamped, step_l2, clamp_applied = trust_region_clamp(
                 fitted, coefficients, float(config.trust_region_c_l2)
             )
+            loss_after = _probe_set_loss(optimizer, clamped, frames)
             if clamp_applied:
                 logger.info(
                     "trust region clipped a {:.3f} rad coefficient step to {:.3f} rad",
@@ -1783,19 +2015,15 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             holdout_correlation = float("nan")
             if config.cam_type != "sim":
                 holdout_correlations: list[float] = []
-                for holdout_index in range(config.holdout_probe_count):
+                for holdout_index in range(
+                    config.holdout_probe_count + config.freeform_holdout_count
+                ):
                     holdout_seed = (
                         config.seed + 1_000_000 + index * 1000 + holdout_index
                     )
-                    holdout_phase = (
-                        _probe_phase(
-                            config.region, config.probe_spread, holdout_seed,
-                            smooth=True,
-                        )
-                        if holdout_index < 2
-                        else _structured_probe_phase(
-                            config.region, config.probe_spread, holdout_seed
-                        )
+                    holdout_phase, holdout_family = _holdout_phase(
+                        config.region, config.probe_spread, holdout_seed,
+                        holdout_index, config.holdout_probe_count,
                     )
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
@@ -1819,7 +2047,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                             "round": index + 1,
                             "split": "holdout",
                             "index": holdout_index,
-                            "family": "smooth" if holdout_index < 2 else "zernike",
+                            "family": holdout_family,
                             "phase": holdout_phase.copy(),
                             "raw_frame": getattr(bench, "last_raw_frame", None),
                             "frame": holdout_frame.copy(),
@@ -1827,6 +2055,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                             "prediction": np.asarray(prediction).copy(),
                             "correlation": holdout_correlations[-1],
                             "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                            "timestamp_utc": getattr(bench, "last_capture_utc", None),
                         }
                     )
                 holdout_correlation = float(np.mean(holdout_correlations))
@@ -1848,6 +2077,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                         "stage": "round",
                         "round": index + 1,
                         "_epoch": index + 1,
+                        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                         "accepted": False,
                         "reason": "holdout_forward_mismatch",
                         "holdout_correlation": holdout_correlation,
@@ -1859,6 +2089,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
             # --- Step B: synthesise the square with that aberration frozen --
             warm = phase if config.warm_start else flat_phase
+            step_b_trace: list[dict[str, Any]] = []
             shaped, shaping_loss = shape_phase_with_frozen_aberration(
                 optimizer,
                 clamped,
@@ -1873,7 +2104,13 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 background_intensity=(
                     leakage * flat_grid if flat_grid is not None else None
                 ),
+                on_iteration=lambda iteration, loss: step_b_trace.append({
+                    "iteration": iteration, "loss": loss,
+                    "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                }),
             )
+            if config.cam_type != "sim":
+                recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
             bench.display(np.asarray(shaped, dtype=np.float64))
             shaped_frame = prepare_frame(bench.measure())
             shaped_prediction_correlation = float("nan")
@@ -1907,6 +2144,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                         "prediction": np.asarray(shaped_prediction).copy(),
                         "correlation": shaped_prediction_correlation,
                         "exposure_ms": getattr(bench, "last_exposure_ms", None),
+                        "timestamp_utc": getattr(bench, "last_capture_utc", None),
                     }
                 )
                 logger.info(
@@ -1914,7 +2152,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     index + 1,
                     shaped_prediction_correlation,
                 )
-            shaped_metrics = _metrics_at(shaped_frame, target_camera, roi_center)
+            shaped_metrics = _metrics_at(
+                shaped_frame, target_camera, roi_center,
+                target_shape=config.target_shape,
+                camera_rotation_quarters=camera_rotation_quarters,
+            )
             score_after = _quality(
                 shaped_metrics, config.w_efficiency, config.w_uniformity
             )
@@ -1964,6 +2206,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 else float("nan"),
             }
             if config.cam_type != "sim":
+                row["timestamp_utc"] = getattr(bench, "last_capture_utc", None)
                 row["holdout_correlation"] = holdout_correlation
                 row["shaped_prediction_correlation"] = shaped_prediction_correlation
                 row["model_gain"] = model_gain
