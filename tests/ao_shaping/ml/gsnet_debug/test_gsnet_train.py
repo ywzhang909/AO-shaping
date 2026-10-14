@@ -973,9 +973,10 @@ class TestTrainCli:
 
         options, _groups = _collect_click_annotations(GsnetTrainParams)
 
-        assert len(options) == 18
+        assert len(options) == 19
         names = [name for _fld, name, _tp, _delayed in options]
         assert len(names) == len(set(names))
+        assert "shared_weights" in names
 
     def test_zero_epochs_exits_non_zero(self, tmp_path: Path) -> None:
         from ao_shaping.runners.slm.gsnet_runner import run as group
@@ -1007,9 +1008,10 @@ class TestTrainCli:
                 "--grid",
                 str(GRID),
                 "--num-layers",
-                "1",
+                "2",
                 "--base-channels",
                 "4",
+                "--shared-weights",
                 "--device",
                 "cpu",
                 "--max-samples",
@@ -1027,6 +1029,10 @@ class TestTrainCli:
 
         assert result.exit_code == 0, result.output or repr(result.exception)
         assert (out / "summary.json").is_file()
+        assert json.loads((out / "summary.json").read_text())["model"]["shared_weights"]
+        checkpoint = torch.load(out / "fourier_gsnet_best.pt", weights_only=True)
+        assert checkpoint["config"]["shared_weights"]
+        assert checkpoint["config"]["num_layers"] == 2
         _png_size(out / "comparison.png")
         _png_size(out / HISTORY_FIGURE_NAME)
 
