@@ -1631,7 +1631,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 seed=int(config.seed) + index,
                 source_amplitude=source_amplitude,
             )
-            bench.display(np.asarray(shaped, dtype=np.float64))
+            shaped_phase = np.asarray(shaped, dtype=np.float64)
+            bench.display(shaped_phase)
             shaped_frame = prepare_frame(bench.measure())
             shaped_metrics = _metrics_at(shaped_frame, target_camera, roi_center)
             score_after = _quality(
