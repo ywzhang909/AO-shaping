@@ -42,7 +42,9 @@ import ast
 import importlib.util
 import os
 import re
+import sys
 from pathlib import Path
+from types import ModuleType
 
 import pytest
 
@@ -685,3 +687,53 @@ def test_the_thread_budget_is_in_force_in_this_process() -> None:
     # Inter-op is reachable through no env var at all and is idle outside JIT,
     # so it is held at 1 rather than taking a share of the budget it never uses.
     assert torch.get_num_interop_threads() == 1
+
+
+# --------------------------------------------------------------------------- #
+# Root conftest: the resource guards (CPU/VRAM caps, the OS-thread watch).
+#
+# A different file from the ``tests/conftest.py`` above, which owns the thread
+# *budget*. This one owns the thread *watch*: it samples the process thread count
+# so a pool explosion is attributed rather than guessed at.
+# --------------------------------------------------------------------------- #
+
+#: The repo-root ``conftest.py``. Deliberately not ``tests/conftest.py``.
+_RESOURCE_CONFTEST = REPO / "conftest.py"
+
+
+def _load_resource_conftest() -> ModuleType:
+    """Import the root conftest as a module.
+
+    Safe to load again: module scope only reads the environment and builds
+    ``WATCH``. The monitor thread starts in ``pytest_configure``, which this
+    does not call.
+    """
+    spec = importlib.util.spec_from_file_location(
+        "_ao_resource_conftest_probe", _RESOURCE_CONFTEST
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_thread_watch_reports_a_count_on_this_platform() -> None:
+    """``_os_thread_count`` must return a number here, not ``None``.
+
+    ``/proc/self/status`` is Linux-only, and returning ``None`` off Linux is
+    what left the watch inert rather than merely silent: ``_monitor`` skips
+    ``None`` counts, so ``WATCH["peak"]`` stayed at ``0``, ``THREAD_ALARM``
+    could never fire, and the teardown line always printed ``peak = 0``.
+    ``psutil`` supplies the same quantity elsewhere, so ``None`` now means only
+    "no source available".
+
+    On Linux this passes off ``/proc`` alone; the ``psutil`` fallback this
+    pins is exercised on Windows, where the old code returned ``None``.
+    """
+    count = _load_resource_conftest()._os_thread_count()
+
+    assert isinstance(count, int), (
+        f"expected a real thread count on {sys.platform}, got {count!r} -- the "
+        "psutil fallback is what keeps the thread watch alive off Linux"
+    )
+    assert count >= 1, f"a live process has at least one thread, got {count!r}"
