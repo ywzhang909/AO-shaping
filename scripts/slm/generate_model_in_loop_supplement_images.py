@@ -598,6 +598,8 @@ def render_multitarget_shape_experiment() -> Path:
     ]
     
     # Load all images
+    from PIL import Image
+
     images = []
     labels = []
     for label, dir_path in experiment_dirs:
