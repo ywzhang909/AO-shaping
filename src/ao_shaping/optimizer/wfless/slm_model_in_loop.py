@@ -48,7 +48,9 @@ import is deferred into the functions that open it.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from datetime import datetime, timezone
+
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol
@@ -395,6 +397,8 @@ class SlmModelInLoopConfig:
     Also the cost driver: the FFT is quadratic in the padded size, so this is
     squared in both time and memory.
     """
+    pupil_oversampling: int = 1
+    """Panel-phase interpolation factor used by both Step A and Step B."""
 
     pupil_oversampling: int = 1
     """Bilinear sub-pixel pupil interpolation before the far-field FFT.
@@ -572,8 +576,8 @@ class SlmModelInLoopConfig:
                 f"(a near-flat pupil's focus barely responds to a smooth "
                 f"low-order aberration), got {self.probe_spread}"
             )
-        if self.step_a_iterations < 1 or self.step_b_iterations < 1:
-            raise ValueError("step_a_iterations and step_b_iterations must be >= 1")
+        if self.step_a_iterations < 0 or self.step_b_iterations < 1:
+            raise ValueError("step_a_iterations must be >= 0 and step_b_iterations must be >= 1")
         if not 0.0 < self.damp_lr_factor < 1.0:
             raise ValueError(
                 f"damp_lr_factor must lie in (0, 1), got {self.damp_lr_factor}"
@@ -591,10 +595,7 @@ class SlmModelInLoopConfig:
                 f"far_field_padding must be >= 1, got {self.far_field_padding}"
             )
         if self.pupil_oversampling not in (1, 2, 4):
-            raise ValueError(
-                "pupil_oversampling must be 1, 2 or 4, got "
-                f"{self.pupil_oversampling}"
-            )
+            raise ValueError("pupil_oversampling must be 1, 2 or 4")
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
         if self.cam_type == "daheng" and (
@@ -1632,7 +1633,7 @@ def _make_optimizer(
         region=int(config.region),
         initial_coefficients=coefficients,
         lr=float(config.step_a_lr),
-        max_iterations=int(config.step_a_iterations),
+        max_iterations=max(1, int(config.step_a_iterations)),
         device=config.device,
         seed=int(config.seed),
         dtype=str(config.dtype),
@@ -2097,13 +2098,16 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             )
             loss_before = _probe_set_loss(optimizer, coefficients, frames)
             step_a_trace: list[dict[str, Any]] = []
-            fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
-                optimizer, frames, int(config.step_a_iterations),
-                on_iteration=lambda iteration, loss: step_a_trace.append({
-                    "iteration": iteration, "loss": loss,
-                    "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
-                }),
-            )
+            if config.step_a_iterations:
+                fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
+                    optimizer, frames, int(config.step_a_iterations),
+                    on_iteration=lambda iteration, loss: step_a_trace.append({
+                        "iteration": iteration, "loss": loss,
+                        "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                    }),
+                )
+            else:
+                fitted, step_a_iters = coefficients.copy(), 0
             if config.cam_type != "sim":
                 recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
             # --- Guard 1: trust region on the coefficient change -----------
@@ -2228,8 +2232,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                 }),
             )
-            shaped_phase = np.asarray(shaped, dtype=np.float64)
-            bench.display(shaped_phase)
+            if config.cam_type != "sim":
+                recorder.iteration_traces[index + 1]["step_b_trace"] = step_b_trace
+            bench.display(np.asarray(shaped, dtype=np.float64))
             shaped_frame = prepare_frame(bench.measure())
             shaped_prediction_correlation = float("nan")
             if config.cam_type != "sim":

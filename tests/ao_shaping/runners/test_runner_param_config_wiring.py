@@ -71,20 +71,9 @@ class _Family:
     builder: Callable[..., Any]
     builder_name: str
 
-    #: Modules allowed to consume this family's CLI-only fields. The set is
-    #: derived from ``params - builder kwargs`` rather than hand-listed, so it
-    #: tracks whichever branch the suite runs on -- the same guard has to hold
-    #: whether or not a given family has gained a preflight flag yet.
-    consumers: tuple[type, ...]
-
-    #: Fields whose CLI default is a deliberate sentinel rather than a value:
-    #: ``slm_wavelength`` defaults to ``0`` ("ask the device") while the Config
-    #: defaults to a concrete ``1064``, so forwarding it verbatim is the point.
-    sentinel_defaults: frozenset[str] = frozenset()
-
-    def cli_only(self) -> set[str]:
-        """Param fields the builder does not forward (they are runner-level)."""
-        return _field_names(self.params) - set(_config_call_kwargs(self.builder_name))
+    #: Param fields with no ``Config`` counterpart, mapped to the module that
+    #: must consume them. Keyed by field so the entry cannot outlive its use.
+    cli_only: dict[str, type]
 
 
 GS = _Family(
@@ -94,7 +83,7 @@ GS = _Family(
     builder=build_gs_refine_config,
     builder_name="build_gs_refine_config",
     # `save_gs_refine_results` decides whether to write best_far_field.png.
-    consumers=(runner_common,),
+    cli_only={"save_best_image": runner_common},
 )
 
 MIL = _Family(
@@ -103,18 +92,22 @@ MIL = _Family(
     config=SlmModelInLoopConfig,
     builder=build_model_in_loop_config,
     builder_name="build_model_in_loop_config",
-    # The panel scan, when present, is a CLI preflight that runs *before* the
-    # optimizer opens its devices, so those fields never belong in the Config;
-    # save_best_image is consumed by save_model_in_loop_results.
-    consumers=(runner_common, model_in_loop_runner),
-    sentinel_defaults=frozenset({"slm_wavelength"}),
+    # The panel scan is a CLI preflight that runs *before* the optimizer opens
+    # its devices, so those five never belong in the Config.
+    cli_only={
+        "save_best_image": runner_common,
+        "panel_scan": model_in_loop_runner,
+        "panel_scan_step_px": model_in_loop_runner,
+        "panel_scan_radius_px": model_in_loop_runner,
+        "panel_scan_max_flat_drift": model_in_loop_runner,
+        "panel_scan_max_session_drift": model_in_loop_runner,
+    },
 )
 
 #: Config fields deliberately unreachable from the CLI. Each is either a
 #: callback, a progress knob, or something the library sets on a caller's behalf
 #: (``debug_dir`` is injected by the runner via ``dataclasses.replace`` once the
-#: debug directory exists; ``step_sink`` is a per-measurement debug hook, which
-#: is the same category as ``callback``).
+#: debug directory exists).
 LIBRARY_ONLY: dict[str, set[str]] = {
     GS.label: {
         "callback",
@@ -129,7 +122,6 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "output_subdir",
         "progress_every",
         "sim_aberration",
-        "step_sink",
     },
 }
 
@@ -160,11 +152,6 @@ def _config_call_kwargs(builder_name: str) -> dict[str, str]:
 
 def _field_names(cls: type) -> set[str]:
     return {f.name for f in dataclasses.fields(cls)}
-
-
-def _module_source(module: type) -> str:
-    """Return a module's source text (for ``params.<field>`` reachability)."""
-    return Path(module.__file__).read_text(encoding="utf-8")
 
 
 def _defaults(cls: type) -> dict[str, object]:
@@ -223,22 +210,18 @@ class TestWiring:
     ) -> None:
         """Breaks on (2) never wired: a flag that parses and is then ignored.
 
-        The invariant is *every* param field is either forwarded into the Config
-        or read as ``params.<field>`` by one of the family's runner modules --
-        a flag that is neither is dead. Deriving the CLI-only set (rather than
-        hand-listing it) is what keeps this honest across branches, where the
-        same guard has to hold before and after a preflight flag exists.
+        This is the assertion the older parity test cannot make, because it
+        derives the wired set instead of trusting a hand-written list. Adding a
+        field without wiring it fails here; adding one *and* wiring it also
+        fails here until the split is restated, which is the point.
         """
-        sources = [_module_source(m) for m in family.consumers]
-        dead = sorted(
-            field
-            for field in family.cli_only()
-            if not any(f"params.{field}" in src for src in sources)
-        )
-        assert not dead, (
-            f"{family.params.__name__} declares {dead}, which "
-            f"{family.builder_name}() never passes and no runner module reads "
-            f"as params.<field> — a flag that parses and is then ignored"
+        kwargs = set(_config_call_kwargs(family.builder_name))
+        unwired = sorted(_field_names(family.params) - kwargs - set(family.cli_only))
+        assert not unwired, (
+            f"{family.params.__name__} declares {unwired}, which "
+            f"{family.builder_name}() never passes — either wire it into "
+            f"{family.config.__name__} or add it to the family's cli_only map "
+            f"with the module that consumes it"
         )
 
     @pytest.mark.parametrize("family", FAMILIES, ids=lambda f: f.label)
@@ -269,21 +252,18 @@ class TestCuratedExceptions:
     """An exception list is only useful while it is honest."""
 
     @pytest.mark.parametrize("family", FAMILIES, ids=lambda f: f.label)
-    def test_every_cli_only_field_is_read_by_some_runner_module(
-        self, family: _Family
-    ) -> None:
+    def test_cli_only_fields_are_consumed_by_their_runner(self, family: _Family) -> None:
         """A CLI-only field must still be read somewhere.
 
-        Without this, the CLI-only set becomes a place to hide a dead flag:
-        move a field out of the wiring and the wiring test is happy again.
+        Without this, ``cli_only`` becomes a place to hide a dead flag: move a
+        field out of the wiring and the wiring test is happy again. The module
+        named in the map is the one that has to read ``params.<field>``.
         """
-        dead = {
-            field: [m.__name__ for m in family.consumers]
-            for field in sorted(family.cli_only())
-            if not any(
-                f"params.{field}" in _module_source(m) for m in family.consumers
-            )
-        }
+        dead = {}
+        for field, consumer in family.cli_only.items():
+            source = Path(consumer.__file__).read_text(encoding="utf-8")
+            if f"params.{field}" not in source:
+                dead[field] = consumer.__name__
         assert not dead, (
             f"{family.label}: {dead} are declared CLI-only but no longer read "
             f"as params.<field> in the module that was supposed to consume them"
@@ -292,7 +272,7 @@ class TestCuratedExceptions:
     @pytest.mark.parametrize("family", FAMILIES, ids=lambda f: f.label)
     def test_cli_only_and_library_only_do_not_overlap(self, family: _Family) -> None:
         """A name cannot be both unreachable from the CLI and CLI-only."""
-        assert not family.cli_only() & LIBRARY_ONLY[family.label]
+        assert not set(family.cli_only) & LIBRARY_ONLY[family.label]
 
 
 # ---------------------------------------------------------------------------
@@ -310,11 +290,7 @@ class TestValuesArrive:
         Only pure passthroughs (``field=params.field``) and scalar defaults are
         compared: a deliberate transform (``pupil_center=parse_point(...)``) or a
         derived value (``focal_length_m=0.0`` meaning "solve it") is not a
-        default mismatch, and would otherwise be impossible to express. A field
-        listed in ``sentinel_defaults`` is exempt too — ``slm_wavelength``
-        forwards ``0`` ("ask the device") precisely *because* it must not
-        silently pin a wavelength, so its divergence from the Config default is
-        the behaviour, not an accident.
+        default mismatch, and would otherwise be impossible to express.
         """
         kwargs = _config_call_kwargs(family.builder_name)
         param_defaults = _defaults(family.params)
@@ -323,7 +299,6 @@ class TestValuesArrive:
             name: (param_defaults[name], config_defaults.get(name))
             for name, src in kwargs.items()
             if src == f"params.{name}"
-            and name not in family.sentinel_defaults
             and name in param_defaults
             and name in config_defaults
             and isinstance(param_defaults[name], _SCALARS)

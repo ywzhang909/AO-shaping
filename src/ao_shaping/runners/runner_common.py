@@ -2523,6 +2523,11 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = 8
+    pupil_oversampling: Annotated[
+        int,
+        option("--pupil-oversampling", type=click.Choice([1, 2, 4]),
+               help="Bilinear panel-phase interpolation in Step A and Step B."),
+    ] = 1
     probe_spread: Annotated[
         float,
         option(
