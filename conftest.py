@@ -48,20 +48,32 @@ WATCH = {"peak": 0, "stop": False}
 THREAD_ALARM = 4000
 
 
-def _os_thread_count() -> int:
-    with open("/proc/self/status") as fh:
-        for line in fh:
-            if line.startswith("Threads:"):
-                return int(line.split()[1])
+def _os_thread_count() -> int | None:
+    """Live OS thread count, or ``None`` where ``/proc`` does not exist.
+
+    ``/proc/self/status`` is Linux-only. Returning ``None`` rather than raising
+    keeps the Windows callers honest instead of letting the read escape as an
+    unhandled ``FileNotFoundError`` -- which it did from
+    ``pytest_sessionfinish``, aborting the session *after* the tests had already
+    run and thereby suppressing pytest's whole summary (counts, failure
+    list, exit code). That made an otherwise-green run indistinguishable from a
+    broken one on any non-Linux checkout.
+    """
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith("Threads:"):
+                    return int(line.split()[1])
+    except OSError:
+        return None
     return 0
 
 
 def _monitor() -> None:
     while not WATCH["stop"]:
-        try:
-            WATCH["peak"] = max(WATCH["peak"], _os_thread_count())
-        except OSError:
-            pass
+        count = _os_thread_count()
+        if count is not None:
+            WATCH["peak"] = max(WATCH["peak"], count)
         time.sleep(5)
 
 
@@ -157,8 +169,9 @@ def pytest_report_header(config) -> list[str]:
 def pytest_sessionfinish(session, exitstatus) -> None:
     WATCH["stop"] = True
     peak, now = WATCH["peak"], _os_thread_count()
+    where = "" if now is not None else " (unavailable: no /proc on this platform)"
     print(
-        f"\n[ao-watch] peak OS threads = {peak}, now = {now}, "
+        f"\n[ao-watch] peak OS threads = {peak}, now = {now}{where}, "
         f"AO_CPU_THREADS = {_AO_CPU_THREADS}, "
         f"AO_VRAM_LIMIT_MB = {_AO_VRAM_LIMIT_MB}"
     )
