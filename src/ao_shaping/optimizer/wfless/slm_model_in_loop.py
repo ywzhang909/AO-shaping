@@ -378,6 +378,15 @@ class SlmModelInLoopConfig:
     squared in both time and memory.
     """
 
+    pupil_oversampling: int = 1
+    """Bilinear sub-pixel pupil interpolation before the far-field FFT.
+
+    ``1`` keeps the model on the command grid. Higher factors enlarge the pupil
+    by that factor, propagate it at the matching finer far-field sampling, and
+    crop back to ``region`` -- so the far-field *field of view* is unchanged and
+    only its sampling improves. Costs ``factor**2`` in FFT time and memory.
+    """
+
     focal_length_m: float = 0.0
     """2f lens focal length in metres; 0 derives it from the measured scale.
 
@@ -545,6 +554,11 @@ class SlmModelInLoopConfig:
         if self.far_field_padding < 1:
             raise ValueError(
                 f"far_field_padding must be >= 1, got {self.far_field_padding}"
+            )
+        if self.pupil_oversampling not in (1, 2, 4):
+            raise ValueError(
+                "pupil_oversampling must be 1, 2 or 4, got "
+                f"{self.pupil_oversampling}"
             )
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
@@ -1318,6 +1332,7 @@ def _make_optimizer(
         dtype=str(config.dtype),
         far_field_size=int(config.region) * int(config.far_field_padding),
         frozen_modes=tuple(config.frozen_modes),
+        pupil_oversampling=int(config.pupil_oversampling),
     )
 
 

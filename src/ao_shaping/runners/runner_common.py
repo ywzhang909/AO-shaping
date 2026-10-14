@@ -2636,6 +2636,20 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = 8
+    pupil_oversampling: Annotated[
+        int,
+        option(
+            "--pupil-oversampling",
+            type=click.Choice([1, 2, 4]),
+            help=(
+                "Bilinear sub-pixel pupil interpolation in Step A and Step B. "
+                "Enlarges the pupil, propagates it at the matching finer "
+                "far-field sampling, and crops back to --region, so the field "
+                "of view is unchanged and only the sampling improves. Costs "
+                "factor**2 in FFT time."
+            ),
+        ),
+    ] = 1
     focal_length_m: Annotated[
         float,
         option(
@@ -2922,6 +2936,7 @@ def build_model_in_loop_config(
         panel_span_px=params.panel_span_px,
         pupil_center=parse_point(params.pupil_center),
         far_field_padding=params.far_field_padding,
+        pupil_oversampling=params.pupil_oversampling,
         focal_length_m=params.focal_length_m,
         dtype=params.dtype,
         n_calibration_probes=params.n_calibration_probes,
