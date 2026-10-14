@@ -1,8 +1,10 @@
 # SLM+CCD 装配对准 (align) 窗口化实现
 
 2026-09-18. 软件化装配辅助: 使用大恒相机 ROI 开窗自动完成 0级/±1级 对准, 取代人工
-手动平移/目视对齐。实现在 `src/ao_shaping/tools/slm/calibration.py`
-`SLMCCDCalibrator.align()` (CLI: `slm-calib` 的装配步骤, `--skip-align` 可跳过)。
+手动平移/目视对齐。实现在 `src/ao_shaping/tools/slm/calibration/calibration.py`
+`SLMCCDCalibrator.align()` (CLI: `slm-calib` 的装配步骤, `--skip-align` 可跳过;
+2026-10 起该模块由单文件 `tools/slm/calibration.py` 拆为 `tools/slm/calibration/`
+子包, 入口 `__main__` 仍可直接运行)。
 
 ## 背景问题
 
@@ -41,9 +43,9 @@
 ## CLI
 
 ```bash
-python src/ao_shaping/tools/slm/calibration.py            # 全流程 (含窗口化 align)
-python src/ao_shaping/tools/slm/calibration.py --align-margin 6 --align-min-window 256
-python src/ao_shaping/tools/slm/calibration.py --skip-align  # 沿用已有窗口
+python -m ao_shaping.tools.slm.calibration                # 全流程 (含窗口化 align)
+python -m ao_shaping.tools.slm.calibration --align-margin 6 --align-min-window 256
+python -m ao_shaping.tools.slm.calibration --skip-align   # 沿用已有窗口
 ```
 
 新选项: `--align-margin` (默认 4.0, 边缘余量 ×FWHM)、`--align-min-window`

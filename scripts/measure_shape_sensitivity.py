@@ -87,11 +87,14 @@ def main() -> None:
         set_camera_exposure_ms,
     )
     from ao_shaping.drivers.slm import Santec
+    from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
+        SlotRotator,
+        display_rotating,
+        zernike_to_phase,
+    )
     from ao_shaping.optimizer.wfless.slm_zernike_pib import (
         ImageTargetFunc,
         PatternHelper,
-        _display,
-        _zernike_to_phase,
     )
     from ao_shaping.tools.kernels.sweep_analysis import snr_sweep, snr_verdict
     from ao_shaping.utils.image.beam_metrics import (
@@ -114,7 +117,13 @@ def main() -> None:
         coeff = np.zeros(15, dtype=np.float64)
 
         def show(c: np.ndarray) -> None:
-            _display(slm, slm.create_phase_from_array(_zernike_to_phase(c, args.n_max, ph)))
+            display_rotating(
+                slm,
+                slm.create_phase_from_array(
+                    zernike_to_phase(c, args.n_max, ph, default_radius=300.0)
+                ),
+                SlotRotator(),
+            )
             time.sleep(args.settle_s)
 
         show(coeff)

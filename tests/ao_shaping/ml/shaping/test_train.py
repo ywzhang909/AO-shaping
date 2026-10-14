@@ -259,8 +259,13 @@ def test_resume_continues(fake_loaders: None, tmp_path: Path) -> None:
     assert len(rows) == 2
 
 
-def test_resume_missing_file_raises(tmp_path: Path) -> None:
-    """A bad ``--resume`` path is an error, not a silent fresh start."""
+def test_resume_missing_file_raises(fake_loaders: None, tmp_path: Path) -> None:
+    """A bad ``--resume`` path is an error, not a silent fresh start.
+
+    ``fake_loaders`` is required: without it ``train`` builds the real corpus,
+    whose file-level split raises its own ValueError before resume validation is
+    ever reached, so the test would fail for the wrong reason.
+    """
     with pytest.raises(FileNotFoundError):
         train(_tiny_config(tmp_path, resume=str(tmp_path / "nope.pt")))
 

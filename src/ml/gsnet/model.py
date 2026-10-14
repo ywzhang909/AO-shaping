@@ -143,6 +143,22 @@ class FiLMLayer(nn.Module):
 class FFTLayer(nn.Module):
     """One unrolled Gerchberg–Saxton iteration with a learned phase update.
 
+    ⚠️ **The forward/backward pair here is deliberately FFT, not angular-spectrum
+    propagation.** The canonical ASM lives in
+    ``ao_shaping/algorithm/signal_processing/angular_spectrum.py`` and is a valid
+    propagator — but it is *not* a drop-in for the Fourier-plane FFT on a 2f
+    bench. Measured on the bench geometry (12 mm aperture, ``f = 0.125 m``,
+    ``lambda = 532 nm``): the FFT peaks at the array centre with
+    ``max|F| = 4057``, whereas ASM at ``z = f`` gives ``max|out| = 1.0066`` — the
+    *input* modulus — and peaks at the **pupil** position. ASM returns the
+    propagated beam; a 2f bench's Fourier plane is the **lens's** transform. A
+    genuine Fraunhofer pattern via ASM needs ``z >> a**2/lambda = 271 m``.
+    Boundary locked by
+    ``tests/ao_shaping/algorithm/test_angular_spectrum.py::TestNotAFraunhoferSubstitute``.
+    Note also that the forward and backward half-array shifts of an ASM
+    propagator would have to cancel exactly for GS to stay self-consistent,
+    which is why the shift convention is pinned rather than incidental.
+
     Each layer performs:
 
     1. **Forward physics**: build the source-plane field ``source_amp * e^{jφ}``
@@ -217,13 +233,18 @@ class FourierGSNet(nn.Module):
         base_channels: CNN width of each `FFTLayer`.
     """
 
-    def __init__(self, num_layers: int = 10, base_channels: int = 32) -> None:
+    def __init__(
+        self, num_layers: int = 10, base_channels: int = 32,
+        shared_weights: bool = False,
+    ) -> None:
         super().__init__()
         if num_layers < 1:
             raise ValueError(f"num_layers must be >= 1, got {num_layers}")
         self.num_layers = num_layers
+        self.base_channels = base_channels
+        self.shared_weights = shared_weights
         self.layers = nn.ModuleList(
-            [FFTLayer(base_channels) for _ in range(num_layers)]
+            [FFTLayer(base_channels) for _ in range(1 if shared_weights else num_layers)]
         )
 
     def forward(
@@ -261,7 +282,8 @@ class FourierGSNet(nn.Module):
         )
         phase = torch.angle(init_field)
 
-        for layer in self.layers:
+        for step in range(self.num_layers):
+            layer = self.layers[0] if self.shared_weights else self.layers[step]
             phase = layer(phase, source_amp, target_amp)
 
         return phase

@@ -366,7 +366,7 @@ def reconstruct_pupil_phase_rad(
     """Reconstruct the SLM pupil phase in radians from a Noll-order ``_c``.
 
     **Units assumption: ``c`` is in radians.** This traces to the hardware
-    path -- ``slm_zernike_pib._zernike_to_phase`` feeds ``_c`` straight into the
+    path -- ``slm_zernike_primitives.zernike_to_phase`` feeds ``_c`` straight into the
     radian APIs (``parse_zernike_coefficients`` then
     ``PatternHelper.generate_zernike_polynomial``), and the optimisation step
     sizes are radian-scale. No ``um_to_waves`` / ``* 2π`` conversion applies

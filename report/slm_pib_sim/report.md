@@ -18,10 +18,10 @@
 
 本运行使用 `src/ao_shaping/runners/slm/slm_shaping_runner.py` (`slm-pib` 组) 的 **SPGD** 子命令, 在纯 numpy 2f-Fourier 仿真 (`src/ao_shaping/drivers/sim/slm_pib_sim.py`) 下执行, 无硬件。
 
-- **相机**: `--cam_type sim` (注册到相机注册表, 读取仿真远场)
+- **相机**: `--cam-type sim` (注册到相机注册表, 读取仿真远场)
 - **SLM**: `Santec` 被 monkeypatch 为 `SimSLMPib` (FFT 远场, 0 级光斑位于帧中心)
-- **目标**: 方形 (`--target_shape square`, `--target_size` 相机像素)
-- **搜索**: SPGD 梯度法 (`--optimizer_type adamod`), Zernike 系数 n≤4 (15 个模式)
+- **目标**: 方形 (`--target-shape square`, `--target-size` 相机像素)
+- **搜索**: SPGD 梯度法 (`--optimizer-type adamod`), Zernike 系数 n≤4 (15 个模式)
 
 光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。
 

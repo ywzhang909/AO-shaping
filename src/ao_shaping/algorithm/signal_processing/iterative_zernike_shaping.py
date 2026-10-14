@@ -28,7 +28,7 @@ Zernike 基图来自 canonical 的 ``ZernikeGenerator`` 并转成常量 torch �
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -318,6 +318,12 @@ class IterativeZernikeShapingOptimizer:
             padded = t.zeros((m, m), dtype=t.complex128, device=field.device)
             padded[pad : pad + n, pad : pad + n] = field
             field = padded
+        # Fraunhofer far field. Deliberately NOT the angular-spectrum propagator
+        # (`signal_processing/angular_spectrum.py`): measured on the 2f bench
+        # geometry, ASM at z=f returns the propagated *beam* (max|out| = 1.0066,
+        # peak at the pupil) rather than the lens's Fourier transform, and a real
+        # Fraunhofer pattern would need z >> a**2/lambda = 271 m. Boundary locked
+        # by test_angular_spectrum.py::TestNotAFraunhoferSubstitute.
         focal = t.fft.fftshift(t.fft.fft2(t.fft.ifftshift(field)))
         intensity = focal.real**2 + focal.imag**2
         intensity = intensity / (intensity.sum() + 1e-12)

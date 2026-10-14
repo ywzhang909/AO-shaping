@@ -59,20 +59,19 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
     square_metrics_at_zero_order,
 )
 from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+    SLM_PANEL_H,
+    SLM_PANEL_W,
     SLM_PITCH_M,
     core_fraction,
     crop_around_zero_order,
-    display_and_average,
     estimate_shift,
     gaussian_grid,
     phase_to_panel,
     ramp_panel,
+    zernike_panel,
 )
 from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     measure_spot as _measure_spot,
-)
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
-    zernike_panel,
 )
 from ao_shaping.tools.zernike.sweep_probe import (  # noqa: E402
     capture_settled,
@@ -114,7 +113,9 @@ logger.configure(
     ]
 )
 
-PANEL_H, PANEL_W = 1200, 1920
+# Panel geometry comes from the shared bench kernel rather than being restated
+# here, so a different SLM cannot silently disagree with the sweep constants.
+PANEL_H, PANEL_W = SLM_PANEL_H, SLM_PANEL_W
 FULL_SCALE = 255
 
 
@@ -259,9 +260,15 @@ def shoot(cam, slm, phase_panel: np.ndarray, args: argparse.Namespace) -> np.nda
         max_wait_s=args.max_wait_s,
     )
     if args.cam_type == "daheng":
-        actual_ms = float(cam.exposure_time)
-        if not 0 < actual_ms <= 0.4:
-            raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+        # The read-back guard exists because a real Daheng saturates and the
+        # resulting metrics are meaningless above ~0.4 ms. That is a property of
+        # the *hardware*, not of the camera type name: a stand-in / simulated
+        # camera reports whatever it was told, so applying the ceiling there
+        # would reject perfectly valid runs. Opt out via the ``is_mock`` marker.
+        if not getattr(cam, "is_mock", False):
+            actual_ms = float(cam.exposure_time)
+            if not 0 < actual_ms <= 0.4:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
         if float(np.max(frame)) >= 250.0:
             raise RuntimeError("Daheng CCD saturated during sweep")
     return frame
@@ -289,7 +296,7 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
         if args.save_frames:
             save_frame_png(vis / "flat_ccd.png", flat)
         cx, cy = zero_order_center(flat, refine=False)
-        pupil = (int(args.pupil_center.split(",")[0]), int(args.pupil_center.split(",")[1]))
+        pupil = _pupil_center(args)
         logger.info(
             "[*] flat peak={:.0f}/{} camera 0-order=({},{})",
             flat.max(), FULL_SCALE, cx, cy,
@@ -554,8 +561,6 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                     # `peak` is the Recorder mark (mode="min"), so a run can be
                     # ranked by "sharpest focus" without re-reading the arrays.
                     "peak": peak,
-                    # `peak` is the Recorder mark (mode="min"), so a run can be
-                    # ranked by "sharpest focus" without re-reading the arrays.
                     # save_recorder_debug_artifacts keys the output dict by
                     # `_epoch` (Recorder.append only sets `_id`), so it must be
                     # explicit -- this is the index into the sweep order.

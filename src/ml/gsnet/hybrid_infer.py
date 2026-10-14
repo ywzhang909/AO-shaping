@@ -35,6 +35,7 @@ def load_gsnet_checkpoint(path: Path) -> FourierGSNet:
     model = FourierGSNet(
         num_layers=int(config["num_layers"]),
         base_channels=int(config["base_channels"]),
+        shared_weights=bool(config.get("shared_weights", False)),
     )
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     model.eval()

@@ -1,7 +1,5 @@
 # SLM Zernike RMS 优化 (rms-zernike)
 
-> **生成脚本**: [`scripts/generate_rms_zernike_report.py`](../../scripts/generate_rms_zernike_report.py)
-> **复现命令**: `python scripts/generate_rms_zernike_report.py`
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
@@ -57,9 +55,9 @@ graph TD
 | `-n, --n-max` | Zernike 最大阶数 | 4 |
 | `--lr` | 学习率 | 0.01 |
 | `--delta` | 初始 δ 值 (0=自动检测) | 0.0 |
-| `-r, --wfs_res` | WFS 分辨率 | 1024 |
-| `-p, --pupil_diameter` | 瞳孔直径 | 2.7 |
-| `--early_stop_threshold` | 早停阈值 | 0.12 |
+| `-r, --wfs-res` | WFS 分辨率 | 1024 |
+| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `--early-stop-threshold` | 早停阈值 | 0.12 |
 | `--wavelength` | SLM 波长 (nm) | 532 |
 | `--shift-x/y` | SLM 相位平移 (像素) | 0 |
 | `--wait-time` | LCOS 翻转等待 (s) | 0.3 |

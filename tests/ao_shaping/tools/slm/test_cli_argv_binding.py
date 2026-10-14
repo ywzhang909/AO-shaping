@@ -1116,11 +1116,12 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
 
     # 18 -> 21 and 15 -> 18 when slm_abba_probe / slm_drift_probe / slm_floor_probe
     # were added upstream; 21 -> 22 and 18 -> 20 when slm_train_data_collect landed
-    # (1 Santec session + 2 camera opens). This guard pins the census so a *refactor*
+    # (1 Santec session + 2 camera opens); 22 -> 23 when gs_refine_replay landed
+    # (1 Santec session, 0 camera opens). This guard pins the census so a *refactor*
     # cannot quietly consolidate device sessions; adding a genuinely new probe is a
     # legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 22, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 20, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 23, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 21, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1129,6 +1130,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/calibration/phase_capture.py": 1,
         "slm/calibration/train_data_collect.py": 1,
         "slm/cartographer/slm_cartographer_ui.py": 1,
+        "slm/gs_refine_replay.py": 1,
         "slm/panel/beam_extent.py": 1,
         "slm/panel/diagnose.py": 1,
         "slm/panel/panel_locate.py": 1,
@@ -1152,6 +1154,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/calibration/lut_runner.py": 2,
         "slm/calibration/phase_capture.py": 2,
         "slm/calibration/train_data_collect.py": 2,
+        "slm/gs_refine_replay.py": 1,
         "slm/panel/beam_extent.py": 1,
         "slm/panel/diagnose.py": 1,
         "slm/panel/panel_locate.py": 1,

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import tqdm
+from loguru import logger
 
 from ao_shaping.algorithm.gradient.adam import learning_schedule
 from ao_shaping.drivers import MIICamera, MlaRes, NlightDM, ThorlabWFS
@@ -188,7 +189,7 @@ def optimizer(
                 if dm.check_dm_unit_grad_safe(_to_update_v):
                     _init_v = _to_update_v
                 else:
-                    print("相邻单元压差过大，放弃本次结果")
+                    logger.warning("相邻单元压差过大，放弃本次结果")
 
                 avg_j = (pos_j + neg_j) / 2
                 if avg_j > 0.2:
@@ -237,7 +238,7 @@ def run():
     res_df = pd.DataFrame(res_list)
     max_j_id = res_df['J'].argmax()
     last_V = res_df.iloc[max_j_id]["_v"]
-    print(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
+    logger.info(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
     fig, ax = plt.subplots(2, 1)
     ax[0].bar(x=np.arange(64)-0.25, height=init_V, width=0.5)

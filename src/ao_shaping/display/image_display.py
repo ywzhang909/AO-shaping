@@ -349,7 +349,6 @@ class ZernikeCalibrationDisplay:
 
     def _render_text(self, text: str, font: pygame.font.Font, color: tuple) -> pygame.Surface:
         '''Render text to a surface.'''
-        import pygame
         return font.render(text, True, color)
 
     def _draw_horizontal_bars(

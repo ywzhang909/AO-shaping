@@ -22,7 +22,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
-from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS, MlaRes
+from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS
 
 
 @dataclass
@@ -219,7 +219,6 @@ class PhaseGrayscaleLUT:
         from ao_shaping.tools.slm.cartographer.hartmann_capture import (
             HartmannCapture,
             HartmannCaptureConfig,
-            HartmannMeasurement,
         )
         from ao_shaping.tools.slm.cartographer.wavefront_reconstruction import (
             FourierWavefrontReconstructor,

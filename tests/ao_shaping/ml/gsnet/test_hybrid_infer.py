@@ -10,6 +10,20 @@ from ml.gsnet.hybrid_phase import CameraSampling
 from ml.gsnet.model import FourierGSNet
 
 
+def test_load_shared_gsnet_checkpoint(tmp_path) -> None:
+    model = FourierGSNet(num_layers=3, base_channels=4, shared_weights=True)
+    checkpoint = tmp_path / "shared.pt"
+    torch.save({
+        "model_state_dict": model.state_dict(),
+        "config": {"num_layers": 3, "base_channels": 4, "shared_weights": True},
+    }, checkpoint)
+    loaded = load_gsnet_checkpoint(checkpoint)
+    assert loaded.shared_weights
+    assert len(loaded.layers) == 1
+    for key, value in model.state_dict().items():
+        assert torch.equal(value, loaded.state_dict()[key])
+
+
 def test_checkpoint_to_debug_artifacts_without_hardware(tmp_path) -> None:
     model = FourierGSNet(num_layers=1, base_channels=4)
     checkpoint = tmp_path / "fourier_gsnet_best.pt"

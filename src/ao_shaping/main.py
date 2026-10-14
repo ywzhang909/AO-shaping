@@ -17,20 +17,18 @@ Commands:
     ga-zernike      GA Zernike优化器
     greedy-zernike  贪婪局部搜索Zernike优化器
     slm-pib         SLM Zernike PIB优化器 (runners/slm/slm_shaping_runner.py)
-    spgd-square     SLM 方形远场均匀性整形 (同一模块的 square 子命令)
     slm-gs-refine   GS 预矫正 + 自由相位 SPGD 细化
     slm-model-in-loop  正向模型闭环校正 + 目标光斑相位合成 (反复迭代)
 
 Examples:
     python main.py --debug wf --epochs 10000
-    python main.py --debug pib --cam_id 1 --epochs 5000
+    python main.py --debug pib --cam-id 1 --epochs 5000
     python main.py --debug gs --target-shape gaussian --use-hardware
     python main.py --debug zernike-matrix --n-max 10
 """
 
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
@@ -58,7 +56,6 @@ from ao_shaping.runners import (
     slm_gsnet_run,
     slm_model_in_loop_run,
     slm_pib_run,
-    slm_square_run,
     wf_run,
     zernike_closed_loop_run,
     zernike_matrix_run,
@@ -116,7 +113,6 @@ cli.add_command(full_voltage_run, name="full-voltage")
 cli.add_command(combined_run, name="combined")
 cli.add_command(slm_lut_run, name="slm-lut")
 cli.add_command(slm_diagnose_run, name="slm-diagnose")
-cli.add_command(slm_square_run, name="spgd-square")
 cli.add_command(slm_gsnet_run, name="slm-gsnet")
 cli.add_command(slm_gs_refine_run, name="slm-gs-refine")
 cli.add_command(slm_model_in_loop_run, name="slm-model-in-loop")

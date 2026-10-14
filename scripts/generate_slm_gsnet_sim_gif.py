@@ -2,7 +2,7 @@
 
 Reads the newest ``data/debug/slm_gsnet_*/**/*.pkl`` debug artifact produced by::
 
-    python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 40 --debug
+    python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 40 --debug
 
 and renders two animated GIFs into ``report/fouriergsnet_sim/gifs/``:
 
@@ -115,7 +115,7 @@ def _resolve_pkl(pkl: str | None) -> Path:
     if not candidates:
         raise click.ClickException(
             "未找到 data/debug/slm_gsnet_*/*/*.pkl — 先运行 "
-            "`python src/ao_shaping/main.py slm-gsnet spgd --cam_type sim --epochs 40 --debug`"
+            "`python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 40 --debug`"
         )
     return Path(candidates[-1])
 

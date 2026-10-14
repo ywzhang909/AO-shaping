@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import hsv_to_rgb
+from loguru import logger
 
 # ================== 1. 全局参数设置 ==================
 N = 256          # 网格数
@@ -113,7 +114,7 @@ class VectorBeamPropagator:
         Ex = Ex_init.astype(complex)
         Ey = Ey_init.astype(complex)
 
-        print(f"🚀 开始传播: {self.Z_total/1000} km...")
+        logger.debug(f"🚀 开始传播: {self.Z_total/1000} km...")
 
         for step in range(self.num_steps):
             # --- 1. 衍射 (频域) ---
@@ -126,7 +127,7 @@ class VectorBeamPropagator:
             Ey *= np.exp(1j * phi_turb)
 
             if (step+1) % (self.num_steps//5) == 0:
-                print(f"   已完成 {(step+1)*100/self.num_steps:.0f}%")
+                logger.debug(f"   已完成 {(step+1)*100/self.num_steps:.0f}%")
 
         return Ex, Ey
 

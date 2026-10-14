@@ -56,6 +56,43 @@ _LINKABLE = re.compile(
 #: reason)``. Each needs a justification, because an unexplained baseline is just
 #: a suppressed failure.
 _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
+    "report/shape_trials/gs_refine_live_20261012.md": {
+        "../../data/debug/slm_gs_refine/20261012_173710/slm_gs_refine_20261012_173710_20261012_173710.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_174456/slm_gs_refine_20261012_174456_20261012_174456.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_174627/slm_gs_refine_20261012_174628_20261012_174628.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_175632/slm_gs_refine_20261012_175632_20261012_175632.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_175810/slm_gs_refine_20261012_175811_20261012_175811.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_175929/slm_gs_refine_20261012_175929_20261012_175929.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+        "../../data/debug/slm_gs_refine/20261012_180222/slm_gs_refine_20261012_180222_20261012_180222.gif": (
+            "hardware capture under data/debug/, which .gitignore:28 "
+            "(`data/*`) keeps out of the repo entirely -- it exists only "
+            "on the collecting machine, so the embed cannot resolve here."
+        ),
+    },
     "report/slm/slm_rms_spgd/0516.md": {
         "image/0516/1778923338908.png": (
             "screenshot never committed -- searched the whole repo by name, it "
@@ -64,6 +101,17 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
         "image/0516/1778923774713.png": (
             "screenshot never committed -- searched the whole repo by name, it "
             "exists nowhere. The embed has always rendered broken."
+        ),
+    },
+    "report/shape_trials/model_in_loop_live_20261013.md": {
+        "../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
+            "points into data/, which .gitignore excludes wholesale ('data/*'), so "
+            "the frame cannot be committed and this href cannot resolve in a fresh "
+            "clone. Baselined deliberately rather than depth-corrected: on a machine "
+            "that still holds the bench data `../../data/...` would resolve, which "
+            "would make the guard pass locally and fail everywhere else -- the "
+            "opposite of what it is for. The report is 人工撰写 and is not "
+            "regenerated, so the link stays as the run author wrote it."
         ),
     },
 }
