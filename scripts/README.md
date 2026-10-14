@@ -1491,6 +1491,115 @@ Reports the paired per-seed differences as well as means, because a mean hides
 a 5/6-consistent effect that is really a 1/6-complete search failure — and states
 the design's **power limit** (`min_attainable_pvalue`) next to every p-value, so
 "not significant" is not misread as "no effect".
+### generate_model_in_loop_cv_report.py
+
+Generates the **K-fold cross-validation** report for the `slm-model-in-loop`
+held-out probes: `report/shape_trials/model_in_loop_cv.md` + `figures/`. **Fully
+offline** — simulated bench only, no camera and no SLM.
+
+The question it answers: the loop splits its probes by a **fixed seed offset**
+(train `seed + index*1000 + k`, holdout the same offset by `1_000_000`), which is
+*one* partition, not cross-validation — so every model change so far has been
+scored against whichever probes happened to land in that reserve. The report
+measures how far the held-out correlation moves when the reserve changes.
+
+**The pairing is the load-bearing part.** Fold `k` uses base seed `seed + k`, so
+each fold gets its own optimiser initialisation, and within a fold the two arms
+share that seed **and the same training probes**, differing only in the reserve.
+Rotating the training probes too would confound "different reserve" with
+"different training set". Pairing is on the fold index, which here *is* the seed
+index — so the comparison is paired along the axis that actually varies, instead
+of counting K folds as K independent replicates (the anti-pattern
+`ml/zernike/cv_harness.py` exists to prevent). The structural floor `2 / 2**K` is
+printed beside every p-value, and at K folds where the test hits that floor the
+report reports the effect size only.
+
+**It drives the real loop, not a copy.** Each fold calls
+`optimize_slm_model_in_loop` on the sim backend through two config knobs that are
+**both default-off** and documented in `SlmModelInLoopConfig`:
+
+- `holdout_on_sim=True` — measure the held-out probes on sim. Without it the sim
+  path never measures them and the score is NaN. It only **measures**: the
+  mismatch *abort* stays gated on `cam_type != "sim"`, because a simulation that
+  aborted would turn a fold into a missing score and the harness wants the number.
+- `probe_split_hook=<fold>` — replace the fixed offset with this fold's reserve.
+  The hook receives the loop's *current* counts, which matters: the acceptance
+  guard **adds probes** on rejection, so a hook answering from a fixed list
+  under-supplies from the second round on. The fold hook therefore delegates the
+  train list back to the legacy rule and pins only the reserve.
+
+No statistics are recomputed here — every number comes from
+`ml/zernike/cv_harness.py` (`build_folds`, `paired_fold_report`,
+`min_attainable_pvalue_folds`) and `ml/zernike/eval_stats.py`. `.csv` is written
+nowhere because the repo ignores `*.csv`; the markdown is the tracked artefact.
+
+```bash
+python scripts/generate_model_in_loop_cv_report.py            # 5 folds, ~5 s
+python scripts/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 round
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--folds` | `5` | K folds (must be >= 2 and <= `--pool-size`) |
+| `--pool-size` | `16` | probe-seed pool a folded reserve is drawn from |
+| `--seed` | `0` | base run seed; fold `k` uses `seed + k` |
+| `--fold-seed` | `20261014` | seed of the partition itself |
+| `--n-rounds` / `--probe-count` / `--holdout-probe-count` | `2` / `4` / `2` | loop budget |
+| `--step-a-iterations` / `--step-b-iterations` | `20` / `20` | Step A / Step B budget |
+| `--quick` | off | smoke mode: 2 folds, 1 round |
+
+### generate_gs_golden_reference.py
+
+Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference.md`
++ `figures/`. **Fully offline** — simulated bench only, no camera and no SLM.
+
+The GS square phase is treated as an **upper bound** — "what a phase-only SLM could
+reach if the forward model were exact" — so a hardware run can be read as *how far
+it sits below the optics*, instead of only against a flat reference. §2 turns the
+GS iteration budget into a measured quantity (the first `n_iters` that clears the
+flat score) rather than a guess.
+
+⚠️ **GS is a comparator, not a baseline, and the report says so in its own
+conclusion.** In this simulation GS wins (quality 0.854 vs flat 0.723, in-box CV
+2.25 → 0.43) because the forward model is exact by construction. The repo records
+the opposite on hardware: GS repeatedly *lost to a flat phase*
+(`report/shape_trials/README.md` — "候选未能战胜平相", SLM reverted to flat), and
+the inverse-shaping package notes GS alone was negative in 90/90 runs. A green
+number in this report is therefore a statement about the simulation, **not** a
+hardware target.
+
+**Read Strehl together with CV and EE, never alone.** GS buys uniformity with
+peak: Strehl 1.00 → 0.13 and relative M² 1.00 → 1.44 while CV falls. Those three
+moving the same way is the *signature of a flat-top transform*, not of an
+aberration — spreading a focus into a square must lower the peak and widen the
+second moment. So a low Strehl here means "energy left the 0-order peak", and it
+cannot be used to judge whether GS failed or whether the wavefront is aberrated.
+
+The 0-order is located by `argmax`, never by geometry (2f bench rule). Nothing
+optical is recomputed in the script: the phase comes from
+`ml/shaping/gs_reference.py::gs_golden_phase` (a torch-free leaf delegating to the
+canonical `gs_shape`), the far field from the canonical `forward_intensity`
+(imported lazily, since `slm_shaping_bench` registers camera backends at import),
+and every metric — including the Strehl / relative-M² APIs — from
+`ao_shaping.utils.image.beam_metrics`.
+
+```bash
+python scripts/generate_gs_golden_reference.py
+python scripts/generate_gs_golden_reference.py --quick    # 3 budgets, 32-px grid
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--n-grid` | `64` | SLM / simulation grid side |
+| `--aperture-size` | `12e-3` | aperture width (m) |
+| `--wavelength` | `1064e-9` | wavelength (m) |
+| `--focal-length` | `0.125` | lens focal length (m) |
+| `--target-side` | `40` | square target side in **far-field** px |
+| `--padding` | `8` | far-field zero-padding factor |
+| `--seed` | `42` | RNG seed |
+| `--iters` | `1,2,5,10,20,50,100,200` | GS iteration budgets to sweep |
+| `--crop` | `96` | figure crop side (far-field px) |
+| `--quick` | off | smoke mode: 3 budgets, tiny grid |
 
 ### generate_beam_shaping_benchmark_report.py
 
