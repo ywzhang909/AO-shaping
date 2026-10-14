@@ -56,7 +56,7 @@
 
 | 位置 | 符号 |
 |---|---|
-| `src/ao_shaping/optimizer/wfless/slm_gs_refine.py:110` | `_TILT_SHIFT_SCALE_PX` |
+| `src/ao_shaping/optimizer/wfless/slm_gs_refine.py:109` | `_TILT_SHIFT_SCALE_PX` |
 | `src/ao_shaping/runners/runner_common.py:137` | `_TILT_SHIFT_SCALE_PX` |
 | `src/ao_shaping/tools/kernels/bench_kernels.py:116` | `TILT_SHIFT_SCALE` |
 | `scripts/slm/generate_bench_probe_report.py:77` | `FALLBACK_TILT_SHIFT_SCALE` |
@@ -81,12 +81,12 @@
 
 | 副作用 | 实测 |
 |---|---|
-| 引入 `ao_shaping.drivers.*` | **是** |
+| 引入 `ao_shaping.drivers.*` | 否 |
 | 引入 `ctypes` | **是** |
 | **加载原生 SDK（`gxipy`）** | 否 |
 
 ⇒ 理由**方向成立但比原文写的弱**：
-驱动包确实被拖进来了，
+驱动包并未被拖进来，
 `ctypes` 也被引入——
 对一个纯离线报告生成器这是不该有的副作用（运行时可见 `register_camera` 的 DEBUG 行）；
 但由于 PEP-562 惰性契约，**真正的原生 SDK 并未被加载**。
@@ -126,7 +126,8 @@ grep 挡不住藏在函数体里的延迟 import）。
 
 runbook 的采集阶段默认探针数（`--probes`，另行扫描）：
 
-- `scripts/slm/model_in_loop_hw_runbook.py:1090: ap.add_argument("--probes", type=int, default=12)`
+- `src/ao_shaping/tools/slm/compare_disturbance.py:177: parser.add_argument("--probes", type=int, default=4)`
+- `scripts/slm/model_in_loop_hw_runbook.py:1095: ap.add_argument("--probes", type=int, default=12)`
 
 ## 5. 提效杠杆（按收益/成本排序）
 
