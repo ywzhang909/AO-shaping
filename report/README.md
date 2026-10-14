@@ -61,9 +61,11 @@
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
 | [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 离线+硬件 | 方形整形实验目录索引 |
+| [`shape_trials/fast_recal_adapter.md`](shape_trials/fast_recal_adapter.md) | `scripts/exp_fast_recal_adapter_report.py (+exp_fast_recal_adapter.py)` | 离线 | 光路变化后少参数在线适配实验 (14 低阶 Zernike / 2 几何标量 / 冻结 CNN 三组互不相交参数); 三类扰动 (低阶像差 / 高阶像差对照 / 几何漂移) x 6 seed 配对, sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; 数据为仿真, 非台架实测 |
 | [`shape_trials/gs_refine_fwdmodel_calibration.md`](shape_trials/gs_refine_fwdmodel_calibration.md) | `scripts/generate_gs_refine_fwdmodel_report.py` | 离线+硬件 | slm-gs-refine 三栏 GIF 第三栏的正向模型标定；本脚本离线重算标定前后对比、补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物 |
 | [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染 |
 | [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | 2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染 |
+| [`shape_trials/online_recal_efficiency.md`](shape_trials/online_recal_efficiency.md) | `scripts/generate_online_recal_efficiency_report.py` | 离线 | 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量 |
 | [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
 | [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/generate_bench_probe_report.py (+slm_zernike_sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
