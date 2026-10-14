@@ -3,7 +3,7 @@
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/generate_bench_probe_report.py`](../../../scripts/generate_bench_probe_report.py)
 > **复现命令**: `python scripts/generate_bench_probe_report.py`
-> **数据/关联脚本**: [`src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`](../../../src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py)
+> **数据/关联脚本**: [`src/ao_shaping/tools/zernike/sweep_probe.py`](../../../src/ao_shaping/tools/zernike/sweep_probe.py)
 > **运行环境**: 离线
 > **说明**: 读台架 sweep 落盘的 npz/json/pkl，仪器可断电
 <!-- provenance:end -->
