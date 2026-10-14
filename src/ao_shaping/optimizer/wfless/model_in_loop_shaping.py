@@ -60,7 +60,12 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
 )
 from ao_shaping.drivers.sim.fouriergsnet_env import BeamParams, SimFourierGSNetEnv
 from ao_shaping.utils.image.beam_metrics import compute_square_metrics, zero_order_center
+from ao_shaping.utils.image.frame_analysis import spot_fwhm
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+
+#: ``spot_fwhm`` was sunk to the leaf ``utils/image`` layer (R-48, #64); this alias
+#: keeps the private name used throughout this module and its tests intact.
+_spot_fwhm = spot_fwhm
 
 #: The twin's Zernike generator is hard-wired to ``n_orders=6``
 #: (``fouriergsnet_env._zernike_generator``) and ``generate_polynomial`` silently
@@ -1266,51 +1271,6 @@ class BenchGeometry:
             The equivalent side in model far-field pixels, at least 1.
         """
         return max(1, int(round(float(camera_px) / self.camera_px_per_model_px)))
-
-
-def _spot_fwhm(image: np.ndarray) -> float:
-    """Spot full-width-at-half-maximum in pixels, averaged over two axes.
-
-    FWHM rather than a second moment on purpose. A speckle pattern has heavy
-    tails, and the second moment weights them by ``r**2``, so it is dominated by
-    a few far-out pixels: on a 2048-px model grid it read ~70x the value the
-    same spot has on a 160-px camera crop, which made the two sides
-    incomparable. FWHM is local and bounded, so it measures the same width on
-    any grid that contains the half-maximum region.
-
-    Args:
-        image: 2D intensity frame.
-
-    Returns:
-        The mean horizontal/vertical FWHM in pixels, or ``nan`` for a
-        degenerate frame.
-    """
-    frame = np.asarray(image, dtype=np.float64)
-    peak_index = np.unravel_index(int(np.argmax(frame)), frame.shape)
-    peak = float(frame[peak_index])
-    if not np.isfinite(peak) or peak <= 0.0:
-        return float("nan")
-    cy, cx = int(peak_index[0]), int(peak_index[1])
-    widths = []
-    for line in (frame[cy, :], frame[:, cx]):
-        half = peak / 2.0
-        idx = np.flatnonzero(line >= half)
-        if idx.size < 2:
-            continue
-        lo, hi = int(idx[0]), int(idx[-1])
-        # Linear interpolation at the two half-maximum crossings.
-        left = lo
-        if lo > 0:
-            y0, y1 = line[lo - 1], line[lo]
-            left = lo - 1 + (half - y0) / (y1 - y0) if y1 != y0 else float(lo)
-        right = hi
-        if hi < line.size - 1:
-            y0, y1 = line[hi], line[hi + 1]
-            right = hi + (y0 - half) / (y0 - y1) if y0 != y1 else float(hi)
-        widths.append(abs(right - left))
-    if not widths:
-        return float("nan")
-    return float(np.mean(widths))
 
 
 def _model_window(
