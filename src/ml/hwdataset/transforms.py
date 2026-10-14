@@ -67,6 +67,7 @@ absolute brightness that encodes the exposure time.
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -86,6 +87,7 @@ __all__ = [
     "DEFAULT_SLM_MAX_GRAY",
     "coherent_block_mean",
     "crop_panel_roi",
+    "expand_active_modes_to_noll",
     "farfield_frame_to_grid",
     "freeform_grid_to_panel",
     "grayscale_to_phase_rad",
@@ -321,6 +323,70 @@ def phase_to_grid(
             the panel entirely.
     """
     return coherent_block_mean(crop_panel_roi(phase_rad, center, radius), grid)
+
+
+def expand_active_modes_to_noll(
+    coeffs: NDArray[np.floating],
+    *,
+    active_modes: Sequence[tuple[int, int]],
+    n_max: int,
+) -> NDArray[np.float64]:
+    """Scatter an active-mode coefficient vector into a full Noll vector.
+
+    Some families drive only a subset of the Zernike basis -- the square family's
+    zernike basis is defocus plus spherical by default -- and store ``_c`` over
+    just those modes. :func:`zernike_coeffs_to_panel` rejects a short vector
+    rather than mis-padding it, so the active values have to be placed at their
+    own Noll positions first, with every undriven mode left at exactly zero.
+
+    The mapping comes from the canonical ``noll_indices``, never a re-derived
+    table: index ``i`` there is Noll ``j = i + 1``, which is the convention flat
+    coefficient arrays use.
+
+    Args:
+        coeffs: One coefficient per entry of ``active_modes``, in the same order.
+        active_modes: The ``(n, m)`` pairs ``coeffs`` spans.
+        n_max: Radial order of the full vector to produce.
+
+    Returns:
+        A ``float64`` array of length ``(n_max+1)(n_max+2)//2``.
+
+    Raises:
+        ValueError: If ``coeffs`` and ``active_modes`` disagree in length, or a
+            declared mode is absent from the Noll set at this ``n_max`` -- which
+            would otherwise place a coefficient on the wrong mode.
+    """
+    from ao_shaping.utils.wavefront.zernike_calc import (
+        calc_n_zernike_terms,
+        noll_indices,
+    )
+
+    values = np.asarray(coeffs, dtype=np.float64).ravel()
+    modes = [(int(n), int(m)) for n, m in active_modes]
+    if values.size != len(modes):
+        raise ValueError(
+            f"coeffs has {values.size} entries but {len(modes)} active modes were "
+            "declared; the two must correspond one-to-one"
+        )
+
+    order = noll_indices(n_max)
+    expected = calc_n_zernike_terms(n_max)
+    if len(order) != expected:
+        raise ValueError(
+            f"noll_indices(n_max={n_max}) returned {len(order)} modes, expected "
+            f"{expected}; refusing to scatter against a mismatched basis"
+        )
+
+    position = {mode: index for index, mode in enumerate(order)}
+    full = np.zeros(expected, dtype=np.float64)
+    for value, mode in zip(values, modes):
+        if mode not in position:
+            raise ValueError(
+                f"mode {mode} is not in the Noll set for n_max={n_max}; refusing "
+                "to place a coefficient on a mode the basis does not contain"
+            )
+        full[position[mode]] = value
+    return full
 
 
 def zernike_coeffs_to_panel(

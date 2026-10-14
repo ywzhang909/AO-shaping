@@ -662,6 +662,24 @@ def _square_json_payload(
             "delta_pinned": config.delta_pinned,
             "lr": config.lr,
             "n_max": config.n_max,
+            # Which Zernike modes `_c` actually spans. On the zernike basis `_c`
+            # holds ONLY the active modes, so `len(_c)` is neither triangular nor a
+            # perfect square and ml/hwdataset drops the whole family as
+            # `odd_coefficient_length`; these two are what let it rebuild a
+            # full-length Noll vector. `zernike_mask` cannot substitute -- it is
+            # None on a default run. Do not drop these as redundant with it.
+            "active_modes": (
+                [[int(n), int(m)] for n, m in _active_zernike_modes(
+                    config.n_max, config.zernike_mask
+                )[1]]
+                if config.basis == "zernike"
+                else None
+            ),
+            "n_terms_total": (
+                (config.n_max + 1) * (config.n_max + 2) // 2
+                if config.basis == "zernike"
+                else None
+            ),
             "zernike_radius": config.zernike_radius,
             "zernike_mask": (
                 np.asarray(config.zernike_mask).tolist()

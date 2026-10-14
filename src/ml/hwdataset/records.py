@@ -102,6 +102,7 @@ from ml.hwdataset.transforms import (
     DEFAULT_PANEL_CENTER,
     DEFAULT_PANEL_RADIUS,
     DEFAULT_SLM_MAX_GRAY,
+    expand_active_modes_to_noll,
     farfield_frame_to_grid,
     freeform_grid_to_panel,
     grayscale_to_phase_rad,
@@ -1053,6 +1054,14 @@ class Materialiser:
                 )
             coeffs = _require_field(record, ref, _COEFF_KEY)
             _require_finite(coeffs, ref, _COEFF_KEY)
+            if ref.active_modes is not None:
+                # `_c` spans only the driven modes; zernike_coeffs_to_panel
+                # rejects a short vector rather than mis-padding it, so scatter.
+                coeffs = expand_active_modes_to_noll(
+                    coeffs,
+                    active_modes=ref.active_modes,
+                    n_max=int(ref.n_max),
+                )
             return zernike_coeffs_to_panel(
                 coeffs,
                 n_max=int(ref.n_max),
