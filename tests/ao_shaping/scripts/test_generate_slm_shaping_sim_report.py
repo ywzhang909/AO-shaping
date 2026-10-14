@@ -1,4 +1,4 @@
-"""Regression tests for ``scripts/generate_slm_shaping_sim_report.py``.
+"""Regression tests for ``scripts/slm/generate_slm_shaping_sim_report.py``.
 
 Three contracts matter here, and all three were violated at least once during
 development:
@@ -35,7 +35,7 @@ if str(ROOT) not in sys.path:
 
 
 def _load_generator():
-    script = ROOT / "scripts" / "generate_slm_shaping_sim_report.py"
+    script = ROOT / "scripts" / "slm" / "generate_slm_shaping_sim_report.py"
     spec = importlib.util.spec_from_file_location("_slm_shaping_sim_report", script)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)
@@ -199,7 +199,7 @@ class TestNoArtefactsDegradesGracefully:
         import importlib.util as iu
 
         spec = iu.spec_from_file_location(
-            "_run_sim_bench", ROOT / "scripts" / "run_sim_bench.py"
+            "_run_sim_bench", ROOT / "scripts" / "slm" / "run_sim_bench.py"
         )
         mod = iu.module_from_spec(spec)
         # A module using @dataclass resolves its own module through

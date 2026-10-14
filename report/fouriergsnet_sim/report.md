@@ -1,10 +1,10 @@
 # FourierGSNet 湍流仿真矩阵报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_fouriergsnet_sim_report.py`](../../scripts/generate_fouriergsnet_sim_report.py)
-> **复现命令**: `python scripts/generate_fouriergsnet_sim_report.py`
-> **数据/关联脚本**: [`scripts/fouriergsnet_sim_train.py`](../../scripts/fouriergsnet_sim_train.py)
-> **数据/关联脚本**: [`scripts/generate_slm_gsnet_sim_gif.py`](../../scripts/generate_slm_gsnet_sim_gif.py)
+> **生成脚本**: [`scripts/slm/generate_fouriergsnet_sim_report.py`](../../scripts/slm/generate_fouriergsnet_sim_report.py)
+> **复现命令**: `python scripts/slm/generate_fouriergsnet_sim_report.py`
+> **数据/关联脚本**: [`scripts/slm/fouriergsnet_sim_train.py`](../../scripts/slm/fouriergsnet_sim_train.py)
+> **数据/关联脚本**: [`scripts/slm/generate_slm_gsnet_sim_gif.py`](../../scripts/slm/generate_slm_gsnet_sim_gif.py)
 > **运行环境**: 离线
 > **说明**: 数据由 fouriergsnet_sim_train.py 产生；gifs/ 由 generate_slm_gsnet_sim_gif.py 追加
 <!-- provenance:end -->
@@ -14,7 +14,7 @@
 **生成时间**: 2026-09-29 11:06:15
 **数据来源**: `data/fouriergsnet_sim/native_w4b` (⚠️ 2026-10-01: 原文是 POSIX 绝对路径 `<repo-root>/...`, 来自另一台机器, 本 checkout 不可用) (矩阵运行时间 2026-09-22 23:46:10)
 
-**Fully offline** — 本报告由 `scripts/generate_fouriergsnet_sim_report.py` 离线生成, 仅读取已保存的矩阵产物 (config/summary/metrics/frames), 不打开任何硬件。
+**Fully offline** — 本报告由 `scripts/slm/generate_fouriergsnet_sim_report.py` 离线生成, 仅读取已保存的矩阵产物 (config/summary/metrics/frames), 不打开任何硬件。
 
 ## 1. 矩阵配置
 
@@ -253,7 +253,7 @@
 
 > 本矩阵运行命令 (摘自 `config.json`):
 > ```bash
-> scripts/fouriergsnet_sim_train.py --shapes square,gaussian --aberrations
+> scripts/slm/fouriergsnet_sim_train.py --shapes square,gaussian --aberrations
 >     none,defocus,mixed --turbulence off,slow --steps 30 --k-px 512 --no-replay --device
 >     cuda --native --out data/fouriergsnet_sim/native_w4b
 > ```
@@ -427,7 +427,7 @@ python src/ao_shaping/main.py slm-gsnet spgd --cam-type sim --epochs 40 --debug
 
 **结果** (本次运行): best quality = 0.5874 @ epoch 8 (CV=5.60, EE=0.979, AR=1.05),
 final quality = 0.5862 (CV=5.32, EE=0.977, AR=1.00)。GIF 由
-`scripts/generate_slm_gsnet_sim_gif.py` 从 `--debug` 产物 (PKL 中逐 epoch 的
+`scripts/slm/generate_slm_gsnet_sim_gif.py` 从 `--debug` 产物 (PKL 中逐 epoch 的
 `_img`/`_c`) 离线渲染:
 
 ![slm_gsnet_spgd_sim_far](gifs/slm_gsnet_spgd_sim_far.gif)
@@ -446,5 +446,5 @@ final quality = 0.5862 (CV=5.32, EE=0.977, AR=1.00)。GIF 由
 
 ---
 
-本报告由 `scripts/generate_fouriergsnet_sim_report.py` 离线生成。
-(§5.6 的 GIF 由 `scripts/generate_slm_gsnet_sim_gif.py` 生成)
+本报告由 `scripts/slm/generate_fouriergsnet_sim_report.py` 离线生成。
+(§5.6 的 GIF 由 `scripts/slm/generate_slm_gsnet_sim_gif.py` 生成)

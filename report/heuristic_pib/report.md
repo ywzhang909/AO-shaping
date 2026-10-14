@@ -1,8 +1,8 @@
 # Heuristic PIB Benchmark Report
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_heuristic_pib_report.py`](../../scripts/generate_heuristic_pib_report.py)
-> **复现命令**: `python scripts/generate_heuristic_pib_report.py`
+> **生成脚本**: [`scripts/slm/generate_heuristic_pib_report.py`](../../scripts/slm/generate_heuristic_pib_report.py)
+> **复现命令**: `python scripts/slm/generate_heuristic_pib_report.py`
 > **运行环境**: 离线
 > **说明**: 7 种启发式 + PIB 目标；summary.csv 为本脚本产物
 <!-- provenance:end -->
@@ -49,4 +49,4 @@ PIB >= ~0.9 with `best_x` near the global center = found the global basin; PIB ~
 
 **Convergence speed** (`Iters to max` / `Iters ≥ 0.9` / `Iters ≥ 0.5`): the first iteration at which the PIB curve reaches its final maximum, crosses 0.9, and crosses 0.5, respectively (convergence history is best-so-far, so the curves are monotone). '—' means the threshold was never reached within the iteration budget.
 
-This report is generated offline by `scripts/generate_heuristic_pib_report.py` and can be regenerated at any time without hardware.
+This report is generated offline by `scripts/slm/generate_heuristic_pib_report.py` and can be regenerated at any time without hardware.

@@ -267,7 +267,7 @@ class SlmZernikePibConfig:
     # 0.2 rad, NOT 0.1: the measured noise floor of the shaping objective is
     # dJ_noise = 4e-4 and a 0.1 rad perturbation moves J by only 2.8e-4
     # (SNR 0.69 -> the SPGD gradient is noise). 0.2 rad gives SNR 2.77
-    # (measured on the bench by scripts/measure_shape_sensitivity.py).
+    # (measured on the bench by scripts/slm/measure_shape_sensitivity.py).
     delta: float = 0.2
     lr: float = 0
     shrink_iter: int = 0

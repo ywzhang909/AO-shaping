@@ -598,7 +598,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 |---|---|---|---|
 | `micro_drive/alt_voltage_runner.py` | **5** | `runners.alt_voltage_runner` | `runners.micro_drive.alt_voltage_runner` |
 | `micro_drive/full_voltage_runner.py` | **4** | `runners.full_voltage_runner` | `runners.micro_drive.full_voltage_runner` |
-| `scripts/generate_zernike_response_matrix_report.py` | 1 | `runners.zernike_matrix_runner` | `runners.slm.zernike_matrix_runner` |
+| `scripts/zernike_bench/generate_zernike_response_matrix_report.py` | 1 | `runners.zernike_matrix_runner` | `runners.slm.zernike_matrix_runner` |
 | `tools/slm/cartographer/__init__.py` | 1 | `ao_shaping.tools.slm.cartographer`（**包无 `__main__`**） | `...cartographer.slm_cartographer_ui` |
 
 ⚠️ **第一处最严重**：那条路径是被 `md.append(...)` **写进生成报告里**的，
@@ -609,7 +609,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 
 **2 条合法不解析，走白名单（各带理由）**：
 - `utils/io/cli_helpers.py` 里的 `python -m ao_shaping.runners...` 是散文式 glob；
-- `scripts/generate_gsnet_offline_report.py` 明说 `gsnet_train` 是库模块、
+- `scripts/slm/generate_gsnet_offline_report.py` 明说 `gsnet_train` 是库模块、
   **该调用方式无效** —— 是**文档在正确地报错**。
 
 **历史文档按路径排除**：带日期的日报、已封存的报告**本来就应该**记录当时的路径，
@@ -671,7 +671,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 | `to_dataframe(rows)` | 它是 `run_benchmark_suite` **返回值**里的 DataFrame 投影，返回类型属于 API |
 | `HPRINT_KEYS` | 列契约 |
 
-序列化全部移到 `scripts/generate_beam_shaping_benchmark_report.py`；
+序列化全部移到 `scripts/slm/generate_beam_shaping_benchmark_report.py`；
 `run_device_less_full.py` 因被文档引用而保留为转发壳。
 
 #### F-15：权威产物从「不可用」变成「已提交」
@@ -1236,7 +1236,7 @@ logger.debug(
 1. **直接赋值**而非 `setattr`（意图明确，不靠读者推断）；
 2. **写明为什么是属性而不是列**（避免下次有人"顺手"改成列）；
 3. **加测试钉住**：断言两侧都不用 `setattr`、都直接赋值，
-   并断言唯一消费者 `scripts/compare_shape_objectives.py:258`
+   并断言唯一消费者 `scripts/slm/compare_shape_objectives.py:258`
    的 `getattr(rec, "energy_loss_violations", 0)` 读法成立。
 
 #### 过程失误：同一个错误犯两次
@@ -1293,7 +1293,7 @@ that calls them"）。
 第 1 个 variant 的第 1 次运行和最后 1 个 variant 的第 1 次运行打印出的字符串完全一样。
 操作者无法回答"现在到第几个了、还剩多少"。
 
-**改动**（`scripts/repeat_shape_objectives.py`）：
+**改动**（`scripts/slm/repeat_shape_objectives.py`）：
 
 * 抽出纯函数 `_progress_label(...)`，把三层计数拼成一行：
   `=== run {i}/{N} | variant {v}/{V} '{slug}' | rep {r}/{R} ===`；
@@ -1578,7 +1578,7 @@ R-19 本体（对称 BenchSession）没动，但先做它的**注入机制**那�
 | 位置 | 覆盖的模块 |
 |---|---|
 | `runners/slm_gsnet_runner.py:220 _maybe_sim_patch` | `slm_square_shaping` |
-| `scripts/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
+| `scripts/slm/slm_pib_sim_run.py:309 _patch_santec` | `slm_zernike_pib` |
 
 > ⚠️ **2026-10-05 后续**：两份 runner 侧补丁已抽成
 > `runners/runner_common.py::patch_sim_square_shaping` / `patch_sim_pib_shaping`

@@ -1,6 +1,6 @@
 """Tests for the model-in-the-loop hardware runbook script.
 
-The device-facing code in ``scripts/model_in_loop_hw_runbook.py`` cannot be
+The device-facing code in ``scripts/slm/model_in_loop_hw_runbook.py`` cannot be
 exercised without the bench, so it is driven here against mock SLM/camera
 objects. That covers the parts most likely to be wrong in a way a dry run
 misses: the radian-vs-gray conversion call, ``display_data`` arguments, the
@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-SCRIPT = ROOT / "scripts" / "model_in_loop_hw_runbook.py"
+SCRIPT = ROOT / "scripts" / "slm" / "model_in_loop_hw_runbook.py"
 PANEL_H, PANEL_W = 1200, 1920
 
 

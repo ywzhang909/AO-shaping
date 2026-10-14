@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 
 ROOT = Path(__file__).resolve().parents[3]
-GENERATOR = ROOT / "scripts" / "generate_bench_probe_report.py"
+GENERATOR = ROOT / "scripts" / "slm" / "generate_bench_probe_report.py"
 
 
 def _load_generator() -> Any:

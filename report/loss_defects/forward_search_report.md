@@ -1,18 +1,18 @@
 # 正向模型改进尝试：逐项贡献、术语与图解读
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_forward_search_report.py`](../../scripts/generate_forward_search_report.py)
-> **复现命令**: `python scripts/forward_search.py && python scripts/generate_forward_search_report.py`
-> **数据/关联脚本**: [`scripts/forward_search.py`](../../scripts/forward_search.py)
-> **数据/关联脚本**: [`scripts/inverse_strong_phase.py`](../../scripts/inverse_strong_phase.py)
-> **数据/关联脚本**: [`scripts/probe_device_metadata.py`](../../scripts/probe_device_metadata.py)
-> **数据/关联脚本**: [`scripts/check_ellipse_term.py`](../../scripts/check_ellipse_term.py)
+> **生成脚本**: [`scripts/ml/generate_forward_search_report.py`](../../scripts/ml/generate_forward_search_report.py)
+> **复现命令**: `python scripts/ml/forward_search.py && python scripts/ml/generate_forward_search_report.py`
+> **数据/关联脚本**: [`scripts/ml/forward_search.py`](../../scripts/ml/forward_search.py)
+> **数据/关联脚本**: [`scripts/ml/inverse_strong_phase.py`](../../scripts/ml/inverse_strong_phase.py)
+> **数据/关联脚本**: [`scripts/ml/probe_device_metadata.py`](../../scripts/ml/probe_device_metadata.py)
+> **数据/关联脚本**: [`scripts/ml/check_ellipse_term.py`](../../scripts/ml/check_ellipse_term.py)
 > **运行环境**: 离线
 > **说明**: 正向模型改进尝试: 设备参数/椭圆loss/attention/U-Net/图像增强, 3 seed 配对
 <!-- provenance:end -->
 
-> **生成脚本**: `scripts/generate_forward_search_report.py`（图）+ `scripts/forward_search.py`（数据）
-> **复现命令**: `python scripts/forward_search.py` 然后 `python scripts/generate_forward_search_report.py`
+> **生成脚本**: `scripts/ml/generate_forward_search_report.py`（图）+ `scripts/ml/forward_search.py`（数据）
+> **复现命令**: `python scripts/ml/forward_search.py` 然后 `python scripts/ml/generate_forward_search_report.py`
 > **运行环境**: 离线（纯 torch + 项目自带仿真器，无硬件）
 > **说明**: 3 seed 配对测量。过程记录见 [`PROCESS.md`](PROCESS.md)。
 
@@ -168,7 +168,7 @@ R² 会惩罚丢失的峰值结构，所以 R² 打平；而 SSIM 不会。
 
 先问「数据里有没有东西可融」，再问「融进去有没有用」。这一步的答案是：**没有**。
 
-`scripts/probe_device_metadata.py` 逐 family 统计曝光值：
+`scripts/ml/probe_device_metadata.py` 逐 family 统计曝光值：
 
 | family | 样本数 | 曝光 (ms) | 有变化吗 |
 |---|---|---|---|
@@ -192,7 +192,7 @@ R² 会惩罚丢失的峰值结构，所以 R² 打平；而 SSIM 不会。
 新增 `ml.zernike.losses.ellipse_gap_term` / `ellipse_parameters`，
 CLI 为 `python -m ml.zernike.train_amp --w-ellipse 0.2`。
 
-单元验证（`scripts/check_ellipse_term.py`）：
+单元验证（`scripts/ml/check_ellipse_term.py`）：
 
 | 情形 | 椭圆误差 | 径向二阶矩误差 |
 |---|---|---|
@@ -273,7 +273,7 @@ attention 第三次被否（前两次在 README §7）。U-Net 的 R² 差在 se
 ## 5. 逆向优化相位实验（因为正向没有改进，所以单独验证逆向）
 
 任务要求「如果改进有效则实验反向优化相位」。正向**没有**有效改进，
-但强相位增强本来就是为逆向设计的，所以仍在 `scripts/inverse_strong_phase.py`
+但强相位增强本来就是为逆向设计的，所以仍在 `scripts/ml/inverse_strong_phase.py`
 里单独验证，并修掉一个必须先修的前置问题：
 
 **padding 必须全链一致。** GS 算法在自己的 64×64 远场网格（即 padding=1 的尺度）上工作。
@@ -298,7 +298,7 @@ attention 第三次被否（前两次在 README §7）。U-Net 的 R² 差在 se
 而且三个 arm 全部比「什么都不做（平场）」差 0.48 ~ 0.51。**
 逆向优化仍然是失败的 —— 合成强相位数据没有修复它。
 
-### 既然 D2 有效，就按要求再验一次逆向（scripts/inverse_combined.py）
+### 既然 D2 有效，就按要求再验一次逆向（scripts/ml/inverse_combined.py）
 
 用户的要求是「如果改进有效则实验反向优化相位」。D2 有效（5/5 配对），
 所以条件成立，用三个 arm 在同一 padding 下重测逆向：

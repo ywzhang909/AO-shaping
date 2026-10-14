@@ -9,7 +9,7 @@
   ``sys.path`` 并用 ``ctypes.CDLL`` 预加载原生 ``MIIUSB.dll``;
 * ``daheng/driver.py`` 导入 ``gxipy`` 绑定。
 
-最典型的受害者是离线报告脚本 ``scripts/generate_shape_objective_comparison.py``
+最典型的受害者是离线报告脚本 ``scripts/slm/generate_shape_objective_comparison.py``
 —— 它只想拿到纯函数 ``square_quality_score``, 却打印出
 ``MIICAM SDK set up successfully`` 并触发 gxipy 缺失报错。
 
@@ -36,7 +36,7 @@ _SDK_MODULES = ("miicam", "gxipy")
 # 离线报告脚本只需纯函数, 不应触发任何原生 SDK。
 _OFFLINE_CONSUMERS = (
     "ao_shaping.drivers.ccd.common",
-    "scripts.generate_shape_objective_comparison",
+    "scripts.slm.generate_shape_objective_comparison",
 )
 
 

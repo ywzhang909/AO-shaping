@@ -1,10 +1,10 @@
 # SLM 整形目标函数实验报告 —— Pearson 迁移与参数标定
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_pib_bench_report.py`](../../scripts/generate_pib_bench_report.py)
-> **复现命令**: `python scripts/generate_pib_bench_report.py`
-> **数据/关联脚本**: [`scripts/generate_shape_objective_comparison.py`](../../scripts/generate_shape_objective_comparison.py)
-> **数据/关联脚本**: [`scripts/measure_shape_sensitivity.py`](../../scripts/measure_shape_sensitivity.py)
+> **生成脚本**: [`scripts/slm/generate_pib_bench_report.py`](../../scripts/slm/generate_pib_bench_report.py)
+> **复现命令**: `python scripts/slm/generate_pib_bench_report.py`
+> **数据/关联脚本**: [`scripts/slm/generate_shape_objective_comparison.py`](../../scripts/slm/generate_shape_objective_comparison.py)
+> **数据/关联脚本**: [`scripts/slm/measure_shape_sensitivity.py`](../../scripts/slm/measure_shape_sensitivity.py)
 > **运行环境**: 离线
 > **说明**: 台架验收总报告；含 Pearson 迁移与参数标定两节
 <!-- provenance:end -->
@@ -18,7 +18,7 @@
 **数据来源**: `data/debug/slm_pib_*` (44 个搜索 run)、`data/debug/slm_pib_online/*` (3 次 SNR 扫描 + 8 次 smoke)
 
 > 本文是**结论汇总**。所有数字均可由离线脚本复现:
-> - 台架验收报告: `report/slm_pib_bench/report.md` (`scripts/generate_pib_bench_report.py`)
+> - 台架验收报告: `report/slm_pib_bench/report.md` (`scripts/slm/generate_pib_bench_report.py`)
 > - 离线三目标对比: `report/slm_pib_online/objective_comparison.md`
 > - 实机三目标对比: `report/slm_pib_online_hw/objective_comparison.md`
 >
@@ -194,7 +194,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
 | `snr_verdict` | 阈值 → strong / usable / unusable |
 | `SnrSweepResult.usable_deltas` | **按多模式 SNR** 给出的可用 delta |
 
-消费者: `scripts/measure_shape_sensitivity.py` 与硬件门控测试
+消费者: `scripts/slm/measure_shape_sensitivity.py` 与硬件门控测试
 `tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py` 均委托该工具, 不会再各自漂移。
 离线可测: `tests/ao_shaping/tools/test_slm_snr_probe.py` (33 例, 纯 fake 设备)。
 
@@ -248,15 +248,15 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
 $env:PYTHONPATH = "src;libs"
 
 # 离线台架验收报告 (不需硬件)
-python scripts/generate_pib_bench_report.py
+python scripts/slm/generate_pib_bench_report.py
 
 # 实机 SNR / smoke (需设备; 结果写入 data/debug/slm_pib_online/<ts>/)
 $env:AO_RUN_HARDWARE = "1"
 uv run pytest tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py -v -s
 
 # 离线 SNR 扫描 (需设备)
-python scripts/measure_shape_sensitivity.py --deltas 0.002,0.01,0.1
+python scripts/slm/measure_shape_sensitivity.py --deltas 0.002,0.01,0.1
 
 # 三目标排序对比
-python scripts/generate_shape_objective_comparison.py --root data/debug/slm_pib_hw_20260929 -o report/slm_pib_online_hw
+python scripts/slm/generate_shape_objective_comparison.py --root data/debug/slm_pib_hw_20260929 -o report/slm_pib_online_hw
 ```

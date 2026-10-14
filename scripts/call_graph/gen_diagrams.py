@@ -4,7 +4,7 @@ import json, re
 from pathlib import Path
 from collections import defaultdict
 
-base = Path(__file__).resolve().parents[1] / "docs" / "dev" / "call_graph_wiki" / "raw" / "assets"
+base = Path(__file__).resolve().parents[2] / "docs" / "dev" / "call_graph_wiki" / "raw" / "assets"
 data = json.loads((base / "call_graph_final.json").read_text())
 nodes, edges = data["nodes"], data["edges"]
 cmd = data["cmd_entries"]  # symbol -> module.func

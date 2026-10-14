@@ -1,8 +1,8 @@
 # 整形目标函数对比报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_shape_objective_comparison.py`](../../scripts/generate_shape_objective_comparison.py)
-> **复现命令**: `python scripts/generate_shape_objective_comparison.py`
+> **生成脚本**: [`scripts/slm/generate_shape_objective_comparison.py`](../../scripts/slm/generate_shape_objective_comparison.py)
+> **复现命令**: `python scripts/slm/generate_shape_objective_comparison.py`
 > **运行环境**: 离线
 > **说明**: 三种整形目标函数的排序一致性 (Spearman)
 <!-- provenance:end -->
@@ -204,5 +204,5 @@
 ## 5. 复现
 
 ```bash
-python scripts/generate_shape_objective_comparison.py
+python scripts/slm/generate_shape_objective_comparison.py
 ```

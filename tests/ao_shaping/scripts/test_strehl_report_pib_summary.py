@@ -25,7 +25,7 @@ import pandas as pd
 import pytest
 
 _ROOT = Path(__file__).resolve().parents[3]
-_SCRIPT = _ROOT / "scripts" / "generate_strehl_benchmark_report.py"
+_SCRIPT = _ROOT / "scripts" / "slm" / "generate_strehl_benchmark_report.py"
 
 
 def _load_module():

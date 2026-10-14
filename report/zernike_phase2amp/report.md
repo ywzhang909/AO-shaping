@@ -1,20 +1,20 @@
 # Zernike 远场模型 —— 开发报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_zernike_amp_report.py`](../../scripts/generate_zernike_amp_report.py)
-> **复现命令**: `python scripts/generate_zernike_amp_report.py`
-> **数据/关联脚本**: [`scripts/sweep_zernike_models.py`](../../scripts/sweep_zernike_models.py)
-> **数据/关联脚本**: [`scripts/compare_models_cv.py`](../../scripts/compare_models_cv.py)
+> **生成脚本**: [`scripts/ml/generate_zernike_amp_report.py`](../../scripts/ml/generate_zernike_amp_report.py)
+> **复现命令**: `python scripts/ml/generate_zernike_amp_report.py`
+> **数据/关联脚本**: [`scripts/ml/sweep_zernike_models.py`](../../scripts/ml/sweep_zernike_models.py)
+> **数据/关联脚本**: [`scripts/ml/compare_models_cv.py`](../../scripts/ml/compare_models_cv.py)
 > **运行环境**: 离线
 > **说明**: 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生
 <!-- provenance:end -->
 
 **本轮结论**（Zernike 远场模型系统扫描）：(1) 采用 10 折分组交叉验证 + 配对符号翻转精确检验作为权威对比协议（`compare_models_cv.py`），统计唯一来源为 `ml/zernike/eval_stats.py`，报告脚本只做渲染。(2) 物理模型（闭式 Zernike 基合成）与学习式模型在同一语料上对比的结论以 §7 分组 CV 为准，原始对照表（`unet_comparison.md`）已标记 superseded。(3) 复现纪律：本文数字对应修复前的 lr 漏传缺陷（实际 lr=0.05 而非命令行所写 0.02，summary.json history 首行 lr≈0.0498 为实测证据）；该缺陷已修复，**照抄现命令将得到不可比结果**，复现本文轮次必须显式 `--lr 0.05`。此案例确立了"复现命令必须与产生数据的实际超参逐字段核对"的报告规范。
 
-> 生成脚本 `scripts/generate_zernike_amp_report.py`（**全离线**，只读已保存产物，不需要硬件）。
+> 生成脚本 `scripts/ml/generate_zernike_amp_report.py`（**全离线**，只读已保存产物，不需要硬件）。
 > 图表数据来自 `logs/zernike_amp_sweep.json`（10 折分组交叉验证扫描）与
 > `logs/zernike_amp_final/summary.json`（训练历史，即当时上传 wandb 的那一组序列）。
-> 重新生成：`python scripts/generate_zernike_amp_report.py`
+> 重新生成：`python scripts/ml/generate_zernike_amp_report.py`
 
 本报告的所有结论都建立在一个前提上：**分组交叉验证 + 配对检验**。第 5、6 节解释为什么
 必须如此 —— 它是本项目四次结论反转的根源，其中两次来自同一个错误：
@@ -508,12 +508,12 @@ self-confirmation bias 直接量化出来了。
 
 ```bash
 # 扫描并落盘（10 折分组 CV，约 30 min 单卡）
-python scripts/sweep_zernike_models.py
+python scripts/ml/sweep_zernike_models.py
 # 只重跑调优后的最终对比，复用已保存的网格
-python scripts/sweep_zernike_models.py --final-only
+python scripts/ml/sweep_zernike_models.py --final-only
 
 # 生成图与本报告（全离线）
-python scripts/generate_zernike_amp_report.py
+python scripts/ml/generate_zernike_amp_report.py
 
 # 训练 + wandb（无 key 时离线）
 # ⚠️ 这条命令是**修复前**写下的：`train_amp.optimizer_fit_config()` 当时漏传 `lr`，
@@ -525,10 +525,10 @@ python -m ml.zernike.train_amp --n-max 20 --epochs 50 --lr 0.05 \\
     --max-train 1010 --beam-samples 96 --out-dir logs/zernike_amp_final
 
 # 权威对比：分组 CV + 配对精确检验
-python scripts/compare_models_cv.py --protocol both
+python scripts/ml/compare_models_cv.py --protocol both
 
 # 不重训、只重算统计量
-python scripts/compare_models_cv.py --analyse logs/models_cv_objective.json
+python scripts/ml/compare_models_cv.py --analyse logs/models_cv_objective.json
 
 # 测试
 python -m pytest tests/ao_shaping/ml/zernike -q                        # 67

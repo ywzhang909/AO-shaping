@@ -1475,7 +1475,7 @@ def patch_sim_pib_shaping(cam_type: str) -> None:
     """Route the PIB optimizer (``slm-pib``) onto the 2f-Fourier digital twin.
 
     Deliberately does **not** reset the simulated system. The PIB sim harness
-    (``scripts/slm_pib_sim_run.py``) installs its own seeded system *with* a
+    (``scripts/slm/slm_pib_sim_run.py``) installs its own seeded system *with* a
     wavefront disturbance and wraps ``reset_system`` so every call re-attaches
     it; a reset here would replace that system with an unseeded, disturbance-free
     one and the run would silently contradict its own companion manifest. The

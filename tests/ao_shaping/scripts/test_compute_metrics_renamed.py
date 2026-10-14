@@ -37,7 +37,7 @@ CANONICAL = {
     "compute_bench_metrics": (
         "src/ao_shaping/algorithm/signal_processing/square_shaping.py"
     ),
-    "compute_cv_ee": "scripts/generate_diff_shaping_report.py",
+    "compute_cv_ee": "scripts/slm/generate_diff_shaping_report.py",
 }
 
 AMBIGUOUS = "compute_metrics"
@@ -90,7 +90,7 @@ def test_the_three_contracts_stay_distinct() -> None:
     import sys
 
     beam_metrics = REPO_ROOT / "src/ao_shaping/utils/image/beam_metrics.py"
-    diff_shaping = REPO_ROOT / "scripts/generate_diff_shaping_report.py"
+    diff_shaping = REPO_ROOT / "scripts/slm/generate_diff_shaping_report.py"
 
     def load(path: Path, alias: str):
         spec = importlib.util.spec_from_file_location(alias, path)

@@ -1,8 +1,8 @@
 # Zernike 相位 → WFS 读数分布报告
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_zernike_wfs_report.py`](../../../scripts/generate_zernike_wfs_report.py)
-> **复现命令**: `python scripts/generate_zernike_wfs_report.py`
+> **生成脚本**: [`scripts/zernike_bench/generate_zernike_wfs_report.py`](../../../scripts/zernike_bench/generate_zernike_wfs_report.py)
+> **复现命令**: `python scripts/zernike_bench/generate_zernike_wfs_report.py`
 > **运行环境**: 硬件
 > **说明**: 需 Santec SLM-200 + Thorlabs WFS；phase/ 与 wfs/ 为本脚本产物
 <!-- provenance:end -->

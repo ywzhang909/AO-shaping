@@ -87,7 +87,7 @@ from ao_shaping.drivers.sim.optics import SimulatedSLM
 # ``MIIUSB.dll``, and ``daheng.driver`` imports the ``gxipy`` bindings. This
 # module executes before *any* ``ao_shaping.*`` submodule import, so an eager
 # import here would drag both native SDKs into every consumer, including purely
-# offline code such as ``scripts/generate_shape_objective_comparison.py`` that
+# offline code such as ``scripts/slm/generate_shape_objective_comparison.py`` that
 # only needs pure functions. Mirrors the laziness contract already documented
 # for the ``create_camera`` registry in ``drivers/ccd/AGENTS.md``.
 if TYPE_CHECKING:

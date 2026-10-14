@@ -135,7 +135,7 @@ def load_enriched_data(csv_path: str) -> pd.DataFrame:
     path = Path(csv_path)
     if not path.exists():
         st.error(f"数据文件不存在: {path}")
-        st.info("请先运行 scripts/process_1300_data.py 生成数据文件")
+        st.info("请先运行 scripts/dm/process_1300_data.py 生成数据文件")
         return pd.DataFrame()
     df = pd.read_csv(path)
     return df
@@ -740,7 +740,7 @@ def render_sidebar() -> None:
                         st.caption(f"IP{int(ip):>3}: {cnt} 单元")
         else:
             st.error("数据加载失败")
-            st.info("运行 scripts/process_1300_data.py 生成数据")
+            st.info("运行 scripts/dm/process_1300_data.py 生成数据")
 
 
 # =============================================================================

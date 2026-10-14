@@ -104,7 +104,7 @@ def _centre_crop(field: torch.Tensor, grid: int) -> torch.Tensor:
 
 #: Measured ``far_field_padding`` optima, keyed by the family's ``fov_px``.
 #:
-#: Measured by ``scripts/sweep_far_field_padding.py`` on the real corpus with the
+#: Measured by ``scripts/ml/sweep_far_field_padding.py`` on the real corpus with the
 #: coefficients left at Z = 0, so this is *geometric* agreement between the
 #: predicted and measured angular extents and nothing else -- no training, no
 #: fitting. 48 samples per family, ``grid=64``, ``n_max=15``,

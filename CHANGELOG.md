@@ -7,7 +7,7 @@
 **逆向整形模型、自适应 SPGD、GS 预矫正上硬件、台架工具重组**
 
 - **逆向光束整形 PhasorUNet** (`ml/shaping/`, `69950ec`): 新增 `models.py` / `physics.py` / `losses.py` / `dataset.py` / `train.py` / `evaluate.py` / `viz.py` —— 目标远场 → SLM 相位的逆向 U-Net，带物理往返 (round-trip) 一致性损失。语料与结论见 [`report/inverse_shaping_unet/report.md`](report/inverse_shaping_unet/report.md)。
-- **slm-gs-refine 上硬件 + 回放** (`ce5df18`, `f4efa0f`, `db38f57`): GS 预矫正新增可选 weighted/HIO 热启动变体；相机 ROI 居中修复 + 完整 debug 记录保留；新增 `scripts/replay_gs_refine_hw.py` 离线相位回放（同一相位序列可复现上硬件）。硬件对比见 [`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)。
+- **slm-gs-refine 上硬件 + 回放** (`ce5df18`, `f4efa0f`, `db38f57`): GS 预矫正新增可选 weighted/HIO 热启动变体；相机 ROI 居中修复 + 完整 debug 记录保留；新增 `scripts/slm/replay_gs_refine_hw.py` 离线相位回放（同一相位序列可复现上硬件）。硬件对比见 [`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)。
 - **自适应 SPGD** (`ab11c19`, `81c0391`, `e9c1f35`): 新增 `adaptive_spgd_core`（stage_weights + 停滞检测器），`spgd-square` 接入 `--adaptive` 闭环；完整方案见 [docs/自适应 SPGD 光束整形闭环：完整方案总结.md](<docs/自适应 SPGD 光束整形闭环：完整方案总结.md>)。
 - **整形试验** (`d01a053`, `e2b72f3`, `f402bcf`): 可选空间覆盖目标 (`--coverage`)；PIB 新增实测峰值可行性门限（替代软惩罚）；GS 细化最优结果与复现命令记录进 `report/shape_trials/`。
 - **slm-model-in-loop 交互增强** (`5055244`): 共享 `slm-pib` 的 `--show` 实时视图，新增预测远场面板。
@@ -143,7 +143,7 @@
   - 并行控制器通信，独立超时控制
   - 复用 `WiringMap` 接线映射系统
   - 注册为 `"asyn_micro"` 类型，支持 `create_dm()` 工厂创建
-- **Micro-DM 逐通道响应分析脚本**: 新增 `scripts/md_img_diff_centroid.py`（FFT 去条纹 → signed diff → 阈值去噪 → 主暗斑质心 → jet 伪彩色渲染）、`scripts/md_img_diff_overlay.py`（逐像素最大值合并分析，输出覆盖率统计）、`scripts/md_img_diff_to_gif.py`（按控制器 IP 将 50 通道 diff 图合成为动画 GIF，帧标注通道号与质心坐标）
+- **Micro-DM 逐通道响应分析脚本**: 新增 `scripts/dm/md_img_diff_centroid.py`（FFT 去条纹 → signed diff → 阈值去噪 → 主暗斑质心 → jet 伪彩色渲染）、`scripts/dm/md_img_diff_overlay.py`（逐像素最大值合并分析，输出覆盖率统计）、`scripts/dm/md_img_diff_to_gif.py`（按控制器 IP 将 50 通道 diff 图合成为动画 GIF，帧标注通道号与质心坐标）
 - **文档完善**: `scripts/README.md` 新增 Micro-DM Diff Analysis Pipeline 章节，详细阐述 diff 计算与合并分析的算法、处理流程和阈值选取方法（经验阈值 15、主暗斑质心替代全图质心的原因、jet 色标 vmax 归一化）
 
 ## v0.5.0 (2026-07)
