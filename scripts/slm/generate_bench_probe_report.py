@@ -74,7 +74,11 @@ DEFAULT_OUT = ROOT / "report" / "slm" / "bench_probe"
 
 #: Bench constant from the shared measurement core; the report states loudly when
 #: the import failed and the fallback below was used instead.
-FALLBACK_TILT_SHIFT_SCALE = 7400.0
+#: Single source of truth -- import from the zero-import leaf (side-effect-free)
+#: instead of the hardware-bound ``bench_kernels`` module that used to define it.
+from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+    TILT_SHIFT_SCALE as FALLBACK_TILT_SHIFT_SCALE,
+)
 #: Joint width-fit rel-RMS above which the illumination profile is *not*
 #: identifiable (mirrors ``model_in_loop_shaping._MAX_DEFOCUS_FIT_RMS``).
 FALLBACK_MAX_DEFOCUS_FIT_RMS = 0.10

@@ -44,6 +44,7 @@ reinvents them wrong.
 from __future__ import annotations
 
 from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE
 from ao_shaping.utils.wavefront.matrix_utils import (
     camera_pixel_um_from_focal_scale,
     focal_length_from_camera_pixel,
@@ -113,7 +114,8 @@ BEAM_RADIUS_PANEL = 450
 #: Theory for a 450 px (3.6 mm) illuminated radius is
 #: ``f*lambda/(pi*R*camera_pixel)`` = 5.34 cam px per radian of Zernike tilt,
 #: which the same data gives as 4.6-5.3.
-TILT_SHIFT_SCALE = 7400.0
+# ``TILT_SHIFT_SCALE`` is defined once in ``ao_shaping.utils.slm.bench_constants``
+# (imported above) so the bench value cannot drift across modules.
 
 
 @dataclass
