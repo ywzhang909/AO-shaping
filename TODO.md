@@ -422,6 +422,30 @@
 | 不要动 `spots_calc` 那 3 条 | 被测试锁成 `AssertionError` 契约（见 8.9 前置 1） |
 | 不要把 `--max_peak` 搬进驱动 | 它是策略不是机制，且已明文声明不是联锁（见 8.9） |
 
+### 8.12 `__main__` demo blocks in library modules (#90 / R-68) — 2026-10-14 实测
+
+AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 `if __name__ == "__main__":` 块（issue 说 7）。逐个核实结果一致：
+
+| 文件 | 块行数 | `__main__` 守卫 | 裸模块级语句 |
+|---|---|---|---|
+| `optimizer/wfless/slm_zernike_shaping.py` | 119 | 1 | **0** |
+| `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
+| `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
+| `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |
+| `optimizer/wfless/bayes_opt_lr_delta.py` | 33 | 1 | **0** |
+| `optimizer/wfless/adc_dm_adam.py` | 29 | 1 | **0** |
+| `optimizer/wf/interaction_matrix.py` | 21 | 1 | **0** |
+
+⚠️ **判定：#90 是整洁性问题，不是正确性问题。** 与 #81（R-61）性质不同 —— #81 的三个
+`rl/` 文件**根本没有守卫**，`import` 即训练+弹图；此处 10 个文件**全部已有守卫**且
+**零裸模块级语句**，即 `import` 不会执行任何 demo 代码。因此「库模块 import 不应有副作用」
+这条红线**并未被违反**，不应按 #81 的紧急度处理。
+
+剩余动作只是把守卫块内的 demo 内容**搬到 `scripts/`**，属搬移而非修复。最大两块
+（119 / 113 行）另有既有裁决：`slm_zernike_shaping.py` 的 fork `__main__` 见 #74
+（判「删，不移植」）。**未实施** —— 纯搬移无行为收益，且需逐块核对是否有其它代码依赖。
+
+
 ## 来源清单
 
 | 来源文档 | 提出日期 | 主题 | 现落点 |
