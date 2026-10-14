@@ -223,6 +223,50 @@ def _map_init_to_active_modes(
     return arr[: len(active_modes)]
 
 
+def _scatter_active_to_noll(
+    vec: np.ndarray,
+    active_pos: list[int],
+    nk: int,
+    has_rotation: bool = False,
+) -> np.ndarray:
+    """Scatter an active-mode parameter vector into a full Noll-order vector.
+
+    The ``spgd-square --debug`` sidecar records ``_c`` for the ML corpus
+    (``ml/hwdataset``). ``ml.hwdataset.index`` classifies a ``_c`` as
+    ``PhaseSource.ZERNIKE`` only when its length is the FULL Noll count
+    ``(n_max+1)(n_max+2)//2`` (rule 1, matching the sidecar ``n_max``). The
+    optimiser works in ACTIVE-mode space (e.g. two modes), and a length-2 vector
+    is neither triangular nor a perfect square, so such a record is dropped as
+    ``odd_coefficient_length`` (TODO H-23).
+
+    This maps the work-vector onto full Noll order (zeros on inactive slots)
+    WITHOUT touching the optimiser's own state. The recorded representation is
+    the same one ``--init-coeffs`` accepts, so the Zernike forward
+    reconstruction in ``ml.hwdataset.transforms`` reads it faithfully.
+
+    Args:
+        vec: Active-mode parameters, length ``len(active_pos)`` (plus one
+            trailing rotation DOF when ``has_rotation``).
+        active_pos: Noll indices of the optimised modes, in ``vec`` order.
+        nk: Full Noll length, ``(n_max+1)(n_max+2)//2``.
+        has_rotation: When True the last element of ``vec`` is a rotation DOF
+            appended AFTER the ``nk`` Noll slots; the result is length ``nk+1``
+            and deliberately does NOT classify as a pure Zernike record (the
+            commanded phase really did carry a rotation).
+
+    Returns:
+        A ``float64`` array of length ``nk`` (or ``nk+1`` with rotation).
+    """
+    arr = np.asarray(vec, dtype=np.float64).ravel()
+    n_active = len(active_pos)
+    out = np.zeros(nk + (1 if has_rotation else 0), dtype=np.float64)
+    if n_active:
+        out[np.asarray(active_pos, dtype=int)] = arr[:n_active]
+    if has_rotation:
+        out[-1] = float(arr[n_active])
+    return out
+
+
 def _locate_square_center(img: np.ndarray, mode: str) -> tuple[int, int]:
     if mode == "shape":
         return smart_zero_order_center(img)
@@ -1502,6 +1546,24 @@ def optimize_slm_square(
         _param_clip if _param_clip is not None else (-np.pi, np.pi)
     )
 
+    # --- Debug-record representation -------------------------------------
+    # `_c` / `_grad` are recorded in FULL Noll order for the Zernike basis so
+    # `ml.hwdataset.index` classifies the debug record as ZERNIKE (rule 1) --
+    # an active-mode vector of length 2 matches no accepted length (TODO H-23).
+    # The optimiser's own work-vector stays active-mode; this only remaps what is
+    # *recorded*. Freeform (`_c` = grid*grid radians) is passed through untouched.
+    if basis == "zernike":
+        _noll_position = {mode: i for i, mode in enumerate(_noll_modes)}
+        _active_pos = [_noll_position[m] for m in _active_modes]
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return _scatter_active_to_noll(vec, _active_pos, nk, _has_rotation)
+
+    else:
+
+        def _record_vec(vec: np.ndarray) -> np.ndarray:
+            return vec
+
     with (
         create_camera(
             cam_type,
@@ -1796,7 +1858,7 @@ def optimize_slm_square(
                 "ar": ar,
                 "pbr": pbr,
                 "side": target_side,
-                "_c": _params,
+                "_c": _record_vec(_params),
                 "_img": init_img,
                 "_diff": 0,
                 "lr": lr,
@@ -1806,7 +1868,7 @@ def optimize_slm_square(
                 "max_brt": np.max(init_img),
                 "mean_b": mean_int,
                 "target_mean_b": target_mean_brightness,
-                "_grad": np.zeros_like(_params),
+                "_grad": _record_vec(np.zeros_like(_params)),
                 "optimizer": optimizer_type,
                 f"best_{_score_column}": best_quality,
             }
@@ -1890,7 +1952,7 @@ def optimize_slm_square(
                         "ar": last_eval["ar"],
                         "pbr": last_eval["pbr"],
                         "side": target_side,
-                        "_c": np.asarray(params, dtype=np.float64),
+                        "_c": _record_vec(np.asarray(params, dtype=np.float64)),
                         "_img": last_eval["img"],
                         "_diff": 0.0,
                         "lr": 0.0,
@@ -1900,7 +1962,7 @@ def optimize_slm_square(
                         "max_brt": float(np.max(last_eval["img"])),
                         "mean_b": last_eval["mean"],
                         "target_mean_b": target_mean_brightness,
-                        "_grad": np.zeros_like(params),
+                        "_grad": _record_vec(np.zeros_like(params)),
                         "optimizer": algorithm,
                     }
                     recorder.append(row)
@@ -2124,13 +2186,13 @@ def optimize_slm_square(
                             "lr": optimizer.lr,
                             "delta": delta,
                             "_epoch": epoch,
-                            "_c": _params.copy(),
+                            "_c": _record_vec(_params.copy()),
                             "_img": pos_img,
                             "exp_t": get_camera_exposure_ms(cam),
                             "max_brt": max_brightness,
                             "mean_b": (pos_mean + neg_mean) / 2,
                             "target_mean_b": target_mean_brightness,
-                            "_grad": np.zeros_like(disturb_c),
+                            "_grad": _record_vec(np.zeros_like(disturb_c)),
                             "gate": _gate,
                         }
                     )
@@ -2271,13 +2333,13 @@ def optimize_slm_square(
                     "lr": optimizer.lr,
                     "delta": delta,
                     "_epoch": epoch,
-                    "_c": eval_c,
+                    "_c": _record_vec(eval_c),
                     "_img": eval_img,
                     "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": max_brightness,
                     "mean_b": (pos_mean + neg_mean) / 2,
                     "target_mean_b": target_mean_brightness,
-                    "_grad": gradient,
+                    "_grad": _record_vec(gradient),
                 }
                 recorder.append(log)
 
