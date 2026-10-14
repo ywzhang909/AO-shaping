@@ -348,13 +348,13 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 ## 8 局限与下一步
 
-本文实验存在四点局限。其一，pupil 半径 450 为模型扫描值，无独立测量，且扫描仅在单一曝光下完成。其二，双稳态未定量，30 轮 SPGD 的高簇增益未经独立交错重放。其三，板卡序列号在两次会话间从 22030108 变为 23020027，实物连接待核对。其四，细化增益的绝对值仍小（+0.004），实用价值取决于 CV 能否被进一步压低。
+本文实验存在五点局限。其一，pupil 半径 450 为模型扫描值，无独立测量，且扫描仅在单一曝光下完成。其二，双稳态未定量，30 轮 SPGD 的高簇增益未经独立交错重放。其三，板卡序列号在两次会话间从 22030108 变为 23020027，实物连接待核对。其四，细化增益的绝对值仍小（+0.004），实用价值取决于 CV 能否被进一步压低。其五，MIL 实测成形均匀度（CV 0.65 至 0.90）未达验收门槛（CV 小于等于 0.3、EE 大于等于 0.7），且 10 月 14 日未重新独立标定传播几何的尺度与入射振幅，MIL 矩阵的绝对数值受该几何不确定度影响。
 
-下一步按优先级执行：对 `20261012_180222` 最佳相位做独立交错重放并加 drift 探针，定量两簇来源；在重放框架内把相位网格从 12 逐级升到 16、24，主攻 CV；最后才考虑把达标流程接入 FourierGSNet 真机运行。完整计划见 `report/fouriergsnet_pipeline/next_attempt_plan.md`。此外，第 7 节的梯度路线与系统参数化路线目前只在仿真与数字孪生中验证，可微模型的硬件闭环模式（损失梯度在实测图像上评估）代码已就绪但未上机，下一步应在网格升级完成后运行，并把第 7.4 节实测的低通响应折入前向算子；针对散斑与双稳态下的均匀度天花板，候选改进是系统松弛：在设计期向前向模型注入可控噪声扰动，使相位解对测量噪声与面板非理想鲁棒，该思路在可微仿真中已见收益，但在本台架尚未验证。学习逆模型（第 7.3 节）在监督指标上尚未超过基线，目前只作候选初始化器；FourierGSNet 的在线微调与回放机制尚未在真机启用。
+下一步按优先级执行：对 `20261012_180222` 最佳相位做独立交错重放并加 drift 探针，定量两簇来源；在重放框架内把相位网格从 12 逐级升到 16、24，主攻 CV；最后才考虑把达标流程接入 FourierGSNet 真机运行。完整计划见 `report/fouriergsnet_pipeline/next_attempt_plan.md`。MIL 方向按分层在线重标定的次序执行：优先重测 T1 几何参数（远场尺度、瞳孔中心）并合并代码中 4 处重复的远场尺度常量，再按倾斜/离焦扫掠复核传播几何；在零系数、旧系数与短拟合三类候选中用自由相位做候选选择，再采未参与选择的新相位与成形相位作最终验收。此外，第 7 节的梯度路线与系统参数化路线目前只在仿真与数字孪生中验证，可微模型的硬件闭环模式（损失梯度在实测图像上评估）代码已就绪但未上机，下一步应在网格升级完成后运行，并把第 7.4 节实测的低通响应折入前向算子；针对散斑与双稳态下的均匀度天花板，候选改进是系统松弛：在设计期向前向模型注入可控噪声扰动，使相位解对测量噪声与面板非理想鲁棒，该思路在可微仿真中已见收益，但在本台架尚未验证。学习逆模型（第 7.3 节）在监督指标上尚未超过基线，目前只作候选初始化器；FourierGSNet 的在线微调与回放机制尚未在真机启用。
 
 ## 9 结论
 
-在 1064 nm、2f 傅里叶光路的相位型 LCOS 空间光调制器上，"GS 仿真域预矫正加低自由度 SPGD 硬件细化"的两级流程首次完整实机跑通：复合分数 0.527 到 0.774 到 0.778，其中细化增益 +0.0043 经交错重放确认可复现。GS 变体实测全面劣于普通 GS；模型瞳孔半径需作为标定参数；曝光必须每会话现定。30 轮 SPGD 的 +0.067 单次最佳受双稳态污染，待独立重放裁定。实验同时给出三条可移植的硬件环路测量纪律：稳定后采集、逐帧去背景、交错重放比较。数字孪生消融与实测相位带宽上限进一步表明：两级次序在无噪声仿真中同样成立，而闭环优化可用自由度最终受硬件信噪比与相位带宽的双重约束，这为后续引入可微模型闭环与系统参数化划定了安全的作用域。
+在 1064 nm、2f 傅里叶光路的相位型 LCOS 空间光调制器上，"GS 仿真域预矫正加低自由度 SPGD 硬件细化"的两级流程首次完整实机跑通：复合分数 0.527 到 0.774 到 0.778，其中细化增益 +0.0043 经交错重放确认可复现。GS 变体实测全面劣于普通 GS；模型瞳孔半径需作为标定参数；曝光必须每会话现定。30 轮 SPGD 的 +0.067 单次最佳受双稳态污染，待独立重放裁定。同一台架的 model-in-loop 闭环给出了模型路线的实机定量边界：约 70 参数的 Zernike 闭式正向模型预测相关性达 0.81 至 0.84 且对固定低阶扰动近乎透明，但实测成形均匀度（CV 0.65 至 0.90）尚未达到验收门槛，小样本 U-Net 同帧相关性近零不能替代物理模型，整形瓶颈已从模型保真度转移到测量与逆解的稳健性。实验同时给出三条可移植的硬件环路测量纪律：稳定后采集、逐帧去背景、交错重放比较。数字孪生消融与实测相位带宽上限进一步表明：两级次序在无噪声仿真中同样成立，而闭环优化可用自由度最终受硬件信噪比与相位带宽的双重约束，这为后续引入可微模型闭环与系统参数化划定了安全的作用域。
 
 ## 参考文献
 
@@ -366,7 +366,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 [4] M. A. Vorontsov, T. B. Buck, M. A. Volkonskii, S. N. Chipoulenko, V. M. Dyadyuk, and V. A. Banakh, "Stochastic parallel-gradient-descent technique for high-resolution wave-front phase-distortion correction," J. Opt. Soc. Am. A 15(10), 2745–2758 (1998). https://doi.org/10.1364/JOSAA.15.002745
 
-[5] A. A. Shapovalov et al., "Active phasing a nine-element 114 kW all-fiber two-tone MOPA array using SPGD algorithm," Opt. Lett. 36(16), 3121–3123 (2011). https://doi.org/10.1364/OL.36.003121
+[5] X. Wang, P. Zhou, Y. Ma, J. Leng, X. Xu, and Z. Liu, "Active phasing a nine-element 114 kW all-fiber two-tone MOPA array using SPGD algorithm," Opt. Lett. 36(16), 3121–3123 (2011). https://doi.org/10.1364/OL.36.003121
 
 [6] X. Lin, Y. Rivenson, N. T. Yardimci, M. Veli, Y. Luo, M. Jarrahi, and A. Ozcan, "All-optical machine learning using diffractive deep neural networks," Science 361(6405), 1004–1008 (2018). https://doi.org/10.1126/science.aat8084
 
@@ -384,9 +384,9 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 [13] SVETlANNa (CompPhysLab/SVETlANNa), an open source library for simulation and engineering of diffractive neural networks. https://github.com/CompPhysLab/SVETlANNa
 
-[14] F. van Goor, "LightPipes: software for education in coherent optics," Proc. SPIE 2909, 1997. https://doi.org/10.1117/12.294366
+[14] G. V. Vdovin, H. H. van Brug, and F. A. van Goor, "LightPipes: software for education in coherent optics," Proc. SPIE 2909 (1997). https://doi.org/10.1117/12.294366
 
-> 注：[2][3][4][5][6][7][8] 已于 2026-10-12 通过 CrossRef API 核实 DOI 有效；[5][7] 作者列表以 CrossRef 记录为准，投稿前需再核对全作者。[10] 的 arXiv DOI 与 [14] 的 SPIE DOI 已于 2026-10-14 通过 OpenAlex 核实有效；[9][11][12][13] 为开源软件库，无 DOI，以 GitHub 仓库地址为准（2026-10-14 核实仓库存在）。
+> 注：[2][3][4][6][7][8] 已于 2026-10-12 通过 CrossRef API 核实 DOI 有效；[5] 的 DOI 与作者列表（X. Wang 等）已于 2026-10-15 通过 OpenAlex 核实（原稿作者误写为 Shapovalov，已更正）。[10] 的 arXiv DOI、[14] 的 SPIE DOI（第一作者 G. V. Vdovin）已于 2026-10-14 通过 OpenAlex 核实有效。[9][11][12][13] 为开源软件库，无 DOI，以 GitHub 仓库地址为准（2026-10-14 核实仓库存在）。
 
 ---
 
