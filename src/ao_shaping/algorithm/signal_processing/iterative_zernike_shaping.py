@@ -28,7 +28,7 @@ Zernike 基图来自 canonical 的 ``ZernikeGenerator`` 并转成常量 torch �
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np

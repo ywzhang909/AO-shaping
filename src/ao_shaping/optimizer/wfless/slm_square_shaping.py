@@ -79,7 +79,6 @@ Example:
 from __future__ import annotations
 
 import contextlib
-import inspect
 import os
 import time
 from dataclasses import dataclass, field
@@ -95,24 +94,14 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.algorithm.gradient.adam import (
-    AdaMOD,
-    Adam,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-    SGD,
-)
 from ao_shaping.algorithm.heuristic.search import (
-    heuristic_algorithm_choices,
     run_heuristic_search,
 )
 from ao_shaping.utils import logger, Recorder
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
-from ao_shaping.utils.image.spots_calc import centroid, radius
+from ao_shaping.utils.image.spots_calc import centroid
 from ao_shaping.utils.image.hardware_utils import log_center_brightness
 from ao_shaping.utils.image.targets import (
     SQUARE_OBJECTIVE_CHOICES,

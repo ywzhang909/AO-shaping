@@ -65,7 +65,7 @@ from loguru import logger
 from torch.utils.data import DataLoader, Subset
 
 from ml.hwdataset.dataset import FileGroupedSampler
-from ml.hwdataset.index import PhaseSource, build_hw_index
+from ml.hwdataset.index import build_hw_index
 from ml.hwdataset.records import MaterialiserConfig
 from ml.hwdataset.zernike_dataset import (
     DEFAULT_N_MAX,

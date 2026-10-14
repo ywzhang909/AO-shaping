@@ -53,7 +53,6 @@ from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_W,
     display_and_average,
     measure_flat_reference,
-    random_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
 

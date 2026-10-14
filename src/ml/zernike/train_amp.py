@@ -51,7 +51,6 @@ from ml.hwdataset import (
     HwPhaseImageDataset,
     HwRecordRef,
     MaterialiserConfig,
-    build_hw_dataloader,
     build_hw_index,
 )
 

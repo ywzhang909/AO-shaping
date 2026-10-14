@@ -7,7 +7,6 @@ Attributes:
     v_max: 最大电压 (499)。
 """
 
-from typing import Any
 
 import numpy as np
 from loguru import logger

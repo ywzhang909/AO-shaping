@@ -8,7 +8,6 @@ from loguru import logger
 
 import importlib
 
-from ao_shaping.display import Image2DFrame, VoltageFrame
 from ao_shaping.display.frames import (
     BACKGROUND_COLOR,
     BaseFrame,
@@ -172,7 +171,6 @@ class AutoDisplay(BaseDisplay):
         return n_cols, n_rows
 
     def init_window(self) -> None:
-        import pygame
 
         super().init_window()
         screen_w, screen_h = self.total_size

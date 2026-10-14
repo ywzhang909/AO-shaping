@@ -61,7 +61,7 @@ from ml.hwdataset.dataset import (
     FileGroupedSampler,
     create_hw_dataloaders,
 )
-from ml.hwdataset.index import HwCorpusIndex, HwRecordRef, build_hw_index
+from ml.hwdataset.index import HwRecordRef, build_hw_index
 from ml.hwdataset.records import MaterialiserConfig
 from ml.shaping.config import UNKNOWN_EXPOSURE, UNKNOWN_FOV
 

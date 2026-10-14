@@ -46,7 +46,7 @@ import argparse
 import json
 import random
 import time
-from dataclasses import asdict, dataclass, fields, replace
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 

@@ -28,7 +28,6 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
-from ao_shaping.drivers.device_base import DeviceState
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
 from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS

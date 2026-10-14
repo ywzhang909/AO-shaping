@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import inspect
 import os
 import time
 from collections import deque
@@ -39,15 +38,6 @@ import numpy as np
 import tqdm
 
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
-from ao_shaping.algorithm.gradient.adam import (
-    SGD,
-    Adam,
-    AdaMOD,
-    AdamW,
-    Base,
-    Muno,
-    MunoW,
-)
 from ao_shaping.algorithm.heuristic.search import (
     heuristic_algorithm_choices,
     run_heuristic_search,
@@ -63,7 +53,7 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, PANEL_RES
+from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
@@ -93,7 +83,6 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 from ao_shaping.optimizer.constants import create_optimizer
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,

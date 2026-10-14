@@ -48,7 +48,6 @@ from ml.phase.dataset import (
 # `create_zernike_loaders` has always lived in ml.zernike.dataset, not
 # ml.phase.dataset; this import was broken before the Zernike-model rewrite and
 # made `python -m ml.train` unrunnable.
-from ml.zernike.dataset import create_zernike_loaders
 from ml.phase import (
     PatchGANDiscriminator,
     UNetGenerator,

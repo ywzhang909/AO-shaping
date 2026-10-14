@@ -39,7 +39,6 @@ import numpy as np
 import numpy.typing as npt
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
-from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     import torch

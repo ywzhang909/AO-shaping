@@ -23,7 +23,7 @@
 
 from __future__ import annotations
 
-from dataclasses import MISSING, Field, dataclass, fields, field
+from dataclasses import MISSING, Field, fields, field
 from pathlib import Path
 from typing import Any, Callable, Generic, TypeVar
 

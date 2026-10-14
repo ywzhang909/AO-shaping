@@ -32,7 +32,9 @@ from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.kernels.sweep_analysis import outlier_mask
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
-from ao_shaping.utils.wavefront.zernike_utils import LAMBDA_UM, UM_TO_WAVES, um_to_waves
+from ao_shaping.utils.wavefront.zernike_utils import (
+    um_to_waves,  # noqa: F401 -- re-exported to the wfs tools and zernike_matrix_runner
+)
 
 PANEL_H, PANEL_W = 1200, 1920
 MAX_EXPOSURE_MS = 7.0

@@ -29,7 +29,7 @@ from typing import Any, Self
 import numpy as np
 from loguru import logger
 
-from ao_shaping.drivers.device_base import Device, DeviceState, DeviceType
+from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.wfs._registry import register_wfs
 from ao_shaping.drivers.wfs.base import BaseWFS
 from ao_shaping.drivers.wfs._thorlab_wfs import (

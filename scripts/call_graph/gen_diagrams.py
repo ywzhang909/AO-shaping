@@ -122,7 +122,6 @@ for name in list(cmd) + list(tools):
             if k in (cur,):
                 continue
             out.append(f"    - {k}")
-        stack.extend([k for k in kids if k not in emitted_strs]) if False else None
         break  # only one level of direct calls shown per command here
     out.append("")
 

@@ -9,6 +9,7 @@ forward model's predicted far field.
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 
@@ -467,7 +468,6 @@ def _live_display_update_calls() -> list[ast.Call]:
     signature typo in these three call sites would otherwise only surface on a
     hardware run.
     """
-    import ast
     import inspect
 
     import ao_shaping.optimizer.wfless.slm_model_in_loop as module

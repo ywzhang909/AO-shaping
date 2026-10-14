@@ -56,7 +56,6 @@ TODO (实机待测试清单, 完整清单见 run() docstring):
     待测项逐条列于 `run()` docstring 的 TODO 清单。
 """
 
-import json
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -73,7 +72,7 @@ from ao_shaping.algorithm.signal_processing.controller import (
     HardwareConfig,
     LoopConfig,
 )
-from ao_shaping.drivers.slm import Santec, ZernikeSLM
+from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
 from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -92,7 +91,6 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.tools.zernike.common import (
-    DLL_ZERNIKE_ORDER,
     WFS_ZERNIKE_ORDER,
     collect_device_info,
     effective_cond,
@@ -1580,7 +1578,6 @@ def closed_loop_run(ctx: click.Context, params: ClosedLoopParams) -> None:
     from datetime import datetime
 
     import matplotlib.pyplot as plt
-    from loguru import logger
 
     from ao_shaping.drivers.slm import ZernikeSLM
     from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS

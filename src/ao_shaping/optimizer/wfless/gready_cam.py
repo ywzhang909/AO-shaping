@@ -49,7 +49,6 @@ def render(window, img, log, center, r, info="") -> None:
     import pygame
 
     import pygame
-    import matplotlib.pyplot as plt
     canvas = pygame.surfarray.make_surface(img.transpose())
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)
@@ -89,7 +88,6 @@ def optimizer(
     delta = abs(delta)
 
     import pygame
-    import matplotlib.pyplot as plt
     epochs = int(epochs)
 
     with MIICamera(cam_id=0, exposure_time_ms=CAM_EXP_TIME, skip_sampling=True) as cam,\
@@ -229,7 +227,6 @@ def run():
     # init_V = np.random.random((64,))*100 - 50
     init_V = np.zeros((64,))
 
-    import pygame
     import matplotlib.pyplot as plt
     init_V[0] = 0
 
