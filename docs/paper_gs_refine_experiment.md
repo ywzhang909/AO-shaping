@@ -39,11 +39,11 @@ GS 在仿真域内迭代：pupil 面振幅约束取实测平场振幅（含高�
 
 ### 2.3 第二级：SPGD 细化
 
-细化级在 GS 相位之上叠加自由形式相位修正，参数化为 pupil 内 12×12 网格（144 个自由度，其中半径外节点被掩模），每轮对全部节点施加高斯随机扰动 ±δ，以实测 composite 的差分估计梯度方向并沿步长更新。每轮结束用 confirm-best 机制重测历史最优相位，防止噪声把"假提升"写入参考态。该优化器与 `slm-square-shaping` 命令共用同一实现（`src/ao_shaping/shaping/slm_square_shaping.py`）。
+细化级在 GS 相位之上叠加自由形式相位修正，参数化为 pupil 内 12×12 网格（144 个自由度，其中半径外节点被掩模），每轮对全部节点施加高斯随机扰动 ±δ，以实测 composite 的差分估计梯度方向并沿步长更新。每轮结束用 confirm-best 机制重测历史最优相位，防止噪声把"假提升"写入参考态。该优化器与 `spgd-square` 命令共用同一实现（`src/ao_shaping/optimizer/wfless/slm_square_shaping.py`）。
 
 ### 2.4 测量协议
 
-三条协议是结果可信的前提，均为实测教训的固化。其一，稳定后采集：SLM 面板加载新相位后弛豫可达 3 秒，采集器丢弃前若干帧并连续读数，直到相邻两次读数一致才计入平均。其二，memory 模式与槽位轮换：SLM 仅允许 memory mode（严禁 DVI 视频模式），连续写入必须轮换 memory slot，否则写入被面板拒绝。其三，交错重放：跨会话或跨运行的分数不可直接拼接比较，必须把待比较的若干相位在同一会话内交替重放（`scripts/replay_gs_refine_hw.py`），用同一功率、同一曝光下的配对差作结论。两级流程的完整执行链如图 1，交错重放的测量时序如图 2。
+三条协议是结果可信的前提，均为实测教训的固化。其一，稳定后采集：SLM 面板加载新相位后弛豫可达 3 秒，采集器丢弃前若干帧并连续读数，直到相邻两次读数一致才计入平均。其二，memory 模式与槽位轮换：SLM 仅允许 memory mode（严禁 DVI 视频模式），连续写入必须轮换 memory slot，否则写入被面板拒绝。其三，交错重放：跨会话或跨运行的分数不可直接拼接比较，必须把待比较的若干相位在同一会话内交替重放（`scripts/slm/replay_gs_refine_hw.py`），用同一功率、同一曝光下的配对差作结论。两级流程的完整执行链如图 1，交错重放的测量时序如图 2。
 
 ### 2.5 model-in-loop 正向模型闭环（MIL）
 
@@ -398,12 +398,12 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 | 0.04 ms 复验 | `data/debug/slm_gs_refine/20261012_183900/` |
 | 30 轮 SPGD | `data/debug/slm_gs_refine/20261012_190400/` |
 | 交错重放 | `data/debug/slm_gs_refine/20261012_180222_replay_best/` |
-| 重放工具 | `scripts/replay_gs_refine_hw.py` |
+| 重放工具 | `scripts/slm/replay_gs_refine_hw.py` |
 | 真机首跑完整记录 | `report/shape_trials/gs_refine_live_20261012.md` |
 | 10-10 预试验记录与图 4–6 图源 | `report/shape_trials/online_20261010.md`、`report/shape_trials/figures/` |
 | 10-01 gsnet 失败对照 | `report/fouriergsnet_pipeline/hardware_run_20261001.md` |
 | FourierGSNet 仿真矩阵与图 11–12 图源 | `report/fouriergsnet_sim/report.md`、`report/fouriergsnet_sim/figures/` |
-| 数字孪生消融（表 9）数据与生成脚本 | `report/iterative_zernike_shaping/data.json`、`scripts/generate_iterative_zernike_shaping_report.py` |
+| 数字孪生消融（表 9）数据与生成脚本 | `report/iterative_zernike_shaping/data.json`、`scripts/slm/generate_iterative_zernike_shaping_report.py` |
 | 可微前向模型代码（7.2 节） | `src/ao_shaping/algorithm/signal_processing/differentiable_beam.py`、`differentiable_shaping.py` |
 | 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/report.md` |
 | 相位带宽实测（表 10） | `report/slm/model_in_loop_bench_calibration.md` |
@@ -413,7 +413,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 交错重放命令示例：
 
 ```bash
-python scripts/replay_gs_refine_hw.py data/debug/slm_gs_refine/20261012_180222 \
+python scripts/slm/replay_gs_refine_hw.py data/debug/slm_gs_refine/20261012_180222 \
   --exposure-ms <会话现定值> --slm-serial 23020027 \
   --expected-wavelength 1064 --cam-center <全帧零级x,y>
 ```
