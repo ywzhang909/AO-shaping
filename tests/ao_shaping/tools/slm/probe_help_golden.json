@@ -141,8 +141,8 @@
     ]
   },
   "slm_abba_probe": {
-    "body_literals": 158,
-    "body_literals_sha256": "b6ab4792a5bef91e",
+    "body_literals": 157,
+    "body_literals_sha256": "1e9d61dd6ef29ed7",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -259,8 +259,8 @@
     ]
   },
   "slm_drift_probe": {
-    "body_literals": 175,
-    "body_literals_sha256": "b3af7e900e2e48cd",
+    "body_literals": 174,
+    "body_literals_sha256": "29071af11129133f",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -795,8 +795,8 @@
     ]
   },
   "slm_zernike_sweep_probe": {
-    "body_literals": 104,
-    "body_literals_sha256": "79e5ad740de68938",
+    "body_literals": 103,
+    "body_literals_sha256": "c351778e6822df69",
     "declared": [
       "--no-hw",
       "--no-save-frames",

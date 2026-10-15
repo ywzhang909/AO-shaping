@@ -35,12 +35,20 @@ _LEAF_PACKAGES = ("kernels", "zernike", "ccd", "wfs")
 
 
 def _top_level_imports(path: Path) -> list[ast.Import | ast.ImportFrom]:
-    """Return module-scope ``import`` / ``from ... import`` nodes."""
+    """Return module-scope ``import`` / ``from ... import`` nodes.
+
+    ``from __future__ import annotations`` is exempt: it is a compiler directive,
+    not a runtime import -- nothing is loaded, so it costs an ``import
+    ao_shaping.tools.<x>.<y>`` nothing. Every module in this repo is required to
+    carry it (README: "所有模块文件第一行应包含此导入"), so counting it would fail
+    the lazy-import contract for every compliant package at once.
+    """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     return [
         node
         for node in tree.body
         if isinstance(node, (ast.Import, ast.ImportFrom))
+        and not (isinstance(node, ast.ImportFrom) and node.module == "__future__")
     ]
 
 
