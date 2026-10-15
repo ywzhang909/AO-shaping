@@ -1297,7 +1297,21 @@ def render_report(
 
     lines: list[str] = []
     add = lines.append
+    _part_0(add)
+    _part_1(add, sweep, geometry, geometry_path, sidecar, sidecar_path, npz_path, frames_status, frames_detail, geometry_conflicts, fallbacks, mismatches)
+    _part_2(add, geometry, geometry_conflicts, max_rms, notes_raw, notes)
+    _part_3(add, ramp_routes, figures, shift_scale, fallbacks, ramp_scale)
+    _part_4(add, tilt_routes, figures, min_corr, ramp_scale, k_tilt, zernike_radius, tilt_implied_S, ramp_vs_tilt_gap)
+    _part_5(add, sweep, curve_map, figures, min_hollow)
+    _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_to_panel, ramp_scale, fov, ramp_cam, tilt_cam)
+    _part_7(add, sweep, ramp_scale, k_tilt, flat, peak_lo, peak_hi)
+    _part_8(add, tilt_routes, curve_map, geometry_conflicts, shift_scale, max_rms, min_corr, notes, mismatches, ramp_scale, k_tilt)
+    _part_9(add, curve_map, geometry_conflicts, min_hollow, notes, ramp_scale, ramp_vs_tilt_gap)
+    _part_10(add, sweep)
+    return "\n".join(lines)
 
+
+def _part_0(add) -> None:
     add("# SLM 台架探针离线报告")
     add("")
     add(
@@ -1306,6 +1320,9 @@ def render_report(
         "因此可以在仪器断电状态下随时重跑以刷新结论。"
     )
     add("")
+
+
+def _part_1(add, sweep, geometry, geometry_path, sidecar, sidecar_path, npz_path, frames_status, frames_detail, geometry_conflicts, fallbacks, mismatches) -> None:
     add("## 1. 数据来源与完整性")
     add("")
     add("| 输入 | 路径 | 状态 |")
@@ -1393,6 +1410,8 @@ def render_report(
         )
         add("")
 
+
+def _part_2(add, geometry, geometry_conflicts, max_rms, notes_raw, notes) -> None:
     add("## 2. 台架几何标定结果")
     add("")
     if geometry is None:
@@ -1474,6 +1493,8 @@ def render_report(
                 add(f"- 离焦响应的左右不对称 **{asym:+.0f}%**，直接反映残余非离焦像差。")
     add("")
 
+
+def _part_3(add, ramp_routes, figures, shift_scale, fallbacks, ramp_scale) -> None:
     add("## 3. 相位斜坡 (ramp) 线性度 —— 焦面尺度的权威来源")
     add("")
     if not ramp_routes:
@@ -1539,6 +1560,8 @@ def render_report(
             "本台架的斜入射会让它偏差一个 cos θ 因子。")
     add("")
 
+
+def _part_4(add, tilt_routes, figures, min_corr, ramp_scale, k_tilt, zernike_radius, tilt_implied_S, ramp_vs_tilt_gap) -> None:
     add("## 4. Zernike 倾斜线性度")
     add("")
     if not tilt_routes:
@@ -1624,6 +1647,8 @@ def render_report(
             "把光斑推到一个它「以为」在动、实际在变形的工作点上。")
     add("")
 
+
+def _part_5(add, sweep, curve_map, figures, min_hollow) -> None:
     add("## 5. 宽度响应与有效点筛选")
     add("")
     add(
@@ -1710,6 +1735,8 @@ def render_report(
         "是前向模型缺项。")
     add("")
 
+
+def _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_to_panel, ramp_scale, fov, ramp_cam, tilt_cam) -> None:
     add("## 6. 焦面尺度的三条独立路线")
     add("")
     if geometry_conflicts:
@@ -1780,6 +1807,8 @@ def render_report(
             )
     add("")
 
+
+def _part_7(add, sweep, ramp_scale, k_tilt, flat, peak_lo, peak_hi) -> None:
     add("## 7. 关键陷阱")
     add(
         "以下四条台架铁律固化在 `ao_shaping/tools/slm/bench_kernels.py` 的模块"
@@ -1885,6 +1914,8 @@ def render_report(
     )
     add("")
 
+
+def _part_8(add, tilt_routes, curve_map, geometry_conflicts, shift_scale, max_rms, min_corr, notes, mismatches, ramp_scale, k_tilt) -> None:
     add("## 8. 结论")
     add("")
     conclusions: list[str] = []
@@ -1948,7 +1979,8 @@ def render_report(
         add(f"{idx}. {item}")
     add("")
 
-    # What the reader should actually do with this report.
+
+def _part_9(add, curve_map, geometry_conflicts, min_hollow, notes, ramp_scale, ramp_vs_tilt_gap) -> None:
     add("## 8.1 对整形实验的可执行结论")
     add("")
     actionable: list[tuple[str, str]] = []
@@ -1993,6 +2025,9 @@ def render_report(
         "（离线，不需要相机/SLM，也不需要 `PYTHONPATH`）。"
     )
     add("")
+
+
+def _part_10(add, sweep) -> None:
     add("## 附录 A. 完整扫描记录")
     add("")
     add(
@@ -2027,7 +2062,6 @@ def render_report(
             f"{cell(sweep.shift_corr, '.2f', idx)} |"
         )
     add("")
-    return "\n".join(lines)
 
 
 def out_dir(figure: Path) -> Path:
