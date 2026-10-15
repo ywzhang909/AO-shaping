@@ -180,7 +180,7 @@ def test_utils_all_is_never_shrunk() -> None:
     """``__all__`` must keep every name the eager version exported (R-20: delay, never delete)."""
     import ao_shaping.utils as u
 
-    assert len(u.__all__) == 85
+    assert len(u.__all__) == 86
     assert "PatternHelper" in u.__all__
     assert "calculate_sharpness" in u.__all__
     assert "parse_tuple" in u.__all__
