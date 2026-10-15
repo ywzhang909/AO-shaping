@@ -615,6 +615,24 @@ def main():
                 render_closed_loop_shaping(slm_num)
 
 
+def _safe_set_state(key: str, value: Any) -> None:
+    """Set a session_state key only if no widget has claimed it yet.
+
+    Once Streamlit instantiates a widget with ``key``, that key's entry in
+    ``st.session_state`` is locked for the remainder of the script run.
+    ``connect_slm`` runs before the sidebar widgets are instantiated (the button
+    click handler fires before later widgets are rendered, then ``st.rerun()``
+    restarts the script), so setting works.  ``_reacquire_slm_handle`` runs from
+    the main area *after* all sidebar widgets exist, so the same set would raise
+    ``StreamlitAPIException``.  This helper swallows that case — the value was
+    already synced on first connect and the next full rerun picks it up.
+    """
+    try:
+        st.session_state[key] = value
+    except Exception:
+        pass
+
+
 def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     """Mirror a freshly opened SLM's resolved state into session state.
 
@@ -637,18 +655,25 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
 
     # Sync all widget-backed keys from the device's resolved state so the
     # sidebar shows the actual hardware values (wavelength, shift, geometry…).
-    device_wavelength = slm.wavelength
-    if device_wavelength is not None:
-        st.session_state[f"{prefix}_wavelength"] = int(device_wavelength)
-    st.session_state[f"{prefix}_shift_x"] = int(getattr(slm, "_shift_x", 0))
-    st.session_state[f"{prefix}_shift_y"] = int(getattr(slm, "_shift_y", 0))
-    st.session_state[f"{prefix}_width"] = int(slm.Panel_Res[0])
-    st.session_state[f"{prefix}_height"] = int(slm.Panel_Res[1])
-    st.session_state[f"{prefix}_pixel_pitch_um"] = float(
-        getattr(slm, "Pixel_Size_um", 8.0)
+    # Guard: once a widget with a given key is instantiated in the current render
+    # pass, its session_state entry is locked.  ``_reacquire_slm_handle`` is
+    # called from the main area (after sidebar widgets are already rendered),
+    # so those keys must not be (re)set here — they were already synced on first
+    # connect and the next full rerun will pick them up.  Non-widget keys below
+    # are always safe.
+    _safe_set_state(
+        f"{prefix}_wavelength",
+        int(slm.wavelength) if slm.wavelength is not None else None,
     )
-    st.session_state[f"{prefix}_bits"] = int(getattr(slm, "Gray_Scale_bits", 10))
-    st.session_state[f"{prefix}_use_120hz"] = bool(slm._use_120hz)
+    _safe_set_state(f"{prefix}_shift_x", int(getattr(slm, "_shift_x", 0)))
+    _safe_set_state(f"{prefix}_shift_y", int(getattr(slm, "_shift_y", 0)))
+    _safe_set_state(f"{prefix}_width", int(slm.Panel_Res[0]))
+    _safe_set_state(f"{prefix}_height", int(slm.Panel_Res[1]))
+    _safe_set_state(
+        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pixel_Size_um", 8.0))
+    )
+    _safe_set_state(f"{prefix}_bits", int(getattr(slm, "Gray_Scale_bits", 10)))
+    _safe_set_state(f"{prefix}_use_120hz", bool(slm._use_120hz))
 
     serial = slm._serial_number
     if serial:

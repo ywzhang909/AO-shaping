@@ -49,7 +49,7 @@ class _FakeSLM:
         self.shift_y = 0
         self.wavelength = 1064
         self.Panel_Res = (128, 96)
-        self.Pitch_um = 8.0
+        self.Pixel_Size_um = 8.0
         self.Gray_Scale_bits = 10
         self._use_120hz = False
         self._serial_number = "FAKE"
@@ -185,22 +185,38 @@ class TestParamsMapping:
         )
         assert config.freeform_holdout_count == 3
 
-    @pytest.mark.parametrize("shape", ["square", "rectangle", "triangle", "star", "circle"])
+    @pytest.mark.parametrize(
+        "shape", ["square", "rectangle", "triangle", "star", "circle"]
+    )
     def test_model_in_loop_shape_selection_reaches_config(self, shape: str) -> None:
         from ao_shaping.gui.slm.shaping_controls import MIL_TARGET_SHAPE_LABELS
         from ao_shaping.runners.runner_common import build_model_in_loop_config
 
         assert shape in MIL_TARGET_SHAPE_LABELS
         values = {
-            "n_rounds": 1, "seed": 0, "target_shape": shape, "target_side": 60,
-            "w_uniformity": 0.4, "w_efficiency": 0.6, "probe_count": 2,
-            "probe_spread": 4.0, "step_a_iterations": 0,
-            "step_b_iterations": 4, "holdout_probe_count": 2,
-            "freeform_holdout_count": 1, "min_holdout_correlation": 0.5,
-            "region": 32, "panel_span_px": 900.0,
-            "pupil_center": "960,670", "far_field_padding": 4,
-            "cam_type": "sim", "cam_id": 0, "exposure_time_ms": 0.0,
-            "max_exposure_ms": 0.4, "cam_size": 128, "slm_number": 1,
+            "n_rounds": 1,
+            "seed": 0,
+            "target_shape": shape,
+            "target_side": 60,
+            "w_uniformity": 0.4,
+            "w_efficiency": 0.6,
+            "probe_count": 2,
+            "probe_spread": 4.0,
+            "step_a_iterations": 0,
+            "step_b_iterations": 4,
+            "holdout_probe_count": 2,
+            "freeform_holdout_count": 1,
+            "min_holdout_correlation": 0.5,
+            "region": 32,
+            "panel_span_px": 900.0,
+            "pupil_center": "960,670",
+            "far_field_padding": 4,
+            "cam_type": "sim",
+            "cam_id": 0,
+            "exposure_time_ms": 0.0,
+            "max_exposure_ms": 0.4,
+            "cam_size": 128,
+            "slm_number": 1,
         }
         config = build_model_in_loop_config(
             build_model_in_loop_params(values), debug=False
@@ -272,6 +288,27 @@ class TestDeviceLifecycle:
         assert state["slm1_phase_preview"] is None
         assert state["slm1_loaded_config"] == {}
 
+    def test_reacquire_syncs_widget_state(self, monkeypatch) -> None:
+        """When the sidebar widgets have already been instantiated (re-acquire
+        path), ``_safe_set_state`` must not raise even though the widget keys
+        are locked — non-widget keys like ``_phase_preview`` still propagate."""
+        from ao_shaping.gui.slm import shaping_controls
+
+        state = self._patch_state(monkeypatch)
+        _FakeSantecFactory.instances.clear()
+        monkeypatch.setattr(shaping_controls, "Santec", _FakeSantecFactory)
+        # Simulate already-instantiated widgets by pre-populating the keys.
+        state["slm1_wavelength"] = 1064
+        state["slm1_shift_x"] = 0
+        state["slm1_shift_y"] = 0
+
+        slm = shaping_controls._reacquire_slm_handle(1)
+
+        assert slm is not None
+        assert state["slm1"] is slm
+        assert state["slm1_connected"] is True
+        assert state["slm1_phase_preview"] is None
+
     def test_run_reacquires_even_when_optimizer_raises(self, monkeypatch) -> None:
         """The ``@shaping_session`` contract: the GUI must own the handle again
         even when the optimizer dies mid-run (SDK handles are not re-entrant)."""
@@ -327,7 +364,9 @@ class TestDeviceLifecycle:
 
         recorder = _Recorder()
 
-        monkeypatch.setattr(slm_gs_refine, "optimize_slm_gs_refine", lambda cfg: recorder)
+        monkeypatch.setattr(
+            slm_gs_refine, "optimize_slm_gs_refine", lambda cfg: recorder
+        )
         monkeypatch.setattr(
             shaping_controls,
             "save_gs_refine_results",
@@ -374,7 +413,10 @@ class TestMethodRegistry:
             shaping_controls.get_shaping_method("nope")
 
     def test_registration_rejects_duplicate_and_keyless(self) -> None:
-        from ao_shaping.gui.slm.shaping_controls import ShapingMethod, register_shaping_method
+        from ao_shaping.gui.slm.shaping_controls import (
+            ShapingMethod,
+            register_shaping_method,
+        )
 
         class _Keyless(ShapingMethod):
             pass
@@ -391,9 +433,14 @@ class TestMethodRegistry:
     def test_widget_keys_are_method_scoped(self) -> None:
         """Switching methods must not leak one algorithm's inputs into the
         other's defaults, so every widget key carries the method key."""
-        from ao_shaping.gui.slm.shaping_controls import GsRefineMethod, ModelInLoopMethod
+        from ao_shaping.gui.slm.shaping_controls import (
+            GsRefineMethod,
+            ModelInLoopMethod,
+        )
 
-        assert GsRefineMethod("slm1", 1).wkey("exposure") == "slm1_shp_gs-refine_exposure"
+        assert (
+            GsRefineMethod("slm1", 1).wkey("exposure") == "slm1_shp_gs-refine_exposure"
+        )
         assert (
             ModelInLoopMethod("slm1", 1).wkey("exposure")
             == "slm1_shp_model-in-loop_exposure"
