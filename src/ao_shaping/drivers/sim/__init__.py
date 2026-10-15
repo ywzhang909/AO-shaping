@@ -77,13 +77,10 @@ from ao_shaping.drivers.sim.wave import (
     radius_metric,
 )
 
-# 尝试从 sim.digitaltwin 导入 Environment, 但对缺失的依赖做优雅处理
-try:
-    from sim.digitaltwin.base import Environment
-    _has_environment = True
-except ImportError:
-    Environment = None
-    _has_environment = False
+# sim.digitaltwin 顶层包在当前仓库不存在（无 pip/setup.py 声明），原 try-import
+# 加速路径恒走 ImportError fallback，属死分支，已删除；Environment 恒为 None。
+Environment = None
+_has_environment = False
 
 # 动态构造 __all__ 列表
 __all__ = [

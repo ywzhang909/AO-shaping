@@ -35,7 +35,6 @@ from ao_shaping.drivers.sim import (
     radius_metric,
     Environment,
 )
-from sim.digitaltwin import params as dt_params
 
 
 @dataclass

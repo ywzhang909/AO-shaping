@@ -734,26 +734,3 @@ def load_zernike_slm_response_matrix(
     return ZernikeSLMResponseMatrixResult.from_dict(
         metadata, matrix, variance_matrix, pinv_matrix
     )
-
-
-if __name__ == "__main__":
-    # Example usage
-    try:
-        # Calculate and save interaction matrix
-        matrix = calculate_interaction_matrix(
-            wfs_res="768",
-            disturb_voltage=50.0,
-            wait_time_s=0.1,
-            pupil_diameter=2.27,
-            save_path="data/interaction_matrix.txt",
-        )
-        print(f"Interaction matrix shape: {matrix.shape}")
-
-        # Load matrix
-        loaded_matrix = load_interaction_matrix("data/interaction_matrix.txt")
-        print(f"Loaded matrix shape: {loaded_matrix.shape}")
-        print("Interaction matrix calculation completed successfully!")
-
-    except Exception as e:
-        logger.error(f"Error during interaction matrix calculation: {e}")
-        raise

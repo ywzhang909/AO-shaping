@@ -183,18 +183,8 @@ class SimulatedSLM(WavefrontProcessor):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # 尝试使用 digitaltwin 的光学元件
-            try:
-                from sim.digitaltwin.optics import SLM as DT_SLM
-
-                # 构造 SLM 并施加
-                slm = DT_SLM(self._current_phase, wave.dpix)
-                slm.out(wave)
-
-                return wave
-            except ImportError:
-                # 回退: 直接施加相位
-                return self._apply_phase_direct(wave)
+            # sim.digitaltwin 不可用（顶层包不存在），直接施加相位
+            return self._apply_phase_direct(wave)
         finally:
             self._set_state(DeviceState.READY)
 
@@ -211,16 +201,10 @@ class SimulatedSLM(WavefrontProcessor):
         phase = self._current_phase
         if hasattr(wave, 'npix') and hasattr(wave, 'dpix'):
             if phase.shape != (wave.npix, wave.npix):
-                try:
-                    from sim.digitaltwin import utilities as utils
-                    phase = utils.matrix_size_trans(
-                        phase, self.dpix, wave.npix, wave.dpix
-                    )
-                except ImportError:
-                    # 简单重采样
-                    from scipy import ndimage
-                    factor = wave.npix / phase.shape[0]
-                    phase = ndimage.zoom(phase, factor)
+                # sim.digitaltwin.utilities 不可用，简单重采样
+                from scipy import ndimage
+                factor = wave.npix / phase.shape[0]
+                phase = ndimage.zoom(phase, factor)
 
         # 施加相位
         if hasattr(wave, 'wavefront'):
@@ -277,16 +261,8 @@ class SimulatedLens(SimulatedDevice):
         if not self.is_connected():
             raise RuntimeError("Lens not connected")
 
-        # 尝试 digitaltwin
-        try:
-            from sim.digitaltwin.optics import Lens as DT_Lens
-
-            lens = DT_Lens(self.focus_length)
-            lens.out(wave)
-            return wave
-        except ImportError:
-            # 回退: 直接施加
-            return self._apply_lens_direct(wave)
+        # sim.digitaltwin 不可用，直接施加透镜相位
+        return self._apply_lens_direct(wave)
 
     def _apply_lens_direct(self, wave: Any) -> Any:
         """直接施加透镜相位 (回退)。"""
@@ -347,16 +323,8 @@ class SimulatedAperture(SimulatedDevice):
         if not self.is_connected():
             raise RuntimeError("Aperture not connected")
 
-        # Try digitaltwin
-        try:
-            from sim.digitaltwin.optics import Aperture as DT_Aperture
-
-            aperture = DT_Aperture(self.radius)
-            aperture.out(wave)
-            return wave
-        except ImportError:
-            # 回退
-            return self._apply_aperture_direct(wave)
+        # sim.digitaltwin 不可用，直接施加光阑
+        return self._apply_aperture_direct(wave)
 
     def _apply_aperture_direct(self, wave: Any) -> Any:
         """直接施加光阑 (回退)。"""

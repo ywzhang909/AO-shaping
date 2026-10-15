@@ -116,21 +116,7 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
 
         self._set_state(DeviceState.BUSY)
         try:
-            from sim.digitaltwin import screens as dt_screens
-            from sim.digitaltwin import base as dt_base
-
-            env = dt_base.Environment()
-            env.Cn2 = self.Cn2
-            env.L0 = self.L0
-            env.l0 = self.l0
-
-            screen = dt_screens.TurbulentScreen(self.dist, env, self.harmonic)
-            screen.out(wave)
-
-            self._opd = screen.opd
-            return wave
-        except Exception as exc:
-            logger.warning(f"digitaltwin turbulence path unavailable ({exc}), using fallback")
+            # sim.digitaltwin 顶层包不存在，湍流恒走本模块的 numpy 回退路径
             return self._apply_turbulence_fallback(wave)
         finally:
             self._set_state(DeviceState.READY)
@@ -277,32 +263,9 @@ class SimulatedThermalScreen(WavefrontProcessor):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # 尝试 digitaltwin
-            try:
-                from sim.digitaltwin import screens as dt_screens
-                from sim.digitaltwin import base as dt_base
-
-                # 构造环境
-                env = dt_base.Environment()
-                env.absorb = self.absorb
-                env.wind_x = self.wind_x
-                env.wind_y = self.wind_y
-                env.density = 1.177  # 标准空气
-                env.Cp = 1005
-                env.Cv = 718
-                env.temperature = 288
-                env.Cs2 = 331.3 ** 2
-                env.gravity = 9.81
-
-                # 构造并施加相位屏
-                screen = dt_screens.ThermalScreen(self.dist, env, self.solve_mode)
-                screen.out(wave)
-
-                self._opd = screen.opd
-                return wave
-            except ImportError:
-                logger.warning("sim.digitaltwin not available, using fallback")
-                return wave  # 回退: 空操作
+            # sim.digitaltwin 顶层包不存在；热屏无独立 numpy 回退实现，
+            # 保持原有空操作语义（需要热晕相位请用 disturbance.py 的 SimDisturbance）
+            return wave
         finally:
             self._set_state(DeviceState.READY)
 
@@ -383,46 +346,9 @@ class SimulatedATP(SimulatedDevice):
         self._set_state(DeviceState.BUSY)
 
         try:
-            # 尝试 digitaltwin
-            try:
-                from sim.digitaltwin import atp as dt_atp
-                from sim.digitaltwin import base as dt_base
-
-                # 构造初始环境
-                env = dt_base.Environment()
-                env.absorb = 5e-6
-                env.scatter = 5e-5
-                env.wind_x = 2.0
-                env.wind_y = 0.0
-                env.density = 1.177
-                env.Cp = 1005
-                env.Cv = 718
-                env.temperature = 288
-                env.nT = -8.6e-7
-                env.atm = 1.0
-                env.Cs2 = 331.3 ** 2
-                env.gravity = 9.81
-                env.Cn2 = self.Cn2
-                env.L0 = 1.0
-                env.l0 = 0.01
-
-                # 构造 ATP
-                atp = dt_atp.ATP(
-                    env_init=env,
-                    prop_dist=self.prop_dist,
-                    layers=self.layers,
-                    Turbulent=self.Turbulent,
-                    Thermal=self.Thermal,
-                )
-
-                # 传播
-                atp.out(wave)
-
-                self._atp = atp
-                return wave
-            except ImportError:
-                logger.warning("sim.digitaltwin not available, ATP not executed")
-                return wave
+            # sim.digitaltwin 顶层包不存在；ATP 无独立 numpy 回退实现，
+            # 保持原有语义：直接透传输入波前
+            return wave
         finally:
             self._set_state(DeviceState.READY)
 
