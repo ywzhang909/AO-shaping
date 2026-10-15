@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 120 个 Markdown 文档（2026-10-14 盘点）。新文档请在本索引登记后再提交。
+> 共 122 个 Markdown 文档（2026-10-15 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -87,6 +87,7 @@
 | `slm/pre_run_characterization.md` | 台架开机表征指南（先量台架的必要性） |
 | `slm/slm_pattern_helper.md` | `PatternHelper` 相位图案生成工具类指南 |
 | `slm/slm_gui_manual.md` | `multi_slm_controller.py` Streamlit 前端页面手册 |
+| `slm/slm_gui_operation_map.md` | SLM 控制器操作路线图：27 个操作按时效（T0–T4）分类的界面重设计 (v1.0) |
 | `slm/align_windowed.md` | SLM+CCD 装配对准（相机 ROI 开窗自动 0级/±1级 对准） |
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
 

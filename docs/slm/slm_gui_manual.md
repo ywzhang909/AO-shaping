@@ -146,7 +146,17 @@ classDiagram
 | slm{N}_pixel_pitch_um       | float           | 像素间距                  |
 | slm{N}_bits                 | int             | 位深                      |
 | slm{N}_loaded_config        | dict            | 缓存的配置文件            |
+| slm{N}_use_correction_cb    | bool (widget)   | 波前矫正开关复选框（widget 键） |
+| slm{N}_correction_csv       | UploadedFile    | 待加载的矫正 CSV（widget 键）  |
+| slm{N}_max_gray             | int             | 2π 灰度值（widget 键）        |
+| slm{N}_pattern_type         | str             | 当前选中的相位图类型（widget 键） |
+| slm{N}_pattern_helper       | PatternHelper   | 按设备缓存的图案计算助手      |
+| slm{N}_csv_file             | UploadedFile    | 待加载的相位 CSV（widget 键）  |
+| slm{N}_preview_colormap     | str             | 预览色图标签                |
+| slm{N}_preview_colormap_widget | str          | 预览色图 radio（widget 键）   |
 | available_slms              | list[dict]      | 设备发现缓存              |
+| camera_pixel_um             | float           | 相机像元间距（μm，全局）    |
+| _cam_pixel_checked/mismatch/detected | bool/bool/float | 像素间距自动探测状态（一次性） |
 
 ---
 
