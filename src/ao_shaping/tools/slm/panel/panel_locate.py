@@ -141,6 +141,11 @@ def scan_panel(
     """Scan candidate panel positions and verify paired and session flat stability."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
+    from ao_shaping.utils.image.exposure_control import (
+        DAHENG_EXPOSURE_LIMIT_ENV,
+        configured_daheng_exposure_limit,
+        probe_exposure_ceiling_ms,
+    )
 
     # Local aliases keep the measurement body below verbatim.
     slm_number = params.slm_number
@@ -156,8 +161,18 @@ def scan_panel(
     max_flat_drift = params.max_flat_drift
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
 
-    if cam_type.lower() == "daheng" and not 0 < exposure_ms <= 0.4:
-        raise click.BadParameter("Daheng exposure must be in (0, 0.4] ms", param_hint="--exposure-ms")
+    if cam_type.lower() == "daheng":
+        if exposure_ms <= 0:
+            raise click.BadParameter(
+                "Daheng exposure must be positive", param_hint="--exposure-ms"
+            )
+        env_ceiling = configured_daheng_exposure_limit()
+        if env_ceiling > 0 and exposure_ms > env_ceiling:
+            raise click.BadParameter(
+                f"Daheng exposure must be in (0, {env_ceiling}] ms "
+                f"({DAHENG_EXPOSURE_LIMIT_ENV})",
+                param_hint="--exposure-ms",
+            )
     if not 0 <= max_flat_drift < 1:
         raise click.BadParameter("must be in [0, 1)", param_hint="--max-flat-drift")
     if not 0 <= max_session_drift < 1:
@@ -173,8 +188,24 @@ def scan_panel(
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_slm_display(slm):
         actual_ms = cam.reset_exposure_time(float(exposure_ms))
         if cam_type.lower() == "daheng":
-            if actual_ms is None or not 0 < float(actual_ms) <= 0.4 + 1e-9:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            ceiling = configured_daheng_exposure_limit()
+            if not ceiling:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                ceiling = estimate.ceiling_ms
+                logger.info(
+                    "Daheng exposure ceiling probed from the image: {:.4f} ms",
+                    ceiling,
+                )
+                # The probe left the camera at the last ladder step; re-arm.
+                actual_ms = cam.reset_exposure_time(float(exposure_ms))
+            if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
+                raise RuntimeError(
+                    f"unsafe Daheng exposure readback: {actual_ms} ms "
+                    f"(ceiling {ceiling} ms)"
+                )
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)

@@ -77,6 +77,11 @@ from ao_shaping.tools.zernike.sweep_probe import (  # noqa: E402
     capture_settled,
 )
 from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
+from ao_shaping.utils.image.exposure_control import (  # noqa: E402
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+    probe_exposure_ceiling_ms,
+)
 
 
 class _LiveStream:
@@ -245,6 +250,38 @@ def measure_spot(frame: np.ndarray) -> tuple[float, float, float, float, float]:
     return m.peak, m.fwhm_px, m.centroid_x, m.centroid_y, m.hollowness
 
 
+def _resolve_exposure_ceiling(cam, args: argparse.Namespace) -> float:
+    """Per-session Daheng ceiling: env var, else a one-time image probe.
+
+    The ceiling is set by the optical path (laser power, attenuation), so it
+    is never a constant here.  Resolved once per stage (the camera is open and
+    the panel shows whatever the previous stage left — a brighter leftover
+    only lowers the estimate, the safe direction) and stashed on ``args`` for
+    the per-frame read-back guard in :func:`shoot`.
+    """
+    ceiling = configured_daheng_exposure_limit()
+    if not ceiling:
+        estimate = probe_exposure_ceiling_ms(
+            cam.reset_exposure_time,
+            lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+        )
+        ceiling = estimate.ceiling_ms
+        logger.info(
+            "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
+        )
+    if args.exposure_ms > ceiling + 1e-9:
+        raise ValueError(
+            f"Daheng exposure {args.exposure_ms} ms exceeds the resolved "
+            f"ceiling {ceiling} ms"
+        )
+    args.exposure_ceiling_ms = ceiling
+    # The probe left the camera at the last ladder step; re-arm the working
+    # exposure (reset_exposure_time takes milliseconds; passing us clamps to
+    # 1000 ms and blows every frame out to full scale).
+    cam.reset_exposure_time(float(args.exposure_ms))
+    return ceiling
+
+
 def shoot(cam, slm, phase_panel: np.ndarray, args: argparse.Namespace) -> np.ndarray:
     """Display a panel phase and return the averaged far-field frame.
 
@@ -261,14 +298,22 @@ def shoot(cam, slm, phase_panel: np.ndarray, args: argparse.Namespace) -> np.nda
     )
     if args.cam_type == "daheng":
         # The read-back guard exists because a real Daheng saturates and the
-        # resulting metrics are meaningless above ~0.4 ms. That is a property of
-        # the *hardware*, not of the camera type name: a stand-in / simulated
-        # camera reports whatever it was told, so applying the ceiling there
-        # would reject perfectly valid runs. Opt out via the ``is_mock`` marker.
+        # resulting metrics are meaningless above the session ceiling. That is
+        # a property of the *optical path* (attenuation, laser power), not of
+        # the camera type name: a stand-in / simulated camera reports whatever
+        # it was told, so applying the ceiling there would reject perfectly
+        # valid runs. Opt out via the ``is_mock`` marker. The ceiling is
+        # resolved once per stage (env var, else an image probe) by
+        # ``_resolve_exposure_ceiling`` and stashed on ``args``.
         if not getattr(cam, "is_mock", False):
-            actual_ms = float(cam.exposure_time)
-            if not 0 < actual_ms <= 0.4:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            ceiling = getattr(args, "exposure_ceiling_ms", None)
+            if ceiling is None:
+                ceiling = configured_daheng_exposure_limit()
+            if ceiling and not 0 < float(cam.exposure_time) <= ceiling:
+                raise RuntimeError(
+                    f"unsafe Daheng exposure readback: {cam.exposure_time} ms "
+                    f"(ceiling {ceiling} ms)"
+                )
         if float(np.max(frame)) >= 250.0:
             raise RuntimeError("Daheng CCD saturated during sweep")
     return frame
@@ -291,7 +336,10 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     ) as cam:
         # reset_exposure_time takes milliseconds; passing us clamps to 1000 ms
         # and blows every frame out to full scale.
-        cam.reset_exposure_time(float(args.exposure_ms))
+        if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
+            _resolve_exposure_ceiling(cam, args)
+        else:
+            cam.reset_exposure_time(float(args.exposure_ms))
         flat = shoot(cam, slm, np.zeros((PANEL_H, PANEL_W)), args)
         if args.save_frames:
             save_frame_png(vis / "flat_ccd.png", flat)
@@ -525,7 +573,10 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     ) as slm, create_camera(
         args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
     ) as cam:
-        cam.reset_exposure_time(float(args.exposure_ms))
+        if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
+            _resolve_exposure_ceiling(cam, args)
+        else:
+            cam.reset_exposure_time(float(args.exposure_ms))
 
         def acquire(mode: str, coeff: float, axis: str, tag: str) -> None:
             nonlocal flat_peak, flat_core, flat_frame
@@ -965,7 +1016,10 @@ def stage_shape(args: argparse.Namespace, out_dir: Path) -> None:
     ) as slm, create_camera(
         args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
     ) as cam:
-        cam.reset_exposure_time(float(args.exposure_ms))
+        if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
+            _resolve_exposure_ceiling(cam, args)
+        else:
+            cam.reset_exposure_time(float(args.exposure_ms))
         vis = out_dir / "frames" / "shape"
         before = shoot(cam, slm, np.zeros((PANEL_H, PANEL_W)), args)
         if args.save_frames:
@@ -1156,8 +1210,15 @@ def main() -> int:
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
-    if args.cam_type == "daheng" and not 0 < args.exposure_ms <= 0.4:
-        ap.error("Daheng exposure must be in (0, 0.4] ms")
+    if args.cam_type == "daheng":
+        if args.exposure_ms <= 0:
+            ap.error("Daheng exposure must be positive")
+        env_ceiling = configured_daheng_exposure_limit()
+        if env_ceiling > 0 and args.exposure_ms > env_ceiling:
+            ap.error(
+                f"Daheng exposure {args.exposure_ms} ms exceeds the "
+                f"{env_ceiling} ms ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+            )
     args.sweep_tilt = [float(v) for v in str(args.sweep_tilt).split(",") if v.strip()]
     args.sweep_defocus = [
         float(v) for v in str(args.sweep_defocus).split(",") if v.strip()

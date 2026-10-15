@@ -50,6 +50,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -75,7 +76,9 @@ from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.image.exposure_control import (
     choose_exposure,
+    configured_daheng_exposure_limit,
     exposure_normalized_frame,
+    probe_exposure_ceiling_ms,
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
@@ -615,8 +618,13 @@ class SlmModelInLoopConfig:
     exposure_time_ms: float = 0.0
     """0 starts Daheng manual auto exposure at 0.02 ms."""
 
-    max_exposure_ms: float = 0.4
-    """Hard ceiling for Daheng manual exposure, including the initial setting."""
+    max_exposure_ms: float = 0.0
+    """Daheng exposure ceiling in ms; the optical path sets it, so it is
+    per-session, never a package constant.
+
+    0 = auto: read ``AO_DAHENG_MAX_EXPOSURE_MS``, else probe the CCD image
+    with a doubling ladder until the peak saturates.  A positive value is
+    used verbatim."""
 
     cam_size: int = 300
     slm_number: int = 1
@@ -765,11 +773,20 @@ class SlmModelInLoopConfig:
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
         if self.cam_type == "daheng" and (
-            not 0 < self.max_exposure_ms <= 0.4
+            not math.isfinite(self.max_exposure_ms)
+            or self.max_exposure_ms < 0
+            or not math.isfinite(self.exposure_time_ms)
             or self.exposure_time_ms < 0
-            or self.exposure_time_ms > self.max_exposure_ms
+            or (
+                self.max_exposure_ms > 0
+                and self.exposure_time_ms > self.max_exposure_ms
+            )
         ):
-            raise ValueError("Daheng exposure must stay within (0, 0.4] ms")
+            raise ValueError(
+                "Daheng exposure_time_ms must be non-negative and may not exceed a "
+                "positive max_exposure_ms (0 = auto: AO_DAHENG_MAX_EXPOSURE_MS, "
+                "else probed from the CCD image)"
+            )
         if self.forward_checkpoint is not None:
             # Fail at config time, before any device opens: a typo in the seed
             # path must not burn a hardware run to be discovered in Stage 2.
@@ -1206,7 +1223,7 @@ class _HardwareBench:
             config.cam_type,
             cam_id=config.cam_id,
             exposure_time_ms=(
-                config.exposure_time_ms or min(0.02, config.max_exposure_ms)
+                config.exposure_time_ms or 0.02
                 if config.cam_type == "daheng"
                 else config.exposure_time_ms
             ),
@@ -1214,13 +1231,18 @@ class _HardwareBench:
         self._slm = None
         self._original_slot = None
         self._original_gray = None
+        self._ceiling_ms: float | None = None
         try:
             self._cam.open()
             if config.cam_type == "daheng":
-                initial_ms = config.exposure_time_ms or min(0.02, config.max_exposure_ms)
+                self._ceiling_ms = self._resolve_daheng_ceiling()
+                initial_ms = config.exposure_time_ms or min(0.02, self._ceiling_ms)
                 actual_ms = self._cam.reset_exposure_time(initial_ms)
-                if not 0 < actual_ms <= config.max_exposure_ms + 1e-9:
-                    raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+                if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
+                    raise RuntimeError(
+                        f"unsafe Daheng exposure readback: {actual_ms} ms "
+                        f"(ceiling {self._ceiling_ms} ms)"
+                    )
             self._slm = Santec(
                 slm_number=config.slm_number,
                 wavelength=config.slm_wavelength or None,
@@ -1265,7 +1287,7 @@ class _HardwareBench:
                     decision = choose_exposure(
                         raw,
                         float(self._cam.exposure_time),
-                        max_ms=config.max_exposure_ms,
+                        max_ms=self._ceiling_ms,
                     )
                     if decision.peak_fraction >= 0.9:
                         raise RuntimeError(
@@ -1303,6 +1325,42 @@ class _HardwareBench:
         self.last_raw_frame: np.ndarray | None = None
         self._closed = False
 
+    def _resolve_daheng_ceiling(self) -> float:
+        """Resolve the session exposure ceiling: explicit > env > image probe.
+
+        The ceiling is optical-path dependent (laser power, attenuation), so no
+        constant is baked in.  When nothing pins it, the CCD image is probed
+        with a doubling ladder; whatever the SLM happens to display at that
+        moment only makes the estimate *brighter*, i.e. the ceiling lower —
+        the safe direction.
+        """
+        ceiling = float(self._config.max_exposure_ms) or configured_daheng_exposure_limit()
+        if ceiling > 0:
+            return ceiling
+        from ao_shaping.drivers.ccd.common import get_camera_exposure_range
+
+        min_ms, max_ms = get_camera_exposure_range(self._cam)
+        estimate = probe_exposure_ceiling_ms(
+            self._cam.reset_exposure_time,
+            lambda: np.asarray(self._cam.get_numpy_image(n_sample=2)),
+            start_ms=max(min_ms, 1e-3),
+            hard_max_ms=max_ms,
+        )
+        logger.info(
+            "Daheng exposure ceiling probed from the image: {:.4f} ms "
+            "(last safe {:.3f} ms, peak {:.1%} of full scale at the final step)",
+            estimate.ceiling_ms,
+            estimate.last_safe_ms,
+            estimate.peak_fractions[-1],
+        )
+        if estimate.ceiling_ms < min_ms:
+            raise RuntimeError(
+                f"probed exposure ceiling {estimate.ceiling_ms:.4f} ms is below the "
+                f"camera minimum {min_ms} ms; reduce laser power or add attenuation "
+                f"before a quantitative run"
+            )
+        return estimate.ceiling_ms
+
     def display(self, phase_model: np.ndarray) -> None:
         # Raw unwrapped radians on the PANEL: the only mod-2pi wrap in the whole
         # repo lives inside the driver's radian -> grayscale conversion. Stashed
@@ -1336,12 +1394,15 @@ class _HardwareBench:
                 return np.asarray(frame, dtype=np.float64)
             actual_ms = float(self._cam.exposure_time)
             self.last_exposure_ms = actual_ms
-            if not 0 < actual_ms <= self._config.max_exposure_ms + 1e-9:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
+                raise RuntimeError(
+                    f"unsafe Daheng exposure readback: {actual_ms} ms "
+                    f"(ceiling {self._ceiling_ms} ms)"
+                )
             raw = self._cam.get_numpy_image(n_sample=1)
             self.last_raw_frame = np.asarray(raw).copy()
             decision = choose_exposure(
-                raw, actual_ms, max_ms=self._config.max_exposure_ms
+                raw, actual_ms, max_ms=self._ceiling_ms
             )
             if decision.accepted or (
                 decision.peak_fraction < 0.9
@@ -1357,8 +1418,11 @@ class _HardwareBench:
             if abs(decision.next_ms - actual_ms) < 0.001:
                 break
             next_ms = self._cam.reset_exposure_time(decision.next_ms)
-            if not 0 < next_ms <= self._config.max_exposure_ms + 1e-9:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {next_ms} ms")
+            if not 0 < next_ms <= self._ceiling_ms + 1e-9:
+                raise RuntimeError(
+                    f"unsafe Daheng exposure readback: {next_ms} ms "
+                    f"(ceiling {self._ceiling_ms} ms)"
+                )
         raise RuntimeError("CCD exposure could not reach an unsaturated stable range")
 
     def measure_fixed_exposure(self, exposure_ms: float) -> np.ndarray:
@@ -1367,11 +1431,17 @@ class _HardwareBench:
             raise ValueError("fixed-exposure comparison requires Daheng CCD")
         if self._pending is None:
             raise RuntimeError("measure_fixed_exposure() called before display()")
-        if not 0 < exposure_ms <= self._config.max_exposure_ms:
-            raise ValueError("fixed exposure exceeds the configured Daheng limit")
+        if not 0 < exposure_ms <= self._ceiling_ms + 1e-9:
+            raise ValueError(
+                f"fixed exposure {exposure_ms} ms exceeds the resolved Daheng "
+                f"ceiling {self._ceiling_ms} ms"
+            )
         actual_ms = float(self._cam.reset_exposure_time(exposure_ms))
-        if not 0 < actual_ms <= self._config.max_exposure_ms + 1e-9:
-            raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+        if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
+            raise RuntimeError(
+                f"unsafe Daheng exposure readback: {actual_ms} ms "
+                f"(ceiling {self._ceiling_ms} ms)"
+            )
         frame = self._capture(
             self._cam, self._slm, self._pending,
             n_frames=self._config.n_eval_frames,

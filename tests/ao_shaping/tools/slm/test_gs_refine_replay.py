@@ -40,7 +40,8 @@ def test_load_plan_from_run_directory(tmp_path):
     np.testing.assert_array_equal(plan.phases["best"], np.full((4, 6), 2))
 
 
-def test_replay_exposure_limit_and_phase_shape(tmp_path):
+def test_replay_exposure_limit_and_phase_shape(tmp_path, monkeypatch):
+    monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
     run_dir = _save_run(tmp_path, bad_shape=True)
     with pytest.raises(ValueError, match="exposure"):
         load_replay_plan(run_dir, exposure_ms=0.401)

@@ -74,6 +74,11 @@ def test_scan_reports_session_drift_and_rejects_unstable_run(
         def reset_exposure_time(self, value):
             return value
 
+        def get_numpy_image(self, n_sample: int):
+            # Dark raw frame: the ceiling probe walks its whole ladder
+            # without saturating and returns a generous ceiling.
+            return np.full((8, 8), 10, dtype=np.uint8)
+
     frames = iter([100.0] * 18 + [last_flat])
 
     def flat_reference(*_args, **_kwargs):

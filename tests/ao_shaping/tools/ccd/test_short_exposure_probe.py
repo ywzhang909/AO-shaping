@@ -9,13 +9,17 @@ from ao_shaping.tools.ccd.short_exposure_probe import (
 
 
 @pytest.mark.parametrize("exposures", [[0.02, 0.4], [0.03, 0.06, 0.03]])
-def test_exposure_limits_accept_bounded_sequences(exposures):
+def test_exposure_limits_accept_bounded_sequences(exposures, monkeypatch):
+    # With no env ceiling the static layer cannot bound the ladder; the
+    # runtime image probe does.
+    monkeypatch.delenv("AO_DAHENG_MAX_EXPOSURE_MS", raising=False)
     validate_exposures(exposures)
 
 
 @pytest.mark.parametrize("exposures", [[0.03, 0.6], [0.01, 0.02], [float("nan"), 0.03]])
-def test_exposure_limits_reject_unsafe_sequences(exposures):
-    with pytest.raises(ValueError, match="Daheng exposures"):
+def test_exposure_limits_reject_unsafe_sequences(exposures, monkeypatch):
+    monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
+    with pytest.raises(ValueError, match="Daheng exposure"):
         validate_exposures(exposures)
 
 

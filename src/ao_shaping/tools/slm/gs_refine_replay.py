@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 
 
 SEQUENCE = ("flat", "gs", "best", "gs", "flat", "best", "flat")
@@ -46,8 +47,19 @@ def load_replay_plan(
     target_side: int | None = None,
 ) -> ReplayPlan:
     """Resolve a run directory or PKL into validated phases without opening hardware."""
-    if not 0 < exposure_ms <= 0.4:
-        raise ValueError("Daheng exposure must be in (0, 0.4] ms")
+    from ao_shaping.utils.image.exposure_control import (
+        DAHENG_EXPOSURE_LIMIT_ENV,
+        configured_daheng_exposure_limit,
+    )
+
+    if exposure_ms <= 0:
+        raise ValueError("Daheng exposure must be positive")
+    env_ceiling = configured_daheng_exposure_limit()
+    if env_ceiling > 0 and exposure_ms > env_ceiling:
+        raise ValueError(
+            f"Daheng exposure {exposure_ms} ms exceeds the {env_ceiling} ms "
+            f"ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+        )
     if cam_size < 1:
         raise ValueError("cam_size must be positive")
     source = Path(source)
@@ -110,6 +122,10 @@ def run_replay(
     from ao_shaping.optimizer.wfless.slm_gs_refine import _metrics
     from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
     from ao_shaping.utils.image.beam_metrics import prepare_frame
+    from ao_shaping.utils.image.exposure_control import (
+        configured_daheng_exposure_limit,
+        probe_exposure_ceiling_ms,
+    )
     from ao_shaping.utils.image.targets import square_mask
 
     plan.output_dir.mkdir(parents=True, exist_ok=True)
@@ -144,9 +160,27 @@ def run_replay(
         if (expected_wavelength_nm is not None
                 and slm.wavelength != expected_wavelength_nm):
             raise ValueError("SLM wavelength changed; saved gray phases may be invalid")
+        ceiling = configured_daheng_exposure_limit()
+        if not ceiling:
+            estimate = probe_exposure_ceiling_ms(
+                cam.reset_exposure_time,
+                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+            )
+            ceiling = estimate.ceiling_ms
+            logger.info(
+                "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
+            )
+        if plan.exposure_ms > ceiling + 1e-9:
+            raise ValueError(
+                f"Daheng exposure {plan.exposure_ms} ms exceeds the resolved "
+                f"ceiling {ceiling} ms"
+            )
         cam.reset_exposure_time(plan.exposure_ms)
-        if cam.exposure_time > 0.4:
-            raise ValueError("camera exposure readback exceeds 0.4 ms")
+        if cam.exposure_time > ceiling + 1e-9:
+            raise ValueError(
+                f"camera exposure readback {cam.exposure_time} ms exceeds the "
+                f"{ceiling} ms ceiling"
+            )
         cam.reset_window(center=cam_center, size=(plan.cam_size, plan.cam_size))
         try:
             protected = slm.get_displayed_memory_number()

@@ -256,12 +256,13 @@ class TestExposureGuardUnits:
     is **microseconds** -- and divides by 1000, so the property is
     **milliseconds**, the same unit ``reset_exposure_time`` takes. A stand-in
     that returns seconds instead makes every read-back ~1000x too small, and the
-    ``<= 0.4`` guard silently stops guarding: the bench would happily run at
-    1.1 ms.
+    ``<= session ceiling`` guard silently stops guarding: the bench would happily
+    run at 1.1 ms.
 
-    The ceiling is a property of real hardware, so these tests exercise it with
-    ``is_mock`` cleared, and separately assert that a simulated camera is *not*
-    held to it.
+    The ceiling is a property of the optical path (resolved from
+    ``AO_DAHENG_MAX_EXPOSURE_MS`` or an image probe), so these tests pin it via
+    the environment with ``is_mock`` cleared, and separately assert that a
+    simulated camera is *not* held to it.
     """
 
     @staticmethod
@@ -280,8 +281,9 @@ class TestExposureGuardUnits:
         )
 
     def test_unsafe_daheng_exposure_is_rejected(
-        self, runbook: Any, tmp_path: Path
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
         args = _args(runbook, tmp_path, exposure_ms=1.1)
         with pytest.raises(RuntimeError, match="unsafe Daheng exposure readback"):
             runbook.shoot(
@@ -290,8 +292,9 @@ class TestExposureGuardUnits:
             )
 
     def test_safe_daheng_exposure_is_accepted(
-        self, runbook: Any, tmp_path: Path
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
         args = _args(runbook, tmp_path, exposure_ms=0.2)
         frame = runbook.shoot(
             self._real_camera(0.2), MockSLM(),

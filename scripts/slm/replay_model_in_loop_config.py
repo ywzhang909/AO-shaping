@@ -16,6 +16,10 @@ from ao_shaping.runners.runner_common import (
     save_model_in_loop_config,
     save_model_in_loop_results,
 )
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+)
 
 
 def main() -> None:
@@ -34,8 +38,12 @@ def main() -> None:
     config = SlmModelInLoopConfig(**values)
     if config.cam_type != "daheng" or config.slm_number != 1:
         parser.error("this saved hardware replay requires Daheng CCD and SLM #1")
-    if config.max_exposure_ms > 0.4:
-        parser.error("saved config exceeds the current 0.4 ms exposure limit")
+    env_ceiling = configured_daheng_exposure_limit()
+    if env_ceiling > 0 and config.max_exposure_ms > env_ceiling:
+        parser.error(
+            f"saved config exposes {config.max_exposure_ms} ms, above the current "
+            f"{env_ceiling} ms ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+        )
     if args.output_dir.exists():
         parser.error(f"output directory already exists: {args.output_dir}")
     args.output_dir.mkdir(parents=True)

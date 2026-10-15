@@ -193,6 +193,10 @@ def test_fixed_exposure_capture_checks_readback_and_saturation():
         settle_max_discard=4, settle_wait_s=0.1, settle_tol=0.02,
         settle_max_wait_s=1.0,
     )
+    # ``__init__`` resolves the session ceiling into ``_ceiling_ms``; this
+    # bypassed constructor must set it explicitly (here: the explicit config
+    # value, which is what resolution would have returned verbatim).
+    bench._ceiling_ms = 0.4
     bench._cam = Camera()
     bench._slm = object()
     bench._pending = np.zeros((8, 8))

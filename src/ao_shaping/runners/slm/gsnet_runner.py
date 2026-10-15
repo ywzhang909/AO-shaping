@@ -22,7 +22,8 @@ Offline dry-run (no hardware) — options live on the subcommand, not the group:
 
 ``train`` never opens a device: it reads the ``data/debug`` pickles the
 optimizers already recorded and trains FourierGSNet on them in simulation.
-Live Daheng searches require a measured fixed exposure in (0, 0.4] ms.
+Live Daheng searches require a measured fixed exposure within the per-session
+ceiling (env ``AO_DAHENG_MAX_EXPOSURE_MS``, else probed from the image).
 """
 
 from __future__ import annotations
@@ -52,6 +53,10 @@ from ao_shaping.runners.runner_common import (
     resolve_spgd_delta,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+)
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.display import AutoDisplay, FrameInfo
@@ -446,11 +451,20 @@ run.add_command(train, name="train")
 
 def _validate_daheng_exposure(camera: CameraParams) -> None:
     """Reject auto or over-limit exposure before opening the live camera."""
-    if camera.cam_type.lower() == "daheng" and not 0 < camera.exposure_time_ms <= 0.4:
-        raise click.BadParameter(
-            "Daheng GSNet runs require explicit exposure in (0, 0.4] ms",
-            param_hint="--exposure-time-ms",
-        )
+    if camera.cam_type.lower() == "daheng":
+        if camera.exposure_time_ms <= 0:
+            raise click.BadParameter(
+                "Daheng GSNet runs require an explicit positive exposure "
+                "(auto-exposure is not allowed)",
+                param_hint="--exposure-time-ms",
+            )
+        ceiling = configured_daheng_exposure_limit()
+        if ceiling > 0 and camera.exposure_time_ms > ceiling:
+            raise click.BadParameter(
+                f"Daheng GSNet runs require exposure in (0, {ceiling}] ms "
+                f"({DAHENG_EXPOSURE_LIMIT_ENV})",
+                param_hint="--exposure-time-ms",
+            )
 
 
 def _execute(cfg: SlmGsnetConfig) -> None:

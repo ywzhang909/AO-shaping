@@ -604,6 +604,10 @@ Near_Cam_ID=1
 IDEAL_SPOT_RADIUS=7
 CENTER=577,655
 
+# Camera protection exposure ceiling (ms). Optical-path dependent, set per
+# session; unset or 0 = code probes the CCD image (doubling ladder to saturation)
+# AO_DAHENG_MAX_EXPOSURE_MS=0.6
+
 # Library paths
 PYTHONPATH=src;libs
 PATH=libs\Drv_UDPST\x64\Release;libs\gxipy;${PATH}
@@ -970,6 +974,8 @@ Far_Cam_ID=0
 Near_Cam_ID=1
 IDEAL_SPOT_RADIUS=7
 CENTER=577,655
+# Daheng 保护曝光上限 (ms), 随光路按会话设置; 缺省/0 = 由画面探测
+AO_DAHENG_MAX_EXPOSURE_MS=0.6
 ```
 
 Access in code:

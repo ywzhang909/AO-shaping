@@ -85,6 +85,11 @@ from ao_shaping.drivers.slm.factory import (
 )
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+    probe_exposure_ceiling_ms,
+)
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.slm.bench_constants import (
@@ -384,8 +389,13 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"exposure_time_ms must be non-negative, got {self.exposure_time_ms}"
             )
-        if self.cam_type == "daheng" and self.exposure_time_ms > 0.4:
-            raise ValueError("Daheng exposure_time_ms must not exceed 0.4 ms")
+        if self.cam_type == "daheng" and self.exposure_time_ms > 0:
+            ceiling = configured_daheng_exposure_limit()
+            if ceiling > 0 and self.exposure_time_ms > ceiling:
+                raise ValueError(
+                    f"Daheng exposure_time_ms {self.exposure_time_ms} ms exceeds "
+                    f"the {ceiling} ms ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+                )
         if self.early_stop_score < 0:
             raise ValueError(
                 f"early_stop_score must be non-negative, got {self.early_stop_score}"
@@ -655,6 +665,29 @@ def _run_gs_refine_session(
     ):
         raise ValueError("pupil square extends beyond the SLM panel")
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
+    if config.cam_type == "daheng":
+        # The exposure ceiling is set by the optical path, not the sensor, so
+        # resolve it per session before any measurement can fire an over-limit
+        # exposure: the environment variable, else probe the image itself.
+        ceiling = configured_daheng_exposure_limit()
+        if not ceiling:
+            estimate = probe_exposure_ceiling_ms(
+                cam.reset_exposure_time,
+                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+            )
+            ceiling = estimate.ceiling_ms
+            logger.info(
+                "Daheng exposure ceiling probed from the image: {:.4f} ms",
+                ceiling,
+            )
+        if config.exposure_time_ms > ceiling + 1e-9:
+            raise ValueError(
+                f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds the "
+                f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
+            )
+        # The probe left the camera at the last ladder step; re-arm the
+        # working exposure before the first measurement.
+        cam.reset_exposure_time(config.exposure_time_ms)
     if config.cam_type != "sim":
         # Locate the zero order on the full sensor before restricting the CCD ROI.
         discovery = display_and_average(

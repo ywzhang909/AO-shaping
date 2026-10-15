@@ -53,9 +53,17 @@ def test_pupil_phase_uses_measured_panel_center():
         embed_pupil_square(np.ones((20, 20)), (80, 100), 10, (5, 50))
 
 
-def test_daheng_exposure_above_limit_rejected():
+def test_daheng_exposure_above_limit_rejected(monkeypatch):
+    monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
     with pytest.raises(ValueError, match="0.4 ms"):
         SlmGsRefineConfig(exposure_time_ms=0.5)
+
+
+def test_daheng_exposure_without_env_ceiling_defers_to_runtime_probe(monkeypatch):
+    # The ceiling is optical-path dependent; with no env var the config must
+    # not bake in a constant — the session probes the image at run time.
+    monkeypatch.delenv("AO_DAHENG_MAX_EXPOSURE_MS", raising=False)
+    SlmGsRefineConfig(exposure_time_ms=0.5)
 
 
 def _fast_config(**overrides) -> SlmGsRefineConfig:
@@ -560,6 +568,14 @@ class TestEndToEndSim:
         )
 
         class CameraStub:
+            def reset_exposure_time(self, time_ms: float) -> float:
+                return float(time_ms)
+
+            def get_numpy_image(self, n_sample: int):
+                # Dark raw frame: the ceiling probe walks its whole ladder
+                # without saturating and returns a generous ceiling.
+                return np.full((16, 16), 10, dtype=np.uint8)
+
             def reset_window(self, *, center, size):
                 assert center == (117, 102)
                 assert size == (100, 100)

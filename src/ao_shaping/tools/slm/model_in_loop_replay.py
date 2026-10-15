@@ -17,6 +17,7 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     _quality,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
+from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
 
 SEQUENCE = ("flat", "A", "B", "flat", "B", "A", "flat")
@@ -65,12 +66,18 @@ def load_plan(
     values["pupil_center"] = tuple(values["pupil_center"])
     if "frozen_modes" in values:
         values["frozen_modes"] = tuple(values["frozen_modes"])
-    values["max_exposure_ms"] = min(float(values["max_exposure_ms"]), 0.4)
+    env_ceiling = configured_daheng_exposure_limit()
+    if env_ceiling > 0:
+        # The current session's ceiling wins when it is the safer (lower) one;
+        # a saved explicit ceiling stays authoritative when no env is set, and
+        # a saved 0 means "auto" (resolved by probe at run time).
+        values["max_exposure_ms"] = min(float(values["max_exposure_ms"]), env_ceiling)
     config = SlmModelInLoopConfig(**values)
-    if fixed_shaped_exposure_ms is not None and not 0 < fixed_shaped_exposure_ms <= config.max_exposure_ms:
-        raise ValueError("fixed shaped exposure exceeds the Daheng limit")
-    if fixed_flat_exposure_ms is not None and not 0 < fixed_flat_exposure_ms <= config.max_exposure_ms:
-        raise ValueError("fixed flat exposure exceeds the Daheng limit")
+    if config.max_exposure_ms > 0:
+        if fixed_shaped_exposure_ms is not None and not 0 < fixed_shaped_exposure_ms <= config.max_exposure_ms:
+            raise ValueError("fixed shaped exposure exceeds the Daheng limit")
+        if fixed_flat_exposure_ms is not None and not 0 < fixed_flat_exposure_ms <= config.max_exposure_ms:
+            raise ValueError("fixed flat exposure exceeds the Daheng limit")
     return ReplayPlan(config, sources, phases, Path(output_dir),
                       fixed_shaped_exposure_ms, fixed_flat_exposure_ms)
 

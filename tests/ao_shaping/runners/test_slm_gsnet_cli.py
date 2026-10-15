@@ -71,8 +71,15 @@ def test_main_cli_registers_slm_gsnet():
     assert "slm-gsnet" in result.output
 
 
-@pytest.mark.parametrize("exposure", [0, -0.01, 0.401, 1.5])
-def test_daheng_exposure_rejected_before_hardware_open(exposure):
+@pytest.mark.parametrize("exposure", [0, -0.01])
+def test_daheng_auto_exposure_rejected_before_hardware_open(exposure):
+    with pytest.raises(click.BadParameter, match="explicit positive"):
+        _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=exposure))
+
+
+@pytest.mark.parametrize("exposure", [0.401, 1.5])
+def test_daheng_exposure_above_env_ceiling_rejected(exposure, monkeypatch):
+    monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
     with pytest.raises(click.BadParameter, match="0.4"):
         _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=exposure))
 
@@ -82,9 +89,10 @@ def test_daheng_exposure_accepts_safe_fixed_value_and_sim_auto():
     _validate_daheng_exposure(CameraParams(cam_type="sim", exposure_time_ms=0))
 
 
-def test_live_cli_rejects_over_limit_exposure_without_opening_devices():
+def test_live_cli_rejects_over_limit_exposure_without_opening_devices(monkeypatch):
+    monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
     result = CliRunner().invoke(
         run, ["spgd", "--cam-type", "daheng", "--exposure-time-ms", "0.5"]
     )
     assert result.exit_code != 0
-    assert "require explicit exposure in (0, 0.4] ms" in result.output
+    assert "require exposure in (0, 0.4] ms" in result.output

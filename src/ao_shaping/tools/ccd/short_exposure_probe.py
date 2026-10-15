@@ -10,14 +10,17 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
+from loguru import logger
 
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H, SLM_PANEL_W, capture_settled, phase_to_panel,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
-
-
-MAX_DAHENG_EXPOSURE_MS = 0.4
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+    probe_exposure_ceiling_ms,
+)
 
 
 @contextmanager
@@ -30,9 +33,17 @@ def _flat_on_exit(slm) -> Iterator[None]:
 
 
 def validate_exposures(exposures: list[float]) -> None:
-    if len(exposures) < 2 or any(not np.isfinite(ms) or not 0.02 <= ms <= 0.4
+    if len(exposures) < 2 or any(not np.isfinite(ms) or ms < 0.02
                                  for ms in exposures):
-        raise ValueError("provide at least two Daheng exposures in [0.02, 0.4] ms")
+        raise ValueError(
+            "provide at least two finite Daheng exposures of at least 0.02 ms"
+        )
+    ceiling = configured_daheng_exposure_limit()
+    if ceiling > 0 and any(ms > ceiling for ms in exposures):
+        raise ValueError(
+            f"Daheng exposure exceeds the {ceiling} ms ceiling "
+            f"({DAHENG_EXPOSURE_LIMIT_ENV})"
+        )
 
 
 def _phase_panel(phase_run_dir: Path | None) -> np.ndarray:
@@ -64,7 +75,8 @@ def run_probe(
     (output_dir / "config.json").write_text(
         json.dumps({"exposures_ms": exposures, "n_frames": 4,
                     "phase_run_dir": str(Path(phase_run_dir).resolve()) if phase_run_dir else None,
-                    "max_daheng_exposure_ms": MAX_DAHENG_EXPOSURE_MS}, indent=2),
+                    "max_daheng_exposure_ms": configured_daheng_exposure_limit()},
+        indent=2),
         encoding="utf-8",
     )
     rows: list[dict] = []
@@ -74,10 +86,28 @@ def run_probe(
         create_camera("daheng", 0, exposure_time_ms=exposures[0]) as cam,
         _flat_on_exit(slm),
     ):
+        ceiling = configured_daheng_exposure_limit()
+        if not ceiling:
+            estimate = probe_exposure_ceiling_ms(
+                cam.reset_exposure_time,
+                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+            )
+            ceiling = estimate.ceiling_ms
+            logger.info(
+                "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
+            )
+        if any(ms > ceiling + 1e-9 for ms in exposures):
+            raise ValueError(
+                f"Daheng exposure ladder exceeds the resolved ceiling "
+                f"{ceiling} ms"
+            )
         for index, requested_ms in enumerate(exposures):
             actual_ms = float(cam.reset_exposure_time(requested_ms))
-            if not 0 < actual_ms <= MAX_DAHENG_EXPOSURE_MS + 1e-9:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            if not 0 < actual_ms <= ceiling + 1e-9:
+                raise RuntimeError(
+                    f"unsafe Daheng exposure readback: {actual_ms} ms "
+                    f"(ceiling {ceiling} ms)"
+                )
             frame = np.asarray(capture_settled(
                 cam, slm, panel, n_frames=4, n_discard=3,
                 wait_time_s=None, stable_tol=0.02, max_wait_s=6.0,

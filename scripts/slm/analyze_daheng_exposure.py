@@ -15,6 +15,10 @@ import numpy as np
 from scipy.interpolate import PchipInterpolator
 
 from ao_shaping.utils.image.beam_metrics import compute_square_metrics, prepare_frame
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+)
 
 
 def response_fits(exposures: np.ndarray, signals: np.ndarray) -> dict:
@@ -119,8 +123,15 @@ def analyze_sweep(root: Path) -> dict:
     rows = json.loads((root / "measurements.json").read_text(encoding="utf-8"))
     if not rows:
         raise ValueError(f"{root}: empty sweep")
-    if any(not 0 < float(r["readback_ms"]) <= 0.4 for r in rows):
-        raise ValueError(f"{root}: Daheng exposure outside (0, 0.4] ms")
+    ceiling = configured_daheng_exposure_limit()
+    if any(
+        not 0 < float(r["readback_ms"])
+        or (ceiling > 0 and float(r["readback_ms"]) > ceiling)
+        for r in rows
+    ):
+        limit = f"(0, {ceiling}] ms" if ceiling > 0 else "positive range"
+        raise ValueError(f"{root}: Daheng exposure outside {limit} "
+                         f"({DAHENG_EXPOSURE_LIMIT_ENV} or probe)")
     center = (int(rows[0]["center_x"]), int(rows[0]["center_y"]))
     frames = []
     raw_frames = []

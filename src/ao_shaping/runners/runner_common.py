@@ -97,7 +97,9 @@ from ao_shaping.utils.image.target import (
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
-from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX
+from ao_shaping.utils.slm.bench_constants import (
+    TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
+)
 from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
 
 if TYPE_CHECKING:
@@ -2566,7 +2568,10 @@ class SlmModelInLoopParams:
     seed: Annotated[int, option("--seed", help="RNG seed for probes and phases.")] = 0
     device: Annotated[
         str | None,
-        option("--device", help="Torch device for the forward model (e.g. cpu/cuda)."),
+        option(
+            "--device",
+            help="Torch device for the forward model. Auto-detects CUDA when None.",
+        ),
     ] = None
     warm_start: Annotated[
         bool,
@@ -2982,9 +2987,11 @@ class SlmModelInLoopParams:
     max_exposure_ms: Annotated[
         float,
         option(
-            "--max-exposure-ms", help="Daheng auto-exposure ceiling in ms (max 0.4)."
+            "--max-exposure-ms",
+            help="Daheng auto-exposure ceiling in ms; 0 = auto (env "
+            "AO_DAHENG_MAX_EXPOSURE_MS, else probe the CCD image).",
         ),
-    ] = 0.4
+    ] = 0.0
     cam_size: Annotated[
         int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300

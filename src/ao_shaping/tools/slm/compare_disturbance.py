@@ -27,6 +27,10 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W
 from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+)
 from ao_shaping.utils.io.file import save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_disturbance import zernike_panel_disturbance
 
@@ -65,8 +69,14 @@ def _disturbance(
 
 
 def run_comparison(args: argparse.Namespace) -> Path:
-    if not 0 < args.exposure_ms <= 0.4:
-        raise ValueError("Daheng exposure must be in (0, 0.4] ms")
+    if args.exposure_ms <= 0:
+        raise ValueError("Daheng exposure must be positive")
+    env_ceiling = configured_daheng_exposure_limit()
+    if env_ceiling > 0 and args.exposure_ms > env_ceiling:
+        raise ValueError(
+            f"Daheng exposure {args.exposure_ms} ms exceeds the {env_ceiling} ms "
+            f"ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+        )
     if args.rms_rad <= 0:
         raise ValueError("disturbance RMS must be positive")
     center = parse_point(args.pupil_center)

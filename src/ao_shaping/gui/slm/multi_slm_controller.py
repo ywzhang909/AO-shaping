@@ -115,7 +115,7 @@ def _auto_check_camera_pixel_um() -> None:
     configured = st.session_state.get("camera_pixel_um")
     if configured is None:
         return
-    if f"_cam_pixel_checked" not in st.session_state:
+    if "_cam_pixel_checked" not in st.session_state:
         detected = _detect_camera_pixel_um(
             str(st.session_state.get("cam_type", "daheng")),
             int(st.session_state.get("cam_id", 0)),

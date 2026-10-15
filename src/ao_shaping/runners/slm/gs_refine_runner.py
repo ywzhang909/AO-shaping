@@ -87,7 +87,8 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     """
     if params.cam_type == "daheng" and params.exposure_time_ms <= 0:
         raise click.BadParameter(
-            "set an explicit exposure in (0, 0.4] ms for Daheng",
+            "set an explicit positive exposure for Daheng (ceiling: "
+            "AO_DAHENG_MAX_EXPOSURE_MS, else probed from the image)",
             param_hint="--exposure-time-ms",
         )
     debug = resolve_debug(ctx)

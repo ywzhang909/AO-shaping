@@ -411,8 +411,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 96,
-    "body_literals_sha256": "0e7f5ade195a6893",
+    "body_literals": 102,
+    "body_literals_sha256": "1d01c55fe0e50707",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -509,8 +509,8 @@
     ]
   },
   "slm_short_exposure_probe": {
-    "body_literals": 47,
-    "body_literals_sha256": "54099f362fb6a381",
+    "body_literals": 54,
+    "body_literals_sha256": "cefb63c4b6cbd5aa",
     "declared": [
       "--exposures-ms",
       "--phase-run-dir"

@@ -226,9 +226,18 @@ class TestParamsMapping:
 
 
 class TestExposureGuards:
-    def test_daheng_over_ceiling_rejected(self) -> None:
+    def test_daheng_over_env_ceiling_rejected(self, monkeypatch) -> None:
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
         assert validate_daheng_exposure("daheng", 0.5) is not None
         assert validate_daheng_fixed_exposure("daheng", 0.5) is not None
+
+    def test_daheng_exposure_without_env_ceiling_is_not_static_rejected(
+        self, monkeypatch
+    ) -> None:
+        # The ceiling is optical-path dependent; with no env var the UI cannot
+        # bound it, and the optimizer probes the image at run time.
+        monkeypatch.delenv("AO_DAHENG_MAX_EXPOSURE_MS", raising=False)
+        assert validate_daheng_exposure("daheng", 0.5) is None
 
     def test_daheng_zero_exposure_rejected_for_gs_refine(self) -> None:
         # gs-refine mirrors the CLI: an explicit exposure is required.
@@ -240,9 +249,10 @@ class TestExposureGuards:
         assert validate_daheng_fixed_exposure("daheng", 0.05) is None
         assert validate_daheng_fixed_exposure("sim", 0.0) is None
 
-    def test_config_post_init_also_guards(self) -> None:
+    def test_config_post_init_also_guards(self, monkeypatch) -> None:
         from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
 
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
         with pytest.raises(ValueError):
             SlmGsRefineConfig(cam_type="daheng", exposure_time_ms=0.5)
 

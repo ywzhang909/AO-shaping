@@ -73,13 +73,16 @@ from ao_shaping.runners.runner_common import (
     save_gs_refine_results,
     save_model_in_loop_results,
 )
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+)
 from ao_shaping.utils.image.target.shapes import (
     TARGET_SHAPE_LABELS as MIL_TARGET_SHAPE_LABELS,
 )
 
 __all__ = [
     "CAM_TYPE_OPTIONS",
-    "DAHENG_MAX_EXPOSURE_MS",
     "GS_REFINE_RECIPE",
     "SHAPING_METHODS",
     "GsRefineMethod",
@@ -131,8 +134,9 @@ GS_REFINE_RECIPE: dict[str, Any] = {
 #: CCD backends, in the order the selector shows them.
 CAM_TYPE_OPTIONS: tuple[str, ...] = ("daheng", "miicam", "sim")
 
-#: Daheng's hard saturation guard — shared by every method.
-DAHENG_MAX_EXPOSURE_MS = 0.4
+#: The Daheng saturation guard is per-session (the optical path sets it), so it
+#: is never a constant here: ``configured_daheng_exposure_limit()`` reads
+#: ``AO_DAHENG_MAX_EXPOSURE_MS``, and 0 means the optimizers probe the image.
 
 #: Widget defaults for model-in-loop, keyed by widget field name.  Declared as
 #: data (not read from the config at import time) so ``import`` stays free of
@@ -198,29 +202,38 @@ class ShapingOutcome:
 def validate_daheng_exposure(cam_type: str, exposure_ms: float) -> str | None:
     """Return an error message when a Daheng exposure is unusable, else None.
 
-    Mirrors the CLI guards: ``SlmGsRefineConfig.__post_init__`` rejects
-    anything above 0.4 ms, and model-in-loop may start at 0 (auto from 0.02 ms)
-    because it owns the auto-exposure ladder.
+    Mirrors the CLI guards: the ceiling is per-session (the optical path sets
+    it), taken from ``AO_DAHENG_MAX_EXPOSURE_MS``; when that is unset the
+    optimizers probe the image at run time, so the UI cannot bound it.
+    model-in-loop may start at 0 (auto from 0.02 ms) because it owns the
+    auto-exposure ladder.
     """
-    if cam_type == "daheng" and exposure_ms > DAHENG_MAX_EXPOSURE_MS:
-        return (
-            f"Daheng 曝光必须 ≤ {DAHENG_MAX_EXPOSURE_MS} ms"
-            "（饱和保护，见 report/shape_trials/）"
-        )
+    if cam_type == "daheng":
+        ceiling = configured_daheng_exposure_limit()
+        if ceiling > 0 and exposure_ms > ceiling:
+            return (
+                f"Daheng 曝光必须 ≤ {ceiling} ms"
+                f"（饱和保护，{DAHENG_EXPOSURE_LIMIT_ENV}，见 report/shape_trials/）"
+            )
     return None
 
 
 def validate_daheng_fixed_exposure(cam_type: str, exposure_ms: float) -> str | None:
     """Like :func:`validate_daheng_exposure` but also require > 0 (gs-refine).
 
-    ``gs_refine_runner`` demands an explicit exposure in (0, 0.4] ms for
-    Daheng: auto-exposure can observe the *previous* iteration's phase.
+    ``gs_refine_runner`` demands an explicit positive exposure for Daheng (the
+    ceiling is ``AO_DAHENG_MAX_EXPOSURE_MS``, else probed from the image):
+    auto-exposure can observe the *previous* iteration's phase.
     """
     error = validate_daheng_exposure(cam_type, exposure_ms)
     if error is not None:
         return error
     if cam_type == "daheng" and exposure_ms <= 0:
-        return "Daheng 需显式设置曝光 (0, 0.4] ms（自动曝光会观察到上一相位残留）"
+        return (
+            "Daheng 需显式设置正曝光（上限取 "
+            f"{DAHENG_EXPOSURE_LIMIT_ENV}，缺省时由画面探测；"
+            "自动曝光会观察到上一相位残留）"
+        )
     return None
 
 
@@ -591,7 +604,8 @@ class ShapingMethod(ABC):
                 step=0.01,
                 format="%.3f",
                 key=self.wkey("exposure"),
-                help=f"Daheng 饱和保护上限 {DAHENG_MAX_EXPOSURE_MS} ms（启动时校验）；0 = 由算法自动起曝",
+                help="Daheng 饱和保护上限取 AO_DAHENG_MAX_EXPOSURE_MS，"
+                     "缺省时由画面探测（启动时校验）；0 = 由算法自动起曝",
             )
         idx = 3
         with cells[idx]:
@@ -1062,7 +1076,7 @@ class ModelInLoopMethod(ShapingMethod):
             cam_size_default=250,
             target_side=int(values.get("target_side", 0)),
         )
-        values["max_exposure_ms"] = DAHENG_MAX_EXPOSURE_MS
+        values["max_exposure_ms"] = configured_daheng_exposure_limit()
         return values
 
     def build_params(self, values: Mapping[str, Any]) -> SlmModelInLoopParams:

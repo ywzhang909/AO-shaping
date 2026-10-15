@@ -2987,7 +2987,9 @@ python scripts/slm/validate_flat_phase_gray.py --scan --gray-step 50
 
 Records repeated fixed-exposure Santec **flat** phases on a Daheng CCD to
 diagnose laser / optical-path drift before a model-in-loop run (needs hardware:
-Santec SLM #1 + Daheng CCD; exposure hard-capped to `[0.02, 0.4] ms`).
+Santec SLM #1 + Daheng CCD; the exposure ceiling comes from
+`AO_DAHENG_MAX_EXPOSURE_MS`, else it is probed from the image with a doubling
+ladder before any measurement).
 
 **Usage:**
 ```bash
@@ -3013,7 +3015,7 @@ replay, 0.52% ROI-energy spread).
 | Option | Default | Description |
 |--------|---------|-------------|
 | `output_dir` | (positional) | Artefact directory, must not exist yet |
-| `--exposure-ms` | `0.02` | Fixed exposure, clamped to `[0.02, 0.4]` ms |
+| `--exposure-ms` | `0.02` | Fixed exposure; ≥ 0.02 ms, bounded by `AO_DAHENG_MAX_EXPOSURE_MS` or the image probe |
 | `--repeats` | `6` | Number of flat-phase repeats (≥ 2) |
 | `--frames` | `2` | Frames averaged per read (≥ 1) |
 

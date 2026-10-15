@@ -2,6 +2,10 @@
 
 The complete frames and per-read exposure readbacks are retained for diagnosing
 laser or optical-path drift before a model-in-loop run.
+
+The safe exposure ceiling is optical-path dependent: it comes from
+``AO_DAHENG_MAX_EXPOSURE_MS`` when set, otherwise it is probed from the image
+with a doubling exposure ladder before any measurement.
 """
 
 from __future__ import annotations
@@ -17,16 +21,28 @@ from ao_shaping.drivers.ccd.common import create_camera
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.tools.kernels.bench_kernels import measure_flat_reference
 from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    configured_daheng_exposure_limit,
+    probe_exposure_ceiling_ms,
+)
 
 
 def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) -> list[dict]:
-    if not 0.02 <= exposure_ms <= 0.4:
-        raise ValueError("Daheng exposure must be in [0.02, 0.4] ms")
+    env_ceiling = configured_daheng_exposure_limit()
+    if exposure_ms < 0.02:
+        raise ValueError("Daheng exposure must be at least the 0.02 ms camera minimum")
+    if env_ceiling > 0 and exposure_ms > env_ceiling:
+        raise ValueError(
+            f"Daheng exposure {exposure_ms} ms exceeds the {env_ceiling} ms "
+            f"ceiling ({DAHENG_EXPOSURE_LIMIT_ENV})"
+        )
     if repeats < 2 or frames < 1:
         raise ValueError("repeats must be >= 2 and frames must be >= 1")
     output_dir.mkdir(parents=True, exist_ok=False)
     config = {"slm_number": 1, "slm_wavelength_nm": 1064,
               "cam_type": "daheng", "cam_id": 0, "exposure_ms": exposure_ms,
+              "exposure_ceiling_ms": env_ceiling,
               "repeats": repeats, "frames_per_repeat": frames}
     (output_dir / "config.json").write_text(json.dumps(config, indent=2), encoding="utf-8")
     rows: list[dict] = []
@@ -34,14 +50,38 @@ def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) 
     with Santec(slm_number=1, wavelength=1064, video_mode=0) as slm:
         with create_camera("daheng", 0, exposure_time_ms=exposure_ms) as cam:
             with preserve_slm_display(slm):
+                ceiling = env_ceiling
+                if not ceiling:
+                    estimate = probe_exposure_ceiling_ms(
+                        cam.reset_exposure_time,
+                        lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                    )
+                    ceiling = estimate.ceiling_ms
+                    print(
+                        f"exposure ceiling probed from the image: {ceiling:.4f} ms "
+                        f"(last safe {estimate.last_safe_ms} ms, saturated at "
+                        f"{estimate.saturated_ms} ms)",
+                        flush=True,
+                    )
+                if exposure_ms > ceiling + 1e-9:
+                    raise ValueError(
+                        f"Daheng exposure {exposure_ms} ms exceeds the resolved "
+                        f"ceiling {ceiling} ms"
+                    )
                 actual = float(cam.reset_exposure_time(exposure_ms))
-                if not 0 < actual <= 0.4 + 1e-9:
-                    raise RuntimeError(f"unsafe Daheng exposure readback: {actual} ms")
+                if not 0 < actual <= ceiling + 1e-9:
+                    raise RuntimeError(
+                        f"unsafe Daheng exposure readback: {actual} ms "
+                        f"(ceiling {ceiling} ms)"
+                    )
                 for index in range(repeats):
                     image, spot = measure_flat_reference(cam, slm, n_frames=frames)
                     actual = float(cam.get_exposure_time_ms())
-                    if not 0 < actual <= 0.4 + 1e-9:
-                        raise RuntimeError(f"unsafe Daheng exposure readback: {actual} ms")
+                    if not 0 < actual <= ceiling + 1e-9:
+                        raise RuntimeError(
+                            f"unsafe Daheng exposure readback: {actual} ms "
+                            f"(ceiling {ceiling} ms)"
+                        )
                     if center is None:
                         center = (int(round(spot.centroid_x)), int(round(spot.centroid_y)))
                     x, y = center
