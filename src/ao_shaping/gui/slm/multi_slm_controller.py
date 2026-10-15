@@ -224,7 +224,7 @@ def _initialize_slm_state() -> None:
         if prefix not in st.session_state:
             st.session_state[prefix] = None
             st.session_state[f"{prefix}_connected"] = False
-            st.session_state[f"{prefix}_wavelength"] = 532
+            st.session_state[f"{prefix}_wavelength"] = 1064
             st.session_state[f"{prefix}_video_mode"] = "内存模式"
             st.session_state[f"{prefix}_next_memory"] = np.random.randint(1, 128)
             st.session_state[f"{prefix}_phase_preview"] = None
@@ -636,6 +636,14 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     st.session_state[f"{prefix}_loaded_config"] = (
         slm.load_config() if slm._serial_number else {}
     )
+
+    # Sync the wavelength widget to the device's actual wavelength so the
+    # sidebar displays the true value after connection.  On the rerun that
+    # ``connect_slm`` / ``_reacquire_slm_handle`` triggers, the widget reads
+    # from session_state and shows the hardware value.
+    device_wavelength = slm.wavelength
+    if device_wavelength is not None:
+        st.session_state[f"{prefix}_wavelength"] = int(device_wavelength)
 
     serial = slm._serial_number
     if serial:
@@ -1097,6 +1105,20 @@ def _render_slm_settings(slm_num: int):
             step=1,
             key=f"{prefix}_wavelength",
         )
+        if slm_obj is not None and slm_obj.wavelength is not None:
+            widget_wl = st.session_state.get(f"{prefix}_wavelength")
+            if widget_wl is not None and widget_wl != int(slm_obj.wavelength):
+                col_wl1, col_wl2 = st.columns([4, 1])
+                with col_wl1:
+                    st.warning(
+                        f"波长: 设定值 {widget_wl} nm ≠ 设备值 {int(slm_obj.wavelength)} nm"
+                    )
+                with col_wl2:
+                    if st.button("同步", key=f"{prefix}_sync_wl_btn", type="primary"):
+                        st.session_state[f"{prefix}_wavelength"] = int(
+                            slm_obj.wavelength
+                        )
+                        st.rerun()
         if st.button("设置波长", key=f"{prefix}_set_wl_btn", type="secondary"):
             set_wavelength(slm_num)
 
