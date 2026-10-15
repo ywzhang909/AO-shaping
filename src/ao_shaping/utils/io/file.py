@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any, Literal
 import os
 import re
@@ -34,6 +35,39 @@ DEBUG_DIR_NAME = "debug"
 
 # Image file extensions to search
 _IMG_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".tiff", ".tif"}
+
+
+class RecordMode(str, Enum):
+    """Direction of ``Recorder`` best-search (``get_best_iter``).
+
+    A ``str`` mixin so every existing call site that passes the literal
+    ``"max"`` / ``"min"`` keeps working unchanged, while new code can use
+    ``RecordMode.MAX`` / ``RecordMode.MIN`` instead of the magic strings.
+
+    The historical comparison was ``self.mode == "max"`` -- i.e. *only* the
+    exact string ``"max"`` selected ``argmax`` and **everything else**
+    (``"min"``, a typo, ``None``) fell through to ``argmin``. :meth:`coerce`
+    preserves that exactly by mapping any unrecognised / ``None`` value to
+    ``MIN`` (not ``MAX``), so no real or edge-case caller changes behaviour.
+    """
+
+    MAX = "max"
+    MIN = "min"
+
+    @classmethod
+    def coerce(cls, value: "str | RecordMode | None") -> "RecordMode":
+        """Normalise an external value (str / member / None) to a member.
+
+        ``"max"``→MAX, ``"min"``→MIN (case-insensitive). ``None`` and any
+        unrecognised string map to ``MIN`` to mirror the legacy
+        ``self.mode == "max"`` test, where only the literal ``"max"`` won.
+        """
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).lower())
+        except (ValueError, TypeError):
+            return cls.MIN
 
 
 def find_cell_image(base_dir: str | Path, ip_group: int, seq: int) -> Path | None:
@@ -425,9 +459,9 @@ def save_history_hdf5(
 
 
 class Recorder:
-    def __init__(self, mark: str = "J", mode: Literal["max", "min"] = "max"):
+    def __init__(self, mark: str = "J", mode: "Literal['max', 'min'] | RecordMode" = "max"):
         self.mark = mark
-        self.mode = mode
+        self.mode = RecordMode.coerce(mode)
         self.history = list()
 
         self._all_columns = set()
@@ -572,7 +606,9 @@ class Recorder:
         mark = mark or self.mark
         res_df = self.dataframe
         target_id = (
-            res_df[mark].argmax() if self.mode == "max" else res_df[mark].argmin()
+            res_df[mark].argmax()
+            if self.mode == RecordMode.MAX
+            else res_df[mark].argmin()
         )
         return res_df.iloc[target_id], (target_id, res_df.iloc[target_id][mark])
 
