@@ -19,5 +19,9 @@ jobs:
         python -m pip install --upgrade pip
         pip install pylint
     - name: Analysing the code with pylint
+      # Non-blocking (reference only, per issue #132 decision B): pylint runs
+      # without project dependencies, so E0401-style import errors are
+      # false positives; the hard gate is Ruff (.github/workflows/ruff.yml).
+      continue-on-error: true
       run: |
         pylint $(git ls-files '*.py')

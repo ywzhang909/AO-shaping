@@ -475,7 +475,7 @@ def main() -> None:
                 print(f"  GIF FAILED: {e}")
 
     # Step 4: Global overlay
-    print(f"\nComputing global overlay...")
+    print("\nComputing global overlay...")
     all_diff_files = list(diff_root.rglob("*.png"))
     if all_diff_files:
         first = np.asarray(Image.open(all_diff_files[0]), dtype=np.float64)

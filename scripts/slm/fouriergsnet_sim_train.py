@@ -403,9 +403,9 @@ def _write_readme(out_dir: Path, summary: dict) -> None:
         "",
         "## 复现",
         "",
-        f"```bash",
+        "```bash",
         f"python scripts/slm/fouriergsnet_sim_train.py {summary['command'].split('python scripts/slm/fouriergsnet_sim_train.py', 1)[-1].strip()}",
-        f"```",
+        "```",
         "",
     ]
     (out_dir / "README.md").write_text("\n".join(lines), encoding="utf-8")

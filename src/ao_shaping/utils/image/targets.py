@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from ao_shaping.utils.image.target import *  # re-export all names
+from ao_shaping.utils.image.target import *  # noqa: F403  # re-export all names
 from ao_shaping.utils.image.target import __all__ as _target_all
 
 __all__ = _target_all

@@ -91,27 +91,33 @@ def fig_training_curves(history_path: Path) -> str:
     ax.plot(epoch, [r["val_mse"] for r in history], "s-", label="val MSE", color="#a63d5a")
     ax.axvline(data["best_epoch"], ls="--", c="grey", lw=1, label=f"best epoch {data['best_epoch']}")
     ax.set_yscale("log")
-    ax.set_xlabel("epoch"); ax.set_ylabel("MSE (log)")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("MSE (log)")
     ax.set_title("损失：训练 vs 验证")
-    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
 
     ax = axes[1]
     ax.plot(epoch, [r["val_r2"] for r in history], "o-", label="val R²", color="#2f6f9f")
     ax.plot(epoch, [r["val_ssim"] for r in history], "s-", label="val SSIM", color="#c48a2e")
     ax.axhline(0.0, ls=":", c="grey", lw=1)
     ax.axvline(data["best_epoch"], ls="--", c="grey", lw=1)
-    ax.set_xlabel("epoch"); ax.set_ylabel("指标")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("指标")
     ax.set_title(f"验证质量（best R² = {data['best_val_r2']:.4f}）")
-    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
 
     ax = axes[2]
     ax.plot(epoch, [r["grad_total"] for r in history], "o-", label="grad 总量", color="#2f6f9f")
     ax.plot(epoch, [r["grad_max"] for r in history], "s-", label="grad 逐模最大", color="#a63d5a")
     ax.plot(epoch, [r["coef_abs_max"] for r in history], "^--", label="max|Z|", color="#c48a2e")
     ax.set_yscale("log")
-    ax.set_xlabel("epoch"); ax.set_ylabel("量级（log）")
+    ax.set_xlabel("epoch")
+    ax.set_ylabel("量级（log）")
     ax.set_title(f"梯度与系数范数（死模 {data['dead_modes']}/{data['n_modes']}）")
-    ax.legend(fontsize=8); ax.grid(alpha=0.3)
+    ax.legend(fontsize=8)
+    ax.grid(alpha=0.3)
 
     fig.suptitle(
         f"物理模型训练历史（n_max={data['n_max']}, K={data['n_modes']}, "
@@ -175,7 +181,8 @@ def fig_n_max_curve(sweep: dict) -> str:
     fig, ax = plt.subplots(figsize=(7.5, 4.6))
     ax.errorbar(modes, r2, yerr=r2s, fmt="o-", capsize=3, color="#2f6f9f",
                 label="R²（10 折均值 ± 标准差）")
-    ax.set_xlabel("Zernike 系数个数 K"); ax.set_ylabel("R²", color="#2f6f9f")
+    ax.set_xlabel("Zernike 系数个数 K")
+    ax.set_ylabel("R²", color="#2f6f9f")
     ax.tick_params(axis="y", labelcolor="#2f6f9f")
     ax.set_xscale("log")
     twin = ax.twinx()
@@ -206,7 +213,8 @@ def fig_unet_grid(sweep: dict) -> str:
     ax.bar(xs - 0.2, r2, 0.4, yerr=r2s, capsize=3, color="#a63d5a", label="R²")
     ax.set_ylabel("R²", color="#a63d5a")
     ax.set_ylim(0.84, 0.93)
-    ax.set_xticks(xs); ax.set_xticklabels(labels, fontsize=8)
+    ax.set_xticks(xs)
+    ax.set_xticklabels(labels, fontsize=8)
     twin = ax.twinx()
     twin.bar(xs + 0.2, ssim, 0.4, color="#c48a2e", label="SSIM")
     twin.set_ylabel("SSIM", color="#c48a2e")
@@ -471,12 +479,14 @@ def fig_phase_synthesis(synthesis: dict, out_dir: Path) -> dict[str, str | None]
                 fill=False, edgecolor="cyan", lw=1.4,
             ))
         ax.set_title(title, fontsize=10)
-        ax.set_xticks([]); ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
     ax = axes[-1]
     if history:
         epochs = [h["epoch"] for h in history]
         ax.plot(epochs, [h["cv"] for h in history], "o-", color="#2f6f9f", label="CV（物理代理）")
-        ax.set_xlabel("优化轮数"); ax.set_ylabel("CV", color="#2f6f9f")
+        ax.set_xlabel("优化轮数")
+        ax.set_ylabel("CV", color="#2f6f9f")
         ax.tick_params(axis="y", labelcolor="#2f6f9f")
         twin = ax.twinx()
         twin.plot(epochs, [h["quality"] for h in history], "s--", color="#c48a2e", label="quality")
@@ -533,7 +543,8 @@ def fig_parametrization_sweep(sweep: dict, iteration: dict | None) -> dict[str, 
     ax = axes[0]
     colours = ["#2f6f9f" if r["param"] == "zernike" else "#a63d5a" for r in rows]
     ax.bar(range(len(rows)), cv, color=colours, alpha=0.85)
-    ax.set_xticks(range(len(rows))); ax.set_xticklabels(labels, fontsize=7)
+    ax.set_xticks(range(len(rows)))
+    ax.set_xticklabels(labels, fontsize=7)
     ax.set_ylabel("CV（越低越好）")
     ax.set_title("参数化扫描：带限 vs 自由相位")
     ax.invert_yaxis()

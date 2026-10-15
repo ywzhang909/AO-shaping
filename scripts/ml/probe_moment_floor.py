@@ -53,7 +53,7 @@ def main() -> None:
     print(f"collected {len(frames)} peak-normalised held-out frames")
 
     var_r = np.array([float(second_moments(f, mask)[2]) for f in frames])
-    print(f"\nvar_r across held-out frames:")
+    print("\nvar_r across held-out frames:")
     print(f"  mean={var_r.mean():.2f}  sd={var_r.std(ddof=1):.2f}  "
           f"min={var_r.min():.2f}  max={var_r.max():.2f}")
     print(f"  coefficient of variation = {var_r.std(ddof=1) / var_r.mean() * 100:.2f}%")
@@ -73,9 +73,9 @@ def main() -> None:
 
     gaps = [float(spot_moment_gap_term(constant, f, mask).mean()) for f in frames]
     gaps = np.array(gaps)
-    print(f"\nA CONSTANT prediction that always emits the mean spot size scores:")
+    print("\nA CONSTANT prediction that always emits the mean spot size scores:")
     print(f"  mean gap = {gaps.mean():.4f}   (sd {gaps.std(ddof=1):.4f})")
-    print(f"\nThe trained model's measured validation gap was 0.0368-0.0381.")
+    print("\nThe trained model's measured validation gap was 0.0368-0.0381.")
     verdict = "AT/BELOW THE FLOOR" if gaps.mean() >= 0.0368 else "ABOVE THE FLOOR -- headroom exists"
     print(f"\nVERDICT: {verdict}")
     if gaps.mean() >= 0.0368:
