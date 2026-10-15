@@ -326,7 +326,7 @@ def build_markdown(runs: list[Run], figs: dict[str, Path], out_dir: Path, out_md
         lines.append(f"### 3.{i} {algo} (`{r.stamp}`, 请求 {r.epochs} epochs, 实际 {r.data_rows} 行)")
         lines.append("")
         lines.append(f"- 历史最优 best_rms_pib = **{best_value(r):.4f}** (第 {be} 代)" if be is not None
-                     else f"- 历史最优 best_rms_pib = n/a")
+                     else "- 历史最优 best_rms_pib = n/a")
         lines.append(f"- 末次有效 J = {fmt_fixed(last_good(r, 'J'))}")
         if be is not None and sc(r, "w_ee").size:
             lines.append(f"- 最优代权重: w_ee={fmt_fixed(sc(r, 'w_ee')[be], 3)}, "

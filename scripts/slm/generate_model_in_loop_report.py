@@ -875,7 +875,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
 
     A("### 14.3 stage: **恰好四个**, 闭集\n")
     A("| stage | 哪一次测量 | 次数 |\n|---|---|---|")
-    A(f"| `flat` | 平场基线, Stage 0 | 全程 **1** 次 |")
+    A("| `flat` | 平场基线, Stage 0 | 全程 **1** 次 |")
     A(
         f"| `calib-probe` | 一次性台架几何 bake-off 的探针(`--n-calibration-probes`, 默认 {n_calib}) "
         f"| 全程 {n_calib} 次 |"
@@ -904,7 +904,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
     )
     A(
         "**省盘**: 面板数组只是模型网格上的一次确定性重采样, 所以存它不带来任何新信息。\n"
-        f"模型网格约 **32 KB/步**, 面板数组约 **18 MB/步** —— 63 步的默认运行, 前者约 2 MB,\n"
+        "模型网格约 **32 KB/步**, 面板数组约 **18 MB/步** —— 63 步的默认运行, 前者约 2 MB,\n"
         "后者约 1.16 GB。dump 是拿来**看**的, 不是拿来当面板备份的。\n"
     )
     A(
@@ -985,7 +985,7 @@ def _section_bench_commands() -> list[str]:
         "  强烈低通掉, 于是\"随机瞳面相位 ⇒ 远场散斑\"这个模型前提本身不成立, 实测帧是**一个紧致\n"
         "  光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。\n"
         "  (`report/slm/model_in_loop_bench_calibration.md:49-55`)\n"
-        f"- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2477-2487`)。\n"
+        "- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2477-2487`)。\n"
     )
     A(
         "> 🔴 **不要为了让运行\"过\"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是\n"
@@ -1165,7 +1165,7 @@ def _section_bench_commands() -> list[str]:
         "```\n"
     )
     A(
-        f"⚠️ 本命令**预期**以退出码 `2` 结束(见 §15.1)。要看的东西在\n"
+        "⚠️ 本命令**预期**以退出码 `2` 结束(见 §15.1)。要看的东西在\n"
         "`data/debug/slm_model_in_loop_steps_<时间戳>/` 里, 不在 stdout 里。\n"
     )
     A(

@@ -1,6 +1,8 @@
 """Merge recovery into final call_graph.json with full node metadata."""
 from __future__ import annotations
-import json, sys, importlib.util
+import json
+import sys
+import importlib.util
 from pathlib import Path
 
 P = Path(__file__).resolve().parent          # scripts/call_graph/

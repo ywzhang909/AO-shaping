@@ -8,10 +8,17 @@ select = [
     "F",      # pyflakes
 ]
 
-# Deliberately no `exclude`. It used to hold `exclude = ["src/ml/**"]`, justified as
-# "legacy code with syntax errors" -- false: the 30 F821 names it hid were runtime
-# NameErrors in `ao-train` entry points. Guarded by
+# Deliberately no `exclude` for project code. It used to hold `exclude = ["src/ml/**"]`,
+# justified as "legacy code with syntax errors" -- false: the 30 F821 names it hid were
+# runtime NameErrors in `ao-train` entry points. Guarded by
 # tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src.
+# The only excluded paths are third-party vendored libs (OOPAO, SLM_DLL_ver.2.51,
+# micro_drive1300, santec_slm -- not project code, see issue #132) and scratch
+# notebooks/ debug scripts.
+exclude = [
+    "libs/**",
+    "notebooks/**",
+]
 
 # Ignore rules that are too noisy for this legacy codebase
 ignore = [
