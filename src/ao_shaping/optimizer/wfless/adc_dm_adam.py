@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import time
 import os
 import tqdm
 from loguru import logger
@@ -121,7 +120,7 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
         ]
         list_J = []
         with tqdm.tqdm(
-            total=EPOCHS, desc=f"SPGD iter {EPOCHS}/{sample_num}", dynamic_ncols=True
+            total=EPOCHS, desc=f"SPGD iter {EPOCHS}", dynamic_ncols=True
         ) as bar:
             for epoch in range(EPOCHS):
                 disturb_v = (
@@ -185,32 +184,3 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
 
 
 SAVED = False
-if __name__ == "__main__":
-
-    import matplotlib.pyplot as plt
-    for sample_num in range(1):
-        dfhistory = optimizer(R)
-
-        disp_grid = (1, 2)
-        fig, ax = plt.subplots(*disp_grid)
-        ax[0].plot(dfhistory["J"].to_list())
-        cm3 = ax[1].imshow(
-            np.stack(dfhistory["_v"].to_list()).transpose(),
-            interpolation="nearest",
-            aspect="auto",
-        )
-
-        if SAVED:
-            saved_dir = gen_file_name(ROOT_DIR)
-            plt.savefig(gen_file_name(saved_dir, "png"))
-            dfhistory.to_pickle(gen_file_name(saved_dir, "pkl"), compression="zip")
-
-        else:
-            plt.show()
-        plt.close("all")
-        last_voltage: np.ndarray = dfhistory.iloc[-1]["_v"]
-
-        last_J = dfhistory.iloc[-1]["J"]
-        print(f"{last_J=}")
-        np.savetxt(Last_voltage_path, np.round(last_voltage), fmt="%d")
-        time.sleep(2)

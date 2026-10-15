@@ -1126,10 +1126,28 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
 
     out: list[str] = []
     add = out.append
+    _part_0(add)
+    _part_1(add, facts, dist_stats, total, disk_total, indexed_on_disk, unindexed, older_unindexed, newer_unindexed, exposure_labels, exposure_span, objective_coverage, values_per_file, spread, mean_per_file, median_per_file)
+    _part_2(add, facts, total, scanned, usable, excluded, unusable, disk_total, unindexed, cache_time, newest, oldest)
+    _part_3(add, facts, total, values_per_file)
+    _part_4(add, facts)
+    _part_5(add, facts, total, exposure_labels, exposure_span)
+    _part_6(add, facts, total)
+    _part_7(add, facts, total)
+    _part_8(add, facts, total, objective_coverage)
+    _part_9(add, facts, total)
+    _part_10(add, facts, dist_stats, total, newer_unindexed)
+    _part_11(add)
+    _part_12(add, facts, total, usable, disk_total, indexed_on_disk, exposure_labels)
+    _part_13(add, dist_stats, cache, disk_total)
+    return "\n".join(out)
 
+
+def _part_0(add) -> None:
     add("# hwdataset 语料分布与特征分析\n")
 
-    # ---------------- 摘要 ----------------
+
+def _part_1(add, facts, dist_stats, total, disk_total, indexed_on_disk, unindexed, older_unindexed, newer_unindexed, exposure_labels, exposure_span, objective_coverage, values_per_file, spread, mean_per_file, median_per_file) -> None:
     add("## 摘要\n")
     add(
         "本报告**只**读取 `data/hw_index_cache.json`、`data/debug/**/*.json` 与 "
@@ -1189,7 +1207,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
             "生成 `distribution_stats.json`, 本报告 §10/§11 届时才会填充实测表; 当前两节降级为提示。\n"
         )
 
-    # ---------------- 1. 索引新鲜度 ----------------
+
+def _part_2(add, facts, total, scanned, usable, excluded, unusable, disk_total, unindexed, cache_time, newest, oldest) -> None:
     add("## 1. 索引新鲜度\n")
     add(
         f"索引缓存写入时间 {cache_time}; 磁盘 {disk_total:,} 个 pkl 的 mtime 跨度 "
@@ -1333,7 +1352,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
         f"**{facts.family_mismatches}** 条。\n"
     )
 
-    # ---------------- 2. 家族规模 ----------------
+
+def _part_3(add, facts, total, values_per_file) -> None:
     add("## 2. 家族规模与样本不平衡\n")
     add(
         markdown_table(
@@ -1379,7 +1399,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[8]))
     add("")
 
-    # ---------------- 3. 相位表示 ----------------
+
+def _part_4(add, facts) -> None:
     add("## 3. 相位表示与家族完全共线\n")
     matrix_rows = []
     for family in facts.families:
@@ -1401,7 +1422,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[2]))
     add("")
 
-    # ---------------- 4. 曝光 ----------------
+
+def _part_5(add, facts, total, exposure_labels, exposure_span) -> None:
     add("## 4. 曝光分布\n")
     exposure_rows = [
         [k, f"{facts.exposure_counts[k]:,}", _pct(facts.exposure_counts[k], total)]
@@ -1421,7 +1443,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[3]))
     add("")
 
-    # ---------------- 5. 视场 ----------------
+
+def _part_6(add, facts, total) -> None:
     add("## 5. 视场与口径异质性\n")
     fov_rows: list[list[str]] = []
     for key in FOV_PROXY_KEYS:
@@ -1440,7 +1463,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[4]))
     add("")
 
-    # ---------------- 6. 孔径半径 ----------------
+
+def _part_7(add, facts, total) -> None:
     add("## 6. Zernike 孔径半径与重建口径不一致\n")
     aperture_rows = [
         [
@@ -1525,7 +1549,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[5]))
     add("")
 
-    # ---------------- 7. 目标标签 ----------------
+
+def _part_8(add, facts, total, objective_coverage) -> None:
     add("## 7. 优化目标标签覆盖不足\n")
     objective_rows = [
         [k, f"{c:,}", _pct(c, total)] for k, c in facts.objective_counts.most_common()
@@ -1553,7 +1578,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[6]))
     add("")
 
-    # ---------------- 8. Zernike 阶数 ----------------
+
+def _part_9(add, facts, total) -> None:
     add("## 8. Zernike 阶数与自由度跨度\n")
     order_rows: list[list[str]] = []
     for n_terms in sorted(facts.n_terms_counts):
@@ -1650,7 +1676,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add(_figure_ref(FIGURE_NAMES[7]))
     add("")
 
-    # ---------------- 9. sidecar 完整度 ----------------
+
+def _part_10(add, facts, dist_stats, total, newer_unindexed) -> None:
     add("## 9. sidecar 元数据完整度\n")
     add(
         f"- 已索引记录中 sidecar 为字典: {facts.sidecar_dicts:,} 条, "
@@ -1894,7 +1921,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
             "只能靠**改采集** (统一曝光/FOV/标签) 解决, 数据处理层无解。\n"
         )
 
-    # ---------------- 12. 断言边界 ----------------
+
+def _part_11(add) -> None:
     add("## 12. 本语料可以断言 / 不可断言\n")
     add("**可以断言 (描述性, 由本报告的元数据统计直接支撑):**\n")
     add("1. 索引缓存已陈旧, 只覆盖当前磁盘 pkl 的一部分, 重建索引会改变样本集。")
@@ -1909,7 +1937,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     add("5. ❌ 未做曝光归一的跨家族亮度比较 —— 亮度由曝光差主导。")
     add("6. ❌ 模型优劣排名 —— 噪声地板 (折间 σ) 大于多数待比较的差异, 见 `report/zernike_phase2amp/`。\n")
 
-    # ---------------- 13. 与既有文档的差异 ----------------
+
+def _part_12(add, facts, total, usable, disk_total, indexed_on_disk, exposure_labels) -> None:
     add("## 13. 与既有文档记载的差异\n")
     add(
         markdown_table(
@@ -1974,7 +2003,8 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
         "在重建索引后都需要复核。\n"
     )
 
-    # ---------------- 14. 复现 ----------------
+
+def _part_13(add, dist_stats, cache, disk_total) -> None:
     add("## 14. 复现\n")
     add("```bash")
     add("# 第一阶段: 分层物化 252 条记录, 统计数组级分布 (~90 s, 需 pkl 可读)")
@@ -2006,8 +2036,6 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
         f"matplotlib {matplotlib.__version__}, numpy {np.__version__}"
     )
     add(f"- 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-    return "\n".join(out)
 
 
 def main() -> None:

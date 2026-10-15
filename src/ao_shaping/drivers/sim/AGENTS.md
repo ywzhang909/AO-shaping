@@ -97,9 +97,9 @@ SimulatedDevice (Device)
 > `n_grid = 1920`、`aperture_size = 1920 × pixel_pitch` 生成后再**居中裁剪**到 1200 行 —— 各向同性像素、
 > 无拉伸、无拼接缝。实测粗网格会系统性丢失约 **41%** 相位幅度 (不得为省时而降网格)。
 
-> ⚠️ **`SimulatedThermalScreen` (热晕) 是一个静默 no-op —— 不可使用**。它的 `process()` 依赖外部包
-> `sim.digitaltwin` (`screens.py` L284), 该包**未安装**; `except ImportError` 分支直接 `return wave`
-> (L305-307), 既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
+> ⚠️ **`SimulatedThermalScreen` (热晕) 是一个静默 no-op —— 不可使用**。其 digitaltwin
+> 实现已随死分支清理删除（`14b1cda`, `screens.py` L266-268），`process()` 现恒为
+> `return wave`，既不报错也不产生任何相位。需要热晕相位请用 `disturbance.py` 的
 > `SimDisturbance`(负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延展到光束半径之外)。
 
 > ⚠️ **扰动会随 `reset_system()` 一起被丢弃**。任何 sim 接线在 `--cam-type sim` 时调用
@@ -398,7 +398,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 | 特性 | mock_devices | sim/ |
 |------|-------------|------|
 | 用途 | 简单测试/开发 | 数值仿真/数字孪生 |
-| 实现 | 简化模拟 | 集成 sim.digitaltwin |
+| 实现 | 简化模拟 | 内置数值仿真（原 `sim.digitaltwin` 依赖已随死分支清理删除, `14b1cda`） |
 | 复杂度 | 基础 | 高级物理模型 |
 | 继承 | BaseCamera, Device | SimulatedDevice |
 

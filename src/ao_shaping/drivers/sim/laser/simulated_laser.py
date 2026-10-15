@@ -187,34 +187,8 @@ class SimulatedLaser(OpticalDevice):
         Returns:
             波前对象。
         """
-        # 尝试使用 digitaltwin 的基类
-        try:
-            from sim.digitaltwin.base import Wave as DTWave
-
-            wave = DTWave()
-            wave.change_grid(npix, dpix)
-            wave.wavelength = self.wavelength * 1e-9  # 换算成米
-            wave.refractive = 1.0  # 空气
-
-            # 生成高斯光束
-            r = wave.r
-            radius = self.aperture / 2 / np.sqrt(2)
-            amplitude = np.exp(-(r / radius) ** 2)
-
-            # 设定波前
-            wave.wavefront = amplitude * np.exp(0j)
-
-            # 缩放到目标功率
-            from sim.digitaltwin import utilities as utils
-            intensity = utils.wf2intensity(wave.wavefront, wave.refractive)
-            power = intensity.sum() * dpix ** 2
-            wave.scale_power(self.power)
-
-            return wave
-        except ImportError:
-            # 回退: 构造简单的波前字典
-            logger.warning("Using fallback wavefront (sim.digitaltwin not available)")
-            return self._create_simple_wavefront(npix, dpix)
+        # sim.digitaltwin 顶层包不存在，恒走简单波前字典回退
+        return self._create_simple_wavefront(npix, dpix)
 
     def _create_simple_wavefront(self, npix: int, dpix: float) -> dict:
         """构造简单波前字典 (回退)。
@@ -260,23 +234,9 @@ class SimulatedLaser(OpticalDevice):
             已施加光束质量退化的波前。
         """
         # 简化实现: 按 M² 加入相位畸变
-        try:
-            from sim.digitaltwin import screens as dt_screens
-            from sim.digitaltwin import base as dt_base
-
-            # 给湍流相位屏造一个假环境
-            env = dt_base.Environment()
-            env.Cn2 = 1e-15  # 弱湍流
-            env.L0 = 1.0
-            env.l0 = 0.01
-
-            # 施加轻微畸变
-            screen = dt_screens.TurbulentScreen(0.1, env, harmonic=0)
-            screen.out(wave)
-
-            return wave
-        except ImportError:
-            return wave
+        # sim.digitaltwin 顶层包不存在，M² 退化无独立实现，直接透传（与原有
+        # ImportError 回退语义一致）
+        return wave
 
     def set_power(self, power: float) -> None:
         """设置激光功率。

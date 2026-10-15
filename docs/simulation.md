@@ -1,8 +1,8 @@
 # AO 仿真指南（数字孪生）
 
 > 2026-10-13 重写：替换旧的 `sim.digitaltwin` 引擎说明。旧版所述 `sim.digitaltwin`
-> 包**已不在仓库中**，`atmos/screens.py` 中的 digitaltwin 路径只是可选回退
-> （缺失时 logger.warning 后走内置实现），`SimulatedThermalScreen` 依赖它且回退为
+> 包**已不在仓库中**；2026-10-15 起相关死分支已从代码删除（`14b1cda`）：
+> `atmos/screens.py` 湍流恒走本模块 numpy 回退，`SimulatedThermalScreen` 恒为
 > 静默 no-op，**不可使用**。当前仿真核心是 `beam_backend` + `slm_shaping_bench`。
 > 驱动层惰性加载契约见 [src/ao_shaping/drivers/sim/AGENTS.md](../src/ao_shaping/drivers/sim/AGENTS.md)。
 
@@ -91,8 +91,8 @@ read noise 经 clip 后 **4598×** (缺陷)。光斑只占 ~150 px 而画幅 2.3
 
 **注意**: `cn2` 与 `distance` 是**退化**旋钮 (`r0` 只依赖二者乘积，单层薄屏无传播物理，本台架是
 ~0.3 m 实验室 2f 光路) —— 属参数化应力测试而非大气传输仿真；numpy 相位屏缺少次谐波补偿，
-实测 σ 低于同 r0 的解析值，故报告一律引用**实测** σ。`SimulatedThermalScreen`(热晕相位屏)依赖未安装的
-`sim.digitaltwin` 且回退为静默 no-op，**不可使用**。
+实测 σ 低于同 r0 的解析值，故报告一律引用**实测** σ。`SimulatedThermalScreen`(热晕相位屏)
+的 digitaltwin 实现已随死分支清理删除（`14b1cda`），现恒为静默 no-op，**不可使用**。
 
 配套运行与报告 (完全离线，见 `scripts/README.md`):
 ```bash
@@ -117,10 +117,11 @@ dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目
 radius_metric` 与 `compat.py` 的 `AOConfig / TraditionalAOSystem` 仍供旧优化器
 (`sim_spgd.py`, RL `envs.py`) 使用。注意：
 
-- 这些工具历史上包装 `sim.digitaltwin`；该包现已不在仓库中，相关路径为可选回退。
+- 这些工具历史上包装 `sim.digitaltwin`；该包现已不在仓库中，相关 digitaltwin 分支
+  已随 `14b1cda` 死分支清理删除，现恒走内置/回退实现。
 - 新工作一律走 `beam_backend` + `slm_shaping_bench`，不要在 legacy 层上加新功能。
-- `SimulatedTurbulentScreen` 若走 digitaltwin 路径，历史 bug：`harmonic=1` 产生 ~100°
-  相位伪影，**始终用 `harmonic=0`**。
+- 历史 bug 记录：`SimulatedTurbulentScreen` 的 digitaltwin 路径 `harmonic=1` 曾产生
+  ~100° 相位伪影；该路径已删除，现存的 numpy 回退不使用 `harmonic` 参数。
 
 ## 无硬件测试
 

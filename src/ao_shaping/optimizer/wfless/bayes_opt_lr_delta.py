@@ -202,38 +202,3 @@ def grid_search_lr_delta(
         'best_score': best_score,
         'all_results': results
     }
-
-
-if __name__ == "__main__":
-    # 示例用法
-    print("开始贝叶斯优化...")
-
-    # 贝叶斯优化
-    bayes_result = bayesian_optimize_lr_delta(
-        n_calls=20,
-        lr_bounds=(0.1, 5.0),
-        delta_bounds=(0.1, 5.0),
-        epochs=50,  # 减少迭代次数以加快测试
-        exposure_time_ms=60
-    )
-
-    print("贝叶斯优化结果:")
-    print(f"最优学习率: {bayes_result['best_params']['lr']:.4f}")
-    print(f"最优delta: {bayes_result['best_params']['delta']:.4f}")
-    print(f"最优PIB值: {bayes_result['best_score']:.4f}")
-
-    print("\n" + "="*50 + "\n")
-
-    # 网格搜索
-    print("开始网格搜索...")
-    grid_result = grid_search_lr_delta(
-        lr_values=[0.5, 1.0, 1.5, 2.0, 2.5],
-        delta_values=[0.5, 1.0, 1.5, 2.0, 2.5],
-        epochs=50,  # 减少迭代次数以加快测试
-        exposure_time_ms=60
-    )
-
-    print("网格搜索结果:")
-    print(f"最优学习率: {grid_result['best_params']['lr']}")
-    print(f"最优delta: {grid_result['best_params']['delta']}")
-    print(f"最优PIB值: {grid_result['best_score']:.4f}")

@@ -588,7 +588,31 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
     ]
     if figures_ok:
-        lines += [
+        lines += _forward_figures(fwd)
+    lines += [
+        "## 3. 反向：pred vs true",
+        "",
+    ]
+    if figures_ok:
+        lines += _inverse_figures(invst)
+    lines += [
+        "## 4. 瞳孔相位",
+        "",
+    ]
+    if figures_ok:
+        lines += _phase_figures(ph)
+    lines += _tail_lines(search_rows=SEARCH_ROWS, combined_rows=COMBINED_ROWS,
+        inverse_rows=INVERSE_ROWS, taxonomy_rows=TAXONOMY_ROWS,
+        phase_smooth_rows=PHASE_SMOOTH_ROWS, crosstalk_rows=CROSSTALK_ROWS,
+        inverse_transfer_rows=INVERSE_TRANSFER_ROWS)
+    body = "\n".join(lines)
+    return insert_header(body, REPORT_KEY)
+
+
+
+def _forward_figures(fwd: dict):
+    """§2 正向图表块（figures_ok 时插入）。"""
+    return [
             "![正向 pred vs true](figures/forward_pred_vs_true.png)",
             "",
             f"- R² = **{fwd['r2']:+.4f}**，相关系数 = **{fwd['corr']:+.4f}**",
@@ -599,12 +623,11 @@ def build_report(stats: dict, figures_ok: bool) -> str:
             "④两条曲线应基本重合。R² 是定量版本。",
             "",
         ]
-    lines += [
-        "## 3. 反向：pred vs true",
-        "",
-    ]
-    if figures_ok:
-        lines += [
+
+
+def _inverse_figures(invst: dict):
+    """§3 逆向图表块（figures_ok 时插入）。"""
+    return [
             "![逆向 pred vs true](figures/inverse_pred_vs_true.png)",
             "",
             f"- 独立仿真给 GS 相位的 shape_sum = **{invst['gs_phase_sim']:.4f}**，"
@@ -622,19 +645,38 @@ def build_report(stats: dict, figures_ok: bool) -> str:
             "向青色目标框内集中。",
             "",
         ]
-    lines += [
-        "## 4. 瞳孔相位",
-        "",
-    ]
-    if figures_ok:
-        lines += [
+
+
+def _phase_figures(ph: dict):
+    """§4 瞳孔相位图表块（figures_ok 时插入）。"""
+    return [
             "![瞳孔相位](figures/phases.png)",
             "",
             f"GS 相位在独立仿真上 shape_sum = **{ph['gs_score']:.4f}**；"
             f"再做 60 步 Zernike 梯度精修后 = **{ph['refined_score']:.4f}**。",
             "",
         ]
-    lines += [
+
+
+def _tail_lines(*, search_rows, combined_rows, inverse_rows, taxonomy_rows,
+                phase_smooth_rows, crosstalk_rows, inverse_transfer_rows):
+    """§5–§14 静态正文 + 术语表（行变量经 kwarg 传入各小节）。"""
+    return (_tail_section_5() +
+       _tail_section_6(search_rows, combined_rows) +
+       _tail_section_7() +
+       _tail_section_8(inverse_rows) +
+       _tail_section_9() +
+       _tail_section_10(taxonomy_rows) +
+       _tail_section_11(phase_smooth_rows) +
+       _tail_section_12(crosstalk_rows, inverse_transfer_rows) +
+       _tail_section_13() +
+       _tail_section_14()
+    )
+
+
+def _tail_section_5():
+    """§5 小节。"""
+    return [
         "## 5. 梯度精修到底是不是「重启」——一个被推翻的结论",
         "",
         "![ROI 扫描](figures/roi_sweep.png)",
@@ -678,7 +720,13 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         GLOSSARY,
         "",
-"## 6. 正向模型的改进尝试：逐项贡献",
+    ]
+
+
+def _tail_section_6(search_rows, combined_rows):
+    """§6 小节。"""
+    return [
+        "## 6. 正向模型的改进尝试：逐项贡献",
         "",
         "![各 arm 对 R² 的贡献](figures/forward_search_summary.png)",
         "",
@@ -686,7 +734,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "不配对就会把随机波动读成改进）。排序只看 R² 与 SSIM，不看 MSE/PSNR——"
         "本仓库有过 72 dB PSNR 但 R² 低于常数预测的记录。",
         "",
-        *SEARCH_ROWS,
+        *search_rows,
         "",
         "逐项结论：",
         "",
@@ -710,7 +758,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "两个模型之前只被**分开**试过，漏掉的是中间那档：让 physics 做它擅长的"
         "（闭式解析相位），让 CNN 只补它表达不了的部分。",
         "",
-        *COMBINED_ROWS,
+        *combined_rows,
         "",
         "两点值得记下：",
         "",
@@ -728,6 +776,12 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "数值上同向印证：U-Net 的椭圆误差 0.3997 对基线 0.2027，光斑尺寸差了近 2 倍。"
         "R² 会惩罚丢失的峰值结构，SSIM 不会——这就是本文不按 SSIM 选模型的原因。",
         "",
+    ]
+
+
+def _tail_section_7():
+    """§7 小节。"""
+    return [
         "## 7. 没有过拟合可修",
         "",
         "「误差过大」很容易被当成过拟合，但实测不是：",
@@ -747,11 +801,17 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "所以正向误差是**表示能力上限**，不是过拟合。加正则化去补一个不存在的间隙，"
         "只会让模型更差——这一点在每个杠杆上都是 3 个 seed 量过的。",
         "",
+    ]
+
+
+def _tail_section_8(inverse_rows):
+    """§8 小节。"""
+    return [
         "## 8. 逆向优化仍然失败，且与模型结构无关",
         "",
         "既然上一节的改进有效，按既定条件就该验证逆向。三个 arm 在同一 padding 下重测：",
         "",
-        *INVERSE_ROWS,
+        *inverse_rows,
         "",
         "（padding=1，所以本表的 R² 不能与第 6 节的 padding=12 结果直接比较；"
         "三个 arm 之间可比。）",
@@ -770,6 +830,12 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "---",
         "",
+    ]
+
+
+def _tail_section_9():
+    """§9 小节。"""
+    return [
         "## 9. 尚未验证的边界",
         "",
         "* 以上全部是**仿真**结论，不是台架实测结论。",
@@ -781,6 +847,12 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "* 合成强相位数据与真实语料**同源**（都用项目自带仿真器），"
         "因此模型没有在完全独立的传播模型上被评测过。",
         "",
+    ]
+
+
+def _tail_section_10(taxonomy_rows):
+    """§10 小节。"""
+    return [
         "## 10. 闭环整形的 loss 分类：逐项打分，只有一项是新轴",
         "",
         "有人提出了一份闭环整形 loss 清单（加权 MSE / SSIM / 梯度域 / 相位平滑 / "
@@ -794,7 +866,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "3. **冗余度** —— 与现有项的逐样本相关性。相关性 0.97 的项只是多一个旋钮，"
         "不是多一份信息。",
         "",
-        *TAXONOMY_ROWS,
+        *taxonomy_rows,
         "",
         "**七个候选里，五个是重复的或已被否掉的：**",
         "",
@@ -837,6 +909,12 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "`判别力=0 / 不安全`。这是台架的伪影不是结论，现在显式标为"
         "**本台架无法筛选**，必须配训练实验。",
         "",
+    ]
+
+
+def _tail_section_11(phase_smooth_rows):
+    """§11 小节。"""
+    return [
         "## 11. 相位平滑：唯一的新轴，实现后实测无效",
         "",
         "上面两项里，相位平滑是**唯一本仓没测过**的，而且它是清单里唯一作用在**指令**"
@@ -849,7 +927,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "**但配对实验说不要打开它：**",
         "",
-        *PHASE_SMOOTH_ROWS,
+        *phase_smooth_rows,
         "",
         "### 为什么会这样，以及为什么这不奇怪",
         "",
@@ -871,19 +949,31 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "---",
         "",
+    ]
+
+
+def _tail_section_12(crosstalk_rows, inverse_transfer_rows):
+    """§12 小节。"""
+    return [
         "## 12. 串扰增强：已作废并移出代码库",
         "",
         "上一节给出的判据是：增强数据的传播器必须包含模型**证明无法表示**的物理。"
         "按该判据实现的第一个候选是 **SLM 像素串扰 / 有限填充因子**——"
         "通过 SimPibSystem._pupil_field 这条 seam 注入，不复制补零 + FFT + 归一化那条链。",
         "",
-        *CROSSTALK_ROWS,
+        *crosstalk_rows,
         "",
-        *INVERSE_TRANSFER_ROWS,
+        *inverse_transfer_rows,
         "",
         "**串扰增强到底有没有用：仍然未知。** 它需要在确定性模式下重做，"
         "不能因为这次作废就当作「已证明无效」。",
         "",
+    ]
+
+
+def _tail_section_13():
+    """§13 小节。"""
+    return [
         "## 13. 保留下来的一条方法学发现：这套训练台架此前**不可复现**",
         "",
         "串扰实验作废的直接原因，是一条本来应该让整个实验从头就作废的发现。"
@@ -926,6 +1016,12 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "",
         "---",
         "",
+    ]
+
+
+def _tail_section_14():
+    """§14 小节。"""
+    return [
         "## 14. 复现",
         "",
         "```bash",
@@ -944,9 +1040,6 @@ def build_report(stats: dict, figures_ok: bool) -> str:
         "```",
         "",
     ]
-    body = "\n".join(lines)
-    return insert_header(body, REPORT_KEY)
-
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)

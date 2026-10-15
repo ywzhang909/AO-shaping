@@ -365,7 +365,23 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     }
     lines: list[str] = []
     add = lines.append
+    _section_preamble(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_0(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_1(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_2(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_3(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_4(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_5(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_6(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_7(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_8(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_9(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_10(add, cfg, rows, meta, total, stage_totals, floors)
+    _section_11(add, cfg, rows, meta, total, stage_totals, floors)
+    return "\n".join(lines)
 
+
+def _section_preamble(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("# 逆向光束整形模型详解 (PhasorUNet)")
     add("")
     add(
@@ -375,6 +391,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_0(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 0. 一句话概括")
     add("")
     add(
@@ -393,6 +411,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     add("```")
     add("")
 
+
+def _section_1(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 1. 任务定义与张量接口")
     add("")
     add("| | 张量 | 含义 |")
@@ -417,6 +437,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_2(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 2. 为什么是 phasor 而不是角度")
     add("")
     add(
@@ -433,6 +455,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_3(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 3. 网络结构")
     add("")
     add(
@@ -520,6 +544,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_4(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 4. `unit_phasor` —— 可微的单位圆投影")
     add("")
     add(
@@ -546,6 +572,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 5. 物理前向模型：可微的「预测相位 → 相机图像」")
     add("")
     add(
@@ -668,6 +696,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_6(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 6. 损失函数：监督项与物理项")
     add("")
     add("```")
@@ -774,6 +804,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_7(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 7. 参数量构成与一个不可约的 L1 下界")
     add("")
     add("| 部分 | 参数量 | 占比 |")
@@ -834,6 +866,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
         )
     add("")
 
+
+def _section_8(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 8. 训练配置")
     add("")
     add("| 项 | 值 |")
@@ -851,6 +885,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_9(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 9. 与 `ml/phase` U-Net 的关系")
     add("")
     add(
@@ -865,6 +901,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_10(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 10. 已知局限与取舍")
     add("")
     add(
@@ -887,6 +925,8 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     )
     add("")
 
+
+def _section_11(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("## 11. 复现")
     add("")
     add("```bash")
@@ -899,7 +939,6 @@ def build_report(cfg: ShapingConfig, rows: list[dict], meta: dict, floors: list[
     add("python scripts/ml/generate_inverse_shaping_model_report.py")
     add("```")
     add("")
-    return "\n".join(lines)
 
 
 def main(argv: list[str] | None = None) -> int:
