@@ -1,4 +1,8 @@
-"""see docs at docs[docs/slm_gui_manual.md]"""
+"""Multi-SLM200 控制器 (Streamlit).
+
+完整操作手册: docs/slm/slm_gui_manual.md
+操作时长分类与操作路线图: docs/slm/slm_gui_operation_map.md
+"""
 
 from __future__ import annotations
 
@@ -115,7 +119,7 @@ def _auto_check_camera_pixel_um() -> None:
     configured = st.session_state.get("camera_pixel_um")
     if configured is None:
         return
-    if f"_cam_pixel_checked" not in st.session_state:
+    if "_cam_pixel_checked" not in st.session_state:
         detected = _detect_camera_pixel_um(
             str(st.session_state.get("cam_type", "daheng")),
             int(st.session_state.get("cam_id", 0)),
@@ -1185,27 +1189,27 @@ def _render_slm_settings(slm_num: int):
         if st.button("应用平移", key=f"{prefix}_apply_shift_btn", type="secondary"):
             set_shift(slm_num)
 
-            config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
-            if config_info and slm_obj is not None:
-                st.caption(f"序列号: {config_info['serial']}")
-                loaded_cfg = st.session_state.get(f"{prefix}_loaded_config", {})
-                if loaded_cfg:
-                    st.caption("已加载配置文件:")
-                    st.json(loaded_cfg)
-                else:
-                    st.caption("未找到匹配的配置文件（使用设备默认值）")
-                if st.button(
-                    "刷新配置", key=f"{prefix}_refresh_config_btn", type="secondary"
-                ):
-                    fresh = slm_obj.load_config() if slm_obj._serial_number else {}
-                    st.session_state[f"{prefix}_loaded_config"] = fresh
-                    st.rerun()
+        config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
+        if config_info and slm_obj is not None:
+            st.caption(f"序列号: {config_info['serial']}")
+            loaded_cfg = st.session_state.get(f"{prefix}_loaded_config", {})
+            if loaded_cfg:
+                st.caption("已加载配置文件:")
+                st.json(loaded_cfg)
+            else:
+                st.caption("未找到匹配的配置文件（使用设备默认值）")
+            if st.button(
+                "刷新配置", key=f"{prefix}_refresh_config_btn", type="secondary"
+            ):
+                fresh = slm_obj.load_config() if slm_obj._serial_number else {}
+                st.session_state[f"{prefix}_loaded_config"] = fresh
+                st.rerun()
 
     # --- Section 2: Grayscale config (collapsed by default) ---
     with st.expander("灰度设置", expanded=False):
         _render_grayscale_config(slm_num, prefix, slm_obj)
 
-    # --- Section 3: Wavefront correction + correction file + config save ---
+    # --- Section 3: Wavefront correction (overlay layer 1 of the send pipeline) ---
     with st.expander("波前矫正", expanded=False):
         st.caption("叠加矫正")
         use_correction = st.checkbox(
@@ -1282,6 +1286,12 @@ def _render_slm_settings(slm_num: int):
                 except Exception as e:
                     st.error(f"清除矫正失败: {e}")
 
+    # --- Section 3b: Base phase (T4 long-lived overlay) ---
+    with st.expander("底相位 (发送叠加)", expanded=False):
+        _render_base_phase_block(slm_num)
+
+    # --- Section 3c: Save (persist) ---
+    with st.expander("保存", expanded=False):
         st.markdown("")
 
         st.caption("保存")
@@ -1335,6 +1345,7 @@ def _render_slm_settings(slm_num: int):
                 logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
 
 
+
 def _toggle_phases_task(
     slm_container: list,
     phase_a: np.ndarray,
@@ -1386,9 +1397,14 @@ def _toggle_phases_task(
 
 
 def render_phase_control(slm_num: int):
-    """Phase control UI for SLM (parameterized)"""
+    """Phase control UI for SLM (parameterized).
+
+    操作路线图 (docs/slm/slm_gui_operation_map.md) 主区两段:
+    一次下发 (图案生成 / CSV 加载) + 持续任务 (周期切换)。
+    底相位属长期配置 (T4), 已移至侧栏「底相位 (发送叠加)」区块。
+    """
     prefix = f"slm{slm_num}"
-    st.subheader("设置相位")
+    st.subheader("一次下发")
     pattern_type, params = render_pattern_controls(slm_num)
 
     if st.button(
@@ -1419,9 +1435,56 @@ def render_phase_control(slm_num: int):
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
+    # Option to load from CSV
+    uploaded_file = st.file_uploader(
+        "上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file"
+    )
+    if uploaded_file is not None and st.button(
+        "从CSV加载相位", key=f"{prefix}_load_csv_btn", type="secondary"
+    ):
+        try:
+            _stop_toggle(slm_num)
+            if st.session_state.get(f"{prefix}_toggle_active", False):
+                st.info("已停止周期切换")
+
+            # Save uploaded file temporarily
+            temp_path = Path(f"temp_{prefix}_phase.csv")
+            with open(temp_path, "wb") as f:
+                f.write(uploaded_file.getbuffer())
+
+            # 1. 从 CSV 加载灰度矩阵（驱动层已内置格式校验：
+            #    标题 "Y/X"、尺寸=面板分辨率、值范围 0..1023）
+            slm = st.session_state[prefix]
+            phase_gray = slm.load_gray_from_csv(temp_path)
+
+            # 2. 灰度 → 弧度制相位图（静态方法，不做硬件相关转换）
+            phase_rad = Santec.csv_to_phase(temp_path)
+
+            # 3. 走 display_phase 标准路径：
+            #    create_phase_from_array() 内部自动完成
+            #    弧度→灰度 + 矫正 + LUT + 平移（与 GUI 预览共用同一
+            #    shift_phase，保证预览与上屏字节级一致），再写入内存槽
+            #    并等待像素翻转完成。
+            slm.display_phase(phase_rad)
+
+            # 4. 验证相位确实已上屏（读回缓存对比）
+            mem_slot = slm.get_displayed_memory_number()
+            refresh_phase_preview(slm_num)
+
+            st.success(
+                f"相位已从CSV加载（灰度→弧度→create_phase_from_array"
+                f"→display_phase）并显示到内存槽 {mem_slot}"
+            )
+
+            # Clean up temp file
+            temp_path.unlink()
+        except Exception as e:
+            st.error(f"加载CSV相位失败: {e}")
+            logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
+
     st.markdown("")
-    st.subheader("周期切换")
-    st.caption("在相位 A 与相位 B 之间持续来回切换")
+    st.subheader("持续任务：周期切换")
+    st.caption("后台线程在相位 A 与相位 B 之间持续来回切换（运行期间独占面板，需「停止」释放）")
 
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:
@@ -1530,55 +1593,15 @@ def render_phase_control(slm_num: int):
             st.session_state[f"{prefix}_toggle_slm_container"] = None
             st.success("周期切换已停止")
 
-    # Option to load from CSV
-    uploaded_file = st.file_uploader(
-        "上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file"
-    )
-    if uploaded_file is not None and st.button(
-        "从CSV加载相位", key=f"{prefix}_load_csv_btn", type="secondary"
-    ):
-        try:
-            _stop_toggle(slm_num)
-            if st.session_state.get(f"{prefix}_toggle_active", False):
-                st.info("已停止周期切换")
 
-            # Save uploaded file temporarily
-            temp_path = Path(f"temp_{prefix}_phase.csv")
-            with open(temp_path, "wb") as f:
-                f.write(uploaded_file.getbuffer())
+def _render_base_phase_block(slm_num: int):
+    """底相位 (T4 长期配置): 发送管线叠加层, 渲染在侧栏「底相位 (发送叠加)」区。
 
-            # 1. 从 CSV 加载灰度矩阵（驱动层已内置格式校验：
-            #    标题 "Y/X"、尺寸=面板分辨率、值范围 0..1023）
-            slm = st.session_state[prefix]
-            phase_gray = slm.load_gray_from_csv(temp_path)
-
-            # 2. 灰度 → 弧度制相位图（静态方法，不做硬件相关转换）
-            phase_rad = Santec.csv_to_phase(temp_path)
-
-            # 3. 走 display_phase 标准路径：
-            #    create_phase_from_array() 内部自动完成
-            #    弧度→灰度 + 矫正 + LUT + 平移（与 GUI 预览共用同一
-            #    shift_phase，保证预览与上屏字节级一致），再写入内存槽
-            #    并等待像素翻转完成。
-            slm.display_phase(phase_rad)
-
-            # 4. 验证相位确实已上屏（读回缓存对比）
-            mem_slot = slm.get_displayed_memory_number()
-            refresh_phase_preview(slm_num)
-
-            st.success(
-                f"相位已从CSV加载（灰度→弧度→create_phase_from_array"
-                f"→display_phase）并显示到内存槽 {mem_slot}"
-            )
-
-            # Clean up temp file
-            temp_path.unlink()
-        except Exception as e:
-            st.error(f"加载CSV相位失败: {e}")
-            logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
-
-    st.markdown("")
-    st.subheader("底相位")
+    从 render_phase_control 移出 (操作路线图 v1.0 变更项 1): 底相位影响其后的
+    所有相位发送, 属长期配置而非一次下发; widget 键 (slm{N}_base_phase /
+    slm{N}_overlay_base) 不变, session state 行为与 AppTest 断言不受影响。
+    """
+    prefix = f"slm{slm_num}"
     st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
 
     col_base1, col_base2 = st.columns(2)
@@ -1626,6 +1649,7 @@ def render_phase_control(slm_num: int):
             st.success("底相位已清除")
     else:
         st.caption("当前底相位: 未设置")
+
 
 
 if __name__ == "__main__":
