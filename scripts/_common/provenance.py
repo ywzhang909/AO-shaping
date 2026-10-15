@@ -643,6 +643,15 @@ REPORTS: dict[str, ReportProvenance] = {
         note="GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染",
         extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
     ),
+    "report/shape_trials/gui_closed_loop_shaping_20261014.md": ReportProvenance(
+        script="scripts/generate_gui_shaping_hw_report.py",
+        command="python scripts/generate_gui_shaping_hw_report.py",
+        environment="离线",
+        note="GUI 闭环整形上机验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；"
+        "图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ "
+        "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 上机采集",
+        extra_scripts=("scripts/slm/replay_gs_refine_hw.py",),
+    ),
     "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
