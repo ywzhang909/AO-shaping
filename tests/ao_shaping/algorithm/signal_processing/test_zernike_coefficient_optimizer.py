@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import torch
 from scipy import ndimage
 
 from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
@@ -95,9 +96,7 @@ def synthetic_case(
     optimizer = ZernikeCoefficientOptimizer(
         n_orders=n_orders, region=region, max_iterations=1
     )
-    phase = (
-        np.zeros((region, region)) if fixed_phase else uniform_phase(region, seed)
-    )
+    phase = np.zeros((region, region)) if fixed_phase else uniform_phase(region, seed)
     if amplitude is None:
         amplitude = gaussian_amplitude(region)
     c_true = coefficients_from_noll(optimizer.n_coefficients, values)
@@ -156,7 +155,10 @@ class TestForwardModel:
         aberration = np.tensordot(coefficients, optimizer.generate_basis(), axes=(0, 0))
         aperture = np.isfinite(generator_mode(region, 3, 1))
         field = amplitude * np.exp(1j * ((phase + aberration) * aperture))
-        expected = np.abs(np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho"))) ** 2
+        expected = (
+            np.abs(np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho")))
+            ** 2
+        )
         np.testing.assert_allclose(model, expected, rtol=1e-5, atol=1e-8)
 
     def test_zero_coefficients_reduce_to_plain_fft(self) -> None:
@@ -167,11 +169,16 @@ class TestForwardModel:
         model = optimizer.forward_intensity(
             np.zeros(optimizer.n_coefficients), phase, amplitude
         )
-        expected = np.abs(
-            np.fft.fftshift(
-                np.fft.fft2(np.fft.ifftshift(amplitude * np.exp(1j * phase)), norm="ortho")
+        expected = (
+            np.abs(
+                np.fft.fftshift(
+                    np.fft.fft2(
+                        np.fft.ifftshift(amplitude * np.exp(1j * phase)), norm="ortho"
+                    )
+                )
             )
-        ) ** 2
+            ** 2
+        )
         np.testing.assert_allclose(model, expected, rtol=1e-5, atol=1e-8)
 
     def test_native_amplitude_matches_twin_waist(self) -> None:
@@ -197,7 +204,6 @@ class TestForwardModel:
             optimizer.update(i_meas, phase)
         np.testing.assert_array_equal(phase, snapshot)
 
-
     def test_frozen_modes_stay_zero_and_leave_the_rest_free(self) -> None:
         """Frozen Noll indices must not move, and the others must still fit."""
         i_meas, phase, _ = synthetic_case(
@@ -220,9 +226,7 @@ class TestForwardModel:
 
     def test_frozen_modes_default_is_backward_compatible(self) -> None:
         """Empty frozen_modes leaves the optimizer free to use every mode."""
-        optimizer = ZernikeCoefficientOptimizer(
-            n_orders=FIT_ORDERS, region=FIT_REGION
-        )
+        optimizer = ZernikeCoefficientOptimizer(n_orders=FIT_ORDERS, region=FIT_REGION)
         assert optimizer._frozen_mask is None
 
     def test_frozen_modes_rejects_out_of_range(self) -> None:
@@ -378,7 +382,9 @@ class TestMeasurementAnchored:
         i_meas, phase, _ = synthetic_case(values, seed=6)
         # Upsample the model frame to the real CCD shape, then hand it back.
         ccd = np.asarray(
-            ndimage.zoom(i_meas, (250 / i_meas.shape[0], 248 / i_meas.shape[1]), order=1)
+            ndimage.zoom(
+                i_meas, (250 / i_meas.shape[0], 248 / i_meas.shape[1]), order=1
+            )
         )
         assert ccd.shape == (250, 248)
 
@@ -397,9 +403,7 @@ class TestSourceAmplitude:
         region = FIT_REGION
         amplitude = np.ones((region, region))
         values = {NOLL_DEFO: 0.6, NOLL_ASTIG: -0.4, NOLL_SPHERICAL: 0.8}
-        i_meas, phase, c_true = synthetic_case(
-            values, seed=7, amplitude=amplitude
-        )
+        i_meas, phase, c_true = synthetic_case(values, seed=7, amplitude=amplitude)
         optimizer = ZernikeCoefficientOptimizer(
             n_orders=FIT_ORDERS, region=region, lr=FIT_LR, max_iterations=500
         )
@@ -500,8 +504,9 @@ class TestValidation:
 
     def test_default_device_is_cpu(self) -> None:
         optimizer = ZernikeCoefficientOptimizer(n_orders=2, region=16)
-        assert optimizer.device == "cpu"
-        assert str(optimizer.coefficient_tensor.device) == "cpu"
+        expected_type = "cuda" if torch.cuda.is_available() else "cpu"
+        assert optimizer.device.startswith(expected_type)
+        assert str(optimizer.coefficient_tensor.device).startswith(expected_type)
 
 
 class TestDigitalTwinEquivalence:
@@ -542,9 +547,10 @@ class TestDigitalTwinEquivalence:
             env._extract_region(env.slm._phase) + env._aberration_phase(), nan=0.0
         )
         field = env._beam_amp * np.exp(1j * patch)
-        return np.abs(
-            np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho"))
-        ) ** 2
+        return (
+            np.abs(np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field), norm="ortho")))
+            ** 2
+        )
 
     def test_phase_outside_aperture_does_not_affect_far_field(self) -> None:
         """SLM phase outside the circular aperture must be discarded.
@@ -557,9 +563,7 @@ class TestDigitalTwinEquivalence:
         optimizer = ZernikeCoefficientOptimizer(
             n_orders=self.ORDERS, region=region, dtype="float64"
         )
-        coefficients = coefficients_from_noll(
-            optimizer.n_coefficients, self.NOLLS
-        )
+        coefficients = coefficients_from_noll(optimizer.n_coefficients, self.NOLLS)
         inside = uniform_phase(region, seed=11)
         outside = uniform_phase(region, seed=12)
 

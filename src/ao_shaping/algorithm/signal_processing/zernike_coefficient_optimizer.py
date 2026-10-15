@@ -217,8 +217,10 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 一个带种子的小随机抽样。
             lr: Adam 学习率。必须 > 0。
             max_iterations: :meth:`run` 的迭代预算。必须 >= 1。
-            device: torch 设备字符串。默认为 ``"cpu"``, 使运行可复现且绝不
-                隐式碰 GPU; 要用 GPU 需显式传 ``"cuda"``。
+            device: torch 设备字符串。若为 ``None``, 自动检测: CUDA 可用
+                时使用 ``"cuda"``, 否则 ``"cpu"`` —— 与
+                ``differentiable_shaping`` 保持一致, 使 model-in-loop 在有 GPU
+                时不必显式传参即可加速。
             seed: 随机初始系数的可选 RNG 种子。
             dtype: 工作精度, ``"float32"`` (默认) 或 ``"float64"``。
                 数字孪生以 float64 计算远场, 所以 ``"float64"`` 才是让本模型
@@ -258,9 +260,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         if seed is not None and (not isinstance(seed, int) or isinstance(seed, bool)):
             raise ValueError(f"seed must be None or an integer, got {seed!r}")
         if dtype not in ("float32", "float64"):
-            raise ValueError(
-                f"dtype must be 'float32' or 'float64', got {dtype!r}"
-            )
+            raise ValueError(f"dtype must be 'float32' or 'float64', got {dtype!r}")
         if far_field_size is None:
             far_field_size = int(region)
         elif (
@@ -273,7 +273,11 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 f"({region}), got {far_field_size!r}"
             )
         self._far_field_size = int(far_field_size)
-        if not isinstance(pupil_oversampling, int) or isinstance(pupil_oversampling, bool) or pupil_oversampling < 1:
+        if (
+            not isinstance(pupil_oversampling, int)
+            or isinstance(pupil_oversampling, bool)
+            or pupil_oversampling < 1
+        ):
             raise ValueError("pupil_oversampling must be a positive integer")
         self._pupil_oversampling = pupil_oversampling
 
@@ -315,7 +319,15 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._n_coeffs = n_coeffs
         self._lr = float(lr)
         self._seed = seed
-        self._dev = torch.device(device if device is not None else "cpu")
+        self._dev = (
+            torch.device(device)
+            if device is not None
+            else (
+                torch.device("cuda")
+                if torch.cuda.is_available()
+                else torch.device("cpu")
+            )
+        )
         self._dtype_name = dtype
         self._np_dtype = _numpy_dtype(dtype)
 
@@ -381,9 +393,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 :meth:`run` 暖启动。
         """
         torch = _torch()
-        start = (
-            self._initial_coefficients if restore_initial else self.coefficients
-        )
+        start = self._initial_coefficients if restore_initial else self.coefficients
         coefficients = torch.from_numpy(
             np.ascontiguousarray(start, dtype=self._np_dtype)
         ).to(self._dev)
@@ -569,9 +579,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         amplitude = self._resolve_amplitude(source_amplitude)
         with torch.no_grad():
             intensity = self._far_field_intensity(
-                torch.from_numpy(
-                    np.ascontiguousarray(values, dtype=self._np_dtype)
-                ).to(self._dev),
+                torch.from_numpy(np.ascontiguousarray(values, dtype=self._np_dtype)).to(
+                    self._dev
+                ),
                 phase_t,
                 _to_tensor(amplitude, self._dev, self._dtype_name),
             )
@@ -582,7 +592,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._restart(restore_initial=True)
         logger.debug("ZernikeCoefficientOptimizer reset to initial coefficients")
 
-    def update(self, i_meas: npt.NDArray[np.floating], phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+    def update(
+        self, i_meas: npt.NDArray[np.floating], phase_slm: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
         """执行一步 Adam 并返回下一个系数向量。
 
         这一步是测量锚定的: 峰值归一化的 MSE 取在模型远场与实测远场之间,
@@ -610,14 +622,10 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         phase_t = _to_tensor(
             self._validate_phase(phase_slm), self._dev, self._dtype_name
         )
-        amplitude_t = _to_tensor(
-            self._source_amplitude, self._dev, self._dtype_name
-        )
+        amplitude_t = _to_tensor(self._source_amplitude, self._dev, self._dtype_name)
 
         self._opt.zero_grad(set_to_none=True)
-        intensity = self._far_field_intensity(
-            self._coefficients, phase_t, amplitude_t
-        )
+        intensity = self._far_field_intensity(self._coefficients, phase_t, amplitude_t)
         # 测量锚定的梯度: 目标与归一化尺度都来自实测图像;
         # 残差落在模型图像上。
         self._anchored_intensity_loss(intensity, target, peak_anchor).backward()
@@ -808,7 +816,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     # ------------------------------------------------------------------
     # 输入准备与记账
     # ------------------------------------------------------------------
-    def _validate_phase(self, phase_slm: npt.NDArray[np.floating]) -> npt.NDArray[np.floating]:
+    def _validate_phase(
+        self, phase_slm: npt.NDArray[np.floating]
+    ) -> npt.NDArray[np.floating]:
         """校验固定的 SLM 相位图并以二维数组返回。
 
         该相位以**未包裹的原始弧度**消费; 本方法绝不做包裹或缩放。
@@ -825,7 +835,9 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             raise ValueError("phase_slm must be finite")
         return phase
 
-    def _resolve_amplitude(self, source_amplitude: npt.NDArray[np.floating] | None) -> npt.NDArray[np.floating]:
+    def _resolve_amplitude(
+        self, source_amplitude: npt.NDArray[np.floating] | None
+    ) -> npt.NDArray[np.floating]:
         """返回要使用的振幅, 默认取已存的那份。"""
         if source_amplitude is None:
             return self._source_amplitude
@@ -892,9 +904,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                     f"i_meas shape {i_meas.shape} could not be resized to "
                     f"{grid} (got {measured.shape})"
                 )
-            logger.debug(
-                "Resized measured far field {} -> {}", i_meas.shape, grid
-            )
+            logger.debug("Resized measured far field {} -> {}", i_meas.shape, grid)
 
         peak = float(measured.max())
         if peak <= 0:
