@@ -589,7 +589,7 @@ flowchart LR
 1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off，仅当实测优于平场才采用）
    + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
    （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
-   `cam_type=daheng`、曝光 `0.05 ms`（大恒硬限 ≤0.4 ms）、`pupil_center=960,690`、
+   `cam_type=daheng`、曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、`pupil_center=960,690`、
    `beam_radius_px=450`、`target_side=100`、`cam_size=250`、`gs_iters=12`、
    `far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、
    `gs_method=plain`。验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**
