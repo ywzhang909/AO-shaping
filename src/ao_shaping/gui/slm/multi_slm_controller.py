@@ -104,6 +104,46 @@ def _detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float 
     return None
 
 
+def _auto_check_camera_pixel_um() -> None:
+    """Auto-detect camera pixel_um on sidebar render; warn on mismatch.
+
+    Reads the configured ``camera_pixel_um`` session-state value against the
+    value probed from hardware.  When they differ, surfaces a one-line warning
+    so the operator can click a button to adopt the hardware value.  The
+    existing value is never silently overwritten — the operator always decides.
+    """
+    configured = st.session_state.get("camera_pixel_um")
+    if configured is None:
+        return
+    if f"_cam_pixel_checked" not in st.session_state:
+        detected = _detect_camera_pixel_um(
+            str(st.session_state.get("cam_type", "daheng")),
+            int(st.session_state.get("cam_id", 0)),
+        )
+        if detected is not None and abs(float(detected) - float(configured)) > 1e-3:
+            st.session_state["_cam_pixel_detected"] = detected
+            st.session_state["_cam_pixel_mismatch"] = True
+        else:
+            st.session_state["_cam_pixel_mismatch"] = False
+        st.session_state["_cam_pixel_checked"] = True
+
+    if st.session_state.get("_cam_pixel_mismatch"):
+        detected = st.session_state.get("_cam_pixel_detected")
+        col1, col2 = st.columns([4, 1])
+        with col1:
+            st.warning(
+                f"相机像素间距: 会话值 {configured} μm ≠ 硬件探测值 {detected} μm"
+            )
+        with col2:
+            if st.button("采用", key="adopt_camera_pixel_btn", type="primary"):
+                detected_val = st.session_state.get("_cam_pixel_detected")
+                if detected_val is not None:
+                    st.session_state["camera_pixel_um"] = float(detected_val)
+                    st.session_state.pop("_cam_pixel_checked", None)
+                    st.session_state.pop("_cam_pixel_mismatch", None)
+                    st.rerun()
+
+
 def _scan_camera_status() -> list[dict]:
     """Scan for Daheng cameras and report whether each is free or occupied.
 
@@ -942,6 +982,8 @@ def render_slm_sidebar():
 
     # Camera pixel pitch configuration with auto-detect
     pixel_um = st.session_state.get("camera_pixel_um", DEFAULT_CAMERA_PIXEL_UM)
+    # Auto-detect on every render if a camera is available; warn on mismatch.
+    _auto_check_camera_pixel_um()
     col_pixel, col_detect = st.columns([3, 1])
     with col_pixel:
         st.number_input(

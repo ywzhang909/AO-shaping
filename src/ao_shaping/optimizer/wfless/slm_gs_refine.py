@@ -301,7 +301,13 @@ class SlmGsRefineConfig:
             )
         if self.gs_relax <= 0:
             raise ValueError(f"gs_relax must be positive, got {self.gs_relax}")
-        if self.gs_method not in ("plain", "weighted", "hio", "hio-weighted", "adaptive-feedback"):
+        if self.gs_method not in (
+            "plain",
+            "weighted",
+            "hio",
+            "hio-weighted",
+            "adaptive-feedback",
+        ):
             raise ValueError(
                 "gs_method must be one of 'plain', 'weighted', 'hio', "
                 f"'hio-weighted', 'adaptive-feedback', got {self.gs_method!r}"
@@ -362,8 +368,12 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"far_field_padding must be at least 1, got {self.far_field_padding}"
             )
-        if self.cam_size < 16:
-            raise ValueError(f"cam_size must be at least 16, got {self.cam_size}")
+        if self.cam_size < 0:
+            raise ValueError(f"cam_size must be non-negative, got {self.cam_size}")
+        if 0 < self.cam_size < 16:
+            raise ValueError(
+                f"cam_size must be >= 16 or 0 (full frame), got {self.cam_size}"
+            )
         if self.slm_number < 1 or self.slm_number > 8:
             raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
         if self.slm_wavelength < 0:
@@ -637,9 +647,12 @@ def _run_gs_refine_session(
 
     center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
     side = pupil_side(config.beam_radius_px)
-    if (center_xy[0] - side // 2 < 0 or center_xy[1] - side // 2 < 0
-            or center_xy[0] - side // 2 + side > panel_shape[1]
-            or center_xy[1] - side // 2 + side > panel_shape[0]):
+    if (
+        center_xy[0] - side // 2 < 0
+        or center_xy[1] - side // 2 < 0
+        or center_xy[0] - side // 2 + side > panel_shape[1]
+        or center_xy[1] - side // 2 + side > panel_shape[0]
+    ):
         raise ValueError("pupil square extends beyond the SLM panel")
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
     if config.cam_type != "sim":
@@ -658,17 +671,23 @@ def _run_gs_refine_session(
         if config.cam_type == "daheng" and np.max(discovery) >= 255:
             raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
         full_y, full_x = locate_zero_order(discovery)
-        half = config.cam_size // 2
-        if (full_x - half < 0 or full_y - half < 0
+        if config.cam_size > 0:
+            half = config.cam_size // 2
+            if (
+                full_x - half < 0
+                or full_y - half < 0
                 or full_x + half >= discovery.shape[1]
-                or full_y + half >= discovery.shape[0]):
-            raise ValueError("CCD zero order too close to edge for requested window")
-        cam.reset_window(
-            center=(full_x, full_y), size=(config.cam_size, config.cam_size)
-        )
-        logger.info(
-            "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
-        )
+                or full_y + half >= discovery.shape[0]
+            ):
+                raise ValueError(
+                    "CCD zero order too close to edge for requested window"
+                )
+            cam.reset_window(
+                center=(full_x, full_y), size=(config.cam_size, config.cam_size)
+            )
+            logger.info(
+                "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
+            )
     radius_px = max(8.0, float(config.beam_radius_px))
     target_side = _derive_target_side(config, radius_px)
     logger.info(
@@ -706,7 +725,9 @@ def _run_gs_refine_session(
             memory_number=memory_number,
         )
         if config.cam_type == "daheng" and np.max(frame) >= 250:
-            raise ValueError("Daheng CCD frame saturated; reduce exposure before continuing")
+            raise ValueError(
+                "Daheng CCD frame saturated; reduce exposure before continuing"
+            )
         last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         return frame
 
@@ -734,10 +755,14 @@ def _run_gs_refine_session(
         }
         if config.record_debug:
             row["_img"] = np.asarray(frame).copy()
-            row["_phase"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase))).copy()
+            row["_phase"] = np.asarray(
+                slm.create_phase_from_array(displayed_phase(phase))
+            ).copy()
             if other_frame is not None and other_phase is not None:
                 other_img = np.asarray(other_frame).copy()
-                other_gray = np.asarray(slm.create_phase_from_array(displayed_phase(other_phase))).copy()
+                other_gray = np.asarray(
+                    slm.create_phase_from_array(displayed_phase(other_phase))
+                ).copy()
                 if positive_wins:
                     row.update(
                         _img_pos=row["_img"],
@@ -855,9 +880,13 @@ def _run_gs_refine_session(
         if config.record_debug and confirmed:
             row = recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
-            row["_phase_pos"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_pos))).copy()
+            row["_phase_pos"] = np.asarray(
+                slm.create_phase_from_array(displayed_phase(phase_pos))
+            ).copy()
             row["_img_neg"] = np.asarray(frame_neg).copy()
-            row["_phase_neg"] = np.asarray(slm.create_phase_from_array(displayed_phase(phase_neg))).copy()
+            row["_phase_neg"] = np.asarray(
+                slm.create_phase_from_array(displayed_phase(phase_neg))
+            ).copy()
         if score > best_score:
             best_score = score
             best_phase = measured_phase

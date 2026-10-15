@@ -548,12 +548,18 @@ class ShapingMethod(ABC):
         *,
         exposure_default: float,
         cam_size_default: int,
+        target_side: int = 0,
         extra: Mapping[str, dict[str, Any]] | None = None,
     ) -> None:
         """Render the CCD block shared by every method, in one row.
 
         ``extra`` adds method-specific numeric inputs (e.g. frames averaged per
         measurement) to the same row, so the camera block exists exactly once.
+
+        ``target_side`` is the objective target side length (camera px). When
+        window-cropping is enabled, ``cam_size`` is constrained to be at least
+        ``max(16, target_side)`` so the target square fits inside the camera
+        ROI. When cropping is disabled, ``cam_size`` is set to 0 (full frame).
         """
         cells = st.columns(4 + (1 if extra else 0))
         with cells[0]:
@@ -587,15 +593,33 @@ class ShapingMethod(ABC):
                 key=self.wkey("exposure"),
                 help=f"Daheng 饱和保护上限 {DAHENG_MAX_EXPOSURE_MS} ms（启动时校验）；0 = 由算法自动起曝",
             )
-        with cells[3]:
-            values["cam_size"] = st.number_input(
-                "相机窗口",
-                min_value=16,
-                max_value=1944,
-                value=int(values.get("cam_size", cam_size_default)),
-                step=10,
-                key=self.wkey("cam_size"),
+        idx = 3
+        with cells[idx]:
+            values["cam_crop_enabled"] = st.checkbox(
+                "是否开窗",
+                value=bool(values.get("cam_crop_enabled", True)),
+                key=self.wkey("cam_crop"),
+                help="开启后设置相机 ROI 窗口 (目标方边长须 ≤ 窗口)；关闭则整幅读出",
             )
+        if values.get("cam_crop_enabled"):
+            # The camera window must be at least as large as the target square
+            # so the entire target fits inside the ROI.
+            cam_size_min = max(16, target_side)
+            with cells[idx]:
+                values["cam_size"] = st.number_input(
+                    "相机窗口",
+                    min_value=cam_size_min,
+                    max_value=1944,
+                    value=max(
+                        cam_size_min,
+                        int(values.get("cam_size", cam_size_default)),
+                    ),
+                    step=10,
+                    key=self.wkey("cam_size"),
+                    help="ROI 窗口边长 (px)，须 ≥ 目标方边长",
+                )
+        else:
+            values["cam_size"] = 0  # full frame
         if extra:
             for cell, (name, spec) in zip(cells[4:], extra.items()):
                 with cell:
@@ -823,6 +847,7 @@ class GsRefineMethod(ShapingMethod):
             values,
             exposure_default=float(r["exposure_time_ms"]),
             cam_size_default=int(r["cam_size"]),
+            target_side=int(values.get("target_side", 0)),
             extra={
                 "n_eval_frames": {
                     "label": "每测量均帧",
@@ -1033,8 +1058,9 @@ class ModelInLoopMethod(ShapingMethod):
         st.caption("硬件")
         self.render_camera_inputs(
             values,
-            exposure_default=0.0,  # auto ladder from 0.02 ms, ceiling 0.4
+            exposure_default=0.0,
             cam_size_default=250,
+            target_side=int(values.get("target_side", 0)),
         )
         values["max_exposure_ms"] = DAHENG_MAX_EXPOSURE_MS
         return values
