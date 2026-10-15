@@ -86,6 +86,10 @@ from ao_shaping.utils.image.targets import (
     spot_waist_sigma,
     target_shape_roi,  # noqa: F401 -- intentional re-export, documented at the module header
 )
+from ao_shaping.utils.io.file import (
+    _DATA_MODE_OBJECTIVE_KEYS,
+    save_recorder_debug_artifacts,
+)
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
@@ -254,6 +258,10 @@ class SlmZernikePibConfig:
     lr: float = 0
     shrink_iter: int = 0
     shrink_ratio: float = 0.9
+    # --- Objective scoring -----------------------------------------------------
+    #: Outside-target penalty weight of the ``rmse_out`` objective
+    #: (``J = RMSE_norm + w_outside * (1 - in_target_energy)``).
+    w_outside: float = 1.0
     # --- Evaluation robustness (2026-09 q3, from the delta<0.001 fold/jitter
     # post-mortem; see docs/slm_pib) -----------------------------------------
     # Per-evaluation frame average passed to ``cam.get_numpy_image`` (the
@@ -302,10 +310,75 @@ class SlmZernikePibConfig:
     show: bool = False
     # --- Recording ---------------------------------------------------------------
     record_phase: bool = False
+    # --- Debug / result report ---------------------------------------------------
+    #: Save the debug artifact bundle (PNG + pkl + json) after the run, under
+    #: ``<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/``.
+    debug: bool = False
+    #: Root directory for the debug bundle (same meaning as the runner's ``--dir``).
+    debug_dir: str = "data"
     # --- Escape hatch -----------------------------------------------------------
     #: Extra keyword arguments forwarded to the optimizer constructor
     #: (``create_optimizer``); kept out of the typed fields.
     kwargs: dict[str, Any] = field(default_factory=dict)
+
+
+# Debug-artifact key sets (mirrors the shaping recorder row schema from
+# ``runners/slm/slm_shaping_runner.py``). ``save_recorder_debug_artifacts`` writes a PNG
+# figure + a ``.pkl`` (list of row dicts) + a ``.json`` payload bundle.
+_DEBUG_IMG_KEYS = ("_img",)
+_DEBUG_1D_KEYS = ("_c",)
+_DEBUG_2D_KEYS = ("_grad",)
+_DEBUG_SCALAR_KEYS = (
+    "J",
+    "_p%",
+    "_max_r",
+    "_r",
+    "_diff",
+    "lr",
+    "delta",
+    "r",
+    "exp_t",
+    "max_brt",
+    "_epoch",
+    "w_pib",
+    "w_rms",
+    "w_ee",
+    "pib_term",
+    "rms_term",
+    "ee_term",
+    "m_shape",
+    "m_energy",
+    "m_rmse",
+    "m_roi_pib",
+    "m_pib",
+    "m_pib7",
+    "m_rms_pib",
+    "m_rms_t",
+    "m_ee",
+    "m_brt",
+    *_DATA_MODE_OBJECTIVE_KEYS,
+)
+
+
+def _save_debug_artifacts(
+    recorder: Recorder,
+    *,
+    objective: str,
+    root_dir: str,
+    payload: dict[str, Any],
+):
+    """Save the shaping debug bundle (PNG + pkl + json) under ``root_dir``."""
+    return save_recorder_debug_artifacts(
+        recorder,
+        root_dir=root_dir,
+        subdir_prefix=f"slm_zernike_shaping_{objective}",
+        scalar_keys=_DEBUG_SCALAR_KEYS,
+        img_keys=_DEBUG_IMG_KEYS,
+        d1_keys=_DEBUG_1D_KEYS,
+        d2_keys=_DEBUG_2D_KEYS,
+        json_payload=payload,
+        title=f"slm-zernike-shaping {objective} search",
+    )
 
 
 def _frame_fold_check(
@@ -433,6 +506,9 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     w_rms_init = camera_config.w_rms_init
     w_ee_init = camera_config.w_ee_init
     record_phase = config.record_phase
+    w_outside = config.w_outside
+    debug = config.debug
+    debug_dir = config.debug_dir
     zernike_radius = slm_config.zernike_radius
     if zernike_radius is None or zernike_radius <= 0:
         zernike_radius = ZERNIKE_APERTURE_RADIUS
@@ -762,6 +838,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 max_roi_energy_loss=max_roi_energy_loss,
                 ideal_spot_radius=IDEAL_SPOT_RADIUS,
                 r_bucket=r_bucket,
+                w_outside=w_outside,
                 w_ema_decay=w_ema_decay,
                 w_floor=w_floor,
                 w_temperature=w_temperature,
@@ -1024,6 +1101,30 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     logger.warning("SLM forced to flat (gray 0) on cleanup failure")
                 except Exception:  # noqa: BLE001 - last resort, cannot raise
                     logger.error("could not force flat phase either; SLM state unknown")
+
+        def _debug_report() -> None:
+            """Save the debug artifact bundle when ``config.debug`` is set."""
+            if not debug:
+                return
+            _save_debug_artifacts(
+                recorder,
+                objective=objective,
+                root_dir=debug_dir,
+                payload={
+                    "objective": objective,
+                    "target_shape": shape_for_metric,
+                    "target_size": target_size,
+                    "epochs": epochs,
+                    "algorithm": algorithm,
+                    "optimizer_type": optimizer_type,
+                    "delta": delta,
+                    "w_outside": w_outside,
+                    "r_bucket": r_bucket,
+                    "cam_type": camera_config.cam_type,
+                    "cam_size": cam_size,
+                },
+            )
+
         # ------------------------------------------------------------------
         # Heuristic search branch (shared driver: algorithm/heuristic/search.py).
         # The driver clips candidates to the bounds, handles the maximise/minimise
@@ -1159,6 +1260,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         result.best_value,
                         result.evaluations,
                     )
+                _debug_report()
                 return recorder
 
             # Evaluation-robustness state (see ``config.n_eval_frames`` /
@@ -1545,6 +1647,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             # on it, restore that instead of a worse "best". Shared with the
             # heuristic branch through _apply_best_on_exit.
 
+            _debug_report()
             return recorder
         finally:
             _apply_best_on_exit()
