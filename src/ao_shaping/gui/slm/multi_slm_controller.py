@@ -855,13 +855,13 @@ def render_slm_sidebar():
 
     col_h1, col_h2, col_h3, col_h4 = st.columns([1, 2, 1, 1])
     with col_h1:
-        st.caption("**编号**")
+        st.markdown("**编号**")
     with col_h2:
-        st.caption("**序列号**")
+        st.markdown("**序列号**")
     with col_h3:
-        st.caption("**状态**")
+        st.markdown("**状态**")
     with col_h4:
-        st.caption("**操作**")
+        st.markdown("**操作**")
     st.markdown("")
 
     for device in available:
@@ -885,16 +885,16 @@ def render_slm_sidebar():
 
         col1, col2, col3, col4 = st.columns([1, 2, 1, 1])
         with col1:
-            st.write(f"**SLM {slm_num}**")
+            st.markdown(f"**SLM {slm_num}**")
         with col2:
-            st.write(device["serial"] or "-")
+            st.markdown(device["serial"] or "-")
         with col3:
             if is_connected:
                 st.success(status)
             elif in_use:
                 st.warning(status)
             else:
-                st.caption(status)
+                st.markdown(status)
         with col4:
             if is_connected:
                 if st.button(
@@ -902,9 +902,7 @@ def render_slm_sidebar():
                 ):
                     disconnect_slm(slm_num)
             elif in_use:
-                # Physical device exists but is held by another instance —
-                # cannot take over without closing the other handle first.
-                st.caption("已被占用")
+                st.markdown("已被占用")
             else:
                 if st.button("连接", key=f"{prefix}_connect_table", type="primary"):
                     connect_slm(slm_num)
