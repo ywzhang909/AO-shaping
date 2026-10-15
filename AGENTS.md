@@ -1065,12 +1065,18 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 
 ## MISSING INFRASTRUCTURE
 
-- **No CI/CD**: No GitHub Actions, no automated testing on push
-- **No linting**: No ruff/mypy/flake8 configured
-- **No pre-commit**: No hooks for lint/format before commits
+- **CI**: ruff 硬门禁已就位（`.github/workflows/ruff.yml`，push + PR 触发，
+  `ruff check .`，2026-10-15 起 issue #132 决策 B）；`pylint.yml` 存在但为
+  **参考级**（`continue-on-error: true`，无项目依赖时 2062 条 E0401 误报）。
+  仍缺：pytest 自动化（push/PR 跑测试的 workflow）与类型检查门禁。
+- **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F]`，`libs/**` 与
+  `notebooks/**` 显式排除，守卫见
+  `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
+  mypy / flake8 未配置。
+- **Pre-commit**: `.pre-commit-config.yaml` 已存在（ruff + ruff-format）。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
-Consider adding: `.github/workflows/ci.yml`, `ruff.toml`, `.pre-commit-config.yaml`
+Consider adding: `.github/workflows/ci.yml`（pytest 自动化）
 
 ---
 
