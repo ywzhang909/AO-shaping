@@ -65,7 +65,6 @@
 
 | 文档 | 说明 |
 |---|---|
-| `wfs/wfs_report.md` | WFS 硬件测试报告（2026-10-12 实测数据） |
 | `wfs/ga_zernike.md` | 遗传算法搜索 Zernike 系数（WFS RMS 为适应度，无梯度/多峰场景） |
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
