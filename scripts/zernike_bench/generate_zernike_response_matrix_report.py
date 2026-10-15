@@ -730,8 +730,8 @@ def write_markdown(out: Path, ctx: dict, fig_prefix: str = "figures") -> str:
                   f"{cl['before_rms']:.4f} → {cl['after_rms']:.4f}λ "
                   f"(**{100 * (1 - cl['after_rms'] / cl['before_rms']):.1f}%**), "
                   f"PV {cl['before_pv']:.4f} → {cl['after_pv']:.4f}λ.")
-        md.append(f"- 注意 `after_rms` 取 iter1 (RMS 最优 0.2065λ), 而 `after_pv` 取 iter3 "
-                  f"(PV 最优 1.2730λ) — 两指标最优帧不同, 见 §3.4 图 12。")
+        md.append("- 注意 `after_rms` 取 iter1 (RMS 最优 0.2065λ), 而 `after_pv` 取 iter3 "
+                  "(PV 最优 1.2730λ) — 两指标最优帧不同, 见 §3.4 图 12。")
         ratios = [f"iter{h['iter']}={h['model_ratio']:.2f}"
                   for h in (cl.get("history") or []) if h.get("model_ratio") is not None]
         ratio_txt = ", ".join(ratios) if ratios else "—"

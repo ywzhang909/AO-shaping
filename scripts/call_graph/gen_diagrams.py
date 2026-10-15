@@ -1,6 +1,7 @@
 """Generate mermaid call-graph diagrams from call_graph_final.json."""
 from __future__ import annotations
-import json, re
+import json
+import re
 from pathlib import Path
 from collections import defaultdict
 

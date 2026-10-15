@@ -1,6 +1,7 @@
 """Second pass: recover unresolved names by repo-wide name match; dump function list."""
 from __future__ import annotations
-import json, sys
+import json
+import sys
 from pathlib import Path
 from collections import defaultdict
 

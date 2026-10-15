@@ -291,8 +291,8 @@ def build_report(
             else " ⚠️ 未固定，语料在会话期间增长，结果不可复现"
         )
     )
-    add(f"- 切分：**按文件**，同一 pickle 内记录不跨分割（它们是同一次优化的连续 SPGD epoch，近乎重复）。")
-    add(f"- 统计：**按文件配对**的 sign-flip 精确置换检验，复用 `ml.zernike.eval_stats`（唯一统计来源）。")
+    add("- 切分：**按文件**，同一 pickle 内记录不跨分割（它们是同一次优化的连续 SPGD epoch，近乎重复）。")
+    add("- 统计：**按文件配对**的 sign-flip 精确置换检验，复用 `ml.zernike.eval_stats`（唯一统计来源）。")
     add(f"- 差值约定：`{metrics.get('diff_convention')}`（正值表示模型更好）。")
     add("")
     if train_rows:

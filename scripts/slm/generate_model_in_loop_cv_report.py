@@ -403,7 +403,7 @@ def _body(
                 ],
                 ["Cohen's d_z", fmt_metric(comparison["cohens_dz"])],
                 ["sign-flip p", fmt_metric(comparison["pvalue"])],
-                [f"最小可达 p = 2/2^K", fmt_metric(floor)],
+                ["最小可达 p = 2/2^K", fmt_metric(floor)],
                 ["p 是否已触底", "是" if comparison["pvalue_is_at_floor"] else "否"],
             ],
         )

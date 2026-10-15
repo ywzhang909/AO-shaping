@@ -221,12 +221,18 @@ def wiki_link(qual, label=None):
     return f"`{qual}`"
 
 def hw_class(qual):
-    if "drivers.dm" in qual: return "DM 变形镜"
-    if "drivers.slm" in qual: return "SLM 空间光调制器"
-    if "drivers.ccd" in qual: return "CCD 相机"
-    if "drivers.wfs" in qual: return "WFS 波前传感器"
-    if "drivers.tm" in qual: return "时序控制"
-    if "drivers.sim" in qual: return "仿真数字孪生"
+    if "drivers.dm" in qual:
+        return "DM 变形镜"
+    if "drivers.slm" in qual:
+        return "SLM 空间光调制器"
+    if "drivers.ccd" in qual:
+        return "CCD 相机"
+    if "drivers.wfs" in qual:
+        return "WFS 波前传感器"
+    if "drivers.tm" in qual:
+        return "时序控制"
+    if "drivers.sim" in qual:
+        return "仿真数字孪生"
     return None
 
 # reachability per entry (functions only, depth-limited)
@@ -549,20 +555,30 @@ def build():
 
     written = []
     # entry pages
-    f, b = entry_main_py(); (BASE / f).write_text(b); written.append(f)
-    f, b = entry_cli(); (BASE / f).write_text(b); written.append(f)
+    f, b = entry_main_py()
+    (BASE / f).write_text(b)
+    written.append(f)
+    f, b = entry_cli()
+    (BASE / f).write_text(b)
+    written.append(f)
     # command pages
     for name, desc in CMD_ORDER:
-        f, b = cmd_page(name, desc); (BASE / f).write_text(b); written.append(f)
+        f, b = cmd_page(name, desc)
+        (BASE / f).write_text(b)
+        written.append(f)
     # function pages
     for slug in PAGES:
         if slug.startswith(("entry/", "commands/")):
             continue
-        f, b = func_page(slug); (BASE / f).write_text(b); written.append(f)
+        f, b = func_page(slug)
+        (BASE / f).write_text(b)
+        written.append(f)
     # relations overview page (similar functions)
     page = similar_functions_page()
     if page:
-        f, b = page; (BASE / f).write_text(b); written.append(f)
+        f, b = page
+        (BASE / f).write_text(b)
+        written.append(f)
     return written
 
 if __name__ == "__main__":

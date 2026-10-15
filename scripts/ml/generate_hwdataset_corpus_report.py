@@ -1590,7 +1590,7 @@ def build_report(facts: CorpusFacts, dist_stats: dict[str, Any] | None = None) -
     zern_terms = _src_values(facts, "zernike", "n_terms")
     zern_lo, zern_hi = (min(zern_terms), max(zern_terms)) if zern_terms else (0, 0)
     add(
-        f"\n`n_terms` 必须**按 source 分层读**, 否则会把两种不可比的量混在一根轴上:\n"
+        "\n`n_terms` 必须**按 source 分层读**, 否则会把两种不可比的量混在一根轴上:\n"
     )
     add(
         markdown_table(

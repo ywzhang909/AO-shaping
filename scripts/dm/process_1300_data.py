@@ -176,13 +176,13 @@ def main() -> None:
     }, inplace=True)
 
     # Save
-    print(f"\nSaving enriched data...")
+    print("\nSaving enriched data...")
     df_out.to_excel(OUTPUT_XLSX, index=False, engine="openpyxl")
     print(f"  XLSX: {OUTPUT_XLSX}")
     df_out.to_csv(OUTPUT_CSV, index=False)
     print(f"  CSV: {OUTPUT_CSV}")
 
-    print(f"\nEnriched data preview (first 10 rows):")
+    print("\nEnriched data preview (first 10 rows):")
     print(df_out.head(10).to_string())
     print(f"\nTotal records: {len(df_out)}")
     print(f"36×36 grid size: {GRID_SIZE}×{GRID_SIZE} = {GRID_SIZE*GRID_SIZE}")

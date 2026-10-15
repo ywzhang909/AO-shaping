@@ -630,12 +630,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物"
         ),
     ),
-    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="GS 重构后真实设备调试记录；images/ 为三栏动画，由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
-    ),
     "report/shape_trials/gui_closed_loop_shaping_20261014.md": ReportProvenance(
         script="scripts/generate_gui_shaping_hw_report.py",
         command="python scripts/generate_gui_shaping_hw_report.py",
