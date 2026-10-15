@@ -513,6 +513,19 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 （119 / 113 行）另有既有裁决：`slm_zernike_shaping.py` 的 fork `__main__` 见 #74
 （判「删，不移植」）。**未实施** —— 纯搬移无行为收益，且需逐块核对是否有其它代码依赖。
 
+> ✅ **2026-10-15 已实施 6/10（`14b1cda`，#128/#90 决策）**：上表 10 个文件中 6 个库文件的
+> `__main__` 块已搬至独立 demo 脚本（docstring 注明源模块）：
+> `slm_square_shaping.py`→`scripts/slm/demo_square_shaping.py`、
+> `bayes_opt_lr_delta.py`→`scripts/slm/demo_bayes_lr_delta.py`、
+> `adc_dm_adam.py`→`scripts/dm/demo_adc_dm_adam.py`、
+> `interaction_matrix.py`→`scripts/wfs/demo_interaction_matrix.py`、
+> `sim.py`→`scripts/signal_processing/demo_wavefront_sim.py`、
+> `wavefront.py`→`scripts/signal_processing/demo_wavefront_reconstruction.py`；
+> 顺带修 2 个被 `__main__` 掩盖的 bug（adc_dm_adam F821 `sample_num` / sim.py numpy-2
+> `ptp()`）。`slm_zernike_shaping.py` 的 fork 块已按 #74 裁决删除（`ee96acfe`，删不移植）。
+> **剩余**：仅 `rl/{rl_wfs,lr_wfs,lr}.py` 3 个块（64/61/59 行）—— 涉及 RL 训练循环，
+> 搬移前仍需逐块核对依赖。
+
 
 ## 来源清单
 
