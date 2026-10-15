@@ -15,6 +15,7 @@ from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
+from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
@@ -382,7 +383,7 @@ def optimize_pib(
         )
 
     # 优化目标模式映射: pib和avg_radiu最大化, radiu最小化
-    objective_mode = "max" if objective in ("pib", "avg_radiu") else "min"
+    objective_mode = objective_direction(objective)
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # 历史记录用于收敛状态检测

@@ -56,6 +56,7 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
     zero_order_center,
@@ -575,11 +576,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             raise ValueError(
                 f"{_name} must be a finite, non-negative weight, got {_w!r}"
             )
-    objective_mode = (
-        "max"
-        if objective in ("pib", "avg_radiu", "shape", "roi_pib", "rms_pib")
-        else "min"
-    )
+    objective_mode = objective_direction(objective)
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection
