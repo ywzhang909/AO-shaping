@@ -1,5 +1,4 @@
 """SLM-specific bench tools (panel probes + calibration + cartographer).
-from __future__ import annotations
 
 After the 2026-10-12 ``tools/`` reorganisation this package holds only the
 SLM-specific pieces; the shared measurement kernels, the shared Zernike tools
@@ -40,3 +39,4 @@ click / loguru / numpy / the SLM and camera drivers at module scope, and a
 package-level re-export would make every ``import ao_shaping.tools.slm.<x>`` pay
 for all of them.
 """
+from __future__ import annotations

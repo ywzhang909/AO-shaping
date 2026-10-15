@@ -1,5 +1,4 @@
 """SLM + WFS probes and Zernike response / correction tools.
-from __future__ import annotations
 
 Modules:
 - ``wfs_probe`` — SLM + WFS intensity and pupil check; the pre-calibration
@@ -15,3 +14,4 @@ Run with ``python -m ao_shaping.tools.wfs.<module>``.
 
 This package deliberately does **no** eager re-export.
 """
+from __future__ import annotations

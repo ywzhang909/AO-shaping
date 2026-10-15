@@ -1,5 +1,4 @@
 """信号处理 / 光束整形算法。
-from __future__ import annotations
 
 包含 GS / 可微分整形 / 相位包裹 / 波前工具函数, 控制律闭环, 以及共享的迭代
 优化器基类。
@@ -15,3 +14,4 @@ from __future__ import annotations
 在这里急加载它们会让顶层 ``__init__`` 在初始化中途被执行)。所有公开名字都
 经由顶层 ``ao_shaping.algorithm`` 门面暴露。
 """
+from __future__ import annotations

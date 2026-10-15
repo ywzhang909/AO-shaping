@@ -1,5 +1,4 @@
 """CCD 相机驱动包。
-from __future__ import annotations
 
 本包提供统一接口的相机驱动。
 
@@ -15,6 +14,7 @@ from __future__ import annotations
 公开名称未变, 因此 ``from ao_shaping.drivers.ccd import MIICamera`` 继续可用;
 无法导入的后端仍与以前一样退化为 ``None``。
 """
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 

@@ -1,5 +1,4 @@
 """启发式 / 黑盒优化器 (GA、PSO、SA、HC、Random、CEM、DE)。
-from __future__ import annotations
 
 子模块可按全路径直接导入, 例如::
 
@@ -15,6 +14,7 @@ from __future__ import annotations
 (见 ``heuristic_base``), 因此导入本包下的任何东西都会填好注册表, 而
 ``__init__`` 无需知道那些具体模块。
 """
+from __future__ import annotations
 # 引导式变异 (GM) 实现在 ``gm.py`` 中; 两种算子定义各自用在哪里, 见该模块的
 # docstring。
 # ref https://www.researching.cn/ArticlePdf/m00009/2023/52/6/0629002.pdf

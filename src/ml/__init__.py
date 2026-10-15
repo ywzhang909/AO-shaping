@@ -1,5 +1,4 @@
 """ML - Phase prediction models for AO-Shaping.
-from __future__ import annotations
 
 This package contains machine learning models for adaptive optics phase prediction:
 
@@ -24,6 +23,7 @@ Note:
     coefficient *regressors* were removed -- they predicted coefficients from
     an image without any forward model, which is not what the bench needs.
 """
+from __future__ import annotations
 
 # Phase submodule exports
 from ml.phase import (

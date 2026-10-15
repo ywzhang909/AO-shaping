@@ -1,10 +1,10 @@
 """
-from __future__ import annotations
 AO-Shaping Optimizer Package
 
 Exports all public optimizer classes and functions for easy access:
     from ao_shaping.optimizer import X
 """
+from __future__ import annotations
 
 # Wavefront-based optimizers (RMS optimization via WFS)
 from ao_shaping.algorithm.signal_processing.differentiable_beam import (

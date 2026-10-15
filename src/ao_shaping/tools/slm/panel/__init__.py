@@ -1,5 +1,4 @@
 """SLM panel probes: characterise the SLM panel itself with a CCD (no WFS).
-from __future__ import annotations
 
 Modules:
 - ``diagnose`` — three-step hardware self-test (freeze / modulate / linearity),
@@ -23,3 +22,4 @@ click / numpy / the SLM and camera drivers at module scope, and a package-level
 re-export would make every ``import ao_shaping.tools.slm.panel.<x>`` pay for all
 of them.
 """
+from __future__ import annotations

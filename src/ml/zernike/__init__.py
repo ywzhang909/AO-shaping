@@ -1,5 +1,4 @@
 """Zernike submodule - physics-based global Zernike forward model.
-from __future__ import annotations
 
 Exports the canonical ``ZernikeBasis`` / ``ZernikeAmpModel`` pair (see
 ``ml.zernike.models``) plus the dataset helpers, which are unchanged.
@@ -10,6 +9,7 @@ Example:
     model = ZernikeAmpModel(ZernikeAmpConfig(n_max=4, grid=64))
     far_field = model(phase_cos, phase_sin)
 """
+from __future__ import annotations
 
 from ml.zernike.dataset import (
     ZernikeCoefficientDataset,

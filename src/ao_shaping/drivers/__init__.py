@@ -1,9 +1,9 @@
 """Hardware drivers package.
-from __future__ import annotations
 
 This package provides unified interfaces for various hardware devices,
 including cameras, SLMs, DMs, and wavefront sensors.
 """
+from __future__ import annotations
 
 from typing import TYPE_CHECKING
 

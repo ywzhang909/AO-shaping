@@ -1,5 +1,4 @@
 """Camera-only (CCD) bench probes.
-from __future__ import annotations
 
 No SLM is driven here: these characterise the *camera* side of the 2f-Fourier
 bench, whose numbers every other probe depends on.
@@ -18,3 +17,4 @@ print the acquisition plan without touching a device.
 
 This package deliberately does **no** eager re-export.
 """
+from __future__ import annotations

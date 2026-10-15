@@ -1,5 +1,4 @@
 """Micro-DM (R50Power) 台架工具。
-from __future__ import annotations
 
 包含:
 - micro_dm_image_collect.py — 逐单元图像采集 (CLI:
@@ -12,3 +11,4 @@ from __future__ import annotations
 `utils.image.hardware_utils`, 包级再导出会让 `import ao_shaping.tools.micro_dm` 付出这些代价。
 需要什么直接从子模块导入。
 """
+from __future__ import annotations

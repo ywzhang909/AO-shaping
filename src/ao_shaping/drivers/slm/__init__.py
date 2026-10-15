@@ -1,5 +1,4 @@
 """SLM (Spatial Light Modulator) 驱动模块
-from __future__ import annotations
 
 提供空间光调制器设备的驱动支持。
 
@@ -25,6 +24,7 @@ Calibration Example:
     >>> result = calibrator.calibrate_with_background()
     >>> plot_calibration_result(result)
 """
+from __future__ import annotations
 
 from ao_shaping.drivers.slm.santec import Santec, SantecError
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM, ZernikeSLMError
