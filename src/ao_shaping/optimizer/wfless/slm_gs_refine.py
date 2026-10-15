@@ -66,6 +66,7 @@ from typing import Any
 import numpy as np
 from loguru import logger
 
+from ao_shaping.algorithm import make_optimizer
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     UniformSquareShaper,
     composite_from_pib_cv,
@@ -86,15 +87,16 @@ from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
-from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX
-from ao_shaping.algorithm import make_optimizer
+from ao_shaping.utils.slm.bench_constants import (
+    TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
+)
+from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
 from ao_shaping.utils.slm.phase_embed import (
     compose_pupil_dof,
     embed_pupil_square,
     panel_shape_from_slm,
     pupil_side,
 )
-from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
@@ -653,7 +655,7 @@ def _run_gs_refine_session(
             settle_max_discard=config.settle_max_discard,
             memory_number=work_slots[2],
         )
-        if config.cam_type == "daheng" and np.max(discovery) >= 250:
+        if config.cam_type == "daheng" and np.max(discovery) >= 255:
             raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
         full_y, full_x = locate_zero_order(discovery)
         half = config.cam_size // 2

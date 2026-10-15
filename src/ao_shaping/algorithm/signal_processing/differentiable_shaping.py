@@ -25,11 +25,13 @@ import functools
 import math
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
+
+from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
     from typing import Any
@@ -74,6 +76,11 @@ def create_target_mask(
 ) -> npt.NDArray[np.float64]:
     """创建归一化的目标强度掩码。
 
+    薄封装: 委托给唯一实现
+    :func:`ao_shaping.utils.image.target.patterns.create_target_shape`,
+    仅做参数换算 (``size`` → ``radius_ratio`` / ``side``) 与 dtype 归一
+    (``float32`` → ``float64``)。公开签名与返回语义保持不变。
+
     Args:
         shape: ``"square"``, ``"rectangle"``, ``"triangle"``, ``"star"``,
             ``"circle"``, ``"gaussian"`` or ``"spot"``.
@@ -101,47 +108,39 @@ def create_target_mask(
     if size <= 0:
         raise ValueError(f"size must be positive, got {size}")
 
-    H, W = grid_size
-    cy, cx = H / 2.0, W / 2.0
-    yy, xx = np.mgrid[0:H, 0:W]
+    height, width = int(grid_size[0]), int(grid_size[1])
+    cx, cy = width / 2.0, height / 2.0
+    m = min(height, width)
+    typed = cast(TargetShape, shape)
 
+    # Thin delegate to the canonical factory. ``center`` is passed explicitly
+    # as the boundary-centred ``(W/2, H/2)`` (not the factory's default
+    # ``((W-1)/2, (H-1)/2)``) so the output is pixel-identical to the previous
+    # standalone implementation. ``radius_ratio`` is chosen per shape so the
+    # factory's ``radius = radius_ratio * min(H, W) / 2`` reproduces the old
+    # ``size``-based geometry.
     if shape == "square":
-        half = size / 2.0
-        mask = ((np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)).astype(
-            np.float64
-        )
-
+        mask = create_target_shape(typed, (height, width), side=size, center=(cx, cy))
     elif shape == "rectangle":
-        mask = ((np.abs(xx - cx) <= size / 2.0) &
-                (np.abs(yy - cy) <= size / 4.0)).astype(np.float64)
-
+        # ``side`` is the SHORT side; long side = side * aspect_ratio. The old
+        # rectangle was ``size`` wide (horizontal) by ``size / 2`` tall, i.e.
+        # short side ``size / 2`` with aspect ratio 2.
+        mask = create_target_shape(
+            typed, (height, width), side=size / 2.0, aspect_ratio=2.0, center=(cx, cy)
+        )
     elif shape in {"triangle", "star"}:
-        if shape == "triangle":
-            angles = np.deg2rad([-90.0, 30.0, 150.0])
-            radii = np.full(3, size / 2.0)
-        else:
-            angles = np.deg2rad(-90.0 + np.arange(10) * 36.0)
-            radii = np.where(np.arange(10) % 2 == 0, size / 2.0, size * 0.21)
-        vertices = np.column_stack((cx + radii * np.cos(angles),
-                                    cy + radii * np.sin(angles)))
-        inside = np.zeros((H, W), dtype=bool)
-        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0)):
-            crossing = (y0 > yy) != (y1 > yy)
-            edge_x = (x1 - x0) * (yy - y0) / (y1 - y0 + 1e-12) + x0
-            inside ^= crossing & (xx < edge_x)
-        mask = inside.astype(np.float64)
-
+        mask = create_target_shape(
+            typed, (height, width), radius_ratio=size / m, center=(cx, cy)
+        )
     elif shape in {"circle", "spot"}:
-        radius = size / 2.0
-        r2 = (xx - cx) ** 2 + (yy - cy) ** 2
-        mask = (r2 <= radius**2).astype(np.float64)
-
+        mask = create_target_shape(
+            typed, (height, width), radius_ratio=size / m, center=(cx, cy)
+        )
     else:  # gaussian
         sig = sigma if sigma is not None else size / 6.0
-        mask = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * sig**2))
-        peak = mask.max()
-        if peak > 0:
-            mask = mask / peak
+        mask = create_target_shape(
+            typed, (height, width), radius_ratio=4.0 * sig / m, center=(cx, cy)
+        )
 
     return mask.astype(np.float64)
 

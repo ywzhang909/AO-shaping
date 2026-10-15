@@ -10,20 +10,29 @@ from typing import Literal
 import numpy as np
 
 
+#: Every shape accepted by :func:`create_target_shape`. Kept as a named alias
+#: so callers that forward a runtime ``str`` (e.g. the differentiable-shaping
+#: delegate) can ``cast`` to it without a ``# type: ignore``.
+TargetShape = Literal[
+    "gaussian",
+    "circle",
+    "spot",
+    "square",
+    "annular",
+    "grid",
+    "cross",
+    "rectangle",
+    "pentagon",
+    "triangle",
+    "star",
+]
+
+
 def create_target_shape(
-    shape: Literal[
-        "gaussian",
-        "circle",
-        "square",
-        "annular",
-        "grid",
-        "cross",
-        "rectangle",
-        "pentagon",
-    ],
+    shape: TargetShape,
     size: int | tuple[int, int],
     radius_ratio: float = 0.3,
-    side: int | None = None,
+    side: float | None = None,
     as_amplitude: bool = False,
     inner_radius: float | None = None,
     outer_radius: float | None = None,
@@ -37,10 +46,12 @@ def create_target_shape(
     """Create a 2D target intensity or amplitude pattern.
 
     Args:
-        shape: Pattern type. ``"gaussian"``, ``"circle"``, ``"square"``,
+        shape: Pattern type. ``"gaussian"``, ``"circle"``, ``"spot"``
+            (focused disk, identical to ``"circle"``), ``"square"``,
             ``"annular"`` (ring), ``"grid"`` (grid lines), ``"cross"``,
             ``"rectangle"`` (aspect-ratio rectangle, long axis horizontal),
-            or ``"pentagon"`` (regular pentagon, point-up).
+            ``"pentagon"`` (regular pentagon, point-up), ``"triangle"``
+            (point-up) or ``"star"`` (5-pointed).
         size: Side length of the square output array, or ``(height, width)``
             tuple for a rectangular grid (e.g. the SLM panel 1200x1920).
         radius_ratio: Fraction of half-size defining the base radius
@@ -86,7 +97,7 @@ def create_target_shape(
     if shape == "gaussian":
         sigma = radius / 2
         pattern = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma**2))
-    elif shape == "circle":
+    elif shape in {"circle", "spot"}:
         pattern = (r <= radius).astype(np.float32)
     elif shape == "square":
         half = (side if side is not None else int(radius)) / 2.0
@@ -136,10 +147,32 @@ def create_target_shape(
             cross = (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
             inside &= cross >= 0
         pattern = inside.astype(np.float32)
+    elif shape in {"triangle", "star"}:
+        # Even-odd (crossing-number) rasteriser, ported verbatim in behaviour
+        # from ``differentiable_shaping.create_target_mask`` so the two
+        # factories agree pixel-for-pixel. Triangle is point-up; the star is a
+        # 5-pointed star with alternating outer/inner radii (inner = 0.42 *
+        # outer, matching the source's ``size * 0.21`` against ``size / 2``).
+        if shape == "triangle":
+            angles = np.deg2rad([-90.0, 30.0, 150.0])
+            radii = np.full(3, radius)
+        else:
+            angles = np.deg2rad(-90.0 + np.arange(10) * 36.0)
+            radii = np.where(np.arange(10) % 2 == 0, radius, radius * 0.42)
+        vertices = np.column_stack(
+            (cx + radii * np.cos(angles), cy + radii * np.sin(angles))
+        )
+        inside = np.zeros((height, width), dtype=bool)
+        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0)):
+            crossing = (y0 > y) != (y1 > y)
+            edge_x = (x1 - x0) * (y - y0) / (y1 - y0 + 1e-12) + x0
+            inside ^= crossing & (x < edge_x)
+        pattern = inside.astype(np.float32)
     else:
         raise ValueError(
-            f"Unknown shape: {shape}. Use 'gaussian', 'circle', 'square', "
-            "'annular', 'grid', 'cross', 'rectangle', or 'pentagon'."
+            f"Unknown shape: {shape}. Use 'gaussian', 'circle', 'spot', "
+            "'square', 'annular', 'grid', 'cross', 'rectangle', 'pentagon', "
+            "'triangle', or 'star'."
         )
 
     if as_amplitude:

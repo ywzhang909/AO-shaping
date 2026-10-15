@@ -564,7 +564,7 @@ def gs_shape(
 # ---------------------------------------------------------------------------
 
 GS_METHODS: tuple[str, ...] = (
-    "weighted", "hio", "hio-weighted", "adaptive-feedback"
+    "weighted", "hio", "hio-weighted", "adaptive-feedback", "sf", "dm"
 )
 GS_SELECT: tuple[str, ...] = ("best", "last")
 
@@ -583,6 +583,15 @@ class UniformSquareShaper:
       weighted (收敛抛光)。
     * ``adaptive-feedback``: 目标区内按当前/目标振幅比调节反馈。接近目标时
       保留更多当前振幅, 偏差大时趋向目标振幅。
+    * ``sf``: Fienup 2006 Simplified Hybrid Input-Output。与 ``hio`` 同构, 但
+      支撑域外的反馈只用**输出** ``b``: ``(1 - beta) * b`` (HIO 用 ``g - beta*b``)。
+    * ``dm``: Elser 2003 Difference Map。两个投影 ``P_A`` (远场幅度约束) 与
+      ``P_B`` (瞳孔幅度约束) 交替, 由 ``dm_gamma_a`` / ``dm_gamma_b`` 控制。
+
+    **DM → HIO 退化 (Elser 2003)**: 取 ``beta=1``, ``gamma_A = -1/beta_HIO``,
+    ``gamma_B = +1/beta_HIO`` 时, difference map 退化为 HIO (松弛系数
+    ``beta_HIO``)。数值验证见
+    ``tests/ao_shaping/algorithm/test_square_shaping_fienup_variants.py``。
 
     能量守恒: 构造时把 ``amp_target`` 重标定到与瞳孔总能量一致; 因子 c 在
     ``angle(c*X) = angle(X)`` 下被抵消, 故 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。
@@ -598,6 +607,8 @@ class UniformSquareShaper:
         weight_clip: float = 4.0,
         beta: float = 0.9,
         hio_fraction: float = 0.7,
+        dm_gamma_a: float = -1.0,
+        dm_gamma_b: float = 1.0,
         relax: float = 1.0,
         seed: int | None = None,
         verbose: bool = False,
@@ -614,6 +625,10 @@ class UniformSquareShaper:
             raise ValueError(f"beta must be in [0, 1], got {beta}")
         if not (0.0 <= hio_fraction <= 1.0):
             raise ValueError(f"hio_fraction must be in [0, 1], got {hio_fraction}")
+        if not math.isfinite(dm_gamma_a):
+            raise ValueError(f"dm_gamma_a must be finite, got {dm_gamma_a}")
+        if not math.isfinite(dm_gamma_b):
+            raise ValueError(f"dm_gamma_b must be finite, got {dm_gamma_b}")
         if n_iters < 1:
             raise ValueError(f"n_iters must be >= 1, got {n_iters}")
         if select not in GS_SELECT:
@@ -626,6 +641,8 @@ class UniformSquareShaper:
         self.weight_clip = weight_clip
         self.beta = beta
         self.hio_fraction = hio_fraction
+        self.dm_gamma_a = dm_gamma_a
+        self.dm_gamma_b = dm_gamma_b
         self.relax = relax
         self.verbose = verbose
         self.select = select
@@ -656,7 +673,11 @@ class UniformSquareShaper:
 
     def update(self) -> np.ndarray:
         """执行一步迭代, 返回裁剪后的 pupil 相位 (raw 弧度, 不 mod 2π)。"""
-        if self.method == "hio" or (
+        if self.method == "sf":
+            self._sf_step()
+        elif self.method == "dm":
+            self._dm_step()
+        elif self.method == "hio" or (
             self.method == "hio-weighted"
             and self._iter < round(self.hio_fraction * self.n_iters)
         ):
@@ -713,6 +734,69 @@ class UniformSquareShaper:
             self.amp_target * b / (np.abs(b) + 1e-12),
             self.g - self.beta * b,
         )
+        self.field = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
+        )
+
+    def _sf_step(self) -> None:
+        """Fienup 2006 Simplified Hybrid Input-Output (SF) 一步。
+
+        与 :meth:`_hio_step` 同构, 唯一区别是支撑域外的反馈只用**输出** ``b``:
+        ``(1 - beta) * b`` (HIO 用 ``g - beta * b``)。复用同一个 ``self.beta``。
+        """
+        pupil = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
+        )
+        b = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(pupil)))
+        self.g = np.where(
+            self.support,
+            self.amp_target * b / (np.abs(b) + 1e-12),
+            (1.0 - self.beta) * b,
+        )
+        self.field = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
+        )
+
+    def _dm_step(self) -> None:
+        """Elser 2003 Difference Map (DM) 一步。
+
+        两个投影:
+
+        * ``P_A`` — 远场幅度约束 (支撑域内取目标幅度, 域外恒等);
+        * ``P_B`` — 瞳孔幅度约束 (经瞳孔往返)。
+
+        更新 ``g_{k+1} = g_k + beta * [P_A(f_B(g_k)) - P_B(f_A(g_k))]``, 其中
+        ``f_A(g) = (1 + gamma_A) P_A(g) - gamma_A g``,
+        ``f_B(g) = (1 + gamma_B) P_B(g) - gamma_B g``。
+
+        取 ``beta=1``, ``gamma_A = -1/beta_HIO``, ``gamma_B = +1/beta_HIO`` 时
+        退化为 HIO (见类 docstring)。
+        """
+        g = self.g
+        # P_A: 远场幅度约束 (支撑域内取目标幅度, 域外恒等)。
+        p_a = np.where(
+            self.support,
+            self.amp_target * g / (np.abs(g) + 1e-12),
+            g,
+        )
+        # P_B: 瞳孔幅度约束 (经瞳孔往返)。
+        pupil = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(g))))
+        )
+        p_b = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(pupil)))
+        f_a = (1.0 + self.dm_gamma_a) * p_a - self.dm_gamma_a * g
+        f_b = (1.0 + self.dm_gamma_b) * p_b - self.dm_gamma_b * g
+        # P_A(f_B) 与 P_B(f_A)。
+        p_a_fb = np.where(
+            self.support,
+            self.amp_target * f_b / (np.abs(f_b) + 1e-12),
+            f_b,
+        )
+        pupil_fa = self.amp_slm * np.exp(
+            1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(f_a))))
+        )
+        p_b_fa = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(pupil_fa)))
+        self.g = g + self.beta * (p_a_fb - p_b_fa)
         self.field = self.amp_slm * np.exp(
             1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(self.g))))
         )

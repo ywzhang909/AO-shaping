@@ -74,6 +74,12 @@ from ao_shaping.utils.image.target.patterns import (
     create_target_shape,
     load_target_image,
 )
+from ao_shaping.utils.image.target.shapes import (
+    TARGET_SHAPE_LABELS,
+    TargetShape,
+    coerce_target_shape,
+    target_shape_options,
+)
 from ao_shaping.utils.image.target.square import (
     build_square_target_amplitude,
     compute_square_side,
@@ -84,9 +90,13 @@ __all__ = [
     "create_target_shape",
     "create_target_mask",
     "load_target_image",
+    # shapes
+    "TargetShape",
+    "TARGET_SHAPE_LABELS",
+    "target_shape_options",
+    "coerce_target_shape",
     # metrics
     "TARGET_SHAPE_CHOICES",
-    "TargetShape",
     "target_shape_roi",
     "spot_waist_sigma",
     "roi_energy_loss",
