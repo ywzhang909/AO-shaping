@@ -88,48 +88,68 @@ GS 帧峰值，使半峰二值 IoU 易受量化和背景影响；不能根据这
 
 **SLM 相位**
 
-![plain 相位](gs_issue_live_20261015_20261015_205654_phase.png)
+![plain 相位](figures/gs_issue_live_20261015_20261015_205654_phase.png)
 
 **CCD 远场**
 
-![plain 远场](gs_issue_live_20261015_20261015_205654_farfield.png)
+![plain 远场](figures/gs_issue_live_20261015_20261015_205654_farfield.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 远场截面](figures/gs_issue_live_20261015_20261015_205654_cross_section.png)
 
 ### weighted (`20261015_205848`，GS CV = 0.7793)
 
 **SLM 相位**
 
-![weighted 相位](gs_issue_live_20261015_20261015_205848_phase.png)
+![weighted 相位](figures/gs_issue_live_20261015_20261015_205848_phase.png)
 
 **CCD 远场**
 
-![weighted 远场](gs_issue_live_20261015_20261015_205848_farfield.png)
+![weighted 远场](figures/gs_issue_live_20261015_20261015_205848_farfield.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![weighted 远场截面](figures/gs_issue_live_20261015_20261015_205848_cross_section.png)
 
 ### adaptive-feedback (`20261015_210048`，GS CV = 0.7064)
 
 **SLM 相位**
 
-![adaptive-feedback 相位](gs_issue_live_20261015_20261015_210048_phase.png)
+![adaptive-feedback 相位](figures/gs_issue_live_20261015_20261015_210048_phase.png)
 
 **CCD 远场**
 
-![adaptive-feedback 远场](gs_issue_live_20261015_20261015_210048_farfield.png)
+![adaptive-feedback 远场](figures/gs_issue_live_20261015_20261015_210048_farfield.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![adaptive-feedback 远场截面](figures/gs_issue_live_20261015_20261015_210048_cross_section.png)
 
 ### plain 复测 (`20261015_210155`，GS CV = 0.6152)
 
 **SLM 相位**
 
-![plain 复测 相位](gs_issue_live_20261015_20261015_210155_phase.png)
+![plain 复测 相位](figures/gs_issue_live_20261015_20261015_210155_phase.png)
 
 **CCD 远场**
 
-![plain 复测 远场](gs_issue_live_20261015_20261015_210155_farfield.png)
+![plain 复测 远场](figures/gs_issue_live_20261015_20261015_210155_farfield.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 复测 远场截面](figures/gs_issue_live_20261015_20261015_210155_cross_section.png)
 
 ### plain 再复测 (`20261015_211345`，GS CV = 0.6080，最优 CV)
 
 **SLM 相位**
 
-![plain 再复测 相位](gs_issue_live_20261015_20261015_211345_phase.png)
+![plain 再复测 相位](figures/gs_issue_live_20261015_20261015_211345_phase.png)
 
 **CCD 远场**
 
-![plain 再复测 远场](gs_issue_live_20261015_20261015_211345_farfield.png)
+![plain 再复测 远场](figures/gs_issue_live_20261015_20261015_211345_farfield.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 再复测 远场截面](figures/gs_issue_live_20261015_20261015_211345_cross_section.png)
