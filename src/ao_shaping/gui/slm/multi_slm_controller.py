@@ -12,7 +12,6 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.ccd.daheng.driver import DahengCamera
 from ao_shaping.drivers.slm.santec import Santec
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
@@ -31,27 +30,54 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 SLM_PROBE_TIMEOUT_S = 3.0
 
 
-def force_close_daheng_camera(cam_id: int = 0) -> bool:
-    """Force-close the Daheng camera by creating a temporary instance and closing it.
+def _scan_camera_status() -> list[dict]:
+    """Scan for Daheng cameras and report whether each is free or occupied.
 
-    This helps when the camera is stuck in "Access denied" state from a previous
-    session that didn't close properly. Creates a new DahengCamera instance with
-    the given cam_id and calls close() to release the device handle.
-
-    Args:
-        cam_id: Camera ID (default 0 for the first camera)
-
-    Returns:
-        True if close was attempted, False if DahengCamera is not available
+    Returns a list of dicts with keys: ``index``, ``serial``, ``status``
+    (``"可用"`, ``"使用中"``, or `"错误"`).  A camera is reported as
+    ``"使用中"`` when opening it raises ``InvalidAccess`` or "Access denied"
+    (another process already holds the handle); in that case a tip is shown
+    to the user rather than offering a force-close button.
     """
     try:
-        cam = DahengCamera(cam_id=cam_id)
-        cam.close()
-        logger.info(f"Daheng camera {cam_id} force-closed")
-        return True
+        import gxipy as gx  # type: ignore[import-untyped]
+    except (ImportError, OSError) as e:
+        logger.debug(f"Daheng SDK 不可用: {e}")
+        st.warning("Daheng SDK 未安装，无法扫描相机状态")
+        return []
+
+    result: list[dict] = []
+    try:
+        device_manager = gx.DeviceManager()
+        dev_count, dev_info_list = device_manager.update_device_list()
     except Exception as e:
-        logger.warning(f"Failed to force-close Daheng camera {cam_id}: {e}")
-        return False
+        logger.debug(f"Daheng 相机枚举失败: {e}")
+        return result
+
+    if not dev_count or not dev_info_list:
+        return result
+
+    for idx, dev_info in enumerate(dev_info_list):
+        sn = dev_info.get("sn")
+        entry: dict = {"index": idx, "serial": sn, "status": "未知"}
+        try:
+            cam = device_manager.open_device_by_sn(sn)
+            if cam is not None:
+                cam.close_device()
+            entry["status"] = "可用"
+        except Exception as e:
+            msg = str(e)
+            if (
+                "Access denied" in msg
+                or "REPEAT_OPENED" in msg
+                or "device has been open" in msg
+            ):
+                entry["status"] = "使用中"
+            else:
+                entry["status"] = "错误"
+                logger.debug(f"Daheng 相机 {sn} 探测异常: {msg}")
+        result.append(entry)
+    return result
 
 
 # ============================================================================
@@ -260,7 +286,9 @@ def render_phase_preview(slm_num: int) -> None:
     from fragment storage while the timer keeps requesting it, spamming
     "The fragment with id ... does not exist anymore".
     """
-    if st.button("刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn"):
+    if st.button(
+        "刷新当前显示相位", key=f"slm{slm_num}_refresh_phase_btn", type="secondary"
+    ):
         refresh_phase_preview(slm_num)
         st.rerun(scope="fragment")
 
@@ -287,13 +315,15 @@ def render_phase_preview(slm_num: int) -> None:
     st.caption(f"当前显示来源: {source}")
     if preview is None:
         st.info(
-            "当前无法精确展示相位预览。只有通过本页面下发并缓存过的相位，才能保证预览与设备显示一致。"
+            "当前无法精确展示相位预览。"
+            "只有通过本页面下发并缓存过的相位，才能保证预览与设备显示一致。"
         )
+        st.caption("提示: 在「设置相位」区域生成或加载相位后，预览会自动更新。")
         return
 
     st.image(
         preview,
-        caption=f"SLM {slm_num} 当前显示相位预览（{PREVIEW_COLORMAP_DEFAULT}）",
+        caption=f"SLM {slm_num} 当前显示相位预览（{colormap}）",
         clamp=True,
         width="stretch",
     )
@@ -301,10 +331,7 @@ def render_phase_preview(slm_num: int) -> None:
     slm = st.session_state.get(f"slm{slm_num}")
     if slm is not None:
         max_gray = int(getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE)
-        st.caption(
-            f"2π 灰度值: {max_gray} | {PREVIEW_COLORMAP_DEFAULT}"
-            "（0→黑蓝, π→青, 2π→黑蓝，循环）"
-        )
+        st.caption(f"2π 灰度值: {max_gray} | {colormap}（0→黑蓝, π→青, 2π→黑蓝，循环）")
 
 
 def _reset_context_widgets(slm_num: int) -> None:
@@ -428,6 +455,12 @@ def render_pattern_controls(slm_num: int) -> tuple[str, dict[str, Any]]:
 
 
 def main():
+    st.set_page_config(
+        page_title="SLM200 控制器",
+        page_icon="🔧",
+        layout="wide",
+        initial_sidebar_state="expanded",
+    )
     if "available_slms" not in st.session_state:
         _initialize_slm_state()
         _refresh_device_list()
@@ -456,22 +489,16 @@ def main():
         display_slm_status(slm_num)
         render_phase_control(slm_num)
         render_phase_preview(slm_num)
-        render_closed_loop_shaping(slm_num)
+        with st.expander("闭环整形", expanded=False):
+            render_closed_loop_shaping(slm_num)
     else:
-        col1, col2 = st.columns(2)
-        with col1:
-            st.header("SLM 1 相位控制")
-            display_slm_status(1)
-            render_phase_control(1)
-            render_phase_preview(1)
-            render_closed_loop_shaping(1)
-
-        with col2:
-            st.header("SLM 2 相位控制")
-            display_slm_status(2)
-            render_phase_control(2)
-            render_phase_preview(2)
-            render_closed_loop_shaping(2)
+        for slm_num in (1, 2):
+            st.header(f"SLM {slm_num} 相位控制")
+            display_slm_status(slm_num)
+            render_phase_control(slm_num)
+            render_phase_preview(slm_num)
+            with st.expander("闭环整形", expanded=False):
+                render_closed_loop_shaping(slm_num)
 
 
 def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
@@ -504,6 +531,17 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
         }
     else:
         st.session_state[f"{prefix}_wavelength_mismatch"] = None
+
+    # Restore base-phase overlay from session state so that closed-loop shaping
+    # (which closes and re-opens the SLM) does not lose the UI-configured bottom
+    # phase.  ``_sync_slm_session_state`` is called on both first connect and
+    # re-acquire, so this is the single restoration point.
+    base_phase = st.session_state.get(f"{prefix}_base_phase")
+    if base_phase is not None:
+        slm.set_base_phase(base_phase)
+    slm._overlay_base_phase = bool(
+        st.session_state.get(f"{prefix}_overlay_base", False)
+    )
 
 
 def connect_slm(slm_num: int):
@@ -707,18 +745,30 @@ def toggle_correction(slm_num: int, enabled: bool) -> None:
 
 
 def display_slm_status(slm_num: int):
-    """Display the current status of the specified SLM"""
+    """Display the current status of the specified SLM.
+
+    Uses a 2×2 grid layout: (status, wavelength) on the first row,
+    (mode, next memory slot) on the second row. Status is shown as a
+    monochrome badge (info/success/warning) for a consistent visual language.
+    """
     prefix = f"slm{slm_num}"
     connected_key = f"{prefix}_connected"
     next_memory_key = f"{prefix}_next_memory"
     if st.session_state.get(connected_key) and st.session_state.get(prefix) is not None:
         slm = st.session_state[prefix]
-        st.write("**状态**: 已连接")
-        st.write(f"**波长**: {slm.wavelength} nm")
-        st.write(f"**模式**: {'内存模式' if slm.video_mode == 0 else 'DVI模式'}")
-        st.write(f"**下一个内存槽**: {st.session_state[next_memory_key]}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**状态**:")
+            st.success("已连接")
+            st.write("**波长**:")
+            st.caption(f"{slm.wavelength} nm")
+        with col2:
+            st.write("**模式**:")
+            st.caption("内存模式" if slm.video_mode == 0 else "DVI 模式")
+            st.write("**下一个内存槽**:")
+            st.caption(str(st.session_state[next_memory_key]))
     else:
-        st.write("**状态**: 未连接")
+        st.warning("未连接")
 
 
 def render_slm_sidebar():
@@ -738,8 +788,7 @@ def render_slm_sidebar():
         st.caption("**状态**")
     with col_h4:
         st.caption("**操作**")
-
-    st.divider()
+    st.markdown("")
 
     for device in available:
         slm_num = device["slm_number"]
@@ -783,40 +832,41 @@ def render_slm_sidebar():
                 # cannot take over without closing the other handle first.
                 st.caption("已被占用")
             else:
-                if st.button("连接", key=f"{prefix}_connect_table"):
+                if st.button("连接", key=f"{prefix}_connect_table", type="primary"):
                     connect_slm(slm_num)
 
-    st.divider()
+    st.markdown("")
 
     if st.button("刷新设备列表", key="refresh_devices_btn", type="secondary"):
         _refresh_device_list()
 
-    st.divider()
+    st.markdown("")
 
     st.caption("相机工具")
-    col_cam1, col_cam2 = st.columns(2)
-    with col_cam1:
-        if st.button(
-            "强制关闭大恒相机",
-            key="force_close_daheng_cam0",
-            help="释放被占用的大恒相机句柄 (ID=0)",
-        ):
-            if force_close_daheng_camera(0):
-                st.success("大恒相机 0 已尝试关闭")
-            else:
-                st.error("关闭失败 (可能未安装 Daheng SDK)")
-    with col_cam2:
-        if st.button(
-            "强制关闭大恒相机",
-            key="force_close_daheng_cam1",
-            help="释放被占用的大恒相机句柄 (ID=1)",
-        ):
-            if force_close_daheng_camera(1):
-                st.success("大恒相机 1 已尝试关闭")
-            else:
-                st.error("关闭失败 (可能未安装 Daheng SDK)")
+    cam_status = st.session_state.get("camera_status")
+    if st.button("刷新相机状态", key="refresh_camera_status_btn", type="secondary"):
+        cam_status = _scan_camera_status()
+        st.session_state["camera_status"] = cam_status
 
-    st.divider()
+    if cam_status:
+        for cam in cam_status:
+            label = f"大恒相机 #{cam['index']}"
+            if cam["serial"]:
+                label += f" (SN: {cam['serial']})"
+            status = cam["status"]
+            if status == "可用":
+                st.success(f"{label}: {status}")
+            elif status == "使用中":
+                st.warning(f"{label}: {status} — 连接被占用，请在其他实例断开后重试。")
+            elif status == "错误":
+                st.error(f"{label}: 探测失败 ({status})")
+            else:
+                st.caption(f"{label}: {status}")
+    else:
+        st.caption("未发现大恒相机 (点击刷新尝试)")
+        st.caption("连接被占用时，此处会显示占用提示")
+
+    st.markdown("")
 
     for slm_num in (1, 2):
         prefix = f"slm{slm_num}"
@@ -824,8 +874,7 @@ def render_slm_sidebar():
             st.session_state.get(f"{prefix}_connected")
             and st.session_state.get(prefix) is not None
         ):
-            with st.expander(f"SLM {slm_num} 设置", expanded=False):
-                _render_slm_settings(slm_num)
+            _render_slm_settings(slm_num)
 
 
 @st.fragment()
@@ -851,7 +900,7 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None
         value=max_gray,
         key=f"{prefix}_max_gray",
     )
-    if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn"):
+    if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn", type="secondary"):
         try:
             slm_obj._max_gray = int(new_max_gray)
             refresh_phase_preview(slm_num)
@@ -860,7 +909,7 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None
         except Exception as e:
             st.error(f"更新灰度设置失败: {e}")
 
-    if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn"):
+    if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn", type="secondary"):
         try:
             _wl, current_max_gray = slm_obj.get_wavelength_info()
             slm_obj._max_gray = int(current_max_gray)
@@ -872,210 +921,226 @@ def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None
 
 
 def _render_slm_settings(slm_num: int):
-    """Render settings controls for a single connected SLM."""
+    """Render settings controls for a single connected SLM.
+
+    Split into three collapsible sections to keep the sidebar scannable:
+    device/wavelength-mode-shift, grayscale config, and wavefront correction.
+    """
     prefix = f"slm{slm_num}"
     slm_obj = st.session_state.get(prefix)
     if slm_obj is None:
         return
 
-    st.caption("设备信息")
-    col_info1, col_info2 = st.columns(2)
-    with col_info1:
-        st.write(
-            "分辨率: "
-            f"{st.session_state[f'{prefix}_width']}"
-            f"×{st.session_state[f'{prefix}_height']}"
-        )
-        st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
-    with col_info2:
-        st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
-        sn_display = slm_obj._serial_number
-        st.write(f"SLM序列号: {sn_display if sn_display else '-'}")
-        st.write(f"SLM编号: {slm_obj.slm_number}")
+    # --- Section 1: Device info + wavelength/mode/shift (expanded by default) ---
+    with st.expander(f"SLM {slm_num} 设置", expanded=True):
+        st.markdown("**设备信息**")
+        col_info1, col_info2 = st.columns(2)
+        with col_info1:
+            st.write(
+                "分辨率: "
+                f"{st.session_state[f'{prefix}_width']}"
+                f"×{st.session_state[f'{prefix}_height']}"
+            )
+            st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
+        with col_info2:
+            st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
+            sn_display = slm_obj._serial_number
+            st.write(f"SLM序列号: {sn_display if sn_display else '-'}")
+            st.write(f"SLM编号: {slm_obj.slm_number}")
 
-    st.divider()
+        st.markdown("")
 
-    st.number_input(
-        "波长 (nm)",
-        min_value=450,
-        max_value=1600,
-        step=1,
-        key=f"{prefix}_wavelength",
-    )
-    if st.button("设置波长", key=f"{prefix}_set_wl_btn"):
-        set_wavelength(slm_num)
-
-    # DVI 模式已知挂起 (video_mode=1 open() 可挂 120s/300s, 且挂起后 memory 模式
-    # 也挂直到物理断电) —— 强制仅内存模式, 不提供 DVI 选项。
-    st.selectbox(
-        "视频模式",
-        options=["内存模式"],
-        key=f"{prefix}_video_mode",
-        disabled=True,
-    )
-    st.caption("仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用")
-    if st.button("设置模式", key=f"{prefix}_set_mode_btn"):
-        set_video_mode(slm_num, st.session_state[f"{prefix}_video_mode"])
-
-    st.caption("Pattern Shift (像素)")
-    col_shift1, col_shift2 = st.columns(2)
-    with col_shift1:
         st.number_input(
-            "Shift X",
-            min_value=-500,
-            max_value=500,
+            "波长 (nm)",
+            min_value=450,
+            max_value=1600,
             step=1,
-            key=f"{prefix}_shift_x",
+            key=f"{prefix}_wavelength",
         )
-    with col_shift2:
-        st.number_input(
-            "Shift Y",
-            min_value=-500,
-            max_value=500,
-            step=1,
-            key=f"{prefix}_shift_y",
+        if st.button("设置波长", key=f"{prefix}_set_wl_btn", type="secondary"):
+            set_wavelength(slm_num)
+
+        # DVI 模式已知挂起 (video_mode=1 open() 可挂 120s/300s, 且挂起后 memory 模式
+        # 也挂直到物理断电) —— 强制仅内存模式, 不提供 DVI 选项。
+        st.selectbox(
+            "视频模式",
+            options=["内存模式"],
+            key=f"{prefix}_video_mode",
+            disabled=True,
         )
-    if st.button("应用平移", key=f"{prefix}_apply_shift_btn"):
-        set_shift(slm_num)
+        st.caption("仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用")
+        if st.button("设置模式", key=f"{prefix}_set_mode_btn", type="secondary"):
+            set_video_mode(slm_num, st.session_state[f"{prefix}_video_mode"])
 
-        config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
-        if config_info and slm_obj is not None:
-            st.caption(f"序列号: {config_info['serial']}")
-            loaded_cfg = st.session_state.get(f"{prefix}_loaded_config", {})
-            if loaded_cfg:
-                st.caption("已加载配置文件:")
-                st.json(loaded_cfg)
-            else:
-                st.caption("未找到匹配的配置文件（使用设备默认值）")
-            if st.button("刷新配置", key=f"{prefix}_refresh_config_btn"):
-                fresh = slm_obj.load_config() if slm_obj._serial_number else {}
-                st.session_state[f"{prefix}_loaded_config"] = fresh
-                st.rerun()
+        st.markdown("**Pattern Shift (像素)**")
+        col_shift1, col_shift2 = st.columns(2)
+        with col_shift1:
+            st.number_input(
+                "Shift X",
+                min_value=-500,
+                max_value=500,
+                step=1,
+                key=f"{prefix}_shift_x",
+            )
+        with col_shift2:
+            st.number_input(
+                "Shift Y",
+                min_value=-500,
+                max_value=500,
+                step=1,
+                key=f"{prefix}_shift_y",
+            )
+        if st.button("应用平移", key=f"{prefix}_apply_shift_btn", type="secondary"):
+            set_shift(slm_num)
 
-    st.divider()
-
-    _render_grayscale_config(slm_num, prefix, slm_obj)
-
-    st.divider()
-
-    st.caption("波前误差矫正")
-    use_correction = st.checkbox(
-        "叠加矫正CSV",
-        value=st.session_state.get(f"{prefix}_use_correction", True),
-        key=f"{prefix}_use_correction_cb",
-        help="启用时，写入相位会自动叠加波前误差矫正数据",
-    )
-    if use_correction != st.session_state.get(f"{prefix}_use_correction", True):
-        st.session_state[f"{prefix}_use_correction"] = use_correction
-        toggle_correction(slm_num, use_correction)
-
-    if slm_obj._correction.is_valid:
-        st.caption(f"当前矫正文件: {slm_obj._correction.csv_path.name}")
-    else:
-        st.caption("未加载矫正文件")
-
-    st.divider()
-
-    st.caption("波前矫正")
-    correction_enabled = bool(getattr(slm_obj, "correction_enabled", False))
-    correction_path = getattr(slm_obj, "correction_csv_path", None)
-    if correction_enabled and correction_path is not None:
-        st.success(
-            f"矫正已启用: {correction_path.name}",
-            icon="✅",
-        )
-    else:
-        st.info("矫正未加载", icon="ℹ️")
-
-    uploaded_correction = st.file_uploader(
-        "加载矫正 CSV 文件",
-        type=["csv"],
-        key=f"{prefix}_correction_csv",
-    )
-    col_corr1, col_corr2 = st.columns(2)
-    with col_corr1:
-        if st.button("应用矫正", key=f"{prefix}_apply_corr_btn"):
-            try:
-                slm = st.session_state.get(prefix)
-                if slm is None:
-                    st.warning("SLM未连接，无法应用矫正")
-                elif uploaded_correction is None:
-                    st.warning("请先选择矫正 CSV 文件")
+            config_info = st.session_state.get(f"{prefix}_wavelength_mismatch")
+            if config_info and slm_obj is not None:
+                st.caption(f"序列号: {config_info['serial']}")
+                loaded_cfg = st.session_state.get(f"{prefix}_loaded_config", {})
+                if loaded_cfg:
+                    st.caption("已加载配置文件:")
+                    st.json(loaded_cfg)
                 else:
-                    import tempfile
+                    st.caption("未找到匹配的配置文件（使用设备默认值）")
+                if st.button(
+                    "刷新配置", key=f"{prefix}_refresh_config_btn", type="secondary"
+                ):
+                    fresh = slm_obj.load_config() if slm_obj._serial_number else {}
+                    st.session_state[f"{prefix}_loaded_config"] = fresh
+                    st.rerun()
 
-                    with tempfile.NamedTemporaryFile(
-                        delete=False, suffix=".csv"
-                    ) as tmp:
-                        tmp.write(uploaded_correction.getbuffer())
-                        tmp_path = tmp.name
-                    ok = slm.load_correction_from_csv(tmp_path)
-                    if ok:
-                        st.success(f"矫正已应用: {uploaded_correction.name}")
-                        refresh_phase_preview(slm_num)
-                    else:
-                        st.warning("矫正文件加载失败")
-            except Exception as e:
-                st.error(f"应用矫正失败: {e}")
-                logger.exception(f"Failed to apply correction for SLM {slm_num}: {e}")
-    with col_corr2:
-        if st.button("清除矫正", key=f"{prefix}_clear_corr_btn"):
-            try:
-                slm = st.session_state.get(prefix)
-                if slm is None:
-                    st.warning("SLM未连接")
-                else:
-                    slm.load_correction_from_csv(None)
-                    st.success("矫正已清除")
-                    refresh_phase_preview(slm_num)
-            except Exception as e:
-                st.error(f"清除矫正失败: {e}")
+    # --- Section 2: Grayscale config (collapsed by default) ---
+    with st.expander("灰度设置", expanded=False):
+        _render_grayscale_config(slm_num, prefix, slm_obj)
 
-    st.divider()
+    # --- Section 3: Wavefront correction + correction file + config save ---
+    with st.expander("波前矫正", expanded=False):
+        st.caption("叠加矫正")
+        use_correction = st.checkbox(
+            "叠加矫正CSV",
+            value=st.session_state.get(f"{prefix}_use_correction", True),
+            key=f"{prefix}_use_correction_cb",
+            help="启用时，写入相位会自动叠加波前误差矫正数据",
+        )
+        if use_correction != st.session_state.get(f"{prefix}_use_correction", True):
+            st.session_state[f"{prefix}_use_correction"] = use_correction
+            toggle_correction(slm_num, use_correction)
 
-    if st.button("保存配置", key=f"{prefix}_save_config_btn"):
-        slm = st.session_state.get(prefix)
-        if slm is None:
-            st.info("SLM未连接，配置将在连接后写入设备")
+        if slm_obj._correction.is_valid:
+            st.caption(f"当前矫正文件: {slm_obj._correction.csv_path.name}")
         else:
-            try:
-                ui_shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
-                ui_shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
-                if (ui_shift_x, ui_shift_y) != (slm.shift_x, slm.shift_y):
-                    slm.set_shift(shift_x=ui_shift_x, shift_y=ui_shift_y)
-                slm.save_config()
-                st.success(
-                    f"SLM {slm_num} 配置已保存"
-                    f"（序列号: {slm._serial_number or '未知'}）"
-                )
-            except Exception as e:
-                st.error(f"保存配置到设备失败: {e}")
+            st.caption("未加载矫正文件")
 
-    if st.button("保存当前相位到CSV", key=f"{prefix}_save_csv_btn"):
-        try:
+        st.markdown("")
+
+        st.caption("加载校正")
+        correction_enabled = bool(getattr(slm_obj, "correction_enabled", False))
+        correction_path = getattr(slm_obj, "correction_csv_path", None)
+        if correction_enabled and correction_path is not None:
+            st.success(
+                f"矫正已启用: {correction_path.name}",
+                icon="✅",
+            )
+        else:
+            st.info("矫正未加载", icon="ℹ️")
+
+        uploaded_correction = st.file_uploader(
+            "加载矫正 CSV 文件",
+            type=["csv"],
+            key=f"{prefix}_correction_csv",
+        )
+        col_corr1, col_corr2 = st.columns(2)
+        with col_corr1:
+            if st.button("应用矫正", key=f"{prefix}_apply_corr_btn", type="secondary"):
+                try:
+                    slm = st.session_state.get(prefix)
+                    if slm is None:
+                        st.warning("SLM未连接，无法应用矫正")
+                    elif uploaded_correction is None:
+                        st.warning("请先选择矫正 CSV 文件")
+                    else:
+                        import tempfile
+
+                        with tempfile.NamedTemporaryFile(
+                            delete=False, suffix=".csv"
+                        ) as tmp:
+                            tmp.write(uploaded_correction.getbuffer())
+                            tmp_path = tmp.name
+                        ok = slm.load_correction_from_csv(tmp_path)
+                        if ok:
+                            st.success(f"矫正已应用: {uploaded_correction.name}")
+                            refresh_phase_preview(slm_num)
+                        else:
+                            st.warning("矫正文件加载失败")
+                except Exception as e:
+                    st.error(f"应用矫正失败: {e}")
+                    logger.exception(
+                        f"Failed to apply correction for SLM {slm_num}: {e}"
+                    )
+        with col_corr2:
+            if st.button("清除矫正", key=f"{prefix}_clear_corr_btn", type="secondary"):
+                try:
+                    slm = st.session_state.get(prefix)
+                    if slm is None:
+                        st.warning("SLM未连接")
+                    else:
+                        slm.load_correction_from_csv(None)
+                        st.success("矫正已清除")
+                        refresh_phase_preview(slm_num)
+                except Exception as e:
+                    st.error(f"清除矫正失败: {e}")
+
+        st.markdown("")
+
+        st.caption("保存")
+        if st.button("保存配置", key=f"{prefix}_save_config_btn", type="secondary"):
             slm = st.session_state.get(prefix)
             if slm is None:
-                st.warning("SLM未连接，无法保存相位")
+                st.info("SLM未连接，配置将在连接后写入设备")
             else:
-                phase, _ = slm.get_displayed_phase()
-                if phase is None:
-                    st.warning("无法获取当前显示的相位数据")
+                try:
+                    ui_shift_x = st.session_state.get(f"{prefix}_shift_x", 0)
+                    ui_shift_y = st.session_state.get(f"{prefix}_shift_y", 0)
+                    if (ui_shift_x, ui_shift_y) != (slm.shift_x, slm.shift_y):
+                        slm.set_shift(shift_x=ui_shift_x, shift_y=ui_shift_y)
+                    slm.save_config()
+                    st.success(
+                        f"SLM {slm_num} 配置已保存"
+                        f"（序列号: {slm._serial_number or '未知'}）"
+                    )
+                except Exception as e:
+                    st.error(f"保存配置到设备失败: {e}")
+
+        if st.button(
+            "保存当前相位到CSV", key=f"{prefix}_save_csv_btn", type="secondary"
+        ):
+            try:
+                slm = st.session_state.get(prefix)
+                if slm is None:
+                    st.warning("SLM未连接，无法保存相位")
                 else:
-                    save_path = (
-                        Path.home()
-                        / ".config"
-                        / "ao_shaping"
-                        / f"slm{slm_num}_phase.csv"
-                    )
-                    max_gray = (
-                        getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-                    )
-                    phase_rad = phase.astype(np.float64) / float(max_gray) * 2 * np.pi
-                    Santec.save_phase_to_csv(phase_rad, save_path)
-                    st.success(f"SLM {slm_num} 相位已保存到 {save_path}")
-        except Exception as e:
-            st.error(f"保存相位CSV失败: {e}")
-            logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
+                    phase, _ = slm.get_displayed_phase()
+                    if phase is None:
+                        st.warning("无法获取当前显示的相位数据")
+                    else:
+                        save_path = (
+                            Path.home()
+                            / ".config"
+                            / "ao_shaping"
+                            / f"slm{slm_num}_phase.csv"
+                        )
+                        max_gray = (
+                            getattr(slm, "_max_gray", None)
+                            or Santec.MAX_GRAYSCALE_VALUE
+                        )
+                        phase_rad = (
+                            phase.astype(np.float64) / float(max_gray) * 2 * np.pi
+                        )
+                        Santec.save_phase_to_csv(phase_rad, save_path)
+                        st.success(f"SLM {slm_num} 相位已保存到 {save_path}")
+            except Exception as e:
+                st.error(f"保存相位CSV失败: {e}")
+                logger.exception(f"Failed to save phase CSV for SLM {slm_num}: {e}")
 
 
 def _toggle_phases_task(
@@ -1134,7 +1199,9 @@ def render_phase_control(slm_num: int):
     st.subheader("设置相位")
     pattern_type, params = render_pattern_controls(slm_num)
 
-    if st.button("从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn"):
+    if st.button(
+        "从模式生成器生成相位", key=f"{prefix}_gen_pattern_btn", type="primary"
+    ):
         try:
             _stop_toggle(slm_num)
             if st.session_state.get(f"{prefix}_toggle_active", False):
@@ -1160,13 +1227,13 @@ def render_phase_control(slm_num: int):
             st.error(f"生成或显示相位失败: {e}")
             logger.exception(f"Failed to generate/display phase for SLM {slm_num}: {e}")
 
-    st.divider()
+    st.markdown("")
     st.subheader("周期切换")
     st.caption("在相位 A 与相位 B 之间持续来回切换")
 
     col_ph_a, col_ph_b = st.columns(2)
     with col_ph_a:
-        if st.button("设为相位 A", key=f"{prefix}_set_phase_a"):
+        if st.button("设为相位 A", key=f"{prefix}_set_phase_a", type="primary"):
             slm = st.session_state.get(prefix)
             if slm is not None and getattr(slm, "is_open", False):
                 phase, _ = slm.get_displayed_phase()
@@ -1177,7 +1244,9 @@ def render_phase_control(slm_num: int):
                     st.warning("无法获取当前显示相位")
             else:
                 st.warning("SLM 未连接")
-        if st.button("设为全0相位 A", key=f"{prefix}_set_zero_phase_a"):
+        if st.button(
+            "设为全0相位 A", key=f"{prefix}_set_zero_phase_a", type="secondary"
+        ):
             slm = st.session_state.get(prefix)
             if slm is not None and getattr(slm, "is_open", False):
                 h = slm.Panel_Res[1]
@@ -1189,7 +1258,7 @@ def render_phase_control(slm_num: int):
             else:
                 st.warning("SLM 未连接")
     with col_ph_b:
-        if st.button("设为相位 B", key=f"{prefix}_set_phase_b"):
+        if st.button("设为相位 B", key=f"{prefix}_set_phase_b", type="primary"):
             slm = st.session_state.get(prefix)
             if slm is not None and getattr(slm, "is_open", False):
                 phase, _ = slm.get_displayed_phase()
@@ -1200,7 +1269,9 @@ def render_phase_control(slm_num: int):
                     st.warning("无法获取当前显示相位")
             else:
                 st.warning("SLM 未连接")
-        if st.button("设为全0相位 B", key=f"{prefix}_set_zero_phase_b"):
+        if st.button(
+            "设为全0相位 B", key=f"{prefix}_set_zero_phase_b", type="secondary"
+        ):
             slm = st.session_state.get(prefix)
             if slm is not None and getattr(slm, "is_open", False):
                 h = slm.Panel_Res[1]
@@ -1222,7 +1293,7 @@ def render_phase_control(slm_num: int):
 
     col_start, col_stop = st.columns(2)
     with col_start:
-        if st.button("开始周期切换", key=f"{prefix}_start_toggle"):
+        if st.button("开始周期切换", key=f"{prefix}_start_toggle", type="secondary"):
             phase_a = st.session_state.get(f"{prefix}_toggle_phase_a")
             phase_b = st.session_state.get(f"{prefix}_toggle_phase_b")
             slm = st.session_state.get(prefix)
@@ -1256,7 +1327,7 @@ def render_phase_control(slm_num: int):
                 thread.start()
                 st.success("周期切换已开始")
     with col_stop:
-        if st.button("停止周期切换", key=f"{prefix}_stop_toggle"):
+        if st.button("停止周期切换", key=f"{prefix}_stop_toggle", type="secondary"):
             stop_event = st.session_state.get(f"{prefix}_toggle_stop_event")
             if stop_event is not None:
                 stop_event.set()
@@ -1272,7 +1343,7 @@ def render_phase_control(slm_num: int):
         "上传CSV相位文件", type=["csv"], key=f"{prefix}_csv_file"
     )
     if uploaded_file is not None and st.button(
-        "从CSV加载相位", key=f"{prefix}_load_csv_btn"
+        "从CSV加载相位", key=f"{prefix}_load_csv_btn", type="secondary"
     ):
         try:
             _stop_toggle(slm_num)
@@ -1314,18 +1385,21 @@ def render_phase_control(slm_num: int):
             st.error(f"加载CSV相位失败: {e}")
             logger.exception(f"Failed to load CSV phase for SLM {slm_num}: {e}")
 
-    st.divider()
+    st.markdown("")
     st.subheader("底相位")
     st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
 
     col_base1, col_base2 = st.columns(2)
     with col_base1:
-        if st.button("保存当前相位为底相位", key=f"{prefix}_save_base_phase"):
+        if st.button(
+            "保存当前相位为底相位", key=f"{prefix}_save_base_phase", type="secondary"
+        ):
             slm = st.session_state.get(prefix)
             if slm is not None and getattr(slm, "is_open", False):
                 phase, source = slm.get_displayed_phase()
                 if phase is not None:
                     st.session_state[f"{prefix}_base_phase"] = phase.copy()
+                    slm.set_base_phase(phase)
                     overlay = st.session_state.get(f"{prefix}_overlay_base", False)
                     slm._overlay_base_phase = overlay
                     st.success(f"底相位已保存 ({phase.shape}, 来源: {source})")
@@ -1350,12 +1424,13 @@ def render_phase_control(slm_num: int):
     base_phase = st.session_state.get(f"{prefix}_base_phase")
     if base_phase is not None:
         st.caption(f"当前底相位: 已保存，尺寸 {base_phase.shape}")
-        if st.button("清除底相位", key=f"{prefix}_clear_base_phase"):
+        if st.button("清除底相位", key=f"{prefix}_clear_base_phase", type="secondary"):
             st.session_state[f"{prefix}_base_phase"] = None
             st.session_state[f"{prefix}_overlay_base"] = False
             slm = st.session_state.get(prefix)
             if slm is not None:
                 slm._overlay_base_phase = False
+                slm.set_base_phase(None)
             st.success("底相位已清除")
     else:
         st.caption("当前底相位: 未设置")

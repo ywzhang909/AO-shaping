@@ -779,7 +779,7 @@ class ZernikeControl(PatternControl):
     COEFF_MAX: ClassVar[float] = 100.0
 
     #: Coefficients laid out per row in the pyarrow-free fallback editor.
-    COEFF_COLUMNS: ClassVar[int] = 3
+    n_columns: ClassVar[int] = 3
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
@@ -829,34 +829,35 @@ class ZernikeControl(PatternControl):
         Same widget-key prefix scheme as the table variant so switching between
         the two (pyarrow repaired / broken) never collides.
         """
-        st.warning(
-            "pyarrow 不可用 — 「st.data_editor 系数表」已回退为逐项输入控件。"
-            "修复 pyarrow 后可恢复系数表（pip install --force-reinstall "
-            "--only-binary :all: pyarrow）。",
-            icon="⚠️",
-        )
-        if reason:
-            st.caption(f"pyarrow 导入失败原因: `{reason}`")
-        st.caption("Zernike 系数单位为弧度 (raw, 未包裹), 默认 0.0。")
+        with st.expander("系数输入 (pyarrow 不可用)", expanded=True):
+            st.warning(
+                "pyarrow 不可用 — 「st.data_editor 系数表」已回退为逐项输入控件。"
+                "修复 pyarrow 后可恢复系数表（pip install --force-reinstall "
+                "--only-binary :all: pyarrow）。",
+                icon="⚠️",
+            )
+            if reason:
+                st.caption(f"pyarrow 导入失败原因: `{reason}`")
+            st.caption("Zernike 系数单位为弧度 (raw, 未包裹), 默认 0.0。")
 
-        coefficients: dict[tuple[int, int], float] = {}
-        for start in range(0, len(modes), self.COEFF_COLUMNS):
-            columns = st.columns(self.COEFF_COLUMNS)
-            for column, (n, m) in zip(
-                columns, modes[start : start + self.COEFF_COLUMNS]
-            ):
-                with column:
-                    coefficients[(n, m)] = float(
-                        st.number_input(
-                            f"{get_zernike_name(n, m)} (n={n}, m={m})",
-                            min_value=self.COEFF_MIN,
-                            max_value=self.COEFF_MAX,
-                            value=0.0,
-                            step=0.001,
-                            format="%.3f",
-                            key=f"{prefix}_zernike_coeff_{n}_{m}",
+            coefficients: dict[tuple[int, int], float] = {}
+            for start in range(0, len(modes), self.n_columns):
+                columns = st.columns(self.n_columns)
+                for column, (n, m) in zip(
+                    columns, modes[start : start + self.n_columns]
+                ):
+                    with column:
+                        coefficients[(n, m)] = float(
+                            st.number_input(
+                                f"{get_zernike_name(n, m)} (n={n}, m={m})",
+                                min_value=self.COEFF_MIN,
+                                max_value=self.COEFF_MAX,
+                                value=0.0,
+                                step=0.001,
+                                format="%.3f",
+                                key=f"{prefix}_zernike_coeff_{n}_{m}",
+                            )
                         )
-                    )
         return coefficients
 
     # def _render_debug_panel(

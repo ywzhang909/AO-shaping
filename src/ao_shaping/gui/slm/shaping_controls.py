@@ -63,7 +63,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec import Santec, MEMORY_MODE_INTERNAL
+from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
@@ -72,6 +72,9 @@ from ao_shaping.runners.runner_common import (
     build_model_in_loop_config,
     save_gs_refine_results,
     save_model_in_loop_results,
+)
+from ao_shaping.utils.image.target.shapes import (
+    TARGET_SHAPE_LABELS as MIL_TARGET_SHAPE_LABELS,
 )
 
 __all__ = [
@@ -150,14 +153,6 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "region": 64,
     "far_field_padding": 8,
     "pupil_center": "960,690",
-}
-
-MIL_TARGET_SHAPE_LABELS: dict[str, str] = {
-    "square": "正方形",
-    "rectangle": "长方形（2:1）",
-    "triangle": "三角形",
-    "star": "五角星",
-    "circle": "圆形",
 }
 
 
@@ -586,12 +581,11 @@ class ShapingMethod(ABC):
             values["exposure_time_ms"] = st.number_input(
                 "曝光 (ms)",
                 min_value=0.0,
-                max_value=DAHENG_MAX_EXPOSURE_MS,
                 value=float(values.get("exposure_time_ms", exposure_default)),
                 step=0.01,
                 format="%.3f",
                 key=self.wkey("exposure"),
-                help=f"Daheng 硬上限 {DAHENG_MAX_EXPOSURE_MS} ms；0 = 由算法自动起曝",
+                help=f"Daheng 饱和保护上限 {DAHENG_MAX_EXPOSURE_MS} ms（启动时校验）；0 = 由算法自动起曝",
             )
         with cells[3]:
             values["cam_size"] = st.number_input(
@@ -734,7 +728,7 @@ class GsRefineMethod(ShapingMethod):
 
         st.caption("目标与评分（相机像素；综合分 = w_pib·PIB + w_unif·1/(1+CV)）")
         objective_fields = (
-            ("target_side", "目标方边长", 0, 1000, 1, "0 = 由照明瞳自动推导"),
+            ("target_side", "目标方边长", 0, 3000, 1, "0 = 由照明瞳自动推导"),
             ("side_factor", "边长因子", 0.1, 5.0, 0.1, None),
             ("w_pib", "权重 w_pib", 0.0, 2.0, 0.05, None),
             ("w_unif", "权重 w_unif", 0.0, 2.0, 0.05, None),
@@ -1183,5 +1177,5 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     )
 
     values = method.render_inputs()
-    if st.button(method.action, key=f"{prefix}_shp_run_{method.key}"):
+    if st.button(method.action, key=f"{prefix}_shp_run_{method.key}", type="primary"):
         method.run(values, debug=bool(debug))
