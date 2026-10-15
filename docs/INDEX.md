@@ -98,7 +98,7 @@
 | `slm-200/` | 3 | Santec SLM-200：`agent_wiki.md`（驱动编写指南）、`dev.md`、`SLMFuncDLL_Programmer's_Guide(v2.5).md` |
 | `miicam/` | 2 | MiiCam 相机：`agent_wiki.md`（核心概念）、`review.md` |
 | `thorlab-wfs/` | 1 | Thorlabs WFS Python SDK 驱动编写指南 |
-| `daheng/` | 3 | 大恒相机：Python 接口开发说明书、亮度调节、回调采集实战 |
+| `daheng/` | 4 | 大恒相机：Python 接口开发说明书、亮度调节、回调采集实战、曝光融合（exposure fusion，文献笔记） |
 | `miicam_simulation/` | 1 | `miicam_report.md` MiiCam 仿真报告 |
 
 ## 工具（tools/）— 10 篇
