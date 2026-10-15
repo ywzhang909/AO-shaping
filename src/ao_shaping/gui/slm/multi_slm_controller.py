@@ -623,12 +623,10 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     device has read its serial, loaded its per-serial config file and applied
     defaults.
 
-    Note: Widget-backed keys (video_mode, shift_x, shift_y, wavelength, width,
-    height, pixel_pitch_um, bits, use_120hz) are intentionally NOT synced here
-    because the sidebar widgets for them have already been instantiated.
-    Modifying their session state keys after widget instantiation raises a
-    StreamlitAPIException. The SLM object itself retains the correct values;
-    widgets will reflect reality on the next rerun.
+    All widget-backed keys are synced here so the sidebar always reflects the
+    actual device state after a connect or re-acquire.  ``connect_slm`` calls
+    ``st.rerun()`` after this, so the next render instantiates widgets fresh
+    from the updated session_state values.
     """
     prefix = f"slm{slm_num}"
     st.session_state[f"{prefix}_phase_preview"] = None
@@ -637,13 +635,20 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
         slm.load_config() if slm._serial_number else {}
     )
 
-    # Sync the wavelength widget to the device's actual wavelength so the
-    # sidebar displays the true value after connection.  On the rerun that
-    # ``connect_slm`` / ``_reacquire_slm_handle`` triggers, the widget reads
-    # from session_state and shows the hardware value.
+    # Sync all widget-backed keys from the device's resolved state so the
+    # sidebar shows the actual hardware values (wavelength, shift, geometry…).
     device_wavelength = slm.wavelength
     if device_wavelength is not None:
         st.session_state[f"{prefix}_wavelength"] = int(device_wavelength)
+    st.session_state[f"{prefix}_shift_x"] = int(getattr(slm, "_shift_x", 0))
+    st.session_state[f"{prefix}_shift_y"] = int(getattr(slm, "_shift_y", 0))
+    st.session_state[f"{prefix}_width"] = int(slm.Panel_Res[0])
+    st.session_state[f"{prefix}_height"] = int(slm.Panel_Res[1])
+    st.session_state[f"{prefix}_pixel_pitch_um"] = float(
+        getattr(slm, "Pixel_Size_um", 8.0)
+    )
+    st.session_state[f"{prefix}_bits"] = int(getattr(slm, "Gray_Scale_bits", 10))
+    st.session_state[f"{prefix}_use_120hz"] = bool(slm._use_120hz)
 
     serial = slm._serial_number
     if serial:
