@@ -1508,6 +1508,7 @@ _ROUND_ONLY_KEYS = {
     "coeff_step_applied",
     "shape_loss_initial",
     "shape_loss_final",
+    "shape_iou_after",
 }
 
 _CALIBRATION_KEYS = _SHARED_KEYS | _CALIBRATION_ONLY_KEYS

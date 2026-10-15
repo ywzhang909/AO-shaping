@@ -153,6 +153,21 @@ class TestResizeHelpers:
 
 
 class TestPrepareFrame:
+    def test_cv_can_exclude_a_fixed_zero_order_core(self):
+        frame = np.ones((9, 9), dtype=float)
+        frame[4, 4] = 20.0
+        target = np.ones_like(frame, dtype=bool)
+        valid = target.copy()
+        valid[4, 4] = False
+        score_full, pib_full, cv_full = _metrics(frame, target, 0.0, 1.0)
+        score_masked, pib_masked, cv_masked = _metrics(
+            frame, target, 0.0, 1.0, valid
+        )
+        assert cv_masked == 0.0
+        assert cv_full > 0.0
+        assert score_masked > score_full
+        assert pib_masked == pib_full
+
     def test_removes_negative_read_noise(self):
         rng = np.random.default_rng(0)
         frame = rng.normal(50.0, 20.0, size=(80, 80))

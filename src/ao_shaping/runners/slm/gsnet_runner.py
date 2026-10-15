@@ -299,6 +299,8 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
     )
 
     common: dict[str, Any] = dict(
+        blaze_period_px=slm.blaze_period_px,
+        blaze_direction=slm.blaze_direction,
         n_max=slm.n_max,
         target_side=obj.target_side,
         target_mean_brightness=obj.target_mean_brightness,

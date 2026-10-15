@@ -113,15 +113,20 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "callback",
         "gs_relax",
         "lr_min_ratio",
+        "phase_disturbance_file",
         "progress_every",
         "settle_max_discard",
     },
     MIL.label: {
+        "adaptive_trust_region",
         "callback",
         "debug_dir",
+        "holdout_on_sim",
         "output_subdir",
+        "probe_split_hook",
         "progress_every",
         "sim_aberration",
+        "step_sink",
     },
 }
 

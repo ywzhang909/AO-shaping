@@ -630,6 +630,9 @@ class SlmModelInLoopConfig:
     slm_number: int = 1
     phase_disturbance_file: str | None = None
     """Fixed raw-radian panel bias added to every hardware phase display."""
+    blaze_period_px: int = -1
+    """-1 disables off-axis carrier; 0 measures candidate periods; >=4 tests one."""
+    blaze_direction: str = "vertical"
     slm_wavelength: int = 1064
     """SLM operating wavelength in nm.
 
@@ -728,7 +731,13 @@ class SlmModelInLoopConfig:
     progress_every: int = 1
 
     def __post_init__(self) -> None:
-        """Validate the budget and normalise the frozen-mode list."""
+        """Validate the budget, optical carrier and frozen-mode list."""
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
+        if self.blaze_period_px >= 0 and self.cam_type == "sim":
+            raise ValueError("blaze calibration requires a full-frame hardware CCD")
         if self.n_rounds < 1:
             raise ValueError(f"n_rounds must be >= 1, got {self.n_rounds}")
         if self.probe_count < 2:
@@ -862,6 +871,8 @@ class ModelInLoopResult:
     probe_records: list[dict[str, Any]] = field(default_factory=list)
     fitted_coefficients: np.ndarray | None = None
     source_amplitude: np.ndarray | None = None
+    blaze_params: Any | None = None
+    blaze_choice: Any | None = None
 
 
 @dataclass
@@ -1235,14 +1246,7 @@ class _HardwareBench:
         try:
             self._cam.open()
             if config.cam_type == "daheng":
-                self._ceiling_ms = self._resolve_daheng_ceiling()
-                initial_ms = config.exposure_time_ms or min(0.02, self._ceiling_ms)
-                actual_ms = self._cam.reset_exposure_time(initial_ms)
-                if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
-                    raise RuntimeError(
-                        f"unsafe Daheng exposure readback: {actual_ms} ms "
-                        f"(ceiling {self._ceiling_ms} ms)"
-                    )
+                self._cam.reset_exposure_time(0.02)
             self._slm = Santec(
                 slm_number=config.slm_number,
                 wavelength=config.slm_wavelength or None,
@@ -1264,6 +1268,53 @@ class _HardwareBench:
             self._disturbance = load_panel_disturbance(
                 config.phase_disturbance_file, panel_shape
             )
+            self._blaze_choice = None
+            self.signal_center_local = None
+            if config.cam_type == "daheng":
+                flat_panel = phase_to_panel(
+                    np.zeros((config.region, config.region), dtype=np.float64),
+                    int(round(config.panel_span_px / 2)), config.pupil_center,
+                )
+                self._capture(
+                    self._cam, self._slm,
+                    flat_panel if self._disturbance is None else flat_panel + self._disturbance,
+                    n_frames=1, n_discard=config.settle_max_discard,
+                    wait_time_s=config.settle_wait_s, stable_tol=config.settle_tol,
+                    max_wait_s=config.settle_max_wait_s,
+                )
+                self._ceiling_ms = self._resolve_daheng_ceiling()
+                initial_ms = config.exposure_time_ms or min(0.02, self._ceiling_ms)
+                actual_ms = self._cam.reset_exposure_time(initial_ms)
+                if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
+                    raise RuntimeError(
+                        f"unsafe Daheng exposure readback: {actual_ms} ms "
+                        f"(ceiling {self._ceiling_ms} ms)"
+                    )
+            if config.blaze_period_px >= 0:
+                from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+                def capture_blaze(phase: np.ndarray) -> np.ndarray:
+                    displayed = phase if self._disturbance is None else phase + self._disturbance
+                    image = np.asarray(self._capture(
+                        self._cam, self._slm, displayed, n_frames=1,
+                        n_discard=config.settle_max_discard,
+                        wait_time_s=config.settle_wait_s,
+                        stable_tol=config.settle_tol,
+                        max_wait_s=config.settle_max_wait_s,
+                    ), dtype=np.float64)
+                    if config.cam_type == "daheng" and float(np.max(image)) >= 250:
+                        raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+                    return image
+
+                self._blaze_choice = select_blaze(
+                    capture_blaze, panel_shape,
+                    target_side=config.target_side,
+                    window_size=config.cam_size or config.target_side,
+                    period_px=config.blaze_period_px,
+                    direction=config.blaze_direction,
+                )
+                self.signal_center_local = self._blaze_choice.signal_xy
+                logger.info("measured blaze: {}", self._blaze_choice)
             if config.cam_size > 0:
                 from ao_shaping.utils.image.beam_metrics import zero_order_center
 
@@ -1297,7 +1348,10 @@ class _HardwareBench:
                 full_clean = prepare_frame(np.asarray(full_frame, dtype=np.float64))
                 if float(np.max(full_clean)) < 10.0:
                     raise RuntimeError("full-frame CCD has no detectable zero order")
-                full_x, full_y = zero_order_center(full_clean, refine=False)
+                full_x, full_y = (
+                    self._blaze_choice.signal_xy if self._blaze_choice is not None
+                    else zero_order_center(full_clean, refine=False)
+                )
                 half = config.cam_size // 2
                 if (
                     full_x - half < 0
@@ -1306,10 +1360,15 @@ class _HardwareBench:
                     or full_y + half >= full_clean.shape[0]
                 ):
                     raise RuntimeError("CCD zero order is too close to sensor edge")
-                self._cam.reset_window(
+                actual_size, actual_center = self._cam.reset_window(
                     center=(full_x, full_y),
                     size=(config.cam_size, config.cam_size),
                 )
+                if self._blaze_choice is not None:
+                    self.signal_center_local = (
+                        full_x - actual_center[0] + actual_size[0] // 2,
+                        full_y - actual_center[1] + actual_size[1] // 2,
+                    )
                 logger.info("CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y)
         except Exception:
             if self._slm is not None:
@@ -1342,7 +1401,7 @@ class _HardwareBench:
         min_ms, max_ms = get_camera_exposure_range(self._cam)
         estimate = probe_exposure_ceiling_ms(
             self._cam.reset_exposure_time,
-            lambda: np.asarray(self._cam.get_numpy_image(n_sample=2)),
+            lambda: np.asarray(self._cam.get_numpy_image(n_sample=1)),
             start_ms=max(min_ms, 1e-3),
             hard_max_ms=max_ms,
         )
@@ -1374,6 +1433,10 @@ class _HardwareBench:
         )
         if self._disturbance is not None:
             self._pending += self._disturbance
+        if self._blaze_choice is not None:
+            from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+            self._pending = apply_zero_order_overlay(self._pending, self._blaze_choice.params)
 
     def measure(self) -> np.ndarray:
         if self._pending is None:
@@ -1515,12 +1578,17 @@ def _metrics_at(
         The metric dict from
         :func:`~ao_shaping.utils.image.beam_metrics.compute_square_metrics`.
     """
-    from ao_shaping.utils.image.beam_metrics import compute_square_metrics
+    from ao_shaping.utils.image.beam_metrics import compute_shape_iou, compute_square_metrics
 
     if target_shape == "square":
-        return compute_square_metrics(
+        from ao_shaping.utils.image.targets import square_mask
+
+        metrics = compute_square_metrics(
             frame, int(target_side), (float(center[0]), float(center[1]))
         )
+        target = square_mask(np.asarray(frame).shape, center[1], center[0], int(target_side))
+        metrics["shape_iou"] = compute_shape_iou(frame, target)
+        return metrics
     from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
         create_target_mask,
     )
@@ -1536,6 +1604,7 @@ def _metrics_at(
     return {
         "uniformity_cv": float(np.std(values) / mean) if mean > 0 else 0.0,
         "encircled_energy": float(np.maximum(values, 0).sum() / total) if total > 0 else 0.0,
+        "shape_iou": compute_shape_iou(image, target > 0.5),
         "intensity_max": float(image.max()),
         "intensity_mean": mean,
     }
@@ -2109,7 +2178,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # Locate the optical axis ONCE. The 0-order is the frame's global
         # maximum, never the geometric centre -- on this bench it sits far
         # off-centre -- and it is frozen for the whole run from here on.
-        roi_center = zero_order_center(flat_frame, refine=False)
+        roi_center = getattr(bench, "signal_center_local", None) or zero_order_center(
+            flat_frame, refine=False
+        )
         logger.info("frozen ROI centre (x, y) = {}", roi_center)
 
         # ---------------- Stage 1: geometry, then the bake-off -------------
@@ -2644,6 +2715,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 "score_after": float(score_after),
                 "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
                 "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
+                "shape_iou_after": float(shaped_metrics["shape_iou"]),
                 "uniformity_cv": float(
                     shaped_metrics.get("uniformity_cv", float("nan"))
                 ),
@@ -2810,6 +2882,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             probe_records=probe_records,
             fitted_coefficients=coefficients.copy(),
             source_amplitude=source_amplitude.copy(),
+            blaze_params=(
+                getattr(bench, "_blaze_choice", None).params
+                if getattr(bench, "_blaze_choice", None) is not None else None
+            ),
+            blaze_choice=getattr(bench, "_blaze_choice", None),
         )
     finally:
         if live_display is not None:

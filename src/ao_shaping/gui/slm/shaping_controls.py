@@ -708,6 +708,11 @@ def outcome_from_model_in_loop(result: Any, config: Any) -> ShapingOutcome:
             disc_radius=int(round(config.panel_span_px / 2.0)),
             pupil_center=(int(config.pupil_center[0]), int(config.pupil_center[1])),
         )
+        blaze_params = getattr(result, "blaze_params", None)
+        if blaze_params is not None:
+            from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+            panel_phase = apply_zero_order_overlay(panel_phase, blaze_params)
     flat_score = getattr(result, "flat_score", None)
     best_score = float(getattr(result, "best_score", float("nan")))
     rows: tuple[dict[str, Any], ...] = ()
@@ -872,6 +877,15 @@ class GsRefineMethod(ShapingMethod):
                 }
             },
         )
+        values["blaze_period_px"] = int(st.selectbox(
+            "去零级载波",
+            options=(-1, 0, 128, 96, 64),
+            format_func=lambda p: "关闭" if p == -1 else "实测自动选择" if p == 0 else f"实测 {p} px 周期",
+            key=self.wkey("blaze_period_px"),
+        ))
+        values["blaze_direction"] = st.selectbox(
+            "光栅方向", ("vertical", "horizontal"), key=self.wkey("blaze_direction")
+        )
         return values
 
     def build_params(self, values: Mapping[str, Any]) -> SlmGsRefineParams:
@@ -903,6 +917,8 @@ class GsRefineMethod(ShapingMethod):
             cam_size=int(values["cam_size"]),
             slm_number=self.slm_num,
             n_eval_frames=int(values["n_eval_frames"]),
+            blaze_period_px=int(values.get("blaze_period_px", -1)),
+            blaze_direction=str(values.get("blaze_direction", "vertical")),
         )
 
     def make_config(self, params: SlmGsRefineParams, *, debug: bool) -> Any:
@@ -1076,6 +1092,15 @@ class ModelInLoopMethod(ShapingMethod):
             cam_size_default=250,
             target_side=int(values.get("target_side", 0)),
         )
+        values["blaze_period_px"] = int(st.selectbox(
+            "去零级载波",
+            options=(-1, 0, 128, 96, 64),
+            format_func=lambda p: "关闭" if p == -1 else "实测自动选择" if p == 0 else f"实测 {p} px 周期",
+            key=self.wkey("blaze_period_px"),
+        ))
+        values["blaze_direction"] = st.selectbox(
+            "光栅方向", ("vertical", "horizontal"), key=self.wkey("blaze_direction")
+        )
         values["max_exposure_ms"] = configured_daheng_exposure_limit()
         return values
 
@@ -1108,6 +1133,8 @@ class ModelInLoopMethod(ShapingMethod):
             cam_size=int(values["cam_size"]),
             camera_pixel_um=camera_pixel_um,
             slm_number=self.slm_num,
+            blaze_period_px=int(values.get("blaze_period_px", -1)),
+            blaze_direction=str(values.get("blaze_direction", "vertical")),
         )
 
     def make_config(self, params: SlmModelInLoopParams, *, debug: bool) -> Any:

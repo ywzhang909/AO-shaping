@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 import math
 import pickle
@@ -121,7 +122,10 @@ def run_replay(
     from ao_shaping.drivers.slm.santec import Santec, SantecError
     from ao_shaping.optimizer.wfless.slm_gs_refine import _metrics
     from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
-    from ao_shaping.utils.image.beam_metrics import prepare_frame
+    from ao_shaping.utils.image.beam_metrics import (
+        prepare_frame,
+        zero_order_exclusion_mask,
+    )
     from ao_shaping.utils.image.exposure_control import (
         configured_daheng_exposure_limit,
         probe_exposure_ceiling_ms,
@@ -142,6 +146,7 @@ def run_replay(
                 "cam_size": plan.cam_size,
                 "target_center": plan.target_center,
                 "target_side": plan.target_side,
+                "frames_per_measurement": 4,
             },
             indent=2,
         ),
@@ -150,7 +155,7 @@ def run_replay(
     rows: list[dict[str, float | int | str]] = []
     with (
         Santec(slm_number=1, wavelength=None, video_mode=0) as slm,
-        create_camera("daheng", 0, exposure_time_ms=plan.exposure_ms) as cam,
+        create_camera("daheng", 0, exposure_time_ms=0.02) as cam,
         preserve_slm_display(slm),
     ):
         if slm.get_serial_number() != slm_serial:
@@ -160,11 +165,21 @@ def run_replay(
         if (expected_wavelength_nm is not None
                 and slm.wavelength != expected_wavelength_nm):
             raise ValueError("SLM wavelength changed; saved gray phases may be invalid")
+        try:
+            protected = slm.get_displayed_memory_number()
+        except SantecError as exc:
+            if exc.code != 1:
+                raise
+            protected = None
+        work_slots = [slot for slot in (126, 127, 124) if slot != protected][:2]
+        cam.reset_exposure_time(0.02)
+        slm.display_data(plan.phases["flat"], memory_number=work_slots[0])
+        time.sleep(0.8)
         ceiling = configured_daheng_exposure_limit()
         if not ceiling:
             estimate = probe_exposure_ceiling_ms(
                 cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
             )
             ceiling = estimate.ceiling_ms
             logger.info(
@@ -175,20 +190,14 @@ def run_replay(
                 f"Daheng exposure {plan.exposure_ms} ms exceeds the resolved "
                 f"ceiling {ceiling} ms"
             )
-        cam.reset_exposure_time(plan.exposure_ms)
-        if cam.exposure_time > ceiling + 1e-9:
+        applied = float(cam.reset_exposure_time(plan.exposure_ms))
+        if not 0 < applied <= ceiling + 1e-9:
             raise ValueError(
-                f"camera exposure readback {cam.exposure_time} ms exceeds the "
+                f"camera exposure readback {applied} ms exceeds the "
                 f"{ceiling} ms ceiling"
             )
         cam.reset_window(center=cam_center, size=(plan.cam_size, plan.cam_size))
-        try:
-            protected = slm.get_displayed_memory_number()
-        except SantecError as exc:
-            if exc.code != 1:
-                raise
-            protected = None
-        work_slots = [slot for slot in (126, 127, 124) if slot != protected][:2]
+        cv_mask = None
         for index, name in enumerate(SEQUENCE):
             slm.display_data(plan.phases[name], memory_number=work_slots[index % 2])
             time.sleep(0.8)
@@ -196,7 +205,7 @@ def run_replay(
                 cam.get_numpy_image(n_sample=1)
             raw_frames = [
                 np.asarray(cam.get_numpy_image(n_sample=1), dtype=float)
-                for _ in range(2)
+                for _ in range(4)
             ]
             raw_peak = max(float(np.max(sample)) for sample in raw_frames)
             if raw_peak >= 250:
@@ -206,12 +215,24 @@ def run_replay(
                 frame.shape, plan.target_center[1], plan.target_center[0],
                 plan.target_side,
             )
+            if cv_mask is None:
+                core = zero_order_exclusion_mask(frame, mask)
+                cv_mask = mask & ~core
+                np.save(plan.output_dir / "zero_core.npy", core)
             score, pib, cv = _metrics(frame, mask, 0.5, 0.5)
+            cv_no_zero = _metrics(frame, mask, 0.0, 1.0, cv_mask)[2]
+            readback = float(cam.get_exposure_time_ms())
+            if abs(readback - applied) > 1e-9:
+                raise RuntimeError(f"camera exposure changed during replay: {readback} ms")
             np.save(plan.output_dir / f"{index:02d}_{name}.npy", frame)
             np.save(plan.output_dir / f"{index:02d}_{name}_raw.npy", np.stack(raw_frames))
             row = dict(
                 index=index, phase=name, score=float(score), pib=float(pib),
-                cv=float(cv), peak=float(np.max(frame)), raw_peak=raw_peak,
+                cv=float(cv), cv_no_zero=float(cv_no_zero),
+                zero_core_pixels=int(np.count_nonzero(~cv_mask & mask)),
+                timestamp_utc=datetime.now(timezone.utc).isoformat(timespec="microseconds"),
+                exposure_ms_readback=readback,
+                peak=float(np.max(frame)), raw_peak=raw_peak,
                 total=float(np.sum(frame)),
             )
             rows.append(row)

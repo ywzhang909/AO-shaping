@@ -50,11 +50,13 @@ def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) 
     with Santec(slm_number=1, wavelength=1064, video_mode=0) as slm:
         with create_camera("daheng", 0, exposure_time_ms=exposure_ms) as cam:
             with preserve_slm_display(slm):
+                cam.reset_exposure_time(0.02)
+                measure_flat_reference(cam, slm, n_frames=1)
                 ceiling = env_ceiling
                 if not ceiling:
                     estimate = probe_exposure_ceiling_ms(
                         cam.reset_exposure_time,
-                        lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                        lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
                     )
                     ceiling = estimate.ceiling_ms
                     print(

@@ -71,16 +71,14 @@ def test_ceiling_estimate_uses_the_most_conservative_frame() -> None:
     estimate = estimate_exposure_ceiling_ms(ladder)
     assert estimate.last_safe_ms == 0.08
     assert estimate.saturated_ms == 0.16
-    assert estimate.ceiling_ms == pytest.approx(0.09 * 0.9, rel=1e-9)
+    assert estimate.ceiling_ms == 0.08
 
 
 def test_ceiling_estimate_below_start_when_already_saturated() -> None:
-    estimate = estimate_exposure_ceiling_ms(
-        [(0.02, np.full((2, 2), 255, dtype=np.uint8))]
-    )
-    assert estimate.ceiling_ms < 0.02
-    assert estimate.last_safe_ms == 0.0
-    assert estimate.saturated_ms == 0.02
+    with pytest.raises(ValueError, match="saturated at the minimum"):
+        estimate_exposure_ceiling_ms(
+            [(0.02, np.full((2, 2), 255, dtype=np.uint8))]
+        )
 
 
 def test_ceiling_estimate_fails_without_signal() -> None:
@@ -103,7 +101,7 @@ def test_probe_ladder_stops_at_the_first_saturated_frame() -> None:
     assert calls == [0.02, 0.04, 0.08, 0.16]
     assert estimate.saturated_ms == 0.16
     assert estimate.last_safe_ms == 0.08
-    assert estimate.ceiling_ms == pytest.approx(0.144 * 0.9, rel=1e-9)
+    assert estimate.ceiling_ms == 0.08
 
 
 def test_probe_respects_the_hardware_cap() -> None:
@@ -122,4 +120,4 @@ def test_probe_respects_the_hardware_cap() -> None:
         set_exposure, shoot, start_ms=0.02, hard_max_ms=0.08
     )
     assert calls == [0.02, 0.04, 0.08]
-    assert estimate.ceiling_ms > 0.08
+    assert estimate.ceiling_ms == 0.08

@@ -93,11 +93,9 @@ def estimate_exposure_ceiling_ms(
 
     The sensor response is linear below clipping, so a frame whose peak is
     ``p`` of full scale at exposure ``ms`` saturates (peak = ``saturation_fraction``)
-    at ``ms * saturation_fraction / p``.  The ceiling is the **minimum** of
-    these per-frame estimates: a clipped frame can only pull its estimate
-    *down* (its true peak is higher than the clipped one), which is the safe
-    direction.  The result is discounted by ``headroom`` so the ceiling stays
-    below the estimated saturation point, not on it.
+    at ``ms * saturation_fraction / p``.  The smallest estimate is discounted
+    by ``headroom`` and capped at the last exposure actually observed below
+    saturation, so the session ceiling is never an untested extrapolation.
 
     The optical path sets where saturation falls, which is why this is
     estimated from the image instead of stored as a constant.  Zero-peak
@@ -139,8 +137,10 @@ def estimate_exposure_ceiling_ms(
             first_saturated = ms
     if not estimates:
         raise ValueError("no ladder frame carries signal; cannot estimate a ceiling")
+    if last_safe <= 0:
+        raise ValueError("CCD is saturated at the minimum probe exposure")
     return ExposureCeilingEstimate(
-        ceiling_ms=min(estimates) * headroom,
+        ceiling_ms=min(min(estimates) * headroom, last_safe),
         last_safe_ms=last_safe,
         saturated_ms=first_saturated,
         peak_fractions=tuple(fractions),

@@ -188,6 +188,8 @@ class SlmGsRefineConfig:
     w_pib: float = 0.5
     w_unif: float = 0.5
     """Composite weights; the default reproduces the simulated objective."""
+    exclude_zero_order_for_cv: bool = False
+    """Use the flat-reference zero-order core as a fixed CV exclusion."""
 
     # --- freeform parameterisation ----------------------------------------
     phase_grid: int = 24
@@ -256,6 +258,9 @@ class SlmGsRefineConfig:
     slm_number: int = 1
     phase_disturbance_file: str | None = None
     """Fixed raw-radian panel bias added to every displayed phase."""
+    blaze_period_px: int = -1
+    """-1 disables the carrier, 0 probes candidates, >=4 probes one period."""
+    blaze_direction: str = "vertical"
     slm_wavelength: int = 0
     """SLM operating wavelength in nm. 0 (the default) asks the DEVICE for its
     configured wavelength instead of assuming this bench's 1064nm -- the lab has
@@ -292,6 +297,10 @@ class SlmGsRefineConfig:
         # value never reaches the hardware context managers) ---
         if self.epochs < 1:
             raise ValueError(f"epochs must be at least 1, got {self.epochs}")
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
         if self.phase_grid < 2:
             raise ValueError(f"phase_grid must be at least 2, got {self.phase_grid}")
         if self.delta < 0:
@@ -432,14 +441,18 @@ class SlmGsRefineConfig:
 
 
 def _metrics(
-    frame: np.ndarray, mask: np.ndarray, w_pib: float, w_unif: float
+    frame: np.ndarray,
+    mask: np.ndarray,
+    w_pib: float,
+    w_unif: float,
+    cv_mask: np.ndarray | None = None,
 ) -> tuple[float, float, float]:
     """Return ``(composite, pib, cv)`` for a measured frame.
 
     ``composite`` is the simulated objective, evaluated on real pixels.
     """
     pib = power_in_bucket(frame, mask)
-    cv = uniformity_cv(frame, mask)
+    cv = uniformity_cv(frame, mask if cv_mask is None else cv_mask)
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
 
 
@@ -652,8 +665,13 @@ def _run_gs_refine_session(
     panel_shape = panel_shape_from_slm(slm)
     disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
 
+    overlay = None
+
     def displayed_phase(phase: np.ndarray) -> np.ndarray:
-        return phase if disturbance is None else phase + disturbance
+        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+        result = phase if disturbance is None else phase + disturbance
+        return result if overlay is None else apply_zero_order_overlay(result, overlay)
 
     center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
     side = pupil_side(config.beam_radius_px)
@@ -671,9 +689,18 @@ def _run_gs_refine_session(
         # exposure: the environment variable, else probe the image itself.
         ceiling = configured_daheng_exposure_limit()
         if not ceiling:
+            cam.reset_exposure_time(0.02)
+            display_and_average(
+                cam, slm, displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                n_frames=1, settle_wait_s=config.settle_wait_s,
+                settle_tol=config.settle_tol,
+                settle_max_wait_s=config.settle_max_wait_s,
+                settle_max_discard=config.settle_max_discard,
+                memory_number=work_slots[-1],
+            )
             estimate = probe_exposure_ceiling_ms(
                 cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
             )
             ceiling = estimate.ceiling_ms
             logger.info(
@@ -688,6 +715,10 @@ def _run_gs_refine_session(
         # The probe left the camera at the last ladder step; re-arm the
         # working exposure before the first measurement.
         cam.reset_exposure_time(config.exposure_time_ms)
+    radius_px = max(8.0, float(config.beam_radius_px))
+    target_side = _derive_target_side(config, radius_px)
+    if config.blaze_period_px >= 0 and config.cam_type == "sim":
+        raise ValueError("blaze calibration requires a full-frame hardware CCD")
     if config.cam_type != "sim":
         # Locate the zero order on the full sensor before restricting the CCD ROI.
         discovery = display_and_average(
@@ -704,6 +735,42 @@ def _run_gs_refine_session(
         if config.cam_type == "daheng" and np.max(discovery) >= 255:
             raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
         full_y, full_x = locate_zero_order(discovery)
+        if config.blaze_period_px >= 0:
+            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+            blaze_probe_count = 0
+
+            def capture_blaze(phase: np.ndarray) -> np.ndarray:
+                nonlocal blaze_probe_count
+                slot = work_slots[blaze_probe_count % 2]
+                blaze_probe_count += 1
+                frame = display_and_average(
+                    cam, slm,
+                    phase if disturbance is None else phase + disturbance,
+                    n_frames=1, settle_wait_s=config.settle_wait_s,
+                    settle_tol=config.settle_tol,
+                    settle_max_wait_s=config.settle_max_wait_s,
+                    settle_max_discard=config.settle_max_discard,
+                    memory_number=slot,
+                )
+                if config.cam_type == "daheng" and np.max(frame) >= 250:
+                    raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+                return frame
+
+            choice = select_blaze(
+                capture_blaze, panel_shape, target_side=target_side,
+                window_size=config.cam_size or target_side,
+                period_px=config.blaze_period_px,
+                direction=config.blaze_direction, flat_frame=discovery,
+            )
+            overlay = choice.params
+            full_x, full_y = choice.signal_xy
+            logger.info(
+                "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
+                overlay.blaze_period_px, overlay.blaze_direction, choice.zero_xy,
+                choice.signal_xy, choice.separation_px,
+            )
+        signal_local_xy = (full_x, full_y)
         if config.cam_size > 0:
             half = config.cam_size // 2
             if (
@@ -715,14 +782,16 @@ def _run_gs_refine_session(
                 raise ValueError(
                     "CCD zero order too close to edge for requested window"
                 )
-            cam.reset_window(
+            actual_size, actual_center = cam.reset_window(
                 center=(full_x, full_y), size=(config.cam_size, config.cam_size)
+            )
+            signal_local_xy = (
+                int(full_x - actual_center[0] + actual_size[0] // 2),
+                int(full_y - actual_center[1] + actual_size[1] // 2),
             )
             logger.info(
                 "CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y
             )
-    radius_px = max(8.0, float(config.beam_radius_px))
-    target_side = _derive_target_side(config, radius_px)
     logger.info(
         "slm-gs-refine: panel={} beam_radius={}px target_side={}px "
         "cam={}#{} exposure={}ms grid={}x{}",
@@ -739,9 +808,10 @@ def _run_gs_refine_session(
     work_slots = work_slots[:2]
     measurement_count = 0
     last_capture_utc = ""
+    last_exposure_ms: float | None = None
 
     def measure(phase: np.ndarray) -> np.ndarray:
-        nonlocal measurement_count, last_capture_utc
+        nonlocal measurement_count, last_capture_utc, last_exposure_ms
         memory_number = None
         if config.cam_type != "sim":
             memory_number = work_slots[measurement_count % len(work_slots)]
@@ -761,8 +831,15 @@ def _run_gs_refine_session(
             raise ValueError(
                 "Daheng CCD frame saturated; reduce exposure before continuing"
             )
+        if config.cam_type == "daheng":
+            actual_ms = float(cam.get_exposure_time_ms())
+            if not 0 < actual_ms <= ceiling + 1e-9:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            last_exposure_ms = actual_ms
         last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
         return frame
+
+    cv_mask: np.ndarray | None = None
 
     def record(
         stage: str,
@@ -775,15 +852,20 @@ def _run_gs_refine_session(
         positive_wins: bool | None = None,
         **extra: Any,
     ) -> float:
-        score, pib, cv = _metrics(frame, mask, config.w_pib, config.w_unif)
+        score, pib, cv = _metrics(frame, mask, config.w_pib, config.w_unif, cv_mask)
+        from ao_shaping.utils.image.beam_metrics import compute_shape_iou
+
         row = {
             "stage": stage,
             "score": score,
             "pib": pib,
             "cv": cv,
+            **({"cv_full": uniformity_cv(frame, mask)} if cv_mask is not None else {}),
+            "shape_iou": compute_shape_iou(frame, mask),
             "target_side": target_side,
             "_epoch": len(recorder.history),
             "timestamp_utc": last_capture_utc,
+            "exposure_ms_readback": last_exposure_ms if config.cam_type == "daheng" else None,
             **extra,
         }
         if config.record_debug:
@@ -816,11 +898,24 @@ def _run_gs_refine_session(
     # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
     flat_panel = np.zeros(panel_shape, dtype=np.float64)
     frame0 = measure(flat_panel)
-    cy, cx = locate_zero_order(frame0)
+    cy, cx = (
+        (signal_local_xy[1], signal_local_xy[0])
+        if overlay is not None
+        else locate_zero_order(frame0)
+    )
     mask = square_mask(frame0.shape, cy, cx, target_side)
     if not mask.any():
         raise ValueError(
             f"target square (side={target_side}px at ({cy},{cx})) is empty"
+        )
+    if config.exclude_zero_order_for_cv:
+        from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
+
+        core = zero_order_exclusion_mask(frame0, mask)
+        cv_mask = mask & ~core
+        logger.info(
+            "CV excludes {} zero-order pixels from {} target pixels",
+            int(core.sum()), int(mask.sum()),
         )
     score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
     best_score = score_flat
@@ -882,8 +977,8 @@ def _run_gs_refine_session(
         pos_timestamp = last_capture_utc
         frame_neg = measure(phase_neg)
         neg_timestamp = last_capture_utc
-        pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif)[0]
-        neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif)[0]
+        pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif, cv_mask)[0]
+        neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif, cv_mask)[0]
 
         take_pos = pos >= neg
         measured_phase = phase_pos if take_pos else phase_neg
@@ -959,7 +1054,19 @@ def _run_gs_refine_session(
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array
     # into a CSV cell.
-    recorder.best_phase = best_phase
+    recorder.best_phase = displayed_phase(best_phase)
     recorder.best_frame = best_frame
     recorder.best_stage = best_stage
+    recorder.blaze_choice = (
+        {
+            "period_px": overlay.blaze_period_px,
+            "direction": overlay.blaze_direction,
+            "zero_xy": choice.zero_xy,
+            "signal_xy": choice.signal_xy,
+            "separation_px": choice.separation_px,
+            "signal_peak": choice.signal_peak,
+            "trials": choice.trials,
+        }
+        if overlay is not None else None
+    )
     return recorder
