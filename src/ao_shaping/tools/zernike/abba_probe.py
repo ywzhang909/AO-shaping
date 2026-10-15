@@ -63,6 +63,7 @@ from ao_shaping.tools.zernike.sweep_probe import (
 )
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.io.cli_helpers import parse_floats as _parse_floats
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 #: RNG seed for the dense coefficient maps. Pinned so a run is reproducible up
@@ -454,10 +455,6 @@ def save_abba_records_pkl(path: Path, rows: Sequence[dict[str, Any]]) -> Path:
     with path.open("wb") as handle:
         pickle.dump(payload, handle, protocol=pickle.HIGHEST_PROTOCOL)
     return path
-
-
-def _parse_floats(text: str) -> list[float]:
-    return [float(v) for v in str(text).split(",") if v.strip()]
 
 
 def _plan_lines(params: AbbaProbeParams) -> list[str]:

@@ -58,6 +58,15 @@ def resolve_debug(ctx, flag: bool | None = None) -> bool:
     return group_flag or get_debug_mode() or bool(flag)
 
 
+def parse_floats(text: str) -> list[float]:
+    """Parse a comma-separated string of numbers into a list of floats.
+
+    Shared by the probe CLIs (drift / sweep / abba) that accept comma lists
+    like ``"1,2,3"`` or ``"1, 2, 3"``. Blank fields are dropped.
+    """
+    return [float(v) for v in str(text).split(",") if v.strip()]
+
+
 def parse_tuple(ctx, param, value):
     """Parse tuple format parameter supporting 'x,y' or '(x,y)' formats.
 

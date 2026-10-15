@@ -53,7 +53,11 @@ from ao_shaping.tools.kernels.bench_kernels import (  # noqa: F401  (capture_set
     zernike_panel,
 )
 from ao_shaping.utils.cli.params import ClickGroup, option, with_params
-from ao_shaping.utils.io.cli_helpers import parse_tuple, setup_coredumpy
+from ao_shaping.utils.io.cli_helpers import (
+    parse_floats as _parse_floats,
+    parse_tuple,
+    setup_coredumpy,
+)
 
 #: Panel raster of the Santec SLM-200 used on this bench (height, width).
 DEFAULT_PANEL_SHAPE: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
@@ -380,10 +384,6 @@ def save_sweep_npz(path: Path, result: SweepResult) -> Path:
     np.savez_compressed(path, **result.as_columns())
     logger.info("sweep columns -> {} ({} points)", path, len(result.points))
     return path
-
-
-def _parse_floats(text: str) -> list[float]:
-    return [float(v) for v in str(text).split(",") if v.strip()]
 
 
 @dataclass

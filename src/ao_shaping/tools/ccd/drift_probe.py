@@ -434,10 +434,6 @@ def _paced(capture: Callable[[], np.ndarray], period_s: float) -> Callable[[], n
     return take
 
 
-def _parse_floats(text: str) -> list[float]:
-    return [float(v) for v in str(text).split(",") if v.strip()]
-
-
 @dataclass
 class DriftProbeParams:
     """平场漂移 + 曝光阶梯探针的 CLI 参数。
@@ -574,7 +570,10 @@ def _summary_npz(
 @with_params(DriftProbeParams, kw_name="params")
 def main(params: DriftProbeParams) -> None:
     """Measure drift then the exposure ladder on hardware, and persist both."""
-    from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+    from ao_shaping.utils.io.cli_helpers import (
+        parse_floats as _parse_floats,
+        setup_coredumpy,
+    )
 
     setup_coredumpy()
     ladder = _parse_floats(params.exposure_ladder)
