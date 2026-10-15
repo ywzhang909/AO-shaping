@@ -80,16 +80,16 @@
 
 ## Device 基类接口
 
-所有硬件设备驱动都继承自 [`Device`](device_base.py:129) 基类。该类位于 `device_base.py` 文件中。
+所有硬件设备驱动都继承自 [`Device`](device_base.py:130) 基类。该类位于 `device_base.py` 文件中。
 
 ### 抽象方法（必须实现）
 
 | 方法 | 说明 | 抛出异常 |
 |------|------|----------|
-| [`open()`](device_base.py:201) | 打开设备连接 | `ConnectionError`, `DeviceError` |
-| [`close()`](device_base.py:211) | 关闭设备连接 | - |
-| [`is_connected()`](device_base.py:216) | 检查设备是否已连接 | - |
-| [`get_hardware_info()`](device_base.py:221) | 获取硬件信息 | - |
+| [`open()`](device_base.py:225) | 打开设备连接 | `ConnectionError`, `DeviceError` |
+| [`close()`](device_base.py:235) | 关闭设备连接 | - |
+| [`is_connected()`](device_base.py:240) | 检查设备是否已连接 | - |
+| [`get_hardware_info()`](device_base.py:245) | 获取硬件信息 | - |
 
 ### 属性
 
@@ -99,7 +99,7 @@
 | `metadata` | `DeviceMetadata` | 设备元数据 |
 | `state` | `DeviceState` | 当前设备状态 |
 
-### 状态枚举 ([`DeviceState`](device_base.py:32))
+### 状态枚举 ([`DeviceState`](device_base.py:33))
 
 ```python
 class DeviceState(Enum):
@@ -130,7 +130,7 @@ class DeviceType(Enum):
 
 ## 设备类型与接口定义
 
-### 1. 相机/CCD 接口 ([`BaseCamera`](ccd/base.py:15))
+### 1. 相机/CCD 接口 ([`BaseCamera`](ccd/base.py:29))
 
 相机驱动需继承 `BaseCamera` 抽象类：
 
@@ -194,7 +194,7 @@ class BaseCamera(ABC):
         pass
 ```
 
-### 2. 变形镜/DM 接口 ([`DM`](dm/base.py:4))
+### 2. 变形镜/DM 接口 ([`DM`](dm/base.py:11))
 
 DM 驱动需继承 `DM` 抽象类：
 
@@ -230,7 +230,7 @@ class DM(ABC):
 
 ### 3. 空间光调制器/SLM 接口
 
-SLM 驱动通常需要实现以下功能（参考 [`Santec`](slm/santec/driver.py:35)）：
+SLM 驱动通常需要实现以下功能（参考 [`Santec`](slm/santec/driver.py:240)）：
 
 | 方法 | 说明 |
 |------|------|
@@ -244,7 +244,7 @@ SLM 驱动通常需要实现以下功能（参考 [`Santec`](slm/santec/driver.p
 
 ### 4. 波前传感器/WFS 接口
 
-WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:693)）：
+WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:712)）：
 
 | 方法 | 说明 |
 |------|------|
@@ -256,7 +256,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:69
 
 ### 5. 定时模块/TM 接口
 
-定时模块驱动（参考 [`SerialPortFSM`](tm/serial_port_fsm.py:8)）通常需要实现：
+定时模块驱动（参考 [`SerialPortFSM`](tm/serial_port_fsm.py:14)）通常需要实现：
 
 | 方法 | 说明 |
 |------|------|
@@ -277,14 +277,14 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:69
 |------|------|------|
 | [`DahengCamera`](ccd/daheng/driver.py) | `ccd/daheng/driver.py` | 大恒相机 (GigE) |
 | [`MIICamera`](ccd/miicam/driver.py:122) | `ccd/miicam/driver.py` | MiiCam 相机 (BaseCamera, 原 `MiiCamDevice`/`MIICAMDevice`) |
-| [`MockCamera`](mock_devices.py:25) | `mock_devices.py` | 模拟相机 |
+| [`MockCamera`](mock_devices.py:24) | `mock_devices.py` | 模拟相机 |
 
 ### 2. SLM 驱动
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`Santec`](slm/santec/driver.py:35) | `slm/santec/driver.py` | Santec SLM-200 SDK |
-| [`MockSLM`](mock_devices.py:250) | `mock_devices.py` | 模拟 SLM |
+| [`Santec`](slm/santec/driver.py:240) | `slm/santec/driver.py` | Santec SLM-200 SDK |
+| [`MockSLM`](mock_devices.py:256) | `mock_devices.py` | 模拟 SLM |
 
 ### 3. DM 驱动
 
@@ -294,23 +294,23 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:69
 | [`MicroDM`](dm/micro/driver.py) | `dm/micro/` | Micro-DM (R50Power) |
 | [`AsyncMicroDM`](dm/micro/asyn_driver.py) | `dm/micro/asyn_driver.py` | Micro-DM 异步版 |
 | [`SimulateDM`](sim/dm/simulated_dm.py:29) | `sim/dm/simulated_dm.py` | 模拟 DM (原 `dm/simulateDM.py`, 已并入 sim) |
-| [`MockDM`](mock_devices.py:458) | `mock_devices.py` | 模拟 DM |
+| [`MockDM`](mock_devices.py:469) | `mock_devices.py` | 模拟 DM |
 
 ### 4. WFS 驱动
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
 | [`ThorlabWFS`](wfs/thorlab_wfs.py:198) | `wfs/thorlab_wfs.py` | Thorlabs WFS (原 `wfs/ThorlabWFS.py`) |
-| [`MockWFS`](mock_devices.py:693) | `mock_devices.py` | 模拟 WFS |
+| [`MockWFS`](mock_devices.py:712) | `mock_devices.py` | 模拟 WFS |
 
 ### 5. 其他驱动
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`SerialPortFSM`](tm/serial_port_fsm.py:8) | `tm/serial_port_fsm.py` | 串口定时模块 |
-| [`MockLaser`](mock_devices.py:1114) | `mock_devices.py` | 模拟激光器 |
-| [`MockStage`](mock_devices.py:915) | `mock_devices.py` | 模拟运动台 |
-| [`MockFilter`](mock_devices.py:1341) | `mock_devices.py` | 模拟滤光轮 |
+| [`SerialPortFSM`](tm/serial_port_fsm.py:14) | `tm/serial_port_fsm.py` | 串口定时模块 |
+| [`MockLaser`](mock_devices.py:1137) | `mock_devices.py` | 模拟激光器 |
+| [`MockStage`](mock_devices.py:937) | `mock_devices.py` | 模拟运动台 |
+| [`MockFilter`](mock_devices.py:1365) | `mock_devices.py` | 模拟滤光轮 |
 
 ---
 
@@ -329,7 +329,7 @@ WFS 驱动通常需要实现以下功能（参考 [`MockWFS`](mock_devices.py:69
 
 ### 基类接口
 
-#### SimulatedDevice ([`base.py:35`](sim/base.py:35))
+#### SimulatedDevice ([`base.py:31`](sim/base.py:31))
 
 所有模拟设备的基类：
 
@@ -356,7 +356,7 @@ class SimulatedDevice(Device):
         """启用/禁用噪声"""
 ```
 
-#### OpticalDevice ([`base.py:173`](sim/base.py:173))
+#### OpticalDevice ([`base.py:167`](sim/base.py:167))
 
 光学仿真设备基类：
 
@@ -377,7 +377,7 @@ class OpticalDevice(SimulatedDevice):
         pass
 ```
 
-#### WavefrontProcessor ([`base.py:247`](sim/base.py:247))
+#### WavefrontProcessor ([`base.py:239`](sim/base.py:239))
 
 波前处理器基类（SLM、透镜等）：
 
@@ -399,7 +399,7 @@ class WavefrontProcessor(OpticalDevice):
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`SimulatedCCD`](sim/ccd/simulated_ccd.py:25) | `sim/ccd/simulated_ccd.py` | 模拟 CCD 相机 |
+| [`SimulatedCCD`](sim/ccd/simulated_ccd.py:24) | `sim/ccd/simulated_ccd.py` | 模拟 CCD 相机 |
 
 ```python
 from ao_shaping.drivers.sim.ccd import SimulatedCCD
@@ -414,7 +414,7 @@ with cam:
 
 | 驱动 | 文件 | 说明 |
 |------|------|------|
-| [`SimulatedLaser`](sim/laser/simulated_laser.py:25) | `sim/laser/simulated_laser.py` | 模拟激光器 |
+| [`SimulatedLaser`](sim/laser/simulated_laser.py:23) | `sim/laser/simulated_laser.py` | 模拟激光器 |
 
 ```python
 from ao_shaping.drivers.sim import SimulatedLaser
@@ -430,8 +430,8 @@ with laser:
 | 驱动 | 文件 | 说明 |
 |------|------|------|
 | [`SimulatedSLM`](sim/optics/simulated_slm.py:23) | `sim/optics/simulated_slm.py` | 模拟空间光调制器 |
-| [`SimulatedLens`](sim/optics/simulated_slm.py:233) | `sim/optics/simulated_slm.py` | 模拟透镜 |
-| [`SimulatedAperture`](sim/optics/simulated_slm.py:306) | `sim/optics/simulated_slm.py` | 模拟光阑 |
+| [`SimulatedLens`](sim/optics/simulated_slm.py:232) | `sim/optics/simulated_slm.py` | 模拟透镜 |
+| [`SimulatedAperture`](sim/optics/simulated_slm.py:305) | `sim/optics/simulated_slm.py` | 模拟光阑 |
 
 ```python
 from ao_shaping.drivers.sim import SimulatedSLM, SimulatedLens, SimulatedAperture
@@ -459,8 +459,8 @@ with aperture:
 | 驱动 | 文件 | 说明 |
 |------|------|------|
 | [`SimulatedTurbulentScreen`](sim/atmos/screens.py:18) | `sim/atmos/screens.py` | 湍流相位屏 |
-| [`SimulatedThermalScreen`](sim/atmos/screens.py:190) | `sim/atmos/screens.py` | 热晕相位屏 |
-| [`SimulatedATP`](sim/atmos/screens.py:296) | `sim/atmos/screens.py` | 大气传输仿真 |
+| [`SimulatedThermalScreen`](sim/atmos/screens.py:208) | `sim/atmos/screens.py` | 热晕相位屏 |
+| [`SimulatedATP`](sim/atmos/screens.py:314) | `sim/atmos/screens.py` | 大气传输仿真 |
 
 ```python
 from ao_shaping.drivers.sim.atmos import (

@@ -99,10 +99,15 @@
 
 > ⚠️ 该文件已从 2179 行重构到 **1592 行**，`calc_objective` 已抽成
 > `ShapingObjective.__call__` ⇒ **旧账本行号全部失效**，但 bug 逐条存活。
-> 🔴 **`slm_zernike_shaping.py` 是本文件的同源副本**（同样 1600 行量级、同样
-> `_row0`/`_log_row`/`learning_schedule`/饱和分支结构）⇒ **改下面任何一条都必须同时改
-> 副本**，否则测试可能只覆盖一边（历史上 R-1~R-4 四条 P0 实测**两边都有**）。
-> 副本盘点见 [archive §5.17](docs/dev/todo_archive.md)。
+> 🔴→✅ **`slm_zernique_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
+> `ee96acfe` 合入）：该 1600 行分叉（`_row0`/`_log_row`/`learning_schedule`/饱和分支
+> 结构 + `w_outside` 能量项 + `__main__` fork demo）已并入 `slm_zernique_pib.py`
+> （`w_outside`/调试产物/ABBA 等均收敛至此），`slm_zernique_shaping.py` 现仅为
+> **44 行弃用重导出 shim**（`__all__` = `SLM_WIDTH/HEIGHT/RESOLUTION`、`ObjectiveSpec`、
+> `Santec`、`SlmZerniquePibConfig`、`optimize_slm_zernique_pib`），仅供旧 import
+> 路径解析，**不含任何可独立修改的实现** ⇒ 下面各条改动**只需改 `slm_zernique_pib.py`
+> 一处**，历史「改一处必须同时改副本」的约束已失效。副本盘点见
+> [archive §5.17](docs/dev/todo_archive.md)。
 
 | ID | 摘要 | issue |
 |---|---|---|
