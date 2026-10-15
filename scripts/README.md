@@ -14,6 +14,7 @@ script from the repository root so its `data/` and `report/` paths resolve.
 | `zernike_bench/` | The Zernike calibration bench — Zernike phase written to the SLM and read back by the WFS: response matrix, linearity, far-field morphology, phase→WFS readout, and the WFS-only probe. |
 | `dm/` | Deformable mirrors: Micro-DM (R50Power) per-channel image diff pipeline, 1300-channel wiring tables, the DM response-matrix report, and the DM-side simulation references. |
 | `wfs/` | The Thorlabs WFS driver on its own: spot-field function comparison and the driver hardware smoke test. |
+| `signal_processing/` | Demo scripts for the `algorithm/signal_processing/` library: vector-beam AO propagation (`demo_wavefront_sim.py`) and slope-based wavefront reconstruction (`demo_wavefront_reconstruction.py`), extracted from the library modules' `__main__` blocks (2026-10-15, `14b1cda`, #90). |
 | `ml/` | **Data and models, no device.** Two families: the `ml/hwdataset` + `data/debug` corpus pipeline (index, distribution scan, reorganise, GIF render), and the Zernike coefficient→far-field model plus inverse shaping — forward/inverse search, U-Net vs physics, loss and metric diagnostics. |
 | `rl/` | Reinforcement learning and atmospheric turbulence: SAC / Mamba curriculum, sweeps, and run visualisation. |
 | `oopao/` | The OOPAO backend vs the legacy numpy/FFT backend, in isolation (`vs_numpy`) and end-to-end through an AO environment (`impact`). |
