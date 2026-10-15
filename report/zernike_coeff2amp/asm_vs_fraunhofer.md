@@ -1,8 +1,8 @@
 # 角谱法 (ASM) 与夫琅禾费 FFT 的分界 —— 实测记录
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_asm_vs_fraunhofer_report.py`](../../scripts/generate_asm_vs_fraunhofer_report.py)
-> **复现命令**: `python scripts/generate_asm_vs_fraunhofer_report.py`
+> **生成脚本**: [`scripts/oopao/generate_asm_vs_fraunhofer_report.py`](../../scripts/oopao/generate_asm_vs_fraunhofer_report.py)
+> **复现命令**: `python scripts/oopao/generate_asm_vs_fraunhofer_report.py`
 > **数据/关联脚本**: [`tests/ao_shaping/algorithm/test_angular_spectrum.py`](../../tests/ao_shaping/algorithm/test_angular_spectrum.py)
 > **运行环境**: 离线
 > **说明**: 角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位
