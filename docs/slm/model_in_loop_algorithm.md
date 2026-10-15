@@ -722,11 +722,11 @@ payload 的键:
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致
   光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。
   (`report/slm/model_in_loop_bench_calibration.md:49-55`)
-- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2477-2487`)。
+- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2902-2912`)。
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:1282-1291` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:2212-2221` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
@@ -734,8 +734,8 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 bake-off 相关度不达标(`slm_model_in_loop.py:1281-1291` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:1581-1589` → `model_in_loop_runner.py:337-343` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 bake-off 相关度不达标(`slm_model_in_loop.py:2211-2221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:2841-2849` → `model_in_loop_runner.py:257-263` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败和持续 reject 要走的路完全不同。
 
@@ -745,15 +745,15 @@ payload 的键:
 |---|---|---|
 | 光路 | SLM 前焦面 → f=125 mm 透镜 → CCD 后焦面(2f Fourier); CCD 坐标 = 空间频率 | `src/ao_shaping/drivers/AGENTS.md:161` |
 | SLM | Santec SLM-200 **#1**, sn `22030108`, 1920×1200, 10-bit, @1064 nm, **2π = 993 gray**, **只允许 memory mode** | `report/slm/model_in_loop_bench_calibration.md:293-294`; pitch 8 µm 见 `report/slm/bench_calibration_20261001.md:13` |
-| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` `runner_common.py:135` |
+| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` `runner_common.py:2812-2821` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:142`) |
 | 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 (0 阶浓度掉下去的那个拐点就是光斑边缘) | `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 `report/slm/model_in_loop_bench_calibration.md:181-191` |
-| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2423`(文档就写在 option 的 help 里) |
+| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2822-2834`(文档就写在 option 的 help 里) |
 | 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** | `report/slm/model_in_loop_bench_calibration.md:297-299` |
 
 > 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的
 > 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差
 > 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推
-> (`runner_common.py:2424-2437` 的 help 文本)。
+> (`runner_common.py:2835-2848` 的 help 文本)。
 >
 > ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),
 > `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是
@@ -787,7 +787,7 @@ payload 的键:
 `10954`。以 2.2 µm 像元推算应得 **~7557**, 所以**三方无一是已验证的**。
 
 `--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距
-(`runner_common.py:2451-2461`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
+(`runner_common.py:2876-2886`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
 `--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。
 
 ### 15.5 ⚠️ CLI 默认网格比唯一硬件验证过的几何粗约 16×
