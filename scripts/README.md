@@ -2982,6 +2982,40 @@ python scripts/slm/validate_flat_phase_gray.py --scan --gray-step 50
 | `--scan` | off | Full gray sweep instead of the quick 6-point check |
 | `--gray-step` | `50` | Gray step for `--scan` |
 
+### check_flat_stability.py
+
+Records repeated fixed-exposure Santec **flat** phases on a Daheng CCD to
+diagnose laser / optical-path drift before a model-in-loop run (needs hardware:
+Santec SLM #1 + Daheng CCD; exposure hard-capped to `[0.02, 0.4] ms`).
+
+**Usage:**
+```bash
+python scripts/slm/check_flat_stability.py data/debug/slm_flat_stability/<ts>
+python scripts/slm/check_flat_stability.py <out> --exposure-ms 0.02 --repeats 6 --frames 2
+```
+
+**What it does:**
+- Opens the SLM in memory mode and the Daheng camera, preserves the SLM's
+  original display across the whole session (`preserve_slm_display`)
+- Verifies the **readback** exposure after reset and after every repeat; an
+  unsafe readback aborts the run
+- Repeats a fixed flat phase `--repeats` times (`--frames` frames averaged per
+  read via `measure_flat_reference`), saving each full frame to
+  `flat_NN.npz` and appending per-read rows (UTC µs timestamp, exposure
+  readback, peak, total, fixed 60-px-ROI energy) to `measurements.json`
+- The ROI center is frozen at the first repeat's centroid so drift shows up in
+  the ROI energy rather than being chased
+
+First field use: `report/shape_trials/model_in_loop_live_20261015.md` (21 s
+replay, 0.52% ROI-energy spread).
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `output_dir` | (positional) | Artefact directory, must not exist yet |
+| `--exposure-ms` | `0.02` | Fixed exposure, clamped to `[0.02, 0.4]` ms |
+| `--repeats` | `6` | Number of flat-phase repeats (≥ 2) |
+| `--frames` | `2` | Frames averaged per read (≥ 1) |
+
 ### wfs_compare_image_functions.py
 
 Compares the old and new Thorlabs WFS spot-field image functions (needs

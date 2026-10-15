@@ -639,6 +639,20 @@ REPORTS: dict[str, ReportProvenance] = {
         "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 上机采集",
         extra_scripts=("scripts/slm/replay_gs_refine_hw.py",),
     ),
+    "report/shape_trials/model_in_loop_live_20261015.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "2026-10-15 正向模型闭环实机预检 (feat/r71-r84-closed-loop worktree; "
+            "SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，"
+            "固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，"
+            "恢复上机须先重扫面板入射位置"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/panel/panel_locate.py",
+            "scripts/slm/check_flat_stability.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
