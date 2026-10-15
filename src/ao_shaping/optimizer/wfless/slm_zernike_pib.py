@@ -617,8 +617,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     else:
         display_ctx = nullcontext(None)
 
-    # TODO： 先跑一次离线 gs() 把结果作为闭环初值，通常 3~5 次就能收敛，不用每次从零迭代
-
     cam_ctx = create_camera(config.camera)
     slm_ctx = Santec.from_params(config.slm)
 
