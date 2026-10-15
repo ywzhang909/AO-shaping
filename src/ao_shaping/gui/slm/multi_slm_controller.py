@@ -29,6 +29,80 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # probe runs in a daemon thread and is abandoned after this interval.
 SLM_PROBE_TIMEOUT_S = 3.0
 
+#: Default camera pixel pitch (μm) used when hardware detection is unavailable.
+DEFAULT_CAMERA_PIXEL_UM = 2.2
+#: Known pixel pitches for specific camera models (μm).
+#: Keyed by a substring of the camera model name.
+KNOWN_CAMERA_PIXEL_UM: dict[str, float] = {
+    "MER2-507": 2.2,
+}
+
+
+def _detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float | None:
+    """Probe the camera for its physical pixel pitch (μm).
+
+    Tries to read ``PixelSize`` from the live device via the camera SDK.
+    Falls back to a known-model table (e.g. Daheng MER2-507 = 2.2 µm).
+
+    Returns the pixel pitch in μm, or ``None`` if the camera is unavailable
+    or the value cannot be determined.
+    """
+    if cam_type == "daheng":
+        try:
+            import gxipy as gx  # type: ignore[import-untyped]
+        except (ImportError, OSError):
+            return None
+        device_manager = gx.DeviceManager()
+        dev_count, dev_info_list = device_manager.update_device_list()
+        if not dev_count or not dev_info_list or len(dev_info_list) <= cam_id:
+            return None
+        sn = dev_info_list[cam_id].get("sn")
+        model_raw: Any = dev_info_list[cam_id].get("model", "") or ""
+        if isinstance(model_raw, tuple):
+            model_raw = model_raw[0] if model_raw else ""
+        model = str(model_raw)
+        cam: Any = None
+        try:
+            cam = device_manager.open_device_by_sn(sn)
+            try:
+                pixel_size = cam.PixelSize.get()
+                if pixel_size is not None:
+                    val = float(pixel_size)
+                    if val > 0:
+                        return val
+            except Exception:
+                pass
+        except Exception as e:
+            logger.debug(f"Daheng 探测像素间距失败: {e}")
+            return None
+        finally:
+            if cam is not None:
+                try:
+                    cam.close_device()
+                except Exception:
+                    pass
+        for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
+            if known_model in model:
+                return pitch
+        return None
+    elif cam_type == "miicam":
+        try:
+            from ao_shaping.drivers.ccd.miicam.driver import MIICamera
+
+            cam = MIICamera(cam_id=cam_id)
+            cam.open()
+            try:
+                # MiiCam SDK may expose pixel size; try reading it.
+                pixel_size = getattr(cam, "pixel_size_um", None)
+                if pixel_size is not None:
+                    return float(pixel_size)
+            finally:
+                cam.close()
+        except Exception as e:
+            logger.debug(f"MiiCam 探测像素间距失败: {e}")
+        return None
+    return None
+
 
 def _scan_camera_status() -> list[dict]:
     """Scan for Daheng cameras and report whether each is free or occupied.
@@ -865,6 +939,32 @@ def render_slm_sidebar():
     else:
         st.caption("未发现大恒相机 (点击刷新尝试)")
         st.caption("连接被占用时，此处会显示占用提示")
+
+    st.markdown("")
+
+    # Camera pixel pitch configuration with auto-detect
+    pixel_um = st.session_state.get("camera_pixel_um", DEFAULT_CAMERA_PIXEL_UM)
+    col_pixel, col_detect = st.columns([3, 1])
+    with col_pixel:
+        st.number_input(
+            "相机像素间距 (μm)",
+            min_value=0.1,
+            max_value=50.0,
+            step=0.1,
+            value=float(pixel_um),
+            key="camera_pixel_um",
+            help="CCD 像元间距 (μm)。点击「探测」可尝试从硬件读取。参考: 大恒 MER2-507 = 2.2 µm",
+        )
+    with col_detect:
+        st.markdown("")
+        if st.button("探测", key="detect_camera_pixel_btn", type="secondary"):
+            detected = _detect_camera_pixel_um()
+            if detected is not None:
+                st.session_state["camera_pixel_um"] = detected
+                st.success(f"探测到像素间距: {detected} μm")
+                st.rerun()
+            else:
+                st.warning("无法探测像素间距 (相机未连接或 SDK 不可用), 使用当前值")
 
     st.markdown("")
 

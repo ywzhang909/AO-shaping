@@ -810,8 +810,11 @@ class GsRefineMethod(ShapingMethod):
         )
         for cell, (key, label, lo, hi, step, help_) in zip(st.columns(3), bench_fields):
             with cell:
+                default_val = r[key]
+                if key == "camera_pixel_um" and "camera_pixel_um" in st.session_state:
+                    default_val = st.session_state["camera_pixel_um"]
                 values[key] = self.num_input(
-                    key, label, r[key], lo, hi, step, help=help_
+                    key, label, default_val, lo, hi, step, help=help_
                 )
         values["panel_pixel_um"] = float(r["panel_pixel_um"])
 
@@ -847,7 +850,11 @@ class GsRefineMethod(ShapingMethod):
             gs_iters=int(values["gs_iters"]),
             gs_method=str(values["gs_method"]),
             panel_pixel_um=float(values["panel_pixel_um"]),
-            camera_pixel_um=float(values["camera_pixel_um"]),
+            camera_pixel_um=float(
+                st.session_state.get(
+                    "camera_pixel_um", values.get("camera_pixel_um", 2.2)
+                )
+            ),
             beam_radius_px=float(values["beam_radius_px"]),
             pupil_center=str(values["pupil_center"]),
             far_field_padding=int(values["far_field_padding"]),
@@ -1033,6 +1040,9 @@ class ModelInLoopMethod(ShapingMethod):
         return values
 
     def build_params(self, values: Mapping[str, Any]) -> SlmModelInLoopParams:
+        camera_pixel_um = float(
+            st.session_state.get("camera_pixel_um", values.get("camera_pixel_um", 2.2))
+        )
         return SlmModelInLoopParams(
             n_rounds=int(values["n_rounds"]),
             seed=int(values["seed"]),
@@ -1056,6 +1066,7 @@ class ModelInLoopMethod(ShapingMethod):
             exposure_time_ms=float(values["exposure_time_ms"]),
             max_exposure_ms=float(values["max_exposure_ms"]),
             cam_size=int(values["cam_size"]),
+            camera_pixel_um=camera_pixel_um,
             slm_number=self.slm_num,
         )
 
