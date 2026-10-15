@@ -62,13 +62,10 @@ from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegion,
     AdaptiveTrustRegionConfig,
 )
-from ao_shaping.tools.kernels.bench_kernels import (
-    BEAM_CENTER_PANEL,
-    SLM_PITCH_M,
-    crop_around_zero_order,
-    gaussian_grid,
-    phase_to_panel,
-)
+from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
+from ao_shaping.utils.slm.bench_constants import BEAM_CENTER_PANEL, SLM_PITCH_M
+from ao_shaping.utils.slm.panel_geometry import phase_to_panel
+from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 
 #: Reused rather than reimplemented: median-subtract THEN clip. Clipping the raw
 #: frame would rectify symmetric read noise into a positive pedestal
@@ -434,9 +431,6 @@ class SlmModelInLoopConfig:
     freeform_holdout_count: int = 0
     """Additional independent pixel-wise phase probes before Step B (runner
     option ``--freeform-holdout-count``). Zero keeps the historical run."""
-
-    freeform_holdout_count: int = 0
-    """Additional independent pixel-wise holdouts after the standard probes."""
 
     probe_split_hook: ProbeSplitHook | None = None
     """Override which probes train Step A and which are held out.
@@ -2388,7 +2382,6 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                         holdout_index,
                         int(config.holdout_probe_count),
                     )
-                    holdout_family = "random" if holdout_index < 2 else "structured"
                     bench.display(holdout_phase)
                     holdout_frame = prepare_frame(bench.measure())
                     holdout_grid = _to_model_grid(

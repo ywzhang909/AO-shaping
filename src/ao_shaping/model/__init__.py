@@ -1,4 +1,5 @@
 """Physical model data structures for AO-Shaping.
+from __future__ import annotations
 
 This package provides type-safe containers for the fundamental optical field
 quantities used throughout the AO system — phase maps, amplitude maps, and

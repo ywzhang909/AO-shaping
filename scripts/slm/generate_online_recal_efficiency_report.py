@@ -11,7 +11,7 @@ Writes ``report/shape_trials/online_recal_efficiency.md`` + ``figures/``.
 Provenance is stamped at write time so a re-run cannot delete it.
 
 Run:
-    python scripts/generate_online_recal_efficiency_report.py
+    python scripts/slm/generate_online_recal_efficiency_report.py
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 from matplotlib import rcParams  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 

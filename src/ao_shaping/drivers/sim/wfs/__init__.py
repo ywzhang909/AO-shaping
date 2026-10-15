@@ -1,4 +1,5 @@
 """模拟波前传感器。
+from __future__ import annotations
 
 把 OOPAO Shack-Hartmann 模型包装进共享的
 :class:`~ao_shaping.drivers.wfs.base.BaseWFS` 契约, 因此可直接替换

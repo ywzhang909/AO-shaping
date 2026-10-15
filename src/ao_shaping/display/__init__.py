@@ -1,3 +1,4 @@
+from __future__ import annotations
 from ao_shaping.display.frames import (
     EpochCurveFrame,
     Image2DFrame,

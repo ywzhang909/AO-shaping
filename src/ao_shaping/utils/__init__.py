@@ -76,6 +76,7 @@ if TYPE_CHECKING:  # pragma: no cover - for static analysers only
     from ao_shaping.utils.io.file import get_init_V_by_energy as get_init_V_by_energy
     from ao_shaping.utils.io.file import save_history as save_history
     from ao_shaping.utils.io.file import Recorder as Recorder
+    from ao_shaping.utils.io.file import RecordMode as RecordMode
     from ao_shaping.display.image_display import ImageVoltagesDisplay as ImageVoltagesDisplay
     from ao_shaping.display.image_display import ZernikeCalibrationDisplay as ZernikeCalibrationDisplay
     from ao_shaping.display.image_display import plot_funcs as plot_funcs
@@ -171,6 +172,7 @@ _LAZY_EXPORTS: dict[str, str] = {
     'get_init_V_by_energy': 'ao_shaping.utils.io.file:get_init_V_by_energy',
     'save_history': 'ao_shaping.utils.io.file:save_history',
     'Recorder': 'ao_shaping.utils.io.file:Recorder',
+    'RecordMode': 'ao_shaping.utils.io.file:RecordMode',
     'ImageVoltagesDisplay': 'ao_shaping.display.image_display:ImageVoltagesDisplay',
     'ZernikeCalibrationDisplay': 'ao_shaping.display.image_display:ZernikeCalibrationDisplay',
     'plot_funcs': 'ao_shaping.display.image_display:plot_funcs',
@@ -260,6 +262,7 @@ __all__ = [
     'ImageVoltagesDisplay',
     'PatternHelper',
     'Recorder',
+    'RecordMode',
     'Register',
     'TimestampParser',
     'ZernikeCalibrationDisplay',

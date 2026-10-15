@@ -50,7 +50,6 @@ def check_dm_unit_grad_safe(vs, adj_mat=DM_Adj, tolerance=Tolerance):
 def render(window, img, log, center, r, info="") -> None:
     import pygame
 
-    import pygame
     canvas = pygame.surfarray.make_surface(img.transpose())
     pygame.draw.circle(canvas, (255, 0, 0), center, r, 1)
     pygame.display.set_caption(info)

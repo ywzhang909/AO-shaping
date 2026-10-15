@@ -86,6 +86,7 @@ from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
+from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX
 from ao_shaping.algorithm import make_optimizer
 from ao_shaping.utils.slm.phase_embed import (
     compose_pupil_dof,
@@ -106,7 +107,8 @@ _DEFAULT_BEAM_RADIUS_PX = 450.0
 # The measured 2f focal scale for this bench: a 2*pi phase ramp over P SLM pixels
 # displaces the spot TILT_SHIFT_SCALE/P camera px. See
 # `ao_shaping.tools.slm.slm_bench_probe` (the tilt probe that measures it).
-_TILT_SHIFT_SCALE_PX = 7400.0
+# ``_TILT_SHIFT_SCALE_PX`` is imported from ``ao_shaping.utils.slm.bench_constants``
+# (single source of truth); do not re-declare it here.
 # The wavelength at which _TILT_SHIFT_SCALE_PX was measured. K = lambda*f/(d*p_cam)
 # scales WITH wavelength, so a scale measured at 1064nm must be referred to another
 # wavelength before use -- otherwise the derived focal length inherits a spurious

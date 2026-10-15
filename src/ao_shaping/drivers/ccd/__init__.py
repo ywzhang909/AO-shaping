@@ -1,4 +1,5 @@
 """CCD 相机驱动包。
+from __future__ import annotations
 
 本包提供统一接口的相机驱动。
 

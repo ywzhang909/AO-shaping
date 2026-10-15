@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Sequence
 
 import numpy as np
+from loguru import logger
 
 
 class AveragedFrame(np.ndarray):
@@ -247,3 +249,134 @@ class BaseCamera(ABC):
         y = np.arange(0, height)
         xv, yv = np.meshgrid(x, y)
         return xv, yv
+
+    def capture_fused(
+        self,
+        exposures_ms: Sequence[float],
+        *,
+        n_sample: int = 1,
+        restore_exposure: bool = True,
+    ) -> AveragedFrame:
+        """多曝光阶梯采集, 并融合成一张高动态范围合成图。
+
+        依次把相机切到 ``exposures_ms`` 的每一档曝光、每档采一帧, 再交给
+        ``ao_shaping.utils.image.exposure_fusion.exposure_fusion`` 的
+        ``"laplacian_pyramid"`` 输出融合: 短曝光保住长曝光里被削平的层次, 长曝光
+        补回短曝光的信噪比。本方法只用基类已有的抽象接口, 所以 daheng / miicam /
+        ffmpeg / image_folder / sim 各后端**零改动**即可调用。
+
+        约定与不变量
+        ---------------------
+        * **单位**: ``exposures_ms`` 与相机当前曝光同为**毫秒 (ms)**。写曝光统一
+          走 ``common.set_camera_exposure_ms``, 它优先调用 ``reset_exposure_time``
+          (MIICAM 的 Stop→设置→重启拉流必需)。
+        * **每档丢弃第一帧**: 改曝光后的第一帧可能是**陈旧帧**
+          (``reset_exposure_time`` 的文档即记录了 MIICAM 的这种情况), 所以每一档
+          都固定 ``skip_first=True``, 不交给调用方决定。
+        * **退出时恢复调用方的曝光**: 无论采集还是融合抛异常, ``finally`` 都会把
+          曝光写回进入本方法时的值。``restore_exposure=False`` 时相机停在阶梯的
+          **最后一档**。若后端压根没有可读的曝光属性, 跳过恢复并记一条 warning。
+        * **输出量纲**: 与输入帧完全相同的 0-255 探测器计数 (**不是** ``[0, 1]``),
+          dtype 为 ``float32``, 取值落在 ``[0, full_scale]`` 内。
+        * **曝光按实际生效值归一化**: 后端可能把越界的曝光钳到设备范围, 所以每档
+          都读回硬件**实际**的值再交给融合, 而不是用请求值 (否则被钳的那一档权重
+          会整体偏掉)。发生钳位时会记一条 warning。
+
+        参数:
+            exposures_ms: 曝光阶梯, 单位毫秒, 至少两档, 全部为有限正数。真实值会
+                原样传给融合算法 —— 少了它, 良曝光项会让长曝光帧以十倍以上的平均
+                权重独自胜出, 融合退化成单帧。
+            n_sample: 每档的采样帧数, 必须 ``>= 1``。``> 1`` 时
+                :meth:`get_numpy_image` 返回 ``AveragedFrame`` (float32), 融合
+                照常进行。
+            restore_exposure: 退出时是否把曝光恢复成进入本方法前的值。
+
+        返回:
+            AveragedFrame: 融合结果。``full_scale`` 是**实测**的探测器饱和值
+            (uint8 后端 255, uint16 后端 65535), 取自采集到的第一帧, 与
+            ``common.full_scale`` 同源。
+
+        异常:
+            ValueError: ``exposures_ms`` 少于两档, 或含非有限 / 非正的曝光,
+                或 ``n_sample < 1``。
+        """
+        # ``common`` 在 common.py 里 ``from ao_shaping.drivers.ccd.base import
+        # BaseCamera``, 所以模块作用域的 import 会构成循环依赖、直接炸掉
+        # ``import ao_shaping.drivers.ccd``。仅为此理由延后到函数体内。
+        from ao_shaping.drivers.ccd import common
+
+        # ``utils/`` 从不 import ``drivers/``, 因此这里放模块作用域是合法的 ——
+        # 但本模块刻意只 import abc / numpy / loguru, 保持导入面最小; 同理延后。
+        from ao_shaping.utils.image.exposure_fusion import exposure_fusion
+
+        exposures = [float(value) for value in exposures_ms]
+        if len(exposures) < 2:
+            raise ValueError(
+                f"exposure ladder needs at least two exposures, got {exposures!r}"
+            )
+        for index, value in enumerate(exposures):
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(
+                    f"exposures_ms[{index}] must be a finite positive float, "
+                    f"got {value!r}"
+                )
+        samples = int(n_sample)
+        if samples < 1:
+            raise ValueError(f"n_sample must be >= 1, got {n_sample!r}")
+
+        original_exposure: float | None = None
+        try:
+            original_exposure = common.get_camera_exposure_ms(self)
+        except AttributeError:
+            # 该后端既没有 ``exposure_time_ms`` 也没有 ``exposure_time``, 没有可恢复
+            # 的原值。这不是错误: 阶梯本身照常跑完, 只是退出后停在最后一档。
+            logger.warning(
+                "{} exposes no readable exposure time; leaving the camera at the "
+                "last ladder exposure {:.4f} ms",
+                type(self).__name__,
+                exposures[-1],
+            )
+
+        frames: list[np.ndarray] = []
+        applied: list[float] = []
+        try:
+            for ms in exposures:
+                common.set_camera_exposure_ms(self, ms)
+                # 记录**实际生效**的曝光而不是请求值: 后端会把越界值钳到设备范围
+                # (``DahengCamera.reset_exposure_time`` 如此, 且按 ABC 契约返回
+                # 实际值), 而 ``set_camera_exposure_ms`` 丢弃那个返回值、只回报请求
+                # 值。Stage 0 的曝光归一化必须吃实际值, 否则该帧权重会整体按钳位
+                # 比例偏掉而不报任何错。既然后端无可读曝光属性, 只能退回请求值。
+                if original_exposure is None:
+                    applied.append(ms)
+                else:
+                    effective = float(common.get_camera_exposure_ms(self))
+                    applied.append(effective)
+                    if abs(effective - ms) > 1e-9:
+                        logger.warning(
+                            "exposure {} ms was clamped to {} ms; the fusion "
+                            "normalises this frame by the value actually used",
+                            ms,
+                            effective,
+                        )
+                frames.append(self.get_numpy_image(samples, skip_first=True))
+        finally:
+            if restore_exposure and original_exposure is not None:
+                common.set_camera_exposure_ms(self, original_exposure)
+
+        detector_full_scale = float(common.full_scale(frames[0]))
+        fused = exposure_fusion(
+            frames,
+            exposures_ms=applied,
+            full_scale=detector_full_scale,
+        )["laplacian_pyramid"]
+
+        # ``AveragedFrame.__new__`` 要读 ``np.iinfo(source_dtype).max``, 所以只能传
+        # **整数** dtype: ``n_sample > 1`` 时 ``get_numpy_image`` 返回的是 float32 的
+        # ``AveragedFrame``, 而 ``np.iinfo(np.float32)`` 会抛 ValueError。
+        source_dtype = np.dtype(np.uint8 if detector_full_scale <= 255.0 else np.uint16)
+        result = AveragedFrame(fused, source_dtype)
+        # iinfo 的猜测只对两种标准位深恰好等于真实饱和值; 14 bit 之类 (16383) 没有
+        # 对应的标准 dtype, 因此把实测值显式带上。
+        result.full_scale = detector_full_scale
+        return result

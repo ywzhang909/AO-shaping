@@ -234,8 +234,14 @@ _EXPOSURE_RECORD_KEYS: tuple[str, ...] = ("exp_t", "exposure_ms", "exposure_time
 _EXPOSURE_SIDECAR_KEYS: tuple[str, ...] = ("exposure_ms", "exposure_time_ms")
 _N_MAX_SIDECAR_KEY = "n_max"
 
+#: Sidecar key naming the ``(n, m)`` pairs a record's ``_c`` spans. Written by the
+#: square family's zernike basis, whose ``_c`` holds only its active modes.
+_ACTIVE_MODES_SIDECAR_KEY = "active_modes"
+
 #: Bumped whenever the on-disk cache layout changes; a mismatch forces a rescan.
-_CACHE_VERSION = 2
+#: 3 adds ``HwRecordRef.active_modes`` (rule 4b). A v2 cache deserialised without
+#: it would leave every active-mode record reconstructing from a short ``_c``.
+_CACHE_VERSION = 3
 
 #: Exceptions that mean "this file is not a usable record dump". A corrupt or
 #: truncated pickle raises a surprisingly wide set of them, so each is listed
@@ -325,6 +331,9 @@ class HwRecordRef:
         n_max: Zernike radial order, when known (Zernike sources only).
         freeform_grid: Grid side, when :attr:`source` is
             :attr:`PhaseSource.FREEFORM`.
+        active_modes: The ``(n, m)`` pairs ``_c`` spans, when the sidecar declares
+            them. Non-``None`` means ``_c`` is a *partial* vector and the
+            materialiser must scatter it out to full length first.
         exposure_ms: Resolved camera exposure in milliseconds, or ``None``.
         sidecar: Read-only view of the merged sidecar JSON (``{}`` when absent).
             One proxy is shared by every record of a file, so this costs one small
@@ -341,6 +350,7 @@ class HwRecordRef:
     freeform_grid: int | None
     exposure_ms: float | None
     sidecar: Mapping[str, Any]
+    active_modes: tuple[tuple[int, int], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -593,6 +603,10 @@ class _Verdict:
     n_terms: int = 0
     n_max: int | None = None
     freeform_grid: int | None = None
+    #: The ``(n, m)`` pairs ``_c`` actually spans, when the sidecar says so.
+    #: Non-empty means ``_c`` holds only those modes, NOT a full Noll vector, so
+    #: the materialiser has to scatter them out before reconstructing.
+    active_modes: tuple[tuple[int, int], ...] | None = None
     reason: ExclusionReason | None = None
 
 
@@ -610,6 +624,41 @@ def _as_float(value: Any) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _sidecar_active_modes(
+    sidecar: Mapping[str, Any],
+) -> tuple[tuple[int, int], ...] | None:
+    """Read ``active_modes`` from a sidecar as ``(n, m)`` pairs.
+
+    The square family's zernike basis stores only the modes it actually drives, so
+    ``_c`` is shorter than any full Noll vector and rule 5 would exclude it. The
+    sidecar is the only place that says which modes those were -- ``zernike_mask``
+    cannot substitute, being ``None`` on a default run.
+
+    Args:
+        sidecar: Merged sidecar mapping.
+
+    Returns:
+        The declared modes, or ``None`` when the sidecar does not declare them or
+        the declaration is unusable. ``None`` means "no opinion", never "empty":
+        an empty ``_c`` is already handled as ``MISSING_PHASE`` upstream.
+    """
+    raw = sidecar.get(_ACTIVE_MODES_SIDECAR_KEY)
+    if not isinstance(raw, (list, tuple)) or not raw:
+        return None
+    modes: list[tuple[int, int]] = []
+    for entry in raw:
+        if not isinstance(entry, (list, tuple)) or len(entry) != 2:
+            return None
+        n, m = entry
+        if isinstance(n, bool) or isinstance(m, bool):
+            return None
+        try:
+            modes.append((int(n), int(m)))
+        except (TypeError, ValueError):
+            return None
+    return tuple(modes)
 
 
 def _sidecar_n_max(sidecar: Mapping[str, Any]) -> int | None:
@@ -742,6 +791,17 @@ def _classify(record: Any, sidecar: Mapping[str, Any], family: str) -> _Verdict:
     if triangular_order is not None:
         return _Verdict(
             source=PhaseSource.ZERNIKE, n_terms=n_terms, n_max=triangular_order
+        )
+    # Rule 4b: the sidecar names the modes `_c` spans. Checked before rule 5
+    # because an active-mode vector has a length no shape test can recognise --
+    # 2 by default, which is neither triangular nor a perfect square.
+    active = _sidecar_active_modes(sidecar)
+    if active is not None and order is not None and n_terms == len(active):
+        return _Verdict(
+            source=PhaseSource.ZERNIKE,
+            n_terms=n_terms,
+            n_max=order,
+            active_modes=active,
         )
     # Rule 5.
     return _Verdict(n_terms=n_terms, reason=ExclusionReason.ODD_COEFFICIENT_LENGTH)
@@ -904,6 +964,7 @@ def _scan_file(pkl_path: Path) -> _FileScan:
                 freeform_grid=verdict.freeform_grid,
                 exposure_ms=_resolve_exposure(record, sidecar),
                 sidecar=sidecar,
+                active_modes=verdict.active_modes,
             )
         )
 
@@ -982,6 +1043,11 @@ def _index_to_payload(
                 "source": record.source.value,
                 "n_terms": int(record.n_terms),
                 "n_max": None if record.n_max is None else int(record.n_max),
+                "active_modes": (
+                    None
+                    if record.active_modes is None
+                    else [[int(n), int(m)] for n, m in record.active_modes]
+                ),
                 "freeform_grid": (
                     None if record.freeform_grid is None else int(record.freeform_grid)
                 ),
@@ -1058,6 +1124,10 @@ def _payload_to_index(
                     source=PhaseSource(str(item["source"])),
                     n_terms=int(item.get("n_terms") or 0),
                     n_max=None if item.get("n_max") is None else int(item["n_max"]),
+                    # Reused deliberately: a corrupt entry then degrades to "no opinion".
+                    active_modes=_sidecar_active_modes(
+                        {_ACTIVE_MODES_SIDECAR_KEY: item.get("active_modes")}
+                    ),
                     freeform_grid=(
                         None
                         if item.get("freeform_grid") is None

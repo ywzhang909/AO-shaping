@@ -82,6 +82,7 @@ PROBE_MODULES: dict[str, str] = {
     "slm_panel_locate": "ao_shaping.tools.slm.panel.panel_locate",
     "slm_phase_resolution": "ao_shaping.tools.slm.panel.phase_resolution",
     "slm_phase_response": "ao_shaping.tools.slm.panel.phase_response",
+    "slm_short_exposure_probe": "ao_shaping.tools.ccd.short_exposure_probe",
     "slm_tilt_probe": "ao_shaping.tools.slm.panel.tilt_probe",
     "slm_train_data_collect": "ao_shaping.tools.slm.calibration.train_data_collect",
     "slm_wfs_probe": "ao_shaping.tools.wfs.wfs_probe",
@@ -411,10 +412,10 @@ def test_other_split_flag_spellings_survive(
 
 
 def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
-    """316 declared flags across 20 probes. A drop here means the scan went blind.
+    """318 declared flags across 21 probes. A drop here means the scan went blind.
 
     Declared and help-visible counts differ legitimately: click adds a built-in
-    ``--help`` to all 20, and some probes declare ``hidden=True`` options that
+    ``--help`` to all 21, and some probes declare ``hidden=True`` options that
     never render. Both numbers are pinned so a change in either direction is seen.
 
     287 -> 285 on 2026-10-04: ``slm_zernike_sweep_probe`` declared
@@ -434,13 +435,19 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     drift rejection before trusting a locate) and a settle-sampling knob on
     ``floor_probe``. The probe golden was stale for both files and had to be
     regenerated; these pins follow it.
+
+    316 -> 318 / 329 -> 332 / 20 -> 21: ``ccd/short_exposure_probe`` landed
+    upstream (2 declared + 1 help-visible via click's built-in ``--help``)
+    without being added to :data:`PROBE_MODULES` or re-baselining this guard.
+    The probe golden was regenerated via ``AO_PROBE_HELP_UPDATE=1``; these
+    pins follow it.
     """
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 316, f"declared flag inventory is {declared}, expected 316"
-    assert visible == 329, f"help-visible flag inventory is {visible}, expected 329"
-    assert len(PROBES) == 20
+    assert declared == 318, f"declared flag inventory is {declared}, expected 318"
+    assert visible == 332, f"help-visible flag inventory is {visible}, expected 332"
+    assert len(PROBES) == 21
 
 
 # ---------------------------------------------------------------------------

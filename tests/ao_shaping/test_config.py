@@ -221,6 +221,71 @@ class TestResolveDmWithPropertyDm:
         assert all(v == 0.0 for v in voltages)
 
 
+class TestNonActuatorDMsAreExcluded:
+    """``DM_N_ACTUATORS`` must not be sourced from a virtual or modal count.
+
+    ``registry.is_reachable()`` hardcodes ``True`` for exactly the classes that
+    have no device behind them, and they sort ahead of a real NLight entry, so
+    "first reachable" resolved to ``SimMicroDM``'s 50 -- and, once that was
+    excluded, to ``ZernikeDM``'s ``n_modes`` (15), which is a Zernike modal
+    order rather than an actuator count at all.
+    """
+
+    def test_simulated_and_zernike_dms_are_rejected(self):
+        from ao_shaping.config import _counts_physical_actuators
+
+        class FakeSimDM:
+            __module__ = "ao_shaping.drivers.sim.dm.simulated_micro_dm"
+
+        class FakeZernikeDM:
+            __module__ = "ao_shaping.drivers.dm.zernike_dm"
+
+        class FakeNLightDM:
+            __module__ = "ao_shaping.drivers.dm.nlight.udp"
+
+        assert _counts_physical_actuators(FakeSimDM) is False
+        assert _counts_physical_actuators(FakeZernikeDM) is False
+        assert _counts_physical_actuators(FakeNLightDM) is True
+
+    def test_real_registry_excludes_the_virtual_dms(self):
+        from ao_shaping.config import _counts_physical_actuators
+        from ao_shaping.drivers.dm._registry import get_dm_registry
+
+        registry = get_dm_registry()
+        reachable = registry.list_reachable_types()
+        assert "sim_micro" in reachable, "fixture assumes the sim DM is reachable"
+
+        for name in reachable:
+            cls = registry.get_class(name)
+            if cls.__module__.startswith("ao_shaping.drivers.sim"):
+                assert _counts_physical_actuators(cls) is False, name
+
+    def test_resolver_falls_back_to_64_when_only_virtual_dms_are_reachable(self):
+        import ao_shaping.config as config
+
+        class VirtualOnlyRegistry:
+            def list_reachable_types(self):
+                return ["sim_micro", "zernike"]
+
+            def get_class(self, name):
+                from ao_shaping.drivers.dm._registry import get_dm_registry
+
+                return get_dm_registry().get_class(name)
+
+        original = config._resolve_dm_n_actuators
+        import ao_shaping.drivers.dm._registry as registry_mod
+
+        real_get = registry_mod.get_dm_registry
+        registry_mod.get_dm_registry = lambda: VirtualOnlyRegistry()
+        try:
+            config.reset_dm_resolution_cache()
+            assert config._resolve_dm_n_actuators() == 64
+        finally:
+            registry_mod.get_dm_registry = real_get
+            config.reset_dm_resolution_cache()
+            assert config._resolve_dm_n_actuators() == original()
+
+
 class TestGetCoredumpyDirectory:
     def test_returns_string(self):
         result = get_coredumpy_directory()

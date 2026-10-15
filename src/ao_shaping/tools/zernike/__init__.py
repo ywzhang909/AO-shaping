@@ -1,4 +1,5 @@
 """SLM Zernike tools, the smooth-Zernike sweep probe and the ABBA probe.
+from __future__ import annotations
 
 Split out of ``tools/slm/`` (2026-10-12) so the WFS-Zernike correction pipeline,
 the CCD probes and the model-in-loop sweep share one Zernike module set without

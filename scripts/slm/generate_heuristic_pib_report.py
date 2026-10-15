@@ -48,7 +48,11 @@ from ao_shaping.optimizer.wfless.pib_sim_eval import SimLandscape  # noqa: E402
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts._common import format_iters, iters_to_threshold, plot_summary_bars
+from scripts._common import (
+    format_iters,
+    iters_to_threshold,
+    plot_summary_bars as _common_plot_summary_bars,  # noqa: F401
+)
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo rule)
@@ -309,7 +313,7 @@ def plot_summary_bars(results: dict[str, dict], out_dir: Path) -> None:
     the one in generate_strehl_benchmark_report, differing only in the metric key, the
     axis label and the title.
     """
-    plot_summary_bars(
+    _common_plot_summary_bars(
         results,
         out_dir / "summary_bars.png",
         metric_key="final_pib",

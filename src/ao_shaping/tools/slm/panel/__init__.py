@@ -1,4 +1,5 @@
 """SLM panel probes: characterise the SLM panel itself with a CCD (no WFS).
+from __future__ import annotations
 
 Modules:
 - ``diagnose`` — three-step hardware self-test (freeze / modulate / linearity),

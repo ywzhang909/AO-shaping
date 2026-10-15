@@ -17,7 +17,8 @@
 # Run this after adding a fixture under data/ that a test depends on.
 set -euo pipefail
 
-REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Two levels below the repo root (scripts/build/); one level would resolve to scripts/.
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 STAGE="${AO_TEST_DATA:-$HOME/ao-testdata}"
 
 EXCLUDE_RE='^(debug|slm_dual_spot|zernike_pred|fouriergsnet_sim|fouriergsnet_sim_replay)$'

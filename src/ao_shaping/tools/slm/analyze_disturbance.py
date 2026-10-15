@@ -1,4 +1,5 @@
 """Recompute paired-run metrics with the optical axis frozen from each flat."""
+from __future__ import annotations
 
 import argparse
 import json

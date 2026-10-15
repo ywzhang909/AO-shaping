@@ -1,4 +1,5 @@
 """模拟变形镜设备。
+from __future__ import annotations
 
 本子包提供仿真 DM 设备, 用于在没有真实硬件的情况下测试与开发。
 """

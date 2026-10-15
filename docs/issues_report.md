@@ -181,7 +181,7 @@ cls = registry.get_class(reachable[0])
    ⚠️ 2026-10-01：`utils/wfs_utils.py` 早已重构为 `utils/wavefront/wfs_utils.py`（`TYPE_CHECKING` 保护已落地，见 §1.1）；
    当前的 `utils/` 叶子化**阻断项**是 `utils/wavefront/pattern_helper.py:20` 的裸 `import aotools`
    与 `utils/__init__.py` 的 98 个 eager 名字，见 `TODO.md` R-20。
-3. **`src/ml/` 迁移**: 将 `src/ml/` 移入 `src/ao_shaping/ml/` 并更新所有引用。**仍未做**（现状：`src/ml/` 存在，`src/ao_shaping/ml/` 不存在），见 `TODO.md` F-4。
+3. ~~**`src/ml/` 迁移**~~ — ✅ **决策已定（2026-10-14）：不迁移，保留 `src/ml/` 独立顶层包**。依赖方向是 ml→主包（`ml` 顶层 import `ao_shaping.utils/algorithm/drivers.sim`），它是主包消费方而非子模块；torch 可选性已由 `ao_shaping/__init__.py` + `runners/__init__.py` 的 PEP-562 惰性隔离（实测 `import ao_shaping` 不加载 torch），`gsnet_runner.py` 顶层 `from ml...` 属 GSNet 专用 runner、被 `_LAZY_RUNNERS` 惰性加载，`import ao_shaping.runners` 不拖 torch，**无需改动**。迁移 155 个 `from ml.` 文件 + 入口点 + 路径字符串，零实际收益。见 `TODO.md` F-4 与 issue #55 的 2026-10-14 决策评论。
 4. ~~**删减空目录** `drivers/sim/wfs/` 和 `drivers/sim/slm/`~~ — ❌ **建议已失效**：
    `drivers/sim/wfs/` 现在**有内容**（`simulated_wfs.py`，OOPAO Shack-Hartmann 仿真 WFS，
    是 2026-10-01 merge 的主要产物之一）；`drivers/sim/slm/` **本就不存在**。

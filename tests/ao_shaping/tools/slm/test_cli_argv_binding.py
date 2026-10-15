@@ -1117,11 +1117,13 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # 18 -> 21 and 15 -> 18 when slm_abba_probe / slm_drift_probe / slm_floor_probe
     # were added upstream; 21 -> 22 and 18 -> 20 when slm_train_data_collect landed
     # (1 Santec session + 2 camera opens); 22 -> 23 when gs_refine_replay landed
-    # (1 Santec session, 0 camera opens). This guard pins the census so a *refactor*
-    # cannot quietly consolidate device sessions; adding a genuinely new probe is a
-    # legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 23, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 21, f"camera-open call sites changed: {camera}"
+    # (1 Santec session, 0 camera opens); 23 -> 25 and 21 -> 23 when
+    # replay_disturbance (1 Santec + 1 camera) and ccd/short_exposure_probe
+    # (1 Santec + 1 camera) landed upstream. This guard pins the census so a
+    # *refactor* cannot quietly consolidate device sessions; adding a genuinely
+    # new probe is a legitimate change and must be re-baselined here deliberately.
+    assert sum(santec.values()) == 25, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 23, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1137,8 +1139,10 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/floor_probe.py": 1,
+        "ccd/short_exposure_probe.py": 1,
         "wfs/wfs_probe.py": 1,
         "wfs/wfs_reference.py": 1,
         "wfs/zernike_correction.py": 1,
@@ -1161,9 +1165,11 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
+        "slm/replay_disturbance.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/exposure_check.py": 1,
         "ccd/floor_probe.py": 1,
+        "ccd/short_exposure_probe.py": 1,
         "zernike/abba_probe.py": 1,
         "zernike/sweep_probe.py": 1,
         "kernels/sweep_analysis.py": 1,

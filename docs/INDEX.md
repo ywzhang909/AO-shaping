@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 116 个 Markdown 文档（2026-10-14 盘点）。新文档请在本索引登记后再提交。
+> 共 120 个 Markdown 文档（2026-10-14 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -70,7 +70,7 @@
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
 
-## SLM 空间光调制器 — 15 篇
+## SLM 空间光调制器 — 16 篇
 
 | 文档 | 说明 |
 |---|---|
@@ -83,6 +83,7 @@
 | `slm/zernike_matrix.md` | SLM Zernike 响应矩阵标定 + 离线矫正自检 |
 | `slm/rms_zernike.md` | SLM Zernike RMS 优化（SPGD/Adam/AdaMOD） |
 | `slm/slm_lut.md` | 灰度-相位 LUT 标定（半屏参考/测试光栅，±1 级衍射效率比值） |
+| `slm/闭环光束整形_文献与优化建议_20261014.md` | 闭环整形文献×实验×优化建议（GS/SPGD/正向模型/freeform，24 条 DOI 已核实） |
 | `slm/slm_diagnose.md` | SLM+相机逐级硬件自检（2026-09 三步证据链固化） |
 | `slm/pre_run_characterization.md` | 台架开机表征指南（先量台架的必要性） |
 | `slm/slm_pattern_helper.md` | `PatternHelper` 相位图案生成工具类指南 |

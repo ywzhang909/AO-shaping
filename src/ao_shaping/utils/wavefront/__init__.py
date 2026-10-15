@@ -6,6 +6,7 @@ Moved from the flat ``ao_shaping.utils`` package (refactor D1-W2).
 
 from __future__ import annotations
 
+from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.wavefront.pattern_helper import (
     PatternHelper,
     PhaseUnwrapperHelper,
@@ -54,6 +55,8 @@ from ao_shaping.utils.wavefront.zernike_calc import (
 
 
 __all__ = [
+    # beam_amplitude
+    "gaussian_grid",
     # pattern_helper
     "PatternHelper",
     "PhaseUnwrapperHelper",

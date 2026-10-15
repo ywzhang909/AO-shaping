@@ -100,13 +100,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
         extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
     ),
-    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
-        script="scripts/generate_asm_vs_fraunhofer_report.py",
-        command="python scripts/generate_asm_vs_fraunhofer_report.py",
-        environment="离线",
-        note="角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
-        extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
-    ),
 
     "report/inverse_shaping_unet/report.md": ReportProvenance(
         script="scripts/ml/generate_inverse_shaping_report.py",
@@ -659,12 +652,6 @@ REPORTS: dict[str, ReportProvenance] = {
         "随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，"
         "本日未重新独立标定其尺度/入射振幅/面板配准",
     ),
-    "report/shape_trials/online_20261010.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="硬件",
-        note="2026-10-10 整形上机记录；figures/ 动画由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
-    ),
     "report/shape_trials/model_in_loop_live_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
@@ -708,14 +695,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "gs_golden_reference.md"
         ),
     ),
-    "report/shape_trials/README.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note="方形整形实验目录索引",
-    ),
     "report/shape_trials/online_recal_efficiency.md": ReportProvenance(
-        script="scripts/generate_online_recal_efficiency_report.py",
-        command="python scripts/generate_online_recal_efficiency_report.py",
+        script="scripts/slm/generate_online_recal_efficiency_report.py",
+        command="python scripts/slm/generate_online_recal_efficiency_report.py",
         environment="离线",
         note=(
             "光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导"
@@ -725,10 +707,10 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/fast_recal_adapter.md": ReportProvenance(
-        script="scripts/exp_fast_recal_adapter_report.py",
+        script="scripts/ml/exp_fast_recal_adapter_report.py",
         command=(
-            "python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
-            "&& python scripts/exp_fast_recal_adapter_report.py"
+            "python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
+            "&& python scripts/ml/exp_fast_recal_adapter_report.py"
         ),
         environment="离线",
         note=(
@@ -737,11 +719,11 @@ REPORTS: dict[str, ReportProvenance] = {
             "sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; "
             "数据为仿真, 非台架实测"
         ),
-        extra_scripts=("scripts/exp_fast_recal_adapter.py",)
+        extra_scripts=("scripts/slm/exp_fast_recal_adapter.py",)
     ),
     "report/shape_trials/gs_golden_reference.md": ReportProvenance(
-        script="scripts/generate_gs_golden_reference.py",
-        command="python scripts/generate_gs_golden_reference.py",
+        script="scripts/slm/generate_gs_golden_reference.py",
+        command="python scripts/slm/generate_gs_golden_reference.py",
         environment="离线",
         note=(
             "GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; "
@@ -751,8 +733,8 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     "report/shape_trials/model_in_loop_cv.md": ReportProvenance(
-        script="scripts/generate_model_in_loop_cv_report.py",
-        command="python scripts/generate_model_in_loop_cv_report.py",
+        script="scripts/slm/generate_model_in_loop_cv_report.py",
+        command="python scripts/slm/generate_model_in_loop_cv_report.py",
         environment="离线",
         note=(
             "model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "

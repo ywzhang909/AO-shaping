@@ -1,8 +1,8 @@
 # 光路变化后的在线重标定：效率分析 (2026-10-13)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_online_recal_efficiency_report.py`](../../scripts/generate_online_recal_efficiency_report.py)
-> **复现命令**: `python scripts/generate_online_recal_efficiency_report.py`
+> **生成脚本**: [`scripts/slm/generate_online_recal_efficiency_report.py`](../../scripts/slm/generate_online_recal_efficiency_report.py)
+> **复现命令**: `python scripts/slm/generate_online_recal_efficiency_report.py`
 > **运行环境**: 离线
 > **说明**: 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量
 <!-- provenance:end -->
@@ -56,10 +56,10 @@
 
 | 位置 | 符号 |
 |---|---|
-| `src/ao_shaping/optimizer/wfless/slm_gs_refine.py:110` | `_TILT_SHIFT_SCALE_PX` |
+| `src/ao_shaping/optimizer/wfless/slm_gs_refine.py:109` | `_TILT_SHIFT_SCALE_PX` |
 | `src/ao_shaping/runners/runner_common.py:137` | `_TILT_SHIFT_SCALE_PX` |
 | `src/ao_shaping/tools/kernels/bench_kernels.py:116` | `TILT_SHIFT_SCALE` |
-| `scripts/generate_bench_probe_report.py:77` | `FALLBACK_TILT_SHIFT_SCALE` |
+| `scripts/slm/generate_bench_probe_report.py:77` | `FALLBACK_TILT_SHIFT_SCALE` |
 
 > ⚠️ 口径说明：直接 grep `7400` 会得到 11 处命中，但其中 **6 处是注释与文档字符串里的叙述**
 > （`slm_gs_refine.py` 的推导说明、`matrix_utils.py` 的 docstring、`tilt_probe.py` 的斜率注释），
@@ -81,12 +81,12 @@
 
 | 副作用 | 实测 |
 |---|---|
-| 引入 `ao_shaping.drivers.*` | **是** |
+| 引入 `ao_shaping.drivers.*` | 否 |
 | 引入 `ctypes` | **是** |
 | **加载原生 SDK（`gxipy`）** | 否 |
 
 ⇒ 理由**方向成立但比原文写的弱**：
-驱动包确实被拖进来了，
+驱动包并未被拖进来，
 `ctypes` 也被引入——
 对一个纯离线报告生成器这是不该有的副作用（运行时可见 `register_camera` 的 DEBUG 行）；
 但由于 PEP-562 惰性契约，**真正的原生 SDK 并未被加载**。
@@ -126,7 +126,8 @@ grep 挡不住藏在函数体里的延迟 import）。
 
 runbook 的采集阶段默认探针数（`--probes`，另行扫描）：
 
-- `scripts/model_in_loop_hw_runbook.py:1090: ap.add_argument("--probes", type=int, default=12)`
+- `src/ao_shaping/tools/slm/compare_disturbance.py:177: parser.add_argument("--probes", type=int, default=4)`
+- `scripts/slm/model_in_loop_hw_runbook.py:1095: ap.add_argument("--probes", type=int, default=12)`
 
 ## 5. 提效杠杆（按收益/成本排序）
 

@@ -1,9 +1,9 @@
 # 光路变化后如何最快适配：少参数在线微调 (2026-10-13)
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/exp_fast_recal_adapter_report.py`](../../scripts/exp_fast_recal_adapter_report.py)
-> **复现命令**: `python scripts/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 && python scripts/exp_fast_recal_adapter_report.py`
-> **数据/关联脚本**: [`scripts/exp_fast_recal_adapter.py`](../../scripts/exp_fast_recal_adapter.py)
+> **生成脚本**: [`scripts/ml/exp_fast_recal_adapter_report.py`](../../scripts/ml/exp_fast_recal_adapter_report.py)
+> **复现命令**: `python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 && python scripts/ml/exp_fast_recal_adapter_report.py`
+> **数据/关联脚本**: [`scripts/slm/exp_fast_recal_adapter.py`](../../scripts/slm/exp_fast_recal_adapter.py)
 > **运行环境**: 离线
 > **说明**: 光路变化后少参数在线适配实验 (14 低阶 Zernike / 2 几何标量 / 冻结 CNN 三组互不相交参数); 三类扰动 (低阶像差 / 高阶像差对照 / 几何漂移) x 6 seed 配对, sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; 数据为仿真, 非台架实测
 <!-- provenance:end -->

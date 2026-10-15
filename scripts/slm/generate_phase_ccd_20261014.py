@@ -1,4 +1,4 @@
-﻿"""Generate supplementary images for the 2026-10-14 model-in-loop live report.
+"""Generate supplementary images for the 2026-10-14 model-in-loop live report.
 
 This script renders figures showing phase and CCD images for each experimental condition:
 - Phase images from best_phase.npy files
@@ -19,6 +19,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 IMG_DIR = ROOT / "report" / "shape_trials" / "images"

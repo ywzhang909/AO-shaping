@@ -1,9 +1,11 @@
-"""Rule-parity tests for ``slm_zernike_shaping.ObjectiveSpec``.
+"""Rule-parity tests for the shared ``ObjectiveSpec`` resolver.
 
-``slm_zernike_shaping`` is the sandbox copy of ``slm_zernike_pib`` where the
-inline ``(objective, target_shape)`` if-else was refactored into a single nested
-``ObjectiveSpec.resolve(objective, target_shape)`` value object. These tests pin
-that the resolver reproduces the ORIGINAL rules EXACTLY:
+``ObjectiveSpec`` was introduced in the ``slm_zernike_shaping`` sandbox copy of
+``slm_zernike_pib`` (the inline ``(objective, target_shape)`` if-else refactored
+into a single nested ``ObjectiveSpec.resolve(objective, target_shape)`` value
+object). The fork has since collapsed into ``slm_zernike_pib`` (issue #74), so
+these tests import it from there. They pin that the resolver reproduces the
+ORIGINAL rules EXACTLY:
 
 * shape membership + ``target_shape`` only valid for
   ``pib``/``rmse``/``shape``/``roi_pib``/``rms_pib``;
@@ -22,7 +24,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from ao_shaping.optimizer.wfless.slm_zernike_shaping import ObjectiveSpec
+from ao_shaping.optimizer.wfless.slm_zernike_pib import ObjectiveSpec
 from ao_shaping.utils.image.targets import SHAPING_OBJECTIVE_CHOICES
 
 
@@ -118,7 +120,7 @@ class TestSimEndToEnd:
     """
 
     def test_spgd_runs_end_to_end(self, monkeypatch) -> None:
-        import ao_shaping.optimizer.wfless.slm_zernike_shaping as opt
+        import ao_shaping.optimizer.wfless.slm_zernike_pib as opt
         from ao_shaping.drivers.sim.slm_pib_sim import (
             SimSLMPib,
             register_sim_camera,

@@ -1,4 +1,4 @@
-﻿"""Generate table image for 2026-10-14 model-in-loop report."""
+"""Generate table image for 2026-10-14 model-in-loop report."""
 from __future__ import annotations
 
 import matplotlib

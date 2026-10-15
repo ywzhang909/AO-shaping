@@ -179,7 +179,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
 3. **`delta<0.001` 在 `n_max=9` (54 自由度) 下不可用**: 实测多模式 SNR ≈ 1.3, 95% 迭代被门控。若必须满足该约束, 只能显著降低 `n_max`(自由度越少, 稀释越轻)。
 4. **`delta≈0.1` 是当前 `n_max=9` 的可用区间**; `0.2` 会触发亮度折叠门(45/60 被拒) —— ⚠️ 2026-10-01: 同目录 `EXPERIMENT_REPORT.md:153` 对同一现象记的是 **144/200** 被拒，两个分母未对账, 过大反而更差。
 5. **加帧数不能降噪**, 只能靠 `+ - - +` 漂移对消; 任何降噪方案先验证是否真的降低了 σ。`n_eval_frames=4` 的 smoke 出现 16/16 全被折断门拒绝, 属于独立失效模式。
-6. 目标函数选择请参考 [三目标对比报告](../slm_pib_online_hw/objective_comparison.md) —— ⚠️ 2026-10-01: **该目录不存在**（被 `.gitignore:112` 的 `report/slm_pib_online*` 排除），链接是死链；`EXPERIMENT_REPORT.md:12` 记录了此事: `1 - Pearson` 在实机上只优化成功、排序不可靠 (2/4 符号正确), 维持 **RISKY**, 仅作显式可选目标并保留能量门。
+6. 目标函数选择请参考 [三目标对比报告](../slm_pib_online/objective_comparison.md) —— ⚠️ 2026-10-15: 原目录 `slm_pib_online_hw/` 已并入 `slm_pib_online/`（`report/slm_pib_online*` 曾整体被 `.gitignore:112` 排除，链接是死链），链接已指向现目录。`EXPERIMENT_REPORT.md:12` 记录了此事: `1 - Pearson` 在实机上只优化成功、排序不可靠 (2/4 符号正确), 维持 **RISKY**, 仅作显式可选目标并保留能量门。
 
 ---
 

@@ -104,10 +104,75 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
         ),
     },
     "report/shape_trials/model_in_loop_live_20261013.md": {
+        # Hardware debug artefacts under data/debug/, kept out by .gitignore
+        # (`data/*`). They exist only on the collecting bench, so the relative
+        # links resolve there but not in a clean clone.
+        "../../data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json": (
+            "bench geometry json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
         "../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
-            "hardware capture under data/debug/, which .gitignore:28 "
-            "(`data/*`) keeps out of the repo entirely -- it exists only "
-            "on the collecting machine, so the embed cannot resolve here."
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_in_loop/20261013_145819/best_far_field.png": (
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_in_loop/20261013_152341/best_far_field.png": (
+            "hardware capture under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json": (
+            "exposure analysis json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv": (
+            "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv": (
+            "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv": (
+            "paired csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_model_compare/20261013_2015_new_session/phase_bandwidth_paired.csv": (
+            "paired csv under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+        "../../data/debug/slm_disturbance_compare/20261013_165039/disturbance.json": (
+            "disturbance json under data/debug/, gitignored (`data/*`) -- "
+            "exists only on the collecting machine."
+        ),
+    },
+    "report/micro_deformable_mirror/voltage_test.md": {
+        # R50 voltage-test screenshots under data/md_test/, gitignored (`data/*`).
+        "../../data/md_test/md_img-100v/192.168.0.124/192.168.0.124-002.png": (
+            "R50 voltage-test screenshot under data/md_test/, gitignored "
+            "(`data/*`) -- exists only on the collecting machine."
+        ),
+        "../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-000.png": (
+            "R50 voltage-test screenshot under data/md_test/, gitignored "
+            "(`data/*`) -- exists only on the collecting machine."
+        ),
+        "../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-001.png": (
+            "R50 voltage-test screenshot under data/md_test/, gitignored "
+            "(`data/*`) -- exists only on the collecting machine."
+        ),
+        "../../data/md_test/md_img-100v/192.168.0.114/192.168.0.114-002.png": (
+            "R50 voltage-test screenshot under data/md_test/, gitignored "
+            "(`data/*`) -- exists only on the collecting machine."
+        ),
+    },
+    "report/slm_pib_bench/report.md": {
+        # Cross-links a report that is registered but gitignored
+        # (report/slm_pib_online*), so it has no committed file to resolve to.
+        "../slm_pib_online_hw/objective_comparison.md": (
+            "target report is gitignored (report/slm_pib_online*) -- registered "
+            "but not committed, so the relative link cannot resolve here."
         ),
     },
 }

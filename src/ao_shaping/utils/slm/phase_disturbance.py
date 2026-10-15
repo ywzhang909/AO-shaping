@@ -1,4 +1,5 @@
 """Fixed, reproducible panel phase used for optical-disturbance comparisons."""
+from __future__ import annotations
 
 from pathlib import Path
 

@@ -46,7 +46,6 @@ from ao_shaping.gui.r50.r50_joint import (
     _jc_reset_to_applied,
     _jc_set_cell,
     _jc_sync_matrix_from_global_state,
-    _jc_disconnect,
 )
 from ao_shaping.gui.r50.r50_single import _require_relay_on, _send_channels
 from ao_shaping.gui.r50.r50_units import _channel_info_to_dict, _render_current_voltages

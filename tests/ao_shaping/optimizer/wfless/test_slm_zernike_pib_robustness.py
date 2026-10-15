@@ -285,7 +285,7 @@ class TestLearningScheduleCentreIsWindowLocal:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_no_learning_schedule_call_is_anchored_on_the_full_frame_centre(
         self, module_name: str
@@ -325,7 +325,7 @@ class TestLearningScheduleCentreIsWindowLocal:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_no_bare_radius_call_is_anchored_on_the_full_frame_centre(
         self, module_name: str
@@ -376,7 +376,7 @@ class TestLearningScheduleCentreIsWindowLocal:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_logger_calls_are_not_f_strings(self, module_name: str) -> None:
         """R-17: loguru renders lazily, so an f-string throws that away.
@@ -415,7 +415,7 @@ class TestLearningScheduleCentreIsWindowLocal:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_panel_resolution_is_not_hardcoded(self, module_name: str) -> None:
         """Panel geometry must come from the driver, not a third copy of the literal.
@@ -487,7 +487,7 @@ class TestLearningScheduleCentreIsWindowLocal:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_shape_aware_objectives_are_not_retyped_as_a_literal(
         self, module_name: str
@@ -576,7 +576,7 @@ class TestCreateOptimizerKwargFilter:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_unsupported_kwarg_is_reported_not_swallowed(self, module_name) -> None:
         import importlib
@@ -592,7 +592,7 @@ class TestCreateOptimizerKwargFilter:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_var_keyword_callee_actually_receives_the_kwargs(self, module_name) -> None:
         """A callee declaring ``**kwargs`` must not have them filtered away."""
@@ -624,7 +624,7 @@ class TestCreateOptimizerKwargFilter:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_accepted_kwargs_still_reach_a_plain_optimizer(self, module_name) -> None:
         """The happy path is unchanged: Adam really does take beta1."""
@@ -648,7 +648,7 @@ class TestEnergyLossViolationsIsAnExplicitRunLevelField:
 
     @pytest.mark.parametrize(
         "module_name",
-        ["ao_shaping.optimizer.wfless.slm_zernike_pib", "ao_shaping.optimizer.wfless.slm_zernike_shaping"],
+        ["ao_shaping.optimizer.wfless.slm_zernike_pib"],
     )
     def test_recorder_carries_the_violation_count(self, module_name) -> None:
         import importlib

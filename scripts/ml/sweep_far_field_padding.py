@@ -99,9 +99,15 @@ for family, refs in families.items():
     )
 
 Path("report/loss_defects").mkdir(parents=True, exist_ok=True)
-Path("report/loss_defects/padding_sweep.json").write_text(
-    json.dumps(results, indent=2), encoding="utf-8"
-)
+_out = Path("report/loss_defects/padding_sweep.json")
+# Dirty-file guard (merge-audit #111 remaining item 2): a crashed/aborted
+# sweep must not overwrite a good prior result with {} or a partial record.
+if not results and _out.exists():
+    raise SystemExit(
+        f"REFUSING to write {_out}: no results collected and a non-empty "
+        f"existing file is present. A crashed run must not clobber good data."
+    )
+_out.write_text(json.dumps(results, indent=2), encoding="utf-8")
 
 print("\n" + "=" * 96)
 print("R2 at Z=0 per family x padding  (the model default is 10)")

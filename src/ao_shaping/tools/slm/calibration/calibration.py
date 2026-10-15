@@ -2201,6 +2201,13 @@ class SLMCCDCalibrator:
                     )
                 )
             P = np.asarray(P)
+            # NOT the forbidden "min-max phase" anti-pattern (AGENTS.md ANTI-PATTERNS).
+            # P is a 1-D scalar intensity curve (power() returns float(p.sum())) vs the
+            # knife-edge scan position; rescaling the *intensity axis* to [0,1] is a
+            # prerequisite for reading the CDF quantiles below via np.interp. The
+            # anti-pattern only applies when min-max acts on a *phase/coefficient map*
+            # (making SLM phase scale-invariant). Do not "fix" this — see
+            # tools/slm/TODO.md D2 / docs/dev/todo_archive.md §4 X-2 (issue #60).
             Pn = (P - P.min()) / (np.ptp(P) + 1e-12)
             c50 = float(np.interp(0.50, Pn, ss))
             sigma = float(np.interp(0.84, Pn, ss) - np.interp(0.16, Pn, ss)) / 2.0

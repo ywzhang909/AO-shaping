@@ -27,8 +27,8 @@ measured PSNR 72 dB at a *worse* R2 under sum normalisation, i.e. the metric was
 measuring the normalisation, not the fit.
 
 Run:
-    python scripts/exp_fast_recal_adapter.py --smoke
-    python scripts/exp_fast_recal_adapter.py --quick
+    python scripts/slm/exp_fast_recal_adapter.py --smoke
+    python scripts/slm/exp_fast_recal_adapter.py --quick
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ from pathlib import Path
 import numpy as np
 import torch
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 

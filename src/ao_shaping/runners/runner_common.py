@@ -97,6 +97,7 @@ from ao_shaping.utils.image.target import (
     TARGET_SHAPE_CHOICES,
 )
 from ao_shaping.utils.io.cli_helpers import parse_tuple
+from ao_shaping.utils.slm.bench_constants import TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX
 from ao_shaping.utils.wavefront.matrix_utils import focal_length_from_camera_pixel
 
 if TYPE_CHECKING:
@@ -134,7 +135,8 @@ DEFAULT_ZERNIKE_RADIUS = min(PANEL_RES) / 2.0
 #   * camera_pixel_um = 3.31 um implied a focal scale of 5023 -- 33% below the
 #     measured 7400 -- biasing the GS target angular size by the same factor.
 #   * focal_length_m = 0.125 m is now DERIVED (see _DEFAULT_FOCAL_LENGTH_M).
-_TILT_SHIFT_SCALE_PX = 7400.0
+# ``_TILT_SHIFT_SCALE_PX`` is imported from ``ao_shaping.utils.slm.bench_constants``
+# (single source of truth); do not re-declare it here.
 _DEFAULT_CAMERA_PIXEL_UM = 2.2
 _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
     wavelength_nm=1064.0,
@@ -149,8 +151,7 @@ _DEFAULT_FOCAL_LENGTH_M = focal_length_from_camera_pixel(
 #
 # ``DM_TYPES`` is the full set of lazily-registered DM types (including
 # ``asyn_micro``). ``DM_TYPES_PRE_ASYN_MICRO`` is derived by name filter;
-# the registration side effects live in each subpackage's ``__init__``, not here.
-from ao_shaping.drivers.dm import list_dm_types
+# the registration side effects live in each subpackage's ``__init__.py``, not here.
 
 DM_TYPES = list_dm_types()
 DM_TYPES_PRE_ASYN_MICRO = [t for t in DM_TYPES if t != "asyn_micro"]
@@ -1166,6 +1167,13 @@ class SlmSquareParams:
             help="启用自适应 SPGD 闭环: 按 epoch 三等分切换 stage_weights 三元组 (w_uniformity, w_efficiency, w_aspect), 并在 CV 停滞 (最近 stagnate_win 轮 best 改善 < min_improve_frac) 时短暂提升 w_uniformity。默认关闭, 关闭时行为与既有运行完全一致。",
         ),
     ] = False
+    fix_target: Annotated[
+        bool,
+        option(
+            "--fix-target/--no-fix-target",
+            help="曝光调整后是否保持初始检测的目标框中心 (默认开启, 不再重新检测; --no-fix-target 恢复曝光后重新检测的旧行为)",
+        ),
+    ] = True
     stagnate_win: Annotated[
         int,
         option(

@@ -1,8 +1,8 @@
 # GS 金标参照：模拟上界与平相位对照
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/generate_gs_golden_reference.py`](../../scripts/generate_gs_golden_reference.py)
-> **复现命令**: `python scripts/generate_gs_golden_reference.py`
+> **生成脚本**: [`scripts/slm/generate_gs_golden_reference.py`](../../scripts/slm/generate_gs_golden_reference.py)
+> **复现命令**: `python scripts/slm/generate_gs_golden_reference.py`
 > **运行环境**: 离线
 > **说明**: GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; 相位由 ml.shaping.gs_reference 委托 canonical gs_shape 产出, 远场用 canonical forward_intensity, 指标 (含 Strehl / 相对 M²) 全取自 ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实机记录为 GS 输给平相
 <!-- provenance:end -->
@@ -50,7 +50,7 @@
 ## 4. 复现
 
 ```bash
-python scripts/generate_gs_golden_reference.py
+python scripts/slm/generate_gs_golden_reference.py
 ```
 
 GS 相位由 `ml/shaping/gs_reference.py::gs_golden_phase` 产出（委托给 canonical `gs_shape`，不复刻）；远场由 canonical `forward_intensity` 计算；全部指标来自 `ao_shaping.utils.image.beam_metrics`，脚本内不另算光学量。
