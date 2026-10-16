@@ -5,7 +5,23 @@
   # (`generate_diff_shaping_report`, `md_img_diff_centroid`) resolve too.
   pythonpath = ["src", ".", "scripts"]
 testpaths = ["tests"]
-addopts = ["-ra", "--strict-markers"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    # 2026-10-16 default exclusions: three test areas that can BLOCK a plain
+    # `pytest` (hang with no output), so a regular run must not touch them:
+    #   (1) the only real Streamlit AppTest (needs web automation or it hangs),
+    #   (2) hardware drivers (SLM/CCD SDK waits have no timeout protection; the
+    #       SLM's USB handle is exclusive with a running Streamlit app),
+    #   (3) ml (65 GB hwdataset heavy I/O + torch; multiprocess/mmap has hung
+    #       full-tree runs before).
+    # The ignores only prune DISCOVERY from testpaths: a bare `pytest` skips
+    # these areas (5774 of 8218 tests), but explicitly named paths still collect
+    # as usual (`pytest tests/ao_shaping/drivers` works unchanged).
+    "--ignore=tests/ao_shaping/gui/slm/test_zernike_abort_repro.py",
+    "--ignore=tests/ao_shaping/drivers",
+    "--ignore=tests/ao_shaping/ml",
+]
 markers = [
     "hardware: requires physical hardware device (enable with --hardware)",
     "slow: longer-running tests (exclude with -m 'not slow')",

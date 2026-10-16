@@ -748,6 +748,26 @@ pytest -s
 pytest -m "not slow"
 ```
 
+### 常规测试默认排除（pytest addopts，2026-10-16）
+
+`pyproject.toml` 的 `addopts` 默认 `--ignore` 三类**会阻塞**（挂死、无输出）的测试，
+裸 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
+
+| 排除 | 原因 |
+|---|---|
+| `tests/ao_shaping/gui/slm/test_zernike_abort_repro.py` | 唯一跑**真 `AppTest`** streamlit 运行时的测试，需网页自动化配合，否则挂死；其余 GUI 测试只把 `streamlit` 当命名空间 mock，安全 |
+| `tests/ao_shaping/drivers` | 硬件测试：SLM/相机 SDK 等待无超时保护（见反模式「diff-shaping 硬件闭环挂起」）；SLM 的 USB 句柄与运行中的 Streamlit 应用互斥（错误码 -10003「USB设备已打开」） |
+| `tests/ao_shaping/ml` | 65 GB hwdataset 重 I/O + torch：多进程/mmap 曾把整树 `pytest tests` 挂死 |
+
+⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`，实测 8218 →
+5774）；**显式指定的路径不受影响**——`pytest tests/ao_shaping/drivers` 照常收集
+1035 个，无需任何覆盖（先确认没有别的进程占着 SLM/相机）。要连 discovery 也全部
+恢复：
+
+```bash
+pytest -o "addopts=-ra --strict-markers"
+```
+
 ### Environment Setup
 
 ```bash
