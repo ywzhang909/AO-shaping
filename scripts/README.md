@@ -1427,6 +1427,90 @@ python scripts/slm/generate_gs_refine_fwdmodel_report.py --data-root <path>/data
 Writes the markdown **with** its provenance header stamped via `insert_header`, so
 a re-run cannot delete it. Runtime is minutes (one 4096² FFT per sample).
 
+### run_gs_refine_zernike_sweep.py
+
+Runs the **GS-refine Zernike order-scan** experiment end-to-end and writes the
+artefacts `generate_gs_refine_zernike_report.py` consumes. Three stages, all
+recorded per run under `data/debug/slm_gs_refine_zernike/<ts>/`:
+
+- **Stage A — freeform GS**: `slm_gs_refine` GS pre-shape to a square target;
+  best phase + full per-iteration history recorded.
+- **Stage B — Zernike fit**: the GS best phase is fitted to Noll Zernike
+  coefficients at each `--n-max`, on the **same `beam_radius_px` pupil basis** the
+  driver uses, so the fitted phase is directly re-downloadable.
+- **Stage C — SPGD refine per order**: `slm_zernike_pib` SPGD over the fitted
+  coefficients, one run per `n_max`, each with its own `spgd_nmax<n>.csv`.
+
+**Why it exists**: answers "how many Zernike orders reproduce the freeform GS
+phase, and how much does SPGD recover on top?" The fit residual vs `n_max` shows
+the truncation cost; the CV/PIB before/after SPGD per order shows whether the
+recovered DOF is worth the extra modes.
+
+> ⚠️ **Sim caveat**: with `--cam-type sim` the GS warm start is **not calibrated**
+> to the bench forward model (see `report/shape_trials/gs_refine_zernike_uniformity.md`
+> `## 口径与已知局限`), so Stage A's best phase is near-flat and the order-scan
+> signal is only meaningful on hardware (`--cam-type daheng|miicam`). The sim path
+> validates plumbing, guards, and fit monotonicity — not the science.
+
+**Usage:**
+```bash
+# sim smoke (default)
+python scripts/slm/run_gs_refine_zernike_sweep.py
+# hardware
+python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 --exposure-time-ms 0.02
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--cam-type` | `sim` | `sim` / `daheng` / `miicam` |
+| `--cam-id` | `0` | camera device id |
+| `--exposure-time-ms` | `0.0` | fixed exposure in ms (0 = device default) |
+| `--cam-size` | `256` | camera window side (px) |
+| `--sim-far-field-padding` | `16` | sim FFT zero-padding factor (sim only). Library default 4 gives a ~1.7 px spot that clamps the target box to its floor |
+| `--slm-number` | `1` | SLM index |
+| `--beam-radius-px` | `450.0` | GS pupil radius; **also locks the Zernike fit basis** — must match the driver's `zernike_radius` |
+| `--epochs` | `400` | Stage-A SPGD epochs |
+| `--gs-iters` | `200` | GS iterations |
+| `--spgd-epochs` | `200` | Stage-C SPGD epochs per order |
+| `--n-max` | `4 6 8 11 15` | Zernike truncation orders to sweep (space-separated) |
+| `--delta` | `0.02` | SPGD perturbation amplitude (rad). Only honoured when `--lr` non-zero; with `--lr 0` the optimizer's own schedule overrides it (capped 0.5 rad, larger than a typical fitted coefficient → SPGD rejects every step) |
+| `--lr` | `0.01` | Adam learning rate (0 = optimizer auto-schedule, which also overrides `--delta`) |
+| `--seed` | `0` | RNG seed |
+| `--out` | `""` → `data/debug/slm_gs_refine_zernike` | output directory |
+| `--target-side` | `0.0` | explicit target side (px); 0 = auto-probe |
+| `--max-energy-loss` | `0.6` | in-ROI energy-loss fraction that abandons an SPGD evaluation (0 disables the guard). Lower it if every perturbation of an already-good fitted phase is rejected |
+| `--save-images` | off | dump per-stage far-field PNGs |
+
+### generate_gs_refine_zernike_report.py
+
+Generates the **GS-refine Zernike order-scan** report:
+`report/shape_trials/gs_refine_zernike_uniformity.md` + `figures/`. Fully offline —
+reads only the `summary.json` + `spgd_nmax*.csv` artefacts written by
+`scripts/slm/run_gs_refine_zernike_sweep.py`. Never opens a device.
+
+**Why it exists**: the sweep answers "how many Zernike orders reproduce the
+freeform GS phase, and how much does SPGD recover on top?" — Stage A produces a
+freeform GS phase, Stage B fits it with Zernike modes at several `n_max`, Stage C
+runs SPGD per order. The report renders the fit residual, the CV and PIB
+before/after SPGD per order, and the flat / GS-freeform baselines as horizontal
+reference lines, so a reader can see whether a given order is worth the DOF.
+
+**Usage:**
+```bash
+python scripts/slm/generate_gs_refine_zernike_report.py
+python scripts/slm/generate_gs_refine_zernike_report.py --run <path>/data/debug/slm_gs_refine_zernike/<ts>
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--run` | newest under `data/debug/slm_gs_refine_zernike/` | run directory holding `summary.json`. When none exists the script exits 1 and prints the sweep command to run first |
+
+Writes the markdown **with** its provenance header stamped via `insert_header`, so
+a re-run cannot delete it. The report's `## 口径与已知局限` section states the
+`cv`/`ee` coupling, the `beam_radius_px` basis lock, the uncalibrated sim GS warm
+start, the `ZERNIKE_CLIP = 5.0` rad threshold, and the known `square_mask` /
+`cam_size` latent defect.
+
 ### exp_fast_recal_adapter.py
 
 Offline experiment: **how fast can a model adapt to an optical-path change with
