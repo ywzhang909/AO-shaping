@@ -106,6 +106,10 @@ from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
 )
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
+from ao_shaping.utils.image.exposure_control import (
+    DAHENG_EXPOSURE_LIMIT_ENV,
+    resolve_daheng_exposure_limit,
+)
 from ao_shaping.utils.image.hardware_utils import log_center_brightness
 from ao_shaping.utils.image.spots_calc import centroid
 from ao_shaping.utils.image.targets import (
@@ -1349,6 +1353,19 @@ def optimize_slm_square(
             slm_number=slm_number, wavelength=slm_wavelength or None
         ) as slm,
     ):
+        if cam_type == "daheng":
+            # The exposure ceiling is set by the optical path, not the sensor,
+            # so resolve it per session before any measurement can fire an
+            # over-limit exposure: explicit config, env, else probe the image.
+            ceiling = resolve_daheng_exposure_limit(camera=cam)
+            if exposure_time_ms > ceiling + 1e-9:
+                raise ValueError(
+                    f"Daheng exposure_time_ms {exposure_time_ms} ms exceeds the "
+                    f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
+                )
+            # The probe left the camera at the last ladder step; re-arm the
+            # working exposure before the first measurement.
+            cam.reset_exposure_time(exposure_time_ms)
         blaze_choice = None
         if blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze

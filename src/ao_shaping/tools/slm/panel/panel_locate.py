@@ -144,7 +144,7 @@ def scan_panel(
     from ao_shaping.utils.image.exposure_control import (
         DAHENG_EXPOSURE_LIMIT_ENV,
         configured_daheng_exposure_limit,
-        probe_exposure_ceiling_ms,
+        resolve_daheng_exposure_limit,
     )
 
     # Local aliases keep the measurement body below verbatim.
@@ -188,19 +188,9 @@ def scan_panel(
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_slm_display(slm):
         actual_ms = cam.reset_exposure_time(float(exposure_ms))
         if cam_type.lower() == "daheng":
-            ceiling = configured_daheng_exposure_limit()
-            if not ceiling:
-                estimate = probe_exposure_ceiling_ms(
-                    cam.reset_exposure_time,
-                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-                )
-                ceiling = estimate.ceiling_ms
-                logger.info(
-                    "Daheng exposure ceiling probed from the image: {:.4f} ms",
-                    ceiling,
-                )
-                # The probe left the camera at the last ladder step; re-arm.
-                actual_ms = cam.reset_exposure_time(float(exposure_ms))
+            ceiling = resolve_daheng_exposure_limit(camera=cam)
+            # The probe (if any) left the camera at the last ladder step; re-arm.
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
             if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
                 raise RuntimeError(
                     f"unsafe Daheng exposure readback: {actual_ms} ms "

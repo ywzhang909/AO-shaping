@@ -24,7 +24,7 @@ from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -52,19 +52,7 @@ def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) 
             with preserve_slm_display(slm):
                 cam.reset_exposure_time(0.02)
                 measure_flat_reference(cam, slm, n_frames=1)
-                ceiling = env_ceiling
-                if not ceiling:
-                    estimate = probe_exposure_ceiling_ms(
-                        cam.reset_exposure_time,
-                        lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-                    )
-                    ceiling = estimate.ceiling_ms
-                    print(
-                        f"exposure ceiling probed from the image: {ceiling:.4f} ms "
-                        f"(last safe {estimate.last_safe_ms} ms, saturated at "
-                        f"{estimate.saturated_ms} ms)",
-                        flush=True,
-                    )
+                ceiling = resolve_daheng_exposure_limit(camera=cam)
                 if exposure_ms > ceiling + 1e-9:
                     raise ValueError(
                         f"Daheng exposure {exposure_ms} ms exceeds the resolved "

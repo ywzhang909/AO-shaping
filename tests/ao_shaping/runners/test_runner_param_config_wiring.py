@@ -127,6 +127,12 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "progress_every",
         "sim_aberration",
         "step_sink",
+        "uncertainty_on_rejection",
+        "uncertainty_probe_diversity",
+        "uncertainty_probe_ridge",
+        "uncertainty_probe_samples",
+        "uncertainty_probe_steps",
+        "uncertainty_probes",
     },
 }
 

@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Iterator
 
 import numpy as np
-from loguru import logger
 
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H, SLM_PANEL_W, capture_settled, phase_to_panel,
@@ -19,7 +18,7 @@ from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -86,16 +85,7 @@ def run_probe(
         create_camera("daheng", 0, exposure_time_ms=exposures[0]) as cam,
         _flat_on_exit(slm),
     ):
-        ceiling = configured_daheng_exposure_limit()
-        if not ceiling:
-            estimate = probe_exposure_ceiling_ms(
-                cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-            )
-            ceiling = estimate.ceiling_ms
-            logger.info(
-                "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
-            )
+        ceiling = resolve_daheng_exposure_limit(camera=cam)
         if any(ms > ceiling + 1e-9 for ms in exposures):
             raise ValueError(
                 f"Daheng exposure ladder exceeds the resolved ceiling "

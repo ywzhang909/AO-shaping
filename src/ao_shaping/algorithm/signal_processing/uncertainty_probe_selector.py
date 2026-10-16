@@ -39,7 +39,7 @@ best 追踪、逐探针验收) 属于优化器层, 不在本类内。
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
