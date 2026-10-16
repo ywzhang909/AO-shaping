@@ -8,7 +8,8 @@
   python3 term_unify_20261016.py          # dry-run（默认）
   python3 term_unify_20261016.py --apply  # 写入
 """
-import re, sys
+import re
+import sys
 from pathlib import Path
 
 # 自定位：脚本位于 <repo>/scripts/_common/term_unify_20261016.py
