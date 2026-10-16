@@ -56,6 +56,19 @@ def test_load_plan_rejects_different_target_shape(tmp_path):
         replay.load_plan(tmp_path / "a", tmp_path / "b", tmp_path / "out")
 
 
+def test_load_plan_allows_different_optimization_weights(tmp_path):
+    _saved_run(tmp_path / "a")
+    _saved_run(tmp_path / "b")
+    config_path = tmp_path / "b" / "run_config.json"
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config.update(w_efficiency=0.2, w_uniformity=0.8)
+    config_path.write_text(json.dumps(config), encoding="utf-8")
+
+    plan = replay.load_plan(tmp_path / "a", tmp_path / "b", tmp_path / "out")
+    assert plan.config.w_uniformity == 0.4
+    assert not (tmp_path / "out").exists()
+
+
 def test_load_plan_rejects_unsafe_fixed_exposure(tmp_path):
     _saved_run(tmp_path / "a")
     _saved_run(tmp_path / "b")
