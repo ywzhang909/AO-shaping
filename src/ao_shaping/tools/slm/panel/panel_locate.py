@@ -144,6 +144,7 @@ def scan_panel(
     from ao_shaping.utils.image.exposure_control import (
         DAHENG_EXPOSURE_LIMIT_ENV,
         configured_daheng_exposure_limit,
+        probe_exposure_ceiling_ms,
         resolve_daheng_exposure_limit,
     )
 
@@ -162,9 +163,9 @@ def scan_panel(
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
 
     if cam_type.lower() == "daheng":
-        if exposure_ms <= 0:
+        if exposure_ms < 0:
             raise click.BadParameter(
-                "Daheng exposure must be positive", param_hint="--exposure-ms"
+                "Daheng exposure must be non-negative (0 = auto)", param_hint="--exposure-ms"
             )
         env_ceiling = configured_daheng_exposure_limit()
         if env_ceiling > 0 and exposure_ms > env_ceiling:
@@ -185,17 +186,30 @@ def scan_panel(
 
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_slm_display(slm):
-        actual_ms = cam.reset_exposure_time(float(exposure_ms))
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=0.02) as cam, _restore_slm_display(slm):
+        actual_ms = cam.reset_exposure_time(0.02)
+        if exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1, panel_shape=panel)
         if cam_type.lower() == "daheng":
             ceiling = resolve_daheng_exposure_limit(camera=cam)
             # The probe (if any) left the camera at the last ladder step; re-arm.
+            if exposure_ms == 0:
+                exposure_ms = max(0.02, 0.5 * ceiling)
             actual_ms = cam.reset_exposure_time(float(exposure_ms))
             if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
                 raise RuntimeError(
                     f"unsafe Daheng exposure readback: {actual_ms} ms "
                     f"(ceiling {ceiling} ms)"
                 )
+        elif exposure_ms == 0:
+            estimate = probe_exposure_ceiling_ms(
+                cam.reset_exposure_time,
+                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+            )
+            exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
+        else:
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)
@@ -214,6 +228,7 @@ def scan_panel(
                         "cam_type": cam_type,
                         "cam_id": cam_id,
                         "exposure_ms": exposure_ms,
+                        "exposure_ms_readback": float(actual_ms),
                         "patch_radius": patch_radius,
                         "grid_xs": xs,
                         "grid_ys": ys,

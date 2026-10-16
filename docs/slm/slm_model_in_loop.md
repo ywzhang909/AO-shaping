@@ -37,9 +37,10 @@ graph TD
 ## 3. 计算时序 (每轮)
 
 ```
-一次性几何标定 (米色)
-  └─ n_calibration_probes × display(probe) + measure() → calibrate_bench_geometry()
-     └─ 相关度 < min_geometry_correlation → 退出码 2，不提交任何相位
+硬件会话预检 (未指定 --geometry-file)
+  └─ 全板随机相位盘 + 成对平场 → 当前入射位置；漂移超限则拒绝
+  └─ 当前画面探测曝光 → sweep 斜坡/Zernike 几何 → bench_geometry.json
+     └─ 相关度 < min_geometry_correlation → 中止，不提交成形相位
 
 平场基线 (浅绿)
   └─ display(flat) → measure() → _metrics_at → _quality → score_before
@@ -115,10 +116,17 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 - 拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps=0.001`) → reject
 - 连续 reject ≥ `max_rejection_streak=3` → 中止 (实验系统落在模型之外)
 
-## 7. 曝光默认值陷阱 (红线)
+## 7. 会话曝光
 
+<<<<<<< Updated upstream
 > **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
 > **实验前必须显式传入按当前激光功率实测的曝光** (本实验系统历史参考 1.5 ms)。
+=======
+`--exposure-time-ms 0` 让硬件 CLI 的定位和几何 sweep 从当前画面探测会话曝光；
+优化器继续使用自身的自动曝光与回读守卫。`AO_DAHENG_MAX_EXPOSURE_MS`
+可指定当前光路上限，缺省或 `0` 时由画面探测。历史曝光数值不可跨光路复用。
+不同曝光的 CCD 帧只有经过该曝光段线性化验证后才能直接比较。
+>>>>>>> Stashed changes
 
 ## 8. 仿真模式
 
@@ -130,20 +138,44 @@ python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam-type daheng --cam-id 0 --exposure-time-ms 0.02 \
-    --max-exposure-ms 0.4 --slm-number 1 --slm-wavelength 1064 \
-    --panel-span-px 900 --pupil-center 960,690 --camera-pixel-um 2.2 \
+    --cam-type daheng --cam-id 0 --exposure-time-ms 0 \
+    --max-exposure-ms 0 --slm-number 1 --slm-wavelength 1064 \
+    --panel-span-px 900 --camera-pixel-um 2.2 \
     --region 64 --far-field-padding 3 \
     --geometry-file data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json \
     --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
+<<<<<<< Updated upstream
 ## 10. 实验前必跑表征探针 (顺序不能反)
+=======
+### 9.1 几何文件 (`--geometry-file`) 与 padding 换算
+
+缺省不提供 `--geometry-file` 时，硬件 runner 每次会话自动做全板入射定位、
+画面曝光探测和 sweep 几何标定，并把证据保存在该次 debug 目录的
+`panel_scan/` 和 `session_geometry/`。若光路在扫描期间突变，漂移守卫会中止；
+重新运行会重新探测。每轮 Step A 再用当前相位探针拟合相差。这个流程无需
+手工更新历史中心、曝光或几何文件。
+
+显式 `--geometry-file` 用于固定几何复现实验，它指向 `scripts/slm/model_in_loop_hw_runbook.py --stage all` 的 sweep
+标定产物 (`bench_geometry.json`)。**只有 `region` 必须与本次运行一致**；远场补零倍数
+(`--far-field-padding`) 可以不同 —— 一个远场格宽为 `λf/(P·d_model)`，故
+`camera_px_per_model_px` 与 `P` 成反比，优化器会按 `P` 把它换算到本次运行的网格
+(实测: `far_field=192` (region 64 / padding 3) 标定的 `2.7955` 换算到 `far_field=512`
+(padding 8) 得 `1.048`，与解析估计 `1.028` 相差约 2%)。`region` 不一致仍会被拒绝：
+瞳面网格本身不同，任何换算都修不好。**因此 §9 里 `--far-field-padding 3` 不再是必须项**，
+用默认 8 也可以。
+
+## 10. 独立诊断
+
+硬件 CLI 的自动会话标定已经覆盖位置、曝光和几何探测。需要单独分析漂移、
+相机噪声或 ABBA 稳定性时，可使用以下诊断入口；曝光值按当前光路选择。
+>>>>>>> Stashed changes
 
 ```bash
-python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 0.4
-python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 0.4
-python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
+python -m ao_shaping.tools.ccd.drift_probe --exposure-ms <当前曝光>
+python -m ao_shaping.tools.ccd.floor_probe --exposure-ms <当前曝光>
+python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 ```
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
