@@ -8,6 +8,8 @@
 
 2026-10-15 的 GS 方法实机对照、形状 IoU 预检与曝光探测记录见
 [GS issue 实机报告](gs_issue_live_20261015.md)。
+2026-10-16 的 model-in-loop 均匀度权重、Step A 消融和同曝光实机重放见
+[model-in-loop 匀化实机报告](model_in_loop_live_20261016.md)。
 同日从已有 GS 相位出发的相位平滑、剔零级 CV 和纯均匀度闭环对照见
 [GS 匀化实机报告](gs_uniformity_live_20261015.md)。
 
