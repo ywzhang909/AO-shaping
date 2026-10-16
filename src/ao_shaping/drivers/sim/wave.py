@@ -227,8 +227,13 @@ class ApertureApplier(WavefrontProcessor):
 
 class WaveMetric:
     @staticmethod
-    def power_bucket(wave: Any, r_bucket: float, center: str = "origin") -> float:
-        return power_bucket(wave.intensity, wave.x, wave.y, center, r_bucket)
+    def power_bucket_sum(wave: Any, r_bucket: float, center: str = "origin") -> float:
+        """Raw in-bucket intensity sum (no dpix scaling / weighting).
+
+        Renamed from ``power_bucket`` (issue #78): it is NOT the same quantity as
+        :func:`ao_shaping.utils.image.spots_calc.power_bucket`.
+        """
+        return power_bucket_sum(wave.intensity, wave.x, wave.y, center, r_bucket)
 
     @staticmethod
     def radius(
@@ -304,13 +309,20 @@ def propagate(wave: Any, distance: float) -> None:
     sim_wave.wavefront = beam_propagate(sim_wave.wavefront, beam_cfg, distance)
 
 
-def power_bucket(
+def power_bucket_sum(
     intensity: np.ndarray,
     x: np.ndarray,
     y: np.ndarray,
     center: str,
     r_bucket: float,
 ) -> float:
+    """Raw sum of intensity inside the bucket — NO dpix scaling, NO weighting.
+
+    Distinct from :func:`ao_shaping.utils.image.spots_calc.power_bucket`, which
+    applies ``dpix`` scaling and a ``weighted`` factor. This version returns the
+    plain bucket sum in raw intensity units; renaming (not delegating) keeps the
+    two normalizations from silently aliasing (see issue #78).
+    """
     if center == "origin":
         cx, cy = 0.0, 0.0
     elif center == "peak":
