@@ -1,16 +1,16 @@
-# `tools/slm/` — SLM 台架工具与探针
+# `tools/slm/` — SLM 实验系统工具与探针
 
-SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立工具**。
+SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 实验系统的**独立工具**。
 这些模块**不注册**为 `main.py` 的 Click 命令, 一律用
 `python -m ao_shaping.tools.slm.<名字>` 直接运行。
 
 > **启动任何优化 runner 之前**, 先跑
 > [`docs/slm/pre_run_characterization.md`](../../../../docs/slm/pre_run_characterization.md)
 > 里的三个探针(`slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe`),
-> 确认台架本身可信。**不要**跳过。
+> 确认实验系统本身可信。**不要**跳过。
 ---
 
-## 台架表征(先跑这个)
+## 实验系统表征(先跑这个)
 
 | 模块 | 作用 |
 |---|---|
@@ -32,7 +32,7 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 
 | 模块 | 作用 |
 |---|---|
-| `slm_diagnose` | 三步自检: 面板冻结 / 调制能力 / 光强线性性。**注册为 `slm-diagnose`**。默认相机是 `miicam`, 大恒台架必须加 `--camera-type daheng` |
+| `slm_diagnose` | 三步自检: 面板冻结 / 调制能力 / 光强线性性。**注册为 `slm-diagnose`**。默认相机是 `miicam`, 大恒实验系统必须加 `--camera-type daheng` |
 | `slm_tilt_probe` | 判定面板是否真的在调制(倾斜斜坡)。比光栅可靠: 位移只取决于周期 |
 | `slm_panel_locate` | 在**面板坐标**上定位光斑(CCD 0 阶坐标 ≠ 面板坐标) |
 | `slm_beam_extent` | 半平面随机相位边界扫描 → 测光斑**半径**(实测 450 px @ 中心) |
@@ -50,7 +50,7 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 台架的**独立�
 | `slm_zernike_sweep_probe` | 光滑 Zernike 扫描(42 点), 含 Recorder 落盘 |
 | `slm_zernike_response` | Zernike 模式 → WFS 响应矩阵标定 |
 | `slm_zernike_correction` | Zernike 模式法波前矫正三阶段流程 |
-| `slm_wfs_probe` | SLM + WFS 光强与 pupil 检查 |
+| `slm_wfs_probe` | SLM + WFS 光强与 pupil（瞳面） 检查 |
 | `slm_wfs_reference` | WFS 参考波前标定与倾斜线性度(三步) |
 | `hadamard_calc` / `cartographer/` | Hadamard 掩膜与波前重建(子包) |
 

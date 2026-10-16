@@ -2,6 +2,33 @@
 
 **Generated:** 2026-06-20
 
+## 🔴 术语规范（所有 AI 工具必须先读）
+
+本仓库**所有**文档写作、改写、摘要、翻译，以及任何 AI 工具（Claude Code /
+Codex / Cursor / Copilot / Hermes / 子代理）生成的中文叙述，**必须**遵守
+[术语规范表 `docs/terminology_glossary.md`](docs/terminology_glossary.md)。
+
+- **单一事实源**：该表是 AO-shaping 术语的唯一权威。左列"口语/非规范"一律
+  禁止，右列"规范术语"必须使用（如 `台架→实验系统`、`实机/真机→实验`、
+  `平场泄漏→加性背景（杂散光）项`、`瞳孔→瞳面`、`跑通→在线实现`、
+  `打散→弥散`、`金标准→参考（真值）`、`bake-off（对比择优）` 首现夹注）。
+- **只改中文叙述**，绝不改代码标识符 / 围栏代码块 / mermaid / 行内
+  `` `code` `` / 纯英文叙述 / 厂商型号 / 数值参数 / 生成文档
+  （`docs/dev/call_graph_wiki/**`）。
+- **首现夹注**：`pupil（瞳面）`、`bake-off（对比择优）` 在中文叙述中首现加
+  一次中文释义，不得双重夹注。
+- **数据守恒**：术语替换是纯措辞改写，数值/单位/公式/参数/路径/DOI/引用编号
+  逐字节保留。
+- **提交前校验**（必须全绿）：
+  `python3 scripts/_common/term_unify_20261016.py`（dry-run，输出 `0 个文件`）；
+  `git grep -E 'pupil（瞳面）（|bake-off（对比择优）（'` 须为空；
+  残留 `平场泄漏|台架|实机|真机|上机|瞳孔|跑通|打散|灌进|钻空子|金标准|围栅`
+  的命中须全部落在术语表 §2 的 DO-NOT-TOUCH 集合内。
+- **新词须登记**：出现未收录的口语词，先在术语表 §3 登记（T-60 起）再替换。
+
+> 详细规则、150+ 条对照、保留清单见 [`docs/terminology_glossary.md`](docs/terminology_glossary.md)。
+> 自动统一脚本：[`scripts/_common/term_unify_20261016.py`](scripts/_common/term_unify_20261016.py)。
+
 ## Project Overview
 
 AO-Shaping is an Adaptive Optics (AO) system using reinforcement learning for wavefront correction and beam shaping. It integrates multiple optimization algorithms including WFS-based and wavefront-sensorless methods.
@@ -73,7 +100,7 @@ AO-shaping/
 | SLM Zernike PIB / 方形整形 (同一模块) | `src/ao_shaping/optimizer/wfless/slm_zernike_pib.py` + `slm_square_shaping.py` + `runners/slm/slm_shaping_runner.py` | `slm_shaping_runner` 一个 click 组装下两个家族: `slm-pib`(`spgd`/`heuristic`) → `slm_zernike_pib.py`; `spgd-square`(同 `square` 子命令) → `slm_square_shaping.py`。`--cam-type sim` 在两半都走数字孪生 (`runner_common.patch_sim_*_shaping`) |
 | SLM方形光斑整形 (SPGD, freeform) | `src/ao_shaping/optimizer/wfless/slm_square_shaping.py` + `runners/slm/gsnet_runner.py` | SPGD 优化 Zernike 系数 → 均匀方形远场 (CLI: `slm-gsnet`) |
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
-| 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者互相追逐 (CLI: `slm-model-in-loop`) |
+| 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
@@ -118,7 +145,7 @@ AO-shaping/
 | `slm-pib` (`spgd`) | `optimizer.wfless.slm_zernike_pib:optimize_slm_zernike_pib()` | wfless | Zernike 系数 SPGD 梯度 (PIB / RMS / Pearson… 目标形状) | SLM + CCD |
 | `slm-pib` (`heuristic`) | 同上 (`algorithm=ga/pso/sa/hc/rs/cem/de`) | wfless | 黑盒启发式搜索 | SLM + CCD |
 | `spgd-square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
-| `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (bake-off) + 自由相位 SPGD 细化 | SLM + CCD |
+| `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (bake-off（对比择优）) + 自由相位 SPGD 细化 | SLM + CCD |
 | `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 正向模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
 
 > **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 已收敛为**纯 dataclass 单参数 API**:
@@ -231,7 +258,7 @@ Utility functions for image processing and calculations, organized into 4 subpac
 |------|---------|-------|
 | `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler` | `handler` becomes a backward-compat shim to `display/` |
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
-| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay` | `zero_order_overlay` (2026-10-15 新增): 2f 台架零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm |
+| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm |
 | `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
 | `utils/cli/params.py` (`utils/cli/` 子包) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
@@ -246,7 +273,7 @@ dataclass→click 参数绑定机制 (`Annotated[T, option(...)]` + `with_params
   只允许 **stdlib + `click`**。
 - 理由链: `tools/slm/` 探针要在**无设备**路径上可用。若机制留在 `runners/runner_common.py`，
   `tools/` 就得 import `runners/`，而后者 import 期就 `list_dm_types()` 并
-  `import ao_shaping.drivers.dm.asyn_micro_dm` 触发注册副作用 —— 台架探针会在
+  `import ao_shaping.drivers.dm.asyn_micro_dm` 触发注册副作用 —— 实验系统探针会在
   没设备时先碰硬件包，正是 R-20 惰性契约要避免的。
 - 机制**不得在别处重新定义**。import 是正常消费（12 个 runner 都 import
   `with_params`），**定义**才是重复 —— 那正是 R-25 里两份 `_fmt` 漂移的成因。

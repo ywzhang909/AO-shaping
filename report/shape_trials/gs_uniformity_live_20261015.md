@@ -1,7 +1,7 @@
-# GS 相位匀化与剔零级均匀度实机试验（2026-10-15）
+# GS 相位匀化与剔零级均匀度实验试验（2026-10-15）
 
 <!-- provenance:start -->
-> **生成脚本**: 人工撰写；平滑配对统计由 `scripts/slm/gs_uniformity_probe.py` 从本地实机帧生成
+> **生成脚本**: 人工撰写；平滑配对统计由 `scripts/slm/gs_uniformity_probe.py` 从本地实验帧生成
 > **设备**: Santec SLM #1 (`23020027`)，Daheng CCD (`FJB24112232`)，1064 nm
 > **数据**: `data/debug/gs_phase_uniformity/20261015_gradient_probe_1/`、`data/debug/slm_gs_refine/20261015_213818/`
 > **运行环境**: 真实光路；设备会话结束后均正常释放

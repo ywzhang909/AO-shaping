@@ -85,7 +85,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 | FR-5.3 | 运行期间暂时释放目标 SLM 句柄，结束后重新获取（Santec SDK 句柄不可重入） | 必须 |
 | FR-5.4 | 运行期间停止后台周期切换线程，避免冲突 | 必须 |
 | FR-5.5 | 结束后把最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示 | 必须 |
-| FR-5.6 | 显示 flat/GS/best 各阶段得分、PIB、CV，以及 GS bake-off 判定（adopted/rejected） | 必须 |
+| FR-5.6 | 显示 flat/GS/best 各阶段得分、PIB、CV，以及 GS bake-off（对比择优） 判定（adopted/rejected） | 必须 |
 | FR-5.7 | debug 模式下产物存于 `data/debug/slm_gs_refine/<ts>/` | 可选 |
 
 ---

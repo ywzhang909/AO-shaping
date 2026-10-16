@@ -160,7 +160,7 @@
 
 ## 六、明确**不做**的事
 
-- [ ] ❌ **不**抽 `with_slm_bench()` 上下文管理器统一设备会话 → 直接踩台架铁律一/二/三
+- [ ] ❌ **不**抽 `with_slm_bench()` 上下文管理器统一设备会话 → 直接踩实验系统铁律一/二/三
 - [ ] ❌ **不**把 22 个脚本合成一个 `slm` 大组 22 个子命令 → `--help` 不可用，
       且 `main.py` 会从 2 个变成 22 个工具导入
 - [ ] ❌ **不**搬 `calibration.py`（109 KB 硬件编排）
@@ -182,7 +182,7 @@
 | **R4** | `pupil_center` 的「二元联合 + callback」耦合被"清理" | `runner_common.py:394-402` 靠 `_patch_click_types:173-180` 在 `callback` 存在时提前 return，绕过会对二元联合 `raise` 的 `_strip_optional:156-164`。注解改成裸 `str` 且删掉 callback → **导入即炸** | Step 1 钉住该耦合的测试 |
 | **R5** | argparse → click 改退出码 / stdout | `scripts/generate_*` 若解析探针输出或依赖产物路径会断 | 先 grep `scripts/` 是否消费其 stdout / 产物路径 |
 | **R6** | 新叶子模块反向 `import ao_shaping` | 结构性成环 | docstring 写死不变式 + AST/import 扫描测试 |
-| **R7** | ~~`utils/cli/params.py` 无法成为"廉价叶子"~~ **诊断错误，已订正** | 原文归因于 `utils/__init__.py:17–27` 的 eager（几百 ms 量级）。**真实主因是 import 期网络 I/O**：`drivers/sim/slm_pib_sim.py` 模块级 `from ao_shaping.config import DM_N_ACTUATORS` → `config.__getattr__` → `MicroDM.is_reachable()` 对 192.168.0.101–126 做 **26 次顺序 1s TCP 探测**，且 `_resolve_dm_n_actuators` **无缓存** → `import ao_shaping` 实测 **27–29s**。这违反 `drivers/AGENTS.md`「import 不得加载 SDK / 做 I/O」 | **已修**（`67599bd`）：触发点下沉为函数内 import + 两个解析器加 `lru_cache` + 探测改并发（**`settimeout(1.0)` 保留**，慢但存活的真机仍可探测）。`import ao_shaping` 29.41s → **1.615s**，连接数 26 → **0**。抽取的真正理由仍是**解耦 + 副作用隔离**，不要写成"省导入时间" |
+| **R7** | ~~`utils/cli/params.py` 无法成为"廉价叶子"~~ **诊断错误，已订正** | 原文归因于 `utils/__init__.py:17–27` 的 eager（几百 ms 量级）。**真实主因是 import 期网络 I/O**：`drivers/sim/slm_pib_sim.py` 模块级 `from ao_shaping.config import DM_N_ACTUATORS` → `config.__getattr__` → `MicroDM.is_reachable()` 对 192.168.0.101–126 做 **26 次顺序 1s TCP 探测**，且 `_resolve_dm_n_actuators` **无缓存** → `import ao_shaping` 实测 **27–29s**。这违反 `drivers/AGENTS.md`「import 不得加载 SDK / 做 I/O」 | **已修**（`67599bd`）：触发点下沉为函数内 import + 两个解析器加 `lru_cache` + 探测改并发（**`settimeout(1.0)` 保留**，慢但存活的实验系统仍可探测）。`import ao_shaping` 29.41s → **1.615s**，连接数 26 → **0**。抽取的真正理由仍是**解耦 + 副作用隔离**，不要写成"省导入时间" |
 
 ---
 
@@ -210,8 +210,8 @@
 
 ## 十、参考资料
 
-- `README.md` §「SLM 台架探针」— 四条台架铁律 + 实测台架几何
-- `report/slm/model_in_loop_bench_calibration.md` — 台架常数来源
+- `README.md` §「SLM 实验系统探针」— 四条实验系统铁律 + 实测实验系统几何
+- `report/slm/model_in_loop_bench_calibration.md` — 实验系统常数来源
 - `src/ao_shaping/runners/runner_common.py:118–323` — 待抽取的机制本体
 - `src/ao_shaping/drivers/slm/AGENTS.md:116` — `calibration.py` 的 shift CLI 用法
 ---

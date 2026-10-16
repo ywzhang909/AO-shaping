@@ -36,7 +36,7 @@
 | **F** | 模型自检: 大修正量时预测/实测比 0.35, 小修正量 0.95~1.22 | 闭环 | 大相位下**叠加性/线性度下降** | ⚠️ 待查 |
 | **G** | 独立响应矩阵工具 `slm_zernike_response.py` 同样把 **µm** 当 λ 用, 且 `device_config` 未记录设备参数 | `tools/slm/slm_zernike_response.py` | 单位 + 记录缺失 | ✅ **已修** (`um_to_waves` + `collect_device_info`) |
 | **H** | **`zernike-matrix` 命令原生崩溃** (0xC0000005 访问违例 / 0xC000041C 回调致命异常), 崩溃点不固定 → SDK 层内存损坏 | `runners/slm/zernike_matrix_runner.py` | 未解决 (改用等价工具) | ⚠️ **待查** (见 §2.6) |
-| **I** | `parse_tuple` 用 `int()` → 无法表达 mm 级小数 pupil 中心 (实测 -0.14, 0.18), 被迫退回 `(0,0)` 而**构造函数传入的 pupil 会覆盖配置中的实测值** | `utils/io/cli_helpers.py:48` | 限制 | ✅ **已修** (改 float) |
+| **I** | `parse_tuple` 用 `int()` → 无法表达 mm 级小数 pupil（瞳面） 中心 (实测 -0.14, 0.18), 被迫退回 `(0,0)` 而**构造函数传入的 pupil（瞳面） 会覆盖配置中的实测值** | `utils/io/cli_helpers.py:48` | 限制 | ✅ **已修** (改 float) |
 
 ---
 
@@ -212,17 +212,17 @@ WFS Python 侧不存在数组尺寸不足/越界写:
    写 18MB `.npy` (实测每帧 18,432,128 B) 的落盘压力。
 
 **重写后的状态**: `zernike-matrix` 已基于 `tools/slm/slm_zernike_response.py` 验证链路整体
-重写 (设备生命周期/推拉内核/pupil 自动与写回/弧度制/产物与 CLI 保持), runner 侧时序与
-`--debug` 落盘问题已消除; 残留假设中的 SLM DLL 侧问题只能由**实机重标**验证
+重写 (设备生命周期/推拉内核/pupil（瞳面） 自动与写回/弧度制/产物与 CLI 保持), runner 侧时序与
+`--debug` 落盘问题已消除; 残留假设中的 SLM DLL 侧问题只能由**实验重标**验证
 (待办项, 设备可用后执行)。**当前处置**: 改用**等价的、已验证的** `tools/slm/slm_zernike_response.py`
 (同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `report/slm/report3.md`。
 
 ### 2.7 ✅ 修复 `parse_tuple` 的整数限制
 
 `utils/io/cli_helpers.py:48` 原用 `map(int, parts)` → `--pupil-center "(-0.14,0.18)"` 报
-`Invalid center format`。因 WFS pupil 中心单位是 **mm** (实测常为小数), 且
-`ThorlabWFS.__init__` 传入的 pupil **会覆盖配置文件中的实测值**
-(`thorlab_wfs.py:1072`), 用整数近似会造成 pupil 偏移、污染 `WFS_ZernikeLsf` 拟合。
+`Invalid center format`。因 WFS pupil（瞳面） 中心单位是 **mm** (实测常为小数), 且
+`ThorlabWFS.__init__` 传入的 pupil（瞳面） **会覆盖配置文件中的实测值**
+(`thorlab_wfs.py:1072`), 用整数近似会造成 pupil（瞳面） 偏移、污染 `WFS_ZernikeLsf` 拟合。
 已改为 `map(float, parts)` (整数输入仍可用)。
 
 ## 3. 闭环矫正效果提升路径 (实测)
@@ -308,7 +308,7 @@ data/zernike_correction/debug_<ts>/
 
 报告 `report_<ts>.json` 现含**完整设备参数**: SLM (序列号/波长/2π灰度/灰度上限/**工作温度**/
 固件版本/面板/平移/视频模式/矫正状态/LUT/响应时间) 与 WFS (序列号/设备名/厂商/型号/**曝光时间**/
-**pupil 中心与直径**/MLA 名称/index/子孔径数/参考平面/高速模式/主增益)。
+**pupil（瞳面） 中心与直径**/MLA 名称/index/子孔径数/参考平面/高速模式/主增益)。
 
 **两个工具均已接入** (统一经 `slm_zernike_common.collect_device_info`):
 
@@ -350,7 +350,7 @@ data/zernike_correction/debug_<ts>/
 | Zernike 半径 | 300.0 px |
 | 扰动幅度 | 5.00 rad (0.7958 λ) |
 | 推拉循环 / 帧平均 | 1 / 3 |
-| WFS pupil | — |
+| WFS pupil（瞳面） | — |
 | 参考平面 | — |
 | 矩阵形状 | (66, 14) (WFS × SLM) |
 | SLM 模式 (DLL 索引) | [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15] |
@@ -375,8 +375,8 @@ data/zernike_correction/debug_<ts>/
 | 序列号 | M01219666 |
 | 设备 / 厂商 / 型号 | WFS40-5C / Thorlabs / WFS |
 | **曝光时间** | 3.9842571428571434 ms |
-| **pupil 中心** | [-0.18211834716796876, 0.21564723205566405] mm |
-| **pupil 直径** | [3.605471949213099, 3.8433362866785417] mm |
+| **pupil（瞳面） 中心** | [-0.18211834716796876, 0.21564723205566405] mm |
+| **pupil（瞳面） 直径** | [3.605471949213099, 3.8433362866785417] mm |
 | MLA | MLA150M-5C (index 3) |
 | 子孔径数 | 27 × 27 |
 | 参考平面 | use_custom_ref=False |

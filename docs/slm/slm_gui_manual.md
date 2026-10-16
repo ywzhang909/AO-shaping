@@ -566,7 +566,7 @@ flowchart LR
 > 🔴 **2026-10-13 变更**：原注册表中的三个**开环**方形整形控制 —— `GSSquareControl`
 > （"GS方形整形"）、`GSSquareGaussianControl`（"GS方形整形(高斯版)"）与 `SteadyPhaseControl`
 > （"稳像法整形"），连同助手 `_gs_square_phase_radians` / `generate_gs_square_phase` —— **已移除**。
-> 原因：在本 2f-Fourier 台架上，用未标定台架参数做开环方形整形已被实测证明行不通
+> 原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通
 > （Zernike SPGD 与未标定 GS 从未产出过均匀方形），见
 > [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与
 > [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
@@ -586,7 +586,7 @@ flowchart LR
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
 | **正向模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
-1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off，仅当实测优于平场才采用）
+1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off（对比择优），仅当实测优于平场才采用）
    + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
    （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
    `cam_type=daheng`、曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、`pupil_center=960,690`、

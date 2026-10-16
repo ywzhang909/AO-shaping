@@ -6,11 +6,11 @@
 > **说明**: diff-shaping 直连硬件使用指南与故障排查记录
 <!-- provenance:end -->
 
-**本轮结论**：本文档为 diff-shaping 直连本机硬件（Santec SLM-200 + MiiCam）的历史使用指南，经 2026-10-01 复核归档：`diff-shaping` runner 与 CLI 命令已从仓库删除，文中命令不再可运行；其中沉淀的台架经验（SLM 内存槽轮换约束、MiiCam 0.02 ms 近饱和曝光基线、SLM→相机像素比例 k≈0.414、0 级定位采用帧 argmax 而非几何中心）仍然有效，并已推广至现存实现 `slm-gsnet`（`runners/slm_gsnet_runner.py`）。本目录仅作为经验存档保留，实际实验结论以 `report/slm/` 下现行报告为准。
+**本轮结论**：本文档为 diff-shaping 直连本机硬件（Santec SLM-200 + MiiCam）的历史使用指南，经 2026-10-01 复核归档：`diff-shaping` runner 与 CLI 命令已从仓库删除，文中命令不再可运行；其中沉淀的实验系统经验（SLM 内存槽轮换约束、MiiCam 0.02 ms 近饱和曝光基线、SLM→相机像素比例 k≈0.414、0 级定位采用帧 argmax 而非几何中心）仍然有效，并已推广至现存实现 `slm-gsnet`（`runners/slm_gsnet_runner.py`）。本目录仅作为经验存档保留，实际实验结论以 `report/slm/` 下现行报告为准。
 
 > 🔴 **归档文档 (2026-10-01 复核)**：`diff-shaping` runner 与 CLI 命令**已从仓库删除**
 > （`runners/diff_shaping_runner.py` 不存在）。下文所有 `main.py diff-shaping …` 命令
-> **无法运行**。台架经验（SLM 挂起点、MiiCam 曝光基线、槽轮换）仍然有效并已推广到
+> **无法运行**。实验系统经验（SLM 挂起点、MiiCam 曝光基线、槽轮换）仍然有效并已推广到
 > 现存实现 `slm-gsnet`（`runners/slm_gsnet_runner.py`）。
 >
 > 可微分光束整形在**本机直连 SLM200 + MiiCam** 上的闭环运行经验：GPU 计算配置、

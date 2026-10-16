@@ -28,8 +28,8 @@ graph TD
 
 ## 3. 算法流程
 
-1. **初始化**：打开 SLM 与 WFS，设置波长、瞳孔参数
-2. **pupil 自动检测**：CLI 默认 pupil (2.7mm/(0,0)) 视为"未指定" → `optimize_pupil()` 自动获取并**写回**（硬编码 pupil 会污染 WFS_ZernikeLsf 拟合）
+1. **初始化**：打开 SLM 与 WFS，设置波长、瞳面参数
+2. **pupil（瞳面） 自动检测**：CLI 默认 pupil（瞳面） (2.7mm/(0,0)) 视为"未指定" → `optimize_pupil()` 自动获取并**写回**（硬编码 pupil（瞳面） 会污染 WFS_ZernikeLsf 拟合）
 3. **初始状态捕获**：捕获出厂/用户参考状态 (display_data flat)
 4. **标定循环** (每个幅度)：
    - 对每个 Zernike 模式 (Noll 4..n_max) 施加 `±magnitude` 扰动

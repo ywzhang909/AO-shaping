@@ -95,8 +95,8 @@ DM + WFS。`--wfs-type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`-
 | `--show` | 开关 | `False` | 显示远场光斑 CCD 图像和优化历史 |
 | `--dm-type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
@@ -192,8 +192,8 @@ DM + WFS + CCD。`--wfs-type sim` 可替换 WFS；该命令选项表里没有 `-
 | `-u, --dm-unit-mask` | `[all\|inner\|outer]` | `all` | DM 单元掩码 |
 | `--dm-type` | `[asyn_micro\|hadamard\|micro\|nlight\|sim\|sim_micro\|zernike]` | `None`（auto-detect） | 变形镜类型。未指定且仅一个 DM 在线则自动选取，否则报错 |
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
@@ -213,7 +213,7 @@ python src/ao_shaping/main.py pipeline -E 8000 -e 8000 --rms-threshold 0.12 -s 1
 
 ### 用途
 
-获取 Zernike 响应矩阵。支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算；`--n-magnitudes N` 可生成 N 个不同扰动幅度（2~5 rad）分别标定并保存；`--debug` 保存每次测量的原始数据（SLM 相位图、WFS deviation、averaging 前的 Zernike 系数）。help 内还附有一份重写后的实机待测试清单。
+获取 Zernike 响应矩阵。支持 N 次正负交替循环测量 + M 次 WFS 读取取平均 + 方差跟踪 + 逆矩阵计算；`--n-magnitudes N` 可生成 N 个不同扰动幅度（2~5 rad）分别标定并保存；`--debug` 保存每次测量的原始数据（SLM 相位图、WFS deviation、averaging 前的 Zernike 系数）。help 内还附有一份重写后的实验待测试清单。
 
 ### 硬件需求
 
@@ -251,8 +251,8 @@ SLM（Santec）+ WFS。`--wfs-type sim` 可用仿真 Shack-Hartmann 替代真实
 | `--high-speed` | 开关 | `False` | 启用高速模式 |
 | `--use-custom-ref` | 开关 | `False` | 使用自定义参考文件 |
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
-| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳孔直径 |
-| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳孔中心坐标 |
+| `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
+| `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
 | `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |

@@ -12,7 +12,7 @@
 1. **Step A —— 拟合正向模型**：显示若干个**强随机探针**相位，把每个探针的远场实测帧与正向模型的预测对比，重拟合**一个共享的 Zernike 像差向量**。
 2. **Step B —— 合成方形**：**冻结**刚拟合出的像差，优化**全像素 SLM 相位**逼近方形目标，下发实测；本轮相位成为下一轮的热启动。
 
-两个守卫 (§6) 抑制两步互相追逐；最终相位只有**实测优于平场基线**才提交。
+两个守卫 (§6) 抑制两步相互耦合振荡；最终相位只有**实测优于平场基线**才提交。
 
 ## 2. 调用关系
 
@@ -64,7 +64,7 @@ graph TD
 ## 4. 关键设计点
 
 ### 为什么必须用探针 (Step A)
-平瞳孔聚焦成近 δ 函数，归一化强度对光滑低阶像差几乎不响应 —— 像差不可辨识。
+平瞳面聚焦成近 δ 函数，归一化强度对光滑低阶像差几乎不响应 —— 像差不可辨识。
 探针相位 std > ~3 rad 时信号才越过 16-bit 量化本底两个数量级，拟合才良态。
 
 ### Step A 所有探针喂同一个 Adam 状态
@@ -77,7 +77,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ### 冻结 Noll 1,2,3 (piston/tip/tilt)
 它们**无法从远场强度辨识**：piston 常数无贡献；tip/tilt 只是搬 0 阶位置。
-放开实测后果：56% 系数范数被灌进这些简并方向而不带来收益。
+放开实测后果：56% 系数范数转移到这些简并方向而不带来收益。
 
 ### 孪生与硬件共享数学
 `model_in_loop_shaping.py` 含 `calibrate_bench_geometry` / `_probe_phase` / `_fit_aberration_at_probes` / `shape_phase_with_frozen_aberration` / `simulate_iterative_shaping`。
@@ -93,13 +93,13 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--n-orders` | 拟合 Zernike 阶数 | 10 |
 | `--step-b-iterations` / `--step-b-lr` | Step B Adam 步数/学习率 | 600 / 0.05 |
 | `--frozen-modes` | 冻结的 1-based Noll 序号 | 1,2,3 |
-| `--region` / `--far-field-padding` | 正向模型瞳孔网格 / 远场补零倍数 | 64 / 8 |
-| `--pupil-oversampling` | 瞳孔双线性过采样 (Step A/B 子像素插值, 放大瞳孔后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
+| `--region` / `--far-field-padding` | 正向模型瞳面网格 / 远场补零倍数 | 64 / 8 |
+| `--pupil-oversampling` | 瞳面双线性过采样 (Step A/B 子像素插值, 放大瞳面后按匹配远场采样再裁回 `--region`, 视场不变只提采样率) | 1 (可选 1/2/4) |
 | `--panel-span-px` / `--pupil-center` | 探针覆盖面板宽度 / 光斑面板坐标 | 900 / (960,600) |
 | `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
 | `--w-efficiency` / `--w-uniformity` | 质量分权重。**w-efficiency 必须非零** | 0.6 / 0.4 |
-| `--min-geometry-correlation` | 几何 bake-off 阈值；低于直接中止 (退出码 2) | 0.5 |
+| `--min-geometry-correlation` | 几何 bake-off（对比择优） 阈值；低于直接中止 (退出码 2) | 0.5 |
 | `--warm-start/--no-warm-start` | 热启动 | True |
 | `--early-stop-score` / `--save-best-image` | 早停分数 / 保存最优图 | - |
 | `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
@@ -113,12 +113,12 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 ### 守卫 2：逐轮验收
 `acceptance_verdict(loss_before, loss_after, score_before, score_after)`：
 - 拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps=0.001`) → reject
-- 连续 reject ≥ `max_rejection_streak=3` → 中止 (台架落在模型之外)
+- 连续 reject ≥ `max_rejection_streak=3` → 中止 (实验系统落在模型之外)
 
 ## 7. 曝光默认值陷阱 (红线)
 
 > **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
-> **上机前必须显式传入按当前激光功率实测的曝光** (本台架历史参考 1.5 ms)。
+> **实验前必须显式传入按当前激光功率实测的曝光** (本实验系统历史参考 1.5 ms)。
 
 ## 8. 仿真模式
 
@@ -138,7 +138,7 @@ python src/ao_shaping/main.py slm-model-in-loop \
     --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
-## 10. 上机前必跑表征探针 (顺序不能反)
+## 10. 实验前必跑表征探针 (顺序不能反)
 
 ```bash
 python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 0.4
@@ -148,7 +148,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
-若台架无法被正向模型描述 (bake-off 失败)，改用 `slm-gs-refine`。
+若实验系统无法被正向模型描述 (bake-off 失败)，改用 `slm-gs-refine`。
 
 ## 11. 输出契约
 
@@ -161,6 +161,6 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 0.4
 |------|------|
 | `completed` | 至少一轮被接受 (或正确地保留了平场) |
 | `aborted_unidentifiable` | 几何标定从未达到要求的相关度 |
-| `aborted_rejection_streak` | 连续 reject 达上限 —— 台架落在模型之外 |
+| `aborted_rejection_streak` | 连续 reject 达上限 —— 实验系统落在模型之外 |
 
 退出码 `2` = 几何 bake-off 失败或持续落在模型之外，该轮**没有**提交任何相位。

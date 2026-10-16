@@ -413,19 +413,19 @@ take_image → CalcSpotsCentrDiaIntens → CalcBeamCentroidDia(&cX,&cY,&dX,&dY)
 
 **⚠️ 2026-09 实测固化 (本机 SLM200+WFS M01219666, 532nm):**
 
-- **pupil 必须由 `optimize_pupil()` 自动获取并显式写回**: `wfs.pupil = wfs.optimize_pupil()`。
-  `optimize_pupil()` **只计算并返回, 不调用 `WFS_SetPupil`** — 忘记写回等于没设 pupil
+- **pupil（瞳面） 必须由 `optimize_pupil()` 自动获取并显式写回**: `wfs.pupil = wfs.optimize_pupil()`。
+  `optimize_pupil()` **只计算并返回, 不调用 `WFS_SetPupil`** — 忘记写回等于没设 pupil（瞳面）
   (驱动旧 docstring "d≤0 自动 optimize" 描述不实, §8 坑 #22, 已修正)。
-- **勿硬编码 pupil**: 硬编码 `(0,0,8mm)` 与真实光束不符时, 边界无效子孔径
+- **勿硬编码 pupil（瞳面）**: 硬编码 `(0,0,8mm)` 与真实光束不符时, 边界无效子孔径
   (MLA 27×27 网格外围约 4~6 个) 污染 `WFS_ZernikeLsf` 全孔径 LSF 拟合 →
   **巨大假 tip/tilt, 实测 |z|=4.6~12.8λ 且随倾斜幅度非单调**。
-- **本机实测参考 pupil** (2026-09-14): 中心 ≈ `(-0.148, +0.148)` mm,
+- **本机实测参考 pupil（瞳面）** (2026-09-14): 中心 ≈ `(-0.148, +0.148)` mm,
   直径 ≈ `3.62 × 3.88` mm。
 - 修正后: 倾斜阶梯 A=0.10~3.20λ 读出 0.0061~0.2169λ, 线性度 **R²=0.9603**
   (同轮 plane 度量 R²=0.8795 — 小倾斜端受噪声/高阶像差干扰;
-  硬编码 pupil 那轮 plane R²=0.9974 属巧合假象, 并非真实指标)。
+  硬编码 pupil（瞳面） 那轮 plane R²=0.9974 属巧合假象, 并非真实指标)。
 - zernike LSF 是最干净的主度量: `get_zernike` 直接由 spot deviations 拟合,
-  正确 pupil 下 tip/tilt (Noll 2,3) 噪声 ≤0.22λ; plane 度量在小倾斜端不可靠。
+  正确 pupil（瞳面） 下 tip/tilt (Noll 2,3) 噪声 ≤0.22λ; plane 度量在小倾斜端不可靠。
 
 ## 7. Status-Bit & Error Matrix
 
@@ -434,8 +434,8 @@ take_image → CalcSpotsCentrDiaIntens → CalcBeamCentroidDia(&cX,&cY,&dX,&dY)
 | 位 | 掩码 | 名称 | 含义 |
 |---|---|---|---|
 | 0 | 0x0001 | CON | connected — 已连接 |
-| 1 | 0x0002 | PTH | pupil too high — 光瞳过亮 |
-| 2 | 0x0004 | PTL | pupil too low — 光瞳过暗 |
+| 1 | 0x0002 | PTH | pupil（瞳面） too high — 光瞳过亮 |
+| 2 | 0x0004 | PTL | pupil（瞳面） too low — 光瞳过暗 |
 | 3 | 0x0008 | HAL | high ambient light |
 | 4 | 0x0010 | SCL | spots clipped |
 | 5 | 0x0020 | ZFL | zero frame limit |
@@ -486,7 +486,7 @@ take_image → CalcSpotsCentrDiaIntens → CalcBeamCentroidDia(&cX,&cY,&dX,&dY)
 | 18 | **`ConfigureCam` 重置平均过程** | `AverageImageRolling` 在换分辨率后重新累积 |
 | 19 | **软件触发下 `OFF≡SW`** | WFS150/300/30/40/31 无连续/软件区分 |
 | 20 | **`WFS_Flip2DArray`/图像显示** | 相机图像与物理方向可能镜像; 检查后再定是否翻转 |
-| 21 | **硬编码 pupil 污染 Zernike 拟合** | pupil 必须 `wfs.pupil = wfs.optimize_pupil()` 自动获取并写回; 硬编码 `(0,0,8mm)` 使边界无效子孔径污染 `WFS_ZernikeLsf` → 巨大假 tip/tilt (实测 \|z\|=4.6\~12.8λ, 修正后 ≤0.22λ, R²=0.9603); 本机实测 pupil 中心 (-0.148,+0.148)mm / 直径 3.62×3.88mm |
+| 21 | **硬编码 pupil（瞳面） 污染 Zernike 拟合** | pupil（瞳面） 必须 `wfs.pupil = wfs.optimize_pupil()` 自动获取并写回; 硬编码 `(0,0,8mm)` 使边界无效子孔径污染 `WFS_ZernikeLsf` → 巨大假 tip/tilt (实测 \|z\|=4.6\~12.8λ, 修正后 ≤0.22λ, R²=0.9603); 本机实测 pupil（瞳面） 中心 (-0.148,+0.148)mm / 直径 3.62×3.88mm |
 | 22 | **`optimize_pupil()` 只计算不写回** | 它不调用 `WFS_SetPupil`; 返回元组必须显式赋给 `wfs.pupil` 才生效 (驱动旧 docstring "d≤0 自动 optimize" 描述不实, 已修正; 若返回值非有限/超出 SDK 范围会触发 `logger.warning` — `driver.py:1028` / `thorlab_wfs.py:1032`) |
 
 ## 9. Conventions & Verification Checklist
@@ -508,7 +508,7 @@ take_image → CalcSpotsCentrDiaIntens → CalcBeamCentroidDia(&cX,&cY,&dX,&dY)
 8. ✅ Zernike 系数索引 1..66、RoC = Z[5] (Noll 约定与 zernike_utils 一致)
    — 2026-09 实验确认: `z_um[2:4]/0.532` (Noll 2,3 = tip/tilt) 与物理倾斜幅度线性匹配,
    R²=0.9603 (0.532nm 波长下 1λ ≈ 0.532µm)
-9. ✅ pupil 用 `wfs.pupil = wfs.optimize_pupil()` 自动获取并写回, 勿硬编码
+9. ✅ pupil（瞳面） 用 `wfs.pupil = wfs.optimize_pupil()` 自动获取并写回, 勿硬编码
    — 实测 (0,0,8mm) 硬编码污染 ZernikeLsf; 见 §6.6 / §8 #21
 10. ✅ 无硬件测试: pytest 中用 `MockWFS` (`mock_devices.py#open` @814) 或 `pytest.skip("Requires WFS hardware")`
 

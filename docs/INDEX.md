@@ -84,7 +84,7 @@
 | `slm/slm_lut.md` | 灰度-相位 LUT 标定（半屏参考/测试光栅，±1 级衍射效率比值） |
 | `slm/闭环光束整形_文献与优化建议_20261014.md` | 闭环整形文献×实验×优化建议（GS/SPGD/正向模型/freeform，24 条 DOI 已核实） |
 | `slm/slm_diagnose.md` | SLM+相机逐级硬件自检（2026-09 三步证据链固化） |
-| `slm/pre_run_characterization.md` | 台架开机表征指南（先量台架的必要性） |
+| `slm/pre_run_characterization.md` | 实验系统开机表征指南（先量实验系统的必要性） |
 | `slm/slm_pattern_helper.md` | `PatternHelper` 相位图案生成工具类指南 |
 | `slm/slm_gui_manual.md` | `multi_slm_controller.py` Streamlit 前端页面手册 |
 | `slm/slm_gui_operation_map.md` | SLM 控制器操作路线图：27 个操作按时效（T0–T4）分类的界面重设计 (v1.0) |

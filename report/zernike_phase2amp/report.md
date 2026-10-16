@@ -24,7 +24,7 @@
 
 ## 1. 模型是什么
 
-`src/ml/zernike/models.py` 实现了一个可微的瞳孔 → 远场前向模型，唯一可训练参数是一个
+`src/ml/zernike/models.py` 实现了一个可微的瞳面 → 远场前向模型，唯一可训练参数是一个
 **全局** Zernike 向量 `Z`：
 
 ```
@@ -106,7 +106,7 @@ U-Net 是 `ml.phase.unet.UNetGenerator`（`src/ml/phase/unet.py`）的一个**im
 ## 3. 三个靠测量发现的陷阱
 
 **3.1 尺度不匹配（最关键）。** `_anchored_window` 取的是以 0 阶为中心的 `grid×grid`
-窗口，**不缩放**。若 `far_field_padding=1`，FFT 展的是瞳孔完整衍射场，与目标的角尺度差约
+窗口，**不缩放**。若 `far_field_padding=1`，FFT 展的是瞳面完整衍射场，与目标的角尺度差约
 4 倍，逐像素不可比：
 
 | `far_field_padding`（中心裁剪） | `Z=0` 时 val R² |
@@ -613,7 +613,7 @@ self-confirmation bias 直接量化出来了。
 的分歧、以及这里 7 倍的模型间噪声，都指向同一件事。
 
 > **这条结论只到"代理空间"为止。** 物理模型在留出 pickle 上 R² ≈ 0.88，
-> 一个把代理优化到 CV 0.17 的相位，并不因此在真实台架上也是 CV 0.17。
+> 一个把代理优化到 CV 0.17 的相位，并不因此在真实实验系统上也是 CV 0.17。
 > **必须在硬件上验证**；上面的 U-Net 交叉检验是硬件不可用时能做的最强旁证，
 > 而它的结论是"有改善但远不如代理声称的"。
 
@@ -689,13 +689,13 @@ python -m pytest tests/ao_shaping/scripts/test_compare_models_cv.py -q  # 19
 | **NRMSE** | Normalized RMSE | 归一化均方根误差: `RMSE / (max - min)`。 |
 | **DOF** | Degrees of Freedom | 可优化参数的维度。物理模型: 135 (Zernike 系数); U-Net: 7,778,465; Freeform: 4,096 (64×64 网格)。 |
 | **FOV** | Field of View | 视场角 / 相机视野范围。各 family 的 `fov_px` 不同: 64 / 248 / 320 / 1944 px。详见 §2 数据管线。 |
-| **Zernike** | Zernike polynomials | 圆形瞳孔上的正交多项式基。Noll 1976 约定 (Noll 4 = defocus, Noll 5 = astigmatism x²−y²)。 |
+| **Zernike** | Zernike polynomials | 圆形瞳面上的正交多项式基。Noll 1976 约定 (Noll 4 = defocus, Noll 5 = astigmatism x²−y²)。 |
 | **FFT** | Fast Fourier Transform | 快速傅里叶变换。用于 Fraunhofer 远场传播: `fftshift(fft2(ifftshift(field)))`。 |
 | **SPGD** | Stochastic Parallel Gradient Descent | 无感知优化算法。通过比较带正负扰动的两次测量估计梯度，每次迭代需 2 次相机读数。 |
 | **GS** | Gerchberg-Saxton | 迭代相位恢复算法。用于没有 WFS 的闭环校正，仓库实现见 `algorithm/signal_processing/gerchberg_saxton.py`。 |
 | **PIB** | Power-in-Bucket | 桶内功率: 落在目标半径内的光功率总和。整形质量的一个指标。 |
 | **piston** | Zernike Noll 1 (0,0) | 常数相位项。远场强度不受 piston 影响 (`|FFT(e^{iφ₀}U)| = |FFT(U)|`), 因此从可学习参数中排除。 |
-| **far_field_padding** | -- | FFT 网格相对于瞳孔网格的 padding 倍数。标定物理尺度以匹配相机视场。默认 10 (适用于 248 px fov)。详见 §3.1。 |
+| **far_field_padding** | -- | FFT 网格相对于瞳面网格的 padding 倍数。标定物理尺度以匹配相机视场。默认 10 (适用于 248 px fov)。详见 §3.1。 |
 | **zfrac** | Zernike energy fraction | 合成相位中落在 Zernike 张成空间的能量占比。衡量相位是否"出流形"。 |
 | **wfs** | Wavefront Sensor | 波前传感器。Thorlabs 模块，详见 `drivers/wfs/`。 |
 | **CCD** | Charge-Coupled Device | 电荷耦合器件，相机传感器。详见 `drivers/ccd/`。 |

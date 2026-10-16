@@ -8,7 +8,7 @@
 
 流程与仿真胜出配方一一对应：
 1. **平场基线**：下发平场读一帧，`argmax` 定位 0 阶，**冻结**方形 ROI
-2. **GS 预矫正 (bake-off)**：用 bench 前向模型算 GS 相位实测；**不优于平场就丢弃**
+2. **GS 预矫正 (bake-off（对比择优）)**：用 bench 前向模型算 GS 相位实测；**不优于平场就丢弃**
 3. **自由相位 SPGD 细化**：粗网格 (默认 24×24 = 576 自由度) 扰动正负两次读帧，差分估梯度，Adam 更新 + cosine 衰减
 
 ## 2. 调用关系
@@ -68,9 +68,9 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 | `--gs-weight-clip` | 加权 GS 权重裁剪上限 (须 >1) | 4.0 |
 | `--gs-beta` | HIO 反馈松弛 β (Fienup, 0≤β≤1; β=0 ⇒ 噪声区冻结) | 0.9 |
 | `--gs-hio-fraction` | `hio-weighted` 中 HIO 阶段占比 (0=全加权, 1=全 HIO) | 0.7 |
-| `--beam-radius-px` | 面板上照明光斑**半径** (实测台架值) | 450 |
+| `--beam-radius-px` | 面板上照明光斑**半径** (实测实验系统值) | 450 |
 | `--camera-pixel-um` | 相机像素间距 (um) —— **光路模型的测量锚点** | 2.2 |
-| `--focal-length-m` | 2f 透镜焦距 (m)。默认 0 = 由实测焦点标度 + `--camera-pixel-um` 派生 (本台架 ⇒ 0.1224 m) | 0 |
+| `--focal-length-m` | 2f 透镜焦距 (m)。默认 0 = 由实测焦点标度 + `--camera-pixel-um` 派生 (本实验系统 ⇒ 0.1224 m) | 0 |
 | `--slm-wavelength` | SLM 工作波长 (nm)。默认 0 = 询问设备实际编程波长 | 0 |
 | `--far-field-padding` | GS 远场补零倍数 (默认 3; **代价是平方级**) | 3 |
 | `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
@@ -93,7 +93,7 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 | `hio` | Fienup HIO (框外负反馈 `G - β·B`) | 逃离 GS 的局部极小 |
 | `hio-weighted` | 前 `hio_fraction` 走 HIO, 之后走 weighted | 文档推荐的组合: 探索 + 抛光 |
 
-⚠️ **这三个变体都是振荡收敛, 不是单调下降。** 实测 (台架模型 n_grid=256,
+⚠️ **这三个变体都是振荡收敛, 不是单调下降。** 实测 (实验系统模型 n_grid=256,
 padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代数下"最后一步"只是
 振荡相位上的一次随机抽样。因此 `UniformSquareShaper.run()` 默认返回**历史最优迭代**
 (`select="best"`), 而不是最后一步; 这与硬件侧本来就有的 bake-off + best 跟踪一致。
@@ -101,10 +101,10 @@ padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代�
 
 ⚠️ **HIO 的实现顺序不可交换。** 朴素映射 (先用目标幅度再做负反馈) 在这里是
 **退化的**: 方形目标在框外 `A_target ≡ 0`, 反馈项恒为 0, 框外永远不更新。正确做法是
-**先施加瞳孔幅度约束**得到非零的 `B`, 再在远场做 `G = A·B/|B|` (框内) /
+**先施加瞳面幅度约束**得到非零的 `B`, 再在远场做 `G = A·B/|B|` (框内) /
 `G - β·B` (框外)。
 
-上机建议: 先用 `--cam_type sim` 确认目标边长/锚点无误, 再在硬件上试
+实验建议: 先用 `--cam_type sim` 确认目标边长/锚点无误, 再在硬件上试
 `--gs-method weighted`; 若均匀度改善但能量下降, 降 `--gs-gamma`。
 
 ## 5. 关键参数说明
@@ -116,7 +116,7 @@ padding=3, 60 步) 框内 CV 在 **0.37~1.50** 之间往复 —— 固定迭代�
 
 ### `--focal-length-m` 派生逻辑
 默认 0 = 由实测焦点标度 `K` + `--camera-pixel-um` 派生。
-本台架实测 `K` ⇒ 0.1224 m (与 125 mm 标称差 2%)。
+本实验系统实测 `K` ⇒ 0.1224 m (与 125 mm 标称差 2%)。
 显式传值可锁定具体镜头。
 
 ### `--slm-wavelength` 默认 0 = 询问设备
@@ -141,7 +141,7 @@ python src/ao_shaping/main.py slm-gs-refine --target-side 90
 python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
 ```
 
-## 8. 上机前必跑表征探针 (顺序不能反)
+## 8. 实验前必跑表征探针 (顺序不能反)
 
 ```bash
 python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0

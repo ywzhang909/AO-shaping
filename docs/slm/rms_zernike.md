@@ -33,7 +33,7 @@ graph TD
 
 ## 3. 算法流程
 
-1. **初始化**：打开 SLM 与 WFS，设置波长、瞳孔参数
+1. **初始化**：打开 SLM 与 WFS，设置波长、瞳面参数
 2. **Delta 自动检测** (可选)：在 `[min_delta, max_delta]` 范围按 `delta_step` 级数量级扫描，每级 `n_directions` 次采样，选梯度信号最强的 δ
 3. **多起点优化** (可选)：随机初始化 `n_init_positions` 个位置，各自优化，取最优
 4. **主优化循环**：
@@ -56,7 +56,7 @@ graph TD
 | `--lr` | 学习率 | 0.01 |
 | `--delta` | 初始 δ 值 (0=自动检测) | 0.0 |
 | `-r, --wfs-res` | WFS 分辨率 | 1024 |
-| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-p, --pupil-diameter` | 瞳面直径 | 2.7 |
 | `--early-stop-threshold` | 早停阈值 | 0.12 |
 | `--wavelength` | SLM 波长 (nm) | 532 |
 | `--shift-x/y` | SLM 相位平移 (像素) | 0 |

@@ -453,7 +453,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 - **符号**：`S̃ = [S̃₁, S̃₂, S̃₃]` 实际 Stokes；`S̄ = [S̄₁, S̄₂, S̄₃]` 全瞳平均 Stokes；`c = 1`（「due to the symmetrical nature of Stokes parameter values」）。
 - **物理含义**：原文定义为「实际 Stokes 相对平均 Stokes 的标准差」，度量重排序（re-sorting）光场的均匀性。
 - **⚠ 文本层缺损**：式 (2) 的分母/归一化项在线性化后不可辨，**完整 `U` 公式标记为 NOT RECOVERED**（上文仅保留可确认的 `c·√(‖S̃−S̄‖²)` 骨架与 `c = 1`）。
-- **适用域**：「valid over the whole imaging pupil or sub-regions … can be used to evaluate global uniformity」。
+- **适用域**：「valid over the whole imaging pupil（瞳面） or sub-regions … can be used to evaluate global uniformity」。
 - **备注**：**偏振/矢量域**，与本项目标量强度整形不同轴；仅在需要矢量整形时适用。
 
 ---
@@ -548,7 +548,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 
 1. **`mean_radius`**（§2.5 / §3.1）— MINIMIZE。实现最简（只需 `intensity` 与质心），文献给出明确迭代数优势（361 vs 1354/1275），且是仓库当前缺口。
 2. **`ssim_composite`**（§4.4）— MINIMIZE，`w₁=w₂=0.5` 直接取自原文。**本目录中唯一带显式数值权重的候选**，且直击 SPGD 单标量抖动问题。
-3. **`fom_geomean`**（§4.3）— MAXIMIZE，`√(nPIB·SIB)`；需理想参考（可由无调制平场一次测量得到，与仓库 `slm_gs_refine` 的 bake-off 思路一致）。
+3. **`fom_geomean`**（§4.3）— MAXIMIZE，`√(nPIB·SIB)`；需理想参考（可由无调制平场一次测量得到，与仓库 `slm_gs_refine` 的 bake-off（对比择优） 思路一致）。
 4. **`booth_window`**（§3.2）— MINIMIZE，`D = 1 − ξ²/R²` 加窗二阶矩；对零级光/离轴散斑鲁棒（`VU9TQINS` 报告零级光是均匀性主要劣化源）。
 5. **`irmse`**（§1.1）— MINIMIZE，`sqrt(Σ[I−Ī]²/(n−1))`；与现有 CV 构成「绝对 vs 相对」对照。
 6. **`peak_ratio`**（§2.1）— MAXIMIZE，`I/I₀`；需注意原文自述「极易受大气湍流闪烁影响」，在硬件上应先做中值去噪。

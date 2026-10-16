@@ -49,8 +49,8 @@ graph TD
 | `--auto-exposure/--no-auto-exposure` | 启用 WFS 自动曝光 | True |
 | `--high-speed` | 启用高速模式 | False |
 | `--use-custom-ref` | 使用自定义参考文件 | False |
-| `--pupil-diameter` | 瞳孔直径 (mm) | 2.0 |
-| `--pupil-center` | 瞳孔中心坐标 | (0,0) |
+| `--pupil-diameter` | 瞳面直径 (mm) | 2.0 |
+| `--pupil-center` | 瞳面中心坐标 | (0,0) |
 | `--no-inverses` | 不计算逆矩阵 | False |
 | `--cancel-tile` | 测量时去除 WFS tip/tilt | False |
 | `--auto-optimize/--no-auto-optimize` | 自动优化每路扰动电压 (voltage=0 时) | True |

@@ -3,14 +3,14 @@
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 硬件
-> **说明**: 真机光路验证待办清单 (设备 + 激光就绪后执行)
+> **说明**: 实验系统光路验证待办清单 (设备 + 激光就绪后执行)
 <!-- provenance:end -->
 
-**本轮结论**：真机 smoke（§2）与一次完整 `slm-gsnet spgd` 优化已于 2026-10-01 执行。结论：(1) 命令链路（memory mode、slot 轮换、argmax 定位、Daheng 相机）已验证可运行，硬件访问层无阻塞；(2) 但 SPGD 优化实测为**随机游走**（衰减因子 dec=0.487），末态较初态恶化 35.9%，环围能量流失 6 倍，0 阶峰值由 225 降至 17，优化层尚未收敛；(3) 根因与 6 项修复清单见 `hardware_run_20261001.md`，在其修复前不应期待方形远场输出。本清单其余项（DM/WFS 可达性、完整验收）仍待执行。
+**本轮结论**：实验系统 smoke（§2）与一次完整 `slm-gsnet spgd` 优化已于 2026-10-01 执行。结论：(1) 命令链路（memory mode、slot 轮换、argmax 定位、Daheng 相机）已验证可运行，硬件访问层无阻塞；(2) 但 SPGD 优化实测为**随机游走**（衰减因子 dec=0.487），末态较初态恶化 35.9%，环围能量流失 6 倍，0 阶峰值由 225 降至 17，优化层尚未收敛；(3) 根因与 6 项修复清单见 `hardware_run_20261001.md`，在其修复前不应期待方形远场输出。本清单其余项（DM/WFS 可达性、完整验收）仍待执行。
 
-> 作用域: 仅 FourierGSNet (SLM freeform 方形光斑整形) 的**真机光路验证**。
+> 作用域: 仅 FourierGSNet (SLM freeform 方形光斑整形) 的**实验系统光路验证**。
 > 离线训练部分 (corpus → cache → dataset → train → W&B) 已完成并验收, 详见 [`report.md`](report.md)。
-> 本文件只记录"设备 + 激光就绪后"待执行的真机工作, 与 `docs/TODO.md` (slm_zernike_pib 对账版) 无关。
+> 本文件只记录"设备 + 激光就绪后"待执行的实验系统工作, 与 `docs/TODO.md` (slm_zernike_pib 对账版) 无关。
 >
 > ✅ **2026-10-01 已执行 §2 (SLM+Daheng smoke) 与一次完整 `slm-gsnet spgd` 优化。**
 > 实测结论: 该优化是**随机游走** (`dec=0.487`), 末态比初态**差 35.9%**,
@@ -22,11 +22,11 @@
 
 - [ ] **设备在线**: SLM (Santec #1) + Daheng CCD 均可枚举/打开。
 - [ ] **激光开启** (1064 nm), 且 2f Fourier 光路无遮挡 (SLM 前焦点 → f=125mm 透镜 → CCD 后焦点)。
-- [ ] **无残留 python 进程**: 真机 open 前确认无 `python*` 进程占用 SLM/相机。
+- [ ] **无残留 python 进程**: 实验系统 open 前确认无 `python*` 进程占用 SLM/相机。
   - 检查: `Get-Process python* -ErrorAction SilentlyContinue`
   - 清理: 逐个 `Stop-Process -Id <pid>` (勿用 `killall`/`Stop-Process python* -Force` 误杀其他会话)。
 - [ ] **看门狗/硬超时**: SLM memory-mode `open()` + 首次 CCD capture 可能**无限阻塞** (AGENTS.md 反模式)。
-  任何真机脚本必须作为**独立进程**运行, 外部可强杀, 并带秒级超时看门狗。
+  任何实验系统脚本必须作为**独立进程**运行, 外部可强杀, 并带秒级超时看门狗。
 
 ## 1. 安全红线 (来自 AGENTS.md, 违反即停)
 
@@ -78,7 +78,7 @@ Get-Content "C:\Users\zhangh\AppData\Local\Temp\opencode\hw_smoke.out"
 
 ## 3. DM / WFS 网络可达性 (若后续需 WF 链路)
 
-> FourierGSNet 真机验证主路径是 SLM + CCD (无 WFS), 此项仅在同时跑 WFS 相关链路时需要。
+> FourierGSNet 实验系统验证主路径是 SLM + CCD (无 WFS), 此项仅在同时跑 WFS 相关链路时需要。
 
 - [ ] 确认 DM / WFS 的**实际 IP 与网段** (上次 `192.168.0.101–126` 全段 `none reachable`, 需以现场实配为准)。
 - [ ] 逐个 ping 实际 IP, 记录可达设备。
@@ -88,7 +88,7 @@ Get-Content "C:\Users\zhangh\AppData\Local\Temp\opencode\hw_smoke.out"
 <!-- 记录实际 IP + ping 结果 -->
 - _待填_
 
-## 4. 真机 `slm-gsnet` 光路验证 (smoke 通过后才执行)
+## 4. 实验系统 `slm-gsnet` 光路验证 (smoke 通过后才执行)
 
 > smoke (第 2 节) 全部通过后再做。仍须独立进程 + 看门狗 + 硬超时 (首次 CCD capture 是挂起高危点)。
 
@@ -106,11 +106,11 @@ python src/ao_shaping/main.py slm-gsnet spgd `
 ```
 
 关键参数 (已对照 `slm-gsnet spgd --help`):
-- `--cam-type daheng --cam-id 0` — 真机用 Daheng 远场相机 (cam-id=0, 对应 `Far_Cam_ID=0`)。
+- `--cam-type daheng --cam-id 0` — 实验系统用 Daheng 远场相机 (cam-id=0, 对应 `Far_Cam_ID=0`)。
 - `--slm-number 1 --slm-wavelength 1064` — Santec SLM #1, 1064 nm (driver 内部走 memory mode + slot 轮换)。
 - `-c max` — 0 级光斑用 `argmax` 定位 (红线 3)。
 - `--exposure-time-ms 0.8` — 1064 nm 近饱和基线 ~0.02ms 量级, 0.8ms 为保守曝光 (可调)。
-- `-e 50` — SPGD 迭代数 (真机先小步验证收敛, 勿一次跑满)。
+- `-e 50` — SPGD 迭代数 (实验系统先小步验证收敛, 勿一次跑满)。
 
 **验收判据**:
 - [ ] SLM memory-mode open 成功且 < 数秒 (无挂起)。
@@ -138,6 +138,6 @@ python src/ao_shaping/main.py slm-gsnet heuristic `
 
 ## 5. 关闭 / 复跑注意事项
 
-- 任何真机步骤后, 确认无残留 `python*` 进程 (避免下次 open 卡死)。
+- 任何实验系统步骤后, 确认无残留 `python*` 进程 (避免下次 open 卡死)。
 - SLM memory-mode `open()` 若超过数秒无日志 → 对 SLM 控制器**物理断电重置** (与 DVI 挂起同一处置)。
 - 光路/透镜/相机位置有变动后, **重新 `argmax` 定位 0 级** (2f 几何可能漂移)。

@@ -26,7 +26,7 @@ graph TD
 
 ## 3. 算法流程
 
-1. **初始化**：打开 SLM 与 WFS，设置波长、瞳孔参数
+1. **初始化**：打开 SLM 与 WFS，设置波长、瞳面参数
 2. **种群初始化**：随机生成 `population_size` 个个体 (Zernike 系数向量)
 3. **进化循环** (`n_generations` 代)：
    - **适应度评估**：每个个体下发 SLM，读 WFS 计算 RMS (越小越好)
@@ -51,8 +51,8 @@ graph TD
 | `-n, --n-max` | 最大 Zernike 径向阶数 | 4 |
 | `-w, --wavelength` | SLM 波长 (nm) | 532 |
 | `--wfs-res` | WFS 分辨率 | 1024 |
-| `--pupil-diameter` | WFS 瞳孔直径 | 4.6 |
-| `-c, --pupil-center` | 瞳孔中心坐标 | (0,0) |
+| `--pupil-diameter` | WFS 瞳面直径 | 4.6 |
+| `-c, --pupil-center` | 瞳面中心坐标 | (0,0) |
 | `--early-stop-threshold` | 早停 RMS 阈值 | 0.01 |
 | `--slm-number` | SLM 设备编号 | 1 |
 | `--remove-tilt` | 去除波前倾斜 | False |

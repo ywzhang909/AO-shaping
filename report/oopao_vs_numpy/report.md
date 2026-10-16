@@ -71,8 +71,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 | 指标 | 定义 |
 |---|---|
-| `phase_std_rad` | 瞳孔掩码内湍流相位屏的 std (rad) |
-| `phase_rms_rad` | 瞳孔掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |
+| `phase_std_rad` | 瞳面掩码内湍流相位屏的 std (rad) |
+| `phase_rms_rad` | 瞳面掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |
 | `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (臂无关) |
 | `fwhm_px` | 过峰值的**行剖面 / 列剖面**各求半高宽 (阈值交点线性插值) 后取平均 |
 | `ee_r4` | 圆心取 `argmax` (仓库"0 级 = argmax"约定)、半径 `4 × 衍射极限 FWHM` 的包围能量占比 |
@@ -80,7 +80,7 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 **播种与确定性**: 每条臂都 (a) 向 `turbulence_phase` 显式传 `rng=np.random.default_rng(seed)`, (b) 在换臂时执行 `np.random.seed(seed)` —— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 `TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两条臂的相位屏**不会**相同 (生成器不同), 这是预期且正确的, 不做任何"对齐"处理。
 
-**像差幅值**: 通过 canonical `generate_zernike_phase` 生成单位系数相位, 实测其在瞳孔内的峰谷值, 再线性缩放到目标 waves-PV (×2π 得弧度)。该函数对系数线性, 因此缩放是精确的; 全程复用官方多项式求值, 未自写任何 Zernike 数学。
+**像差幅值**: 通过 canonical `generate_zernike_phase` 生成单位系数相位, 实测其在瞳面内的峰谷值, 再线性缩放到目标 waves-PV (×2π 得弧度)。该函数对系数线性, 因此缩放是精确的; 全程复用官方多项式求值, 未自写任何 Zernike 数学。
 
 **防静默回退**: `_get_backend` 是 `@lru_cache(maxsize=8)`, 键中只有物理配置、**没有臂标志**。脚本在每次换臂和每个场景开始前都调用 `oopao_backend._get_backend.cache_clear()`, 并断言 `oopao_backend._oopao_available() is True` 且 `bb._oopao_enabled()` 与预期臂一致; 不一致即以退出码 2 中止, 绝不会产出被标成 `oopao` 的 numpy 重复结果。
 
