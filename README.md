@@ -209,14 +209,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
 
-`multi_slm_controller.py` 提供多种全息相位图案生成：平场、闪耀光栅、达曼光栅、涡旋相位等。支持**从 CSV 加载相位**（格式：1200×1920，值 0~1023，首行/首列为 Y/X 索引），走 `load_gray_from_csv` → `csv_to_phase` → `display_phase` 三步管线，与 GUI 预览共用 `create_phase_from_array()` 保证字节级一致；也支持将当前相位或相位 A/B **导出为弧度 CSV**（`Santec.save_phase_to_csv()`，保留 Y/X 行列索引）。导出文件的数据区是弧度值而非灰度值，不能交给 `load_gray_from_csv()` 或 `csv_to_phase()`；重新使用时应按弧度读取并传入 `create_phase_from_array()`。
-
-旧的开环方形整形功能（**GS方形整形** / **GS方形整形(高斯版)** / **稳像法整形**，含 `_gs_square_phase_radians` / `generate_gs_square_phase`）已移除：在本 2f-Fourier 台架上，用未标定的台架参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形（见 [`report/shape_trials/README.md`](report/shape_trials/README.md) 与 [`report/shape_trials/online_20261010.md`](report/shape_trials/online_20261010.md)）。取而代之的是新的 **闭环整形** 区（`src/ao_shaping/gui/slm/shaping_controls.py::render_closed_loop_shaping`，单/双 SLM 布局均渲染），提供两种方法：
-
-1. **GS+SPGD 闭环整形（已验证配方）**：与 CLI `slm-gs-refine` 同一代码路径（`SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`），GUI 默认值即交替重放验证过的配方（[`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)）：cam_type daheng、曝光 0.05 ms（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、pupil_center `960,690`、beam_radius_px 450、target_side 100、cam_size 250、gs_iters 12、far_field_padding 3、phase_grid 12、epochs 12、seed 0、confirm_best 开、gs_method plain。验证结果：flat 0.527 → plain GS 0.775 → SPGD best 0.780（两次一致的交替重放）。
-2. **正向模型闭环整形（前沿）**：CLI `slm-model-in-loop` 链路（`SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`），需要 torch；目前最佳均匀性 CV 0.643 / EE 0.786，但尚未成为被接受的均匀方形（见 [`report/shape_trials/model_in_loop_live_20261013.md`](report/shape_trials/model_in_loop_live_20261013.md)）。
-
-设备生命周期注意：上述优化器在内部自行打开/关闭 SLM 与相机（Santec SDK 句柄不可重入），因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，另一台 SLM 保持连接）。结束时的最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示。GUI 显示 flat/GS/best 各阶段得分、PIB、CV 与 GS bake-off 判定（adopted/rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
+`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`docs/gui/multi_slm_controller_user_manual.md`](docs/gui/multi_slm_controller_user_manual.md) 与 [`docs/gui/multi_slm_controller_srs.md`](docs/gui/multi_slm_controller_srs.md)。
 
 ## 项目结构（简版）
 
