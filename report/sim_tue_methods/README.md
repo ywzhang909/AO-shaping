@@ -1,10 +1,9 @@
 # TU/e 可微仿真三能力：本仓库 ML 仿真复现 + 实验对照（issue #149）
 
 <!-- provenance:start -->
-> **生成脚本**: [`t1_noise_relaxation.py`](t1_noise_relaxation.py)、[`t2_mixed_fitting.py`](t2_mixed_fitting.py)（T1/T2 定量表）；T3 复用论文 5.4 节实验数据，无新脚本
-> **复现命令**: `cd <repo> && .venv/bin/python3 report/sim_tue_methods/t1_noise_relaxation.py` 与 `.venv/bin/python3 report/sim_tue_methods/t2_mixed_fitting.py`
-> **运行环境**: 离线 + 仿真 sim（`SimFourierGSNetEnv`，64×64，CPU，无硬件）；T3 对照数据来自 `report/shape_trials/` 的实测（Santec SLM #1 22030108、Daheng CCD，1064 nm 实际光路）
-> **说明**: 本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的三项能力（系统松弛 / 混合拟合 / 低参数 vs 深度），并与 `shape_trials` 的实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据。全部 sim-only，不触碰硬件写入路径。
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 离线+硬件
+> **说明**: 本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的三项能力（系统松弛 / 混合拟合 / 低参数 vs 深度），并与 `shape_trials` 的实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2 定量表由本目录 `t1_noise_relaxation.py` 与 `t2_mixed_fitting.py` 生成（`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，1064 nm 实际光路)；不触碰硬件写入路径
 <!-- provenance:end -->
 
 ## 0. 一句话

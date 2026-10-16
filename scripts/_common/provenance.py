@@ -536,6 +536,20 @@ REPORTS: dict[str, ReportProvenance] = {
             "(对数强度梯度差分, --w-loggrad)、2 类早已存在、3 类否决, 附实测依据"
         ),
     ),
+    "report/sim_tue_methods/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的"
+            "三项能力（系统松弛 / 混合拟合 / 低参数 vs 深度），并与 `shape_trials` 的"
+            "实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2 定量表由本目录 "
+            "`t1_noise_relaxation.py` 与 `t2_mixed_fitting.py` 生成（"
+            "`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节"
+            "实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），"
+            "T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，"
+            "1064 nm 实际光路)；不触碰硬件写入路径"
+        ),
+    ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
     "report/benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
