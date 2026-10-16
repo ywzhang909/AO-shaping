@@ -58,6 +58,52 @@
 | 80 步 A / 零步 B | 0.8021, 0.8029 | 0.7770, 0.7955 | 0.7065, 0.7174 | 0.5919, 0.5867 | `slm_model_in_loop_replay/20261016_1051_refit_steps/` |
 | 零步 A / 80 步 B（逆序） | 0.7893, 0.7932 | 0.8033, 0.8030 | 0.5945, 0.5821 | 0.7005, 0.7038 | `slm_model_in_loop_replay/20261016_1053_refit_steps_reverse/` |
 
+## 相位与远场图像
+
+以下为三次交错重放中 A/B 两种成形相位的 SLM 相位图（包装到 [0, 2π)，`twilight` 色图）与对应 CCD 远场图像（`inferno` 色图，青色虚线框为 target 区域，边长 60 像素，中心 `(127, 126)`）。相位来自各自源运行的 `best_phase.npy`；远场为重放时采集的原始 CCD 帧，已归一化到 [0, 1]。
+
+### `20261016_1044_uniformity_weights`（默认权重 A / 高 CV 权重 B）
+
+| | A 相位 | A 远场 | B 相位 | B 远场 |
+|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield.png){width=150} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield.png){width=150} |
+
+| 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
+|---|---|---|---|---|
+| A 第一次 (01_A) | 0.6899 | 0.8018 | 0.8018 | 0.6899 |
+| B 第一次 (02_B) | 0.5184 | 0.8942 | 0.8942 | 0.5184 |
+| A 第二次 (05_A) | 0.6940 | 0.8036 | 0.8036 | 0.6940 |
+| B 第二次 (04_B) | 0.5171 | 0.9037 | 0.9037 | 0.5171 |
+
+### `20261016_1051_refit_steps`（80 步 A / 零步 B）
+
+| | A 相位 | A 远场 | B 相位 | B 远场 |
+|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield.png){width=150} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield.png){width=150} |
+
+| 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
+|---|---|---|---|---|
+| A 第一次 (01_A) | 0.7065 | 0.8021 | 0.8021 | 0.7065 |
+| B 第一次 (02_B) | 0.5919 | 0.7770 | 0.7770 | 0.5919 |
+| A 第二次 (05_A) | 0.7174 | 0.8029 | 0.8029 | 0.7174 |
+| B 第二次 (04_B) | 0.5867 | 0.7955 | 0.7955 | 0.5867 |
+
+### `20261016_1053_refit_steps_reverse`（零步 A / 80 步 B，逆序）
+
+| | A 相位 | A 远场 | B 相位 | B 远场 |
+|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield.png){width=150} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield.png){width=150} |
+
+| 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
+|---|---|---|---|---|
+| A 第一次 (01_A) | 0.5945 | 0.7893 | 0.7893 | 0.5945 |
+| B 第一次 (02_B) | 0.7005 | 0.8033 | 0.8033 | 0.7005 |
+| A 第二次 (05_A) | 0.5821 | 0.7932 | 0.7932 | 0.5821 |
+| B 第二次 (04_B) | 0.7038 | 0.8030 | 0.8030 | 0.7038 |
+
 所有成形帧原始峰值仅约 **17–22/255**，未饱和但低计数噪声和未完成的
 短曝光辐射线性化会影响 CV 的绝对值。两次零步对照的平场总强度分别漂移
 约 4.04% 和 2.95%（极差/均值），小于约 11.8 个百分点的 EE 差，
