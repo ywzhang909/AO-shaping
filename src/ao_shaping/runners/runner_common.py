@@ -3185,6 +3185,102 @@ def build_gs_refine_config(
     )
 
 
+#: Where a measured geometry can appear under the run-output root.  The runner
+#: saver writes ``<root>/debug/<topic>/<timestamp>/bench_geometry.json`` (three
+#: levels) and the calibration runbook writes ``<root>/<out>/bench_geometry.json``
+#: (one level).  Shallow one-, two- and three-level globs cover both, plus any
+#: hand-made ``<topic>/<stamp>/`` copy; a recursive ``**`` is deliberately
+#: avoided because ``data/`` also holds tens of GB of pickle corpora.
+_MODEL_IN_LOOP_GEOMETRY_GLOBS: tuple[str, ...] = (
+    "*/bench_geometry.json",
+    "*/*/bench_geometry.json",
+    "*/*/*/bench_geometry.json",
+)
+
+
+def discover_model_in_loop_geometry(
+    region: int | None = None, *, root: str | Path = "data"
+) -> Path | None:
+    """Find the newest usable sweep geometry under ``root``, or ``None``.
+
+    Hardware model-in-loop runs need a *measured* geometry: without one the
+    optimiser falls back to the abandoned speckle route, which on this bench
+    scores ~0.07 against the 0.5 bake-off floor and aborts with "bench geometry
+    bake-off failed".  Only ``scripts/slm/model_in_loop_hw_runbook.py`` can
+    *produce* that artefact, so the GUI offers the most recent one it can find.
+
+    Args:
+        region: When given, only geometries whose model grid matches are
+            considered.  A region mismatch is a genuine incompatibility (the
+            pupil grid itself differs); a ``far_field_size`` mismatch is not,
+            and the optimiser rescales it.
+        root: Run-output root, relative to the CWD by default.
+
+    Returns:
+        The newest matching path, or ``None`` when nothing usable is found.
+    """
+    import json
+
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return None
+
+    newest: Path | None = None
+    newest_mtime = float("-inf")
+    for pattern in _MODEL_IN_LOOP_GEOMETRY_GLOBS:
+        for path in root_path.glob(pattern):
+            try:
+                if not path.is_file():
+                    continue
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                # Only a sweep geometry carries an independent goodness number;
+                # a speckle artefact is exactly the ~0.07 route being replaced.
+                if str(payload.get("method")) != "sweep":
+                    continue
+                if region is not None and int(payload["region"]) != int(region):
+                    continue
+                mtime = path.stat().st_mtime
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = path, mtime
+    return newest
+
+
+def describe_bench_geometry(path: str | Path | None) -> str:
+    """One-line caption for a ``bench_geometry.json`` (never raises).
+
+    A GUI caption has to say what is wrong with a missing or malformed file
+    rather than surface a traceback under the text box.  ``None`` (or a blank
+    string) is the "no geometry selected" state and is stated as such.
+    """
+    import json
+
+    if path is None or str(path).strip() == "":
+        return "未指定几何文件: 真机会退回已废弃的 speckle 标定"
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError("顶层不是 JSON 对象")
+    except (OSError, ValueError, TypeError) as error:
+        return f"无法读取几何文件: {path} ({error})"
+
+    def _number(key: str) -> str:
+        try:
+            return f"{float(payload[key]):.4f}"
+        except (KeyError, TypeError, ValueError):
+            return "?"
+
+    return (
+        f"几何 [{payload.get('method', '?')}]: "
+        f"region={payload.get('region', '?')} "
+        f"far_field={payload.get('far_field_size', '?')} "
+        f"corr={_number('correlation')} "
+        f"(disc={payload.get('panel_disc_radius', '?')}px, "
+        f"cam/model={_number('camera_px_per_model_px')})"
+    )
+
+
 def build_model_in_loop_config(
     params: SlmModelInLoopParams,
     *,
