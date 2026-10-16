@@ -50,6 +50,8 @@ def collect(output_dir: Path, *, exposure_ms: float, repeats: int, frames: int) 
     with Santec(slm_number=1, wavelength=1064, video_mode=0) as slm:
         with create_camera("daheng", 0, exposure_time_ms=exposure_ms) as cam:
             with preserve_slm_display(slm):
+                cam.reset_exposure_time(0.02)
+                measure_flat_reference(cam, slm, n_frames=1)
                 ceiling = resolve_daheng_exposure_limit(camera=cam)
                 if exposure_ms > ceiling + 1e-9:
                     raise ValueError(

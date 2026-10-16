@@ -28,6 +28,8 @@ __all__ = [
     "measure_spot_diameter_cam",
     "compute_beam_metrics",
     "compute_shaping_metrics",
+    "compute_shape_iou",
+    "zero_order_exclusion_mask",
     "compute_square_metrics",
     "compute_quality_score",
     "measure_bright_span",
@@ -236,6 +238,73 @@ def compute_shaping_metrics(
         "peak": float(intensity.max()),
         "in_mask_mean": in_mask_mean,
     }
+
+
+def compute_shape_iou(
+    intensity: np.ndarray, mask: np.ndarray, *, peak_fraction: float = 0.5
+) -> float:
+    """Intersection over union of the bright CCD region and a target mask.
+
+    The threshold is relative to the measured peak, so exposure scaling does
+    not change this diagnostic.  A focused spot inside a large target scores
+    poorly even when its encircled energy is high.
+    """
+    image = np.asarray(intensity, dtype=np.float64)
+    target = np.asarray(mask, dtype=bool)
+    if image.ndim != 2 or image.shape != target.shape:
+        raise ValueError("intensity and target mask must have the same 2D shape")
+    if not 0 < peak_fraction < 1:
+        raise ValueError("peak_fraction must lie in (0, 1)")
+    clean = prepare_frame(np.nan_to_num(image, nan=0.0, posinf=0.0, neginf=0.0))
+    peak = float(clean.max())
+    if peak <= 0 or not target.any():
+        return 0.0
+    bright = clean >= peak_fraction * peak
+    intersection = np.count_nonzero(bright & target)
+    union = np.count_nonzero(bright | target)
+    return float(intersection / union) if union else 0.0
+
+
+def zero_order_exclusion_mask(
+    flat_frame: np.ndarray,
+    target: np.ndarray,
+    *,
+    radius_px: float | None = None,
+    threshold_fraction: float = 0.5,
+    margin_px: int = 2,
+) -> np.ndarray:
+    """Find the optical axis in a flat reference and mask its central core.
+
+    The shaped frame's brightest speckle is not necessarily the zero order.
+    With no explicit radius, use the connected half-peak component containing
+    the flat-reference peak, plus a small margin. The exclusion is clipped to
+    the target and to one quarter of its equivalent side length.
+    """
+    from scipy.ndimage import label
+
+    flat = np.asarray(flat_frame, dtype=np.float64)
+    support = np.asarray(target, dtype=bool)
+    if flat.ndim != 2 or flat.shape != support.shape or not support.any():
+        raise ValueError("flat_frame and nonempty target must have the same 2D shape")
+    if not 0 < threshold_fraction < 1 or margin_px < 0:
+        raise ValueError("invalid zero-order threshold or margin")
+    if radius_px is not None and (not np.isfinite(radius_px) or radius_px <= 0):
+        raise ValueError("radius_px must be positive and finite")
+    clean = prepare_frame(np.nan_to_num(flat, nan=0.0, posinf=0.0, neginf=0.0))
+    cx, cy = zero_order_center(clean, refine=False, despike_k=3)
+    peak = float(clean[cy, cx])
+    if peak <= 0:
+        raise ValueError("flat reference has no detectable zero order")
+    if not support[cy, cx]:
+        raise ValueError("flat-reference zero order is outside the target")
+    yy, xx = np.ogrid[:flat.shape[0], :flat.shape[1]]
+    distance2 = (xx - cx) ** 2 + (yy - cy) ** 2
+    if radius_px is None:
+        components, _ = label(clean >= threshold_fraction * peak)
+        component = components == components[cy, cx]
+        radius_px = float(np.sqrt(distance2[component].max())) + margin_px
+    max_radius = max(1.0, float(np.sqrt(support.sum())) / 4.0)
+    return support & (distance2 <= min(float(radius_px), max_radius) ** 2)
 
 
 def compute_square_metrics(

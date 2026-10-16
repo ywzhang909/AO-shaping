@@ -113,8 +113,8 @@ dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目
 
 ## Legacy: Wave 工具与 compat 层
 
-`wave.py` 的 `create_wave / apply_aperture / apply_focus / propagate / power_bucket /
-radius_metric` 与 `compat.py` 的 `AOConfig / TraditionalAOSystem` 仍供旧优化器
+`wave.py` 的 `create_wave / apply_aperture / apply_focus / propagate / power_bucket_sum /
+radius_metric`（`power_bucket` 已按 #78 改名 `power_bucket_sum`，见 `612f8cad`）与 `compat.py` 的 `AOConfig / TraditionalAOSystem` 仍供旧优化器
 (`sim_spgd.py`, RL `envs.py`) 使用。注意：
 
 - 这些工具历史上包装 `sim.digitaltwin`；该包现已不在仓库中，相关 digitaltwin 分支

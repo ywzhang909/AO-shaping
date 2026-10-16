@@ -31,7 +31,7 @@ import os
 import time
 from collections import deque
 from contextlib import nullcontext
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import numpy as np
@@ -56,6 +56,7 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import PANEL_RES
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
     zero_order_center,
@@ -470,6 +471,8 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     epochs = config.epochs
     camera_config = config.camera
     slm_config = config.slm
+    blaze_period_px = slm_config.blaze_period_px
+    blaze_direction = slm_config.blaze_direction
     algorithm = config.algorithm
     pop_size = config.pop_size
     optimizer_type = config.optimizer_type
@@ -488,6 +491,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     objective = camera_config.name
     target_shape = camera_config.target_shape
     target_size = camera_config.target_size
+    if blaze_period_px >= 0 and (target_size is None or exposure_time_ms <= 0):
+        raise ValueError("off-axis shaping requires target_size and a fixed exposure")
+    if blaze_period_px >= 0 and camera_config.cam_type == "sim":
+        raise ValueError("blaze calibration requires a full-frame hardware CCD")
     target_aspect_ratio = camera_config.target_aspect_ratio
     target_center_smooth = camera_config.target_center_smooth
     shape_schedule = camera_config.shape_schedule
@@ -575,11 +582,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             raise ValueError(
                 f"{_name} must be a finite, non-negative weight, got {_w!r}"
             )
-    objective_mode = (
-        "max"
-        if objective in ("pib", "avg_radiu", "shape", "roi_pib", "rms_pib")
-        else "min"
-    )
+    objective_mode = objective_direction(objective)
     recorder = Recorder(mark=objective, mode=objective_mode)
 
     # History for convergence detection
@@ -617,13 +620,43 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     else:
         display_ctx = nullcontext(None)
 
-    # TODO： 先跑一次离线 gs() 把结果作为闭环初值，通常 3~5 次就能收敛，不用每次从零迭代
-
     cam_ctx = create_camera(config.camera)
     slm_ctx = Santec.from_params(config.slm)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         assert cam is not None and slm is not None
+        blaze_choice = None
+        if blaze_period_px >= 0:
+            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+            actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
+            if abs(actual_exposure - exposure_time_ms) > 0.001:
+                raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
+
+            def capture_blaze(phase: np.ndarray) -> np.ndarray:
+                display_rotating(slm, slm.create_phase_from_array(phase), _SLOT_ROTATOR)
+                time.sleep(SLM_RESPONSE_TIME_S)
+                frame = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
+                if camera_config.cam_type == "daheng" and float(frame.max()) >= 250:
+                    raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+                return frame
+
+            blaze_choice = select_blaze(
+                capture_blaze, (SLM_RESOLUTION[1], SLM_RESOLUTION[0]),
+                target_side=int(np.ceil(float(target_size) * max(1.0, target_aspect_ratio))),
+                window_size=cam_size, period_px=blaze_period_px,
+                direction=blaze_direction,
+            )
+            center = blaze_choice.signal_xy
+            logger.info("measured blaze: {}", blaze_choice)
+        recorder.blaze_choice = blaze_choice
+
+        def to_gray(phase: np.ndarray) -> np.ndarray:
+            if blaze_choice is not None:
+                from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+                phase = apply_zero_order_overlay(phase, blaze_choice.params)
+            return slm.create_phase_from_array(phase)
         # Initialize Zernike coefficients
         if init_c is None or len(init_c) == 0:
             _init_c = np.zeros(nk, dtype=np.float64)
@@ -637,7 +670,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _init_c = _init_c[:nk]
 
         # Reset SLM to flat phase
-        initial_phase = slm.create_phase_from_array(
+        initial_phase = to_gray(
             zernike_to_phase(_init_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
         )
         display_rotating(slm, initial_phase, _SLOT_ROTATOR)
@@ -658,7 +691,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # When centre is None, ``smart_zero_order_center`` auto-detects via
         # argmax + flat-core-aware local centroid; when a string, a fresh frame
         # is re-captured and dispatched by name.
-        center = resolve_spot_center(cam, _img, center, n_sample=10)
+        center = (
+            blaze_choice.signal_xy if blaze_choice is not None
+            else resolve_spot_center(cam, _img, center, n_sample=10)
+        )
         log_center_brightness(_img, center, get_camera_exposure_ms(cam))
 
         img_size = (cam_size, cam_size)
@@ -739,7 +775,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         # full-frame centres fix the window position, and the freshly positioned
         # window then has the spot at its argmax, so re-locating stays correct
         # for them too.
-        _spot = zero_order_center(init_img)
+        _spot = (
+            (
+                int(blaze_choice.signal_xy[0] - center[0] + img_size[0] // 2),
+                int(blaze_choice.signal_xy[1] - center[1] + img_size[1] // 2),
+            )
+            if blaze_choice is not None else zero_order_center(init_img)
+        )
         reference_center: tuple[float, float] = (float(_spot[0]), float(_spot[1]))
         if target_size is None:
             _w, _h = img_size
@@ -1012,7 +1054,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     else best_objective < _initial_objective - IMPROVE_EPS
                 )
                 if improved:
-                    best_phase = slm.create_phase_from_array(
+                    best_phase = to_gray(
                         zernike_to_phase(best_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                     )
                     display_rotating(slm, best_phase, _SLOT_ROTATOR)
@@ -1122,6 +1164,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     "r_bucket": r_bucket,
                     "cam_type": camera_config.cam_type,
                     "cam_size": cam_size,
+                    "blaze_choice": (
+                        asdict(blaze_choice)
+                        if blaze_choice is not None else None
+                    ),
                 },
             )
 
@@ -1137,7 +1183,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 def _evaluate_candidate(coeffs) -> float:
                     """Display one candidate and return its RAW objective value."""
                     candidate = np.asarray(coeffs, dtype=np.float64)
-                    candidate_phase = slm.create_phase_from_array(
+                    candidate_phase = to_gray(
                         zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                     )
                     display_rotating(slm, candidate_phase, _SLOT_ROTATOR)
@@ -1155,7 +1201,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     # Re-locate the target ROI onto the CURRENT spot (a benign beam
                     # drift must not be scored as a shaping loss) - same rule as the
                     # SPGD loop's per-eval re-centering.
-                    shaping.set_reference_center(zero_order_center(img))
+                    shaping.set_reference_center(reference_center if blaze_choice is not None else zero_order_center(img))
                     res = shaping(img)
                     obj, obj_ratio = res.j, res.ratio
                     if objective == "rms_pib":
@@ -1312,7 +1358,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                     for _sign in _spgd_capture_signs(config.abba_sampling):
                         _c = np.clip(_init_c + float(_sign) * disturb_c, -ZERNIKE_CLIP, ZERNIKE_CLIP)
-                        _phase = slm.create_phase_from_array(
+                        _phase = to_gray(
                             zernike_to_phase(_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
                         )
                         display_rotating(slm, _phase, _SLOT_ROTATOR)
@@ -1450,7 +1496,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
                     with shaping.shape_batch():
                         for _c_sign, _img_c, _, _ in _captures:
-                            shaping.set_reference_center(zero_order_center(_img_c))
+                            shaping.set_reference_center(reference_center if blaze_choice is not None else zero_order_center(_img_c))
                             _sign_results[_c_sign].append(shaping(_img_c))
                     pos_res = _sign_results[1][0]
                     # Sign-means (2 frames reduce to the single value they hold).
@@ -1458,7 +1504,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     neg_obj = float(np.mean([r.j for r in _sign_results[-1]]))
                     pos_obj_ratio = float(np.mean([r.ratio for r in _sign_results[1]]))
                     neg_obj_ratio = float(np.mean([r.ratio for r in _sign_results[-1]]))
-                    pos_center = zero_order_center(pos_img)
+                    pos_center = reference_center if blaze_choice is not None else zero_order_center(pos_img)
 
                     # Auto-exposure adjustment if saturated (over every capture).
                     # The ceiling comes from the frame dtype, never a literal: a

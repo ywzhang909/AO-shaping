@@ -13,8 +13,6 @@ The optimization loop:
 
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -40,56 +38,23 @@ from ao_shaping.utils.image.hardware_utils import (
     log_center_brightness,
     resolve_spot_center,
 )
+# Camera-injection seam shared with wfless.pib: a single global in
+# ao_shaping.optimizer._camera_inject (previously each optimizer carried its own
+# copy, so injecting the simulator through one left the other on the real driver).
+from ao_shaping.optimizer._camera_inject import (
+    _camera_cls,
+    _camera_override,  # noqa: F401  (backward-compat re-export)
+)
+from ao_shaping.optimizer.constants import (
+    CAM_SAMPLE_ITER,
+    IDEAL_SPOT_RADIUS,
+    KEEP_VOLTAGE_WHEN_EXIT,
+    TEST_EXPOSURE_TIME_BRIGHTNESS,
+)
 
 BETA1: float = 0.9
 BETA2: float = 0.99
 BETA3: float = 0.9999
-
-CAM_SAMPLE_ITER: int = 1
-TEST_EXPOSURE_TIME_BRIGHTNESS: int = 220
-IDEAL_SPOT_RADIUS: int = int(os.environ.get("IDEAL_SPOT_RADIUS", "6"))
-KEEP_VOLTAGE_WHEN_EXIT: bool = True
-
-#: Simulation / test injection point; ``None`` means the real driver.
-_CAMERA_CLASS_OVERRIDE: type | None = None
-
-
-def _camera_cls(cam_type: str = "") -> type:
-    """Resolve the camera driver class on demand.
-
-    Resolved lazily because ``ao_shaping.drivers`` exposes ``MIICamera`` through
-    a PEP 562 ``__getattr__``: binding it at module scope would load the native
-    SDK during ``import ao_shaping.optimizer.combined_optimizer`` and so on every
-    ``import ao_shaping``.
-
-    Precedence matches :func:`ao_shaping.optimizer.wfless.pib._camera_cls`: an
-    explicit override wins, then ``cam_type="sim"``, then the real driver.
-    """
-    if _CAMERA_CLASS_OVERRIDE is not None:
-        return _CAMERA_CLASS_OVERRIDE
-
-    if cam_type == "sim":
-        from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
-
-        return SimPibCCD
-
-    from ao_shaping.drivers import MIICamera
-
-    if MIICamera is None:
-        raise RuntimeError("MiiCam driver not available. Install the MiiCam SDK.")
-    return MIICamera
-
-
-@contextmanager
-def _camera_override(camera_cls: type | None):
-    """Temporarily swap the camera class, restoring it even on exception."""
-    global _CAMERA_CLASS_OVERRIDE
-    previous = _CAMERA_CLASS_OVERRIDE
-    _CAMERA_CLASS_OVERRIDE = camera_cls
-    try:
-        yield camera_cls
-    finally:
-        _CAMERA_CLASS_OVERRIDE = previous
 
 
 def learning_schedule(

@@ -804,6 +804,8 @@ class SlmSquareConfig:
     show: bool = False
     init_c: list[float] | np.ndarray | None = None
     cam_size: int = 300
+    blaze_period_px: int = -1
+    blaze_direction: str = "vertical"
     target_max_brightness: int = 200
     slm_number: int = 1
     slm_wavelength: int = 0
@@ -851,6 +853,14 @@ class SlmSquareConfig:
         """
         if self.n_max < 1:
             raise ValueError(f"n_max must be at least 1, got {self.n_max}")
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
+        if self.blaze_period_px >= 0 and (self.target_side < 1 or self.exposure_time_ms <= 0):
+            raise ValueError("off-axis shaping requires target_side and a fixed exposure")
+        if self.blaze_period_px >= 0 and self.cam_type == "sim":
+            raise ValueError("blaze calibration requires a full-frame hardware CCD")
         if self.target_side < 0:
             raise ValueError(
                 f"target_side must be non-negative, got {self.target_side}"
@@ -947,6 +957,8 @@ def optimize_slm_square(
     show: bool = False,
     init_c: list[float] | np.ndarray | None = None,
     cam_size: int = 300,
+    blaze_period_px: int = -1,
+    blaze_direction: str = "vertical",
     target_max_brightness: int = 200,
     slm_number: int = 1,
     slm_type: str = "",
@@ -1066,6 +1078,8 @@ def optimize_slm_square(
             show=show,
             init_c=init_c,
             cam_size=cam_size,
+            blaze_period_px=blaze_period_px,
+            blaze_direction=blaze_direction,
             target_max_brightness=target_max_brightness,
             slm_number=slm_number,
             slm_wavelength=slm_wavelength,
@@ -1115,6 +1129,8 @@ def optimize_slm_square(
     show = config.show
     init_c = config.init_c
     cam_size = config.cam_size
+    blaze_period_px = config.blaze_period_px
+    blaze_direction = config.blaze_direction
     target_max_brightness = config.target_max_brightness
     slm_number = config.slm_number
     slm_wavelength = config.slm_wavelength
@@ -1350,6 +1366,30 @@ def optimize_slm_square(
             # The probe left the camera at the last ladder step; re-arm the
             # working exposure before the first measurement.
             cam.reset_exposure_time(exposure_time_ms)
+        blaze_choice = None
+        if blaze_period_px >= 0:
+            from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+            actual_exposure = float(cam.reset_exposure_time(exposure_time_ms))
+            if abs(actual_exposure - exposure_time_ms) > 0.001:
+                raise RuntimeError("CCD did not accept the fixed blaze probe exposure")
+
+            def capture_blaze(phase: np.ndarray) -> np.ndarray:
+                slm.display_data(slm.create_phase_from_array(phase))
+                time.sleep(SLM_RESPONSE_TIME_S)
+                frame = np.asarray(cam.get_numpy_image(1), dtype=np.float64)
+                if cam_type == "daheng" and float(frame.max()) >= 250:
+                    raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+                return frame
+
+            blaze_choice = select_blaze(
+                capture_blaze, (SLM_HEIGHT, SLM_WIDTH), target_side=target_side,
+                window_size=cam_size, period_px=blaze_period_px,
+                direction=blaze_direction,
+            )
+            center = blaze_choice.signal_xy
+            logger.info("measured blaze: {}", blaze_choice)
+        recorder.blaze_choice = blaze_choice
         # Initialize parameter vector (zernike: mapped onto the active modes)
         if basis == "zernike":
             if init_c is None or len(init_c) == 0:
@@ -1440,10 +1480,18 @@ def optimize_slm_square(
                 )
                 if _has_rotation:
                     _rad = _rotate_pattern(_rad, _rot)
+                if blaze_choice is not None:
+                    from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+                    _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
                 return slm.create_phase_from_array(_rad)
             _rad = _freeform_phase_radians(_head, SLM_RESOLUTION, int(phase_grid))
             if _has_rotation:
                 _rad = _rotate_pattern(_rad, _rot)
+            if blaze_choice is not None:
+                from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+                _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
             return slm.create_phase_from_array(_rad)
 
         def _apply_update(p: np.ndarray, upd: np.ndarray) -> np.ndarray:
@@ -1474,7 +1522,7 @@ def optimize_slm_square(
         # Auto-exposure for initial image
         _img = capture_with_exposure(
             cam,
-            0.0,
+            exposure_time_ms if blaze_choice is not None else 0.0,
             TEST_EXPOSURE_TIME_BRIGHTNESS,
             auto_n_sample=20,
         )

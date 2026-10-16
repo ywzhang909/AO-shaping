@@ -241,6 +241,13 @@ class CameraParams:
 class SlmParams:
     """Santec SLM options (slm-gsnet family)."""
 
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
+
     slm_number: Annotated[
         int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
@@ -264,6 +271,10 @@ class SlmParams:
 
     def __post_init__(self) -> None:
         """Validate the common SLM fields before any hardware is touched."""
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
         if self.slm_number < 1 or self.slm_number > 8:
             raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
         if self.slm_wavelength < 0:
@@ -1028,6 +1039,13 @@ class GaZernikeParams:
 @dataclass
 class SlmSquareParams:
     """SLM 方形光斑 SPGD 整形 CLI 参数 (spgd-square, 单命令无子命令)。"""
+
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="离轴闪耀光栅: -1=关闭, 0=实测自动, >=4=实测指定周期。")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="指定周期时面板上的光栅方向。")
+    ] = "vertical"
 
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 2000)")
@@ -2342,6 +2360,19 @@ class SlmGsRefineParams:
     w_unif: Annotated[
         float, option("--w-unif", help="Composite weight on 1/(1+CV).")
     ] = 0.5
+    exclude_zero_order_for_cv: Annotated[
+        bool,
+        option(
+            "--exclude-zero-order-for-cv/--include-zero-order-for-cv",
+            help="Exclude the flat-reference zero-order core from CV only.",
+        ),
+    ] = False
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
 
     # --- freeform parameterisation ----------------------------------------
     phase_grid: Annotated[
@@ -2555,6 +2586,13 @@ class SlmModelInLoopParams:
     Optimizer fields map to SlmModelInLoopConfig; panel-scan fields control the
     CLI's optional hardware preflight before the optimizer opens its devices.
     """
+
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
 
     # --- control -----------------------------------------------------------
     n_rounds: Annotated[
@@ -3009,9 +3047,11 @@ class SlmModelInLoopParams:
         int,
         option(
             "--slm-wavelength",
-            help="SLM operating wavelength (nm); 0 asks the device.",
+            help="SLM operating wavelength (nm); 0 asks the device. The lab "
+            "has more than one SLM, so 1064 (the default) is stated rather "
+            "than assumed, matching SlmModelInLoopConfig.",
         ),
-    ] = 0
+    ] = 1064
 
     n_eval_frames: Annotated[
         int, option("--n-eval-frames", help="Frames averaged per measurement.")
@@ -3108,6 +3148,9 @@ def build_gs_refine_config(
         side_factor=params.side_factor,
         w_pib=params.w_pib,
         w_unif=params.w_unif,
+        exclude_zero_order_for_cv=params.exclude_zero_order_for_cv,
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
         phase_grid=params.phase_grid,
         delta=params.delta,
         lr=params.lr,
@@ -3209,6 +3252,8 @@ def build_model_in_loop_config(
         cam_size=params.cam_size,
         slm_number=params.slm_number,
         phase_disturbance_file=params.phase_disturbance_file,
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
         slm_wavelength=params.slm_wavelength,
         n_eval_frames=params.n_eval_frames,
         settle_wait_s=params.settle_wait_s,
@@ -3288,6 +3333,8 @@ def save_gs_refine_results(
                 "score",
                 "pib",
                 "cv",
+                "shape_iou",
+                "exposure_ms_readback",
                 "target_side",
                 "lr",
                 "pos",
@@ -3321,6 +3368,7 @@ def save_gs_refine_results(
                 "pupil_center": list(config.pupil_center)
                 if config.pupil_center is not None
                 else None,
+                "blaze_choice": getattr(recorder, "blaze_choice", None),
             },
             title="SLM GS refine",
         )
@@ -3425,6 +3473,31 @@ def save_model_in_loop_results(
     if best_phase is not None:
         phase_file = save_dir / "best_phase.npy"
         np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+    blaze_params = getattr(result, "blaze_params", None)
+    if best_phase is not None and blaze_params is not None:
+        from ao_shaping.tools.kernels.bench_kernels import phase_to_panel
+        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+        panel_phase = phase_to_panel(
+            np.asarray(best_phase, dtype=np.float64),
+            int(round(result.config.panel_span_px / 2)), result.config.pupil_center,
+        )
+        np.save(
+            save_dir / "best_panel_phase_with_blaze.npy",
+            apply_zero_order_overlay(panel_phase, blaze_params),
+        )
+        from dataclasses import asdict
+
+        choice = getattr(result, "blaze_choice", None)
+        (save_dir / "blaze_choice.json").write_text(
+            json.dumps(
+                asdict(choice) if choice is not None else {
+                    "period_px": blaze_params.blaze_period_px,
+                    "direction": blaze_params.blaze_direction,
+                },
+                indent=2,
+            ), encoding="utf-8",
+        )
 
     geometry_file = None
     if result.geometry is not None:

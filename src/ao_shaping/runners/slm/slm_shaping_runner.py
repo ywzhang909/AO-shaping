@@ -604,6 +604,8 @@ def _build_square_config(
     # epoch, so an explicit flag has to be marked pinned or it is a no-op.
     delta, delta_pinned = resolve_spgd_delta(params.delta)
     return SlmSquareConfig(
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
         n_max=params.n_max,
         target_side=params.target_side,
         target_mean_brightness=params.target_mean_brightness,
@@ -874,6 +876,8 @@ def square(
     if params.save_best_image:
         _save_square_best_image(save_dir, best_iter)
     if debug:
+        from dataclasses import asdict
+
         save_recorder_debug_artifacts(
             recorder,
             root_dir=str(root_dir),
@@ -881,7 +885,13 @@ def square(
             scalar_keys=_SQUARE_DEBUG_SCALAR_KEYS,
             img_keys=_SQUARE_DEBUG_IMG_KEYS,
             d1_keys=_SQUARE_DEBUG_1D_KEYS,
-            json_payload=_square_json_payload(params, slm_params, config),
+            json_payload={
+                **_square_json_payload(params, slm_params, config),
+                "blaze_choice": (
+                    asdict(recorder.blaze_choice)
+                    if getattr(recorder, "blaze_choice", None) is not None else None
+                ),
+            },
             title="spgd-square search",
         )
         click.echo(f"\nDebug data saved to: {root_dir / 'debug'}")

@@ -31,7 +31,7 @@ from ao_shaping.drivers.sim import (
     apply_aperture,
     apply_focus,
     propagate,
-    power_bucket,
+    power_bucket_sum,
     radius_metric,
     Environment,
 )
@@ -95,7 +95,7 @@ class AOSim:
         r_bucket = radius_metric(
             ideal_wave.intensity, ideal_wave.x, ideal_wave.y, 'origin', cfg.r_frac
         )
-        ideal_pib = power_bucket(
+        ideal_pib = power_bucket_sum(
             ideal_wave.intensity, ideal_wave.x, ideal_wave.y, 'origin', r_bucket
         )
         ideal_total = ideal_wave.intensity.sum() * dpix ** 2
@@ -174,7 +174,7 @@ class AOSim:
         r_bucket = self.state.r_bucket
         wave_x = self.state.ideal_wave.x
         wave_y = self.state.ideal_wave.y
-        return power_bucket(img, wave_x, wave_y, 'origin', r_bucket)
+        return power_bucket_sum(img, wave_x, wave_y, 'origin', r_bucket)
     
     def strehl(self, img: np.ndarray) -> float:
         return np.max(img) / np.max(self.state.ideal_wave.intensity)
@@ -235,7 +235,7 @@ class ZernikeDM:
     
     def loss(self, intensity: np.ndarray, x: np.ndarray, y: np.ndarray) -> float:
         r = radius_metric(intensity, x, y, 'origin', 0.865) * self.r_bucket
-        pb = power_bucket(intensity, x, y, 'origin', r)
+        pb = power_bucket_sum(intensity, x, y, 'origin', r)
         return pb
     
     def spgd_step(self, intensity: np.ndarray, x: np.ndarray, y: np.ndarray):

@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ao_shaping.optimizer.wfless import pib as pib_module
+from ao_shaping.optimizer import _camera_inject as camera_inject
 
 
 @dataclass
@@ -223,15 +224,15 @@ class _SimDMRegistry:
 @contextmanager
 def patched_pib_simulation():
     """Temporarily replace physical devices/tqdm with deterministic simulation."""
-    # The camera is injected through ``pib._CAMERA_CLASS_OVERRIDE`` rather than
-    # a module-level ``pib.MIICamera`` alias: the alias would have to be bound
-    # at import time, which loads the native MiiCam SDK on every
+    # The camera is injected through the shared ``_camera_inject`` global rather
+    # than a module-level ``pib.MIICamera`` alias: the alias would have to be
+    # bound at import time, which loads the native MiiCam SDK on every
     # ``import ao_shaping`` (see ``pib._camera_cls``).
-    original_camera = pib_module._CAMERA_CLASS_OVERRIDE
+    original_camera = camera_inject._CAMERA_CLASS_OVERRIDE
     original_get_dm_registry = pib_module.get_dm_registry
     original_tqdm = pib_module.tqdm.tqdm
     SimDM.current_voltages = np.zeros(8, dtype=np.float64)
-    pib_module._CAMERA_CLASS_OVERRIDE = SimCamera
+    camera_inject._CAMERA_CLASS_OVERRIDE = SimCamera
     pib_module.get_dm_registry = lambda: _SimDMRegistry()
     pib_module.tqdm.tqdm = lambda *args, **kwargs: original_tqdm(
         *args, **({"disable": True} | kwargs)
@@ -239,7 +240,7 @@ def patched_pib_simulation():
     try:
         yield
     finally:
-        pib_module._CAMERA_CLASS_OVERRIDE = original_camera
+        camera_inject._CAMERA_CLASS_OVERRIDE = original_camera
         pib_module.get_dm_registry = original_get_dm_registry
         pib_module.tqdm.tqdm = original_tqdm
 

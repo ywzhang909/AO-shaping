@@ -12,6 +12,7 @@ optimizer submodules (which would create circular imports, e.g. via
 from __future__ import annotations
 
 import inspect
+import os
 from typing import Any
 
 from loguru import logger
@@ -25,6 +26,18 @@ from ao_shaping.algorithm.gradient.adam import (
     MunoW,
     SGD,
 )
+
+#: Number of frames averaged by ``cam.get_numpy_image`` during optimization probes.
+CAM_SAMPLE_ITER: int = 1
+
+#: Target mean brightness (0-255) for the auto-exposure probe that locates the spot.
+TEST_EXPOSURE_TIME_BRIGHTNESS: int = 220
+
+#: Ideal spot radius in pixels; overridable via the ``IDEAL_SPOT_RADIUS`` env var.
+IDEAL_SPOT_RADIUS: int = int(os.environ.get("IDEAL_SPOT_RADIUS", "6"))
+
+#: Whether the DM keeps its last voltages instead of zeroing on optimizer exit.
+KEEP_VOLTAGE_WHEN_EXIT: bool = True
 
 #: Map of optimizer name (CLI/option string) → optimizer class.
 OPTIMIZER_MAP: dict[str, type[Base]] = {

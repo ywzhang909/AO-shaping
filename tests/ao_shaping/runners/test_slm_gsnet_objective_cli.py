@@ -200,7 +200,11 @@ def test_objective_accepted_by_spgd_and_reaches_config(
     stub_execution, objective: str
 ) -> None:
     """``spgd`` accepts every square objective and hands it to the optimizer."""
-    result = CliRunner().invoke(run, ["spgd", "--objective", objective, "-e", "3"])
+    # Daheng requires an explicit positive exposure (the per-session ceiling is
+    # env/probe-resolved); the objective plumbing under test is cam-type agnostic.
+    result = CliRunner().invoke(
+        run, ["spgd", "--objective", objective, "-e", "3", "--exposure-time-ms", "0.02"]
+    )
 
     assert result.exit_code == 0, result.output
     assert result.exception is None
@@ -214,7 +218,9 @@ def test_objective_accepted_by_heuristic_and_reaches_config(
     stub_execution, objective: str
 ) -> None:
     """``heuristic`` accepts every square objective and hands it to the optimizer."""
-    result = CliRunner().invoke(run, ["heuristic", "--objective", objective, "-e", "3"])
+    result = CliRunner().invoke(
+        run, ["heuristic", "--objective", objective, "-e", "3", "--exposure-time-ms", "0.02"]
+    )
 
     assert result.exit_code == 0, result.output
     assert result.exception is None
@@ -225,7 +231,7 @@ def test_objective_accepted_by_heuristic_and_reaches_config(
 
 def test_omitting_objective_reaches_config_as_quality(stub_execution) -> None:
     """Not passing ``--objective`` at all must behave exactly like before."""
-    result = CliRunner().invoke(run, ["spgd", "-e", "2"])
+    result = CliRunner().invoke(run, ["spgd", "-e", "2", "--exposure-time-ms", "0.02"])
 
     assert result.exit_code == 0, result.output
     assert stub_execution["config"].objective == "quality"

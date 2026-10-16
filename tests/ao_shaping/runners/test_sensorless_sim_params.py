@@ -102,47 +102,62 @@ class TestRunnerParamsExposeCamType:
 
 
 class TestPibCameraInjectionSeam:
-    def test_override_seam_exists_and_defaults_to_none(self):
-        from ao_shaping.optimizer.wfless import pib
+    """The camera-injection seam is a single shared global.
 
-        assert hasattr(pib, "_CAMERA_CLASS_OVERRIDE")
-        assert pib._CAMERA_CLASS_OVERRIDE is None, (
+    ``wfless.pib`` and ``combined_optimizer`` used to each carry their own
+    ``_CAMERA_CLASS_OVERRIDE``. Injecting the simulator through one left the
+    other on the real driver, so a hardware run could silently use the
+    simulator. Both now read
+    :data:`ao_shaping.optimizer._camera_inject._CAMERA_CLASS_OVERRIDE`, so these
+    tests poke the shared global and assert *both* optimizers resolve it.
+    """
+
+    def test_override_seam_exists_and_defaults_to_none(self):
+        from ao_shaping.optimizer import _camera_inject
+
+        assert _camera_inject._CAMERA_CLASS_OVERRIDE is None, (
             "the seam must default to the real driver so hardware runs are unaffected"
         )
 
-    def test_override_changes_the_resolved_camera_class(self):
+    def test_override_changes_the_resolved_camera_class_in_both_optimizers(self):
+        """One shared global must drive both pib and combined_optimizer."""
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
+        from ao_shaping.optimizer import _camera_inject
+        from ao_shaping.optimizer import combined_optimizer
         from ao_shaping.optimizer.wfless import pib
 
-        original = pib._CAMERA_CLASS_OVERRIDE
+        original = _camera_inject._CAMERA_CLASS_OVERRIDE
         try:
-            pib._CAMERA_CLASS_OVERRIDE = SimPibCCD
+            _camera_inject._CAMERA_CLASS_OVERRIDE = SimPibCCD
             assert pib._camera_cls() is SimPibCCD
+            assert combined_optimizer._camera_cls() is SimPibCCD
         finally:
-            pib._CAMERA_CLASS_OVERRIDE = original
+            _camera_inject._CAMERA_CLASS_OVERRIDE = original
 
     def test_seam_is_restored_after_use(self):
         """The seam is module state; leaking it would poison later hardware runs."""
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
+        from ao_shaping.optimizer import _camera_inject
         from ao_shaping.optimizer.wfless import pib
 
-        original = pib._CAMERA_CLASS_OVERRIDE
+        original = _camera_inject._CAMERA_CLASS_OVERRIDE
         try:
             with pib._camera_override(SimPibCCD):
-                assert pib._CAMERA_CLASS_OVERRIDE is SimPibCCD
-            assert pib._CAMERA_CLASS_OVERRIDE is original
+                assert _camera_inject._CAMERA_CLASS_OVERRIDE is SimPibCCD
+            assert _camera_inject._CAMERA_CLASS_OVERRIDE is original
         finally:
-            pib._CAMERA_CLASS_OVERRIDE = original
+            _camera_inject._CAMERA_CLASS_OVERRIDE = original
 
     def test_nested_overrides_unwind_correctly(self):
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
+        from ao_shaping.optimizer import _camera_inject
         from ao_shaping.optimizer.wfless import pib
 
-        original = pib._CAMERA_CLASS_OVERRIDE
+        original = _camera_inject._CAMERA_CLASS_OVERRIDE
         try:
             with pib._camera_override(SimPibCCD):
                 with pib._camera_override(None):
-                    assert pib._CAMERA_CLASS_OVERRIDE is None
-                assert pib._CAMERA_CLASS_OVERRIDE is SimPibCCD
+                    assert _camera_inject._CAMERA_CLASS_OVERRIDE is None
+                assert _camera_inject._CAMERA_CLASS_OVERRIDE is SimPibCCD
         finally:
-            pib._CAMERA_CLASS_OVERRIDE = original
+            _camera_inject._CAMERA_CLASS_OVERRIDE = original
