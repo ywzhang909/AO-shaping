@@ -1,0 +1,146 @@
+{
+  "region": 64,
+  "n_act": 12,
+  "box": 0.8,
+  "unconst_radius": 6.0,
+  "init_n": 300,
+  "init_scale": 0.3,
+  "rounds": 3,
+  "per_round": 8,
+  "holdout_n": 64,
+  "net_params": 398028,
+  "init_rmse": 0.9511572224207395,
+  "arms": {
+    "random": {
+      "desc": "域内均匀盲采样 (传统做法: 每轮盲仿 200 个再挑最不确定的 8 个)",
+      "curve": [
+        {
+          "round": 1,
+          "n_queries": 8,
+          "test_rmse": 0.19223,
+          "sel_norm_mean": 0.222,
+          "sel_norm_max": 0.2428,
+          "sel_pair_dist": 0.2935,
+          "forward_calls_cum": 308,
+          "boundary_hits": 0,
+          "elapsed_s": 10.0
+        },
+        {
+          "round": 2,
+          "n_queries": 16,
+          "test_rmse": 0.20365,
+          "sel_norm_mean": 0.222,
+          "sel_norm_max": 0.2424,
+          "sel_pair_dist": 0.2948,
+          "forward_calls_cum": 316,
+          "boundary_hits": 0,
+          "elapsed_s": 19.4
+        },
+        {
+          "round": 3,
+          "n_queries": 24,
+          "test_rmse": 0.15534,
+          "sel_norm_mean": 0.2327,
+          "sel_norm_max": 0.2815,
+          "sel_pair_dist": 0.274,
+          "forward_calls_cum": 324,
+          "boundary_hits": 0,
+          "elapsed_s": 35.7
+        }
+      ],
+      "total_time_s": 35.7,
+      "forward_calls_total": 324
+    },
+    "uncertainty_boxed": {
+      "desc": "梯度搜索 + 幅值盒 |c_i|<=BOX",
+      "curve": [
+        {
+          "round": 1,
+          "n_queries": 8,
+          "test_rmse": 0.19104,
+          "sel_norm_mean": 2.1294,
+          "sel_norm_max": 2.3083,
+          "sel_pair_dist": 3.0022,
+          "forward_calls_cum": 332,
+          "boundary_hits": 8,
+          "elapsed_s": 18.2
+        },
+        {
+          "round": 2,
+          "n_queries": 16,
+          "test_rmse": 0.20256,
+          "sel_norm_mean": 1.7257,
+          "sel_norm_max": 1.9574,
+          "sel_pair_dist": 2.506,
+          "forward_calls_cum": 340,
+          "boundary_hits": 8,
+          "elapsed_s": 37.9
+        },
+        {
+          "round": 3,
+          "n_queries": 24,
+          "test_rmse": 0.15551,
+          "sel_norm_mean": 1.6691,
+          "sel_norm_max": 1.9706,
+          "sel_pair_dist": 2.45,
+          "forward_calls_cum": 348,
+          "boundary_hits": 8,
+          "elapsed_s": 57.4
+        }
+      ],
+      "total_time_s": 57.4,
+      "forward_calls_total": 348
+    },
+    "uncertainty_unconstrained": {
+      "desc": "梯度搜索, 无幅值约束 (塌缩演示)",
+      "curve": [
+        {
+          "round": 1,
+          "n_queries": 8,
+          "test_rmse": 0.19221,
+          "sel_norm_mean": 2.14,
+          "sel_norm_max": 2.3458,
+          "sel_pair_dist": 2.9278,
+          "forward_calls_cum": 356,
+          "boundary_hits": 0,
+          "elapsed_s": 23.0
+        },
+        {
+          "round": 2,
+          "n_queries": 16,
+          "test_rmse": 0.19735,
+          "sel_norm_mean": 1.7271,
+          "sel_norm_max": 1.9239,
+          "sel_pair_dist": 2.2992,
+          "forward_calls_cum": 364,
+          "boundary_hits": 0,
+          "elapsed_s": 43.1
+        },
+        {
+          "round": 3,
+          "n_queries": 24,
+          "test_rmse": 0.16183,
+          "sel_norm_mean": 1.6222,
+          "sel_norm_max": 1.7788,
+          "sel_pair_dist": 2.2013,
+          "forward_calls_cum": 372,
+          "boundary_hits": 0,
+          "elapsed_s": 63.4
+        }
+      ],
+      "total_time_s": 63.4,
+      "forward_calls_total": 372
+    }
+  },
+  "sanity_min_confidence": {
+    "from_interior": {
+      "norm": 0.08014783771599353,
+      "U": 3.9784393310546875
+    },
+    "from_boundary": {
+      "norm": 0.17770572411705718,
+      "U": 3.827768564224243
+    },
+    "time_s": 3.6
+  }
+}
