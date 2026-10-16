@@ -2,9 +2,10 @@
 
 The module owns the per-session Daheng exposure ceiling.  The ceiling is a
 property of the optical path (laser power, attenuation, coupling), not of the
-sensor, so it must never be a package constant: it is resolved from the
-``AO_DAHENG_MAX_EXPOSURE_MS`` environment variable, and when that variable is
-missing or 0 the CCD image itself is probed with a doubling exposure ladder
+sensor, so it must never be a package constant.  Every caller resolves it
+through the single entry point :func:`resolve_daheng_exposure_limit`, which
+prefers an explicit value, then the ``AO_DAHENG_MAX_EXPOSURE_MS`` environment
+variable, and otherwise probes the CCD image with a doubling exposure ladder
 (:func:`probe_exposure_ceiling_ms`).
 """
 
@@ -14,8 +15,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import math
 import os
+from typing import Any
 
 import numpy as np
+
+from loguru import logger
 
 
 DAHENG_EXPOSURE_LIMIT_ENV = "AO_DAHENG_MAX_EXPOSURE_MS"
@@ -45,23 +49,63 @@ def configured_daheng_exposure_limit() -> float:
     return value
 
 
-def resolve_daheng_exposure_limit(requested_ms: float = 0.0, *, camera_max_ms: float | None = None) -> float:
-    """Resolve a Daheng ceiling from explicit config, env, then camera.
+def resolve_daheng_exposure_limit(
+    requested_ms: float = 0.0,
+    *,
+    camera: Any | None = None,
+    probe_start_ms: float = 0.02,
+    probe_hard_max_ms: float | None = None,
+) -> float:
+    """Resolve a Daheng exposure ceiling: explicit config, env, then image probe.
 
     ``0`` is an auto sentinel at every layer.  A positive explicit value takes
-    precedence over the environment, which takes precedence over the driver
-    capability.  The final value is always finite and positive.
+    precedence over ``AO_DAHENG_MAX_EXPOSURE_MS``, which takes precedence over
+    probing the connected ``camera`` with a doubling exposure ladder.  When a
+    probe runs, its outcome is logged and the returned value is the safe
+    ceiling.  The probe leaves the camera at the last ladder step, so the caller
+    owns re-arming the working exposure afterwards.
+
+    A probe that lands below ``probe_start_ms`` means the optical path saturates
+    even at the ladder floor — no exposure setting can fix that, so it raises an
+    actionable error instead of returning an unusable ceiling.  ``camera`` is
+    used only through ``reset_exposure_time`` and ``get_numpy_image``, so no
+    driver import is required here.
     """
     requested = float(requested_ms)
     if not math.isfinite(requested) or requested < 0:
         raise ValueError("requested Daheng exposure limit must be finite and non-negative")
     limit = requested or configured_daheng_exposure_limit()
-    if not limit and camera_max_ms is not None:
-        limit = float(camera_max_ms)
+    if not limit:
+        if camera is None:
+            raise ValueError(
+                "Daheng exposure ceiling is unavailable; set "
+                f"{DAHENG_EXPOSURE_LIMIT_ENV} or pass an open camera to probe it"
+            )
+        estimate = probe_exposure_ceiling_ms(
+            camera.reset_exposure_time,
+            lambda: np.asarray(camera.get_numpy_image(n_sample=2)),
+            start_ms=probe_start_ms,
+            hard_max_ms=probe_hard_max_ms,
+        )
+        limit = estimate.ceiling_ms
+        logger.info(
+            "Daheng exposure ceiling probed from the image: {:.4f} ms "
+            "(last safe {:.4f} ms, saturated at {})",
+            limit,
+            estimate.last_safe_ms,
+            "never" if estimate.saturated_ms is None else f"{estimate.saturated_ms:.4f} ms",
+        )
+        if limit < probe_start_ms:
+            raise RuntimeError(
+                f"probed Daheng exposure ceiling {limit:.4f} ms is below the "
+                f"ladder floor {probe_start_ms:.4f} ms: the optical path is "
+                "saturated even at minimum exposure — reduce laser power or "
+                "add attenuation before probing again"
+            )
     if not math.isfinite(limit) or limit <= 0:
         raise ValueError(
             "Daheng exposure ceiling is unavailable; set "
-            f"{DAHENG_EXPOSURE_LIMIT_ENV} or use a camera reporting max_exposure_ms"
+            f"{DAHENG_EXPOSURE_LIMIT_ENV} or probe an open camera"
         )
     return limit
 

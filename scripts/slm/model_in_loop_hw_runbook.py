@@ -80,7 +80,7 @@ from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
 from ao_shaping.utils.image.exposure_control import (  # noqa: E402
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -259,16 +259,7 @@ def _resolve_exposure_ceiling(cam, args: argparse.Namespace) -> float:
     only lowers the estimate, the safe direction) and stashed on ``args`` for
     the per-frame read-back guard in :func:`shoot`.
     """
-    ceiling = configured_daheng_exposure_limit()
-    if not ceiling:
-        estimate = probe_exposure_ceiling_ms(
-            cam.reset_exposure_time,
-            lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-        )
-        ceiling = estimate.ceiling_ms
-        logger.info(
-            "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
-        )
+    ceiling = resolve_daheng_exposure_limit(camera=cam)
     if args.exposure_ms > ceiling + 1e-9:
         raise ValueError(
             f"Daheng exposure {args.exposure_ms} ms exceeds the resolved "

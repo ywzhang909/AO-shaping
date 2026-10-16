@@ -10,6 +10,7 @@ from ao_shaping.utils.image.exposure_control import (
     estimate_exposure_ceiling_ms,
     exposure_normalized_frame,
     probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -123,3 +124,72 @@ def test_probe_respects_the_hardware_cap() -> None:
     )
     assert calls == [0.02, 0.04, 0.08]
     assert estimate.ceiling_ms > 0.08
+
+
+# --- unified ceiling resolver: explicit > env > image probe -----------------
+
+
+class _ProbeCamera:
+    """Duck-typed camera whose peak rises linearly until ``saturate_at_ms``.
+
+    Only ``reset_exposure_time`` and ``get_numpy_image`` are exercised, matching
+    the two attributes :func:`resolve_daheng_exposure_limit` depends on.
+    """
+
+    def __init__(self, saturate_at_ms: float = 0.16) -> None:
+        self.saturate_at_ms = saturate_at_ms
+        self.current_ms = 0.0
+        self.calls: list[float] = []
+
+    def reset_exposure_time(self, ms: float) -> float:
+        self.current_ms = float(ms)
+        self.calls.append(float(ms))
+        return float(ms)
+
+    def get_numpy_image(self, n_sample: int = 2) -> np.ndarray:
+        peak = int(255 * min(1.0, self.current_ms / self.saturate_at_ms))
+        return np.full((4, 4), peak, dtype=np.uint8)
+
+
+def test_resolve_prefers_explicit_value_and_never_probes(monkeypatch) -> None:
+    monkeypatch.setenv(DAHENG_EXPOSURE_LIMIT_ENV, "0.9")
+    camera = _ProbeCamera()
+    assert resolve_daheng_exposure_limit(0.6, camera=camera) == 0.6
+    assert camera.calls == []  # explicit short-circuits both env and probe
+
+
+def test_resolve_falls_back_to_env_without_probing(monkeypatch) -> None:
+    monkeypatch.setenv(DAHENG_EXPOSURE_LIMIT_ENV, "0.6")
+    camera = _ProbeCamera()
+    assert resolve_daheng_exposure_limit(0.0, camera=camera) == 0.6
+    assert camera.calls == []
+
+
+def test_resolve_probes_camera_when_nothing_configured(monkeypatch) -> None:
+    monkeypatch.delenv(DAHENG_EXPOSURE_LIMIT_ENV, raising=False)
+    camera = _ProbeCamera(saturate_at_ms=0.16)
+    ceiling = resolve_daheng_exposure_limit(0.0, camera=camera)
+    assert camera.calls == [0.02, 0.04, 0.08, 0.16]  # doubling ladder to saturation
+    assert ceiling == pytest.approx(0.144 * 0.9, rel=1e-9)
+    assert ceiling >= 0.02
+
+
+def test_resolve_without_camera_or_config_raises(monkeypatch) -> None:
+    monkeypatch.delenv(DAHENG_EXPOSURE_LIMIT_ENV, raising=False)
+    with pytest.raises(ValueError, match="pass an open camera to probe"):
+        resolve_daheng_exposure_limit(0.0, camera=None)
+
+
+def test_resolve_raises_when_probe_hits_the_ladder_floor(monkeypatch) -> None:
+    # Already saturated at the ladder floor: no exposure setting can help.
+    monkeypatch.delenv(DAHENG_EXPOSURE_LIMIT_ENV, raising=False)
+    camera = _ProbeCamera(saturate_at_ms=0.01)
+    with pytest.raises(RuntimeError, match="reduce laser power or add attenuation"):
+        resolve_daheng_exposure_limit(0.0, camera=camera)
+
+
+def test_resolve_rejects_invalid_requested_value() -> None:
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        resolve_daheng_exposure_limit(-1.0)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        resolve_daheng_exposure_limit(float("inf"))

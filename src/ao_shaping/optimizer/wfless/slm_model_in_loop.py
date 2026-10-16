@@ -76,9 +76,8 @@ from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.image.exposure_control import (
     choose_exposure,
-    configured_daheng_exposure_limit,
     exposure_normalized_frame,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
@@ -1415,36 +1414,19 @@ class _HardwareBench:
 
         The ceiling is optical-path dependent (laser power, attenuation), so no
         constant is baked in.  When nothing pins it, the CCD image is probed
-        with a doubling ladder; whatever the SLM happens to display at that
-        moment only makes the estimate *brighter*, i.e. the ceiling lower —
-        the safe direction.
+        with a doubling ladder bounded by the camera's exposure range; whatever
+        the SLM happens to display at that moment only makes the estimate
+        *brighter*, i.e. the ceiling lower — the safe direction.
         """
-        ceiling = float(self._config.max_exposure_ms) or configured_daheng_exposure_limit()
-        if ceiling > 0:
-            return ceiling
         from ao_shaping.drivers.ccd.common import get_camera_exposure_range
 
         min_ms, max_ms = get_camera_exposure_range(self._cam)
-        estimate = probe_exposure_ceiling_ms(
-            self._cam.reset_exposure_time,
-            lambda: np.asarray(self._cam.get_numpy_image(n_sample=2)),
-            start_ms=max(min_ms, 1e-3),
-            hard_max_ms=max_ms,
+        return resolve_daheng_exposure_limit(
+            self._config.max_exposure_ms,
+            camera=self._cam,
+            probe_start_ms=max(min_ms, 1e-3),
+            probe_hard_max_ms=max_ms,
         )
-        logger.info(
-            "Daheng exposure ceiling probed from the image: {:.4f} ms "
-            "(last safe {:.3f} ms, peak {:.1%} of full scale at the final step)",
-            estimate.ceiling_ms,
-            estimate.last_safe_ms,
-            estimate.peak_fractions[-1],
-        )
-        if estimate.ceiling_ms < min_ms:
-            raise RuntimeError(
-                f"probed exposure ceiling {estimate.ceiling_ms:.4f} ms is below the "
-                f"camera minimum {min_ms} ms; reduce laser power or add attenuation "
-                f"before a quantitative run"
-            )
-        return estimate.ceiling_ms
 
     def display(self, phase_model: np.ndarray) -> None:
         # Raw unwrapped radians on the PANEL: the only mod-2pi wrap in the whole

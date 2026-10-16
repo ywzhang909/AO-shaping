@@ -11,7 +11,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
-from loguru import logger
 
 
 SEQUENCE = ("flat", "gs", "best", "gs", "flat", "best", "flat")
@@ -123,8 +122,7 @@ def run_replay(
     from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
     from ao_shaping.utils.image.beam_metrics import prepare_frame
     from ao_shaping.utils.image.exposure_control import (
-        configured_daheng_exposure_limit,
-        probe_exposure_ceiling_ms,
+        resolve_daheng_exposure_limit,
     )
     from ao_shaping.utils.image.targets import square_mask
 
@@ -160,16 +158,7 @@ def run_replay(
         if (expected_wavelength_nm is not None
                 and slm.wavelength != expected_wavelength_nm):
             raise ValueError("SLM wavelength changed; saved gray phases may be invalid")
-        ceiling = configured_daheng_exposure_limit()
-        if not ceiling:
-            estimate = probe_exposure_ceiling_ms(
-                cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-            )
-            ceiling = estimate.ceiling_ms
-            logger.info(
-                "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
-            )
+        ceiling = resolve_daheng_exposure_limit(camera=cam)
         if plan.exposure_ms > ceiling + 1e-9:
             raise ValueError(
                 f"Daheng exposure {plan.exposure_ms} ms exceeds the resolved "
