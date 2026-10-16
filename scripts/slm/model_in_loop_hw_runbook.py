@@ -66,6 +66,7 @@ from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     crop_around_zero_order,
     estimate_shift,
     gaussian_grid,
+    measure_flat_reference,
     phase_to_panel,
     ramp_panel,
     zernike_panel,
@@ -80,6 +81,7 @@ from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
 from ao_shaping.utils.image.exposure_control import (  # noqa: E402
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
+    probe_exposure_ceiling_ms,
     resolve_daheng_exposure_limit,
 )
 
@@ -260,6 +262,8 @@ def _resolve_exposure_ceiling(cam, args: argparse.Namespace) -> float:
     the per-frame read-back guard in :func:`shoot`.
     """
     ceiling = resolve_daheng_exposure_limit(camera=cam)
+    if args.exposure_ms == 0:
+        args.exposure_ms = max(0.02, 0.5 * ceiling)
     if args.exposure_ms > ceiling + 1e-9:
         raise ValueError(
             f"Daheng exposure {args.exposure_ms} ms exceeds the resolved "
@@ -323,13 +327,21 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
         # reset_exposure_time takes milliseconds; passing us clamps to 1000 ms
         # and blows every frame out to full scale.
+        if args.exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1)
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
         else:
+            if args.exposure_ms == 0:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                args.exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
             cam.reset_exposure_time(float(args.exposure_ms))
         flat = shoot(cam, slm, np.zeros((PANEL_H, PANEL_W)), args)
         if args.save_frames:
@@ -562,11 +574,19 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
+        if args.exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1)
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
         else:
+            if args.exposure_ms == 0:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                args.exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
             cam.reset_exposure_time(float(args.exposure_ms))
 
         def acquire(mode: str, coeff: float, axis: str, tag: str) -> None:
@@ -1005,7 +1025,7 @@ def stage_shape(args: argparse.Namespace, out_dir: Path) -> None:
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
@@ -1202,8 +1222,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     if args.cam_type == "daheng":
-        if args.exposure_ms <= 0:
-            ap.error("Daheng exposure must be positive")
+        if args.exposure_ms < 0:
+            ap.error("Daheng exposure must be non-negative (0 = auto)")
         env_ceiling = configured_daheng_exposure_limit()
         if env_ceiling > 0 and args.exposure_ms > env_ceiling:
             ap.error(

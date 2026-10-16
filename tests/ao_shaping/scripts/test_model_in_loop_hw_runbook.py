@@ -273,6 +273,16 @@ class TestExposureGuardUnits:
         cam.reset_exposure_time(exposure_ms)
         return cam
 
+    def test_auto_session_exposure_uses_current_ceiling(
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
+        args = _args(runbook, tmp_path, exposure_ms=0.0)
+        cam = self._real_camera(0.02)
+        assert runbook._resolve_exposure_ceiling(cam, args) == 0.4
+        assert args.exposure_ms == pytest.approx(0.2)
+        assert cam.exposure_time == pytest.approx(0.2)
+
     def test_readback_is_milliseconds(self) -> None:
         cam = MockCamera()
         cam.reset_exposure_time(0.2)

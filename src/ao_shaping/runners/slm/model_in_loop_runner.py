@@ -22,6 +22,8 @@ from pathlib import Path
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
+import subprocess
+import sys
 
 import click
 import numpy as np
@@ -35,6 +37,32 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import resolve_debug
+
+
+def _measure_session_geometry(config, save_dir: Path) -> Path:
+    """Run the measured sweep for this optical session before Step A opens devices."""
+    root = Path(__file__).resolve().parents[4]
+    runbook = root / "scripts" / "slm" / "model_in_loop_hw_runbook.py"
+    calibration_dir = save_dir / "session_geometry"
+    common = [
+        sys.executable, str(runbook), "--out", str(calibration_dir.resolve()),
+        "--pupil-center", f"{config.pupil_center[0]},{config.pupil_center[1]}",
+        "--region", str(config.region),
+        "--far-field-size", str(config.region * config.far_field_padding),
+        "--collect-disc", str(round(config.panel_span_px / 2)),
+        "--zernike-radius", str(round(config.panel_span_px / 2)),
+        "--slm-number", str(config.slm_number),
+        "--slm-wavelength", str(config.slm_wavelength),
+        "--cam-type", config.cam_type, "--cam-id", str(config.cam_id),
+        "--exposure-ms", "0",
+    ]
+    for stage in ("sweep", "calibrate"):
+        subprocess.run(common + ["--stage", stage], cwd=root, check=True)
+    path = calibration_dir / "bench_geometry.json"
+    geometry = json.loads(path.read_text(encoding="utf-8"))
+    if geometry.get("method") != "sweep" or geometry.get("correlation", 0) < config.min_geometry_correlation:
+        raise RuntimeError(f"session geometry failed validation; evidence in {calibration_dir}")
+    return path
 
 
 @click.command()
@@ -105,8 +133,8 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
 
     if params.cam_type != "sim":
         click.echo("!" * 68)
-        click.echo("硬件模式: 请确认光斑已对准 SLM 且 CCD 已就位。")
-        click.echo(f"面板坐标下的光斑中心: {parse_point(params.pupil_center)} (须在面板上实测)")
+        click.echo("硬件模式: 相机会话曝光和入射位置将由画面探测。")
+        click.echo(f"初始面板坐标: {parse_point(params.pupil_center)}")
         click.echo("每一轮都要重新采集探针帧, 耗时按 (probe_count+1) x 轮数 估计。")
         click.echo("Ctrl+C 会在当前轮结束后释放设备。")
         click.echo("!" * 68)
@@ -122,7 +150,10 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
         config = replace(config, debug_dir=str(save_dir))
         save_model_in_loop_config(config, save_dir)
-    if params.panel_scan:
+    auto_session = params.cam_type != "sim" and params.geometry_file is None
+    if auto_session:
+        click.echo("自动会话标定: 全板定位、曝光探测、sweep 几何、Step A 相差重拟合")
+    if params.panel_scan or auto_session:
         from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W
         from ao_shaping.tools.slm.panel.panel_locate import PanelLocateParams, scan_panel
         from ao_shaping.utils.io.file import debug_run_dir
@@ -131,11 +162,16 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
             raise click.BadParameter("panel scan requires a hardware camera", param_hint="--panel-scan")
         if params.panel_scan_step_px <= 0 or params.panel_scan_radius_px <= 0:
             raise click.BadParameter("scan step and radius must be positive", param_hint="--panel-scan")
-        cx, cy = parse_point(params.pupil_center)
-        xs = (cx - params.panel_scan_step_px, cx, cx + params.panel_scan_step_px)
-        ys = (cy - params.panel_scan_step_px, cy, cy + params.panel_scan_step_px)
-        if min(xs) < 0 or max(xs) >= SLM_PANEL_W or min(ys) < 0 or max(ys) >= SLM_PANEL_H:
-            raise click.BadParameter("3x3 grid must lie on the SLM panel", param_hint="--panel-scan-step-px")
+        if auto_session:
+            xs, ys = (240, 600, 960, 1320, 1680), (220, 480, 720, 980)
+            scan_radius = max(220, params.panel_scan_radius_px)
+        else:
+            cx, cy = parse_point(params.pupil_center)
+            xs = (cx - params.panel_scan_step_px, cx, cx + params.panel_scan_step_px)
+            ys = (cy - params.panel_scan_step_px, cy, cy + params.panel_scan_step_px)
+            if min(xs) < 0 or max(xs) >= SLM_PANEL_W or min(ys) < 0 or max(ys) >= SLM_PANEL_H:
+                raise click.BadParameter("3x3 grid must lie on the SLM panel", param_hint="--panel-scan-step-px")
+            scan_radius = params.panel_scan_radius_px
         if save_dir is None:
             save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
             save_model_in_loop_config(config, save_dir)
@@ -144,8 +180,8 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
             slm_wavelength=params.slm_wavelength,
             cam_type=params.cam_type,
             cam_id=params.cam_id,
-            exposure_ms=params.exposure_time_ms or 0.02,
-            patch_radius=params.panel_scan_radius_px,
+            exposure_ms=params.exposure_time_ms,
+            patch_radius=scan_radius,
             grid_xs=",".join(map(str, xs)),
             grid_ys=",".join(map(str, ys)),
             frames=2,
@@ -160,12 +196,23 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
             )
         except (ValueError, RuntimeError) as exc:
             raise click.ClickException(f"panel scan rejected; evidence in {save_dir}: {exc}") from exc
+        if abs(scan.response) < 0.02:
+            raise click.ClickException(
+                f"panel scan response {scan.response:+.3f} is too weak; evidence in {save_dir}"
+            )
         click.echo(
             f"Panel scan: {scan.center}, response={scan.response:+.3f}, "
             f"max paired drift={scan.max_pair_drift:.2%}, session drift={scan.session_drift:.2%}"
         )
         params = replace(params, pupil_center=f"{scan.center[0]},{scan.center[1]}")
         config = replace(config, pupil_center=scan.center)
+
+    if auto_session:
+        try:
+            geometry_file = _measure_session_geometry(config, save_dir)
+        except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
+            raise click.ClickException(f"session geometry rejected; evidence in {save_dir}: {exc}") from exc
+        config = replace(config, geometry_file=str(geometry_file))
 
     if save_dir is not None:
         save_model_in_loop_config(config, save_dir)
