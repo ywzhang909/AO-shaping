@@ -63,4 +63,4 @@ streamlit run src/ao_shaping/gui/dm/md_img_analysis_ui.py
 - 需求规格说明书: [`md_img_analysis_ui_srs.md`](./md_img_analysis_ui_srs.md)
 - 流水线脚本: [`scripts/dm/md_img_pipeline.py`](../../../../../../scripts/dm/md_img_pipeline.py)
 - 数据目录: [`data/md_test/`](../../../../../../data/md_test/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

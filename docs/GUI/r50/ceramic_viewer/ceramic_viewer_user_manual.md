@@ -69,4 +69,4 @@ streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 
 - 需求规格说明书: [`ceramic_viewer_srs.md`](./ceramic_viewer_srs.md)
 - 数据目录: [`data/md_test/`](../../../../../../data/md_test/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

@@ -1098,8 +1098,8 @@ sequenceDiagram
 ---
 ## 13. 相关文档
 
-- 用户手册: [`docs/gui/multi_slm_controller_user_manual.md`](./multi_slm_controller_user_manual.md)
+- 用户手册: [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](./multi_slm_controller_user_manual.md)
 - SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../slm/slm_gui_operation_map.md)
-- GUI 索引: [`docs/gui.md`](../gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)
 - 闭环整形实测报告: [`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)
 - 正向模型闭环实测报告: [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)

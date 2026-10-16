@@ -250,4 +250,4 @@ sequenceDiagram
 
 - 用户手册: [`ccd_analyzer_user_manual.md`](./ccd_analyzer_user_manual.md)
 - 图像分析算法: [`ao_shaping/utils/image/spots_calc/`](../../../../../utils/image/spots_calc/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

@@ -149,4 +149,4 @@ sequenceDiagram
 
 - 用户手册: [`zernike_debug_viewer_user_manual.md`](./zernike_debug_viewer_user_manual.md)
 - 标配算法: [`ao_shaping/optimizer/wf/zernike_response_matrix.py`](../../../../../optimizer/wf/zernike_response_matrix.py)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

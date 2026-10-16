@@ -73,4 +73,4 @@ streamlit run src/ao_shaping/gui/slm/slm_calibration_ui.py
 
 - 需求规格说明书: [`slm_calibration_ui_srs.md`](./slm_calibration_ui_srs.md)
 - 校准算法参考: [`ao_shaping/tools/slm/calibration/`](../../../../../tools/slm/calibration/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

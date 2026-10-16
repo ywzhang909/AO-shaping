@@ -10,7 +10,7 @@
 streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 ```
 
-完整技术细节（类图、时序图、Session State Schema、图案注册表、设计规则）见 [`docs/gui/multi_slm_controller_srs.md`](./multi_slm_controller_srs.md)。
+完整技术细节（类图、时序图、Session State Schema、图案注册表、设计规则）见 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](./multi_slm_controller_srs.md)。
 
 ---
 
@@ -571,8 +571,8 @@ sequenceDiagram
 
 ## 11. 相关文档
 
-- 需求规格说明书: [`docs/gui/multi_slm_controller_srs.md`](./multi_slm_controller_srs.md)
+- 需求规格说明书: [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](./multi_slm_controller_srs.md)
 - SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../slm/slm_gui_operation_map.md)
-- GUI 索引: [`docs/gui.md`](../gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)
 - 闭环整形实测报告: [`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)
 - 正向模型闭环实测报告: [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)

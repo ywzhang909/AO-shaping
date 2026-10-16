@@ -161,4 +161,4 @@ sequenceDiagram
 
 - 用户手册: [`ceramic_viewer_user_manual.md`](./ceramic_viewer_user_manual.md)
 - 数据目录: [`data/md_test/`](../../../../../../data/md_test/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

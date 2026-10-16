@@ -306,4 +306,4 @@ sequenceDiagram
 
 - 用户手册: [`slm_calibration_ui_user_manual.md`](./slm_calibration_ui_user_manual.md)
 - 校准算法参考: [`ao_shaping/tools/slm/calibration/`](../../../../../tools/slm/calibration/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)

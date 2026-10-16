@@ -72,4 +72,4 @@ streamlit run src/ao_shaping/gui/ccd/ccd_analyzer.py
 
 - 需求规格说明书: [`ccd_analyzer_srs.md`](./ccd_analyzer_srs.md)
 - 图像分析算法: [`ao_shaping/utils/image/spots_calc/`](../../../../../utils/image/spots_calc/)
-- GUI 索引: [`docs/gui.md`](../../../../../docs/gui.md)
+- GUI 索引: [`docs/gui.md`](../../../gui.md)
