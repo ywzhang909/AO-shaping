@@ -88,7 +88,7 @@ from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zer
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
@@ -687,8 +687,7 @@ def _run_gs_refine_session(
         # The exposure ceiling is set by the optical path, not the sensor, so
         # resolve it per session before any measurement can fire an over-limit
         # exposure: the environment variable, else probe the image itself.
-        ceiling = configured_daheng_exposure_limit()
-        if not ceiling:
+        if not configured_daheng_exposure_limit():
             cam.reset_exposure_time(0.02)
             display_and_average(
                 cam, slm, displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
@@ -698,15 +697,7 @@ def _run_gs_refine_session(
                 settle_max_discard=config.settle_max_discard,
                 memory_number=work_slots[-1],
             )
-            estimate = probe_exposure_ceiling_ms(
-                cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-            )
-            ceiling = estimate.ceiling_ms
-            logger.info(
-                "Daheng exposure ceiling probed from the image: {:.4f} ms",
-                ceiling,
-            )
+        ceiling = resolve_daheng_exposure_limit(camera=cam)
         if config.exposure_time_ms > ceiling + 1e-9:
             raise ValueError(
                 f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds the "
