@@ -93,6 +93,11 @@ class TestSquareRunnerWiring:
             slm_wavelength = 1064
             n_max = 4
             zernike_radius = 450
+            # The runner reads both blaze fields; they were added to SlmParams
+            # after this fake was written, so it must mirror the real defaults
+            # (-1 = off, "vertical") or `_build_square_config` raises.
+            blaze_period_px = -1
+            blaze_direction = "vertical"
 
         class _Run:
             seed = None
