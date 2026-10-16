@@ -630,6 +630,17 @@ REPORTS: dict[str, ReportProvenance] = {
             "补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物"
         ),
     ),
+    "report/shape_trials/gs_refine_zernike_uniformity.md": ReportProvenance(
+        script="scripts/slm/generate_gs_refine_zernike_report.py",
+        command="python scripts/slm/generate_gs_refine_zernike_report.py",
+        environment="离线",
+        note=(
+            "GS 自由相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 "
+            "run_gs_refine_zernike_sweep.py 产出的 summary.json + spgd_nmax*.csv，"
+            "渲染拟合残差/CV/PIB 三图与阶数扫描表"
+        ),
+        extra_scripts=("scripts/slm/run_gs_refine_zernike_sweep.py",),
+    ),
     "report/shape_trials/gui_closed_loop_shaping_20261014.md": ReportProvenance(
         script="scripts/generate_gui_shaping_hw_report.py",
         command="python scripts/generate_gui_shaping_hw_report.py",
