@@ -108,3 +108,51 @@ def test_santec_from_params_overrides_win(monkeypatch: pytest.MonkeyPatch) -> No
         slm_number=3,
         wavelength=633,
     )
+
+
+class TestLoadedConfig:
+    """``open()`` caches the per-serial config it reads; callers must not re-read.
+
+    ``Santec.open()`` reads the matching JSON file to apply wavelength / shift /
+    refresh defaults.  The GUI then called ``load_config()`` a second time to
+    show the same values in the sidebar, re-reading and re-parsing one file per
+    connect.  ``loaded_config`` is the snapshot ``open()`` already holds.
+    """
+
+    def test_unopened_handle_reports_none(self) -> None:
+        pytest.importorskip("ao_shaping.drivers.slm.santec._slm_win")
+        assert Santec(slm_number=1).loaded_config is None
+
+    def test_open_stores_what_it_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        pytest.importorskip("ao_shaping.drivers.slm.santec._slm_win")
+
+        config = {"wavelength": 1064, "shift_x": 3}
+        reads: list[str] = []
+
+        class _Sdk:
+            def SLM_Ctrl_Close(self, *_args: Any) -> int:
+                return 0
+
+            def SLM_Ctrl_Open(self, *_args: Any) -> int:
+                return 0
+
+        slm = Santec(slm_number=1)
+        monkeypatch.setattr(slm, "_slm", _Sdk())
+        monkeypatch.setattr(slm, "_wait_for_ready", lambda: None)
+        monkeypatch.setattr(slm, "get_serial_number", lambda *a, **k: "TEST-SERIAL")
+        monkeypatch.setattr(slm, "_apply_config_params", lambda _cfg: None)
+        monkeypatch.setattr(slm, "_load_correction", lambda _cfg: None)
+        monkeypatch.setattr(slm, "_setup_wavelength", lambda: None)
+        monkeypatch.setattr(slm, "_set_memory_mode", lambda *_a, **_k: None)
+
+        def fake_load_config() -> dict[str, Any]:
+            reads.append("disk")
+            return dict(config)
+
+        monkeypatch.setattr(slm, "load_config", fake_load_config)
+
+        slm.open()
+
+        # Read exactly once, and the snapshot is the object that was read.
+        assert reads == ["disk"]
+        assert slm.loaded_config == config

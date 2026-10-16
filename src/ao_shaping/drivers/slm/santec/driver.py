@@ -344,6 +344,8 @@ class Santec:
         self._memory_phase_cache: dict[int, npt.NDArray[np.uint16]] = {}
         self._displayed_memory_number: int | None = None
         self._displayed_phase_cache: npt.NDArray[np.uint16] | None = None
+        # open() 读取的每序列号配置快照; 调用方复用它, 不再二次读盘。
+        self._loaded_config: dict[str, Any] | None = None
 
         # 保存init参数，用于open()中优先级判断
         # 与 ConfigHandler 兼容的字典形式
@@ -455,6 +457,19 @@ class Santec:
     def correction_csv_path(self) -> Path | None:
         """当前矫正 CSV 文件路径（None 表示未加载）"""
         return self._correction.csv_path if self._correction is not None else None
+
+    @property
+    def loaded_config(self) -> dict[str, Any] | None:
+        """``open()`` 为本序列号读到的配置文件内容; **从未 open 过**时为 ``None``。
+
+        快照不在 :meth:`close` 时清除, 因此它始终是"本次会话读到的配置", 而不是
+        "当前设备状态" (设备状态看 :attr:`wavelength` / ``shift_*`` 等解析后的字段)。
+
+        ``open()`` 已经读过这个文件, 因此需要在打开后立刻取配置的调用方
+        (如 GUI 的 ``_sync_slm_session_state``) 直接复用它, 而不是再调一次
+        :meth:`load_config` 重读同一份 JSON。
+        """
+        return self._loaded_config
 
     # ── LUT (相位→灰度补偿) ─────────────────────
 
@@ -598,6 +613,8 @@ class Santec:
 
         # 按标识加载配置文件
         config: dict = self.load_config()
+        # 缓存本次读取结果: open() 之后再取配置无需二次读盘。
+        self._loaded_config = config
 
         # 应用配置参数（波长、平移、刷新率等）
         self._apply_config_params(config)

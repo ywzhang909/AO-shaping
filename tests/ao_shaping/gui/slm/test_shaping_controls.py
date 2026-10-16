@@ -357,6 +357,39 @@ class TestDeviceLifecycle:
         assert state["slm1_connected"] is True
         assert state["slm1_phase_preview"] is None
 
+    def test_sync_reuses_the_config_open_already_read(self, monkeypatch) -> None:
+        """``Santec.open()`` reads the per-serial config; the session sync must
+        reuse that snapshot instead of reading the same JSON a second time."""
+        from ao_shaping.gui.slm import multi_slm_controller
+
+        state = self._patch_state(monkeypatch)
+        fake = _FakeSLM()
+        reads: list[str] = []
+
+        def load_config() -> dict[str, Any]:
+            reads.append("disk")
+            return {"wavelength": 9999}
+
+        fake.load_config = load_config  # type: ignore[method-assign]
+        fake.loaded_config = {"wavelength": 1064}  # type: ignore[attr-defined]
+
+        multi_slm_controller._sync_slm_session_state(1, fake)
+
+        assert state["slm1_loaded_config"] == {"wavelength": 1064}
+        assert reads == []
+
+    def test_sync_falls_back_when_open_did_not_cache(self, monkeypatch) -> None:
+        """A handle without ``loaded_config`` (older driver or test double)
+        still populates the sidebar from ``load_config()``."""
+        from ao_shaping.gui.slm import multi_slm_controller
+
+        state = self._patch_state(monkeypatch)
+        fake = _FakeSLM()
+
+        multi_slm_controller._sync_slm_session_state(1, fake)
+
+        assert state["slm1_loaded_config"] == {}
+
     def test_run_reacquires_even_when_optimizer_raises(self, monkeypatch) -> None:
         """The ``@shaping_session`` contract: the GUI must own the handle again
         even when the optimizer dies mid-run (SDK handles are not re-entrant)."""
