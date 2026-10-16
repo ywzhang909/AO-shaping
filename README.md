@@ -209,7 +209,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
 
-`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`docs/gui/multi_slm_controller_user_manual.md`](docs/gui/multi_slm_controller_user_manual.md) 与 [`docs/gui/multi_slm_controller_srs.md`](docs/gui/multi_slm_controller_srs.md)。
+`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`src/ao_shaping/gui/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](src/ao_shaping/gui/slm/multi_slm_controller/multi_slm_controller_user_manual.md) 与 [`src/ao_shaping/gui/slm/multi_slm_controller/multi_slm_controller_srs.md`](src/ao_shaping/gui/slm/multi_slm_controller/multi_slm_controller_srs.md)。
 
 ## 项目结构（简版）
 
