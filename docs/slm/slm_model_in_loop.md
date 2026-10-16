@@ -118,15 +118,10 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ## 7. 会话曝光
 
-<<<<<<< Updated upstream
-> **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
-> **实验前必须显式传入按当前激光功率实测的曝光** (本实验系统历史参考 1.5 ms)。
-=======
 `--exposure-time-ms 0` 让硬件 CLI 的定位和几何 sweep 从当前画面探测会话曝光；
 优化器继续使用自身的自动曝光与回读守卫。`AO_DAHENG_MAX_EXPOSURE_MS`
 可指定当前光路上限，缺省或 `0` 时由画面探测。历史曝光数值不可跨光路复用。
 不同曝光的 CCD 帧只有经过该曝光段线性化验证后才能直接比较。
->>>>>>> Stashed changes
 
 ## 8. 仿真模式
 
@@ -146,9 +141,6 @@ python src/ao_shaping/main.py slm-model-in-loop \
     --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
-<<<<<<< Updated upstream
-## 10. 实验前必跑表征探针 (顺序不能反)
-=======
 ### 9.1 几何文件 (`--geometry-file`) 与 padding 换算
 
 缺省不提供 `--geometry-file` 时，硬件 runner 每次会话自动做全板入射定位、
@@ -170,7 +162,6 @@ python src/ao_shaping/main.py slm-model-in-loop \
 
 硬件 CLI 的自动会话标定已经覆盖位置、曝光和几何探测。需要单独分析漂移、
 相机噪声或 ABBA 稳定性时，可使用以下诊断入口；曝光值按当前光路选择。
->>>>>>> Stashed changes
 
 ```bash
 python -m ao_shaping.tools.ccd.drift_probe --exposure-ms <当前曝光>
