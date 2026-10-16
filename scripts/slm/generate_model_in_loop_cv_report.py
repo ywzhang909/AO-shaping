@@ -202,7 +202,6 @@ def run_cv(
     differ only in the reserve. That isolation is the whole measurement.
     """
     partition = build_folds(pool_size, folds, seed=seed)
-    probe_count = int(config_kwargs["probe_count"])
     holdout_count = int(config_kwargs["holdout_probe_count"])
     pool = _pool(pool_size)
     legacy_hook = _legacy_hook()

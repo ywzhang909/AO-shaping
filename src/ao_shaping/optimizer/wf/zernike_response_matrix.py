@@ -476,7 +476,7 @@ def calibrate_zernike_response_matrix(
     wfs.take_image(5)
     initial_intensity, _ = wfs.get_spots_statics()
     initial_valid_mask = ~np.isnan(initial_intensity)
-    initial_valid_positions = np.argwhere(initial_valid_mask)
+    np.argwhere(initial_valid_mask)
     logger.info(
         f"Initial intensity baseline captured: "
         f"{np.sum(initial_valid_mask)}/{initial_valid_mask.size} valid spots"
@@ -538,7 +538,7 @@ def calibrate_zernike_response_matrix(
         nan_at_valid = np.isnan(current_intensity) & initial_valid_mask
         if np.any(nan_at_valid):
             nan_positions = np.argwhere(nan_at_valid)
-            nan_amplitudes = current_intensity[nan_at_valid]
+            current_intensity[nan_at_valid]
             logger.warning(
                 f"Mode {i}: Intensity NaN detected at {len(nan_positions)} initially valid positions. "
                 f"Shape: {current_intensity.shape}, "
@@ -706,8 +706,8 @@ def load_zernike_response_matrix(path: str | Path) -> ZernikeResponseMatrixResul
         timestamp = str(meta.attrs["timestamp"])
         excluded_piston = bool(meta.attrs["excluded_piston"])
         excluded_tip_tilt = bool(meta.attrs["excluded_tip_tilt"])
-        mean_variance = float(meta.attrs["mean_variance"])
-        max_variance = float(meta.attrs["max_variance"])
+        float(meta.attrs["mean_variance"])
+        float(meta.attrs["max_variance"])
         condition_number = meta.attrs["condition_number"]
         if condition_number == -1:
             condition_number = None

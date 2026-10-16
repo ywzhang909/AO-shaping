@@ -218,7 +218,6 @@ def _blur(img: torch.Tensor, sigma: float) -> torch.Tensor:
 
 def _speckle(img: torch.Tensor, cv: float, seed: int) -> torch.Tensor:
     """Fully developed speckle: exponential intensity, so CV is set by ``cv`` exactly."""
-    g = torch.Generator().manual_seed(seed)
     scale = 1.0 / cv**2
     mult = torch.distributions.Exponential(scale).sample(img.shape).to(img.dtype) * scale
     return img * (mult - 1.0 + 1.0 / cv).clamp_min(0.0)

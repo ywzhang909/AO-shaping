@@ -116,7 +116,7 @@ class TestCsvToPhase:
         断言改为相位在 mod 2π 意义下等价。
         """
         slm = Santec(slm_number=1)
-        gray_orig = slm.load_gray_from_csv(CSV_PATH)
+        slm.load_gray_from_csv(CSV_PATH)
         phase_rad = Santec.csv_to_phase(CSV_PATH)
 
         gray_roundtrip = slm.create_phase_from_array(phase_rad)

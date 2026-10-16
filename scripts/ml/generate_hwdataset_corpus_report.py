@@ -1725,7 +1725,6 @@ def _part_10(add, facts, dist_stats, total, newer_unindexed) -> None:
         add("> 同 §10: 等待 `distribution_stats.json` 生成后, 本节会给出逐差异的消解方案。\n")
     else:
         fams = sorted(dist_stats["families"])
-        n_fam = len(fams)
         add("## 10. 图像/相位级分布差异 (实测)\n")
         add(
             "以上各节全部来自**元数据** (索引 + sidecar), 回答的是「记录了多少、怎么标注」。"

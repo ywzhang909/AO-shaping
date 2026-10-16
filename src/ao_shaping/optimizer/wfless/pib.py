@@ -174,7 +174,7 @@ def learning_schedule(
     grad_cv = grad_std / (grad_mean + 1e-8)  # 变异系数
 
     # 计算 PIB 变化率
-    pib_mean = np.mean(recent_pibs)
+    np.mean(recent_pibs)
     pib_std = np.std(recent_pibs) if len(recent_pibs) > 1 else 0
     pib_trend = (
         (recent_pibs[-1] - recent_pibs[0]) / (len(recent_pibs) + 1e-8)
@@ -507,10 +507,10 @@ def optimize_pib(
             )
 
             best_objective = float(test_pib(init_img))
-            best_j = float(j)
-            best_objective_ratio = float(pib_ratio)
+            float(j)
+            float(pib_ratio)
             best_v = _init_v.copy()
-            best_img = init_img.copy()
+            init_img.copy()
             last_best_epoch = 0
 
             def evaluate_candidate(
@@ -746,14 +746,14 @@ def optimize_pib(
                         > best_objective + adaptive_search_state.improvement_tol
                     ):
                         best_objective = float(objective_val)
-                        best_j = float(J)
-                        best_objective_ratio = float(objective_ratio)
+                        float(J)
+                        float(objective_ratio)
                         # objective_val / pos_img were measured on the PERTURBED
                         # voltages (`_init_v + disturb_v`); saving the clean
                         # `_init_v` wrote a configuration that was never measured,
                         # so re-applying it did not reproduce the reported value.
                         best_v = (_init_v + disturb_v).copy()
-                        best_img = pos_img.copy()
+                        pos_img.copy()
                         last_best_epoch = epoch
 
                     log = {
@@ -814,9 +814,9 @@ def optimize_pib(
                                 ):
                                     best_v = _init_v.copy()
                                     best_objective = float(search_result[objective])
-                                    best_j = float(search_result["J"])
-                                    best_objective_ratio = float(search_result["ratio"])
-                                    best_img = search_result["img"].copy()
+                                    float(search_result["J"])
+                                    float(search_result["ratio"])
+                                    search_result["img"].copy()
                                     last_best_epoch = epoch
                                 recorder.append(
                                     {

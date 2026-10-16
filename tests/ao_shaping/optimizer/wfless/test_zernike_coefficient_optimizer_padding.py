@@ -118,7 +118,7 @@ def _centroid_sigma_px(field: np.ndarray) -> float:
     size = field.shape[0]
     rows, cols = np.mgrid[0:size, 0:size]
     mean_col = float((weights * cols).sum())
-    mean_row = float((weights * rows).sum())
+    float((weights * rows).sum())
     variance = float((weights * (cols - mean_col) ** 2).sum())
     return float(np.sqrt(variance))
 

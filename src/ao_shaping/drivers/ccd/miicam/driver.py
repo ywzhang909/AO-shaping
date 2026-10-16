@@ -788,7 +788,7 @@ class MIICamera(BaseCamera):
 
     def __take_one_shot_callback(self) -> np.ndarray:
         """基于回调的采集, 用 PullImageV4 (软件触发模式)。"""
-        with self._callback_session as session:
+        with self._callback_session:
             self.cam.Trigger(1)
             result = self.get_callback_frame(timeout=5.0)
             if result is None:

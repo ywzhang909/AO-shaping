@@ -230,7 +230,7 @@ def optimizer_ga(
                 _init_c = _init_c[:n_zernike]
 
         # Initialize SLM with initial coefficients
-        init_phase = slm.send_zernike(_init_c)
+        slm.send_zernike(_init_c)
 
         def calc_wavefront():
             wfs.take_image(5)

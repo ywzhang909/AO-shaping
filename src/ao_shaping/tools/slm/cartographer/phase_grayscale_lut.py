@@ -274,7 +274,7 @@ class PhaseGrayscaleLUT:
         logger.info("Capturing reference (zero grayscale)...")
         self.slm.set_grayscale(0)
         time.sleep(0.3)
-        ref_measurement = capture.capture_reference("lut_flat")
+        capture.capture_reference("lut_flat")
 
         # Initialize reconstructor
         num_spots = (self.wfs.num_spots_x, self.wfs.num_spots_y)
@@ -282,7 +282,7 @@ class PhaseGrayscaleLUT:
             wavelength_nm=self.config.wavelength_nm,
             lenslet_pitch_mm=0.15,
         )
-        reconstructor = FourierWavefrontReconstructor(
+        FourierWavefrontReconstructor(
             config=recon_config,
             num_spots=num_spots,
         )

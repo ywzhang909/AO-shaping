@@ -323,7 +323,6 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     from ao_shaping.utils.io.file import Recorder
 
     recorder = Recorder(mark="peak", mode="min")
-    offset = (0, 0)
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(

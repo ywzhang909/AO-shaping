@@ -143,7 +143,6 @@ def _speckle(img: torch.Tensor, cv: float, seed: int) -> torch.Tensor:
     ``Exponential(1/cv**2) - 1 + 1/cv`` realises. A Gaussian multiplier would be wrong:
     it can go negative and has no physical counterpart here.
     """
-    g = torch.Generator().manual_seed(seed)
     scale = 1.0 / cv**2
     mult = torch.distributions.Exponential(scale).sample(img.shape).to(img.dtype) * scale
     mult = mult - 1.0 + 1.0 / cv  # mean 1

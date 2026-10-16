@@ -331,7 +331,6 @@ def plot_gate_timeline(run: Run, out: Path) -> Path | None:
     if not epochs:
         return None
     gates = [str(r.get("_gate", "unknown")) for r in epochs]
-    xs = np.arange(len(gates))
     fig, ax = plt.subplots(figsize=(9, 2.6))
     for i, g in enumerate(gates):
         ax.bar(i, 1, color=GATE_COLORS.get(g, "gray"), edgecolor="none")

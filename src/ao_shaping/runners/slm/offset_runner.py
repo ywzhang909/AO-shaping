@@ -360,7 +360,7 @@ def search_offset_by_vortex(
         np.arange(height) - center_y, np.arange(width) - center_x, indexing="ij"
     )
 
-    rho = np.sqrt(x_coords**2 + y_coords**2)
+    np.sqrt(x_coords**2 + y_coords**2)
     theta = np.arctan2(y_coords, x_coords)
 
     vortex_phase = vortex_charge * theta

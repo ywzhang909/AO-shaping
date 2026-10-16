@@ -342,7 +342,7 @@ def describe_plan(plan: list[PlanPoint], params: CollectParams) -> str:
     lines.append("-" * 80)
     for p in plan:
         if p.mode == "zernike" and p.coeffs:
-            nz = len(p.coeffs)
+            len(p.coeffs)
             # 同时给出"随机化的非 piston 项数"与"实际写入 _c 的向量长度"——
             # 两者差 1 (piston 槽), 而必须是后者等于三角数, 否则整条记录会被
             # ml.hwdataset 判为 ODD_COEFFICIENT_LENGTH 静默丢弃。

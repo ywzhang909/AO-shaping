@@ -124,12 +124,11 @@ class TestAutoDeltaDetectRms:
             )
 
             # Verify ThorlabWFS was called with exposure_time
-            ThorlabWFS_mock = patch(
+            patch(
                 "ao_shaping.runners.slm.rms_zernike_runner.resolve_wfs",
                 return_value=mock_wfs,
             )
             # The mock was already patched above, check call args
-            mock_wfs_call = mock_wfs.__enter__.call_args
             # Verify the WFS was instantiated - check via the patch
             # The actual verification is that the code path includes exposure_time param
 

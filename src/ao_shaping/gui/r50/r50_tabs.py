@@ -930,7 +930,7 @@ def render_tab_all_control() -> None:
 
     jc = f"{P}_jc"
     matrix: np.ndarray | None = st.session_state.get(f"{jc}_matrix")
-    applied: np.ndarray | None = st.session_state.get(f"{jc}_applied_matrix")
+    st.session_state.get(f"{jc}_applied_matrix")
     connected = st.session_state.get(f"{jc}_connected", False)
     relay_on = st.session_state.get(f"{jc}_relay_on", False)
 
@@ -949,21 +949,21 @@ def render_tab_all_control() -> None:
 
     _show_feedback(prefix="jc")
 
-    vmin = st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
-    vmax = st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
+    st.session_state.get(f"{P}_vmin", HW_VOLTAGE_MIN)
+    st.session_state.get(f"{P}_vmax", HW_VOLTAGE_MAX)
 
     with st.container(border=True):
         st.markdown("##### 行列选择")
         col_row, col_col = st.columns(2)
         with col_row:
-            sel_row = st.selectbox(
+            st.selectbox(
                 "查看行 (0=全部)",
                 options=list(range(0, GRID_SIZE)),
                 format_func=lambda r: "全部" if r == 0 else f"行 {r}",
                 key=f"{jc}_view_row_select",
             )
         with col_col:
-            sel_col = st.selectbox(
+            st.selectbox(
                 "查看列 (0=全部)",
                 options=list(range(0, GRID_SIZE)),
                 format_func=lambda c: "全部" if c == 0 else f"列 {c}",

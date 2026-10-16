@@ -592,7 +592,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
     # Zernike mode count and index mapping
     nk = calc_n_zernike_terms(n_max)
-    zernike_modes = _zernike_indices(n_max)
+    _zernike_indices(n_max)
 
     # SLM pattern helper
     pattern_helper = PatternHelper(resolution=SLM_RESOLUTION, bits=10)
@@ -1623,15 +1623,15 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     )
                     if improved:
                         best_objective = float(objective_val)
-                        best_j = float(J)
-                        best_objective_ratio = float(objective_ratio)
+                        float(J)
+                        float(objective_ratio)
                         # objective_val / pos_img were measured on the PERTURBED
                         # phase `_pos_c`, so the saved coefficients must be `_pos_c`
                         # too. Saving the clean `_init_c` made `save_best` write a
                         # configuration that was never measured -- re-applying it
                         # did not reproduce the reported metric (hardware-verified).
                         best_c = _pos_c.copy()
-                        best_img = pos_img.copy()
+                        pos_img.copy()
                         last_best_epoch = epoch
 
                     log = _log_row(

@@ -783,7 +783,7 @@ class TestFitCoeffStats:
 
     def test_zero_variance_component_gets_unit_std(self, tmp_path: Path) -> None:
         """A coefficient no record varies must not divide by zero."""
-        root = tmp_path / "const"
+        tmp_path / "const"
         payload = {
             0: {"_c": np.array([1.0, 2.0, 3.0]), "_img": _frame(), "exp_t": 1.0},
             1: {"_c": np.array([1.0, 2.0, 9.0]), "_img": _frame(), "exp_t": 1.0},
@@ -846,7 +846,7 @@ class TestFitCoeffStats:
 
     def test_rejects_record_without_coefficients(self, tmp_path: Path) -> None:
         """An indexed-but-empty payload is a real failure, not a silent skip."""
-        root = tmp_path / "noc"
+        tmp_path / "noc"
         path = _write_pkl(
             tmp_path / "noc" / _STAMP / "slm_zernike_shaping.pkl",
             {0: {"_c": [0.0] * 15, "_img": _frame(), "exp_t": 1.0}},

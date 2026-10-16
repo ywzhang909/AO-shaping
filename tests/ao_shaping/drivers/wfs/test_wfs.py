@@ -53,7 +53,7 @@ def test_calc_wf():
         wf, statics = wfs.get_wavefront()
         x, y = wfs.get_spot_deviation()
         im_wf = ax_wf.imshow(wf, cmap='RdBu')
-        im_dev_x = ax_dev_x.imshow(x, cmap='RdBu')
+        ax_dev_x.imshow(x, cmap='RdBu')
         im_dev_y = ax_dev_y.imshow(y, cmap='RdBu')
 
         ax_spot.set_title("Spot Field")
@@ -99,7 +99,6 @@ def test_zernike():
     plt.show()
 
 def test_high_speed_d():
-    rms_hist = []
     with ThorlabWFS(MlaRes.Res768) as wfs:
         last_dx, last_dy = None, None
         for _ in range(100):
@@ -139,5 +138,5 @@ def test_spot_deviation():
 
             return im1, im2
 
-        ani = animation.FuncAnimation(fig, update, interval=50, blit=True)
+        animation.FuncAnimation(fig, update, interval=50, blit=True)
         plt.show()

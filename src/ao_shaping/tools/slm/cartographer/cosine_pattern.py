@@ -75,7 +75,6 @@ def generate_center_cosine_pattern(
 
     # Cosine pattern: max at center, decreases to 0 at edge
     # g(x) = (1 + cos(pi * r / R)) / 2 * max_gs for r <= R
-    mask = r <= R
 
     # Compute raw cosine values
     cos_val = (1.0 + np.cos(np.pi * r / R)) / 2.0

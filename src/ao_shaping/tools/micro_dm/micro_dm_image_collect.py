@@ -528,7 +528,7 @@ def run(params: MicroDMImageCollectParams) -> None:
 
     # 打开相机 (必需, 失败即退出)
     if params.cam_id is None:
-        cam_id = DEVICES.far_cam_id
+        pass
     try:
         if params.camera_type == "daheng":
             click.echo(

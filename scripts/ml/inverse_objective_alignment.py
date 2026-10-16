@@ -143,7 +143,6 @@ def main() -> None:
     for name in OBJECTIVES:
         imp = arr(name, "obj_improvement")
         s = arr(name, "sim")
-        median = np.argsort(imp)[len(imp) // 2]
         worse_half = s[imp <= np.median(imp)]
         better_half = s[imp > np.median(imp)]
         print(

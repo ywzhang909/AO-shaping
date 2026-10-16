@@ -73,10 +73,6 @@ from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
 from ao_shaping.utils.image.exposure_control import (  # noqa: E402
     configured_daheng_exposure_limit,
 )
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
-    SLM_PANEL_H,
-    SLM_PANEL_W,
-)
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel  # noqa: E402
 from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase  # noqa: E402
 
@@ -163,8 +159,6 @@ def main() -> int:
     ceiling_env = configured_daheng_exposure_limit()
     _log(f"曝光请求 {args.exposure_ms} ms; env 上限 "
          f"{ceiling_env if ceiling_env > 0 else '未设 (将用保守默认值)'}")
-
-    n_coeffs = _n_fitted_coeffs(args.n_orders)
 
     slm = Santec(slm_number=1, wavelength=1064, video_mode=0)
     opened_slm = False

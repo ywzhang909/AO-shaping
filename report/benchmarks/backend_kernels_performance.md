@@ -9,11 +9,14 @@
 
 | Function | NumPy (s) | Numba (s) | CuPy (s) |
 |----------|-----------|-----------|----------|
-| calculate_sharpness | 3.5793999559246e-05 | 1.828699925681576e-05 | 0.0014877309987787158 |
-| crop | 1.2060000299243257e-05 | 8.770000131335109e-06 | 0.008160628999467007 |
-| center_of_mass | 4.7064999962458386e-05 | 6.000899971695617e-05 | 0.0023420710004575084 |
-| center_of_brightness | 9.518999431747944e-06 | 7.893999718362466e-06 | 0.0022713920002570376 |
+| calculate_sharpness | 6.804794538766146e-05 | 1.5776422806084156e-05 | N/A |
+| crop | 2.317264210432768e-05 | 1.5057781711220741e-05 | N/A |
+| center_of_mass | 5.6384261697530746e-05 | 9.758416563272476e-05 | N/A |
+| center_of_brightness | 4.089153371751308e-06 | 1.5498343855142594e-05 | N/A |
 
 ### CuPy availability
 
-- No CuPy benchmark returned N/A.
+- `calculate_sharpness`: No CUDA-capable GPU detected by CuPy
+- `crop`: No CUDA-capable GPU detected by CuPy
+- `center_of_mass`: No CUDA-capable GPU detected by CuPy
+- `center_of_brightness`: No CUDA-capable GPU detected by CuPy

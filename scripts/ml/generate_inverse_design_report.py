@@ -201,7 +201,6 @@ def figure_inverse(index, path: Path, checkpoint: Path | None = None) -> dict:
         model, blob = load_trained(checkpoint)
         trained = True
     target = inv.target_tensor(inv.GRID, SIZE_FRAC, ASPECT)
-    mask = inv.roi(inv.GRID, SIZE_FRAC, ASPECT)
 
     # Propose: canonical GS, used directly (no Zernike projection bottleneck).
     designed = inv.gs_phase(SIZE_FRAC, ASPECT)

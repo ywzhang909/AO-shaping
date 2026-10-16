@@ -45,7 +45,7 @@ def coefficients_to_phase_map(
 
     # Normalize to unit circle
     rho = np.sqrt(x**2 + y**2)
-    theta = np.arctan2(y, x)
+    np.arctan2(y, x)
 
     # Apply circular mask
     mask = rho <= 1.0

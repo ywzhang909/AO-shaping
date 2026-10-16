@@ -251,7 +251,6 @@ def main() -> None:
     # point, the freeform arm needs the PHASE. Converting the coefficients to a phase and
     # handing that to the coefficient parameterisation is a shape/semantics mismatch.
     gs_coeff_vec = inv.gs_coefficients(SIZE_FRAC, ASPECT, n_max=N_MAX).astype(np.float32)
-    gs_coeff = gs_coeff_vec
     print("\nreference scores on the INDEPENDENT evaluator (higher is better):")
     print(f"  flat phase          {score_numpy(flat_phase):.4f}")
     print(f"  GS phase            {score_numpy(gs_phase_np):.4f}")

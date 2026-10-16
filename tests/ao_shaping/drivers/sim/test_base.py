@@ -110,7 +110,6 @@ def test_simulated_device_open_close():
 def test_simulated_device_set_seed():
     """Test setting the random seed."""
     dev = DummySimulatedDevice()
-    initial_seed = dev._random_seed
     dev.set_seed(123)
     assert dev._random_seed == 123
     # Check that the rng is reset

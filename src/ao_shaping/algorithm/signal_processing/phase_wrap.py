@@ -427,7 +427,7 @@ class PhaseWrapOptimizer(IterativeOptimizer):
             落在 [0, 2π) 区间的优化后包裹相位。
         """
         # 步骤 1: 最小跳变包裹 (可消除约 90% 的跳变)
-        phase = self.min_jump_wrap(phase_unwrapped)
+        self.min_jump_wrap(phase_unwrapped)
 
         # 步骤 2: 误差扩散 —— 作用于连续估计值
         # 由 min-jump 结果重建连续相位

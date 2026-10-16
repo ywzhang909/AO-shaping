@@ -425,7 +425,7 @@ class EpochCurveFrame(BaseFrame):
         if self._values:
             y_lo, y_hi = self._y_range()
             span = max(y_hi - y_lo, 1e-12)
-            x0, x1 = self.left, self.left + self.width - 1
+            _x0, _x1 = self.left, self.left + self.width - 1
             y0, y1 = self.top, self.top + self.height - 1
             n = len(self._values)
 
@@ -550,7 +550,7 @@ class MultiCurveFrame(BaseFrame):
 
         if self._epochs:
             n = len(self._epochs)
-            x0, x1 = self.left, self.left + self.width - 1
+            _x0, _x1 = self.left, self.left + self.width - 1
             y0, y1 = self.top, self.top + self.height - 1
 
             def x_of(e: float) -> int:
