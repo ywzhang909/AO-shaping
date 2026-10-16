@@ -80,3 +80,47 @@ class TestSmokeBehaviour:
         out = frame_analysis.crop_roi(_blob(), (2, 2), 10)
         assert out.shape == (20, 20)
         assert out.min() >= 0.0
+
+
+class TestMaxTargetSideAtZeroOrder:
+    """``target_side == 0`` = 最大边长：0 级到最近帧边 − 留白。
+
+    这条语义把「目标方斑必然落在帧内」变成**结构性质**，所以
+    「目标边长 > 读出窗口边长」那类冲突在 0 下不可能出现。
+    """
+
+    def test_margin_constant_is_ten_px(self):
+        assert frame_analysis.TARGET_EDGE_MARGIN_PX == 10
+
+    def test_side_is_twice_the_radius_after_the_margin(self):
+        # 100x100、中心 (50, 50)：到最近边 49 px，扣 10 留白 → 半径 39 → 边长 78
+        frame = np.zeros((100, 100))
+        assert frame_analysis.max_target_side_at_zero_order(frame, (50, 50)) == 78
+        assert (
+            frame_analysis.max_target_side_at_zero_order(frame, (50, 50), margin_px=0)
+            == 98
+        )
+
+    def test_offcentre_spot_is_limited_by_its_nearest_edge(self):
+        # (x=30, y=20) → 最近边是上边 (20 px)；扣 10 → 半径 10 → 边长 20
+        frame = np.zeros((200, 200))
+        assert frame_analysis.max_target_side_at_zero_order(frame, (30, 20)) == 20
+
+    def test_center_defaults_to_the_zero_order_detector(self):
+        blob = _blob()  # 64x64 高斯，峰在 (32, 32)
+        auto = frame_analysis.max_target_side_at_zero_order(blob)
+        explicit = frame_analysis.max_target_side_at_zero_order(blob, (32, 32))
+        assert abs(auto - explicit) <= 2, (auto, explicit)
+
+    def test_tiny_frame_falls_back_to_min_side(self):
+        frame = np.zeros((4, 4))
+        assert frame_analysis.max_target_side_at_zero_order(frame, (2, 2)) == 1
+        assert (
+            frame_analysis.max_target_side_at_zero_order(frame, (2, 2), min_side=8) == 8
+        )
+
+    def test_side_always_fits_the_frame(self):
+        # 0 级落在任何位置（含四个角）边长都必须放得下
+        for center in ((0, 0), (0, 63), (63, 0), (63, 63), (32, 32), (5, 40)):
+            side = frame_analysis.max_target_side_at_zero_order(_blob(), center)
+            assert 1 <= side <= 64, (center, side)

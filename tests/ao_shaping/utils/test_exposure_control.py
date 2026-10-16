@@ -145,6 +145,8 @@ class _ProbeCamera:
         return float(ms)
 
     def get_numpy_image(self, n_sample: int = 2) -> np.ndarray:
+        if n_sample != 1:
+            return np.zeros((4, 4), dtype=np.float32)
         peak = int(255 * min(1.0, self.current_ms / self.saturate_at_ms))
         return np.full((4, 4), peak, dtype=np.uint8)
 

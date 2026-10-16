@@ -84,7 +84,7 @@ def resolve_daheng_exposure_limit(
         try:
             estimate = probe_exposure_ceiling_ms(
                 camera.reset_exposure_time,
-                lambda: np.asarray(camera.get_numpy_image(n_sample=2)),
+                lambda: np.asarray(camera.get_numpy_image(n_sample=1)),
                 start_ms=probe_start_ms,
                 hard_max_ms=probe_hard_max_ms,
             )
