@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import os
-from contextlib import contextmanager
-
 import tqdm
 import numpy as np
 
@@ -24,58 +21,26 @@ from ao_shaping.utils.image.hardware_utils import (
     resolve_spot_center,
 )
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
+from ao_shaping.optimizer._camera_inject import (
+    _CAMERA_CLASS_OVERRIDE,  # noqa: F401  (backward-compat re-export)
+    _camera_cls,
+    _camera_override,  # noqa: F401  (backward-compat re-export)
+)
+from ao_shaping.optimizer.constants import (
+    CAM_SAMPLE_ITER,
+    IDEAL_SPOT_RADIUS,
+    KEEP_VOLTAGE_WHEN_EXIT,
+    TEST_EXPOSURE_TIME_BRIGHTNESS,
+    create_optimizer,
+)
 
 
 # 测试/仿真注入点: 设为 SimCamera 等替身即可替换真实驱动, None = 使用真实驱动。
-_CAMERA_CLASS_OVERRIDE: type | None = None
-
-
-def _camera_cls(cam_type: str = "") -> type:
-    """Resolve the camera driver class on demand.
-
-    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562
-    ``__getattr__``, so a module-level ``from ao_shaping.drivers import
-    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->
-    ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy
-    contract and forcing the SDK onto offline consumers such as
-    ``scripts/slm/generate_shape_objective_comparison.py``. Resolving here keeps
-    the optimizer importable without the side effect.
-
-    Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force
-    any class; then ``cam_type="sim"`` for the 2f-Fourier simulator; otherwise
-    the real MiiCam driver.
-    """
-    if _CAMERA_CLASS_OVERRIDE is not None:
-        return _CAMERA_CLASS_OVERRIDE
-
-    if cam_type == "sim":
-        from ao_shaping.drivers.sim.slm_pib_sim import SimPibCCD
-
-        return SimPibCCD
-
-    from ao_shaping.drivers import MIICamera
-
-    if MIICamera is None:
-        raise RuntimeError("MiiCam driver not available. Install the MiiCam SDK.")
-    return MIICamera
-
-
-@contextmanager
-def _camera_override(camera_cls: type | None):
-    """Temporarily swap the camera class used by :func:`optimize_pib`.
-
-    ``_CAMERA_CLASS_OVERRIDE`` is module state, so assigning it without
-    restoring would silently make a later hardware run use the simulator. This
-    restores the previous value on exit, including on exception, and nests
-    correctly.
-    """
-    global _CAMERA_CLASS_OVERRIDE
-    previous = _CAMERA_CLASS_OVERRIDE
-    _CAMERA_CLASS_OVERRIDE = camera_cls
-    try:
-        yield camera_cls
-    finally:
-        _CAMERA_CLASS_OVERRIDE = previous
+# 全局与 _camera_cls / _camera_override 现统一在 ao_shaping.optimizer._camera_inject
+# (此前本模块与 combined_optimizer 各持一份独立全局, 一处注入对另一处不可见,
+# 可能让硬件 run 静默用 simulator)。此处仅 re-export 以兼容
+# ``pib._CAMERA_CLASS_OVERRIDE`` / ``pib._camera_cls`` / ``pib._camera_override``
+# 的既有引用 (测试与 pib_sim_eval)。
 
 
 # adam parameters
@@ -83,14 +48,8 @@ beta1 = 0.9
 beta2 = 0.99
 beta3 = 0.9999
 
-# camera parameters
-CAM_SAMPLE_ITER = 1
+# camera parameters (pib-specific)
 ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
-TEST_EXPOSURE_TIME_BRIGHTNESS = 220
-IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
-
-# dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = True
 
 
 # Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
@@ -98,8 +57,6 @@ from ao_shaping.algorithm.tabu.tabu_search import (
     AdaptiveSearchState,
     TabuMemory,
 )
-
-from ao_shaping.optimizer.constants import create_optimizer
 
 
 
