@@ -975,7 +975,7 @@ Near_Cam_ID=1
 IDEAL_SPOT_RADIUS=7
 CENTER=577,655
 # Daheng 保护曝光上限 (ms), 随光路按会话设置; 缺省/0 = 由画面探测
-AO_DAHENG_MAX_EXPOSURE_MS=0.6
+# AO_DAHENG_MAX_EXPOSURE_MS=0.6
 ```
 
 Access in code:

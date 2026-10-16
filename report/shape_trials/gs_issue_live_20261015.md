@@ -1,10 +1,9 @@
 # GS 方法实机对照与形状验收预检（2026-10-15）
 
 <!-- provenance:start -->
-> **生成脚本**: 人工撰写；汇总数据由 `scripts/slm/evaluate_gs_variant_runs.py` 从本地可信调试记录复算
-> **运行环境**: Santec SLM #1 + Daheng CCD `FJB24112232`，真实光路
-> **数据**: `data/debug/slm_gs_refine/20261015_issue_comparison/summary.json`
-> **说明**: 固定曝光、同种子 GS 方法对照；仅用于本次光路状态的诊断，不构成形状成功验收
+> **生成脚本**: 人工撰写，无生成脚本
+> **运行环境**: 硬件
+> **说明**: 2026-10-15 GS 方法实机对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实机光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图
 <!-- provenance:end -->
 
 ## 结论

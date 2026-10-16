@@ -449,6 +449,42 @@ class SlmModelInLoopConfig:
     the held-out correlation into an in-sample one.
     """
 
+    # --- uncertainty-sampled probes (opt-in; R-82 / R-86) -------------------
+    uncertainty_probes: bool = False
+    """Choose Step A probes by maximising predictive uncertainty (R-82).
+
+    ``False`` (default) keeps the historical fixed-random probe set byte-for-byte.
+    When ``True``, each Step A probe is the phase that propagates the current
+    coefficient posterior to the largest far-field variance
+    (:class:`UncertaintyProbeSelector`), so probes concentrate on the aberration
+    directions the fit is least sure about instead of re-probing well-identified
+    ones. The selector is seeded from the round's train seeds, so the run-to-run
+    seed invariant is preserved; only the probe *phase* changes, not the seed
+    arithmetic.
+    """
+
+    uncertainty_on_rejection: bool = False
+    """Escalate a rejected round to uncertainty probes (R-86).
+
+    Independent of :attr:`uncertainty_probes`: when a round follows a rejection
+    (``rejection_streak > 0``), that round's probes switch to uncertainty
+    sampling even if the base run uses fixed-random probes. This replaces the
+    blind ``escalate_probe_count`` extra-random-probes with probes aimed at the
+    residual uncertainty that caused the rejection.
+    """
+
+    uncertainty_probe_samples: int = 6
+    """Monte-Carlo coefficient samples ``K`` in the predictive-variance estimate."""
+
+    uncertainty_probe_steps: int = 30
+    """Normalised-ascent steps taken per uncertainty probe before it is measured."""
+
+    uncertainty_probe_diversity: float = 0.5
+    """Penalty pushing successive probes apart (see the selector)."""
+
+    uncertainty_probe_ridge: float = 1e-3
+    """Ridge ``lambda`` regularising the Fisher inverse that forms the posterior."""
+
     min_holdout_correlation: float = 0.5
     """Require each independent CCD/model Pearson correlation before Step B."""
 
@@ -1080,6 +1116,55 @@ def _holdout_phase(
     if index < 2:
         return _probe_phase(region, spread, seed, smooth=True), "smooth"
     return _structured_probe_phase(region, spread, seed), "zernike"
+
+
+def _select_uncertainty_probes(
+    optimizer: Any,
+    config: SlmModelInLoopConfig,
+    seeds: list[int],
+    *,
+    prev_probes: list[np.ndarray] | None = None,
+) -> list[np.ndarray]:
+    """Pick Step A probes by maximising far-field predictive uncertainty (R-82/R-86).
+
+    Args:
+        optimizer: Step A optimizer already carrying the running coefficients and
+            source amplitude (as built by :func:`_make_optimizer`).
+        config: Loop config; supplies region, probe spread and the selector knobs.
+        seeds: This round's train seeds; the first seeds the selector RNG so the
+            probe set is reproducible for the round.
+        prev_probes: Probe phases measured in the previous round, folded into the
+            coefficient posterior via Fisher before selecting. ``None`` on the
+            first round, which then uses an isotropic prior.
+
+    Returns:
+        One ``(region, region)`` raw-radian probe per seed, mutually diverse.
+    """
+    from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (
+        UncertaintyProbeSelector,
+    )
+
+    spread = float(config.probe_spread)
+    selector = UncertaintyProbeSelector(
+        optimizer,
+        seed=int(seeds[0]) if seeds else int(config.seed),
+        n_samples=int(config.uncertainty_probe_samples),
+        ridge=float(config.uncertainty_probe_ridge),
+        spread_cap=spread,
+        spread_floor=0.75 * spread,
+        diversity_weight=float(config.uncertainty_probe_diversity),
+        mode="maximize",
+    )
+    if prev_probes:
+        selector.update_covariance(prev_probes)
+
+    probes: list[np.ndarray] = []
+    for _ in seeds:
+        for _ in range(int(config.uncertainty_probe_steps)):
+            selector.update()
+        probes.append(selector.current_phase())
+        selector.commit()
+    return probes
 
 
 class _SimBench:
@@ -2350,6 +2435,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         step_a_lr = float(config.step_a_lr)
         probe_count = int(config.probe_count)
         rejection_streak = 0
+        prev_uncertainty_probes: list[np.ndarray] | None = None
         phase = np.zeros((config.region, config.region), dtype=np.float64)
         # None until the first shaped round is accepted: the flat baseline is not
         # a fair reference for the acceptance test (see acceptance_verdict).
@@ -2389,14 +2475,31 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 int(config.holdout_probe_count + config.freeform_holdout_count),
                 config.probe_split_hook,
             )
+            use_uncertainty = bool(
+                config.uncertainty_probes
+                or (config.uncertainty_on_rejection and rejection_streak > 0)
+            )
+            uncertainty_probes = (
+                _select_uncertainty_probes(
+                    optimizer,
+                    config,
+                    train_seeds,
+                    prev_probes=prev_uncertainty_probes,
+                )
+                if use_uncertainty
+                else None
+            )
             frames: list[tuple[np.ndarray, np.ndarray]] = []
             for probe_index, probe_seed in enumerate(train_seeds):
-                probe = _probe_phase(
-                    config.region,
-                    config.probe_spread,
-                    probe_seed,
-                    smooth=config.cam_type != "sim",
-                )
+                if uncertainty_probes is not None:
+                    probe = uncertainty_probes[probe_index]
+                else:
+                    probe = _probe_phase(
+                        config.region,
+                        config.probe_spread,
+                        probe_seed,
+                        smooth=config.cam_type != "sim",
+                    )
                 bench.display(probe)
                 raw_probe = bench.measure()
                 measured = prepare_frame(raw_probe)
@@ -2478,6 +2581,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             else:
                 fitted, step_a_iters = coefficients.copy(), 0
+            if config.uncertainty_probes or config.uncertainty_on_rejection:
+                prev_uncertainty_probes = [probe for _, probe in frames]
             if config.cam_type != "sim":
                 recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
             # --- Guard 1: trust region on the coefficient change -----------

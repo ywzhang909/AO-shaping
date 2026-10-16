@@ -36,6 +36,10 @@ from loguru import logger  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.utils.objective_direction import (  # noqa: E402
+    objective_direction as _objective_direction,
+)
+
 # CJK-capable font fallbacks (per repo script convention).
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -421,12 +425,13 @@ def make_gif(run: dict, gif_dir: Path, tag: str, key: str, phase: bool) -> Path:
 # --- markdown ----------------------------------------------------------------
 
 
-#: Objectives the optimizer ASCENDS. Mirrors ``objective_mode`` in
-#: ``ao_shaping/optimizer/wfless/slm_zernike_pib.py`` (~L698): ``shape`` and
-#: friends are ``"max"`` (higher J is better), everything else is ``"min"``.
-#: Getting this backwards makes the report claim a minimisation that the search
-#: never performed — the 2026-10-01 defect.
-MAXIMIZE_OBJECTIVES = ("pib", "avg_radiu", "shape", "roi_pib", "rms_pib")
+# Objectives the optimizer ASCENDS: single source of truth in
+# ``ao_shaping.utils.objective_direction`` (imported at the top, right after
+# the ``sys.path`` insert). It is imported rather than re-declared so the
+# report can never drift from the optimizer it reports on. ``shape`` and
+# friends are ``"max"`` (higher J is better), everything else is ``"min"``.
+# Getting this backwards makes the report claim a minimisation that the
+# search never performed — the 2026-10-01 defect.
 
 
 def as_scalar(arr: np.ndarray) -> np.ndarray:
@@ -445,7 +450,7 @@ def objective_of(run: dict, default: str = "shape") -> str:
 
 def direction_of(objective: str) -> str:
     """``"max"`` when the search ascends this objective, else ``"min"``."""
-    return "max" if objective in MAXIMIZE_OBJECTIVES else "min"
+    return _objective_direction(objective)
 
 
 def best_of(values: np.ndarray, mode: str) -> int:

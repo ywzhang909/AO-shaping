@@ -639,6 +639,18 @@ REPORTS: dict[str, ReportProvenance] = {
         "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 上机采集",
         extra_scripts=("scripts/slm/replay_gs_refine_hw.py",),
     ),
+    "report/shape_trials/gs_issue_live_20261015.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "2026-10-15 GS 方法实机对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 "
+            "+ 大恒 CCD FJB24112232，1064 nm 实机光路)；固定 0.050 ms 曝光、同种子 87 下 "
+            "plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 "
+            "(IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 "
+            "data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，"
+            "含 5 轮 GS 最佳相位与远场渲染图"
+        ),
+    ),
     "report/shape_trials/model_in_loop_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
