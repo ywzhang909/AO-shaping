@@ -793,6 +793,42 @@ REPORTS: dict[str, ReportProvenance] = {
         note="测试用例跑 --quick 生成的冒烟版本",
     ),
     # -- shape trials ---------------------------------------------------------
+    "report/shape_trials/uncertainty_probe_hw_20261016.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "commit 080e0ac9 (issue #134 R-86) 不确定性采样探针验收；"
+            "线上默认 bandlimit_sigma=1.5 下机制不成立（闭环 8 组配对种子 "
+            "p=0.4219、机制 0/10 种子胜），关掉带限后闭环 8/8 改善、p=0.0078"
+            "（n=8 下限），但实机复现显示无带限探针只把 53% 能量送进相机窗口，"
+            "故结论为暂不进闭环、需先把 U(p) 裁到相机窗口"
+        ),
+        extra_scripts=(
+            "scripts/slm/verify_uncertainty_probes_sim.py",
+            "scripts/slm/verify_uncertainty_probes_hw.py",
+        ),
+    ),
+    "report/shape_trials/gs_uniformity_live_20261015.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "2026-10-15 GS 相位匀化实机对照 (Santec SLM #1 23020027 + 大恒 "
+            "FJB24112232, 1064 nm)；圆周高斯平滑四档均降低面板梯度但未改善"
+            "剔零级 CV；纯 CV 闭环在独立交错重放中将剔零级 CV 由 0.72313 "
+            "降至 0.68400 (5.41%)，面板梯度 RMS 微升"
+        ),
+        extra_scripts=("scripts/slm/gs_uniformity_probe.py",),
+    ),
+    "report/shape_trials/zero_order_blaze_20261015.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "2026-10-15 离轴闪耀载波 (blaze carrier) 的物理与接线约定；实测"
+            "位移标度约 7400/P 相机像素，面板与 CCD 轴近似交换；CLI 的 "
+            "--blaze-period-px/--blaze-direction 与 GUI 载波选项由此而来；"
+            "本轮只读枚举未下发相位，故未声称零级隔离率或衍射效率已改善"
+        ),
+    ),
     "report/shape_trials/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
