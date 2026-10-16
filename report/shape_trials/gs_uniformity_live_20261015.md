@@ -1,10 +1,10 @@
 # GS 相位匀化与剔零级均匀度实验试验（2026-10-15）
 
 <!-- provenance:start -->
-> **生成脚本**: 人工撰写；平滑配对统计由 `scripts/slm/gs_uniformity_probe.py` 从本地实验帧生成
-> **设备**: Santec SLM #1 (`23020027`)，Daheng CCD (`FJB24112232`)，1064 nm
-> **数据**: `data/debug/gs_phase_uniformity/20261015_gradient_probe_1/`、`data/debug/slm_gs_refine/20261015_213818/`
-> **运行环境**: 真实光路；设备会话结束后均正常释放
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/gs_uniformity_probe.py`](../../scripts/slm/gs_uniformity_probe.py)
+> **运行环境**: 硬件
+> **说明**: 2026-10-15 GS 相位匀化实验对照 (Santec SLM #1 23020027 + 大恒 FJB24112232, 1064 nm)；圆周高斯平滑四档均降低面板梯度但未改善剔零级 CV；纯 CV 闭环在独立交错重放中将剔零级 CV 由 0.72313 降至 0.68400 (5.41%)，面板梯度 RMS 微升
 <!-- provenance:end -->
 
 ## 结论
