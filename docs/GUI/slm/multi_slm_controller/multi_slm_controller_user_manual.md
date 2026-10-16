@@ -56,7 +56,7 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 
 ### 3.1 GS+SPGD 闭环整形（已验证配方）
 
-GS 开环预矫正（bake-off，仅当实测优于平场才采用）+ 无感知 SPGD 细化。
+GS 开环预矫正（bake-off（对比择优），仅当实测优于平场才采用）+ 无感知 SPGD 细化。
 
 GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
 
@@ -95,7 +95,7 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 
 旧的开环方形整形功能（**GS方形整形** / **GS方形整形(高斯版)** / **稳像法整形**，含 `_gs_square_phase_radians` / `generate_gs_square_phase`）已移除。
 
-原因：在本 2f-Fourier 台架上，用未标定台架参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与 [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
+原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与 [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
 
 取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环 / 正向模型闭环，均走已验证的闭环管线）。
 

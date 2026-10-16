@@ -1062,7 +1062,7 @@ with open("devices.json") as f:
 单位写死 532 nm、保真度不足以当波前基准）见
 [docs/hardware_drivers.md](hardware_drivers.md#波前传感器)。
 
-### 14.3 DM→瞳孔相位耦合进入仿真
+### 14.3 DM→瞳面相位耦合进入仿真
 
 `SimDmOptics`（可分离高斯影响力函数）经 `SimPibSystem.dm_optics` 在 `far_field()` 的
 cache-miss 分支叠加；DM 电压变化通过 `dm_optics.version` 使远场缓存失效。此前 `pib` /
@@ -1083,6 +1083,6 @@ cache-miss 分支叠加；DM 电压变化通过 `dm_optics.version` 使远场缓
 
 ### 14.6 前向模型唯一入口
 
-2f-Fourier 台架的前向模型/指标/参考优化器只在 `drivers/sim/slm_shaping_bench.py`；
+2f-Fourier 实验系统的前向模型/指标/参考优化器只在 `drivers/sim/slm_shaping_bench.py`；
 `optimizer/wfless/slm_shaping_bench.py` 为 re-export shim。曾因双实现导致同一方法按
 import 来源返回不同指标（零填充差异）。拆分模块只加 re-export，禁止复制函数体。

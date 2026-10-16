@@ -73,7 +73,7 @@ python -m ao_shaping.tools.ccd.floor_probe --exposure-ms 3.0
 - 控制台打印：暗帧统计、稳定时间拟合曲线、SNR-K 曲线、判定结果
 - 可选 `--output` 保存 CSV/JSON/NPZ
 
-## 8. 上机前必跑顺序 (不可反)
+## 8. 实验前必跑顺序 (不可反)
 
 ```
 slm_drift_probe → slm_floor_probe → slm_abba_probe

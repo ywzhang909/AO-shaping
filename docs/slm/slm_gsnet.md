@@ -116,7 +116,7 @@ python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam-type sim 
 
 ## 8. 曝光默认值陷阱 (红线)
 
-同 `spgd-square`：**`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms**。上机前必须显式传入实测曝光。
+同 `spgd-square`：**`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms**。实验前必须显式传入实测曝光。
 
 ## 9. 关键反模式 (红线)
 

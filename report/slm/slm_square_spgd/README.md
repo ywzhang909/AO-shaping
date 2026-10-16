@@ -195,7 +195,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
 > （`README.md:179`：`gs` / `gs-square` / `diff-shaping` / `diff-beam`）。请改用：
 > - `slm-gsnet spgd|backprop|heuristic`（`runners/slm_gsnet_runner.py`）——
 >   FourierGSNet / freeform 路径，**已接能量守卫 + 24×24 网格，替代本节方案**
-> - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 bake-off + SPGD 细化
+> - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 bake-off（对比择优） + SPGD 细化
 > - `spgd-square`（`runners/slm/slm_shaping_runner.py` 的 `square` 子命令）—— 本文件对应的 SPGD 路径
 
 要得到干净的 20×20 方形，使用项目已验证的**模型化引擎**：
@@ -204,7 +204,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
   （PyTorch 可微传播，文档记载 CV<0.1）— **命令已移除**
 - ~~`python src/ao_shaping/main.py gs-square --target-px 20 ...`~~（Gerchberg-Saxton）— **命令已移除**
 - ~~`python src/ao_shaping/main.py diff-beam --algorithm backprop ...`~~（可微 backprop,
-  SLM200+大恒真机 Corr 0.8776, footprint 20×22px）— **命令已移除**；
+  SLM200+大恒实验系统 Corr 0.8776, footprint 20×22px）— **命令已移除**；
   实测记录仍归档在 `report/diff_beam/README.md`（200 步最优, 400 步无增益）
 
 若要保留 `spgd-square` 的 CLI，可将其相位合成接到 `train_beam_shaping` /

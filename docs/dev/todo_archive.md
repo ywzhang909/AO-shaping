@@ -96,7 +96,7 @@
 | `OBJECTIVE_TARGET_SHAPE_MERGE_PLAN.md`（2026-09-26）：`objective`/`target_shape` 合并 | ✅ 已落地为 `runner_common.py:622` 的 `ObjectiveTarget`（`target_shape` 成为 objective 下级字段） |
 | `docs/refactor/TODO.md` §一：`tools/` 是中间层、`scripts/` 是同级 | ✅ 架构结论已采纳为文档，不再是待办 |
 | `README.md` `--wfs-type` / `--disturbance-cn2` / `--lr` / `--delta` CLI 文档（2026-10-01 merge 引入） | ✅ 已补文档 |
-| **slm-pib ABBA 漂移对消（2026-10-02）** | ✅ 提交 `e9d1769`（`_spgd_capture_signs` + `SlmZernikePibConfig.abba_sampling` + 采集循环改为按符号序列驱动，fold 门/基线 EMA/饱和检查/符号均值全部覆盖每一帧）、`139a461`（`--abba-sampling` + `_build_slm_pib_config` 透传）、`796d3ce`（执行真实 epoch 循环的回归测试，断言每轮采集 2 vs 4 帧 + `_pos_c` 绑定）、`1d6329e`（README）。**opt-in，默认 `False` ⇒ 2 帧路径逐字节不变。** 过程中修掉一个 subagent 引入的**首轮必崩 bug**（4 元组切 `[2:]` 得 2 元组却解包 3 名 ⇒ `ValueError`，默认模式同样崩），并补上缺失的循环级测试（原有 12 个测试只测符号助手与漂移代数，不执行循环，故漏检）；变异测试确认可捕获。⚠️ **实机验收仍未做 → 转 H-19** |
+| **slm-pib ABBA 漂移对消（2026-10-02）** | ✅ 提交 `e9d1769`（`_spgd_capture_signs` + `SlmZernikePibConfig.abba_sampling` + 采集循环改为按符号序列驱动，fold 门/基线 EMA/饱和检查/符号均值全部覆盖每一帧）、`139a461`（`--abba-sampling` + `_build_slm_pib_config` 透传）、`796d3ce`（执行真实 epoch 循环的回归测试，断言每轮采集 2 vs 4 帧 + `_pos_c` 绑定）、`1d6329e`（README）。**opt-in，默认 `False` ⇒ 2 帧路径逐字节不变。** 过程中修掉一个 subagent 引入的**首轮必崩 bug**（4 元组切 `[2:]` 得 2 元组却解包 3 名 ⇒ `ValueError`，默认模式同样崩），并补上缺失的循环级测试（原有 12 个测试只测符号助手与漂移代数，不执行循环，故漏检）；变异测试确认可捕获。⚠️ **实验验收仍未做 → 转 H-19** |
 
 ### 5.1 第 1 批（纯收益，零行为风险）—— 2026-10-03
 
@@ -132,7 +132,7 @@
 `slm_zernike_shaping.py` 是近乎逐行的副本，且**同名常量已经不同**
 `ZERNIKE_APERTURE_RADIUS`：pib = `300.0`，shaping = `min(PANEL_RES)/2.0` = **600**。
 README 记 `--zernike-radius` 默认 **600**。两者都是生产入口
-（`slm-pib` / `rms-zernike`），默认值不同意味着**同一硬件上台架的 Zernike 光阑
+（`slm-pib` / `rms-zernike`），默认值不同意味着**同一硬件上实验系统的 Zernike 光阑
 取决于走了哪个 runner**，而 300 vs 600 正是 R-9 那段注释里"只有内一半落在光束上
 ⇒ 修正静默无效"的分界。**需硬件判定哪个正确**，暂记为 **X-3**（见 §4）。
 
@@ -324,7 +324,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 `runners/runner_common.py`，`tools/` 就得 import `runners/` —— 而 `runners/`
 在 import 期就会拉起 `drivers/`（`DM_TYPES = list_dm_types()` 还要
 `import ao_shaping.drivers.dm.asyn_micro_dm` 触发注册副作用）。那会让
-「台架探针」在**没有设备**的导入路径上就碰硬件包，正好违反 R-20 刚立的
+「实验系统探针」在**没有设备**的导入路径上就碰硬件包，正好违反 R-20 刚立的
 惰性契约。
 
 **不变式写进了 docstring，并由 AST 测试兜住**（不是 grep）：允许的 import 只有
@@ -424,7 +424,7 @@ center_of_brightness(np.zeros((5, 5)))  ->  (0, 0)   左上角
 zero_order_center(np.zeros((5, 5)))     ->  (2, 2)   (w//2, h//2)
 ```
 
-裸 `argmax` 在全零帧返回 0，于是「中心」变成角落。这正是本仓台架笔记那条
+裸 `argmax` 在全零帧返回 0，于是「中心」变成角落。这正是本仓实验系统笔记那条
 「暗帧不可用裸 argmax 定位光斑」的由来，也是 `zero_order_center` 加守卫的原因。
 两种行为现在都被钉死，**任何方向上的误合并都会失败**。
 
@@ -489,7 +489,7 @@ TODO 说「6+ 处」，实测**正好 6 处** `x / x.max()`（`gui/slm/pattern_c
 | 常量 5.0 | 1.0 | 1.0 | **全零** |
 | int32 输入 | → float64 | → float32 | → float64 |
 
-**第一行是要害**：暗帧除以自身最大值 = 0/0，所以那 6 处恰好在本仓台架笔记
+**第一行是要害**：暗帧除以自身最大值 = 0/0，所以那 6 处恰好在本仓实验系统笔记
 明令「不可信任」的输入上**制造 NaN**，而 `normalize_pattern` 返回干净的零。
 这是**性质不同**，不是舍入。
 
@@ -776,11 +776,11 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 
 **全包 287 个 flag 里只有 `--settle-extra-s` 一个能原样共享。**
 
-#### 「按物理台架拆分再共享」也救不了（第二轮实测）
+#### 「按物理实验系统拆分再共享」也救不了（第二轮实测）
 
-先按 `--slm-wavelength` 把探针分成两台架再核对：
+先按 `--slm-wavelength` 把探针分成两实验系统再核对：
 
-| 台架 | 探针数 | 可共享 | 被阻塞 |
+| 实验系统 | 探针数 | 可共享 | 被阻塞 |
 |---|---|---|---|
 | 1064 nm（远场 CCD） | 13 | **0** | 28 |
 | 532 nm（WFS 通道） | 5 | **1** | 12 |
@@ -794,8 +794,8 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 532 nm 那 6 个探针恰好就是 WFS 通道工具
 （`calibration` / `slm_wfs_probe` / `slm_wfs_reference` / `slm_zernike_correction` /
 `slm_zernike_response`，外加 `slm_zernike_sweep_probe` 用 1064）——
-**波长不是随手写的默认值，而是台架的物理属性**。
-`--exposure-ms` 的 12 种取值同理：每个探针的曝光是对着自己那台架单独标定的。
+**波长不是随手写的默认值，而是实验系统的物理属性**。
+`--exposure-ms` 的 12 种取值同理：每个探针的曝光是对着自己那实验系统单独标定的。
 
 ⚠️ **如果按原计划抽共享组，flag 名守卫生效、物理默认值被改写**：
 WFS 探针被静默改成 1064（或反之），而这种改动**不会触发任何测试**——
@@ -915,7 +915,7 @@ flag 总数因此 287 → 285（help 可见 289 → 287）。
 **修法：不传 `memory_number`。** `display_data` 在 `memory_number is None`
 时**自己轮换**，并且**额外跳过当前正在显示的槽**（`driver.py:1230-1249`），
 所以 `open()` 之后第一次写也不会撞上别的进程留在屏上的图案。
-这正是 `tools/slm/README.md` 写的台架纪律。
+这正是 `tools/slm/README.md` 写的实验系统纪律。
 
 `apply_compensation` 的 `memory_slot` 参数**整个删掉**（全仓只有 `:383`
 一个调用方，无外部依赖），并改为返回驱动选中的槽位号以便日志追踪。
@@ -1111,7 +1111,7 @@ if slm is not None:
 | 位置 | 主张 |
 |---|---|
 | `:186-188`（正确挂在常量上） | 300 太窄，本 runner 应当用 600，否则"生成的 Zernike 基只有 GUI 的 1/4 面积" |
-| `:203-212`（**裸字符串**，挂在 `TARGET_BOX_WAIST_FACTOR` 之后） | 本台架光束半径只有 ~300 px；用 600 光阑则只有内一半落在光束上，每个模式在照明区几乎**恒定**，而恒定相位不改变远场 ⇒ **修正静默失效**（**硬件实测**：平场与 2 rad 离焦无法区分，直到匹配） |
+| `:203-212`（**裸字符串**，挂在 `TARGET_BOX_WAIST_FACTOR` 之后） | 本实验系统光束半径只有 ~300 px；用 600 光阑则只有内一半落在光束上，每个模式在照明区几乎**恒定**，而恒定相位不改变远场 ⇒ **修正静默失效**（**硬件实测**：平场与 2 rad 离焦无法区分，直到匹配） |
 
 第二段是**硬件实测**结论，第一段是推理。而且 `:203-212` 是普通字符串表达式，
 **不是 docstring**，所以它谁都没在解释 —— 读者只会以为 `TARGET_BOX_WAIST_FACTOR`
@@ -1652,17 +1652,17 @@ reset** 模拟系统 —— `slm_pib_sim_run.py` harness 自己装了带干扰�
 
 - `spgd-square --delta` 曾是**空操作**（`SlmSquareParams.delta` 硬编码 `0.1`，
   Click 无法区分"没传"与"传了 0.1"，默认 `lr=0` 的自适应调度每轮改写它）。
-  现 `None` + `resolve_spgd_delta`，与 `slm-gsnet` / `slm-pib` 一致。⇒ **H-21 需真机 A/B**。
+  现 `None` + `resolve_spgd_delta`，与 `slm-gsnet` / `slm-pib` 一致。⇒ **H-21 需实验系统 A/B**。
 - `spgd-square --debug` 过去什么都不产出；现写 `data/debug/slm_square/<ts>/`。
   ⚠️ 但实测只有 `--basis freeform` 能进 `ml/hwdataset`（Zernike 基 0/3）⇒ **H-23**。
 - **上一提交遗留的破仓**：`gsnet_runner` 已 import `patch_sim_square_shaping` 而定义
   没跟着进 `runner_common`，`import ao_shaping.main` 直接 ImportError（clean checkout
   跑不了 CLI）。本提交补上定义才修好。
 
-**未上真机**：H-20（`spgd-square` 光学回归）、H-21（`--delta` A/B）、
+**未完成实验验证**：H-20（`spgd-square` 光学回归）、H-21（`--delta` A/B）、
 H-22（`slm-pib` 未变）、H-24（新 family ⇒ 新 `fov_px` ⇒ `far_field_padding` 标定重扫）。
 离线新增 `test_shaping_runner_sim_backend.py`（8 例：硬件相机类型下 patch 是 no-op、
-pib 那半不 reset、两半真能离线跑通）。
+pib 那半不 reset、两半真能离线在线实现）。
 
 ---
 

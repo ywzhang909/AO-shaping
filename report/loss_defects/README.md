@@ -14,7 +14,7 @@
 3. **容量不是瓶颈（已证伪）**：单一全局系数向量并非容量瓶颈，增加网络容量无证据支持；自注意力组件未测得可度量收益。
 4. **绝对 R² 不可跨运行比较**：仅 split seed 即可使同一配置 R² 在 0.748–0.937 间波动，任何结论只认可配对差值（paired differences）。
 5. **逆向设计部分（§8，修正评测器后重测）**：Zernike 投影瓶颈确认且大于此前报告——直接使用 GS 瞳面相位增益 +0.2128（9/9）；但 freeform 精修摧毁 GS 解（−0.2779，0/9），因 576 自由形式自由度在仅 135 阶 Zernike 的前向模型不可见空间内下降。该结论仅限基于模型的精修，不适用于以测量为前向模型的硬件 `slm_gs_refine`。
-6. **范围限定**：全部数值为仿真断言而非台架断言；"GS 后是否精修"必须按参数化分别重建，不可跨参数化迁移。
+6. **范围限定**：全部数值为仿真断言而非实验系统断言；"GS 后是否精修"必须按参数化分别重建，不可跨参数化迁移。
 
 Conclusions from metric- and gradient-probing `ZernikeAmpModel` and
 `ml/zernike/losses.py` on the real corpus (`slm_zernike_shaping`, 1010 records,
@@ -261,7 +261,7 @@ grades its own work.** Score is `pib + uniformity`, **higher is better**.
 ⚠️ **Every number below was re-measured.** The first evaluator cropped the simulator's
 far field with `[:64, :64]` — the top-left corner, while the 0-order sits at the
 array centre (value `1e-5` against a peak of `100`). All of it therefore described
-off-axis sidelobes. It is now `ml.zernike.inverse_design`, which runs the 64×64 pupil
+off-axis sidelobes. It is now `ml.zernike.inverse_design`, which runs the 64×64 pupil（瞳面）
 directly so its far-field grid matches the grid GS designs on. Detected by
 visualising the result: the simulator panel rendered blank while the numbers
 remained self-consistent.

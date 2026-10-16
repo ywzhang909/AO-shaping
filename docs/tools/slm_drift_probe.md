@@ -70,7 +70,7 @@ python -m ao_shaping.tools.ccd.drift_probe --exposure-ms 3.0
 2. **必须用区域范数 (box sum) 判漂移**，不能用峰值
 3. **曝光线性是光路健康的关键指标** —— 非线性说明有饱和、非线性响应或背景漂移
 
-## 8. 上机前必跑顺序 (不可反)
+## 8. 实验前必跑顺序 (不可反)
 
 ```
 slm_drift_probe → slm_floor_probe → slm_abba_probe

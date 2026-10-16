@@ -14,7 +14,7 @@
 
 ## v0.18.0 (2026-10-07 → 2026-10-12, 107 个提交)
 
-**逆向整形模型、自适应 SPGD、GS 预矫正上硬件、台架工具重组**
+**逆向整形模型、自适应 SPGD、GS 预矫正上硬件、实验系统工具重组**
 
 - **逆向光束整形 PhasorUNet** (`ml/shaping/`, `69950ec`): 新增 `models.py` / `physics.py` / `losses.py` / `dataset.py` / `train.py` / `evaluate.py` / `viz.py` —— 目标远场 → SLM 相位的逆向 U-Net，带物理往返 (round-trip) 一致性损失。语料与结论见 [`report/inverse_shaping_unet/report.md`](report/inverse_shaping_unet/report.md)。
 - **slm-gs-refine 上硬件 + 回放** (`ce5df18`, `f4efa0f`, `db38f57`): GS 预矫正新增可选 weighted/HIO 热启动变体；相机 ROI 居中修复 + 完整 debug 记录保留；新增 `scripts/slm/replay_gs_refine_hw.py` 离线相位回放（同一相位序列可复现上硬件）。硬件对比见 [`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)。
@@ -71,10 +71,10 @@
 
 - **模拟 WFS** (`drivers/sim/wfs/simulated_wfs.py`): 新增 `SimulatedWFS` —— OOPAO Shack-Hartmann, 实现 `BaseWFS`, 可直接顶替 `ThorlabWFS`, 使所有 WFS 类 runner 无需硬件即可执行。测**瞳面相位梯度**(非焦平面传播)，排除 piston (SH 测不到绝对相位偏移，否则 `pinv` 放大成 +0.50 rad 伪系数)；`get_wavefront()` 返回 **waves**，`get_zernike()` 返回 **µm**。⚠️ 保真度不足以当波前基准 (tilt 单独注入只差 24%、与其他模式同注入差 83% ⇒ 主误差是模式间串扰)，任何由 `get_zernike()` 推出的 RMS 改善率或 Strehl **必须标注为「未验证」**。
 - **WFS 注册表** (`drivers/wfs/_registry.py`): `register_wfs`/`create_wfs`/`list_wfs_types`/`resolve_wfs`，镜像 DM 注册表，延迟绑定故硬件包不 import 仿真包。`--wfs_type [thorlab|sim]` 定义在共享 `WfsParams` 上，8 个命令**既暴露也真正透传** (`wf`/`pipeline`/`rms-zernike`/`ga-zernike`/`greedy-zernike`/`dm-matrix`/`hadamard-matrix`/`zernike-matrix`)；`closed-loop` 刻意没有 (回放已保存的响应矩阵)。
-- **DM→瞳孔相位耦合接入仿真** (`sim/dm_optics.py`): `SimDmOptics` 用**可分离高斯影响力函数**把 DM 电压映射为瞳面相位 (稠密矩阵在 1920×1200 下需 ~1.2 GB 不可接受)，`SimulateDM.send_voltages` 同时发布给远场与当前活跃 WFS。此前 `pib`/`combined`/`wf` 的仿真结果**没有物理意义**。
+- **DM→瞳面相位耦合接入仿真** (`sim/dm_optics.py`): `SimDmOptics` 用**可分离高斯影响力函数**把 DM 电压映射为瞳面相位 (稠密矩阵在 1920×1200 下需 ~1.2 GB 不可接受)，`SimulateDM.send_voltages` 同时发布给远场与当前活跃 WFS。此前 `pib`/`combined`/`wf` 的仿真结果**没有物理意义**。
 - **驱动惰性加载契约**: `import ao_shaping` 及其任何子包**不得加载原生 SDK、也不得做磁盘 I/O**。包级用 PEP 562 `__getattr__` (`drivers/_lazy.py::install_lazy_attrs`)，构造级用 `Device._load_sdk()`/`_ensure_sdk()` + 只读 `_lib` 属性。`ThorlabWFS` 曾把 `load_dll()` 写在 `__init__` 里使**构造**就 `OSError`; `NLight.py` 曾**类体**执行 `np.loadtxt("data/dm_adj.txt")` 使 `import ao_shaping` 直接失败 (CWD 相对路径) —— 仓库输入资产现经 `drivers/dm/_adjacency.py::load_adjacency()` 锚定包位置。
 - **分层方向修正**: `drivers/dm/__init__.py` 曾 import `drivers.sim.dm` (硬件 → 仿真，方向反了) 形成循环，该循环此前靠 `drivers/__init__.py` 的 eager 导入顺序侥幸未暴露 —— 一旦改成惰性就立刻炸。
-- **`--disturbance-cn2`** 注入像差 (经 `SimDisturbance` 注入**瞳孔**，默认 0 = 不注入)；`wf` 新增 `--lr`/`--delta` 覆盖。
+- **`--disturbance-cn2`** 注入像差 (经 `SimDisturbance` 注入**瞳面**，默认 0 = 不注入)；`wf` 新增 `--lr`/`--delta` 覆盖。
 - 修复: `far_field_noisy` 的 `clip(img, 0, None)` **整流**读出噪声、造出与像素数成正比的 DC 地板 (read noise 地板/信号 **4598×**)，使 `pib`/`combined` 停在 0.0145。改为不再逐帧裁剪 (真实探测器的本底在阈值**之下**，只在量化时裁剪一次)。
 - 修复 (review): merge 残留的 `pipeline_runner` 引用未定义的 `wfs`(应为 `wfs_params`)；`sim/slm_shaping_bench.py` 的 `differentiable_shape` 在 torch import 被删后残留 19 处 `F821`；`optimizer/wfless/slm_shaping_bench.py` 是一份**手抄副本**且用的是**未加零填充的旧前向模型** —— 现改为对 canonical 实现的 re-export shim (同一方法此前按 import 来源返回不同指标)；`iterative_zernike_shaping` 的 `_zernike_basis` 调用了已被删除的 `_zernike_radial`(3 个测试失败) —— 现直接返回 canonical `ZernikeGenerator` 预计算的基。
 - 规模: 93 文件 / +7232 −547。

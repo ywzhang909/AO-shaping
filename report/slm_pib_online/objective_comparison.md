@@ -7,7 +7,7 @@
 > **说明**: 三种整形目标函数的排序一致性 (Spearman)
 <!-- provenance:end -->
 
-**本轮结论**（离线排序一致性）：在同一组真实 CCD 帧上对比 `square_quality_score`、`1−Pearson`（FourierGSNet shaping_loss）与 metrics 分数：`square` 与 `metrics` 的 Spearman 稳定在 +0.74~+0.998（高度一致），但 `square` 与 `1−Pearson` 的相关在 −0.74~+0.57 间剧烈波动、符号不稳定。**结论：GSNet 的 Pearson loss 与手工调优分数排序不一致，不能直接替换现有硬件整形目标**；若要在真机使用 Pearson loss，需先解决其对照明漂移敏感的问题（与 slm_pib_bench 系列"Pearson 不替换现有目标"的结论互相印证）。square 与 metrics 的高度一致性则说明两者可互为代理指标。
+**本轮结论**（离线排序一致性）：在同一组真实 CCD 帧上对比 `square_quality_score`、`1−Pearson`（FourierGSNet shaping_loss）与 metrics 分数：`square` 与 `metrics` 的 Spearman 稳定在 +0.74~+0.998（高度一致），但 `square` 与 `1−Pearson` 的相关在 −0.74~+0.57 间剧烈波动、符号不稳定。**结论：GSNet 的 Pearson loss 与手工调优分数排序不一致，不能直接替换现有硬件整形目标**；若要在实验系统使用 Pearson loss，需先解决其对照明漂移敏感的问题（与 slm_pib_bench 系列"Pearson 不替换现有目标"的结论互相印证）。square 与 metrics 的高度一致性则说明两者可互为代理指标。
 
 在 **同一组** 真实 CCD 帧上离线对比三种整形目标函数，这些帧由 `slm-pib` 在线套件记录 (目标: 正方形, 边长 50 px, 以优化前帧 `argmax` 为锚点)。
 

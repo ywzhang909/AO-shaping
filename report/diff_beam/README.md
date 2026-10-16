@@ -7,20 +7,20 @@
 > **说明**: 正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物
 <!-- provenance:end -->
 
-**本文档结论**（diff-beam 固定边长方形整形，Santec SLM200 + 大恒 CCD）：`diff-beam` runner 与 CLI 已于 2026-10-01 复核时从仓库删除，§1 命令、§3 建议与 §8 结果表**均无法复现**，仅作历史归档；但 §2–§7 记录的**台架物理事实仍然有效**（照明漂移主导、平场/饱和约束、blaze 与光斑位置可逆性等）且已推广到现存实现（`utils/image/` 下的目标与指标模块）。引用本文档时只可引用 §2–§7 的物理结论，不可引用其数值结果与命令。
+**本文档结论**（diff-beam 固定边长方形整形，Santec SLM200 + 大恒 CCD）：`diff-beam` runner 与 CLI 已于 2026-10-01 复核时从仓库删除，§1 命令、§3 建议与 §8 结果表**均无法复现**，仅作历史归档；但 §2–§7 记录的**实验系统物理事实仍然有效**（照明漂移主导、平场/饱和约束、blaze 与光斑位置可逆性等）且已推广到现存实现（`utils/image/` 下的目标与指标模块）。引用本文档时只可引用 §2–§7 的物理结论，不可引用其数值结果与命令。
 
 > 🔴 **归档文档 (2026-10-01 复核)**：`diff-beam` runner 与 CLI 命令**已从仓库删除**
 > （`runners/diff_beam_runner.py` 不存在；`diff-beam` / `diff-shaping` / `gs` / `gs-square`
 > 均已从 `main.py` 移除）。下文 §1 的命令、§3 的建议、§8 的结果表**均无法复现**。
 >
-> **但 §2–§7 记录的是台架物理事实，仍然有效且已推广到现存实现**：
+> **但 §2–§7 记录的是实验系统物理事实，仍然有效且已推广到现存实现**：
 > 0 级光斑必须用 `argmax` 定位（已进 `AGENTS.md` 红线）、CCD 像素空间 target 尺寸换算、
 > 曝光饱和削顶对相关度指标的破坏。**同主题的现存实现**是
 > `slm-gsnet`（`runners/slm/gsnet_runner.py`，backprop/GS 路径）与
 > `spgd-square`（`runners/slm/slm_shaping_runner.py` 的 `square` 子命令）。
 >
 > 原文所述 `diff-beam` (backprop/gs) 在 **SLM200 + 大恒相机** 上做方形整形的实测经验，
-> 记录了 2026-09-10 真机验证发现的 **0 级光斑定位 bug 链** (最终以 argmax 收尾) 与
+> 记录了 2026-09-10 实验系统验证发现的 **0 级光斑定位 bug 链** (最终以 argmax 收尾) 与
 > **target 尺寸换算坑**。
 
 ## 1. 语义: `--target-px` = CCD 图片空间固定边长
@@ -48,9 +48,9 @@ uv run --group ml python -m ao_shaping.runners.diff_beam_runner `
 
 等价 CLI: `python src/ao_shaping/main.py diff-beam --algorithm backprop --target-shape square --target-px 20 --use-hardware -e 200 --cam-exposure-us 1200 --auto-exposure`
 
-## 2. 🔴 0 级光斑定位 bug 链 (2026-09-10 真机修复) — 目标方框与实测光斑错位
+## 2. 🔴 0 级光斑定位 bug 链 (2026-09-10 实验系统修复) — 目标方框与实测光斑错位
 
-### 最终结论 (真机验证后)
+### 最终结论 (实验系统验证后)
 
 **0 级光斑位置必须用帧全局最大 (argmax)**。三种候选方法在全帧
 (2592x1944, 大恒) 实测对比:
@@ -61,7 +61,7 @@ uv run --group ml python -m ao_shaping.runners.diff_beam_runner `
 | corner-max 二值质心 | (712, 1779.7) | (713, 1806.4) | ❌ 偶然近似 (RUN1 差 7px), 高曝光漂移 26px |
 | 去背景强度质心 | (863.9, 1329.6) | (870.8, 1437.7) | ❌ 被全帧光晕拖偏 150~450px |
 
-argmax 是唯一可靠锚点: 真机 20×20 方形成形验证 Correlation **0.0000 → 0.8776**,
+argmax 是唯一可靠锚点: 实验系统 20×20 方形成形验证 Correlation **0.0000 → 0.8776**,
 footprint **20×22px**, target 框中心 (698.5, 1780.5) 与最终光斑 argmax (694,1777)
 偏移仅 4.5/3.5px。诊断过程详见下方时间线。
 
@@ -82,7 +82,7 @@ footprint **20×22px**, target 框中心 (698.5, 1780.5) 与最终光斑 argmax 
    (框在 (870,1437), 真光斑在 (694,1779), 完全没盖住)。
 
 3. **最终修复 (正确)**: `cy, cx = np.unravel_index(np.argmax(signal), signal.shape)`
-   —— 0 级光斑 = 帧全局最大。这一次真机验证 Correlation 0.8776, target 框
+   —— 0 级光斑 = 帧全局最大。这一次实验系统验证 Correlation 0.8776, target 框
    覆盖光斑, 信号能量 68~70% 汇入框内。
 
 ### 关键教训
@@ -177,7 +177,7 @@ grid 上多少 bins 应由 **CCD↔SLM 像素比例** (pixel-scale) 决定, 不�
 
 ## 4. 🟡 指标解读: 归一化 MSE/Correlation vs Efficiency
 
-真机 200 steps backprop 收敛后:
+实验系统 200 steps backprop 收敛后:
 
 ```
 MSE: 0.000000   Correlation: 0.8776   Efficiency: 0.0761   (归一化对比)
@@ -228,7 +228,7 @@ spot_vs_target.png     # 原始光斑 vs 目标对照
 frames/frame_*.npy+.png + frame_meta.jsonl   # 逐帧原始记录 (含 spot 字段)
 ```
 
-## 8. 真机复验记录 (2026-09-10, SLM200 + 大恒)
+## 8. 实验系统复验记录 (2026-09-10, SLM200 + 大恒)
 
 | 运行 | 定位 | Correlation | footprint | target 框覆盖 | 备注 |
 |------|------|-------------|-----------|--------------|------|
@@ -240,7 +240,7 @@ frames/frame_*.npy+.png + frame_meta.jsonl   # 逐帧原始记录 (含 spot 字�
 
 > **参数扫描结论 (2026-09-11)**: backprop 模拟 loss 在 ~50 步内收敛
 > (step1 0.0063 → step50 0.000096 后恒定), `--epochs 400` 对模拟无增益;
-> 真机 Corr 0.7391 < 200 步基线 0.8776 (饱和削顶 + 硬件逐次波动)。
+> 实验系统 Corr 0.7391 < 200 步基线 0.8776 (饱和削顶 + 硬件逐次波动)。
 > **`--epochs 200` 为最优配置**; 若饱和, 用 `--auto-exposure` (目标峰值 180)。
 
 ## 9. 关联

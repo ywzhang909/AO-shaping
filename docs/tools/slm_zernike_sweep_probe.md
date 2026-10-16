@@ -54,7 +54,7 @@ graph TD
 | `--cam-type` | 相机类型 (miicam/daheng) | daheng |
 | `--slm-number` | SLM 设备编号 | 1 |
 | `--slm-wavelength` | SLM 波长 (nm) | 1064 |
-| `--pupil-center` | 瞳孔中心 (面板坐标 'x,y') | 960,600 |
+| `--pupil-center` | 瞳面中心 (面板坐标 'x,y') | 960,600 |
 | `--zernike-radius` | Zernike 孔径半径 (面板 px) | 450 |
 | `--settle-tol` | 稳定判据相对容差 | 0.01 |
 | `--settle-max-wait-s` | 最大稳定等待 (s) | 5.0 |

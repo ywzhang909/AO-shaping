@@ -1911,7 +1911,7 @@ python scripts/oopao/generate_oopao_impact_report.py --cn2 0,5e-15 --steps 100
   calibration constant. The verdict is *computed* from
   the data against a tolerance, not asserted.
 - **⚠️ metric-identity warning**: `init_rms` (`compat.py::_phase_rms()` —
-  *pupil-masked total* wavefront incl. aberration + DM) and `disturbance_rms`
+  *pupil（瞳面）-masked total* wavefront incl. aberration + DM) and `disturbance_rms`
   (`env._disturbance_rms` — *full-grid unmasked* raw screen) are **different
   quantities and must not be inferred from one another**. A stronger screen does
   not imply a larger `init_rms` (measured counterexample included in the report).
@@ -2076,7 +2076,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
 > 该调用使每次都重新挂上干扰。`slm-pib` runner 侧的 sim 接线
 > (`runner_common.patch_sim_pib_shaping`) **刻意不 reset** —— 否则会把 harness 装好的
 > 带干扰系统换成无种子、无干扰的系统, 运行静默地与自己的 manifest 矛盾。方形家族那边
-> (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到台架,
+> (`patch_sim_square_shaping`) 则钉 `seed=42`, 因为它没有面向用户的 seed 能传到实验系统,
 > 不钉住的话两次 `spgd-square --cam-type sim` 的干扰流不可比
 > (locked by `tests/ao_shaping/scripts/test_slm_pib_sim_run_disturbance.py` +
 > `tests/ao_shaping/runners/test_slm_shaping_runner_sim_backend.py`)。

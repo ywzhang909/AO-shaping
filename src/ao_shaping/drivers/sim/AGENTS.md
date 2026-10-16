@@ -85,7 +85,7 @@ SimulatedDevice (Device)
 | `SimDisturbance` | `disturbance.py` | 生成 `(h, w)` float64 **raw 弧度** 干扰相位; `.phase()` / `.stats()` (实测 σ) / `.trace()` / `.archive()` / `.to_dict()` |
 
 `SimPibSystem.__init__(..., *, disturbance=None)` 在 `far_field()` 的 **cache-miss 分支**把干扰加到 SLM 命令相位上
-(即在 FFT 之前、瞳孔面内 —— 2f 台架的正确位置)。`self._phase` 保持为纯 SLM 命令, 因此干扰不会被重复计入。
+(即在 FFT 之前、瞳孔面内 —— 2f 实验系统的正确位置)。`self._phase` 保持为纯 SLM 命令, 因此干扰不会被重复计入。
 缓存语义保证 **每次真实光学评估只推进一次**干扰; `static` 全程复用一张冻结屏, `dynamic` 每次评估重抽一张独立屏
 (即完全去相关 / white-in-time 极限, **不是**风场平流模型 —— 真实大气去相关时间 ~10–50 ms 远短于本环路的每评估 ~0.375 s)。
 
@@ -289,7 +289,7 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 `SimPibSystem.dm_optics` (远场, 供 `pib`/`combined`) 与当前活跃的
 `SimulatedWFS.dm_optics` (瞳孔, 供 `wf`/`rms-zernike` 等)。传感器按自己的
 瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
-⚠️ 以前只发布到远场, 于是 `wf` 永远读到平 pupil、无论 DM 怎么动 RMS 都是 0。
+⚠️ 以前只发布到远场, 于是 `wf` 永远读到平 pupil（瞳面）、无论 DM 怎么动 RMS 都是 0。
 
 ⚠️ **`wf --wfs-type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
 扰动/像差时, DM 只能**增加**相位, 因此平场 (`wighted_rms ≈ 2.8e-05`) 才是

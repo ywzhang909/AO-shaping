@@ -7,7 +7,7 @@
 > **说明**: 需 Santec SLM-200 + Thorlabs WFS；phase/ 与 wfs/ 为本脚本产物
 <!-- provenance:end -->
 
-**本轮结论**：本轮（2026-09-15）在 SLM #22030102（532 nm）与 Thorlabs WFS 联机上完成 10 组 Zernike 模式-尺寸-幅度扫描，系统验证 SLM 加载相位到 WFS 读数的映射关系，五项核心结论：(1) 确认 DLL 采用顺序 m 枚举索引而非标准 Noll 1976（defocus=[5]、coma(3,1)=[9]、spherical(4,0)=[13]），硬件实测 4 项映射吻合，驱动文档中 "Noll 1976" 表述不准确；(2) 各模式 WFS 读数均以同索引 Zernike 项为主导（如 tilt→[3]=0.788λ、defocus→[5]=−0.248λ），证明 SLM-WFS 通道串扰总体可控；(3) 确认 Zernike 半径须与光束尺寸匹配：半径远大于光束半径（900 px vs 实测 ~200 px）时读数被 (r_beam/R)² 压制（defocus 读数 −0.076λ vs R=300 时 −0.941λ），为响应矩阵标定选择 R=300 px 提供直接依据；(4) 幅度扫描（2/10/20 rad）下 defocus 读数随幅度单调增长（−0.018/−0.248/−0.489λ），未见饱和或符号翻转；(5) 固化三条测量纪律：pupil 必须经 optimize_pupil() 写回（硬编码 pupil 会污染拟合产生虚假 tip/tilt）、纯平参考下存在 ~0.2λ 静态倾斜噪声底（应看相对附加量）、SLM 轴与 WFS 轴存在 90° 交换（不可假设轴对应）。
+**本轮结论**：本轮（2026-09-15）在 SLM #22030102（532 nm）与 Thorlabs WFS 联机上完成 10 组 Zernike 模式-尺寸-幅度扫描，系统验证 SLM 加载相位到 WFS 读数的映射关系，五项核心结论：(1) 确认 DLL 采用顺序 m 枚举索引而非标准 Noll 1976（defocus=[5]、coma(3,1)=[9]、spherical(4,0)=[13]），硬件实测 4 项映射吻合，驱动文档中 "Noll 1976" 表述不准确；(2) 各模式 WFS 读数均以同索引 Zernike 项为主导（如 tilt→[3]=0.788λ、defocus→[5]=−0.248λ），证明 SLM-WFS 通道串扰总体可控；(3) 确认 Zernike 半径须与光束尺寸匹配：半径远大于光束半径（900 px vs 实测 ~200 px）时读数被 (r_beam/R)² 压制（defocus 读数 −0.076λ vs R=300 时 −0.941λ），为响应矩阵标定选择 R=300 px 提供直接依据；(4) 幅度扫描（2/10/20 rad）下 defocus 读数随幅度单调增长（−0.018/−0.248/−0.489λ），未见饱和或符号翻转；(5) 固化三条测量纪律：pupil（瞳面） 必须经 optimize_pupil() 写回（硬编码 pupil（瞳面） 会污染拟合产生虚假 tip/tilt）、纯平参考下存在 ~0.2λ 静态倾斜噪声底（应看相对附加量）、SLM 轴与 WFS 轴存在 90° 交换（不可假设轴对应）。
 
 **实验日期**: 2026-09-15  
 **设备**: SLM #22030102 (532nm, 2π=998 gray) + WFS M01219666  
@@ -314,7 +314,7 @@
 
 ## 4. 结论与注意
 
-- **pupil 必须先 `wfs.pupil = wfs.optimize_pupil()` 写回**: 硬编码 pupil 会污染 `WFS_ZernikeLsf` 拟合产生虚假 tip/tilt (详见 `docs/thorlab-wfs/agent.md`)。
+- **pupil（瞳面） 必须先 `wfs.pupil = wfs.optimize_pupil()` 写回**: 硬编码 pupil（瞳面） 会污染 `WFS_ZernikeLsf` 拟合产生虚假 tip/tilt (详见 `docs/thorlab-wfs/agent.md`)。
 - **Zernike 索引 = 顺序 m 枚举 (非标准 Noll)**: defocus=[5], coma(3,1)=[9], spherical(4,0)=[13] —— 驱动 docstring 声称 "Noll 1976" 不准确, 应按本报告映射。
 - **Zernike 半径需与光束尺寸匹配**: 光束在 SLM 上半径 ≈200px; radius 远大于它 (如 900px) 时 WFS 读数被 `(r_beam/R)²` 压制 (对比 `defocus_R900` vs `defocus_R300`)。
 - **读数含静态系统倾斜残留** (纯平参考下仍有 ~0.2λ 噪声底), 判断相位效果应看相对纯平的**附加**量。

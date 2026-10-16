@@ -18,7 +18,7 @@
 ## 报告 → 生成脚本
 
 下表的 `生成脚本` 全部是**仓库根相对路径**，可直接 `python <脚本>` 复现。
-`离线` = 纯 numpy/torch 读产物，仪器可断电；`硬件` = 需要真实台架。
+`离线` = 纯 numpy/torch 读产物，仪器可断电；`硬件` = 需要真实实验系统。
 
 
 | 报告 | 生成脚本 | 运行环境 | 说明 |
@@ -35,8 +35,8 @@
 | [`centroid_test_visualization/centroid_test_report.md`](centroid_test_visualization/centroid_test_report.md) | `scripts/slm/generate_centroid_test_visualization.py` | 离线 | 同目录 10 张 png 为本脚本产物 |
 | [`centroid_test_visualization/centroid_test_report_duplicate_run.md`](centroid_test_visualization/centroid_test_report_duplicate_run.md) | `scripts/slm/generate_centroid_test_visualization.py` | 离线 | 同一次报告的更早一次运行，仅 Generated 时间戳不同；保留作对照，正式版见 centroid_test_report.md |
 | [`diff_beam/README.md`](diff_beam/README.md) | `scripts/slm/diff_beam_frame_analysis.py` | 离线+硬件 | 正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物 |
-| [`fouriergsnet_pipeline/TODO.md`](fouriergsnet_pipeline/TODO.md) | `人工撰写` | 硬件 | 真机光路验证待办清单 (设备 + 激光就绪后执行) |
-| [`fouriergsnet_pipeline/hardware_run_20261001.md`](fouriergsnet_pipeline/hardware_run_20261001.md) | `人工撰写 (+gsnet_runner.py)` | 硬件 | 实机方形整形运行报告；由 slm-gsnet 命令产生 |
+| [`fouriergsnet_pipeline/TODO.md`](fouriergsnet_pipeline/TODO.md) | `人工撰写` | 硬件 | 实验系统光路验证待办清单 (设备 + 激光就绪后执行) |
+| [`fouriergsnet_pipeline/hardware_run_20261001.md`](fouriergsnet_pipeline/hardware_run_20261001.md) | `人工撰写 (+gsnet_runner.py)` | 硬件 | 实验方形整形运行报告；由 slm-gsnet 命令产生 |
 | [`fouriergsnet_pipeline/next_attempt_plan.md`](fouriergsnet_pipeline/next_attempt_plan.md) | `人工撰写` | 离线+硬件 | GS 家族整形下一步尝试方案 (slm-gs-refine × FourierGSNet, 2026-10-12) |
 | [`fouriergsnet_pipeline/offline_training/report.md`](fouriergsnet_pipeline/offline_training/report.md) | `scripts/slm/generate_gsnet_offline_report.py` | 离线 | 读 data/gsnet_train/run-*/summary.json |
 | [`fouriergsnet_pipeline/report.md`](fouriergsnet_pipeline/report.md) | `scripts/slm/generate_fouriergsnet_pipeline_report.py` | 离线 | 5 项集成测试的结果记录 |
@@ -56,38 +56,34 @@
 | [`model_free_ao_survey/report.md`](model_free_ao_survey/report.md) | `人工撰写` | 人工调研 | 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式 |
 | [`models_analysis/report.md`](models_analysis/report.md) | `scripts/rl/generate_models_report.py` | 离线 | 读 TensorBoard event 文件 |
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
-| [`models_analysis/tmp_sac_run_showcase.md`](models_analysis/tmp_sac_run_showcase.md) | `scripts/rl/generate_models_report.py` | 离线 | 临时调试 run 的成果展示 |
 | [`oopao_impact/report.md`](oopao_impact/report.md) | `scripts/oopao/generate_oopao_impact_report.py` | 离线 | 端到端 AO 环境下的后端影响 |
 | [`oopao_vs_numpy/report.md`](oopao_vs_numpy/report.md) | `scripts/oopao/generate_oopao_vs_numpy_report.py` | 离线 | 像差 x 湍流 12 场景 x 2 后端对比 |
 | [`pib_loss_terms/README.md`](pib_loss_terms/README.md) | `人工撰写` | 离线+硬件 | 闭环整形物理误差感知 Loss 的取舍记录：6 类候选里落地 1 类(对数强度梯度差分, --w-loggrad)、2 类早已存在、3 类否决, 附实测依据 |
 | [`pib_optimizer_functional_report.md`](pib_optimizer_functional_report.md) | `人工撰写` | 离线 | PIB 优化器功能说明 (非实验测量) |
 | [`sac_ao_20260109_205218/training_report.md`](sac_ao_20260109_205218/training_report.md) | `人工撰写` | 离线 | SAC 训练报告 (2026-01-09) |
-| [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 硬件 | 方斑整形实机对比试验索引；各次试验的目录与结论由此汇总 |
-| [`shape_trials/fast_recal_adapter.md`](shape_trials/fast_recal_adapter.md) | `scripts/ml/exp_fast_recal_adapter_report.py (+exp_fast_recal_adapter.py)` | 离线 | 光路变化后少参数在线适配实验 (14 低阶 Zernike / 2 几何标量 / 冻结 CNN 三组互不相交参数); 三类扰动 (低阶像差 / 高阶像差对照 / 几何漂移) x 6 seed 配对, sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; 数据为仿真, 非台架实测 |
-| [`shape_trials/gs_golden_reference.md`](shape_trials/gs_golden_reference.md) | `scripts/slm/generate_gs_golden_reference.py` | 离线 | GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; 相位由 ml.shaping.gs_reference 委托 canonical gs_shape 产出, 远场用 canonical forward_intensity, 指标 (含 Strehl / 相对 M²) 全取自 ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实机记录为 GS 输给平相 |
-| [`shape_trials/gs_issue_live_20261015.md`](shape_trials/gs_issue_live_20261015.md) | `人工撰写` | 硬件 | 2026-10-15 GS 方法实机对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实机光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图 |
+| [`shape_trials/README.md`](shape_trials/README.md) | `人工撰写` | 硬件 | 方斑整形实验对比试验索引；各次试验的目录与结论由此汇总 |
+| [`shape_trials/fast_recal_adapter.md`](shape_trials/fast_recal_adapter.md) | `scripts/ml/exp_fast_recal_adapter_report.py (+exp_fast_recal_adapter.py)` | 离线 | 光路变化后少参数在线适配实验 (14 低阶 Zernike / 2 几何标量 / 冻结 CNN 三组互不相交参数); 三类扰动 (低阶像差 / 高阶像差对照 / 几何漂移) x 6 seed 配对, sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; 数据为仿真, 非实验系统实测 |
+| [`shape_trials/gs_golden_reference.md`](shape_trials/gs_golden_reference.md) | `scripts/slm/generate_gs_golden_reference.py` | 离线 | GS 金标参照 (模拟上界) 与平相位的对照 + GS 迭代预算收敛曲线; 相位由 ml.shaping.gs_reference 委托 canonical gs_shape 产出, 远场用 canonical forward_intensity, 指标 (含 Strehl / 相对 M²) 全取自 ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实验记录为 GS 输给平相 |
+| [`shape_trials/gs_issue_live_20261015.md`](shape_trials/gs_issue_live_20261015.md) | `人工撰写` | 硬件 | 2026-10-15 GS 方法实验对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实验光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图 |
 | [`shape_trials/gs_refine_fwdmodel_calibration.md`](shape_trials/gs_refine_fwdmodel_calibration.md) | `scripts/slm/generate_gs_refine_fwdmodel_report.py` | 离线+硬件 | slm-gs-refine 三栏 GIF 第三栏的正向模型标定；本脚本离线重算标定前后对比、补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物 |
-| [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写` | 硬件 | GS 重构后实机调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；交错重放入口 scripts/slm/replay_gs_refine_hw.py 仅离线部分经测试 |
-| [`shape_trials/gs_uniformity_live_20261015.md`](shape_trials/gs_uniformity_live_20261015.md) | `人工撰写 (+gs_uniformity_probe.py)` | 硬件 | 2026-10-15 GS 相位匀化实机对照 (Santec SLM #1 23020027 + 大恒 FJB24112232, 1064 nm)；圆周高斯平滑四档均降低面板梯度但未改善剔零级 CV；纯 CV 闭环在独立交错重放中将剔零级 CV 由 0.72313 降至 0.68400 (5.41%)，面板梯度 RMS 微升 |
-| [`shape_trials/gsnet_hybrid_offline_20261013.md`](shape_trials/gsnet_hybrid_offline_20261013.md) | `人工撰写` | 离线 | 2026-10-13 GSNet 混合瞳孔相位离线验证；8 阶 Zernike + 可训练残差参数化合成验证 |
-| [`shape_trials/gui_closed_loop_shaping_20261014.md`](shape_trials/gui_closed_loop_shaping_20261014.md) | `scripts/generate_gui_shaping_hw_report.py (+replay_gs_refine_hw.py)` | 离线 | GUI 闭环整形上机验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 上机采集 |
+| [`shape_trials/gs_refine_live_20261012.md`](shape_trials/gs_refine_live_20261012.md) | `人工撰写` | 硬件 | GS 重构后实验调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；交错重放入口 scripts/slm/replay_gs_refine_hw.py 仅离线部分经测试 |
+| [`shape_trials/gsnet_hybrid_offline_20261013.md`](shape_trials/gsnet_hybrid_offline_20261013.md) | `人工撰写` | 离线 | 2026-10-13 GSNet 混合瞳面相位离线验证；8 阶 Zernike + 可训练残差参数化合成验证 |
+| [`shape_trials/gui_closed_loop_shaping_20261014.md`](shape_trials/gui_closed_loop_shaping_20261014.md) | `scripts/generate_gui_shaping_hw_report.py (+replay_gs_refine_hw.py)` | 离线 | GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集 |
 | [`shape_trials/model_in_loop_cv.md`](shape_trials/model_in_loop_cv.md) | `scripts/slm/generate_model_in_loop_cv_report.py` | 离线 | model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs 轮换划分的配对对比; 经 probe_split_hook / holdout_on_sim 两个默认关闭的 开关驱动真实 optimize_slm_model_in_loop, 不复刻 Step A; 统计量全部取自 ml.zernike.cv_harness 与 ml.zernike.eval_stats |
-| [`shape_trials/model_in_loop_live_20261013.md`](shape_trials/model_in_loop_live_20261013.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | 2026-10-13 正向模型闭环整形上机记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染 |
-| [`shape_trials/model_in_loop_live_20261014.md`](shape_trials/model_in_loop_live_20261014.md) | `人工撰写` | 硬件 | 2026-10-14 正向模型闭环实机复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准 |
-| [`shape_trials/model_in_loop_live_20261015.md`](shape_trials/model_in_loop_live_20261015.md) | `人工撰写 (+panel_locate.py, check_flat_stability.py)` | 硬件 | 2026-10-15 正向模型闭环实机预检 (feat/r71-r84-closed-loop worktree; SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，恢复上机须先重扫面板入射位置 |
+| [`shape_trials/model_in_loop_live_20261013.md`](shape_trials/model_in_loop_live_20261013.md) | `人工撰写 (+generate_gif_from_pkl.py)` | 硬件 | 2026-10-13 正向模型闭环整形实验记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染 |
+| [`shape_trials/model_in_loop_live_20261014.md`](shape_trials/model_in_loop_live_20261014.md) | `人工撰写` | 硬件 | 2026-10-14 正向模型闭环实验复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准 |
+| [`shape_trials/model_in_loop_live_20261015.md`](shape_trials/model_in_loop_live_20261015.md) | `人工撰写 (+panel_locate.py, check_flat_stability.py)` | 硬件 | 2026-10-15 正向模型闭环实验预检 (feat/r71-r84-closed-loop worktree; SLM 22030108 + 大恒 FJB24112232, 1064 nm)；面板宽扫因中途光路调整而作废，固定 0.020 ms 曝光平场短复测 21 s 内 ROI 能量漂移 0.52%；未下发任何新形状，恢复实验须先重扫面板入射位置 |
 | [`shape_trials/model_in_loop_next_steps_20261013.md`](shape_trials/model_in_loop_next_steps_20261013.md) | `人工撰写` | 硬件 | 2026-10-13 正向模型闭环暂停后续步骤记录 |
 | [`shape_trials/model_in_loop_pause_handoff_20261013.md`](shape_trials/model_in_loop_pause_handoff_20261013.md) | `人工撰写` | 离线+硬件 | 2026-10-13 正向模型闭环暂停交接记录；当前状态、证据、工程变更摘要 |
 | [`shape_trials/online_20261010.md`](shape_trials/online_20261010.md) | `人工撰写` | 硬件 | 2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，scripts/slm/compare_shape_debug.py 只渲染对照图 |
 | [`shape_trials/online_recal_efficiency.md`](shape_trials/online_recal_efficiency.md) | `scripts/slm/generate_online_recal_efficiency_report.py` | 离线 | 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量 |
 | [`shape_trials/sim_metrics_waves.md`](shape_trials/sim_metrics_waves.md) | `人工撰写` | 离线 | 五波交付记录 (规范化 Strehl/M² 指标 / GS 金标 / 留出探针 K 折 / 强度域开关 + 晋升门 / 自适应信赖域), 重点是「默认路径逐位不变」的钉法与已知的既有基线失败; 两次真实测量见同目录 model_in_loop_cv.md 与 gs_golden_reference.md |
-| [`shape_trials/uncertainty_probe_hw_20261016.md`](shape_trials/uncertainty_probe_hw_20261016.md) | `人工撰写 (+verify_uncertainty_probes_sim.py, verify_uncertainty_probes_hw.py)` | 离线+硬件 | commit 080e0ac9 (issue #134 R-86) 不确定性采样探针验收；线上默认 bandlimit_sigma=1.5 下机制不成立（闭环 8 组配对种子 p=0.4219、机制 0/10 种子胜），关掉带限后闭环 8/8 改善、p=0.0078（n=8 下限），但实机复现显示无带限探针只把 53% 能量送进相机窗口，故结论为暂不进闭环、需先把 U(p) 裁到相机窗口 |
-| [`shape_trials/zero_order_blaze_20261015.md`](shape_trials/zero_order_blaze_20261015.md) | `人工撰写` | 离线+硬件 | 2026-10-15 离轴闪耀载波 (blaze carrier) 的物理与接线约定；实测位移标度约 7400/P 相机像素，面板与 CCD 轴近似交换；CLI 的 --blaze-period-px/--blaze-direction 与 GUI 载波选项由此而来；本轮只读枚举未下发相位，故未声称零级隔离率或衍射效率已改善 |
-| [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 台架实测标定记录 |
-| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/slm/generate_bench_probe_report.py (+sweep_probe.py)` | 离线 | 读台架 sweep 落盘的 npz/json/pkl，仪器可断电 |
+| [`slm/bench_calibration_20261001.md`](slm/bench_calibration_20261001.md) | `人工撰写` | 硬件 | SLM #1 + 大恒 2f 实验系统实测标定记录 |
+| [`slm/bench_probe/report.md`](slm/bench_probe/report.md) | `scripts/slm/generate_bench_probe_report.py (+sweep_probe.py)` | 离线 | 读实验系统 sweep 落盘的 npz/json/pkl，仪器可断电 |
 | [`slm/daily_2026-09-08.md`](slm/daily_2026-09-08.md) | `人工撰写` | 硬件 | SLM 硬件调试日报 |
 | [`slm/daily_2026-09-15.md`](slm/daily_2026-09-15.md) | `人工撰写 (+generate_zernike_response_matrix_report.py, generate_zernike_wfs_report.py)` | 硬件 | 硬件实验日报；引用的两个 generate_* 脚本见当日记录 |
 | [`slm/daily_2026-09-16.md`](slm/daily_2026-09-16.md) | `人工撰写 (+wfs_probe.py)` | 硬件 | 硬件实验日报 |
-| [`slm/model_in_loop_bench_calibration.md`](slm/model_in_loop_bench_calibration.md) | `scripts/slm/model_in_loop_hw_runbook.py` | 硬件 | 正向模型台架几何标定；runbook 采集 + 本文档结论 |
+| [`slm/model_in_loop_bench_calibration.md`](slm/model_in_loop_bench_calibration.md) | `scripts/slm/model_in_loop_hw_runbook.py` | 硬件 | 正向模型实验系统几何标定；runbook 采集 + 本文档结论 |
 | [`slm/report2.md`](slm/report2.md) | `人工撰写` | 硬件 | SLM 相位生成链路审计 + 矫正效果根因分析；数据由 zernike-matrix 闭环产生 |
 | [`slm/report3.md`](slm/report3.md) | `scripts/zernike_bench/generate_zernike_response_matrix_report.py` | 离线 | 2026-09-16 响应矩阵重标测试报告 |
 | [`slm/slm_rms_spgd/0516.md`](slm/slm_rms_spgd/0516.md) | `人工撰写` | 硬件 | 厂配矫正 + SPGD 实验记录 |
@@ -98,23 +94,21 @@
 | [`slm/zernike_response_matrix_report/report.md`](slm/zernike_response_matrix_report/report.md) | `scripts/zernike_bench/generate_zernike_response_matrix_report.py` | 离线 | 创建/分析/检测三段；figures/ 为本脚本产物 |
 | [`slm/zernike_wfs_report/report.md`](slm/zernike_wfs_report/report.md) | `scripts/zernike_bench/generate_zernike_wfs_report.py` | 硬件 | 需 Santec SLM-200 + Thorlabs WFS；phase/ 与 wfs/ 为本脚本产物 |
 | [`slm_200/slm_mla_test.md`](slm_200/slm_mla_test.md) | `人工撰写` | 硬件 | SLM-200 MLA 实验记录；images/slm_mla_test/ 为同期截图 |
-| [`slm_pib_bench/EXPERIMENT_REPORT.md`](slm_pib_bench/EXPERIMENT_REPORT.md) | `scripts/slm/generate_pib_bench_report.py (+generate_shape_objective_comparison.py, measure_shape_sensitivity.py)` | 离线 | 台架验收总报告；含 Pearson 迁移与参数标定两节 |
-| [`slm_pib_bench/delta_scan.md`](slm_pib_bench/delta_scan.md) | `scripts/slm/explore_delta.py` | 硬件 | SPGD delta 扫描 (实机) |
-| [`slm_pib_bench/delta_scan_large.md`](slm_pib_bench/delta_scan_large.md) | `scripts/slm/explore_delta.py` | 硬件 | delta 大范围扫描 (实机) |
-| [`slm_pib_bench/delta_scan_small.md`](slm_pib_bench/delta_scan_small.md) | `scripts/slm/explore_delta.py` | 硬件 | delta 小范围扫描 (实机) |
+| [`slm_pib_bench/EXPERIMENT_REPORT.md`](slm_pib_bench/EXPERIMENT_REPORT.md) | `scripts/slm/generate_pib_bench_report.py (+generate_shape_objective_comparison.py, measure_shape_sensitivity.py)` | 离线 | 实验系统验收总报告；含 Pearson 迁移与参数标定两节 |
+| [`slm_pib_bench/delta_scan.md`](slm_pib_bench/delta_scan.md) | `scripts/slm/explore_delta.py` | 硬件 | SPGD delta 扫描 (实验) |
+| [`slm_pib_bench/delta_scan_large.md`](slm_pib_bench/delta_scan_large.md) | `scripts/slm/explore_delta.py` | 硬件 | delta 大范围扫描 (实验) |
+| [`slm_pib_bench/delta_scan_small.md`](slm_pib_bench/delta_scan_small.md) | `scripts/slm/explore_delta.py` | 硬件 | delta 小范围扫描 (实验) |
 | [`slm_pib_bench/report.md`](slm_pib_bench/report.md) | `scripts/slm/generate_pib_bench_report.py` | 离线 | 离线分析报告 (噪声地板 / 门控 / best-vs-sustained) |
-| [`slm_pib_heuristic_hw/report.md`](slm_pib_heuristic_hw/report.md) | `scripts/slm/generate_slm_pib_heuristic_hw_report.py` | 硬件 | 真机基准 (Santec SLM-200 + 大恒 MER2-507)；figures/ + summary.csv 为本脚本产物 |
+| [`slm_pib_heuristic_hw/report.md`](slm_pib_heuristic_hw/report.md) | `scripts/slm/generate_slm_pib_heuristic_hw_report.py` | 硬件 | 实验系统基准 (Santec SLM-200 + 大恒 MER2-507)；figures/ + summary.csv 为本脚本产物 |
 | [`slm_pib_heuristic_hw/sensitivity.md`](slm_pib_heuristic_hw/sensitivity.md) | `scripts/slm/measure_shape_sensitivity.py` | 硬件 | 整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py |
 | [`slm_pib_online/objective_comparison.md`](slm_pib_online/objective_comparison.md) | `scripts/slm/generate_shape_objective_comparison.py` | 离线 | 三种整形目标函数的排序一致性 (Spearman) |
 | [`slm_pib_online/report.md`](slm_pib_online/report.md) | `scripts/slm/generate_slm_pib_online_report.py` | 离线 | 在线回归套件验收报告 (读 data/debug/slm_pib_online/) |
-| [`slm_pib_online/sensitivity.md`](slm_pib_online/sensitivity.md) | `scripts/slm/measure_shape_sensitivity.py` | 硬件 | 整形目标函数灵敏度 (噪声地板) 实测 |
-| [`slm_pib_online_hw/objective_comparison.md`](slm_pib_online_hw/objective_comparison.md) | `scripts/slm/generate_shape_objective_comparison.py` | 离线 | 真机帧上的目标函数排序对比 |
 | [`slm_pib_shape_50px/report.md`](slm_pib_shape_50px/report.md) | `scripts/slm/generate_slm_pib_sim_report.py` | 离线 | 50px target 的仿真运行报告 |
 | [`slm_pib_sim/report.md`](slm_pib_sim/report.md) | `scripts/slm/generate_slm_pib_sim_report.py (+slm_pib_sim_run.py)` | 离线 | 2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生 |
 | [`slm_shaping_sim/report.md`](slm_shaping_sim/report.md) | `scripts/slm/generate_slm_shaping_sim_report.py (+run_sim_bench.py)` | 离线 | SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照 |
 | [`slm_zernike_shaping/report.md`](slm_zernike_shaping/report.md) | `scripts/slm/generate_slm_zernike_shaping_report.py` | 离线 | 读 slm_zernike_shaping optimizer 的 debug 产物 |
 | [`strehl_benchmark/report.md`](strehl_benchmark/report.md) | `scripts/slm/generate_strehl_benchmark_report.py` | 离线 | 8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv |
-| [`zernike_coeff2amp/asm_vs_fraunhofer.md`](zernike_coeff2amp/asm_vs_fraunhofer.md) | `scripts/oopao/generate_asm_vs_fraunhofer_report.py (+test_angular_spectrum.py)` | 离线 | 角谱法与夫琅禾费 FFT 的分界: 2f 台架实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位 |
+| [`zernike_coeff2amp/asm_vs_fraunhofer.md`](zernike_coeff2amp/asm_vs_fraunhofer.md) | `scripts/oopao/generate_asm_vs_fraunhofer_report.py (+test_angular_spectrum.py)` | 离线 | 角谱法与夫琅禾费 FFT 的分界: 2f 实验系统实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位 |
 | [`zernike_coeff2amp/report.md`](zernike_coeff2amp/report.md) | `scripts/ml/generate_zernike_coeff_report.py (+sweep_coeff_models.py)` | 离线 | 系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练 |
 | [`zernike_farfield_sim/report.md`](zernike_farfield_sim/report.md) | `scripts/zernike_bench/generate_zernike_farfield_sim_report.py` | 离线 | Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物 |
 | [`zernike_phase2amp/report.md`](zernike_phase2amp/report.md) | `scripts/ml/generate_zernike_amp_report.py (+sweep_zernike_models.py, compare_models_cv.py)` | 离线 | 9 张图；数据由 sweep_zernike_models.py 与 ml.zernike.train_amp 产生 |
@@ -129,3 +123,6 @@
 - `beam_shaping/papers/beam_shaping_papers.md` ← `scripts/slm/generate_beam_shaping_papers_report.py` (离线)
 - `beam_shaping/papers/literature_survey.md` ← `人工撰写` (人工调研)
 - `loss_algorithms/report.md` ← `scripts/ml/compare_loss_algorithms.py` (离线)
+- `models_analysis/tmp_sac_run_showcase.md` ← `scripts/rl/generate_models_report.py` (离线)
+- `slm_pib_online/sensitivity.md` ← `scripts/slm/measure_shape_sensitivity.py` (硬件)
+- `slm_pib_online_hw/objective_comparison.md` ← `scripts/slm/generate_shape_objective_comparison.py` (离线)

@@ -109,13 +109,13 @@ flowchart TD
 
 | API | 用途 | 备注 |
 |-----|------|------|
-| `SLM_Ctrl_ReadT(SLMNumber, &dTemp, &oTemp)` | 读取板卡温度 | 返回值需 `/10` |
+| `SLM_Ctrl_ReadT(SLMNumber, &dTemp, &oTemp)` | 读取控制卡温度 | 返回值需 `/10` |
 | `SLM_Ctrl_ReadTD(SLMNumber, &dTemp)` | 读取 Drive 板温度 | |
 | `SLM_Ctrl_ReadTO(SLMNumber, &oTemp)` | 读取 Option 板温度 | |
-| `SLM_Ctrl_ReadEDO(SLMNumber, &err1, &err2)` | 读取板卡错误标志 | 十六进制 |
+| `SLM_Ctrl_ReadEDO(SLMNumber, &err1, &err2)` | 读取控制卡错误标志 | 十六进制 |
 | `SLM_Ctrl_ReadED(SLMNumber, &err)` | 读取 Drive 板错误 | |
 | `SLM_Ctrl_ReadEO(SLMNumber, &err)` | 读取 Option 板错误 | |
-| `SLM_Ctrl_ReadSDO(SLMNumber, driveID, optionID)` | 读取板卡 ID | 各 16 字节 |
+| `SLM_Ctrl_ReadSDO(SLMNumber, driveID, optionID)` | 读取控制卡 ID | 各 16 字节 |
 | `SLM_Ctrl_ReadSD(SLMNumber, driveID)` | 读取 Drive board ID | 16 字节 |
 | `SLM_Ctrl_ReadSO(SLMNumber, optionID)` | 读取 Option board ID | 16 字节 |
 | `SLM_Ctrl_ReadPS(SLMNumber, board, serial)` | 读取产品序列号 | 12 位，`board=0/1` |

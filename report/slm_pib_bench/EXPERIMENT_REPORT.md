@@ -6,21 +6,21 @@
 > **数据/关联脚本**: [`scripts/slm/generate_shape_objective_comparison.py`](../../scripts/slm/generate_shape_objective_comparison.py)
 > **数据/关联脚本**: [`scripts/slm/measure_shape_sensitivity.py`](../../scripts/slm/measure_shape_sensitivity.py)
 > **运行环境**: 离线
-> **说明**: 台架验收总报告；含 Pearson 迁移与参数标定两节
+> **说明**: 实验系统验收总报告；含 Pearson 迁移与参数标定两节
 <!-- provenance:end -->
 
-**本轮结论**（2026-09-29~30 台架验收）：(1) `1 − Pearson` 目标函数**不替换**现有目标，仅作显式可选附加项——实机 4 组对照中仅 2/4 符号正确（秩相关弱且变号），对照组 4/4 正确，评级维持 RISKY 并保留能量门；Torch/NumPy 数值已对齐至 1e-9，问题在目标排序而非数值。(2) **当前台架 SPGD 无法可靠收敛**：全部测试组合 `frac_decreasing≈0.5`（随机游走），accepted 仅 3–9/200；早期"delta≈0.1 可用（sustained +18.8%）"结论已被推翻，系随机游走端点假象。(3) 主因是**慢漂移污染梯度**而非 delta 或自由度——降 DOF 18×（54→3）反而更差，加帧数无效。(4) 收敛判据必须用 `frac_decreasing`/`late_gain`，禁用 final-vs-first。(5) delta=0.2 触发折叠门（144/200 被拒），过大反而更差。(6) 已交付设备无关参数测量工具（`snr_sweep`/`usable_deltas`，按多模式 SNR 过滤），脚本与硬件测试统一委托该工具。
+**本轮结论**（2026-09-29~30 实验系统验收）：(1) `1 − Pearson` 目标函数**不替换**现有目标，仅作显式可选附加项——实验 4 组对照中仅 2/4 符号正确（秩相关弱且变号），对照组 4/4 正确，评级维持 RISKY 并保留能量门；Torch/NumPy 数值已对齐至 1e-9，问题在目标排序而非数值。(2) **当前实验系统 SPGD 无法可靠收敛**：全部测试组合 `frac_decreasing≈0.5`（随机游走），accepted 仅 3–9/200；早期"delta≈0.1 可用（sustained +18.8%）"结论已被推翻，系随机游走端点假象。(3) 主因是**慢漂移污染梯度**而非 delta 或自由度——降 DOF 18×（54→3）反而更差，加帧数无效。(4) 收敛判据必须用 `frac_decreasing`/`late_gain`，禁用 final-vs-first。(5) delta=0.2 触发折叠门（144/200 被拒），过大反而更差。(6) 已交付设备无关参数测量工具（`snr_sweep`/`usable_deltas`，按多模式 SNR 过滤），脚本与硬件测试统一委托该工具。
 
 **日期**: 2026-09-29 ~ 09-30
-**台架**: Santec SLM-200 (SN 22030108, 1920×1200, 10-bit, 内存模式, @1064nm 2π=993 灰度)
+**实验系统**: Santec SLM-200 (SN 22030108, 1920×1200, 10-bit, 内存模式, @1064nm 2π=993 灰度)
 + 大恒 MER2-507-23GM NIR (SN FJB24112232, 2592×1944, IP 192.168.0.11)
 **软件**: `slm-pib` / `slm-gsnet` (SPGD + 启发式), FourierGSNet `shaping_loss`
 **数据来源**: `data/debug/slm_pib_*` (44 个搜索 run)、`data/debug/slm_pib_online/*` (3 次 SNR 扫描 + 8 次 smoke)
 
 > 本文是**结论汇总**。所有数字均可由离线脚本复现:
-> - 台架验收报告: `report/slm_pib_bench/report.md` (`scripts/slm/generate_pib_bench_report.py`)
+> - 实验系统验收报告: `report/slm_pib_bench/report.md` (`scripts/slm/generate_pib_bench_report.py`)
 > - 离线三目标对比: `report/slm_pib_online/objective_comparison.md`
-> - 实机三目标对比: `report/slm_pib_online_hw/objective_comparison.md`
+> - 实验三目标对比: `report/slm_pib_online_hw/objective_comparison.md`
 >
 > 注: 后两个目录被 `.gitignore:112` 排除, 未入库; 需时用对应脚本重新生成。
 
@@ -42,7 +42,7 @@
 | 硬件路径 | `slm-gsnet --objective {quality,pearson}`; `slm-pib --objective pearson` |
 | 溯源 | debug JSON sidecar 现记录 objective / cam_type / cam_id / exposure / zernike_radius / 搜索参数 |
 | 参数测量 | `slm_snr_probe` —— **设备实例由参数传入**, 不构造设备 |
-| 报告 | 离线台架验收报告 + 三目标对比 (离线 & 实机) |
+| 报告 | 离线实验系统验收报告 + 三目标对比 (离线 & 实验) |
 | 测试 | Pearson 指标/对齐 (24) + Torch 对齐 (6) + 方形搜索 sim (11) + SNR 探针 (33) + 报告回归 (13) |
 
 ---
@@ -54,7 +54,7 @@
 在同一固定 anchor (recorder row 0) 下重算三个目标, 比较逐帧 Spearman 秩相关。
 Pearson 是 loss (越小越好), 故与"越大越好"分数**负相关**才算一致。
 
-**实机 (4 run, delta=0.1, 60 帧/-run):**
+**实验 (4 run, delta=0.1, 60 帧/-run):**
 
 | run | ρ(square, pearson) | ρ(metrics, pearson) | 对照 ρ(square, metrics) |
 |---|---|---|---|
@@ -98,16 +98,16 @@ Pearson 是 loss (越小越好), 故与"越大越好"分数**负相关**才算�
 
 **归因**: 95%+ 的迭代被噪声门拒绝 (accepted 仅 3–9/200)。真正瓶颈
 **不是 delta 也不是 n_max**, 而是**每步 SPGD 的信噪比 ≈ 1**。
-SPGD 逐帧取 `pos`/`neg` 两次测量求差, 而台架噪声是**慢漂移** (§3.4),
+SPGD 逐帧取 `pos`/`neg` 两次测量求差, 而实验系统噪声是**慢漂移** (§3.4),
 相邻两次采样之间的漂移与梯度同量级, 差分后残留即为噪声。
 
-### 3.3 自由度稀释: SNR 层面成立, 但**不是**实机失效的原因
+### 3.3 自由度稀释: SNR 层面成立, 但**不是**实验失效的原因
 
 `snr_sweep` 在同 delta 下测得单模式 SNR 2.25 vs 54 自由度 SNR 1.34, 稀释确实存在。
-但实机把 n_max 从 9 降到 1 (54 → 3 自由度, 稀释应大幅减轻) 后
+但实验把 n_max 从 9 降到 1 (54 → 3 自由度, 稀释应大幅减轻) 后
 **表现反而更差** (accepted 3/200, late_gain −2.0%)。
 
-因此: **稀释能解释 SNR 数值, 不能解释实机为什么不收敛**。
+因此: **稀释能解释 SNR 数值, 不能解释实验为什么不收敛**。
 主导因素是慢漂移污染梯度估计 (§3.4), 而非信号被摊薄到各模式。
 
 ### 3.4 噪声是慢漂移, 不是散粒噪声 —— 这是真正的瓶颈
@@ -122,7 +122,7 @@ SPGD 的 `J(+δ) − J(−δ)` 是**两次相邻采样**之差, 漂移在其间�
 有效的缓解手段是**回文采样** (`+ − − +`), 使共模漂移在差分中抵消;
 `abba_signal` (§5) 已实现并单测, 但**尚未接入 SPGD 主循环** —— 这是最值得做的下一步改进。
 
-### 3.5 噪声地板不是台架常数 —— SNR 必须每次实测
+### 3.5 噪声地板不是实验系统常数 —— SNR 必须每次实测
 
 同一天、同一光斑位置三次扫描:
 
@@ -144,13 +144,13 @@ SPGD 的 `J(+δ) − J(−δ)` 是**两次相邻采样**之差, 漂移在其间�
 **−11.3%**; 而 38 个无 guard 的 run 中位数为 **+0.4%**。被能量门拦下的迭代不更新系数,
 门一旦频繁触发, 调 delta 也无济于事 —— **先看 guard 计数, 再看 SNR/delta**。
 
-### 3.7 其他实机事实
+### 3.7 其他实验事实
 
 - 0 阶光斑在 **(x=673, y=1027)**, **不是**帧中心 (1296, 972) → 必须用 `argmax` 定位, 不可用几何中心。
 - 曝光 1.2 ms 全帧下 0 阶稳定 ±1 px, 峰 58 / 均值 0.25 (真实局部光斑, 非均匀背景)。
 - 无 DVI 挂起; 内存模式开 SLM 约 1.7–3.5 s; 写相位需轮换不同内存槽。
 - `create_camera(..., cam_size=N)` **不会**开窗 (只有显式 `reset_window` 才开)。离线 SNR 探针
-  曾因此把 50 px ROI 放在 2592×1944 全帧上, 测得 `usable_deltas()=[]` 而实机同时
+  曾因此把 50 px ROI 放在 2592×1944 全帧上, 测得 `usable_deltas()=[]` 而实验同时
   在跑出真实改善 —— 已加入 `score_fn` / `window` 参数与 `roi_fraction` 诊断 (§5)。
 
 ---
@@ -159,8 +159,8 @@ SPGD 的 `J(+δ) − J(−δ)` 是**两次相邻采样**之差, 漂移在其间�
 
 | 结论 | 依据 |
 |---|---|
-| `1 - Pearson` **不替换**现有目标, 仅作附加选项 | 实机 2/4 符号正确, 对照组 4/4 正确 |
-| **当前台架 SPGD 无法可靠收敛** (随机游走) | `frac_decreasing≈0.5`, `late_gain∈[−2%,+10%]`, accepted 3–9/200 |
+| `1 - Pearson` **不替换**现有目标, 仅作附加选项 | 实验 2/4 符号正确, 对照组 4/4 正确 |
+| **当前实验系统 SPGD 无法可靠收敛** (随机游走) | `frac_decreasing≈0.5`, `late_gain∈[−2%,+10%]`, accepted 3–9/200 |
 | 主因是**慢漂移污染梯度**, 非 delta 或 n_max | 降 DOF 18× 反而更差; 加帧数无效 |
 | 判据必须用 **`frac_decreasing` / `late_gain`**, 不能用 final-vs-first | 随机游走下末帧位置是运气 (§3.2) |
 | `delta` 过大触发折叠门 | delta=0.2 → 144/200 被折断门拒绝 |
@@ -210,7 +210,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
    uv run pytest tests/ao_shaping/optimizer/wfless/test_slm_zernike_pib_online.py -v -s
    ```
    读 `multi_snrs` 列 → 参考 `usable_deltas()`。**注意: 2026-09-30 实测该指标与
-   优化成败不吻合** (它报 `[]` 而实机同时在跑出改善), 故只能作参考, 不能作唯一依据。
+   优化成败不吻合** (它报 `[]` 而实验同时在跑出改善), 故只能作参考, 不能作唯一依据。
 2. **改用收敛判据验收**: 每个候选 delta 跑 ≥200 epoch, 用
    `frac_decreasing` (应显著 > 0.5) 与 `late_gain` (前 1/3 vs 后 1/3 均值, 应明显为正)
    判定, **不要**用 `final vs first`。
@@ -229,7 +229,7 @@ with create_camera('daheng', cam_id=0, exposure_time_ms=1.2) as cam, \
    `final vs first` 作 sustained, 在随机游走下会给出端点假象, 应补
    `frac_decreasing` 与 `late_gain`。
 6. **三目标对比报告考虑入库**: `report/slm_pib_online*` 被 `.gitignore:112` 排除,
-   实机结论目前只能靠重跑脚本复现; 建议放行或改存 `report/slm_pib_bench/` 同级。
+   实验结论目前只能靠重跑脚本复现; 建议放行或改存 `report/slm_pib_bench/` 同级。
 7. **若必须满足 `delta<0.001`**: 降 `n_max` 已被实测证伪 (54→3 自由度反而更差);
    在漂移问题解决前, 任何 delta 都难以稳定收敛。
 

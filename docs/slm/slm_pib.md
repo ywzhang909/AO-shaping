@@ -160,7 +160,7 @@ class SlmZernikePibConfig:
 ```bash
 python src/ao_shaping/main.py slm-pib spgd --cam-type sim --slm-type sim -e 5
 ```
-`--slm-type sim` 必须与 `--cam-type sim` 同时给 (模拟 SLM 只在装上孪生台架后存在)。
+`--slm-type sim` 必须与 `--cam-type sim` 同时给 (模拟 SLM 只在装上孪生实验系统后存在)。
 
 ## 9. 输出契约
 

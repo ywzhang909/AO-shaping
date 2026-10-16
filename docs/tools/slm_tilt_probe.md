@@ -62,7 +62,7 @@ python -m ao_shaping.tools.slm.panel.tilt_probe --cam-type daheng --period 32 --
 - 控制台打印：基线位置、正斜坡位置、负斜坡位置、位移量、判定结果
 - 可选 `--output` 保存 JSON 结果
 
-## 8. 台架几何 (不得重新推导)
+## 8. 实验系统几何 (不得重新推导)
 
 - 光斑中心 (960, 600)、半径 450 面板 px
 - **panel↔camera 轴互换 90°**

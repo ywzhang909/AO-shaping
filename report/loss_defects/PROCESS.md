@@ -25,7 +25,7 @@
 3. **梯度精修本质是重启而非梯度下降**：精修增益与初始提案质量强负相关（Spearman −0.87 ~ −0.92，freeform 下 −0.73），即精修只救弱提案、不增强强提案。工程策略应为**按提案质量门控精修**：对弱提案精修、对强提案保留原值。
 4. **"GS 优于梯度下降"结论已被两次撤回**：Zernike 空间（34/90）与 freeform 空间（4/9）均为掷硬币结果；"精修总是有害"同样被撤回。二者均为单一配置下的伪显著（t 值高达 −11），在扫描未受质疑的常数（评测 ROI 几何）后消失。
 5. **Zernike 投影是有代价的瓶颈**：直接使用 GS 自由形式瞳面相位替代 `fit_zernike` 投影，在 7/9 个 ROI 上提升 +0.1272；`n_max=20` 时投影甚至跌破平坦相位基线。硬件路径（freeform）天然规避此损失。
-6. **方法论教训**：本文件共 6 次结论被推翻（attempts 4/5/8/9/10/11），根因均为未扫描"被视为常量的任意参数"（评测 ROI、split seed、重启次数）。任何单配置结论在参数扫描前不得采信；全部数值仍为仿真断言，尚未在台架复现。
+6. **方法论教训**：本文件共 6 次结论被推翻（attempts 4/5/8/9/10/11），根因均为未扫描"被视为常量的任意参数"（评测 ROI、split seed、重启次数）。任何单配置结论在参数扫描前不得采信；全部数值仍为仿真断言，尚未在实验系统复现。
 
 Running record of *analyse → propose → attempt → measure → record*. Newest
 sections appended. Two earlier findings live in [`README.md`](README.md); this file
@@ -928,7 +928,7 @@ Paired across the 9 ROI cells:
 
 Three things this settles:
 
-1. **The Zernike projection is a lossy bottleneck, quantified.** Using the GS pupil
+1. **The Zernike projection is a lossy bottleneck, quantified.** Using the GS pupil（瞳面）
    phase directly instead of projecting it through `fit_zernike` is worth **+0.1272
    in 7 of 9 ROIs**. This is the constructive version of attempt 12's finding that the
    projection lands *below* flat at `n_max=20` — and it means `slm_gs_refine`, being

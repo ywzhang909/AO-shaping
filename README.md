@@ -12,7 +12,7 @@ AO-Shaping 是一个基于强化学习的自适应光学 (AO) 系统，用于波
 - **多优化算法**: 支持基于波前传感器的 RMS 优化和无波前的 PIB 优化 (SPGD/GA/PSO/CEM/Tabu/可微分)
 - **强化学习集成**: 使用 SAC 算法进行波前优化
 - **硬件支持**: Thorlabs WFS、NLight 变形镜、R50Power MicroDM、大恒相机、MIICAM、Santec SLM200、NI DAQ ADC
-- **数字孪生**: 2f-Fourier SLM-PIB 仿真台架 (湍流 + 热晕扰动、相机噪声模型)，无硬件即可回归
+- **数字孪生**: 2f-Fourier SLM-PIB 仿真系统 (湍流 + 热晕扰动、相机噪声模型)，无硬件即可回归
 - **ML 训练**: U-Net+GAN 相位预测、Zernike 前向/逆向模型、FourierGSNet
 - **实验跟踪**: WandB / SwanLab；**数据处理**: Dask
 
@@ -68,16 +68,16 @@ uv sync
 
 | 文档 | 内容 |
 |------|------|
-| [docs/architecture.md](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 台架唯一入口约定 |
+| [docs/architecture.md](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 实验系统唯一入口约定 |
 | [docs/drivers_architecture.md](docs/drivers_architecture.md) | 驱动分层架构、设备注册表、惰性加载契约、2026-10 更新 |
 | [docs/hardware_drivers.md](docs/hardware_drivers.md) | 硬件驱动详情：WFS / DM / 相机 / SLM / 数据采集卡 |
-| [docs/simulation.md](docs/simulation.md) | 数字孪生仿真：2f-Fourier 台架、DM→相位耦合、噪声模型红线、湍流+热晕扰动 |
+| [docs/simulation.md](docs/simulation.md) | 数字孪生仿真：2f-Fourier 实验系统、DM→相位耦合、噪声模型红线、湍流+热晕扰动 |
 | [docs/zernike_usage.md](docs/zernike_usage.md) | Zernike 两层入口、最小示例、单位/约定红线 |
 | [docs/ml_training.md](docs/ml_training.md) | ML 训练入口与报告索引、指标口径红线 (R²/corr, 不用 PSNR/SSIM) |
 | [docs/gui.md](docs/gui.md) | Streamlit GUI 入口一览、multi_slm_controller 与 GS 方形整形 |
 | [docs/dev/coding_conventions.md](docs/dev/coding_conventions.md) | 编码规范、测试规范、贡献流程 |
 | [docs/dev/call_graph_wiki/index.md](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：20 命令逐命令 + 骨架函数逐函数文档（AST 静态分析，脚本在 `scripts/call_graph/` 可重跑） |
-| [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 台架表征流程、验收阈值、四条台架铁律 |
+| [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 实验系统表征流程、验收阈值、四条实验系统铁律 |
 | [docs/slm/slm_gui_manual.md](docs/slm/slm_gui_manual.md) | SLM GUI 完整操作手册 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.18.0) |
 | [report/](report/) | 实验报告 (结论/测量/基准)，每份带生成脚本溯源块 |
@@ -144,11 +144,11 @@ python -m ao_shaping.tools.slm.panel.diagnose             # slm-diagnose
 python -m ao_shaping.tools.micro_dm.micro_dm_image_collect # Micro-DM 逐单元采集
 ```
 
-### SLM 台架探针 (独立运行, 不注册为 CLI)
+### SLM 实验系统探针 (独立运行, 不注册为 CLI)
 
 以下探针**不注册为 CLI 命令**，用 `python -m ao_shaping.tools.<子包>.<名字>` 直接运行，
 且都支持 `--no-hw` (只打印采集计划、不碰硬件)。它们固化了 2026-09-30 在大恒 +
-Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第一性原理重新推导几何**。
+Santec SLM-200 实验系统上踩出来的实验系统常数与测量陷阱，**不要用第一性原理重新推导几何**。
 
 | 探针 (`python -m` 路径) | 文档 | 用途 |
 |---|---|---|
@@ -165,7 +165,7 @@ Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第
 > 🔑 **启动 GS / GSNet / SPGD runner 之前先跑表征探针**:
 > `ccd.drift_probe` → `ccd.floor_probe` → `zernike.abba_probe`。
 > 完整流程、验收阈值、**危险默认值清单**、**曝光 `0` 的真实语义 (§4.1)** 与
-> **四条台架铁律** (暗帧不可裸 `argmax` / SLM 保留上次图案 / 固定 `memory_number`
+> **四条实验系统铁律** (暗帧不可裸 `argmax` / SLM 保留上次图案 / 固定 `memory_number`
 > 是固件 no-op / 液晶要等"稳定"而非"够久") 见
 > [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md)。
 
@@ -236,4 +236,4 @@ AO-shaping/
 
 版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.18.0**, 2026-10-12）。
 最近一轮要点：逆向整形 PhasorUNet、自适应 SPGD、GS 预矫正上硬件、仿真 WFS 接入
-runner 命令面、DM→瞳孔相位耦合进入仿真、相机噪声模型修复、台架工具重组。
+runner 命令面、DM→瞳面相位耦合进入仿真、相机噪声模型修复、实验系统工具重组。

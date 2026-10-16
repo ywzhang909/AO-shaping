@@ -78,7 +78,7 @@ graph TD
 | `-f, --load-file` | 加载优化结果文件 | - |
 | `-e, --epochs` | 优化迭代次数 (WF+PIB 总轮数) | 8000 |
 | `-R, --wfs-res` | WFS 分辨率 | 768 |
-| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-p, --pupil-diameter` | 瞳面直径 | 2.7 |
 | `-c, --cam-id` | 远场光斑 CCD 设备 ID | 0 |
 | `-t, --exposure-time-ms` | CCD 曝光时间 (ms) | 500 |
 | `-s, --cam-size` | 相机开窗大小 | 160 |

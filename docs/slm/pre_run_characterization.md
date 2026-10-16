@@ -1,12 +1,12 @@
-# SLM 台架开机表征指南 (pre-run characterization)
+# SLM 实验系统开机表征指南 (pre-run characterization)
 
 > **什么时候读这份**: 在你信任任何一次 SLM 优化数字**之前**。
 > GS / GSNet(深度学习) / SPGD 三类 runner 启动前, 先跑这里的三个探针,
-> 确认台架本身没有在骗你。
+> 确认实验系统本身没有在骗你。
 
-本指南只讲**怎么先量台架**。三条实测结论直接决定它存在的必要性:
+本指南只讲**怎么先量实验系统**。三条实测结论直接决定它存在的必要性:
 
-1. 固定等待时间在本台架**无效** —— 驱动按灰度图变化量估算翻转时间, 两个统计量
+1. 固定等待时间在本实验系统**无效** —— 驱动按灰度图变化量估算翻转时间, 两个统计量
    相近的相位会让它报 **0.0 ms**。实测同一条斜坡首读 FWHM 43.2 px, 3 秒后 12.8 px,
    质心移动 62 px。
 2. 面板**保留上一次显示的图案**。下发平场之前读到的"平场"其实是上一轮的散斑。
@@ -45,13 +45,13 @@ python -m ao_shaping.tools.ccd.drift_probe \
 曝光阶梯判据 (`bench_kernels.exposure_monotonicity`):
 - `verdict == "monotonic"` 且 `saturated == False` → 该区间线性可用
 - `verdict == "non_monotonic"` → 中间档掉回去了, 别用
-- `verdict == "saturated"` → 撞满量程, 降曝光
+- `verdict == "saturated"` → 达到量程饱和, 降曝光
 
-**本台架实测基线** (2026-10-01, 固定 0.4 ms, 24 次 / 62 s):
+**本实验系统实测基线** (2026-10-01, 固定 0.4 ms, 24 次 / 62 s):
 peak cv 1.1%、全图 sum cv 0.2%、40 px box sum cv 0.21%、FWHM 13.3–13.74 px。
 曝光 **t ≥ 0.4 ms** 单调近线性, **t < 0.4 ms 读数紊乱**, 裁切拐点约 2.0–2.2 ms。
 
-> ⚠️ 曝光默认值现在是 **`0` = 不固定**, 但在本台架 `0` 会被驱动**钳到设备最小值
+> ⚠️ 曝光默认值现在是 **`0` = 不固定**, 但在本实验系统 `0` 会被驱动**钳到设备最小值
 > (~0.02 ms)**, 而不是"保持设备设置"。因此默认调用**必须**先跑本探针 bracket
 > 出可用区间, 再显式传 `--exposure-ms`(见 §4 第 4 行与 §4.1)。
 
@@ -147,7 +147,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 量 | 状态 | 值 | 理由 |
 |---|---|---|---|
 | `camera_pixel_um` | **锚点**(输入) | **2.2 µm** | 相机**数据手册**规格, 且已独立确认(`drivers/AGENTS.md`: MER2-507-23GM, 用户 2026-09-21 权威确认) |
-| `focal_length_m` | **派生** | **0.1224 m** | 透镜焦距是**台架装配选择** —— 换光学件就变, 正是最不该写死的那类值 |
+| `focal_length_m` | **派生** | **0.1224 m** | 透镜焦距是**实验系统装配选择** —— 换光学件就变, 正是最不该写死的那类值 |
 | `slm_pixel_um` | 器件规格 | 8 µm | SLM-200 面板规格 |
 | 波长 | 询问设备 | 默认 `0` | 实验室有**两台不同波长**的 SLM(见 `drivers/AGENTS.md` 序列号冲突); 猜错会重编程面板相位表 |
 
@@ -156,7 +156,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 
 原先写死的 **p_cam = 3.31 µm** 隐含 `K = 5023`, 比实测低 **33%**; 它经
 `slm_gs_refine._derive_target_side` 直接缩放 GS 目标边长, 于是把远场角尺寸
-算错 33%(bake-off 会兜住, 但 GS 阶段白做)。
+算错 33%(bake-off（对比择优） 会兜住, 但 GS 阶段白做)。
 
 实现: `utils/wavefront/matrix_utils.py` 的 `camera_pixel_um_from_focal_scale`
 与 `focal_length_from_camera_pixel`(互为精确反函数, 双向 round-trip 有测试),
@@ -198,8 +198,8 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 
 ### 3.2 两个字面上像冲突、实际不是的量
 
-- `far_field_padding` **3 (实机) vs 8 (仿真)** — 不是冲突。`far_field_size =
-  n_grid × padding`, 仿真 `n_grid=512`、实机 `n_grid≈900`; 物理量
+- `far_field_padding` **3 (实验) vs 8 (仿真)** — 不是冲突。`far_field_size =
+  n_grid × padding`, 仿真 `n_grid=512`、实验 `n_grid≈900`; 物理量
   `λf/(aperture·padding)` 与 `n_grid` 无关, padding 只决定采样密度(代价平方级)。
   **不要"统一"这两个数。**
 - `MAX_GRAYSCALE_VALUE = 1023` vs 设备 2π 灰度 `993` @1064 nm — 不是冲突。
@@ -219,7 +219,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 3 | `optimizer/wfless/slm_zernike_pib.py:137`<br>`optimizer/wfless/slm_zernike_shaping.py:123` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, 各有 7 处 sleep 调用点。静默读到未稳定帧 |
 | 4 | `drivers/ccd/daheng/driver.py:205-218` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** |
 | 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f` + `d4a071b`)**。原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%); 先改为由实测焦点标度反推, 最终改为**以像元间距为锚点**(2.2 µm 数据手册值)、**焦距改为派生**(见 §3) |
-| 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实机 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
+| 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实验 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
 | 7 | `optimizer/wfless/slm_gs_refine.py` | `focal_length_m` | **已修(`d4a071b`)**: 写死的 `0.125` 已改为 `0` = 由实测标度派生。GUI 侧仍不一致(`gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm), 换成透镜后请一并复核 |
 | 8 | `utils/slm/bench_constants.py:36` (R-81 下沉, 原 `tools/slm/slm_bench_probe.py:78`; `bench_kernels` 仅再导出) | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
 | 9 | `optimizer/wfless/slm_zernike_pib.py:1214,1443,1470` | 每次迭代 `set_reference_center(zero_order_center(...))` | 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框 |
@@ -245,7 +245,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 (`driver.py:205-218`, 注释说明这是为了避免 SDK 写失败), 于是 `0` → **设备最小值
 ~0.02 ms**, 比可用区间 0.4–1.5 ms 暗 20–75 倍。
 
-所以 `0` 的含义是"**不再内置某个台架的猜测**", 而**不是**"自动安全"。
+所以 `0` 的含义是"**不再内置某个实验系统的猜测**", 而**不是**"自动安全"。
 默认路径下若不传曝光, 请先用 `slm_drift_probe` bracket。
 
 > 已按此约定移除的默认值: `config.py` 60 ms; `runner_common`
@@ -263,9 +263,9 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 
 - [ ] **memory mode only** —— 绝不自动尝试 DVI(`video_mode=1`), `open()` 可能挂死,
       恢复需要给 SLM 控制器**物理断电**
-- [ ] 曝光**没有依赖默认值**: 曝光默认值是 `0`, 而 `0` 在本台架会被钳到设备最小值
+- [ ] 曝光**没有依赖默认值**: 曝光默认值是 `0`, 而 `0` 在本实验系统会被钳到设备最小值
       (~0.02 ms)。请把 `slm_drift_probe` bracket 出的可用值**显式传进去**
-      (本台架参考 1.5 ms, 但务必按当前激光功率重测)
+      (本实验系统参考 1.5 ms, 但务必按当前激光功率重测)
 - [ ] `slm_drift_probe` 报告 `monotonic` 且未饱和
 - [ ] `slm_floor_probe` 的 `verdict` 已知; 若是 `drift_limited` 先修稳定判据
 - [ ] 目标 ROI 由 `argmax` 在**去噪后的平场**上定位一次, 并**整轮冻结**
@@ -292,7 +292,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | SPGD 每轮 2 次测量 | Vorontsov, Opt. Lett. 22, 907 (1997), DOI 10.1364/OL.22.000907 |
 | ABBA 抵消一阶漂移 | 有限差分通用做法; **无单一权威 DOI**, 属常用实践 |
 
-标"本台架实测"的数字来自 2026-10-01 会话, 原始 recorder 产物按仓库约定存在
+标"本实验系统实测"的数字来自 2026-10-01 会话, 原始 recorder 产物按仓库约定存在
 `data/debug/*.pkl` 与 `data/slm_*/`(均已 gitignore)。
 
 ---

@@ -55,8 +55,8 @@ graph TD
 | `-e, --epochs` | 优化迭代次数 | 2000 |
 | `-n, --n-max` | Zernike 最大阶数 | 4 |
 | `-r, --wfs-res` | WFS 分辨率 | 1024 |
-| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
-| `-c, --pupil-center` | 瞳孔中心坐标 | (0,0) |
+| `-p, --pupil-diameter` | 瞳面直径 | 2.7 |
+| `-c, --pupil-center` | 瞳面中心坐标 | (0,0) |
 | `-t, --early-stop-threshold` | 早停阈值 | 0.12 |
 | `--wavelength` | SLM 波长 (nm) | 532 |
 | `--slm-number` | SLM 设备编号 | 1 |
