@@ -600,6 +600,12 @@ flowchart LR
    需 `torch`。目前最佳均匀性 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，
    见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
 
+   硬件上还必须在「**实测几何文件**」框里给出 sweep 标定产物（`scripts/slm/model_in_loop_hw_runbook.py
+   --stage all` 写出的 `bench_geometry.json`）：首次渲染会自动填入 `data/` 下**最新**的 sweep
+   几何，留空时真机会退回已废弃的 speckle 路线（本台实测 corr≈0.07 < 0.5 bake-off 门限）并中止；
+   **仿真不受影响**。该文件按 `region` 匹配、按 `far-field-padding` 自动换算，见
+   [`slm_model_in_loop.md`](slm_model_in_loop.md) §9.1。
+
 > **设备生命周期**：上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
 > 因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，
 > 另一台 SLM 保持连接）。

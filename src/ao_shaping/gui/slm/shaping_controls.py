@@ -70,6 +70,8 @@ from ao_shaping.runners.runner_common import (
     SlmModelInLoopParams,
     build_gs_refine_config,
     build_model_in_loop_config,
+    describe_bench_geometry,
+    discover_model_in_loop_geometry,
     save_gs_refine_results,
     save_model_in_loop_results,
 )
@@ -156,6 +158,7 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "panel_span_px": 900.0,
     "region": 64,
     "far_field_padding": 8,
+    "geometry_file": "",
     "pupil_center": "960,690",
 }
 
@@ -1085,6 +1088,34 @@ class ModelInLoopMethod(ShapingMethod):
                     key, label, d[key], lo, hi, step, help=help_
                 )
 
+        # The geometry bake-off needs an independently measured geometry.  The
+        # GUI cannot run the calibration runbook, so it auto-fills the newest
+        # sweep artefact it can find (first render only -- afterwards the widget
+        # owns the value and an empty box stays empty).
+        discovered = discover_model_in_loop_geometry(
+            int(values.get("region", d["region"]))
+        )
+        values["geometry_file"] = st.text_input(
+            "实测几何文件 (bench_geometry.json)",
+            value=str(discovered) if discovered is not None else str(d["geometry_file"]),
+            key=self.wkey("geometry_file"),
+            help=(
+                "scripts/slm/model_in_loop_hw_runbook.py 的 sweep 标定产物。留空时"
+                "真机会退回已废弃的 speckle 路线 (本台实测 corr≈0.07 < 0.5 "
+                "bake-off 门限) 并中止; 仿真不受影响。"
+            ),
+        )
+        geometry_path = str(values["geometry_file"]).strip()
+        if geometry_path and Path(geometry_path).is_file():
+            st.caption(describe_bench_geometry(geometry_path))
+        elif geometry_path:
+            st.caption(f"⚠ 几何文件不存在: {geometry_path}")
+        else:
+            st.caption(
+                "⚠ 未指定几何文件: 真机会退回已废弃的 speckle 路线，可能中止 "
+                "bake-off。"
+            )
+
         st.caption("硬件")
         self.render_camera_inputs(
             values,
@@ -1126,6 +1157,7 @@ class ModelInLoopMethod(ShapingMethod):
             panel_span_px=float(values["panel_span_px"]),
             pupil_center=str(values["pupil_center"]),
             far_field_padding=int(values["far_field_padding"]),
+            geometry_file=str(values.get("geometry_file", "")).strip() or None,
             cam_type=str(values["cam_type"]),
             cam_id=int(values["cam_id"]),
             exposure_time_ms=float(values["exposure_time_ms"]),
