@@ -2982,6 +2982,10 @@ class SlmModelInLoopParams:
             help="Reject a round whose measured composite drops by more than this.",
         ),
     ] = 1e-3
+    max_cv_regression: Annotated[
+        float,
+        option("--max-cv-regression", help="Maximum CV increase above the best accepted shaped round."),
+    ] = 0.02
     damp_lr_factor: Annotated[
         float,
         option("--damp-lr-factor", help="Step-A lr multiplier after a rejection."),
@@ -3337,6 +3341,7 @@ def build_model_in_loop_config(
         trust_region_c_l2=params.trust_region_c_l2,
         acceptance_loss_delta=params.acceptance_loss_delta,
         acceptance_score_eps=params.acceptance_score_eps,
+        max_cv_regression=params.max_cv_regression,
         damp_lr_factor=params.damp_lr_factor,
         max_rejection_streak=params.max_rejection_streak,
         escalate_probe_count=params.escalate_probe_count,

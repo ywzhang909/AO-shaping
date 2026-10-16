@@ -100,13 +100,14 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--camera-pixel-um` / `--slm-pixel-um` / `--focal-length-m` | 光路模型测量锚点 | 2.2 / 8.0 / 0.0 |
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
 | `--w-efficiency` / `--w-uniformity` | 质量分权重。**w-efficiency 必须非零** | 0.6 / 0.4 |
+| `--max-cv-regression` | 已验收成形相位之间允许的最大 CV 绝对增量 | 0.02 |
 | `--min-geometry-correlation` | 几何 bake-off（对比择优） 阈值；低于直接中止 (退出码 2) | 0.5 |
 | `--warm-start/--no-warm-start` | 热启动 | True |
 | `--early-stop-score` / `--save-best-image` | 早停分数 / 保存最优图 | - |
 | `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
 | `--slm-number` / `--slm-wavelength` / `--device` / `--dtype` / `--seed` | SLM/设备/种子 | - |
 
-## 6. 两个守卫
+## 6. 逐轮守卫
 
 ### 守卫 1：Trust Region
 逐轮系数变化 L2 范数被 `trust_region_c_l2` 截断。
@@ -116,17 +117,22 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 - 拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps=0.001`) → reject
 - 连续 reject ≥ `max_rejection_streak=3` → 中止 (实验系统落在模型之外)
 
+对匀化任务，另以 `max_cv_regression=0.02` 限制相对最佳已验收成形相位的 CV 回退。
+首轮仍由最终平场 bake-off 验收；之后即使 EE 提升使综合分微升，只要 CV
+增加超过容差，就拒绝该轮并保留先前相位。容差只覆盖测量抖动，
+`shape_iou_after` 仍须单独检查，CV 下降不等于方斑轮廓形成。
+
 ## 7. 会话曝光
 
-<<<<<<< Updated upstream
-> **`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms** (比可用区间 0.4–1.5 ms 暗 20–75×)。
-> **实验前必须显式传入按当前激光功率实测的曝光** (本实验系统历史参考 1.5 ms)。
-=======
-`--exposure-time-ms 0` 让硬件 CLI 的定位和几何 sweep 从当前画面探测会话曝光；
-优化器继续使用自身的自动曝光与回读守卫。`AO_DAHENG_MAX_EXPOSURE_MS`
-可指定当前光路上限，缺省或 `0` 时由画面探测。历史曝光数值不可跨光路复用。
-不同曝光的 CCD 帧只有经过该曝光段线性化验证后才能直接比较。
->>>>>>> Stashed changes
+`--exposure-time-ms 0` 从 Daheng 的最小曝光 `0.02 ms` 打开相机，
+随后定位、几何 sweep 与优化器分别从当前画面探测曝光上限，并检查设备回读。
+本次 2026-10-16 光路以该自动路径完成实机闭环，探测上限约 `0.20 ms`。
+显式曝光仅用于已在**当前**光路测定的复现实验，必须仍受本次画面探测限制。
+
+- **不要将历史 `1.5 ms` 当作当前光路推荐值**；它在本次会话会过曝。
+- 上限取自 `AO_DAHENG_MAX_EXPOSURE_MS`（缺省或 `0` 时由画面探测饱和点）。
+- 历史曝光数值**不可跨光路复用**：换激光功率或中性密度片后必须重测。
+- 不同曝光下的 CCD 帧只有经过该曝光段线性化验证后才能直接比较。
 
 ## 8. 仿真模式
 
@@ -146,9 +152,6 @@ python src/ao_shaping/main.py slm-model-in-loop \
     --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
-<<<<<<< Updated upstream
-## 10. 实验前必跑表征探针 (顺序不能反)
-=======
 ### 9.1 几何文件 (`--geometry-file`) 与 padding 换算
 
 缺省不提供 `--geometry-file` 时，硬件 runner 每次会话自动做全板入射定位、
@@ -166,11 +169,11 @@ python src/ao_shaping/main.py slm-model-in-loop \
 瞳面网格本身不同，任何换算都修不好。**因此 §9 里 `--far-field-padding 3` 不再是必须项**，
 用默认 8 也可以。
 
-## 10. 独立诊断
+## 10. 异常时的独立表征探针
 
-硬件 CLI 的自动会话标定已经覆盖位置、曝光和几何探测。需要单独分析漂移、
-相机噪声或 ABBA 稳定性时，可使用以下诊断入口；曝光值按当前光路选择。
->>>>>>> Stashed changes
+硬件 CLI 的自动会话标定已经覆盖位置、曝光和几何探测。需要进一步分析
+漂移、相机噪声或 ABBA 稳定性时，按下列顺序运行独立诊断入口
+（曝光值按当前光路选择），不要求每次正常自动会话前重复运行。
 
 ```bash
 python -m ao_shaping.tools.ccd.drift_probe --exposure-ms <当前曝光>
@@ -188,6 +191,11 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 - `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`：**每次运行都写**，不依赖 `--debug`。结构 `{epoch: record}`，带 `_epoch` 索引键，配 `.json` sidecar。行内只有标量 (由测试锁定)，逐帧图像不在其中；最优帧另存 PNG。
 
 ## 12. 终止状态
+
+跨光路的一次性配置、自动运行、逐项验收与失败恢复见
+[`model_in_loop_handoff.md`](model_in_loop_handoff.md)。自动脚本调用本 CLI 的
+现有会话探测，不复用历史几何；三个独立诊断探针用于深入排查异常，
+不要求在每次自动会话前重复执行。
 
 | 状态 | 含义 |
 |------|------|

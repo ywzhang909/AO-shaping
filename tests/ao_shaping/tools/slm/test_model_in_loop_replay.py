@@ -111,6 +111,7 @@ def test_replay_records_sequence_and_restores_flat(monkeypatch, tmp_path):
     monkeypatch.setattr(replay, "_metrics_at", checked_metrics)
     rows = replay.run_replay(plan)
     assert [row["phase"] for row in rows] == list(replay.SEQUENCE)
+    assert all(0.0 <= row["shape_iou"] <= 1.0 for row in rows)
     assert all(row["capture_utc"] == "2026-10-14T00:00:00.000001+00:00" for row in rows)
     assert seen[-2:] == [0.0, "closed"]
     assert len(list((tmp_path / "out").glob("*_raw.npy"))) == 7

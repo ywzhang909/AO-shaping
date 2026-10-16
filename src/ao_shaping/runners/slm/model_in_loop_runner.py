@@ -123,6 +123,7 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     click.echo(
         f"Guards: trust region {params.trust_region_c_l2} rad, "
         f"loss delta {params.acceptance_loss_delta}, score eps {params.acceptance_score_eps}, "
+        f"max CV rise {params.max_cv_regression}, "
         f"abort after {params.max_rejection_streak} rejections"
     )
     click.echo(

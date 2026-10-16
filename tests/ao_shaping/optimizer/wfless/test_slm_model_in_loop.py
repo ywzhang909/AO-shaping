@@ -842,6 +842,21 @@ class TestAcceptanceVerdict:
         )
         assert verdict.accepted is True
 
+    def test_cv_regression_rejected_despite_higher_composite(self) -> None:
+        verdict = acceptance_verdict(
+            1.0, 0.5, 0.5524, 0.5529,
+            cv_before=0.6297, cv_after=0.6728,
+        )
+        assert verdict.accepted is False
+        assert verdict.reason == "cv_degraded"
+
+    def test_small_cv_change_is_tolerated(self) -> None:
+        verdict = acceptance_verdict(
+            1.0, 0.5, 0.5, 0.5,
+            cv_before=0.6, cv_after=0.615,
+        )
+        assert verdict.accepted is True
+
     @pytest.mark.parametrize(
         "loss_before,loss_after,score_after",
         [

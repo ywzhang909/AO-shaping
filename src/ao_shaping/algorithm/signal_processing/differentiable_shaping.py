@@ -156,7 +156,9 @@ def uniformity_loss(intensity: "Tensor", target: "Tensor") -> "Tensor":
     值越低表示照明越均匀。目标区域为空或只含零时返回零 (对 NaN 安全)。
     """
     torch = _torch()
-    mask = target > 0
+    # Resized target masks have a soft interpolation edge. Keep that edge in
+    # the energy term, but measure CV on the intended half-height support.
+    mask = target > 0.5
     vals = intensity[mask]
     if vals.numel() == 0:
         return torch.tensor(0.0, device=intensity.device, dtype=intensity.dtype)

@@ -145,6 +145,7 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
                                   plan.config.w_uniformity),
                 "cv": float(metrics["uniformity_cv"]),
                 "ee": float(metrics["encircled_energy"]),
+                "shape_iou": float(metrics["shape_iou"]),
                 "total": float(frame.sum()),
                 "peak": float(frame.max()),
                 "raw_peak": float(np.max(bench.last_raw_frame)),

@@ -187,12 +187,16 @@ def acceptance_verdict(
     *,
     loss_delta: float = 1e-4,
     score_eps: float = 1e-3,
+    cv_before: float | None = None,
+    cv_after: float | None = None,
+    max_cv_regression: float = 0.02,
 ) -> AcceptanceVerdict:
     """Decide whether a round may be committed, or must be rolled back.
 
-    A round is rejected when the forward-model fit got *worse* (the aberration
-    is wandering, not converging) or when the shape it produced measures worse
-    than the best shape already held (the synthesis is being led astray).
+    A round is rejected when the forward-model fit worsens, the measured
+    composite drops, or the target-region CV rises beyond the configured
+    tolerance. The CV guard prevents an EE gain from replacing a more uniform
+    accepted phase.
 
     ``score_before=None`` means "no shaped phase has been accepted yet", and the
     score test is then skipped. That case is not a loophole but the intended
@@ -210,6 +214,9 @@ def acceptance_verdict(
         loss_delta: Tolerance on ``loss_after - loss_before``. Step A is a
             descent method, so any material increase is a genuine regression.
         score_eps: Tolerance on ``score_before - score_after``.
+        cv_before: Best accepted shaped CV, if any.
+        cv_after: CV of this round's measured shaped phase.
+        max_cv_regression: Allowed absolute CV increase between shaped rounds.
 
     Returns:
         The :class:`AcceptanceVerdict`.
@@ -228,11 +235,17 @@ def acceptance_verdict(
         and np.isfinite(score_before)
         and score_after < score_before - float(score_eps)
     )
+    cv_degraded = bool(
+        cv_before is not None
+        and cv_after is not None
+        and (not np.isfinite(cv_after) or cv_after > cv_before + max_cv_regression)
+    )
     tags = [
         name
         for name, hit in (
             ("loss_worsened", loss_worsened),
             ("score_degraded", score_degraded),
+            ("cv_degraded", cv_degraded),
         )
         if hit
     ]
@@ -641,6 +654,7 @@ class SlmModelInLoopConfig:
 
     acceptance_loss_delta: float = 1e-4
     acceptance_score_eps: float = 1e-3
+    max_cv_regression: float = 0.02
     damp_lr_factor: float = 0.5
     """Step-A lr multiplier applied after a rejected round."""
 
@@ -799,6 +813,8 @@ class SlmModelInLoopConfig:
             )
         if self.step_a_iterations < 0 or self.step_b_iterations < 1:
             raise ValueError("step_a_iterations must be >= 0 and step_b_iterations must be >= 1")
+        if not math.isfinite(self.max_cv_regression) or self.max_cv_regression < 0:
+            raise ValueError("max_cv_regression must be finite and non-negative")
         if not 0.0 < self.damp_lr_factor < 1.0:
             raise ValueError(
                 f"damp_lr_factor must lie in (0, 1), got {self.damp_lr_factor}"
@@ -2535,6 +2551,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # None until the first shaped round is accepted: the flat baseline is not
         # a fair reference for the acceptance test (see acceptance_verdict).
         score_before: float | None = None
+        best_accepted_cv: float | None = None
         best_score, best_phase, best_frame = flat_score, flat_phase.copy(), flat_frame
         status = ModelInLoopStatus.COMPLETED
         step_b_cfg = StepBConfig(
@@ -2881,6 +2898,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 score_after,
                 loss_delta=float(config.acceptance_loss_delta),
                 score_eps=float(config.acceptance_score_eps),
+                cv_before=best_accepted_cv,
+                cv_after=float(shaped_metrics["uniformity_cv"]),
+                max_cv_regression=float(config.max_cv_regression),
             )
             applied_l2 = float(np.linalg.norm(clamped - coefficients))
             if trust_region is not None:
@@ -2978,6 +2998,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 # live view and the step sink were handed.
                 phase = shaped_phase.copy()
                 score_before = score_after
+                candidate_cv = float(shaped_metrics["uniformity_cv"])
+                best_accepted_cv = (
+                    candidate_cv if best_accepted_cv is None
+                    else min(best_accepted_cv, candidate_cv)
+                )
                 rejection_streak = 0
                 if score_after > best_score:
                     best_score, best_phase = score_after, phase.copy()
