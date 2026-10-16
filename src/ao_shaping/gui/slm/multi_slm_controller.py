@@ -653,9 +653,12 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     prefix = f"slm{slm_num}"
     st.session_state[f"{prefix}_phase_preview"] = None
     st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
-    st.session_state[f"{prefix}_loaded_config"] = (
-        slm.load_config() if slm._serial_number else {}
-    )
+    # ``Santec.open()`` 已经读过每序列号配置: 复用它, 不再 load_config() 二次读盘。
+    # 老 driver / 测试替身没有该属性时回落到原来的读取。
+    loaded_config = getattr(slm, "loaded_config", None)
+    if loaded_config is None:
+        loaded_config = slm.load_config() if slm._serial_number else {}
+    st.session_state[f"{prefix}_loaded_config"] = loaded_config
 
     # Sync all widget-backed keys from the device's resolved state so the
     # sidebar shows the actual hardware values (wavelength, shift, geometry…).
