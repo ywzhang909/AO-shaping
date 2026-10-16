@@ -138,6 +138,17 @@ python src/ao_shaping/main.py slm-model-in-loop \
     --holdout-probe-count 4 --step-b-iterations 800 -r 1
 ```
 
+### 9.1 几何文件 (`--geometry-file`) 与 padding 换算
+
+`--geometry-file` 指向 `scripts/slm/model_in_loop_hw_runbook.py --stage all` 的 sweep
+标定产物 (`bench_geometry.json`)。**只有 `region` 必须与本次运行一致**；远场补零倍数
+(`--far-field-padding`) 可以不同 —— 一个远场格宽为 `λf/(P·d_model)`，故
+`camera_px_per_model_px` 与 `P` 成反比，优化器会按 `P` 把它换算到本次运行的网格
+(实测: `far_field=192` (region 64 / padding 3) 标定的 `2.7955` 换算到 `far_field=512`
+(padding 8) 得 `1.048`，与解析估计 `1.028` 相差约 2%)。`region` 不一致仍会被拒绝：
+瞳孔网格本身不同，任何换算都修不好。**因此 §9 里 `--far-field-padding 3` 不再是必须项**，
+用默认 8 也可以。
+
 ## 10. 上机前必跑表征探针 (顺序不能反)
 
 ```bash

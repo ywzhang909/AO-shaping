@@ -49,14 +49,17 @@ import is deferred into the functions that open it.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from loguru import logger
+
+if TYPE_CHECKING:  # annotations only (``from __future__ import annotations``).
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import BenchGeometry
 
 # Device-free (NumPy + stdlib only), so importing it cannot pull in a driver.
 from ao_shaping.optimizer.wfless.adaptive_trust_region import (
@@ -1774,6 +1777,71 @@ def _to_model_grid(
     return np.ascontiguousarray(np.rot90(resized, -camera_rotation_quarters))
 
 
+def _far_field_cell_scale(
+    camera_px_per_cell: float, *, from_far_field: int, to_far_field: int
+) -> float:
+    """Rescale ``camera_px_per_model_px`` between zero-padding sizes.
+
+    A far-field cell is ``lambda*f/(P*d_model)`` wide, so the camera pixels one
+    cell spans grow as the zero-padding size ``P`` shrinks: the scale is
+    inversely proportional to ``P``.  Single implementation of that rule --
+    both the geometry rescale and the prior-run comparison go through it.
+    """
+    return float(camera_px_per_cell) * float(from_far_field) / float(to_far_field)
+
+
+def _geometry_on_model_grid(
+    geometry: BenchGeometry, *, region: int, far_field_size: int
+) -> BenchGeometry:
+    """Re-sample a measured geometry onto the model's far-field grid.
+
+    ``camera_px_per_model_px`` is camera pixels per far-field *cell*, and a cell
+    is ``lambda*f/(P*d_model)`` wide, so the scale is inversely proportional to
+    the zero-padding size ``P`` (``far_field_size``).  The panel box, the beam
+    waist and the spot FWHM are bench properties and do not move: a geometry
+    measured at one padding factor is still usable at another -- only the
+    far-field sampling changes -- so rejecting it would strand the GUI, whose
+    padding default (8) differs from the calibration runbook's (3).
+
+    Args:
+        geometry: The geometry as measured (or as stored by a prior run).
+        region: Model grid side the caller is about to use.
+        far_field_size: Zero-padding size the caller is about to use.
+
+    Returns:
+        ``geometry`` unchanged when already on that grid, else a copy with
+        ``far_field_size`` and ``camera_px_per_model_px`` rescaled.
+
+    Raises:
+        ValueError: If ``geometry.region`` differs -- the pupil grid itself is
+            different, which no rescale can repair.
+    """
+    if int(geometry.region) != int(region):
+        raise ValueError(
+            f"geometry region {geometry.region} != model region {int(region)}"
+        )
+    if int(geometry.far_field_size) == int(far_field_size):
+        return geometry
+    scale = _far_field_cell_scale(
+        geometry.camera_px_per_model_px,
+        from_far_field=int(geometry.far_field_size),
+        to_far_field=int(far_field_size),
+    )
+    logger.info(
+        "rescaling measured geometry far field {} -> {} "
+        "(camera_px_per_model_px {:.4f} -> {:.4f})",
+        geometry.far_field_size,
+        int(far_field_size),
+        geometry.camera_px_per_model_px,
+        scale,
+    )
+    return replace(
+        geometry,
+        far_field_size=int(far_field_size),
+        camera_px_per_model_px=scale,
+    )
+
+
 def _calibrate_geometry(
     config: SlmModelInLoopConfig, bench: Bench
 ) -> tuple[Any, list[CalibrationRecordLike]]:
@@ -1784,6 +1852,10 @@ def _calibrate_geometry(
     grid. It is scored by **Pearson correlation of speckle patterns**, not by
     peak-normalised MSE: with a peaked spot the MSE is dominated by tail energy
     and reports a small number for patterns that do not actually correspond.
+
+    An explicit ``config.geometry_file`` (a runbook ``--stage sweep`` artefact)
+    short-circuits the solver; a file measured at another far-field padding is
+    rescaled onto this run's grid by :func:`_geometry_on_model_grid`.
 
     Returns:
         The :class:`~ao_shaping.optimizer.wfless.model_in_loop_shaping.BenchGeometry`
@@ -1802,14 +1874,28 @@ def _calibrate_geometry(
 
         payload = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
         geometry = BenchGeometry(**payload)
-        if (
-            geometry.region != config.region
-            or geometry.far_field_size != config.region * config.far_field_padding
-            or geometry.method != "sweep"
-        ):
-            raise ValueError("sweep geometry file does not match the model grid")
+        if geometry.method != "sweep":
+            raise ValueError(
+                f"geometry file {config.geometry_file!r} has method "
+                f"{geometry.method!r}, not 'sweep'. Speckle geometries are the "
+                "abandoned route this run's bake-off replaced; measure one with "
+                "scripts/slm/model_in_loop_hw_runbook.py."
+            )
+        geometry = _geometry_on_model_grid(
+            geometry,
+            region=int(config.region),
+            far_field_size=int(config.region) * int(config.far_field_padding),
+        )
         logger.info("using independently measured sweep geometry: {}", config.geometry_file)
         return geometry, []
+
+    logger.warning(
+        "no geometry file: solving the bench geometry from speckle probes. On "
+        "this bench that route is a measured failure (correlation ~0.07 against "
+        "the {:.2f} bake-off floor), so the run will most likely abort. Measure "
+        "one first: python scripts/slm/model_in_loop_hw_runbook.py --stage all",
+        config.min_geometry_correlation,
+    )
 
     records: list[CalibrationRecordLike] = []
     for index in range(int(config.n_calibration_probes)):
@@ -2081,11 +2167,38 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
     run_dir = Path(config.prior_run_dir)
     if config.geometry_file is None:
         raise ValueError("prior_run_dir requires an explicit geometry_file")
-    geometry = json.loads((run_dir / "bench_geometry.json").read_text(encoding="utf-8"))
-    current = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
-    for key in ("region", "far_field_size", "panel_disc_radius", "camera_px_per_model_px"):
-        if not np.isclose(float(geometry[key]), float(current[key]), rtol=1e-6):
-            raise ValueError(f"prior run geometry mismatch: {key}")
+    prior_geometry = json.loads(
+        (run_dir / "bench_geometry.json").read_text(encoding="utf-8")
+    )
+    current_geometry = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
+    # The pupil grid itself cannot be rescaled: both geometries must sit on this
+    # run's model grid.
+    if (
+        int(prior_geometry["region"]) != int(config.region)
+        or int(current_geometry["region"]) != int(config.region)
+    ):
+        raise ValueError("prior run geometry mismatch: region")
+    if not np.isclose(
+        float(prior_geometry["panel_disc_radius"]),
+        float(current_geometry["panel_disc_radius"]),
+        rtol=1e-6,
+    ):
+        raise ValueError("prior run geometry mismatch: panel_disc_radius")
+    # Compare the far-field scale on THIS run's grid: a prior run may have been
+    # stored at another padding factor, which is a pure re-sampling difference.
+    target_far_field = int(config.region) * int(config.far_field_padding)
+    prior_scale = _far_field_cell_scale(
+        prior_geometry["camera_px_per_model_px"],
+        from_far_field=int(prior_geometry["far_field_size"]),
+        to_far_field=target_far_field,
+    )
+    current_scale = _far_field_cell_scale(
+        current_geometry["camera_px_per_model_px"],
+        from_far_field=int(current_geometry["far_field_size"]),
+        to_far_field=target_far_field,
+    )
+    if not np.isclose(prior_scale, current_scale, rtol=1e-6):
+        raise ValueError("prior run geometry mismatch: camera_px_per_model_px")
     metadata_file = run_dir / "run_config.json"
     if metadata_file.is_file():
         previous = json.loads(metadata_file.read_text(encoding="utf-8"))
