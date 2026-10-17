@@ -88,10 +88,15 @@ def _patch_slm(monkeypatch):
     from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 
     mod_name = "ao_shaping.optimizer.wfless.slm_zernike_pib"
-    install_sim_slm(importlib.import_module(mod_name))
+    # ``install_sim_slm`` overwrites ``Santec`` at module scope, so monkeypatch must
+    # bind *first*: it snapshots the real ``Santec`` for teardown. Reversing the
+    # two lines would record the already-rebound ``SimSLMPib`` as the original and
+    # leak the sim twin into every later test that asserts the hardware driver is
+    # still installed.
     monkeypatch.setattr(
         importlib.import_module(mod_name), "Santec", SimSLMPib, raising=False
     )
+    install_sim_slm(importlib.import_module(mod_name))
 
 
 # ---- tests -----------------------------------------------------------------
