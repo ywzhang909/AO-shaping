@@ -411,8 +411,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 101,
-    "body_literals_sha256": "734997745aa8c359",
+    "body_literals": 102,
+    "body_literals_sha256": "ebd50ca71c232d56",
     "declared": [
       "--cam-id",
       "--cam-type",
