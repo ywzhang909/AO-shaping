@@ -979,6 +979,15 @@ def _run_gs_refine_session(
         if config.confirm_best and probe_score > best_score:
             measured_frame = measure(measured_phase)
             confirmed = True
+        # issue #140: the persisted best must be the un-perturbed convergence
+        # point (dof), not the winning ±delta probe (which carries a random
+        # ±delta rad offset). Measure the clean dof every epoch and log its
+        # score in a separate column so the record distinguishes "optimizer
+        # advance" (dof) from "probe selection bias" (pos/neg).
+        phase_dof = phase_of(dof)
+        frame_dof = measure(phase_dof)
+        dof_timestamp = last_capture_utc
+        dof_score = _metrics(frame_dof, mask, config.w_pib, config.w_unif, cv_mask)[0]
         score = record(
             _STAGE_REFINE,
             measured_frame,
@@ -995,6 +1004,8 @@ def _run_gs_refine_session(
             confirmed=confirmed,
             pos_timestamp_utc=pos_timestamp,
             neg_timestamp_utc=neg_timestamp,
+            dof_score=dof_score,
+            dof_timestamp_utc=dof_timestamp,
         )
         if config.record_debug and confirmed:
             row = recorder.history[-1]
@@ -1006,10 +1017,12 @@ def _run_gs_refine_session(
             row["_phase_neg"] = np.asarray(
                 slm.create_phase_from_array(displayed_phase(phase_neg))
             ).copy()
-        if score > best_score:
-            best_score = score
-            best_phase = measured_phase
-            best_frame = measured_frame
+        # issue #140: track the best by the un-perturbed dof score, and persist
+        # the dof's own phase (the convergence point), not the ±delta probe.
+        if dof_score > best_score:
+            best_score = dof_score
+            best_phase = phase_dof
+            best_frame = frame_dof
             best_stage = _STAGE_REFINE
 
         grad = spgd_gradient(pos, neg, delta, maximize=True)

@@ -588,3 +588,41 @@ class TestCacheIsReadBack:
         finally:
             revived.clear()
             served.clear()
+
+
+# ---------------------------------------------------------------------------
+# issue #143 problem 1: index_cache=None must not write a file named "none"
+# ---------------------------------------------------------------------------
+def test_index_cache_none_writes_no_file(tmp_path: Path) -> None:
+    """``index_cache=None`` must not create any cache file -- let alone "none".
+
+    The original bug wrote the index JSON to ``str(None)`` (a file literally
+    named ``none``) because a ``None`` path was stringified. The fix is
+    ``cache_path = Path(index_cache) if index_cache is not None else None`` and
+    a ``if cache_path is not None`` gate, so a ``None`` cache path is skipped
+    entirely.
+    """
+    _mixed_corpus(tmp_path)
+    before = {p.name for p in tmp_path.rglob("*") if p.is_file()}
+
+    index = build_hw_index(tmp_path, index_cache=None, progress_every=0)
+    # The index is still built (the cache is an optimisation, not a requirement).
+    assert len(index) > 0
+
+    after = {p.name for p in tmp_path.rglob("*") if p.is_file()}
+    # No brand-new file appeared -- in particular no cache, and no "none".
+    assert after == before
+    # And the regression sentinel: no file named "none" anywhere under the root.
+    assert not any(p.name == "none" for p in tmp_path.rglob("*") if p.is_file())
+
+
+def test_index_cache_explicit_path_writes_exactly_that_file(tmp_path: Path) -> None:
+    """An explicit cache path writes that file and only that file."""
+    _mixed_corpus(tmp_path)
+    cache = tmp_path / "hw_index_cache.json"
+    build_hw_index(tmp_path, index_cache=cache, progress_every=0)
+    assert cache.is_file()
+    payload = json.loads(cache.read_text(encoding="utf-8"))
+    assert "records" in payload or "files" in payload  # a real index payload
+    # Nothing else was created as a cache (no "none" sibling).
+    assert not (tmp_path / "none").exists()

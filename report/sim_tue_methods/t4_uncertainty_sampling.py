@@ -183,7 +183,6 @@ def uncertainty_diff(nets: list[InverseNet], c12: torch.Tensor) -> torch.Tensor:
     x4 = far_field_down(c12)[None, None]  # (1,1,H,W)
     preds = [net(x4.float()) for net in nets]
     stack = torch.stack(preds, dim=0)  # (K, 1, 12)
-    mean = stack.mean(0)
     var = stack.var(0, unbiased=False)
     return var.mean()
 
