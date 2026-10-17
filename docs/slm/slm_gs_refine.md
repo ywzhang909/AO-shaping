@@ -58,7 +58,7 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 
 | 选项 | 说明 | 默认值 |
 |------|------|--------|
-| `-e, --epochs` | SPGD 细化轮数 (每轮 2 次远场读帧) | 400 |
+| `-e, --epochs` | SPGD 细化轮数 (每轮 3 次远场读帧：±δ 差分估梯度 + 未扰动收敛点各 1 次；`--confirm-best` 触发时另加 1 次) | 400 |
 | `--target-side` | 目标方形边长 (相机像素, 0=由 `D·f/(d_SLM·p_cam)` 推导) | 0 |
 | `--phase-grid` | 自由相位粗网格边长 (默认 24 → 576 DOF) | 24 |
 | `--delta` / `--lr` / `--optimizer [adam\|adamw\|adamod\|sgd]` / `--lr-schedule` | SPGD 超参 | - |
