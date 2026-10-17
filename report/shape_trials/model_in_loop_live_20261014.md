@@ -117,9 +117,33 @@
 | 三角形 | `20261014_171301` | 0.5880→0.6715 | 0.5767 | 0.6964 | 0.8179 | 0.7415 | 0.8428 |
 | 五角星 | `20261014_171340` | 0.5805→0.6033 | 0.7379 | 0.6219 | 0.8234 | 0.7629 | 0.7961 |
 
+## 五种形状相位与远场图像
+
+以下为五轮目标形状整形的 SLM 最佳相位（包装到 [0, 2π)，`twilight` 色图）与对应 CCD 远场图像（`inferno` 色图）。相位来自各运行目录的 `best_phase.npy`；远场为保存的 `best_far_field.png`。
+
+| 形状 | SLM 相位 | CCD 远场 |
+|------|----------|----------|
+| 圆形 (`20261014_170820`) | ![](figures/model_in_loop_live_20261014_20261014_170820_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield.png){width=150} |
+| 正方形 (`20261014_171043`) | ![](figures/model_in_loop_live_20261014_20261014_171043_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield.png){width=150} |
+| 长方形 (`20261014_171219`) | ![](figures/model_in_loop_live_20261014_20261014_171219_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield.png){width=150} |
+| 三角形 (`20261014_171301`) | ![](figures/model_in_loop_live_20261014_20261014_171301_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield.png){width=150} |
+| 五角星 (`20261014_171340`) | ![](figures/model_in_loop_live_20261014_20261014_171340_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield.png){width=150} |
+
 每轮 `probes/manifest.json` 恰有 10 张帧（平场 1、训练 2、留出 6、成形 1），全部有 UTC 时间戳及曝光回读；留出均带 `smooth`、`zernike` 或 `freeform` 标签。平场自动曝光约 0.05 ms，训练、留出与成形帧均为 0.400 ms，未超过上限；逐轮辅助原始帧峰值最高分别为 166、170、186、193、196/255。原始帧为稳定平均后的另一次 CCD 读取，不能与稳定帧逐像素配对。设备每轮均正常关闭。
 
 五张 `best_far_field.png` 显示的是随目标形状变化的散斑团，没有清晰、均匀的实心轮廓；五角星仅比自身平场高 0.0228 分。`accepted` 和留出相关性通过，只能说明当前复合指标提升及探针上的预测达到门槛，**不能**证明目标形状已实现。不同形状的掩码面积不同，分数、CV 和 EE 不应直接跨形状排名。五轮相隔数分钟且平场自动曝光不同，本轮也不是同曝光交错重放，不能据此量化光路漂移或形状选择的因果收益。
+
+## 五种形状远场与目标轮廓对照
+
+以下为五种目标形状的 CCD 远场图像与目标轮廓（青色虚线）对照。目标边长 100 像素，中心 (153, 152)。青色虚线表示理想目标形状边界，可直观判断实际光斑是否覆盖目标区域。
+
+| 形状 | CCD 远场 | 远场 + 目标轮廓 |
+|------|----------|-----------------|
+| 圆形 | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield_target.png){width=150} |
+| 正方形 | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield_target.png){width=150} |
+| 长方形 | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield_target.png){width=150} |
+| 三角形 | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield_target.png){width=150} |
+| 五角星 | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield_target.png){width=150} |
 
 GUI 已把五种形状作为中文可选项，底层值仍为 `square/rectangle/triangle/star/circle`，并开放自由相位留出数；五种选择到配置类的映射有离线测试。下一步应在固定安全曝光下交错重放各形状的成形相位，并增加与目标掩码的形状相似度指标；先复核真实入射振幅和面板配准，再决定是否增加 Step B 迭代或模型自由度。曝光仍须保持不高于 0.4 ms。
 
