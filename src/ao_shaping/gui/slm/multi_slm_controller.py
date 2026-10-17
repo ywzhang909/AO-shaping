@@ -17,6 +17,13 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.gui.slm.bench_settings import (
+    DEFAULT_CAMERA_PIXEL_UM,
+    KNOWN_CAMERA_PIXEL_UM,
+    auto_check_camera_pixel_um,
+    detect_camera_pixel_um,
+    render_bench_settings,
+)
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
     PREVIEW_COLORMAP_DEFAULT,
@@ -33,119 +40,18 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # probe runs in a daemon thread and is abandoned after this interval.
 SLM_PROBE_TIMEOUT_S = 3.0
 
-#: Default camera pixel pitch (μm) used when hardware detection is unavailable.
-DEFAULT_CAMERA_PIXEL_UM = 2.2
-#: Known pixel pitches for specific camera models (μm).
-#: Keyed by a substring of the camera model name.
-KNOWN_CAMERA_PIXEL_UM: dict[str, float] = {
-    "MER2-507": 2.2,
-}
+# 像元间距的探测与告警已搬到「本次实验光路」区块（bench_settings）—— 那是一次
+# 实验内固定的量，不该和「刷新相机状态」这种一次性诊断按钮混在一起。下面三个名字
+# 是为旧 import 路径保留的再导出。
+_DETECT_CAMERA_PIXEL_UM = detect_camera_pixel_um
+_AUTO_CHECK_CAMERA_PIXEL_UM = auto_check_camera_pixel_um
 
-
-def _detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float | None:
-    """Probe the camera for its physical pixel pitch (μm).
-
-    Tries to read ``PixelSize`` from the live device via the camera SDK.
-    Falls back to a known-model table (e.g. Daheng MER2-507 = 2.2 µm).
-
-    Returns the pixel pitch in μm, or ``None`` if the camera is unavailable
-    or the value cannot be determined.
-    """
-    if cam_type == "daheng":
-        try:
-            import gxipy as gx  # type: ignore[import-untyped]
-        except (ImportError, OSError):
-            return None
-        device_manager = gx.DeviceManager()
-        dev_count, dev_info_list = device_manager.update_device_list()
-        if not dev_count or not dev_info_list or len(dev_info_list) <= cam_id:
-            return None
-        sn = dev_info_list[cam_id].get("sn")
-        model_raw: Any = dev_info_list[cam_id].get("model", "") or ""
-        if isinstance(model_raw, tuple):
-            model_raw = model_raw[0] if model_raw else ""
-        model = str(model_raw)
-        cam: Any = None
-        try:
-            cam = device_manager.open_device_by_sn(sn)
-            try:
-                pixel_size = cam.PixelSize.get()
-                if pixel_size is not None:
-                    val = float(pixel_size)
-                    if val > 0:
-                        return val
-            except Exception:
-                pass
-        except Exception as e:
-            logger.debug(f"Daheng 探测像素间距失败: {e}")
-            return None
-        finally:
-            if cam is not None:
-                try:
-                    cam.close_device()
-                except Exception:
-                    pass
-        for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
-            if known_model in model:
-                return pitch
-        return None
-    elif cam_type == "miicam":
-        try:
-            from ao_shaping.drivers.ccd.miicam.driver import MIICamera
-
-            cam = MIICamera(cam_id=cam_id)
-            cam.open()
-            try:
-                # MiiCam SDK may expose pixel size; try reading it.
-                pixel_size = getattr(cam, "pixel_size_um", None)
-                if pixel_size is not None:
-                    return float(pixel_size)
-            finally:
-                cam.close()
-        except Exception as e:
-            logger.debug(f"MiiCam 探测像素间距失败: {e}")
-        return None
-    return None
-
-
-def _auto_check_camera_pixel_um() -> None:
-    """Auto-detect camera pixel_um on sidebar render; warn on mismatch.
-
-    Reads the configured ``camera_pixel_um`` session-state value against the
-    value probed from hardware.  When they differ, surfaces a one-line warning
-    so the operator can click a button to adopt the hardware value.  The
-    existing value is never silently overwritten — the operator always decides.
-    """
-    configured = st.session_state.get("camera_pixel_um")
-    if configured is None:
-        return
-    if "_cam_pixel_checked" not in st.session_state:
-        detected = _detect_camera_pixel_um(
-            str(st.session_state.get("cam_type", "daheng")),
-            int(st.session_state.get("cam_id", 0)),
-        )
-        if detected is not None and abs(float(detected) - float(configured)) > 1e-3:
-            st.session_state["_cam_pixel_detected"] = detected
-            st.session_state["_cam_pixel_mismatch"] = True
-        else:
-            st.session_state["_cam_pixel_mismatch"] = False
-        st.session_state["_cam_pixel_checked"] = True
-
-    if st.session_state.get("_cam_pixel_mismatch"):
-        detected = st.session_state.get("_cam_pixel_detected")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.warning(
-                f"相机像素间距: 会话值 {configured} μm ≠ 硬件探测值 {detected} μm"
-            )
-        with col2:
-            if st.button("采用", key="adopt_camera_pixel_btn", type="primary"):
-                detected_val = st.session_state.get("_cam_pixel_detected")
-                if detected_val is not None:
-                    st.session_state["camera_pixel_um"] = float(detected_val)
-                    st.session_state.pop("_cam_pixel_checked", None)
-                    st.session_state.pop("_cam_pixel_mismatch", None)
-                    st.rerun()
+__all__ = [
+    "DEFAULT_CAMERA_PIXEL_UM",
+    "KNOWN_CAMERA_PIXEL_UM",
+    "main",
+    "render_slm_sidebar",
+]
 
 
 def _scan_camera_status() -> list[dict]:
@@ -676,8 +582,11 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     _safe_set_state(f"{prefix}_shift_y", int(getattr(slm, "_shift_y", 0)))
     _safe_set_state(f"{prefix}_width", int(slm.Panel_Res[0]))
     _safe_set_state(f"{prefix}_height", int(slm.Panel_Res[1]))
+    # 这个 key 被图案生成器当**采样间距**用（见 _build_slm_pattern 的
+    # pixel_pitch_um），所以必须同步 Pitch_um 而不是有效口径 Pixel_Size_um
+    # ——两者相差 0.2 μm，见 slm200_constants 注释。
     _safe_set_state(
-        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pixel_Size_um", 8.0))
+        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pitch_um", 8.0))
     )
     _safe_set_state(f"{prefix}_bits", int(getattr(slm, "Gray_Scale_bits", 10)))
     _safe_set_state(f"{prefix}_use_120hz", bool(slm._use_120hz))
@@ -1025,33 +934,13 @@ def render_slm_sidebar():
 
     st.markdown("")
 
-    # Camera pixel pitch configuration with auto-detect
-    pixel_um = st.session_state.get("camera_pixel_um", DEFAULT_CAMERA_PIXEL_UM)
-    # Auto-detect on every render if a camera is available; warn on mismatch.
-    _auto_check_camera_pixel_um()
-    col_pixel, col_detect = st.columns([3, 1])
-    with col_pixel:
-        st.number_input(
-            "相机像素间距 (μm)",
-            min_value=0.1,
-            max_value=50.0,
-            step=0.1,
-            value=float(pixel_um),
-            key="camera_pixel_um",
-            help="CCD 像元间距 (μm)。点击「探测」可尝试从硬件读取。参考: 大恒 MER2-507 = 2.2 µm",
-        )
-    with col_detect:
-        st.markdown("")
-        if st.button("探测", key="detect_camera_pixel_btn", type="secondary"):
-            detected = _detect_camera_pixel_um()
-            if detected is not None:
-                st.session_state["camera_pixel_um"] = detected
-                st.success(f"探测到像素间距: {detected} μm")
-                st.rerun()
-            else:
-                st.warning("无法探测像素间距 (相机未连接或 SDK 不可用), 使用当前值")
+    st.markdown('')
 
-    st.markdown("")
+    # 「本次实验光路」区块：相机类型/ID、像元间距（+ 探测 + 自动探测告警）、
+    # 会话曝光、读出窗口、去零级载波，以及每台已连接 SLM 的面板几何与标定按钮。
+    # 像元间距的 widget key 仍是 camera_pixel_um（不新建同 key widget），
+    # 整个区块只在这里实例化一次 —— 主区的整形参数区不再重复它。
+    render_bench_settings()
 
     for slm_num in (1, 2):
         prefix = f"slm{slm_num}"
@@ -1126,7 +1015,13 @@ def _render_slm_settings(slm_num: int):
                 f"{st.session_state[f'{prefix}_width']}"
                 f"×{st.session_state[f'{prefix}_height']}"
             )
-            st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
+            pitch_um = st.session_state[f"{prefix}_pixel_pitch_um"]
+            pitch_label = f"像素间距: {pitch_um} μm"
+            size_um = getattr(slm_obj, "Pixel_Size_um", None)
+            if size_um is not None:
+                # 7.8 = 有效口径 / 8.0 = 间距, 两个不同的物理量, 并排显示避免混淆
+                pitch_label += f" · 有效口径: {size_um} μm"
+            st.write(pitch_label)
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
             sn_display = slm_obj._serial_number

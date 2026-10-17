@@ -45,6 +45,7 @@ import pytest
 
 import ao_shaping.runners.runner_common as runner_common
 import ao_shaping.runners.slm.model_in_loop_runner as model_in_loop_runner
+import ao_shaping.runners.slm.model_in_loop_session as model_in_loop_session
 from ao_shaping.optimizer.wfless.slm_gs_refine import SlmGsRefineConfig
 from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
 from ao_shaping.runners.runner_common import (
@@ -92,15 +93,16 @@ MIL = _Family(
     config=SlmModelInLoopConfig,
     builder=build_model_in_loop_config,
     builder_name="build_model_in_loop_config",
-    # The panel scan is a CLI preflight that runs *before* the optimizer opens
-    # its devices, so those five never belong in the Config.
+    # The panel scan is a preflight that runs *before* the optimizer opens its
+    # devices, so those five never belong in the Config. It is consumed by the
+    # shared session module (which the GUI drives too), not by the click runner.
     cli_only={
         "save_best_image": runner_common,
-        "panel_scan": model_in_loop_runner,
-        "panel_scan_step_px": model_in_loop_runner,
-        "panel_scan_radius_px": model_in_loop_runner,
-        "panel_scan_max_flat_drift": model_in_loop_runner,
-        "panel_scan_max_session_drift": model_in_loop_runner,
+        "panel_scan": model_in_loop_session,
+        "panel_scan_step_px": model_in_loop_session,
+        "panel_scan_radius_px": model_in_loop_session,
+        "panel_scan_max_flat_drift": model_in_loop_session,
+        "panel_scan_max_session_drift": model_in_loop_session,
     },
 )
 

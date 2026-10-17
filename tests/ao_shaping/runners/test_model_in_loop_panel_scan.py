@@ -23,13 +23,20 @@ def test_panel_scan_updates_center_before_optimization(monkeypatch, tmp_path):
         seen["center"] = config.pupil_center
         raise RuntimeError("optimization stub stopped")
 
+    # A supplied geometry file keeps this to the panel-scan step: without one a
+    # hardware run is an auto session and would also sweep the geometry (see
+    # test_model_in_loop_session_preflight.py for that path).
+    geometry = tmp_path / "bench_geometry.json"
+    geometry.write_text(json.dumps({"method": "sweep", "correlation": 0.82}), encoding="utf-8")
+
     monkeypatch.setattr(panel_locate, "scan_panel", scan)
     monkeypatch.setattr(slm_model_in_loop, "optimize_slm_model_in_loop", optimize)
     monkeypatch.setattr(io_file, "debug_run_dir", lambda *_: tmp_path / "run")
 
     result = CliRunner().invoke(
         run,
-        ["--panel-scan", "--pupil-center", "960,600", "--panel-scan-step-px", "120"],
+        ["--panel-scan", "--pupil-center", "960,600", "--panel-scan-step-px", "120",
+         "--geometry-file", str(geometry)],
     )
 
     assert result.exit_code == 2, result.output

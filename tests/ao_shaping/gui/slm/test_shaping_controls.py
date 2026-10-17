@@ -130,6 +130,22 @@ class TestParamsMapping:
         assert params.exposure_time_ms == pytest.approx(0.05)
         assert params.camera_pixel_um == pytest.approx(2.2)
 
+    def test_recipe_panel_pixel_um_is_the_pitch_not_the_pixel_size(self) -> None:
+        """The bench model samples on the panel lattice, so the recipe must use
+        ``PITCH_UM`` (8.0), not ``PIXEL_SIZE_UM`` (7.8).
+
+        The 0.2 μm gap is real device geometry, not an error to be closed:
+        swapping to the active-pixel size would shrink the aperture ~2.5 % and
+        silently abandon the interleaved-replay validated recipe.
+        """
+        from ao_shaping.drivers.slm.santec.slm200_constants import (
+            PITCH_UM,
+            PIXEL_SIZE_UM,
+        )
+
+        assert PITCH_UM != PIXEL_SIZE_UM  # guard: the test is meaningless otherwise
+        assert GS_REFINE_RECIPE["panel_pixel_um"] == PITCH_UM
+
     def test_gs_refine_config_resolves_bench_geometry(self) -> None:
         from ao_shaping.runners.runner_common import build_gs_refine_config
 

@@ -259,8 +259,9 @@ class Santec:
         ...     slm._display_memory(1)
 
     硬件规格与实验经验（2026-09 实测确认）:
-      - 面板: 1920×1200, 像素间距 8µm（PITCH_UM；制造商标称 10µm 方格含电极间隙，
-        实际可调制有效口径 8µm）。GS/相位网格以 PITCH_UM=8µm 作为 SLM 平面采样间距。
+      - 面板: 1920×1200, 像素间距 8µm（PITCH_UM）· 有效口径 7.8µm
+        （PIXEL_SIZE_UM；两者相差 0.2µm 是真实器件几何，见 slm200_constants）。
+        GS/相位网格以 PITCH_UM=8µm 作为 SLM 平面采样间距。
       - 像素翻转时序: LCOS 像素 0→2π 满量程翻转耗时至多 200ms
         （``MAX_PIXEL_FLIP_TIME_MS``）。``display_data()`` 在等待时间未指定或为负时，
         按相邻两帧最大灰度变化相对满量程的正比自动等待（首帧保守取最大值）。

@@ -53,8 +53,11 @@ thread.
 from __future__ import annotations
 
 import functools
+import json
+import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping, MutableMapping
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, ClassVar
@@ -64,14 +67,21 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
+from ao_shaping.drivers.slm.santec.slm200_constants import (
+    PITCH_UM as SLM_PITCH_UM,
+)
+from ao_shaping.drivers.slm.santec.slm200_constants import PIXEL_SIZE_UM as SLM_PIXEL_SIZE_UM
+from ao_shaping.gui.slm import bench_settings
+from ao_shaping.gui.slm.bench_settings import (
+    CAM_TYPE_OPTIONS,
+    MIL_TARGET_SIDE_MIN_PX,
+)
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
     SlmModelInLoopParams,
     build_gs_refine_config,
     build_model_in_loop_config,
-    describe_bench_geometry,
-    discover_model_in_loop_geometry,
     save_gs_refine_results,
     save_model_in_loop_results,
 )
@@ -86,9 +96,11 @@ from ao_shaping.utils.image.target.shapes import (
 __all__ = [
     "CAM_TYPE_OPTIONS",
     "GS_REFINE_RECIPE",
+    "MIL_BUDGET_PRESETS",
     "SHAPING_METHODS",
     "GsRefineMethod",
     "ModelInLoopMethod",
+    "SlmOwnership",
     "ShapingMethod",
     "ShapingOutcome",
     "build_gs_refine_params",
@@ -103,6 +115,7 @@ __all__ = [
     "shaping_session",
     "validate_daheng_exposure",
     "validate_daheng_fixed_exposure",
+    "with_slm_ownership",
 ]
 
 #: The interleaved-replay validated gs-refine recipe
@@ -121,6 +134,9 @@ GS_REFINE_RECIPE: dict[str, Any] = {
     "gs_warm_start": True,
     "gs_iters": 12,
     "gs_method": "plain",
+    # 面板模型取的是**像素间距** ``PITCH_UM`` = 8.0, 不是有效口径 7.8（相差 0.2 μm
+    # 的器件几何, 见 ``slm200_constants``）。换成像元尺寸会让孔径算小 2.5% 并作废下面
+    # 这份交错重放验证配方。
     "panel_pixel_um": 8.0,
     "camera_pixel_um": 2.2,
     "beam_radius_px": 450.0,
@@ -136,6 +152,22 @@ GS_REFINE_RECIPE: dict[str, Any] = {
 #: CCD backends, in the order the selector shows them.
 CAM_TYPE_OPTIONS: tuple[str, ...] = ("daheng", "miicam", "sim")
 
+#: Model-in-loop budget presets: ``(轮数, Step A 步数, Step B 步数)``.
+#: The "标准" row is verbatim the ``docs/slm/slm_model_in_loop.md`` §5 defaults
+#: (``n_rounds=6`` / ``step_a_iterations=80`` / ``step_b_iterations=600``); the
+#: other two are coarse/fine brackets around it for the operator, not new
+#: evidence.  Selecting a preset only overwrites the three budget fields when the
+#: selection **changed**, so hand-tuned values are never clobbered.
+MIL_BUDGET_PRESETS: dict[str, tuple[int, int, int]] = {
+    "快速 2/40/300": (2, 40, 300),
+    "标准 6/80/600": (6, 80, 600),
+    "长跑 12/160/1200": (12, 160, 1200),
+}
+
+#: The GS+SPGD validation recipe budget (SPGD 轮数 / GS 迭代).  Shown read-only —
+#: it is validated evidence (see :data:`GS_REFINE_RECIPE`), never a preset.
+GS_VALIDATED_BUDGET: tuple[int, int] = (12, 12)
+
 #: The Daheng saturation guard is per-session (the optical path sets it), so it
 #: is never a constant here: ``configured_daheng_exposure_limit()`` reads
 #: ``AO_DAHENG_MAX_EXPOSURE_MS``, and 0 means the optimizers probe the image.
@@ -144,6 +176,12 @@ CAM_TYPE_OPTIONS: tuple[str, ...] = ("daheng", "miicam", "sim")
 #: data (not read from the config at import time) so ``import`` stays free of
 #: the optimizer package; :func:`_mil_default` still resolves the *authoritative*
 #: value from ``SlmModelInLoopConfig`` and this table only documents intent.
+#:
+#: ``pupil_center`` here is **not** the widget default any more — the widget
+#: starts empty（「留空 = 自动定位」）.  This entry is the last-resort fallback,
+#: used only when a session has *never* been calibrated and is what the sidebar
+#: back-fills when a calibration skipped the locate step.  It is this bench's
+#: measured panel centre, so a different optical path has to calibrate.
 MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "n_rounds": 6,
     "target_shape": "square",
@@ -161,6 +199,84 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
     "geometry_file": "",
     "pupil_center": "960,690",
 }
+
+#: Bare fallback when nothing at all is known about the session.  Owned by
+#: :mod:`bench_settings` (the sidebar is what back-fills it) and re-exported here
+#: because ``MIL_WIDGET_DEFAULTS`` is the table tests and callers reach for.
+MIL_PUPIL_CENTER_FALLBACK: str = bench_settings.PUPIL_CENTER_FALLBACK
+
+#: Shared 目标与评分 caption — one formula for both methods, so switching the
+#: algorithm never means re-learning what the score means.
+_OBJECTIVE_CAPTION = (
+    "目标与评分（相机像素；综合分 = w_pib·PIB + w_unif·1/(1+CV)）。"
+    "GS 的权重是 w_pib / w_unif，正向模型的是 w_eff / w_uni。"
+)
+
+#: GS 相位网格上限放开后的耗时提示（上界 64 → 128 时的代价必须说清）。
+_PHASE_GRID_HELP = (
+    "自由相位网格边长。验证配方用 12；网格边长翻倍 = 可控自由度 ×4，"
+    "而 SPGD 每轮要遍历整个网格，耗时随之上升（本实验系统 12 网格约 1 s/轮）。"
+)
+
+#: MIL 探针 σ 的可辨识性上限提示。
+_PROBE_SPREAD_HELP = (
+    "必须 ≳3 rad，否则拟合对像差不敏感（探针相位 std 要越过 16-bit "
+    "量化本底两个数量级才良态）"
+)
+
+#: 正向模型瞳面网格 / 远场补零的耗时与内存提示。
+_MIL_REGION_HELP = (
+    "正向模型瞳面网格边长，必须是 8 的倍数。网格边长 ×8 = 远场采样点 ×64，"
+    "内存与耗时随之上升（本实验系统 64 网格可跑）。"
+)
+_MIL_PADDING_HELP = (
+    "远场补零倍数。正向模型默认 8（docs/slm/slm_model_in_loop.md §5），"
+    "与 GS 验证值 3 **不合并** —— 两者是各自标定产物的一部分。"
+)
+
+#: MIL 探针数放开上限后的耗时提示。
+_PROBE_COUNT_HELP = (
+    "每轮使用的不同探针相位数。8 是实测默认；每加 1 个探针，Step A 的设备"
+    "往返就多一轮（本实验系统一轮探针约 2 s）。"
+)
+_HOLDOUT_HELP = (
+    "留出探针数（不参与拟合，只用来验相关度）。0 = 不做留出验证；"
+    "注意 Step A 拟合本身要求 ≥ 1，真要关闭留出请用「自由相位留出探针」= 0。"
+)
+
+#: MIL 权重默认值（``SlmModelInLoopParams`` 的 0.6 / 0.4）。
+_MIL_W_EFFICIENCY = 0.6
+_MIL_W_UNIFORMITY = 0.4
+
+
+def flush_pending_widgets(method: ShapingMethod) -> dict[str, Any]:
+    """Flush this method's queued widget writes into the widget keys.
+
+    Called as the **first** statement of :meth:`ShapingMethod.render_inputs`,
+    before any widget is instantiated — that is the only window in which a
+    widget key is still writable (Streamlit locks a key for the rest of the
+    script run once a widget claims it).
+    """
+    key = f"{method.prefix}_shp_pending"
+    queued = dict(st.session_state.get(key) or {})
+    if not queued:
+        return {}
+    for widget_key, value in queued.items():
+        st.session_state[widget_key] = value
+    st.session_state[key] = {}
+    return queued
+
+
+def queue_widget_writes(method: ShapingMethod, values: Mapping[str, Any]) -> None:
+    """Queue ``values`` to be written into this method's widget keys on flush.
+
+    Needed by anything that reacts to a widget the operator just changed *within
+    the same render* — the budget preset is the only such case today.
+    """
+    key = f"{method.prefix}_shp_pending"
+    queued = dict(st.session_state.get(key) or {})
+    queued.update({method.wkey(name): value for name, value in values.items()})
+    st.session_state[key] = queued
 
 
 # ---------------------------------------------------------------------------
@@ -299,6 +415,64 @@ def _reacquire_slm_handle(slm_num: int) -> Santec | None:
     return slm
 
 
+@dataclass
+class SlmOwnership:
+    """The SLM-handle handover slot yielded by :func:`with_slm_ownership`.
+
+    Inside the ``with`` body the GUI owns **no** handle (``slm`` is ``None`` by
+    construction — the optimizer or the calibrator has it).  On exit the
+    re-acquired handle lands in :attr:`slm`, so the caller can adopt a phase
+    afterwards — the only point at which the GUI owns the device again.
+
+    ``st.session_state`` lives on the ``Streamlit`` object, not on this module,
+    so the tests can swap in a plain dict and drive the whole handover offline.
+    """
+
+    slm_num: int
+    slm: Any = None
+
+
+@contextmanager
+def with_slm_ownership(
+    slm_num: int, slot: SlmOwnership | None = None
+) -> Iterator[SlmOwnership]:
+    """Hand the SLM to whoever needs it for the whole body, then take it back.
+
+    Three steps, in this order:
+
+    1. stop the background phase toggle (it would fight for the panel);
+    2. release the GUI's handle — Santec SDK handles are not re-entrant, and
+       the optimizers *and* the session calibrator open their own;
+    3. ``finally``: re-acquire, so a crash or an abort cannot strand the page
+       without a device.
+
+    The whole body also runs under the session ``bench_busy`` flag, which is what
+    disables the sidebar optical-path controls while a run or a calibration is
+    in flight.
+
+    Both entry points share it: :func:`shaping_session` (a shaping run) and the
+    sidebar calibration button.  ``slot`` is optional, so a caller can hold the
+    reference *before* entering — that is what lets the ``finally`` of
+    :func:`shaping_session` read :attr:`SlmOwnership.slm` even when step 1 or 2
+    raised.  Exceptions from the body propagate untouched — surfacing them once
+    is the caller's job.
+    """
+    owned = slot if slot is not None else SlmOwnership(slm_num)
+    _stop_background_toggle(slm_num)
+    bench_settings.set_bench_busy(True)
+    _release_slm_handle(slm_num)
+    try:
+        yield owned
+    finally:
+        # Nested, not sequential: a re-acquire that raised would otherwise leave
+        # ``bench_busy`` stuck True, which disables the sidebar optical-path
+        # controls for the rest of the session with no way to clear them.
+        try:
+            owned.slm = _reacquire_slm_handle(slm_num)
+        finally:
+            bench_settings.set_bench_busy(False)
+
+
 # ---------------------------------------------------------------------------
 # Registry + lifecycle decorator
 # ---------------------------------------------------------------------------
@@ -358,42 +532,40 @@ def shaping_session(
 ) -> Callable[..., ShapingOutcome | None]:
     """Method decorator: own the SLM handle for the whole of a run.
 
-    Wraps :meth:`ShapingMethod.run` with the cross-cutting concerns that must
-    not be duplicated per algorithm:
+    Wraps :meth:`ShapingMethod.run` on top of :func:`with_slm_ownership`, which
+    owns the three steps that must not be duplicated per algorithm (stop the
+    background toggle, release the GUI handle because the optimizer opens its
+    own and the SDK handles are not re-entrant, re-acquire in ``finally``).
 
-    1. stop the background phase toggle (it would fight the run for the panel);
-    2. release the GUI's SLM handle — the optimizers open their own and the
-       SDK handles are not re-entrant;
-    3. re-acquire the handle in ``finally``, so a failed or aborted optimizer
-       cannot leave the page without a device;
-    4. log + surface any escaping exception exactly once.
+    What the decorator adds on top is the **reporting** order:
 
-    Because the decorator owns (2)–(4), a new adapter cannot forget them and
-    an optimizer-side API change stays inside ``execute()``.
+    1. the phase is displayed only *after* the handle is back (the body by
+       contract owns no handle, so the adopted phase could not be sent before);
+    2. any escaping exception is logged and surfaced exactly once, here.
+
+    Because the decorator owns both, a new adapter cannot forget either and an
+    optimizer-side API change stays inside ``execute()``.
     """
 
     @functools.wraps(run)
     def wrapper(
         self: ShapingMethod, *args: Any, **kwargs: Any
     ) -> ShapingOutcome | None:
-        slm_num = self.slm_num
         outcome: ShapingOutcome | None = None
-        _stop_background_toggle(slm_num)
-        _release_slm_handle(slm_num)
+        # Hold the slot before entering: step 1/2 of the handover can raise, and
+        # the ``finally`` still has to be able to read ``owned.slm``.
+        owned = SlmOwnership(self.slm_num)
         try:
-            outcome = run(self, *args, **kwargs)
+            with with_slm_ownership(self.slm_num, owned):
+                outcome = run(self, *args, **kwargs)
             return outcome
         except Exception as exc:  # noqa: BLE001 - surfaced to the operator
             logger.exception("闭环整形 [{}] 失败: {}", self.key, exc)
             st.error(f"{self.label} 失败: {exc}")
             return None
         finally:
-            # Re-acquire first, then display: the body has no handle by design
-            # (the optimizer owned it), so the adopted phase can only be sent
-            # after the GUI owns the device again.
-            slm = _reacquire_slm_handle(slm_num)
-            if slm is not None:
-                self.show_phase(slm, outcome)
+            if outcome is not None:
+                self.show_phase(owned.slm, outcome)
 
     return wrapper
 
@@ -401,6 +573,38 @@ def shaping_session(
 # ---------------------------------------------------------------------------
 # Adapter base class
 # ---------------------------------------------------------------------------
+
+
+def _format_center(center: Any) -> str:
+    """面板坐标 → ``"x,y"``（``SlmModelInLoopParams.pupil_center`` 的文本形式）。"""
+    point = getattr(center, "pupil_center", center)
+    try:
+        x, y = point[0], point[1]
+    except (TypeError, IndexError, KeyError):
+        return bench_settings.PUPIL_CENTER_FALLBACK
+    return f"{int(round(float(x)))},{int(round(float(y)))}"
+
+
+def validate_target_fits_window(values: Mapping[str, Any]) -> str | None:
+    """目标方边长必须整个落在读出窗内。
+
+    The reverse clamp (window ≥ target) used to live in the widget bounds, which
+    cannot work any more: the sidebar renders the window before the main area
+    knows the target side, and Streamlit *raises* on an out-of-range widget value
+    rather than clamping it.  So the constraint is checked here, before the run.
+    """
+    side = int(values.get("target_side", 0) or 0)
+    if side <= 0:
+        return None  # 0 = 自动推导，由算法按瞳径算
+    window_side = int(values.get("cam_size") or 0)
+    if window_side <= 0:
+        return None  # 关窗 = 整幅读出，目标必然放得下
+    if side > window_side:
+        return (
+            f"目标方边长 {side} px 超过读出窗口边长 {window_side} px —— "
+            "在左侧「本次实验光路」把窗口边长调大，或把目标边长调小"
+        )
+    return None
 
 
 class ShapingMethod(ABC):
@@ -436,9 +640,46 @@ class ShapingMethod(ABC):
 
     # --- algorithm-specific hooks ----------------------------------------
 
-    @abstractmethod
+    def render_objective(self, values: dict[str, Any]) -> None:
+        """目标与评分：一行 4 列（目标形状/边长 + 两个权重）。
+
+        Both methods render the *same* block title and formula caption — the
+        operator should not have to re-learn the page when switching algorithms —
+        but the four fields inside are method-specific, so each adapter
+        implements this hook.
+        """
+
+    def render_budget(self, values: dict[str, Any]) -> None:
+        """预算区（轮数 / 迭代）。
+
+        Default is empty: GS+SPGD's budget is validated evidence, so it is shown
+        read-only rather than offered as a preset that could be nudged.
+        """
+
+    def render_advanced(self, values: dict[str, Any]) -> None:
+        """方法专属高级参数（渲染在默认收起的 expander 内）。"""
+
     def render_inputs(self) -> dict[str, Any]:
-        """Render this algorithm's widgets; return the values dict."""
+        """Render this algorithm's widgets; return the values dict.
+
+        The order is fixed by the page contract: 目标与评分 → 预算 → 高级参数.
+        Optical-path settings (camera, window, exposure, carrier, panel centre,
+        geometry) are **not** here — they live in the sidebar 「本次实验光路」
+        block and come back through :func:`bench_settings.merge_bench_values`,
+        applied by :func:`render_closed_loop_shaping`.
+        """
+        values: dict[str, Any] = {"slm_number": self.slm_num, "method": self.key}
+        flush_pending_widgets(self)
+        st.caption(_OBJECTIVE_CAPTION)
+        self.render_objective(values)
+        self.render_budget(values)
+        with st.expander("高级参数", expanded=False):
+            self.render_advanced(values)
+        st.caption(
+            "面板与瞳面几何、相机、读出窗口、曝光与去零级载波在左侧「本次实验光路」"
+            "（一次实验固定；换光路后在那里重标定即可，不必重填主区）。"
+        )
+        return values
 
     @abstractmethod
     def build_params(self, values: Mapping[str, Any]) -> Any:
@@ -467,6 +708,20 @@ class ShapingMethod(ABC):
     def prepare_config(self, config: Any, values: Mapping[str, Any]) -> None:
         """Hook for per-run config tweaks (progress callback, debug dir, ...)."""
 
+    def auto_calibrate(
+        self, params: Any, config: Any, values: Mapping[str, Any]
+    ) -> tuple[Any, Any] | None:
+        """Return a (possibly) calibrated (params, config), or None to leave them alone.
+
+        Called inside the SLM-ownership handover, i.e. with the devices free.
+        Raising aborts the run -- a bench that cannot be calibrated must not be
+        shaped blind.
+
+        Default is no-op: an algorithm that needs no session preflight (GS+SPGD
+        has none, on the CLI side either) simply does not override it.
+        """
+        return None
+
     # --- shared template --------------------------------------------------
 
     @shaping_session
@@ -488,12 +743,36 @@ class ShapingMethod(ABC):
         params = self.build_params(values)
         config = self.make_config(params, debug=debug)
         self.prepare_config(config, values)
+        # Session preflight belongs here and nowhere else: the devices are the
+        # calibrator's at this point (``shaping_session`` already handed the
+        # SLM over), and it is the same position the CLI holds in ``run()`` --
+        # before ``optimize_slm_model_in_loop`` opens Step A.  Raising from the
+        # hook aborts the run through the one and only error path.
+        calibrated = self.auto_calibrate(params, config, values)
+        if calibrated is not None:
+            params, config = calibrated
+        # Snapshot the optical path **as it is right now**, before any device
+        # moves: afterwards a re-acquire + re-render would read different values.
+        prefix = str(values.get("bench_prefix", self.prefix))
+        values.setdefault("method", self.key)
+        bench_settings.set_effective_state(prefix, effective_bench_snapshot(values))
 
         logger.info("GUI 闭环整形启动 [{}]: {}", self.key, type(params).__name__)
         outcome = self.execute(config)
         outcome = replace(outcome, saved_dir=self.save(params, outcome, debug=debug))
-        self.summarise(outcome)
+        write_bench_snapshot(outcome.saved_dir, prefix)
+        self.render_results(outcome)
         return outcome
+
+    def render_results(self, outcome: ShapingOutcome) -> None:
+        """结果区：生效光路参数快照 → 表格 → 保存目录 → 结论。
+
+        The optical-path snapshot comes **first** because it is the part that
+        answers "which optical path produced the numbers below" — the results
+        table carries no geometry information at all.
+        """
+        st.caption(snapshot_summary_line(str(self.prefix)))
+        self.summarise(outcome)
 
     def show_phase(self, slm: Any, outcome: ShapingOutcome | None) -> None:
         """Display the adopted phase once the GUI owns the SLM again.
@@ -558,89 +837,173 @@ class ShapingMethod(ABC):
             help=help,
         )
 
-    def render_camera_inputs(
+    def render_extra_row(
+        self, values: dict[str, Any], extra: Mapping[str, dict[str, Any]]
+    ) -> None:
+        """One row of method-specific numeric inputs (e.g. frames per measurement).
+
+        相机类型 / ID / 像元间距 / 曝光 / 读出窗口 / 载波 **不在这里** ——
+        它们已经搬到侧栏「本次实验光路」区块
+        (:mod:`ao_shaping.gui.slm.bench_settings`)，因为一次实验内固定，本来
+        就不该每跑一次就重填一遍。真正喂给优化器的值经
+        :func:`merge_bench_values` 回来，由
+        :func:`render_closed_loop_shaping` 在 ``render_inputs`` 之后并入。
+        """
+        for cell, (name, spec) in zip(st.columns(len(extra)), extra.items()):
+            with cell:
+                values[name] = st.number_input(**spec, key=self.wkey(name))
+
+    def render_target_side(
         self,
         values: dict[str, Any],
+        default: int,
         *,
-        exposure_default: float,
-        cam_size_default: int,
-        target_side: int = 0,
-        extra: Mapping[str, dict[str, Any]] | None = None,
-    ) -> None:
-        """Render the CCD block shared by every method, in one row.
+        lo: int,
+        step: int,
+        help: str | None = None,
+    ) -> int:
+        """目标方边长：上界跟着侧栏窗口走，下界固定 + 小值告警。
 
-        ``extra`` adds method-specific numeric inputs (e.g. frames averaged per
-        measurement) to the same row, so the camera block exists exactly once.
-
-        ``target_side`` is the objective target side length (camera px). When
-        window-cropping is enabled, ``cam_size`` is constrained to be at least
-        ``max(16, target_side)`` so the target square fits inside the camera
-        ROI. When cropping is disabled, ``cam_size`` is set to 0 (full frame).
+        上界取当前窗口边长（关窗 = 传感器短边），因为目标方斑必须整个落在读出
+        窗内。这里**不再**用 ``cam_size_min = max(16, target_side)`` 去反向夹
+        窗口：侧栏先渲染，拿不到主区的目标边长，而 Streamlit 对「min 变化后越界」
+        是抛异常而不是夹取 —— 所以那个交叉校验挪到 :meth:`validate`（运行前）。
         """
-        cells = st.columns(4 + (1 if extra else 0))
-        with cells[0]:
-            values["cam_type"] = st.selectbox(
-                "相机",
-                options=CAM_TYPE_OPTIONS,
-                index=list(CAM_TYPE_OPTIONS).index(
-                    str(values.get("cam_type", "daheng"))
-                )
-                if values.get("cam_type") in CAM_TYPE_OPTIONS
-                else 0,
-                key=self.wkey("cam_type"),
-                help="sim = 2f-Fourier 数字孪生（无硬件自检）",
+        # 上界取当前窗口边长（关窗 = 传感器短边），因为目标方斑必须整个落在读出
+        # 窗内。但窗口可以比目标默认边长**小**（操作员刚把窗口调小，或窗口默认值
+        # 还没建立），而 Streamlit 对 ``value > max_value`` 是**抛异常**而不是夹取
+        # —— 所以 default 必须与上界一起夹到合法区间。这与 docstring 里把交叉校验
+        # 挪到 :meth:`validate` 是同一个理由，只是那条只管 min/hi，管不到 value。
+        window_side = max(int(lo), bench_settings.bench_window_side())
+        default = max(int(lo), min(int(default), window_side))
+        value = self.num_input(
+            "target_side", "目标方边长", default, lo, window_side, step, help=help
+        )
+        side = int(value)
+        if 0 < side < MIL_TARGET_SIDE_MIN_PX:
+            st.warning(
+                f"目标方边长 {side} px < {MIL_TARGET_SIDE_MIN_PX} px，"
+                "目标框在读出噪声里没有意义"
             )
-        with cells[1]:
-            values["cam_id"] = st.number_input(
-                "相机 ID",
-                min_value=0,
-                max_value=8,
-                value=int(values.get("cam_id", 0)),
-                step=1,
-                key=self.wkey("cam_id"),
-            )
-        with cells[2]:
-            values["exposure_time_ms"] = st.number_input(
-                "曝光 (ms)",
-                min_value=0.0,
-                value=float(values.get("exposure_time_ms", exposure_default)),
-                step=0.01,
-                format="%.3f",
-                key=self.wkey("exposure"),
-                help="Daheng 饱和保护上限取 AO_DAHENG_MAX_EXPOSURE_MS，"
-                     "缺省时由画面探测（启动时校验）；0 = 由算法自动起曝",
-            )
-        idx = 3
-        with cells[idx]:
-            values["cam_crop_enabled"] = st.checkbox(
-                "是否开窗",
-                value=bool(values.get("cam_crop_enabled", True)),
-                key=self.wkey("cam_crop"),
-                help="开启后设置相机 ROI 窗口 (目标方边长须 ≤ 窗口)；关闭则整幅读出",
-            )
-        if values.get("cam_crop_enabled"):
-            # The camera window must be at least as large as the target square
-            # so the entire target fits inside the ROI.
-            cam_size_min = max(16, target_side)
-            with cells[idx]:
-                values["cam_size"] = st.number_input(
-                    "相机窗口",
-                    min_value=cam_size_min,
-                    max_value=1944,
-                    value=max(
-                        cam_size_min,
-                        int(values.get("cam_size", cam_size_default)),
-                    ),
-                    step=10,
-                    key=self.wkey("cam_size"),
-                    help="ROI 窗口边长 (px)，须 ≥ 目标方边长",
-                )
-        else:
-            values["cam_size"] = 0  # full frame
-        if extra:
-            for cell, (name, spec) in zip(cells[4:], extra.items()):
-                with cell:
-                    values[name] = st.number_input(**spec, key=self.wkey(name))
+        return side
+
+
+# ---------------------------------------------------------------------------
+# 生效光路参数快照
+# ---------------------------------------------------------------------------
+
+#: Snapshot rows as ``(三态字段名, values 表里的键)``.  Fixed order so two runs
+#: can be diffed line by line.  ``None`` marks a value that has no three-state
+#: counterpart (the carrier switches, the camera type) — it is still recorded,
+#: just always labelled ``unset``.
+_SNAPSHOT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("cam_type", "cam_type"),
+    ("cam_id", "cam_id"),
+    ("cam_crop_enabled", "cam_crop_enabled"),
+    ("cam_size", "cam_size"),
+    ("camera_pixel_um", "camera_pixel_um"),
+    ("exposure_ms", "exposure_time_ms"),
+    ("pupil_center", "pupil_center"),
+    ("panel_span_px", "panel_span_px"),
+    ("geometry_file", "geometry_file"),
+    ("blaze_period_px", "blaze_period_px"),
+    ("blaze_direction", "blaze_direction"),
+)
+
+
+def _snapshot_field_state(prefix: str, name: str) -> str:
+    """三态 for a snapshot field, across both namespaces.
+
+    A snapshot mixes experiment-level values (exposure, window side, pixel pitch)
+    and per-SLM values (pupil centre, model span, geometry file), so both field
+    tables have to be consulted — otherwise every experiment-level field would
+    look ``unset`` and the manual/detected split would be lost exactly where the
+    operator most needs it.
+    """
+    for namespace in (prefix, ""):
+        if name in bench_settings.bench_fields(namespace):
+            return bench_settings.field_state(namespace, name)
+    return "unset"
+
+
+def effective_bench_snapshot(values: Mapping[str, Any]) -> dict[str, Any]:
+    """本次运行**生效**的光路参数 + 每个字段的三态标记。
+
+    快照是判据：某个参数的结论永远能追溯到「跑的时候到底用的什么光路」，
+    而不是事后在侧栏看到的那一屏。
+    """
+    prefix = str(values.get("bench_prefix", "slm1"))
+    detected = bench_settings.detected_state(prefix)
+    snap: dict[str, Any] = {
+        "slm_number": int(values.get("slm_number", values.get("bench_slm_number", 1))),
+        "method": str(values.get("method", "")),
+        "geometry_source": str(values.get("bench_geometry_source", "auto")),
+    }
+    for name, key in _SNAPSHOT_FIELDS:
+        if key not in values:
+            continue
+        value = values[key]
+        if isinstance(value, tuple):
+            value = list(value)
+        snap[name] = value
+        snap[f"{name}__state"] = _snapshot_field_state(prefix, name)
+    for read_only in ("geometry_correlation", "calibrated_at", "evidence_dir"):
+        if read_only in detected:
+            snap[read_only] = detected[read_only]
+    return snap
+
+
+def snapshot_summary_line(prefix: str) -> str:
+    """结果区那行「本次运行生效的光路参数」说明。"""
+    snap = bench_settings.effective_state(prefix)
+    if not snap:
+        return "本次运行生效的光路参数：无快照（未跑过）"
+    manual = [
+        k[: -len("__state")]
+        for k in snap
+        if k.endswith("__state") and snap[k] == "manual"
+    ]
+    detected = [
+        k[: -len("__state")]
+        for k in snap
+        if k.endswith("__state") and snap[k] == "detected"
+    ]
+    parts = [f"{len(detected)} 项探测"]
+    if manual:
+        parts.append(
+            f"{len(manual)} 项手动（" + " ".join(f"{k}={snap[k]}" for k in manual) + ")"
+        )
+    saved = bench_settings.effective_key(prefix)
+    return f"本次运行生效的光路参数：{' / '.join(parts)}。快照见 {saved}"
+
+
+def write_bench_snapshot(saved_dir: Path | None, prefix: str) -> Path | None:
+    """把生效快照落到 ``{saved_dir}/params.json``。
+
+    只有目录已存在才写 —— saver 刚建好的目录必然存在，而一个不存在的路径说明
+    ``save()`` 返回了别处（测试替身），这时不该凭空建目录。
+    """
+    if saved_dir is None:
+        return None
+    snap = bench_settings.effective_state(prefix)
+    if not snap:
+        return None
+    directory = Path(saved_dir)
+    if not directory.is_dir():
+        logger.debug("运行目录不存在，跳过光路快照: {}", directory)
+        return None
+    target = directory / "params.json"
+    if target.exists():
+        logger.debug("{} 已存在，保留原有内容", target)
+        return target
+    try:
+        target.write_text(
+            json.dumps(snap, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+        )
+    except OSError as exc:
+        logger.warning("写光路快照失败 {}: {}", target, exc)
+        return None
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -768,37 +1131,53 @@ class GsRefineMethod(ShapingMethod):
         "从平场继续。"
     )
 
-    def render_inputs(self) -> dict[str, Any]:
+    def render_objective(self, values: dict[str, Any]) -> None:
+        """GS 目标与评分，一行 4 列（与 MIL 共用区块标题与公式 caption）。"""
         r = GS_REFINE_RECIPE
-        values: dict[str, Any] = {}
-
-        st.caption("目标与评分（相机像素；综合分 = w_pib·PIB + w_unif·1/(1+CV)）")
-        objective_fields = (
-            ("target_side", "目标方边长", 0, 3000, 1, "0 = 由照明瞳自动推导"),
-            ("side_factor", "边长因子", 0.1, 5.0, 0.1, None),
-            ("w_pib", "权重 w_pib", 0.0, 2.0, 0.05, None),
-            ("w_unif", "权重 w_unif", 0.0, 2.0, 0.05, None),
-        )
+        with st.columns(4)[0]:
+            values["target_side"] = self.render_target_side(
+                values,
+                int(r["target_side"]),
+                lo=0,
+                step=1,
+                help="0 = 由照明瞳自动推导",
+            )
         for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(4), objective_fields
+            st.columns(3)[1:],
+            (
+                ("side_factor", "边长因子", 0.1, 5.0, 0.1, None),
+                ("w_pib", "权重 w_pib", 0.0, 2.0, 0.05, None),
+                ("w_unif", "权重 w_unif", 0.0, 2.0, 0.05, None),
+            ),
         ):
             with cell:
-                values[key] = self.num_input(
-                    key, label, r[key], lo, hi, step, help=help_
-                )
+                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
 
+    def render_budget(self, values: dict[str, Any]) -> None:
+        """GS **不给**预算预设：12/12 是已验证配方，不是可随手改的旋钮。
+
+        Editing it silently abandons the interleaved-replay evidence in
+        ``report/shape_trials/gs_refine_live_20261012.md``, so the two budget
+        fields show up under 高级参数 with the validated values in their caption.
+        """
+        st.caption(
+            f"已验证配方预算：SPGD {GS_VALIDATED_BUDGET[0]} 轮 / "
+            f"GS {GS_VALIDATED_BUDGET[1]} 迭代（report/shape_trials/）"
+        )
+
+    def render_advanced(self, values: dict[str, Any]) -> None:
+        """GS 专属高级参数（默认收起）。"""
+        r = GS_REFINE_RECIPE
         st.caption("SPGD 细化（粗网格自由相位）")
         spgd_fields = (
             ("epochs", "SPGD 轮数", 1, 400, 1, None),
-            ("phase_grid", "相位网格", 2, 64, 1, None),
+            ("phase_grid", "相位网格", 2, 128, 1, _PHASE_GRID_HELP),
             ("delta", "扰动 δ (rad)", 0.0, 2.0, 0.05, None),
             ("seed", "随机种子", 0, 99999, 1, None),
         )
         for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), spgd_fields):
             with cell:
-                values[key] = self.num_input(
-                    key, label, r[key], lo, hi, step, help=help_
-                )
+                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
         with st.columns(5)[4]:
             values["confirm_best"] = st.checkbox(
                 "confirm-best 复测",
@@ -807,7 +1186,7 @@ class GsRefineMethod(ShapingMethod):
                 help="破纪录候选重新测量确认，抑制噪声假提升",
             )
 
-        st.caption("GS 预矫正（bake-off：仅实测优于平场才采用）")
+        st.caption("GS 预矫正（bake-off（对比择优）：仅实测优于平场才采用）")
         c1, c2, c3 = st.columns(3)
         with c1:
             values["gs_warm_start"] = st.checkbox(
@@ -832,64 +1211,47 @@ class GsRefineMethod(ShapingMethod):
                 options=gs_methods,
                 index=gs_methods.index(str(r["gs_method"])),
                 key=self.wkey("gs_method"),
-                help="实机对照结论: plain 最优 (gs_refine_live_20261012.md)",
+                help="实验对照结论: plain 最优 (gs_refine_live_20261012.md)",
             )
 
-        st.caption("台架模型（实测标定值，改动前先看 report/shape_trials/）")
-        with st.columns(4)[0]:
-            values["pupil_center"] = st.text_input(
-                "瞳孔中心 x,y (面板px)",
-                value=str(values.get("pupil_center", r["pupil_center"])),
-                key=self.wkey("pupil_center"),
+        st.caption("数值细节")
+        with st.columns(3)[0]:
+            values["far_field_padding"] = self.num_input(
+                "far_field_padding",
+                "远场补零",
+                r["far_field_padding"],
+                1,
+                64,
+                1,
+                help="GS 验证值 3；与 MIL 的默认值 8 不同，故两者不合并",
             )
-        bench_fields = (
-            ("beam_radius_px", "照明半径 (面板px)", 8.0, 1000.0, 10.0, None),
-            ("far_field_padding", "远场补零", 1, 8, 1, None),
-            (
-                "camera_pixel_um",
-                "相机像素 (μm)",
-                0.5,
+        with st.columns(3)[1]:
+            values["panel_pixel_um"] = self.num_input(
+                "panel_pixel_um",
+                "面板像素间距 (μm)",
+                r["panel_pixel_um"],
+                1.0,
                 50.0,
                 0.1,
-                "测量锚点: 大恒 MER2-507 为 2.2 μm",
-            ),
-        )
-        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(3), bench_fields):
-            with cell:
-                default_val = r[key]
-                if key == "camera_pixel_um" and "camera_pixel_um" in st.session_state:
-                    default_val = st.session_state["camera_pixel_um"]
-                values[key] = self.num_input(
-                    key, label, default_val, lo, hi, step, help=help_
-                )
-        values["panel_pixel_um"] = float(r["panel_pixel_um"])
-
-        st.caption("硬件")
-        self.render_camera_inputs(
-            values,
-            exposure_default=float(r["exposure_time_ms"]),
-            cam_size_default=int(r["cam_size"]),
-            target_side=int(values.get("target_side", 0)),
-            extra={
-                "n_eval_frames": {
-                    "label": "每测量均帧",
-                    "min_value": 1,
-                    "max_value": 16,
-                    "value": int(r["n_eval_frames"]),
-                    "step": 1,
-                }
-            },
-        )
-        values["blaze_period_px"] = int(st.selectbox(
-            "去零级载波",
-            options=(-1, 0, 128, 96, 64),
-            format_func=lambda p: "关闭" if p == -1 else "实测自动选择" if p == 0 else f"实测 {p} px 周期",
-            key=self.wkey("blaze_period_px"),
-        ))
-        values["blaze_direction"] = st.selectbox(
-            "光栅方向", ("vertical", "horizontal"), key=self.wkey("blaze_direction")
-        )
-        return values
+                help=(
+                    f"面板模型用**像素间距** {SLM_PITCH_UM} μm（= 器件常量 PITCH_UM）；"
+                    f"与像素有效口径 {SLM_PIXEL_SIZE_UM} μm 相差 0.2 μm，那是真实器件"
+                    "几何、不是待修误差，改动前先看 report/shape_trials/"
+                ),
+            )
+        with st.columns(3)[2]:
+            self.render_extra_row(
+                values,
+                {
+                    "n_eval_frames": {
+                        "label": "每测量均帧",
+                        "min_value": 1,
+                        "max_value": 16,
+                        "value": int(r["n_eval_frames"]),
+                        "step": 1,
+                    }
+                },
+            )
 
     def build_params(self, values: Mapping[str, Any]) -> SlmGsRefineParams:
         return SlmGsRefineParams(
@@ -961,8 +1323,30 @@ class GsRefineMethod(ShapingMethod):
         return result.save_dir
 
     def validate(self, values: Mapping[str, Any]) -> str | None:
-        return validate_daheng_fixed_exposure(
+        error = validate_daheng_fixed_exposure(
             str(values["cam_type"]), float(values["exposure_time_ms"])
+        ) or validate_target_fits_window(values)
+        if error is not None:
+            return error
+        self._hint_uncalibrated_centre(values)
+        return None
+
+    def _hint_uncalibrated_centre(self, values: Mapping[str, Any]) -> None:
+        """「现在用的是兜底瞳面中心」必须出声 —— 但只是提示，不是错误。
+
+        GS+SPGD 没有会话标定（CLI 侧同样没有：``slm-gs-refine`` 不跑 panel scan，
+        也不做 sweep），所以它的入射中心只能来自侧栏。而
+        ``bench_settings.PUPIL_CENTER_FALLBACK`` 是**本实验系统**的实测值：
+        仿真、或者已经确认过中心的那条光路都能直接用它跑，挡住它们等于挡住合法
+        的实验。换一条光路则会静默失效 —— 正是这一行存在的理由。
+        """
+        prefix = str(values.get("bench_prefix", self.prefix))
+        if bench_settings.detected_state(prefix).get("pupil_center"):
+            return
+        st.caption(
+            "GS+SPGD 没有自动会话标定：本次用的入射中心是兜底实测值 "
+            f"{bench_settings.PUPIL_CENTER_FALLBACK}。若这条光路换过，"
+            "请在左侧「本次实验光路」标定 SLM 光路或手填入射中心，否则会直接失效。"
         )
 
 
@@ -991,22 +1375,10 @@ class ModelInLoopMethod(ShapingMethod):
         "尚未达到验收的均匀方斑口径。"
     )
 
-    def render_inputs(self) -> dict[str, Any]:
+    def render_objective(self, values: dict[str, Any]) -> None:
+        """MIL 目标与评分，一行 4 列：目标形状 / 目标边长 / w_eff / w_uni。"""
         d = MIL_WIDGET_DEFAULTS
-        values: dict[str, Any] = {}
-
-        st.caption("轮次与目标")
-        round_fields = (
-            ("n_rounds", "轮数", 1, 20, 1, None),
-            ("target_side", "目标边长 (相机px)", 3, 1000, 5, None),
-            ("seed", "随机种子", 0, 99999, 1, None),
-        )
-        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(4), round_fields):
-            with cell:
-                values[key] = self.num_input(
-                    key, label, d[key], lo, hi, step, help=help_
-                )
-        with st.columns(4)[3]:
+        with st.columns(4)[0]:
             values["target_shape"] = st.selectbox(
                 "目标形状",
                 options=list(MIL_TARGET_SHAPE_LABELS),
@@ -1014,126 +1386,150 @@ class ModelInLoopMethod(ShapingMethod):
                 format_func=MIL_TARGET_SHAPE_LABELS.__getitem__,
                 key=self.wkey("target_shape"),
             )
-        c1, c2 = st.columns(2)
-        with c1:
+        with st.columns(4)[1]:
+            values["target_side"] = self.render_target_side(
+                values,
+                int(d["target_side"]),
+                lo=MIL_TARGET_SIDE_MIN_PX,
+                step=5,
+                help="目标方斑边长（相机像素），上界 = 当前读出窗口边长",
+            )
+        with st.columns(4)[2]:
             values["w_efficiency"] = self.num_input(
                 "w_eff",
-                "权重 w_efficiency",
-                0.6,
-                0.0,
+                "权重 w_eff",
+                _MIL_W_EFFICIENCY,
+                0.01,
                 2.0,
                 0.05,
-                help="必须 >0: 只优化 -CV 会掏空目标框 (实测 EE→0.002)",
+                help="必须 >0：只优化 -CV 会掏空目标框（实测环围能量 → 0.002）",
             )
-        with c2:
+        with st.columns(4)[3]:
             values["w_uniformity"] = self.num_input(
-                "w_uni", "权重 w_uniformity", 0.4, 0.0, 2.0, 0.05
+                "w_uni", "权重 w_uni", _MIL_W_UNIFORMITY, 0.0, 2.0, 0.05
             )
 
-        st.caption("Step A 探针拟合 / Step B 相位合成")
-        step_fields = (
-            ("probe_count", "探针数", 1, 32, 1, None),
-            (
-                "probe_spread",
-                "探针 σ (rad)",
-                3.0,
-                8.0,
-                0.5,
-                "必须 ≳3 rad，否则拟合对像差不敏感",
-            ),
-            ("step_a_iterations", "Step A 步数", 0, 2000, 10, None),
-            ("step_b_iterations", "Step B 步数", 1, 4000, 50, None),
-            ("holdout_probe_count", "留出探针", 1, 8, 1, None),
-        )
-        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), step_fields):
-            with cell:
-                values[key] = self.num_input(
-                    key, label, d[key], lo, hi, step, help=help_
-                )
-        with st.columns(5)[0]:
-            values["freeform_holdout_count"] = self.num_input(
-                "freeform_holdout_count",
-                "自由相位留出探针",
-                d["freeform_holdout_count"],
-                0,
-                8,
-                1,
-            )
-        values["min_holdout_correlation"] = 0.5
+    def render_budget(self, values: dict[str, Any]) -> None:
+        """MIL 预算：预设 + 轮数 / Step A 步数 / Step B 步数。
 
-        st.caption("前向模型几何（实测标定值）")
-        with st.columns(4)[0]:
-            values["pupil_center"] = st.text_input(
-                "瞳孔中心 x,y (面板px)",
-                value=str(values.get("pupil_center", d["pupil_center"])),
-                key=self.wkey("pupil_center"),
-            )
-        geometry_fields = (
-            (
-                "panel_span_px",
-                "模型覆盖 (面板px)",
-                16.0,
-                1920.0,
-                50.0,
-                "= 2×照明半径; 用 SLM 像素直接采样会把孔径算小 ~3.5 倍",
-            ),
-            ("region", "模型网格", 8, 256, 8, None),
-            ("far_field_padding", "远场补零", 1, 16, 1, None),
+        A preset only writes when the selection **changed**.  Writing on every
+        render would silently undo any hand-tuned budget the moment the operator
+        touched a neighbouring field (Streamlit keeps the selectbox value across
+        reruns, so "changed" is the only honest trigger).
+        """
+        d = MIL_WIDGET_DEFAULTS
+        labels = list(MIL_BUDGET_PRESETS)
+        chosen = st.selectbox(
+            "预设",
+            options=labels,
+            index=labels.index("标准 6/80/600"),
+            key=self.wkey("budget_preset"),
+            help="「标准」= docs/slm/slm_model_in_loop.md §5 默认值（6/80/600）；"
+            "只在切换预设时覆写预算，手改的值不会被冲掉",
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(3), geometry_fields
+        rounds, step_a, step_b = MIL_BUDGET_PRESETS[chosen]
+        if st.session_state.get(self.wkey("budget_preset_applied")) != chosen:
+            st.session_state[self.wkey("budget_preset_applied")] = chosen
+            queue_widget_writes(
+                self,
+                {
+                    "n_rounds": rounds,
+                    "step_a_iterations": step_a,
+                    "step_b_iterations": step_b,
+                },
+            )
+        for cell, (key, label, lo, hi, step, default) in zip(
+            st.columns(4),
+            (
+                ("n_rounds", "轮数", 1, 20, 1, d["n_rounds"]),
+                ("step_a_iterations", "Step A 步数", 0, 2000, 10, d["step_a_iterations"]),
+                ("step_b_iterations", "Step B 步数", 1, 4000, 50, d["step_b_iterations"]),
+                ("seed", "随机种子", 0, 99999, 1, d["seed"]),
+            ),
         ):
             with cell:
-                values[key] = self.num_input(
-                    key, label, d[key], lo, hi, step, help=help_
-                )
+                values[key] = self.num_input(key, label, default, lo, hi, step)
 
-        # The geometry bake-off needs an independently measured geometry.  The
-        # GUI cannot run the calibration runbook, so it auto-fills the newest
-        # sweep artefact it can find (first render only -- afterwards the widget
-        # owns the value and an empty box stays empty).
-        discovered = discover_model_in_loop_geometry(
-            int(values.get("region", d["region"]))
+    def render_advanced(self, values: dict[str, Any]) -> None:
+        """MIL 专属高级参数（默认收起）。"""
+        d = MIL_WIDGET_DEFAULTS
+        st.caption("Step A 探针拟合")
+        probe_fields = (
+            ("probe_count", "探针数", 1, 64, 1, _PROBE_COUNT_HELP),
+            ("probe_spread", "探针 σ (rad)", 3.0, 12.0, 0.5, _PROBE_SPREAD_HELP),
+            ("holdout_probe_count", "留出探针", 0, 8, 1, _HOLDOUT_HELP),
+            ("freeform_holdout_count", "自由相位留出探针", 0, 8, 1, None),
         )
-        values["geometry_file"] = st.text_input(
-            "实测几何文件 (bench_geometry.json)",
-            value=str(discovered) if discovered is not None else str(d["geometry_file"]),
-            key=self.wkey("geometry_file"),
-            help=(
-                "scripts/slm/model_in_loop_hw_runbook.py 的 sweep 标定产物。留空时"
-                "真机会退回已废弃的 speckle 路线 (本台实测 corr≈0.07 < 0.5 "
-                "bake-off 门限) 并中止; 仿真不受影响。"
+        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(4), probe_fields):
+            with cell:
+                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+        values["min_holdout_correlation"] = self.num_input(
+            "min_holdout_correlation",
+            "相关度门限",
+            0.5,
+            0.0,
+            1.0,
+            0.01,
+            help="留出探针相关度低于此值即判定拟合失败（实测 speckle 路线 corr≈0.07）",
+        )
+        st.caption("正向模型几何")
+        for cell, (key, label, lo, hi, step, help_) in zip(
+            st.columns(2),
+            (
+                ("region", "模型网格", 8, 512, 8, _MIL_REGION_HELP),
+                ("far_field_padding", "远场补零", 1, 64, 1, _MIL_PADDING_HELP),
             ),
-        )
-        geometry_path = str(values["geometry_file"]).strip()
-        if geometry_path and Path(geometry_path).is_file():
-            st.caption(describe_bench_geometry(geometry_path))
-        elif geometry_path:
-            st.caption(f"⚠ 几何文件不存在: {geometry_path}")
-        else:
-            st.caption(
-                "⚠ 未指定几何文件: 真机会退回已废弃的 speckle 路线，可能中止 "
-                "bake-off。"
+        ):
+            with cell:
+                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+        st.caption("求解器与开关")
+        c1, c2 = st.columns(2)
+        with c1:
+            values["warm_start"] = st.checkbox(
+                "热启动 (Step B 沿用上一轮相位)",
+                value=True,
+                key=self.wkey("warm_start"),
             )
-
-        st.caption("硬件")
-        self.render_camera_inputs(
+        with c2:
+            # ``SlmModelInLoopParams`` has no ``panel_pixel_um``: the forward model
+            # gets the panel pitch from the panel geometry sweep, so this is shown
+            # as a read-only device fact rather than an editable knob that would
+            # go nowhere.
+            st.caption(
+                f"面板像素间距 {SLM_PITCH_UM} μm（器件常量 PITCH_UM）· "
+                f"有效口径 {SLM_PIXEL_SIZE_UM} μm —— 相差 0.2 μm 是真实器件几何"
+            )
+            # Both, because the two numbers are different physical quantities and
+            # showing only the smaller one invites "fixing" it.
+            values["panel_pixel_um"] = float(SLM_PITCH_UM)
+        self.render_extra_row(
             values,
-            exposure_default=0.0,
-            cam_size_default=250,
-            target_side=int(values.get("target_side", 0)),
+            {
+                "step_a_lr": {
+                    "label": "Step A 学习率",
+                    "min_value": 1e-4,
+                    "max_value": 1.0,
+                    "value": 0.05,
+                    "step": 0.005,
+                    "format": "%.4f",
+                },
+                "step_b_lr": {
+                    "label": "Step B 学习率",
+                    "min_value": 1e-4,
+                    "max_value": 1.0,
+                    "value": 0.05,
+                    "step": 0.005,
+                    "format": "%.4f",
+                },
+                "n_orders": {
+                    "label": "Zernike 阶数",
+                    "min_value": 1,
+                    "max_value": 10,
+                    "value": 4,
+                    "step": 1,
+                },
+            },
         )
-        values["blaze_period_px"] = int(st.selectbox(
-            "去零级载波",
-            options=(-1, 0, 128, 96, 64),
-            format_func=lambda p: "关闭" if p == -1 else "实测自动选择" if p == 0 else f"实测 {p} px 周期",
-            key=self.wkey("blaze_period_px"),
-        ))
-        values["blaze_direction"] = st.selectbox(
-            "光栅方向", ("vertical", "horizontal"), key=self.wkey("blaze_direction")
-        )
-        values["max_exposure_ms"] = configured_daheng_exposure_limit()
-        return values
 
     def build_params(self, values: Mapping[str, Any]) -> SlmModelInLoopParams:
         camera_pixel_um = float(
@@ -1153,6 +1549,10 @@ class ModelInLoopMethod(ShapingMethod):
             holdout_probe_count=int(values["holdout_probe_count"]),
             freeform_holdout_count=int(values.get("freeform_holdout_count", 0)),
             min_holdout_correlation=float(values["min_holdout_correlation"]),
+            step_a_lr=float(values.get("step_a_lr", 0.05)),
+            step_b_lr=float(values.get("step_b_lr", 0.05)),
+            n_orders=int(values.get("n_orders", 4)),
+            warm_start=bool(values.get("warm_start", True)),
             region=int(values["region"]),
             panel_span_px=float(values["panel_span_px"]),
             pupil_center=str(values["pupil_center"]),
@@ -1196,6 +1596,148 @@ class ModelInLoopMethod(ShapingMethod):
 
         return outcome_from_model_in_loop(optimize_slm_model_in_loop(config), config)
 
+    def auto_calibrate(
+        self, params: SlmModelInLoopParams, config: Any, values: Mapping[str, Any]
+    ) -> tuple[SlmModelInLoopParams, Any] | None:
+        """会话预检：入射定位 + sweep 几何，与 CLI ``slm-model-in-loop`` 同一入口。
+
+        CLI 的 ``auto_session = cam_type != "sim" and geometry_file is None`` 在
+        ``run()`` 里自动做这一步；GUI 以前只能靠操作员先点一次侧栏标定按钮，
+        于是每次运行都要靠人工，标定一次忘了就整场实验在**未标定**的光路上跑。
+        这里把它接回运行路径：
+
+        * ``cam_type == "sim"`` —— 数字孪生自带几何，不标定（也不碰任何硬件）；
+        * 几何来源 ``reuse`` 且已填几何文件 —— 已有实测几何，不标定；
+        * 几何来源 ``keep`` 且 ``bench_detected`` 里已有本次会话的标定 —— 不标定；
+        * 其余（``auto``，或 ``keep`` 但还没有结果）—— 标定。
+
+        三个刻意的选择：
+
+        1. **用运行自己的 params / config**，不是 ``build_calibration_params``
+           —— 后者是侧栏按钮那条独立路径（探针参数取默认值）。标定的是即将整形的
+           那一套光路，用别的参数标出来的几何对不上这次运行。
+        2. **手动值优先**：``apply_session_calibration`` 会无脑写回探测值，而
+           三态契约规定人工值永远优先，所以这里逐字段判断后再写。
+        3. **失败即中止**：未标定的实验系统上整形出来的相位毫无意义，因此上抛，
+           由 :func:`shaping_session` 那一条路径上屏（只上屏一次）。
+        """
+        from ao_shaping.runners.slm.model_in_loop_session import calibrate_session
+
+        prefix = str(values.get("bench_prefix", self.prefix))
+        cam_type = str(getattr(params, "cam_type", "") or values.get("cam_type", ""))
+        if cam_type == "sim":
+            # 数字孪生没有面板可扫，也没有硬件几何可测。
+            return None
+        source = bench_settings.bench_geometry_source(prefix)
+        geometry_file = str(getattr(params, "geometry_file", "") or "").strip()
+        if source == "reuse" and geometry_file:
+            return None
+        detected = bench_settings.detected_state(prefix)
+        if source == "keep" and (
+            detected.get("pupil_center") or detected.get("geometry_file")
+        ):
+            return None
+
+        # ``debug_dir`` is the run's own directory: the evidence (panel_scan/,
+        # session_geometry/) has to sit next to the results it explains.
+        # Guard on the *string* -- ``str(Path(""))`` is ``"."`` (truthy), so
+        # testing the Path would let an unset debug_dir send the evidence to the
+        # current working directory.
+        raw_save_dir = str(getattr(config, "debug_dir", "") or "").strip()
+        if raw_save_dir:
+            save_dir = Path(raw_save_dir)
+        else:
+            from ao_shaping.utils.io.file import debug_run_dir
+
+            save_dir = debug_run_dir(Path("data"), "slm_model_in_loop")
+        st.info(
+            "本次先自动标定再整形：全板入射定位 → 曝光探测 → sweep 几何"
+            "（约 1–3 分钟，证据随本次运行存放）"
+        )
+        try:
+            with st.spinner("正在自动标定，请勿触碰设备（约 1–3 分钟）"):
+                calibration = calibrate_session(
+                    params, config, save_dir, locate=True, geometry=True
+                )
+        except (
+            RuntimeError,
+            ValueError,
+            OSError,
+            subprocess.CalledProcessError,
+        ) as exc:
+            step = getattr(exc, "preflight_step", "会话标定")
+            message = (
+                f"{step}未通过，已中止本次运行: {exc}\n"
+                f"证据目录: {save_dir}\n"
+                "在未标定的实验系统上整形得到的相位没有意义，因此不会继续。"
+                "若该实验系统无法被正向模型描述，请改用 GS+SPGD 闭环整形"
+                "（gs-refine 不依赖正向模型几何）。"
+            )
+            logger.exception("SLM {} 运行前会话标定失败: {}", self.slm_num, exc)
+            raise RuntimeError(message) from exc
+
+        resolved_params, resolved_config = self._merge_calibration(
+            params, config, calibration, prefix
+        )
+        bench_settings.publish_session_calibration(
+            prefix,
+            resolved_config,
+            calibration,
+            source=source,
+            save_dir=save_dir,
+            # 一次运行不该把操作员选的「自动标定」悄悄改成「复用已标定几何」——
+            # 否则第二次运行就静默地不再测量了。
+            pin_geometry_source=False,
+        )
+        for line in calibration.summary_lines():
+            st.caption(line)
+        kept = [
+            name
+            for name, measured in (
+                ("pupil_center", calibration.pupil_center),
+                ("geometry_file", calibration.geometry_file),
+            )
+            if measured is not None and name in bench_settings.manual_state(prefix)
+        ]
+        if kept:
+            st.caption(
+                "探测到新值，当前仍使用人工值（人工值优先）："
+                + "；".join(
+                    bench_settings.field_hint(prefix, name) for name in kept
+                )
+                + "。在左侧「本次实验光路」点「恢复探测值」可改回探测值。"
+            )
+        # The widgets are back-filled through the pending table, so they only take
+        # the new values on the **next** render.  ``values`` is the run's own copy
+        # of them, so refresh it here or the effective-optical-path snapshot
+        # (params.json) would report the pre-calibration centre.
+        if isinstance(values, MutableMapping):
+            values["pupil_center"] = _format_center(resolved_config.pupil_center)
+            values["geometry_file"] = str(resolved_config.geometry_file or "")
+        return resolved_params, resolved_config
+
+    @staticmethod
+    def _merge_calibration(
+        params: SlmModelInLoopParams,
+        config: Any,
+        calibration: Any,
+        prefix: str,
+    ) -> tuple[SlmModelInLoopParams, Any]:
+        """把探测值并进来，但**逐字段**尊重人工覆盖表。
+
+        ``apply_session_calibration`` 是无脑合并：它不知道三态契约，会把操作员手
+        填的入射中心直接冲掉。所以这里只对「人工表里没有」的字段调用 ``replace``。
+        """
+        manual = bench_settings.manual_state(prefix)
+        center = getattr(calibration, "pupil_center", None)
+        if center is not None and "pupil_center" not in manual:
+            params = replace(params, pupil_center=f"{center[0]},{center[1]}")
+            config = replace(config, pupil_center=tuple(center))
+        geometry = getattr(calibration, "geometry_file", None)
+        if geometry is not None and "geometry_file" not in manual:
+            config = replace(config, geometry_file=str(geometry))
+        return params, config
+
     def save(
         self, params: SlmModelInLoopParams, outcome: ShapingOutcome, *, debug: bool
     ) -> Path | None:
@@ -1214,8 +1756,47 @@ class ModelInLoopMethod(ShapingMethod):
             import torch  # noqa: F401
         except ImportError as exc:
             return f"正向模型闭环需要 torch（未安装）: {exc}"
-        return validate_daheng_exposure(
-            str(values["cam_type"]), float(values["exposure_time_ms"])
+        return (
+            validate_daheng_exposure(
+                str(values["cam_type"]), float(values["exposure_time_ms"])
+            )
+            or validate_target_fits_window(values)
+            or self._validate_holdout(values)
+            or self._validate_geometry_region(values)
+        )
+
+    def _validate_holdout(self, values: Mapping[str, Any]) -> str | None:
+        """留出探针 0 被控件允许，但 Step A 拟合本身要求 ≥ 1。
+
+        The widget bound is 0 so the operator can *see* that holdout validation is
+        optional (the caption says how to actually turn it off), but
+        ``SlmModelInLoopConfig.__post_init__`` rejects 0 — so catch it here with
+        a message that points at the knob that actually works.
+        """
+        if int(values.get("holdout_probe_count", 1) or 0) >= 1:
+            return None
+        return (
+            "留出探针必须 ≥ 1（Step A 拟合依赖它）。真要关闭留出验证请把"
+            "「自由相位留出探针」设为 0。"
+        )
+
+    def _validate_geometry_region(self, values: Mapping[str, Any]) -> str | None:
+        """复用几何文件时，它的 ``region`` 必须与当前模型网格一致。
+
+        A mismatch is a genuine incompatibility, not a rescaling: the pupil grid
+        itself differs.  ``discover_model_in_loop_geometry(region=...)`` filters
+        by region, but a hand-typed path bypasses that filter.
+        """
+        path = str(values.get("geometry_file", "") or "").strip()
+        if not path:
+            return None
+        found = bench_settings.geometry_region_mismatch(path, int(values["region"]))
+        if found is None:
+            return None
+        return (
+            f"几何文件的 region={found} 与当前模型网格 region={values['region']} "
+            "不一致（模型网格本身不同）：在左侧「本次实验光路」改 region，"
+            "或把几何来源切回「自动标定」重标"
         )
 
 
@@ -1245,6 +1826,34 @@ def build_model_in_loop_params(values: Mapping[str, Any]) -> SlmModelInLoopParam
 # ---------------------------------------------------------------------------
 
 
+def render_bench_status(prefix: str, slm_num: int) -> str | None:
+    """状态条：一句话说清「这条光路现在是什么状态」。
+
+    Three cases, and each one answers a question the operator actually has:
+    not calibrated at all (it will be measured before the run), calibrated with
+    some fields hand-overridden, or calibrated and trusted.
+    """
+    detected = bench_settings.detected_state(prefix)
+    manual = bench_settings.manual_fields(prefix)
+    calibrated = bool(detected.get("pupil_center") or detected.get("geometry_file"))
+    if not calibrated:
+        return (
+            f"光路 SLM {slm_num}：○ 未标定 —— {bench_settings.uncalibrated_note(prefix)}；"
+            "也可先在左侧「本次实验光路」手动标定"
+        )
+    parts = [f"光路 SLM {slm_num}：● 已标定 {detected.get('calibrated_at') or '-'}"]
+    parts.append(f"入射中心 {bench_settings.bench_pupil_center(prefix, '未定位')} 探测值")
+    if detected.get("geometry_correlation") is not None:
+        parts.append(f"相关度 {float(detected['geometry_correlation']):.4f}")
+    parts.append(f"曝光 {detected.get('exposure_ms', '?')} ms")
+    if detected.get("geometry_file"):
+        parts.append(f"几何 {detected['geometry_file']}")
+    line = " · ".join(parts)
+    if manual:
+        line += f" · {len(manual)} 项手动覆盖（{'、'.join(manual)}）"
+    return line
+
+
 def render_closed_loop_shaping(slm_num: int) -> None:
     """Render the closed-loop shaping section for one SLM.
 
@@ -1252,25 +1861,33 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     the single- and dual-SLM layouts. The method selector, the run button and
     the debug switch are generated from :data:`SHAPING_METHODS`, so a newly
     registered adapter appears here automatically.
+
+    The page order is a contract, not a preference::
+
+        方法 → 状态条 → 目标与评分 → 预算 → 高级参数 → 校验区 → 运行按钮 → 结果
+
+    校验区 has to come *before* the button so the button can be ``disabled``;
+    结果 last because a run blocks the page and only then has anything to show.
+    Optical-path settings are **not** here — they are in the sidebar
+    「本次实验光路」 block (:mod:`ao_shaping.gui.slm.bench_settings`), because one
+    experiment fixes one optical path.
     """
     prefix = f"slm{slm_num}"
     st.divider()
     st.subheader("闭环整形 (SLM + CCD)")
     st.caption(
-        "开环整形（旧 GS方形整形/稳像法）在本台架已被实测证伪；此处复用 CLI "
+        "开环整形（旧 GS方形整形/稳像法）在本实验系统已被实测证伪；此处复用 CLI "
         "`slm-gs-refine` / `slm-model-in-loop` 的闭环管线，默认值即 "
         "[report/shape_trials](../../../../report/shape_trials/README.md) 的"
         "交错重放验证配方。运行期间本页阻塞，且 SLM 句柄临时交给优化器"
         "（另一台 SLM 不受影响）。"
     )
 
-    if (
-        not st.session_state.get(f"{prefix}_connected")
-        or st.session_state.get(prefix) is None
-    ):
-        st.info("请先在左侧连接 SLM 后再运行闭环整形。")
-        return
+    connected = bool(st.session_state.get(f"{prefix}_connected")) and (
+        st.session_state.get(prefix) is not None
+    )
 
+    # --- 1. 方法 -----------------------------------------------------------
     label = st.selectbox(
         "整形方法",
         options=shaping_method_labels(),
@@ -1279,13 +1896,57 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     method = get_shaping_method_by_label(label)(prefix, slm_num)
     st.caption(method.blurb)
 
+    # --- 2. 状态条 ---------------------------------------------------------
+    status = render_bench_status(prefix, slm_num)
+    if status is not None:
+        st.caption(status)
+    if bench_settings.manual_fields(prefix):
+        st.warning(
+            "光路参数有手动覆盖，标定不会改动它们："
+            + "；".join(
+                bench_settings.field_hint(prefix, name)
+                for name in bench_settings.manual_fields(prefix)
+            )
+        )
+
+    if not connected:
+        st.info("请先在左侧连接 SLM 后再运行闭环整形。")
+        return
+
+    # --- 3-5. 目标与评分 / 预算 / 高级参数 ----------------------------------
+    values = method.render_inputs()
+    bench_settings.merge_bench_values(values, prefix, slm_num, method.key)
+
+    # --- 6. 校验区（必须在按钮之前，才能 disabled）--------------------------
+    errors = []
+    bench_error = bench_settings.validate_bench_inputs()
+    if bench_error:
+        errors.append(bench_error)
+    method_error = method.validate(values)
+    if method_error:
+        errors.append(method_error)
+    for error in errors:
+        st.error(error)
+
     debug = st.checkbox(
         "保存调试产物 (data/debug/…)",
         value=False,
         key=f"{prefix}_shp_debug",
+        disabled=bool(errors),
         help="CSV / best_phase.npy / 远场 PNG / 原始三件套，与 CLI --debug 同布局",
     )
 
-    values = method.render_inputs()
-    if st.button(method.action, key=f"{prefix}_shp_run_{method.key}", type="primary"):
+    # --- 7. 运行按钮 -------------------------------------------------------
+    if st.button(
+        method.action,
+        key=f"{prefix}_shp_run_{method.key}",
+        type="primary",
+        disabled=bool(errors),
+        use_container_width=True,
+    ):
         method.run(values, debug=bool(debug))
+        return
+
+    # --- 8. 结果（未跑过时只给一句占位）-----------------------------------
+    if not bench_settings.effective_state(prefix):
+        st.caption("尚无运行结果。")

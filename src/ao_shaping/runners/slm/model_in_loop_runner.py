@@ -23,7 +23,6 @@ from dataclasses import replace
 from datetime import datetime, timezone
 import json
 import subprocess
-import sys
 
 import click
 import numpy as np
@@ -35,34 +34,23 @@ from ao_shaping.runners.runner_common import (
     save_model_in_loop_config,
     save_model_in_loop_results,
 )
+from ao_shaping.runners.slm.model_in_loop_session import (
+    STEP_PANEL_SCAN,
+    STEP_SESSION_GEOMETRY,
+    SessionPreflightParamError,
+    apply_session_calibration,
+    calibrate_session,
+)
+
+# Re-exported under its historical private name: the session preflight now lives
+# in ``model_in_loop_session`` so the GUI can share it, but callers keep
+# importing ``_measure_session_geometry`` from this module.
+from ao_shaping.runners.slm.model_in_loop_session import (  # noqa: F401
+    measure_session_geometry as _measure_session_geometry,
+)
+
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.io.cli_helpers import resolve_debug
-
-
-def _measure_session_geometry(config, save_dir: Path) -> Path:
-    """Run the measured sweep for this optical session before Step A opens devices."""
-    root = Path(__file__).resolve().parents[4]
-    runbook = root / "scripts" / "slm" / "model_in_loop_hw_runbook.py"
-    calibration_dir = save_dir / "session_geometry"
-    common = [
-        sys.executable, str(runbook), "--out", str(calibration_dir.resolve()),
-        "--pupil-center", f"{config.pupil_center[0]},{config.pupil_center[1]}",
-        "--region", str(config.region),
-        "--far-field-size", str(config.region * config.far_field_padding),
-        "--collect-disc", str(round(config.panel_span_px / 2)),
-        "--zernike-radius", str(round(config.panel_span_px / 2)),
-        "--slm-number", str(config.slm_number),
-        "--slm-wavelength", str(config.slm_wavelength),
-        "--cam-type", config.cam_type, "--cam-id", str(config.cam_id),
-        "--exposure-ms", "0",
-    ]
-    for stage in ("sweep", "calibrate"):
-        subprocess.run(common + ["--stage", stage], cwd=root, check=True)
-    path = calibration_dir / "bench_geometry.json"
-    geometry = json.loads(path.read_text(encoding="utf-8"))
-    if geometry.get("method") != "sweep" or geometry.get("correlation", 0) < config.min_geometry_correlation:
-        raise RuntimeError(f"session geometry failed validation; evidence in {calibration_dir}")
-    return path
 
 
 @click.command()
@@ -155,65 +143,32 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
     if auto_session:
         click.echo("自动会话标定: 全板定位、曝光探测、sweep 几何、Step A 相差重拟合")
     if params.panel_scan or auto_session:
-        from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W
-        from ao_shaping.tools.slm.panel.panel_locate import PanelLocateParams, scan_panel
         from ao_shaping.utils.io.file import debug_run_dir
 
-        if params.cam_type == "sim":
-            raise click.BadParameter("panel scan requires a hardware camera", param_hint="--panel-scan")
-        if params.panel_scan_step_px <= 0 or params.panel_scan_radius_px <= 0:
-            raise click.BadParameter("scan step and radius must be positive", param_hint="--panel-scan")
-        if auto_session:
-            xs, ys = (240, 600, 960, 1320, 1680), (220, 480, 720, 980)
-            scan_radius = max(220, params.panel_scan_radius_px)
-        else:
-            cx, cy = parse_point(params.pupil_center)
-            xs = (cx - params.panel_scan_step_px, cx, cx + params.panel_scan_step_px)
-            ys = (cy - params.panel_scan_step_px, cy, cy + params.panel_scan_step_px)
-            if min(xs) < 0 or max(xs) >= SLM_PANEL_W or min(ys) < 0 or max(ys) >= SLM_PANEL_H:
-                raise click.BadParameter("3x3 grid must lie on the SLM panel", param_hint="--panel-scan-step-px")
-            scan_radius = params.panel_scan_radius_px
         if save_dir is None:
             save_dir = debug_run_dir(root_dir, "slm_model_in_loop")
             save_model_in_loop_config(config, save_dir)
-        scan_params = PanelLocateParams(
-            slm_number=params.slm_number,
-            slm_wavelength=params.slm_wavelength,
-            cam_type=params.cam_type,
-            cam_id=params.cam_id,
-            exposure_ms=params.exposure_time_ms,
-            patch_radius=scan_radius,
-            grid_xs=",".join(map(str, xs)),
-            grid_ys=",".join(map(str, ys)),
-            frames=2,
-            seed=params.seed,
-            debug_dir=str(save_dir / "panel_scan"),
-            max_flat_drift=params.panel_scan_max_flat_drift,
-        )
+        # Both steps share one call so the GUI can drive them the same way; the
+        # failure names the step that actually refused, and falls back to the
+        # session as a whole.
+        stage = STEP_SESSION_GEOMETRY if auto_session else STEP_PANEL_SCAN
         try:
-            scan = scan_panel(
-                scan_params, strict=True,
-                max_session_drift=params.panel_scan_max_session_drift,
+            calibration = calibrate_session(
+                params, config, save_dir, locate=True, geometry=auto_session
             )
-        except (ValueError, RuntimeError) as exc:
-            raise click.ClickException(f"panel scan rejected; evidence in {save_dir}: {exc}") from exc
-        if abs(scan.response) < 0.02:
-            raise click.ClickException(
-                f"panel scan response {scan.response:+.3f} is too weak; evidence in {save_dir}"
-            )
-        click.echo(
-            f"Panel scan: {scan.center}, response={scan.response:+.3f}, "
-            f"max paired drift={scan.max_pair_drift:.2%}, session drift={scan.session_drift:.2%}"
-        )
-        params = replace(params, pupil_center=f"{scan.center[0]},{scan.center[1]}")
-        config = replace(config, pupil_center=scan.center)
-
-    if auto_session:
-        try:
-            geometry_file = _measure_session_geometry(config, save_dir)
+        except SessionPreflightParamError as exc:
+            raise click.BadParameter(str(exc), param_hint=exc.param_hint) from exc
         except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
-            raise click.ClickException(f"session geometry rejected; evidence in {save_dir}: {exc}") from exc
-        config = replace(config, geometry_file=str(geometry_file))
+            step = getattr(exc, "preflight_step", stage)
+            raise click.ClickException(f"{step} rejected; evidence in {save_dir}: {exc}") from exc
+        params, config = apply_session_calibration(params, config, calibration)
+        if calibration.panel_scan_response is not None:
+            click.echo(
+                f"Panel scan: {calibration.pupil_center}, "
+                f"response={calibration.panel_scan_response:+.3f}, "
+                f"max paired drift={calibration.panel_scan_max_pair_drift:.2%}, "
+                f"session drift={calibration.panel_scan_session_drift:.2%}"
+            )
 
     if save_dir is not None:
         save_model_in_loop_config(config, save_dir)
