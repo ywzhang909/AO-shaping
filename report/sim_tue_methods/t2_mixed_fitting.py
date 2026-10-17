@@ -126,7 +126,6 @@ def _shape(zernike_only: bool, perpixel: bool, seed: int, basis15, aperture, amp
             p += 0.1 * torch.randn_like(p)
     optm = torch.optim.Adam(params, lr=LR)
     best_loss, best_epoch = float("inf"), 0
-    best_c = best_f = None
     for i in range(ITERS):
         optm.zero_grad()
         l = loss(c15 if c15 is not None else torch.zeros(15, dtype=torch.float64),
@@ -136,8 +135,6 @@ def _shape(zernike_only: bool, perpixel: bool, seed: int, basis15, aperture, amp
         lv = float(l.detach())
         if lv < best_loss:
             best_loss, best_epoch = lv, i
-            best_c = None if c15 is None else c15.detach().clone()
-            best_f = None if not isinstance(f, torch.nn.Parameter) else f.detach().clone()
     c_final = None if c15 is None else c15.detach().numpy()
     f_final = None if not isinstance(f, torch.nn.Parameter) else f.detach().numpy()
     return c_final, f_final, (best_epoch if track_best else None)

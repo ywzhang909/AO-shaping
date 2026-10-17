@@ -1350,7 +1350,7 @@ def _render_experiment_block() -> None:
             disabled=disabled,
             help="关闭则整幅读出；开启后窗口边长必须是设备步长的整数倍",
         )
-        window_side = st.number_input(
+        st.number_input(
             "窗口边长 (px)",
             min_value=bounds.min_side,
             max_value=bounds.max_side,

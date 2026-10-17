@@ -73,7 +73,6 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
 from ao_shaping.drivers.slm.santec.slm200_constants import PIXEL_SIZE_UM as SLM_PIXEL_SIZE_UM
 from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
-    CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
 )
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
