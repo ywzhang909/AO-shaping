@@ -375,9 +375,12 @@ def test_prior_hardware_run_seed_validates_geometry_and_acceptance(tmp_path: Pat
     """A previous accepted fit is reusable; a changed optical scale is refused."""
     run_dir = tmp_path / "prior"
     run_dir.mkdir()
+    # A full bench_geometry.json (all schema fields), as the producer writes it.
     geometry = {
         "region": 8, "far_field_size": 8,
         "panel_disc_radius": 450, "camera_px_per_model_px": 2.8,
+        "beam_waist_panel_px": 450.0, "spot_fwhm_camera_px": 12.0,
+        "spot_fwhm_model_px": 4.0, "correlation": 0.9, "method": "sweep",
     }
     (run_dir / "bench_geometry.json").write_text(json.dumps(geometry), encoding="utf-8")
     current = tmp_path / "current_geometry.json"
