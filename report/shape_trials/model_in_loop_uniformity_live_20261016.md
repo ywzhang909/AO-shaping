@@ -5,8 +5,8 @@
 > **数据/关联脚本**: [`src/ao_shaping/runners/slm/model_in_loop_runner.py`](../../src/ao_shaping/runners/slm/model_in_loop_runner.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/model_in_loop_replay.py`](../../src/ao_shaping/tools/slm/model_in_loop_replay.py)
 > **数据/关联脚本**: [`scripts/slm/model_in_loop_hw_runbook.py`](../../scripts/slm/model_in_loop_hw_runbook.py)
-> **运行环境**: Santec SLM #1 (22030108)、Daheng CCD (FJB24112232)、1064 nm 激光
-> **说明**: 同一光路会话比较模型网格、Step B 权重、目标掩码与热启动轮次；最终结论以固定曝光交错重放为准
+> **运行环境**: 离线+硬件
+> **说明**: 2026-10-16 正向模型闭环方斑均匀度实验 (Santec SLM #1 22030108 + 大恒 FJB24112232, 1064 nm)；同一光路会话比较模型网格、Step B 权重、目标掩码与热启动轮次；最终结论以固定曝光交错重放为准
 <!-- provenance:end -->
 
 ## 结论
