@@ -156,7 +156,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 
 原先写死的 **p_cam = 3.31 µm** 隐含 `K = 5023`, 比实测低 **33%**; 它经
 `slm_gs_refine._derive_target_side` 直接缩放 GS 目标边长, 于是把远场角尺寸
-算错 33%(bake-off（对比择优） 会兜住, 但 GS 阶段白做)。
+算错 33%(对比择优 会兜住, 但 GS 阶段白做)。
 
 实现: `utils/wavefront/matrix_utils.py` 的 `camera_pixel_um_from_focal_scale`
 与 `focal_length_from_camera_pixel`(互为精确反函数, 双向 round-trip 有测试),
@@ -179,7 +179,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 
 `_derive_target_side` 只消费 `f / p_cam` 这个**比值**, 而 `K` 单独就把它定死了,
 所以换锚点对比值只影响 **+0.02%** ⇒ GS 目标边长实质不变。只有 GS 传播用到了 `f`
-的**绝对值**, 那一项由 bake-off 兜底。
+的**绝对值**, 那一项由 对比择优 兜底。
 
 ### 3.1 环围能量(EE)归一化约定不一致
 

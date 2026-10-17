@@ -355,13 +355,13 @@ class TestSummaryLines:
                        "打散", "灌进", "钻空子", "金标准", "平场泄漏"):
             assert banned not in text
         assert "瞳面" in text
-        assert "bake-off（对比择优）" in text
+        assert "对比择优" in text
 
     def test_bake_off_is_spelled_out_on_first_mention(self, tmp_path, fake_scan, fake_sweep):
         lines = calibrate_session(
             _params(), _config(), tmp_path, locate=True, geometry=False
         ).summary_lines()
-        assert any("bake-off（对比择优）" in line for line in lines)
+        assert any("对比择优" in line for line in lines)
 
 
 def test_measure_session_geometry_is_reexported_under_its_private_name() -> None:

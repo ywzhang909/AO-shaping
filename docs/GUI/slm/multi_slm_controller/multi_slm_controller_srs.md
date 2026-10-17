@@ -85,7 +85,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 | FR-5.3 | 运行期间暂时释放目标 SLM 句柄，结束后重新获取（Santec SDK 句柄不可重入） | 必须 |
 | FR-5.4 | 运行期间停止后台周期切换线程，避免冲突 | 必须 |
 | FR-5.5 | 结束后把最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示 | 必须 |
-| FR-5.6 | 显示 flat/GS/best 各阶段得分、PIB、CV，以及 GS bake-off（对比择优） 判定（adopted/rejected） | 必须 |
+| FR-5.6 | 显示 flat/GS/best 各阶段得分、PIB、CV，以及 GS 对比择优 判定（adopted/rejected） | 必须 |
 | FR-5.7 | debug 模式下产物存于 `data/debug/slm_gs_refine/<ts>/` | 可选 |
 
 ---
@@ -681,7 +681,7 @@ sequenceDiagram
     SM->>SM: 保存 best_phase.npy / best_far_field.csv / debug 产物
     PC->>SLM: display_phase(best_phase)  下发最佳相位显示
     PC->>SS: 重新获取目标 SLM 句柄
-    PC->>PC: 显示 flat/GS/best 得分、PIB、CV、bake-off 判定
+    PC->>PC: 显示 flat/GS/best 得分、PIB、CV、对比择优判定
     PC-->>U: 闭环整形完成
 ```
 
@@ -1061,8 +1061,8 @@ sequenceDiagram
 | 应用矫正 | 橙 | `#d97706` | 可选/非默认 |
 | 保存配置 | 蓝 | `#1f4e79` | 配置持久化 |
 | 闭环整形 运行 | 蓝 | `#1f4e79` | 主闭环动作 |
-| 闭环整形 被采纳 (adopted) | 绿 | `#2e8b57` | bake-off 判定通过 |
-| 闭环整形 被拒绝 (rejected) | 红 | `#dc2626` | bake-off 判定未通过 |
+| 闭环整形 被采纳 (adopted) | 绿 | `#2e8b57` | 对比择优 判定通过 |
+| 闭环整形 被拒绝 (rejected) | 红 | `#dc2626` | 对比择优 判定未通过 |
 
 ### 11.3 图表与渲染配色
 

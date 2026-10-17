@@ -606,7 +606,7 @@ flowchart LR
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
 | **正向模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
-1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off（对比择优），仅当实测优于平场才采用）
+1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（对比择优，仅当实测优于平场才采用）
    + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
    （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
    曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、
@@ -626,7 +626,7 @@ flowchart LR
 > `finally` 重连（只释放目标 SLM，另一台保持连接）。整个过程在 session 里置 `bench_busy`，
 > 侧栏光路控件据此 `disabled=True`。
 >
-> **GUI 显示**：flat / GS / best 各阶段得分、PIB、CV，以及 GS bake-off 判定
+> **GUI 显示**：flat / GS / best 各阶段得分、PIB、CV，以及 GS 对比择优 判定
 > （adopted / rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
 > 运行结束时额外落盘 **`{save_dir}/params.json`** —— 本次运行**生效**的光路参数
 > （逐字段带 `detected` / `manual` / `unset` 三态标记）。

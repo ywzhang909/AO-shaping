@@ -56,7 +56,7 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 
 ### 3.1 GS+SPGD 闭环整形（已验证配方）
 
-GS 开环预矫正（bake-off（对比择优），仅当实测优于平场才采用）+ 无感知 SPGD 细化。
+GS 开环预矫正（对比择优，仅当实测优于平场才采用）+ 无感知 SPGD 细化。
 
 GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
 
@@ -73,7 +73,7 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 
 ### 3.3 设备生命周期注意
 
-上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，另一台 SLM 保持连接）。GUI 显示 flat/GS/best 各阶段得分、PIB、CV 与 GS bake-off 判定（adopted/rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
+上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，另一台 SLM 保持连接）。GUI 显示 flat/GS/best 各阶段得分、PIB、CV 与 GS 对比择优 判定（adopted/rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
 
 ---
 

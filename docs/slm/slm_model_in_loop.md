@@ -101,7 +101,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 | `--target-side` | 目标方形边长 (相机像素) | 60 |
 | `--w-efficiency` / `--w-uniformity` | 质量分权重。**w-efficiency 必须非零** | 0.6 / 0.4 |
 | `--max-cv-regression` | 已验收成形相位之间允许的最大 CV 绝对增量 | 0.02 |
-| `--min-geometry-correlation` | 几何 bake-off（对比择优） 阈值；低于直接中止 (退出码 2) | 0.5 |
+| `--min-geometry-correlation` | 几何 对比择优 阈值；低于直接中止 (退出码 2) | 0.5 |
 | `--warm-start/--no-warm-start` | 热启动 | True |
 | `--early-stop-score` / `--save-best-image` | 早停分数 / 保存最优图 | - |
 | `--cam-type [daheng\|miicam\|sim]` / `--cam-id` / `--exposure-time-ms` / `--cam-size` | 相机配置 | - |
@@ -118,7 +118,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 - 连续 reject ≥ `max_rejection_streak=3` → 中止 (实验系统落在模型之外)
 
 对匀化任务，另以 `max_cv_regression=0.02` 限制相对最佳已验收成形相位的 CV 回退。
-首轮仍由最终平场 bake-off 验收；之后即使 EE 提升使综合分微升，只要 CV
+首轮仍由最终平场 对比择优 验收；之后即使 EE 提升使综合分微升，只要 CV
 增加超过容差，就拒绝该轮并保留先前相位。容差只覆盖测量抖动，
 `shape_iou_after` 仍须单独检查，CV 下降不等于方斑轮廓形成。
 
@@ -126,7 +126,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 `--exposure-time-ms 0` 从 Daheng 的最小曝光 `0.02 ms` 打开相机，
 随后定位、几何 sweep 与优化器分别从当前画面探测曝光上限，并检查设备回读。
-本次 2026-10-16 光路以该自动路径完成实机闭环，探测上限约 `0.20 ms`。
+本次 2026-10-16 光路以该自动路径完成实测闭环，探测上限约 `0.20 ms`。
 显式曝光仅用于已在**当前**光路测定的复现实验，必须仍受本次画面探测限制。
 
 - **不要将历史 `1.5 ms` 当作当前光路推荐值**；它在本次会话会过曝。
@@ -183,7 +183,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 
 见 [`pre_run_characterization.md`](pre_run_characterization.md)。
 
-若实验系统无法被正向模型描述 (bake-off 失败)，改用 `slm-gs-refine`。
+若实验系统无法被正向模型描述 (对比择优 失败)，改用 `slm-gs-refine`。
 
 ## 11. 输出契约
 
@@ -203,4 +203,4 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms <当前曝光>
 | `aborted_unidentifiable` | 几何标定从未达到要求的相关度 |
 | `aborted_rejection_streak` | 连续 reject 达上限 —— 实验系统落在模型之外 |
 
-退出码 `2` = 几何 bake-off 失败或持续落在模型之外，该轮**没有**提交任何相位。
+退出码 `2` = 几何 对比择优 失败或持续落在模型之外，该轮**没有**提交任何相位。

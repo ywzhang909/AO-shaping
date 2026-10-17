@@ -1,6 +1,6 @@
 # Model-in-loop 跨光路交接手册
 
-本手册用于 Santec SLM 与项目支持的远场 CCD。每次换光路、功率、衰减片、相机或入射位置，都运行一次新的会话。`model_in_loop_auto.py` 调用现有 `slm-model-in-loop`，由它执行全板入射定位、当前画面曝光探测、sweep 几何标定、逐轮相差重拟合和候选验收。旧的 `bench_geometry.json` 只用于复现，不是新光路的默认输入。自动闭环和固定曝光重放目前在 Daheng 上有实机记录；换其他相机时须先验证该驱动的曝光回读、原始帧量程和固定曝光接口。
+本手册用于 Santec SLM 与项目支持的远场 CCD。每次换光路、功率、衰减片、相机或入射位置，都运行一次新的会话。`model_in_loop_auto.py` 调用现有 `slm-model-in-loop`，由它执行全板入射定位、当前画面曝光探测、sweep 几何标定、逐轮相差重拟合和候选验收。旧的 `bench_geometry.json` 只用于复现，不是新光路的默认输入。自动闭环和固定曝光重放目前在 Daheng 上有实验记录；换其他相机时须先验证该驱动的曝光回读、原始帧量程和固定曝光接口。
 
 ## 1. 准备光路配置
 
@@ -29,7 +29,7 @@ python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json --dry-run
 
 检查输出命令中的设备编号、波长、目标像素尺寸、曝光策略与网格。`--dry-run` 只校验配置与打印命令，不打开设备。尚未针对当前相机证明短曝光线性时，不要把微小的 CV 差异当成算法增益。
 
-## 3. 实机运行
+## 3. 实验运行
 
 ```powershell
 python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json
@@ -53,4 +53,4 @@ python -m ao_shaping.tools.slm.model_in_loop_replay data/debug/slm_model_in_loop
 
 ## 5. 本次实验的边界
 
-2026-10-16 当前光路下，两轮热启动在固定 0.200 ms 重放中使目标框 CV `0.5627 -> 0.4454`，EE `0.4251 -> 0.4438`。软边缘 CV 改动在固定 0.18 ms 重放中使 CV `0.6775 -> 0.5937`，EE 基本持平，但 IoU `0.1933 -> 0.1508`。两组都没有证明形成均匀实心方斑，后一组还伴随较低原始计数和几何尺度冲突。详见 [实机实验报告](../../report/shape_trials/model_in_loop_uniformity_live_20261016.md)。
+2026-10-16 当前光路下，两轮热启动在固定 0.200 ms 重放中使目标框 CV `0.5627 -> 0.4454`，EE `0.4251 -> 0.4438`。软边缘 CV 改动在固定 0.18 ms 重放中使 CV `0.6775 -> 0.5937`，EE 基本持平，但 IoU `0.1933 -> 0.1508`。两组都没有证明形成均匀实心方斑，后一组还伴随较低原始计数和几何尺度冲突。详见 [实验报告](../../report/shape_trials/model_in_loop_uniformity_live_20261016.md)。

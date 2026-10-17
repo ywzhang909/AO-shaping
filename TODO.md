@@ -56,7 +56,7 @@
 
 > 📋 2026-10-12: 结合 `slm-gs-refine`（从未实验运行）与 gsnet 系列报告的
 > **下一步尝试方案**见 [`report/fouriergsnet_pipeline/next_attempt_plan.md`](report/fouriergsnet_pipeline/next_attempt_plan.md)
-> （A 离线修复 → B 探针 → C1 bake-off（对比择优） → C2 refine 首跑 → C3 gsnet 复测 → C4 FourierGSNet run）。
+> （A 离线修复 → B 探针 → C1 对比择优 → C2 refine 首跑 → C3 gsnet 复测 → C4 FourierGSNet run）。
 
 | ID | 摘要 | issue |
 |---|---|---|
