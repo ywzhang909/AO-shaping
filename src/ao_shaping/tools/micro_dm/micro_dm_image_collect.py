@@ -47,7 +47,6 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.config import DEVICES
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.dm.micro import (
     MAX_CHANNELS,
