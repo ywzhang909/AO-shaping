@@ -16,6 +16,8 @@ from pathlib import Path
 
 import numpy as np
 
+from _common import shaping_score
+
 from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     create_target_mask,
 )
@@ -96,7 +98,7 @@ def _square_metrics(frame: np.ndarray) -> dict[str, float]:
     return {
         "cv": float(m["uniformity_cv"]),
         "ee": float(m["encircled_energy"]),
-        "composite": 0.5 * float(m["encircled_energy"]) + 0.5 / (1.0 + float(m["uniformity_cv"])),
+        "composite": shaping_score(float(m["encircled_energy"]), float(m["uniformity_cv"])),
     }
 
 

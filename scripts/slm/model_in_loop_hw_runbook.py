@@ -158,13 +158,13 @@ def load_records(path: Path) -> list[CalibrationRecord]:
 
 
 def geometry_to_json(geo: BenchGeometry) -> str:
-    """Serialise a BenchGeometry."""
-    return json.dumps(asdict(geo), indent=2)
+    """Serialise a BenchGeometry (delegates to :meth:`BenchGeometry.to_json`)."""
+    return geo.to_json()
 
 
 def geometry_from_json(text: str) -> BenchGeometry:
-    """Inverse of geometry_to_json."""
-    return BenchGeometry(**json.loads(text))
+    """Inverse of geometry_to_json (delegates to ``BenchGeometry.from_json_text``)."""
+    return BenchGeometry.from_json_text(text)
 
 
 def save_phase_png(path: Path, phase: np.ndarray) -> None:

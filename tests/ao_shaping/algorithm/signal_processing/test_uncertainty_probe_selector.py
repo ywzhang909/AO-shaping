@@ -197,3 +197,37 @@ class TestCovarianceAndCommit:
             return float(np.dot(a.ravel(), b.ravel()) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-9))
 
         assert cos(first, second) < 0.9
+
+
+class TestPredictiveVariancePublicApi:
+    """issue #153: the public ``predictive_variance`` is the single source of
+    truth; the private ``_predictive_variance`` kept for backward compatibility
+    must delegate to it (identical result, not a second copy of the formula)."""
+
+    def test_public_equals_private(self) -> None:
+        import torch
+
+        selector = UncertaintyProbeSelector(make_optimizer(), seed=3)
+        probe = selector.current_phase()
+        leaf = torch.from_numpy(
+            np.ascontiguousarray(probe, dtype=np.float64)
+        )
+        leaf.requires_grad_(True)
+        with torch.no_grad():
+            pub = float(selector.predictive_variance(leaf))
+            prv = float(selector._predictive_variance(leaf))
+        assert pub == prv  # bitwise: same code path, no re-implementation
+
+    def test_public_returns_finite_nonnegative(self) -> None:
+        """The score is a mean of squares: finite and >= 0 for a valid probe."""
+        import torch
+
+        selector = UncertaintyProbeSelector(make_optimizer(), seed=3)
+        leaf = torch.from_numpy(
+            np.ascontiguousarray(selector.current_phase(), dtype=np.float64)
+        )
+        leaf.requires_grad_(True)
+        with torch.no_grad():
+            u = float(selector.predictive_variance(leaf))
+        assert np.isfinite(u)
+        assert u >= 0.0
