@@ -1058,7 +1058,6 @@ def figure_widths(curve_map: dict[str, ModeCurve], out: Path) -> Path:
             float(curve.kept_coefficient.max()) + 0.3, 60,
         ) if curve.kept_coefficient.size else np.array([0.0, 1.0])
         if curve.kept_coefficient.size >= 3:
-            a = float(np.mean(curve.kept_fwhm**2) - curve.curvature * (0.0) ** 2)
             base = max(float(np.min(curve.kept_fwhm) ** 2) - 1.0, 0.0)
             ax.plot(
                 xs, np.sqrt(np.clip(base + curve.curvature * (xs - curve.offset) ** 2,
@@ -1820,7 +1819,6 @@ def _part_7(add, sweep, ramp_scale, k_tilt, flat, peak_lo, peak_hi) -> None:
         fx = float(sweep.centroid_x[flat][0])
         fy = float(sweep.centroid_y[flat][0])
         dx = fx - FALLBACK_CAMERA_PIXELS / 2.0
-        dy = fy - 1944.0 / 2.0
         add(
             f"**(a) 暗帧上不能用裸 `argmax` 定位光斑。** "
             f"本数据集平场光斑在 ({fx:.1f}, {fy:.1f})，而画面中心是 "

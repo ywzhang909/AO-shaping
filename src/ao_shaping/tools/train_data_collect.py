@@ -131,7 +131,7 @@ def optimizer(
                     "_time": time.perf_counter() - s_time
                 })
 
-                diff = pos_j - neg_j
+                pos_j - neg_j
                 # SPGD sign from the shared helper (optimizer/spgd.py):
                 # wf_statics['rms'] is minimised.
                 gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=False)

@@ -474,7 +474,7 @@ def test_the_allow_list_has_not_grown_without_a_reason() -> None:
         check=False,
     ).stdout.split()
     assert tracked
-    tracked_dirs = {str(Path(f).parent).replace("\\", "/") for f in tracked}
+    {str(Path(f).parent).replace("\\", "/") for f in tracked}
     for rel in _ALLOWED_UNTRACKED_WRITERS:
         target = _targets_a_tracked_docs_dir(REPO / rel)
         assert target is None, (

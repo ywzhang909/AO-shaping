@@ -232,7 +232,7 @@ def train_model(
 
         # Need to build discriminator for GAN
         in_channels = model.in_channels if hasattr(model, "in_channels") else 2
-        generator = build_unet(in_channels=in_channels, device=device)
+        build_unet(in_channels=in_channels, device=device)
         discriminator = build_discriminator(in_channels=in_channels + 1, device=device)
 
         trainer = PhaseGANTrainer(

@@ -1396,7 +1396,6 @@ def from_response_matrix(result, config: LoopConfig) -> AOClosedLoop:
     Returns:
         配置好的 AOClosedLoop 实例 (不含硬件依赖)
     """
-    n_max = result.n_max
     excluded_piston = result.excluded_piston
     excluded_tip_tilt = result.excluded_tip_tilt
 

@@ -1353,7 +1353,7 @@ def render_phase_control(slm_num: int):
             # 1. 从 CSV 加载灰度矩阵（驱动层已内置格式校验：
             #    标题 "Y/X"、尺寸=面板分辨率、值范围 0..1023）
             slm = st.session_state[prefix]
-            phase_gray = slm.load_gray_from_csv(temp_path)
+            slm.load_gray_from_csv(temp_path)
 
             # 2. 灰度 → 弧度制相位图（静态方法，不做硬件相关转换）
             phase_rad = Santec.csv_to_phase(temp_path)

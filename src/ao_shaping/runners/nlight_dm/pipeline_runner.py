@@ -124,7 +124,7 @@ def run(
             )
             axim = plot_funcs["wavefront"](min_wf, ax[1, 1], "Best WF")
             plt.colorbar(axim, ax=ax[1, 1], orientation="vertical")
-            axim1 = plot_funcs["img"](ccd_records.first["_img"], ax[0, 2], "Init CCD")
+            plot_funcs["img"](ccd_records.first["_img"], ax[0, 2], "Init CCD")
             axim2 = plot_funcs["img"](max_pid_iter["_img"], ax[1, 2], "Best CCD")
             plt.colorbar(
                 axim2, ax=ax[1, 2], fraction=0.046, pad=0.04, orientation="vertical"

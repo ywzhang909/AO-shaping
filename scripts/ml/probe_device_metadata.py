@@ -31,9 +31,6 @@ PROBE = 40
 
 def main() -> None:
     index = build_hw_index(index_cache="data/hw_index_cache.json", progress_every=0)
-    dataset = HwPhaseImageDataset(
-        index, config=MaterialiserConfig(grid=inv.GRID), use_cache=True
-    )
 
     print("=" * 104)
     print("DEVICE METADATA: does anything actually vary where it would be used?")

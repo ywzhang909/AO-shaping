@@ -328,7 +328,7 @@ def compute_mini_batch_gradient(
         neg_rms = neg_statics.get("rms", np.inf)
 
         # Compute gradient for this batch
-        diff = pos_rms - neg_rms
+        pos_rms - neg_rms
         # SPGD sign from the shared helper (optimizer/spgd.py): RMS is minimised.
         gradient = spgd_gradient(pos_rms, neg_rms, disturb_c, maximize=False)
         gradients.append(gradient)

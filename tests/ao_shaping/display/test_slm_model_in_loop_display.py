@@ -376,7 +376,7 @@ def test_all_four_panels_render_into_a_real_window() -> None:
 
     def predicted(seed: int) -> np.ndarray:
         rng = np.random.default_rng(seed)
-        c = ff // 2
+        ff // 2
         r = np.hypot(*np.mgrid[0:ff, 0:ff][::-1])
         return np.exp(-((r / (ff / 20.0)) ** 2)) * (0.55 + 0.45 * rng.random((ff, ff)))
 

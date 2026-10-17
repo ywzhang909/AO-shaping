@@ -108,7 +108,6 @@ def main() -> None:
         for name in OBJECTIVES:
             print(f"  sigma={sigma}  {name}:")
             for a, b in zip([0] + STEP_LADDER, STEP_LADDER):
-                base = flat if a == 0 else None
                 deltas = []
                 for r in range(N_RESTARTS):
                     sel = [

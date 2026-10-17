@@ -204,7 +204,7 @@ def smoothness_regularization(phase: "Tensor") -> "Tensor":
 
     相位图恒定时返回零, 并随高频空间变化增大。
     """
-    torch = _torch()
+    _torch()
     dy = phase[:, 1:] - phase[:, :-1]
     dx = phase[1:, :] - phase[:-1, :]
     return (dy**2).mean() + (dx**2).mean()

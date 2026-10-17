@@ -441,8 +441,6 @@ def make_weight_compare(runs: dict) -> None:
 # ---------------------------------------------------------------------------
 def make_gifs(runs: dict) -> None:
     # win_fft phase + farfield evolution (every 10th iteration)
-    phase_frames = []
-    ff_frames = []
     for i in range(0, len(runs["win_fft"]["cv_hist"]), 10):
         # Reconstruct phase from the tracked history is not stored; instead we
         # re-run a lightweight forward using the final phase is not possible.

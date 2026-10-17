@@ -199,7 +199,6 @@ def combine_gifs(
 
             # Bottom-left: IP label (red)
             bbox = draw.textbbox((0, 0), ip_label, font=font)
-            text_w = bbox[2] - bbox[0]
             text_h = bbox[3] - bbox[1]
             x = 6
             y = height - text_h - 10

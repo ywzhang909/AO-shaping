@@ -1053,8 +1053,8 @@ def m2_reference_relative(
         w = math.sqrt(w_x * w_y)
         power = np.abs(np.fft.fftshift(np.fft.fft2(amp2d))) ** 2
         ny, nx = power.shape
-        fy = np.fft.fftshift(np.fft.fftfreq(ny, d=pitch))
-        fx = np.fft.fftshift(np.fft.fftfreq(nx, d=pitch))
+        np.fft.fftshift(np.fft.fftfreq(ny, d=pitch))
+        np.fft.fftshift(np.fft.fftfreq(nx, d=pitch))
         sk_x, sk_y = _second_moment_radii(power, 1.0 / (nx * pitch), 1.0 / (ny * pitch))
         sigma_k = math.sqrt(sk_x * sk_y)
         return w * sigma_k

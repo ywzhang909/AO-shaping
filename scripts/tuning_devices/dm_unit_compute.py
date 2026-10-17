@@ -117,7 +117,7 @@ def visualize_with_pygame(title="Image Visualization"):
         pygame.display.flip()
         clock.tick(30)  # 30 FPS
         yield
-    except AssertionError as e:
+    except AssertionError:
         pass
     finally:
         wfs.close()

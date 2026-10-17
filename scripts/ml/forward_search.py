@@ -231,13 +231,7 @@ def main() -> None:
         batch_size=BS, max_train=512, max_val=128, beam_samples=32, use_wandb=False,
         save_checkpoint=False,
     )
-    basis = ZernikeAmpModel(ZernikeAmpConfig(n_max=N_MAX, grid=GRID)).basis.detach().clone().to(device)
-    target = inv.target_tensor(GRID, SIZE_FRAC, ASPECT).to(device)
-    mask = roi_mask(
-        (GRID, GRID), (GRID / 2, GRID / 2), "rectangle", SIZE_FRAC * GRID, ASPECT
-    ).to(device)
-    n_modes = basis.shape[0]
-    gs_coeff = inv.gs_coefficients(SIZE_FRAC, ASPECT, n_max=N_MAX).astype(np.float32)
+    ZernikeAmpModel(ZernikeAmpConfig(n_max=N_MAX, grid=GRID)).basis.detach().clone().to(device)
 
     splits = {}
     for seed in SEEDS:

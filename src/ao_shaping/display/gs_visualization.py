@@ -317,7 +317,7 @@ def gerchberg_saxton_with_visualization(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Initialize
-    k = 2 * np.pi / wavelength
+    2 * np.pi / wavelength
     Ny, Nx = source_amplitude.shape
 
     # Initialize with target back-propagated

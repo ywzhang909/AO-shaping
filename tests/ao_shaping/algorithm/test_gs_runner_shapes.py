@@ -2312,8 +2312,8 @@ class TestCreateTargetShape:
         assert amplitude[center_y, center_x] == 0.0
 
         # Some point at middle radius should be 1
-        mid_y = size[1] // 2
-        mid_x = int(size[0] * (inner_r + outer_r) / 4 + size[0] / 2)
+        size[1] // 2
+        int(size[0] * (inner_r + outer_r) / 4 + size[0] / 2)
         # This is approximate; just check that ring exists
         assert np.sum(amplitude > 0) > 0, "Annular ring should have non-zero values"
 

@@ -173,7 +173,7 @@ class TestResampleOnSaturation:
     def test_saturation_triggers_resample(self):
         cam = FakeCamera(k=10.0, exposure_ms=3.0)
         img = np.full((8, 8), 255, dtype=np.uint8)
-        result = resample_on_saturation(
+        resample_on_saturation(
             img, cam, exposure_time_ms=0.0, target_max_brightness=200.0
         )
         assert cam.set_calls  # auto-exposure was applied

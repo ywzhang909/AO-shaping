@@ -316,10 +316,10 @@ def render_model_candidate_comparison() -> Path:
             x = np.arange(len(methods))
             width = 0.35
             ax2 = ax.twinx()
-            bars1 = ax.bar(
+            ax.bar(
                 x - width / 2, corr_vals, width, label="相关性", color=colors, alpha=0.8
             )
-            bars2 = ax2.bar(
+            ax2.bar(
                 x + width / 2,
                 nrmse_vals,
                 width,
@@ -476,11 +476,6 @@ def render_exposure_response() -> Path:
 
 def render_replay_comparison() -> Path:
     """Render comparison of A/B phase replay with fixed exposure."""
-    replay_dirs = [
-        ("无扰动 AB", REPLAY_DIR / "20261013_1733_four_vs_two"),
-        ("固定曝光 AB", REPLAY_DIR / "20261013_160630_fixed040"),
-    ]
-
     fig, axes = plt.subplots(1, 3, figsize=(18, 5))
 
     # Subplot 1: Score comparison

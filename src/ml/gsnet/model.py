@@ -200,7 +200,7 @@ class FFTLayer(nn.Module):
         pupil_field = source_amp * torch.exp(1j * phase)
         far_field = torch.fft.fftshift(torch.fft.fft2(pupil_field), dim=(-2, -1))
         far_phase = torch.angle(far_field)
-        far_intensity = torch.abs(far_field) ** 2
+        torch.abs(far_field) ** 2
 
         # ---- 2. Far-plane amplitude constraint ----
         far_field_c = target_amp * torch.exp(1j * far_phase)

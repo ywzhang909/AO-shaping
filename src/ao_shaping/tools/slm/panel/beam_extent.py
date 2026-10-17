@@ -115,7 +115,7 @@ def main(params: BeamExtentParams) -> None:
     panel = (SLM_PANEL_H, SLM_PANEL_W)
     span = SLM_PANEL_W if axis == "x" else SLM_PANEL_H
     positions = np.linspace(0, span, int(steps) + 1)[1:]
-    rng = np.random.default_rng(int(seed))
+    np.random.default_rng(int(seed))
     base_rand = random_phase(panel, seed=int(seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
 

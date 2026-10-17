@@ -54,8 +54,8 @@ def reconstruct_wavefront(sx, sy, remove_piston_tilt=True):
     rms   : 波前 RMS
     """
     N = sx.shape[0]
-    M = N*N
-    K = (N+1)*(N+1)
+    N*N
+    (N+1)*(N+1)
 
     # 1. 斜率拉向量
     s = np.concatenate([sx.ravel(), sy.ravel()])   # 2M×1

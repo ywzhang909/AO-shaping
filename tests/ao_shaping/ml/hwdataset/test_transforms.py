@@ -119,7 +119,7 @@ class TestCoherentBlockMean:
 
     def test_coherence_beats_arithmetic_mean(self) -> None:
         """Coherent mean better than arithmetic mean on wrapped phase."""
-        rng = np.random.default_rng(123)
+        np.random.default_rng(123)
         x = np.linspace(0, 2 * np.pi * 3, 120)
         y = np.linspace(0, 2 * np.pi * 2, 120)
         X, Y = np.meshgrid(x, y)

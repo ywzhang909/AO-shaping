@@ -182,7 +182,7 @@ def make_debug_wavefront_ax_plots(
                         ``"vertical"``).
     """
     im0 = plot_funcs["wavefront"](init_wavefront, ax[0], init_title)
-    fig = ax[0].get_figure()
+    ax[0].get_figure()
     plt.colorbar(im0, ax=ax[0], orientation=orientation)
     im1 = plot_funcs["wavefront"](opt_wavefront, ax[1], opt_title)
     plt.colorbar(im1, ax=ax[1], orientation=orientation)

@@ -14,8 +14,8 @@ def test_all():
 
     vs = get_init_V_by_rms()
     with NlightDM(keep_when_exit=True) as dm, \
-        MIICamera(cam_id=os.environ.get('Far_Cam_ID', 0), exposure_time_ms=500) as cam_in, \
-        ThorlabWFS() as wfs:
+        MIICamera(cam_id=os.environ.get('Far_Cam_ID', 0), exposure_time_ms=500), \
+        ThorlabWFS():
         assert vs.shape == (dm.DM_Num,)
         dm.send_voltages(vs, 0.1)
 

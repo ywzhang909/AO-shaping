@@ -212,7 +212,6 @@ class TestReport:
         ``docs/<device>/`` are unaffected (unregistered -> empty header).
         """
         content = "".join(self.sections)
-        header = ""
         try:
             from scripts._common.provenance import insert_header
 

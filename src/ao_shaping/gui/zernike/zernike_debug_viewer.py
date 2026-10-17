@@ -252,7 +252,7 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                             if meta_file.exists():
                                 import json
                                 with open(meta_file) as f:
-                                    meta = json.load(f)
+                                    json.load(f)
                                 # Meta doesn't directly contain exclusion info, 
                                 # but we can check if coefficient 0 (piston) is always zero
                                 # or look at the pattern
@@ -339,8 +339,8 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                 # But we need to be careful about bounds
                 
                 wfs_start_idx = row_start
-                wfs_end_idx = min(wfs_start_idx + n_wfs_terms_for_matrix, len(mean_response))
-                slm_end_idx = min(col_idx + 1, len(mode_indices))  # This is tricky
+                min(wfs_start_idx + n_wfs_terms_for_matrix, len(mean_response))
+                min(col_idx + 1, len(mode_indices))  # This is tricky
                 
                 # Actually, let's think differently:
                 # For SLM mode index `slm_mode_idx`, we want to fill column `col_idx` in the matrix
@@ -352,8 +352,8 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                     variance_matrix[0:n_to_copy, col_idx] = variance_response[wfs_start_idx:wfs_start_idx + n_to_copy]
         
         # Compute derived properties
-        mean_variance = float(np.mean(variance_matrix)) if variance_matrix.size > 0 else 0.0
-        max_variance = float(np.max(variance_matrix)) if variance_matrix.size > 0 else 0.0
+        float(np.mean(variance_matrix)) if variance_matrix.size > 0 else 0.0
+        float(np.max(variance_matrix)) if variance_matrix.size > 0 else 0.0
         
         # Try to compute pseudo-inverse if we have enough data
         pinv_matrix = None
@@ -367,11 +367,11 @@ def _compute_response_matrix_from_debug(debug_data: dict, magnitude: float):
                 if np.linalg.matrix_rank(response_matrix) == min(response_matrix.shape):
                     try:
                         # Condition number = ||A|| * ||A^+||
-                        cond_num = np.linalg.norm(response_matrix, ord=2) * np.linalg.norm(pinv_matrix, ord=2)
+                        np.linalg.norm(response_matrix, ord=2) * np.linalg.norm(pinv_matrix, ord=2)
                     except Exception:
-                        cond_num = None
+                        pass
                 else:
-                    cond_num = None  # Singular matrix
+                    pass  # Singular matrix
             except Exception:
                 pinv_matrix = None
                 lstsq_matrix = None
@@ -493,7 +493,7 @@ def _render_main() -> None:
         return
 
     available_modes = sorted(data["modes"].keys())
-    n_modes = len(available_modes)
+    len(available_modes)
 
     st.divider()
     st.subheader("Mode Selection")

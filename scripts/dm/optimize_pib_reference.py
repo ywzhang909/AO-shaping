@@ -169,8 +169,6 @@ class AOSim:
         return phase
     
     def pib(self, img: np.ndarray) -> float:
-        dpix = self.cfg.aperture / self.cfg.npix
-        power = img.sum() * dpix ** 2
         r_bucket = self.state.r_bucket
         wave_x = self.state.ideal_wave.x
         wave_y = self.state.ideal_wave.y
@@ -303,7 +301,7 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
         return cart.fit_cart_grid(phi)[0]
     
     c = np.zeros(cart.nk)
-    phase = eval_grid(c)
+    eval_grid(c)
     
     m = np.zeros(cart.nk)
     v = np.ones(cart.nk)
@@ -334,8 +332,7 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
             m_h = m / (1 - beta1 ** t + 1e-10)
             v_h = v / (1 - beta2 ** t + 1e-10)
             c = c - alpha * m_h / (np.sqrt(v_h) + 1e-8) + disturb / 2
-            phase = eval_grid(c)
-            
+
             ratio = J / ideal_pib if ideal_pib > 0 else 0
             pib_vals.append(J)
             ratio_vals.append(ratio)
@@ -397,9 +394,7 @@ def run_spgd_voltage(ao: AOSim, delta: float = 0.5, gamma: float = 1e-3,
     stagnant, flag = 0, 0
     pos_pib, neg_pib = 0.0, 0.0
     perturb_v = np.zeros(total_act)
-    
-    target_pib = ao.state.ideal_pib * target_ratio
-    
+
     for epoch in range(1, epochs + 1):
         if flag == 0:
             perturb_v = (np.random.binomial(1, 0.5, total_act).astype(float) * 2.0 - 1.0) * delta

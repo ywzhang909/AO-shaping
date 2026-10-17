@@ -106,7 +106,7 @@ class ZernikeDM(DM):
         else:
             coeffs_dict = coefficients
 
-        height, width = self.resolution[1], self.resolution[0]
+        _height, _width = self.resolution[1], self.resolution[0]
         max_val = float(2**self.bits - 1)
 
         # 用 ZernikeGenerator 的 generate_polynomial 生成相位。

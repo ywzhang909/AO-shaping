@@ -329,7 +329,6 @@ def fm(title, tags, kind, source, extra=""):
     )
 
 def entry_main_py():
-    info = nodes["main.main"] if "main.main" in nodes else None
     body = fm("main.py（仓库根入口）", ["entry", "cli"], "entry", "main.py")
     body += "## 职责\n\n仓库根入口文件，7 行。唯一工作：\n\n```python\nfrom ao_shaping.main import cli\n\nif __name__ == \"__main__\":\n    cli()\n```\n\n"
     body += "把 `python main.py …` 的全部调用转交给 [[entry/cli|`ao_shaping.main.cli`]]。" \
@@ -340,7 +339,6 @@ def entry_main_py():
     return "entry/main-py.md", body
 
 def entry_cli():
-    info = nodes["ao_shaping.main.cli"]
     body = fm("cli（Click 根命令组）", ["entry", "cli"], "entry", "src/ao_shaping/main.py:82")
     body += "## 职责\n\nClick 根命令组 `@click.group()`，负责三件事：\n\n"
     body += "(1) 解析全局选项 `--dir`（数据保存根目录，默认 `data`）与 `--debug`（调试模式旗标）；" \
@@ -358,8 +356,6 @@ def entry_cli():
         qual = cmd.get(key) or (
             "ao_shaping.tools.slm.calibration.lut_runner.run" if name == "slm-lut"
             else "ao_shaping.tools.slm.panel.diagnose.main")
-        fn = qual.split(".")[-1]
-        mod = qual.rsplit(".", 2)[0].split("ao_shaping.")[-1]
         body += f"| `{name}` | `{qual.split('.',1)[1]}` | [[commands/{name}]] |\n"
     body += "\n## 调用关系\n\n- 被 `main.py` 的 `__main__` 块调用\n- 调用 [[functions/debug-mode|`get_debug_mode`]]\n- 分发到各 [[commands/wf|命令入口]]（下表）\n"
     return "entry/cli.md", body
