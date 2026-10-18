@@ -68,6 +68,25 @@ def _drop_logs(sink_id) -> None:
     logger.remove(sink_id)
 
 
+@pytest.fixture(autouse=True)
+def _restore_santec_globals():
+    """Undo the module-global ``Santec`` rebinding after each test.
+
+    ``patch_sim_pib_shaping("sim")`` rebinds ``slm_zernike_pib.Santec`` to the
+    digital twin at module scope; without a restore, that rebind leaks past this
+    file and breaks any later test that asserts the hardware driver is still
+    installed (e.g. ``test_slm_shaping_runner_sim_backend``).
+    """
+    import ao_shaping.optimizer.wfless.slm_square_shaping as square_opt
+    import ao_shaping.optimizer.wfless.slm_zernike_pib as pib_opt
+
+    saved = (square_opt.Santec, pib_opt.Santec)
+    try:
+        yield
+    finally:
+        square_opt.Santec, pib_opt.Santec = saved
+
+
 def _patch_sim(monkeypatch):
     """Route the optimizer at the digital twin via the runner's own helper.
 

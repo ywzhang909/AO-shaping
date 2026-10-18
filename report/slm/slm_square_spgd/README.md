@@ -195,7 +195,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
 > （`README.md:179`：`gs` / `gs-square` / `diff-shaping` / `diff-beam`）。请改用：
 > - `slm-gsnet spgd|backprop|heuristic`（`runners/slm_gsnet_runner.py`）——
 >   FourierGSNet / freeform 路径，**已接能量守卫 + 24×24 网格，替代本节方案**
-> - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 bake-off（对比择优） + SPGD 细化
+> - `slm-gs-refine`（`runners/slm_gs_refine_runner.py`）—— GS 预矫正 对比择优 + SPGD 细化
 > - `spgd-square`（`runners/slm/slm_shaping_runner.py` 的 `square` 子命令）—— 本文件对应的 SPGD 路径
 
 要得到干净的 20×20 方形，使用项目已验证的**模型化引擎**：

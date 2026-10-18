@@ -44,6 +44,7 @@ EXACT_RULES = [
     ('台架',       '实验系统'),
 
     # T-03 实机 / 真机 / 上机
+    ('实机实验',     '实验'),
     ('未上真机',     '未完成实验验证'),
     ('真机 A/B',     '实验系统 A/B'),
     ('真机首跑',     '首次实验运行'),
@@ -111,7 +112,7 @@ def _has_cjk(s):
 # ---------------------------------------------------------------------------
 # 单行处理
 # ---------------------------------------------------------------------------
-def process_line(line, seen_bakeoff):
+def process_line(line):
     out = line
 
     # 1) 精确术语
@@ -139,36 +140,28 @@ def process_line(line, seen_bakeoff):
         return 'pupil（瞳面）'
     out = re.sub(r'\bpupil\b', pupil_repl, out, flags=re.IGNORECASE)
 
-    # 3) bake-off：中文叙述中首现加中文释义；英文叙述/行内 code 保留
-    bak = seen_bakeoff
-    def bakeoff_repl(m):
-        nonlocal bak
+    # 3) bake-off → 对比择优（2026-10-17 起全中文化，T-54）：
+    #    先处理带夹注形式 bake-off（对比择优），再处理裸词；
+    #    英文叙述/行内 code 保留（代码标识符 bake_off_rejected 用下划线，不受影响）。
+    def _bakeoff_ctx_keep(m):
         i = m.start()
         if _in_inline_code(out, i):
             return m.group(0)
-        if bak:
-            return m.group(0)
-        # 局部窗口须含中文，否则视为英文叙述，保留
         w = 40
         before = out[max(0, i-w):i]
         after  = out[i+len('bake-off'):i+len('bake-off')+w]
         if not (_has_cjk(before) or _has_cjk(after)):
             return m.group(0)
-        bak = True
-        # 已带 (对比择优) 则不再加
-        tail = out[i:i+30]
-        if '对比择优' in tail:
-            return m.group(0)
-        return 'bake-off（对比择优）'
-    out = re.sub(r'\bbake-off\b', bakeoff_repl, out)
+        return '对比择优'
+    out = re.sub(r'\bbake-off\b（对比择优）', _bakeoff_ctx_keep, out)
+    out = re.sub(r'\bbake-off\b', _bakeoff_ctx_keep, out)
 
-    return out, bak
+    return out
 
 def transform(text):
     lines = text.split('\n')
     fence = False
     out = []
-    seen_bakeoff = False
     for ln in lines:
         if ln.strip().startswith('```'):
             fence = not fence
@@ -177,8 +170,7 @@ def transform(text):
         if fence:
             out.append(ln)
             continue
-        ln, seen_bakeoff = process_line(ln, seen_bakeoff)
-        out.append(ln)
+        out.append(process_line(ln))
     return '\n'.join(out)
 
 # ---------------------------------------------------------------------------

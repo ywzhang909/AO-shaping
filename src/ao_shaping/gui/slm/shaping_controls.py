@@ -75,7 +75,6 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
 )
 from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
-    CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
 )
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
@@ -1335,7 +1334,7 @@ class GsRefineMethod(ShapingMethod):
     action: ClassVar[str] = "开始 GS+SPGD 闭环整形"
     blurb: ClassVar[str] = (
         "交错重放验证配方（flat 0.534 → GS 0.767 → best 0.774，2026-10-12 / "
-        "2026-10-14 两次复核）。GS 预矫正走 bake-off：实测不优于平场就丢弃，"
+        "2026-10-14 两次复核）。GS 预矫正走对比择优：实测不优于平场就丢弃，"
         "从平场继续。"
     )
 
@@ -1398,7 +1397,7 @@ class GsRefineMethod(ShapingMethod):
                 help="破纪录候选重新测量确认，抑制噪声假提升",
             )
 
-        st.caption("GS 预矫正（bake-off（对比择优）：仅实测优于平场才采用）")
+        st.caption("GS 预矫正（对比择优：仅实测优于平场才采用）")
         c1, c2, c3 = st.columns(3)
         with c1:
             values["gs_warm_start"] = st.checkbox(

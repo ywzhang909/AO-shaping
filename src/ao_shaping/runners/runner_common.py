@@ -3235,7 +3235,9 @@ def discover_model_in_loop_geometry(
     Returns:
         The newest matching path, or ``None`` when nothing usable is found.
     """
-    import json
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        load_bench_geometry,
+    )
 
     root_path = Path(root)
     if not root_path.is_dir():
@@ -3248,12 +3250,12 @@ def discover_model_in_loop_geometry(
             try:
                 if not path.is_file():
                     continue
-                payload = json.loads(path.read_text(encoding="utf-8"))
+                geometry = load_bench_geometry(path)
                 # Only a sweep geometry carries an independent goodness number;
                 # a speckle artefact is exactly the ~0.07 route being replaced.
-                if str(payload.get("method")) != "sweep":
+                if not geometry.is_sweep:
                     continue
-                if region is not None and int(payload["region"]) != int(region):
+                if region is not None and int(geometry.region) != int(region):
                     continue
                 mtime = path.stat().st_mtime
             except (OSError, ValueError, KeyError, TypeError, AttributeError):
@@ -3270,16 +3272,18 @@ def describe_bench_geometry(path: str | Path | None) -> str:
     rather than surface a traceback under the text box.  ``None`` (or a blank
     string) is the "no geometry selected" state and is stated as such.
     """
-    import json
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        load_bench_geometry,
+    )
 
     if path is None or str(path).strip() == "":
         return "未指定几何文件: 真机会退回已废弃的 speckle 标定"
     try:
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        if not isinstance(payload, dict):
-            raise ValueError("顶层不是 JSON 对象")
+        geometry = load_bench_geometry(path)
     except (OSError, ValueError, TypeError) as error:
         return f"无法读取几何文件: {path} ({error})"
+
+    payload = geometry.__dict__
 
     def _number(key: str) -> str:
         try:

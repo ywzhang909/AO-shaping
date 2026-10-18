@@ -150,7 +150,7 @@
 ### 3.5 ⭐ 用 GS warm-start + 模型闭环的 "hybrid" 作为默认推荐（论文核心结论的落地）
 
 - **论文**：明确 GS 在弱湍流好、强湍流差；SPGD 在强湍流鲁棒但慢；**hybrid 最稳**。
-- **本项目现状**：`slm_gs_refine` 已经做了 **GS warm-start + bake-off（对比择优）**（GS 赢了才采用）+ SPGD 细化；
+- **本项目现状**：`slm_gs_refine` 已经做了 **GS warm-start + 对比择优**（GS 赢了才采用）+ SPGD 细化；
   `slm_model_in_loop` 做了正向模型 + SPGD。但两者是**分离的命令**，没有统一的"按湍流强度自动选 hybrid 配方"。
 - **借鉴**：把 §3.1 + §3.3 的信号接进来，让一个**调度器**根据在线 Cn² 代理自动选择：
   - 弱 → GS 主导（快）；
@@ -178,7 +178,7 @@
 - **SPGD / AdamSPGD**：本项目 `spgd_gradient` + `algorithm/gradient/adam.py`（默认 AdaMOD）。
   论文的 AdamSPGD（少 50% 迭代）≈ 本项目"SPGD + Adam 族"，**已落地**，且本项目多了
   噪声地板实测（`delta=0.2 rad` 来自 `measure_shape_sensitivity.py`）—— 比论文更工程化。
-- **GS warm-start**：`slm_gs_refine` Stage 1 + bake-off。论文的"GS 弱湍流好"被本项目的
+- **GS warm-start**：`slm_gs_refine` Stage 1 + 对比择优。论文的"GS 弱湍流好"被本项目的
   "GS 赢才采用" 直接消解，**无风险**。
 - **Pre-distortion / model-in-loop**：`slm_model_in_loop.py` 已是"模型在环"，比 DLR 的静态
   pre-distortion 更动态（每轮重拟合正向模型）。

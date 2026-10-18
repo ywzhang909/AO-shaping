@@ -1289,6 +1289,39 @@ class BenchGeometry:
     method: str = "speckle"
     calibration_notes: str = ""
 
+    # ------------------------------------------------------------------
+    # 序列化 —— 唯一真源 (issue #152)
+    # ------------------------------------------------------------------
+    def to_json(self) -> str:
+        """Serialise to the ``bench_geometry.json`` schema (pretty, indent=2)."""
+        import json
+        from dataclasses import asdict
+
+        return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json_text(cls, text: str) -> "BenchGeometry":
+        """Inverse of :meth:`to_json`.
+
+        Old files written before ``method`` existed simply omit the key; the
+        dataclass default (``"speckle"``) then applies, so historical geometries
+        keep loading unchanged.
+        """
+        import json
+
+        return cls(**json.loads(text))
+
+    @property
+    def is_sweep(self) -> bool:
+        """``True`` iff this geometry came from the sweep calibration route.
+
+        Only a sweep geometry carries an independent goodness number
+        (``correlation`` as defocus-response goodness); a speckle artefact is the
+        abandoned ~0.07 route. Consumers should branch on this rather than
+        re-string-comparing ``self.method == "sweep"``.
+        """
+        return self.method == "sweep"
+
     def model_side_for_camera(self, camera_px: float) -> int:
         """Convert a target square side from camera pixels to model pixels.
 
@@ -1316,6 +1349,17 @@ def _model_window(
     top = (far_field.shape[0] - rows) // 2
     left = (far_field.shape[1] - cols) // 2
     return far_field[top : top + rows, left : left + cols]
+
+
+def load_bench_geometry(path: str | Path) -> BenchGeometry:
+    """Load a ``bench_geometry.json`` from disk.
+
+    The single entry point for reading the schema, so producer and consumer no
+    longer each hand-roll ``json.loads`` + ``BenchGeometry(**...)``. See
+    :meth:`BenchGeometry.from_json_text` for old-file (no ``method`` key)
+    compatibility.
+    """
+    return BenchGeometry.from_json_text(Path(path).read_text(encoding="utf-8"))
 
 
 def calibrate_bench_geometry(

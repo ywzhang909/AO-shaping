@@ -96,13 +96,13 @@ def _n_fitted_coeffs(n_orders: int) -> int:
 
 
 def _u_of(selector: UncertaintyProbeSelector, batch) -> float:  # noqa: ANN001
-    """用选择器**自己的**度量给一批探针打分 (私有方法, 刻意单一真源)。"""
+    """用选择器**自己的**公共方法给一批探针打分 (单一真源, 不重写公式)。"""
     vals = []
     for probe in batch:
         leaf = torch.from_numpy(np.ascontiguousarray(probe, dtype=np.float64))
         leaf.requires_grad_(True)
         with torch.no_grad():
-            vals.append(float(selector._predictive_variance(leaf)))
+            vals.append(float(selector.predictive_variance(leaf)))
     return float(np.mean(vals)) if vals else float("nan")
 
 

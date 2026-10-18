@@ -29,6 +29,7 @@ from loguru import logger
 
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
+from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
 
 try:  # scipy 的 pocketfft 是多线程的, 而补零后的变换需要它。
@@ -85,6 +86,7 @@ class SimPibSystem:
         seed: int | None = None,
         *,
         disturbance: SimDisturbance | None = None,
+        dm_optics: Any = None,
         far_field_padding: int = FAR_FIELD_PADDING,
         far_field_window: int = FAR_FIELD_WINDOW,
     ) -> None:
@@ -114,6 +116,14 @@ class SimPibSystem:
         self._far_field: np.ndarray | None = None
         self._pad_buffer: np.ndarray | None = None
         self._gray: np.ndarray | None = None
+        # DM 电压 → 瞳孔相位耦合 (见 dm_optics.py)。未注入时使用与 SLM 面板
+        # 同尺寸的默认实例, 使 ``SimulateDM`` (``create_dm("sim")``) 的
+        # ``_publish_to_optics`` 与 DM 驱动的优化环路 (``pib``/``combined``)
+        # 能找到 ``system.dm_optics``。
+        self.dm_optics = dm_optics if dm_optics is not None else SimDmOptics(
+            slm_shape=(self.slm_h, self.slm_w)
+        )
+        self._dm_version: int = 0
 
     # --- SLM 侧 --------------------------------------------------------
 
@@ -147,6 +157,12 @@ class SimPibSystem:
         与 ``AGENTS.md`` 里的 2f 台架约定一致。
         """
         with self._lock:
+            # DM 电压每次变化都会自增 ``dm_optics.version``; 版本变化说明瞳孔相位
+            # 已变, 缓存的远场 (基于旧电压) 必须失效, 否则 DM 耦合看起来毫无效果。
+            dm_ver = self.dm_optics.version
+            if dm_ver != self._dm_version:
+                self._dm_version = dm_ver
+                self._far_field = None
             if self._far_field is not None:
                 return self._far_field.copy()
             phase = self._phase
@@ -155,6 +171,9 @@ class SimPibSystem:
             # 纯命令 —— 把干扰烘进去会被重复计入。
             if self.disturbance is not None:
                 phase = phase + self.disturbance.phase()
+            # DM 相位 (电压 → 瞳孔相位) 与干扰同一约定: 在求值时叠加进瞳面相位,
+            # 绝不烘进 ``self._phase``, 避免 SLM 命令与 DM 贡献重复计入。
+            phase = phase + self.dm_optics.phase()
             # SLM 网格上的高斯入射光束幅度。
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0

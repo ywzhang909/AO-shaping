@@ -1878,19 +1878,16 @@ def _calibrate_geometry(
         and the records it consumed (empty for the simulated bench).
     """
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
-        BenchGeometry,
         CalibrationRecord,
         calibrate_bench_geometry,
+        load_bench_geometry,
     )
 
     if isinstance(bench, _SimBench):
         return bench.true_geometry(), []
     if config.geometry_file is not None:
-        import json
-
-        payload = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
-        geometry = BenchGeometry(**payload)
-        if geometry.method != "sweep":
+        geometry = load_bench_geometry(config.geometry_file)
+        if not geometry.is_sweep:
             raise ValueError(
                 f"geometry file {config.geometry_file!r} has method "
                 f"{geometry.method!r}, not 'sweep'. Speckle geometries are the "
@@ -2180,23 +2177,23 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
     import ast
     import json
 
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import load_bench_geometry
+
     run_dir = Path(config.prior_run_dir)
     if config.geometry_file is None:
         raise ValueError("prior_run_dir requires an explicit geometry_file")
-    prior_geometry = json.loads(
-        (run_dir / "bench_geometry.json").read_text(encoding="utf-8")
-    )
-    current_geometry = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
+    prior_geometry = load_bench_geometry(run_dir / "bench_geometry.json")
+    current_geometry = load_bench_geometry(config.geometry_file)
     # The pupil grid itself cannot be rescaled: both geometries must sit on this
     # run's model grid.
     if (
-        int(prior_geometry["region"]) != int(config.region)
-        or int(current_geometry["region"]) != int(config.region)
+        int(prior_geometry.region) != int(config.region)
+        or int(current_geometry.region) != int(config.region)
     ):
         raise ValueError("prior run geometry mismatch: region")
     if not np.isclose(
-        float(prior_geometry["panel_disc_radius"]),
-        float(current_geometry["panel_disc_radius"]),
+        float(prior_geometry.panel_disc_radius),
+        float(current_geometry.panel_disc_radius),
         rtol=1e-6,
     ):
         raise ValueError("prior run geometry mismatch: panel_disc_radius")
@@ -2204,13 +2201,13 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
     # stored at another padding factor, which is a pure re-sampling difference.
     target_far_field = int(config.region) * int(config.far_field_padding)
     prior_scale = _far_field_cell_scale(
-        prior_geometry["camera_px_per_model_px"],
-        from_far_field=int(prior_geometry["far_field_size"]),
+        prior_geometry.camera_px_per_model_px,
+        from_far_field=int(prior_geometry.far_field_size),
         to_far_field=target_far_field,
     )
     current_scale = _far_field_cell_scale(
-        current_geometry["camera_px_per_model_px"],
-        from_far_field=int(current_geometry["far_field_size"]),
+        current_geometry.camera_px_per_model_px,
+        from_far_field=int(current_geometry.far_field_size),
         to_far_field=target_far_field,
     )
     if not np.isclose(prior_scale, current_scale, rtol=1e-6):
