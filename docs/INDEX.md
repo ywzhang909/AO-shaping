@@ -118,6 +118,7 @@
 | `tools/slm_drift_probe.md` | SLM 漂移探测 |
 | `tools/slm_exposure_check.md` | 曝光检查 |
 | `tools/slm_floor_probe.md` | 本底（floor）探测 |
+| `tools/slm_focus_probe.md` | 焦面探测：plain 相位上扫菲涅尔焦距（1/f），逐点重调曝光，找让焦面回到相机的二次相位 |
 | `tools/slm_panel_locate.md` | SLM 面板定位 |
 | `tools/slm_phase_resolution.md` | 相位分辨率测量 |
 | `tools/slm_tilt_probe.md` | 倾斜探测 |
