@@ -11,7 +11,7 @@ and the camera-only / WFS probes now live beside it::
       wfs/       wfs_probe, wfs_reference, zernike_response, zernike_correction
       slm/
         panel/         diagnose, tilt_probe, panel_locate, beam_extent,
-                       phase_resolution, phase_response
+                       focus_probe, phase_resolution, phase_response
         calibration/   calibration, gray_response, lut_runner, phase_capture,
                        train_data_collect
         cartographer/  cosine_pattern, hartmann_capture,
