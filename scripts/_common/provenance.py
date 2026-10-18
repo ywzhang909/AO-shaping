@@ -665,6 +665,23 @@ REPORTS: dict[str, ReportProvenance] = {
             "含 5 轮 GS 最佳相位与远场渲染图"
         ),
     ),
+    "report/shape_trials/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "2026-10-16/17 正向模型闭环方斑均匀度实验：固定曝光交错重放比较软边缘 CV "
+            "目标与两轮热启动 (SLM 22030108 + 大恒 FJB24112232, 1064 nm)；"
+            "并实测照明半径、据以把 GUI 侧栏的曝光与照明半径改为可探测。"
+            "2026-10-17 追加节记录两次由实测数据揭出的实现缺陷 (半径用 edge/2 而非 "
+            "edge−centre；曝光探测不校验确认帧是否截断) 及其修复"
+        ),
+        extra_scripts=(
+            "src/ao_shaping/gui/slm/bench_settings.py",
+            "src/ao_shaping/tools/slm/panel/beam_extent.py",
+            "src/ao_shaping/tools/slm/panel/panel_locate.py",
+            "src/ao_shaping/utils/image/exposure_control.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",

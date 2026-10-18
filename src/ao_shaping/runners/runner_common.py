@@ -2659,9 +2659,21 @@ class SlmModelInLoopParams:
         float,
         option(
             "--panel-scan-max-session-drift",
-            help="Maximum first-to-last flat drift across the scan.",
+            help="Maximum first-to-last flat *intensity* drift across the scan. "
+            "Reported, not enforced: every grid point normalises against its own "
+            "paired flat, so this does not bias the located centre. The enforced "
+            "session criterion is --panel-scan-max-session-shift-px.",
         ),
     ] = 0.05
+    panel_scan_max_session_shift_px: Annotated[
+        float,
+        option(
+            "--panel-scan-max-session-shift-px",
+            help="Maximum first-to-last flat centroid shift in camera px. This is "
+            "the session criterion that actually invalidates a locate: a beam "
+            "that moved has no single centre. 0 disables the check.",
+        ),
+    ] = 3.0
 
     # --- live view ---------------------------------------------------------
     show: Annotated[

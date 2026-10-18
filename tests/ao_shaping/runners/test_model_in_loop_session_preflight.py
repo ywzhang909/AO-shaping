@@ -69,11 +69,14 @@ def fake_scan(monkeypatch):
     """Replace the panel-locate probe; record the params it was handed."""
     seen: dict = {}
 
-    def scan(params, *, strict, max_session_drift):
+    def scan(params, *, strict, max_session_drift, max_session_shift_px=None):
         seen["params"] = params
         seen["strict"] = strict
         seen["session_limit"] = max_session_drift
-        return panel_locate.PanelLocateResult((960, 720), -0.1, 0.006, 0.012, 0)
+        seen["session_shift_limit"] = max_session_shift_px
+        return panel_locate.PanelLocateResult(
+            (960, 720), -0.1, 0.006, 0.012, 0, 0.4
+        )
 
     monkeypatch.setattr(panel_locate, "scan_panel", scan)
     return seen
@@ -314,6 +317,7 @@ class TestSummaryLines:
             panel_scan_response=-0.1,
             panel_scan_max_pair_drift=0.006,
             panel_scan_session_drift=0.012,
+            panel_scan_session_shift_px=0.4,
             geometry_file=tmp_path / "bench_geometry.json",
             geometry_correlation=0.82,
             evidence_dir=tmp_path,
@@ -326,7 +330,8 @@ class TestSummaryLines:
             "入射定位: 瞳面中心面板坐标 (960, 720)",
             "入射定位响应: -0.100",
             "配对平场漂移上限: 0.60%",
-            "整轮平场漂移: 1.20%",
+            "整轮平场强度漂移: 1.20%（逐点配对已归一化，不影响定位）",
+            "整轮光斑位移: 0.40 相机px（定位判据）",
             f"sweep 几何文件: {tmp_path / 'bench_geometry.json'}",
             "几何相关系数: 0.8200",
             f"证据目录: {tmp_path}",

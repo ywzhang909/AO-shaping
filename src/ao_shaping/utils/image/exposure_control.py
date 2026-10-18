@@ -253,6 +253,32 @@ def probe_exposure_ceiling_ms(
     )
 
 
+def working_exposure_ms(
+    ceiling_ms: float,
+    *,
+    fraction: float = 0.5,
+    floor_ms: float = 0.02,
+) -> float:
+    """The exposure a run should actually use, given a resolved ceiling.
+
+    Single source of truth for "probe said X, so use Y": the panel-locate
+    sweep, the geometry sweep and the GUI sidebar probe must all agree, or the
+    evidence a run explains was taken at a different exposure than the run
+    used.  ``fraction`` defaults to a half of the ceiling -- the ceiling is
+    where the brightest pixel would reach 90% of full scale, so half of it puts
+    the peak near 45%: enough raw counts for the shaping metrics, with the
+    clip margin the report asks for.  ``floor_ms`` is the driver's own clamp,
+    so a very bright bench still lands on a legal exposure.
+    """
+    if not math.isfinite(ceiling_ms) or ceiling_ms <= 0:
+        raise ValueError(f"ceiling_ms must be finite and positive, got {ceiling_ms!r}")
+    if not 0 < fraction <= 1:
+        raise ValueError(f"fraction must lie in (0, 1], got {fraction}")
+    if not math.isfinite(floor_ms) or floor_ms < 0:
+        raise ValueError(f"floor_ms must be finite and non-negative, got {floor_ms!r}")
+    return max(float(floor_ms), float(fraction) * float(ceiling_ms))
+
+
 @dataclass(frozen=True)
 class ExposureDecision:
     next_ms: float

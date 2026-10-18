@@ -57,6 +57,8 @@ import subprocess
 import sys
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 from ao_shaping.runners.runner_common import parse_point
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, keeps import time cheap
@@ -107,8 +109,10 @@ class SessionCalibration:
     panel_scan_response: float | None = None
     panel_scan_max_pair_drift: float | None = None
     panel_scan_session_drift: float | None = None
+    panel_scan_session_shift_px: float | None = None
     geometry_file: Path | None = None
     geometry_correlation: float | None = None
+    illumination_radius_px: float | None = None
     evidence_dir: Path | None = None
     notes: tuple[str, ...] = ()
 
@@ -123,13 +127,26 @@ class SessionCalibration:
         if self.panel_scan_max_pair_drift is not None:
             lines.append(f"配对平场漂移上限: {self.panel_scan_max_pair_drift:.2%}")
         if self.panel_scan_session_drift is not None:
-            lines.append(f"整轮平场漂移: {self.panel_scan_session_drift:.2%}")
+            lines.append(
+                f"整轮平场强度漂移: {self.panel_scan_session_drift:.2%}"
+                "（逐点配对已归一化，不影响定位）"
+            )
+        if self.panel_scan_session_shift_px is not None:
+            lines.append(
+                f"整轮光斑位移: {self.panel_scan_session_shift_px:.2f} 相机px"
+                "（定位判据）"
+            )
         if self.geometry_file is not None:
             lines.append(f"sweep 几何文件: {self.geometry_file}")
         if self.geometry_correlation is not None:
             lines.append(f"几何相关系数: {self.geometry_correlation:.4f}")
         if self.evidence_dir is not None:
             lines.append(f"证据目录: {self.evidence_dir}")
+        # One line per measurement: an aperture that was not measured gets no
+        # line, exactly like every other skipped measurement here. Absence is
+        # not ambiguity — the geometry file records what the fit actually used.
+        if self.illumination_radius_px is not None:
+            lines.append(f"实测照明半径: {self.illumination_radius_px:.0f} 面板px")
         lines.extend(self.notes)
         return tuple(lines)
 
@@ -187,16 +204,32 @@ def _locate_pupil_center(
         max_flat_drift=params.panel_scan_max_flat_drift,
     )
     scan = scan_panel(
-        scan_params, strict=True, max_session_drift=params.panel_scan_max_session_drift
+        scan_params,
+        strict=True,
+        max_session_drift=params.panel_scan_max_session_drift,
+        max_session_shift_px=(
+            float(params.panel_scan_max_session_shift_px) or None
+        ),
     )
     if abs(scan.response) < 0.02:
         # A patch that misses the beam scatters nothing: the box energy barely
         # moves and the argmax is noise. Refuse instead of shaping blind.
         raise RuntimeError(f"panel scan response {scan.response:+.3f} is too weak")
-    return scan.center, scan.response, scan.max_pair_drift, scan.session_drift
+    return (
+        scan.center,
+        scan.response,
+        scan.max_pair_drift,
+        scan.session_drift,
+        scan.session_shift_px,
+    )
 
 
-def measure_session_geometry(config: SlmModelInLoopConfig, save_dir: Path) -> Path:
+def measure_session_geometry(
+    config: SlmModelInLoopConfig,
+    save_dir: Path,
+    *,
+    illumination_radius_px: float | None = None,
+) -> Path:
     """Run the measured sweep for this optical session before Step A opens devices.
 
     ``--exposure-ms`` carries ``config.exposure_time_ms`` instead of a hard-coded
@@ -227,6 +260,13 @@ def measure_session_geometry(config: SlmModelInLoopConfig, save_dir: Path) -> Pa
         "--cam-type", config.cam_type, "--cam-id", str(config.cam_id),
         "--exposure-ms", f"{exposure_ms:g}",
     ]
+    if illumination_radius_px is not None and float(illumination_radius_px) > 0:
+        # A measured aperture makes the two focal-scale routes comparable;
+        # without it the runbook falls back to the sweep's *constructed*
+        # Zernike radius, which is what made them disagree (152% on this bench).
+        common.extend(
+            ["--illumination-radius-px", f"{float(illumination_radius_px):g}"]
+        )
     for stage in ("sweep", "calibrate"):
         subprocess.run(common + ["--stage", stage], cwd=root, check=True)
     path = calibration_dir / "bench_geometry.json"
@@ -234,6 +274,60 @@ def measure_session_geometry(config: SlmModelInLoopConfig, save_dir: Path) -> Pa
     if geometry.get("method") != "sweep" or geometry.get("correlation", 0) < config.min_geometry_correlation:
         raise RuntimeError(f"session geometry failed validation; evidence in {calibration_dir}")
     return path
+
+
+def _should_measure_radius(
+    params: SlmModelInLoopParams, config: SlmModelInLoopConfig
+) -> bool:
+    """Measure the aperture only where a measurement is meaningful.
+
+    A simulated bench has no panel to sweep, and a caller that brought its own
+    geometry file has already decided the aperture. Both would just burn minutes
+    to reproduce a number that is not used.
+    """
+    return (
+        params.cam_type != "sim"
+        and params.geometry_file is None
+        and float(getattr(config, "exposure_time_ms", 0.0) or 0.0) > 0
+    )
+
+
+def _measure_illumination_radius(
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
+    center: tuple[int, int],
+    save_dir: Path,
+) -> float | None:
+    """Boundary-sweep the illuminated radius; ``None`` on failure.
+
+    Never raises: the sweep geometry still runs without it (falling back to the
+    constructed Zernike radius), and losing the aperture must not cost the run
+    its pupil centre and exposure. The omission is recorded in the notes so it
+    cannot pass unnoticed as a measurement.
+    """
+    from ao_shaping.gui.slm import bench_settings
+
+    evidence = bench_settings.measure_illuminated_radius(
+        params.slm_number,
+        params.cam_type,
+        params.cam_id,
+        exposure_ms=float(getattr(config, "exposure_time_ms", 0.0) or 0.0),
+        centre_hint=(float(center[0]), float(center[1])),
+        debug_dir=Path(save_dir) / "illumination_radius",
+    )
+    radius = evidence.get("radius_px")
+    if evidence.get("error") or radius is None:
+        logger.warning(
+            "照明半径实测失败（{}），几何标定退回 sweep 的 Zernike 半径（构造值）",
+            evidence.get("error", "无结果"),
+        )
+        return None
+    logger.info(
+        "实测照明半径 {:.0f} 面板px（中心 {},{}；x {} / y {}）",
+        radius, center[0], center[1],
+        evidence.get("radius_x_px"), evidence.get("radius_y_px"),
+    )
+    return float(radius)
 
 
 def _read_correlation(path: Path) -> float | None:
@@ -271,21 +365,33 @@ def calibrate_session(
     response: float | None = None
     pair_drift: float | None = None
     session_drift: float | None = None
+    session_shift: float | None = None
     if locate:
         try:
-            center, response, pair_drift, session_drift = _locate_pupil_center(params, save_dir)
+            center, response, pair_drift, session_drift, session_shift = _locate_pupil_center(
+            params, save_dir
+        )
         except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
             raise _mark_step(exc, STEP_PANEL_SCAN)
     else:
         notes.append("已跳过全板入射定位, 沿用给定的瞳面中心")
     geometry_file: Path | None = None
     correlation: float | None = None
+    radius_px: float | None = None
     if geometry:
         # The sweep must aim at the centre measured a moment ago, not at the
         # caller's original guess.
         measured = config if center is None else replace(config, pupil_center=center)
+        # Measure the illuminated radius while the centre from this same session
+        # is in hand: radius = far_edge - centre, and both terms must come from
+        # one session. Reusing a previous session's centre changes the radius by
+        # tens of pixels (measured 2026-10-17: 180 px vs 300 px on the same scan).
+        if center is not None and _should_measure_radius(params, measured):
+            radius_px = _measure_illumination_radius(params, measured, center, save_dir)
         try:
-            geometry_file = measure_session_geometry(measured, save_dir)
+            geometry_file = measure_session_geometry(
+                measured, save_dir, illumination_radius_px=radius_px
+            )
         except (OSError, subprocess.CalledProcessError, ValueError, RuntimeError) as exc:
             raise _mark_step(exc, STEP_SESSION_GEOMETRY)
         correlation = _read_correlation(geometry_file)
@@ -298,8 +404,10 @@ def calibrate_session(
         panel_scan_response=response,
         panel_scan_max_pair_drift=pair_drift,
         panel_scan_session_drift=session_drift,
+        panel_scan_session_shift_px=session_shift,
         geometry_file=geometry_file,
         geometry_correlation=correlation,
+        illumination_radius_px=radius_px,
         evidence_dir=save_dir,
         notes=tuple(notes),
     )

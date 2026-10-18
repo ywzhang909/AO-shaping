@@ -21,6 +21,7 @@ from pathlib import Path
 import streamlit as st
 from loguru import logger
 
+from ao_shaping.gui.slm.bench_settings import widget_default
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
 # Mock miicam module before importing ccd package
@@ -409,7 +410,7 @@ def render_sidebar() -> None:
         st.subheader("感兴趣区域 (ROI)")
         roi_auto = st.checkbox(
             "自动检测光斑中心",
-            value=st.session_state.get("slm_cal_roi_auto", True),
+            value=widget_default("slm_cal_roi_auto", True),
             key="slm_cal_roi_auto",
             help="启用后自动寻找最亮点作为ROI中心",
         )

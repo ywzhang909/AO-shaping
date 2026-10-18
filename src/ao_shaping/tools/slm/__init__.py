@@ -25,6 +25,8 @@ and the camera-only / WFS probes now live beside it::
                        with a fixed SLM aberration
         model_in_loop_replay.py  interleaved CCD replay of two saved
                        model-in-loop phases
+        model_in_loop_summary.py  per-item gate summary of a saved
+                       model-in-loop run directory (offline)
         replay_disturbance.py  interleaved fixed-exposure CCD replay of the
                        four saved comparison phases
         params.py      shared click parameter groups

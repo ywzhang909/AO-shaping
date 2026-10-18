@@ -103,6 +103,7 @@ __all__ = [
     "exposure_monotonicity",
     "finite_clip",
     "finite_median_subtract",
+    "fresnel_panel",
     "fit_linear_slope",
     "flat_to_flat_floor",
     "measure_flat_reference",
@@ -264,6 +265,91 @@ def zernike_panel(
     patch = np.zeros(sub.shape, dtype=np.float64)
     patch[finite] = sub[finite]
     out[y0:y1, x0:x1] = patch
+    return out
+
+
+def fresnel_panel(
+    focal_mm: float,
+    radius: int = BEAM_RADIUS_PANEL,
+    pupil_center: tuple[int, int] = BEAM_CENTER_PANEL,
+    panel_shape: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W),
+    *,
+    wavelength_nm: float = 1064.0,
+    pixel_um: float = SLM_PITCH_M * 1e6,
+) -> np.ndarray:
+    """Quadratic (lens) phase over the illuminated disc, in panel coordinates.
+
+    A plain (flat) phase loses its focus as soon as the camera leaves the 2f
+    plane: behind focus the beam is a diverging cone whose blur grows linearly
+    with the offset, so the spot gets larger and dimmer. A quadratic phase on the
+    panel changes the wavefront curvature and moves the focus back onto the
+    detector -- that is the correction this function builds and
+    :mod:`ao_shaping.tools.slm.panel.focus_probe` searches for.
+
+    The form is ``pi * r**2 / (lambda * f)``, identical to
+    :meth:`PatternHelper.generate_focus`, so the same ``focal_mm`` means the same
+    phase everywhere in this repo. **Which sign brings the camera back into focus
+    is not assumed here** -- it depends on the sign convention of the panel's
+    phase addition and on how far the detector moved, so the probe scans both
+    branches and reports what it measured.
+
+    Centred on ``pupil_center`` (the *illuminated* centre) rather than on the
+    panel centre: a lens centred anywhere else also steers the beam, because the
+    off-centre quadratic carries a linear term. Coordinates are clamped into the
+    panel, so a stale centre cannot push the patch out of bounds.
+
+    Args:
+        focal_mm: Focal length in mm. ``inf`` returns zeros (a plain phase);
+            ``0`` is rejected -- a zero focal length is not a lens and silently
+            returning flat would look like a successful correction.
+        radius: Aperture radius in panel pixels. Zero outside the disc.
+        pupil_center: Beam centre in panel pixels (x, y).
+        panel_shape: ``(height, width)`` of the panel.
+        wavelength_nm: Illumination wavelength.
+        pixel_um: Panel pixel pitch.
+
+    Returns:
+        A ``panel_shape`` float64 phase in raw radians, zero outside the disc.
+
+    Raises:
+        ValueError: If ``focal_mm`` is zero or non-finite other than ``inf``.
+    """
+    height, width = int(panel_shape[0]), int(panel_shape[1])
+    out = np.zeros((height, width), dtype=np.float64)
+    if np.isinf(focal_mm):
+        return out
+    focal_mm = float(focal_mm)
+    if not np.isfinite(focal_mm):
+        raise ValueError(f"focal_mm must be finite or +-inf; got {focal_mm!r}")
+    if focal_mm == 0.0:
+        raise ValueError(
+            "focal_mm = 0 is not a lens; pass inf for a plain phase instead"
+        )
+
+    lam_m = float(wavelength_nm) * 1e-9
+    pixel_m = float(pixel_um) * 1e-6
+    f_m = focal_mm * 1e-3
+    r = int(max(int(radius), 1))
+    cx = min(max(int(pupil_center[0]), 0), width - 1)
+    cy = min(max(int(pupil_center[1]), 0), height - 1)
+
+    size = 2 * r + 1
+    yy, xx = np.mgrid[0:size, 0:size]
+    rr2 = (xx - r) ** 2 + (yy - r) ** 2
+    patch = (np.pi / (lam_m * f_m)) * (rr2 * pixel_m**2)
+    patch[rr2 > r * r] = 0.0
+
+    # Clip both the destination and the patch, so a centre near (or past) an edge
+    # writes the visible part instead of failing on a shape mismatch.
+    x0, y0 = cx - r, cy - r
+    x1, y1 = cx + r + 1, cy + r + 1
+    dx0, dy0 = max(0, -x0), max(0, -y0)
+    x0c, y0c = max(x0, 0), max(y0, 0)
+    x1c, y1c = min(x1, width), min(y1, height)
+    if x1c > x0c and y1c > y0c:
+        out[y0c:y1c, x0c:x1c] = patch[
+            dy0 : dy0 + (y1c - y0c), dx0 : dx0 + (x1c - x0c)
+        ]
     return out
 
 

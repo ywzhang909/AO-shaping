@@ -70,7 +70,9 @@ from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     PITCH_UM as SLM_PITCH_UM,
 )
-from ao_shaping.drivers.slm.santec.slm200_constants import PIXEL_SIZE_UM as SLM_PIXEL_SIZE_UM
+from ao_shaping.drivers.slm.santec.slm200_constants import (
+    PIXEL_SIZE_UM as SLM_PIXEL_SIZE_UM,
+)
 from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
     CAM_TYPE_OPTIONS,
@@ -527,6 +529,187 @@ def get_shaping_method_by_label(label: str) -> type["ShapingMethod"]:
     )
 
 
+@st.fragment()
+def defocus_trim_fragment(prefix: str, slm_num: int) -> None:
+    """离焦 / 聚焦微调区块。**模块级 fragment**，只重跑这一块。
+
+    GS 解出的是平焦解，实验上焦面常差几十微米；把它做成可反复调的手动量，
+    而不是重跑一次 GS（代价是一整轮标定 + 优化），是这一块存在的理由。
+
+    三条硬约束：
+
+    * 以**缓存的基准相位**为前提，不以「刚跑完一次」为前提 —— 否则滑块一动
+      整页 rerun，区块随 ``show_phase`` 一起消失；
+    * 拖滑块**不下发、也不 rerun**，下发只发生在点按钮时；
+    * 每次叠加都从基准相位重算，所以 −40 → +40 → −20 不会累积出漂移。
+
+    参数只传可哈希的 ``(prefix, slm_num)``：Streamlit 以 fragment 函数 +
+    调用点路径标识 fragment，每帧现造一个装饰器会让它反复重新注册。
+    """
+    from ao_shaping.gui.slm import bench_settings
+
+    base_phase = st.session_state.get(f"{prefix}_gs_base_phase")
+    if base_phase is None:
+        return
+
+    centre_text = bench_settings.bench_pupil_center(prefix)
+    centre = _parse_centre(centre_text)
+    span = float(bench_settings.bench_value(prefix, "panel_span_px", 900.0))
+    radius_px = float(
+        st.session_state.get(f"{prefix}_bench_beam_radius_px", 0.0) or 0.0
+    )
+    if radius_px <= 0:
+        radius_px = max(span / 2.0, 1.0)
+
+    with st.expander("离焦 / 聚焦微调（保留原 GS）", expanded=False):
+        st.caption(
+            f"以入射中心 ({centre_text}) 为心的 Zernike (2,0) 与菲涅尔透镜；"
+            f"孔径半径 {radius_px:.0f} 面板px。"
+            "每次都从原始 GS 相位重算，不累积。"
+        )
+        amount = st.slider(
+            "离焦量 (rad)",
+            min_value=-60.0,
+            max_value=60.0,
+            value=0.0,
+            step=1.0,
+            key=f"{prefix}_defocus_rad",
+            help="叠加到原 GS 相位上的 Zernike (2,0) 幅度（单位 RMS 弧度）。"
+            "拖动不会下发、也不会刷新整页 —— 确认后点「叠加并下发」。",
+        )
+        # 粗补偿是焦距、细调是 Zernike 幅度：相机离开 2f 几十毫米时需要的
+        # 是上千弧度量级的二次相位，滑块给不了，焦距给得了。
+        probed_mm = bench_settings.bench_fresnel_focal_mm(prefix)
+        manual_mm = st.number_input(
+            "菲涅尔焦距补偿 (mm)",
+            value=0.0,
+            step=100.0,
+            format="%.0f",
+            key=f"{prefix}_defocus_focal_mm",
+            help="0 = 采用侧栏「探测焦面」的实测结果"
+            + (f"（当前 {probed_mm:.0f} mm）" if abs(probed_mm) > 1e-9 else "（尚未探测）")
+            + "；非 0 = 手动指定。负/正号由实测决定，不要按直觉选。",
+        )
+        focal_mm = float(manual_mm) if abs(float(manual_mm)) > 1e-9 else probed_mm
+        if abs(focal_mm) < 1e-9:
+            st.caption(
+                "没有可用的菲涅尔补偿 —— 侧栏还没「探测焦面」，这里也没手填。"
+            )
+        else:
+            st.caption(
+                f"本次将叠加 f = {focal_mm:.0f} mm"
+                f"（1/f = {1000.0 / focal_mm:+.3f} m⁻¹）"
+                + (
+                    "，取自侧栏探测"
+                    if abs(float(manual_mm)) <= 1e-9
+                    else "，人工指定"
+                )
+                + "。"
+            )
+        cols = st.columns(2)
+        with cols[0]:
+            if st.button(
+                "叠加并下发",
+                key=f"{prefix}_apply_defocus_btn",
+                type="primary",
+                use_container_width=True,
+            ):
+                _dispatch_defocus(
+                    slm_num, float(amount), centre, radius_px, focal_mm
+                )
+        with cols[1]:
+            if st.button(
+                "恢复原始 GS 相位",
+                key=f"{prefix}_clear_defocus_btn",
+                type="secondary",
+                use_container_width=True,
+            ):
+                _dispatch_defocus(slm_num, 0.0, centre, radius_px, 0.0)
+
+
+def _dispatch_defocus(
+    slm_num: int,
+    amount_rad: float,
+    centre: tuple[float, float],
+    radius_px: float,
+    focal_mm: float = 0.0,
+) -> None:
+    """下发一次叠加相位。**不触发 st.rerun** —— 页面布局保持不动。
+
+    两个补偿项都叠在**缓存的基准相位**上、且每次重算：菲涅尔焦距是粗补偿
+    （相机离开 2f 的几何偏移），Zernike (2,0) 是细调。两者都是二次相位，
+    所以相加就是总离焦，不需要谁吸收谁。
+
+    运行时句柄已交还优化器，所以这里从会话里取连接中的那一台；取不到就明确
+    报错，不静默跳过 —— 否则操作员会以为已经下发。
+    """
+    from ao_shaping.tools.kernels.bench_kernels import fresnel_panel, zernike_panel
+
+    prefix = f"slm{slm_num}"
+    base_phase = st.session_state.get(f"{prefix}_gs_base_phase")
+    if base_phase is None:
+        st.error("没有可叠加的基准相位，请先完成一次整形运行")
+        return
+    slm = st.session_state.get(prefix)
+    if slm is None:
+        st.error(f"SLM {slm_num} 未连接，无法下发")
+        return
+
+    try:
+        base = np.asarray(base_phase, dtype=np.float64)
+        height, width = base.shape
+        # 把中心夹进面板。zernike_panel 对「中心落在面板外」会算出空的
+        # 目标切片，再拿整块去赋值 → broadcast 失败；夹进来之后形状恒等于
+        # 基准相位，叠加也只是把这个角上的照明口补上离焦。
+        cx = min(max(float(centre[0]), 0.0), float(width - 1))
+        cy = min(max(float(centre[1]), 0.0), float(height - 1))
+        radius = int(min(round(radius_px), max(height, width) // 2))
+        radius = max(radius, 1)
+
+        combined = base
+        if abs(float(focal_mm)) > 1e-9:
+            lens = fresnel_panel(
+                float(focal_mm),
+                radius=radius,
+                pupil_center=(int(round(cx)), int(round(cy))),
+                panel_shape=(height, width),
+            )
+            combined = combined + lens
+        if abs(amount_rad) > 1e-9:
+            defocus = zernike_panel(
+                {(2, 0): float(amount_rad)},
+                radius=radius,
+                pupil_center=(int(round(cx)), int(round(cy))),
+                panel_shape=(height, width),
+            )
+            if defocus.shape != base.shape:
+                raise ValueError(
+                    f"离焦面 {defocus.shape} 与基准相位 {base.shape} 形状不符"
+                )
+            combined = combined + defocus
+
+        slm.display_data(
+            slm.create_phase_from_array(combined), memory_mode=MEMORY_MODE_INTERNAL
+        )
+        refresh_phase_preview(slm_num)
+        applied: list[str] = []
+        if abs(float(focal_mm)) > 1e-9:
+            applied.append(f"菲涅尔 f = {float(focal_mm):.0f} mm")
+        if abs(amount_rad) > 1e-9:
+            applied.append(f"Zernike (2,0) = {amount_rad:+.0f} rad")
+        if not applied:
+            st.success("已恢复原始 GS 相位（无叠加）")
+        else:
+            st.success(
+                "已在原 GS 相位上叠加 "
+                + "、".join(applied)
+                + f"（以 ({centre[0]:.0f}, {centre[1]:.0f}) 为心）"
+            )
+    except Exception as exc:  # noqa: BLE001 - surfaced to the operator
+        logger.exception("叠加离焦失败: {}", exc)
+        st.error(f"叠加离焦失败: {exc}")
+
+
 def shaping_session(
     run: Callable[..., ShapingOutcome | None],
 ) -> Callable[..., ShapingOutcome | None]:
@@ -573,6 +756,21 @@ def shaping_session(
 # ---------------------------------------------------------------------------
 # Adapter base class
 # ---------------------------------------------------------------------------
+
+
+def _parse_centre(text: str) -> tuple[float, float]:
+    """``"960,720"`` → ``(960.0, 720.0)``；不合法时退回侧栏的兜底中心。"""
+    from ao_shaping.gui.slm import bench_settings
+
+    parts = [p for p in str(text).replace("，", ",").split(",") if p.strip()]
+    if len(parts) == 2:
+        try:
+            return (float(parts[0]), float(parts[1]))
+        except ValueError:
+            pass
+    fallback = bench_settings.PUPIL_CENTER_FALLBACK
+    px, py = fallback.split(",")
+    return (float(px), float(py))
 
 
 def _format_center(center: Any) -> str:
@@ -794,6 +992,13 @@ class ShapingMethod(ABC):
         except Exception as exc:  # noqa: BLE001 - surfaced to the operator
             logger.exception("下发最佳相位失败: {}", exc)
             st.error(f"最佳相位下发失败: {exc}")
+            return
+        # 只缓存基准相位；离焦微调区块由 render_closed_loop_shaping 在每次 rerun
+        # 里单独渲染（fragment），不挂在这一次性的下发动作上。
+        st.session_state[f"{self.prefix}_gs_base_phase"] = np.asarray(
+            outcome.panel_phase, dtype=np.float64
+        )
+
 
     def summarise(self, outcome: ShapingOutcome) -> None:
         """Render the results table plus the verdict line (shared)."""
@@ -998,7 +1203,8 @@ def write_bench_snapshot(saved_dir: Path | None, prefix: str) -> Path | None:
         return target
     try:
         target.write_text(
-            json.dumps(snap, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
+            json.dumps(snap, indent=2, ensure_ascii=False, default=str),
+            encoding="utf-8",
         )
     except OSError as exc:
         logger.warning("写光路快照失败 {}: {}", target, exc)
@@ -1076,7 +1282,9 @@ def outcome_from_model_in_loop(result: Any, config: Any) -> ShapingOutcome:
         )
         blaze_params = getattr(result, "blaze_params", None)
         if blaze_params is not None:
-            from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+            from ao_shaping.utils.wavefront.zero_order_overlay import (
+                apply_zero_order_overlay,
+            )
 
             panel_phase = apply_zero_order_overlay(panel_phase, blaze_params)
     flat_score = getattr(result, "flat_score", None)
@@ -1151,7 +1359,9 @@ class GsRefineMethod(ShapingMethod):
             ),
         ):
             with cell:
-                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, r[key], lo, hi, step, help=help_
+                )
 
     def render_budget(self, values: dict[str, Any]) -> None:
         """GS **不给**预算预设：12/12 是已验证配方，不是可随手改的旋钮。
@@ -1177,7 +1387,9 @@ class GsRefineMethod(ShapingMethod):
         )
         for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), spgd_fields):
             with cell:
-                values[key] = self.num_input(key, label, r[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, r[key], lo, hi, step, help=help_
+                )
         with st.columns(5)[4]:
             values["confirm_best"] = st.checkbox(
                 "confirm-best 复测",
@@ -1254,34 +1466,50 @@ class GsRefineMethod(ShapingMethod):
             )
 
     def build_params(self, values: Mapping[str, Any]) -> SlmGsRefineParams:
+        r = GS_REFINE_RECIPE
+        w_pib = values.get("w_pib", values.get("w_efficiency", r.get("w_pib", 0.5)))
+        w_unif = values.get(
+            "w_unif",
+            values.get("w_uniformity", values.get("w_uni", r.get("w_unif", 0.5))),
+        )
         return SlmGsRefineParams(
-            target_side=int(values["target_side"]),
-            side_factor=float(values["side_factor"]),
-            w_pib=float(values["w_pib"]),
-            w_unif=float(values["w_unif"]),
-            phase_grid=int(values["phase_grid"]),
-            delta=float(values["delta"]),
-            confirm_best=bool(values["confirm_best"]),
-            epochs=int(values["epochs"]),
-            seed=int(values["seed"]),
-            gs_warm_start=bool(values["gs_warm_start"]),
-            gs_iters=int(values["gs_iters"]),
-            gs_method=str(values["gs_method"]),
-            panel_pixel_um=float(values["panel_pixel_um"]),
+            target_side=int(values.get("target_side", r.get("target_side", 100))),
+            side_factor=float(values.get("side_factor", r.get("side_factor", 1.0))),
+            w_pib=float(w_pib),
+            w_unif=float(w_unif),
+            phase_grid=int(values.get("phase_grid", r.get("phase_grid", 12))),
+            delta=float(values.get("delta", r.get("delta", 0.35))),
+            confirm_best=bool(values.get("confirm_best", r.get("confirm_best", True))),
+            epochs=int(values.get("epochs", r.get("epochs", 12))),
+            seed=int(values.get("seed", r.get("seed", 0))),
+            gs_warm_start=bool(
+                values.get("gs_warm_start", r.get("gs_warm_start", True))
+            ),
+            gs_iters=int(values.get("gs_iters", r.get("gs_iters", 12))),
+            gs_method=str(values.get("gs_method", r.get("gs_method", "plain"))),
+            panel_pixel_um=float(
+                values.get("panel_pixel_um", r.get("panel_pixel_um", 8.0))
+            ),
             camera_pixel_um=float(
                 st.session_state.get(
                     "camera_pixel_um", values.get("camera_pixel_um", 2.2)
                 )
             ),
-            beam_radius_px=float(values["beam_radius_px"]),
-            pupil_center=str(values["pupil_center"]),
-            far_field_padding=int(values["far_field_padding"]),
-            cam_type=str(values["cam_type"]),
-            cam_id=int(values["cam_id"]),
-            exposure_time_ms=float(values["exposure_time_ms"]),
-            cam_size=int(values["cam_size"]),
+            beam_radius_px=float(
+                values.get("beam_radius_px", r.get("beam_radius_px", 450.0))
+            ),
+            pupil_center=str(
+                values.get("pupil_center", r.get("pupil_center", "960,690"))
+            ),
+            far_field_padding=int(
+                values.get("far_field_padding", r.get("far_field_padding", 3))
+            ),
+            cam_type=str(values.get("cam_type", "daheng")),
+            cam_id=int(values.get("cam_id", 0)),
+            exposure_time_ms=float(values.get("exposure_time_ms", 0.1)),
+            cam_size=int(values.get("cam_size", 250)),
             slm_number=self.slm_num,
-            n_eval_frames=int(values["n_eval_frames"]),
+            n_eval_frames=int(values.get("n_eval_frames", r.get("n_eval_frames", 4))),
             blaze_period_px=int(values.get("blaze_period_px", -1)),
             blaze_direction=str(values.get("blaze_direction", "vertical")),
         )
@@ -1442,8 +1670,22 @@ class ModelInLoopMethod(ShapingMethod):
             st.columns(4),
             (
                 ("n_rounds", "轮数", 1, 20, 1, d["n_rounds"]),
-                ("step_a_iterations", "Step A 步数", 0, 2000, 10, d["step_a_iterations"]),
-                ("step_b_iterations", "Step B 步数", 1, 4000, 50, d["step_b_iterations"]),
+                (
+                    "step_a_iterations",
+                    "Step A 步数",
+                    0,
+                    2000,
+                    10,
+                    d["step_a_iterations"],
+                ),
+                (
+                    "step_b_iterations",
+                    "Step B 步数",
+                    1,
+                    4000,
+                    50,
+                    d["step_b_iterations"],
+                ),
                 ("seed", "随机种子", 0, 99999, 1, d["seed"]),
             ),
         ):
@@ -1462,7 +1704,9 @@ class ModelInLoopMethod(ShapingMethod):
         )
         for cell, (key, label, lo, hi, step, help_) in zip(st.columns(4), probe_fields):
             with cell:
-                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, d[key], lo, hi, step, help=help_
+                )
         values["min_holdout_correlation"] = self.num_input(
             "min_holdout_correlation",
             "相关度门限",
@@ -1481,7 +1725,9 @@ class ModelInLoopMethod(ShapingMethod):
             ),
         ):
             with cell:
-                values[key] = self.num_input(key, label, d[key], lo, hi, step, help=help_)
+                values[key] = self.num_input(
+                    key, label, d[key], lo, hi, step, help=help_
+                )
         st.caption("求解器与开关")
         c1, c2 = st.columns(2)
         with c1:
@@ -1702,9 +1948,7 @@ class ModelInLoopMethod(ShapingMethod):
         if kept:
             st.caption(
                 "探测到新值，当前仍使用人工值（人工值优先）："
-                + "；".join(
-                    bench_settings.field_hint(prefix, name) for name in kept
-                )
+                + "；".join(bench_settings.field_hint(prefix, name) for name in kept)
                 + "。在左侧「本次实验光路」点「恢复探测值」可改回探测值。"
             )
         # The widgets are back-filled through the pending table, so they only take
@@ -1842,7 +2086,9 @@ def render_bench_status(prefix: str, slm_num: int) -> str | None:
             "也可先在左侧「本次实验光路」手动标定"
         )
     parts = [f"光路 SLM {slm_num}：● 已标定 {detected.get('calibrated_at') or '-'}"]
-    parts.append(f"入射中心 {bench_settings.bench_pupil_center(prefix, '未定位')} 探测值")
+    parts.append(
+        f"入射中心 {bench_settings.bench_pupil_center(prefix, '未定位')} 探测值"
+    )
     if detected.get("geometry_correlation") is not None:
         parts.append(f"相关度 {float(detected['geometry_correlation']):.4f}")
     parts.append(f"曝光 {detected.get('exposure_ms', '?')} ms")
@@ -1950,3 +2196,8 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     # --- 8. 结果（未跑过时只给一句占位）-----------------------------------
     if not bench_settings.effective_state(prefix):
         st.caption("尚无运行结果。")
+
+    # --- 9. 离焦微调（fragment）---------------------------------------------
+    # 渲染在结果之后、且与「刚跑完一次」解耦：它只在会话里确实缓存了基准相位时
+    # 才出现，之后每次 rerun 都还在。fragment 让拖滑块只重跑这一块、整页不动。
+    defocus_trim_fragment(prefix, slm_num)

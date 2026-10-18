@@ -103,6 +103,7 @@ MIL = _Family(
         "panel_scan_radius_px": model_in_loop_session,
         "panel_scan_max_flat_drift": model_in_loop_session,
         "panel_scan_max_session_drift": model_in_loop_session,
+        "panel_scan_max_session_shift_px": model_in_loop_session,
     },
 )
 

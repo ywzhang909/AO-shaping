@@ -78,6 +78,7 @@ PROBE_MODULES: dict[str, str] = {
     "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
     "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
     "slm_floor_probe": "ao_shaping.tools.ccd.floor_probe",
+    "slm_focus_probe": "ao_shaping.tools.slm.panel.focus_probe",
     "slm_lut_runner": "ao_shaping.tools.slm.calibration.lut_runner",
     "slm_panel_locate": "ao_shaping.tools.slm.panel.panel_locate",
     "slm_phase_resolution": "ao_shaping.tools.slm.panel.phase_resolution",
@@ -382,7 +383,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     short = {p for p in PROBES if "--cam-type" in g[p]["declared"]}
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
-    assert len(short) == 9, f"--cam-type lost a probe: {sorted(short)}"
+    assert len(short) == 10, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -395,7 +396,7 @@ def test_both_camera_flag_spellings_survive() -> None:
     ("a", "b", "count_a", "count_b"),
     [
         ("--output", "--out", 8, 4),
-        ("--slm-wavelength", "--wavelength", 15, 3),
+        ("--slm-wavelength", "--wavelength", 16, 3),
     ],
 )
 def test_other_split_flag_spellings_survive(
@@ -441,13 +442,19 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     without being added to :data:`PROBE_MODULES` or re-baselining this guard.
     The probe golden was regenerated via ``AO_PROBE_HELP_UPDATE=1``; these
     pins follow it.
+
+    318 -> 331 / 332 -> 346 / 21 -> 22 on 2026-10-17: ``slm/panel/focus_probe``
+    landed (13 declared + 1 help-visible) to find the Fresnel focal length that
+    puts a camera moved off the 2f plane back in focus. It takes ``--cam-type``
+    and ``--slm-wavelength`` like its siblings, so those two spellings each gain
+    one user.
     """
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 318, f"declared flag inventory is {declared}, expected 318"
-    assert visible == 332, f"help-visible flag inventory is {visible}, expected 332"
-    assert len(PROBES) == 21
+    assert declared == 331, f"declared flag inventory is {declared}, expected 331"
+    assert visible == 346, f"help-visible flag inventory is {visible}, expected 346"
+    assert len(PROBES) == 22
 
 
 # ---------------------------------------------------------------------------

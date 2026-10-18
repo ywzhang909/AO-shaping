@@ -867,8 +867,25 @@ def stage_calibrate_sweep(args: argparse.Namespace, out_dir: Path) -> BenchGeome
         # Physical cross-check on the tilt slope: the measured shift per radian
         # of Zernike tilt must be consistent with the illuminated aperture, or the
         # spot has deformed and the measurement is worthless.
-        aperture_m=sweep_radius * SLM_PITCH_M,
+        #
+        # A measured illumination radius wins over ``sweep_radius``: the Zernike
+        # radius is what the modes were *built* on, not what is actually lit, and
+        # both focal-scale routes scale with this number -- so an unmeasured value
+        # here is what makes them disagree. See
+        # ``--illumination-radius-px``.
+        aperture_m=(
+            args.illumination_radius_px
+            if args.illumination_radius_px > 0
+            else sweep_radius
+        )
+        * SLM_PITCH_M,
     )
+    if args.illumination_radius_px > 0:
+        logger.info(
+            "  aperture_m from the MEASURED illumination radius {:.0f} px "
+            "(sweep's constructed Zernike radius was {:.0f} px)",
+            args.illumination_radius_px, sweep_radius,
+        )
     (out_dir / "bench_geometry.json").write_text(geometry_to_json(geo), encoding="utf-8")
     logger.info("{}", json.dumps(asdict(geo), indent=2))
     logger.info("  notes: {}", geo.calibration_notes)
@@ -1137,6 +1154,16 @@ def main() -> int:
     )
     ap.add_argument("--sweep-spherical", default="-1.2,-0.6,0.6,1.2",
                     help="spherical (4,0) sweep coefficients in rad")
+    ap.add_argument(
+        "--illumination-radius-px",
+        type=float,
+        default=0.0,
+        help="Measured illuminated radius in panel px (beam_extent far_edge minus "
+        "the located centre). 0 = fall back to the sweep's own Zernike radius, "
+        "which is a CONSTRUCTED radius, not a measurement. Both focal-scale "
+        "routes scale with aperture_m, so passing the measured value is what "
+        "makes them comparable.",
+    )
     ap.add_argument(
         "--sweep-ramps", default="120,240,480,960,1920",
         help="Phase-ramp periods in panel px for the authoritative focal-scale "
