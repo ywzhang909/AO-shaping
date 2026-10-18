@@ -69,11 +69,43 @@ def normalize_rho(x: np.ndarray, y: np.ndarray) -> np.ndarray:
     return radius / r_max if r_max > 0 else radius
 
 
+def zernike_polynomial(
+    n: int, m: int, rho: np.ndarray, theta: np.ndarray
+) -> np.ndarray:
+    """单个 Zernike 多项式 ``Z(rho, theta)`` (aotools/Noll 约定)。
+
+    供 ``optimizer/rl/envs.py`` 的 ``_sample_disturbance`` 在任意分辨率网格上求值。
+    径向部分直接复用全仓库统一的 :func:`ao_shaping.utils.wavefront.zernike_calc.
+    zernike_radial` (aotools ``RZern``, 与 ``fit_zernike`` / ``ZernikeGenerator``
+    同一套归一化), 角向部分按标准约定:
+
+        R_n^|m|(rho) * { cos(|m| theta)  if m >= 0
+                        sin(|m| theta)  if m < 0 }
+
+    延迟 import 径向函数, 避免 ``drivers/sim`` 在包初始化早期触发
+    ``utils/wavefront`` 的 import 链。
+
+    ``rho`` 应为归一化半径 (单位圆内 0..1); 圆外取值为径向多项式的自然延拓,
+    调用方 (``_sample_disturbance``) 用 ``mask`` 把圆外置零, 因此此处不做截断。
+    """
+    from ao_shaping.utils.wavefront.zernike_calc import zernike_radial
+
+    am = abs(int(m))
+    r = np.asarray(rho, dtype=np.float64)
+    radial = zernike_radial(int(n), am, r)
+    th = np.asarray(theta, dtype=np.float64)
+    if m >= 0:
+        return radial * np.cos(am * th)
+    return radial * np.sin(am * th)
+
+
 __all__ = [
     "Config",
     "apply_lens",
     "gauss",
     "lens_fft_propagation_to_focal",
     "lens_phase",
+    "normalize_rho",
     "propagation",
+    "zernike_polynomial",
 ]

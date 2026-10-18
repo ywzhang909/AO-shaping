@@ -276,11 +276,19 @@ class UncertaintyProbeSelector:
             self._sigma = (self._prior_std ** 2) * np.eye(self._n_coeffs)
         self._deltas = self._sample_deltas()
 
-    # ------------------------------------------------------------------
-    # 内部
-    # ------------------------------------------------------------------
-    def _predictive_variance(self, phase_leaf: "torch.Tensor") -> "torch.Tensor":
-        """``U(p) = (1/K) Σ_k mean‖far(c*+δ_k,p) − far(c*,p)‖²`` (挂在图上)。"""
+    def predictive_variance(self, phase_leaf: "torch.Tensor") -> "torch.Tensor":
+        """Probe predictive-variance score ``U(p)`` — the single source of truth.
+
+        ``U(p) = (1/K) Σ_k mean‖far(c*+δ_k,p) − far(c*,p)‖²``: how strongly the
+        far-field prediction for ``p`` responds to posterior draws around the
+        fitted coefficient ``c*``. Larger ``U(p)`` means the probe carries more
+        information about the coefficients (a sharper curvature of the
+        likelihood around ``c*``).
+
+        Scripts must call this public method rather than the private
+        ``_predictive_variance``: the formula belongs to the selector and must
+        not be re-implemented per script.
+        """
         base = self._opt.far_field_tensor(self._c_star, phase_leaf)
         base = base / (base.max() + 1e-8)
         acc = 0.0
@@ -292,6 +300,14 @@ class UncertaintyProbeSelector:
             pert = pert / (pert.max() + 1e-8)
             acc = acc + ((pert - base) ** 2).mean()
         return acc / float(self._n_samples)
+
+    # ------------------------------------------------------------------
+    # 内部
+    # ------------------------------------------------------------------
+    def _predictive_variance(self, phase_leaf: "torch.Tensor") -> "torch.Tensor":
+        """Private alias kept for backward compatibility; delegates to
+        :meth:`predictive_variance`."""
+        return self.predictive_variance(phase_leaf)
 
     def _diversity_penalty(self, phase_leaf: "torch.Tensor") -> "torch.Tensor":
         """已选探针上的平方余弦相似度之和 (越大越该被惩罚)。"""

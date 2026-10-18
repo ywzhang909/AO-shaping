@@ -79,8 +79,11 @@ def _sim_bench(monkeypatch):
     instead of quietly opening real hardware mid-test.
     """
     mod = importlib.import_module(PRODUCTION)
-    install_sim_slm(mod)
+    # monkeypatch must bind before ``install_sim_slm`` (which overwrites ``Santec``
+    # at module scope) so the real driver is snapshotted for teardown; reversed,
+    # the sim twin leaks into later tests.
     monkeypatch.setattr(mod, "Santec", SimSLMPib, raising=False)
+    install_sim_slm(mod)
 
 
 def _config(objective: str, *, epochs: int = 2, algorithm: str = "spgd", **overrides):

@@ -72,7 +72,9 @@ class DahengCamera(BaseCamera):
         # 使用 defaults + __init__ 参数解析（尚未连接，无序列号）
         params = CCD_CONFIG.resolve_from_config({}, init_values=self._init_values)
 
-        self.device_manager = gx.DeviceManager()
+        # device_manager 延迟到连接路径 (initialize) 才创建,
+        # 使无 SDK 环境 (Linux 离线) 下构造实例不抛 NameError。
+        self._device_manager = None
         self.cam_id = params.cam_id
         self.__exposure_time_ms = ExposureTime(params.exposure_time_ms)
         self.skip_sampling = params.skip_sampling
@@ -81,6 +83,21 @@ class DahengCamera(BaseCamera):
         self.cam = None
         self._sn: str | None = None
         self.cam_width, self.cam_height = 0, 0
+
+    @property
+    def device_manager(self):
+        """惰性创建并缓存 gxipy DeviceManager (仅连接路径使用)。
+
+        无 SDK 时 ``gx`` 未定义, 但本属性只在 ``initialize`` (open/连接) 时被
+        读取, 届时 SDK 应当可用。
+        """
+        if self._device_manager is None:
+            self._device_manager = gx.DeviceManager()  # type: ignore[name-defined]
+        return self._device_manager
+
+    @device_manager.setter
+    def device_manager(self, value) -> None:
+        self._device_manager = value
 
     @property
     def cam_type(self) -> str:

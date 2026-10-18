@@ -45,7 +45,7 @@ graph TD
         OPT["optimize_slm_model_in_loop(config)<br/>← 唯一公开入口"]
         SEED["_seed_coefficients_from_checkpoint(config)<br/>开设备之前 · 仅当 --forward-checkpoint"]
         OPEN["_open_bench(config)"]
-        GEOM["_calibrate_geometry(bench, config)<br/>一次性几何 bake-off"]
+        GEOM["_calibrate_geometry(bench, config)<br/>一次性几何对比择优"]
         MKOPT["_make_optimizer(config, coefficients)"]
         CLAMP["trust_region_clamp(...)"]
         QUAL["_metrics_at / _quality"]
@@ -589,7 +589,7 @@ Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起�
 | `aborted_rejection_streak` | 连续 reject 达上限 —— 实验系统落在模型之外 |
 | `bake_off_rejected` | 跑完了, 但没有任何整形相位打过平场, 于是保留平场 |
 
-退出码 `2` = 几何 bake-off（对比择优） 失败或持续落在模型之外, 该轮**没有**提交任何相位;
+退出码 `2` = 几何 对比择优 失败或持续落在模型之外, 该轮**没有**提交任何相位;
 这种实验系统应改用 `slm-gs-refine`。
 
 前两个状态**都**是退出码 `2`, 但诊断手段不同: `--debug` 的 step dump 能把它们分开 ——
@@ -606,7 +606,7 @@ Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起�
 - **不主张离线权重对最终整形质量有确定好处。** §9 只主张接线正确、几何不符会报错;
   有没有收益是 §10 的第 1 条, 目前无数据。
 - **孪生上的分数不可与硬件分数直接比较**: 孪生用 `TWIN_REGION = 512` 的
-  解析光路, 硬件侧的标度来自 bake-off, 二者的绝对强度标度不同。
+  解析光路, 硬件侧的标度来自 对比择优, 二者的绝对强度标度不同。
 
 ## 14. `--debug` 逐帧产物
 
@@ -646,7 +646,7 @@ data/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/
 | stage | 哪一次测量 | 次数 |
 |---|---|---|
 | `flat` | 平场基线, Stage 0 | 全程 **1** 次 |
-| `calib-probe` | 一次性实验系统几何 bake-off 的探针(`--n-calibration-probes`, 默认 8) | 全程 8 次 |
+| `calib-probe` | 一次性实验系统几何 对比择优 的探针(`--n-calibration-probes`, 默认 8) | 全程 8 次 |
 | `stepA-probe` | Step A 重拟合循环里的随机探针(`--probe-count`, 默认 8; 被 reject 后按 `--escalate-probe-count`(2) 递增, 上限 `--max-probe-count`(16)) | 每轮 `probe_count` 次 |
 | `stepB-shaped` | 该轮真正下发显示的合成方形相位 | 每轮 **1** 次 |
 
@@ -715,7 +715,7 @@ payload 的键:
 
 ### 15.1 🔴 实验前先读这一段: 本实验系统**预期**退出码 2
 
-在当前这台 2f-Fourier 实验系统上, `slm-model-in-loop` **预期**在几何 bake-off 处中止, 退出码 `2`,
+在当前这台 2f-Fourier 实验系统上, `slm-model-in-loop` **预期**在几何 对比择优 处中止, 退出码 `2`,
 而且**不提交任何相位**。这不是故障, 是守卫在正常工作。
 
 - 实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率
@@ -734,7 +734,7 @@ payload 的键:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 bake-off 相关度不达标(`slm_model_in_loop.py:2211-2221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2211-2221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
 | `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:2841-2849` → `model_in_loop_runner.py:257-263` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
 **先看 stage 列表, 再看数字** —— 几何失败和持续 reject 要走的路完全不同。
@@ -872,7 +872,7 @@ python src/ao_shaping/main.py --debug slm-model-in-loop \
 
 ### 15.9 正向模型描述不了这台实验系统时的退路
 
-改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 bake-off, 实测不优于平场就丢弃)
+改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)
 + 自由相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。
 
 ```bash

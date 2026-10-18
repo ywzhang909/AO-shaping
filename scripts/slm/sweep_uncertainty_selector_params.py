@@ -48,11 +48,11 @@ def _log(msg: str) -> None:
 
 
 def _u(selector: UncertaintyProbeSelector, probe: np.ndarray) -> float:
-    """选择器自己的度量。私有方法是刻意的: 度量必须单一真源, 不在这里重写公式。"""
+    """选择器自己的公共方法度量 (单一真源, 不在这里重写公式)。"""
     leaf = torch.from_numpy(np.ascontiguousarray(probe, dtype=np.float64))
     leaf.requires_grad_(True)
     with torch.no_grad():
-        return float(selector._predictive_variance(leaf))
+        return float(selector.predictive_variance(leaf))
 
 
 def _same_family_random(

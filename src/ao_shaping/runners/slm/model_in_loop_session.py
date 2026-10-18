@@ -397,7 +397,7 @@ def calibrate_session(
         correlation = _read_correlation(geometry_file)
     else:
         notes.append(
-            "已跳过 sweep 几何标定, 沿用给定的几何文件 (本次未做 bake-off（对比择优）验收)"
+            "已跳过 sweep 几何标定, 沿用给定的几何文件 (本次未做对比择优验收)"
         )
     return SessionCalibration(
         pupil_center=center,

@@ -17,7 +17,7 @@
 4. 与 R-82 共用同一选择器模块 (本脚本只 import, 不复制其度量)。
 
 机制层面的直接测量: 在**两臂探针的并集**算出的同一个 Fisher 后验下, 把两臂
-的探针都送进选择器的 ``_predictive_variance`` 比大小。刻意调用选择器的私有方法
+的探针都送进选择器的 ``predictive_variance`` 比大小。调用选择器自己的公共方法
 而不是自己重写一遍 ``U(p)`` 公式 —— 这个仓库反复被"重复实现漂移"咬伤, 度量
 必须单一真源。后验也必须是共用的: 各用各的后验自证等于没比。
 
@@ -183,7 +183,7 @@ class _Instrumented:
                 )
                 leaf.requires_grad_(True)
                 with torch.no_grad():
-                    vals.append(float(sel._predictive_variance(leaf)))
+                    vals.append(float(sel.predictive_variance(leaf)))
             return float(np.mean(vals)) if vals else float("nan")
 
         # ---- 幅度对照 (关键) ----------------------------------------------

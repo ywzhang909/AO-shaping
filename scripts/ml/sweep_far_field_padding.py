@@ -34,6 +34,7 @@ from ml.hwdataset import MaterialiserConfig, build_hw_index  # noqa: E402
 from ml.hwdataset.records import Materialiser  # noqa: E402
 from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
 from ml.zernike.train_amp import evaluate  # noqa: E402
+from scripts._common import refuse_empty_overwrite  # noqa: E402
 
 GRID = 64
 N_MAX = 15
@@ -100,9 +101,10 @@ for family, refs in families.items():
 
 Path("report/loss_defects").mkdir(parents=True, exist_ok=True)
 _out = Path("report/loss_defects/padding_sweep.json")
-# Dirty-file guard (merge-audit #111 remaining item 2): a crashed/aborted
-# sweep must not overwrite a good prior result with {} or a partial record.
-if not results and _out.exists():
+# Dirty-file guard (merge-audit #111 remaining item 2 / issue #143 problem 2):
+# a crashed/aborted sweep must not overwrite a good prior result with {} or a
+# partial record. The guard lives in scripts/_common so it is unit-testable.
+if refuse_empty_overwrite(_out, results):
     raise SystemExit(
         f"REFUSING to write {_out}: no results collected and a non-empty "
         f"existing file is present. A crashed run must not clobber good data."

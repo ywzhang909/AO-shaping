@@ -320,7 +320,7 @@ graph TD
         OPT["optimize_slm_model_in_loop(config)<br/>← 唯一公开入口"]
         SEED["_seed_coefficients_from_checkpoint(config)<br/>开设备之前 · 仅当 --forward-checkpoint"]
         OPEN["_open_bench(config)"]
-        GEOM["_calibrate_geometry(bench, config)<br/>一次性几何 bake-off"]
+        GEOM["_calibrate_geometry(bench, config)<br/>一次性几何对比择优"]
         MKOPT["_make_optimizer(config, coefficients)"]
         CLAMP["trust_region_clamp(...)"]
         QUAL["_metrics_at / _quality"]
@@ -877,7 +877,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
     A("| stage | 哪一次测量 | 次数 |\n|---|---|---|")
     A("| `flat` | 平场基线, Stage 0 | 全程 **1** 次 |")
     A(
-        f"| `calib-probe` | 一次性台架几何 bake-off 的探针(`--n-calibration-probes`, 默认 {n_calib}) "
+        f"| `calib-probe` | 一次性台架几何 对比择优 的探针(`--n-calibration-probes`, 默认 {n_calib}) "
         f"| 全程 {n_calib} 次 |"
     )
     A(
@@ -977,7 +977,7 @@ def _section_bench_commands() -> list[str]:
 
     A("### 15.1 🔴 上机前先读这一段: 本台架**预期**退出码 2\n")
     A(
-        "在当前这台 2f-Fourier 台架上, `slm-model-in-loop` **预期**在几何 bake-off 处中止, 退出码 `2`,\n"
+        "在当前这台 2f-Fourier 台架上, `slm-model-in-loop` **预期**在几何 对比择优 处中止, 退出码 `2`,\n"
         "而且**不提交任何相位**。这不是故障, 是守卫在正常工作。\n"
     )
     A(
@@ -999,7 +999,7 @@ def _section_bench_commands() -> list[str]:
     )
     A(
         "| 终止状态 | 触发点 | dump 里的 stage 组成 |\n|---|---|---|\n"
-        "| `aborted_unidentifiable` | 几何 bake-off 相关度不达标(`slm_model_in_loop.py:1281-1291` "
+        "| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:1281-1291` "
         "抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) "
         "| **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |"
     )
@@ -1176,7 +1176,7 @@ def _section_bench_commands() -> list[str]:
 
     A("### 15.9 正向模型描述不了这台台架时的退路\n")
     A(
-        "改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 bake-off, 实测不优于平场就丢弃)\n"
+        "改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)\n"
         "+ 自由相位 SPGD 细化, 所以它不需要\"随机瞳面相位 ⇒ 远场散斑\"这个前提。\n"
     )
     A(
@@ -1584,7 +1584,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("| `bake_off_rejected` | 跑完了, 但没有任何整形相位打过平场, 于是保留平场 |")
     A("")
     A(
-        "退出码 `2` = 几何 bake-off 失败或持续落在模型之外, 该轮**没有**提交任何相位;\n"
+        "退出码 `2` = 几何 对比择优 失败或持续落在模型之外, 该轮**没有**提交任何相位;\n"
         "这种台架应改用 `slm-gs-refine`。\n"
     )
     A(
@@ -1604,7 +1604,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "- **不主张离线权重对最终整形质量有确定好处。** §9 只主张接线正确、几何不符会报错;\n"
         "  有没有收益是 §10 的第 1 条, 目前无数据。\n"
         f"- **孪生上的分数不可与硬件分数直接比较**: 孪生用 `TWIN_REGION = {twin_region}` 的\n"
-        "  解析光路, 硬件侧的标度来自 bake-off, 二者的绝对强度标度不同。\n"
+        "  解析光路, 硬件侧的标度来自 对比择优, 二者的绝对强度标度不同。\n"
     )
 
     # -- 14 逐帧 dump -----------------------------------------------------

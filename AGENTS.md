@@ -11,17 +11,17 @@ Codex / Cursor / Copilot / Hermes / 子代理）生成的中文叙述，**必须
 - **单一事实源**：该表是 AO-shaping 术语的唯一权威。左列"口语/非规范"一律
   禁止，右列"规范术语"必须使用（如 `台架→实验系统`、`实机/真机→实验`、
   `平场泄漏→加性背景（杂散光）项`、`瞳孔→瞳面`、`跑通→在线实现`、
-  `打散→弥散`、`金标准→参考（真值）`、`bake-off（对比择优）` 首现夹注）。
+  `打散→弥散`、`金标准→参考（真值）`、`bake-off→对比择优`）。
 - **只改中文叙述**，绝不改代码标识符 / 围栏代码块 / mermaid / 行内
   `` `code` `` / 纯英文叙述 / 厂商型号 / 数值参数 / 生成文档
   （`docs/dev/call_graph_wiki/**`）。
-- **首现夹注**：`pupil（瞳面）`、`bake-off（对比择优）` 在中文叙述中首现加
-  一次中文释义，不得双重夹注。
+- **首现夹注**：`pupil（瞳面）` 在中文叙述中首现加一次中文释义，不得双重夹注。
+  `bake-off` 自 2026-10-17 起中文叙述一律用**对比择优**，不再夹带英文。
 - **数据守恒**：术语替换是纯措辞改写，数值/单位/公式/参数/路径/DOI/引用编号
   逐字节保留。
 - **提交前校验**（必须全绿）：
   `python3 scripts/_common/term_unify_20261016.py`（dry-run，输出 `0 个文件`）；
-  `git grep -E 'pupil（瞳面）（|bake-off（对比择优）（'` 须为空；
+  `git grep -E 'pupil（瞳面）（|bake-off（对比择优）|bake-off（强制对比择优）'` 须为空；
   残留 `平场泄漏|台架|实机|真机|上机|瞳孔|跑通|打散|灌进|钻空子|金标准|围栅`
   的命中须全部落在术语表 §2 的 DO-NOT-TOUCH 集合内。
 - **新词须登记**：出现未收录的口语词，先在术语表 §3 登记（T-60 起）再替换。
@@ -145,7 +145,7 @@ AO-shaping/
 | `slm-pib` (`spgd`) | `optimizer.wfless.slm_zernike_pib:optimize_slm_zernike_pib()` | wfless | Zernike 系数 SPGD 梯度 (PIB / RMS / Pearson… 目标形状) | SLM + CCD |
 | `slm-pib` (`heuristic`) | 同上 (`algorithm=ga/pso/sa/hc/rs/cem/de`) | wfless | 黑盒启发式搜索 | SLM + CCD |
 | `spgd-square` | `optimizer.wfless.slm_square_shaping:optimize_slm_square()` | wfless | 均匀方形远场 (CV + EE + AR 综合质量分) | SLM + CCD |
-| `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (bake-off（对比择优）) + 自由相位 SPGD 细化 | SLM + CCD |
+| `slm-gs-refine` | `optimizer.wfless.slm_gs_refine:optimize_slm_gs_refine()` | wfless | GS 预矫正 (对比择优) + 自由相位 SPGD 细化 | SLM + CCD |
 | `slm-model-in-loop` | `optimizer.wfless.slm_model_in_loop:optimize_slm_model_in_loop()` | wfless | 探针 refit 正向模型 (Step A) + 目标光斑相位合成 (Step B), 带 trust region 与逐轮验收 | SLM + CCD |
 
 > **`slm-pib` 配置容器** (2026-09): `optimize_slm_zernike_pib()` 已收敛为**纯 dataclass 单参数 API**:
