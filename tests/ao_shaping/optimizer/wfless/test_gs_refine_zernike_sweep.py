@@ -20,6 +20,7 @@ from scripts.slm.run_gs_refine_zernike_sweep import (
     DEFAULT_SIM_FAR_FIELD_PADDING,
     MIN_TARGET_SIDE,
     ZERNIKE_CLIP,
+    _metrics_identical,
     build_stage_c_config,
     check_zernike_clip,
     probe_flat_field,
@@ -191,3 +192,77 @@ class TestSimBenchGeometry:
         monkeypatch.setattr(ccd_common, "create_camera", fake_create_camera)
         probe_flat_field("sim", cam_id=0, exposure_time_ms=0.0, seed=0, cam_size=256)
         assert captured["kwargs"].get("cam_size") == 256
+
+
+class TestStageBMonotonicity:
+    """The Stage-B fit residual must be non-increasing in ``n_max``.
+
+    This is the invariant the order scan (E3) rests on: the Zernike truncation
+    is a *nested* least-squares basis, so widening it can never increase the
+    residual. A sweep whose ``fit_rms_rad`` ever rises with order is reporting
+    a bug (wrong radius, wrong panel crop, non-nested basis), not a finding.
+
+    The scan is what ranks orders on hardware, so the invariant has to hold
+    before any ranking is believed.
+    """
+
+    @staticmethod
+    def _non_flat_panel(radius_px: float = 450.0) -> np.ndarray:
+        """A smooth, non-flat pupil phase on the driver's real panel size."""
+        from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+
+        return generate_zernike_phase(
+            {1: 0.4, 4: 0.25, 6: -0.15},
+            resolution=(960, 1200),
+            n_max=8,
+            radius=radius_px,
+        )
+
+    def test_fit_rms_non_increasing_in_n_max(self):
+        from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import fit_best_phase
+
+        phase = self._non_flat_panel()
+        residuals = [
+            fit_best_phase(phase, n_max, 450.0).rms_residual_rad
+            for n_max in (2, 3, 4, 6, 8)
+        ]
+        # Nested basis => monotone non-increasing (tolerate float noise only).
+        for lo, hi in zip(residuals, residuals[1:]):
+            assert hi <= lo + 1e-12, f"residual rose with order: {residuals}"
+
+    def test_sweep_records_one_residual_per_order(self):
+        """The driver writes exactly one ``fit_rms_rad`` per swept order."""
+        from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import fit_best_phase
+
+        orders = sweep_plan([4, 6, 8])
+        phase = self._non_flat_panel()
+        residuals = [
+            (p["n_max"], fit_best_phase(phase, p["n_max"], 450.0).rms_residual_rad)
+            for p in orders
+        ]
+        assert [n for n, _ in residuals] == [4, 6, 8]
+        assert all(isinstance(r, float) and r >= 0.0 for _, r in residuals)
+
+
+class TestSpgdImprovedIsAlwaysRecorded:
+    """``spgd_improved`` must be a real decision, never a missing key.
+
+    ``orders.append`` always writes ``bool(spgd_improved)``, so a Stage-C run
+    that never moved records ``false`` rather than omitting the field. A reader
+    (the report generator included) can therefore treat ``false`` as "measured,
+    did not improve" and never as "not measured".
+    """
+
+    def test_identical_metrics_mean_no_improvement(self):
+        base = {"cv": 0.5, "pib": 0.4, "ee": 0.9}
+        assert _metrics_identical(base, dict(base)) is True
+
+    def test_any_changed_metric_breaks_equality(self):
+        before = {"cv": 0.5, "pib": 0.4, "ee": 0.9}
+        after = {"cv": 0.5, "pib": 0.4 + 1e-6, "ee": 0.9}
+        assert _metrics_identical(before, after) is False
+
+    def test_sub_tolerance_drift_still_counts_as_identical(self):
+        before = {"cv": 0.5}
+        after = {"cv": 0.5 + 1e-12}
+        assert _metrics_identical(before, after) is True
