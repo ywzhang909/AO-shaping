@@ -4,7 +4,7 @@
 
 ## 1. 这条命令做什么
 
-通过 SPGD (随机并行梯度下降) 优化 Zernike 系数或自由相位网格，将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。
+通过 SPGD (随机并行梯度下降) 优化 Zernike 系数或全频随机相位网格，将远场光斑整形为**均匀方形** (SLM+CCD 闭环)。
 
 与 `slm-pib` 共享 runner (`slm_shaping_runner.py`)，通过 `square` 子命令区分。
 
@@ -14,7 +14,7 @@
 
 两种相位参数化 (`--basis`)：
 - `zernike` (默认)：Zernike 系数 (radius=600 + defocus + spherical 初始化)
-- `freeform`：自由相位网格 (grid×grid，可合成真正方形)
+- `freeform`：全频随机相位网格 (grid×grid，可合成真正方形)
 
 ## 2. 调用关系
 

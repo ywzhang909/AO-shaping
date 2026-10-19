@@ -1,15 +1,15 @@
-# GS 预整形 + 自由相位 SPGD 细化 (slm-gs-refine)
+# GS 预整形 + 全频随机相位 SPGD 细化 (slm-gs-refine)
 
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
 ## 1. 这条命令做什么
 
-`iterative_zernike_shaping` 仿真流水线 (initial 0.662 → GS 0.812 → 细化 0.849) 的**硬件移植**：Santec SLM 自由相位 + Daheng CCD (也支持 MiiCam) 闭环。
+`iterative_zernike_shaping` 仿真流水线 (initial 0.662 → GS 0.812 → 细化 0.849) 的**硬件移植**：Santec SLM 全频随机相位 + Daheng CCD (也支持 MiiCam) 闭环。
 
 流程与仿真胜出配方一一对应：
 1. **平场基线**：下发平场读一帧，`argmax` 定位 0 阶，**冻结**方形 ROI
 2. **GS 预矫正 (对比择优)**：用 bench 前向模型算 GS 相位实测；**不优于平场就丢弃**
-3. **自由相位 SPGD 细化**：粗网格 (默认 24×24 = 576 自由度) 扰动正负两次读帧，差分估梯度，Adam 更新 + cosine 衰减
+3. **全频随机相位 SPGD 细化**：粗网格 (默认 24×24 = 576 自由度) 扰动正负两次读帧，差分估梯度，Adam 更新 + cosine 衰减
 
 ## 2. 调用关系
 
@@ -60,7 +60,7 @@ GS 相位来自模型 (光阑、焦距、像素间距)。若任何输入错，GS
 |------|------|--------|
 | `-e, --epochs` | SPGD 细化轮数 (每轮 3 次远场读帧：±δ 差分估梯度 + 未扰动收敛点各 1 次；`--confirm-best` 触发时另加 1 次) | 400 |
 | `--target-side` | 目标方形边长 (相机像素, 0=由 `D·f/(d_SLM·p_cam)` 推导) | 0 |
-| `--phase-grid` | 自由相位粗网格边长 (默认 24 → 576 DOF) | 24 |
+| `--phase-grid` | 全频随机相位粗网格边长 (默认 24 → 576 DOF) | 24 |
 | `--delta` / `--lr` / `--optimizer [adam\|adamw\|adamod\|sgd]` / `--lr-schedule` | SPGD 超参 | - |
 | `--gs-iters` / `--gs-warm-start/--no-gs-warm-start` | GS 迭代数 / 是否用平场热启动 | - |
 | `--gs-method [plain\|weighted\|hio\|hio-weighted]` | 开环 GS 变体, 见 §4.1。`plain` = 既有行为 | `plain` |

@@ -111,12 +111,12 @@ python src/ao_shaping/main.py [OPTIONS] COMMAND [ARGS]...
 | `slm-lut` | [docs/slm/slm_lut.md](docs/slm/slm_lut.md) | SLM灰度→相位LUT校准 |
 | `slm-diagnose` | [docs/slm/slm_diagnose.md](docs/slm/slm_diagnose.md) | SLM硬件自检 |
 | `spgd-square` | [docs/slm/spgd_square.md](docs/slm/spgd_square.md) | SLM方形光斑SPGD整形 |
-| `slm-gsnet` | [docs/slm/slm_gsnet.md](docs/slm/slm_gsnet.md) | SLM自由相位方形整形 (SPGD/启发式) |
+| `slm-gsnet` | [docs/slm/slm_gsnet.md](docs/slm/slm_gsnet.md) | SLM全频随机相位方形整形 (SPGD/启发式) |
 | `slm-pib` | [docs/slm/slm_pib.md](docs/slm/slm_pib.md) | SLM Zernike PIB优化 (`spgd` / `heuristic`) |
-| `slm-gs-refine` | [docs/slm/slm_gs_refine.md](docs/slm/slm_gs_refine.md) | GS 预矫正 + 自由相位 SPGD 整形 |
+| `slm-gs-refine` | [docs/slm/slm_gs_refine.md](docs/slm/slm_gs_refine.md) | GS 预矫正 + 全频随机相位 SPGD 整形 |
 | `slm-model-in-loop` | [docs/slm/slm_model_in_loop.md](docs/slm/slm_model_in_loop.md) | 正向模型闭环校正 + 目标光斑相位合成 (反复迭代) |
 
-> **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (自由相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
+> **注意**: `gs`、`gs-square`、`diff-shaping`、`diff-beam` 命令已从 CLI 中移除 (运行器文件不再存在)。其功能已并入 `slm-gsnet` (全频随机相位整形)、`algorithm/signal_processing/gerchberg_saxton.py` (GS算法) 和 `algorithm/signal_processing/differentiable_shaping.py` (可微分整形)。
 
 **全局选项**
 

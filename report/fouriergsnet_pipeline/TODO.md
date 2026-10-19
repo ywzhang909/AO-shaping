@@ -92,7 +92,7 @@ Get-Content "C:\Users\zhangh\AppData\Local\Temp\opencode\hw_smoke.out"
 
 > smoke (第 2 节) 全部通过后再做。仍须独立进程 + 看门狗 + 硬超时 (首次 CCD capture 是挂起高危点)。
 
-### 4.1 SPGD 自由相位搜索 (主路径)
+### 4.1 SPGD 全频随机相位搜索 (主路径)
 
 ```powershell
 # D:\Projects\TIFO\AO-shaping, PYTHONPATH=src;libs

@@ -75,7 +75,7 @@
 |---|---|
 | `slm/slm_pib.md` | SLM Zernike 整形（CCD 远场光斑反馈，PIB） |
 | `slm/spgd_square.md` | SLM 方形远场均匀性整形（SPGD，CV/EE/AR 目标） |
-| `slm/slm_gsnet.md` | FREEFORM 自由相位方形整形 + FourierGSNet 训练 |
+| `slm/slm_gsnet.md` | FREEFORM 全频随机相位方形整形 + FourierGSNet 训练 |
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
 | `slm/slm_model_in_loop.md` | 正向模型闭环整形（每轮用实测数据修正模型再合成相位） |
 | `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |

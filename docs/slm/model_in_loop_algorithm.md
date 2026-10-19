@@ -873,7 +873,7 @@ python src/ao_shaping/main.py --debug slm-model-in-loop \
 ### 15.9 正向模型描述不了这台实验系统时的退路
 
 改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)
-+ 自由相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。
++ 全频随机相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。
 
 ```bash
 python src/ao_shaping/main.py slm-gs-refine \

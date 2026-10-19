@@ -37,7 +37,7 @@ python src/ao_shaping/main.py wf --help
 | `spgd-square` | SLM 方形光斑整形优化器（Zernike 系数 + 相机反馈） | 18 |
 | `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 19 |
 | `slm-pib` | Santec SLM 的 Zernike 系数整形，group | 20 |
-| `slm-gs-refine` | SLM GS 预整形 + 自由相位 SPGD 细化 | 21 |
+| `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 21 |
 | `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 22 |
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。

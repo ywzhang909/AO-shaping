@@ -61,5 +61,5 @@ python -m ao_shaping.tools.slm.panel.phase_resolution --exposure-ms 3.0
 
 | 结果 | 含义 | 后续路线 |
 |------|------|----------|
-| 面板分辨像素级相位 | 可用 `slm-gsnet` / `slm-gs-refine` / `slm-model-in-loop` (freeform 分支) | 自由相位整形 |
+| 面板分辨像素级相位 | 可用 `slm-gsnet` / `slm-gs-refine` / `slm-model-in-loop` (freeform 分支) | 全频随机相位整形 |
 | 面板不分辨像素级相位 | 仅能用 Zernike 低阶模式 | `slm-pib` / `rms-zernike` / `ga-zernike` |

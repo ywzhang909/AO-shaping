@@ -288,7 +288,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 4. **移除「设置模式」按钮**：视频模式已锁死内存模式，该按钮为 no-op，保留只会误导。
 5. **`_stop_toggle` 副作用提示**：一次下发/CSV 加载前静默停止周期切换，建议改为先 warning 再停（与遗留项 2 一并做）。
 6. **`calibrate_session` 是惰性 import**：`ao_shaping.runners.slm.model_in_loop_session` 在 `bench_settings.run_session_calibration()` 函数体内 import（模块级会拖入 runners 包，破坏 GUI 的惰性契约）。若该 lane 接口变动，这里会是第一个报 `ImportError` 的地方。
-7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做留出验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「自由相位留出探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
+7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做留出验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「全频随机相位留出探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
 
 ---
 

@@ -27,7 +27,7 @@
 | **几何** | 瞳面中心 / 盘半径 / 光腰 / 远场尺度 | `model_in_loop_shaping.calibrate_bench_geometry`（散斑相关打分） | 像差拟合会**吸收**它 |
 | **像差** | Zernike 系数向量 | `_fit_aberration_at_probes`（Adam 最小化 loss） | 误差被 Step B 冻结 |
 
-关键耦合：Step B 用的是**冻结**像差下的全像面自由相位
+关键耦合：Step B 用的是**冻结**像差下的全像面全频随机相位
 （`shape_phase_with_frozen_aberration`）。所以一旦几何错了，Step A 会把它"解释"成
 像差，Step B 再把这个错误解释固化成相位——**全程不报错**。
 这是静默失效，不是收敛慢。
