@@ -25,6 +25,7 @@ from ao_shaping import config as ao_config
 from ao_shaping.utils.io.cli_helpers import resolve_debug
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
+    round_to_int,
     DmDeviceParams,
     PibAlgorithmParams,
     PibOpticalParams,
@@ -134,7 +135,7 @@ def run(
 
     saved_dir = f"{run.root_dir}/flatten_voltages/{get_date_dir_name()}"
     res_list.save_best(
-        saved_dir, target="_v", process_fn=lambda x: np.around(x).astype(int), fmt="%d"
+        saved_dir, target="_v", process_fn=round_to_int, fmt="%d"
     )
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
     if debug:
