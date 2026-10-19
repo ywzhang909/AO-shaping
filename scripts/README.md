@@ -3318,7 +3318,13 @@ unobservable?" without opening a device. The holdout gate correlates the predict
 with the mapped measurement over the *whole* far-field grid, but the camera only ever
 sees a crop, so the measurement is zero outside it. This script rebuilds the same
 prediction, measures the camera footprint (an all-ones frame through the same mapping —
-`model_grid != 0` does not work, the closing bilinear resize smears a halo), and reports
+`model_grid != 0` looks equivalent and is not: the mapping is a non-negative
+linear operator, so the nonzero mask is always a subset of the true footprint (it can
+only under-report — 7.91% on a bright frame, 3.96% on a dim one), and it depends
+entirely on the scene — a black frame collapses it to the empty set while the camera
+plainly did see those pixels. That second case is not hypothetical: a bench whose light
+has dropped leaves a near-black frame and the naive mask then reports that the camera
+saw nothing at all), and reports
 per family: as-recorded, restricted to the camera support, and the **perfect-model
 ceiling** `corr(prediction, prediction * support)`.
 

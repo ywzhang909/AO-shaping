@@ -5,7 +5,7 @@
 > **复现命令**: `python scripts/slm/generate_gs_refine_zernike_report.py`
 > **数据/关联脚本**: [`scripts/slm/run_gs_refine_zernike_sweep.py`](../../scripts/slm/run_gs_refine_zernike_sweep.py)
 > **运行环境**: 离线
-> **说明**: GS 自由相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 run_gs_refine_zernike_sweep.py 产出的 summary.json + spgd_nmax*.csv，渲染拟合残差/CV/PIB 三图与阶数扫描表
+> **说明**: GS 全频随机相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 run_gs_refine_zernike_sweep.py 产出的 summary.json + spgd_nmax*.csv，渲染拟合残差/CV/PIB 三图与阶数扫描表
 <!-- provenance:end -->
 
 数据来源：8 阶扫描 run，`cam_type=sim`（数字孪生仿真，非硬件实测），目录 `E3_orders`。
