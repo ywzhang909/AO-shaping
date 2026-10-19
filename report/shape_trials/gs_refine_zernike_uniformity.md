@@ -87,7 +87,7 @@ SPGD 轨迹 CSV 已保存 (9 行, n_max=3)。
    目标函数必须包含能量项。
 2. **Zernike 基半径锁定 `beam_radius_px`**，且与 GS 瞳面一致；更换光路必须重扫。
 3. **仿真模式下 GS 预矫正未经物理标定。** 数字孪生是纯 FFT；`_derive_target_side`
-   的台架模型（`camera_pixel_um=2.2`、焦距来自实测 tilt-shift scale）与仿真角尺度
+   的实验系统模型（`camera_pixel_um=2.2`、焦距来自实测 tilt-shift scale）与仿真角尺度
    不匹配。日志会出现 "GS warm start ... did not beat flat ...; keeping flat"。
    仿真只验证 Zernike 拟合 + SPGD 路径与退化几何守卫；物理对比仅在真实硬件上有意义。
 4. **`max_abs_coefficient` vs `ZERNIKE_CLIP = 5.0` rad。** 超过阈值会触发 clip，

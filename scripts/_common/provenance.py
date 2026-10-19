@@ -659,7 +659,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="硬件",
         note=(
-            "GS → Zernike → SPGD 匀化实验的上机测试计划 (待执行, 非结论)；含现状 (仿真已确立的"
+            "GS → Zernike → SPGD 匀化实验的实验测试计划 (待执行, 非结论)；含现状 (仿真已确立的"
             "硬件无关结论 / 仿真天花板 / 合并上游 #140 的基线变化 / 复现性边界)、算法三阶段与"
             "锁定量、12 个原子化测试项 (H0~H12, 各带二元判据与止损)、执行顺序依赖图、"
             "交错重放等通用规程、数据记录规范与风险表。采集脚本见关联脚本"
@@ -667,6 +667,15 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=(
             "scripts/slm/run_gs_refine_zernike_sweep.py",
             "scripts/slm/generate_gs_refine_zernike_report.py",
+        ),
+    ),
+    "report/shape_trials/gs_refine_zernike_hardware_plan.issue.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "GS → Zernike → SPGD 匀化实验阶数扫描的 GitHub issue 正文（实验测试请求, 非实验结论）; "
+            "交付拟合模块/扫描驱动/离线报告/8 阶仿真扫描报告 + 实验测试计划 H0~H12, "
+            "记录仿真已确立的硬件无关结论与仿真天花板、合并上游 #140 的基线变化、复现性边界"
         ),
     ),
     "report/shape_trials/gui_closed_loop_shaping_20261014.md": ReportProvenance(

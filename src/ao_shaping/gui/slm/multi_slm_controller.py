@@ -21,10 +21,15 @@ from ao_shaping.gui.slm.bench_settings import (
     DEFAULT_CAMERA_PIXEL_UM,
     KNOWN_CAMERA_PIXEL_UM,
     auto_check_camera_pixel_um,
+    build_defocus_overlay,
     detect_camera_pixel_um,
     render_bench_settings,
-    rebuild_defocus_overlay,
     widget_default,
+)
+from ao_shaping.gui.utils.phase_overlay import (
+    PhaseOverlay,
+    OverlaidSantec,
+    apply_overlays_to_handle,
 )
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
@@ -545,10 +550,13 @@ def _safe_set_state(key: str, value: Any) -> None:
         pass
 
 
-def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
+def _sync_slm_session_state(slm_num: int, slm: Any) -> None:
     """Mirror a freshly opened SLM's resolved state into session state.
 
-    Shared by ``connect_slm`` and the closed-loop shaping re-acquisition path
+    ``slm`` is the real :class:`Santec` or the controller-layer
+    :class:`~ao_shaping.gui.utils.phase_overlay.OverlaidSantec` proxy that wraps
+    it (the proxy forwards every attribute this reads).  Shared by
+    ``connect_slm`` and the closed-loop shaping re-acquisition path
     (``shaping_controls._reacquire_slm_handle``): after ``Santec.open()`` the
     device has read its serial, loaded its per-serial config file and applied
     defaults.
@@ -640,6 +648,11 @@ def connect_slm(slm_num: int):
     try:
         slm = Santec(slm_number=slm_num)
         slm.open()
+        # Wrap the fresh Santec in the overlay proxy so the GUI session handle
+        # carries the send-pipeline overlay (defocus + base phase) at the
+        # controller layer.  Driver slots stay empty on this path (the proxy
+        # layer is the single source), so an overlay is applied exactly once.
+        slm = OverlaidSantec(slm)
 
         st.session_state[prefix] = slm
         st.session_state[f"{prefix}_connected"] = True
@@ -1550,34 +1563,43 @@ def render_phase_control(slm_num: int):
 
 
 def _apply_slm_overlays(slm_num: int) -> None:
-    """把该 SLM 的两个发送管线叠加层（底相位 / 离焦）按 session 状态推给驱动。
+    """把该 SLM 的两个发送管线叠加层（底相位 / 离焦）按 session 状态推给句柄。
 
-    单一真源：连接、重连、切换开关、保存底相位后统一走这里，保证驱动上的叠加层
-    始终等于 UI 当前配置。``_sync_slm_session_state``（首连 + 整形后重取）和
+    单一真源：连接、重连、切换开关、保存底相位后统一走这里，保证叠加层始终
+    等于 UI 当前配置。``_sync_slm_session_state``（首连 + 整形后重取）和
     底相位/离焦区块的开关都调它。无连接时直接返回。
 
-    * 底相位（灰度，``set_base_phase``）：仅在「叠加底相位」勾选且已保存时应用，
-      否则置 None（不叠加）。
-    * 离焦（弧度，``set_phase_overlay``）：受离焦开关门控，见
-      :func:`ao_shaping.gui.slm.bench_settings.rebuild_defocus_overlay`。
+    叠加层本身先算成一个 :class:`PhaseOverlay`（纯 numpy，无硬件 I/O），再经
+    :func:`apply_overlays_to_handle` **单一分发点**写到句柄上，按句柄类型决定
+    写入哪个真源（代理句柄 → 代理层并清零其驱动槽；裸驱动句柄 → 驱动槽），
+    从而维护「一个句柄只叠加一次」的 invariant，代理 / 裸驱动两条路径互不
+    双重叠加：
+
+    * 底相位（灰度）：仅在「叠加底相位」勾选且已保存时应用，否则置 None。
+    * 离焦（弧度）：受离焦开关门控（见
+      :func:`ao_shaping.gui.slm.bench_settings.build_defocus_overlay`）。
     """
     prefix = f"slm{slm_num}"
     slm = st.session_state.get(prefix)
     if slm is None or not getattr(slm, "is_open", False):
         return
+    # 底相位（灰度）：仅勾选且已保存时叠加，否则 None。
     base = st.session_state.get(f"{prefix}_base_phase")
     overlay_on = bool(st.session_state.get(f"{prefix}_overlay_base", False))
-    try:
-        if base is not None and overlay_on:
-            slm.set_base_phase(base)
-        else:
-            slm.set_base_phase(None)
-    except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡连接
-        logger.warning("SLM {} 底相位叠加应用失败: {}", slm_num, exc)
-    try:
-        rebuild_defocus_overlay(prefix, slm)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("SLM {} 离焦叠加应用失败: {}", slm_num, exc)
+    base_gray = base if (base is not None and overlay_on) else None
+    # 离焦（弧度）：受开关门控（关 = 不叠加，即便焦距/细调控件里残留数值），
+    # 全零也视同不叠加。
+    defocus_enabled = bool(st.session_state.get(f"{prefix}_defocus_enabled", False))
+    phase_rad = None
+    if defocus_enabled:
+        try:
+            phase_rad = build_defocus_overlay(prefix, slm)
+        except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡连接
+            logger.warning("SLM {} 离焦叠加重建失败: {}", slm_num, exc)
+            phase_rad = None
+        if phase_rad is not None and np.allclose(phase_rad, 0.0, atol=1e-12):
+            phase_rad = None
+    apply_overlays_to_handle(slm, PhaseOverlay(phase_rad, base_gray))
 
 
 def _render_defocus_overlay_block(slm_num: int):

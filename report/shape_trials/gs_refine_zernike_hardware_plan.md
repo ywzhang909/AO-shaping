@@ -1,17 +1,17 @@
-# GS → Zernike → SPGD 匀化实验：上机测试计划
+# GS → Zernike → SPGD 匀化实验：实验测试计划
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/run_gs_refine_zernike_sweep.py`](../../scripts/slm/run_gs_refine_zernike_sweep.py)
 > **数据/关联脚本**: [`scripts/slm/generate_gs_refine_zernike_report.py`](../../scripts/slm/generate_gs_refine_zernike_report.py)
 > **运行环境**: 硬件
-> **说明**: GS → Zernike → SPGD 匀化实验的上机测试计划 (待执行, 非结论)；含现状 (仿真已确立的硬件无关结论 / 仿真天花板 / 合并上游 #140 的基线变化 / 复现性边界)、算法三阶段与锁定量、12 个原子化测试项 (H0~H12, 各带二元判据与止损)、执行顺序依赖图、交错重放等通用规程、数据记录规范与风险表。采集脚本见关联脚本
+> **说明**: GS → Zernike → SPGD 匀化实验的实验测试计划 (待执行, 非结论)；含现状 (仿真已确立的硬件无关结论 / 仿真天花板 / 合并上游 #140 的基线变化 / 复现性边界)、算法三阶段与锁定量、12 个原子化测试项 (H0~H12, 各带二元判据与止损)、执行顺序依赖图、交错重放等通用规程、数据记录规范与风险表。采集脚本见关联脚本
 <!-- provenance:end -->
 
-> **状态**：待上机执行（计划文档，非实验结论）
+> **状态**：待实验执行（计划文档，非实验结论）
 > **关联脚本**：[`scripts/slm/run_gs_refine_zernike_sweep.py`](../../scripts/slm/run_gs_refine_zernike_sweep.py)（采集）、[`scripts/slm/generate_gs_refine_zernike_report.py`](../../scripts/slm/generate_gs_refine_zernike_report.py)（离线出图）
 > **仿真基线**：[`report/shape_trials/gs_refine_zernike_uniformity.md`](gs_refine_zernike_uniformity.md)
-> **台架**：Santec SLM #1 `optionboardID 23020027` + 大恒 CCD `FJB24112232`，1064 nm，2f-Fourier 臂
+> **实验系统**：Santec SLM #1 `optionboardID 23020027` + 大恒 CCD `FJB24112232`，1064 nm，2f-Fourier 臂
 
 ---
 
@@ -30,7 +30,7 @@
 
 ### 1.2 仿真的天花板（本计划存在的原因）
 
-数字孪生是纯 FFT，而 `_derive_target_side` 用的是**台架**模型（`camera_pixel_um=2.2`、焦距来自实测
+数字孪生是纯 FFT，而 `_derive_target_side` 用的是**实验系统**模型（`camera_pixel_um=2.2`、焦距来自实测
 tilt-shift scale），二者角尺度不匹配。于是 GS 预矫正在仿真里**打不过平场**（日志：
 `GS warm start ... did not beat flat ...; keeping flat`），送进 Stage B 的 `best_phase` ≈ 平场：
 
@@ -44,11 +44,11 @@ tilt-shift scale），二者角尺度不匹配。于是 GS 预矫正在仿真里
 阶数之间也无法在仿真里排序——PIB 跨阶极差 0.0046、CV 极差 0.0039，与**单轮 SPGD 抖动
 0.0010~0.0035 同量级**，任何"最优阶数"都是在读噪声。这也是现有报告故意不给阶数排名的原因。
 
-### 1.3 上机为什么能解锁
+### 1.3 实验为什么能解锁
 
-台架上 GS 相位是**真实且高度不均匀**的（`gs_uniformity_live_20261015` 实测剔零级
+实验系统上 GS 相位是**真实且高度不均匀**的（`gs_uniformity_live_20261015` 实测剔零级
 **CV ≈ 0.723**，面板梯度 RMS ≈ 0.052 rad/px）。这与仿真的"≈平场"是两个完全不同的
-regime——`fit_rms` 会有真实结构可压缩，阶数效应会真正显现。**这是本计划必须上机的全部理由。**
+regime——`fit_rms` 会有真实结构可压缩，阶数效应会真正显现。**这是本计划必须实验的全部理由。**
 
 ### 1.4 合并上游后必须知道的变化
 
@@ -107,7 +107,7 @@ Stage C  slm_zernike_pib（SPGD 在 Zernike 系数上）
 - 拟合侧指标：**相对 GS 自由相位的 far-field 复现保真度**（见 H6），这是本实验真正的科学量，
   `fit_rms` 只是相位空间的代理。
 
-### 2.4 上机命令模板
+### 2.4 实验命令模板
 
 ```bash
 # 采集（先跑基线，再跑扫描；--n-max 一次定好，中途不要改）
@@ -144,7 +144,7 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 
 每项独立可判定，有二元判据。`P0` = 阻塞其余全部。
 
-### H0 · 台架基线与安全门 `P0`
+### H0 · 实验系统基线与安全门 `P0`
 
 - **目的**：确认光路可用、参数正确，且不会损坏设备。
 - **前置**：SLM 已上电并物理复位（历史上有 DVI 模式挂起后必须断电的记录）。
@@ -154,9 +154,9 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **风险**：SLM `open()` 静默挂起（曾观测 900 s 超时）。**必须用 memory 模式（`video_mode=0`），
   绝不自动尝试 DVI**。挂起后先确认无残留 python 进程，再给控制器物理断电。
 
-### H1 · GS 预矫正 bake-off `P0`
+### H1 · GS 预矫正 对比择优 `P0`
 
-- **目的**：确认 GS 预矫正在**本台架**真的比平场好；否则整个 Stage B 无意义。
+- **目的**：确认 GS 预矫正在**本实验系统**真的比平场好；否则整个 Stage B 无意义。
 - **前置**：H0 通过。
 - **步骤**：同一 seed 下跑 Stage A；交错重放比较 `flat` 与 `gs_freeform` 的剔零级 CV。
 - **判据**：**GS 的 CV 显著低于平场**（差值 > 噪声地板的 3 倍）。若 GS 打不过平场，**立即停止**，
@@ -198,8 +198,8 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **目的**：确认拟合出的系数可安全下发，不会被 clip，且基半径没错配。
 - **前置**：H3 通过。
 - **步骤**：检查每阶 `max|c|`；用 `panel_phase_from_coefficients` 重建面板，与 `best_phase`
-  在瞳孔内逐点比较。
-- **判据**：`max|c| < ZERNIKE_CLIP = 5.0` rad（留足裕量）；重建相位与原相位在瞳孔内
+  在瞳面内逐点比较。
+- **判据**：`max|c| < ZERNIKE_CLIP = 5.0` rad（留足裕量）；重建相位与原相位在瞳面内
   `max|Δ|` 与 `fit_rms` 自洽（同一残差量级）。
 - **记录**：`max|c|`、重建残差、是否出现 clip 警告。
 - **风险**：**基半径错配是本实验最隐蔽的失败模式**——它会让残差看起来"正常"但下发相位完全错。
@@ -225,7 +225,7 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **判据**：若 600 档的 `spgd_improved` 比例显著高于 200 档，则此前的不改善是**预算不足**；
   否则是**物理上限**。
 - **记录**：每阶 `spgd_improved`、`J` 的 min/final、实际执行轮数（守卫跳过多少）。
-- **风险**：算力。台架每轮 SPGD 是一次真实相机曝光，必须先用小预算估算再决定 600 档是否可行。
+- **风险**：算力。实验系统每轮 SPGD 是一次真实相机曝光，必须先用小预算估算再决定 600 档是否可行。
 
 ### H8 · Zernike 受限 vs 自由相位 `P2`
 
@@ -246,12 +246,12 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **判据**：`min_attainable_pvalue(n=6) = 2/2⁶ = 0.03125`。**达不到就不给 p 值，只报效应量**；
   跨度与噪声地板同量级时**明确拒绝排序**（沿用现有报告 `scan_verdict` 的做法）。
 - **记录**：逐 `(n_max, seed)` 原始值、检验统计量、校正后 p 值。
-- **风险**：6 个 seed 已是 6 次完整 run 的台架时间。若预算不足，**降到 4 seed 并声明
+- **风险**：6 个 seed 已是 6 次完整 run 的实验系统时间。若预算不足，**降到 4 seed 并声明
   `min_attainable_pvalue = 0.25`**，只报效应量——不要用 4 折假装能判显著。
 
-### H10 · 能量守卫消融（台架）`P3`
+### H10 · 能量守卫消融（实验系统）`P3`
 
-- **目的**：仿真里守卫无影响，台架读出噪声更大，需重测。
+- **目的**：仿真里守卫无影响，实验系统读出噪声更大，需重测。
 - **前置**：H7 通过。
 - **步骤**：`--max-energy-loss 0.6` 与 `0` 两档，其余相同。
 - **判据**：报告守卫跳过轮数占比，以及关闭后 CV 是否变化（> 噪声地板才算变）。
@@ -266,7 +266,7 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **步骤**：`--lr` 取 0 / 0.01 / 0.03 三档。
 - **判据**：`--lr 0` 应复现已知的步长拒绝失效（`spgd_improved=false`）；非零档应至少不劣于 0.01。
 - **记录**：每档 CV/PIB、`J` 轨迹。
-- **风险**：台架时间昂贵。若 H7 已显示台架读出噪声主导，先跳过本项。
+- **风险**：实验系统时间昂贵。若 H7 已显示实验系统读出噪声主导，先跳过本项。
 
 ### H12 · 基半径自洽扫描 `P3`
 
@@ -294,7 +294,7 @@ H5 ──> H12 基半径扫描
 
 - `H6` 是**核心科学项**，其余都是支撑或消融。
 - `H2` 不依赖 `H1`，可与 `H1` 并行准备。
-- 任何 `P0` 项失败 ⇒ **停止**，不要继续往下烧台架时间。
+- 任何 `P0` 项失败 ⇒ **停止**，不要继续往下烧实验系统时间。
 
 ---
 
@@ -321,11 +321,11 @@ H5 ──> H12 基半径扫描
 | 遮罩被 `argmax` 拖走 | 指标跳变不连续 | 只在**平场**帧定位光轴一次并冻结 |
 | 阶数差异淹没在噪声里 | H2 的 σ ≥ 阶数间差异 | 如实报告"不可排序"，不得硬给排名 |
 | 只看 CV 变好、EE 崩塌 | H10 出现该模式 | 判为失败；目标函数必须含能量项 |
-| 台架时间耗尽 | H9 跑不完 6 seed | 降到 4 seed 并声明 `min_attainable_pvalue = 0.25`，只报效应量 |
+| 实验系统时间耗尽 | H9 跑不完 6 seed | 降到 4 seed 并声明 `min_attainable_pvalue = 0.25`，只报效应量 |
 
 ---
 
-## 8. 明确**不**在本次上机范围内
+## 8. 明确**不**在本次实验范围内
 
 - 仿真 GS 前向模型标定（已确认 OOM：GS bench FFT 网格会到 7200²–14400²）。
 - 自由像素 GS / 可微分整形（Zernike 低阶基**物理上无法**合成方形远场，见仓库 ANTI-PATTERNS）。

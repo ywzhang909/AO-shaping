@@ -23,6 +23,7 @@ import streamlit as st
 from ao_shaping.gui.slm import bench_settings as bs
 from ao_shaping.gui.slm import shaping_controls as sc
 from ao_shaping.gui.slm.shaping_controls import GsRefineMethod, SlmOwnership
+from ao_shaping.gui.utils.phase_overlay import OverlaidSantec
 
 
 class _FakeSLM:
@@ -110,7 +111,7 @@ class TestWithSlmOwnership:
         assert seen["busy"] is True
         assert fake.close_calls == 1
         assert isinstance(owned, SlmOwnership)
-        assert isinstance(owned.slm, _FakeSLM)
+        assert isinstance(owned.slm, OverlaidSantec)
         assert state["slm1"] is owned.slm
         assert state["slm1_connected"] is True
         assert bs.bench_busy() is False
@@ -123,7 +124,7 @@ class TestWithSlmOwnership:
                 raise RuntimeError("boom")
 
         assert fake.close_calls == 1
-        assert isinstance(state["slm1"], _FakeSLM)
+        assert isinstance(state["slm1"], OverlaidSantec)
         assert bs.bench_busy() is False
 
     def test_busy_flag_is_cleared_even_when_reacquire_raises(self, state, monkeypatch) -> None:
@@ -149,7 +150,7 @@ class TestWithSlmOwnership:
         slot = SlmOwnership(1)
         with sc.with_slm_ownership(1, slot):
             pass
-        assert isinstance(slot.slm, _FakeSLM)
+        assert isinstance(slot.slm, OverlaidSantec)
 
     def test_only_the_target_slm_is_released(self, state) -> None:
         first = _connect(state, 1)
@@ -181,7 +182,7 @@ class TestWithSlmOwnership:
         assert outcome is None
         assert seen == {"released": True, "busy": True}
         assert fake.close_calls == 1
-        assert isinstance(state["slm1"], _FakeSLM)
+        assert isinstance(state["slm1"], OverlaidSantec)
         assert bs.bench_busy() is False
 
 
