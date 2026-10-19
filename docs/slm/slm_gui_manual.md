@@ -178,10 +178,10 @@ classDiagram
 | slm{N}_bench_beam_radius_px  | float           | 实测照明半径（面板px，0 = 未实测；「探测半径」按钮写入，widget 键） |
 | slm{N}_bench_beam_radius_probe | dict           | 「探测半径」按钮的扫描证据（半平面随机相位边界扫描） |
 | slm{N}_bench_focus_probe     | dict            | 「探测焦面」按钮的菲涅尔焦距实测（`best_focal_mm` 等；`bench_fresnel_focal_mm` 只读它） |
-| slm{N}_defocus_rad           | float           | 离焦微调 Zernike (2,0) 幅度（rad，widget 键；拖动不下发） |
-| slm{N}_defocus_focal_mm      | float           | 菲涅尔焦距补偿 (mm；0 = 用侧栏实测，widget 键) |
-| slm{N}_apply_defocus_btn     | bool            | 「叠加并下发」离焦补偿（widget 键） |
-| slm{N}_clear_defocus_btn     | bool            | 「恢复原始 GS 相位」（widget 键） |
+| slm{N}_defocus_enabled        | bool            | 离焦叠加开关（发送管线 T4 叠加层，作用于其后所有发送） |
+| slm{N}_defocus_focal         | float           | 离焦焦距 (mm，菲涅尔项，widget 键；填 -9999 = 用「探测焦面」推荐值) |
+| slm{N}_defocus_amount         | float           | 离焦细调 Zernike (2,0) 幅度（rad，widget 键） |
+| slm{N}_defocus_use_reco      | bool            | 「用推荐值」按钮（把焦距写回探测推荐值，widget 键） |
 | slm{N}_shp_pending         | dict            | 主区预算预设的单次 flush 待写值（非 widget key） |
 | slm{N}_shp_budget_preset*   | str             | 预算预设选择与其「已应用」标记（widget 键） |
 
@@ -649,7 +649,7 @@ flowchart LR
 | A 相机 | 相机类型（daheng/miicam/sim）、相机 ID、像元间距 `μm`（**含「探测」按钮与渲染期自动探测告警**，`key="camera_pixel_um"` 未变，从旧「相机工具」区整体搬来）、会话曝光 `ms`（0 = 自动；caption 写明 0 会被大恒钳到约 0.02 ms，比可用区间暗 20–75×；超 `AO_DAHENG_MAX_EXPOSURE_MS` 立即 warning，运行前再 error 一次）**+ 「探测」按钮（`key="detect_exposure_btn"`，仅 daheng 可用）**：点一下按当前光路实测曝光 |
 | B 读出窗口 | 「启用开窗」+ 窗口边长 `px`。上界 = `min(max_width, max_height)`、step = 设备特征网格 `inc`（**取得到相机时是真值，取不到时用保守兜底并在 caption 说明来源**，点「探测窗口上限」重读）。⚠️ 已**取消** `cam_size_min = max(16, target_side)` 互夹：侧栏先渲染、拿不到主区目标边长，而 Streamlit 对「min 变化后越界」是**抛异常不是夹取** → 改到运行前校验（§8.2） |
 | C 去零级载波 | 载波（-1 关 / 0 实测自动 / 128 / 96 / 64）+ 光栅方向 |
-| D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）+ **「探测焦面」按钮**（`key="detect_focus_btn"`，plain 相位上扫菲涅尔焦距 ±6 m⁻¹，逐点自动重调曝光，约 1–2 分钟；结果写 `slm{N}_bench_focus_probe`，供整形页离焦微调做粗补偿，证据落 `data/debug/bench_settings/focus_probe/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
+| D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）+ **「探测焦面」按钮**（`key="detect_focus_btn"`，plain 相位上扫菲涅尔焦距 ±6 m⁻¹，逐点自动重调曝光，约 1–2 分钟；结果写 `slm{N}_bench_focus_probe`，供侧栏「离焦叠加 (发送叠加)」的推荐焦距做粗补偿，证据落 `data/debug/bench_settings/focus_probe/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
 | E 标定（每 SLM） | 几何来源（自动标定（推荐）/ 复用已标定几何 / 沿用上次结果）+ 条件显示的几何文件路径（复用模式下用 `discover_model_in_loop_geometry(region=…)` 给建议值）+ 「标定 SLM N 光路」primary 按钮（**复用模式下 disabled**：那时两步都不测，点下去只会刷新 `calibrated_at`，却让人以为重新量过）+ 有手动改动时出现的「恢复探测值」 |
 
 **自动探测但允许人工修改（三态）**
@@ -747,6 +747,44 @@ CLI 原有行为）。侧栏实测曝光因此真正传到 sweep —— `0` 只�
 
 保留的硬约束：`w_eff > 0`（min 0.01，help 保留「只优化 -CV 会掏空目标框 实测环围能量→0.002」）；
 探针 σ ≥ 3.0；窗口边长必须是设备 `inc` 的整数倍；曝光 min 0（0 时大恒强制 warning）。
+
+### 8.3 离焦叠加（发送管线 T4 叠加层）
+
+离焦不再是「整形完成后的手动微调」（旧版 `defocus_trim_fragment` 滑块，拖动即触发整页
+rerun、面板丢失），而是**驱动层全局叠加**：侧栏「离焦叠加 (发送叠加)」区一个主开关一开，
+`set_phase_overlay` 就承载该层，作用于其后**所有**发送路径（优化器 / 一键下发 / CSV / 周期
+切换都走 `create_phase_from_array`），与底相位同属 T4 发送管线叠加层、同机制。
+
+**侧栏控件（`multi_slm_controller._render_defocus_overlay_block`，每台 SLM 一份）：**
+
+| 控件 | 作用 |
+| --- | --- |
+| 启用离焦叠加（checkbox，`slm{N}_defocus_enabled`） | 总开关；关 = 不叠加（None） |
+| 探测推荐焦距 caption | 读 `bench_fresnel_focal_mm`（D2「探测焦面」`best_focal_mm`） |
+| 用推荐值（button，`slm{N}_defocus_use_reco`） | 把焦距写回探测推荐值并即时推驱动 |
+| 焦距 (mm)（number_input，`slm{N}_defocus_focal`） | 菲涅尔项粗调；填 `-9999` = 用探测推荐值，人工填别的即覆盖 |
+| 细调 Zernike (2,0)（number_input，`slm{N}_defocus_amount`） | 细调（rad 量纲，面板口径） |
+| 离焦孔径 caption（只读） | 中心 `bench_pupil_center` / 半径 = 模型覆盖宽度/2 / 波长 |
+| 离焦叠加状态行（只读，总渲染） | 启用时给出**生效**焦距与细调，操作者无需回滚即可核对 |
+
+**叠加构造（`bench_settings.build_defocus_overlay`，纯函数，每次现算不累积）：**
+菲涅尔项（`fresnel_panel`，焦距 mm 粗调）+ Zernike (2,0)（`zernike_panel`，细调），半径 =
+`bench_panel_span_px / 2`，中心走 `bench_pupil_center` 取值链，波长取设备（缺省 1064 nm）。
+两项均为零时返回全零，`rebuild_defocus_overlay` 据此置 `None`（等价不叠加）。
+
+**三态焦距（`bench_settings.bench_defocus_focal`）：** 无手动值 / 填 `-9999` 哨兵 / 非有限值
+→ 用探测推荐值；人工填的有限值 → 优先。
+
+**单一真源（`multi_slm_controller._apply_slm_overlays`）：** 首连（`_sync_slm_session_state`）、
+整形后重取、底相位保存/开关/清除、离焦开关/参数变更，全部经它把底相位（灰度，`set_base_phase`）
+与离焦（弧度，`set_phase_overlay`）统一推给驱动，保证驱动上的叠加层始终等于 UI 当前配置，
+重连不丢叠加。
+
+**控件顺序硬约束：** 「用推荐值」按钮必须先于焦距 `number_input` 渲染，否则点击时写
+`defocus_focal`（widget key）会因该 key 已被控件锁定而抛 `StreamlitAPIException`。
+
+**主区状态行：** 闭环整形区尾部只保留一行只读状态（`shaping_controls` 读
+`slm{N}_defocus_enabled`），不再挂滑块/fragment，从根源消除拖动触发整页 rerun 的回归。
 
 ---
 

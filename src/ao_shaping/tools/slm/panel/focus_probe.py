@@ -49,7 +49,9 @@ Usage
     python -m ao_shaping.tools.slm.panel.focus_probe --steps 25 --frames 3
 
 The GUI entry point is :func:`probe_session_focus`, called from the SLM bench
-sidebar and from the defocus trim in the shaping page.
+sidebar "探测焦面" (focus-plane probe) button; the recommended focal it writes
+feeds the sidebar defocus-overlay block (see
+``ao_shaping.gui.slm.bench_settings.build_defocus_overlay``).
 """
 
 from __future__ import annotations

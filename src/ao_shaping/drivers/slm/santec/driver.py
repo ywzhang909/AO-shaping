@@ -371,9 +371,13 @@ class Santec:
         # 文件有效性由 WavefrontCorrection.__init__ 内部判断
         self._correction = WavefrontCorrection(correction_csv_path)
 
-        # 底相位叠加（UI 设置，write_phase 中自动叠加）
-        self._base_phase: npt.NDArray[np.floating] | None = None
-        self._overlay_base_phase: bool = False
+        # 发送管线叠加层（T4 长期配置），由 create_phase_from_array 统一叠加，
+        # 使所有发送路径（优化器 / GUI 一键下发 / CSV / 周期切换）自动一致。分两种
+        # 空间，物理上不同，故分开存、按各自空间叠加：
+        #  - _phase_overlay: 弧度制相位叠加（离焦），在 弧度→灰度 之前加到输入相位上；
+        #  - _base_phase: 灰度制叠加（底相位），在 矫正/LUT 之后、mod 之前叠加。
+        self._phase_overlay: npt.NDArray[np.floating] | None = None
+        self._base_phase: npt.NDArray[np.uint16] | None = None
 
         # 相位→灰度补偿查找表（load_lut 加载，create_phase_from_array 中应用）
         self._lut: npt.NDArray[np.uint16] | None = None
@@ -1464,6 +1468,48 @@ class Santec:
             f"灰度数据已导出: 形状={phase.shape}, 范围=[{phase.min()}, {phase.max()}]"
         )
 
+    def set_phase_overlay(
+        self, phase_rad: npt.NDArray[np.floating] | None
+    ) -> None:
+        """设置弧度制相位叠加层（离焦等 T4 叠加）。
+
+        在 :meth:`create_phase_from_array` 中、``_resize_to_panel`` 之后、
+        弧度→灰度转换之前以弧度加到输入相位上。``None`` 表示清除叠加层。
+        形状不匹配时不覆盖（避免静默错位），由调用方保证尺寸。
+        """
+        if phase_rad is None:
+            self._phase_overlay = None
+            return
+        # 存副本：调用方之后修改输入数组不能静默改变驱动上的叠加层。
+        self._phase_overlay = np.array(phase_rad, dtype=np.float64, copy=True)
+
+    def get_phase_overlay(self) -> npt.NDArray[np.floating] | None:
+        """返回当前弧度制相位叠加层的副本，无叠加时返回 None。"""
+        if self._phase_overlay is None:
+            return None
+        return self._phase_overlay.copy()
+
+    def set_base_phase(
+        self, phase_gray: npt.NDArray[np.uint16] | None
+    ) -> None:
+        """设置灰度制底相位叠加层。
+
+        在 :meth:`create_phase_from_array` 中、矫正/LUT 之后、最终 ``mod`` 之前
+        以灰度叠加。``None`` 表示清除。``phase_gray`` 来自 :meth:`get_displayed_phase`
+        （uint16 灰度，2π 满量程对应 ``_max_gray``）。
+        """
+        if phase_gray is None:
+            self._base_phase = None
+            return
+        # 存副本：调用方之后修改输入数组不能静默改变驱动上的底相位。
+        self._base_phase = np.array(phase_gray, dtype=np.uint16, copy=True)
+
+    def get_base_phase(self) -> npt.NDArray[np.uint16] | None:
+        """返回当前灰度制底相位的副本，无叠加时返回 None。"""
+        if self._base_phase is None:
+            return None
+        return self._base_phase.copy()
+
     def create_phase_from_array(
         self, phase_rad: npt.NDArray[np.floating], max_grayscale: int | None = None
     ) -> npt.NDArray[np.uint16]:
@@ -1504,6 +1550,18 @@ class Santec:
         # 确保输入是float类型以便计算
         phase_rad = phase_rad.astype(np.float64)
 
+        # 叠加弧度制相位叠加层（离焦等 T4 叠加）：相位空间，先于弧度→灰度转换，
+        # 使矫正/LUT/平移照常作用于合成相位。尺寸必须匹配面板，否则告警并跳过
+        # （叠加是修正层，不卡核心发送路径）。
+        if self._phase_overlay is not None:
+            if self._phase_overlay.shape == phase_rad.shape:
+                phase_rad = phase_rad + self._phase_overlay
+            else:
+                logger.warning(
+                    f"相位叠加层尺寸 {self._phase_overlay.shape} 与面板 "
+                    f"{phase_rad.shape} 不一致，已跳过叠加（请检查离焦/底相位设置）"
+                )
+
         # 将弧度转换为灰度值
         grayscale = phase_rad / (2 * np.pi) * max_grayscale
 
@@ -1514,6 +1572,17 @@ class Santec:
         # 应用相位→灰度补偿查找表（如有）
         if self._lut is not None:
             grayscale = apply_lut_remap(grayscale, self._lut)
+
+        # 叠加灰度制底相位（如有）：灰度空间，在矫正/LUT 之后以灰度相加，
+        # 与矫正/LUT 解耦（底相位是独立叠加项，不应被 LUT 重映射改变）。
+        if self._base_phase is not None:
+            if self._base_phase.shape == grayscale.shape:
+                grayscale = grayscale + self._base_phase
+            else:
+                logger.warning(
+                    f"底相位尺寸 {self._base_phase.shape} 与面板 "
+                    f"{grayscale.shape} 不一致，已跳过叠加（请检查底相位设置）"
+                )
 
         # 应用平移
         grayscale = self._apply_shift(grayscale)

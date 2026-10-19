@@ -24,7 +24,7 @@ graph TD
     CLI --> CCD
 ```
 
-GUI 入口为 `probe_session_focus`（侧栏「探测焦面」按钮 + 整形页离焦微调）。
+GUI 入口为 `probe_session_focus`（侧栏「本次实验光路」D 组「探测焦面」按钮）。
 
 ## 3. 测量原理
 
@@ -74,8 +74,12 @@ python -m ao_shaping.tools.slm.panel.focus_probe --steps 25 --frames 3
 - 控制台打印：最佳焦距 (mm)、光焦度 (m⁻¹)、峰值/曝光比、线性复验结果
 - 证据文件：`data/debug/bench_settings/focus_probe/`
 
-## 8. 与离焦微调的关系
+## 8. 与离焦叠加的关系
 
-实测焦距写入 `slm{N}_bench_focus_probe`，供整形页「离焦 / 聚焦微调」
-区块的菲涅尔焦距补偿默认值（`bench_fresnel_focal_mm`）。该区块用 Zernike
-(2,0) 幅度做细调、实测焦距做粗补偿，每次都从原始 GS 相位重算、不累积。
+实测焦距写入 `slm{N}_bench_focus_probe`，供侧栏「离焦叠加 (发送叠加)」区
+（`multi_slm_controller._render_defocus_overlay_block`）的推荐焦距做粗补偿
+（`bench_fresnel_focal_mm` 读 `best_focal_mm`；三态：未探测 / 哨兵 `-9999` /
+人工覆盖，见 `bench_settings.bench_defocus_focal`）。该层用菲涅尔项做粗调
+（焦距 mm）+ Zernike (2,0) 做细调（`build_defocus_overlay`，纯函数，每次现算
+不累积），由驱动 `set_phase_overlay` 承载，开关一开就作用于其后**所有**发送
+（优化器 / 一键下发 / CSV / 周期切换），与底相位同属 T4 发送管线叠加层。
