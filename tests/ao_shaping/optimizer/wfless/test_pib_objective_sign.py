@@ -14,8 +14,13 @@ No hardware is opened here.
 """
 
 import numpy as np
+import pytest
 
 from ao_shaping.optimizer.wfless.pib import _objective_to_min
+from ao_shaping.utils.objective_direction import (
+    MAXIMIZE_OBJECTIVES,
+    objective_direction,
+)
 
 
 class TestObjectiveToMin:
@@ -34,6 +39,28 @@ class TestObjectiveToMin:
             ("radiu", "min"),
         ):
             assert _objective_to_min(objective) == (-1 if mode == "max" else 1)
+
+    @pytest.mark.parametrize("objective", ("pib", "avg_radiu", "radiu"))
+    def test_agrees_with_the_recorder_direction(self, objective):
+        """The sign here and ``Recorder(mode=...)`` are one decision, not two.
+
+        ``optimize_pib`` takes its recorder mode from ``objective_direction``;
+        if this helper consulted a separate vocabulary the two could disagree,
+        and the search would descend an objective the recorder simultaneously
+        reports as improving -- the 74c7d0f symptom reached via the vocabulary
+        instead of via the original closure-scoping mistake. The table in the
+        test above cannot catch that, because it would be edited in lockstep.
+        """
+        assert _objective_to_min(objective) == (
+            -1 if objective_direction(objective) == "max" else 1
+        )
+
+    def test_minimise_objective_stays_out_of_the_maximize_vocabulary(self):
+        """``radiu`` descends (a smaller radius is better), so it must not enter
+        ``MAXIMIZE_OBJECTIVES``: adding it there would flip this loop's sign and
+        make the DM widen the beam instead of tightening it."""
+        assert "radiu" not in MAXIMIZE_OBJECTIVES
+        assert _objective_to_min("radiu") == 1
 
     def test_unknown_objective_defaults_to_minimise(self):
         assert _objective_to_min("not-an-objective") == 1
