@@ -165,6 +165,19 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note="正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物",
     ),
+    "report/slm/focus_plane_20261019.md": ReportProvenance(
+        script="scripts/slm/generate_focus_plane_report.py",
+        command="python scripts/slm/generate_focus_plane_report.py",
+        environment="离线",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/panel/focus_probe.py",
+            "scripts/slm/verify_focus_plane_hw.py",
+        ),
+        note=(
+            "相机离开 2f 焦面后的菲涅尔补偿实测 (1/f≈+0.70 m⁻¹, f≈+1420 mm): 逐点自适应曝光的"
+            "必要性 (曝光跨度达 96×)、峰值与整帧能量两项交叉验证、4 趟重复性与跨趟光强 7.3× 变化"
+        ),
+    ),
     "report/slm/report2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

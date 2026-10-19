@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import sys
 from dataclasses import fields
 from datetime import datetime
@@ -37,6 +38,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
+from scipy.ndimage import zoom as _zoom  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -316,11 +318,84 @@ def render(result: dict, families: list[dict], out_dir: Path) -> Path:
     return path
 
 
+def render_frames(
+    run_dir: Path, records: list[dict], out_path: Path, max_edge: int = 420, mode: str = "flat"
+) -> Path:
+    """Write the measured CCD far fields as a labelled contact sheet.
+
+    These are the raw camera frames the gate scored -- not predictions -- so a report
+    can show what the bench actually returned. Frames are decimated for display only;
+    the scoring above never touches them.
+
+    Two scalings, because either one alone misleads. ``mode="flat"`` puts every frame
+    on the flat frame's peak, which makes the collapse in absolute throughput visible
+    but crushes every probe dimmer than the flat to black. ``mode="peak"`` normalises
+    each frame to its own peak, which reveals each probe's speckle structure but hides
+    exactly that throughput loss.
+    """
+    manifest = json.loads((run_dir / "probes" / "manifest.json").read_text(encoding="utf-8"))
+    flat_entry = next(e for e in manifest if e["split"] == "flat")
+    entries = [flat_entry] + [e for e in manifest if e["split"] != "flat" and e.get("correlation") is not None]
+    by_file = {r["file"]: r for r in records}
+
+    def load(entry: dict) -> np.ndarray:
+        frame = np.asarray(np.load(run_dir / "probes" / entry["file"])["frame"], dtype=np.float64)
+        edge = max(frame.shape)
+        if edge > max_edge:
+            factor = edge / float(max_edge)
+            small = _zoom(frame, (1 / factor, 1 / factor), order=1)
+            frame = np.clip(small, 0, None)
+        return frame
+
+    cols = 4
+    rows = int(np.ceil(len(entries) / cols))
+    fig, axes = plt.subplots(rows, cols, figsize=(3.1 * cols, 3.35 * rows), squeeze=False)
+    flat_peak = float(load(flat_entry).max())
+    for index, entry in enumerate(entries):
+        ax = axes[index // cols][index % cols]
+        frame = load(entry)
+        own_peak = float(frame.max())
+        vmax = flat_peak if mode == "flat" else (own_peak or 1.0)
+        ax.imshow(frame, cmap="inferno", vmin=0, vmax=vmax)
+        if entry["split"] == "flat":
+            title = f"flat  {entry['exposure_ms']:.3g} ms\npeak {own_peak:.0f}"
+        else:
+            record = by_file.get(entry["file"], {})
+            title = (
+                f"{record.get('family', '?')}  {entry['exposure_ms']:.3g} ms "
+                f"({100 * record.get('flux_ratio_to_flat', float('nan')):.1f}% of flat)\n"
+                f"corr {record.get('corr_full', float('nan')):.3f} / cap {record.get('ceiling', float('nan')):.3f}"
+            )
+        ax.set_title(title, fontsize=8.5)
+        ax.set_xticks([])
+        ax.set_yticks([])
+    for index in range(len(entries), rows * cols):
+        axes[index // cols][index % cols].axis("off")
+    caption = (
+        "every frame scaled to the flat peak (shows absolute throughput)"
+        if mode == "flat"
+        else "every frame scaled to its own peak (shows each probe's speckle structure)"
+    )
+    fig.suptitle(f"{run_dir.name}: measured CCD far fields -- {caption}", fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.97))
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=140)
+    plt.close(fig)
+    return out_path
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--run-dir", type=Path, default=None)
     parser.add_argument(
         "--debug-root", type=Path, default=ROOT / "data" / "debug" / "slm_model_in_loop"
+    )
+    parser.add_argument(
+        "--report-assets",
+        type=Path,
+        default=None,
+        help="Also write the contact sheet of measured CCD far fields and a copy of the "
+        "ceiling chart here, for embedding in a report.",
     )
     args = parser.parse_args(argv)
 
@@ -338,6 +413,18 @@ def main(argv: list[str] | None = None) -> int:
     (out_dir / "holdout_ceiling.json").write_text(
         json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+    if args.report_assets is not None:
+        assets = args.report_assets
+        written = [
+            render_frames(run_dir, result["probes"], assets / "holdout_frames.png", mode="flat"),
+            render_frames(
+                run_dir, result["probes"], assets / "holdout_frames_normalized.png", mode="peak"
+            ),
+        ]
+        shutil.copy2(figure, assets / "holdout_ceiling.png")
+        for path in written:
+            print(f"report asset: {path}")
 
     header = (
         f"run: {run_dir.name}   support: {result['grid']['support_model_px']} px of a "

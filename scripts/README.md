@@ -3310,3 +3310,54 @@ pickles plus a `summary.npz` under `data/slm_*/`:
 
 All three support `--no-hw` (print the acquisition plan, exit 0, touch no
 hardware), which is also how their tests run in CI.
+### analyze_holdout_ceiling.py
+
+Offline: score a **recorded** model-in-loop run against the correlation the camera
+could have achieved at all. Answers "is the forward model wrong, or is the probe
+unobservable?" without opening a device. The holdout gate correlates the prediction
+with the mapped measurement over the *whole* far-field grid, but the camera only ever
+sees a crop, so the measurement is zero outside it. This script rebuilds the same
+prediction, measures the camera footprint (an all-ones frame through the same mapping —
+`model_grid != 0` does not work, the closing bilinear resize smears a halo), and reports
+per family: as-recorded, restricted to the camera support, and the **perfect-model
+ceiling** `corr(prediction, prediction * support)`.
+
+```bash
+python scripts/slm/analyze_holdout_ceiling.py --run-dir data/debug/slm_model_in_loop/<stamp>
+python scripts/slm/analyze_holdout_ceiling.py --report-assets report/<topic>/assets/<stamp>
+```
+
+**Output** — `holdout_ceiling.json` (per probe: family from its spectrum, exposure,
+recorded vs rebuilt correlation, ceiling, support correlation, modelled energy inside
+the crop, flux ratio to flat, correlation against the flat reference, and the same
+after the best-fit flat pedestal is removed), plus two figures. `--report-assets` also
+writes a contact sheet of the measured CCD far fields in **two scalings**, because
+either alone misleads: all frames on the flat peak shows the throughput collapse, each
+frame on its own peak shows whether structure is missing at all.
+
+Evidence: `data/debug/analyze_holdout_ceiling/<stamp>/`. Probe families are recovered
+from the phase spectrum (the recorded manifest does not name them) and printed
+alongside the recorded correlations so the classification can be checked.
+
+### diagnose_light_level.py
+
+Hardware: how much light actually reaches the camera. When a run aborts early — a
+uniform dim frame, a flat panel scan whose every response is ~0 — this separates "no
+beam arrived" from "wrong phase" before any SLM phase is blamed. Opens only the CCD,
+sweeps the exposure, and reports peak / mean / std / location per step plus
+`measure_spot`, reading the effective exposure back from the device rather than
+trusting the request.
+
+```bash
+python scripts/slm/diagnose_light_level.py
+python scripts/slm/diagnose_light_level.py --slm-number 1 --exposures 0.02,0.1,1,5,20
+```
+
+**Output** — `data/debug/light_level_probe/<stamp>/`: one npz per exposure, a chart, a
+JSON summary, and a `verdict` of `ok` / `weak` / `no_light`.
+
+> `--slm-number` is not cosmetic. The panel retains the last displayed pattern, so
+> without writing a flat phase first the reading reflects whatever phase the panel
+> happened to hold — which cannot tell a dim source from a scattering phase. With it,
+> the flat write goes through the canonical `display_and_average`, so slot rotation and
+> the settle-stability check are the shared ones.
