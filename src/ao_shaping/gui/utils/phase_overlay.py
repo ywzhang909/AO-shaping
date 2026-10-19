@@ -1,32 +1,27 @@
 """发送叠加相位（controller 层代理）：离焦 + 底相位的 controller 层承载方案。
 
-本模块是**自包含、只依赖驱动只读接口**的 controller 层叠加方案，全部代码在
-``gui/utils/``（按用户 2026-10-19 约束「修改尽量只动 gui/utils」）。它**不改动**
-驱动层，也**不改动** GUI 控制器 / 整形控制 / bench_settings 的现有接线。
+本模块是**只依赖驱动只读接口**的 controller 层叠加方案，全部代码在
+``gui/utils/``（按用户 2026-10-19 约束「修改尽量只动 gui/utils」）。它把叠加
+**固定在 controller 层**：只要 session 句柄是 :class:`OverlaidSantec`，叠加就
+始终生效，与优化器自开/换句柄无关。
 
-当前主接线（保留上游 acb97b1f 的设计）
-------------------------------------
-上游把离焦/底相位做成**驱动层双槽**（``Santec._phase_overlay`` 弧度制 /
+接线现状（已接入 controller，见本 commit）
+----------------------------------
+上游 acb97b1f 把离焦/底相位做成**驱动层双槽**（``Santec._phase_overlay`` 弧度制 /
 ``Santec._base_phase`` 灰度制，在 ``Santec.create_phase_from_array`` 内部统一施加），
-由 ``multi_slm_controller._apply_slm_overlays`` 单一真源推送、``_sync_slm_session_state``
-重连/整形后重取时重建（见 skill ``gui-overlay-layer-design`` 的既定决策「叠加层放
-驱动层，不放 GUI 调用点」）。该方案在本模块之外独立运行、逐位正确，**本模块不
-触碰它**，两者互不干扰。
+由 ``multi_slm_controller._apply_slm_overlays`` 推送。controller 现已把该路径切到
+本模块的代理：
 
-本模块解决的问题
-----------------
-驱动槽方案的已知短板：优化器（optimizer）闭环整形会释放 GUI 句柄、**自开一个新的
-裸 Santec 实例**（见 ``shaping_controls._release_slm_handle`` / ``_reacquire_slm_handle``
-）。那个新实例是裸驱动，若不把槽状态重新推给它，叠加在闭环里会静默丢失。
+* ``connect_slm`` / ``shaping_controls._reacquire_slm_handle`` 在存 session 句柄前
+  用 ``OverlaidSantec(slm)`` 包装真实 Santec（连接 + 闭环整形后重取两条路径一致）；
+* ``_apply_slm_overlays`` 成为**单一分发点**：先算出 :class:`PhaseOverlay`（离焦受
+  开关门控、底相位受其复选框门控），再经 :func:`apply_overlays_to_handle` 按句柄
+  类型写入真源（代理句柄 → 写代理层并清零其驱动槽；裸驱动句柄 → 写驱动槽），
+  维护「一个句柄只叠加一次」的 invariant，代理 / 裸驱动两条路径互不双重叠加。
 
-本模块提供 :class:`OverlaidSantec` 透明代理 + :func:`apply_overlays_to_handle` 单一
-分发点，把叠加**固定在 controller 层**：只要句柄是代理，叠加就始终生效，与优化器
-自开/换句柄无关。接线方式（供调用方使用，本模块不强制）：
-
-* 在连接/重取时 ``OverlaidSantec(slm, PhaseOverlay())`` 包装真实 Santec 并存进
-  ``st.session_state``；
-* 每次 UI 配置变化调 :func:`apply_overlays_to_handle(handle, PhaseOverlay(...))`
-  幂等更新叠加层（代理写代理层并清零其驱动槽，裸驱动写驱动槽）。
+驱动层双槽（acb97b1f）的字段与测试**原样保留**（``set_phase_overlay`` /
+``set_base_phase`` / ``_phase_overlay`` / ``_base_phase`` 及 30 个驱动槽测试不动）；
+代理方案作为叠加层承载路径运行于其上，两者按句柄类型二选一、不叠加。
 
 防双重叠加（invariant）
 -----------------------
