@@ -5,7 +5,7 @@ Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 import numpy as np
 
@@ -208,6 +208,16 @@ def create_target_mask(
 
     Returns:
         ``(H, W)`` ``float64`` mask with values in ``[0, 1]``, centred.
+
+    Note:
+        Thin wrapper over :func:`create_target_shape` (the single rasteriser in
+        this module); it only maps ``size`` to the factory's geometry kwargs and
+        widens the dtype ``float32`` -> ``float64``. ``center`` is passed
+        explicitly as the boundary-centred ``(W/2, H/2)`` — *not* the factory's
+        default pixel-centred ``((W-1)/2, (H-1)/2)`` — because that is what the
+        documented ``(7, 7) -> center (3.5, 3.5)`` contract requires. Shape and
+        ``grid_size`` validation stay in this wrapper so its public error
+        messages are unchanged by the delegation.
     """
     valid_shapes = {"square", "circle", "gaussian", "spot"}
     if shape not in valid_shapes:
@@ -216,26 +226,29 @@ def create_target_mask(
         raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
 
     H, W = grid_size
-    cy, cx = H / 2.0, W / 2.0
-    yy, xx = np.mgrid[0:H, 0:W]
+    height, width = int(H), int(W)
+    m = min(height, width)
+    center = (width / 2.0, height / 2.0)
 
     if shape == "square":
-        half = size / 2.0
-        mask = ((np.abs(xx - cx) <= half) & (np.abs(yy - cy) <= half)).astype(
-            np.float64
+        mask = create_target_shape(
+            cast(TargetShape, shape), (height, width), side=size, center=center
         )
-
     elif shape in {"circle", "spot"}:
-        radius = size / 2.0
-        r2 = (xx - cx) ** 2 + (yy - cy) ** 2
-        mask = (r2 <= radius**2).astype(np.float64)
-
+        mask = create_target_shape(
+            cast(TargetShape, shape),
+            (height, width),
+            radius_ratio=size / m,
+            center=center,
+        )
     else:  # gaussian
         sig = sigma if sigma is not None else size / 6.0
-        mask = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2.0 * sig**2))
-        peak = mask.max()
-        if peak > 0:
-            mask = mask / peak
+        mask = create_target_shape(
+            cast(TargetShape, shape),
+            (height, width),
+            radius_ratio=4.0 * sig / m,
+            center=center,
+        )
 
     return mask.astype(np.float64)
 
