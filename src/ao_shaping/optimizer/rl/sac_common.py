@@ -21,6 +21,9 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.logger import Figure, Image
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.torch_layers import BaseFeaturesExtractor
+import click
+
+from ao_shaping.optimizer.rl.device_registry import build_default_registry
 
 
 class TemporalAOExtractor(BaseFeaturesExtractor):
@@ -387,6 +390,21 @@ class AOTrainingCallback(BaseCallback):
                 self.logger.record("ao/slopes", Figure(fig, close=True), exclude=("stdout", "log", "json", "csv"))
         return True
 
+
+def warn_if_physical_selected(dm_device: str, ccd_device: str, wfs_device: str) -> None:
+    registry = build_default_registry()
+    specs = [
+        registry.get("dm", dm_device),
+        registry.get("ccd", ccd_device),
+        registry.get("wfs", wfs_device),
+    ]
+    physical = [spec for spec in specs if not spec.is_virtual]
+    if physical:
+        names = ", ".join(f"{spec.device_type}:{spec.name}" for spec in physical)
+        click.echo(
+            f"[warning] selected physical devices ({names}), but this trainer uses simulation only.",
+            err=True,
+        )
 
 def wrap_monitor(env: gym.Env) -> Monitor:
     return Monitor(env)

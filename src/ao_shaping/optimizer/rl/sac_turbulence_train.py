@@ -14,6 +14,7 @@ from stable_baselines3.common.callbacks import CallbackList, EvalCallback
 from ao_shaping.optimizer.rl.device_registry import build_default_registry
 from ao_shaping.optimizer.rl.envs import SimTurbulenceAOEnv
 from ao_shaping.optimizer.rl.sac_common import (
+    warn_if_physical_selected,
     AOTrainingCallback,
     MambaCrossAttentionTemporalAOExtractor,
     evaluate_model,
@@ -21,22 +22,6 @@ from ao_shaping.optimizer.rl.sac_common import (
     validate_env,
     wrap_monitor,
 )
-
-
-def _warn_if_physical_selected(dm_device: str, ccd_device: str, wfs_device: str) -> None:
-    registry = build_default_registry()
-    specs = [
-        registry.get("dm", dm_device),
-        registry.get("ccd", ccd_device),
-        registry.get("wfs", wfs_device),
-    ]
-    physical = [spec for spec in specs if not spec.is_virtual]
-    if physical:
-        names = ", ".join(f"{spec.device_type}:{spec.name}" for spec in physical)
-        click.echo(
-            f"[warning] selected physical devices ({names}), but this trainer uses simulation only.",
-            err=True,
-        )
 
 
 def build_env(
@@ -159,7 +144,7 @@ def main(
 ) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
-    _warn_if_physical_selected(dm_device=dm_device, ccd_device=ccd_device, wfs_device=wfs_device)
+    warn_if_physical_selected(dm_device=dm_device, ccd_device=ccd_device, wfs_device=wfs_device)
 
     log_path = Path(log_dir)
     model_path = Path(model_dir)
