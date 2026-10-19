@@ -355,3 +355,79 @@ def test_negative_delta_is_normalised_rather_than_rejected():
     cfg.delta = -1.0
     recorder = engine.optimize_slm_zernike_pib(cfg)
     assert float(recorder.history[-1]["delta"]) >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Send-pipeline overlay on the zernike-pib optimizer's own SLM (driver slot)
+# ---------------------------------------------------------------------------
+#
+# ``optimize_slm_zernike_pib`` builds ``slm_ctx = Santec.from_params(config.slm)``
+# and applies ``config.send_overlay`` to it right before the ``with`` block. We
+# install fakes for the module-level ``create_camera`` and ``Santec`` (the
+# autouse fixture's ``SimSLMPib`` swap is overridden for this test only) and
+# stop the run by raising from the camera's ``__enter__`` — the first statement
+# after the apply line — then assert the overlay reached the SLM handle.
+
+
+class _ZStopAfterApply(Exception):
+    """Raised by the fake camera's ``__enter__`` to stop the run right after
+    the overlay apply line."""
+
+
+class _ZFakeCam:
+    def __enter__(self):
+        raise _ZStopAfterApply()
+
+    def __exit__(self, *exc):
+        return False
+
+
+class _ZFakeSlm:
+    """A bare driver-like handle: overlay setter slots only."""
+
+    def __init__(self, **kw):
+        self._phase = None
+        self._base = None
+
+    @classmethod
+    def from_params(cls, params, **overrides):
+        return cls()
+
+    def set_phase_overlay(self, phase_rad):
+        self._phase = phase_rad
+
+    def set_base_phase(self, phase_gray):
+        self._base = phase_gray
+
+    def get_phase_overlay(self):
+        return self._phase
+
+    def get_base_phase(self):
+        return self._base
+
+
+def test_zernike_applies_send_overlay_to_its_own_slm(monkeypatch):
+    """The zernike-pib optimizer writes the driver-slot overlay to its SLM."""
+    from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
+
+    built = {}
+
+    class _ZFakeSlmBare(_ZFakeSlm):
+        def __init__(self, **kw):
+            super().__init__(**kw)
+            built["slm"] = self
+
+    monkeypatch.setattr(engine, "create_camera", lambda params: _ZFakeCam())
+    monkeypatch.setattr(engine, "Santec", _ZFakeSlmBare)
+
+    defo = np.array([[0.0, 0.25], [0.25, 0.0]])
+    base = np.array([[1, 2], [3, 4]], dtype=np.uint16)
+    cfg = _config("pib", epochs=1)
+    cfg.send_overlay = PhaseOverlay(defo, base)
+
+    with pytest.raises(_ZStopAfterApply):
+        engine.optimize_slm_zernike_pib(cfg)
+
+    slm = built["slm"]
+    np.testing.assert_array_equal(slm.get_phase_overlay(), defo)
+    np.testing.assert_array_equal(slm.get_base_phase(), base)

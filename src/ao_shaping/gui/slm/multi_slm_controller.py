@@ -21,13 +21,12 @@ from ao_shaping.gui.slm.bench_settings import (
     DEFAULT_CAMERA_PIXEL_UM,
     KNOWN_CAMERA_PIXEL_UM,
     auto_check_camera_pixel_um,
-    build_defocus_overlay,
+    build_send_overlay,
     detect_camera_pixel_um,
     render_bench_settings,
     widget_default,
 )
 from ao_shaping.gui.utils.phase_overlay import (
-    PhaseOverlay,
     OverlaidSantec,
     apply_overlays_to_handle,
 )
@@ -1569,7 +1568,8 @@ def _apply_slm_overlays(slm_num: int) -> None:
     等于 UI 当前配置。``_sync_slm_session_state``（首连 + 整形后重取）和
     底相位/离焦区块的开关都调它。无连接时直接返回。
 
-    叠加层本身先算成一个 :class:`PhaseOverlay`（纯 numpy，无硬件 I/O），再经
+    叠加层由 :func:`build_send_overlay` 从 session 现算（与闭环整形 GUI 入口
+    共用同一读取点，保证 GUI 会话句柄与优化器自开句柄拿到同一份叠加），再经
     :func:`apply_overlays_to_handle` **单一分发点**写到句柄上，按句柄类型决定
     写入哪个真源（代理句柄 → 代理层并清零其驱动槽；裸驱动句柄 → 驱动槽），
     从而维护「一个句柄只叠加一次」的 invariant，代理 / 裸驱动两条路径互不
@@ -1583,23 +1583,8 @@ def _apply_slm_overlays(slm_num: int) -> None:
     slm = st.session_state.get(prefix)
     if slm is None or not getattr(slm, "is_open", False):
         return
-    # 底相位（灰度）：仅勾选且已保存时叠加，否则 None。
-    base = st.session_state.get(f"{prefix}_base_phase")
-    overlay_on = bool(st.session_state.get(f"{prefix}_overlay_base", False))
-    base_gray = base if (base is not None and overlay_on) else None
-    # 离焦（弧度）：受开关门控（关 = 不叠加，即便焦距/细调控件里残留数值），
-    # 全零也视同不叠加。
-    defocus_enabled = bool(st.session_state.get(f"{prefix}_defocus_enabled", False))
-    phase_rad = None
-    if defocus_enabled:
-        try:
-            phase_rad = build_defocus_overlay(prefix, slm)
-        except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡连接
-            logger.warning("SLM {} 离焦叠加重建失败: {}", slm_num, exc)
-            phase_rad = None
-        if phase_rad is not None and np.allclose(phase_rad, 0.0, atol=1e-12):
-            phase_rad = None
-    apply_overlays_to_handle(slm, PhaseOverlay(phase_rad, base_gray))
+    overlay = build_send_overlay(prefix, slm)
+    apply_overlays_to_handle(slm, overlay)
 
 
 def _render_defocus_overlay_block(slm_num: int):

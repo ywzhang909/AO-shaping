@@ -65,6 +65,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
     PITCH_UM,
     PIXEL_SIZE_UM,
 )
+from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
 from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
     working_exposure_ms,
@@ -725,6 +726,40 @@ def rebuild_defocus_overlay(prefix: str, slm) -> None:
         slm.set_phase_overlay(None)
     else:
         slm.set_phase_overlay(overlay)
+
+
+def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
+    """按当前 session 状态合成**发送管线叠加层**（离焦 + 底相位）。
+
+    这是「叠加层真值」的唯一读取点：controller 的 ``_apply_slm_overlays`` 和
+    闭环整形（gs-refine / model-in-loop）的 GUI 入口共用它，保证 GUI 会话句柄
+    与优化器自开句柄拿到**同一份**叠加。纯读 session，无硬件 I/O：
+
+    * 离焦（弧度）：受 ``{prefix}_defocus_enabled`` 开关门控，全零视同不叠加
+      （与 controller 既有语义一致）。
+    * 底相位（灰度）：仅「叠加底相位」勾选且已保存时叠加，否则 None。
+
+    返回 ``None`` 表示**无任何叠加**（调用方据此跳过 ``apply_overlays_to_handle``，
+    避免把既有叠加误清零）。任一层构建失败（如离焦构造抛错）只记 warning 并
+    降级为不叠该层，不卡主流程。
+    """
+    phase_rad = None
+    defocus_enabled = bool(st.session_state.get(_scoped(prefix, "defocus_enabled"), False))
+    if defocus_enabled:
+        try:
+            built = build_defocus_overlay(prefix, slm)
+        except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡主流程
+            logger.warning("SLM 离焦叠加重建失败 (%s): %s", prefix, exc)
+            built = None
+        if built is not None and np.allclose(built, 0.0, atol=1e-12):
+            built = None
+        phase_rad = built
+    base = st.session_state.get(_scoped(prefix, "base_phase"))
+    overlay_on = bool(st.session_state.get(_scoped(prefix, "overlay_base"), False))
+    base_gray = base if (base is not None and overlay_on) else None
+    if phase_rad is None and base_gray is None:
+        return None
+    return PhaseOverlay(phase_rad, base_gray)
 
 
 # ---------------------------------------------------------------------------

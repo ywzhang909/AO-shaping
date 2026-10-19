@@ -43,6 +43,17 @@ from ao_shaping.utils.slm.phase_embed import (
     fit_exact,
     pupil_side,
 )
+import sys
+from unittest.mock import MagicMock
+
+# Stub the Windows-only Santec SDK so a real ``Santec`` can be constructed on
+# Linux without hardware (same trick the driver-slot tests use). The overlay
+# setters are pure attribute stores, so no SDK call is needed to exercise them.
+sys.modules.setdefault("ao_shaping.drivers.slm.santec._slm_win", MagicMock())
+
+from ao_shaping.drivers.slm.santec import Santec as _RealSantec  # noqa: E402
+from ao_shaping.gui.utils.phase_overlay import PhaseOverlay  # noqa: E402
+from ao_shaping.optimizer.wfless import slm_gs_refine as gsr  # noqa: E402
 
 
 def test_pupil_phase_uses_measured_panel_center():
@@ -708,3 +719,114 @@ def test_best_phase_is_convergence_point_not_probe(monkeypatch: pytest.MonkeyPat
     assert best_row["score"] == pytest.approx(0.80)  # probe column is separate
     # (4) best_frame rides on the dof measurement, not the probe
     assert float(recorder.best_frame.flat[0]) - 1.0 == pytest.approx(0.95)
+
+
+# ---------------------------------------------------------------------------
+# Send-pipeline overlay on the optimizer's own SLM handle (driver slot)
+# ---------------------------------------------------------------------------
+#
+# The closed-loop optimizer opens its *own* bare SLM (``open_slm``), which is a
+# different handle from the GUI session's SLM. The overlay must therefore ride
+# the ``config.send_overlay`` field and be applied to that freshly-opened handle
+# (driver slot on a real Santec; no-op on a sim SLM lacking the setters). These
+# tests stop the run immediately after ``open_slm`` + the apply line, by
+# returning a controlled handle from ``open_slm`` and raising a sentinel from
+# ``open_camera``.
+
+
+class _OverlaySentinel(Exception):
+    """Sentinel raised by the stub ``open_camera`` to stop the run after the
+    overlay has been applied to the SLM handle."""
+
+
+class _BareHandle:
+    """A bare driver-like handle exposing the overlay setter slots."""
+
+    def __init__(self) -> None:
+        self._phase = None
+        self._base = None
+
+    def set_phase_overlay(self, phase_rad):
+        self._phase = phase_rad
+
+    def set_base_phase(self, phase_gray):
+        self._base = phase_gray
+
+    def get_phase_overlay(self):
+        return self._phase
+
+    def get_base_phase(self):
+        return self._base
+
+    def close(self):
+        pass
+
+
+class _SimLikeHandle:
+    """A sim-like handle with *no* overlay setters (like ``SimSLMPib``)."""
+
+    def __init__(self) -> None:
+        self.close_called = False
+
+    def close(self):
+        self.close_called = True
+
+
+def _defo_panel() -> np.ndarray:
+    return np.array([[0.0, 0.3], [0.3, 0.0]])
+
+
+def _base_panel() -> np.ndarray:
+    return np.array([[10, 20], [20, 30]], dtype=np.uint16)
+
+
+def _run_until_overlay_applied(cfg, monkeypatch, slm_handle):
+    """Run ``optimize_slm_gs_refine`` and stop right after the apply line.
+
+    Returns the handle that ``open_slm`` handed to the optimizer (the same
+    object the apply line wrote to).
+    """
+
+    def _fake_open_slm(_config):
+        return slm_handle
+
+    def _fake_open_camera(_config):
+        raise _OverlaySentinel()
+
+    monkeypatch.setattr(gsr, "open_slm", _fake_open_slm)
+    monkeypatch.setattr(gsr, "open_camera", _fake_open_camera)
+    with pytest.raises(_OverlaySentinel):
+        gsr.optimize_slm_gs_refine(cfg)
+    return slm_handle
+
+
+def test_optimizer_applies_send_overlay_to_its_own_handle(monkeypatch):
+    """A real Santec driver handle gets its driver slots written from config."""
+    handle = _RealSantec(slm_number=1)  # real driver; SDK stubbed, never opened
+    cfg = _fast_config()
+    cfg.send_overlay = PhaseOverlay(_defo_panel(), _base_panel())
+    _run_until_overlay_applied(cfg, monkeypatch, handle)
+    # The driver slots on the optimizer's own handle were populated from config.
+    np.testing.assert_array_equal(handle.get_phase_overlay(), _defo_panel())
+    np.testing.assert_array_equal(handle.get_base_phase(), _base_panel())
+
+
+def test_optimizer_overlay_none_leaves_bare_handle_untouched(monkeypatch):
+    """``send_overlay=None`` (CLI default) leaves the driver slots empty."""
+    handle = _BareHandle()
+    cfg = _fast_config()
+    cfg.send_overlay = None
+    _run_until_overlay_applied(cfg, monkeypatch, handle)
+    assert handle.get_phase_overlay() is None
+    assert handle.get_base_phase() is None
+
+
+def test_optimizer_overlay_is_a_noop_for_a_sim_like_handle(monkeypatch):
+    """A sim-like handle lacking the setters is left alone (bit-identical sim)."""
+    handle = _SimLikeHandle()
+    cfg = _fast_config()
+    cfg.send_overlay = PhaseOverlay(_defo_panel(), _base_panel())
+    # Must not raise, even though the handle has no overlay setters.
+    _run_until_overlay_applied(cfg, monkeypatch, handle)
+    # Sim path must not have been disturbed; cleanup still closed the handle.
+    assert handle.close_called

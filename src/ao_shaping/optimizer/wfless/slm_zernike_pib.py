@@ -54,6 +54,10 @@ from ao_shaping.drivers.ccd.common import (
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import PANEL_RES
+from ao_shaping.gui.utils.phase_overlay import (
+    PhaseOverlay,
+    apply_overlays_to_handle,
+)
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.objective_direction import objective_direction
@@ -311,6 +315,12 @@ class SlmZernikePibConfig:
     show: bool = False
     # --- Recording ---------------------------------------------------------------
     record_phase: bool = False
+    # --- Send-pipeline overlay (GUI 离焦 / 底相位 T4 叠加层) ---------------
+    send_overlay: PhaseOverlay | None = field(default=None, repr=False)
+    """Send-pipeline overlay (defocus + base phase) applied to the SLM this run
+    opens (driver slot on a real Santec; no-op on a sim SLM). ``None`` (default)
+    = no overlay, so CLI runs are untouched; the GUI entry fills it from the
+    session via ``build_send_overlay``."""
     # --- Debug / result report ---------------------------------------------------
     #: Save the debug artifact bundle (PNG + pkl + json) after the run, under
     #: ``<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/``.
@@ -622,6 +632,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
     cam_ctx = create_camera(config.camera)
     slm_ctx = Santec.from_params(config.slm)
+    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
+    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
+    # Default ``None`` leaves CLI runs untouched.
+    if config.send_overlay is not None:
+        apply_overlays_to_handle(slm_ctx, config.send_overlay)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         assert cam is not None and slm is not None
