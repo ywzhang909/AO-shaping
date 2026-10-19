@@ -642,7 +642,7 @@ PATH=libs\Drv_UDPST\x64\Release;libs\gxipy;${PATH}
 
 ### VSCode Settings
 
-VSCode settings are configured in `.vscode/settings.json`:
+VSCode settings are configured in `.vscode/settings.json` (machine-local, **not tracked** since 2026-10-19 — create it yourself on a fresh clone if you use VS Code):
 - Python path includes `src/` and `libs/`
 - Pytest integration enabled
 - Terminal environment variables from `.env`
@@ -1041,7 +1041,7 @@ Pytest configuration in `pyproject.toml`:
 pythonpath = ["src"]
 ```
 
-VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` directories.
+VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHONPATH to `src` and `libs` directories.
 
 ---
 
@@ -1118,24 +1118,25 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
 
 ## MISSING INFRASTRUCTURE
 
-- **CI**: ruff 硬门禁已就位（`.github/workflows/ruff.yml`，push + PR 触发，
-  `ruff check .`，2026-10-15 起 issue #132 决策 B）；`pylint.yml` 存在但为
-  **参考级**（`continue-on-error: true`，无项目依赖时 2062 条 E0401 误报）。
-  仍缺：pytest 自动化（push/PR 跑测试的 workflow）与类型检查门禁。
+- **CI**: 2026-10-15 曾建立 ruff 硬门禁（`.github/workflows/ruff.yml`，push + PR 触发，
+  `ruff check .`，issue #132 决策 B）与参考级 `pylint.yml`（`continue-on-error: true`）；
+  **2026-10-19 起 `.github/` 整体移出 git 跟踪**（本机保留，`.gitignore` 忽略），
+  新克隆不再自带 CI 工作流 —— 本地 `ruff check .` 仍须保持全绿。
+  仍缺：pytest 自动化与类型检查门禁。
 - **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F]`，`libs/**` 与
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
-- **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）。
+- **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）；同日 8 个 machine-local 目录整体移出跟踪并忽略：`.auto_doc_review`/`.claude`/`.codegraph`/`.github`/`.slim`/`.streamlit`/`.vscode`/`_scripts`（本地副本保留，不随仓库分发）。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
-Consider adding: `.github/workflows/ci.yml`（pytest 自动化）
+Consider adding: CI 工作流（pytest 自动化 / ruff 门禁）—— 2026-10-19 起 `.github/` 已不入库，如需在 GitHub Actions 上恢复门禁，需重新提交工作流文件。
 
 ---
 
 ## CodeGraph (Pre-indexed Knowledge Graph)
 
-This project has CodeGraph initialized (`.codegraph/` exists, 6,111 nodes, 12,339 edges).
+This project has CodeGraph initialized (`.codegraph/` exists on the dev machine, 6,111 nodes, 12,339 edges). Note: `.codegraph/` is machine-local and **not tracked** (2026-10-19, in `.gitignore`), so a fresh clone will not have it — in that case skip the CodeGraph tools and fall back to grep/find/read.
 
 ### For Explore agents
 Use `codegraph_explore` as your PRIMARY tool — it returns full source code sections from all relevant files in one call.

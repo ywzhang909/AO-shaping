@@ -79,7 +79,7 @@ uv sync
 | [docs/dev/call_graph_wiki/index.md](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：20 命令逐命令 + 骨架函数逐函数文档（AST 静态分析，脚本在 `scripts/call_graph/` 可重跑） |
 | [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 实验系统表征流程、验收阈值、四条实验系统铁律 |
 | [docs/slm/slm_gui_manual.md](docs/slm/slm_gui_manual.md) | SLM GUI 完整操作手册 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.18.0) |
+| [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.19.0) |
 | [report/](report/) | 实验报告 (结论/测量/基准)，每份带生成脚本溯源块 |
 
 各设备域 CLI 命令文档在 `docs/{dm,slm,wfs,micro_drive,tools}/` 下（见下方命令总览表）。

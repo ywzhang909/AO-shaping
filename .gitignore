@@ -13,8 +13,6 @@ Drv_UDPST*
 gxipy*
 __pycache__*
 .venv*
-.vscode*
-!.vscode/settings.json
 
 .kilocode*
 **/ao_shaping.egg-info*
@@ -171,3 +169,16 @@ none
 /opencode.jsonc
 /pyrightconfig.json
 /skills-lock.json
+
+# Machine-local tool/config dirs: untracked 2026-10-19, kept on dev machines.
+# .github (CI workflows), .vscode (IDE config), .claude/.codegraph (AI agent
+# configs), .slim (agent work logs), .streamlit (local runtime config),
+# .auto_doc_review (doc-review poller state), _scripts (one-off scratch scripts).
+/.github/
+/.vscode/
+/.claude/
+/.codegraph/
+/.slim/
+/.streamlit/
+/.auto_doc_review/
+/_scripts/
