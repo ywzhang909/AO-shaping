@@ -1,0 +1,1088 @@
+{
+  "timestamp": "2026-10-19T19:59:50.950269",
+  "mode": "full",
+  "wavelength_nm": 1064.0,
+  "focal_length_m": 0.12240601503759398,
+  "focal_length_recheck_m": 0.12240601503759398,
+  "aperture_m": 0.0072,
+  "dz_blur_mm": 0.7503639840341595,
+  "n_grid": 64,
+  "far_field_padding": 8,
+  "far_field_size": 512,
+  "dz_scan_mm": [
+    0.0,
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    35.0,
+    40.0,
+    45.0,
+    50.0
+  ],
+  "objective": "0.5*PIB + 0.5*(1/(1+CV)), CV/PIB in the centroid-tracked auto-scaled box",
+  "chirp_sign_and_alpha": {
+    "sign_pupil": -1.0,
+    "alpha": 1.0001626284163687,
+    "probe_dz_units": 0.25,
+    "probe_dz_mm": 0.18759099600853987,
+    "probe_rel_err_at_alpha1": 4.4600166868153194e-06,
+    "probe_rel_err_at_alpha_star": 2.235069756762701e-07,
+    "trials": [
+      {
+        "sign_pupil": -1.0,
+        "rel_err": 4.4600166868153194e-06
+      },
+      {
+        "sign_pupil": 1.0,
+        "rel_err": 0.0016500033539694201
+      }
+    ],
+    "note": "符号与前因子由方案A 的 |U_CCD|^2 对拍反解, 不是照抄 exp(-i pi dz r^2/(lambda f^2)) 的公式; alpha 的理论值为 1, 实测值落在 ±0.05 内"
+  },
+  "self_check": {
+    "pupil_pixel_size": {
+      "model_aperture_m": 0.0072,
+      "panel_aperture_m": 0.0072,
+      "panel_pitch_m": 8e-06,
+      "beam_radius_panel_px": 450.0
+    },
+    "dz0_degeneracy": {
+      "dz0_rel_err": 8.326932145868259e-16
+    },
+    "two_component_at_eta0": {
+      "eta0_scheme_A_rel_err": 0.0,
+      "eta0_scheme_B_rel_err": 0.0
+    },
+    "no_magnification": {
+      "far_field_pixel_size_m": 2.2611111111111112e-06,
+      "denominator_is_lambda_f_squared_rel_err": 0.0,
+      "magnification_M": 1.0,
+      "note": "Collins/ABCD: T(f+d)·Lens(f)·T(f) = [[-d/f, f], [-1/f, 0]], B ≡ f ⇒ 无放大"
+    },
+    "asm_is_canonical": "OffFocusBench._asm -> angular_spectrum_propagate (band_limit=True); GS 镜像与 gs_shape 在 Δz=0 逐位一致由兄弟脚本的自检保证; 本脚本只组装双分量瞳面振幅, 传播一步都没重写"
+  },
+  "magnification_note": "CCD 离焦**不是放大**: Collins/ABCD T(f+d)·Lens(f)·T(f) = [[-d/f, f], [-1/f, 0]], B ≡ f ⇒ 核尺度是 λf 而非 λ(f+d), 无 M=(f+d)/f。远场像元 pitch 恒为 λf/(N·dx_pupil), 目标框不做任何重采样; 瞳面二次相位的分母取 λf² (不是 λf(f+d), 后者会弱化 1.408 倍)。CCD 离焦只让图样变模糊: 倾斜平面波经透镜聚到 fθ 后只是发散, 中心不跑。",
+  "zero_order_model": {
+    "formula": "U_pupil = U_inc * [eta + (1-eta)*exp(i*phi)]",
+    "etas_amplitude": [
+      0.0,
+      0.02,
+      0.05,
+      0.1
+    ],
+    "eta_demo": 0.05,
+    "zero_order_power_fraction": {
+      "0": 0.0,
+      "0.02": 0.0004163197335553706,
+      "0.05": 0.00276243093922652,
+      "0.1": 0.012195121951219514
+    },
+    "chirp_applies_to": "整个瞳面场 (含零级分量) —— chirp 是「传播了 d」的替身, 对零级和整形分量共用, 这样方案A 与方案B 仍 apples-to-apples",
+    "halo_radius_formula": "rho ≈ d*D/(2f)",
+    "halo_scaling_expected": "I_halo ∝ f²/d² (幂律指数 -2)",
+    "halo_power_law_fit": {
+      "eta_0.02": {
+        "exponent": -1.9017450594868703,
+        "n_points": 4,
+        "expected": -2.0,
+        "dz_range_mm": [
+          5.0,
+          20.0
+        ]
+      },
+      "eta_0.05": {
+        "exponent": -1.9017450594868703,
+        "n_points": 4,
+        "expected": -2.0,
+        "dz_range_mm": [
+          5.0,
+          20.0
+        ]
+      },
+      "eta_0.1": {
+        "exponent": -1.9017450594868703,
+        "n_points": 4,
+        "expected": -2.0,
+        "dz_range_mm": [
+          5.0,
+          20.0
+        ]
+      }
+    },
+    "halo_peak_vs_dz": [
+      {
+        "eta": 0.0,
+        "dz_mm": 0.0,
+        "halo_peak_total": 0.007291439463610208,
+        "halo_rms_radius_mm": 0.016032587725112023,
+        "halo_edge_energy": 5.3895476600725545e-05,
+        "halo_peak_outside": 0.00014202575018835455,
+        "halo_power_fraction_outside": 0.08469481887971611,
+        "halo_radius_mm_geometric": 0.0,
+        "window_ok": true
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 5.0,
+        "halo_peak_total": 0.00041553973190524613,
+        "halo_rms_radius_mm": 0.06112488699046585,
+        "halo_edge_energy": 6.094088792460326e-05,
+        "halo_peak_outside": 0.0004847932511165418,
+        "halo_power_fraction_outside": 0.5373713303060922,
+        "halo_radius_mm_geometric": 0.00014705159705159706,
+        "window_ok": true
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 10.0,
+        "halo_peak_total": 0.00011462603803559538,
+        "halo_rms_radius_mm": 0.11904892471896689,
+        "halo_edge_energy": 9.576833843189065e-05,
+        "halo_peak_outside": 0.00014502347991175938,
+        "halo_power_fraction_outside": 0.8106781535046788,
+        "halo_radius_mm_geometric": 0.0002941031941031941,
+        "window_ok": true
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 15.0,
+        "halo_peak_total": 5.212974780197703e-05,
+        "halo_rms_radius_mm": 0.17765175989663798,
+        "halo_edge_energy": 0.0003871352612712742,
+        "halo_peak_outside": 5.635319616462683e-05,
+        "halo_power_fraction_outside": 0.9077862280784883,
+        "halo_radius_mm_geometric": 0.0004411547911547912,
+        "window_ok": true
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 20.0,
+        "halo_peak_total": 2.9709951886414912e-05,
+        "halo_rms_radius_mm": 0.23610787746421844,
+        "halo_edge_energy": 0.008542951028654757,
+        "halo_peak_outside": 3.0581265665009445e-05,
+        "halo_power_fraction_outside": 0.947525748428208,
+        "halo_radius_mm_geometric": 0.0005882063882063882,
+        "window_ok": true
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 25.0,
+        "halo_peak_total": 2.1689621526514373e-05,
+        "halo_rms_radius_mm": 0.2834405244546988,
+        "halo_edge_energy": 0.029888101540442535,
+        "halo_peak_outside": 2.1237900327611573e-05,
+        "halo_power_fraction_outside": 0.9659980587166543,
+        "halo_radius_mm_geometric": 0.0007352579852579853,
+        "window_ok": false
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 30.0,
+        "halo_peak_total": 1.570975499831067e-05,
+        "halo_rms_radius_mm": 0.3154732117900894,
+        "halo_edge_energy": 0.05049267381361232,
+        "halo_peak_outside": 1.7927605902891946e-05,
+        "halo_power_fraction_outside": 0.9752289984022076,
+        "halo_radius_mm_geometric": 0.0008823095823095823,
+        "window_ok": false
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 35.0,
+        "halo_peak_total": 2.0333527954210457e-05,
+        "halo_rms_radius_mm": 0.33676007943753405,
+        "halo_edge_energy": 0.07191751937262704,
+        "halo_peak_outside": 1.5604316791650057e-05,
+        "halo_power_fraction_outside": 0.9800322420448324,
+        "halo_radius_mm_geometric": 0.0010293611793611795,
+        "window_ok": false
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 40.0,
+        "halo_peak_total": 1.3565938178058601e-05,
+        "halo_rms_radius_mm": 0.3519012458489235,
+        "halo_edge_energy": 0.08586405535017333,
+        "halo_peak_outside": 1.3405816816889357e-05,
+        "halo_power_fraction_outside": 0.9825423184268474,
+        "halo_radius_mm_geometric": 0.0011764127764127765,
+        "window_ok": false
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 45.0,
+        "halo_peak_total": 1.9269443278715046e-05,
+        "halo_rms_radius_mm": 0.36028319056745833,
+        "halo_edge_energy": 0.09882614935259765,
+        "halo_peak_outside": 1.3206920207441396e-05,
+        "halo_power_fraction_outside": 0.9849052711022389,
+        "halo_radius_mm_geometric": 0.0013234643734643735,
+        "window_ok": false
+      },
+      {
+        "eta": 0.0,
+        "dz_mm": 50.0,
+        "halo_peak_total": 1.018254363515197e-05,
+        "halo_rms_radius_mm": 0.36781247179015497,
+        "halo_edge_energy": 0.11440516540232813,
+        "halo_peak_outside": 1.4625449491352628e-05,
+        "halo_power_fraction_outside": 0.9861127702855088,
+        "halo_radius_mm_geometric": 0.0014705159705159707,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 0.0,
+        "halo_peak_total": 0.007291439463610208,
+        "halo_rms_radius_mm": 0.016032587725112023,
+        "halo_edge_energy": 5.3895476600725545e-05,
+        "halo_peak_outside": 0.00013859164528621032,
+        "halo_power_fraction_outside": 0.08276655470639636,
+        "halo_radius_mm_geometric": 0.0,
+        "window_ok": true
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 5.0,
+        "halo_peak_total": 0.00041553973190524613,
+        "halo_rms_radius_mm": 0.06112488699046585,
+        "halo_edge_energy": 6.094088792460326e-05,
+        "halo_peak_outside": 0.0004854906707879715,
+        "halo_power_fraction_outside": 0.5307030221141266,
+        "halo_radius_mm_geometric": 0.00014705159705159706,
+        "window_ok": true
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 10.0,
+        "halo_peak_total": 0.00011462603803559538,
+        "halo_rms_radius_mm": 0.11904892471896689,
+        "halo_edge_energy": 9.576833843189065e-05,
+        "halo_peak_outside": 0.000144803073307281,
+        "halo_power_fraction_outside": 0.8077794684587003,
+        "halo_radius_mm_geometric": 0.0002941031941031941,
+        "window_ok": true
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 15.0,
+        "halo_peak_total": 5.212974780197703e-05,
+        "halo_rms_radius_mm": 0.17765175989663798,
+        "halo_edge_energy": 0.0003871352612712742,
+        "halo_peak_outside": 5.709447418644454e-05,
+        "halo_power_fraction_outside": 0.9063601252957185,
+        "halo_radius_mm_geometric": 0.0004411547911547912,
+        "window_ok": true
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 20.0,
+        "halo_peak_total": 2.9709951886414912e-05,
+        "halo_rms_radius_mm": 0.23610787746421844,
+        "halo_edge_energy": 0.008542951028654757,
+        "halo_peak_outside": 3.103646775239759e-05,
+        "halo_power_fraction_outside": 0.9466944604691041,
+        "halo_radius_mm_geometric": 0.0005882063882063882,
+        "window_ok": true
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 25.0,
+        "halo_peak_total": 2.1689621526514373e-05,
+        "halo_rms_radius_mm": 0.2834405244546988,
+        "halo_edge_energy": 0.029888101540442535,
+        "halo_peak_outside": 2.1508337823156684e-05,
+        "halo_power_fraction_outside": 0.9654553426271415,
+        "halo_radius_mm_geometric": 0.0007352579852579853,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 30.0,
+        "halo_peak_total": 1.570975499831067e-05,
+        "halo_rms_radius_mm": 0.3154732117900894,
+        "halo_edge_energy": 0.05049267381361232,
+        "halo_peak_outside": 1.8080048110794374e-05,
+        "halo_power_fraction_outside": 0.9748651694587981,
+        "halo_radius_mm_geometric": 0.0008823095823095823,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 35.0,
+        "halo_peak_total": 2.0333527954210457e-05,
+        "halo_rms_radius_mm": 0.33676007943753405,
+        "halo_edge_energy": 0.07191751937262704,
+        "halo_peak_outside": 1.574252938441564e-05,
+        "halo_power_fraction_outside": 0.9798314230577326,
+        "halo_radius_mm_geometric": 0.0010293611793611795,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 40.0,
+        "halo_peak_total": 1.3565938178058601e-05,
+        "halo_rms_radius_mm": 0.3519012458489235,
+        "halo_edge_energy": 0.08586405535017333,
+        "halo_peak_outside": 1.352725924209232e-05,
+        "halo_power_fraction_outside": 0.9823514884532445,
+        "halo_radius_mm_geometric": 0.0011764127764127765,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 45.0,
+        "halo_peak_total": 1.9269443278715046e-05,
+        "halo_rms_radius_mm": 0.36028319056745833,
+        "halo_edge_energy": 0.09882614935259765,
+        "halo_peak_outside": 1.326057651080695e-05,
+        "halo_power_fraction_outside": 0.984803576952455,
+        "halo_radius_mm_geometric": 0.0013234643734643735,
+        "window_ok": false
+      },
+      {
+        "eta": 0.02,
+        "dz_mm": 50.0,
+        "halo_peak_total": 1.018254363515197e-05,
+        "halo_rms_radius_mm": 0.36781247179015497,
+        "halo_edge_energy": 0.11440516540232813,
+        "halo_peak_outside": 1.461046411149495e-05,
+        "halo_power_fraction_outside": 0.9860491250395867,
+        "halo_radius_mm_geometric": 0.0014705159705159707,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 0.0,
+        "halo_peak_total": 0.007291439463610208,
+        "halo_rms_radius_mm": 0.016032587725112023,
+        "halo_edge_energy": 5.3895476600725545e-05,
+        "halo_peak_outside": 0.00013326843773963493,
+        "halo_power_fraction_outside": 0.079770818222473,
+        "halo_radius_mm_geometric": 0.0,
+        "window_ok": true
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 5.0,
+        "halo_peak_total": 0.00041553973190524613,
+        "halo_rms_radius_mm": 0.06112488699046585,
+        "halo_edge_energy": 6.094088792460326e-05,
+        "halo_peak_outside": 0.00048622726311027575,
+        "halo_power_fraction_outside": 0.5206982242255134,
+        "halo_radius_mm_geometric": 0.00014705159705159706,
+        "window_ok": true
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 10.0,
+        "halo_peak_total": 0.00011462603803559538,
+        "halo_rms_radius_mm": 0.11904892471896689,
+        "halo_edge_energy": 9.576833843189065e-05,
+        "halo_peak_outside": 0.00014460776438349947,
+        "halo_power_fraction_outside": 0.8034909174982094,
+        "halo_radius_mm_geometric": 0.0002941031941031941,
+        "window_ok": true
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 15.0,
+        "halo_peak_total": 5.212974780197703e-05,
+        "halo_rms_radius_mm": 0.17765175989663798,
+        "halo_edge_energy": 0.0003871352612712742,
+        "halo_peak_outside": 5.817919548193094e-05,
+        "halo_power_fraction_outside": 0.9042539718482202,
+        "halo_radius_mm_geometric": 0.0004411547911547912,
+        "window_ok": true
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 20.0,
+        "halo_peak_total": 2.9709951886414912e-05,
+        "halo_rms_radius_mm": 0.23610787746421844,
+        "halo_edge_energy": 0.008542951028654757,
+        "halo_peak_outside": 3.170735084271893e-05,
+        "halo_power_fraction_outside": 0.9454657370990642,
+        "halo_radius_mm_geometric": 0.0005882063882063882,
+        "window_ok": true
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 25.0,
+        "halo_peak_total": 2.1689621526514373e-05,
+        "halo_rms_radius_mm": 0.2834405244546988,
+        "halo_edge_energy": 0.029888101540442535,
+        "halo_peak_outside": 2.1905582201485753e-05,
+        "halo_power_fraction_outside": 0.9646524892680421,
+        "halo_radius_mm_geometric": 0.0007352579852579853,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 30.0,
+        "halo_peak_total": 1.570975499831067e-05,
+        "halo_rms_radius_mm": 0.3154732117900894,
+        "halo_edge_energy": 0.05049267381361232,
+        "halo_peak_outside": 1.8297554610085814e-05,
+        "halo_power_fraction_outside": 0.9743279429868176,
+        "halo_radius_mm_geometric": 0.0008823095823095823,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 35.0,
+        "halo_peak_total": 2.0333527954210457e-05,
+        "halo_rms_radius_mm": 0.33676007943753405,
+        "halo_edge_energy": 0.07191751937262704,
+        "halo_peak_outside": 1.594498071752753e-05,
+        "halo_power_fraction_outside": 0.9795396616446588,
+        "halo_radius_mm_geometric": 0.0010293611793611795,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 40.0,
+        "halo_peak_total": 1.3565938178058601e-05,
+        "halo_rms_radius_mm": 0.3519012458489235,
+        "halo_edge_energy": 0.08586405535017333,
+        "halo_peak_outside": 1.3703810145209806e-05,
+        "halo_power_fraction_outside": 0.9820707929067003,
+        "halo_radius_mm_geometric": 0.0011764127764127765,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 45.0,
+        "halo_peak_total": 1.9269443278715046e-05,
+        "halo_rms_radius_mm": 0.36028319056745833,
+        "halo_edge_energy": 0.09882614935259765,
+        "halo_peak_outside": 1.3334386111194573e-05,
+        "halo_power_fraction_outside": 0.9846564995734458,
+        "halo_radius_mm_geometric": 0.0013234643734643735,
+        "window_ok": false
+      },
+      {
+        "eta": 0.05,
+        "dz_mm": 50.0,
+        "halo_peak_total": 1.018254363515197e-05,
+        "halo_rms_radius_mm": 0.36781247179015497,
+        "halo_edge_energy": 0.11440516540232813,
+        "halo_peak_outside": 1.4582227079279258e-05,
+        "halo_power_fraction_outside": 0.9859578065928714,
+        "halo_radius_mm_geometric": 0.0014705159705159707,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 0.0,
+        "halo_peak_total": 0.007291439463610208,
+        "halo_rms_radius_mm": 0.016032587725112023,
+        "halo_edge_energy": 5.3895476600725545e-05,
+        "halo_peak_outside": 0.00012396537714698202,
+        "halo_power_fraction_outside": 0.07451650638786486,
+        "halo_radius_mm_geometric": 0.0,
+        "window_ok": true
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 5.0,
+        "halo_peak_total": 0.00041553973190524613,
+        "halo_rms_radius_mm": 0.06112488699046585,
+        "halo_edge_energy": 6.094088792460326e-05,
+        "halo_peak_outside": 0.0004861245672465874,
+        "halo_power_fraction_outside": 0.5041415258277295,
+        "halo_radius_mm_geometric": 0.00014705159705159706,
+        "window_ok": true
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 10.0,
+        "halo_peak_total": 0.00011462603803559538,
+        "halo_rms_radius_mm": 0.11904892471896689,
+        "halo_edge_energy": 9.576833843189065e-05,
+        "halo_peak_outside": 0.0001450081714620193,
+        "halo_power_fraction_outside": 0.7965687423083343,
+        "halo_radius_mm_geometric": 0.0002941031941031941,
+        "window_ok": true
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 15.0,
+        "halo_peak_total": 5.212974780197703e-05,
+        "halo_rms_radius_mm": 0.17765175989663798,
+        "halo_edge_energy": 0.0003871352612712742,
+        "halo_peak_outside": 5.989491823744241e-05,
+        "halo_power_fraction_outside": 0.9008653775812155,
+        "halo_radius_mm_geometric": 0.0004411547911547912,
+        "window_ok": true
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 20.0,
+        "halo_peak_total": 2.9709951886414912e-05,
+        "halo_rms_radius_mm": 0.23610787746421844,
+        "halo_edge_energy": 0.008542951028654757,
+        "halo_peak_outside": 3.278547086124e-05,
+        "halo_power_fraction_outside": 0.9434858170970793,
+        "halo_radius_mm_geometric": 0.0005882063882063882,
+        "window_ok": true
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 25.0,
+        "halo_peak_total": 2.1689621526514373e-05,
+        "halo_rms_radius_mm": 0.2834405244546988,
+        "halo_edge_energy": 0.029888101540442535,
+        "halo_peak_outside": 2.2532574306726802e-05,
+        "halo_power_fraction_outside": 0.9633564803147829,
+        "halo_radius_mm_geometric": 0.0007352579852579853,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 30.0,
+        "halo_peak_total": 1.570975499831067e-05,
+        "halo_rms_radius_mm": 0.3154732117900894,
+        "halo_edge_energy": 0.05049267381361232,
+        "halo_peak_outside": 1.862495748404394e-05,
+        "halo_power_fraction_outside": 0.9734627086783958,
+        "halo_radius_mm_geometric": 0.0008823095823095823,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 35.0,
+        "halo_peak_total": 2.0333527954210457e-05,
+        "halo_rms_radius_mm": 0.33676007943753405,
+        "halo_edge_energy": 0.07191751937262704,
+        "halo_peak_outside": 1.626562395527312e-05,
+        "halo_power_fraction_outside": 0.9790828191954748,
+        "halo_radius_mm_geometric": 0.0010293611793611795,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 40.0,
+        "halo_peak_total": 1.3565938178058601e-05,
+        "halo_rms_radius_mm": 0.3519012458489235,
+        "halo_edge_energy": 0.08586405535017333,
+        "halo_peak_outside": 1.3980513754823985e-05,
+        "halo_power_fraction_outside": 0.981620595981258,
+        "halo_radius_mm_geometric": 0.0011764127764127765,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 45.0,
+        "halo_peak_total": 1.9269443278715046e-05,
+        "halo_rms_radius_mm": 0.36028319056745833,
+        "halo_edge_energy": 0.09882614935259765,
+        "halo_peak_outside": 1.3438467551584933e-05,
+        "halo_power_fraction_outside": 0.9844273769880951,
+        "halo_radius_mm_geometric": 0.0013234643734643735,
+        "window_ok": false
+      },
+      {
+        "eta": 0.1,
+        "dz_mm": 50.0,
+        "halo_peak_total": 1.018254363515197e-05,
+        "halo_rms_radius_mm": 0.36781247179015497,
+        "halo_edge_energy": 0.11440516540232813,
+        "halo_peak_outside": 1.451778231485546e-05,
+        "halo_power_fraction_outside": 0.9858174494178245,
+        "halo_radius_mm_geometric": 0.0014705159705159707,
+        "window_ok": false
+      }
+    ]
+  },
+  "panel_geometry_for_hw": {
+    "panel_h": 1200,
+    "panel_w": 1920,
+    "panel_pitch_m": 8e-06,
+    "beam_center_panel": [
+      960,
+      600
+    ],
+    "beam_radius_panel": 450,
+    "note": "模型网格口径 = 2*BEAM_RADIUS_PX*PANEL_PIXEL_UM, 与面板口径同源; 所以模型里的二次相位系数可以直接搬到面板上, 无需再缩放"
+  },
+  "window_limit": {
+    "sim_half_width_mm": 0.5788444444444445,
+    "sim_half_width_note": "= n_grid*lambda*f/D, 与 far_field_padding 无关",
+    "blur_radius_at_max_dz_mm": 1.4705159705159707,
+    "blur_over_half_width": 2.540433763560299,
+    "hw_ccd_half_width_mm": 2.8512000000000004,
+    "note": "仿真画幅半宽 0.579 mm, 而 50mm 的焦外几何弥散半径已到 1.471 mm (比值 2.54); ASM 在周期边界下会把溢出能量卷回对面, 所以大 Δz 的方案A 画面被窗口主导。真实实验系统的 CCD 视场 (2592x1944 @ 2.2um) 半宽 2.85 mm, 大得多, 这是**仿真窗口**的限制, 不是实验系统的限制"
+  },
+  "trust_criteria": {
+    "rel_err_max": 0.05,
+    "edge_energy_max": 0.02,
+    "first_untrusted_dz_mm": 25.0
+  },
+  "scheme_gap_table": [
+    {
+      "dz_mm": 0.0,
+      "dz_units": 0.0,
+      "corner_rad": 0.0,
+      "corner_waves": 0.0,
+      "disc_edge_rad": 0.0,
+      "disc_edge_waves": 0.0,
+      "rel_err_max": 1.0032135625884336e-15,
+      "rel_err_inner_max": 1.0032135625884336e-15,
+      "edge_energy_scheme_A": 8.998585258349889e-05,
+      "sigma_over_ref": 1.0,
+      "cv_scheme_A": 0.4214734578036954,
+      "cv_chirp": 0.42147345780369533,
+      "score_scheme_A": 0.8073092755981678,
+      "score_chirp": 0.8073092755981679,
+      "rel_err_max_eta": 9.050079830981035e-16,
+      "cv_scheme_A_eta": 0.47902783842407753,
+      "cv_chirp_eta": 0.47902783842407753,
+      "halo_peak_outside_A_eta": 0.00013326843773963493,
+      "trusted": true
+    },
+    {
+      "dz_mm": 5.0,
+      "dz_units": 6.663,
+      "corner_rad": 25.543,
+      "corner_waves": 4.065,
+      "disc_edge_rad": 12.772,
+      "disc_edge_waves": 2.033,
+      "rel_err_max": 0.00021493365739766563,
+      "rel_err_inner_max": 0.00021493365739766563,
+      "edge_energy_scheme_A": 0.00011047771258107365,
+      "sigma_over_ref": 1.761174258788917,
+      "cv_scheme_A": 1.1440273181499099,
+      "cv_chirp": 1.143913869422119,
+      "score_scheme_A": 0.6427224865217332,
+      "score_chirp": 0.6427265040981055,
+      "rel_err_max_eta": 0.00021610748836835224,
+      "cv_scheme_A_eta": 1.117094938619252,
+      "cv_chirp_eta": 1.1169784172285293,
+      "halo_peak_outside_A_eta": 0.00048622726311027575,
+      "trusted": true
+    },
+    {
+      "dz_mm": 10.0,
+      "dz_units": 13.327,
+      "corner_rad": 51.087,
+      "corner_waves": 8.131,
+      "disc_edge_rad": 25.543,
+      "disc_edge_waves": 4.065,
+      "rel_err_max": 0.000321179240890546,
+      "rel_err_inner_max": 0.000321179240890546,
+      "edge_energy_scheme_A": 0.00022307899584437529,
+      "sigma_over_ref": 3.066697891982907,
+      "cv_scheme_A": 0.8609415922487199,
+      "cv_chirp": 0.8607554739044754,
+      "score_scheme_A": 0.6790201989284206,
+      "score_chirp": 0.6790381111762931,
+      "rel_err_max_eta": 0.00033052077675991995,
+      "cv_scheme_A_eta": 0.8464630759213955,
+      "cv_chirp_eta": 0.8462764070525975,
+      "halo_peak_outside_A_eta": 0.00014460776438349947,
+      "trusted": true
+    },
+    {
+      "dz_mm": 15.0,
+      "dz_units": 19.99,
+      "corner_rad": 76.63,
+      "corner_waves": 12.196,
+      "disc_edge_rad": 38.315,
+      "disc_edge_waves": 6.098,
+      "rel_err_max": 0.0003918105549177995,
+      "rel_err_inner_max": 0.0003918105549177995,
+      "edge_energy_scheme_A": 0.0011211603415457322,
+      "sigma_over_ref": 4.460827957287363,
+      "cv_scheme_A": 0.7108020896450631,
+      "cv_chirp": 0.7106181621907296,
+      "score_scheme_A": 0.7031029849584272,
+      "score_chirp": 0.7031237060297812,
+      "rel_err_max_eta": 0.0003866039088592405,
+      "cv_scheme_A_eta": 0.6977646417741539,
+      "cv_chirp_eta": 0.6975789820375699,
+      "halo_peak_outside_A_eta": 5.817919548193094e-05,
+      "trusted": true
+    },
+    {
+      "dz_mm": 20.0,
+      "dz_units": 26.654,
+      "corner_rad": 102.174,
+      "corner_waves": 16.261,
+      "disc_edge_rad": 51.087,
+      "disc_edge_waves": 8.131,
+      "rel_err_max": 0.049781663082887596,
+      "rel_err_inner_max": 0.049781663082887596,
+      "edge_energy_scheme_A": 0.009954241860075874,
+      "sigma_over_ref": 5.869196167930009,
+      "cv_scheme_A": 0.6416968213678051,
+      "cv_chirp": 0.6415074140502687,
+      "score_scheme_A": 0.7142480214593354,
+      "score_chirp": 0.7141023965746576,
+      "rel_err_max_eta": 0.048079550576501394,
+      "cv_scheme_A_eta": 0.6387336202814884,
+      "cv_chirp_eta": 0.6385599381372459,
+      "halo_peak_outside_A_eta": 3.170735084271893e-05,
+      "trusted": true
+    },
+    {
+      "dz_mm": 25.0,
+      "dz_units": 33.317,
+      "corner_rad": 127.717,
+      "corner_waves": 20.327,
+      "disc_edge_rad": 63.858,
+      "disc_edge_waves": 10.163,
+      "rel_err_max": 0.12887234276485748,
+      "rel_err_inner_max": 0.12887234276485748,
+      "edge_energy_scheme_A": 0.036567539015724564,
+      "sigma_over_ref": 7.02078909202351,
+      "cv_scheme_A": 0.5705666750184439,
+      "cv_chirp": 0.6021269666308302,
+      "score_scheme_A": 0.7266720918328722,
+      "score_chirp": 0.7208144950041022,
+      "rel_err_max_eta": 0.12018373538679991,
+      "cv_scheme_A_eta": 0.5662556440471017,
+      "cv_chirp_eta": 0.5986367153990734,
+      "halo_peak_outside_A_eta": 2.1905582201485753e-05,
+      "trusted": false
+    },
+    {
+      "dz_mm": 30.0,
+      "dz_units": 39.981,
+      "corner_rad": 153.26,
+      "corner_waves": 24.392,
+      "disc_edge_rad": 76.63,
+      "disc_edge_waves": 12.196,
+      "rel_err_max": 0.2846503291988752,
+      "rel_err_inner_max": 0.2846503291988752,
+      "edge_energy_scheme_A": 0.059675249138657974,
+      "sigma_over_ref": 7.797271605624978,
+      "cv_scheme_A": 0.48521334846336056,
+      "cv_chirp": 0.5555573590826999,
+      "score_scheme_A": 0.7436150736754236,
+      "score_chirp": 0.725159213217578,
+      "rel_err_max_eta": 0.26898146077237606,
+      "cv_scheme_A_eta": 0.4888738804288477,
+      "cv_chirp_eta": 0.5568117017589224,
+      "halo_peak_outside_A_eta": 1.8297554610085814e-05,
+      "trusted": false
+    },
+    {
+      "dz_mm": 35.0,
+      "dz_units": 46.644,
+      "corner_rad": 178.804,
+      "corner_waves": 28.457,
+      "disc_edge_rad": 89.402,
+      "disc_edge_waves": 14.229,
+      "rel_err_max": 0.42670618629842455,
+      "rel_err_inner_max": 0.42670618629842455,
+      "edge_energy_scheme_A": 0.07851913809662728,
+      "sigma_over_ref": 8.3112910318082,
+      "cv_scheme_A": 0.41294691321355964,
+      "cv_chirp": 0.5052591417085021,
+      "score_scheme_A": 0.7668333895962889,
+      "score_chirp": 0.7371531191710986,
+      "rel_err_max_eta": 0.41065559300076504,
+      "cv_scheme_A_eta": 0.41972235977649924,
+      "cv_chirp_eta": 0.5096320140228536,
+      "halo_peak_outside_A_eta": 1.594498071752753e-05,
+      "trusted": false
+    },
+    {
+      "dz_mm": 40.0,
+      "dz_units": 53.307,
+      "corner_rad": 204.347,
+      "corner_waves": 32.523,
+      "disc_edge_rad": 102.174,
+      "disc_edge_waves": 16.261,
+      "rel_err_max": 0.5944561386919284,
+      "rel_err_inner_max": 0.5115885882669536,
+      "edge_energy_scheme_A": 0.09209498446198437,
+      "sigma_over_ref": 8.677909901598904,
+      "cv_scheme_A": 0.3804918535235998,
+      "cv_chirp": 0.5225600442282232,
+      "score_scheme_A": 0.7800949728748318,
+      "score_chirp": 0.7424763699462165,
+      "rel_err_max_eta": 0.5582814330148139,
+      "cv_scheme_A_eta": 0.3830230687379925,
+      "cv_chirp_eta": 0.5141417637734771,
+      "halo_peak_outside_A_eta": 1.3703810145209806e-05,
+      "trusted": false
+    },
+    {
+      "dz_mm": 45.0,
+      "dz_units": 59.971,
+      "corner_rad": 229.89,
+      "corner_waves": 36.588,
+      "disc_edge_rad": 114.945,
+      "disc_edge_waves": 18.294,
+      "rel_err_max": 0.8356405349480294,
+      "rel_err_inner_max": 0.7175287680910758,
+      "edge_energy_scheme_A": 0.10080681830637414,
+      "sigma_over_ref": 8.881317908599947,
+      "cv_scheme_A": 0.3812323268162791,
+      "cv_chirp": 0.5854311080085329,
+      "score_scheme_A": 0.7843480339321998,
+      "score_chirp": 0.7430098425996154,
+      "rel_err_max_eta": 0.7813872145772008,
+      "cv_scheme_A_eta": 0.3801599899190792,
+      "cv_chirp_eta": 0.571913422350251,
+      "halo_peak_outside_A_eta": 1.3334386111194573e-05,
+      "trusted": false
+    },
+    {
+      "dz_mm": 50.0,
+      "dz_units": 66.634,
+      "corner_rad": 255.434,
+      "corner_waves": 40.654,
+      "disc_edge_rad": 127.717,
+      "disc_edge_waves": 20.327,
+      "rel_err_max": 0.8428523016834294,
+      "rel_err_inner_max": 0.6342208697715391,
+      "edge_energy_scheme_A": 0.11566766223992311,
+      "sigma_over_ref": 9.063364487085103,
+      "cv_scheme_A": 0.3927090348184359,
+      "cv_chirp": 0.62155154828016,
+      "score_scheme_A": 0.7845690259473282,
+      "score_chirp": 0.7496362024779077,
+      "rel_err_max_eta": 0.8012062779112539,
+      "cv_scheme_A_eta": 0.38824671413872774,
+      "cv_chirp_eta": 0.6057856014206,
+      "halo_peak_outside_A_eta": 1.4582227079279258e-05,
+      "trusted": false
+    }
+  ],
+  "v1_baseline_gs_dz0": {
+    "score": 0.8073092755981678,
+    "pib": 0.9111231784828062,
+    "cv": 0.4214734578036954,
+    "sigma_px": 17.9886980630385,
+    "side_px": 43
+  },
+  "v2_peak_phase": [
+    {
+      "dz_mm": 0.0,
+      "corner_rad": 0.0,
+      "corner_waves": 0.0,
+      "disc_edge_rad": 0.0,
+      "disc_edge_waves": 0.0,
+      "cv_schemeA_at_same_dz": 0.4214734578036954,
+      "cv_schemeA_at_dz0": 0.4214734578036954
+    },
+    {
+      "dz_mm": 5.0,
+      "corner_rad": 25.54337915914389,
+      "corner_waves": 4.065355056448251,
+      "disc_edge_rad": 12.771689579571945,
+      "disc_edge_waves": 2.0326775282241254,
+      "cv_schemeA_at_same_dz": 0.8608485301608576,
+      "cv_schemeA_at_dz0": 1.143913869422119
+    },
+    {
+      "dz_mm": 10.0,
+      "corner_rad": 51.08675831828778,
+      "corner_waves": 8.130710112896502,
+      "disc_edge_rad": 25.54337915914389,
+      "disc_edge_waves": 4.065355056448251,
+      "cv_schemeA_at_same_dz": 0.641598510607311,
+      "cv_schemeA_at_dz0": 0.8607554739044755
+    },
+    {
+      "dz_mm": 15.0,
+      "corner_rad": 76.63013747743166,
+      "corner_waves": 12.196065169344752,
+      "disc_edge_rad": 38.31506873871583,
+      "disc_edge_waves": 6.098032584672376,
+      "cv_schemeA_at_same_dz": 0.5556444500020916,
+      "cv_schemeA_at_dz0": 0.7106181621907296
+    },
+    {
+      "dz_mm": 20.0,
+      "corner_rad": 102.17351663657556,
+      "corner_waves": 16.261420225793003,
+      "disc_edge_rad": 51.08675831828778,
+      "disc_edge_waves": 8.130710112896502,
+      "cv_schemeA_at_same_dz": 0.5217117673971772,
+      "cv_schemeA_at_dz0": 0.6415074140502688
+    },
+    {
+      "dz_mm": 25.0,
+      "corner_rad": 127.71689579571947,
+      "corner_waves": 20.326775282241258,
+      "disc_edge_rad": 63.85844789785973,
+      "disc_edge_waves": 10.163387641120629,
+      "cv_schemeA_at_same_dz": 0.6361626003650972,
+      "cv_schemeA_at_dz0": 0.6021269666308302
+    },
+    {
+      "dz_mm": 30.0,
+      "corner_rad": 153.26027495486332,
+      "corner_waves": 24.392130338689505,
+      "disc_edge_rad": 76.63013747743166,
+      "disc_edge_waves": 12.196065169344752,
+      "cv_schemeA_at_same_dz": 0.7201551944602458,
+      "cv_schemeA_at_dz0": 0.5555573590826999
+    },
+    {
+      "dz_mm": 35.0,
+      "corner_rad": 178.80365411400726,
+      "corner_waves": 28.457485395137763,
+      "disc_edge_rad": 89.40182705700363,
+      "disc_edge_waves": 14.228742697568881,
+      "cv_schemeA_at_same_dz": 0.7292209375732431,
+      "cv_schemeA_at_dz0": 0.505259141708502
+    },
+    {
+      "dz_mm": 40.0,
+      "corner_rad": 204.3470332731511,
+      "corner_waves": 32.522840451586006,
+      "disc_edge_rad": 102.17351663657556,
+      "disc_edge_waves": 16.261420225793003,
+      "cv_schemeA_at_same_dz": 0.7263975728986269,
+      "cv_schemeA_at_dz0": 0.5225600442282231
+    },
+    {
+      "dz_mm": 45.0,
+      "corner_rad": 229.89041243229497,
+      "corner_waves": 36.588195508034254,
+      "disc_edge_rad": 114.94520621614748,
+      "disc_edge_waves": 18.294097754017127,
+      "cv_schemeA_at_same_dz": 0.6985186588033879,
+      "cv_schemeA_at_dz0": 0.5854311080085328
+    },
+    {
+      "dz_mm": 50.0,
+      "corner_rad": 255.43379159143893,
+      "corner_waves": 40.653550564482515,
+      "disc_edge_rad": 127.71689579571947,
+      "disc_edge_waves": 20.326775282241258,
+      "cv_schemeA_at_same_dz": 0.7240656315557614,
+      "cv_schemeA_at_dz0": 0.62155154828016
+    }
+  ],
+  "v3_embedded_defocus": [
+    {
+      "algo": "gs",
+      "label": "GS",
+      "opt_dz_mm": 0.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike",
+      "label": "GS + Zernike",
+      "opt_dz_mm": 0.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike_defocus",
+      "label": "GS + Zernike + 离焦并入环路",
+      "opt_dz_mm": 0.0,
+      "embedded_defocus_rad": -0.0027800811188304826,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike_post",
+      "label": "GS + 事后外挂离焦",
+      "opt_dz_mm": 0.0,
+      "embedded_defocus_rad": 0.03096966501556242,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs",
+      "label": "GS",
+      "opt_dz_mm": 25.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike",
+      "label": "GS + Zernike",
+      "opt_dz_mm": 25.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike_defocus",
+      "label": "GS + Zernike + 离焦并入环路",
+      "opt_dz_mm": 25.0,
+      "embedded_defocus_rad": 0.17937363899802097,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 1.2302373400194926
+    },
+    {
+      "algo": "gs_zernike_post",
+      "label": "GS + 事后外挂离焦",
+      "opt_dz_mm": 25.0,
+      "embedded_defocus_rad": -4.539466852489275,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 31.134015326380702
+    },
+    {
+      "algo": "gs",
+      "label": "GS",
+      "opt_dz_mm": 50.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike",
+      "label": "GS + Zernike",
+      "opt_dz_mm": 50.0,
+      "embedded_defocus_rad": 0.0,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0
+    },
+    {
+      "algo": "gs_zernike_defocus",
+      "label": "GS + Zernike + 离焦并入环路",
+      "opt_dz_mm": 50.0,
+      "embedded_defocus_rad": 0.00033060065304793535,
+      "at_boundary": false,
+      "pupil_quadratic_peak_rad": 0.0022674305449023446
+    },
+    {
+      "algo": "gs_zernike_post",
+      "label": "GS + 事后外挂离焦",
+      "opt_dz_mm": 50.0,
+      "embedded_defocus_rad": 5.0,
+      "at_boundary": true,
+      "pupil_quadratic_peak_rad": 34.29259022929969
+    }
+  ],
+  "elapsed_s": 551.4,
+  "outputs": {
+    "scheme_gap_csv": "scheme_gap_dz0_50mm_visuals.csv",
+    "v1_csv": "v1_gs_dz_sweep_visuals.csv",
+    "v2_csv": "v2_pupil_chirp_visuals.csv",
+    "v3_scan_csv": "v3_algo_scan_visuals.csv",
+    "v3_embed_csv": "v3_algo_embedded_defocus_visuals.csv",
+    "halo_csv": "halo_zero_order_visuals.csv",
+    "scheme_gap_png": "scheme_gap_visuals.png",
+    "v1_frames_png": [
+      "v1_gs_dz00mm_visuals.png",
+      "v1_gs_dz25mm_visuals.png",
+      "v1_gs_dz50mm_visuals.png"
+    ],
+    "v1_overview_png": "v1_gs_dz_overview_visuals.png",
+    "v1_overview_eta_png": "v1_gs_dz_overview_eta_visuals.png",
+    "v2_panels_png": "v2_pupil_chirp_panels_visuals.png",
+    "v2_peak_png": "v2_pupil_chirp_peak_visuals.png",
+    "v3_curves_png": "v3_cv_vs_dz_visuals.png",
+    "v3_finals_png": "v3_dz50_spots_visuals.png",
+    "v3_finals_eta_png": "v3_dz50_spots_eta_visuals.png",
+    "halo_png": "halo_zero_order_visuals.png"
+  }
+}
