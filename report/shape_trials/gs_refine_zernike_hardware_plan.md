@@ -22,7 +22,7 @@
 | 结论 | 数值 | 依据 |
 |---|---|---|
 | Stage-B 拟合残差**随 `n_max` 单调不增** | 8 阶扫描 0.0719 → 0.0385 rad（−46.5%） | 嵌套最小二乘基的性质；`E3_orders` |
-| 351 模（`n_max=25`）不触发 `ZERNIKE_CLIP=5.0` | `max|c|` 各阶一致 | `E3_orders` |
+| 351 模（`n_max=25`）不触发 `ZERNIKE_CLIP=5.0` | `max\|c\|` 各阶一致 | `E3_orders` |
 | `spgd_improved` 永远是**真实布尔决策**，不是缺字段 | — | `test_gs_refine_zernike_sweep.py::TestSpgdImprovedIsAlwaysRecorded` |
 | `--lr 0` 复现已记载的**步长拒绝失效** | 5/5 阶 `spgd_improved=false` | `E6_lr0` |
 | 能量守卫在仿真里**不是瓶颈** | 关掉守卫结果不变 | `E4_noguard` |
@@ -36,8 +36,8 @@ tilt-shift scale），二者角尺度不匹配。于是 GS 预矫正在仿真里
 
 | 量 | 仿真实测 | 含义 |
 |---|---|---|
-| `max|c|` | 各阶恒为 0.0142 rad | 拟合几乎没抓到任何结构 |
-| `fit_rms / max|c|` | 2.7 ~ 5.1 倍 | 被拟合的相位接近平场 |
+| `max\|c\|` | 各阶恒为 0.0142 rad | 拟合几乎没抓到任何结构 |
+| `fit_rms / max\|c\|` | 2.7 ~ 5.1 倍 | 被拟合的相位接近平场 |
 | `gs_freeform` vs `flat` PIB | 0.3450 vs 0.3448 | GS 相对平场**没有改善** |
 
 **结论：仿真只能验证管线正确性，不能回答"多少阶 Zernike 才能复现 GS 整形"。**

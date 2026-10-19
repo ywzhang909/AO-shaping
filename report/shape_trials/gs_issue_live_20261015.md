@@ -105,13 +105,13 @@
 
 **SLM 相位**
 
-![plain 相位](figures/20261019_100334_phase.png)
+![plain 相位](figures/gs_issue_live_phase_20261015_205654.png)
 
 **CCD 远场**
 
-![plain 远场](figures/20261019_100334_farfield.png)
+![plain 远场](figures/gs_issue_live_farfield_20261015_205654.png)
 
-> ⚠️ **配图归属更正**：本节上面两张配图（`figures/20261019_100334_phase.png`、`figures/20261019_100334_farfield.png`）取自 `data/debug/slm_model_in_loop/20261019_100334/`，属于**另一次运行**（2026-10-19 的正向模型闭环校正记录），并非本节的 `20261015_205654` GS refine 运行。二图原样保留供溯源；判读本轮相位与远场请以 §4.1 表格数值和下方由本轮原始 CCD 帧切出的 X/Y 光强截面为准。
+> 勘误：本节旧版误嵌入了 `20261019_100334`（2026-10-19 正向模型闭环校正运行）的相位与远场图；现已更正为本运行 `20261015_205654` 的图（`best_phase.npy` 与调试 PKL 最佳帧，与下方 X/Y 光强截面同源）。
 
 **X/Y 光强截面**
 

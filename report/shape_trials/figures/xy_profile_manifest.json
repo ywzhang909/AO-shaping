@@ -8,7 +8,7 @@
     "structural": 37,
     "unresolved": 5
   },
-  "phase_figures_regenerated": 36,
+  "phase_figures_regenerated": 27,
   "phase_figures_unresolved": 0,
   "figures": [
     {
@@ -360,6 +360,44 @@
         152.0,
         149.0
       ]
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_205654.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.81084049534583,
+        133.60948955215684
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        9.609489552156845,
+        6.189159504654171
+      ],
+      "peak_after_median_subtraction": 4.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_205654_xy_profile.png",
+      "run": "20261015_205654",
+      "argmax_row_col": [
+        92.0,
+        102.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_205654/best_far_field.png",
+        "max_abs_gray_diff": 64.0,
+        "fraction_pixels_differing": 0.014305334794216138
+      }
     },
     {
       "figure": "figures/gs_issue_live_farfield_20261015_205848.png",
@@ -1424,44 +1462,6 @@
         120.0,
         149.0
       ]
-    },
-    {
-      "figure": "figures/gs_issue_live_farfield_20261015_205654.png",
-      "status": "OK",
-      "verify_mode": "structural",
-      "source": "data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl",
-      "key": "_img of argmax(score)",
-      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
-      "frame_shape": [
-        250,
-        248
-      ],
-      "spot_center_row_col": [
-        118.81084049534583,
-        133.60948955215684
-      ],
-      "frame_center_row_col": [
-        125,
-        124
-      ],
-      "cut_point": "prepare_frame + spots_calc.centroid",
-      "offset_from_frame_center_px": [
-        9.609489552156845,
-        6.189159504654171
-      ],
-      "peak_after_median_subtraction": 4.0,
-      "median_background": 0.0,
-      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_205654_xy_profile.png",
-      "run": "20261015_205654",
-      "argmax_row_col": [
-        92.0,
-        102.0
-      ],
-      "run_png_agreement": {
-        "reference": "data/debug/slm_gs_refine/20261015_205654/best_far_field.png",
-        "max_abs_gray_diff": 64.0,
-        "fraction_pixels_differing": 0.014305334794216138
-      }
     },
     {
       "figure": "images/gui_shaping_20261014/fig3_far_field.png#A_flat",
