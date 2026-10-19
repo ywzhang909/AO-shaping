@@ -1,5 +1,13 @@
 # 相机位置调整后的正向模型校正与多形状整形（2026-10-19）
 
+<!-- provenance:start -->
+> **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/model_in_loop_auto.py`](../../scripts/slm/model_in_loop_auto.py)
+> **数据/关联脚本**: [`scripts/slm/model_in_loop_hw_runbook.py`](../../scripts/slm/model_in_loop_hw_runbook.py)
+> **运行环境**: 离线+硬件
+> **说明**: 2026-10-19 相机位置调整后正向模型校正与多形状整形 (Santec #1 22030108 + 大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、平均镜像误差改善约 30.4%；新几何标准相位族留出相关性约 0.78–0.87，但自由相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过独立模型门槛，无匀化验收结论
+<!-- provenance:end -->
+
 ## 09:41 开始：设备发现与当前会话探测
 
 用户已确认释放相机。受限进程内 `gxipy.DeviceManager().update_device_list()` 返回
@@ -250,7 +258,7 @@ Zernike 相位生成函数。单幅宽度不用于推断离焦正负；采用双
 ## 完整操作流程与后续所有候选方向
 
 完整分阶段操作、命令、产物、异常恢复和 20 项 FAQ 已固化为
-[跨光路流程手册](../../docs/slm/model_in_loop_workflow_faq.md)。流程顺序如下：
+[跨光路流程手册](../../docs/slm/model_in_loop_handoff.md)。流程顺序如下：
 
 1. 建立设备/光路配置与数据目录，确认 SDK、占用、位深、增益和波长/LUT。
 2. 固定相位多曝光测响应、记录回读值，检查饱和及信号下限，并插入漂移参考。

@@ -716,6 +716,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/utils/image/exposure_control.py",
         ),
     ),
+    "report/shape_trials/model_in_loop_live_20261019.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note=(
+            "2026-10-19 相机位置调整后正向模型校正与多形状整形 (Santec #1 22030108 + "
+            "大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、"
+            "平均镜像误差改善约 30.4%；新几何标准相位族留出相关性约 0.78–0.87，"
+            "但自由相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
+            "独立模型门槛，无匀化验收结论"
+        ),
+        extra_scripts=(
+            "scripts/slm/model_in_loop_auto.py",
+            "scripts/slm/model_in_loop_hw_runbook.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
