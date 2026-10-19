@@ -90,8 +90,14 @@ EXACT_RULES = [
     ('粉饰',       '拔高'),
     ('本方',       '本文'),
 
+    # T-61 GS 自由相位 → GS 逐像素相位（2026-10-19）。**必须先于 T-60**：这是 GS 优化
+    # 得到的确定性相位（逐像素相位自由度，AGENTS.md "full-pixel phase freedom"），
+    # 不是 `freeform` 随机探针；若让 T-60 的裸词规则先命中，会把可检验的断言改成假的。
+    ('GS 自由相位', 'GS 逐像素相位'),
+
     # T-60 自由相位 → 全频随机相位（2026-10-19）。代码标签 `freeform` 不在此列：
     # 它是标识符，由 §2 保护；此处只统一中文叙述。
+    # 适用范围仅 `freeform` 随机探针（见术语表 T-60/T-61 说明）。
     ('自由相位留出', '全频随机相位留出'),
     ('自由相位族',   '全频随机相位族'),
     ('自由相位帧',   '全频随机相位帧'),
@@ -116,6 +122,21 @@ def _ascii_dominant(s):
 
 def _has_cjk(s):
     return bool(re.search(r'[\u4e00-\u9fff]', s))
+
+# ---------------------------------------------------------------------------
+# 登记记录行保护
+# ---------------------------------------------------------------------------
+# 这些行把禁词作为「被替换对象」的证据来引用（登记标题、对照表行、"某词是 code 标签
+# 的直译"这类说明）。替换它们会摧毁记录本身，并使本脚本非幂等：第二次运行会把
+# 「T-60：自由相位 → 全频随机相位」改写成「T-60：全频随机相位 → 全频随机相位」。
+RECORD_LINE_PATTERNS = (
+    re.compile(r'术语登记'),
+    re.compile(r'^\s*[|>#+-]*\s*T-\d+\b'),
+    re.compile(r'是代码标签\s*`'),
+)
+
+def _is_registration_record(line):
+    return any(p.search(line) for p in RECORD_LINE_PATTERNS)
 
 # ---------------------------------------------------------------------------
 # 单行处理
@@ -176,6 +197,9 @@ def transform(text):
             out.append(ln)
             continue
         if fence:
+            out.append(ln)
+            continue
+        if _is_registration_record(ln):
             out.append(ln)
             continue
         out.append(process_line(ln))

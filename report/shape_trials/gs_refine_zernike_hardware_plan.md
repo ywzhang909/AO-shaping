@@ -83,7 +83,7 @@ Stage A  slm_gs_refine（GS 预矫正 + SPGD 细化）
          → best_phase（1200×1920 面板，弧度，raw 未包裹）
                 │
 Stage B  fit_best_phase(best_phase, n_max, beam_radius_px)
-         → 瞳孔裁剪 (pupil_side 900) → Noll 最小二乘拟合
+         → 瞳面裁剪 (pupil_side 900) → Noll 最小二乘拟合
          → coefficients[n_modes]（弧度）+ fit_rms_rad + max|c|
                 │
 Stage C  slm_zernike_pib（SPGD 在 Zernike 系数上）
@@ -282,13 +282,19 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 ## 5. 执行顺序与依赖
 
 ```
-P0  H0 台架基线 ──┬──> H1 GS bake-off ──┬──> H3 单调性 ──┬──> H4 knee
-                  │                     │                 ├──> H5 系数自洽 ──> H6 far-field 保真 ★
-                  └──> H2 噪声地板 ─────┴─────────────────┘        │
-                                        │                          └──> H8 受限 vs 自由相位
-                                        └──> H9 带噪声地板的排序 <────┘
+H0 实验系统基线  (P0)
+├── H1 GS 对比择优  (P0)
+│   ├── H3 单调性
+│   │   ├── H4 knee
+│   │   └── H5 系数自洽
+│   │        └── H6 far-field 保真 ★  ← 核心科学项
+│   │             ├── H7 预算是否足够
+│   │             │    ├── H10 守卫消融
+│   │             │    └── H11 步长
+│   │             └── H8 受限 vs 逐像素相位
+│   └── H9 带噪声地板的排序
+└── H2 噪声地板  (P0，可与 H1 并行准备)
 
-H6 ──> H7 预算是否足够 ──> H10 守卫消融 / H11 步长
 H5 ──> H12 基半径扫描
 ```
 

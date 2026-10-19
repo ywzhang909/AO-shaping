@@ -662,7 +662,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_gs_refine_zernike_report.py",
         environment="离线",
         note=(
-            "GS 自由相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 "
+            "GS 逐像素相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 "
             "run_gs_refine_zernike_sweep.py 产出的 summary.json + spgd_nmax*.csv，"
             "渲染拟合残差/CV/PIB 三图与阶数扫描表"
         ),
@@ -736,7 +736,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "2026-10-19 相机位置调整后正向模型校正与多形状整形 (Santec #1 22030108 + "
             "大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、"
             "平均镜像误差改善约 30.4%；新几何标准相位族留出相关性约 0.78–0.87，"
-            "但自由相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
+            "但全频随机相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
             "独立模型门槛，无匀化验收结论"
         ),
         extra_scripts=(

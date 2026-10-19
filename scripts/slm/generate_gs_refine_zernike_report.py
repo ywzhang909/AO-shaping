@@ -91,7 +91,7 @@ def render_figures(summary: dict, run_dir: Path) -> None:
     ax.plot(n_vals, cv_after, "o-", color="#2b6cb0", label="SPGD 后")
     ax.axhline(baselines["flat"]["cv"], color="#c53030", ls=":", label="平场基线")
     ax.axhline(
-        baselines["gs_freeform"]["cv"], color="#6b46c1", ls="-.", label="GS 自由相位基线"
+        baselines["gs_freeform"]["cv"], color="#6b46c1", ls="-.", label="GS 逐像素相位基线"
     )
     ax.set_xlabel("n_max")
     ax.set_ylabel("CV")
@@ -110,7 +110,7 @@ def render_figures(summary: dict, run_dir: Path) -> None:
     ax.plot(n_vals, pib_after, "o-", color="#2b6cb0", label="SPGD 后")
     ax.axhline(baselines["flat"]["pib"], color="#c53030", ls=":", label="平场基线")
     ax.axhline(
-        baselines["gs_freeform"]["pib"], color="#6b46c1", ls="-.", label="GS 自由相位基线"
+        baselines["gs_freeform"]["pib"], color="#6b46c1", ls="-.", label="GS 逐像素相位基线"
     )
     ax.set_xlabel("n_max")
     ax.set_ylabel("PIB")
@@ -181,7 +181,7 @@ def build_markdown(summary: dict, run_dir: Path) -> str:
 
 共扫描 {len(orders)} 个 Zernike 阶数 (n_max = {n_vals_str(orders)})。
 平场基线 PIB={fmt_metric(baselines['flat']['pib'])}, CV={fmt_metric(baselines['flat']['cv'])};
-GS 自由相位基线 PIB={fmt_metric(baselines['gs_freeform']['pib'])}, CV={fmt_metric(baselines['gs_freeform']['cv'])}。
+GS 逐像素相位基线 PIB={fmt_metric(baselines['gs_freeform']['pib'])}, CV={fmt_metric(baselines['gs_freeform']['cv'])}。
 {scan_verdict(orders, baselines, summary)}
 
 ## 实验设置
@@ -204,7 +204,7 @@ GS 自由相位基线 PIB={fmt_metric(baselines['gs_freeform']['pib'])}, CV={fmt
 | 相位 | PIB | CV | EE | AR | 综合分 |
 |---|---|---|---|---|---|
 | 平场 | {fmt_metric(baselines['flat']['pib'])} | {fmt_metric(baselines['flat']['cv'])} | {fmt_metric(baselines['flat']['ee'])} | {fmt_metric(baselines['flat']['ar'])} | {fmt_metric(baselines['flat']['quality'])} |
-| GS 自由相位 | {fmt_metric(baselines['gs_freeform']['pib'])} | {fmt_metric(baselines['gs_freeform']['cv'])} | {fmt_metric(baselines['gs_freeform']['ee'])} | {fmt_metric(baselines['gs_freeform']['ar'])} | {fmt_metric(baselines['gs_freeform']['quality'])} |
+| GS 逐像素相位 | {fmt_metric(baselines['gs_freeform']['pib'])} | {fmt_metric(baselines['gs_freeform']['cv'])} | {fmt_metric(baselines['gs_freeform']['ee'])} | {fmt_metric(baselines['gs_freeform']['ar'])} | {fmt_metric(baselines['gs_freeform']['quality'])} |
 
 ## 阶数扫描
 
@@ -226,7 +226,7 @@ GS 自由相位基线 PIB={fmt_metric(baselines['gs_freeform']['pib'])}, CV={fmt
    目标函数必须包含能量项。
 2. **Zernike 基半径锁定 `beam_radius_px`**，且与 GS 瞳面一致；更换光路必须重扫。
 3. **仿真模式下 GS 预矫正未经物理标定。** 数字孪生是纯 FFT；`_derive_target_side`
-   的台架模型（`camera_pixel_um=2.2`、焦距来自实测 tilt-shift scale）与仿真角尺度
+   的实验系统模型（`camera_pixel_um=2.2`、焦距来自实测 tilt-shift scale）与仿真角尺度
    不匹配。日志会出现 "GS warm start ... did not beat flat ...; keeping flat"。
    仿真只验证 Zernike 拟合 + SPGD 路径与退化几何守卫；物理对比仅在真实硬件上有意义。
 4. **`max_abs_coefficient` vs `ZERNIKE_CLIP = 5.0` rad。** 超过阈值会触发 clip，
