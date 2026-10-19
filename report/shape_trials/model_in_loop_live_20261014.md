@@ -2,8 +2,9 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../scripts/slm/generate_shape_trial_profiles.py)
 > **运行环境**: 硬件
-> **说明**: 2026-10-14 正向模型闭环实验复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准
+> **说明**: 2026-10-14 正向模型闭环实验复核（exp/model-in-loop-20261014 worktree）；随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，本日未重新独立标定其尺度/入射振幅/面板配准；图内 X/Y 光强截面由 generate_shape_trial_profiles.py 从记录的原始 CCD 帧重新生成
 <!-- provenance:end -->
 
 本报告为 `banckend` 本地分支派生的 `exp/model-in-loop-20261014` worktree 新增记录，不改写 2026-10-13 报告。代码工作目录为 `data/debug/worktrees/model-in-loop-20261014/`，所有采集数据保存在主仓库 `data/debug/slm_model_in_loop/`。设备为 Santec SLM #1（`22030108`）和 Daheng CCD（`FJB24112232`），波长 1064 nm；每轮设备独立打开、关闭并恢复 SLM 原显示。
@@ -34,15 +35,15 @@
 
 > ⚠️ **注意**：`best_far_field.png` 是 colormap 渲染图，不是原始强度数组。下方 `EE_in_target` 与 `RMS_uniformity` 基于渲染图亮度通道近似计算，**不等于**表格中 runner 在原始 CCD 数据上计算的 `CV/EE`，两者不可直接比较，仅供可视化参考。
 
-| 运行 | SLM 相位 | CCD 远场 (target 框) |
-|------|----------|---------------------|
-| `20261014_105041` (无扰动，方形) | ![](figures/model_in_loop_live_20261014_20261014_105041_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105041_farfield.png){width=150} |
-| `20261014_105205` (扰动，方形) | ![](figures/model_in_loop_live_20261014_20261014_105205_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105205_farfield.png){width=150} |
-| `20261014_105339` (扰动，长方形) | ![](figures/model_in_loop_live_20261014_20261014_105339_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105339_farfield.png){width=150} |
-| `20261014_105438` (扰动，三角形) | ![](figures/model_in_loop_live_20261014_20261014_105438_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105438_farfield.png){width=150} |
-| `20261014_105535` (扰动，五角星) | ![](figures/model_in_loop_live_20261014_20261014_105535_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105535_farfield.png){width=150} |
-| `20261014_110203` (扰动，长方形，Step A 零步) | ![](figures/model_in_loop_live_20261014_20261014_110203_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110203_farfield.png){width=150} |
-| `20261014_110305` (扰动，长方形，Step A 10 步) | ![](figures/model_in_loop_live_20261014_20261014_110305_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110305_farfield.png){width=150} |
+| 运行 | SLM 相位 | CCD 远场 (target 框) | X/Y 光强截面 |
+|------|----------|---------------------|--------------|
+| `20261014_105041` (无扰动，方形) | ![](figures/model_in_loop_live_20261014_20261014_105041_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105041_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105041_farfield_xy_profile.png){width=320} |
+| `20261014_105205` (扰动，方形) | ![](figures/model_in_loop_live_20261014_20261014_105205_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105205_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105205_farfield_xy_profile.png){width=320} |
+| `20261014_105339` (扰动，长方形) | ![](figures/model_in_loop_live_20261014_20261014_105339_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105339_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105339_farfield_xy_profile.png){width=320} |
+| `20261014_105438` (扰动，三角形) | ![](figures/model_in_loop_live_20261014_20261014_105438_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105438_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105438_farfield_xy_profile.png){width=320} |
+| `20261014_105535` (扰动，五角星) | ![](figures/model_in_loop_live_20261014_20261014_105535_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105535_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_105535_farfield_xy_profile.png){width=320} |
+| `20261014_110203` (扰动，长方形，Step A 零步) | ![](figures/model_in_loop_live_20261014_20261014_110203_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110203_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110203_farfield_xy_profile.png){width=320} |
+| `20261014_110305` (扰动，长方形，Step A 10 步) | ![](figures/model_in_loop_live_20261014_20261014_110305_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110305_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_110305_farfield_xy_profile.png){width=320} |
 
 | 运行 | target 内能量占比 (EE_in_target, 渲染图近似) | target 均匀度 RMS (渲染图近似) | 实测 CV | 实测 EE |
 |------|---------------------------------------------|--------------------------------|---------|---------|
@@ -83,10 +84,10 @@
 
 > ⚠️ **注意**：远场图为原始 CCD 帧（非 colormap 渲染图），下方 `EE_in_target` 与 `RMS_uniformity` 基于原始强度数组计算，与表格中 `CV/EE` 不同口径，两者不可直接比较，仅供可视化参考。
 
-| | A 相位 | A 远场 | B 相位 | B 远场 |
-|---|---|---|---|---|
-| 第一次 | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_A_zero_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_B_10_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_02_B_farfield.png){width=150} |
-| 第二次 | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_A_zero_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_B_10_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_04_B_farfield.png){width=150} |
+| | A 相位 | A 远场 | B 相位 | B 远场 | X/Y 光强截面 |
+|---|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_A_zero_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_B_10_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_02_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_01_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_02_B_farfield_xy_profile.png){width=320} |
+| 第二次 | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_A_zero_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_B_10_step_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_04_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_05_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261014_1115_zero_vs_refit_04_B_farfield_xy_profile.png){width=320} |
 
 | 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
 |------|----------------------------------|-------------------|---------|---------|
@@ -121,13 +122,15 @@
 
 以下为五轮目标形状整形的 SLM 最佳相位（包装到 [0, 2π)，`twilight` 色图）与对应 CCD 远场图像（`inferno` 色图）。相位来自各运行目录的 `best_phase.npy`；远场为保存的 `best_far_field.png`。
 
-| 形状 | SLM 相位 | CCD 远场 |
-|------|----------|----------|
-| 圆形 (`20261014_170820`) | ![](figures/model_in_loop_live_20261014_20261014_170820_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield.png){width=150} |
-| 正方形 (`20261014_171043`) | ![](figures/model_in_loop_live_20261014_20261014_171043_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield.png){width=150} |
-| 长方形 (`20261014_171219`) | ![](figures/model_in_loop_live_20261014_20261014_171219_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield.png){width=150} |
-| 三角形 (`20261014_171301`) | ![](figures/model_in_loop_live_20261014_20261014_171301_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield.png){width=150} |
-| 五角星 (`20261014_171340`) | ![](figures/model_in_loop_live_20261014_20261014_171340_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield.png){width=150} |
+| 形状 | SLM 相位 | CCD 远场 | X/Y 光强截面 |
+|------|----------|----------|--------------|
+| 圆形 (`20261014_170820`) | ![](figures/model_in_loop_live_20261014_20261014_170820_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_170820_farfield_xy_profile.png){width=320} |
+| 正方形 (`20261014_171043`) | ![](figures/model_in_loop_live_20261014_20261014_171043_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171043_farfield_xy_profile.png){width=320} |
+| 长方形 (`20261014_171219`) | ![](figures/model_in_loop_live_20261014_20261014_171219_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171219_farfield_xy_profile.png){width=320} |
+| 三角形 (`20261014_171301`) | ![](figures/model_in_loop_live_20261014_20261014_171301_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171301_farfield_xy_profile.png){width=320} |
+| 五角星 (`20261014_171340`) | ![](figures/model_in_loop_live_20261014_20261014_171340_phase.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield.png){width=150} | ![](figures/model_in_loop_live_20261014_20261014_171340_farfield_xy_profile.png){width=320} |
+
+以上三处表格的 `X/Y 光强截面` 列均取自各次运行**记录的原始 CCD 帧**，而非渲染后的 `best_far_field.png` 或重放图。口径：X 剖面为过光斑中心行的行剖面（光强对像素 x），Y 剖面为过光斑中心列的列剖面（光强对像素 y）；切点取光强质心（`prepare_frame` 扣除背景中位数后的质心），不是假定的图幅中心。交错重放表每格给出该行实际采集帧的 A、B 两条剖面（`01_A`/`05_A`、`02_B`/`04_B` 为两次不同采集，不可互换）。下文"远场 + 目标轮廓"一节的 `*_farfield_target.png` 是合成的目标图案而非测量结果，因此没有对应剖面。
 
 每轮 `probes/manifest.json` 恰有 10 张帧（平场 1、训练 2、留出 6、成形 1），全部有 UTC 时间戳及曝光回读；留出均带 `smooth`、`zernike` 或 `freeform` 标签。平场自动曝光约 0.05 ms，训练、留出与成形帧均为 0.400 ms，未超过上限；逐轮辅助原始帧峰值最高分别为 166、170、186、193、196/255。原始帧为稳定平均后的另一次 CCD 读取，不能与稳定帧逐像素配对。设备每轮均正常关闭。
 

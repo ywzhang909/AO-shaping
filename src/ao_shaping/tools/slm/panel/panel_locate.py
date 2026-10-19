@@ -46,6 +46,11 @@ from loguru import logger
 from ao_shaping.tools.slm.panel.display_state import (
     preserve_slm_display as _restore_slm_display,
 )
+from ao_shaping.utils.cli.exposure import (
+    DEFAULT_EXPOSURE,
+    exposure_ms_legacy,
+    resolve_exposure,
+)
 
 from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
@@ -85,6 +90,12 @@ class PanelLocateParams:
     the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``
     (renders ``[daheng|miicam]``, not ``TEXT``) and leaves ``--exposure-ms`` /
     ``--frames`` without help text, so reuse would change the frozen help.
+
+    ``exposure_ms`` is a token (``"auto"`` / ``"default"`` / a decimal string)
+    rather than a float because the two non-numeric states are genuinely
+    different here -- see :mod:`ao_shaping.utils.cli.exposure`, which resolves
+    them.  It used to be a plain float with ``0`` meaning what ``auto`` now
+    means.
     """
 
     slm_number: Annotated[
@@ -98,8 +109,18 @@ class PanelLocateParams:
     ] = "daheng"
     cam_id: Annotated[int, option("--cam-id", help="相机 ID (默认 0)")] = 0
     exposure_ms: Annotated[
-        float, option("--exposure-ms", help="相机曝光 ms (默认 0.1)")
-    ] = 0.1
+        str,
+        option(
+            "--exposure-ms",
+            metavar="[default|auto|FLOAT]",
+            help=(
+                "相机曝光 ms (默认 0.1)。'auto' = 探测曝光上限并在其下工作"
+                "(env AO_DAHENG_MAX_EXPOSURE_MS 优先, 否则按画面倍增探测); "
+                "'default' = 完全不动曝光 (不探测/不重置/不钳位), 延用相机当前值; "
+                "0 不再等价于 auto, 会被拒绝"
+            ),
+        ),
+    ] = "0.1"
     patch_radius: Annotated[
         int,
         option(
@@ -149,7 +170,7 @@ def scan_panel(
     max_session_shift_fwhm: float = 0.5,
 ) -> PanelLocateResult:
     """Scan candidate panel positions and verify paired and session flat stability."""
-    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_ms
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.image.exposure_control import (
         DAHENG_EXPOSURE_LIMIT_ENV,
@@ -164,7 +185,14 @@ def scan_panel(
     slm_wavelength = params.slm_wavelength
     cam_type = params.cam_type
     cam_id = params.cam_id
-    exposure_ms = params.exposure_ms
+    # The ONE explicit/implicit translation point for this probe. `auto` is the
+    # legacy `0`: probe the ceiling and work under it. `default` is new and is
+    # the only call site in the repo that can honour it -- touch nothing, reset
+    # nothing, clamp nothing. Everything below `exposure_ms == 0` is
+    # pre-existing behaviour, unchanged.
+    resolved_exposure = resolve_exposure(params.exposure_ms, param_hint="--exposure-ms")
+    keep_device_exposure = resolved_exposure is DEFAULT_EXPOSURE
+    exposure_ms = exposure_ms_legacy(resolved_exposure)
     patch_radius = params.patch_radius
     grid_xs = params.grid_xs
     grid_ys = params.grid_ys
@@ -174,10 +202,6 @@ def scan_panel(
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
 
     if cam_type.lower() == "daheng":
-        if exposure_ms < 0:
-            raise click.BadParameter(
-                "Daheng exposure must be non-negative (0 = auto)", param_hint="--exposure-ms"
-            )
         env_ceiling = configured_daheng_exposure_limit()
         if env_ceiling > 0 and exposure_ms > env_ceiling:
             raise click.BadParameter(
@@ -198,29 +222,42 @@ def scan_panel(
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
     ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=0.02) as cam, _restore_slm_display(slm):
-        actual_ms = cam.reset_exposure_time(0.02)
-        if exposure_ms == 0:
-            measure_flat_reference(cam, slm, n_frames=1, panel_shape=panel)
-        if cam_type.lower() == "daheng":
-            ceiling = resolve_daheng_exposure_limit(camera=cam)
-            # The probe (if any) left the camera at the last ladder step; re-arm.
-            if exposure_ms == 0:
-                exposure_ms = working_exposure_ms(ceiling)
-            actual_ms = cam.reset_exposure_time(float(exposure_ms))
-            if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
-                raise RuntimeError(
-                    f"unsafe Daheng exposure readback: {actual_ms} ms "
-                    f"(ceiling {ceiling} ms)"
-                )
-        elif exposure_ms == 0:
-            estimate = probe_exposure_ceiling_ms(
-                cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+        if keep_device_exposure:
+            # 'default': probe nothing, reset nothing, clamp nothing. The 0.02
+            # the driver applied during open() is already in force; take it as
+            # the working exposure and report the readback for the record only.
+            # (On Daheng open() itself always writes a clamped value, so the
+            # device's "own" setting here is its ~0.02 ms minimum -- which is
+            # exactly why this is NOT the default for this probe.)
+            actual_ms = float(get_camera_exposure_ms(cam))
+            logger.info(
+                "exposure 'default': keeping the camera's own {} ms (no probe, no reset)",
+                actual_ms,
             )
-            exposure_ms = working_exposure_ms(estimate.ceiling_ms)
-            actual_ms = cam.reset_exposure_time(float(exposure_ms))
         else:
-            actual_ms = cam.reset_exposure_time(float(exposure_ms))
+            actual_ms = cam.reset_exposure_time(0.02)
+            if exposure_ms == 0:
+                measure_flat_reference(cam, slm, n_frames=1, panel_shape=panel)
+            if cam_type.lower() == "daheng":
+                ceiling = resolve_daheng_exposure_limit(camera=cam)
+                # The probe (if any) left the camera at the last ladder step; re-arm.
+                if exposure_ms == 0:
+                    exposure_ms = working_exposure_ms(ceiling)
+                actual_ms = cam.reset_exposure_time(float(exposure_ms))
+                if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
+                    raise RuntimeError(
+                        f"unsafe Daheng exposure readback: {actual_ms} ms "
+                        f"(ceiling {ceiling} ms)"
+                    )
+            elif exposure_ms == 0:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                exposure_ms = working_exposure_ms(estimate.ceiling_ms)
+                actual_ms = cam.reset_exposure_time(float(exposure_ms))
+            else:
+                actual_ms = cam.reset_exposure_time(float(exposure_ms))
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)

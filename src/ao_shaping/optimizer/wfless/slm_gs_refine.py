@@ -83,6 +83,10 @@ from ao_shaping.drivers.slm.factory import (
     open_slm,
     sync_device_wavelength,
 )
+from ao_shaping.gui.utils.phase_overlay import (
+    PhaseOverlay,
+    apply_overlays_to_handle,
+)
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.optimizer.wfless._measure import display_and_average, locate_zero_order
 from ao_shaping.utils.image.exposure_control import (
@@ -272,6 +276,15 @@ class SlmGsRefineConfig:
     settle_tol: float = 0.02
     settle_max_wait_s: float = 6.0
     settle_max_discard: int = 40
+
+    # --- send-pipeline overlay (GUI 离焦 / 底相位 T4 叠加层) ---------------
+    send_overlay: PhaseOverlay | None = field(default=None, repr=False)
+    """Send-pipeline overlay (defocus + base phase) to apply to the SLM this
+    run opens. ``None`` (default) = no overlay, so CLI runs are untouched. The
+    GUI entry fills this from the current session via ``build_send_overlay``;
+    :func:`apply_overlays_to_handle` writes it onto the freshly-opened handle
+    (driver slot for a real Santec, no-op for a sim SLM that lacks the setters).
+    """
 
     # --- bookkeeping -------------------------------------------------------
     callback: Callable[[int, float], None] | None = field(default=None, repr=False)
@@ -609,6 +622,12 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     recorder = Recorder(mark="score", mode="max")
 
     slm = open_slm(config)
+    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens,
+    # so the closed loop sends the same overlay the GUI's manual path uses.
+    # No-op for a sim SLM (no overlay setters); default ``None`` leaves CLI runs
+    # untouched.
+    if config.send_overlay is not None:
+        apply_overlays_to_handle(slm, config.send_overlay)
     cam = None
     try:
         cam = open_camera(config)

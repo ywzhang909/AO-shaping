@@ -31,7 +31,7 @@ import os
 import time
 from collections import deque
 from contextlib import nullcontext
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
 
 import numpy as np
@@ -54,8 +54,13 @@ from ao_shaping.drivers.ccd.common import (
 )
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.slm.santec import PANEL_RES
+from ao_shaping.gui.utils.phase_overlay import (
+    PhaseOverlay,
+    apply_overlays_to_handle,
+)
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
@@ -311,6 +316,12 @@ class SlmZernikePibConfig:
     show: bool = False
     # --- Recording ---------------------------------------------------------------
     record_phase: bool = False
+    # --- Send-pipeline overlay (GUI 离焦 / 底相位 T4 叠加层) ---------------
+    send_overlay: PhaseOverlay | None = field(default=None, repr=False)
+    """Send-pipeline overlay (defocus + base phase) applied to the SLM this run
+    opens (driver slot on a real Santec; no-op on a sim SLM). ``None`` (default)
+    = no overlay, so CLI runs are untouched; the GUI entry fills it from the
+    session via ``build_send_overlay``."""
     # --- Debug / result report ---------------------------------------------------
     #: Save the debug artifact bundle (PNG + pkl + json) after the run, under
     #: ``<debug_dir>/debug/slm_zernike_shaping_<objective>_<ts>/``.
@@ -479,7 +490,13 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     r_bucket = camera_config.r_bucket
     delta = config.delta
     lr = config.lr
-    exposure_time_ms = camera_config.exposure_time_ms
+    # CLI token -> the legacy float every `exposure_time_ms == 0` branch below
+    # tests. Both tokens collapse onto 0.0, which is what `auto` meant here.
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            camera_config.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
     shrink_iter = config.shrink_iter
     shrink_ratio = config.shrink_ratio
     show = config.show
@@ -620,8 +637,18 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
     else:
         display_ctx = nullcontext(None)
 
-    cam_ctx = create_camera(config.camera)
+    # `create_camera(config.camera)` reads `exposure_time_ms` straight off the
+    # object, and that field carries the CLI token -- hand it a copy that holds
+    # the resolved float instead of mutating the caller's params object.
+    cam_ctx = create_camera(
+        replace(config.camera, exposure_time_ms=exposure_time_ms)
+    )
     slm_ctx = Santec.from_params(config.slm)
+    # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this run opens
+    # (driver slot on a real Santec; no-op for a sim SLM that lacks the setters).
+    # Default ``None`` leaves CLI runs untouched.
+    if config.send_overlay is not None:
+        apply_overlays_to_handle(slm_ctx, config.send_overlay)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
         assert cam is not None and slm is not None

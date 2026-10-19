@@ -3318,7 +3318,13 @@ unobservable?" without opening a device. The holdout gate correlates the predict
 with the mapped measurement over the *whole* far-field grid, but the camera only ever
 sees a crop, so the measurement is zero outside it. This script rebuilds the same
 prediction, measures the camera footprint (an all-ones frame through the same mapping —
-`model_grid != 0` does not work, the closing bilinear resize smears a halo), and reports
+`model_grid != 0` looks equivalent and is not: the mapping is a non-negative
+linear operator, so the nonzero mask is always a subset of the true footprint (it can
+only under-report — 7.91% on a bright frame, 3.96% on a dim one), and it depends
+entirely on the scene — a black frame collapses it to the empty set while the camera
+plainly did see those pixels. That second case is not hypothetical: a bench whose light
+has dropped leaves a near-black frame and the naive mask then reports that the camera
+saw nothing at all), and reports
 per family: as-recorded, restricted to the camera support, and the **perfect-model
 ceiling** `corr(prediction, prediction * support)`.
 
@@ -3338,6 +3344,68 @@ frame on its own peak shows whether structure is missing at all.
 Evidence: `data/debug/analyze_holdout_ceiling/<stamp>/`. Probe families are recovered
 from the phase spectrum (the recorded manifest does not name them) and printed
 alongside the recorded correlations so the classification can be checked.
+
+### generate_shape_trial_profiles.py
+
+Offline: re-derive the X/Y far-field intensity cross-sections for every spot image embedded
+in `report/shape_trials/*.md`, straight from the **recorded raw CCD frame** in the
+`pkl` / `npy` / `npz` debug record set. The committed spot images are grayscale renders
+(`save_best_image` → `imshow(cmap="gray")`), so a cross-section read off one is quantised to
+8 bits and carries the axes padding; two tables in `model_in_loop_live_20261019.md` were even
+headed "X/Y 光强截面" while holding SLM phase and far-field images, and
+`gui_closed_loop_shaping_20261014/fig4_box_profile.png` drew flat and best on a shared
+intensity axis despite their peaks differing ~13x.
+
+One fixed convention for every figure:
+
+- **X 剖面** = the row through the spot centre, intensity vs column index
+- **Y 剖面** = the column through the same spot centre, intensity vs row index
+- the cut point is the **intensity centroid** of the background-subtracted frame
+  (`beam_metrics.prepare_frame` + `spots_calc.centroid`), *not* an assumed frame centre.
+  `zero_order_center`'s `argmax` is deliberately not reused: it picks one order out of several
+  far apart, whereas a speckle field's brightest grain hops between near-equal peaks under a
+  ~1e-3 perturbation — measured across these figures `argmax` wanders up to 38 px from the
+  frame centre while the centroid stays within ~15 px.
+
+**The rendering is not this script's.** Both panels and the cut point come from
+[`ao_shaping.display.beam_profile`](../../src/ao_shaping/display/beam_profile.py) — the single
+implementation of the far-field / SLM-phase / X-Y cross-section renderers, shared with the debug
+artefacts a run's `Recorder` writes next to its `.pkl`. This script only calls `cut_point` /
+`save_xy_profile`; keeping a private copy of the convention here is the drift this repo keeps
+getting bitten by. What is left to the script is what the shared renderer knows nothing about:
+
+- the **resolver** — mapping every referenced figure to the record it must be cut from
+  (run stamp, replay dir, `best_frame` seed, per-panel GUI replay), and
+- the **provenance grader** — `byte` / `content` / `structural` / `unresolved`, stamped onto
+  each figure as a subtitle line.
+
+Provenance is graded, never assumed:
+
+| tier | meaning |
+| --- | --- |
+| `byte` | re-rendering the resolved frame through the same `save_best_image` call reproduces the committed PNG byte-for-byte |
+| `content` | same renderer, only title glyphs differ |
+| `structural` | the figure was rendered by an ad-hoc script with no committed generator; mapped by name/structure and **not** upgraded silently |
+| `unresolved` | the recorded frame is no longer on disk — reported, never guessed |
+
+Verification runs as a pass **before** any plotting: the shared renderer sets
+`rcParams["font.sans-serif"]` globally, which would change the next figure's title raster
+and silently break its byte comparison.
+
+```bash
+python scripts/slm/generate_shape_trial_profiles.py --check      # resolve + verify, write nothing
+python scripts/slm/generate_shape_trial_profiles.py              # write profiles + manifest
+python scripts/slm/generate_shape_trial_profiles.py --only 20261019_103208
+```
+
+**Output** — `figures/<stem>_xy_profile.png` beside each source figure (plus
+`xy_profile_manifest.json`: source container, array key, cut point, offset from the frame
+centre, peak, and the verification verdict).
+
+Note how `best_frame` is resolved: `slm_model_in_loop` seeds it with the flat baseline and
+only keeps the Step-B shaped frame when its score strictly beats it, so a run rejected at the
+holdout gate plots its **baseline** — several 2026-10-19 figures are the flat phase and must
+not be captioned as shaping output.
 
 ### diagnose_light_level.py
 

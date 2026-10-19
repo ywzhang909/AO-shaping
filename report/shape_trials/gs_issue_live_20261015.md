@@ -2,8 +2,9 @@
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
+> **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../scripts/slm/generate_shape_trial_profiles.py)
 > **运行环境**: 硬件
-> **说明**: 2026-10-15 GS 方法实验对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实验光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图
+> **说明**: 2026-10-15 GS 方法实验对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实验光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图；X/Y 光强截面由 scripts/slm/generate_shape_trial_profiles.py 从各轮调试 PKL 的 _img 重新生成
 <!-- provenance:end -->
 
 ---
@@ -98,6 +99,8 @@
 
 > **重要说明**：远场图为 `inferno` 颜色映射渲染后的图像，用于直观展示光斑形状分布；具体数值指标（CV、PIB、IoU）基于原始 CCD 帧计算，与渲染图不具备逐像素对应关系。
 
+**X/Y 光强截面口径**：各轮下方的「X/Y 光强截面」图直接由该次运行**记录的原始 CCD 帧**（调试 PKL 中 `score` 最优记录的 `_img`）离线切出，不经上述 `inferno` 渲染。**X 剖面 = 过光斑中心行的行剖面**（intensity vs 像素 x），**Y 剖面 = 过光斑中心列的列剖面**（intensity vs 像素 y）；**切点 = 光强质心**（`prepare_frame` 扣背景中位数后取质心），不是假定图幅中心。切图脚本与逐图溯源见 `figures/xy_profile_manifest.json`。
+
 ### plain (`20261015_205654`，GS CV = 0.6123)
 
 **SLM 相位**
@@ -107,6 +110,12 @@
 **CCD 远场**
 
 ![plain 远场](figures/20261019_100334_farfield.png)
+
+> ⚠️ **配图归属更正**：本节上面两张配图（`figures/20261019_100334_phase.png`、`figures/20261019_100334_farfield.png`）取自 `data/debug/slm_model_in_loop/20261019_100334/`，属于**另一次运行**（2026-10-19 的正向模型闭环校正记录），并非本节的 `20261015_205654` GS refine 运行。二图原样保留供溯源；判读本轮相位与远场请以 §4.1 表格数值和下方由本轮原始 CCD 帧切出的 X/Y 光强截面为准。
+
+**X/Y 光强截面**
+
+![plain X/Y 光强截面](figures/gs_issue_live_farfield_20261015_205654_xy_profile.png)
 
 ### weighted (`20261015_205848`，GS CV = 0.7793)
 
@@ -118,6 +127,10 @@
 
 ![weighted 远场](figures/gs_issue_live_farfield_20261015_205848.png)
 
+**X/Y 光强截面**
+
+![weighted X/Y 光强截面](figures/gs_issue_live_farfield_20261015_205848_xy_profile.png)
+
 ### adaptive-feedback (`20261015_210048`，GS CV = 0.7064)
 
 **SLM 相位**
@@ -127,6 +140,10 @@
 **CCD 远场**
 
 ![adaptive-feedback 远场](figures/gs_issue_live_farfield_20261015_210048.png)
+
+**X/Y 光强截面**
+
+![adaptive-feedback X/Y 光强截面](figures/gs_issue_live_farfield_20261015_210048_xy_profile.png)
 
 ### plain 复测 (`20261015_210155`，GS CV = 0.6152)
 
@@ -138,6 +155,10 @@
 
 ![plain 复测 远场](figures/gs_issue_live_farfield_20261015_210155.png)
 
+**X/Y 光强截面**
+
+![plain 复测 X/Y 光强截面](figures/gs_issue_live_farfield_20261015_210155_xy_profile.png)
+
 ### plain 再复测 (`20261015_211345`，GS CV = 0.6080，最优 CV)
 
 **SLM 相位**
@@ -147,6 +168,10 @@
 **CCD 远场**
 
 ![plain 再复测 远场](figures/gs_issue_live_farfield_20261015_211345.png)
+
+**X/Y 光强截面**
+
+![plain 再复测 X/Y 光强截面](figures/gs_issue_live_farfield_20261015_211345_xy_profile.png)
 
 ### 图像解读
 

@@ -23,8 +23,10 @@ import pandas as pd
 
 # NOTE: matplotlib is imported lazily inside the functions that plot
 # (Recorder.save_best / Recorder.plot / _save_data_mode_debug_artifacts /
-# save_optimization_debug_artifacts). utils/ is the leaf layer and must not
-# module-level import a rendering stack; the same reasoning already applies to
+# save_optimization_debug_artifacts), and `ao_shaping.display.beam_profile`
+# is imported lazily inside _save_data_mode_debug_artifacts for the same
+# reason. utils/ is the leaf layer and must not module-level import a rendering
+# stack; the same reasoning already applies to
 # `ao_shaping.display.image_display`, which is deferred for cycle reasons.
 
 # Project root directory (workspace root)
@@ -667,6 +669,34 @@ def _infer_objective_key(data: dict[int, dict]) -> str | None:
     return None
 
 
+#: Accepted values of the ``frame_artifacts`` knob on the debug-artifact writers.
+#:
+#: * ``"none"``    -- write no companion images (the pre-2026-10 behaviour).
+#: * ``"summary"`` -- first / best / last epoch only. **The default on purpose**:
+#:   ``tools/slm/calibration/train_data_collect.py`` re-saves the *whole* history
+#:   on every flush, so per-epoch images would make that write quadratic. It also
+#:   matches what the 2x2 debug PNG already shows (first & last ``_img``), so the
+#:   default costs one extra file pair per flush rather than a new artefact class.
+#: * ``"all"``     -- every epoch (appropriate for one-shot runs).
+_FRAME_ARTIFACT_MODES = ("none", "summary", "all")
+
+
+def _validate_frame_artifacts(mode: str) -> str:
+    """Reject a bad ``frame_artifacts`` value at the public call site.
+
+    :func:`ao_shaping.display.beam_profile.select_epochs` is the real
+    validator, but it only runs once the plotting layer has already been
+    imported; checking here means a typo surfaces at the wrapper the caller
+    actually invoked.
+    """
+    if mode not in _FRAME_ARTIFACT_MODES:
+        raise ValueError(
+            f"unknown frame_artifacts mode {mode!r}; expected one of "
+            f"{_FRAME_ARTIFACT_MODES}"
+        )
+    return mode
+
+
 def _save_data_mode_debug_artifacts(
     data: dict[int, dict],
     png_path: Path,
@@ -676,6 +706,11 @@ def _save_data_mode_debug_artifacts(
     json_payload: dict | None,
     top_right_key: str | None = None,
     top_right_title: str | None = None,
+    *,
+    frame_artifacts: str = "summary",
+    frame_keys: tuple[str, ...] | None = None,
+    phase_keys: tuple[str, ...] | None = None,
+    frame_title_prefix: str = "",
 ) -> Path:
     """Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.
 
@@ -691,7 +726,20 @@ def _save_data_mode_debug_artifacts(
       which has no ``_c`` at all) pass ``"_phase"`` to show the uint16
       grayscale actually sent to the SLM instead of a meaningless
       "no _c" placeholder.
+
+    Immediately after the pickle is written the companion **images** are
+    emitted into ``<pkl_stem>_images/`` next to it -- one far-field PNG and
+    one X/Y cross-section PNG per far-field key, plus one SLM phase PNG per
+    phase key, for each epoch ``frame_artifacts`` selects. They exist because
+    the pickle is the *only* other record of those frames and ``data/`` is
+    gitignored: lose the ``.pkl`` and the run stops being reproducible (this is
+    how four figures in ``report/shape_trials/online_20261010.md`` became
+    un-regenerable). Rendering goes through
+    :func:`ao_shaping.display.beam_profile.save_frame_artifacts`, imported
+    lazily here because ``utils/`` is the leaf layer. A failure there is logged
+    and swallowed -- it must never cost us the pickle.
     """
+    _validate_frame_artifacts(frame_artifacts)
     epochs = sorted(data.keys())
 
     import matplotlib.pyplot as plt
@@ -755,6 +803,35 @@ def _save_data_mode_debug_artifacts(
 
     with open(pkl_path, "wb") as f:
         pickle.dump(data, f)
+
+    # Companion images, written as one operation with the pickle so a run never
+    # ships the arrays without their pictures. Deferred import: utils/ is the
+    # leaf layer and may not pull in a rendering stack at module import time
+    # (tests/ao_shaping/utils/test_utils_leaf_no_rendering_import.py).
+    if frame_artifacts != "none":
+        try:
+            from ao_shaping.display.beam_profile import save_frame_artifacts
+
+            image_dir = pkl_path.parent / f"{pkl_path.stem}_images"
+            written = save_frame_artifacts(
+                data,
+                image_dir,
+                frame_keys=frame_keys,
+                phase_keys=phase_keys,
+                mode=frame_artifacts,
+                obj_key=obj_key,
+                stem=pkl_path.stem,
+                title_prefix=frame_title_prefix,
+            )
+            logger.info("wrote {} companion images to {}", len(written), image_dir)
+        except Exception as e:
+            # Deliberately broad: a lost pickle costs the whole run, a lost plot
+            # costs one picture. Swallow, warn, and carry on to the JSON sidecar.
+            logger.warning(
+                f"companion frame artifacts failed for {pkl_path}: {e} "
+                "(pkl/png/json still written)"
+            )
+
     with open(json_path, "w", encoding="utf8") as f:
         json.dump(json_payload, f, ensure_ascii=False, indent=4)
 
@@ -782,6 +859,10 @@ def save_optimization_debug_artifacts(
     json_payload: dict | None = None,
     top_right_key: str | None = None,
     top_right_title: str | None = None,
+    frame_artifacts: str = "summary",
+    frame_keys: tuple[str, ...] | None = None,
+    phase_keys: tuple[str, ...] | None = None,
+    frame_title_prefix: str = "",
 ) -> Path | None:
     """Emit the standard debug artifacts for a completed optimisation run.
 
@@ -793,8 +874,9 @@ def save_optimization_debug_artifacts(
       ``greedy_zernike_runner`` and ``rms_zernike_runner``.
     * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2
       PNG (objective history / best coefficients / first & last image), a
-      pickled copy of ``data`` and a JSON sidecar of ``json_payload``.
-      Used by ``slm_shaping_runner``.
+      pickled copy of ``data``, a JSON sidecar of ``json_payload``, and --
+      governed by ``frame_artifacts`` -- per-frame companion images into
+      ``<pkl_stem>_images/``. Used by ``slm_shaping_runner``.
 
     Args:
         records:           Recorder object with ``get_sublist()``,
@@ -824,10 +906,32 @@ def save_optimization_debug_artifacts(
                            that key's last-epoch array is shown instead of the
                            ``_c`` bar chart. (data mode)
         top_right_title:   Panel title override for ``top_right_key``. (data mode)
+        frame_artifacts: Which epochs get companion images (far-field +
+                         X/Y cross-section, plus SLM phase when a phase key is
+                         present): ``"none"`` / ``"summary"`` / ``"all"``.
+                         ``"summary"`` (first / best / last) is the default
+                         **on purpose**: ``train_data_collect.py`` re-saves the
+                         whole history on every flush, so per-epoch images would
+                         make that write quadratic, and ``"summary"`` already
+                         covers what the 2x2 debug PNG shows. (data mode)
+        frame_keys:      Record keys holding camera frames for the companion
+                         images; auto-detected when omitted. (data mode)
+        phase_keys:      Record keys holding SLM patterns for the companion
+                         images; auto-detected when omitted. (data mode)
+        frame_title_prefix: Prefix added to each companion figure's title, so
+                         images from a shared backend name their runner.
+                         (data mode)
+
+    Raises:
+        ValueError: Both/neither of ``records`` and ``data`` given, or an
+            unknown ``frame_artifacts`` mode.
 
     Returns:
-        ``png_path`` in data mode, ``None`` in wavefront mode.
+        ``png_path`` in data mode, ``None`` in wavefront mode. **Unchanged** --
+        several callers rely on it; the companion-image count is logged rather
+        than returned.
     """
+    _validate_frame_artifacts(frame_artifacts)
     if data is not None:
         if records is not None:
             raise ValueError(
@@ -843,6 +947,10 @@ def save_optimization_debug_artifacts(
             json_payload=json_payload,
             top_right_key=top_right_key,
             top_right_title=top_right_title,
+            frame_artifacts=frame_artifacts,
+            frame_keys=frame_keys,
+            phase_keys=phase_keys,
+            frame_title_prefix=frame_title_prefix,
         )
 
     # --- wavefront mode (historical behaviour) ---
@@ -897,6 +1005,7 @@ def save_recorder_debug_artifacts(
     top_right_key: str | None = None,
     top_right_title: str | None = None,
     output_dir: Path | None = None,
+    frame_artifacts: str = "summary",
 ) -> Path:
     """Convert a :class:`Recorder` into the data-mode debug artifacts.
 
@@ -934,10 +1043,22 @@ def save_recorder_debug_artifacts(
                         value of :func:`debug_run_dir` when the run also writes
                         non-debug companions (CSV, best phase / image) that must
                         sit beside these three.
+        frame_artifacts: Which epochs get companion images written into
+                         ``<pkl_stem>_images/`` -- one far-field PNG and one
+                         X/Y cross-section PNG per key in ``img_keys``, plus a
+                         SLM phase PNG for ``top_right_key`` when set. One of
+                         ``"none"`` / ``"summary"`` / ``"all"``; see
+                         :data:`_FRAME_ARTIFACT_MODES` for why ``"summary"``
+                         (first / best / last) is the default. ``"none"``
+                         reproduces the pre-image behaviour exactly.
+
+    Raises:
+        ValueError: Unknown ``frame_artifacts`` mode.
 
     Returns:
         The ``.png`` path written.
     """
+    _validate_frame_artifacts(frame_artifacts)
     if output_dir is None:
         save_dir = debug_run_dir(root_dir, subdir_prefix)
     else:
@@ -984,6 +1105,12 @@ def save_recorder_debug_artifacts(
         json_payload=json_payload,
         top_right_key=top_right_key,
         top_right_title=top_right_title,
+        frame_artifacts=frame_artifacts,
+        # The caller's own key lists already classify the record; re-deriving
+        # them from the dtypes would only guess again.
+        frame_keys=img_keys,
+        phase_keys=(top_right_key,) if top_right_key else (),
+        frame_title_prefix=subdir_prefix,
     )
     return png_path
 

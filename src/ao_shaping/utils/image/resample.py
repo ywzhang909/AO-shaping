@@ -10,6 +10,8 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import zoom
 
+from ao_shaping.utils.math.array_shape import fit_exact
+
 
 def crop_to_aspect(
     img: np.ndarray,
@@ -50,24 +52,6 @@ def crop_to_aspect(
         y0 = max(0, min(ih - crop_h, int(cy - crop_h / 2)))
         return img[y0 : y0 + crop_h, :]
     return img
-
-
-def fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Force ``arr`` to exactly ``shape`` by edge-padding then cropping.
-
-    Args:
-        arr: Input array (H, W) or compatible.
-        shape: Target shape ``(height, width)``.
-
-    Returns:
-        Array reshaped/padded/cropped to ``shape``, dtype float64.
-    """
-    h, w = shape
-    out = np.asarray(arr, dtype=np.float64)
-    ph, pw = max(0, h - out.shape[0]), max(0, w - out.shape[1])
-    if ph or pw:
-        out = np.pad(out, ((0, ph), (0, pw)), mode="edge")
-    return out[:h, :w]
 
 
 def upsample_bilinear_to_shape(

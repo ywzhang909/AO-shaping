@@ -138,6 +138,8 @@ class TestZernikeGuiVsSlmSquareConsistency:
         phase = _zernike_phase_radians(c, N_MAX, gen)
         slm = Santec.__new__(Santec)
         slm._max_gray = Santec.MAX_GRAYSCALE_VALUE
+        slm._phase_overlay = None
+        slm._base_phase = None
         slm._correction = WavefrontCorrection()
         slm._lut = None
         slm._shift_x = 0

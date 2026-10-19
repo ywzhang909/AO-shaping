@@ -71,6 +71,11 @@ from ao_shaping.runners.runner_common import (
     save_gs_refine_results,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import (
+    DEFAULT_EXPOSURE_TOKEN,
+    ExposureChoice,
+    resolve_exposure,
+)
 from ao_shaping.utils.io.cli_helpers import resolve_debug
 
 
@@ -85,12 +90,22 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """
-    if params.cam_type == "daheng" and params.exposure_time_ms <= 0:
-        raise click.BadParameter(
-            "set an explicit positive exposure for Daheng (ceiling: "
-            "AO_DAHENG_MAX_EXPOSURE_MS, else probed from the image)",
-            param_hint="--exposure-time-ms",
+    if params.cam_type == "daheng":
+        # Resolve first: it rejects 0 / negative / unparseable with the shared
+        # message naming `auto`. Both tokens are then refused, because the
+        # single legacy rung they replaced (a non-positive float) was refused
+        # here too -- refusing only `auto` would have opened the camera where
+        # the old code errored out.
+        exposure = resolve_exposure(
+            params.exposure_time_ms, param_hint="--exposure-time-ms"
         )
+        if isinstance(exposure, ExposureChoice):
+            raise click.BadParameter(
+                "set an explicit positive exposure in ms for Daheng "
+                f"(ceiling: AO_DAHENG_MAX_EXPOSURE_MS, else probed from the "
+                f"image); 'auto'/'{DEFAULT_EXPOSURE_TOKEN}' are not allowed here",
+                param_hint="--exposure-time-ms",
+            )
     debug = resolve_debug(ctx)
     root_dir = (
         Path(ctx.parent.obj.get("dir", "data"))

@@ -4,6 +4,7 @@
 > **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/check_flat_stability.py`](../../scripts/slm/check_flat_stability.py)
 > **数据/关联脚本**: [`scripts/slm/replay_model_in_loop_config.py`](../../scripts/slm/replay_model_in_loop_config.py)
+> **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../scripts/slm/generate_shape_trial_profiles.py)
 > **数据/关联脚本**: [`src/ao_shaping/tools/slm/model_in_loop_replay.py`](../../src/ao_shaping/tools/slm/model_in_loop_replay.py)
 > **运行环境**: 离线+硬件
 > **说明**: 2026-10-16 正向模型闭环 Step B 匀化权重与 Step A 重拟合消融 (SLM 22030108 + 大恒 FJB24112232, 1064 nm，另有 CPU 仿真)；提高 Step B 均匀度权重未改善方斑 (固定 0.200 ms 交错重放平均 CV 0.8027 升至 0.8989、EE 0.6919 降至 0.5177)，Step A=0 只有有代价的小幅 CV 趋势 (CV 0.8028 降至 0.7887，同时 EE 0.7071 降至 0.5888)，两者均被复合质量分拒绝；结论为保留默认 Step A=80 与 0.4/0.6 权重
@@ -67,10 +68,10 @@
 
 ### `20261016_1044_uniformity_weights`（默认权重 A / 高 CV 权重 B）
 
-| | A 相位 | A 远场 | B 相位 | B 远场 |
-|---|---|---|---|---|
-| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield.png){width=150} |
-| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield.png){width=150} |
+| | A 相位 | A 远场 | B 相位 | B 远场 | X/Y 光强截面 |
+|---|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield_xy_profile.png){width=320} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield_xy_profile.png){width=320} |
 
 | 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
 |---|---|---|---|---|
@@ -81,10 +82,10 @@
 
 ### `20261016_1051_refit_steps`（80 步 A / 零步 B）
 
-| | A 相位 | A 远场 | B 相位 | B 远场 |
-|---|---|---|---|---|
-| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield.png){width=150} |
-| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield.png){width=150} |
+| | A 相位 | A 远场 | B 相位 | B 远场 | X/Y 光强截面 |
+|---|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield_xy_profile.png){width=320} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield_xy_profile.png){width=320} |
 
 | 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
 |---|---|---|---|---|
@@ -95,10 +96,10 @@
 
 ### `20261016_1053_refit_steps_reverse`（零步 A / 80 步 B，逆序）
 
-| | A 相位 | A 远场 | B 相位 | B 远场 |
-|---|---|---|---|---|
-| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield.png){width=150} |
-| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield.png){width=150} |
+| | A 相位 | A 远场 | B 相位 | B 远场 | X/Y 光强截面 |
+|---|---|---|---|---|---|
+| 第一次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield_xy_profile.png){width=320} |
+| 第二次 | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_A_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_B_phase.png){width=150} | ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield.png){width=150} | A: ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield_xy_profile.png){width=320}<br>B: ![](figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield_xy_profile.png){width=320} |
 
 | 状态 | target 内能量占比 (EE_in_target) | target 均匀度 RMS | 报告 CV | 报告 EE |
 |---|---|---|---|---|
@@ -106,6 +107,8 @@
 | B 第一次 (02_B) | 0.7005 | 0.8033 | 0.8033 | 0.7005 |
 | A 第二次 (05_A) | 0.5821 | 0.7932 | 0.7932 | 0.5821 |
 | B 第二次 (04_B) | 0.7038 | 0.8030 | 0.8030 | 0.7038 |
+
+三张表的 `X/Y 光强截面` 列取自上述交错重放采集到的原始 CCD 帧，而非渲染后的远场图。口径：X 剖面为过光斑中心行的行剖面（光强对像素 x），Y 剖面为过光斑中心列的列剖面（光强对像素 y）；切点取光强质心（`prepare_frame` 扣除背景中位数后的质心），不是假定的图幅中心。每格按该行实际采集的那一帧给出 A、B 两条剖面，`01_A` 与 `05_A`、`02_B` 与 `04_B` 是两次不同采集，不可互换。
 
 所有成形帧原始峰值仅约 **17–22/255**，未饱和但低计数噪声和未完成的
 短曝光辐射线性化会影响 CV 的绝对值。两次零步对照的平场总强度分别漂移

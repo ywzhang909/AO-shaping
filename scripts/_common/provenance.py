@@ -697,8 +697,13 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；"
         "图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ "
-        "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集",
-        extra_scripts=("scripts/slm/replay_gs_refine_hw.py",),
+        "离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集；"
+        "原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 "
+        "scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代",
+        extra_scripts=(
+            "scripts/slm/replay_gs_refine_hw.py",
+            "scripts/slm/generate_shape_trial_profiles.py",
+        ),
     ),
     "report/shape_trials/gs_issue_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -709,8 +714,10 @@ REPORTS: dict[str, ReportProvenance] = {
             "plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 "
             "(IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 "
             "data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，"
-            "含 5 轮 GS 最佳相位与远场渲染图"
+            "含 5 轮 GS 最佳相位与远场渲染图；X/Y 光强截面由 "
+            "scripts/slm/generate_shape_trial_profiles.py 从各轮调试 PKL 的 _img 重新生成"
         ),
+        extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
     "report/shape_trials/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -737,11 +744,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、"
             "平均镜像误差改善约 30.4%；新几何标准相位族留出相关性约 0.78–0.87，"
             "但全频随机相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
-            "独立模型门槛，无匀化验收结论"
+            "独立模型门槛，无匀化验收结论；文内两张原标题为「X/Y 光强截面」的表实为相位与"
+            "远场图，已由 generate_shape_trial_profiles.py 从记录的原始 CCD 帧补出真正的"
+            "X/Y 光强截面（切点为扣背景后的光强质心）"
         ),
         extra_scripts=(
             "scripts/slm/model_in_loop_auto.py",
             "scripts/slm/model_in_loop_hw_runbook.py",
+            "scripts/slm/generate_shape_trial_profiles.py",
         ),
     ),
     "report/shape_trials/model_in_loop_live_20261016.md": ReportProvenance(
@@ -758,6 +768,7 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=(
             "scripts/slm/check_flat_stability.py",
             "scripts/slm/replay_model_in_loop_config.py",
+            "scripts/slm/generate_shape_trial_profiles.py",
             "src/ao_shaping/tools/slm/model_in_loop_replay.py",
         ),
     ),
@@ -780,13 +791,18 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="2026-10-14 正向模型闭环实验复核（exp/model-in-loop-20261014 worktree）；"
         "随机相位面板扫描定光斑位置 (960,670)，传播几何沿用 20261013 的 bench_geometry.json，"
-        "本日未重新独立标定其尺度/入射振幅/面板配准",
+        "本日未重新独立标定其尺度/入射振幅/面板配准；图内 X/Y 光强截面由 "
+        "generate_shape_trial_profiles.py 从记录的原始 CCD 帧重新生成",
+        extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
     "report/shape_trials/model_in_loop_live_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-13 正向模型闭环整形实验记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染",
-        extra_scripts=("scripts/slm/generate_gif_from_pkl.py",),
+        extra_scripts=(
+            "scripts/slm/generate_gif_from_pkl.py",
+            "scripts/slm/generate_shape_trial_profiles.py",
+        ),
     ),
     "report/shape_trials/model_in_loop_next_steps_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -955,7 +971,9 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD "
         "FJB24112232)；逐帧产物由 main.py 各子命令的 --debug 产生，"
-        "scripts/slm/compare_shape_debug.py 只渲染对照图",
+        "scripts/slm/compare_shape_debug.py 只渲染对照图；本目录这几次运行的调试 PKL "
+        "未随仓库保留，因此其光斑图无法补出 X/Y 光强截面",
+        extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
 }
 
@@ -968,7 +986,7 @@ FIGURE_ONLY_DIRS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_iterative_zernike_shaping_report.py",
         command="python scripts/slm/generate_iterative_zernike_shaping_report.py",
         environment="离线",
-        note="GS 预整形 + 自由相位细化对比 (data.json + *.npy + png)",
+        note="GS 预整形 + 全频随机相位细化对比 (data.json + *.npy + png)",
     ),
     "report/pearson_gifs": ReportProvenance(
         script="scripts/slm/generate_pearson_pkl_gif.py",

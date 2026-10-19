@@ -522,7 +522,7 @@
   },
   "slm_panel_locate": {
     "body_literals": 126,
-    "body_literals_sha256": "107aeb12d45ec0d5",
+    "body_literals_sha256": "6d2b86ae2270153c",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -537,7 +537,7 @@
       "--slm-number",
       "--slm-wavelength"
     ],
-    "help": "Usage: python -m ao_shaping.tools.slm.panel.panel_locate [OPTIONS]\n\n  在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       相机曝光 ms (默认 0.1)\n  --patch-radius INTEGER    随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)\n  --grid-xs TEXT            候选 x (面板 px, 逗号分隔)\n  --grid-ys TEXT            候选 y (面板 px, 逗号分隔)\n  --frames INTEGER          每帧平均张数 (默认 4)\n  --seed INTEGER            随机相位种子 (默认 7)\n  --debug-dir TEXT          Save raw CCD frames and scan parameters.\n  --max-flat-drift FLOAT    Maximum relative change between paired flats.\n  --help                    Show this message and exit.",
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.panel_locate [OPTIONS]\n\n  在面板坐标上定位光斑 (扫描随机相位圆盘, 取 0 阶能量变化最大的位置)。\n\nOptions:\n  --slm-number INTEGER            SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER        SLM 波长 nm (默认 1064)\n  --cam-type TEXT                 相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER                相机 ID (默认 0)\n  --exposure-ms [default|auto|FLOAT]\n                                  相机曝光 ms (默认 0.1)。'auto' = 探测曝光上限并在其下工作(env\n                                  AO_DAHENG_MAX_EXPOSURE_MS 优先, 否则按画面倍增探测);\n                                  'default' = 完全不动曝光 (不探测/不重置/不钳位), 延用相机当前值; 0\n                                  不再等价于 auto, 会被拒绝\n  --patch-radius INTEGER          随机相位圆盘半径 (面板 px, 默认 450=实测光斑半径)\n  --grid-xs TEXT                  候选 x (面板 px, 逗号分隔)\n  --grid-ys TEXT                  候选 y (面板 px, 逗号分隔)\n  --frames INTEGER                每帧平均张数 (默认 4)\n  --seed INTEGER                  随机相位种子 (默认 7)\n  --debug-dir TEXT                Save raw CCD frames and scan parameters.\n  --max-flat-drift FLOAT          Maximum relative change between paired\n                                  flats.\n  --help                          Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",

@@ -25,6 +25,7 @@ from ao_shaping.runners.runner_common import (
     WfsParams,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 
 
 @click.command()
@@ -42,6 +43,13 @@ def run(
     debug = get_debug_mode()
 
     dm = resolve_dm(device.dm_type)
+
+# CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            device.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
 
     if run.load_file:
         last_v = np.loadtxt(run.load_file)
@@ -82,7 +90,7 @@ def run(
         ccd_records = optimize_pib(
             cam_id=cast(int, device.cam_id),
             center="mass",
-            exposure_time_ms=device.exposure_time_ms,
+            exposure_time_ms=exposure_time_ms,
             cam_size=device.cam_size,
             dm_unit_mask=dm_available,
             target_max_brightness=0,
@@ -159,7 +167,7 @@ def run(
                         "wfs_res": wfs_params.wfs_res,
                         "pupil_diameter": wfs_params.pupil_diameter,
                         "cam_id": device.cam_id,
-                        "exposure_time_ms": device.exposure_time_ms,
+                        "exposure_time_ms": exposure_time_ms,
                         "cam_size": device.cam_size,
                         "rms_threshold": run.rms_threshold,
                         "debug": debug,

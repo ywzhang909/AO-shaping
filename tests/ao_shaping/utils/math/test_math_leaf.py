@@ -27,9 +27,13 @@ import numpy as np
 import pytest
 
 import ao_shaping.tools.kernels.bench_kernels as bench_kernels
-from ao_shaping.utils.math import fitting, stability
+from ao_shaping.utils.math import array_shape, fitting, stability
 
-_MODULES = [Path(fitting.__file__).resolve(), Path(stability.__file__).resolve()]
+_MODULES = [
+    Path(array_shape.__file__).resolve(),
+    Path(fitting.__file__).resolve(),
+    Path(stability.__file__).resolve(),
+]
 
 
 def _allowed_roots() -> frozenset[str]:
@@ -90,6 +94,25 @@ def test_bench_kernels_reexports_the_same_objects() -> None:
     assert bench_kernels.settle_time_s is stability.settle_time_s
     assert bench_kernels.snr_vs_averages is stability.snr_vs_averages
     assert bench_kernels.exposure_monotonicity is stability.exposure_monotonicity
+
+
+def test_fit_exact_has_one_implementation_across_consumers() -> None:
+    """R-65/#87: ``resample`` and ``phase_embed`` used to carry private copies.
+
+    Imported inside the function on purpose - ``resample`` pulls ``scipy``, which
+    must stay out of the leaf modules this file guards.
+    """
+    from ao_shaping.utils.image import resample
+    from ao_shaping.utils.slm import phase_embed
+
+    assert resample.fit_exact is array_shape.fit_exact
+    assert phase_embed.fit_exact is array_shape.fit_exact
+
+
+def test_fit_exact_pads_then_crops_to_the_requested_shape() -> None:
+    assert array_shape.fit_exact(np.ones((3, 3)), (5, 5)).shape == (5, 5)
+    assert array_shape.fit_exact(np.ones((9, 9)), (4, 4)).shape == (4, 4)
+    assert array_shape.fit_exact(np.ones((5, 5)), (5, 5)).shape == (5, 5)
 
 
 def test_fit_linear_slope_recovers_line_and_flags_degenerate() -> None:
