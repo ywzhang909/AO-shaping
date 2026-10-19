@@ -98,7 +98,7 @@
 
 ### 2.1 `slm_zernike_pib.py` —— 行为 bug 优先
 
-> ⚠️ 该文件已从 2179 行重构到 **1726 行**（2026-10-19 复核），`calc_objective` 已抽成
+> ⚠️ 该文件已从 2179 行大幅重构（现 **1726 行**，2026-10-19 复核），`calc_objective` 已抽成
 > `ShapingObjective.__call__` ⇒ **旧账本行号全部失效**，但 bug 逐条存活。
 > 🔴→✅ **`slm_zernike_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
 > `ee96acfe` 合入）：该 1600 行分叉（`_row0`/`_log_row`/`learning_schedule`/饱和分支
