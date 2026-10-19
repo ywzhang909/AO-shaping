@@ -393,23 +393,29 @@ def _release_slm_handle(slm_num: int) -> None:
     st.session_state[f"{prefix}_phase_source"] = "闭环整形运行中"
 
 
-def _reacquire_slm_handle(slm_num: int) -> Santec | None:
+def _reacquire_slm_handle(slm_num: int) -> Any:
     """Re-open the SLM after the optimizer closed its own handle.
 
     ``Santec.open()`` reloads the per-serial config file itself (wavelength,
     shift, correction), so the reacquired device carries the same settings the
-    sidebar had before the run.
+    sidebar had before the run.  The fresh :class:`Santec` is wrapped in the
+    controller-layer overlay proxy (same as ``connect_slm``) so the send
+    pipeline overlay (defocus + base phase) is carried on the session handle,
+    and the proxy is both stored and returned (the session holds exactly what
+    the caller gets back).
     """
     from ao_shaping.gui.slm.multi_slm_controller import _sync_slm_session_state
+    from ao_shaping.gui.utils.phase_overlay import OverlaidSantec
 
     prefix = f"slm{slm_num}"
     try:
-        slm = Santec(slm_number=slm_num)
-        slm.open()
+        raw = Santec(slm_number=slm_num)
+        raw.open()
     except Exception as exc:
         logger.exception("SLM {} 整形后重新连接失败: {}", slm_num, exc)
         st.error(f"SLM {slm_num} 整形后重新连接失败: {exc}（请在侧边栏手动重连）")
         return None
+    slm = OverlaidSantec(raw)
     st.session_state[prefix] = slm
     st.session_state[f"{prefix}_connected"] = True
     _sync_slm_session_state(slm_num, slm)
