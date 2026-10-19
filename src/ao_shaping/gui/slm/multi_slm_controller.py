@@ -23,6 +23,7 @@ from ao_shaping.gui.slm.bench_settings import (
     auto_check_camera_pixel_um,
     detect_camera_pixel_um,
     render_bench_settings,
+    rebuild_defocus_overlay,
     widget_default,
 )
 from ao_shaping.gui.slm.pattern_controls import (
@@ -601,16 +602,12 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     else:
         st.session_state[f"{prefix}_wavelength_mismatch"] = None
 
-    # Restore base-phase overlay from session state so that closed-loop shaping
-    # (which closes and re-opens the SLM) does not lose the UI-configured bottom
-    # phase.  ``_sync_slm_session_state`` is called on both first connect and
-    # re-acquire, so this is the single restoration point.
-    base_phase = st.session_state.get(f"{prefix}_base_phase")
-    if base_phase is not None:
-        slm.set_base_phase(base_phase)
-    slm._overlay_base_phase = bool(
-        st.session_state.get(f"{prefix}_overlay_base", False)
-    )
+    # Restore the two send-pipeline overlay layers (base phase + defocus) onto
+    # the freshly (re-)acquired handle, so a closed-loop shaping run (which closes
+    # and re-opens the SLM) does not silently drop the operator's T4 overlays.
+    # ``_sync_slm_session_state`` is the single restoration point (first connect
+    # and re-acquire both funnel through it).
+    _apply_slm_overlays(slm_num)
 
 
 def connect_slm(slm_num: int):
@@ -1244,6 +1241,10 @@ def _render_slm_settings(slm_num: int):
     with st.expander("底相位 (发送叠加)", expanded=False):
         _render_base_phase_block(slm_num)
 
+    # --- Section 3b2: Defocus overlay (T4 long-lived overlay) ---
+    with st.expander("离焦叠加 (发送叠加)", expanded=False):
+        _render_defocus_overlay_block(slm_num)
+
     # --- Section 3c: Save (persist) ---
     with st.expander("保存", expanded=False):
         st.markdown("")
@@ -1548,12 +1549,143 @@ def render_phase_control(slm_num: int):
             st.success("周期切换已停止")
 
 
+def _apply_slm_overlays(slm_num: int) -> None:
+    """把该 SLM 的两个发送管线叠加层（底相位 / 离焦）按 session 状态推给驱动。
+
+    单一真源：连接、重连、切换开关、保存底相位后统一走这里，保证驱动上的叠加层
+    始终等于 UI 当前配置。``_sync_slm_session_state``（首连 + 整形后重取）和
+    底相位/离焦区块的开关都调它。无连接时直接返回。
+
+    * 底相位（灰度，``set_base_phase``）：仅在「叠加底相位」勾选且已保存时应用，
+      否则置 None（不叠加）。
+    * 离焦（弧度，``set_phase_overlay``）：受离焦开关门控，见
+      :func:`ao_shaping.gui.slm.bench_settings.rebuild_defocus_overlay`。
+    """
+    prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
+    if slm is None or not getattr(slm, "is_open", False):
+        return
+    base = st.session_state.get(f"{prefix}_base_phase")
+    overlay_on = bool(st.session_state.get(f"{prefix}_overlay_base", False))
+    try:
+        if base is not None and overlay_on:
+            slm.set_base_phase(base)
+        else:
+            slm.set_base_phase(None)
+    except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡连接
+        logger.warning("SLM {} 底相位叠加应用失败: {}", slm_num, exc)
+    try:
+        rebuild_defocus_overlay(prefix, slm)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("SLM {} 离焦叠加应用失败: {}", slm_num, exc)
+
+
+def _render_defocus_overlay_block(slm_num: int):
+    """离焦叠加 (T4 发送管线叠加层)，渲染在侧栏「离焦叠加 (发送叠加)」区。
+
+    离焦补偿 = 菲涅尔项（焦距 mm，粗调，默认取 D2「探测焦面」推荐值，操作员可覆盖）
+    + Zernike (2,0)（细调，手动）。做成**开关式全局叠加**：主开关一开，驱动
+    ``set_phase_overlay`` 就承载该层，作用于其后所有发送（优化器 / 一键下发 / CSV /
+    周期切换都走 ``create_phase_from_array``），与底相位同层、同机制。
+
+    控件顺序是硬约束：「用推荐值」按钮必须先于焦距 ``number_input`` 渲染，
+    这样点击时写 ``defocus_focal``（widget key）在本 run 内合法（该 key 尚未被
+    控件锁定）。
+    """
+    from ao_shaping.gui.slm import bench_settings
+
+    prefix = f"slm{slm_num}"
+    slm = st.session_state.get(prefix)
+    connected = slm is not None and getattr(slm, "is_open", False)
+    busy = bench_settings.bench_busy()
+
+    auto_focal = bench_settings.bench_defocus_focal_auto(prefix)
+    has_probe = auto_focal != 0.0
+
+    enabled = st.checkbox(
+        "启用离焦叠加",
+        value=widget_default(f"{prefix}_defocus_enabled", False),
+        key=f"{prefix}_defocus_enabled",
+        help="勾选后，离焦相位叠加到所有发送（发送管线 T4 叠加层，与底相位同机制）",
+        disabled=busy,
+    )
+
+    if enabled:
+        # 推荐值（来自探测）+ 手动覆盖
+        auto_text = f"{auto_focal:.1f} mm" if has_probe else "未探测（填 0 = 仅细调）"
+        st.caption(f"探测推荐焦距：**{auto_text}**（D2 探测焦面；未探测可手填）")
+
+        if st.button(
+            "用推荐值",
+            key=f"{prefix}_defocus_use_reco",
+            help="把下方焦距重置为探测推荐值",
+            disabled=busy or not has_probe,
+        ):
+            if has_probe:
+                st.session_state[f"{prefix}_defocus_focal"] = auto_focal
+                _apply_slm_overlays(slm_num)
+                st.success(f"已用推荐焦距 {auto_focal:.1f} mm")
+
+        st.number_input(
+            "焦距 (mm)",
+            value=widget_default(f"{prefix}_defocus_focal", auto_focal),
+            key=f"{prefix}_defocus_focal",
+            step=0.1,
+            help="离焦补偿焦距 (mm)，菲涅尔项；0 = 不加菲涅尔项（仅细调）",
+            disabled=busy,
+        )
+        st.number_input(
+            "细调 (Zernike (2,0))",
+            value=widget_default(f"{prefix}_defocus_amount", 0.0),
+            key=f"{prefix}_defocus_amount",
+            step=0.5,
+            help="Zernike (2,0) 系数，离焦细调（rad 量纲，面板口径）",
+            disabled=busy,
+        )
+
+        # 只读几何（半径/中心/波长），来自 bench 取值链 + 设备
+        centre = bench_settings.bench_pupil_center(prefix)
+        span = float(
+            st.session_state.get(f"{prefix}_bench_panel_span_px", 900.0) or 900.0
+        )
+        radius = max(1, int(round(span / 2.0)))
+        wl = getattr(slm, "wavelength", None) if connected else None
+        wl_text = f"{wl:.0f} nm" if wl else "1064 nm (默认)"
+        st.caption(
+            f"离焦孔径：中心 {centre}，半径 {radius} px，波长 {wl_text}"
+        )
+
+    # 幂等同步：把当前离焦开关/参数推给驱动（纯 numpy，无硬件 I/O），
+    # 使叠加层始终等于 UI 配置。connected 时才推，避免对空句柄操作。
+    if connected and not busy:
+        _apply_slm_overlays(slm_num)
+
+    # 只读状态行（信息可见性：不受开关嵌套，永远渲染）。启用时给出当前生效的
+    # 焦距/细调，操作者无需回滚到上方控件即可核对正在叠加的数值。
+    if not connected:
+        return
+    applied = bool(st.session_state.get(f"{prefix}_defocus_enabled", False))
+    if applied:
+        eff_focal = bench_settings.bench_defocus_focal(prefix)
+        eff_fine = float(
+            st.session_state.get(f"{prefix}_defocus_amount", 0.0) or 0.0
+        )
+        st.caption(
+            f"离焦叠加：**已启用**（焦距 {eff_focal:.1f} mm，"
+            f"细调 {eff_fine:+.1f}；作用于所有发送）"
+        )
+    else:
+        st.caption("离焦叠加：**已关闭**（未对发送叠加相位）")
+
+
 def _render_base_phase_block(slm_num: int):
     """底相位 (T4 长期配置): 发送管线叠加层, 渲染在侧栏「底相位 (发送叠加)」区。
 
     从 render_phase_control 移出 (操作路线图 v1.0 变更项 1): 底相位影响其后的
     所有相位发送, 属长期配置而非一次下发; widget 键 (slm{N}_base_phase /
     slm{N}_overlay_base) 不变, session state 行为与 AppTest 断言不受影响。
+    实际叠加由驱动 ``set_base_phase`` 承载，经 :func:`_apply_slm_overlays` 统一
+    推给设备（受「叠加底相位」开关门控）。
     """
     prefix = f"slm{slm_num}"
     st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
@@ -1568,9 +1700,7 @@ def _render_base_phase_block(slm_num: int):
                 phase, source = slm.get_displayed_phase()
                 if phase is not None:
                     st.session_state[f"{prefix}_base_phase"] = phase.copy()
-                    slm.set_base_phase(phase)
-                    overlay = st.session_state.get(f"{prefix}_overlay_base", False)
-                    slm._overlay_base_phase = overlay
+                    _apply_slm_overlays(slm_num)
                     st.success(f"底相位已保存 ({phase.shape}, 来源: {source})")
                 else:
                     st.warning("无法获取当前显示相位，请先显示一个相位图案")
@@ -1588,10 +1718,8 @@ def _render_base_phase_block(slm_num: int):
         )
         if overlay != st.session_state.get(f"{prefix}_overlay_base", False):
             st.session_state[f"{prefix}_overlay_base"] = overlay
-            slm = st.session_state.get(prefix)
-            if slm is not None:
-                slm._overlay_base_phase = overlay
-                st.success(f"底相位叠加已{'启用' if overlay else '禁用'}")
+            _apply_slm_overlays(slm_num)
+            st.success(f"底相位叠加已{'启用' if overlay else '禁用'}")
 
     base_phase = st.session_state.get(f"{prefix}_base_phase")
     if base_phase is not None:
@@ -1601,8 +1729,7 @@ def _render_base_phase_block(slm_num: int):
             st.session_state[f"{prefix}_overlay_base"] = False
             slm = st.session_state.get(prefix)
             if slm is not None:
-                slm._overlay_base_phase = False
-                slm.set_base_phase(None)
+                _apply_slm_overlays(slm_num)
             st.success("底相位已清除")
     else:
         st.caption("当前底相位: 未设置")
