@@ -2399,6 +2399,29 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 f"error. Fall back to slm-gs-refine."
             )
 
+        # The correlation floor cannot see a defocus mismatch -- on this bench a
+        # geometry fitted on an uncorrected pupil scored 0.831 and passed it, while
+        # a usable one scored 0.848. So the geometry also has to vouch for itself.
+        #
+        # Hardware only: the simulated bench synthesises its geometry and never
+        # measures a flat spot, so its ``spot_fwhm_camera_px`` is NaN by
+        # construction and there is nothing to check. A non-finite width on real
+        # hardware stays a failure, because there the quantity is measured.
+        if config.cam_type == "sim":
+            logger.debug("skipping geometry self-check on the simulated bench")
+        else:
+            self_check = geometry.self_check_failures(int(config.cam_size))
+            if self_check:
+                raise RuntimeError(
+                    "bench geometry failed its self-check: "
+                    + "; ".join(self_check)
+                    + f". The correlation floor ({geometry.correlation:.4f}) does not "
+                    "detect this, so it is reported separately. A calibration run that "
+                    "cannot carry the session's phase correction measures an uncorrected "
+                    "pupil and produces a focal scale that is wrong by a large factor. "
+                    "Re-run the focus/coma probe and pass the correction into every stage."
+                )
+
         # Model-space target: the forward model never sees camera pixels.
         scale = float(geometry.camera_px_per_model_px)
         # The forward model emits its far-field grid, which is the pupil grid

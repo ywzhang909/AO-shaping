@@ -37,12 +37,21 @@
 from __future__ import annotations
 
 import json
+import math
 import pickle
 from collections.abc import Callable, Mapping, Sequence
 
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
+
+#: Largest share of the camera window a measured flat spot may fill before the
+#: geometry is refused (see :meth:`BenchGeometry.self_check_failures`). Measured on
+#: this bench: 13.19 px of300 (4.4%) for a geometry that shaped acceptably, against
+#: 106.85 px of 300 (36%) for one fitted on an uncorrected defocused pupil -- both of
+#: which cleared the correlation floor, at 0.848 and 0.831. The bound sits ~3.4x above
+#: the usable value and ~2.4x below the broken one.
+GEOMETRY_MAX_SPOT_WINDOW_FRACTION = 0.15
 
 
 import numpy as np
@@ -1321,6 +1330,49 @@ class BenchGeometry:
         re-string-comparing ``self.method == "sweep"``.
         """
         return self.method == "sweep"
+
+    def self_check_failures(self, cam_size: int) -> list[str]:
+        """Reasons this geometry should be refused despite a good correlation.
+
+        The correlation floor alone does not catch a geometry that was fitted on a
+        pupil phase carrying an uncorrected defocus: on this bench such a geometry
+        scored 0.831 and was accepted, while one that shaped acceptably scored 0.848.
+        Every textual self-diagnostic is shared between the two -- both carry
+        ``waist NOT identifiable``-equivalent output and both report
+        ``no usable phase correlation`` -- so none of them can be used to tell them
+        apart, and neither can ``spot_fwhm_model_px``, which is 8.64 in both.
+
+        What does separate them is the measured flat spot's share of the camera
+        window: 13.19 px of 300 (4.4%) for the usable geometry against 106.85 px of
+        300 (36%) for the defocused one. A diffraction-limited spot is a small
+        fraction of the detector, so a spot filling a third of it means the beam was
+        not focused *or* the scale is wrong -- and either way the geometry cannot
+        drive shaping.
+
+        Args:
+            cam_size: Camera window edge in pixels, the same window the calibration
+                measured in.
+
+        Returns:
+            Human-readable reasons, empty when the geometry vouches for itself.
+        """
+        if cam_size <= 0:
+            raise ValueError(f"cam_size must be positive, got {cam_size}")
+        failures: list[str] = []
+        fwhm = float(self.spot_fwhm_camera_px)
+        if not math.isfinite(fwhm) or fwhm <= 0.0:
+            failures.append(f"measured spot FWHM is not a usable width: {fwhm}")
+        else:
+            share = fwhm / float(cam_size)
+            if share > GEOMETRY_MAX_SPOT_WINDOW_FRACTION:
+                failures.append(
+                    f"flat spot FWHM {fwhm:.1f} px fills {100 * share:.0f}% of the "
+                    f"{cam_size} px camera window (limit "
+                    f"{100 * GEOMETRY_MAX_SPOT_WINDOW_FRACTION:.0f}%); the calibration "
+                    "phase most likely carried an uncorrected defocus, or the "
+                    "camera/model scale is wrong"
+                )
+        return failures
 
     def model_side_for_camera(self, camera_px: float) -> int:
         """Convert a target square side from camera pixels to model pixels.
