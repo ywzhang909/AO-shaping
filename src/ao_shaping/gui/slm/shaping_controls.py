@@ -1379,6 +1379,12 @@ class GsRefineMethod(ShapingMethod):
             )
 
         config.callback = _callback
+        # Send-pipeline overlay (离焦 / 底相位 T4): hand the optimizer the same
+        # overlay the GUI's own send path uses, so the closed loop (which opens
+        # its own SLM) sends the identical phase. The optimizer applies it to its
+        # handle at open time (driver slot); CLI runs leave ``send_overlay`` None.
+        prefix = str(values.get("bench_prefix", self.prefix))
+        config.send_overlay = bench_settings.build_send_overlay(prefix)
 
     def execute(self, config: Any) -> ShapingOutcome:
         from ao_shaping.optimizer.wfless.slm_gs_refine import optimize_slm_gs_refine
@@ -1683,6 +1689,11 @@ class ModelInLoopMethod(ShapingMethod):
 
         if not getattr(config, "debug_dir", None):
             config.debug_dir = str(debug_run_dir(Path("data"), "slm_model_in_loop"))
+        # Send-pipeline overlay (离焦 / 底相位 T4): hand the optimizer the same
+        # overlay the GUI's own send path uses (the optimizer applies it to the
+        # SLM it opens at run start). CLI runs leave ``send_overlay`` None.
+        prefix = str(values.get("bench_prefix", self.prefix))
+        config.send_overlay = bench_settings.build_send_overlay(prefix)
         st.info(
             f"正向模型闭环运行中：{config.n_rounds} 轮 × (Step A "
             f"{config.step_a_iterations} 步拟合 + Step B {config.step_b_iterations} "

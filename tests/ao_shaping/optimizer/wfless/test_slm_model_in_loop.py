@@ -1858,3 +1858,104 @@ class TestGeometryFileRescale:
             scaled, from_far_field=512, to_far_field=192
         ) == pytest.approx(2.7955)
 
+
+# ---------------------------------------------------------------------------
+# Send-pipeline overlay on the MIL hardware bench's own SLM (driver slot)
+# ---------------------------------------------------------------------------
+#
+# ``_HardwareBench`` opens its own bare ``Santec`` and applies
+# ``config.send_overlay`` to it right after ``open()``. We patch the two
+# function-local imports (``create_camera`` and ``Santec``) at their source
+# modules, run the constructor, and stop it immediately after the apply line by
+# raising a sentinel from ``get_displayed_memory_number`` (the first call after
+# the apply). Then we assert the overlay was written to the bench's SLM handle.
+
+
+class _MILStopAfterApply(Exception):
+    """Raised by the fake SLM's ``get_displayed_memory_number`` to stop the
+    ``_HardwareBench`` constructor right after the overlay apply line."""
+
+
+class _FakeMILCam:
+    def open(self):
+        pass
+
+    def reset_exposure_time(self, ms):
+        return ms
+
+    def close(self):
+        pass
+
+
+class _FakeMILSlm:
+    def __init__(self, slm_number=1, wavelength=None, **kw):
+        self._phase = None
+        self._base = None
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    def set_phase_overlay(self, phase_rad):
+        self._phase = phase_rad
+
+    def set_base_phase(self, phase_gray):
+        self._base = phase_gray
+
+    def get_phase_overlay(self):
+        return self._phase
+
+    def get_base_phase(self):
+        return self._base
+
+    def get_displayed_memory_number(self):
+        raise _MILStopAfterApply()
+
+
+def _mil_defo() -> np.ndarray:
+    return np.array([[0.0, 0.5], [0.5, 0.0]])
+
+
+def _mil_base() -> np.ndarray:
+    return np.array([[5, 6], [7, 8]], dtype=np.uint16)
+
+
+def test_mil_applies_send_overlay_to_its_own_slm(monkeypatch):
+    """The MIL hardware bench writes the driver-slot overlay to its SLM."""
+    from ao_shaping.drivers.ccd import common as _ccd_common
+    from ao_shaping.drivers.slm import santec as _santec_mod
+    from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import (
+        SlmModelInLoopConfig,
+        _HardwareBench,
+    )
+
+    built = {}
+
+    def _fake_create_camera(cam_type, **kw):
+        cam = _FakeMILCam()
+        built["cam"] = cam
+        return cam
+
+    def _fake_santec(slm_number=1, wavelength=None, **kw):
+        slm = _FakeMILSlm(slm_number, wavelength, **kw)
+        built["slm"] = slm
+        return slm
+
+    monkeypatch.setattr(_ccd_common, "create_camera", _fake_create_camera)
+    monkeypatch.setattr(_santec_mod, "Santec", _fake_santec)
+
+    config = SlmModelInLoopConfig()  # default cam_type="daheng", cam_size=300
+    config.send_overlay = PhaseOverlay(_mil_defo(), _mil_base())
+
+    with pytest.raises(_MILStopAfterApply):
+        _HardwareBench(config)
+
+    slm = built["slm"]
+    # The overlay was applied to the bench's own SLM (driver slot) before the
+    # constructor was stopped.
+    np.testing.assert_array_equal(slm.get_phase_overlay(), _mil_defo())
+    np.testing.assert_array_equal(slm.get_base_phase(), _mil_base())
+

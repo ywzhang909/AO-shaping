@@ -42,6 +42,11 @@ Contract
 * A skipped step leaves its fields ``None``, and :func:`apply_session_calibration`
   writes only the fields that are not ``None``. "Skipped" can therefore never
   silently overwrite a value the caller supplied.
+* The **光路指纹** check is opt-in and non-fatal: :func:`calibrate_session`
+  records one only when asked (``fingerprint=True``) *and* at least one step
+  actually ran; :func:`verify_bench_path` with ``enabled=False`` skips the
+  *measurement* -- no device is opened at all. A missing or corrupt stored
+  fingerprint is treated as absent, never as an error.
 * Evidence lands under ``save_dir``: ``panel_scan/`` for the locate probe,
   ``session_geometry/`` for the sweep, ``evidence_dir`` being their parent.
 
@@ -55,7 +60,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
@@ -64,6 +69,7 @@ from ao_shaping.runners.runner_common import parse_point
 if TYPE_CHECKING:  # pragma: no cover - typing only, keeps import time cheap
     from ao_shaping.optimizer.wfless.slm_model_in_loop import SlmModelInLoopConfig
     from ao_shaping.runners.runner_common import SlmModelInLoopParams
+    from ao_shaping.tools.slm.panel.bench_fingerprint import BenchFingerprint
 
 
 class SessionPreflightParamError(ValueError):
@@ -113,6 +119,8 @@ class SessionCalibration:
     geometry_file: Path | None = None
     geometry_correlation: float | None = None
     illumination_radius_px: float | None = None
+    #: 本次会话采集的光路指纹；未请求采集或采集失败时为 None。
+    fingerprint: BenchFingerprint | None = None
     evidence_dir: Path | None = None
     notes: tuple[str, ...] = ()
 
@@ -345,6 +353,177 @@ def _read_correlation(path: Path) -> float | None:
     return None if value is None else float(value)
 
 
+#: Canonical filename of the stored reference fingerprint inside a session dir.
+FINGERPRINT_FILENAME = "bench_fingerprint.json"
+
+
+def load_stored_fingerprint(path: Path | str) -> BenchFingerprint | None:
+    """Read ``bench_fingerprint.json`` from ``path``; ``None`` when absent or corrupt.
+
+    A missing or corrupt fingerprint is *not* an error: the first run on a bench
+    has nothing to compare against, and a half-written JSON file must never take
+    a hardware session down.
+
+    Args:
+        path: Directory that holds ``bench_fingerprint.json``.
+
+    Returns:
+        The stored ``BenchFingerprint``, or ``None`` when the file is missing,
+        unreadable, not JSON, or not a fingerprint payload.
+    """
+    # Deferred: the fingerprint module lives in the tools panel package; keep
+    # this module's import time free of it, exactly like the other probes here.
+    from ao_shaping.tools.slm.panel import bench_fingerprint
+
+    target = Path(path) / FINGERPRINT_FILENAME
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        return bench_fingerprint.BenchFingerprint.from_dict(payload)
+    except (TypeError, KeyError):
+        return None
+
+
+def _probe_fingerprint(
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
+    center: tuple[int, int],
+    reference_dir: Path,
+) -> dict[str, Any]:
+    """One hardware fingerprint probe against the reference stored in ``reference_dir``.
+
+    The probe is reached as a **module attribute at call time** (never a
+    module-level ``from ... import probe_session_fingerprint``), so callers and
+    tests that swap ``bench_fingerprint.probe_session_fingerprint`` take effect.
+    """
+    from ao_shaping.tools.slm.panel import bench_fingerprint
+
+    reference = load_stored_fingerprint(reference_dir)
+    return bench_fingerprint.probe_session_fingerprint(
+        slm_number=params.slm_number,
+        cam_type=params.cam_type,
+        cam_id=params.cam_id,
+        pupil_center_px=(int(center[0]), int(center[1])),
+        exposure_ms=float(getattr(config, "exposure_time_ms", 0.0) or 0.0) or None,
+        wavelength_nm=int(params.slm_wavelength),
+        debug_dir=reference_dir,
+        reference=reference.to_dict() if reference is not None else None,
+    )
+
+
+def verify_bench_path(
+    path: Path | str,
+    *,
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
+    enabled: bool = True,
+) -> dict[str, Any]:
+    """Probe the live bench against the fingerprint stored under ``path``.
+
+    ``enabled=False`` skips the *measurement*: no device is opened at all. That
+    is the operator's override, and an override that still opened the panel
+    would not be an override.
+
+    Never raises for a measurement problem: a failed probe is reported as
+    ``{"ok": True, "skipped": True, ...}``, so the check itself can never veto
+    a run.
+
+    Args:
+        path: Session directory holding ``bench_fingerprint.json`` (the
+            reference); the probe's own evidence lands beside it.
+        params: Session parameters (SLM number, camera type/id).
+        config: Session configuration (pupil centre, exposure).
+        enabled: ``False`` returns a skipped verdict without touching hardware.
+
+    Returns:
+        Verdict dict with ``ok``, ``skipped``, ``reasons``, ``notes``, ``deltas``.
+    """
+    if not enabled:
+        return {
+            "ok": True,
+            "skipped": True,
+            "reasons": ("已按参数跳过光路指纹校验（本次未打开任何设备）",),
+            "notes": (),
+            "deltas": {},
+        }
+
+    result = _probe_fingerprint(
+        params,
+        config,
+        (int(config.pupil_center[0]), int(config.pupil_center[1])),
+        Path(path),
+    )
+    if result.get("error"):
+        logger.warning("光路指纹探测失败，本次不判定光路是否变更: {}", result["error"])
+        return {
+            "ok": True,
+            "skipped": True,
+            "reasons": (f"光路指纹探测失败，本次不判定: {result['error']}",),
+            "notes": (),
+            "deltas": {},
+        }
+    verdict = result.get("verdict") or {}
+    return {
+        "ok": bool(verdict.get("ok", True)),
+        "skipped": bool(verdict.get("skipped")),
+        "reasons": tuple(verdict.get("reasons", ())),
+        "notes": tuple(verdict.get("notes", ())),
+        "deltas": dict(verdict.get("deltas", {})),
+        "path": str(result.get("path", "")),
+    }
+
+
+def _capture_session_fingerprint(
+    params: SlmModelInLoopParams,
+    config: SlmModelInLoopConfig,
+    center: tuple[int, int] | None,
+    save_dir: Path,
+    notes: list[str],
+) -> BenchFingerprint | None:
+    """Measure and store this session's fingerprint; never fails the calibration.
+
+    Like :func:`_measure_illumination_radius`, a lost fingerprint must not cost
+    the run its pupil centre and geometry: any failure degrades to ``None`` plus
+    a note. The stored ``bench_fingerprint.json`` is the reference the *next*
+    session compares against, so a failed capture leaves the old reference
+    untouched rather than overwriting it.
+    """
+    centre = center if center is not None else config.pupil_center
+    try:
+        result = _probe_fingerprint(
+            params, config, (int(centre[0]), int(centre[1])), save_dir
+        )
+    except Exception as exc:  # noqa: BLE001 - 指纹失败不掀翻标定
+        logger.warning("光路指纹采集异常，本次不记录指纹: {}", exc)
+        notes.append("光路指纹采集失败（不影响本次标定）")
+        return None
+    if result.get("error"):
+        logger.warning("光路指纹采集失败，本次不记录指纹: {}", result["error"])
+        notes.append("光路指纹采集失败（不影响本次标定）")
+        return None
+    from ao_shaping.tools.slm.panel import bench_fingerprint
+
+    try:
+        fingerprint = bench_fingerprint.BenchFingerprint.from_dict(result)
+    except (TypeError, KeyError) as exc:
+        logger.warning("光路指纹结果不可解析，本次不记录指纹: {}", exc)
+        notes.append("光路指纹结果不可解析（不影响本次标定）")
+        return None
+    try:
+        (save_dir / FINGERPRINT_FILENAME).write_text(
+            json.dumps(fingerprint.to_dict(), indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        logger.warning("光路指纹写入 {} 失败: {}", save_dir, exc)
+        notes.append("光路指纹落盘失败（本次仍记录在返回值）")
+    return fingerprint
+
+
 def calibrate_session(
     params: SlmModelInLoopParams,
     config: SlmModelInLoopConfig,
@@ -352,6 +531,7 @@ def calibrate_session(
     *,
     locate: bool = True,
     geometry: bool = True,
+    fingerprint: bool = False,
 ) -> SessionCalibration:
     """Measure this session's panel position and geometry, then report both.
 
@@ -360,6 +540,11 @@ def calibrate_session(
     otherwise). ``geometry`` runs the runbook sweep through
     :func:`measure_session_geometry`, using the centre just measured when
     ``locate`` ran.
+
+    ``fingerprint`` additionally captures the 光路指纹 and stores it as
+    ``bench_fingerprint.json`` in ``save_dir``. It is opt-in and non-fatal, and
+    it is skipped when neither step ran: a run that calibrates nothing has
+    nothing to invalidate.
 
     Raises plain exceptions -- see the module docstring -- and returns the
     measurements; the caller applies them with :func:`apply_session_calibration`.
@@ -405,6 +590,11 @@ def calibrate_session(
         notes.append(
             "已跳过 sweep 几何标定, 沿用给定的几何文件 (本次未做对比择优验收)"
         )
+    captured_fingerprint: BenchFingerprint | None = None
+    if fingerprint and (locate or geometry):
+        captured_fingerprint = _capture_session_fingerprint(
+            params, config, center, save_dir, notes
+        )
     return SessionCalibration(
         pupil_center=center,
         panel_scan_response=response,
@@ -414,6 +604,7 @@ def calibrate_session(
         geometry_file=geometry_file,
         geometry_correlation=correlation,
         illumination_radius_px=radius_px,
+        fingerprint=captured_fingerprint,
         evidence_dir=save_dir,
         notes=tuple(notes),
     )

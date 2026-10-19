@@ -1699,3 +1699,42 @@ print→loguru（切片 2，src 96 处）、宽泛 except（切片 3，风险最
 （切片 4）。
 
 ---
+
+### 5.37 发送管线叠加层统一：GUI 与闭环优化器共用 `build_send_overlay`（2026-10-19）
+
+**背景**：上游 `acb97b1f`（合并 `d58af31d` 带入）把离焦统一为驱动层
+send-time phase overlay（`_phase_overlay` 弧度层 + `_base_phase` 灰度层，
+`set_phase_overlay`/`set_base_phase` 槽位），GUI 侧栏「离焦叠加 (发送叠加)」
+经 `gui/utils/phase_overlay.py` 的 `PhaseOverlay`/`apply_overlays_to_handle`
+作用于 GUI 会话句柄。但闭环优化器（gs-refine / model-in-loop / zernike-pib）
+各自 `open_slm()` 新开会话句柄，GUI 叠加层对它们不可见 —— 手动 GUI 发送与
+闭环自动发送的相位不一致（闭环少了离焦/底相位修正层）。
+
+**改动**：
+- `gui/slm/bench_settings.py`：新增 `build_send_overlay(prefix, slm)` ——
+  从 session 现算 `PhaseOverlay`（离焦受 `_defocus_enabled` 门控、全零视同
+  None；底相位仅勾选且已保存时叠加），作为**叠加层真值的唯一读取点**，
+  纯读 session 无硬件 I/O。
+- `gui/slm/multi_slm_controller.py`：`_apply_slm_overlays` 改为调用
+  `build_send_overlay`（行为不变，去重）。
+- `gui/slm/shaping_controls.py`：三个闭环优化器 GUI 入口在配置中填
+  `send_overlay=build_send_overlay(prefix, slm)`（CLI 路径不填，保持 None）。
+- `optimizer/wfless/slm_gs_refine.py` / `slm_model_in_loop.py` /
+  `slm_zernike_pib.py`：config 新增 `send_overlay: PhaseOverlay | None = None`，
+  `open_slm(config)` 之后 `if send_overlay is not None: apply_overlays_to_handle(slm, ...)`
+  —— 真实 Santec 写驱动槽，仿真句柄（无 setter）自动 no-op。
+
+**测试**：
+- 3 个优化器各新增「自开句柄上写驱动槽」测试（真实 Santec SDK stub，
+  monkeypatch 工厂停在 open+apply 后断言 `_phase_overlay`/`_base_phase`），
+  以及 None→槽位保持空的负向用例与仿真句柄 no-op 用例。
+- `test_phase_overlay_proxy.py` 补 3 例（proxy `__enter__`/`__exit__` 委托）。
+- `test_zernike_gui_vs_slm_square.py` 修复：`Santec.__new__` 桩补
+  `_phase_overlay = None` / `_base_phase = None`（上游 `acb97b1f` 新增槽位
+  后旧桩漏初始化，`create_phase_from_array` 读属性崩 —— 干净 HEAD 上
+  复现同一错误，属既有疏漏非本次引入）。
+
+**验证**：ruff 全过；gui+driver 回归 270 passed；import-purity 探针确认
+优化器 import 不拉 torch/streamlit（`gui/utils/phase_overlay.py` 零重依赖）。
+
+---

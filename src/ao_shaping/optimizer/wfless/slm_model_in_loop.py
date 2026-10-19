@@ -62,6 +62,10 @@ if TYPE_CHECKING:  # annotations only (``from __future__ import annotations``).
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import BenchGeometry
 
 # Device-free (NumPy + stdlib only), so importing it cannot pull in a driver.
+from ao_shaping.gui.utils.phase_overlay import (
+    PhaseOverlay,
+    apply_overlays_to_handle,
+)
 from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegion,
     AdaptiveTrustRegionConfig,
@@ -738,6 +742,11 @@ class SlmModelInLoopConfig:
     The lab has more than one SLM, and a wrong wavelength reprograms the panel's
     phase table, so this is stated rather than assumed.
     """
+    send_overlay: PhaseOverlay | None = field(default=None, repr=False)
+    """Send-pipeline overlay (GUI 离焦 / 底相位 T4 叠加层) applied to the SLM
+    this run opens (driver slot on a real Santec; no-op on a sim SLM that lacks
+    the setters). ``None`` (default) = no overlay, so CLI runs are untouched;
+    the GUI entry fills it from the session via ``build_send_overlay``."""
 
     n_eval_frames: int = 4
     """Frames averaged per measurement."""
@@ -1402,6 +1411,11 @@ class _HardwareBench:
                 wavelength=config.slm_wavelength or None,
             )
             self._slm.open()
+            # Send-pipeline overlay (GUI 离焦 / 底相位): apply to the SLM this
+            # run opens (driver slot; no-op for a sim SLM that lacks the
+            # setters). Default ``None`` leaves CLI runs untouched.
+            if config.send_overlay is not None:
+                apply_overlays_to_handle(self._slm, config.send_overlay)
             from ao_shaping.drivers.slm.santec import SantecError
 
             try:

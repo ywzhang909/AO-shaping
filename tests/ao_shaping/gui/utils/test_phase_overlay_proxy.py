@@ -130,6 +130,15 @@ class TestApplyOverlaysToHandle:
     def test_none_handle_is_a_noop(self) -> None:
         apply_overlays_to_handle(None, PhaseOverlay(_defo(), _base()))  # must not raise
 
+    def test_handle_without_setters_is_a_noop(self) -> None:
+        # A sim SLM (SimSLMPib) exposes no set_phase_overlay/set_base_phase, so the
+        # optimizer applying an overlay to it must be a silent no-op, not an error
+        # (the hasattr guard). This is what keeps the sim closed loop untouched.
+        class _NoSetters:
+            pass  # deliberately has no set_phase_overlay / set_base_phase
+
+        apply_overlays_to_handle(_NoSetters(), PhaseOverlay(_defo(), _base()))  # must not raise
+
 
 def test_display_phase_is_intercepted() -> None:
     calls: dict = {}

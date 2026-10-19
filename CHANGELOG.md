@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+- **发送管线叠加层统一**：GUI 与闭环优化器共用 `build_send_overlay` ——
+  `gui/slm/bench_settings.py` 新增 `build_send_overlay(prefix, slm)`（离焦 +
+  底相位的唯一读取点），controller 与三个闭环优化器（gs-refine / model-in-loop /
+  zernike-pib）GUI 入口共用；优化器 config 新增 `send_overlay`，`open_slm` 后
+  经 `apply_overlays_to_handle` 写到自开句柄（真实 Santec 写驱动槽，仿真 no-op，
+  CLI 默认 None 不受扰）。叠加层构建逻辑去重，行为不变。
+  详见 [docs/dev/todo_archive.md §5.37](docs/dev/todo_archive.md)。
 - **F-5 切片 1**（#56）：`src/ao_shaping/` + `scripts/` 共 **41 个文件**补齐
   `from __future__ import annotations`（AST 定位插入：docstring 与首个 import
   之间 / 文件头 / 无 import 模块的 docstring 后）。`tests/` 67 个与
