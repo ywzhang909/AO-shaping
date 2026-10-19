@@ -277,6 +277,7 @@ def save_phase(
     out_path: str | Path,
     *,
     title: str = "",
+    flat_reason: str = "",
     dpi: int = 150,
 ) -> Path:
     """Write the SLM pattern.
@@ -285,25 +286,87 @@ def save_phase(
     device ``_max_gray``) and is rendered on a gray ramp so the wrap period is
     legible. Anything else is treated as raw unwrapped radians and wrapped to
     [0, 2π) for display only -- the stored array is never modified.
+
+    A **constant** array gets special treatment. The usual source is an
+    all-zero ``best_phase`` from a run that never cleared the holdout gate, so
+    there is genuinely no structure to draw -- but a flat colour block under a
+    0..2π colourbar is exactly what a *broken* render looks like, and readers
+    do read it that way. Those panels drop the colourbar and carry an explicit
+    annotation instead, so "flat phase" can never be confused with "failed to
+    plot".
     """
     import matplotlib.pyplot as plt
 
+    _apply_cjk_font()
     arr = np.asarray(phase)
     path = Path(out_path)
     path.parent.mkdir(parents=True, exist_ok=True)
 
+    # ``twilight`` is cyclic, so 0 and 2π land on the same end of the ramp and
+    # the wrap seam is not mistaken for a physical discontinuity. That is the
+    # colormap the 2026-10-16 report already documents for wrapped phase; the
+    # uint16 grayscale actually sent to the panel keeps a plain gray ramp.
     if arr.dtype in PHASE_LIKE_DTYPES:
         shown, cmap, vmin, vmax = arr, "gray", 0.0, float(arr.max())
+        unit, cbar_label = "gray", "SLM gray"
     else:
         wrapped = np.mod(np.asarray(arr, dtype=float), 2 * np.pi)
-        shown, cmap, vmin, vmax = wrapped, "gray", 0.0, float(2 * np.pi)
+        shown, cmap, vmin, vmax = wrapped, "twilight", 0.0, float(2 * np.pi)
+        unit, cbar_label = "rad", "phase (rad)"
 
-    fig, ax = plt.subplots(figsize=(8, 8))
-    ax.imshow(shown, cmap=cmap, vmin=vmin, vmax=vmax)
-    if title:
-        ax.set_title(title)
-    ax.axis("off")
-    fig.tight_layout()
+    is_constant = bool(shown.size and np.all(shown == shown.flat[0]))
+
+    if is_constant:
+        # No image, no colourbar: the point is that there is nothing to show.
+        # A near-black canvas (0 rad on a gray ramp) plus floating text reads
+        # far better than a "panel" that is simply a black rectangle.
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.axis("off")
+        if title:
+            ax.set_title(title, fontsize=14, pad=18)
+        ax.text(
+            0.5,
+            0.62,
+            "平相位（全零）",
+            ha="center",
+            va="center",
+            fontsize=30,
+            color="#333333",
+        )
+        ax.text(
+            0.5,
+            0.44,
+            f"常量值 {shown.flat[0]:.4g} {unit} · 形状 {tuple(shown.shape)}",
+            ha="center",
+            va="center",
+            fontsize=15,
+            color="#666666",
+        )
+        # The renderer cannot know *why* an array is flat -- a rejected run, an
+        # explicit flat reference, a zeroed placeholder -- so a caller-supplied
+        # reason replaces the guess rather than being added alongside it.
+        ax.text(
+            0.5,
+            0.30,
+            (flat_reason + "\n" if flat_reason else "")
+            + "记录本身正确，无结构可显示 —— 非渲染失败",
+            ha="center",
+            va="center",
+            fontsize=13,
+            color="#888888",
+            linespacing=1.7,
+        )
+        fig.tight_layout()
+    else:
+        fig, ax = plt.subplots(figsize=(7, 6.4))
+        mappable = ax.imshow(shown, cmap=cmap, vmin=vmin, vmax=vmax)
+        bar = fig.colorbar(mappable, ax=ax, fraction=0.046, pad=0.04)
+        bar.set_label(cbar_label)
+        ax.set_xlabel("column (px)")
+        ax.set_ylabel("row (px)")
+        if title:
+            ax.set_title(title, fontsize=9)
+        fig.tight_layout()
     try:
         fig.savefig(path, dpi=dpi)
     finally:

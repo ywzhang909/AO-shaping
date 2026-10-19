@@ -75,6 +75,8 @@ import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from loguru import logger
 from typing import Any
 
 import matplotlib
@@ -171,6 +173,35 @@ _RE_DATE_PREFIX = re.compile(r"^\d{8}_")
 
 _RE_GS_ISSUE = re.compile(r"^figures/gs_issue_live_farfield_(?P<run>20\d{6}_\d{6})\.png$")
 
+# ---- SLM 相位图 ----------------------------------------------------------
+#
+# The 2026-10-19 phase figures render as a blank block, which reads as a failed
+# plot. It is not: those runs were rejected at the holdout gate before Step B,
+# so ``best_phase.npy`` is legitimately all-zero. Two separate defects did show
+# up though, and both are fixed by re-rendering through the canonical
+# ``display.beam_profile.save_phase``:
+#
+#   1. no colourbar + an explicit "flat phase" annotation, so an all-zero array
+#      can no longer be misread as a broken render;
+#   2. the CJK font is applied explicitly -- the old figures fell back to a
+#      Latin-only face and the title rendered as tofu boxes ("SLM ▯▯").
+
+# 单次运行: figures/20261019_103208_phase.png -> <run>/best_phase.npy
+_RE_PHASE_RUN_FIG = re.compile(r"^(?:figures/)?(?P<run>20\d{6}_\d{6})_phase\.png$")
+
+# 单次运行: figures/model_in_loop_live_20261014_20261014_105041_phase.png
+_RE_PHASE_MIL_RUN = re.compile(
+    r"^figures/model_in_loop_live_[^/]*?(?P<run>20\d{6}_\d{6})_phase\.png$"
+)
+
+# 重放相位图: A/B 两格分别来自 config.json["sources"] 的第 0 / 第 1 个源运行。
+# A/B 之后跟着一段阶段描述（`A_zero_step` / `B_10_step`），其内部还含下划线，
+# 故不能靠 `_phase` 收尾来切分；这里显式列出已知形态。
+_RE_PHASE_REPLAY = re.compile(
+    r"^figures/model_in_loop_live_(?P<replay>.+?)_"
+    r"(?P<slot>A|B)(?:_(?:zero_step|\d+_step))?_phase\.png$"
+)
+
 # GUI 闭环整形会话 C/图 3 的四个子图 -> 两个会话的交错重放原始帧。
 # 顺序即 render_panel 的 (row, col) 顺序：A flat / A best / C flat / C best。
 _GUI_REPLAY_SPECS = (
@@ -209,6 +240,76 @@ def _rel(path: Path) -> str:
 
 def _md5(path: Path) -> str:
     return hashlib.md5(path.read_bytes()).hexdigest()
+
+
+def _replay_sources(replay: str) -> list[Path]:
+    """Source run directories behind a replay, in A/B order (``config.json``).
+
+    ``config.json`` stores absolute paths, and a source need not be a bare run
+    directory -- ``20261016_1048_zero_refit/rejected_shaped_candidate`` is a
+    sub-directory of one -- so the path relative to :data:`MIL_ROOT` is kept
+    rather than just the directory name.
+    """
+    cfg = MIL_REPLAY_ROOT / replay / "config.json"
+    if not cfg.exists():
+        return []
+    try:
+        payload = json.loads(cfg.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    out: list[Path] = []
+    for raw in payload.get("sources", []):
+        p = Path(raw)
+        try:
+            out.append(p.relative_to(MIL_ROOT))
+        except ValueError:
+            out.append(Path(p.name))
+    return out
+
+
+def _mil_phase_path(rel_run: str | Path) -> Path | None:
+    """The run's recorded ``best_phase.npy``, or ``None`` when absent."""
+    cand = MIL_ROOT / Path(rel_run) / "best_phase.npy"
+    return cand if cand.exists() else None
+
+
+def _resolve_phase(figure: str) -> tuple[str, str]:
+    """Map a phase figure to ``(container_relpath, note)``; ``("", note)`` if unresolved."""
+    m = _RE_PHASE_RUN_FIG.match(figure) or _RE_PHASE_MIL_RUN.match(figure)
+    if m:
+        run = m.group("run")
+        path = _mil_phase_path(run)
+        if path is None:
+            return "", f"{run} 没有 best_phase.npy"
+        return _rel(path), f"{run} 的 best_phase.npy"
+
+    m = _RE_PHASE_REPLAY.match(figure)
+    if m:
+        replay = m.group("replay")
+        slot = m.group("slot")
+        index = 0 if slot == "A" else 1
+        # Report file names may repeat the date the run stamp already carries,
+        # so try the verbatim form first and the stripped one second -- the same
+        # fallback `_find_replay_frame` uses for the far-field figures.
+        sources: list[Path] = []
+        for candidate in (replay, _RE_DATE_PREFIX.sub("", replay)):
+            found = _replay_sources(candidate)
+            if len(found) > index:
+                sources = found
+                break
+        if not sources:
+            return "", f"重放 {replay} 的 config.json 未列出第 {index + 1} 个源运行"
+
+        source = sources[index]
+        path = _mil_phase_path(source)
+        if path is None:
+            return "", f"{source.as_posix()} 没有 best_phase.npy"
+        return (
+            _rel(path),
+            f"重放 {replay} 的 {slot} 格 -> 源 {source.as_posix()} 的 best_phase.npy",
+        )
+
+    return "", "未匹配任何已知相位图来源规则"
 
 
 def _load_gs_pkl_frame(path: Path) -> np.ndarray | None:
@@ -646,6 +747,70 @@ def plot_profile(frame: np.ndarray, spec: FrameSpec, out_path: Path) -> None:
     )
 
 
+def _flat_phase_reason(container: str) -> str:
+    """Why a resolved ``best_phase.npy`` is all-zero, when the record says so.
+
+    Returns ``""`` when the answer is unknown -- the renderer then prints the
+    neutral fallback instead of a guess.
+    """
+    parts = container.split("/")
+    run = next((p for p in parts if re.fullmatch(r"20\d{6}_\d{6}", p)), None)
+    if run is None:
+        return ""
+    scores = _mil_scores(run)
+    if scores is None:
+        return ""
+    flat, best = scores
+    if best <= flat:
+        return f"{run}：Step B 未改进（best {best:.4f} ≤ 平相位 {flat:.4f}），best_phase 为平相位"
+    return ""
+
+
+def regenerate_phase_figures() -> tuple[int, int]:
+    """Re-render every SLM-phase figure from the run's recorded ``best_phase.npy``.
+
+    The 2026-10-19 phase figures read as blank blocks. That is not a plotting
+    failure -- those runs were rejected at the holdout gate before Step B, so
+    ``best_phase.npy`` is legitimately all-zero -- but two real defects made it
+    look like one, and re-rendering through the canonical
+    :func:`~ao_shaping.display.beam_profile.save_phase` fixes both:
+
+    1. an all-zero array now gets an explicit "平相位（全零）… 非渲染失败"
+       annotation instead of a flat colour block under a 0..2π colourbar;
+    2. the CJK font is applied explicitly -- the old figures fell back to a
+       Latin-only face, so the title rendered as tofu boxes ("SLM ▯▯").
+
+    Returns ``(written, unresolved)``.
+    """
+    from ao_shaping.display.beam_profile import save_phase
+
+    written = 0
+    unresolved: list[str] = []
+    for md in sorted(REPORT_DIR.glob("*.md")):
+        text = md.read_text(encoding="utf-8")
+        for hit in re.finditer(r"!?\[[^\]]*\]\(([^)]+_phase\.png)\)", text):
+            rel = hit.group(1).replace("\\", "/")
+            if not rel.startswith("figures/"):
+                continue
+            container, note = _resolve_phase(rel)
+            target = REPORT_DIR / rel
+            if not container:
+                unresolved.append(f"{rel} — {note}")
+                continue
+            arr = np.load(ROOT / container)
+            label = Path(rel).stem
+            save_phase(
+                arr,
+                target,
+                title=f"{label} · SLM 相位",
+                flat_reason=_flat_phase_reason(container),
+            )
+            written += 1
+    if unresolved:
+        logger.warning("相位图未能重建 {} 张: {}", len(unresolved), unresolved)
+    return written, len(unresolved)
+
+
 def out_path_for(spec: FrameSpec) -> Path:
     """Output PNG next to its source figure, named after the run, not the stem.
 
@@ -760,7 +925,11 @@ def main(argv: list[str] | None = None) -> int:
             }
         )
 
+    phase_written = phase_unresolved = 0
     if not args.check:
+        phase_written, phase_unresolved = regenerate_phase_figures()
+        print(f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张")
+
         manifest = FIG_DIR / "xy_profile_manifest.json"
         manifest.write_text(
             json.dumps(
@@ -769,6 +938,8 @@ def main(argv: list[str] | None = None) -> int:
                     "convention": "X 剖面 = 过光斑中心行的行剖面；Y 剖面 = 过光斑中心列的列剖面",
                     "cut_point": "prepare_frame + spots_calc.centroid（光强质心，非 argmax）",
                     "tally": tally,
+                    "phase_figures_regenerated": phase_written,
+                    "phase_figures_unresolved": phase_unresolved,
                     "figures": rows,
                 },
                 ensure_ascii=False,
