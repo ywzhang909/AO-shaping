@@ -48,6 +48,24 @@ H4 的做法 (「小倾斜移开晕斑」怎么落地)
 不在结果里假装成功。H4 的靶区改用**定尺框**度量 (不再跟着强度质心跑), 否则远处
 的晕斑会把框撑大、把质心拽偏 —— 那是测量口径的锅, 不是 H4 的。
 
+度量口径 (2026-10-19 修正, 三层并列)
+------------------------------------
+
+1. **主口径 = 固定物理尺度框** (``score``/``cv``/``pib`` 及 ``*_cont``/``*_bl``):
+   边长恒为 ``target_side_px``, 框心用**窗口化质心**在信号上定位一次后**冻结**
+   (:func:`anchor_box_center`), 同一口径的所有帧共用。**结论只准用这一层。**
+2. **自适应框** (``*_adapt``): 质心跟踪 + σ 缩放边长。**只作对照** —— 框跟着光斑
+   一起变大会把「测量区域变大」当成「均匀性变好」(本调查里这个陷阱出现过三次)。
+3. **data.json 居中定尺框** (``*_box``): 不锚在信号上 (H4 的晕斑就在它中心),
+   所以它**对任何口径都恒可计算、永不 NaN**; Δz=0/η=0 上逐位复现基线。
+
+⚠️ **上一版的扫描路径 bug (已修, 且加了永久断言)**: ``_row`` 曾经一律用 H4 的倾斜
+偏移定位度量框, 于是 H0~H3 (无倾斜) 的框被整体挪出信号 —— Δz=0 时挪 23 px, 框里
+剩不到 0.4% 的光, PIB 从 **0.9153** 塌到 **0.0034** (270×); 同时 ``pib_box``/
+``score_box`` 在非零偏移分支里被写成 ``NaN``。修复 = 每行用自己的口径
+(:attr:`GsSetup.offset_px`) + 框心锚在信号上。永久断言 = :func:`self_check_scan_baseline`
+走**扫描自己的代码路径**在 Δz=0/η=0 上核对 data.json, 容差 1e-6, 不成立直接 raise。
+
 ⚠️ **回代算子在大 Δz 下不闭合** (继承自 :class:`OffFocusBench`): 带限 ASM 不是酉
 算子, ``_asm_inverse`` 用 ``H(−dz)=conj(H(dz))`` 代替伴随, 只在 Δz=0 精确往返。
 闭合误差逐 Δz 量出来记进 ``summary.self_check.adjoint_closure`` —— 它对 H1~H4 一视
@@ -295,7 +313,7 @@ QUICK = RunConfig(
     seed=0,
     gs_iters=60,
     dz_mm=(0.0, 5.0, 10.0, 20.0),
-    eta_values=(0.0, 0.05, 0.10),
+    eta_values=(0.0, 0.02, 0.05, 0.10),
     halo_n_grid=192,
     tag="_improved_quick",
 )
@@ -651,6 +669,64 @@ def self_check_eta0(bench: TwoComponentBench, n_iters: int, seed: int) -> float:
     return delta
 
 
+def self_check_scan_baseline(tolerance: float = 1e-6) -> dict[str, Any]:
+    """**扫描路径**在 Δz=0、η=0 上必须逐位复现 data.json 的 gs 行 (永久断言)。
+
+    这条断言挡的是上一版那个「度量框放到 H4 倾斜偏移上」的 bug: 框一旦离开信号,
+    框内 PIB 从 **0.9153** 塌到 **0.0034** (270×), 而 ``pib_box`` 在非零偏移分支里
+    直接写 ``NaN``。这里故意**走扫描自己的代码路径** (``TwoComponentBench.gs_phase_eta``
+    → :func:`anchor_box_center` → ``bench.box_stats``), 而不是另调一次 ``gs_shape``:
+    只有这样才能挡住「框放歪 / 度量口径被改坏」这类改动 —— 另算一遍 ``gs_shape``
+    永远是对的, 挡不住任何东西。
+
+    口径固定为 data.json 的 (n_grid=64/padding=8/target_side=43/seed=0, 200 轮,
+    **连续相位**), 与 ``--quick`` 无关 —— 基线核对不随冒烟跑缩水。
+    """
+    cfg = SquareShapingConfig(
+        n_grid=64,
+        target_side_px=43,
+        far_field_padding=8,
+        seed=0,
+        wavelength=WAVELENGTH_M,
+        focal_length=FOCAL_LENGTH_M,
+        aperture_size=APERTURE_M,
+    )
+    bench = TwoComponentBench(cfg, band_limit=False)
+    out = bench.gs_phase_eta(0.0, eta=0.0, n_iters=200, seed=0, quantize=False)
+    inten = bench.intensity_eta(out["phase_cont"], 0.0, 0.0)
+    center, centroid = anchor_box_center(
+        inten, (cfg.far_field_size // 2, cfg.far_field_size // 2), radius=anchor_radius(43)
+    )
+    pib, cv = bench.box_stats(inten, center[1], center[0], 43)
+    score = composite_from_pib_cv(pib, cv)
+    measured = {"score": float(score), "PIB": float(pib), "CV": float(cv)}
+    delta = {k: measured[k] - DATA_JSON_GS[k] for k in measured}
+    worst = max(abs(v) for v in delta.values())
+    if worst > tolerance:
+        raise AssertionError(
+            "扫描路径在 Δz=0、η=0 上没有复现 data.json 基线: "
+            f"max|Δ|={worst:.3e} > {tolerance:.0e} "
+            f"(measured {measured}, reference {DATA_JSON_GS})。"
+            "最可能的原因: 度量框没有锚在信号上 (框放歪了) —— "
+            "检查 anchor_box_center / GsSetup.offset_px 是否被按组正确传入"
+        )
+    return {
+        "measured": measured,
+        "reference_datajson_gs": DATA_JSON_GS,
+        "delta": delta,
+        "max_abs_delta": float(worst),
+        "tolerance": tolerance,
+        "box_center_px": [int(center[0]), int(center[1])],
+        "box_side_px": 43,
+        "signal_centroid_px": [round(centroid[0], 4), round(centroid[1], 4)],
+        "phase": "continuous (quantize=False), i.e. the data.json baseline caliber",
+        "note": (
+            "走扫描自己的代码路径 (gs_phase_eta + anchor_box_center + box_stats); "
+            "框放歪 / 度量口径被改坏都会在这里 raise"
+        ),
+    }
+
+
 def self_check_halo_monotonic(
     rows: list[dict], spread_tol: float = 1.15
 ) -> dict[str, Any]:
@@ -986,38 +1062,6 @@ def measure_band_limit_damage(rc: RunConfig) -> dict[str, Any]:
     }
 
 
-def _pupil_probe(
-    n: int, dx: float, *, random_phase: bool = False
-) -> tuple[float, np.ndarray]:
-    """一张 ``n x n`` 的瞳面探针场 (口径内 Gaussian, 可选随机相位)。"""
-    yy, xx = np.mgrid[-n / 2 : n / 2, -n / 2 : n / 2].astype(np.float64)
-    r2 = (xx * dx) ** 2 + (yy * dx) ** 2
-    amp = np.exp(-r2 / ((n * dx / 4.0) ** 2))
-    phase = (
-        np.random.default_rng(0).normal(0, 0.5, size=(n, n))
-        if random_phase
-        else -1.0
-    )
-    field = amp * np.exp(1j * phase * np.ones_like(amp))
-    return dx, field.astype(np.complex128)
-
-
-def _pupil_probe(
-    n: int, dx: float, *, random_phase: bool = False
-) -> tuple[float, np.ndarray]:
-    """一张 ``n x n`` 的瞳面探针场 (口径内 Gaussian, 可选随机相位)。"""
-    yy, xx = np.mgrid[-n / 2 : n / 2, -n / 2 : n / 2].astype(np.float64)
-    r2 = (xx * dx) ** 2 + (yy * dx) ** 2
-    amp = np.exp(-r2 / ((n * dx / 4.0) ** 2))
-    phase = (
-        np.random.default_rng(0).normal(0, 0.5, size=(n, n))
-        if random_phase
-        else -1.0
-    )
-    field = amp * np.exp(1j * phase * np.ones_like(amp))
-    return dx, field.astype(np.complex128)
-
-
 def measure_trustworthy_dz(
     halo: list[dict], half_window_um: float, n_grid_hint: int
 ) -> dict[str, Any]:
@@ -1101,21 +1145,97 @@ def offset_for_tilt(
     return (disp, 0), True
 
 
+def anchor_radius(side_px: int) -> int:
+    """信号定位窗口的半径 (px): 目标框半边长 + 3。
+
+    必须**小于**目标框心到晕斑的距离 (:func:`offset_for_tilt` 给的
+    ``side/2 + 1.6·w_halo + 3``), 否则窗口会碰到轴上的零级晕斑, 把框心往晕斑拽。
+    H4 的偏移恒 > 本半径, 所以晕斑 (它留在光轴上) 一定落在窗口外。
+    """
+    return int(side_px) // 2 + 3
+
+
+def anchor_box_center(
+    inten: np.ndarray, target_center: tuple[int, int], radius: int
+) -> tuple[tuple[int, int], tuple[float, float]]:
+    """在 ``target_center`` 附近 ``radius`` 像素的**窗口**内量信号质心, 返回冻结的整数框心。
+
+    返回 ``((row, col), (centroid_row, centroid_col))`` —— 前者是真正用于度量的整数
+    框心, 后者是亚像素质心 (QC)。
+
+    **只在 ``(口径, Δz)`` 上定位一次** (见 :func:`run_groups`), 同一口径的所有帧
+    (不同 η、带限/无带限正演、量化/连续相位) 共用它。**绝不在度量循环里重定位**:
+    类散斑场的 ``argmax`` 在 ~1e-3 扰动下会跳到另一颗晶粒上, 滚动框让 CV/PIB 不连续
+    (仓库明令的坑)。
+
+    亚像素质心**不移动**整数框: 实测基线信号质心 (255.4996, 255.4999), 直接取整会把
+    框整体挪 1 px (score 0.8118 → 0.8073, 0.5% 差) —— 那是测量噪声不是信号跑偏。
+    所以只有 |质心 − 目标框心| ≥ 1 px 才移动框; 那才说明信号真的不在靶上 (例如 H4
+    的倾斜没把光斑移到位)。
+
+    **晕斑被排除在窗口之外**: 窗口半径取 :func:`anchor_radius` (目标框半边长 + 3),
+    框心取**目标**位置 —— H4 把目标框整体移出晕斑半径 (见 :func:`offset_for_tilt`,
+    偏移恒 > 窗口半径), 于是轴上的零级晕斑落在窗口外, 不会被当成信号。H0~H3 无倾斜,
+    晕斑与信号同在画框中心 (物理上就重叠), 窗口覆盖的仍是信号本身。
+    """
+    m = inten.shape[0]
+    r0, c0 = int(target_center[0]), int(target_center[1])
+    r_lo, r_hi = max(r0 - radius, 0), min(r0 + radius + 1, m)
+    c_lo, c_hi = max(c0 - radius, 0), min(c0 + radius + 1, m)
+    win = inten[r_lo:r_hi, c_lo:c_hi]
+    tot = float(win.sum())
+    if tot <= 0.0 or win.size == 0:
+        return (r0, c0), (float("nan"), float("nan"))
+    rr, cc = np.mgrid[r_lo:r_hi, c_lo:c_hi]
+    centroid_r = float((win * rr).sum() / tot)
+    centroid_c = float((win * cc).sum() / tot)
+    dr = 0 if abs(centroid_r - r0) < 1.0 else int(round(centroid_r - r0))
+    dc = 0 if abs(centroid_c - c0) < 1.0 else int(round(centroid_c - c0))
+    return (r0 + dr, c0 + dc), (centroid_r, centroid_c)
+
+
+def get_anchor(
+    anchors: dict[tuple[tuple[int, int], float], tuple[tuple[int, int], tuple[float, float]]],
+    bench: TwoComponentBench,
+    rc: RunConfig,
+    offset_px: tuple[int, int],
+    dz_mm: float,
+    inten_ref: np.ndarray,
+) -> tuple[tuple[int, int], tuple[float, float]]:
+    """取 (或首次定位) 该 ``(口径, Δz)`` 的冻结框心。口径 = ``offset_px``。"""
+    key = (tuple(int(v) for v in offset_px), float(dz_mm))
+    if key not in anchors:
+        m = rc.bench_cfg().far_field_size
+        target_center = (m // 2 + int(offset_px[0]), m // 2 + int(offset_px[1]))
+        anchors[key] = anchor_box_center(
+            inten_ref, target_center, anchor_radius(rc.target_side_px)
+        )
+    return anchors[key]
+
+
 def run_groups(
     bench: TwoComponentBench, rc: RunConfig, ref_sigma: float, halo: list[dict]
-) -> tuple[list[dict], dict[tuple[float, float], np.ndarray]]:
+) -> tuple[list[dict], dict[tuple[float, float], np.ndarray], dict]:
     """H0~H4 × Δz × η 的主扫描。
 
     顺带把 H2 的相位按 ``(Δz, η)`` 缓存下来给热启动对照当初值 —— 那正是
     「上一组解」, 重跑一遍只是把同一条轨迹换个名字再算一次。
+
+    ⚠️ **上一版的扫描路径 bug (已修)**: 度量框的位置曾经一律取 H4 的倾斜偏移, 于是
+    H0~H3 的框被整体挪出信号 (Δz=0 时挪 23 px), 框里剩不到 0.4% 的光 → PIB 从
+    0.915 塌到 0.0034 (270×), 而 ``pib_box``/``score_box`` 在非零偏移分支里直接写
+    ``NaN``。现在**每行用自己的口径** (:attr:`GsSetup.offset_px`), 框心锚在信号上
+    (见 :func:`anchor_box_center`), ``*_box`` 恒可计算。
     """
     halo_by_dz = {float(r["dz_mm"]): r for r in halo}
     rows: list[dict] = []
     h2_cache: dict[tuple[float, float], np.ndarray] = {}
+    anchors: dict[tuple[tuple[int, int], float], tuple] = {}
     etas = [e for e in rc.eta_values if e > 0.0]
     for dz_mm in rc.dz_mm:
         dz = dz_mm * 1e-3
         offset, fits = offset_for_tilt(halo_by_dz.get(dz_mm), rc)
+        halo_ratio = halo_by_dz.get(dz_mm, {}).get("halo_w_over_shape_halfwindow")
         for group in GROUPS:
             group_etas = [0.0] if group == "H0" else etas
             for eta in group_etas:
@@ -1132,104 +1252,133 @@ def run_groups(
                 )
                 if group == "H2":
                     h2_cache[(dz_mm, eta)] = out["phase"]
+                # 信号定位基准帧 = 本行的量化相位在**配置正演**下的强度
+                inten_ref = bench.intensity_eta(out["phase"], setup.eta, dz)
+                center, anchor_centroid = get_anchor(
+                    anchors, bench, rc, setup.offset_px, dz_mm, inten_ref
+                )
                 rows.append(
                     _row(
                         bench,
                         rc,
-                        group,
-                        eta,
+                        setup,
                         dz_mm,
-                        offset,
                         fits,
                         out["phase"],
                         out["phase_cont"],
+                        center,
+                        anchor_centroid,
                         ref_sigma,
+                        halo_ratio=halo_ratio,
                         warm=False,
                     )
                 )
                 logger.info(
                     "  {g:<3} η={e:<5.2f} Δz={d:>5.1f}mm  score={s:.4f} "
-                    "CV={cv:.4f} PIB={p:.4f}",
+                    "CV={cv:.4f} PIB={p:.4f}  act={a:.4f}  box@({cy},{cx})",
                     g=group,
                     e=eta,
                     d=dz_mm,
                     s=rows[-1]["score"],
                     cv=rows[-1]["cv"],
                     p=rows[-1]["pib"],
+                    a=rows[-1]["score_adapt"],
+                    cy=center[0],
+                    cx=center[1],
                 )
-    return rows, h2_cache
+    return rows, h2_cache, anchors
 
 
 def _row(
     bench: TwoComponentBench,
     rc: RunConfig,
-    group: str,
-    eta: float,
+    setup: GsSetup,
     dz_mm: float,
-    offset: tuple[int, int],
     fits: bool,
     phase: np.ndarray,
     phase_cont: np.ndarray,
+    center: tuple[int, int],
+    anchor_centroid: tuple[float, float],
     ref_sigma: float,
     *,
     warm: bool,
+    halo_ratio: float | None = None,
+    group: str | None = None,
 ) -> dict:
-    """一次 GS 运行的完整指标行 (量化相位与连续相位各一份)。"""
+    """一次 GS 运行的完整指标行。
+
+    度量分三层, 全部写进同一行:
+
+    * **主口径 ``score``/``cv``/``pib``** = **固定物理尺度框** (边长恒为
+      ``target_side_px``, 框心锚在信号上并冻结)。``*_cont`` 用连续相位,
+      ``*_bl`` 用带限正演 (数值误差带)。**结论只准用这三列。**
+    * **``*_adapt``** = 自适应框 (质心跟踪 + σ 缩放边长)。**只作对照** —— 框跟着
+      光斑一起变大会把「测量区域变大」当成「均匀性变好」, 本调查里这个陷阱出现过
+      三次 (见模块 docstring 与 summary 的 ``metric_convention``)。
+    * **``*_box``** = data.json 的**居中定尺框** (``make_square_target`` 口径),
+      连续相位。它与前两层不同, 因为它**不锚在信号上** (H4 的晕斑就在它中心),
+      但它对任何口径都恒可计算, 且 Δz=0/η=0 上逐位复现基线 —— 这就是永久性的
+      「扫描路径没被改坏」判据 (由 :func:`self_check_scan_baseline` 主动 raise)。
+    """
     dz = dz_mm * 1e-3
     cfg = rc.bench_cfg()
+    group = setup.group if group is None else group
+    side = int(rc.target_side_px)
+    crow, ccol = int(center[0]), int(center[1])
+    m = cfg.far_field_size
+    target_center = (m // 2 + int(setup.offset_px[0]), m // 2 + int(setup.offset_px[1]))
+    inten_ref = bench.intensity_eta(phase, setup.eta, dz)
+    cx_f, cy_f, sigma = bench.centroid_sigma(inten_ref)
+    ac_r = float(anchor_centroid[0])
+    ac_c = float(anchor_centroid[1])
     out: dict[str, Any] = {
         "group": group,
         "group_label": GROUP_LABELS[group],
-        "eta": eta,
+        "eta": setup.eta,
         "dz_mm": dz_mm,
-        "offset_px": list(offset),
+        "offset_px": [int(setup.offset_px[0]), int(setup.offset_px[1])],
         "tilt_fits_window": fits,
         "warm_start": warm,
         "band_limit": bench.band_limit,
+        # 信号定位 (QC): 冻结框心 vs 目标框心 vs **窗口内**亚像素质心 vs 全帧质心
+        "signal_center_px": [crow, ccol],
+        "target_center_px": [int(target_center[0]), int(target_center[1])],
+        "signal_centroid_px": [round(ac_r, 4), round(ac_c, 4)],
+        "signal_anchor_shift_px": [crow - int(target_center[0]), ccol - int(target_center[1])],
+        "signal_anchor_ok": bool(
+            math.hypot(ac_r - target_center[0], ac_c - target_center[1]) <= 3.0
+        ),
+        "frame_centroid_px": [round(cy_f, 4), round(cx_f, 4)],
+        "sigma_px": float(sigma),
     }
     for tag, ph in (("", phase), ("_cont", phase_cont)):
         # ``*_bl`` 是**同一组解**在带限正演下的分数: 两者之差 = 这条指标的数值
         # 误差带 (带限在 Δz≳10 mm 上漏 0.7%~22%, 与入射场谱宽有关)。
         # 注意它**不是**「带限版 GS 解的分数」—— 那要整条轨迹重跑一遍。
         for suffix, bl in (("_bl", True), ("", bench.band_limit)):
-            inten = bench.intensity_eta(ph, eta, dz, band_limit=bl)
-            if offset == (0, 0):
-                m = bench.evaluate(
-                    inten, ref_sigma=ref_sigma, target_side_px=rc.target_side_px
-                )
-                score, cv, pib = m["score"], m["cv"], m["pib"]
-                d90 = m["d90_px"]
-                if suffix == "" and tag == "":
-                    out["sigma_px"] = m["sigma_px"]
-                    out["side_px"] = m["side_px"]
-            else:
-                # H4 的靶区是**我们自己指定的固定框**, 不是跟着强度质心跑的框。
-                # 零级晕斑被刻意放到远处, 而全帧 σ 与质心都把它算进去 → 框会被撑大、
-                # 质心被拽偏, 等于用测量口径惩罚我们要测的东西。定尺框才公平。
-                dy, dx = offset
-                pib, cv = bench.box_stats(
-                    inten,
-                    cfg.far_field_size // 2 + dx,
-                    cfg.far_field_size // 2 + dy,
-                    rc.target_side_px,
-                )
-                score = composite_from_pib_cv(pib, cv)
-                d90 = float(measure_spot_diameter_cam(inten, energy=0.90))
-            out[f"score{tag}{suffix}"] = score
+            inten = bench.intensity_eta(ph, setup.eta, dz, band_limit=bl)
+            pib, cv = bench.box_stats(inten, ccol, crow, side)
+            out[f"score{tag}{suffix}"] = composite_from_pib_cv(pib, cv)
             out[f"cv{tag}{suffix}"] = cv
             out[f"pib{tag}{suffix}"] = pib
-            out[f"d90_px{tag}{suffix}"] = d90
-    # 居中定尺框口径 (与 data.json 同口径) —— 只在零偏移时定义
-    if offset == (0, 0):
-        inten = bench.intensity_eta(phase_cont, eta, dz)
-        dj = compute_bench_metrics(inten, make_square_target(cfg))
-        out["score_box"] = composite_score(dj)
-        out["cv_box"] = dj["CV"]
-        out["pib_box"] = dj["PIB"]
-    else:
-        out["score_box"] = float("nan")
-        out["cv_box"] = float("nan")
-        out["pib_box"] = float("nan")
+            out[f"d90_px{tag}{suffix}"] = float(measure_spot_diameter_cam(inten, energy=0.90))
+    # 自适应框 (质心跟踪 + σ 缩放边长) —— 只作对照, 不作结论
+    adapt = bench.evaluate(inten_ref, ref_sigma=ref_sigma, target_side_px=side)
+    out["score_adapt"] = adapt["score"]
+    out["cv_adapt"] = adapt["cv"]
+    out["pib_adapt"] = adapt["pib"]
+    out["side_adapt_px"] = adapt["side_px"]
+    # data.json 居中定尺框口径 (连续相位) —— 恒可计算, 永不 NaN
+    dj = compute_bench_metrics(
+        bench.intensity_eta(phase_cont, setup.eta, dz, band_limit=bench.band_limit),
+        make_square_target(cfg),
+    )
+    out["score_box"] = composite_score(dj)
+    out["cv_box"] = dj["CV"]
+    out["pib_box"] = dj["PIB"]
+    if halo_ratio is not None:
+        out["halo_w_over_shape_halfwindow"] = float(halo_ratio)
+        out["trusted"] = bool(float(halo_ratio) <= HALO_WRAP_RATIO_LIMIT)
     return out
 
 
@@ -1239,11 +1388,13 @@ def run_warm_start(
     ref_sigma: float,
     h2_phases: dict[tuple[float, float], np.ndarray],
     halo: list[dict],
+    anchors: dict,
 ) -> tuple[list[dict], list[dict]]:
     """热启动 (用同 (Δz, η) 的 H2 解) vs 随机初值, 比较收敛速度。
 
     热启动源取主扫描里已经跑过的 H2 相位 (同 η、同 Δz、同目标框), 不重跑一遍
-    plain GS —— 那只是把同一条轨迹换个名字再算一次。
+    plain GS —— 那只是把同一条轨迹换个名字再算一次。度量框与主扫描共用同一份
+    ``anchors`` (同口径 ⇒ 同框心), 保证两组数字可比。
     """
     halo_by_dz = {float(r["dz_mm"]): r for r in halo}
     warm_rows: list[dict] = []
@@ -1251,7 +1402,9 @@ def run_warm_start(
     for dz_mm in rc.dz_mm:
         dz = dz_mm * 1e-3
         offset, fits = offset_for_tilt(halo_by_dz.get(dz_mm), rc)
+        halo_ratio = halo_by_dz.get(dz_mm, {}).get("halo_w_over_shape_halfwindow")
         for eta in [e for e in rc.eta_values if e > 0.0]:
+            setup = GsSetup("H3", eta, weighted=True, subtract=True, offset_px=offset)
             rnd = bench.gs_phase_eta(
                 dz,
                 eta=eta,
@@ -1275,18 +1428,23 @@ def run_warm_start(
                 warm_phase=h2_phases[(dz_mm, eta)],
                 record_history=True,
             )
+            inten_ref = bench.intensity_eta(warm["phase"], setup.eta, dz)
+            center, anchor_centroid = get_anchor(
+                anchors, bench, rc, setup.offset_px, dz_mm, inten_ref
+            )
             row = _row(
                 bench,
                 rc,
-                "H3",
-                eta,
+                setup,
                 dz_mm,
-                offset,
                 fits,
                 warm["phase"],
                 warm["phase_cont"],
+                center,
+                anchor_centroid,
                 ref_sigma,
                 warm=True,
+                halo_ratio=halo_ratio,
             )
             row["score_random"] = _last(rnd["history"])
             row["score_warm"] = _last(warm["history"])
@@ -1393,6 +1551,116 @@ def band_limit_band(rows: list[dict]) -> list[dict]:
             }
         )
     return out
+
+
+def subtraction_benefit(rows: list[dict]) -> list[dict]:
+    """逐 ``(Δz, η)`` 的**零级相干扣除收益** (固定物理尺度框为主口径)。
+
+    * ``dh2_minus_h1_*`` = H2 − H1 —— 只多一步**相干扣除** (同为 plain GS);
+    * ``dh3_minus_h1_*`` = H3 − H1 —— 加权 GS **且**扣除 (相对纯 GS 的总收益)。
+
+    ``score``/``cv``/``pib`` 三列与自适应框版 (``h*_score_adapt``) 并列。
+    **结论只准用固定框版** (见 summary 的 ``metric_convention``)。
+    """
+    out: list[dict] = []
+    etas = sorted({float(r["eta"]) for r in rows if float(r["eta"]) > 0.0})
+    for dz in sorted({float(r["dz_mm"]) for r in rows}):
+        for eta in etas:
+            sel = {
+                r["group"]: r
+                for r in rows
+                if abs(float(r["dz_mm"]) - dz) < 1e-12
+                and abs(float(r["eta"]) - eta) < 1e-12
+            }
+            if not {"H1", "H2", "H3"} <= set(sel):
+                continue
+            h1, h2, h3 = sel["H1"], sel["H2"], sel["H3"]
+            out.append(
+                {
+                    "dz_mm": dz,
+                    "eta": eta,
+                    "trusted": bool(h1.get("trusted", False)),
+                    "halo_w_over_shape_halfwindow": h1.get(
+                        "halo_w_over_shape_halfwindow"
+                    ),
+                    "h1_score": h1["score"],
+                    "h2_score": h2["score"],
+                    "h3_score": h3["score"],
+                    "h1_cv": h1["cv"],
+                    "h2_cv": h2["cv"],
+                    "h3_cv": h3["cv"],
+                    "h1_pib": h1["pib"],
+                    "h2_pib": h2["pib"],
+                    "h3_pib": h3["pib"],
+                    "dh2_minus_h1_score": h2["score"] - h1["score"],
+                    "dh2_minus_h1_cv": h2["cv"] - h1["cv"],
+                    "dh2_minus_h1_pib": h2["pib"] - h1["pib"],
+                    "dh3_minus_h1_score": h3["score"] - h1["score"],
+                    "dh3_minus_h1_cv": h3["cv"] - h1["cv"],
+                    "dh3_minus_h1_pib": h3["pib"] - h1["pib"],
+                    "h1_score_adapt": h1["score_adapt"],
+                    "h2_score_adapt": h2["score_adapt"],
+                    "h3_score_adapt": h3["score_adapt"],
+                }
+            )
+    return out
+
+
+def hardware_advice(rows: list[dict], rc: RunConfig) -> dict[str, Any]:
+    """给硬件实验的一条明确建议: **什么 Δz、什么 η 下值得做零级相干扣除**。
+
+    判据取**固定物理尺度框**上的 ``score = 0.5·PIB + 0.5/(1+CV)`` 增益
+    (``H2 − H1``): 增益为正说明「多拍一张零级参考图 (关调制) 并把它从回代场里
+    减掉」是划算的。同时报 CV / PIB 各自的增益方向 —— 它们常常反向 (扣除抬 PIB
+    但压不平 CV, 因为扣除只作用在 GS 的目标面约束之前)。
+
+    ``trusted`` 直接沿用晕斑回绕判据 (:func:`measure_trustworthy_dz`): Δz 大到晕斑
+    1/e² 半径超过整形网格半窗时, 该点的 CV/PIB 是 FFT 周期性卷回的伪影, 不参与建议。
+    """
+    benefit = subtraction_benefit(rows)
+    per_dz: dict[float, list[dict]] = {}
+    for b in benefit:
+        per_dz.setdefault(float(b["dz_mm"]), []).append(b)
+    by_dz: dict[str, Any] = {}
+    for dz, bs in sorted(per_dz.items()):
+        bs = sorted(bs, key=lambda x: x["eta"])
+        by_dz[f"{dz:g}mm"] = {
+            "trusted": bool(bs[0]["trusted"]),
+            "eta_where_subtraction_raises_score": [
+                x["eta"] for x in bs if x["dh2_minus_h1_score"] > 0
+            ],
+            "eta_where_subtraction_lowers_cv": [
+                x["eta"] for x in bs if x["dh2_minus_h1_cv"] < 0
+            ],
+            "eta_where_subtraction_raises_pib": [
+                x["eta"] for x in bs if x["dh2_minus_h1_pib"] > 0
+            ],
+            "best_dscore_h2_minus_h1": max(x["dh2_minus_h1_score"] for x in bs),
+            "worst_dscore_h2_minus_h1": min(x["dh2_minus_h1_score"] for x in bs),
+            "best_dscore_h3_minus_h1": max(x["dh3_minus_h1_score"] for x in bs),
+        }
+    trusted_dz = [d for d, v in by_dz.items() if v["trusted"]]
+    # 「扣除在多大 η 以上开始必要」= 在**可信** Δz 上, 扣除不再给出正 score 增益的 η 之下
+    beneficial = [
+        x["eta"]
+        for b in benefit
+        if b["trusted"] and b["dh2_minus_h1_score"] > 0
+        for x in [b]
+    ]
+    return {
+        "conclusion_rule": (
+            "建议只用**固定物理尺度框**上的 score 增益 (H2−H1) 判定; "
+            "自适应框版单列, 不作依据。"
+        ),
+        "by_dz": by_dz,
+        "trusted_dz": trusted_dz,
+        "eta_where_subtraction_beneficial_on_trusted_dz": sorted(set(beneficial)),
+        "caliber_caveat": (
+            f"本建议来自 {rc.n_grid}² 瞳面 / padding={rc.far_field_padding} / "
+            f"target_side={rc.target_side_px}px / gs_iters={rc.gs_iters} 的口径; "
+            "换实验系统的焦距/口径/像素请重跑 (远场像元与窗口都会变)。"
+        ),
+    }
 
 
 def dz_choice_table(halo: list[dict]) -> dict[str, Any]:
@@ -1680,12 +1948,35 @@ def main() -> None:
     base_m = compute_bench_metrics(base_inten, make_square_target(base_cfg))
     base_score = composite_score(base_m)
     base_sigma = base_bench.centroid_sigma(base_inten)[2]
+    base_delta = {
+        "score": base_score - DATA_JSON_GS["score"],
+        "PIB": base_m["PIB"] - DATA_JSON_GS["PIB"],
+        "CV": base_m["CV"] - DATA_JSON_GS["CV"],
+    }
     logger.info(
         "基线: score={:.6f} PIB={:.6f} CV={:.6f}  (data.json: {:.6f}/{:.6f}/{:.6f})",
         base_score, base_m["PIB"], base_m["CV"],
         DATA_JSON_GS["score"], DATA_JSON_GS["PIB"], DATA_JSON_GS["CV"],
     )
     logger.info("η=0 与 gs_shape 逐位一致: max|Δphase|={:.3e}", gs_delta)
+    # 硬断言: 基线核对不是日志而是闸门 —— 度量口径 (目标框/归一化) 一旦被改坏,
+    # 这里直接 raise, 不用等到扫描跑完才从数字上看出不对。
+    if max(abs(v) for v in base_delta.values()) > 1e-6:
+        raise AssertionError(
+            "data.json 基线核对失败: max|Δ|={:.3e} > 1e-6 (measured {}/{}/{} vs {}). "
+            "度量口径 (目标框、归一化、正演) 被改坏了".format(
+                max(abs(v) for v in base_delta.values()),
+                base_score, base_m["PIB"], base_m["CV"], DATA_JSON_GS,
+            )
+        )
+    logger.info("扫描路径基线断言 (Δz=0/η=0, 自己那条代码路径) ...")
+    scan_baseline = self_check_scan_baseline(tolerance=1e-6)
+    logger.info(
+        "扫描路径 ✓ score={:.6f} PIB={:.6f} CV={:.6f}  框心={} 侧={}px  质心={}",
+        scan_baseline["measured"]["score"], scan_baseline["measured"]["PIB"],
+        scan_baseline["measured"]["CV"], scan_baseline["box_center_px"],
+        scan_baseline["box_side_px"], scan_baseline["signal_centroid_px"],
+    )
 
     # --- 1. 晕斑诊断 (宽网格) ------------------------------------------------
     logger.info("零级晕斑诊断 (halo 网格 n_grid={}) ...", rc.halo_n_grid)
@@ -1732,16 +2023,20 @@ def main() -> None:
                 {f"{r['dz_mm']:g}mm": round(r["halo_radius_over_halfwindow"], 2)
                  for r in trustworthy["per_dz"]})
     logger.info("主扫描: H0~H4 × Δz {} × η {} ...", rc.dz_mm, rc.eta_values)
-    rows, h2_cache = run_groups(bench, rc, ref_sigma, halo)
+    rows, h2_cache, anchors = run_groups(bench, rc, ref_sigma, halo)
     ceilings = summarize(rc, rows)
     ceilings_trusted = summarize(rc, rows, trustworthy["trusted_dz_mm"])
 
     # --- 3. 热启动 vs 随机 ---------------------------------------------------
     logger.info("热启动 vs 随机初值 ...")
-    warm_rows, traj = run_warm_start(bench, rc, ref_sigma, h2_cache, halo)
+    warm_rows, traj = run_warm_start(bench, rc, ref_sigma, h2_cache, halo, anchors)
 
     # --- 4. 产物 ------------------------------------------------------------
+    dz_choice = dz_choice_table(halo)
+    benefit = subtraction_benefit(rows)
+    advice = hardware_advice(rows, rc)
     write_csv(out / f"imp_groups{rc.tag}.csv", rows)
+    write_csv(out / f"imp_subtraction{rc.tag}.csv", benefit)
     write_csv(out / f"imp_halo{rc.tag}.csv", halo)
     write_csv(out / f"imp_warm_start{rc.tag}.csv", warm_rows)
     write_csv(out / f"imp_warm_trajectory{rc.tag}.csv", traj)
@@ -1750,7 +2045,6 @@ def main() -> None:
     plot_ceilings(ceilings_trusted, out / f"imp_group_ceilings{rc.tag}.png")
     plot_groups_vs_dz(rows, out / f"imp_groups_vs_dz{rc.tag}.png")
 
-    dz_choice = dz_choice_table(halo)
     h0_row = next(
         (r for r in rows if r["group"] == "H0" and abs(r["dz_mm"]) < 1e-12),
         None,
@@ -1823,8 +2117,32 @@ def main() -> None:
         },
         "self_check": {
             "eta0_vs_gs_shape_max_phase_delta": gs_delta,
+            "scan_path_baseline": scan_baseline,
             "round_trip": round_trip,
             "halo_monotonic": halo_check,
+        },
+        "metric_convention": {
+            "primary_fixed_box": (
+                "score/cv/pib (及 *_cont / *_bl) = **固定物理尺度框**: 边长恒为 "
+                "target_side_px, 框心用质心/窗口定位一次后**冻结** (anchor_box_center), "
+                "不随帧重定位。H4 的框心落在信号上, 轴上的零级晕斑在框外。"
+            ),
+            "adaptive_box_reference_only": (
+                "score_adapt/cv_adapt/pib_adapt = 自适应框 (强度质心 + σ 缩放边长)。"
+                "**只作对照, 不作结论**: 框跟着光斑一起变大会把「测量区域变大」当成"
+                "「均匀性变好」—— 本调查里这个陷阱出现过三次 (side 43→104 px, "
+                "σ 涨 9.06×, 于是「最优离焦」被推到 ±3.87 rad 这种非物理值)。"
+            ),
+            "datajson_box": (
+                "score_box/cv_box/pib_box = data.json 的**居中定尺框** "
+                "(make_square_target 口径), 连续相位。它不锚在信号上 (H4 的晕斑就在"
+                "它中心), 所以恒可计算、永不 NaN; Δz=0/η=0 上逐位复现基线, 由 "
+                "self_check.scan_path_baseline 主动 raise 兜底。"
+            ),
+            "conclusion_rule": (
+                "所有组间比较只准用**固定框**版 (score/cv/pib)。自适应框与 data.json 框"
+                "只用来暴露测量口径的影响。"
+            ),
         },
         "baseline_datajson_check": {
             "measured": {
@@ -1833,11 +2151,9 @@ def main() -> None:
                 "CV": base_m["CV"],
             },
             "reference_datajson_gs": DATA_JSON_GS,
-            "delta": {
-                "score": base_score - DATA_JSON_GS["score"],
-                "PIB": base_m["PIB"] - DATA_JSON_GS["PIB"],
-                "CV": base_m["CV"] - DATA_JSON_GS["CV"],
-            },
+            "delta": base_delta,
+            "tolerance": 1e-6,
+            "asserted": True,
             "h0_row_from_scan": (
                 None
                 if h0_row is None
@@ -1848,21 +2164,30 @@ def main() -> None:
                     "score": h0_row["score"],
                     "cv": h0_row["cv"],
                     "pib": h0_row["pib"],
+                    "score_cont": h0_row["score_cont"],
+                    "cv_cont": h0_row["cv_cont"],
+                    "pib_cont": h0_row["pib_cont"],
+                    "signal_center_px": h0_row["signal_center_px"],
                     "note": (
-                        "扫描网格 + 量化相位 + auto-tracked 框, 所以与上面那个"
-                        "居中定尺框 + 连续相位的口径不同; H0 行本身才是基线"
+                        "扫描行 (量化相位, 与 --quick 无关的 data.json 口径只在 "
+                        "self_check.scan_path_baseline 里核对)。*_box 列是连续相位 + "
+                        "居中定尺框, 与基线同口径; score/cv/pib 是量化相位 + 锚在信号上"
+                        "的定尺框 (H0 在 Δz=0 上二者只差量化)。"
                     ),
                 }
             ),
         },
         "group_ceilings": ceilings,
         "group_ceilings_trusted_dz_only": ceilings_trusted,
+        "subtraction_benefit": benefit,
+        "hardware_advice": advice,
         "band_limit_metric_band": band_limit_band(rows),
         "dz_choice": dz_choice,
         "halo_rows": halo,
         "elapsed_s": round(time.perf_counter() - t0, 1),
         "outputs": {
             "groups_csv": f"imp_groups{rc.tag}.csv",
+            "subtraction_csv": f"imp_subtraction{rc.tag}.csv",
             "halo_csv": f"imp_halo{rc.tag}.csv",
             "warm_start_csv": f"imp_warm_start{rc.tag}.csv",
             "warm_trajectory_csv": f"imp_warm_trajectory{rc.tag}.csv",
@@ -1879,9 +2204,10 @@ def main() -> None:
     print(json.dumps(
         {k: summary[k] for k in
          ("mode", "round_trip_relerr", "energy_ratio", "band_limit_damage",
-          "trustworthy_dz", "self_check", "baseline_datajson_check",
-          "group_ceilings", "group_ceilings_trusted_dz_only",
-          "band_limit_metric_band", "dz_choice")},
+          "trustworthy_dz", "metric_convention", "self_check",
+          "baseline_datajson_check", "group_ceilings",
+          "group_ceilings_trusted_dz_only", "subtraction_benefit",
+          "hardware_advice", "band_limit_metric_band", "dz_choice")},
         indent=2, ensure_ascii=False,
     ))
     print(f"\n产物目录: {out}")
