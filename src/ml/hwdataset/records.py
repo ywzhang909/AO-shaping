@@ -97,7 +97,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from loguru import logger
 
-from ml.hwdataset.index import HwRecordRef, PhaseSource
+from ml.hwdataset.index import HwRecordRef, PhaseSource, dict_sort_key
 from ml.hwdataset.transforms import (
     DEFAULT_PANEL_CENTER,
     DEFAULT_PANEL_RADIUS,
@@ -379,27 +379,6 @@ def _load_payload(path: Path) -> Any:
         raise HwRecordError(f"Could not unpickle debug payload {path}: {exc}") from exc
 
 
-def _dict_sort_key(item: tuple[Any, Any]) -> tuple[int, int, str]:
-    """Total ordering over ``(key, record)`` pairs of a record ``dict``.
-
-    Mirrors ``ml.hwdataset.index._dict_sort_key``, which is where
-    :attr:`~ml.hwdataset.index.HwRecordRef.position` was computed. Duplicated
-    rather than imported because that helper is private to ``index``; if the two
-    ever disagreed, a record with a non-``int`` key would be read from the wrong
-    position -- silently, and with a perfectly plausible phase.
-
-    Args:
-        item: One ``(key, record)`` pair.
-
-    Returns:
-        ``(rank, numeric_key, text_key)`` where ``rank`` is ``0`` for integers.
-    """
-    key = item[0]
-    if isinstance(key, int) and not isinstance(key, bool):
-        return (0, key, "")
-    return (1, 0, str(key))
-
-
 def _ordered_items(payload: Mapping[Any, Any]) -> list[tuple[Any, Any]]:
     """Return a ``dict`` payload's items in the index's canonical order.
 
@@ -407,10 +386,10 @@ def _ordered_items(payload: Mapping[Any, Any]) -> list[tuple[Any, Any]]:
         payload: A ``dict``-like record payload.
 
     Returns:
-        ``(key, record)`` pairs sorted by :func:`_dict_sort_key`, i.e. integer
+        ``(key, record)`` pairs sorted by :func:`dict_sort_key`, i.e. integer
         keys numerically first, everything else by its string form.
     """
-    return sorted(payload.items(), key=_dict_sort_key)
+    return sorted(payload.items(), key=dict_sort_key)
 
 
 def _extract_record(payload: Any, ref: HwRecordRef) -> Mapping[str, Any]:
