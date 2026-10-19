@@ -98,15 +98,15 @@
 
 ### 2.1 `slm_zernike_pib.py` —— 行为 bug 优先
 
-> ⚠️ 该文件已从 2179 行重构到 **1592 行**，`calc_objective` 已抽成
+> ⚠️ 该文件已从 2179 行重构到 **1726 行**（2026-10-19 复核），`calc_objective` 已抽成
 > `ShapingObjective.__call__` ⇒ **旧账本行号全部失效**，但 bug 逐条存活。
-> 🔴→✅ **`slm_zernique_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
+> 🔴→✅ **`slm_zernike_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
 > `ee96acfe` 合入）：该 1600 行分叉（`_row0`/`_log_row`/`learning_schedule`/饱和分支
-> 结构 + `w_outside` 能量项 + `__main__` fork demo）已并入 `slm_zernique_pib.py`
-> （`w_outside`/调试产物/ABBA 等均收敛至此），`slm_zernique_shaping.py` 现仅为
+> 结构 + `w_outside` 能量项 + `__main__` fork demo）已并入 `slm_zernike_pib.py`
+> （`w_outside`/调试产物/ABBA 等均收敛至此），`slm_zernike_shaping.py` 现仅为
 > **44 行弃用重导出 shim**（`__all__` = `SLM_WIDTH/HEIGHT/RESOLUTION`、`ObjectiveSpec`、
-> `Santec`、`SlmZerniquePibConfig`、`optimize_slm_zernique_pib`），仅供旧 import
-> 路径解析，**不含任何可独立修改的实现** ⇒ 下面各条改动**只需改 `slm_zernique_pib.py`
+> `Santec`、`SlmZernikePibConfig`、`optimize_slm_zernike_pib`），仅供旧 import
+> 路径解析，**不含任何可独立修改的实现** ⇒ 下面各条改动**只需改 `slm_zernike_pib.py`
 > 一处**，历史「改一处必须同时改副本」的约束已失效。副本盘点见
 > [archive §5.17](docs/dev/todo_archive.md)。
 
