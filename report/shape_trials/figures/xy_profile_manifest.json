@@ -1,0 +1,1605 @@
+{
+  "generator": "scripts/slm/generate_shape_trial_profiles.py",
+  "convention": "X 剖面 = 过光斑中心行的行剖面；Y 剖面 = 过光斑中心列的列剖面",
+  "cut_point": "prepare_frame + spots_calc.centroid（光强质心，非 argmax）",
+  "tally": {
+    "byte": 10,
+    "content": 0,
+    "structural": 37,
+    "unresolved": 5
+  },
+  "figures": [
+    {
+      "figure": "figures/gs_pad3_best_far_field.png",
+      "status": "UNRESOLVED",
+      "verify_mode": "unresolved",
+      "note": "2026-10-10 运行的调试 PKL 未随仓库保留（data/* 在 .gitignore 中），盘上已无该次原始 CCD 帧，无法重建截面"
+    },
+    {
+      "figure": "figures/gs_pad3_debug_summary.png",
+      "status": "UNRESOLVED",
+      "verify_mode": "unresolved",
+      "note": "2026-10-10 运行的调试 PKL 未随仓库保留；其 first_img/last_img 子图无法重建"
+    },
+    {
+      "figure": "figures/gs_pad3_refine24_best_far_field.png",
+      "status": "UNRESOLVED",
+      "verify_mode": "unresolved",
+      "note": "2026-10-10 运行的调试 PKL 未随仓库保留，盘上已无原始 CCD 帧"
+    },
+    {
+      "figure": "figures/shape_coverage1_debug_summary.png",
+      "status": "UNRESOLVED",
+      "verify_mode": "unresolved",
+      "note": "2026-10-10 hardware_shape_coverage1_20261010/ 调试记录未随仓库保留"
+    },
+    {
+      "figure": "images/gui_shaping_20261014/fig4_box_profile.png",
+      "status": "UNRESOLVED",
+      "verify_mode": "unresolved",
+      "note": "旧截面图作废并由本脚本的逐帧 X/Y 剖面取代：flat 与 best 曾共用一条强度轴，而两者峰值相差约 13 倍（146 vs 11 count），best 曲线被压平不可读；切点也按帧中心而非实测光斑质心取。新图见同目录 `fig3_far_field_*_xy_profile.png`"
+    },
+    {
+      "figure": "../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261013_114650/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7151 > 平相位 0.5910）",
+      "frame_shape": [
+        256,
+        256
+      ],
+      "spot_center_row_col": [
+        129.23595970034714,
+        135.33636331256525
+      ],
+      "frame_center_row_col": [
+        128,
+        128
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        7.336363312565254,
+        1.2359597003471379
+      ],
+      "peak_after_median_subtraction": 2.5250000953674316,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261013_114650_xy_profile.png",
+      "argmax_row_col": [
+        127.0,
+        121.0
+      ]
+    },
+    {
+      "figure": "../../data/debug/slm_model_in_loop/20261013_145819/best_far_field.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261013_145819/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7238 > 平相位 0.5978）",
+      "frame_shape": [
+        256,
+        256
+      ],
+      "spot_center_row_col": [
+        128.43171603589062,
+        132.05889389713565
+      ],
+      "frame_center_row_col": [
+        128,
+        128
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.058893897135647,
+        0.43171603589061647
+      ],
+      "peak_after_median_subtraction": 8.3125,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261013_145819_xy_profile.png",
+      "argmax_row_col": [
+        128.0,
+        122.0
+      ]
+    },
+    {
+      "figure": "../../data/debug/slm_model_in_loop/20261013_152341/best_far_field.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261013_152341/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7220 > 平相位 0.6086）",
+      "frame_shape": [
+        256,
+        256
+      ],
+      "spot_center_row_col": [
+        125.36560589973958,
+        130.20701091975613
+      ],
+      "frame_center_row_col": [
+        128,
+        128
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.2070109197561294,
+        2.6343941002604225
+      ],
+      "peak_after_median_subtraction": 7.787499904632568,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261013_152341_xy_profile.png",
+      "argmax_row_col": [
+        133.0,
+        130.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_100334_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_100334/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.3782 <= 平相位 0.3782），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        103.47785510340054,
+        169.84249624748463
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        19.842496247484632,
+        46.52214489659946
+      ],
+      "peak_after_median_subtraction": 0.24455206096172333,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_100334_farfield_xy_profile.png",
+      "argmax_row_col": [
+        151.0,
+        148.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_103208_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_103208/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.3503 <= 平相位 0.3503），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        151.43602929048325,
+        165.30722146776728
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        15.307221467767278,
+        1.4360292904832477
+      ],
+      "peak_after_median_subtraction": 9.651568412780762,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_103208_farfield_xy_profile.png",
+      "argmax_row_col": [
+        150.0,
+        153.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_103259_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_103259/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.4089 <= 平相位 0.4089），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        153.01228115724257,
+        162.44406429006773
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        12.444064290067729,
+        3.012281157242569
+      ],
+      "peak_after_median_subtraction": 9.310344696044922,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_103259_farfield_xy_profile.png",
+      "argmax_row_col": [
+        152.0,
+        149.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_103347_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_103347/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.4088 <= 平相位 0.4088），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        153.12950531605836,
+        165.75324043808084
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        15.753240438080837,
+        3.1295053160583564
+      ],
+      "peak_after_median_subtraction": 8.826530456542969,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_103347_farfield_xy_profile.png",
+      "argmax_row_col": [
+        152.0,
+        153.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_110323_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_110323/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.3663 <= 平相位 0.3663），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        151.8038741870657,
+        161.83026170490285
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        11.830261704902853,
+        1.803874187065702
+      ],
+      "peak_after_median_subtraction": 8.75415325164795,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_110323_farfield_xy_profile.png",
+      "argmax_row_col": [
+        150.0,
+        149.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_111359_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_111359/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.4139 <= 平相位 0.4139），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        152.1788153936634,
+        165.9127241166001
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        15.912724116600089,
+        2.178815393663399
+      ],
+      "peak_after_median_subtraction": 8.636363983154297,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_111359_farfield_xy_profile.png",
+      "argmax_row_col": [
+        151.0,
+        153.0
+      ]
+    },
+    {
+      "figure": "figures/20261019_111941_farfield.png",
+      "status": "OK",
+      "verify_mode": "byte",
+      "source": "data/debug/slm_model_in_loop/20261019_111941/preflight/flat.npz",
+      "key": "frame",
+      "note": "Step B 未改进（best 0.4396 <= 平相位 0.4396），best_frame 回退为平相位",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        153.2479537681923,
+        158.38091238037478
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        8.380912380374781,
+        3.2479537681923034
+      ],
+      "peak_after_median_subtraction": 8.333333015441895,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/20261019_111941_farfield_xy_profile.png",
+      "argmax_row_col": [
+        152.0,
+        149.0
+      ]
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_205848.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_205848/slm_gs_refine_20261015_205848.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        125.04114971606965,
+        134.26947816023898
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        10.269478160238975,
+        0.04114971606965412
+      ],
+      "peak_after_median_subtraction": 4.5,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_205848_xy_profile.png",
+      "run": "20261015_205848",
+      "argmax_row_col": [
+        87.0,
+        162.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_205848/best_far_field.png",
+        "max_abs_gray_diff": 57.0,
+        "fraction_pixels_differing": 0.014180777633502128
+      }
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_210048.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_210048/slm_gs_refine_20261015_210048.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        119.61294234373277,
+        129.3976408334252
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        5.397640833425214,
+        5.387057656267231
+      ],
+      "peak_after_median_subtraction": 4.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_210048_xy_profile.png",
+      "run": "20261015_210048",
+      "argmax_row_col": [
+        82.0,
+        127.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_210048/best_far_field.png",
+        "max_abs_gray_diff": 64.0,
+        "fraction_pixels_differing": 0.014499335327717605
+      }
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_210155.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_210155/slm_gs_refine_20261015_210155.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.59494977678571,
+        133.380859375
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        9.380859375,
+        6.405050223214289
+      ],
+      "peak_after_median_subtraction": 3.5,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_210155_xy_profile.png",
+      "run": "20261015_210155",
+      "argmax_row_col": [
+        89.0,
+        101.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_210155/best_far_field.png",
+        "max_abs_gray_diff": 73.0,
+        "fraction_pixels_differing": 0.013800492496808911
+      }
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_211345.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_211345/slm_gs_refine_20261015_211345.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.94607105013664,
+        132.65258490881712
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        8.652584908817119,
+        6.053928949863362
+      ],
+      "peak_after_median_subtraction": 4.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_211345_xy_profile.png",
+      "run": "20261015_211345",
+      "argmax_row_col": [
+        91.0,
+        101.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_211345/best_far_field.png",
+        "max_abs_gray_diff": 64.0,
+        "fraction_pixels_differing": 0.013911822348420548
+      }
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_1115_zero_vs_refit_01_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/01_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        150.66436433636616,
+        152.3102008917554
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.310200891755386,
+        0.6643643363661624
+      ],
+      "peak_after_median_subtraction": 4.5375,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_1115_zero_vs_refit_01_A_farfield_xy_profile.png",
+      "replay_dir": "20261014_1115_zero_vs_refit",
+      "argmax_row_col": [
+        150.0,
+        144.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_1115_zero_vs_refit_02_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/02_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        150.67070538107635,
+        152.50498093202017
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.5049809320201746,
+        0.6707053810763455
+      ],
+      "peak_after_median_subtraction": 7.3125,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_1115_zero_vs_refit_02_B_farfield_xy_profile.png",
+      "replay_dir": "20261014_1115_zero_vs_refit",
+      "argmax_row_col": [
+        151.0,
+        145.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_1115_zero_vs_refit_04_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/04_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        150.7408819517929,
+        152.52061810534568
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.520618105345676,
+        0.7408819517928862
+      ],
+      "peak_after_median_subtraction": 7.324999999999999,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_1115_zero_vs_refit_04_B_farfield_xy_profile.png",
+      "replay_dir": "20261014_1115_zero_vs_refit",
+      "argmax_row_col": [
+        151.0,
+        145.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_1115_zero_vs_refit_05_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/05_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        150.86977551515469,
+        153.52154044857633
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        3.5215404485763315,
+        0.8697755151546858
+      ],
+      "peak_after_median_subtraction": 4.5874999999999995,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_1115_zero_vs_refit_05_A_farfield_xy_profile.png",
+      "replay_dir": "20261014_1115_zero_vs_refit",
+      "argmax_row_col": [
+        152.0,
+        147.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_105041_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_105041/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7629 > 平相位 0.5099）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        150.85235134911147,
+        150.31415721908579
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        0.31415721908578575,
+        0.8523513491114727
+      ],
+      "peak_after_median_subtraction": 4.4375,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_105041_farfield_xy_profile.png",
+      "argmax_row_col": [
+        136.0,
+        151.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_105205_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_105205/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7390 > 平相位 0.6034）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.19194764406336,
+        151.99355486923758
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        1.9935548692375846,
+        1.8080523559366384
+      ],
+      "peak_after_median_subtraction": 3.8125,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_105205_farfield_xy_profile.png",
+      "argmax_row_col": [
+        148.0,
+        147.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_105339_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_105339/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6907 > 平相位 0.5987）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        152.2800479840449,
+        152.78515899830322
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.785158998303217,
+        2.2800479840448986
+      ],
+      "peak_after_median_subtraction": 4.712500095367432,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_105339_farfield_xy_profile.png",
+      "argmax_row_col": [
+        153.0,
+        146.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_105438_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_105438/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6710 > 平相位 0.5862）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        149.60761508638734,
+        148.56330080725664
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        1.4366991927433617,
+        0.39238491361265915
+      ],
+      "peak_after_median_subtraction": 6.699999809265137,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_105438_farfield_xy_profile.png",
+      "argmax_row_col": [
+        152.0,
+        143.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_105535_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_105535/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6101 > 平相位 0.5966）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.6132515880578,
+        151.6506942625338
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        1.65069426253379,
+        1.3867484119421931
+      ],
+      "peak_after_median_subtraction": 5.175000190734863,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_105535_farfield_xy_profile.png",
+      "argmax_row_col": [
+        151.0,
+        146.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_110203_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_110203/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6540 > 平相位 0.5915）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.09344358910676,
+        152.82094703574765
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.8209470357476505,
+        1.906556410893245
+      ],
+      "peak_after_median_subtraction": 4.425000190734863,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_110203_farfield_xy_profile.png",
+      "argmax_row_col": [
+        148.0,
+        145.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_110305_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_110305/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6694 > 平相位 0.5907）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.5767659469465,
+        153.20427599418707
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        3.2042759941870713,
+        1.4232340530535055
+      ],
+      "peak_after_median_subtraction": 6.724999904632568,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_110305_farfield_xy_profile.png",
+      "argmax_row_col": [
+        149.0,
+        145.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_170820_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_170820/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.7297 > 平相位 0.5874）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.8962113096675,
+        152.25867766081146
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.2586776608114576,
+        1.1037886903324932
+      ],
+      "peak_after_median_subtraction": 3.2750000953674316,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_170820_farfield_xy_profile.png",
+      "argmax_row_col": [
+        150.0,
+        138.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_171043_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_171043/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6606 > 平相位 0.5048）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.65971174081145,
+        153.05517313010682
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        3.055173130106823,
+        1.3402882591885543
+      ],
+      "peak_after_median_subtraction": 3.825000047683716,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_171043_farfield_xy_profile.png",
+      "argmax_row_col": [
+        150.0,
+        138.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_171219_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_171219/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6401 > 平相位 0.5869）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        148.50688618223097,
+        152.85010330543506
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        2.8501033054350557,
+        1.4931138177690286
+      ],
+      "peak_after_median_subtraction": 5.699999809265137,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_171219_farfield_xy_profile.png",
+      "argmax_row_col": [
+        151.0,
+        138.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_171301_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_171301/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6715 > 平相位 0.5880）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        149.00371631027707,
+        149.70425465791865
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        0.2957453420813465,
+        0.9962836897229295
+      ],
+      "peak_after_median_subtraction": 5.387499809265137,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_171301_farfield_xy_profile.png",
+      "argmax_row_col": [
+        147.0,
+        168.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261014_20261014_171340_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop/20261014_171340/probes/round_01_shaped_00.npz",
+      "key": "frame",
+      "note": "Step B 被接受（score_after 0.6033 > 平相位 0.5805）",
+      "frame_shape": [
+        300,
+        300
+      ],
+      "spot_center_row_col": [
+        147.50482068840367,
+        150.7195061769858
+      ],
+      "frame_center_row_col": [
+        150,
+        150
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        0.7195061769857887,
+        2.495179311596331
+      ],
+      "peak_after_median_subtraction": 6.662499904632568,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261014_20261014_171340_farfield_xy_profile.png",
+      "argmax_row_col": [
+        129.0,
+        156.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights/01_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.30233840289206,
+        128.73088282782138
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.730882827821375,
+        6.697661597107938
+      ],
+      "peak_after_median_subtraction": 1.9249999999999998,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1044_uniformity_weights",
+      "argmax_row_col": [
+        95.0,
+        116.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights/02_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        116.02397902486457,
+        133.31785664675652
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        9.317856646756525,
+        8.976020975135427
+      ],
+      "peak_after_median_subtraction": 1.625,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_02_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1044_uniformity_weights",
+      "argmax_row_col": [
+        94.0,
+        112.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights/04_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        115.41109605211382,
+        133.16658068465
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        9.16658068465,
+        9.58890394788618
+      ],
+      "peak_after_median_subtraction": 1.625,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_04_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1044_uniformity_weights",
+      "argmax_row_col": [
+        121.0,
+        144.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights/05_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.50135150087728,
+        128.76110838878967
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.7611083887896655,
+        6.498648499122723
+      ],
+      "peak_after_median_subtraction": 1.9749999999999999,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_05_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1044_uniformity_weights",
+      "argmax_row_col": [
+        96.0,
+        114.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1051_refit_steps/01_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.65786889270807,
+        125.01880524183649
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        1.018805241836489,
+        6.342131107291934
+      ],
+      "peak_after_median_subtraction": 2.0999999999999996,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1051_refit_steps_01_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1051_refit_steps",
+      "argmax_row_col": [
+        96.0,
+        114.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1051_refit_steps/02_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        117.30820593074114,
+        135.31715420729503
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        11.317154207295033,
+        7.6917940692588616
+      ],
+      "peak_after_median_subtraction": 1.95,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1051_refit_steps_02_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1051_refit_steps",
+      "argmax_row_col": [
+        121.0,
+        147.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1051_refit_steps/04_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        116.96715810632278,
+        135.90342764976208
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        11.90342764976208,
+        8.032841893677215
+      ],
+      "peak_after_median_subtraction": 1.9999999999999998,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1051_refit_steps_04_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1051_refit_steps",
+      "argmax_row_col": [
+        120.0,
+        148.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1051_refit_steps/05_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.96561113119459,
+        125.52483213217141
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        1.5248321321714116,
+        6.034388868805408
+      ],
+      "peak_after_median_subtraction": 2.0749999999999997,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1051_refit_steps_05_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1051_refit_steps",
+      "argmax_row_col": [
+        98.0,
+        114.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1053_refit_steps_reverse/01_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        117.50508513594619,
+        138.81463302337434
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        14.814633023374341,
+        7.494914864053811
+      ],
+      "peak_after_median_subtraction": 1.8499999999999999,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_01_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1053_refit_steps_reverse",
+      "argmax_row_col": [
+        120.0,
+        149.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1053_refit_steps_reverse/02_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.3104365391965,
+        128.75297356742297
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.75297356742297,
+        6.689563460803498
+      ],
+      "peak_after_median_subtraction": 1.9999999999999998,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_02_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1053_refit_steps_reverse",
+      "argmax_row_col": [
+        96.0,
+        116.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1053_refit_steps_reverse/04_B.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.63639264147419,
+        128.91745782232456
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.917457822324565,
+        6.363607358525812
+      ],
+      "peak_after_median_subtraction": 2.0249999999999995,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_04_B_farfield_xy_profile.png",
+      "replay_dir": "20261016_1053_refit_steps_reverse",
+      "argmax_row_col": [
+        97.0,
+        116.0
+      ]
+    },
+    {
+      "figure": "figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_model_in_loop_replay/20261016_1053_refit_steps_reverse/05_A.npy",
+      "key": "",
+      "note": "交错重放原始帧（ABBA 序列），非优化器内部 best_frame",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        116.66843921250253,
+        139.0124700629186
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        15.012470062918595,
+        8.331560787497466
+      ],
+      "peak_after_median_subtraction": 1.8749999999999998,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/model_in_loop_live_20261016_20261016_1053_refit_steps_reverse_05_A_farfield_xy_profile.png",
+      "replay_dir": "20261016_1053_refit_steps_reverse",
+      "argmax_row_col": [
+        120.0,
+        149.0
+      ]
+    },
+    {
+      "figure": "figures/gs_issue_live_farfield_20261015_205654.png",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261015_205654/slm_gs_refine_20261015_205654.pkl",
+      "key": "_img of argmax(score)",
+      "note": "GS refine 调试 PKL 中 score 最优记录的 _img（原始 CCD 帧）；报告里的远场图是另一次 inferno 渲染（600×600，无入库生成脚本），故只能与该运行自带的 best_far_field.png 对照",
+      "frame_shape": [
+        250,
+        248
+      ],
+      "spot_center_row_col": [
+        118.81084049534583,
+        133.60948955215684
+      ],
+      "frame_center_row_col": [
+        125,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        9.609489552156845,
+        6.189159504654171
+      ],
+      "peak_after_median_subtraction": 4.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/figures/gs_issue_live_farfield_20261015_205654_xy_profile.png",
+      "run": "20261015_205654",
+      "argmax_row_col": [
+        92.0,
+        102.0
+      ],
+      "run_png_agreement": {
+        "reference": "data/debug/slm_gs_refine/20261015_205654/best_far_field.png",
+        "max_abs_gray_diff": 64.0,
+        "fraction_pixels_differing": 0.014305334794216138
+      }
+    },
+    {
+      "figure": "images/gui_shaping_20261014/fig3_far_field.png#A_flat",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy",
+      "key": "",
+      "note": "GUI 闭环整形交错重放原始帧；图 3 的第 A_flat 格",
+      "frame_shape": [
+        248,
+        248
+      ],
+      "spot_center_row_col": [
+        124.8664604828208,
+        120.32241059801663
+      ],
+      "frame_center_row_col": [
+        124,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        3.6775894019833686,
+        0.8664604828207985
+      ],
+      "peak_after_median_subtraction": 146.5,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/images/gui_shaping_20261014/fig3_far_field_A_flat_xy_profile.png",
+      "panel": "A_flat",
+      "source_run": "20261014_100441",
+      "frame_file": "00_flat.npy",
+      "argmax_row_col": [
+        126.0,
+        123.0
+      ]
+    },
+    {
+      "figure": "images/gui_shaping_20261014/fig3_far_field.png#A_best",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy",
+      "key": "",
+      "note": "GUI 闭环整形交错重放原始帧；图 3 的第 A_best 格",
+      "frame_shape": [
+        248,
+        248
+      ],
+      "spot_center_row_col": [
+        126.67485804710044,
+        119.34406124918551
+      ],
+      "frame_center_row_col": [
+        124,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        4.655938750814485,
+        2.674858047100443
+      ],
+      "peak_after_median_subtraction": 11.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/images/gui_shaping_20261014/fig3_far_field_A_best_xy_profile.png",
+      "panel": "A_best",
+      "source_run": "20261014_100441",
+      "frame_file": "02_best.npy",
+      "argmax_row_col": [
+        121.0,
+        110.0
+      ]
+    },
+    {
+      "figure": "images/gui_shaping_20261014/fig3_far_field.png#C_flat",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy",
+      "key": "",
+      "note": "GUI 闭环整形交错重放原始帧；图 3 的第 C_flat 格",
+      "frame_shape": [
+        248,
+        248
+      ],
+      "spot_center_row_col": [
+        124.72795843110963,
+        123.47685495586099
+      ],
+      "frame_center_row_col": [
+        124,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        0.5231450441390137,
+        0.7279584311096272
+      ],
+      "peak_after_median_subtraction": 128.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/images/gui_shaping_20261014/fig3_far_field_C_flat_xy_profile.png",
+      "panel": "C_flat",
+      "source_run": "20261014_143035",
+      "frame_file": "00_flat.npy",
+      "argmax_row_col": [
+        125.0,
+        127.0
+      ]
+    },
+    {
+      "figure": "images/gui_shaping_20261014/fig3_far_field.png#C_best",
+      "status": "OK",
+      "verify_mode": "structural",
+      "source": "data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy",
+      "key": "",
+      "note": "GUI 闭环整形交错重放原始帧；图 3 的第 C_best 格",
+      "frame_shape": [
+        248,
+        248
+      ],
+      "spot_center_row_col": [
+        125.92570891009272,
+        123.72433812659588
+      ],
+      "frame_center_row_col": [
+        124,
+        124
+      ],
+      "cut_point": "prepare_frame + spots_calc.centroid",
+      "offset_from_frame_center_px": [
+        0.2756618734041183,
+        1.9257089100927232
+      ],
+      "peak_after_median_subtraction": 11.0,
+      "median_background": 0.0,
+      "profile_png": "report/shape_trials/images/gui_shaping_20261014/fig3_far_field_C_best_xy_profile.png",
+      "panel": "C_best",
+      "source_run": "20261014_143035",
+      "frame_file": "02_best.npy",
+      "argmax_row_col": [
+        122.0,
+        114.0
+      ]
+    }
+  ]
+}

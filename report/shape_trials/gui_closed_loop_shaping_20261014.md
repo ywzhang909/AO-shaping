@@ -4,8 +4,9 @@
 > **生成脚本**: [`scripts/generate_gui_shaping_hw_report.py`](../../scripts/generate_gui_shaping_hw_report.py)
 > **复现命令**: `python scripts/generate_gui_shaping_hw_report.py`
 > **数据/关联脚本**: [`scripts/slm/replay_gs_refine_hw.py`](../../scripts/slm/replay_gs_refine_hw.py)
+> **数据/关联脚本**: [`scripts/slm/generate_shape_trial_profiles.py`](../../scripts/slm/generate_shape_trial_profiles.py)
 > **运行环境**: 离线
-> **说明**: GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集
+> **说明**: GUI 闭环整形实验验证正文为人工实测记录 (SLM 22030108 + 大恒 FJB24112232)；图表与汇总由本脚本从 data/debug/slm_gs_refine/20261014_{100441,104105,143035}/ 离线重算，三次会话的交错重放数值由 scripts/replay_gs_refine_hw.py 实验采集；原 fig4 中心剖面（flat 与 best 共用一条强度轴、峰值相差约 13 倍）已由 scripts/slm/generate_shape_trial_profiles.py 的逐帧 X/Y 光强截面取代
 <!-- provenance:end -->
 
 **本轮结论**：多 SLM 控制器 GUI 的整形功能已从「开环相位图案生成」整体替换为闭环管线
@@ -114,6 +115,17 @@ GUI 侧原有三个**开环**整形控件：`GS方形整形`（上传实测远�
 
 **图 3** 各会话的 flat 与 best 远场帧（GS 帧由重放脚本按记录回放，未在图中重复）。
 
+图 3 已按格重切为四条独立的 **X/Y 光强截面**图，各自取自对应会话**交错重放的原始 CCD 帧**。
+口径：**X 剖面 = 过光斑中心行的行剖面**（intensity vs 像素 x），**Y 剖面 = 过光斑中心列的列剖面**
+（intensity vs 像素 y）；**切点 = 光强质心**（`prepare_frame` 扣背景中位数后取质心），不是假定图幅中心。
+
+| 面板 | 帧来源 | X/Y 光强截面 |
+|---|---|---|
+| A flat | `data/debug/slm_gs_refine/20261014_100441/replay/00_flat.npy` | ![A flat X/Y 光强截面](images/gui_shaping_20261014/fig3_far_field_A_flat_xy_profile.png) |
+| A best | `data/debug/slm_gs_refine/20261014_100441/replay/02_best.npy` | ![A best X/Y 光强截面](images/gui_shaping_20261014/fig3_far_field_A_best_xy_profile.png) |
+| C flat | `data/debug/slm_gs_refine/20261014_143035/replay/00_flat.npy` | ![C flat X/Y 光强截面](images/gui_shaping_20261014/fig3_far_field_C_flat_xy_profile.png) |
+| C best | `data/debug/slm_gs_refine/20261014_143035/replay/02_best.npy` | ![C best X/Y 光强截面](images/gui_shaping_20261014/fig3_far_field_C_best_xy_profile.png) |
+
 以会话 C 的 best 帧作定量判据（目标框 100×100 px，中心取零级）：
 
 | 指标 | flat | best |
@@ -133,6 +145,12 @@ GUI 侧原有三个**开环**整形控件：`GS方形整形`（上传实测远�
 ![中心剖面](images/gui_shaping_20261014/fig4_box_profile.png)
 
 **图 4** 过零级中心的行/列剖面：能量由 flat 的紧凑峰铺展为宽约 100 px 的平顶型分布。
+
+> ⚠️ **图 4 已作废**（PNG 保留仅为溯源）：该图把 flat 与 best 画在**同一条强度轴**上，而两者峰值
+> 相差约 13 倍（146 vs 11 count），`best` 曲线因此被压平到不可读；切点也按帧中心而非实测光斑质心
+> 取。**改用上表的四条逐帧剖面**：`fig3_far_field_A_flat_xy_profile.png`、
+> `fig3_far_field_A_best_xy_profile.png`、`fig3_far_field_C_flat_xy_profile.png`、
+> `fig3_far_field_C_best_xy_profile.png` —— 每帧各自成图，纵轴互不共用。
 
 ## 5. 与既有基线的对照
 
