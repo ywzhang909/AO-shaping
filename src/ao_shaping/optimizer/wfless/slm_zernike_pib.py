@@ -32,7 +32,7 @@ import time
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, Sequence, cast
+from typing import TYPE_CHECKING, Any, Sequence, cast
 
 import numpy as np
 import tqdm
@@ -66,6 +66,11 @@ from ao_shaping.utils.image.hardware_utils import (
     resolve_spot_center,
 )
 from ao_shaping.utils.image.spots_calc import radius
+# ``TargetShape`` here is the 8-member ``Literal`` from ``target.metrics``, NOT the
+# same-named ``str``-Enum re-exported by ``utils.image.targets`` (which comes from
+# ``target.shapes``). Import it from its defining module so the metric vocabulary
+# has one source; this alias used to be a byte-identical duplicate of it here.
+from ao_shaping.utils.image.target.metrics import TargetShape
 from ao_shaping.utils.image.targets import (
     # ``TARGET_SHAPE_CHOICES`` is no longer referenced directly in this module
     # (ObjectiveSpec.resolve validates the shape), but it is re-exported here for
@@ -103,17 +108,6 @@ from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     learning_schedule,
     zernike_to_phase,
 )
-
-TargetShape = Literal[
-    "gaussian",
-    "circle",
-    "square",
-    "annular",
-    "grid",
-    "cross",
-    "rectangle",
-    "pentagon",
-]
 
 # adam parameters
 beta1 = 0.9
