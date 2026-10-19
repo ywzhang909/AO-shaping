@@ -655,6 +655,40 @@ def validate_target_fits_window(values: Mapping[str, Any]) -> str | None:
     return None
 
 
+# ---------------------------------------------------------------------------
+# 响应式行宽（issue #131 变更 7「双 SLM 布局」）
+# ---------------------------------------------------------------------------
+
+
+def _slms_on_screen() -> int:
+    """本页当前渲染几台 SLM 的区块 —— 与 ``multi_slm_controller.main`` 同一判定。
+
+    只读**已存在**的 session_state 信号（``slm{N}`` 句柄与 ``slm{N}_connected``），
+    不新增键、不读硬件、不探测窗口尺寸。双 SLM 并排时每台主区列只有 ~500 px，
+    一行 4/5 个控件会把 number_input 挤到 ~100 px（标签换行、控件变形）。
+    """
+    return sum(
+        1
+        for slm_num in (1, 2)
+        if st.session_state.get(f"slm{slm_num}_connected")
+        and st.session_state.get(f"slm{slm_num}") is not None
+    )
+
+
+def _param_cells(count: int) -> list[Any]:
+    """为 ``count`` 个参数控件铺格子：单 SLM 一行铺满，双 SLM 每行最多 2 个。
+
+    格子顺序 = ``st.columns`` 逐行创建顺序；调用方按返回顺序放置控件，
+    ``values[key] = ...`` 的写入顺序就与重排前逐一相同（预设联动依赖这个顺序）。
+    """
+    per_row = count if _slms_on_screen() < 2 else min(2, count)
+    per_row = max(1, per_row)
+    cells: list[Any] = []
+    while len(cells) < count:
+        cells.extend(st.columns(per_row))
+    return cells[:count]
+
+
 class ShapingMethod(ABC):
     """One closed-loop shaping algorithm as seen by the page.
 
@@ -898,7 +932,7 @@ class ShapingMethod(ABC):
         :func:`merge_bench_values` 回来，由
         :func:`render_closed_loop_shaping` 在 ``render_inputs`` 之后并入。
         """
-        for cell, (name, spec) in zip(st.columns(len(extra)), extra.items()):
+        for cell, (name, spec) in zip(_param_cells(len(extra)), extra.items()):
             with cell:
                 values[name] = st.number_input(**spec, key=self.wkey(name))
 
@@ -1186,7 +1220,8 @@ class GsRefineMethod(ShapingMethod):
     def render_objective(self, values: dict[str, Any]) -> None:
         """GS 目标与评分，一行 4 列（与 MIL 共用区块标题与公式 caption）。"""
         r = GS_REFINE_RECIPE
-        with st.columns(4)[0]:
+        cells = _param_cells(4)
+        with cells[0]:
             values["target_side"] = self.render_target_side(
                 values,
                 int(r["target_side"]),
@@ -1195,7 +1230,7 @@ class GsRefineMethod(ShapingMethod):
                 help="0 = 由照明瞳自动推导",
             )
         for cell, (key, label, lo, hi, step, help_) in zip(
-            st.columns(3)[1:],
+            cells[1:],
             (
                 ("side_factor", "边长因子", 0.1, 5.0, 0.1, None),
                 ("w_pib", "权重 w_pib", 0.0, 2.0, 0.05, None),
@@ -1229,12 +1264,13 @@ class GsRefineMethod(ShapingMethod):
             ("delta", "扰动 δ (rad)", 0.0, 2.0, 0.05, None),
             ("seed", "随机种子", 0, 99999, 1, None),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(5), spgd_fields):
+        cells = _param_cells(5)
+        for cell, (key, label, lo, hi, step, help_) in zip(cells, spgd_fields):
             with cell:
                 values[key] = self.num_input(
                     key, label, r[key], lo, hi, step, help=help_
                 )
-        with st.columns(5)[4]:
+        with cells[4]:
             values["confirm_best"] = st.checkbox(
                 "confirm-best 复测",
                 value=bool(r["confirm_best"]),
@@ -1243,7 +1279,7 @@ class GsRefineMethod(ShapingMethod):
             )
 
         st.caption("GS 预矫正（对比择优：仅实测优于平场才采用）")
-        c1, c2, c3 = st.columns(3)
+        c1, c2, c3 = _param_cells(3)
         with c1:
             values["gs_warm_start"] = st.checkbox(
                 "启用 GS 预矫正",
@@ -1271,7 +1307,8 @@ class GsRefineMethod(ShapingMethod):
             )
 
         st.caption("数值细节")
-        with st.columns(3)[0]:
+        cells = _param_cells(3)
+        with cells[0]:
             values["far_field_padding"] = self.num_input(
                 "far_field_padding",
                 "远场补零",
@@ -1281,7 +1318,7 @@ class GsRefineMethod(ShapingMethod):
                 1,
                 help="GS 验证值 3；与 MIL 的默认值 8 不同，故两者不合并",
             )
-        with st.columns(3)[1]:
+        with cells[1]:
             values["panel_pixel_um"] = self.num_input(
                 "panel_pixel_um",
                 "面板像素间距 (μm)",
@@ -1295,7 +1332,7 @@ class GsRefineMethod(ShapingMethod):
                     "几何、不是待修误差，改动前先看 report/shape_trials/"
                 ),
             )
-        with st.columns(3)[2]:
+        with cells[2]:
             self.render_extra_row(
                 values,
                 {
@@ -1462,7 +1499,8 @@ class ModelInLoopMethod(ShapingMethod):
     def render_objective(self, values: dict[str, Any]) -> None:
         """MIL 目标与评分，一行 4 列：目标形状 / 目标边长 / w_eff / w_uni。"""
         d = MIL_WIDGET_DEFAULTS
-        with st.columns(4)[0]:
+        cells = _param_cells(4)
+        with cells[0]:
             values["target_shape"] = st.selectbox(
                 "目标形状",
                 options=list(MIL_TARGET_SHAPE_LABELS),
@@ -1470,7 +1508,7 @@ class ModelInLoopMethod(ShapingMethod):
                 format_func=MIL_TARGET_SHAPE_LABELS.__getitem__,
                 key=self.wkey("target_shape"),
             )
-        with st.columns(4)[1]:
+        with cells[1]:
             values["target_side"] = self.render_target_side(
                 values,
                 int(d["target_side"]),
@@ -1478,7 +1516,7 @@ class ModelInLoopMethod(ShapingMethod):
                 step=5,
                 help="目标方斑边长（相机像素），上界 = 当前读出窗口边长",
             )
-        with st.columns(4)[2]:
+        with cells[2]:
             values["w_efficiency"] = self.num_input(
                 "w_eff",
                 "权重 w_eff",
@@ -1488,7 +1526,7 @@ class ModelInLoopMethod(ShapingMethod):
                 0.05,
                 help="必须 >0：只优化 -CV 会掏空目标框（实测环围能量 → 0.002）",
             )
-        with st.columns(4)[3]:
+        with cells[3]:
             values["w_uniformity"] = self.num_input(
                 "w_uni", "权重 w_uni", _MIL_W_UNIFORMITY, 0.0, 2.0, 0.05
             )
@@ -1523,7 +1561,7 @@ class ModelInLoopMethod(ShapingMethod):
                 },
             )
         for cell, (key, label, lo, hi, step, default) in zip(
-            st.columns(4),
+            _param_cells(4),
             (
                 ("n_rounds", "轮数", 1, 20, 1, d["n_rounds"]),
                 (
@@ -1558,7 +1596,9 @@ class ModelInLoopMethod(ShapingMethod):
             ("holdout_probe_count", "留出探针", 0, 8, 1, _HOLDOUT_HELP),
             ("freeform_holdout_count", "自由相位留出探针", 0, 8, 1, None),
         )
-        for cell, (key, label, lo, hi, step, help_) in zip(st.columns(4), probe_fields):
+        for cell, (key, label, lo, hi, step, help_) in zip(
+            _param_cells(4), probe_fields
+        ):
             with cell:
                 values[key] = self.num_input(
                     key, label, d[key], lo, hi, step, help=help_
