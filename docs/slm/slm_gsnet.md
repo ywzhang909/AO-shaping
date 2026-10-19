@@ -82,7 +82,7 @@ graph TD
 | `--w-efficiency` | 能量效率权重 | 0.6 |
 | `--w-aspect` | 宽高比权重 | 0.0 |
 | `--cam-type` | 相机后端 (miicam/daheng/sim) | daheng |
-| `-t, --exposure-time-ms` | CCD 曝光 ms (0=不固定) | 0 |
+| `-t, --exposure-time-ms` | CCD 曝光 ms（`auto`=会话/设备决定，`default`=沿用设备当前设置，数值=指定值） | default |
 | `--cam-id` | CCD 设备 ID | 0 |
 | `--cam-size` | CCD 开窗大小 (像素) | - |
 | `--slm-number` | SLM 设备编号 | 1 |
@@ -116,7 +116,7 @@ python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam-type sim 
 
 ## 8. 曝光默认值陷阱 (红线)
 
-同 `spgd-square`：**`--exposure-time-ms 0` = "不固定"，大恒驱动钳到 ~0.02 ms**。实验前必须显式传入实测曝光。
+同 `spgd-square`：**`--exposure-time-ms` 传 `auto` 会从大恒驱动最小值 ~0.02 ms 起探测**（裸 `0` 现在直接报错，2026-10-19 起 `0` 不再是"不固定"，`auto` 才是）。实验前必须显式传入实测曝光。
 
 ## 9. 关键反模式 (红线)
 

@@ -124,7 +124,7 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ## 7. 会话曝光
 
-`--exposure-time-ms 0` 从 Daheng 的最小曝光 `0.02 ms` 打开相机，
+`--exposure-time-ms auto` 从 Daheng 的最小曝光 `0.02 ms` 起探测（本命令默认即 `auto`；裸 `0` 现在直接报错，2026-10-19 起 `0` 不再是"不固定"，`auto` 才是），
 随后定位、几何 sweep 与优化器分别从当前画面探测曝光上限，并检查设备回读。
 本次 2026-10-16 光路以该自动路径完成实测闭环，探测上限约 `0.20 ms`。
 显式曝光仅用于已在**当前**光路测定的复现实验，必须仍受本次画面探测限制。
@@ -144,7 +144,7 @@ python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 ```bash
 python src/ao_shaping/main.py slm-model-in-loop \
-    --cam-type daheng --cam-id 0 --exposure-time-ms 0 \
+    --cam-type daheng --cam-id 0 --exposure-time-ms auto \
     --max-exposure-ms 0 --slm-number 1 --slm-wavelength 1064 \
     --panel-span-px 900 --camera-pixel-um 2.2 \
     --region 64 --far-field-padding 3 \
