@@ -1402,130 +1402,145 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         )
 
         # ------------------------------------------------------------------
-        # Heuristic search branch (shared driver: algorithm/heuristic/search.py).
-        # The driver clips candidates to the bounds, handles the maximise/minimise
-        # sign and aborts cooperatively when the live window is closed.
-        # ------------------------------------------------------------------
-        try:
-            if algorithm != "spgd":
-                last_eval: dict = {}
+        def _run_heuristic() -> "Recorder":
+            """Black-box heuristic branch (shared driver: algorithm/heuristic/search.py).
 
-                def _evaluate_candidate(coeffs) -> float:
-                    """Display one candidate and return its RAW objective value."""
-                    _, candidate_phase, img = session.capture(coeffs)
-                    # Saturated: re-auto-expose to the requested target BEFORE
-                    # scoring (the guard is shared with the SPGD loop via the
-                    # session; the aftermath differs - the heuristic can
-                    # re-expose per evaluation, SPGD must keep a +/-d pair at
-                    # one common exposure and scores first).
-                    img, _ = session.resample_if_saturated(img)
-                    res = session.score(img)
-                    obj, obj_ratio = res.j, res.ratio
-                    if objective == "rms_pib":
-                        # Adapt the PIB/RMS/EE weights on every valid candidate
-                        # evaluation (abandoned evaluations are penalised to <= -100
-                        # and skipped). The result is passed explicitly so the
-                        # adaptation uses THIS candidate's terms.
-                        if float(obj) > -100.0:
-                            shaping.adapt_weights(res)
-                    obj_val = res.tracking
-                    last_eval.update(
-                        {
-                            "phase": candidate_phase,
-                            "img": img,
-                            "obj": float(obj),
-                            "ratio": float(obj_ratio),
-                        }
+            The driver clips candidates to the bounds, handles the maximise/minimise
+            sign and aborts cooperatively when the live window is closed. Returns the
+            finished recorder, which the caller hands straight back to its caller.
+
+            ``best_c``/``best_objective``/``last_best_epoch`` stay nonlocal: the
+            ``finally`` cleanup in ``_apply_best_on_exit`` reads them, so the phase the
+            search last accepted has to stay visible outside this function.
+            """
+            nonlocal best_c, best_objective, last_best_epoch
+            last_eval: dict = {}
+
+            def _evaluate_candidate(coeffs) -> float:
+                """Display one candidate and return its RAW objective value."""
+                _, candidate_phase, img = session.capture(coeffs)
+                # Saturated: re-auto-expose to the requested target BEFORE
+                # scoring (the guard is shared with the SPGD loop via the
+                # session; the aftermath differs - the heuristic can
+                # re-expose per evaluation, SPGD must keep a +/-d pair at
+                # one common exposure and scores first).
+                img, _ = session.resample_if_saturated(img)
+                res = session.score(img)
+                obj, obj_ratio = res.j, res.ratio
+                if objective == "rms_pib":
+                    # Adapt the PIB/RMS/EE weights on every valid candidate
+                    # evaluation (abandoned evaluations are penalised to <= -100
+                    # and skipped). The result is passed explicitly so the
+                    # adaptation uses THIS candidate's terms.
+                    if float(obj) > -100.0:
+                        shaping.adapt_weights(res)
+                obj_val = res.tracking
+                last_eval.update(
+                    {
+                        "phase": candidate_phase,
+                        "img": img,
+                        "obj": float(obj),
+                        "ratio": float(obj_ratio),
+                    }
+                )
+                return obj_val
+
+            with tqdm.tqdm(
+                total=None, desc=f"slm_zernike {algorithm}", dynamic_ncols=True
+            ) as bar:
+
+                def _on_evaluate(candidate, value, index) -> None:
+                    nonlocal best_objective, best_c, last_best_epoch
+                    improved = (
+                        value > best_objective + IMPROVE_EPS
+                        if objective_mode == "max"
+                        else value < best_objective - IMPROVE_EPS
                     )
-                    return obj_val
+                    if improved:
+                        best_objective = float(value)
+                        best_c = np.asarray(candidate, dtype=np.float64).copy()
+                        last_best_epoch = index
 
-                with tqdm.tqdm(
-                    total=None, desc=f"slm_zernike {algorithm}", dynamic_ncols=True
-                ) as bar:
-
-                    def _on_evaluate(candidate, value, index) -> None:
-                        nonlocal best_objective, best_c, last_best_epoch
-                        improved = (
-                            value > best_objective + IMPROVE_EPS
-                            if objective_mode == "max"
-                            else value < best_objective - IMPROVE_EPS
+                    img = last_eval["img"]
+                    row = _log_row(
+                        epoch=index,
+                        coeffs=candidate,
+                        obj_val=float(value),
+                        obj_ratio=last_eval["ratio"],
+                        J=last_eval["obj"],
+                        diff=0.0,
+                        grad=np.zeros_like(candidate),
+                        img=img,
+                        phase=last_eval.get("phase"),
+                        lr_val=0.0,
+                        delta_val=float(delta),
+                        max_brt=float(np.max(img)),
+                        loggrad=float(last_eval.get("loggrad", 0.0)),
+                    )
+                    if live_display is not None:
+                        text = (
+                            f"{algorithm} eval {index} | "
+                            f"best {objective} {best_objective:.4f} @ {last_best_epoch} | "
+                            f"J {row['J']:.3g} | r {r_bucket:.1f}"
                         )
-                        if improved:
-                            best_objective = float(value)
-                            best_c = np.asarray(candidate, dtype=np.float64).copy()
-                            last_best_epoch = index
-
-                        img = last_eval["img"]
-                        row = _log_row(
+                        live_display.update(
+                            img,
+                            last_eval["phase"],
+                            candidate,
+                            center,
+                            r_bucket,
+                            text,
+                            value=float(value),
                             epoch=index,
-                            coeffs=candidate,
-                            obj_val=float(value),
-                            obj_ratio=last_eval["ratio"],
-                            J=last_eval["obj"],
-                            diff=0.0,
-                            grad=np.zeros_like(candidate),
-                            img=img,
-                            phase=last_eval.get("phase"),
-                            lr_val=0.0,
-                            delta_val=float(delta),
-                            max_brt=float(np.max(img)),
-                            loggrad=float(last_eval.get("loggrad", 0.0)),
+                            target_size=target_size if target_size else None,
                         )
-                        if live_display is not None:
-                            text = (
-                                f"{algorithm} eval {index} | "
-                                f"best {objective} {best_objective:.4f} @ {last_best_epoch} | "
-                                f"J {row['J']:.3g} | r {r_bucket:.1f}"
-                            )
-                            live_display.update(
-                                img,
-                                last_eval["phase"],
-                                candidate,
-                                center,
-                                r_bucket,
-                                text,
-                                value=float(value),
-                                epoch=index,
-                                target_size=target_size if target_size else None,
-                            )
-                        bar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
-                        bar.update(1)
+                    bar.set_postfix({k: v for k, v in row.items() if k[0] != "_"})
+                    bar.update(1)
 
-                    result = run_heuristic_search(
-                        algorithm,
-                        _evaluate_candidate,
-                        dim=nk,
-                        iterations=epochs,
-                        bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
-                        x0=_init_c,
-                        maximize=(objective_mode == "max"),
-                        seed=random_seed,
-                        pop_size=pop_size,
-                        on_evaluate=_on_evaluate,
-                        should_stop=(
-                            (lambda: live_display.closed)
-                            if live_display is not None
-                            else None
-                        ),
-                    )
+                result = run_heuristic_search(
+                    algorithm,
+                    _evaluate_candidate,
+                    dim=nk,
+                    iterations=epochs,
+                    bounds=(-ZERNIKE_CLIP, ZERNIKE_CLIP),
+                    x0=_init_c,
+                    maximize=(objective_mode == "max"),
+                    seed=random_seed,
+                    pop_size=pop_size,
+                    on_evaluate=_on_evaluate,
+                    should_stop=(
+                        (lambda: live_display.closed)
+                        if live_display is not None
+                        else None
+                    ),
+                )
 
-                if live_display is not None and live_display.closed:
-                    logger.info(
-                        "Display window closed; stopped {} after {} evaluations",
-                        algorithm,
-                        result.evaluations,
-                    )
-                else:
-                    logger.info(
-                        "{} search finished: best {}={:.4f} over {} evaluations",
-                        algorithm,
-                        objective,
-                        result.best_value,
-                        result.evaluations,
-                    )
-                _debug_report()
-                return recorder
+            if live_display is not None and live_display.closed:
+                logger.info(
+                    "Display window closed; stopped {} after {} evaluations",
+                    algorithm,
+                    result.evaluations,
+                )
+            else:
+                logger.info(
+                    "{} search finished: best {}={:.4f} over {} evaluations",
+                    algorithm,
+                    objective,
+                    result.best_value,
+                    result.evaluations,
+                )
+            _debug_report()
+            return recorder
 
+        def _run_spgd() -> None:
+            """SPGD branch: per-epoch perturbation, gating and coefficient update.
+
+            Nonlocal because these carry the run result out to ``_apply_best_on_exit``
+            (``best_c``/``best_objective``/``last_best_epoch``) and because the bucket
+            radius, the shrink schedule and the coefficient vector are live search state
+            that ``_log_row`` reads on every epoch.
+            """
+            nonlocal _init_c, _init_r, best_c, best_objective, delta, last_best_epoch, r_bucket
             # Evaluation-robustness state (see ``config.n_eval_frames`` /
             # ``fold_ratio`` / ``noise_gate_k``): the fold baseline is armed from
             # the initial (valid) frame; the noise-gate diff history starts empty,
@@ -1891,6 +1906,11 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 _n_peak_gated,
                 config.max_peak,
             )
+
+        try:
+            if algorithm != "spgd":
+                return _run_heuristic()
+            _run_spgd()
 
             # On exit, leave the SLM at the best phase found. The initial (flat or
             # loaded) phase is one of the candidates: if the search never improved
