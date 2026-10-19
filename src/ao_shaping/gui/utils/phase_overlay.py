@@ -324,6 +324,20 @@ class OverlaidSantec:
             f"overlay=phase:{self._overlay.has_phase}/base:{self._overlay.has_base})"
         )
 
+    # ------------------------------------------------------------------
+    # 上下文管理器透传
+    # ------------------------------------------------------------------
+    # ``__getattr__`` 对所有 dunder 都 raise AttributeError（避免拦截 dunder
+    # 查找），所以 ``with proxy`` 默认拿不到 ``__enter__``/``__exit__``。优化器
+    # 与 GUI 都以 ``with slm:`` 形式使用句柄（``with slm, cam:`` / ``with
+    # cam_ctx as cam, slm_ctx as slm:``），代理必须把生命周期委托给被包装的
+    # 真实驱动（``Santec.__enter__`` → ``open()``、``__exit__`` → ``close()``）。
+    def __enter__(self) -> Any:
+        return self._slm.__enter__()
+
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> Any:
+        return self._slm.__exit__(exc_type, exc_val, exc_tb)
+
     # Streamlit/pickle 边界：序列化时只序列化代理自身，不带走整个驱动。
     def __getstate__(self) -> dict[str, Any]:
         return {"_slm": self._slm, "_overlay": self._overlay}

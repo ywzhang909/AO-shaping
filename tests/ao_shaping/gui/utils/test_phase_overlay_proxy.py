@@ -181,3 +181,26 @@ def test_transparency_and_copy() -> None:
     d = copy.deepcopy(proxy)
     assert isinstance(d, OverlaidSantec)
     assert isinstance(proxy.__getstate__(), dict)
+
+
+def test_context_manager_delegates_to_raw_driver() -> None:
+    # The optimizer uses its SLM handle as ``with slm:`` (Santec.__enter__ opens
+    # the device, __exit__ closes it). The proxy must delegate lifecycle to the
+    # wrapped driver, else the closed-loop entry points break with TypeError.
+    events: list[str] = []
+
+    class FakeRaw(Santec):
+        def open(self) -> None:  # noqa: N803 - hardware stub
+            events.append("open")
+
+        def close(self) -> None:  # noqa: N803 - hardware stub
+            events.append("close")
+
+    raw = FakeRaw(slm_number=1)
+    proxy = OverlaidSantec(raw)
+    with proxy as p:
+        assert p is raw  # Santec.__enter__ returns self -> proxy returns raw
+        events.append("body")
+    assert events == ["open", "body", "close"]
+    with proxy:
+        pass  # open() twice stays a no-op in this stub; must not raise
