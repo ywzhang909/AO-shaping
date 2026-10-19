@@ -70,6 +70,9 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
 from ao_shaping.drivers.sim.fouriergsnet_env import BeamParams, SimFourierGSNetEnv
 from ao_shaping.utils.image.beam_metrics import compute_square_metrics, zero_order_center
 from ao_shaping.utils.image.frame_analysis import spot_fwhm
+# ``_linear_slope`` was a verbatim copy of the canonical leaf kernel; alias it so the
+# fitting math keeps one home (utils/math/fitting.py, R-49/#65) and the two cannot drift.
+from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 
 #: ``spot_fwhm`` was sunk to the leaf ``utils/image`` layer (R-48, #64); this alias
@@ -1694,19 +1697,6 @@ class SweepRecord:
     shift_x: float = float("nan")
     shift_y: float = float("nan")
     shift_corr: float = float("nan")
-
-
-def _linear_slope(x: np.ndarray, y: np.ndarray) -> tuple[float, float]:
-    """Least-squares ``(slope, intercept)``; ``(nan, nan)`` if degenerate."""
-    x = np.asarray(x, dtype=np.float64)
-    y = np.asarray(y, dtype=np.float64)
-    if x.size < 2 or not np.isfinite(y).all():
-        return float("nan"), float("nan")
-    var = float(np.sum((x - x.mean()) ** 2))
-    if var <= 0.0:
-        return float("nan"), float("nan")
-    slope = float(np.sum((x - x.mean()) * (y - y.mean())) / var)
-    return slope, float(y.mean() - slope * x.mean())
 
 
 def _pupil_amplitude(
