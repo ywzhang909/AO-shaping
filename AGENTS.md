@@ -1126,7 +1126,7 @@ VS Code settings in `.vscode/settings.json` set PYTHONPATH to `src` and `libs` d
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
-- **Pre-commit**: `.pre-commit-config.yaml` 已存在（ruff + ruff-format）。
+- **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
 Consider adding: `.github/workflows/ci.yml`（pytest 自动化）
