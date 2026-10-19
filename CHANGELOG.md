@@ -6,18 +6,18 @@
 
 **正向模型在环（model-in-loop）闭环成型 + GS→Zernike 阶数扫描立项 + scripts/ 重组 + ruff 硬门禁**
 
-- **model-in-loop 正向模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到正向模型；freeform holdout 探针 + 阶数无关 probe-set loss。实机实验报告：`report/shape_trials/model_in_loop_live_20261013/14/15/16/19.md`（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
-- **model-in-loop 实机验收增强** (`3ddef179`, `07a4a560`, `3a1f8711`): 几何门槛补目检（拦住相关性看不见的离焦失配）；工作精度默认 float32（float64 的精度到不了面板）；报告补 SLM 相位图 + CCD 远场图与 X/Y 截面。
+- **model-in-loop 正向模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到正向模型；freeform holdout 探针 + 阶数无关 probe-set loss。实验报告：`report/shape_trials/model_in_loop_live_20261013/14/15/16/19.md`（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
+- **model-in-loop 实验验收增强** (`3ddef179`, `07a4a560`, `3a1f8711`): 几何门槛补目检（拦住相关性看不见的离焦失配）；工作精度默认 float32（float64 的精度到不了面板）；报告补 SLM 相位图 + CCD 远场图与 X/Y 截面。
 - **GS → Zernike → SPGD 阶数扫描立项** (`9d079cf1`, `b366a634`, `f79a5f84`, `07d5ea23`): Zernike 拟合模块 + 阶数扫描驱动 + 离线报告（仿真：拟合残差 8 阶 0.0719→0.0385 rad 单调不增、`n_max=25` 不触发 `ZERNIKE_CLIP`）；硬件实验计划 [`report/shape_trials/gs_refine_zernike_hardware_plan.md`](report/shape_trials/gs_refine_zernike_hardware_plan.md)（H0~H12，两个 P0 门：GS 对比择优 + 噪声地板 σ）。
 - **GS 细化缺陷修复** (`540d51b2`): #140 — `best_phase` 改为保存收敛迭代点而非胜出随机探针（原报告增益 +0.0126 含选择偏差）。
 - **scripts/ 按处理对象重组** (`569ea514`, `999b5a08`): 139 个扁平脚本按处理对象归类（`slm/` `ml/` `zernike_bench/` `signal_processing/` 等）；新增离线 model-in-loop 评估器、硬件回放脚本与 focus probe（`cc30224d`）。
-- **曝光子系统集成** (`d82903e5`, `aa2ba82e`, `91209176`, `002cbdbb`): 括号式多曝光采集 + Mertens 融合（#141 待实机验收）；Daheng 逐会话曝光上限收敛为单一 helper（#136，取代 8 处重复解析）；曝光选项显式 auto/default 三态。
+- **曝光子系统集成** (`d82903e5`, `aa2ba82e`, `91209176`, `002cbdbb`): 括号式多曝光采集 + Mertens 融合（#141 待实验验收）；Daheng 逐会话曝光上限收敛为单一 helper（#136，取代 8 处重复解析）；曝光选项显式 auto/default 三态。
 - **ruff 硬门禁** (`0cec5f5d`): #132 决策 B — `.github/workflows/ruff.yml` 硬门槛（push + PR），pylint 降为参考级；**F-5 切片 1**（`d57647a5`, #56）41 个文件补 `from __future__ import annotations`；F841/F811/F821 全部清零（`a6e41efa`/`10aacef0`/`26fe1e20`）。⚠️ 2026-10-19 起 `.github/` 整体移出 git 跟踪（本机保留），新克隆无 CI 工作流，本地 `ruff check .` 仍须全绿。
 - **发送管线叠加层统一** (`660d6bbf`): GUI 与三个闭环优化器（gs-refine / model-in-loop / zernike-pib）共用 `build_send_overlay`（离焦 + 底相位唯一读取点）；`phase_overlay` 代理接入 controller 发送路径（`d3059f2a`）。
 - **GUI 文档化与视觉优化** (`5e20967e`, `14cfec70`, `a176ea2c`): 全部 GUI 页面建 SRS + 用户手册并移至 `docs/GUI/`（16 篇）；multi_slm_controller 视觉优化（#131）；SLM 控制器按时效分类重排（`e8f80599`）。
 - **去重/重构批次** (`26d01013`, `fdc0696c`, `bea6691b`, `c40d0f6c`, `a0dc66a9`, `d52faf4c`): #87 `fit_exact` 单一定义；#154 composite 分数单源（`shaping_score`）；#153 `predictive_variance` 公共 API；#152 `bench_geometry.json` schema 单入口；#91 P0 相机注入 seam 单一真源；#130 objective 方向单源。另 `531fc1fb` 删除第三套手写 Zernike 实现（#66）、`dd85c0d0` 增加 GS 算法 Cython 版本。
 - **论文** (`df90efaa` → `8771e0bc`): v2.1→v4.2 — MIL 理论与可微光学框架综述（§3.5/§5）、TU/e 系统松弛与混合拟合的 sim 复现（§7.7，#149）、T4 不确定性采样定量实验（表16）。
-- **实机实验报告体系**：`report/shape_trials/` 持续扩充（model-in-loop 10-13~10-19 五份实机报告、`gs_issue_live_20261015` 完整报告、形状目标整形实验总结）；provenance 基线守卫 gitignore-aware（`069fea94`, #108）；报告图全部换 SLM 相位图 + CCD 远场图 + X/Y 截面（`cdcd3eda`/`ccc571d9`/`afc2300e`）。
+- **实验报告体系**：`report/shape_trials/` 持续扩充（model-in-loop 10-13~10-19 五份实验报告、`gs_issue_live_20261015` 完整报告、形状目标整形实验总结）；provenance 基线守卫 gitignore-aware（`069fea94`, #108）；报告图全部换 SLM 相位图 + CCD 远场图 + X/Y 截面（`cdcd3eda`/`ccc571d9`/`afc2300e`）。
 - **仓库卫生** (`19239d30` 起): 8 个 machine-local 目录（`.auto_doc_review`/`.claude`/`.codegraph`/`.github`/`.slim`/`.streamlit`/`.vscode`/`_scripts`）移出 git 跟踪并加入 `.gitignore`；本地副本保留，不随仓库分发。
 
 ## v0.18.0 (2026-10-07 → 2026-10-12, 107 个提交)
