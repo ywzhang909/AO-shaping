@@ -8,11 +8,6 @@ except ImportError:  # pragma: no cover - optional dependency
     cp = None
 
 try:
-    import numba
-except ImportError:  # pragma: no cover - optional dependency
-    numba = None
-
-try:
     from aotools.image_processing.psf import encircled_energy as aotools_ee
     AOTOOLS_AVAILABLE = True
 except ImportError:
@@ -21,22 +16,11 @@ except ImportError:
 from scipy.ndimage import center_of_mass, map_coordinates
 from scipy.optimize import curve_fit
 
-from typing import Any
-from collections.abc import Callable
+
+from ao_shaping.utils.numba_compat import njit
 
 
-def _njit(*args: Any, **kwargs: Any) -> Callable[..., Any]:
-    """Return numba.njit if available, otherwise a pass-through decorator."""
-
-    if numba is None:
-        def passthrough(func: Callable[..., Any]) -> Callable[..., Any]:
-            return func
-
-        return passthrough
-
-    return numba.njit(*args, **kwargs)
-
-@_njit(cache=True)
+@njit(cache=True)
 def calculate_sharpness_numba(img:np.ndarray):
     h, w = img.shape
     gradient_x = np.zeros_like(img)
@@ -72,7 +56,7 @@ def calculate_sharpness(img:np.ndarray):
   sharpness = np.mean(gradient_magnitude)
   return sharpness
 
-@_njit(cache=True)
+@njit(cache=True)
 def crop_numba(img:np.ndarray, sample_pix=500):
     assert img.ndim == 2
     h, w = img.shape
@@ -168,7 +152,7 @@ def center_of_mass_cupy(intensity, xv, yv, moment:int=1) -> tuple[float, float]:
     c_y = cp.sum(yv * _intensity) / total_intensity
     return (float(c_x), float(c_y))
 
-@_njit(cache=True)
+@njit(cache=True)
 def center_of_mass_numba(intensity:np.ndarray, xv:np.ndarray, yv:np.ndarray, moment:int=1) -> tuple[float, float]:
     """
     计算光强的中心位置
@@ -195,7 +179,7 @@ def center_of_brightness(img:np.ndarray) -> tuple[int, int]:
     center = np.unravel_index(np.argmax(img), img.shape)[::-1]
     return int(center[0]), int(center[1])
 
-@_njit(cache=True)
+@njit(cache=True)
 def center_of_brightness_numba(img:np.ndarray) -> tuple[int, int]:
     h, w = img.shape
     flat_idx = np.argmax(img)

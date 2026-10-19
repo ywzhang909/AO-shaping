@@ -3,7 +3,7 @@
 子模块可按全路径直接导入, 例如::
 
     from ao_shaping.algorithm.gradient.adam import Adam, AdamW, AdaMOD
-    from ao_shaping.algorithm.gradient.acceleration import _njit
+    from ao_shaping.utils.numba_compat import njit
 
 本 ``__init__`` 刻意*不*重新导入子模块: 只有 docstring 的包 init 可以避免
 循环导入级联 (子模块之间互相导入, 也会导入顶层 ``ao_shaping.algorithm`` 门面,
