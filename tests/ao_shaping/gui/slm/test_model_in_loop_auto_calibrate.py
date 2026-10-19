@@ -107,7 +107,10 @@ def _params(**over) -> SlmModelInLoopParams:
         far_field_padding=4,
         cam_type="daheng",
         cam_id=0,
-        exposure_time_ms=0.0,
+        # ``auto`` is the explicit token for what this used to spell as 0.0: let the
+        # session/device choose. A bare 0 is now rejected by the shared resolver so
+        # it can never be confused with "leave the device alone".
+        exposure_time_ms="auto",
         max_exposure_ms=0.4,
         cam_size=250,
         camera_pixel_um=2.2,

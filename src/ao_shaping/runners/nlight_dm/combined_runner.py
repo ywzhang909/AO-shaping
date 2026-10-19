@@ -17,6 +17,7 @@ from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import CameraParams, CombinedAlgorithmParams, CombinedRunParams
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 
 import matplotlib.pyplot as plt
 
@@ -36,6 +37,12 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
     """
     debug = resolve_debug(ctx, run.debug_flag)
     center = camera.center if camera.center is not None else "mass"
+# CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            camera.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
 
     if run.load_file and Path(run.load_file).exists():
         init_v = np.loadtxt(run.load_file).tolist()
@@ -47,7 +54,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
         "load_file": run.load_file,
         "cam_id": camera.cam_id,
         "center": center,
-        "exposure_time_ms": camera.exposure_time_ms,
+        "exposure_time_ms": exposure_time_ms,
         "epochs": run.epochs,
         "r_bucket": algorithm.r_bucket,
         "delta": algorithm.delta,
@@ -70,7 +77,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
         r_bucket=algorithm.r_bucket,
         delta=algorithm.delta,
         lr=algorithm.lr,
-        exposure_time_ms=camera.exposure_time_ms,
+        exposure_time_ms=exposure_time_ms,
         cam_type=camera.cam_type,
         shrink_iter=algorithm.shrink_iter,
         shrink_ratio=algorithm.shrink_ratio,

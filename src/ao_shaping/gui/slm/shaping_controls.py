@@ -86,6 +86,10 @@ from ao_shaping.runners.runner_common import (
     save_gs_refine_results,
     save_model_in_loop_results,
 )
+from ao_shaping.utils.cli.exposure import (
+    AUTO_EXPOSURE_TOKEN,
+    DEFAULT_EXPOSURE_TOKEN,
+)
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
@@ -355,6 +359,45 @@ def validate_daheng_fixed_exposure(cam_type: str, exposure_ms: float) -> str | N
             "自动曝光会观察到上一相位残留）"
         )
     return None
+
+
+_AUTO_EXPOSURE_TOKENS = frozenset({AUTO_EXPOSURE_TOKEN, DEFAULT_EXPOSURE_TOKEN})
+
+
+def exposure_param(raw: Any) -> float | str:
+    """Translate the GUI's numeric ``0`` into the explicit ``auto`` token.
+
+    The runner contract rejects a bare ``0`` so it can never be confused with
+    "leave the device alone"; the 会话曝光 widget keeps using ``0`` for "let the
+    session decide", which is exactly ``auto``. The translation lives here, at the
+    boundary between the widget and the params object, so the CLI stays strict
+    while the widget keeps the meaning it has always had.
+
+    Args:
+        raw: Widget value -- a number, ``None``, or an already-explicit token.
+
+    Returns:
+        A positive float, or one of the two tokens. A malformed string is passed
+        through unchanged so the shared resolver reports it, rather than this
+        helper inventing a second error message.
+    """
+    if isinstance(raw, str):
+        text = raw.strip()
+        return text.lower() if text.lower() in _AUTO_EXPOSURE_TOKENS else text
+    if raw is None:
+        return AUTO_EXPOSURE_TOKEN
+    value = float(raw)
+    return AUTO_EXPOSURE_TOKEN if value <= 0 else value
+
+
+def numeric_exposure(raw: Any) -> float | None:
+    """The number to range-check, or ``None`` when the value defers to the device.
+
+    Validation compares against the saturation ceiling, and there is nothing to
+    compare when no exposure has been chosen yet.
+    """
+    value = exposure_param(raw)
+    return None if isinstance(value, str) else value
 
 
 # ---------------------------------------------------------------------------
@@ -1309,7 +1352,7 @@ class GsRefineMethod(ShapingMethod):
             ),
             cam_type=str(values.get("cam_type", "daheng")),
             cam_id=int(values.get("cam_id", 0)),
-            exposure_time_ms=float(values.get("exposure_time_ms", 0.1)),
+            exposure_time_ms=exposure_param(values.get("exposure_time_ms", 0.1)),
             cam_size=int(values.get("cam_size", 250)),
             slm_number=self.slm_num,
             n_eval_frames=int(values.get("n_eval_frames", r.get("n_eval_frames", 4))),
@@ -1354,8 +1397,14 @@ class GsRefineMethod(ShapingMethod):
         return result.save_dir
 
     def validate(self, values: Mapping[str, Any]) -> str | None:
+        exposure = numeric_exposure(values["exposure_time_ms"])
+        if exposure is None:
+            # gs-refine cannot run on a deferred exposure: auto-exposure would
+            # observe the previous iteration's phase, so "let the device decide"
+            # is an error here rather than a deferral.
+            return "gs-refine 需要显式正曝光；自动曝光会观察到上一相位残留"
         error = validate_daheng_fixed_exposure(
-            str(values["cam_type"]), float(values["exposure_time_ms"])
+            str(values["cam_type"]), exposure
         ) or validate_target_fits_window(values)
         if error is not None:
             return error
@@ -1609,7 +1658,9 @@ class ModelInLoopMethod(ShapingMethod):
             geometry_file=str(values.get("geometry_file", "")).strip() or None,
             cam_type=str(values["cam_type"]),
             cam_id=int(values["cam_id"]),
-            exposure_time_ms=float(values["exposure_time_ms"]),
+            # ``bench_settings`` may hand back the ``default`` token when the session
+            # exposure was never probed; anything numeric passes through as-is.
+            exposure_time_ms=exposure_param(values["exposure_time_ms"]),
             max_exposure_ms=float(values["max_exposure_ms"]),
             cam_size=int(values["cam_size"]),
             camera_pixel_um=camera_pixel_um,
@@ -1803,11 +1854,15 @@ class ModelInLoopMethod(ShapingMethod):
             import torch  # noqa: F401
         except ImportError as exc:
             return f"正向模型闭环需要 torch（未安装）: {exc}"
+        # A deferred exposure (the widget's 0, i.e. auto) has no number to compare
+        # against the saturation ceiling, so only range-check an explicit value.
+        exposure = numeric_exposure(values["exposure_time_ms"])
+        if exposure is not None:
+            error = validate_daheng_exposure(str(values["cam_type"]), exposure)
+            if error is not None:
+                return error
         return (
-            validate_daheng_exposure(
-                str(values["cam_type"]), float(values["exposure_time_ms"])
-            )
-            or validate_target_fits_window(values)
+            validate_target_fits_window(values)
             or self._validate_holdout(values)
             or self._validate_geometry_region(values)
         )

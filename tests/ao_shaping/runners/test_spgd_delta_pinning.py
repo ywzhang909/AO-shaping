@@ -84,7 +84,10 @@ class TestSquareRunnerWiring:
 
         class _Cam:
             cam_size = 300
-            exposure_time_ms = 0.0
+            # Mirrors ``CameraParams.exposure_time_ms``, which is a token now
+            # ("default"/"auto"/a decimal) and rejects a bare 0. Same reason as
+            # the blaze fields below: the fake has to track the real default.
+            exposure_time_ms = "default"
             cam_id = 0
             cam_type = "daheng"
 

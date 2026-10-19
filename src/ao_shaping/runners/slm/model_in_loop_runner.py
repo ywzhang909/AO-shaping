@@ -34,6 +34,7 @@ from ao_shaping.runners.runner_common import (
     save_model_in_loop_config,
     save_model_in_loop_results,
 )
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 from ao_shaping.runners.slm.model_in_loop_session import (
     STEP_PANEL_SCAN,
     STEP_SESSION_GEOMETRY,
@@ -77,12 +78,20 @@ def run(ctx: click.Context, params: SlmModelInLoopParams) -> None:
         else Path("data")  # python -m standalone: no main group context
     )
 
+    # Resolve the token here so the banner prints a number (or the driver's
+    # minimum) instead of the literal word "auto"; both tokens == 0.0 downstream.
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(
+            params.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+    )
+
     click.echo("=" * 68)
     click.echo("SLM Model-in-the-Loop Shaping")
     click.echo("=" * 68)
     click.echo(
         f"Camera: {params.cam_type} #{params.cam_id} size={params.cam_size} "
-        f"exposure={params.exposure_time_ms or 0.02}ms initial, "
+        f"exposure={exposure_time_ms or 0.02}ms initial, "
         f"max={params.max_exposure_ms}ms"
     )
     click.echo(f"SLM: #{params.slm_number} @ {params.slm_wavelength}nm")

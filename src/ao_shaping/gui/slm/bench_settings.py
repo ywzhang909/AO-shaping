@@ -60,6 +60,7 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.ccd.common import WindowSize
+from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     PANEL_RES,
     PITCH_UM,
@@ -1406,7 +1407,13 @@ def build_calibration_params(prefix: str, slm_num: int) -> Any:
         geometry_file=geometry_file,
         cam_type=cam_type,
         cam_id=cam_id,
-        exposure_time_ms=float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0),
+        # Unset session exposure used to reach the params as a bare 0.0, which the
+        # exposure resolver now rejects; 'default' is the token that means
+        # "don't change it", i.e. the same behaviour.
+        exposure_time_ms=(
+            float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
+            or DEFAULT_EXPOSURE_TOKEN
+        ),
         max_exposure_ms=float(configured_daheng_exposure_limit()),
         cam_size=int(st.session_state.get("bench_cam_size", DEFAULT_WINDOW_SIDE_PX) or 0),
         camera_pixel_um=float(
@@ -1665,7 +1672,10 @@ def merge_bench_values(
     values["cam_id"] = cam_id
     values["cam_crop_enabled"] = crop
     values["cam_size"] = int(st.session_state.get("bench_cam_size", 0) or 0) if crop else 0
-    values["exposure_time_ms"] = float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
+    values["exposure_time_ms"] = (
+        float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
+        or DEFAULT_EXPOSURE_TOKEN
+    )
     values["camera_pixel_um"] = float(
         st.session_state.get(CAMERA_PIXEL_KEY, DEFAULT_CAMERA_PIXEL_UM)
     )

@@ -92,6 +92,7 @@ from ao_shaping.runners.runner_common import (
     resolve_spgd_delta,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 from ao_shaping.utils.image.targets import ObjectiveSpec
 from ao_shaping.utils.io.cli_helpers import get_debug_mode, setup_coredumpy
 from ao_shaping.utils.io.file import (
@@ -397,7 +398,18 @@ def _resolve_auto_camera(
             )
             display_rotating(probe_slm, flat, _pib_module._SLOT_ROTATOR)
             time.sleep(0.3)
-            probe = open_camera(camera.cam_type, camera.cam_id, camera.exposure_time_ms)
+            # ``CameraParams.exposure_time_ms`` is a token ("default"/"auto"/a decimal),
+            # not the float ``open_camera`` wants. Both tokens collapse onto the
+            # legacy 0.0 rung, which the probe then overrides anyway.
+            probe = open_camera(
+                camera.cam_type,
+                camera.cam_id,
+                exposure_ms_legacy(
+                    resolve_exposure(
+                        camera.exposure_time_ms, param_hint="--exposure-time-ms"
+                    )
+                ),
+            )
             try:
                 exposure, center = auto_find_exposure_and_center(
                     probe,

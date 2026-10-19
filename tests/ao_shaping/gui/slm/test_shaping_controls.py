@@ -227,7 +227,8 @@ class TestParamsMapping:
             min_holdout_correlation=0.5,
             cam_type="sim",
             cam_id=0,
-            exposure_time_ms=0.0,
+            # Was 0.0; the resolver now rejects a bare 0 in favour of these tokens.
+            exposure_time_ms="auto",
             max_exposure_ms=0.4,
             cam_size=250,
         )

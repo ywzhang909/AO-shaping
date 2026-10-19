@@ -53,6 +53,12 @@ from ao_shaping.runners.runner_common import (
     resolve_spgd_delta,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import (
+    DEFAULT_EXPOSURE_TOKEN,
+    ExposureChoice,
+    exposure_ms_legacy,
+    resolve_exposure,
+)
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
@@ -297,6 +303,10 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
     zernike_radius: float | int | None = (
         slm.zernike_radius if slm.zernike_radius > 0 else None
     )
+# CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(cam.exposure_time_ms, param_hint="--exposure-time-ms")
+    )
 
     common: dict[str, Any] = dict(
         blaze_period_px=slm.blaze_period_px,
@@ -305,7 +315,7 @@ def _build_square_config(cfg: SlmGsnetConfig) -> SlmSquareConfig:
         target_side=obj.target_side,
         target_mean_brightness=obj.target_mean_brightness,
         side_factor=obj.side_factor,
-        exposure_time_ms=cam.exposure_time_ms,
+        exposure_time_ms=exposure_time_ms,
         cam_id=cam.cam_id,
         cam_type=cam.cam_type,
         show=search.show,
@@ -452,16 +462,26 @@ run.add_command(train, name="train")
 
 
 def _validate_daheng_exposure(camera: CameraParams) -> None:
-    """Reject auto or over-limit exposure before opening the live camera."""
+    """Reject auto/default or over-limit exposure before opening the live camera.
+
+    Both tokens are refused, not just ``auto``: before they existed, the two of
+    them plus a literal ``0`` all meant "no fixed value", and this gate refused
+    that value on Daheng.  Refusing only one of them would have silently opened
+    the camera where the old code refused.  The numeric range check runs on the
+    resolved value.
+    """
     if camera.cam_type.lower() == "daheng":
-        if camera.exposure_time_ms <= 0:
+        exposure = resolve_exposure(
+            camera.exposure_time_ms, param_hint="--exposure-time-ms"
+        )
+        if isinstance(exposure, ExposureChoice):
             raise click.BadParameter(
                 "Daheng GSNet runs require an explicit positive exposure "
-                "(auto-exposure is not allowed)",
+                f"in ms ('auto'/'{DEFAULT_EXPOSURE_TOKEN}' are not allowed here)",
                 param_hint="--exposure-time-ms",
             )
         ceiling = configured_daheng_exposure_limit()
-        if ceiling > 0 and camera.exposure_time_ms > ceiling:
+        if ceiling > 0 and exposure > ceiling:
             raise click.BadParameter(
                 f"Daheng GSNet runs require exposure in (0, {ceiling}] ms "
                 f"({DAHENG_EXPOSURE_LIMIT_ENV})",

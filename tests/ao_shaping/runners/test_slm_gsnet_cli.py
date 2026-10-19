@@ -71,9 +71,28 @@ def test_main_cli_registers_slm_gsnet():
     assert "slm-gsnet" in result.output
 
 
-@pytest.mark.parametrize("exposure", [0, -0.01])
+@pytest.mark.parametrize("exposure", ["auto", "AUTO", "default"])
 def test_daheng_auto_exposure_rejected_before_hardware_open(exposure):
+    """Both non-numeric tokens are refused by name.
+
+    Before the three-state vocabulary this gate refused a non-positive number;
+    ``auto``/``default`` together with a literal ``0`` all meant "no fixed
+    value", so refusing only one of the tokens would have opened the camera
+    where the old code refused.
+    """
     with pytest.raises(click.BadParameter, match="explicit positive"):
+        _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=exposure))
+
+
+@pytest.mark.parametrize("exposure", [0, 0.0, -0.01, "0", "-1", "", "abc"])
+def test_unusable_exposure_is_rejected_by_the_shared_resolver(exposure):
+    """``0`` is no longer a spelling of either token -- it is an error naming them.
+
+    This is strictly stronger than the pre-change gate, which silently accepted
+    ``0`` for a non-Daheng backend and rejected it here with a message that
+    never mentioned an alternative.
+    """
+    with pytest.raises(click.BadParameter, match="auto"):
         _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=exposure))
 
 
@@ -86,7 +105,10 @@ def test_daheng_exposure_above_env_ceiling_rejected(exposure, monkeypatch):
 
 def test_daheng_exposure_accepts_safe_fixed_value_and_sim_auto():
     _validate_daheng_exposure(CameraParams(cam_type="daheng", exposure_time_ms=0.02))
-    _validate_daheng_exposure(CameraParams(cam_type="sim", exposure_time_ms=0))
+    # A non-Daheng backend still lets both tokens through: the gate exists
+    # because Daheng clamps rather than auto-exposes.
+    _validate_daheng_exposure(CameraParams(cam_type="sim", exposure_time_ms="auto"))
+    _validate_daheng_exposure(CameraParams(cam_type="sim", exposure_time_ms="default"))
 
 
 def test_live_cli_rejects_over_limit_exposure_without_opening_devices(monkeypatch):

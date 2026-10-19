@@ -90,6 +90,12 @@ from ao_shaping.drivers.slm.santec.slm200_constants import PANEL_RES
 # The dataclass-click mechanism (the ``Annotated[..., option(...)]`` convention,
 # the ``with_params`` collector and object delivery) is a zero-``ao_shaping``
 # leaf shared with ``tools/slm/params.py``. Parameter classes consume it here.
+from ao_shaping.utils.cli.exposure import (
+    AUTO_EXPOSURE_TOKEN,
+    DEFAULT_EXPOSURE_TOKEN,
+    exposure_ms_legacy,
+    resolve_exposure,
+)
 from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
     SHAPING_OBJECTIVE_CHOICES,
@@ -210,19 +216,20 @@ class CameraParams:
         ),
     ] = "daheng"
     exposure_time_ms: Annotated[
-        float,
+        str,
         option(
             "--exposure-time-ms",
+            metavar="[default|auto|FLOAT]",
             help=(
-                "CCD exposure time in ms. 0 (the default) means 'no fixed value': "
-                "the camera keeps whatever it is set to, and auto-exposure "
-                "brackets it when a target brightness is available. On Daheng a "
-                "0 that reaches the driver is CLAMPED to the device minimum "
-                "(~0.02 ms), so bracket the exposure explicitly with "
-                "slm_drift_probe before trusting an unbracketed run."
+                "CCD exposure time in ms. 'default' (the default) opens the "
+                "camera without changing the exposure it already has; 'auto' "
+                "lets the session bracket it (on Daheng that starts from the "
+                "driver's own ~0.02 ms minimum, so bracket explicitly with "
+                "slm_drift_probe before trusting an unbracketed run). 0 is "
+                "rejected -- it is neither of the two."
             ),
         ),
-    ] = 0.0
+    ] = DEFAULT_EXPOSURE_TOKEN
     cam_size: Annotated[
         int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
@@ -1699,16 +1706,18 @@ class PibRunnerParams:
         ),
     ] = "mass"
     exposure_time_ms: Annotated[
-        float,
+        str,
         option(
             "-t",
             "--exposure-time-ms",
+            metavar="[default|auto|FLOAT]",
             help=(
-                "远场光斑CCD曝光时间 (毫秒). 0(默认)=不固定, 由设备保持/自动曝光; "
-                "Daheng 上 0 会被驱动钳到设备最小值(~0.02ms)"
+                "远场光斑CCD曝光时间 (毫秒). 'default'(默认)=不改曝光, 延用设备当前设置; "
+                "'auto'=由会话/设备自动选取 (Daheng 上从驱动最小值 ~0.02ms 起). "
+                "0 会被拒绝"
             ),
         ),
-    ] = 0.0
+    ] = DEFAULT_EXPOSURE_TOKEN
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 4000)")
     ] = 4_000
@@ -1874,8 +1883,14 @@ class PibOpticalParams:
         option("-c", "--center", callback=parse_tuple, help="场光斑CCD中心位置"),
     ] = "mass"
     exposure_time_ms: Annotated[
-        float, option("-t", "--exposure-time-ms", help="CCD曝光时间 (毫秒)")
-    ] = 0.0
+        str,
+        option(
+            "-t",
+            "--exposure-time-ms",
+            metavar="[default|auto|FLOAT]",
+            help="CCD曝光时间 (毫秒)。'default'(默认)=不改曝光; 'auto'=自动选取",
+        ),
+    ] = DEFAULT_EXPOSURE_TOKEN
     r_bucket: Annotated[int, option("-r", "--r-bucket", help="半径桶大小")] = 0
     cam_size: Annotated[int, option("-s", "--cam-size", help="相机开窗大小")] = 200
     target_max_brightness: Annotated[
@@ -1953,13 +1968,14 @@ class PipelineRunnerParams:
         option("--cam-id", help="远场光斑CCD设备ID (default: Far_Cam_ID/0)"),
     ] = cast(str, lambda: os.environ.get("Far_Cam_ID", 0))
     exposure_time_ms: Annotated[
-        int,
+        str,
         option(
             "-t",
             "--exposure-time-ms",
-            help="远场光斑CCD曝光时间 (毫秒) (default: 0，自动选取曝光)",
+            metavar="[default|auto|FLOAT]",
+            help="远场光斑CCD曝光时间 (毫秒) (默认 'default', 不改曝光)",
         ),
-    ] = 0
+    ] = DEFAULT_EXPOSURE_TOKEN
     cam_size: Annotated[
         int, option("-s", "--cam-size", help="相机开窗大小 (default: 160)")
     ] = 160
@@ -2008,8 +2024,14 @@ class PipelineDeviceParams:
         str, os.environ.get("Far_Cam_ID", 0)
     )
     exposure_time_ms: Annotated[
-        int, option("-t", "--exposure-time-ms", help="CCD曝光时间")
-    ] = 0
+        str,
+        option(
+            "-t",
+            "--exposure-time-ms",
+            metavar="[default|auto|FLOAT]",
+            help="CCD曝光时间 (毫秒)。'default'(默认)=不改曝光",
+        ),
+    ] = DEFAULT_EXPOSURE_TOKEN
     cam_size: Annotated[int, option("-s", "--cam-size", help="相机开窗大小")] = 160
     dm_unit_mask: Annotated[
         str,
@@ -2531,8 +2553,20 @@ class SlmGsRefineParams:
     ] = "daheng"
     cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
     exposure_time_ms: Annotated[
-        float, option("--exposure-time-ms", help="CCD exposure in ms (0 = default).")
-    ] = 0.0
+        str,
+        option(
+            "--exposure-time-ms",
+            metavar="[default|auto|FLOAT]",
+            help=(
+                "CCD exposure in ms. 'default' (the default) opens the camera "
+                "without changing its exposure; 'auto' lets the run bracket it "
+                "(on Daheng that starts from the driver's own ~0.02 ms minimum, "
+                "which on this 光路 is 20-75x darker than the usable band, so "
+                "pass a measured number). slm-gs-refine additionally refuses "
+                "both tokens on Daheng."
+            ),
+        ),
+    ] = DEFAULT_EXPOSURE_TOKEN
     cam_size: Annotated[
         int, option("--cam-size", help="CCD window size in pixels.")
     ] = 300
@@ -3032,12 +3066,23 @@ class SlmModelInLoopParams:
     ] = "daheng"
     cam_id: Annotated[int, option("--cam-id", help="CCD device ID.")] = 0
     exposure_time_ms: Annotated[
-        float,
+        str,
         option(
             "--exposure-time-ms",
-            help="Initial CCD exposure in ms (0 = 0.02 for Daheng).",
+            metavar="[auto|default|FLOAT]",
+            help=(
+                "Initial CCD exposure in ms. 'default' changes nothing; 'auto' "
+                "probes the exposure ceiling. NOTE: the default here is 'auto', "
+                "NOT 'default', because this value is forwarded verbatim to the "
+                "panel-scan preflight, where 'auto' means 'probe the ceiling' "
+                "and 'default' means 'use the camera's own setting' -- on Daheng "
+                "that is ~0.02 ms, which puts the preflight flat reference on "
+                "the noise floor and trips the flat-drift gate (observed "
+                "2026-10-19). Pass a measured number on this 光路, whose usable "
+                "band is 0.4-1.5 ms. 0 is not a synonym for either token."
+            ),
         ),
-    ] = 0.0
+    ] = AUTO_EXPOSURE_TOKEN
     max_exposure_ms: Annotated[
         float,
         option(
@@ -3189,7 +3234,14 @@ def build_gs_refine_config(
         gs_target_side_px=params.gs_target_side_px,
         cam_type=params.cam_type,
         cam_id=params.cam_id,
-        exposure_time_ms=params.exposure_time_ms,
+        # CLI token -> config float. This is the ONLY translation point for
+        # slm-gs-refine: 'auto' collapses onto the 0.0 the config (and the
+        # Daheng driver behind it) has always read as "no fixed value".
+        exposure_time_ms=exposure_ms_legacy(
+            resolve_exposure(
+                params.exposure_time_ms, param_hint="--exposure-time-ms"
+            )
+        ),
         cam_size=params.cam_size,
         slm_number=params.slm_number,
         slm_wavelength=params.slm_wavelength,
@@ -3364,7 +3416,13 @@ def build_model_in_loop_config(
         max_probe_count=params.max_probe_count,
         cam_type=params.cam_type,
         cam_id=params.cam_id,
-        exposure_time_ms=params.exposure_time_ms,
+        # CLI token -> config float; see build_gs_refine_config for why this
+        # collapse lives here and nowhere else.
+        exposure_time_ms=exposure_ms_legacy(
+            resolve_exposure(
+                params.exposure_time_ms, param_hint="--exposure-time-ms"
+            )
+        ),
         max_exposure_ms=params.max_exposure_ms,
         cam_size=params.cam_size,
         slm_number=params.slm_number,

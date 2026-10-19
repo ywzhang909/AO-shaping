@@ -31,6 +31,7 @@ from ao_shaping.runners.runner_common import (
     PibRunParams,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 
 
 @click.command()
@@ -62,12 +63,17 @@ def run(
         logger.warning(f"load_file {run.load_file} not exists")
         init_v = []
 
+    # CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
+    exposure_time_ms = exposure_ms_legacy(
+        resolve_exposure(optical.exposure_time_ms, param_hint="--exposure-time-ms")
+    )
+
     config = {
         "root_dir": run.root_dir,
         "load_file": run.load_file,
         "cam_id": optical.cam_id,
         "center": optical.center,
-        "exposure_time_ms": optical.exposure_time_ms,
+        "exposure_time_ms": exposure_time_ms,
         "target_max_brightness": optical.target_max_brightness,
         "epochs": run.epochs,
         "r_bucket": optical.r_bucket,
@@ -102,7 +108,7 @@ def run(
         epochs=run.epochs,
         delta=algorithm.delta,
         lr=algorithm.lr,
-        exposure_time_ms=optical.exposure_time_ms,
+        exposure_time_ms=exposure_time_ms,
         cam_type=optical.cam_type,
         shrink_iter=algorithm.shrink_iter,
         shrink_ratio=algorithm.shrink_ratio,

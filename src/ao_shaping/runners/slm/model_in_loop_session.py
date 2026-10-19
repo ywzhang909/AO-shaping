@@ -194,6 +194,12 @@ def _locate_pupil_center(
         slm_wavelength=params.slm_wavelength,
         cam_type=params.cam_type,
         cam_id=params.cam_id,
+        # Forwarded as the raw token, not a float: both dataclasses speak the
+        # `auto`-or-decimal vocabulary and `scan_panel` is the single place that
+        # resolves it.  Note the two `auto`s do NOT mean the same thing and are
+        # deliberately not unified -- here it is "let the driver choose", while
+        # `panel_locate` reads it as "probe the ceiling" (its pre-existing
+        # meaning for a non-positive value, kept verbatim).
         exposure_ms=params.exposure_time_ms,
         patch_radius=scan_radius,
         grid_xs=",".join(map(str, xs)),
