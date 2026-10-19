@@ -75,6 +75,7 @@ from ao_shaping.drivers.slm.santec.slm200_constants import (
 )
 from ao_shaping.gui.slm import bench_settings
 from ao_shaping.gui.slm.bench_settings import (
+    CAM_TYPE_OPTIONS,
     MIL_TARGET_SIDE_MIN_PX,
 )
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
@@ -153,9 +154,6 @@ GS_REFINE_RECIPE: dict[str, Any] = {
     "cam_size": 250,
     "n_eval_frames": 4,
 }
-
-#: CCD backends, in the order the selector shows them.
-CAM_TYPE_OPTIONS: tuple[str, ...] = ("daheng", "miicam", "sim")
 
 #: Model-in-loop budget presets: ``(轮数, Step A 步数, Step B 步数)``.
 #: The "标准" row is verbatim the ``docs/slm/slm_model_in_loop.md`` §5 defaults
