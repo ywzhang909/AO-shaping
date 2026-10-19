@@ -7,8 +7,9 @@ reach 80% of the ideal (no-turbulence) value.
 Physics:
 - Plane wave → circular aperture → thin lens → turbulence phase screen → focal plane
 - Angular spectrum propagation via ao_shaping.drivers.sim
-- PIB metric from ao_shaping.drivers.sim (wrapping sim.digitaltwin)
-- Zernike-based DM control (from reference src/sim/spgd.py)
+- PIB metric from ao_shaping.drivers.sim (power_bucket_sum, numpy-based)
+- Zernike-based DM control (SPGD implemented inline below; the original
+  reference src/sim/spgd.py was removed 2026-03-22, bbe73d8c)
 """
 from __future__ import annotations
 
