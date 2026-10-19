@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import csv
 import json
 from pathlib import Path
 from typing import Literal
@@ -13,6 +12,8 @@ from scipy import ndimage
 from torch.utils.data import DataLoader, Dataset
 
 # External dependency - keep as absolute import
+from ml.csv_io import load_zernike_coefficients
+
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
 )
@@ -57,23 +58,6 @@ def coefficients_to_phase_map(
         phase = phase - np.mean(phase[mask]) * mask
 
     return phase
-
-
-def load_zernike_coefficients(csv_path: Path, n_terms: int | None = None) -> np.ndarray:
-    """Load Zernike coefficients from CSV file."""
-    with open(csv_path) as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-
-    if not rows or len(rows) < 2:
-        raise ValueError(f"Empty or invalid CSV: {csv_path}")
-
-    values = [float(v) for v in rows[1]]
-
-    if n_terms is not None:
-        values = values[:n_terms]
-
-    return np.array(values, dtype=np.float32)
 
 
 class ZernikeCoefficientDataset(Dataset):
