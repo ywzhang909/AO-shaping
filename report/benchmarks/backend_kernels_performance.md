@@ -1,10 +1,10 @@
 # Performance Comparison
 
 <!-- provenance:start -->
-> **生成脚本**: [`tests/ao_shaping/utils/test_spots_calc.py`](../../tests/ao_shaping/utils/test_spots_calc.py)
-> **复现命令**: `python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k benchmark`
+> **生成脚本**: [`scripts/generate_backend_kernels_report.py`](../../scripts/generate_backend_kernels_report.py)
+> **复现命令**: `python scripts/generate_backend_kernels_report.py`
 > **运行环境**: 离线
-> **说明**: 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）
+> **说明**: NumPy/Numba/CuPy 逐函数耗时；原先挂在 tests/ 的零断言用例里写回仓库（#162）
 <!-- provenance:end -->
 
 | Function | NumPy (s) | Numba (s) | CuPy (s) |

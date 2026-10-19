@@ -135,10 +135,10 @@ REPORTS: dict[str, ReportProvenance] = {
         note="读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成",
     ),
     "report/benchmarks/backend_kernels_performance.md": ReportProvenance(
-        script="tests/ao_shaping/utils/test_spots_calc.py",
-        command="python -m pytest tests/ao_shaping/utils/test_spots_calc.py -k benchmark",
+        script="scripts/generate_backend_kernels_report.py",
+        command="python scripts/generate_backend_kernels_report.py",
         environment="离线",
-        note="由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时）",
+        note="NumPy/Numba/CuPy 逐函数耗时；原先挂在 tests/ 的零断言用例里写回仓库（#162）",
     ),
     "report/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",

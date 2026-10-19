@@ -828,7 +828,7 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 > generated, and `tests/ao_shaping/scripts/test_report_provenance.py` fails if
 > they drift from the registry. A generator that **overwrites** its own report must
 > stamp the header at write time (`insert_header`), or the next run deletes it —
-> three writers do this (`TestReport`, the `test_spots_calc` benchmark, and
+> three writers do this (`TestReport`, `generate_backend_kernels_report.py`, and
 > `compare_loss_algorithms.py`).
 
 > **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
@@ -1744,6 +1744,37 @@ arguments.
 $env:PYTHONPATH = "src;libs"
 python scripts/dm/generate_cython_optimizer_report.py
 ```
+
+### generate_backend_kernels_report.py
+
+Runs the **NumPy / Numba / CuPy** kernel benchmark for `utils/image/spots_calc`
+(`calculate_sharpness`, `crop`, `center_of_mass`, `center_of_brightness`) and
+emits the comparison table. **Fully offline** — no hardware, no CLI arguments.
+
+**Output**: `report/benchmarks/backend_kernels_performance.md`
+
+```bash
+python scripts/generate_backend_kernels_report.py
+```
+
+> ⚠️ **The timings in the committed report are machine-specific.** Regenerating on
+> a different GPU rewrites every CuPy cell (measured: 4.5e-4 s vs 7.7e-3 s for
+> `calculate_sharpness` across two machines), so do not re-run this script just to
+> refresh provenance — `scripts/sync_report_provenance.py` rewrites the header
+> only and leaves the numbers byte-identical.
+>
+> **Moved out of `tests/` (issue #162).** This benchmark used to live in
+> `test_spots_calc.py::TestPerformance::test_performance_comparison`, which
+> asserted **nothing** and wrote into `report/` as its only effect. Under
+> `run_pytest.sh`'s intentionally read-only mount that failed deterministically
+> with `OSError [Errno 30]`, and the command registered in provenance
+> (`pytest … -k benchmark`) matched **zero** tests. The port keeps the sampling
+> (`n=100`, warm-up), table wording and CuPy `N/A` + reason bookkeeping verbatim,
+> so old and new reports stay comparable; `CuPy` kernels are looked up through a
+> dict populated only when a GPU is visible, so the script cannot `NameError` on a
+> GPU-less host. The computation is still covered from `tests/` by
+> `TestBackendBenchmark`, which asserts every row is measurable and that the
+> benchmark path **writes nothing**.
 
 ### generate_strehl_benchmark_report.py
 

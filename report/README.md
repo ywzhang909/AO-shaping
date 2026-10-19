@@ -23,7 +23,7 @@
 
 | 报告 | 生成脚本 | 运行环境 | 说明 |
 |---|---|---|---|
-| [`benchmarks/backend_kernels_performance.md`](benchmarks/backend_kernels_performance.md) | `tests/ao_shaping/utils/test_spots_calc.py` | 离线 | 由 benchmark 测试用例写出（NumPy/Numba/CuPy 逐函数耗时） |
+| [`benchmarks/backend_kernels_performance.md`](benchmarks/backend_kernels_performance.md) | `scripts/generate_backend_kernels_report.py` | 离线 | NumPy/Numba/CuPy 逐函数耗时；原先挂在 tests/ 的零断言用例里写回仓库（#162） |
 | [`benchmarks/cython_optimizer_performance.md`](benchmarks/cython_optimizer_performance.md) | `scripts/dm/generate_cython_optimizer_report.py` | 离线 | 读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成 |
 | [`benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`](benchmarks/device_less_full/beam_shaping_benchmark_metrics.md) | `scripts/slm/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画 |
 | [`benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md`](benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md) | `scripts/slm/generate_beam_shaping_benchmark_report.py` | 离线 | 9 单元网格中 gs x circle 的逐 GIF 指标 |
@@ -52,7 +52,6 @@
 | [`loss_defects/inverse_design_report.md`](loss_defects/inverse_design_report.md) | `scripts/ml/generate_inverse_design_report.py (+freeform_vs_zernike.py)` | 离线 | 逆向整形中文报告：正向/反向 pred vs true 对比图 + ROI 扫描 + 术语表 |
 | [`micro_deformable_mirror/freq_test.md`](micro_deformable_mirror/freq_test.md) | `人工撰写` | 硬件 | 微驱动器频率测试记录；images/freq_test/ 为同期截图 |
 | [`micro_deformable_mirror/voltage_test.md`](micro_deformable_mirror/voltage_test.md) | `人工撰写` | 硬件 | 微驱动器电压测试记录 (R50Power)；images/voltage_test/ 为同期截图 |
-| [`miicam_simulation/miicam_report.md`](miicam_simulation/miicam_report.md) | `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py` | 离线 | 仿真 MiiCam 的测试报告 (无需设备) |
 | [`model_free_ao_survey/report.md`](model_free_ao_survey/report.md) | `人工撰写` | 人工调研 | 无模型 AO 综述 (Selim 等 2026, J. Optics) × 本项目 model-free 栈 (SPGD/GS/RL/ML/正向模型) 逐条映射 + 6 条可借鉴清单 (自适应增益 / TIE / Cn² 自适应超参 / scintillation index / hybrid 调度 / RL 动态基准); 与 zotero_objectives 与 beam_shaping 文献调研互补, 不重复目标函数公式 |
 | [`models_analysis/report.md`](models_analysis/report.md) | `scripts/rl/generate_models_report.py` | 离线 | 读 TensorBoard event 文件 |
 | [`models_analysis/reward_analysis.md`](models_analysis/reward_analysis.md) | `人工撰写` | 离线 | 传统 AO 仿真环境 reward 问题分析与解决 |
@@ -136,6 +135,7 @@
 - `beam_shaping/papers/beam_shaping_papers.md` ← `scripts/slm/generate_beam_shaping_papers_report.py` (离线)
 - `beam_shaping/papers/literature_survey.md` ← `人工撰写` (人工调研)
 - `loss_algorithms/report.md` ← `scripts/ml/compare_loss_algorithms.py` (离线)
+- `miicam_simulation/miicam_report.md` ← `tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py` (离线)
 - `models_analysis/tmp_sac_run_showcase.md` ← `scripts/rl/generate_models_report.py` (离线)
 - `slm_pib_online/sensitivity.md` ← `scripts/slm/measure_shape_sensitivity.py` (硬件)
 - `slm_pib_online_hw/objective_comparison.md` ← `scripts/slm/generate_shape_objective_comparison.py` (离线)

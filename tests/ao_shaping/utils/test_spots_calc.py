@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-import time
+from pathlib import Path
 
 from scipy.ndimage import center_of_mass
 
@@ -48,8 +48,6 @@ from ao_shaping.utils.image.spots_calc import (
 
 if CUPY_AVAILABLE:
     from ao_shaping.utils.image.spots_calc import (
-        calculate_sharpness_cupy,
-        crop_cupy,
         center_of_mass_cupy,
         center_of_brightness_cupy,
     )
@@ -629,145 +627,68 @@ class TestDisp:
         # If no exception, test passes
 
 
-class TestPerformance:
-    def test_performance_comparison(self):
-        # Generate test data
-        img = np.random.rand(100, 100).astype(np.float32)
-        xv, yv = np.meshgrid(np.arange(100), np.arange(100))
+class TestBackendBenchmark:
+    """The NumPy/Numba/CuPy kernel benchmark, exercised without writing a report.
 
-        results = {}
-        cupy_reasons = {}
+    Report generation lives in ``scripts/generate_backend_kernels_report.py``;
+    these tests keep its computation honest so the tracked artifact cannot rot
+    silently, while touching no file -- ``run_pytest.sh`` mounts the checkout
+    read-only. The removed predecessor wrote into ``report/`` from inside a test
+    and failed deterministically with ``OSError [Errno 30]`` (issue #162), while
+    asserting nothing.
+    """
 
-        # Test calculate_sharpness
-        def time_func(func, *args, n=100):
-            times = []
-            for _ in range(n):
-                start = time.perf_counter()
-                func(*args)
-                end = time.perf_counter()
-                times.append(end - start)
-            return np.mean(times)
+    @staticmethod
+    def _module():
+        from scripts import generate_backend_kernels_report as module
 
-        # Numpy version
-        calculate_sharpness(img)  # warmup
-        results['calculate_sharpness_numpy'] = time_func(calculate_sharpness, img)
+        return module
 
-        # Numba version
-        calculate_sharpness_numba(img)  # warmup
-        results['calculate_sharpness_numba'] = time_func(calculate_sharpness_numba, img)
+    def test_every_row_is_measurable(self) -> None:
+        module = self._module()
+        results, _reasons = module.run_benchmark()
 
-        # Cupy version
-        try:
-            if CUPY_AVAILABLE:
-                img_cp = cp.asarray(img)
-                results['calculate_sharpness_cupy'] = time_func(calculate_sharpness_cupy, img_cp)
-            else:
-                results['calculate_sharpness_cupy'] = 'N/A'
-                cupy_reasons['calculate_sharpness'] = CUPY_UNAVAILABLE_REASON
-        except Exception as exc:
-            results['calculate_sharpness_cupy'] = 'N/A'
-            cupy_reasons['calculate_sharpness'] = f"{type(exc).__name__}: {exc}"
+        for row in module.ROWS:
+            for backend in ("numpy", "numba"):
+                value = results[f"{row}_{backend}"]
+                assert isinstance(value, float)
+                assert value > 0.0
+            # CuPy is optional: either a timing or exactly the "N/A" sentinel.
+            cupy_value = results[f"{row}_cupy"]
+            assert cupy_value == "N/A" or (
+                isinstance(cupy_value, float) and cupy_value > 0.0
+            )
 
-        # Test crop
-        crop(img, 10)  # warmup
-        results['crop_numpy'] = time_func(crop, img, 10)
+    def test_rendered_table_covers_every_row(self) -> None:
+        module = self._module()
+        results, reasons = module.run_benchmark()
+        markdown = module.render_markdown(results, reasons)
 
-        crop_numba(img, 10)  # warmup
-        results['crop_numba'] = time_func(crop_numba, img, 10)
+        assert "| Function | NumPy (s) | Numba (s) | CuPy (s) |" in markdown
+        for row in module.ROWS:
+            assert f"| {row} |" in markdown
 
-        try:
-            if CUPY_AVAILABLE:
-                img_cp = cp.asarray(img)
-                results['crop_cupy'] = time_func(crop_cupy, img_cp, 10)
-            else:
-                results['crop_cupy'] = 'N/A'
-                cupy_reasons['crop'] = CUPY_UNAVAILABLE_REASON
-        except Exception as exc:
-            results['crop_cupy'] = 'N/A'
-            cupy_reasons['crop'] = f"{type(exc).__name__}: {exc}"
+    def test_unavailable_cupy_row_carries_a_reason(self) -> None:
+        module = self._module()
+        results, reasons = module.run_benchmark()
+        markdown = module.render_markdown(results, reasons)
 
-        # Test center_of_mass
-        centroid(img)  # warmup
-        results['center_of_mass_numpy'] = time_func(centroid, img)
+        for row in module.ROWS:
+            if results[f"{row}_cupy"] == "N/A":
+                assert f"- `{row}`:" in markdown
+                assert reasons.get(row)
 
-        # Test center_of_mass_numba
-        center_of_mass_numba(img, xv, yv)  # warmup
-        results['center_of_mass_numba'] = time_func(center_of_mass_numba, img, xv, yv)
+    def test_benchmark_writes_no_report(self) -> None:
+        """Regression guard: the benchmark path must never touch the artifact."""
+        module = self._module()
+        artifact = Path(module.ROOT) / module.REPORT_KEY
+        before = artifact.read_bytes() if artifact.exists() else None
 
-        try:
-            if CUPY_AVAILABLE:
-                img_cp = cp.asarray(img)
-                xv_cp = cp.asarray(xv)
-                yv_cp = cp.asarray(yv)
-                results['center_of_mass_cupy'] = time_func(center_of_mass_cupy, img_cp, xv_cp, yv_cp)
-            else:
-                results['center_of_mass_cupy'] = 'N/A'
-                cupy_reasons['center_of_mass'] = CUPY_UNAVAILABLE_REASON
-        except Exception as exc:
-            results['center_of_mass_cupy'] = 'N/A'
-            cupy_reasons['center_of_mass'] = f"{type(exc).__name__}: {exc}"
+        results, reasons = module.run_benchmark()
+        module.render_markdown(results, reasons)
 
-        # Test center_of_brightness
-        center_of_brightness(img)  # warmup
-        results['center_of_brightness_numpy'] = time_func(center_of_brightness, img)
-
-        # Test center_of_brightness_numba
-        center_of_brightness_numba(img)  # warmup
-        results['center_of_brightness_numba'] = time_func(center_of_brightness_numba, img)
-
-        try:
-            if CUPY_AVAILABLE:
-                img_cp = cp.asarray(img)
-                results['center_of_brightness_cupy'] = time_func(center_of_brightness_cupy, img_cp)
-            else:
-                results['center_of_brightness_cupy'] = 'N/A'
-                cupy_reasons['center_of_brightness'] = CUPY_UNAVAILABLE_REASON
-        except Exception as exc:
-            results['center_of_brightness_cupy'] = 'N/A'
-            cupy_reasons['center_of_brightness'] = f"{type(exc).__name__}: {exc}"
-
-        # Generate markdown
-        markdown = "# Performance Comparison\n\n"
-        markdown += "| Function | NumPy (s) | Numba (s) | CuPy (s) |\n"
-        markdown += "|----------|-----------|-----------|----------|\n"
-
-        functions = [
-            'calculate_sharpness',
-            'crop',
-            'center_of_mass',
-            'center_of_brightness'
-        ]
-
-        for func in functions:
-            numpy_time = results.get(f'{func}_numpy', 'N/A')
-            numba_time = results.get(f'{func}_numba', 'N/A')
-            cupy_time = results.get(f'{func}_cupy', 'N/A')
-            markdown += f"| {func} | {numpy_time} | {numba_time} | {cupy_time} |\n"
-
-        markdown += "\n### CuPy availability\n\n"
-        na_reasons = [
-            (func, cupy_reasons.get(func, "CuPy benchmark unavailable"))
-            for func in functions
-            if results.get(f"{func}_cupy") == 'N/A'
-        ]
-        if na_reasons:
-            for func, reason in na_reasons:
-                markdown += f"- `{func}`: {reason}\n"
-        else:
-            markdown += "- No CuPy benchmark returned N/A.\n"
-
-        print(markdown)
-        # Save to report/benchmarks/backend_kernels_performance.md (repo-root based, CWD-independent)
-        from pathlib import Path
-        out_path = Path(__file__).resolve().parents[3] / "report" / "benchmarks" / "backend_kernels_performance.md"
-        # This test is the report's writer, so it must also stamp the provenance
-        # header -- a sync pass would just be erased by the next test run.
-        from scripts._common.provenance import insert_header
-
-        markdown = insert_header(
-            markdown, "report/benchmarks/backend_kernels_performance.md"
-        )
-        out_path.write_text(markdown, encoding="utf-8")
+        after = artifact.read_bytes() if artifact.exists() else None
+        assert after == before
 
 class TestPowerInBucketMask:
     def test_uniform_image_full_mask(self):
