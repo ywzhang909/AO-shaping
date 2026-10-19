@@ -68,8 +68,17 @@ class _FakeSLM:
     def display_phase(self, phase: np.ndarray, wait_time_s: float | None = 0.0) -> None:
         self.displayed.append(np.asarray(phase))
 
-    def create_phase_from_array(self, phase: np.ndarray) -> np.ndarray:
+    def create_phase_from_array(self, phase: np.ndarray, max_grayscale=None) -> np.ndarray:
+        # ``max_grayscale`` is accepted so the controller proxy (which forwards
+        # ``max_grayscale=`` after the resize) works against this stand-in.
+        del max_grayscale
         return np.asarray(phase * 10, dtype=np.uint16)
+
+    def _resize_to_panel(self, phase: np.ndarray) -> np.ndarray:
+        # Identity stand-in: the controller proxy calls this to align the input
+        # to panel size before the phase->gray conversion (a no-op when the
+        # input is already panel-sized, as here).
+        return np.asarray(phase, dtype=np.float64)
 
     def display_data(self, phase_gray: np.ndarray, *, memory_mode: int) -> None:
         self.displayed.append(np.asarray(phase_gray))

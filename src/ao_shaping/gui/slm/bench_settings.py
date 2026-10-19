@@ -626,6 +626,108 @@ def bench_pupil_center(prefix: str = "slm1", fallback: str = PUPIL_CENTER_FALLBA
 
 
 # ---------------------------------------------------------------------------
+# 离焦叠加（T4 发送管线叠加层）
+# ---------------------------------------------------------------------------
+# 离焦补偿 = 相机到 2f 面距离决定的二次相位（菲涅尔项，mm，粗调）+ Zernike
+# (2,0) 细调。与发送的图案内容无关——平场 / CSV / GS 整形解都需要同一层，所以
+# 做成驱动层叠加（set_phase_overlay），开关一开就作用于其后所有发送。焦距默认
+# 取 D2「探测焦面」的实测值，操作员可手动覆盖；半径/中心复用 bench 取值链。
+
+#: 离焦焦距的"自动"哨兵：number_input 里填这个值 = 用探测推荐值，人工填别的即覆盖。
+DEFOCUS_FOCAL_AUTO = -9999.0
+
+
+def bench_defocus_focal_auto(prefix: str = "slm1") -> float:
+    """探测推荐的离焦焦距 (mm)；无可用探测结果时返回 0.0。
+
+    与 :func:`bench_fresnel_focal_mm` 同源（D2 探测焦面的 best_focal_mm），
+    只在这里多一层"离焦叠加"语义，避免 GUI 直接依赖 probe 的内部 dict 结构。
+    """
+    return bench_fresnel_focal_mm(prefix)
+
+
+def bench_defocus_focal(prefix: str = "slm1") -> float:
+    """离焦叠加生效的焦距 (mm)。
+
+    ``-9999``（自动）时返回探测推荐值；操作员手动填的值优先。返回值直接喂给
+    :func:`build_defocus_overlay` 的菲涅尔项。
+    """
+    v = st.session_state.get(_scoped(prefix, "defocus_focal"))
+    if v is None or (isinstance(v, float) and v == DEFOCUS_FOCAL_AUTO):
+        return bench_defocus_focal_auto(prefix)
+    try:
+        fv = float(v)
+    except (TypeError, ValueError):
+        return bench_defocus_focal_auto(prefix)
+    return fv if np.isfinite(fv) else bench_defocus_focal_auto(prefix)
+
+
+def build_defocus_overlay(prefix: str = "slm1", slm=None) -> np.ndarray:
+    """按当前离焦设置构造**面板坐标下**的离焦叠加相位（弧度，panel_size）。
+
+    纯函数：每次从 session 现算，绝不累积；焦距/细调均为零时返回与全零逐位相同
+    的数组。菲涅尔项用 :func:`fresnel_panel`（粗调，mm），Zernike (2,0) 用
+    :func:`zernike_panel`（细调）。半径/中心复用 bench 取值链（``panel_span_px``
+    的半径 = span/2，``bench_pupil_center``），波长/像元取设备实参（缺省 1064nm /
+    8 μm）。
+    """
+    from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W, fresnel_panel, zernike_panel
+
+    panel_shape = (SLM_PANEL_H, SLM_PANEL_W)
+    centre = bench_pupil_center(prefix)
+    point = _coerce_point(centre) or (960.0, 600.0)
+    # 半径 = 照明直径/2（panel_span_px 即 2×半径）；缺省 900 px 口径 → 450 px。
+    span = float(st.session_state.get(_scoped(prefix, "bench_panel_span_px"), 900.0) or 900.0)
+    radius = max(1, int(round(span / 2.0)))
+    wavelength = getattr(slm, "wavelength", None) if slm is not None else None
+    pixel_um = float(getattr(slm, "Pitch_um", 8.0)) if slm is not None else 8.0
+
+    out = np.zeros(panel_shape, dtype=np.float64)
+    focal = bench_defocus_focal(prefix)
+    if abs(focal) > 1e-9:
+        out = out + fresnel_panel(
+            float(focal),
+            radius=radius,
+            pupil_center=(int(round(point[0])), int(round(point[1]))),
+            panel_shape=panel_shape,
+            wavelength_nm=float(wavelength) if wavelength else 1064.0,
+            pixel_um=pixel_um,
+        )
+    amount = float(st.session_state.get(_scoped(prefix, "defocus_amount"), 0.0) or 0.0)
+    if abs(amount) > 1e-9:
+        out = out + zernike_panel(
+            {(2, 0): float(amount)},
+            radius=radius,
+            pupil_center=(int(round(point[0])), int(round(point[1]))),
+            panel_shape=panel_shape,
+        )
+    return out
+
+
+def rebuild_defocus_overlay(prefix: str, slm) -> None:
+    """把当前离焦设置推到驱动（set_phase_overlay），供叠加层在重连/重取后重建。
+
+    受 ``{prefix}_defocus_enabled`` 开关门控：关 = 不叠加（None）；开 = 按焦距+
+    细调构造（全零也置 None，等价不叠加）。无连接时直接返回（不碰驱动）。
+    """
+    if slm is None or not getattr(slm, "is_open", False):
+        return
+    enabled = bool(st.session_state.get(_scoped(prefix, "defocus_enabled"), False))
+    if not enabled:
+        slm.set_phase_overlay(None)
+        return
+    try:
+        overlay = build_defocus_overlay(prefix, slm)
+    except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡重连
+        logger.warning("SLM {} 离焦叠加重建失败: {}", slm.slm_number, exc)
+        return
+    if np.allclose(overlay, 0.0, atol=1e-12):
+        slm.set_phase_overlay(None)
+    else:
+        slm.set_phase_overlay(overlay)
+
+
+# ---------------------------------------------------------------------------
 # 相机窗口边界（真值来自设备，拿不到才用保守兜底）
 # ---------------------------------------------------------------------------
 
