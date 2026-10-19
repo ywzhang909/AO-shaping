@@ -47,7 +47,7 @@ from typing import Any, Protocol, TypeVar
 
 #: Largest share of the camera window a measured flat spot may fill before the
 #: geometry is refused (see :meth:`BenchGeometry.self_check_failures`). Measured on
-#: this bench: 13.19 px of300 (4.4%) for a geometry that shaped acceptably, against
+#: this bench: 13.19 px of 300 (4.4%) for a geometry that shaped acceptably, against
 #: 106.85 px of 300 (36%) for one fitted on an uncorrected defocused pupil -- both of
 #: which cleared the correlation floor, at 0.848 and 0.831. The bound sits ~3.4x above
 #: the usable value and ~2.4x below the broken one.

@@ -36,7 +36,7 @@ def load_image_data(run_dir):
         gray = np.clip(gray, 0, None)
         if gray.max() > 0:
             gray = gray / gray.max()
-        return gray, f"渲染图: best_far_field.png"
+        return gray, "渲染图: best_far_field.png"
 
     return None, None
 
