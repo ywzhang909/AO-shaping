@@ -76,6 +76,20 @@ class BaseFrame(ABC):
     def close(self):
         pass
 
+    def _x_of_epoch(self, epoch: float, total_epochs: int | None, n_points: int) -> int:
+        """Map an epoch to a pixel x inside the plot area.
+
+        With ``total_epochs`` set the mapping is fixed: ``epoch / total_epochs``
+        of the panel width, so the same epoch always lands on the same x. Without
+        it, points are spread evenly over the observed history.
+        """
+        x0, x1 = self.left, self.left + self.width - 1
+        if total_epochs and total_epochs > 0:
+            frac = float(epoch) / float(total_epochs)
+        else:
+            frac = float(epoch) / max(n_points - 1, 1)
+        return max(x0, min(x1, int(round(x0 + frac * (x1 - x0)))))
+
     def _render_title(self):
         import pygame
 
@@ -363,20 +377,6 @@ class EpochCurveFrame(BaseFrame):
         self._epochs.clear()
         self._values.clear()
 
-    def _x_of_epoch(self, epoch: float, total_epochs: int | None, n_points: int) -> int:
-        """Map an epoch to a pixel x inside the plot area.
-
-        With ``total_epochs`` set the mapping is fixed: ``epoch / total_epochs``
-        of the panel width, so the same epoch always lands on the same x. Without
-        it, points are spread evenly over the observed history.
-        """
-        x0, x1 = self.left, self.left + self.width - 1
-        if total_epochs and total_epochs > 0:
-            frac = float(epoch) / float(total_epochs)
-        else:
-            frac = float(epoch) / max(n_points - 1, 1)
-        return max(x0, min(x1, int(round(x0 + frac * (x1 - x0)))))
-
     def _y_range(self) -> tuple[float, float]:
         lo = self.y_min
         hi = self.y_max
@@ -506,14 +506,6 @@ class MultiCurveFrame(BaseFrame):
         self._epochs.clear()
         for v in self._values.values():
             v.clear()
-
-    def _x_of_epoch(self, epoch: float, total_epochs: int | None, n_points: int) -> int:
-        x0, x1 = self.left, self.left + self.width - 1
-        if total_epochs and total_epochs > 0:
-            frac = float(epoch) / float(total_epochs)
-        else:
-            frac = float(epoch) / max(n_points - 1, 1)
-        return max(x0, min(x1, int(round(x0 + frac * (x1 - x0)))))
 
     def _y_range(self, vals: list[float]) -> tuple[float, float]:
         lo = min(vals) if vals else 0.0

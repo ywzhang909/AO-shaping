@@ -662,7 +662,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_gs_refine_zernike_report.py",
         environment="离线",
         note=(
-            "GS 全频随机相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 "
+            "GS 逐像素相位 → Zernike 拟合 (多阶) → SPGD 细化 的阶数扫描；本脚本离线读取 "
             "run_gs_refine_zernike_sweep.py 产出的 summary.json + spgd_nmax*.csv，"
             "渲染拟合残差/CV/PIB 三图与阶数扫描表"
         ),
@@ -965,6 +965,25 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="GS 重构后实验调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；"
         "交错重放入口 scripts/slm/replay_gs_refine_hw.py 仅离线部分经测试",
+    ),
+    "report/shape_trials/gs_defocus_sim_20261019.md": ReportProvenance(
+        script="scripts/slm/generate_gs_defocus_sim_report.py",
+        command="python scripts/slm/generate_gs_defocus_sim_report.py",
+        environment="离线",
+        note=(
+            "CCD 焦后离焦下的 GS 匀化仿真 (纯仿真, 无硬件): 五组因果链的收益拆解、"
+            "方案A/方案B 等价性、两个互相独立的可信度边界 (方案A 近似质量 ≤20 mm / "
+            "几何回绕 ≤10 mm)、零级双分量 + 加权 GS、带限 ASM 有损不可逆、自适应框刷分陷阱; "
+            "数字全部来自 scripts/slm/experiment_gs_defocus_offocus.py / "
+            "experiment_gs_fresnel_vs_virtuallens.py / experiment_gs_defocus_sweep_visuals.py / "
+            "experiment_gs_improved.py 已落盘的 CSV/JSON, 本脚本只渲染 5+1 张图与 3 个 GIF"
+        ),
+        extra_scripts=(
+            "scripts/slm/experiment_gs_defocus_offocus.py",
+            "scripts/slm/experiment_gs_fresnel_vs_virtuallens.py",
+            "scripts/slm/experiment_gs_defocus_sweep_visuals.py",
+            "scripts/slm/experiment_gs_improved.py",
+        ),
     ),
     "report/shape_trials/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,

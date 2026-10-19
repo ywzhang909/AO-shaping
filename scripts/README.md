@@ -3407,6 +3407,16 @@ only keeps the Step-B shaped frame when its score strictly beats it, so a run re
 holdout gate plots its **baseline** — several 2026-10-19 figures are the flat phase and must
 not be captioned as shaping output.
 
+### gen_xsec_v2.py
+
+One-shot prototype (2026-10-19) from which `generate_shape_trial_profiles.py` grew. It drew
+the X/Y cuts of the `data/debug/slm_model_in_loop/20261014_*` runs straight off the raw `.npy`
+frames (or, lacking those, the rendered `best_far_field.png`) and wrote
+`figures/<name>_farfield_xsec.png`. Its output was superseded by the
+`*_farfield_xy_profile.png` figures and the centroid cut convention of
+`generate_shape_trial_profiles.py`; nothing regenerates or references it. Kept as the
+provenance of that one figure family, moved from the repo root into `slm/` on 2026-10-19.
+
 ### diagnose_light_level.py
 
 Hardware: how much light actually reaches the camera. When a run aborts early — a

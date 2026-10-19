@@ -145,6 +145,20 @@ class AutoDisplay(BaseDisplay):
         # Explicit (n_cols, n_rows) layout; None = derive from display/frame size.
         self.grid = grid
 
+        self._window_closed = False
+        self._closed = False
+
+    @property
+    def closed(self) -> bool:
+        """True once the user has closed the window (or :meth:`close` ran)."""
+        return self._window_closed or self._closed
+
+    def close(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        if getattr(self, "_frames", None):
+            super().close()
     def _resolve_grid(self, screen_w: int, screen_h: int) -> tuple[int, int]:
         """Return ``(n_cols, n_rows)`` for the frame list.
 
@@ -292,13 +306,6 @@ class SlmZernikeDisplay(AutoDisplay):
             margin=margin,
             grid=grid,
         )
-        self._window_closed = False
-        self._closed = False
-
-    @property
-    def closed(self) -> bool:
-        """True once the user has closed the window (or :meth:`close` ran)."""
-        return self._window_closed or self._closed
 
     def update(
         self,
@@ -356,14 +363,6 @@ class SlmZernikeDisplay(AutoDisplay):
         if not alive:
             self._window_closed = True
         return bool(alive)
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if getattr(self, "_frames", None):
-            super().close()
-
 
 def phase_for_display(phase: np.ndarray) -> np.ndarray:
     """Map signed radian phase onto ``[0, 1]`` so its structure is always visible.
@@ -646,13 +645,6 @@ class SlmSquareDisplay(AutoDisplay):
             margin=margin,
             grid=grid,
         )
-        self._window_closed = False
-        self._closed = False
-
-    @property
-    def closed(self) -> bool:
-        """True once the user has closed the window (or :meth:`close` ran)."""
-        return self._window_closed or self._closed
 
     def update(
         self,
@@ -706,12 +698,3 @@ class SlmSquareDisplay(AutoDisplay):
         if not alive:
             self._window_closed = True
         return bool(alive)
-
-    def close(self) -> None:
-        if self._closed:
-            return
-        self._closed = True
-        if getattr(self, "_frames", None):
-            super().close()
-
-

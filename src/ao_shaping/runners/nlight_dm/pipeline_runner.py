@@ -20,6 +20,7 @@ from ao_shaping.utils.io.cli_helpers import (
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
+    truncate_to_int,
     PipelineDeviceParams,
     PipelineRunParams,
     WfsParams,
@@ -110,14 +111,11 @@ def run(
 
         save_dir = Path(run.dir) / "flatten_voltages" / get_date_dir_name()
 
-        def np_array_to_int(arr):
-            return arr.astype(int)
-
         wf_records.save_best(
-            saved_dir=save_dir, target="_v", process_fn=np_array_to_int, fmt="%d"
+            saved_dir=save_dir, target="_v", process_fn=truncate_to_int, fmt="%d"
         )
         ccd_records.save_best(
-            saved_dir=save_dir, target="_v", process_fn=np_array_to_int, fmt="%d"
+            saved_dir=save_dir, target="_v", process_fn=truncate_to_int, fmt="%d"
         )
 
         if debug:

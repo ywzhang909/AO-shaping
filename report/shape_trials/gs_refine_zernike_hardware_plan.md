@@ -83,7 +83,7 @@ Stage A  slm_gs_refine（GS 预矫正 + SPGD 细化）
          → best_phase（1200×1920 面板，弧度，raw 未包裹）
                 │
 Stage B  fit_best_phase(best_phase, n_max, beam_radius_px)
-         → 瞳孔裁剪 (pupil_side 900) → Noll 最小二乘拟合
+         → 瞳面裁剪 (pupil_side 900) → Noll 最小二乘拟合
          → coefficients[n_modes]（弧度）+ fit_rms_rad + max|c|
                 │
 Stage C  slm_zernike_pib（SPGD 在 Zernike 系数上）
@@ -104,7 +104,7 @@ Stage C  slm_zernike_pib（SPGD 在 Zernike 系数上）
 
 - 主指标：**剔零级 CV**（越低越匀），与 `gs_uniformity_live_20261015` 同口径以保证可比。
 - 必须同时看 **EE**：单独优化 `-cv` 会掏空目标方斑（硬件实测 EE → 0.002）。
-- 拟合侧指标：**相对 GS 全频随机相位的 far-field 复现保真度**（见 H6），这是本实验真正的科学量，
+- 拟合侧指标：**相对 GS 逐像素相位的 far-field 复现保真度**（见 H6），这是本实验真正的科学量，
   `fit_rms` 只是相位空间的代理。
 
 ### 2.4 实验命令模板
@@ -210,7 +210,7 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **目的**：Zernike 拟合**在远场**到底复现了多少 GS 整形效果。这是 `fit_rms` 的物理对应物。
 - **前置**：H3、H5 通过。
 - **步骤**：对每阶，把 `panel_phase_from_coefficients` 的结果下发（交错重放），
-  在**冻结遮罩**上与 GS 全频随机相位、`flat` 三者比较 CV / PIB / EE / 综合分。
+  在**冻结遮罩**上与 GS 逐像素相位、`flat` 三者比较 CV / PIB / EE / 综合分。
 - **判据**：给出 `CV(n_max)` 曲线；判"该阶是否值得它的自由度"用
   **相对 GS 的 CV 差距是否 > 噪声地板**。
 - **记录**：三方的 CV/PIB/EE/quality 表 + 重放原始帧。
@@ -282,13 +282,19 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 ## 5. 执行顺序与依赖
 
 ```
-P0  H0 台架基线 ──┬──> H1 GS bake-off ──┬──> H3 单调性 ──┬──> H4 knee
-                  │                     │                 ├──> H5 系数自洽 ──> H6 far-field 保真 ★
-                  └──> H2 噪声地板 ─────┴─────────────────┘        │
-                                        │                          └──> H8 受限 vs 自由相位
-                                        └──> H9 带噪声地板的排序 <────┘
+H0 实验系统基线  (P0)
+├── H1 GS 对比择优  (P0)
+│   ├── H3 单调性
+│   │   ├── H4 knee
+│   │   └── H5 系数自洽
+│   │        └── H6 far-field 保真 ★  ← 核心科学项
+│   │             ├── H7 预算是否足够
+│   │             │    ├── H10 守卫消融
+│   │             │    └── H11 步长
+│   │             └── H8 受限 vs 逐像素相位
+│   └── H9 带噪声地板的排序
+└── H2 噪声地板  (P0，可与 H1 并行准备)
 
-H6 ──> H7 预算是否足够 ──> H10 守卫消融 / H11 步长
 H5 ──> H12 基半径扫描
 ```
 

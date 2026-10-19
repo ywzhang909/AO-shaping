@@ -155,37 +155,3 @@ def state(monkeypatch):
     state: dict[str, Any] = {}
     monkeypatch.setattr(st, "session_state", state)
     return state
-
-
-@pytest.fixture
-def state(monkeypatch):
-    state: dict[str, Any] = {}
-    monkeypatch.setattr(st, "session_state", state)
-    return state
-
-
-class TestWidgetDefault:
-    def test_absent_key_seeds_the_default(self, state) -> None:
-        assert bs.widget_default("fresh_key", 7.0) == 7.0
-
-    def test_present_key_defers_to_session_state(self, state) -> None:
-        state["k"] = 0.142
-        assert bs.widget_default("k", 0.0) is None
-
-    def test_a_falsey_session_value_is_still_defers(self, state) -> None:
-        """``0`` / ``False`` are real values here (exposure 0 = auto)."""
-        state["exp"] = 0.0
-        assert bs.widget_default("exp", 99.0) is None
-        state["crop"] = False
-        assert bs.widget_default("crop", True) is None
-
-    def test_the_helper_is_exported(self) -> None:
-        assert "widget_default" in bs.__all__
-
-
-
-@pytest.fixture
-def state(monkeypatch):
-    state: dict[str, Any] = {}
-    monkeypatch.setattr(st, 'session_state', state)
-    return state

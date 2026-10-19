@@ -163,3 +163,11 @@ docs/wfs/wfs_report.md
 
 
 none
+
+# Machine-local dev/AI tool configs: kept on developer machines, never in the repo.
+# (Removed from tracking 2026-10-19; anchored so sub-dir copies stay allowed.)
+/.mcp.json
+/.pre-commit-config.yaml
+/opencode.jsonc
+/pyrightconfig.json
+/skills-lock.json

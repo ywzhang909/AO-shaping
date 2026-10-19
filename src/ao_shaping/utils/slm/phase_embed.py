@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import numpy as np
 
+from ao_shaping.utils.math.array_shape import fit_exact
+
 
 def panel_shape_from_slm(slm: object) -> tuple[int, int]:
     """Panel ``(height, width)`` from the driver, falling back to the SLM-200 default."""
@@ -15,20 +17,6 @@ def panel_shape_from_slm(slm: object) -> tuple[int, int]:
 def pupil_side(radius_px: float) -> int:
     """Edge length of the square covering the illuminated pupil."""
     return max(32, int(round(2.0 * radius_px)))
-
-
-def fit_exact(arr: np.ndarray, shape: tuple[int, int]) -> np.ndarray:
-    """Force ``arr`` to exactly ``shape`` by edge-padding then cropping.
-
-    Mirrors :func:`ao_shaping.utils.image.resample.fit_exact`; kept local so this
-    module stays free of the scipy import that ``resample`` pulls in.
-    """
-    h, w = shape
-    out = np.asarray(arr, dtype=np.float64)
-    ph, pw = max(0, h - out.shape[0]), max(0, w - out.shape[1])
-    if ph or pw:
-        out = np.pad(out, ((0, ph), (0, pw)), mode="edge")
-    return out[:h, :w]
 
 
 def embed_pupil_square(

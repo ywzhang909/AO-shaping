@@ -15,7 +15,12 @@ from ao_shaping.utils.io.cli_helpers import (
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
 from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
-from ao_shaping.runners.runner_common import CameraParams, CombinedAlgorithmParams, CombinedRunParams
+from ao_shaping.runners.runner_common import (
+    CameraParams,
+    CombinedAlgorithmParams,
+    CombinedRunParams,
+    round_to_int,
+)
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
 
@@ -90,7 +95,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
 
     saved_dir = f"{run.root_dir}/flatten_voltages/{get_date_dir_name()}"
     res_list.save_best(
-        saved_dir, target="_v", process_fn=lambda x: np.around(x).astype(int), fmt="%d"
+        saved_dir, target="_v", process_fn=round_to_int, fmt="%d"
     )
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
     last_V = best_iter["_v"]
