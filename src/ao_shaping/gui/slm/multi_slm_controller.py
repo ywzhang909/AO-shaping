@@ -17,6 +17,14 @@ import streamlit as st
 from loguru import logger
 
 from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.gui.slm.bench_settings import (
+    DEFAULT_CAMERA_PIXEL_UM,
+    KNOWN_CAMERA_PIXEL_UM,
+    auto_check_camera_pixel_um,
+    detect_camera_pixel_um,
+    render_bench_settings,
+    widget_default,
+)
 from ao_shaping.gui.slm.pattern_controls import (
     PATTERN_REGISTRY,
     PREVIEW_COLORMAP_DEFAULT,
@@ -33,119 +41,18 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # probe runs in a daemon thread and is abandoned after this interval.
 SLM_PROBE_TIMEOUT_S = 3.0
 
-#: Default camera pixel pitch (μm) used when hardware detection is unavailable.
-DEFAULT_CAMERA_PIXEL_UM = 2.2
-#: Known pixel pitches for specific camera models (μm).
-#: Keyed by a substring of the camera model name.
-KNOWN_CAMERA_PIXEL_UM: dict[str, float] = {
-    "MER2-507": 2.2,
-}
+# 像元间距的探测与告警已搬到「本次实验光路」区块（bench_settings）—— 那是一次
+# 实验内固定的量，不该和「刷新相机状态」这种一次性诊断按钮混在一起。下面三个名字
+# 是为旧 import 路径保留的再导出。
+_DETECT_CAMERA_PIXEL_UM = detect_camera_pixel_um
+_AUTO_CHECK_CAMERA_PIXEL_UM = auto_check_camera_pixel_um
 
-
-def _detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float | None:
-    """Probe the camera for its physical pixel pitch (μm).
-
-    Tries to read ``PixelSize`` from the live device via the camera SDK.
-    Falls back to a known-model table (e.g. Daheng MER2-507 = 2.2 µm).
-
-    Returns the pixel pitch in μm, or ``None`` if the camera is unavailable
-    or the value cannot be determined.
-    """
-    if cam_type == "daheng":
-        try:
-            import gxipy as gx  # type: ignore[import-untyped]
-        except (ImportError, OSError):
-            return None
-        device_manager = gx.DeviceManager()
-        dev_count, dev_info_list = device_manager.update_device_list()
-        if not dev_count or not dev_info_list or len(dev_info_list) <= cam_id:
-            return None
-        sn = dev_info_list[cam_id].get("sn")
-        model_raw: Any = dev_info_list[cam_id].get("model", "") or ""
-        if isinstance(model_raw, tuple):
-            model_raw = model_raw[0] if model_raw else ""
-        model = str(model_raw)
-        cam: Any = None
-        try:
-            cam = device_manager.open_device_by_sn(sn)
-            try:
-                pixel_size = cam.PixelSize.get()
-                if pixel_size is not None:
-                    val = float(pixel_size)
-                    if val > 0:
-                        return val
-            except Exception:
-                pass
-        except Exception as e:
-            logger.debug(f"Daheng 探测像素间距失败: {e}")
-            return None
-        finally:
-            if cam is not None:
-                try:
-                    cam.close_device()
-                except Exception:
-                    pass
-        for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
-            if known_model in model:
-                return pitch
-        return None
-    elif cam_type == "miicam":
-        try:
-            from ao_shaping.drivers.ccd.miicam.driver import MIICamera
-
-            cam = MIICamera(cam_id=cam_id)
-            cam.open()
-            try:
-                # MiiCam SDK may expose pixel size; try reading it.
-                pixel_size = getattr(cam, "pixel_size_um", None)
-                if pixel_size is not None:
-                    return float(pixel_size)
-            finally:
-                cam.close()
-        except Exception as e:
-            logger.debug(f"MiiCam 探测像素间距失败: {e}")
-        return None
-    return None
-
-
-def _auto_check_camera_pixel_um() -> None:
-    """Auto-detect camera pixel_um on sidebar render; warn on mismatch.
-
-    Reads the configured ``camera_pixel_um`` session-state value against the
-    value probed from hardware.  When they differ, surfaces a one-line warning
-    so the operator can click a button to adopt the hardware value.  The
-    existing value is never silently overwritten — the operator always decides.
-    """
-    configured = st.session_state.get("camera_pixel_um")
-    if configured is None:
-        return
-    if "_cam_pixel_checked" not in st.session_state:
-        detected = _detect_camera_pixel_um(
-            str(st.session_state.get("cam_type", "daheng")),
-            int(st.session_state.get("cam_id", 0)),
-        )
-        if detected is not None and abs(float(detected) - float(configured)) > 1e-3:
-            st.session_state["_cam_pixel_detected"] = detected
-            st.session_state["_cam_pixel_mismatch"] = True
-        else:
-            st.session_state["_cam_pixel_mismatch"] = False
-        st.session_state["_cam_pixel_checked"] = True
-
-    if st.session_state.get("_cam_pixel_mismatch"):
-        detected = st.session_state.get("_cam_pixel_detected")
-        col1, col2 = st.columns([4, 1])
-        with col1:
-            st.warning(
-                f"相机像素间距: 会话值 {configured} μm ≠ 硬件探测值 {detected} μm"
-            )
-        with col2:
-            if st.button("采用", key="adopt_camera_pixel_btn", type="primary"):
-                detected_val = st.session_state.get("_cam_pixel_detected")
-                if detected_val is not None:
-                    st.session_state["camera_pixel_um"] = float(detected_val)
-                    st.session_state.pop("_cam_pixel_checked", None)
-                    st.session_state.pop("_cam_pixel_mismatch", None)
-                    st.rerun()
+__all__ = [
+    "DEFAULT_CAMERA_PIXEL_UM",
+    "KNOWN_CAMERA_PIXEL_UM",
+    "main",
+    "render_slm_sidebar",
+]
 
 
 def _scan_camera_status() -> list[dict]:
@@ -653,9 +560,12 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     prefix = f"slm{slm_num}"
     st.session_state[f"{prefix}_phase_preview"] = None
     st.session_state[f"{prefix}_phase_source"] = "连接成功，等待读取或下发相位"
-    st.session_state[f"{prefix}_loaded_config"] = (
-        slm.load_config() if slm._serial_number else {}
-    )
+    # ``Santec.open()`` 已经读过每序列号配置: 复用它, 不再 load_config() 二次读盘。
+    # 老 driver / 测试替身没有该属性时回落到原来的读取。
+    loaded_config = getattr(slm, "loaded_config", None)
+    if loaded_config is None:
+        loaded_config = slm.load_config() if slm._serial_number else {}
+    st.session_state[f"{prefix}_loaded_config"] = loaded_config
 
     # Sync all widget-backed keys from the device's resolved state so the
     # sidebar shows the actual hardware values (wavelength, shift, geometry…).
@@ -673,8 +583,11 @@ def _sync_slm_session_state(slm_num: int, slm: Santec) -> None:
     _safe_set_state(f"{prefix}_shift_y", int(getattr(slm, "_shift_y", 0)))
     _safe_set_state(f"{prefix}_width", int(slm.Panel_Res[0]))
     _safe_set_state(f"{prefix}_height", int(slm.Panel_Res[1]))
+    # 这个 key 被图案生成器当**采样间距**用（见 _build_slm_pattern 的
+    # pixel_pitch_um），所以必须同步 Pitch_um 而不是有效口径 Pixel_Size_um
+    # ——两者相差 0.2 μm，见 slm200_constants 注释。
     _safe_set_state(
-        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pixel_Size_um", 8.0))
+        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pitch_um", 8.0))
     )
     _safe_set_state(f"{prefix}_bits", int(getattr(slm, "Gray_Scale_bits", 10)))
     _safe_set_state(f"{prefix}_use_120hz", bool(slm._use_120hz))
@@ -927,6 +840,41 @@ def display_slm_status(slm_num: int):
         st.warning("未连接")
 
 
+def render_auto_calibrate_entry(slm_num: int) -> None:
+    """Per-SLM 「一键光路标定」：一次跑完定位 → 曝光 → 半径 → 几何。
+
+    这是**整链**入口，与 bench_settings D/E 组里的逐步控件并存而不重复：
+    D/E 供手工分步排查（只测半径、只重标几何），这里供「换完光路按一次」。
+
+    四步的顺序不可换 —— 半径要减本会话的中心，几何要瞄准本会话的中心，
+    曝光要被后两步复用 —— 所以编排集中在这里，不散落到各控件。
+    半径与曝光都由 ``calibrate_session`` 同一入口实测，GUI 不另写一份。
+    """
+    from ao_shaping.gui.slm import bench_settings
+
+    prefix = f"slm{slm_num}"
+    if bench_settings.bench_busy():
+        return
+
+    summary = bench_settings.bench_summary_lines(prefix)
+    with st.expander(f"SLM {slm_num} · 一键光路标定", expanded=False):
+        if summary:
+            for line in summary:
+                st.caption(line)
+        else:
+            st.caption(bench_settings.uncalibrated_note(prefix))
+        if st.button(
+            f"一键标定 SLM {slm_num} 光路",
+            key=f"{prefix}_auto_calibrate_all_btn",
+            type="primary",
+            use_container_width=True,
+            help="全板入射定位 → 曝光探测 → 照明半径边界扫描 → sweep 几何。"
+            "约 3–8 分钟（半径扫描占大头）；期间本机不要触碰设备。",
+        ):
+            bench_settings.run_session_calibration(prefix, slm_num)
+            st.rerun()
+
+
 def render_slm_sidebar():
     """Render sidebar with device table and per-SLM settings."""
     st.header("SLM 设备")
@@ -1022,33 +970,27 @@ def render_slm_sidebar():
 
     st.markdown("")
 
-    # Camera pixel pitch configuration with auto-detect
-    pixel_um = st.session_state.get("camera_pixel_um", DEFAULT_CAMERA_PIXEL_UM)
-    # Auto-detect on every render if a camera is available; warn on mismatch.
-    _auto_check_camera_pixel_um()
-    col_pixel, col_detect = st.columns([3, 1])
-    with col_pixel:
-        st.number_input(
-            "相机像素间距 (μm)",
-            min_value=0.1,
-            max_value=50.0,
-            step=0.1,
-            value=float(pixel_um),
-            key="camera_pixel_um",
-            help="CCD 像元间距 (μm)。点击「探测」可尝试从硬件读取。参考: 大恒 MER2-507 = 2.2 µm",
-        )
-    with col_detect:
-        st.markdown("")
-        if st.button("探测", key="detect_camera_pixel_btn", type="secondary"):
-            detected = _detect_camera_pixel_um()
-            if detected is not None:
-                st.session_state["camera_pixel_um"] = detected
-                st.success(f"探测到像素间距: {detected} μm")
-                st.rerun()
-            else:
-                st.warning("无法探测像素间距 (相机未连接或 SDK 不可用), 使用当前值")
+    st.markdown('')
 
-    st.markdown("")
+    # 「本次实验光路」区块：相机类型/ID、像元间距（+ 探测 + 自动探测告警）、
+    # 会话曝光（+ 探测）、读出窗口、去零级载波，以及每台已连接 SLM 的面板几何、
+    # 照明半径（+ 探测）与标定按钮。
+    # 像元间距的 widget key 仍是 camera_pixel_um（不新建同 key widget），
+    # 整个区块只在这里实例化一次 —— 主区的整形参数区不再重复它。
+    render_bench_settings()
+
+    # 自动标定链路的唯一驱动点放在这里（而不是散在 bench_settings 的
+    # D/E 两块里），因为「这台 SLM 现在能不能直接整形」是设备级问题：
+    # 入射定位 → 曝光 → 照明半径 → sweep 几何 四步的顺序不能换，任一步失败
+    # 都不该继续。bench_settings 负责每一步的控件与三态回填，这里负责编排。
+    connected = [
+        slm_num
+        for slm_num in (1, 2)
+        if st.session_state.get(f"slm{slm_num}_connected")
+        and st.session_state.get(f"slm{slm_num}") is not None
+    ]
+    for slm_num in connected:
+        render_auto_calibrate_entry(slm_num)
 
     for slm_num in (1, 2):
         prefix = f"slm{slm_num}"
@@ -1123,7 +1065,13 @@ def _render_slm_settings(slm_num: int):
                 f"{st.session_state[f'{prefix}_width']}"
                 f"×{st.session_state[f'{prefix}_height']}"
             )
-            st.write(f"像素间距: {st.session_state[f'{prefix}_pixel_pitch_um']} μm")
+            pitch_um = st.session_state[f"{prefix}_pixel_pitch_um"]
+            pitch_label = f"像素间距: {pitch_um} μm"
+            size_um = getattr(slm_obj, "Pixel_Size_um", None)
+            if size_um is not None:
+                # 7.8 = 有效口径 / 8.0 = 间距, 两个不同的物理量, 并排显示避免混淆
+                pitch_label += f" · 有效口径: {size_um} μm"
+            st.write(pitch_label)
         with col_info2:
             st.write(f"Bit数: {st.session_state[f'{prefix}_bits']}")
             sn_display = slm_obj._serial_number
@@ -1214,7 +1162,13 @@ def _render_slm_settings(slm_num: int):
         st.caption("叠加矫正")
         use_correction = st.checkbox(
             "叠加矫正CSV",
-            value=st.session_state.get(f"{prefix}_use_correction", True),
+            # Seed from the mirror key only on the first render; afterwards the
+            # widget key owns the value (Streamlit warns on every rerun when
+            # both are supplied, and ignores the value anyway).
+            value=widget_default(
+                f"{prefix}_use_correction_cb",
+                st.session_state.get(f"{prefix}_use_correction", True),
+            ),
             key=f"{prefix}_use_correction_cb",
             help="启用时，写入相位会自动叠加波前误差矫正数据",
         )
@@ -1455,7 +1409,7 @@ def render_phase_control(slm_num: int):
             # 1. 从 CSV 加载灰度矩阵（驱动层已内置格式校验：
             #    标题 "Y/X"、尺寸=面板分辨率、值范围 0..1023）
             slm = st.session_state[prefix]
-            phase_gray = slm.load_gray_from_csv(temp_path)
+            slm.load_gray_from_csv(temp_path)
 
             # 2. 灰度 → 弧度制相位图（静态方法，不做硬件相关转换）
             phase_rad = Santec.csv_to_phase(temp_path)
@@ -1625,7 +1579,10 @@ def _render_base_phase_block(slm_num: int):
     with col_base2:
         overlay = st.checkbox(
             "发送时自动叠加底相位",
-            value=st.session_state.get(f"{prefix}_overlay_base", False),
+            value=widget_default(
+                f"{prefix}_overlay_base_cb",
+                st.session_state.get(f"{prefix}_overlay_base", False),
+            ),
             key=f"{prefix}_overlay_base_cb",
             help="勾选后，写入SLM的相位会自动叠加已保存的底相位",
         )

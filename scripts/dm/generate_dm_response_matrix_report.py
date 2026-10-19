@@ -220,7 +220,6 @@ def fig_actuator_magnitude(matrix: np.ndarray, valid_indices: list[int] | None,
     col_norms = np.linalg.norm(matrix, axis=0)
     n_acts = len(col_norms)
     fig, ax = plt.subplots(figsize=(12, 5))
-    labels = valid_indices if valid_indices else list(range(n_acts))
     x = np.arange(n_acts)
     ax.bar(x, col_norms, color="tab:blue", alpha=0.8)
     # Median line
@@ -357,7 +356,6 @@ def write_markdown(out: Path, ctx: dict) -> str:
     n_slopes, n_acts = matrix.shape
     mask = r["subaperture_mask"]
     col_norms = ctx["col_norms"]
-    sv_result = ctx["sv_result"]
     cond = ctx["cond"]
 
     md: list[str] = []

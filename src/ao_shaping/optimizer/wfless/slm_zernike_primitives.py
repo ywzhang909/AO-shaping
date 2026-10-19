@@ -162,7 +162,7 @@ def learning_schedule(
     grad_cv = grad_std / (grad_mean + 1e-8)  # Coefficient of variation
 
     # PIB trend
-    pib_mean = np.mean(recent_pibs)
+    np.mean(recent_pibs)
     pib_std = np.std(recent_pibs) if len(recent_pibs) > 1 else 0
     pib_trend = (
         (recent_pibs[-1] - recent_pibs[0]) / (len(recent_pibs) + 1e-8)

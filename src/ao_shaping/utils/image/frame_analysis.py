@@ -19,7 +19,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ao_shaping.utils.image.beam_metrics import despike_frame, prepare_frame
+from ao_shaping.utils.image.beam_metrics import (
+    despike_frame,
+    prepare_frame,
+    zero_order_center,
+)
 
 
 @dataclass
@@ -332,6 +336,50 @@ def crop_roi(frame: np.ndarray, center: tuple[int, int], half: int) -> np.ndarra
         return out
     out[sy0 - y0 : sy1 - y0, sx0 - x0 : sx1 - x0] = arr[sy0:sy1, sx0:sx1]
     return out
+
+
+#: ``target_side == 0``（「最大边长」）时，目标方斑与帧边之间的**留白**（相机 px）。
+#: 从 0 级中心到最近帧边的距离里扣掉它，保证目标框不压在帧边与读出噪声上。
+#: 起始值 10 px；换相机 / 换光路后按实测调整。
+TARGET_EDGE_MARGIN_PX = 10
+
+
+def max_target_side_at_zero_order(
+    frame: np.ndarray,
+    center: tuple[float, float] | None = None,
+    *,
+    margin_px: int = TARGET_EDGE_MARGIN_PX,
+    min_side: int = 1,
+) -> int:
+    """``target_side == 0`` 的语义：**最大边长**（以 0 级为心，不碰帧边）。
+
+    0 级中心到**最近帧边**的距离就是可用最大半径（px）；扣掉 ``margin_px``
+    的留白后，边长 = 2 x 剩余半径。于是目标方斑必然整个落在帧内 ——
+    「目标边长 > 读出窗口边长」在 ``0`` 的语义下结构上不可能发生。
+
+    0 级中心与 :func:`crop_around_zero_order` 取同一口径：**帧的最亮点**（光轴），
+    绝不是几何中心 —— 本实验系统的 0 级实测偏离画面中心约 620 px。
+
+    Args:
+        frame: 2D 帧（相机画面或仿真远场）。
+        center: 0 级中心 ``(x, y)``；``None`` 时用规范的
+            :func:`~ao_shaping.utils.image.beam_metrics.zero_order_center` 探测。
+        margin_px: 边缘留白（px）。
+        min_side: 返回值的下界（帧小到放不下留白时也要给一个可用边长）。
+
+    Returns:
+        边长（px），``>= min_side``。
+    """
+    data = _as_2d_float(frame)
+    if center is None:
+        x, y = zero_order_center(prepare_frame(data))
+        cx, cy = int(round(float(x))), int(round(float(y)))
+    else:
+        cx, cy = int(round(float(center[0]))), int(round(float(center[1])))
+    height, width = int(data.shape[0]), int(data.shape[1])
+    # 到四条边的最小距离 = 最大可用半径；再扣掉留白。
+    radius = min(cx, cy, width - 1 - cx, height - 1 - cy) - int(margin_px)
+    return max(int(min_side), 2 * int(radius))
 
 
 def roi_l2(a: np.ndarray, b: np.ndarray) -> float:

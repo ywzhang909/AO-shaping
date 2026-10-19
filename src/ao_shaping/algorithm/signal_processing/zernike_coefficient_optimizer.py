@@ -587,6 +587,57 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             )
         return intensity.detach().cpu().numpy().astype(np.float64)
 
+    def far_field_tensor(
+        self,
+        coefficients: npt.NDArray[np.floating],
+        phase_slm: npt.NDArray[np.floating] | Any,
+        source_amplitude: npt.NDArray[np.floating] | None = None,
+    ) -> Any:
+        """求一个系数向量的远场强度, **保留计算图**。
+
+        与 :meth:`forward_intensity` 是同一套前向计算, 唯一区别是不进
+        ``torch.no_grad()``: 返回的张量仍挂在图上, 因此调用方可以对**相位**
+        求梯度 (系数在这里是常量样本, 不是待优化参数)。不确定性探针选择器
+        正是靠这一点把 ``dU/dphase`` 反传到探针网格上。
+
+        Args:
+            coefficients: 一维系数向量, 单位弧度, 形状 ``(n_coefficients,)``。
+                作为常量喂入, 不建梯度。
+            phase_slm: 二维 SLM 相位, **未包裹的原始弧度**, 形状
+                ``(region, region)``。可以是 numpy 数组, 也可以是调用方自建
+                的 ``requires_grad`` torch 张量 (后者原样上设备, 由调用方控制
+                精度与梯度)。
+            source_amplitude: 本次调用可选的二维振幅覆盖值。
+
+        Returns:
+            挂在图上的二维远场强度张量 (设备/精度同优化器内部)。
+
+        Raises:
+            ValueError: 任一数组形状不对或含非有限值时。
+        """
+        values = np.asarray(coefficients, dtype=np.float64)
+        if values.ndim != 1 or values.shape[0] != self._n_coeffs:
+            raise ValueError(
+                f"coefficients must have shape ({self._n_coeffs},), got {values.shape}"
+            )
+        if not np.all(np.isfinite(values)):
+            raise ValueError("coefficients must be finite")
+
+        torch = _torch()
+        if torch.is_tensor(phase_slm):
+            phase_t = phase_slm.to(self._dev)
+        else:
+            phase_t = _to_tensor(
+                self._validate_phase(phase_slm), self._dev, self._dtype_name
+            )
+        amplitude = self._resolve_amplitude(source_amplitude)
+        coeff_t = torch.from_numpy(
+            np.ascontiguousarray(values, dtype=self._np_dtype)
+        ).to(self._dev)
+        return self._far_field_intensity(
+            coeff_t, phase_t, _to_tensor(amplitude, self._dev, self._dtype_name)
+        )
+
     def reset(self) -> None:
         """把系数重置回初值并清空历史。"""
         self._restart(restore_initial=True)

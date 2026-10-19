@@ -158,7 +158,7 @@ X 粗扫 tip 几乎不变 (+0.39→+0.22) 而 tilt 强线性 (+2.72→−1.50); 
 | **只用光斑有效比做门控** | `wfs_validity` 抓不到"光斑正常但 LSF 拟合崩溃" (实测 `\|resp\|` 暴涨到 4288) | 加**逐点幅度合理性剔除**: 同 (模式,R) 组内 `\|resp\|` 偏离中位数 >3× 则剔除 |
 | **µm 与 λ 混用** | WFS `get_zernike()` 返回 **µm**; 矩阵若用原始 µm 构建而矫正的 `w` 用 λ, 反解系数被放大 **1/0.532 = 1.88×** | 一律经 `slm_zernike_common.um_to_waves()` 换算; `units` 字段写入 h5 |
 | **λ 与 弧度混用** | 反解系数是 **λ(波长)** 但 `make_phase`/`generate_zernike_polynomial` 收 **弧度** → 加载相位缩小 **2π = 6.28×** | 加载前 `× 2π`; 闭环实测 13.8% → **42.1%** |
-| **产物缺设备参数** | 无法复现/审计 (波长、2π灰度、温度、曝光、pupil 等) | 统一经 `slm_zernike_common.collect_device_info()` 记录进 h5 的 `device_config.device` |
+| **产物缺设备参数** | 无法复现/审计 (波长、2π灰度、温度、曝光、pupil（瞳面） 等) | 统一经 `slm_zernike_common.collect_device_info()` 记录进 h5 的 `device_config.device` |
 | **矩阵含零列时直接 pinv** | 线性度门控置零的列使 `np.linalg.cond` 爆到 1e18 (数值秩亏) | 用 `slm_zernike_common.safe_pinv()` (仅对有效列求逆) 与 `effective_cond()` |
 
 **离线验证** (用 raw_scan 重建矩阵): 统一 R=300 → 13/14 列, cond=10.89, 反解残差降 **91.7%**;

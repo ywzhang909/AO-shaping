@@ -182,7 +182,7 @@ class DynamicCompensator:
         )
         capture.configure_wfs()
 
-        ref = capture.capture_reference("aberration_flat")
+        capture.capture_reference("aberration_flat")
         measurement = capture.capture_measurement(
             "aberration_flat",
             wavefront_device=self.wfs,

@@ -124,7 +124,7 @@
 - **论文**：Cn²（折射率结构参数，10⁻¹⁷~10⁻¹³）决定湍流强度；variance-based 参数化比 flux/gradient 更准。
   强湍流需更多 Zernike 阶（D/r0≈17 → 35 阶）。
 - **本项目现状**：数字孪生 `fouriergsnet_env.py` 有 OU 时变湍流（`configure_turbulence(sigma, tau, dt, nolls)`），
-  但 `sigma` 是**设定值**；实机闭环**没有在线估计湍流强度**，SPGD 的 `delta`/`lr`/Zernike 阶数全靠手调。
+  但 `sigma` 是**设定值**；实测闭环**没有在线估计湍流强度**，SPGD 的 `delta`/`lr`/Zernike 阶数全靠手调。
 - **借鉴**：在 CCD 帧序列上在线估计一个 **scintillation 代理量**（强度时间方差 / 峰度），
   映射到 Cn² 代理，据此**自动调度**：
   - 湍流弱 → 低阶 Zernike（省 DOF、快）；
@@ -145,12 +145,12 @@
   见 `hwdataset` 排除说明）或新增稳定性探针里，沿时间轴算接收光斑强度的
   `σ²_I = (⟨I²⟩−⟨I⟩²)/⟨I⟩²`，作为"AO 是否真稳"的补充指标。
 - **落点**：`scripts/` 新增 `measure_scintillation_index.py`（读已存帧，离线）。
-- **验收**：对同一台架，比较"开 AO" vs "关 AO"的 σ²_I 下降幅度（论文期望数量级：scintillation 降 87%@35 阶）。
+- **验收**：对同一实验系统，比较"开 AO" vs "关 AO"的 σ²_I 下降幅度（论文期望数量级：scintillation 降 87%@35 阶）。
 
 ### 3.5 ⭐ 用 GS warm-start + 模型闭环的 "hybrid" 作为默认推荐（论文核心结论的落地）
 
 - **论文**：明确 GS 在弱湍流好、强湍流差；SPGD 在强湍流鲁棒但慢；**hybrid 最稳**。
-- **本项目现状**：`slm_gs_refine` 已经做了 **GS warm-start + bake-off**（GS 赢了才采用）+ SPGD 细化；
+- **本项目现状**：`slm_gs_refine` 已经做了 **GS warm-start + 对比择优**（GS 赢了才采用）+ SPGD 细化；
   `slm_model_in_loop` 做了正向模型 + SPGD。但两者是**分离的命令**，没有统一的"按湍流强度自动选 hybrid 配方"。
 - **借鉴**：把 §3.1 + §3.3 的信号接进来，让一个**调度器**根据在线 Cn² 代理自动选择：
   - 弱 → GS 主导（快）；
@@ -178,7 +178,7 @@
 - **SPGD / AdamSPGD**：本项目 `spgd_gradient` + `algorithm/gradient/adam.py`（默认 AdaMOD）。
   论文的 AdamSPGD（少 50% 迭代）≈ 本项目"SPGD + Adam 族"，**已落地**，且本项目多了
   噪声地板实测（`delta=0.2 rad` 来自 `measure_shape_sensitivity.py`）—— 比论文更工程化。
-- **GS warm-start**：`slm_gs_refine` Stage 1 + bake-off。论文的"GS 弱湍流好"被本项目的
+- **GS warm-start**：`slm_gs_refine` Stage 1 + 对比择优。论文的"GS 弱湍流好"被本项目的
   "GS 赢才采用" 直接消解，**无风险**。
 - **Pre-distortion / model-in-loop**：`slm_model_in_loop.py` 已是"模型在环"，比 DLR 的静态
   pre-distortion 更动态（每轮重拟合正向模型）。

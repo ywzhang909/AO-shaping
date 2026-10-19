@@ -80,7 +80,7 @@ def test_tm():
     # position = (0, -420)
     # position = (412, 389)
     with TM("COM3") as tm:
-        frame = tm.send(x, y)
+        tm.send(x, y)
         ret_frame = tm.wait_rx()
         # bin to hex
         valid, checksum = tm.validate_received_data(ret_frame)

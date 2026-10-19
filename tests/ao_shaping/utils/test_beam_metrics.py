@@ -18,11 +18,13 @@ import math
 import numpy as np
 import pytest
 
+from ao_shaping.algorithm.signal_processing.square_shaping import uniformity_cv
 from ao_shaping.utils.image.beam_metrics import (
     beam_radius_second_moment,
     clamp_side,
     compute_beam_metrics,
     compute_quality_score,
+    compute_shape_iou,
     compute_shaping_metrics,
     compute_square_metrics,
     ideal_peak_from_pupil,
@@ -37,6 +39,7 @@ from ao_shaping.utils.image.beam_metrics import (
     smart_zero_order_center,
     strehl_ratio,
     zero_order_center,
+    zero_order_exclusion_mask,
 )
 
 
@@ -854,3 +857,51 @@ class TestStrehlDivergenceFromShapeMetric:
         s_opt = strehl_ratio(blurred, float(ideal.max()))
         assert s_opt == pytest.approx(36.0 / 40.0, rel=1e-3)
         assert s_shape - s_opt > 0.03
+
+
+def test_shape_iou_rejects_a_focused_spot_and_misalignment() -> None:
+    target = np.zeros((32, 32), dtype=bool)
+    target[8:24, 8:24] = True
+    filled = target.astype(float) * 20
+    focused = np.zeros_like(filled)
+    focused[16, 16] = 20
+    shifted = np.roll(filled, 12, axis=1)
+    assert compute_shape_iou(filled, target) == 1.0
+    assert compute_shape_iou(focused, target) == pytest.approx(1 / 256)
+    assert compute_shape_iou(shifted, target) < 0.2
+    assert compute_shape_iou(filled * 0.1, target) == 1.0
+    assert compute_shape_iou(filled + 7.0, target) == 1.0
+
+
+def test_shape_iou_handles_dark_frame() -> None:
+    target = np.ones((4, 4), dtype=bool)
+    assert compute_shape_iou(np.zeros((4, 4)), target) == 0.0
+
+
+def test_zero_order_exclusion_is_anchored_to_flat_reference() -> None:
+    yy, xx = np.indices((51, 51))
+    flat = 50 * np.exp(-((xx - 25) ** 2 + (yy - 25) ** 2) / 18)
+    target = np.zeros_like(flat, dtype=bool)
+    target[5:46, 5:46] = True
+    core = zero_order_exclusion_mask(flat, target)
+    assert core[25, 25]
+    assert not core[10, 10]
+    assert core.sum() < target.sum() / 5
+    shaped = target.astype(float)
+    shaped[10, 10] = 100
+    assert not core[10, 10]
+    assert uniformity_cv(shaped, target & ~core) > 0
+
+
+def test_zero_order_exclusion_rejects_dark_reference() -> None:
+    with pytest.raises(ValueError, match="no detectable"):
+        zero_order_exclusion_mask(np.zeros((16, 16)), np.ones((16, 16), dtype=bool))
+
+
+def test_zero_order_exclusion_ignores_isolated_hot_pixel() -> None:
+    flat = np.zeros((31, 31), dtype=float)
+    flat[13:18, 13:18] = 20
+    flat[2, 2] = 200
+    core = zero_order_exclusion_mask(flat, np.ones_like(flat, dtype=bool))
+    assert core[15, 15]
+    assert not core[2, 2]

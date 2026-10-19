@@ -95,9 +95,9 @@ def test_respond_dev_array(zern_n = 3):
         width = 0.25  # the width of the bars
 
         fig, [ax1, ax2] = plt.subplots(2,1)
-        rects1 = ax1.bar(ind - width, resp_array_0, width, label="Zero")
-        rects2 = ax1.bar(ind, resp_array_plus, width, label=f"+{magnitude}")
-        rects3 = ax1.bar(ind + width, resp_array_minus, width, label=f"-{magnitude}")
+        ax1.bar(ind - width, resp_array_0, width, label="Zero")
+        ax1.bar(ind, resp_array_plus, width, label=f"+{magnitude}")
+        ax1.bar(ind + width, resp_array_minus, width, label=f"-{magnitude}")
 
         ax1.set_ylabel("Zernike Coefficient")
         ax1.set_title("Zernike Response Matrix Test")
@@ -136,9 +136,9 @@ def test_respond_zern_array(zern_n = 3):
         width = 0.25  # the width of the bars
 
         fig, [ax1, ax2] = plt.subplots(2,1)
-        rects1 = ax1.bar(ind - width, resp_array_0, width, label="Zero")
-        rects2 = ax1.bar(ind, resp_array_plus, width, label=f"+{magnitude}")
-        rects3 = ax1.bar(ind + width, resp_array_minus, width, label=f"-{magnitude}")
+        ax1.bar(ind - width, resp_array_0, width, label="Zero")
+        ax1.bar(ind, resp_array_plus, width, label=f"+{magnitude}")
+        ax1.bar(ind + width, resp_array_minus, width, label=f"-{magnitude}")
 
         ax1.set_ylabel("Zernike Coefficient")
         ax1.set_title("Zernike Response Matrix Test")

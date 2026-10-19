@@ -1,7 +1,7 @@
 # SLM 控制器 GUI：操作路线图与按时效分类的界面重设计
 
-**版本**: v1.0（2026-10-15）
-**范围**: `src/ao_shaping/gui/slm/multi_slm_controller.py`（1632 行）+ `shaping_controls.py`（1218 行）
+**版本**: v1.1（2026-10-16）
+**范围**: `src/ao_shaping/gui/slm/multi_slm_controller.py` + `shaping_controls.py` + `bench_settings.py`
 **配套**: 完整按钮时序见 `docs/slm/slm_gui_manual.md`；本文件是操作层设计，手册是实现层
 
 ---
@@ -24,6 +24,7 @@
 2. **T1/T2/T3 在主区按"一次、持续、长时"纵向分层**，任务类带运行态指示。
 3. **相位预览是全页唯一 ground truth**，所有发送/任务完成后由 `refresh_phase_preview` 自动更新，位置固定在任务区之后。
 4. **widget 键（`slm{N}_*`）与位置无关**（Streamlit 以 key 标识 widget），因此分区搬迁不改变 session state 行为，AppTest 可按 key 验证。
+5. **本轮新增（v1.1）**：「一次实验光路」是**实验级量**，按 T0/T4 之间的性质下沉到侧栏独立的 `bench_settings.py`，并且**自动探测优先、人工可覆盖**——主区整形参数不再要求操作员每次重填一屏数字（见 §4.1）。
 
 ---
 
@@ -36,8 +37,8 @@
 | 1 | 连接 SLM | 设备表「连接」 | 侧栏 | 侧栏 | 不变 |
 | 2 | 断开 SLM | 设备表「断开」 | 侧栏 | 侧栏 | 不变 |
 | 3 | 刷新设备列表 | 按钮 | 侧栏 | 侧栏 | 不变 |
-| 4 | 刷新相机状态 | 按钮 | 侧栏 | 侧栏 | 不变 |
-| 5 | 相机像素间距 | number_input + 「探测」+ 渲染期自动探测 | 侧栏 | 侧栏 | 不变（本轮新增自动探测告警） |
+| 4 | 刷新相机状态 | 按钮 | 侧栏「相机工具」 | 侧栏「相机工具」 | 不变（诊断按钮留在原位） |
+| 5 | 相机像素间距 | number_input + 「探测」+ 渲染期自动探测 | 侧栏「相机工具」 | 侧栏「**本次实验光路**」A 组 | **本轮搬迁**（`key="camera_pixel_um"` 不变、不新建同 key widget） |
 
 ### T4 长期配置（14 项）
 
@@ -81,11 +82,13 @@
 
 | # | 操作 | 入口 | 当前位置 | 目标位置 | 变化 |
 |---|---|---|---|---|---|
-| 27 | 闭环整形 | 方法 selectbox + 参数 +「开始」按钮（阻塞，进度条） | 主区 expander | 主区 expander | 不变（缺停止入口，遗留项 1） |
+| 27 | 闭环整形 | 方法 selectbox + 状态条 + 目标/预算/高级参数 + 校验区 +「开始」按钮（阻塞，进度条） | 主区 expander | 主区 expander | **本轮重构**（见 §4.1；仍缺停止入口，遗留项 1） |
+| 28 | 标定光路 | 「标定 SLM N 光路」按钮（阻塞，定位→曝光探测→sweep 几何） | **无**（主区只有手填 `pupil_center` / `panel_span_px`） | 侧栏「本次实验光路」D/E 组 | **本轮新增** |
+| 29 | 恢复探测值 | 「恢复探测值」secondary 按钮（仅手动覆盖时出现） | **无** | 侧栏「本次实验光路」E 组 | **本轮新增** |
 
 ---
 
-## 3. 当前布局（as-is，2026-10-15 扫描）
+## 3. v1.0 改版前布局（as-is，2026-10-15 扫描）
 
 侧栏（`render_slm_sidebar` + `_render_slm_settings`）：
 
@@ -126,22 +129,32 @@ SLM N 设置 [expander, expanded]
 5. 周期切换运行中无全局状态指示，一次下发按钮仍可用（下发会触发 `_stop_toggle` 但操作者不知情）→ 遗留项 2
 6. 闭环整形阻塞运行无停止入口 → 遗留项 1
 7. 「设置模式」按钮对禁用的 selectbox 为 no-op → 遗留项 4
+8. **（v1.1 追加）**整形参数全挤在主区且换光路即失效：手填 `pupil_center="960,690"` /
+   `panel_span_px=900` / 硬编码 `cam_size max=1944 step=10`，GUI 完全没有接入 CLI 的
+   `calibrate_session` 自动流程 → **本轮（§4.1）已解决**
 
 ---
 
-## 4. 目标布局（to-be，本轮已实施 1-4）
+## 4. 目标布局（to-be；v1.0 已实施 1-4，v1.1 实施 5-7）
 
 侧栏：
 
 ```
 SLM 设备表（连接/断开）+ 刷新设备列表
-相机工具：刷新相机状态
-相机像素间距 + 探测 + 自动探测告警
+相机工具：刷新相机状态                    ← 只剩诊断按钮
+本次实验光路 [expander, 收起]            ← v1.1 新增；折叠态仍可见光路摘要卡
+  A 相机：类型 / ID / 像元间距(探测+告警) / 会话曝光
+  B 读出窗口：启用开窗 / 窗口边长（上下界来自设备 Width/Height 特征网格）
+  C 去零级载波：载波 / 光栅方向
+  ── 光路摘要卡（● 已标定 / ○ 未标定 / ✎ 手动覆盖）──
+  SLM N · 光路几何与标定 [expander, 收起]   ← 每台已连接 SLM 一份
+    D 面板与瞳面：入射中心(空=自动定位) / 模型覆盖宽度
+    E 标定：几何来源 / 几何文件路径(仅复用模式) / 「标定 SLM N 光路」/ 「恢复探测值」
 SLM N 设置 [expander, expanded]        ← 工作条件
 灰度设置 [expander, 收起]              ← 相位换算
 波前矫正 [expander, 收起]              ← 发送管线叠加层(1)
-底相位 (发送叠加) [expander, 收起]     ← 发送管线叠加层(2)，本轮自主区搬入
-保存 [expander, 收起]                  ← 持久化，本轮自波前矫正区拆出
+底相位 (发送叠加) [expander, 收起]     ← 发送管线叠加层(2)
+保存 [expander, 收起]                  ← 持久化
 ```
 
 主区：
@@ -150,20 +163,44 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 状态徽章
 一次下发                                  ← 区名更明确
   图案生成器（selectbox + 参数 + 生成并下发 [primary]）
-  上传CSV + 从CSV加载相位                ← 本轮自周期切换之后上移
+  上传CSV + 从CSV加载相位
 持续任务：周期切换                        ← 区名标明任务性质
   设为A/全0A/设为B/全0B / 频率 / 开始+停止
 当前显示相位预览 [fragment]              ← ground truth，位置不变
-闭环整形 [expander, 收起]                ← 长时任务
+闭环整形 [expander, 收起]                ← 长时任务；固定顺序见下
+  整形方法 → 光路状态条 → 目标与评分 → 预算 → 高级参数(收起)
+  → 校验区 → 「开始」(校验不过则 disabled) → 结果
 ```
 
 **分区判据速记**：侧栏问"它会影响之后所有发送吗"（是 → 侧栏）；主区问"这次发送占多久的面板"（一次/持续/长时）。
+
+### 4.1 为什么把光路参数从主区搬走（v1.1 的根因分析）
+
+改版前的现状是：整形一次要在主区填满一屏数字（`pupil_center="960,690"`、`panel_span_px=900`、
+`camera_pixel_um`、`cam_size`、`exposure`、载波……），而且窗口边长硬编码 `max 1944`。
+后果有两个，都是实测踩过的：
+
+1. **换光路直接失效** —— `960,690` / `450` 是**本实验系统**的实测值，换一条光路它就是错的，
+   而 GUI 不校验、也不提示，错误只表现为"整形效果变差"。
+2. **重复 GUI 已有能力** —— CLI `slm-model-in-loop` 每次会话本来就会**自动做**
+   全板随机相位盘扫描定位入射中心 → sweep 几何标定；GUI 却绕过这条流程，
+   让操作员手抄 CLI 的产物路径（`discover_model_in_loop_geometry`）。
+
+所以不是"把参数换个地方放"，而是**接上 `calibrate_session` 这条公共入口**，
+把一次性测量交给设备、把选择权留给人：
+
+| 诉求 | 做法 |
+|---|---|
+| 一次实验光路固定 | 实验级（相机/窗口/曝光/载波）与每 SLM 级（入射中心/几何）两层下沉侧栏 |
+| 换光路能用 | **点「开始」即可**：「正向模型闭环」的运行路径自己调 CLI 同一个 `calibrate_session`（约 1–3 分钟）。侧栏「标定 SLM N 光路」是**可选的**提前预热 —— 想先看到探测值、或 GS+SPGD 需要那个中心时才点 |
+| 自动探测但允许人工修改 | 三态（`unset` / `detected` / `manual`）+ 差异阈值提示；`manual` 优先且重标不覆盖 |
+| 上限不合理 | 窗口边长取设备 `Width/Height.get_range()` 的 `max` 与 `inc`；模型覆盖取 `PANEL_RES[0]`；目标边长取当前窗口 |
 
 ---
 
 ## 5. 操作路线图（典型序列）
 
-**路线 1 首次上机**（T0 → T4 → T1 验证，约 10 步）：
+**路线 1 首次实验**（T0 → T4 → T1 验证，约 10 步）：
 
 (1) 设备表「连接」 (2) 设备表「断开」前的核对：波长 widget 与设备值一致性（不一致点「同步」） (3) 「设置波长」写入 (4) 「获取当前2π灰度」核对灰度映射 (5) shift 数值 +「应用平移」 (6) 波前矫正区确认矫正文件已加载（或「应用矫正」） (7) 主区选平场图案「生成并下发」 (8) 预览区目检 (9) 保存区「保存配置」固化 (10) 完成，进入日常操作
 
@@ -175,13 +212,19 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 
 (1) 发送相位 A 图案 (2) 「设为相位 A」捕获 (3) 发送相位 B 图案 (4) 「设为相位 B」 (5) 设频率，「开始周期切换」，观察后「停止周期切换」
 
-**路线 4 闭环整形**（T3，4 步）：
+**路线 4 闭环整形**（v1.1 重写；T3，约 5 步）：
 
-(1) 确认相机「是否开窗」：开窗时窗口 ≥ max(16, 目标边长)（上游本轮已加约束） (2) 选方法（GS+SPGD / model-in-loop）+ 确认参数（默认值即 shape_trials 验证配方） (3)「开始」：页面阻塞，进度条推进，SLM 句柄临时交优化器（另一台 SLM 不受影响） (4) 结束后自动显示 adopted 相位，预览目检；勾选「保存调试产物」则落盘 data/debug
+(1) 左侧「本次实验光路」→ A/B/C 组：选相机、按当前激光功率实测**曝光**（0 会被钳到约 0.02 ms，比可用区间暗 20–75×）、决定开窗与窗口边长、选载波；像元间距可点「探测」 (2) SLM N · 光路几何与标定：入射中心留空（= 自动定位），必要时点「标定 SLM N 光路」等 1–3 分钟（只在**换光路 / 换 SLM / 换相机**后需要） (3) 主区：选方法 → 看状态条（●/○/✎）→ 确认目标与预算 → 展开「高级参数」按需微调 → 确认校验区无红字 (4)「开始」：页面阻塞，进度条推进，SLM 句柄临时交优化器（另一台 SLM 不受影响），侧栏光路控件全部 disabled (5) 结束后自动显示最佳相位并落盘 `{save_dir}/params.json`（本次生效的光路参数 + 每字段三态标记），预览目检
+
+**路线 5 换光路**（v1.1 新增，3 步）：
+
+(1) 改 A 组的相机 / 曝光（按新激光功率重测） (2) 改 B 组窗口边长（点「探测窗口上限」读设备真值） (3) 直接点主区「开始正向模型闭环整形」—— 运行路径会自己标定（入射定位 → 曝光探测 → sweep 几何，约 1–3 分钟），摘要卡随后转成 `● 已标定`。想先看到探测值再决定、或用 GS+SPGD（它没有自动标定）时，才需要先点「标定 SLM N 光路」。⚠️ 若之前手改过某字段，标定**不会覆盖**它，会以 `✎` 列出「人工值 / 探测值 / 差值」，确认无误后点「恢复探测值」
 
 ---
 
-## 6. 本轮变更清单（已实施）
+## 6. 本轮变更清单
+
+### v1.0（2026-10-15）
 
 | 项 | 文件 | 说明 |
 |---|---|---|
@@ -193,22 +236,47 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 | 6 | `multi_slm_controller.py` | 文件头 doc 引用断链修复（`docs[docs/slm_gui_manual.md]` 指向不存在的根路径） |
 | 7 | `docs/slm/slm_gui_manual.md` | Session State Schema 补登 10 个漏项（widget 键、`camera_pixel_um`、自动探测状态键） |
 
-**不变更**：全部 `st.button`/widget key（session state 兼容）；`shaping_session` 装饰器语义（停 toggle、释放/重取句柄）；预览 fragment 结构。
+### v1.1（2026-10-16，本轮）
+
+| 项 | 文件 | 说明 |
+|---|---|---|
+| 5 | `bench_settings.py`（新） | 侧栏「本次实验光路」区块（实验级 A/B/C + 每 SLM 级 D/E）+ 三态 session 契约（`{prefix}_bench_{detected,manual,pending,effective}`）+ `bench_busy` + pending-flush 写值机制 + `calibrate_session` 调用 + 光路摘要卡 |
+| 6 | `shaping_controls.py` | 抽 `with_slm_ownership(slm_num)`（停 toggle → 释放句柄 → `finally` 重连，全程置 `bench_busy`），`shaping_session` 改为其薄封装（语义不变）；`ShapingMethod` 拆 `render_objective` / `render_budget` / `render_advanced` 三钩子；主区固定八段顺序；校验区移到按钮之前；新增状态条 + 生效光路参数快照（写 session + `{save_dir}/params.json`）；上限放开 |
+| 7 | `multi_slm_controller.py` | 相机像元间距控件 /「探测」按钮 / `auto_check_camera_pixel_um` 告警整体搬进 `bench_settings` 并从「相机工具」删除；侧栏改调 `render_bench_settings()` |
+| 8 | `tests/ao_shaping/gui/slm/test_bench_settings.py`（新） | 37 项：session key 契约、pending-flush（含"必须抛异常而非吞掉"）、三态与恢复探测值、差异阈值、`WindowSize` 真值/兜底与缓存、曝光与步长校验、`bench_busy` 使控件 disabled、摘要卡、`geometry_region_mismatch`、`merge_bench_values` |
+| 9 | `tests/ao_shaping/gui/slm/test_shaping_session_contract.py`（新） | 27 项：`with_slm_ownership` 三步与异常路径、`shaping_session` 复用 CM、目标/窗口交叉校验、复用几何 region 不一致、留出探针 0 的拦截、上限放开逐项断言、快照写入 `params.json`、按钮 disabled |
+| 10 | `docs/slm/slm_gui_manual.md` | §8 重写：新增 §8.1（侧栏光路区块 + 三态 + pending-flush）与 §8.2（主区固定顺序 + 上限对照表）；§4 Session State 补登全部新键 |
+| 11 | `docs/slm/slm_gui_operation_map.md` | §1 补判据 5、§2 清单 1/4/5 改位置、新增 #28/#29、§4 目标布局与 §4.1 根因分析、新增路线 5「换光路」、§6 变更清单 |
+
+**不变更**：`shaping_session` 语义（停 toggle、释放/重取句柄、异常只上屏一次）；
+`_sync_slm_session_state` / `_release_slm_handle` / `_reacquire_slm_handle` / `_safe_set_state`；
+`build_gs_refine_params` / `build_model_in_loop_params` 的 values→params 映射；
+`GS_REFINE_RECIPE` 全部已验证值；`camera_pixel_um` 与 `slm1_shp_*` 的 widget key；
+预览 fragment 结构。
 
 ---
 
 ## 7. 遗留项（需单独任务，未在本轮实施）
 
-1. **闭环整形停止入口**：T3 运行中无 UI 停止按钮，只能靠异常退出。需要给 `ShapingMethod.run` 注入 `stop_event`，在 `st.progress` 循环点检查。涉及 `shaping_controls.py` 两个 Method 类的 execute 循环，工作量中等。
-2. **运行中任务全局徽标**：T2 或 T3 运行时，状态徽章区显示「周期切换运行中 / 闭环整形运行中」，并对「生成并下发」按钮加 warning（现有行为是发送前静默 `_stop_toggle`）。
-3. **widget 值 ≠ 设备值指示泛化**：目前仅波长有「同步」按钮；shift 与 2π 灰度同样存在"widget 值与设备实际值不一致"的可能，建议复用同一模式。
+1. **闭环整形停止入口**：T3 运行中无 UI 停止按钮，只能靠异常退出。需要给 `ShapingMethod.run` 注入 `stop_event`，在 `st.progress` 循环点检查。涉及 `shaping_controls.py` 两个 Method 类的 execute 循环，工作量中等。⚠️ 标定同样没有停止入口（约 1–3 分钟阻塞）。
+2. **运行中任务全局徽标**：T2 或 T3 运行时，状态徽章区显示「周期切换运行中 / 闭环整形运行中」，并对「生成并下发」按钮加 warning（现有行为是发送前静默 `_stop_toggle`）。⚠️ v1.1 只做了**侧栏光路控件**的 `bench_busy` 禁用，主区的一次下发按钮仍未联动。
+3. **widget 值 ≠ 设备值指示泛化**：目前仅波长有「同步」按钮；shift 与 2π 灰度同样存在"widget 值与设备实际值不一致"的可能，建议复用同一模式。光路侧已实现同模式（三态 + 「恢复探测值」），可作参考实现。
 4. **移除「设置模式」按钮**：视频模式已锁死内存模式，该按钮为 no-op，保留只会误导。
 5. **`_stop_toggle` 副作用提示**：一次下发/CSV 加载前静默停止周期切换，建议改为先 warning 再停（与遗留项 2 一并做）。
+6. **`calibrate_session` 是惰性 import**：`ao_shaping.runners.slm.model_in_loop_session` 在 `bench_settings.run_session_calibration()` 函数体内 import（模块级会拖入 runners 包，破坏 GUI 的惰性契约）。若该 lane 接口变动，这里会是第一个报 `ImportError` 的地方。
+7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做留出验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「自由相位留出探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
 
 ---
 
 ## 8. 验证
 
-- `pytest tests/ao_shaping/gui/slm/`（AppTest，按 widget key 断言，分区搬迁不影响 key）
-- `ruff check` 全绿
-- 手动路径：streamlit run 后按路线 2 走一遍（无硬件环境时仅验证页面渲染不报错）
+```
+python -m pytest tests/ao_shaping/gui/ -q
+python -m ruff check src/ao_shaping/gui/slm/ tests/ao_shaping/gui/
+python scripts/_common/term_unify_20261016.py          # dry-run，应输出 0 个文件
+```
+
+- 渲染测试沿用仓库现有做法：`st.session_state` 打桩成普通 dict、相机探测 stub 掉，
+  **不起真实 Streamlit server、不开硬件**。
+- 手动路径：`streamlit run` 后按路线 4 走一遍（无硬件环境时仅验证页面渲染不报错、
+  侧栏区块折叠/展开、光路摘要卡三态）。

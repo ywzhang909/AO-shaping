@@ -63,7 +63,7 @@ python -m ao_shaping.tools.slm.panel.beam_extent --axis y --exposure-ms 3.0
 - 控制台打印：拟合边界位置、光斑中心 (面板坐标)、半径
 - 可选 `--output` 保存 NPZ (含原始曲线、拟合参数、中心/半径)
 
-## 7. 台架几何 (不得重新推导)
+## 7. 实验系统几何 (不得重新推导)
 
 - 实测光斑中心 (960, 600)、半径 450 面板 px
 - **panel↔camera 轴互换 90°**

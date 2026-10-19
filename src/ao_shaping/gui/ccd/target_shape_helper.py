@@ -453,7 +453,6 @@ def _render_shape_controls() -> tuple[
 
         # ── Center method checkboxes ────────────────────────────────────────
         selected_centers: dict[str, tuple[float, float]] = {}
-        custom_center: tuple[float, float] | None = None
 
         for key, label in _CENTER_METHODS:
             checked = st.checkbox(
@@ -481,7 +480,7 @@ def _render_shape_controls() -> tuple[
                         step=1,
                         key="ts_custom_y",
                     )
-                custom_center = (float(cx), float(cy))
+                (float(cx), float(cy))
 
         # ── Manual center override ──────────────────────────────────────────
         manual_override = st.checkbox("手动指定中心 (覆盖上述方法)", value=False)

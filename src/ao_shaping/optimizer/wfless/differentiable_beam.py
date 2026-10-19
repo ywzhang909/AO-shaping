@@ -241,7 +241,7 @@ def optimize_beam_shaping(
     # Seed the RNG for reproducibility (mirrors optimize_pib). The Adam
     # loop itself is deterministic; the RNG is kept for parity with the
     # reference structure.
-    rng = np.random.default_rng(seed)
+    np.random.default_rng(seed)
 
     optimizer = DifferentiableBeamOptimizer(
         target_intensity=target_intensity,

@@ -53,14 +53,14 @@ uv run pytest tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_bac
 保持原有返回类型。目前没有统一添加弃用警告。硬件驱动覆盖方法、WFS、优化器、GUI
 和其余工具尚待迁移。
 
-## 2f-Fourier 整形台架的唯一入口
+## 2f-Fourier 整形实验系统的唯一入口
 
 前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
 `optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
 
 > ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份
 > `gs_shape`/`differentiable_shape`/`spgd_shape`，而副本用的是
-> `beam_backend.focal_plane` 走**未加零填充**的瞳孔，canonical 版则零填充到
+> `beam_backend.focal_plane` 走**未加零填充**的瞳面，canonical 版则零填充到
 > `far_field_size` 再做 Fraunhofer FFT —— 同一个方法**按 import 来源返回不同指标**，
 > 且不报任何错。拆分模块时只加 re-export，不要复制函数体。
 

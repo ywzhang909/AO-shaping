@@ -241,6 +241,13 @@ class CameraParams:
 class SlmParams:
     """Santec SLM options (slm-gsnet family)."""
 
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
+
     slm_number: Annotated[
         int, option("--slm-number", help="Santec SLM device number (1-8).")
     ] = 1
@@ -264,6 +271,10 @@ class SlmParams:
 
     def __post_init__(self) -> None:
         """Validate the common SLM fields before any hardware is touched."""
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
         if self.slm_number < 1 or self.slm_number > 8:
             raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
         if self.slm_wavelength < 0:
@@ -1028,6 +1039,13 @@ class GaZernikeParams:
 @dataclass
 class SlmSquareParams:
     """SLM 方形光斑 SPGD 整形 CLI 参数 (spgd-square, 单命令无子命令)。"""
+
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="离轴闪耀光栅: -1=关闭, 0=实测自动, >=4=实测指定周期。")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="指定周期时面板上的光栅方向。")
+    ] = "vertical"
 
     epochs: Annotated[
         int, option("-e", "--epochs", help="优化迭代次数 (default: 2000)")
@@ -2342,6 +2360,19 @@ class SlmGsRefineParams:
     w_unif: Annotated[
         float, option("--w-unif", help="Composite weight on 1/(1+CV).")
     ] = 0.5
+    exclude_zero_order_for_cv: Annotated[
+        bool,
+        option(
+            "--exclude-zero-order-for-cv/--include-zero-order-for-cv",
+            help="Exclude the flat-reference zero-order core from CV only.",
+        ),
+    ] = False
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
 
     # --- freeform parameterisation ----------------------------------------
     phase_grid: Annotated[
@@ -2556,6 +2587,13 @@ class SlmModelInLoopParams:
     CLI's optional hardware preflight before the optimizer opens its devices.
     """
 
+    blaze_period_px: Annotated[
+        int, option("--blaze-period-px", help="Off-axis carrier: -1=off, 0=measured auto, >=4=measured fixed period.")
+    ] = -1
+    blaze_direction: Annotated[
+        str, option("--blaze-direction", type=click.Choice(["vertical", "horizontal"]), help="Panel grating ramp direction for a fixed period.")
+    ] = "vertical"
+
     # --- control -----------------------------------------------------------
     n_rounds: Annotated[
         int,
@@ -2621,9 +2659,21 @@ class SlmModelInLoopParams:
         float,
         option(
             "--panel-scan-max-session-drift",
-            help="Maximum first-to-last flat drift across the scan.",
+            help="Maximum first-to-last flat *intensity* drift across the scan. "
+            "Reported, not enforced: every grid point normalises against its own "
+            "paired flat, so this does not bias the located centre. The enforced "
+            "session criterion is --panel-scan-max-session-shift-px.",
         ),
     ] = 0.05
+    panel_scan_max_session_shift_px: Annotated[
+        float,
+        option(
+            "--panel-scan-max-session-shift-px",
+            help="Maximum first-to-last flat centroid shift in camera px. This is "
+            "the session criterion that actually invalidates a locate: a beam "
+            "that moved has no single centre. 0 disables the check.",
+        ),
+    ] = 3.0
 
     # --- live view ---------------------------------------------------------
     show: Annotated[
@@ -2944,6 +2994,10 @@ class SlmModelInLoopParams:
             help="Reject a round whose measured composite drops by more than this.",
         ),
     ] = 1e-3
+    max_cv_regression: Annotated[
+        float,
+        option("--max-cv-regression", help="Maximum CV increase above the best accepted shaped round."),
+    ] = 0.02
     damp_lr_factor: Annotated[
         float,
         option("--damp-lr-factor", help="Step-A lr multiplier after a rejection."),
@@ -3009,9 +3063,11 @@ class SlmModelInLoopParams:
         int,
         option(
             "--slm-wavelength",
-            help="SLM operating wavelength (nm); 0 asks the device.",
+            help="SLM operating wavelength (nm); 0 asks the device. The lab "
+            "has more than one SLM, so 1064 (the default) is stated rather "
+            "than assumed, matching SlmModelInLoopConfig.",
         ),
-    ] = 0
+    ] = 1064
 
     n_eval_frames: Annotated[
         int, option("--n-eval-frames", help="Frames averaged per measurement.")
@@ -3108,6 +3164,9 @@ def build_gs_refine_config(
         side_factor=params.side_factor,
         w_pib=params.w_pib,
         w_unif=params.w_unif,
+        exclude_zero_order_for_cv=params.exclude_zero_order_for_cv,
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
         phase_grid=params.phase_grid,
         delta=params.delta,
         lr=params.lr,
@@ -3139,6 +3198,106 @@ def build_gs_refine_config(
         settle_tol=params.settle_tol,
         settle_max_wait_s=params.settle_max_wait_s,
         record_debug=debug,
+    )
+
+
+#: Where a measured geometry can appear under the run-output root.  The runner
+#: saver writes ``<root>/debug/<topic>/<timestamp>/bench_geometry.json`` (three
+#: levels) and the calibration runbook writes ``<root>/<out>/bench_geometry.json``
+#: (one level).  Shallow one-, two- and three-level globs cover both, plus any
+#: hand-made ``<topic>/<stamp>/`` copy; a recursive ``**`` is deliberately
+#: avoided because ``data/`` also holds tens of GB of pickle corpora.
+_MODEL_IN_LOOP_GEOMETRY_GLOBS: tuple[str, ...] = (
+    "*/bench_geometry.json",
+    "*/*/bench_geometry.json",
+    "*/*/*/bench_geometry.json",
+)
+
+
+def discover_model_in_loop_geometry(
+    region: int | None = None, *, root: str | Path = "data"
+) -> Path | None:
+    """Find the newest usable sweep geometry under ``root``, or ``None``.
+
+    Hardware model-in-loop runs need a *measured* geometry: without one the
+    optimiser falls back to the abandoned speckle route, which on this bench
+    scores ~0.07 against the 0.5 bake-off floor and aborts with "bench geometry
+    bake-off failed".  Only ``scripts/slm/model_in_loop_hw_runbook.py`` can
+    *produce* that artefact, so the GUI offers the most recent one it can find.
+
+    Args:
+        region: When given, only geometries whose model grid matches are
+            considered.  A region mismatch is a genuine incompatibility (the
+            pupil grid itself differs); a ``far_field_size`` mismatch is not,
+            and the optimiser rescales it.
+        root: Run-output root, relative to the CWD by default.
+
+    Returns:
+        The newest matching path, or ``None`` when nothing usable is found.
+    """
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        load_bench_geometry,
+    )
+
+    root_path = Path(root)
+    if not root_path.is_dir():
+        return None
+
+    newest: Path | None = None
+    newest_mtime = float("-inf")
+    for pattern in _MODEL_IN_LOOP_GEOMETRY_GLOBS:
+        for path in root_path.glob(pattern):
+            try:
+                if not path.is_file():
+                    continue
+                geometry = load_bench_geometry(path)
+                # Only a sweep geometry carries an independent goodness number;
+                # a speckle artefact is exactly the ~0.07 route being replaced.
+                if not geometry.is_sweep:
+                    continue
+                if region is not None and int(geometry.region) != int(region):
+                    continue
+                mtime = path.stat().st_mtime
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if mtime > newest_mtime:
+                newest, newest_mtime = path, mtime
+    return newest
+
+
+def describe_bench_geometry(path: str | Path | None) -> str:
+    """One-line caption for a ``bench_geometry.json`` (never raises).
+
+    A GUI caption has to say what is wrong with a missing or malformed file
+    rather than surface a traceback under the text box.  ``None`` (or a blank
+    string) is the "no geometry selected" state and is stated as such.
+    """
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+        load_bench_geometry,
+    )
+
+    if path is None or str(path).strip() == "":
+        return "未指定几何文件: 真机会退回已废弃的 speckle 标定"
+    try:
+        geometry = load_bench_geometry(path)
+    except (OSError, ValueError, TypeError) as error:
+        return f"无法读取几何文件: {path} ({error})"
+
+    payload = geometry.__dict__
+
+    def _number(key: str) -> str:
+        try:
+            return f"{float(payload[key]):.4f}"
+        except (KeyError, TypeError, ValueError):
+            return "?"
+
+    return (
+        f"几何 [{payload.get('method', '?')}]: "
+        f"region={payload.get('region', '?')} "
+        f"far_field={payload.get('far_field_size', '?')} "
+        f"corr={_number('correlation')} "
+        f"(disc={payload.get('panel_disc_radius', '?')}px, "
+        f"cam/model={_number('camera_px_per_model_px')})"
     )
 
 
@@ -3198,6 +3357,7 @@ def build_model_in_loop_config(
         trust_region_c_l2=params.trust_region_c_l2,
         acceptance_loss_delta=params.acceptance_loss_delta,
         acceptance_score_eps=params.acceptance_score_eps,
+        max_cv_regression=params.max_cv_regression,
         damp_lr_factor=params.damp_lr_factor,
         max_rejection_streak=params.max_rejection_streak,
         escalate_probe_count=params.escalate_probe_count,
@@ -3209,6 +3369,8 @@ def build_model_in_loop_config(
         cam_size=params.cam_size,
         slm_number=params.slm_number,
         phase_disturbance_file=params.phase_disturbance_file,
+        blaze_period_px=params.blaze_period_px,
+        blaze_direction=params.blaze_direction,
         slm_wavelength=params.slm_wavelength,
         n_eval_frames=params.n_eval_frames,
         settle_wait_s=params.settle_wait_s,
@@ -3288,6 +3450,8 @@ def save_gs_refine_results(
                 "score",
                 "pib",
                 "cv",
+                "shape_iou",
+                "exposure_ms_readback",
                 "target_side",
                 "lr",
                 "pos",
@@ -3321,6 +3485,7 @@ def save_gs_refine_results(
                 "pupil_center": list(config.pupil_center)
                 if config.pupil_center is not None
                 else None,
+                "blaze_choice": getattr(recorder, "blaze_choice", None),
             },
             title="SLM GS refine",
         )
@@ -3425,6 +3590,31 @@ def save_model_in_loop_results(
     if best_phase is not None:
         phase_file = save_dir / "best_phase.npy"
         np.save(phase_file, np.asarray(best_phase, dtype=np.float64))
+    blaze_params = getattr(result, "blaze_params", None)
+    if best_phase is not None and blaze_params is not None:
+        from ao_shaping.tools.kernels.bench_kernels import phase_to_panel
+        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+        panel_phase = phase_to_panel(
+            np.asarray(best_phase, dtype=np.float64),
+            int(round(result.config.panel_span_px / 2)), result.config.pupil_center,
+        )
+        np.save(
+            save_dir / "best_panel_phase_with_blaze.npy",
+            apply_zero_order_overlay(panel_phase, blaze_params),
+        )
+        from dataclasses import asdict
+
+        choice = getattr(result, "blaze_choice", None)
+        (save_dir / "blaze_choice.json").write_text(
+            json.dumps(
+                asdict(choice) if choice is not None else {
+                    "period_px": blaze_params.blaze_period_px,
+                    "direction": blaze_params.blaze_direction,
+                },
+                indent=2,
+            ), encoding="utf-8",
+        )
 
     geometry_file = None
     if result.geometry is not None:

@@ -272,10 +272,10 @@ class PhaseUnwrapper:
 
     def _fast_iterative_unwrap(self, wrapped: np.ndarray):
         h, w = wrapped.shape
-        y_grid = self._cached_vars['y_grid']
-        x_grid = self._cached_vars['x_grid']
-        yy = self._cached_vars['yy']
-        xx = self._cached_vars['xx']
+        self._cached_vars['y_grid']
+        self._cached_vars['x_grid']
+        self._cached_vars['yy']
+        self._cached_vars['xx']
         gy = np.zeros((h, w), dtype=np.float64)
         gx = np.zeros((h, w), dtype=np.float64)
         gy[:-1, :] = wrapped[1:, :] - wrapped[:-1, :]

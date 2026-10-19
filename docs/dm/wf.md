@@ -26,7 +26,7 @@ graph TD
 
 ## 3. 算法流程
 
-1. **初始化**：打开 DM 与 WFS，设置瞳孔参数 (分辨率、直径)
+1. **初始化**：打开 DM 与 WFS，设置瞳面参数 (分辨率、直径)
 2. **基线采集**：读取 WFS 基线波前，计算初始 RMS
 3. **主优化循环** (每轮 2 次 WFS 读取：`+δ` / `-δ`)：
    - 生成随机扰动向量 `u ∈ ℝ^{n_actuators}` (单位球面均匀采样)
@@ -44,7 +44,7 @@ graph TD
 |------|------|--------|
 | `-e, --epochs` | 优化迭代次数 | 20000 |
 | `-r, --wfs-res` | WFS 分辨率 | 768 |
-| `-p, --pupil-diameter` | 瞳孔直径 | 2.7 |
+| `-p, --pupil-diameter` | 瞳面直径 | 2.7 |
 | `-t, --early-stop-threshold` | 早停阈值 | 0.0 |
 | `--wfs-type` | WFS 类型 (thorlab/sim) | thorlab |
 | `--disturbance-cn2` | 仿真 WFS 湍流强度 cn2 (0=不注入像差) | 0 |

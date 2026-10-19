@@ -7,7 +7,7 @@
 > **说明**: 在线回归套件验收报告 (读 data/debug/slm_pib_online/)
 <!-- provenance:end -->
 
-**本轮结论**（在线回归套件验收）：(1) 门控可观测性已建立——逐 epoch 判定 `applied/fold/noise` 显式落盘，不变式 `applied + stalled + 1 == rows` 成立；旧记录（09-29 早批）无显式 `_gate`，其 `applied` 计数由 `_c` 停滞启发式回推、存在高估，已标注为暂定。(2) SNR 判定带（unusable<2.0≤usable<2.5≤strong）随台架状态显著变化：08:58 轮全档 unusable（σ_J=3.7e-4），22:09 轮全档 strong（σ_J=1.7e-5），噪声地板改善约 20×，说明夜间热稳定后 SNR 才进入可用区。(3) 早期运行中 J 与 max_brt 相关性达 −0.979，证实目标曾在追踪环境光斑漂移而非 Zernike 系数——这是后续引入锚点与漂移对消的直接证据。套件整体验收通过：所有 smoke 运行均产出自我溯源产物（cam_type/exposure 等字段），可离线再生报告。
+**本轮结论**（在线回归套件验收）：(1) 门控可观测性已建立——逐 epoch 判定 `applied/fold/noise` 显式落盘，不变式 `applied + stalled + 1 == rows` 成立；旧记录（09-29 早批）无显式 `_gate`，其 `applied` 计数由 `_c` 停滞启发式回推、存在高估，已标注为暂定。(2) SNR 判定带（unusable<2.0≤usable<2.5≤strong）随实验系统状态显著变化：08:58 轮全档 unusable（σ_J=3.7e-4），22:09 轮全档 strong（σ_J=1.7e-5），噪声地板改善约 20×，说明夜间热稳定后 SNR 才进入可用区。(3) 早期运行中 J 与 max_brt 相关性达 −0.979，证实目标曾在追踪环境光斑漂移而非 Zernike 系数——这是后续引入锚点与漂移对消的直接证据。套件整体验收通过：所有 smoke 运行均产出自我溯源产物（cam_type/exposure 等字段），可离线再生报告。
 
 从 `data/debug/slm_pib_online/` 生成的离线报告。未打开硬件；下述所有数值均来自 `AO_RUN_HARDWARE=1` 在线套件写入的保存 recorder pickle 与 summary JSON。
 

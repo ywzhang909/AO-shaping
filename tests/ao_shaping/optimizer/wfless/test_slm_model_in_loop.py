@@ -174,6 +174,8 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     ModelInLoopResult,
     ModelInLoopStatus,
     SlmModelInLoopConfig,
+    _calibrate_geometry,
+    _far_field_cell_scale,
     _probe_phase,
     _prediction_correlation,
     _fit_flat_leakage,
@@ -373,9 +375,12 @@ def test_prior_hardware_run_seed_validates_geometry_and_acceptance(tmp_path: Pat
     """A previous accepted fit is reusable; a changed optical scale is refused."""
     run_dir = tmp_path / "prior"
     run_dir.mkdir()
+    # A full bench_geometry.json (all schema fields), as the producer writes it.
     geometry = {
         "region": 8, "far_field_size": 8,
         "panel_disc_radius": 450, "camera_px_per_model_px": 2.8,
+        "beam_waist_panel_px": 450.0, "spot_fwhm_camera_px": 12.0,
+        "spot_fwhm_model_px": 4.0, "correlation": 0.9, "method": "sweep",
     }
     (run_dir / "bench_geometry.json").write_text(json.dumps(geometry), encoding="utf-8")
     current = tmp_path / "current_geometry.json"
@@ -837,6 +842,21 @@ class TestAcceptanceVerdict:
             0.5 - 1e-9,
             loss_delta=1e-4,
             score_eps=1e-3,
+        )
+        assert verdict.accepted is True
+
+    def test_cv_regression_rejected_despite_higher_composite(self) -> None:
+        verdict = acceptance_verdict(
+            1.0, 0.5, 0.5524, 0.5529,
+            cv_before=0.6297, cv_after=0.6728,
+        )
+        assert verdict.accepted is False
+        assert verdict.reason == "cv_degraded"
+
+    def test_small_cv_change_is_tolerated(self) -> None:
+        verdict = acceptance_verdict(
+            1.0, 0.5, 0.5, 0.5,
+            cv_before=0.6, cv_after=0.615,
         )
         assert verdict.accepted is True
 
@@ -1508,6 +1528,7 @@ _ROUND_ONLY_KEYS = {
     "coeff_step_applied",
     "shape_loss_initial",
     "shape_loss_final",
+    "shape_iou_after",
 }
 
 _CALIBRATION_KEYS = _SHARED_KEYS | _CALIBRATION_ONLY_KEYS
@@ -1749,3 +1770,91 @@ class TestSimEndToEndSeeded:
                 torch.load(path, map_location="cpu", weights_only=False)["coefficients"]
             )
             assert np.max(np.abs(vec)) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# Geometry file: padding rescale and method guard
+# ---------------------------------------------------------------------------
+
+
+class TestGeometryFileRescale:
+    """A geometry measured at one far-field padding is reusable at another.
+
+    The calibration runbook measures at ``--far-field-padding 3`` while the GUI
+    default is 8, so without the rescale a GUI run is refused with "sweep
+    geometry file does not match the model grid".  ``camera_px_per_model_px`` is
+    camera pixels per far-field *cell* and a cell is ``lambda*f/(P*d_model)``
+    wide, so the scale is inversely proportional to ``P``; the panel box and the
+    beam waist are bench properties and do not move.
+    """
+
+    _GEOMETRY = {
+        "panel_disc_radius": 450,
+        "region": 64,
+        "beam_waist_panel_px": 450.0,
+        "far_field_size": 192,
+        "camera_px_per_model_px": 2.7955,
+        "spot_fwhm_camera_px": 12.0,
+        "spot_fwhm_model_px": 4.0,
+        "correlation": 0.8376,
+        "method": "sweep",
+        "calibration_notes": "bench sweep",
+    }
+
+    @classmethod
+    def _config(cls, tmp_path: Path, **overrides) -> SlmModelInLoopConfig:
+        path = tmp_path / "bench_geometry.json"
+        path.write_text(json.dumps(cls._GEOMETRY), encoding="utf-8")
+        kwargs: dict[str, object] = {
+            "region": 64,
+            "far_field_padding": 8,
+            "geometry_file": str(path),
+        }
+        kwargs.update(overrides)
+        return SlmModelInLoopConfig(**kwargs)  # type: ignore[arg-type]
+
+    def test_scale_is_rescaled_to_the_model_grid(self, tmp_path: Path) -> None:
+        """192 (runbook) -> 512 (GUI default) shrinks the cell scale 192/512."""
+        config = self._config(tmp_path)
+        geometry, records = _calibrate_geometry(config, object())
+
+        assert records == []
+        assert geometry.far_field_size == 64 * 8
+        assert geometry.camera_px_per_model_px == pytest.approx(2.7955 * 192 / 512)
+        # Bench properties do not depend on the sampling grid.
+        assert geometry.panel_disc_radius == 450
+        assert geometry.beam_waist_panel_px == 450.0
+        assert geometry.method == "sweep"
+        assert geometry.correlation == 0.8376
+
+    def test_matching_padding_is_left_alone(self, tmp_path: Path) -> None:
+        config = self._config(tmp_path, far_field_padding=3)
+        geometry, _ = _calibrate_geometry(config, object())
+        assert geometry.far_field_size == 192
+        assert geometry.camera_px_per_model_px == pytest.approx(2.7955)
+
+    def test_region_mismatch_is_refused(self, tmp_path: Path) -> None:
+        """The pupil grid itself cannot be rescaled."""
+        config = self._config(tmp_path, region=32)
+        with pytest.raises(ValueError, match="region"):
+            _calibrate_geometry(config, object())
+
+    def test_speckle_method_is_refused(self, tmp_path: Path) -> None:
+        path = tmp_path / "bench_geometry.json"
+        path.write_text(
+            json.dumps({**self._GEOMETRY, "method": "speckle"}), encoding="utf-8"
+        )
+        config = SlmModelInLoopConfig(
+            region=64, far_field_padding=8, geometry_file=str(path)
+        )
+        with pytest.raises(ValueError, match="'sweep'"):
+            _calibrate_geometry(config, object())
+
+    def test_cell_scale_rule_is_inverse_in_padding(self) -> None:
+        """The single rule the geometry rescale and the seed check share."""
+        scaled = _far_field_cell_scale(2.7955, from_far_field=192, to_far_field=512)
+        assert scaled == pytest.approx(2.7955 * 192 / 512)
+        assert _far_field_cell_scale(
+            scaled, from_far_field=512, to_far_field=192
+        ) == pytest.approx(2.7955)
+

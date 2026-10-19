@@ -187,7 +187,7 @@ class TestObjectiveFamilies:
         # (0.5, 0.25, 0.25) - the missing ee weight takes the remaining mass.
         assert obj.weights == pytest.approx((0.5, 0.25, 0.25))
         pib_t, rms_t = rms_pib_terms(img, CENTER, SHAPE, SIZE, ASPECT)
-        ee_t = pytest.approx(1.0)  # the frame IS the baseline
+        pytest.approx(1.0)  # the frame IS the baseline
         j, ratio, _tracking = obj.raw(img)
         assert ratio == pytest.approx(pib_t)
         assert j == pytest.approx(0.5 * pib_t + 0.25 * rms_t + 0.25 * 1.0)

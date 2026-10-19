@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 122 个 Markdown 文档（2026-10-15 盘点）。新文档请在本索引登记后再提交。
+> 共 141 个 Markdown 文档（2026-10-16 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -69,7 +69,7 @@
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
 
-## SLM 空间光调制器 — 16 篇
+## SLM 空间光调制器 — 17 篇
 
 | 文档 | 说明 |
 |---|---|
@@ -84,12 +84,19 @@
 | `slm/slm_lut.md` | 灰度-相位 LUT 标定（半屏参考/测试光栅，±1 级衍射效率比值） |
 | `slm/闭环光束整形_文献与优化建议_20261014.md` | 闭环整形文献×实验×优化建议（GS/SPGD/正向模型/freeform，24 条 DOI 已核实） |
 | `slm/slm_diagnose.md` | SLM+相机逐级硬件自检（2026-09 三步证据链固化） |
-| `slm/pre_run_characterization.md` | 台架开机表征指南（先量台架的必要性） |
+| `slm/pre_run_characterization.md` | 实验系统开机表征指南（先量实验系统的必要性） |
 | `slm/slm_pattern_helper.md` | `PatternHelper` 相位图案生成工具类指南 |
 | `slm/slm_gui_manual.md` | `multi_slm_controller.py` Streamlit 前端页面手册 |
 | `slm/slm_gui_operation_map.md` | SLM 控制器操作路线图：27 个操作按时效（T0–T4）分类的界面重设计 (v1.0) |
 | `slm/align_windowed.md` | SLM+CCD 装配对准（相机 ROI 开窗自动 0级/±1级 对准） |
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
+
+## GUI 前端（Streamlit）— 2 篇
+
+| 文档 | 说明 |
+|---|---|
+| `GUI/slm/multi_slm_controller/multi_slm_controller_srs.md` | multi_slm_controller.py 软件需求规格说明书 (SRS)：功能/非功能需求、接口规范、系统类图、设计约束 |
+| `GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md` | multi_slm_controller.py 用户手册：设备连接/相位下发/闭环远场整形操作指南 |
 
 ## 硬件品牌目录 — 驱动/SDK 细节
 
@@ -111,6 +118,7 @@
 | `tools/slm_drift_probe.md` | SLM 漂移探测 |
 | `tools/slm_exposure_check.md` | 曝光检查 |
 | `tools/slm_floor_probe.md` | 本底（floor）探测 |
+| `tools/slm_focus_probe.md` | 焦面探测：plain 相位上扫菲涅尔焦距（1/f），逐点重调曝光，找让焦面回到相机的二次相位 |
 | `tools/slm_panel_locate.md` | SLM 面板定位 |
 | `tools/slm_phase_resolution.md` | 相位分辨率测量 |
 | `tools/slm_tilt_probe.md` | 倾斜探测 |

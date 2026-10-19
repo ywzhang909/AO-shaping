@@ -37,7 +37,7 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 from datetime import datetime, timezone
-from typing import Annotated
+from typing import Annotated, Any
 
 import click
 import numpy as np
@@ -132,11 +132,21 @@ class PanelLocateResult:
     max_pair_drift: float
     session_drift: float
     rejected_count: int
+    #: Session flat **centroid** shift in camera px -- the quantity that actually
+    #: invalidates a locate. ``session_drift`` is an intensity ratio that the
+    #: per-point pairing already cancels, so it is reported, not enforced.
+    session_shift_px: float = 0.0
+
+
+def _centroid(flat: Any) -> tuple[float, float]:
+    return (float(flat.centroid_x), float(flat.centroid_y))
 
 
 def scan_panel(
     params: PanelLocateParams, *, strict: bool = False,
     max_session_drift: float = 0.05,
+    max_session_shift_px: float | None = None,
+    max_session_shift_fwhm: float = 0.5,
 ) -> PanelLocateResult:
     """Scan candidate panel positions and verify paired and session flat stability."""
     from ao_shaping.drivers.ccd.common import create_camera
@@ -145,6 +155,8 @@ def scan_panel(
         DAHENG_EXPOSURE_LIMIT_ENV,
         configured_daheng_exposure_limit,
         probe_exposure_ceiling_ms,
+        resolve_daheng_exposure_limit,
+        working_exposure_ms,
     )
 
     # Local aliases keep the measurement body below verbatim.
@@ -162,9 +174,9 @@ def scan_panel(
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
 
     if cam_type.lower() == "daheng":
-        if exposure_ms <= 0:
+        if exposure_ms < 0:
             raise click.BadParameter(
-                "Daheng exposure must be positive", param_hint="--exposure-ms"
+                "Daheng exposure must be non-negative (0 = auto)", param_hint="--exposure-ms"
             )
         env_ceiling = configured_daheng_exposure_limit()
         if env_ceiling > 0 and exposure_ms > env_ceiling:
@@ -185,27 +197,30 @@ def scan_panel(
 
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0
-    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=exposure_ms) as cam, _restore_slm_display(slm):
-        actual_ms = cam.reset_exposure_time(float(exposure_ms))
+    ) as slm, create_camera(cam_type, cam_id, exposure_time_ms=0.02) as cam, _restore_slm_display(slm):
+        actual_ms = cam.reset_exposure_time(0.02)
+        if exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1, panel_shape=panel)
         if cam_type.lower() == "daheng":
-            ceiling = configured_daheng_exposure_limit()
-            if not ceiling:
-                estimate = probe_exposure_ceiling_ms(
-                    cam.reset_exposure_time,
-                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-                )
-                ceiling = estimate.ceiling_ms
-                logger.info(
-                    "Daheng exposure ceiling probed from the image: {:.4f} ms",
-                    ceiling,
-                )
-                # The probe left the camera at the last ladder step; re-arm.
-                actual_ms = cam.reset_exposure_time(float(exposure_ms))
+            ceiling = resolve_daheng_exposure_limit(camera=cam)
+            # The probe (if any) left the camera at the last ladder step; re-arm.
+            if exposure_ms == 0:
+                exposure_ms = working_exposure_ms(ceiling)
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
             if actual_ms is None or not 0 < float(actual_ms) <= ceiling + 1e-9:
                 raise RuntimeError(
                     f"unsafe Daheng exposure readback: {actual_ms} ms "
                     f"(ceiling {ceiling} ms)"
                 )
+        elif exposure_ms == 0:
+            estimate = probe_exposure_ceiling_ms(
+                cam.reset_exposure_time,
+                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+            )
+            exposure_ms = working_exposure_ms(estimate.ceiling_ms)
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
+        else:
+            actual_ms = cam.reset_exposure_time(float(exposure_ms))
         ref, flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
         box = _box_mask(ref.shape, int(round(flat.centroid_x)),
                         int(round(flat.centroid_y)), 60)
@@ -224,6 +239,7 @@ def scan_panel(
                         "cam_type": cam_type,
                         "cam_id": cam_id,
                         "exposure_ms": exposure_ms,
+                        "exposure_ms_readback": float(actual_ms),
                         "patch_radius": patch_radius,
                         "grid_xs": xs,
                         "grid_ys": ys,
@@ -254,7 +270,7 @@ def scan_panel(
                 yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
                 m = (yy - py) ** 2 + (xx - px) ** 2 <= int(patch_radius) ** 2
                 phase[m] = rng.uniform(0.0, 2.0 * np.pi, int(m.sum()))
-                before, _ = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
+                before, _flat = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
                 img = display_and_average(cam, slm, phase, n_frames=frames)
                 after, _ = measure_flat_reference(cam, slm, n_frames=frames, panel_shape=panel)
                 if debug_dir is not None:
@@ -282,6 +298,9 @@ def scan_panel(
                                      "flat_before_energy": float(before[box].sum()),
                                      "candidate_energy": float(img[box].sum()),
                                      "flat_after_energy": float(after[box].sum()),
+                                     "flat_centroid_x": _centroid(_flat)[0],
+                                     "flat_centroid_y": _centroid(_flat)[1],
+                                     "flat_fwhm_px": getattr(_flat, "fwhm_px", None),
                                      "peak": peak, "time_utc": datetime.now(timezone.utc).isoformat()})
             logger.info(
                 "panel y={:>4}: {}", py,
@@ -304,12 +323,50 @@ def scan_panel(
         (item["flat_drift"] for item in measurements if item["flat_drift"] is not None),
         default=float("inf"),
     )
+    # The beam **moving** invalidates a locate; the beam **brightening or
+    # dimming** does not, because every grid point normalises its own reading
+    # against the flat measured immediately before and after it
+    # (:func:`_paired_delta`). So the session gate is on centroid shift, and the
+    # intensity ratio is only reported.
+    #
+    # Measured 2026-10-17: gating on the intensity ratio refused every run on
+    # this bench at 7.9-8.0% while the flat peak itself moved 63 -> 90 over the
+    # session -- power drift the pairing had already cancelled. The centroid
+    # moved <1 px over the same 6 minutes.
+    session_shift_px = float(
+        np.hypot(
+            measurements[-1]["flat_centroid_x"] - measurements[0]["flat_centroid_x"],
+            measurements[-1]["flat_centroid_y"] - measurements[0]["flat_centroid_y"],
+        )
+    )
+    # An absolute pixel limit cannot serve both a 13 px and a 63 px spot: on the
+    # broad, dim spot the centroid's own wander is several px, so a fixed 3 px
+    # threshold refuses a scan whose answer provably did not move (measured
+    # 2026-10-17: 3.47 px shift on FWHM 62.9 px at peak 18/255, while the ranking
+    # between the top two patches differed by 9%). Scale the limit with the spot
+    # and keep the absolute value as a floor for a tight, bright spot.
+    flat_fwhm_px = float(
+        np.median([item.get("flat_fwhm_px") or 0.0 for item in measurements]) or 0.0
+    )
+    shift_limit_px = max_session_shift_px
+    if shift_limit_px is not None and max_session_shift_fwhm > 0 and flat_fwhm_px > 0:
+        shift_limit_px = max(
+            float(max_session_shift_px),
+            float(max_session_shift_fwhm) * flat_fwhm_px,
+        )
+    else:
+        flat_fwhm_px = flat_fwhm_px if flat_fwhm_px > 0 else 0.0
     if debug_dir is not None:
         (debug_dir / "summary.json").write_text(
             json.dumps({"session_drift": session_drift, "max_pair_drift": max_pair_drift,
+                        "session_shift_px": session_shift_px,
+                        "session_shift_limit_px": shift_limit_px,
+                        "flat_fwhm_px": flat_fwhm_px,
                         "rejected_count": rejected_count,
                         "max_flat_drift": max_flat_drift,
                         "max_session_drift": max_session_drift,
+                        "max_session_shift_px": max_session_shift_px,
+                        "max_session_shift_fwhm": max_session_shift_fwhm,
                         "strict": strict,
                         "best_center": [max(results)[2], max(results)[1]] if results else None}, indent=2),
             encoding="utf-8",
@@ -318,9 +375,23 @@ def scan_panel(
         raise ValueError("all panel candidates rejected; check laser stability")
     if strict and rejected_count:
         raise ValueError(f"{rejected_count} panel candidates rejected by flat drift")
-    if session_drift > max_session_drift:
+
+    if shift_limit_px is not None and session_shift_px > shift_limit_px:
         raise ValueError(
-            f"session flat drift {session_drift:.1%} exceeds {max_session_drift:.1%}"
+            f"session beam shift {session_shift_px:.2f} cam px exceeds "
+            f"{shift_limit_px:.2f} px ({max_session_shift_fwhm:g} x FWHM "
+            f"{flat_fwhm_px:.1f} px, floor {max_session_shift_px} px) -- the beam "
+            "moved during the scan, so no single centre describes it; re-run or "
+            "stabilise the optical path"
+        )
+    if session_drift > max_session_drift:
+        logger.warning(
+            "session flat *intensity* drift {:.1%} exceeds {:.1%}, but every "
+            "grid point is normalised against its own paired flat, so this does "
+            "not bias the located centre (beam moved {:.2f} cam px, limit "
+            "{})",
+            session_drift, max_session_drift, session_shift_px,
+            "n/a" if max_session_shift_px is None else f"{max_session_shift_px:.2f} px",
         )
     results.sort(reverse=True)
     logger.info("")
@@ -338,8 +409,15 @@ def scan_panel(
         "runbook as --pupil-center, never a camera coordinate",
         bx - SLM_PANEL_W // 2, by - SLM_PANEL_H // 2,
     )
-    logger.info("flat drift: max paired {:.2%}, whole scan {:.2%}", max_pair_drift, session_drift)
-    return PanelLocateResult((bx, by), results[0][3], max_pair_drift, session_drift, rejected_count)
+    logger.info(
+        "flat drift: max paired {:.2%}, whole scan {:.2%} (intensity; "
+        "paired-normalised), beam shift {:.2f} cam px",
+        max_pair_drift, session_drift, session_shift_px,
+    )
+    return PanelLocateResult(
+        (bx, by), results[0][3], max_pair_drift, session_drift, rejected_count,
+        session_shift_px,
+    )
 
 
 @click.command()

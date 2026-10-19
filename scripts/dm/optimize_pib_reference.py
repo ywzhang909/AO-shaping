@@ -31,7 +31,7 @@ from ao_shaping.drivers.sim import (
     apply_aperture,
     apply_focus,
     propagate,
-    power_bucket,
+    power_bucket_sum,
     radius_metric,
     Environment,
 )
@@ -95,7 +95,7 @@ class AOSim:
         r_bucket = radius_metric(
             ideal_wave.intensity, ideal_wave.x, ideal_wave.y, 'origin', cfg.r_frac
         )
-        ideal_pib = power_bucket(
+        ideal_pib = power_bucket_sum(
             ideal_wave.intensity, ideal_wave.x, ideal_wave.y, 'origin', r_bucket
         )
         ideal_total = ideal_wave.intensity.sum() * dpix ** 2
@@ -169,12 +169,10 @@ class AOSim:
         return phase
     
     def pib(self, img: np.ndarray) -> float:
-        dpix = self.cfg.aperture / self.cfg.npix
-        power = img.sum() * dpix ** 2
         r_bucket = self.state.r_bucket
         wave_x = self.state.ideal_wave.x
         wave_y = self.state.ideal_wave.y
-        return power_bucket(img, wave_x, wave_y, 'origin', r_bucket)
+        return power_bucket_sum(img, wave_x, wave_y, 'origin', r_bucket)
     
     def strehl(self, img: np.ndarray) -> float:
         return np.max(img) / np.max(self.state.ideal_wave.intensity)
@@ -235,7 +233,7 @@ class ZernikeDM:
     
     def loss(self, intensity: np.ndarray, x: np.ndarray, y: np.ndarray) -> float:
         r = radius_metric(intensity, x, y, 'origin', 0.865) * self.r_bucket
-        pb = power_bucket(intensity, x, y, 'origin', r)
+        pb = power_bucket_sum(intensity, x, y, 'origin', r)
         return pb
     
     def spgd_step(self, intensity: np.ndarray, x: np.ndarray, y: np.ndarray):
@@ -303,7 +301,7 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
         return cart.fit_cart_grid(phi)[0]
     
     c = np.zeros(cart.nk)
-    phase = eval_grid(c)
+    eval_grid(c)
     
     m = np.zeros(cart.nk)
     v = np.ones(cart.nk)
@@ -334,8 +332,7 @@ def run_spgd_zernike(ao: AOSim, n_modes: int = 11, delta: float = 0.1,
             m_h = m / (1 - beta1 ** t + 1e-10)
             v_h = v / (1 - beta2 ** t + 1e-10)
             c = c - alpha * m_h / (np.sqrt(v_h) + 1e-8) + disturb / 2
-            phase = eval_grid(c)
-            
+
             ratio = J / ideal_pib if ideal_pib > 0 else 0
             pib_vals.append(J)
             ratio_vals.append(ratio)
@@ -397,9 +394,7 @@ def run_spgd_voltage(ao: AOSim, delta: float = 0.5, gamma: float = 1e-3,
     stagnant, flag = 0, 0
     pos_pib, neg_pib = 0.0, 0.0
     perturb_v = np.zeros(total_act)
-    
-    target_pib = ao.state.ideal_pib * target_ratio
-    
+
     for epoch in range(1, epochs + 1):
         if flag == 0:
             perturb_v = (np.random.binomial(1, 0.5, total_act).astype(float) * 2.0 - 1.0) * delta

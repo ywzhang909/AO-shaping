@@ -13,11 +13,20 @@ select = [
 # runtime NameErrors in `ao-train` entry points. Guarded by
 # tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src.
 # The only excluded paths are third-party vendored libs (OOPAO, SLM_DLL_ver.2.51,
-# micro_drive1300, santec_slm -- not project code, see issue #132) and scratch
-# notebooks/ debug scripts.
+# micro_drive1300, santec_slm, MiiCam SDK -- not project code, see issue #132) and scratch
+# notebooks/ debug scripts. The vendored SDK patterns use `**/<name>/**` (never a `src/`
+# prefix) so the guard stays satisfied.
 exclude = [
     "libs/**",
     "notebooks/**",
+    # Vendored MiiCam SDK ctypes binding (drivers/ccd/_miicam_sdk/miicam.py).
+    # Third-party generated wrapper: 8 F821 undefined names (cls.__hotplug_cb,
+    # AwbOnce, AbbOnce, FfcOnce, DfcOnce, __progress_cb, __progress_ctx) plus
+    # E401/E703 -- all real in the upstream code, not project code. Excluded
+    # from `ruff check .` the same way libs/** and notebooks/** are.
+    # Guarded by tests/ao_shaping/ml/test_train_cli_runnable.py -- the pattern
+    # must not start with "src" or contain "src/".
+    "**/_miicam_sdk/**",
 ]
 
 # Ignore rules that are too noisy for this legacy codebase

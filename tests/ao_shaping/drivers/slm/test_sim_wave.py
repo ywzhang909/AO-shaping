@@ -48,7 +48,7 @@ def test_wave_metrics(center: str) -> None:
     xx, yy = np.meshgrid(x, x)
     intensity = np.exp(-((xx - 1.5e-5) ** 2 + (yy + 0.5e-5) ** 2) / (2 * (3e-5) ** 2))
 
-    bucket = WaveMetric.power_bucket(
+    bucket = WaveMetric.power_bucket_sum(
         SimWave(np.sqrt(intensity).astype(np.complex128), wavelength=1.064e-6, dpix=dpix),
         r_bucket=8e-5,
         center=center,

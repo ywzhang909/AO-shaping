@@ -1,0 +1,81 @@
+# SLM 焦面探测 (slm_focus_probe)
+
+> **运行环境**: 硬件实测 (需 SLM + 相机)
+
+## 1. 这条工具做什么
+
+在 **plain 相位**上扫描菲涅尔焦距（1/f，单位 m⁻¹），找出让焦面回到相机的
+二次相位。相机一旦离开 2f 焦面（哪怕几毫米），0 阶光斑就散成一个锥，PIB /
+方形整形 / Zernike 响应矩阵全部在失焦光斑上测量。补偿量是**光路事实**：
+随相机毫米级移动而变，也不能从标称 125 mm 透镜推出（面板相位符号方向与
+包裹透镜相位的衍射效率都不在纸面上），所以实测。
+
+## 2. 调用关系
+
+```mermaid
+graph TD
+    CLI["tools/slm/panel/focus_probe.py"]
+    K["tools/kernels/bench_kernels.py · fresnel_panel"]
+    SLM["drivers/slm/santec.py · Santec"]
+    CCD["drivers/ccd/ · MIICamera/DahengCamera"]
+
+    CLI --> K
+    CLI --> SLM
+    CLI --> CCD
+```
+
+GUI 入口为 `probe_session_focus`（侧栏「探测焦面」按钮 + 整形页离焦微调）。
+
+## 3. 测量原理
+
+- 在 plain 相位上加载菲涅尔二次相位（`fresnel_panel`），以光焦度
+  `D = 1/f` 为参数扫描（`D = 0` 即 plain 相位基线），范围默认对称 ±6 m⁻¹
+- **曝光陷阱**：近焦点峰顶饱和到 255、远焦点只剩读出噪声，亮度跨数个数量级。
+  固定曝光无法给各点排序 → **每个点都重新调曝光**（目标带
+  25%–80% 量程），排序量用 `peak / exposure_ms`（每毫秒灰度），
+  传感器对曝光线性时该比值正比于真实强度，跨点可比
+- 在胜出点**复验线性假设**（半曝光再读一帧），不盲信
+- 粗扫找盆地 → 抛物线顶点 + 重测精化；若最优点落在扫描边缘，向外扩一次/两次
+
+## 4. 测量流程
+
+1. 对称扫描 `--steps` 个光焦度点（默认 25），每点自动重调曝光到可用带
+2. 以 `peak / exposure_ms` 选最亮点
+3. 抛物线顶点估出精化中心，再细扫一轮
+4. 在胜出点做半曝光线性复验
+5. 证据落 `data/debug/bench_settings/focus_probe/`
+
+## 5. 主要选项
+
+| 选项 | 说明 | 默认值 |
+|------|------|--------|
+| `--slm-number` | SLM 设备编号 | 1 |
+| `--slm-wavelength` | SLM 波长 (nm) | 1064 |
+| `--cam-type` | 相机类型 (daheng/miicam) | daheng |
+| `--cam-id` | 相机 ID | 0 |
+| `--exposure-ms` | 起始曝光 ms（每点自动调整） | 0.1 |
+| `--radius-px` | 照明半径 (面板px) | `BEAM_RADIUS_PANEL` |
+| `--centre-x` / `--centre-y` | 入射中心 (面板px) | 面板中心 |
+| `--steps` | 粗扫点数 | 25 |
+| `--diopter-range` | 光焦度扫描半宽 (m⁻¹) | 6.0 |
+| `--refine` | 精化点数 | 见 CLI `--help` |
+| `--frames` | 每点平均帧数 | 3 |
+| `--max-exposure-ms` | 曝光上限 (ms) | 见 CLI `--help` |
+
+## 6. 示例
+
+```bash
+python -m ao_shaping.tools.slm.panel.focus_probe --exposure-ms 0.1
+python -m ao_shaping.tools.slm.panel.focus_probe --steps 25 --frames 3
+```
+
+## 7. 输出
+
+- 控制台打印：最佳焦距 (mm)、光焦度 (m⁻¹)、峰值/曝光比、线性复验结果
+- 证据文件：`data/debug/bench_settings/focus_probe/`
+
+## 8. 与离焦微调的关系
+
+实测焦距写入 `slm{N}_bench_focus_probe`，供整形页「离焦 / 聚焦微调」
+区块的菲涅尔焦距补偿默认值（`bench_fresnel_focal_mm`）。该区块用 Zernike
+(2,0) 幅度做细调、实测焦距做粗补偿，每次都从原始 GS 相位重算、不累积。

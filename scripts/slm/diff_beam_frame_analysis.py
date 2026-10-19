@@ -62,7 +62,6 @@ def analyze_run(run_dir: Path) -> dict:
         if nreg > 0:
             sizes = ndimage.sum(mask, labels, range(1, nreg + 1)).astype(int)
             big = int(np.argmax(sizes)) + 1
-            bbox = ndimage.find_objects((labels == big).astype(np.intp))[0]
             (sy, sx) = ndimage.find_objects((labels == big).astype(np.intp))[0]
             fp_h = sy.stop - sy.start
             fp_w = sx.stop - sx.start

@@ -391,7 +391,7 @@ class QuadraticGaussianController(BaseController):
         self._K_lqr: npt.NDArray[np.float64] | None = None
 
     def compute(self, s_meas: npt.NDArray[np.float64], k: int) -> npt.NDArray[np.float64]:
-        a_meas = self.D_pinv @ (s_meas - self.s_ref)
+        self.D_pinv @ (s_meas - self.s_ref)
 
         if self._K_lqr is None:
             self._K_lqr = solve_lqr(self.Q_diag, self.R_scalar, self.dim)

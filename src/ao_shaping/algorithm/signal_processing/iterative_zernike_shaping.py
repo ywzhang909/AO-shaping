@@ -543,7 +543,7 @@ class IterativeZernikeShapingOptimizer:
         Returns:
             含全部中间量的 IterativeZernikeShapingResult。
         """
-        t = _torch()
+        _torch()
         cfg = self._config
         n = cfg.n_grid
 
@@ -563,7 +563,7 @@ class IterativeZernikeShapingOptimizer:
 
         # 计算初始分数
         t_arr = _torch()
-        actual_t = t_arr.as_tensor(actual_far_field, dtype=t_arr.float64)
+        t_arr.as_tensor(actual_far_field, dtype=t_arr.float64)
         slm_t = t_arr.as_tensor(slm_phase, dtype=t_arr.float64)
         ff = self._far_field(
             t_arr.zeros(self._n_zernike_params, dtype=t_arr.float64)

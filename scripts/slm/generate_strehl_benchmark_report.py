@@ -573,7 +573,10 @@ def write_report(
         "",
     ]
 
-    pib_df = load_pib_summary(pib_csv)
+    # Honour the caller's already-loaded summary; only fall back to reading the
+    # file when none was handed in. The path is still needed even when the table
+    # is rendered, so a SKIPPED section can name the file that was looked for.
+    pib_df = pib_summary if pib_summary is not None else load_pib_summary(pib_csv)
     if pib_df is not None:
         lines += [
             "| Algorithm | PIB (dim=4) final | PIB loads | Strehl (dim=64) final | Strehl loads |",

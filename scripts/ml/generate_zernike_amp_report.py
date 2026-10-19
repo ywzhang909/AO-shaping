@@ -617,10 +617,7 @@ def build_report(
 ) -> str:
     paired_pu = sweep["paired"]["physics_minus_unet"]
     paired_ph = sweep["paired"]["physics_minus_hybrid"]
-    paired_hu = sweep["paired"]["hybrid_minus_unet"]
-    s_final = sweep["final"]["physics"]["summary"]
     s_unet = sweep["final"]["unet"]["summary"]
-    s_hybrid = sweep["final"]["hybrid"]["summary"]
     configs = sweep.get("configs", {})
 
     def star(p: float) -> str:

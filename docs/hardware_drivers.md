@@ -12,9 +12,9 @@
 
 `drivers/sim/wfs/simulated_wfs.py`，OOPAO Shack-Hartmann 实现 `BaseWFS`，可直接顶替 `ThorlabWFS`，使所有 WFS 类 runner 无需硬件即可执行。
 
-- **测瞳面梯度而非焦平面传播**: SH 通过微透镜阵列成像瞳孔，探测器上光斑位移编码各子孔径的局部 tip/tilt，因此测量量是**瞳面相位梯度**。早前计划复用本仓 `wave.py` 的焦平面传播 —— 那产出的是**相机图像**而非 slope，二者不可互换。
+- **测瞳面梯度而非焦平面传播**: SH 通过微透镜阵列成像瞳面，探测器上光斑位移编码各子孔径的局部 tip/tilt，因此测量量是**瞳面相位梯度**。早前计划复用本仓 `wave.py` 的焦平面传播 —— 那产出的是**相机图像**而非 slope，二者不可互换。
 - **slope 数组是行块状布局**: 第 `0:n_subap` 行为 x-slope，第 `n_subap:` 行为 y-slope (纯倾斜探针实测: 纯 x 倾斜 → 上半 rms 1.29e-4, 下半 0)。
-- 🔴 **SH 测不到 piston**: 子孔径的绝对相位偏移不移动光斑。`list_zernike_modes` 从 Noll 1 = piston 起，把它放进拟合基会留下一个近零空间列，`pinv` 把它放大成巨大的伪系数 (实测纯离焦瞳孔下 **+0.50 rad**)。故 piston 必须排除出拟合基 (`_FIT_FIRST_MODE`) —— **这不是 off-by-one**。
+- 🔴 **SH 测不到 piston**: 子孔径的绝对相位偏移不移动光斑。`list_zernike_modes` 从 Noll 1 = piston 起，把它放进拟合基会留下一个近零空间列，`pinv` 把它放大成巨大的伪系数 (实测纯离焦瞳面下 **+0.50 rad**)。故 piston 必须排除出拟合基 (`_FIT_FIRST_MODE`) —— **这不是 off-by-one**。
 - **单位**: `get_wavefront()` → **waves** = `phase_rad / 2π`; `get_zernike()` → **µm** = `phase_rad * λ_nm*1e-3 / 2π`。`um_to_waves()` 写死 532 nm，故默认波长必须 532 nm。
 - ⚠️ **保真度不足以当波前基准 (实测，勿高估)**: 注入已知模式再读回系数 —— noll 2 tilt 单独 24% / 与其他模式同时 **83%**; noll 4 defocus 1.4%; noll 11 spherical 32%。tilt 单独注入只差 24%，与其他模式同注入却差到 83% ⇒ 主误差是**模式间串扰 (cross-talk)**，不是逐模式噪声。已排除质心量化与标定 pass 污染 (平场读数严格为 0)。**任何由 `get_zernike()` 推出的 RMS 改善率或 Strehl 都必须标注为「未验证」**; 要可信数值请用硬件标定。
 - **接口契约必须与 `ThorlabWFS` 完全对齐**，缺一个就直接崩: `get_wavefront()` 的 stats 键必须是 `min/max/diff/mean/rms/wighted_rms`; `build_subaperture_mask()` 返回 **2 元组** `(mask_2d, valid_indices_flat)` 且按 **subaperture 网格**定尺寸 (**不能**按 flux 定 —— OOPAO 的 flux 报在 8×8 lenslet 网格而 slope 跨 6×6 网格); runner/优化器直接读取 12 个成员 (`num_spots_x/num_spots_y`、`mla_index`、`serial_num`、`device_name`、`exposure_time`、`high_speed`、`use_custom_ref`、`pupil`、`d_x`、`get_mla_name()`、`set_ref_plane()`)。锁定测试: `tests/ao_shaping/drivers/sim/test_simulated_wfs.py::TestRunnerFacingSurface`。

@@ -659,7 +659,7 @@ class ComplexField:
         """
         if source is None:
             raise ValueError("source must not be None")
-        wavelength_m = float(getattr(source, "wavelength", 500e-9))
+        float(getattr(source, "wavelength", 500e-9))
         phase = np.asarray(source.phase, dtype=np.float64)
         intensity = np.asarray(source.intensity, dtype=np.float64)
         intensity = np.maximum(intensity, 0.0)

@@ -79,7 +79,7 @@ python -m ao_shaping.tools.zernike.abba_probe --exposure-ms 3.0
 | `usable` | 稠密随机相位可分辨，ABBA 有效抑制漂移 | 可进行响应矩阵标定、矩阵闭环 |
 | `unusable` | 面板分辨率不足或漂移过大，**不要测转移矩阵** | 改用 Zernike 低阶优化 (`slm-pib`, `rms-zernike`) |
 
-## 8. 上机前必跑顺序 (不可反)
+## 8. 实验前必跑顺序 (不可反)
 
 ```
 slm_drift_probe → slm_floor_probe → slm_abba_probe

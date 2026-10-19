@@ -169,10 +169,7 @@ def resolve_call(callee: ast.expr, func: Func, m: Module, mods: dict[str, Module
     if isinstance(callee, ast.Attribute):
         # walk base
         base = callee.value
-        prefix = None
-        if isinstance(base, ast.Name):
-            prefix = base.id
-        else:
+        if not isinstance(base, ast.Name):
             return None, "expr"
         # chain of attributes after first
         attrs = []
@@ -246,7 +243,6 @@ def build():
         "main.main": None,  # placeholder
     }
     # root main: __main__ block calls cli()
-    main_mod = mods["main"]
     mmain = mods["ao_shaping.main"]
     entries["ao_shaping.main.cli"] = mmain
 
@@ -284,8 +280,6 @@ def build():
     def add_node(qual: str):
         if qual in nodes:
             return nodes[qual]
-        mod = qual.split(".")[0] if qual != "main.main" else "main"
-        m = mods.get(qual) if False else None
         # find func object
         fobj = None
         if "." not in qual:

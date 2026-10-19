@@ -115,7 +115,7 @@ class TestAutoExposureUsesConstants:
         )
         cam.reset_exposure_time = MagicMock()
 
-        result = cam.auto_exposure(use_sdk_auto=True, sdk_settle_frames=2)
+        cam.auto_exposure(use_sdk_auto=True, sdk_settle_frames=2)
 
         calls = mock_cam.ExposureAuto.set.call_args_list
         assert constants.GxAutoEntry.ONCE.value in [c.args[0] for c in calls]

@@ -125,6 +125,11 @@ class TestLosses:
         l_nonuniform = uniformity_loss(non_uniform, target)
         assert float(l_uniform) < float(l_nonuniform)
 
+    def test_uniformity_ignores_soft_target_edge(self):
+        target = torch.tensor([[0.0, 0.25, 0.75, 1.0]], dtype=torch.float64)
+        intensity = torch.tensor([[0.0, 0.1, 2.0, 2.0]], dtype=torch.float64)
+        assert float(uniformity_loss(intensity, target)) == pytest.approx(0.0)
+
     def test_efficiency_lower_when_energy_in_target(self):
         target = torch.zeros(GRID)
         target[

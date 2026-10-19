@@ -92,30 +92,66 @@ class BeamExtentParams:
     seed: Annotated[int, option("--seed", help="随机相位种子 (默认 2024)")] = 2024
 
 
-@click.command()
-@with_params(BeamExtentParams, kw_name="params")
-def main(params: BeamExtentParams) -> None:
-    """用半平面随机相位边界扫描测光斑在面板上的中心与半径。"""
+#: How far below the flat response counts as "the fall has started". The first
+#: couple of points of a scan are non-monotonic (one random draw each), so a
+#: tiny threshold would latch onto noise instead of the beam's near edge.
+_ONSET_DROP = 0.03
+
+
+@dataclass(frozen=True)
+class BeamExtentResult:
+    """One axis of the boundary sweep, and the edge it implies.
+
+    ``edge_px`` is where the response stopped falling: the **far** edge of the
+    illuminated area along ``axis``, measured from the panel origin. The beam's
+    centre is *not* measured here -- take it from ``panel_locate``.
+    ``radius_px`` assumes the illumination starts at the origin, which holds
+    only for a beam parked at the panel centre, so it is an **upper bound**
+    otherwise, not a radius.
+    """
+
+    axis: str
+    edge_px: int
+    radius_px: int
+    centre_px: float
+    fall_lo_px: int
+    fall_hi_px: int
+    step_px: float
+    floor_rel: float
+    profile_rel: tuple[float, ...]
+    positions_px: tuple[int, ...]
+    core_fraction_flat: float
+    flat_centroid: tuple[float, float]
+    flat_peak: float
+
+
+def sweep_axis(
+    *,
+    axis: str,
+    steps: int,
+    frames: int,
+    repeats: int,
+    core_radius: float,
+    seed: int,
+    slm_number: int,
+    slm_wavelength: int,
+    cam_type: str,
+    cam_id: int,
+    exposure_ms: float,
+) -> BeamExtentResult:
+    """Run the boundary sweep on one axis and return what it implies.
+
+    Split out of the Click command so the GUI can call the measurement directly:
+    ``beam_extent`` is the tool the model-in-loop geometry warning names when its
+    two focal-scale routes disagree, and an operator chasing that warning should
+    not have to leave the page to re-measure the illuminated aperture.
+    """
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
-
-    # Local aliases keep the measurement body below verbatim.
-    slm_number = params.slm_number
-    slm_wavelength = params.slm_wavelength
-    cam_type = params.cam_type
-    cam_id = params.cam_id
-    exposure_ms = params.exposure_ms
-    axis = params.axis
-    steps = params.steps
-    frames = params.frames
-    repeats = params.repeats
-    core_radius = params.core_radius
-    seed = params.seed
 
     panel = (SLM_PANEL_H, SLM_PANEL_W)
     span = SLM_PANEL_W if axis == "x" else SLM_PANEL_H
     positions = np.linspace(0, span, int(steps) + 1)[1:]
-    rng = np.random.default_rng(int(seed))
     base_rand = random_phase(panel, seed=int(seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
 
@@ -129,7 +165,10 @@ def main(params: BeamExtentParams) -> None:
             "flat reference: {}  core_fraction={:.4f}", flat.as_row(), f0
         )
         if f0 <= 0:
-            raise SystemExit("flat core fraction is zero; cannot score the sweep")
+            raise RuntimeError(
+                "flat core fraction is zero; the beam is not reaching the camera "
+                "core, so there is nothing to sweep"
+            )
 
         rows: list[tuple[int, float]] = []
         for t in positions:
@@ -151,22 +190,82 @@ def main(params: BeamExtentParams) -> None:
             )
 
     rel = [c / f0 for _, c in rows]
-    logger.info("")
-    logger.info("profile (rel): {}", " ".join(f"{v:.2f}" for v in rel))
-    # The beam edge is where rel stops falling; report the last index still
+    # The beam edge is where rel stops falling; the last index still
     # meaningfully above the fully-randomised floor.
     floor = float(np.min(rel))
     saturated = [i for i, v in enumerate(rel) if v <= floor * 1.10]
     edge = positions[saturated[0]] if saturated else positions[-1]
+
+    # Centre-free width: the response holds at ~1 until the boundary crosses the
+    # beam's near edge, falls across the illuminated width, then pins at the
+    # floor. So the *width of the fall* is the beam's diameter along this axis
+    # and its midpoint is the centre -- both from this one scan, with no
+    # dependency on where ``panel_locate`` happened to put the centre.
+    #
+    # This matters because ``far_edge - centre`` inherits every error in the
+    # centre. Measured 2026-10-17: the same scan gave a radius of 180 px with a
+    # previous session's centre and 300 px with the panel's geometric one -- a
+    # 1.7x swing from the centre alone, far larger than the step size.
+    onset = 0
+    for i, v in enumerate(rel):
+        if v < 1.0 - _ONSET_DROP:
+            onset = i
+            break
+    fall_lo = positions[onset]
+    fall_hi = positions[saturated[0]] if saturated else positions[-1]
+    width_px = float(fall_hi - fall_lo)
+    centre_px = float(fall_lo + fall_hi) / 2.0
+
+    return BeamExtentResult(
+        axis=axis,
+        edge_px=int(edge),
+        radius_px=int(width_px / 2.0),
+        centre_px=centre_px,
+        fall_lo_px=int(fall_lo),
+        fall_hi_px=int(fall_hi),
+        step_px=float(positions[1] - positions[0]) if len(positions) > 1 else 0.0,
+        floor_rel=floor,
+        profile_rel=tuple(float(v) for v in rel),
+        positions_px=tuple(int(t) for t in positions),
+        core_fraction_flat=float(f0),
+        flat_centroid=(float(flat.centroid_x), float(flat.centroid_y)),
+        flat_peak=float(flat.peak),
+    )
+
+
+@click.command()
+@with_params(BeamExtentParams, kw_name="params")
+def main(params: BeamExtentParams) -> None:
+    """用半平面随机相位边界扫描测光斑在面板上的中心与半径。"""
+    axis = params.axis
+    repeats = params.repeats
+
+    result = sweep_axis(
+        axis=axis,
+        steps=params.steps,
+        frames=params.frames,
+        repeats=repeats,
+        core_radius=params.core_radius,
+        seed=params.seed,
+        slm_number=params.slm_number,
+        slm_wavelength=params.slm_wavelength,
+        cam_type=params.cam_type,
+        cam_id=params.cam_id,
+        exposure_ms=params.exposure_ms,
+    )
+    rel = list(result.profile_rel)
+    logger.info("")
+    logger.info("profile (rel): {}", " ".join(f"{v:.2f}" for v in rel))
+    edge = result.edge_px
     logger.info(
         "randomising up to {a}={e} px saturates the response (floor rel={f:.2f}), "
         "so the beam's {a} extent ends near {e} px",
-        a=axis, e=int(edge), f=floor,
+        a=axis, e=edge, f=result.floor_rel,
     )
     if axis == "x":
         logger.info(
             "if the beam is centred, that implies centre ~{c} px, radius ~{r} px",
-            c=int(edge) // 2, r=int(edge) // 2,
+            c=edge // 2, r=result.radius_px,
         )
     else:
         logger.info("panel height is {}, so compare with the x scan", SLM_PANEL_H)

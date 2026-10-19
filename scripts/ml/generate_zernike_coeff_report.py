@@ -582,7 +582,6 @@ def main(argv: list[str] | None = None) -> int:
     report_path.write_text("\n".join(body), encoding="utf-8")
 
     # Copy in the sweep figure if the sweep put it elsewhere.
-    src = ROOT / FIG_DIR / "cv_and_gates.png"
     print(f"wrote {report_path.relative_to(ROOT)}")
     for note in figure_notes:
         print(f"  figure: {note}")

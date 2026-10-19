@@ -354,7 +354,7 @@ class TestNotAFraunhoferSubstitute:
 
     @staticmethod
     def _bench_field(n_grid: int = 64, padding: int = 4) -> tuple[np.ndarray, float]:
-        aperture, focal, wavelength = 12e-3, 0.125, 532e-9
+        aperture, _focal, _wavelength = 12e-3, 0.125, 532e-9
         yy, xx = np.mgrid[0:n_grid, 0:n_grid]
         radial = np.hypot(yy - n_grid // 2 + 0.5, xx - n_grid // 2 + 0.5)
         phase = 0.7 * np.exp(-(radial**2) / (2 * 8.0**2))

@@ -36,7 +36,6 @@ from ao_shaping.utils.image.target.metrics import (
     LOGGRAD_SIGMA,
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
-    TargetShape,
     log_gradient_difference_from_fields,
     log_gradient_difference_metric,
     log_gradient_field,

@@ -49,14 +49,17 @@ import is deferred into the functions that open it.
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 import math
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 import numpy as np
 from loguru import logger
+
+if TYPE_CHECKING:  # annotations only (``from __future__ import annotations``).
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import BenchGeometry
 
 # Device-free (NumPy + stdlib only), so importing it cannot pull in a driver.
 from ao_shaping.optimizer.wfless.adaptive_trust_region import (
@@ -76,9 +79,8 @@ from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.image.exposure_control import (
     choose_exposure,
-    configured_daheng_exposure_limit,
     exposure_normalized_frame,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 
@@ -185,12 +187,16 @@ def acceptance_verdict(
     *,
     loss_delta: float = 1e-4,
     score_eps: float = 1e-3,
+    cv_before: float | None = None,
+    cv_after: float | None = None,
+    max_cv_regression: float = 0.02,
 ) -> AcceptanceVerdict:
     """Decide whether a round may be committed, or must be rolled back.
 
-    A round is rejected when the forward-model fit got *worse* (the aberration
-    is wandering, not converging) or when the shape it produced measures worse
-    than the best shape already held (the synthesis is being led astray).
+    A round is rejected when the forward-model fit worsens, the measured
+    composite drops, or the target-region CV rises beyond the configured
+    tolerance. The CV guard prevents an EE gain from replacing a more uniform
+    accepted phase.
 
     ``score_before=None`` means "no shaped phase has been accepted yet", and the
     score test is then skipped. That case is not a loophole but the intended
@@ -208,6 +214,9 @@ def acceptance_verdict(
         loss_delta: Tolerance on ``loss_after - loss_before``. Step A is a
             descent method, so any material increase is a genuine regression.
         score_eps: Tolerance on ``score_before - score_after``.
+        cv_before: Best accepted shaped CV, if any.
+        cv_after: CV of this round's measured shaped phase.
+        max_cv_regression: Allowed absolute CV increase between shaped rounds.
 
     Returns:
         The :class:`AcceptanceVerdict`.
@@ -226,11 +235,17 @@ def acceptance_verdict(
         and np.isfinite(score_before)
         and score_after < score_before - float(score_eps)
     )
+    cv_degraded = bool(
+        cv_before is not None
+        and cv_after is not None
+        and (not np.isfinite(cv_after) or cv_after > cv_before + max_cv_regression)
+    )
     tags = [
         name
         for name, hit in (
             ("loss_worsened", loss_worsened),
             ("score_degraded", score_degraded),
+            ("cv_degraded", cv_degraded),
         )
         if hit
     ]
@@ -449,6 +464,42 @@ class SlmModelInLoopConfig:
     the held-out correlation into an in-sample one.
     """
 
+    # --- uncertainty-sampled probes (opt-in; R-82 / R-86) -------------------
+    uncertainty_probes: bool = False
+    """Choose Step A probes by maximising predictive uncertainty (R-82).
+
+    ``False`` (default) keeps the historical fixed-random probe set byte-for-byte.
+    When ``True``, each Step A probe is the phase that propagates the current
+    coefficient posterior to the largest far-field variance
+    (:class:`UncertaintyProbeSelector`), so probes concentrate on the aberration
+    directions the fit is least sure about instead of re-probing well-identified
+    ones. The selector is seeded from the round's train seeds, so the run-to-run
+    seed invariant is preserved; only the probe *phase* changes, not the seed
+    arithmetic.
+    """
+
+    uncertainty_on_rejection: bool = False
+    """Escalate a rejected round to uncertainty probes (R-86).
+
+    Independent of :attr:`uncertainty_probes`: when a round follows a rejection
+    (``rejection_streak > 0``), that round's probes switch to uncertainty
+    sampling even if the base run uses fixed-random probes. This replaces the
+    blind ``escalate_probe_count`` extra-random-probes with probes aimed at the
+    residual uncertainty that caused the rejection.
+    """
+
+    uncertainty_probe_samples: int = 6
+    """Monte-Carlo coefficient samples ``K`` in the predictive-variance estimate."""
+
+    uncertainty_probe_steps: int = 30
+    """Normalised-ascent steps taken per uncertainty probe before it is measured."""
+
+    uncertainty_probe_diversity: float = 0.5
+    """Penalty pushing successive probes apart (see the selector)."""
+
+    uncertainty_probe_ridge: float = 1e-3
+    """Ridge ``lambda`` regularising the Fisher inverse that forms the posterior."""
+
     min_holdout_correlation: float = 0.5
     """Require each independent CCD/model Pearson correlation before Step B."""
 
@@ -603,6 +654,7 @@ class SlmModelInLoopConfig:
 
     acceptance_loss_delta: float = 1e-4
     acceptance_score_eps: float = 1e-3
+    max_cv_regression: float = 0.02
     damp_lr_factor: float = 0.5
     """Step-A lr multiplier applied after a rejected round."""
 
@@ -630,6 +682,9 @@ class SlmModelInLoopConfig:
     slm_number: int = 1
     phase_disturbance_file: str | None = None
     """Fixed raw-radian panel bias added to every hardware phase display."""
+    blaze_period_px: int = -1
+    """-1 disables off-axis carrier; 0 measures candidate periods; >=4 tests one."""
+    blaze_direction: str = "vertical"
     slm_wavelength: int = 1064
     """SLM operating wavelength in nm.
 
@@ -728,7 +783,13 @@ class SlmModelInLoopConfig:
     progress_every: int = 1
 
     def __post_init__(self) -> None:
-        """Validate the budget and normalise the frozen-mode list."""
+        """Validate the budget, optical carrier and frozen-mode list."""
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
+            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_direction not in ("vertical", "horizontal"):
+            raise ValueError("blaze_direction must be vertical or horizontal")
+        if self.blaze_period_px >= 0 and self.cam_type == "sim":
+            raise ValueError("blaze calibration requires a full-frame hardware CCD")
         if self.n_rounds < 1:
             raise ValueError(f"n_rounds must be >= 1, got {self.n_rounds}")
         if self.probe_count < 2:
@@ -752,6 +813,8 @@ class SlmModelInLoopConfig:
             )
         if self.step_a_iterations < 0 or self.step_b_iterations < 1:
             raise ValueError("step_a_iterations must be >= 0 and step_b_iterations must be >= 1")
+        if not math.isfinite(self.max_cv_regression) or self.max_cv_regression < 0:
+            raise ValueError("max_cv_regression must be finite and non-negative")
         if not 0.0 < self.damp_lr_factor < 1.0:
             raise ValueError(
                 f"damp_lr_factor must lie in (0, 1), got {self.damp_lr_factor}"
@@ -862,6 +925,8 @@ class ModelInLoopResult:
     probe_records: list[dict[str, Any]] = field(default_factory=list)
     fitted_coefficients: np.ndarray | None = None
     source_amplitude: np.ndarray | None = None
+    blaze_params: Any | None = None
+    blaze_choice: Any | None = None
 
 
 @dataclass
@@ -1071,6 +1136,55 @@ def _holdout_phase(
     return _structured_probe_phase(region, spread, seed), "zernike"
 
 
+def _select_uncertainty_probes(
+    optimizer: Any,
+    config: SlmModelInLoopConfig,
+    seeds: list[int],
+    *,
+    prev_probes: list[np.ndarray] | None = None,
+) -> list[np.ndarray]:
+    """Pick Step A probes by maximising far-field predictive uncertainty (R-82/R-86).
+
+    Args:
+        optimizer: Step A optimizer already carrying the running coefficients and
+            source amplitude (as built by :func:`_make_optimizer`).
+        config: Loop config; supplies region, probe spread and the selector knobs.
+        seeds: This round's train seeds; the first seeds the selector RNG so the
+            probe set is reproducible for the round.
+        prev_probes: Probe phases measured in the previous round, folded into the
+            coefficient posterior via Fisher before selecting. ``None`` on the
+            first round, which then uses an isotropic prior.
+
+    Returns:
+        One ``(region, region)`` raw-radian probe per seed, mutually diverse.
+    """
+    from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (
+        UncertaintyProbeSelector,
+    )
+
+    spread = float(config.probe_spread)
+    selector = UncertaintyProbeSelector(
+        optimizer,
+        seed=int(seeds[0]) if seeds else int(config.seed),
+        n_samples=int(config.uncertainty_probe_samples),
+        ridge=float(config.uncertainty_probe_ridge),
+        spread_cap=spread,
+        spread_floor=0.75 * spread,
+        diversity_weight=float(config.uncertainty_probe_diversity),
+        mode="maximize",
+    )
+    if prev_probes:
+        selector.update_covariance(prev_probes)
+
+    probes: list[np.ndarray] = []
+    for _ in seeds:
+        for _ in range(int(config.uncertainty_probe_steps)):
+            selector.update()
+        probes.append(selector.current_phase())
+        selector.commit()
+    return probes
+
+
 class _SimBench:
     """Numerical stand-in for the 2f bench, used for CI and offline QA.
 
@@ -1235,14 +1349,7 @@ class _HardwareBench:
         try:
             self._cam.open()
             if config.cam_type == "daheng":
-                self._ceiling_ms = self._resolve_daheng_ceiling()
-                initial_ms = config.exposure_time_ms or min(0.02, self._ceiling_ms)
-                actual_ms = self._cam.reset_exposure_time(initial_ms)
-                if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
-                    raise RuntimeError(
-                        f"unsafe Daheng exposure readback: {actual_ms} ms "
-                        f"(ceiling {self._ceiling_ms} ms)"
-                    )
+                self._cam.reset_exposure_time(0.02)
             self._slm = Santec(
                 slm_number=config.slm_number,
                 wavelength=config.slm_wavelength or None,
@@ -1264,6 +1371,53 @@ class _HardwareBench:
             self._disturbance = load_panel_disturbance(
                 config.phase_disturbance_file, panel_shape
             )
+            self._blaze_choice = None
+            self.signal_center_local = None
+            if config.cam_type == "daheng":
+                flat_panel = phase_to_panel(
+                    np.zeros((config.region, config.region), dtype=np.float64),
+                    int(round(config.panel_span_px / 2)), config.pupil_center,
+                )
+                self._capture(
+                    self._cam, self._slm,
+                    flat_panel if self._disturbance is None else flat_panel + self._disturbance,
+                    n_frames=1, n_discard=config.settle_max_discard,
+                    wait_time_s=config.settle_wait_s, stable_tol=config.settle_tol,
+                    max_wait_s=config.settle_max_wait_s,
+                )
+                self._ceiling_ms = self._resolve_daheng_ceiling()
+                initial_ms = config.exposure_time_ms or min(0.02, self._ceiling_ms)
+                actual_ms = self._cam.reset_exposure_time(initial_ms)
+                if not 0 < actual_ms <= self._ceiling_ms + 1e-9:
+                    raise RuntimeError(
+                        f"unsafe Daheng exposure readback: {actual_ms} ms "
+                        f"(ceiling {self._ceiling_ms} ms)"
+                    )
+            if config.blaze_period_px >= 0:
+                from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
+
+                def capture_blaze(phase: np.ndarray) -> np.ndarray:
+                    displayed = phase if self._disturbance is None else phase + self._disturbance
+                    image = np.asarray(self._capture(
+                        self._cam, self._slm, displayed, n_frames=1,
+                        n_discard=config.settle_max_discard,
+                        wait_time_s=config.settle_wait_s,
+                        stable_tol=config.settle_tol,
+                        max_wait_s=config.settle_max_wait_s,
+                    ), dtype=np.float64)
+                    if config.cam_type == "daheng" and float(np.max(image)) >= 250:
+                        raise RuntimeError("blaze CCD probe saturated; reduce exposure")
+                    return image
+
+                self._blaze_choice = select_blaze(
+                    capture_blaze, panel_shape,
+                    target_side=config.target_side,
+                    window_size=config.cam_size or config.target_side,
+                    period_px=config.blaze_period_px,
+                    direction=config.blaze_direction,
+                )
+                self.signal_center_local = self._blaze_choice.signal_xy
+                logger.info("measured blaze: {}", self._blaze_choice)
             if config.cam_size > 0:
                 from ao_shaping.utils.image.beam_metrics import zero_order_center
 
@@ -1297,7 +1451,10 @@ class _HardwareBench:
                 full_clean = prepare_frame(np.asarray(full_frame, dtype=np.float64))
                 if float(np.max(full_clean)) < 10.0:
                     raise RuntimeError("full-frame CCD has no detectable zero order")
-                full_x, full_y = zero_order_center(full_clean, refine=False)
+                full_x, full_y = (
+                    self._blaze_choice.signal_xy if self._blaze_choice is not None
+                    else zero_order_center(full_clean, refine=False)
+                )
                 half = config.cam_size // 2
                 if (
                     full_x - half < 0
@@ -1306,10 +1463,15 @@ class _HardwareBench:
                     or full_y + half >= full_clean.shape[0]
                 ):
                     raise RuntimeError("CCD zero order is too close to sensor edge")
-                self._cam.reset_window(
+                actual_size, actual_center = self._cam.reset_window(
                     center=(full_x, full_y),
                     size=(config.cam_size, config.cam_size),
                 )
+                if self._blaze_choice is not None:
+                    self.signal_center_local = (
+                        full_x - actual_center[0] + actual_size[0] // 2,
+                        full_y - actual_center[1] + actual_size[1] // 2,
+                    )
                 logger.info("CCD ROI centered on full-frame zero order ({}, {})", full_x, full_y)
         except Exception:
             if self._slm is not None:
@@ -1330,36 +1492,19 @@ class _HardwareBench:
 
         The ceiling is optical-path dependent (laser power, attenuation), so no
         constant is baked in.  When nothing pins it, the CCD image is probed
-        with a doubling ladder; whatever the SLM happens to display at that
-        moment only makes the estimate *brighter*, i.e. the ceiling lower —
-        the safe direction.
+        with a doubling ladder bounded by the camera's exposure range; whatever
+        the SLM happens to display at that moment only makes the estimate
+        *brighter*, i.e. the ceiling lower — the safe direction.
         """
-        ceiling = float(self._config.max_exposure_ms) or configured_daheng_exposure_limit()
-        if ceiling > 0:
-            return ceiling
         from ao_shaping.drivers.ccd.common import get_camera_exposure_range
 
         min_ms, max_ms = get_camera_exposure_range(self._cam)
-        estimate = probe_exposure_ceiling_ms(
-            self._cam.reset_exposure_time,
-            lambda: np.asarray(self._cam.get_numpy_image(n_sample=2)),
-            start_ms=max(min_ms, 1e-3),
-            hard_max_ms=max_ms,
+        return resolve_daheng_exposure_limit(
+            self._config.max_exposure_ms,
+            camera=self._cam,
+            probe_start_ms=max(min_ms, 1e-3),
+            probe_hard_max_ms=max_ms,
         )
-        logger.info(
-            "Daheng exposure ceiling probed from the image: {:.4f} ms "
-            "(last safe {:.3f} ms, peak {:.1%} of full scale at the final step)",
-            estimate.ceiling_ms,
-            estimate.last_safe_ms,
-            estimate.peak_fractions[-1],
-        )
-        if estimate.ceiling_ms < min_ms:
-            raise RuntimeError(
-                f"probed exposure ceiling {estimate.ceiling_ms:.4f} ms is below the "
-                f"camera minimum {min_ms} ms; reduce laser power or add attenuation "
-                f"before a quantitative run"
-            )
-        return estimate.ceiling_ms
 
     def display(self, phase_model: np.ndarray) -> None:
         # Raw unwrapped radians on the PANEL: the only mod-2pi wrap in the whole
@@ -1374,6 +1519,10 @@ class _HardwareBench:
         )
         if self._disturbance is not None:
             self._pending += self._disturbance
+        if self._blaze_choice is not None:
+            from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+            self._pending = apply_zero_order_overlay(self._pending, self._blaze_choice.params)
 
     def measure(self) -> np.ndarray:
         if self._pending is None:
@@ -1515,12 +1664,17 @@ def _metrics_at(
         The metric dict from
         :func:`~ao_shaping.utils.image.beam_metrics.compute_square_metrics`.
     """
-    from ao_shaping.utils.image.beam_metrics import compute_square_metrics
+    from ao_shaping.utils.image.beam_metrics import compute_shape_iou, compute_square_metrics
 
     if target_shape == "square":
-        return compute_square_metrics(
+        from ao_shaping.utils.image.targets import square_mask
+
+        metrics = compute_square_metrics(
             frame, int(target_side), (float(center[0]), float(center[1]))
         )
+        target = square_mask(np.asarray(frame).shape, center[1], center[0], int(target_side))
+        metrics["shape_iou"] = compute_shape_iou(frame, target)
+        return metrics
     from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
         create_target_mask,
     )
@@ -1536,6 +1690,7 @@ def _metrics_at(
     return {
         "uniformity_cv": float(np.std(values) / mean) if mean > 0 else 0.0,
         "encircled_energy": float(np.maximum(values, 0).sum() / total) if total > 0 else 0.0,
+        "shape_iou": compute_shape_iou(image, target > 0.5),
         "intensity_max": float(image.max()),
         "intensity_mean": mean,
     }
@@ -1638,6 +1793,71 @@ def _to_model_grid(
     return np.ascontiguousarray(np.rot90(resized, -camera_rotation_quarters))
 
 
+def _far_field_cell_scale(
+    camera_px_per_cell: float, *, from_far_field: int, to_far_field: int
+) -> float:
+    """Rescale ``camera_px_per_model_px`` between zero-padding sizes.
+
+    A far-field cell is ``lambda*f/(P*d_model)`` wide, so the camera pixels one
+    cell spans grow as the zero-padding size ``P`` shrinks: the scale is
+    inversely proportional to ``P``.  Single implementation of that rule --
+    both the geometry rescale and the prior-run comparison go through it.
+    """
+    return float(camera_px_per_cell) * float(from_far_field) / float(to_far_field)
+
+
+def _geometry_on_model_grid(
+    geometry: BenchGeometry, *, region: int, far_field_size: int
+) -> BenchGeometry:
+    """Re-sample a measured geometry onto the model's far-field grid.
+
+    ``camera_px_per_model_px`` is camera pixels per far-field *cell*, and a cell
+    is ``lambda*f/(P*d_model)`` wide, so the scale is inversely proportional to
+    the zero-padding size ``P`` (``far_field_size``).  The panel box, the beam
+    waist and the spot FWHM are bench properties and do not move: a geometry
+    measured at one padding factor is still usable at another -- only the
+    far-field sampling changes -- so rejecting it would strand the GUI, whose
+    padding default (8) differs from the calibration runbook's (3).
+
+    Args:
+        geometry: The geometry as measured (or as stored by a prior run).
+        region: Model grid side the caller is about to use.
+        far_field_size: Zero-padding size the caller is about to use.
+
+    Returns:
+        ``geometry`` unchanged when already on that grid, else a copy with
+        ``far_field_size`` and ``camera_px_per_model_px`` rescaled.
+
+    Raises:
+        ValueError: If ``geometry.region`` differs -- the pupil grid itself is
+            different, which no rescale can repair.
+    """
+    if int(geometry.region) != int(region):
+        raise ValueError(
+            f"geometry region {geometry.region} != model region {int(region)}"
+        )
+    if int(geometry.far_field_size) == int(far_field_size):
+        return geometry
+    scale = _far_field_cell_scale(
+        geometry.camera_px_per_model_px,
+        from_far_field=int(geometry.far_field_size),
+        to_far_field=int(far_field_size),
+    )
+    logger.info(
+        "rescaling measured geometry far field {} -> {} "
+        "(camera_px_per_model_px {:.4f} -> {:.4f})",
+        geometry.far_field_size,
+        int(far_field_size),
+        geometry.camera_px_per_model_px,
+        scale,
+    )
+    return replace(
+        geometry,
+        far_field_size=int(far_field_size),
+        camera_px_per_model_px=scale,
+    )
+
+
 def _calibrate_geometry(
     config: SlmModelInLoopConfig, bench: Bench
 ) -> tuple[Any, list[CalibrationRecordLike]]:
@@ -1649,31 +1869,46 @@ def _calibrate_geometry(
     peak-normalised MSE: with a peaked spot the MSE is dominated by tail energy
     and reports a small number for patterns that do not actually correspond.
 
+    An explicit ``config.geometry_file`` (a runbook ``--stage sweep`` artefact)
+    short-circuits the solver; a file measured at another far-field padding is
+    rescaled onto this run's grid by :func:`_geometry_on_model_grid`.
+
     Returns:
         The :class:`~ao_shaping.optimizer.wfless.model_in_loop_shaping.BenchGeometry`
         and the records it consumed (empty for the simulated bench).
     """
     from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
-        BenchGeometry,
         CalibrationRecord,
         calibrate_bench_geometry,
+        load_bench_geometry,
     )
 
     if isinstance(bench, _SimBench):
         return bench.true_geometry(), []
     if config.geometry_file is not None:
-        import json
-
-        payload = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
-        geometry = BenchGeometry(**payload)
-        if (
-            geometry.region != config.region
-            or geometry.far_field_size != config.region * config.far_field_padding
-            or geometry.method != "sweep"
-        ):
-            raise ValueError("sweep geometry file does not match the model grid")
+        geometry = load_bench_geometry(config.geometry_file)
+        if not geometry.is_sweep:
+            raise ValueError(
+                f"geometry file {config.geometry_file!r} has method "
+                f"{geometry.method!r}, not 'sweep'. Speckle geometries are the "
+                "abandoned route this run's bake-off replaced; measure one with "
+                "scripts/slm/model_in_loop_hw_runbook.py."
+            )
+        geometry = _geometry_on_model_grid(
+            geometry,
+            region=int(config.region),
+            far_field_size=int(config.region) * int(config.far_field_padding),
+        )
         logger.info("using independently measured sweep geometry: {}", config.geometry_file)
         return geometry, []
+
+    logger.warning(
+        "no geometry file: solving the bench geometry from speckle probes. On "
+        "this bench that route is a measured failure (correlation ~0.07 against "
+        "the {:.2f} bake-off floor), so the run will most likely abort. Measure "
+        "one first: python scripts/slm/model_in_loop_hw_runbook.py --stage all",
+        config.min_geometry_correlation,
+    )
 
     records: list[CalibrationRecordLike] = []
     for index in range(int(config.n_calibration_probes)):
@@ -1942,14 +2177,41 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
     import ast
     import json
 
+    from ao_shaping.optimizer.wfless.model_in_loop_shaping import load_bench_geometry
+
     run_dir = Path(config.prior_run_dir)
     if config.geometry_file is None:
         raise ValueError("prior_run_dir requires an explicit geometry_file")
-    geometry = json.loads((run_dir / "bench_geometry.json").read_text(encoding="utf-8"))
-    current = json.loads(Path(config.geometry_file).read_text(encoding="utf-8"))
-    for key in ("region", "far_field_size", "panel_disc_radius", "camera_px_per_model_px"):
-        if not np.isclose(float(geometry[key]), float(current[key]), rtol=1e-6):
-            raise ValueError(f"prior run geometry mismatch: {key}")
+    prior_geometry = load_bench_geometry(run_dir / "bench_geometry.json")
+    current_geometry = load_bench_geometry(config.geometry_file)
+    # The pupil grid itself cannot be rescaled: both geometries must sit on this
+    # run's model grid.
+    if (
+        int(prior_geometry.region) != int(config.region)
+        or int(current_geometry.region) != int(config.region)
+    ):
+        raise ValueError("prior run geometry mismatch: region")
+    if not np.isclose(
+        float(prior_geometry.panel_disc_radius),
+        float(current_geometry.panel_disc_radius),
+        rtol=1e-6,
+    ):
+        raise ValueError("prior run geometry mismatch: panel_disc_radius")
+    # Compare the far-field scale on THIS run's grid: a prior run may have been
+    # stored at another padding factor, which is a pure re-sampling difference.
+    target_far_field = int(config.region) * int(config.far_field_padding)
+    prior_scale = _far_field_cell_scale(
+        prior_geometry.camera_px_per_model_px,
+        from_far_field=int(prior_geometry.far_field_size),
+        to_far_field=target_far_field,
+    )
+    current_scale = _far_field_cell_scale(
+        current_geometry.camera_px_per_model_px,
+        from_far_field=int(current_geometry.far_field_size),
+        to_far_field=target_far_field,
+    )
+    if not np.isclose(prior_scale, current_scale, rtol=1e-6):
+        raise ValueError("prior run geometry mismatch: camera_px_per_model_px")
     metadata_file = run_dir / "run_config.json"
     if metadata_file.is_file():
         previous = json.loads(metadata_file.read_text(encoding="utf-8"))
@@ -2109,7 +2371,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         # Locate the optical axis ONCE. The 0-order is the frame's global
         # maximum, never the geometric centre -- on this bench it sits far
         # off-centre -- and it is frozen for the whole run from here on.
-        roi_center = zero_order_center(flat_frame, refine=False)
+        roi_center = getattr(bench, "signal_center_local", None) or zero_order_center(
+            flat_frame, refine=False
+        )
         logger.info("frozen ROI centre (x, y) = {}", roi_center)
 
         # ---------------- Stage 1: geometry, then the bake-off -------------
@@ -2279,10 +2543,12 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         step_a_lr = float(config.step_a_lr)
         probe_count = int(config.probe_count)
         rejection_streak = 0
+        prev_uncertainty_probes: list[np.ndarray] | None = None
         phase = np.zeros((config.region, config.region), dtype=np.float64)
         # None until the first shaped round is accepted: the flat baseline is not
         # a fair reference for the acceptance test (see acceptance_verdict).
         score_before: float | None = None
+        best_accepted_cv: float | None = None
         best_score, best_phase, best_frame = flat_score, flat_phase.copy(), flat_frame
         status = ModelInLoopStatus.COMPLETED
         step_b_cfg = StepBConfig(
@@ -2318,14 +2584,31 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 int(config.holdout_probe_count + config.freeform_holdout_count),
                 config.probe_split_hook,
             )
+            use_uncertainty = bool(
+                config.uncertainty_probes
+                or (config.uncertainty_on_rejection and rejection_streak > 0)
+            )
+            uncertainty_probes = (
+                _select_uncertainty_probes(
+                    optimizer,
+                    config,
+                    train_seeds,
+                    prev_probes=prev_uncertainty_probes,
+                )
+                if use_uncertainty
+                else None
+            )
             frames: list[tuple[np.ndarray, np.ndarray]] = []
             for probe_index, probe_seed in enumerate(train_seeds):
-                probe = _probe_phase(
-                    config.region,
-                    config.probe_spread,
-                    probe_seed,
-                    smooth=config.cam_type != "sim",
-                )
+                if uncertainty_probes is not None:
+                    probe = uncertainty_probes[probe_index]
+                else:
+                    probe = _probe_phase(
+                        config.region,
+                        config.probe_spread,
+                        probe_seed,
+                        smooth=config.cam_type != "sim",
+                    )
                 bench.display(probe)
                 raw_probe = bench.measure()
                 measured = prepare_frame(raw_probe)
@@ -2407,6 +2690,8 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             else:
                 fitted, step_a_iters = coefficients.copy(), 0
+            if config.uncertainty_probes or config.uncertainty_on_rejection:
+                prev_uncertainty_probes = [probe for _, probe in frames]
             if config.cam_type != "sim":
                 recorder.iteration_traces[index + 1] = {"step_a_trace": step_a_trace}
             # --- Guard 1: trust region on the coefficient change -----------
@@ -2610,6 +2895,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 score_after,
                 loss_delta=float(config.acceptance_loss_delta),
                 score_eps=float(config.acceptance_score_eps),
+                cv_before=best_accepted_cv,
+                cv_after=float(shaped_metrics["uniformity_cv"]),
+                max_cv_regression=float(config.max_cv_regression),
             )
             applied_l2 = float(np.linalg.norm(clamped - coefficients))
             if trust_region is not None:
@@ -2644,6 +2932,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 "score_after": float(score_after),
                 "cv_after": float(shaped_metrics.get("uniformity_cv", float("nan"))),
                 "ee_after": float(shaped_metrics.get("encircled_energy", float("nan"))),
+                "shape_iou_after": float(shaped_metrics["shape_iou"]),
                 "uniformity_cv": float(
                     shaped_metrics.get("uniformity_cv", float("nan"))
                 ),
@@ -2706,6 +2995,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 # live view and the step sink were handed.
                 phase = shaped_phase.copy()
                 score_before = score_after
+                candidate_cv = float(shaped_metrics["uniformity_cv"])
+                best_accepted_cv = (
+                    candidate_cv if best_accepted_cv is None
+                    else min(best_accepted_cv, candidate_cv)
+                )
                 rejection_streak = 0
                 if score_after > best_score:
                     best_score, best_phase = score_after, phase.copy()
@@ -2810,6 +3104,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             probe_records=probe_records,
             fitted_coefficients=coefficients.copy(),
             source_amplitude=source_amplitude.copy(),
+            blaze_params=(
+                getattr(bench, "_blaze_choice", None).params
+                if getattr(bench, "_blaze_choice", None) is not None else None
+            ),
+            blaze_choice=getattr(bench, "_blaze_choice", None),
         )
     finally:
         if live_display is not None:

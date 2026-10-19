@@ -12,7 +12,7 @@ AO-Shaping 是一个基于强化学习的自适应光学 (AO) 系统，用于波
 - **多优化算法**: 支持基于波前传感器的 RMS 优化和无波前的 PIB 优化 (SPGD/GA/PSO/CEM/Tabu/可微分)
 - **强化学习集成**: 使用 SAC 算法进行波前优化
 - **硬件支持**: Thorlabs WFS、NLight 变形镜、R50Power MicroDM、大恒相机、MIICAM、Santec SLM200、NI DAQ ADC
-- **数字孪生**: 2f-Fourier SLM-PIB 仿真台架 (湍流 + 热晕扰动、相机噪声模型)，无硬件即可回归
+- **数字孪生**: 2f-Fourier SLM-PIB 仿真系统 (湍流 + 热晕扰动、相机噪声模型)，无硬件即可回归
 - **ML 训练**: U-Net+GAN 相位预测、Zernike 前向/逆向模型、FourierGSNet
 - **实验跟踪**: WandB / SwanLab；**数据处理**: Dask
 
@@ -68,16 +68,16 @@ uv sync
 
 | 文档 | 内容 |
 |------|------|
-| [docs/architecture.md](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 台架唯一入口约定 |
+| [docs/architecture.md](docs/architecture.md) | 项目结构（详细）、物理-optical 数据类模型 (`ao_shaping.model`)、2f-Fourier 实验系统唯一入口约定 |
 | [docs/drivers_architecture.md](docs/drivers_architecture.md) | 驱动分层架构、设备注册表、惰性加载契约、2026-10 更新 |
 | [docs/hardware_drivers.md](docs/hardware_drivers.md) | 硬件驱动详情：WFS / DM / 相机 / SLM / 数据采集卡 |
-| [docs/simulation.md](docs/simulation.md) | 数字孪生仿真：2f-Fourier 台架、DM→相位耦合、噪声模型红线、湍流+热晕扰动 |
+| [docs/simulation.md](docs/simulation.md) | 数字孪生仿真：2f-Fourier 实验系统、DM→相位耦合、噪声模型红线、湍流+热晕扰动 |
 | [docs/zernike_usage.md](docs/zernike_usage.md) | Zernike 两层入口、最小示例、单位/约定红线 |
 | [docs/ml_training.md](docs/ml_training.md) | ML 训练入口与报告索引、指标口径红线 (R²/corr, 不用 PSNR/SSIM) |
 | [docs/gui.md](docs/gui.md) | Streamlit GUI 入口一览、multi_slm_controller 与 GS 方形整形 |
 | [docs/dev/coding_conventions.md](docs/dev/coding_conventions.md) | 编码规范、测试规范、贡献流程 |
 | [docs/dev/call_graph_wiki/index.md](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：20 命令逐命令 + 骨架函数逐函数文档（AST 静态分析，脚本在 `scripts/call_graph/` 可重跑） |
-| [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 台架表征流程、验收阈值、四条台架铁律 |
+| [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 实验系统表征流程、验收阈值、四条实验系统铁律 |
 | [docs/slm/slm_gui_manual.md](docs/slm/slm_gui_manual.md) | SLM GUI 完整操作手册 |
 | [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.18.0) |
 | [report/](report/) | 实验报告 (结论/测量/基准)，每份带生成脚本溯源块 |
@@ -144,11 +144,11 @@ python -m ao_shaping.tools.slm.panel.diagnose             # slm-diagnose
 python -m ao_shaping.tools.micro_dm.micro_dm_image_collect # Micro-DM 逐单元采集
 ```
 
-### SLM 台架探针 (独立运行, 不注册为 CLI)
+### SLM 实验系统探针 (独立运行, 不注册为 CLI)
 
 以下探针**不注册为 CLI 命令**，用 `python -m ao_shaping.tools.<子包>.<名字>` 直接运行，
 且都支持 `--no-hw` (只打印采集计划、不碰硬件)。它们固化了 2026-09-30 在大恒 +
-Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第一性原理重新推导几何**。
+Santec SLM-200 实验系统上踩出来的实验系统常数与测量陷阱，**不要用第一性原理重新推导几何**。
 
 | 探针 (`python -m` 路径) | 文档 | 用途 |
 |---|---|---|
@@ -165,7 +165,7 @@ Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第
 > 🔑 **启动 GS / GSNet / SPGD runner 之前先跑表征探针**:
 > `ccd.drift_probe` → `ccd.floor_probe` → `zernike.abba_probe`。
 > 完整流程、验收阈值、**危险默认值清单**、**曝光 `0` 的真实语义 (§4.1)** 与
-> **四条台架铁律** (暗帧不可裸 `argmax` / SLM 保留上次图案 / 固定 `memory_number`
+> **四条实验系统铁律** (暗帧不可裸 `argmax` / SLM 保留上次图案 / 固定 `memory_number`
 > 是固件 no-op / 液晶要等"稳定"而非"够久") 见
 > [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md)。
 
@@ -209,14 +209,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
 ```
 
-`multi_slm_controller.py` 提供多种全息相位图案生成：平场、闪耀光栅、达曼光栅、涡旋相位等。支持**从 CSV 加载相位**（格式：1200×1920，值 0~1023，首行/首列为 Y/X 索引），走 `load_gray_from_csv` → `csv_to_phase` → `display_phase` 三步管线，与 GUI 预览共用 `create_phase_from_array()` 保证字节级一致；也支持将当前相位或相位 A/B **导出为弧度 CSV**（`Santec.save_phase_to_csv()`，保留 Y/X 行列索引）。导出文件的数据区是弧度值而非灰度值，不能交给 `load_gray_from_csv()` 或 `csv_to_phase()`；重新使用时应按弧度读取并传入 `create_phase_from_array()`。
-
-旧的开环方形整形功能（**GS方形整形** / **GS方形整形(高斯版)** / **稳像法整形**，含 `_gs_square_phase_radians` / `generate_gs_square_phase`）已移除：在本 2f-Fourier 台架上，用未标定的台架参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形（见 [`report/shape_trials/README.md`](report/shape_trials/README.md) 与 [`report/shape_trials/online_20261010.md`](report/shape_trials/online_20261010.md)）。取而代之的是新的 **闭环整形** 区（`src/ao_shaping/gui/slm/shaping_controls.py::render_closed_loop_shaping`，单/双 SLM 布局均渲染），提供两种方法：
-
-1. **GS+SPGD 闭环整形（已验证配方）**：与 CLI `slm-gs-refine` 同一代码路径（`SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`），GUI 默认值即交替重放验证过的配方（[`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)）：cam_type daheng、曝光 0.05 ms（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、pupil_center `960,690`、beam_radius_px 450、target_side 100、cam_size 250、gs_iters 12、far_field_padding 3、phase_grid 12、epochs 12、seed 0、confirm_best 开、gs_method plain。验证结果：flat 0.527 → plain GS 0.775 → SPGD best 0.780（两次一致的交替重放）。
-2. **正向模型闭环整形（前沿）**：CLI `slm-model-in-loop` 链路（`SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`），需要 torch；目前最佳均匀性 CV 0.643 / EE 0.786，但尚未成为被接受的均匀方形（见 [`report/shape_trials/model_in_loop_live_20261013.md`](report/shape_trials/model_in_loop_live_20261013.md)）。
-
-设备生命周期注意：上述优化器在内部自行打开/关闭 SLM 与相机（Santec SDK 句柄不可重入），因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，另一台 SLM 保持连接）。结束时的最佳相位（raw 弧度）经常规 `display_phase` 路径下发显示。GUI 显示 flat/GS/best 各阶段得分、PIB、CV 与 GS bake-off 判定（adopted/rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
+`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md) 与 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md)。
 
 ## 项目结构（简版）
 
@@ -243,4 +236,4 @@ AO-shaping/
 
 版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.18.0**, 2026-10-12）。
 最近一轮要点：逆向整形 PhasorUNet、自适应 SPGD、GS 预矫正上硬件、仿真 WFS 接入
-runner 命令面、DM→瞳孔相位耦合进入仿真、相机噪声模型修复、台架工具重组。
+runner 命令面、DM→瞳面相位耦合进入仿真、相机噪声模型修复、实验系统工具重组。

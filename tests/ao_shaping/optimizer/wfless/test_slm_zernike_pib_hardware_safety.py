@@ -44,8 +44,11 @@ PRODUCTION = "ao_shaping.optimizer.wfless.slm_zernike_pib"
 @pytest.fixture(autouse=True)
 def _sim_bench(monkeypatch):
     mod = importlib.import_module(PRODUCTION)
-    install_sim_slm(mod)
+    # monkeypatch must bind before ``install_sim_slm`` (which overwrites ``Santec``
+    # at module scope) so the real driver is snapshotted for teardown; reversed,
+    # the sim twin leaks into later tests.
     monkeypatch.setattr(mod, "Santec", SimSLMPib, raising=False)
+    install_sim_slm(mod)
 
 
 def _config(*, epochs: int = 4, algorithm: str = "spgd", **overrides):

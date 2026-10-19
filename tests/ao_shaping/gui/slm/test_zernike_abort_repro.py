@@ -24,7 +24,7 @@ def app_zernike_alone() -> None:
     # Local import is load-bearing: AppTest.from_function serialises this
     # function into a fresh Streamlit script context where the module-level
     # `import streamlit as st` is not visible.
-    import streamlit as st
+    import streamlit as st  # noqa: F811
 
     from ao_shaping.gui.slm.pattern_controls import ZernikeControl
 
@@ -37,7 +37,7 @@ def app_pattern_select() -> None:
     # Local import is load-bearing: AppTest.from_function serialises this
     # function into a fresh Streamlit script context where the module-level
     # `import streamlit as st` is not visible.
-    import streamlit as st
+    import streamlit as st  # noqa: F811
 
     from ao_shaping.gui.slm.multi_slm_controller import render_pattern_controls
 

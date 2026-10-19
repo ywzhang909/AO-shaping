@@ -2,9 +2,10 @@
 
 The module owns the per-session Daheng exposure ceiling.  The ceiling is a
 property of the optical path (laser power, attenuation, coupling), not of the
-sensor, so it must never be a package constant: it is resolved from the
-``AO_DAHENG_MAX_EXPOSURE_MS`` environment variable, and when that variable is
-missing or 0 the CCD image itself is probed with a doubling exposure ladder
+sensor, so it must never be a package constant.  Every caller resolves it
+through the single entry point :func:`resolve_daheng_exposure_limit`, which
+prefers an explicit value, then the ``AO_DAHENG_MAX_EXPOSURE_MS`` environment
+variable, and otherwise probes the CCD image with a doubling exposure ladder
 (:func:`probe_exposure_ceiling_ms`).
 """
 
@@ -14,8 +15,11 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 import math
 import os
+from typing import Any
 
 import numpy as np
+
+from loguru import logger
 
 
 DAHENG_EXPOSURE_LIMIT_ENV = "AO_DAHENG_MAX_EXPOSURE_MS"
@@ -45,23 +49,70 @@ def configured_daheng_exposure_limit() -> float:
     return value
 
 
-def resolve_daheng_exposure_limit(requested_ms: float = 0.0, *, camera_max_ms: float | None = None) -> float:
-    """Resolve a Daheng ceiling from explicit config, env, then camera.
+def resolve_daheng_exposure_limit(
+    requested_ms: float = 0.0,
+    *,
+    camera: Any | None = None,
+    probe_start_ms: float = 0.02,
+    probe_hard_max_ms: float | None = None,
+) -> float:
+    """Resolve a Daheng exposure ceiling: explicit config, env, then image probe.
 
     ``0`` is an auto sentinel at every layer.  A positive explicit value takes
-    precedence over the environment, which takes precedence over the driver
-    capability.  The final value is always finite and positive.
+    precedence over ``AO_DAHENG_MAX_EXPOSURE_MS``, which takes precedence over
+    probing the connected ``camera`` with a doubling exposure ladder.  When a
+    probe runs, its outcome is logged and the returned value is the safe
+    ceiling.  The probe leaves the camera at the last ladder step, so the caller
+    owns re-arming the working exposure afterwards.
+
+    A probe that lands below ``probe_start_ms`` means the optical path saturates
+    even at the ladder floor — no exposure setting can fix that, so it raises an
+    actionable error instead of returning an unusable ceiling.  ``camera`` is
+    used only through ``reset_exposure_time`` and ``get_numpy_image``, so no
+    driver import is required here.
     """
     requested = float(requested_ms)
     if not math.isfinite(requested) or requested < 0:
         raise ValueError("requested Daheng exposure limit must be finite and non-negative")
     limit = requested or configured_daheng_exposure_limit()
-    if not limit and camera_max_ms is not None:
-        limit = float(camera_max_ms)
+    if not limit:
+        if camera is None:
+            raise ValueError(
+                "Daheng exposure ceiling is unavailable; set "
+                f"{DAHENG_EXPOSURE_LIMIT_ENV} or pass an open camera to probe it"
+            )
+        try:
+            estimate = probe_exposure_ceiling_ms(
+                camera.reset_exposure_time,
+                lambda: np.asarray(camera.get_numpy_image(n_sample=1)),
+                start_ms=probe_start_ms,
+                hard_max_ms=probe_hard_max_ms,
+            )
+        except ValueError as exc:
+            if "saturated at the minimum probe exposure" in str(exc):
+                raise RuntimeError(
+                    "CCD saturates at minimum exposure; reduce laser power or add attenuation"
+                ) from exc
+            raise
+        limit = min(estimate.ceiling_ms, probe_hard_max_ms) if probe_hard_max_ms else estimate.ceiling_ms
+        logger.info(
+            "Daheng exposure ceiling probed from the image: {:.4f} ms "
+            "(last safe {:.4f} ms, saturated at {})",
+            limit,
+            estimate.last_safe_ms,
+            "never" if estimate.saturated_ms is None else f"{estimate.saturated_ms:.4f} ms",
+        )
+        if limit < probe_start_ms:
+            raise RuntimeError(
+                f"probed Daheng exposure ceiling {limit:.4f} ms is below the "
+                f"ladder floor {probe_start_ms:.4f} ms: the optical path is "
+                "saturated even at minimum exposure — reduce laser power or "
+                "add attenuation before probing again"
+            )
     if not math.isfinite(limit) or limit <= 0:
         raise ValueError(
             "Daheng exposure ceiling is unavailable; set "
-            f"{DAHENG_EXPOSURE_LIMIT_ENV} or use a camera reporting max_exposure_ms"
+            f"{DAHENG_EXPOSURE_LIMIT_ENV} or probe an open camera"
         )
     return limit
 
@@ -93,11 +144,9 @@ def estimate_exposure_ceiling_ms(
 
     The sensor response is linear below clipping, so a frame whose peak is
     ``p`` of full scale at exposure ``ms`` saturates (peak = ``saturation_fraction``)
-    at ``ms * saturation_fraction / p``.  The ceiling is the **minimum** of
-    these per-frame estimates: a clipped frame can only pull its estimate
-    *down* (its true peak is higher than the clipped one), which is the safe
-    direction.  The result is discounted by ``headroom`` so the ceiling stays
-    below the estimated saturation point, not on it.
+    at ``ms * saturation_fraction / p``.  The smallest estimate is discounted
+    by ``headroom``. It may exceed the last tested step when that step remains
+    dim, allowing the same probe to work across optical paths.
 
     The optical path sets where saturation falls, which is why this is
     estimated from the image instead of stored as a constant.  Zero-peak
@@ -139,6 +188,8 @@ def estimate_exposure_ceiling_ms(
             first_saturated = ms
     if not estimates:
         raise ValueError("no ladder frame carries signal; cannot estimate a ceiling")
+    if last_safe <= 0:
+        raise ValueError("CCD is saturated at the minimum probe exposure")
     return ExposureCeilingEstimate(
         ceiling_ms=min(estimates) * headroom,
         last_safe_ms=last_safe,
@@ -200,6 +251,32 @@ def probe_exposure_ceiling_ms(
     return estimate_exposure_ceiling_ms(
         ladder, saturation_fraction=saturation_fraction, headroom=headroom
     )
+
+
+def working_exposure_ms(
+    ceiling_ms: float,
+    *,
+    fraction: float = 0.5,
+    floor_ms: float = 0.02,
+) -> float:
+    """The exposure a run should actually use, given a resolved ceiling.
+
+    Single source of truth for "probe said X, so use Y": the panel-locate
+    sweep, the geometry sweep and the GUI sidebar probe must all agree, or the
+    evidence a run explains was taken at a different exposure than the run
+    used.  ``fraction`` defaults to a half of the ceiling -- the ceiling is
+    where the brightest pixel would reach 90% of full scale, so half of it puts
+    the peak near 45%: enough raw counts for the shaping metrics, with the
+    clip margin the report asks for.  ``floor_ms`` is the driver's own clamp,
+    so a very bright bench still lands on a legal exposure.
+    """
+    if not math.isfinite(ceiling_ms) or ceiling_ms <= 0:
+        raise ValueError(f"ceiling_ms must be finite and positive, got {ceiling_ms!r}")
+    if not 0 < fraction <= 1:
+        raise ValueError(f"fraction must lie in (0, 1], got {fraction}")
+    if not math.isfinite(floor_ms) or floor_ms < 0:
+        raise ValueError(f"floor_ms must be finite and non-negative, got {floor_ms!r}")
+    return max(float(floor_ms), float(fraction) * float(ceiling_ms))
 
 
 @dataclass(frozen=True)

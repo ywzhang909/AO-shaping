@@ -420,7 +420,7 @@ class TestCallbackSupport:
                 np.zeros(n_dev),
             )
 
-            result = calibrate_zernike_response_matrix(
+            calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
                 n_max=n_max,
@@ -454,7 +454,7 @@ class TestCallbackSupport:
         )
 
         n_max = 3
-        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        calc_n_zernike_terms(n_max) - 1
         n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_callback = MagicMock()
@@ -481,7 +481,7 @@ class TestCallbackSupport:
             )
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
-            result = calibrate_zernike_response_matrix(
+            calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
                 n_max=n_max,
@@ -507,7 +507,7 @@ class TestCallbackSupport:
         )
 
         n_max = 3
-        n_slm_terms = calc_n_zernike_terms(n_max) - 1
+        calc_n_zernike_terms(n_max) - 1
         n_wfs_terms = calc_n_zernike_terms(n_max) - 1
 
         mock_zslm = MagicMock()
@@ -533,7 +533,7 @@ class TestCallbackSupport:
             )
             mock_tqdm.side_effect = lambda x, **kwargs: x
 
-            result = calibrate_zernike_response_matrix(
+            calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
                 n_max=n_max,
@@ -586,7 +586,7 @@ class TestCallbackSupport:
                 np.zeros(n_dev),
             )
 
-            result = calibrate_zernike_response_matrix(
+            calibrate_zernike_response_matrix(
                 zslm=mock_zslm,
                 wfs=mock_wfs,
                 n_max=n_max,

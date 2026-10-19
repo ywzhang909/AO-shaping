@@ -18,26 +18,26 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 变形镜仿真 (带迟滞特性) — `dm/simulated_dm.py`: `SimulateDM`, `SimMicroDM`
 - 波前传播与光束传播 — `beam_backend.py` (canonical: `turbulence_phase`, Fraunhofer/角谱), `wave.py` (legacy Wave 工具)
 - 模拟 WFS (`SimulatedWFS`, OOPAO Shack-Hartmann, 瞳面 slope 模型) — `wfs/simulated_wfs.py`
-- DM→瞳孔相位耦合 (`SimDmOptics`, 可分离高斯影响力函数) — `dm_optics.py`
+- DM→瞳面相位耦合 (`SimDmOptics`, 可分离高斯影响力函数) — `dm_optics.py`
 - 2f-Fourier SLM-PIB 数字孪生 (`SimPibSystem`) — `slm_shaping_bench.py` / `slm_pib_sim.py`
 - FourierGSNet 仿真环境 — `fouriergsnet_env.py`
 - 波前干扰 (湍流 + 热晕) — `disturbance.py`
 - 兼容层 (`compat.py`: `AOConfig`, `TraditionalAOSystem`, 供 `sim_spgd.py` 与 RL `envs.py`)
 
-## 2f-Fourier 整形台架的唯一入口
+## 2f-Fourier 整形实验系统的唯一入口
 
 前向模型、目标函数指标与参考优化器**只在** `drivers/sim/slm_shaping_bench.py`。
 `optimizer/wfless/slm_shaping_bench.py` 是**向后兼容 re-export shim**。
 
 > ⚠️ **不要再手抄第二份实现**。2026-10-01 的 merge 曾在两个模块各留一份
 > `gs_shape`/`differentiable_shape`/`spgd_shape`，而副本用的是
-> `beam_backend.focal_plane` 走**未加零填充**的瞳孔，canonical 版则零填充到
+> `beam_backend.focal_plane` 走**未加零填充**的瞳面，canonical 版则零填充到
 > `far_field_size` 再做 Fraunhofer FFT —— 同一个方法**按 import 来源返回不同指标**，
 > 且不报任何错。拆分模块时只加 re-export，不要复制函数体。
 
 ## DM→相位耦合已接入仿真 (2026-10-01)
 
-`SimDmOptics` (`sim/dm_optics.py`) 把 DM 电压映射为瞳孔相位，经 `SimPibSystem.dm_optics`
+`SimDmOptics` (`sim/dm_optics.py`) 把 DM 电压映射为瞳面相位，经 `SimPibSystem.dm_optics`
 在 `far_field()` 的 **cache-miss 分支**叠加 (与 `disturbance` 同一约定: 相位贡献者在**求值时**相加,
 绝不烘进 `self._phase`)。此前 `pib` / `combined` 的仿真结果**没有物理意义** (DM 动作对远场无影响)。
 
@@ -52,8 +52,8 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - **单位链**: `opd_um = stroke_um * v / v_max` → `phase_rad = opd_um * 2π / (λ_nm * 1e-3)`。0 V 为平场 (与真实驱动一致)。`V_Min=-300` 与 `V_Max=499` **不对称**, 故负向半程行程短于正向 —— 裁剪到负轨**不是**正轨的镜像。
 - **相位是 raw 未包裹弧度**, 不做 `mod 2π`: 全项目唯一 wrap 点在 SLM 驱动。
 - **cache 失效靠 `dm_optics.version`**: DM 是独立光学状态, 电压变化必须让 `_far_field` 失效, 否则相机继续返回旧图, 看起来"DM 毫无作用"。
-- 传感器按自己的瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
-- ⚠️ 以前 DM 只发布到远场, 于是 `wf` 永远读到平 pupil、无论 DM 怎么动 RMS 都是 0。
+- 传感器按自己的瞳面网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
+- ⚠️ 以前 DM 只发布到远场, 于是 `wf` 永远读到平 pupil（瞳面）、无论 DM 怎么动 RMS 都是 0。
 
 修复后实测 `main.py pib --cam_type sim --dm_type sim -e 200`, 目标函数真实上升: pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145; pib 单位为 %, 故可 >1)。
 
@@ -89,7 +89,7 @@ read noise 经 clip 后 **4598×** (缺陷)。光斑只占 ~150 px 而画幅 2.3
 `zernike_utils.generate_zernike_phase` 构造 (Noll 4 离焦 + Noll 11 球差，负号=负热透镜)，
 经 smoothstep 光晕窗延展并按 waves 归一化峰谷值。全程 raw 未包裹弧度。
 
-**注意**: `cn2` 与 `distance` 是**退化**旋钮 (`r0` 只依赖二者乘积，单层薄屏无传播物理，本台架是
+**注意**: `cn2` 与 `distance` 是**退化**旋钮 (`r0` 只依赖二者乘积，单层薄屏无传播物理，本实验系统是
 ~0.3 m 实验室 2f 光路) —— 属参数化应力测试而非大气传输仿真；numpy 相位屏缺少次谐波补偿，
 实测 σ 低于同 r0 的解析值，故报告一律引用**实测** σ。`SimulatedThermalScreen`(热晕相位屏)
 的 digitaltwin 实现已随死分支清理删除（`14b1cda`），现恒为静默 no-op，**不可使用**。
@@ -113,8 +113,8 @@ dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目
 
 ## Legacy: Wave 工具与 compat 层
 
-`wave.py` 的 `create_wave / apply_aperture / apply_focus / propagate / power_bucket /
-radius_metric` 与 `compat.py` 的 `AOConfig / TraditionalAOSystem` 仍供旧优化器
+`wave.py` 的 `create_wave / apply_aperture / apply_focus / propagate / power_bucket_sum /
+radius_metric`（`power_bucket` 已按 #78 改名 `power_bucket_sum`，见 `612f8cad`）与 `compat.py` 的 `AOConfig / TraditionalAOSystem` 仍供旧优化器
 (`sim_spgd.py`, RL `envs.py`) 使用。注意：
 
 - 这些工具历史上包装 `sim.digitaltwin`；该包现已不在仓库中，相关 digitaltwin 分支

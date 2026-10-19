@@ -40,6 +40,10 @@ from loguru import logger  # noqa: E402
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.utils.objective_direction import (  # noqa: E402
+    objective_direction as _objective_direction,
+)
+
 # CJK-capable font fallbacks (per repo script convention).
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -47,12 +51,10 @@ plt.rcParams["axes.unicode_minus"] = False
 #: ``subdir_prefix`` used by ``slm_zernike_shaping._save_debug_artifacts``.
 ARTIFACT_PREFIX = "slm_zernike_shaping_"
 
-#: Objectives the optimizer *maximises*. Mirrors the ``objective_mode``
-#: derivation in ``slm_zernike_shaping.py`` (L759-762): ``pib``/``avg_radiu``/
-#: ``shape``/``roi_pib``/``rms_pib`` are "max", everything else is "min"
-#: (``radiu``, ``rmse``, ``rmse_out``). The JSON sidecar does not persist the
-#: mode, so it is reconstructed here instead of assuming "max".
-MAX_OBJECTIVES = frozenset({"pib", "avg_radiu", "shape", "roi_pib", "rms_pib"})
+#: Objectives the optimizer *maximises*. Single source of truth in
+#: ``ao_shaping.utils.objective_direction`` (imported above); the JSON sidecar
+#: does not persist the mode, so it is reconstructed here instead of
+#: assuming "max".
 
 #: Fallback objective columns, tried in order when the payload's ``objective``
 #: name is absent from the records (never invent a key — probe instead).
@@ -200,8 +202,12 @@ def resolve_objective_key(run: dict) -> str:
 
 
 def objective_direction(key: str) -> str:
-    """``"max"`` for the bucket/shaping objectives, ``"min"`` otherwise."""
-    return "max" if str(key).strip().lower() in MAX_OBJECTIVES else "min"
+    """``"max"`` for the bucket/shaping objectives, ``"min"`` otherwise.
+
+    Thin wrapper over the single-source :func:`_objective_direction` so the
+    report's call sites keep a stable, explicitly named local function.
+    """
+    return _objective_direction(key)
 
 
 def objective_summary(run: dict, key: str, direction: str) -> dict[str, Any]:

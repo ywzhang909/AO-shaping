@@ -197,8 +197,8 @@
     ]
   },
   "slm_beam_extent": {
-    "body_literals": 15,
-    "body_literals_sha256": "5369474b4cfb2b2b",
+    "body_literals": 16,
+    "body_literals_sha256": "2f5ff502845cb226",
     "declared": [
       "--axis",
       "--cam-id",
@@ -366,6 +366,42 @@
       "--stable-tol"
     ]
   },
+  "slm_focus_probe": {
+    "body_literals": 91,
+    "body_literals_sha256": "343d93dde939786d",
+    "declared": [
+      "--cam-id",
+      "--cam-type",
+      "--centre-x",
+      "--centre-y",
+      "--diopter-range",
+      "--exposure-ms",
+      "--frames",
+      "--max-exposure-ms",
+      "--radius-px",
+      "--refine",
+      "--slm-number",
+      "--slm-wavelength",
+      "--steps"
+    ],
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.focus_probe [OPTIONS]\n\n  在 plain 相位上扫描菲涅尔焦距，找让焦面回到相机的 1/f。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       起始曝光 ms (默认 0.1，每个点会自动调整)\n  --radius-px FLOAT         照明半径 面板px (默认 450)\n  --centre-x FLOAT          入射中心 x 面板px (默认面板中心)\n  --centre-y FLOAT          入射中心 y 面板px (默认面板中心)\n  --steps INTEGER           粗扫点数 (默认 25，含平场)\n  --diopter-range FLOAT     粗扫 1/f 半宽 m⁻¹ (默认 6.0)\n  --refine INTEGER          最优点附近的细扫点数 (默认 7)\n  --frames INTEGER          每点平均帧数 (默认 3)\n  --max-exposure-ms FLOAT   曝光上限 ms (默认 20)\n  --help                    Show this message and exit.",
+    "help_flags": [
+      "--cam-id",
+      "--cam-type",
+      "--centre-x",
+      "--centre-y",
+      "--diopter-range",
+      "--exposure-ms",
+      "--frames",
+      "--help",
+      "--max-exposure-ms",
+      "--radius-px",
+      "--refine",
+      "--slm-number",
+      "--slm-wavelength",
+      "--steps"
+    ]
+  },
   "slm_lut_runner": {
     "body_literals": 114,
     "body_literals_sha256": "6ce89cc76250fad0",
@@ -411,8 +447,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 102,
-    "body_literals_sha256": "1d01c55fe0e50707",
+    "body_literals": 126,
+    "body_literals_sha256": "95ebbfecb534bf41",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -509,8 +545,8 @@
     ]
   },
   "slm_short_exposure_probe": {
-    "body_literals": 54,
-    "body_literals_sha256": "cefb63c4b6cbd5aa",
+    "body_literals": 53,
+    "body_literals_sha256": "e11e0215253b437a",
     "declared": [
       "--exposures-ms",
       "--phase-run-dir"

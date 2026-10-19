@@ -17,14 +17,14 @@
     apply_aperture()     # 施加圆形光阑
     apply_focus()        # 施加薄透镜聚焦相位
     propagate()          # 角谱传播
-    power_bucket()       # 计算 PIB 指标
+    power_bucket_sum()   # 桶内光强裸求和 (无 dpix 缩放/加权; 区别于 utils 的 power_bucket)
     radius_metric()      # 计算能量包含半径
 
 Example:
     >>> from ao_shaping.drivers.sim import (
     ...     SimulatedTurbulentScreen,
     ...     create_wave, apply_aperture, apply_focus,
-    ...     propagate, power_bucket, radius_metric,
+    ...     propagate, power_bucket_sum, radius_metric,
     ... )
     >>>
     >>> wave = create_wave(256, 0.1e-3, 1550e-9)
@@ -33,7 +33,7 @@ Example:
     >>> turb = SimulatedTurbulentScreen(Cn2=1e-9)
     >>> turb.process(wave)
     >>> propagate(wave, 0.5)
-    >>> pib = power_bucket(wave.intensity, wave.x, wave.y, 'origin', 5e-3)
+    >>> pib = power_bucket_sum(wave.intensity, wave.x, wave.y, 'origin', 5e-3)
 """
 from __future__ import annotations
 
@@ -73,7 +73,7 @@ from ao_shaping.drivers.sim.wave import (
     apply_aperture,
     apply_focus,
     propagate,
-    power_bucket,
+    power_bucket_sum,
     radius_metric,
 )
 
@@ -100,7 +100,7 @@ __all__ = [
     "apply_aperture",
     "apply_focus",
     "propagate",
-    "power_bucket",
+    "power_bucket_sum",
     "radius_metric",
     # DM
     "SimMicroDM",

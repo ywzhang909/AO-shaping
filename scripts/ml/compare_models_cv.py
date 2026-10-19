@@ -296,7 +296,6 @@ def main() -> int:
                     unet_features=args.unet_features,
                     unet_output_mode=args.unet_output_mode,
                 ).to(device)
-                started = time.perf_counter()
                 model, seconds, _ = fit(model, train_t, cfg, device, forward_for(name))
                 prediction = _predict(model, _inputs(val_t), forward_for(name))
                 target = _peak_normalise(val_t["target"].clone())

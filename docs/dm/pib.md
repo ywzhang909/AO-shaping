@@ -74,7 +74,7 @@ graph TD
 python src/ao_shaping/main.py pib --cam-type sim --dm-type sim -e 200
 ```
 
-> DM→相位耦合已接入仿真 (2026-10-01)：`SimDmOptics` 把 DM 电压映射为瞳孔相位，经 `SimPibSystem.dm_optics` 在 `far_field()` 的 cache-miss 分支叠加。修复前仿真结果**没有物理意义** (DM 动作对远场无影响)。修复后实测 `pib --cam-type sim --dm-type sim -e 200`，目标函数真实上升：pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145)。
+> DM→相位耦合已接入仿真 (2026-10-01)：`SimDmOptics` 把 DM 电压映射为瞳面相位，经 `SimPibSystem.dm_optics` 在 `far_field()` 的 cache-miss 分支叠加。修复前仿真结果**没有物理意义** (DM 动作对远场无影响)。修复后实测 `pib --cam-type sim --dm-type sim -e 200`，目标函数真实上升：pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145)。
 
 ## 7. 曝光默认值陷阱 (红线)
 

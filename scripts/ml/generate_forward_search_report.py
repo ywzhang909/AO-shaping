@@ -140,7 +140,7 @@ def main() -> None:
             ax.set_xticks([])
             ax.set_yticks([])
             ax = axes[r, 2 + 2 * c]
-            imd = ax.imshow(p - true, cmap="coolwarm", vmin=-0.5, vmax=0.5)
+            ax.imshow(p - true, cmap="coolwarm", vmin=-0.5, vmax=0.5)
             if r == 0:
                 ax.set_title("残差 pred − true", fontsize=9)
             ax.set_xticks([])

@@ -38,7 +38,7 @@ def main() -> None:
         disp_grid = (1, 2)
         fig, ax = plt.subplots(*disp_grid)
         ax[0].plot(dfhistory["J"].to_list())
-        cm3 = ax[1].imshow(
+        ax[1].imshow(
             np.stack(dfhistory["_v"].to_list()).transpose(),
             interpolation="nearest",
             aspect="auto",

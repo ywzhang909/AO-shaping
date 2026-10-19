@@ -89,7 +89,7 @@ class _CentroidDB:
         csv_path = diff_dir / "centroids.csv"
         if csv_path.is_file():
             with open(csv_path, encoding="utf-8") as f:
-                header = f.readline()
+                f.readline()
                 for line in f:
                     line = line.strip()
                     if not line:

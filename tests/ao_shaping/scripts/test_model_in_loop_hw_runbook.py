@@ -248,6 +248,48 @@ class TestPureHelpers:
         assert back == geo
         assert json.loads(runbook.geometry_to_json(geo))["panel_disc_radius"] == 200
 
+    def test_shared_serialisation_round_trip(self) -> None:
+        """#152: producer writes via ``to_json``, consumer reads via
+        ``from_json_text`` / ``load_bench_geometry`` — same object back, and the
+        producer's module functions delegate to the same code (no drift)."""
+        from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
+            BenchGeometry,
+            load_bench_geometry,
+        )
+
+        sweep = BenchGeometry(
+            panel_disc_radius=450, region=64, beam_waist_panel_px=450.0,
+            far_field_size=192, camera_px_per_model_px=2.7955,
+            spot_fwhm_camera_px=12.0, spot_fwhm_model_px=4.0, correlation=0.8376,
+            method="sweep",
+        )
+        # producer (class) -> consumer (class)
+        back = BenchGeometry.from_json_text(sweep.to_json())
+        assert back == sweep
+        assert back.is_sweep is True
+        # consumer via the disk entry point
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "bench_geometry.json"
+            p.write_text(sweep.to_json(), encoding="utf-8")
+            assert load_bench_geometry(p) == sweep
+        # is_sweep false for a speckle geometry
+        speckle = BenchGeometry(
+            panel_disc_radius=200, region=256, beam_waist_panel_px=192.0,
+            far_field_size=4096, camera_px_per_model_px=1.845,
+            spot_fwhm_camera_px=29.5, spot_fwhm_model_px=17.25, correlation=0.93,
+        )
+        assert speckle.is_sweep is False
+        # producer module functions delegate to the classmethods
+        from scripts.slm.model_in_loop_hw_runbook import (
+            geometry_from_json,
+            geometry_to_json,
+        )
+
+        assert geometry_to_json(sweep) == sweep.to_json()
+        assert geometry_from_json(sweep.to_json()) == sweep
+
 
 class TestExposureGuardUnits:
     """``shoot``'s Daheng read-back guard, pinned in the driver's own unit.
@@ -272,6 +314,16 @@ class TestExposureGuardUnits:
         cam.is_mock = False
         cam.reset_exposure_time(exposure_ms)
         return cam
+
+    def test_auto_session_exposure_uses_current_ceiling(
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AO_DAHENG_MAX_EXPOSURE_MS", "0.4")
+        args = _args(runbook, tmp_path, exposure_ms=0.0)
+        cam = self._real_camera(0.02)
+        assert runbook._resolve_exposure_ceiling(cam, args) == 0.4
+        assert args.exposure_ms == pytest.approx(0.2)
+        assert cam.exposure_time == pytest.approx(0.2)
 
     def test_readback_is_milliseconds(self) -> None:
         cam = MockCamera()

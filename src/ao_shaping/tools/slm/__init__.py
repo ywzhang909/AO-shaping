@@ -11,7 +11,7 @@ and the camera-only / WFS probes now live beside it::
       wfs/       wfs_probe, wfs_reference, zernike_response, zernike_correction
       slm/
         panel/         diagnose, tilt_probe, panel_locate, beam_extent,
-                       phase_resolution, phase_response
+                       focus_probe, phase_resolution, phase_response
         calibration/   calibration, gray_response, lut_runner, phase_capture,
                        train_data_collect
         cartographer/  cosine_pattern, hartmann_capture,
@@ -25,6 +25,8 @@ and the camera-only / WFS probes now live beside it::
                        with a fixed SLM aberration
         model_in_loop_replay.py  interleaved CCD replay of two saved
                        model-in-loop phases
+        model_in_loop_summary.py  per-item gate summary of a saved
+                       model-in-loop run directory (offline)
         replay_disturbance.py  interleaved fixed-exposure CCD replay of the
                        four saved comparison phases
         params.py      shared click parameter groups

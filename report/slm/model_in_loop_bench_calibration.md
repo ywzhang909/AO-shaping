@@ -4,10 +4,10 @@
 > **生成脚本**: [`scripts/slm/model_in_loop_hw_runbook.py`](../../scripts/slm/model_in_loop_hw_runbook.py)
 > **复现命令**: `python scripts/slm/model_in_loop_hw_runbook.py --stage all --target-cam-px 40`
 > **运行环境**: 硬件
-> **说明**: 正向模型台架几何标定；runbook 采集 + 本文档结论
+> **说明**: 正向模型实验系统几何标定；runbook 采集 + 本文档结论
 <!-- provenance:end -->
 
-**本轮结论**：本轮（2026-09-29 至 10-01）在 SLM-200（1064 nm）+ Daheng 相机真实 2f-Fourier 台架上完成正向模型几何标定与 model-in-the-loop 验证，六项核心结论：(1) 面板有效相位分辨率远粗于单像素——逐像素随机相位对远场无可测影响（core40 0.0261→0.0247），散斑相关标定路线在本台架不可实现（相关系数上限 ~0.07），正式放弃；(2) 平滑 Zernike 倾斜扫频是唯一可靠的几何标定途径，k_tilt = 3.411 cam px/rad（三次重复 ~3%），光栅斜坡（7615）与 Zernike 倾斜（7579）两条独立路线在 0.5% 内一致；(3) 束腰参数在无 WFS 条件下不可辨识（六模式联合拟合残差 14.5%、离焦响应不对称 +70%），标定器按设计拒绝输出并显式标注；(4) 零像差模型 MSE 已达 0.0068，任何拟合系数均使一致性变差，确认本台架无低阶像差可拟合，残差为散斑级模型失配；(5) 在硬件有效采样（far_field_size=4096）下，Step B 150 步将均匀性 CV 从 13.83 改善至 0.651（21 倍）且能量无损失（EE 保持 1.0000），验证数字孪生闭环在真实尺度下有效；(6) 撤回"面板冻结"误诊——该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 memory_number 固件空操作），并固化三条测量纪律。注意：焦面标定常数在三处文档存在未收口冲突（TODO.md H-11/H-16），引用前须确认所用基准。
+**本轮结论**：本轮（2026-09-29 至 10-01）在 SLM-200（1064 nm）+ Daheng 相机真实 2f-Fourier 实验系统上完成正向模型几何标定与 model-in-the-loop 验证，六项核心结论：(1) 面板有效相位分辨率远粗于单像素——逐像素随机相位对远场无可测影响（core40 0.0261→0.0247），散斑相关标定路线在本实验系统不可实现（相关系数上限 ~0.07），正式放弃；(2) 平滑 Zernike 倾斜扫频是唯一可靠的几何标定途径，k_tilt = 3.411 cam px/rad（三次重复 ~3%），光栅斜坡（7615）与 Zernike 倾斜（7579）两条独立路线在 0.5% 内一致；(3) 束腰参数在无 WFS 条件下不可辨识（六模式联合拟合残差 14.5%、离焦响应不对称 +70%），标定器按设计拒绝输出并显式标注；(4) 零像差模型 MSE 已达 0.0068，任何拟合系数均使一致性变差，确认本实验系统无低阶像差可拟合，残差为散斑级模型失配；(5) 在硬件有效采样（far_field_size=4096）下，Step B 150 步将均匀性 CV 从 13.83 改善至 0.651（21 倍）且能量无损失（EE 保持 1.0000），验证数字孪生闭环在真实尺度下有效；(6) 撤回"面板冻结"误诊——该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 memory_number 固件空操作），并固化三条测量纪律。注意：焦面标定常数在三处文档存在未收口冲突（TODO.md H-11/H-16），引用前须确认所用基准。
 
 Measured constants and known failure modes for running
 `ZernikeCoefficientOptimizer` (Step A) and the A→B loop against the **real**
@@ -31,10 +31,10 @@ than those assumed by the digital twin.
 
 ## 主要结论总览（按测定日期）
 
-1. **面板相位分辨率结论（2026-09-30）**：逐像素随机相位对远场无可测影响（`core40` 0.0261→0.0247），而平滑 Zernike 像差随阶数单调劣化聚焦；面板的有效相位分辨率远粗于单像素，散斑相关路线在本台架不可实现（相关系数上限 ~0.07），该路线已正式放弃。
+1. **面板相位分辨率结论（2026-09-30）**：逐像素随机相位对远场无可测影响（`core40` 0.0261→0.0247），而平滑 Zernike 像差随阶数单调劣化聚焦；面板的有效相位分辨率远粗于单像素，散斑相关路线在本实验系统不可实现（相关系数上限 ~0.07），该路线已正式放弃。
 2. **扫频标定路线（2026-09-30）**：以平滑 Zernike 倾斜模式测质心位移是唯一可靠的几何标定途径；`k_tilt` = 3.411 cam px/rad（三次重复 0.325/0.331/0.335，重复性 ~3%），两条独立路线（光栅斜坡 7615 与 Zernike 倾斜 7579）在 0.5% 内一致，物理交叉校验比值 1.00×。
-3. **束腰不可辨识结论**：离焦响应关于自身极小值不对称 +70%，六模式联合拟合残差 14.5%，表明台架携带所扫模式基不完备的像差；束腰参数在缺少 WFS 的条件下不可辨识，标定器按设计拒绝输出并标注 `NOT identifiable`。
-4. **Step A 结论**：在 733 条实测记录上，零像差模型的 MSE 已达 0.0068，任何拟合系数使一致性变差（+0.21%~+0.32%）；本台架无低阶像差可拟合，残差为散斑级模型失配。
+3. **束腰不可辨识结论**：离焦响应关于自身极小值不对称 +70%，六模式联合拟合残差 14.5%，表明实验系统携带所扫模式基不完备的像差；束腰参数在缺少 WFS 的条件下不可辨识，标定器按设计拒绝输出并标注 `NOT identifiable`。
+4. **Step A 结论**：在 733 条实测记录上，零像差模型的 MSE 已达 0.0068，任何拟合系数使一致性变差（+0.21%~+0.32%）；本实验系统无低阶像差可拟合，残差为散斑级模型失配。
 5. **Step B 结论（数字孪生验证）**：在硬件有效采样（`far_field_size=4096`）下，150 步 Step B 将均匀性 CV 从 13.83 改善至 0.651（21×）且能量无损失（EE 保持 1.0000）。
 6. **"面板冻结"误诊撤回（2026-09-30）**：该结论由三个独立测量错误叠加造成（全帧归一化 L2 度量、无平滑 argmax、固定 `memory_number` 固件空操作）；倾斜探针证明面板调制正常，焦面尺度实测为 `7600/P` 而非朴素估计的 17.5 倍。
 
@@ -46,7 +46,7 @@ bench; re-scaling of model parameters cannot restore its validity.** Measured
 far field (`core40` = fraction of frame energy within 40 px of the 0-order,
 exposure 3.0 ms, beam radius 450 px at panel centre):
 
-| pupil phase | peak | `core40` |
+| pupil（瞳面） phase | peak | `core40` |
 |---|---|---|
 | flat | 86 | 0.0261 |
 | per-pixel random, 1 SLM px | 92 | 0.0247 — **essentially unchanged** |
@@ -87,7 +87,7 @@ options are:
 whereas smooth Zernike phase degrades the focus monotonically with order
 (peak 86 → 12 from n≤4 to n≤14). This supports the hypothesis that the panel
 low-pass filters high spatial frequencies, and refutes the premise that random
-pupil phase produces a far-field speckle pattern on this bench. The attainable
+pupil（瞳面） phase produces a far-field speckle pattern on this bench. The attainable
 speckle correlation is bounded at ~0.07 regardless of geometric fitting; the
 speckle-correlation calibration route is therefore abandoned in favour of the
 band-limited sweep route described in the next section.
@@ -186,7 +186,7 @@ registered as CLI commands; run them with `python -m ao_shaping.tools.slm.<name>
 |---|---|
 | `slm_tilt_probe` | **Is the panel actually modulating?** A 2*pi ramp over `P` px moves the spot by `7600/P` camera px, independent of diffraction efficiency. This is the probe that overturned the false "frozen panel" verdict — gratings could not, because oblique incidence moves where the first order lands. Also reports the displayed memory slot, so a firmware no-op is visible. |
 | `slm_panel_locate` | **Where is the beam on the panel?** Writes a random-phase disc at candidate positions and keeps the one that scatters the 0-order most. Replaces the old habit of converting the camera 0-order into a panel offset, which produced `(+426, -290)` px and rolled the pupil phase clean off the beam. |
-| `slm_beam_extent` | **How big is it?** Half-plane random-phase boundary sweep; the knee is the beam edge. Replaces a stale "~192 SLM px" note that had been used to modulate under half the pupil. |
+| `slm_beam_extent` | **How big is it?** Half-plane random-phase boundary sweep; the knee is the beam edge. Replaces a stale "~192 SLM px" note that had been used to modulate under half the pupil（瞳面）. |
 | `slm_phase_resolution` | **Can the panel resolve pixel-scale phase?** Per-pixel random phase vs random Zernike n<=4/8/14. |
 | `slm_exposure_check` | **Is the camera drifting?** Auto-exposure state plus peak/sum drift at a fixed setting, which separates "camera drift" from "the SLM still holds the previous run's pattern". |
 
@@ -417,7 +417,7 @@ model's fidelity; the A→B loop is still meaningful, with Step B carrying it.
 2. Exposure 3 ms (peak ≈ 97). Do not use `enable_auto_exposure`.
 3. Display phases through `slm.create_phase_from_array` with an explicit
    `(1200, 1920)` array; flat phase is zeros (radians), not a gray level.
-4. Model: `region` mapped to the ~192 SLM px illuminated pupil,
+4. Model: `region` mapped to the ~192 SLM px illuminated pupil（瞳面）,
    `far_field_size=4096`, `w0` matched to the real beam, `frozen_modes=(1,2,3)`.
 5. Size the target square from the *measured* scale (1 model px at
    `far_field_size=4096` is 4.06 µm ≈ 1.85 camera px), not from the model grid.
@@ -667,7 +667,7 @@ reason is physical: those runs build their Zernike over **radius 600 px** on the
 panel, while the beam only illuminates ~192 px, so the pupil phase inside the
 beam is a smooth, nearly flat quadratic. With no speckle to correlate, the score
 is dominated by the spot envelope and simply rewards the smoothest
-(broadest) pupil.
+(broadest) pupil（瞳面）.
 
 Use captures whose phase **varies across the illuminated area** — free-form /
 random pupil phases, or Zernike sets built with a radius matched to the beam.
@@ -688,4 +688,4 @@ model's far-field propagation.
 
 ## 与 slm-model-in-loop 的关系
 
-slm-model-in-loop 复用了本文件所述的台架几何自校准流程：通过 calibrate_bench_geometry 拟合几何参数，并在运行时检查实测远场与模型预测的相关性（--min-geometry-correlation）。当相关性低于阈值时，命令会拒绝整形并提示改用 slm-gs-refine。此外，它在 Step A 中交替拟合单个共享 Zernike 像差以校正正向模型，再在 Step B 中冻结该像差并合成目标光斑相位，从而避免两步互相抵消。
+slm-model-in-loop 复用了本文件所述的实验系统几何自校准流程：通过 calibrate_bench_geometry 拟合几何参数，并在运行时检查实测远场与模型预测的相关性（--min-geometry-correlation）。当相关性低于阈值时，命令会拒绝整形并提示改用 slm-gs-refine。此外，它在 Step A 中交替拟合单个共享 Zernike 像差以校正正向模型，再在 Step B 中冻结该像差并合成目标光斑相位，从而避免两步互相抵消。

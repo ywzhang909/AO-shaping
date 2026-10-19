@@ -51,7 +51,7 @@ graph TD
 - **本工具只用 memory 模式 (`video_mode=0`)，绝不自动尝试 DVI**
 
 ### `--camera-type` 必须与本台相机一致
-- 默认值 `miicam`；大恒台架上**必须**加 `--camera-type daheng`
+- 默认值 `miicam`；大恒实验系统上**必须**加 `--camera-type daheng`
 - 不加会直接失败：`miicam.HRESULTException: 请求的资源在使用中`
 
 ## 5. 主要选项
@@ -68,14 +68,14 @@ graph TD
 | `--step` | 只跑某步 (freeze/modulate/linearity/all) | all |
 | `-o, --output` | 保存诊断报告目录 | 不保存 |
 
-## 6. 台架铁律 (违反会得到看似可信的错结论)
+## 6. 实验系统铁律 (违反会得到看似可信的错结论)
 
 1. **暗帧不可用裸 `argmax` 定位光斑** —— peak 22~46 而帧均值 0.26 时单个热像素就能抢到 argmax；参考帧质心曾在 60 px 内自漂，足以把健康的板判成"没动"
 2. **SLM 保留上次显示的图案** —— 下发平场**之前**读到的"平场"其实是上一轮的散斑，同一 3 ms 设置因此测出 100 与 23 两个值
 3. **固定 `memory_number=` 是固件 no-op** —— 同一槽连续 `display_memory` 不刷新面板，之后每帧都是旧图。用 `display_data()` 不传 `memory_number`，让驱动自己轮换
 4. **液晶要等"稳定"，不是等"够久"** —— 驱动自动翻转时间估算按灰度图变化量给等待，两个灰度统计相近的相位会让它报 **0.0 ms**。实测同一斜坡首次读 fwhm 43.2px、3 秒后 12.8px、质心移 62px —— 单次采集会静默记录未稳定帧。`display_and_average` / `capture_settled` 改为丢弃帧直到连续两次读数一致
 
-## 7. 实测台架几何 (不得用第一性原理重新推导)
+## 7. 实测实验系统几何 (不得用第一性原理重新推导)
 
 - 光斑中心 (960, 600)、半径 450 面板 px
 - **panel↔camera 轴互换 90°**
@@ -96,9 +96,9 @@ python src/ao_shaping/main.py slm-diagnose --step freeze
 python src/ao_shaping/main.py slm-diagnose --camera-type daheng -o logs/slm_diagnose_20260101
 ```
 
-## 9. SLM 台架探针 (独立运行，不注册为 CLI)
+## 9. SLM 实验系统探针 (独立运行，不注册为 CLI)
 
-以下探针固化了 2026-09-30 在大恒 + Santec SLM-200 台架上踩出来的台架常数与测量陷阱，**不要用第一性原理重新推导几何**：
+以下探针固化了 2026-09-30 在大恒 + Santec SLM-200 实验系统上踩出来的实验系统常数与测量陷阱，**不要用第一性原理重新推导几何**：
 
 | 工具 | 用途 |
 |------|------|

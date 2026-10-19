@@ -300,6 +300,17 @@ class StepBConfig:
             DC suppression destroys a target centred on the beam origin.
         w_smoothness: Weight of the smoothness penalty; ``0.0`` keeps the sharp
             high-frequency content that square edges require.
+        noise_inject_every: Inject zero-mean Gaussian pupil noise into the
+            evolving SLM phase every N iterations (``0`` disables injection --
+            the default, which keeps the un-noised Step B bit-for-bit). This is
+            the system-relaxation hook (issue R-83): a per-step random perturbation
+            of the candidate phase that, in simulation, can make the solution
+            robust to the mismatch between the frozen aberration and the true
+            one, at the cost of a rougher phase.
+        noise_sigma_rad: Standard deviation (radians) of the injected noise.
+            Only applied inside the aperture (outside is masked by the pupil).
+            ``0.0`` (the default) injects nothing even when
+            ``noise_inject_every`` is set.
     """
 
     iterations: int = 600
@@ -310,6 +321,8 @@ class StepBConfig:
     w_efficiency: float = 0.6
     w_zero_order: float = 0.0
     w_smoothness: float = 0.0
+    noise_inject_every: int = 0
+    noise_sigma_rad: float = 0.0
 
 
 @dataclass
@@ -996,6 +1009,9 @@ def shape_phase_with_frozen_aberration(
     )
     phase = torch.nn.Parameter(start.clone())
     opt = torch.optim.Adam([phase], lr=config.lr)
+    # Dedicated RNG for the relaxation noise so it is independent of the torch
+    # start-phase draw but still reproducible from ``seed``.
+    noise_rng = np.random.default_rng(int(seed) + 0x9E37)
 
     def closure() -> Any:
         opt.zero_grad()
@@ -1036,6 +1052,18 @@ def shape_phase_with_frozen_aberration(
         loss_value = float(closure().detach().cpu().item())
         history.append(loss_value)
         opt.step()
+        if config.noise_inject_every > 0 and config.noise_sigma_rad > 0 and (index + 1) % config.noise_inject_every == 0:
+            with torch.no_grad():
+                inject = torch.from_numpy(
+                    np.ascontiguousarray(
+                        noise_rng.normal(
+                            0.0,
+                            float(config.noise_sigma_rad),
+                            (region, region),
+                        ).astype(np.float64)
+                    )
+                ).to(device=dev, dtype=tdtype)
+                phase.data += inject * aperture
         if on_iteration is not None:
             on_iteration(index, loss_value)
     logger.debug(
@@ -1261,6 +1289,39 @@ class BenchGeometry:
     method: str = "speckle"
     calibration_notes: str = ""
 
+    # ------------------------------------------------------------------
+    # 序列化 —— 唯一真源 (issue #152)
+    # ------------------------------------------------------------------
+    def to_json(self) -> str:
+        """Serialise to the ``bench_geometry.json`` schema (pretty, indent=2)."""
+        import json
+        from dataclasses import asdict
+
+        return json.dumps(asdict(self), indent=2)
+
+    @classmethod
+    def from_json_text(cls, text: str) -> "BenchGeometry":
+        """Inverse of :meth:`to_json`.
+
+        Old files written before ``method`` existed simply omit the key; the
+        dataclass default (``"speckle"``) then applies, so historical geometries
+        keep loading unchanged.
+        """
+        import json
+
+        return cls(**json.loads(text))
+
+    @property
+    def is_sweep(self) -> bool:
+        """``True`` iff this geometry came from the sweep calibration route.
+
+        Only a sweep geometry carries an independent goodness number
+        (``correlation`` as defocus-response goodness); a speckle artefact is the
+        abandoned ~0.07 route. Consumers should branch on this rather than
+        re-string-comparing ``self.method == "sweep"``.
+        """
+        return self.method == "sweep"
+
     def model_side_for_camera(self, camera_px: float) -> int:
         """Convert a target square side from camera pixels to model pixels.
 
@@ -1288,6 +1349,17 @@ def _model_window(
     top = (far_field.shape[0] - rows) // 2
     left = (far_field.shape[1] - cols) // 2
     return far_field[top : top + rows, left : left + cols]
+
+
+def load_bench_geometry(path: str | Path) -> BenchGeometry:
+    """Load a ``bench_geometry.json`` from disk.
+
+    The single entry point for reading the schema, so producer and consumer no
+    longer each hand-roll ``json.loads`` + ``BenchGeometry(**...)``. See
+    :meth:`BenchGeometry.from_json_text` for old-file (no ``method`` key)
+    compatibility.
+    """
+    return BenchGeometry.from_json_text(Path(path).read_text(encoding="utf-8"))
 
 
 def calibrate_bench_geometry(

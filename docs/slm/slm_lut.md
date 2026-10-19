@@ -98,6 +98,6 @@ python src/ao_shaping/main.py slm-lut --method offset -o data/slm_lut
 
 ## 10. 注意事项
 
-- `--camera-type` 必须与本台相机一致。默认 `miicam`；大恒台架上不加 `--camera-type daheng` 会直接失败 (`miicam.HRESULTException: 请求的资源在使用中`)
+- `--camera-type` 必须与本台相机一致。默认 `miicam`；大恒实验系统上不加 `--camera-type daheng` 会直接失败 (`miicam.HRESULTException: 请求的资源在使用中`)
 - 曝光时间建议从 0.03 ms 起步，自动曝光会自动调整
 - 校准耗时约 (1024/16) × 10 帧 × 0.3s ≈ 32 分钟

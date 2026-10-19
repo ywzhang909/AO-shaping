@@ -1,10 +1,10 @@
-# SPGD delta 扫描 (实机)
+# SPGD delta 扫描 (实验)
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/explore_delta.py`](../../scripts/slm/explore_delta.py)
 > **复现命令**: `python scripts/slm/explore_delta.py`
 > **运行环境**: 硬件
-> **说明**: delta 小范围扫描 (实机)
+> **说明**: delta 小范围扫描 (实验)
 <!-- provenance:end -->
 
 **本轮结论**：小 delta 档（0.0005/0.001）两档均判为随机游走（dec=0.52），late 增益 −1.4%/+0.1% 均在噪声内。小 delta 下信号被噪声地板淹没（多模式 SNR≈1.3），与理论预期一致：delta 越小，单步差分信号 ∝δ 而噪声不变，SNR 线性恶化。结论与全扫描一致——**不是 delta 选错，而是每步 SPGD 信噪比不足**；优先排查慢漂移对梯度估计的污染，再谈参数选择。
@@ -13,7 +13,7 @@
 - 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_pearson/`
 
 判据: `dec` = 下降步占比 (0.5 为随机游走), `late` = 前 1/3 与后 1/3 均值之差。
-**不使用 final-vs-first** —— 实机上它会被端点噪声骗到 (见 report/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。
+**不使用 final-vs-first** —— 实验上它会被端点噪声骗到 (见 report/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。
 
 | delta | verdict | dec | late % | span % | guard % | accepted | first | final |
 |---|---|---|---|---|---|---|---|---|

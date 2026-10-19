@@ -66,6 +66,7 @@ from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     crop_around_zero_order,
     estimate_shift,
     gaussian_grid,
+    measure_flat_reference,
     phase_to_panel,
     ramp_panel,
     zernike_panel,
@@ -81,6 +82,7 @@ from ao_shaping.utils.image.exposure_control import (  # noqa: E402
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
     probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -156,13 +158,13 @@ def load_records(path: Path) -> list[CalibrationRecord]:
 
 
 def geometry_to_json(geo: BenchGeometry) -> str:
-    """Serialise a BenchGeometry."""
-    return json.dumps(asdict(geo), indent=2)
+    """Serialise a BenchGeometry (delegates to :meth:`BenchGeometry.to_json`)."""
+    return geo.to_json()
 
 
 def geometry_from_json(text: str) -> BenchGeometry:
-    """Inverse of geometry_to_json."""
-    return BenchGeometry(**json.loads(text))
+    """Inverse of geometry_to_json (delegates to ``BenchGeometry.from_json_text``)."""
+    return BenchGeometry.from_json_text(text)
 
 
 def save_phase_png(path: Path, phase: np.ndarray) -> None:
@@ -259,16 +261,9 @@ def _resolve_exposure_ceiling(cam, args: argparse.Namespace) -> float:
     only lowers the estimate, the safe direction) and stashed on ``args`` for
     the per-frame read-back guard in :func:`shoot`.
     """
-    ceiling = configured_daheng_exposure_limit()
-    if not ceiling:
-        estimate = probe_exposure_ceiling_ms(
-            cam.reset_exposure_time,
-            lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-        )
-        ceiling = estimate.ceiling_ms
-        logger.info(
-            "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
-        )
+    ceiling = resolve_daheng_exposure_limit(camera=cam)
+    if args.exposure_ms == 0:
+        args.exposure_ms = max(0.02, 0.5 * ceiling)
     if args.exposure_ms > ceiling + 1e-9:
         raise ValueError(
             f"Daheng exposure {args.exposure_ms} ms exceeds the resolved "
@@ -328,17 +323,24 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     from ao_shaping.utils.io.file import Recorder
 
     recorder = Recorder(mark="peak", mode="min")
-    offset = (0, 0)
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
         # reset_exposure_time takes milliseconds; passing us clamps to 1000 ms
         # and blows every frame out to full scale.
+        if args.exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1)
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
         else:
+            if args.exposure_ms == 0:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                args.exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
             cam.reset_exposure_time(float(args.exposure_ms))
         flat = shoot(cam, slm, np.zeros((PANEL_H, PANEL_W)), args)
         if args.save_frames:
@@ -571,11 +573,19 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
+        if args.exposure_ms == 0:
+            measure_flat_reference(cam, slm, n_frames=1)
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
         else:
+            if args.exposure_ms == 0:
+                estimate = probe_exposure_ceiling_ms(
+                    cam.reset_exposure_time,
+                    lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
+                )
+                args.exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
             cam.reset_exposure_time(float(args.exposure_ms))
 
         def acquire(mode: str, coeff: float, axis: str, tag: str) -> None:
@@ -857,8 +867,25 @@ def stage_calibrate_sweep(args: argparse.Namespace, out_dir: Path) -> BenchGeome
         # Physical cross-check on the tilt slope: the measured shift per radian
         # of Zernike tilt must be consistent with the illuminated aperture, or the
         # spot has deformed and the measurement is worthless.
-        aperture_m=sweep_radius * SLM_PITCH_M,
+        #
+        # A measured illumination radius wins over ``sweep_radius``: the Zernike
+        # radius is what the modes were *built* on, not what is actually lit, and
+        # both focal-scale routes scale with this number -- so an unmeasured value
+        # here is what makes them disagree. See
+        # ``--illumination-radius-px``.
+        aperture_m=(
+            args.illumination_radius_px
+            if args.illumination_radius_px > 0
+            else sweep_radius
+        )
+        * SLM_PITCH_M,
     )
+    if args.illumination_radius_px > 0:
+        logger.info(
+            "  aperture_m from the MEASURED illumination radius {:.0f} px "
+            "(sweep's constructed Zernike radius was {:.0f} px)",
+            args.illumination_radius_px, sweep_radius,
+        )
     (out_dir / "bench_geometry.json").write_text(geometry_to_json(geo), encoding="utf-8")
     logger.info("{}", json.dumps(asdict(geo), indent=2))
     logger.info("  notes: {}", geo.calibration_notes)
@@ -1014,7 +1041,7 @@ def stage_shape(args: argparse.Namespace, out_dir: Path) -> None:
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
-        args.cam_type, args.cam_id, exposure_time_ms=args.exposure_ms
+        args.cam_type, args.cam_id, exposure_time_ms=0.02
     ) as cam:
         if args.cam_type == "daheng" and not getattr(cam, "is_mock", False):
             _resolve_exposure_ceiling(cam, args)
@@ -1128,6 +1155,16 @@ def main() -> int:
     ap.add_argument("--sweep-spherical", default="-1.2,-0.6,0.6,1.2",
                     help="spherical (4,0) sweep coefficients in rad")
     ap.add_argument(
+        "--illumination-radius-px",
+        type=float,
+        default=0.0,
+        help="Measured illuminated radius in panel px (beam_extent far_edge minus "
+        "the located centre). 0 = fall back to the sweep's own Zernike radius, "
+        "which is a CONSTRUCTED radius, not a measurement. Both focal-scale "
+        "routes scale with aperture_m, so passing the measured value is what "
+        "makes them comparable.",
+    )
+    ap.add_argument(
         "--sweep-ramps", default="120,240,480,960,1920",
         help="Phase-ramp periods in panel px for the authoritative focal-scale "
         "measurement. Displacement is S/P, measured cleanly at any amplitude; "
@@ -1211,8 +1248,8 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
     if args.cam_type == "daheng":
-        if args.exposure_ms <= 0:
-            ap.error("Daheng exposure must be positive")
+        if args.exposure_ms < 0:
+            ap.error("Daheng exposure must be non-negative (0 = auto)")
         env_ceiling = configured_daheng_exposure_limit()
         if env_ceiling > 0 and args.exposure_ms > env_ceiling:
             ap.error(

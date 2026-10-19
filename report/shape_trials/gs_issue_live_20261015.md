@@ -1,14 +1,14 @@
-# GS 方法实机对照与形状验收预检（2026-10-15）
+# GS 方法实验对照与形状验收预检（2026-10-15）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
 > **运行环境**: 硬件
-> **说明**: 2026-10-15 GS 方法实机对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实机光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图
+> **说明**: 2026-10-15 GS 方法实验对照与形状验收预检 (Santec SLM #1 optionboardID 23020027 + 大恒 CCD FJB24112232，1064 nm 实验光路)；固定 0.050 ms 曝光、同种子 87 下 plain/weighted/adaptive-feedback 五轮对照，仅用于本次光路状态诊断，不构成形状成功验收 (IoU 0.0684–0.0980，未形成实心方斑)；汇总数据由本地脚本从可信调试记录 data/debug/slm_gs_refine/20261015_issue_comparison/ 复算 (summary.json)，含 5 轮 GS 最佳相位与远场渲染图
 <!-- provenance:end -->
 
 ## 结论
 
-在这组 100 像素方形目标实机测试中，plain GS 的综合分高于 weighted 和
+在这组 100 像素方形目标实验测试中，plain GS 的综合分高于 weighted 和
 adaptive-feedback。plain 首末两次 GS 分数为 0.5796、0.5740，相差 0.0055；
 weighted 为 0.5323，adaptive-feedback 为 0.5548。后续 plain 复测为 0.5885，
 说明方法排序仅是当前光路和单种子下的观察，不能外推为普遍优劣。
@@ -16,7 +16,7 @@ weighted 为 0.5323，adaptive-feedback 为 0.5548。后续 plain 复测为 0.58
 所有 GS 帧的半峰亮区与目标的 IoU 仅 0.0684–0.0980，画面仍是分散亮斑，
 **没有形成实心均匀方斑**。这也验证了 GitHub #115 指出的风险：综合分、CV 或
 `accepted` 不能单独代表形状达标。本轮已把 IoU 与其他指标并列记录，但未设
-经硬件标定的 IoU 门槛，#115 尚未完成验收。#134 的自适应探针尚未进入实机，
+经硬件标定的 IoU 门槛，#115 尚未完成验收。#134 的自适应探针尚未进入实验，
 应先通过其要求的仿真对照。
 
 ## 设备、曝光与设置
@@ -36,7 +36,7 @@ weighted 为 0.5323，adaptive-feedback 为 0.5548。后续 plain 复测为 0.58
 使用该会话配置；缺失或为 0 时根据平场画面探测。此前报告提到的 0.4 或
 0.6 ms 也不应被解释成跨光路永久边界。
 
-## 实机结果
+## 实验结果
 
 以下为 GS 阶段原始 CCD 帧计算值。PIB 是原代码的目标区域能量比例；CV 是
 目标区域内的变异系数。IoU 是扣除帧中位背景后，以当前帧半峰阈值形成亮区，
@@ -68,7 +68,7 @@ GS 帧峰值，使半峰二值 IoU 易受量化和背景影响；不能根据这
 `shape_iou`，GS 还记录 Daheng 曝光回读并拒绝超过会话上限的读数。曝光探测
 改用单张原始整数 CCD 帧；多帧平均为浮点帧，不满足探针的原始帧契约。
 无配置上限时先显示平相并以 0.020 ms 开始探测；估计上限不超过实际拍到的
-最后一个未饱和曝光。实机测试均已结束并正常释放设备。
+最后一个未饱和曝光。实验测试均已结束并正常释放设备。
 
 下一轮应在更高但经探测确认未饱和、全程固定的曝光下，提高 GS 帧信噪比；
 以 plain/候选交错下发同一批保存相位并穿插平场，量化漂移与方法差异；
@@ -77,7 +77,7 @@ GS 帧峰值，使半峰二值 IoU 易受量化和背景影响；不能根据这
 在执行环境不可达，issue 依据为仓库内
 `docs/slm/闭环光束整形_文献与优化建议_20261014.md` 的记录，未核验远端最新状态。
 
-## 实机结果 — 相位与远场图像
+## 实验结果 — 相位与远场图像
 
 以下为五轮 GS 阶段保存的最佳相位与最佳远场 CCD 图像。每个方法均保存最佳相位
 (`best_phase.npy`，1200×1920，弧度) 与最佳远场 (`best_far_field.png`，0.050 ms)。
@@ -87,48 +87,68 @@ GS 帧峰值，使半峰二值 IoU 易受量化和背景影响；不能根据这
 
 **SLM 相位**
 
-![plain 相位](gs_issue_live_20261015_20261015_205654_phase.png)
+![plain 相位](figures/gs_issue_live_phase_20261015_205654.png)
 
 **CCD 远场**
 
-![plain 远场](gs_issue_live_20261015_20261015_205654_farfield.png)
+![plain 远场](figures/gs_issue_live_farfield_20261015_205654.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 远场截面](figures/gs_issue_live_xsec_20261015_205654.png)
 
 ### weighted (`20261015_205848`，GS CV = 0.7793)
 
 **SLM 相位**
 
-![weighted 相位](gs_issue_live_20261015_20261015_205848_phase.png)
+![weighted 相位](figures/gs_issue_live_phase_20261015_205848.png)
 
 **CCD 远场**
 
-![weighted 远场](gs_issue_live_20261015_20261015_205848_farfield.png)
+![weighted 远场](figures/gs_issue_live_farfield_20261015_205848.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![weighted 远场截面](figures/gs_issue_live_xsec_20261015_205848.png)
 
 ### adaptive-feedback (`20261015_210048`，GS CV = 0.7064)
 
 **SLM 相位**
 
-![adaptive-feedback 相位](gs_issue_live_20261015_20261015_210048_phase.png)
+![adaptive-feedback 相位](figures/gs_issue_live_phase_20261015_210048.png)
 
 **CCD 远场**
 
-![adaptive-feedback 远场](gs_issue_live_20261015_20261015_210048_farfield.png)
+![adaptive-feedback 远场](figures/gs_issue_live_farfield_20261015_210048.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![adaptive-feedback 远场截面](figures/gs_issue_live_xsec_20261015_210048.png)
 
 ### plain 复测 (`20261015_210155`，GS CV = 0.6152)
 
 **SLM 相位**
 
-![plain 复测 相位](gs_issue_live_20261015_20261015_210155_phase.png)
+![plain 复测 相位](figures/gs_issue_live_phase_20261015_210155.png)
 
 **CCD 远场**
 
-![plain 复测 远场](gs_issue_live_20261015_20261015_210155_farfield.png)
+![plain 复测 远场](figures/gs_issue_live_farfield_20261015_210155.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 复测 远场截面](figures/gs_issue_live_xsec_20261015_210155.png)
 
 ### plain 再复测 (`20261015_211345`，GS CV = 0.6080，最优 CV)
 
 **SLM 相位**
 
-![plain 再复测 相位](gs_issue_live_20261015_20261015_211345_phase.png)
+![plain 再复测 相位](figures/gs_issue_live_phase_20261015_211345.png)
 
 **CCD 远场**
 
-![plain 再复测 远场](gs_issue_live_20261015_20261015_211345_farfield.png)
+![plain 再复测 远场](figures/gs_issue_live_farfield_20261015_211345.png)
+
+**CCD 远场强度截面 (X/Y 方向)**
+
+![plain 再复测 远场截面](figures/gs_issue_live_xsec_20261015_211345.png)

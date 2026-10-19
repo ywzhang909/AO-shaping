@@ -581,7 +581,7 @@ class TestCreateOptimizerKwargFilter:
     def test_unsupported_kwarg_is_reported_not_swallowed(self, module_name) -> None:
         import importlib
 
-        module = importlib.import_module(module_name)
+        importlib.import_module(module_name)
         with _loguru_records() as records:
             optimizer = create_optimizer("sgd", dim=4, lr=0.1, momentum=0.9)
         assert type(optimizer).__name__ == "SGD"
@@ -598,7 +598,7 @@ class TestCreateOptimizerKwargFilter:
         """A callee declaring ``**kwargs`` must not have them filtered away."""
         import importlib
 
-        module = importlib.import_module(module_name)
+        importlib.import_module(module_name)
         received: dict[str, object] = {}
 
         class _Sinks:
@@ -630,7 +630,7 @@ class TestCreateOptimizerKwargFilter:
         """The happy path is unchanged: Adam really does take beta1."""
         import importlib
 
-        module = importlib.import_module(module_name)
+        importlib.import_module(module_name)
         optimizer = create_optimizer("adam", dim=4, lr=0.1, beta1=0.85)
         assert optimizer.beta1 == pytest.approx(0.85)
 

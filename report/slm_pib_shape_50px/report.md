@@ -33,7 +33,7 @@
 - **目标**: 方形 (`--target-shape square`, `--target-size` 相机像素)
 - **搜索**: SPGD 梯度法 (`--optimizer-type adamod`), Zernike 系数 n≤4 (15 个模式)
 
-光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。
+光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳面场的 2D FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。
 
 ## 2. 运行 `run0` (目录 `20260926_172355`)
 

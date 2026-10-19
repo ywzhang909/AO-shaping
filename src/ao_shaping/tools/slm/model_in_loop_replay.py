@@ -24,7 +24,7 @@ SEQUENCE = ("flat", "A", "B", "flat", "B", "A", "flat")
 MATCH_FIELDS = (
     "cam_type", "cam_id", "cam_size", "slm_number", "slm_wavelength",
     "wavelength_nm", "region", "panel_span_px", "pupil_center",
-    "target_shape", "target_side", "w_efficiency", "w_uniformity", "far_field_padding",
+    "target_shape", "target_side", "far_field_padding",
     "phase_disturbance_file",
 )
 
@@ -85,10 +85,25 @@ def load_plan(
 def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
     """Capture an ABBA comparison with flat references and saved raw frames."""
     plan.output_dir.mkdir(parents=True, exist_ok=False)
+    source_configs = {
+        name: json.loads((source / "run_config.json").read_text(encoding="utf-8"))
+        for name, source in zip(("A", "B"), plan.sources)
+    }
     (plan.output_dir / "config.json").write_text(
         json.dumps({"sources": [str(source) for source in plan.sources],
                     "sequence": SEQUENCE, "config": {
                         name: getattr(plan.config, name) for name in MATCH_FIELDS},
+                    "source_objective_weights": {
+                        name: {
+                            "w_efficiency": config["w_efficiency"],
+                            "w_uniformity": config["w_uniformity"],
+                        }
+                        for name, config in source_configs.items()
+                    },
+                    "replay_score_weights": {
+                        "w_efficiency": plan.config.w_efficiency,
+                        "w_uniformity": plan.config.w_uniformity,
+                    },
                     "max_exposure_ms": plan.config.max_exposure_ms,
                     "fixed_shaped_exposure_ms": plan.fixed_shaped_exposure_ms,
                     "fixed_flat_exposure_ms": plan.fixed_flat_exposure_ms},
@@ -130,6 +145,7 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
                                   plan.config.w_uniformity),
                 "cv": float(metrics["uniformity_cv"]),
                 "ee": float(metrics["encircled_energy"]),
+                "shape_iou": float(metrics["shape_iou"]),
                 "total": float(frame.sum()),
                 "peak": float(frame.max()),
                 "raw_peak": float(np.max(bench.last_raw_frame)),

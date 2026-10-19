@@ -659,7 +659,7 @@ class TestMeasureActuatorResponse:
         dm = self._make_mock_dm(64)
         n_spots_x, n_spots_y = 2, 2
         n_spots_total = n_spots_x * n_spots_y
-        expected_len = 2 * n_spots_total
+        2 * n_spots_total
 
         # Alternating pos/neg pattern: first call returns pos, then neg, etc.
         call_count = {"idx": 0}

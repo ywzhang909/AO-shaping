@@ -137,7 +137,7 @@ class TestSimMicroDM:
 
     def test_send_voltages(self, dm):
         """Sending voltages should store them and return a copy."""
-        vs = np.array([10.0, 20.0, 30.0])
+        np.array([10.0, 20.0, 30.0])
         padded = np.zeros(50)
         padded[:3] = [10.0, 20.0, 30.0]
         result = dm.send_voltages(padded)

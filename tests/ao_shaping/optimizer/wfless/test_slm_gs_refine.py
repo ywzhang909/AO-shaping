@@ -153,6 +153,21 @@ class TestResizeHelpers:
 
 
 class TestPrepareFrame:
+    def test_cv_can_exclude_a_fixed_zero_order_core(self):
+        frame = np.ones((9, 9), dtype=float)
+        frame[4, 4] = 20.0
+        target = np.ones_like(frame, dtype=bool)
+        valid = target.copy()
+        valid[4, 4] = False
+        score_full, pib_full, cv_full = _metrics(frame, target, 0.0, 1.0)
+        score_masked, pib_masked, cv_masked = _metrics(
+            frame, target, 0.0, 1.0, valid
+        )
+        assert cv_masked == 0.0
+        assert cv_full > 0.0
+        assert score_masked > score_full
+        assert pib_masked == pib_full
+
     def test_removes_negative_read_noise(self):
         rng = np.random.default_rng(0)
         frame = rng.normal(50.0, 20.0, size=(80, 80))
@@ -589,3 +604,107 @@ class TestEndToEndSim:
                 np.random.default_rng(1),
                 Recorder(mark="score", mode="max"),
             )
+
+
+# ---------------------------------------------------------------------------
+# issue #140: the persisted best_phase must be the convergence point (dof),
+# not the winning random ±delta probe.
+# ---------------------------------------------------------------------------
+
+
+def test_best_phase_is_convergence_point_not_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The saved best phase is the un-perturbed dof, not the ±delta probe.
+
+    Drives ``_run_gs_refine_session`` offline (sim camera, stubbed
+    ``display_and_average``/``_metrics``/``make_optimizer``) with a *deterministic*
+    score landscape: the winning ±delta probe of the final epoch scores 0.8 while
+    the un-perturbed dof of the same epoch scores 0.95 (the global max). The old
+    The old code would persist the 0.8 probe; the fix must persist the 0.95 dof phase.
+    """
+    from types import SimpleNamespace
+
+    import ao_shaping.optimizer.wfless.slm_gs_refine as module
+    from ao_shaping.utils.io.file import Recorder
+    from ao_shaping.utils.slm.phase_embed import compose_pupil_dof
+
+    # Deterministic per-measurement score: call index -> score.
+    # 0: flat, then per epoch {pos, neg, dof}: 1..3 (e0), 4..6 (e1), 7..9 (e2).
+    # The final epoch: winning pos probe = 0.80, un-perturbed dof = 0.95 (max).
+    score_map = [0.50, 0.40, 0.35, 0.45, 0.60, 0.55, 0.70, 0.80, 0.75, 0.95]
+    calls: list[np.ndarray] = []
+
+    def fake_display_and_average(cam, slm, phase, **kwargs):
+        idx = len(calls)
+        calls.append(np.array(phase, copy=True))
+        frame = np.full((32, 32), 1.0 + score_map[idx])
+        if idx == 0:  # give locate_zero_order a clean centre peak
+            frame[16, 16] += 10.0
+        return frame
+
+    def fake_metrics(frame, mask, w_pib, w_unif, cv_mask=None):
+        return (float(frame.flat[0]) - 1.0, 0.0, 0.0)
+
+    class _FixedStep:
+        def __init__(self, kind, dim, lr=1.0) -> None:
+            self.dim = dim
+            self.lr = lr
+
+        def update(self, grad):
+            # The loop applies ``dof = dof - update(grad)``, so dof *drops* by
+            # 0.2 per epoch: 0 -> -0.2 -> -0.4 at the epoch-2 (dof) measurement.
+            return np.full(self.dim, 0.2)
+
+    monkeypatch.setattr(module, "display_and_average", fake_display_and_average)
+    monkeypatch.setattr(module, "_metrics", fake_metrics)
+    monkeypatch.setattr(module, "make_optimizer", _FixedStep)
+    monkeypatch.setattr(module, "_gs_pupil_phase", lambda *a, **k: None)
+
+    config = SlmGsRefineConfig(
+        epochs=3,
+        seed=1234,
+        target_side=8,
+        phase_grid=2,
+        delta=0.35,
+        confirm_best=False,
+        gs_warm_start=False,
+        cam_type="sim",
+        slm_wavelength=532,
+        beam_radius_px=8.0,
+    )
+    slm_stub = SimpleNamespace(Panel_Res=(64, 48))  # panel_shape -> (48, 64)
+    recorder = module._run_gs_refine_session(
+        config,
+        slm_stub,
+        object(),
+        np.random.default_rng(config.seed),
+        Recorder(mark="score", mode="max"),
+    )
+
+    # The winning probe of epoch 2 (pos) is NOT what gets persisted.
+    # Reproduce the rng draw sequence to rebuild that probe's phase.
+    rng = np.random.default_rng(config.seed)
+    deltas = [rng.choice(np.array([-1.0, 1.0]), size=4) * 0.35 for _ in range(3)]
+    # dof drops 0.2/epoch (dof = dof - update), so at the epoch-2 measurement
+    # the un-perturbed convergence point is -0.4, NOT a ±delta probe.
+    dof_final = np.full(4, -0.4)
+    panel = (48, 64)
+    center = (32, 24)
+    base = np.zeros(panel)
+    probe_win = compose_pupil_dof(base, (dof_final + deltas[2]).reshape(2, 2), panel, 8.0, center)
+    probe_lose = compose_pupil_dof(base, (dof_final - deltas[2]).reshape(2, 2), panel, 8.0, center)
+    expected = compose_pupil_dof(base, dof_final.reshape(2, 2), panel, 8.0, center)
+
+    # (1) persisted best is the convergence point, bitwise
+    np.testing.assert_array_equal(recorder.best_phase, expected)
+    # (2) and it is neither of the two ±delta probes of the final epoch
+    assert not np.allclose(recorder.best_phase, probe_win)
+    assert not np.allclose(recorder.best_phase, probe_lose)
+    # (3) the dof score is logged in its own column and drove the best
+    refine_rows = [r for r in recorder.history if r["stage"] == "refine"]
+    assert len(refine_rows) == 3
+    assert all("dof_score" in r and "dof_timestamp_utc" in r for r in refine_rows)
+    best_row = max(refine_rows, key=lambda r: r["dof_score"])
+    assert best_row["dof_score"] == pytest.approx(0.95)
+    assert best_row["score"] == pytest.approx(0.80)  # probe column is separate
+    # (4) best_frame rides on the dof measurement, not the probe
+    assert float(recorder.best_frame.flat[0]) - 1.0 == pytest.approx(0.95)

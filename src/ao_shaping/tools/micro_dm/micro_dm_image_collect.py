@@ -47,7 +47,6 @@ import click
 import numpy as np
 from loguru import logger
 
-from ao_shaping.config import DEVICES
 from ao_shaping.drivers.ccd import BaseCamera
 from ao_shaping.drivers.dm.micro import (
     MAX_CHANNELS,
@@ -528,7 +527,7 @@ def run(params: MicroDMImageCollectParams) -> None:
 
     # 打开相机 (必需, 失败即退出)
     if params.cam_id is None:
-        cam_id = DEVICES.far_cam_id
+        pass
     try:
         if params.camera_type == "daheng":
             click.echo(

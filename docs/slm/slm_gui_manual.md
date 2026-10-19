@@ -113,7 +113,8 @@ classDiagram
 | ----------------------- | ---------------------------------------------------------- |
 | multi_slm_controller.py | Streamlit 页面：设备发现、连接、相位控制、周期切换后台线程 |
 | pattern_controls.py     | 图案类型注册表 + 相位生成流水线（generate_phase_gray）     |
-| shaping_controls.py     | 闭环整形区：GS+SPGD 闭环 / 正向模型闭环（render_closed_loop_shaping） |
+| bench_settings.py       | 侧栏「本次实验光路」区块 + 三态（探测/人工）session 契约  |
+| shaping_controls.py     | 闭环整形主区：GS+SPGD 闭环 / 正向模型闭环（render_closed_loop_shaping） |
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 
 ---
@@ -155,8 +156,34 @@ classDiagram
 | slm{N}_preview_colormap     | str             | 预览色图标签                |
 | slm{N}_preview_colormap_widget | str          | 预览色图 radio（widget 键）   |
 | available_slms              | list[dict]      | 设备发现缓存              |
-| camera_pixel_um             | float           | 相机像元间距（μm，全局）    |
+| camera_pixel_um             | float           | 相机像元间距（μm，全局；**已在「本次实验光路」区块内**，key 不变） |
 | _cam_pixel_checked/mismatch/detected | bool/bool/float | 像素间距自动探测状态（一次性） |
+| bench_busy                  | bool            | 标定或闭环整形运行中（侧栏光路控件据此 disabled） |
+| bench_detected              | dict            | 实验级探测值（exposure_ms 等） |
+| bench_manual                | dict            | 实验级人工覆盖（只列被改过的字段） |
+| bench_pending               | dict            | 实验级单次 flush 待写值（非 widget key） |
+| bench_cam_type/cam_id       | str / int       | 实验级相机（widget 键）  |
+| bench_exposure_ms           | float           | 会话曝光（0 = 自动起曝，widget 键） |
+| bench_cam_crop/cam_size     | bool / int      | 读出窗口开关与边长（widget 键） |
+| bench_blaze_period_px/direction | int / str   | 去零级载波（widget 键）  |
+| bench_window_probe          | dict            | 相机窗口上限探测缓存（按 cam_type/cam_id 失效） |
+| slm{N}_bench_detected       | dict            | 该 SLM 的探测值（pupil_center / geometry_file / geometry_correlation / evidence_dir / calibrated_at / geometry_source） |
+| slm{N}_bench_manual         | dict            | 该 SLM 的人工覆盖        |
+| slm{N}_bench_pending        | dict            | 该 SLM 单次 flush 待写值 |
+| slm{N}_bench_effective      | dict            | 最近一次运行生效的光路参数快照（含每字段三态标记） |
+| slm{N}_bench_pupil_center   | str             | 入射中心 x,y（空 = 自动定位，widget 键） |
+| slm{N}_bench_panel_span_px  | int             | 模型覆盖宽度（widget 键；GS 的 `beam_radius_px×2` 落同一字段） |
+| slm{N}_bench_geometry_source| str             | auto / reuse / keep（widget 键） |
+| slm{N}_bench_geometry_file  | str             | bench_geometry.json 路径（复用模式下出现，widget 键） |
+| slm{N}_bench_beam_radius_px  | float           | 实测照明半径（面板px，0 = 未实测；「探测半径」按钮写入，widget 键） |
+| slm{N}_bench_beam_radius_probe | dict           | 「探测半径」按钮的扫描证据（半平面随机相位边界扫描） |
+| slm{N}_bench_focus_probe     | dict            | 「探测焦面」按钮的菲涅尔焦距实测（`best_focal_mm` 等；`bench_fresnel_focal_mm` 只读它） |
+| slm{N}_defocus_rad           | float           | 离焦微调 Zernike (2,0) 幅度（rad，widget 键；拖动不下发） |
+| slm{N}_defocus_focal_mm      | float           | 菲涅尔焦距补偿 (mm；0 = 用侧栏实测，widget 键) |
+| slm{N}_apply_defocus_btn     | bool            | 「叠加并下发」离焦补偿（widget 键） |
+| slm{N}_clear_defocus_btn     | bool            | 「恢复原始 GS 相位」（widget 键） |
+| slm{N}_shp_pending         | dict            | 主区预算预设的单次 flush 待写值（非 widget key） |
+| slm{N}_shp_budget_preset*   | str             | 预算预设选择与其「已应用」标记（widget 键） |
 
 ---
 
@@ -566,7 +593,7 @@ flowchart LR
 > 🔴 **2026-10-13 变更**：原注册表中的三个**开环**方形整形控制 —— `GSSquareControl`
 > （"GS方形整形"）、`GSSquareGaussianControl`（"GS方形整形(高斯版)"）与 `SteadyPhaseControl`
 > （"稳像法整形"），连同助手 `_gs_square_phase_radians` / `generate_gs_square_phase` —— **已移除**。
-> 原因：在本 2f-Fourier 台架上，用未标定台架参数做开环方形整形已被实测证明行不通
+> 原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通
 > （Zernike SPGD 与未标定 GS 从未产出过均匀方形），见
 > [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与
 > [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
@@ -586,26 +613,140 @@ flowchart LR
 | **GS+SPGD 闭环整形（已验证配方）** | `SlmGsRefineParams` → `build_gs_refine_config` → `optimize_slm_gs_refine` → `save_gs_refine_results`（同 CLI `slm-gs-refine`） | 默认值即交替重放验证过的配方 |
 | **正向模型闭环整形（前沿）** | `SlmModelInLoopParams` → `build_model_in_loop_config` → `optimize_slm_model_in_loop`（同 CLI `slm-model-in-loop`） | 需要 torch |
 
-1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（bake-off，仅当实测优于平场才采用）
+1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（对比择优，仅当实测优于平场才采用）
    + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
    （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
-   `cam_type=daheng`、曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、`pupil_center=960,690`、
-   `beam_radius_px=450`、`target_side=100`、`cam_size=250`、`gs_iters=12`、
+   曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、
+   模型覆盖 `900` 面板px（= 2×`beam_radius_px=450`）、`target_side=100`、`cam_size=250`、`gs_iters=12`、
    `far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、
    `gs_method=plain`。验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**
-   （两次一致的交替重放）。
+   （两次一致的交替重放）。⚠️ `cam_type` / `pupil_center` / `camera_pixel_um` 已不在主区，
+   改由侧栏「本次实验光路」提供（见 §8.1）。
 
 2. **正向模型闭环整形（前沿）**：每轮用强随机探针重拟合正向模型的 Zernike 像差
    （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
-   需 `torch`。目前最佳均匀性 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，
+   需 `torch`。目前最佳均匀性 **CV 0.643 / EE 0.786**，但未成为被接受的均匀方形，
    见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
 
 > **设备生命周期**：上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
-> 因此 GUI 在整形运行期间会**暂时释放目标 SLM 句柄**、运行结束后重新获取（只释放目标 SLM，
-> 另一台 SLM 保持连接）。
+> GUI 与标定按钮共用 `with_slm_ownership(slm_num)`：停背景相位切换 → 释放目标 SLM 句柄 →
+> `finally` 重连（只释放目标 SLM，另一台保持连接）。整个过程在 session 里置 `bench_busy`，
+> 侧栏光路控件据此 `disabled=True`。
 >
-> **GUI 显示**：flat / GS / best 各阶段得分、PIB、CV，以及 GS bake-off 判定
+> **GUI 显示**：flat / GS / best 各阶段得分、PIB、CV，以及 GS 对比择优 判定
 > （adopted / rejected）；debug 开启时产物存于 `data/debug/slm_gs_refine/<ts>/`。
+> 运行结束时额外落盘 **`{save_dir}/params.json`** —— 本次运行**生效**的光路参数
+> （逐字段带 `detected` / `manual` / `unset` 三态标记）。
+
+### 8.1 侧栏「本次实验光路」（`bench_settings.py`）
+
+**一次实验 = 一条光路**。相机、读出窗口、曝光、载波，以及每台 SLM 的入射位置与几何，
+都在侧栏按「实验级 / 每 SLM 级」两层下沉到 `st.expander(..., expanded=False)`，
+折叠态也能看到**光路摘要卡**。
+
+| 分组 | 内容 |
+| --- | --- |
+| A 相机 | 相机类型（daheng/miicam/sim）、相机 ID、像元间距 `μm`（**含「探测」按钮与渲染期自动探测告警**，`key="camera_pixel_um"` 未变，从旧「相机工具」区整体搬来）、会话曝光 `ms`（0 = 自动；caption 写明 0 会被大恒钳到约 0.02 ms，比可用区间暗 20–75×；超 `AO_DAHENG_MAX_EXPOSURE_MS` 立即 warning，运行前再 error 一次）**+ 「探测」按钮（`key="detect_exposure_btn"`，仅 daheng 可用）**：点一下按当前光路实测曝光 |
+| B 读出窗口 | 「启用开窗」+ 窗口边长 `px`。上界 = `min(max_width, max_height)`、step = 设备特征网格 `inc`（**取得到相机时是真值，取不到时用保守兜底并在 caption 说明来源**，点「探测窗口上限」重读）。⚠️ 已**取消** `cam_size_min = max(16, target_side)` 互夹：侧栏先渲染、拿不到主区目标边长，而 Streamlit 对「min 变化后越界」是**抛异常不是夹取** → 改到运行前校验（§8.2） |
+| C 去零级载波 | 载波（-1 关 / 0 实测自动 / 128 / 96 / 64）+ 光栅方向 |
+| D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）+ **「探测焦面」按钮**（`key="detect_focus_btn"`，plain 相位上扫菲涅尔焦距 ±6 m⁻¹，逐点自动重调曝光，约 1–2 分钟；结果写 `slm{N}_bench_focus_probe`，供整形页离焦微调做粗补偿，证据落 `data/debug/bench_settings/focus_probe/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
+| E 标定（每 SLM） | 几何来源（自动标定（推荐）/ 复用已标定几何 / 沿用上次结果）+ 条件显示的几何文件路径（复用模式下用 `discover_model_in_loop_geometry(region=…)` 给建议值）+ 「标定 SLM N 光路」primary 按钮（**复用模式下 disabled**：那时两步都不测，点下去只会刷新 `calibrated_at`，却让人以为重新量过）+ 有手动改动时出现的「恢复探测值」 |
+
+**自动探测但允许人工修改（三态）**
+
+| 状态 | 判据 | 显示 |
+| --- | --- | --- |
+| `unset` | 从未标定 | `○` |
+| `detected` | 有探测值 | `●` + 探测值 |
+| `manual` | 当前值与探测值的差 **超过阈值** | `✎` + 当前值 / 探测值 / 差值（带单位） |
+
+差异提示阈值：中心任一坐标 ≥1 px；覆盖宽度 / 窗口边长 ≥1 个 step；像元间距相对 ≥0.5%；
+曝光相对 ≥1%；相关度绝对 ≥0.02。`manual` 永远优先，**重新标定不覆盖手动值**，
+只在 caption 提示「探测到新几何，当前仍使用手动值」。
+
+**写值为什么走 pending-flush**：Streamlit 里 widget 一旦以 `key` 实例化，该 key 在本次
+脚本运行内被锁；标定按钮是在侧栏 widget **渲染之后**被点击的，同一脚本运行内直接写
+widget key 会抛 `StreamlitAPIException`。所以两段式：点击 → 写 `{prefix}_bench_pending`
+（非 widget key）+ `st.rerun()` → 侧栏渲染函数**第一行** `flush_pending()` 把值写进 widget
+key 并清空 pending，再实例化控件。**不使用 `_safe_set_state()` 做标定回填** —— 它吞异常会让
+回填静默失败；它只保留给「运行后重连」那条晚于侧栏渲染的路径。
+
+标定走 `ao_shaping.runners.slm.model_in_loop_session.calibrate_session` —— 与 CLI
+`slm-model-in-loop` **同一个入口**（入射定位 → 曝光探测 → sweep 几何；该函数抛**普通异常**，
+不是 click 异常；相关度 < 0.50 直接中止、不提交相位）。只在**换光路 / 换 SLM / 换相机**后重标。
+
+### 8.1.1 运行路径自动标定（不必先点标定按钮）
+
+**「正向模型闭环」的运行按钮自己会标定**，与 CLI 的 `auto_session` 同一判定：`ShapingMethod`
+的 `auto_calibrate` 钩子在 `shaping_session` 交出 SLM 句柄之后、优化器启动之前被调用 ——
+这个位置正是 CLI `run()` 里预检的位置。跳过条件与 CLI 对齐：
+
+| 条件 | 是否测量 | 理由 |
+|------|----------|------|
+| `cam_type == "sim"` | 否 | 数字孪生没有面板可扫、没有硬件几何可测，也不该碰硬件 |
+| 几何来源 `reuse` 且已填几何文件 | 否 | 已有实测几何 |
+| 几何来源 `keep` 且 `bench_detected` 已有本次会话结果 | 否 | 本会话已量过 |
+| 其余（`auto`，或 `keep` 但还没有结果） | **是** | 否则整场实验跑在未标定的实验系统上 |
+
+三条必须保持的性质：
+
+1. **用运行自己的 `params`/`config`**（已合并侧栏光路值），不是侧栏按钮那条
+   `build_calibration_params` 独立路径 —— 标定的是即将整形的那一套光路。
+2. **人工值优先**：探测值只在 `bench_manual` 里没有该字段时才写回 config；有人工值就保留，
+   并提示「探测到新值，当前仍使用人工值」。
+3. **失败即中止**：标定被拒就抛，由 `shaping_session` 那一条路径上屏（只上屏一次），
+   **不在未标定的实验系统上继续整形**。
+
+证据（`panel_scan/`、`session_geometry/`）落在**本次运行的 `debug_dir`** 下，与结果同目录；
+`debug_dir` 为空时回落到 `debug_run_dir(data, "slm_model_in_loop")`（判空必须判**原始字符串**：
+`str(Path(""))` 是 `"."`，为真值，判 Path 会把证据写进当前工作目录）。
+
+GS+SPGD 没有会话标定（CLI 侧同样没有），它的入射中心只来自侧栏：从未标定时会明确提示
+当前用的是兜底实测值 `PUPIL_CENTER_FALLBACK`，换光路必须先标定或手填。
+
+`measure_session_geometry` 的 `--exposure-ms` 取 `config.exposure_time_ms`（缺省 0 时仍是
+CLI 原有行为）。侧栏实测曝光因此真正传到 sweep —— `0` 只是「不固定」，大恒会从约 0.02 ms
+起步，比本光路可用区间暗 20–75 倍。
+
+### 8.2 主区固定顺序与上限放开
+
+顺序是契约，不是偏好：
+
+```
+方法 → 状态条 → 目标与评分 → 预算 → 高级参数 → 校验区 → 运行按钮 → 结果
+```
+
+- **状态条**：`光路 SLM {n}：● 已标定 {时间} · 入射中心 (…) 探测值 · 相关度 … · N 项手动覆盖（…）`；
+  未标定时提示运行时会先自动标定（约 1–3 分钟）。
+- **目标与评分**：共用区块标题与公式 caption，内部按方法渲染两套一行 4 列
+  （GS：目标方边长(0=自动推导) / 边长因子 / w_pib / w_unif；
+  MIL：目标形状 / 目标边长 / w_eff / w_uni）。
+- **预算**：MIL 给「预设」（快速 2/40/300、**标准 6/80/600** = `slm_model_in_loop.md` §5 默认值、
+  长跑 12/160/1200）+ 轮数 / Step A 步数 / Step B 步数；预设**只在切换时**覆写，不冲掉手改值。
+  GS **不给预设**，只显示 12/12 已验证配方并指向 `report/shape_trials/`。
+- **高级参数**（默认收起）：MIL 专属（探针数、探针 σ、留出探针、自由相位留出探针、region、
+  远场补零、相关度门限、热启动、面板像素间距、学习率、Zernike 阶数…）；
+  GS 专属（相位网格、扰动 δ、confirm-best、启用 GS、GS 变体、远场补零、面板像素间距、
+  每测量均帧）。**`far_field_padding` 不合并**（GS 验证值 3，MIL 默认 8）。
+- **校验区**在按钮**之前**渲染（否则按钮无法 `disabled`）：未连接 SLM / torch 缺失 /
+  目标边长 > 窗口边长 / 复用几何与 region 不一致 / 曝光超上限 / 窗口边长非设备步长整数倍 /
+  留出探针 < 1（控件允许 0 以便「看到可以关」，但 Step A 拟合要求 ≥1，错误信息指向
+  「自由相位留出探针」）。
+
+| 字段 | 原上限 | 现上限 | 来源 |
+| --- | --- | --- | --- |
+| 相机窗口边长 | 硬编码 max 1944 / step 10 | `min(max_width, max_height)` / step=`inc` | 设备特征网格 |
+| 模型覆盖宽度 | max 1920 | `PANEL_RES[0]` = 1920（min 32，step 10） | 设备常量 |
+| 目标边长 | 3–1000 | 上界 = 窗口边长（关窗 = 传感器短边），下界 8（小于 8 时 warning） | 侧栏窗口 |
+| 探针数 | 1–32 | 1–64 + 耗时 caption | — |
+| region | 8–256 | 8–512（仍须 8 的倍数）+ 内存 caption | — |
+| 远场补零 | 1–16 | 1–64（各自默认值不变） | — |
+| GS 相位网格 | 2–64 | 2–128 + 耗时 caption | — |
+| 留出探针 | min 1 | min 0（0 = 不做留出验证；见校验区） | — |
+| 探针 σ | 3.0–8.0 | 3.0–12.0（>6 rad 时 caption 提示可辨识性下降） | — |
+
+保留的硬约束：`w_eff > 0`（min 0.01，help 保留「只优化 -CV 会掏空目标框 实测环围能量→0.002」）；
+探针 σ ≥ 3.0；窗口边长必须是设备 `inc` 的整数倍；曝光 min 0（0 时大恒强制 warning）。
 
 ---
 

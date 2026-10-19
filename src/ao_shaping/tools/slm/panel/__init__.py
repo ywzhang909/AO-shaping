@@ -10,6 +10,9 @@ Modules:
 - ``panel_locate`` — locate the spot centre on *panel* coordinates (the CCD
   0-order coordinate is not a panel coordinate: axes swapped 90°, scale >10x).
 - ``beam_extent`` — half-plane random-phase boundary scan → spot centre/radius.
+- ``focus_probe`` — sweep the Fresnel focal length on a plain phase → the 1/f
+  that brings the 0-order spot back onto the detector (auto-exposure per point,
+  coarse scan + local refinement).
 - ``phase_resolution`` — per-pixel random phase vs smooth Zernike: the panel's
   effective phase resolution (decides whether a speckle route is usable).
 - ``phase_response`` — phase → CCD response curve (defocus / lens cases) with a

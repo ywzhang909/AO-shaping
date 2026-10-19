@@ -130,6 +130,22 @@ class TestParamsMapping:
         assert params.exposure_time_ms == pytest.approx(0.05)
         assert params.camera_pixel_um == pytest.approx(2.2)
 
+    def test_recipe_panel_pixel_um_is_the_pitch_not_the_pixel_size(self) -> None:
+        """The bench model samples on the panel lattice, so the recipe must use
+        ``PITCH_UM`` (8.0), not ``PIXEL_SIZE_UM`` (7.8).
+
+        The 0.2 μm gap is real device geometry, not an error to be closed:
+        swapping to the active-pixel size would shrink the aperture ~2.5 % and
+        silently abandon the interleaved-replay validated recipe.
+        """
+        from ao_shaping.drivers.slm.santec.slm200_constants import (
+            PITCH_UM,
+            PIXEL_SIZE_UM,
+        )
+
+        assert PITCH_UM != PIXEL_SIZE_UM  # guard: the test is meaningless otherwise
+        assert GS_REFINE_RECIPE["panel_pixel_um"] == PITCH_UM
+
     def test_gs_refine_config_resolves_bench_geometry(self) -> None:
         from ao_shaping.runners.runner_common import build_gs_refine_config
 
@@ -184,6 +200,44 @@ class TestParamsMapping:
             replace(params, freeform_holdout_count=3), debug=False
         )
         assert config.freeform_holdout_count == 3
+
+    def test_model_in_loop_geometry_file_reaches_the_config(self, tmp_path) -> None:
+        """The GUI must be able to hand the optimiser a measured geometry.
+
+        Without one a hardware run uses the abandoned speckle route (measured
+        correlation ~0.07 against the 0.5 bake-off floor) and aborts — exactly
+        the failure this entry point exists to prevent.
+        """
+        from ao_shaping.gui.slm.shaping_controls import MIL_WIDGET_DEFAULTS
+        from ao_shaping.runners.runner_common import build_model_in_loop_config
+
+        values = dict(MIL_WIDGET_DEFAULTS)
+        values.update(
+            w_uniformity=0.4,
+            w_efficiency=0.6,
+            min_holdout_correlation=0.5,
+            cam_type="sim",
+            cam_id=0,
+            exposure_time_ms=0.0,
+            max_exposure_ms=0.4,
+            cam_size=250,
+        )
+
+        geometry = tmp_path / "bench_geometry.json"
+        geometry.write_text("{}", encoding="utf-8")
+        values["geometry_file"] = str(geometry)
+
+        config = build_model_in_loop_config(
+            build_model_in_loop_params(values), debug=False
+        )
+        assert config.geometry_file == str(geometry)
+
+        # Blank must mean "not specified" (``None``), not "": the config
+        # validator rejects a path that does not exist, and an empty box is the
+        # documented "no geometry file" state.
+        for blank in ("", "   "):
+            values["geometry_file"] = blank
+            assert build_model_in_loop_params(values).geometry_file is None
 
     @pytest.mark.parametrize(
         "shape", ["square", "rectangle", "triangle", "star", "circle"]
@@ -318,6 +372,39 @@ class TestDeviceLifecycle:
         assert state["slm1"] is slm
         assert state["slm1_connected"] is True
         assert state["slm1_phase_preview"] is None
+
+    def test_sync_reuses_the_config_open_already_read(self, monkeypatch) -> None:
+        """``Santec.open()`` reads the per-serial config; the session sync must
+        reuse that snapshot instead of reading the same JSON a second time."""
+        from ao_shaping.gui.slm import multi_slm_controller
+
+        state = self._patch_state(monkeypatch)
+        fake = _FakeSLM()
+        reads: list[str] = []
+
+        def load_config() -> dict[str, Any]:
+            reads.append("disk")
+            return {"wavelength": 9999}
+
+        fake.load_config = load_config  # type: ignore[method-assign]
+        fake.loaded_config = {"wavelength": 1064}  # type: ignore[attr-defined]
+
+        multi_slm_controller._sync_slm_session_state(1, fake)
+
+        assert state["slm1_loaded_config"] == {"wavelength": 1064}
+        assert reads == []
+
+    def test_sync_falls_back_when_open_did_not_cache(self, monkeypatch) -> None:
+        """A handle without ``loaded_config`` (older driver or test double)
+        still populates the sidebar from ``load_config()``."""
+        from ao_shaping.gui.slm import multi_slm_controller
+
+        state = self._patch_state(monkeypatch)
+        fake = _FakeSLM()
+
+        multi_slm_controller._sync_slm_session_state(1, fake)
+
+        assert state["slm1_loaded_config"] == {}
 
     def test_run_reacquires_even_when_optimizer_raises(self, monkeypatch) -> None:
         """The ``@shaping_session`` contract: the GUI must own the handle again

@@ -7,7 +7,6 @@ import json
 from pathlib import Path
 
 import numpy as np
-from loguru import logger
 
 from ao_shaping.drivers.ccd.common import create_camera
 from ao_shaping.drivers.slm.santec import Santec
@@ -19,7 +18,7 @@ from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
-    probe_exposure_ceiling_ms,
+    resolve_daheng_exposure_limit,
 )
 
 
@@ -64,16 +63,7 @@ def replay(root: Path, exposure_ms: float, repeats: int) -> Path:
     with Santec(slm_number=1, wavelength=1064) as slm, create_camera(
         "daheng", 0, exposure_time_ms=0.02
     ) as cam, preserve_slm_display(slm):
-        ceiling = configured_daheng_exposure_limit()
-        if not ceiling:
-            estimate = probe_exposure_ceiling_ms(
-                cam.reset_exposure_time,
-                lambda: np.asarray(cam.get_numpy_image(n_sample=2)),
-            )
-            ceiling = estimate.ceiling_ms
-            logger.info(
-                "Daheng exposure ceiling probed from the image: {:.4f} ms", ceiling
-            )
+        ceiling = resolve_daheng_exposure_limit(camera=cam)
         actual = float(cam.reset_exposure_time(0.02))
         if not 0 < actual <= ceiling + 1e-9:
             raise RuntimeError(

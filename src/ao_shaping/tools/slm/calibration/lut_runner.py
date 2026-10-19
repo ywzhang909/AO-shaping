@@ -336,7 +336,7 @@ def _check_spot_drift(
         Updated spot center ``(cx, cy)``.
     """
     h, w = frame.shape[:2]
-    half_win = spot_window // 2
+    spot_window // 2
     cx, cy = spot_center
 
     # Check drift against calibration position

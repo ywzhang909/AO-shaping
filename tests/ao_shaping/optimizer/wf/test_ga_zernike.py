@@ -203,7 +203,7 @@ class TestOptimizerReturnsRecorder:
             return_value=mock_wfs,
         ) as mock_wfs_ctx, patch(
             "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-        ) as mock_tqdm:
+        ):
             # Ensure the patched context managers return our mocks
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
@@ -252,8 +252,7 @@ class TestOptimizerReturnsRecorder:
             ) as mock_wfs_ctx,
             patch(
                 "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-            ) as mock_tqdm
-        ):
+            )):
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(
@@ -297,8 +296,7 @@ class TestGAPopulation:
             ) as mock_wfs_ctx,
             patch(
                 "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-            ) as mock_tqdm
-        ):
+            )):
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             pop_size = 10
@@ -343,8 +341,7 @@ class TestGAElitism:
             ) as mock_wfs_ctx,
             patch(
                 "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-            ) as mock_tqdm
-        ):
+            )):
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             # With 2 elite individuals
@@ -394,8 +391,7 @@ class TestGACrossoverAndMutation:
             ) as mock_wfs_ctx,
             patch(
                 "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-            ) as mock_tqdm
-        ):
+            )):
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(
@@ -435,8 +431,7 @@ class TestGACrossoverAndMutation:
             ) as mock_wfs_ctx,
             patch(
                 "ao_shaping.optimizer.wf.ga_zernike.tqdm"
-            ) as mock_tqdm
-        ):
+            )):
             mock_slm_ctx.return_value.__enter__.return_value = mock_slm
             mock_wfs_ctx.return_value.__enter__.return_value = mock_wfs
             recorder = optimizer_ga(

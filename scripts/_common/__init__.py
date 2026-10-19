@@ -34,6 +34,7 @@ __all__ = [
     "iters_to_threshold",
     "markdown_table",
     "plot_summary_bars",
+    "refuse_empty_overwrite",
     "savefig",
 ]
 
@@ -235,3 +236,36 @@ def plot_summary_bars(
     fig.tight_layout()
     savefig(fig, out_path, dpi=150)
     logger.info("Saved {}", out_path)
+
+
+# ---------------------------------------------------------------------------
+# Sweep output guard (issue #143 problem 2)
+# ---------------------------------------------------------------------------
+def refuse_empty_overwrite(out_path, results) -> bool:  # noqa: ANN001
+    """Refuse to let an empty sweep result clobber a non-empty prior output.
+
+    A crashed or aborted sweep must not overwrite a good prior result with ``{}``
+    or a partial record (``report/loss_defects/padding_sweep.json`` was once
+    clobbered exactly this way).
+
+    Returns ``True`` when the write must be skipped (an empty result would
+    overwrite an existing non-empty file); the caller should then refuse to write
+    (``logger.warning`` / ``raise SystemExit``). Returns ``False`` otherwise:
+    the result is non-empty (safe), or there is no existing file to protect
+    (writing a fresh ``{}`` is fine), or the existing file is already empty.
+
+    pure: performs no I/O beyond ``Path.stat`` on the single candidate path, so
+    it is trivially unit-testable without running a sweep or loading heavy
+    numerical dependencies.
+    """
+    from pathlib import Path
+
+    if results not in (None, "", {}, [], ()):
+        return False
+    p = Path(out_path)
+    try:
+        if not p.exists() or p.stat().st_size <= 0:
+            return False
+    except OSError:
+        return False
+    return True
