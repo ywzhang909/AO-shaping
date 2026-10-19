@@ -68,7 +68,9 @@ TOOLS_SLM_DIR = TOOLS_DIR / "slm"
 #: The 2026-10-12 reorganisation spread the probes over sibling packages, so the
 #: guard table keeps the old stems as stable ids and resolves them through here.
 _MODULE_PATHS: dict[str, str] = {
+    "bench_fingerprint": "ao_shaping.tools.slm.panel.bench_fingerprint",
     "calibration": "ao_shaping.tools.slm.calibration",
+    "focus_probe": "ao_shaping.tools.slm.panel.focus_probe",
     "gray_response": "ao_shaping.tools.slm.calibration.gray_response",
     "phase_capture": "ao_shaping.tools.slm.calibration.phase_capture",
     "slm_abba_probe": "ao_shaping.tools.zernike.abba_probe",
@@ -661,10 +663,58 @@ CASES: tuple[Case, ...] = (
         ),
         exempt=frozenset({"verify_path", "export_h5"}),
     ),
+    Case(
+        # Landed upstream 2026-10-18 (cc30224d, "feat: Add focus probe
+        # functionality and tests"): scans the Fresnel focal length that puts a
+        # camera moved off the 2f plane back in focus.  Every field is a plain
+        # value (no mode switch), so the argv runs straight into the blocked
+        # ``Santec(...)`` inside ``probe_session_focus``.
+        "focus_probe",
+        "main",
+        (
+            "--slm-number", "3",
+            "--slm-wavelength", "532",
+            "--cam-type", "miicam",
+            "--cam-id", "1",
+            "--exposure-ms", "2.5",
+            "--radius-px", "300",
+            "--centre-x", "900",
+            "--centre-y", "640",
+            "--steps", "9",
+            "--diopter-range", "3.5",
+            "--refine", "5",
+            "--frames", "5",
+            "--max-exposure-ms", "8.0",
+        ),
+    ),
+    Case(
+        # Landed upstream 2026-10-19 (f34b8bf4 lineage; session wiring at
+        # e0e0f099): captures the optical-path fingerprint and compares it to a
+        # reference.  ``--skip-compare`` only gates the *comparison*
+        # (``enabled=not skip_compare`` reaches ``compare_fingerprints``), never
+        # the device open, so the sentinel still fires with every field flipped.
+        "bench_fingerprint",
+        "main",
+        (
+            "--slm-number", "3",
+            "--slm-wavelength", "532",
+            "--cam-type", "miicam",
+            "--cam-id", "1",
+            "--centre-x", "900",
+            "--centre-y", "640",
+            "--radius-px", "300",
+            "--tilt-rad", "2.0",
+            "--exposure-ms", "2.5",
+            "--reference", "{out}",
+            "--skip-compare",
+        ),
+    ),
 )
 
 #: Number of ``@click.command``-decorated functions the guard must cover.
-EXPECTED_COMMAND_COUNT = 19  # 17 -> 19: the kernel consolidation added the slm_abba_probe and slm_drift_probe click commands
+#: 19 -> 21 on 2026-10-19: ``focus_probe`` (cc30224d) and ``bench_fingerprint``
+#: (f34b8bf4 lineage) landed upstream as click commands without a guard case.
+EXPECTED_COMMAND_COUNT = 21
 
 #: Construction symbols counted by test 3.
 _SANTEC_RE = re.compile(r"(?<![\w.])Santec\s*\(")
@@ -1119,11 +1169,14 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # (1 Santec session + 2 camera opens); 22 -> 23 when gs_refine_replay landed
     # (1 Santec session, 0 camera opens); 23 -> 25 and 21 -> 23 when
     # replay_disturbance (1 Santec + 1 camera) and ccd/short_exposure_probe
-    # (1 Santec + 1 camera) landed upstream. This guard pins the census so a
+    # (1 Santec + 1 camera) landed upstream. 25 -> 29 and 23 -> 27 on 2026-10-19:
+    # slm/panel/focus_probe (1+1), slm/panel/bench_fingerprint (1+1) and
+    # slm/panel/alignment_probe (2 Santec + 2 camera — one session each in its
+    # scan path and its replay-verify path) landed upstream. This guard pins the census so a
     # *refactor* cannot quietly consolidate device sessions; adding a genuinely
     # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 25, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 23, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 29, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 27, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1133,7 +1186,10 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/calibration/train_data_collect.py": 1,
         "slm/cartographer/slm_cartographer_ui.py": 1,
         "slm/gs_refine_replay.py": 1,
+        "slm/panel/alignment_probe.py": 2,
+        "slm/panel/bench_fingerprint.py": 1,
         "slm/panel/beam_extent.py": 1,
+        "slm/panel/focus_probe.py": 1,
         "slm/panel/diagnose.py": 1,
         "slm/panel/panel_locate.py": 1,
         "slm/panel/phase_resolution.py": 1,
@@ -1159,8 +1215,11 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/calibration/phase_capture.py": 2,
         "slm/calibration/train_data_collect.py": 2,
         "slm/gs_refine_replay.py": 1,
+        "slm/panel/alignment_probe.py": 2,
+        "slm/panel/bench_fingerprint.py": 1,
         "slm/panel/beam_extent.py": 1,
         "slm/panel/diagnose.py": 1,
+        "slm/panel/focus_probe.py": 1,
         "slm/panel/panel_locate.py": 1,
         "slm/panel/phase_resolution.py": 1,
         "slm/panel/phase_response.py": 1,

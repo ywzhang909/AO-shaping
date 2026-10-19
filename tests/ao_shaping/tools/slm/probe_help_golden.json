@@ -196,6 +196,48 @@
       "--stable-tol"
     ]
   },
+  "slm_alignment_probe": {
+    "body_literals": 154,
+    "body_literals_sha256": "fe1189c4d87c133f",
+    "declared": [
+      "--cam-id",
+      "--cam-type",
+      "--center-x",
+      "--center-y",
+      "--coma-points",
+      "--coma-span",
+      "--diopter-range",
+      "--exposure-ms",
+      "--focus-points",
+      "--half-width",
+      "--max-exposure-ms",
+      "--output",
+      "--radius",
+      "--slm-number",
+      "--verify-directory",
+      "--wavelength"
+    ],
+    "help": "usage: <prog>[-h] --output OUTPUT [--verify-directory VERIFY_DIRECTORY] [--cam-type CAM_TYPE] [--cam-id CAM_ID] [--slm-number SLM_NUMBER] [--wavelength WAVELENGTH] [--center-x CENTER_X] [--center-y CENTER_Y] [--radius RADIUS] [--exposure-ms EXPOSURE_MS] [--max-exposure-ms MAX_EXPOSURE_MS] [--focus-points FOCUS_POINTS] [--diopter-range DIOPTER_RANGE] [--coma-span COMA_SPAN] [--coma-points COMA_POINTS] [--half-width HALF_WIDTH]\n\nMeasure focus and two coma corrections before locating the CCD spot. Reuses\nthe canonical Fresnel sweep and Zernike generator. All tested phases, raw\nframes, exposure readbacks and UTC timestamps are retained for replay. The\nreturned correction is never left on the panel implicitly.\n\noptions:\n  -h, --help            show this help message and exit\n  --output OUTPUT\n  --verify-directory VERIFY_DIRECTORY\n                        Replay an existing result at one fixed exposure\n  --cam-type CAM_TYPE\n  --cam-id CAM_ID\n  --slm-number SLM_NUMBER\n  --wavelength WAVELENGTH\n  --center-x CENTER_X\n  --center-y CENTER_Y\n  --radius RADIUS\n  --exposure-ms EXPOSURE_MS\n  --max-exposure-ms MAX_EXPOSURE_MS\n  --focus-points FOCUS_POINTS\n  --diopter-range DIOPTER_RANGE\n  --coma-span COMA_SPAN\n  --coma-points COMA_POINTS\n  --half-width HALF_WIDTH",
+    "help_flags": [
+      "--cam-id",
+      "--cam-type",
+      "--center-x",
+      "--center-y",
+      "--coma-points",
+      "--coma-span",
+      "--diopter-range",
+      "--exposure-ms",
+      "--focus-points",
+      "--half-width",
+      "--help",
+      "--max-exposure-ms",
+      "--output",
+      "--radius",
+      "--slm-number",
+      "--verify-directory",
+      "--wavelength"
+    ]
+  },
   "slm_beam_extent": {
     "body_literals": 16,
     "body_literals_sha256": "2f5ff502845cb226",
@@ -226,6 +268,38 @@
       "--slm-number",
       "--slm-wavelength",
       "--steps"
+    ]
+  },
+  "slm_bench_fingerprint": {
+    "body_literals": 120,
+    "body_literals_sha256": "8e862b7ea2c8717d",
+    "declared": [
+      "--cam-id",
+      "--cam-type",
+      "--centre-x",
+      "--centre-y",
+      "--exposure-ms",
+      "--radius-px",
+      "--reference",
+      "--skip-compare",
+      "--slm-number",
+      "--slm-wavelength",
+      "--tilt-rad"
+    ],
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.bench_fingerprint \n           [OPTIONS]\n\n  采集并比对光路指纹（平场宽度 / 已知倾斜位移 / 质心）。\n\nOptions:\n  --slm-number INTEGER      SLM 编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --centre-x FLOAT          入射中心 x 面板px (默认 960)\n  --centre-y FLOAT          入射中心 y 面板px (默认 690)\n  --radius-px FLOAT         照明半径 面板px (默认 450)\n  --tilt-rad FLOAT          已知倾斜幅度 rad (默认 4.0)\n  --exposure-ms FLOAT       起始曝光 ms (默认 0.2，自动调整)\n  --reference TEXT          参考指纹 JSON 路径（默认取最新一份）\n  --skip-compare            只采集不比对（操作员判断光路未变）\n  --help                    Show this message and exit.",
+    "help_flags": [
+      "--cam-id",
+      "--cam-type",
+      "--centre-x",
+      "--centre-y",
+      "--exposure-ms",
+      "--help",
+      "--radius-px",
+      "--reference",
+      "--skip-compare",
+      "--slm-number",
+      "--slm-wavelength",
+      "--tilt-rad"
     ]
   },
   "slm_diagnose": {
@@ -448,7 +522,7 @@
   },
   "slm_panel_locate": {
     "body_literals": 126,
-    "body_literals_sha256": "95ebbfecb534bf41",
+    "body_literals_sha256": "107aeb12d45ec0d5",
     "declared": [
       "--cam-id",
       "--cam-type",

@@ -73,7 +73,9 @@ PROBE_MODULES: dict[str, str] = {
     "gray_response": "ao_shaping.tools.slm.calibration.gray_response",
     "phase_capture": "ao_shaping.tools.slm.calibration.phase_capture",
     "slm_abba_probe": "ao_shaping.tools.zernike.abba_probe",
+    "slm_alignment_probe": "ao_shaping.tools.slm.panel.alignment_probe",
     "slm_beam_extent": "ao_shaping.tools.slm.panel.beam_extent",
+    "slm_bench_fingerprint": "ao_shaping.tools.slm.panel.bench_fingerprint",
     "slm_diagnose": "ao_shaping.tools.slm.panel.diagnose",
     "slm_drift_probe": "ao_shaping.tools.ccd.drift_probe",
     "slm_exposure_check": "ao_shaping.tools.ccd.exposure_check",
@@ -383,7 +385,8 @@ def test_both_camera_flag_spellings_survive() -> None:
     short = {p for p in PROBES if "--cam-type" in g[p]["declared"]}
     long_ = {p for p in PROBES if "--camera-type" in g[p]["declared"]}
 
-    assert len(short) == 10, f"--cam-type lost a probe: {sorted(short)}"
+    # 10 -> 12 on 2026-10-19: alignment_probe and bench_fingerprint take --cam-type.
+    assert len(short) == 12, f"--cam-type lost a probe: {sorted(short)}"
     assert len(long_) == 2, f"--camera-type lost a probe: {sorted(long_)}"
     assert not short & long_, (
         f"{sorted(short & long_)} expose both spellings; pick one or add a real "
@@ -395,8 +398,8 @@ def test_both_camera_flag_spellings_survive() -> None:
 @pytest.mark.parametrize(
     ("a", "b", "count_a", "count_b"),
     [
-        ("--output", "--out", 8, 4),
-        ("--slm-wavelength", "--wavelength", 16, 3),
+        ("--output", "--out", 9, 4),          # 8 -> 9: alignment_probe (--output)
+        ("--slm-wavelength", "--wavelength", 17, 4),  # 16 -> 17 / 3 -> 4: bench_fingerprint / alignment_probe
     ],
 )
 def test_other_split_flag_spellings_survive(
@@ -448,13 +451,22 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     puts a camera moved off the 2f plane back in focus. It takes ``--cam-type``
     and ``--slm-wavelength`` like its siblings, so those two spellings each gain
     one user.
+
+    331 -> 358 / 346 -> 375 / 22 -> 24 on 2026-10-19: ``slm/panel/alignment_probe``
+    (16 declared, argparse form) and ``slm/panel/bench_fingerprint`` (11 declared)
+    landed upstream (f34b8bf4 lineage) without being added to
+    :data:`PROBE_MODULES`. Both take ``--cam-type``; ``alignment_probe`` spells
+    the wavelength flag ``--wavelength`` and the artifact flag ``--output``,
+    ``bench_fingerprint`` spells them ``--slm-wavelength`` and has no output
+    flag. The probe golden was regenerated via ``AO_PROBE_HELP_UPDATE=1``; these
+    pins follow it.
     """
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 331, f"declared flag inventory is {declared}, expected 331"
-    assert visible == 346, f"help-visible flag inventory is {visible}, expected 346"
-    assert len(PROBES) == 22
+    assert declared == 358, f"declared flag inventory is {declared}, expected 358"
+    assert visible == 375, f"help-visible flag inventory is {visible}, expected 375"
+    assert len(PROBES) == 24
 
 
 # ---------------------------------------------------------------------------
