@@ -80,13 +80,22 @@ def _support_mask(
 ) -> np.ndarray:
     """Model-grid cells the camera actually observed.
 
-    Taking ``model_grid != 0`` does not work: the mapping ends in a bilinear resize,
-    which bleeds a thin halo of camera signal into the surrounding zeros. Instead the
-    *footprint* is measured by pushing an all-ones frame of the camera's shape through
-    the very same mapping, so the support inherits the mapping's exact geometry --
-    crop, interpolation and rotation included -- without depending on the scene being
-    bright. ``shape`` is the shape a real mapping returns, which is the padded far
-    field rather than the pupil grid.
+    ``model_grid != 0`` looks equivalent and is not, for two measured reasons. The
+    mapping is a non-negative linear operator (crop, zero-pad, block average or
+    order-1 spline, rotation), so the nonzero mask is *always* a subset of the true
+    footprint -- it can only under-report, never over-report: on the recorded
+    geometry a frame bright across the window gives 7.91%, the same as the
+    footprint, while a dim one gives 3.96%. And it depends entirely on the scene:
+    a black frame collapses it to the empty set while the camera plainly did see
+    those pixels.
+
+    That second failure is not hypothetical -- a bench whose light has dropped
+    leaves a near-black frame, and then the naive mask reports that the camera saw
+    nothing at all. Pushing an all-ones frame of the camera's shape through the very
+    same mapping makes the support independent of the scene while inheriting the
+    mapping's exact geometry, crop and interpolation and rotation included.
+    ``shape`` is the shape a real mapping returns, which is the padded far field
+    rather than the pupil grid.
     """
     footprint = _to_model_grid(
         np.ones(frame.shape, dtype=np.float64), roi_center, far_field_size, cell_scale, rotation
@@ -136,6 +145,13 @@ def _remove_flat(measured: np.ndarray, flat_grid: np.ndarray) -> np.ndarray:
     leakage * flat_grid`` with one ``leakage`` shared across probes, so a probe whose
     flux collapsed cannot be served by a gain learned on bright probes. Subtracting the
     best multiple isolates what is left of the probe after the pedestal is gone.
+
+    Note this subtracts unconditionally, including when no pedestal is present: it
+    always projects out the flat direction, which perturbs a pedestal-free field by a
+    measured 0.75 counts on a 0-100 frame (``corr(stripped, speckle) = 0.99997``). So a
+    correlation computed after this is against a slightly projected field even for a
+    clean probe -- which is why it is reported next to the untouched number rather than
+    instead of it.
     """
     a = measured - measured.mean()
     b = flat_grid - flat_grid.mean()
