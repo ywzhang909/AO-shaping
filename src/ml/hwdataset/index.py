@@ -838,7 +838,10 @@ def _resolve_exposure(record: Any, sidecar: Mapping[str, Any]) -> float | None:
 # ---------------------------------------------------------------------------
 # Payload walking
 # ---------------------------------------------------------------------------
-def _dict_sort_key(item: tuple[Any, Any]) -> tuple[int, int, str]:
+# Single source of truth: ``records.py`` imports THIS copy. The two used to be
+# byte-identical duplicates kept apart only because this was private, and a
+# divergence between them would silently read a record from the wrong cache slot.
+def dict_sort_key(item: tuple[Any, Any]) -> tuple[int, int, str]:
     """Build a total ordering over ``(key, value)`` pairs of a record dict.
 
     Integer keys sort numerically first (that is the measured corpus shape), then
@@ -875,7 +878,7 @@ def _payload_records(payload: Any) -> list[tuple[int, int | None, Any]]:
         aborted run, an empty dict, or an object without a ``history`` list).
     """
     if isinstance(payload, dict):
-        ordered = sorted(payload.items(), key=_dict_sort_key)
+        ordered = sorted(payload.items(), key=dict_sort_key)
         records: list[tuple[int, int | None, Any]] = []
         for position, (key, value) in enumerate(ordered):
             int_key = key if isinstance(key, int) and not isinstance(key, bool) else None

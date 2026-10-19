@@ -202,6 +202,10 @@ _RE_PHASE_REPLAY = re.compile(
     r"(?P<slot>A|B)(?:_(?:zero_step|\d+_step))?_phase\.png$"
 )
 
+# 单次重放: figures/gs_issue_live_phase_20261015_205848.png
+#            -> slm_gs_refine/<run>/best_phase.npy
+_RE_GS_ISSUE_PHASE = re.compile(r"^figures/gs_issue_live_phase_(?P<run>20\d{6}_\d{6})\.png$")
+
 # GUI 闭环整形会话 C/图 3 的四个子图 -> 两个会话的交错重放原始帧。
 # 顺序即 render_panel 的 (row, col) 顺序：A flat / A best / C flat / C best。
 _GUI_REPLAY_SPECS = (
@@ -308,6 +312,14 @@ def _resolve_phase(figure: str) -> tuple[str, str]:
             _rel(path),
             f"重放 {replay} 的 {slot} 格 -> 源 {source.as_posix()} 的 best_phase.npy",
         )
+
+    m = _RE_GS_ISSUE_PHASE.match(figure)
+    if m:
+        run = m.group("run")
+        cand = GS_ROOT / run / "best_phase.npy"
+        if not cand.exists():
+            return "", f"{run} 没有 best_phase.npy"
+        return _rel(cand), f"{run} 的 best_phase.npy（GS refine 下发的整面相位）"
 
     return "", "未匹配任何已知相位图来源规则"
 
@@ -421,17 +433,11 @@ def _find_replay_frame(replay: str, idx: str, slot: str) -> Path | None:
     return None
 
 
-_EXTRA_PROFILES = (
-    # gs_issue_live_20261015.md §「plain (20261015_205654)」 embeds
-    # figures/20261019_100334_farfield.png -- an image from a *different* run
-    # (slm_model_in_loop/20261019_100334). The correct frame for that section is
-    # the 20261015_205654 debug PKL, so cut its profile even though no report
-    # figure of its own is referenced.
-    (
-        "figures/gs_issue_live_farfield_20261015_205654.png",
-        "20261015_205654",
-    ),
-)
+# Figures a report section references but whose run is not the one the figure
+# name encodes. ``gs_issue_live_20261015.md`` §plain now references
+# ``figures/gs_issue_live_farfield_20261015_205654.png`` directly, so no
+# extra is needed; the tuple is kept (empty) as the single place to add them.
+_EXTRA_PROFILES: tuple[tuple[str, str], ...] = ()
 
 
 def _resolve_one(figure: str) -> FrameSpec:
@@ -786,26 +792,29 @@ def regenerate_phase_figures() -> tuple[int, int]:
 
     written = 0
     unresolved: list[str] = []
+    targets: set[str] = set()
     for md in sorted(REPORT_DIR.glob("*.md")):
         text = md.read_text(encoding="utf-8")
         for hit in re.finditer(r"!?\[[^\]]*\]\(([^)]+_phase\.png)\)", text):
             rel = hit.group(1).replace("\\", "/")
-            if not rel.startswith("figures/"):
-                continue
-            container, note = _resolve_phase(rel)
-            target = REPORT_DIR / rel
-            if not container:
-                unresolved.append(f"{rel} — {note}")
-                continue
-            arr = np.load(ROOT / container)
-            label = Path(rel).stem
-            save_phase(
-                arr,
-                target,
-                title=f"{label} · SLM 相位",
-                flat_reason=_flat_phase_reason(container),
-            )
-            written += 1
+            if rel.startswith("figures/"):
+                targets.add(rel)
+
+    for rel in sorted(targets):
+        container, note = _resolve_phase(rel)
+        target = REPORT_DIR / rel
+        if not container:
+            unresolved.append(f"{rel} — {note}")
+            continue
+        arr = np.load(ROOT / container)
+        label = Path(rel).stem
+        save_phase(
+            arr,
+            target,
+            title=f"{label} · SLM 相位",
+            flat_reason=_flat_phase_reason(container),
+        )
+        written += 1
     if unresolved:
         logger.warning("相位图未能重建 {} 张: {}", len(unresolved), unresolved)
     return written, len(unresolved)
@@ -928,7 +937,9 @@ def main(argv: list[str] | None = None) -> int:
     phase_written = phase_unresolved = 0
     if not args.check:
         phase_written, phase_unresolved = regenerate_phase_figures()
-        print(f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张")
+        print(
+            f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张"
+        )
 
         manifest = FIG_DIR / "xy_profile_manifest.json"
         manifest.write_text(

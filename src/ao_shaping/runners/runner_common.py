@@ -3755,3 +3755,28 @@ def save_model_in_loop_results(
         image_file=image_file,
         recorder_png=recorder_png,
     )
+
+
+def round_to_int(arr: Any) -> np.ndarray:
+    """Round half-to-even, then cast to int (the voltage-sink convention).
+
+    One spelling for the ``process_fn`` shared by ``wf`` / ``pib`` / ``combined``:
+    ``np.round`` and ``np.around(x).astype(int)`` are bit-identical once written
+    through ``np.savetxt(..., fmt="%d")``.
+
+    NOT interchangeable with :func:`truncate_to_int`; see
+    https://github.com/ywzhang909/AO-shaping/issues/142
+    """
+    return np.around(np.asarray(arr)).astype(int)
+
+
+def truncate_to_int(arr: Any) -> np.ndarray:
+    """Truncate toward zero -- rounding would change the saved voltages.
+
+    ``pipeline_runner`` has always sinked voltages this way. On a representative
+    sample it disagrees with :func:`round_to_int` on 7 of 13 values (2.7 -> 2 not
+    3, 99.5 -> 99 not 100, -2.7 -> -2 not -3), so the two are kept apart on
+    purpose rather than collapsed into one helper.
+    """
+    return np.asarray(arr).astype(int)
+

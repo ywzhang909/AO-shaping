@@ -97,7 +97,7 @@ DM + WFS。`--wfs-type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`-
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
 | `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
 | `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
-| `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
+| `--wfs-exposure-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 
@@ -110,7 +110,7 @@ DM + WFS。`--wfs-type sim` 提供仿真 Shack-Hartmann，无需 WFS 硬件；`-
 python src/ao_shaping/main.py wf -e 200 --dm-type sim --wfs-type sim --show
 
 # 真实硬件，指定 WFS 分辨率与瞳孔参数
-python src/ao_shaping/main.py wf -r 1024 -p 2.7 -c "0,0" --exposure-time-ms 0.0
+python src/ao_shaping/main.py wf -r 1024 -p 2.7 -c "0,0" --wfs-exposure-ms 0.0
 ```
 
 ## 4. pib
@@ -132,7 +132,7 @@ DM + CCD。`--cam-type sim` 是 2f-Fourier 数值仿真（需配合 `--dm-type s
 | `--cam-id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID |
 | `--cam-type` | `[miicam\|daheng\|sim]` | `miicam` | CCD 相机后端，sim = 2f-Fourier 数值仿真，需配合 `--dm-type sim` |
 | `-c, --center` | TEXT | `mass` | 远场光斑 CCD 中心位置，例如 `665,403` |
-| `-t, --exposure-time-ms` | FLOAT | `0.0` | 远场光斑 CCD 曝光时间（毫秒）。0=不固定，由设备保持或自动曝光；Daheng 上 0 会被驱动钳到设备最小值（约 0.02ms） |
+| `-t, --exposure-time-ms` | `default`\|`auto`\|FLOAT | `default` | 远场光斑 CCD 曝光时间（毫秒）。`default`（默认）=不改设备当前曝光；`auto`=自动选取（等同旧 `0` 语义，Daheng 上驱动钳到约 0.02ms）；数字=显式 ms。裸 `0` 现在报错 |
 | `-e, --epochs` | INTEGER | `4000` | 优化迭代次数 |
 | `-r, --r-bucket` | INTEGER | `0` | 半径桶大小。0=环围半径，按功率半径自动调整 |
 | `--delta` | FLOAT | `2.0` | 优化步长 |
@@ -186,7 +186,7 @@ DM + WFS + CCD。`--wfs-type sim` 可替换 WFS；该命令选项表里没有 `-
 | `-e, --epochs` | INTEGER | `8000` | 优化迭代次数 |
 | `-E, --wf-epochs` | INTEGER | `8000` | WF 优化迭代次数 |
 | `--cam-id` | TEXT | 由环境变量 `Far_Cam_ID` 决定，缺省 `0` | 远场光斑 CCD 设备 ID，无短选项 |
-| `-t, --exposure-time-ms` | INTEGER | `0` | 远场光斑 CCD 曝光时间（毫秒），0=自动选取曝光 |
+| `-t, --exposure-time-ms` | `default`\|`auto`\|FLOAT | `default` | 远场光斑 CCD 曝光时间（毫秒）。`default`（默认）=不改设备当前曝光；`auto`=自动选取（等同旧 `0` 语义）；数字=显式 ms。裸 `0` 现在报错 |
 | `-s, --cam-size` | INTEGER | `160` | 相机开窗大小 |
 | `--rms-threshold` | FLOAT | `0.12` | RMS 阈值，无短选项 |
 | `-u, --dm-unit-mask` | `[all\|inner\|outer]` | `all` | DM 单元掩码 |
@@ -194,7 +194,7 @@ DM + WFS + CCD。`--wfs-type sim` 可替换 WFS；该命令选项表里没有 `-
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
 | `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
 | `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
-| `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
+| `--wfs-exposure-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 
@@ -253,7 +253,7 @@ SLM（Santec）+ WFS。`--wfs-type sim` 可用仿真 Shack-Hartmann 替代真实
 | `-r, --wfs-res` | TEXT | `1024` | WFS 分辨率 |
 | `-p, --pupil-diameter` | FLOAT | `2.7` | 瞳面直径 |
 | `-c, --pupil-center` | TEXT | `(0,0)` | 瞳面中心坐标 |
-| `--exposure-time-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
+| `--wfs-exposure-ms` | FLOAT | `0.0` | WFS 曝光时间（毫秒），0=自动曝光 |
 | `--remove-tilt` | 开关 | `False` | 移除波前测量中的倾斜项 |
 | `--wfs-type` | `[thorlab\|sim]` | `thorlab` | 波前传感器类型，sim=仿真 Shack-Hartmann，无需硬件 |
 

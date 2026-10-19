@@ -241,8 +241,15 @@ def _objective_to_min(objective: str) -> int:
     the nested ``calc_objective`` closures makes it closure-local and silently
     ineffective -- that mistake (commit 74c7d0f) inverted the PIB objective so
     the optimizer *minimised* it.
+
+    The direction comes from :func:`~ao_shaping.utils.objective_direction.objective_direction`,
+    the same source ``optimize_pib`` already uses for ``Recorder(mode=...)``. It
+    must be that source and not a local tuple: the sign here and the recorder's
+    mode are two halves of one decision. If they disagree the search descends an
+    objective the recorder reports as improving -- the 74c7d0f symptom reached
+    through the vocabulary instead of through a scoping mistake.
     """
-    return -1 if objective in ("pib", "avg_radiu") else 1
+    return -1 if objective_direction(objective) == "max" else 1
 
 
 def optimize_pib(

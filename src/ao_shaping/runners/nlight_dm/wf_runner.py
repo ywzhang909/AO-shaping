@@ -4,7 +4,6 @@ import click
 from pathlib import Path
 from typing import Literal, cast
 
-import numpy as np
 import matplotlib.pyplot as plt
 
 from ao_shaping.utils import gen_date_dir, gen_file_path_uuid
@@ -17,6 +16,7 @@ from ao_shaping.utils.io.cli_helpers import (
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
+    round_to_int,
     DmDeviceParams,
     WfAlgorithmParams,
     WfRunParams,
@@ -92,7 +92,7 @@ def run(
         records.save_dataframe(saved_file_name.with_suffix(".zip"), compression="zip")
 
     save_dir = root_dir / "flatten_voltages" / get_date_dir_name()
-    records.save_best(saved_dir=save_dir, target="_v", process_fn=np.round, fmt="%d")
+    records.save_best(saved_dir=save_dir, target="_v", process_fn=round_to_int, fmt="%d")
 
     click.echo(f"波前优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}")
 

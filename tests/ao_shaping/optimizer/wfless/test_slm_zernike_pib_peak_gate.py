@@ -257,7 +257,9 @@ class TestAutoExposureWarning:
 
         _patch_sim(monkeypatch)
         cfg = _config(max_peak=50.0)
-        cfg.camera.exposure_time_ms = 0.0
+        # Token contract: "auto" is the config-object equivalent of the legacy
+        # 0.0 (bare 0 is rejected by the parser; see utils/cli/exposure.py).
+        cfg.camera.exposure_time_ms = "auto"
         _LOG_MSGS.clear()
         sink = _collect_logs()
         try:

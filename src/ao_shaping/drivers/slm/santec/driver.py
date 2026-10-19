@@ -289,6 +289,11 @@ class Santec:
     MAX_GRAYSCALE_VALUE = get_max_grayscale()
     MAX_PIXEL_FLIP_TIME_MS = MAX_PIXEL_FLIP_TIME_MS  # 像素全量翻转(0→2π)最大耗时 (ms)
     MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_S  # 同上，单位秒
+    # 发送管线的两个叠加层都是可选修正项：未设置即"无叠加"，是正常状态而非缺失标定。
+    # 类级默认与 __init__ 的取值一致，使 create_phase_from_array 的 `is not None` 判定
+    # 对任何实例都成立（含不经 __init__ 构造的跨平台纯数学实例）。
+    _phase_overlay: npt.NDArray[np.floating] | None = None
+    _base_phase: npt.NDArray[np.uint16] | None = None
 
     @classmethod
     def from_params(cls, params: Any, **overrides: Any) -> Self:

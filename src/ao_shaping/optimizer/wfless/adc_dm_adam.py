@@ -6,7 +6,7 @@ import os
 import tqdm
 from loguru import logger
 
-from ao_shaping.algorithm.gradient.acceleration import _njit
+from ao_shaping.utils.numba_compat import njit
 
 from ao_shaping.drivers import NlightDM
 import nidaqmx
@@ -148,7 +148,7 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
                         m = np.zeros_like(init_v)
                         v = np.zeros_like(init_v)
 
-                    @_njit(cache=True)
+                    @njit(cache=True)
                     def update_epoch(
                         epoch: int,
                         m: np.ndarray[float],

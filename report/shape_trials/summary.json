@@ -1,0 +1,98 @@
+{
+  "timestamp": "2026-10-19T17:35:02.367157",
+  "mode": "full",
+  "wavelength_nm": 1064.0,
+  "focal_length_m": 0.12240601503759398,
+  "aperture_m": 0.0072,
+  "panel_pixel_um": 8.0,
+  "camera_pixel_um": 2.2,
+  "n_grid": 64,
+  "far_field_padding": 8,
+  "far_field_size": 512,
+  "far_field_pixel_size_um": 2.261111111111111,
+  "target_side_px": 43,
+  "objective": "0.5*PIB + 0.5*(1/(1+CV)), CV/PIB in the centroid-tracked auto-scaled box",
+  "dz_blur_mm": 0.7503639840341595,
+  "dz_units": [
+    -2.0,
+    -1.0,
+    -0.5,
+    -0.25,
+    0.0,
+    0.25,
+    0.5,
+    1.0,
+    2.0
+  ],
+  "defocus_rad": [
+    -2.0,
+    -1.6,
+    -1.2,
+    -0.7999999999999998,
+    -0.3999999999999999,
+    0.0,
+    0.40000000000000036,
+    0.8000000000000003,
+    1.2000000000000002,
+    1.6,
+    2.0
+  ],
+  "self_check": {
+    "gs_mirror_max_phase_delta": 5.329070518200751e-15,
+    "torch_vs_numpy_rel_err": 1.3651649651378749e-14,
+    "autograd_vs_central_difference_rel_err": 8.724724520222826e-10
+  },
+  "baseline_gs_dz0": {
+    "score": 0.8073092755981678,
+    "PIB": 0.9111231784828062,
+    "CV": 0.4214734578036954,
+    "score_fixed_box": 0.8073092755981678,
+    "PIB_fixed_box": 0.9111231784828062,
+    "CV_fixed_box": 0.4214734578036954,
+    "sigma_px": 17.9886980630385,
+    "side_px": 43,
+    "d90_px": 47.4375,
+    "d90_um": 107.26145833333334
+  },
+  "baseline_gs_dz0_datajson_box": {
+    "score": 0.8118054772479195,
+    "PIB": 0.9153051811202838,
+    "CV": 0.4118196372088354,
+    "note": "data.json 口径 (定尺框, 框心 = 画框中心 m//2); 上面的主基线是质心跟踪自动框, 框心差半个像素 → 分数差 ~0.5%"
+  },
+  "reference_baseline_data_json": {
+    "score": 0.8118054772479197,
+    "PIB": 0.9153051811202841,
+    "CV": 0.4118196372088354,
+    "note": "report/iterative_zernike_shaping/data.json :: gs"
+  },
+  "e2_score_gap_B_minus_A_gs_zernike": {
+    "-2.00": 0.121578,
+    "-1.00": 0.041765,
+    "-0.50": 0.006733,
+    "-0.25": -0.002772,
+    "+0.00": 0.0,
+    "+0.25": 0.00126,
+    "+0.50": 0.01073,
+    "+1.00": 0.045629,
+    "+2.00": 0.125132
+  },
+  "e2_score_gain_defocus_over_plain_gs_zernike": {
+    "-2.00": -0.00042,
+    "-1.00": -0.00042,
+    "-0.50": -0.00042,
+    "-0.25": -0.00042,
+    "+0.00": -0.001845,
+    "+0.25": -0.001028,
+    "+0.50": -0.001028,
+    "+1.00": -0.001028,
+    "+2.00": -0.001028
+  },
+  "elapsed_s": 498.1,
+  "outputs": {
+    "e1_csv": "e1_defocus_sweep.csv",
+    "e2_csv": "e2_methods.csv",
+    "e1_png": "e1_cv_heatmap.png",
+    "e2_png": "e2_cv_vs_dz.png"
+  }
+}

@@ -103,7 +103,7 @@ class SlmZernikePibConfig:
 | `--seed` | 随机种子 (仅 sim 可复现) | None |
 | `--cam-type` | 相机类型 (miicam/daheng/sim) | daheng |
 | `--cam-id` | 相机设备 ID | 0 |
-| `--exposure-time-ms` | 曝光 ms (0=不固定) | 0 |
+| `--exposure-time-ms` | CCD 曝光 ms: `default`=不改曝光 / `auto`=自动选取（旧 `0` 语义）/ 数字=显式 ms（裸 `0` 报错） | `default` |
 | `--cam-size` | 相机开窗大小 | 250 |
 | `-c, --center` | 光斑中心检测 (auto/mass/max/shape/centroid_thresh/'x,y') | auto |
 | `--auto-exposure` | 自动寻找安全曝光 | False |
