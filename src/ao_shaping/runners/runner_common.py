@@ -2973,9 +2973,14 @@ class SlmModelInLoopParams:
         option(
             "--dtype",
             type=click.Choice(["float32", "float64"]),
-            help="Torch dtype for the forward model.",
+            help=(
+                "Torch dtype for the forward model. float32 (default) matches the "
+                "algorithm layer and is all the panel can express: the phase is "
+                "quantised to the 10-bit gray map, and float32 reproduces float64's "
+                "gray map byte for byte."
+            ),
         ),
-    ] = "float64"
+    ] = "float32"
     n_calibration_probes: Annotated[
         int,
         option(

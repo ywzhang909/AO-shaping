@@ -393,7 +393,54 @@ class SlmModelInLoopConfig:
     device: str | None = None
     """Torch device for the forward model; ``None`` auto-detects."""
 
-    dtype: str = "float64"
+    dtype: str = "float32"
+    """Working precision for the forward model: ``"float32"`` or ``"float64"``.
+
+    Defaults to ``float32``, matching
+    :class:`~...zernike_coefficient_optimizer.ZernikeCoefficientOptimizer`, which
+    has always defaulted to it; this config used to override it back to
+    ``float64`` and was the only layer doing so.
+
+    Measured on an RTX 5080 Laptop (2026-10-19), warm one-round runs at a fixed
+    config: at ``region=128`` float64/CUDA 2.39 s vs float32/CUDA 1.64 s (1.46x);
+    at ``region=256`` 4.91 s vs 2.91 s (1.69x). ``float64`` on a consumer GPU is
+    disproportionately slow, so it gave *no* gain over CPU at 128 (2.39 vs 2.35 s)
+    -- the precision choice, not the device, was cancelling the GPU.
+
+    The decisive reason is not speed but that the extra precision is *unreachable*.
+    A phase reaches the panel only after quantisation to the device's 10-bit gray
+    map (2*pi = 993 levels, i.e. 6.33e-3 rad per level). Measured 2026-10-19 with
+    random raw-radian phases, mapping float32 and float64 versions of the same
+    array through
+    :func:`~ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale` gives
+    **byte-identical** gray maps -- zero differing pixels out of 262144 at
+    ``region=512``, and at 128 and 256 -- with the phase differing by only
+    0.0075%-0.015% of one gray level. Float64's mantissa is discarded by the
+    quantiser before it can influence anything on the bench.
+
+    Pass ``"float64"`` explicitly only when comparing against a stored float64
+    artefact: it cannot change what the panel displays, but it does change the
+    arrays written into debug artefacts.
+
+    Speed, measured 2026-10-19 on an RTX 5080 Laptop with every case warmed and
+    then run round-robin five times (median, one-round warm run at a fixed config) --
+    interleaving matters, because a CUDA case timed first pays one-off kernel
+    compilation and reads several times slower than it really is:
+
+    ==============  ==============  ==============  ==============  ==============
+    region          float64/CUDA    float32/CUDA    float64/CPU     float32/CPU
+    ==============  ==============  ==============  ==============  ==============
+    128             1.71 s          1.71 s          3.16 s          2.36 s
+    256             3.40 s          3.05 s          10.64 s         5.96 s
+    ==============  ==============  ==============  ==============  ==============
+
+    So the device is the big lever (CUDA is 1.85x-3.13x the CPU at equal precision,
+    and ``device=None`` already selects it) while this precision change is worth
+    1.00x-1.11x on CUDA but 1.34x-1.78x on CPU. It is kept for two reasons that do
+    not depend on that: it removes the one layer that contradicted the algorithm
+    layer's own default, and it makes the CPU fallback materially faster without
+    costing anything on the GPU.
+    """
     warm_start: bool = True
     """Warm-start each Step B solve from the previous round's phase.
 
