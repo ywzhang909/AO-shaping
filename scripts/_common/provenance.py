@@ -699,20 +699,6 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/model_in_loop_replay.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="离线+硬件",
-        note=(
-            "2026-10-16 正向模型闭环方斑均匀度实验 (Santec SLM #1 22030108 + "
-            "大恒 FJB24112232, 1064 nm)；同一光路会话比较模型网格、Step B 权重、"
-            "目标掩码与热启动轮次；最终结论以固定曝光交错重放为准"
-        ),
-        extra_scripts=(
-            "src/ao_shaping/runners/slm/model_in_loop_runner.py",
-            "src/ao_shaping/tools/slm/model_in_loop_replay.py",
-            "scripts/slm/model_in_loop_hw_runbook.py",
-        ),
-    ),
     "report/shape_trials/model_in_loop_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

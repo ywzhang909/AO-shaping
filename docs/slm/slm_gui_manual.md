@@ -175,6 +175,13 @@ classDiagram
 | slm{N}_bench_panel_span_px  | int             | 模型覆盖宽度（widget 键；GS 的 `beam_radius_px×2` 落同一字段） |
 | slm{N}_bench_geometry_source| str             | auto / reuse / keep（widget 键） |
 | slm{N}_bench_geometry_file  | str             | bench_geometry.json 路径（复用模式下出现，widget 键） |
+| slm{N}_bench_beam_radius_px  | float           | 实测照明半径（面板px，0 = 未实测；「探测半径」按钮写入，widget 键） |
+| slm{N}_bench_beam_radius_probe | dict           | 「探测半径」按钮的扫描证据（半平面随机相位边界扫描） |
+| slm{N}_bench_focus_probe     | dict            | 「探测焦面」按钮的菲涅尔焦距实测（`best_focal_mm` 等；`bench_fresnel_focal_mm` 只读它） |
+| slm{N}_defocus_rad           | float           | 离焦微调 Zernike (2,0) 幅度（rad，widget 键；拖动不下发） |
+| slm{N}_defocus_focal_mm      | float           | 菲涅尔焦距补偿 (mm；0 = 用侧栏实测，widget 键) |
+| slm{N}_apply_defocus_btn     | bool            | 「叠加并下发」离焦补偿（widget 键） |
+| slm{N}_clear_defocus_btn     | bool            | 「恢复原始 GS 相位」（widget 键） |
 | slm{N}_shp_pending         | dict            | 主区预算预设的单次 flush 待写值（非 widget key） |
 | slm{N}_shp_budget_preset*   | str             | 预算预设选择与其「已应用」标记（widget 键） |
 
@@ -642,7 +649,7 @@ flowchart LR
 | A 相机 | 相机类型（daheng/miicam/sim）、相机 ID、像元间距 `μm`（**含「探测」按钮与渲染期自动探测告警**，`key="camera_pixel_um"` 未变，从旧「相机工具」区整体搬来）、会话曝光 `ms`（0 = 自动；caption 写明 0 会被大恒钳到约 0.02 ms，比可用区间暗 20–75×；超 `AO_DAHENG_MAX_EXPOSURE_MS` 立即 warning，运行前再 error 一次）**+ 「探测」按钮（`key="detect_exposure_btn"`，仅 daheng 可用）**：点一下按当前光路实测曝光 |
 | B 读出窗口 | 「启用开窗」+ 窗口边长 `px`。上界 = `min(max_width, max_height)`、step = 设备特征网格 `inc`（**取得到相机时是真值，取不到时用保守兜底并在 caption 说明来源**，点「探测窗口上限」重读）。⚠️ 已**取消** `cam_size_min = max(16, target_side)` 互夹：侧栏先渲染、拿不到主区目标边长，而 Streamlit 对「min 变化后越界」是**抛异常不是夹取** → 改到运行前校验（§8.2） |
 | C 去零级载波 | 载波（-1 关 / 0 实测自动 / 128 / 96 / 64）+ 光栅方向 |
-| D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
+| D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）+ **「探测焦面」按钮**（`key="detect_focus_btn"`，plain 相位上扫菲涅尔焦距 ±6 m⁻¹，逐点自动重调曝光，约 1–2 分钟；结果写 `slm{N}_bench_focus_probe`，供整形页离焦微调做粗补偿，证据落 `data/debug/bench_settings/focus_probe/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
 | E 标定（每 SLM） | 几何来源（自动标定（推荐）/ 复用已标定几何 / 沿用上次结果）+ 条件显示的几何文件路径（复用模式下用 `discover_model_in_loop_geometry(region=…)` 给建议值）+ 「标定 SLM N 光路」primary 按钮（**复用模式下 disabled**：那时两步都不测，点下去只会刷新 `calibrated_at`，却让人以为重新量过）+ 有手动改动时出现的「恢复探测值」 |
 
 **自动探测但允许人工修改（三态）**
