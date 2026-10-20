@@ -39,6 +39,17 @@ python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json
 
 `handoff_summary.json` 分别检查相位产物、已验收轮次、相对平场的分数、CV、EE、IoU、几何和留出相关性。`passes_recorded_gates` 只表示保存的逐轮记录过了配置门槛，**不是最终光学验收**；该 CSV 不保证其中最优分数行就是最后保存相位的固定曝光指标。
 
+### 3.1 一次跑完 A/B 对照与大面积目标
+
+需要「留出门槛不动」与「强制放开门槛」两臂对照、以及 1000–1600 相机像素的大面积正方形目标时，用编排脚本（它复用上面的 `model_in_loop_auto.py` 入口，并在每个硬件阶段前加一道测光门禁）：
+
+```powershell
+python scripts/slm/model_in_loop_hw_ab.py --plan      # 只打印计划，不开设备
+python scripts/slm/model_in_loop_hw_ab.py             # light → baseline_a → baseline_b → large_1000 / large_1600
+```
+
+各阶段的期望先写进 manifest 再执行，产物在 `data/debug/model_in_loop_hw_ab/<时间戳>/`（`manifest.json` + `summary.md` + 各阶段 `stage.log`）。测光判定 `no_light` 直接停，`weak` 默认停（`--allow-weak` 放行）。大面积臂会把相机窗口放大到目标边长 +100 px，目标框必须落在读出窗口内。
+
 ## 4. 固定曝光复核与交接
 
 要比较两次会话或一个候选与历史相位，先确认两者 `run_config.json` 中相机、SLM、目标、相位扰动与入射位置一致，然后执行现有交错重放：
