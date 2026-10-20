@@ -33,6 +33,9 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+)
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -274,7 +277,7 @@ def optimizer_ga(
         recorder.append(
             {
                 "rms": best_rms,
-                "_c": best_c.copy(),
+                RECORD_COEFFS: best_c.copy(),
                 "_generation": 0,
                 "_population": population.copy(),
                 "_fitness": fitness.copy(),
@@ -345,7 +348,7 @@ def optimizer_ga(
                 recorder.append(
                     {
                         "rms": current_best_rms,
-                        "_c": current_best_c.copy(),
+                        RECORD_COEFFS: current_best_c.copy(),
                         "_generation": generation,
                         "_population": population.copy(),
                         "_fitness": fitness.copy(),

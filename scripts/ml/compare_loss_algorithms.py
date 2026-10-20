@@ -66,6 +66,9 @@ import matplotlib
 
 matplotlib.use("Agg")  # BEFORE pyplot
 import matplotlib.pyplot as plt  # noqa: E402
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+)
 
 
 # --------------------------------------------------------------------------
@@ -179,7 +182,7 @@ def _run_ao(axes: AOAxis, *, epochs: int, pop_size: int, cam_size: int,
     for key in ("m_pib", "m_shape", "m_energy", "m_rmse", "m_ee", "m_rms_pib"):
         if key in last:
             row[key] = float(last[key])
-    row["coeff_norm"] = float(np.linalg.norm(np.asarray(last["_c"], dtype=np.float64)))
+    row["coeff_norm"] = float(np.linalg.norm(np.asarray(last[RECORD_COEFFS], dtype=np.float64)))
     return row
 
 

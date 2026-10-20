@@ -49,6 +49,10 @@ import matplotlib  # noqa: E402
 matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+)
 
 # ---------------------------------------------------------------------------
 # _frames_to_gif: prefer the repo reference implementation, fall back to a
@@ -134,7 +138,7 @@ def _load_run(pkl: Path) -> dict:
 
 
 def _make_far_frames(data: dict) -> list[np.ndarray]:
-    frames = [data[e]["_img"] for e in sorted(data) if "_img" in data[e]]
+    frames = [data[e][RECORD_IMAGE] for e in sorted(data) if RECORD_IMAGE in data[e]]
     if not frames:
         raise click.ClickException("pkl 无 _img (CCD far-field) 记录")
     logger.info("提取 {} 帧 far-field (_img)", len(frames))
@@ -144,9 +148,9 @@ def _make_far_frames(data: dict) -> list[np.ndarray]:
 def _make_phase_frames(data: dict) -> list[np.ndarray]:
     frames = []
     for e in sorted(data):
-        if "_c" not in data[e]:
+        if RECORD_COEFFS not in data[e]:
             continue
-        c = np.asarray(data[e]["_c"], dtype=float)
+        c = np.asarray(data[e][RECORD_COEFFS], dtype=float)
         if c.size != PHASE_GRID * PHASE_GRID:
             continue
         frames.append(np.mod(c.reshape(PHASE_GRID, PHASE_GRID), 2.0 * np.pi))

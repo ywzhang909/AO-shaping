@@ -14,6 +14,16 @@ from ao_shaping.utils.image.spots_calc import power_bucket, radius
 from ao_shaping.utils import logger, Recorder
 
 from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_GRAD,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+    RECORD_ROI_ENERGY,
+    RECORD_VOLTAGES,
+)
 
 def _current_strehl(ao_sys: TraditionalAOSystem) -> float:
     return float(ao_sys.observe()["strehl"])
@@ -247,18 +257,18 @@ def optimize_spgd(
             "sim_spgd": "init",
             "J": J0,
             "pib": J0,
-            "_p%": pib_ratio0,
+            RECORD_ROI_ENERGY: pib_ratio0,
             "_max_r": _init_r,
-            "_v": _init_v.copy(),
-            "_img": init_img,
-            "_diff": 0.0,
+            RECORD_VOLTAGES: _init_v.copy(),
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0.0,
             "gamma": current_gamma,
             "r": r_bucket,
             "delta": current_delta,
             "ideal_r": ideal_bucket_radius,
-            "_epoch": 0,
+            RECORD_EPOCH: 0,
             "strehl": _strehl_init,
-            "_grad": np.zeros_like(_init_v),
+            RECORD_GRAD: np.zeros_like(_init_v),
         }
     )
 
@@ -345,19 +355,19 @@ def optimize_spgd(
             log = {
                 "sim_spgd": epoch,
                 "J": J,
-                "_p%": pib_ratio,
+                RECORD_ROI_ENERGY: pib_ratio,
                 "_max_r": _init_r,
                 "pib": pib,
-                "_diff": diff,
+                RECORD_DIFF: diff,
                 "gamma": current_gamma,
                 "r": r_bucket,
                 "delta": current_delta,
                 "ideal_r": ideal_bucket_radius,
-                "_epoch": epoch,
-                "_v": _init_v.copy(),
-                "_img": pos_img,
+                RECORD_EPOCH: epoch,
+                RECORD_VOLTAGES: _init_v.copy(),
+                RECORD_IMAGE: pos_img,
                 "strehl": strehl,
-                "_grad": gradient,
+                RECORD_GRAD: gradient,
             }
             recorder.append(log)
             bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
@@ -506,19 +516,19 @@ def optimize_spgd_zernike(
             "sim_spgd_zernike": "init",
             "J": init_pib,
             "pib": init_pib,
-            "_p%": init_ratio,
+            RECORD_ROI_ENERGY: init_ratio,
             "_max_r": _init_r,
-            "_c": c.copy(),
-            "_phase": phase.copy(),
-            "_img": ao_sys.get_image(),
-            "_diff": diff,
+            RECORD_COEFFS: c.copy(),
+            RECORD_PHASE: phase.copy(),
+            RECORD_IMAGE: ao_sys.get_image(),
+            RECORD_DIFF: diff,
             "gamma": current_gamma,
             "r": r_bucket,
             "delta": current_delta,
             "ideal_r": ideal_bucket_radius,
-            "_epoch": 0,
+            RECORD_EPOCH: 0,
             "strehl": _strehl_init,
-            "_grad": np.zeros(nk),
+            RECORD_GRAD: np.zeros(nk),
         }
     )
 
@@ -601,20 +611,20 @@ def optimize_spgd_zernike(
             log = {
                 "sim_spgd_zernike": epoch,
                 "J": J,
-                "_p%": pib_ratio,
+                RECORD_ROI_ENERGY: pib_ratio,
                 "_max_r": _init_r,
                 "pib": pib,
-                "_diff": diff,
+                RECORD_DIFF: diff,
                 "gamma": current_gamma,
                 "r": r_bucket,
                 "delta": current_delta,
                 "ideal_r": ideal_bucket_radius,
-                "_epoch": epoch,
-                "_c": c.copy(),
-                "_phase": phase.copy(),
-                "_img": pos_img,
+                RECORD_EPOCH: epoch,
+                RECORD_COEFFS: c.copy(),
+                RECORD_PHASE: phase.copy(),
+                RECORD_IMAGE: pos_img,
                 "strehl": strehl,
-                "_grad": gradient,
+                RECORD_GRAD: gradient,
             }
             recorder.append(log)
             bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})
@@ -698,9 +708,9 @@ def optimize_pso(
         {
             "sim_pso": "init",
             "pib": init_pib,
-            "_p%": 0.0,
-            "_v": np.zeros(total_actuators),
-            "_epoch": 0,
+            RECORD_ROI_ENERGY: 0.0,
+            RECORD_VOLTAGES: np.zeros(total_actuators),
+            RECORD_EPOCH: 0,
             "strehl": _strehl_init,
         }
     )
@@ -737,9 +747,9 @@ def optimize_pso(
                 {
                     "sim_pso": epoch,
                     "pib": pib,
-                    "_p%": 0.0,
-                    "_v": global_best.copy(),
-                    "_epoch": epoch,
+                    RECORD_ROI_ENERGY: 0.0,
+                    RECORD_VOLTAGES: global_best.copy(),
+                    RECORD_EPOCH: epoch,
                     "strehl": strehl,
                 }
             )
@@ -824,9 +834,9 @@ def optimize_ga(
         {
             "sim_ga": "init",
             "pib": init_pib,
-            "_p%": 0.0,
-            "_v": np.zeros(total_actuators),
-            "_epoch": 0,
+            RECORD_ROI_ENERGY: 0.0,
+            RECORD_VOLTAGES: np.zeros(total_actuators),
+            RECORD_EPOCH: 0,
             "strehl": _strehl_init,
         }
     )
@@ -879,9 +889,9 @@ def optimize_ga(
                 {
                     "sim_ga": epoch,
                     "pib": pib,
-                    "_p%": 0.0,
-                    "_v": best_ind.copy(),
-                    "_epoch": epoch,
+                    RECORD_ROI_ENERGY: 0.0,
+                    RECORD_VOLTAGES: best_ind.copy(),
+                    RECORD_EPOCH: epoch,
                     "strehl": strehl,
                 }
             )
@@ -961,9 +971,9 @@ def optimize_sa(
         {
             "sim_sa": "init",
             "pib": init_pib,
-            "_p%": 0.0,
-            "_v": current.copy(),
-            "_epoch": 0,
+            RECORD_ROI_ENERGY: 0.0,
+            RECORD_VOLTAGES: current.copy(),
+            RECORD_EPOCH: 0,
             "strehl": _strehl_init,
             "_T": T,
         }
@@ -996,9 +1006,9 @@ def optimize_sa(
                 {
                     "sim_sa": epoch,
                     "pib": pib,
-                    "_p%": 0.0,
-                    "_v": best.copy(),
-                    "_epoch": epoch,
+                    RECORD_ROI_ENERGY: 0.0,
+                    RECORD_VOLTAGES: best.copy(),
+                    RECORD_EPOCH: epoch,
                     "strehl": strehl,
                     "_T": T,
                 }

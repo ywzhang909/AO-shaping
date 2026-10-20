@@ -163,6 +163,10 @@ from ml.gsnet_debug.offline import (
     pupil_phase_to_grid,
     reconstruct_pupil_phase_rad,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+)
 
 __all__ = [
     "DEFAULT_PREFETCH_FACTOR",
@@ -605,21 +609,21 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
                 f"Record {key} in {path} is not a dict "
                 f"(got {type(record).__name__})"
             )
-        if "_img" not in record:
+        if RECORD_IMAGE not in record:
             raise GSNetRecordError(
                 f"Record {key} in {path} has no '_img' key; the far-field "
                 f"target cannot be built (available keys: {sorted(record)})"
             )
-        if "_c" not in record:
+        if RECORD_COEFFS not in record:
             raise GSNetRecordError(
                 f"Record {key} in {path} has no '_c' key; the ground-truth "
                 f"pupil phase cannot be reconstructed "
                 f"(available keys: {sorted(record)})"
             )
 
-        target = _to_grid_tensor(farfield_to_grid(record["_img"], self._grid))
+        target = _to_grid_tensor(farfield_to_grid(record[RECORD_IMAGE], self._grid))
 
-        coeffs = np.asarray(record["_c"], dtype=np.float64).ravel()
+        coeffs = np.asarray(record[RECORD_COEFFS], dtype=np.float64).ravel()
         if coeffs.size == 0:
             raise GSNetRecordError(
                 f"Record {key} in {path} has an empty '_c'; no Zernike mode "

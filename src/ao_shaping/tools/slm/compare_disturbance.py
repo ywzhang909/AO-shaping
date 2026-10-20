@@ -33,6 +33,9 @@ from ao_shaping.utils.image.exposure_control import (
 )
 from ao_shaping.utils.io.file import save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_disturbance import zernike_panel_disturbance
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 
 def _utc() -> str:
@@ -131,7 +134,7 @@ def run_comparison(args: argparse.Namespace) -> Path:
                 entry["algorithm_best_score"] = float(max(row["score"] for row in recorder.history))
                 entry["iterations"] = sum(row["stage"] == "refine" for row in recorder.history)
                 best_frame = recorder.best_frame
-                flat_frame = recorder.history[0]["_img"]
+                flat_frame = recorder.history[0][RECORD_IMAGE]
             else:
                 config = SlmModelInLoopConfig(
                     n_rounds=args.model_rounds, seed=args.seed,

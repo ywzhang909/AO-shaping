@@ -11,6 +11,10 @@ from ao_shaping.utils.numba_compat import njit
 from ao_shaping.drivers import NlightDM
 import nidaqmx
 from nidaqmx.constants import AcquisitionType
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_VOLTAGES,
+)
 
 ROOT_DIR = "./test"
 Last_voltage_path = os.path.join(ROOT_DIR, "last_v.csv")
@@ -111,11 +115,11 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
         history = [
             {
                 "J": calc_j(),
-                "_v": init_v,
+                RECORD_VOLTAGES: init_v,
                 "diff": 0,
                 "gamma": gamma,
                 "_delta": delta,
-                "_epoch": -1,
+                RECORD_EPOCH: -1,
             }
         ]
         list_J = []
@@ -173,7 +177,7 @@ def optimizer(delta=DELTA, gamma=GAMMA, algorithm="adam", continue_opt=False):
                 update = np.clip(update, -50, 50)
                 init_v = np.clip(init_v + update, V_MIN, V_MAX)
 
-                log = {"J": neg_j, "_epoch": epoch, "_v": init_v, "diff": diff}
+                log = {"J": neg_j, RECORD_EPOCH: epoch, RECORD_VOLTAGES: init_v, "diff": diff}
                 history.append(log)
 
                 bar.set_postfix({k: v for k, v in log.items() if k[0] != "_"})

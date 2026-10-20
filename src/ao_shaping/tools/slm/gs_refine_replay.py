@@ -12,6 +12,9 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_PHASE,
+)
 
 
 SEQUENCE = ("flat", "gs", "best", "gs", "flat", "best", "flat")
@@ -80,7 +83,7 @@ def load_replay_plan(
         raise ValueError("GS debug scores must be finite")
     best_key = max(records, key=lambda key: float(records[key]["score"]))
     phases = {
-        name: np.asarray(records[key]["_phase"])
+        name: np.asarray(records[key][RECORD_PHASE])
         for name, key in (("flat", 0), ("gs", 1), ("best", best_key))
     }
     shapes = {phase.shape for phase in phases.values()}

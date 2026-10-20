@@ -17,6 +17,9 @@ import pickle
 from pathlib import Path
 
 import numpy as np
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 
 def _pkl_path(path: Path) -> Path:
@@ -97,7 +100,7 @@ def compare(path: Path, side: int = 100, bins: int = 5) -> dict:
     flat_key = min(rows)
     score_key = _score_key(rows[flat_key])
     best_key = max(rows, key=lambda key: float(rows[key].get(score_key, -np.inf)))
-    flat = np.asarray(rows[flat_key]["_img"])
+    flat = np.asarray(rows[flat_key][RECORD_IMAGE])
     center = tuple(int(v) for v in np.unravel_index(np.nanargmax(flat), flat.shape))
     return {
         "run": str(path),
@@ -106,7 +109,7 @@ def compare(path: Path, side: int = 100, bins: int = 5) -> dict:
         "score_key": score_key,
         "best_row": best_key,
         "flat": _metrics(flat, center, side, bins),
-        "best": _metrics(rows[best_key]["_img"], center, side, bins),
+        "best": _metrics(rows[best_key][RECORD_IMAGE], center, side, bins),
     }
 
 

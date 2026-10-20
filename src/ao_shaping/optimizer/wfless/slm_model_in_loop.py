@@ -87,6 +87,9 @@ from ao_shaping.utils.image.exposure_control import (
     resolve_daheng_exposure_limit,
 )
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+)
 
 __all__ = [
     "AdaptiveTrustRegion",
@@ -2569,7 +2572,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 # KeyError from inside the pkl path. Every other shaping optimizer
                 # stamps it (see `slm_zernike_pib.py`); this one did not, which is why
                 # its `--debug` artefacts could never be written.
-                "_epoch": 0,
+                RECORD_EPOCH: 0,
                 "accepted": True,
                 "reason": "baseline",
                 "score_before": float(flat_score),
@@ -2872,7 +2875,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                     {
                         "stage": "round",
                         "round": index + 1,
-                        "_epoch": index + 1,
+                        RECORD_EPOCH: index + 1,
                         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                         "accepted": False,
                         "reason": "holdout_forward_mismatch",
@@ -2999,7 +3002,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 "stage": "round",
                 "round": index + 1,
                 # See the calibration record above: required by the shared pkl writer.
-                "_epoch": index + 1,
+                RECORD_EPOCH: index + 1,
                 "accepted": bool(verdict.accepted),
                 "reason": verdict.reason,
                 "loss_before": loss_before,

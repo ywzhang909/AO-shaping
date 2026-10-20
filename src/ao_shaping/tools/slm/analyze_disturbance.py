@@ -10,6 +10,9 @@ import numpy as np
 
 from ao_shaping.tools.slm.compare_disturbance import _common_quality
 from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 
 def analyze(root: Path) -> dict:
@@ -20,7 +23,7 @@ def analyze(root: Path) -> dict:
         if entry["algorithm"] == "gs_refine":
             with next(run.glob("*.pkl")).open("rb") as handle:
                 history = pickle.load(handle)
-            flat = np.asarray(history[0]["_img"])
+            flat = np.asarray(history[0][RECORD_IMAGE])
             best = np.load(run / "best_frame.npy")
             timestamps = [history[index]["timestamp_utc"] for index in sorted(history)]
         else:

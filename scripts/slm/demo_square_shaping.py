@@ -21,6 +21,9 @@ import numpy as np
 from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
 from ao_shaping.utils import logger
 from ao_shaping.utils.io.file import gen_date_dir, gen_date_str
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+)
 
 
 def main() -> None:
@@ -129,7 +132,7 @@ def main() -> None:
     best_iter, (_, best_val) = recorder.get_best_iter()
     logger.info(
         f"Optimization complete. Best quality: {best_val:.4f} "
-        f"@ epoch {best_iter.get('_epoch', 'N/A')}"
+        f"@ epoch {best_iter.get(RECORD_EPOCH, 'N/A')}"
     )
     save_file = gen_date_dir("data") / f"slm_square_{gen_date_str()}.csv"
     recorder.save_dataframe(save_file)

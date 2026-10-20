@@ -101,6 +101,10 @@ from ao_shaping.utils.io.file import (
     save_recorder_debug_artifacts,
 )
 from ao_shaping.display.frames import save_best_image
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+)
 
 # Backward-compatible aliases / re-exports — tests and external callers
 # import the parameter dataclasses from the runner module they configure, so
@@ -803,7 +807,7 @@ def _save_square_summary(recorder: Recorder, root_dir: Path) -> tuple[Path, dict
     click.echo(f"  AR: {best_iter.get('ar', 'N/A')}")
     click.echo(f"  Side: {best_iter.get('side', 'N/A')} px")
 
-    best_c = best_iter.get("_c")
+    best_c = best_iter.get(RECORD_COEFFS)
     if best_c is not None:
         coeffs_file = save_dir / "best_coefficients.csv"
         np.savetxt(coeffs_file, best_c, fmt="%.6f")
@@ -813,7 +817,7 @@ def _save_square_summary(recorder: Recorder, root_dir: Path) -> tuple[Path, dict
 
 def _save_square_best_image(save_dir: Path, best_iter: dict) -> None:
     """Render the best far field, marking the target box half-diagonal."""
-    best_img = best_iter.get("_img")
+    best_img = best_iter.get(RECORD_IMAGE)
     if best_img is None:
         return
 

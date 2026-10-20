@@ -45,6 +45,10 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     camera_window_from_far_field,
     forward_intensity,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 REPORT_KEY = "report/shape_trials/gs_refine_fwdmodel_calibration.md"
 OUT_DIR = ROOT / "report" / "shape_trials"
@@ -113,8 +117,8 @@ def collect(debug_root: Path):
         wavelength = int(cfg.get("slm_wavelength", 0)) or 1064
         for label, k in (("flat", keys[0]), ("GS", best)):
             rec = data[k]
-            img = np.asarray(rec["_img"], float)
-            gray = np.asarray(rec["_phase"])
+            img = np.asarray(rec[RECORD_IMAGE], float)
+            gray = np.asarray(rec[RECORD_PHASE])
             pupil_gray = _extract_pupil_phase(gray, radius, center)
             rad = _gray_to_radians(pupil_gray, wavelength)
             out.append(
