@@ -908,7 +908,7 @@ def build_markdown(state: dict[str, Any]) -> str:
 `angular_spectrum_propagate(..., band_limit=True)`（库默认）在 |Δz| ≳ 10 mm 上**有损且不可逆**:
 实测往返相对误差 **{rt['round_trip_relerr_max']:.2e}（关闭）vs {rt['round_trip_relerr_max_band_limited']:.4f}（开启）**,
 正/反向因此不构成伴随对, GS 内环会收敛到一个不存在的解且不报错。最后, **质心自动缩放框会刷分**:
-它把"测量区域变大"读成"均匀性变好", 把"最优离焦"推到 ±3.87 rad 这种非物理值, 而定尺框下的
+它把"测量区域变大"读成"均匀度变好", 把"最优离焦"推到 ±3.87 rad 这种非物理值, 而定尺框下的
 真实最优是 **±0.34 rad** —— 本轮所有结论一律用**固定物理尺度框**。
 
 > 与本仓库既有硬件报告的关系: 本报告不推翻任何实测结论, 它量化的是**仿真侧**"离焦该怎么处理"。
@@ -1106,7 +1106,7 @@ n_grid ≈ {im['trustworthy_dz']['n_grid_needed_for_dz_max']}（padding=8 ⇒ �
 主判据若用"质心跟踪 + σ 缩放边长"的自适应框, 框会跟着光斑一起变大 —— 实测框边长从 43 px 涨到
 {g3_auto_side:.0f} px（G3 在 Δz/Δz_blur=+0.5 处）, σ 在 Δz=50 mm 上相对焦面涨到 **{sigma_ratio_max:.2f}×**,
 于是"最优离焦"被推到 **{g3_auto_defocus:+.2f} rad**（非物理值; 正侧更直接顶到搜索区间端点
-{g3_auto_defocus_hi:+.2f} rad）, 而"均匀性变好"其实是"测量区域变大"。定尺框下同一组的真实最优是
+{g3_auto_defocus_hi:+.2f} rad）, 而"均匀度变好"其实是"测量区域变大"。定尺框下同一组的真实最优是
 **{g3_fix_defocus:+.2f} rad**（正侧 {g3_fix_defocus_hi:+.2f} rad）。
 
 本调查中这个陷阱出现 **四次**, 其中一次藏在 `group_ceilings` 块里: 用自适应框会把 H4 的失败

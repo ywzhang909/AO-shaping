@@ -25,7 +25,7 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 ### 1.4 用户画像
 
 - 光学实验操作员：连接 SLM、下发相位图案、进行远场图像观测
-- 闭环整形用户：运行 GS+SPGD 或正向模型闭环整形，获取最佳相位与远场均匀性
+- 闭环整形用户：运行 GS+SPGD 或正向模型闭环整形，获取最佳相位与远场均匀度
 
 ---
 

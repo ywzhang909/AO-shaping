@@ -577,19 +577,19 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
         command="python scripts/slm/generate_beam_shaping_benchmark_report.py",
         environment="离线",
-        note="9 单元网格中 spgd-sim x circle 的逐 GIF 指标；area 已坍缩，勿据此比均匀性",
+        note="9 单元网格中 spgd-sim x circle 的逐 GIF 指标；area 已坍缩，勿据此比均匀度",
     ),
     "report/benchmarks/device_less_full/gif/spgd-sim_gaussian/spgd-sim_gaussian_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
         command="python scripts/slm/generate_beam_shaping_benchmark_report.py",
         environment="离线",
-        note="9 单元网格中 spgd-sim x gaussian 的逐 GIF 指标；area 已坍缩，勿据此比均匀性",
+        note="9 单元网格中 spgd-sim x gaussian 的逐 GIF 指标；area 已坍缩，勿据此比均匀度",
     ),
     "report/benchmarks/device_less_full/gif/spgd-sim_square/spgd-sim_square_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",
         command="python scripts/slm/generate_beam_shaping_benchmark_report.py",
         environment="离线",
-        note="9 单元网格中 spgd-sim x square 的逐 GIF 指标；area 已坍缩，勿据此比均匀性",
+        note="9 单元网格中 spgd-sim x square 的逐 GIF 指标；area 已坍缩，勿据此比均匀度",
     ),
     # -- 正向模型 / loss 缺陷排查 ------------------------------------------
     "report/loss_defects/README.md": ReportProvenance(

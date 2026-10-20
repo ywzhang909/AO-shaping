@@ -379,7 +379,7 @@ GLOSSARY = """
 | 梯度精修 | gradient refinement | 以上一步的结果为起点，用 AdamW 再优化若干步 |
 | shape_sum | — | 本项目的评价指标，等于 `pib_term + uniformity_term`，越高越好 |
 | PIB | power in bucket | 目标框内的能量占比 |
-| 均匀性 | uniformity | 目标框内光强是否平整，越接近 1 越均匀 |
+| 均匀度 | uniformity | 目标框内光强是否平整，越接近 1 越均匀 |
 | 目标框 | ROI (region of interest) | 评价用的方形区域，大小由 `SIZE_FRAC × ASPECT` 决定 |
 | 平场 | flat phase | 瞳孔相位全零，即不做任何矫正的基准 |
 | R² | coefficient of determination | 预测与实测的吻合度，1 为完美，0 等于"只猜均值" |
@@ -616,7 +616,7 @@ def _forward_figures(fwd: dict):
             "",
             f"- R² = **{fwd['r2']:+.4f}**，相关系数 = **{fwd['corr']:+.4f}**",
             f"- 目标框内 PIB：实测 **{fwd['pib_true']:.4f}** / 预测 **{fwd['pib_pred']:.4f}**",
-            f"- 目标框内均匀性：实测 **{fwd['uni_true']:.4f}** / 预测 **{fwd['uni_pred']:.4f}**",
+            f"- 目标框内均匀度：实测 **{fwd['uni_true']:.4f}** / 预测 **{fwd['uni_pred']:.4f}**",
             "",
             "**怎么看这张图**：①②应当肉眼难分，③残差应接近 0（以蓝白为主），"
             "④两条曲线应基本重合。R² 是定量版本。",

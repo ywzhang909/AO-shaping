@@ -40,7 +40,7 @@ graph TD
 score = w_uniformity * (1 - CV) + w_efficiency * EE + w_aspect * (1 - |AR - 1|)
 ```
 
-- **CV** (变异系数)：目标框内亮度均匀性，越小越好
+- **CV** (变异系数)：目标框内亮度均匀度，越小越好
 - **EE** (环绕能量)：目标框内能量占总能量比，越大越好
 - **AR** (宽高比)：目标框宽高比，越接近 1 越好
 
@@ -77,7 +77,7 @@ score = w_uniformity * (1 - CV) + w_efficiency * EE + w_aspect * (1 - |AR - 1|)
 | `--lr` | 学习率 (0=自动) | 0 |
 | `--optimizer` | adam/adamod/sgd/muno | adamod |
 | `--target-brightness` | 目标最大亮度 | 200 |
-| `--w-uniformity` | 均匀性权重 | 0.4 |
+| `--w-uniformity` | 均匀度权重 | 0.4 |
 | `--w-efficiency` | 能量效率权重 | 0.6 |
 | `--w-aspect` | 宽高比权重 | 0.0 |
 | `--basis` | 相位参数化 (zernike/freeform) | zernike |

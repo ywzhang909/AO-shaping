@@ -95,7 +95,7 @@ def render_figures(summary: dict, run_dir: Path) -> None:
     )
     ax.set_xlabel("n_max")
     ax.set_ylabel("CV")
-    ax.set_title("方斑均匀性 (CV) vs Zernike 阶数")
+    ax.set_title("方斑均匀度 (CV) vs Zernike 阶数")
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     fig.tight_layout()
