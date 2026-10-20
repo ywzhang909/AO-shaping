@@ -68,7 +68,7 @@ mkdir -p "$AO_TEST_DATA"
 # them on the host silently does nothing inside the container -- which looks
 # exactly like the regeneration having failed.
 AO_PASSTHROUGH_ENV=""
-for var in AO_UPDATE_HELP_GOLDEN AO_CLI_CONTRACT_UPDATE AO_PROBE_HELP_UPDATE AO_SLM_SETTINGS_GOLDEN_UPDATE AO_DIFF_SHAPING_GOLDEN_UPDATE AO_FAULT_HANDLER AO_FAULT_SECS; do
+for var in AO_UPDATE_HELP_GOLDEN AO_CLI_CONTRACT_UPDATE AO_PROBE_HELP_UPDATE AO_SLM_SETTINGS_GOLDEN_UPDATE AO_DIFF_SHAPING_GOLDEN_UPDATE AO_GS_REFINE_GOLDEN_UPDATE AO_FAULT_HANDLER AO_FAULT_SECS; do
     if [ -n "${!var:-}" ]; then
         AO_PASSTHROUGH_ENV="${AO_PASSTHROUGH_ENV:+$AO_PASSTHROUGH_ENV }${var}=${!var}"
     fi
@@ -122,7 +122,7 @@ done
 # forbids. Opt in explicitly rather than mounting the tree read-write by default
 # -- a plain test run has no business writing to the checkout.
 MOUNT_MODE=ro
-if [ -n "${AO_UPDATE_HELP_GOLDEN:-}${AO_CLI_CONTRACT_UPDATE:-}${AO_PROBE_HELP_UPDATE:-}${AO_SLM_SETTINGS_GOLDEN_UPDATE:-}${AO_DIFF_SHAPING_GOLDEN_UPDATE:-}" ]; then
+if [ -n "${AO_UPDATE_HELP_GOLDEN:-}${AO_CLI_CONTRACT_UPDATE:-}${AO_PROBE_HELP_UPDATE:-}${AO_SLM_SETTINGS_GOLDEN_UPDATE:-}${AO_DIFF_SHAPING_GOLDEN_UPDATE:-}${AO_GS_REFINE_GOLDEN_UPDATE:-}" ]; then
     MOUNT_MODE=rw
 fi
 
