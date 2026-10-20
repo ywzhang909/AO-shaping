@@ -84,6 +84,11 @@ from ao_shaping.utils.image.exposure_control import (  # noqa: E402
     probe_exposure_ceiling_ms,
     resolve_daheng_exposure_limit,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 
 class _LiveStream:
@@ -389,7 +394,7 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
                         "peak": pk,
                         # save_recorder_debug_artifacts keys the output dict by
                         # `_epoch`, so it must be explicit; two records per probe.
-                        "_epoch": 2 * index + (0 if variant == "bare" else 1),
+                        RECORD_EPOCH: 2 * index + (0 if variant == "bare" else 1),
                         "probe": index,
                         # 0 = bare, 2 = +defocus; names in the sidecar.
                         "mode_id": 0 if variant == "bare" else 2,
@@ -402,8 +407,8 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
                         "hollowness": rh,
                         "flat_peak": float(flat.max()),
                         "flat_core40": core_fraction(flat, int(cx), int(cy), 40.0),
-                        "_phase": np.asarray(panel_v, dtype=np.float32),
-                        "_img": np.asarray(frame_v, dtype=np.float32),
+                        RECORD_PHASE: np.asarray(panel_v, dtype=np.float32),
+                        RECORD_IMAGE: np.asarray(frame_v, dtype=np.float32),
                     }
                 )
             if args.save_frames:
@@ -625,7 +630,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                     # save_recorder_debug_artifacts keys the output dict by
                     # `_epoch` (Recorder.append only sets `_id`), so it must be
                     # explicit -- this is the index into the sweep order.
-                    "_epoch": len(points) - 1,
+                    RECORD_EPOCH: len(points) - 1,
                     # Provenance as numeric columns; names live in the sidecar.
                     "mode_id": SWEEP_MODE_CODES[mode],
                     "axis_id": AXIS_CODES[axis],
@@ -639,8 +644,8 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                     "flat_core40": flat_core,
                     # Raw process data: the displayed panel phase (radians) and
                     # the CCD frame it produced.
-                    "_phase": np.asarray(panel, dtype=np.float32),
-                    "_img": np.asarray(frame, dtype=np.float32),
+                    RECORD_PHASE: np.asarray(panel, dtype=np.float32),
+                    RECORD_IMAGE: np.asarray(frame, dtype=np.float32),
                 }
             )
             if args.save_frames:
@@ -680,7 +685,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 recorder.append(
                     {
                         "peak": pk,
-                        "_epoch": len(points) - 1,
+                        RECORD_EPOCH: len(points) - 1,
                         "mode_id": SWEEP_MODE_CODES["ramp"],
                         "axis_id": AXIS_CODES[axis],
                         "coefficient": float(period),
@@ -690,8 +695,8 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                         "hollowness": rh,
                         "flat_peak": flat_peak,
                         "flat_core40": flat_core,
-                        "_phase": np.asarray(panel, dtype=np.float32),
-                        "_img": np.asarray(frame, dtype=np.float32),
+                        RECORD_PHASE: np.asarray(panel, dtype=np.float32),
+                        RECORD_IMAGE: np.asarray(frame, dtype=np.float32),
                     }
                 )
                 logger.info(
@@ -730,7 +735,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                     recorder.append(
                         {
                             "peak": _pk,
-                            "_epoch": len(points) - 1,
+                            RECORD_EPOCH: len(points) - 1,
                             "mode_id": SWEEP_MODE_CODES["tilt"],
                             "axis_id": AXIS_CODES[axis],
                             "coefficient": float(c),
@@ -743,8 +748,8 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                             "shift_corr": scorr,
                             "flat_peak": flat_peak,
                             "flat_core40": flat_core,
-                            "_phase": np.asarray(panel, dtype=np.float32),
-                            "_img": np.asarray(frame, dtype=np.float32),
+                            RECORD_PHASE: np.asarray(panel, dtype=np.float32),
+                            RECORD_IMAGE: np.asarray(frame, dtype=np.float32),
                         }
                     )
                     if args.save_frames:

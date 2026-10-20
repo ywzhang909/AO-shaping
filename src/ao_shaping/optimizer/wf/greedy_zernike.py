@@ -41,6 +41,11 @@ from ao_shaping.drivers.slm import ZernikeSLM
 from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_EPOCH,
+    RECORD_PHASE,
+)
 
 # SLM parameters
 SLM_WAVELENGTH_DEFAULT = 532  # nm
@@ -230,9 +235,9 @@ def optimizer_greedy(
         recorder.append(
             {
                 "rms": current_rms,
-                "_c": current_c.copy(),
-                "_epoch": 0,
-                "_phase": "init",
+                RECORD_COEFFS: current_c.copy(),
+                RECORD_EPOCH: 0,
+                RECORD_PHASE: "init",
                 "_init_rms": init_rmss,
                 "_wavefront": wf[np.newaxis, ...],
                 "_statics": statics,
@@ -259,9 +264,9 @@ def optimizer_greedy(
                     recorder.append(
                         {
                             "rms": value,
-                            "_c": c,
-                            "_epoch": index,
-                            "_phase": "heuristic",
+                            RECORD_COEFFS: c,
+                            RECORD_EPOCH: index,
+                            RECORD_PHASE: "heuristic",
                             "_candidate_rmss": [value],
                             "_best_candidate_idx": 0,
                             "_no_improvement": 0,
@@ -350,9 +355,9 @@ def optimizer_greedy(
                 recorder.append(
                     {
                         "rms": current_rms,
-                        "_c": current_c.copy(),
-                        "_epoch": epoch,
-                        "_phase": "search",
+                        RECORD_COEFFS: current_c.copy(),
+                        RECORD_EPOCH: epoch,
+                        RECORD_PHASE: "search",
                         "_candidate_rmss": candidate_rmss,
                         "_best_candidate_idx": best_candidate_idx,
                         "_no_improvement": no_improvement_count,

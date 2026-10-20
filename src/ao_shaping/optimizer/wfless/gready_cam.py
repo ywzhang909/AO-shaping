@@ -7,6 +7,12 @@ import tqdm
 from loguru import logger
 from ao_shaping.utils import centroid
 from ao_shaping.drivers import MIICamera, NlightDM
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+    RECORD_VOLTAGES,
+)
 
 ROOT_DIR = r"D:\ao-project\data"
 
@@ -59,7 +65,7 @@ def render(window, img, log, center, r, info="") -> None:
     # 清空之前绘制的条形统计图
     plot_area = pygame.Rect(0, IMG_SIZE[1], IMG_SIZE[0], VOLT_HEIGHT)
     window.fill(BACKGROUND_COLOR, plot_area)
-    volts = log[-1]['_v']
+    volts = log[-1][RECORD_VOLTAGES]
     bar_width = int(IMG_SIZE[0] / len(volts))
     for i,value in enumerate(volts):
         normed_v = (value-V_MIN)/(-V_MIN+V_MAX)
@@ -152,13 +158,13 @@ def optimizer(
         history = [
             {
                 "J": calc_j(init_img),
-                "_v": _init_v,
-                "_img": init_img,
-                "_diff": 0,
+                RECORD_VOLTAGES: _init_v,
+                RECORD_IMAGE: init_img,
+                RECORD_DIFF: 0,
                 "gamma": lr,
                 "r": r_bucket,
                 "_delta": delta,
-                "_epoch": -1,
+                RECORD_EPOCH: -1,
             }
         ]
         with tqdm.tqdm(
@@ -195,9 +201,9 @@ def optimizer(
                     "_gamma": lr,
                     "r": r_bucket,
                     "_delta": delta,
-                    "_epoch": epoch,
-                    "_v": _init_v,
-                    "_img": img
+                    RECORD_EPOCH: epoch,
+                    RECORD_VOLTAGES: _init_v,
+                    RECORD_IMAGE: img
                 }
                 history.append(log)
                 # earlying schedule
@@ -245,7 +251,7 @@ def run():
     res_df = pd.DataFrame(res_list)
     res_df.to_pickle('record.pkl', compression=None)
     max_j_id = -1
-    last_V = res_df.iloc[max_j_id]["_v"]
+    last_V = res_df.iloc[max_j_id][RECORD_VOLTAGES]
     logger.info(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
     def get_nerbors(unit_id):

@@ -58,6 +58,12 @@ import numpy as np  # noqa: E402
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from scripts._common import fmt_general
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_GATE,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -121,8 +127,8 @@ class Run:
         }
         prev_c: np.ndarray | None = None
         for row in self.rows:
-            c = np.asarray(row["_c"])
-            gate = row.get("_gate")
+            c = np.asarray(row[RECORD_COEFFS])
+            gate = row.get(RECORD_GATE)
             if gate is not None:
                 stats[gate] = stats.get(gate, 0) + 1
                 if gate != "applied":
@@ -130,7 +136,7 @@ class Run:
             elif prev_c is not None:
                 if np.array_equal(c, prev_c):
                     stats["stalled"] += 1
-                    if float(row["_diff"]) == 0.0:
+                    if float(row[RECORD_DIFF]) == 0.0:
                         stats["fold"] += 1
                     else:
                         stats["noise"] += 1
@@ -147,7 +153,7 @@ class Run:
             value = row.get(key)
             if value is None:
                 continue
-            xs.append(float(row.get("_epoch", len(xs) + 1)))
+            xs.append(float(row.get(RECORD_EPOCH, len(xs) + 1)))
             ys.append(float(value))
         return np.asarray(xs, dtype=np.float64), np.asarray(ys, dtype=np.float64)
 
@@ -183,7 +189,7 @@ def _load_run(run_dir: Path) -> Run:
         rows=rows,
     )
     run.has_explicit_gate = bool(rows) and all(
-        row.get("_gate") is not None for row in rows[1:]
+        row.get(RECORD_GATE) is not None for row in rows[1:]
     )
     if missing_recorder:
         run.warnings.append(
@@ -330,7 +336,7 @@ def plot_gate_timeline(run: Run, out: Path) -> Path | None:
     epochs = run.epochs
     if not epochs:
         return None
-    gates = [str(r.get("_gate", "unknown")) for r in epochs]
+    gates = [str(r.get(RECORD_GATE, "unknown")) for r in epochs]
     fig, ax = plt.subplots(figsize=(9, 2.6))
     for i, g in enumerate(gates):
         ax.bar(i, 1, color=GATE_COLORS.get(g, "gray"), edgecolor="none")

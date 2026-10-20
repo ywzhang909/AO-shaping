@@ -111,6 +111,10 @@ from scripts._common.group_manifest import (  # noqa: E402
     parse_group_meta,
     update_manifest,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+)
 
 #: 这一组扫的变量名 —— 写进分组清单的 ``variable`` 字段。
 #: 泽尼克这一组的自变量是截断阶数 n_max; 离焦那一组扫的是 ``dz_mm``。
@@ -683,8 +687,8 @@ def _save_frame_png(frame: np.ndarray, path: Path, title: str) -> None:
 def _flat_frame(history: list[dict[str, Any]]) -> np.ndarray:
     """Extract the flat-baseline frame from a Stage-A history."""
     for row in history:
-        if row.get("stage") == "flat" and row.get("_img") is not None:
-            return np.asarray(row["_img"], dtype=np.float64)
+        if row.get("stage") == "flat" and row.get(RECORD_IMAGE) is not None:
+            return np.asarray(row[RECORD_IMAGE], dtype=np.float64)
     raise RuntimeError("Stage-A history has no flat frame (record_debug off?)")
 
 
@@ -837,7 +841,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         )
 
     # --- Shared frozen mask, on the Stage-C frame geometry ----------------
-    ref_frame = np.asarray(runs[0]["rec"].history[0]["_img"], dtype=np.float64)
+    ref_frame = np.asarray(runs[0]["rec"].history[0][RECORD_IMAGE], dtype=np.float64)
     ref_shape = (int(ref_frame.shape[0]), int(ref_frame.shape[1]))
     c_cx, c_cy = zero_order_center(ref_frame)
     mask = square_mask(ref_shape, c_cy, c_cx, int(round(side)))
@@ -864,10 +868,10 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         rec_c = run["rec"]
         n_max = entry["n_max"]
 
-        before_frame = np.asarray(rec_c.history[0]["_img"], dtype=np.float64)
+        before_frame = np.asarray(rec_c.history[0][RECORD_IMAGE], dtype=np.float64)
         # ``get_best_iter`` returns ``(best_row, (index, value))`` - not an int.
         best_row, (best_index, best_value) = rec_c.get_best_iter()
-        after_frame = np.asarray(best_row["_img"], dtype=np.float64)
+        after_frame = np.asarray(best_row[RECORD_IMAGE], dtype=np.float64)
         before = score_frame(before_frame, mask, mask_center, side)
         after = score_frame(after_frame, mask, mask_center, side)
         # A Stage-C run that never moved off its own starting point leaves the
@@ -876,7 +880,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         # invisible: warn and record the flag.
         spgd_improved = not _metrics_identical(before, after)
         spgd_epochs_executed = int(
-            rec_c.history[-1].get("_epoch", len(rec_c.history) - 1)
+            rec_c.history[-1].get(RECORD_EPOCH, len(rec_c.history) - 1)
         )
         js = [float(row["J"]) for row in rec_c.history if row.get("J") is not None]
         if not spgd_improved:

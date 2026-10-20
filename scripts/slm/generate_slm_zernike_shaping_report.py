@@ -43,6 +43,9 @@ sys.path.insert(0, str(ROOT / "src"))
 from ao_shaping.utils.objective_direction import (  # noqa: E402
     objective_direction as _objective_direction,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 # CJK-capable font fallbacks (per repo script convention).
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -321,7 +324,7 @@ def plot_frames(
         return None
     epochs = run["epochs"]
     # ``image_series`` skips records without ``_img``; keep the epoch labels aligned.
-    labels = [e for e in epochs if run["data"].get(e, {}).get("_img") is not None]
+    labels = [e for e in epochs if run["data"].get(e, {}).get(RECORD_IMAGE) is not None]
     idxs = [0, len(imgs) - 1]
     if best_epoch is not None and best_epoch in labels:
         idxs.append(labels.index(best_epoch))

@@ -27,6 +27,9 @@ from ao_shaping.optimizer.wfless.adc_dm_adam import (
     gen_file_name,
     optimizer,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_VOLTAGES,
+)
 
 
 def main() -> None:
@@ -39,7 +42,7 @@ def main() -> None:
         fig, ax = plt.subplots(*disp_grid)
         ax[0].plot(dfhistory["J"].to_list())
         ax[1].imshow(
-            np.stack(dfhistory["_v"].to_list()).transpose(),
+            np.stack(dfhistory[RECORD_VOLTAGES].to_list()).transpose(),
             interpolation="nearest",
             aspect="auto",
         )
@@ -52,7 +55,7 @@ def main() -> None:
         else:
             plt.show()
         plt.close("all")
-        last_voltage: np.ndarray = dfhistory.iloc[-1]["_v"]
+        last_voltage: np.ndarray = dfhistory.iloc[-1][RECORD_VOLTAGES]
 
         last_J = dfhistory.iloc[-1]["J"]
         print(f"{last_J=}")

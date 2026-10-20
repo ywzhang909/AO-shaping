@@ -11,6 +11,11 @@ from ao_shaping.drivers import MlaRes
 from ao_shaping.drivers.wfs._registry import resolve_wfs
 from ao_shaping.optimizer.spgd import spgd_gradient
 from ao_shaping.utils import Recorder, logger
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_VOLTAGES,
+)
 
 if TYPE_CHECKING:
     from ao_shaping.drivers.dm.base import DM
@@ -123,11 +128,11 @@ def optimizer_rms_dm(
         recorder.append(
             {
                 "rms": statics["rms"],
-                "_v": _init_v,
-                "_diff": 0,
+                RECORD_VOLTAGES: _init_v,
+                RECORD_DIFF: 0,
                 "_gamma": lr,
                 "delta": delta,
-                "_epoch": 0,
+                RECORD_EPOCH: 0,
                 "_wavefront": wf[np.newaxis, ...],
                 "_statics": statics,
             }
@@ -181,11 +186,11 @@ def optimizer_rms_dm(
 
                 log = {
                     "rms": avg_j,
-                    "_diff": diff,
+                    RECORD_DIFF: diff,
                     "_gamma": optimizer.lr,
                     "delta": delta,
-                    "_epoch": epoch,
-                    "_v": _init_v,
+                    RECORD_EPOCH: epoch,
+                    RECORD_VOLTAGES: _init_v,
                     "_pos_v": pos_vs,
                     "_neg_v": ng_vs,
                     "_wavefront": np.stack([pos_wf, neg_wf]),

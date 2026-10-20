@@ -46,6 +46,11 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt  # noqa: E402
 from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)
@@ -92,9 +97,9 @@ def _has_phase_phase(record: dict) -> bool:
     (1-D freeform phase vector that can be reshaped to a square grid, as
     produced by the ``slm-gsnet`` runner).
     """
-    if "_img" not in record:
+    if RECORD_IMAGE not in record:
         return False
-    return "_phase" in record or "_c" in record
+    return RECORD_PHASE in record or RECORD_COEFFS in record
 
 
 def _extract_phase(record: dict) -> np.ndarray:
@@ -104,9 +109,9 @@ def _extract_phase(record: dict) -> np.ndarray:
     reshaped to its square root dimension and converted to a 0..2*pi
     radian representation so the twilight colormap cycles correctly.
     """
-    if "_phase" in record:
-        return np.asarray(record["_phase"])
-    c = np.asarray(record["_c"], dtype=np.float64)
+    if RECORD_PHASE in record:
+        return np.asarray(record[RECORD_PHASE])
+    c = np.asarray(record[RECORD_COEFFS], dtype=np.float64)
     side = int(np.sqrt(c.size))
     if side * side != c.size:
         raise ValueError(f"无法将 _c (size={c.size}) 重组为正方形相位")
@@ -313,7 +318,7 @@ def process_pkl(pkl: Path, out_dir: Path, pearson_only: bool = False, **gif_kwar
     max_frames = gif_kwargs.get("max_frames")
     valid_epochs = _subsample_epochs(valid_epochs, max_frames)
 
-    ccd_frames = [data[e]["_img"] for e in valid_epochs]
+    ccd_frames = [data[e][RECORD_IMAGE] for e in valid_epochs]
     phase_frames = [_extract_phase(data[e]) for e in valid_epochs]
     pearson_values = [data[e].get("pearson") for e in valid_epochs]
 

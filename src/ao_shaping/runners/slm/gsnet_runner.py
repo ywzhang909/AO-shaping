@@ -66,6 +66,11 @@ from ao_shaping.utils.image.exposure_control import (
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.display import AutoDisplay, FrameInfo
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+)
 
 # --- debug artifact fields -------------------------------------------------
 # The square-shaping recorder stores the metric keys below. Image-like entries
@@ -540,8 +545,8 @@ def _show_best_result(res: Recorder, config: SlmSquareConfig) -> None:
     Press ESC or close window to exit.
     """
     best_iter, _ = res.get_best_iter()
-    best_img = best_iter.get("_img")
-    best_phase = best_iter.get("_c")
+    best_img = best_iter.get(RECORD_IMAGE)
+    best_phase = best_iter.get(RECORD_COEFFS)
     if best_img is None or best_phase is None:
         logger.warning("No best frame/phase recorded; skipping result viewer")
         return
@@ -618,7 +623,7 @@ def _show_best_result(res: Recorder, config: SlmSquareConfig) -> None:
         cv = best_iter.get("cv", float("nan"))
         ee = best_iter.get("ee", float("nan"))
         ar = best_iter.get("ar", float("nan"))
-        epoch = best_iter.get("_epoch", -1)
+        epoch = best_iter.get(RECORD_EPOCH, -1)
         lines = [
             f"Best @ epoch {epoch} | Quality={quality:.4f} | CV={cv:.4f} | EE={ee:.4f} | AR={ar:.4f}",
             f"Target side: {target_side or 'auto'} px | Basis: freeform ({phase_grid}x{phase_grid})",

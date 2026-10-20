@@ -56,6 +56,9 @@ from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
     threshold_spot_center,
     zero_order_center,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -262,13 +265,13 @@ def run_algorithm(
         "init_img": np.asarray(
             getattr(recorder, "raw_before_img", None)
             if getattr(recorder, "raw_before_img", None) is not None
-            else df.iloc[0]["_img"],
+            else df.iloc[0][RECORD_IMAGE],
             dtype=np.float64,
         ),
         "best_img": np.asarray(
             getattr(recorder, "raw_after_img", None)
             if getattr(recorder, "raw_after_img", None) is not None
-            else best_row["_img"],
+            else best_row[RECORD_IMAGE],
             dtype=np.float64,
         ),
         "init_pib": float(pib[0]),

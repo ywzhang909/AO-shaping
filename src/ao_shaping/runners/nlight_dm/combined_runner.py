@@ -21,6 +21,10 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_VOLTAGES,
+)
 
 
 @click.command()
@@ -88,7 +92,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
 
     save_best_voltages(res_list, run.root_dir)
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
-    last_V = best_iter["_v"]
+    last_V = best_iter[RECORD_VOLTAGES]
 
     if debug:
         save_dir = gen_date_dir(f"{run.root_dir}/combined")
@@ -99,8 +103,8 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
             json.dump(config, f, ensure_ascii=False, indent=4)
 
         plot_pib_debug_grid(
-            init_img=res_list.first["_img"],
-            best_img=best_iter["_img"],
+            init_img=res_list.first[RECORD_IMAGE],
+            best_img=best_iter[RECORD_IMAGE],
             history_values=res_list.dataframe["pib"],
             voltages=last_V,
             init_title=f"Init Image, pib={res_list.first['pib']:.3f}",

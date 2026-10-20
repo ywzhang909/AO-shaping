@@ -41,6 +41,12 @@ from ao_shaping.utils import Recorder, logger
 from ao_shaping.utils.wavefront.matrix_utils import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes as _zernike_indices
 from ao_shaping.optimizer.spgd import spgd_gradient
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_PHASE,
+)
 
 # =============================================================================
 # Scheduling utilities for LR and delta
@@ -650,13 +656,13 @@ def optimizer_rms_slm(
 
         init_record = {
             "rms": statics["rms"],
-            "_c": _init_c,
-            "_diff": 0,
+            RECORD_COEFFS: _init_c,
+            RECORD_DIFF: 0,
             "_gamma": lr,
             "delta": delta,
-            "_epoch": 0,
+            RECORD_EPOCH: 0,
             "_wavefront": wf[np.newaxis, ...],
-            "_phase": init_phase[np.newaxis, ...],
+            RECORD_PHASE: init_phase[np.newaxis, ...],
             "_statics": statics,
         }
         if DEBUG_MODE:
@@ -690,13 +696,13 @@ def optimizer_rms_slm(
                 def _on_evaluate(c: np.ndarray, value: float, index: int) -> None:
                     row = {
                         "rms": value,
-                        "_c": c,
-                        "_diff": 0.0,
+                        RECORD_COEFFS: c,
+                        RECORD_DIFF: 0.0,
                         "_gamma": 0.0,
                         "delta": 0.0,
-                        "_epoch": index,
+                        RECORD_EPOCH: index,
                         "_wavefront": last_measure["wf"][np.newaxis, ...],
-                        "_phase": np.asarray(last_measure["phase"])[np.newaxis, ...],
+                        RECORD_PHASE: np.asarray(last_measure["phase"])[np.newaxis, ...],
                         "_statics": last_measure["statics"],
                     }
                     if DEBUG_MODE:
@@ -855,15 +861,15 @@ def optimizer_rms_slm(
 
                 log = {
                     "rms": avg_j,
-                    "_diff": diff,
+                    RECORD_DIFF: diff,
                     "_gamma": optimizer.lr,
                     "delta": current_delta,
-                    "_epoch": epoch,
-                    "_c": _init_c,
+                    RECORD_EPOCH: epoch,
+                    RECORD_COEFFS: _init_c,
                     "_pos_c": _pos_c,
                     "_neg_c": _neg_c,
                     "_wavefront": np.stack([pos_wf, neg_wf]),
-                    "_phase": np.stack([pos_phase, neg_phase]),
+                    RECORD_PHASE: np.stack([pos_phase, neg_phase]),
                     "_statics": {"pos": pos_statics, "neg": neg_statics},
                 }
                 if DEBUG_MODE:
