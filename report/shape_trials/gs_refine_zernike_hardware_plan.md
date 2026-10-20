@@ -210,7 +210,7 @@ python scripts/slm/generate_gs_refine_zernike_report.py --run <输出目录>
 - **目的**：Zernike 拟合**在远场**到底复现了多少 GS 整形效果。这是 `fit_rms` 的物理对应物。
 - **前置**：H3、H5 通过。
 - **步骤**：对每阶，把 `panel_phase_from_coefficients` 的结果下发（交错重放），
-  在**冻结遮罩**上与 GS 逐像素相位、`flat` 三者比较 CV / PIB / EE / 综合分。
+  在**冻结遮罩**上与 GS 逐像素相位、`flat` 三者比较 CV / PIB / EE / 复合分数。
 - **判据**：给出 `CV(n_max)` 曲线；判"该阶是否值得它的自由度"用
   **相对 GS 的 CV 差距是否 > 噪声地板**。
 - **记录**：三方的 CV/PIB/EE/quality 表 + 重放原始帧。

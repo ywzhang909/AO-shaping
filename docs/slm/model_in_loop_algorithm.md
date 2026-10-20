@@ -309,7 +309,7 @@ Step A 产出 `c_t`; Step B 产出以 `c_t` 为条件的 `phi_t`; 下一轮又�
 
 **守卫 1 —— trust region.** 逐轮系数变化的 L2 范数被 `trust_region_c_l2` 截断。
 **守卫 2 —— 逐轮验收.** `acceptance_verdict(loss_before, loss_after, score_before, score_after)`:
-拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps`), 该轮就被 reject。
+拟合 loss 变差、或实测复合分数变差 (容差 `acceptance_score_eps`), 该轮就被 reject。
 
 ```mermaid
 stateDiagram-v2
