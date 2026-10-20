@@ -47,6 +47,8 @@ __all__ = [
     "m2_from_focus_stack",
     "m2_reference_relative",
     "m2_marechal_crosscheck",
+    "average_same_exposure",
+    "compute_cv_dual_caliber",
 ]
 
 
@@ -1121,3 +1123,183 @@ def m2_marechal_crosscheck(
     mean = float((wt * ph).sum() / wsum)
     var = float((wt * (ph - mean) ** 2).sum() / wsum)
     return float(math.exp(var))
+
+
+# ---------------------------------------------------------------------------
+# Same-exposure frame averaging + dual-caliber CV (issue #165 P0)
+# ---------------------------------------------------------------------------
+
+
+def average_same_exposure(
+    frames: Sequence[np.ndarray],
+    exposures_ms: Sequence[float],
+    *,
+    rtol: float = 0.02,
+) -> np.ndarray:
+    """对同一曝光档 (exposure bin) 的多帧取逐元素平均。
+
+    只有共享同一曝光档的帧才可平均: 跨曝光平均会**混合不同探测器增益**
+    (不同曝光档对应不同的满阱/增益标定), 而且实验系统光功率在 8 分钟内
+    漂移约 21 %, 跨档平均在物理上没有意义。因此任一曝光与第一帧曝光的
+    **相对**偏差超过 ``rtol`` (判据 ``|e - e0| > rtol * max(|e0|, tiny)``,
+    ``tiny`` 为 float64 最小正规数) 即拒绝并抛 ``ValueError``。
+
+    本函数只做平均, 不做背景扣除 / 不归一化; 若下游要算比值类指标,
+    仍须遵守 :func:`prepare_frame` 的中值扣底 + 截断约定。
+
+    Args:
+        frames: 二维强度帧序列 (非空), 全部同形状、全部有限。
+        exposures_ms: 与 ``frames`` 等长的每帧曝光 (毫秒)。
+        rtol: 曝光一致性相对容差 (默认 0.02)。
+
+    Returns:
+        逐元素均值, dtype ``float64``, 形状与单个帧相同。
+
+    Raises:
+        ValueError: 当 ``frames`` 为空、``len(frames) != len(exposures_ms)``、
+            任一曝光非有限、曝光相对偏差超过 ``rtol``、任一帧形状与第一帧
+            不同、或任一帧含非有限值 (NaN/Inf) 时。
+    """
+    if len(frames) == 0:
+        raise ValueError("frames must be a non-empty sequence")
+    if len(frames) != len(exposures_ms):
+        raise ValueError(
+            f"frames ({len(frames)}) and exposures_ms ({len(exposures_ms)}) "
+            "must have the same length"
+        )
+
+    tiny = float(np.finfo(np.float64).tiny)
+    e0 = float(exposures_ms[0])
+    if not math.isfinite(e0):
+        raise ValueError(f"exposures_ms[0] must be finite, got {exposures_ms[0]!r}")
+    for i, exp in enumerate(exposures_ms):
+        e = float(exp)
+        if not math.isfinite(e):
+            raise ValueError(f"exposures_ms[{i}] must be finite, got {exp!r}")
+        if abs(e - e0) > rtol * max(abs(e0), tiny):
+            raise ValueError(
+                f"exposures_ms[{i}] = {e} deviates from exposures_ms[0] = {e0} "
+                f"by more than rtol={rtol} (relative); frames from different "
+                "exposure bins mix detector gains and must not be averaged"
+            )
+
+    reference_shape = np.asarray(frames[0]).shape
+    stack = np.empty((len(frames),) + reference_shape, dtype=np.float64)
+    for i, frame in enumerate(frames):
+        arr = np.asarray(frame)
+        if arr.shape != reference_shape:
+            raise ValueError(
+                f"frames[{i}] shape {arr.shape} != frames[0] shape "
+                f"{reference_shape}; averaging requires identical shapes"
+            )
+        arr64 = arr.astype(np.float64)
+        if not np.all(np.isfinite(arr64)):
+            raise ValueError(
+                f"frames[{i}] contains non-finite values (NaN/Inf); "
+                "reject the frame instead of silently averaging it away"
+            )
+        stack[i] = arr64
+    return stack.mean(axis=0)
+
+
+def compute_cv_dual_caliber(
+    intensity: np.ndarray,
+    target_side: int,
+    center: tuple[float, float],
+    *,
+    flat_side: int | None = None,
+) -> dict[str, float]:
+    """同一图像上的**双口径**均匀度变异系数 (CV)。
+
+    ⚠️ **两个数值是不同口径 (caliber), 绝不跨口径比较。** ``cv_target_box``
+    是当前闭环在用的**目标框口径** (整框 std/mean); ``cv_flat_rms`` 是
+    Zhou-2010 文献 "< 6 % rms" 的**平顶区口径** (框内更小的中心方块)。
+    二者是同一图像上的两个不同统计区域, 引用任何一个数值时必须标注口径;
+    把其中一个与另一篇论文 / 另一条流水线的数对照是没有意义的。
+    本仓库还有第三种 CV 口径 ——
+    ``ao_shaping.algorithm.signal_processing.square_shaping.uniformity_cv``
+    (按目标形状滚动的 support 掩码口径) —— 同样不可与这里两个数值混用;
+    本函数**不**重复实现那一种。
+
+    口径定义:
+      * ``cv_target_box`` = std/mean, 区域为以 ``center`` 为中心的
+        ``target_side x target_side`` 方框, 框约定与
+        :func:`compute_square_metrics` 的 ``uniformity_cv`` **逐位一致**
+        (``int(round(...))`` 锚点 + ``half = max(target_side // 2, 1)``,
+        即实际边长 ``2*half``)。区别: 本函数要求方框**完整落在图像内**,
+        不钳位 —— 被裁掉的框会改变统计区域从而改变口径。
+      * ``cv_flat_rms`` = rms(flat - mean(flat)) / mean(flat), 区域为目标框
+        内以同一锚点为中心、边长 ``flat_side`` (默认 ``max(3, target_side // 4)``)
+        的小正方形。
+
+    分母退化约定 (与 :func:`m2_from_focus_stack` 等本模块既有函数的
+    ``inf`` 约定一致): 区域 mean 为 0 / 负 / 非有限时**返回 ``float("inf")``
+    而不抛异常、也不除以零** —— CV 是相对涨落, 退化分母意味着均匀度无定义,
+    ``inf`` 是其诚实的极限, 且闭环逐轮调用时指标函数不应抛异常打断优化。
+
+    硬件相机帧的输入约定: 真实 CCD 帧带对称读出噪声, 比值类指标必须先经
+    :func:`prepare_frame` (中值扣底 + 截断) 再传入; 本函数**不**在内部做
+    该处理 (那会改变 mean, 口径由调用方选定)。
+
+    Args:
+        intensity: 二维强度图像。
+        target_side: 目标方框边长 (像素), 须 >= 1。
+        center: 框中心 ``(cx, cy)`` (像素)。
+        flat_side: 平顶区小方块边长; ``None`` 时取 ``max(3, target_side // 4)``。
+
+    Returns:
+        字典 ``{"cv_target_box": float, "cv_flat_rms": float, "flat_side": int}``。
+
+    Raises:
+        ValueError: 当 ``intensity`` 不是二维、``target_side < 1``、
+            ``flat_side < 1``、目标框超出图像边界、或平顶区超出目标框时。
+    """
+    arr = np.asarray(intensity, dtype=np.float64)
+    if arr.ndim != 2:
+        raise ValueError(f"intensity must be 2D, got shape {arr.shape}")
+    side = int(target_side)
+    if side < 1:
+        raise ValueError(f"target_side must be >= 1, got {target_side!r}")
+    if flat_side is None:
+        flat = max(3, side // 4)
+    else:
+        flat = int(flat_side)
+    if flat < 1:
+        raise ValueError(f"flat_side must be >= 1, got {flat_side!r}")
+
+    cx, cy = int(round(center[0])), int(round(center[1]))
+    h, w = arr.shape
+    # Same box convention as compute_square_metrics (uniformity_cv branch):
+    # half = max(target_side // 2, 1) -> actual side 2*half. Unlike that
+    # function we do NOT clamp at the border: a truncated box is a third
+    # caliber and would silently break the cv_target_box consistency.
+    half = max(side // 2, 1)
+    if cy - half < 0 or cy + half > h or cx - half < 0 or cx + half > w:
+        raise ValueError(
+            f"target box [{cy - half}, {cy + half}) x [{cx - half}, {cx + half}) "
+            f"falls outside the image of shape {arr.shape}"
+        )
+    y0, y1 = cy - half, cy + half
+    x0, x1 = cx - half, cx + half
+
+    fy0 = cy - (flat - 1) // 2
+    fx0 = cx - (flat - 1) // 2
+    if fy0 < y0 or fy0 + flat > y1 or fx0 < x0 or fx0 + flat > x1:
+        raise ValueError(
+            f"flat region of side {flat} does not fit inside the target box "
+            f"(box side is {2 * half}); reduce flat_side"
+        )
+
+    def _cv(region: np.ndarray) -> float:
+        mean = float(region.mean())
+        if not math.isfinite(mean) or mean <= 0.0:
+            return float("inf")
+        return float(region.std()) / mean
+
+    region = arr[y0:y1, x0:x1]
+    flat_region = arr[fy0 : fy0 + flat, fx0 : fx0 + flat]
+    return {
+        "cv_target_box": _cv(region),
+        "cv_flat_rms": _cv(flat_region),
+        "flat_side": flat,
+    }
