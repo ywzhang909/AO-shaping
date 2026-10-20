@@ -12,7 +12,12 @@ import uuid
 from pathlib import Path
 from glob import glob
 
-from ao_shaping.utils.io.recorder_keys import RECORD_ID
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_EPOCH,
+    RECORD_ID,
+    RECORD_IMAGE,
+)
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
     format_ts,
@@ -451,7 +456,7 @@ def save_history_hdf5(
 
         epochs = f.create_group("epochs")
         for idx, row in enumerate(rows):
-            g = epochs.create_group(f"{int(row.get('_id', idx)):04d}")
+            g = epochs.create_group(f"{int(row.get(RECORD_ID, idx)):04d}")
             for col in array_cols:
                 if col not in row or row[col] is None:
                     continue
@@ -777,17 +782,17 @@ def _save_data_mode_debug_artifacts(
     else:
         c_arr = None
         for e in reversed(epochs):
-            if "_c" in data[e]:
-                c_arr = np.asarray(data[e]["_c"])
+            if RECORD_COEFFS in data[e]:
+                c_arr = np.asarray(data[e][RECORD_COEFFS])
                 break
         ax_tr.set_title("best coefficients")
         if c_arr is not None:
             ax_tr.bar(range(len(c_arr)), c_arr)
         else:
-            missing = top_right_key or "_c"
+            missing = top_right_key or RECORD_COEFFS
             ax_tr.text(0.5, 0.5, f"no {missing}", ha="center", va="center")
 
-    imgs = [data[e]["_img"] for e in epochs if "_img" in data[e]]
+    imgs = [data[e][RECORD_IMAGE] for e in epochs if RECORD_IMAGE in data[e]]
     for ax_i, label, img in (
         (ax[1, 0], "first _img", imgs[0] if imgs else None),
         (ax[1, 1], "last _img", imgs[-1] if imgs else None),
@@ -998,7 +1003,7 @@ def save_recorder_debug_artifacts(
     text_keys: tuple[str, ...] = (),
     object_keys: tuple[str, ...] = (),
     objective_keys: tuple[str, ...] = (),
-    img_keys: tuple[str, ...] = ("_img",),
+    img_keys: tuple[str, ...] = (RECORD_IMAGE,),
     d1_keys: tuple[str, ...] = (),
     d2_keys: tuple[str, ...] = (),
     json_payload: dict | None = None,
@@ -1082,7 +1087,7 @@ def save_recorder_debug_artifacts(
         for k in object_keys:
             if k in rec:
                 item[k] = rec[k]
-        extra = getattr(res, "iteration_traces", {}).get(int(rec["_epoch"]), {})
+        extra = getattr(res, "iteration_traces", {}).get(int(rec[RECORD_EPOCH]), {})
         for k in object_keys:
             if k in extra:
                 item[k] = extra[k]
@@ -1095,7 +1100,7 @@ def save_recorder_debug_artifacts(
         for k in d2_keys:
             if k in rec:
                 item[k] = np.asarray(rec[k])
-        data[int(rec["_epoch"])] = item
+        data[int(rec[RECORD_EPOCH])] = item
 
     save_optimization_debug_artifacts(
         data=data,

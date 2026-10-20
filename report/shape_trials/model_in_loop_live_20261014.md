@@ -1,4 +1,4 @@
-﻿# Model-in-loop 实验复核（2026-10-14）
+# Model-in-loop 实验复核（2026-10-14）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
