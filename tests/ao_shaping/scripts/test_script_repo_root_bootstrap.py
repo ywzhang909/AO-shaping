@@ -105,6 +105,21 @@ def _script_files() -> list[Path]:
     )
 
 
+def _plant_probe_under(tmp_path: Path) -> tuple[Path, Path]:
+    """Recreate ``scripts/_common/_depth_probe_tmp/probe.py`` below a throwaway root.
+
+    The self-checks need a file on disk for the scanner to read, but planting one
+    in the checkout cannot run where the tree is mounted read-only, and a crash
+    between creating it and removing it would leave a stray ``probe.py`` that
+    :func:`_script_files` then reports as a real depth offender. Depth arithmetic
+    is relative, so an identical structure under a fake root proves the same thing.
+    """
+    fake_root = tmp_path / "repo"
+    planted = fake_root / "scripts" / "_common" / "_depth_probe_tmp" / "probe.py"
+    planted.parent.mkdir(parents=True)
+    return fake_root, planted
+
+
 @pytest.mark.parametrize(
     "script", _script_files(), ids=lambda p: str(p.relative_to(_SCRIPTS))
 )
@@ -166,16 +181,11 @@ def test_no_script_hardcodes_a_machine_absolute_path() -> None:
 
 def test_windows_path_guard_is_not_vacuous(tmp_path: Path) -> None:
     """The detector must fire on a literal like the ones it exists to reject."""
-    planted = _SCRIPTS / "_common" / "_depth_probe_tmp" / "probe.py"
-    try:
-        planted.parent.mkdir(parents=True, exist_ok=True)
-        planted.write_text("X = 1\n", encoding="utf-8")
-        assert not _WINDOWS_PATH.search(_read(planted))
-        planted.write_text('X = Path(r"D:\\Projects\\repo\\src")\n', encoding="utf-8")
-        assert _WINDOWS_PATH.search(_read(planted)), "detector missed a planted literal"
-    finally:
-        planted.unlink(missing_ok=True)
-        planted.parent.rmdir()
+    _fake_root, planted = _plant_probe_under(tmp_path)
+    planted.write_text("X = 1\n", encoding="utf-8")
+    assert not _WINDOWS_PATH.search(_read(planted))
+    planted.write_text('X = Path(r"D:\\Projects\\repo\\src")\n', encoding="utf-8")
+    assert _WINDOWS_PATH.search(_read(planted)), "detector missed a planted literal"
 
 
 def test_guard_is_not_vacuous(tmp_path: Path) -> None:
@@ -185,26 +195,23 @@ def test_guard_is_not_vacuous(tmp_path: Path) -> None:
     green forever. This plants a deliberately wrong file at depth 3 and asserts
     the same routine rejects it, so the real-tree green above means something.
     """
-    planted = _SCRIPTS / "_common" / "_depth_probe_tmp" / "probe.py"
-    try:
-        planted.parent.mkdir(parents=True, exist_ok=True)
-        planted.write_text("from pathlib import Path\nX = 1\n", encoding="utf-8")
-        assert _parents_checks(ast.parse(_read(planted))) == [], (
-            "planted fixture carries no parents[N]; the scanner cannot be proven"
-        )
-        planted.write_text(
-            "from pathlib import Path\nX = Path(__file__).resolve().parents[1]\n",
-            encoding="utf-8",
-        )
-        found = _parents_checks(ast.parse(_read(planted)))
-        assert found == [(0, 1, "Path(__file__).resolve()")], (
-            f"scanner missed the planted subscript: {found}"
-        )
+    fake_root, planted = _plant_probe_under(tmp_path)
+    planted.write_text("from pathlib import Path\nX = 1\n", encoding="utf-8")
+    assert _parents_checks(ast.parse(_read(planted))) == [], (
+        "planted fixture carries no parents[N]; the scanner cannot be proven"
+    )
+    planted.write_text(
+        "from pathlib import Path\nX = Path(__file__).resolve().parents[1]\n",
+        encoding="utf-8",
+    )
+    found = _parents_checks(ast.parse(_read(planted)))
+    assert found == [(0, 1, "Path(__file__).resolve()")], (
+        f"scanner missed the planted subscript: {found}"
+    )
 
-        # planted is scripts/_common/_depth_probe_tmp/probe.py = 3 levels deep.
-        assert planted.resolve().parents[1] == _SCRIPTS / "_common"
-        assert planted.resolve().parents[1] != _ROOT
-        assert planted.resolve().parents[3] == _ROOT
-    finally:
-        planted.unlink(missing_ok=True)
-        planted.parent.rmdir()
+    # probe.py sits at scripts/_common/_depth_probe_tmp/probe.py = 3 directories
+    # deep, so a real script here would need parents[3]; parents[1] is the wrong
+    # depth this guard exists to catch.
+    assert planted.resolve().parents[1] == fake_root / "scripts" / "_common"
+    assert planted.resolve().parents[1] != fake_root
+    assert planted.resolve().parents[3] == fake_root
