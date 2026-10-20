@@ -179,6 +179,11 @@ from typing import Any
 
 from loguru import logger
 
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 from ml.gsnet_debug.offline import infer_n_max
 
 __all__ = [
@@ -210,9 +215,9 @@ _FAMILY_PREFIXES: tuple[str, ...] = (
     "recorder_",
 )
 
-_PHASE_KEY = "_phase"
-_COEFF_KEY = "_c"
-_IMAGE_KEY = "_img"
+_PHASE_KEY = RECORD_PHASE
+_COEFF_KEY = RECORD_COEFFS
+_IMAGE_KEY = RECORD_IMAGE
 _RECORDER_HISTORY_ATTR = "history"
 
 #: A directory whose whole name is a run stamp -- ``YYYYMMDD`` or

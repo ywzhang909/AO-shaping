@@ -12,6 +12,7 @@ import uuid
 from pathlib import Path
 from glob import glob
 
+from ao_shaping.utils.io.recorder_keys import RECORD_ID
 from ao_shaping.utils.io.timestamp import (
     DATE_FMT,
     format_ts,
@@ -471,8 +472,8 @@ class Recorder:
 
     def append(self, record: dict):
         assert self.mark in record, f"mark {self.mark} not in record {record}"
-        if "_id" not in record:
-            record["_id"] = len(self.history)
+        if RECORD_ID not in record:
+            record[RECORD_ID] = len(self.history)
         self.history.append(record)
         self._all_columns.update(record.keys())
 

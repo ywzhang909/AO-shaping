@@ -99,6 +99,7 @@ from loguru import logger
 from numpy.typing import NDArray
 from torch.utils.data import DataLoader, Dataset, Subset
 
+from ao_shaping.utils.io.recorder_keys import RECORD_COEFFS, RECORD_IMAGE
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ml.hwdataset.dataset import (
     DEFAULT_PREFETCH_FACTOR,
@@ -144,11 +145,10 @@ DEFAULT_N_MAX: int = 15
 #: Default far-field scaling. See decision 3 in the module docstring.
 DEFAULT_IMAGE_MODE: str = "robust"
 
-#: Record key holding the Noll-ordered, raw-radian coefficient vector. Duplicated
-#: from :mod:`ml.hwdataset.records` rather than imported, because that module
-#: keeps the constant private and this one is a consumer, not a re-exporter.
-_COEFF_KEY = "_c"
-_IMAGE_KEY = "_img"
+#: Record key holding the Noll-ordered, raw-radian coefficient vector, and the
+#: measured frame. Values are single-sourced in ``ao_shaping.utils.io.recorder_keys``.
+_COEFF_KEY = RECORD_COEFFS
+_IMAGE_KEY = RECORD_IMAGE
 
 
 # ---------------------------------------------------------------------------

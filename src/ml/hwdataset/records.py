@@ -97,6 +97,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from loguru import logger
 
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 from ml.hwdataset.index import HwRecordRef, PhaseSource, dict_sort_key
 from ml.hwdataset.transforms import (
     DEFAULT_PANEL_CENTER,
@@ -146,9 +151,9 @@ _ZERNIKE_APERTURE_RADIUS: float = 300.0
 #: the config and therefore of the cache key, so it stays explicit here.
 _FREEFORM_BEAM_RADIUS: float = 450.0
 
-_PHASE_KEY = "_phase"
-_COEFF_KEY = "_c"
-_IMAGE_KEY = "_img"
+_PHASE_KEY = RECORD_PHASE
+_COEFF_KEY = RECORD_COEFFS
+_IMAGE_KEY = RECORD_IMAGE
 _HISTORY_ATTR = "history"
 
 #: Scaling modes accepted by
