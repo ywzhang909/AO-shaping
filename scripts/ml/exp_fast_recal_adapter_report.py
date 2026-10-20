@@ -37,10 +37,13 @@ import numpy as np  # noqa: E402
 from matplotlib import rcParams  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
-sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common.provenance import insert_header  # noqa: E402
+from scripts._common.provenance import insert_header  # noqa: E402
 from scripts.slm.exp_fast_recal_adapter import ARMS, K, KINDS  # noqa: E402
 from ml.zernike.eval_stats import (  # noqa: E402
     cohens_dz,

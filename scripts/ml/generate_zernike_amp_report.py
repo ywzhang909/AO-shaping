@@ -48,8 +48,11 @@ import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+# `ml.*` / `ao_shaping.*` live under src/. ROOT/"scripts" is deliberately
+# NOT added: it would shadow the real `ml` package (src/ml) with the
+# scripts/ml folder, and `ml.hwdataset` & co. would vanish.
+sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
-sys.path.insert(0, str(ROOT / "scripts"))
 
 from scripts._common import markdown_table, savefig  # noqa: E402
 

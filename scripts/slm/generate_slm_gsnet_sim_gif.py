@@ -37,6 +37,10 @@ from loguru import logger
 # Repo bootstrap: ROOT + src on sys.path, then Agg BEFORE pyplot
 # ---------------------------------------------------------------------------
 ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 

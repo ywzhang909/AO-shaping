@@ -17,6 +17,10 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
 import numpy as np  # noqa: E402
@@ -25,7 +29,6 @@ import torch  # noqa: E402
 from ml.zernike import inverse_design as inv  # noqa: E402
 from ml.zernike.losses import second_moments  # noqa: E402
 
-sys.path.insert(0, str(ROOT / "scripts"))
 from scripts.ml.generate_inverse_design_report import _norm, load_trained  # noqa: E402
 
 CKPT = ROOT / "logs" / "zernike_amp_final_nmax20" / "best_coefficients.pt"

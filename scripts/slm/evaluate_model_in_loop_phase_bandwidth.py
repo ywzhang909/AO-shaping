@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
 
 import numpy as np
 from scipy.ndimage import gaussian_filter

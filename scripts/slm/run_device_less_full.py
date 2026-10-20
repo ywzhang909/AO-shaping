@@ -15,7 +15,12 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
+ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "src"))
 
 from scripts.slm.generate_beam_shaping_benchmark_report import main as generate
 

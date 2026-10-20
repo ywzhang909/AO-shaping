@@ -29,7 +29,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-for _p in (str(ROOT / "src"), str(ROOT), str(ROOT / "scripts")):
+# `ml.*` / `ao_shaping.*` live under src/. ROOT/"scripts" is deliberately
+# NOT added: it would shadow the real `ml` package (src/ml) with the
+# scripts/ml folder, and `ml.hwdataset` & co. would vanish.
+for _p in (str(ROOT / "src"), str(ROOT)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 

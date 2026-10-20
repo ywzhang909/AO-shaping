@@ -34,10 +34,19 @@ import sys
 import time
 from pathlib import Path
 
+ROOT = Path(__file__).resolve().parents[2]
+# `scripts.*` is imported as a package path, so the repo ROOT itself must be
+# importable -- under a file-form launch (`python scripts/x/y.py`) the cwd is
+# not on sys.path and only the script's own directory is.
+sys.path.insert(0, str(ROOT))
+# `ml.*` / `ao_shaping.*` live under src/. ROOT/"scripts" is deliberately
+# NOT added: it would shadow the real `ml` package (src/ml) with the
+# scripts/ml folder, and `ml.hwdataset` & co. would vanish.
+sys.path.insert(0, str(ROOT / "src"))
+
 import numpy as np
 import torch
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from loguru import logger  # noqa: E402
 
