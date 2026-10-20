@@ -311,6 +311,24 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_slm_gsnet_sim_gif.py",
         ),
     ),
+    # -- issue #165 FourierGSNet 2f 前向校准 --------------------------------
+    "report/gsnet_2f_calibration/report.md": ReportProvenance(
+        script="scripts/slm/generate_gsnet_2f_calibration_report.py",
+        command=(
+            "python scripts/slm/calibrate_gsnet_2f.py && "
+            "python scripts/slm/generate_gsnet_2f_calibration_report.py"
+        ),
+        environment="离线",
+        note="issue #165 的 P0/P1 纯仿真验收：臂 A 前向保真度（24 帧三相位族，"
+        "理想 FFT / 校准 2f / 物理 Zernike 基线，同一组拟合像差）+ 臂 B 网络换前向前后"
+        "+ 臂 C model-in-loop 闭环的「网络初值 vs 物理初值」A/B；"
+        "真值是数字孪生 Bench2FGroundTruth（含超高斯照明 + Zernike 张成外自由形状像差），"
+        "非实验系统 CCD",
+        extra_scripts=(
+            "scripts/slm/calibrate_gsnet_2f.py",
+            "scripts/slm/gsnet_init_sim_ab.py",
+        ),
+    ),
     # -- 优化器基准 / PIB --------------------------------------------------
     "report/heuristic_pib/report.md": ReportProvenance(
         script="scripts/slm/generate_heuristic_pib_report.py",
