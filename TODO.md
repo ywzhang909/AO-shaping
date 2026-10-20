@@ -403,7 +403,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1286`（`BaseException`，在 finally 清理里）、`:1298` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`）|
+| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1285`（`BaseException`，在 finally 清理里）、`:1297` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`；`1ce4717a` 常量收敛后整体 −1）|
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -471,10 +471,10 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
 | 参数校验 | 10 | `n_sample > 0` / `tolerance > 0` / `width and height` / offset ≥0，散在 3 个相机驱动 | 相机侧入口统一 `raise ValueError`；调用侧的重复项删 |
 | cartographer 设备前置 | 13 | `assert self.slm.is_open` / `assert self.wfs.is_connected()` | **删** —— 驱动的 `_ensure_open` 已覆盖；`is_connected()` 是**询问**，不是断言 |
-| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:781` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证（行号 2026-10-20 复核，原 `:721`）|
+| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:780` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证（行号 2026-10-20 复核，原 `:721`；`1ce4717a` 常量收敛后整体 −1）|
 | 编程不变式 | ~40 | `assert img.ndim == 2`、`assert best_q is not None`、`assert G.ndim >= 2` 等 | **保留 `assert`**（内部不变量，外部输入到不了）|
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1586-1606`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1585-1605`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
