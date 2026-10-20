@@ -54,7 +54,7 @@ A (离线修复) ──全绿──▶ B (表征探针 + smoke) ──ABBA 增�
 | H-7 | 方形目标函数加 encircled-energy guard（照搬 `slm-pib` 同款），防「散光换 CV」 | 离线：故意加散光扰动，composite 不升反降 |
 | H-8 | 初始化改小幅（与 docstring "small init" 一致），弃满幅 `uniform(-π,π)` | sim：初值 EE 高于满幅起点基线 |
 | H-9 | 方形路径接入 ABBA 漂移对消（`slm-pib` 已有实现可照搬） | sim 端到端 + 与 H-19 实验验收合并做 |
-| H-10 | `--exposure_time_ms` 默认 80.0 ms 改为实验系统实测量级（~1.0–1.5 ms），并修复「传值即关饱和保护」死代码 | 离线单测：饱和保护在显式曝光下仍生效 |
+| H-10 | `--exposure-time-ms` 默认 80.0 ms 改为实验系统实测量级（~1.0–1.5 ms），并修复「传值即关饱和保护」死代码 | 离线单测：饱和保护在显式曝光下仍生效 |
 | H-11 | 焦距标定常数统一（`132940/P` vs `7600/P` 差 17.5×，以实测 `K` ⇒ f=0.1224 m 为准） | 文档与代码单一权威值 |
 | H-12 | `lr=0` 时 `learning_schedule()` 静默覆盖 `--delta`；`_param_scale` 两基不一致；"per-pixel" 名不副实（`np.kron` 分块） | 参数语义与 help 一致 |
 | H-13 | 可达目标重定义：本实验系统 80 px staircase 只能影响大尺度结构，`--target-side` 用推导值而非刻 50 px 平顶 | 目标在可达带宽内 |
@@ -63,9 +63,9 @@ A (离线修复) ──全绿──▶ B (表征探针 + smoke) ──ABBA 增�
 
 - **PANEL_RES 转置 bug**：真实驱动 `PANEL_RES=(1920,1200)` 是 (宽,高)，管线 `place_on_panel` 当 (h,w) 用；仿真侧 `PANEL_H,PANEL_W=1920,1200` 恰好抵消。修 `place_on_panel` 并补一条形状回归测试，否则实验图案转置。
 
-**阶段 A go 判据**：`utils/` + `wfless/` 测试全绿，`slm-gs-refine --cam_type sim` 与 `slm-gsnet spgd --cam_type sim` 端到端分数不低于现有基线（0.587 / 0.849 口径）。
+**阶段 A go 判据**：`utils/` + `wfless/` 测试全绿，`slm-gs-refine --cam-type sim` 与 `slm-gsnet spgd --cam-type sim` 端到端分数不低于现有基线（0.587 / 0.849 口径）。
 
-可选顺带：H-32 `--w_loggrad` 验收放在 δ=0.05 档（勿用 0.0005），它不能修复不收敛，默认仍 0.0。（H-32 即原 TODO 中的 H-25，2026-10-19 因与 GitHub 硬件验收批次 H-25~H-31 撞号而重编，见 TODO §1.1 编号说明。）
+可选顺带：H-32 `--w-loggrad` 验收放在 δ=0.05 档（勿用 0.0005），它不能修复不收敛，默认仍 0.0。（H-32 即原 TODO 中的 H-25，2026-10-19 因与 GitHub 硬件验收批次 H-25~H-31 撞号而重编，见 TODO §1.1 编号说明。）
 
 ## 4. 阶段 B：表征探针 + smoke（激光开，独立进程 + 看门狗硬超时）
 
@@ -77,7 +77,7 @@ python -m ao_shaping.tools.slm.slm_floor_probe --exposure-ms <现定>
 python -m ao_shaping.tools.slm.slm_abba_probe --exposure-ms <现定>
 ```
 
-- 曝光**必须显式传入且每次会话现定**：先只读平场检查，取峰值 ≤ ~230/255 的最大档。10-01 实验系统功率低时干净点在 ~1.5 ms；10-12 下午功率升高后安全曝光降到 0.05 → 0.04 → 0.020 ms（驱动下限）。`--exposure_time_ms 0` 会被大恒驱动钳到 ~0.02 ms。
+- 曝光**必须显式传入且每次会话现定**：先只读平场检查，取峰值 ≤ ~230/255 的最大档。10-01 实验系统功率低时干净点在 ~1.5 ms；10-12 下午功率升高后安全曝光降到 0.05 → 0.04 → 0.020 ms（驱动下限）。「不固定」语义现在用令牌 `--exposure-time-ms auto` / `default` 表达，**裸 `0` 会被 CLI 拒绝**；若让 `0.0` 真的到了大恒驱动手里，它会被钳到 ~0.02 ms。
 - 补齐 `report/fouriergsnet_pipeline/TODO.md` §2 smoke 结果区（H-4，末尾 `SMOKE_OK`）。
 - **go 判据**：ABBA 探针显示对消后残余漂移 < 单帧信号的一半。若不达标，先处理激光功率漂移（10-01 实测 8 分钟 +21%；10-12 一天内安全曝光连降两档同样证明功率不稳）再谈任何闭环。
 
@@ -99,7 +99,7 @@ python -m ao_shaping.tools.slm.slm_abba_probe --exposure-ms <现定>
 ```bash
 # 下一轮 refine 模板（曝光以只读平场现定，勿照抄）
 python src/ao_shaping/main.py --dir data slm-gs-refine \
-  --cam_type daheng --cam-id 0 --slm_number 1 --slm_wavelength 1064 \
+  --cam-type daheng --cam-id 0 --slm-number 1 --slm-wavelength 1064 \
   --pupil-center 960,690 --beam-radius-px 450 --target-side 100 --cam-size 250 \
   --exposure-time-ms <现定> --phase-grid 16 -e 60 --confirm-best --debug
 ```
@@ -112,8 +112,8 @@ python src/ao_shaping/main.py --dir data slm-gs-refine \
 
 ```bash
 python src/ao_shaping/main.py --dir data slm-gsnet spgd \
-  --cam_type daheng --cam-id 0 --slm_number 1 --slm_wavelength 1064 \
-  -c max --exposure_time_ms <现定> -e 50
+  --cam-type daheng --cam-id 0 --slm-number 1 --slm-wavelength 1064 \
+  -c max --exposure-time-ms <现定> -e 50
 ```
 
 - **判据**：同 C2（`dec>0.55`、`late_gain≥10%`）；产物落盘 + 0 阶 `argmax` 正确（H-6 验收项）。

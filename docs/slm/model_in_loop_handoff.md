@@ -14,7 +14,7 @@
 | `region`, `far_field_padding` | 模型瞳面网格及远场补零倍数；改变 `region` 后必须重新标定 |
 | `panel_span_px` | 本次探针覆盖的 SLM 光斑宽度估计，单位面板像素 |
 | `camera_pixel_um`, `slm_pixel_um` | 两个设备当前的物理像元间距；不要沿用另一台相机的数据 |
-| `exposure_time_ms`, `max_exposure_ms` | `0` 由本次画面探测；正值仅用于当前光路已测得的曝光与上限 |
+| `exposure_time_ms`, `max_exposure_ms` | `exposure_time_ms` 取三态之一：`auto` = 由本次画面探测，`default` = 保持设备当前曝光，正数 = 当前光路已实测的曝光（ms）。**裸 `0` 会被拒绝**（`--exposure-time-ms` 报 `0 is not a synonym for 'auto'`）。`max_exposure_ms` 是本次会话的曝光上限（ms），`0` = 自动探测 |
 | `max_cv`, `min_ee`, `min_iou` | 由应用确定的三项验收边界；示例值不是通用性能保证 |
 
 `w_efficiency` 必须保持正值，单纯压 CV 可能把目标区域变暗。自动脚本不接受 `geometry_file`，避免无意复用旧会话几何。先确认 SLM 和相机未被其他进程占用，激光与衰减片在一次扫描及闭环期间保持稳定；若功率变化，结束本轮后重新运行。这个约束是测量可比性的条件，不是把某个历史曝光档设成永久设备上限。

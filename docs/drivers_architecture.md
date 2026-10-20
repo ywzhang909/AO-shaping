@@ -1058,7 +1058,7 @@ with open("devices.json") as f:
 ### 14.2 仿真 WFS 接入 runner 命令面
 
 `SimulatedWFS`（OOPAO Shack-Hartmann，瞳面 slope 模型）与 `ShackHartmannWFS` 对齐接口，
-`--wfs_type sim` 在 8 个 runner 命令透传。实测红线（piston 不可测、slope 行块布局、
+`--wfs-type sim` 在 8 个 runner 命令透传。实测红线（piston 不可测、slope 行块布局、
 单位写死 532 nm、保真度不足以当波前基准）见
 [docs/hardware_drivers.md](hardware_drivers.md#波前传感器)。
 

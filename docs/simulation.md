@@ -55,7 +55,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 传感器按自己的瞳面网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
 - ⚠️ 以前 DM 只发布到远场, 于是 `wf` 永远读到平 pupil（瞳面）、无论 DM 怎么动 RMS 都是 0。
 
-修复后实测 `main.py pib --cam_type sim --dm_type sim -e 200`, 目标函数真实上升: pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145; pib 单位为 %, 故可 >1)。
+修复后实测 `main.py pib --cam-type sim --dm-type sim -e 200`, 目标函数真实上升: pib 0.66 → 2.33 → **2.98** (修复前 200 epoch 恒为 0.0145; pib 单位为 %, 故可 >1)。
 
 ## 相机噪声模型红线
 
@@ -109,7 +109,7 @@ dynamic 用 604 张屏、逐次 RMS 变化 (σ≈0.580 rad ≈0.092 waves)；目
 
 见 [docs/hardware_drivers.md](hardware_drivers.md#波前传感器) 的「仿真 WFS」小节
 （piston 不可测、slope 行块布局、单位写死 532 nm、保真度不足以当波前基准等实测红线）。
-`--wfs_type sim` 在 8 个 runner 命令上透传。
+`--wfs-type sim` 在 8 个 runner 命令上透传。
 
 ## Legacy: Wave 工具与 compat 层
 

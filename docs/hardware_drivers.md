@@ -6,7 +6,7 @@
 
 - **Thorlabs WFS系列**: 支持自动图像采集和倾斜去除
 - **WFS 注册表** (`drivers/wfs/_registry.py`): `register_wfs` / `create_wfs` / `list_wfs_types` / `resolve_wfs`，镜像 DM 的注册表；采用延迟绑定，硬件包**不会** import 仿真包。`resolve_wfs(None)` 仍返回 `ThorlabWFS`，故硬件运行行为不变。
-- **`--wfs_type [thorlab|sim]`** 定义在共享的 `WfsParams` 上，8 个已注册命令**既暴露也真正透传**该 flag: `wf`、`pipeline`、`rms-zernike`、`ga-zernike`、`greedy-zernike`、`dm-matrix`、`hadamard-matrix`、`zernike-matrix`。`closed-loop` **刻意没有** —— 它回放已保存的响应矩阵。
+- **`--wfs-type [thorlab|sim]`** 定义在共享的 `WfsParams` 上，8 个已注册命令**既暴露也真正透传**该 flag: `wf`、`pipeline`、`rms-zernike`、`ga-zernike`、`greedy-zernike`、`dm-matrix`、`hadamard-matrix`、`zernike-matrix`。`closed-loop` **刻意没有** —— 它回放已保存的响应矩阵。
 
 ### 仿真 WFS (`SimulatedWFS`)
 
@@ -105,9 +105,9 @@
 
 - **ZernikeDM**: Zernike 系数驱动的 DM/SLM 接口，支持 Zernike 多项式相位生成
 - **HadamardDM**: Hadamard 系数驱动的 DM/SLM 接口，支持 Walsh-Hadamard 模式相位生成
-- **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `DM` 子类实例，命令行支持 `--dm_type` 参数
+- **PIB 优化器多 DM 支持**: `optimize_pib` 现接受任意 `DM` 子类实例，命令行支持 `--dm-type` 参数
   - 支持类型: `nlight`, `micro`, `asyn_micro`, `zernike`, `hadamard`
-  - 自动检测: 未指定 `--dm_type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
+  - 自动检测: 未指定 `--dm-type` 时自动探测在线 DM，仅一个时自动选取，多个时报错提示
 
 ## 相机
 
