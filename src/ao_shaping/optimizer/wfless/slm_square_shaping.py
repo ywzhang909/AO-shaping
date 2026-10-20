@@ -79,7 +79,6 @@ Example:
 from __future__ import annotations
 
 import contextlib
-import os
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -98,7 +97,11 @@ from ao_shaping.drivers.ccd.common import (
     resample_on_saturation,
 )
 from ao_shaping.drivers.slm import Santec
-from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.constants import (
+    CAM_SAMPLE_ITER,
+    TEST_EXPOSURE_TIME_BRIGHTNESS,
+    create_optimizer,
+)
 from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
     AdaptiveSpgdConfig,
     get_stage_weights,
@@ -129,10 +132,7 @@ beta2 = 0.99
 beta3 = 0.9999
 
 # Camera parameters
-CAM_SAMPLE_ITER = 1
 ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
-TEST_EXPOSURE_TIME_BRIGHTNESS = 220
-IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # SLM parameters
 SLM_RESPONSE_TIME_S = 0.3  # Santec SLM-200 response time ~300ms

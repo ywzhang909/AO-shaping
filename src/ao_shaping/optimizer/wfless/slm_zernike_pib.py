@@ -27,7 +27,6 @@ Example:
 
 from __future__ import annotations
 
-import os
 import time
 from collections import deque
 from contextlib import nullcontext
@@ -104,7 +103,12 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.constants import (
+    CAM_SAMPLE_ITER,
+    IDEAL_SPOT_RADIUS,
+    TEST_EXPOSURE_TIME_BRIGHTNESS,
+    create_optimizer,
+)
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,
     default_camera,
@@ -118,11 +122,6 @@ from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
 beta1 = 0.9
 beta2 = 0.99
 beta3 = 0.9999
-
-# camera parameters
-CAM_SAMPLE_ITER = 1
-TEST_EXPOSURE_TIME_BRIGHTNESS = 220  # auto-exposure target used to locate the spot
-IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # Safety caps for learning_schedule: a single SPGD step must not be able to
 # traverse the Zernike coefficient clip range (+/-5 in the loop). Uncapped the
