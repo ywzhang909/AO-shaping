@@ -1167,7 +1167,7 @@ class SlmSquareParams:
         int, option("--target-brightness", help="目标最大亮度 (default: 200)")
     ] = 200
     w_uniformity: Annotated[
-        float, option("--w-uniformity", help="均匀性权重 (default: 0.4)")
+        float, option("--w-uniformity", help="均匀度权重 (default: 0.4)")
     ] = 0.4
     w_efficiency: Annotated[
         float, option("--w-efficiency", help="能量效率权重 (default: 0.6)")

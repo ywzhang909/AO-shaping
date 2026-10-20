@@ -414,9 +414,9 @@ def composite_from_pib_cv(
 ) -> float:
     """综合评分: 0.5*PIB + 0.5*(1/(1+CV))。
 
-    均匀性按 ``1/(1+cv)`` 计分, 而不是裁剪过的线性映射 —— 裁剪项
+    均匀度按 ``1/(1+cv)`` 计分, 而不是裁剪过的线性映射 —— 裁剪项
     ``1 - min(cv/cv_ref, 1)`` 对任何可达的平顶 CV 都饱和到零, 让目标退化
-    为纯 PIB。``1/(1+cv)`` 单调且永不饱和, 奖励每一分均匀性改善。
+    为纯 PIB。``1/(1+cv)`` 单调且永不饱和, 奖励每一分均匀度改善。
     """
     return w_pib * pib + w_unif * (1.0 / (1.0 + cv))
 
@@ -951,7 +951,7 @@ def spgd_shape(
     """低维 (Zernike / 粗) 相位基上的无感知 SPGD。
 
     SLM 相位被参数化为少量 freeform 系数 (一个粗网格), 使随机梯度搜索在仿真中
-    可行。奖励是综合评分 (PIB + 均匀性)。
+    可行。奖励是综合评分 (PIB + 均匀度)。
     """
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_square_target(cfg)

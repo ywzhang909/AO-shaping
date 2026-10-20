@@ -33,7 +33,7 @@ CLI 入口 (推荐):
     ...     slm_number=1,          # SLM 编号 (SLM200 多片级联时指定)
     ...     slm_wavelength=0,      # 0 = 询问设备实际波长 (勿假设某台 SLM)
     ...     optimizer_type="adamod",
-    ...     w_uniformity=0.4,      # 均匀性 (CV) 权重
+    ...     w_uniformity=0.4,      # 均匀度 (CV) 权重
     ...     w_efficiency=0.6,      # 环围能量权重
     ...     w_aspect=0.0,          # 宽高比权重
     ... )

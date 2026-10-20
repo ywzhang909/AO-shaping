@@ -32,7 +32,7 @@ SLM #1 的控制卡 ID 本轮查询为 `23020027`（产品序列号 `24023600000
 
 ## 重构策略对照
 
-同样的 0.05 ms 曝光、12 次 GS、1 轮 SPGD，对照 `weighted` GS 得分 0.7167/CV 1.069，`hio-weighted` 为 0.7618/CV 0.799，均低于 plain GS 的约 0.775/CV 0.74。记录分别在 `data/gs_refine_live_20261012/weighted_gs_005ms/` 和 `hio_weighted_gs_005ms/`。当前保留 plain GS；继续增加 SPGD 轮数前，优先检查光斑半径、面板位置的更细定位及均匀性目标。单次会话分数随功率和背景变化，跨会话比较应继续采用交错重放。
+同样的 0.05 ms 曝光、12 次 GS、1 轮 SPGD，对照 `weighted` GS 得分 0.7167/CV 1.069，`hio-weighted` 为 0.7618/CV 0.799，均低于 plain GS 的约 0.775/CV 0.74。记录分别在 `data/gs_refine_live_20261012/weighted_gs_005ms/` 和 `hio_weighted_gs_005ms/`。当前保留 plain GS；继续增加 SPGD 轮数前，优先检查光斑半径、面板位置的更细定位及均匀度目标。单次会话分数随功率和背景变化，跨会话比较应继续采用交错重放。
 
 ## 验证范围
 

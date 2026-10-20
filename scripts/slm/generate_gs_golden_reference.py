@@ -173,7 +173,7 @@ def _figure(
     )
     ax_cv.set_xlabel("GS 迭代次数")
     ax_cv.set_ylabel("箱内 CV (越低越均匀)")
-    ax_cv.set_title("均匀性 (未加能量项)", fontsize=10)
+    ax_cv.set_title("均匀度 (未加能量项)", fontsize=10)
     ax_cv.grid(alpha=0.3)
     ax_cv.legend(fontsize=8)
 
@@ -318,7 +318,7 @@ def _body(
         f"{fmt_metric(flat['m2_relative'])}（它本身就是 BPP 参考）。"
     )
     lines.append(
-        f"4. **GS 的均匀性是用峰值换来的，不要误读成像差。** 本次 GS 把箱内 CV 从 "
+        f"4. **GS 的均匀度是用峰值换来的，不要误读成像差。** 本次 GS 把箱内 CV 从 "
         f"{fmt_metric(flat['uniformity_cv'])} 压到 {fmt_metric(best['uniformity_cv'])}，"
         f"代价是 Strehl 从 {fmt_metric(flat['strehl'])} 掉到 "
         f"{fmt_metric(best['strehl'])}、相对 M² 升到 {fmt_metric(best['m2_relative'])}。"
