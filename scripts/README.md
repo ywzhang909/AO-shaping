@@ -3470,3 +3470,58 @@ JSON summary, and a `verdict` of `ok` / `weak` / `no_light`.
 > happened to hold — which cannot tell a dim source from a scattering phase. With it,
 > the flat write goes through the canonical `display_and_average`, so slot rotation and
 > the settle-stability check are the shared ones.
+
+### model_in_loop_hw_ab.py
+
+Campaign orchestration for the **model-in-loop** hardware A/B study. The holdout
+correlation gate is either **kept** (arm A — expected to stop the run before a
+phase is committed) or **forced open** (arm B — expected to run Step B to
+completion), and a third arm repeats the forced gate with a large square target
+of 1000–1600 camera pixels. Every model-in-loop run is preceded by the
+light-level gate of `diagnose_light_level.py`, so a dark experiment system stops
+the campaign instead of being blamed on the forward model.
+
+```bash
+python scripts/slm/model_in_loop_hw_ab.py --plan      # print the campaign, open nothing
+python scripts/slm/model_in_loop_hw_ab.py             # every stage, in order
+python scripts/slm/model_in_loop_hw_ab.py --stage baseline_a --stage baseline_b
+```
+
+**Stages** — `light` → `baseline_a` → `baseline_b` → `large_1000` / `large_1600`:
+
+| Stage | What it changes | Expectation |
+|---|---|---|
+| `light` | the light-level gate | verdict `ok` |
+| `baseline_a` | `--min-holdout-correlation 0.5` (gate kept) | `aborted_unidentifiable` plus a `holdout_forward_mismatch` round, and no phase |
+| `baseline_b` | `--min-holdout-correlation 0` (forced open) | `completed`, at least one accepted round, a recorded best phase |
+| `large_<side>` | square target of `<side>` camera px, `cam_size ≥ side + 100` | same as `baseline_b` |
+
+The defaults follow the 2026-10-19 profile
+(`data/debug/model_in_loop_auto/20261019_camera_reposition/profile.json`), so the
+campaign keeps the same measurement setup.
+
+**Output** — `data/debug/model_in_loop_hw_ab/<stamp>/`:
+
+```
+manifest.json                       campaign record: expectation, exit code, measurements, evidence paths
+summary.md                          the same record as a table
+light/<stamp>/light_level.json      the gate's own verdict
+baseline_a/{stage.log, profile.json, slm_model_in_loop/<stamp>/}
+```
+
+Exit codes: `0` the campaign ran to the end (an unmet expectation is a *result*,
+not an error), `2` the campaign was refused — the light gate blocked it, or a
+stage was rejected by the geometry bake-off, which stops every later stage and
+records `campaign_state = bench_outside_model` — and `1` a stage failed
+unexpectedly.
+
+The hardware command line comes from `scripts/slm/model_in_loop_auto.py` and the
+recorded verdict from `ao_shaping.tools.slm.model_in_loop_summary`; this script
+only sequences them and writes the manifest. `--plan` prints every command and
+every profile without opening a device, which is how the campaign is reviewed
+while the experiment system is offline.
+
+> The exposure is a **token**, never a bare `0`: the runner rejects `0`, so the
+> profile carries `auto` (the runner's own default) or an explicit positive
+> number of milliseconds.
+
