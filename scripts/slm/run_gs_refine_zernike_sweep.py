@@ -25,13 +25,28 @@ Usage::
 
     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type sim \\
         --cam-size 256 --epochs 4 --gs-iters 20 --spgd-epochs 4 --n-max 4 6
+
+    # Hardware run: the 2f bench camera is not on the 2f plane, so the pupil
+    # Fresnel focus correction has to be applied explicitly.
+    python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \\
+        --defocus-focal-mm 1597.4
+
+One variable group per invocation
+---------------------------------
+
+This driver probes ONE group of variables per invocation: the Zernike
+truncation order ``n_max``. The group's identity is ``--group`` (default
+``main``), its fixed parameters are ``--group-meta KEY=VALUE`` (repeatable,
+recorded verbatim), and the artefacts land in ``<out>/<group>/``. The root
+directory keeps a ``manifest.json`` indexing every group recorded under it, so
+several groups of one sweep share a root and stay separable.
 """
 from __future__ import annotations
 
 import argparse
 import json
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -40,6 +55,8 @@ import numpy as np
 from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 if str(ROOT / "libs") not in sys.path:
@@ -49,6 +66,8 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E40
     power_in_bucket,
     uniformity_cv,
 )
+from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM  # noqa: E402
+from ao_shaping.gui.utils.phase_overlay import PhaseOverlay  # noqa: E402
 from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import (  # noqa: E402
     fit_best_phase,
 )
@@ -74,10 +93,28 @@ from ao_shaping.runners.runner_common import (  # noqa: E402
     SlmParamsPib,
     patch_sim_pib_shaping,
 )
+from ao_shaping.tools.kernels.bench_kernels import fresnel_panel  # noqa: E402
+from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN  # noqa: E402
 from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
 from ao_shaping.utils.image.target.metrics import spot_waist_sigma  # noqa: E402
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+    BEAM_CENTER_PANEL,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+)
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms  # noqa: E402
+from scripts._common.group_manifest import (  # noqa: E402
+    group_output_dir,
+    group_record,
+    parse_group_meta,
+    update_manifest,
+)
+
+#: 这一组扫的变量名 —— 写进分组清单的 ``variable`` 字段。
+#: 泽尼克这一组的自变量是截断阶数 n_max; 离焦那一组扫的是 ``dz_mm``。
+GROUP_VARIABLE = "n_max"
 
 MIN_TARGET_SIDE = 4.0
 """Floor for the shared target box, in camera pixels."""
@@ -121,6 +158,46 @@ OBJECTIVE = "rms_pib"
 # ---------------------------------------------------------------------------
 # Pure helpers (importable without touching hardware)
 # ---------------------------------------------------------------------------
+
+
+def build_focus_overlay(
+    focal_mm: float | None,
+    *,
+    beam_radius_px: float,
+) -> PhaseOverlay | None:
+    """Build the pupil Fresnel focus-correction overlay (``None`` = no overlay).
+
+    The 2f bench camera is *not* on the 2f plane: a flat pupil phase loses
+    focus as soon as the detector leaves it, so the real bench needs a
+    quadratic phase on the pupil to move the focus back onto the detector
+    (``ao_shaping.tools.slm.panel.focus_probe`` measured 1/f = +0.626 m^-1 on
+    2026-10-20, i.e. f_v = 1597.4 mm, on this bench -- a bench measurement,
+    not a constant, so re-measure after moving the camera). The overlay is
+    applied by the optimizers on the handle they open, so it reaches every
+    frame of a stage without changing the phase the optimiser itself computes.
+
+    ``None`` (the default) means "no correction", which keeps the run
+    byte-identical to a run without ``--defocus-focal-mm``.
+
+    Args:
+        focal_mm: Focal length of the correction in mm (``None`` = no overlay).
+        beam_radius_px: Illuminated pupil radius on the panel, in pixels.
+
+    Returns:
+        A :class:`PhaseOverlay` carrying the panel-sized raw-radian phase, or
+        ``None``.
+    """
+    if focal_mm is None:
+        return None
+    phase = fresnel_panel(
+        float(focal_mm),
+        radius=int(round(beam_radius_px)),
+        pupil_center=(int(BEAM_CENTER_PANEL[0]), int(BEAM_CENTER_PANEL[1])),
+        panel_shape=(SLM_PANEL_H, SLM_PANEL_W),
+        wavelength_nm=DEFAULT_WAVELENGTH_NM,
+        pixel_um=SLM_PITCH_M * 1e6,
+    )
+    return PhaseOverlay(phase_rad=phase)
 
 
 def resolve_target_side(
@@ -186,6 +263,26 @@ def sweep_plan(n_max_list: tuple[int, ...] | list[int]) -> list[dict[str, int]]:
     ]
 
 
+def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:
+    """这一组的身份字段 (组名 / 自变量 / 固定参数)。
+
+    ``summary.json`` 与根目录的 ``manifest.json`` 都用这三个字段, 所以定义只有一处。
+    固定参数**逐字**保留 —— 清单是这一组的事实记录, 推断类型会让人以为参数被归一化过。
+
+    Args:
+        group: 组名 (``--group``)。
+        meta: 这一组的固定参数 (``--group-meta``)。
+
+    Returns:
+        ``{"group": ..., "variable": ..., "group_meta": {...}}``。
+    """
+    return {
+        "group": str(group),
+        "variable": GROUP_VARIABLE,
+        "group_meta": {str(k): str(v) for k, v in (meta or {}).items()},
+    }
+
+
 def check_zernike_clip(
     max_abs_coefficient: float,
     clip: float = ZERNIKE_CLIP,
@@ -212,6 +309,27 @@ def check_zernike_clip(
     return None
 
 
+def _exposure_token(exposure_time_ms: float) -> str:
+    """Spell this driver's exposure in the vocabulary Stage C accepts.
+
+    The Stage-C optimizer resolves ``--exposure-time-ms`` through the shared
+    CLI vocabulary, which **rejects a bare 0** ("0 is not a synonym for
+    'auto'"). This driver has always used ``0`` to mean "keep the device
+    default", so it is translated into the token that says exactly that
+    instead of aborting the whole sweep at Stage C.
+
+    Args:
+        exposure_time_ms: The driver's own exposure value in ms (``<= 0``
+            means "keep the device default").
+
+    Returns:
+        The token or the numeric string to hand to the optimizer.
+    """
+    if float(exposure_time_ms) <= 0.0:
+        return DEFAULT_EXPOSURE_TOKEN
+    return f"{float(exposure_time_ms):g}"
+
+
 def build_stage_c_config(
     *,
     center: tuple[int, int],
@@ -229,6 +347,7 @@ def build_stage_c_config(
     lr: float,
     seed: int,
     max_energy_loss: float = 0.6,
+    send_overlay: PhaseOverlay | None = None,
 ) -> SlmZernikePibConfig:
     """Assemble the Stage-C SPGD config for one truncation order.
 
@@ -256,6 +375,8 @@ def build_stage_c_config(
             search emptying the target box, but on a small box it can also
             reject every perturbation of an already-good fitted phase; lower it
             (or set ``0``) to let SPGD explore.
+        send_overlay: Focus-correction overlay applied to the SLM this run
+            opens. ``None`` (default) leaves the send path untouched.
 
     Returns:
         A fully-specified :class:`SlmZernikePibConfig`.
@@ -263,7 +384,7 @@ def build_stage_c_config(
     camera = CameraParamsPib(
         cam_type=cam_type,
         cam_id=cam_id,
-        exposure_time_ms=exposure_time_ms,
+        exposure_time_ms=_exposure_token(exposure_time_ms),
         cam_size=cam_size,
         target=ObjectiveTarget(name=OBJECTIVE, target_shape="square"),
         target_size=float(side),
@@ -284,6 +405,7 @@ def build_stage_c_config(
         random_seed=int(seed),
         camera=camera,
         slm=slm,
+        send_overlay=send_overlay,
     )
 
 
@@ -488,6 +610,21 @@ class SweepParams:
     target_side: float = 0.0
     max_energy_loss: float = 0.6
     save_images: bool = False
+    defocus_focal_mm: float | None = None
+    """Pupil Fresnel focus-correction focal length in mm (``None`` = off).
+
+    Recorded in ``summary.json``'s ``config`` so a run can be reproduced.
+    """
+
+    group: str = "main"
+    """Identity of the variable group this invocation probes.
+
+    The sweep writes into ``<out>/<group>/`` and the root gets a ``manifest.json``
+    listing every group recorded under it.
+    """
+
+    group_meta: dict[str, str] = field(default_factory=dict)
+    """Fixed parameters of this group, recorded verbatim (see ``--group-meta``)."""
 
 
 def _jsonable(value: Any) -> Any:
@@ -551,6 +688,49 @@ def _flat_frame(history: list[dict[str, Any]]) -> np.ndarray:
     raise RuntimeError("Stage-A history has no flat frame (record_debug off?)")
 
 
+#: Stage A 遇到 CCD 饱和时的曝光退避次数。每次把曝光减半后重跑 Stage A。
+#: 为什么必须退避而不是直接失败: GS 的 SPGD 细化会把光**越收越紧**, 目标框只有
+#: ~9 px 时, 收敛后的方斑峰值随轮次上升, 撞到 CCD 的 250 counts 饱和线
+#: (2026-10-20 实测: 0.4 ms 下第 ~310 轮饱和, 整轮 22 分钟的 Stage A 作废)。
+SATURATION_BACKOFF_ATTEMPTS = 3
+#: 曝光退避的下限 (ms)。再低就没有可用信号了, 那时应当报「光太弱」而不是继续退避。
+MIN_BACKOFF_EXPOSURE_MS = 0.02
+
+
+def _run_stage_a_with_saturation_backoff(
+    stage_a: SlmGsRefineConfig, params: SweepParams
+) -> Any:
+    """跑 Stage A, 遇 CCD 饱和就把曝光减半后重跑。
+
+    ``slm_gs_refine.measure`` 对饱和帧直接抛 ``ValueError`` (这是对的: 饱和帧的
+    指标没有意义)。但 GS 的 SPGD 细化本来就是「越收越紧」的过程, 越到后面越亮,
+    于是收敛前的某一轮会先撞线。此时整轮 Stage A 的时间全部作废 —— 所以这里
+    接住这个异常、曝光减半重跑, 并把降下来的曝光同步给 Stage C (``params``),
+    让三段用同一个曝光, 基线才可比。
+    """
+    config = stage_a
+    for attempt in range(SATURATION_BACKOFF_ATTEMPTS + 1):
+        try:
+            return optimize_slm_gs_refine(config)
+        except ValueError as exc:
+            saturated = "saturat" in str(exc).lower()
+            if not saturated or attempt == SATURATION_BACKOFF_ATTEMPTS:
+                raise
+            current = float(config.exposure_time_ms)
+            if current <= MIN_BACKOFF_EXPOSURE_MS:
+                raise
+            reduced = max(MIN_BACKOFF_EXPOSURE_MS, current * 0.5)
+            print(
+                f"[饱和退避] Stage A 在 {current:.4f} ms 饱和 ({exc}); "
+                f"曝光降到 {reduced:.4f} ms 重跑",
+                flush=True,
+            )
+            config = replace(config, exposure_time_ms=reduced)
+            # Stage C 必须用同一个曝光, 否则两段的基线不可比。
+            params.exposure_time_ms = reduced
+    raise RuntimeError("unreachable: Stage A saturation backoff exhausted")
+
+
 def run_sweep(params: SweepParams) -> dict[str, Any]:
     """Run the full GS-refine -> Zernike-fit -> SPGD sweep.
 
@@ -560,13 +740,17 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
     Returns:
         The summary dict that is also written to ``<out>/summary.json``.
     """
-    out_dir = (
+    out_root = (
         Path(params.out)
         if params.out
         else Path("data/debug/slm_gs_refine_zernike")
         / datetime.now().strftime("%Y%m%d_%H%M%S")
     )
+    out_root.mkdir(parents=True, exist_ok=True)
+    # 组目录: <根目录>/<组名>/。一次调用只探这一组 (自变量 = n_max)。
+    out_dir = group_output_dir(out_root, params.group)
     out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"[out] 根目录 {out_root} / 组目录 {out_dir} (组名 {params.group})")
 
     if params.cam_type == "sim":
         patch_sim_pib_shaping(params.cam_type)
@@ -586,6 +770,14 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         f"center={center_xy} w0={w0:.2f}px target_side={side:.2f}px"
     )
 
+    # --- Focus correction (2f bench camera is not on the 2f plane) ---------
+    # Both optimizers accept a send-pipeline overlay, so ONE overlay covers
+    # Stage A (GS) and Stage C (SPGD): the three stages then share the same
+    # optical correction and their baselines stay comparable.
+    send_overlay = build_focus_overlay(
+        params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
+    )
+
     # --- Stage A: one GS-refine optimisation ------------------------------
     stage_a = SlmGsRefineConfig(
         epochs=params.epochs,
@@ -600,8 +792,9 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         slm_number=params.slm_number,
         beam_radius_px=params.beam_radius_px,
         record_debug=True,
+        send_overlay=send_overlay,
     )
-    rec_a = optimize_slm_gs_refine(stage_a)
+    rec_a = _run_stage_a_with_saturation_backoff(stage_a, params)
     best_phase = np.asarray(rec_a.best_phase, dtype=np.float64)
     best_frame = np.asarray(rec_a.best_frame, dtype=np.float64)
     flat_frame = _flat_frame(rec_a.history)
@@ -636,6 +829,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             lr=params.lr,
             seed=params.seed,
             max_energy_loss=params.max_energy_loss,
+            send_overlay=send_overlay,
         )
         rec_c = optimize_slm_zernike_pib(cfg)
         runs.append(
@@ -735,6 +929,7 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         )
 
     summary = {
+        **group_fields(params.group, params.group_meta),
         "config": _jsonable(asdict(params)),
         "cam_size": int(params.cam_size),
         "probe_shape": [int(probe_shape[0]), int(probe_shape[1])],
@@ -750,6 +945,17 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
     }
     (out_dir / "summary.json").write_text(
         json.dumps(_jsonable(summary), indent=2), encoding="utf-8"
+    )
+    # 根目录的分组清单: 每组写完立刻更新 —— 后面那一组崩掉时, 这一组已经被索引。
+    update_manifest(
+        out_root,
+        group_record(
+            group=params.group,
+            variable=GROUP_VARIABLE,
+            meta=params.group_meta,
+            dir_name=str(params.group),
+            n_rows=len(orders),
+        ),
     )
     print(f"[done] wrote {out_dir / 'summary.json'}")
     return summary
@@ -811,7 +1017,15 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Adam learning rate (0 = optimizer auto-schedule, which also overrides --delta).",
     )
     parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out", default="", help="Output directory.")
+    parser.add_argument(
+        "--out",
+        default="",
+        help=(
+            "Output root directory. The group's artefacts go to <out>/<group>/ "
+            "and the root gets a manifest.json indexing every group recorded "
+            "under it (default: data/debug/slm_gs_refine_zernike/<timestamp>)."
+        ),
+    )
     parser.add_argument(
         "--target-side",
         type=float,
@@ -829,12 +1043,51 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument("--save-images", action="store_true")
+    parser.add_argument(
+        "--defocus-focal-mm",
+        type=float,
+        default=None,
+        help=(
+            "Pupil Fresnel focus-correction focal length in mm (omit = no "
+            "correction). The 2f bench camera is not on the 2f plane, so a "
+            "hardware run needs this overlay; ao_shaping.tools.slm.panel."
+            "focus_probe measured 1/f = +0.626 m^-1 (f_v = 1597.4 mm) on "
+            "2026-10-20 -- a bench measurement, re-measure after moving the "
+            "camera."
+        ),
+    )
+    parser.add_argument(
+        "--group",
+        default="main",
+        help=(
+            "Identity of the variable group this invocation probes (default "
+            "'main'). The sweep writes into <out>/<group>/; the root keeps a "
+            "manifest.json indexing every group recorded under it."
+        ),
+    )
+    parser.add_argument(
+        "--group-meta",
+        dest="group_meta_pairs",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help=(
+            "Fixed parameters of this group (repeatable), recorded verbatim in "
+            "the group's summary.json and in the root manifest.json, e.g. "
+            "--group-meta exposure_ms=0.2 --group-meta phase=hardware_gs"
+        ),
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     """Parse ``argv`` and run the sweep."""
     args = _build_parser().parse_args(argv)
+    try:
+        group_meta = parse_group_meta(args.group_meta_pairs)
+    except ValueError as exc:
+        print(f"参数错误: {exc}")
+        return 2
     params = SweepParams(
         cam_type=args.cam_type,
         cam_id=args.cam_id,
@@ -854,6 +1107,9 @@ def main(argv: list[str] | None = None) -> int:
         target_side=args.target_side,
         max_energy_loss=args.max_energy_loss,
         save_images=args.save_images,
+        defocus_focal_mm=args.defocus_focal_mm,
+        group=args.group,
+        group_meta=group_meta,
     )
     run_sweep(params)
     return 0

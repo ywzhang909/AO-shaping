@@ -16,7 +16,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec import Santec, describe_santec_error
 from ao_shaping.gui.slm.bench_settings import (
     DEFAULT_CAMERA_PIXEL_UM,
     KNOWN_CAMERA_PIXEL_UM,
@@ -663,7 +663,9 @@ def connect_slm(slm_num: int):
     except Exception as e:
         st.session_state[prefix] = None
         st.session_state[f"{prefix}_connected"] = False
-        st.error(f"SLM {slm_num} 连接失败: {e}")
+        # 只报原始错误码对操作员没有指导意义 (例如 -10003 只是「USB设备已打开」),
+        # 故用驱动层的可执行提示替换: 说明占用/断链的原因并给出下一步动作。
+        st.error(f"SLM {slm_num} 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"Failed to connect SLM {slm_num}: {e}")
 
 

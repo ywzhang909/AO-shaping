@@ -18,8 +18,9 @@
 
 不给 ``--execute`` 时本脚本:
 
-* 只 import 两个**零导入叶子** (:mod:`ao_shaping.utils.slm.bench_constants` 与
-  :mod:`ao_shaping.utils.wavefront.matrix_utils`) —— 实测它们**不牵入任何
+* 只 import 三个**零导入叶子** (:mod:`ao_shaping.utils.slm.bench_constants`、
+  :mod:`ao_shaping.utils.wavefront.matrix_utils` 与
+  :mod:`ao_shaping.tools.kernels.bench_kernels`) —— 实测它们**不牵入任何
   ``ao_shaping.drivers.*``**;
 * 波长常量 ``DEFAULT_WAVELENGTH_NM`` 用 ``ast`` 从 ``drivers/slm/factory.py``
   **静态读取** (不 import), 保持单一事实源又不触发驱动包的 import 期副作用;
@@ -79,10 +80,27 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
     python scripts/slm/hw_gs_defocus_probe.py --execute
     python scripts/slm/hw_gs_defocus_probe.py --replot <测量目录>   # 离线重新出图
 
-产物写到 ``report/shape_trials/hw_gs_defocus_probe_<UTC 时间戳>/``: 每次测量一个
-``.npz`` (原始帧 + 全部参数)、一份 ``measurements.csv``、一份 ``run_config.json``、
-一张 ``hw_summary.png``。npz 里存的是**未经任何处理**的原始帧, 所以离线可以换度量
-口径重新出图, 不必重连硬件。
+一次只探一组变量
+----------------
+
+本探针是「Δz (离焦间距, mm) = 自变量」这一组。一次调用只探**这一组**:
+
+* ``--group NAME`` —— 这一组的身份 (默认 ``main``); 落盘目录是 ``<根目录>/<组名>/``。
+* ``--group-meta KEY=VALUE`` —— 这一组的**固定**参数 (可重复), 逐字写进组目录的
+  ``run_config.json`` 与根目录的 ``manifest.json``。例如
+  ``--group-meta exposure=0.2 --group-meta focus_focal_mm=1597.4``。
+* 这一组扫的变量名固定是 ``dz_mm`` (写进清单的 ``variable`` 字段)。
+
+根目录默认是 ``report/shape_trials/hw_gs_defocus_probe_<UTC 时间戳>/``, 可以用
+``--out-root`` 指定 —— **同一轮实验的多个组要共用同一个根目录**, 根目录下的
+``manifest.json`` 才会把它们都索引起来 (每组写完立刻更新, 后一组崩掉不影响前一组
+已被索引)。
+
+产物写到 ``<根目录>/<组名>/``: 每次测量一个 ``.npz`` (原始帧 + 全部参数)、一份
+``measurements.csv``、一份 ``run_config.json``、一张 ``hw_summary.png``。根目录另有一份
+``manifest.json`` 列出本根目录下记录过的每一组。npz 里存的是**未经任何处理**的原始帧,
+所以离线可以换度量口径重新出图, 不必重连硬件。``--replot`` 接受**根目录**或**组目录**:
+给根目录时会把下面每一组都重出图。
 """
 
 from __future__ import annotations
@@ -126,6 +144,20 @@ from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
 from ao_shaping.utils.wavefront.matrix_utils import (  # noqa: E402
     focal_length_from_camera_pixel,
 )
+from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+    fresnel_panel,
+)
+from scripts._common.group_manifest import (  # noqa: E402
+    group_output_dir,
+    group_record,
+    load_manifest,
+    parse_group_meta,
+    update_manifest,
+)
+
+#: 这一组探针扫的变量名 —— 写进分组清单的 ``variable`` 字段。
+#: 离焦这一组的自变量是 Δz (mm); 泽尼克那一组扫的是 ``n_max``。
+GROUP_VARIABLE = "dz_mm"
 
 #: 2f 焦距标度是在哪个波长下测的 (bench_constants 的 TILT_SHIFT_SCALE 是 1064 nm 下测的)
 SCALE_MEASURED_AT_NM = 1064.0
@@ -154,6 +186,13 @@ DEFAULT_ROI_PX = 250
 #: + 硬退出, 见 :func:`guarded`。
 ACQUIRE_TIMEOUT_S = 60.0
 OPEN_TIMEOUT_S = 180.0
+
+#: USB 瞬时错误的重试策略。驱动的 ``_write_phase`` 内部只试 3 次 (间隔 100 ms),
+#: 而 FTDI 的 ``-10032 USB其他错误`` 常连着三次一起失败 (2026-10-20 实测: 写
+#: 内存#6 连续 3 次 -10032, 整轮扫描中断, 且只落盘了 3 行)。这里再包一层更长
+#: 的退避 (0.5 / 2 / 8 s), 并每次换一个 memory slot。
+USB_RETRY_ATTEMPTS = 3
+USB_RETRY_BASE_WAIT_S = 0.5
 
 HANG_RUNBOOK = """\
 ────────────────────────────────────────────────────────────
@@ -295,6 +334,31 @@ def chirp_edge_rad(dz_m: float, optics: Optics, *, sign: float, alpha: float) ->
 
 
 # ---------------------------------------------------------------------------
+# 瞳面菲涅尔焦面矫正 (面板分辨率, raw 弧度)
+# ---------------------------------------------------------------------------
+def build_focus_panel(focal_mm: float | None, optics: Optics) -> np.ndarray | None:
+    """瞳面菲涅尔焦面矫正相位 ``pi·r²/(λ·f_v)`` (raw 弧度, 盘外为 0)。
+
+    2f 台架的 CCD 并不在 2f 焦面上 (实测 :mod:`ao_shaping.tools.slm.panel.focus_probe`
+    标定出 1/f = +0.541 m⁻¹, 即 f_v ≈ 1848 mm), 真实光路需要这张瞳面二次相位把
+    焦面搬回探测器。``None`` = 不矫正, 与本脚本引入该选项之前逐位一致。
+
+    ⚠️ 几何必须与 :func:`panel_pupil_chirp` 对齐: 同一个照明圆盘 (同一中心、同一
+    半径), 否则两张相位在盘边界上不连续, 会在盘缘引入一圈伪结构。
+    """
+    if focal_mm is None:
+        return None
+    return fresnel_panel(
+        float(focal_mm),
+        radius=int(BEAM_RADIUS_PANEL),
+        pupil_center=(int(BEAM_CENTER_PANEL[0]), int(BEAM_CENTER_PANEL[1])),
+        panel_shape=optics.panel_shape,
+        wavelength_nm=optics.wavelength_nm,
+        pixel_um=optics.panel_pitch_m * 1e6,
+    )
+
+
+# ---------------------------------------------------------------------------
 # 超时保护
 # ---------------------------------------------------------------------------
 def guarded(label: str, fn: Callable[[], Any], *, timeout_s: float) -> Any:
@@ -330,6 +394,14 @@ def guarded(label: str, fn: Callable[[], Any], *, timeout_s: float) -> Any:
 def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
     """完整实验计划: 扫哪些 Δz、每次施加什么相位、预计多久、需要哪些设备。"""
     dz_list = [float(v) for v in args.dz_mm]
+    focus_mm = args.defocus_focal_mm
+    focus_text = (
+        f"瞳面菲涅尔焦面矫正: f_v = {focus_mm:.1f} mm (pi·r²/(λ·f_v), 盘外为 0) —— "
+        "CCD 不在 2f 焦面时用它把焦面搬回探测器; 与 Δz 二次相位**相加**进同一张"
+        "叠加图 (驱动只有一个叠加通道, 第二次 set_phase_overlay 会覆盖第一次)"
+        if focus_mm is not None
+        else "不矫正 (CCD 若不在 2f 焦面, 实测光斑会散; 用 --defocus-focal-mm 打开矫正)"
+    )
     steps: list[dict[str, Any]] = []
     for mm in dz_list:
         edge = chirp_edge_rad(mm * 1e-3, optics, sign=args.chirp_sign, alpha=args.chirp_alpha)
@@ -343,6 +415,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
                 "chirp_edge_rad": edge,
                 "chirp_edge_waves": edge / (2.0 * np.pi),
                 "chirp_corner_rad": edge * np.sqrt(2.0),
+                "defocus_focal_mm": focus_mm,
                 "action": (
                     "set_phase_overlay(瞳面二次相位) + display_and_average(GS 相位)"
                 ),
@@ -351,7 +424,19 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         )
     # 时间预算: SLM 写入+稳定 ~0.5-1.5 s/次, CCD 取帧 ~0.1-0.3 s/帧。
     per_step = 1.5 + int(args.frames) * 0.3
+    group_name = str(getattr(args, "group", None) or "main")
+    group_meta = dict(getattr(args, "group_meta", None) or {})
     return {
+        "group": {
+            "name": group_name,
+            "variable": GROUP_VARIABLE,
+            "meta": group_meta,
+            "out_root": (
+                str(args.out_root) if getattr(args, "out_root", None)
+                else "report/shape_trials/hw_gs_defocus_probe_<UTC>"
+            ),
+            "out_dir": f"<根目录>/{group_name}",
+        },
         "devices": [
             {
                 "role": "SLM",
@@ -400,6 +485,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
             "Santec.set_phase_overlay(phase_rad) —— 弧度制, 在 create_phase_from_array "
             "内部、弧度→灰度之前相加, 矫正/LUT/平移照常作用; 结束后 set_phase_overlay(None)"
         ),
+        "focus_correction": focus_text,
         "zero_order_halo": (
             "每次测量额外记整帧峰值 / 框外峰值 / 框外功率占比。真实瞳面是双分量 "
             "U=U_inc*[eta+(1-eta)e^{iφ}], 零级只过物理透镜, 在 f+d 处散成晕斑 "
@@ -420,9 +506,9 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
             "note": "不含 SLM/CCD open 与 close (各 5-60 s, SDK 而定)",
         },
         "outputs": (
-            "report/shape_trials/hw_gs_defocus_probe_<UTC>/: 每次测量一个 npz "
+            "report/shape_trials/hw_gs_defocus_probe_<UTC>/<组名>/: 每次测量一个 npz "
             "(原始帧 + 参数) + measurements.csv + run_config.json + hw_summary.png; "
-            "npz 存的是未处理原始帧, --replot 可离线重新出图"
+            "根目录另有 manifest.json 按组索引; npz 存的是未处理原始帧, --replot 可离线重新出图"
         ),
         "predicted_by_simulation": (
             "report/shape_trials/scheme_gap_dz0_50mm*.csv —— 对拍用的仿真预测 "
@@ -439,6 +525,15 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add("=" * 78)
     add("硬件实验计划 (dry-run) —— 未打开任何设备")
     add("=" * 78)
+    add("")
+    g = plan.get("group", {}) or {}
+    meta = g.get("meta") or {}
+    add("变量组 (一次调用只探这一组)")
+    add(f"  组名     = {g.get('name', 'main')}")
+    add(f"  自变量   = {g.get('variable', GROUP_VARIABLE)}")
+    add(f"  固定参数 = {', '.join(f'{k}={v}' for k, v in meta.items()) or '(无)'}")
+    add(f"  根目录   = {g.get('out_root', '')}")
+    add(f"  组目录   = {g.get('out_dir', '')}")
     add("")
     add("光学常量 (全部来自仓库零导入叶子, 与仿真脚本同源)")
     add(f"  波长 λ            = {o['wavelength_nm']:.1f} nm")
@@ -471,6 +566,7 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add("")
     add("离焦施加方式")
     add(f"  {plan['overlay_api']}")
+    add(f"  焦面矫正: {plan['focus_correction']}")
     add(f"  符号/前因子: sign={plan['steps'][0]['chirp_sign']:+.0f}, "
         f"alpha={plan['steps'][0]['chirp_alpha']:.5f} "
         f"(由仿真脚本数值反解: sign=+1 的残差比 sign=-1 高 ~370 倍, 非照抄公式)")
@@ -515,6 +611,26 @@ class _ProbeParams:
     cam_size: int
     slm_number: int
     slm_wavelength: int
+
+
+def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:
+    """这一组的身份字段 (组名 / 自变量 / 固定参数)。
+
+    ``run_config.json`` 与根目录的 ``manifest.json`` 都用这三个字段, 所以定义只有一处。
+    固定参数**逐字**保留 —— 清单是这一组的事实记录, 推断类型会让人以为参数被归一化过。
+
+    Args:
+        group: 组名 (``--group``)。
+        meta: 这一组的固定参数 (``--group-meta``)。
+
+    Returns:
+        ``{"group": ..., "variable": ..., "group_meta": {...}}``。
+    """
+    return {
+        "group": str(group),
+        "variable": GROUP_VARIABLE,
+        "group_meta": {str(k): str(v) for k, v in (meta or {}).items()},
+    }
 
 
 def halo_metrics(frame: np.ndarray, box: np.ndarray) -> dict[str, float]:
@@ -605,11 +721,31 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
     )
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-    out_dir = (ROOT / "report" / "shape_trials" / f"hw_gs_defocus_probe_{stamp}")
-    out_dir.mkdir(parents=True, exist_ok=False)
+    # 根目录: 默认按 UTC 时间戳新建; --out-root 可以把同一轮实验的多个组钉到
+    # 同一个根目录下 (根目录的 manifest.json 才会把它们都索引起来)。
+    out_root = (
+        Path(args.out_root)
+        if getattr(args, "out_root", None)
+        else ROOT / "report" / "shape_trials" / f"hw_gs_defocus_probe_{stamp}"
+    )
+    if getattr(args, "out_root", None):
+        # 显式指定的根目录: 允许已存在 (同一轮实验的多个组共用一个根目录)。
+        out_root.mkdir(parents=True, exist_ok=True)
+    else:
+        # 时间戳根目录: 同秒两次启动是异常 (SLM/CCD 独占), 沿用原来的保护。
+        out_root.mkdir(parents=True, exist_ok=False)
+    group_name = str(getattr(args, "group", None) or "main")
+    group_meta = dict(getattr(args, "group_meta", None) or {})
+    # 组目录: <根目录>/<组名>/。测量文件全部落在这里, 根目录只留 manifest.json。
+    # 同名组重跑会**覆盖**这一组的旧文件 (重跑一组 = 替换它, 清单里也是替换)。
+    out_dir = group_output_dir(out_root, group_name)
+    out_dir.mkdir(parents=True, exist_ok=True)
     print(f"测量目录: {out_dir}")
+    print(f"变量组: {group_name} (自变量 {GROUP_VARIABLE}); 根目录 {out_root}")
 
     gs_panel = load_gs_phase_panel(args, optics)
+    # 焦面矫正只算一次: 它与扫描点无关, 且每次重算都是几百 MB 级的无用开销。
+    focus_panel = build_focus_panel(args.defocus_focal_mm, optics)
     params = _ProbeParams(
         cam_type=args.cam_type,
         cam_id=int(args.cam_id),
@@ -636,8 +772,40 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
             timeout_s=ACQUIRE_TIMEOUT_S,
         )
 
+    def capture_retry(
+        slm: Any, cam: Any, phase: np.ndarray, next_slot: Callable[[], int]
+    ) -> np.ndarray:
+        """取帧, 遇 USB 瞬时错误退避重试; 全部失败则抛出最后一次异常。
+
+        驱动的 ``_write_phase`` 已经在 ``retrying`` 里试 3 次 (间隔 100 ms), 但
+        FTDI 的 ``-10032 USB其他错误`` 常常连着三次一起失败 (2026-10-20 实测:
+        写内存#6 连续 3 次都报 -10032, 整轮扫描因此中断)。USB 栈的瞬时拥塞
+        靠更长的退避就能过去, 所以这里再包一层 0.5/2/8 s 的退避, 并**每次换
+        一个新 memory slot** (重试时那次写入很可能没生效, 换槽位避免写进
+        当前正在显示的槽 —— 那会让面板不刷新)。
+        """
+        last: Exception | None = None
+        for attempt in range(USB_RETRY_ATTEMPTS):
+            slot = next_slot()
+            try:
+                return capture(slm, cam, phase, slot)
+            except SantecError as exc:
+                last = exc
+                wait = USB_RETRY_BASE_WAIT_S * (4 ** attempt)
+                print(f"[USB 重试 {attempt + 1}/{USB_RETRY_ATTEMPTS}] slot={slot} "
+                      f"失败: {exc}; 等待 {wait:.1f}s 后换槽重试", flush=True)
+                time.sleep(wait)
+        assert last is not None
+        raise last
+
     with guarded("SLM 打开", lambda: open_slm(params), timeout_s=OPEN_TIMEOUT_S) as slm:
-        with guarded("SLM open()", lambda: slm.open(), timeout_s=OPEN_TIMEOUT_S):
+        # ⚠️ `Santec.open()` 返回 None, 不能拿它的返回值当上下文管理器 —— 上一版
+        # 这里写成 `with guarded(...):` 而 guarded 回传的是函数返回值, 于是真机上
+        # 必然炸 `TypeError: 'NoneType' object does not support the context manager
+        # protocol`。超时保护本身是对的, 只是需要一个不消费返回值的上下文。
+        with nullcontext(
+            guarded("SLM open()", lambda: slm.open(), timeout_s=OPEN_TIMEOUT_S)
+        ):
             sync_device_wavelength(params, slm)
             with create_camera(params.cam_type, params.cam_id,
                                exposure_time_ms=params.exposure_time_ms) as cam:
@@ -675,7 +843,14 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                           f"{actual} ms")
 
                     # -- 基线: 定位零级 (argmax) 并**冻结** ROI --------------------
+                    # ⚠️ 焦面矫正必须在**定位之前**就位: 矫正相位以
+                    # BEAM_CENTER_PANEL 为中心, 而照明并不落在那里, 所以它等价于
+                    # 一片**偏心透镜**, 会把光斑推走几十 px (2026-10-20 实测全幅
+                    # 质心: 未矫正 ~1352 px -> D=+0.541 m^-1 时 ~1420 px, 偏大
+                    # 44 px 的目标框)。若拿未矫正的平相位去定位 ROI, 冻结的目标框
+                    # 整个落在光斑之外, 之后每次量到的都是空气。
                     flat = np.zeros(optics.panel_shape, dtype=np.float64)
+                    slm.set_phase_overlay(focus_panel)
                     full = capture(slm, cam, flat, next_slot())
                     cx_full, cy_full = zero_order_center(full, refine=False, despike_k=3)
                     print(f"零级 (全幅 argmax): ({cx_full}, {cy_full})")
@@ -690,6 +865,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
 
                     run_config = {
                         "timestamp_utc": stamp,
+                        **group_fields(group_name, group_meta),
+                        "out_root": str(out_root),
                         "plan": plan,
                         "gs_phase_source": plan["gs_phase_source"],
                         "exposure_ms_requested": float(args.exposure_ms),
@@ -704,6 +881,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         "cam_id": int(args.cam_id),
                         "cam_type": args.cam_type,
                         "protected_memory_slot": protected,
+                        "defocus_focal_mm": args.defocus_focal_mm,
                     }
                     (out_dir / "run_config.json").write_text(
                         json.dumps(run_config, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -719,7 +897,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             ),
                             **{k: step[k] for k in
                                ("dz_mm", "dz_units", "chirp_sign", "chirp_alpha",
-                                "chirp_edge_rad", "chirp_edge_waves", "chirp_corner_rad")},
+                                "chirp_edge_rad", "chirp_edge_waves", "chirp_corner_rad",
+                                "defocus_focal_mm")},
                             "exposure_ms_readback": float(cam.get_exposure_time_ms()),
                             "frame_mean_in_target": float(np.mean(frame[target])),
                             "cv": cv,
@@ -736,16 +915,48 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             params=json.dumps(row, ensure_ascii=False),
                         )
                         rows.append(row)
+                        write_measurements(out_dir, rows)
                         print(json.dumps(row, ensure_ascii=False), flush=True)
                         return row
 
-                    # -- 基线行 (Δz = 0, GS 相位, 无叠加) ---------------------------
+                    def record_failure(step: dict[str, Any], exc: Exception) -> dict[str, Any]:
+                        """记一行**失败** (取帧阶段的 USB 错误), 指标留 NaN。
+
+                        单点失败不该让整轮扫描作废: 失败行带着 ``error`` 字段落盘,
+                        离线出图时按 NaN 跳过即可, 其余 Δz 点照常有数据。
+                        """
+                        row = {
+                            "index": len(rows),
+                            "timestamp_utc": datetime.now(timezone.utc).isoformat(
+                                timespec="seconds"
+                            ),
+                            **{k: step[k] for k in
+                               ("dz_mm", "dz_units", "chirp_sign", "chirp_alpha",
+                                "chirp_edge_rad", "chirp_edge_waves", "chirp_corner_rad",
+                                "defocus_focal_mm")},
+                            "exposure_ms_readback": float(cam.get_exposure_time_ms()),
+                            "frame_mean_in_target": float("nan"),
+                            "cv": float("nan"),
+                            "pib": float("nan"),
+                            "score": float("nan"),
+                            "frame_peak": float("nan"),
+                            "halo_peak_outside_box": float("nan"),
+                            "halo_power_fraction_outside_box": float("nan"),
+                            "error": str(exc),
+                        }
+                        rows.append(row)
+                        write_measurements(out_dir, rows)
+                        print(json.dumps(row, ensure_ascii=False), flush=True)
+                        return row
+
+                    # -- 基线行 (Δz = 0, GS 相位, 只带焦面矫正) -------------------
                     baseline = {"step": -1, "dz_mm": 0.0, "dz_units": 0.0,
                                 "chirp_sign": 0.0, "chirp_alpha": 0.0,
                                 "chirp_edge_rad": 0.0, "chirp_edge_waves": 0.0,
-                                "chirp_corner_rad": 0.0}
-                    slm.set_phase_overlay(None)
-                    record(baseline, capture(slm, cam, gs_panel, next_slot()))
+                                "chirp_corner_rad": 0.0,
+                                "defocus_focal_mm": args.defocus_focal_mm}
+                    slm.set_phase_overlay(focus_panel)
+                    record(baseline, capture_retry(slm, cam, gs_panel, next_slot))
 
                     # -- 扫描 --------------------------------------------------------
                     try:
@@ -754,8 +965,20 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 step["dz_mm"] * 1e-3, optics,
                                 sign=args.chirp_sign, alpha=args.chirp_alpha,
                             )
-                            slm.set_phase_overlay(chirp)
-                            record(step, capture(slm, cam, gs_panel, next_slot()))
+                            # ⚠️ 驱动的叠加层只有**一个**通道: 焦面矫正与 Δz 二次
+                            # 相位必须相加进同一张图, 分两次 set_phase_overlay 会让
+                            # 后者覆盖前者, 焦点矫正就丢了。
+                            overlay = chirp if focus_panel is None else focus_panel + chirp
+                            slm.set_phase_overlay(overlay)
+                            try:
+                                frame = capture_retry(slm, cam, gs_panel, next_slot)
+                            except SantecError as exc:
+                                # 单点失败不能让整轮扫描作废: 记一行失败, 继续下一个 Δz。
+                                print(f"[跳过] Δz={step['dz_mm']} mm 取帧失败: {exc}",
+                                      flush=True)
+                                record_failure(step, exc)
+                                continue
+                            record(step, frame)
                     finally:
                         # 叠加层是驱动的持久状态, 必须清掉 —— 否则之后的调用方会在
                         # 毫不知情的情况下一直带着这张离焦相位图。
@@ -763,16 +986,37 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
 
     write_measurements(out_dir, rows)
     plot_summary(out_dir, rows)
+    # 根目录的分组清单: 每组写完立刻更新 —— 后面那一组崩掉时, 这一组已经被索引。
+    update_manifest(
+        out_root,
+        group_record(
+            group=group_name,
+            variable=GROUP_VARIABLE,
+            meta=group_meta,
+            dir_name=group_name,
+            n_rows=len(rows),
+        ),
+    )
     print(f"\n产物目录: {out_dir}")
+    print(f"分组清单: {out_root / 'manifest.json'}")
     return out_dir
 
 
 def write_measurements(out_dir: Path, rows: list[dict[str, Any]]) -> None:
-    """把测量行写成 CSV + JSON (离线重新出图的输入)。"""
+    """把测量行写成 CSV + JSON (离线重新出图的输入)。
+
+    列名取**所有行的并集** (按首次出现顺序): 失败行多一个 ``error`` 列, 而
+    DictWriter 只认第一行的列名, 照旧写法会在写失败行时抛 ``ValueError``。
+    """
     if not rows:
         return
+    fieldnames: list[str] = []
+    for row in rows:
+        for key in row:
+            if key not in fieldnames:
+                fieldnames.append(key)
     with (out_dir / "measurements.csv").open("w", newline="", encoding="utf-8") as fh:
-        writer = csv.DictWriter(fh, fieldnames=list(rows[0].keys()))
+        writer = csv.DictWriter(fh, fieldnames=fieldnames, restval="")
         writer.writeheader()
         writer.writerows(rows)
     (out_dir / "measurements.json").write_text(
@@ -842,9 +1086,37 @@ def plot_summary(out_dir: Path, rows: list[dict[str, Any]]) -> None:
     plt.close(fig)
 
 
-def run_replot(args: argparse.Namespace) -> None:
-    """离线重新出图: 只读测量目录里的 npz/CSV, **不碰任何设备**。"""
-    src = Path(args.replot)
+def find_measurement_dirs(src: Path) -> list[Path]:
+    """找出 ``src`` 下所有含测量结果的目录。
+
+    ``--replot`` 既接受**组目录** (直接含 ``measurements.json``), 也接受**根目录**
+    (含若干组子目录)。根目录优先按 ``manifest.json`` 的索引找; 索引没有就退回
+    「扫描子目录」—— 跑到一半崩掉时清单可能还没写, 但测量文件已经在盘上。
+
+    Args:
+        src: 用户给的目录。
+
+    Returns:
+        含 ``measurements.json`` 的目录列表 (可能为空)。
+    """
+    if (src / "measurements.json").is_file():
+        return [src]
+    found: list[Path] = []
+    for entry in load_manifest(src):
+        candidate = src / str(entry.get("dir", ""))
+        if (candidate / "measurements.json").is_file():
+            found.append(candidate)
+    if not found and src.is_dir():
+        found = [
+            child
+            for child in sorted(src.iterdir())
+            if child.is_dir() and (child / "measurements.json").is_file()
+        ]
+    return found
+
+
+def _replot_one(src: Path) -> None:
+    """对**一个**含 ``measurements.json`` 的目录重新出图。"""
     rows = json.loads((src / "measurements.json").read_text(encoding="utf-8"))
     write_measurements(src, rows)
     plot_summary(src, rows)
@@ -857,6 +1129,21 @@ def run_replot(args: argparse.Namespace) -> None:
         print(f"Δz={row['dz_mm']:>5.1f} mm  CV={row['cv']:.4f}  PIB={row['pib']:.4f}  "
               f"frame{frame.shape} peak={float(frame.max()):.1f}")
     print(f"已重出图: {src / 'hw_summary.png'}")
+
+
+def run_replot(args: argparse.Namespace) -> None:
+    """离线重新出图: 只读测量目录里的 npz/CSV, **不碰任何设备**。
+
+    给**组目录**就重出这一组; 给**根目录**就把下面每一组都重出图。
+    """
+    src = Path(args.replot)
+    dirs = find_measurement_dirs(src)
+    if not dirs:
+        raise SystemExit(
+            f"{src} 下找不到测量结果: 需要 measurements.json, 或它下面的组子目录"
+        )
+    for one in dirs:
+        _replot_one(one)
 
 
 # ---------------------------------------------------------------------------
@@ -881,6 +1168,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"瞳面二次相位符号 (默认 {CHIRP_SIGN:+.0f}, 由仿真数值反解)")
     p.add_argument("--chirp-alpha", type=float, default=CHIRP_ALPHA,
                    help=f"瞳面二次相位前因子 (默认 {CHIRP_ALPHA}, 理论值 1)")
+    p.add_argument("--defocus-focal-mm", type=float, default=None,
+                   help="瞳面菲涅尔焦面矫正焦距 (mm; 不给 = 不矫正, 探针默认 0; "
+                        "2f 台架 CCD 不在焦面, 用 focus_probe 标定值, 例 1848.4)")
     p.add_argument("--slm-number", type=int, default=1)
     p.add_argument("--cam-id", type=int, default=0)
     p.add_argument("--cam-type", default="daheng")
@@ -894,11 +1184,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--settle-max-wait-s", type=float, default=6.0)
     p.add_argument("--settle-max-discard", type=int, default=40)
     p.add_argument("--seed", type=int, default=0, help="槽位随机选择的种子")
+    p.add_argument("--group", default="main",
+                   help="这一次调用探的是哪一组变量 (默认 main); 落盘目录是 "
+                        "<根目录>/<组名>/, 根目录的 manifest.json 按组索引")
+    p.add_argument("--group-meta", dest="group_meta_pairs", action="append",
+                   default=[], metavar="KEY=VALUE",
+                   help="这一组的固定参数 (可重复), 逐字记进组目录的 run_config.json "
+                        "与根目录的 manifest.json, 例: --group-meta exposure=0.2")
+    p.add_argument("--out-root", default=None,
+                   help="根目录 (默认为 report/shape_trials/hw_gs_defocus_probe_<UTC>); "
+                        "同一轮实验的多个组要用同一个根目录, 清单才会把它们都索引起来")
     return p
 
 
 def main() -> None:
     args = build_parser().parse_args()
+    try:
+        args.group_meta = parse_group_meta(args.group_meta_pairs)
+    except ValueError as exc:
+        raise SystemExit(f"参数错误: {exc}") from exc
 
     if args.replot is not None:
         run_replot(args)

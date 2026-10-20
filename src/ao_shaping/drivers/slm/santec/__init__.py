@@ -31,6 +31,12 @@ from ao_shaping.drivers.slm.santec.constants import (
     WAVELENGTH_MIN,
     get_slm_error_message,
 )
+from ao_shaping.drivers.slm.santec.errors import (
+    USB_ALREADY_OPEN_CODE,
+    USB_LINK_BROKEN_CODES,
+    describe_santec_error,
+    extract_error_code,
+)
 from ao_shaping.drivers.slm.santec.driver import (
     MAX_PIXEL_FLIP_TIME_S,
     SLOT_MAX,
@@ -88,12 +94,16 @@ __all__ = [
     "Santec",
     "SlotRotator",
     "SantecError",
+    "USB_ALREADY_OPEN_CODE",
+    "USB_LINK_BROKEN_CODES",
     "VideoMode",
     "WAVELENGTH_MAX",
     "WAVELENGTH_MIN",
     "WavefrontCorrection",
     "apply_lut_remap",
     "choose_slot",
+    "describe_santec_error",
+    "extract_error_code",
     "get_max_grayscale",
     "get_slm_error_message",
     "read_current_slot",

@@ -309,10 +309,17 @@ def main() -> None:
     # Resolve run directory
     if args.run is not None:
         run_dir = args.run
+        # 新布局: 一组的产物在 <out>/<组名>/ 里, summary.json 在那一层;
+        # 旧布局 (summary.json 直接在 run 目录) 仍然可用。
+        if not (run_dir / "summary.json").is_file():
+            nested = sorted(run_dir.glob("*/summary.json"))
+            if nested:
+                run_dir = nested[-1].parent
     else:
         base = ROOT / "data" / "debug" / "slm_gs_refine_zernike"
-        # Timestamp dirs sort lexicographically == chronologically (YYYYMMDD_HHMMSS).
-        candidates = sorted(base.glob("*/summary.json")) if base.exists() else []
+        # 时间戳目录排序 == 时间排序 (YYYYMMDD_HHMMSS)。分组布局下 summary.json
+        # 再深一层 (<ts>/<group>/summary.json), 所以递归找 —— 旧布局 (<ts>/) 也覆盖。
+        candidates = sorted(base.rglob("summary.json")) if base.exists() else []
         if not candidates:
             print(f"ERROR: no run with summary.json found under {base}")
             print("Run the sweep first:  python scripts/slm/run_gs_refine_zernike_sweep.py")

@@ -31,7 +31,7 @@ if "miicam" not in sys.modules:
     sys.modules["miicam"] = types.ModuleType("miicam")
 
 # Import drivers and calibration module
-from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec import Santec, describe_santec_error
 from ao_shaping.tools.slm.calibration import (
     CalibrationMethod,
     CalibrationResult,
@@ -146,7 +146,8 @@ def connect_slm() -> bool:
         return True
 
     except Exception as e:
-        st.error(f"SLM connection failed: {e}")
+        # 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示。
+        st.error(f"SLM 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"SLM connection failed: {e}")
         return False
 

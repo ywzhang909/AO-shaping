@@ -24,6 +24,7 @@ import streamlit as st
 from loguru import logger
 
 # Import drivers
+from ao_shaping.drivers.slm.santec import describe_santec_error
 from ao_shaping.drivers.slm.zernike_slm import ZernikeSLM
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.optimizer.wf.zernike_response_matrix import (
@@ -255,7 +256,8 @@ def connect_slm() -> bool:
         return True
 
     except Exception as e:
-        st.error(f"SLM connection failed: {e}")
+        # 原始错误码 (如 -10003) 对操作员没有指导意义, 换成可执行的中文提示。
+        st.error(f"SLM 连接失败。\n\n{describe_santec_error(e)}")
         logger.exception(f"ZernikeSLM connection failed: {e}")
         return False
 

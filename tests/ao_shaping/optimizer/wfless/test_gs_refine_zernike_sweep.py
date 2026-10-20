@@ -15,14 +15,24 @@ import numpy as np
 import pytest
 
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from scripts._common.group_manifest import (
+    group_record,
+    load_manifest,
+    parse_group_meta,
+    update_manifest,
+)
 from scripts.slm.run_gs_refine_zernike_sweep import (
     CAM_WINDOW_TARGET_MARGIN,
     DEFAULT_SIM_FAR_FIELD_PADDING,
+    GROUP_VARIABLE,
     MIN_TARGET_SIDE,
     ZERNIKE_CLIP,
+    _build_parser,
     _metrics_identical,
     build_stage_c_config,
     check_zernike_clip,
+    group_fields,
+    group_output_dir,
     probe_flat_field,
     resolve_target_side,
     score_frame,
@@ -242,6 +252,64 @@ class TestStageBMonotonicity:
         ]
         assert [n for n, _ in residuals] == [4, 6, 8]
         assert all(isinstance(r, float) and r >= 0.0 for _, r in residuals)
+
+
+class TestGroupSurface:
+    """一次调用只探一组变量 (这一组的自变量 = ``n_max``)。
+
+    The sweep used to write its artefacts straight into ``--out``, so two groups
+    of the same experiment could not live side by side. It now writes into
+    ``<out>/<group>/`` and keeps a ``manifest.json`` at the root, and the group's
+    identity travels into ``summary.json`` too.
+    """
+
+    def test_group_and_meta_are_parsed(self):
+        args = _build_parser().parse_args(
+            [
+                "--group",
+                "nmax_scan",
+                "--group-meta",
+                "exposure_ms=0.2",
+                "--group-meta",
+                "phase=hardware_gs",
+            ]
+        )
+        assert args.group == "nmax_scan"
+        assert parse_group_meta(args.group_meta_pairs) == {
+            "exposure_ms": "0.2",
+            "phase": "hardware_gs",
+        }
+
+    def test_group_defaults_to_main(self):
+        assert _build_parser().parse_args([]).group == "main"
+
+    def test_group_fields_land_in_the_summary(self):
+        fields = group_fields("nmax_scan", {"exposure_ms": "0.2"})
+        assert fields["group"] == "nmax_scan"
+        assert fields["variable"] == GROUP_VARIABLE == "n_max"
+        assert fields["group_meta"] == {"exposure_ms": "0.2"}
+
+    def test_group_output_path_is_out_plus_group(self, tmp_path):
+        assert group_output_dir(tmp_path, "nmax_scan") == tmp_path / "nmax_scan"
+
+    def test_manifest_indexes_the_group(self, tmp_path):
+        root = tmp_path / "out"
+        root.mkdir()
+        update_manifest(
+            root,
+            group_record(
+                group="nmax_scan",
+                variable=GROUP_VARIABLE,
+                meta={"exposure_ms": "0.2"},
+                n_rows=5,
+            ),
+        )
+        entries = load_manifest(root)
+        assert len(entries) == 1
+        assert entries[0]["group"] == "nmax_scan"
+        assert entries[0]["variable"] == "n_max"
+        assert entries[0]["dir"] == "nmax_scan"
+        assert entries[0]["n_rows"] == 5
 
 
 class TestSpgdImprovedIsAlwaysRecorded:

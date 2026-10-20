@@ -985,6 +985,29 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/experiment_gs_improved.py",
         ),
     ),
+    "report/shape_trials/hw_defocus_zernike_20261020.md": ReportProvenance(
+        script="scripts/slm/generate_hw_defocus_zernike_report.py",
+        command=(
+            "python scripts/slm/generate_hw_defocus_zernike_report.py "
+            "--defocus-dir report/shape_trials/hw_gs_defocus_probe_<UTC> "
+            "--noise-dir report/shape_trials/hw_gs_defocus_probe_<UTC> "
+            "--zernike-dir data/debug/hw_zernike_sweep_20261020"
+        ),
+        environment="硬件",
+        note=(
+            "实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD "
+            "FJB24112232, 1064 nm, 2f-Fourier 臂): 实验系统常驻离焦的瞳面菲涅尔焦面矫正、"
+            "噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、"
+            "与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的"
+            "可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 "
+            "scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算"
+            "逐帧光斑量并渲染 4 张图"
+        ),
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/run_gs_refine_zernike_sweep.py",
+        ),
+    ),
     "report/shape_trials/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

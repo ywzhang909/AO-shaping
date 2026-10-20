@@ -66,7 +66,11 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL, Santec
+from ao_shaping.drivers.slm.santec import (
+    MEMORY_MODE_INTERNAL,
+    Santec,
+    describe_santec_error,
+)
 from ao_shaping.drivers.slm.santec.slm200_constants import (
     PITCH_UM as SLM_PITCH_UM,
 )
@@ -454,7 +458,13 @@ def _reacquire_slm_handle(slm_num: int) -> Any:
         raw.open()
     except Exception as exc:
         logger.exception("SLM {} 整形后重新连接失败: {}", slm_num, exc)
-        st.error(f"SLM {slm_num} 整形后重新连接失败: {exc}（请在侧边栏手动重连）")
+        # 与侧边栏「连接」按钮同一套提示: 说明是设备被占用还是 USB 断链,
+        # 而不是把原始错误码直接甩给操作员。
+        st.error(
+            f"SLM {slm_num} 整形后重新连接失败。\n\n"
+            f"{describe_santec_error(exc)}\n\n"
+            "请在侧边栏手动重连。"
+        )
         return None
     slm = OverlaidSantec(raw)
     st.session_state[prefix] = slm

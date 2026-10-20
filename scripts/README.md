@@ -1431,7 +1431,7 @@ a re-run cannot delete it. Runtime is minutes (one 4096² FFT per sample).
 
 Runs the **GS-refine Zernike order-scan** experiment end-to-end and writes the
 artefacts `generate_gs_refine_zernike_report.py` consumes. Three stages, all
-recorded per run under `data/debug/slm_gs_refine_zernike/<ts>/`:
+recorded per run under `data/debug/slm_gs_refine_zernike/<ts>/<group>/`:
 
 - **Stage A — freeform GS**: `slm_gs_refine` GS pre-shape to a square target;
   best phase + full per-iteration history recorded.
@@ -1446,6 +1446,13 @@ phase, and how much does SPGD recover on top?" The fit residual vs `n_max` shows
 the truncation cost; the CV/PIB before/after SPGD per order shows whether the
 recovered DOF is worth the extra modes.
 
+**One variable group per invocation**: this driver probes ONE group of variables
+per invocation — the Zernike truncation order `n_max`. `--group` names the group
+(default `main`), `--group-meta KEY=VALUE` records the group's fixed parameters
+verbatim, and the artefacts land in `<out>/<group>/`. The root directory keeps a
+`manifest.json` indexing every group recorded under it, so several groups of one
+sweep share a root and stay separable.
+
 > ⚠️ **Sim caveat**: with `--cam-type sim` the GS warm start is **not calibrated**
 > to the bench forward model (see `report/shape_trials/gs_refine_zernike_uniformity.md`
 > `## 口径与已知局限`), so Stage A's best phase is near-flat and the order-scan
@@ -1458,6 +1465,9 @@ recovered DOF is worth the extra modes.
 python scripts/slm/run_gs_refine_zernike_sweep.py
 # hardware
 python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 --exposure-time-ms 0.02
+# one group, recorded on its own
+python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \
+    --out data/debug/hw_groups_20261020 --group nmax_scan --group-meta exposure_ms=0.2
 ```
 
 | Option | Default | Description |
@@ -1476,10 +1486,66 @@ python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 -
 | `--delta` | `0.02` | SPGD perturbation amplitude (rad). Only honoured when `--lr` non-zero; with `--lr 0` the optimizer's own schedule overrides it (capped 0.5 rad, larger than a typical fitted coefficient → SPGD rejects every step) |
 | `--lr` | `0.01` | Adam learning rate (0 = optimizer auto-schedule, which also overrides `--delta`) |
 | `--seed` | `0` | RNG seed |
-| `--out` | `""` → `data/debug/slm_gs_refine_zernike` | output directory |
+| `--out` | `""` → `data/debug/slm_gs_refine_zernike/<ts>` | output **root**; the group's artefacts go to `<out>/<group>/` and the root gets a `manifest.json` |
+| `--group` | `main` | identity of the variable group this invocation probes |
+| `--group-meta` | none | fixed parameters of this group, `KEY=VALUE`, repeatable, recorded verbatim |
 | `--target-side` | `0.0` | explicit target side (px); 0 = auto-probe |
 | `--max-energy-loss` | `0.6` | in-ROI energy-loss fraction that abandons an SPGD evaluation (0 disables the guard). Lower it if every perturbation of an already-good fitted phase is rejected |
 | `--save-images` | off | dump per-stage far-field PNGs |
+
+### run_hw_sweep_groups.py
+
+Plan-driven runner for the **one-variable-group-per-invocation** hardware
+probes. It reads a JSON plan and runs each group as an **independent
+subprocess**, in plan order:
+
+- `scripts/slm/hw_gs_defocus_probe.py` — variable group `dz_mm` (CCD defocus);
+- `scripts/slm/run_gs_refine_zernike_sweep.py` — variable group `n_max` (Zernike
+  truncation order).
+
+**Why it exists**: one group hanging or crashing must not take the others down,
+and each group needs its own device lifecycle (open → measure → close). Separate
+processes give exactly that; a single script doing all the groups cannot.
+
+**Usage:**
+```bash
+# resolve the plan and print it -- executes nothing, opens no device
+python scripts/slm/run_hw_sweep_groups.py --plan plan.json --dry-run
+# dump the resolved plan as JSON
+python scripts/slm/run_hw_sweep_groups.py --plan plan.json --print-plan
+# run it (each group gets its own process; failures do not stop the rest)
+python scripts/slm/run_hw_sweep_groups.py --plan plan.json --timeout-s 3600
+# register an already-finished measurement directory instead of re-running it
+python scripts/slm/run_hw_sweep_groups.py --plan plan.json \
+    --adopt-existing dz_scan report/shape_trials/hw_gs_defocus_probe_20261020_015426/dz_scan
+```
+
+Plan file:
+```json
+{
+  "root": "data/debug/hw_groups_20261020",
+  "groups": [
+    {"group": "dz_noise", "variable": "dz_mm", "meta": {"exposure_ms": "0.2"},
+     "script": "scripts/slm/hw_gs_defocus_probe.py",
+     "args": ["--execute", "--dz-mm", "0"]}
+  ]
+}
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--plan` | required | plan JSON path |
+| `--root` | plan's `root` | override the round's root directory |
+| `--only` | all | run only this group (repeatable); an unknown group is an error |
+| `--dry-run` | off | print the plan and execute nothing |
+| `--print-plan` | off | dump the resolved plan as JSON and exit |
+| `--adopt-existing` | none | `GROUP DIR` pair: register an existing measurement directory as that group (repeatable). The directory must exist and contain `measurements.json` or `summary.json` |
+| `--timeout-s` | unlimited | per-group timeout in seconds |
+
+`script` ending in `.py` is launched with the **current** interpreter
+(`sys.executable`); anything else is used as-is. The index is written to
+`<root>/groups_manifest.json` **after every group**, so a hard kill still leaves
+the completed groups indexed.
 
 ### generate_gs_refine_zernike_report.py
 
