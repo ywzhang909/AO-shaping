@@ -5,8 +5,92 @@ flowchart TD
         MAIN --> CLI
     end
     subgraph L1[CLI 命令 → runner 入口]
+        Cwf_run["wf_run"]
+        CLI --> Cwf_run["wf_run"]
+        Cwf_run --> Rwf_run["run<br/>ao_shaping...runners"]
+        Cpib_run["pib_run"]
+        CLI --> Cpib_run["pib_run"]
+        Cpib_run --> Rpib_run["run<br/>ao_shaping...runners"]
+        Cpipeline_run["pipeline_run"]
+        CLI --> Cpipeline_run["pipeline_run"]
+        Cpipeline_run --> Rpipeline_run["run<br/>ao_shaping...runners"]
+        Czernike_matrix_run["zernike_matrix_run"]
+        CLI --> Czernike_matrix_run["zernike_matrix_run"]
+        Czernike_matrix_run --> Rzernike_matrix_run["run<br/>ao_shaping...runners"]
+        Czernike_closed_loop_run["zernike_closed_loop_run"]
+        CLI --> Czernike_closed_loop_run["zernike_closed_loop_run"]
+        Czernike_closed_loop_run --> Rzernike_closed_loop_run["closed_loop_run<br/>ao_shaping...runners"]
+        Crms_zernike_run["rms_zernike_run"]
+        CLI --> Crms_zernike_run["rms_zernike_run"]
+        Crms_zernike_run --> Rrms_zernike_run["run<br/>ao_shaping...runners"]
+        Cga_zernike_run["ga_zernike_run"]
+        CLI --> Cga_zernike_run["ga_zernike_run"]
+        Cga_zernike_run --> Rga_zernike_run["run<br/>ao_shaping...runners"]
+        Cgreedy_zernike_run["greedy_zernike_run"]
+        CLI --> Cgreedy_zernike_run["greedy_zernike_run"]
+        Cgreedy_zernike_run --> Rgreedy_zernike_run["greedy_zernike_run<br/>ao_shaping...runners"]
+        Cdm_matrix_run["dm_matrix_run"]
+        CLI --> Cdm_matrix_run["dm_matrix_run"]
+        Cdm_matrix_run --> Rdm_matrix_run["run<br/>ao_shaping...runners"]
+        Calt_voltage_run["alt_voltage_run"]
+        CLI --> Calt_voltage_run["alt_voltage_run"]
+        Calt_voltage_run --> Ralt_voltage_run["run<br/>ao_shaping...runners"]
+        Cfull_voltage_run["full_voltage_run"]
+        CLI --> Cfull_voltage_run["full_voltage_run"]
+        Cfull_voltage_run --> Rfull_voltage_run["full_voltage_run<br/>ao_shaping...runners"]
+        Chadamard_matrix_run["hadamard_matrix_run"]
+        CLI --> Chadamard_matrix_run["hadamard_matrix_run"]
+        Chadamard_matrix_run --> Rhadamard_matrix_run["hadamard_matrix_run<br/>ao_shaping...runners"]
+        Ccombined_run["combined_run"]
+        CLI --> Ccombined_run["combined_run"]
+        Ccombined_run --> Rcombined_run["run<br/>ao_shaping...runners"]
+        Cslm_square_run["slm_square_run"]
+        CLI --> Cslm_square_run["slm_square_run"]
+        Cslm_square_run --> Rslm_square_run["square<br/>ao_shaping...runners"]
+        Cslm_pib_run["slm_pib_run"]
+        CLI --> Cslm_pib_run["slm_pib_run"]
+        Cslm_pib_run --> Rslm_pib_run["run<br/>ao_shaping...runners"]
+        Cslm_gs_refine_run["slm_gs_refine_run"]
+        CLI --> Cslm_gs_refine_run["slm_gs_refine_run"]
+        Cslm_gs_refine_run --> Rslm_gs_refine_run["run<br/>ao_shaping...runners"]
+        Cslm_gsnet_run["slm_gsnet_run"]
+        CLI --> Cslm_gsnet_run["slm_gsnet_run"]
+        Cslm_gsnet_run --> Rslm_gsnet_run["run<br/>ao_shaping...runners"]
+        Cslm_model_in_loop_run["slm_model_in_loop_run"]
+        CLI --> Cslm_model_in_loop_run["slm_model_in_loop_run"]
+        Cslm_model_in_loop_run --> Rslm_model_in_loop_run["run<br/>ao_shaping...runners"]
         Cslm_diagnose["slm-diagnose"]
         CLI --> Cslm_diagnose["slm-diagnose"]
+        Cslm_diagnose --> Rslm_diagnose["main<br/>ao_shaping...tools"]
+        Cslm_lut["slm-lut"]
+        CLI --> Cslm_lut["slm-lut"]
+        Cslm_lut --> Rslm_lut["run<br/>ao_shaping...tools"]
     end
     subgraph L2[核心优化器 optimizer]
+        Oao_shaping_optimizer_wf_dm_response_matrix_calibrate_dm_response_matrix["calibrate_dm_response_matrix<br/>ao_shaping.optimizer.wf.dm_response_matrix"]
+        Rao_shaping_runners_matrix_runner_run --> Oao_shaping_optimizer_wf_dm_response_matrix_calibrate_dm_response_matrix
+        Oao_shaping_optimizer_wf_dm_response_matrix_save_dm_response_matrix["save_dm_response_matrix<br/>ao_shaping.optimizer.wf.dm_response_matrix"]
+        Rao_shaping_runners_matrix_runner_run --> Oao_shaping_optimizer_wf_dm_response_matrix_save_dm_response_matrix
+        Oao_shaping_optimizer_wfless_pib_optimize_pib["optimize_pib<br/>ao_shaping.optimizer.wfless.pib"]
+        Rao_shaping_runners_nlight_dm_axis_beam_runner_run --> Oao_shaping_optimizer_wfless_pib_optimize_pib
+        Oao_shaping_optimizer_combined_optimizer_optimize_pib["optimize_pib<br/>ao_shaping.optimizer.combined_optimizer"]
+        Rao_shaping_runners_nlight_dm_combined_runner_run --> Oao_shaping_optimizer_combined_optimizer_optimize_pib
+        Oao_shaping_optimizer_wf_rms_optimizer_rms_dm["optimizer_rms_dm<br/>ao_shaping.optimizer.wf.rms"]
+        Rao_shaping_runners_nlight_dm_pipeline_runner_run --> Oao_shaping_optimizer_wf_rms_optimizer_rms_dm
+        Oao_shaping_optimizer_wfless_pib_optimize_pib["optimize_pib<br/>ao_shaping.optimizer.wfless.pib"]
+        Rao_shaping_runners_nlight_dm_pipeline_runner_run --> Oao_shaping_optimizer_wfless_pib_optimize_pib
+        Oao_shaping_optimizer_wf_rms_optimizer_rms_dm["optimizer_rms_dm<br/>ao_shaping.optimizer.wf.rms"]
+        Rao_shaping_runners_nlight_dm_wf_runner_run --> Oao_shaping_optimizer_wf_rms_optimizer_rms_dm
+        Oao_shaping_optimizer_wf_rms_by_zernike_optimizer_rms_slm["optimizer_rms_slm<br/>ao_shaping.optimizer.wf.rms_by_zernike"]
+        Rao_shaping_runners_slm_rms_zernike_runner_run --> Oao_shaping_optimizer_wf_rms_by_zernike_optimizer_rms_slm
+        Oao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square["optimize_slm_square<br/>ao_shaping.optimizer.wfless.slm_square_shaping"]
+        Rao_shaping_runners_slm_slm_shaping_runner_square --> Oao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square
+        Oao_shaping_optimizer_wf_zernike_response_matrix_ZernikeResponseMatrixResult["ao_shaping.optimizer.wf.zernike_response_matrix.ZernikeResponseMatrixResult (ext)"]
+        Rao_shaping_runners_slm_zernike_matrix_runner_run --> Oao_shaping_optimizer_wf_zernike_response_matrix_ZernikeResponseMatrixResult
+        Oao_shaping_optimizer_wf_zernike_response_matrix_save_zernike_response_matrix["save_zernike_response_matrix<br/>ao_shaping.optimizer.wf.zernike_response_matrix"]
+        Rao_shaping_runners_slm_zernike_matrix_runner_run --> Oao_shaping_optimizer_wf_zernike_response_matrix_save_zernike_response_matrix
+        Oao_shaping_optimizer_wf_greedy_zernike_optimizer_greedy["optimizer_greedy<br/>ao_shaping.optimizer.wf.greedy_zernike"]
+        Rao_shaping_runners_zernike_search_runner_greedy_zernike_run --> Oao_shaping_optimizer_wf_greedy_zernike_optimizer_greedy
+        Oao_shaping_optimizer_wf_ga_zernike_optimizer_ga["optimizer_ga<br/>ao_shaping.optimizer.wf.ga_zernike"]
+        Rao_shaping_runners_zernike_search_runner_run --> Oao_shaping_optimizer_wf_ga_zernike_optimizer_ga
     end
