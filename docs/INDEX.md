@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 141 个 Markdown 文档（2026-10-16 盘点）。新文档请在本索引登记后再提交。
+> 共 143 个 Markdown 文档（2026-10-20 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -22,6 +22,8 @@
 | `simulation.md` | 数字孪生仿真环境总览（无硬件测试） |
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
+| `terminology_glossary.md` | **术语规范表**（唯一权威）：150+ 条口语→规范对照 + DO-NOT-TOUCH 保留清单 + T-60/T-61 新词登记 |
+| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v3.x，含 MIL 正向模型 + 可微光学框架综述 |
 | `自适应 SPGD 光束整形闭环：完整方案总结.md` | 自适应 SPGD 方案：PPO 可信域思想 + 均匀化复合目标 + 自适应权重 + 历史信息复用 |
 
 ## CLI / 用户
@@ -61,7 +63,7 @@
 | `micro deformable mirror/docs/refactor.md` | Micro-DM 模块重构记录 |
 | `micro deformable mirror/docs/README.md` | Micro-DM 模块说明 |
 
-## WFS 波前传感器 — 4 条命令 + 报告
+## WFS 波前传感器 — 3 条命令
 
 | 文档 | 说明 |
 |---|---|
@@ -69,7 +71,7 @@
 | `wfs/greedy_zernike.md` | 贪婪局部搜索（内部可选 SPGD/GA/PSO/SA/HC/RS/CEM/DE） |
 | `wfs/closed_loop.md` | 基于已存 Zernike 响应矩阵的闭环波前优化（回放矩阵，免实时测量） |
 
-## SLM 空间光调制器 — 17 篇
+## SLM 空间光调制器 — 20 篇
 
 | 文档 | 说明 |
 |---|---|
@@ -79,6 +81,9 @@
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
 | `slm/slm_model_in_loop.md` | 正向模型闭环整形（每轮用实测数据修正模型再合成相位） |
 | `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |
+| `slm/model_in_loop_handoff.md` | Model-in-loop 跨光路交接手册（换光路/功率/衰减片/相机/入射光时的交接清单） |
+| `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理模型迁移学习、可微优化与 FAQ |
+| `slm/slm_alignment_probe.md` | 整形前的聚焦、彗差校正与 CCD 中心定位 |
 | `slm/zernike_matrix.md` | SLM Zernike 响应矩阵标定 + 离线矫正自检 |
 | `slm/rms_zernike.md` | SLM Zernike RMS 优化（SPGD/Adam/AdaMOD） |
 | `slm/slm_lut.md` | 灰度-相位 LUT 标定（半屏参考/测试光栅，±1 级衍射效率比值） |
@@ -91,12 +96,28 @@
 | `slm/align_windowed.md` | SLM+CCD 装配对准（相机 ROI 开窗自动 0级/±1级 对准） |
 | `slm/slm_patterns/shaping.md` | SLM 整形图案说明 |
 
-## GUI 前端（Streamlit）— 2 篇
+## GUI 前端（Streamlit）— 18 篇
 
 | 文档 | 说明 |
 |---|---|
 | `GUI/slm/multi_slm_controller/multi_slm_controller_srs.md` | multi_slm_controller.py 软件需求规格说明书 (SRS)：功能/非功能需求、接口规范、系统类图、设计约束 |
 | `GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md` | multi_slm_controller.py 用户手册：设备连接/相位下发/闭环远场整形操作指南 |
+| `GUI/slm/slm_calibration_ui/slm_calibration_ui_srs.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 软件需求规格说明书 (SRS) |
+| `GUI/slm/slm_calibration_ui/slm_calibration_ui_user_manual.md` | SLM LUT 校准 UI (slm_calibration_ui.py) 用户手册 |
+| `GUI/ccd/ccd_analyzer/ccd_analyzer_srs.md` | CCD 实时图像分析 UI (ccd_analyzer.py) 软件需求规格说明书 (SRS) |
+| `GUI/ccd/ccd_analyzer/ccd_analyzer_user_manual.md` | CCD 实时图像分析 UI (ccd_analyzer.py) 用户手册 |
+| `GUI/r50/r50_controller_ui/r50_controller_ui_srs.md` | R50 控制器控制面板 UI (r50_controller_ui.py) 软件需求规格说明书 (SRS) |
+| `GUI/r50/r50_controller_ui/r50_controller_ui_user_manual.md` | R50 控制器控制面板 UI (r50_controller_ui.py) 用户手册 |
+| `GUI/r50/ceramic_viewer/ceramic_viewer_srs.md` | 1300 陶瓷单元查看器 UI (ceramic_viewer.py) 软件需求规格说明书 (SRS) |
+| `GUI/r50/ceramic_viewer/ceramic_viewer_user_manual.md` | 1300 陶瓷单元查看器 UI (ceramic_viewer.py) 用户手册 |
+| `GUI/dm/micro_dm_ui/micro_dm_ui_srs.md` | Micro-DM 微驱动器控制 UI (micro_dm_ui.py) 软件需求规格说明书 (SRS) |
+| `GUI/dm/micro_dm_ui/micro_dm_ui_user_manual.md` | Micro-DM 微驱动器控制 UI (micro_dm_ui.py) 用户手册 |
+| `GUI/dm/md_img_analysis_ui/md_img_analysis_ui_srs.md` | Micro-DM 差分分析 UI (md_img_analysis_ui.py) 软件需求规格说明书 (SRS) |
+| `GUI/dm/md_img_analysis_ui/md_img_analysis_ui_user_manual.md` | Micro-DM 差分分析 UI (md_img_analysis_ui.py) 用户手册 |
+| `GUI/zernike/zernike_response_matrix_ui/zernike_response_matrix_ui_srs.md` | Zernike 响应矩阵校准 UI (zernike_response_matrix_ui.py) 软件需求规格说明书 (SRS) |
+| `GUI/zernike/zernike_response_matrix_ui/zernike_response_matrix_ui_user_manual.md` | Zernike 响应矩阵校准 UI (zernike_response_matrix_ui.py) 用户手册 |
+| `GUI/zernike/zernike_debug_viewer/zernike_debug_viewer_srs.md` | Zernike 响应矩阵调试查看器 UI (zernike_debug_viewer.py) 软件需求规格说明书 (SRS) |
+| `GUI/zernike/zernike_debug_viewer/zernike_debug_viewer_user_manual.md` | Zernike 响应矩阵调试查看器 UI (zernike_debug_viewer.py) 用户手册 |
 
 ## 硬件品牌目录 — 驱动/SDK 细节
 
@@ -108,7 +129,7 @@
 | `daheng/` | 4 | 大恒相机：Python 接口开发说明书、亮度调节、回调采集实战、曝光融合（exposure fusion，文献笔记） |
 | `miicam_simulation/` | 1 | `miicam_report.md` MiiCam 仿真报告 |
 
-## 工具（tools/）— 10 篇
+## 工具（tools/）— 11 篇
 
 | 文档 | 说明 |
 |---|---|
