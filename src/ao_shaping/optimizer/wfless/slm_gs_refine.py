@@ -232,6 +232,13 @@ class SlmGsRefineConfig:
     gs_hio_fraction: float = 0.7
     """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
 
+    init_from_gsnet: str | None = None
+    """Path to a square pupil-grid ``.npy`` phase (raw radians) that replaces the
+    analytic GS phase as the GS-stage initial phase. The existing measured
+    bake-off still decides adoption: the network phase is kept only if it beats
+    flat, and on rejection the analytic GS path runs as usual. ``None``
+    (default) keeps the historical GS warm start bit-for-bit."""
+
     # --- bench model (only used to compute the GS phase) -------------------
     panel_pixel_um: float = _DEFAULT_PANEL_PIXEL_UM
     camera_pixel_um: float = _DEFAULT_CAMERA_PIXEL_UM
@@ -394,6 +401,19 @@ class SlmGsRefineConfig:
         if self.far_field_padding < 1:
             raise ValueError(
                 f"far_field_padding must be at least 1, got {self.far_field_padding}"
+            )
+        if self.init_from_gsnet is not None:
+            # Validate at config time, before any device opens, against the same
+            # pupil-square side the GS stage embeds. Deferred import:
+            # slm_model_in_loop's __post_init__ imports this module, so a
+            # module-level import here would be circular.
+            from ao_shaping.optimizer.wfless.slm_model_in_loop import (
+                _load_gsnet_phase,
+            )
+
+            _load_gsnet_phase(
+                self.init_from_gsnet,
+                pupil_side(max(8.0, float(self.beam_radius_px))),
             )
         if self.cam_size < 0:
             raise ValueError(f"cam_size must be non-negative, got {self.cam_size}")
@@ -941,7 +961,58 @@ def _run_gs_refine_session(
 
     # --- Stage 1: GS warm start, admitted only if it wins -------------
     base_panel = flat_panel
-    gs_box = _gs_pupil_phase(config, radius_px, target_side)
+    init_from_gsnet_status = "disabled"
+    if config.init_from_gsnet is not None:
+        # The network phase REPLACES the analytic GS phase as the GS-stage
+        # initial phase; the stage's measured bake-off is the same rule and
+        # still decides, so a bad network costs one measurement, not the run.
+        # The load cannot fail here: SlmGsRefineConfig.__post_init__ validated
+        # this exact file against this exact pupil-square side.
+        from ao_shaping.optimizer.wfless.slm_model_in_loop import _load_gsnet_phase
+
+        gsnet_box = _load_gsnet_phase(
+            config.init_from_gsnet, pupil_side(radius_px)
+        )
+        gsnet_panel = embed_pupil_square(gsnet_box, panel_shape, radius_px, center_xy)
+        gsnet_frame = measure(gsnet_panel)
+        gsnet_score = _metrics(
+            gsnet_frame, mask, config.w_pib, config.w_unif, cv_mask
+        )[0]
+        init_from_gsnet_status = (
+            "adopted" if gsnet_score > score_flat else "flat_bake_off_rejected"
+        )
+        record(
+            _STAGE_GS,
+            gsnet_frame,
+            mask,
+            gsnet_panel,
+            cy=cy,
+            cx=cx,
+            init_from_gsnet_status=init_from_gsnet_status,
+        )
+        if init_from_gsnet_status == "adopted":
+            base_panel = gsnet_panel
+            best_score = gsnet_score
+            best_phase = gsnet_panel
+            best_frame = gsnet_frame
+            best_stage = _STAGE_GS
+            logger.info(
+                "init_from_gsnet ADOPTED: measured {:.4f} beats flat {:.4f}",
+                gsnet_score,
+                score_flat,
+            )
+        else:
+            logger.info(
+                "init_from_gsnet {:.4f} did not beat flat {:.4f}; falling back "
+                "to the analytic GS phase",
+                gsnet_score,
+                score_flat,
+            )
+    gs_box = (
+        None
+        if init_from_gsnet_status == "adopted"
+        else _gs_pupil_phase(config, radius_px, target_side)
+    )
     if gs_box is not None:
         gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
         gs_frame = measure(gs_panel)

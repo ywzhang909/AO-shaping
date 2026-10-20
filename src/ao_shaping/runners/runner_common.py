@@ -2488,6 +2488,18 @@ class SlmGsRefineParams:
             help="Fraction of HIO iterations in hio-weighted (0<=f<=1).",
         ),
     ] = 0.7
+    init_from_gsnet: Annotated[
+        str | None,
+        option(
+            "--init-from-gsnet",
+            help=(
+                "Square pupil-grid .npy phase (raw radians) replacing the analytic "
+                "GS phase as the GS-stage initial phase; kept only if it beats flat "
+                "in the measured bake-off, else the analytic GS path runs. OFF by "
+                "default (None)."
+            ),
+        ),
+    ] = None
 
     # --- bench model -------------------------------------------------------
     panel_pixel_um: Annotated[
@@ -2875,6 +2887,19 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = False
+    init_from_gsnet: Annotated[
+        str | None,
+        option(
+            "--init-from-gsnet",
+            help=(
+                "(region, region) .npy pupil-grid phase in radians warming up Step "
+                "B instead of the zero phase. Adoption is gated by the trust "
+                "region, a measured win over the flat baseline, and the holdout-"
+                "probe Pearson floor; any gate failing falls back to the zero "
+                "start. OFF by default (None)."
+            ),
+        ),
+    ] = None
 
     # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: Annotated[
@@ -3230,6 +3255,7 @@ def build_gs_refine_config(
         gs_weight_clip=params.gs_weight_clip,
         gs_beta=params.gs_beta,
         gs_hio_fraction=params.gs_hio_fraction,
+        init_from_gsnet=params.init_from_gsnet,
         panel_pixel_um=params.panel_pixel_um,
         camera_pixel_um=params.camera_pixel_um,
         beam_radius_px=params.beam_radius_px,
@@ -3396,6 +3422,7 @@ def build_model_in_loop_config(
         frozen_modes=parse_frozen_modes(params.frozen_modes),
         forward_checkpoint=params.forward_checkpoint,
         prior_run_dir=params.prior_run_dir,
+        init_from_gsnet=params.init_from_gsnet,
         assume_unverified_geometry=params.assume_unverified_geometry,
         step_b_iterations=params.step_b_iterations,
         step_b_lr=params.step_b_lr,
@@ -3741,7 +3768,7 @@ def save_model_in_loop_results(
             "exposure_ms",
         ),
         img_keys=("_img",),
-        text_keys=("timestamp_utc",),
+        text_keys=("timestamp_utc", "init_from_gsnet_status"),
         object_keys=("step_a_trace", "step_b_trace"),
         output_dir=save_dir,
         json_payload={"status": result.status, "config": str(result.config)},

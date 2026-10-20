@@ -609,6 +609,21 @@ class SlmModelInLoopConfig:
     if it were checked.
     """
 
+    init_from_gsnet: str | None = None
+    """Path to a ``(region, region)`` ``.npy`` pupil-grid phase (raw radians) that
+    seeds Step B **instead of** the zero phase.
+
+    ``None`` (default) keeps the historical zero start byte-for-byte. When set, the
+    phase is still subject to the three mandatory guards before adoption -- the
+    trust-region radius (:attr:`trust_region_c_l2`), a *measured* win over the flat
+    baseline (the gs-refine stage-1 bake-off rule), and the holdout-probe Pearson
+    floor (:attr:`min_holdout_correlation`). Any guard that fails (or cannot be
+    evaluated) falls back to the zero start; the outcome is recorded per run as
+    ``init_from_gsnet_status`` in the first round's history row and in
+    :attr:`ModelInLoopResult.init_from_gsnet_status`. Step A's coefficient fitting
+    is not changed.
+    """
+
     # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: int = 600
     step_b_lr: float = 0.05
@@ -920,6 +935,11 @@ class SlmModelInLoopConfig:
                 raise ValueError(f"prior_run_dir does not exist: {self.prior_run_dir!r}")
         if self.geometry_file is not None and not Path(self.geometry_file).is_file():
             raise ValueError(f"geometry_file does not exist: {self.geometry_file!r}")
+        if self.init_from_gsnet is not None:
+            # Same rule as forward_checkpoint: an unusable warm-start file must
+            # fail at config time, before any device opens and burns a calibration
+            # pass to discover a typo.
+            _load_gsnet_phase(self.init_from_gsnet, int(self.region))
         self.frozen_modes = tuple(sorted({int(m) for m in self.frozen_modes}))
         # Resolve the focal length once, here, so the runner, a library caller and
         # the tests can never disagree about what geometry a run actually used.
@@ -983,6 +1003,7 @@ class ModelInLoopResult:
     source_amplitude: np.ndarray | None = None
     blaze_params: Any | None = None
     blaze_choice: Any | None = None
+    init_from_gsnet_status: str = "disabled"
 
 
 @dataclass
@@ -2320,6 +2341,66 @@ def _seed_coefficients_from_run(config: SlmModelInLoopConfig) -> np.ndarray | No
     return coefficients
 
 
+def _load_gsnet_phase(path: str, region: int) -> np.ndarray:
+    """Load a (region, region) float pupil-grid phase in radians; raise ValueError otherwise."""
+    file = Path(path)
+    if not file.is_file():
+        raise ValueError(f"init_from_gsnet file does not exist: {path!r}")
+    if file.suffix != ".npy":
+        raise ValueError(
+            f"init_from_gsnet must be a .npy pupil-grid phase file, got {path!r}"
+        )
+    try:
+        phase = np.asarray(np.load(file), dtype=np.float64)
+    except (OSError, ValueError) as exc:
+        raise ValueError(
+            f"init_from_gsnet is not a readable .npy file: {path!r} ({exc})"
+        ) from exc
+    if phase.shape != (int(region), int(region)):
+        raise ValueError(
+            f"init_from_gsnet phase must have shape ({region}, {region}) on this "
+            f"run's model grid, got {phase.shape}"
+        )
+    if not np.isfinite(phase).all():
+        raise ValueError(f"init_from_gsnet phase contains non-finite values: {path!r}")
+    return phase
+
+
+def _gsnet_init_admissible(
+    *,
+    phase_l2: float,
+    trust_region_c_l2: float,
+    score_candidate: float | None,
+    score_flat: float | None,
+    holdout_correlation: float | None,
+    min_holdout_correlation: float,
+) -> str:
+    """Decide the GSNet Step-B warm start with the three mandatory guards.
+
+    Pure and device-free so the adoption decision is testable without hardware.
+    A guard whose evidence could not be produced (``None``) **rejects**: the loop
+    may adopt a phase only when every guard actually vouched for it, never one it
+    failed to check. Gate order matches the run: trust region first (computable
+    offline), then the measured bake-off (``score_candidate > score_flat``, the
+    same strict comparison as the gs-refine stage-1 rule), then the holdout
+    Pearson floor. ``trust_region_c_l2 <= 0`` disables that guard, exactly as it
+    does in the round loop.
+
+    Returns one of ``"adopted"``, ``"trust_region_rejected"``,
+    ``"flat_bake_off_rejected"``, ``"holdout_correlation_rejected"``.
+    """
+    if trust_region_c_l2 > 0.0 and not phase_l2 <= trust_region_c_l2:
+        return "trust_region_rejected"
+    if score_candidate is None or score_flat is None or not score_candidate > score_flat:
+        return "flat_bake_off_rejected"
+    if (
+        holdout_correlation is None
+        or not holdout_correlation >= min_holdout_correlation
+    ):
+        return "holdout_correlation_rejected"
+    return "adopted"
+
+
 # ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
@@ -2596,6 +2677,92 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             flat_metrics.get("encircled_energy", float("nan")),
         )
 
+        # ------------- GSNet Step-B warm start, gated by three guards --------
+        # Third branch of the seeding chain (next to the checkpoint/run seeds,
+        # which stay untouched): a trained GSNet pupil phase may replace the
+        # zero Step-B start, but only after the guards that already police this
+        # loop vouch for it -- the trust-region radius, a measured win over the
+        # flat baseline (the gs-refine stage-1 bake-off rule), and the holdout
+        # Pearson floor. The decision itself is the pure helper
+        # ``_gsnet_init_admissible``; this block only produces its inputs. Step
+        # A's coefficient fit is unaffected. With the feature off the block is
+        # skipped entirely and the zero start is used verbatim.
+        init_from_gsnet_status = "disabled"
+        gsnet_warm_phase: np.ndarray | None = None
+        if config.init_from_gsnet is not None:
+            gsnet_phase = _load_gsnet_phase(config.init_from_gsnet, int(config.region))
+            # Pixel-normalised L2 so the quantity is in radians and comparable
+            # to the coefficient radius; a raw norm of a (region, region) grid
+            # would scale with sqrt(area), not with the phase amplitude.
+            gsnet_phase_l2 = float(
+                np.linalg.norm(gsnet_phase) / math.sqrt(gsnet_phase.size)
+            )
+            gsnet_score: float | None = None
+            gsnet_correlation: float | None = None
+            if (
+                float(config.trust_region_c_l2) <= 0.0
+                or gsnet_phase_l2 <= float(config.trust_region_c_l2)
+            ):
+                # Gate 2 demands a MEASUREMENT before adoption -- a model that
+                # merely likes the phase proves nothing (same reasoning as the
+                # gs-refine bake-off and the geometry bake-off above).
+                bench.display(gsnet_phase)
+                gsnet_frame = prepare_frame(bench.measure())
+                gsnet_metrics = _metrics_at(
+                    gsnet_frame,
+                    target_camera,
+                    roi_center,
+                    target_shape=config.target_shape,
+                    camera_rotation_quarters=camera_rotation_quarters,
+                )
+                gsnet_score = _quality(
+                    gsnet_metrics, config.w_efficiency, config.w_uniformity
+                )
+                gsnet_grid = _to_model_grid(
+                    gsnet_frame,
+                    roi_center,
+                    int(geometry.far_field_size),
+                    cell_scale,
+                    camera_rotation_quarters,
+                )
+                warm_optimizer = _make_optimizer(
+                    config, coefficients, source_amplitude
+                )
+                gsnet_prediction = warm_optimizer.forward_intensity(
+                    coefficients, gsnet_phase, source_amplitude
+                )
+                gsnet_correlation = _prediction_correlation(
+                    gsnet_prediction, gsnet_grid
+                )
+            init_from_gsnet_status = _gsnet_init_admissible(
+                phase_l2=gsnet_phase_l2,
+                trust_region_c_l2=float(config.trust_region_c_l2),
+                score_candidate=gsnet_score,
+                score_flat=float(flat_score),
+                holdout_correlation=gsnet_correlation,
+                min_holdout_correlation=float(config.min_holdout_correlation),
+            )
+            if init_from_gsnet_status == "adopted":
+                gsnet_warm_phase = gsnet_phase.copy()
+                logger.info(
+                    "init_from_gsnet ADOPTED as the Step-B warm start: "
+                    "phase_l2={:.4f} rad, score {:.4f} > flat {:.4f}, "
+                    "holdout Pearson {:.4f}",
+                    gsnet_phase_l2,
+                    gsnet_score,
+                    flat_score,
+                    gsnet_correlation,
+                )
+            else:
+                logger.warning(
+                    "init_from_gsnet {}: phase_l2={:.4f} rad, score={}, "
+                    "holdout Pearson={}; falling back to the zero Step-B start",
+                    init_from_gsnet_status,
+                    gsnet_phase_l2,
+                    gsnet_score,
+                    gsnet_correlation,
+                )
+
         # ---------------- Optional live view ---------------------------------
         # Opened here rather than at the top because the CCD overlay needs the
         # solved ``target_camera``. The flat baseline is rendered from the frames
@@ -2628,7 +2795,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         probe_count = int(config.probe_count)
         rejection_streak = 0
         prev_uncertainty_probes: list[np.ndarray] | None = None
-        phase = np.zeros((config.region, config.region), dtype=np.float64)
+        phase = (
+            gsnet_warm_phase
+            if gsnet_warm_phase is not None
+            else np.zeros((config.region, config.region), dtype=np.float64)
+        )
         # None until the first shaped round is accepted: the flat baseline is not
         # a fair reference for the acceptance test (see acceptance_verdict).
         score_before: float | None = None
@@ -3045,6 +3216,10 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 row["model_gain"] = model_gain
                 row["flat_leakage"] = leakage
                 row["exposure_ms"] = getattr(bench, "last_exposure_ms", None)
+            if index == 0 and config.init_from_gsnet is not None:
+                # Only stamped when the feature is on, so the default history
+                # keeps exactly the keys it had before this option existed.
+                row["init_from_gsnet_status"] = init_from_gsnet_status
             recorder.history.append(row)
 
             if live_display is not None and not live_display.closed:
@@ -3193,6 +3368,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 if getattr(bench, "_blaze_choice", None) is not None else None
             ),
             blaze_choice=getattr(bench, "_blaze_choice", None),
+            init_from_gsnet_status=init_from_gsnet_status,
         )
     finally:
         if live_display is not None:
