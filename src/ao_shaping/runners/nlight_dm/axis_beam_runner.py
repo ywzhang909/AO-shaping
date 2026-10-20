@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from typing import cast
 
 import click
@@ -19,13 +18,14 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
-    get_date_dir_name,
 )
 from ao_shaping import config as ao_config
 from ao_shaping.utils.io.cli_helpers import resolve_debug
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
-    round_to_int,
+    load_init_v,
+    plot_pib_debug_grid,
+    save_best_voltages,
     DmDeviceParams,
     PibAlgorithmParams,
     PibOpticalParams,
@@ -57,12 +57,8 @@ def run(
 
     if run.load_file.lower() == "rms":
         init_v = get_init_V_by_rms()
-    elif Path(run.load_file).exists():
-        last_v = np.loadtxt(run.load_file)
-        init_v = last_v.tolist()
     else:
-        logger.warning(f"load_file {run.load_file} not exists")
-        init_v = []
+        init_v = load_init_v(run.load_file)
 
     # CLI token -> the legacy float the optimizer has always taken ('auto' == 0).
     exposure_time_ms = exposure_ms_legacy(
@@ -133,10 +129,7 @@ def run(
     )
     res_df = res_list.dataframe
 
-    saved_dir = f"{run.root_dir}/flatten_voltages/{get_date_dir_name()}"
-    res_list.save_best(
-        saved_dir, target="_v", process_fn=round_to_int, fmt="%d"
-    )
+    save_best_voltages(res_list, run.root_dir)
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
     if debug:
         save_dir = gen_date_dir(f"{run.root_dir}/wf-less")
@@ -177,25 +170,16 @@ def run(
         # The metric column is the objective itself (pib/radiu/avg_radiu); the old
         # hardcoded "pib" column raised KeyError for the other objectives.
         first_val = float(res_df.iloc[0][algorithm.objective])
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-        plot_funcs["img"](
-            res_df.iloc[0]["_img"],
-            ax[0, 0],
-            f"Init Image, {algorithm.objective}={first_val:.3f}",
+        plot_pib_debug_grid(
+            init_img=res_df.iloc[0]["_img"],
+            best_img=res_df.iloc[max_j_id]["_img"],
+            history_values=res_df[algorithm.objective],
+            voltages=best_iter["_v"],
+            init_title=f"Init Image, {algorithm.objective}={first_val:.3f}",
+            best_title=f"Best {algorithm.objective} Image, {algorithm.objective}={max_j:.3f}",
+            history_title=f"{algorithm.objective} History",
+            save_path=saved_file_name.with_suffix(".png"),
         )
-        axim = plot_funcs["img"](
-            res_df.iloc[max_j_id]["_img"],
-            ax[0, 1],
-            f"Best {algorithm.objective} Image, {algorithm.objective}={max_j:.3f}",
-        )
-        fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
-        plot_funcs["pib_history"](
-            res_df[algorithm.objective], ax[1, 0], title=f"{algorithm.objective} History"
-        )
-        plot_funcs["voltages"](best_iter["_v"], ax[1, 1], "Best Voltages")
-
-        plt.savefig(saved_file_name.with_suffix(".png"))
-        plt.close()
 
         if not valid_radii.empty:
             fig2, ax2 = plt.subplots(figsize=(10, 6))

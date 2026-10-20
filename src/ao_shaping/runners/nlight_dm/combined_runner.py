@@ -1,30 +1,26 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 import click
-import numpy as np
 
 from ao_shaping.optimizer.combined_optimizer import optimize_pib
 from ao_shaping.utils.io.cli_helpers import (
     resolve_debug,
     setup_coredumpy,
-    get_date_dir_name,
 )
 from ao_shaping.utils.io.file import gen_file_path_uuid, gen_date_dir, logger
-from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
     CameraParams,
     CombinedAlgorithmParams,
     CombinedRunParams,
-    round_to_int,
+    load_init_v,
+    plot_pib_debug_grid,
+    save_best_voltages,
 )
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
-
-import matplotlib.pyplot as plt
 
 
 @click.command()
@@ -49,10 +45,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
         )
     )
 
-    if run.load_file and Path(run.load_file).exists():
-        init_v = np.loadtxt(run.load_file).tolist()
-    else:
-        init_v = []
+    init_v = load_init_v(run.load_file)
 
     config = {
         "root_dir": run.root_dir,
@@ -93,10 +86,7 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
         target_max_brightness=algorithm.target_max_brightness,
     )
 
-    saved_dir = f"{run.root_dir}/flatten_voltages/{get_date_dir_name()}"
-    res_list.save_best(
-        saved_dir, target="_v", process_fn=round_to_int, fmt="%d"
-    )
+    save_best_voltages(res_list, run.root_dir)
     best_iter, (max_j_id, max_j) = res_list.get_best_iter()
     last_V = best_iter["_v"]
 
@@ -108,20 +98,16 @@ def run(ctx: click.Context, algorithm: CombinedAlgorithmParams, run: CombinedRun
         with saved_file_name.with_suffix(".json").open("w", encoding="utf8") as f:
             json.dump(config, f, ensure_ascii=False, indent=4)
 
-        fig, ax = plt.subplots(2, 2, figsize=(12, 8))
-        plot_funcs["img"](
-            res_list.first["_img"],
-            ax[0, 0],
-            f"Init Image, pib={res_list.first['pib']:.3f}",
+        plot_pib_debug_grid(
+            init_img=res_list.first["_img"],
+            best_img=best_iter["_img"],
+            history_values=res_list.dataframe["pib"],
+            voltages=last_V,
+            init_title=f"Init Image, pib={res_list.first['pib']:.3f}",
+            best_title=f"Best PIB Image, pib={max_j:.3f}",
+            history_title="PIB History",
+            save_path=saved_file_name.with_suffix(".png"),
         )
-        axim = plot_funcs["img"](
-            best_iter["_img"], ax[0, 1], f"Best PIB Image, pib={max_j:.3f}"
-        )
-        fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
-        plot_funcs["pib_history"](res_list.dataframe["pib"], ax[1, 0])
-        plot_funcs["voltages"](last_V, ax[1, 1], "Best Voltages")
-        plt.savefig(saved_file_name.with_suffix(".png"))
-        plt.close()
 
     objective_name = "PIB"
     click.echo(

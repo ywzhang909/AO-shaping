@@ -11,12 +11,11 @@ from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.display.image_display import plot_funcs
 from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
-    get_date_dir_name,
     get_debug_mode,
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
-    round_to_int,
+    save_best_voltages,
     DmDeviceParams,
     WfAlgorithmParams,
     WfRunParams,
@@ -91,8 +90,7 @@ def run(
         plt.close()
         records.save_dataframe(saved_file_name.with_suffix(".zip"), compression="zip")
 
-    save_dir = root_dir / "flatten_voltages" / get_date_dir_name()
-    records.save_best(saved_dir=save_dir, target="_v", process_fn=round_to_int, fmt="%d")
+    save_best_voltages(records, root_dir)
 
     click.echo(f"波前优化完成，最优RMS值: {min_rms:.4f} @ epoch {min_epoch}")
 
