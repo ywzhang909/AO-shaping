@@ -1,7 +1,7 @@
 ---
 title: Recorder（优化过程记录器）
 created: 2026-10-13
-updated: 2026-10-14
+updated: 2026-10-13
 type: class
 tags: [io, recorder, utils]
 source: src/ao_shaping/utils/io/file.py:426

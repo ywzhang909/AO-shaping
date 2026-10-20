@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/nlight_dm/combined_runner.py:29
+source: src/ao_shaping/runners/nlight_dm/combined_runner.py:31
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ AdaMOD 综合 PIB 优化（自适应桶收缩）
 
 ## 入口函数
 
-`runners.nlight_dm.combined_runner.run`（`src/ao_shaping/runners/nlight_dm/combined_runner.py:29`）
+`runners.nlight_dm.combined_runner.run`（`src/ao_shaping/runners/nlight_dm/combined_runner.py:31`）
 
 ```python
 run(ctx, algorithm, run, camera)
@@ -36,19 +36,25 @@ AdaMOD 综合PIB优化器
 
 **调用的优化器/算法**：
 
-- `_camera_cls`
+- `ao_shaping.optimizer._camera_inject._camera_cls`
 - [[functions/optimize-pib-combined|`optimize_pib`]]
 - [[functions/spgd-gradient|`spgd_gradient`]]
+- `ao_shaping.optimizer.spid_pib_loop.open_pib_bench`
+- `ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch`
 - `learning_schedule`
 
-**结果/调试落盘**：`gen_date_dir`、`make_date_dir`
+**结果/调试落盘**：`save_best_voltages`、`gen_date_dir`、`make_date_dir`
 
 ## 直接调用（1 级，按调用次数）
 
 - [[functions/with-params|`with_params`]]
 - [[functions/resolve-dm|`resolve_dm`]]
 - [[functions/optimize-pib-combined|`optimize_pib`]]
-- [[functions/path-dirs|`get_date_dir_name`]]
+- `ao_shaping.runners.runner_common.load_init_v`
+- `ao_shaping.runners.runner_common.plot_pib_debug_grid`
+- `ao_shaping.runners.runner_common.save_best_voltages`
+- `ao_shaping.utils.cli.exposure.exposure_ms_legacy`
+- `ao_shaping.utils.cli.exposure.resolve_exposure`
 - `ao_shaping.utils.io.cli_helpers.resolve_debug`
 - [[functions/path-dirs|`gen_date_dir`]]
 - [[functions/path-dirs|`gen_file_path_uuid`]]

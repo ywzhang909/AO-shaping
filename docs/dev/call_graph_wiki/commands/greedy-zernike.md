@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/zernike_search_runner.py:203
+source: src/ao_shaping/runners/zernike_search_runner.py:202
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/zernike_search_runner.py:203
 
 ## 入口函数
 
-`runners.zernike_search_runner.greedy_zernike_run`（`src/ao_shaping/runners/zernike_search_runner.py:203`）
+`runners.zernike_search_runner.greedy_zernike_run`（`src/ao_shaping/runners/zernike_search_runner.py:202`）
 
 ```python
 greedy_zernike_run(ctx, params, wfs, slm)
