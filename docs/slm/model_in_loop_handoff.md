@@ -41,7 +41,7 @@ python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json
 
 ### 3.1 一次跑完 A/B 对照与大面积目标
 
-需要「留出门槛不动」与「强制放开门槛」两臂对照、以及 1000–1600 相机像素的大面积正方形目标时，用编排脚本（它复用上面的 `model_in_loop_auto.py` 入口，并在每个硬件阶段前加一道测光门禁）：
+需要「验证集门槛不动」与「强制放开门槛」两臂对照、以及 1000–1600 相机像素的大面积正方形目标时，用编排脚本（它复用上面的 `model_in_loop_auto.py` 入口，并在每个硬件阶段前加一道测光门禁）：
 
 ```powershell
 python scripts/slm/model_in_loop_hw_ab.py --plan      # 只打印计划，不开设备
