@@ -21,6 +21,12 @@ CSV/JSON)，本脚本只负责 (a) 读表、(b) 渲染 5 张静态图 + 1 张复
     python scripts/slm/generate_gs_defocus_sim_report.py            # 全量 (含 15 次 GS, ≈6–10 min)
     python scripts/slm/generate_gs_defocus_sim_report.py --no-gif   # 只出静态图 + markdown
     python scripts/slm/generate_gs_defocus_sim_report.py --quick    # 冒烟: 只验帧管线, 不写报告
+
+**输入契约**: 全量模式只读上游四个实验脚本落盘的 CSV/JSON, 所以启动时先做一次
+:func:`preflight` —— 缺任何一件就列出「缺哪个文件 / 由谁产出 / 跑哪条命令」并拒绝执行
+(:class:`MissingArtefactsError`), 不抛裸 ``FileNotFoundError``。``--quick`` 与此相反:
+它**不读任何落盘产物**, 在只有源码的干净克隆上也能跑 (数据 CSV 按仓库惯例不入库, 见
+:data:`PRODUCERS`)。
 """
 
 from __future__ import annotations
@@ -32,7 +38,7 @@ import json
 import sys
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import matplotlib
 
@@ -74,6 +80,61 @@ ARTEFACTS = {
     "e1_heatmap_png": ART / "e1_cv_heatmap.png",
 }
 
+#: 四个上游实验脚本: 确切命令 (默认写到 ``report/shape_trials/``) + 大致耗时。
+#: 耗时是给人看的保守量级 —— 缺输入的人最容易把 ``experiment_gs_improved.py`` 的
+#: 静默一小时当成卡死。
+PRODUCERS: dict[str, dict[str, str]] = {
+    "experiment_gs_defocus_offocus.py": {
+        "command": "python scripts/slm/experiment_gs_defocus_offocus.py",
+        "runtime": "约数分钟",
+    },
+    "experiment_gs_fresnel_vs_virtuallens.py": {
+        "command": "python scripts/slm/experiment_gs_fresnel_vs_virtuallens.py",
+        "runtime": "约 10 分钟",
+    },
+    "experiment_gs_defocus_sweep_visuals.py": {
+        "command": "python scripts/slm/experiment_gs_defocus_sweep_visuals.py",
+        "runtime": "约数分钟",
+    },
+    "experiment_gs_improved.py": {
+        "command": "python scripts/slm/experiment_gs_improved.py",
+        "runtime": "约 1 小时",
+    },
+}
+
+#: ``ARTEFACTS`` 的键 → 产出它的上游脚本 (只用于报错与 §10 的命令表)
+ARTEFACT_PRODUCER: dict[str, str] = {
+    "offocus_json": "experiment_gs_defocus_offocus.py",
+    "e1_heatmap_png": "experiment_gs_defocus_offocus.py",
+    "fresnel_json": "experiment_gs_fresnel_vs_virtuallens.py",
+    "fv_groups_csv": "experiment_gs_fresnel_vs_virtuallens.py",
+    "fv_equiv_csv": "experiment_gs_fresnel_vs_virtuallens.py",
+    "sweep_json": "experiment_gs_defocus_sweep_visuals.py",
+    "scheme_gap_csv": "experiment_gs_defocus_sweep_visuals.py",
+    "improved_json": "experiment_gs_improved.py",
+    "imp_groups_csv": "experiment_gs_improved.py",
+    "imp_halo_csv": "experiment_gs_improved.py",
+}
+
+#: ``--quick`` 用的 H3 η。正常取自 ``imp_groups_improved.csv`` 的机械选取结果
+#: (:func:`zeroth_selection`), 但冒烟必须零输入, 故直接写这个已记录的常数;
+#: 它只影响冒烟帧的标题, 不会进报告。
+QUICK_H3_ETA = 0.02
+
+#: §10 命令表的内容: 生产者脚本 (顺序即表格行序) → 产物列表。
+#: 命令与耗时**不在这里重写**, 一律取 :data:`PRODUCERS`, 避免两处漂移。
+REPRO_PRODUCTS: dict[str, str] = {
+    "experiment_gs_defocus_offocus.py":
+        "`summary.json`, `e1_defocus_sweep.csv`, `e2_methods.csv`, `e1_cv_heatmap.png`",
+    "experiment_gs_fresnel_vs_virtuallens.py":
+        "`summary_fresnel_vs_vl.json`, `fv_groups_fresnel_vs_vl.csv`, `fv_equivalence_fresnel_vs_vl.csv`",
+    "experiment_gs_defocus_sweep_visuals.py":
+        "`summary_defocus_sweep_visuals.json`, `scheme_gap_dz0_50mm_visuals.csv`, "
+        "`v1_gs_dz_sweep_visuals.csv`, `halo_zero_order_visuals.csv`",
+    "experiment_gs_improved.py":
+        "`summary_gs_improved_improved.json`, `imp_groups_improved.csv`, `imp_halo_improved.csv`",
+}
+
 SZ_SCRIPT = ROOT / "scripts" / "slm"
 PATH_IMPROVED = SZ_SCRIPT / "experiment_gs_improved.py"
 
@@ -97,6 +158,52 @@ GROUP_COLOR = {
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
+
+
+# ---------------------------------------------------------------------------
+# 输入检查 (缺输入时给可执行的错误, 而不是裸 FileNotFoundError)
+# ---------------------------------------------------------------------------
+class MissingArtefactsError(RuntimeError):
+    """全量模式缺上游产物。消息里逐条列出「缺哪个文件 / 由谁产出 / 跑哪条命令」。"""
+
+
+def preflight(keys: Iterable[str] | None = None) -> None:
+    """检查 ``ARTEFACTS`` 里的产物是否存在。
+
+    数据 CSV 被 ``.gitignore`` 的 ``*.csv`` 全局排除 (仓库约定: 只入库报告与图),
+    所以干净克隆上它们本来就不在。这里把"缺文件"翻译成"先跑哪条命令"。
+
+    Args:
+        keys: 需要检查的 ``ARTEFACTS`` 键; ``None`` = 全量模式, 检查全部。
+
+    Raises:
+        MissingArtefactsError: 有任何一个所需文件不存在。
+    """
+    wanted = sorted(ARTEFACTS if keys is None else keys)
+    missing = [k for k in wanted if not ARTEFACTS[k].is_file()]
+    if not missing:
+        return
+
+    lines = [f"缺少 {len(missing)} 个已落盘产物 (本脚本只读它们, 不自己算):"]
+    for key in missing:
+        path = ARTEFACTS[key].relative_to(ROOT).as_posix()
+        script = ARTEFACT_PRODUCER[key]
+        prod = PRODUCERS[script]
+        lines.append(f"  - {path}")
+        lines.append(f"      由 {script} 产出 ({prod['runtime']})")
+        lines.append(f"      命令: {prod['command']}")
+    lines.extend(
+        [
+            "",
+            "为什么缺: 仓库按惯例只入库报告与图, 数据 CSV 被 .gitignore 的 *.csv 全局排除,",
+            "所以干净克隆上看不到它们 (JSON 与 PNG 是入库的, 但也可能被 --no-* 之类的跑法漏掉)。",
+            "",
+            "怎么办: 先跑上面列出的命令 (四个脚本互不依赖, 顺序任意), 再跑本生成器。",
+            "四个脚本全跑一遍约 1.5 小时, 其中 experiment_gs_improved.py 占大头 (约 1 小时)。",
+            "只想确认管线能走完: 用 --quick —— 它不读任何落盘产物。",
+        ]
+    )
+    raise MissingArtefactsError("\n".join(lines))
 
 
 # ---------------------------------------------------------------------------
@@ -140,6 +247,9 @@ def self_checks(now: dict[str, Any]) -> list[tuple[str, str]]:
 
     只断言关系 (半轴内逐位相同 / G3 与 G4 重合 / 等价边界 / 往返误差),
     不断言数值大小 —— 数值本身是读出来的, 不会漂。
+
+    全量模式专用: 它读 ``fv_groups_fresnel_vs_vl.csv`` (数据 CSV 不入库)，
+    故 ``--quick`` 不调用它 —— 冒烟必须零输入可跑。
     """
     checks: list[tuple[str, str]] = []
     g = fv_groups()
@@ -537,9 +647,12 @@ def _render_gif(frames: list[Image.Image], out: Path, *, duration: int = 650) ->
 
 
 def gif_dz_sweep(fx: Frames, *, quick: bool, out_dir: Path | None = None) -> tuple[Path, list[dict[str, Any]]]:
-    """原始 GS (Δz=0 优化) 扫 Δz —— 等价于 sweep 实验的 v1。"""
+    """原始 GS (Δz=0 优化) 扫 Δz —— 等价于 sweep 实验的 v1。
+
+    ``quick=True`` 不读可信度表 (它来自落盘 summary), 帧标题只给出可算的量。
+    """
     dzs = (0.0, 10.0, 25.0, 50.0) if quick else DZ_SWEEP_MM
-    trust = trust_table()
+    trust = {} if quick else trust_table()
     phase = fx.gs(0.0, eta=0.0)
     info_rows = []
     frames = []
@@ -566,11 +679,17 @@ def gif_dz_sweep(fx: Frames, *, quick: bool, out_dir: Path | None = None) -> tup
 
 
 def gif_reopt(fx: Frames, *, quick: bool, out_dir: Path | None = None) -> tuple[Path, list[dict[str, Any]], float]:
-    """逐 Δz 重优化 GS (G1′ / 零级组的 H0 相位), 同样扫 Δz。"""
+    """逐 Δz 重优化 GS (G1′ / 零级组的 H0 相位), 同样扫 Δz。
+
+    ``quick=True`` 时没有落盘 H0 行可比对, 第三个返回值 (偏差) 恒为 ``0.0``, 不代表一致。
+    """
     dzs = (0.0, 10.0, 25.0, 50.0) if quick else DZ_SWEEP_MM
-    trust = trust_table()
-    recorded = {f(r, "dz_mm"): f(r, "cv_box")
-                for r in read_csv("imp_groups_csv") if r["group"] == "H0"}
+    trust = {} if quick else trust_table()
+    recorded = (
+        {}
+        if quick
+        else {f(r, "dz_mm"): f(r, "cv_box") for r in read_csv("imp_groups_csv") if r["group"] == "H0"}
+    )
     frames = []
     info_rows = []
     dev = 0.0
@@ -601,11 +720,19 @@ def gif_reopt(fx: Frames, *, quick: bool, out_dir: Path | None = None) -> tuple[
 
 
 def gif_zeroth(fx: Frames, *, quick: bool, out_dir: Path | None = None) -> tuple[Path, list[dict[str, Any]]]:
-    """零级对照: 上排 H0 (η=0), 下排 H3 (加权 GS + 相干扣除, η=0.02)。"""
+    """零级对照: 上排 H0 (η=0), 下排 H3 (加权 GS + 相干扣除, η=0.02)。
+
+    ``quick=True`` 不读 ``imp_groups_improved.csv``: η 用 :data:`QUICK_H3_ETA`,
+    也没有落盘行可比对。
+    """
     dzs = (0.0, 10.0) if quick else (0.0, 5.0, 10.0)
-    sel = zeroth_selection()
-    eta_h3 = float(sel["eta"]["H3"])
-    recorded = {(g, r["dz"]): r for g, rows in sel["rows"].items() for r in rows}
+    if quick:
+        eta_h3 = QUICK_H3_ETA
+        recorded: dict[tuple[str, float], dict[str, float]] = {}
+    else:
+        sel = zeroth_selection()
+        eta_h3 = float(sel["eta"]["H3"])
+        recorded = {(g, r["dz"]): r for g, rows in sel["rows"].items() for r in rows}
     frames = []
     info_rows = []
     for dz in dzs:
@@ -756,6 +883,11 @@ def build_markdown(state: dict[str, Any]) -> str:
     checks = "\n".join(f"- {name}: `{val}`" for name, val in state["checks"])
     gif_lines = "\n\n".join(
         f"![{cap}](images/{name})" for cap, name in state["gifs"]
+    )
+    repro = "\n".join(
+        f"| {i} | `{PRODUCERS[script]['command']}` | {REPRO_PRODUCTS[script]} "
+        f"| {PRODUCERS[script]['runtime']} |"
+        for i, script in enumerate(REPRO_PRODUCTS, start=1)
     )
 
     return f"""# CCD 焦后离焦下的 GS 匀化仿真（2026-10-19）
@@ -1045,17 +1177,32 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
   因为它们修的是同一处的误差; 同时用 (G3−G1) 只有 {g['G3']['-2.0']['score_fixed'] - g['G1']['-2.0']['score_fixed']:+.4f}, 远小于两者之和。
   所以"离焦并入环路"这一**形式**本身不是关键, 拿到工作点信息才是; 反过来也不能据此说"离焦不值钱" ——
   单独加离焦同样值 +0.15 量级。
+* **本报告的渲染脚本依赖 4 个上游实验脚本落盘的 CSV, 而这些 CSV 按仓库惯例不入库。**
+  因此**从干净克隆复现需要先跑那 4 个脚本** (总耗时约 1.5 小时, 其中 `experiment_gs_improved.py`
+  占大头), 单跑本脚本会因缺输入而**拒绝执行并列出缺哪些文件** —— 这是有意的失败方式, 不是崩溃。
+  确切命令与耗时见 §10; 只想确认管线能走完则用 `--quick` (零输入, 不读任何落盘产物)。
 
 ## 10. 复现
 
-数据全部来自四个纯仿真实验脚本（本脚本只读它们的 CSV/JSON, 不重跑它们）:
+数据全部来自四个纯仿真实验脚本（本脚本只读它们的 CSV/JSON, 不重跑它们）。四个脚本**互不依赖**,
+哪个先跑都行, 但都必须在本生成器之前跑完; 默认产物都落在 `report/shape_trials/`:
 
-| 脚本 | 产物 |
-|---|---|
-| `scripts/slm/experiment_gs_defocus_offocus.py` | `report/shape_trials/summary.json`, `e1_defocus_sweep.csv`, `e2_methods.csv`, `e1_cv_heatmap.png` |
-| `scripts/slm/experiment_gs_fresnel_vs_virtuallens.py` | `summary_fresnel_vs_vl.json`, `fv_groups_fresnel_vs_vl.csv`, `fv_equivalence_fresnel_vs_vl.csv` |
-| `scripts/slm/experiment_gs_defocus_sweep_visuals.py` | `summary_defocus_sweep_visuals.json`, `scheme_gap_dz0_50mm_visuals.csv`, `v1_gs_dz_sweep_visuals.csv`, `halo_zero_order_visuals.csv` |
-| `scripts/slm/experiment_gs_improved.py` | `summary_gs_improved_improved.json`, `imp_groups_improved.csv`, `imp_halo_improved.csv` |
+| # | 确切命令 | 产物 (默认 `report/shape_trials/`) | 大致耗时 |
+|---|---|---|---|
+{repro}
+
+四个脚本跑完后, 本生成器:
+
+```bash
+python scripts/slm/generate_gs_defocus_sim_report.py            # 全量: 6 张静态图 + 3 个 GIF + 本 markdown (约 6–10 min)
+python scripts/slm/generate_gs_defocus_sim_report.py --no-gif   # 只出静态图与 markdown
+python scripts/slm/generate_gs_defocus_sim_report.py --quick    # 冒烟: 零输入, 只验帧管线, 不写报告/图
+```
+
+> **`*.csv` 被 `.gitignore` 全局排除, 这是仓库约定 (只入库报告与图, 数据 CSV 不入库), 不是缺陷。**
+> 因此**干净克隆上必须先跑上面四个脚本产出 CSV, 本生成器才有输入**。缺任何一个输入时, 本脚本会在
+> 启动时直接拒绝执行, 并逐条列出「缺哪个文件 / 由哪个脚本产出 / 要跑哪条命令 / 大致耗时」,
+> 不会抛裸 `FileNotFoundError`; `--quick` 不读任何落盘产物, 在任何树上都能跑。
 
 动画与静态图由本目录的 `scripts/slm/generate_gs_defocus_sim_report.py` 渲染; 它**import** 
 `experiment_gs_improved.py` 的 `TwoComponentBench`（正演与 GS）和
@@ -1069,31 +1216,41 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
 # ---------------------------------------------------------------------------
 # main
 # ---------------------------------------------------------------------------
+def run_quick(*, gs_iters: int | None = None) -> None:
+    """冒烟: 只验「正演能跑 / GS 能跑 / 帧能渲染 / 三栏管线通」。
+
+    **零输入**: 不读任何落盘 CSV/JSON, 也不写 ``report/``。数据 CSV 按仓库惯例不入库
+    (``.gitignore`` 的 ``*.csv``), 所以干净克隆上只有这条路径可用。
+    """
+    imp = load_improved()
+    fx = Frames(imp, gs_iters=gs_iters or 60)
+    tmp = ROOT / ".tmp_gs_defocus_quick"
+    tmp.mkdir(parents=True, exist_ok=True)
+    p1, r1 = gif_dz_sweep(fx, quick=True, out_dir=tmp)
+    p2, r2, _dev = gif_reopt(fx, quick=True, out_dir=tmp)
+    p3, r3 = gif_zeroth(fx, quick=True, out_dir=tmp)
+    print(f"[quick] sweep={p1.name} ({len(r1)} frames)  reopt={p2.name} ({len(r2)} frames)  "
+          f"zeroth={p3.name} ({len(r3)} frames)")
+    print("[quick] smoke frames ok; 未读任何落盘产物, 未写 report/")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--no-gif", action="store_true", help="只出静态图与 markdown")
-    ap.add_argument("--quick", action="store_true", help="冒烟: 只验帧管线, 不写报告/图")
+    ap.add_argument("--quick", action="store_true", help="冒烟: 只验帧管线 (零输入), 不写报告/图")
     ap.add_argument("--gs-iters", type=int, default=None, help="GS 迭代数 (默认取 FULL=200)")
     args = ap.parse_args()
 
+    if args.quick:
+        run_quick(gs_iters=args.gs_iters)
+        return
+
+    preflight()  # 缺输入就列出「缺哪个文件 / 谁产出 / 跑哪条命令」, 不抛裸 FileNotFoundError
     now = {k: read_json(k) for k in ("sweep_json", "fresnel_json", "improved_json")}
     checks = self_checks(now)
     print("[self-check]")
     for name, val in checks:
         print(f"  - {name}: {val}")
-
-    if args.quick:
-        imp = load_improved()
-        fx = Frames(imp, gs_iters=args.gs_iters or 60)
-        tmp = ROOT / ".tmp_gs_defocus_quick"
-        tmp.mkdir(parents=True, exist_ok=True)
-        p1, r1 = gif_dz_sweep(fx, quick=True, out_dir=tmp)
-        p2, r2, dev = gif_reopt(fx, quick=True, out_dir=tmp)
-        p3, r3 = gif_zeroth(fx, quick=True, out_dir=tmp)
-        print(f"[quick] sweep={p1.name} ({len(r1)} frames)  reopt={p2.name} "
-              f"({len(r2)} frames, H0 cv_box dev={dev:.2e})  zeroth={p3.name} ({len(r3)} frames)")
-        print("[quick] smoke frames ok; nothing written to report/")
-        return
 
     gs_iters = args.gs_iters or now["improved_json"]["grid"]["gs_iters"]
     sel = zeroth_selection()
@@ -1155,4 +1312,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except MissingArtefactsError as exc:
+        print(f"\n错误: 本生成器缺少输入, 未执行。\n{exc}", file=sys.stderr)
+        raise SystemExit(2) from None
