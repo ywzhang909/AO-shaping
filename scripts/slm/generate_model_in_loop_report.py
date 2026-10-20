@@ -992,8 +992,8 @@ def _section_bench_commands() -> list[str]:
     A(
         "**所以「这条命令预期以退出码 2 结束」不是常态。** 那是 2026-10-15/16 那次会话的历史结果:\n"
         "当时散斑相关度在几何 对比择优 处就被拒绝, 运行根本没进 Step B。2026-10-19 的会话\n"
-        "**已经越过几何标定**(标准相位族留出相关性约 0.78–0.87), 改被**留出相关性门槛**拦下\n"
-        "(全频随机相位留出仅约 0.11–0.28, 低于逐样本门槛 `0.5`)\n"
+        "**已经越过几何标定**(标准相位族验证集相关性约 0.78–0.87), 改被**验证集相关性门槛**拦下\n"
+        "(全频随机相位验证集仅约 0.11–0.28, 低于逐样本门槛 `0.5`)\n"
         "(`report/shape_trials/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。\n"
     )
     A(
@@ -1001,7 +1001,7 @@ def _section_bench_commands() -> list[str]:
         "  强烈低通掉, 于是\"随机瞳面相位 ⇒ 远场散斑\"这个模型前提本身不成立, 实测帧是**一个紧致\n"
         "  光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。\n"
         "  (`report/slm/model_in_loop_bench_calibration.md:49-55`)\n"
-        "- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2991-3001`)。\n"
+        "- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2992-3002`)。\n"
     )
     A(
         "> 🔴 **不要为了让运行\"过\"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是\n"
@@ -1020,7 +1020,7 @@ def _section_bench_commands() -> list[str]:
         "| **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |"
     )
     A(
-        "| `aborted_unidentifiable` | **留出**相关性不达标(`slm_model_in_loop.py:2864-2884`) "
+        "| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:2864-2884`) "
         "| `stepA-probe` 在, `stepB-shaped` **不在** |"
     )
     A(
@@ -1029,7 +1029,7 @@ def _section_bench_commands() -> list[str]:
         "| `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |"
     )
     A("")
-    A("**先看 stage 列表, 再看数字** —— 几何失败、留出失败和持续 reject 要走的路完全不同。\n")
+    A("**先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。\n")
 
     A("### 15.2 实验系统常数(每一条都有出处, 不要凭记忆)\n")
     A("| 项 | 值 | 出处 |\n|---|---|---|")
@@ -1045,7 +1045,7 @@ def _section_bench_commands() -> list[str]:
     A(
         "| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** "
         "| `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` "
-        "`runner_common.py:2896-2905` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:148`) |"
+        "`runner_common.py:2897-2906` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:149`) |"
     )
     A(
         "| 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 "
@@ -1054,7 +1054,7 @@ def _section_bench_commands() -> list[str]:
         "`report/slm/model_in_loop_bench_calibration.md:181-191` |"
     )
     A(
-        "| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2906-2915`(文档就写在 option 的 help 里) |"
+        "| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2907-2919`(文档就写在 option 的 help 里) |"
     )
     A(
         "| 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** "
@@ -1065,7 +1065,7 @@ def _section_bench_commands() -> list[str]:
         "> 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的\n"
         "> 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差\n"
         "> 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推\n"
-        "> (`runner_common.py:2919-2932` 的 help 文本)。\n"
+        "> (`runner_common.py:2920-2933` 的 help 文本)。\n"
         ">\n"
         "> ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),\n"
         "> `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是\n"
@@ -1111,7 +1111,7 @@ def _section_bench_commands() -> list[str]:
     )
     A(
         "`--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距\n"
-        "(`runner_common.py:2960-2970`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传\n"
+        "(`runner_common.py:2961-2971`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传\n"
         "`--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。\n"
     )
 
@@ -1190,7 +1190,7 @@ def _section_bench_commands() -> list[str]:
         "```\n"
     )
     A(
-        "退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或留出门槛\n"
+        "退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或验证集门槛\n"
         "拒绝, 该次运行**没有**提交任何相位(退路见 §15.9)。**「预期以 `2` 结束」是 2026-10-15/16\n"
         "那次会话的历史结果, 不是这条命令的常态。** 要看的东西在\n"
         "`data/debug/slm_model_in_loop/<时间戳>/` 里, 不在 stdout 里。\n"
@@ -1415,7 +1415,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A(
         "**守卫 1 —— trust region.** 逐轮系数变化的 L2 范数被 `trust_region_c_l2` 截断。\n"
         "**守卫 2 —— 逐轮验收.** `acceptance_verdict(loss_before, loss_after, score_before, score_after)`:\n"
-        "拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps`), 该轮就被 reject。\n"
+        "拟合 loss 变差、或实测复合分数变差 (容差 `acceptance_score_eps`), 该轮就被 reject。\n"
     )
     A(GUARD_STATE + NEWLINE)
     A(
