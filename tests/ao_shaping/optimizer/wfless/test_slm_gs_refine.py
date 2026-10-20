@@ -530,9 +530,18 @@ class TestEndToEndSim:
         assert "gs" not in {row["stage"] for row in rec.history}
 
     def test_early_stop_triggers(self):
-        rec = optimize_slm_gs_refine(_fast_config(epochs=50, early_stop_score=0.0))
+        """A reachable early-stop score must cut the epoch budget short.
+
+        ``early_stop_score=0`` means *run every epoch* (see the config
+        docstring), so a budget of 50 with that value never exercises the
+        early stop -- it only asserts that the run does not exceed its own
+        budget, which is true by construction. This sim config scores about
+        0.42 (flat 0.4209), so 0.30 is below it with a wide margin: the run
+        must break after the first refine epoch.
+        """
+        rec = optimize_slm_gs_refine(_fast_config(epochs=5, early_stop_score=0.30))
         refine_rows = [r for r in rec.history if r["stage"] == "refine"]
-        assert len(refine_rows) <= 50
+        assert len(refine_rows) < 5, "the early stop did not cut the budget"
 
     def test_callback_is_invoked_per_refine_epoch(self):
         seen: list[int] = []
