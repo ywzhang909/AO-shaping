@@ -26,6 +26,8 @@ import math
 import torch
 import torch.nn as nn
 
+from ml.gsnet.forward_ops import ForwardOperator
+
 
 class ConditionUNet(nn.Module):
     """Compact U-Net with FiLM-style conditioning for GS-phase refinement.
@@ -172,13 +174,29 @@ class FFTLayer(nn.Module):
        ``(current phase, target intensity)`` → phase residual, conditioned on
        the physics state ``(constrained back-propagated phase, far real, far imag)``.
 
+    The physics half is pluggable: with ``forward_op=None`` (default) the layer
+    runs the legacy ``fftshift(fft2(·))`` / ``ifft2(ifftshift(·))`` chain
+    **bit-identically to the historical implementation**; the shift convention
+    above stays pinned.  With a `~ml.gsnet.forward_ops.ForwardOperator` given,
+    the same amplitude-exchange runs through ``op.forward`` /
+    ``op.back_propagate``.  See :mod:`ml.gsnet.forward_ops` for the pinned
+    "legacy" vs "canonical" conventions — they differ by a checkerboard sign
+    ``(-1)^(k1+k2)`` on the far field (``ifftshift`` before ``fft2``), so
+    choosing one is a real numerical decision, not a cosmetic one.
+
     Args:
         base_channels: CNN width (see `ConditionUNet`).
+        forward_op: Optional pluggable forward operator. ``None`` keeps the
+            default legacy FFT path.
     """
 
-    def __init__(self, base_channels: int = 32) -> None:
+    def __init__(
+        self, base_channels: int = 32,
+        forward_op: ForwardOperator | None = None,
+    ) -> None:
         super().__init__()
         self.phase_net = ConditionUNet(base_channels)
+        self._forward_op = forward_op
 
     def forward(
         self,
@@ -197,18 +215,24 @@ class FFTLayer(nn.Module):
             Updated source-plane phase ``(B, 1, H, W)`` radians.
         """
         # ---- 1. Forward propagation to far field ----
-        pupil_field = source_amp * torch.exp(1j * phase)
-        far_field = torch.fft.fftshift(torch.fft.fft2(pupil_field), dim=(-2, -1))
-        far_phase = torch.angle(far_field)
-        torch.abs(far_field) ** 2
+        if self._forward_op is None:
+            pupil_field = source_amp * torch.exp(1j * phase)
+            far_field = torch.fft.fftshift(torch.fft.fft2(pupil_field), dim=(-2, -1))
+            far_phase = torch.angle(far_field)
+            torch.abs(far_field) ** 2
 
-        # ---- 2. Far-plane amplitude constraint ----
-        far_field_c = target_amp * torch.exp(1j * far_phase)
+            # ---- 2. Far-plane amplitude constraint ----
+            far_field_c = target_amp * torch.exp(1j * far_phase)
 
-        # ---- 3. Back-propagate to source plane ----
-        pupil_back = torch.fft.ifft2(
-            torch.fft.ifftshift(far_field_c, dim=(-2, -1))
-        )
+            # ---- 3. Back-propagate to source plane ----
+            pupil_back = torch.fft.ifft2(
+                torch.fft.ifftshift(far_field_c, dim=(-2, -1))
+            )
+        else:
+            far_field = self._forward_op.forward(source_amp, phase)
+            far_phase = torch.angle(far_field)
+            far_field_c = target_amp * torch.exp(1j * far_phase)
+            pupil_back = self._forward_op.back_propagate(far_field_c)
         pupil_phase = torch.angle(pupil_back)
 
         # ---- 5. Learned phase refinement ----
@@ -231,11 +255,17 @@ class FourierGSNet(nn.Module):
     Args:
         num_layers: Number of unrolled GS iterations (10 in the paper).
         base_channels: CNN width of each `FFTLayer`.
+        shared_weights: Share one `FFTLayer` across all unrolled steps.
+        forward_op: Optional pluggable forward operator (see
+            :mod:`ml.gsnet.forward_ops`), forwarded to every `FFTLayer` and
+            used for the GS warm start. ``None`` keeps the default legacy FFT
+            path (bit-identical to the historical implementation).
     """
 
     def __init__(
         self, num_layers: int = 10, base_channels: int = 32,
         shared_weights: bool = False,
+        forward_op: ForwardOperator | None = None,
     ) -> None:
         super().__init__()
         if num_layers < 1:
@@ -243,8 +273,12 @@ class FourierGSNet(nn.Module):
         self.num_layers = num_layers
         self.base_channels = base_channels
         self.shared_weights = shared_weights
+        self._forward_op = forward_op
         self.layers = nn.ModuleList(
-            [FFTLayer(base_channels) for _ in range(1 if shared_weights else num_layers)]
+            [
+                FFTLayer(base_channels, forward_op)
+                for _ in range(1 if shared_weights else num_layers)
+            ]
         )
 
     def forward(
@@ -277,10 +311,13 @@ class FourierGSNet(nn.Module):
         target_amp = torch.sqrt(target_intensity.clamp_min(0.0) + 1e-12)
 
         # Initial phase: back-propagated target (classical GS warm start).
-        init_field = torch.fft.ifft2(
-            torch.fft.ifftshift(target_amp, dim=(-2, -1))
-        )
-        phase = torch.angle(init_field)
+        if self._forward_op is None:
+            init_field = torch.fft.ifft2(
+                torch.fft.ifftshift(target_amp, dim=(-2, -1))
+            )
+            phase = torch.angle(init_field)
+        else:
+            phase = self._forward_op.warm_start(target_amp)
 
         for step in range(self.num_layers):
             layer = self.layers[0] if self.shared_weights else self.layers[step]

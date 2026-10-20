@@ -1,0 +1,295 @@
+"""Tests for the pluggable forward operators (src/ml/gsnet/forward_ops.py).
+
+The central contract is BIT-IDENTITY: ``FourierGSNet(..., forward_op=None)``
+must produce exactly (``torch.equal``, not ``allclose``) the same output as
+``forward_op=IdealFFTOperator(out_size, convention="legacy")``, so wiring an
+operator in never changes the default path.
+"""
+
+from __future__ import annotations
+
+import importlib.util
+import math
+
+import pytest
+import torch
+
+from ao_shaping.utils.wavefront.fraunhofer import focal_field
+from ml.gsnet.forward_ops import (
+    Bench2FOperator,
+    ForwardOperator,
+    IdealFFTOperator,
+    make_forward_operator,
+)
+from ml.gsnet.model import FFTLayer, FourierGSNet
+
+_BENCH2F_AVAILABLE = (
+    importlib.util.find_spec("ao_shaping.utils.wavefront.bench2f") is not None
+)
+
+
+def _fixed_inputs(batch: int = 2, side: int = 32, seed: int = 11) -> tuple[torch.Tensor, torch.Tensor]:
+    torch.manual_seed(seed)
+    source = torch.rand(batch, 1, side, side)
+    target = torch.zeros(batch, 1, side, side)
+    target[:, :, side // 4: 3 * side // 4, side // 4: 3 * side // 4] = 1.0
+    return source, target
+
+
+def _make_propagator():
+    from ao_shaping.utils.wavefront.bench2f import Bench2FGeometry, Bench2FPropagator
+
+    return Bench2FPropagator(
+        Bench2FGeometry(region=32, far_field_size=64), n_max=5
+    )
+
+
+class TestBitIdentity:
+    """forward_op=None must be EXACTLY forward_op=legacy IdealFFTOperator."""
+
+    def test_fftlayer_none_vs_legacy_operator_exact(self):
+        side = 32
+        source, target = _fixed_inputs(batch=1, side=side, seed=3)
+        source_amp = torch.sqrt(source.clamp_min(0.0) + 1e-12)
+        target_amp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
+        phase = torch.randn(1, 1, side, side)
+
+        torch.manual_seed(99)
+        layer_none = FFTLayer(base_channels=8)
+        torch.manual_seed(99)
+        layer_legacy = FFTLayer(base_channels=8, forward_op=IdealFFTOperator(side))
+        layer_none.eval()
+        layer_legacy.eval()
+
+        with torch.no_grad():
+            out_none = layer_none(phase, source_amp, target_amp)
+            out_legacy = layer_legacy(phase, source_amp, target_amp)
+        assert torch.equal(out_none, out_legacy)
+
+    def test_network_none_vs_legacy_operator_exact(self):
+        side = 32
+        source, target = _fixed_inputs(batch=2, side=side, seed=7)
+
+        torch.manual_seed(1234)
+        model_none = FourierGSNet(num_layers=2, base_channels=8, shared_weights=True)
+        torch.manual_seed(1234)
+        model_legacy = FourierGSNet(
+            num_layers=2, base_channels=8, shared_weights=True,
+            forward_op=IdealFFTOperator(side, convention="legacy"),
+        )
+        model_none.eval()
+        model_legacy.eval()
+
+        with torch.no_grad():
+            phase_none = model_none(source, target)
+            phase_legacy = model_legacy(source, target)
+        assert torch.equal(phase_none, phase_legacy)
+        assert torch.equal(phase_none, model_none(source, target))
+
+    def test_warm_start_legacy_matches_default_init(self):
+        """Legacy warm_start == the historical angle(ifft2(ifftshift(target)))."""
+        _, target = _fixed_inputs(batch=1, side=16, seed=5)
+        target_amp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
+        op = IdealFFTOperator(16, convention="legacy")
+        expected = torch.angle(
+            torch.fft.ifft2(torch.fft.ifftshift(target_amp, dim=(-2, -1)))
+        )
+        assert torch.equal(op.warm_start(target_amp), expected)
+
+
+class TestIdealFFTConventions:
+    def test_legacy_forward_matches_handwritten(self):
+        side = 16
+        op = IdealFFTOperator(side, convention="legacy")
+        amp = torch.rand(1, 1, side, side)
+        phase = torch.randn(1, 1, side, side)
+        expected = torch.fft.fftshift(
+            torch.fft.fft2(amp * torch.exp(1j * phase)), dim=(-2, -1)
+        )
+        assert torch.equal(op.forward(amp, phase), expected)
+
+    def test_canonical_forward_matches_focal_field(self):
+        amp = torch.rand(2, 1, 16, 16)
+        phase = torch.randn(2, 1, 16, 16)
+        field = amp * torch.exp(1j * phase)
+        op = IdealFFTOperator(64, convention="canonical")
+        assert torch.equal(op.forward(amp, phase), focal_field(field, 64))
+
+    def test_conventions_differ_by_checkerboard_sign(self):
+        """canonical = legacy * (-1)^(k1+k2) / n on the centred even grid."""
+        side = 16
+        amp = torch.ones(1, 1, side, side)
+        phase = torch.randn(1, 1, side, side)
+        legacy = IdealFFTOperator(side, convention="legacy").forward(amp, phase)
+        canonical = IdealFFTOperator(side, convention="canonical").forward(amp, phase)
+        assert not torch.equal(legacy, canonical)
+        ii, jj = torch.meshgrid(
+            torch.arange(side), torch.arange(side), indexing="ij"
+        )
+        checkerboard = ((-1.0) ** (ii + jj)).to(legacy.dtype)
+        scaled = legacy * checkerboard / side
+        assert torch.allclose(canonical, scaled, atol=1e-5)
+
+    def test_legacy_back_is_inverse_pair(self):
+        side = 16
+        op = IdealFFTOperator(side, convention="legacy")
+        amp = torch.rand(1, 1, side, side)
+        phase = torch.randn(1, 1, side, side)
+        far = op.forward(amp, phase)
+        back = op.back_propagate(far)
+        expected = amp * torch.exp(1j * phase)
+        assert torch.allclose(back, expected, atol=1e-4)
+
+    def test_unknown_convention_raises(self):
+        with pytest.raises(ValueError):
+            IdealFFTOperator(16, convention="angular-spectrum")
+
+    def test_nonpositive_out_size_raises(self):
+        with pytest.raises(ValueError):
+            IdealFFTOperator(0)
+
+    def test_legacy_back_propagate_matches_handwritten(self):
+        side = 16
+        op = IdealFFTOperator(side, convention="legacy")
+        far = torch.randn(1, 1, side, side, dtype=torch.complex64) + 1j * torch.randn(1, 1, side, side)
+        expected = torch.fft.ifft2(torch.fft.ifftshift(far, dim=(-2, -1)))
+        assert torch.equal(op.back_propagate(far), expected)
+
+    def test_canonical_back_scale_factor(self):
+        """canonical back = ifft2(ifftshift(F)) * (H*W)/(S*S)."""
+        op = IdealFFTOperator(64, convention="canonical")
+        far = torch.ones(1, 1, 32, 32, dtype=torch.complex64)
+        back = op.back_propagate(far)
+        expected = torch.fft.ifft2(torch.fft.ifftshift(far, dim=(-2, -1))) * (32 * 32) / (64 * 64)
+        assert torch.allclose(back, expected)
+
+
+class TestWarmStart:
+    @pytest.mark.parametrize("convention", ["legacy", "canonical"])
+    def test_shape_dtype_and_range(self, convention):
+        op = IdealFFTOperator(32, convention=convention)
+        target_amp = torch.rand(2, 1, 32, 32)
+        phase = op.warm_start(target_amp)
+        assert tuple(phase.shape) == (2, 1, 32, 32)
+        assert phase.dtype == torch.float32
+        assert not phase.is_complex()
+        assert bool((phase.abs() <= math.pi + 1e-6).all())
+        assert bool(torch.isfinite(phase).all())
+
+
+class TestMakeForwardOperator:
+    def test_none_returns_none(self):
+        assert make_forward_operator(None) is None
+
+    def test_ideal_legacy(self):
+        op = make_forward_operator("ideal-legacy", out_size=48)
+        assert isinstance(op, IdealFFTOperator)
+        assert op.convention == "legacy"
+        assert op.out_size == 48
+
+    def test_ideal_canonical(self):
+        op = make_forward_operator("ideal-canonical", out_size=48)
+        assert isinstance(op, IdealFFTOperator)
+        assert op.convention == "canonical"
+
+    def test_unknown_spec_raises(self):
+        with pytest.raises(ValueError):
+            make_forward_operator("fourier-optics")
+
+    @pytest.mark.skipif(
+        not _BENCH2F_AVAILABLE,
+        reason="bench2f module landing in parallel",
+    )
+    def test_bench2f_dispatch(self):
+        op = make_forward_operator("bench2f", propagator=_make_propagator())
+        assert isinstance(op, Bench2FOperator)
+
+    def test_ideal_operators_satisfy_protocol(self):
+        assert isinstance(IdealFFTOperator(16), ForwardOperator)
+        assert isinstance(IdealFFTOperator(16, convention="canonical"), ForwardOperator)
+
+
+class TestProtocolPlumbing:
+    def test_canonical_op_changes_network_output(self):
+        """An operator with a different convention is a real numerical change."""
+        side = 32
+        source, target = _fixed_inputs(batch=1, side=side, seed=8)
+        torch.manual_seed(42)
+        model_none = FourierGSNet(num_layers=2, base_channels=8, shared_weights=True)
+        torch.manual_seed(42)
+        model_can = FourierGSNet(
+            num_layers=2, base_channels=8, shared_weights=True,
+            forward_op=IdealFFTOperator(side, convention="canonical"),
+        )
+        model_none.eval()
+        model_can.eval()
+        with torch.no_grad():
+            p_none = model_none(source, target)
+            p_can = model_can(source, target)
+        assert not torch.equal(p_none, p_can)
+        assert torch.isfinite(p_can).all()
+
+    def test_op_path_is_differentiable(self):
+        op = IdealFFTOperator(16, convention="canonical")
+        layer = FFTLayer(base_channels=4, forward_op=op)
+        phase = torch.randn(1, 1, 16, 16, requires_grad=True)
+        source_amp = torch.ones(1, 1, 16, 16)
+        target_amp = torch.ones(1, 1, 16, 16)
+        out = layer(phase, source_amp, target_amp)
+        out.sum().backward()
+        assert phase.grad is not None
+        assert torch.isfinite(phase.grad).all()
+
+    def test_old_positional_signature_still_works(self):
+        model = FourierGSNet(3, 8, True)
+        assert model.num_layers == 3
+        assert model.base_channels == 8
+        assert model.shared_weights is True
+        assert len(model.layers) == 1
+
+
+@pytest.mark.skipif(
+    not _BENCH2F_AVAILABLE,
+    reason="bench2f module landing in parallel",
+)
+class TestBench2FOperator:
+    def test_satisfies_protocol(self):
+        assert isinstance(Bench2FOperator(_make_propagator()), ForwardOperator)
+
+    def test_forward_shape_dtype_and_peak_normalisation(self):
+        op = Bench2FOperator(_make_propagator())
+        phase = torch.randn(2, 1, 32, 32)
+        amp = torch.ones(2, 1, 32, 32)
+        far = op.forward(amp, phase)
+        assert tuple(far.shape) == (2, 1, 64, 64)
+        assert far.is_complex()
+        assert far.dtype == torch.complex64
+        assert torch.allclose(far.abs().amax(), torch.tensor(1.0), atol=1e-5)
+
+    def test_forward_differentiable_in_phase(self):
+        op = Bench2FOperator(_make_propagator())
+        phase = torch.randn(1, 1, 32, 32, requires_grad=True)
+        far = op.forward(torch.ones(1, 1, 32, 32), phase)
+        far.abs().square().sum().backward()
+        assert phase.grad is not None
+        assert torch.isfinite(phase.grad).all()
+
+    def test_back_propagate_shape(self):
+        op = Bench2FOperator(_make_propagator())
+        far = torch.ones(1, 1, 64, 64, dtype=torch.complex64)
+        back = op.back_propagate(far)
+        assert tuple(back.shape) == (1, 1, 32, 32)
+        assert back.is_complex()
+
+    def test_warm_start_shape_dtype(self):
+        op = Bench2FOperator(_make_propagator())
+        target_amp = torch.rand(2, 1, 64, 64)
+        phase = op.warm_start(target_amp)
+        assert tuple(phase.shape) == (2, 1, 32, 32)
+        assert phase.dtype == torch.float32
+        assert not phase.is_complex()
+        assert bool((phase.abs() <= math.pi + 1e-6).all())
+
+    def test_rejects_non_propagator(self):
+        with pytest.raises(TypeError):
+            Bench2FOperator(object())

@@ -25,6 +25,12 @@ from ml.gsnet.dataset import (
     make_source_intensity,
     make_target,
 )
+from ml.gsnet.forward_ops import (
+    Bench2FOperator,
+    ForwardOperator,
+    IdealFFTOperator,
+    make_forward_operator,
+)
 from ml.gsnet.losses import ShapingLosses
 from ml.gsnet.train import (
     TrainResult,
@@ -48,6 +54,10 @@ __all__ = [
     "FourierGSNet",
     "angular_difference",
     "count_parameters",
+    "Bench2FOperator",
+    "ForwardOperator",
+    "IdealFFTOperator",
+    "make_forward_operator",
     "GSShapingDataset",
     "compute_gs_phase",
     "make_source_intensity",
