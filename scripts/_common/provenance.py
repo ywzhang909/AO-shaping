@@ -742,8 +742,8 @@ REPORTS: dict[str, ReportProvenance] = {
         note=(
             "2026-10-19 相机位置调整后正向模型校正与多形状整形 (Santec #1 22030108 + "
             "大恒 FJB24112232, 1064 nm)：聚焦/彗差组合校正使 FWHM 47.23→13.75 px、"
-            "平均镜像误差改善约 30.4%；新几何标准相位族留出相关性约 0.78–0.87，"
-            "但全频随机相位留出仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
+            "平均镜像误差改善约 30.4%；新几何标准相位族验证集相关性约 0.78–0.87，"
+            "但全频随机相位验证集仅约 0.11–0.28 未过门槛，矩形/三角形/五角星均未通过"
             "独立模型门槛，无匀化验收结论；文内两张原标题为「X/Y 光强截面」的表实为相位与"
             "远场图，已由 generate_shape_trial_profiles.py 从记录的原始 CCD 帧补出真正的"
             "X/Y 光强截面（切点为扣背景后的光强质心）"
@@ -835,7 +835,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         environment="离线",
         note=(
-            "五波交付记录 (规范化 Strehl/M² 指标 / GS 金标 / 留出探针 K 折 / "
+            "五波交付记录 (规范化 Strehl/M² 指标 / GS 金标 / 验证集探针 K 折 / "
             "强度域开关 + 晋升门 / 自适应信赖域), 重点是「默认路径逐位不变」的钉法与"
             "已知的既有基线失败; 两次真实测量见同目录 model_in_loop_cv.md 与 "
             "gs_golden_reference.md"
@@ -883,7 +883,7 @@ REPORTS: dict[str, ReportProvenance] = {
         command="python scripts/slm/generate_model_in_loop_cv_report.py",
         environment="离线",
         note=(
-            "model-in-loop 留出探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "
+            "model-in-loop 验证集探针的 K 折交叉验证 (sim 后端, 无设备): 固定种子偏移 vs "
             "轮换划分的配对对比; 经 probe_split_hook / holdout_on_sim 两个默认关闭的 "
             "开关驱动真实 optimize_slm_model_in_loop, 不复刻 Step A; "
             "统计量全部取自 ml.zernike.cv_harness 与 ml.zernike.eval_stats"

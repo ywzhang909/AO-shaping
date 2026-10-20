@@ -81,6 +81,7 @@ from typing import TYPE_CHECKING, Annotated, Any, cast
 
 import click
 import numpy as np
+from loguru import logger
 
 from ao_shaping.algorithm.heuristic.search import heuristic_algorithm_choices
 from ao_shaping.drivers.ccd.common import CAMERA_TYPE_CHOICES
@@ -102,7 +103,7 @@ from ao_shaping.utils.image.target import (
     SQUARE_OBJECTIVE_CHOICES,
     TARGET_SHAPE_CHOICES,
 )
-from ao_shaping.utils.io.cli_helpers import parse_tuple
+from ao_shaping.utils.io.cli_helpers import get_date_dir_name, parse_tuple
 from ao_shaping.utils.slm.bench_constants import (
     TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
 )
@@ -3779,4 +3780,84 @@ def truncate_to_int(arr: Any) -> np.ndarray:
     purpose rather than collapsed into one helper.
     """
     return np.asarray(arr).astype(int)
+
+
+def load_init_v(load_file: str) -> list:
+    """Load initial DM voltages from a text file, or ``[]`` when absent.
+
+    Shared by ``axis_beam_runner`` / ``combined_runner`` / ``pipeline_runner``
+    (``wf_runner`` has no ``load_file`` at all). Semantics: falsy token → ``[]``;
+    existing file → ``np.loadtxt(...).tolist()``; missing path → warning + ``[]``.
+
+    Behavior alignment (#91 P1): ``pipeline_runner`` previously crashed with
+    ``FileNotFoundError`` on a missing path (no existence check); the unified
+    behaviour is warning + cold start. ``combined_runner`` was silently
+    returning ``[]`` on a missing path and now also logs the warning.
+    ``axis_beam_runner``'s ``"rms"`` sentinel is judged at the call site before
+    delegating here.
+    """
+    if not load_file:
+        return []
+    if Path(load_file).exists():
+        return np.loadtxt(load_file).tolist()
+    logger.warning(f"load_file {load_file} not exists")
+    return []
+
+
+def save_best_voltages(
+    records: Recorder | list[Recorder] | tuple[Recorder, ...],
+    root_dir: str | Path,
+    *,
+    process_fn=round_to_int,
+) -> Path:
+    """Sink best voltages of one or more recorders into ``flatten_voltages/<date>/``.
+
+    Shared scaffolding of the four ``nlight_dm`` runners (#91 P1): the directory
+    is computed ONCE and reused for every recorder, so ``pipeline_runner``'s two
+    recorders (WF + CCD) land side by side in the same directory exactly as
+    before. ``process_fn`` defaults to :func:`round_to_int`;
+    ``pipeline_runner`` passes :func:`truncate_to_int` (the two must NOT be
+    collapsed, see #142).
+    """
+    save_dir = Path(root_dir) / "flatten_voltages" / get_date_dir_name()
+    if not isinstance(records, (list, tuple)):
+        records = [records]
+    for rec in records:
+        rec.save_best(saved_dir=save_dir, target="_v", process_fn=process_fn, fmt="%d")
+    return save_dir
+
+
+def plot_pib_debug_grid(
+    *,
+    init_img: np.ndarray,
+    best_img: np.ndarray,
+    history_values,
+    voltages: np.ndarray,
+    init_title: str,
+    best_title: str,
+    history_title: str,
+    save_path: str | Path,
+) -> None:
+    """Draw the classic 2x2 PIB debug grid (init/best image, history, voltages).
+
+    Shared by ``combined_runner`` and ``axis_beam_runner`` (#91 P1);
+    ``axis_beam_runner`` parameterises every label by its objective column,
+    ``combined_runner`` uses the ``pib`` spelling — both preserved verbatim via
+    the title arguments. ``pipeline_runner``'s 2x4 WF+CCD grid and
+    ``wf_runner``'s wavefront grid are different layouts and stay inline.
+    matplotlib / plot_funcs are imported lazily so this module does not gain a
+    hard matplotlib dependency at import time (mirrors ``Recorder.save_best``).
+    """
+    import matplotlib.pyplot as plt
+
+    from ao_shaping.display.image_display import plot_funcs
+
+    fig, ax = plt.subplots(2, 2, figsize=(12, 8))
+    plot_funcs["img"](init_img, ax[0, 0], init_title)
+    axim = plot_funcs["img"](best_img, ax[0, 1], best_title)
+    fig.colorbar(axim, ax=[ax[0, 0], ax[0, 1]], orientation="horizontal")
+    plot_funcs["pib_history"](history_values, ax[1, 0], title=history_title)
+    plot_funcs["voltages"](voltages, ax[1, 1], "Best Voltages")
+    plt.savefig(save_path)
+    plt.close()
 

@@ -4,7 +4,6 @@ import os
 from typing import cast
 
 import click
-from pathlib import Path
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -15,11 +14,12 @@ from ao_shaping.optimizer.wf.rms import optimizer_rms_dm
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.io.cli_helpers import (
     setup_coredumpy,
-    get_date_dir_name,
     get_debug_mode,
 )
 from ao_shaping.drivers.dm._registry import resolve_dm
 from ao_shaping.runners.runner_common import (
+    load_init_v,
+    save_best_voltages,
     truncate_to_int,
     PipelineDeviceParams,
     PipelineRunParams,
@@ -52,11 +52,7 @@ def run(
         )
     )
 
-    if run.load_file:
-        last_v = np.loadtxt(run.load_file)
-        init_v = last_v.tolist()
-    else:
-        init_v = []
+    init_v = load_init_v(run.load_file)
 
     try:
         dm.open()
@@ -109,13 +105,8 @@ def run(
         max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
         last_V = max_pid_iter["_v"]
 
-        save_dir = Path(run.dir) / "flatten_voltages" / get_date_dir_name()
-
-        wf_records.save_best(
-            saved_dir=save_dir, target="_v", process_fn=truncate_to_int, fmt="%d"
-        )
-        ccd_records.save_best(
-            saved_dir=save_dir, target="_v", process_fn=truncate_to_int, fmt="%d"
+        save_best_voltages(
+            [wf_records, ccd_records], run.dir, process_fn=truncate_to_int
         )
 
         if debug:

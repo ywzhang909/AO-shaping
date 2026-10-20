@@ -35,9 +35,9 @@ python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json --dry-run
 python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json
 ```
 
-脚本串行调用主项目 CLI。它会先写 `data/debug/slm_model_in_loop/<时间>/run_config.json`，再保存 `panel_scan/`、`session_geometry/`、探针、逐轮 CSV、最优相位和 CCD 证据。扫描响应不足、平场漂移、几何相关性或留出相位相关性不达门槛时，立即查看该目录的拒绝原因；不要把失败会话的相位用作新光路起点。运行结束还会生成 `handoff_summary.json`。
+脚本串行调用主项目 CLI。它会先写 `data/debug/slm_model_in_loop/<时间>/run_config.json`，再保存 `panel_scan/`、`session_geometry/`、探针、逐轮 CSV、最优相位和 CCD 证据。扫描响应不足、平场漂移、几何相关性或验证集相位相关性不达门槛时，立即查看该目录的拒绝原因；不要把失败会话的相位用作新光路起点。运行结束还会生成 `handoff_summary.json`。
 
-`handoff_summary.json` 分别检查相位产物、已验收轮次、相对平场的分数、CV、EE、IoU、几何和留出相关性。`passes_recorded_gates` 只表示保存的逐轮记录过了配置门槛，**不是最终光学验收**；该 CSV 不保证其中最优分数行就是最后保存相位的固定曝光指标。
+`handoff_summary.json` 分别检查相位产物、已验收轮次、相对平场的分数、CV、EE、IoU、几何和验证集相关性。`passes_recorded_gates` 只表示保存的逐轮记录过了配置门槛，**不是最终光学验收**；该 CSV 不保证其中最优分数行就是最后保存相位的固定曝光指标。
 
 ### 3.1 一次跑完 A/B 对照与大面积目标
 
@@ -60,7 +60,7 @@ python -m ao_shaping.tools.slm.model_in_loop_replay data/debug/slm_model_in_loop
 
 目前固定曝光重放仅实现 Daheng，相机不同则使用各自的原始帧与曝光回读做同曝光对照，不能直接跨曝光比较 CV/EE。重放会拒绝配置不匹配或固定曝光超过当前会话上限；若两帧太暗、削顶、平场阶跃或时间漂移明显，调整当前光路后重测。最终验收同时看 CV、EE、IoU、原始峰值、曝光回读、零级附近掩码及平场漂移；剔除零级后的 CV 属补充指标，不替代完整目标区域指标。
 
-失败恢复顺序：确认设备占用和光路稳定性；检查 `panel_scan/` 的响应与漂移；检查 `session_geometry/bench_geometry.json` 的相关度、焦面尺度一致性和束腰备注；检查探针留出相关性；最后再调目标尺寸、网格或 Step B 参数。几何相关性合格却有明显尺度冲突时，先独立验证几何，不应继续解释整形增益。没有证据表明当前正向模型能描述新光路时，可运行 `slm-gs-refine` 作为基线。
+失败恢复顺序：确认设备占用和光路稳定性；检查 `panel_scan/` 的响应与漂移；检查 `session_geometry/bench_geometry.json` 的相关度、焦面尺度一致性和束腰备注；检查探针验证集相关性；最后再调目标尺寸、网格或 Step B 参数。几何相关性合格却有明显尺度冲突时，先独立验证几何，不应继续解释整形增益。没有证据表明当前正向模型能描述新光路时，可运行 `slm-gs-refine` 作为基线。
 
 ## 5. 本次实验的边界
 

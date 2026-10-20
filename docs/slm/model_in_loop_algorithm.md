@@ -725,8 +725,8 @@ payload 的键:
 
 **所以「这条命令预期以退出码 2 结束」不是常态。** 那是 2026-10-15/16 那次会话的历史结果:
 当时散斑相关度在几何 对比择优 处就被拒绝, 运行根本没进 Step B。2026-10-19 的会话
-**已经越过几何标定**(标准相位族留出相关性约 0.78–0.87), 改被**留出相关性门槛**拦下
-(全频随机相位留出仅约 0.11–0.28, 低于逐样本门槛 `0.5`)
+**已经越过几何标定**(标准相位族验证集相关性约 0.78–0.87), 改被**验证集相关性门槛**拦下
+(全频随机相位验证集仅约 0.11–0.28, 低于逐样本门槛 `0.5`)
 (`report/shape_trials/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。
 
 - 更早那次的实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率
@@ -746,10 +746,10 @@ payload 的键:
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
 | `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2451-2460` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_unidentifiable` | **留出**相关性不达标(`slm_model_in_loop.py:2864-2884`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_unidentifiable` | **验证集**相关性不达标(`slm_model_in_loop.py:2864-2884`) | `stepA-probe` 在, `stepB-shaped` **不在** |
 | `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:3130-3138` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
-**先看 stage 列表, 再看数字** —— 几何失败、留出失败和持续 reject 要走的路完全不同。
+**先看 stage 列表, 再看数字** —— 几何失败、验证集失败和持续 reject 要走的路完全不同。
 
 ### 15.2 实验系统常数(每一条都有出处, 不要凭记忆)
 
@@ -880,7 +880,7 @@ python src/ao_shaping/main.py --debug slm-model-in-loop \
     -r 6
 ```
 
-退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或留出门槛
+退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或验证集门槛
 拒绝, 该次运行**没有**提交任何相位(退路见 §15.9)。**「预期以 `2` 结束」是 2026-10-15/16
 那次会话的历史结果, 不是这条命令的常态。** 要看的东西在
 `data/debug/slm_model_in_loop/<时间戳>/` 里, 不在 stdout 里。
