@@ -1,0 +1,679 @@
+{
+  "actions": [
+    {
+      "expanded": true,
+      "kind": "expander",
+      "label": "SLM 0 设置"
+    },
+    {
+      "body": "**设备信息**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "分辨率: 1920×1200",
+      "kind": "write"
+    },
+    {
+      "body": "像素间距: 8.0 μm · 有效口径: 8.0 μm",
+      "kind": "write"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "Bit数: 10",
+      "kind": "write"
+    },
+    {
+      "body": "SLM序列号: SN-0001",
+      "kind": "write"
+    },
+    {
+      "body": "SLM编号: 1",
+      "kind": "write"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "key": "slm0_wavelength",
+      "kind": "number_input",
+      "label": "波长 (nm)"
+    },
+    {
+      "kind": "columns",
+      "spec": [
+        4,
+        1
+      ]
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "波长: 设定值 532 nm ≠ 设备值 1064 nm",
+      "kind": "warning"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_sync_wl_btn",
+      "kind": "button",
+      "label": "同步"
+    },
+    {
+      "kind": "rerun"
+    },
+    {
+      "key": "slm0_set_wl_btn",
+      "kind": "button",
+      "label": "设置波长"
+    },
+    {
+      "key": "slm0_video_mode",
+      "kind": "selectbox",
+      "label": "视频模式"
+    },
+    {
+      "body": "仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_set_mode_btn",
+      "kind": "button",
+      "label": "设置模式"
+    },
+    {
+      "body": "**Pattern Shift (像素)**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_x",
+      "kind": "number_input",
+      "label": "Shift X"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_y",
+      "kind": "number_input",
+      "label": "Shift Y"
+    },
+    {
+      "key": "slm0_apply_shift_btn",
+      "kind": "button",
+      "label": "应用平移"
+    },
+    {
+      "body": "序列号: SN-0001",
+      "kind": "caption"
+    },
+    {
+      "body": "已加载配置文件:",
+      "kind": "caption"
+    },
+    {
+      "body": {
+        "wavelength": 1064
+      },
+      "kind": "json"
+    },
+    {
+      "key": "slm0_refresh_config_btn",
+      "kind": "button",
+      "label": "刷新配置"
+    },
+    {
+      "kind": "rerun"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "灰度设置"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "波前矫正"
+    },
+    {
+      "body": "叠加矫正",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_use_correction_cb",
+      "kind": "checkbox",
+      "label": "叠加矫正CSV"
+    },
+    {
+      "body": "当前矫正文件: correction.csv",
+      "kind": "caption"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "加载校正",
+      "kind": "caption"
+    },
+    {
+      "body": "矫正已启用: correction.csv",
+      "kind": "success"
+    },
+    {
+      "key": "slm0_correction_csv",
+      "kind": "file_uploader",
+      "label": "加载矫正 CSV 文件"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_apply_corr_btn",
+      "kind": "button",
+      "label": "应用矫正"
+    },
+    {
+      "body": "矫正已应用: correction.csv",
+      "kind": "success"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_clear_corr_btn",
+      "kind": "button",
+      "label": "清除矫正"
+    },
+    {
+      "body": "矫正已清除",
+      "kind": "success"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "底相位 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "离焦叠加 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "保存"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "保存",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_save_config_btn",
+      "kind": "button",
+      "label": "保存配置"
+    },
+    {
+      "body": "SLM 0 配置已保存（序列号: SN-0001）",
+      "kind": "success"
+    },
+    {
+      "key": "slm0_save_csv_btn",
+      "kind": "button",
+      "label": "保存当前相位到CSV"
+    },
+    {
+      "body": "无法获取当前显示的相位数据",
+      "kind": "warning"
+    }
+  ],
+  "mismatch": [
+    {
+      "expanded": true,
+      "kind": "expander",
+      "label": "SLM 0 设置"
+    },
+    {
+      "body": "**设备信息**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "分辨率: 1920×1200",
+      "kind": "write"
+    },
+    {
+      "body": "像素间距: 8.0 μm · 有效口径: 8.0 μm",
+      "kind": "write"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "Bit数: 10",
+      "kind": "write"
+    },
+    {
+      "body": "SLM序列号: SN-0001",
+      "kind": "write"
+    },
+    {
+      "body": "SLM编号: 1",
+      "kind": "write"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "key": "slm0_wavelength",
+      "kind": "number_input",
+      "label": "波长 (nm)"
+    },
+    {
+      "kind": "columns",
+      "spec": [
+        4,
+        1
+      ]
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "波长: 设定值 532 nm ≠ 设备值 1064 nm",
+      "kind": "warning"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_sync_wl_btn",
+      "kind": "button",
+      "label": "同步"
+    },
+    {
+      "key": "slm0_set_wl_btn",
+      "kind": "button",
+      "label": "设置波长"
+    },
+    {
+      "key": "slm0_video_mode",
+      "kind": "selectbox",
+      "label": "视频模式"
+    },
+    {
+      "body": "仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_set_mode_btn",
+      "kind": "button",
+      "label": "设置模式"
+    },
+    {
+      "body": "**Pattern Shift (像素)**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_x",
+      "kind": "number_input",
+      "label": "Shift X"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_y",
+      "kind": "number_input",
+      "label": "Shift Y"
+    },
+    {
+      "key": "slm0_apply_shift_btn",
+      "kind": "button",
+      "label": "应用平移"
+    },
+    {
+      "body": "序列号: SN-0001",
+      "kind": "caption"
+    },
+    {
+      "body": "已加载配置文件:",
+      "kind": "caption"
+    },
+    {
+      "body": {
+        "wavelength": 1064
+      },
+      "kind": "json"
+    },
+    {
+      "key": "slm0_refresh_config_btn",
+      "kind": "button",
+      "label": "刷新配置"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "灰度设置"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "波前矫正"
+    },
+    {
+      "body": "叠加矫正",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_use_correction_cb",
+      "kind": "checkbox",
+      "label": "叠加矫正CSV"
+    },
+    {
+      "body": "当前矫正文件: correction.csv",
+      "kind": "caption"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "加载校正",
+      "kind": "caption"
+    },
+    {
+      "body": "矫正已启用: correction.csv",
+      "kind": "success"
+    },
+    {
+      "key": "slm0_correction_csv",
+      "kind": "file_uploader",
+      "label": "加载矫正 CSV 文件"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_apply_corr_btn",
+      "kind": "button",
+      "label": "应用矫正"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_clear_corr_btn",
+      "kind": "button",
+      "label": "清除矫正"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "底相位 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "离焦叠加 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "保存"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "保存",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_save_config_btn",
+      "kind": "button",
+      "label": "保存配置"
+    },
+    {
+      "key": "slm0_save_csv_btn",
+      "kind": "button",
+      "label": "保存当前相位到CSV"
+    }
+  ],
+  "plain": [
+    {
+      "expanded": true,
+      "kind": "expander",
+      "label": "SLM 0 设置"
+    },
+    {
+      "body": "**设备信息**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "分辨率: 1920×1200",
+      "kind": "write"
+    },
+    {
+      "body": "像素间距: 8.0 μm · 有效口径: 8.0 μm",
+      "kind": "write"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "body": "Bit数: 10",
+      "kind": "write"
+    },
+    {
+      "body": "SLM序列号: SN-0001",
+      "kind": "write"
+    },
+    {
+      "body": "SLM编号: 1",
+      "kind": "write"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "key": "slm0_wavelength",
+      "kind": "number_input",
+      "label": "波长 (nm)"
+    },
+    {
+      "key": "slm0_set_wl_btn",
+      "kind": "button",
+      "label": "设置波长"
+    },
+    {
+      "key": "slm0_video_mode",
+      "kind": "selectbox",
+      "label": "视频模式"
+    },
+    {
+      "body": "仅内存模式可用: DVI 模式 open() 已知挂起 (需物理断电恢复), 已禁用",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_set_mode_btn",
+      "kind": "button",
+      "label": "设置模式"
+    },
+    {
+      "body": "**Pattern Shift (像素)**",
+      "kind": "markdown"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_x",
+      "kind": "number_input",
+      "label": "Shift X"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_shift_y",
+      "kind": "number_input",
+      "label": "Shift Y"
+    },
+    {
+      "key": "slm0_apply_shift_btn",
+      "kind": "button",
+      "label": "应用平移"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "灰度设置"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "波前矫正"
+    },
+    {
+      "body": "叠加矫正",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_use_correction_cb",
+      "kind": "checkbox",
+      "label": "叠加矫正CSV"
+    },
+    {
+      "body": "当前矫正文件: correction.csv",
+      "kind": "caption"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "加载校正",
+      "kind": "caption"
+    },
+    {
+      "body": "矫正已启用: correction.csv",
+      "kind": "success"
+    },
+    {
+      "key": "slm0_correction_csv",
+      "kind": "file_uploader",
+      "label": "加载矫正 CSV 文件"
+    },
+    {
+      "kind": "columns",
+      "spec": 2
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_apply_corr_btn",
+      "kind": "button",
+      "label": "应用矫正"
+    },
+    {
+      "kind": "column"
+    },
+    {
+      "key": "slm0_clear_corr_btn",
+      "kind": "button",
+      "label": "清除矫正"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "底相位 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "离焦叠加 (发送叠加)"
+    },
+    {
+      "expanded": false,
+      "kind": "expander",
+      "label": "保存"
+    },
+    {
+      "body": "",
+      "kind": "markdown"
+    },
+    {
+      "body": "保存",
+      "kind": "caption"
+    },
+    {
+      "key": "slm0_save_config_btn",
+      "kind": "button",
+      "label": "保存配置"
+    },
+    {
+      "key": "slm0_save_csv_btn",
+      "kind": "button",
+      "label": "保存当前相位到CSV"
+    }
+  ]
+}
