@@ -66,14 +66,15 @@ def test_the_real_optimizer_modules_expose_santec():
     """Every engine the callers pass must actually have the global.
 
     This is the check that would have caught the original asymmetry, where the
-    end-to-end offline test covered ``slm_zernike_shaping`` while the engine
-    production actually calls, ``slm_zernike_pib``, was never driven offline.
+    end-to-end offline test covered the ``slm_zernike_shaping`` fork while the
+    engine production actually calls, ``slm_zernike_pib``, was never driven
+    offline. That fork's last remnant - the deprecated re-export shim - was
+    removed in #138, so the enumeration lists live engines only.
     """
     import importlib
 
     for name in (
         "ao_shaping.optimizer.wfless.slm_zernike_pib",
-        "ao_shaping.optimizer.wfless.slm_zernike_shaping",
         "ao_shaping.optimizer.wfless.slm_square_shaping",
     ):
         module = importlib.import_module(name)

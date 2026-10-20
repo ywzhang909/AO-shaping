@@ -108,12 +108,11 @@
 > 🔴→✅ **`slm_zernike_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
 > `ee96acfe` 合入）：该 1600 行分叉（`_row0`/`_log_row`/`learning_schedule`/饱和分支
 > 结构 + `w_outside` 能量项 + `__main__` fork demo）已并入 `slm_zernike_pib.py`
-> （`w_outside`/调试产物/ABBA 等均收敛至此），`slm_zernike_shaping.py` 现仅为
-> **44 行弃用重导出 shim**（`__all__` = `SLM_WIDTH/HEIGHT/RESOLUTION`、`ObjectiveSpec`、
-> `Santec`、`SlmZernikePibConfig`、`optimize_slm_zernike_pib`），仅供旧 import
-> 路径解析，**不含任何可独立修改的实现** ⇒ 下面各条改动**只需改 `slm_zernike_pib.py`
-> 一处**，历史「改一处必须同时改副本」的约束已失效。副本盘点见
-> [archive §5.17](docs/dev/todo_archive.md)。
+> （`w_outside`/调试产物/ABBA 等均收敛至此）；其最后的 **44 行弃用重导出 shim**
+> 也已删除（2026-10-20，#138 —— 实测**零生产导入方**、零测试导入方，仅一处
+> 按模块字符串枚举的测试引用，已随之更新）⇒ 下面各条改动**只需改
+> `slm_zernike_pib.py` 一处**，历史「改一处必须同时改副本」的约束已失效。
+> 副本盘点见 [archive §5.17](docs/dev/todo_archive.md)。
 
 | ID | 摘要 | issue |
 |---|---|---|
@@ -508,7 +507,7 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 | 文件 | 块行数 | `__main__` 守卫 | 裸模块级语句 |
 |---|---|---|---|
-| `optimizer/wfless/slm_zernike_shaping.py` | 119 | 1 | **0** |
+| `optimizer/wfless/slm_zernike_shaping.py` | ~~119~~ | 1 | **0** | ← 2026-10-20 该文件已整体删除（#138），本行为 2026-10-14 的历史测量留档 |
 | `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
 | `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
 | `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |
