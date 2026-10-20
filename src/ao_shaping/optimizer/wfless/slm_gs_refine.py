@@ -668,29 +668,215 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
                 logger.debug("device close failed during cleanup", exc_info=True)
 
 
-def _run_gs_refine_session(
+@dataclass
+class _RefineContext:
+    """Mutable state shared by the stages of one GS-refine session.
+
+    The session is a sequence of stages (flat baseline, GS warm start, SPGD
+    refinement) that hand measurements to each other, so the state they share
+    -- the best phase so far, the target mask, the measured-frame bookkeeping --
+    lives here instead of in a chain of ``nonlocal`` closures.
+    """
+
+    config: SlmGsRefineConfig
+    slm: Any
+    cam: Any
+    recorder: Recorder
+    rng: np.random.Generator
+    panel_shape: tuple[int, int]
+    work_slots: list[int]
+    radius_px: float
+    target_side: int
+    center_xy: tuple[int, int]
+    signal_local_xy: tuple[int, int]
+    overlay: Any = None
+    disturbance: np.ndarray | None = None
+    blaze_choice: Any = None
+    ceiling: float | None = None
+    measurement_count: int = 0
+    last_capture_utc: str = ""
+    last_exposure_ms: float | None = None
+    cv_mask: np.ndarray | None = None
+    mask: np.ndarray | None = None
+    cy: int = 0
+    cx: int = 0
+    base_panel: np.ndarray | None = None
+    best_score: float = -math.inf
+    best_stage: str = _STAGE_FLAT
+    best_phase: np.ndarray | None = None
+    best_frame: np.ndarray | None = None
+
+    def displayed_phase(self, phase: np.ndarray) -> np.ndarray:
+        """The phase actually shown: plus the disturbance, plus the overlay."""
+        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+
+        result = phase if self.disturbance is None else phase + self.disturbance
+        return (
+            result
+            if self.overlay is None
+            else apply_zero_order_overlay(result, self.overlay)
+        )
+
+    def measure(self, phase: np.ndarray) -> np.ndarray:
+        """Display a phase and return the measured frame."""
+        memory_number = None
+        if self.config.cam_type != "sim":
+            memory_number = self.work_slots[self.measurement_count % len(self.work_slots)]
+            self.measurement_count += 1
+        frame = display_and_average(
+            self.cam,
+            self.slm,
+            self.displayed_phase(phase),
+            n_frames=self.config.n_eval_frames,
+            settle_wait_s=self.config.settle_wait_s,
+            settle_tol=self.config.settle_tol,
+            settle_max_wait_s=self.config.settle_max_wait_s,
+            settle_max_discard=self.config.settle_max_discard,
+            memory_number=memory_number,
+        )
+        if self.config.cam_type == "daheng" and np.max(frame) >= 250:
+            raise ValueError(
+                "Daheng CCD frame saturated; reduce exposure before continuing"
+            )
+        if self.config.cam_type == "daheng":
+            actual_ms = float(self.cam.get_exposure_time_ms())
+            if not 0 < actual_ms <= (self.ceiling or 0.0) + 1e-9:
+                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
+            self.last_exposure_ms = actual_ms
+        self.last_capture_utc = datetime.now(timezone.utc).isoformat(
+            timespec="microseconds"
+        )
+        return frame
+
+    def record(
+        self,
+        stage: str,
+        frame: np.ndarray,
+        mask: np.ndarray,
+        phase: np.ndarray,
+        *,
+        other_frame: np.ndarray | None = None,
+        other_phase: np.ndarray | None = None,
+        positive_wins: bool | None = None,
+        **extra: Any,
+    ) -> float:
+        """Append one evaluation row to the recorder; return its composite score."""
+        score, pib, cv = _metrics(
+            frame, mask, self.config.w_pib, self.config.w_unif, self.cv_mask
+        )
+        from ao_shaping.utils.image.beam_metrics import compute_shape_iou
+
+        row = {
+            "stage": stage,
+            "score": score,
+            "pib": pib,
+            "cv": cv,
+            **(
+                {"cv_full": uniformity_cv(frame, mask)}
+                if self.cv_mask is not None
+                else {}
+            ),
+            "shape_iou": compute_shape_iou(frame, mask),
+            "target_side": self.target_side,
+            "_epoch": len(self.recorder.history),
+            "timestamp_utc": self.last_capture_utc,
+            "exposure_ms_readback": (
+                self.last_exposure_ms if self.config.cam_type == "daheng" else None
+            ),
+            **extra,
+        }
+        if self.config.record_debug:
+            row["_img"] = np.asarray(frame).copy()
+            row["_phase"] = np.asarray(
+                self.slm.create_phase_from_array(self.displayed_phase(phase))
+            ).copy()
+            if other_frame is not None and other_phase is not None:
+                other_img = np.asarray(other_frame).copy()
+                other_gray = np.asarray(
+                    self.slm.create_phase_from_array(self.displayed_phase(other_phase))
+                ).copy()
+                if positive_wins:
+                    row.update(
+                        _img_pos=row["_img"],
+                        _phase_pos=row["_phase"],
+                        _img_neg=other_img,
+                        _phase_neg=other_gray,
+                    )
+                else:
+                    row.update(
+                        _img_pos=other_img,
+                        _phase_pos=other_gray,
+                        _img_neg=row["_img"],
+                        _phase_neg=row["_phase"],
+                    )
+        self.recorder.append(row)
+        return score
+
+
+def _resolve_daheng_ceiling(ctx: "_RefineContext") -> float:
+    """Resolve the Daheng exposure ceiling before any measurement can fire one.
+
+    The ceiling is set by the optical path, not the sensor, so it is resolved
+    per session: the environment variable, else probe the image itself.
+    """
+    config = ctx.config
+    if not configured_daheng_exposure_limit():
+        ctx.cam.reset_exposure_time(0.02)
+        display_and_average(
+            ctx.cam,
+            ctx.slm,
+            ctx.displayed_phase(np.zeros(ctx.panel_shape, dtype=np.float64)),
+            n_frames=1,
+            settle_wait_s=config.settle_wait_s,
+            settle_tol=config.settle_tol,
+            settle_max_wait_s=config.settle_max_wait_s,
+            settle_max_discard=config.settle_max_discard,
+            memory_number=ctx.work_slots[-1],
+        )
+    ceiling = resolve_daheng_exposure_limit(camera=ctx.cam)
+    if config.exposure_time_ms > ceiling + 1e-9:
+        raise ValueError(
+            f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds the "
+            f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
+        )
+    # The probe left the camera at the last ladder step; re-arm the
+    # working exposure before the first measurement.
+    ctx.cam.reset_exposure_time(config.exposure_time_ms)
+    return ceiling
+
+
+def _prepare_refine_context(
     config: SlmGsRefineConfig,
     slm: Any,
     cam: Any,
-    rng: np.random.Generator,
     recorder: Recorder,
-    protected_slot: int | None = None,
-) -> Recorder:
-    best_score = -math.inf
-    best_stage = _STAGE_FLAT
-    best_phase: np.ndarray | None = None
-    best_frame: np.ndarray | None = None
+    rng: np.random.Generator,
+    protected_slot: int | None,
+) -> _RefineContext:
+    """Open the session: geometry, exposure ceiling, zero-order discovery, blaze.
+
+    Everything the stages need that does not change during the run is resolved
+    once, here.
+    """
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
     disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
 
     overlay = None
-
-    def displayed_phase(phase: np.ndarray) -> np.ndarray:
-        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
-
-        result = phase if disturbance is None else phase + disturbance
-        return result if overlay is None else apply_zero_order_overlay(result, overlay)
+    ctx = _RefineContext(
+        config=config,
+        slm=slm,
+        cam=cam,
+        recorder=recorder,
+        rng=rng,
+        panel_shape=panel_shape,
+        work_slots=[],
+        radius_px=0.0,
+        target_side=0,
+        center_xy=(0, 0),
+        signal_local_xy=(0, 0),
+        disturbance=disturbance,
+    )
 
     center_xy = config.pupil_center or (panel_shape[1] // 2, panel_shape[0] // 2)
     side = pupil_side(config.beam_radius_px)
@@ -701,32 +887,15 @@ def _run_gs_refine_session(
         or center_xy[1] - side // 2 + side > panel_shape[0]
     ):
         raise ValueError("pupil square extends beyond the SLM panel")
+    ctx.center_xy = center_xy
     work_slots = [slot for slot in (126, 127, 124) if slot != protected_slot]
+    ctx.work_slots = work_slots
     if config.cam_type == "daheng":
-        # The exposure ceiling is set by the optical path, not the sensor, so
-        # resolve it per session before any measurement can fire an over-limit
-        # exposure: the environment variable, else probe the image itself.
-        if not configured_daheng_exposure_limit():
-            cam.reset_exposure_time(0.02)
-            display_and_average(
-                cam, slm, displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
-                n_frames=1, settle_wait_s=config.settle_wait_s,
-                settle_tol=config.settle_tol,
-                settle_max_wait_s=config.settle_max_wait_s,
-                settle_max_discard=config.settle_max_discard,
-                memory_number=work_slots[-1],
-            )
-        ceiling = resolve_daheng_exposure_limit(camera=cam)
-        if config.exposure_time_ms > ceiling + 1e-9:
-            raise ValueError(
-                f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds the "
-                f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
-            )
-        # The probe left the camera at the last ladder step; re-arm the
-        # working exposure before the first measurement.
-        cam.reset_exposure_time(config.exposure_time_ms)
+        ctx.ceiling = _resolve_daheng_ceiling(ctx)
     radius_px = max(8.0, float(config.beam_radius_px))
+    ctx.radius_px = radius_px
     target_side = _derive_target_side(config, radius_px)
+    ctx.target_side = target_side
     if config.blaze_period_px >= 0 and config.cam_type == "sim":
         raise ValueError("blaze calibration requires a full-frame hardware CCD")
     if config.cam_type != "sim":
@@ -734,7 +903,7 @@ def _run_gs_refine_session(
         discovery = display_and_average(
             cam,
             slm,
-            displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+            ctx.displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
             n_frames=1,
             settle_wait_s=config.settle_wait_s,
             settle_tol=config.settle_tol,
@@ -774,6 +943,8 @@ def _run_gs_refine_session(
                 direction=config.blaze_direction, flat_frame=discovery,
             )
             overlay = choice.params
+            ctx.overlay = overlay
+            ctx.blaze_choice = choice
             full_x, full_y = choice.signal_xy
             logger.info(
                 "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
@@ -781,6 +952,7 @@ def _run_gs_refine_session(
                 choice.signal_xy, choice.separation_px,
             )
         signal_local_xy = (full_x, full_y)
+        ctx.signal_local_xy = signal_local_xy
         if config.cam_size > 0:
             half = config.cam_size // 2
             if (
@@ -795,7 +967,7 @@ def _run_gs_refine_session(
             actual_size, actual_center = cam.reset_window(
                 center=(full_x, full_y), size=(config.cam_size, config.cam_size)
             )
-            signal_local_xy = (
+            ctx.signal_local_xy = (
                 int(full_x - actual_center[0] + actual_size[0] // 2),
                 int(full_y - actual_center[1] + actual_size[1] // 2),
             )
@@ -814,153 +986,84 @@ def _run_gs_refine_session(
         config.phase_grid,
         config.phase_grid,
     )
+    ctx.work_slots = work_slots[:2]
+    return ctx
 
-    work_slots = work_slots[:2]
-    measurement_count = 0
-    last_capture_utc = ""
-    last_exposure_ms: float | None = None
 
-    def measure(phase: np.ndarray) -> np.ndarray:
-        nonlocal measurement_count, last_capture_utc, last_exposure_ms
-        memory_number = None
-        if config.cam_type != "sim":
-            memory_number = work_slots[measurement_count % len(work_slots)]
-            measurement_count += 1
-        frame = display_and_average(
-            cam,
-            slm,
-            displayed_phase(phase),
-            n_frames=config.n_eval_frames,
-            settle_wait_s=config.settle_wait_s,
-            settle_tol=config.settle_tol,
-            settle_max_wait_s=config.settle_max_wait_s,
-            settle_max_discard=config.settle_max_discard,
-            memory_number=memory_number,
-        )
-        if config.cam_type == "daheng" and np.max(frame) >= 250:
-            raise ValueError(
-                "Daheng CCD frame saturated; reduce exposure before continuing"
-            )
-        if config.cam_type == "daheng":
-            actual_ms = float(cam.get_exposure_time_ms())
-            if not 0 < actual_ms <= ceiling + 1e-9:
-                raise RuntimeError(f"unsafe Daheng exposure readback: {actual_ms} ms")
-            last_exposure_ms = actual_ms
-        last_capture_utc = datetime.now(timezone.utc).isoformat(timespec="microseconds")
-        return frame
-
-    cv_mask: np.ndarray | None = None
-
-    def record(
-        stage: str,
-        frame: np.ndarray,
-        mask: np.ndarray,
-        phase: np.ndarray,
-        *,
-        other_frame: np.ndarray | None = None,
-        other_phase: np.ndarray | None = None,
-        positive_wins: bool | None = None,
-        **extra: Any,
-    ) -> float:
-        score, pib, cv = _metrics(frame, mask, config.w_pib, config.w_unif, cv_mask)
-        from ao_shaping.utils.image.beam_metrics import compute_shape_iou
-
-        row = {
-            "stage": stage,
-            "score": score,
-            "pib": pib,
-            "cv": cv,
-            **({"cv_full": uniformity_cv(frame, mask)} if cv_mask is not None else {}),
-            "shape_iou": compute_shape_iou(frame, mask),
-            "target_side": target_side,
-            "_epoch": len(recorder.history),
-            "timestamp_utc": last_capture_utc,
-            "exposure_ms_readback": last_exposure_ms if config.cam_type == "daheng" else None,
-            **extra,
-        }
-        if config.record_debug:
-            row["_img"] = np.asarray(frame).copy()
-            row["_phase"] = np.asarray(
-                slm.create_phase_from_array(displayed_phase(phase))
-            ).copy()
-            if other_frame is not None and other_phase is not None:
-                other_img = np.asarray(other_frame).copy()
-                other_gray = np.asarray(
-                    slm.create_phase_from_array(displayed_phase(other_phase))
-                ).copy()
-                if positive_wins:
-                    row.update(
-                        _img_pos=row["_img"],
-                        _phase_pos=row["_phase"],
-                        _img_neg=other_img,
-                        _phase_neg=other_gray,
-                    )
-                else:
-                    row.update(
-                        _img_pos=other_img,
-                        _phase_pos=other_gray,
-                        _img_neg=row["_img"],
-                        _phase_neg=row["_phase"],
-                    )
-        recorder.append(row)
-        return score
-
-    # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
-    flat_panel = np.zeros(panel_shape, dtype=np.float64)
-    frame0 = measure(flat_panel)
+def _stage_flat_baseline(ctx: _RefineContext) -> None:
+    """Stage 0: flat baseline; locate the 0-order; freeze the ROI."""
+    flat_panel = np.zeros(ctx.panel_shape, dtype=np.float64)
+    frame0 = ctx.measure(flat_panel)
     cy, cx = (
-        (signal_local_xy[1], signal_local_xy[0])
-        if overlay is not None
+        (ctx.signal_local_xy[1], ctx.signal_local_xy[0])
+        if ctx.overlay is not None
         else locate_zero_order(frame0)
     )
-    mask = square_mask(frame0.shape, cy, cx, target_side)
+    mask = square_mask(frame0.shape, cy, cx, ctx.target_side)
     if not mask.any():
         raise ValueError(
-            f"target square (side={target_side}px at ({cy},{cx})) is empty"
+            f"target square (side={ctx.target_side}px at ({cy},{cx})) is empty"
         )
-    if config.exclude_zero_order_for_cv:
+    ctx.cy = cy
+    ctx.cx = cx
+    ctx.mask = mask
+    if ctx.config.exclude_zero_order_for_cv:
         from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
 
         core = zero_order_exclusion_mask(frame0, mask)
-        cv_mask = mask & ~core
+        ctx.cv_mask = mask & ~core
         logger.info(
             "CV excludes {} zero-order pixels from {} target pixels",
             int(core.sum()), int(mask.sum()),
         )
-    score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
-    best_score = score_flat
-    best_phase = flat_panel
-    best_frame = frame0
+    score_flat = ctx.record(
+        _STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx
+    )
+    ctx.best_score = score_flat
+    ctx.base_panel = flat_panel
+    ctx.best_phase = flat_panel
+    ctx.best_frame = frame0
     logger.info(
         "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
         cy,
         cx,
-        target_side,
+        ctx.target_side,
         score_flat,
     )
 
-    # --- Stage 1: GS warm start, admitted only if it wins -------------
-    base_panel = flat_panel
-    gs_box = _gs_pupil_phase(config, radius_px, target_side)
-    if gs_box is not None:
-        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
-        gs_frame = measure(gs_panel)
-        score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
-        if score_gs > score_flat:
-            base_panel = gs_panel
-            best_score = score_gs
-            best_phase = gs_panel
-            best_frame = gs_frame
-            best_stage = _STAGE_GS
-        else:
-            logger.info(
-                "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
-                "(check --camera-pixel-um / --beam-radius-px)",
-                score_gs,
-                score_flat,
-            )
 
-    # --- Stage 2: SPGD freeform refinement --------------------------
+def _stage_gs_warm_start(ctx: _RefineContext) -> None:
+    """Stage 1: GS warm start, admitted only if it wins."""
+    config = ctx.config
+    base_panel = ctx.base_panel
+    gs_box = _gs_pupil_phase(config, ctx.radius_px, ctx.target_side)
+    if gs_box is None:
+        return
+    gs_panel = embed_pupil_square(
+        gs_box, ctx.panel_shape, ctx.radius_px, ctx.center_xy
+    )
+    gs_frame = ctx.measure(gs_panel)
+    score_gs = ctx.record(
+        _STAGE_GS, gs_frame, ctx.mask, gs_panel, cy=ctx.cy, cx=ctx.cx
+    )
+    if score_gs > ctx.best_score:
+        ctx.base_panel = gs_panel
+        ctx.best_score = score_gs
+        ctx.best_phase = gs_panel
+        ctx.best_frame = gs_frame
+        ctx.best_stage = _STAGE_GS
+    else:
+        logger.info(
+            "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
+            "(check --camera-pixel-um / --beam-radius-px)",
+            score_gs,
+            ctx.best_score,
+        )
+
+
+def _stage_spgd_refine(ctx: _RefineContext) -> None:
+    """Stage 2: SPGD freeform refinement."""
+    config = ctx.config
     # The DOF vector stays flat: ``Base.update`` keeps its moments at
     # ``(dim,)`` and would not broadcast against a ``(grid, grid)``
     # gradient. It is reshaped only when embedded into the panel.
@@ -970,7 +1073,8 @@ def _run_gs_refine_session(
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return compose_pupil_dof(
-            base_panel, vec.reshape(grid, grid), panel_shape, radius_px, center_xy
+            ctx.base_panel, vec.reshape(grid, grid), ctx.panel_shape,
+            ctx.radius_px, ctx.center_xy,
         )
 
     for epoch in range(max(1, int(config.epochs))):
@@ -978,39 +1082,46 @@ def _run_gs_refine_session(
         if hasattr(optimizer, "lr"):
             optimizer.lr = lr
 
-        delta = rng.choice(np.array([-1.0, 1.0]), size=dof.size) * config.delta
+        delta = ctx.rng.choice(np.array([-1.0, 1.0]), size=dof.size) * config.delta
         # Measure first, then advance: the phase we score below is the one
         # the camera actually saw, never a dof we have not evaluated yet.
         phase_pos = phase_of(dof + delta)
         phase_neg = phase_of(dof - delta)
-        frame_pos = measure(phase_pos)
-        pos_timestamp = last_capture_utc
-        frame_neg = measure(phase_neg)
-        neg_timestamp = last_capture_utc
-        pos = _metrics(frame_pos, mask, config.w_pib, config.w_unif, cv_mask)[0]
-        neg = _metrics(frame_neg, mask, config.w_pib, config.w_unif, cv_mask)[0]
+        frame_pos = ctx.measure(phase_pos)
+        pos_timestamp = ctx.last_capture_utc
+        frame_neg = ctx.measure(phase_neg)
+        neg_timestamp = ctx.last_capture_utc
+        pos = _metrics(
+            frame_pos, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask
+        )[0]
+        neg = _metrics(
+            frame_neg, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask
+        )[0]
 
         take_pos = pos >= neg
         measured_phase = phase_pos if take_pos else phase_neg
         probe_score = pos if take_pos else neg
         measured_frame = frame_pos if take_pos else frame_neg
         confirmed = False
-        if config.confirm_best and probe_score > best_score:
-            measured_frame = measure(measured_phase)
+        if config.confirm_best and probe_score > ctx.best_score:
+            measured_frame = ctx.measure(measured_phase)
             confirmed = True
+
         # issue #140: the persisted best must be the un-perturbed convergence
         # point (dof), not the winning ±delta probe (which carries a random
         # ±delta rad offset). Measure the clean dof every epoch and log its
         # score in a separate column so the record distinguishes "optimizer
         # advance" (dof) from "probe selection bias" (pos/neg).
         phase_dof = phase_of(dof)
-        frame_dof = measure(phase_dof)
-        dof_timestamp = last_capture_utc
-        dof_score = _metrics(frame_dof, mask, config.w_pib, config.w_unif, cv_mask)[0]
-        score = record(
+        frame_dof = ctx.measure(phase_dof)
+        dof_timestamp = ctx.last_capture_utc
+        dof_score = _metrics(
+            frame_dof, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask
+        )[0]
+        score = ctx.record(
             _STAGE_REFINE,
             measured_frame,
-            mask,
+            ctx.mask,
             measured_phase,
             other_frame=frame_neg if take_pos else frame_pos,
             other_phase=phase_neg if take_pos else phase_pos,
@@ -1027,22 +1138,22 @@ def _run_gs_refine_session(
             dof_timestamp_utc=dof_timestamp,
         )
         if config.record_debug and confirmed:
-            row = recorder.history[-1]
+            row = ctx.recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
             row["_phase_pos"] = np.asarray(
-                slm.create_phase_from_array(displayed_phase(phase_pos))
+                ctx.slm.create_phase_from_array(ctx.displayed_phase(phase_pos))
             ).copy()
             row["_img_neg"] = np.asarray(frame_neg).copy()
             row["_phase_neg"] = np.asarray(
-                slm.create_phase_from_array(displayed_phase(phase_neg))
+                ctx.slm.create_phase_from_array(ctx.displayed_phase(phase_neg))
             ).copy()
         # issue #140: track the best by the un-perturbed dof score, and persist
         # the dof's own phase (the convergence point), not the ±delta probe.
-        if dof_score > best_score:
-            best_score = dof_score
-            best_phase = phase_dof
-            best_frame = frame_dof
-            best_stage = _STAGE_REFINE
+        if dof_score > ctx.best_score:
+            ctx.best_score = dof_score
+            ctx.best_phase = phase_dof
+            ctx.best_frame = frame_dof
+            ctx.best_stage = _STAGE_REFINE
 
         grad = spgd_gradient(pos, neg, delta, maximize=True)
         dof = np.clip(dof - optimizer.update(grad), -4.0 * np.pi, 4.0 * np.pi)
@@ -1058,12 +1169,29 @@ def _run_gs_refine_session(
                 score,
                 pos,
                 neg,
-                best_score,
-                best_stage,
+                ctx.best_score,
+                ctx.best_stage,
             )
-        if config.early_stop_score > 0 and best_score >= config.early_stop_score:
-            logger.info("early stop at epoch {} (score {:.4f})", epoch, best_score)
+        if config.early_stop_score > 0 and ctx.best_score >= config.early_stop_score:
+            logger.info("early stop at epoch {} (score {:.4f})", epoch, ctx.best_score)
             break
+
+
+def _run_gs_refine_session(
+    config: SlmGsRefineConfig,
+    slm: Any,
+    cam: Any,
+    rng: np.random.Generator,
+    recorder: Recorder,
+    protected_slot: int | None = None,
+) -> Recorder:
+    """Run one GS-refine session: flat baseline, GS warm start, SPGD refinement."""
+    ctx = _prepare_refine_context(
+        config, slm, cam, recorder, rng, protected_slot
+    )
+    _stage_flat_baseline(ctx)
+    _stage_gs_warm_start(ctx)
+    _stage_spgd_refine(ctx)
 
     best_row = max(recorder.history, key=lambda r: r["score"])
     logger.info(
@@ -1077,19 +1205,21 @@ def _run_gs_refine_session(
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array
     # into a CSV cell.
-    recorder.best_phase = displayed_phase(best_phase)
-    recorder.best_frame = best_frame
-    recorder.best_stage = best_stage
+    recorder.best_phase = ctx.displayed_phase(ctx.best_phase)
+    recorder.best_frame = ctx.best_frame
+    recorder.best_stage = ctx.best_stage
+    choice = ctx.blaze_choice
     recorder.blaze_choice = (
         {
-            "period_px": overlay.blaze_period_px,
-            "direction": overlay.blaze_direction,
+            "period_px": ctx.overlay.blaze_period_px,
+            "direction": ctx.overlay.blaze_direction,
             "zero_xy": choice.zero_xy,
             "signal_xy": choice.signal_xy,
             "separation_px": choice.separation_px,
             "signal_peak": choice.signal_peak,
             "trials": choice.trials,
         }
-        if overlay is not None else None
+        if ctx.overlay is not None
+        else None
     )
     return recorder
