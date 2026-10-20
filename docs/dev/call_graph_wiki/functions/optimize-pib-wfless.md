@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,pib,wfless]
-source: src/ao_shaping/optimizer/wfless/pib.py:289
+source: src/ao_shaping/optimizer/wfless/pib.py:248
 ---
 
 ## 签名
@@ -61,10 +61,8 @@ optimize_pib(center, epochs, r_bucket, delta, lr, exposure_time_ms, cam_type, sh
 
 - `ao_shaping.drivers.ccd.common.get_camera_exposure_ms`
 - `_extract_optimizer_momentum`
-- `ao_shaping.drivers.ccd.common.capture_with_exposure`
 - [[functions/spots|`radius`]]
 - `learning_schedule`
-- `_camera_cls`
 - `_generate_search_candidates`
 - `_objective_to_min`
 - `_reset_optimizer_state`
@@ -75,10 +73,11 @@ optimize_pib(center, epochs, r_bucket, delta, lr, exposure_time_ms, cam_type, sh
 - `ao_shaping.drivers.ccd.common.resample_on_saturation`
 - `ao_shaping.drivers.dm._registry.get_dm_registry`
 - `ao_shaping.optimizer.constants.create_optimizer`
-- [[functions/spgd-gradient|`spgd_gradient`]]
+- `ao_shaping.optimizer.spid_pib_loop.open_pib_bench`
+- `ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch`
 - `ao_shaping.utils.ImageVoltagesDisplay` *(未解析/外部)*
 - `ao_shaping.utils.Recorder` *(未解析/外部)*
-- `ao_shaping.utils.image.hardware_utils.log_center_brightness`
+- `ao_shaping.utils.objective_direction.objective_direction`
 
 ## 谁调用它（入边）
 

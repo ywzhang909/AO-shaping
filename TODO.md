@@ -374,7 +374,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 类别 | 条数 | 处置 |
 |---|---|---|
 | **真缺陷** | 1 | `tools/slm/slm_zernike_sweep_probe.py:44` —— re-export 块里 `core_fraction` / `display_and_average` 确实未被使用 ⇒ **删这两个名字** |
-| **noqa 已多余**（别名其实被用了） | 3 | `utils/wavefront/matrix_utils.py:51`（用在 `:58`）、`drivers/sim/beam_backend.py:209`（用在 `:212`）、`optimizer/wfless/pib.py:95`（用在 L525/L545）⇒ 直接删 noqa |
+| **noqa 已多余**（别名其实被用了） | 0 | 2026-10-21 复核：原 3 处（`utils/wavefront/matrix_utils.py:51`、`drivers/sim/beam_backend.py:209`、`optimizer/wfless/pib.py:95`）已由 `1faaabb5` 全部删除 ⇒ 本类已清空。⚠️ 勿误删 `pib.py` 现有 3 条 `# noqa: F401`（`:19`/`:20`/`:21`）：那是**必需**的再导出豁免（该文件无 `__all__`，去掉即报 F401），且 `pib._camera_cls` 被 `tests/ao_shaping/runners/test_sensorless_sim_params.py:132-133` 断言身份 |
 | **应改为正式再导出** | 1 | `display/image_display.py:15` ⇒ 补 `__all__`，让 F401 不再是问题。⚠️ 不能改成 `import as` 冗余别名 —— `tests/ao_shaping/display/test_image_voltages_display.py` 有身份断言（`a is b`） |
 | **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:703`（注册 sim 相机；`test_sim_camera_registration.py` 依赖）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
 | **全域 `E402` ignore 是错的工具** | — | `scripts/` 的 **435 条** E402 是仓库**明文约定**的 `sys.path` bootstrap ⇒ 正确做法是 `lint.per-file-ignores` 给 `scripts/*` 加 E402，而不是全局 ignore，这样 `src/` 与 `tests/` 才能被检查 |

@@ -41,7 +41,7 @@ def cli(ctx: click.Context, dir: str, debug: bool | None)
 | `ga-zernike` | `runners.zernike_search_runner.run` | [[commands/ga-zernike]] |
 | `greedy-zernike` | `runners.zernike_search_runner.greedy_zernike_run` | [[commands/greedy-zernike]] |
 | `slm-pib` | `runners.slm.slm_shaping_runner.run` | [[commands/slm-pib]] |
-| `spgd-square` | `runners.slm.slm_shaping_runner.square` | [[commands/spgd-square]] |
+| `spgd-square` | `tools.slm.panel.diagnose.main` | [[commands/spgd-square]] |
 | `slm-gsnet` | `runners.slm.gsnet_runner.run` | [[commands/slm-gsnet]] |
 | `slm-gs-refine` | `runners.slm.gs_refine_runner.run` | [[commands/slm-gs-refine]] |
 | `slm-model-in-loop` | `runners.slm.model_in_loop_runner.run` | [[commands/slm-model-in-loop]] |

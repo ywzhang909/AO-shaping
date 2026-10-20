@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1606
+source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1565
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/slm/zernike_matrix_runner.py:1606
 
 ## 入口函数
 
-`runners.slm.zernike_matrix_runner.closed_loop_run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1606`）
+`runners.slm.zernike_matrix_runner.closed_loop_run`（`src/ao_shaping/runners/slm/zernike_matrix_runner.py:1565`）
 
 ```python
 closed_loop_run(ctx, params)
@@ -38,7 +38,6 @@ closed_loop_run(ctx, params)
 - `_measure_wfs_step`
 - `ao_shaping.algorithm.signal_processing.controller.HardwareConfig` *(未解析/外部)*
 - `ao_shaping.algorithm.signal_processing.controller.LoopConfig` *(未解析/外部)*
-- `ao_shaping.drivers.slm.ZernikeSLM` *(未解析/外部)*
 - `ao_shaping.drivers.wfs.MlaRes` *(未解析/外部)*
 - `ao_shaping.drivers.wfs.ThorlabWFS` *(未解析/外部)*
 - [[functions/with-params|`with_params`]]

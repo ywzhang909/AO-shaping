@@ -46,7 +46,6 @@ Attach the click options of ``arg_class`` to a click command.
 - [[commands/rms-zernike|`run`]]
 - [[commands/greedy-zernike|`greedy_zernike_run`]]
 - [[commands/ga-zernike|`run`]]
-- [[commands/spgd-square|`square`]]
 - [[commands/full-voltage|`full_voltage_run`]]
 - [[commands/alt-voltage|`run`]]
 - [[commands/slm-gs-refine|`run`]]
