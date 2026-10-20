@@ -1,16 +1,18 @@
-"""Golden: the exact Streamlit call sequence of ``_render_slm_settings``.
+"""Golden: the exact Streamlit call sequence of the SLM sidebar renderers.
 
 Issue #167 asks for the long GUI render functions to be split, and for a
 regression to prove the split changed nothing. "Nothing changed" is not
-observable by reading the diff, so it is recorded: this test drives
-``_render_slm_settings`` against a recording stub and pins the **ordered
-sequence of Streamlit calls** (labels, widget keys, captions, column counts).
+observable by reading the diff, so it is recorded: this test drives the
+renderers against a recording stub and pins the **ordered sequence of Streamlit
+calls** (labels, widget keys, captions, column counts).
 
 Any refactor that reorders a widget, renames a key, drops a caption or moves a
 write into another column changes the sequence and fails here. That is the
 property the split must preserve -- not the code shape.
 
-Three scenarios, because the branches differ in depth:
+Two renderers are pinned, each with scenarios that differ in depth:
+
+``_render_slm_settings``
 
 * ``plain`` -- nominal state;
 * ``mismatch`` -- the widget wavelength differs from the device value and a
@@ -19,9 +21,15 @@ Three scenarios, because the branches differ in depth:
 * ``actions`` -- every button is pressed, reaching the handlers (apply
   correction, save config, save phase CSV) that hold the deepest nesting.
 
+``render_phase_control``
+
+* ``plain`` -- nominal state;
+* ``actions`` -- every button is pressed and a CSV is staged, reaching the
+  generate / load-from-CSV / set-phase-A-B / start-toggle handlers.
+
 The golden is regenerated with::
 
-    AO_SLM_SETTINGS_GOLDEN_UPDATE=1 pytest tests/ao_shaping/gui/slm/test_slm_settings_render_golden.py
+    AO_SLM_SETTINGS_GOLDEN_UPDATE=1 pytest tests/ao_shaping/gui/slm/test_multi_slm_controller_render_golden.py
 
 which rewrites the JSON next to this file. Re-basing the golden is a deliberate
 act, not a side effect.
@@ -31,15 +39,18 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+import numpy as np
 import pytest
 
 from ao_shaping.gui.slm import multi_slm_controller as gui
 
-GOLDEN = Path(__file__).with_name("slm_settings_render_golden.json")
+GOLDEN = Path(__file__).with_name("multi_slm_controller_render_golden.json")
 UPDATE = os.environ.get("AO_SLM_SETTINGS_GOLDEN_UPDATE") == "1"
 
 
@@ -90,6 +101,9 @@ class _RecordingSt:
 
     def markdown(self, body: str, **kwargs: Any) -> None:
         self._record("markdown", body=body)
+
+    def subheader(self, body: str, **kwargs: Any) -> None:
+        self._record("subheader", body=body)
 
     def write(self, body: Any, **kwargs: Any) -> None:
         self._record("write", body=str(body))
@@ -177,6 +191,57 @@ class _FakeSLM:
         self.saved = True
 
 
+class _FakePhaseSLM(_FakeSLM):
+    """Also answers the phase-control renderer's device calls."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.displayed: Any = None
+        self.loaded_csv: str | None = None
+        self.memory_slot = 3
+        self.is_open = True
+        self.Panel_Res = (8, 4)
+
+    def display_data(self, phase: Any) -> None:
+        self.displayed = phase
+
+    def display_phase(self, phase_rad: Any) -> None:
+        self.displayed = phase_rad
+
+    def load_gray_from_csv(self, path: Any) -> None:
+        self.loaded_csv = str(path)
+
+    def get_displayed_memory_number(self) -> int:
+        return self.memory_slot
+
+    def get_displayed_phase(self) -> tuple[Any, Any]:
+        return np.zeros((2, 2)), None
+
+
+class _FakeThread:
+    """Records a thread instead of running it.
+
+    The start-toggle branch would otherwise spawn a real background loop that
+    keeps toggling the panel until stopped.
+    """
+
+    def __init__(
+        self,
+        target: Any = None,
+        args: Any = (),
+        kwargs: Any = None,
+        daemon: Any = None,
+    ) -> None:
+        self.target = target
+        self.args = args
+        self.kwargs = kwargs
+        self.daemon = daemon
+        self.started = False
+
+    def start(self) -> None:
+        self.started = True
+
+
 def _session_state(*, mismatch: bool = False) -> dict[str, Any]:
     state: dict[str, Any] = {
         "slm0": _FakeSLM(),
@@ -216,6 +281,55 @@ _ALL_BUTTONS = frozenset(
     }
 )
 
+#: Every button key of the phase-control area.
+_PHASE_BUTTONS = frozenset(
+    {
+        "slm0_gen_pattern_btn",
+        "slm0_load_csv_btn",
+        "slm0_set_phase_a",
+        "slm0_set_zero_phase_a",
+        "slm0_set_phase_b",
+        "slm0_set_zero_phase_b",
+        "slm0_start_toggle",
+        "slm0_stop_toggle",
+    }
+)
+
+
+def _phase_session_state() -> dict[str, Any]:
+    state: dict[str, Any] = {
+        "slm0": _FakePhaseSLM(),
+        "slm0_toggle_phase_a": np.zeros((2, 2)),
+        "slm0_toggle_phase_b": np.zeros((2, 2)),
+        "slm0_toggle_frequency": 1.0,
+    }
+    return state
+
+
+def _render_phase_control(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pressed: frozenset[str] = frozenset(),
+    upload: Any = None,
+) -> list[dict[str, Any]]:
+    recorder = _RecordingSt(_phase_session_state(), pressed=pressed, upload=upload)
+    monkeypatch.setattr(gui, "st", recorder)
+    monkeypatch.setattr(gui, "render_pattern_controls", lambda slm_num: ("正弦", {}))
+    monkeypatch.setattr(gui, "generate_phase_gray", lambda *a, **k: np.zeros((2, 2)))
+    monkeypatch.setattr(gui, "refresh_phase_preview", lambda *a, **k: None)
+    monkeypatch.setattr(gui, "_stop_toggle", lambda *a, **k: None)
+    monkeypatch.setattr(
+        gui.Santec, "csv_to_phase", staticmethod(lambda *a, **k: np.zeros((2, 2)))
+    )
+    monkeypatch.setattr(
+        gui,
+        "threading",
+        SimpleNamespace(Event=threading.Event, Thread=_FakeThread),
+    )
+    gui.render_phase_control(0)
+    return recorder.calls
+
+
 
 def _render(
     monkeypatch: pytest.MonkeyPatch,
@@ -247,8 +361,8 @@ def _render(
     return recorder.calls
 
 
-def test_render_sequence_matches_the_golden(monkeypatch: pytest.MonkeyPatch) -> None:
-    scenarios = {
+def _settings_scenarios(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    return {
         "plain": _render(monkeypatch),
         "mismatch": _render(monkeypatch, mismatch=True),
         "actions": _render(
@@ -257,6 +371,24 @@ def test_render_sequence_matches_the_golden(monkeypatch: pytest.MonkeyPatch) -> 
             pressed=_ALL_BUTTONS,
             upload=_Upload("correction.csv"),
         ),
+    }
+
+
+def _phase_scenarios(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    return {
+        "plain": _render_phase_control(monkeypatch),
+        "actions": _render_phase_control(
+            monkeypatch,
+            pressed=_PHASE_BUTTONS,
+            upload=_Upload("phase.csv"),
+        ),
+    }
+
+
+def test_render_sequence_matches_the_golden(monkeypatch: pytest.MonkeyPatch) -> None:
+    scenarios = {
+        "settings": _settings_scenarios(monkeypatch),
+        "phase_control": _phase_scenarios(monkeypatch),
     }
 
     if UPDATE:
