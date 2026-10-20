@@ -2728,6 +2728,118 @@ python scripts/slm/generate_gsnet_offline_report.py -o report/fouriergsnet_pipel
 | `--run-dir` | newest `data/gsnet_train/run-*` (mtime) | Training run dir to render |
 | `-o, --output` | `report/fouriergsnet_pipeline/offline_training` | Report output dir |
 
+### calibrate_gsnet_2f.py
+
+Runs the **issue #165 P0 offline acceptance**: calibrates the FourierGSNet
+forward operator from the ideal FFT to this bench's 2f physical forward, and
+decides whether the calibrated forward is allowed to feed the closed loop.
+**Fully offline** — pure torch/numpy on a digital twin, no camera and no SLM.
+
+The experiment is built so it is **not circular**: the ground truth is a
+digital twin (`Bench2FGroundTruth`) that contains physics the calibrated model
+structurally cannot represent (super-Gaussian illumination, a fixed per-pixel
+aberration field outside the Zernike span, detector noise). The calibrated
+model (`Bench2FPropagator`) is deliberately *reduced* to the Zernike span — the
+same ~70-parameter capacity as the model-in-loop physical model — so the
+comparison is between two models of comparable capacity, not between a model
+and itself.
+
+**Usage:**
+```bash
+python scripts/slm/calibrate_gsnet_2f.py
+python scripts/slm/calibrate_gsnet_2f.py --skip-network      # forward fidelity only
+python scripts/slm/calibrate_gsnet_2f.py --frames 16 --epochs 20
+```
+
+**Arm A — forward fidelity** (where the P0 gate lives): 3 phase families
+(low-order Zernike / high-order Zernike / band-limited freeform) × N frames,
+scored on the **same 36×36 grid** for the ideal-FFT forward, the calibrated 2f
+forward and the physical Zernike baseline, against the twin.
+
+**Arm B — network before/after**: two FourierGSNet arms with the same data,
+seed and budget, differing only in the forward operator inside the GS
+unrolling; the predicted phase is pushed through the **twin** and scored
+against the far-field target, next to a Zernike-constrained classical-GS
+baseline.
+
+**Output** — `data/debug/gsnet_2f_calib/<ts>/`: `results.json` (every number),
+`forward_fidelity.png`, `network_before_after.png`, `frames/<family>_<i>.npz`.
+
+The decision is printed as one line and is the script's exit code:
+
+```
+P0_DECISION: PASS  corr=… ee=… nrmse=… | baseline corr=… ee=… nrmse=…
+```
+
+PASS requires the calibrated forward to be **no worse** than the physical
+Zernike baseline on correlation and within 2 % on EE. Exit code 2 on FAIL —
+that is the issue's 对比择优 logic: worse than the baseline means the physical
+model stays and the network is not allowed into the closed loop.
+
+| Option | Default | Description |
+|---|---|---|
+| `--out` | `data/debug/gsnet_2f_calib/<ts>` | Output directory |
+| `--grid` / `--far-field-size` | `64` / `512` | Pupil model grid / far-field FFT grid |
+| `--frames` | `8` | Frames per phase family (3 families total) |
+| `--metric-side` / `--target-side` | `36` / `36` | Metric grid side / far-field square target side |
+| `--epochs` / `--n-train` / `--n-eval` | `12` / `64` / `24` | Network budget per arm |
+| `--seed` | `20261020` | RNG seed |
+| `--skip-network` | off | Forward-fidelity arm only |
+| `--decision-only` | off | Print the decision line and exit |
+
+### generate_gsnet_2f_calibration_report.py
+
+Renders `report/gsnet_2f_calibration/report.md` (+ `figures/`) from the
+`results.json` written by `calibrate_gsnet_2f.py`. **Fully offline** — reads
+one JSON file and copies two PNGs; it re-computes no optical quantity.
+
+**Usage:**
+```bash
+python scripts/slm/generate_gsnet_2f_calibration_report.py \
+    --results data/debug/gsnet_2f_calib/<ts>/results.json
+```
+
+The report states the capacity difference between the twin and the calibrated
+model (which is what makes the experiment non-circular), labels **every CV
+number with its caliber** (the in-loop target-box caliber and the Zhou-2010
+small-flat-region rms caliber are not comparable), and lists the invariants
+that were *not* touched (trust region, per-round acceptance, holdout Pearson
+gate, flat admission, SPGD perturbation signs).
+
+### gsnet_init_hw_ab.py
+
+Campaign orchestration for the **issue #165 P1 hardware A/B**: does seeding the
+model-in-loop closed loop with a network-predicted phase beat seeding it with
+the physical phase? Needs hardware (Santec SLM + camera).
+
+The protocol is **interleaved replay** in one session: the `gsnet` arm and the
+`physical` arm alternate, and the order inside each pair flips every other pair
+so that "the arm that ran first got the brighter stretch of the session" cancels
+out. Both arms share the seed, the target, the probe counts and the exposure
+bin; the only difference is the `--init-from-gsnet` switch.
+
+Every model-in-loop run is preceded by the light-level gate of
+`diagnose_light_level.py`. The verdict comes from
+`ao_shaping.tools.slm.model_in_loop_summary`; this script only sequences the
+runs, pairs the results and writes the manifest.
+
+**Usage:**
+```bash
+python scripts/slm/gsnet_init_hw_ab.py --plan --gsnet-phase <phase.npy>
+python scripts/slm/gsnet_init_hw_ab.py --gsnet-phase <phase.npy> --pairs 3
+```
+
+**Output** — `data/debug/gsnet_init_hw_ab/<ts>/`: `plan.json`, `campaign.json`
+(per-run records + the paired statistics) and `runs.csv`.
+
+The statistics come from `ml/zernike/eval_stats.paired_comparison` (exact
+sign-flip p-value + `d_z` + the structural `min_attainable_pvalue`), because a
+paired test is only valid on the axis that actually varies — here the
+**replay pair**, not the fold. The report must quote the **mean difference and
+the p-value**; a single best-round score is not a reproducible gain on this
+bench (the score distribution is bimodal — see
+`report/shape_trials/gs_refine_live_20261012.md`).
+
 ### generate_models_report.py
 
 Generates the ML model training analysis report from TensorBoard event files.
