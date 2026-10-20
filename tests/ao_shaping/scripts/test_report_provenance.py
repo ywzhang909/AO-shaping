@@ -353,15 +353,26 @@ def test_report_relative_links_resolve(path: Path) -> None:
     )
 
 
-def _is_gitignored(path: Path) -> bool:
-    """True when git refuses to track ``path``, i.e. a clean clone will not have it."""
+def _is_gitignored(path: Path) -> bool | None:
+    """True when git refuses to track ``path``, False when it would, None when git
+    could not answer at all.
+
+    ``check-ignore`` exits 0 for ignored and 1 for not-ignored; any other code is a
+    git failure (rc=128 when the mount excludes this checkout's git metadata). Those
+    are different answers: reporting a failure as "not ignored" tells the reader to
+    delete a baseline entry that is in fact justified.
+    """
     proc = subprocess.run(
         ["git", "check-ignore", "-q", "--", str(path)],
         cwd=str(REPO),
         capture_output=True,
         check=False,
     )
-    return proc.returncode == 0
+    if proc.returncode == 0:
+        return True
+    if proc.returncode == 1:
+        return False
+    return None
 
 
 def test_the_preexisting_baseline_is_still_justified() -> None:
@@ -391,7 +402,14 @@ def test_the_preexisting_baseline_is_still_justified() -> None:
         for href, reason in links.items():
             assert reason and not reason.startswith("TBD"), f"{key} {href}: no reason"
             target = path.parent / href
-            assert href in broken or _is_gitignored(target), (
+            ignored = _is_gitignored(target)
+            if ignored is None:
+                pytest.skip(
+                    "git cannot answer for this checkout (its git metadata is outside "
+                    "the mounted tree, e.g. a linked worktree), so the gitignored half "
+                    "of this check is unavailable here"
+                )
+            assert href in broken or ignored, (
                 f"{key}: {href} is baselined as unresolvable but now resolves AND is "
                 "tracked by git — remove the entry so new breakage in this report is "
                 "caught again"

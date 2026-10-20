@@ -126,6 +126,12 @@ if [ -n "${AO_UPDATE_HELP_GOLDEN:-}${AO_CLI_CONTRACT_UPDATE:-}${AO_PROBE_HELP_UP
     MOUNT_MODE=rw
 fi
 
+# The bind-mounted checkout is host-owned while the container runs as root, so
+# git refuses every command ("dubious ownership") and tests that shell out to it
+# silently lose their signal. Env-based config is the only option here: the repo
+# is mounted read-only, so `git config` cannot write to it. These three -e lines
+# must stay inside the continuation chain without comments -- a '#' there joins
+# into one logical line and comments out the rest of the docker command.
 exec docker run --rm \
     --name ao-pytest \
     --cpus="$CPU_LIMIT" \
@@ -146,6 +152,9 @@ exec docker run --rm \
     -e NUMBA_CACHE_DIR=/tmp/numba-cache \
     -e MPLBACKEND=Agg \
     -e PYTHONUNBUFFERED=1 \
+    -e GIT_CONFIG_COUNT=1 \
+    -e GIT_CONFIG_KEY_0=safe.directory \
+    -e "GIT_CONFIG_VALUE_0=$WORKDIR_IN_CONTAINER" \
     -w "$AO_SCRATCH" \
     -e AO_PYTEST_ROOT="$WORKDIR_IN_CONTAINER" \
     "$IMAGE" \
