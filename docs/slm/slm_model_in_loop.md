@@ -114,11 +114,11 @@ Step B 是纯计算 (可微前向模型过 FFT)，硬件上不可微的只有「
 
 ### 守卫 2：逐轮验收
 `acceptance_verdict(loss_before, loss_after, score_before, score_after)`：
-- 拟合 loss 变差、或实测综合分变差 (容差 `acceptance_score_eps=0.001`) → reject
+- 拟合 loss 变差、或实测复合分数变差 (容差 `acceptance_score_eps=0.001`) → reject
 - 连续 reject ≥ `max_rejection_streak=3` → 中止 (实验系统落在模型之外)
 
 对匀化任务，另以 `max_cv_regression=0.02` 限制相对最佳已验收成形相位的 CV 回退。
-首轮仍由最终平场 对比择优 验收；之后即使 EE 提升使综合分微升，只要 CV
+首轮仍由最终平场 对比择优 验收；之后即使 EE 提升使复合分数微升，只要 CV
 增加超过容差，就拒绝该轮并保留先前相位。容差只覆盖测量抖动，
 `shape_iou_after` 仍须单独检查，CV 下降不等于方斑轮廓形成。
 

@@ -22,7 +22,7 @@ SLM #1 的控制卡 ID 本轮查询为 `23020027`（产品序列号 `24023600000
 
 真实设备命令参数：`slm-gs-refine --cam-type daheng --exposure-time-ms 0.05 --pupil-center 960,690 --beam-radius-px 450 --target-side 100 --cam-size 250 --gs-iters 12 --far-field-padding 3 --phase-grid 12 --epochs 12 --seed 0 --confirm-best --debug`。CSV、最佳相位及 PNG 在 `data/gs_refine_live_20261012/gs_refine_12_005ms/slm_gs_refine/20261012_163615/`，原始 CCD/SLM 相位 PKL 在相邻 `debug/` 下。结束时设备关闭。
 
-| 阶段 | 综合分 | PIB | 框内 CV |
+| 阶段 | 复合分数 | PIB | 框内 CV |
 |---|---:|---:|---:|
 | 平场 | 0.5269 | 0.8602 | 4.1616 |
 | plain GS | 0.7743 | 0.9769 | 0.7490 |
@@ -79,7 +79,7 @@ SLM #1 的控制卡 ID 本轮查询为 `23020027`（产品序列号 `24023600000
 
 ![radius=500 动画](images/slm_gs_refine_20261012_175929.gif)
 
-平场分数在 0.5337–0.5430，半径 450 在当前会话中的 GS 综合分最高，因此保留 450 做 30 轮 SPGD。运行目录 `data/debug/slm_gs_refine/20261012_180222/` 包含 CSV、最佳相位、最佳图及 32 条记录的原始 PKL/PNG/JSON；Daheng 曝光 0.020 ms，运行结束时 SLM 正常关闭。平场 0.5436；GS 0.7221（PIB 0.8383、CV 0.6503）；最佳记录 `_epoch=27`（SPGD `epoch=25`）的**运行内确认**分数为 0.7895（PIB 0.9719、CV 0.6473）。相对该次 GS 起点提高 0.0674，主要来自 ROI 内能量占比，而框内 CV 几乎不变。保存的平均帧峰值范围 10.5–193.25/255，未显示饱和。
+平场分数在 0.5337–0.5430，半径 450 在当前会话中的 GS 复合分数最高，因此保留 450 做 30 轮 SPGD。运行目录 `data/debug/slm_gs_refine/20261012_180222/` 包含 CSV、最佳相位、最佳图及 32 条记录的原始 PKL/PNG/JSON；Daheng 曝光 0.020 ms，运行结束时 SLM 正常关闭。平场 0.5436；GS 0.7221（PIB 0.8383、CV 0.6503）；最佳记录 `_epoch=27`（SPGD `epoch=25`）的**运行内确认**分数为 0.7895（PIB 0.9719、CV 0.6473）。相对该次 GS 起点提高 0.0674，主要来自 ROI 内能量占比，而框内 CV 几乎不变。保存的平均帧峰值范围 10.5–193.25/255，未显示饱和。
 
 ![30轮 SPGD 动画](images/slm_gs_refine_20261012_180222.gif)
 
