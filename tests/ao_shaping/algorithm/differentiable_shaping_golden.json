@@ -1,0 +1,13 @@
+{
+  "converged": true,
+  "intensity_digest": "c27f88d53868cfb9",
+  "iterations": 5,
+  "loss_history": [
+    3.1973628997802734,
+    3.1888437271118164,
+    3.176970958709717,
+    3.1615819931030273,
+    3.14251971244812
+  ],
+  "phase_digest": "f0d2d09d3f591c5a"
+}
