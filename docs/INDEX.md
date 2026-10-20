@@ -80,6 +80,7 @@
 | `slm/slm_gsnet.md` | FREEFORM 全频随机相位方形整形 + FourierGSNet 训练 |
 | `slm/slm_gs_refine.md` | GS 开环预矫正（0.662→0.812）+ SPGD 细化（→0.849）硬件移植 |
 | `slm/slm_model_in_loop.md` | 正向模型闭环整形（每轮用实测数据修正模型再合成相位） |
+| `slm/gsnet_init_hw.md` | GSNet 初值闭环（`--init-from-gsnet`）实验系统手册与上机前必读 |
 | `slm/model_in_loop_algorithm.md` | 同上命令的**结构与算法**详解（调用关系/计算时序） |
 | `slm/model_in_loop_handoff.md` | Model-in-loop 跨光路交接手册（换光路/功率/衰减片/相机/入射光时的交接清单） |
 | `slm/model_in_loop_workflow_faq.md` | 跨光路 model-in-loop：探测、物理模型迁移学习、可微优化与 FAQ |

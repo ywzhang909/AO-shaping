@@ -2787,6 +2787,39 @@ model stays and the network is not allowed into the closed loop.
 | `--skip-network` | off | Forward-fidelity arm only |
 | `--decision-only` | off | Print the decision line and exit |
 
+### gsnet_init_sim_ab.py
+
+Runs the **issue #165 P1** comparison in simulation: the model-in-loop closed
+loop started from a **network-predicted phase** versus started from the
+physical zero phase. **Fully offline** — `--cam-type sim`, no camera and no
+SLM.
+
+Three arms over the same bench, target, probe count and seed, differing only in
+`--init-from-gsnet`: `physical` (control), `gsnet_full` (the closed loop's own
+best phase — what a real shaping phase looks like) and `gsnet_scaled` (the
+same phase scaled down, so the trust-region gate is passed and the *next* gate
+is the one under test). The gate verdict of each arm
+(`trust_region_rejected` / `flat_bake_off_rejected` /
+`holdout_correlation_rejected` / `adopted`) is parsed out of the log and
+written next to the final score.
+
+**Output** — `data/debug/gsnet_init_sim_ab/<ts>/sim_ab.json` + `sim_ab.csv` +
+one directory per arm with its stdout/stderr.
+
+### export_gsnet_phase.py
+
+Exports a FourierGSNet prediction as the `(region, region)` raw-radian `.npy`
+that `slm-model-in-loop --init-from-gsnet` consumes. **Fully offline** — loads
+a checkpoint through `ml.gsnet.hybrid_infer.load_gsnet_checkpoint`, runs the
+network, writes the phase plus a JSON sidecar (rms, max, the exact inputs).
+
+`--forward ideal|calibrated` chooses the forward operator the network uses
+*inside* its unrolled GS: the canonical centred FFT (what the checkpoint was
+trained with) or the bench 2f physical forward
+(`ao_shaping.utils.wavefront.bench2f`), optionally carrying a fitted bench
+aberration via `--aberration`. Changing the operator changes the inference
+physics, not the weights.
+
 ### generate_gsnet_2f_calibration_report.py
 
 Renders `report/gsnet_2f_calibration/report.md` (+ `figures/`) from the

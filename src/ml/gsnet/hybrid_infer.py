@@ -23,11 +23,22 @@ from ml.gsnet.hybrid_phase import (
     far_field_intensity,
     model_grid_aperture_size_m,
 )
+from ml.gsnet.forward_ops import ForwardOperator
 from ml.gsnet.model import FourierGSNet
 
 
-def load_gsnet_checkpoint(path: Path) -> FourierGSNet:
-    """Load the checkpoint format written by :func:`ml.gsnet.train.train_gsnet`."""
+def load_gsnet_checkpoint(
+    path: Path, *, forward_op: ForwardOperator | None = None
+) -> FourierGSNet:
+    """Load the checkpoint format written by :func:`ml.gsnet.train.train_gsnet`.
+
+    Args:
+        path: The checkpoint file.
+        forward_op: Optional pluggable forward operator (see
+            :mod:`ml.gsnet.forward_ops`).  ``None`` keeps the historical
+            behaviour: the network runs on the hard-coded ideal FFT, which is
+            what the checkpoint was trained with.
+    """
     checkpoint = torch.load(path, map_location="cpu", weights_only=True)
     if not isinstance(checkpoint, dict) or not isinstance(checkpoint.get("config"), dict):
         raise ValueError("checkpoint must contain GSNet config and model_state_dict")
@@ -36,6 +47,7 @@ def load_gsnet_checkpoint(path: Path) -> FourierGSNet:
         num_layers=int(config["num_layers"]),
         base_channels=int(config["base_channels"]),
         shared_weights=bool(config.get("shared_weights", False)),
+        forward_op=forward_op,
     )
     model.load_state_dict(checkpoint["model_state_dict"], strict=True)
     model.eval()

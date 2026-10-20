@@ -98,6 +98,7 @@ def build_command(profile: dict) -> list[str]:
         "w_uniformity": "--w-uniformity", "w_efficiency": "--w-efficiency",
         "max_cv_regression": "--max-cv-regression", "min_geometry_correlation": "--min-geometry-correlation",
         "min_holdout_correlation": "--min-holdout-correlation",
+        "init_from_gsnet": "--init-from-gsnet",
     }
     unknown = set(profile) - set(mapping) - {"max_cv", "min_ee", "min_iou"}
     if unknown:
