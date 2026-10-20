@@ -313,7 +313,7 @@ def render_figures(
     rows = [r for r in scan["rows"] if not r.get("frame_missing")]
     made: list[str] = []
 
-    # Figure a: 综合分 vs Δz (硬件定尺框 / 硬件随斑框 / 仿真定尺框)
+    # Figure a: 复合分数 vs Δz (硬件定尺框 / 硬件随斑框 / 仿真定尺框)
     hw = [r for r in rows if "score_frozen" in r]
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(
@@ -333,8 +333,8 @@ def render_figures(
         "^-", color="#6b46c1", markersize=5, label="仿真 G1 (定尺框)",
     )
     ax.set_xlabel("离焦 Δz (mm)")
-    ax.set_ylabel("综合分")
-    ax.set_title("离焦下的综合分: 硬件 vs 仿真")
+    ax.set_ylabel("复合分数")
+    ax.set_title("离焦下的复合分数: 硬件 vs 仿真")
     ax.set_ylim(0, 1)
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
@@ -466,8 +466,8 @@ def defocus_group_section(
         )
     main_table = markdown_table(
         ["类型", "Δz (mm)", "面板边缘相位 (波)", "FWHM (px)", "环形度", "整帧峰值",
-         "质心偏移 (px)", "CV 定尺", "PIB 定尺", "综合分 定尺", "CV 随斑",
-         "综合分 随斑", "框外功率占比"],
+         "质心偏移 (px)", "CV 定尺", "PIB 定尺", "复合分数 定尺", "CV 随斑",
+         "复合分数 随斑", "框外功率占比"],
         main_rows,
     )
 
@@ -492,7 +492,7 @@ def defocus_group_section(
             ]
         )
     cmp_table = markdown_table(
-        ["Δz (mm)", "仿真 G1 综合分 (定尺)", "硬件 综合分 (定尺)",
+        ["Δz (mm)", "仿真 G1 复合分数 (定尺)", "硬件 复合分数 (定尺)",
          "仿真 归一化", "硬件 归一化", "硬件 质心偏移 (px)"],
         cmp_rows,
     )
@@ -514,7 +514,7 @@ def defocus_group_section(
         )
     steer_table = markdown_table(
         ["Δz (mm)", "质心 x 偏移 (px, 带符号)", "质心 y 偏移 (px)",
-         "综合分 定尺", "综合分 随斑"],
+         "复合分数 定尺", "复合分数 随斑"],
         steer_rows,
     )
 
@@ -575,13 +575,13 @@ def defocus_group_section(
         asym_word = "**与噪声地板同量级 —— 在这个口径下分不出不对称**"
 
     comparison_note = (
-        f"- **形状**：仿真在 |Δz| = 1.5007 mm 处的综合分降到 Δz=0 的 "
+        f"- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 "
         f"{fmt_metric(sim_ratio_15, 4)}（掉了 {sim_drop:.1%}），这一组是 "
         f"{fmt_metric(hw_ratio_15, 4)}，{shape_word}。"
     )
     if phase == "model_gs":
         comparison_note += (
-            f" 绝对值也对不上（硬件 Δz=0 的综合分 {fmt_metric(base_hw, 4)} 对仿真 0.8073）："
+            f" 绝对值也对不上（硬件 Δz=0 的复合分数 {fmt_metric(base_hw, 4)} 对仿真 0.8073）："
             f" 这一组的相位来源、目标框尺寸（44 px 对 43 px）、目标边长都与仿真的 G1 行**同口径**，"
             f" 所以差距来自光路本身：仿真里 GS 相位与数字孪生**自洽**，"
             f" 而同一张相位下发到真实实验系统上，照明没落在瞳面中心、相机也不在 2f 面上，"
@@ -617,7 +617,7 @@ def defocus_group_section(
 
 仿真的 G1 组（Δz 盲 GS、无离焦）取自 `report/shape_trials/fv_groups_fresnel_vs_vl.csv`
 （与 `gs_defocus_sim_20261019.md` §2.1 的 G1 行同源：Δz=0 处 score_fixed = 0.8073、
-cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框综合分，各自对自己的 Δz=0 归一化。
+cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，各自对自己的 Δz=0 归一化。
 
 {cmp_table}
 
@@ -654,7 +654,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框综合分，各
 后果：冻结框在 |Δz| ≳ 1.5 mm 之后开始被光斑**拖出框外**，于是
 
 - 框内功率（PIB）随 |Δz| 单调掉到 0；
-- 但**随斑框**的综合分在 +3.75 mm 处回到 {fmt_metric(at(3.75, 'score_moved'), 4)}，
+- 但**随斑框**的复合分数在 +3.75 mm 处回到 {fmt_metric(at(3.75, 'score_moved'), 4)}，
   高于 +1.5007 mm 处的 {fmt_metric(at(1.5007, 'score_moved'), 4)}。
 
 ⇒ **冻结框口径下 |Δz| ≳ 1.5 mm 的劣化不能读作「离焦把光打散了」**；光还在，只是被搬走了。
@@ -1001,7 +1001,7 @@ def build_markdown(
              str(noise["n_repeats"])],
             ["PIB", fmt_metric(noise["mean_pib"]), fmt_metric(sigma_pib, 5),
              str(noise["n_repeats"])],
-            ["综合分", fmt_metric(noise["mean_score"]), fmt_metric(sigma_score, 5),
+            ["复合分数", fmt_metric(noise["mean_score"]), fmt_metric(sigma_score, 5),
              str(noise["n_repeats"])],
             ["整帧峰值 (counts)", fmt_metric(noise["mean_frame_peak"], 2),
              fmt_metric(noise["sigma_frame_peak"], 2), str(noise["n_repeats"])],
@@ -1054,7 +1054,7 @@ def build_markdown(
         )
     zernike_table = markdown_table(
         ["n_max", "模态数", "拟合残差 (rad)", "max|c| (rad)", "clip 警告",
-         "CV 前", "CV 后", "PIB 前", "PIB 后", "EE 后", "综合分 后", "SPGD 有改善"],
+         "CV 前", "CV 后", "PIB 前", "PIB 后", "EE 后", "复合分数 后", "SPGD 有改善"],
         zrows,
     )
     base_rows = []
@@ -1067,7 +1067,7 @@ def build_markdown(
              fmt_metric(b["ee"], 4), fmt_metric(b["ar"], 4), fmt_metric(b["quality"], 4)]
         )
     baseline_table = markdown_table(
-        ["相位", "CV", "PIB", "EE", "AR", "综合分"], base_rows
+        ["相位", "CV", "PIB", "EE", "AR", "复合分数"], base_rows
     )
 
     # --- 阶数可排序性 -------------------------------------------------------
@@ -1220,7 +1220,7 @@ def build_markdown(
    转向叠加在「光斑本来就不在框中心」之上，于是同一个 |Δz| 在正负半轴上的劣化不对称：
    本轮各组在 ±1.5007 mm 处的差值是 {asym_parts}（噪声地板 {fmt_metric(sigma_score, 5)}），
    而仿真那边只差 0.0008 —— 这是硬件与仿真最大的口径差异。
-   各组 |Δz| = 1.5007 mm 相对 Δz=0 的综合分变化是 {drop_parts}：模型相位组与仿真同量级，
+   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 {drop_parts}：模型相位组与仿真同量级，
    硬件 GS 相位组却几乎不变，原因见 §2.2.2（44 px 目标框远大于该相位 ~10 px 的实际光斑）。
 3. **泽尼克阶数扫描在硬件上在线实现 8 阶**：{verdict}
    唯一随阶数**严格单调**的量是**拟合残差**（{'单调不增' if monotone else '非单调'}，
