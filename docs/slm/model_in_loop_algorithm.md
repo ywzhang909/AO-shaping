@@ -35,7 +35,7 @@ graph TD
     subgraph L1["① 硬件编排层 · runners/slm/model_in_loop_runner.py"]
         direction TB
         RUN["run(ctx, params: SlmModelInLoopParams)"]
-        PARSE["_parse_frozen_modes / _parse_point"]
+        PARSE["parse_frozen_modes / parse_point<br/>(runner_common.py)"]
         CFG["SlmModelInLoopConfig<br/>(runner_common.py 扁平 dataclass)"]
         RUN --> PARSE --> CFG
     end
@@ -166,7 +166,7 @@ sequenceDiagram
 
     opt --forward-checkpoint 已给
         O->>O: _seed_coefficients_from_checkpoint(config) 〔开设备之前〕
-        Note over O: 不逐项相符 → 此刻就报错, 不烧台架时间
+        Note over O: 不逐项相符 → 此刻就报错, 不烧实验系统时间
     end
 
     O->>Z: coefficients = np.zeros(n_coeffs) 〔默认零种子〕
@@ -561,22 +561,23 @@ Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起�
 4. **每轮重拟合会不会把种子吃掉.** §9.3 断言种子只影响第 1 轮, 这一点在 sim 里可测; 实验系统上
    要确认的是漂移与 LCOS 弛豫下, 「正确盆地」的收益能否撑过多轮漂移。
 
-5. **实验系统前置条件不变.** 曝光不可留 `0`(大恒会钳到量程端点, 暗 20–75 倍); 开机前按
-   `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。
+5. **实验系统前置条件不变.** 曝光的「不固定」语义用令牌 `auto` / `default` 表达, **裸 `0` 会被
+   CLI 拒绝**(见 §15.3); 若真的让 `0.0` 到了大恒驱动手里, 它会被钳到量程端点(暗 20–75 倍)。
+   开机前按 `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。
 
 ## 11. 输出契约
 
-- `data/slm_model_in_loop/<日期>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**, 用
-  `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、
+- `data/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹
+  弧度**, 用 `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、
   可选最优远场图 PNG。
 - `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`: **每次运行都写**, 不依赖 `--debug`。
   结构 `{epoch: record}`, 带 `_epoch` 索引键, 配 `.json` sidecar (含完整已解析配置)。
   ⚠️ 行内**只有标量** (由测试锁定), 逐帧图像不在其中; 最优帧另存 PNG。
   CSV 额外保留字符串列 `reason`, 它不能进 pkl 的标量集 (writer 用 `float()` 转换)。
-- `data/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/`: **逐测量 step dump, 只在 `--debug`
-  时写** (§14)。里面是这一次运行的**全部数组**: `step_<NNNN>_<stage>.png` 每步一张双 panel 图,
-  `steps.npz` 存无损的 `phase_rad` / `frame` 加标量, `steps.json` 存同样的标量加已解析的曝光与
-  几何以便自描述。
+- `data/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/` 下的 step dump: **逐测量 step dump, 只在
+  `--debug` 时写** (§14)。里面是这一次运行的**全部数组**: `step_<NNNN>_<stage>.png` 每步一张
+  双 panel 图, `steps.npz` 存无损的 `phase_rad` / `frame` 加标量, `steps.json` 存同样的标量加已解析的
+  曝光与几何以便自描述。
   三条线的关系: CSV = 逐轮**标量**; pkl = 全程**运行记录**, 仍然只有标量; step dump = 逐**测量**的
   数组。**中止的运行同样把 step dump 写出来**, 所以它也是几何失败的诊断现场(§15.1)。
 
@@ -627,10 +628,10 @@ Step A 仍然每轮从探针重拟合, 预训练权重只影响第 1 轮的起�
 
 ### 14.2 输出目录与三个文件
 
-目录由共享的 `build_debug_save_paths`(`utils/io/file.py`)生成, 于是落在仓库统一的 debug 布局下:
+目录由共享的 `debug_run_dir`(`utils/io/file.py`)生成, 于是落在仓库统一的 debug 布局下:
 
 ```
-data/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/
+data/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/
 ```
 
 | 文件 | 内容 |
@@ -639,7 +640,7 @@ data/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/
 | `steps.npz` | 无损数组: `phase_rad` `(N, region, region)` float64、`frame` `(N, cam, cam)` float32, 外加 `stage` / `round` / `probe_index` / `raw_peak` / `raw_p999` / `raw_mean` 标量 |
 | `steps.json` | 同一批标量 + 已解析的曝光与几何, 全部 JSON 原生类型, 所以这个 dump **自描述**: 半年后只看 json 也能还原当时跑了什么 |
 
-一次默认运行大约 **25 MB**。`cam` 是 `--cam_size`(默认 300), `region` 是 `--region`(默认 64)。
+一次默认运行大约 **25 MB**。`cam` 是 `--cam-size`(默认 300), `region` 是 `--region`(默认 64)。
 
 ### 14.3 stage: **恰好四个**, 闭集
 
@@ -713,31 +714,42 @@ payload 的键:
 
 §13 的口径对以下每一条同样成立: 这里给的是**怎么跑**, 不是**会跑出什么**。
 
-### 15.1 🔴 实验前先读这一段: 本实验系统**预期**退出码 2
+### 15.1 🔴 实验前先读这一段: 退出码的当前语义
 
-在当前这台 2f-Fourier 实验系统上, `slm-model-in-loop` **预期**在几何 对比择优 处中止, 退出码 `2`,
-而且**不提交任何相位**。这不是故障, 是守卫在正常工作。
+`slm-model-in-loop` 只有两个退出码(`model_in_loop_runner.py` 的 docstring 写明了):
 
-- 实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率
+| 退出码 | 含义 |
+|---|---|
+| `0` | 采纳了整形相位, **或**正确地保留了平场(没有任何整形相位打过平场) |
+| `2` | 几何 对比择优 失败, 或持续落在模型描述范围之外 —— 该次运行**没有**提交任何相位 |
+
+**所以「这条命令预期以退出码 2 结束」不是常态。** 那是 2026-10-15/16 那次会话的历史结果:
+当时散斑相关度在几何 对比择优 处就被拒绝, 运行根本没进 Step B。2026-10-19 的会话
+**已经越过几何标定**(标准相位族留出相关性约 0.78–0.87), 改被**留出相关性门槛**拦下
+(全频随机相位留出仅约 0.11–0.28, 低于逐样本门槛 `0.5`)
+(`report/shape_trials/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。
+
+- 更早那次的实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致
   光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。
   (`report/slm/model_in_loop_bench_calibration.md:49-55`)
-- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2902-2912`)。
+- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2991-3001`)。
 
 > 🔴 **不要为了让运行"过"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是
 > 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏
-> (`slm_model_in_loop.py:2212-2221` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成
+> (`slm_model_in_loop.py:2452-2460` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成
 > 一次看起来成功、实际更差的运行。
 
 **dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是
-`steps.json` 里 stage 的**组成**就能把两条退出码 2 的路径分开:
+`steps.json` 里 stage 的**组成**就能把三条退出码 2 的路径分开:
 
 | 终止状态 | 触发点 | dump 里的 stage 组成 |
 |---|---|---|
-| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2211-2221` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
-| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:2841-2849` → `model_in_loop_runner.py:257-263` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
+| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2451-2460` 抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) | **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |
+| `aborted_unidentifiable` | **留出**相关性不达标(`slm_model_in_loop.py:2864-2884`) | `stepA-probe` 在, `stepB-shaped` **不在** |
+| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` (`slm_model_in_loop.py:3130-3138` → `model_in_loop_runner.py:269-275` 退出 `2`) | `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |
 
-**先看 stage 列表, 再看数字** —— 几何失败和持续 reject 要走的路完全不同。
+**先看 stage 列表, 再看数字** —— 几何失败、留出失败和持续 reject 要走的路完全不同。
 
 ### 15.2 实验系统常数(每一条都有出处, 不要凭记忆)
 
@@ -745,15 +757,15 @@ payload 的键:
 |---|---|---|
 | 光路 | SLM 前焦面 → f=125 mm 透镜 → CCD 后焦面(2f Fourier); CCD 坐标 = 空间频率 | `src/ao_shaping/drivers/AGENTS.md:161` |
 | SLM | Santec SLM-200 **#1**, sn `22030108`, 1920×1200, 10-bit, @1064 nm, **2π = 993 gray**, **只允许 memory mode** | `report/slm/model_in_loop_bench_calibration.md:293-294`; pitch 8 µm 见 `report/slm/bench_calibration_20261001.md:13` |
-| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` `runner_common.py:2812-2821` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:142`) |
+| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** | `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` `runner_common.py:2896-2905` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:148`) |
 | 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 (0 阶浓度掉下去的那个拐点就是光斑边缘) | `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 `report/slm/model_in_loop_bench_calibration.md:181-191` |
-| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2822-2834`(文档就写在 option 的 help 里) |
+| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2906-2915`(文档就写在 option 的 help 里) |
 | 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** | `report/slm/model_in_loop_bench_calibration.md:297-299` |
 
 > 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的
 > 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差
 > 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推
-> (`runner_common.py:2835-2848` 的 help 文本)。
+> (`runner_common.py:2919-2932` 的 help 文本)。
 >
 > ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),
 > `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是
@@ -775,11 +787,16 @@ payload 的键:
 > 所以下面的命令把曝光写成一个**必须替换的占位符**, 而不是写死 1.5 —— bash 碰到 `<` 会直接
 > 报错, 这比静默用一个过期值跑完整轮要好。**每次实验都重新 bracket。**
 
-> 🔴 **`--exposure_time_ms 0` 是「不固定」, 不是「自动安全」。** 解析结果是 `("keep", 0.0)`, 即
-> 交给驱动; 而**大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是 `0`
+> 🔴 **曝光的「不固定」语义现在由令牌承担, 裸 `0` 会被 CLI 拒绝。** `--exposure-time-ms`
+> 接受三态: 正数 ms(原样使用) / `auto`(由本次画面探测) / `default`(保持设备当前曝光)。
+> **裸 `0` 直接被拒**: `Error: Invalid value for --exposure-time-ms: '0' is not a usable
+> exposure: pass a positive number of milliseconds, 'auto' ... or 'default' ... 0 is not a
+> synonym for 'auto'`。两个令牌经 `exposure_ms_legacy` 都映射回旧的 `0.0` 交给驱动; 而
+> **大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是这个 `0.0`
 > 实际变成**设备最小值 ~0.02 ms**, 比可用区间 0.4–1.5 ms **暗 20–75 倍**。
-> (`docs/slm/pre_run_characterization.md:220, 244-246`; 
-> `src/ao_shaping/drivers/ccd/daheng/driver.py:205-218`)
+> (`docs/slm/pre_run_characterization.md:220, 244-246`;
+> `src/ao_shaping/drivers/ccd/daheng/driver.py:221-235`;
+> `src/ao_shaping/utils/cli/exposure.py`)
 
 ### 15.4 焦面标度 `K` 目前**三方不一致**
 
@@ -787,7 +804,7 @@ payload 的键:
 `10954`。以 2.2 µm 像元推算应得 **~7557**, 所以**三方无一是已验证的**。
 
 `--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距
-(`runner_common.py:2876-2886`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
+(`runner_common.py:2960-2970`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传
 `--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。
 
 ### 15.5 ⚠️ CLI 默认网格比唯一硬件验证过的几何粗约 16×
@@ -807,14 +824,14 @@ CLI 默认 `--region 64` / `--far-field-padding 8` ⇒ 远场 `far_field_size = 
 
 ### 15.6 离线自检(不需要硬件)
 
-先确认接线对不对 —— `--cam_type sim` 走 2f-Fourier 数字孪生, 不会去开 Santec。
+先确认接线对不对 —— `--cam-type sim` 走 2f-Fourier 数字孪生, 不会去开 Santec。
 
 ```bash
 # 纯离线自检
-python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2
+python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 # 同一次运行顺带落 step dump (验证 dump 在没有硬件时也能写)
-python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2 --debug
+python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2 --debug
 ```
 
 ### 15.7 探针三连: 顺序**不能反**
@@ -855,31 +872,34 @@ python -m ao_shaping.tools.slm.slm_abba_probe \
 
 ```bash
 python src/ao_shaping/main.py --debug slm-model-in-loop \
-    --cam_type daheng --cam-id 0 \
-    --exposure_time_ms <本次 bracket 实测的曝光 ms> \
-    --slm_number 1 --slm_wavelength 1064 \
+    --cam-type daheng --cam-id 0 \
+    --exposure-time-ms <本次 bracket 实测的曝光 ms> \
+    --slm-number 1 --slm-wavelength 1064 \
     --panel-span-px 900 --pupil-center 960,600 \
     --camera-pixel-um 2.2 --focal-length-m 0.125 \
     -r 6
 ```
 
-⚠️ 本命令**预期**以退出码 `2` 结束(见 §15.1)。要看的东西在
-`data/debug/slm_model_in_loop_steps_<时间戳>/` 里, 不在 stdout 里。
+退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或留出门槛
+拒绝, 该次运行**没有**提交任何相位(退路见 §15.9)。**「预期以 `2` 结束」是 2026-10-15/16
+那次会话的历史结果, 不是这条命令的常态。** 要看的东西在
+`data/debug/slm_model_in_loop/<时间戳>/` 里, 不在 stdout 里。
 
-> **选项拼写在这条命令上不一致, 是既有事实不是笔误。** `--cam_type` / `--exposure_time_ms` /
-> `--cam_size` / `--slm_number` / `--slm_wavelength` 用**下划线**, `--cam-id` 用**连字符**,
-> 其余一律连字符。抄命令时以 `main.py slm-model-in-loop --help` 为准。
+> **选项一律用连字符。** `--cam-type` / `--exposure-time-ms` / `--cam-size` / `--slm-number` /
+> `--slm-wavelength` 都是连字符拼写; **下划线拼写会被 CLI 拒绝**
+> (`Error: No such option`, 2026-10-20 实测)。抄命令时以
+> `main.py slm-model-in-loop --help` 为准。
 
 ### 15.9 正向模型描述不了这台实验系统时的退路
 
 改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)
-+ 全频随机相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。
++ GS 逐像素相位 SPGD 细化, 所以它不需要"随机瞳面相位 ⇒ 远场散斑"这个前提。
 
 ```bash
 python src/ao_shaping/main.py slm-gs-refine \
-    --cam_type daheng --cam-id 0 \
-    --exposure_time_ms <本次 bracket 实测的曝光 ms> \
-    --cam_size 300 \
+    --cam-type daheng --cam-id 0 \
+    --exposure-time-ms <本次 bracket 实测的曝光 ms> \
+    --cam-size 300 \
     --panel-pixel-um 8.0 --camera-pixel-um 2.2 --beam-radius-px 450 \
     --far-field-padding 3 \
     -e 400
@@ -896,8 +916,8 @@ SLM memory 模式的 `open()` **加上首次 CCD 采集**可能无限阻塞(`Wai
 # 独立进程 + 外部超时; 超时后立刻确认没有残留进程占着 SLM
 $p = Start-Process python -ArgumentList @(
     'src/ao_shaping/main.py','--debug','slm-model-in-loop',
-    '--cam_type','daheng','--cam-id','0','--exposure_time_ms','<EXPOSURE>',
-    '--slm_number','1','--slm_wavelength','1064',
+    '--cam-type','daheng','--cam-id','0','--exposure-time-ms','<EXPOSURE>',
+    '--slm-number','1','--slm-wavelength','1064',
     '--panel-span-px','900','--pupil-center','960,600',
     '--camera-pixel-um','2.2','-r','6'
 ) -PassThru -NoNewWindow

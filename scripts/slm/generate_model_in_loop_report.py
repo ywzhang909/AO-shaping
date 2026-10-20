@@ -111,9 +111,11 @@ MODULES = {
 #: ``_verify_symbols`` resolves each against the real AST; a rename fails the run.
 #: This is the guard that makes the diagrams safe to keep.
 DIAGRAM_SYMBOLS: tuple[tuple[str, str], ...] = (
-    # runner / orchestration
-    ("runner", "_parse_frozen_modes"),
-    ("runner", "_parse_point"),
+    # runner / orchestration. The two parsers moved to the shared
+    # ``runners/runner_common.py`` (the runner imports them from there), so
+    # they are resolved against the module that *defines* them.
+    ("params", "parse_frozen_modes"),
+    ("params", "parse_point"),
     ("params", "SlmModelInLoopParams"),
     # hardware entry + benches
     ("hardware", "optimize_slm_model_in_loop"),
@@ -310,7 +312,7 @@ graph TD
     subgraph L1["① 硬件编排层 · runners/slm/model_in_loop_runner.py"]
         direction TB
         RUN["run(ctx, params: SlmModelInLoopParams)"]
-        PARSE["_parse_frozen_modes / _parse_point"]
+        PARSE["parse_frozen_modes / parse_point<br/>(runner_common.py)"]
         CFG["SlmModelInLoopConfig<br/>(runner_common.py 扁平 dataclass)"]
         RUN --> PARSE --> CFG
     end
@@ -428,7 +430,7 @@ sequenceDiagram
 
     opt --forward-checkpoint 已给
         O->>O: _seed_coefficients_from_checkpoint(config) 〔开设备之前〕
-        Note over O: 不逐项相符 → 此刻就报错, 不烧台架时间
+        Note over O: 不逐项相符 → 此刻就报错, 不烧实验系统时间
     end
 
     O->>Z: coefficients = np.zeros(n_coeffs) 〔默认零种子〕
@@ -549,7 +551,12 @@ flowchart LR
 # Figures
 # ---------------------------------------------------------------------------
 
-_CJK = {"Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei"}
+#: CJK fonts to try, **in priority order**. A tuple, not a set: set iteration
+#: order depends on string hashing, so a set made two runs of this generator
+#: pick different installed fonts (e.g. "Microsoft YaHei" on one run, "SimHei"
+#: on the next) and emit a byte-different PNG for identical input -- which
+#: shows up as a spurious diff in the tracked figure.
+_CJK = ("Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "WenQuanYi Micro Hei")
 
 
 def _setup_fonts() -> None:
@@ -850,8 +857,8 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
 
     A("### 14.2 输出目录与三个文件\n")
     A(
-        "目录由共享的 `build_debug_save_paths`(`utils/io/file.py`)生成, 于是落在仓库统一的 debug 布局下:\n\n"
-        "```\ndata/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/\n```\n"
+        "目录由共享的 `debug_run_dir`(`utils/io/file.py`)生成, 于是落在仓库统一的 debug 布局下:\n\n"
+        "```\ndata/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/\n```\n"
     )
     A("| 文件 | 内容 |\n|---|---|")
     A(
@@ -869,7 +876,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
     )
     A("")
     A(
-        f"一次默认运行大约 **25 MB**。`cam` 是 `--cam_size`(默认 "
+        f"一次默认运行大约 **25 MB**。`cam` 是 `--cam-size`(默认 "
         f"{cfg['cam_size']}), `region` 是 `--region`(默认 {region})。\n"
     )
 
@@ -877,7 +884,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
     A("| stage | 哪一次测量 | 次数 |\n|---|---|---|")
     A("| `flat` | 平场基线, Stage 0 | 全程 **1** 次 |")
     A(
-        f"| `calib-probe` | 一次性台架几何 对比择优 的探针(`--n-calibration-probes`, 默认 {n_calib}) "
+        f"| `calib-probe` | 一次性实验系统几何 对比择优 的探针(`--n-calibration-probes`, 默认 {n_calib}) "
         f"| 全程 {n_calib} 次 |"
     )
     A(
@@ -908,7 +915,7 @@ def _section_debug_dump(cfg: dict[str, str]) -> list[str]:
         "后者约 1.16 GB。dump 是拿来**看**的, 不是拿来当面板备份的。\n"
     )
     A(
-        "**更根本的**: 面板数组与相机帧**根本不是同一套坐标** —— 本台架上两轴互换 90° 且尺度差 10 倍\n"
+        "**更根本的**: 面板数组与相机帧**根本不是同一套坐标** —— 本实验系统上两轴互换 90° 且尺度差 10 倍\n"
         "以上。所以面板数组既不能与相机帧直接对照, 也不是模型预测过的那份东西; 把它存下来, 等于把\n"
         "一个需要额外反解才能读懂的副本放进 dump。模型网格那份**就是**模型预测时的输入, 逐像素可比。\n"
     )
@@ -975,43 +982,56 @@ def _section_bench_commands() -> list[str]:
     A("## 15. 常用典型命令\n")
     A("§13 的口径对以下每一条同样成立: 这里给的是**怎么跑**, 不是**会跑出什么**。\n")
 
-    A("### 15.1 🔴 上机前先读这一段: 本台架**预期**退出码 2\n")
+    A("### 15.1 🔴 实验前先读这一段: 退出码的当前语义\n")
     A(
-        "在当前这台 2f-Fourier 台架上, `slm-model-in-loop` **预期**在几何 对比择优 处中止, 退出码 `2`,\n"
-        "而且**不提交任何相位**。这不是故障, 是守卫在正常工作。\n"
+        "`slm-model-in-loop` 只有两个退出码(`model_in_loop_runner.py` 的 docstring 写明了):\n\n"
+        "| 退出码 | 含义 |\n|---|---|\n"
+        "| `0` | 采纳了整形相位, **或**正确地保留了平场(没有任何整形相位打过平场) |\n"
+        "| `2` | 几何 对比择优 失败, 或持续落在模型描述范围之外 —— 该次运行**没有**提交任何相位 |\n"
     )
     A(
-        "- 实测: 散斑相关度在这台台架上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率\n"
+        "**所以「这条命令预期以退出码 2 结束」不是常态。** 那是 2026-10-15/16 那次会话的历史结果:\n"
+        "当时散斑相关度在几何 对比择优 处就被拒绝, 运行根本没进 Step B。2026-10-19 的会话\n"
+        "**已经越过几何标定**(标准相位族留出相关性约 0.78–0.87), 改被**留出相关性门槛**拦下\n"
+        "(全频随机相位留出仅约 0.11–0.28, 低于逐样本门槛 `0.5`)\n"
+        "(`report/shape_trials/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。\n"
+    )
+    A(
+        "- 更早那次的实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率\n"
         "  强烈低通掉, 于是\"随机瞳面相位 ⇒ 远场散斑\"这个模型前提本身不成立, 实测帧是**一个紧致\n"
         "  光斑 + 一圈暗晕**, 而模型预测的是**铺满画幅的散斑**。\n"
         "  (`report/slm/model_in_loop_bench_calibration.md:49-55`)\n"
-        "- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2477-2487`)。\n"
+        "- 而 `--min-geometry-correlation` 默认 **0.5**(`runner_common.py:2991-3001`)。\n"
     )
     A(
         "> 🔴 **不要为了让运行\"过\"而调低 `--min-geometry-correlation`。** 那个守卫存在的理由就是\n"
         "> 阻止运行提交一个**比平场更差**的相位 —— 几何不对时整形只会把光斑做坏\n"
-        "> (`slm_model_in_loop.py:1282-1291` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成\n"
+        "> (`slm_model_in_loop.py:2452-2460` 的异常文案说的就是这件事)。调低它会把一次干净的拒绝换成\n"
         "> 一次看起来成功、实际更差的运行。\n"
     )
     A(
         "**dump 恰好就是这一情况的诊断工具**: 中止的运行照样把盘写出来, 于是\n"
-        "`steps.json` 里 stage 的**组成**就能把两条退出码 2 的路径分开:\n"
+        "`steps.json` 里 stage 的**组成**就能把三条退出码 2 的路径分开:\n"
     )
     A(
         "| 终止状态 | 触发点 | dump 里的 stage 组成 |\n|---|---|---|\n"
-        "| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:1281-1291` "
-        "抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:189-195`) "
+        "| `aborted_unidentifiable` | 几何 对比择优 相关度不达标(`slm_model_in_loop.py:2451-2460` "
+        "抛 `RuntimeError` → runner 转 `SystemExit(2)`, `model_in_loop_runner.py:187-203`) "
         "| **只有** `flat` + `calib-probe`, **一个** `stepA-probe` 都没有 |"
     )
     A(
+        "| `aborted_unidentifiable` | **留出**相关性不达标(`slm_model_in_loop.py:2864-2884`) "
+        "| `stepA-probe` 在, `stepB-shaped` **不在** |"
+    )
+    A(
         "| `aborted_rejection_streak` | 连续 reject 达 `--max-rejection-streak` "
-        "(`slm_model_in_loop.py:1581-1589` → `model_in_loop_runner.py:337-343` 退出 `2`) "
+        "(`slm_model_in_loop.py:3130-3138` → `model_in_loop_runner.py:269-275` 退出 `2`) "
         "| `stepA-probe` / `stepB-shaped` **都在**, 一直到最后被 reject 的那一轮 |"
     )
     A("")
-    A("**先看 stage 列表, 再看数字** —— 几何失败和持续 reject 要走的路完全不同。\n")
+    A("**先看 stage 列表, 再看数字** —— 几何失败、留出失败和持续 reject 要走的路完全不同。\n")
 
-    A("### 15.2 台架常数(每一条都有出处, 不要凭记忆)\n")
+    A("### 15.2 实验系统常数(每一条都有出处, 不要凭记忆)\n")
     A("| 项 | 值 | 出处 |\n|---|---|---|")
     A(
         "| 光路 | SLM 前焦面 → f=125 mm 透镜 → CCD 后焦面(2f Fourier); CCD 坐标 = 空间频率 "
@@ -1025,16 +1045,16 @@ def _section_bench_commands() -> list[str]:
     A(
         "| CCD | Daheng MER2-507-23GM NIR, sn `FJB24112232`, 2592×1944, **像元 2.2 µm** "
         "| `src/ao_shaping/drivers/AGENTS.md:159`; 像元默认值 `--camera-pixel-um` "
-        "`runner_common.py:135` |"
+        "`runner_common.py:2896-2905` (默认值常量 `_DEFAULT_CAMERA_PIXEL_UM=2.2` 在 `:148`) |"
     )
     A(
         "| 面板上的光斑 | 中心 **(960, 600)**, 半径 **450 面板 px**; 由半平面随机相位边界扫描实测 "
         "(0 阶浓度掉下去的那个拐点就是光斑边缘) "
-        "| `src/ao_shaping/tools/slm/bench_kernels.py:101-102`; 测量方式与数值 "
+        "| `src/ao_shaping/utils/slm/bench_constants.py:53-55`（R-47 下沉：`BEAM_CENTER_PANEL`/`BEAM_RADIUS_PANEL` 单一定义，`bench_kernels` 仅再导出）; 测量方式与数值 "
         "`report/slm/model_in_loop_bench_calibration.md:181-191` |"
     )
     A(
-        "| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2423`(文档就写在 option 的 help 里) |"
+        "| `--panel-span-px` | **900** = 2 × 450 | `runner_common.py:2906-2915`(文档就写在 option 的 help 里) |"
     )
     A(
         "| 相机上的 0 阶 | ≈ **(674, 1028)** on 2592×1944, 距几何中心 (1296, 972) 偏 **622 px** "
@@ -1045,7 +1065,7 @@ def _section_bench_commands() -> list[str]:
         "> 🔴 **0 阶一律用 `argmax` 定位, 永远不要用几何中心**(`argmax` 的依据见上表最后一行的\n"
         "> 出处)。同一条规则还有更狠的版本: 面板坐标与相机坐标**不是同一套**, 两轴互换 90° 且尺度差\n"
         "> 10 倍以上, 所以 `--pupil-center` 只能在**面板上实测**, 不能从相机位置推\n"
-        "> (`runner_common.py:2424-2437` 的 help 文本)。\n"
+        "> (`runner_common.py:2919-2932` 的 help 文本)。\n"
         ">\n"
         "> ⚠️ SLM 序列号在仓库里有**三路冲突**(`22030108` / `22030102` / `23020026`),\n"
         "> `src/ao_shaping/drivers/AGENTS.md:163-168` 与 `TODO.md` **F-11** 都还没收口。上表记的是\n"
@@ -1058,7 +1078,7 @@ def _section_bench_commands() -> list[str]:
         "| **≥ 0.4 ms** | 两次重复一致、单调、近线性 → 可用区间 | "
         "`report/slm/bench_calibration_20261001.md:77-85` |\n"
         "| **< 0.4 ms** | 读数紊乱(同一档两次重复读到 80 与 255) → 不可用 | 同上 |\n"
-        "| **裁切拐点 ≈ 2.0–2.2 ms** | 撞满量程 | 同上 |\n"
+        "| **裁切拐点 ≈ 2.0–2.2 ms** | 达到量程饱和 | 同上 |\n"
         "| **建议工作点 1.0–1.5 ms** | peak 119–198, 余量充足 | 同上 |\n"
         "| **1.5 ms** | 该次会话实测 peak **202.5**, 50 px box 内 0% 饱和, 拐点在 **1.75–2.00 ms** "
         "| `report/fouriergsnet_pipeline/hardware_run_20261001.md:91-101` |"
@@ -1069,14 +1089,19 @@ def _section_bench_commands() -> list[str]:
         "> 15:38 读到 246, **8 分钟内 +21%**\n"
         "> (`report/fouriergsnet_pipeline/hardware_run_20261001.md:103-104`)。\n"
         "> 所以下面的命令把曝光写成一个**必须替换的占位符**, 而不是写死 1.5 —— bash 碰到 `<` 会直接\n"
-        "> 报错, 这比静默用一个过期值跑完整轮要好。**每次上机都重新 bracket。**\n"
+        "> 报错, 这比静默用一个过期值跑完整轮要好。**每次实验都重新 bracket。**\n"
     )
     A(
-        "> 🔴 **`--exposure_time_ms 0` 是「不固定」, 不是「自动安全」。** 解析结果是 `(\"keep\", 0.0)`, 即\n"
-        "> 交给驱动; 而**大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是 `0`\n"
+        "> 🔴 **曝光的「不固定」语义现在由令牌承担, 裸 `0` 会被 CLI 拒绝。** `--exposure-time-ms`\n"
+        "> 接受三态: 正数 ms(原样使用) / `auto`(由本次画面探测) / `default`(保持设备当前曝光)。\n"
+        "> **裸 `0` 直接被拒**: `Error: Invalid value for --exposure-time-ms: '0' is not a usable\n"
+        "> exposure: pass a positive number of milliseconds, 'auto' ... or 'default' ... 0 is not a\n"
+        "> synonym for 'auto'`。两个令牌经 `exposure_ms_legacy` 都映射回旧的 `0.0` 交给驱动; 而\n"
+        "> **大恒驱动会把越界值钳到量程端点**(注释说明是为了避免 SDK 写失败), 于是这个 `0.0`\n"
         "> 实际变成**设备最小值 ~0.02 ms**, 比可用区间 0.4–1.5 ms **暗 20–75 倍**。\n"
-        "> (`docs/slm/pre_run_characterization.md:220, 244-246`; \n"
-        "> `src/ao_shaping/drivers/ccd/daheng/driver.py:205-218`)\n"
+        "> (`docs/slm/pre_run_characterization.md:220, 244-246`;\n"
+        "> `src/ao_shaping/drivers/ccd/daheng/driver.py:221-235`;\n"
+        "> `src/ao_shaping/utils/cli/exposure.py`)\n"
     )
 
     A("### 15.4 焦面标度 `K` 目前**三方不一致**\n")
@@ -1086,7 +1111,7 @@ def _section_bench_commands() -> list[str]:
     )
     A(
         "`--focal-length-m` 默认 `0` = 用实测焦点标度 + `--camera-pixel-um` **派生**焦距\n"
-        "(`runner_common.py:2451-2461`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传\n"
+        "(`runner_common.py:2960-2970`)。派生值继承上面那个未定的标度; 想消掉这层不确定性, 就显式传\n"
         "`--focal-length-m 0.125` 把标称镜头**钉死**。`F-12` 未收口之前, 两者都不算已验证。\n"
     )
 
@@ -1110,11 +1135,11 @@ def _section_bench_commands() -> list[str]:
 
     A("### 15.6 离线自检(不需要硬件)\n")
     A(
-        "先确认接线对不对 —— `--cam_type sim` 走 2f-Fourier 数字孪生, 不会去开 Santec。\n"
+        "先确认接线对不对 —— `--cam-type sim` 走 2f-Fourier 数字孪生, 不会去开 Santec。\n"
     )
-    A("```bash\n# 纯离线自检\npython src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2\n\n"
+    A("```bash\n# 纯离线自检\npython src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2\n\n"
       "# 同一次运行顺带落 step dump (验证 dump 在没有硬件时也能写)\n"
-      "python src/ao_shaping/main.py slm-model-in-loop --cam_type sim -r 2 --debug\n```\n")
+      "python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2 --debug\n```\n")
 
     A("### 15.7 探针三连: 顺序**不能反**\n")
     A(
@@ -1148,7 +1173,7 @@ def _section_bench_commands() -> list[str]:
         "**不要去测任何转移矩阵**, 先把 ①② 的问题解决。\n"
     )
 
-    A("### 15.8 真机运行\n")
+    A("### 15.8 实验运行\n")
     A(
         "把 `<...>` 换成 15.3 这一次 bracket 出来的曝光。`--debug` 用**组级**写法(也可以挪到子命令之后,\n"
         "或者改用 `DEBUG=1` 环境变量, 三者等价, 见 §14.1)。\n"
@@ -1156,35 +1181,38 @@ def _section_bench_commands() -> list[str]:
     A(
         "```bash\n"
         "python src/ao_shaping/main.py --debug slm-model-in-loop \\\n"
-        "    --cam_type daheng --cam-id 0 \\\n"
-        "    --exposure_time_ms <本次 bracket 实测的曝光 ms> \\\n"
-        "    --slm_number 1 --slm_wavelength 1064 \\\n"
+        "    --cam-type daheng --cam-id 0 \\\n"
+        "    --exposure-time-ms <本次 bracket 实测的曝光 ms> \\\n"
+        "    --slm-number 1 --slm-wavelength 1064 \\\n"
         "    --panel-span-px 900 --pupil-center 960,600 \\\n"
         "    --camera-pixel-um 2.2 --focal-length-m 0.125 \\\n"
         "    -r 6\n"
         "```\n"
     )
     A(
-        "⚠️ 本命令**预期**以退出码 `2` 结束(见 §15.1)。要看的东西在\n"
-        "`data/debug/slm_model_in_loop_steps_<时间戳>/` 里, 不在 stdout 里。\n"
+        "退出码按 §15.1 读: `0` = 采纳了整形相位或正确保留了平场; `2` = 几何 对比择优 或留出门槛\n"
+        "拒绝, 该次运行**没有**提交任何相位(退路见 §15.9)。**「预期以 `2` 结束」是 2026-10-15/16\n"
+        "那次会话的历史结果, 不是这条命令的常态。** 要看的东西在\n"
+        "`data/debug/slm_model_in_loop/<时间戳>/` 里, 不在 stdout 里。\n"
     )
     A(
-        "> **选项拼写在这条命令上不一致, 是既有事实不是笔误。** `--cam_type` / `--exposure_time_ms` /\n"
-        "> `--cam_size` / `--slm_number` / `--slm_wavelength` 用**下划线**, `--cam-id` 用**连字符**,\n"
-        "> 其余一律连字符。抄命令时以 `main.py slm-model-in-loop --help` 为准。\n"
+        "> **选项一律用连字符。** `--cam-type` / `--exposure-time-ms` / `--cam-size` / `--slm-number` /\n"
+        "> `--slm-wavelength` 都是连字符拼写; **下划线拼写会被 CLI 拒绝**\n"
+        "> (`Error: No such option`, 2026-10-20 实测)。抄命令时以\n"
+        "> `main.py slm-model-in-loop --help` 为准。\n"
     )
 
-    A("### 15.9 正向模型描述不了这台台架时的退路\n")
+    A("### 15.9 正向模型描述不了这台实验系统时的退路\n")
     A(
         "改用 `slm-gs-refine`。它不做像差拟合, 只做 GS 开环预矫正(带 对比择优, 实测不优于平场就丢弃)\n"
-        "+ 自由相位 SPGD 细化, 所以它不需要\"随机瞳面相位 ⇒ 远场散斑\"这个前提。\n"
+        "+ GS 逐像素相位 SPGD 细化, 所以它不需要\"随机瞳面相位 ⇒ 远场散斑\"这个前提。\n"
     )
     A(
         "```bash\n"
         "python src/ao_shaping/main.py slm-gs-refine \\\n"
-        "    --cam_type daheng --cam-id 0 \\\n"
-        "    --exposure_time_ms <本次 bracket 实测的曝光 ms> \\\n"
-        "    --cam_size 300 \\\n"
+        "    --cam-type daheng --cam-id 0 \\\n"
+        "    --exposure-time-ms <本次 bracket 实测的曝光 ms> \\\n"
+        "    --cam-size 300 \\\n"
         "    --panel-pixel-um 8.0 --camera-pixel-um 2.2 --beam-radius-px 450 \\\n"
         "    --far-field-padding 3 \\\n"
         "    -e 400\n"
@@ -1195,7 +1223,7 @@ def _section_bench_commands() -> list[str]:
     A(
         "SLM memory 模式的 `open()` **加上首次 CCD 采集**可能无限阻塞(`WaitImageV3` 的原生等待由 SDK\n"
         "内部驱动, Python 侧的超时保护管不到), 而 DVI 模式一旦挂起, memory 模式也会挂到**物理断电**\n"
-        "为止。所以任何真机脚本都要**作为独立进程运行、外部可强杀、并带秒级超时**\n"
+        "为止。所以任何实验系统脚本都要**作为独立进程运行、外部可强杀、并带秒级超时**\n"
         "(`report/fouriergsnet_pipeline/TODO.md:23-27`)。\n"
     )
     A(
@@ -1203,8 +1231,8 @@ def _section_bench_commands() -> list[str]:
         "# 独立进程 + 外部超时; 超时后立刻确认没有残留进程占着 SLM\n"
         "$p = Start-Process python -ArgumentList @(\n"
         "    'src/ao_shaping/main.py','--debug','slm-model-in-loop',\n"
-        "    '--cam_type','daheng','--cam-id','0','--exposure_time_ms','<EXPOSURE>',\n"
-        "    '--slm_number','1','--slm_wavelength','1064',\n"
+        "    '--cam-type','daheng','--cam-id','0','--exposure-time-ms','<EXPOSURE>',\n"
+        "    '--slm-number','1','--slm-wavelength','1064',\n"
         "    '--panel-span-px','900','--pupil-center','960,600',\n"
         "    '--camera-pixel-um','2.2','-r','6'\n"
         ") -PassThru -NoNewWindow\n"
@@ -1255,7 +1283,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
     A(
         "> **口径声明: 本报告不含任何壁钟耗时。** 每轮的设备往返次数与计算步数可由配置\n"
-        "> 推出, 因此给出; 耗时取决于台架, 在这里写就是编造。\n"
+        "> 推出, 因此给出; 耗时取决于实验系统, 在这里写就是编造。\n"
     )
 
     # -- 1 定位 -----------------------------------------------------------
@@ -1266,7 +1294,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "   与正向模型的预测对比, 重拟合**一个共享的 Zernike 像差向量**。\n"
         "2. **Step B —— 合成方形.** **冻结**刚拟合出的像差, 优化**全像素 SLM 相位**逼近方形目标,\n"
         "   下发实测; 本轮相位成为下一轮的热启动。\n\n"
-        "两个守卫 (§6) 抑制两步互相追逐; 最终相位只有**实测优于平场基线**才提交。\n"
+        "两个守卫 (§6) 抑制两步相互耦合振荡; 最终相位只有**实测优于平场基线**才提交。\n"
     )
 
     # -- 2 调用关系 -------------------------------------------------------
@@ -1321,7 +1349,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("## 4. Step A 详细: 共享像差拟合\n")
     A("### 4.1 为什么必须用探针, 不能直接用整形相位\n")
     A(
-        "平瞳孔 (或光滑整形后的瞳孔) 聚焦成近似 δ 函数, 其**归一化**强度对光滑低阶像差几乎不响应 ——\n"
+        "平瞳面 (或光滑整形后的瞳面) 聚焦成近似 δ 函数, 其**归一化**强度对光滑低阶像差几乎不响应 ——\n"
         "像差因此不可辨识。探针相位 std 高于约 3 rad 时信号才越过 16-bit 量化本底两个数量级, 拟合才良态。\n"
         "这也解释了 `probe_spread` 不是一个可以随手调小的正则项。\n"
     )
@@ -1339,8 +1367,8 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("### 4.3 冻结哪些模式, 以及为什么\n")
     A(
         "`frozen_modes` 默认 `(1, 2, 3)`, 即 **Noll 1/2/3 = piston/tip/tilt**。它们**无法从远场\n"
-        "强度辨识**: piston 在瞳孔上是常数, 对焦面强度无贡献; tip/tilt 只是把 0 阶搬个位置。\n"
-        "放开它们的实测后果是 56% 的系数范数被灌进这些简并方向而**不带来任何收益** ——\n"
+        "强度辨识**: piston 在瞳面上是常数, 对焦面强度无贡献; tip/tilt 只是把 0 阶搬个位置。\n"
+        "放开它们的实测后果是 56% 的系数范数转移到这些简并方向而**不带来任何收益** ——\n"
         "即拟合在噪声方向上花掉了 trust region 的预算。\n"
     )
     A("### 4.4 系数个数\n")
@@ -1381,7 +1409,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("## 6. 两个守卫: 为什么必须有\n")
     A(
         "Step A 产出 `c_t`; Step B 产出以 `c_t` 为条件的 `phi_t`; 下一轮又通过 `phi_t` 的校正去重拟合\n"
-        "`c_{t+1}`。放任两者互相追逐 —— 像差吸收一部分整形相位, 整形相位又补偿像差 —— 在硬件上\n"
+        "`c_{t+1}`。放任两者相互耦合振荡 —— 像差吸收一部分整形相位, 整形相位又补偿像差 —— 在硬件上\n"
         "(漂移、LCOS 弛豫误差、读出噪声) 表现为**缓慢发散而不是崩溃**, 所以必须有廉价的上界。\n"
     )
     A(
@@ -1391,7 +1419,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
     A(GUARD_STATE + NEWLINE)
     A(
-        "持续 reject 意味着台架落在模型描述之外 (瞳孔配准、面板倾斜、离面离焦、渐晕), 此时运行\n"
+        "持续 reject 意味着实验系统落在模型描述之外 (瞳面配准、面板倾斜、离面离焦、渐晕), 此时运行\n"
         "**中止**而不是提交一个「模型自己喜欢」的相位。\n"
     )
 
@@ -1524,10 +1552,10 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
         "开设备前报错。写错一个参数不该用一次校准 + 一帧实测来发现。\n"
     )
 
-    # -- 9b 上机 TODO -----------------------------------------------------
-    A("## 10. 上机后的 TODO (尚未验证的部分)\n")
+    # -- 9b 实验 TODO -----------------------------------------------------
+    A("## 10. 实验后的 TODO (尚未验证的部分)\n")
     A(
-        "本节列的是**代码之外、只能在台架上回答**的问题。离线与 `cam_type=sim` 已覆盖的是「接线是否正确、\n"
+        "本节列的是**代码之外、只能在实验系统上回答**的问题。离线与 `cam_type=sim` 已覆盖的是「接线是否正确、\n"
         "几何不符是否报错、种子是否按位移 1 放置且冻结项被清零」, **不是**「这份权重对最终整形质量有多大\n"
         "好处」。后者需要下面的对照实验, 目前**没有任何数据**。\n"
     )
@@ -1535,7 +1563,7 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("   `--forward-checkpoint`, 一次不带。比较第 1 轮系数变化量与最终实测分数。\n")
     A(
         "   判据不是「带种子的分数更高」, 而是**带种子的坏起点能被验收测试恢复** —— 如果带种子的 run\n"
-        "   反而更差, 说明离线权重与本台架的物理不一致 (几何相符 ≠ 物理相符), 那就该先重训而不是调参数。\n"
+        "   反而更差, 说明离线权重与本实验系统的物理不一致 (几何相符 ≠ 物理相符), 那就该先重训而不是调参数。\n"
     )
     A(
         "2. **默认 padding 的矛盾要不要在代码层面解决.** 现成权重是 `far_field_padding=1`, 闭环默认 8。\n"
@@ -1544,33 +1572,34 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     )
     A(
         "3. **未记录几何的假设到底成不成立.** `radius=None` / `center_crop=True` / `conserve_energy=False`\n"
-        "   是装载器的默认值, 不是 checkpoint 的记录。台架上如果装配口径与之不同 (例如实际有效口径不是\n"
+        "   是装载器的默认值, 不是 checkpoint 的记录。实验系统上如果装配口径与之不同 (例如实际有效口径不是\n"
         "   内切圆), `--assume-unverified-geometry` 会掩盖这个差异 —— 需要一次**不带**该开关、改为显式\n"
         "   指定真实口径的对照。\n"
     )
     A(
-        "4. **每轮重拟合会不会把种子吃掉.** §9.3 断言种子只影响第 1 轮, 这一点在 sim 里可测; 台架上\n"
+        "4. **每轮重拟合会不会把种子吃掉.** §9.3 断言种子只影响第 1 轮, 这一点在 sim 里可测; 实验系统上\n"
         "   要确认的是漂移与 LCOS 弛豫下, 「正确盆地」的收益能否撑过多轮漂移。\n"
     )
     A(
-        "5. **真机前置条件不变.** 曝光不可留 `0`(大恒会钳到量程端点, 暗 20–75 倍); 开机前按\n"
-        "   `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。\n"
+        "5. **实验系统前置条件不变.** 曝光的「不固定」语义用令牌 `auto` / `default` 表达, **裸 `0` 会被\n"
+        "   CLI 拒绝**(见 §15.3); 若真的让 `0.0` 到了大恒驱动手里, 它会被钳到量程端点(暗 20–75 倍)。\n"
+        "   开机前按 `slm_drift_probe` → `slm_floor_probe` → `slm_abba_probe` 顺序表征(顺序不可反)。\n"
     )
 
     # -- 9 输出 -----------------------------------------------------------
     A("## 11. 输出契约\n")
     A(
-        "- `data/slm_model_in_loop/<日期>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹弧度**, 用\n"
-        "  `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、\n"
+        "- `data/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/`: 逐轮历史 CSV、`best_phase.npy` (**raw 未包裹\n"
+        "  弧度**, 用 `Santec.create_phase_from_array()` 下发)、`bench_geometry.json` (拟合出的几何, 供复现)、\n"
         "  可选最优远场图 PNG。\n"
-        "- `data/debug/slm_model_in_loop_<ts>/<ts>/*.pkl`: **每次运行都写**, 不依赖 `--debug`。\n"
+        "- `data/debug/slm_model_in_loop/<ts>/slm_model_in_loop_<ts>.pkl`: **每次运行都写**, 不依赖 `--debug`。\n"
         "  结构 `{epoch: record}`, 带 `_epoch` 索引键, 配 `.json` sidecar (含完整已解析配置)。\n"
         "  ⚠️ 行内**只有标量** (由测试锁定), 逐帧图像不在其中; 最优帧另存 PNG。\n"
         "  CSV 额外保留字符串列 `reason`, 它不能进 pkl 的标量集 (writer 用 `float()` 转换)。\n"
-        "- `data/debug/slm_model_in_loop_steps_<YYYYmmdd_HHMMSS>/`: **逐测量 step dump, 只在 `--debug`\n"
-        "  时写** (§14)。里面是这一次运行的**全部数组**: `step_<NNNN>_<stage>.png` 每步一张双 panel 图,\n"
-        "  `steps.npz` 存无损的 `phase_rad` / `frame` 加标量, `steps.json` 存同样的标量加已解析的曝光与\n"
-        "  几何以便自描述。\n"
+        "- `data/debug/slm_model_in_loop/<YYYYmmdd_HHMMSS>/` 下的 step dump: **逐测量 step dump, 只在\n"
+        "  `--debug` 时写** (§14)。里面是这一次运行的**全部数组**: `step_<NNNN>_<stage>.png` 每步一张\n"
+        "  双 panel 图, `steps.npz` 存无损的 `phase_rad` / `frame` 加标量, `steps.json` 存同样的标量加已解析的\n"
+        "  曝光与几何以便自描述。\n"
         "  三条线的关系: CSV = 逐轮**标量**; pkl = 全程**运行记录**, 仍然只有标量; step dump = 逐**测量**的\n"
         "  数组。**中止的运行同样把 step dump 写出来**, 所以它也是几何失败的诊断现场(§15.1)。\n"
     )
@@ -1580,12 +1609,12 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("| 状态 | 含义 |\n|---|---|")
     A("| `completed` | 至少一轮被接受 (或正确地保留了平场) |")
     A("| `aborted_unidentifiable` | 几何标定从未达到要求的相关度 |")
-    A("| `aborted_rejection_streak` | 连续 reject 达上限 —— 台架落在模型之外 |")
+    A("| `aborted_rejection_streak` | 连续 reject 达上限 —— 实验系统落在模型之外 |")
     A("| `bake_off_rejected` | 跑完了, 但没有任何整形相位打过平场, 于是保留平场 |")
     A("")
     A(
         "退出码 `2` = 几何 对比择优 失败或持续落在模型之外, 该轮**没有**提交任何相位;\n"
-        "这种台架应改用 `slm-gs-refine`。\n"
+        "这种实验系统应改用 `slm-gs-refine`。\n"
     )
     A(
         "前两个状态**都**是退出码 `2`, 但诊断手段不同: `--debug` 的 step dump 能把它们分开 ——\n"
@@ -1597,8 +1626,8 @@ def render(cfg: dict[str, str], consts: dict[str, str], *, figures: bool) -> str
     A("## 13. 本报告**不**主张什么\n")
     A(
         "- **不含壁钟耗时。** §3 的图是操作数, 不是秒。\n"
-        "- **不含真机结论。** 环境是 `离线`; 本报告描述代码, 没有任何一次硬件运行的数据 ——\n"
-        "  §10 列的就是必须上台架才能回答的问题。\n"
+        "- **不含实验系统结论。** 环境是 `离线`; 本报告描述代码, 没有任何一次硬件运行的数据 ——\n"
+        "  §10 列的就是必须上实验系统才能回答的问题。\n"
         "- **不含收敛保证。** Step A 是非凸拟合, 探针多样性降低但**不消除**局部驻点;\n"
         "  报告不主张给定轮数内必然收敛。\n"
         "- **不主张离线权重对最终整形质量有确定好处。** §9 只主张接线正确、几何不符会报错;\n"
