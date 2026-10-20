@@ -47,7 +47,7 @@
 | 2026-10-19 | [GS → Zernike → SPGD 匀化实验计划](gs_refine_zernike_hardware_plan.md) | H0–H12 硬件计划，P0 硬门 |
 
 其余支撑文档（[GS 金标参照](gs_golden_reference.md)、[GS 正向模型标定](gs_refine_fwdmodel_calibration.md)、
-[在线重标定效率](online_recal_efficiency.md)、[少参数在线适配](fast_recal_adapter.md)、[MIL 留出 K 折](model_in_loop_cv.md)、
+[在线重标定效率](online_recal_efficiency.md)、[少参数在线适配](fast_recal_adapter.md)、[MIL 验证集 K 折](model_in_loop_cv.md)、
 [仿真指标五波交付](sim_metrics_waves.md)）见总结报告 §8 完整索引。
 
 ## 确认的结论与悬而未决的问题

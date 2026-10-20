@@ -251,7 +251,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 | 6 | `shaping_controls.py` | 抽 `with_slm_ownership(slm_num)`（停 toggle → 释放句柄 → `finally` 重连，全程置 `bench_busy`），`shaping_session` 改为其薄封装（语义不变）；`ShapingMethod` 拆 `render_objective` / `render_budget` / `render_advanced` 三钩子；主区固定八段顺序；校验区移到按钮之前；新增状态条 + 生效光路参数快照（写 session + `{save_dir}/params.json`）；上限放开 |
 | 7 | `multi_slm_controller.py` | 相机像元间距控件 /「探测」按钮 / `auto_check_camera_pixel_um` 告警整体搬进 `bench_settings` 并从「相机工具」删除；侧栏改调 `render_bench_settings()` |
 | 8 | `tests/ao_shaping/gui/slm/test_bench_settings.py`（新） | 37 项：session key 契约、pending-flush（含"必须抛异常而非吞掉"）、三态与恢复探测值、差异阈值、`WindowSize` 真值/兜底与缓存、曝光与步长校验、`bench_busy` 使控件 disabled、摘要卡、`geometry_region_mismatch`、`merge_bench_values` |
-| 9 | `tests/ao_shaping/gui/slm/test_shaping_session_contract.py`（新） | 27 项：`with_slm_ownership` 三步与异常路径、`shaping_session` 复用 CM、目标/窗口交叉校验、复用几何 region 不一致、留出探针 0 的拦截、上限放开逐项断言、快照写入 `params.json`、按钮 disabled |
+| 9 | `tests/ao_shaping/gui/slm/test_shaping_session_contract.py`（新） | 27 项：`with_slm_ownership` 三步与异常路径、`shaping_session` 复用 CM、目标/窗口交叉校验、复用几何 region 不一致、验证集探针 0 的拦截、上限放开逐项断言、快照写入 `params.json`、按钮 disabled |
 | 10 | `docs/slm/slm_gui_manual.md` | §8 重写：新增 §8.1（侧栏光路区块 + 三态 + pending-flush）与 §8.2（主区固定顺序 + 上限对照表）；§4 Session State 补登全部新键 |
 | 11 | `docs/slm/slm_gui_operation_map.md` | §1 补判据 5、§2 清单 1/4/5 改位置、新增 #28/#29、§4 目标布局与 §4.1 根因分析、新增路线 5「换光路」、§6 变更清单 |
 
@@ -288,7 +288,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 4. **移除「设置模式」按钮**：视频模式已锁死内存模式，该按钮为 no-op，保留只会误导。
 5. **`_stop_toggle` 副作用提示**：一次下发/CSV 加载前静默停止周期切换，建议改为先 warning 再停（与遗留项 2 一并做）。
 6. **`calibrate_session` 是惰性 import**：`ao_shaping.runners.slm.model_in_loop_session` 在 `bench_settings.run_session_calibration()` 函数体内 import（模块级会拖入 runners 包，破坏 GUI 的惰性契约）。若该 lane 接口变动，这里会是第一个报 `ImportError` 的地方。
-7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做留出验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「全频随机相位留出探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
+7. **`holdout_probe_count=0` 的语义缺口**：控件下界已放开到 0（0 = 不做验证集验证），但 `SlmModelInLoopConfig.__post_init__` 要求 ≥ 1，所以 0 目前只能靠运行前校验拦下，错误信息指向「全频随机相位验证集探针」。真要支持 0 需在 optimizer 侧放行并跳过 holdout 验收 —— **不在本次写入范围**。
 
 ---
 
