@@ -28,6 +28,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
+# The repo root itself: `scripts._common.provenance` is imported as a package
+# path, and `sys.path[0]` is this file's own directory when the script is run
+# as `python scripts/<name>.py` -- so the root has to be added explicitly.
+sys.path.insert(0, str(ROOT))
 
 from ao_shaping.utils.image.spots_calc import (  # noqa: E402
     calculate_sharpness,
