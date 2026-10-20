@@ -21,6 +21,44 @@ sys.path.insert(0, str(ROOT / "src"))
 from ao_shaping.tools.slm.model_in_loop_summary import summarize_session  # noqa: E402
 
 
+def _exposure_ms(raw: object) -> float | None:
+    """Return the profile's exposure in ms, or ``None`` for a session-chosen one.
+
+    ``auto`` and ``default`` let the session pick (or keep) the exposure, so
+    there is no number to compare against ``max_exposure_ms``. A bare ``0`` is
+    **not** accepted: the runner rejects it outright (``0`` is not a synonym
+    for ``auto``), so a profile that still carries the legacy ``0`` would fail
+    only after the device was already open. Rejecting it here keeps the failure
+    in the dry run.
+
+    Args:
+        raw: The profile value -- a positive number of milliseconds, or one of
+            the words ``auto`` / ``default``.
+
+    Returns:
+        The exposure in ms, or ``None`` when the session chooses it.
+
+    Raises:
+        ValueError: For anything else, including a bare ``0``.
+    """
+    text = str(raw).strip().lower()
+    if text in ("auto", "default"):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "exposure_time_ms must be a positive number of milliseconds or the "
+            "word 'auto'/'default'"
+        ) from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(
+            "exposure_time_ms must be a positive number of milliseconds or the "
+            "word 'auto'/'default'; a bare 0 is not a synonym for 'auto'"
+        )
+    return value
+
+
 def build_command(profile: dict) -> list[str]:
     """Validate the portable profile before any device can be opened."""
     required = ("cam_type", "cam_id", "slm_number", "slm_wavelength", "target_shape",
@@ -41,9 +79,9 @@ def build_command(profile: dict) -> list[str]:
         upper = float("inf") if name == "max_cv" else 1.0
         if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or not 0 <= value <= upper:
             raise ValueError(f"{name} is outside its valid range")
-    exposure = float(profile.get("exposure_time_ms", 0))
+    exposure = _exposure_ms(profile.get("exposure_time_ms", "auto"))
     ceiling = float(profile.get("max_exposure_ms", 0))
-    if not math.isfinite(exposure) or not math.isfinite(ceiling) or exposure < 0 or ceiling < 0 or (ceiling > 0 and exposure > ceiling):
+    if not math.isfinite(ceiling) or ceiling < 0 or (exposure is not None and ceiling > 0 and exposure > ceiling):
         raise ValueError("invalid exposure and session ceiling")
     if profile.get("geometry_file"):
         raise ValueError("geometry_file bypasses fresh session calibration")

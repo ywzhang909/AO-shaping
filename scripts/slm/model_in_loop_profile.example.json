@@ -8,7 +8,7 @@
   "region": 128,
   "far_field_padding": 8,
   "n_rounds": 2,
-  "exposure_time_ms": 0,
+  "exposure_time_ms": "auto",
   "max_exposure_ms": 0,
   "cam_size": 300,
   "panel_span_px": 900,
