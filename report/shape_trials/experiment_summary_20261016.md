@@ -1,4 +1,4 @@
-# 形状目标整形实验总结报告（2026-10-09 ~ 2026-10-16）
+# 形状目标整形实验总结报告（2026-10-09 ~ 2026-10-19）
 
 <!-- provenance:start -->
 > **生成脚本**: 人工撰写，无生成脚本
@@ -30,11 +30,15 @@
 | 2026-10-15 | gs_issue_live_20261015.md | GS 方法五轮对照（plain/weighted/adaptive-feedback，种子 87） | plain GS 分数最高（0.5796/0.5740/0.5885）；IoU 仅 0.0684–0.0980，未形成实心方斑 |
 | 2026-10-15 | gs_uniformity_live_20261015.md | GS 相位平滑（σ=2/5/10/20）与纯 CV 闭环（30 轮） | 平滑未改善剔零级 CV（+0.00188~+0.00565）；纯 CV 闭环 CV 0.72313→0.68400（-5.41%），但面板梯度 RMS 微升 |
 | 2026-10-15 | model_in_loop_live_20261015.md | Model-in-loop 预检（面板宽扫作废，光路调整中） | 面板宽扫作废（漂移 110.5% > 5% 守卫）；固定平场短稳定 0.52%（21 s）；未下发新形状 |
+| 2026-10-15 | zero_order_blaze_20261015.md | 实测离轴闪耀载波（blaze carrier） | 位移标度约 7400/P 相机像素；面板与 CCD 轴近似交换；只读枚举未下发相位，未声称零级隔离率/衍射效率已改善 |
 | 2026-10-16 | model_in_loop_live_20261016.md | 匀化权重与重拟合消融（Step A=0 vs 80，CV/EE 权重 0.4/0.6 vs 0.8/0.2） | 高 CV 权重未改善（CV 0.80→0.90，EE 0.69→0.52）；Step A=0 小幅 CV 下降但 EE 更差；保留默认权重 |
 | 2026-10-16 | uncertainty_probe_hw_20261016.md | 不确定性采样探针（#134）验收：带限约束才是关键 | σ=1.5（默认）机制 0/10 赢、p=0.4219；σ=0 机制 10/10、p=0.0078，但实验只把 53% 能量送进相机窗口 ⇒ **不进闭环，修法是改度量不是改参数** |
 | 2026-10-16 | fast_recal_adapter.md | 光路变化后少参数在线适配（离线仿真） | 14 低阶 Zernike 在低阶漂移下 4 帧吃满增益（Δcorr +0.402, d_z +3.0），高阶漂移无净增益；几何漂移下 14 参数完全无效，+2 几何标量 EE90 误差 −0.1819；冻结 CNN 对适配无贡献 |
-| 2026-10-16 | uncertainty_probe_hw_20261016.md | 不确定性采样探针（#134）验收：带限约束才是关键 | σ=1.5（默认）机制 0/10 赢、p=0.4219；σ=0 机制 10/10、p=0.0078，但实验只把 53% 能量送进相机窗口 ⇒ **不进闭环，修法是改度量不是改参数** |
-| 2026-10-16 | fast_recal_adapter.md | 光路变化后少参数在线适配（离线仿真） | 14 低阶 Zernike 在低阶漂移下 4 帧吃满增益（Δcorr +0.402, d_z +3.0），高阶漂移无净增益；几何漂移下 14 参数完全无效，+2 几何标量 EE90 误差 −0.1819；冻结 CNN 对适配无贡献 |
+| 2026-10-16 | model_in_loop_uniformity_live_20261016.md | 方斑均匀度实验（软边缘 CV 目标 + 两轮热启动，固定曝光交错重放） | 目标框 CV 均值 0.5627→0.4454（−20.8%）、EE 0.4251→0.4438；10-17 追加节据实测揭出 2 处实现缺陷（半径 edge/2、曝光/半径改可探测） |
+| 2026-10-16 | gs_refine_zernike_uniformity.md | GS→Zernike→SPGD 阶数扫描（数字孪生仿真） | 仅拟合残差随阶数单调降（0.0719→0.0385 rad，−46.5%）；阶数间物理不可排序（PIB 极差 0.0046≈SPGD 单轮抖动）；GS 前向模型未标定⇒送入拟合相位≈平场，验证的是管线正确性 |
+| 2026-10-19 | model_in_loop_live_20261019.md | 相机位置调整后的正向模型校正与多形状整形 | 聚焦/彗差校正 FWHM 47.23→13.75 px；新几何留出相关性 0.78–0.87，但全频随机相位留出 0.11–0.28 未过门槛；矩形/三角形/五角星均未过独立模型门槛 |
+| 2026-10-19 | gs_defocus_sim_20261019.md | CCD 焦后离焦下的 GS 匀化仿真（纯仿真） | 离焦本身几乎不值钱，值钱的是在工作点重新优化；离焦并入净增益 +0.017（非 +0.15）；方案B与方案A严格等价仅限 Δz≤0.1138 dz_unit；带限 ASM 有损不可逆（往返误差 0.62） |
+| 2026-10-19 | gs_refine_zernike_hardware_plan.md | GS→Zernike→SPGD 匀化阶数扫描实验计划（H0–H12） | 代码已就绪并入 banckend；两个 P0 硬门：①GS 对比择优（打不过平场即停）②噪声地板 σ；核心科学项 H6 |
 
 ### 1.2 研究路径总结
 
@@ -216,7 +220,7 @@ score = w_pib × PIB + w_uniformity × 1/(1+CV)
 当前默认权重 `w_pib=0.5, w_uniformity=0.5`（GUI 闭环）或 `w_eff=0.6, w_uni=0.4`（model-in-loop Step B）。
 
 - **PIB（Power-in-Bucket）**：目标框内能量占比，越高越好
-- **CV（Coefficient of Variation）**：目标框内强度均匪度，越低越好（CV≪1 为均匀）
+- **CV（Coefficient of Variation）**：目标框内强度均匀度，越低越好（CV≪1 为均匀）
 - **EE（Encircled Energy）**：目标框内能量占总能比例
 - **IoU**：半峰亮区与目标掩模交并比，越高越好
 
@@ -364,16 +368,6 @@ $$d_z = \frac{\bar{\Delta}}{s_\Delta}$$
 
 6. **主线 B 专属：曝光归一化标定**：在不饱和且信号更强的光路状态复测短曝光响应（当前 0.03→0.06 ms 峰值比例 1.434，线性应为 2），再决定是否允许不同曝光档数据共同拟合模型。
 
-### 7.2 短期（P1，1–2 周）
-
-1. **常量下沉**：把 `_TILT_SHIFT_SCALE_PX`（7400）等纯常量下沉到零导入叶子模块，4 处 import，消除静默不一致；配合 AST 级守卫（`test_cli_params_leaf.py` 模式）。
-
-2. **几何守卫哨兵**：在 Step A 前加几何一致性校验，尺度偏差过大时拒绝该轮，堵住“像差吸收几何误差”的静默失效路径。
-
-3. **模型候选相位 CCD 反馈微调**：以目标框 CV 为主目标、EE 下限为约束；先离线仿真，再在固定曝光下做相位交错验收。
-
-4. **轮廓相似度验收**：按 #115 要求，把轮廓重合或 Hausdorff 与 CV/EE 并列，防止 `accepted` 被误读为目标形状形成。`beam_metrics.py` 与模型闭环验收尚未提供这项指标，需补充。
-
 ### 7.3 中期（P2，1 个月）
 
 1. **跨日、跨相位族独立留出验证**：扩大训练集，评估 U-Net 是否可替代物理模型进入 Step B（当前真实 CCD 相关性仅 0.030±0.041，**不获准**）。
@@ -413,7 +407,13 @@ $$d_z = \frac{\bar{\Delta}}{s_\Delta}$$
 | 离轴载波 | `report/shape_trials/zero_order_blaze_20261015.md` | 零级隔离与闪耀光栅 |
 | GSNet 离线 | `report/shape_trials/gsnet_hybrid_offline_20261013.md` | 混合瞳面相位离线验证 |
 | 仿真指标 | `report/shape_trials/sim_metrics_waves.md` | 五波交付，默认不变钉法 |
-| 不确定性探针 | `report/shape_trials/uncertainty_probe_hw_20261016.md` | #134 自适应探针预检 |
+| MIL 方斑均匀度 | `report/shape_trials/model_in_loop_uniformity_live_20261016.md` | 软边缘 CV + 两轮热启动，CV −20.8% |
+| Zernike 阶数扫描 | `report/shape_trials/gs_refine_zernike_uniformity.md` | 仿真 8 阶扫描，仅残差单调降 |
+| Zernike 实验计划 | `report/shape_trials/gs_refine_zernike_hardware_plan.md` | H0–H12 硬件计划，P0 硬门 |
+| MIL 多形状 10-19 | `report/shape_trials/model_in_loop_live_20261019.md` | 正向模型校正 + 多形状整形 |
+| 离焦仿真 10-19 | `report/shape_trials/gs_defocus_sim_20261019.md` | 离焦五组因果链，纯仿真 |
+| MIL 暂停交接 10-13 | `report/shape_trials/model_in_loop_pause_handoff_20261013.md` | 暂停实验交接 |
+| MIL 恢复步骤 10-13 | `report/shape_trials/model_in_loop_next_steps_20261013.md` | 暂停期间工作与恢复条件 |
 
 ---
 
@@ -435,5 +435,5 @@ $$d_z = \frac{\bar{\Delta}}{s_\Delta}$$
 
 ---
 
-> **本报告最后更新**：2026-10-16  
+> **本报告最后更新**：2026-10-19  
 > **下一次设备会话建议**：先执行 §7.1 第 1–3 项，确认光路稳定与面板位置后，再恢复闭环采集。

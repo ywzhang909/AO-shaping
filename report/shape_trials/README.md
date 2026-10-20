@@ -19,6 +19,37 @@
 
 2026-10-10 的设备在线复测、CCD/SLM 动画与最佳帧见[在线复测报告](online_20261010.md)。
 
+## 后续实验报告索引（2026-10-12 起）
+
+本 README 的正文叙事截至 2026-10-10 的在线复测。其后 20 余份实验记录由
+[形状目标整形实验总结报告（2026-10-09 ~ 2026-10-19）](experiment_summary_20261016.md)
+统一汇总（完整时间线、公式体系、最优实践与悬而未决问题见该报告），主要记录如下：
+
+| 日期 | 报告 | 主题 |
+|------|------|------|
+| 2026-10-12 | [GS 重构后真实设备调试](gs_refine_live_20261012.md) | GS+SPGD 半径对照 |
+| 2026-10-13 | [正向模型闭环实验记录](model_in_loop_live_20261013.md) | Step A 校准 + Step B 优化，800 iter |
+| 2026-10-13 | [正向模型闭环：暂停实验交接](model_in_loop_pause_handoff_20261013.md) | 暂停期间状态、证据、工程变更摘要 |
+| 2026-10-13 | [正向模型闭环整形：暂停期间工作与恢复实验条件](model_in_loop_next_steps_20261013.md) | 暂停后续步骤与恢复条件 |
+| 2026-10-13 | [GSNet 混合瞳面相位离线验证](gsnet_hybrid_offline_20261013.md) | 8 阶 Zernike + 可训练残差参数化 |
+| 2026-10-14 | [Model-in-loop 实验复核](model_in_loop_live_20261014.md) | 7 轮多形状 + 交错重放 |
+| 2026-10-14 | [GUI 闭环整形功能实验验证](gui_closed_loop_shaping_20261014.md) | 三次会话交错重放 |
+| 2026-10-15 | [GS 方法实验对照与形状验收预检](gs_issue_live_20261015.md) | plain/weighted/adaptive-feedback 五轮对照 |
+| 2026-10-15 | [GS 相位匀化与剔零级均匀度实验](gs_uniformity_live_20261015.md) | 相位平滑 + 纯 CV 闭环 |
+| 2026-10-15 | [Model-in-loop 实验预检](model_in_loop_live_20261015.md) | 面板宽扫作废，光路调整中 |
+| 2026-10-15 | [SLM 整形的实测离轴载波](zero_order_blaze_20261015.md) | blaze carrier，位移标度约 7400/P px |
+| 2026-10-16 | [Model-in-loop 匀化权重与重拟合实验对照](model_in_loop_live_20261016.md) | CV/EE 权重消融 |
+| 2026-10-16 | [Model-in-loop 方斑均匀度实验](model_in_loop_uniformity_live_20261016.md) | 软边缘 CV + 两轮热启动，CV −20.8% |
+| 2026-10-16 | [不确定性采样探针验收](uncertainty_probe_hw_20261016.md) | #134 带限约束才是关键 |
+| 2026-10-16 | [GS-refine Zernike 阶数扫描](gs_refine_zernike_uniformity.md) | 仿真 8 阶扫描，仅残差单调降 |
+| 2026-10-19 | [相机位置调整后的正向模型校正与多形状整形](model_in_loop_live_20261019.md) | FWHM 47.23→13.75 px，多形状门槛 |
+| 2026-10-19 | [CCD 焦后离焦下的 GS 匀化仿真](gs_defocus_sim_20261019.md) | 离焦五组因果链，纯仿真 |
+| 2026-10-19 | [GS → Zernike → SPGD 匀化实验计划](gs_refine_zernike_hardware_plan.md) | H0–H12 硬件计划，P0 硬门 |
+
+其余支撑文档（[GS 金标参照](gs_golden_reference.md)、[GS 正向模型标定](gs_refine_fwdmodel_calibration.md)、
+[在线重标定效率](online_recal_efficiency.md)、[少参数在线适配](fast_recal_adapter.md)、[MIL 留出 K 折](model_in_loop_cv.md)、
+[仿真指标五波交付](sim_metrics_waves.md)）见总结报告 §8 完整索引。
+
 ## 确认的结论与悬而未决的问题
 
 Santec SLM #1 和 Daheng CCD 在这些试验中在线，平/64像素blaze/平的重放显示光斑位置移动
@@ -152,7 +183,7 @@ PNG/PKL/JSON 记录格式，比较 freeform/GS 正方形相位与 Zernike 基线
 `D:\Projects\TIFO\AO-shaping\docs\SLM远程光斑整形.docx` 提出了独立的 Pearson/CV/
 箱外能量项、阶段权重、重复帧噪声校准、归一化前角背景减除、几何注册、梯度尺度平衡、
 自适应扰动、信赖域与回溯接受策略。上述试验覆盖了前两类得分变更与噪声校准。100 像素
-目标仍远非均匯：最佳重放 CV 约 2.46。背景/注册与自适应搜索想法仍需用相同的调试与重放
+目标仍远非均匀：最佳重放 CV 约 2.46。背景/注册与自适应搜索想法仍需用相同的调试与重放
 协议予以孤立测试。该文档的例子是 44×33 矩形使用八阶模式，因此其数值设置不直接适用于
 本 100 像素方形 / n_max=8 实验系统。
 
