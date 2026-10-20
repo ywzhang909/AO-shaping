@@ -10,6 +10,7 @@ slm/
 │   ├── __init__.py              # re-export (Santec, SantecError, 常量, WavefrontCorrection)
 │   ├── driver.py                # Santec SDK 权威驱动
 │   ├── constants.py             # 驱动常量 (SDK 协议/错误码/模式/范围)
+│   ├── errors.py                # 连接/USB 错误中文提示 (describe_santec_error / extract_error_code)
 │   ├── slm200_constants.py      # SLM-200 设备硬件常量 (像素/面板/翻转时间)
 │   ├── _slm_win.py              # SDK bindings (internal, Windows)
 │   └── wavefront_correction.py  # 波前误差校正 (CSV → correction map)
