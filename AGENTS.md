@@ -1123,6 +1123,17 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   **2026-10-19 起 `.github/` 整体移出 git 跟踪**（本机保留，`.gitignore` 忽略），
   新克隆不再自带 CI 工作流 —— 本地 `ruff check .` 仍须保持全绿。
   仍缺：pytest 自动化与类型检查门禁。
+  ⚠️ **pytest 门禁必须分片跑，不能单进程整目录跑。** 2026-10-20 实测：sim 后端
+  每次测量做 **7680×4800 complex128 FFT**（面板 1920×1200 × padding 4 = 36.9 M 点，
+  单缓冲 0.59 GB，一次测量含 spectrum/`abs**2`/`fftshift` 副本约 2 GB 瞬时分配），
+  而 numpy/Python 分配器不把已释放内存还给 OS —— 整目录单进程跑到几百个测量时
+  工作集涨到 **20–27 GB**（63.7 GB 机器上页文件开始换页）。两个这样的 pytest
+  同时跑就会互相拖成「假挂起」（实测进程 99% user CPU、页错误 0、可用内存 36 GB
+  —— 是分配抖动，不是死锁）。分片（按文件）跑则每个文件都在秒级～分钟级完成，
+  全部文件合计约 20–25 分钟。
+  ⚠️ 另：**别把「日志里点数停在某个位置」当成挂起** —— `Tee-Object`/`Select-Object`
+  管道会缓冲，实测「停在 216」的那次运行其实以 28 点/分钟正常推进，点数是缓冲
+  量化出来的假象。判据要看进程 CPU 与内存，而不是日志末尾的点数。
 - **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F]`，`libs/**` 与
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
