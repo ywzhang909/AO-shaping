@@ -23,30 +23,23 @@ from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.drivers.dm.base import DM
 from ao_shaping.drivers.ccd.common import (
     get_camera_exposure_ms,
-    capture_with_exposure,
     resample_on_saturation,
 )
 from ao_shaping.utils import ImageVoltagesDisplay, Recorder, logger
-from ao_shaping.optimizer.spgd import spgd_gradient
+from ao_shaping.optimizer.spid_pib_loop import open_pib_bench, spid_pib_epoch
 from ao_shaping.utils.image.spots_calc import (
     pib_ratio_mask,
     power_in_bucket_mask,
     radius,
 )
-from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
-from ao_shaping.utils.image.hardware_utils import (
-    log_center_brightness,
-    resolve_spot_center,
-)
 # Camera-injection seam shared with wfless.pib: a single global in
 # ao_shaping.optimizer._camera_inject (previously each optimizer carried its own
 # copy, so injecting the simulator through one left the other on the real driver).
 from ao_shaping.optimizer._camera_inject import (
-    _camera_cls,
+    _camera_cls,  # noqa: F401  (backward-compat re-export)
     _camera_override,  # noqa: F401  (backward-compat re-export)
 )
 from ao_shaping.optimizer.constants import (
-    CAM_SAMPLE_ITER,
     IDEAL_SPOT_RADIUS,
     KEEP_VOLTAGE_WHEN_EXIT,
     TEST_EXPOSURE_TIME_BRIGHTNESS,
@@ -137,66 +130,34 @@ def optimize_pib(
     epochs = int(epochs)
     recorder = Recorder(mark="pib", mode="max")
 
-    with _camera_cls(cam_type)(
-        cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
-    ) as cam:
-        if dm is None:
-            dm = get_dm_registry().create(
-                "nlight",
-                keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
-                max_neibor_diff=dm_neibor_diff,
-                max_voltage=dm_max_voltage,
-                min_voltage=dm_min_voltage,
-            )
-            dm.open()
-            _dm_owned = True
-        else:
-            if not dm.is_connected():
-                dm.open()
-            _dm_owned = False
-
+    with open_pib_bench(
+        cam_type=cam_type,
+        cam_id=cam_id,
+        exposure_time_ms=exposure_time_ms,
+        cam_size=cam_size,
+        target_max_brightness=target_max_brightness,
+        center=center,
+        dm=dm,
+        create_dm=lambda: get_dm_registry().create(
+            "nlight",
+            keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
+            max_neibor_diff=dm_neibor_diff,
+            max_voltage=dm_max_voltage,
+            min_voltage=dm_min_voltage,
+        ),
+        init_v=init_v,
+        dm_unit_mask=dm_unit_mask,
+        init_fallback_target_max=TEST_EXPOSURE_TIME_BRIGHTNESS,
+    ) as bench:
+        cam = bench.cam
+        dm = bench.dm
+        _init_v = bench.init_v
+        dm_unit_mask = bench.unit_mask
+        center = bench.center
+        init_img = bench.init_img
+        img_size = bench.img_size
+        auto_exposure = exposure_time_ms == 0
         try:
-            if dm_unit_mask is None:
-                _dm_mask = dm.default_dm_unit_mask  # type: ignore[union-attr]
-                dm_unit_mask = list(_dm_mask)  # type: ignore[assignment]
-                if _dm_mask[0]:
-                    logger.warning("dm_unit_mask[0] is True — first unit is active.")
-
-            if init_v is None or len(init_v) == 0:
-                _init_v = np.zeros(dm.DM_Num, dtype=np.float64)  # type: ignore[union-attr]
-            else:
-                _init_v = np.array(init_v, dtype=np.float64)
-            dm.send_voltages(_init_v, 0.5)
-
-            img_size = (cam_size, cam_size)
-
-            _img = capture_with_exposure(
-                cam,
-                0.0,
-                TEST_EXPOSURE_TIME_BRIGHTNESS,
-                auto_n_sample=20,
-            )
-
-            center = resolve_spot_center(
-                cam, _img, center, detect_fn=smart_zero_order_center, n_sample=10
-            )
-            log_center_brightness(_img, center, get_camera_exposure_ms(cam))
-
-            img_size, _ = cam.reset_window(center, img_size)
-
-            auto_exposure = exposure_time_ms == 0
-            init_img = capture_with_exposure(
-                cam,
-                exposure_time_ms,
-                target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS,
-                auto_n_sample=20,
-            )
-            logger.debug(
-                f"Initial image max brightness: {np.max(init_img)} "
-                f"@ {get_camera_exposure_ms(cam)}ms"
-            )
-
-            img_size = init_img.shape[::-1]
             xv, yv = np.ogrid[
                 -img_size[0] // 2 : img_size[0] // 2,
                 -img_size[1] // 2 : img_size[1] // 2,
@@ -261,68 +222,67 @@ def optimize_pib(
                 }
             )
 
+            def _render_epoch_frame(pos_img, voltages, epoch_number):
+                if not show or window is None:
+                    return True
+                return window.render(
+                    pos_img,
+                    voltages,
+                    dm.V_Min,
+                    dm.V_Max,
+                    center,
+                    int(r_bucket),
+                    str(epoch_number),
+                )
+
+            def _saturate_epoch(pos_frame, neg_frame):
+                nonlocal pib_scaler
+                avg = float(np.mean([np.max(pos_frame), np.max(neg_frame)]))
+                if avg >= 255 and auto_exposure:
+                    resampled = resample_on_saturation(
+                        pos_frame,
+                        cam,
+                        exposure_time_ms,
+                        target_max_brightness,
+                        auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                            target_max=t,
+                            twice_valid=False,
+                            n_sample=max(n_sample, 20),
+                        ),
+                        saturation_threshold=avg,
+                    )
+                    pib_scaler = avg / max(np.max(resampled), 1)
+                return avg
+
             with tqdm.tqdm(
                 total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
             ) as bar:
                 for epoch in range(1, epochs + 1):
-                    disturb_v = (
-                        np.random.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0
-                        - 1.0  # type: ignore[union-attr]
+                    _epoch = spid_pib_epoch(
+                        dm=dm,
+                        cam=cam,
+                        init_v=_init_v,
+                        delta=delta,
+                        unit_mask=dm_unit_mask,
+                        rng=np.random,
+                        optimizer=optimizer,
+                        evaluate=lambda img: power_in_bucket_mask(img, bucket_mask),
+                        maximize=True,
+                        diff_sign=1.0,
+                        epoch=epoch,
+                        on_render=_render_epoch_frame,
+                        on_saturation=_saturate_epoch,
                     )
-                    disturb_v = (
-                        disturb_v * delta * np.asarray(dm_unit_mask, dtype=float)
-                    )
-
-                    dm.send_voltages(_init_v + disturb_v)
-                    pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                    pos_j, _ = power_in_bucket_mask(pos_img, bucket_mask)
-
-                    dm.send_voltages(_init_v - disturb_v)
-                    neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                    neg_j, _ = power_in_bucket_mask(neg_img, bucket_mask)
-
-                    if show and window is not None:
-                        if not window.render(
-                            pos_img,
-                            _init_v,
-                            dm.V_Min,
-                            dm.V_Max,  # type: ignore[union-attr]
-                            center,
-                            int(r_bucket),
-                            str(epoch),
-                        ):
-                            break
-
-                    avg_brightness = float(np.mean([np.max(pos_img), np.max(neg_img)]))
-                    if avg_brightness >= 255 and auto_exposure:
-                        _resampled_img = resample_on_saturation(
-                            pos_img,
-                            cam,
-                            exposure_time_ms,
-                            target_max_brightness,
-                            auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
-                                target_max=t,
-                                twice_valid=False,
-                                n_sample=max(n_sample, 20),
-                            ),
-                            saturation_threshold=avg_brightness,
-                        )
-                        pib_scaler = avg_brightness / max(np.max(_resampled_img), 1)
-
-                    diff = pos_j - neg_j
-                    # SPGD sign from the shared helper (optimizer/spgd.py):
-                    # PIB is maximised.
-                    gradient = spgd_gradient(pos_j, neg_j, disturb_v, maximize=True)
-                    update = optimizer.update(gradient)
-                    _to_update_v = np.clip(
-                        _init_v - update,
-                        dm.min_voltage,  # type: ignore[union-attr]
-                        dm.max_voltage,  # type: ignore[union-attr]
-                    )
-
-                    if dm.check_dm_unit_grad_safe(_to_update_v):  # type: ignore[union-attr]
-                        _init_v = _to_update_v
-                    else:
+                    if _epoch.aborted:
+                        break
+                    pos_img = _epoch.pos_img
+                    neg_img = _epoch.neg_img
+                    pos_j, neg_j = _epoch.pos_value, _epoch.neg_value
+                    diff = _epoch.diff
+                    gradient = _epoch.gradient
+                    _init_v = _epoch.init_v
+                    avg_brightness = _epoch.brightness
+                    if not _epoch.applied:
                         logger.warning(
                             "Neighbour voltage difference too large — skip update"
                         )
@@ -385,7 +345,7 @@ def optimize_pib(
                 dm.send_voltages(np.zeros(dm.DM_Num))  # type: ignore[union-attr]
             except Exception:
                 pass
-            if _dm_owned:
-                dm.close()
+            if bench.owns_dm:
+                bench.dm.close()
 
     return recorder
