@@ -340,17 +340,35 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
   因为它们修的是同一处的误差; 同时用 (G3−G1) 只有 +0.1644, 远小于两者之和。
   所以"离焦并入环路"这一**形式**本身不是关键, 拿到工作点信息才是; 反过来也不能据此说"离焦不值钱" ——
   单独加离焦同样值 +0.15 量级。
+* **本报告的渲染脚本依赖 4 个上游实验脚本落盘的 CSV, 而这些 CSV 按仓库惯例不入库。**
+  因此**从干净克隆复现需要先跑那 4 个脚本** (总耗时约 1.5 小时, 其中 `experiment_gs_improved.py`
+  占大头), 单跑本脚本会因缺输入而**拒绝执行并列出缺哪些文件** —— 这是有意的失败方式, 不是崩溃。
+  确切命令与耗时见 §10; 只想确认管线能走完则用 `--quick` (零输入, 不读任何落盘产物)。
 
 ## 10. 复现
 
-数据全部来自四个纯仿真实验脚本（本脚本只读它们的 CSV/JSON, 不重跑它们）:
+数据全部来自四个纯仿真实验脚本（本脚本只读它们的 CSV/JSON, 不重跑它们）。四个脚本**互不依赖**,
+哪个先跑都行, 但都必须在本生成器之前跑完; 默认产物都落在 `report/shape_trials/`:
 
-| 脚本 | 产物 |
-|---|---|
-| `scripts/slm/experiment_gs_defocus_offocus.py` | `report/shape_trials/summary.json`, `e1_defocus_sweep.csv`, `e2_methods.csv`, `e1_cv_heatmap.png` |
-| `scripts/slm/experiment_gs_fresnel_vs_virtuallens.py` | `summary_fresnel_vs_vl.json`, `fv_groups_fresnel_vs_vl.csv`, `fv_equivalence_fresnel_vs_vl.csv` |
-| `scripts/slm/experiment_gs_defocus_sweep_visuals.py` | `summary_defocus_sweep_visuals.json`, `scheme_gap_dz0_50mm_visuals.csv`, `v1_gs_dz_sweep_visuals.csv`, `halo_zero_order_visuals.csv` |
-| `scripts/slm/experiment_gs_improved.py` | `summary_gs_improved_improved.json`, `imp_groups_improved.csv`, `imp_halo_improved.csv` |
+| # | 确切命令 | 产物 (默认 `report/shape_trials/`) | 大致耗时 |
+|---|---|---|---|
+| 1 | `python scripts/slm/experiment_gs_defocus_offocus.py` | `summary.json`, `e1_defocus_sweep.csv`, `e2_methods.csv`, `e1_cv_heatmap.png` | 约数分钟 |
+| 2 | `python scripts/slm/experiment_gs_fresnel_vs_virtuallens.py` | `summary_fresnel_vs_vl.json`, `fv_groups_fresnel_vs_vl.csv`, `fv_equivalence_fresnel_vs_vl.csv` | 约 10 分钟 |
+| 3 | `python scripts/slm/experiment_gs_defocus_sweep_visuals.py` | `summary_defocus_sweep_visuals.json`, `scheme_gap_dz0_50mm_visuals.csv`, `v1_gs_dz_sweep_visuals.csv`, `halo_zero_order_visuals.csv` | 约数分钟 |
+| 4 | `python scripts/slm/experiment_gs_improved.py` | `summary_gs_improved_improved.json`, `imp_groups_improved.csv`, `imp_halo_improved.csv` | 约 1 小时 |
+
+四个脚本跑完后, 本生成器:
+
+```bash
+python scripts/slm/generate_gs_defocus_sim_report.py            # 全量: 6 张静态图 + 3 个 GIF + 本 markdown (约 6–10 min)
+python scripts/slm/generate_gs_defocus_sim_report.py --no-gif   # 只出静态图与 markdown
+python scripts/slm/generate_gs_defocus_sim_report.py --quick    # 冒烟: 零输入, 只验帧管线, 不写报告/图
+```
+
+> **`*.csv` 被 `.gitignore` 全局排除, 这是仓库约定 (只入库报告与图, 数据 CSV 不入库), 不是缺陷。**
+> 因此**干净克隆上必须先跑上面四个脚本产出 CSV, 本生成器才有输入**。缺任何一个输入时, 本脚本会在
+> 启动时直接拒绝执行, 并逐条列出「缺哪个文件 / 由哪个脚本产出 / 要跑哪条命令 / 大致耗时」,
+> 不会抛裸 `FileNotFoundError`; `--quick` 不读任何落盘产物, 在任何树上都能跑。
 
 动画与静态图由本目录的 `scripts/slm/generate_gs_defocus_sim_report.py` 渲染; 它**import** 
 `experiment_gs_improved.py` 的 `TwoComponentBench`（正演与 GS）和
