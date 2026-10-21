@@ -302,6 +302,10 @@ class ZernikeAberrationField:
         self._basis_matrix = (
             self._basis.reshape(self._n_terms, -1).T.to(torch.float64)
         )  # (region^2, n_terms) double, for the least-squares fit.
+        # 伪逆缓存一次算好：基底是固定的，之后每次拟合只是一次矩阵乘。
+        # 这既比每次重解快得多，也绕开了 torch.linalg.lstsq 的批量 gels
+        # 驱动在某些形状下的内部 LAPACK 断言失败。
+        self._basis_pinv = torch.linalg.pinv(self._basis_matrix)
 
     @property
     def n_terms(self) -> int:
@@ -321,11 +325,16 @@ class ZernikeAberrationField:
         """Linear least-squares fit of Zernike coefficients to a phase field.
 
         Plain (not non-negative) least squares over the whole grid —
-        ``coef = pinv(basis_flat) @ phase_flat`` solved with
-        :func:`torch.linalg.lstsq` on the ``(region^2, n_terms)`` basis matrix.
-        The basis is already zero outside the aperture, so no mask weighting is
-        needed.  The solve runs in float64 and the result is cast back to the
-        input dtype.
+        ``coef = pinv(basis_flat) @ phase_flat``.  The basis is already zero
+        outside the aperture, so no mask weighting is needed.  The solve runs in
+        float64 and the result is cast back to the input dtype.
+
+        The pseudo-inverse is **cached**: the basis is fixed, so it is computed
+        once and the fit becomes a single matmul.  That is both much faster
+        than solving per call and avoids ``torch.linalg.lstsq``'s batched
+        ``gels`` driver, which trips an internal LAPACK assert on some shapes
+        (observed: "false INTERNAL ASSERT FAILED ... Argument 6 has illegal
+        value" inside the training loop).
 
         Args:
             phase: ``(B, 1, region, region)`` phase in radians.
@@ -337,9 +346,8 @@ class ZernikeAberrationField:
             ValueError: If ``phase`` has the wrong shape.
         """
         _check_phase_batch(phase, self._region)
-        rhs = phase.reshape(phase.shape[0], -1).T.to(torch.float64)
-        solution = torch.linalg.lstsq(self._basis_matrix, rhs)
-        return solution.solution.T.to(phase.dtype)
+        rhs = phase.reshape(phase.shape[0], -1).to(torch.float64)
+        return (rhs @ self._basis_pinv.T).to(phase.dtype)
 
     def render(self, coefficients: torch.Tensor) -> torch.Tensor:
         """Synthesise the Zernike phase field of flat coefficients.

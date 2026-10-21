@@ -136,8 +136,12 @@ def draw_spec(index: int, seed: int) -> SampleSpec:
         source_dx=float(rng.uniform(-0.08, 0.08)),
         source_dy=float(rng.uniform(-0.08, 0.08)),
         target_side=float(rng.uniform(0.6, 1.4) * TARGET_SIDE),
-        target_dx=float(rng.uniform(-0.10, 0.10)),
-        target_dy=float(rng.uniform(-0.10, 0.10)),
+        # 目标的**位置**偏移只取很小一段：网络这一版学的是「形状」，
+        # 指向由闭环自己的 ROI（argmax 锚定）负责。偏移一大，网络预测的
+        # 远场（起点在画面中心）与目标就对不上，损失窗口里没有信号，
+        # 相关性的梯度会炸。
+        target_dx=float(rng.uniform(-0.012, 0.012)),
+        target_dy=float(rng.uniform(-0.012, 0.012)),
         exposure=float(np.exp(rng.uniform(np.log(0.05), np.log(3.0)))),
         sensor_seed=int(rng.integers(0, 2**31 - 1)),
         aberration_seed=int(rng.integers(0, 2**31 - 1)),
@@ -311,6 +315,32 @@ def build_dataset(
     return phases, specs, targets, ideals
 
 
+
+def _target_boxes(
+    indices: np.ndarray, specs: list[SampleSpec]
+) -> list[tuple[int, int]]:
+    """每个样本的目标框左上角（远场网格像素坐标）。"""
+    boxes: list[tuple[int, int]] = []
+    for index in indices:
+        spec = specs[index]
+        cy = FAR_FIELD / 2.0 + spec.target_dy * FAR_FIELD
+        cx = FAR_FIELD / 2.0 + spec.target_dx * FAR_FIELD
+        r0 = int(round(cy)) - METRIC_SIDE // 2
+        c0 = int(round(cx)) - METRIC_SIDE // 2
+        r0 = max(0, min(r0, FAR_FIELD - METRIC_SIDE))
+        c0 = max(0, min(c0, FAR_FIELD - METRIC_SIDE))
+        boxes.append((r0, c0))
+    return boxes
+
+
+def _crop_boxes(tensor: torch.Tensor, boxes: list[tuple[int, int]]) -> torch.Tensor:
+    """按每个样本各自的框裁出 (B, side, side)。"""
+    side = METRIC_SIDE
+    crops = [
+        tensor[i, :, r0 : r0 + side, c0 : c0 + side] for i, (r0, c0) in enumerate(boxes)
+    ]
+    return torch.stack(crops)
+
 def _batch_tensors(
     indices: np.ndarray, specs: list[SampleSpec], targets: np.ndarray
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -383,20 +413,26 @@ def main(argv: list[str] | None = None) -> int:
             phase_loss = torch.nn.functional.mse_loss(diff, torch.zeros_like(diff))
             far = operator.forward(torch.sqrt(source.clamp_min(0) + 1e-12), pred)
             intensity = far.real**2 + far.imag**2
-            # 相关性只在**目标支撑区**上算：在整张 512² 上算，读出噪声压过
-            # 信号（方斑只占千分之一），梯度几乎全是噪声。
-            half = (FAR_FIELD - METRIC_SIDE) // 2
-            sl = slice(half, half + METRIC_SIDE)
-            p = intensity[:, :, sl, sl].flatten(1)
-            t = target[:, :, sl, sl].flatten(1)
+            # 相关性只在**目标支撑区**上算，而且窗口要**跟着目标走**：
+            # 目标带随机偏移，窗口固定在画面正中时，多数样本的窗口里根本没有
+            # 目标，梯度就全是背景噪声。
+            boxes = _target_boxes(idx, specs)
+            # 先摊平成 (B, N)，再去均值/求内积——否则 dim=1 落在**通道**轴上
+            # （通道数是 1），去均值等于没做，求内积也变成逐像素，梯度在
+            # sqrt(0) 处直接 NaN。
+            p = _crop_boxes(intensity, boxes).flatten(1)
+            t = _crop_boxes(target, boxes).flatten(1)
             p = p - p.mean(dim=1, keepdim=True)
             t = t - t.mean(dim=1, keepdim=True)
             corr = (p * t).sum(dim=1) / (
-                torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-12
+                torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-6
             )
             loss = phase_loss + 40.0 * torch.mean(1.0 - corr)
             optimiser.zero_grad()
             loss.backward()
+            # 梯度范数护栏：相关性项在预测几乎为 0 的时候梯度很陡，
+            # 一步就能把参数推到 NaN。
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimiser.step()
             losses.append(float(loss.detach()))
         scheduler.step()

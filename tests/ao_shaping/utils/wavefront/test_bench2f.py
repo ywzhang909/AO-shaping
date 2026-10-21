@@ -13,12 +13,14 @@ from __future__ import annotations
 import json
 
 import numpy as np
+import pytest
 import torch
 
 from ao_shaping.utils.wavefront.bench2f import (
     Bench2FGeometry,
     Bench2FPropagator,
     Bench2FGroundTruth,
+    CCDSensor,
     ZernikeAberrationField,
 )
 
@@ -350,3 +352,95 @@ def test_forward_from_coefficients_splits_span_and_residual() -> None:
     assert (out - plain).abs().max().item() < 1e-6
     # and differs from the reducing forward, which would discard the residual
     assert (out - prop.forward(span + residual)).abs().max().item() > 1e-4
+
+
+class TestCCDSensor:
+    """探测器模型：过曝削顶、欠曝切底、噪声、量化。"""
+
+    def _frame(self) -> "torch.Tensor":
+        geo = Bench2FGeometry(region=32, far_field_size=128)
+        propagator = Bench2FPropagator(geo, n_max=4)
+        phase = torch.zeros(1, 1, 32, 32)
+        phase[0, 0, 16, 16] = 1.0
+        return propagator.forward(phase)
+
+    def test_over_exposure_clips_at_the_full_well(self):
+        frame = self._frame()
+        sensor = CCDSensor(exposure=4.0, full_well=1.0)
+        out = sensor.apply(frame)
+        assert float(out.max()) <= 1.0 + 1e-6
+        # 峰值确实撞到了满阱
+        assert float(sensor.saturated_fraction(frame).max()) > 0.0
+
+    def test_under_exposure_loses_the_weak_speckle(self):
+        frame = self._frame()
+        weak = CCDSensor(exposure=0.01, full_well=1.0, read_noise=0.0, bit_depth=16)
+        out = weak.apply(frame)
+        # 信号只剩 1 %，量化到 16 位后大部分背景被切到 0
+        assert float(out.max()) < 0.05
+
+    def test_black_level_clips_the_bottom(self):
+        frame = self._frame()
+        sensor = CCDSensor(exposure=0.1, full_well=1.0, black_level=0.05, bit_depth=16)
+        out = sensor.apply(frame)
+        assert float(out.min()) >= 0.05 - 1e-9
+
+    def test_quantisation_levels(self):
+        frame = self._frame()
+        sensor = CCDSensor(exposure=1.0, full_well=1.0, bit_depth=4)
+        out = sensor.apply(frame)
+        values = torch.unique(out)
+        assert torch.allclose(values * 15.0, torch.round(values * 15.0), atol=1e-6)
+
+    def test_noise_is_seed_deterministic(self):
+        frame = self._frame()
+        a = CCDSensor(
+            exposure=1.0, shot_noise=0.05, read_noise=0.01,
+            generator=torch.Generator().manual_seed(3),
+        ).apply(frame)
+        b = CCDSensor(
+            exposure=1.0, shot_noise=0.05, read_noise=0.01,
+            generator=torch.Generator().manual_seed(3),
+        ).apply(frame)
+        assert torch.equal(a, b)
+
+    def test_rejects_invalid_configuration(self):
+        for kwargs in (
+            {"exposure": 0.0},
+            {"full_well": 0.0},
+            {"black_level": 1.0},
+            {"bit_depth": 0},
+            {"read_noise": -1.0},
+        ):
+            with pytest.raises(ValueError):
+                CCDSensor(**kwargs)
+
+
+class TestPerSampleAberration:
+    def test_aberration_argument_changes_the_far_field(self):
+        geo = Bench2FGeometry(region=32, far_field_size=128)
+        twin = Bench2FGroundTruth(geo, freeform=None, illumination_exponent=2.0)
+        phase = torch.zeros(1, 1, 32, 32)
+        phase[0, 0, 16, 16] = 1.0
+        extra = torch.zeros(1, 1, 32, 32)
+        extra[0, 0, 8, 8] = 2.0
+        plain = twin.forward(phase)
+        tilted = twin.forward(phase, aberration=extra)
+        assert not torch.allclose(plain, tilted)
+        assert torch.allclose(plain, twin.forward(phase, aberration=torch.zeros_like(extra)))
+
+    def test_complex_far_field_honours_the_aberration(self):
+        geo = Bench2FGeometry(region=32, far_field_size=128)
+        twin = Bench2FGroundTruth(geo, freeform=None, illumination_exponent=2.0)
+        phase = torch.zeros(1, 1, 32, 32)
+        extra = torch.zeros(1, 1, 32, 32)
+        extra[0, 0, 8, 8] = 1.0
+        a = twin.complex_far_field(phase)
+        b = twin.complex_far_field(phase, aberration=extra)
+        assert not torch.allclose(a, b)
+
+    def test_rejects_wrongly_shaped_aberration(self):
+        geo = Bench2FGeometry(region=32, far_field_size=128)
+        twin = Bench2FGroundTruth(geo, freeform=None, illumination_exponent=2.0)
+        with pytest.raises(ValueError):
+            twin.forward(torch.zeros(1, 1, 32, 32), aberration=torch.zeros(1, 1, 16, 16))
