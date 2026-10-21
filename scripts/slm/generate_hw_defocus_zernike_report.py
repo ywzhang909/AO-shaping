@@ -1624,17 +1624,20 @@ def repro_block(
         lines.append(cmd)
     report_cmd = (
         "python scripts/slm/generate_hw_defocus_zernike_report.py"
-        + "".join(f" --groups-root {r}" for r in roots)
-        + (f" --focus-evidence {focus_evidence}" if focus_evidence else "")
+        + "".join(f" --groups-root {Path(r).as_posix()}" for r in roots)
+        + (f" --focus-evidence {Path(focus_evidence).as_posix()}"
+           if focus_evidence else "")
         + f" --report-key {report_key}"
     )
     return {
         "plan": plan_cmd,
         "report": report_cmd,
         "groups": "\n".join(lines),
-        "groups_root": str(roots[0]) if roots else "（未记录）",
-        "zernike_dir": (str(zernike_dir) if zernike_dir else "（本轮未采集）"),
-        "manifest": str(manifest_path) if manifest_path else "（未记录）",
+        "groups_root": (Path(roots[0]).as_posix() if roots else "（未记录）"),
+        "zernike_dir": (Path(zernike_dir).as_posix() if zernike_dir
+                        else "（本轮未采集）"),
+        "manifest": (Path(manifest_path).as_posix() if manifest_path
+                     else "（未记录）"),
     }
 
 

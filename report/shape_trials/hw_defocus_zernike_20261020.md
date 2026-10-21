@@ -680,7 +680,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json
 
 # 离线出图 (本报告)
-python scripts/slm/generate_hw_defocus_zernike_report.py --groups-root data\debug\hw_groups_20261020 --groups-root data\debug\hw_zernike_sweep_20261020b --focus-evidence data\debug\bench_settings\focus_probe\slm1_20261020_093932.json --report-key report/shape_trials/hw_defocus_zernike_20261020.md
+python scripts/slm/generate_hw_defocus_zernike_report.py --groups-root data/debug/hw_groups_20261020 --groups-root data/debug/hw_zernike_sweep_20261020b --focus-evidence data/debug/bench_settings/focus_probe/slm1_20261020_093932.json --report-key report/shape_trials/hw_defocus_zernike_20261020.md
 
 # 本轮每一组的**实际调用** (取自分组索引 groups_manifest.json, 原样照抄)
 # dz_scan_hw_gs  [adopted, 24 行]
@@ -709,6 +709,6 @@ D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_p
 python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only zernike_order
 ```
 
-采集目录：离焦与噪声组在 `data\debug\hw_groups_20261020`；
-泽尼克阶数组在 `data\debug`；
-分组索引 `data\debug\hw_groups_20261020\groups_manifest.json`。
+采集目录：离焦与噪声组在 `data/debug/hw_groups_20261020`；
+泽尼克阶数组在 `data/debug`；
+分组索引 `data/debug/hw_groups_20261020/groups_manifest.json`。
