@@ -274,7 +274,8 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
     """
     assert 1 <= len(cases) <= 2, "相位响应探针支持 1~2 个相位用例"
     seq: list[tuple[str, str, object]] = [(_BASELINE, "flat baseline", None)]
-    for c, prefix in zip(cases, ("B", "C"), strict=True):
+    # 1 个用例只用前缀 B; 2 个用例用 B/C。前缀表比用例长, 故不用 strict。
+    for c, prefix in zip(cases, ("B", "C")):
         seq.append((f"{prefix}_{c.name}", c.description, c.builder))
     seq.append((_REPEAT, "flat repeat (reversibility check)", None))
     return seq

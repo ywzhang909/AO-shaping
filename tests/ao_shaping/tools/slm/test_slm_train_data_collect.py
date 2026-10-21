@@ -331,26 +331,35 @@ class TestWriterContract:
 class TestNoHardware:
     """``--no-hw`` must work on a machine with no SLM/CCD and no SDK."""
 
-    def test_main_no_hw_exits_zero_and_prints_plan(self, capsys) -> None:
+    def test_main_no_hw_exits_zero_and_prints_plan(self) -> None:
+        from loguru import logger
+
         from ao_shaping.tools.slm.calibration.train_data_collect import main
 
-        code = main(
-            [
-                "--no-hw",
-                "--samples",
-                "3",
-                "--mode",
-                "zernike",
-                "--n-max",
-                "4",
-                "--exposure-ms",
-                "0.4,1.2",
-                "--cam-size",
-                "250,320",
-            ]
-        )
+        # 该模块用 loguru 输出计划, 不写 stdout —— capsys 永远抓不到。
+        # 按仓库惯例 (test_slm_floor_probe.py) 挂一个 loguru sink 收集。
+        logged: list[str] = []
+        sink_id = logger.add(logged.append, level="INFO")
+        try:
+            code = main(
+                [
+                    "--no-hw",
+                    "--samples",
+                    "3",
+                    "--mode",
+                    "zernike",
+                    "--n-max",
+                    "4",
+                    "--exposure-ms",
+                    "0.4,1.2",
+                    "--cam-size",
+                    "250,320",
+                ]
+            )
+        finally:
+            logger.remove(sink_id)
         assert code == 0
-        out = capsys.readouterr().out
+        out = "".join(logged)
         assert "zernike" in out
         assert "_c len=15" in out, "plan must state the stored vector length"
 

@@ -110,15 +110,24 @@ MIL = _Family(
 #: Config fields deliberately unreachable from the CLI. Each is either a
 #: callback, a progress knob, or something the library sets on a caller's behalf
 #: (``debug_dir`` is injected by the runner via ``dataclasses.replace`` once the
-#: debug directory exists).
+#: debug directory exists). ``send_overlay`` (both families) is filled by the GUI
+#: session via ``build_send_overlay``; the click runner leaves it ``None``. The
+#: three ``time_budget_s`` / ``chunk_epochs`` / ``resume_state`` fields are
+#: consumed by the chunk scheduler ``scripts/slm/run_gs_refine_zernike_sweep.py``
+#: (per-block ``--chunk-epochs`` / ``--time-budget-s``), not by the
+#: ``slm-gs-refine`` click runner.
 LIBRARY_ONLY: dict[str, set[str]] = {
     GS.label: {
         "callback",
+        "chunk_epochs",
         "gs_relax",
         "lr_min_ratio",
         "phase_disturbance_file",
         "progress_every",
+        "resume_state",
+        "send_overlay",
         "settle_max_discard",
+        "time_budget_s",
     },
     MIL.label: {
         "adaptive_trust_region",
@@ -128,6 +137,7 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "output_subdir",
         "probe_split_hook",
         "progress_every",
+        "send_overlay",
         "sim_aberration",
         "step_sink",
         "uncertainty_on_rejection",

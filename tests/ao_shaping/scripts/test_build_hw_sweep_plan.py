@@ -79,9 +79,25 @@ class TestNoHardware:
     """导入生成器不许牵进驱动包。"""
 
     def test_import_does_not_pull_in_drivers(self):
-        # 本模块已经 import 过生成器 ⇒ 若它牵进了驱动包, 这里就能看到。
-        leaked = sorted(m for m in sys.modules if m.startswith("ao_shaping.drivers"))
-        assert not leaked, f"生成器牵进了驱动包: {leaked}"
+        # 在**干净子进程**里 import 生成器再查 sys.modules。主测试进程里
+        # 同会话别的测试早已牵动驱动包 (惰性注册副作用), 直接查 sys.modules
+        # 会把别人的加载记到生成器头上, 误报泄漏。
+        probe = (
+            "import sys\n"
+            "from scripts.slm import build_hw_sweep_plan\n"
+            "leaked = sorted(m for m in sys.modules if m.startswith('ao_shaping.drivers'))\n"
+            "print(len(leaked))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, f"clean import failed:\n{proc.stderr}"
+        leaked = int(proc.stdout.strip().splitlines()[-1])
+        assert leaked == 0, f"生成器牵进了驱动包 ({leaked} 个模块)"
 
 
 class TestLayout:

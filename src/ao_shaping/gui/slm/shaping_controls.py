@@ -1275,7 +1275,10 @@ class GsRefineMethod(ShapingMethod):
             ("seed", "随机种子", 0, 99999, 1, None),
         )
         cells = _param_cells(5)
-        for cell, (key, label, lo, hi, step, help_) in zip(cells, spgd_fields, strict=True):
+        # 第 5 格留给下面的 confirm_best 复选框, 这里只配前 len(spgd_fields) 格。
+        for cell, (key, label, lo, hi, step, help_) in zip(
+            cells[: len(spgd_fields)], spgd_fields, strict=True
+        ):
             with cell:
                 values[key] = self.num_input(
                     key, label, r[key], lo, hi, step, help=help_
