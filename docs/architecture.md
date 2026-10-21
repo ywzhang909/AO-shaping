@@ -45,7 +45,7 @@ field = ComplexField.from_maps(phase, amplitude)  # 检查形状和像素间距
 可运行以下无硬件测试检查当前环境：
 
 ```bash
-uv run pytest tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_backend.py -q
+./run_pytest.sh tests/ao_shaping/model tests/ao_shaping/drivers/sim/test_oopao_backend.py -q
 ```
 
 **当前接入范围**: DM 基类、`SimMicroDM`、`SimulateDM` 接受 `DmCommands`；

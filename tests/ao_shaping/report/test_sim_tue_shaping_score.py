@@ -20,15 +20,24 @@ _TUE_DIR = Path(__file__).resolve().parents[3] / "report" / "sim_tue_methods"
 
 @pytest.fixture()
 def shaping_score():
-    import importlib
+    import importlib.util
 
-    old_path = sys.path.copy()
-    sys.path.insert(0, str(_TUE_DIR))
-    try:
-        mod = importlib.import_module("_common")
-        yield mod.shaping_score
-    finally:
-        sys.path[:] = old_path
+    # Load this directory's _common.py BY PATH, under a private module name.
+    #
+    # The name "_common" is claimed by two different things: this file, and
+    # scripts/_common/ (a package, because scripts/ is on pythonpath). Any
+    # import by NAME therefore picks whichever was imported first and caches
+    # it for the rest of the session -- so a by-name import here made
+    # scripts/ break later (it does "from _common import fmt_metric"), and
+    # vice versa. Loading by path under a private name touches neither the
+    # name cache nor sys.path, so neither side can poison the other.
+    spec = importlib.util.spec_from_file_location(
+        "_sim_tue_methods_common", _TUE_DIR / "_common.py"
+    )
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    yield mod.shaping_score
 
 
 def test_shaping_score_matches_published_formula(shaping_score) -> None:

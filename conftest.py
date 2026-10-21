@@ -6,6 +6,13 @@ The host has 384 cores. Left alone, the numeric stack sizes every thread pool
 at that number, and an ordinary ``pytest`` run saturates the machine badly
 enough that even ``ps`` and ``pkill`` time out.
 
+**Running on the host at all is refused.** Thread and VRAM caps cannot undo
+that: they bound how much each pool grows, not how many pools exist, and the
+host has no cgroup to fail against. On 2026-10-21 an unconstrained run on this
+box froze the machine and it needed a forced power cycle. ``run_pytest.sh`` is
+the sanctioned entry point; :func:`_enforce_containerized_run` makes a bare
+``pytest`` fail with a pointer to it.
+
 **CPU threads.** ``docker run --cpus=16`` is a CFS quota, not a cpuset: it
 throttles aggregate CPU time but leaves ``os.cpu_count()`` and
 ``multiprocessing.cpu_count()`` reporting 384. Libraries that derive a pool size
@@ -153,7 +160,71 @@ def _gpu_summary() -> str:
         return "torch unavailable"
 
 
+def _in_test_container() -> bool:
+    """Whether this process runs inside the sanctioned test container.
+
+    ``run_pytest.sh`` exports ``AO_PYTEST_ROOT``, which is the primary
+    signal: it is set on the ``docker run`` command line and nowhere else.
+    The cgroup and ``/.dockerenv`` checks are the fallback for a run that
+    reached the container by some other route.
+
+    The host is not a container, so a bare ``pytest`` here has to be
+    refused -- see :func:`_enforce_containerized_run`.
+    """
+    if os.environ.get("AO_PYTEST_ROOT"):
+        return True
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/self/cgroup", encoding="utf-8") as handle:
+            cgroup = handle.read()
+    except OSError:
+        return False
+    return "/docker-" in cgroup or "/docker/" in cgroup or "docker/" in cgroup
+
+
+def _enforce_containerized_run() -> None:
+    """Refuse to run the suite on the host; direct the caller to the wrapper.
+
+    The host has 384 cores and two RTX 4090s, and an unconstrained run there
+    is what takes the machine down: numeric libraries size their pools at
+    384, the vendored OOPAO hands ``multiprocessing.cpu_count()`` to
+    pyfftw and joblib, and the first symptom is not a failed test but the
+    shell itself timing out. On 2026-10-21 that is exactly what happened --
+    the host froze and needed a forced power cycle.
+
+    A host run is therefore refused rather than merely discouraged. The
+    escape hatch exists for the cases where a container genuinely cannot
+    run: a CI runner (no nested docker), and a developer who needs one
+    test file interactively.
+    """
+    if os.environ.get("AO_ALLOW_HOST_PYTEST") == "1":
+        return
+    if _in_test_container():
+        return
+    if os.environ.get("CI") == "true":
+        return
+
+    import pytest
+
+    raise pytest.UsageError(
+        "Refusing to run the test suite directly on the host.\n"
+        "\n"
+        "This machine has 384 cores; an unconstrained run saturates it and can\n"
+        "freeze the host (it did on 2026-10-21). Use the wrapper, which caps\n"
+        "CPU, memory and pids:\n"
+        "\n"
+        "    ./run_pytest.sh                          # whole suite\n"
+        "    ./run_pytest.sh tests/ao_shaping/runners  # a subtree\n"
+        "    ./run_pytest.sh -k 'not slow' -- -x      # extra args after --\n"
+        "\n"
+        "For a single test file during development, or on a CI runner with no\n"
+        "docker, set AO_ALLOW_HOST_PYTEST=1 (thread and VRAM caps still apply)."
+    )
+
+
 def pytest_configure(config) -> None:
+    _enforce_containerized_run()
     _cap_cpu_threads(_AO_CPU_THREADS)
     _cap_gpu_memory(_AO_VRAM_LIMIT_MB)
 

@@ -23,11 +23,15 @@ jobs:
         run: ruff check .
 
   pytest:
-    name: Pytest (best-effort)
-    # Still `continue-on-error` until dependency resolution is fully hardened
-    # for CI runners: `cupy-cuda13x` is a hard dependency that installs fine but
-    # only runs on a CUDA host (CPU runners import it but never execute the GPU
-    # path in the default subset). The ruff job above is the hard gate; this job
+    name: Pytest (containerised)
+    # The suite runs inside a container, not on the runner. The numeric stack
+    # sizes every thread pool at the core count it can see, so an
+    # unconstrained run saturates the machine; the caps here are what keep it
+    # survivable. `conftest.py` refuses a host run outright, so this job
+    # cannot silently regress to one.
+    #
+    # Still `continue-on-error`: the image build pulls torch and the whole
+    # scientific stack, and the ruff job above is the hard gate. This job
     # surfaces test regressions without blocking merges.
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -36,31 +40,14 @@ jobs:
         with:
           # `oopao` is a hard dep (pyproject [tool.uv.sources] -> path libs/OOPAO,
           # editable). Without this the submodule dir is empty on the runner and
-          # `uv sync` fails: "libs/OOPAO does not appear to be a Python project".
+          # the image build fails: "libs/OOPAO does not appear to be a Python project".
           submodules: recursive
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Sync dependencies (CPU torch + ml group)
-        # Default `uv sync` installs the main deps + the `dev` group only, which
-        # leaves two gaps for the default test subset:
-        # (1) NO torch: torch/torchvision are declared as [project.optional-dependencies]
-        #     extras (torch-cpu / torch-cu12x) with explicit PyTorch indexes, so a
-        #     bare sync leaves torch absent, but the default subset imports torch
-        #     directly (e.g. tests/.../test_zernike_coefficient_optimizer.py).
-        #     --extra torch-cpu selects the `pytorch-cpu` index
-        #     (download.pytorch.org/whl/cpu) so CI (no GPU) pulls the small CPU
-        #     wheel instead of a multi-GB CUDA build.
-        # (2) NO ml group: tests under runners/ pull `ml` transitively
-        #     (runners/slm/gsnet_runner.py -> ml.gsnet_debug.train -> wandb),
-        #     so without the ml group those tests abort at collection with
-        #     "No module named 'wandb'". --group ml installs wandb + torchmetrics.
-        # The rl group is intentionally NOT added: tests/ao_shaping/optimizer/rl
-        # are excluded from the default subset anyway, and the few that remain
-        # already skip gracefully ("could not import gymnasium") -- adding rl
-        # would only make them execute and slow the run.
-        run: uv sync --extra torch-cpu --group ml
-      - name: Run pytest (default subset; hardware/ml/gui-hang areas are excluded by pyproject)
-        run: uv run pytest
+      - name: Build the CPU test image
+        # The GPU image (docker/Dockerfile.test) is unusable here: a runner has
+        # no GPU and the CUDA wheels are multi-GB. The CPU variant carries the
+        # same thread caps, which is the part that matters.
+        run: docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
+      - name: Run pytest in the container
+        # Default subset; the hardware/ml/gui-hang areas are excluded by
+        # pyproject's addopts. The container caps CPU, memory and pids.
+        run: ./scripts/build/run_pytest_ci.sh

@@ -15,6 +15,7 @@ Options:
 
 import argparse
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -102,6 +103,11 @@ def run_pytest_test(module_path: str, device_name: str) -> bool:
             ],
             capture_output=False,
             text=True,
+            # Hardware tests need the host's devices, so they cannot run inside
+            # the test container. conftest.py refuses host runs by default; this
+            # is the one caller that legitimately needs the host, so it opts in
+            # explicitly rather than the guard being weakened for everyone.
+            env={**os.environ, "AO_ALLOW_HOST_PYTEST": "1"},
         )
         return result.returncode == 0
     except Exception as e:
