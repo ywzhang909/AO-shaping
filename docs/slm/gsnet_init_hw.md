@@ -2,7 +2,7 @@
 
 > **状态：2026-10-21 仿真验收已跑完，P0 判据通过，实验系统尚未运行。**
 > 仿真结论见 [`report/gsnet_2f_calibration/report.md`](../../report/gsnet_2f_calibration/report.md)。
-> **上机前请先读 §3**——仿真查出一条按 issue 原文跑会让这个开关永远不生效的门。
+> **实验前请先读 §3**——仿真查出一条按 issue 原文跑会让这个开关永远不生效的门。
 
 ## 1. 这条路径做什么
 
@@ -34,7 +34,7 @@ python scripts/slm/export_gsnet_phase.py \
 照明强度（0–1），target 是远场目标强度（0–1）。`region` 必须与闭环那次
 运行的 `--region` 一致（相位数组的形状要对得上）。
 
-`--forward calibrated` 会改用本台架 2f 物理前向（见
+`--forward calibrated` 会改用本实验系统 2f 物理前向（见
 `ao_shaping.utils.wavefront.bench2f`），可用 `--aberration` 带上拟合出来的
 实验系统像差。**注意：checkpoint 是用理想 FFT 训练的，换前向只是改推理时
 的物理步，不改权重。**
@@ -54,18 +54,18 @@ python scripts/slm/gsnet_init_hw_ab.py --gsnet-phase <phase.npy> --pairs 3
 * **同一会话内交错**：`gsnet` 臂与 `physical` 臂交替，第 i 对的顺序按 i 的
   奇偶翻转，抵消「先跑的那一臂占了更好的光功率时段」。
 * 每次 MIL 运行前都过**光功率门**（`scripts/slm/diagnose_light_level.py`）。
-* 曝光按会话现定（`--exposure-time-ms auto`），**不要写死**：本台架 8 分钟
+* 曝光按会话现定（`--exposure-time-ms auto`），**不要写死**：本实验系统 8 分钟
   内功率可漂 21 %。
 * 统计走 `ml/zernike/eval_stats.paired_comparison`（精确 sign-flip p 值 +
   `d_z` + 结构性的 `min_attainable_pvalue`）。
-* **单轮 best 分数不得作为可复现增益声明**——本台架分数分布呈双峰
+* **单轮 best 分数不得作为可复现增益声明**——本实验系统分数分布呈双峰
   （见 `report/shape_trials/gs_refine_live_20261012.md`）。
 
 产物：`data/debug/gsnet_init_hw_ab/<ts>/{plan.json,campaign.json,runs.csv}`。
 
-## 3. 上机前必须先决定的两件事
+## 3. 实验前必须先决定的两件事
 
-仿真把这两条查出来了，直接照 issue 原文上机会白跑。
+仿真把这两条查出来了，直接照 issue 原文实验会白跑。
 
 ### 3.1 门 1 的阈值按 issue 原文是死的
 
