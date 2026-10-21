@@ -17,7 +17,9 @@ from pathlib import Path
 import openpyxl
 import pandas as pd
 
-DOCS_DIR = Path(__file__).resolve().parent.parent / "docs" / "micro deformable mirror" / "docs"
+DOCS_DIR = (
+    Path(__file__).resolve().parent.parent / "docs" / "micro_deformable_mirror" / "docs"
+)
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 XLSX_1300_5 = DOCS_DIR / "1300-5.xlsx"
 XLSX_WIRING = DOCS_DIR / "1300路机柜输出线序表(1).xlsx"

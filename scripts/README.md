@@ -456,7 +456,7 @@ python scripts/dm/process_1300_data.py
 
 **What it does:**
 - Reads `1300-5.xlsx` and `1300路机柜输出线序表(1).xlsx` from
-  `docs/micro deformable mirror/docs`
+  `docs/micro_deformable_mirror/docs`
 - Maps each channel to its 36x36 grid position, IP group, sequence number,
   connector group and pin number
 - Writes `data/1300-5-enriched.xlsx` and `data/1300-5-enriched.csv`

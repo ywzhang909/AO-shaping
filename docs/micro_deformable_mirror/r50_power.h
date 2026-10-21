@@ -9,8 +9,8 @@
  * @date 2026
  *
  * Reference:
- *   - docs/micro deformable mirror/R50Power.m
- *   - docs/micro deformable mirror/Demo.m
+ *   - docs/micro_deformable_mirror/R50Power.m
+ *   - docs/micro_deformable_mirror/Demo.m
  *
  * Example:
  *   @code

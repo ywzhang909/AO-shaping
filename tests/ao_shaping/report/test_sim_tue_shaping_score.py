@@ -7,6 +7,7 @@ T1/T2 历史上各自内联 ``0.5*EE + 0.5/(1+CV)``; 现在统一走
 2. 数值守恒: 与 T1/T2 旧内联表达式在同一输入下**逐位**相等 (refactor 不改口径);
 3. 语义不变: EE 越大、CV 越小, 分数越大 (单调性)。
 """
+
 from __future__ import annotations
 
 import sys
@@ -20,15 +21,20 @@ _TUE_DIR = Path(__file__).resolve().parents[3] / "report" / "sim_tue_methods"
 
 @pytest.fixture()
 def shaping_score():
-    import importlib
+    # 不用 ``importlib.import_module("_common")``：仓库里另有 ``scripts/_common/``
+    # 包，若先前任何测试把 scripts/ 加进 sys.path 并 import 过它，
+    # ``sys.modules["_common"]`` 会被那个包污染，本 fixture 会拿到包
+    # (无 shaping_score) 而 AttributeError。这里按绝对路径
+    # spec_from_file_location 加载本目录的 _common.py，并清缓存，
+    # 彻底免疫命名冲突与模块缓存残留。
+    import importlib.util
 
-    old_path = sys.path.copy()
-    sys.path.insert(0, str(_TUE_DIR))
-    try:
-        mod = importlib.import_module("_common")
-        yield mod.shaping_score
-    finally:
-        sys.path[:] = old_path
+    path = _TUE_DIR / "_common.py"
+    spec = importlib.util.spec_from_file_location("tue_sim_methods_common", path)
+    assert spec is not None and spec.loader is not None
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    yield mod.shaping_score
 
 
 def test_shaping_score_matches_published_formula(shaping_score) -> None:
