@@ -20,6 +20,13 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 模拟 WFS (`SimulatedWFS`, OOPAO Shack-Hartmann, 瞳面 slope 模型) — `wfs/simulated_wfs.py`
 - DM→瞳面相位耦合 (`SimDmOptics`, 可分离高斯影响力函数) — `dm_optics.py`
 - 2f-Fourier SLM-PIB 数字孪生 (`SimPibSystem`) — `slm_shaping_bench.py` / `slm_pib_sim.py`
+- 2f 实验系统数字孪生核心（参数化误差注入，可被其他任务直接复用）— `bench_twin.py`：
+  口径=瞳面区域→CCD 远场，三族误差（LUT 非线性+量化 / 面板静态相差 / 装调：离焦+倾斜+透镜像差），
+  默认全零=理想系统；`far_field()`/`frame()` 正向、`apply_*` 分阶段注入、`compensate()` 算法级预补偿、
+  `to_dict()/from_dict()` 序列化（详见 [src/ao_shaping/drivers/sim/AGENTS.md](../src/ao_shaping/drivers/sim/AGENTS.md)）
+- 数字孪生参数反演（联合损失 + 两阶段反演 + 算法级预补偿，接在孪生核心公开 API 上，不另写传播链）—
+  `tools/slm/bench_twin_calibrate.py`（`twin_loss` / `fit_twin` / `compensated_phase`；
+  实测结论：面板 Noll-4 离焦与相机离焦在远场近乎简并，Stage 2 须与粗调量联合重拟合）
 - FourierGSNet 仿真环境 — `fouriergsnet_env.py`
 - 波前干扰 (湍流 + 热晕) — `disturbance.py`
 - 兼容层 (`compat.py`: `AOConfig`, `TraditionalAOSystem`, 供 `sim_spgd.py` 与 RL `envs.py`)
@@ -34,6 +41,9 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 > `beam_backend.focal_plane` 走**未加零填充**的瞳面，canonical 版则零填充到
 > `far_field_size` 再做 Fraunhofer FFT —— 同一个方法**按 import 来源返回不同指标**，
 > 且不报任何错。拆分模块时只加 re-export，不要复制函数体。
+> （2026-10-21 新增的 `bench_twin.py` 不违反本条：它是**参数化误差注入**的孪生系统，
+> 与 `slm_shaping_bench.py` 并存、互不替代 —— 前者注入 LUT/面板相差/装调误差供反演与
+> 预补偿，后者是整形前向模型+目标函数+参考优化器的唯一入口。）
 
 ## DM→相位耦合已接入仿真 (2026-10-01)
 

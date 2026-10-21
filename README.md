@@ -243,6 +243,6 @@ AO-shaping/
 
 ## 近期更新
 
-版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.18.0**, 2026-10-12）。
-最近一轮要点：逆向整形 PhasorUNet、自适应 SPGD、GS 预矫正上硬件、仿真 WFS 接入
-runner 命令面、DM→瞳面相位耦合进入仿真、相机噪声模型修复、实验系统工具重组。
+版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.19.0**, 2026-10-19）。
+最近一轮要点：正向模型在环（model-in-loop）闭环成型、GS→Zernike 阶数扫描立项、
+scripts/ 按处理对象重组、ruff 硬门禁（2026-10-21 恢复入库，见 CHANGELOG v0.19.0 节）。

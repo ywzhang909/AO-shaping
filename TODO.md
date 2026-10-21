@@ -417,7 +417,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **`src/` 无标注的 `except Exception`** | **312** | 上表 31 条带 noqa 的只占 **9%**；主流写法是**完全不标注**，而 `BLE001` 不在 `select` ⇒ 这 312 条从未被任何工具看见。热点：`gui/zernike/zernike_response_matrix_ui.py` 19、`gui/slm/multi_slm_controller.py` 19、`gui/ccd/ccd_analyzer.py` 18、`drivers/ccd/miicam/driver.py` 16 |
 | **`src/` 把 `assert` 当运行期护栏** | **111**（37 文件） | `drivers/ccd/miicam/driver.py` 21、`daheng/driver.py` 18、`ffmpeg/driver.py` 8。含**设备已打开断言、曝光范围检查、安全检查** ⇒ `python -O` 下**全部消失**。对硬件安全护栏这是正确性问题，不是风格问题 |
 | `# type: ignore` | `src/` 44 · `scripts/` 7 · `tests/` 53 | 仅 4 处无理由：`utils/image/target/patterns.py:233`、`tools/slm/slm_train_data_collect.py:183,848,849` |
-| 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 曾于 2026-10-15 建立 ruff 硬门禁 + pylint 参考级，**2026-10-19 起 `.github/` 整体移出 git 跟踪**（本地 `ruff check .` 仍须全绿）；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
+| 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 于 2026-10-15 建立 ruff 硬门禁 + pylint 参考级，2026-10-19 曾整体移出跟踪，**2026-10-21 恢复入库**（现 `ci.yml`：ruff 硬门禁 + best-effort pytest，本地 `ruff check .` 仍须全绿）；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
 
 ### 8.6 `ruff.toml` 重构顺序（**必须按序**）
 
