@@ -583,7 +583,7 @@ def build_readme(runs: dict, metrics: dict, asm_max_err: float) -> str:
     lines.append("")
     lines.append("损失函数由四项加权组成：")
     lines.append("")
-    lines.append("- **均匀性损失 (uniformity)**：目标区域内强度标准差/均值（CV）。")
+    lines.append("- **均匀度损失 (uniformity)**：目标区域内强度标准差/均值（CV）。")
     lines.append("- **效率损失 (efficiency)**：目标区域内能量占比（EE）。")
     lines.append("- **零级惩罚 (zero-order)**：中心 5×5 窗口强度占比。")
     lines.append("- **平滑正则 (smoothness)**：相位梯度平方均值。")

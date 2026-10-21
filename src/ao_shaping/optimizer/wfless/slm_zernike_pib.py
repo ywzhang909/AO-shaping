@@ -27,12 +27,11 @@ Example:
 
 from __future__ import annotations
 
-import os
 import time
 from collections import deque
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass, field, replace
-from typing import TYPE_CHECKING, Any, Sequence, cast
+from typing import TYPE_CHECKING, Any, Callable, Sequence, cast
 
 import numpy as np
 import tqdm
@@ -104,7 +103,12 @@ from ao_shaping.utils.io.file import (
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.wavefront.zernike_calc import noll_indices as _zernike_indices
-from ao_shaping.optimizer.constants import create_optimizer
+from ao_shaping.optimizer.constants import (
+    CAM_SAMPLE_ITER,
+    IDEAL_SPOT_RADIUS,
+    TEST_EXPOSURE_TIME_BRIGHTNESS,
+    create_optimizer,
+)
 from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     SlotRotator,
     default_camera,
@@ -118,11 +122,6 @@ from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
 beta1 = 0.9
 beta2 = 0.99
 beta3 = 0.9999
-
-# camera parameters
-CAM_SAMPLE_ITER = 1
-TEST_EXPOSURE_TIME_BRIGHTNESS = 220  # auto-exposure target used to locate the spot
-IDEAL_SPOT_RADIUS = int(os.environ.get("IDEAL_SPOT_RADIUS", 6))
 
 # Safety caps for learning_schedule: a single SPGD step must not be able to
 # traverse the Zernike coefficient clip range (+/-5 in the loop). Uncapped the
@@ -450,6 +449,139 @@ def _noise_gate(diff: float, sigma_hat: float, k: float) -> bool:
     if k <= 0.0 or not np.isfinite(sigma_hat) or sigma_hat <= 0.0:
         return False
     return abs(diff) <= k * sigma_hat
+
+
+class BenchSession:
+    """Shared candidate-evaluation session for both search branches (R-6 / #43).
+
+    Single-homes the sequence the heuristic and SPGD branches used to
+    duplicate (and had already drifted apart on):
+
+    1. ``capture`` - clip coefficients to ±``ZERNIKE_CLIP``, synthesise the
+       phase (``zernike_to_phase`` -> ``to_gray``), write it to a rotating
+       display slot, wait ``SLM_RESPONSE_TIME_S``, grab ``n_eval_frames``.
+       The clip is idempotent for the heuristic branch (its driver already
+       clips candidates to the same bounds) and matches the SPGD branch's own
+       pre-refactor clip.
+    2. ``resample_if_saturated`` - one saturation guard for both branches:
+       fire only under auto-exposure (``exposure_time_ms == 0``) and only when
+       the peak reaches ``full_scale(img)`` - the ceiling comes from the frame
+       dtype (uint8 -> 255, uint16 -> 65535, float -> 255), never a literal.
+       ``trigger_peak`` lets SPGD gate on the max over *every* capture while
+       the heuristic gates on the single frame it just grabbed. Returns
+       ``(img, fired)``; the aftermath is deliberately branch-specific and
+       stays at the call sites: the heuristic re-exposes *before* scoring (it
+       can - each evaluation is independent), while SPGD scores first and only
+       rescales momentum afterwards (one ABBA pair must be measured at one
+       common exposure; re-exposing mid-pair would break the difference).
+    3. ``recenter`` / ``score`` - re-locate the target ROI onto the current
+       spot before scoring (fixed blaze centre when a blaze probe ran, else
+       argmax + local centroid), so a benign beam drift is not scored as a
+       shaping loss.
+
+    The branch-mandated aftermath divergence is pinned by
+    ``test_slm_zernike_pib_production_sim.py::
+    test_saturation_is_the_known_branch_asymmetry``; the unit contract of each
+    method lives in ``test_slm_zernike_bench_session.py``.
+    """
+
+    def __init__(
+        self,
+        *,
+        slm: Any,
+        cam: Any,
+        to_gray: Callable[[np.ndarray], np.ndarray],
+        shaping: ShapingObjective,
+        n_max: int,
+        pattern_helper: PatternHelper,
+        zernike_radius: float,
+        exposure_time_ms: float,
+        target_max_brightness: float,
+        n_eval_frames: int,
+        reference_center: tuple[float, float],
+        blaze_choice: Any,
+    ) -> None:
+        self._slm = slm
+        self._cam = cam
+        self._to_gray = to_gray
+        self._shaping = shaping
+        self._n_max = n_max
+        self._pattern_helper = pattern_helper
+        self._zernike_radius = zernike_radius
+        self._exposure_time_ms = exposure_time_ms
+        self._target_max_brightness = target_max_brightness
+        self._n_eval_frames = n_eval_frames
+        self._reference_center = reference_center
+        self._blaze_choice = blaze_choice
+
+    def capture(self, coeffs: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Clip ``coeffs``, display the phase, grab a frame.
+
+        Returns ``(clipped_coeffs, gray_phase, img)``.
+        """
+        clipped = np.clip(
+            np.asarray(coeffs, dtype=np.float64), -ZERNIKE_CLIP, ZERNIKE_CLIP
+        )
+        phase_gray = self._to_gray(
+            zernike_to_phase(
+                clipped,
+                self._n_max,
+                self._pattern_helper,
+                self._zernike_radius,
+                default_radius=ZERNIKE_APERTURE_RADIUS,
+            )
+        )
+        display_rotating(self._slm, phase_gray, _SLOT_ROTATOR)
+        time.sleep(SLM_RESPONSE_TIME_S)
+        img = self._cam.get_numpy_image(self._n_eval_frames)
+        return clipped, phase_gray, img
+
+    def resample_if_saturated(
+        self, img: np.ndarray, *, trigger_peak: float | None = None
+    ) -> tuple[np.ndarray, bool]:
+        """Auto-expose a saturated frame; return ``(img, fired)``.
+
+        ``fired`` reports whether the guard triggered, even when
+        ``resample_on_saturation`` ends up keeping the frame (its own internal
+        threshold check can still no-op) - SPGD's ``scale_momentum`` fires iff
+        the guard did, matching the pre-refactor code. ``trigger_peak``
+        overrides the peak checked (SPGD passes the max over every capture;
+        the default checks the frame itself via :func:`is_saturated`). No-op
+        under fixed exposure (``exposure_time_ms != 0``).
+        """
+        if self._exposure_time_ms != 0:
+            return img, False
+        saturated = (
+            is_saturated(img)
+            if trigger_peak is None
+            else float(trigger_peak) >= full_scale(img)
+        )
+        if not saturated:
+            return img, False
+        resampled = resample_on_saturation(
+            img,
+            self._cam,
+            self._exposure_time_ms,
+            self._target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS,
+        )
+        return resampled, True
+
+    def recenter(self, img: np.ndarray) -> tuple[float, float]:
+        """Target ROI centre for ``img``: the fixed blaze centre (when a
+        blaze probe ran) or the frame's own 0-order position."""
+        if self._blaze_choice is not None:
+            return self._reference_center
+        return zero_order_center(img)
+
+    def score(self, img: np.ndarray) -> ObjectiveResult:
+        """Re-centre the target ROI onto ``img``'s current spot, then score.
+
+        Re-locating per frame keeps a benign beam drift from being scored as a
+        shaping loss (measured 22-px drift); both branches score this way, and
+        the fixed-centre blaze case flows through ``recenter`` unchanged.
+        """
+        self._shaping.set_reference_center(self.recenter(img))
+        return self._shaping(img)
 
 
 def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
@@ -1192,6 +1324,21 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 },
             )
 
+        session = BenchSession(
+            slm=slm,
+            cam=cam,
+            to_gray=to_gray,
+            shaping=shaping,
+            n_max=n_max,
+            pattern_helper=pattern_helper,
+            zernike_radius=zernike_radius,
+            exposure_time_ms=exposure_time_ms,
+            target_max_brightness=target_max_brightness,
+            n_eval_frames=config.n_eval_frames,
+            reference_center=reference_center,
+            blaze_choice=blaze_choice,
+        )
+
         # ------------------------------------------------------------------
         # Heuristic search branch (shared driver: algorithm/heuristic/search.py).
         # The driver clips candidates to the bounds, handles the maximise/minimise
@@ -1203,27 +1350,14 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
 
                 def _evaluate_candidate(coeffs) -> float:
                     """Display one candidate and return its RAW objective value."""
-                    candidate = np.asarray(coeffs, dtype=np.float64)
-                    candidate_phase = to_gray(
-                        zernike_to_phase(candidate, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
-                    )
-                    display_rotating(slm, candidate_phase, _SLOT_ROTATOR)
-                    time.sleep(SLM_RESPONSE_TIME_S)
-                    img = cam.get_numpy_image(config.n_eval_frames)
-                    if exposure_time_ms == 0 and is_saturated(img):
-                        # Saturated: re-auto-expose to the requested target, mirroring
-                        # the SPGD loop's guard, so the metric stays on a valid frame.
-                        img = resample_on_saturation(
-                            img,
-                            cam,
-                            exposure_time_ms,
-                            target_max_brightness or TEST_EXPOSURE_TIME_BRIGHTNESS,
-                        )
-                    # Re-locate the target ROI onto the CURRENT spot (a benign beam
-                    # drift must not be scored as a shaping loss) - same rule as the
-                    # SPGD loop's per-eval re-centering.
-                    shaping.set_reference_center(reference_center if blaze_choice is not None else zero_order_center(img))
-                    res = shaping(img)
+                    _, candidate_phase, img = session.capture(coeffs)
+                    # Saturated: re-auto-expose to the requested target BEFORE
+                    # scoring (the guard is shared with the SPGD loop via the
+                    # session; the aftermath differs - the heuristic can
+                    # re-expose per evaluation, SPGD must keep a +/-d pair at
+                    # one common exposure and scores first).
+                    img, _ = session.resample_if_saturated(img)
+                    res = session.score(img)
                     obj, obj_ratio = res.j, res.ratio
                     if objective == "rms_pib":
                         # Adapt the PIB/RMS/EE weights on every valid candidate
@@ -1378,15 +1512,10 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     # captures/epoch instead of 2.
                     _captures: list[tuple[int, np.ndarray, np.ndarray, np.ndarray]] = []
                     for _sign in _spgd_capture_signs(config.abba_sampling):
-                        _c = np.clip(_init_c + float(_sign) * disturb_c, -ZERNIKE_CLIP, ZERNIKE_CLIP)
-                        _phase = to_gray(
-                            zernike_to_phase(_c, n_max, pattern_helper, zernike_radius, default_radius=ZERNIKE_APERTURE_RADIUS)
+                        _c, _phase, _img = session.capture(
+                            _init_c + float(_sign) * disturb_c
                         )
-                        display_rotating(slm, _phase, _SLOT_ROTATOR)
-                        time.sleep(SLM_RESPONSE_TIME_S)
-                        _captures.append(
-                            (_sign, cam.get_numpy_image(config.n_eval_frames), _c, _phase)
-                        )
+                        _captures.append((_sign, _img, _c, _phase))
 
                     _pos_captures = [c for c in _captures if c[0] > 0]
                     # The logged/ROI/adapt_weights frame stays the FIRST positive
@@ -1517,33 +1646,25 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                     _sign_results: dict[int, list[ObjectiveResult]] = {1: [], -1: []}
                     with shaping.shape_batch():
                         for _c_sign, _img_c, _, _ in _captures:
-                            shaping.set_reference_center(reference_center if blaze_choice is not None else zero_order_center(_img_c))
-                            _sign_results[_c_sign].append(shaping(_img_c))
+                            _sign_results[_c_sign].append(session.score(_img_c))
                     pos_res = _sign_results[1][0]
                     # Sign-means (2 frames reduce to the single value they hold).
                     pos_obj = float(np.mean([r.j for r in _sign_results[1]]))
                     neg_obj = float(np.mean([r.j for r in _sign_results[-1]]))
                     pos_obj_ratio = float(np.mean([r.ratio for r in _sign_results[1]]))
                     neg_obj_ratio = float(np.mean([r.ratio for r in _sign_results[-1]]))
-                    pos_center = reference_center if blaze_choice is not None else zero_order_center(pos_img)
+                    pos_center = session.recenter(pos_img)
 
-                    # Auto-exposure adjustment if saturated (over every capture).
-                    # The ceiling comes from the frame dtype, never a literal: a
-                    # 16-bit backend would saturate at 65535 and a float frame at
-                    # ``DETECTOR_FULL_SCALE``.
-                    _sat_level = full_scale(pos_img)
                     max_brightness = max(
                         float(np.max(c[1])) for c in _captures
                     )
-                    if max_brightness >= _sat_level and exposure_time_ms == 0:
-                        _resample_img = resample_on_saturation(
-                            pos_img,
-                            cam,
-                            exposure_time_ms,
-                            target_max_brightness,
-                            saturation_threshold=_sat_level,
+                    _resampled, _sat_fired = session.resample_if_saturated(
+                        pos_img, trigger_peak=max_brightness
+                    )
+                    if _sat_fired:
+                        optimizer.scale_momentum(
+                            np.sum(_resampled) / np.sum(pos_img)
                         )
-                        optimizer.scale_momentum(np.sum(_resample_img) / np.sum(pos_img))
 
                     pos_j, neg_j = pos_obj, neg_obj
                     # The recorded panel/metrics describe the POSITIVE frame; keep

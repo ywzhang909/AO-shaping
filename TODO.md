@@ -108,12 +108,11 @@
 > 🔴→✅ **`slm_zernike_shaping.py` 已不再是同源副本**（2026-10-15，X-4/#74，PR #129
 > `ee96acfe` 合入）：该 1600 行分叉（`_row0`/`_log_row`/`learning_schedule`/饱和分支
 > 结构 + `w_outside` 能量项 + `__main__` fork demo）已并入 `slm_zernike_pib.py`
-> （`w_outside`/调试产物/ABBA 等均收敛至此），`slm_zernike_shaping.py` 现仅为
-> **44 行弃用重导出 shim**（`__all__` = `SLM_WIDTH/HEIGHT/RESOLUTION`、`ObjectiveSpec`、
-> `Santec`、`SlmZernikePibConfig`、`optimize_slm_zernike_pib`），仅供旧 import
-> 路径解析，**不含任何可独立修改的实现** ⇒ 下面各条改动**只需改 `slm_zernike_pib.py`
-> 一处**，历史「改一处必须同时改副本」的约束已失效。副本盘点见
-> [archive §5.17](docs/dev/todo_archive.md)。
+> （`w_outside`/调试产物/ABBA 等均收敛至此）；其最后的 **44 行弃用重导出 shim**
+> 也已删除（2026-10-20，#138 —— 实测**零生产导入方**、零测试导入方，仅一处
+> 按模块字符串枚举的测试引用，已随之更新）⇒ 下面各条改动**只需改
+> `slm_zernike_pib.py` 一处**，历史「改一处必须同时改副本」的约束已失效。
+> 副本盘点见 [archive §5.17](docs/dev/todo_archive.md)。
 
 | ID | 摘要 | issue |
 |---|---|---|
@@ -123,7 +122,7 @@
 | R-8 P1 | 硬件安全 try/finally：任何异常（相机掉线、越界、`KeyboardInterrupt`）都让 SLM 停在随机相位 | [#45](https://github.com/ywzhang909/AO-shaping/issues/45) |
 | ~~R-13~~ | ✅ **收敛完成**（#46）：实测**不是 5 份相同副本，而是 4 种不同实现** —— 只有 `slm_square_shaping` 与 `pib` 逐字节相同（9 行）；`slm_zernike_pib` + `slm_zernike_shaping` **早已是「响亮失败」版**（检测 `accepts_var_keyword`、转发 `**kwargs`、并 warning 列出被丢参数），而 `pib` / `slm_square_shaping` / `sim_spgd` **仍静默吞参**（且永远不转发给声明 `**kwargs` 的 callee，即 `**config.kwargs` 逃生口失效）。canonical 落在 `optimizer/constants.py::create_optimizer`，紧邻它本就该集中管理的 `OPTIMIZER_MAP`。🎁 **额外发现**：3 个文件各自还定义了一份 `OPTIMIZER_MAP`，与 canonical **内容完全相同**（仅差类型标注）→ 一并改为导入。守卫 `test_optimizer_factory_single_home.py`（12 项）除结构检查外**锁定行为**：丢参必须被报告、声明 `**kwargs` 的 callee 必须收到传参 | ✅ |
 | R-14 P2 | `metric_panel` 每 epoch 全量指标 → 加 `panel_every_n`。⚠️ **前置是产品决策**（跳过轮次留空 vs 沿用上一轮） | [#47](https://github.com/ywzhang909/AO-shaping/issues/47) |
-| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2100` 的**布尔 CLI flag**，GS 相位是 `slm_gs_refine.py:598` 内联调 `gs_shape`，**没有可复用函数**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
+| R-18 P3 | ⚠️ **2026-10-06 复核：原描述已过期，改为需设计决策**。①「删陈旧注释」**已完成** —— `slm_zernike_pib.py` 与死分叉里 `--init-gs` / `gs_warm` / `gerchberg` **零痕迹**。②「接入已有实现」**无物可接** —— `gs_warm_start` 只是 `runner_common.py:2442` 的**布尔 CLI flag**，GS 相位是 `slm_gs_refine.py:545` 内联调 `gs_shape`（2026-10-20 复核，行号随代码漂移），**没有可复用函数**。③ 真正的障碍：slm-pib 每轮由 `_c` 重建面板相位，注入全面板 GS 相位会破坏该不变式；改为拟合 Zernike 系数则对**方形**目标受 AGENTS.md「n≤4 无法合成方形远场」限制 | [#48](https://github.com/ywzhang909/AO-shaping/issues/48)（**仍开放**，待决策） |
 | R-19 P3 | 🟡 注入机制已统一（archive §5.34），**`BenchSession` 本体未做** ⇒ R-5~R-8 仍待办。本条是那四项的跟踪父项 | [#49](https://github.com/ywzhang909/AO-shaping/issues/49) |
 
 ### 2.2 `utils/` + `scripts/` + `tools/` 架构重构
@@ -404,7 +403,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1182`（`BaseException`，在 finally 清理里）、`:1194` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛 |
+| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1285`（`BaseException`，在 finally 清理里）、`:1297` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`；`1ce4717a` 常量收敛后整体 −1）|
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -472,10 +471,10 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
 | 参数校验 | 10 | `n_sample > 0` / `tolerance > 0` / `width and height` / offset ≥0，散在 3 个相机驱动 | 相机侧入口统一 `raise ValueError`；调用侧的重复项删 |
 | cartographer 设备前置 | 13 | `assert self.slm.is_open` / `assert self.wfs.is_connected()` | **删** —— 驱动的 `_ensure_open` 已覆盖；`is_connected()` 是**询问**，不是断言 |
-| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:721` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证 |
+| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:780` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证（行号 2026-10-20 复核，原 `:721`；`1ce4717a` 常量收敛后整体 −1）|
 | 编程不变式 | ~40 | `assert img.ndim == 2`、`assert best_q is not None`、`assert G.ndim >= 2` 等 | **保留 `assert`**（内部不变量，外部输入到不了）|
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1456-1474`），不在驱动；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1585-1605`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -508,7 +507,7 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 | 文件 | 块行数 | `__main__` 守卫 | 裸模块级语句 |
 |---|---|---|---|
-| `optimizer/wfless/slm_zernike_shaping.py` | 119 | 1 | **0** |
+| `optimizer/wfless/slm_zernike_shaping.py` | ~~119~~ | 1 | **0** | ← 2026-10-20 该文件已整体删除（#138），本行为 2026-10-14 的历史测量留档 |
 | `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
 | `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
 | `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |

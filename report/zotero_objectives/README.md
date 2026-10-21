@@ -30,7 +30,7 @@
 
 ## 1. 平顶/整形质量（直接对应本项目方形整形）
 
-### 1.1 光束均匀性 δ 与均方根误差 I_RMSE
+### 1.1 光束均匀度 δ 与均方根误差 I_RMSE
 
 - **来源**：`PDF正文`
 - **原文**：Zhai Zhongsheng 等，2023，*Analysis of factors affecting beam shaping quality of geometric steady-phase method based on SLM*，Journal of Applied Optics 44(4)
@@ -45,7 +45,7 @@
   ```
 
 - **符号**：`I(u,v)` 取样区 `S` 内像素光强；`S` 方形平顶光斑取样区；`n` = `S` 内取样点数；`Ī` = `S` 内平均光强。强度单位任意（a.u.），`δ` 为百分比。
-- **方向**：`δ` **MAXIMIZE**（原文：「`IRMSE` 的值越小，输出光束的均匀性越高」）。
+- **方向**：`δ` **MAXIMIZE**（原文：「`IRMSE` 的值越小，输出光束的均匀度越高」）。
 - **场景/归一化**：无强度归一化 —— `I_RMSE` 是**绝对**标准差，对整体光强涨落敏感。
 - **权重**：`未给`。
 - **原文实测**：稳相法 98.3%（仿真）/ 83.9%（实验，含零级光）；叠加闪耀光栅移除零级光后 97.2%。
@@ -451,7 +451,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
   ```
 
 - **符号**：`S̃ = [S̃₁, S̃₂, S̃₃]` 实际 Stokes；`S̄ = [S̄₁, S̄₂, S̄₃]` 全瞳平均 Stokes；`c = 1`（「due to the symmetrical nature of Stokes parameter values」）。
-- **物理含义**：原文定义为「实际 Stokes 相对平均 Stokes 的标准差」，度量重排序（re-sorting）光场的均匀性。
+- **物理含义**：原文定义为「实际 Stokes 相对平均 Stokes 的标准差」，度量重排序（re-sorting）光场的均匀度。
 - **⚠ 文本层缺损**：式 (2) 的分母/归一化项在线性化后不可辨，**完整 `U` 公式标记为 NOT RECOVERED**（上文仅保留可确认的 `c·√(‖S̃−S̄‖²)` 骨架与 `c = 1`）。
 - **适用域**：「valid over the whole imaging pupil（瞳面） or sub-regions … can be used to evaluate global uniformity」。
 - **备注**：**偏振/矢量域**，与本项目标量强度整形不同轴；仅在需要矢量整形时适用。
@@ -521,7 +521,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 |---|---|---|
 | §1.3 顶部不均匀度 δ（`RQYZD5UF`） | `uniformity_cv` = `std/mean` | **已覆盖**（同族；分母 `n` vs `n−1` 差异可忽略） |
 | §2.4 环围能量 EE / §3.3 MDS | `power_in_bucket` | **已覆盖**（圆形桶 vs 方形支撑为可选变体） |
-| §1.1 `I_RMSE`（`VU9TQINS`） | 无 | **新增可选**：绝对均匀性，对整体强度涨落敏感的对照项 |
+| §1.1 `I_RMSE`（`VU9TQINS`） | 无 | **新增可选**：绝对均匀度，对整体强度涨落敏感的对照项 |
 | §2.5 `J_MR` / §3.1 `⟨r²⟩` | 无 | **新增推荐**：强度加权二阶矩，MINIMIZE，文献收敛迭代数最少（361 vs 1354/1275） |
 | §4.4 `J = w₁J_I + w₂(1−SSIM)` | 无 | **新增推荐**：唯一带**显式数值权重**（`w₁=w₂=0.5`）的复合指标；专门解决「单一 ROI 平均强度对半径敏感 → SPGD 抖动」 |
 | §3.2 Booth `W`（`D = 1 − ξ²/R²`） | 无 | **新增推荐**：对离轴大能量鲁棒的加窗二阶矩 |
@@ -549,7 +549,7 @@ U_t       = U_t + α ∇_U J(U, t)                           (3-7)
 1. **`mean_radius`**（§2.5 / §3.1）— MINIMIZE。实现最简（只需 `intensity` 与质心），文献给出明确迭代数优势（361 vs 1354/1275），且是仓库当前缺口。
 2. **`ssim_composite`**（§4.4）— MINIMIZE，`w₁=w₂=0.5` 直接取自原文。**本目录中唯一带显式数值权重的候选**，且直击 SPGD 单标量抖动问题。
 3. **`fom_geomean`**（§4.3）— MAXIMIZE，`√(nPIB·SIB)`；需理想参考（可由无调制平场一次测量得到，与仓库 `slm_gs_refine` 的 对比择优 思路一致）。
-4. **`booth_window`**（§3.2）— MINIMIZE，`D = 1 − ξ²/R²` 加窗二阶矩；对零级光/离轴散斑鲁棒（`VU9TQINS` 报告零级光是均匀性主要劣化源）。
+4. **`booth_window`**（§3.2）— MINIMIZE，`D = 1 − ξ²/R²` 加窗二阶矩；对零级光/离轴散斑鲁棒（`VU9TQINS` 报告零级光是均匀度主要劣化源）。
 5. **`irmse`**（§1.1）— MINIMIZE，`sqrt(Σ[I−Ī]²/(n−1))`；与现有 CV 构成「绝对 vs 相对」对照。
 6. **`peak_ratio`**（§2.1）— MAXIMIZE，`I/I₀`；需注意原文自述「极易受大气湍流闪烁影响」，在硬件上应先做中值去噪。
 

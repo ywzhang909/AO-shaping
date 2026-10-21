@@ -78,7 +78,7 @@ graph TD
 | `--target-side` | 目标方形边长 (px, 0=自动) | 0 |
 | `--target-mean-brightness` | 目标平均亮度 (>0 自动推导边长) | 0 |
 | `--side-factor` | 自动边长倍率 | 1.5 |
-| `--w-uniformity` | 均匀性权重 | 0.4 |
+| `--w-uniformity` | 均匀度权重 | 0.4 |
 | `--w-efficiency` | 能量效率权重 | 0.6 |
 | `--w-aspect` | 宽高比权重 | 0.0 |
 | `--cam-type` | 相机后端 (miicam/daheng/sim) | daheng |

@@ -578,7 +578,7 @@ U-Net 也看到光斑变均匀（1.6345 → 0.6189），所以这个相位**不�
    带限让它差 **2.5 倍**，且恰好落在仓库 GS 基线 0.41 上 —— 这就定量证实了
    仓库那条反模式："低阶 Zernike 造不出方斑远场"。
 2. **`n_max` 非单调**：4→8→15 依次改善（0.76→0.57→0.39），到 20/30 反而变差
-   （0.43/0.48）。更高的模式让优化器去追局部纹理，牺牲了框内均匀性。
+   （0.43/0.48）。更高的模式让优化器去追局部纹理，牺牲了框内均匀度。
 3. **`n_max>15` 也出流形**：zfrac 从 1.000 掉到 0.639/0.362。代理是在 `n_max=15`
    上训练并验证的，所以"带限"的分界不是数学上的，是**验证过的**分界。
 
@@ -681,7 +681,7 @@ python -m pytest tests/ao_shaping/scripts/test_compare_models_cv.py -q  # 19
 | 缩写/术语 | 完整名称 | 定义 |
 |---|---|---|
 | **NNLS** | Nonnegative Least Squares | 约束最小二乘法，要求解向量 `x ≥ 0`。在本项目用于 `slm_model_in_loop.py:_fit_flat_leakage`，拟合物理上不可为负的模型增益 `g ≥ 0`。实现: `scipy.optimize.nnls`。 |
-| **CV** | Coefficient of Variation | 质量分中的均匀性项: `CV = std(box) / mean(box)`。越小表示光斑越均匀。CV=0 获得最大奖励。 |
+| **CV** | Coefficient of Variation | 质量分中的均匀度项: `CV = std(box) / mean(box)`。越小表示光斑越均匀。CV=0 获得最大奖励。 |
 | **EE** | Encircled Energy | 质量分中的能量项: 落在目标 box 内的总能量 / 全帧总能量。衡量目标框内光斑能量覆盖率。 |
 | **R²** | Coefficient of Determination | 决定系数: `R² = 1 - SS_res / SS_tot`。衡量模型解释方差的比例。本文使用 `ml.zernike.metrics` 的实现。 |
 | **SSIM** | Structural Similarity Index | 结构相似性指标。衡量亮度、对比度、结构三个维度的相似度。注意: SSIM 在散斑场上偏弱，详见 §9 局限。 |

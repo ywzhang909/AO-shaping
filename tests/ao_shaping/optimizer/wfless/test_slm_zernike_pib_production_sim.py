@@ -22,19 +22,20 @@ noise-aware update gate and multi-frame averaging had **no offline coverage at
 all** -- they could only ever have been exercised on hardware. This module
 closes that gap: every one of them runs here against the sim bench.
 
-It is also the safety net required before R-5~R-8 refactor
-``slm_zernike_pib.py`` (objective class family, shared ``BenchSession``,
-orchestrator split, hardware try/finally). Those are behaviour-preserving
-refactors of a ~900-line optimizer, and the contract they must preserve is
-exactly what is asserted here.
+It is also the safety net that made the R-6 ``BenchSession`` extraction
+possible; the remaining refactors it still guards (objective class family,
+orchestrator split, hardware try/finally) are behaviour-preserving refactors
+of a ~900-line optimizer, and the contract they must preserve is exactly what
+is asserted here.
 
 Characterization, not endorsement
 ---------------------------------
 These tests pin *current observable* behaviour so a refactor cannot silently
-change it. Where current behaviour is internally inconsistent -- the two
-search branches use different saturation strategies (R-6) -- the inconsistency
+change it. Where behaviour legitimately differs by algorithm -- since R-6 both
+branches share one saturation guard, but the heuristic re-exposes before
+scoring while SPGD scores first and only rescales momentum -- the difference
 is recorded in ``test_saturation_is_the_known_branch_asymmetry`` rather than
-asserted as correct, so that unifying it is an explicit, visible change.
+asserted as correct, so that changing it is an explicit, visible change.
 """
 
 from __future__ import annotations
@@ -292,17 +293,21 @@ def test_rms_pib_records_the_adaptive_weight_panel():
 # 3. Known asymmetry (R-6) -- recorded, not endorsed
 # --------------------------------------------------------------------------
 def test_saturation_is_the_known_branch_asymmetry():
-    """Record that the two branches' saturation guards genuinely differ today.
+    """Record what still differs between the branches after R-6.
 
-    * heuristic: ``is_saturated(img)`` on the single frame, no explicit
-      ``saturation_threshold``, no momentum rescale.
-    * SPGD: ``max`` over *every* capture vs ``full_scale(pos_img)``, an explicit
-      ``saturation_threshold``, plus ``optimizer.scale_momentum(...)``.
+    The *guard* is single-homed in ``BenchSession.resample_if_saturated``:
+    exactly one ``resample_on_saturation`` call site, one trigger for both
+    branches (auto-exposure only, peak vs the dtype-derived full scale).
+    The *aftermath* stays branch-specific because the algorithms mandate it:
 
-    Unifying them is the point of R-6. This test exists so that when they are
-    unified, the diff in behaviour is attributable rather than silent. It asserts
-    only that both branches still apply *a* guard (the invariant that must
-    survive), and documents the divergence in prose.
+    * heuristic: re-expose BEFORE scoring (each evaluation is independent),
+      no momentum rescale;
+    * SPGD: score first, then only ``optimizer.scale_momentum(...)`` -- one
+      ABBA +/-d pair must be measured at one common exposure.
+
+    This test pins both facts: both branches still apply *a* guard (the
+    invariant that must survive), the guard has exactly one implementation,
+    and each branch's call sites stay in their algorithm-mandated order.
     """
     source = importlib.import_module(PRODUCTION).__doc__ or ""
     assert source is not None
@@ -310,8 +315,20 @@ def test_saturation_is_the_known_branch_asymmetry():
     heur = _run("pib", epochs=1, algorithm="ga", pop_size=4)
     for recorder in (spgd, heur):
         assert np.isfinite(float(recorder.history[-1]["J"]))
-    # The divergence is in the source, not in this assertion; see module docstring.
-    assert "scale_momentum" in _read_source()
+
+    src = _read_source()
+    assert "scale_momentum" in src
+    assert src.count("resample_on_saturation(") == 1
+
+    heur_slice = src[
+        src.index("def _evaluate_candidate") : src.index("result = run_heuristic_search(")
+    ]
+    assert heur_slice.index("resample_if_saturated") < heur_slice.index("session.score")
+
+    spgd_slice = src[
+        src.index("_spgd_capture_signs(config.abba_sampling)") : src.index("SPGD finished")
+    ]
+    assert spgd_slice.index("session.score") < spgd_slice.index("resample_if_saturated")
 
 
 def _read_source() -> str:

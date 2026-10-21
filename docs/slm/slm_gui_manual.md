@@ -625,7 +625,7 @@ flowchart LR
 
 2. **正向模型闭环整形（前沿）**：每轮用强随机探针重拟合正向模型的 Zernike 像差
    （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
-   需 `torch`。目前最佳均匀性 **CV 0.643 / EE 0.786**，但未成为被接受的均匀方形，
+   需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但未成为被接受的均匀方形，
    见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
 
 > **设备生命周期**：上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），

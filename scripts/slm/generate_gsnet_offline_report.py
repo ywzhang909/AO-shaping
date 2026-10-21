@@ -454,7 +454,7 @@ def _build_report(
         )
     lines.append("")
     lines.append("> 结论: 相关性高说明**形状**学到了, 但 `uniformity_cv` 明显偏大说明"
-                 "**均匀性**尚未达标 —— 二者不可互相替代。")
+                 "**均匀度**尚未达标 —— 二者不可互相替代。")
     lines.append("")
 
     lines.append("## 4. 损失曲线")

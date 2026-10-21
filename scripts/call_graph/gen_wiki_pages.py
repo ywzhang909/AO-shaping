@@ -81,7 +81,7 @@ CMD_ORDER = [
     ("ga-zernike", "遗传算法 Zernike 波前优化"),
     ("greedy-zernike", "贪婪局部搜索 Zernike 波前优化"),
     ("slm-pib", "SLM Zernike 整形（spgd/heuristic 子命令）"),
-    ("spgd-square", "SLM 方形远场均匀性整形（SPGD）"),
+    ("spgd-square", "SLM 方形远场均匀度整形（SPGD）"),
     ("slm-gsnet", "SLM freeform 方形整形（spgd/heuristic/train）"),
     ("slm-gs-refine", "GS 预整形 + 自由相位 SPGD 细化"),
     ("slm-model-in-loop", "正向模型闭环方形整形（反复迭代）"),

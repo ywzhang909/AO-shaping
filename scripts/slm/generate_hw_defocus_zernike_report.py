@@ -416,7 +416,7 @@ def render_figures(
             )
         axes[1].set_xlabel("n_max")
         axes[1].set_ylabel("CV")
-        axes[1].set_title("方斑均匀性 vs Zernike 阶数")
+        axes[1].set_title("方斑均匀度 vs Zernike 阶数")
         axes[1].legend(fontsize=8)
         axes[1].grid(alpha=0.3)
         fig.tight_layout()
@@ -656,7 +656,7 @@ def defocus_group_section(
             f" 它的实际光斑只有约 10 px（泽尼克扫描从平场 waist 量到 target_side = 9.96 px）。"
             f" 于是 44 px 的框里只有一小块是亮的 —— Δz=0 的定尺框 CV 是 "
             f"{fmt_metric(at(0.0, 'cv_frozen'), 4)}，这个绝对值主要由「框远大于光斑」决定，"
-            f" 而不是均匀性本身；**能比的是相对量**（随 |Δz| 变化的趋势与幅度），"
+            f" 而不是均匀度本身；**能比的是相对量**（随 |Δz| 变化的趋势与幅度），"
             f" 以及 §3 里同一张相位的泽尼克阶数结果。"
             f" ⚠️ 与仿真的**同尺度**对拍需要仿真在 10 px 目标上重跑（**本轮未做**），"
             f" 所以这一行对拍只成立到「形状」这一层。"

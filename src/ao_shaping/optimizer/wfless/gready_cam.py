@@ -7,6 +7,7 @@ import tqdm
 from loguru import logger
 from ao_shaping.utils import centroid
 from ao_shaping.drivers import MIICamera, NlightDM
+from ao_shaping.optimizer.constants import KEEP_VOLTAGE_WHEN_EXIT
 
 ROOT_DIR = r"D:\ao-project\data"
 
@@ -30,9 +31,6 @@ Rho_0 = 0.99
 CAM_EXP_TIME = 100
 CAM_EXP_TIME_ADJ_RATE = 0
 IMG_SIZE = (200, 200)
-
-# dm parameters
-KEEP_VOLTAGE_WHEN_EXIT = True
 
 V_MAX = 499
 V_MIN = -300
