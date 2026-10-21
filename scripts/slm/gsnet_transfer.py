@@ -106,18 +106,20 @@ def _load_probe_dataset(
 def _capture_live(
     args: argparse.Namespace, out_dir: Path
 ) -> dict[str, np.ndarray]:
-    """在实验系统上现场采一批 (相位, 帧) 对。
+    """在实验系统上采一批 (相位, 帧) 对。
 
-    复用 model-in-loop 的硬件台架（``_HardwareBench``）与它的帧→远场模型网格
-    映射（``_to_model_grid``）：那两条链路就是闭环真正用的，采到的数据与闭环
-    看到的完全一致。
+    **不自己重写采集**：直接跑一次仓库自己的 model-in-loop（``--debug``），
+    它会写出 ``probes/*.npz``（命令过的 ``phase`` ＝标签、映射到远场模型网格的
+    ``model_grid`` ＝目标）与 ``source_amplitude.npy``（网络的 source）。
+    复用同一条链路的好处是：采到的数据与闭环真正看到的一致，设备生命周期、
+    曝光标定、几何求解全走仓库已经验证过的代码。
     """
     from ao_shaping.optimizer.wfless.slm_model_in_loop import (
         SlmModelInLoopConfig,
-        _HardwareBench,
-        _to_model_grid,
+        optimize_slm_model_in_loop,
     )
 
+    run_dir = out_dir / "mil_capture"
     config = SlmModelInLoopConfig(
         cam_type=args.cam_type,
         cam_id=args.cam_id,
@@ -129,37 +131,20 @@ def _capture_live(
         target_side=args.target_side,
         exposure_time_ms=0.0 if args.exposure_time_ms == "auto" else args.exposure_time_ms,
         max_exposure_ms=args.max_exposure_ms,
-        debug_dir=str(out_dir),
+        n_rounds=args.capture_rounds,
+        probe_count=args.capture_probes,
+        holdout_probe_count=0,
+        step_a_iterations=0,
+        step_b_iterations=0,
+        debug_dir=str(run_dir),
     )
-    bench = _HardwareBench(config)
-    bench.open()
-    try:
-        source = np.asarray(bench.source_amplitude, dtype=np.float32)
-        sources: list[np.ndarray] = []
-        targets: list[np.ndarray] = []
-        labels: list[np.ndarray] = []
-        rng = np.random.default_rng(args.seed)
-        for index in range(args.capture):
-            phase = rng.uniform(-np.pi, np.pi, size=(args.region, args.region))
-            bench.display(phase)
-            frame = bench.measure()
-            grid = _to_model_grid(
-                frame,
-                bench.signal_center_local,
-                int(config.region) * int(config.far_field_padding),
-                1.0,
-                0,
-            )
-            sources.append(source)
-            targets.append(np.asarray(grid, dtype=np.float32))
-            labels.append(phase.astype(np.float32))
-        return {
-            "source": np.stack(sources),
-            "target": np.stack(targets),
-            "label": np.stack(labels),
-        }
-    finally:
-        bench.close()
+    result = optimize_slm_model_in_loop(config)
+    if not result.probe_records:
+        raise RuntimeError(
+            "the model-in-loop capture produced no probe records — nothing to "
+            "transfer on"
+        )
+    return _load_probe_dataset(run_dir, limit=None)
 
 
 def _geometry_from_arrays(dataset: dict[str, np.ndarray]) -> Bench2FGeometry:
@@ -255,7 +240,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--hardware", action="store_true", help="在实验系统上现场采一批数据再微调"
     )
-    parser.add_argument("--capture", type=int, default=32, help="现场采集的探针数")
+    parser.add_argument(
+        "--capture-rounds", type=int, default=2, help="现场采集用的闭环轮数"
+    )
+    parser.add_argument(
+        "--capture-probes", type=int, default=8, help="每轮的探针数"
+    )
     parser.add_argument("--epochs", type=int, default=20)
     parser.add_argument("--lr", type=float, default=1e-4)
     parser.add_argument("--batch-size", type=int, default=8)
