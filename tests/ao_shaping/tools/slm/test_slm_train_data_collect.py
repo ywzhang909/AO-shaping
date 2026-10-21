@@ -116,14 +116,18 @@ class TestPlan:
         coeffs = plan[0].coeffs or {}
         n_terms = calc_n_zernike_terms(4)
         assert n_terms == 15
-        assert 1 not in coeffs, "piston is invisible to the detector; do not randomise it"
+        assert 1 not in coeffs, (
+            "piston is invisible to the detector; do not randomise it"
+        )
         assert set(coeffs) == set(range(2, n_terms + 1))
 
     def test_freeform_plan_carries_grid(self) -> None:
         plan = build_plan(_params(mode="freeform", phase_grid=16))
         assert plan[0].phase_grid == 16
 
-    @pytest.mark.parametrize("prefix", ["slm_pib", "slm_zernike_shaping", "slm_gsnet_square"])
+    @pytest.mark.parametrize(
+        "prefix", ["slm_pib", "slm_zernike_shaping", "slm_gsnet_square"]
+    )
     def test_validate_accepts_known_family_prefixes(self, prefix: str) -> None:
         assert validate_family_prefix(prefix) == prefix
 

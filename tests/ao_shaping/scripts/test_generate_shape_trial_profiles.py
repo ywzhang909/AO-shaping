@@ -52,19 +52,27 @@ _NEEDS_REPLAY_044 = not (_REPLAY / "20261016_1044_uniformity_weights").is_dir()
 _NEEDS_REPLAY_115 = not (_REPLAY / "20261014_1115_zero_vs_refit").is_dir()
 _NEEDS_GS_2058 = not (_GS / "20261015_205848").is_dir()
 _NEEDS_MIL_RUNS = not (
-    all((_MIL / r).is_dir() for r in ("20261013_114650", "20261013_145819", "20261013_152341"))
+    all(
+        (_MIL / r).is_dir()
+        for r in ("20261013_114650", "20261013_145819", "20261013_152341")
+    )
 )
 
 
 class TestResolution:
-    @pytest.mark.skipif(_NEEDS_20261019, reason="requires data/debug/slm_model_in_loop/20261019_103208")
+    @pytest.mark.skipif(
+        _NEEDS_20261019, reason="requires data/debug/slm_model_in_loop/20261019_103208"
+    )
     def test_direct_farfield_figure_maps_to_its_run(self):
         spec = mod._resolve_one("figures/20261019_103208_farfield.png")
         assert spec.container.endswith("20261019_103208/preflight/flat.npz")
         assert spec.key == "frame"
         assert spec.verify_mode == "byte"
 
-    @pytest.mark.skipif(_NEEDS_REPLAY_044, reason="requires data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights")
+    @pytest.mark.skipif(
+        _NEEDS_REPLAY_044,
+        reason="requires data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights",
+    )
     def test_doubled_date_prefix_replay_resolves(self):
         spec = mod._resolve_one(
             "figures/model_in_loop_live_20261016_20261016_1044_uniformity_weights_01_A_farfield.png"
@@ -74,7 +82,10 @@ class TestResolution:
             "data/debug/slm_model_in_loop_replay/20261016_1044_uniformity_weights/01_A.npy"
         )
 
-    @pytest.mark.skipif(_NEEDS_REPLAY_115, reason="requires data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit")
+    @pytest.mark.skipif(
+        _NEEDS_REPLAY_115,
+        reason="requires data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit",
+    )
     def test_single_date_prefix_replay_resolves(self):
         """The undoubled form must not be broken by stripping its date prefix."""
         spec = mod._resolve_one(
@@ -84,7 +95,9 @@ class TestResolution:
             "data/debug/slm_model_in_loop_replay/20261014_1115_zero_vs_refit/05_A.npy"
         )
 
-    @pytest.mark.skipif(_NEEDS_GS_2058, reason="requires data/debug/slm_gs_refine/20261015_205848")
+    @pytest.mark.skipif(
+        _NEEDS_GS_2058, reason="requires data/debug/slm_gs_refine/20261015_205848"
+    )
     def test_gs_issue_figure_resolves_to_pkl(self):
         spec = mod._resolve_one("figures/gs_issue_live_farfield_20261015_205848.png")
         assert spec.container.endswith(
@@ -104,7 +117,9 @@ class TestResolution:
 
 
 class TestBestFrameFallback:
-    @pytest.mark.skipif(_NEEDS_20261019, reason="requires data/debug/slm_model_in_loop/20261019_103208")
+    @pytest.mark.skipif(
+        _NEEDS_20261019, reason="requires data/debug/slm_model_in_loop/20261019_103208"
+    )
     def test_rejected_run_plots_the_flat_baseline(self):
         """A run that never clears the holdout gate must resolve to the baseline.
 
@@ -122,7 +137,9 @@ class TestBestFrameFallback:
 
 
 class TestOutputNaming:
-    @pytest.mark.skipif(_NEEDS_MIL_RUNS, reason="requires data/debug/slm_model_in_loop/20261013_* runs")
+    @pytest.mark.skipif(
+        _NEEDS_MIL_RUNS, reason="requires data/debug/slm_model_in_loop/20261013_* runs"
+    )
     def test_generic_stem_is_disambiguated_by_run(self):
         """Three runs all link ``best_far_field.png``; they must not collide."""
         paths = set()

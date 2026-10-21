@@ -201,7 +201,9 @@ class TestWiring:
         A ``TypeError`` at runtime would catch the obvious case; this pins it
         statically so the failure names the field instead of the traceback.
         """
-        unknown = sorted(set(_config_call_kwargs(family.builder_name)) - _field_names(family.config))
+        unknown = sorted(
+            set(_config_call_kwargs(family.builder_name)) - _field_names(family.config)
+        )
         assert not unknown, (
             f"{family.builder_name}() passes {unknown}, which "
             f"{family.config.__name__} does not declare — this is a field wired "
@@ -209,7 +211,9 @@ class TestWiring:
         )
 
     @pytest.mark.parametrize("family", FAMILIES, ids=lambda f: f.label)
-    def test_every_wired_field_reads_its_own_params_field(self, family: _Family) -> None:
+    def test_every_wired_field_reads_its_own_params_field(
+        self, family: _Family
+    ) -> None:
         """Breaks on (3): right kwarg name, wrong (or literal) value.
 
         A builder-local kwarg such as ``record_debug=debug`` is exempt because
@@ -260,7 +264,9 @@ class TestWiring:
         here.
         """
         kwargs = set(_config_call_kwargs(family.builder_name))
-        unreachable = sorted(_field_names(family.config) - kwargs - LIBRARY_ONLY[family.label])
+        unreachable = sorted(
+            _field_names(family.config) - kwargs - LIBRARY_ONLY[family.label]
+        )
         assert not unreachable, (
             f"{family.config.__name__} declares {unreachable}, which the CLI "
             f"cannot set — give it a params field or add it to LIBRARY_ONLY"
@@ -276,7 +282,9 @@ class TestCuratedExceptions:
     """An exception list is only useful while it is honest."""
 
     @pytest.mark.parametrize("family", FAMILIES, ids=lambda f: f.label)
-    def test_cli_only_fields_are_consumed_by_their_runner(self, family: _Family) -> None:
+    def test_cli_only_fields_are_consumed_by_their_runner(
+        self, family: _Family
+    ) -> None:
         """A CLI-only field must still be read somewhere.
 
         Without this, ``cli_only`` becomes a place to hide a dead flag: move a
@@ -380,8 +388,13 @@ class TestFarFieldPaddingStaysOnItsOwnFamily:
 
     def test_each_builder_routes_padding_to_its_own_config(self) -> None:
         """``SlmGsRefineConfig`` never sees 8, and vice versa."""
-        assert build_gs_refine_config(SlmGsRefineParams(), debug=False).far_field_padding == 3
         assert (
-            build_model_in_loop_config(SlmModelInLoopParams(), debug=False).far_field_padding
+            build_gs_refine_config(SlmGsRefineParams(), debug=False).far_field_padding
+            == 3
+        )
+        assert (
+            build_model_in_loop_config(
+                SlmModelInLoopParams(), debug=False
+            ).far_field_padding
             == 8
         )

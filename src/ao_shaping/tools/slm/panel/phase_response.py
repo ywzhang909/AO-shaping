@@ -448,27 +448,21 @@ class PhaseResponseParams:
             help="相位用例组 (默认 lens)",
         ),
     ] = "lens"
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
-    ] = 1
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
     ] = 1064
-    cam_id: Annotated[
-        int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")
-    ] = 0
+    cam_id: Annotated[int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")] = 0
     exposure_ms: Annotated[
         float, option("--exposure-ms", help="相机曝光 ms (默认 0.02)")
     ] = 0.02
-    n_sample: Annotated[
-        int, option("--n-sample", help="每帧平均采样数 (默认 10)")
-    ] = 10
-    slot_min: Annotated[
-        int, option("--slot-min", help="内存槽下限 (默认 2)")
-    ] = _SLOT_MIN
-    slot_max: Annotated[
-        int, option("--slot-max", help="内存槽上限 (默认 125)")
-    ] = _SLOT_MAX
+    n_sample: Annotated[int, option("--n-sample", help="每帧平均采样数 (默认 10)")] = 10
+    slot_min: Annotated[int, option("--slot-min", help="内存槽下限 (默认 2)")] = (
+        _SLOT_MIN
+    )
+    slot_max: Annotated[int, option("--slot-max", help="内存槽上限 (默认 125)")] = (
+        _SLOT_MAX
+    )
     settle_s: Annotated[
         float, option("--settle-s", help="写相位后稳定等待 s (默认 0.4)")
     ] = 0.4
