@@ -11,7 +11,7 @@
 
 ## 0. 结论
 
-**P0_DECISION: FAIL  composite=0.2931 EE=0.0167 CV=0.7643 corr_full=0.0841 | baseline composite=0.5627 EE=0.5261 CV=0.6687 corr_full=0.7210  | ideal-forward composite=0.2705 corr_full=0.0786  || forward corr: ideal=0.5282 calibrated=0.9751 zernike=0.9750**
+**P0_DECISION: FAIL  composite=0.2591 EE=0.0077 CV=0.9688 corr_full=0.0220 | baseline composite=0.5627 EE=0.5261 CV=0.6687 corr_full=0.7210  | ideal-forward composite=0.2726 corr_full=0.0867  || forward corr: ideal=0.5282 calibrated=0.9751 zernike=0.9750**
 
 三条结论，按证据强度排列：
 
@@ -53,7 +53,7 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 | 每族帧数 | 8 × 3 族 = 24 |
 | 相位族 | 低阶 Zernike（Noll 4–15）、高阶 Zernike（Noll 4–66）、全频随机相位（带限） |
 | 相位 rms | smooth 0.8 / zernike 1.2 / freeform 2.0 rad |
-| 训练目标来源（臂 B） | `same` |
+| 训练目标来源（臂 B） | `bench` |
 | 随机种子 | 20261020 |
 
 **指标口径**（每个数字都必须标注所属口径，禁止跨口径比较）：
@@ -128,11 +128,11 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 | 臂 | composite | EE | CV（框） | CV（文献口径） | correlation（全图） | NRMSE（全图） |
 | --- | --- | --- | --- | --- | --- | --- |
-| 平场（零相位，下界） | 0.6593 ± 0.0000 | 0.8970 ± 0.0000 | 1.3719 ± 0.0000 | 0.2860 ± 0.0000 | 0.5865 ± 0.0000 | 0.0618 ± 0.0000 |
-| GS 在过采样真值上的解（上限） | 0.2712 ± 0.0199 | 0.0151 ± 0.0081 | 0.9061 ± 0.1421 | 0.7440 ± 0.2428 | 0.0658 ± 0.0485 | 0.1093 ± 0.0130 |
-| 物理 Zernike 基线（经典 GS 解投影到 66 项） | 0.5627 ± 0.0000 | 0.5261 ± 0.0000 | 0.6687 ± 0.0000 | 0.4402 ± 0.0000 | 0.7210 ± 0.0000 | 0.0511 ± 0.0000 |
-| 网络（理想 FFT 前向） | 0.2705 ± 0.0250 | 0.0163 ± 0.0068 | 0.9212 ± 0.1807 | 0.6112 ± 0.2145 | 0.0786 ± 0.0383 | 0.1055 ± 0.0116 |
-| 网络（校准 2f 前向） | 0.2931 ± 0.0217 | 0.0167 ± 0.0073 | 0.7643 ± 0.1248 | 0.5044 ± 0.1930 | 0.0841 ± 0.0391 | 0.1279 ± 0.0179 |
+| 平场（零相位，下界） | 0.6593 ± 1.139e-16 | 0.8970 ± 1.139e-16 | 1.3719 ± 2.278e-16 | 0.2860 ± 5.695e-17 | 0.5865 ± 0.0000 | 0.0618 ± 1.424e-17 |
+| GS 在过采样真值上的解（上限） | 0.5791 ± 0.0351 | 0.6169 ± 0.0730 | 0.8539 ± 0.1112 | 0.4501 ± 0.1989 | 0.6986 ± 0.0372 | 0.0551 ± 0.0018 |
+| 物理 Zernike 基线（经典 GS 解投影到 66 项） | 0.5627 ± 2.278e-16 | 0.5261 ± 1.139e-16 | 0.6687 ± 1.139e-16 | 0.4402 ± 5.695e-17 | 0.7210 ± 1.139e-16 | 0.0511 ± 7.119e-18 |
+| 网络（理想 FFT 前向） | 0.2726 ± 0.0167 | 0.0177 ± 0.0078 | 0.9028 ± 0.1241 | 0.5807 ± 0.2463 | 0.0867 ± 0.0451 | 0.1068 ± 0.0129 |
+| 网络（校准 2f 前向） | 0.2591 ± 0.0172 | 0.0077 ± 0.0055 | 0.9688 ± 0.1424 | 0.7198 ± 0.1922 | 0.0220 ± 0.0484 | 0.1512 ± 0.0226 |
 
 评分链路：网络预测相位 → **真值孪生** 前向 → 与远场方形目标比较。两个网络臂共用同一份训练数据、同一 seed、同一预算，唯一差异是 GS 展开内部用的前向算子。
 
@@ -140,24 +140,36 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 - `zernike_baseline` 是**物理 Zernike 基线**：经典 GS 解投影到 66 项 Zernike 张成。
 - 两个网络臂的分数明显低于基线 ⇒ **P0 判据不通过**。
-- 校准臂（0.2931）略优于理想臂（0.2705），方向与 §3 一致，但差距远不足以翻转判据。
+- 两个网络臂之间的差距（校准 0.2591 对 理想 0.2726）**在本预算下不可分辨**：换一个训练预算它就会翻号。无论翻向哪边，都远不足以翻转判据。
 
 > ⚠️ **陷阱一：`flat` 在这个复合分数上得分很高，不是整形做得好。** 平场的 0 阶斑正好落在目标方框内，于是它的 EE 高达 0.897；而复合分数 `0.5·EE + 0.5/(1+CV)` 里 EE 占一半。本台架自己的 gs-refine 为此专门加了 `exclude_zero_order_for_cv`，把 0 阶从 CV 里剔掉。**因此本表的 EE 一列不能单独读**。
 
-> ⚠️ **陷阱二：`gs_ceiling` 这一臂在本协议下并不是上限。** 它是「经典 GS 在过采样真值上跑出来的解」，本该是最优相位，但它的 EE 只有 0.015——即它的远场根本没有把能量送进目标方框。原因是 512² 远场上的方形目标对经典 GS 来说是个**硬约束**（方框外必须是 0），而 64 像素瞳面给出的远场做不到。所以这一臂只说明「GS 在这个协议下也没解好」，**不能**当作网络臂的上界来读。
+> ⚠️ **陷阱二：训练目标的来源决定了「上限」这一臂是不是真的上限。** 在**过采样真值**上跑 GS（`--gt-mode bench`，本报告的主口径）得到的解，确实是一个好相位（见 §4 表的 `gs_ceiling` 行：它与物理 Zernike 基线同一量级）。而在**网络自己网格**上跑 GS（`--gt-mode same`）得到的解，远场根本没把能量送进目标方框，**不能**当上限读——§4.2 用它做的是另一个用途：可学习性对照。
 
 > 这两个陷阱合起来意味着：**臂 B 的绝对分数不可信**（度量与参考解都偏弱），臂 B 真正可信的只有两件事：(a) 网络臂**低于**物理 Zernike 基线，(b) 同一份训练代码在「同口径目标」上学得到、在「过采样真值目标」上学不到（§4.2）。判据据此下在「网络层不通过」，而不是「某个具体分数」。
 
-### 4.2 为什么网络学不到：一个可复现的对照实验
+### 4.2 为什么网络做不到：一个可复现的对照实验
 
-同一套训练代码、同一份数据，只换训练目标的来源：
+同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源：
 
-| 训练目标 | 网络在真值孪生上的 correlation（全图） |
-| --- | --- |
-| 过采样真值上的 GS 解（对真值最优） | ≈ +0.12（学不到） |
-| 网络自己网格上的 GS 解（同口径） | ≈ +0.19（学得到） |
+| 训练目标 | 网络臂的 composite | 网络臂的 correlation（全图） |
+| --- | --- | --- |
+| 过采样真值上的 GS 解（`--gt-mode bench`，本报告主口径） | 0.2591 | 0.0220 |
 
-结论：**训练代码是好的，网络能学会它能表达的那个解**；它学不到「过采样真值上的解」，因为那个解需要网络内部有一个**比瞳面网格更细的远场**。
+（上表是两臂**各自**的最终分数。真正的对照由 `scripts/slm/gsnet_learnability_control.py` 给出：同一套训练代码、同一份数据、同一预算，只换训练目标。）
+
+对照实验（`scripts/slm/gsnet_learnability_control.py`）的结论：
+
+| 训练目标 | composite | correlation（全图） | EE | CV（框） |
+| --- | --- | --- | --- | --- |
+| 网络自己网格上的 GS 解（网络**能表达**的那一类） | 0.2880 | 0.0979 | 0.0161 | 0.7953 |
+| 过采样真值上的 GS 解（物理上才是好相位） | 0.2896 | 0.1133 | 0.0190 | 0.8134 |
+
+**两个目标的最终分数基本相同。** 也就是说：网络输出好不好，并不由训练目标决定——即使把「物理上正确的好相位」直接当监督目标喂给它，它也复现不出来。
+
+> 这就是**架构限制**的直接证据，而不是训练不足：训练代码是好的、预算是一样的、目标是对的那一个，网络仍然停在同一个分数上。原因是它内部能看到的远场只有 64×64 （§4.3），那个解需要 512² 才表达得出来。
+
+**注意与 §4.1 的度量陷阱的关系**：本报告的臂 B 分数是**整形质量**（composite / EE / CV），它衡量「相位在真值台架上好不好」；而 `correlation` 衡量「预测的远场像不像目标远场」。前者是闭环真正优化的东西，后者只是形状相似度。本台架自己的验收线是前者（CV ≤ 0.3 且 EE ≥ 0.7），所以判据下在 composite 上。
 
 ### 4.3 阻塞点：`FourierGSNet` 的网格契约
 
@@ -175,21 +187,21 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 | 臂 | 初值来源 | 门控判决 | 平场分 | 最佳分 | 相对对照臂 |
 | --- | --- | --- | --- | --- | --- |
-| physical | 零相位（对照） | `disabled` | 0.6290 | 0.7221 | 0.00000 |
-| gsnet_full | 闭环自己的最优相位（rms 1.708 rad） | `trust_region_rejected` | 0.6290 | 0.7221 | 0.00000 |
-| gsnet_scaled | 同一相位 ×0.25（rms 0.427 rad） | `holdout_correlation_rejected` | 0.6290 | 0.7196 | -0.00250 |
+| physical | 零相位（对照） | `disabled` | 0.6290 | 0.6765 | 0.00000 |
+| gsnet_full | 闭环自己的最优相位（rms 1.678 rad） | `trust_region_rejected` | 0.6290 | 0.6765 | 0.00000 |
+| gsnet_scaled | 同一相位 ×0.25（rms 0.420 rad） | `holdout_correlation_rejected` | 0.6290 | 0.6768 | 0.00030 |
 
 ### 5.1 两个门都被正确触发，回退是安全的
 
-- 满幅相位：信任域门以 **phase_l2 = 1.708 rad > 0.5 rad** 挡下，回退到零初值，最终分与对照臂**完全相同**。
+- 满幅相位：信任域门以 **phase_l2 = 1.678 rad > 0.5 rad** 挡下，回退到零初值，最终分与对照臂**完全相同**。
 - 缩放相位过了信任域门（rms 0.43 rad ≤ 0.5），但被**验证集探针 Pearson** 门挡下（Pearson 0.366 < 0.5），同样回退。
-- 代价：门控要**多测一帧**，那��帧会扰动测量的噪声流，所以回退臂的最终分与对照臂差 -0.00250（不是逐位相同）。这是真实的代价，不是 bug。
+- 代价：门控要**多测一帧**，那��帧会扰动测量的噪声流，所以回退臂的最终分与对照臂差 0.00030（不是逐位相同）。这是真实的代价，不是 bug。
 
 ### 5.2 🔴 关键发现：issue 写的信任域门（P1 门 1）会挡掉**所有**真实整形相位
 
 issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在仓库里是给 **Step A 的系数步**设计的（`trust_region_c_l2`，限制的是**像差系数的变化量**），不是给**绝对瞳面相位**的。
 
-实测：**闭环自己产生的最优相位 rms 就是 1.708 rad**，GSNet 给出的整形相位同量级（本仿真的 GS 解 rms 1.8–2.1 rad）。用 0.5 rad 去卡绝对相位 ⇒ **这个开关永远不会生效**。
+实测：**闭环自己产生的最优相位 rms 就是 1.678 rad**，GSNet 给出的整形相位同量级（本仿真的 GS 解 rms 1.8–2.1 rad）。用 0.5 rad 去卡绝对相位 ⇒ **这个开关永远不会生效**。
 
 > **因此 P1 通道按 issue 原文写出来是死的。** 要让它活，门 1 必须重新定义：卡**相位与零/平场之差**、或卡**相位相对闭环自身解的偏离**，而不是绝对幅度。门 2（实测优于平场）与门 3（验证集 Pearson）工作正常，不需要改。
 
@@ -235,19 +247,28 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 
 ## 9. 复现
 
+**全部实验都在仓库的测试容器里跑**（`docker/Dockerfile.test`，python 3.13-slim；宿主机有 384 核，裸跑会把数值库的线程池撑到 384，先把 shell 拖垮）。容器封装：`./run_in_container.sh`。
+
 ```bash
 # 1) 臂 A + 臂 B（前向保真度 + 网络换前向前后）
-PYTHONPATH=src .venv313/bin/python scripts/slm/calibrate_gsnet_2f.py \
-    --frames 8 --epochs 40 --n-train 96 --n-eval 24 --target-side 36
+./run_in_container.sh --rw -- python /workspace/scripts/slm/calibrate_gsnet_2f.py \
+    --frames 8 --epochs 24 --n-train 64 --n-eval 20 --target-side 36 \
+    --gt-mode bench --out /workspace/data/debug/gsnet_2f_calib/container_bench
 
 # 2) 臂 C（MIL 闭环的「网络初值 vs 物理初值」A/B）
-PYTHONPATH=src .venv313/bin/python scripts/slm/gsnet_init_sim_ab.py
+./run_in_container.sh --rw -- python /workspace/scripts/slm/gsnet_init_sim_ab.py \
+    --out /workspace/data/debug/gsnet_init_sim_ab/container
 
-# 3) 渲染本报告
-PYTHONPATH=src .venv313/bin/python scripts/slm/generate_gsnet_2f_calibration_report.py \
-    --results data/debug/gsnet_2f_calib/<ts>/results.json \
-    --mil-ab data/debug/gsnet_init_sim_ab/<ts>/sim_ab.json
+# 3) 可学习性对照（§4.2）
+./run_in_container.sh --rw -- python /workspace/scripts/slm/gsnet_learnability_control.py \
+    --out /workspace/data/debug/gsnet_learnability/container/result.json
+
+# 4) 渲染本报告
+./run_in_container.sh --rw -- python /workspace/scripts/slm/generate_gsnet_2f_calibration_report.py \
+    --results /workspace/data/debug/gsnet_2f_calib/container_bench/results.json \
+    --mil-ab /workspace/data/debug/gsnet_init_sim_ab/container/sim_ab.json \
+    --learnability /workspace/data/debug/gsnet_learnability/container/result.json
 ```
 
-数据来源: `data/debug/gsnet_2f_calib/20261021_same/results.json`
-与 `data/debug/gsnet_init_sim_ab/20261021/sim_ab.json`
+数据来源: `/workspace/data/debug/gsnet_2f_calib/container_bench/results.json`
+与 `/workspace/data/debug/gsnet_init_sim_ab/container/sim_ab.json`
