@@ -101,6 +101,8 @@ def render(
     results_same_grid: dict[str, Any] | None = None,
     learnability: dict[str, Any] | None = None,
     learnability_before: dict[str, Any] | None = None,
+    pretrain: dict[str, Any] | None = None,
+    transfer: dict[str, Any] | None = None,
 ) -> str:
     arm_a = results["arm_a_forward_fidelity"]
     arm_b = results.get("arm_b_network") or {}
@@ -614,7 +616,126 @@ def render(
             "`cat([pupil_phase, far.real, far.imag])`）"]))
     add("")
 
-    add("## 7. 边界与不能下的结论")
+    if pretrain is not None:
+        add("## 7. 随机化仿真与大规模预训练（迁移学习的前提）")
+        add("")
+        pcfg = pretrain.get("config", {})
+        val = pretrain.get("val_metrics", {})
+        labels = pretrain.get("val_metrics_labels", {})
+        buckets = pretrain.get("val_metrics_by_exposure", {})
+        add("P1 要把网络给的相位当闭环初值，网络就必须**先见过足够多的台架**。"
+            "这一节是把仿真从「一个固定像差的孪生」升级成「一个随机化的台架族群」"
+            "之后的大规模预训练。")
+        add("")
+        add("### 7.1 三件随机化")
+        add("")
+        add("1. **CCD 探测器模型**（`CCDSensor`）：光子（散粒噪声）→ 读出噪声 → "
+            "ADC 的**上下截断** → 量化。截断的两端就是过曝（峰值撞满阱、核心削平）"
+            "与欠曝（信号落到黑电平以下、弱散斑被切掉）。曝光在 log 均匀的 "
+            "[0.05, 3] 上抽，所以训练集里两种极端都有。")
+        add("2. **像差随机化**：每个样本自带一条随机像差——Zernike 部分是**随机模式"
+            "子集**（不是固定前若干项），外加一段落在 66 项张成**之外**的自由形状"
+            "像差（物理模型拟合不掉的那部分）。")
+        add("3. **标签是「好相位」**：GS 在过采样真值上朝**理想**方斑求的解。"
+            "而网络的**输入目标**是相机记下来的那一帧——所以网络学的是"
+            "**把探测器反演回去**，不是把一张欠曝帧的噪声复制一遍。")
+        add("")
+        add("### 7.2 预训练规模与结果")
+        add("")
+        add(_row(["项", "值"]))
+        add(_row(["---", "---"]))
+        add(_row(["训练样本 / 留出样本",
+                  f"{pcfg.get('samples', '—')} / {pcfg.get('val_samples', '—')}"]))
+        add(_row(["轮数 / 批大小", f"{pcfg.get('epochs', '—')} / {pcfg.get('batch_size', '—')}"]))
+        add(_row(["网络", f"{pcfg.get('num_layers', '—')} 层 × "
+                    f"{pcfg.get('base_channels', '—')} 通道（共享权重）"]))
+        add(_row(["checkpoint", f"`{pretrain.get('checkpoint', '—')}`"]))
+        add("")
+        add(_row(["指标", "composite", "EE", "CV（框）", "correlation（全图）"]))
+        add(_row(["---"] * 5))
+        add(_row([
+            "网络（留出集）",
+            _fmt(val.get("composite")),
+            _fmt(val.get("encircled_energy")),
+            _fmt(val.get("cv_target_box")),
+            _fmt(val.get("correlation")),
+        ]))
+        add(_row([
+            "**标签自己**（任务上限）",
+            _fmt(labels.get("composite")),
+            _fmt(labels.get("encircled_energy")),
+            _fmt(labels.get("cv_target_box")),
+            _fmt(labels.get("correlation")),
+        ]))
+        add("")
+        add("**「标签自己」这一行是这个任务的上限**——网络追不上时，先看标签能得多少分，"
+            "否则分不清是网络不行还是标签本身就不成形。")
+        add("")
+        if buckets:
+            add("**按曝光分桶**（欠曝/过曝样本的目标上限本来就低，"
+                "平均成一个数会掩盖这一点）：")
+            add("")
+            add(_row(["曝光档", "样本数", "composite", "EE", "CV（框）"]))
+            add(_row(["---"] * 5))
+            for name, label in (
+                ("under", "欠曝（< 0.4）"),
+                ("normal", "正常（0.4–1.5）"),
+                ("over", "过曝（> 1.5）"),
+            ):
+                row = buckets.get(name)
+                if not row:
+                    continue
+                add(_row([
+                    label,
+                    str(row.get("n", "—")),
+                    _fmt(row.get("composite")),
+                    _fmt(row.get("encircled_energy")),
+                    _fmt(row.get("cv_target_box")),
+                ]))
+            add("")
+        add("### 7.3 迁移学习")
+        add("")
+        add("`scripts/slm/gsnet_transfer.py` 拿预训练 checkpoint，用**真实台架**的"
+            "「(相位 → 帧)」数据微调，然后导出可直接喂给 `--init-from-gsnet` 的相位。")
+        add("")
+        add("真实数据的监督信号是**现成的**：model-in-loop 每次探针测量都落盘"
+            "`<debug 目录>/probes/*.npz`——命令过的 `phase` ＝标签，"
+            "映射到远场模型网格的 `model_grid` ＝网络输入的目标，"
+            "外加 `source_amplitude.npy` ＝ 网络的 source。"
+            "「命令了哪个相位就测到哪张帧」本身就是监督信号。")
+        add("")
+        add("微调损失 = 相位项（对命令相位）+ 整形项（用**标定过的前向算子**把网络"
+            "预测的相位推到相机看到的那张帧上）。第二项是关键：真实台架的孔径、"
+            "照明、像差与探测器行为都在里面，而预训练时这些只是随机化过的先验。")
+        add("")
+        if transfer is not None:
+            tcfg = transfer.get("config", {})
+            add(_row(["项", "值"]))
+            add(_row(["---", "---"]))
+            add(_row(["数据来源", tcfg.get("from_dir") or ("在机采集 " + str(tcfg.get("capture")) + " 帧")]))
+            add(_row(["样本数", str(transfer.get("n_samples", "—"))]))
+            add(_row(["网格（瞳面 / 远场）",
+                      f"{transfer.get('region', '—')} / {transfer.get('far_field_size', '—')}"]))
+            add(_row(["导出相位", f"`{transfer.get('phase', '—')}`"]))
+            add("")
+            history = transfer.get("history") or []
+            if history:
+                add(_row(["轮", "相位项", "整形项"]))
+                add(_row(["---"] * 3))
+                for row in history:
+                    add(_row([
+                        str(row.get("epoch")),
+                        _fmt(row.get("phase_loss")),
+                        _fmt(row.get("shaping_loss")),
+                    ]))
+                add("")
+        add("> ⚠️ **在机路径需要实验系统**（Santec SLM + 相机）。"
+            "本仓库的开发容器里没有这两样设备（没有 `/dev/ttyUSB*`，"
+            "Daheng 的 `gxipy` 是 Windows SDK），所以**迁移学习的硬件一步"
+            "必须在装了台架的机器上跑**。离线路径（`--from-dir`）在这里跑通了。")
+        add("")
+
+    add("## 8. 边界与不能下的结论")
     add("")
     add("1. **本轮没有硬件数据。** 全部数字来自数字孪生。"
         "issue 的 P0 判据原文锚在真实 CCD 帧上（0.839 / 0.642），"
@@ -638,7 +759,7 @@ def render(
         "是因为 `FourierGSNet` 的网格契约让它的内部远场只能是混叠的同尺寸 FFT。")
     add("")
 
-    add("## 8. 下一步")
+    add("## 9. 下一步")
     add("")
     add("1. **P0.5（架构）已做完**（§4.4）：`FourierGSNet` 现在允许 source 在瞳面网格、"
         "target 在远场网格；同网格路径逐位不变。下一步是把这个契约接到"
@@ -656,7 +777,7 @@ def render(
         "按 issue P0 (1) 的要求按 record 去重、校验标签，再重跑一次 P0 判据。")
     add("")
 
-    add("## 9. 复现")
+    add("## 10. 复现")
     add("")
     add("**全部实验都在仓库的测试容器里跑**（`docker/Dockerfile.test`，"
         "python 3.13-slim；宿主机有 384 核，裸跑会把数值库的线程池撑到 384，"
@@ -748,6 +869,18 @@ def main(argv: list[str] | None = None) -> int:
         help="gsnet_learnability_control.py 的 result.json（可学习性对照，可选）",
     )
     parser.add_argument(
+        "--pretrain-summary",
+        type=Path,
+        default=None,
+        help="gsnet_pretrain.py 的 summary.json（大规模预训练结果，可选）",
+    )
+    parser.add_argument(
+        "--transfer-summary",
+        type=Path,
+        default=None,
+        help="gsnet_transfer.py 的 summary.json（迁移学习结果，可选）",
+    )
+    parser.add_argument(
         "--learnability-before",
         type=Path,
         default=None,
@@ -778,6 +911,12 @@ def main(argv: list[str] | None = None) -> int:
         learnability_before = json.loads(
             args.learnability_before.read_text(encoding="utf-8")
         )
+    pretrain = None
+    if args.pretrain_summary is not None and args.pretrain_summary.exists():
+        pretrain = json.loads(args.pretrain_summary.read_text(encoding="utf-8"))
+    transfer = None
+    if args.transfer_summary is not None and args.transfer_summary.exists():
+        transfer = json.loads(args.transfer_summary.read_text(encoding="utf-8"))
     text = render(
         results,
         args.results,
@@ -786,6 +925,8 @@ def main(argv: list[str] | None = None) -> int:
         results_same_grid,
         learnability,
         learnability_before,
+        pretrain,
+        transfer,
     )
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)
