@@ -153,7 +153,7 @@ def reconstruct_poisson_svd(sx, sy, remove_tilt=True):
         X, Y = np.meshgrid(x, x)
         basis = [np.ones_like(X), X, Y]
         coeff = [np.sum(phi*b)/np.sum(b*b) for b in basis]
-        for c, b in zip(coeff, basis):
+        for c, b in zip(coeff, basis, strict=True):
             phi -= c*b
 
     rms = float(np.std(phi))

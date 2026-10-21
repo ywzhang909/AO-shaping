@@ -236,7 +236,7 @@ def _render(frames: dict[str, np.ndarray], metrics: dict, out: Path) -> None:
     names = list(frames.keys())
     fig, axes = plt.subplots(1, len(names), figsize=(5 * len(names), 5))
     axes = np.atleast_1d(axes)
-    for ax, name in zip(axes, names):
+    for ax, name in zip(axes, names, strict=True):
         m = metrics[name]
         im = ax.imshow(frames[name], cmap="jet", aspect="auto")
         ax.set_title(
@@ -274,7 +274,7 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
     """
     assert 1 <= len(cases) <= 2, "相位响应探针支持 1~2 个相位用例"
     seq: list[tuple[str, str, object]] = [(_BASELINE, "flat baseline", None)]
-    for c, prefix in zip(cases, ("B", "C")):
+    for c, prefix in zip(cases, ("B", "C"), strict=True):
         seq.append((f"{prefix}_{c.name}", c.description, c.builder))
     seq.append((_REPEAT, "flat repeat (reversibility check)", None))
     return seq

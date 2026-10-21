@@ -263,7 +263,7 @@ class MaterialiserConfig:
             raise ValueError(
                 f"panel_center must be (x, y), got {self.panel_center!r}"
             )
-        for axis, value in zip("xy", center):
+        for axis, value in zip("xy", center, strict=True):
             if not np.isfinite(float(value)):
                 raise ValueError(
                     f"panel_center {axis} must be finite, got {self.panel_center!r}"
@@ -283,7 +283,7 @@ class MaterialiserConfig:
                 f"panel_resolution must be (width, height), got "
                 f"{self.panel_resolution!r}"
             )
-        for axis, value in zip(("width", "height"), resolution):
+        for axis, value in zip(("width", "height"), resolution, strict=True):
             if int(value) < 1:
                 raise ValueError(
                     f"panel_resolution {axis} must be >= 1, got "

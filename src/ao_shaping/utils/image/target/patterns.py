@@ -163,7 +163,7 @@ def create_target_shape(
             (cx + radii * np.cos(angles), cy + radii * np.sin(angles))
         )
         inside = np.zeros((height, width), dtype=bool)
-        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0)):
+        for (x0, y0), (x1, y1) in zip(vertices, np.roll(vertices, -1, axis=0), strict=True):
             crossing = (y0 > y) != (y1 > y)
             edge_x = (x1 - x0) * (y - y0) / (y1 - y0 + 1e-12) + x0
             inside ^= crossing & (x < edge_x)

@@ -2003,7 +2003,7 @@ def calibrate_bench_geometry_from_sweep(
                 ", ".join(
                     f"c={cc:+.2f} w={ww:.1f} hollow={hh:.2f}"
                     for cc, ww, hh in zip(
-                        c[~single_lobe], w[~single_lobe], h[~single_lobe]
+                        c[~single_lobe], w[~single_lobe], h[~single_lobe], strict=True
                     )
                 ),
             )

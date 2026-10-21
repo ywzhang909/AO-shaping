@@ -379,7 +379,7 @@ def expand_active_modes_to_noll(
 
     position = {mode: index for index, mode in enumerate(order)}
     full = np.zeros(expected, dtype=np.float64)
-    for value, mode in zip(values, modes):
+    for value, mode in zip(values, modes, strict=True):
         if mode not in position:
             raise ValueError(
                 f"mode {mode} is not in the Noll set for n_max={n_max}; refusing "

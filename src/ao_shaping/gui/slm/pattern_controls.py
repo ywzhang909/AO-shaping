@@ -844,7 +844,7 @@ class ZernikeControl(PatternControl):
             for start in range(0, len(modes), self.n_columns):
                 columns = st.columns(self.n_columns)
                 for column, (n, m) in zip(
-                    columns, modes[start : start + self.n_columns]
+                    columns, modes[start : start + self.n_columns], strict=True
                 ):
                     with column:
                         coefficients[(n, m)] = float(

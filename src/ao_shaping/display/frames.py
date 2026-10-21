@@ -436,7 +436,7 @@ class EpochCurveFrame(BaseFrame):
                 y = int(round(y1 - (float(v) - y_lo) / span * (y1 - y0)))
                 return max(y0, min(y1, y))
 
-            points = [(x_of(e), y_of(v)) for e, v in zip(self._epochs, self._values)]
+            points = [(x_of(e), y_of(v)) for e, v in zip(self._epochs, self._values, strict=True)]
             if len(points) > 1:
                 pygame.draw.lines(self.window, self.LINE_COLOR, False, points, 2)
             pygame.draw.circle(self.window, self.POINT_COLOR, points[-1], 3)
@@ -560,7 +560,7 @@ class MultiCurveFrame(BaseFrame):
                 def y_of(v: float, y_lo=y_lo, y_hi=y_hi, span=span, y0=y0, y1=y1):
                     return max(y0, min(y1, int(round(y1 - (float(v) - y_lo) / span * (y1 - y0)))))
 
-                points = [(x_of(e), y_of(v)) for e, v in zip(self._epochs, vals)]
+                points = [(x_of(e), y_of(v)) for e, v in zip(self._epochs, vals, strict=True)]
                 pygame.draw.lines(self.window, color, False, points, self.LINE_W)
                 pygame.draw.circle(self.window, color, points[-1], self.POINT_R)
 

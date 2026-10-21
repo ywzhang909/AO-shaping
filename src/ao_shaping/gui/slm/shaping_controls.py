@@ -942,7 +942,7 @@ class ShapingMethod(ABC):
         :func:`merge_bench_values` 回来，由
         :func:`render_closed_loop_shaping` 在 ``render_inputs`` 之后并入。
         """
-        for cell, (name, spec) in zip(_param_cells(len(extra)), extra.items()):
+        for cell, (name, spec) in zip(_param_cells(len(extra)), extra.items(), strict=True):
             with cell:
                 values[name] = st.number_input(**spec, key=self.wkey(name))
 
@@ -1245,7 +1245,7 @@ class GsRefineMethod(ShapingMethod):
                 ("side_factor", "边长因子", 0.1, 5.0, 0.1, None),
                 ("w_pib", "权重 w_pib", 0.0, 2.0, 0.05, None),
                 ("w_unif", "权重 w_unif", 0.0, 2.0, 0.05, None),
-            ),
+            ), strict=True,
         ):
             with cell:
                 values[key] = self.num_input(
@@ -1275,7 +1275,7 @@ class GsRefineMethod(ShapingMethod):
             ("seed", "随机种子", 0, 99999, 1, None),
         )
         cells = _param_cells(5)
-        for cell, (key, label, lo, hi, step, help_) in zip(cells, spgd_fields):
+        for cell, (key, label, lo, hi, step, help_) in zip(cells, spgd_fields, strict=True):
             with cell:
                 values[key] = self.num_input(
                     key, label, r[key], lo, hi, step, help=help_
@@ -1591,7 +1591,7 @@ class ModelInLoopMethod(ShapingMethod):
                     d["step_b_iterations"],
                 ),
                 ("seed", "随机种子", 0, 99999, 1, d["seed"]),
-            ),
+            ), strict=True,
         ):
             with cell:
                 values[key] = self.num_input(key, label, default, lo, hi, step)
@@ -1607,7 +1607,7 @@ class ModelInLoopMethod(ShapingMethod):
             ("freeform_holdout_count", "自由相位留出探针", 0, 8, 1, None),
         )
         for cell, (key, label, lo, hi, step, help_) in zip(
-            _param_cells(4), probe_fields
+            _param_cells(4), probe_fields, strict=True
         ):
             with cell:
                 values[key] = self.num_input(
@@ -1628,7 +1628,7 @@ class ModelInLoopMethod(ShapingMethod):
             (
                 ("region", "模型网格", 8, 512, 8, _MIL_REGION_HELP),
                 ("far_field_padding", "远场补零", 1, 64, 1, _MIL_PADDING_HELP),
-            ),
+            ), strict=True,
         ):
             with cell:
                 values[key] = self.num_input(

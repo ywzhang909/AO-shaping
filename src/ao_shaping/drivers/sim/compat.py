@@ -96,7 +96,7 @@ class TraditionalAOSystem:
         act_X, act_Y = np.meshgrid(act_x, act_y)
 
         inf_matrix = np.zeros((cfg.dm_actuators**2, cfg.N, cfg.N), dtype=float)
-        for i, (ax, ay) in enumerate(zip(act_X.flatten(), act_Y.flatten())):
+        for i, (ax, ay) in enumerate(zip(act_X.flatten(), act_Y.flatten(), strict=True)):
             r2 = (x - ax) ** 2 + (y - ay) ** 2
             inf_matrix[i] = np.exp(-r2 / (2 * sigma**2)) * self._mask
 

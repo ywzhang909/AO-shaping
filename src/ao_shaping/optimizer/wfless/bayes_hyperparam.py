@@ -128,7 +128,7 @@ def bayesian_search_hyperparams(
 
     best_params = {
         item.name: float(value)
-        for item, value in zip(search_params, result.x)
+        for item, value in zip(search_params, result.x, strict=True)
     }
 
     return BayesSearchResult(
