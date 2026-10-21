@@ -236,6 +236,68 @@ def _fake_sim_g1() -> list[dict]:
     return rows
 
 
+# ---------------------------------------------------------------------------
+# 第三轮 (2026-10-21 续跑坐标修复之后) 的实测形状
+# ---------------------------------------------------------------------------
+#: 第三轮的 7 个块 (Stage A 续跑) —— 生产者记的 ``frame_shape`` 是**全幅**
+#: ``probe_shape``, 但 ``mask_center_xy`` 已经是**窗口内**坐标 (优化器冻结的 ROI 中心)。
+ROUND3_BLOCK_GROUPS = (
+    "zernike_stage_a",
+    "zernike_stage_a_1",
+    "zernike_stage_a_2",
+    "zernike_stage_a_3",
+    "zernike_stage_a_4",
+    "zernike_stage_a_5",
+    "zernike_stage_a_6",
+)
+ROUND3_BLOCK_FRAME_SHAPE = [1944, 2592]
+ROUND3_BLOCK_MASK_CENTER = [127, 128]
+
+#: 第三轮的 8 个逐阶组 —— ``frame_shape`` 是 ROI 窗口, ``mask_center_xy`` 落在
+#: 实测到的四种取值上 (与第二轮同款散布)。
+ROUND3_ORDER_FRAME_SHAPE = [256, 256]
+ROUND3_ORDER_MASK_CENTERS = {
+    "zernike_order_nmax3": [127, 127],
+    "zernike_order_nmax4": [127, 128],
+    "zernike_order_nmax6": [127, 127],
+    "zernike_order_nmax8": [126, 127],
+    "zernike_order_nmax11": [126, 128],
+    "zernike_order_nmax15": [126, 128],
+    "zernike_order_nmax20": [126, 128],
+    "zernike_order_nmax25": [126, 128],
+}
+
+#: 第二轮实测到的形状: 块的 ``mask_center_xy`` 是**全幅**坐标 (超出 256 窗口)。
+ROUND2_BLOCK_MASK_CENTER = [1433, 971]
+
+
+def _round3_root(tmp_path: Path) -> Path:
+    """第三轮形状的假数据根: 7 个块 + 8 个逐阶组 (共 15 份 summary)。
+
+    两组的 ``frame_shape`` **不同** (块 = 全幅, 逐阶组 = ROI 窗口), 但两组的
+    ``mask_center_xy`` **都落在共同窗口 (256x256) 内** ⇒ 它们**同空间** ⇒ 可比。
+    """
+    root = tmp_path / "round3_root"
+    root.mkdir(parents=True, exist_ok=True)
+    _write_probe_group(root)
+    for group in ROUND3_BLOCK_GROUPS:
+        _write_summary(
+            root,
+            group,
+            mask_center_xy=list(ROUND3_BLOCK_MASK_CENTER),
+            frame_shape=list(ROUND3_BLOCK_FRAME_SHAPE),
+        )
+    for group, mask in ROUND3_ORDER_MASK_CENTERS.items():
+        _write_summary(
+            root,
+            group,
+            n_max=int(group.rsplit("nmax", 1)[1]),
+            mask_center_xy=list(mask),
+            frame_shape=list(ROUND3_ORDER_FRAME_SHAPE),
+        )
+    return root
+
+
 def _run_generator(
     tmp_path: Path,
     root: Path,
@@ -526,4 +588,184 @@ class TestMergeAuditDiscriminatesJitterFromContamination:
         assert "疑似跨轮次数据混入" in audit
         assert "5.807177" in audit
         assert "⚠️" in audit
+
+
+# ---------------------------------------------------------------------------
+# 可比性判据: 看**取值**, 不看「frame_shape 是否相等」
+# ---------------------------------------------------------------------------
+class TestComparabilityUsesValuesNotFrameShapeEquality:
+    """两个生产者写的 ``frame_shape`` **不是一个意思** ⇒ 不能拿它判可比性。
+
+    实测 (第三轮真实数据):
+
+    - 块 (Stage A 续跑) 记 ``frame_shape = [1944, 2592]`` (全幅 ``probe_shape``),
+      但它的 ``mask_center_xy`` 已经是**窗口内**的 ``[127, 128]`` (2026-10-21 的
+      续跑坐标修复, 提交 07139db6, 之后);
+    - 逐阶组记 ``frame_shape = [256, 256]`` (ROI 窗口), ``mask_center_xy`` 落在
+      ``[126,128]`` / ``[127,127]`` / ``[127,128]`` / ``[126,127]`` 四种上。
+
+    ⇒ 两者**其实同空间** (都是窗口内坐标), 必须判**可比** ⇒ 交叉核对恢复生效。
+    而第二轮的块 (``mask_center_xy = [1433, 971]``, 全幅) **确实**超出 256 窗口
+    ⇒ 仍判**不可比** (已入库的第二轮报告结论不变)。
+    """
+
+    def test_round3_shape_is_comparable_despite_different_frame_shapes(self, tmp_path):
+        """第三轮形状: 帧形状不同, 但两个掩膜中心**都落在共同窗口内** ⇒ 可比。"""
+        root = _round3_root(tmp_path)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        # 「坐标参考系不同」这一段**不该出现**
+        assert "坐标参考系不同" not in block
+        assert "坐标系不同" not in block
+        # 反而进「良性抖动」段
+        assert "**同轮内的定位抖动（良性差异）**" in block
+        assert "⚠️" not in block
+        # 块与逐阶组的 1 px 差**列出来** (交叉核对恢复生效)
+        assert "`[126, 128]`" in block
+        assert "`[127, 128]`" in block
+        assert "`[127, 127]`" in block
+        assert "`[126, 127]`" in block
+        # 块的那一组也在表里
+        assert "zernike_stage_a" in block
+
+    def test_round3_shape_report_body_has_no_incomparable_section(
+        self, tmp_path, monkeypatch
+    ):
+        """第三轮形状跑完整份报告: 正文里**不出现**「坐标参考系不同」。"""
+        root = _round3_root(tmp_path)
+        body = _run_generator(tmp_path, root, monkeypatch)
+        audit = _audit_section(body)
+        assert "坐标参考系不同" not in audit
+        assert "坐标系不同" not in audit
+        assert "**同轮内的定位抖动（良性差异）**" in audit
+        assert "⚠️" not in audit
+
+    def test_round2_shape_is_still_incomparable(self, tmp_path):
+        """第二轮形状 (块的掩膜中心是全幅坐标) ⇒ 仍判**不可比**。"""
+        root = tmp_path / "round2_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(
+            root,
+            "zernike_order_nmax3",
+            n_max=3,
+            mask_center_xy=[126, 128],
+            frame_shape=[256, 256],
+        )
+        _write_summary(
+            root,
+            "zernike_stage_a",
+            mask_center_xy=list(ROUND2_BLOCK_MASK_CENTER),
+            frame_shape=[1944, 2592],
+        )
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "**坐标参考系不同（不参与判定）**" in block
+        assert "zernike_stage_a" in block
+        # 不可比 ⇒ 不算抖动, 也不算混入
+        assert "**同轮内的定位抖动（良性差异）**" not in block
+        assert "疑似跨轮次数据混入" not in block
+        assert "⚠️" not in block
+
+    def test_out_of_window_value_is_reported_as_full_frame(self, tmp_path):
+        """不可比时要说清是「落在窗口外 ⇒ 全幅坐标」, 而不是「窗口不同」。"""
+        root = tmp_path / "round2_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(root, "zernike_order_nmax3", n_max=3, frame_shape=[256, 256])
+        _write_summary(
+            root,
+            "zernike_stage_a",
+            mask_center_xy=list(ROUND2_BLOCK_MASK_CENTER),
+            frame_shape=[1944, 2592],
+        )
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "全幅传感器" in block
+        assert "共同窗口" in block
+        # **不能**用「窗口不同所以不可比」这种在第三轮为假的理由
+        assert "窗口不同所以" not in block
+        assert "窗口（`frame_shape`）不同的两组之间" not in block
+
+    def test_same_frame_shape_jitter_stays_benign(self, tmp_path):
+        """回归: 逐阶组之间 (``frame_shape`` 相同, 差 1 px) ⇒ 良性抖动。"""
+        root = tmp_path / "same_shape_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(
+            root,
+            "zernike_order_nmax3",
+            n_max=3,
+            mask_center_xy=[126, 128],
+            frame_shape=[256, 256],
+        )
+        _write_summary(
+            root,
+            "zernike_order_nmax4",
+            n_max=4,
+            mask_center_xy=[127, 128],
+            frame_shape=[256, 256],
+        )
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "坐标参考系不同" not in block
+        assert "**同轮内的定位抖动（良性差异）**" in block
+        assert "±1 px" in block
+        assert "⚠️" not in block
+
+    def test_center_xy_is_always_comparable_across_frame_shapes(self, tmp_path):
+        """``center_xy`` 是全幅传感器坐标 ⇒ **不套**「小窗口」规则, 永远可比。
+
+        两组的 ``frame_shape`` 不同, ``center_xy`` 差 1 px ⇒ 走「良性抖动」,
+        **不能**被判成「坐标参考系不同」。
+        """
+        root = tmp_path / "center_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(
+            root,
+            "zernike_order_nmax3",
+            n_max=3,
+            mask_center_xy=[127, 128],
+            frame_shape=[256, 256],
+        )
+        _write_summary(
+            root,
+            "zernike_stage_a",
+            mask_center_xy=[127, 128],
+            center_xy=[1434, 972],
+            frame_shape=[1944, 2592],
+        )
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "坐标参考系不同" not in block
+        assert "**同轮内的定位抖动（良性差异）**" in block
+        assert "`center_xy`" in block
+        assert "`[1433, 971]`" in block
+        assert "`[1434, 972]`" in block
+
+    def test_window_edge_is_inclusive(self, tmp_path):
+        """边界自洽: 上界**含端点** (坐标 ≤ 窗口边长 算「落在窗口内」)。"""
+        shapes = {"a": [256, 256], "b": [1944, 2592]}
+        # 恰好落在上界上 ⇒ 窗口内 ⇒ 可比
+        comparable, _note = gen._window_local_comparability(
+            "a", "b", shapes, [256, 256], [256, 256]
+        )
+        assert comparable is True
+        # 超出上界 ⇒ 全幅 ⇒ 不可比
+        comparable, note = gen._window_local_comparability(
+            "a", "b", shapes, [126, 128], [257, 128]
+        )
+        assert comparable is False
+        assert "全幅传感器" in note
+
+    def test_missing_frame_shape_is_treated_as_comparable(self, tmp_path):
+        """缺 ``frame_shape`` ⇒ 按可比处理 (缺元数据不该把差异藏起来)。"""
+        comparable, _note = gen._window_local_comparability(
+            "a", "b", {"a": None}, [126, 128], [1433, 971]
+        )
+        assert comparable is True
+
+    def test_non_coordinate_value_is_treated_as_comparable(self, tmp_path):
+        """取值不是坐标对 ⇒ 无法证明它是全幅坐标 ⇒ 按可比处理。"""
+        comparable, _note = gen._window_local_comparability(
+            "a", "b", {"a": [256, 256], "b": [1944, 2592]}, None, [1433, 971]
+        )
+        assert comparable is True
+
 
