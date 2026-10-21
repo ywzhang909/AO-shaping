@@ -90,8 +90,12 @@ mkdir -p "$OUT_ROOT"
 
 # The thread-count env vars must be set BEFORE any wheel is imported, and they
 # must agree with the CFS quota or the pools stay sized at the host core count.
+# 容器名带 PID：固定的��名会让并行的两个任务互相撞车
+# （`docker: Conflict. The container name "/ao-container" is already in use`）。
+CONTAINER_NAME="${AO_CONTAINER_NAME:-ao-container-$$}"
+
 exec docker run --rm \
-    --name ao-container \
+    --name "$CONTAINER_NAME" \
     --user "$AO_UID" \
     --cpus="$CPU_LIMIT" \
     --memory="$MEM_LIMIT" \

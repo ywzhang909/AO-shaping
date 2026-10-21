@@ -2839,6 +2839,68 @@ small-flat-region rms caliber are not comparable), and lists the invariants
 that were *not* touched (trust region, per-round acceptance, holdout Pearson
 gate, flat admission, SPGD perturbation signs).
 
+### gsnet_pretrain.py
+
+**大规模仿真预训练**（issue #165 的迁移学习链路的起点）。**Fully offline** —
+数字孪生，不碰设备。
+
+一个训练样本 = 一个「随机化的台架」：
+
+* **像差随机化**：Zernike 部分用**随机模式子集** + 随机系数（张成内），
+  外加一段带限的**自由形状**像差（张成外，66 项模型拟合不掉）。网络因此
+  学的是「怎么对任意像差整形」，而不是把某一条像差记死。
+* **CCD 探测器模型**：帧是相机**会记下来的样子**——曝光过大时核心削顶
+  （过曝），过小时弱散斑被黑电平切掉（欠曝），再加散粒噪声、读出噪声与
+  ADC 量化。曝光在 log 均匀的 [0.05, 3] 上抽。
+* **标签是「好相位」**：GS 在**过采样真值**上朝**理想**方斑求的解。网络的
+  **输入目标**是相机记下来的那一帧，所以网络学的是**把探测器反演回去**。
+
+数据集生成（每个样本一次 512² 上的经典 GS）是唯一的瓶颈，所以用多进程
+并行；每个 worker 强制 1 个 BLAS 线程，否则 N 个 worker × 容器线程数会撞上
+pids 限额（实测 48×64 = 3072 线程把容器打爆）。
+
+产物：`checkpoint.pt`（`ml.gsnet.hybrid_infer.load_gsnet_checkpoint` 直接能读）、
+`dataset.npz`、`summary.json`（训练历史 + 留出集指标 + **按曝光分桶**的指标）。
+分桶是必须的：欠曝/过曝样本的目标上限本来就低，平均成一个数会掩盖这一点。
+
+| Option | Default | Description |
+|---|---|---|
+| `--samples` / `--val-samples` | `2000` / `64` | 训练 / 留出样本数 |
+| `--epochs` / `--batch-size` / `--lr` | `30` / `16` / `1e-3` | 训练预算 |
+| `--num-layers` / `--base-channels` | `8` / `24` | 网络宽度 |
+| `--workers` | CPU/2 | 数据生成进程数 |
+| `--fixed-aberration` | off | 诊断用：所有样本共用一条像差 |
+| `--out` | `data/gsnet_pretrain/<ts>` | 输出目录 |
+
+### gsnet_transfer.py
+
+**迁移学习**：拿预训练 checkpoint，用**真实实验系统**的 (相位 → 帧) 数据微调，
+然后导出可直接喂给 `--init-from-gsnet` 的相位。
+
+真实数据的监督信号是**现成的**：model-in-loop 每次探针测量都落盘
+`<debug 目录>/probes/*.npz`，里面有命令过的 `phase`（＝标签）、映射到远场
+模型网格的 `model_grid`（＝网络输入的目标），外加 `source_amplitude.npy`
+（＝网络的 source）。所以「命令了哪个相位就测到哪张帧」本身就是监督信号。
+
+微调损失 = 相位项（对命令相位）+ 整形项（用**标定过的前向算子**把网络预测的
+相位推到相机看到的那张帧上）。第二项是关键：真实台架的孔径、照明、像差与
+探测器行为都在里面，而预训练时这些只是随机化过的先验。
+
+两条路径共用同一套微调逻辑：`--from-dir`（离线，读一段已有的运行）与
+`--hardware`（在机，现场采一批探针）。
+
+**硬件路径需要实验系统**（Santec SLM + 相机）；本仓库的开发容器里没有这两样
+设备，所以硬件路径**在开发机上跑不了**——它要在装了台架的机器上跑。
+
+| Option | Default | Description |
+|---|---|---|
+| `--checkpoint` | (required) | 预训练 checkpoint |
+| `--from-dir` / `--hardware` | 二选一 | 离线数据来源 / 现场采集 |
+| `--capture` | `32` | 现场采集的探针数 |
+| `--epochs` / `--lr` / `--batch-size` | `20` / `1e-4` / `8` | 微调预算 |
+| `--region` / `--far-field-padding` | `128` / `8` | 在机路径的网格 |
+| `--exposure-time-ms` | `auto` | 曝光（`auto` = 会话内现定） |
+
 ### gsnet_learnability_control.py
 
 Answers one narrow question for **issue #165**: *can* the FourierGSNet learn a

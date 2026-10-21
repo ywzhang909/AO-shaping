@@ -162,7 +162,9 @@ def _cv_flat_rms(image: np.ndarray, side: int, flat_side: int) -> float:
     return float(np.sqrt(((flat - mean) ** 2).mean()) / mean)
 
 
-def _encircled_energy(image: np.ndarray, side: int) -> float:
+def _encircled_energy(
+    image: np.ndarray, side: int, center: tuple[float, float] | None = None
+) -> float:
     """目标方框内能量占**全图**能量的比例。
 
     分母必须是全图：若分母也取方框，EE 恒等于 1，这个指标就没有信息量。
@@ -170,7 +172,14 @@ def _encircled_energy(image: np.ndarray, side: int) -> float:
     if side < 1 or image.shape[0] < side or image.shape[1] < side:
         return float("nan")
     h, w = image.shape
-    r0, c0 = (h - side) // 2, (w - side) // 2
+    if center is None:
+        r0, c0 = (h - side) // 2, (w - side) // 2
+    else:
+        cy, cx = center
+        r0 = int(round(cy)) - side // 2
+        c0 = int(round(cx)) - side // 2
+        r0 = max(0, min(r0, h - side))
+        c0 = max(0, min(c0, w - side))
     box = image[r0 : r0 + side, c0 : c0 + side]
     total = float(image.sum())
     if not np.isfinite(total) or total <= 0.0:
@@ -178,11 +187,25 @@ def _encircled_energy(image: np.ndarray, side: int) -> float:
     return float(box.sum() / total)
 
 
-def _crop_centre(image: np.ndarray, side: int) -> np.ndarray:
+def _crop_centre(
+    image: np.ndarray, side: int, center: tuple[float, float] | None = None
+) -> np.ndarray:
+    """从图像里裁出 ``side``×``side`` 的窗口。
+
+    ``center`` 是窗口中心（行, 列）；``None`` 表示图像正中。窗口跟着目标走
+    ——和仓库自己的 ROI 指标一致（ROI 落在实测光斑上，不是画面正中）。
+    """
     h, w = image.shape
     if h < side or w < side:
         raise ValueError(f"image {image.shape} smaller than the metric side {side}")
-    r0, c0 = (h - side) // 2, (w - side) // 2
+    if center is None:
+        r0, c0 = (h - side) // 2, (w - side) // 2
+    else:
+        cy, cx = center
+        r0 = int(round(cy)) - side // 2
+        c0 = int(round(cx)) - side // 2
+        r0 = max(0, min(r0, h - side))
+        c0 = max(0, min(c0, w - side))
     return image[r0 : r0 + side, c0 : c0 + side]
 
 
@@ -211,6 +234,7 @@ def frame_metrics(
     truth: np.ndarray,
     metric_side: int,
     target_side: int | None = None,
+    center: tuple[float, float] | None = None,
 ) -> dict[str, float]:
     """两套网格上的指标。
 
@@ -224,12 +248,12 @@ def frame_metrics(
     """
     p_full = np.asarray(pred, dtype=np.float64)
     t_full = np.asarray(truth, dtype=np.float64)
-    p = _crop_centre(p_full, metric_side)
-    t = _crop_centre(t_full, metric_side)
+    p = _crop_centre(p_full, metric_side, center)
+    t = _crop_centre(t_full, metric_side, center)
     flat_side = max(3, metric_side // 4)
     box_side = target_side if target_side is not None else metric_side
     cv_box = _cv_box(p, box_side)
-    ee = _encircled_energy(p_full, box_side)
+    ee = _encircled_energy(p_full, box_side, center)
     return {
         "correlation": _pearson(p, t),
         "nrmse": _nrmse(p, t),

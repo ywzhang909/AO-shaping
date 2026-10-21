@@ -49,6 +49,7 @@ __all__ = [
     "Bench2FGeometry",
     "Bench2FPropagator",
     "Bench2FGroundTruth",
+    "CCDSensor",
     "ZernikeAberrationField",
 ]
 
@@ -530,6 +531,94 @@ class Bench2FPropagator:
         return _normalised_intensity(field, self._geometry)
 
 
+class CCDSensor:
+    """A CCD detector: exposure, saturation, black level, quantisation.
+
+    The far field a camera records is **not** the far field the optics make.
+    Three things happen between them, and all three are visible in a frame:
+
+    1. **Exposure** scales the photon count.  Too much and the peak runs into
+       the full well, so the core of the spot flattens into a plateau
+       (**over-exposure**, clipped at the top).
+    2. **Too little** and the signal falls to the black level, so the dim
+       speckle is chopped off (**under-exposure**, clipped at the bottom) and
+       the read noise is all that is left.
+    3. **Quantisation** to the ADC's bit depth.
+
+    ``apply`` takes a peak-normalised intensity (max 1) and returns what the
+    camera would record, in the same normalised units.
+
+    The order is the physical one: photons (Poisson) -> read noise (Gaussian)
+    -> the ADC's clip -> the ADC's quantisation.
+    """
+
+    def __init__(
+        self,
+        *,
+        exposure: float = 1.0,
+        full_well: float = 1.0,
+        black_level: float = 0.0,
+        bit_depth: int = 12,
+        shot_noise: float = 0.0,
+        read_noise: float = 0.0,
+        generator: torch.Generator | None = None,
+    ) -> None:
+        if exposure <= 0.0:
+            raise ValueError(f"exposure must be > 0, got {exposure}")
+        if full_well <= 0.0:
+            raise ValueError(f"full_well must be > 0, got {full_well}")
+        if not 0.0 <= black_level < full_well:
+            raise ValueError(
+                f"black_level must be in [0, full_well), got {black_level}"
+            )
+        if not 1 <= bit_depth <= 24:
+            raise ValueError(f"bit_depth must be in 1..24, got {bit_depth}")
+        if shot_noise < 0.0 or read_noise < 0.0:
+            raise ValueError("noise levels must be >= 0")
+        self.exposure = float(exposure)
+        self.full_well = float(full_well)
+        self.black_level = float(black_level)
+        self.bit_depth = int(bit_depth)
+        self.shot_noise = float(shot_noise)
+        self.read_noise = float(read_noise)
+        self._generator = generator
+
+    def apply(self, intensity: torch.Tensor) -> torch.Tensor:
+        """Map a peak-normalised intensity to a recorded frame.
+
+        Args:
+            intensity: Non-negative intensity, peak-normalised (max 1).
+
+        Returns:
+            The recorded frame, in the same normalised units.
+        """
+        scaled = intensity * self.exposure
+        if self.shot_noise > 0.0:
+            variance = self.shot_noise**2
+            scaled = (
+                torch.poisson(
+                    (scaled / variance).clamp_min(0.0), generator=self._generator
+                )
+                * variance
+            )
+        if self.read_noise > 0.0:
+            scaled = scaled + self.read_noise * torch.randn(
+                scaled.shape,
+                dtype=scaled.dtype,
+                device=scaled.device,
+                generator=self._generator,
+            )
+        scaled = scaled.clamp(self.black_level, self.full_well)
+        levels = float(2**self.bit_depth - 1)
+        return torch.round(scaled * levels) / levels
+
+    def saturated_fraction(self, intensity: torch.Tensor) -> torch.Tensor:
+        """Fraction of the frame that hit the full well (the over-exposure tell)."""
+        return (intensity * self.exposure >= self.full_well).to(intensity.dtype).mean(
+            dim=(-2, -1)
+        )
+
+
 class Bench2FGroundTruth:
     """Ground truth of the 2f bench.  Strictly a SUPERSET of Bench2FPropagator.
 
@@ -616,7 +705,9 @@ class Bench2FGroundTruth:
         """
         return self._amplitude.clone()
 
-    def complex_far_field(self, phase: torch.Tensor) -> torch.Tensor:
+    def complex_far_field(
+        self, phase: torch.Tensor, *, aberration: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Propagate to the far field and return the **complex** spectrum.
 
         This is the same propagation :meth:`forward` performs, minus the
@@ -626,20 +717,30 @@ class Bench2FGroundTruth:
 
         Args:
             phase: ``(B, 1, region, region)`` pupil phase in radians.
+            aberration: Optional extra pupil aberration in radians, same shape
+                as ``phase``.  This is how one bench serves many training
+                samples: each sample can carry its own Zernike / freeform
+                aberration instead of every sample sharing one bench.
 
         Returns:
             ``(B, 1, far_field_size, far_field_size)`` complex far field,
             peak-normalised so that ``max|F| == 1``.
         """
         _check_phase_batch(phase, self._geometry.region)
+        total = phase
+        if aberration is not None:
+            _check_phase_batch(aberration, self._geometry.region)
+            total = total + aberration
         field = self._amplitude * torch.exp(
-            1j * (phase + self._freeform.reshape(1, 1, *self._freeform.shape))
+            1j * (total + self._freeform.reshape(1, 1, *self._freeform.shape))
         )
         spectrum = focal_field(field, self._geometry.far_field_size)
         peak = spectrum.abs().amax(dim=(-2, -1), keepdim=True)
         return spectrum / torch.where(peak > 0, peak, torch.ones_like(peak))
 
-    def forward(self, phase: torch.Tensor) -> torch.Tensor:
+    def forward(
+        self, phase: torch.Tensor, *, aberration: torch.Tensor | None = None
+    ) -> torch.Tensor:
         """Propagate with the extra ground-truth physics.
 
         Same chain as :meth:`Bench2FPropagator.forward` except: the phase is
@@ -662,8 +763,12 @@ class Bench2FGroundTruth:
             ValueError: If ``phase`` has the wrong shape.
         """
         _check_phase_batch(phase, self._geometry.region)
+        total = phase
+        if aberration is not None:
+            _check_phase_batch(aberration, self._geometry.region)
+            total = total + aberration
         field = self._amplitude * torch.exp(
-            1j * (phase + self._freeform.reshape(1, 1, *self._freeform.shape))
+            1j * (total + self._freeform.reshape(1, 1, *self._freeform.shape))
         )
         intensity = _normalised_intensity(field, self._geometry)
         if self._shot_noise > 0.0:
