@@ -4,7 +4,6 @@ import tqdm
 import numpy as np
 
 from ao_shaping.drivers.ccd.common import (
-    capture_with_exposure,
     get_camera_exposure_ms,
     resample_on_saturation,
 )
@@ -13,24 +12,18 @@ from ao_shaping.drivers.dm._registry import get_dm_registry
 from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.objective_direction import objective_direction
-from ao_shaping.optimizer.spgd import spgd_gradient
+from ao_shaping.optimizer.spid_pib_loop import open_pib_bench, spid_pib_epoch
 from ao_shaping.utils.image.spots_calc import radius
-from ao_shaping.utils.image.beam_metrics import smart_zero_order_center
-from ao_shaping.utils.image.hardware_utils import (
-    log_center_brightness,
-    resolve_spot_center,
-)
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 from ao_shaping.optimizer._camera_inject import (
     _CAMERA_CLASS_OVERRIDE,  # noqa: F401  (backward-compat re-export)
-    _camera_cls,
+    _camera_cls,  # noqa: F401  (backward-compat re-export)
     _camera_override,  # noqa: F401  (backward-compat re-export)
 )
 from ao_shaping.optimizer.constants import (
     CAM_SAMPLE_ITER,
     IDEAL_SPOT_RADIUS,
     KEEP_VOLTAGE_WHEN_EXIT,
-    TEST_EXPOSURE_TIME_BRIGHTNESS,
     create_optimizer,
 )
 
@@ -334,7 +327,6 @@ def optimize_pib(
     """
 
 
-    import matplotlib.pylab as plt
     delta = abs(delta)
     epochs = int(epochs)
     rng = np.random.default_rng(random_seed)
@@ -355,69 +347,41 @@ def optimize_pib(
     _pib_history: list[float] = []
     _max_history_len = 50  # 保持最近50次记录
 
-    with (
-        _camera_cls(cam_type)(
-            cam_id=cam_id, exposure_time_ms=exposure_time_ms, skip_sampling=False
-        ) as cam,
-    ):
-        if dm is None:
-            dm = get_dm_registry().create(
-                "nlight",
-                keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
-                max_neibor_diff=dm_neibor_diff,
-            )
-            dm.open()
-            _dm_owned = True
-        else:
-            if not dm.is_connected():
-                dm.open()
-            _dm_owned = False
+    def _show_probe_frame(probe_img, detected_center):
+        if not show:
+            return
+        import matplotlib.pylab as plt
+
+        plt.imshow(probe_img, cmap="gray")
+        plt.scatter(x=detected_center[0], y=detected_center[1], c="red", s=5)
+        plt.show()
+
+    with open_pib_bench(
+        cam_type=cam_type,
+        cam_id=cam_id,
+        exposure_time_ms=exposure_time_ms,
+        cam_size=cam_size,
+        target_max_brightness=target_max_brightness,
+        center=center,
+        dm=dm,
+        create_dm=lambda: get_dm_registry().create(
+            "nlight",
+            keep_when_exit=KEEP_VOLTAGE_WHEN_EXIT,
+            max_neibor_diff=dm_neibor_diff,
+        ),
+        init_v=init_v,
+        dm_unit_mask=dm_unit_mask,
+        init_fallback_target_max=ADVISE_EXPOSURE_TIME_BRIGHTNESS,
+        on_probe=_show_probe_frame,
+    ) as bench:
+        cam = bench.cam
+        dm = bench.dm
+        _init_v = bench.init_v
+        dm_unit_mask = bench.unit_mask
+        center = bench.window_center
+        init_img = bench.init_img
+        img_size = bench.img_size
         try:
-            if dm_unit_mask is None:
-                dm_unit_mask = dm.default_dm_unit_mask
-                if dm_unit_mask[0]:
-                    logger.warning(
-                        "dm_unit_mask[0] is True, which means the first unit is active."
-                    )
-
-            if init_v is None or len(init_v) == 0:
-                _init_v = np.zeros(dm.DM_Num, dtype=np.float64)
-            else:
-                _init_v = np.array(init_v)
-            dm.send_voltages(_init_v, 0.5)
-
-            _img = capture_with_exposure(
-                cam,
-                0.0,
-                TEST_EXPOSURE_TIME_BRIGHTNESS,
-                auto_n_sample=20,
-            )
-
-            center = resolve_spot_center(
-                cam, _img, center, detect_fn=smart_zero_order_center, n_sample=10
-            )
-
-            if show:
-                plt.imshow(_img, cmap="gray")
-                plt.scatter(x=center[0], y=center[1], c="red", s=5)
-                plt.show()
-
-            log_center_brightness(_img, center, get_camera_exposure_ms(cam))
-
-            img_size = (cam_size, cam_size)
-            img_size, center = cam.reset_window(center, img_size)
-            logger.info(f"reset window center @ {center}")
-            init_img = capture_with_exposure(
-                cam,
-                exposure_time_ms,
-                target_max_brightness or ADVISE_EXPOSURE_TIME_BRIGHTNESS,
-                auto_n_sample=20,
-            )
-            logger.debug(
-                f"Initial Image Max brightness: {np.max(init_img)} "
-                f"@ {get_camera_exposure_ms(cam)}ms"
-            )
-            img_size = init_img.shape[::-1]
             if r_bucket <= 0:
                 _w, _h = img_size
                 r_bucket = ImageTargetFunc(_w, _h, center).radius(init_img, energy=0.99)
@@ -634,73 +598,68 @@ def optimize_pib(
                     "tabu_size": len(tabu_memory._queue),
                 }
             )
+            def _render_epoch_frame(pos_img, voltages, epoch_number):
+                if not show:
+                    return True
+                return window.render(
+                    pos_img,
+                    voltages,
+                    dm.V_Min,
+                    dm.V_Max,
+                    center,
+                    r_bucket,
+                    f"{epoch_number}",
+                )
+
+            def _saturate_epoch(pos_frame, neg_frame):
+                peak = max([np.max(pos_frame), np.max(neg_frame)])
+                if peak == 255 and exposure_time_ms == 0:
+                    resampled = resample_on_saturation(
+                        pos_frame,
+                        cam,
+                        exposure_time_ms,
+                        target_max_brightness,
+                        auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
+                            target_max=t,
+                            twice_valid=False,
+                            n_sample=max(n_sample, 20),
+                        ),
+                    )
+                    optimizer.scale_momentum(np.sum(resampled) / np.sum(pos_frame))
+                return peak
+
             with tqdm.tqdm(
                 total=epochs, desc=f"iter {epochs}", dynamic_ncols=True
             ) as bar:
                 for epoch in range(1, epochs + 1):
-                    disturb_v = (
-                        rng.binomial(1, 0.5, (dm.DM_Num,)).astype(float) * 2.0 - 1.0
+                    _epoch = spid_pib_epoch(
+                        dm=dm,
+                        cam=cam,
+                        init_v=_init_v,
+                        delta=delta,
+                        unit_mask=dm_unit_mask,
+                        rng=rng,
+                        optimizer=optimizer,
+                        evaluate=calc_objective,
+                        maximize=to_min == -1,
+                        diff_sign=to_min,
+                        epoch=epoch,
+                        on_render=_render_epoch_frame,
+                        on_saturation=_saturate_epoch,
                     )
-
-                    disturb_v = disturb_v * delta * dm_unit_mask
-
-                    dm.send_voltages(_init_v + disturb_v)
-                    pos_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                    pos_obj, pos_obj_ratio = calc_objective(pos_img)
-
-                    dm.send_voltages(_init_v - disturb_v)
-                    neg_img = cam.get_numpy_image(CAM_SAMPLE_ITER)
-                    neg_obj, neg_obj_ratio = calc_objective(neg_img)
-
-                    if show:
-                        if not window.render(
-                            pos_img,
-                            _init_v,
-                            dm.V_Min,
-                            dm.V_Max,
-                            center,
-                            r_bucket,
-                            f"{epoch}",
-                        ):
-                            break
-
-                    max_brightness = max([np.max(pos_img), np.max(neg_img)])
-                    if max_brightness == 255 and exposure_time_ms == 0:
-                        _resample_img = resample_on_saturation(
-                            pos_img,
-                            cam,
-                            exposure_time_ms,
-                            target_max_brightness,
-                            auto_exposure_fn=lambda c, t, n_sample=1: c.auto_exposure(
-                                target_max=t,
-                                twice_valid=False,
-                                n_sample=max(n_sample, 20),
-                            ),
-                        )
-                        optimizer.scale_momentum(
-                            np.sum(_resample_img) / np.sum(pos_img)
-                        )
-
-                    # if exposure_time_ms > 0 and max_brightness == 255:
-                    #     # 固定曝光时，如果过曝，则使用pib_ratio计算梯度
-                    #     optimizer.scale_momentum(neg_pib_ratio / neg_j)
-                    #     pos_j, neg_j = pos_pib_ratio, neg_pib_ratio
-                    # else:
-                    #     pos_j, neg_j = pos_pib, neg_pib
+                    if _epoch.aborted:
+                        break
+                    disturb_v = _epoch.disturb_v
+                    pos_img = _epoch.pos_img
+                    neg_img = _epoch.neg_img
+                    pos_obj, pos_obj_ratio = _epoch.pos_value, _epoch.pos_ratio
+                    neg_obj, neg_obj_ratio = _epoch.neg_value, _epoch.neg_ratio
                     pos_j, neg_j = pos_obj, neg_obj
-                    # `diff` is kept for logging; the SPGD sign comes from the
-                    # shared helper (optimizer/spgd.py) so it cannot be
-                    # hand-inverted again (this site minimised PIB until the
-                    # to_min fix). Cast to float: bucket sums are unsigned.
-                    diff = (float(pos_j) - float(neg_j)) * to_min
-                    gradient = spgd_gradient(
-                        pos_j, neg_j, disturb_v, maximize=(to_min == -1)
-                    )
-                    update = optimizer.update(gradient)
-                    _to_update_v = np.clip(_init_v - update, dm.V_Min, dm.V_Max)
-                    if dm.check_dm_unit_grad_safe(_to_update_v):
-                        _init_v = _to_update_v
-                    else:
+                    diff = _epoch.diff
+                    gradient = _epoch.gradient
+                    _init_v = _epoch.init_v
+                    max_brightness = _epoch.brightness
+                    if not _epoch.applied:
                         logger.warning(
                             f"相邻单元压差大于{dm.max_neibor_diff}，放弃本次结果"
                         )
@@ -865,6 +824,6 @@ def optimize_pib(
             if show:
                 window.close()
         finally:
-            if _dm_owned:
-                dm.close()
+            if bench.owns_dm:
+                bench.dm.close()
         return recorder

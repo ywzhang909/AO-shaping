@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/slm/gs_refine_runner.py:80
+source: src/ao_shaping/runners/slm/gs_refine_runner.py:85
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ GS 预整形 + 自由相位 SPGD 细化
 
 ## 入口函数
 
-`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:80`）
+`runners.slm.gs_refine_runner.run`（`src/ao_shaping/runners/slm/gs_refine_runner.py:85`）
 
 ```python
 run(ctx, params)
@@ -40,6 +40,7 @@ SLM GS 预整形 + 自由相位 SPGD 细化 (SLM + CCD 闭环)。
 
 - [[functions/runner-common|`build_gs_refine_config`]]
 - [[functions/runner-common|`save_gs_refine_results`]]
+- `ao_shaping.utils.cli.exposure.resolve_exposure`
 - [[functions/with-params|`with_params`]]
 - `ao_shaping.utils.io.cli_helpers.resolve_debug`
 

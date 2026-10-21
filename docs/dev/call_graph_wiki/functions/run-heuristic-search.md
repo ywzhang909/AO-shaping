@@ -55,7 +55,6 @@ run_heuristic_search(algorithm, evaluate, dim, iterations, bounds, x0, maximize,
 
 - [[functions/optimizer-greedy|`optimizer_greedy`]]
 - [[functions/optimizer-rms-slm|`optimizer_rms_slm`]]
-- [[functions/optimize-slm-square|`optimize_slm_square`]]
 
 ## 相关页面
 

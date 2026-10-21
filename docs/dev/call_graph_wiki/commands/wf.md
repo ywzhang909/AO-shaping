@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/runners/nlight_dm/wf_runner.py:34
+source: src/ao_shaping/runners/nlight_dm/wf_runner.py:33
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ source: src/ao_shaping/runners/nlight_dm/wf_runner.py:34
 
 ## 入口函数
 
-`runners.nlight_dm.wf_runner.run`（`src/ao_shaping/runners/nlight_dm/wf_runner.py:34`）
+`runners.nlight_dm.wf_runner.run`（`src/ao_shaping/runners/nlight_dm/wf_runner.py:33`）
 
 ```python
 run(ctx, dm, run, algorithm, wfs)
@@ -37,16 +37,16 @@ run(ctx, dm, run, algorithm, wfs)
 - [[functions/optimizer-rms-dm|`optimizer_rms_dm`]]
 - `schedule_lr_delta`
 
-**结果/调试落盘**：`gen_date_dir`、`make_date_dir`
+**结果/调试落盘**：`save_best_voltages`、`gen_date_dir`、`make_date_dir`
 
 ## 直接调用（1 级，按调用次数）
 
 - [[functions/with-params|`with_params`]]
 - [[functions/resolve-dm|`resolve_dm`]]
 - [[functions/optimizer-rms-dm|`optimizer_rms_dm`]]
+- `ao_shaping.runners.runner_common.save_best_voltages`
 - [[functions/path-dirs|`gen_date_dir`]]
 - [[functions/path-dirs|`gen_file_path_uuid`]]
-- [[functions/path-dirs|`get_date_dir_name`]]
 - [[functions/debug-mode|`get_debug_mode`]]
 
 ## 谁调用它
