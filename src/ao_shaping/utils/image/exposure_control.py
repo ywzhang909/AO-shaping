@@ -70,6 +70,12 @@ def resolve_daheng_exposure_limit(
     actionable error instead of returning an unusable ceiling.  ``camera`` is
     used only through ``reset_exposure_time`` and ``get_numpy_image``, so no
     driver import is required here.
+
+    The ``shoot`` callback must NOT drop a frame of its own: the driver layer
+    already consumes the stale frames when the exposure changes (the Daheng
+    backend's ``reset_exposure_time`` drops ``EXPOSURE_CHANGE_DISCARD_FRAMES``
+    frames), so dropping again in the probe would be a duplicate — one extra
+    frame per ladder step for every backend, and no extra safety.
     """
     requested = float(requested_ms)
     if not math.isfinite(requested) or requested < 0:
@@ -134,6 +140,53 @@ class ExposureCeilingEstimate:
     peak_fractions: tuple[float, ...]
 
 
+#: How far above a frame's own background its peak has to sit before the peak
+#: counts as light instead of detector read noise.  See
+#: :func:`estimate_exposure_ceiling_ms` for the measurement that fixes it.
+NOISE_FLOOR_SIGMAS: float = 4.0
+
+#: Noise scale assumed when a frame's MAD is exactly zero (more than half of
+#: the frame sits on the median, so the MAD cannot resolve the spread).  One
+#: count is the detector's quantisation step, i.e. the smallest spread a
+#: digital frame can express.
+_NOISE_FLOOR_FALLBACK_SIGMA: float = 1.0
+
+
+def _carries_signal(image: np.ndarray, peak: float, full_scale: float) -> bool:
+    """Whether a frame's brightest pixel is light rather than read noise.
+
+    The noise floor is read off the frame itself: ``median + k * sigma`` with
+    ``sigma = 1.4826 * MAD`` (a robust scale the beam cannot inflate, because
+    the beam occupies a tiny fraction of the frame).  A frame whose MAD is
+    exactly zero cannot resolve its own spread, so one count of quantisation
+    is used instead.
+
+    Args:
+        image: One raw integer CCD frame.
+        peak: The frame's brightest count.
+        full_scale: The detector's full-scale count.
+
+    Returns:
+        True when the peak is light, False when it is noise.
+    """
+    if peak <= 0.0:
+        return False
+    if peak >= full_scale:
+        return True  # clipped: the sensor saw at least full scale
+    data = np.asarray(image, dtype=np.float64)
+    median = float(np.median(data))
+    if peak == median:
+        # A flat frame carries no noise distribution: there is nothing for the
+        # peak to be an outlier of, so its level is the signal (or a DC
+        # pedestal, which only drags the ceiling down — the safe direction).
+        return True
+    mad = float(np.median(np.abs(data - median)))
+    sigma = 1.4826 * mad
+    if sigma <= 0.0:
+        sigma = _NOISE_FLOOR_FALLBACK_SIGMA
+    return peak > median + NOISE_FLOOR_SIGMAS * sigma
+
+
 def estimate_exposure_ceiling_ms(
     ladder: Sequence[tuple[float, np.ndarray]],
     *,
@@ -149,9 +202,38 @@ def estimate_exposure_ceiling_ms(
     dim, allowing the same probe to work across optical paths.
 
     The optical path sets where saturation falls, which is why this is
-    estimated from the image instead of stored as a constant.  Zero-peak
-    frames carry no signal and are skipped, but a ladder without a single
-    signal frame fails.
+    estimated from the image instead of stored as a constant.
+
+    Noise floor
+    -----------
+    A frame only carries signal when its peak stands clearly above the
+    detector's read noise; the extrapolation above assumes the peak *is*
+    light.  The bottom of a doubling ladder sits at the sensor minimum
+    exposure, where the frame is pure noise — measured on the Daheng MER2 in
+    the experiment system on 2026-10-21, the 0.02 ms frame peaked at **2
+    counts** on a zero background (3.53 M pixels at 0, 1.51 M at 1, three at
+    2), i.e. read noise, while the bench itself saturates near 100 ms.
+    Extrapolating from that frame gives ``0.02 * 0.9 / (2/255) = 2.295 ms``
+    and a ceiling of **2.0655 ms** — the probe was low by ~30x, and the
+    hardware flow then refused legal exposures.
+
+    Such frames are therefore excluded from the extrapolation: a frame counts
+    as signal only when its peak exceeds ``median + NOISE_FLOOR_SIGMAS *
+    sigma`` of its own noise.  ``sigma`` is the robust scale ``1.4826 * MAD``
+    (the beam occupies a tiny fraction of the frame, so it cannot inflate
+    it); the measured frames have a MAD of exactly 0 (their mass sits on 0 and
+    1), so one count of quantisation is used instead — the smallest spread a
+    digital frame can express, and the right scale for a *peak* statistic,
+    which sits several sigma above the bulk of a multi-megapixel noise field.
+
+    ``NOISE_FLOOR_SIGMAS = 4`` puts the threshold in the middle of the
+    measured gap: the noise frame tops out at 2 counts (so the threshold,
+    0 + 4 counts, rejects it with a 2-count margin) while the first ladder
+    frame that carries real light — 2.56 ms, 7 counts — clears it with a
+    3-count margin.  Frames that clip the sensor always carry signal.
+
+    A ladder without a single signal frame still fails, with the same
+    actionable error as before.
     """
     pairs: list[tuple[float, np.ndarray]] = []
     for exposure, frame in ladder:
@@ -178,9 +260,12 @@ def estimate_exposure_ceiling_ms(
     first_saturated: float | None = None
     for ms, image in pairs:
         full_scale = float(np.iinfo(image.dtype).max)
-        peak_fraction = float(np.max(image)) / full_scale
+        peak = float(np.max(image))
+        peak_fraction = peak / full_scale
         fractions.append(peak_fraction)
-        if peak_fraction > 0:
+        # A clipped frame is signal by definition; otherwise the peak has to
+        # clear the frame's own noise floor before it can be extrapolated.
+        if _carries_signal(image, peak, full_scale):
             estimates.append(ms * saturation_fraction / peak_fraction)
         if peak_fraction < saturation_fraction:
             last_safe = ms
@@ -218,6 +303,30 @@ def probe_exposure_ceiling_ms(
     first frame whose peak reaches ``saturation_fraction`` of full scale or at
     ``hard_max_ms`` (the camera's hardware maximum) — further steps would only
     waste light on a sensor that is already clipped.
+
+    Stale frames
+    ------------
+    Changing the exposure does not change the picture *immediately*: the
+    camera's exposure pipeline still delivers one or two frames that were
+    exposed with the **previous** setting (measured on the Daheng MER2 on
+    2026-10-21: after changing the exposure the next one to two frames still
+    showed the old exposure, e.g. ``set 0.64 ms`` answered with the 20 ms
+    frame).  A ladder that pairs such a frame with the *new* exposure is off
+    by one step, so every extrapolation it takes part in is biased.
+
+    The stale frames are consumed **by the driver layer**: the Daheng
+    backend's ``reset_exposure_time`` drops ``EXPOSURE_CHANGE_DISCARD_FRAMES``
+    frames whenever the exposure really changes, so the first frame the
+    caller gets already carries the new exposure.  This probe therefore does
+    *not* discard frames of its own: discarding again would cost an extra
+    frame per ladder step on every backend and be a no-op on the ones that
+    already do it.
+
+    The noise floor of the bottom steps is a second, independent trap, and it
+    is what actually drove the measured ceiling down to 2.0655 ms: the frames
+    at the sensor minimum exposure are pure read noise (2 counts on the
+    Daheng MER2), and extrapolating from them lands far below the truth.  It
+    is handled in :func:`estimate_exposure_ceiling_ms`.
 
     The ladder's light state is *not* restored: the caller owns the camera and
     must re-arm the working exposure afterwards.
