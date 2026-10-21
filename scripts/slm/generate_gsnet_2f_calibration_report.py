@@ -340,30 +340,8 @@ def render(
         add("")
         add("### 4.2 为什么网络做不到：一个可复现的对照实验")
         add("")
-        add("同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源：")
-        add("")
-        add(_row(["训练目标", "网络臂的 composite", "网络臂的 correlation（全图）"]))
-        add(_row(["---", "---", "---"]))
-        if results_same is not None:
-            same_b = results_same.get("arm_b_network") or {}
-            same_c = same_b.get("calibrated")
-            if same_c:
-                add(_row([
-                    "网络自己网格上的 GS 解（`--gt-mode same`，可学）",
-                    _fmt(same_c["composite"]["mean"]),
-                    _fmt(same_c["correlation_full"]["mean"]),
-                ]))
-        cur_b = arm_b.get("calibrated")
-        if cur_b:
-            add(_row([
-                "过采样真值上的 GS 解（`--gt-mode bench`，本报告主口径）",
-                _fmt(cur_b["composite"]["mean"]),
-                _fmt(cur_b["correlation_full"]["mean"]),
-            ]))
-        add("")
-        add("（上表是两臂**各自**的最终分数。真正的对照由 "
-            "`scripts/slm/gsnet_learnability_control.py` 给出：同一套训练代码、"
-            "同一份数据、同一预算，只换训练目标。）")
+        add("同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源，"
+            "看网络停在哪个分数上（`scripts/slm/gsnet_learnability_control.py`）：")
         add("")
         if learnability is not None:
             add("对照实验（`scripts/slm/gsnet_learnability_control.py`）的结论：")

@@ -150,13 +150,7 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 ### 4.2 为什么网络做不到：一个可复现的对照实验
 
-同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源：
-
-| 训练目标 | 网络臂的 composite | 网络臂的 correlation（全图） |
-| --- | --- | --- |
-| 过采样真值上的 GS 解（`--gt-mode bench`，本报告主口径） | 0.2591 | 0.0220 |
-
-（上表是两臂**各自**的最终分数。真正的对照由 `scripts/slm/gsnet_learnability_control.py` 给出：同一套训练代码、同一份数据、同一预算，只换训练目标。）
+同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源，看网络停在哪个分数上（`scripts/slm/gsnet_learnability_control.py`）：
 
 对照实验（`scripts/slm/gsnet_learnability_control.py`）的结论：
 
