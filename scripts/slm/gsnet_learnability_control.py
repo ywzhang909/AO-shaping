@@ -40,14 +40,16 @@ if str(ROOT / "scripts" / "slm") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "slm"))
 
 import calibrate_gsnet_2f as C  # noqa: E402
-from ml.gsnet.forward_ops import IdealFFTOperator  # noqa: E402
+from ml.gsnet.forward_ops import BenchTwinOperator  # noqa: E402
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--grid", type=int, default=64)
-    parser.add_argument("--far-field-size", type=int, default=512)
-    parser.add_argument("--target-side", type=int, default=16)
+    parser.add_argument("--far-field-padding", type=int, default=8)
+    parser.add_argument("--region-span-px", type=float, default=900.0)
+    parser.add_argument("--noise-adu", type=float, default=2.0)
+    parser.add_argument("--target-side", type=int, default=24)
     parser.add_argument("--n-samples", type=int, default=24)
     parser.add_argument("--epochs", type=int, default=12)
     parser.add_argument("--eval-samples", type=int, default=8)
@@ -66,47 +68,70 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    geometry = C.Bench2FGeometry(region=args.grid, far_field_size=args.far_field_size)
-    twin, bench_ab, fitted_ab, _ = C._prepare_bench(geometry, args.seed)
     region = args.grid
-
-    source, target, gt_bench = C._make_training_set(
-        geometry,
-        twin,
-        bench_ab,
-        args.n_samples,
-        args.target_side,
-        gs_iterations=20,
-        seed=args.seed,
-        gt_mode="bench",
+    far_field = region * args.far_field_padding
+    twin = C.build_twin(
+        args.seed,
+        region=region,
+        region_span_px=args.region_span_px,
+        far_field_padding=args.far_field_padding,
+        noise_adu=args.noise_adu,
+        randomize=True,
     )
+    ideal_twin = C.build_twin(
+        args.seed,
+        region=region,
+        region_span_px=args.region_span_px,
+        far_field_padding=args.far_field_padding,
+        noise_adu=0.0,
+        randomize=False,
+    )
+    op_bench = BenchTwinOperator(twin)
+    op_ideal = BenchTwinOperator(ideal_twin)
 
-    # 「网络自己网格」上的 GS 解
-    gt_same = torch.stack(
-        [
-            C._classical_gs_same_regime(source[i], target[i], region, iterations=40)
-            for i in range(source.shape[0])
-        ]
-    )[:, None]
+    source = torch.from_numpy(
+        np.asarray(twin.pupil_amplitude(), dtype=np.float32)
+    )[None, None]
+
+    # 两个训练目标：
+    # * bench —— 在**带误差的物理**下求的 GS 解（实验系统的非理想因素经由
+    #   标签进入网络）；
+    # * ideal —— 在**理想物理**下求的 GS 解（网络被要求去追一个忽略实验系统
+    #   误差的相位）。
+    rng = np.random.default_rng(args.seed)
+    targets = []
+    gt_bench = []
+    gt_ideal = []
+    for _ in range(args.n_samples):
+        side = float(args.target_side) * float(rng.uniform(0.75, 1.25))
+        target = torch.from_numpy(
+            C._square_target(side, far_field)
+        ).to(torch.float32)[None, None]
+        target_amp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
+        targets.append(target[0])
+        gt_bench.append(
+            C._classical_gs(op_bench, target_amp, iterations=20)[0, 0].clone()
+        )
+        gt_ideal.append(
+            C._classical_gs(op_ideal, target_amp, iterations=20)[0, 0].clone()
+        )
+    target_all = torch.stack(targets)
+    gt_bench = torch.stack(gt_bench)[:, None]
+    gt_ideal = torch.stack(gt_ideal)[:, None]
 
     cfg = C.ArmBConfig(
-        geometry=geometry,
+        region=region,
+        region_span_px=args.region_span_px,
+        far_field_padding=args.far_field_padding,
         n_train=args.n_samples,
         n_eval=args.eval_samples,
         epochs=args.epochs,
         metric_side=36,
         target_side=args.target_side,
         seed=args.seed,
-        truth_bench=twin,
-        fitted_aberration=fitted_ab,
-        bench_aberration=bench_ab,
+        noise_adu=args.noise_adu,
     )
-    # 架构修好之后，网络内部看到的是**被解析开**的远场（远场网格 = 过采样网格，
-    # 瞳面网格 = region）。这正是这一版对照要检验的东西：修好之后，
-    # 「物理上正确的好相位」是不是终于学得到了。
-    operator = IdealFFTOperator(
-        geometry.far_field_size, convention="canonical", pupil_side=region
-    )
+    operator = op_ideal
 
     # 整形项权重可调：0 = 纯相位回归（网络只被要求复现目标相位），
     # 40 = 与 ml.gsnet.train 的默认一致。
@@ -116,17 +141,21 @@ def main(argv: list[str] | None = None) -> int:
     ) if args.w_shaping == 0.0 else original_shaping_loss
 
     rows: dict[str, dict[str, float]] = {}
-    for label, gt in (("same", gt_same), ("bench", gt_bench)):
-        model = C._train_arm(operator, source, target, gt, cfg)
+    for label, gt in (("ideal", gt_ideal), ("bench", gt_bench)):
+        model = C._train_arm(
+            operator,
+            source.expand(gt.shape[0], 1, region, region),
+            target_all,
+            gt,
+            cfg,
+        )
         metrics = C._evaluate_network(
             model,
-            source[: args.eval_samples],
-            target[: args.eval_samples],
             twin,
-            bench_ab,
+            source.expand(args.eval_samples, 1, region, region),
+            target_all[: args.eval_samples],
             36,
             args.target_side,
-            geometry.far_field_size,
         )
         rows[label] = {
             "composite": metrics["composite"]["mean"],
@@ -140,8 +169,8 @@ def main(argv: list[str] | None = None) -> int:
     out = {
         "config": vars(args) | {"out": str(args.out or "")},
         "gt_rms_rad": {
-            "same": float(torch.sqrt((gt_same**2).mean())),
             "bench": float(torch.sqrt((gt_bench**2).mean())),
+            "ideal": float(torch.sqrt((gt_ideal**2).mean())),
         },
         "arms": rows,
     }
@@ -152,7 +181,7 @@ def main(argv: list[str] | None = None) -> int:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    for label in ("same", "bench"):
+    for label in ("ideal", "bench"):
         row = rows[label]
         print(
             f"gt={label:6} composite={row['composite']:.4f} "
