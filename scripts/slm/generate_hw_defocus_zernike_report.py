@@ -44,6 +44,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -60,6 +61,11 @@ from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
     measure_spot,
 )
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
+from scripts.slm._hw_defocus_sections import (  # noqa: E402
+    SECTION_0_2_ALGORITHM,
+    SECTION_0_PURPOSE,
+    section_0_1_setup,
+)
 
 REPORT_KEY = "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md"
 
@@ -314,13 +320,30 @@ CONTINUOUS_REL_DIFF_TOL = 0.005
 
 #: 各像素坐标字段所在的**坐标系**。同一个坐标系之间才谈得上「偏差多少」:
 #:
-#: - ``center_xy`` = **全幅传感器**坐标 (每组都在同一块传感器上定位零级) ⇒ 永远可比;
-#: - ``mask_center_xy`` = **窗口内**坐标 ⇒ 只有窗口 (``frame_shape``) 相同的组才可比
-#:   (Stage A 在全幅 1944x2592 上跑, 逐阶组在 256x256 ROI 窗口上跑 ⇒ 两者不可直接比较)。
+#: - ``center_xy`` = **全幅传感器**坐标 (每组都在同一块传感器上定位零级) ⇒ 永远可比,
+#:   **不要**给它套「小窗口」规则 (全幅坐标本来就比窗口大);
+#: - ``mask_center_xy`` = **窗口内**坐标 ⇒ 可比性由**取值本身**决定, 而**不是**由
+#:   ``frame_shape`` 是否相等决定 —— 见 :func:`_window_local_comparability`。
+#:
+#: ⚠️ 为什么不能用「``frame_shape`` 相等」判可比: 两个生产者写的 ``frame_shape``
+#: **不是一个意思** —— Stage A 块记的是**全幅** ``probe_shape`` (1944x2592), 但它的
+#: ``mask_center_xy`` 在 2026-10-21 的续跑坐标修复 (提交 07139db6) **之后**已经是
+#: **窗口内**坐标 (优化器冻结的 ROI 中心)。按 ``frame_shape`` 判会把**其实同空间**的
+#: 取值误判成「坐标系不同」⇒ 正文里印一句不成立的话, 还白白抑制掉一次交叉核对
+#: (逐阶组的掩膜中心 vs 块的掩膜中心 —— 差得多就说明某一块的 ROI 摆歪了)。
 PIXEL_COORD_SPACES = {
     "center_xy": "full_sensor",
     "mask_center_xy": "window_local",
 }
+
+#: 判定「某个坐标是否落在窗口内」时, **上界是否含端点** (``<=`` vs ``<``)。
+#:
+#: 取 ``True`` (用 ``<=``): 窗口边长是**像素数**, 而窗口内像素坐标的合法最大值是
+#: ``边长 - 1``; 用 ``<= 边长`` 等于把上界**放宽 1 px**。这是**故意**的: 判据要回答的
+#: 是「这个数**是不是**全幅坐标」, 而不是「它是不是**恰好**某个窗口里的合法像素下标」
+#: —— 宁可放宽 1 px, 也不要**误把一个窗口内坐标判成全幅坐标** (那会再次抑制交叉核对)。
+#: 下界一律用 ``0`` (窗口内坐标不可能为负)。
+WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE = True
 
 #: 本报告**正文**真正读到的合并字段 (其余字段只留在采集脚本自己的产物里)。
 #: 写清楚是为了让「合并后用的是哪个值」这个问题在报告里有确定答案。
@@ -372,8 +395,10 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     for data in summaries:
         group = str(data["_group"])
         # 每组**在哪个窗口里**工作: 判定像素坐标能否直接比较时要用 (见
-        # :data:`PIXEL_COORD_SPACES`)。Stage A 在全幅上跑, 逐阶组在 ROI 窗口上跑,
-        # 它们的 ``mask_center_xy`` 不是同一个坐标系。
+        # :data:`PIXEL_COORD_SPACES`)。⚠️ ``frame_shape`` 只是**线索**: 两个生产者
+        # 写的它不是一个意思 (Stage A 块记的是全幅 ``probe_shape``, 逐阶组记的是
+        # ROI 窗口) ⇒ 可比性最终由**取值本身**是否落在共同窗口内决定
+        # (见 :func:`_window_local_comparability`)。
         frame_shapes[group] = data.get("frame_shape")
         for key, value in data.items():
             if key in ("orders", "_summary_path", "_group"):
@@ -456,24 +481,157 @@ def _relative_diff(kept: Any, other: Any) -> float | None:
     return abs(float(other) - base) / base
 
 
+def _frame_shape_hw(value: Any) -> tuple[float, float] | None:
+    """把 ``frame_shape`` 规整成 ``(height, width)``; 取不到就 ``None``。
+
+    ``frame_shape`` 沿用 numpy ``frame.shape`` 的约定 = ``(高, 宽)``; 而
+    ``mask_center_xy`` / ``center_xy`` 是 ``(x, y)`` —— 两者的**轴序相反**, 比较时
+    必须换算 (x 对**宽**, y 对**高**), 否则非方形窗口会判错。
+    """
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        height = float(value[0])
+        width = float(value[1])
+    except (TypeError, ValueError):
+        return None
+    if height <= 0.0 or width <= 0.0:
+        return None
+    return height, width
+
+
+def _coord_inside_window(value: Any, height: float, width: float) -> bool | None:
+    """某个 ``(x, y)`` 取值是否落在 ``height x width`` 的窗口内。
+
+    判据: ``0 <= x <= width`` 且 ``0 <= y <= height`` (上界**含端点**, 见
+    :data:`WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE`)。
+
+    Returns:
+        ``True`` / ``False`` = 判定结果; ``None`` = **取不到** (不是坐标对, 或数值
+        不可解析) ⇒ 调用方按「无法证明它是全幅坐标」处理 (按可比), 而不是硬判。
+    """
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        x = float(value[0])
+        y = float(value[1])
+    except (TypeError, ValueError):
+        return None
+    upper_x = width if WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE else width - 1.0
+    upper_y = height if WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE else height - 1.0
+    return 0.0 <= x <= upper_x and 0.0 <= y <= upper_y
+
+
+def _window_local_comparability(
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any,
+    other_value: Any,
+) -> tuple[bool, str]:
+    """两个组的**窗口内**坐标 (``mask_center_xy``) 是否落在同一个空间。
+
+    规则 (取代「``frame_shape`` 是否相等」):
+
+    - 两个组的窗口**相同** ⇒ 同一空间 ⇒ 可比;
+    - 窗口**不同** ⇒ 取两组的**共同窗口** (逐轴取小: 高取小、宽取小) 作为
+      「**可能的窗口内空间**」:
+      - 两个取值**都落在共同窗口内** ⇒ 它们**都是窗口内坐标** ⇒ **同空间** ⇒ 可比,
+        逐轴偏差照常判;
+      - **有一个落在共同窗口之外** ⇒ 那个取值**不是**窗口内坐标 ⇒ 它是**全幅
+        传感器**坐标 ⇒ 两者**确实不同空间** ⇒ 判「坐标系不同, 不参与判定」。
+
+    ⚠️ 为什么第二轮仍然是「不同空间」: 第二轮 ``zernike_stage_a`` 的
+    ``mask_center_xy`` 确实是**全幅**坐标 ``[1433, 971]`` (超出 256x256 的共同窗口)
+    ⇒ 仍判不可比 ⇒ **不改变已入库的第二轮报告的结论**。
+    而第三轮 (2026-10-21 续跑坐标修复之后) 块的 ``mask_center_xy`` 是**窗口内**的
+    ``[127, 128]`` ⇒ 落在共同窗口内 ⇒ 判**可比** ⇒ 交叉核对恢复生效。
+
+    Returns:
+        ``(comparable, note)`` —— ``note`` 是写进报告的判定依据。
+    """
+    kept_shape = _frame_shape_hw(frame_shapes.get(kept_group))
+    other_shape = _frame_shape_hw(frame_shapes.get(other_group))
+    if kept_shape is None or other_shape is None:
+        return (
+            True,
+            "缺少可用的 `frame_shape` ⇒ 按可比处理（缺元数据不该把一处差异藏起来）",
+        )
+    if kept_shape == other_shape:
+        return True, "窗口（`frame_shape`）相同 ⇒ 同一空间 ⇒ 可比"
+    height = min(kept_shape[0], other_shape[0])
+    width = min(kept_shape[1], other_shape[1])
+    inside_kept = _coord_inside_window(kept_value, height, width)
+    inside_other = _coord_inside_window(other_value, height, width)
+    if inside_kept is None or inside_other is None:
+        return (
+            True,
+            "取值不是坐标对 ⇒ 无法判断它是否落在窗口内 ⇒ 按可比处理",
+        )
+    if inside_kept and inside_other:
+        return (
+            True,
+            f"窗口不同，但两个取值都落在共同窗口 {width:g}x{height:g} 内 "
+            "⇒ 都是窗口内坐标 ⇒ 同一空间 ⇒ 可比",
+        )
+    outside = []
+    if not inside_kept:
+        outside.append(f"`{kept_group}`（`{_fmt_merge_value(kept_value)}`）")
+    if not inside_other:
+        outside.append(f"`{other_group}`（`{_fmt_merge_value(other_value)}`）")
+    who = "、".join(outside)
+    return (
+        False,
+        f"{who} 落在共同窗口 {width:g}x{height:g} 之外 ⇒ 它是**全幅传感器**坐标，"
+        "与窗口内坐标**不同空间**",
+    )
+
+
+def _pixel_comparability(
+    field: str,
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any = None,
+    other_value: Any = None,
+) -> tuple[bool, str]:
+    """某个像素坐标字段的两个取值**是否在同一空间**, 并给出判定依据。
+
+    - ``center_xy`` = **全幅传感器**坐标 ⇒ 永远可比 (**不套**「小窗口」规则);
+    - ``mask_center_xy`` = **窗口内**坐标 ⇒ 由 :func:`_window_local_comparability` 判。
+    """
+    if PIXEL_COORD_SPACES.get(field, "full_sensor") != "window_local":
+        return (
+            True,
+            "`center_xy` 是**全幅传感器**坐标（每组都在同一块传感器上定位零级）"
+            "⇒ 永远可比",
+        )
+    return _window_local_comparability(
+        kept_group, other_group, frame_shapes, kept_value, other_value
+    )
+
+
 def _pixel_values_comparable(
-    field: str, kept_group: str, other_group: str, frame_shapes: dict[str, Any]
+    field: str,
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any = None,
+    other_value: Any = None,
 ) -> bool:
-    """两个组的该字段取值**是否在同一个坐标系**里。
+    """两个组的该字段取值**是否在同一个坐标系**里 (只要布尔结论时用这个)。
 
     ``center_xy`` 是**全幅传感器**坐标 (每组都在同一块传感器上定位零级) ⇒ 永远可比;
-    ``mask_center_xy`` 是**窗口内**坐标 ⇒ 只有窗口 (``frame_shape``) 相同的组才可比
-    (Stage A 在全幅 1944x2592 上跑, 逐阶组在 256x256 ROI 窗口上跑 ⇒ 两者不可直接比较)。
+    ``mask_center_xy`` 是**窗口内**坐标 ⇒ 由**取值本身**是否落在两组的**共同窗口**内
+    决定 (见 :func:`_window_local_comparability`): 两个取值都落在里面 ⇒ 同空间可比;
+    有一个落在外面 ⇒ 那是**全幅**坐标 ⇒ 确实不同空间。
 
     某个组没记 ``frame_shape`` 时**按可比处理**: 缺元数据不该把一处差异悄悄藏起来。
     """
-    if PIXEL_COORD_SPACES.get(field, "full_sensor") != "window_local":
-        return True
-    kept_shape = frame_shapes.get(kept_group)
-    other_shape = frame_shapes.get(other_group)
-    if kept_shape is None or other_shape is None:
-        return True
-    return kept_shape == other_shape
+    comparable, _note = _pixel_comparability(
+        field, kept_group, other_group, frame_shapes, kept_value, other_value
+    )
+    return comparable
 
 
 def classify_merge_difference(
@@ -505,10 +663,13 @@ def classify_merge_difference(
     """
     frames = frame_shapes or {}
     if field in PIXEL_COORD_MERGE_FIELDS:
-        if not _pixel_values_comparable(field, kept_group, other_group, frames):
+        comparable, note = _pixel_comparability(
+            field, kept_group, other_group, frames, kept, other
+        )
+        if not comparable:
             return (
                 "incomparable",
-                "坐标系不同（窗口不同）⇒ 数值不可直接比较，不参与判定",
+                f"坐标系不同 ⇒ 不参与判定（{note}）",
                 None,
             )
         dev = _pixel_axis_deviation(kept, other)
@@ -581,6 +742,11 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "连续量字段（"
         + "、".join(f"`{f}`" for f in CONTINUOUS_MERGE_FIELDS)
         + f"）的相对差 > **{CONTINUOUS_REL_DIFF_TOL * 100:g}%** ⇒ **恶性**（疑似跨轮次混入）。",
+        "- **可比性先判**：同一空间才谈得上「偏差多少」。`center_xy` 是**全幅传感器**坐标"
+        "（每组都在同一块传感器上定位零级）⇒ **永远可比**；`mask_center_xy` 是**窗口内**"
+        "坐标 ⇒ 取两组的**共同窗口**（逐轴取小）作为「可能的窗口内空间」，两个取值"
+        "**都落在里面**才当同空间判偏差；**有一个落在外面** ⇒ 它是**全幅**坐标 ⇒ "
+        "两者的数**不可直接比较**。",
         "",
         "**阈值为什么是这两个数**：像素坐标的 "
         f"**{LOCATE_JITTER_TOL_PX:g} px** —— 实测逐阶组各自在**自己那一帧**上重新定位零级，"
@@ -590,6 +756,17 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         f"**{CONTINUOUS_REL_DIFF_TOL * 100:g}%** —— 实测跨轮次的光学状态差异是 **1.13%**"
         "（第二轮混进来的 `zernike_stage_a_1`：`w0_px` 5.742078 → 5.807177），"
         "阈值取它的一半不到，好让这种差异**被报出来**而不是被当成噪声吞掉。",
+        "",
+        "**为什么可比性看「取值」而不是看「`frame_shape` 是否相等」**：两个生产者写的 "
+        "`frame_shape` **不是一个意思** —— Stage A 块记的是**全幅** `probe_shape`"
+        "（1944×2592），但它的 `mask_center_xy` 在 2026-10-21 的续跑坐标修复"
+        "（提交 07139db6）**之后**已经是**窗口内**坐标（优化器冻结的 ROI 中心）。"
+        "按 `frame_shape` 判 ⇒ 把**其实同空间**的取值误判成「不同空间」⇒ 正文里印一句"
+        "**不成立**的话，还白白**抑制掉一次交叉核对**（逐阶组的掩膜中心 vs 块的掩膜中心 —— "
+        "差得多就说明某一块的 ROI 摆歪了）。改判「取值是否落在共同窗口内」之后："
+        "**第二轮**（`mask_center_xy` 是全幅的 `[1433, 971]`，超出 256×256 的共同窗口）"
+        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；**第三轮**（`[127, 128]`，落在窗口内）"
+        "**判同空间** ⇒ 交叉核对恢复生效。",
     ]
 
     if not field_warnings and not order_warnings:
@@ -613,7 +790,9 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
     for field in sorted(
         by_field,
         key=lambda f: (
-            SCALAR_MERGE_FIELDS.index(f) if f in SCALAR_MERGE_FIELDS else len(SCALAR_MERGE_FIELDS),
+            SCALAR_MERGE_FIELDS.index(f)
+            if f in SCALAR_MERGE_FIELDS
+            else len(SCALAR_MERGE_FIELDS),
             f,
         ),
     ):
@@ -624,7 +803,9 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         # 否则会把「不可比」和「可比」混在一格里, 判定也就跟着混。
         cells: dict[tuple[str, bool], tuple[Any, list[str]]] = {}
         for value, group in rec["others"]:
-            same_frame = _pixel_values_comparable(field, kept_group, group, frame_shapes)
+            same_frame = _pixel_values_comparable(
+                field, kept_group, group, frame_shapes, kept, value
+            )
             key = (_fmt_merge_value(value), same_frame)
             if key not in cells:
                 cells[key] = (value, [])
@@ -678,9 +859,7 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
                 + "、".join(f"`{f}`" for f in CONTINUOUS_MERGE_FIELDS)
                 + "）在各组之间**完全一致** ⇒ 不影响口径"
             )
-        spread = (
-            f"散布 **±{max(jitter_px):g} px**" if jitter_px else "坐标没有差别"
-        )
+        spread = f"散布 **±{max(jitter_px):g} px**" if jitter_px else "坐标没有差别"
         lines += [
             "",
             "**同轮内的定位抖动（良性差异）** —— 下列差异都**没有**超过判定阈值："
@@ -706,8 +885,9 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         lines += [
             "",
             "**坐标参考系不同（不参与判定）** —— 下列差异是**坐标系不同**造成的："
-            "`center_xy` 是**全幅传感器**坐标，`mask_center_xy` 是**窗口内**坐标 —— "
-            "窗口（`frame_shape`）不同的两组之间，这两个数**不可直接比较**。"
+            "`center_xy` 是**全幅传感器**坐标（永远可比），`mask_center_xy` 是**窗口内**"
+            "坐标 —— 当某个取值**落在两组的共同窗口之外**时，它就是**全幅**坐标，"
+            "与窗口内坐标**不同空间**，这两个数**不可直接比较**。"
             "因此它们既不算定位抖动，也不构成数据混入的证据。",
             "",
             markdown_table(table_header, incomparable_rows),
@@ -737,7 +917,8 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "**后果（只列事实）**：",
         "",
         "- 上表「合并采用」那一列就是 §3 正文里用的值：`w0_px` 决定 §3.2.1 与 §3.3 引用的"
-        f"目标框边长{box_txt}；" + "、".join(f"`{f}`" for f in unused)
+        f"目标框边长{box_txt}；"
+        + "、".join(f"`{f}`" for f in unused)
         + " 在本报告正文里**没有被引用**（它们只记录在采集脚本自己的产物里）。",
         "- §3.2 的阶数指标（CV / PIB / 拟合残差 / max|c|）来自各组自己的 `orders`，"
         "**不经过**上面这几个标量字段。",
@@ -2815,6 +2996,33 @@ def build_markdown(
 
 ---
 
+{SECTION_0_PURPOSE}
+{section_0_1_setup(cfg, fmt_metric)}
+{SECTION_0_2_ALGORITHM}
+## 0.3 结果分析
+
+**离焦侧**（详见 §1.3 与 §2）：
+
+- 实验系统常驻 |Δz| ≈ {stand_mm:.1f} mm。瞳面焦面矫正后平相位光斑 FWHM
+  由约 115 px 收到 **{fmt_metric(focus_fwhm, 1)} px**，峰值/曝光提高约
+  **{fmt_metric(focus_gain, 0)} 倍** —— 不矫正就扫 Δz，测到的是弥散环而非离焦响应。
+- 转向速率 **{fmt_metric(steer["slope_local_px_per_mm"], 2)} px/mm**（|Δz| ≤ 2.5 mm 内
+  拟合，质心 x 相对冻结零级）。各组在 ±1.5007 mm 处的差值是 {asym_parts}，
+  同口径噪声地板 {fmt_metric(sigma_score, 5)} —— 这是硬件与仿真最大的口径差异
+  （仿真那边只差 0.0008）。
+- 离焦组带**去倾斜自标定**（`--chirp-tilt-cancel`），故转向对读数的影响应比
+  第一轮小；孔径是否仍会藏住响应由本组的孔径灵敏度表自己给出。
+
+**泽尼克侧**（详见 §3）：
+
+- {verdict}
+- 唯一随阶数**严格单调**的量是**拟合残差**（{"单调不增" if monotone else "非单调"}，
+  {fmt_metric(rms_vals[0], 4)} → {fmt_metric(rms_vals[-1], 4)} rad）。
+
+**判据边界**：以上任何"改善"都必须大于 §1.2 的 3σ 噪声地板才可采信。
+
+---
+
 ## 1. 实验系统与前提
 
 | 项 | 值 |
@@ -3156,7 +3364,9 @@ def main() -> int:
     if render_zernike_farfield_grid(
         farfield_runs, FIG_DIR / f"hw_zernike_farfield_grid{FIG_TAG}.png"
     ):
-        zernike_figures = zernike_figures + [f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"]
+        zernike_figures = zernike_figures + [
+            f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"
+        ]
     if args.figures_only:
         # 正文一个字都不写: 图归位用。溯源块与 report/README.md 也不碰 ——
         # 这一轮只认「把图换回自己那一轮」, 不认「重新叙述那一轮」。

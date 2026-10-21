@@ -124,6 +124,10 @@ ARTEFACT_PRODUCER: dict[str, str] = {
 #: 它只影响冒烟帧的标题, 不会进报告。
 QUICK_H3_ETA = 0.02
 
+#: 瞳面过采样 seed: 与上游 ``experiment_gs_improved.py::RunConfig.FULL`` 同口径,
+#: 本脚本的 :class:`Frames` 也用它 (默认 0)。
+GS_SEED = 0
+
 #: §10 命令表的内容: 生产者脚本 (顺序即表格行序) → 产物列表。
 #: 命令与耗时**不在这里重写**, 一律取 :data:`PRODUCERS`, 避免两处漂移。
 REPRO_PRODUCTS: dict[str, str] = {
@@ -158,6 +162,72 @@ GROUP_COLOR = {
     "G3": "#2196F3",
     "G4": "#4CAF50",
 }
+
+# ---------------------------------------------------------------------------
+# §0 四要素的**文字**部分 (实验目的 / 实验设置 / 算法修改)
+#
+# 这三段是纯文本常量, 刻意不写死任何数字: 数字一律由 :func:`build_markdown`
+# 从落盘产物 (JSON/CSV) 插值, 所以正文里的每个数都能追到 ``artifacts/`` 里的
+# 某一行。写成普通字符串 (不是 f-string) 也让里面的 ``{`` ``}`` 不必转义 ——
+# 插值进去的内容不会被二次解析。
+# ---------------------------------------------------------------------------
+PURPOSE_TEXT = """
+本轮要回答的问题只有一句: **CCD 焦后离焦, 在 GS 匀化里到底该怎么处理, 值多少分。**
+
+拆成三个可判定的子问题:
+
+1. **离焦要不要补偿, 用哪种补偿?** 补偿离焦既可以用**瞳面二次相位**近似 (便宜), 也可以在 GS
+   环路里直接用**精确角谱**正演 (准但慢)。本轮把两者放在同一张网格、同一判据下对比, 给出
+   等价边界与各自的失效方式。
+2. **"在离焦处重新优化"与"把离焦并入环路"各贡献多少?** 二者都能把分数拉回来, 但修的不是同一个
+   误差; 不拆开就会把功劳记错。本轮用一条**五组因果链**把两者分开 (各组定义见 §2 的表)。
+3. **测量判据本身会不会刷分?** 若判据的框跟着光斑一起变大, "测量区域变大"会被读成"更均匀"。
+   本轮量化这个陷阱, 并给出一条可执行的判据规则。
+
+预期能排除什么: (a) 排除"离焦不值钱"的说法 —— 事后补一个标量离焦本身就值与重新优化同量级
+(§0.3); (b) 排除"离焦并入环路"这个**形式**本身是关键的误解 —— 关键的是**拿到工作点信息**;
+(c) 排除自适应框给出的"最优离焦"这类非物理结论 —— 固定物理尺度框下的真实最优小一个量级 (§7);
+(d) 排除"方案B 可以替代方案A 做场级/相位级比较"的说法 (§3)。
+"""
+
+SETUP_TEXT = """
+**本轮全部是纯仿真, 没有硬件验证**: 全程不打开任何设备 (SLM / 相机 / 光学平台), 不做任何
+标定。下面表里的"波长 / 透镜焦距 / 瞳面口径"是**仿真里写死的光学常量**, 与实验系统的同名常量
+同源 (`scripts/slm/experiment_gs_defocus_offocus.py` 的 `WAVELENGTH_M` / `FOCAL_LENGTH_M` /
+`APERTURE_M`), 但本报告的结论**只对仿真成立**。
+
+五组因果链**只改两个因子**: ① GS 相位是在 Δz=0 优化一次 (盲), 还是在工作点逐 Δz 重优化;
+② 离焦旋钮 (Zernike (2,0) 标量) 用不用, 以及它用精确角谱 (方案A) 还是瞳面二次相位 (方案B) 实现。
+
+目标形状是**均匀方形** (`make_square_target`): 判据框边长固定, 框心在信号上定位一次后**冻结**
+(逐帧重定位会把"区域变大"读成"更均匀", 见 §7)。其余设置全篇共用:
+"""
+
+CHANGES_TEXT = """
+本轮相对上一轮, 仿真链路与工具链上新增/修复的机制 (每条都能在代码里定位到; 数值一律由落盘
+产物给出, 不在本节写死):
+
+1. **带限 ASM 的开关被提到显式参数并默认关闭。** 库默认 `band_limit=True` (Voelz & Roggemann
+   cut) 在焦平面上**有损且不可逆**, 正/反向不构成伴随对, GS 内环会收敛到一个不存在的解 (§6)。
+   本轮把它提成 `RunConfig.band_limit` / `TwoComponentBench(band_limit=...)`, Δz>0 一律关,
+   并用 `round_trip_relerr` 自检兜底。
+2. **判据从"质心自动缩放框"改为"固定物理尺度定尺框"** (边长恒 `target_side_px`, 框心用窗口化
+   质心在信号上定位一次后**冻结**)。自适应框保留为对照量 (`*_adapt`), 只用来展示陷阱, 不作结论 (§7)。
+3. **新增零级双分量瞳面模型** `U_pupil = U_inc·[η + (1−η)·exp(iφ)]`, 以及 GS 投影链上的两个新开关:
+   `subtract` (目标面约束前的相干扣除 `U ← U − b0`) 与 `weighted` (加权反馈; 参数 `gs_gamma` /
+   `gs_weight_clip` / `gs_beta` / `gs_hio_fraction` 取自 `SlmGsRefineConfig`, 更新式照抄
+   `UniformSquareShaper._weighted_step`)。另加 `warm_phase` (GS 热启动) 与 `offset_px`
+   (H4 用小倾斜把光斑移开轴上晕斑)。
+4. **新增两套离焦实现与五组因果链**: 方案A = 精确角谱 `U_CCD = ASM(FT(U_SLM), Δz)`,
+   方案B = 瞳面二次相位 `exp(−iπ·Δz·r²/(λf²))`; G1/G2/G1′/G3/G4 把"重优化"与"离焦"两个因子拆开。
+5. **自检写进流程, 不通过就抛**: `self_check_eta0` (与权威件 `gs_shape` 逐位对照)、
+   `self_check_round_trip` (往返误差)、`self_check_halo_monotonic` (渐近区 I·Δz² 恒定)、
+   `measure_trustworthy_dz` (几何回绕边界) 与 `measure_band_limit_damage` (带限伤害随谱内容变化)。
+6. **报告生成器只读上游产物, 不复刻数学**: 本脚本 import 姐妹实验脚本的 `TwoComponentBench`
+   (正演与 GS) 与 `square_shaping.compute_bench_metrics` (度量), 与实验脚本逐位同口径; 启动时
+   `preflight()` 逐条列出"缺哪个文件 / 由谁产出 / 跑哪条命令", 缺输入时**拒绝执行**而不是抛裸
+   `FileNotFoundError`; `--quick` 是零输入冒烟, `--no-gif` 只出静态图与正文。
+"""
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "Noto Sans CJK SC", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -298,7 +368,7 @@ def load_improved() -> Any:
 class Frames:
     """Δz 扫描下需要的所有帧: 正演 + GS 全部走姐妹实验脚本的类。"""
 
-    def __init__(self, imp: Any, *, gs_iters: int, seed: int = 0) -> None:
+    def __init__(self, imp: Any, *, gs_iters: int, seed: int = GS_SEED) -> None:
         self.imp = imp
         # 与 ``experiment_gs_improved.py::FULL`` 同口径 (n_grid/padding/target_side/seed)
         rc = imp.RunConfig(
@@ -394,7 +464,7 @@ def fig_groups_ceiling() -> Path:
     axes[0].set_yscale("log")
     axes[0].set_ylabel("目标框内 CV (自动定标框, 主判据, 对数轴)")
     axes[0].set_title("① 主判据: 自动定标框 CV\n框跟着光斑变大会把「区域变大」读成「更均匀」")
-    axes[1].set_ylabel("综合分 (定尺框, 各判据取各自最优离焦)")
+    axes[1].set_ylabel("复合分数 (定尺框, 各判据取各自最优离焦)")
     axes[1].set_title("② 定尺框 score\n(结论只看这一栏)")
     axes[2].axhline(0.0, color="#666666", ls="--", lw=1)
     axes[2].set_ylabel("最优离焦幅度 (Zernike (2,0), 弧度)")
@@ -811,7 +881,7 @@ def build_markdown(state: dict[str, Any]) -> str:
         for grp in GROUP_ORDER
     )
 
-    # -- 表 2.2 工作点上的综合分/PIB/CV -------------------------------------
+    # -- 表 2.2 工作点上的复合分数/PIB/CV -------------------------------------
     work = "\n".join(
         f"| {GROUP_LABEL[grp]} @ Δz/Δz_blur={tag} | {g[grp][k]['score']:.4f} | "
         f"{g[grp][k]['pib']:.4f} | {g[grp][k]['cv']:.4f} | {g[grp][k]['score_fixed']:.4f} |"
@@ -892,12 +962,66 @@ def build_markdown(state: dict[str, Any]) -> str:
         f"| {PRODUCERS[script]['runtime']} |"
         for i, script in enumerate(REPRO_PRODUCTS, start=1)
     )
+    # -- §0.1 的设置表 (值全部取自落盘 summary, 不写死) ----------------------
+    grid = im["grid"]
+    optics = im["optics"]
+    setup = "\n".join(
+        [
+            "| 量 | 值 |",
+            "|---|---|",
+            "| 目标形状 | 均匀方形 (`make_square_target`), 框心定位一次后冻结 |",
+            f"| 瞳面网格 / 远场网格 | n_grid = {grid['n_grid']}, "
+            f"far_field_padding = {grid['far_field_padding']} ⇒ 远场 {grid['far_field_size']}² |",
+            f"| 远场像元 | {optics['far_field_pixel_um']:.4f} µm |",
+            f"| 瞳面口径 | {optics['aperture_m'] * 1e3:.1f} mm "
+            f"(面板像元 {optics['panel_pixel_um']:g} µm × 半径 450 px) |",
+            f"| 瞳面过采样 seed / GS 迭代 | seed = {GS_SEED}, gs_iters = {grid['gs_iters']} |",
+            f"| Δz 扫描 | 0–50 mm (步长 5 mm, {len(DZ_SWEEP_MM)} 点) |",
+        ]
+    )
+
+    # -- §0.3 结果分析: 只用已算出的统计量 ----------------------------------
+    results = "\n".join(
+        [
+            f"1. **大头是\"重新优化\", 不是\"离焦\"**: |Δz|=2 个单位上, 重新优化 (G1′−G1) 拿到 "
+            f"{g['G1p']['-2.0']['score_fixed'] - g['G1']['-2.0']['score_fixed']:+.4f}, "
+            f"而离焦并入环路在其之上的净贡献 (G3−G1′) 只有 "
+            f"{g['G3']['-2.0']['score_fixed'] - g['G1p']['-2.0']['score_fixed']:+.4f}; "
+            f"逐 Δz 的完整拆解见 §2.2。",
+            f"2. **两个旋钮高度冗余**: 事后补一个标量离焦 (G2−G1) 拿到 "
+            f"{g['G2']['-2.0']['score_fixed'] - g['G1']['-2.0']['score_fixed']:+.4f}, "
+            f"与重新优化同量级; 两者同时用 (G3−G1) 只有 "
+            f"{g['G3']['-2.0']['score_fixed'] - g['G1']['-2.0']['score_fixed']:+.4f}, "
+            f"远小于两者之和 ⇒ 关键不是\"离焦并入环路\"这个**形式**, 而是**拿到工作点信息**。",
+            f"3. **方案A/B 的严格等价边界**: |Δz| ≤ {equiv['Bf_equivalent_limit_dz_units']:.4f} dz_unit "
+            f"(= {equiv['Bf_equivalent_limit_dz_units'] * DZ_BLUR_MM:.4f} mm) 上相对误差 ≤ 1e-06, "
+            f"之后按 Δz² 发散; G3 与 G4 的定尺框 score 差 ≤ "
+            f"{max(abs(g['G3'][k]['score_fixed'] - g['G4'][k]['score_fixed']) for k in g['G3']) * 1e6:.1f}e-06 "
+            f"⇒ 方案B 可作提速替身, 但**不可**做场级/相位级比较 (§3)。",
+            f"4. **带限 ASM 必须关**: 往返相对误差 {rt['round_trip_relerr_max']:.2e} (关闭) vs "
+            f"{rt['round_trip_relerr_max_band_limited']:.4f} (开启, 库默认) ⇒ 库默认在 |Δz| ≳ 10 mm 上"
+            f"不可信, 而且**不报错** (§6)。",
+            f"5. **零级双分量 + 加权 GS + 相干扣除 (H3) 才有效**: cv_box 由 H1 的 "
+            f"{sel['rows']['H1'][0]['cv']:.4f} 压到 {sel['rows']['H3'][0]['cv']:.4f}, "
+            f"代价是 pib_box 从 {sel['rows']['H1'][0]['pib']:.4f} 让到 {sel['rows']['H3'][0]['pib']:.4f}; "
+            f"单独做扣除 (H2) 反而更差 (Δz=0 上 {sel['rows']['H2'][0]['cv']:.4f} vs "
+            f"{sel['rows']['H1'][0]['cv']:.4f})。H3 的 cv_box 在 0–50 mm 全程平坦 "
+            f"({min(h3_flat):.4f}–{max(h3_flat):.4f}), 所以该结论不依赖不可信区 (§5)。",
+            f"6. **几何回绕是另一条独立边界**: 当前整形网格半窗 "
+            f"{im['trustworthy_dz']['half_window_um']:.1f} µm, 首个不可信点在 Δz = "
+            f"{im['trustworthy_dz']['first_untrusted_dz_mm']:g} mm ⇒ 可信区是 Δz ≤ 10 mm, "
+            f"与\"近似质量\"边界 (≤ 20 mm) 不是同一条 (§4)。",
+            f"7. **自适应框会刷分**: 定尺框下 G3 的真实最优离焦是 {g3_fix_defocus:+.2f} rad, "
+            f"而自适应框把它推到 {g3_auto_defocus:+.2f} rad (非物理值) ⇒ 跨 Δz 的结论一律用定尺框 (§7)。",
+        ]
+    )
+
 
     return f"""# CCD 焦后离焦下的 GS 匀化仿真（2026-10-19）
 
 **本轮结论**（全部为仿真, 无任何硬件验证）：2f 光路把一个 SLM 相位送到透镜后方的 CCD 时,
 **"离焦"本身几乎不值钱, 值钱的是"在工作点上重新优化"**。定尺框口径下, 拿 Δz=0 收敛的 GS 相位
-直接用到 Δz=−2 个单位 (=−1.50 mm) 处, 综合分从 {g['G1']['0.0']['score_fixed']:.4f} 掉到
+直接用到 Δz=−2 个单位 (=−1.50 mm) 处, 复合分数从 {g['G1']['0.0']['score_fixed']:.4f} 掉到
 {g['G1']['-2.0']['score_fixed']:.4f}; 在同一 Δz 上重新跑 GS 就能回到
 {g['G1p']['-2.0']['score_fixed']:.4f}（**+{g['G1p']['-2.0']['score_fixed'] - g['G1']['-2.0']['score_fixed']:.4f}**）,
 再把标量离焦并入环路只再加 {g['G3']['-2.0']['score_fixed'] - g['G1p']['-2.0']['score_fixed']:.4f}。
@@ -917,7 +1041,17 @@ def build_markdown(state: dict[str, Any]) -> str:
 > 与本仓库既有硬件报告的关系: 本报告不推翻任何实测结论, 它量化的是**仿真侧**"离焦该怎么处理"。
 > 唯一的硬件含义是 §5 的 H3 (加权 GS + 相干扣除), 见该节的适用条件与代价。
 
-## 0. 光学与网格（全篇共用）
+## 0. 实验目的
+
+{PURPOSE_TEXT.strip()}
+
+## 0.1 实验设置
+
+{SETUP_TEXT.strip()}
+
+{setup}
+
+### 光学与网格（全篇共用）
 
 | 量 | 值 |
 |---|---|
@@ -930,6 +1064,14 @@ def build_markdown(state: dict[str, Any]) -> str:
 | 1 个 dz_unit | {DZ_BLUR_MM:.4f} mm |
 
 {checks}
+
+## 0.2 算法修改
+
+{CHANGES_TEXT.strip()}
+
+## 0.3 结果分析
+
+{results}
 
 ## 1. 正向模型（为什么不是"离焦 = 放大"）
 
@@ -960,7 +1102,7 @@ Collins/ABCD 给出 `T(f+d)·Lens(f)·T(f) = [[-d/f, f], [-1/f, 0]]`, 即 **B �
 | G3 | 逐 Δz 重优化 + 离焦并入环路（方案A） |
 | G4 | 同 G3 但用方案B（瞳面二次相位） |
 
-### 2.1 定尺框综合分（结论只看这一栏）
+### 2.1 定尺框复合分数（结论只看这一栏）
 
 {hdr}
 {sep}
@@ -971,9 +1113,9 @@ G1′ 在**同一半轴内逐位相同**（负侧 {g['G1p']['-2.0']['score_fixed
 的差（离散 ASM 网格的半像元不对称, 未单独归因）。**要紧的是**: 无论哪一半轴,
 "拿焦面解直接用"都掉到 {g['G1']['-2.0']['score_fixed']:.4f} —— 必须在**工作点上**优化。
 
-工作点上的综合分 / PIB / 框内 CV（综合分与 PIB/CV 是同一个工作点上的, 自洽）:
+工作点上的复合分数 / PIB / 框内 CV（复合分数与 PIB/CV 是同一个工作点上的, 自洽）:
 
-| 阶段 | 综合分（自动框） | PIB | 框内 CV | 定尺框综合分 |
+| 阶段 | 复合分数（自动框） | PIB | 框内 CV | 定尺框复合分数 |
 |---|---:|---:|---:|---:|
 {work}
 
@@ -1071,7 +1213,7 @@ n_grid ≈ {im['trustworthy_dz']['n_grid_needed_for_dz_max']}（padding=8 ⇒ �
 1. **单独做相干扣除无效甚至有害**：H2 的 cv_box 比 H1 **差**（Δz=0 上 {sel['rows']['H2'][0]['cv']:.4f} vs {sel['rows']['H1'][0]['cv']:.4f}）。
    扣除是在目标面约束之前减去模型里的零级复场 `b0`; 只扣不配权重, 等于把一个偏置移走却不动其余部分。
 2. **加权 GS + 相干扣除（H3）才有效**：把 cv_box 从 ~0.42 压到 **{h3_flat[0]:.4f}**（≈5.7×）, 代价是
-   pib_box 从 ~0.917 让到 {sel['rows']['H3'][0]['pib']:.4f}（让出约 17%）, 综合分净赚
+   pib_box 从 ~0.917 让到 {sel['rows']['H3'][0]['pib']:.4f}（让出约 17%）, 复合分数净赚
    {h1_best_trusted:.4f} → {h3_best_trusted:.4f}（可信区内各自最好点; H3 在整段 0–50 mm 上的最好点是
    {max(h3_all):.4f}）。**而且 H3 的 cv_box 在 0–50 mm 全程平坦**
    （{min(h3_flat):.4f}–{max(h3_flat):.4f}）, 所以它的结论不依赖不可信区。

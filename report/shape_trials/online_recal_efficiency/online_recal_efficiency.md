@@ -7,16 +7,127 @@
 > **说明**: 光路变化后在线重标定的效率分析。成本模型与常量全部由源码现场推导(dataclasses/inspect 读默认值 + 扫描源码树统计重复字面量 + 调用 default_sweep_points() 枚举点数), 故不随代码漂移; §6 文献数字为人工核实; §7 为提案, 本报告不含任何新测量
 <!-- provenance:end -->
 
-## 0. 一句话
+## 0. 实验目的
 
-"在线微调"目前把**两件不同的事**混在一起：几何标定（瞳面中心 / 光斑半径 / 远场像素尺度，
+**一句话**："在线微调"目前把**两件不同的事**混在一起：几何标定（瞳面中心 / 光斑半径 / 远场像素尺度，
 物理量，错了就是错了）与像差前向模型重拟合（补偿量，**几何错了也能"拟合成功"**）。
 先分层、再按「重测成本 × 敏感度」排序，才是提效的正确入口——
 而不是去优化已经优化得最好的那个环节。
 
+这次分析要回答四个问题：
+
+1. **光路变化后，"在线微调"到底该重测什么？** 几何标定与像差重拟合的可辨识性
+   完全不同（§1），把两者混在一起会静默失效。
+2. **每个重标定动作的测量成本是多少？** 折算成 SLM 写入次数与 CCD 帧数（§4）。
+3. **代码里承载几何量的常量会不会静默分叉？**（§3）
+4. **哪些杠杆能在不改变物理的前提下压低重标定成本？**（§5、§7）
+
+**为什么值得做**：几何误差会被像差系数吸收、再被 Step B 冻结（§1），这是**静默失效**
+而不是"收敛慢"；而"每次都跑满全量重标定"的代价由 §4 的成本模型量化。
+两者必须放在一起，才谈得上给杠杆排序。
+
+**预期能排除什么**：
+
+- 排除"几何问题可以当像差问题解"（§1 的可辨识性论证）；
+- 排除"全量几何窗口是唯一的重标定入口"（§4：哨兵只要 3 次写入）；
+- 排除"把硬编码常量各自 import 一次就修好了"（§3.1 的 import 副作用实测）；
+- 排除"SPGD 可以用来辨识传递矩阵"（§5.4 的方法学判断——它**不是**本实验系统实测）。
+
 > ⚠️ **本报告的性质**：成本模型全部由**源码现场推导**（§3、§4），因此不会与代码漂移；
 > §6 的文献数字是**人工核实过的外部引用**；但 §7 的建议是**提案，未在本实验系统验证**。
 > 报告里没有任何一个新测量。
+
+## 0.1 实验设置
+
+> ⚠️ **本报告是离线成本模型分析，全程不接触任何设备**：没有打开 SLM、没有打开相机、
+> 没有采集任何一帧 CCD 画面，也没有重跑任何一次优化。
+> 报告里**没有任何一个新测量**（§8 复述这条边界）。
+
+**常量全部现场推导**，因此不会随代码漂移：
+
+| 量 | 现场推导方式 | 落地值 |
+|---|---|---|
+| 在线循环默认参数 | `dataclasses.fields(SlmModelInLoopConfig)` | 见 §5.2 字段表 |
+| 每次写入的采集纪律 | `inspect.signature(bench_kernels.display_and_average)` | 每次写入 ≥ 9 帧 CCD |
+| sweep 点数 | 探针自己的 `default_sweep_points()` | 42 点 |
+| 四类探针的默认参数 | `dataclasses.fields(TiltProbeParams / BeamExtentParams / AbbaProbeParams / DriftProbeParams)` | 见 §4 成本表 |
+| 重复字面量副本 | 扫描源码树 `src/` 与 `scripts/`，**只认模块级赋值** | 1 处 |
+| import 副作用 | 在**全新解释器**里 import 后检查 `sys.modules` | 见 §3.1 实测表 |
+
+**采集纪律（每次相位写入）**：3 帧丢弃 + ≥2 帧稳定探测（`stable_tol=0.02`）
++ 4 帧平均，首等 0.5 s，上限 `max_wait_s=6 s`
+⇒ **每次写入 ≥9 帧 CCD**。
+
+**成本模型**：每个动作的 SLM 写入次数按该动作自身的定义计——哨兵 = 1 平场 + 2 tilt；
+`tilt_probe` = 1 + ramp 点数 × repeat；`beam_extent` = 1 + steps × repeats；
+`model_in_loop` 单轮 = `probe_count` + `holdout_probe_count` + 1；
+完整几何窗口 = sweep 点数 + 1。CCD 帧数 = 写入次数 × 9。
+
+## 0.2 算法修改
+
+**本轮没有改动任何优化算法、参数或开关。** 这是一份**只读**的离线分析：被读取的模块
+（`ao_shaping.optimizer.wfless.slm_model_in_loop`、
+`ao_shaping.optimizer.wfless.model_in_loop_shaping`、
+`ao_shaping.tools.kernels.bench_kernels`、`ao_shaping.tools.zernike.sweep_probe`、
+`ao_shaping.tools.slm.panel.tilt_probe` / `beam_extent`、
+`ao_shaping.tools.zernike.abba_probe`、`ao_shaping.tools.ccd.drift_probe`）
+只被**读**，没有被改。
+
+本轮唯一的改动在**报告层**：本生成脚本新增了 §0 / §0.1 / §0.2 / §0.3 这一组
+「实验四要素」小节，让读者在读成本表之前先知道**这份分析回答什么问题、它凭什么算数、
+它没有改什么**。
+
+**被分析的既有开关（已存在，非本轮新增）**——它们就是 §5.2 建议要复用的那条升级阶梯：
+
+| 字段 | 值 | 作用 |
+|---|---|---|
+| `probe_count` | 8 | 每轮探针数 |
+| `escalate_probe_count` | 2 | 被拒绝后每次追加的探针数 |
+| `max_probe_count` | 16 | 探针数上限 |
+| `max_rejection_streak` | 3 | 连拒几次即中止本轮 |
+| `damp_lr_factor` | 0.5 | 被拒绝后的学习率阻尼 |
+| `holdout_probe_count` | 2 | 验证集（holdout）探针数 |
+| `n_eval_frames` | 4 | 评估用帧数 |
+
+**报告用到的一项实测（不是运行时开关）**：在全新解释器里测 `import` 副作用
+（`import_side_effects()`），用来检验「当年那条"硬编码是为了避开驱动包"的理由」
+是否成立——这是**证据**，不是新的运行时行为。
+
+## 0.3 结果分析
+
+**结论 1（成本可分层，且差距是数量级的）**：每次相位写入的固定开销是
+**9 帧 CCD**（3 丢 + 2 稳定探测 + 4 平均），
+因此"动作成本"完全由**写入次数**决定。五类动作的写入次数从 **3**（哨兵）
+到 **43**（完整几何窗口），相差 **14×**；
+对应 CCD 帧数从 **27** 到 **387**。哨兵甚至比一轮 `model_in_loop`
+（11 写 / 99 帧）还便宜 **3.7×**。
+
+**结论 2（漂移检测的成本门槛足够低，值得分级触发）**：哨兵只要 3 次写入
+（27 帧，占完整几何窗口 7.0%），却覆盖了 §2 里标为 T1 的两个参数
+（远场像素尺度 `TILT_SHIFT_SCALE` 与瞳面中心）⇒ 可以在每次重标定前先跑哨兵，
+只有哨兵报出漂移才升级到全量窗口。
+
+**结论 3（代码层的重复赋值：现场扫描给出的是当前状态）**：现场扫描 `7400` 的
+模块级赋值，得到 **1 处**。⇒ **副本已被消除**：唯一的一处定义在零导入叶子模块 `src/ao_shaping/utils/slm/bench_constants.py`，其余消费点已改为 import；§3 提出的 P0（把副本下沉到零导入叶子模块）**已在代码中落地**，「只改一处、另几处静默保持旧值」的失效路径当前**不成立**。
+
+**结论 4（import 副作用实测：当年那条"硬编码避开驱动包"的理由到底有多强）**：
+在全新解释器里实测 `import ao_shaping.tools.kernels.bench_kernels` 的副作用：
+引入 `ao_shaping.drivers.*` = 否，
+引入 `ctypes` = **是**，
+加载原生 SDK `gxipy` = 否。
+⇒ 那条"硬编码是为了避开驱动包"的理由**方向成立但比原文写的弱**：
+驱动包并未被拖进来，
+但**真正的原生 SDK 并未被加载**。§3 提出的修法（即**正确修法**）是把纯常量下沉到
+**零导入叶子模块**（仓库已有先例 `utils/cli/params.py` 及其 AST 级守卫），
+而不是让每一处各自 import —— 这条修法**已经落地**（见结论 3）。
+
+**结论 5（可辨识性是排序的第一原则，不是速度）**：§1 表明几何误差会被像差拟合吸收
+并被 Step B 冻结，全程不报错；因此"先分层、再按重测成本 × 敏感度排序"（§2）
+比"把已经优化得最好的环节再优化一遍"更值得做。§7 里剩下的两项 P0/P1 级杠杆
+（几何探针改随机相位、写入门哨兵）都落在**低成本、高收益**的一侧。
+
+**边界**：以上全部来自源码默认值与源码扫描，**不含任何新测量**；§7 的执行顺序
+是**提案**，其收益/风险评级未经本实验系统验证（§8）。
 
 ## 1. 问题：几何误差会被像差系数吸收，然后被冻结
 
@@ -50,29 +161,24 @@
 `f` 与 `p_cam` 只有一个自由度。**当前代码却有两个独立常量**（`7400` 与
 `camera_pixel_um`），可以静默分叉——见 §3。
 
-## 3. 🔴 P0：同一个常量在代码里有 4 处赋值副本
+## 3. ✅ P0（已在代码中落地）：同一个常量现在只有 1 处赋值
 
 下表由**扫描源码树、只认模块级赋值**得到（`scan_constant_assignments("7400")`）：
 
 | 位置 | 符号 |
 |---|---|
-| `src/ao_shaping/optimizer/wfless/slm_gs_refine.py:109` | `_TILT_SHIFT_SCALE_PX` |
-| `src/ao_shaping/runners/runner_common.py:137` | `_TILT_SHIFT_SCALE_PX` |
-| `src/ao_shaping/tools/kernels/bench_kernels.py:116` | `TILT_SHIFT_SCALE` |
-| `scripts/slm/generate_bench_probe_report.py:77` | `FALLBACK_TILT_SHIFT_SCALE` |
+| `src/ao_shaping/utils/slm/bench_constants.py:36` | `TILT_SHIFT_SCALE` |
 
-> ⚠️ 口径说明：直接 grep `7400` 会得到 11 处命中，但其中 **6 处是注释与文档字符串里的叙述**
-> （`slm_gs_refine.py` 的推导说明、`matrix_utils.py` 的 docstring、`tilt_probe.py` 的斜率注释），
-> **不算重复定义**。本报告只数赋值。
+> ⚠️ 口径说明：直接 grep `7400` 在 `src/` 与 `scripts/` 里会命中
+> **10 行**，但**只有 1 行是模块级赋值**（本报告的口径）；
+> 其余是注释、文档字符串里的叙述或 import/调用点，**不算重复定义**。
 
-**为什么是第一优先级**：这正是 `generate_bench_probe_report.py` §1.3
-"stale-geometry guard" 要防的失效模式，但**发生在代码里而不是数据里**。
-光路一动，若只改其中一处，另 3 处会静默保持旧值——
-几何守卫查的是文件，不是 import 图。
+**这一项的状态：已修复。** 本报告最初写下的 P0 是"同一个常量在代码里有多处赋值副本"；本次重跑时**现场扫描**只找到一处定义（`src/ao_shaping/utils/slm/bench_constants.py`），其余消费点都已改为 import。
+扫描是活的，所以这一节的结论跟随**当前代码**，而不是分析当时的快照。
 
-### 3.1 但"直接 import 它"是错的修法
+### 3.1 硬编码的理由：当年成立，已被零导入叶子模块消除
 
-`generate_bench_probe_report.py:16-18` 给出了它硬编码的**明确理由**：
+`generate_bench_probe_report.py:16-18`（**模块 docstring**，其代码本身已改）留下了它当年硬编码的**理由**：
 
 > *That constant is used as a literal (`7400`) rather than imported, because its
 > defining module transitively pulls in the hardware driver packages.*
@@ -91,8 +197,8 @@
 对一个纯离线报告生成器这是不该有的副作用（运行时可见 `register_camera` 的 DEBUG 行）；
 但由于 PEP-562 惰性契约，**真正的原生 SDK 并未被加载**。
 
-**所以正确修法不是"那 4 处都 import 一次"**——那会把硬编码当初要避开的副作用重新引进来。
-正确修法是把这些纯常量下沉到一个**零导入叶子模块**，让 4 处都能无副作用 import。
+**这个修法已经被采纳**：常量已下沉到零导入叶子模块（`src/ao_shaping/utils/slm/bench_constants.py`），消费点全部改为 import。
+当年之所以硬编码，是因为唯一的定义点会拖进硬件驱动包（见上面的实测）；叶子模块把这个理由消掉了，因此**今天"直接 import"是正确做法**。
 仓库已有现成先例与配套守卫：`utils/cli/params.py`（AGENTS.md 明确记载的零导入叶子，
 并由 `tests/ao_shaping/utils/test_cli_params_leaf.py` 做 **AST 级**遍历守卫——
 grep 挡不住藏在函数体里的延迟 import）。
@@ -126,8 +232,8 @@ grep 挡不住藏在函数体里的延迟 import）。
 
 runbook 的采集阶段默认探针数（`--probes`，另行扫描）：
 
-- `src/ao_shaping/tools/slm/compare_disturbance.py:177: parser.add_argument("--probes", type=int, default=4)`
-- `scripts/slm/model_in_loop_hw_runbook.py:1095: ap.add_argument("--probes", type=int, default=12)`
+- `src/ao_shaping/tools/slm/compare_disturbance.py:188: parser.add_argument("--probes", type=int, default=4)`
+- `scripts/slm/model_in_loop_hw_runbook.py:1186: ap.add_argument("--probes", type=int, default=12)`
 
 ## 5. 提效杠杆（按收益/成本排序）
 
@@ -213,7 +319,7 @@ D-SPGD (2002, *JOSA A* 19:356) 的"10–20 迭代、与分辨率无关"是**梯�
 
 | 优先级 | 动作 | 收益 | 风险 |
 |---|---|---|---|
-| **P0** | 把重复常量下沉到零导入叶子模块，再让 4 处 import（§3.1，**不是**直接 import） | 消除静默不一致 | 低（纯清理 + AST 守卫） |
+| **P0**（已落地） | 重复常量已下沉到零导入叶子模块（`src/ao_shaping/utils/slm/bench_constants.py`），消费点全部 import（§3.1） | 静默不一致已消除 | — |
 | **P0** | 几何探针统一改随机相位（§5.1） | 求解器脱离饱和边界 | 低 |
 | **P1** | 加 3 写入门哨兵，驱动已有升级阶梯（§5.2） | 光路未动时省 ~14 帧 | 中（改运行时行为） |
 | **P1** | Step A 加几何一致性校验：尺度偏差过大时**拒绝该轮** | 堵住"像差吸收几何误差"（§1） | 中（可能频繁中止） |

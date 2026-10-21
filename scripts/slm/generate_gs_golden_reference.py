@@ -85,7 +85,9 @@ def _forward(phase: np.ndarray, cfg: SquareShapingConfig) -> np.ndarray:
     return np.asarray(forward_intensity(phase, cfg), dtype=np.float64)
 
 
-def _score(intensity: np.ndarray, cfg: SquareShapingConfig, center, ideal_peak: float) -> dict:
+def _score(
+    intensity: np.ndarray, cfg: SquareShapingConfig, center, ideal_peak: float
+) -> dict:
     """Canonical shape metrics plus the Strehl / relative-M² APIs."""
     metrics = compute_square_metrics(intensity, cfg.target_side_px, center)
     metrics["quality_score"] = compute_quality_score(metrics)
@@ -107,9 +109,7 @@ def _crop(intensity: np.ndarray, center, side: int) -> np.ndarray:
     """Centre crop used for the figure so the spot is legible, not the whole grid."""
     cx, cy = center
     half = max(side // 2, 1)
-    return intensity[
-        max(cy - half, 0) : cy + half, max(cx - half, 0) : cx + half
-    ]
+    return intensity[max(cy - half, 0) : cy + half, max(cx - half, 0) : cx + half]
 
 
 def _figure(
@@ -212,25 +212,65 @@ def _body(
     lines: list[str] = []
     lines.append("# GS 金标参照：模拟上界与平相位对照")
     lines.append("")
+    lines.append("## 0. 实验目的")
+    lines.append("")
     lines.append(
-        "**这是什么**：把 GS 方形相位当作**上界**——即「若正向模型完全准确，"
-        "纯相位 SLM 最多能达到什么」。硬件运行可以据此读出自己离光学允许的上限还有多远。"
+        "把 GS 方形相位当作**上界**——即「若正向模型完全准确，纯相位 SLM 最多能"
+        "达到什么」。硬件运行可以据此读出自己离光学允许的上限还有多远。"
+    )
+    lines.append("")
+    lines.append("具体要回答三个问题：")
+    lines.append("")
+    lines.append(
+        "1. **上界有多高**：在理想瞳面、无噪声的模型里，GS 迭代后的质量分、"
+        "箱内 CV、Strehl、相对 M² 各是多少？这是实验系统**物理上**能达到的"
+        "天花板，不是期望值。"
+    )
+    lines.append(
+        "2. **GS 迭代预算够不够**：质量分随迭代次数的收敛曲线显示，"
+        "**需要多少次迭代才接近上界**？若 12 次就够，则实验侧不必加大预算；"
+        "若要上百次，则硬件实验的迭代预算是首要瓶颈。"
+    )
+    lines.append(
+        "3. **平相位（不整形）能拿多少分**：平相位是任何整形方法的**下界**。"
+        "若 GS 的上界和平相位几乎一样，则这条路本身没有物理空间——这正是"
+        "2026-10-12 硬件结果（GS 输给平相位）需要在模型侧核对的。"
     )
     lines.append("")
     lines.append(
-        f"**台架参数**：`n_grid={cfg.n_grid}`、`aperture={cfg.aperture_size * 1e3:.1f} mm`、"
+        "> ⚠️ 本报告是**模拟上界**，不是实验测量，也不构成「实验应该达到」的"
+        "承诺。它只回答「模型允许的上限在哪」，用来判断硬件结果离上限多远。"
+    )
+    lines.append("")
+    lines.append("## 0.1 实验设置（纯仿真，无设备）")
+    lines.append("")
+    lines.append(
+        f"`n_grid={cfg.n_grid}`、`aperture={cfg.aperture_size * 1e3:.1f} mm`、"
         f"`λ={cfg.wavelength * 1e9:.0f} nm`、`f={cfg.focal_length * 1e3:.0f} mm`、"
         f"`target_side={cfg.target_side_px} px`（远场）、`padding={cfg.far_field_padding}`、"
         f"`seed={seed}`。全部为仿真，无设备。"
     )
     lines.append("")
-
+    lines.append(
+        "**算法侧**：GS 相位由 canonical `gs_shape` 迭代产出（**不**手写第二套"
+        "GS），远场由 canonical `forward_intensity` 产出，指标（质量分、箱内 CV、"
+        "EE、Strehl、相对 M²）全部取自 `ao_shaping.utils.image.beam_metrics`。"
+        "本报告**只渲染**，不重算物理。"
+    )
+    lines.append("")
     lines.append("## 1. 对照结论（数据给出，不是断言）")
     lines.append("")
     beat = best["quality_score"] > flat["quality_score"]
     lines.append(
         markdown_table(
-            ["臂", "质量分 (canonical)", "箱内 CV", "箱内能量 EE", "Strehl", "远场 M²(相对)"],
+            [
+                "臂",
+                "质量分 (canonical)",
+                "箱内 CV",
+                "箱内能量 EE",
+                "Strehl",
+                "远场 M²(相对)",
+            ],
             [
                 [
                     "平相位 (flat)",
@@ -277,7 +317,15 @@ def _body(
     lines.append("")
     lines.append(
         markdown_table(
-            ["n_iters", "质量分", "箱内 CV", "箱内能量 EE", "Strehl", "相对 M²", "相位范围 (rad, 未包裹)"],
+            [
+                "n_iters",
+                "质量分",
+                "箱内 CV",
+                "箱内能量 EE",
+                "Strehl",
+                "相对 M²",
+                "相位范围 (rad, 未包裹)",
+            ],
             [
                 [
                     str(row["n_iters"]),
@@ -353,7 +401,9 @@ def _body(
 
 
 def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="GS golden-reference comparator report")
+    parser = argparse.ArgumentParser(
+        description="GS golden-reference comparator report"
+    )
     parser.add_argument("--n-grid", type=int, default=64)
     parser.add_argument("--aperture-size", type=float, default=12e-3, help="m")
     parser.add_argument("--wavelength", type=float, default=1064e-9, help="m")
@@ -361,13 +411,17 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--target-side", type=int, default=40, help="far-field px")
     parser.add_argument("--padding", type=int, default=8)
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--crop", type=int, default=96, help="figure crop side, far-field px")
+    parser.add_argument(
+        "--crop", type=int, default=96, help="figure crop side, far-field px"
+    )
     parser.add_argument(
         "--iters",
         default="1,2,5,10,20,50,100,200",
         help="comma-separated GS iteration budgets",
     )
-    parser.add_argument("--quick", action="store_true", help="smoke: 3 budgets, tiny grid")
+    parser.add_argument(
+        "--quick", action="store_true", help="smoke: 3 budgets, tiny grid"
+    )
     args = parser.parse_args()
     if args.quick:
         args.n_grid = min(args.n_grid, 32)
