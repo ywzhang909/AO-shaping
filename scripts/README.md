@@ -2806,6 +2806,47 @@ small-flat-region rms caliber are not comparable), and lists the invariants
 that were *not* touched (trust region, per-round acceptance, holdout Pearson
 gate, flat admission, SPGD perturbation signs).
 
+### gsnet_learnability_control.py
+
+Answers one narrow question for **issue #165**: *can* the FourierGSNet learn a
+good phase, or is the network simply not able to express one? Same training
+code, same data, same budget — the only thing that changes is **where the
+training target comes from**:
+
+* `same` — a Gerchberg-Saxton solution computed on the **network's own grid**
+  (`region` x `region`), i.e. the class of solution the architecture can
+  express;
+* `bench` — a GS solution computed on the **oversampled ground truth**
+  (`far_field_size` x `far_field_size`), i.e. the physically good phase.
+
+Both are scored on the oversampled ground truth, so the difference is not
+"which target is better" but "can the network reach it". **Fully offline** —
+digital twin, no device.
+
+`--w-shaping 0` drops the shaping term and leaves a pure phase regression, which
+separates "the loss pulls it away" from "it cannot represent the target".
+
+**Output** — `data/debug/gsnet_learnability/<ts>/result.json`.
+
+### gsnet_init_sim_ab.py
+
+Runs the **issue #165 P1** comparison in simulation: the model-in-loop closed
+loop started from a **network-predicted phase** versus started from the
+physical zero phase. **Fully offline** — `--cam-type sim`, no camera and no
+SLM.
+
+Three arms over the same bench, target, probe count and seed, differing only in
+`--init-from-gsnet`: `physical` (control), `gsnet_full` (the closed loop's own
+best phase — what a real shaping phase looks like) and `gsnet_scaled` (the
+same phase scaled down, so the trust-region gate is passed and the *next* gate
+is the one under test). The gate verdict of each arm
+(`trust_region_rejected` / `flat_bake_off_rejected` /
+`holdout_correlation_rejected` / `adopted`) is parsed out of the log and
+written next to the final score.
+
+**Output** — `data/debug/gsnet_init_sim_ab/<ts>/sim_ab.json` + `sim_ab.csv` +
+one directory per arm with its stdout/stderr.
+
 ### gsnet_init_hw_ab.py
 
 Campaign orchestration for the **issue #165 P1 hardware A/B**: does seeding the
