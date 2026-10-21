@@ -8,7 +8,7 @@ initial report generation:
   - Cross-experiment model candidate comparison
   - Exposure response diagnostics
 
-All figures are saved to ``report/shape_trials/images/``.
+All figures are saved to ``report/shape_trials/model_in_loop/images/``.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ import numpy as np
 import seaborn as sns
 
 ROOT = Path(__file__).resolve().parents[2]
-IMG_DIR = ROOT / "report" / "shape_trials" / "images"
+IMG_DIR = ROOT / "report" / "shape_trials" / "model_in_loop" / "images"
 IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 PAIRED_DIR = ROOT / "data" / "debug" / "slm_model_compare"

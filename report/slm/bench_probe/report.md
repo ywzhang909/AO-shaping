@@ -95,7 +95,7 @@ tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase
 
 **面板↔相机两轴互换 90°**：上表「面板轴」与「测量所在的相机轴」不同列，直接证实了不能用几何直觉去推断哪个坐标会动。
 
-![斜坡线性度](figures/01_ramp_linearity.png)
+![斜坡线性度](./figures/01_ramp_linearity.png)
 
 ### 3.1 测试项解读
 
@@ -118,7 +118,7 @@ tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase
 
 > 这正是标定器注释里那条经验规则的来源：倾斜系数一大到足以给出可用信号，光斑就会变形甚至分裂，质心随之跳变。历史上由此读出 **1.63 相机 px/rad**（真值约 5.3，3.3 倍误差），而本次在**稳定性等待**下测得 **5.446 相机 px/rad**。
 
-![倾斜线性度](figures/02_tilt_linearity.png)
+![倾斜线性度](./figures/02_tilt_linearity.png)
 
 ### 4.1 测试项解读
 
@@ -145,7 +145,7 @@ tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase
 
 两个筛选器**互补**：hollowness 抓环，而同侧单调性抓「系数更大反而测得更窄」的离群点——后者的 hollowness 和宽度都落在正常区间内，只有单调性能抓住它，而它一个点就足以把拟合曲率压成负数。
 
-![宽度响应](figures/03_width_response.png)
+![宽度响应](./figures/03_width_response.png)
 
 ### 5.1 测试项解读
 
@@ -172,9 +172,9 @@ tilt slope 5.446 cam px/rad (x:-5.312, y:-5.580, via ['centroid (no usable phase
 
 > ⚠️ 偏离超过 25% 警戒线。前两条路线（斜坡、倾斜）都只依赖**孔径半径**，而 FOV 路线额外假设**正入射**；本实验系统是倾斜入射，所以 FOV 路线偏低是预期内的。**测量路线（斜坡）为准**，FOV 路线仅作记录。
 
-![焦面尺度三路线](figures/05_focal_scale_routes.png)
+![焦面尺度三路线](./figures/05_focal_scale_routes.png)
 
-![曲率汇总](figures/04_curvature_summary.png)
+![曲率汇总](./figures/04_curvature_summary.png)
 
 ## 7. 关键陷阱
 以下四条实验系统铁律固化在 `ao_shaping/tools/slm/bench_kernels.py` 的模块文档里。**每一条都附上本数据集里能证明它仍然生效的具体数字**——因为违反它们得到的是「看起来完全可信的错误结论」，而不是报错。

@@ -115,7 +115,7 @@ FWHM 12.2 px 与理论一致: 均匀照明半径 450 px 的 Airy 尺度
 
 **`usable_deltas()` 返回空集** —— 全部低于 `≥2 可用` 门槛。
 SNR 随 delta 增大反而下降。这与
-[`report/slm_pib_bench/report.md`](../slm_pib_bench/report.md) 的记录一致:
+[`report/slm_pib_bench/report.md`](./fouriergsnet_pipeline_report/report.md) 的记录一致:
 该实验系统噪声地板**单日内波动 21 倍**, 必须每次实测。
 
 ### 3.4 写入测试 (决定 freeform 前提是否成立)

@@ -53,11 +53,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![flat slm phase](phase/00_flat.png)
+![flat slm phase](./wfs/00_flat.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![flat wfs](wfs/00_flat.png)
+![flat wfs](./wfs/00_flat.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -80,11 +80,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![tilt_n1m1 slm phase](phase/01_tilt_n1m1.png)
+![tilt_n1m1 slm phase](./wfs/01_tilt_n1m1.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![tilt_n1m1 wfs](wfs/01_tilt_n1m1.png)
+![tilt_n1m1 wfs](./wfs/01_tilt_n1m1.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -107,11 +107,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![defocus_n2m0 slm phase](phase/02_defocus_n2m0.png)
+![defocus_n2m0 slm phase](./wfs/02_defocus_n2m0.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![defocus_n2m0 wfs](wfs/02_defocus_n2m0.png)
+![defocus_n2m0 wfs](./wfs/02_defocus_n2m0.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -134,11 +134,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![astig_n2m2 slm phase](phase/03_astig_n2m2.png)
+![astig_n2m2 slm phase](./wfs/03_astig_n2m2.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![astig_n2m2 wfs](wfs/03_astig_n2m2.png)
+![astig_n2m2 wfs](./wfs/03_astig_n2m2.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -161,11 +161,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![coma_n3m1 slm phase](phase/04_coma_n3m1.png)
+![coma_n3m1 slm phase](./wfs/04_coma_n3m1.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![coma_n3m1 wfs](wfs/04_coma_n3m1.png)
+![coma_n3m1 wfs](./wfs/04_coma_n3m1.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -188,11 +188,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![spherical_n4m0 slm phase](phase/05_spherical_n4m0.png)
+![spherical_n4m0 slm phase](./wfs/05_spherical_n4m0.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![spherical_n4m0 wfs](wfs/05_spherical_n4m0.png)
+![spherical_n4m0 wfs](./wfs/05_spherical_n4m0.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -215,11 +215,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![defocus_R300 slm phase](phase/06_defocus_R300.png)
+![defocus_R300 slm phase](./wfs/06_defocus_R300.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![defocus_R300 wfs](wfs/06_defocus_R300.png)
+![defocus_R300 wfs](./wfs/06_defocus_R300.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -242,11 +242,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![defocus_R900 slm phase](phase/07_defocus_R900.png)
+![defocus_R900 slm phase](./wfs/07_defocus_R900.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![defocus_R900 wfs](wfs/07_defocus_R900.png)
+![defocus_R900 wfs](./wfs/07_defocus_R900.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -269,11 +269,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![defocus_A2 slm phase](phase/08_defocus_A2.png)
+![defocus_A2 slm phase](./wfs/08_defocus_A2.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![defocus_A2 wfs](wfs/08_defocus_A2.png)
+![defocus_A2 wfs](./wfs/08_defocus_A2.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 
@@ -296,11 +296,11 @@
 
 **① SLM 相位图** — 左: 弧度源相位, 右: 实际上屏灰度图案 (mod 2π + 平移):
 
-![defocus_A20 slm phase](phase/09_defocus_A20.png)
+![defocus_A20 slm phase](./wfs/09_defocus_A20.png)
 
 **② WFS 读取图** — spots 图像 / 读取相位图 (波前) / Zernike 分布 / 指标:
 
-![defocus_A20 wfs](wfs/09_defocus_A20.png)
+![defocus_A20 wfs](./wfs/09_defocus_A20.png)
 
 **Zernike 主导项 (|系数| 前 5)**:
 

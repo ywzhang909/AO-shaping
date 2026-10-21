@@ -14,7 +14,7 @@ Judged on corr / R2 / beam-domain only. MSE/PSNR/SSIM are deliberately absent:
 this repo measured PSNR 72 dB at a *worse* R2 under sum normalisation, i.e. the
 metric was measuring the normalisation rather than the fit.
 
-Writes ``report/shape_trials/fast_recal_adapter.md`` + ``figures/``.
+Writes ``report/shape_trials/fast_recal_adapter/fast_recal_adapter.md`` + ``figures/``.
 Provenance is stamped at write time so a re-run cannot delete it.
 
 Run:
@@ -52,9 +52,9 @@ from ml.zernike.eval_stats import (  # noqa: E402
     sign_flip_pvalue,
 )
 
-REPORT_KEY = "report/shape_trials/fast_recal_adapter.md"
+REPORT_KEY = "report/shape_trials/fast_recal_adapter/fast_recal_adapter.md"
 RESULTS = ROOT / "logs" / "fast_recal_adapter" / "results.json"
-OUT_DIR = ROOT / "report" / "shape_trials"
+OUT_DIR = ROOT / "report" / "shape_trials" / "fast_recal_adapter"
 FIG_DIR = OUT_DIR / "figures"
 
 rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]

@@ -389,31 +389,31 @@ $$d_z = \frac{\bar{\Delta}}{s_\Delta}$$
 | 报告 | 路径 | 内容 |
 |------|------|------|
 | 总览索引 | `report/shape_trials/README.md` | 方斑整形实验对比试验索引 |
-| GS 重构调试 | `report/shape_trials/gs_refine_live_20261012.md` | GS+SPGD 配方交错重放验收 |
-| GS 方法对照 | `report/shape_trials/gs_issue_live_20261015.md` | plain/weighted/adaptive-feedback 五轮对照 |
-| GS 匀化实验 | `report/shape_trials/gs_uniformity_live_20261015.md` | 相位平滑 + 纯 CV 闭环 |
-| MIL 实验记录 | `report/shape_trials/model_in_loop_live_20261013.md` | 正向模型闭环，800 iter |
-| MIL 复核 | `report/shape_trials/model_in_loop_live_20261014.md` | 7 轮多形状，Step A 零步/10 步 |
-| MIL 预检 | `report/shape_trials/model_in_loop_live_20261015.md` | 面板宽扫作废，光路调整 |
-| MIL 匀化权重 | `report/shape_trials/model_in_loop_live_20261016.md` | CV/EE 权重消融，Step A=0 vs 80 |
-| GUI 闭环验证 | `report/shape_trials/gui_closed_loop_shaping_20261014.md` | 三次会话交错重放 |
-| 在线复测 | `report/shape_trials/online_20261010.md` | SPGD 梯度不可分辨 |
-| 重标定效率 | `report/shape_trials/online_recal_efficiency.md` | 几何与像差分层成本模型 |
-| GS 金标 | `report/shape_trials/gs_golden_reference.md` | 仿真上界与收敛曲线 |
-| MIL 验证集 CV | `report/shape_trials/model_in_loop_cv.md` | 5 折交叉验证，sim 后端 |
-| MIL 少参数适配 | `report/shape_trials/fast_recal_adapter.md` | 14 Zernike / 2 几何 / 冻结 CNN 三组互不相交参数，低阶 vs 高阶 vs 几何漂移 |
-| MIL 不确定性探针 | `report/shape_trials/uncertainty_probe_hw_20261016.md` | #134 自适应探针预检，带限约束才是关键 |
-| GS 正向模型标定 | `report/shape_trials/gs_refine_fwdmodel_calibration.md` | 三栏 GIF 第三栏标定 |
-| 离轴载波 | `report/shape_trials/zero_order_blaze_20261015.md` | 零级隔离与闪耀光栅 |
-| GSNet 离线 | `report/shape_trials/gsnet_hybrid_offline_20261013.md` | 混合瞳面相位离线验证 |
-| 仿真指标 | `report/shape_trials/sim_metrics_waves.md` | 五波交付，默认不变钉法 |
-| MIL 方斑均匀度 | `report/shape_trials/model_in_loop_uniformity_live_20261016.md` | 软边缘 CV + 两轮热启动，CV −20.8% |
-| Zernike 阶数扫描 | `report/shape_trials/gs_refine_zernike_uniformity.md` | 仿真 8 阶扫描，仅残差单调降 |
-| Zernike 实验计划 | `report/shape_trials/gs_refine_zernike_hardware_plan.md` | H0–H12 硬件计划，P0 硬门 |
-| MIL 多形状 10-19 | `report/shape_trials/model_in_loop_live_20261019.md` | 正向模型校正 + 多形状整形 |
-| 离焦仿真 10-19 | `report/shape_trials/gs_defocus_sim_20261019.md` | 离焦五组因果链，纯仿真 |
-| MIL 暂停交接 10-13 | `report/shape_trials/model_in_loop_pause_handoff_20261013.md` | 暂停实验交接 |
-| MIL 恢复步骤 10-13 | `report/shape_trials/model_in_loop_next_steps_20261013.md` | 暂停期间工作与恢复条件 |
+| GS 重构调试 | `report/shape_trials/gs_refine/gs_refine_live_20261012.md` | GS+SPGD 配方交错重放验收 |
+| GS 方法对照 | `report/shape_trials/gs_refine/gs_issue_live_20261015.md` | plain/weighted/adaptive-feedback 五轮对照 |
+| GS 匀化实验 | `report/shape_trials/gs_refine/gs_uniformity_live_20261015.md` | 相位平滑 + 纯 CV 闭环 |
+| MIL 实验记录 | `report/shape_trials/model_in_loop/model_in_loop_live_20261013.md` | 正向模型闭环，800 iter |
+| MIL 复核 | `report/shape_trials/model_in_loop/model_in_loop_live_20261014.md` | 7 轮多形状，Step A 零步/10 步 |
+| MIL 预检 | `report/shape_trials/model_in_loop/model_in_loop_live_20261015.md` | 面板宽扫作废，光路调整 |
+| MIL 匀化权重 | `report/shape_trials/model_in_loop/model_in_loop_live_20261016.md` | CV/EE 权重消融，Step A=0 vs 80 |
+| GUI 闭环验证 | `report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md` | 三次会话交错重放 |
+| 在线复测 | `report/shape_trials/gs_refine/online_20261010.md` | SPGD 梯度不可分辨 |
+| 重标定效率 | `report/shape_trials/online_recal_efficiency/online_recal_efficiency.md` | 几何与像差分层成本模型 |
+| GS 金标 | `report/shape_trials/gs_golden_reference/gs_golden_reference.md` | 仿真上界与收敛曲线 |
+| MIL 验证集 CV | `report/shape_trials/model_in_loop_cv/model_in_loop_cv.md` | 5 折交叉验证，sim 后端 |
+| MIL 少参数适配 | `report/shape_trials/fast_recal_adapter/fast_recal_adapter.md` | 14 Zernike / 2 几何 / 冻结 CNN 三组互不相交参数，低阶 vs 高阶 vs 几何漂移 |
+| MIL 不确定性探针 | `report/shape_trials/model_in_loop/uncertainty_probe_hw_20261016.md` | #134 自适应探针预检，带限约束才是关键 |
+| GS 正向模型标定 | `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` | 三栏 GIF 第三栏标定 |
+| 离轴载波 | `report/shape_trials/gs_refine/zero_order_blaze_20261015.md` | 零级隔离与闪耀光栅 |
+| GSNet 离线 | `report/shape_trials/gs_refine/gsnet_hybrid_offline_20261013.md` | 混合瞳面相位离线验证 |
+| 仿真指标 | `report/shape_trials/gs_refine/sim_metrics_waves.md` | 五波交付，默认不变钉法 |
+| MIL 方斑均匀度 | `report/shape_trials/model_in_loop/model_in_loop_uniformity_live_20261016.md` | 软边缘 CV + 两轮热启动，CV −20.8% |
+| Zernike 阶数扫描 | `report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md` | 仿真 8 阶扫描，仅残差单调降 |
+| Zernike 实验计划 | `report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md` | H0–H12 硬件计划，P0 硬门 |
+| MIL 多形状 10-19 | `report/shape_trials/model_in_loop/model_in_loop_live_20261019.md` | 正向模型校正 + 多形状整形 |
+| 离焦仿真 10-19 | `report/shape_trials/gs_defocus_sim/gs_defocus_sim_20261019.md` | 离焦五组因果链，纯仿真 |
+| MIL 暂停交接 10-13 | `report/shape_trials/model_in_loop/model_in_loop_pause_handoff_20261013.md` | 暂停实验交接 |
+| MIL 恢复步骤 10-13 | `report/shape_trials/model_in_loop/model_in_loop_next_steps_20261013.md` | 暂停期间工作与恢复条件 |
 
 ---
 

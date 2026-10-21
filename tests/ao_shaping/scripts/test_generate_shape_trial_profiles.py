@@ -69,11 +69,16 @@ class TestResolution:
 
     def test_gs_issue_figure_resolves_to_pkl(self):
         spec = mod._resolve_one("figures/gs_issue_live_farfield_20261015_205848.png")
-        assert spec.container.endswith("20261015_205848/slm_gs_refine_20261015_205848.pkl")
+        assert spec.container.endswith(
+            "20261015_205848/slm_gs_refine_20261015_205848.pkl"
+        )
         assert spec.verify_mode == "content"
 
     def test_figures_without_raw_data_are_reported_not_guessed(self):
-        for figure in ("figures/gs_pad3_best_far_field.png", "figures/gs_pad3_debug_summary.png"):
+        for figure in (
+            "figures/gs_pad3_best_far_field.png",
+            "figures/gs_pad3_debug_summary.png",
+        ):
             spec = mod._resolve_one(figure)
             assert spec.verify_mode == "unresolved"
             assert spec.container == ""
@@ -103,7 +108,7 @@ class TestOutputNaming:
         paths = set()
         for run in ("20261013_114650", "20261013_145819", "20261013_152341"):
             spec = mod._resolve_one(
-                f"../../data/debug/slm_model_in_loop/{run}/best_far_field.png"
+                f"../../../data/debug/slm_model_in_loop/{run}/best_far_field.png"
             )
             paths.add(mod.out_path_for(spec).name)
         assert len(paths) == 3

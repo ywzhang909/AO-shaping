@@ -7,7 +7,7 @@ so the report cannot silently drift away from the code it describes -- the same
 "constant-drift guard" idea that ``generate_bench_probe_report.py`` applies to
 its bench constants.
 
-Writes ``report/shape_trials/online_recal_efficiency.md`` + ``figures/``.
+Writes ``report/shape_trials/online_recal_efficiency/online_recal_efficiency.md`` + ``figures/``.
 Provenance is stamped at write time so a re-run cannot delete it.
 
 Run:
@@ -37,8 +37,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from _common.provenance import insert_header  # noqa: E402
 
-REPORT_KEY = "report/shape_trials/online_recal_efficiency.md"
-OUT_DIR = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/online_recal_efficiency/online_recal_efficiency.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "online_recal_efficiency"
 FIG_DIR = OUT_DIR / "figures"
 
 rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]

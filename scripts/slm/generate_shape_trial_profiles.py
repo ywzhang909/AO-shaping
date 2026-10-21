@@ -97,8 +97,10 @@ from ao_shaping.display.beam_profile import (  # noqa: E402
 )
 
 REPORT_DIR = ROOT / "report" / "shape_trials"
+#: 报告按生成脚本分目录存放, 图跟随其报告同住 -> 图的输出目录由源图决定,
+#: 这里只保留一个兜底默认值 (用于没有源图可依的产物)。
 FIG_DIR = REPORT_DIR / "figures"
-GUI_FIG_DIR = REPORT_DIR / "images" / "gui_shaping_20261014"
+GUI_FIG_DIR = REPORT_DIR / "gui_closed_loop_shaping" / "images" / "gui_shaping_20261014"
 
 MIL_ROOT = ROOT / "data" / "debug" / "slm_model_in_loop"
 MIL_REPLAY_ROOT = ROOT / "data" / "debug" / "slm_model_in_loop_replay"
@@ -145,25 +147,30 @@ class FrameSpec:
     extras: dict[str, Any] = field(default_factory=dict)
 
 
-# ``figures/20261019_100334_farfield.png`` -> run ``20261019_100334``
-_RE_RUN_FIG = re.compile(r"^(?:figures/)?(?P<run>20\d{6}_\d{6})_farfield\.png$")
+# ``<子目录>/figures/20261019_100334_farfield.png`` -> run ``20261019_100334``
+#: 图路径可能带子目录前缀 (``model_in_loop/figures/...``), 所以这里用
+#: ``(?:[^/]+/)*`` 吃掉任意层目录前缀。
+_RE_RUN_FIG = re.compile(
+    r"^(?:[^/]+/)*?(?:figures/)?(?P<run>20\d{6}_\d{6})_farfield\.png$"
+)
 
-# ``../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png``
+# ``../../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png``
+#: 报告移进子目录后深度 +1, 所以这里是三个 ``../``。
 _RE_DIRECT = re.compile(
-    r"^\.\./\.\./data/debug/slm_model_in_loop/(?P<run>20\d{6}_\d{6})/best_far_field\.png$"
+    r"^(\.\./){3}data/debug/slm_model_in_loop/(?P<run>20\d{6}_\d{6})/best_far_field\.png$"
 )
 
 # Replay figures carry the ABBA index + slot in the file name itself:
 #   ..._20261016_1044_uniformity_weights_01_A_farfield.png  -> 01_A.npy
 #   ..._20261014_1115_zero_vs_refit_05_A_farfield.png       -> 05_A.npy
 _RE_MIL_REPLAY = re.compile(
-    r"^figures/model_in_loop_live_(?P<replay>.+)_(?P<idx>\d{2})_(?P<slot>[A-Za-z0-9]+)_farfield\.png$"
+    r"^(?:[^/]+/)*figures/model_in_loop_live_(?P<replay>.+)_(?P<idx>\d{2})_(?P<slot>[A-Za-z0-9]+)_farfield\.png$"
 )
 
 # Single-run model-in-loop figure: ..._20261014_20261014_105041_farfield.png
 # The label is optional (some figures carry only the run stamp).
 _RE_MIL_RUN = re.compile(
-    r"^figures/model_in_loop_live_[^/]*?(?P<run>20\d{6}_\d{6})(?:_(?P<label>[^/]+))?_farfield\.png$"
+    r"^(?:[^/]+/)*figures/model_in_loop_live_[^/]*?(?P<run>20\d{6}_\d{6})(?:_(?P<label>[^/]+))?_farfield\.png$"
 )
 
 # Report file names may repeat the date prefix the run stamp already carries:
@@ -171,7 +178,9 @@ _RE_MIL_RUN = re.compile(
 #     -> replay dir ``20261016_1044_uniformity_weights``
 _RE_DATE_PREFIX = re.compile(r"^\d{8}_")
 
-_RE_GS_ISSUE = re.compile(r"^figures/gs_issue_live_farfield_(?P<run>20\d{6}_\d{6})\.png$")
+_RE_GS_ISSUE = re.compile(
+    r"^(?:[^/]+/)*figures/gs_issue_live_farfield_(?P<run>20\d{6}_\d{6})\.png$"
+)
 
 # ---- SLM 相位图 ----------------------------------------------------------
 #
@@ -187,24 +196,28 @@ _RE_GS_ISSUE = re.compile(r"^figures/gs_issue_live_farfield_(?P<run>20\d{6}_\d{6
 #      Latin-only face and the title rendered as tofu boxes ("SLM ▯▯").
 
 # 单次运行: figures/20261019_103208_phase.png -> <run>/best_phase.npy
-_RE_PHASE_RUN_FIG = re.compile(r"^(?:figures/)?(?P<run>20\d{6}_\d{6})_phase\.png$")
+_RE_PHASE_RUN_FIG = re.compile(
+    r"^(?:[^/]+/)*(?:figures/)?(?P<run>20\d{6}_\d{6})_phase\.png$"
+)
 
 # 单次运行: figures/model_in_loop_live_20261014_20261014_105041_phase.png
 _RE_PHASE_MIL_RUN = re.compile(
-    r"^figures/model_in_loop_live_[^/]*?(?P<run>20\d{6}_\d{6})_phase\.png$"
+    r"^(?:[^/]+/)*figures/model_in_loop_live_[^/]*?(?P<run>20\d{6}_\d{6})_phase\.png$"
 )
 
 # 重放相位图: A/B 两格分别来自 config.json["sources"] 的第 0 / 第 1 个源运行。
 # A/B 之后跟着一段阶段描述（`A_zero_step` / `B_10_step`），其内部还含下划线，
 # 故不能靠 `_phase` 收尾来切分；这里显式列出已知形态。
 _RE_PHASE_REPLAY = re.compile(
-    r"^figures/model_in_loop_live_(?P<replay>.+?)_"
+    r"^(?:[^/]+/)*figures/model_in_loop_live_(?P<replay>.+?)_"
     r"(?P<slot>A|B)(?:_(?:zero_step|\d+_step))?_phase\.png$"
 )
 
 # 单次重放: figures/gs_issue_live_phase_20261015_205848.png
 #            -> slm_gs_refine/<run>/best_phase.npy
-_RE_GS_ISSUE_PHASE = re.compile(r"^figures/gs_issue_live_phase_(?P<run>20\d{6}_\d{6})\.png$")
+_RE_GS_ISSUE_PHASE = re.compile(
+    r"^(?:[^/]+/)*figures/gs_issue_live_phase_(?P<run>20\d{6}_\d{6})\.png$"
+)
 
 # GUI 闭环整形会话 C/图 3 的四个子图 -> 两个会话的交错重放原始帧。
 # 顺序即 render_panel 的 (row, col) 顺序：A flat / A best / C flat / C best。
@@ -217,7 +230,7 @@ _GUI_REPLAY_SPECS = (
 
 # 无原始数据可用的图（调试 PKL 未入库，见 report/shape_trials/README.md）
 _KNOWN_MISSING = {
-    "figures/gs_pad3_best_far_field.png": (
+    "gs_refine/figures/gs_pad3_best_far_field.png": (
         "2026-10-10 运行的调试 PKL 未随仓库保留（data/* 在 .gitignore 中），"
         "盘上已无该次原始 CCD 帧，无法重建截面"
     ),
@@ -470,7 +483,9 @@ def _resolve_one(figure: str) -> FrameSpec:
             spec.extras["replay_dir"] = cand.parent.name
         else:
             spec.verify_mode = "unresolved"
-            spec.note = f"重放目录缺少 {idx}_{slot}.npy（试过 {replay} 及其去日期前缀形式）"
+            spec.note = (
+                f"重放目录缺少 {idx}_{slot}.npy（试过 {replay} 及其去日期前缀形式）"
+            )
         return spec
 
     m = _RE_MIL_RUN.match(figure)
@@ -546,13 +561,17 @@ def discover() -> list[FrameSpec]:
     target array.
     """
     refs: dict[str, str] = {}
-    for md in sorted(REPORT_DIR.glob("*.md")):
+    for md in sorted(REPORT_DIR.rglob("*.md")):
         text = md.read_text(encoding="utf-8")
+        # 报告在子目录里, 图链接相对**该报告所在目录**; 统一换算成相对
+        # REPORT_DIR 的路径, 这样正则与落盘位置都只认一份基准。
+        prefix = md.parent.relative_to(REPORT_DIR).as_posix()
         for hit in re.finditer(r"!?\[[^\]]*\]\(([^)]+\.png)\)", text):
             rel = hit.group(1).replace("\\", "/")
+            if prefix and not rel.startswith(("figures/", "images/", "assets/")):
+                rel = f"{prefix}/{rel}"
             if not any(
-                k in rel
-                for k in ("farfield", "far_field", "profile", "debug_summary")
+                k in rel for k in ("farfield", "far_field", "profile", "debug_summary")
             ):
                 continue
             if "target" in rel:
@@ -580,8 +599,7 @@ def discover() -> list[FrameSpec]:
                 container=_rel(cand) if cand.exists() else "",
                 verify_mode="structural" if cand.exists() else "unresolved",
                 note=(
-                    "GUI 闭环整形交错重放原始帧；图 3 的第 "
-                    f"{panel} 格"
+                    f"GUI 闭环整形交错重放原始帧；图 3 的第 {panel} 格"
                     if cand.exists()
                     else f"{run}/replay/{fname} 不在盘上"
                 ),
@@ -635,7 +653,9 @@ def _verify_bytes(figure_png: Path, frame: np.ndarray, title: str) -> bool:
     return bool(ok or (worst <= 1.0 and frac == 0.0))
 
 
-def _verify_content_against(frame: np.ndarray, title: str, ref_png: Path) -> tuple[bool, float, float]:
+def _verify_content_against(
+    frame: np.ndarray, title: str, ref_png: Path
+) -> tuple[bool, float, float]:
     """Compare a fresh render with ``ref_png`` outside the title band.
 
     The two renders differ solely in the title glyphs, so diffing a render
@@ -672,7 +692,10 @@ def verify(spec: FrameSpec, frame: np.ndarray) -> bool | None:
         return None
     if spec.verify_mode == "byte":
         figure_png = REPORT_DIR / spec.figure
-        run = next((p for p in spec.container.split("/") if re.fullmatch(r"20\d{6}_\d{6}", p)), None)
+        run = next(
+            (p for p in spec.container.split("/") if re.fullmatch(r"20\d{6}_\d{6}", p)),
+            None,
+        )
         if run is None or not figure_png.exists():
             return None
         scores = _mil_scores(run)
@@ -793,8 +816,9 @@ def regenerate_phase_figures() -> tuple[int, int]:
     written = 0
     unresolved: list[str] = []
     targets: set[str] = set()
-    for md in sorted(REPORT_DIR.glob("*.md")):
+    for md in sorted(REPORT_DIR.rglob("*.md")):
         text = md.read_text(encoding="utf-8")
+        prefix = md.parent.relative_to(REPORT_DIR).as_posix()
         for hit in re.finditer(r"!?\[[^\]]*\]\(([^)]+_phase\.png)\)", text):
             rel = hit.group(1).replace("\\", "/")
             if rel.startswith("figures/"):
@@ -830,11 +854,15 @@ def out_path_for(spec: FrameSpec) -> Path:
     p = REPORT_DIR / spec.figure.split("#")[0]
     stem = p.stem
     if stem == "best_far_field":
-        runs = [q for q in spec.container.split("/") if re.fullmatch(r"20\d{6}_\d{6}", q)]
+        runs = [
+            q for q in spec.container.split("/") if re.fullmatch(r"20\d{6}_\d{6}", q)
+        ]
         stem = runs[0] if runs else "best_far_field"
     panel = spec.figure.split("#")[1] if "#" in spec.figure else ""
     name = f"{stem}_{panel}_xy_profile.png" if panel else f"{stem}_xy_profile.png"
-    return GUI_FIG_DIR / name if p.parent.name == "gui_shaping_20261014" else FIG_DIR / name
+    # 输出跟着**源图**走: 报告已按生成脚本分目录, 截面图必须写回源图所在
+    # 目录, 否则会把 A 报告的图写进 B 报告的目录, 链接随即失效。
+    return p.parent / name
 
 
 # --------------------------------------------------------------------------
@@ -843,8 +871,12 @@ def out_path_for(spec: FrameSpec) -> Path:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Regenerate shape_trials X/Y cross-sections.")
-    ap.add_argument("--check", action="store_true", help="resolve + verify only, write nothing")
+    ap = argparse.ArgumentParser(
+        description="Regenerate shape_trials X/Y cross-sections."
+    )
+    ap.add_argument(
+        "--check", action="store_true", help="resolve + verify only, write nothing"
+    )
     ap.add_argument("--only", default="", help="substring filter on the figure path")
     args = ap.parse_args(argv)
 
@@ -937,11 +969,9 @@ def main(argv: list[str] | None = None) -> int:
     phase_written = phase_unresolved = 0
     if not args.check:
         phase_written, phase_unresolved = regenerate_phase_figures()
-        print(
-            f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张"
-        )
+        print(f"\n相位图重绘：{phase_written} 张，未能重建 {phase_unresolved} 张")
 
-        manifest = FIG_DIR / "xy_profile_manifest.json"
+        manifest = REPORT_DIR / "xy_profile_manifest.json"
         manifest.write_text(
             json.dumps(
                 {

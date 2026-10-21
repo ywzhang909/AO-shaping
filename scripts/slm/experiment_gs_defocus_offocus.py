@@ -75,7 +75,7 @@ score 口径与既有报告一致: ``0.5 * PIB + 0.5 * (1/(1 + CV))``, CV / PIB 
     python scripts/slm/experiment_gs_defocus_offocus.py           # 完整网格
     python scripts/slm/experiment_gs_defocus_offocus.py --quick   # 小网格冒烟
 
-产物写到 ``report/shape_trials/``: 两个 CSV (原始数据)、summary.json、
+产物写到 ``report/shape_trials/gs_defocus_sim/artifacts/``: 两个 CSV (原始数据)、summary.json、
 一张 E2 对比图 (CV vs Δz, 每方法一条曲线, 模式 A/B 分开)、一张 E1 热力图。
 
 纯仿真: 不打开任何设备。
@@ -781,7 +781,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--quick", action="store_true", help="小网格冒烟跑")
     p.add_argument("--tag", default=None, help="产物文件名后缀 (默认: --quick 时 _quick)")
-    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials)")
+    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials/gs_defocus_sim/artifacts)")
     return p
 
 
@@ -790,7 +790,7 @@ def main() -> None:
     rc = QUICK if args.quick else FULL
     if args.tag is not None:
         rc = replace(rc, tag=args.tag)
-    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials"
+    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials" / "gs_defocus_sim" / "artifacts"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
 

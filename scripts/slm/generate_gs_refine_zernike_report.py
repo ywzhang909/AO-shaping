@@ -2,7 +2,7 @@
 
 Offline-only: reads the saved ``summary.json`` + ``spgd_nmax*.csv`` artefacts
 produced by ``scripts/slm/run_gs_refine_zernike_sweep.py`` and renders a Chinese
-markdown report with three PNG figures under ``report/shape_trials/``.
+markdown report with three PNG figures under ``report/shape_trials/gs_refine_zernike/``.
 
 Never opens a device; never re-derives any metric from raw frames -- all numbers
 come straight from the artefacts.
@@ -33,8 +33,8 @@ sys.path.insert(0, str(ROOT / "scripts"))
 from _common import fmt_metric, markdown_table, savefig  # noqa: E402
 from _common.provenance import insert_header  # noqa: E402
 
-REPORT_KEY = "report/shape_trials/gs_refine_zernike_uniformity.md"
-OUT_DIR = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "gs_refine_zernike"
 FIG_DIR = OUT_DIR / "figures"
 
 # --- CJK font guard (never crash on a headless box) --------------------------

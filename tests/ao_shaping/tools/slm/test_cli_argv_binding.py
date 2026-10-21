@@ -685,6 +685,7 @@ CASES: tuple[Case, ...] = (
             "--refine", "5",
             "--frames", "5",
             "--max-exposure-ms", "8.0",
+            "--debug-dir", "data/debug/_argv_binding_probe",
         ),
     ),
     Case(

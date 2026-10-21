@@ -49,6 +49,20 @@
     # 把已经跑完的目录登记进来 (不重跑)
     python scripts/slm/run_hw_sweep_groups.py --plan plan.json \\
         --adopt-existing dz_scan report/shape_trials/hw_gs_defocus_probe_20261020_015426/dz_scan
+
+单组的时长预算
+--------------
+
+``--timeout-s`` 是**硬超时** (超时 = 杀掉子进程, ``status="timeout"``), 而
+``--max-group-seconds`` 是**软预算**: 一组跑完后再比它的耗时, 超过预算就记
+``status="over_budget"`` 并在汇总里点名。
+
+🔴 **为什么不直接按软预算杀进程**: 杀掉一个正在测量的组会把那一组的测量写坏
+(半张图、半个 epoch), 拿到的数据既不能算也不能复查。所以软预算只**判定**不**中断**
+—— 硬约束靠「每一组都必须在 10 分钟内跑完」的编排纪律 + 跑完后的点名来保证。
+
+默认两个预算都是 600 s: 「一次扫描不超过 10 分钟」这条约束由驱动器自己盯着,
+而不是靠人掐表。
 """
 
 from __future__ import annotations
@@ -97,6 +111,14 @@ class GroupSpec:
     args: list[str] = field(default_factory=list)
     adopted_dir: str | None = None
     """非空 = 这一组已经跑完, 直接登记这个目录, 不重跑。"""
+    env: dict[str, str] = field(default_factory=dict)
+    """这一组子进程的环境变量覆盖 (例如**显式的曝光上限**)。
+
+    为什么要有它: 曝光上限 ``AO_DAHENG_MAX_EXPOSURE_MS`` 在两类组里必须不同 ——
+    焦面标定组要能一路加到 20 ms (它自己在扫曝光阶梯), 而整形测量组必须压在
+    0.4 ms 以下, 否则画面会饱和, 半个 epoch 的数据就废了。内置的加倍阶梯估计在
+    **暗**实验系统上会给出假上限 (实测假 2.07 ms), 所以这个值必须由计划**显式**
+    写死, 而不是靠现场猜。"""
 
 
 def load_plan(path: Path) -> dict[str, Any]:
@@ -135,13 +157,17 @@ def build_argv(script: str, args: list[str]) -> list[str]:
         可直接交给 :func:`subprocess.run` 的参数列表。
     """
     tail = [str(a) for a in args]
+    if str(script) == "-m":
+        # 模块调用 (``python -m ao_shaping.tools.slm.panel.focus_probe``):
+        # 焦面标定是**模块**不是脚本, 计划里就得能这样写。
+        return [sys.executable, "-m", *tail]
     if str(script).lower().endswith(".py"):
         return [sys.executable, str(script), *tail]
     return [str(script), *tail]
 
 
-def build_env() -> dict[str, str]:
-    """子进程的环境变量 = 当前环境 + 仓库的四个搜索路径。
+def build_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """子进程的环境变量 = 当前环境 + 仓库的四个搜索路径 + 计划给的覆盖。
 
     探针脚本要 import ``ao_shaping`` / ``scripts.*``, 而计划里写的是仓库相对
     路径, 所以 PYTHONPATH 必须带上仓库根与 ``src``。**只在缺失时追加**, 不覆盖
@@ -159,6 +185,9 @@ def build_env() -> dict[str, str]:
     if existing:
         parts.append(existing)
     env["PYTHONPATH"] = os.pathsep.join(parts)
+    # 计划给的覆盖放在最后: 显式写死的值必须赢过调用者的环境。
+    for key, value in (extra or {}).items():
+        env[str(key)] = str(value)
     return env
 
 
@@ -286,16 +315,22 @@ def run_group(
     spec: GroupSpec,
     root: Path,
     timeout_s: float | None,
+    max_group_seconds: float | None = None,
 ) -> dict[str, Any]:
     """把一组当作独立子进程跑完, 返回它的索引条目。
 
     **失败不中断整轮**: 退出码非零记 ``failed``, 超时记 ``timeout``, 两种情况
     都继续跑下一组 —— 一组坏掉不该让后面几组陪葬。
 
+    **软预算不杀进程**: 跑完之后才比耗时, 超过 ``max_group_seconds`` 就记
+    ``over_budget``。杀掉一个正在测量的组会把那一组的测量写坏。
+
     Args:
         spec: 这一组的计划。
         root: 驱动自己的根目录 (组目录的缺省位置)。
         timeout_s: 单组超时 (s); ``None`` = 不限。
+        max_group_seconds: 单组的时长预算 (s); ``None`` = 不判。超了就记
+            ``over_budget``。
 
     Returns:
         索引条目 (字段见模块文档)。
@@ -318,6 +353,9 @@ def run_group(
         "out_dir": str(out_dir),
         "out_dir_exists": out_dir.is_dir(),
         "n_rows": None,
+        # 这一组的环境变量覆盖 (显式的曝光上限就在里面): 测量参数必须跟着
+        # 数据一起被记下来, 否则复现时不知道当时拍的是多少曝光上限。
+        "env": dict(spec.env),
     }
     print(f"[组] {spec.group} (自变量 {spec.variable or '?'}) -> {' '.join(argv)}",
           flush=True)
@@ -325,7 +363,7 @@ def run_group(
         completed = subprocess.run(  # noqa: S603 - 命令来自计划文件, 本来就要执行
             argv,
             cwd=str(ROOT),
-            env=build_env(),
+            env=build_env(spec.env),
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -349,6 +387,14 @@ def run_group(
     rows = _manifest_n_rows(base, spec.group)
     if rows is not None:
         record["n_rows"] = rows
+    # 软预算: 跑完之后才判 (不杀进程 —— 杀掉正在测量的组会把测量写坏)。
+    if (
+        max_group_seconds is not None
+        and record["status"] == "ok"
+        and float(record["duration_s"]) > float(max_group_seconds)
+    ):
+        record["status"] = "over_budget"
+        record["budget_s"] = float(max_group_seconds)
     print(f"[组] {spec.group}: {record['status']} "
           f"({record['duration_s']:.1f}s, exit={record['exit_code']})", flush=True)
     return record
@@ -444,8 +490,25 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--adopt-existing", action="append", nargs=2,
                         default=[], metavar=("GROUP", "DIR"),
                         help="把一个已完成的测量目录登记为这一组 (不重跑); 可重复")
-    parser.add_argument("--timeout-s", type=float, default=None,
-                        help="单组超时 (s); 不给 = 不限")
+    parser.add_argument(
+        "--timeout-s",
+        type=float,
+        default=600.0,
+        help=(
+            "单组硬超时 (s); 超时杀掉子进程并记 status=timeout。"
+            "默认 600 (10 分钟)。"
+        ),
+    )
+    parser.add_argument(
+        "--max-group-seconds",
+        type=float,
+        default=600.0,
+        help=(
+            "单组时长预算 (s); 跑完后超过预算就记 status=over_budget 并在汇总里"
+            "点名。**不杀进程** —— 杀掉正在测量的组会把那一组的测量写坏。"
+            "默认 600 (10 分钟)。"
+        ),
+    )
     return parser
 
 
@@ -467,6 +530,9 @@ def resolve_specs(
     Raises:
         ValueError: 某一组没有组名, 或 ``--only`` 指名的组不在计划里。
     """
+    plan_env = plan.get("env") or {}
+    if not isinstance(plan_env, dict):
+        raise ValueError("计划的 'env' 必须是对象")
     specs: list[GroupSpec] = []
     for raw in plan.get("groups", []):
         if not isinstance(raw, dict):
@@ -484,6 +550,11 @@ def resolve_specs(
                 meta={str(k): str(v) for k, v in raw_meta.items()},
                 script=str(raw.get("script", "") or ""),
                 args=[str(a) for a in (raw.get("args") or [])],
+                # 计划级的 env 是默认, 组级的 env 覆盖它。
+                env={
+                    **{str(k): str(v) for k, v in (plan_env or {}).items()},
+                    **{str(k): str(v) for k, v in (raw.get("env") or {}).items()},
+                },
             )
         )
     known = {s.group for s in specs}
@@ -546,6 +617,7 @@ def main(argv: list[str] | None = None) -> int:
                     "root": str(root),
                     "plan": str(args.plan),
                     "timeout_s": args.timeout_s,
+                    "max_group_seconds": args.max_group_seconds,
                     "groups": [
                         {
                             "group": s.group,
@@ -583,7 +655,7 @@ def main(argv: list[str] | None = None) -> int:
         if spec.adopted_dir:
             record = adopt_group(spec, Path(spec.adopted_dir))
         else:
-            record = run_group(spec, root, args.timeout_s)
+            record = run_group(spec, root, args.timeout_s, args.max_group_seconds)
         records.append(record)
         # 每组跑完立刻写 —— 整轮被强杀时, 已完成的组仍然在索引里。
         write_groups_manifest(
@@ -594,12 +666,29 @@ def main(argv: list[str] | None = None) -> int:
         root, records, plan_path=str(args.plan), created_utc=created_utc
     )
     failed = [r for r in records if r["status"] in ("failed", "timeout")]
+    over_budget = [r for r in records if r["status"] == "over_budget"]
+    longest = max(records, key=lambda r: float(r["duration_s"]), default=None)
     print(f"\n索引: {manifest_path}")
     for line in (
         f"{r['group']}: {r['status']} ({float(r['duration_s']):.1f}s)"
         for r in records
     ):
         print(f"  {line}")
+    if longest is not None:
+        print(
+            f"最长的一组: {longest['group']} 用了 {float(longest['duration_s']):.1f}s / "
+            f"预算 {float(args.max_group_seconds):.1f}s"
+        )
+    if over_budget:
+        # 点名: 超预算的组必须出现在汇总里, 否则「每组不超过 10 分钟」这条约束
+        # 就没有人盯着。
+        print(
+            f"超预算的组 ({len(over_budget)}): "
+            + ", ".join(
+                f"{r['group']} ({float(r['duration_s']):.1f}s)" for r in over_budget
+            ),
+            file=sys.stderr,
+        )
     if failed:
         print(f"有 {len(failed)} 组失败/超时 (其余组已照常完成并记录)", file=sys.stderr)
         return 1

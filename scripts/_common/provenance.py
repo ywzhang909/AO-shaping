@@ -86,22 +86,21 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
-    "report/zernike_coeff2amp/report.md": ReportProvenance(
+    "report/zernike_coeff2amp/zernike_coeff_report/report.md": ReportProvenance(
         script="scripts/ml/generate_zernike_coeff_report.py",
         command="python scripts/ml/generate_zernike_coeff_report.py",
         environment="离线",
         note="系数->远场前向网络: 数据/归一化闸门/18折文件级 + 5折目标级交叉验证/单折完整训练",
         extra_scripts=("scripts/ml/sweep_coeff_models.py",),
     ),
-    "report/zernike_coeff2amp/asm_vs_fraunhofer.md": ReportProvenance(
+    "report/zernike_coeff2amp/asm_vs_fraunhofer_report/asm_vs_fraunhofer.md": ReportProvenance(
         script="scripts/oopao/generate_asm_vs_fraunhofer_report.py",
         command="python scripts/oopao/generate_asm_vs_fraunhofer_report.py",
         environment="离线",
         note="角谱法与夫琅禾费 FFT 的分界: 2f 实验系统实测 ASM 返回传播光束而非远场; 含 Parseval/限带/平移约定与 GS 半阵列移位",
         extra_scripts=("tests/ao_shaping/algorithm/test_angular_spectrum.py",),
     ),
-
-    "report/inverse_shaping_unet/report.md": ReportProvenance(
+    "report/inverse_shaping_unet/inverse_shaping_report/report.md": ReportProvenance(
         script="scripts/ml/generate_inverse_shaping_report.py",
         command="python scripts/ml/generate_inverse_shaping_report.py",
         environment="离线",
@@ -109,7 +108,7 @@ REPORTS: dict[str, ReportProvenance] = {
         "平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; "
         "输入为 ml.shaping.train + ml.shaping.evaluate 的产物",
     ),
-    "report/inverse_shaping_unet/model.md": ReportProvenance(
+    "report/inverse_shaping_unet/inverse_shaping_model_report/model.md": ReportProvenance(
         script="scripts/ml/generate_inverse_shaping_model_report.py",
         command="python scripts/ml/generate_inverse_shaping_model_report.py",
         environment="离线",
@@ -128,13 +127,13 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="人工调研",
         note="2026-09 文献调研，非生成产物",
     ),
-    "report/benchmarks/cython_optimizer_performance.md": ReportProvenance(
+    "report/benchmarks/cython_optimizer_report/cython_optimizer_performance.md": ReportProvenance(
         script="scripts/dm/generate_cython_optimizer_report.py",
         command="python scripts/dm/generate_cython_optimizer_report.py",
         environment="离线",
         note="读 src/calculators/benchmark_results.json；同目录两张 speedup 图由本脚本生成",
     ),
-    "report/benchmarks/backend_kernels_performance.md": ReportProvenance(
+    "report/benchmarks/backend_kernels_report/backend_kernels_performance.md": ReportProvenance(
         script="scripts/generate_backend_kernels_report.py",
         command="python scripts/generate_backend_kernels_report.py",
         environment="离线",
@@ -146,26 +145,26 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="9 单元权威网格 (3 算法 x 3 target)；gif/ 为 6 个演化动画",
     ),
-    "report/centroid_test_visualization/centroid_test_report.md": ReportProvenance(
+    "report/centroid_test_visualization/centroid_test_visualization/centroid_test_report.md": ReportProvenance(
         script="scripts/slm/generate_centroid_test_visualization.py",
         command="python scripts/slm/generate_centroid_test_visualization.py",
         environment="离线",
         note="同目录 10 张 png 为本脚本产物",
     ),
-    "report/centroid_test_visualization/centroid_test_report_duplicate_run.md": ReportProvenance(
+    "report/centroid_test_visualization/centroid_test_visualization/centroid_test_report_duplicate_run.md": ReportProvenance(
         script="scripts/slm/generate_centroid_test_visualization.py",
         command="python scripts/slm/generate_centroid_test_visualization.py",
         environment="离线",
         note="同一次报告的更早一次运行，仅 Generated 时间戳不同；保留作对照，正式版见 centroid_test_report.md",
     ),
     # -- SLM 实验系统 ------------------------------------------------------------
-    "report/diff_beam/README.md": ReportProvenance(
+    "report/diff_beam/diff_beam_frame_analysis/README.md": ReportProvenance(
         script="scripts/slm/diff_beam_frame_analysis.py",
         command="python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts> --plot",
         environment="离线+硬件",
         note="正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物",
     ),
-    "report/slm/focus_plane_20261019.md": ReportProvenance(
+    "report/slm/focus_plane_report/focus_plane_20261019.md": ReportProvenance(
         script="scripts/slm/generate_focus_plane_report.py",
         command="python scripts/slm/generate_focus_plane_report.py",
         environment="离线",
@@ -183,18 +182,18 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="SLM 相位生成链路审计 + 矫正效果根因分析；数据由 zernike-matrix 闭环产生",
     ),
-    "report/slm/report3.md": ReportProvenance(
+    "report/slm/zernike_response_matrix_report/report3.md": ReportProvenance(
         script="scripts/zernike_bench/generate_zernike_response_matrix_report.py",
         command="python scripts/zernike_bench/generate_zernike_response_matrix_report.py",
         environment="离线",
         note="2026-09-16 响应矩阵重标测试报告",
     ),
-    "report/slm/daily_2026-09-08.md": ReportProvenance(
+    "report/slm/daily/daily_2026-09-08.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="SLM 硬件调试日报",
     ),
-    "report/slm/daily_2026-09-15.md": ReportProvenance(
+    "report/slm/daily/daily_2026-09-15.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="硬件实验日报；引用的两个 generate_* 脚本见当日记录",
@@ -203,18 +202,18 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/zernike_bench/generate_zernike_wfs_report.py",
         ),
     ),
-    "report/slm/daily_2026-09-16.md": ReportProvenance(
+    "report/slm/daily/daily_2026-09-16.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="硬件实验日报",
         extra_scripts=("scripts/zernike_bench/wfs_probe.py",),
     ),
-    "report/slm/bench_calibration_20261001.md": ReportProvenance(
+    "report/slm/bench/bench_calibration_20261001.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="SLM #1 + 大恒 2f 实验系统实测标定记录",
     ),
-    "report/slm/model_in_loop_bench_calibration.md": ReportProvenance(
+    "report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md": ReportProvenance(
         script="scripts/slm/model_in_loop_hw_runbook.py",
         command="python scripts/slm/model_in_loop_hw_runbook.py --stage all --target-cam-px 40",
         environment="硬件",
@@ -283,7 +282,7 @@ REPORTS: dict[str, ReportProvenance] = {
         note="微驱动器频率测试记录；images/freq_test/ 为同期截图",
     ),
     # -- FourierGSNet --------------------------------------------------------
-    "report/fouriergsnet_pipeline/report.md": ReportProvenance(
+    "report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md": ReportProvenance(
         script="scripts/slm/generate_fouriergsnet_pipeline_report.py",
         command="python scripts/slm/generate_fouriergsnet_pipeline_report.py",
         environment="离线",
@@ -301,7 +300,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="读 data/gsnet_train/run-*/summary.json",
     ),
-    "report/fouriergsnet_sim/report.md": ReportProvenance(
+    "report/fouriergsnet_sim/fouriergsnet_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_fouriergsnet_sim_report.py",
         command="python scripts/slm/generate_fouriergsnet_sim_report.py",
         environment="离线",
@@ -312,19 +311,19 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     # -- 优化器基准 / PIB --------------------------------------------------
-    "report/heuristic_pib/report.md": ReportProvenance(
+    "report/heuristic_pib/heuristic_pib_report/report.md": ReportProvenance(
         script="scripts/slm/generate_heuristic_pib_report.py",
         command="python scripts/slm/generate_heuristic_pib_report.py",
         environment="离线",
         note="7 种启发式 + PIB 目标；summary.csv 为本脚本产物",
     ),
-    "report/strehl_benchmark/report.md": ReportProvenance(
+    "report/strehl_benchmark/strehl_benchmark_report/report.md": ReportProvenance(
         script="scripts/slm/generate_strehl_benchmark_report.py",
         command="python scripts/slm/generate_strehl_benchmark_report.py",
         environment="离线",
         note="8 种算法 + Strehl 目标；交叉对比 heuristic_pib/summary.csv",
     ),
-    "report/slm_pib_bench/EXPERIMENT_REPORT.md": ReportProvenance(
+    "report/slm_pib_bench/pib_bench_report/EXPERIMENT_REPORT.md": ReportProvenance(
         script="scripts/slm/generate_pib_bench_report.py",
         command="python scripts/slm/generate_pib_bench_report.py",
         environment="离线",
@@ -334,87 +333,87 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/measure_shape_sensitivity.py",
         ),
     ),
-    "report/slm_pib_bench/report.md": ReportProvenance(
+    "report/slm_pib_bench/pib_bench_report/report.md": ReportProvenance(
         script="scripts/slm/generate_pib_bench_report.py",
         command="python scripts/slm/generate_pib_bench_report.py",
         environment="离线",
         note="离线分析报告 (噪声地板 / 门控 / best-vs-sustained)",
     ),
-    "report/slm_pib_bench/delta_scan.md": ReportProvenance(
+    "report/slm_pib_bench/explore_delta/delta_scan.md": ReportProvenance(
         script="scripts/slm/explore_delta.py",
         command="python scripts/slm/explore_delta.py",
         environment="硬件",
         note="SPGD delta 扫描 (实验)",
     ),
-    "report/slm_pib_bench/delta_scan_large.md": ReportProvenance(
+    "report/slm_pib_bench/explore_delta/delta_scan_large.md": ReportProvenance(
         script="scripts/slm/explore_delta.py",
         command="python scripts/slm/explore_delta.py",
         environment="硬件",
         note="delta 大范围扫描 (实验)",
     ),
-    "report/slm_pib_bench/delta_scan_small.md": ReportProvenance(
+    "report/slm_pib_bench/explore_delta/delta_scan_small.md": ReportProvenance(
         script="scripts/slm/explore_delta.py",
         command="python scripts/slm/explore_delta.py",
         environment="硬件",
         note="delta 小范围扫描 (实验)",
     ),
-    "report/slm_pib_heuristic_hw/report.md": ReportProvenance(
+    "report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_heuristic_hw_report.py",
         command="python scripts/slm/generate_slm_pib_heuristic_hw_report.py",
         environment="硬件",
         note="实验系统基准 (Santec SLM-200 + 大恒 MER2-507)；figures/ + summary.csv 为本脚本产物",
     ),
-    "report/slm_pib_heuristic_hw/sensitivity.md": ReportProvenance(
+    "report/slm_pib_heuristic_hw/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
         script="scripts/slm/measure_shape_sensitivity.py",
         command="python scripts/slm/measure_shape_sensitivity.py",
         environment="硬件",
         note="整形目标函数灵敏度 (噪声地板) 实测；测量内核已下沉到 tools/slm/slm_snr_probe.py",
     ),
-    "report/slm_pib_online/report.md": ReportProvenance(
+    "report/slm_pib_online/slm_pib_online_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_online_report.py",
         command="python scripts/slm/generate_slm_pib_online_report.py",
         environment="离线",
         note="在线回归套件验收报告 (读 data/debug/slm_pib_online/)",
     ),
-    "report/slm_pib_online/objective_comparison.md": ReportProvenance(
+    "report/slm_pib_online/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
     ),
-    "report/slm_pib_online/sensitivity.md": ReportProvenance(
+    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
         script="scripts/slm/measure_shape_sensitivity.py",
         command="python scripts/slm/measure_shape_sensitivity.py",
         environment="硬件",
         note="整形目标函数灵敏度 (噪声地板) 实测",
     ),
-    "report/slm_pib_online_hw/objective_comparison.md": ReportProvenance(
+    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
         script="scripts/slm/generate_shape_objective_comparison.py",
         command="python scripts/slm/generate_shape_objective_comparison.py",
         environment="离线",
         note="实验系统帧上的目标函数排序对比",
     ),
-    "report/slm_pib_sim/report.md": ReportProvenance(
+    "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
         command="python scripts/slm/generate_slm_pib_sim_report.py",
         environment="离线",
         note="2f-Fourier 数字孪生跑 slm-pib；数据由 slm_pib_sim_run.py 产生",
         extra_scripts=("scripts/slm/slm_pib_sim_run.py",),
     ),
-    "report/slm_shaping_sim/report.md": ReportProvenance(
+    "report/slm_shaping_sim/slm_shaping_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_shaping_sim_report.py",
         command="python scripts/slm/generate_slm_shaping_sim_report.py",
         environment="离线",
         note="SLM+CCD 整形仿真: 三个 SLM 族 runner 的收敛与 DM 族烟测对照",
         extra_scripts=("scripts/slm/run_sim_bench.py",),
     ),
-    "report/slm_pib_shape_50px/report.md": ReportProvenance(
+    "report/slm_pib_shape_50px/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
         command="python scripts/slm/generate_slm_pib_sim_report.py",
         environment="离线",
         note="50px target 的仿真运行报告",
     ),
-    "report/slm_zernike_shaping/report.md": ReportProvenance(
+    "report/slm_zernike_shaping/slm_zernike_shaping_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_zernike_shaping_report.py",
         command="python scripts/slm/generate_slm_zernike_shaping_report.py",
         environment="离线",
@@ -426,7 +425,7 @@ REPORTS: dict[str, ReportProvenance] = {
         note="PIB 优化器功能说明 (非实验测量)",
     ),
     # -- ML / 模型 ----------------------------------------------------------
-    "report/models_analysis/report.md": ReportProvenance(
+    "report/models_analysis/models_report/report.md": ReportProvenance(
         script="scripts/rl/generate_models_report.py",
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
@@ -437,13 +436,13 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="传统 AO 仿真环境 reward 问题分析与解决",
     ),
-    "report/models_analysis/tmp_sac_run_showcase.md": ReportProvenance(
+    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
         script="scripts/rl/generate_models_report.py",
         command="python scripts/rl/generate_models_report.py",
         environment="离线",
         note="临时调试 run 的成果展示",
     ),
-    "report/zernike_phase2amp/report.md": ReportProvenance(
+    "report/zernike_phase2amp/zernike_amp_report/report.md": ReportProvenance(
         script="scripts/ml/generate_zernike_amp_report.py",
         command="python scripts/ml/generate_zernike_amp_report.py",
         environment="离线",
@@ -453,14 +452,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/compare_models_cv.py",
         ),
     ),
-    "report/zernike_phase2amp/unet_comparison.md": ReportProvenance(
+    "report/zernike_phase2amp/models_cv/unet_comparison.md": ReportProvenance(
         script="scripts/ml/compare_models_cv.py",
         command="python scripts/ml/compare_models_cv.py --analyse",
         environment="离线",
         note="grouped CV 对比 (physics / hybrid / unet) 的原始对照表",
         extra_scripts=("scripts/ml/compare_unet_baseline.py",),
     ),
-    "report/zernike_r2_baseline/report.md": ReportProvenance(
+    "report/zernike_r2_baseline/pod_ridge/report.md": ReportProvenance(
         script="scripts/ml/diagnose_pod_ridge.py",
         command=(
             "python scripts/ml/diagnose_pod_ridge.py --k 4 8 16 32 64 128 256 "
@@ -481,7 +480,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
     ),
     # -- 硬件调试语料统计 (hwdataset) ----------------------------------------
-    "report/hwdataset_corpus/report.md": ReportProvenance(
+    "report/hwdataset_corpus/hwdataset_corpus_report/report.md": ReportProvenance(
         script="scripts/ml/generate_hwdataset_corpus_report.py",
         command="python scripts/ml/generate_hwdataset_corpus_report.py",
         environment="离线",
@@ -502,25 +501,25 @@ REPORTS: dict[str, ReportProvenance] = {
         note="SAC 训练报告 (2026-01-09)",
     ),
     # -- 仿真 / 其它 --------------------------------------------------------
-    "report/zernike_farfield_sim/report.md": ReportProvenance(
+    "report/zernike_farfield_sim/zernike_farfield_sim_report/report.md": ReportProvenance(
         script="scripts/zernike_bench/generate_zernike_farfield_sim_report.py",
         command="python scripts/zernike_bench/generate_zernike_farfield_sim_report.py",
         environment="离线",
         note="Noll 4-15 各模式远场形貌仿真；metrics.csv 为本脚本产物",
     ),
-    "report/oopao_vs_numpy/report.md": ReportProvenance(
+    "report/oopao_vs_numpy/oopao_vs_numpy_report/report.md": ReportProvenance(
         script="scripts/oopao/generate_oopao_vs_numpy_report.py",
         command="python scripts/oopao/generate_oopao_vs_numpy_report.py",
         environment="离线",
         note="像差 x 湍流 12 场景 x 2 后端对比",
     ),
-    "report/oopao_impact/report.md": ReportProvenance(
+    "report/oopao_impact/oopao_impact_report/report.md": ReportProvenance(
         script="scripts/oopao/generate_oopao_impact_report.py",
         command="python scripts/oopao/generate_oopao_impact_report.py",
         environment="离线",
         note="端到端 AO 环境下的后端影响",
     ),
-    "report/miicam_simulation/miicam_report.md": ReportProvenance(
+    "report/miicam_simulation/test_miicam_simulation_report/miicam_report.md": ReportProvenance(
         script="tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
         command="python -m pytest tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
         environment="离线",
@@ -552,7 +551,7 @@ REPORTS: dict[str, ReportProvenance] = {
     "report/sim_tue_methods/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
-        note='本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的四项能力（系统松弛 / 混合拟合 / 低参数 vs 深度 / 样本查询与不确定性采样），并与 `shape_trials` 的实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2/T4 定量表由本目录 `t1_noise_relaxation.py`、`t2_mixed_fitting.py`、`t4_uncertainty_sampling.py` 生成（`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，1064 nm 实际光路)；不触碰硬件写入路径',
+        note="本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的四项能力（系统松弛 / 混合拟合 / 低参数 vs 深度 / 样本查询与不确定性采样），并与 `shape_trials` 的实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2/T4 定量表由本目录 `t1_noise_relaxation.py`、`t2_mixed_fitting.py`、`t4_uncertainty_sampling.py` 生成（`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，1064 nm 实际光路)；不触碰硬件写入路径",
     ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
     "report/benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md": ReportProvenance(
@@ -619,7 +618,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/freeform_vs_zernike.py",
         ),
     ),
-    "report/loss_defects/forward_search_report.md": ReportProvenance(
+    "report/loss_defects/forward_search_report/forward_search_report.md": ReportProvenance(
         script="scripts/ml/generate_forward_search_report.py",
         command="python scripts/ml/forward_search.py && python scripts/ml/generate_forward_search_report.py",
         environment="离线",
@@ -631,7 +630,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/ml/check_ellipse_term.py",
         ),
     ),
-    "report/loss_defects/inverse_design_report.md": ReportProvenance(
+    "report/loss_defects/inverse_design_report/inverse_design_report.md": ReportProvenance(
         script="scripts/ml/generate_inverse_design_report.py",
         command="python scripts/ml/generate_inverse_design_report.py",
         environment="离线",
@@ -648,7 +647,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "公式体系与结论, 供脱离硬件复现"
         ),
     ),
-    "report/shape_trials/gs_refine_fwdmodel_calibration.md": ReportProvenance(
+    "report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md": ReportProvenance(
         script="scripts/slm/generate_gs_refine_fwdmodel_report.py",
         command="python scripts/slm/generate_gs_refine_fwdmodel_report.py",
         environment="离线+硬件",
@@ -657,7 +656,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "补零扫描与频率响应负结果；数字来自 data/debug/slm_gs_refine/ 的实测产物"
         ),
     ),
-    "report/shape_trials/gs_refine_zernike_uniformity.md": ReportProvenance(
+    "report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md": ReportProvenance(
         script="scripts/slm/generate_gs_refine_zernike_report.py",
         command="python scripts/slm/generate_gs_refine_zernike_report.py",
         environment="离线",
@@ -668,7 +667,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/run_gs_refine_zernike_sweep.py",),
     ),
-    "report/shape_trials/gs_refine_zernike_hardware_plan.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -682,7 +681,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_gs_refine_zernike_report.py",
         ),
     ),
-    "report/shape_trials/gs_refine_zernike_hardware_plan.issue.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.issue.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -691,7 +690,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "记录仿真已确立的硬件无关结论与仿真天花板、合并上游 #140 的基线变化、复现性边界"
         ),
     ),
-    "report/shape_trials/gui_closed_loop_shaping_20261014.md": ReportProvenance(
+    "report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md": ReportProvenance(
         script="scripts/generate_gui_shaping_hw_report.py",
         command="python scripts/generate_gui_shaping_hw_report.py",
         environment="离线",
@@ -705,7 +704,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_shape_trial_profiles.py",
         ),
     ),
-    "report/shape_trials/gs_issue_live_20261015.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gs_issue_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -719,7 +718,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
-    "report/shape_trials/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_uniformity_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -736,7 +735,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/utils/image/exposure_control.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_live_20261019.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261019.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note=(
@@ -754,7 +753,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_shape_trial_profiles.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_live_20261016.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note=(
@@ -772,7 +771,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "src/ao_shaping/tools/slm/model_in_loop_replay.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_live_20261015.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -786,7 +785,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/check_flat_stability.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_live_20261014.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261014.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-14 正向模型闭环实验复核（exp/model-in-loop-20261014 worktree）；"
@@ -795,7 +794,7 @@ REPORTS: dict[str, ReportProvenance] = {
         "generate_shape_trial_profiles.py 从记录的原始 CCD 帧重新生成",
         extra_scripts=("scripts/slm/generate_shape_trial_profiles.py",),
     ),
-    "report/shape_trials/model_in_loop_live_20261013.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-13 正向模型闭环整形实验记录；Step A (Zernike 校准 + NNLS) → Step B (SPGD + Adam) 双路径架构；images/ 动画由 generate_gif_from_pkl.py 渲染",
@@ -804,22 +803,22 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_shape_trial_profiles.py",
         ),
     ),
-    "report/shape_trials/model_in_loop_next_steps_20261013.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_next_steps_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-13 正向模型闭环暂停后续步骤记录",
     ),
-    "report/shape_trials/model_in_loop_pause_handoff_20261013.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/model_in_loop_pause_handoff_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note="2026-10-13 正向模型闭环暂停交接记录；当前状态、证据、工程变更摘要",
     ),
-    "report/shape_trials/gsnet_hybrid_offline_20261013.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gsnet_hybrid_offline_20261013.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",
         note="2026-10-13 GSNet 混合瞳面相位离线验证；8 阶 Zernike + 可训练残差参数化合成验证",
     ),
-    "report/shape_trials/sim_metrics_waves.md": ReportProvenance(
+    "report/shape_trials/gs_refine/sim_metrics_waves.md": ReportProvenance(
         script=HANDWRITTEN,
         command=(
             "python -m pytest tests/ao_shaping/utils/test_beam_metrics.py "
@@ -841,7 +840,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "gs_golden_reference.md"
         ),
     ),
-    "report/shape_trials/online_recal_efficiency.md": ReportProvenance(
+    "report/shape_trials/online_recal_efficiency/online_recal_efficiency.md": ReportProvenance(
         script="scripts/slm/generate_online_recal_efficiency_report.py",
         command="python scripts/slm/generate_online_recal_efficiency_report.py",
         environment="离线",
@@ -852,7 +851,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "§7 为提案, 本报告不含任何新测量"
         ),
     ),
-    "report/shape_trials/fast_recal_adapter.md": ReportProvenance(
+    "report/shape_trials/fast_recal_adapter/fast_recal_adapter.md": ReportProvenance(
         script="scripts/ml/exp_fast_recal_adapter_report.py",
         command=(
             "python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8 "
@@ -865,9 +864,9 @@ REPORTS: dict[str, ReportProvenance] = {
             "sign-flip 精确检验; 判据只用 corr/R2/光斑域, 不用 MSE/PSNR/SSIM; "
             "数据为仿真, 非实验系统实测"
         ),
-        extra_scripts=("scripts/slm/exp_fast_recal_adapter.py",)
+        extra_scripts=("scripts/slm/exp_fast_recal_adapter.py",),
     ),
-    "report/shape_trials/gs_golden_reference.md": ReportProvenance(
+    "report/shape_trials/gs_golden_reference/gs_golden_reference.md": ReportProvenance(
         script="scripts/slm/generate_gs_golden_reference.py",
         command="python scripts/slm/generate_gs_golden_reference.py",
         environment="离线",
@@ -878,7 +877,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "ao_shaping.utils.image.beam_metrics; GS 是对照而非基线 —— 实验记录为 GS 输给平相"
         ),
     ),
-    "report/shape_trials/model_in_loop_cv.md": ReportProvenance(
+    "report/shape_trials/model_in_loop_cv/model_in_loop_cv.md": ReportProvenance(
         script="scripts/slm/generate_model_in_loop_cv_report.py",
         command="python scripts/slm/generate_model_in_loop_cv_report.py",
         environment="离线",
@@ -906,20 +905,20 @@ REPORTS: dict[str, ReportProvenance] = {
         note="响应矩阵采集现场截图记录 (image/capture/)",
     ),
     # -- loss 算法对比 (compare_loss_algorithms.py 的 --out 家族) -----------
-    "report/loss_algorithms/report.md": ReportProvenance(
+    "report/loss_algorithms/loss_algorithms_smoke/loss_algorithms/report.md": ReportProvenance(
         script="scripts/ml/compare_loss_algorithms.py",
         command="python scripts/ml/compare_loss_algorithms.py",
         environment="离线",
         note="默认 --out 落点；summary.csv / summary.json / summary.png 为本脚本产物",
     ),
-    "report/loss_algorithms_smoke/report.md": ReportProvenance(
+    "report/loss_algorithms_smoke/loss_algorithms/report.md": ReportProvenance(
         script="scripts/ml/compare_loss_algorithms.py",
         command="python scripts/ml/compare_loss_algorithms.py --quick --out report/loss_algorithms_smoke",
         environment="离线",
         note="测试用例跑 --quick 生成的冒烟版本",
     ),
     # -- shape trials ---------------------------------------------------------
-    "report/shape_trials/uncertainty_probe_hw_20261016.md": ReportProvenance(
+    "report/shape_trials/model_in_loop/uncertainty_probe_hw_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note=(
@@ -934,7 +933,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/verify_uncertainty_probes_hw.py",
         ),
     ),
-    "report/shape_trials/gs_uniformity_live_20261015.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gs_uniformity_live_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note=(
@@ -945,7 +944,7 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         extra_scripts=("scripts/slm/gs_uniformity_probe.py",),
     ),
-    "report/shape_trials/zero_order_blaze_20261015.md": ReportProvenance(
+    "report/shape_trials/gs_refine/zero_order_blaze_20261015.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
         note=(
@@ -960,13 +959,13 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note="方斑整形实验对比试验索引；各次试验的目录与结论由此汇总",
     ),
-    "report/shape_trials/gs_refine_live_20261012.md": ReportProvenance(
+    "report/shape_trials/gs_refine/gs_refine_live_20261012.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="GS 重构后实验调试正文为人工实测记录 (SLM 23020027 + 大恒 CCD)；"
         "交错重放入口 scripts/slm/replay_gs_refine_hw.py 仅离线部分经测试",
     ),
-    "report/shape_trials/gs_defocus_sim_20261019.md": ReportProvenance(
+    "report/shape_trials/gs_defocus_sim/gs_defocus_sim_20261019.md": ReportProvenance(
         script="scripts/slm/generate_gs_defocus_sim_report.py",
         command="python scripts/slm/generate_gs_defocus_sim_report.py",
         environment="离线",
@@ -985,7 +984,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/experiment_gs_improved.py",
         ),
     ),
-    "report/shape_trials/hw_defocus_zernike_20261020.md": ReportProvenance(
+    "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md": ReportProvenance(
         script="scripts/slm/generate_hw_defocus_zernike_report.py",
         command=(
             "python scripts/slm/generate_hw_defocus_zernike_report.py "
@@ -1010,7 +1009,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
-    "report/shape_trials/hw_defocus_zernike_20261021.md": ReportProvenance(
+    "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021.md": ReportProvenance(
         script="scripts/slm/generate_hw_defocus_zernike_report.py",
         command=(
             "python scripts/slm/generate_hw_defocus_zernike_report.py "
@@ -1034,7 +1033,7 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
-    "report/shape_trials/online_20261010.md": ReportProvenance(
+    "report/shape_trials/gs_refine/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
         note="2026-10-10 在线复测正文为人工实测记录 (SLM 22030108 + 大恒 CCD "

@@ -24,7 +24,7 @@ Reproduce with `python -m ml.zernike.train_amp` plus the panels described below.
 Absolute R² is **not** comparable across runs — see "Noise floor" at the end.
 
 > **Sections 1–7 constitute the forward/loss investigation. The inverse (shaping) investigation is a
-> separate, longer record in [`PROCESS.md`](PROCESS.md)** — 16 numbered attempts, of
+> separate, longer record in [`PROCESS.md`](./PROCESS.md)** — 16 numbered attempts, of
 > which **four headline conclusions were retracted**: three when the evaluator's ROI
 > geometry was swept, and one more when the evaluator itself was found to have been
 > cropping the wrong region of the far field. **That last one invalidated every
@@ -252,7 +252,7 @@ were reversed during this hunt — is inside that band.
 
 ## 8. INVERSE DESIGN — re-measured on the corrected evaluator
 
-Summarised from [`PROCESS.md`](PROCESS.md) for the reader who does not need the full
+Summarised from [`PROCESS.md`](./PROCESS.md) for the reader who does not need the full
 16-attempt record. **Inverse design here means: synthesise a Zernike phase that
 shapes the far field, then score the result on an independent simulator
 (`SimPibSystem`, separate numpy FFT and illumination model) so the model never

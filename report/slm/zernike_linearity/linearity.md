@@ -56,9 +56,9 @@
 
 **结论: 25/28 组合成比例** (0 个弱耦合/噪声受限, 3 个不成比例)
 
-![response vs amplitude](figures/01_response_vs_amplitude.png)
+![response vs amplitude](./figures/01_response_vs_amplitude.png)
 
-![ratio and r2](figures/02_ratio_r2.png)
+![ratio and r2](./figures/02_ratio_r2.png)
 
 | 模式 | R(px) | diag A=2 | diag A=5 | diag A=10 | A10/A2 (期望5) | R² | CV(%) | 基线(λ) | SNR | 判定 |
 |---|---|---|---|---|---|---|---|---|---|---|

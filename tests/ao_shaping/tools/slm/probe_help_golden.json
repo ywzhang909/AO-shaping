@@ -448,6 +448,7 @@
       "--cam-type",
       "--centre-x",
       "--centre-y",
+      "--debug-dir",
       "--diopter-range",
       "--exposure-ms",
       "--frames",
@@ -458,12 +459,13 @@
       "--slm-wavelength",
       "--steps"
     ],
-    "help": "Usage: python -m ao_shaping.tools.slm.panel.focus_probe [OPTIONS]\n\n  在 plain 相位上扫描菲涅尔焦距，找让焦面回到相机的 1/f。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       起始曝光 ms (默认 0.1，每个点会自动调整)\n  --radius-px FLOAT         照明半径 面板px (默认 450)\n  --centre-x FLOAT          入射中心 x 面板px (默认面板中心)\n  --centre-y FLOAT          入射中心 y 面板px (默认面板中心)\n  --steps INTEGER           粗扫点数 (默认 25，含平场)\n  --diopter-range FLOAT     粗扫 1/f 半宽 m⁻¹ (默认 6.0)\n  --refine INTEGER          最优点附近的细扫点数 (默认 7)\n  --frames INTEGER          每点平均帧数 (默认 3)\n  --max-exposure-ms FLOAT   曝光上限 ms (默认 20)\n  --help                    Show this message and exit.",
+    "help": "Usage: python -m ao_shaping.tools.slm.panel.focus_probe [OPTIONS]\n\n  在 plain 相位上扫描菲涅尔焦距，找让焦面回到相机的 1/f。\n\nOptions:\n  --slm-number INTEGER      SLM 设备编号 (默认 1)\n  --slm-wavelength INTEGER  SLM 波长 nm (默认 1064)\n  --cam-type TEXT           相机类型 (daheng/miicam, 默认 daheng)\n  --cam-id INTEGER          相机 ID (默认 0)\n  --exposure-ms FLOAT       起始曝光 ms (默认 0.1，每个点会自动调整)\n  --radius-px FLOAT         照明半径 面板px (默认 450)\n  --centre-x FLOAT          入射中心 x 面板px (默认面板中心)\n  --centre-y FLOAT          入射中心 y 面板px (默认面板中心)\n  --steps INTEGER           粗扫点数 (默认 25，含平场)\n  --diopter-range FLOAT     粗扫 1/f 半宽 m⁻¹ (默认 6.0)\n  --refine INTEGER          最优点附近的细扫点数 (默认 7)\n  --frames INTEGER          每点平均帧数 (默认 3)\n  --max-exposure-ms FLOAT   曝光上限 ms (默认 20)\n  --debug-dir TEXT          证据文件落盘目录 (默认 data/debug/bench_settings/focus_probe\n                            )。下一轮把本轮的标定证据放进一个**专属目录**, 报告才不会读到另一次上机留下的证据\n  --help                    Show this message and exit.",
     "help_flags": [
       "--cam-id",
       "--cam-type",
       "--centre-x",
       "--centre-y",
+      "--debug-dir",
       "--diopter-range",
       "--exposure-ms",
       "--frames",

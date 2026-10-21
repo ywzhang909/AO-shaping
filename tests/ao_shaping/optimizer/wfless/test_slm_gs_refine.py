@@ -99,6 +99,37 @@ def _fast_config(**overrides) -> SlmGsRefineConfig:
     return SlmGsRefineConfig(**base)
 
 
+#: 数字孪生在预算测试里缩到的面板尺寸 (h, w)。真实面板 1200x1920 的一次远场
+#: FFT 要 ~0.6 GB, 而预算测试根本不需要那么大的画面。
+SMALL_PANEL = (120, 192)
+
+
+@pytest.fixture
+def small_sim_bench(monkeypatch):
+    """把数字孪生缩到 120x192, 并在测试后把进程级 system 原样还原。
+
+    进程级 system 是**全局**的: 不还原的话, 后面的测试会拿到缩小面板的孪生,
+    而它们读的仍是 1200x1920 的面板形状, 于是相位形状对不上直接报错。
+    """
+    import ao_shaping.drivers.sim.slm_pib_sim as sim
+    from ao_shaping.optimizer.wfless import slm_gs_refine as gsr
+
+    class _SmallSystem(sim.SimPibSystem):
+        def __init__(self, *args, **kwargs):
+            kwargs.setdefault("slm_shape", SMALL_PANEL)
+            kwargs.setdefault("beam_w0", 40.0)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(sim, "SimPibSystem", _SmallSystem)
+    monkeypatch.setattr(gsr, "panel_shape_from_slm", lambda slm: SMALL_PANEL)
+    saved = sim._SYSTEM  # noqa: SLF001 - 进程级单例, 只能这样还原
+    sim.reset_system(seed=0)
+    try:
+        yield
+    finally:
+        sim._SYSTEM = saved  # noqa: SLF001
+
+
 # ---------------------------------------------------------------------------
 # Geometry helpers
 # ---------------------------------------------------------------------------
@@ -589,6 +620,33 @@ class TestEndToEndSim:
         monkeypatch.setattr(slm_pib_sim.SimPibCCD, "close", spy)
         optimize_slm_gs_refine(_fast_config(epochs=1))
         assert closed
+
+    def test_time_budget_cuts_the_run_short(self, small_sim_bench):
+        """预算极小 ⇒ 精化提前收工, 但仍留下一份可用的最佳相位。
+
+        「一次扫描不超过 10 分钟」这条约束必须由配置保证, 而不是靠掐表掐进程,
+        所以截断必须是**提前收工**而不是崩溃, 而且已经拿到的最佳相位不能丢。
+        """
+        rec = optimize_slm_gs_refine(_fast_config(epochs=5, time_budget_s=1e-6))
+
+        assert rec.epochs_executed < 5
+        assert rec.stopped_on_budget is True
+        assert rec.best_phase is not None
+        assert rec.best_phase.shape == SMALL_PANEL
+        assert np.isfinite(rec.best_phase).all()
+        # 记录器里能看出实际跑了多少 epoch: 精化行数与计数一致。
+        refine_rows = [r for r in rec.history if r["stage"] == "refine"]
+        assert len(refine_rows) == rec.epochs_executed
+
+    def test_generous_budget_runs_every_epoch(self, small_sim_bench):
+        rec = optimize_slm_gs_refine(_fast_config(epochs=3, time_budget_s=3600.0))
+
+        assert rec.epochs_executed == 3
+        assert rec.stopped_on_budget is False
+
+    def test_negative_time_budget_is_rejected(self):
+        with pytest.raises(ValueError, match="time_budget_s"):
+            SlmGsRefineConfig(time_budget_s=-1.0)
 
     def test_hardware_window_centers_on_full_frame_peak(self, monkeypatch):
         from ao_shaping.optimizer.wfless import slm_gs_refine as module

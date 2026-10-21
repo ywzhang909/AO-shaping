@@ -12,9 +12,9 @@ CSV/JSON)，本脚本只负责 (a) 读表、(b) 渲染 5 张静态图 + 1 张复
 **不打开任何设备。**
 
 产物:
-    report/shape_trials/gs_defocus_sim_20261019.md
-    report/shape_trials/figures/fig_gs_defocus_*.png
-    report/shape_trials/images/gs_defocus_sim_*.gif
+    report/shape_trials/gs_defocus_sim/gs_defocus_sim_20261019.md
+    report/shape_trials/gs_defocus_sim/figures/fig_gs_defocus_*.png
+    report/shape_trials/gs_defocus_sim/images/gs_defocus_sim_*.gif
 
 运行::
 
@@ -61,23 +61,26 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E40
     make_square_target,
 )
 
-REPORT_KEY = "report/shape_trials/gs_defocus_sim_20261019.md"
-ART = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/gs_defocus_sim/gs_defocus_sim_20261019.md"
+ART = ROOT / "report" / "shape_trials" / "gs_defocus_sim"
 FIG_DIR = ART / "figures"
 GIF_DIR = ART / "images"
+#: 四个上游实验脚本的原始产物 (CSV/JSON/PNG) —— 它们是本报告的**输入契约**,
+#: 位于本目录的 ``artifacts/`` 子目录。
+ARTE_DIR = ART / "artifacts"
 
 #: 已落盘的产物 (全部由那四个实验脚本写出; 本脚本只读)
 ARTEFACTS = {
-    "offocus_json": ART / "summary.json",
-    "sweep_json": ART / "summary_defocus_sweep_visuals.json",
-    "fresnel_json": ART / "summary_fresnel_vs_vl.json",
-    "improved_json": ART / "summary_gs_improved_improved.json",
-    "fv_groups_csv": ART / "fv_groups_fresnel_vs_vl.csv",
-    "fv_equiv_csv": ART / "fv_equivalence_fresnel_vs_vl.csv",
-    "scheme_gap_csv": ART / "scheme_gap_dz0_50mm_visuals.csv",
-    "imp_groups_csv": ART / "imp_groups_improved.csv",
-    "imp_halo_csv"  : ART / "imp_halo_improved.csv",
-    "e1_heatmap_png": ART / "e1_cv_heatmap.png",
+    "offocus_json": ARTE_DIR / "summary.json",
+    "sweep_json": ARTE_DIR / "summary_defocus_sweep_visuals.json",
+    "fresnel_json": ARTE_DIR / "summary_fresnel_vs_vl.json",
+    "improved_json": ARTE_DIR / "summary_gs_improved_improved.json",
+    "fv_groups_csv": ARTE_DIR / "fv_groups_fresnel_vs_vl.csv",
+    "fv_equiv_csv": ARTE_DIR / "fv_equivalence_fresnel_vs_vl.csv",
+    "scheme_gap_csv": ARTE_DIR / "scheme_gap_dz0_50mm_visuals.csv",
+    "imp_groups_csv": ARTE_DIR / "imp_groups_improved.csv",
+    "imp_halo_csv"  : ARTE_DIR / "imp_halo_improved.csv",
+    "e1_heatmap_png": ARTE_DIR / "e1_cv_heatmap.png",
 }
 
 #: 四个上游实验脚本: 确切命令 (默认写到 ``report/shape_trials/``) + 大致耗时。
@@ -1146,7 +1149,7 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
 | [`fig_gs_defocus_scheme_a_vs_chirp.png`](figures/fig_gs_defocus_scheme_a_vs_chirp.png) | 边界 (a): 方案A vs 瞳面二次相位的相对误差（标出 20 mm） |
 | [`fig_gs_defocus_halo_wraparound.png`](figures/fig_gs_defocus_halo_wraparound.png) | 边界 (b): 晕斑峰值与几何回绕比（标出 0.5 阈值） |
 | [`fig_gs_defocus_zeroth_h0_h4_cv_box.png`](figures/fig_gs_defocus_zeroth_h0_h4_cv_box.png) | 零级组 H0–H4 的 cv_box vs Δz 与可信区柱状对照 |
-| [`fig_gs_defocus_e1_cv_heatmap.png`](figures/fig_gs_defocus_e1_cv_heatmap.png) | E1 离焦扫描热力图（原图复制自 `report/shape_trials/e1_cv_heatmap.png`） |
+| [`fig_gs_defocus_e1_cv_heatmap.png`](figures/fig_gs_defocus_e1_cv_heatmap.png) | E1 离焦扫描热力图（原图复制自 `report/shape_trials/gs_defocus_sim/artifacts/e1_cv_heatmap.png`） |
 
 ## 9. 限制（不能断言什么）
 
@@ -1185,9 +1188,9 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
 ## 10. 复现
 
 数据全部来自四个纯仿真实验脚本（本脚本只读它们的 CSV/JSON, 不重跑它们）。四个脚本**互不依赖**,
-哪个先跑都行, 但都必须在本生成器之前跑完; 默认产物都落在 `report/shape_trials/`:
+哪个先跑都行, 但都必须在本生成器之前跑完; 默认产物都落在 `report/shape_trials/gs_defocus_sim/artifacts/`:
 
-| # | 确切命令 | 产物 (默认 `report/shape_trials/`) | 大致耗时 |
+| # | 确切命令 | 产物 (默认 `report/shape_trials/gs_defocus_sim/artifacts/`) | 大致耗时 |
 |---|---|---|---|
 {repro}
 

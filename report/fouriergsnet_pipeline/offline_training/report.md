@@ -71,17 +71,17 @@
 
 ## 4. 损失曲线
 
-![loss_curves](figures/loss_curves.png)
+![loss_curves](./figures/loss_curves.png)
 
 ## 5. 训练历史图
 
-![train_history](figures/train_history.png)
+![train_history](./figures/train_history.png)
 
 ## 6. 预测光斑 vs 真值对比
 
 下面为训练结束时从数据集抽取的 **6** 个样本的**预测光斑 vs 真值对比** (由训练脚本保存, 此处原样复制):
 
-![comparison_pred_vs_gt](figures/comparison_pred_vs_gt.png)
+![comparison_pred_vs_gt](./figures/comparison_pred_vs_gt.png)
 
 ## 7. 产物清单
 
