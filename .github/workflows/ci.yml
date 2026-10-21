@@ -24,10 +24,11 @@ jobs:
 
   pytest:
     name: Pytest (best-effort)
-    # Continues on error until dependency resolution is hardened for CI runners
-    # (the default `uv sync` pulls cupy-cuda13x / torch which need a CUDA host).
-    # The ruff job above is the hard gate; this job surfaces test regressions
-    # without blocking merges while the environment is being tuned.
+    # Still `continue-on-error` until dependency resolution is fully hardened
+    # for CI runners: `cupy-cuda13x` is a hard dependency that installs fine but
+    # only runs on a CUDA host (CPU runners import it but never execute the GPU
+    # path in the default subset). The ruff job above is the hard gate; this job
+    # surfaces test regressions without blocking merges.
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
@@ -42,7 +43,16 @@ jobs:
           python-version: "3.12"
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-      - name: Sync dependencies
-        run: uv sync
+      - name: Sync dependencies (CPU torch)
+        # Default `uv sync` installs NO torch: torch/torchvision are declared as
+        # [project.optional-dependencies] extras (torch-cpu / torch-cu12x) with
+        # explicit PyTorch indexes, so a bare sync leaves torch absent. But the
+        # default test subset imports torch directly (e.g.
+        # tests/.../test_zernike_coefficient_optimizer.py), which then aborts the
+        # whole run at collection with "No module named 'torch'".
+        # CI runners are CPU-only (no GPU) -> the torch-cpu extra selects the
+        # `pytorch-cpu` index (download.pytorch.org/whl/cpu), so this pulls the
+        # small CPU wheel instead of a multi-GB CUDA build.
+        run: uv sync --extra torch-cpu
       - name: Run pytest (default subset; hardware/ml/gui-hang areas are excluded by pyproject)
         run: uv run pytest
