@@ -136,7 +136,7 @@ radius_metric`（`power_bucket` 已按 #78 改名 `power_bucket_sum`，见 `612f
 ## 无硬件测试
 
 ```bash
-uv run pytest tests/ao_shaping/drivers/sim -q
+./run_pytest.sh tests/ao_shaping/drivers/sim -q
 ```
 
 关键锁定测试：`test_simulated_wfs.py::TestRunnerFacingSurface`（WFS 接口契约）、

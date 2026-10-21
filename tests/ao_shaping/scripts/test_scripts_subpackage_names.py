@@ -64,7 +64,14 @@ def _taken_without_scripts(name: str) -> str | None:
     )
     if out.returncode != 0:
         return None
-    return out.stdout.strip()
+    owner = out.stdout.strip()
+    if owner in ("", "None"):
+        # A namespace package has no __file__, so the probe prints "None".
+        # Nothing owns the name in the ordinary sense, so there is no
+        # module for scripts/<name>/ to shadow -- and "None" as a STRING is
+        # truthy, which used to be reported as a shadowing owner.
+        return None
+    return owner
 
 
 def test_scripts_has_subpackages() -> None:
