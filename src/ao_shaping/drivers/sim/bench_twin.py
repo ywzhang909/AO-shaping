@@ -21,8 +21,9 @@
 
     命令相位 (raw 弧度)
       → SLM 面板静态相差 (canonical Zernike + 固定种子高斯粗糙度)
-      → SLM LUT 非线性 + 灰度量化往返          (得到**实际**相位)
-      → 瞳面场 = 高斯幅度 × exp(i·实际相位)
+      → SLM LUT 非线性 + 灰度量化往返          (得到**实际**相位 + 灰度)
+      → SLM 灰度→振幅耦合 (灰度域一次谐波 eta 乘到瞳面幅度, 默认关闭)
+      → 瞳面场 = 高斯幅度 × eta × exp(i·实际相位)
       → 透镜像差 (瞳面 Zernike 相位掩膜)      ← 透镜在傅里叶变换之前
       → 居中补零 → fftshift(fft2(ifftshift(·)))  (焦面复场)
       → 相机离焦 (焦面角谱传播)
@@ -33,10 +34,36 @@
 --------
 1. **SLM LUT 非线性 + 量化** —— 灰度→相位的映射可以偏离线性 (Gamma 指数), 也可以
    直接给实测 LUT 表; 灰度量化 (默认 1023 级) 永远存在。
+   同族还带一个**灰度→振幅耦合** (默认 ``slm_amplitude_coupling = 0`` = 无损纯相位
+   调制器): 面板实际实现的**幅度**随驱动灰度变化。
 2. **SLM 面板静态相差** —— 低阶 Zernike (canonical 生成) + 固定种子的高斯随机场
    粗糙度。
 3. **装调** —— 相机离焦 (焦面角谱传播)、光路倾斜 (焦面平移)、透镜像差
    (瞳面 Zernike 相位掩膜)。
+
+灰度→振幅耦合 (实测存在、此前未建模)
+------------------------------------
+物理上是向列相 LCOS 的偏振/检偏器响应: 相位深度把 ``sin²(Δφ/2)`` 送进 0 级、
+``cos²(Δφ/2)`` 送进有用级, 其强度是 ``offset + amplitude·cos(Δφ)`` —— **单个一次
+谐波**, 正是 ``tools/slm/calibration/gray_response.py`` 拟合的那个形式。该模块把
+它写成**灰度域** (测量就是在灰度域做的):
+
+::
+
+    grey   = phase_to_slm_grayscale(phase, max_grayscale=levels)
+    I(g)   = 1 + c · sin(2π·g/levels + ψ)     # c = 强度一次谐波幅度
+    eta(g) = sqrt(max(I(g), 0))               # 场幅因子
+
+``eta`` 乘在**瞳面场幅度**上 (LCOS 处, 透镜像差与 FFT 之前)。
+
+* 实测响应的灰度域周期**恰好是一个 2π 灰度**, 所以要让周期落在正确位置, 仿真必须
+  把 ``gray_levels`` 设成器件的 2π 灰度数 (1064 nm 下 993, 532 nm 下 998)。
+  ``gray_levels`` 的默认值保持 1023 (上游测试依赖), **不改**; 只在文档里要求仿真脚本设成器件值。
+* ``tools/slm/panel/diagnose.py`` 的调制检测定义 ``rel_spread = (max - min) / mean``
+  (对 0 级桶), 只有 ``rel_spread > 0.15`` 才判定面板在调制。本模型的 0 级展平即
+  ``2c``, 故该阈值蕴含 **``c ≳ 0.075``**。面板的真值仓库里**没有记录**, 所以 ``c``
+  是**待测量**, 不是已知量。
+* ``c = 0`` ⇒ ``eta ≡ 1.0`` **逐位恒等** ⇒ 与既有模型完全一致 (仓库里所有既有数字继续有效)。
 
 四条与常见直觉不同、但被实测锁定的实现细节
 ------------------------------------------
@@ -99,13 +126,26 @@ class TwinErrorModel:
         tilt_y_rad: 光路在 y 方向的倾斜 (rad)。
         lens_zernike: 透镜像差 (瞳面波前误差) 的 Noll 序 → 弧度。
         lens_zernike_n_max: 透镜像差 Zernike 的径向阶数上限。
+        slm_amplitude_coupling: SLM 灰度→振幅耦合 (灰度域 0 级强度一次谐波幅度 c),
+            有意义范围 [0, 1)。``0.0`` ⇒ ``eta ≡ 1.0`` 逐位恒等 (与旧模型完全一致)。
+            面板真值仓库未记录 ⇒ 这是**待测量**; 仓库调制检测的判据
+            ``rel_spread = (max - min)/mean > 0.15`` 蕴含 ``c ≳ 0.075`` (0 级展平 = 2c)。
+        slm_amplitude_coupling_phase_rad: 该一次谐波的灰度域相位偏移 ψ (弧度, [0, 2π))。
+
+    灰度域谐波的周期恰好是一个 2π 灰度: 仿真要把 ``gray_levels`` 设成器件的
+    2π 灰度数 (1064 nm 下 993), 周期才落在正确位置; 默认 1023 不改 (上游测试依赖)。
     """
 
-    # 族 1 —— SLM LUT 非线性 + 量化
+    # 族 1 —— SLM LUT 非线性 + 量化 (+ 灰度→振幅耦合)
     lut_gamma: float = 1.0
     lut_phase_max_rad: float = 2.0 * math.pi
     gray_levels: int = 1023
     lut_table: np.ndarray | None = None
+    # 族 1 附加 —— SLM 灰度→振幅耦合 (向列相 LCOS 的偏振/检偏器响应: 强度 =
+    # offset + amplitude·cos(Δφ), 单个一次谐波, 与 tools/slm/calibration/
+    # gray_response.py 拟合的灰度域正弦模型同一形式)。默认 0 = 无损纯相位调制器。
+    slm_amplitude_coupling: float = 0.0
+    slm_amplitude_coupling_phase_rad: float = 0.0
     # 族 2 —— SLM 面板静态相差
     slm_zernike: dict[int, float] = field(default_factory=dict)
     slm_zernike_n_max: int = 6
@@ -349,6 +389,27 @@ class BenchTwin:
         phase = self._as_pupil_phase(phase_rad)
         return phase + self._panel_zernike_phase() + self._roughness_phase()
 
+    def _to_gray(self, phase_rad: np.ndarray) -> np.ndarray:
+        """相位 (raw 弧度) → 量化灰度 (canonical 入口, mod 2π + uint16)。
+
+        灰度量化的**唯一**实现: LUT 反查与振幅耦合消费同一个灰度数组。
+        """
+        phase = np.asarray(phase_rad, dtype=np.float64)
+        return phase_to_slm_grayscale(phase, max_grayscale=int(self.errors.gray_levels))
+
+    def _phase_from_gray(self, gray: np.ndarray) -> np.ndarray:
+        """量化灰度 → 实际相位 (实测表优先, 否则 Gamma 律)。"""
+        table = self.errors.lut_table
+        if table is not None:
+            table_arr = np.asarray(table, dtype=np.float64)
+            return table_arr[gray]
+        levels = float(int(self.errors.gray_levels))
+        gamma = float(self.errors.lut_gamma)
+        return (
+            float(self.errors.lut_phase_max_rad)
+            * (gray.astype(np.float64) / levels) ** gamma
+        )
+
     def apply_lut(self, phase_rad: np.ndarray) -> np.ndarray:
         """SLM 的 LUT 非线性 + 灰度量化往返, 返回**实际**相位。
 
@@ -362,18 +423,24 @@ class BenchTwin:
         ``lut_gamma == 1`` 且无 ``lut_table`` 时, 往返**不引入任何额外相位**
         (只有灰度量化误差与 ``mod 2π``; SLM 本就是 2π 周期器件)。
         """
-        phase = np.asarray(phase_rad, dtype=np.float64)
-        levels = int(self.errors.gray_levels)
-        gray = phase_to_slm_grayscale(phase, max_grayscale=levels)
-        table = self.errors.lut_table
-        if table is not None:
-            table_arr = np.asarray(table, dtype=np.float64)
-            return table_arr[gray]
-        gamma = float(self.errors.lut_gamma)
-        return (
-            float(self.errors.lut_phase_max_rad)
-            * (gray.astype(np.float64) / float(levels)) ** gamma
+        return self._phase_from_gray(self._to_gray(phase_rad))
+
+    def apply_amplitude_coupling(self, gray: np.ndarray) -> np.ndarray:
+        """量化灰度 → 场幅耦合因子 ``eta`` (LCOS 的灰度→振幅响应)。
+
+        ``I(g) = 1 + c·sin(2π·g/gray_levels + ψ)`` (灰度域 0 级强度一次谐波,
+        与 ``tools/slm/calibration/gray_response.py`` 拟合的模型同一形式),
+        ``eta = sqrt(max(I, 0))``。``c == 0`` 时返回**精确**的全 1 (逐位恒等 no-op)。
+        """
+        c = float(self.errors.slm_amplitude_coupling)
+        if c == 0.0:
+            return np.ones(np.shape(gray), dtype=np.float64)
+        levels = float(int(self.errors.gray_levels))
+        psi = float(self.errors.slm_amplitude_coupling_phase_rad)
+        intensity = 1.0 + c * np.sin(
+            2.0 * math.pi * np.asarray(gray, dtype=np.float64) / levels + psi
         )
+        return np.sqrt(np.maximum(intensity, 0.0))
 
     # ------------------------------------------------------------------
     # 族 3: 装调
@@ -522,8 +589,12 @@ class BenchTwin:
             ValueError: 相位形状与 ``region`` 不符。
         """
         phase = self._as_pupil_phase(phase_rad)
-        actual = self.apply_lut(self.apply_panel_aberration(phase))
-        pupil = self.pupil_amplitude() * np.exp(1j * actual)
+        gray = self._to_gray(self.apply_panel_aberration(phase))
+        actual = self._phase_from_gray(gray)
+        # 耦合是 LCOS 处的**幅度**响应: 乘在瞳面幅度上, 在透镜像差与 FFT 之前。
+        # c = 0 时 eta 精确为 1.0, 整个乘法逐位恒等 (×1.0 不改变任何位)。
+        eta = self.apply_amplitude_coupling(gray)
+        pupil = self.pupil_amplitude() * eta * np.exp(1j * actual)
         pupil = self.apply_lens_aberration(pupil)
         focal = self._propagate(pupil)
         focal = self.apply_defocus(focal)
@@ -566,6 +637,8 @@ class BenchTwin:
         * LUT 非线性: 反解 Gamma (或反查实测表), 再乘回灰度→相位的正向关系。
         * 灰度量化: 不可反解 ⇒ 残余 ≤ 一个量化级。
         * 面板粗糙度: 随机量, 不补偿 (残差 = 其 RMS)。
+        * 灰度→振幅耦合: 器件的**幅度**响应, 不进入相位路径 ⇒ 相位反演不受影响,
+          预补偿无需也不应改变。
 
         Args:
             phase_rad: 期望的**实际**相位 (raw 弧度)。
@@ -657,6 +730,10 @@ class BenchTwin:
                 "lut_phase_max_rad": float(err.lut_phase_max_rad),
                 "gray_levels": int(err.gray_levels),
                 "lut_table": table_payload,
+                "slm_amplitude_coupling": float(err.slm_amplitude_coupling),
+                "slm_amplitude_coupling_phase_rad": float(
+                    err.slm_amplitude_coupling_phase_rad
+                ),
                 "slm_zernike": {
                     str(int(k)): float(v) for k, v in err.slm_zernike.items()
                 },
@@ -705,6 +782,12 @@ class BenchTwin:
             ),
             gray_levels=int(raw_errors.get("gray_levels", 1023)),
             lut_table=table,
+            slm_amplitude_coupling=float(
+                raw_errors.get("slm_amplitude_coupling", 0.0)
+            ),
+            slm_amplitude_coupling_phase_rad=float(
+                raw_errors.get("slm_amplitude_coupling_phase_rad", 0.0)
+            ),
             slm_zernike=_noll_dict(raw_errors.get("slm_zernike")),
             slm_zernike_n_max=int(raw_errors.get("slm_zernike_n_max", 6)),
             slm_roughness_sigma_rad=float(

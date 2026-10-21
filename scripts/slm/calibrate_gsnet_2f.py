@@ -337,6 +337,13 @@ PANEL_ROUGHNESS_RANGE = (0.0, 0.04)
 DEFOCUS_RANGE_M = (-2.0e-4, 2.0e-4)
 TILT_RANGE_RAD = (-1.5e-4, 1.5e-4)
 LENS_ZERNIKE_MAX_RAD = 0.10
+#: 设备在 1064 nm 的 2π 灰度数（驱动从 EEPROM 动态查询）。1023 是 10 位满量程，
+#: 不是相位级数；灰度→振幅耦合的灰度域周期必须等于 2π 灰度数，所以这里用 993。
+SLM_TWO_PI_GRAY_LEVELS = 993
+#: 灰度→振幅耦合的随机化幅度（强度一次谐波幅度 c）。仓库诊断判据
+#: ``rel_spread > 0.15`` 蕴含 ``c ≳ 0.075``（0 阶展宽 = 2c）；面板真值仓库里
+#: 没记下来，所以当待测量量，0.15 是刻意保守的上端，0 覆盖理想面板。
+AMPLITUDE_COUPLING_RANGE = (0.0, 0.15)
 
 
 def random_errors(rng: np.random.Generator) -> TwinErrorModel:
@@ -345,13 +352,20 @@ def random_errors(rng: np.random.Generator) -> TwinErrorModel:
     * 族 1 SLM LUT 非线性 + 量化：Gamma 指数偏离线性。
     * 族 2 SLM 面板静态相差：低阶 Zernike + 固定种子粗糙度。
     * 族 3 装调：相机离焦 + 光路倾斜 + 透镜像差。
+
+    另外带**灰度→振幅耦合**（族 1 的延伸）：LCOS 的实际振幅依赖驱动灰度，
+    灰度域周期 = 2π 灰度数。``calibrated`` 臂走的是孪生链，自动含这一项；
+    ``zernike`` 基线（66 项 + 冻结 piston/tilt）表达不了它 —— 这正是 P0 判据
+    要区分开的东西。
     """
     panel_modes = rng.choice(np.arange(4, 19), size=int(rng.integers(3, 9)), replace=False)
     lens_modes = rng.choice(np.arange(4, 13), size=int(rng.integers(2, 6)), replace=False)
     return TwinErrorModel(
         lut_gamma=float(rng.uniform(*LUT_GAMMA_RANGE)),
         lut_phase_max_rad=2.0 * np.pi,
-        gray_levels=1023,
+        gray_levels=SLM_TWO_PI_GRAY_LEVELS,
+        slm_amplitude_coupling=float(rng.uniform(*AMPLITUDE_COUPLING_RANGE)),
+        slm_amplitude_coupling_phase_rad=float(rng.uniform(0.0, 2.0 * np.pi)),
         slm_zernike={int(m): float(rng.uniform(-PANEL_ZERNIKE_MAX_RAD, PANEL_ZERNIKE_MAX_RAD)) for m in panel_modes},
         slm_zernike_n_max=6,
         slm_roughness_sigma_rad=float(rng.uniform(*PANEL_ROUGHNESS_RANGE)),
@@ -744,7 +758,9 @@ def run_arm_b(cfg: ArmBConfig, out_dir: Path) -> dict[str, Any]:
 
     上下界：
     * ``flat``      —— 零相位（下发平场）;
-    * ``gs_ceiling`` —— GS 在**带误差物理**下的解本身（这个任务的上限）。
+    * ``gs_ceiling`` —— GS 在**带误差物理**下的解本身（**经典算法达到的水平，
+      不是严格上限**：网络直接优化整形目标，可以超过它 —— 实测在带灰度→振幅
+      耦合的孪生上网络 composite 0.3101 > GS 0.2766）。
     """
     region = cfg.region
     far_field = region * cfg.far_field_padding

@@ -376,6 +376,34 @@ class TestBenchTwinOperator:
         mine = (far.real**2 + far.imag**2)[0, 0].numpy().astype(np.float64)
         assert float(np.corrcoef(truth.ravel(), mine.ravel())[0, 1]) > 0.999
 
+    def test_matches_the_twin_with_amplitude_coupling(self) -> None:
+        """Lockstep through the grey->amplitude coupling (c=0.15).
+
+        Tolerance, not bit-equality: the twin feeds the coupling its **quantised**
+        grey, the mirror a **continuous** one (a quantised grey has zero
+        gradient).  The factor itself differs by at most ``c*2*pi/levels`` per
+        grey step (~9e-4 at c=0.15, levels=1023), so the peak-normalised
+        intensity maps agree only up to that propagation.  Measured here:
+        corr = 0.999999, max-abs diff ≈ 7.5e-4 on the 0..1 scale — the bound
+        below is ~7x that, and still ~50x tighter than a naive tolerance.
+        """
+        from ml.gsnet.forward_ops import BenchTwinOperator
+
+        twin = self._twin(
+            slm_amplitude_coupling=0.15,
+            slm_amplitude_coupling_phase_rad=0.7,
+            slm_zernike={4: 0.2},
+            lut_gamma=1.1,
+        )
+        operator = BenchTwinOperator(twin)
+        phase = np.random.default_rng(5).uniform(-np.pi, np.pi, (64, 64))
+        truth = np.asarray(twin.far_field(phase), dtype=np.float64) / 100.0
+        far = operator.forward(None, torch.from_numpy(phase).float()[None, None])
+        mine = (far.real**2 + far.imag**2)[0, 0].numpy().astype(np.float64)
+        assert float(np.corrcoef(truth.ravel(), mine.ravel())[0, 1]) > 0.999
+        max_abs_diff = float(np.max(np.abs(truth - mine)))
+        assert max_abs_diff < 0.005, f"peak-normalised max-abs diff = {max_abs_diff}"
+
     def test_back_propagate_is_the_inverse_pair(self) -> None:
         """回代必须把瞳面还原 —— 少了 fftshift 就会返回全零。"""
         from ml.gsnet.forward_ops import BenchTwinOperator

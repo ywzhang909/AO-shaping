@@ -56,12 +56,12 @@ FAMILY_LABELS = {
 }
 MODEL_LABELS = {
     "ideal": "零误差孪生链（理想物理）",
-    "calibrated": "带误差孪生链（含三族误差）",
+    "calibrated": "带误差孪生链（含三族误差 + 灰度→振幅耦合）",
     "zernike": "物理 Zernike 基线",
 }
 ARM_LABELS = {
     "flat": "平场（零相位，下界）",
-    "gs_ceiling": "GS 在过采样真值上的解（上限）",
+    "gs_ceiling": "GS 在带误差物理下的解（经典算法达到的水平，非严格上限）",
     "zernike_baseline": "物理 Zernike 基线（经典 GS 解投影到 66 项）",
     "ideal": "网络（理想 FFT 前向）",
     "calibrated": "网络（校准 2f 前向）",
@@ -166,29 +166,40 @@ def render(
         f"{_fmt(cal['nrmse_full']['mean'])} 对 {_fmt(zen['nrmse_full']['mean'])}）。"
         f"这**不是**新物理：仓库自己的 `ZernikeCoefficientOptimizer` 本来就是"
         f"实验系统的 2f 物理前向（圆形孔径 + 高斯照明 + 规范居中 FFT），"
-        f"但它只有 66 个 Zernike 系数，**装不下**孪生那三族误差"
-        f"（LUT 非线性、面板静态相差、装调）。校准前向把三族都算进去，"
+        f"但它只有 66 个 Zernike 系数，**装不下**孪生那几族误差"
+        f"（LUT 非线性、面板静态相差、装调、灰度→振幅耦合）。"
+        f"校准前向把它们都算进去，"
         f"所以在带误差的台架上预测得更准。")
     if arm_b and "calibrated" in arm_b:
         net_cal = arm_b["calibrated"]
         ceil = arm_b.get("gs_ceiling", {})
         flat = arm_b.get("flat", {})
-        add(f"3. **网络臂达到了这套物理的可达上限。** 网络 composite "
-            f"{_fmt(net_cal['composite']['mean'])}，"
-            f"GS 上限（带误差物理下的 GS 解本身）"
-            f"{_fmt(ceil.get('composite', {}).get('mean', 0))}，"
-            f"平场 {_fmt(flat.get('composite', {}).get('mean', 0))}。"
-            f"网络**不低于**物理上限，说明它学到的相位已经是这套台架能给出的最好结果。")
-        add("4. **上一轮网络打不过基线，原因不是校准而是架构。** "
+        net_score = net_cal["composite"]["mean"]
+        ceil_score = ceil.get("composite", {}).get("mean", 0)
+        add("3. **仿真加入「灰度→振幅耦合」之后，P0 判据的余量变大了。** "
+            "校准前向本身几乎没变（它走的就是孪生链，自动含这一项），"
+            "而**两个简化模型都变差了**——理想 FFT 前向与物理 Zernike 基线"
+            "都表达不了「振幅依赖驱动灰度」这件事。"
+            "真值越贴近真实器件，**能表达完整物理的前向与简化模型之间的差距"
+            "越大**，这正是 P0 判据要区分开的东西。")
+        add(f"4. **网络臂超过了经典 GS 解。** 网络 composite "
+            f"{_fmt(net_score)}，经典 GS 在同一物理下的解 "
+            f"{_fmt(ceil_score)}，平场 {_fmt(flat.get('composite', {}).get('mean', 0))}。"
+            f"⚠️ 注意「GS 解」**不是严格上限**，只是**经典算法达到的水平**："
+            f"网络直接优化整形目标（相关性），而 GS 优化的是幅度匹配；"
+            f"在带耦合的物理上，后者的目标函数与真实整形质量不再对齐。"
+            f"所以这一行应读作「学习到的初值优于经典迭代」，"
+            f"**不是**「超过了物理允许的极限」。")
+        add("5. **上一轮网络打不过基线，原因不是校准而是架构。** "
             "`FourierGSNet` 原本要求 source 与 target **同网格**，"
             "于是它内部能看到的远场只能是**同尺寸 FFT**——衍射极限光斑亚像素、"
             "图样混叠，而实验系统的远场需要 8 倍以上过采样才被解析。"
             "改成「source 在瞳面网格、target 在远场网格」之后，"
-            "网络臂才第一次站到物理上限那一档（详见 §5.3）。"
+            "网络臂才第一次站到那一档（详见 §5.3）。"
             "**校准修好物理，采样要靠改契约。**")
     else:
         add("3. **网络层未评估**（臂 B 没跑），见 §5。")
-    add("5. **issue 写的 P1 信任域门仍然是死的**——见 §6.2："
+    add("6. **issue 写的 P1 信任域门仍然是死的**——见 §6.2："
         "那 0.5 rad 阈值在仓库里限的是 Step A 的**系数步**，"
         "用它卡绝对瞳面相位会挡掉所有真实整形相位。")
     add("")
@@ -214,10 +225,49 @@ def render(
     add(_row(["---", "---", "---"]))
     add(_row(["SLM LUT 非线性 + 灰度量化", "无", "有（Gamma 指数或实测 LUT 表）"]))
     add(_row(["SLM 面板静态相差", "无", "有（canonical Zernike + 固定种子粗糙度）"]))
+    add(_row(["SLM 灰度→振幅耦合", "无", "有（灰度域一次谐波，周期 = 2π 灰度数）"]))
     add(_row(["相机离焦 / 光路倾斜 / 透镜像差", "无", "有（角谱传递函数 / 傅里叶移位 / 瞳面相位）"]))
     add(_row(["探测器噪声", "自己写的 CCDSensor", "孪生自带泊松散粒 + 高斯读出噪声"]))
     add(_row(["过曝/欠曝", "自己写的截断", "在孪生帧外面套探测器（曝光 + 上下截断 + 量化）"]))
     add(_row(["口径", "自己定", "仓库规范（`region` / `region_span_px` / 像元标度）"]))
+    add(_row(["2π 灰度数", "自己定", "993（设备在 1064 nm 的真实值）"]))
+    add("")
+    add("### 1.1 灰度→振幅耦合：仓库自己早就记下、但仿真一直没建模的那条")
+    add("")
+    add("仓库的驱动类文档、诊断脚本与 `tools/slm/calibration/gray_response.py` "
+        "都记着同一件事：**SLM 的实际振幅依赖驱动灰度**，周期 = 2π 灰度"
+        "（设备在 1064 nm 的 2π = **993** 灰度）。驱动文档把它写成"
+        "「amplitude coupling period ≈993 gray at 1064nm」，"
+        "诊断脚本判据是「0 阶桶能量须呈现 ~993 灰度周期」——"
+        "因为**平场相位的 0 阶就是瞳面场的直流分量**，"
+        "它随灰度变化即说明实际振幅在变。")
+    add("")
+    add("而孪生一直假设**无损纯相位调制**：瞳面振幅 `pupil_amplitude()` "
+        "与命令相位无关。`report/loss_defects/inverse_design_report/"
+        "inverse_design_report.md` 早就把这条列为「已实测、但仿真没建模」"
+        "的三条物理之一。对**整形**任务来说这是最要紧的一条："
+        "实际振幅随相位走 ⇒ 目标方斑的能量分布被相位调制 ⇒ "
+        "整形质量的天花板被压低。")
+    add("")
+    add("模型形式与仓库自己的测量代码同形（灰度域一次谐波）：")
+    add("")
+    add("```")
+    add("grey   = phase_to_slm_grayscale(phase, max_grayscale=levels)")
+    add("I(g)   = 1 + c·sin(2π·grey/levels + ψ)     # c = 强度一次谐波幅度")
+    add("η(g)   = sqrt(max(I(g), 0))                # 瞳面**场振幅**因子")
+    add("```")
+    add("")
+    add("`η` 乘在瞳面**场振幅**上（LCOS 处、透镜与 FFT 之前），"
+        "`c = 0` 时 `η ≡ 1.0` 精确 ⇒ 孪生的既有行为**逐位不变**。"
+        "物理解释是向列型 LCOS 的偏振/检偏响应：相位深度 Δφ 把 "
+        "`sin²(Δφ/2)` 送进 0 阶、把 `cos²(Δφ/2)` 送进有用阶，"
+        "强度对 Δφ 是**一次谐波**——正是 `gray_response.py` 拟合的那个形状。")
+    add("")
+    add("**幅度取多少？** 仓库的诊断判据是 `rel_spread = (max−min)/mean > 0.15`，"
+        "对本模型 0 阶展宽就是 `2c`，所以判据蕴含 **`c ≳ 0.075`**。"
+        "但面板的真值**仓库里没有记录**（只有判据，没有实测曲线），"
+        "所以本轮把它当作**待测量量**：仿真里在 [0, 0.15] 上随机化，"
+        "真机上用 `scripts/slm/validate_flat_phase_gray.py` 的灰度扫描测出来再回填。")
     add("")
     add("孪生是 **numpy** 的（它是仿真层，不是可微模型），而网络必须对自己的前向求梯度。"
         "所以本轮加了一个 **torch 镜像**（`ml/gsnet/forward_ops.py::BenchTwinOperator`）："
@@ -232,6 +282,7 @@ def render(
     add(_row(["---", "---"]))
     add(_row(["零误差（理想系统）", "> 0.999"]))
     add(_row(["三族误差全开（LUT + 面板相差 + 装调）", "> 0.999"]))
+    add(_row(["再加灰度→振幅耦合 c = 0.15", "0.999999（归一化后 max-abs 差 7.5e-4）"]))
     add("")
     add("## 2. 为什么这样做仿真，以及它能不能回答 issue 的问题")
     add("")
@@ -552,12 +603,12 @@ def render(
             base = (results.get("arm_b_network") or {}).get("zernike_baseline") or {}
             add(f"物理 Zernike 基线 composite "
                 f"{_fmt(base.get('composite', {}).get('mean'))}、"
-                f"GS 上限 "
+                f"经典 GS 解 "
                 f"{_fmt((results.get('arm_b_network') or {}).get('gs_ceiling', {}).get('composite', {}).get('mean'))}。")
             add("")
             add("**改前**：两个网络臂都远低于基线（0.26–0.27 对 0.56），"
                 "而且**换个训练预算就翻号**——差距不可分辨。"
-                "**改后**：两个网络臂都**超过**基线，也超过 GS 上限。")
+                "**改后**：两个网络臂都**超过**基线，也超过经典 GS 解。")
             add("")
             add("> 这就是 §4.2 的可学习性对照给出的结论的正面版本："
                 "之前网络停在 0.29 是因为它**表达不出**那个解，"
@@ -713,18 +764,19 @@ def render(
             _fmt(val.get("correlation")),
         ]))
         add(_row([
-            "**标签自己**（任务上限）",
+            "**标签自己**（经典 GS 在同一物理下的解）",
             _fmt(labels.get("composite")),
             _fmt(labels.get("encircled_energy")),
             _fmt(labels.get("cv_target_box")),
             _fmt(labels.get("correlation")),
         ]))
         add("")
-        add("**「标签自己」这一行是这个任务的上限**——网络追不上时，先看标签能得多少分，"
+        add("**「标签自己」这一行是经典 GS 在同一物理下能到的水平**（不是严格上限）"
+            "——网络追不上时，先看标签能得多少分，"
             "否则分不清是网络不行还是标签本身就不成形。")
         add("")
         if buckets:
-            add("**按曝光分桶**（欠曝/过曝样本的目标上限本来就低，"
+            add("**按曝光分桶**（欠曝/过曝样本上 GS 能到的水平本来就低，"
                 "平均成一个数会掩盖这一点）：")
             add("")
             add(_row(["曝光档", "样本数", "composite", "EE", "CV（框）"]))

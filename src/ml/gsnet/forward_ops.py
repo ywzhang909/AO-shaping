@@ -284,8 +284,8 @@ class BenchTwinOperator:
     network, however, has to differentiate through its own forward step.  This
     class mirrors the twin's chain in torch so the two speak the same physics:
 
-    ``panel aberration -> LUT -> pupil field -> lens aberration -> centred
-    zero-padded FFT -> |.|^2 -> centre crop -> peak normalise``
+    ``panel aberration -> LUT -> amplitude coupling -> pupil field -> lens
+    aberration -> centred zero-padded FFT -> |.|^2 -> centre crop -> peak normalise``
 
     Two deliberate differences from the twin, both documented here because they
     change what the network can learn:
@@ -327,6 +327,8 @@ class BenchTwinOperator:
         self._gamma = float(twin.errors.lut_gamma)
         self._phase_max = float(twin.errors.lut_phase_max_rad)
         self._table = twin.errors.lut_table
+        self._coupling = float(twin.errors.slm_amplitude_coupling)
+        self._coupling_phase = float(twin.errors.slm_amplitude_coupling_phase_rad)
         self._far_size = int(twin.far_field_size)
         self._crop = int(twin.crop_side)
         self._region = region
@@ -348,10 +350,18 @@ class BenchTwinOperator:
         """Side of the far-field grid the operator produces (the twin's crop)."""
         return self._crop
 
+    def _continuous_gray(self, phase: torch.Tensor) -> torch.Tensor:
+        """Commanded phase (rad) -> grey, WITHOUT the twin's uint16 quantisation.
+
+        The mirror deliberately keeps this continuous (a quantised grey has zero
+        gradient); the LUT and the amplitude coupling share this one grey.
+        """
+        wrapped = torch.remainder(phase, 2.0 * torch.pi)
+        return wrapped / (2.0 * torch.pi) * self._levels
+
     def _lut(self, phase: torch.Tensor) -> torch.Tensor:
         """The twin's LUT round trip, continuous (no grey quantisation)."""
-        wrapped = torch.remainder(phase, 2.0 * torch.pi)
-        gray = wrapped / (2.0 * torch.pi) * self._levels
+        gray = self._continuous_gray(phase)
         if self._table is not None:
             table = torch.from_numpy(
                 np.asarray(self._table, dtype=np.float64)
@@ -359,6 +369,24 @@ class BenchTwinOperator:
             index = gray.round().long().clamp(0, table.numel() - 1)
             return table[index]
         return self._phase_max * (gray / self._levels) ** self._gamma
+
+    def _amplitude_coupling(self, phase: torch.Tensor) -> torch.Tensor:
+        """Field-amplitude factor ``eta`` of the twin's grey-domain coupling.
+
+        Same formula and parameters as :meth:`BenchTwin.apply_amplitude_coupling`
+        (``I(g) = 1 + c·sin(2π·g/levels + ψ)``, ``eta = sqrt(max(I, 0))``), but on
+        the **continuous** grey — so it stays differentiable w.r.t. the phase.
+        The twin feeds it the quantised grey instead; the factor then differs by
+        at most ``c·2π/levels`` per grey step (≈9e-4 at c=0.15, levels=993),
+        far below the lockstep correlation gate.
+        """
+        if self._coupling == 0.0:
+            return torch.ones_like(phase)
+        gray = self._continuous_gray(phase)
+        intensity = 1.0 + self._coupling * torch.sin(
+            2.0 * math.pi * gray / self._levels + self._coupling_phase
+        )
+        return torch.sqrt(intensity.clamp_min(0.0))
 
     def _apply_defocus(self, field: torch.Tensor, dz: float | None = None) -> torch.Tensor:
         """相机离焦: 角谱传递函数作用在焦面复场上（孪生的同一写法）。
@@ -422,8 +450,9 @@ class BenchTwinOperator:
         """
         total = phase + self._panel.to(phase.device)
         actual = self._lut(total)
+        eta = self._amplitude_coupling(total)
         amplitude = self._amplitude.to(phase.device)
-        pupil = amplitude * torch.exp(1j * actual)
+        pupil = amplitude * eta * torch.exp(1j * actual)
         pupil = pupil * torch.exp(1j * self._lens.to(phase.device))
         side = self._far_size
         buffer = torch.zeros(

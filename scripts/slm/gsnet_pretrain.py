@@ -6,8 +6,9 @@
 
 1. **像差随机化（域随机化）**：每个训练样本自带一个随机的实验系统像差 ——
    Zernike 部分（随机模式子集 + 随机系数，落在张成内）与自由形状部分
-   （带限随机，落在张成外，66 项模型拟合不掉）。网络因此不会把某一条像差
-   记死，而是学到「怎么对任意像差做整形」。
+   （带限随机，落在张成外，66 项模型拟合不掉），外加 **SLM 灰度→振幅耦合**
+   （强度与灰度域相位随机，灰度域周期取设备的 2π 灰度数 993）。网络因此
+   不会把某一条像差记死，而是学到「怎么对任意像差做整形」。
 2. **CCD 探测器模型**：帧不是理想远场，而是相机**会记下来的样子**——
    曝光过大时核心削顶（过曝），曝光过小时弱散斑被黑电平切掉（欠曝），
    外加散粒噪声、读出噪声与 ADC 量化。目标（远场方斑）也经过同一个探测器
@@ -87,6 +88,18 @@ DEFOCUS_RANGE_M = (-2.0e-4, 2.0e-4)
 TILT_RANGE_RAD = (-1.5e-4, 1.5e-4)
 LENS_ZERNIKE_MAX_RAD = 0.10
 
+#: SLM 灰度→振幅耦合的强度 `c`（相对均值的首谐波幅度）的随机化区间。
+#: 下界 0 覆盖理想面板；上界 0.15 是刻意保守的取值 —— 真实面板的值在仓库里
+#: 没有记录，属待测量。参考：仓库自己的调制检查（tools/slm/santec/diagnose.py）
+#: 以 0 阶桶的 rel_spread > 0.15 判面板在调制，而该模型下 0 阶展平 = 2c，
+#: 即耦合可被检出的下界是 c ≳ 0.075。
+AMPLITUDE_COUPLING_RANGE = (0.0, 0.15)
+
+#: 设备在 1064 nm 的 2π 灰度是 993（Santec 驱动从 EEPROM 动态查询，532 nm 为
+#: 998）；1023 只是 10 位满量程，不是相位级数。耦合的灰度域周期必须等于
+#: 2π 灰度数，所以孪生的 gray_levels 一律用 993。
+SLM_TWO_PI_GRAY_LEVELS = 993
+
 #: 几何在进程之间要能重建，所以做成模块级常量（worker 进程会重新 import）。
 REGION_SPAN_PX = 900.0
 FAR_FIELD_PADDING = 8
@@ -134,6 +147,8 @@ class SampleSpec:
     tilt_y_rad: float
     lens_modes: tuple[int, ...]
     lens_coeffs: tuple[float, ...]
+    amplitude_coupling: float
+    amplitude_coupling_phase_rad: float
 
     def to_json(self) -> dict[str, Any]:
         return {
@@ -153,6 +168,8 @@ class SampleSpec:
             "tilt_y_rad": self.tilt_y_rad,
             "lens_modes": list(self.lens_modes),
             "lens_coeffs": list(self.lens_coeffs),
+            "amplitude_coupling": self.amplitude_coupling,
+            "amplitude_coupling_phase_rad": self.amplitude_coupling_phase_rad,
         }
 
 
@@ -160,7 +177,8 @@ def draw_spec(index: int, seed: int) -> SampleSpec:
     """随机抽一个样本的生成参数。
 
     随机化的轴就是孪生的三族误差（LUT 非线性 / 面板静态相差 / 装调），
-    外加目标的边长与位置、以及**曝光**（过曝会削顶、欠曝会切底）。
+    外加目标的边长与位置、**曝光**（过曝会削顶、欠曝会切底）、以及
+    **SLM 灰度→振幅耦合**（强度 `c` 与灰度域相位 `psi`）。
     """
     rng = np.random.default_rng(seed + index * 7919)
     panel_modes = tuple(
@@ -192,6 +210,8 @@ def draw_spec(index: int, seed: int) -> SampleSpec:
             float(rng.uniform(-LENS_ZERNIKE_MAX_RAD, LENS_ZERNIKE_MAX_RAD))
             for _ in lens_modes
         ),
+        amplitude_coupling=float(rng.uniform(*AMPLITUDE_COUPLING_RANGE)),
+        amplitude_coupling_phase_rad=float(rng.uniform(0.0, 2.0 * np.pi)),
     )
 
 
@@ -200,7 +220,10 @@ def build_twin(spec: SampleSpec) -> BenchTwin:
     errors = TwinErrorModel(
         lut_gamma=spec.lut_gamma,
         lut_phase_max_rad=2.0 * np.pi,
-        gray_levels=1023,
+        # 用 2π 灰度数而不是 10 位满量程：见 SLM_TWO_PI_GRAY_LEVELS 处说明。
+        gray_levels=SLM_TWO_PI_GRAY_LEVELS,
+        slm_amplitude_coupling=spec.amplitude_coupling,
+        slm_amplitude_coupling_phase_rad=spec.amplitude_coupling_phase_rad,
         slm_zernike=dict(zip(spec.panel_modes, spec.panel_coeffs, strict=True)),
         slm_zernike_n_max=6,
         slm_roughness_sigma_rad=spec.roughness_sigma_rad,

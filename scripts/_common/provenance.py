@@ -321,11 +321,27 @@ REPORTS: dict[str, ReportProvenance] = {
         note="issue #165 的 P0/P1 纯仿真验收：臂 A 前向保真度（24 帧三相位族，"
         "理想 FFT / 校准 2f / 物理 Zernike 基线，同一组拟合像差）+ 臂 B 网络换前向前后"
         "+ 臂 C model-in-loop 闭环的「网络初值 vs 物理初值」A/B；"
-        "真值是数字孪生 Bench2FGroundTruth（含超高斯照明 + Zernike 张成外自由形状像差），"
+        "真值是仓库规范的 2f 数字孪生 src/ao_shaping/drivers/sim/bench_twin.py，"
         "非实验系统 CCD",
         extra_scripts=(
             "scripts/slm/calibrate_gsnet_2f.py",
             "scripts/slm/gsnet_init_sim_ab.py",
+        ),
+    ),
+    # -- issue #165 光路相差下的迁移学习 + 冻结策略 ----------------------------
+    "report/gsnet_aberration_transfer/report.md": ReportProvenance(
+        script="scripts/slm/generate_gsnet_aberration_transfer_report.py",
+        command=(
+            "python scripts/slm/gsnet_aberration_transfer.py && "
+            "python scripts/slm/generate_gsnet_aberration_transfer_report.py"
+        ),
+        environment="离线",
+        note="issue #165 的迁移学习可迁移性检验：六种光路相差（面板离焦/彗差/球差、"
+        "透镜彗差、相机离焦）下的仿真迁移学习，以及六种冻结策略的可训练参数数"
+        "与迁移后整形质量；真值是仓库规范的 2f 数字孪生，非实验系统 CCD",
+        extra_scripts=(
+            "scripts/slm/gsnet_aberration_transfer.py",
+            "scripts/slm/gsnet_pretrain.py",
         ),
     ),
     # -- 优化器基准 / PIB --------------------------------------------------
