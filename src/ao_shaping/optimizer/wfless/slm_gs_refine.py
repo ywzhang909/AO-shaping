@@ -250,6 +250,15 @@ class SlmGsRefineConfig:
     gs_beta: float = 0.9
     """HIO 松弛系数或自适应目标域反馈上限 (0≤β≤1)。"""
     gs_hio_fraction: float = 0.7
+
+    init_from_gsnet: str | None = None
+    """Path to a square pupil-grid ``.npy`` phase (raw radians) that replaces the
+    analytic GS phase as the GS-stage initial phase.
+
+    The existing measured bake-off still decides adoption: the network phase is
+    kept only if it beats flat, and on rejection the analytic GS path runs as
+    usual.  ``None`` (default) keeps the historical GS warm start bit-for-bit.
+    """
     """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
 
     # --- bench model (only used to compute the GS phase) -------------------
@@ -368,6 +377,11 @@ class SlmGsRefineConfig:
         # Fienup relaxation range; β=0 freezes the noise region
         if not (0.0 <= self.gs_beta <= 1.0):
             raise ValueError(f"gs_beta must be in [0, 1], got {self.gs_beta}")
+        if self.init_from_gsnet is not None:
+            # 校验放在 config 期：不可用的热启动文件必须在任何设备打开之前失败。
+            from ao_shaping.optimizer.wfless.slm_model_in_loop import _load_gsnet_phase
+
+            _load_gsnet_phase(self.init_from_gsnet, pupil_side(self.beam_radius_px))
         if not (0.0 <= self.gs_hio_fraction <= 1.0):
             raise ValueError(
                 f"gs_hio_fraction must be in [0, 1], got {self.gs_hio_fraction}"

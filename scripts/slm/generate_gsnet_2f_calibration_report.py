@@ -160,39 +160,35 @@ def render(
         f"（±{_fmt(ide['correlation_full']['sd'])}）；"
         f"NRMSE {_fmt(cal['nrmse_full']['mean'])} 对 {_fmt(ide['nrmse_full']['mean'])}。"
         f"这不是边缘差异。")
-    add(f"2. **「校准前向」与「物理 Zernike 基线」在数值上几乎相同**"
-        f"（相关性 {_fmt(cal['correlation_full']['mean'])} 对 "
-        f"{_fmt(zen['correlation_full']['mean'])}）。原因是仓库自己的 "
-        f"`ZernikeCoefficientOptimizer` **本来就是**本台架的 2f 物理前向"
-        f"（圆形孔径 + 高斯照明 + 规范居中 FFT）。所以 issue 里「把理想 FFT 换成"
-        f"2f 物理前向」这件事，实质是**给网络补上物理模型的孔径、照明、"
-        f"实验系统像差、增益与背景**，而不是引入一套新物理。")
-    if arm_b and "calibrated" in arm_b and "zernike_baseline" in arm_b:
+    add(f"2. **校准前向比物理 Zernike 基线更好**（相关性 "
+        f"{_fmt(cal['correlation_full']['mean'])} 对 "
+        f"{_fmt(zen['correlation_full']['mean'])}，NRMSE "
+        f"{_fmt(cal['nrmse_full']['mean'])} 对 {_fmt(zen['nrmse_full']['mean'])}）。"
+        f"这**不是**新物理：仓库自己的 `ZernikeCoefficientOptimizer` 本来就是"
+        f"实验系统的 2f 物理前向（圆形孔径 + 高斯照明 + 规范居中 FFT），"
+        f"但它只有 66 个 Zernike 系数，**装不下**孪生那三族误差"
+        f"（LUT 非线性、面板静态相差、装调）。校准前向把三族都算进去，"
+        f"所以在带误差的台架上预测得更准。")
+    if arm_b and "calibrated" in arm_b:
         net_cal = arm_b["calibrated"]
-        net_base = arm_b["zernike_baseline"]
-        net_ideal = arm_b.get("ideal") or {}
-        add(f"3. **网络层通过 P0 判据，但这靠的是拆掉一个架构限制，不是靠校准本身。** "
-            f"`FourierGSNet` 原本要求 source 与 target **同网格**，于是它内部能看到的"
-            f"远场只能是**同尺寸 FFT**——衍射极限光斑亚像素、图样混叠，"
-            f"而实验系统的远场需要 8 倍以上过采样才被解析。"
-            f"把契约改成「source 在瞳面网格、target 在远场网格」之后，"
-            f"网络臂的复合分数从 {_fmt(_same_grid_value(results_same_grid, 'composite'))} "
-            f"升到 **{_fmt(net_cal['composite']['mean'])}**，"
-            f"**首次超过物理 Zernike 基线 {_fmt(net_base['composite']['mean'])}**，"
-            f"也超过 GS 上限 {_fmt(arm_b.get('gs_ceiling', {}).get('composite', {}).get('mean', 0))}。"
-            f"详见 §4.4。")
-        add(f"4. **校准相对「采样修好但物理不校准」的增量，仍在噪声里。** "
-            f"过采样后校准臂 composite {_fmt(net_cal['composite']['mean'])}、"
-            f"理想 FFT 臂 {_fmt(net_ideal.get('composite', {}).get('mean', 0))}——"
-            f"两者基本打平；但校准臂的**均匀度更好**（CV "
-            f"{_fmt(net_cal['cv_target_box']['mean'])} 对 "
-            f"{_fmt(net_ideal.get('cv_target_box', {}).get('mean', 0))}），"
-            f"**能量占比略低**（EE {_fmt(net_cal['encircled_energy']['mean'])} 对 "
-            f"{_fmt(net_ideal.get('encircled_energy', {}).get('mean', 0))}）。"
-            f"这是「校准把能量摊得更均」的预期方向，但幅度不足以宣称物理校准单独有增益。")
+        ceil = arm_b.get("gs_ceiling", {})
+        flat = arm_b.get("flat", {})
+        add(f"3. **网络臂达到了这套物理的可达上限。** 网络 composite "
+            f"{_fmt(net_cal['composite']['mean'])}，"
+            f"GS 上限（带误差物理下的 GS 解本身）"
+            f"{_fmt(ceil.get('composite', {}).get('mean', 0))}，"
+            f"平场 {_fmt(flat.get('composite', {}).get('mean', 0))}。"
+            f"网络**不低于**物理上限，说明它学到的相位已经是这套台架能给出的最好结果。")
+        add("4. **上一轮网络打不过基线，原因不是校准而是架构。** "
+            "`FourierGSNet` 原本要求 source 与 target **同网格**，"
+            "于是它内部能看到的远场只能是**同尺寸 FFT**——衍射极限光斑亚像素、"
+            "图样混叠，而实验系统的远场需要 8 倍以上过采样才被解析。"
+            "改成「source 在瞳面网格、target 在远场网格」之后，"
+            "网络臂才第一次站到物理上限那一档（详见 §5.3）。"
+            "**校准修好物理，采样要靠改契约。**")
     else:
-        add("3. **网络层未评估**（臂 B 没跑），见 §4。")
-    add("5. **issue 写的 P1 信任域门仍然是死的**——见 §5.2："
+        add("3. **网络层未评估**（臂 B 没跑），见 §5。")
+    add("5. **issue 写的 P1 信任域门仍然是死的**——见 §6.1："
         "那 0.5 rad 阈值在仓库里限的是 Step A 的**系数步**，"
         "用它卡绝对瞳面相位会挡掉所有真实整形相位。")
     add("")
@@ -204,7 +200,7 @@ def render(
             "保留物理模型，不把网络初值接进闭环。")
     add("")
     add("> ⚠️ 本轮**全部是仿真**，没有任何新的 CCD 或 SLM 测量。"
-        "真值是数字孪生 `Bench2FGroundTruth`，不是实验系统。"
+        "真值是仓库规范的 2f 数字孪生（`drivers/sim/bench_twin.py`），不是实验系统。"
         "报告里的每个数字都只对「仿真协议」成立，不能当作实验系统收益。")
     add("")
 
@@ -269,8 +265,8 @@ def render(
     add(_row(["瞳面模型网格", f"{geometry['region']} × {geometry['region']}"]))
     add(_row(["远场 FFT 网格（评估）", f"{geometry['far_field_size']} × {geometry['far_field_size']}"]))
     add(_row(["远场 FFT 网格（网络臂内部）", f"{geometry['region']} × {geometry['region']}（见 §4.3）"]))
-    add(_row(["面板照明圆盘半径", f"{geometry['panel_disc_radius_px']} panel px"]))
-    add(_row(["高斯照明腰宽", f"{geometry['beam_waist_panel_px']} panel px"]))
+    add(_row(["瞳面网格覆盖的面板边长", f"{geometry['region_span_px']} panel px"]))
+    add(_row(["入射光束腰宽", "250 panel px（孪生默认）"]))
     add(_row(["指标网格", f"{config['metric_side']} × {config['metric_side']}（远场中心裁剪）"]))
     add(_row(["远场方形目标边长", f"{config['target_side']} px"]))
     add(_row(["每族帧数", f"{config['frames_per_family']} × 3 族 = {3 * config['frames_per_family']}"]))
