@@ -161,7 +161,7 @@ class MyDriver(Device):
 | 2f Fourier 光路 | SLM 前焦面 125mm → f=125mm 透镜 → CCD 后焦面; CCD 坐标=空间频率; 0 级=帧全局最大 (argmax), 非相机几何中心 |
 
 > 🔴 **SLM 序列号三路冲突 (2026-10-01 复核, 尚未收口)**：本文件与
-> `report/slm/bench_calibration_20261001.md` 记 SLM#1 = **22030108** (@1064nm, 2π=993)；
+> `report/slm/bench/bench_calibration_20261001.md` 记 SLM#1 = **22030108** (@1064nm, 2π=993)；
 > `drivers/slm/AGENTS.md:114,139` 记 SLM = **22030102** (@532nm, 2π=998)；
 > `report/slm/report2.md` / `report3.md` / `zernike_linearity` 记 **23020026** (@532nm)。
 > 三者可能对应**两台不同 SLM**（SLM#1 @1064nm 与另一台 @532nm）。**引用任一序列号前

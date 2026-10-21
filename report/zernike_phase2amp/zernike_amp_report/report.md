@@ -69,7 +69,7 @@ U-Net 是 `ml.phase.unet.UNetGenerator`（`src/ml/phase/unet.py`）的一个**im
   标准化（除以每个样本的最大值）。
 - **损失**: MSE (`F.mse_loss(prediction, target)`)，与物理模型的 `_normalize("peak")`
   搭配。`output_mode="image"` (线性头) 曾测评但表现更差（见
-  `report/zernike_r2_baseline/report.md` §9），故不使用。
+  `report/zernike_r2_baseline/pod_ridge/report.md` §9），故不使用。
 
 **训练数据与过程**:
 

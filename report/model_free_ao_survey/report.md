@@ -206,8 +206,8 @@
 | 报告 | 覆盖 | 与本文边界 |
 |---|---|---|
 | `report/zotero_objectives/README.md` | 目标函数/评价函数目录（PIB/CV/EE/MR/FOM/SSIM…） | 本文 **不复述公式**；§3.1/§3.3 引用的 nPIB/FOM 直接指向该文 §4 |
-| `report/beam_shaping/papers/literature_survey.md` | 整形方法 25 篇（GS 族/可微/RL/目标函数/偏振） | 本文聚焦 **model-free AO 综述**（FSO/湍流导向），方法分类不重复 |
-| `report/beam_shaping/papers/beam_shaping_papers.md` | 文献方法在同一光学模型上的仿真对比 | 本文 §3.1/§3.5 的验收**复用**该文同一套数字孪生基准 |
+| `docs/beam_shaping/papers/literature_survey.md` | 整形方法 25 篇（GS 族/可微/RL/目标函数/偏振） | 本文聚焦 **model-free AO 综述**（FSO/湍流导向），方法分类不重复 |
+| `docs/beam_shaping/papers/beam_shaping_papers.md` | 文献方法在同一光学模型上的仿真对比 | 本文 §3.1/§3.5 的验收**复用**该文同一套数字孪生基准 |
 | `report/slm_pib_bench/` | SPGD delta 扫描 / 噪声地板 / 门控 | 本文 §3.1 的 `delta` 与该文 `delta_scan*.md` 同一旋钮，结论应一致 |
 
 ---

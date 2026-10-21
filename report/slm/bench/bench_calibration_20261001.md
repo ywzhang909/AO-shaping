@@ -47,7 +47,7 @@
 | 一阶理论值 | **7557** | λf/(d·p_cam), 与实测差 **1–2%** |
 | Zernike tilt 灵敏度 | **5.05 px/rad** (实测 2.0 rad → 10.1 px) | 理论 f·λ/(πR·p_cam)=5.34 |
 
-> ⚠️ `report/slm/model_in_loop_bench_calibration.md` 同时写了 `132940/P` 与 `7600/P`
+> ⚠️ `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` 同时写了 `132940/P` 与 `7600/P`
 > (相差 17.5×)。**实测支持 7400–7600**, `132940` 是错的。仓库代码用的是 7400。
 
 ### 2.2 0 阶光斑 (平场, 先写平场再测)

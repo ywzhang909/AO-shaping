@@ -205,7 +205,7 @@ SPGD 路径完全绕开了它（原文引用的 `diff_shaping_runner.py:729` **�
 - ~~`python src/ao_shaping/main.py gs-square --target-px 20 ...`~~（Gerchberg-Saxton）— **命令已移除**
 - ~~`python src/ao_shaping/main.py diff-beam --algorithm backprop ...`~~（可微 backprop,
   SLM200+大恒实验系统 Corr 0.8776, footprint 20×22px）— **命令已移除**；
-  实测记录仍归档在 `report/diff_beam/README.md`（200 步最优, 400 步无增益）
+  实测记录仍归档在 `report/diff_beam/diff_beam_frame_analysis/README.md`（200 步最优, 400 步无增益）
 
 若要保留 `spgd-square` 的 CLI，可将其相位合成接到 `train_beam_shaping` /
 GS 引擎（保留 `--target-side` / `--center`），而非依赖模型无关 SPGD。

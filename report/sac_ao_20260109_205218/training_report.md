@@ -6,7 +6,7 @@
 > **说明**: SAC 训练报告 (2026-01-09)
 <!-- provenance:end -->
 
-**本轮结论**：本次为 SAC-AO 训练管线的**冒烟验证**（1 次迭代 × 500 步，总时长 0.2 分钟），仅证明训练入口、指标记录与曲线产物（reward/actor_loss/alpha 等）全链路可用，**不构成任何收敛性或性能结论**；性能评估须以 `report/models_analysis/report.md` 中的长训练家族为准。
+**本轮结论**：本次为 SAC-AO 训练管线的**冒烟验证**（1 次迭代 × 500 步，总时长 0.2 分钟），仅证明训练入口、指标记录与曲线产物（reward/actor_loss/alpha 等）全链路可用，**不构成任何收敛性或性能结论**；性能评估须以 `report/models_analysis/models_report/report.md` 中的长训练家族为准。
 
 ## 训练概览
 

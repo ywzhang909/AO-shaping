@@ -47,31 +47,31 @@
 
 | 文件 | 订正内容 |
 |---|---|
-| `report/slm_pib_shape_50px/report.md` | 目标方向写反（`shape` 是 max）→ 已加警示 + 改正解读；11 处反斜杠死链 |
-| `report/zernike_farfield_sim/report.md` | §6 结论 2 与自己的 §5.1 表格矛盾（n=4 实为退化**更慢**）→ 改写 |
-| `report/slm_pib_heuristic_hw/report.md` | 4 处内部矛盾（加载预算 30→82-116、初始值 -34→-1.21、曝光"安全上限"作废、附录 A/B ROI 不可比）；待办 ③ 已完成 |
-| `report/diff_beam/README.md` | runner 与 `diff-beam` 命令已删除 → 归档标注 + 5 条路径订正 |
+| `report/slm_pib_shape_50px/slm_pib_sim_report/report.md` | 目标方向写反（`shape` 是 max）→ 已加警示 + 改正解读；11 处反斜杠死链 |
+| `report/zernike_farfield_sim/zernike_farfield_sim_report/report.md` | §6 结论 2 与自己的 §5.1 表格矛盾（n=4 实为退化**更慢**）→ 改写 |
+| `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md` | 4 处内部矛盾（加载预算 30→82-116、初始值 -34→-1.21、曝光"安全上限"作废、附录 A/B ROI 不可比）；待办 ③ 已完成 |
+| `report/diff_beam/diff_beam_frame_analysis/README.md` | runner 与 `diff-beam` 命令已删除 → 归档标注 + 5 条路径订正 |
 | `report/slm/slm_shaping_diff/readme.md` | `diff-shaping` 命令已删除 → 归档标注 + 3 条路径订正 |
 | `docs/slm/slm_pattern_helper.md` | Noll 表与 canonical **相反** → 按 `list_zernike_modes()` 实输出改正；2 处会 `TypeError` 的签名；11 个不存在的插图 |
 | `docs/slm/slm_gui_manual.md` | §7 图案表把 5 个控制类标成「原始 uint16」**与代码相反**（违反 raw-radians 契约）→ 改正 + 补漏 `GSSquareGaussianControl` |
 | `report/slm/slm_square_spgd/README.md` | B2/B3 已修复（`_zernike_to_uint16` 已删）；3 个已移除命令 |
 | `report/slm/report2.md` | 12 处漂移行号/路径（`L1369→L1457` 等）；`_apply_shift` 已不存在；SLM 序列号存疑标注 |
-| `report/slm/report3.md` / `daily_2026-09-16.md` | `python -m` 路径补 `slm/` 段 |
-| `report/slm/daily_2026-09-08.md` | 状态表 3 项「待修复」其实早已修完；**P1「面板不调制」结论已被 RETRACTED** |
-| `report/slm/model_in_loop_bench_calibration.md` | `132940/P` → `7600/P`（与自身另外三处差 17.5×）；相机序列号自相矛盾；曝光默认值已被取代 |
+| `report/slm/zernike_response_matrix_report/report3.md` / `daily_2026-09-16.md` | `python -m` 路径补 `slm/` 段 |
+| `report/slm/daily/daily_2026-09-08.md` | 状态表 3 项「待修复」其实早已修完；**P1「面板不调制」结论已被 RETRACTED** |
+| `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` | `132940/P` → `7600/P`（与自身另外三处差 17.5×）；相机序列号自相矛盾；曝光默认值已被取代 |
 | `docs/slm/align_windowed.md` | `AGENTS.md L592` → `:667`（原行号是代码围栏） |
-| `report/beam_shaping/papers/literature_survey.md` | 5 个已删除 runner、`utils/beam_metrics` 旧路径、DOI 漏首位 `0` |
-| `report/oopao_impact/report.md` | 加「**本报告是对的，`sim/AGENTS.md` 是错的**」警示（F-10）；POSIX 路径 |
-| `report/fouriergsnet_pipeline/report.md` | `phi.detach()` bug **已修复**（原文仍写「待修」）；7 处漂移行号 |
-| `report/fouriergsnet_sim/report.md` / `oopao_vs_numpy` | POSIX 路径；`optimizer/rl/envs/fouriergsnet_env.py` **从未存在**；`K` vs `K_UNROLL` 消歧 |
-| `report/slm_pib_bench/report.md` + `EXPERIMENT_REPORT.md` | 死链；δ=0.2 折叠门两个分母（45/60 vs 144/200）未对账；run 总数 51/44 未对账；两个 `### 3.4` 重编号为 3.4–3.7；悬空的 `§3.3.1` |
+| `docs/beam_shaping/papers/literature_survey.md` | 5 个已删除 runner、`utils/beam_metrics` 旧路径、DOI 漏首位 `0` |
+| `report/oopao_impact/oopao_impact_report/report.md` | 加「**本报告是对的，`sim/AGENTS.md` 是错的**」警示（F-10）；POSIX 路径 |
+| `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md` | `phi.detach()` bug **已修复**（原文仍写「待修」）；7 处漂移行号 |
+| `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md` / `oopao_vs_numpy` | POSIX 路径；`optimizer/rl/envs/fouriergsnet_env.py` **从未存在**；`K` vs `K_UNROLL` 消歧 |
+| `report/slm_pib_bench/pib_bench_report/report.md` + `EXPERIMENT_REPORT.md` | 死链；δ=0.2 折叠门两个分母（45/60 vs 144/200）未对账；run 总数 51/44 未对账；两个 `### 3.4` 重编号为 3.4–3.7；悬空的 `§3.3.1` |
 | `docs/issues_report.md` + `AGENTS.md`/`README.md`/`sim/AGENTS.md`/`drivers/AGENTS.md` | 见 §3 F-10~F-12 及各文件内修订标记 |
 
 **未改动**（复核后确认干净或仍成立）：`report/heuristic_pib/`、`report/strehl_benchmark/`、
-`report/beam_shaping/papers/beam_shaping_papers.md`、`report/fouriergsnet_pipeline/offline_training/`、
-`report/slm_pib_sim/report.md`、`report/slm/zernike_response_matrix_report/`、`report/slm/bench_probe/`、
-`report/slm/bench_calibration_20261001.md`（最新）、`report/slm/zernike_linearity/linearity.md`、
-`report/oopao_vs_numpy/report.md`（数值部分）、`report/zotero_objectives/README.md`（仅 1 条路径）。
+`docs/beam_shaping/papers/beam_shaping_papers.md`、`report/fouriergsnet_pipeline/offline_training/`、
+`report/slm_pib_sim/slm_pib_sim_report/report.md`、`report/slm/zernike_response_matrix_report/`、`report/slm/bench_probe/`、
+`report/slm/bench/bench_calibration_20261001.md`（最新）、`report/slm/zernike_linearity/linearity.md`、
+`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`（数值部分）、`report/zotero_objectives/README.md`（仅 1 条路径）。
 
 ---
 
@@ -79,7 +79,7 @@
 
 | # | 原结论 | 实际情况 | 提出 |
 |---|---|---|---|
-| X-1 | `docs/refactor/TODO.md` #16：「`utils/image/resample.py` **0 导入** → 删模块并修 README」 | ❌ **现在有 1 个生产导入方**：`FourierGSNet.py:42` `from ao_shaping.utils.image.resample import resample_to_grid`（用于 `:345`、`:419`）。**照原文删会直接打断 FourierGSNet** | 2026-10-01 |
+| X-1 | `TODO.md` #16：「`utils/image/resample.py` **0 导入** → 删模块并修 README」 | ❌ **现在有 1 个生产导入方**：`FourierGSNet.py:42` `from ao_shaping.utils.image.resample import resample_to_grid`（用于 `:345`、`:419`）。**照原文删会直接打断 FourierGSNet** | 2026-10-01 |
 | X-2 | `tools/slm/TODO.md` D2：「`calibration.py:2182` min-max 归一化 → 尺度无关反模式（系数 ×1 与 ×4 输出字节相同）」 | ❌ **误报**。该处 `P` 是**实测功率-扫描位置曲线**，归一化到 [0,1] 后用 `np.interp` 找 50%/84%/16% 交点是标准做法，功能正确。它**不是** `PatternHelper._zernike_to_uint16` / `ZernikeDM.generate_phase` 那类系数归一化 | 2026-10-01 |
 | **X-3** | ~~两个 runner 的 `ZERNIKE_APERTURE_RADIUS` 默认值不同：`slm_zernike_pib.py` = **300.0**，`slm_zernike_shaping.py` = `min(PANEL_RES)/2.0` = **600**，README 记 **600**~~ | ✅ **2026-10-04 解开，原结论的前提是错的**（见 §5.17）。实测：`_zernike_to_phase` 两份**逐字节相同**，但读各自的模块常量 ⇒ pib=**300**、shaping=**600**（import 实测，非读码）。**但 `slm_zernike_shaping` 没有任何生产导入方**（只有测试 + 自己的 legacy `__main__`）：`slm-pib`→`slm_zernike_pib`、`rms-zernike`→**`optimizer.wf.rms_by_zernike`**（不是 shaping）、`delta_explorer`→`slm_zernike_pib`。所以**不存在"换个 runner 就换光阑"的生产风险**，也**不需要硬件对比**：语料 `test_gsnet_dataset.py:328-333` 钉的 **300** 与 pib 一致，shaping 的 600 是死代码 | 2026-10-03 |
 
@@ -89,12 +89,12 @@
 
 | 原项 | 落地情况 |
 |---|---|
-| `docs/TODO.md` P2-6：文件尾 argparse `__main__` 块 | ✅ 已删。文件 1592 行结束于 `return recorder`，全文件无 `__main__` / `argparse`；`main.py` Click 是唯一入口 |
+| `TODO.md` P2-6：文件尾 argparse `__main__` 块 | ✅ 已删。文件 1592 行结束于 `return recorder`，全文件无 `__main__` / `argparse`；`main.py` Click 是唯一入口 |
 | `docs/issues_report.md` §1.2：`config.py` 依赖具体硬件 | ✅ 已改为 `drivers.dm._registry.get_dm_registry()` + `list_reachable_types()`，不再直接 import `NLight` |
 | `docs/issues_report.md` §10.4：删空目录 `drivers/sim/wfs/` | ✅ 目录已有内容（`simulated_wfs.py`） |
 | `report/slm/report2.md` §2.3：`ZernikeDM.generate_phase` min-max 归一化 | ✅ 2026-09-16 已移除，`zernike_dm.py:90,117-118` 注明；系数即弧度 |
 | `OBJECTIVE_TARGET_SHAPE_MERGE_PLAN.md`（2026-09-26）：`objective`/`target_shape` 合并 | ✅ 已落地为 `runner_common.py:622` 的 `ObjectiveTarget`（`target_shape` 成为 objective 下级字段） |
-| `docs/refactor/TODO.md` §一：`tools/` 是中间层、`scripts/` 是同级 | ✅ 架构结论已采纳为文档，不再是待办 |
+| `TODO.md` §一：`tools/` 是中间层、`scripts/` 是同级 | ✅ 架构结论已采纳为文档，不再是待办 |
 | `README.md` `--wfs-type` / `--disturbance-cn2` / `--lr` / `--delta` CLI 文档（2026-10-01 merge 引入） | ✅ 已补文档 |
 | **slm-pib ABBA 漂移对消（2026-10-02）** | ✅ 提交 `e9d1769`（`_spgd_capture_signs` + `SlmZernikePibConfig.abba_sampling` + 采集循环改为按符号序列驱动，fold 门/基线 EMA/饱和检查/符号均值全部覆盖每一帧）、`139a461`（`--abba-sampling` + `_build_slm_pib_config` 透传）、`796d3ce`（执行真实 epoch 循环的回归测试，断言每轮采集 2 vs 4 帧 + `_pos_c` 绑定）、`1d6329e`（README）。**opt-in，默认 `False` ⇒ 2 帧路径逐字节不变。** 过程中修掉一个 subagent 引入的**首轮必崩 bug**（4 元组切 `[2:]` 得 2 元组却解包 3 名 ⇒ `ValueError`，默认模式同样崩），并补上缺失的循环级测试（原有 12 个测试只测符号助手与漂移代数，不执行循环，故漏检）；变异测试确认可捕获。⚠️ **实验验收仍未做 → 转 H-19** |
 
@@ -272,7 +272,7 @@ TODO 指定的那处极小值修复**（`0.0000` → `1.000e-07`）。
 
 | 原项 | 落地情况 |
 |---|---|
-| **R-22** `utils/hardware_utils.py` → `utils/image/hardware_utils.py` 迁移收尾 | ✅ **先做了 TODO 要求的 grep**（见下方"前置核查"），然后把**全部 11 处旧路径导入**改到 canonical 路径并**删掉 16 行 `sys.modules` 别名**（`src/ao_shaping/utils/hardware_utils.py`）。6 个 src：`beam_shaping_utils` / `differentiable_beam` / `micro_dm_image_collect` / `phase_capture` / `slm_diagnose` / `slm_lut_runner`；3 个 test：`test_slm_diagnose_hardware` / `test_auto_camera_finders` / `test_hardware_utils`。**不留兼容 shim** —— 旧路径现在 `ImportError` |
+| **R-22** `utils/hardware_utils.py` → `utils/image/hardware_utils.py` 迁移收尾 | ✅ **先做了 TODO 要求的 grep**（见下方"前置核查"），然后把**全部 11 处旧路径导入**改到 canonical 路径并**删掉 16 行 `sys.modules` 别名**（`src/ao_shaping/utils/image/hardware_utils.py`）。6 个 src：`beam_shaping_utils` / `differentiable_beam` / `micro_dm_image_collect` / `phase_capture` / `slm_diagnose` / `slm_lut_runner`；3 个 test：`test_slm_diagnose_hardware` / `test_auto_camera_finders` / `test_hardware_utils`。**不留兼容 shim** —— 旧路径现在 `ImportError` |
 
 **前置核查（TODO 原文警告的"各有两个家，移动会静默撕裂"）**：实测结论与 TODO 的
 担忧**不一致**，据此调整了做法：
@@ -357,7 +357,7 @@ stdlib + `click`。三条守卫覆盖不同退化方式：
    模块导入」。是 import 时的 `ImportError` 抓到的。这正好说明为什么 R-36 需要
    自己的测试而不是只靠 lint。
 2. **私有名不该跨模块 re-export**：`_collect_click_annotations` 原本被
-   `tests/.../test_gsnet_train.py` 从 `runner_common` 取。已让测试直接 import
+   `tests/ao_shaping/ml/gsnet_debug/test_gsnet_train.py` 从 `runner_common` 取。已让测试直接 import
    叶子模块，`runner_common` 不再导出私有名。
 
 ⚠️ **顺带发现，未修**（不在 R-36 范围，单独记）：
@@ -678,7 +678,7 @@ runners 重组进 `micro_drive/` 与 `slm/` 子包后，**文档里的模块路�
 
 | | 修前 | 修后 |
 |---|---|---|
-| README 指向 | `docs/beam_shaping_benchmark_metrics.md`（**1 行 smoke 残留**） | `report/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`（**9 单元**） |
+| README 指向 | `report/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`（**1 行 smoke 残留**） | `report/benchmarks/device_less_full/beam_shaping_benchmark_metrics.md`（**9 单元**） |
 | 权威 9 行网格 | 被 `.gitignore` 排除，**本 checkout 不存在** | **已提交**（~100 KB，含 6 个 GIF） |
 
 ⚠️ 那个残留文件**自己就带着 2026-10-01 的警告横幅**描述了这个问题 ——
@@ -1553,7 +1553,7 @@ runner / 工具，而 README 只登记了 20 个 `main.py` 命令。**「冗余�
 2. **「≥500 行」不等于违规**。README 的规范是**两档**：
    工具/算法 `< 500`，驱动/优化器 `< 800`。所以 117 个里有相当一部分（驱动、
    优化器）按 800 的上限算并不超标。要按档位分别统计才有意义，上表只给原始分布。
-   真要找最该拆的，`src/ao_shaping/tools/slm/calibration.py`（2827 行）和
+   真要找最该拆的，`src/ao_shaping/tools/slm/calibration/calibration.py`（2827 行）和
    `optimizer/wfless/model_in_loop_shaping.py`（2671 行）排前两位。
 
 **结论：F-5 不是一个条目，是 5 个独立切片**（print→loguru / 宽泛 except /

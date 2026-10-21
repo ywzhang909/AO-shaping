@@ -16,7 +16,7 @@
 >    `utils/cli_helpers.py` → **`utils/io/cli_helpers.py`**、
 >    `runners/zernike_matrix_runner.py` → **`runners/slm/zernike_matrix_runner.py`**）。
 > 2. **SLM 序列号存疑**：本文写 `#23020026`（532nm），
->    而 `drivers/AGENTS.md:158` 与 `report/slm/bench_calibration_20261001.md` 均写
+>    而 `drivers/AGENTS.md:158` 与 `report/slm/bench/bench_calibration_20261001.md` 均写
 >    **SLM#1 = `22030108`（1064nm，2π=993）**。仓库中同时存在 `22030102`、`22030108`、
 >    `23020026` 三个「SLM#1」序列号，尚未统一，见 `TODO.md`。
 
@@ -215,7 +215,7 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 重写 (设备生命周期/推拉内核/pupil（瞳面） 自动与写回/弧度制/产物与 CLI 保持), runner 侧时序与
 `--debug` 落盘问题已消除; 残留假设中的 SLM DLL 侧问题只能由**实验重标**验证
 (待办项, 设备可用后执行)。**当前处置**: 改用**等价的、已验证的** `tools/slm/slm_zernike_response.py`
-(同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `report/slm/report3.md`。
+(同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `report/slm/zernike_response_matrix_report/report3.md`。
 
 ### 2.7 ✅ 修复 `parse_tuple` 的整数限制
 
@@ -323,9 +323,9 @@ data/zernike_correction/debug_<ts>/
 
 ## 6. 相关文档
 
-- **`report/slm/report3.md`** — **Zernike 响应矩阵重标 完整测试报告 (2026-09-16)**: 含设备参数、
+- **`report/slm/zernike_response_matrix_report/report3.md`** — **Zernike 响应矩阵重标 完整测试报告 (2026-09-16)**: 含设备参数、
   矩阵热图/对角主导/奇异值/方差/线性度、离线反解与结论解读 (带图带文字分析)
-- `report/slm/daily_2026-09-15.md` — 实验日报 (§9 含线性度分析)
+- `report/slm/daily/daily_2026-09-15.md` — 实验日报 (§9 含线性度分析)
 - `report/slm/zernike_response_matrix_report/report.md` — 响应矩阵报告 (创建/分析/检测)
 - `report/slm/zernike_linearity/linearity.md` — 线性度分析
 - `src/ao_shaping/drivers/slm/AGENTS.md` — SLM 域文档 (含三个已踩坑)

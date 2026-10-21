@@ -18,9 +18,9 @@
 **数据来源**: `data/debug/slm_pib_*` (44 个搜索 run)、`data/debug/slm_pib_online/*` (3 次 SNR 扫描 + 8 次 smoke)
 
 > 本文是**结论汇总**。所有数字均可由离线脚本复现:
-> - 实验系统验收报告: `report/slm_pib_bench/report.md` (`scripts/slm/generate_pib_bench_report.py`)
-> - 离线三目标对比: `report/slm_pib_online/objective_comparison.md`
-> - 实验三目标对比: `report/slm_pib_online_hw/objective_comparison.md`
+> - 实验系统验收报告: `report/slm_pib_bench/pib_bench_report/report.md` (`scripts/slm/generate_pib_bench_report.py`)
+> - 离线三目标对比: `report/slm_pib_online/shape_objective_comparison/objective_comparison.md`
+> - 实验三目标对比: `report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md`
 >
 > 注: 后两个目录被 `.gitignore:112` 排除, 未入库; 需时用对应脚本重新生成。
 

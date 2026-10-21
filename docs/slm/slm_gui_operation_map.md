@@ -269,8 +269,8 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 | 2 | `bench_settings.py` | 新增 `build_defocus_overlay`（纯函数：菲涅尔粗调 + Zernike (2,0) 细调，半径=覆盖宽度/2，中心走 `bench_pupil_center`）+ `bench_defocus_focal`（三态：自动/哨兵/手动）+ `rebuild_defocus_overlay`（开关门控推送） |
 | 3 | `multi_slm_controller.py` | 新增侧栏「离焦 (发送叠加)」区块 `_render_defocus_overlay_block`（主开关 / 推荐值 / 焦距 / 细调）+ `_apply_slm_overlays`（底相位+离焦统一推送的单一真源，首连/整形后/底相位变更均调用） |
 | 4 | `shaping_controls.py` | 删除主区 `defocus_trim_fragment` + `_dispatch_defocus` + `_gs_base_phase` 缓存，改为只读状态行，消除"拖动滑块触发整页 rerun、面板丢失"的回归 |
-| 5 | `tests/.../drivers/slm/test_phase_overlay.py`（新） | 10 项：叠加在 LUT 前/后、灰度空间、与底相位叠加、resize 后全板覆盖、set/get 副本独立 |
-| 6 | `tests/.../gui/slm/test_defocus_trim.py`（重写） | 20 项：三态焦距、纯函数非累积、开关门控推送、断连不动、越界中心不崩、widget 顺序（推荐值按钮先于焦距输入） |
+| 5 | `tests/ao_shaping/drivers/slm/test_phase_overlay.py`（新） | 10 项：叠加在 LUT 前/后、灰度空间、与底相位叠加、resize 后全板覆盖、set/get 副本独立 |
+| 6 | `tests/ao_shaping/gui/slm/test_defocus_trim.py`（重写） | 20 项：三态焦距、纯函数非累积、开关门控推送、断连不动、越界中心不崩、widget 顺序（推荐值按钮先于焦距输入） |
 | 7 | `docs/slm/slm_gui_manual.md` | §8.3 新增「离焦叠加（发送管线 T4 叠加层）」；§4 Schema 替换旧 `defocus_rad/_focal_mm/_apply_defocus_btn/_clear_defocus_btn` 为新键 |
 | 8 | `docs/slm/slm_gui_operation_map.md` | §2 清单 T4 新增 #20-22（启用/推荐值/焦距+细调）并全量重编号至 32；§4 目标布局 + 路线 4 增补离焦步骤；§6 增 v1.2 变更清单 |
 

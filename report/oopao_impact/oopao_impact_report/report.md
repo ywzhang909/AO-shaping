@@ -88,7 +88,7 @@
 两条独立证据支持「标定偏置」而非「统计涨落」的判断:
 
 1. **与 Cn2 无关**: 跨越两个数量级的湍流阶梯比值不变 —— 标定系数不随 Cn2 变化。
-2. **随 mode 改变**: 恒定比值逐 mode 不同 (open 1.068 / closed 2.628) —— 两者 `l_max` / `propagation_distance` 配置不同。该常数因此是**配置相关**的, 与 `report/oopao_vs_numpy/report.md` 记录的比值随配置变化一致(该报告在另一组配置下亦测得逐档恒定的常数)。
+2. **随 mode 改变**: 恒定比值逐 mode 不同 (open 1.068 / closed 2.628) —— 两者 `l_max` / `propagation_distance` 配置不同。该常数因此是**配置相关**的, 与 `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md` 记录的比值随配置变化一致(该报告在另一组配置下亦测得逐档恒定的常数)。
 
 ⚠️ **`init_rms` 与 `disturbance_rms` 是两个不同的量, 不可互相推断**:
 - `disturbance_rms` = `env._disturbance_rms` = **全网格未截瞳**的原始相位屏 RMS, 不含像差, 不含 DM 校正;

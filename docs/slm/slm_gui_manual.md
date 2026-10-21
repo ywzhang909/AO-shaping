@@ -596,7 +596,7 @@ flowchart LR
 > 原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通
 > （Zernike SPGD 与未标定 GS 从未产出过均匀方形），见
 > [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与
-> [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
+> [`report/shape_trials/gs_refine/online_20261010.md`](../../report/shape_trials/gs_refine/online_20261010.md)。
 > 取而代之的是下方 §8「闭环整形」区（GS+SPGD 闭环 / 正向模型闭环，均走已验证的闭环管线）。
 
 ---
@@ -615,7 +615,7 @@ flowchart LR
 
 1. **GS+SPGD 闭环整形（已验证配方）**：GS 开环预矫正（对比择优，仅当实测优于平场才采用）
    + 无感知 SPGD 细化。GUI 默认值取自交替重放验证过的配方
-   （[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
+   （[`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)）：
    曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）、
    模型覆盖 `900` 面板px（= 2×`beam_radius_px=450`）、`target_side=100`、`cam_size=250`、`gs_iters=12`、
    `far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、
@@ -626,7 +626,7 @@ flowchart LR
 2. **正向模型闭环整形（前沿）**：每轮用强随机探针重拟合正向模型的 Zernike 像差
    （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
    需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但未成为被接受的均匀方形，
-   见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
+   见 [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)。
 
 > **设备生命周期**：上述优化器在**内部**自行打开/关闭 SLM 与相机（Santec SDK 句柄**不可重入**），
 > GUI 与标定按钮共用 `with_slm_ownership(slm_num)`：停背景相位切换 → 释放目标 SLM 句柄 →

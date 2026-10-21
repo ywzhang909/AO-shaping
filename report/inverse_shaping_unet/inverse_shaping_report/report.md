@@ -39,7 +39,7 @@
 
 ## 2. 数据预处理决策
 
-全部来自 `report/hwdataset_corpus/report.md` 的实测结论，而非通用经验：
+全部来自 `report/hwdataset_corpus/hwdataset_corpus_report/report.md` 的实测结论，而非通用经验：
 
 | 决策 | 依据 |
 |---|---|

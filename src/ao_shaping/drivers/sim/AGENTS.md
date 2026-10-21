@@ -348,12 +348,12 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
 3. **两后端不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
    oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化**, 详见
-   `report/oopao_impact/report.md` §4.3。**不要把某次配置的常数当成普适标定系数。**
+   `report/oopao_impact/oopao_impact_report/report.md` §4.3。**不要把某次配置的常数当成普适标定系数。**
    绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
    ⚠️ 比较时注意 `init_rms` (`compat.py::_phase_rms()` = **截瞳后总波前** RMS, 含像差与 DM)
    与 `disturbance_rms` (`env._disturbance_rms` = **全网格未截瞳**原始相位屏 RMS) 是**两个不同的量**,
    不可互相推断 —— 前者可因像差项跨臂反向。
-   > 📌 **常数溯源 (2026-10-13 复核)**: `report/oopao_impact/report.md` §4.3 实测
+   > 📌 **常数溯源 (2026-10-13 复核)**: `report/oopao_impact/oopao_impact_report/report.md` §4.3 实测
    > **open 1.068× / closed 2.628×** (离散度 ≤1.8e-09) —— 该报告生成于 2026-09-29,
    > 当时 `_rescale_for` 还是**多因子**版本 (commit `5e12fa2`)。此前本条一度被写成
    > 5.428/13.354, 但那并非报告实测值: 5.428 = 1.068 × 5.08、13.354 = 2.628 × 5.08,
@@ -389,7 +389,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 7. **API 漂移**: 本地 submodule 比旧 pin `8e12a17f` 领先若干提交, 导入会打印
    `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
 
-对比报告与图片见 [`report/oopao_vs_numpy/report.md`](../../../../report/oopao_vs_numpy/report.md)
+对比报告与图片见 [`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`](../../../../logs/mamba_curriculum_20260323_121023/report.md)
 (生成器 `scripts/oopao/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 

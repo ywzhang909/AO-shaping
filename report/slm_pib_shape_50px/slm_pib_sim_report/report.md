@@ -20,7 +20,7 @@
 >    与 [`slm_pib_sim/report.md`](./report.md) 等填充后报告的数值
 >    **不可直接比较**。
 > 3. 下文的图片链接使用了 Windows 反斜杠，Markdown 渲染为文本（已修正为正斜杠）。
-> 需要当前可信数据请读 `report/slm_pib_sim/report.md`（2026-10-01 生成）。
+> 需要当前可信数据请读 `report/slm_pib_sim/slm_pib_sim_report/report.md`（2026-10-01 生成）。
 
 **Fully offline** — 本报告由 `scripts/slm/generate_slm_pib_sim_report.py` 离线生成, 仅读取 `slm-pib --debug` 保存的 PKL/JSON 调试产物, 不打开任何硬件。
 

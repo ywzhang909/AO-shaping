@@ -64,4 +64,4 @@ python -m ao_shaping.tools.slm.model_in_loop_replay data/debug/slm_model_in_loop
 
 ## 5. 本次实验的边界
 
-2026-10-16 当前光路下，两轮热启动在固定 0.200 ms 重放中使目标框 CV `0.5627 -> 0.4454`，EE `0.4251 -> 0.4438`。软边缘 CV 改动在固定 0.18 ms 重放中使 CV `0.6775 -> 0.5937`，EE 基本持平，但 IoU `0.1933 -> 0.1508`。两组都没有证明形成均匀实心方斑，后一组还伴随较低原始计数和几何尺度冲突。详见 [实验报告](../../report/shape_trials/model_in_loop_uniformity_live_20261016.md)。
+2026-10-16 当前光路下，两轮热启动在固定 0.200 ms 重放中使目标框 CV `0.5627 -> 0.4454`，EE `0.4251 -> 0.4438`。软边缘 CV 改动在固定 0.18 ms 重放中使 CV `0.6775 -> 0.5937`，EE 基本持平，但 IoU `0.1933 -> 0.1508`。两组都没有证明形成均匀实心方斑，后一组还伴随较低原始计数和几何尺度冲突。详见 [实验报告](../../report/shape_trials/model_in_loop/model_in_loop_uniformity_live_20261016.md)。

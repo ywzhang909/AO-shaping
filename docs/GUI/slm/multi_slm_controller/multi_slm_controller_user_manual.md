@@ -58,7 +58,7 @@ CSV 格式要求：1200×1920，值 0~1023，首行/首列为 Y/X 索引。
 
 GS 开环预矫正（对比择优，仅当实测优于平场才采用）+ 无感知 SPGD 细化。
 
-GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)）：
+GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)）：
 
 - `cam_type=daheng`、曝光 `0.05 ms`（大恒曝光上限按会话：`AO_DAHENG_MAX_EXPOSURE_MS`，0 = 画面探测）
 - `pupil_center=960,690`、`beam_radius_px=450`、`target_side=100`、`cam_size=250`
@@ -69,7 +69,7 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 
 每轮用强随机探针重拟合正向模型的 Zernike 像差（Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
 
-需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，见 [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)。
+需 `torch`。目前最佳均匀度 **CV 0.643 / EE 0.786**，但尚未成为被接受的均匀方形，见 [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)。
 
 ### 3.3 设备生命周期注意
 
@@ -95,7 +95,7 @@ GUI 默认值取自交替重放验证过的配方（[`report/shape_trials/gs_ref
 
 旧的开环方形整形功能（**GS方形整形** / **GS方形整形(高斯版)** / **稳像法整形**，含 `_gs_square_phase_radians` / `generate_gs_square_phase`）已移除。
 
-原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../report/shape_trials/README.md) 与 [`report/shape_trials/online_20261010.md`](../../report/shape_trials/online_20261010.md)。
+原因：在本 2f-Fourier 实验系统上，用未标定实验系统参数做开环方形整形已被实测证明行不通 —— Zernike SPGD 与未标定 GS 从未产出过均匀方形，见 [`report/shape_trials/README.md`](../../../../README.md) 与 [`report/shape_trials/gs_refine/online_20261010.md`](../../../../report/shape_trials/gs_refine/online_20261010.md)。
 
 取而代之的是上方第 3 节「闭环整形」区（GS+SPGD 闭环 / 正向模型闭环，均走已验证的闭环管线）。
 
@@ -572,7 +572,7 @@ sequenceDiagram
 ## 11. 相关文档
 
 - 需求规格说明书: [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](./multi_slm_controller_srs.md)
-- SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../slm/slm_gui_operation_map.md)
+- SLM GUI 操作时长分类与路线图: [`docs/slm/slm_gui_operation_map.md`](../../../slm/slm_gui_operation_map.md)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)
-- 闭环整形实测报告: [`report/shape_trials/gs_refine_live_20261012.md`](../../report/shape_trials/gs_refine_live_20261012.md)
-- 正向模型闭环实测报告: [`report/shape_trials/model_in_loop_live_20261013.md`](../../report/shape_trials/model_in_loop_live_20261013.md)
+- 闭环整形实测报告: [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../../../../report/shape_trials/gs_refine/gs_refine_live_20261012.md)
+- 正向模型闭环实测报告: [`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](../../../../report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)

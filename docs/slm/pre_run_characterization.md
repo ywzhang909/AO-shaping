@@ -302,4 +302,4 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 - 探针: `src/ao_shaping/tools/ccd/{drift,floor}_probe.py` 与 `src/ao_shaping/tools/zernike/abba_probe.py`（2026-10 前位于 `tools/slm/slm_{drift,floor,abba}_probe.py`）
 - 测量/分析内核: `src/ao_shaping/tools/kernels/bench_kernels.py`（合并自 `tools/slm/slm_bench_probe.py` + `slm_bench_metrics.py`，设备由参数注入）
 - 目录说明: [`src/ao_shaping/tools/slm/README.md`](../../src/ao_shaping/tools/slm/README.md)
-- 实测标定报告: [`report/slm/bench_calibration_20261001.md`](../../report/slm/bench_calibration_20261001.md)
+- 实测标定报告: [`report/slm/bench/bench_calibration_20261001.md`](../../report/slm/bench/bench_calibration_20261001.md)

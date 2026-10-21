@@ -68,4 +68,4 @@ python -m ao_shaping.tools.slm.panel.tilt_probe --cam-type daheng --period 32 --
 - **panel↔camera 轴互换 90°**
 - 焦面尺度 `shift_px ≈ 7600/period` (两条独立路线一致到 0.5%)
 
-详见 [`report/slm/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_bench_calibration.md)。
+详见 [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)。

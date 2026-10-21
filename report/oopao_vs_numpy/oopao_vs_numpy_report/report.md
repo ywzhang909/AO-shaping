@@ -12,7 +12,7 @@
 - 生成时间: `2026-09-29T16:38:27`
 - 场景矩阵: **12** 个 (像差 4 × 湍流 4, 本次实际取子集) × 2 条臂 = 24 行 CSV
 - 仿真参数: `n_grid=64`、`seed=42`、口径 `64 mm`、波长 `1064 nm`
-- 输出: `report/oopao_vs_numpy/report.md`、`docs/oopao_vs_numpy/summary.csv`、`docs/oopao_vs_numpy/figures/*.png`
+- 输出: `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`、`logs/pib_sim_eval/summary.csv`、`docs/oopao_vs_numpy/figures/*.png`
 - 重跑命令: `.venv/bin/python scripts/oopao/generate_oopao_vs_numpy_report.py`
 
 ## 1. 版本溯源 (Provenance)

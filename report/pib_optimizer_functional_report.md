@@ -198,9 +198,9 @@ AO‑Shaping/
 | 混合扰动生成        | `src/ao_shaping/optimizer/wfless/pib.py`              | 124‑138 |
 | MIICamera | `src/ao_shaping/drivers/ccd/miicam/driver.py` | 85‑112  |
 | NlightDM 电压约束   | `src/ao_shaping/drivers/dm/nlight_dm.py`              | 47‑63   |
-| AdaMOD 优化器       | `src/ao_shaping/algorithm/adam.py`                    | 120‑250 |
-| Muon 实现           | `src/ao_shaping/algorithm/adam.py`                    | 260‑400 |
-| Newton‑Schulz 算法 | `src/ao_shaping/algorithm/adam.py`                    | 410‑480 |
+| AdaMOD 优化器       | `src/ao_shaping/algorithm/gradient/adam.py`                    | 120‑250 |
+| Muon 实现           | `src/ao_shaping/algorithm/gradient/adam.py`                    | 260‑400 |
+| Newton‑Schulz 算法 | `src/ao_shaping/algorithm/gradient/adam.py`                    | 410‑480 |
 
 ---
 

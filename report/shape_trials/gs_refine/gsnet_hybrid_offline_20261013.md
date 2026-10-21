@@ -12,7 +12,7 @@
 
 ## 动机与实现
 
-`report/zernike_coeff2amp/report.md` 表明系数到图像的学习式前向代理在文件级划分下容易被共同背景抬高指标；`report/zernike_phase2amp/report.md` 的分组交叉验证还表明旧 hybrid 并不必然优于物理模型。因此本轮不把网络训练 loss 当成硬件收益。
+`report/zernike_coeff2amp/zernike_coeff_report/report.md` 表明系数到图像的学习式前向代理在文件级划分下容易被共同背景抬高指标；`report/zernike_phase2amp/zernike_amp_report/report.md` 的分组交叉验证还表明旧 hybrid 并不必然优于物理模型。因此本轮不把网络训练 loss 当成硬件收益。
 
 `ml.gsnet.hybrid_phase.HybridPupilPhase` 使用项目规范的 `ZernikeGenerator` 生成 Noll 序 8 阶基底，排除不可观测的 piston，共 44 个弧度系数。独立的 16×16 可训练残差双线性插值到输出网格；两部分与 GS 初相位相加后都由显式偏心圆瞳掩膜约束，瞳面外恒为零。`HybridPhaseOptimizer.from_gsnet` 可冻结已训练 `FourierGSNet` 的预测作为基底，再用 `update()` / `run()` 细化系数与残差。该链路已接到离线推理，尚未接入实验下发或重训 `FourierGSNet` 本体。代码位于 `src/ml/gsnet/hybrid_phase.py` 与 `src/ml/gsnet/hybrid_infer.py`。
 

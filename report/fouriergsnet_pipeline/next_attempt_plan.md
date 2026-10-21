@@ -12,10 +12,10 @@
 > 依据材料:
 > - [`docs/slm/slm_gs_refine.md`](../../docs/slm/slm_gs_refine.md) — GS 预整形 + SPGD 细化（硬件移植版）
 > - [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](../shape_trials/gs_refine/gs_refine_live_20261012.md) — **2026-10-12 gs-refine 首次实验运行成功**（含 GS 变体、半径扫描、30 轮 SPGD、交错重放）
-> - [`report/fouriergsnet_pipeline/report.md`](./offline_training/report.md) — FourierGSNet 管线 5 项集成测试（离线通过）
+> - [`report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`](./offline_training/report.md) — FourierGSNet 管线 5 项集成测试（离线通过）
 > - [`report/fouriergsnet_pipeline/hardware_run_20261001.md`](./hardware_run_20261001.md) — 2026-10-01 实验系统 `slm-gsnet spgd` 失败复盘（随机游走）
 > - [`report/fouriergsnet_pipeline/TODO.md`](./TODO.md) — 实验系统验证待办清单
-> - [`report/fouriergsnet_sim/report.md`](./fouriergsnet_pipeline_report/report.md) — 湍流仿真矩阵（12 场景全过）
+> - [`report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`](./fouriergsnet_pipeline_report/report.md) — 湍流仿真矩阵（12 场景全过）
 > - [`TODO.md`](../../TODO.md) §1.2–1.4 — H-x 硬件账本
 
 ## 1. 现状小结

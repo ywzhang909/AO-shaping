@@ -2,7 +2,7 @@
 
 更新时间：2026-10-19。适用于更换相机位置、改变入射位置、功率或像差后的工作交接。
 本手册给出可执行入口、验收顺序和待完善内容；不保证任意光路均能被当前模型描述。
-实验依据见 [2026-10-19 报告](../../report/shape_trials/model_in_loop_live_20261019.md)，
+实验依据见 [2026-10-19 报告](../../report/shape_trials/model_in_loop/model_in_loop_live_20261019.md)，
 标准配置示例见 [自动化交接手册](model_in_loop_handoff.md)，
 聚焦工具详见 [定位与校正说明](slm_alignment_probe.md)。
 
@@ -100,7 +100,7 @@ python scripts/slm/model_in_loop_hw_runbook.py --stage calibrate --out data/debu
 但归因之前必须先排除门槛在该相位族上按构造不可达：2026-10-19 光路上全频随机相位
 族的完美模型上限实测 0.449/0.504，低于 0.5 门槛，此类失败属测量口径问题而非模型
 问题（`scripts/slm/analyze_holdout_ceiling.py` 判别，见
-`report/shape_trials/model_in_loop_live_20261019.md` 的验证集上限判别节）。
+`report/shape_trials/model_in_loop/model_in_loop_live_20261019.md` 的验证集上限判别节）。
 
 ### 2.6 迁移学习正向物理预测模型（Step A）
 

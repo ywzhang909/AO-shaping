@@ -185,6 +185,6 @@ sequenceDiagram
 ## 8. 相关文档
 
 - 用户手册: [`md_img_analysis_ui_user_manual.md`](./md_img_analysis_ui_user_manual.md)
-- 流水线脚本: [`scripts/dm/md_img_pipeline.py`](../../../../../../scripts/dm/md_img_pipeline.py)
+- 流水线脚本: [`scripts/dm/md_img_pipeline.py`](../../../../scripts/dm/md_img_pipeline.py)
 - 数据目录: [`data/md_test/`](../../../../../../data/md_test/)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)

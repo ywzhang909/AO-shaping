@@ -60,5 +60,5 @@ streamlit run src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py
 ## 4. 相关文档
 
 - 需求规格说明书: [`zernike_response_matrix_ui_srs.md`](./zernike_response_matrix_ui_srs.md)
-- 标配算法: [`ao_shaping/optimizer/wf/zernike_response_matrix.py`](../../../../../optimizer/wf/zernike_response_matrix.py)
+- 标配算法: [`ao_shaping/optimizer/wf/zernike_response_matrix.py`](../../../../src/ao_shaping/optimizer/wf/zernike_response_matrix.py)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)

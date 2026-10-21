@@ -309,7 +309,7 @@ x 截面（log10）+ 目标框**。注意左栏的 log10 是为了同时看见�
 | [`fig_gs_defocus_scheme_a_vs_chirp.png`](figures/fig_gs_defocus_scheme_a_vs_chirp.png) | 边界 (a): 方案A vs 瞳面二次相位的相对误差（标出 20 mm） |
 | [`fig_gs_defocus_halo_wraparound.png`](figures/fig_gs_defocus_halo_wraparound.png) | 边界 (b): 晕斑峰值与几何回绕比（标出 0.5 阈值） |
 | [`fig_gs_defocus_zeroth_h0_h4_cv_box.png`](figures/fig_gs_defocus_zeroth_h0_h4_cv_box.png) | 零级组 H0–H4 的 cv_box vs Δz 与可信区柱状对照 |
-| [`fig_gs_defocus_e1_cv_heatmap.png`](figures/fig_gs_defocus_e1_cv_heatmap.png) | E1 离焦扫描热力图（原图复制自 `report/shape_trials/e1_cv_heatmap.png`） |
+| [`fig_gs_defocus_e1_cv_heatmap.png`](figures/fig_gs_defocus_e1_cv_heatmap.png) | E1 离焦扫描热力图（原图复制自 `report/shape_trials/gs_defocus_sim/artifacts/e1_cv_heatmap.png`） |
 
 ## 9. 限制（不能断言什么）
 

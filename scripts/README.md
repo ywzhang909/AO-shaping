@@ -833,7 +833,7 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 
 > **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
 > family delegate measurement/analysis logic to
-> `src/ao_shaping/tools/slm/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `src/ao_shaping/tools/kernels/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
 
@@ -861,7 +861,7 @@ python scripts/ml/generate_hwdataset_corpus_report.py
 ### generate_zernike_amp_report.py
 
 Generates the **illustrated Chinese report** for the learned Zernike far-field
-model: `report/zernike_phase2amp/report.md` + `report/zernike_phase2amp/figures/*.png`.
+model: `report/zernike_phase2amp/zernike_amp_report/report.md` + `report/zernike_phase2amp/figures/*.png`.
 **Fully offline** — reads only saved artefacts, never opens a camera or SLM.
 
 **Usage:**
@@ -1124,7 +1124,7 @@ python scripts/slm/generate_pib_bench_report.py --root data/debug -o report/slm_
 python scripts/slm/generate_pib_bench_report.py --no-figures
 ```
 
-**What it does** (writes `report/slm_pib_bench/report.md` + `figures/`):
+**What it does** (writes `report/slm_pib_bench/pib_bench_report/report.md` + `figures/`):
 1. **Noise floor + SNR per amplitude** from every `summary_snr.json` (recursive
    glob — the artefacts sit one level deeper than the search runs). Reports
    single- **and** multi-mode SNR, and states that the floor is *not* a bench
@@ -1231,7 +1231,7 @@ Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`)
 - `objectives/<n>_<slug>_spot.png` — best un-windowed frame per variant with the target box drawn and the yardstick annotated;
 - `objectives_summary.png` — CV / energy / peak bars per variant;
 - `objectives.csv` — the raw numbers;
-- an `<!-- OBJECTIVES_START --> … <!-- OBJECTIVES_END -->` section **appended idempotently** to `--append-to` (default `report/slm_pib_heuristic_hw/report.md`), so re-runs replace rather than duplicate it.
+- an `<!-- OBJECTIVES_START --> … <!-- OBJECTIVES_END -->` section **appended idempotently** to `--append-to` (default `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md`), so re-runs replace rather than duplicate it.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -1239,7 +1239,7 @@ Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`)
 | `--cam-type` / `--cam-id` / `--cam-size` | `daheng` / `0` / `320` | camera backend / id / window |
 | `--exposure-ms` / `--target-brightness` | `0.0` / `180` | `0` = auto-expose |
 | `--zoom` | `300` | display zoom box (px) around the spot |
-| `--append-to` | `report/slm_pib_heuristic_hw/report.md` | report to append the section to |
+| `--append-to` | `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md` | report to append the section to |
 | `-o, --output` | `report/slm_pib_heuristic_hw` | output directory |
 
 > ⚠️ **Measured (2026-09-20, fixed SA, fixed ROI = 21 px = 2×waist)**: CV 0.259 (energy-only)
@@ -1283,7 +1283,7 @@ logic. Debug artefacts are always on.
 | `--zernike-radius` | `480.0` | Aperture (px) |
 | `--target-size` | `50.0` | Target size (px) |
 | `--target-shape` | `square` | Target shape |
-| `--out` | `report/slm_pib_bench/delta_scan.md` | Markdown summary path |
+| `--out` | `report/slm_pib_bench/explore_delta/delta_scan.md` | Markdown summary path |
 | `--analyze-only` | off | No hardware; re-judge the newest existing run per delta |
 
 ### repeat_shape_objectives.py
@@ -1331,7 +1331,7 @@ Needs hardware (default camera backend `daheng`).
 | `--n-max` | `4` | Zernike order |
 | `--seed` | `42` | Random seed |
 | `-o, --output` | `report/slm_pib_heuristic_hw` | Output directory |
-| `--append-to` | `report/slm_pib_heuristic_hw/report.md` | Report to append the section to |
+| `--append-to` | `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md` | Report to append the section to |
 
 ### generate_slm_pib_online_report.py
 
@@ -1400,7 +1400,7 @@ Outputs to `report/slm_pib_rms_pib_hw/`:
 ### generate_gs_refine_fwdmodel_report.py
 
 Generates the **forward-model calibration** report for the three-panel
-`slm-gs-refine` GIFs: `report/shape_trials/gs_refine_fwdmodel_calibration.md` +
+`slm-gs-refine` GIFs: `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` +
 `figures/`. Fully offline — reads only the saved `data/debug/slm_gs_refine/*/*.pkl`
 artefacts (recorded SLM grayscale + measured CCD frame) and drives
 `ao_shaping.utils.slm.gs_debug_optics`. Never opens a device.
@@ -1454,7 +1454,7 @@ verbatim, and the artefacts land in `<out>/<group>/`. The root directory keeps a
 sweep share a root and stay separable.
 
 > ⚠️ **Sim caveat**: with `--cam-type sim` the GS warm start is **not calibrated**
-> to the bench forward model (see `report/shape_trials/gs_refine_zernike_uniformity.md`
+> to the bench forward model (see `report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md`
 > `## 口径与已知局限`), so Stage A's best phase is near-flat and the order-scan
 > signal is only meaningful on hardware (`--cam-type daheng|miicam`). The sim path
 > validates plumbing, guards, and fit monotonicity — not the science.
@@ -1550,7 +1550,7 @@ the completed groups indexed.
 ### generate_gs_refine_zernike_report.py
 
 Generates the **GS-refine Zernike order-scan** report:
-`report/shape_trials/gs_refine_zernike_uniformity.md` + `figures/`. Fully offline —
+`report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md` + `figures/`. Fully offline —
 reads only the `summary.json` + `spgd_nmax*.csv` artefacts written by
 `scripts/slm/run_gs_refine_zernike_sweep.py`. Never opens a device.
 
@@ -1628,7 +1628,7 @@ python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8      # ~
 
 ### exp_fast_recal_adapter_report.py
 
-Renders `report/shape_trials/fast_recal_adapter.md` + `figures/` from the JSON
+Renders `report/shape_trials/fast_recal_adapter/fast_recal_adapter.md` + `figures/` from the JSON
 above. Reads the protocol constants (adapter size, arm list, perturbation
 families) **from the experiment module**, so the report cannot describe a
 protocol the script no longer implements.
@@ -1645,7 +1645,7 @@ the design's **power limit** (`min_attainable_pvalue`) next to every p-value, so
 ### generate_model_in_loop_cv_report.py
 
 Generates the **K-fold cross-validation** report for the `slm-model-in-loop`
-held-out probes: `report/shape_trials/model_in_loop_cv.md` + `figures/`. **Fully
+held-out probes: `report/shape_trials/model_in_loop_cv/model_in_loop_cv.md` + `figures/`. **Fully
 offline** — simulated bench only, no camera and no SLM.
 
 The question it answers: the loop splits its probes by a **fixed seed offset**
@@ -1701,7 +1701,7 @@ python scripts/slm/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 r
 
 ### generate_gs_golden_reference.py
 
-Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference.md`
+Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference/gs_golden_reference.md`
 + `figures/`. **Fully offline** — simulated bench only, no camera and no SLM.
 
 The GS square phase is treated as an **upper bound** — "what a phase-only SLM could
@@ -1804,7 +1804,7 @@ Runs the Cython optimizer benchmark (`src.calculators.benchmark`, reading
 comparison with tables + analysis. **Fully offline** — no hardware, no CLI
 arguments.
 
-**Output**: `report/benchmarks/cython_optimizer_performance.md`
+**Output**: `report/benchmarks/cython_optimizer_report/cython_optimizer_performance.md`
 
 ```powershell
 $env:PYTHONPATH = "src;libs"
@@ -1817,7 +1817,7 @@ Runs the **NumPy / Numba / CuPy** kernel benchmark for `utils/image/spots_calc`
 (`calculate_sharpness`, `crop`, `center_of_mass`, `center_of_brightness`) and
 emits the comparison table. **Fully offline** — no hardware, no CLI arguments.
 
-**Output**: `report/benchmarks/backend_kernels_performance.md`
+**Output**: `report/benchmarks/backend_kernels_report/backend_kernels_performance.md`
 
 ```bash
 python scripts/generate_backend_kernels_report.py
@@ -1969,7 +1969,7 @@ python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_pro
 python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o report/fouriergsnet_sim
 ```
 
-**What it does** (writes `report/fouriergsnet_sim/report.md` + `figures/` + `gifs/`):
+**What it does** (writes `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md` + `figures/` + `gifs/`):
 - **Header**: matrix config (k_px / steps / seed / env noise params), generation
   timestamp, `**Fully offline**` marker
 - **Summary table**: all scenarios × shape/aberration/turbulence/
@@ -2043,7 +2043,7 @@ python scripts/oopao/generate_oopao_vs_numpy_report.py --aberrations none,defocu
   is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
   silently producing a two-arm-numpy report.
 - Reports the `phase_std_rad` ratio per scenario; on the default config the two
-  backends are **not** equivalent (≈8.7×, see `report/oopao_vs_numpy/report.md`),
+  backends are **not** equivalent (≈8.7×, see `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`),
   so the report states that absolute Strehl/FWHM must not be compared across arms.
 
 **Zernike coefficients are radians**: aberration cases use Noll indices fed to
@@ -2148,7 +2148,7 @@ python scripts/slm/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 - Both via the repo `_frames_to_gif` convention (reused from
   `generate_diff_shaping_report`, LANCZOS 128px + adaptive 256 palette, 15 fps)
 - Prints the `![...](gifs/...)` markdown lines for embedding in
-  `report/fouriergsnet_sim/report.md` §5.6
+  `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md` §5.6
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -2286,7 +2286,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   `slm-gsnet --objective pearson` help)
 
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
-`report/slm_pib_sim/report.md` + `figures/` + `gifs/` via
+`report/slm_pib_sim/slm_pib_sim_report/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
 
 When `--disturbance` is not `none`, the harness also writes a **companion**
@@ -2388,7 +2388,7 @@ python scripts/slm/generate_slm_shaping_sim_report.py --out report/slm_shaping_s
 python scripts/slm/generate_slm_shaping_sim_report.py --no-figures
 ```
 
-**What it does** (writes `report/slm_shaping_sim/report.md` + `figures/`):
+**What it does** (writes `report/slm_shaping_sim/slm_shaping_sim_report/report.md` + `figures/`):
 - Covers the three **SLM-driven** runners (`slm-pib`, `slm-gsnet`, `spgd-square`)
   — the ones whose actuator the model actually represents, so their objective
   responds to the optimiser
@@ -2426,7 +2426,7 @@ FourierGSNet `1 - Pearson` loss may be promoted onto the hardware path.
 python scripts/slm/generate_shape_objective_comparison.py
 ```
 
-**What it does** (writes `report/slm_pib_online/objective_comparison.md` +
+**What it does** (writes `report/slm_pib_online/shape_objective_comparison/objective_comparison.md` +
 `figures/`):
 - loads each `data/debug/slm_pib_online/*/recorder_*.pkl`; the SNR sweeps
   (`history is None`) are skipped, as is any run with no scored frame
@@ -2588,7 +2588,7 @@ python scripts/slm/generate_slm_pib_sim_report.py --debug-dir data/debug/slm_pib
 python scripts/slm/generate_slm_pib_sim_report.py --max-runs 3
 ```
 
-**What it does** (writes `report/slm_pib_sim/report.md` + `figures/` + `gifs/`):
+**What it does** (writes `report/slm_pib_sim/slm_pib_sim_report/report.md` + `figures/` + `gifs/`):
 - **Header**: run description (sim camera / monkeypatched SLM / square target /
   SPGD Zernike n≤4), 2f-Fourier optical model, `**Fully offline**` marker
 - **Per-run section**: metric table (epochs / initial+final J / in-target
@@ -2632,7 +2632,7 @@ python scripts/slm/generate_slm_zernike_shaping_report.py --debug-root data/debu
   algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
 - `*.png` — the run-time summary figure.
 
-**What it does** (writes `report/slm_zernike_shaping/report.md` + `figures/`):
+**What it does** (writes `report/slm_zernike_shaping/slm_zernike_shaping_report/report.md` + `figures/`):
 - **Header + run config** from the JSON sidecar; `**Fully offline**` marker
 - **Per-run section**: objective-vs-epoch curve (min/max aware), best objective
   + epoch, Zernike-coefficient evolution, first-vs-last CCD frames
@@ -2658,7 +2658,7 @@ python scripts/slm/generate_fouriergsnet_pipeline_report.py
 python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 ```
 
-**What it does** (writes `report/fouriergsnet_pipeline/report.md`):
+**What it does** (writes `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`):
 - Documents the 5 integration tests in
   `tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py` that drive
   the REAL standalone `fouriergsnet_optimize.py` pipeline
@@ -2717,7 +2717,7 @@ python scripts/slm/generate_gsnet_offline_report.py -o report/fouriergsnet_pipel
   is a *library* module (no `__main__`, no Click command), so invoking it as a
   module path is **not** a valid way to retrain
 - Writes into the `offline_training/` **subdirectory** so it never overwrites the
-  sibling `report/fouriergsnet_pipeline/report.md` owned by
+  sibling `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md` owned by
   `generate_fouriergsnet_pipeline_report.py`
 - Robust: every `summary.json` key is read through a defensive `.get()` chain, so
   an older/partial summary still renders; a missing `comparison.png` degrades to
@@ -2823,8 +2823,8 @@ corpus, no hardware.
 | `forward_search.py` | Forward-model search: physics × U-Net residual × loss × normalization × n_max. Writes `report/loss_defects/forward_search.json`. |
 | `forward_search_extra.py` | Expanded forward search with additional loss/augmentation combinations. |
 | `generate_zernike_coeff_report.py` | Render the illustrated coefficient-training report (`report/zernike_coeff2amp/`). Reads `logs/zernike_coeff/` summaries. |
-| `generate_inverse_design_report.py` | Render the inverse-design report (`report/loss_defects/inverse_design_report.md`). Reads `logs/zernike_coeff/` and `report/loss_defects/forward_search.json`. |
-| `write_forward_search_report.py` | Render `report/loss_defects/forward_search_report.md` from `forward_search.json`. |
+| `generate_inverse_design_report.py` | Render the inverse-design report (`report/loss_defects/inverse_design_report/inverse_design_report.md`). Reads `logs/zernike_coeff/` and `report/loss_defects/forward_search.json`. |
+| `write_forward_search_report.py` | Render `report/loss_defects/forward_search_report/forward_search_report.md` from `forward_search.json`. |
 | `probe_device_metadata.py` | Dump per-family FOV / pixel scale / exposure metadata from the index. |
 | `wire_ellipse.py` | Wire the `w_ellipse` loss term into `train_amp`. |
 | `check_ellipse_term.py` | Validate `ellipse_gap_term` against synthetic inputs. |
@@ -2934,7 +2934,7 @@ model (pre-processing / deep modules / post-processing).
 conclusion of a measurement. AGENTS.md draws that line: `report/<topic>/` holds
 measurement conclusions, `docs/` holds device/usage documentation. The *hardware
 measurement* of this same runner is
-[`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md)
+[`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)
 and the two are deliberately kept apart. Consequently this generator is **not**
 registered in `scripts/_common/provenance.py::REPORTS`: that registry renders
 `report/README.md` and assumes every key is under `report/`, so a `docs/` key
@@ -3031,7 +3031,7 @@ solve) and is how the logic is verified while the bench is offline.
 
 > Bench constants, the measured 29.5× far-field sampling mismatch, and the
 > failure modes this works around are documented in
-> [`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md).
+> [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md).
 
 ### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
 
@@ -3190,7 +3190,7 @@ python scripts/slm/check_flat_stability.py <out> --exposure-ms 0.02 --repeats 6 
 - The ROI center is frozen at the first repeat's centroid so drift shows up in
   the ROI energy rather than being chased
 
-First field use: `report/shape_trials/model_in_loop_live_20261015.md` (21 s
+First field use: `report/shape_trials/model_in_loop/model_in_loop_live_20261015.md` (21 s
 replay, 0.52% ROI-energy spread).
 
 | Option | Default | Description |
@@ -3465,7 +3465,7 @@ One fixed convention for every figure:
   frame centre while the centroid stays within ~15 px.
 
 **The rendering is not this script's.** Both panels and the cut point come from
-[`ao_shaping.display.beam_profile`](../../src/ao_shaping/display/beam_profile.py) — the single
+[`ao_shaping.display.beam_profile`](../src/ao_shaping/display/beam_profile.py) — the single
 implementation of the far-field / SLM-phase / X-Y cross-section renderers, shared with the debug
 artefacts a run's `Recorder` writes next to its `.pkl`. This script only calls `cut_point` /
 `save_xy_profile`; keeping a private copy of the convention here is the drift this repo keeps

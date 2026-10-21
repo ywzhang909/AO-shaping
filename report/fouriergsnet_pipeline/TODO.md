@@ -10,7 +10,7 @@
 
 > 作用域: 仅 FourierGSNet (SLM freeform 方形光斑整形) 的**实验系统光路验证**。
 > 离线训练部分 (corpus → cache → dataset → train → W&B) 已完成并验收, 详见 [`report.md`](./offline_training/report.md)。
-> 本文件只记录"设备 + 激光就绪后"待执行的实验系统工作, 与 `docs/TODO.md` (slm_zernike_pib 对账版) 无关。
+> 本文件只记录"设备 + 激光就绪后"待执行的实验系统工作, 与 `TODO.md` (slm_zernike_pib 对账版) 无关。
 >
 > ✅ **2026-10-01 已执行 §2 (SLM+Daheng smoke) 与一次完整 `slm-gsnet spgd` 优化。**
 > 实测结论: 该优化是**随机游走** (`dec=0.487`), 末态比初态**差 35.9%**,

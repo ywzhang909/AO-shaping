@@ -42,11 +42,11 @@ GS 在仿真域内迭代：瞳面振幅约束取实测平场振幅（含高斯�
 
 ### 2.3 第二级：SPGD 细化
 
-细化级在 GS 相位之上叠加自由形式相位修正，参数化为瞳内 12×12 网格（144 个自由度，其中半径外节点被掩模），每轮对全部节点施加高斯随机扰动 ±δ，以实测 composite 的差分估计梯度方向并沿步长更新。每轮结束用 confirm-best（最优复测）机制重测历史最优相位，防止噪声把"假提升"写入参考态。该优化器与 `slm-square-shaping` 命令共用同一实现（`src/ao_shaping/shaping/slm_square_shaping.py`）。
+细化级在 GS 相位之上叠加自由形式相位修正，参数化为瞳内 12×12 网格（144 个自由度，其中半径外节点被掩模），每轮对全部节点施加高斯随机扰动 ±δ，以实测 composite 的差分估计梯度方向并沿步长更新。每轮结束用 confirm-best（最优复测）机制重测历史最优相位，防止噪声把"假提升"写入参考态。该优化器与 `slm-square-shaping` 命令共用同一实现（`src/ao_shaping/optimizer/wfless/slm_square_shaping.py`）。
 
 ### 2.4 测量协议
 
-三条协议是结果可信的前提，均为实测教训的固化。其一，稳定后采集：SLM 面板加载新相位后弛豫可达 3 秒，采集器丢弃前若干帧并连续读数，直到相邻两次读数一致才计入平均。其二，memory 模式与槽位轮换：SLM 仅允许 memory mode（严禁 DVI 视频模式），连续写入必须轮换 memory slot，否则写入被面板拒绝。其三，交错重放：跨会话或跨运行的分数不可直接拼接比较，必须把待比较的若干相位在同一会话内交替重放（`scripts/replay_gs_refine_hw.py`），用同一功率、同一曝光下的配对差作结论。两级流程的完整执行链如图 1，交错重放的测量时序如图 2。
+三条协议是结果可信的前提，均为实测教训的固化。其一，稳定后采集：SLM 面板加载新相位后弛豫可达 3 秒，采集器丢弃前若干帧并连续读数，直到相邻两次读数一致才计入平均。其二，memory 模式与槽位轮换：SLM 仅允许 memory mode（严禁 DVI 视频模式），连续写入必须轮换 memory slot，否则写入被面板拒绝。其三，交错重放：跨会话或跨运行的分数不可直接拼接比较，必须把待比较的若干相位在同一会话内交替重放（`scripts/slm/replay_gs_refine_hw.py`），用同一功率、同一曝光下的配对差作结论。两级流程的完整执行链如图 1，交错重放的测量时序如图 2。
 
 ### 2.5 model-in-loop 正向模型闭环（MIL）
 
@@ -511,7 +511,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 **低参数 vs 深度（对应 7.6 能力一）**：此项由 5.4 节的实测数据更强地覆盖，无需另跑仿真。5.4.2 节 24 张同帧验证集上，约 70 参数的闭式物理前向（66 项 Zernike 加非负增益与加性背景项）同帧相关性 0.839，而 121,177 参数 U-Net 预训练 0.018、10 步微调 0.030（环围能量仅 0.16）；5.4.3 节五形状 30 张验证集帧上物理模型 0.8294、U-Net 近零。在真实光路、单轮 2 至 8 张探针的极小样本下，低参数物理前向显著优于同规模或更重的 U-Net，且物理模型泛化边界（Zernike 基不足）更可预期。仿真正向模型按构造精确，其复现只会比实测证据更弱，故本节直接引用 5.4 实测数据。
 
-**实测与仿真的定量边界**：上述 64 乘 64 仿真与本实验系统正向模型的关系，由 `report/shape_trials/gs_refine_fwdmodel_calibration.md` 的实测标定定量回答。接入实验系统正向模型加相机像元标定后，实测远场与仿真远场相关平场 +0.944、GS +0.789（整体 +0.867），尺度（FWHM）与方形结构一致，但 EE50 仿真偏高（仿真铺得更开、实测对比度更高），CV 仿真系统性偏低约 36%（理想圆瞳做出的方斑内部散斑比实测更均匀）。残差来自加性背景（杂散光）项与 SLM 真实相位分辨率这类结构上缺失的物理；两个被证伪的解释（既非远场中心未对齐、也非径向低通或 PSF 频率响应）见该报告。因此本节 T1「系统松弛未迁移」、T2「联合无增益」与 T4「不确定性采样 24 查询预算下未优于盲采样」应读作边界条件或结构性结论（方向与趋势可信），而非对实测绝对整形指标的预测；实测侧的最终验收必须走交错重放加验证集（第 8 节）。
+**实测与仿真的定量边界**：上述 64 乘 64 仿真与本实验系统正向模型的关系，由 `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` 的实测标定定量回答。接入实验系统正向模型加相机像元标定后，实测远场与仿真远场相关平场 +0.944、GS +0.789（整体 +0.867），尺度（FWHM）与方形结构一致，但 EE50 仿真偏高（仿真铺得更开、实测对比度更高），CV 仿真系统性偏低约 36%（理想圆瞳做出的方斑内部散斑比实测更均匀）。残差来自加性背景（杂散光）项与 SLM 真实相位分辨率这类结构上缺失的物理；两个被证伪的解释（既非远场中心未对齐、也非径向低通或 PSF 频率响应）见该报告。因此本节 T1「系统松弛未迁移」、T2「联合无增益」与 T4「不确定性采样 24 查询预算下未优于盲采样」应读作边界条件或结构性结论（方向与趋势可信），而非对实测绝对整形指标的预测；实测侧的最终验收必须走交错重放加验证集（第 8 节）。
 
 ## 8 局限与下一步
 
@@ -592,14 +592,14 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 | MIL 正向模型闭环（slm-model-in-loop） | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py`、`src/ao_shaping/runners/slm/model_in_loop_runner.py` |
 | 可微前向模型（7.2 节） | `src/ao_shaping/algorithm/signal_processing/differentiable_beam.py`、`differentiable_shaping.py` |
 | 数字孪生（FourierGSNet 环境） | `src/ao_shaping/drivers/sim/fouriergsnet_env.py` |
-| 交错重放工具（2.4 节） | `scripts/replay_gs_refine_hw.py` |
-| 实验首次运行记录（图 5 至图 7 源数据） | `report/shape_trials/gs_refine_live_20261012.md` |
-| MIL 实测闭环记录（5.1 至 5.4 节数据源） | `report/shape_trials/model_in_loop_live_20261013.md`、`model_in_loop_live_20261014.md`、`model_in_loop_cv.md` |
+| 交错重放工具（2.4 节） | `scripts/slm/replay_gs_refine_hw.py` |
+| 实验首次运行记录（图 5 至图 7 源数据） | `report/shape_trials/gs_refine/gs_refine_live_20261012.md` |
+| MIL 实测闭环记录（5.1 至 5.4 节数据源） | `report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`、`model_in_loop_live_20261014.md`、`model_in_loop_cv.md` |
 | gsnet 576 自由度失败对照（6.2 节） | `report/fouriergsnet_pipeline/hardware_run_20261001.md` |
-| FourierGSNet 仿真矩阵（6.3 节，图 14 至 15） | `report/fouriergsnet_sim/report.md`、`report/fouriergsnet_sim/figures/` |
+| FourierGSNet 仿真矩阵（6.3 节，图 14 至 15） | `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`、`report/fouriergsnet_sim/figures/` |
 | 数字孪生消融（表 14） | `report/iterative_zernike_shaping/data.json` |
-| 相位带宽实测（表 15） | `report/slm/model_in_loop_bench_calibration.md` |
-| 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/report.md` |
+| 相位带宽实测（表 15） | `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` |
+| 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/inverse_shaping_report/report.md` |
 | 下一步计划 | `report/fouriergsnet_pipeline/next_attempt_plan.md` |
 
 正文图片 raw 链接一览（与图号对应）：
@@ -628,17 +628,17 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 | 0.04 ms 复验 | `data/debug/slm_gs_refine/20261012_183900/` |
 | 30 轮 SPGD | `data/debug/slm_gs_refine/20261012_190400/` |
 | 交错重放 | `data/debug/slm_gs_refine/20261012_180222_replay_best/` |
-| 重放工具 | `scripts/replay_gs_refine_hw.py` |
-| 实验首次运行完整记录 | `report/shape_trials/gs_refine_live_20261012.md` |
-| 10-10 预试验记录与图 5–7 图源 | `report/shape_trials/online_20261010.md`、`report/shape_trials/figures/` |
+| 重放工具 | `scripts/slm/replay_gs_refine_hw.py` |
+| 实验首次运行完整记录 | `report/shape_trials/gs_refine/gs_refine_live_20261012.md` |
+| 10-10 预试验记录与图 5–7 图源 | `report/shape_trials/gs_refine/online_20261010.md`、`report/shape_trials/figures/` |
 | 10-01 gsnet 失败对照 | `report/fouriergsnet_pipeline/hardware_run_20261001.md` |
-| FourierGSNet 仿真矩阵与图 14–15 图源 | `report/fouriergsnet_sim/report.md`、`report/fouriergsnet_sim/figures/` |
-| 数字孪生消融（表 14）数据与生成脚本 | `report/iterative_zernike_shaping/data.json`、`scripts/generate_iterative_zernike_shaping_report.py` |
+| FourierGSNet 仿真矩阵与图 14–15 图源 | `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`、`report/fouriergsnet_sim/figures/` |
+| 数字孪生消融（表 14）数据与生成脚本 | `report/iterative_zernike_shaping/data.json`、`scripts/slm/generate_iterative_zernike_shaping_report.py` |
 | 可微前向模型代码（7.2 节） | `src/ao_shaping/algorithm/signal_processing/differentiable_beam.py`、`differentiable_shaping.py` |
-| 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/report.md` |
-| 相位带宽实测（表 15） | `report/slm/model_in_loop_bench_calibration.md` |
+| 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/inverse_shaping_report/report.md` |
+| 相位带宽实测（表 15） | `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` |
 | 下一步计划 | `report/fouriergsnet_pipeline/next_attempt_plan.md` |
-| MIL 实测闭环记录与图 8、9、10、11、12、13 图源 | `report/shape_trials/model_in_loop_live_20261013.md`、`model_in_loop_live_20261014.md`、`model_in_loop_cv.md`、`images/mil_*.png` |
+| MIL 实测闭环记录与图 8、9、10、11、12、13 图源 | `report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`、`model_in_loop_live_20261014.md`、`model_in_loop_cv.md`、`images/mil_*.png` |
 
 交错重放命令示例：
 

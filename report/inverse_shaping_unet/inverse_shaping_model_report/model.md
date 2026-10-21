@@ -7,7 +7,7 @@
 > **说明**: PhasorUNet 模型详解: 逐阶段形状/参数量由脚本现场 introspection 真实模型得到; 含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测
 <!-- provenance:end -->
 
-**本文档结论**（PhasorUNet 模型规格基准）：逆向模型确定为 **7,778,482 参数（约 7.78M）的 U-Net**——输入 `(2, 64, 64)`（远场图像 + 标准化对数曝光），输出 `(2, 64, 64)` 连续 phasor 场 `(cos, sin)` 并经 `unit_phasor` 投影到单位圆；训练目标为"监督 phasor L1 + 可微物理往返 L1"。phasor 表示与 unit 投影的必要性由 L1 下界实测支撑（unit vs non-unit），全部形状/参数量来自脚本对真实模型的现场 introspection，本文档与代码不可能不一致——后续训练与消融（`report/inverse_shaping_unet/report.md`）均以本文档为架构基准。
+**本文档结论**（PhasorUNet 模型规格基准）：逆向模型确定为 **7,778,482 参数（约 7.78M）的 U-Net**——输入 `(2, 64, 64)`（远场图像 + 标准化对数曝光），输出 `(2, 64, 64)` 连续 phasor 场 `(cos, sin)` 并经 `unit_phasor` 投影到单位圆；训练目标为"监督 phasor L1 + 可微物理往返 L1"。phasor 表示与 unit 投影的必要性由 L1 下界实测支撑（unit vs non-unit），全部形状/参数量来自脚本对真实模型的现场 introspection，本文档与代码不可能不一致——后续训练与消融（`report/inverse_shaping_unet/inverse_shaping_report/report.md`）均以本文档为架构基准。
 
 本文详解 `src/ml/shaping/models.py::PhasorUNet` —— 把**远场相机图像**映射回**SLM 瞳面相位**的逆向模型。表格中的通道数、空间尺寸与参数量均由脚本**现场 introspection 真实模型**得到，而非手抄；因此报告不可能与代码不一致。
 
@@ -84,7 +84,7 @@ exposure_log10 (B,1) ─┘                                      │
 
 `self.final_conv = nn.Conv2d(16, 2, kernel_size=1)` —— 输出通道从 1 改为 2、宽度为 1 的卷积（仅 34 个参数）。`kernel_size=1` 是**逐像素线性混合**，在 `features[0]=16` 个特征图上为每个像素产生一个二维 phasor 分量。
 
-**头是线性的（`output_mode="image"`，无 sigmoid），这一点必须说明白。** `UNetGenerator` 的 docstring 里记录了一条实测警告：**对 1 通道强度回归**，线性头比 sigmoid 头更差（skill −1.622 vs −0.994，配对 p=0.0059，d_z=+0.92，见 `report/zernike_r2_baseline/report.md`）。但这里是 **2 通道 phasor 头**：`sin` 必须能取负值，而 sigmoid 的值域是 `(0,1)`，**在结构上无法表示** `sin<0` 的半个圆。因此线性头不是「选了更差的」，而是**此处唯一可用的**。
+**头是线性的（`output_mode="image"`，无 sigmoid），这一点必须说明白。** `UNetGenerator` 的 docstring 里记录了一条实测警告：**对 1 通道强度回归**，线性头比 sigmoid 头更差（skill −1.622 vs −0.994，配对 p=0.0059，d_z=+0.92，见 `report/zernike_r2_baseline/pod_ridge/report.md`）。但这里是 **2 通道 phasor 头**：`sin` 必须能取负值，而 sigmoid 的值域是 `(0,1)`，**在结构上无法表示** `sin<0` 的半个圆。因此线性头不是「选了更差的」，而是**此处唯一可用的**。
 
 配套代价：线性头输出无界，模长不受约束，所以必须靠 `unit_phasor`（§4）把它拉回单位圆。
 

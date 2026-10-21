@@ -255,4 +255,4 @@ frames/frame_*.npy+.png + frame_meta.jsonl   # 逐帧原始记录 (含 spot 字�
 - 测试: `tests/ao_shaping/runners/test_diff_beam_runner.py`（文件仍在，但改用 `importlib`
   动态加载已被删除的模块，**不可能再通过**）
 - 质心工具: `utils/spots_calc.py::centroid` → 现为 `utils/image/spots_calc.py:234`
-- 同主题: `docs/slm_shaping_diff/readme.md` → 现为 `report/slm/slm_shaping_diff/readme.md`
+- 同主题: `report/slm/slm_shaping_diff/readme.md` → 现为 `report/slm/slm_shaping_diff/readme.md`
