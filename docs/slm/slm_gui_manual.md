@@ -166,6 +166,12 @@ classDiagram
 | bench_exposure_ms           | float           | 会话曝光（0 = 自动起曝，widget 键） |
 | bench_cam_crop/cam_size     | bool / int      | 读出窗口开关与边长（widget 键） |
 | bench_blaze_period_px/direction | int / str   | 去零级载波（widget 键）  |
+| bench_probe_window_btn      | —（button）     | 「探测窗口上限」按钮（B 读出窗口，widget 键） |
+| detect_camera_pixel_btn     | —（button）     | 「探测」按钮，实测相机像元间距（A 相机，widget 键） |
+| adopt_camera_pixel_btn      | —（button）     | 「采用」按钮，把硬件探测的像元间距写回会话值（仅探测值 ≠ 会话值时显示，widget 键） |
+| detect_exposure_btn         | —（button）     | 「探测」按钮，按当前光路实测会话曝光（A 相机，仅 daheng 可用，widget 键） |
+| refresh_devices_btn         | —（button）     | 「刷新设备列表」按钮（主区设备表，widget 键） |
+| refresh_camera_status_btn   | —（button）     | 「刷新相机状态」按钮（主区相机工具，widget 键） |
 | bench_window_probe          | dict            | 相机窗口上限探测缓存（按 cam_type/cam_id 失效） |
 | slm{N}_bench_detected       | dict            | 该 SLM 的探测值（pupil_center / geometry_file / geometry_correlation / evidence_dir / calibrated_at / geometry_source） |
 | slm{N}_bench_manual         | dict            | 该 SLM 的人工覆盖        |
