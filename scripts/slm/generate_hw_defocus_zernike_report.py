@@ -285,13 +285,37 @@ def _find_under(root: Path | None, pattern: str) -> Path | None:
     return matches[0] if matches else None
 
 
+#: 跨组必须核对的**标量口径字段**。同一轮扫描里它们本应一致 —— 不一致就说明
+#: 这批数据**不同源** (混进了别轮的产物), 报告正文里必须看得见。
+SCALAR_MERGE_FIELDS = ("w0_px", "target_side", "center_xy", "mask_center_xy")
+
+#: 本报告**正文**真正读到的合并字段 (其余字段只留在采集脚本自己的产物里)。
+#: 写清楚是为了让「合并后用的是哪个值」这个问题在报告里有确定答案。
+BODY_MERGE_FIELDS = ("w0_px", "baselines", "config")
+
+
+def _summary_group_label(path: Path, root: Path) -> str:
+    """``summary.json`` 所在**组目录**的相对路径 (不含文件名)。
+
+    报告里显示**组目录名**而不是全路径: 全路径带机器目录名, 换台机器就对不上,
+    而组目录名 (``zernike_stage_a_1`` / ``zernike_order_nmax3``) 才是读者能核对的标识。
+    """
+    try:
+        rel = path.parent.relative_to(root)
+    except ValueError:
+        return path.parent.name
+    return path.parent.name if str(rel) == "." else rel.as_posix()
+
+
 def load_zernike(run_dir: Path) -> dict[str, Any]:
     """读泽尼克扫描的 ``summary.json``, 并把**多组**的合并起来。
 
     扫描拆成多次短调用之后, 每组各有一份 ``summary.json`` (Stage A 一份 + 每阶一份),
     所以这里递归收齐根目录下的所有 summary: ``orders`` 拼起来 (同阶重复跑过时取后一次),
-    标量字段 (``w0_px`` / ``target_side`` / ``center_xy`` / ``mask_center_xy``) 取任一,
-    真不一致就**记下来**而不是静默取第一个 —— 混进别轮数据时必须看得见。
+    其余字段取**第一份含该字段的** summary 的值。
+
+    ⚠️ 合并会把不同组的取值压成一个, 所以**跨组不一致必须记下来**, 而且必须在**报告正文里
+    显示出来** (:func:`merge_audit_block`): 否则「混进别轮数据」这件事读者完全看不见。
     """
     summaries: list[dict[str, Any]] = []
     for path in sorted(run_dir.rglob("summary.json")):
@@ -302,32 +326,177 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
         if isinstance(data, dict):
             data = dict(data)
             data["_summary_path"] = str(path)
+            data["_group"] = _summary_group_label(path, run_dir)
             summaries.append(data)
     if not summaries:
         return {}
     merged: dict[str, Any] = {}
     by_order: dict[int, dict[str, Any]] = {}
-    warnings: list[str] = []
+    order_group: dict[int, str] = {}
+    origin: dict[str, str] = {}
+    warnings: list[dict[str, Any]] = []
     for data in summaries:
+        group = str(data["_group"])
         for key, value in data.items():
-            if key in ("orders", "_summary_path"):
+            if key in ("orders", "_summary_path", "_group"):
                 continue
             if key not in merged:
                 merged[key] = value
-            elif (
-                key in ("w0_px", "target_side", "center_xy", "mask_center_xy")
-                and merged[key] != value
-            ):
+                origin[key] = group
+            elif key in SCALAR_MERGE_FIELDS and merged[key] != value:
                 warnings.append(
-                    f"{key} 在不同组里不一致: {merged[key]!r} vs {value!r} "
-                    f"({data['_summary_path']})"
+                    {
+                        "kind": "field",
+                        "field": key,
+                        "kept": merged[key],
+                        "kept_group": origin.get(key, "?"),
+                        "other": value,
+                        "other_group": group,
+                    }
                 )
         for order in data.get("orders") or []:
-            by_order[int(order.get("n_max", 0))] = order
+            n_max = int(order.get("n_max", 0))
+            if n_max in by_order:
+                # 同一个 n_max 出现两次 ⇒ 后一次**顶掉**前一次 (合并规则),
+                # 这也是一次静默的跨组覆盖, 同样要记下来。
+                warnings.append(
+                    {
+                        "kind": "orders",
+                        "n_max": n_max,
+                        "kept_group": group,
+                        "other_group": order_group.get(n_max, "?"),
+                    }
+                )
+            by_order[n_max] = order
+            order_group[n_max] = group
     merged["orders"] = [by_order[n] for n in sorted(by_order)]
     merged["merge_warnings"] = warnings
     merged["summary_paths"] = [d["_summary_path"] for d in summaries]
+    merged["summary_groups"] = [d["_group"] for d in summaries]
+    merged["merge_origin"] = origin
+    merged["order_groups"] = order_group
     return merged
+
+
+def _fmt_merge_value(value: Any) -> str:
+    """合并字段取值的显示格式 (标量 / 坐标对)。"""
+    if isinstance(value, bool):
+        return str(value)
+    if isinstance(value, (int, float)):
+        return fmt_metric(value, 6)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_fmt_merge_value(v) for v in value) + "]"
+    return str(value)
+
+
+def merge_audit_block(zernike: dict[str, Any]) -> str:
+    """§3 开头那一段: 这次合并**读了哪些组**、**哪些字段跨组不一致**。
+
+    合并本身会把不同组的取值压成一个 —— 所以「这批数据是不是同源的」必须在**报告正文里
+    可核查**: 列出参与合并的组目录, 再逐条列出不一致的字段、各自的取值与来源组。
+    只摆事实, 不替读者下结论: 哪些字段不一致、合并后用的是哪个值, 由读者自己判断。
+    """
+    groups = [str(g) for g in (zernike.get("summary_groups") or [])]
+    if not groups:
+        return ""
+    warnings = list(zernike.get("merge_warnings") or [])
+    origin = dict(zernike.get("merge_origin") or {})
+    field_warnings = [w for w in warnings if w.get("kind") == "field"]
+    order_warnings = [w for w in warnings if w.get("kind") == "orders"]
+
+    origin_items = [
+        f"`{name}`（`{origin[name]}`）" for name in BODY_MERGE_FIELDS if name in origin
+    ]
+    lines = [
+        "**数据来源与同源性核查** —— 本节的数字由 "
+        f"**{len(groups)}** 份 `summary.json` 合并而成，组目录："
+        + "、".join(f"`{g}`" for g in groups)
+        + "。",
+        "",
+        "- `orders`：**逐组按 n_max 拼起来**（同一个 n_max 出现两次时取**后一次**）。",
+        "- 其余字段：取**第一份含该字段的** summary 的值 —— 本报告正文读到的那些字段来自 "
+        + ("、".join(origin_items) if origin_items else "（无）")
+        + "。",
+        "- 跨组核对的**标量口径字段**是 "
+        + "、".join(f"`{f}`" for f in SCALAR_MERGE_FIELDS)
+        + "（同一轮扫描里它们本应一致）。",
+    ]
+
+    if not field_warnings and not order_warnings:
+        return "\n".join(lines)
+
+    # --- 逐字段聚拢: 同一字段可能有多个「别的取值」 --------------------------
+    by_field: dict[str, dict[str, Any]] = {}
+    for w in field_warnings:
+        rec = by_field.setdefault(
+            str(w.get("field")),
+            {"kept": w.get("kept"), "kept_group": w.get("kept_group"), "others": []},
+        )
+        rec["others"].append((w.get("other"), str(w.get("other_group"))))
+    rows: list[list[Any]] = []
+    for field in sorted(
+        by_field,
+        key=lambda f: (
+            SCALAR_MERGE_FIELDS.index(f) if f in SCALAR_MERGE_FIELDS else len(SCALAR_MERGE_FIELDS),
+            f,
+        ),
+    ):
+        rec = by_field[field]
+        others: dict[str, list[str]] = {}
+        for value, group in rec["others"]:
+            others.setdefault(_fmt_merge_value(value), []).append(group)
+        other_txt = "、".join(
+            f"`{value}`（" + "、".join(f"`{g}`" for g in groups_) + "）"
+            for value, groups_ in others.items()
+        )
+        rows.append(
+            [
+                f"`{field}`",
+                f"`{_fmt_merge_value(rec['kept'])}`（`{rec['kept_group']}`）",
+                other_txt,
+            ]
+        )
+    if rows:
+        lines += [
+            "",
+            f"⚠️ **跨组字段不一致：{len(rows)} 个字段** —— 合并把不同组的取值压成了一个。"
+            "「合并采用」= 报告正文实际使用的那个取值。",
+            "",
+            markdown_table(
+                ["字段", "合并采用（组目录）", "其他组里的取值（组目录）"], rows
+            ),
+        ]
+    if order_warnings:
+        items = "、".join(
+            f"n_max={w.get('n_max')}：采用 `{w.get('kept_group')}`，"
+            f"顶掉了 `{w.get('other_group')}`"
+            for w in order_warnings
+        )
+        lines += [
+            "",
+            f"⚠️ **`orders` 里同一个 n_max 出现了多次**（{len(order_warnings)} 处）：{items}。",
+        ]
+
+    # --- 后果: 只把事实摆出来 -----------------------------------------------
+    w0 = zernike.get("w0_px")
+    box_txt = (
+        f"（2·w0_px = {fmt_metric(float(w0) * 2.0, 2)} px）"
+        if isinstance(w0, (int, float))
+        else ""
+    )
+    unused = [f for f in SCALAR_MERGE_FIELDS if f != "w0_px"]
+    lines += [
+        "",
+        "**后果（只列事实）**：",
+        "",
+        "- 上表「合并采用」那一列就是 §3 正文里用的值：`w0_px` 决定 §3.2.1 与 §3.3 引用的"
+        f"目标框边长{box_txt}；" + "、".join(f"`{f}`" for f in unused)
+        + " 在本报告正文里**没有被引用**（它们只记录在采集脚本自己的产物里）。",
+        "- §3.2 的阶数指标（CV / PIB / 拟合残差 / max|c|）来自各组自己的 `orders`，"
+        "**不经过**上面这几个标量字段。",
+        "- 本报告**不替读者判断**这些差异是否影响结论；上表与本段只给出事实。",
+    ]
+    return "\n".join(lines)
 
 
 def discover_groups(roots: list[Path]) -> dict[str, list[dict[str, Any]]]:
@@ -2292,6 +2461,7 @@ def build_markdown(
 
     zernike_section = ""
     if zernike.get("orders"):
+        merge_audit = merge_audit_block(zernike)
         zernike_section = f"""
 ---
 
@@ -2302,6 +2472,8 @@ def build_markdown(
 
 三阶段：Stage A = GS 预矫正 + SPGD 细化（硬件闭环）→ Stage B = Noll 序 Zernike 最小二乘拟合
 → Stage C = 在 Zernike 系数上做 SPGD。目标框由平场光斑 waist 推导，**全程冻结**。
+
+{merge_audit}
 
 ### 3.1 基线
 
