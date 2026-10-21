@@ -32,6 +32,7 @@ sim/
 ├── dm_optics.py         # DM 电压 → 瞳孔相位耦合 (可分离高斯影响力函数)
 ├── oopao_backend.py     # OOPAO 后端实现 (湍流相位屏 + ASM 传播)
 ├── slm_pib_sim.py       # SLM-PIB 2f-Fourier 数字孪生 (SimPibSystem/SimSLMPib/SimPibCCD)
+├── bench_twin.py        # 2f 数字孪生核心: 参数化误差注入 (LUT/面板相差/装调), 口径=瞳面区域→CCD 远场
 ├── wave.py              # 波前处理
 └── __init__.py
 ```
@@ -40,6 +41,9 @@ sim/
 
 | 类 | 文件 | 说明 |
 |----|------|------|
+| `BenchTwinConfig` | `bench_twin.py` | 2f 数字孪生的几何与物理配置 (λ/像元节距/焦距/region/padding/噪声/误差参数) |
+| `TwinErrorModel` | `bench_twin.py` | 三族误差参数: SLM 的 LUT 非线性+量化、面板静态相差 (Zernike+粗糙度)、装调 (离焦/倾斜/透镜像差)。默认全零 = 理想系统 |
+| `BenchTwin` | `bench_twin.py` | 参数化的 2f 实验系统: `far_field()`/`frame()` 正向、`apply_*` 分阶段注入、`compensate()` 算法级预补偿、`to_dict()/from_dict()` 序列化 |
 | `SimulatedDevice` | `base.py` | 模拟设备基类 (继承 `Device`) |
 | `OpticalDevice` | `base.py` | 光学设备基类 (继承 `SimulatedDevice`) |
 | `WavefrontProcessor` | `base.py` | 波前处理器基类 (继承 `OpticalDevice`) |
