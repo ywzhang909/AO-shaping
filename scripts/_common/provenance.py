@@ -753,6 +753,27 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/generate_shape_trial_profiles.py",
         ),
     ),
+    "report/shape_trials/model_in_loop/model_in_loop_hw_ab_20261021.md": ReportProvenance(
+        script="scripts/slm/generate_model_in_loop_hw_ab_report.py",
+        command=(
+            "python scripts/slm/generate_model_in_loop_hw_ab_report.py "
+            "--session data/debug/model_in_loop_hw_ab/20261021_172236 --stamp 20261021"
+        ),
+        environment="离线+硬件",
+        note=(
+            "2026-10-21 model-in-loop 实验系统 A/B campaign 的离线报告 (Santec #1 22030108 + "
+            "大恒 FJB24112232, 1064 nm)：验证集门槛不动 (0.5) vs 强制放开 (0) 两臂实测对比 —— "
+            "两臂结局相同 (bake_off_rejected, 整形未打赢平场) ⇒ **本轮验证集门槛不是限制项**, "
+            "10-19 那条「门槛按构造不可达」未被沿用; 含当天曝光窗口、sweep 几何标定 "
+            "(相关性 0.7188)、全板定位扫描证据、逐臂实测探针与模型预测并排的 GIF, "
+            "以及三个拦路缺陷与处置 (曝光上限估计被噪声底毒化 / 全板定位严格模式在噪声底上"
+            "误拒 / 驱动改曝光后的陈旧帧)"
+        ),
+        extra_scripts=(
+            "scripts/slm/model_in_loop_hw_ab.py",
+            "scripts/slm/diagnose_light_level.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop/model_in_loop_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",

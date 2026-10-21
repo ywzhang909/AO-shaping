@@ -3681,3 +3681,30 @@ while the experiment system is offline.
 > profile carries `auto` (the runner's own default) or an explicit positive
 > number of milliseconds.
 
+### generate_model_in_loop_hw_ab_report.py
+
+Offline report generator for the A/B campaign above: it reads the campaign's
+recorded artefacts only (the manifest, each stage's log, the MIL run's probe
+frames, the recorder's pkl/json and the panel-scan evidence) and never opens a
+device, so the report can be recomputed at any time.
+
+```bash
+python scripts/slm/generate_model_in_loop_hw_ab_report.py \
+    --session data/debug/model_in_loop_hw_ab/<stamp> --stamp <stamp>
+```
+
+Output — `report/shape_trials/model_in_loop/`:
+
+| file | what |
+|---|---|
+| `model_in_loop_hw_ab_<stamp>.md` | the report: expected vs measured per arm, the A/B conclusion, the day's exposure window and geometry calibration, the blockers hit and how they were handled |
+| `figures/<stamp>_mil_inverse_<arm>.gif` | the real inverse-optimization process: measured probe frame / model prediction / pupil phase / recorder curves, frame by frame |
+| `figures/<stamp>_hw_ab_summary.png` | per-arm comparison (score / CV / EE / holdout correlation / rounds / status) |
+| `figures/<stamp>_panel_scan_<arm>.png` | the panel-locate scan response and flat drift |
+
+The model prediction is mapped onto the camera grid with the run's own
+`bench_geometry.json` (`camera_px_per_model_px`, `far_field_size`) and the
+run's frozen ROI centre, so the GIF overlays prediction and measurement on the
+same pixels. The real run's "whole process" comes from the recorder (pkl/json);
+the report never recomputes it.
+
