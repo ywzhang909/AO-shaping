@@ -146,7 +146,7 @@ summary。
     python scripts/slm/experiment_gs_improved.py --quick    # 小网格冒烟 (含 data.json 基线核对)
     python scripts/slm/experiment_gs_improved.py             # 完整扫描
 
-产物 (全部带 ``_improved`` 后缀) 写到 ``report/shape_trials/``:
+产物 (全部带 ``_improved`` 后缀) 写到 ``report/shape_trials/gs_defocus_sim/artifacts/``:
 CSV / summary.json + 四张图。纯仿真: 不打开任何设备。
 """
 
@@ -1887,7 +1887,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--quick", action="store_true", help="小网格冒烟跑")
     p.add_argument("--tag", default=None, help="产物文件名后缀 (默认 _improved)")
-    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials)")
+    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials/gs_defocus_sim/artifacts)")
     p.add_argument(
         "--band-limit",
         action="store_true",
@@ -1905,7 +1905,7 @@ def main() -> None:
     if args.tag is not None:
         rc = replace(rc, tag=args.tag)
     rc = replace(rc, band_limit=bool(args.band_limit))
-    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials"
+    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials" / "gs_defocus_sim" / "artifacts"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
 

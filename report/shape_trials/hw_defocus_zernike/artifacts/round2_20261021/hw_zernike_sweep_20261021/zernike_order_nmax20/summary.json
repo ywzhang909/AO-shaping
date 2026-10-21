@@ -1,0 +1,125 @@
+{
+  "group": "zernike_order_nmax20",
+  "variable": "n_max",
+  "group_meta": {
+    "role": "zernike_order",
+    "phase": "hardware_gs",
+    "exposure_ms": "0.2",
+    "defocus_focal_mm": "1523.8",
+    "n_max": "20"
+  },
+  "config": {
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_time_ms": 0.2,
+    "cam_size": 256,
+    "sim_far_field_padding": 16,
+    "slm_number": 1,
+    "beam_radius_px": 450.0,
+    "epochs": 400,
+    "gs_iters": 200,
+    "spgd_epochs": 150,
+    "n_max_list": [
+      4,
+      6,
+      8,
+      11,
+      15
+    ],
+    "delta": 0.02,
+    "lr": 0.01,
+    "seed": 0,
+    "out": "data/debug/hw_zernike_sweep_20261021",
+    "target_side": 0.0,
+    "max_energy_loss": 0.6,
+    "save_images": true,
+    "defocus_focal_mm": 1523.8,
+    "group": "zernike_order_nmax20",
+    "group_meta": {
+      "role": "zernike_order",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1523.8",
+      "n_max": "20"
+    },
+    "stage_a_only": false,
+    "stage_a_in": "data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz",
+    "orders": [
+      20
+    ],
+    "time_budget_s": 0.0
+  },
+  "cam_size": 256,
+  "probe_shape": [
+    1944,
+    2592
+  ],
+  "frame_shape": [
+    256,
+    256
+  ],
+  "center_xy": [
+    1433,
+    971
+  ],
+  "mask_center_xy": [
+    126,
+    128
+  ],
+  "w0_px": 5.742078245970301,
+  "target_side": 11.484156491940603,
+  "beam_radius_px": 450.0,
+  "best_stage": "refine",
+  "stage_a": {
+    "source": "data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz",
+    "epochs_executed": 45,
+    "best_score": 0.5442702250091147,
+    "elapsed_s": 541.987444
+  },
+  "baselines": {
+    "flat": {
+      "pib": 0.18964142757642635,
+      "cv": 0.49334858527858827,
+      "ee": 0.14608910184866616,
+      "ar": 0.8888888888888888,
+      "quality": 0.3508642926128617
+    },
+    "gs_freeform": {
+      "pib": 0.2719867901946008,
+      "cv": 0.4415845685029793,
+      "ee": 0.2103705838024735,
+      "ar": 1.0,
+      "quality": 0.4495364289328122
+    }
+  },
+  "orders": [
+    {
+      "n_max": 20,
+      "n_modes": 231,
+      "fit_rms_rad": 0.1604553982231922,
+      "max_abs_coefficient": 0.043185195856172164,
+      "clip_warning": null,
+      "before": {
+        "pib": 0.1325467306452768,
+        "cv": 0.24587859921467362,
+        "ee": 0.1016794385160782,
+        "ar": 1.0,
+        "quality": 0.4852921087306204
+      },
+      "after": {
+        "pib": 0.1255863729599572,
+        "cv": 0.2392919461912504,
+        "ee": 0.0962097565325961,
+        "ar": 1.0,
+        "quality": 0.48634801317936166
+      },
+      "best_epoch": 93,
+      "best_objective": 0.6463588094150954,
+      "spgd_improved": true,
+      "spgd_epochs_executed": 150,
+      "spgd_J_min": 0.6342932410249814,
+      "spgd_J_max": 0.6462751515315195,
+      "spgd_J_final": 0.6423028280905934
+    }
+  ]
+}

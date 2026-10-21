@@ -10,6 +10,7 @@ import threading
 import queue
 
 from ao_shaping.utils import logger
+from loguru import logger
 
 class SerialPortFSM:
     MAX, MIN = 1510.0, -1510.0
@@ -64,7 +65,7 @@ class SerialPortFSM:
         """
         # 第一步：校验数据长度（原逻辑：至少10字节）
         if len(data) < 10:
-            print(f"数据长度不足，校验失败（实际{len(data)}字节，预期≥10字节）")
+            logger.info(f"数据长度不足，校验失败（实际{len(data)}字节，预期≥10字节）")
             return False, 0
 
         # 第二步：计算校验和（原逻辑：索引2~8累加后取反）

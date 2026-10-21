@@ -124,7 +124,7 @@ Remove-Item "D:\Projects\TIFO\AO-shaping\src\ao_shaping\drivers\ccd\miicam_drive
 
 ### 5.5 测试意见
 
-现有测试：`tests/ao_shaping/drivers/ccd/test_miicam.py`（API 单测）、`tests/.../hardware/test_hardware_integration.py`（硬件）、`test_slm_miicam.py`、`test_device_registry.py`（注册 miicam_ccd）。建议新增/增强：
+现有测试：`tests/ao_shaping/drivers/ccd/test_miicam.py`（API 单测）、`tests/ao_shaping/drivers/test_hardware_integration.py`（硬件）、`test_slm_miicam.py`、`test_device_registry.py`（注册 miicam_ccd）。建议新增/增强：
 
 1. **回调缓冲复用重构后**：新增单元测试验证 `_FramePuller`/`_frame_callback` 复用的缓冲内容正确（用 mock 的 `cam`）。
 2. **`_get_buffer_params` 缓存**：测试缓存失效逻辑（分辨率/位深变更后重建）。

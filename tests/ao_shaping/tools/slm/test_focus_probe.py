@@ -335,6 +335,88 @@ class TestSweep:
         assert any("曝光带" in n for n in result.notes)
 
 
+class TestBlockedPathVerdict:
+    """光路受阻与「没找到焦面」必须分开报。
+
+    2026-10-21 实测: 光路被挡住时, 焦面探测报的是「没有任何点落在可用曝光带内」
+    (退出码 2) —— 与「焦面不在扫描范围里」完全一样, 操作者只能去翻帧才发现光路
+    已经断了。判据必须看**结构**: 峰值停在读出噪声本底 + 帧里没有任何局域光斑。
+    """
+
+    class DeadBench(FakeBench):
+        """一台**光路被挡住**的实验系统: 画面里只有读出噪声。"""
+
+        def read(self) -> np.ndarray:
+            rng = np.random.default_rng(1234)
+            return rng.normal(0.0, 0.29, self.shape).astype(np.float32)
+
+    def test_a_dead_bench_is_reported_as_blocked(self):
+        bench = self.DeadBench()
+        result = _run(bench, coarse_points=5, diopter_range=1.0, refine_points=3)
+        assert result.best is None
+        assert result.path_blocked is True
+        assert "光束没有到达相机" in result.blockage_reason
+        for segment in ("SLM", "2f", "CCD"):
+            assert segment in result.blockage_reason
+
+    def test_a_healthy_bench_is_not_blocked(self):
+        bench = FakeBench(true_diopter=-1.7, width=1.2)
+        result = _run(bench)
+        assert result.path_blocked is False
+        assert result.blockage_reason == ""
+
+    def test_the_evidence_file_carries_the_verdict(self):
+        """证据 JSON 必须写明「是不是光路受阻」, 否则事后没法复盘。"""
+        bench = self.DeadBench()
+        result = _run(bench, coarse_points=5, diopter_range=1.0, refine_points=3)
+        evidence = result.as_evidence()
+        assert evidence["path_blocked"] is True
+        assert evidence["blockage_reason"]
+        assert all(point["spot"]["blocked"] for point in evidence["points"])
+
+    def test_every_point_records_its_structure_verdict(self):
+        bench = FakeBench(true_diopter=-1.7, width=1.2)
+        result = _run(bench)
+        for point in result.points:
+            assert point.spot is not None
+            assert point.spot.usable is True
+            assert point.spot.blocked is False
+
+    def test_the_cli_exits_with_a_distinct_code_for_a_blocked_path(self, monkeypatch):
+        """退出码 3 = 光路受阻; 2 = 没找到焦面。调用方要能分开。"""
+        from click.testing import CliRunner
+
+        from ao_shaping.tools.slm.panel import focus_probe as fp
+
+        monkeypatch.setattr(
+            fp,
+            "probe_session_focus",
+            lambda **kwargs: {
+                "best_focal_mm": None,
+                "best_diopter_m1": None,
+                "path_blocked": True,
+                "blockage_reason": fp.BLOCKED_PATH_REASON,
+                "notes": [],
+            },
+        )
+        blocked = CliRunner().invoke(fp.main, [])
+        assert blocked.exit_code == 3
+
+        monkeypatch.setattr(
+            fp,
+            "probe_session_focus",
+            lambda **kwargs: {
+                "best_focal_mm": None,
+                "best_diopter_m1": None,
+                "path_blocked": False,
+                "blockage_reason": "",
+                "notes": [],
+            },
+        )
+        not_found = CliRunner().invoke(fp.main, [])
+        assert not_found.exit_code == 2
+
+
 class TestParabolicVertex:
     def test_it_recovers_the_vertex_of_a_symmetric_peak(self) -> None:
         xs = [0.0, 1.0, 2.0]

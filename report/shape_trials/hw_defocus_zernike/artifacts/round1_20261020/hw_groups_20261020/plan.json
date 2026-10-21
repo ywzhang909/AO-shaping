@@ -1,0 +1,72 @@
+{
+  "_comment": "2026-10-20 实验系统分组计划: 一次只跑一组变量, 每组单独记录。离焦组与噪声组共用泽尼克扫描 Stage A 产出的同一张硬件 GS 相位。",
+  "root": "data/debug/hw_groups_20261020",
+  "groups": [
+    {
+      "group": "dz_scan_hw_gs",
+      "variable": "dz_mm",
+      "meta": {
+        "role": "dz_scan",
+        "phase": "hardware_gs",
+        "phase_file": "data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy",
+        "exposure_ms": "0.2",
+        "defocus_focal_mm": "1597.4"
+      },
+      "script": "scripts/slm/hw_gs_defocus_probe.py",
+      "args": [
+        "--execute", "--group", "dz_scan_hw_gs",
+        "--group-meta", "role=dz_scan", "--group-meta", "phase=hardware_gs",
+        "--group-meta", "exposure_ms=0.2", "--group-meta", "defocus_focal_mm=1597.4",
+        "--out-root", "data/debug/hw_groups_20261020",
+        "--defocus-focal-mm", "1597.4", "--exposure-ms", "0.2", "--frames", "4",
+        "--gs-phase", "data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy",
+        "--dz-mm", "-20", "-15", "-10", "-7.5", "-5", "-3.75", "-2.5", "-1.5007",
+        "-0.7504", "-0.3752", "-0.1876", "0", "0.1876", "0.3752", "0.7504",
+        "1.5007", "2.5", "3.75", "5", "7.5", "10", "15", "20"
+      ]
+    },
+    {
+      "group": "dz_noise_hw_gs",
+      "variable": "dz_mm",
+      "meta": {
+        "role": "dz_noise",
+        "phase": "hardware_gs",
+        "phase_file": "data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy",
+        "exposure_ms": "0.2",
+        "defocus_focal_mm": "1597.4"
+      },
+      "script": "scripts/slm/hw_gs_defocus_probe.py",
+      "args": [
+        "--execute", "--group", "dz_noise_hw_gs",
+        "--group-meta", "role=dz_noise", "--group-meta", "phase=hardware_gs",
+        "--group-meta", "exposure_ms=0.2", "--group-meta", "defocus_focal_mm=1597.4",
+        "--out-root", "data/debug/hw_groups_20261020",
+        "--defocus-focal-mm", "1597.4", "--exposure-ms", "0.2", "--frames", "4",
+        "--gs-phase", "data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy",
+        "--dz-mm", "0", "0", "0", "0", "0", "0", "0", "0", "0"
+      ]
+    },
+    {
+      "group": "dz_scan_model_gs",
+      "variable": "dz_mm",
+      "meta": {
+        "role": "dz_scan_control",
+        "phase": "model_gs",
+        "exposure_ms": "0.4",
+        "defocus_focal_mm": "1597.4"
+      },
+      "script": "scripts/slm/hw_gs_defocus_probe.py",
+      "args": [
+        "--execute", "--group", "dz_scan_model_gs",
+        "--group-meta", "role=dz_scan_control", "--group-meta", "phase=model_gs",
+        "--group-meta", "exposure_ms=0.4", "--group-meta", "defocus_focal_mm=1597.4",
+        "--out-root", "data/debug/hw_groups_20261020",
+        "--defocus-focal-mm", "1597.4", "--exposure-ms", "0.4", "--frames", "4",
+        "--dz-mm", "-20", "-15", "-10", "-7.5", "-5", "-3.75", "-2.5", "-1.5007",
+        "-0.7504", "-0.3752", "-0.1876", "0", "0.1876", "0.3752", "0.7504",
+        "1.5007", "2.5", "3.75", "5", "7.5", "10", "15", "20", "25", "30", "35",
+        "40", "45", "50"
+      ]
+    }
+  ]
+}

@@ -69,8 +69,8 @@ from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
 )
 from ml.shaping.gs_reference import gs_golden_phase  # noqa: E402
 
-REPORT_KEY = "report/shape_trials/gs_golden_reference.md"
-OUT_DIR = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/gs_golden_reference/gs_golden_reference.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "gs_golden_reference"
 FIG_DIR = OUT_DIR / "figures"
 
 

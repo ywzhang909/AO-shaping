@@ -32,7 +32,6 @@ get_debug_mode(—) → `bool`
 - [[commands/dm-matrix|`run`]]
 - [[commands/pipeline|`run`]]
 - [[commands/wf|`run`]]
-- [[commands/slm-model-in-loop|`run`]]
 - [[commands/ga-zernike|`run`]]
 
 ## 相关页面

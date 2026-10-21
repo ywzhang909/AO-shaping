@@ -9,6 +9,8 @@
   - ao_shaping.optimizer.spgd.spgd_gradient
   - ao_shaping.utils.Recorder
   - schedule_lr_delta
+- ao_shaping.runners.runner_common.save_best_voltages
+  - ao_shaping.utils.io.cli_helpers.get_date_dir_name
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
@@ -17,8 +19,6 @@
   - _patch_names
 - ao_shaping.utils.gen_date_dir
 - ao_shaping.utils.gen_file_path_uuid
-- ao_shaping.utils.io.cli_helpers.get_date_dir_name
-  - ao_shaping.utils.io.timestamp.format_ts
 - ao_shaping.utils.io.cli_helpers.get_debug_mode
 
 ### pib_run  (ao_shaping.runners.nlight_dm.axis_beam_runner.run)
@@ -27,7 +27,6 @@
   - create_dm
   - list_reachable_dm_types
 - ao_shaping.optimizer.wfless.pib.optimize_pib
-  - _camera_cls
   - _extract_optimizer_momentum
   - _generate_search_candidates
   - _objective_to_min
@@ -36,26 +35,30 @@
   - ao_shaping.algorithm.goal_functions.target_func.ImageTargetFunc
   - ao_shaping.algorithm.tabu.tabu_search.AdaptiveSearchState
   - ao_shaping.algorithm.tabu.tabu_search.TabuMemory
-  - ao_shaping.drivers.ccd.common.capture_with_exposure
   - ao_shaping.drivers.ccd.common.get_camera_exposure_ms
   - ao_shaping.drivers.ccd.common.resample_on_saturation
   - ao_shaping.drivers.dm._registry.get_dm_registry
   - ao_shaping.optimizer.constants.create_optimizer
-  - ao_shaping.optimizer.spgd.spgd_gradient
+  - ao_shaping.optimizer.spid_pib_loop.open_pib_bench
+  - ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch
   - ao_shaping.utils.ImageVoltagesDisplay
   - ao_shaping.utils.Recorder
-  - ao_shaping.utils.image.hardware_utils.log_center_brightness
-  - ao_shaping.utils.image.hardware_utils.resolve_spot_center
   - ao_shaping.utils.image.spots_calc.radius
+  - ao_shaping.utils.objective_direction.objective_direction
   - learning_schedule
+- ao_shaping.runners.runner_common.load_init_v
+- ao_shaping.runners.runner_common.plot_pib_debug_grid
+- ao_shaping.runners.runner_common.save_best_voltages
+  - ao_shaping.utils.io.cli_helpers.get_date_dir_name
+- ao_shaping.utils.cli.exposure.exposure_ms_legacy
+- ao_shaping.utils.cli.exposure.resolve_exposure
+  - _reject
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
   - _patch_click_types
   - _patch_defaults
   - _patch_names
-- ao_shaping.utils.io.cli_helpers.get_date_dir_name
-  - ao_shaping.utils.io.timestamp.format_ts
 - ao_shaping.utils.io.cli_helpers.resolve_debug
   - get_debug_mode
 - ao_shaping.utils.io.file.gen_date_dir
@@ -76,7 +79,6 @@
   - ao_shaping.utils.Recorder
   - schedule_lr_delta
 - ao_shaping.optimizer.wfless.pib.optimize_pib
-  - _camera_cls
   - _extract_optimizer_momentum
   - _generate_search_candidates
   - _objective_to_min
@@ -85,18 +87,23 @@
   - ao_shaping.algorithm.goal_functions.target_func.ImageTargetFunc
   - ao_shaping.algorithm.tabu.tabu_search.AdaptiveSearchState
   - ao_shaping.algorithm.tabu.tabu_search.TabuMemory
-  - ao_shaping.drivers.ccd.common.capture_with_exposure
   - ao_shaping.drivers.ccd.common.get_camera_exposure_ms
   - ao_shaping.drivers.ccd.common.resample_on_saturation
   - ao_shaping.drivers.dm._registry.get_dm_registry
   - ao_shaping.optimizer.constants.create_optimizer
-  - ao_shaping.optimizer.spgd.spgd_gradient
+  - ao_shaping.optimizer.spid_pib_loop.open_pib_bench
+  - ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch
   - ao_shaping.utils.ImageVoltagesDisplay
   - ao_shaping.utils.Recorder
-  - ao_shaping.utils.image.hardware_utils.log_center_brightness
-  - ao_shaping.utils.image.hardware_utils.resolve_spot_center
   - ao_shaping.utils.image.spots_calc.radius
+  - ao_shaping.utils.objective_direction.objective_direction
   - learning_schedule
+- ao_shaping.runners.runner_common.load_init_v
+- ao_shaping.runners.runner_common.save_best_voltages
+  - ao_shaping.utils.io.cli_helpers.get_date_dir_name
+- ao_shaping.utils.cli.exposure.exposure_ms_legacy
+- ao_shaping.utils.cli.exposure.resolve_exposure
+  - _reject
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
@@ -105,8 +112,6 @@
   - _patch_names
 - ao_shaping.utils.gen_date_dir
 - ao_shaping.utils.gen_file_path_uuid
-- ao_shaping.utils.io.cli_helpers.get_date_dir_name
-  - ao_shaping.utils.io.timestamp.format_ts
 - ao_shaping.utils.io.cli_helpers.get_debug_mode
 
 ### zernike_matrix_run  (ao_shaping.runners.slm.zernike_matrix_runner.run)
@@ -144,7 +149,6 @@
 - _measure_wfs_step
 - ao_shaping.algorithm.signal_processing.controller.HardwareConfig
 - ao_shaping.algorithm.signal_processing.controller.LoopConfig
-- ao_shaping.drivers.slm.ZernikeSLM
 - ao_shaping.drivers.wfs.MlaRes
 - ao_shaping.drivers.wfs.ThorlabWFS
 - ao_shaping.utils.cli.params.with_params
@@ -187,6 +191,7 @@
   - gen_date_dir
 - ao_shaping.utils.io.file.save_optimization_debug_artifacts
   - _save_data_mode_debug_artifacts
+  - _validate_frame_artifacts
 - ao_shaping.utils.wavefront.matrix_utils.calc_n_zernike_terms
   - ao_shaping.utils.wavefront.zernike_calc.calc_n_zernike_terms
 
@@ -305,80 +310,36 @@
   - create_dm
   - list_reachable_dm_types
 - ao_shaping.optimizer.combined_optimizer.optimize_pib
-  - _camera_cls
   - ao_shaping.algorithm.gradient.adam.AdaMOD
-  - ao_shaping.drivers.ccd.common.capture_with_exposure
   - ao_shaping.drivers.ccd.common.get_camera_exposure_ms
   - ao_shaping.drivers.ccd.common.resample_on_saturation
   - ao_shaping.drivers.dm._registry.get_dm_registry
-  - ao_shaping.optimizer.spgd.spgd_gradient
+  - ao_shaping.optimizer.spid_pib_loop.open_pib_bench
+  - ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch
   - ao_shaping.utils.ImageVoltagesDisplay
   - ao_shaping.utils.Recorder
-  - ao_shaping.utils.image.hardware_utils.log_center_brightness
-  - ao_shaping.utils.image.hardware_utils.resolve_spot_center
   - ao_shaping.utils.image.spots_calc.pib_ratio_mask
   - ao_shaping.utils.image.spots_calc.power_in_bucket_mask
   - ao_shaping.utils.image.spots_calc.radius
   - learning_schedule
+- ao_shaping.runners.runner_common.load_init_v
+- ao_shaping.runners.runner_common.plot_pib_debug_grid
+- ao_shaping.runners.runner_common.save_best_voltages
+  - ao_shaping.utils.io.cli_helpers.get_date_dir_name
+- ao_shaping.utils.cli.exposure.exposure_ms_legacy
+- ao_shaping.utils.cli.exposure.resolve_exposure
+  - _reject
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
   - _patch_click_types
   - _patch_defaults
   - _patch_names
-- ao_shaping.utils.io.cli_helpers.get_date_dir_name
-  - ao_shaping.utils.io.timestamp.format_ts
 - ao_shaping.utils.io.cli_helpers.resolve_debug
   - get_debug_mode
 - ao_shaping.utils.io.file.gen_date_dir
   - ao_shaping.utils.io.timestamp.make_date_dir
 - ao_shaping.utils.io.file.gen_file_path_uuid
-
-### slm_square_run  (ao_shaping.runners.slm.slm_shaping_runner.square)
-- _active_zernike_modes
-- _build_square_config
-- _echo_square_banner
-- _parse_zernike_mask
-- _resolve_run_context
-- _save_square_best_image
-- _save_square_summary
-- _square_json_payload
-- ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square
-  - _freeform_phase_radians
-  - _locate_square_center
-  - _map_init_to_active_modes
-  - _slm_cls
-  - ao_shaping.algorithm.heuristic.search.run_heuristic_search
-  - ao_shaping.drivers.ccd.common.capture_with_exposure
-  - ao_shaping.drivers.ccd.common.create_camera
-  - ao_shaping.drivers.ccd.common.get_camera_exposure_ms
-  - ao_shaping.drivers.ccd.common.resample_on_saturation
-  - ao_shaping.optimizer.constants.create_optimizer
-  - ao_shaping.optimizer.wfless.adaptive_spgd_core.AdaptiveSpgdConfig
-  - ao_shaping.optimizer.wfless.adaptive_spgd_core.get_stage_weights
-  - ao_shaping.optimizer.wfless.adaptive_spgd_core.should_boost_stagnation
-  - ao_shaping.utils.Recorder
-  - ao_shaping.utils.image.hardware_utils.log_center_brightness
-  - ao_shaping.utils.wavefront.pattern_helper.PatternHelper
-  - learning_schedule
-  - square_aspect_ratio
-  - square_encircled_energy
-  - square_objective_score
-  - square_peak_to_background_ratio
-  - square_uniformity_cost
-- ao_shaping.runners.runner_common.parse_center
-- ao_shaping.runners.runner_common.patch_sim_square_shaping
-  - _patch_sim_devices
-- ao_shaping.utils.cli.params.with_params
-  - _collect_click_annotations
-  - _copy_delayed_call
-  - _patch_click_types
-  - _patch_defaults
-  - _patch_names
-- ao_shaping.utils.io.file.save_recorder_debug_artifacts
-  - debug_run_dir
-  - debug_run_stem
-  - save_optimization_debug_artifacts
 
 ### slm_pib_run  (ao_shaping.runners.slm.slm_shaping_runner.run)
 - ao_shaping.utils.cli.params.with_params
@@ -390,9 +351,13 @@
 
 ### slm_gs_refine_run  (ao_shaping.runners.slm.gs_refine_runner.run)
 - ao_shaping.runners.runner_common.build_gs_refine_config
+  - ao_shaping.utils.cli.exposure.exposure_ms_legacy
+  - ao_shaping.utils.cli.exposure.resolve_exposure
   - parse_point
 - ao_shaping.runners.runner_common.save_gs_refine_results
   - build_gs_refine_config
+- ao_shaping.utils.cli.exposure.resolve_exposure
+  - _reject
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
@@ -412,17 +377,34 @@
 
 ### slm_model_in_loop_run  (ao_shaping.runners.slm.model_in_loop_runner.run)
 - ao_shaping.runners.runner_common.build_model_in_loop_config
+  - ao_shaping.utils.cli.exposure.exposure_ms_legacy
+  - ao_shaping.utils.cli.exposure.resolve_exposure
   - parse_frozen_modes
   - parse_point
 - ao_shaping.runners.runner_common.parse_point
+- ao_shaping.runners.runner_common.save_model_in_loop_config
 - ao_shaping.runners.runner_common.save_model_in_loop_results
+  - save_model_in_loop_config
+- ao_shaping.runners.slm.model_in_loop_session.apply_session_calibration
+- ao_shaping.runners.slm.model_in_loop_session.calibrate_session
+  - _capture_session_fingerprint
+  - _locate_pupil_center
+  - _mark_step
+  - _measure_illumination_radius
+  - _read_correlation
+  - _should_measure_radius
+  - measure_session_geometry
+- ao_shaping.utils.cli.exposure.exposure_ms_legacy
+- ao_shaping.utils.cli.exposure.resolve_exposure
+  - _reject
 - ao_shaping.utils.cli.params.with_params
   - _collect_click_annotations
   - _copy_delayed_call
   - _patch_click_types
   - _patch_defaults
   - _patch_names
-- ao_shaping.utils.io.cli_helpers.get_debug_mode
+- ao_shaping.utils.io.cli_helpers.resolve_debug
+  - get_debug_mode
 
 ### slm-diagnose  (ao_shaping.tools.slm.panel.diagnose.main)
 - ao_shaping.utils.cli.params.with_params

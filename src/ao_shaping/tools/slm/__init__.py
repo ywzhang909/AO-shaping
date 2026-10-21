@@ -29,6 +29,10 @@ and the camera-only / WFS probes now live beside it::
                        model-in-loop run directory (offline)
         replay_disturbance.py  interleaved fixed-exposure CCD replay of the
                        four saved comparison phases
+        bench_twin_calibrate.py  parameter inversion (calibration) of the
+                       reusable 2f digital twin (``drivers/sim/bench_twin``):
+                       joint SSIM / energy / correlation loss, two-stage
+                       differential-evolution + L-BFGS-B fit, pre-compensation
         params.py      shared click parameter groups
                        (``SlmBenchParams`` / ``SlmAcquireParams``)
 

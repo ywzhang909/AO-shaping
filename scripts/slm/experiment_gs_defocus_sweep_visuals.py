@@ -104,7 +104,7 @@ CCD 视场 (Daheng 2592×1944 @ 2.2 µm = 5.70×4.28 mm) 比这个仿真窗口�
     python scripts/slm/experiment_gs_defocus_sweep_visuals.py           # 完整网格
     python scripts/slm/experiment_gs_defocus_sweep_visuals.py --quick   # 小网格冒烟
 
-产物写到 ``report/shape_trials/``, 文件名带 ``_visuals``: 3 个 CSV (方案A vs 瞳面
+产物写到 ``report/shape_trials/gs_defocus_sim/artifacts/``, 文件名带 ``_visuals``: 3 个 CSV (方案A vs 瞳面
 差异表 / V1 扫描 / V3 算法对比)、1 个 summary JSON、7 张图 (V1 三张全尺寸 + 总览,
 V2 十一宫格 + 峰值曲线, V3 CV 曲线 + 50 mm 2×2 对比)。
 
@@ -1456,7 +1456,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--tag", default=None,
                    help="产物文件名后缀 (默认: --quick 时 _quick, 完整网格为空; "
                         "所有产物都已带 _visuals)")
-    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials)")
+    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials/gs_defocus_sim/artifacts)")
     return p
 
 
@@ -1465,7 +1465,7 @@ def main() -> None:
     vc = VIS_QUICK if args.quick else VIS_FULL
     if args.tag is not None:
         vc = replace(vc, tag=args.tag)
-    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials"
+    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials" / "gs_defocus_sim" / "artifacts"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
 

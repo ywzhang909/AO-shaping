@@ -188,7 +188,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 位置 | 形式 |
 |---|---|
 | `utils/image/beam_metrics.py:223` | `in_mask.sum() / total`(全图 sum) |
-| `optimizer/wfless/slm_square_shaping.py:369` | `np.sum(img)`(全图 sum) |
+| `optimizer/wfless/slm_square_shaping.py:418` | `np.sum(img)`(全图 sum) |
 | `utils/image/beam_metrics.py:159` | `2·Σmin(m,t) / (Σm + Σt)` |
 
 标准的环围能量是**全图能量归一化**(Born & Wolf; Siegman)。用全图分母时,
@@ -216,13 +216,13 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 |---|---|---|---|
 | 1 | `tools/slm/slm_zernike_sweep_probe.py:527` | `_root=`/`name=`/`extra_meta=` | **已修(`dc3d2e3`)**。此前: 扫描与 npz 都成功后仍 `TypeError`, 调试产物全丢 |
 | 2 | `drivers/slm/santec/driver.py:1258` | `target_slot` 未绑定 | **仅 DVI 模式**触发 `UnboundLocalError`。超出本次写入范围, **未修**; DVI 本就不该自动尝试(`open()` 已知会挂起) |
-| 3 | `optimizer/wfless/slm_zernike_pib.py:135` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, pib 现有 6 处 sleep 调用点。静默读到未稳定帧（2026-10-20 复核，原 `:137`；`slm_zernike_shaping.py` 早已并入 pib，其最后的再导出 shim 亦已整体删除（2026-10-20，#138 / `8792ced1`），故不再单列）|
+| 3 | `optimizer/wfless/slm_zernike_pib.py:134` | `SLM_RESPONSE_TIME_S = 0.0` | **零稳定等待**, pib 现有 6 处 sleep 调用点。静默读到未稳定帧（2026-10-20 复核，原 `:137`；`1ce4717a` 常量收敛后整体 −1 至 `:134`；`slm_zernike_shaping.py` 早已并入 pib，其最后的再导出 shim 亦已整体删除（2026-10-20，#138 / `8792ced1`），故不再单列）|
 | 4 | `drivers/ccd/daheng/driver.py:205-218` | 曝光越界被**钳到量程端点** | `0` 不是"保持设备设置", 而是被钳到**设备最小值 ~0.02 ms**(比可用区间暗 20–75 倍)。**这是 `0` 默认值的真实代价, 务必先 bracket** |
 | 5 | `runners/runner_common.py` + `optimizer/wfless/slm_gs_refine.py` | `camera_pixel_um` | **已修(`015890f` + `d4a071b`)**。原硬编码 3.31 µm(推得焦点标度 5023, 比实测低 33%); 先改为由实测焦点标度反推, 最终改为**以像元间距为锚点**(2.2 µm 数据手册值)、**焦距改为派生**(见 §3) |
 | 6 | ~~`far_field_padding` 3 vs 8~~ | — | **不是冲突, 已撤回**。`far_field_size = n_grid × padding`, 仿真 `n_grid=512` 用 8、实验 `n_grid≈900` 用 3; 物理量 `λf/(aperture·padding)` 与 `n_grid` 无关, 代价才是平方级。**不要"统一"它** |
 | 7 | `optimizer/wfless/slm_gs_refine.py` | `focal_length_m` | **已修(`d4a071b`)**: 写死的 `0.125` 已改为 `0` = 由实测标度派生。GUI 侧仍不一致(`gui/slm/pattern_controls.py:1181` GS 用 `100.0` mm, `:453`/`:1381`/`:1663` 用 `300.0` mm), 换成透镜后请一并复核 |
 | 8 | `utils/slm/bench_constants.py:36` (R-81 下沉, 原 `tools/slm/slm_bench_probe.py:78`; `bench_kernels` 仅再导出) | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
-| 9 | `optimizer/wfless/slm_zernike_pib.py:570,584`（另 ABBA 探针 `:1673`）| 每帧 `set_reference_center(recenter(...))`（`recenter` 即 `zero_order_center`，`:570`）| 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框（2026-10-20 复核，原 `:1214,1443,1470` 三处现收敛到 `recenter`/`score`）|
+| 9 | `optimizer/wfless/slm_zernike_pib.py:569,583`（另 ABBA 探针 `:1672`）| 每帧 `set_reference_center(recenter(...))`（`recenter` 即 `zero_order_center`，`:569`）| 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框（2026-10-20 复核，原 `:1214,1443,1470` 三处现收敛到 `recenter`/`score`；`1ce4717a` 常量收敛后整体 −1）|
 | 10 | `utils/image/beam_metrics.py:371,414,462,512` | 4 个 0 阶定位实现 | 暗帧上裸 `argmax`: 峰值 22–46 而帧均值 0.26, 单个热像素即可取胜; 参考质心曾在 60 px 内自漂 |
 | 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |
 | 12 | `utils/image/beam_metrics.py:223` 等三处 | EE 分母约定不统一 | 见 §3 |
@@ -302,4 +302,4 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 - 探针: `src/ao_shaping/tools/ccd/{drift,floor}_probe.py` 与 `src/ao_shaping/tools/zernike/abba_probe.py`（2026-10 前位于 `tools/slm/slm_{drift,floor,abba}_probe.py`）
 - 测量/分析内核: `src/ao_shaping/tools/kernels/bench_kernels.py`（合并自 `tools/slm/slm_bench_probe.py` + `slm_bench_metrics.py`，设备由参数注入）
 - 目录说明: [`src/ao_shaping/tools/slm/README.md`](../../src/ao_shaping/tools/slm/README.md)
-- 实测标定报告: [`report/slm/bench_calibration_20261001.md`](../../report/slm/bench_calibration_20261001.md)
+- 实测标定报告: [`report/slm/bench/bench_calibration_20261001.md`](../../report/slm/bench/bench_calibration_20261001.md)

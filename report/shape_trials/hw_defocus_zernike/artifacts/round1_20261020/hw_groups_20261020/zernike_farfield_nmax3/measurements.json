@@ -1,0 +1,42 @@
+[
+  {
+    "index": 0,
+    "timestamp_utc": "2026-10-20T03:45:38+00:00",
+    "dz_mm": 0.0,
+    "dz_units": 0.0,
+    "chirp_sign": 0.0,
+    "chirp_alpha": 0.0,
+    "chirp_edge_rad": 0.0,
+    "chirp_edge_waves": 0.0,
+    "chirp_corner_rad": 0.0,
+    "defocus_focal_mm": 1597.4,
+    "exposure_ms_readback": 0.2,
+    "frame_mean_in_target": 17.321280991735538,
+    "cv": 1.6512043154337444,
+    "pib": 0.8303835082180332,
+    "score": 0.6037852914268671,
+    "frame_peak": 151.75,
+    "halo_peak_outside_box": 7.25,
+    "halo_power_fraction_outside_box": 0.16961649178196675
+  },
+  {
+    "index": 1,
+    "timestamp_utc": "2026-10-20T03:45:39+00:00",
+    "dz_mm": 0.0,
+    "dz_units": 0.0,
+    "chirp_sign": -1.0,
+    "chirp_alpha": 1.0001626284163687,
+    "chirp_edge_rad": 0.0,
+    "chirp_edge_waves": 0.0,
+    "chirp_corner_rad": 0.0,
+    "defocus_focal_mm": 1597.4,
+    "exposure_ms_readback": 0.2,
+    "frame_mean_in_target": 17.192536157024794,
+    "cv": 1.6498198996106554,
+    "pib": 0.8300332913554694,
+    "score": 0.6037087149287304,
+    "frame_peak": 150.5,
+    "halo_peak_outside_box": 8.25,
+    "halo_power_fraction_outside_box": 0.16996670864453062
+  }
+]

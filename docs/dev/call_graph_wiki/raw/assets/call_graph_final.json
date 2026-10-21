@@ -5,8 +5,8 @@
    "qualname": "cli",
    "module": "ao_shaping.main",
    "file": "src/ao_shaping/main.py",
-   "lineno": 82,
-   "end": 101,
+   "lineno": 79,
+   "end": 98,
    "args": [
     "ctx",
     "dir",
@@ -36,8 +36,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.wf_runner",
    "file": "src/ao_shaping/runners/nlight_dm/wf_runner.py",
-   "lineno": 34,
-   "end": 97,
+   "lineno": 33,
+   "end": 95,
    "args": [
     "ctx",
     "dm",
@@ -84,6 +84,21 @@
    "doc": "解析 DM 类型并创建 DM 实例。\n\n    对应 ``wf`` / ``pipeline`` / ``pib`` / ``combined`` / ``dm-matrix``\n    这些 runner 共用的 DM 选择块: 显式的 ``dm_type`` 会被转小写后直接使用;\n    否则探测可达的 DM 类型并选取唯一可达的那一个, 对零个/多个候选分别报错。\n\n    Args:\n        dm_type: 显式的 DM 类型名, 传 ``None`` 则自动检测。\n        **kwargs: 转发给 ``create_dm`` 的额外构造函数 kwargs\n            (例如 ``keep_when_exit``、``max_neibor_diff``、\n            ``dm_neibor_diff``)。\n\n    Returns:\n        创建好的 DM 实例。\n\n    Raises:\n        RuntimeError: 没有可达的 DM 时, 或 ``dm_type`` 为 ``None``\n            却有多个 DM 可达时。\n    ",
    "decorators": []
   },
+  "ao_shaping.runners.runner_common.save_best_voltages": {
+   "qualname": "save_best_voltages",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3807,
+   "end": 3827,
+   "args": [
+    "records",
+    "root_dir",
+    "process_fn"
+   ],
+   "returns": "Path",
+   "doc": "Sink best voltages of one or more recorders into ``flatten_voltages/<date>/``.\n\n    Shared scaffolding of the four ``nlight_dm`` runners (#91 P1): the directory\n    is computed ONCE and reused for every recorder, so ``pipeline_runner``'s two\n    recorders (WF + CCD) land side by side in the same directory exactly as\n    before. ``process_fn`` defaults to :func:`round_to_int`;\n    ``pipeline_runner`` passes :func:`truncate_to_int` (the two must NOT be\n    collapsed, see #142).\n    ",
+   "decorators": []
+  },
   "ao_shaping.optimizer.wf.rms.optimizer_rms_dm": {
    "qualname": "optimizer_rms_dm",
    "module": "ao_shaping.optimizer.wf.rms",
@@ -109,31 +124,6 @@
   },
   "ao_shaping.utils.gen_date_dir": null,
   "ao_shaping.utils.gen_file_path_uuid": null,
-  "ao_shaping.utils.io.cli_helpers.get_date_dir_name": {
-   "qualname": "get_date_dir_name",
-   "module": "ao_shaping.utils.io.cli_helpers",
-   "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 148,
-   "end": 155,
-   "args": [],
-   "returns": "str",
-   "doc": "Get current date as directory name (YYYYMMDD format).\n\n    Routes to the shared primitive in ``utils.io.timestamp`` (R-28); this name\n    stays because it is exported through ``ao_shaping.utils`` and used by nine\n    modules.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.utils.io.timestamp.format_ts": {
-   "qualname": "format_ts",
-   "module": "ao_shaping.utils.io.timestamp",
-   "file": "src/ao_shaping/utils/io/timestamp.py",
-   "lineno": 31,
-   "end": 46,
-   "args": [
-    "ts",
-    "fmt"
-   ],
-   "returns": "str",
-   "doc": "Format ``ts`` (default: now) with ``fmt`` (default: a full timestamp).\n\n    Args:\n        ts: Instant to format. ``None`` means \"now\"; pass an explicit value in\n            tests so the result does not depend on when the test runs.\n        fmt: Any :func:`datetime.strftime` pattern.\n\n    Returns:\n        The formatted string.\n\n    Note:\n        Deliberately the *only* place in the package that calls ``strftime`` on a\n        wall-clock instant, so a format change cannot land in one copy only.\n    ",
-   "decorators": []
-  },
   "ao_shaping.utils.Recorder": null,
   "ao_shaping.drivers.wfs._registry.resolve_wfs": {
    "qualname": "resolve_wfs",
@@ -191,6 +181,31 @@
    ],
    "returns": "BaseWFS",
    "doc": "经全局注册表创建 WFS 实例, 并做 kwargs 过滤。",
+   "decorators": []
+  },
+  "ao_shaping.utils.io.cli_helpers.get_date_dir_name": {
+   "qualname": "get_date_dir_name",
+   "module": "ao_shaping.utils.io.cli_helpers",
+   "file": "src/ao_shaping/utils/io/cli_helpers.py",
+   "lineno": 157,
+   "end": 164,
+   "args": [],
+   "returns": "str",
+   "doc": "Get current date as directory name (YYYYMMDD format).\n\n    Routes to the shared primitive in ``utils.io.timestamp`` (R-28); this name\n    stays because it is exported through ``ao_shaping.utils`` and used by nine\n    modules.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.utils.io.timestamp.format_ts": {
+   "qualname": "format_ts",
+   "module": "ao_shaping.utils.io.timestamp",
+   "file": "src/ao_shaping/utils/io/timestamp.py",
+   "lineno": 31,
+   "end": 46,
+   "args": [
+    "ts",
+    "fmt"
+   ],
+   "returns": "str",
+   "doc": "Format ``ts`` (default: now) with ``fmt`` (default: a full timestamp).\n\n    Args:\n        ts: Instant to format. ``None`` means \"now\"; pass an explicit value in\n            tests so the result does not depend on when the test runs.\n        fmt: Any :func:`datetime.strftime` pattern.\n\n    Returns:\n        The formatted string.\n\n    Note:\n        Deliberately the *only* place in the package that calls ``strftime`` on a\n        wall-clock instant, so a format change cannot land in one copy only.\n    ",
    "decorators": []
   },
   "_ensure_sim_dms_bound": {
@@ -303,8 +318,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.axis_beam_runner",
    "file": "src/ao_shaping/runners/nlight_dm/axis_beam_runner.py",
-   "lineno": 40,
-   "end": 253,
+   "lineno": 44,
+   "end": 246,
    "args": [
     "ctx",
     "device",
@@ -337,12 +352,25 @@
    "doc": "Resolve debug mode from any of: group ``--debug``, command ``--debug``, ``DEBUG`` env.\n\n    Enabling debug by *any* of the three means debug on. The group flag is read\n    from ``ctx.parent.obj`` (set by ``main.py``); it is absent when a runner is\n    invoked standalone (``python -m ao_shaping.runners...``), in which case the\n    command flag / env var still work.\n\n    Args:\n        ctx: click context of the command (``ctx.parent`` is the ``main.py`` group).\n        flag: value of the command's own ``--debug`` option (``None`` = not passed).\n\n    Returns:\n        True when debug mode should be enabled.\n    ",
    "decorators": []
   },
+  "ao_shaping.utils.cli.exposure.exposure_ms_legacy": {
+   "qualname": "exposure_ms_legacy",
+   "module": "ao_shaping.utils.cli.exposure",
+   "file": "src/ao_shaping/utils/cli/exposure.py",
+   "lineno": 170,
+   "end": 182,
+   "args": [
+    "value"
+   ],
+   "returns": "float",
+   "doc": "Collapse a resolved exposure onto the legacy float rung.\n\n    ``auto`` and ``default`` both become ``0.0``, because that is what every\n    float API downstream has always taken for \"no fixed value here\" -- which is\n    what keeps ``auto`` bit-compatible with the ``0`` it replaces.\n\n    A caller that can act on ``default`` separately (today: only\n    ``panel_locate.scan_panel``) must branch on\n    ``value is DEFAULT_EXPOSURE`` **before** calling this, or the distinction\n    is lost. See the module docstring for why the other sites cannot.\n    ",
+   "decorators": []
+  },
   "ao_shaping.optimizer.wfless.pib.optimize_pib": {
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 289,
-   "end": 904,
+   "lineno": 248,
+   "end": 829,
    "args": [
     "center",
     "epochs",
@@ -390,8 +418,8 @@
    "qualname": "get_init_V_by_rms",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 203,
-   "end": 227,
+   "lineno": 246,
+   "end": 270,
    "args": [
     "date"
    ],
@@ -399,12 +427,39 @@
    "doc": "",
    "decorators": []
   },
+  "ao_shaping.runners.runner_common.load_init_v": {
+   "qualname": "load_init_v",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3785,
+   "end": 3804,
+   "args": [
+    "load_file"
+   ],
+   "returns": "list",
+   "doc": "Load initial DM voltages from a text file, or ``[]`` when absent.\n\n    Shared by ``axis_beam_runner`` / ``combined_runner`` / ``pipeline_runner``\n    (``wf_runner`` has no ``load_file`` at all). Semantics: falsy token → ``[]``;\n    existing file → ``np.loadtxt(...).tolist()``; missing path → warning + ``[]``.\n\n    Behavior alignment (#91 P1): ``pipeline_runner`` previously crashed with\n    ``FileNotFoundError`` on a missing path (no existence check); the unified\n    behaviour is warning + cold start. ``combined_runner`` was silently\n    returning ``[]`` on a missing path and now also logs the warning.\n    ``axis_beam_runner``'s ``\"rms\"`` sentinel is judged at the call site before\n    delegating here.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.utils.cli.exposure.resolve_exposure": {
+   "qualname": "resolve_exposure",
+   "module": "ao_shaping.utils.cli.exposure",
+   "file": "src/ao_shaping/utils/cli/exposure.py",
+   "lineno": 122,
+   "end": 167,
+   "args": [
+    "raw",
+    "param_hint"
+   ],
+   "returns": "float | ExposureChoice",
+   "doc": "Resolve a raw ``--exposure-time-ms`` / ``--exposure-ms`` value.\n\n    Args:\n        raw: The value straight off the dataclass field -- ``str`` from click,\n            but possibly a plain number when a caller built the parameter object\n            itself (GUI adapters, tests). ``None`` is read as ``auto`` so an\n            already-resolved value round-trips.\n        param_hint: The flag to attribute the error to, so click renders it as\n            ``Invalid value for '--exposure-time-ms'``.\n\n    Returns:\n        A strictly positive exposure in ms, :data:`AUTO_EXPOSURE`, or\n        :data:`DEFAULT_EXPOSURE` -- three distinguishable answers.\n\n    Raises:\n        click.BadParameter: For ``0``, a negative number, a non-finite number,\n            empty text or unparseable text. The message always names ``auto``.\n    ",
+   "decorators": []
+  },
   "ao_shaping.utils.io.file.gen_date_dir": {
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 113,
-   "end": 120,
+   "lineno": 156,
+   "end": 163,
    "args": [
     "base_dir"
    ],
@@ -416,14 +471,34 @@
    "qualname": "gen_file_path_uuid",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 91,
-   "end": 101,
+   "lineno": 134,
+   "end": 144,
    "args": [
     "dir",
     "postfix"
    ],
    "returns": null,
    "doc": "",
+   "decorators": []
+  },
+  "ao_shaping.runners.runner_common.plot_pib_debug_grid": {
+   "qualname": "plot_pib_debug_grid",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3830,
+   "end": 3862,
+   "args": [
+    "init_img",
+    "best_img",
+    "history_values",
+    "voltages",
+    "init_title",
+    "best_title",
+    "history_title",
+    "save_path"
+   ],
+   "returns": "None",
+   "doc": "Draw the classic 2x2 PIB debug grid (init/best image, history, voltages).\n\n    Shared by ``combined_runner`` and ``axis_beam_runner`` (#91 P1);\n    ``axis_beam_runner`` parameterises every label by its objective column,\n    ``combined_runner`` uses the ``pib`` spelling — both preserved verbatim via\n    the title arguments. ``pipeline_runner``'s 2x4 WF+CCD grid and\n    ``wf_runner``'s wavefront grid are different layouts and stay inline.\n    matplotlib / plot_funcs are imported lazily so this module does not gain a\n    hard matplotlib dependency at import time (mirrors ``Recorder.save_best``).\n    ",
    "decorators": []
   },
   "ao_shaping.utils.io.timestamp.make_date_dir": {
@@ -454,89 +529,78 @@
    "doc": "Format ``ts`` (default: now) with ``fmt`` (default: a full timestamp).\n\n    Args:\n        ts: Instant to format. ``None`` means \"now\"; pass an explicit value in\n            tests so the result does not depend on when the test runs.\n        fmt: Any :func:`datetime.strftime` pattern.\n\n    Returns:\n        The formatted string.\n\n    Note:\n        Deliberately the *only* place in the package that calls ``strftime`` on a\n        wall-clock instant, so a format change cannot land in one copy only.\n    ",
    "decorators": []
   },
-  "_camera_cls": {
-   "qualname": "_camera_cls",
-   "module": "ao_shaping.optimizer.wfless.pib",
-   "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 31,
-   "end": 58,
+  "_reject": {
+   "qualname": "_reject",
+   "module": "ao_shaping.utils.cli.exposure",
+   "file": "src/ao_shaping/utils/cli/exposure.py",
+   "lineno": 111,
+   "end": 119,
    "args": [
-    "cam_type"
+    "raw",
+    "param_hint"
    ],
-   "returns": "type",
-   "doc": "Resolve the camera driver class on demand.\n\n    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562\n    ``__getattr__``, so a module-level ``from ao_shaping.drivers import\n    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->\n    ``ctypes.CDLL``) on every ``import ao_shaping`` — defeating the lazy\n    contract and forcing the SDK onto offline consumers such as\n    ``scripts/slm/generate_shape_objective_comparison.py``. Resolving here keeps\n    the optimizer importable without the side effect.\n\n    Precedence: an explicit ``_CAMERA_CLASS_OVERRIDE`` wins, so tests can force\n    any class; then ``cam_type=\"sim\"`` for the 2f-Fourier simulator; otherwise\n    the real MiiCam driver.\n    ",
+   "returns": "click.BadParameter",
+   "doc": "The single error every unusable value gets, always naming ``auto``.",
    "decorators": []
   },
-  "ao_shaping.drivers.ccd.common.capture_with_exposure": {
-   "qualname": "capture_with_exposure",
-   "module": "ao_shaping.drivers.ccd.common",
-   "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 585,
-   "end": 622,
+  "ao_shaping.utils.objective_direction.objective_direction": {
+   "qualname": "objective_direction",
+   "module": "ao_shaping.utils.objective_direction",
+   "file": "src/ao_shaping/utils/objective_direction.py",
+   "lineno": 54,
+   "end": 65,
    "args": [
-    "cam",
+    "objective"
+   ],
+   "returns": "Literal['max', 'min']",
+   "doc": "Search direction for ``objective``: ``\"max\"`` or ``\"min\"``.\n\n    The comparison is case-insensitive and whitespace-tolerant (keys\n    reconstructed from JSON sidecars can carry padding); in production the\n    vocabulary is validated upstream (``pib.py`` / ``slm_zernike_pib.py``), so\n    this only matters for report scripts. Unknown objectives default to\n    ``\"min\"`` — mirroring the historical ``if objective in (...) else \"min\"``\n    fallback, so a misspelled or new objective name can never silently switch\n    an existing search from descending to ascending.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.optimizer.spid_pib_loop.open_pib_bench": {
+   "qualname": "open_pib_bench",
+   "module": "ao_shaping.optimizer.spid_pib_loop",
+   "file": "src/ao_shaping/optimizer/spid_pib_loop.py",
+   "lineno": 158,
+   "end": 280,
+   "args": [
+    "cam_type",
+    "cam_id",
     "exposure_time_ms",
+    "cam_size",
     "target_max_brightness",
-    "n_sample",
-    "auto_exposure_fn",
-    "auto_n_sample"
-   ],
-   "returns": "np.ndarray",
-   "doc": "Set the exposure (fixed / auto / keep) and capture one image.\n\n    Precedence: a positive ``exposure_time_ms`` wins; otherwise a positive\n    ``target_max_brightness`` triggers auto-exposure; otherwise the camera's\n    current exposure is left unchanged.\n\n    Args:\n        cam: An opened camera driver (exposes ``get_numpy_image`` and\n            ``auto_exposure`` or the common helpers).\n        exposure_time_ms: Fixed exposure in ms (0 = auto or keep).\n        target_max_brightness: Auto-exposure target peak (0-255 grayscale; 0 = keep).\n        n_sample: Frames averaged per fixed-exposure / keep capture.\n        auto_exposure_fn: Override for the auto-exposure implementation. Defaults\n            to :func:`auto_exposure` from this module. Pass ``cam.auto_exposure``\n            to use the backend-native path directly.\n        auto_n_sample: Frame sample count for the auto-exposure path (defaults\n            to ``n_sample``). Useful when auto-exposure needs more frames than\n            the fixed-exposure capture (e.g. 20 vs 1).\n\n    Returns:\n        The captured image as a NumPy array.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.utils.image.hardware_utils.resolve_spot_center": {
-   "qualname": "resolve_spot_center",
-   "module": "ao_shaping.utils.image.hardware_utils",
-   "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 543,
-   "end": 599,
-   "args": [
-    "camera",
-    "img",
     "center",
-    "detect_fn",
-    "n_sample",
-    "recapture"
+    "dm",
+    "create_dm",
+    "init_v",
+    "dm_unit_mask",
+    "init_fallback_target_max",
+    "on_probe"
    ],
-   "returns": "tuple[int, int]",
-   "doc": "Resolve a centre spec (``None`` / ``str`` / ``tuple``) into pixel coordinates.\n\n    Consolidates the init-image centre resolution that was inlined in\n    ``slm_zernike_pib.py``, ``pib.py``, ``combined_optimizer.py`` and\n    ``slm_square_shaping.py``:\n\n    * ``None`` — auto-detect via ``detect_fn`` on *this* frame.\n    * ``\"mass\"`` / ``\"max\"`` / ``\"shape\"`` — re-capture a fresh frame (unless\n      ``recapture`` is False) and dispatch by name:\n\n      ``\"mass\"``  → full-image centroid (:func:`centroid`);\n      ``\"max\"``   → global argmax;\n      ``\"shape\"`` → :func:`smart_zero_order_center` (argmax-anchored, flat-core\n      aware).\n\n    * ``(x, y)`` tuple — returned as-is (operator-supplied fixed centre).\n\n    Args:\n        camera: An opened camera (used only for re-capture on ``str`` modes).\n        img: The initial probe image (used for ``None`` / ``tuple`` modes).\n        center: The centre spec (``None``, one of the mode strings, or a\n            ``(x, y)`` tuple).\n        detect_fn: Custom auto-detect function; defaults to\n            :func:`smart_zero_order_center`.\n        n_sample: Frame sample count for re-capture.\n        recapture: When False, use ``img`` for ``str`` modes instead of\n            re-capturing (useful when the caller knows the image is fresh).\n\n    Returns:\n        Integer ``(x, y)`` pixel coordinates.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.utils.image.hardware_utils.log_center_brightness": {
-   "qualname": "log_center_brightness",
-   "module": "ao_shaping.utils.image.hardware_utils",
-   "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 518,
-   "end": 540,
-   "args": [
-    "img",
-    "center",
-    "exposure_ms"
-   ],
-   "returns": "None",
-   "doc": "Log the centroid-pixel brightness and frame peak at the current exposure.\n\n    Shared log line format used by every wfless optimizer's initial centre\n    acquisition so the hardware diagnostics agree across runners.\n\n    Args:\n        img: The captured image.\n        center: ``(x, y)`` pixel coordinates.\n        exposure_ms: Current camera exposure in ms.\n    ",
-   "decorators": []
+   "returns": "Iterator[PibBench]",
+   "doc": "Open the camera + DM and take the flat-field reading.\n\n    Args:\n        cam_type: Camera backend name.\n        cam_id: Camera device id.\n        exposure_time_ms: Fixed exposure in ms (0 = auto / keep).\n        cam_size: Side length of the square region of interest.\n        target_max_brightness: Auto-exposure target peak (0 = keep).\n        center: Centre spec (``None`` / mode string / ``(x, y)``).\n        dm: An already-created DM, or ``None`` to create one.\n        create_dm: Factory for the DM, called only when ``dm`` is ``None``.\n        init_v: Initial DM voltages (empty / ``None`` = all zeros).\n        dm_unit_mask: Active-actuator mask (``None`` = the DM's default).\n        init_fallback_target_max: Brightness target used for the initial\n            image when ``target_max_brightness`` is 0.  The two paths use\n            different constants here, so it is a parameter.\n        on_probe: Optional hook called with the probe image and the detected\n            centre, before the brightness log.\n\n    Yields:\n        The opened bench and its flat-field reading.\n    ",
+   "decorators": [
+    "contextmanager"
+   ]
   },
   "_objective_to_min": {
    "qualname": "_objective_to_min",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 271,
-   "end": 286,
+   "lineno": 223,
+   "end": 245,
    "args": [
     "objective"
    ],
    "returns": "int",
-   "doc": "SPGD sign factor for the DM PIB loop.\n\n    ``optimizer.update()`` (Adam/AdaMOD/SGD) returns a *descent* step, so the\n    parameter update ``v - update`` descends whatever gradient it is handed.\n    Maximisation objectives therefore need the negated gradient estimate.\n\n    Returns ``-1`` for objectives to maximise, ``+1`` for objectives to\n    minimise.\n\n    NOTE: this must stay a module-level function. Assigning ``to_min`` inside\n    the nested ``calc_objective`` closures makes it closure-local and silently\n    ineffective -- that mistake (commit 74c7d0f) inverted the PIB objective so\n    the optimizer *minimised* it.\n    ",
+   "doc": "SPGD sign factor for the DM PIB loop.\n\n    ``optimizer.update()`` (Adam/AdaMOD/SGD) returns a *descent* step, so the\n    parameter update ``v - update`` descends whatever gradient it is handed.\n    Maximisation objectives therefore need the negated gradient estimate.\n\n    Returns ``-1`` for objectives to maximise, ``+1`` for objectives to\n    minimise.\n\n    NOTE: this must stay a module-level function. Assigning ``to_min`` inside\n    the nested ``calc_objective`` closures makes it closure-local and silently\n    ineffective -- that mistake (commit 74c7d0f) inverted the PIB objective so\n    the optimizer *minimised* it.\n\n    The direction comes from :func:`~ao_shaping.utils.objective_direction.objective_direction`,\n    the same source ``optimize_pib`` already uses for ``Recorder(mode=...)``. It\n    must be that source and not a local tuple: the sign here and the recorder's\n    mode are two halves of one decision. If they disagree the search descends an\n    objective the recorder reports as improving -- the 74c7d0f symptom reached\n    through the vocabulary instead of through a scoping mistake.\n    ",
    "decorators": []
   },
   "ao_shaping.optimizer.constants.create_optimizer": {
    "qualname": "create_optimizer",
    "module": "ao_shaping.optimizer.constants",
    "file": "src/ao_shaping/optimizer/constants.py",
-   "lineno": 43,
-   "end": 91,
+   "lineno": 56,
+   "end": 104,
    "args": [
     "optimizer_type",
     "dim",
@@ -549,19 +613,6 @@
   },
   "ao_shaping.algorithm.tabu.tabu_search.AdaptiveSearchState": null,
   "ao_shaping.algorithm.tabu.tabu_search.TabuMemory": null,
-  "ao_shaping.drivers.ccd.common.get_camera_exposure_ms": {
-   "qualname": "get_camera_exposure_ms",
-   "module": "ao_shaping.drivers.ccd.common",
-   "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 441,
-   "end": 455,
-   "args": [
-    "cam"
-   ],
-   "returns": "float",
-   "doc": "Read the current exposure time in ms from any supported backend.\n\n    Raises:\n        AttributeError: The camera exposes neither ``exposure_time_ms`` nor\n            ``exposure_time``.\n    ",
-   "decorators": []
-  },
   "ao_shaping.utils.ImageVoltagesDisplay": null,
   "learning_schedule": {
    "qualname": "learning_schedule",
@@ -586,8 +637,8 @@
    "qualname": "_generate_search_candidates",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 122,
-   "end": 146,
+   "lineno": 74,
+   "end": 98,
    "args": [
     "anchor_v",
     "radius_scale",
@@ -599,23 +650,12 @@
    "doc": "Generate mixed dense/sparse perturbations around a local optimum.",
    "decorators": []
   },
-  "ao_shaping.drivers.dm._registry.get_dm_registry": {
-   "qualname": "get_dm_registry",
-   "module": "ao_shaping.drivers.dm._registry",
-   "file": "src/ao_shaping/drivers/dm/_registry.py",
-   "lineno": 197,
-   "end": 198,
-   "args": [],
-   "returns": "DMRegistry",
-   "doc": "",
-   "decorators": []
-  },
   "ao_shaping.utils.image.spots_calc.radius": {
    "qualname": "radius",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 392,
-   "end": 452,
+   "lineno": 376,
+   "end": 436,
    "args": [
     "intensity",
     "center",
@@ -626,31 +666,25 @@
    "doc": "\n    以center为圆心，占总能量百分比为energy的圆的半径\n\n    :param intensity: 强度分布\n    :param center: 圆心，如(0, 0)\n    :param energy: 圆内的能量比，默认0.99，取值范围0~1，常用0.5，0.865， 0.99\n    :param use_aotools: 是否使用aotools库，默认True\n    :return radius: 圆的半径\n    ",
    "decorators": []
   },
-  "_should_trigger_adaptive_search": {
-   "qualname": "_should_trigger_adaptive_search",
-   "module": "ao_shaping.optimizer.wfless.pib",
-   "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 149,
-   "end": 163,
+  "ao_shaping.drivers.ccd.common.get_camera_exposure_ms": {
+   "qualname": "get_camera_exposure_ms",
+   "module": "ao_shaping.drivers.ccd.common",
+   "file": "src/ao_shaping/drivers/ccd/common.py",
+   "lineno": 441,
+   "end": 472,
    "args": [
-    "epoch",
-    "enabled",
-    "warmup",
-    "interval",
-    "patience",
-    "last_best_epoch"
+    "cam"
    ],
-   "returns": "bool",
-   "doc": "",
+   "returns": "float",
+   "doc": "Read the current exposure time in ms from any supported backend.\n\n    Prefers the backend's **live readback** ``get_exposure_time_ms()`` (the value\n    the device actually reports, already clamped and quantised to its integer\n    microsecond grid), and only then falls back to the driver's own\n    ``exposure_time_ms`` / ``exposure_time`` cache.\n\n    The fallback exists for the non-hardware backends (ffmpeg / image_folder /\n    sim) and for any future driver that has no device-side readback. Relying on\n    the cache alone was the historical bug: ``reset_exposure_time`` clamps +\n    quantises to integer µs and the device then reports that effective value,\n    while the cache kept the raw (unquantised) request — so the \"read-back\"\n    drifted from what the sensor actually used (issue #32, ``回读恒为 3.0``).\n\n    Raises:\n        AttributeError: The camera exposes none of ``get_exposure_time_ms``,\n            ``exposure_time_ms`` or ``exposure_time``.\n    ",
    "decorators": []
   },
-  "ao_shaping.algorithm.goal_functions.target_func.ImageTargetFunc": null,
   "ao_shaping.drivers.ccd.common.resample_on_saturation": {
    "qualname": "resample_on_saturation",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 664,
-   "end": 708,
+   "lineno": 681,
+   "end": 725,
    "args": [
     "img",
     "cam",
@@ -664,12 +698,56 @@
    "doc": "Re-capture at a lower exposure if the image is saturated.\n\n    Mirrors the guard found in every SPGD loop: when auto-exposure is active\n    (``exposure_time_ms == 0``) and the peak reaches ``saturation_threshold``,\n    re-auto-expose to ``target_max_brightness`` (falling back to the original\n    image data if auto-exposure is unavailable or the target is also 0).\n\n    Args:\n        img: The image to check (uint8 or float).\n        cam: An opened camera driver.\n        exposure_time_ms: Current fixed exposure (0 = auto mode, eligible for re-exposure).\n        target_max_brightness: Auto-exposure target peak (0-255; 0 = use 220).\n        auto_exposure_fn: Override for the auto-exposure implementation.\n        saturation_threshold: Peak value considered saturated. ``None`` (the\n            default) derives it from ``img``'s dtype via :func:`full_scale`,\n            which is correct for every bit depth; pass a number only to\n            override (e.g. to trip early).\n        n_sample: Frames averaged per re-capture.\n\n    Returns:\n        The (possibly resampled) image.\n    ",
    "decorators": []
   },
+  "ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch": {
+   "qualname": "spid_pib_epoch",
+   "module": "ao_shaping.optimizer.spid_pib_loop",
+   "file": "src/ao_shaping/optimizer/spid_pib_loop.py",
+   "lineno": 283,
+   "end": 381,
+   "args": [
+    "dm",
+    "cam",
+    "init_v",
+    "delta",
+    "unit_mask",
+    "rng",
+    "optimizer",
+    "evaluate",
+    "maximize",
+    "diff_sign",
+    "epoch",
+    "on_render",
+    "on_saturation"
+   ],
+   "returns": "SpidPibEpoch",
+   "doc": "Run one paired-measurement SPGD epoch and apply the resulting update.\n\n    The perturbation is drawn from ``rng``, which must expose\n    ``binomial(1, 0.5, (n,))`` -- a ``numpy.random.Generator`` for the SPGD\n    path, the ``numpy.random`` module itself for the combined path.  The two\n    streams differ on purpose: it is why the paths walk apart at epoch 1.\n\n    Args:\n        dm: The DM to drive.\n        cam: The opened camera.\n        init_v: The voltages to perturb around.\n        delta: Perturbation magnitude.\n        unit_mask: Active-actuator mask, as float64.\n        rng: Source of the +/- perturbation pattern.\n        optimizer: The algorithm optimizer that turns the gradient into a step.\n        evaluate: Maps a frame to ``(value, ratio)``.\n        maximize: Whether the objective is maximised.\n        diff_sign: Sign applied to the logged objective difference.\n        epoch: The epoch number, handed to the render hook.\n        on_render: Optional live-view hook, called with the positive frame,\n            the voltages and the epoch number; returning ``False`` aborts the\n            epoch before any update is applied.\n        on_saturation: Optional hook that owns the path's saturation policy.\n            It is called with the two frames, applies whatever remedy the path\n            wants (resampling the exposure, rescaling the optimizer), and\n            returns the brightness statistic the path reports.\n\n    Returns:\n        The epoch's measurements and the voltages after the update.\n    ",
+   "decorators": []
+  },
+  "_should_trigger_adaptive_search": {
+   "qualname": "_should_trigger_adaptive_search",
+   "module": "ao_shaping.optimizer.wfless.pib",
+   "file": "src/ao_shaping/optimizer/wfless/pib.py",
+   "lineno": 101,
+   "end": 115,
+   "args": [
+    "epoch",
+    "enabled",
+    "warmup",
+    "interval",
+    "patience",
+    "last_best_epoch"
+   ],
+   "returns": "bool",
+   "doc": "",
+   "decorators": []
+  },
+  "ao_shaping.algorithm.goal_functions.target_func.ImageTargetFunc": null,
   "_extract_optimizer_momentum": {
    "qualname": "_extract_optimizer_momentum",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 104,
-   "end": 108,
+   "lineno": 56,
+   "end": 60,
    "args": [
     "optimizer"
    ],
@@ -677,12 +755,23 @@
    "doc": "",
    "decorators": []
   },
+  "ao_shaping.drivers.dm._registry.get_dm_registry": {
+   "qualname": "get_dm_registry",
+   "module": "ao_shaping.drivers.dm._registry",
+   "file": "src/ao_shaping/drivers/dm/_registry.py",
+   "lineno": 197,
+   "end": 198,
+   "args": [],
+   "returns": "DMRegistry",
+   "doc": "",
+   "decorators": []
+  },
   "_reset_optimizer_state": {
    "qualname": "_reset_optimizer_state",
    "module": "ao_shaping.optimizer.wfless.pib",
    "file": "src/ao_shaping/optimizer/wfless/pib.py",
-   "lineno": 111,
-   "end": 119,
+   "lineno": 63,
+   "end": 71,
    "args": [
     "optimizer"
    ],
@@ -694,8 +783,8 @@
    "qualname": "make_coord",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 267,
-   "end": 275,
+   "lineno": 251,
+   "end": 259,
    "args": [
     "img"
    ],
@@ -707,8 +796,8 @@
    "qualname": "full_scale",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 630,
-   "end": 650,
+   "lineno": 647,
+   "end": 667,
    "args": [
     "img"
    ],
@@ -716,12 +805,76 @@
    "doc": "Full-scale (saturation) value of a camera frame, in 0-255 gray units.\n\n    Integer frames carry their own limit, so read it off the dtype (uint8 -> 255,\n    uint16 -> 65535). AveragedFrame retains that source limit. Other float\n    frames are read off the *same* detectors in the\n    *same* units: the debug corpus holds uint8 / float32 / float64 frames whose\n    per-frame maxima are all <= 255, so 255 - not 1.0 - is the ceiling. Treating\n    a float frame as already normalised would compress it by up to 255x.\n\n    Args:\n        img: A camera frame.\n\n    Returns:\n        The value at or above which the frame counts as saturated.\n    ",
    "decorators": []
   },
+  "ao_shaping.optimizer._camera_inject._camera_cls": {
+   "qualname": "_camera_cls",
+   "module": "ao_shaping.optimizer._camera_inject",
+   "file": "src/ao_shaping/optimizer/_camera_inject.py",
+   "lineno": 29,
+   "end": 56,
+   "args": [
+    "cam_type"
+   ],
+   "returns": "type",
+   "doc": "Resolve the camera driver class on demand.\n\n    ``ao_shaping.drivers`` exposes ``MIICamera`` through a PEP 562\n    ``__getattr__``, so a module-level ``from ao_shaping.drivers import\n    MIICamera`` would load the native MiiCam SDK (``_setup_miicam_sdk()`` ->\n    ``ctypes.CDLL``) on every ``import ao_shaping`` -- defeating the lazy\n    contract and forcing the SDK onto offline consumers such as\n    ``scripts/slm/generate_shape_objective_comparison.py``. Resolving here keeps\n    the optimizer importable without the side effect.\n\n    Precedence: an explicit :data:`_CAMERA_CLASS_OVERRIDE` wins, so tests can\n    force any class; then ``cam_type=\"sim\"`` for the 2f-Fourier simulator;\n    otherwise the real MiiCam driver.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.drivers.ccd.common.capture_with_exposure": {
+   "qualname": "capture_with_exposure",
+   "module": "ao_shaping.drivers.ccd.common",
+   "file": "src/ao_shaping/drivers/ccd/common.py",
+   "lineno": 602,
+   "end": 639,
+   "args": [
+    "cam",
+    "exposure_time_ms",
+    "target_max_brightness",
+    "n_sample",
+    "auto_exposure_fn",
+    "auto_n_sample"
+   ],
+   "returns": "np.ndarray",
+   "doc": "Set the exposure (fixed / auto / keep) and capture one image.\n\n    Precedence: a positive ``exposure_time_ms`` wins; otherwise a positive\n    ``target_max_brightness`` triggers auto-exposure; otherwise the camera's\n    current exposure is left unchanged.\n\n    Args:\n        cam: An opened camera driver (exposes ``get_numpy_image`` and\n            ``auto_exposure`` or the common helpers).\n        exposure_time_ms: Fixed exposure in ms (0 = auto or keep).\n        target_max_brightness: Auto-exposure target peak (0-255 grayscale; 0 = keep).\n        n_sample: Frames averaged per fixed-exposure / keep capture.\n        auto_exposure_fn: Override for the auto-exposure implementation. Defaults\n            to :func:`auto_exposure` from this module. Pass ``cam.auto_exposure``\n            to use the backend-native path directly.\n        auto_n_sample: Frame sample count for the auto-exposure path (defaults\n            to ``n_sample``). Useful when auto-exposure needs more frames than\n            the fixed-exposure capture (e.g. 20 vs 1).\n\n    Returns:\n        The captured image as a NumPy array.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.utils.image.hardware_utils.resolve_spot_center": {
+   "qualname": "resolve_spot_center",
+   "module": "ao_shaping.utils.image.hardware_utils",
+   "file": "src/ao_shaping/utils/image/hardware_utils.py",
+   "lineno": 542,
+   "end": 598,
+   "args": [
+    "camera",
+    "img",
+    "center",
+    "detect_fn",
+    "n_sample",
+    "recapture"
+   ],
+   "returns": "tuple[int, int]",
+   "doc": "Resolve a centre spec (``None`` / ``str`` / ``tuple``) into pixel coordinates.\n\n    Consolidates the init-image centre resolution that was inlined in\n    ``slm_zernike_pib.py``, ``pib.py``, ``combined_optimizer.py`` and\n    ``slm_square_shaping.py``:\n\n    * ``None`` — auto-detect via ``detect_fn`` on *this* frame.\n    * ``\"mass\"`` / ``\"max\"`` / ``\"shape\"`` — re-capture a fresh frame (unless\n      ``recapture`` is False) and dispatch by name:\n\n      ``\"mass\"``  → full-image centroid (:func:`centroid`);\n      ``\"max\"``   → global argmax;\n      ``\"shape\"`` → :func:`smart_zero_order_center` (argmax-anchored, flat-core\n      aware).\n\n    * ``(x, y)`` tuple — returned as-is (operator-supplied fixed centre).\n\n    Args:\n        camera: An opened camera (used only for re-capture on ``str`` modes).\n        img: The initial probe image (used for ``None`` / ``tuple`` modes).\n        center: The centre spec (``None``, one of the mode strings, or a\n            ``(x, y)`` tuple).\n        detect_fn: Custom auto-detect function; defaults to\n            :func:`smart_zero_order_center`.\n        n_sample: Frame sample count for re-capture.\n        recapture: When False, use ``img`` for ``str`` modes instead of\n            re-capturing (useful when the caller knows the image is fresh).\n\n    Returns:\n        Integer ``(x, y)`` pixel coordinates.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.utils.image.hardware_utils.log_center_brightness": {
+   "qualname": "log_center_brightness",
+   "module": "ao_shaping.utils.image.hardware_utils",
+   "file": "src/ao_shaping/utils/image/hardware_utils.py",
+   "lineno": 517,
+   "end": 539,
+   "args": [
+    "img",
+    "center",
+    "exposure_ms"
+   ],
+   "returns": "None",
+   "doc": "Log the centroid-pixel brightness and frame peak at the current exposure.\n\n    Shared log line format used by every wfless optimizer's initial centre\n    acquisition so the hardware diagnostics agree across runners.\n\n    Args:\n        img: The captured image.\n        center: ``(x, y)`` pixel coordinates.\n        exposure_ms: Current camera exposure in ms.\n    ",
+   "decorators": []
+  },
   "resolve_initial_exposure": {
    "qualname": "resolve_initial_exposure",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 568,
-   "end": 582,
+   "lineno": 585,
+   "end": 599,
    "args": [
     "exposure_time_ms",
     "target_max_brightness"
@@ -734,8 +887,8 @@
    "qualname": "set_camera_exposure_ms",
    "module": "ao_shaping.drivers.ccd.common",
    "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 482,
-   "end": 505,
+   "lineno": 499,
+   "end": 522,
    "args": [
     "cam",
     "time_ms"
@@ -748,8 +901,8 @@
    "qualname": "centroid",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 234,
-   "end": 251,
+   "lineno": 218,
+   "end": 235,
    "args": [
     "intensity",
     "moment",
@@ -775,8 +928,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.pipeline_runner",
    "file": "src/ao_shaping/runners/nlight_dm/pipeline_runner.py",
-   "lineno": 35,
-   "end": 177,
+   "lineno": 37,
+   "end": 174,
    "args": [
     "ctx",
     "device",
@@ -797,8 +950,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1097,
-   "end": 1420,
+   "lineno": 1057,
+   "end": 1380,
    "args": [
     "ctx",
     "params",
@@ -821,8 +974,8 @@
    "qualname": "_normalize_run_options",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 140,
-   "end": 201,
+   "lineno": 139,
+   "end": 200,
    "args": [
     "n_max",
     "magnitude",
@@ -847,8 +1000,8 @@
    "qualname": "_setup_debug_callback",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 204,
-   "end": 251,
+   "lineno": 203,
+   "end": 250,
    "args": [
     "output_path",
     "debug"
@@ -864,8 +1017,8 @@
    "qualname": "collect_device_info",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 99,
-   "end": 175,
+   "lineno": 101,
+   "end": 177,
    "args": [
     "slm",
     "wfs",
@@ -879,8 +1032,8 @@
    "qualname": "_compute_calibration_magnitudes",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 254,
-   "end": 278,
+   "lineno": 253,
+   "end": 277,
    "args": [
     "magnitude",
     "n_magnitudes"
@@ -893,8 +1046,8 @@
    "qualname": "_mode_ids",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 563,
-   "end": 579,
+   "lineno": 523,
+   "end": 539,
    "args": [
     "n_max",
     "excluded_piston",
@@ -908,8 +1061,8 @@
    "qualname": "_print_calibration_summary",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 513,
-   "end": 548,
+   "lineno": 473,
+   "end": 508,
    "args": [
     "results",
     "output_path",
@@ -923,8 +1076,8 @@
    "qualname": "_capture_init_state",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 319,
-   "end": 392,
+   "lineno": 318,
+   "end": 391,
    "args": [
     "slm",
     "wfs",
@@ -940,8 +1093,8 @@
    "qualname": "_save_init_state_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 395,
-   "end": 430,
+   "lineno": 394,
+   "end": 429,
    "args": [
     "init_state",
     "output_path"
@@ -954,8 +1107,8 @@
    "qualname": "calibrate_response_matrix_pushpull",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 624,
-   "end": 809,
+   "lineno": 584,
+   "end": 769,
    "args": [
     "slm",
     "wfs",
@@ -997,22 +1150,22 @@
    "qualname": "_save_wavefront_log_hdf5",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 475,
-   "end": 507,
+   "lineno": 435,
+   "end": 467,
    "args": [
     "records",
     "output_path"
    ],
    "returns": "None",
-   "doc": "保存全过程波前跟踪数据到HDF5\n\n    文件: {output_path}_wf_log.h5\n    每个模式对应 mode_{idx:03d} 组,\n    包含 deviation_x/y, zernike_coeffs, wavefront, rms属性\n\n    Args:\n        records: _make_wavefront_tracking_callback 返回的记录列表\n        output_path: 输出基础路径\n    ",
+   "doc": "保存全过程波前跟踪数据到HDF5\n\n    文件: {output_path}_wf_log.h5\n    每个模式对应 mode_{idx:03d} 组,\n    包含 deviation_x/y, zernike_coeffs, wavefront, rms属性\n\n    Args:\n        records: 波前跟踪快照列表 (``WfsStateSnapshot``, 由 ``_capture_wfs_full_state`` 逐模式采集)\n        output_path: 输出基础路径\n    ",
    "decorators": []
   },
   "ao_shaping.tools.zernike.common.effective_cond": {
    "qualname": "effective_cond",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 193,
-   "end": 199,
+   "lineno": 195,
+   "end": 201,
    "args": [
     "matrix"
    ],
@@ -1024,8 +1177,8 @@
    "qualname": "offline_correction_test",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 815,
-   "end": 1011,
+   "lineno": 775,
+   "end": 971,
    "args": [
     "slm",
     "wfs",
@@ -1051,8 +1204,8 @@
    "qualname": "get_timestamp_str",
    "module": "ao_shaping.utils.io.cli_helpers",
    "file": "src/ao_shaping/utils/io/cli_helpers.py",
-   "lineno": 158,
-   "end": 164,
+   "lineno": 167,
+   "end": 173,
    "args": [],
    "returns": "str",
    "doc": "Get current timestamp string (YYYYMMDD_HHMMSS format).\n\n    Identical to :func:`~ao_shaping.utils.io.file.gen_date_str`; both delegate to\n    ``utils.io.timestamp.format_ts`` (R-28).\n    ",
@@ -1062,8 +1215,8 @@
    "qualname": "safe_pinv",
    "module": "ao_shaping.tools.zernike.common",
    "file": "src/ao_shaping/tools/zernike/common.py",
-   "lineno": 178,
-   "end": 190,
+   "lineno": 180,
+   "end": 192,
    "args": [
     "matrix"
    ],
@@ -1075,8 +1228,8 @@
    "qualname": "closed_loop_run",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1606,
-   "end": 1861,
+   "lineno": 1565,
+   "end": 1819,
    "args": [
     "ctx",
     "params"
@@ -1091,14 +1244,13 @@
   },
   "ao_shaping.algorithm.signal_processing.controller.HardwareConfig": null,
   "ao_shaping.algorithm.signal_processing.controller.LoopConfig": null,
-  "ao_shaping.drivers.slm.ZernikeSLM": null,
   "ao_shaping.drivers.wfs.ThorlabWFS": null,
   "from_response_matrix": {
    "qualname": "from_response_matrix",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1426,
-   "end": 1490,
+   "lineno": 1386,
+   "end": 1449,
    "args": [
     "result",
     "config"
@@ -1111,8 +1263,8 @@
    "qualname": "_measure_wfs_step",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1493,
-   "end": 1519,
+   "lineno": 1452,
+   "end": 1478,
    "args": [
     "wfs",
     "mask_indices",
@@ -1128,8 +1280,8 @@
    "qualname": "_expand_to_noll",
    "module": "ao_shaping.runners.slm.zernike_matrix_runner",
    "file": "src/ao_shaping/runners/slm/zernike_matrix_runner.py",
-   "lineno": 1522,
-   "end": 1547,
+   "lineno": 1481,
+   "end": 1506,
    "args": [
     "u",
     "n_max",
@@ -1217,8 +1369,8 @@
    "qualname": "build_debug_save_paths",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 169,
-   "end": 199,
+   "lineno": 212,
+   "end": 242,
    "args": [
     "root_dir",
     "context_subdir"
@@ -1258,8 +1410,8 @@
    "qualname": "save_optimization_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 739,
-   "end": 850,
+   "lineno": 847,
+   "end": 989,
    "args": [
     "records",
     "save_dir",
@@ -1279,10 +1431,14 @@
     "title",
     "json_payload",
     "top_right_key",
-    "top_right_title"
+    "top_right_title",
+    "frame_artifacts",
+    "frame_keys",
+    "phase_keys",
+    "frame_title_prefix"
    ],
    "returns": "Path | None",
-   "doc": "Emit the standard debug artifacts for a completed optimisation run.\n\n    Two mutually exclusive modes:\n\n    * **Wavefront mode** (default): ``records`` is a :class:`Recorder` object;\n      writes the 2×2 debug PNG + compressed dataframe. This is the\n      historical behaviour used by ``ga_zernike_runner``,\n      ``greedy_zernike_runner`` and ``rms_zernike_runner``.\n    * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2\n      PNG (objective history / best coefficients / first & last image), a\n      pickled copy of ``data`` and a JSON sidecar of ``json_payload``.\n      Used by ``slm_shaping_runner``.\n\n    Args:\n        records:           Recorder object with ``get_sublist()``,\n                           ``get_best_iter()``, ``first``, and\n                           ``save_dataframe``. (wavefront mode)\n        save_dir:          Directory in which to write output files.\n        saved_file_name:   UUID filename prefix (no extension).\n        min_epoch:         Epoch index of the best result.\n        min_metric:        Primary metric value at *min_epoch*\n                           (RMS, PIB, …).\n        best_coeff_key:    Dictionary key for the coefficient vector\n                           in the best-epoch record (e.g. ``\"_c\"`` or ``\"_v\"``).\n        init_wavefront:    Wavefront array for the initial state.\n        opt_wavefront:     Wavefront array for the optimised state.\n        init_title:        Colorbar / panel title for the initial WF.\n        opt_title:         Colorbar / panel title for the optimised WF.\n        plot_params_note:  Optional suffix appended to the *voltages* panel\n                           title (e.g. ``\"epoch=200\"``).\n        data:              ``{epoch: record}`` dict of scalar/array fields.\n                           (data mode; mutually exclusive with ``records``)\n        png_path:          Output path for the figure. (data mode)\n        pkl_path:          Output path for the pickled ``data``. (data mode)\n        json_path:         Output path for the JSON ``json_payload``. (data mode)\n        title:             Figure title. (data mode)\n        json_payload:      Dict serialised to ``json_path``. (data mode)\n        top_right_key:     Record key rendered in the top-right panel. When set,\n                           that key's last-epoch array is shown instead of the\n                           ``_c`` bar chart. (data mode)\n        top_right_title:   Panel title override for ``top_right_key``. (data mode)\n\n    Returns:\n        ``png_path`` in data mode, ``None`` in wavefront mode.\n    ",
+   "doc": "Emit the standard debug artifacts for a completed optimisation run.\n\n    Two mutually exclusive modes:\n\n    * **Wavefront mode** (default): ``records`` is a :class:`Recorder` object;\n      writes the 2×2 debug PNG + compressed dataframe. This is the\n      historical behaviour used by ``ga_zernike_runner``,\n      ``greedy_zernike_runner`` and ``rms_zernike_runner``.\n    * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2\n      PNG (objective history / best coefficients / first & last image), a\n      pickled copy of ``data``, a JSON sidecar of ``json_payload``, and --\n      governed by ``frame_artifacts`` -- per-frame companion images into\n      ``<pkl_stem>_images/``. Used by ``slm_shaping_runner``.\n\n    Args:\n        records:           Recorder object with ``get_sublist()``,\n                           ``get_best_iter()``, ``first``, and\n                           ``save_dataframe``. (wavefront mode)\n        save_dir:          Directory in which to write output files.\n        saved_file_name:   UUID filename prefix (no extension).\n        min_epoch:         Epoch index of the best result.\n        min_metric:        Primary metric value at *min_epoch*\n                           (RMS, PIB, …).\n        best_coeff_key:    Dictionary key for the coefficient vector\n                           in the best-epoch record (e.g. ``\"_c\"`` or ``\"_v\"``).\n        init_wavefront:    Wavefront array for the initial state.\n        opt_wavefront:     Wavefront array for the optimised state.\n        init_title:        Colorbar / panel title for the initial WF.\n        opt_title:         Colorbar / panel title for the optimised WF.\n        plot_params_note:  Optional suffix appended to the *voltages* panel\n                           title (e.g. ``\"epoch=200\"``).\n        data:              ``{epoch: record}`` dict of scalar/array fields.\n                           (data mode; mutually exclusive with ``records``)\n        png_path:          Output path for the figure. (data mode)\n        pkl_path:          Output path for the pickled ``data``. (data mode)\n        json_path:         Output path for the JSON ``json_payload``. (data mode)\n        title:             Figure title. (data mode)\n        json_payload:      Dict serialised to ``json_path``. (data mode)\n        top_right_key:     Record key rendered in the top-right panel. When set,\n                           that key's last-epoch array is shown instead of the\n                           ``_c`` bar chart. (data mode)\n        top_right_title:   Panel title override for ``top_right_key``. (data mode)\n        frame_artifacts: Which epochs get companion images (far-field +\n                         X/Y cross-section, plus SLM phase when a phase key is\n                         present): ``\"none\"`` / ``\"summary\"`` / ``\"all\"``.\n                         ``\"summary\"`` (first / best / last) is the default\n                         **on purpose**: ``train_data_collect.py`` re-saves the\n                         whole history on every flush, so per-epoch images would\n                         make that write quadratic, and ``\"summary\"`` already\n                         covers what the 2x2 debug PNG shows. (data mode)\n        frame_keys:      Record keys holding camera frames for the companion\n                         images; auto-detected when omitted. (data mode)\n        phase_keys:      Record keys holding SLM patterns for the companion\n                         images; auto-detected when omitted. (data mode)\n        frame_title_prefix: Prefix added to each companion figure's title, so\n                         images from a shared backend name their runner.\n                         (data mode)\n\n    Raises:\n        ValueError: Both/neither of ``records`` and ``data`` given, or an\n            unknown ``frame_artifacts`` mode.\n\n    Returns:\n        ``png_path`` in data mode, ``None`` in wavefront mode. **Unchanged** --\n        several callers rely on it; the companion-image count is logged rather\n        than returned.\n    ",
    "decorators": []
   },
   "ao_shaping.utils.wavefront.matrix_utils.calc_n_zernike_terms": {
@@ -1311,12 +1467,25 @@
    "doc": "Calculate the number of Zernike terms up to order n_max.\n\n    Args:\n        n_max: Maximum Zernike radial order.\n\n    Returns:\n        Number of Zernike terms (including piston).\n    ",
    "decorators": []
   },
+  "_validate_frame_artifacts": {
+   "qualname": "_validate_frame_artifacts",
+   "module": "ao_shaping.utils.io.file",
+   "file": "src/ao_shaping/utils/io/file.py",
+   "lineno": 690,
+   "end": 703,
+   "args": [
+    "mode"
+   ],
+   "returns": "str",
+   "doc": "Reject a bad ``frame_artifacts`` value at the public call site.\n\n    :func:`ao_shaping.display.beam_profile.select_epochs` is the real\n    validator, but it only runs once the plotting layer has already been\n    imported; checking here means a typo surfaces at the wrapper the caller\n    actually invoked.\n    ",
+   "decorators": []
+  },
   "_save_data_mode_debug_artifacts": {
    "qualname": "_save_data_mode_debug_artifacts",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 645,
-   "end": 736,
+   "lineno": 706,
+   "end": 844,
    "args": [
     "data",
     "png_path",
@@ -1325,18 +1494,22 @@
     "title",
     "json_payload",
     "top_right_key",
-    "top_right_title"
+    "top_right_title",
+    "frame_artifacts",
+    "frame_keys",
+    "phase_keys",
+    "frame_title_prefix"
    ],
    "returns": "Path",
-   "doc": "Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.\n\n    Figure layout (2×2): objective history line plot (top-left), first\n    ``_img`` (bottom-left), last ``_img`` (bottom-right).\n\n    The top-right panel is chosen by ``top_right_key``:\n\n    * ``None`` (default) -> best ``_c`` coefficient bar chart, the historical\n      behaviour for Zernike-parameterised runs.\n    * a record key -> ``imshow`` of that key's **last** epoch. Callers whose\n      control vector is not a coefficient vector (e.g. freeform SLM shaping,\n      which has no ``_c`` at all) pass ``\"_phase\"`` to show the uint16\n      grayscale actually sent to the SLM instead of a meaningless\n      \"no _c\" placeholder.\n    ",
+   "doc": "Write PNG / pkl / json debug artifacts for a ``{epoch: record}`` dict.\n\n    Figure layout (2×2): objective history line plot (top-left), first\n    ``_img`` (bottom-left), last ``_img`` (bottom-right).\n\n    The top-right panel is chosen by ``top_right_key``:\n\n    * ``None`` (default) -> best ``_c`` coefficient bar chart, the historical\n      behaviour for Zernike-parameterised runs.\n    * a record key -> ``imshow`` of that key's **last** epoch. Callers whose\n      control vector is not a coefficient vector (e.g. freeform SLM shaping,\n      which has no ``_c`` at all) pass ``\"_phase\"`` to show the uint16\n      grayscale actually sent to the SLM instead of a meaningless\n      \"no _c\" placeholder.\n\n    Immediately after the pickle is written the companion **images** are\n    emitted into ``<pkl_stem>_images/`` next to it -- one far-field PNG and\n    one X/Y cross-section PNG per far-field key, plus one SLM phase PNG per\n    phase key, for each epoch ``frame_artifacts`` selects. They exist because\n    the pickle is the *only* other record of those frames and ``data/`` is\n    gitignored: lose the ``.pkl`` and the run stops being reproducible (this is\n    how four figures in ``report/shape_trials/online_20261010.md`` became\n    un-regenerable). Rendering goes through\n    :func:`ao_shaping.display.beam_profile.save_frame_artifacts`, imported\n    lazily here because ``utils/`` is the leaf layer. A failure there is logged\n    and swallowed -- it must never cost us the pickle.\n    ",
    "decorators": []
   },
   "gen_date_dir": {
    "qualname": "gen_date_dir",
    "module": "ao_shaping.utils.io.file",
    "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 113,
-   "end": 120,
+   "lineno": 156,
+   "end": 163,
    "args": [
     "base_dir"
    ],
@@ -1370,6 +1543,7 @@
    "doc": "返回各优化器接受的算法名 (``spgd`` 在最前)。",
    "decorators": []
   },
+  "ao_shaping.drivers.slm.ZernikeSLM": null,
   "_get_perturb_weights": {
    "qualname": "_get_perturb_weights",
    "module": "ao_shaping.optimizer.wf.rms_by_zernike",
@@ -1503,8 +1677,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.zernike_search_runner",
    "file": "src/ao_shaping/runners/zernike_search_runner.py",
-   "lineno": 129,
-   "end": 190,
+   "lineno": 128,
+   "end": 189,
    "args": [
     "ctx",
     "params",
@@ -1556,8 +1730,8 @@
    "qualname": "_persist_results",
    "module": "ao_shaping.runners.zernike_search_runner",
    "file": "src/ao_shaping/runners/zernike_search_runner.py",
-   "lineno": 62,
-   "end": 116,
+   "lineno": 61,
+   "end": 115,
    "args": [
     "records",
     "root_dir",
@@ -1620,8 +1794,8 @@
    "qualname": "greedy_zernike_run",
    "module": "ao_shaping.runners.zernike_search_runner",
    "file": "src/ao_shaping/runners/zernike_search_runner.py",
-   "lineno": 203,
-   "end": 253,
+   "lineno": 202,
+   "end": 252,
    "args": [
     "ctx",
     "params",
@@ -1709,8 +1883,8 @@
    "qualname": "make_actuator_debug_callback",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 248,
-   "end": 292,
+   "lineno": 247,
+   "end": 291,
    "args": [
     "debug_data_dir"
    ],
@@ -1886,8 +2060,8 @@
    "qualname": "flatten_slopes",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 19,
-   "end": 29,
+   "lineno": 18,
+   "end": 28,
    "args": [
     "dev_x",
     "dev_y"
@@ -1932,8 +2106,8 @@
    "qualname": "save_debug_data",
    "module": "ao_shaping.utils.wavefront.wfs_utils",
    "file": "src/ao_shaping/utils/wavefront/wfs_utils.py",
-   "lineno": 150,
-   "end": 185,
+   "lineno": 149,
+   "end": 184,
    "args": [
     "base_dir",
     "idx",
@@ -1995,8 +2169,8 @@
    "qualname": "_parse_channels",
    "module": "ao_shaping.tools.micro_dm.micro_dm_image_collect",
    "file": "src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py",
-   "lineno": 122,
-   "end": 144,
+   "lineno": 121,
+   "end": 143,
    "args": [
     "channel_str"
    ],
@@ -2037,8 +2211,8 @@
    "qualname": "_safe_shutdown",
    "module": "ao_shaping.tools.micro_dm.micro_dm_image_collect",
    "file": "src/ao_shaping/tools/micro_dm/micro_dm_image_collect.py",
-   "lineno": 371,
-   "end": 384,
+   "lineno": 370,
+   "end": 383,
    "args": [
     "ctrl",
     "home_voltage"
@@ -2123,8 +2297,8 @@
    "qualname": "calc_n_hadamard_modes",
    "module": "ao_shaping.utils.wavefront.hadamard_calc",
    "file": "src/ao_shaping/utils/wavefront/hadamard_calc.py",
-   "lineno": 26,
-   "end": 43,
+   "lineno": 25,
+   "end": 42,
    "args": [
     "mode_order"
    ],
@@ -2137,8 +2311,8 @@
    "qualname": "is_hadamard_order",
    "module": "ao_shaping.utils.wavefront.hadamard_calc",
    "file": "src/ao_shaping/utils/wavefront/hadamard_calc.py",
-   "lineno": 10,
-   "end": 23,
+   "lineno": 9,
+   "end": 22,
    "args": [
     "n"
    ],
@@ -2150,8 +2324,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.nlight_dm.combined_runner",
    "file": "src/ao_shaping/runners/nlight_dm/combined_runner.py",
-   "lineno": 29,
-   "end": 117,
+   "lineno": 31,
+   "end": 115,
    "args": [
     "ctx",
     "algorithm",
@@ -2172,8 +2346,8 @@
    "qualname": "optimize_pib",
    "module": "ao_shaping.optimizer.combined_optimizer",
    "file": "src/ao_shaping/optimizer/combined_optimizer.py",
-   "lineno": 118,
-   "end": 426,
+   "lineno": 76,
+   "end": 351,
    "args": [
     "center",
     "epochs",
@@ -2204,8 +2378,8 @@
    "qualname": "power_in_bucket_mask",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 531,
-   "end": 549,
+   "lineno": 515,
+   "end": 533,
    "args": [
     "img",
     "mask"
@@ -2218,8 +2392,8 @@
    "qualname": "pib_ratio_mask",
    "module": "ao_shaping.utils.image.spots_calc",
    "file": "src/ao_shaping/utils/image/spots_calc.py",
-   "lineno": 552,
-   "end": 569,
+   "lineno": 536,
+   "end": 553,
    "args": [
     "img",
     "mask",
@@ -2229,538 +2403,12 @@
    "doc": "Compute power-in-bucket ratio using a boolean mask.\n\n    A convenience wrapper around power_in_bucket_mask that returns\n    only the ratio, optionally scaled.\n\n    Args:\n        img: 2D image array.\n        mask: Boolean mask array matching img shape.\n        scaler: Multiplier for the ratio (default: 1.0).\n\n    Returns:\n        Scaled power-in-bucket ratio, or 0.0 if total power is zero.\n    ",
    "decorators": []
   },
-  "ao_shaping.runners.slm.slm_shaping_runner.square": {
-   "qualname": "square",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 804,
-   "end": 868,
-   "args": [
-    "ctx",
-    "params",
-    "slm_params"
-   ],
-   "returns": "None",
-   "doc": "SLM方形光斑整形优化器 (uniform square far field, camera feedback).\n\n    使用SPGD算法优化SLM上的Zernike系数，通过相机反馈产生均匀方形远场光斑。\n\n    优化目标: 最小化目标方形区域内光强的变异系数(CV = std/mean)，同时可选\n    加权环围能量(EE)和宽高比(AR)指标。\n\n    目标方形参数二选一: 边长(px) 或 平均亮度 (--target-side 与\n    --target-mean-brightness 互斥)。\n    ",
-   "decorators": [
-    "click.command(name='square')",
-    "click.pass_context",
-    "with_params(SlmSquareParams, kw_name='params')",
-    "with_params(ZernikeSlmParams, kw_name='slm_params')"
-   ]
-  },
-  "_resolve_run_context": {
-   "qualname": "_resolve_run_context",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 425,
-   "end": 440,
-   "args": [
-    "ctx"
-   ],
-   "returns": "tuple[Path, bool]",
-   "doc": "Read ``(root_dir, debug)`` inherited from the top-level ``main`` group.\n\n    ``square`` deliberately does **not** take a ``RunParams`` group: that group\n    declares ``-d/--dir`` while ``SlmSquareParams`` declares ``-d/--delta``, and\n    two options claiming one flag is exactly the silent collision the CLI\n    contract freeze guards against. The run-wide switches are therefore read off\n    the parent context (``main.py --dir / --debug``) or the ``DEBUG``\n    environment variable. ``ctx.parent`` is ``None`` under ``python -m``, which\n    falls back to ``data/`` and the env flag.\n    ",
-   "decorators": []
-  },
-  "_parse_zernike_mask": {
-   "qualname": "_parse_zernike_mask",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 500,
-   "end": 504,
-   "args": [
-    "raw"
-   ],
-   "returns": "np.ndarray | None",
-   "doc": "Parse ``--zernike-mask`` (``\"0,0,0,1,...\"``) into a 0/1 int array.",
-   "decorators": []
-  },
-  "_build_square_config": {
-   "qualname": "_build_square_config",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 589,
-   "end": 640,
-   "args": [
-    "params",
-    "slm_params",
-    "zernike_mask"
-   ],
-   "returns": "SlmSquareConfig",
-   "doc": "Build the square-shaping optimizer config from the flat param groups.\n\n    ``center`` and ``epochs`` are not part of the container — they stay\n    positional arguments of :func:`optimize_slm_square`, the same split\n    :class:`SlmZernikePibConfig` uses. ``zernike_mask`` arrives already parsed\n    (it is a CSV string on the CLI and an array in the config, so it is\n    translated once at the edge rather than by rebinding the parameter field).\n    ",
-   "decorators": []
-  },
-  "ao_shaping.runners.runner_common.patch_sim_square_shaping": {
-   "qualname": "patch_sim_square_shaping",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 1459,
-   "end": 1471,
-   "args": [
-    "cam_type"
-   ],
-   "returns": "None",
-   "doc": "Route the square-shaping optimizer onto the 2f-Fourier digital twin.\n\n    Used by ``runners/slm/gsnet_runner.py`` (freeform square) and\n    ``runners/slm/slm_shaping_runner.py`` (``spgd-square``).\n\n    Pins ``seed=42`` so a dry run is reproducible: neither family has a\n    user-facing seed that reaches the bench itself, and a drifting disturbance\n    stream would make ``--cam-type sim`` runs incomparable across invocations.\n    ",
-   "decorators": []
-  },
-  "_active_zernike_modes": {
-   "qualname": "_active_zernike_modes",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 507,
-   "end": 533,
-   "args": [
-    "n_max",
-    "mask"
-   ],
-   "returns": "tuple[list[int], list[tuple[int, int]]]",
-   "doc": "Return ``(active_positions, active_modes)`` for the SPGD DOF vector.\n\n    ``active_positions`` index the full Noll vector that ``init_c`` is\n    expressed in; ``active_modes`` are the ``(n, m)`` pairs, for the startup\n    banner and the dropped-coefficient warning. Without a mask the basis is\n    :data:`ZERNIKE_ACTIVE_MODES` (defocus + spherical). With one, the mask is\n    padded/truncated to the Noll length and Noll 1-3 (piston/tip/tilt) are forced\n    off — a gradient on global phase or on a beam shift is not a far-field\n    shaping DOF.\n    ",
-   "decorators": []
-  },
-  "_echo_square_banner": {
-   "qualname": "_echo_square_banner",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 694,
-   "end": 746,
-   "args": [
-    "params",
-    "slm_params",
-    "config",
-    "active_modes"
-   ],
-   "returns": "None",
-   "doc": "Print the run configuration for one square-shaping run.",
-   "decorators": []
-  },
-  "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square": {
-   "qualname": "optimize_slm_square",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 1129,
-   "end": 2327,
-   "args": [
-    "center",
-    "epochs",
-    "config",
-    "n_max",
-    "target_side",
-    "target_mean_brightness",
-    "side_factor",
-    "delta",
-    "lr",
-    "exposure_time_ms",
-    "cam_id",
-    "cam_type",
-    "show",
-    "init_c",
-    "cam_size",
-    "target_max_brightness",
-    "slm_number",
-    "slm_type",
-    "slm_wavelength",
-    "optimizer_type",
-    "random_seed",
-    "w_uniformity",
-    "w_efficiency",
-    "w_aspect",
-    "w_pbr",
-    "basis",
-    "phase_grid",
-    "zernike_radius",
-    "zernike_mask",
-    "rotation_search_deg",
-    "algorithm",
-    "pop_size",
-    "objective",
-    "max_roi_energy_loss",
-    "init_amplitude_rad",
-    "adaptive",
-    "stagnate_win",
-    "stagnate_boost",
-    "min_improve_frac",
-    "**kwargs"
-   ],
-   "returns": "Recorder",
-   "doc": "Optimize square beam uniformity using SLM with Zernike coefficient control.\n\n    This function uses the SPGD (Stochastic Parallel Gradient Descent) algorithm\n    to optimize Zernike coefficients displayed on an SLM, minimizing the\n    coefficient of variation (CV) of the intensity within a target square region.\n\n    Args:\n        center: Center position for the square target. Can be None (auto-detect\n            original-spot centroid, same as \"shape\"), \"shape\" (argmax-anchored\n            smart detection — argmax anchor + centroid refinement on flat cores),\n            \"centroid_thresh\" (brightness centroid, threshold=0.1×max),\n            \"max\" (brightest pixel / argmax), \"mass\" (full-image centroid,\n            stray-light sensitive), or tuple (x, y) for a fixed center\n            (not re-detected after exposure adjustment).\n        epochs: Number of optimization iterations.\n        n_max: Maximum Zernike radial order. Controls the number of modes.\n        target_side: Side length of the target square in pixels.\n            Mutually exclusive with target_mean_brightness (specify only one).\n            If 0 and target_mean_brightness is also 0, auto-computed from spot\n            size × side_factor.\n        target_mean_brightness: Target mean brightness (average pixel value /\n            gray level) of the square. Mutually exclusive with target_side.\n            When positive, the side length is auto-derived by energy\n            conservation: side = sqrt(total_brightness / target_mean_brightness),\n            where total_brightness is the integrated intensity of the initial\n            camera image.\n        side_factor: Multiplier for auto-computed side length (default 1.5).\n        delta: Perturbation amplitude for Zernike coefficients.\n        lr: Learning rate. If 0, auto-adjusted via learning_schedule.\n        exposure_time_ms: Camera exposure time in ms. If 0, auto-exposure.\n        cam_id: Camera device ID.\n        show: Whether to display images during optimization.\n        init_c: Initial Zernike coefficients. If None, starts from zeros.\n        cam_size: Camera window size.\n        target_max_brightness: Target max brightness for auto-exposure.\n        slm_number: SLM device number (1-8).\n        slm_wavelength: SLM wavelength in nm (0 = ask the device).\n        optimizer_type: Optimizer type (adam/adamod/sgd/muno).\n        random_seed: Random seed for reproducibility.\n        w_uniformity: Weight for uniformity (CV) in quality score.\n        w_efficiency: Weight for encircled energy in quality score.\n        w_aspect: Weight for aspect ratio in quality score.\n        basis: Parameterisation basis (\"zernike\" or \"freeform\").\n        phase_grid: Freeform grid side (dim = grid^2).\n        zernike_radius: Zernike aperture radius in pixels. Defaults to\n            min(SLM_HEIGHT, SLM_WIDTH) / 2 = 600, matching the GUI\n            (multi_slm_controller.py Zernike branch).\n        zernike_mask: 0/1 binary array selecting which Zernike Noll modes\n            participate in SPGD. Length must be ≥ 5; Noll indices 1-3 (piston,\n            tip, tilt) are forced to 0. When provided, overrides the hardcoded\n            ZERNIKE_ACTIVE_MODES ((2,0),(4,0)). E.g. [0,0,0,1,0,0,0,0,0,0,0,1]\n            activates only defocus (2,0) and spherical (4,0).\n        rotation_search_deg: SLM↔相机相对旋转搜索范围(度, 0~360)。0=不启用\n            旋转校正(默认); >0 时旋转角作为额外 SPGD 自由度, 在\n            [-range/2, +range/2] 内搜索, 每轮下发相位图按当前角旋转补偿。\n            起始值 0°, 扰动步长固定 1°。\n        objective: Square-shaping objective, one of\n            :data:`SQUARE_OBJECTIVE_CHOICES`. ``\"quality\"`` (default) is the\n            historical combined score; ``\"pearson\"`` is the FourierGSNet\n            ``1 - Pearson`` correlation loss, negated to higher-is-better by\n            :func:`square_objective_score`.\n        adaptive: Enable the adaptive SPGD closed loop (default False). When on,\n            the quality weights are scheduled from\n            :data:`AdaptiveSpgdConfig.stage_weights` — a\n            (w_uniformity, w_efficiency, w_aspect) triple — switching at epoch\n            thirds, and ``w_uniformity`` is temporarily boosted while the\n            best-CV improvement stays below ``min_improve_frac`` over the last\n            ``stagnate_win`` epochs. When off, behavior is identical to previous\n            releases.\n        stagnate_win: Stagnation-detection window in epochs (adaptive only).\n        stagnate_boost: Multiplicative boost applied to ``w_uniformity`` while\n            stagnating; 1.0 disables the boost (adaptive only).\n        min_improve_frac: Stagnation trigger — best-CV improvement below this\n            fraction over the window counts as stagnation (adaptive only).\n        **kwargs: Additional optimizer parameters.\n\n    Returns:\n        Recorder: Optimization history recorder.\n    ",
-   "decorators": []
-  },
-  "_save_square_summary": {
-   "qualname": "_save_square_summary",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 749,
-   "end": 778,
-   "args": [
-    "recorder",
-    "root_dir"
-   ],
-   "returns": "tuple[Path, dict]",
-   "doc": "Write the CSV history + best Zernike coefficients under ``slm_square/``.\n\n    Kept apart from the ``--debug`` HDF5/PKL artefact writer: these two files are\n    the historical ``spgd-square`` outputs and their paths/names are part of the\n    run contract. Returns the directory and the best recorded iteration.\n    ",
-   "decorators": []
-  },
-  "_save_square_best_image": {
-   "qualname": "_save_square_best_image",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 781,
-   "end": 797,
-   "args": [
-    "save_dir",
-    "best_iter"
-   ],
-   "returns": "None",
-   "doc": "Render the best far field, marking the target box half-diagonal.",
-   "decorators": []
-  },
-  "ao_shaping.utils.io.file.save_recorder_debug_artifacts": {
-   "qualname": "save_recorder_debug_artifacts",
-   "module": "ao_shaping.utils.io.file",
-   "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 858,
-   "end": 949,
-   "args": [
-    "res",
-    "root_dir",
-    "subdir_prefix",
-    "scalar_keys",
-    "objective_keys",
-    "img_keys",
-    "d1_keys",
-    "d2_keys",
-    "json_payload",
-    "title",
-    "top_right_key",
-    "top_right_title",
-    "output_dir"
-   ],
-   "returns": "Path",
-   "doc": "Convert a :class:`Recorder` into the data-mode debug artifacts.\n\n    This is the shared backend for ``slm_shaping_runner._save_debug_artifacts``\n    and ``slm_gsnet_runner._save_debug_artifacts``: it walks ``res.history``,\n    extracts the configured key sets into a ``{epoch: record}`` dict and\n    delegates to :func:`save_optimization_debug_artifacts` (data mode).\n\n    Unless ``output_dir`` is given, the run lands in the canonical debug layout\n    ``<root_dir>/debug/<subdir_prefix>/<YYYYmmdd_HHMMSS>/`` and its artefacts are\n    named ``<subdir_prefix>_<stamp>.{json,png,pkl}`` -- see :func:`debug_run_dir`\n    and :func:`debug_run_stem`.\n\n    Args:\n        res:             Recorder object whose ``.history`` is a list of dicts.\n        root_dir:        Top-level run-output root (e.g. ``\"data\"``).\n        subdir_prefix:   Runner-specific script name, used for both the\n                         directory and the file stem (e.g. ``\"slm_pib_shape\"``).\n        scalar_keys:     Keys whose values are cast to ``float``.\n        objective_keys:  Like ``scalar_keys`` but searched first; merged into\n                         the scalar set.\n        img_keys:        Keys whose values are 2D image arrays.\n        d1_keys:         Keys whose values are 1D coefficient arrays.\n        d2_keys:         Keys whose values are 2D gradient arrays.\n        json_payload:    Dict serialised to the ``.json`` sidecar.\n        title:           Figure title.\n        top_right_key:   Record key rendered in the top-right panel instead of\n                         the ``_c`` coefficient bar chart. Set this for runs\n                         whose control vector is not a coefficient vector.\n        top_right_title: Panel title override for ``top_right_key``.\n        output_dir:     Existing run directory. When set, write directly there\n                        instead of creating a timestamped one. Pass the return\n                        value of :func:`debug_run_dir` when the run also writes\n                        non-debug companions (CSV, best phase / image) that must\n                        sit beside these three.\n\n    Returns:\n        The ``.png`` path written.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.runners.runner_common.parse_center": {
-   "qualname": "parse_center",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 1366,
-   "end": 1378,
-   "args": [
-    "raw"
-   ],
-   "returns": "tuple[int, int] | str | None",
-   "doc": "Normalize the ``--center`` option to the optimizer's accepted form.",
-   "decorators": []
-  },
-  "_square_json_payload": {
-   "qualname": "_square_json_payload",
-   "module": "ao_shaping.runners.slm.slm_shaping_runner",
-   "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 643,
-   "end": 691,
-   "args": [
-    "params",
-    "slm_params",
-    "config"
-   ],
-   "returns": "dict[str, Any]",
-   "doc": "Self-describing sidecar: the CLI params plus the resolved config.\n\n    ``config_payload`` drops fields left at their dataclass default, which is the\n    right trade for a diff against a baseline but the wrong one for a lone\n    artefact directory: a run with every knob at default would record no knobs at\n    all. The resolved config is therefore written out field by field, so a\n    reader never has to know which default was in force when the run happened.\n    ",
-   "decorators": []
-  },
-  "debug_run_stem": {
-   "qualname": "debug_run_stem",
-   "module": "ao_shaping.utils.io.file",
-   "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 149,
-   "end": 166,
-   "args": [
-    "run_dir",
-    "prefix"
-   ],
-   "returns": "Path",
-   "doc": "Return the shared, extension-less artefact stem for one run directory.\n\n    Paired with :func:`debug_run_dir`, which supplies ``run_dir``; the stem is\n    ``<prefix>_<stamp>``, and ``.json`` / ``.png`` / ``.pkl`` are derived from it\n    with :meth:`~pathlib.Path.with_suffix`.\n\n    Args:\n        run_dir: A run directory as returned by :func:`debug_run_dir`; its own\n            name is the run stamp.\n        prefix: The same ``prefix`` passed to :func:`debug_run_dir`.\n\n    Returns:\n        ``<run_dir>/<prefix>_<stamp>`` -- a :class:`~pathlib.Path` with no\n        suffix.\n    ",
-   "decorators": []
-  },
-  "save_optimization_debug_artifacts": {
-   "qualname": "save_optimization_debug_artifacts",
-   "module": "ao_shaping.utils.io.file",
-   "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 739,
-   "end": 850,
-   "args": [
-    "records",
-    "save_dir",
-    "saved_file_name",
-    "min_epoch",
-    "min_metric",
-    "best_coeff_key",
-    "init_wavefront",
-    "opt_wavefront",
-    "init_title",
-    "opt_title",
-    "plot_params_note",
-    "data",
-    "png_path",
-    "pkl_path",
-    "json_path",
-    "title",
-    "json_payload",
-    "top_right_key",
-    "top_right_title"
-   ],
-   "returns": "Path | None",
-   "doc": "Emit the standard debug artifacts for a completed optimisation run.\n\n    Two mutually exclusive modes:\n\n    * **Wavefront mode** (default): ``records`` is a :class:`Recorder` object;\n      writes the 2×2 debug PNG + compressed dataframe. This is the\n      historical behaviour used by ``ga_zernike_runner``,\n      ``greedy_zernike_runner`` and ``rms_zernike_runner``.\n    * **Data mode**: ``data`` is a ``{epoch: record}`` dict; writes a 2×2\n      PNG (objective history / best coefficients / first & last image), a\n      pickled copy of ``data`` and a JSON sidecar of ``json_payload``.\n      Used by ``slm_shaping_runner``.\n\n    Args:\n        records:           Recorder object with ``get_sublist()``,\n                           ``get_best_iter()``, ``first``, and\n                           ``save_dataframe``. (wavefront mode)\n        save_dir:          Directory in which to write output files.\n        saved_file_name:   UUID filename prefix (no extension).\n        min_epoch:         Epoch index of the best result.\n        min_metric:        Primary metric value at *min_epoch*\n                           (RMS, PIB, …).\n        best_coeff_key:    Dictionary key for the coefficient vector\n                           in the best-epoch record (e.g. ``\"_c\"`` or ``\"_v\"``).\n        init_wavefront:    Wavefront array for the initial state.\n        opt_wavefront:     Wavefront array for the optimised state.\n        init_title:        Colorbar / panel title for the initial WF.\n        opt_title:         Colorbar / panel title for the optimised WF.\n        plot_params_note:  Optional suffix appended to the *voltages* panel\n                           title (e.g. ``\"epoch=200\"``).\n        data:              ``{epoch: record}`` dict of scalar/array fields.\n                           (data mode; mutually exclusive with ``records``)\n        png_path:          Output path for the figure. (data mode)\n        pkl_path:          Output path for the pickled ``data``. (data mode)\n        json_path:         Output path for the JSON ``json_payload``. (data mode)\n        title:             Figure title. (data mode)\n        json_payload:      Dict serialised to ``json_path``. (data mode)\n        top_right_key:     Record key rendered in the top-right panel. When set,\n                           that key's last-epoch array is shown instead of the\n                           ``_c`` bar chart. (data mode)\n        top_right_title:   Panel title override for ``top_right_key``. (data mode)\n\n    Returns:\n        ``png_path`` in data mode, ``None`` in wavefront mode.\n    ",
-   "decorators": []
-  },
-  "debug_run_dir": {
-   "qualname": "debug_run_dir",
-   "module": "ao_shaping.utils.io.file",
-   "file": "src/ao_shaping/utils/io/file.py",
-   "lineno": 123,
-   "end": 146,
-   "args": [
-    "root_dir",
-    "prefix"
-   ],
-   "returns": "Path",
-   "doc": "Create and return the canonical debug run directory.\n\n    Every optimisation-debug artefact set lands in one directory per run::\n\n        <root_dir>/debug/<prefix>/<YYYYmmdd_HHMMSS>/\n\n    where ``<prefix>`` is the runner's *script* name (``slm_gs_refine``,\n    ``slm_pib_shape``, ``slm_model_in_loop``, …) and the second level is the run\n    stamp. This two-level shape is the single on-disk convention for\n    ``data/debug``; :func:`debug_run_stem` names the files inside it. Runners\n    that also emit non-debug companions (CSV, best phase / best image) pass the\n    returned directory as ``output_dir`` to\n    :func:`save_recorder_debug_artifacts` so everything from one run stays\n    together.\n\n    Args:\n        root_dir:  Top-level run-output root (e.g. ``\"data\"``).\n        prefix:    Runner-specific script name; used as the directory name.\n\n    Returns:\n        The created ``<root_dir>/debug/<prefix>/<stamp>`` directory.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.optimizer.wfless.adaptive_spgd_core.AdaptiveSpgdConfig": null,
-  "ao_shaping.drivers.ccd.common.create_camera": {
-   "qualname": "create_camera",
-   "module": "ao_shaping.drivers.ccd.common",
-   "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 221,
-   "end": 282,
-   "args": [
-    "camera_type",
-    "cam_id",
-    "exposure_time_ms",
-    "**kwargs"
-   ],
-   "returns": "BaseCamera",
-   "doc": "Create (but do **not** open) a camera instance by type and id.\n\n    The returned driver is fully configured but not streaming: call\n    ``cam.open()`` (or use it as a context manager) before capturing. This keeps\n    construction side-effect free and symmetric with the DM registry's\n    ``create_dm``.\n\n    Args:\n        camera_type: Registered camera type string (case-insensitive), or a\n            parameter object exposing a ``cam_type`` attribute.\n        cam_id: Device index (``int``) or file/folder path/URL (``str``) for the\n            file-based backends.\n        exposure_time_ms: Initial exposure time in milliseconds.\n        **kwargs: Backend-specific options. Only keys accepted by the backend are\n            forwarded (e.g. ``bit_depth`` for ``miicam``).\n\n    Returns:\n        A ``BaseCamera`` subclass instance, not yet opened.\n\n    Raises:\n        ValueError: Unknown camera type.\n        ImportError: The backend driver/SDK is unavailable.\n    ",
-   "decorators": []
-  },
-  "square_uniformity_cost": {
-   "qualname": "square_uniformity_cost",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 313,
-   "end": 357,
-   "args": [
-    "img",
-    "center",
-    "side"
-   ],
-   "returns": "tuple[float, float, float]",
-   "doc": "Compute square uniformity cost metrics.\n\n    The cost is the negative coefficient of variation (CV = std/mean) of the\n    intensity within a target square region. Lower CV = more uniform.\n\n    Args:\n        img: Camera image (2D array).\n        center: Center position (x, y) of the square region.\n        side: Side length of the square region in pixels.\n\n    Returns:\n        Tuple of (cost, cv, mean_intensity):\n        - cost: Negative CV (to maximize via minimization, range ~(-inf, 0])\n        - cv: Coefficient of variation (std/mean), range [0, inf)\n        - mean_intensity: Mean intensity in the square region.\n    ",
-   "decorators": []
-  },
-  "square_encircled_energy": {
-   "qualname": "square_encircled_energy",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 360,
-   "end": 389,
-   "args": [
-    "img",
-    "center",
-    "side"
-   ],
-   "returns": "float",
-   "doc": "Compute the fraction of total energy within the square region.\n\n    Args:\n        img: Camera image (2D array).\n        center: Center position (x, y) of the square region.\n        side: Side length of the square region in pixels.\n\n    Returns:\n        Fraction of total energy in the square (0.0 to 1.0).\n    ",
-   "decorators": []
-  },
-  "square_aspect_ratio": {
-   "qualname": "square_aspect_ratio",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 473,
-   "end": 523,
-   "args": [
-    "img",
-    "center",
-    "side",
-    "threshold_ratio"
-   ],
-   "returns": "float",
-   "doc": "Compute the aspect ratio of the illuminated region within the square.\n\n    Args:\n        img: Camera image (2D array).\n        center: Center position (x, y) of the square region.\n        side: Side length of the square region in pixels.\n        threshold_ratio: Intensity threshold as fraction of peak in region.\n\n    Returns:\n        Aspect ratio (width/height) of the thresholded region. 1.0 = perfect square.\n    ",
-   "decorators": []
-  },
-  "square_peak_to_background_ratio": {
-   "qualname": "square_peak_to_background_ratio",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 392,
-   "end": 470,
-   "args": [
-    "img",
-    "center",
-    "side",
-    "min_background_px"
-   ],
-   "returns": "float",
-   "doc": "Peak-to-background ratio (PBR) of the target box against the frame.\n\n    Transcribed from the prose definition in Liu et al., *A universal and\n    improved mutation strategy for feedback-based wavefront shaping\n    optimization algorithm*, Acta Photonica Sinica 2023, 52(6):0629002:\n    \"the ratio of the focused spot to the average intensity of the speckle\n    background\" (Peak-to-background Ratio). The paper states this only in\n    prose -- it prints no equation for it -- so this is our reading of that\n    sentence, not the authors' typeset formula.\n\n    This is the one part of that paper that is genuinely additive to the square\n    objective: ``square_quality_score`` already measures in-box uniformity\n    (CV), energy capture (EE) and shape (AR), but nothing about how dark the\n    *background* got relative to the peak.\n\n    Read-noise handling is mandatory here, not optional: an unprocessed frame\n    drives the ratio **above 1** and the optimizer then chases noise, so\n    negatives are clipped at 0 *inside* this function and callers cannot get it\n    wrong.\n\n    Only clipping is applied -- deliberately NOT median subtraction, unlike\n    ``prepare_frame`` (``ao_shaping.utils.image.beam_metrics``). The background occupies most of the frame,\n    so the median *is* the pedestal and subtracting it makes the ratio explode.\n    Clipping alone removes the negative half of the read-noise\n    distribution while leaving the pedestal intact, so the denominator stays a\n    real measurement.\n\n    Args:\n        img: Camera frame (2D array).\n        center: Target-box centre in window-local ``(x, y)`` pixels. Callers must\n            keep this **frozen** for the whole run -- re-locating a box by\n            ``argmax`` every iteration makes the objective discontinuous on a\n            speckle field.\n        side: Target-box side length in pixels.\n        min_background_px: Minimum background pixel count required for the ratio\n            to be meaningful; below this the frame is too small to separate\n            signal from background and0.0 is returned.\n\n    Returns:\n        ``peak / mean_background`` (0.0 when undefined). Larger is better.\n    ",
-   "decorators": []
-  },
-  "square_objective_score": {
-   "qualname": "square_objective_score",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 592,
-   "end": 662,
-   "args": [
-    "img",
-    "cv",
-    "encircled_energy",
-    "aspect_ratio",
-    "center",
-    "side",
-    "objective",
-    "w_cv",
-    "w_ee",
-    "w_ar",
-    "peak_to_background",
-    "w_pbr",
-    "pbr_reference"
-   ],
-   "returns": "float",
-   "doc": "Single HIGHER-IS-BETTER scoring entry point for square shaping.\n\n    Every square-shaping consumer (SPGD plus/minus perturbation, the epoch\n    rescore, the heuristic fitness and the initial baseline) routes through this\n    function so the objective's sign convention is decided in exactly one place.\n    Both SPGD (``diff = pos - neg``) and ``run_heuristic_search(maximize=True)``\n    are higher-is-better, so this function never returns a negated value for\n    ``\"quality\"`` — doing so would break its documented ``[0, 1]`` contract and\n    flip the direction of every existing square run.\n\n    Args:\n        img: The measured far-field frame (needed by image-domain objectives).\n        cv: Coefficient of variation inside the target box.\n        encircled_energy: Fraction of frame energy inside the target box.\n        aspect_ratio: Target-box width/height ratio.\n        center: Target-box centre in window-local ``(x, y)`` pixels.\n        side: Target-box side length in pixels.\n        objective: One of :data:`SQUARE_OBJECTIVE_CHOICES`.\n        w_cv: Uniformity weight (``\"quality\"`` only).\n        w_ee: Energy-efficiency weight (``\"quality\"`` only).\n        w_ar: Aspect-ratio weight (``\"quality\"`` only).\n        peak_to_background: Box peak-to-background ratio (``\"quality\"`` only).\n        w_pbr: Background-suppression weight (``\"quality\"`` only, default off).\n        pbr_reference: PBR value scoring full marks (``\"quality\"`` only).\n\n    Returns:\n        A score where **larger is better**.\n    ",
-   "decorators": []
-  },
-  "_slm_cls": {
-   "qualname": "_slm_cls",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 155,
-   "end": 176,
-   "args": [
-    "slm_type"
-   ],
-   "returns": "type",
-   "doc": "Resolve the SLM driver class.\n\n    Precedence: an explicit ``_SLM_CLASS_OVERRIDE`` wins (tests), then\n    ``slm_type=\"sim\"`` for the 2f-Fourier simulator, otherwise the module-level\n    ``Santec`` binding.\n\n    The real driver is read from the module global rather than re-imported, so\n    ``monkeypatch.setattr(module, \"Santec\", fake)`` keeps working — the\n    simulation tests inject their SLM exactly that way.\n    ",
-   "decorators": []
-  },
-  "_freeform_phase_radians": {
-   "qualname": "_freeform_phase_radians",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 277,
-   "end": 310,
-   "args": [
-    "flat_params",
-    "resolution",
-    "grid"
-   ],
-   "returns": "np.ndarray",
-   "doc": "Convert a flat free-form low-res phase grid to a raw radian phase map.\n\n    Low-order Zernike modes are smooth and cannot synthesise a square\n    far-field. A free-form phase grid (the SLM's native degree of freedom)\n    can, so this is the default basis for square shaping.\n\n    Returns the RAW unwrapped radians — no mod-2π here: the SLM driver\n    ``create_phase_from_array`` applies the wrap on radian→grayscale\n    conversion (2026-09: raw-only contract, same as every phase generator).\n\n    Args:\n        flat_params: Flat array of length ``grid * grid`` (radians per cell).\n        resolution: SLM panel resolution as (width, height).\n        grid: Side of the square parameter grid.\n\n    Returns:\n        float64 raw radian phase map, shape (height, width).\n    ",
-   "decorators": []
-  },
-  "_locate_square_center": {
-   "qualname": "_locate_square_center",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 226,
-   "end": 237,
-   "args": [
-    "img",
-    "mode"
-   ],
-   "returns": "tuple[int, int]",
-   "doc": "",
-   "decorators": []
-  },
-  "_map_init_to_active_modes": {
-   "qualname": "_map_init_to_active_modes",
-   "module": "ao_shaping.optimizer.wfless.slm_square_shaping",
-   "file": "src/ao_shaping/optimizer/wfless/slm_square_shaping.py",
-   "lineno": 200,
-   "end": 223,
-   "args": [
-    "init_c",
-    "n_max",
-    "active_modes"
-   ],
-   "returns": "np.ndarray",
-   "doc": "Map an initial coefficient vector onto the active modes only.\n\n    Full Noll-length inputs (len == nk terms, e.g. the runner's default\n    init_defocus/init_spherical vector or ``--init-coeffs``) keep only the\n    entries of the requested ``active_modes``; shorter inputs are padded /\n    truncated to ``len(active_modes)``. Non-active entries are dropped.\n    ",
-   "decorators": []
-  },
-  "ao_shaping.optimizer.wfless.adaptive_spgd_core.get_stage_weights": {
-   "qualname": "get_stage_weights",
-   "module": "ao_shaping.optimizer.wfless.adaptive_spgd_core",
-   "file": "src/ao_shaping/optimizer/wfless/adaptive_spgd_core.py",
-   "lineno": 20,
-   "end": 28,
-   "args": [
-    "cfg",
-    "epoch",
-    "total_epochs"
-   ],
-   "returns": "Tuple[float, float, float]",
-   "doc": "",
-   "decorators": []
-  },
-  "ao_shaping.optimizer.wfless.adaptive_spgd_core.should_boost_stagnation": {
-   "qualname": "should_boost_stagnation",
-   "module": "ao_shaping.optimizer.wfless.adaptive_spgd_core",
-   "file": "src/ao_shaping/optimizer/wfless/adaptive_spgd_core.py",
-   "lineno": 31,
-   "end": 47,
-   "args": [
-    "cv_history",
-    "win",
-    "min_improve_frac"
-   ],
-   "returns": "bool",
-   "doc": "",
-   "decorators": []
-  },
-  "_resolve_camera_class": {
-   "qualname": "_resolve_camera_class",
-   "module": "ao_shaping.drivers.ccd.common",
-   "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 209,
-   "end": 214,
-   "args": [
-    "target"
-   ],
-   "returns": "type",
-   "doc": "",
-   "decorators": []
-  },
-  "list_camera_types": {
-   "qualname": "list_camera_types",
-   "module": "ao_shaping.drivers.ccd.common",
-   "file": "src/ao_shaping/drivers/ccd/common.py",
-   "lineno": 204,
-   "end": 206,
-   "args": [],
-   "returns": "list[str]",
-   "doc": "Return the sorted list of registered camera type names.",
-   "decorators": []
-  },
-  "_patch_sim_devices": {
-   "qualname": "_patch_sim_devices",
-   "module": "ao_shaping.runners.runner_common",
-   "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 1420,
-   "end": 1456,
-   "args": [
-    "cam_type",
-    "optimizer_modules",
-    "reset_seed"
-   ],
-   "returns": "None",
-   "doc": "Shared body of the ``--cam-type sim`` wiring. No-op for hardware cameras.\n\n    Both SLM shaping optimizers resolve their camera through\n    ``drivers.ccd.common.create_camera(cam_type, ...)`` and their SLM through a\n    module-global ``Santec`` name, both looked up at *call* time. That\n    indirection is the whole reason a digital-twin run needs no patch beyond\n    registering the ``\"sim\"`` camera and rebinding one name per optimizer\n    module.\n\n    ``reset_seed=None`` means \"leave the process-wide simulated system alone\" —\n    it is created lazily on first use, so a harness that already called\n    ``reset_system`` (with its own seed and disturbance) keeps it. Passing an\n    int forces a fresh deterministic system instead.\n\n    Lives here rather than in any single runner because the duplication was not\n    benign: each per-runner copy patched a *different* module set, so\n    ``--cam-type sim`` quietly worked on one command and opened real hardware on\n    another.\n    ",
-   "decorators": []
-  },
   "ao_shaping.runners.slm.slm_shaping_runner.run": {
    "qualname": "run",
    "module": "ao_shaping.runners.slm.slm_shaping_runner",
    "file": "src/ao_shaping/runners/slm/slm_shaping_runner.py",
-   "lineno": 449,
-   "end": 458,
+   "lineno": 461,
+   "end": 470,
    "args": [
     "ctx",
     "run"
@@ -2777,8 +2425,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gs_refine_runner",
    "file": "src/ao_shaping/runners/slm/gs_refine_runner.py",
-   "lineno": 80,
-   "end": 206,
+   "lineno": 85,
+   "end": 222,
    "args": [
     "ctx",
     "params"
@@ -2795,8 +2443,8 @@
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2830,
-   "end": 2880,
+   "lineno": 3199,
+   "end": 3259,
    "args": [
     "params",
     "debug"
@@ -2809,8 +2457,8 @@
    "qualname": "save_gs_refine_results",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2951,
-   "end": 3040,
+   "lineno": 3448,
+   "end": 3563,
    "args": [
     "recorder",
     "params",
@@ -2825,8 +2473,8 @@
    "qualname": "build_gs_refine_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2830,
-   "end": 2880,
+   "lineno": 3199,
+   "end": 3259,
    "args": [
     "params",
     "debug"
@@ -2839,8 +2487,8 @@
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2822,
-   "end": 2827,
+   "lineno": 3191,
+   "end": 3196,
    "args": [
     "raw"
    ],
@@ -2852,8 +2500,8 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.gsnet_runner",
    "file": "src/ao_shaping/runners/slm/gsnet_runner.py",
-   "lineno": 379,
-   "end": 391,
+   "lineno": 390,
+   "end": 402,
    "args": [
     "ctx",
     "run"
@@ -2870,14 +2518,14 @@
    "qualname": "run",
    "module": "ao_shaping.runners.slm.model_in_loop_runner",
    "file": "src/ao_shaping/runners/slm/model_in_loop_runner.py",
-   "lineno": 39,
-   "end": 192,
+   "lineno": 60,
+   "end": 276,
    "args": [
     "ctx",
     "params"
    ],
    "returns": "None",
-   "doc": "SLM model-in-the-loop square shaping (SLM + CCD closed loop).\n\n    Every round: fit the forward model's aberration from measured probe frames,\n    then synthesise a square far-field spot with that aberration frozen. The\n    fitted phase is only adopted if it measurably beats what is already held, and\n    the final phase is kept only if it beats the flat baseline.\n\n    \b\n    Exit codes:\n      0  a shaped phase was adopted (or flat was correctly kept)\n      2  the geometry bake-off failed, or the bench stayed outside the model --\n         the run refused to commit a phase. Use slm-gs-refine for that bench.\n    ",
+   "doc": "SLM model-in-the-loop shaping (SLM + CCD closed loop).\n\n    Every round: fit the forward model's aberration from measured probe frames,\n    then synthesise a target far-field spot with that aberration frozen. The\n    fitted phase is only adopted if it measurably beats what is already held, and\n    the final phase is kept only if it beats the flat baseline.\n\n    \b\n    Exit codes:\n      0  a shaped phase was adopted (or flat was correctly kept)\n      2  the geometry bake-off failed, or the bench stayed outside the model --\n         the run refused to commit a phase. Use slm-gs-refine for that bench.\n    ",
    "decorators": [
     "click.command()",
     "click.pass_context",
@@ -2888,8 +2536,8 @@
    "qualname": "build_model_in_loop_config",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2883,
-   "end": 2948,
+   "lineno": 3362,
+   "end": 3445,
    "args": [
     "params",
     "debug"
@@ -2902,24 +2550,72 @@
    "qualname": "save_model_in_loop_results",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 3043,
-   "end": 3144,
+   "lineno": 3581,
+   "end": 3758,
    "args": [
     "result",
     "params",
     "root_dir",
-    "debug"
+    "debug",
+    "save_dir"
    ],
    "returns": "ModelInLoopSaveResult",
    "doc": "Persist a model-in-loop run's recorder and debug artefacts.\n\n    Extracted verbatim from ``runners/slm/model_in_loop_runner.py`` so the GUI\n    adapter reuses the same disk layout without duplicating the CLI runner.\n    ",
+   "decorators": []
+  },
+  "ao_shaping.runners.runner_common.save_model_in_loop_config": {
+   "qualname": "save_model_in_loop_config",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3566,
+   "end": 3578,
+   "args": [
+    "config",
+    "save_dir"
+   ],
+   "returns": "Path",
+   "doc": "Persist the run configuration before hardware preflight can fail.",
+   "decorators": []
+  },
+  "ao_shaping.runners.slm.model_in_loop_session.apply_session_calibration": {
+   "qualname": "apply_session_calibration",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 613,
+   "end": 626,
+   "args": [
+    "params",
+    "config",
+    "calibration"
+   ],
+   "returns": "tuple[SlmModelInLoopParams, SlmModelInLoopConfig]",
+   "doc": "Return ``(params, config)`` with the non-``None`` calibration fields written.",
+   "decorators": []
+  },
+  "ao_shaping.runners.slm.model_in_loop_session.calibrate_session": {
+   "qualname": "calibrate_session",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 527,
+   "end": 610,
+   "args": [
+    "params",
+    "config",
+    "save_dir",
+    "locate",
+    "geometry",
+    "fingerprint"
+   ],
+   "returns": "SessionCalibration",
+   "doc": "Measure this session's panel position and geometry, then report both.\n\n    ``locate`` runs the panel-locate probe (5x4 whole-panel grid for a session\n    that brings no geometry, a 3x3 grid around ``params.pupil_center``\n    otherwise). ``geometry`` runs the runbook sweep through\n    :func:`measure_session_geometry`, using the centre just measured when\n    ``locate`` ran.\n\n    ``fingerprint`` additionally captures the 光路指纹 and stores it as\n    ``bench_fingerprint.json`` in ``save_dir``. It is opt-in and non-fatal, and\n    it is skipped when neither step ran: a run that calibrates nothing has\n    nothing to invalidate.\n\n    Raises plain exceptions -- see the module docstring -- and returns the\n    measurements; the caller applies them with :func:`apply_session_calibration`.\n    ",
    "decorators": []
   },
   "ao_shaping.runners.runner_common.parse_point": {
    "qualname": "parse_point",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2822,
-   "end": 2827,
+   "lineno": 3191,
+   "end": 3196,
    "args": [
     "raw"
    ],
@@ -2927,12 +2623,129 @@
    "doc": "Parse a 'x,y' string into integer coordinates.",
    "decorators": []
   },
+  "_read_correlation": {
+   "qualname": "_read_correlation",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 347,
+   "end": 353,
+   "args": [
+    "path"
+   ],
+   "returns": "float | None",
+   "doc": "Report the validated correlation; never fail a good run over the summary.",
+   "decorators": []
+  },
+  "_capture_session_fingerprint": {
+   "qualname": "_capture_session_fingerprint",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 480,
+   "end": 524,
+   "args": [
+    "params",
+    "config",
+    "center",
+    "save_dir",
+    "notes"
+   ],
+   "returns": "BenchFingerprint | None",
+   "doc": "Measure and store this session's fingerprint; never fails the calibration.\n\n    Like :func:`_measure_illumination_radius`, a lost fingerprint must not cost\n    the run its pupil centre and geometry: any failure degrades to ``None`` plus\n    a note. The stored ``bench_fingerprint.json`` is the reference the *next*\n    session compares against, so a failed capture leaves the old reference\n    untouched rather than overwriting it.\n    ",
+   "decorators": []
+  },
+  "_locate_pupil_center": {
+   "qualname": "_locate_pupil_center",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 171,
+   "end": 238,
+   "args": [
+    "params",
+    "save_dir"
+   ],
+   "returns": "tuple[tuple[int, int], float, float, float]",
+   "doc": "Locate the beam on the panel; return the scan result's reportable fields.",
+   "decorators": []
+  },
+  "_should_measure_radius": {
+   "qualname": "_should_measure_radius",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 293,
+   "end": 306,
+   "args": [
+    "params",
+    "config"
+   ],
+   "returns": "bool",
+   "doc": "Measure the aperture only where a measurement is meaningful.\n\n    A simulated bench has no panel to sweep, and a caller that brought its own\n    geometry file has already decided the aperture. Both would just burn minutes\n    to reproduce a number that is not used.\n    ",
+   "decorators": []
+  },
+  "_measure_illumination_radius": {
+   "qualname": "_measure_illumination_radius",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 309,
+   "end": 344,
+   "args": [
+    "params",
+    "config",
+    "center",
+    "save_dir"
+   ],
+   "returns": "float | None",
+   "doc": "Boundary-sweep the illuminated radius; ``None`` on failure.\n\n    Never raises: the sweep geometry still runs without it (falling back to the\n    constructed Zernike radius), and losing the aperture must not cost the run\n    its pupil centre and exposure. The omission is recorded in the notes so it\n    cannot pass unnoticed as a measurement.\n    ",
+   "decorators": []
+  },
+  "measure_session_geometry": {
+   "qualname": "measure_session_geometry",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 241,
+   "end": 290,
+   "args": [
+    "config",
+    "save_dir",
+    "illumination_radius_px"
+   ],
+   "returns": "Path",
+   "doc": "Run the measured sweep for this optical session before Step A opens devices.\n\n    ``--exposure-ms`` carries ``config.exposure_time_ms`` instead of a hard-coded\n    ``0``.  ``0`` is the runbook's *auto* rung, and auto starts from the Daheng\n    driver's own clamp (~0.02 ms) — 20–75× darker than this 光路's usable\n    0.4–1.5 ms band (``docs/slm/slm_model_in_loop.md`` §7), so the sweep would\n    measure a geometry from a nearly black frame.  A caller that never set an\n    exposure still gets ``0`` and therefore exactly the CLI behaviour it had\n    before; a caller that measured one now actually gets it.\n\n    ``:g`` rather than ``str(float(...))``: the runbook parses it back with\n    ``argparse`` ``type=float``, so the two are the same number, but ``:g`` keeps\n    the unset case spelled ``0`` — the exact argv this function used to hard-code.\n    ",
+   "decorators": []
+  },
+  "_mark_step": {
+   "qualname": "_mark_step",
+   "module": "ao_shaping.runners.slm.model_in_loop_session",
+   "file": "src/ao_shaping/runners/slm/model_in_loop_session.py",
+   "lineno": 95,
+   "end": 103,
+   "args": [
+    "exc",
+    "step"
+   ],
+   "returns": "Exception",
+   "doc": "Record which preflight step raised ``exc``, then return it for ``raise``.\n\n    Both steps now travel through one call, so this is how a frontend keeps its\n    own per-step wording. The exception keeps its type and message, so\n    ``except ValueError`` / ``except RuntimeError`` still behave as documented.\n    ",
+   "decorators": []
+  },
+  "save_model_in_loop_config": {
+   "qualname": "save_model_in_loop_config",
+   "module": "ao_shaping.runners.runner_common",
+   "file": "src/ao_shaping/runners/runner_common.py",
+   "lineno": 3566,
+   "end": 3578,
+   "args": [
+    "config",
+    "save_dir"
+   ],
+   "returns": "Path",
+   "doc": "Persist the run configuration before hardware preflight can fail.",
+   "decorators": []
+  },
   "parse_frozen_modes": {
    "qualname": "parse_frozen_modes",
    "module": "ao_shaping.runners.runner_common",
    "file": "src/ao_shaping/runners/runner_common.py",
-   "lineno": 2814,
-   "end": 2819,
+   "lineno": 3183,
+   "end": 3188,
    "args": [
     "raw"
    ],
@@ -3014,8 +2827,8 @@
    "qualname": "run",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 488,
-   "end": 876,
+   "lineno": 473,
+   "end": 861,
    "args": [
     "params"
    ],
@@ -3062,8 +2875,8 @@
    "qualname": "_locate_spots",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 64,
-   "end": 199,
+   "lineno": 49,
+   "end": 184,
    "args": [
     "calib_frame",
     "period_ref",
@@ -3078,8 +2891,8 @@
    "qualname": "_joint_exposure_settle",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 205,
-   "end": 286,
+   "lineno": 190,
+   "end": 271,
    "args": [
     "rois",
     "full_well",
@@ -3130,8 +2943,8 @@
    "qualname": "open_camera",
    "module": "ao_shaping.utils.image.hardware_utils",
    "file": "src/ao_shaping/utils/image/hardware_utils.py",
-   "lineno": 644,
-   "end": 701,
+   "lineno": 643,
+   "end": 700,
    "args": [
     "camera_type",
     "cam_id",
@@ -3146,8 +2959,8 @@
    "qualname": "_check_spot_drift",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 334,
-   "end": 385,
+   "lineno": 319,
+   "end": 370,
    "args": [
     "spot_center",
     "frame",
@@ -3163,8 +2976,8 @@
    "qualname": "_measure_power",
    "module": "ao_shaping.tools.slm.calibration.lut_runner",
    "file": "src/ao_shaping/tools/slm/calibration/lut_runner.py",
-   "lineno": 289,
-   "end": 331,
+   "lineno": 274,
+   "end": 316,
    "args": [
     "frame",
     "spot_center",
@@ -3266,32 +3079,22 @@
   {
    "from": "ao_shaping.algorithm.heuristic.search.run_heuristic_search",
    "to": "create_heuristic",
-   "calls": 3
+   "calls": 2
   },
   {
    "from": "ao_shaping.drivers.ccd.common.capture_with_exposure",
    "to": "resolve_initial_exposure",
-   "calls": 8
+   "calls": 6
   },
   {
    "from": "ao_shaping.drivers.ccd.common.capture_with_exposure",
    "to": "set_camera_exposure_ms",
-   "calls": 8
-  },
-  {
-   "from": "ao_shaping.drivers.ccd.common.create_camera",
-   "to": "_resolve_camera_class",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.drivers.ccd.common.create_camera",
-   "to": "list_camera_types",
-   "calls": 1
+   "calls": 6
   },
   {
    "from": "ao_shaping.drivers.ccd.common.resample_on_saturation",
    "to": "full_scale",
-   "calls": 4
+   "calls": 3
   },
   {
    "from": "ao_shaping.drivers.dm._registry.resolve_dm",
@@ -3320,23 +3123,13 @@
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
-   "to": "_camera_cls",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
    "to": "ao_shaping.algorithm.gradient.adam.AdaMOD",
    "calls": 1
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
-   "to": "ao_shaping.drivers.ccd.common.capture_with_exposure",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
    "to": "ao_shaping.drivers.ccd.common.get_camera_exposure_ms",
-   "calls": 4
+   "calls": 2
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
@@ -3350,7 +3143,12 @@
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
-   "to": "ao_shaping.optimizer.spgd.spgd_gradient",
+   "to": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
+   "to": "ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch",
    "calls": 1
   },
   {
@@ -3365,23 +3163,13 @@
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
-   "to": "ao_shaping.utils.image.hardware_utils.log_center_brightness",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
-   "to": "ao_shaping.utils.image.hardware_utils.resolve_spot_center",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
    "to": "ao_shaping.utils.image.spots_calc.pib_ratio_mask",
    "calls": 4
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
    "to": "ao_shaping.utils.image.spots_calc.power_in_bucket_mask",
-   "calls": 3
+   "calls": 2
   },
   {
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
@@ -3392,6 +3180,36 @@
    "from": "ao_shaping.optimizer.combined_optimizer.optimize_pib",
    "to": "learning_schedule",
    "calls": 2
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "to": "ao_shaping.drivers.ccd.common.capture_with_exposure",
+   "calls": 6
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "to": "ao_shaping.drivers.ccd.common.get_camera_exposure_ms",
+   "calls": 6
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "to": "ao_shaping.optimizer._camera_inject._camera_cls",
+   "calls": 3
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "to": "ao_shaping.utils.image.hardware_utils.log_center_brightness",
+   "calls": 3
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "to": "ao_shaping.utils.image.hardware_utils.resolve_spot_center",
+   "calls": 3
+  },
+  {
+   "from": "ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch",
+   "to": "ao_shaping.optimizer.spgd.spgd_gradient",
+   "calls": 3
   },
   {
    "from": "ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix",
@@ -3620,11 +3438,6 @@
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "_camera_cls",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
    "to": "_extract_optimizer_momentum",
    "calls": 4
   },
@@ -3665,13 +3478,8 @@
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "ao_shaping.drivers.ccd.common.capture_with_exposure",
-   "calls": 4
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
    "to": "ao_shaping.drivers.ccd.common.get_camera_exposure_ms",
-   "calls": 10
+   "calls": 6
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
@@ -3690,7 +3498,12 @@
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "ao_shaping.optimizer.spgd.spgd_gradient",
+   "to": "ao_shaping.optimizer.spid_pib_loop.open_pib_bench",
+   "calls": 2
+  },
+  {
+   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
+   "to": "ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch",
    "calls": 2
   },
   {
@@ -3705,132 +3518,17 @@
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "ao_shaping.utils.image.hardware_utils.log_center_brightness",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "ao_shaping.utils.image.hardware_utils.resolve_spot_center",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
    "to": "ao_shaping.utils.image.spots_calc.radius",
    "calls": 4
   },
   {
    "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
-   "to": "learning_schedule",
-   "calls": 4
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "_freeform_phase_radians",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "_locate_square_center",
-   "calls": 3
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "_map_init_to_active_modes",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "_slm_cls",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.algorithm.heuristic.search.run_heuristic_search",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.drivers.ccd.common.capture_with_exposure",
+   "to": "ao_shaping.utils.objective_direction.objective_direction",
    "calls": 2
   },
   {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.drivers.ccd.common.create_camera",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.drivers.ccd.common.get_camera_exposure_ms",
-   "calls": 6
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.drivers.ccd.common.resample_on_saturation",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.optimizer.constants.create_optimizer",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.optimizer.wfless.adaptive_spgd_core.AdaptiveSpgdConfig",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.optimizer.wfless.adaptive_spgd_core.get_stage_weights",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.optimizer.wfless.adaptive_spgd_core.should_boost_stagnation",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.utils.Recorder",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.utils.image.hardware_utils.log_center_brightness",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "ao_shaping.utils.wavefront.pattern_helper.PatternHelper",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
+   "from": "ao_shaping.optimizer.wfless.pib.optimize_pib",
    "to": "learning_schedule",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "square_aspect_ratio",
-   "calls": 4
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "square_encircled_energy",
-   "calls": 4
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "square_objective_score",
-   "calls": 6
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "square_peak_to_background_ratio",
-   "calls": 4
-  },
-  {
-   "from": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "to": "square_uniformity_cost",
    "calls": 4
   },
   {
@@ -3980,13 +3678,33 @@
   },
   {
    "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
-   "to": "ao_shaping.utils.cli.params.with_params",
-   "calls": 4
+   "to": "ao_shaping.runners.runner_common.load_init_v",
+   "calls": 1
   },
   {
    "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
-   "to": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
+   "to": "ao_shaping.runners.runner_common.plot_pib_debug_grid",
    "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "to": "ao_shaping.runners.runner_common.save_best_voltages",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
+   "to": "ao_shaping.utils.cli.params.with_params",
+   "calls": 4
   },
   {
    "from": "ao_shaping.runners.nlight_dm.axis_beam_runner.run",
@@ -4020,13 +3738,33 @@
   },
   {
    "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
-   "to": "ao_shaping.utils.cli.params.with_params",
-   "calls": 3
+   "to": "ao_shaping.runners.runner_common.load_init_v",
+   "calls": 1
   },
   {
    "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
-   "to": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
+   "to": "ao_shaping.runners.runner_common.plot_pib_debug_grid",
    "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
+   "to": "ao_shaping.runners.runner_common.save_best_voltages",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
+   "to": "ao_shaping.utils.cli.params.with_params",
+   "calls": 3
   },
   {
    "from": "ao_shaping.runners.nlight_dm.combined_runner.run",
@@ -4060,6 +3798,26 @@
   },
   {
    "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "to": "ao_shaping.runners.runner_common.load_init_v",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "to": "ao_shaping.runners.runner_common.save_best_voltages",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
    "to": "ao_shaping.utils.cli.params.with_params",
    "calls": 3
   },
@@ -4071,11 +3829,6 @@
   {
    "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
    "to": "ao_shaping.utils.gen_file_path_uuid",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.nlight_dm.pipeline_runner.run",
-   "to": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
    "calls": 1
   },
   {
@@ -4095,6 +3848,11 @@
   },
   {
    "from": "ao_shaping.runners.nlight_dm.wf_runner.run",
+   "to": "ao_shaping.runners.runner_common.save_best_voltages",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.nlight_dm.wf_runner.run",
    "to": "ao_shaping.utils.cli.params.with_params",
    "calls": 4
   },
@@ -4110,17 +3868,32 @@
   },
   {
    "from": "ao_shaping.runners.nlight_dm.wf_runner.run",
-   "to": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.nlight_dm.wf_runner.run",
    "to": "ao_shaping.utils.io.cli_helpers.get_debug_mode",
    "calls": 1
   },
   {
    "from": "ao_shaping.runners.runner_common.build_gs_refine_config",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.build_gs_refine_config",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.build_gs_refine_config",
    "to": "parse_point",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.build_model_in_loop_config",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.build_model_in_loop_config",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
    "calls": 1
   },
   {
@@ -4134,13 +3907,18 @@
    "calls": 1
   },
   {
-   "from": "ao_shaping.runners.runner_common.patch_sim_square_shaping",
-   "to": "_patch_sim_devices",
-   "calls": 1
+   "from": "ao_shaping.runners.runner_common.save_best_voltages",
+   "to": "ao_shaping.utils.io.cli_helpers.get_date_dir_name",
+   "calls": 4
   },
   {
    "from": "ao_shaping.runners.runner_common.save_gs_refine_results",
    "to": "build_gs_refine_config",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.runner_common.save_model_in_loop_results",
+   "to": "save_model_in_loop_config",
    "calls": 1
   },
   {
@@ -4151,6 +3929,11 @@
   {
    "from": "ao_shaping.runners.slm.gs_refine_runner.run",
    "to": "ao_shaping.runners.runner_common.save_gs_refine_results",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.gs_refine_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
    "calls": 1
   },
   {
@@ -4180,7 +3963,32 @@
   },
   {
    "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
+   "to": "ao_shaping.runners.runner_common.save_model_in_loop_config",
+   "calls": 3
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
    "to": "ao_shaping.runners.runner_common.save_model_in_loop_results",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
+   "to": "ao_shaping.runners.slm.model_in_loop_session.apply_session_calibration",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
+   "to": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.exposure_ms_legacy",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
+   "to": "ao_shaping.utils.cli.exposure.resolve_exposure",
    "calls": 1
   },
   {
@@ -4190,7 +3998,42 @@
   },
   {
    "from": "ao_shaping.runners.slm.model_in_loop_runner.run",
-   "to": "ao_shaping.utils.io.cli_helpers.get_debug_mode",
+   "to": "ao_shaping.utils.io.cli_helpers.resolve_debug",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_capture_session_fingerprint",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_locate_pupil_center",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_mark_step",
+   "calls": 2
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_measure_illumination_radius",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_read_correlation",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "_should_measure_radius",
+   "calls": 1
+  },
+  {
+   "from": "ao_shaping.runners.slm.model_in_loop_session.calibrate_session",
+   "to": "measure_session_geometry",
    "calls": 1
   },
   {
@@ -4234,71 +4077,6 @@
    "calls": 1
   },
   {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_active_zernike_modes",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_build_square_config",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_echo_square_banner",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_parse_zernike_mask",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_resolve_run_context",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_save_square_best_image",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_save_square_summary",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "_square_json_payload",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "ao_shaping.runners.runner_common.parse_center",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "ao_shaping.runners.runner_common.patch_sim_square_shaping",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "ao_shaping.utils.cli.params.with_params",
-   "calls": 2
-  },
-  {
-   "from": "ao_shaping.runners.slm.slm_shaping_runner.square",
-   "to": "ao_shaping.utils.io.file.save_recorder_debug_artifacts",
-   "calls": 1
-  },
-  {
    "from": "ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run",
    "to": "_expand_to_noll",
    "calls": 1
@@ -4316,11 +4094,6 @@
   {
    "from": "ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run",
    "to": "ao_shaping.algorithm.signal_processing.controller.LoopConfig",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run",
-   "to": "ao_shaping.drivers.slm.ZernikeSLM",
    "calls": 1
   },
   {
@@ -4584,29 +4357,34 @@
    "calls": 1
   },
   {
+   "from": "ao_shaping.utils.cli.exposure.resolve_exposure",
+   "to": "_reject",
+   "calls": 28
+  },
+  {
    "from": "ao_shaping.utils.cli.params.with_params",
    "to": "_collect_click_annotations",
-   "calls": 44
+   "calls": 42
   },
   {
    "from": "ao_shaping.utils.cli.params.with_params",
    "to": "_copy_delayed_call",
-   "calls": 44
+   "calls": 42
   },
   {
    "from": "ao_shaping.utils.cli.params.with_params",
    "to": "_patch_click_types",
-   "calls": 44
+   "calls": 42
   },
   {
    "from": "ao_shaping.utils.cli.params.with_params",
    "to": "_patch_defaults",
-   "calls": 44
+   "calls": 42
   },
   {
    "from": "ao_shaping.utils.cli.params.with_params",
    "to": "_patch_names",
-   "calls": 44
+   "calls": 42
   },
   {
    "from": "ao_shaping.utils.image.hardware_utils.resolve_spot_center",
@@ -4631,7 +4409,7 @@
   {
    "from": "ao_shaping.utils.io.cli_helpers.resolve_debug",
    "to": "get_debug_mode",
-   "calls": 5
+   "calls": 6
   },
   {
    "from": "ao_shaping.utils.io.file.build_debug_save_paths",
@@ -4654,18 +4432,8 @@
    "calls": 1
   },
   {
-   "from": "ao_shaping.utils.io.file.save_recorder_debug_artifacts",
-   "to": "debug_run_dir",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.utils.io.file.save_recorder_debug_artifacts",
-   "to": "debug_run_stem",
-   "calls": 1
-  },
-  {
-   "from": "ao_shaping.utils.io.file.save_recorder_debug_artifacts",
-   "to": "save_optimization_debug_artifacts",
+   "from": "ao_shaping.utils.io.file.save_optimization_debug_artifacts",
+   "to": "_validate_frame_artifacts",
    "calls": 1
   },
   {
@@ -4728,7 +4496,6 @@
   "full_voltage_run": "ao_shaping.runners.micro_drive.voltage_runner.full_voltage_run",
   "hadamard_matrix_run": "ao_shaping.runners.matrix_runner.hadamard_matrix_run",
   "combined_run": "ao_shaping.runners.nlight_dm.combined_runner.run",
-  "slm_square_run": "ao_shaping.runners.slm.slm_shaping_runner.square",
   "slm_pib_run": "ao_shaping.runners.slm.slm_shaping_runner.run",
   "slm_gs_refine_run": "ao_shaping.runners.slm.gs_refine_runner.run",
   "slm_gsnet_run": "ao_shaping.runners.slm.gsnet_runner.run",

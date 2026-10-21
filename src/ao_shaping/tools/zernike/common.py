@@ -488,12 +488,12 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
     med = float(np.median(mags))
     keep = outlier_mask(mags, outlier_factor)
     if not keep.all():
-        for r, kp in zip(out, keep):
+        for r, kp in zip(out, keep, strict=True):
             if not kp:
                 logger.debug(f"   [剔除异常] R={r['radius']:.0f}px "
                       f"defocus={r['defocus_lam']:+.1f}λ (> {outlier_factor}×中位数 "
                       f"{med:.3f}λ) — 盘裁切光束致拟合崩溃")
-        out = [r for r, kp in zip(out, keep) if kp]
+        out = [r for r, kp in zip(out, keep, strict=True) if kp]
     if not out:
         raise RuntimeError("光束半径诊断全部为异常值")
 

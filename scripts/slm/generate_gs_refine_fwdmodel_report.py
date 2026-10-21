@@ -6,7 +6,7 @@ drives the **canonical** bench forward model
 :func:`~ao_shaping.drivers.sim.slm_shaping_bench.camera_window_from_far_field`.
 Never opens a device, and never reimplements the far-field model.
 
-Writes ``report/shape_trials/gs_refine_fwdmodel_calibration.md`` + ``figures/``.
+Writes ``report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md`` + ``figures/``.
 Provenance is stamped at write time so a re-run cannot delete it.
 
 Run:
@@ -46,8 +46,8 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     forward_intensity,
 )
 
-REPORT_KEY = "report/shape_trials/gs_refine_fwdmodel_calibration.md"
-OUT_DIR = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "gs_refine_fwdmodel"
 FIG_DIR = OUT_DIR / "figures"
 
 

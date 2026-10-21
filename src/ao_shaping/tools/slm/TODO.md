@@ -211,7 +211,7 @@
 ## 十、参考资料
 
 - `README.md` §「SLM 实验系统探针」— 四条实验系统铁律 + 实测实验系统几何
-- `report/slm/model_in_loop_bench_calibration.md` — 实验系统常数来源
+- `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` — 实验系统常数来源
 - `src/ao_shaping/runners/runner_common.py:118–323` — 待抽取的机制本体
 - `src/ao_shaping/drivers/slm/AGENTS.md:116` — `calibration.py` 的 shift CLI 用法
 ---

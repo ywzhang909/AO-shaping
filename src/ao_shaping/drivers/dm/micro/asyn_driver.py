@@ -478,7 +478,7 @@ class AsyncMicroDM(DM):
             controller_id (从 1 开始) -> 是否成功的字典。
         """
         results = await asyncio.gather(*(ctrl.connect() for ctrl in self._controllers))
-        return {ctrl.controller_id: ok for ctrl, ok in zip(self._controllers, results)}
+        return {ctrl.controller_id: ok for ctrl, ok in zip(self._controllers, results, strict=True)}
 
     async def send_frame(
         self, voltages: npt.NDArray[np.floating] | None = None
@@ -561,7 +561,7 @@ class AsyncMicroDM(DM):
             await asyncio.gather(
                 *[
                     ctrl.send_bytes(cmd)
-                    for ctrl, cmd in zip(self._controllers, commands)
+                    for ctrl, cmd in zip(self._controllers, commands, strict=True)
                 ]
             )
         )
@@ -580,7 +580,7 @@ class AsyncMicroDM(DM):
         )
         return {
             ctrl.controller_id: result
-            for ctrl, result in zip(self._controllers, results)
+            for ctrl, result in zip(self._controllers, results, strict=True)
         }
 
     async def shutdown(self, home_voltage: float = 0.0) -> None:

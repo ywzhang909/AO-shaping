@@ -6,13 +6,13 @@
 
 **正向模型在环（model-in-loop）闭环成型 + GS→Zernike 阶数扫描立项 + scripts/ 重组 + ruff 硬门禁**
 
-- **model-in-loop 正向模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到正向模型；freeform holdout 探针 + 阶数无关 probe-set loss。实验报告：`report/shape_trials/model_in_loop_live_20261013/14/15/16/19.md`（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
+- **model-in-loop 正向模型闭环** (`080e0ac9`, `4c09a5d1`, `89494ea9`, `eb125df6`): 不确定性采样 Step A 探针（R-82/R-86, #134，替代盲加随机探针）；warm-start 复用上一轮已验收 `fitted_coefficients`（#92）；`pupil_oversampling` 透传到正向模型；freeform holdout 探针 + 阶数无关 probe-set loss。实验报告：[`report/shape_trials/model_in_loop/model_in_loop_live_20261013.md`](./report/shape_trials/model_in_loop/model_in_loop_live_20261013.md)、[`20261014`](./report/shape_trials/model_in_loop/model_in_loop_live_20261014.md)、[`20261015`](./report/shape_trials/model_in_loop/model_in_loop_live_20261015.md)、[`20261016`](./report/shape_trials/model_in_loop/model_in_loop_live_20261016.md)、[`20261019`](./report/shape_trials/model_in_loop/model_in_loop_live_20261019.md)（五种目标形状、交错重放、warm/cold 对比、oracle 复核）。
 - **model-in-loop 实验验收增强** (`3ddef179`, `07a4a560`, `3a1f8711`): 几何门槛补目检（拦住相关性看不见的离焦失配）；工作精度默认 float32（float64 的精度到不了面板）；报告补 SLM 相位图 + CCD 远场图与 X/Y 截面。
-- **GS → Zernike → SPGD 阶数扫描立项** (`9d079cf1`, `b366a634`, `f79a5f84`, `07d5ea23`): Zernike 拟合模块 + 阶数扫描驱动 + 离线报告（仿真：拟合残差 8 阶 0.0719→0.0385 rad 单调不增、`n_max=25` 不触发 `ZERNIKE_CLIP`）；硬件实验计划 [`report/shape_trials/gs_refine_zernike_hardware_plan.md`](report/shape_trials/gs_refine_zernike_hardware_plan.md)（H0~H12，两个 P0 门：GS 对比择优 + 噪声地板 σ）。
+- **GS → Zernike → SPGD 阶数扫描立项** (`9d079cf1`, `b366a634`, `f79a5f84`, `07d5ea23`): Zernike 拟合模块 + 阶数扫描驱动 + 离线报告（仿真：拟合残差 8 阶 0.0719→0.0385 rad 单调不增、`n_max=25` 不触发 `ZERNIKE_CLIP`）；硬件实验计划 [`report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md`](./report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md)（H0~H12，两个 P0 门：GS 对比择优 + 噪声地板 σ）。
 - **GS 细化缺陷修复** (`540d51b2`): #140 — `best_phase` 改为保存收敛迭代点而非胜出随机探针（原报告增益 +0.0126 含选择偏差）。
 - **scripts/ 按处理对象重组** (`569ea514`, `999b5a08`): 139 个扁平脚本按处理对象归类（`slm/` `ml/` `zernike_bench/` `signal_processing/` 等）；新增离线 model-in-loop 评估器、硬件回放脚本与 focus probe（`cc30224d`）。
 - **曝光子系统集成** (`d82903e5`, `aa2ba82e`, `91209176`, `002cbdbb`): 括号式多曝光采集 + Mertens 融合（#141 待实验验收）；Daheng 逐会话曝光上限收敛为单一 helper（#136，取代 8 处重复解析）；曝光选项显式 auto/default 三态。
-- **ruff 硬门禁** (`0cec5f5d`): #132 决策 B — `.github/workflows/ruff.yml` 硬门槛（push + PR），pylint 降为参考级；**F-5 切片 1**（`d57647a5`, #56）41 个文件补 `from __future__ import annotations`；F841/F811/F821 全部清零（`a6e41efa`/`10aacef0`/`26fe1e20`）。⚠️ 2026-10-19 起 `.github/` 整体移出 git 跟踪（本机保留），新克隆无 CI 工作流，本地 `ruff check .` 仍须全绿。
+- **ruff 硬门禁** (`0cec5f5d`): #132 决策 B — `.github/workflows/ruff.yml` 硬门槛（push + PR），pylint 降为参考级；**F-5 切片 1**（`d57647a5`, #56）41 个文件补 `from __future__ import annotations`；F841/F811/F821 全部清零（`a6e41efa`/`10aacef0`/`26fe1e20`）。⚠️ 2026-10-19 起 `.github/` 曾整体移出 git 跟踪（本机保留），新克隆一度无 CI 工作流；**2026-10-21 恢复入库**（`1d33d078`，现 `.github/workflows/ci.yml`：ruff 硬门禁 + best-effort pytest `continue-on-error`），本地 `ruff check .` 仍须全绿。
 - **发送管线叠加层统一** (`660d6bbf`): GUI 与三个闭环优化器（gs-refine / model-in-loop / zernike-pib）共用 `build_send_overlay`（离焦 + 底相位唯一读取点）；`phase_overlay` 代理接入 controller 发送路径（`d3059f2a`）。
 - **GUI 文档化与视觉优化** (`5e20967e`, `14cfec70`, `a176ea2c`): 全部 GUI 页面建 SRS + 用户手册并移至 `docs/GUI/`（16 篇）；multi_slm_controller 视觉优化（#131）；SLM 控制器按时效分类重排（`e8f80599`）。
 - **去重/重构批次** (`26d01013`, `fdc0696c`, `bea6691b`, `c40d0f6c`, `a0dc66a9`, `d52faf4c`): #87 `fit_exact` 单一定义；#154 composite 分数单源（`shaping_score`）；#153 `predictive_variance` 公共 API；#152 `bench_geometry.json` schema 单入口；#91 P0 相机注入 seam 单一真源；#130 objective 方向单源。另 `531fc1fb` 删除第三套手写 Zernike 实现（#66）、`dd85c0d0` 增加 GS 算法 Cython 版本。
@@ -24,8 +24,8 @@
 
 **逆向整形模型、自适应 SPGD、GS 预矫正上硬件、实验系统工具重组**
 
-- **逆向光束整形 PhasorUNet** (`ml/shaping/`, `69950ec`): 新增 `models.py` / `physics.py` / `losses.py` / `dataset.py` / `train.py` / `evaluate.py` / `viz.py` —— 目标远场 → SLM 相位的逆向 U-Net，带物理往返 (round-trip) 一致性损失。语料与结论见 [`report/inverse_shaping_unet/report.md`](report/inverse_shaping_unet/report.md)。
-- **slm-gs-refine 上硬件 + 回放** (`ce5df18`, `f4efa0f`, `db38f57`): GS 预矫正新增可选 weighted/HIO 热启动变体；相机 ROI 居中修复 + 完整 debug 记录保留；新增 `scripts/slm/replay_gs_refine_hw.py` 离线相位回放（同一相位序列可复现上硬件）。硬件对比见 [`report/shape_trials/gs_refine_live_20261012.md`](report/shape_trials/gs_refine_live_20261012.md)。
+- **逆向光束整形 PhasorUNet** (`ml/shaping/`, `69950ec`): 新增 `models.py` / `physics.py` / `losses.py` / `dataset.py` / `train.py` / `evaluate.py` / `viz.py` —— 目标远场 → SLM 相位的逆向 U-Net，带物理往返 (round-trip) 一致性损失。语料与结论见 [`report/inverse_shaping_unet/inverse_shaping_report/report.md`](./report/inverse_shaping_unet/inverse_shaping_report/report.md)。
+- **slm-gs-refine 上硬件 + 回放** (`ce5df18`, `f4efa0f`, `db38f57`): GS 预矫正新增可选 weighted/HIO 热启动变体；相机 ROI 居中修复 + 完整 debug 记录保留；新增 `scripts/slm/replay_gs_refine_hw.py` 离线相位回放（同一相位序列可复现上硬件）。硬件对比见 [`report/shape_trials/gs_refine/gs_refine_live_20261012.md`](./report/shape_trials/gs_refine/gs_refine_live_20261012.md)。
 - **自适应 SPGD** (`ab11c19`, `81c0391`, `e9c1f35`): 新增 `adaptive_spgd_core`（stage_weights + 停滞检测器），`spgd-square` 接入 `--adaptive` 闭环；完整方案见 [docs/自适应 SPGD 光束整形闭环：完整方案总结.md](<docs/自适应 SPGD 光束整形闭环：完整方案总结.md>)。
 - **整形试验** (`d01a053`, `e2b72f3`, `f402bcf`): 可选空间覆盖目标 (`--coverage`)；PIB 新增实测峰值可行性门限（替代软惩罚）；GS 细化最优结果与复现命令记录进 `report/shape_trials/`。
 - **slm-model-in-loop 交互增强** (`5055244`): 共享 `slm-pib` 的 `--show` 实时视图，新增预测远场面板。
@@ -34,13 +34,13 @@
 - **Micro-DM IP 解析收敛** (`8ff9b38`): `resolve_ips` 提取进 `wiring_map` + 控制器采纳逻辑。
 - **报告正式化** (`e51ed38`): `report/` 下全部 76 份实验报告补写每轮明确结论（"本轮结论"），provenance 块逐字保留。
 - **GS 家族下一步计划** (`0026f58`): slm-gs-refine × FourierGSNet 的下一次尝试计划记录进 [`report/shape_trials/`](report/shape_trials/)。
-- **可微仿真基准** (`e9c1f35`): 后端内核性能基准更新（[`report/benchmarks/backend_kernels_performance.md`](report/benchmarks/backend_kernels_performance.md)）。
+- **可微仿真基准** (`e9c1f35`): 后端内核性能基准更新（[`report/benchmarks/backend_kernels_report/backend_kernels_performance.md`](./report/benchmarks/backend_kernels_report/backend_kernels_performance.md)）。
 
 ## v0.17.0 (2026-10-06)
 
 **Zernike 系数→远场前向模型训练** (15 个提交 `0694a0e` → `493ef1e`):
 
-- **物理-optical 前向模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/report.md`](report/zernike_coeff2amp/report.md)。
+- **物理-optical 前向模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/zernike_coeff_report/report.md`](./report/zernike_coeff2amp/zernike_coeff_report/report.md)。
 
 - **可微前向模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照臂。
 

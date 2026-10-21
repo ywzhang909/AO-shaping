@@ -452,6 +452,14 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     and ``--slm-wavelength`` like its siblings, so those two spellings each gain
     one user.
 
+    358 -> 359 / 375 -> 376 on 2026-10-21: ``slm/panel/focus_probe`` gained
+    ``--debug-dir`` (1 declared + 1 help-visible) so the focus calibration can
+    drop its evidence into a **round-specific** directory. The point is that the
+    report reads *this* session's calibration instead of "the newest file on
+    disk", which would otherwise be a calibration from another session.
+    The probe golden was regenerated via ``AO_PROBE_HELP_UPDATE=1``; these
+    pins follow it.
+
     331 -> 358 / 346 -> 375 / 22 -> 24 on 2026-10-19: ``slm/panel/alignment_probe``
     (16 declared, argparse form) and ``slm/panel/bench_fingerprint`` (11 declared)
     landed upstream (f34b8bf4 lineage) without being added to
@@ -464,8 +472,8 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 358, f"declared flag inventory is {declared}, expected 358"
-    assert visible == 375, f"help-visible flag inventory is {visible}, expected 375"
+    assert declared == 359, f"declared flag inventory is {declared}, expected 359"
+    assert visible == 376, f"help-visible flag inventory is {visible}, expected 376"
     assert len(PROBES) == 24
 
 

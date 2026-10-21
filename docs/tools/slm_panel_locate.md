@@ -62,4 +62,4 @@ python -m ao_shaping.tools.slm.panel.panel_locate --exposure-ms 3.0
 - **panel↔camera 轴互换 90°**
 - 焦面尺度 `shift_px ≈ 7600/period`
 
-详见 [`report/slm/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_bench_calibration.md)。
+详见 [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)。

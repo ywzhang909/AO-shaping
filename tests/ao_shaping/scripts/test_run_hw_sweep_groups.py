@@ -320,6 +320,51 @@ class TestManifest:
         assert record["status"] == "failed"
 
 
+class TestGroupBudget:
+    """单组的时长预算: 跑完后判定, 超了就点名 (但不杀进程)。"""
+
+    def test_group_over_the_budget_is_named_and_marked(self, tmp_path, capsys):
+        root = tmp_path / "groups"
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [_harmless("slow", "import time; time.sleep(1.2)")],
+            root,
+        )
+
+        rc = main(
+            ["--plan", str(plan), "--max-group-seconds", "0.5", "--timeout-s", "60"]
+        )
+
+        # 超预算不是失败: 这一组自己跑完了, 退出码仍是 0。
+        assert rc == 0
+        record = _read_manifest(root)["groups"][0]
+        assert record["status"] == "over_budget"
+        assert record["exit_code"] == 0
+        assert float(record["duration_s"]) > 0.5
+        captured = capsys.readouterr()
+        assert "slow" in captured.out
+        assert "超预算" in captured.err
+        # 汇总里必须有一行「最长的一组用了多少秒 / 预算多少秒」
+        assert "最长的一组" in captured.out
+        assert "预算 0.5s" in captured.out
+
+    def test_group_within_the_budget_stays_ok(self, tmp_path):
+        root = tmp_path / "groups"
+        plan = _write_plan(tmp_path / "plan.json", [_harmless("quick")], root)
+
+        rc = main(["--plan", str(plan), "--max-group-seconds", "600"])
+
+        assert rc == 0
+        assert _read_manifest(root)["groups"][0]["status"] == "ok"
+
+    def test_default_budgets_are_ten_minutes(self):
+        from scripts.slm.run_hw_sweep_groups import _build_parser
+
+        args = _build_parser().parse_args(["--plan", "x.json"])
+        assert float(args.timeout_s) == 600.0
+        assert float(args.max_group_seconds) == 600.0
+
+
 class TestHelpers:
     """纯函数。"""
 

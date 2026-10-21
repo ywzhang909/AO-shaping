@@ -40,9 +40,8 @@ Gradient to pass to ``optimizer.update()`` when using ``param - update``.
 
 ## 谁调用它（入边）
 
+- `ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch`
 - [[functions/optimizer-rms-dm|`optimizer_rms_dm`]]
-- [[functions/optimize-pib-wfless|`optimize_pib`]]
-- [[functions/optimize-pib-combined|`optimize_pib`]]
 - [[functions/optimizer-rms-slm|`optimizer_rms_slm`]]
 
 ## 相关页面

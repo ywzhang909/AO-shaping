@@ -54,7 +54,7 @@ def load_plan(
     if configs[0]["cam_type"] != "daheng":
         raise ValueError("replay currently requires Daheng CCD")
     phases = {name: np.load(source / "best_phase.npy", allow_pickle=False)
-              for name, source in zip(("A", "B"), sources)}
+              for name, source in zip(("A", "B"), sources, strict=True)}
     shape = (int(configs[0]["region"]),) * 2
     for name, phase in phases.items():
         if phase.shape != shape or not np.issubdtype(phase.dtype, np.number):
@@ -87,7 +87,7 @@ def run_replay(plan: ReplayPlan) -> list[dict[str, float | int | str]]:
     plan.output_dir.mkdir(parents=True, exist_ok=False)
     source_configs = {
         name: json.loads((source / "run_config.json").read_text(encoding="utf-8"))
-        for name, source in zip(("A", "B"), plan.sources)
+        for name, source in zip(("A", "B"), plan.sources, strict=True)
     }
     (plan.output_dir / "config.json").write_text(
         json.dumps({"sources": [str(source) for source in plan.sources],

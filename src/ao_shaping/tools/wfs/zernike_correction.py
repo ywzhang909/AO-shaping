@@ -197,8 +197,8 @@ def scan_response_matrix(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
         if not keep.all():
             click.echo(f"   逐点剔除 [{key[0]}] R={key[1]:.0f}: 保留 {int(keep.sum())}"
                        f"/{len(vecs)}  (|resp|={np.round(norms, 3).tolist()})")
-            curves[key] = [v for v, kp in zip(vecs, keep) if kp]
-            amps_of[key] = [a for a, kp in zip(amps_of[key], keep) if kp]
+            curves[key] = [v for v, kp in zip(vecs, keep, strict=True) if kp]
+            amps_of[key] = [a for a, kp in zip(amps_of[key], keep, strict=True) if kp]
 
     # 线性度 metrics (正确判据: CV + 方向一致性)
     metrics: list[dict] = []

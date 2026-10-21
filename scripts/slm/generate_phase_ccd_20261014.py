@@ -4,7 +4,7 @@ This script renders figures showing phase and CCD images for each experimental c
 - Phase images from best_phase.npy files
 - CCD images from best_far_field.png files
 
-All figures are saved to `report/shape_trials/images/`.
+All figures are saved to `report/shape_trials/model_in_loop/images/`.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import seaborn as sns
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
-IMG_DIR = ROOT / "report" / "shape_trials" / "images"
+IMG_DIR = ROOT / "report" / "shape_trials" / "model_in_loop" / "images"
 IMG_DIR.mkdir(parents=True, exist_ok=True)
 
 sns.set_theme(style="whitegrid", context="talk")

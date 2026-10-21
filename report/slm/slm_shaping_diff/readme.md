@@ -156,7 +156,7 @@ data/diff_shaping_hw/
 
 > ⚠️ 2026-10-01 复核：前两项已失效。
 
-- ~~完整标定/对比报告: `report/slm_differential_shaping/README.md`~~ → **目录不存在**
+- ~~完整标定/对比报告: `README.md`~~ → **目录不存在**
 - 模块 API: `algorithm/differentiable_shaping.py` → 现为
   `src/ao_shaping/algorithm/signal_processing/differentiable_shaping.py`
   （顶层 `algorithm/` 只剩 `__init__.py` 与 `base.py`）

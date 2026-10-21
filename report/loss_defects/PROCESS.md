@@ -28,7 +28,7 @@
 6. **方法论教训**：本文件共 6 次结论被推翻（attempts 4/5/8/9/10/11），根因均为未扫描"被视为常量的任意参数"（评测 ROI、split seed、重启次数）。任何单配置结论在参数扫描前不得采信；全部数值仍为仿真断言，尚未在实验系统复现。
 
 Running record of *analyse → propose → attempt → measure → record*. Newest
-sections appended. Two earlier findings live in [`README.md`](README.md); this file
+sections appended. Two earlier findings live in [`README.md`](../README.md); this file
 is the chronological log, including the dead ends.
 
 Corpus: `data/debug`, 11393 records, 7 families. Protocol notes that apply to

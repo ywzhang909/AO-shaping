@@ -115,7 +115,7 @@ FWHM 12.2 px 与理论一致: 均匀照明半径 450 px 的 Airy 尺度
 
 **`usable_deltas()` 返回空集** —— 全部低于 `≥2 可用` 门槛。
 SNR 随 delta 增大反而下降。这与
-[`report/slm_pib_bench/report.md`](../slm_pib_bench/report.md) 的记录一致:
+[`report/slm_pib_bench/pib_bench_report/report.md`](./fouriergsnet_pipeline_report/report.md) 的记录一致:
 该实验系统噪声地板**单日内波动 21 倍**, 必须每次实测。
 
 ### 3.4 写入测试 (决定 freeform 前提是否成立)
@@ -127,7 +127,7 @@ SNR 随 delta 增大反而下降。这与
 
 2.0 rad → 10.1 px, 即 **5.05 px/rad**, 与理论 `f·λ/(πR·p_cam)` = 5.34 px/rad 一致。
 
-> **面板确实能调制。** 此前 `report/slm/model_in_loop_bench_calibration.md`
+> **面板确实能调制。** 此前 `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`
 > 记录的"像素级相位无效果"是**像素尺度 (8 µm)** 的结论;
 > freeform 用的是 **80×50 px block**, 粗 1–2 个数量级, 完全可分辨。
 > 因此 freeform 的前提成立, 问题不在面板。

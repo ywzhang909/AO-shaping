@@ -84,6 +84,13 @@ cam.auto_exposure(
 > `MIICamera` 返回驱动侧已钳制+量化的缓存 (SDK 无可靠 `ExpoTime` getter)。
 > 新增后端请实现它, 否则会静默退回缓存 —— 那正是 issue #32 的缺陷形态。
 
+> **曝光「改完」也不等于「下一帧就是新曝光」** (见下方已知坑第 4 条)。
+> 大恒在取流进行中直接写 `ExposureTime`, 改动之前就开始积分的帧仍留在 SDK 流水线里;
+> `DahengCamera.reset_exposure_time` 因此在曝光真的改变后消费掉
+> `EXPOSURE_CHANGE_DISCARD_FRAMES`(=3) 帧, 让「改曝光后的第一帧就是新曝光」成为
+> **驱动层的不变量**。其他后端若也有此行为, 必须在各自的曝光写入口做同样的事 ——
+> `get_numpy_image` 自带的 `skip_first` 只丢 1 帧, **不够**。
+
 ## BaseCamera 接口
 
 `BaseCamera` 定义相机驱动的统一接口 (继承 `Device` 的相机需实现):
@@ -109,6 +116,10 @@ cam.auto_exposure(
 - **MiiCam 曝光修改**: 须通过 `reset_exposure_time()` (Stop→put_ExpoTime→重启拉流); 曝光 <0.1ms 信号淹没在噪声 (max≤10), 建议 ≥0.2ms; 峰值可能锁在 ~85, 质量指标优先用 mean/亮区而非 max。
 - **曝光回读 ≠ 缓存值, 差一个微秒也会骗人** (issue #32, `get_camera_exposure_ms` 回读失真): 两个后端都会把曝光**钳制并量化到整数微秒**才下发给 SDK —— Daheng 是 `ExposureTime.set(int(ms*1000))`, MiiCam 是 `put_ExpoTime(int(ms*1000))` —— 但驱动侧的 `exposure_time_ms` 缓存保留的是**未经量化的原始请求**, 且从不随设备回读刷新。于是「日志里记的曝光」与「传感器实际用的曝光」长期漂移, 一切依赖曝光真值的判据 (饱和保护、δ 扫描、线性度) 都建立在错值上。**契约: 一律经 `get_exposure_time_ms()` 取值** —— Daheng 读 GenICam 特征拿设备真值; MiiCam 因 SDK 无可靠 getter, 以「已钳制+量化」的缓存为权威 (**不可**改回未量化的请求, 那会虚报一个设备并未使用的曝光)。`get_camera_exposure_ms()` 已按此优先级实现, 离线锁定于 `tests/ao_shaping/drivers/ccd/test_camera_registry.py`。
 - **MiiCam 位深**: 实测该硬件 `_detect_raw_format` 报 `MONO16` 而非 `MONO14` (test_ccd.py::test_cam_bit_depth_initialization 预期 MONO14 会失败 — 硬件现实, 非代码缺陷)。
+- **Daheng 改曝光后, 前 1~2 帧仍是上一档曝光的画面** (2026-10-21 实测, 相机 FJB24112232): 大恒 SDK 在**取流进行中**直接写 GenICam `ExposureTime`, **改动之前**就已经开始积分的帧仍留在 SDK 流水线里, 于是改完曝光后紧接着取到的帧还是旧曝光的画面。实测阶梯 (每次改动后连抓 4 个原始帧, mean/max): `2 -> 20 ms` 的前两帧是 0.343/5、0.320/5 (仍是 2 ms), 第三帧才出现 20 ms 的 0.559/42; `20 -> 2 ms` 的前两帧是 0.596/43、0.596/41 (仍是 20 ms); `1 -> 50`、`10 -> 100 ms` 滞后 1 帧; `100 -> 10 ms` 那次没滞后 ⇒ **间歇发生, 不能靠「发现不一致再补救」, 必须无条件消费**。
+  - **实测危害**: 2026-10-20 录下的测光阶梯 (`data/debug/light_level_probe/20261020_092550`) 就这样把 5 ms 档的峰值记成了 2 ms 档的值 (17 == 17), 而相邻两帧之差大到 ≈ 峰值本身 (50 ms 档 delta=156 vs max=158) —— 那一档的读数是旧曝光的画面。**任何「改曝光后立刻测量」的路径都会读到错档**: `common.resolve_exposure_ms` 的曝光二分 (用旧曝光的峰值判断新曝光 → 收敛到错误曝光)、`common.auto_exposure` 比例环、`diagnose_light_level.py` 阶梯扫描。
+  - **修复**: `DahengCamera.reset_exposure_time` 在曝光**真的改变**后消费掉 `EXPOSURE_CHANGE_DISCARD_FRAMES`(=3) 帧 (留 1 帧余量; 实测滞后上限 2 帧), 使「改曝光后的第一帧就是新曝光」成为驱动层不变量; 曝光没变则不消费 (避免白花 3 帧采集时间)。代价是 3 帧的采集时间 (曝光 100 ms 时约 300 ms)。离线锁定于 `tests/ao_shaping/drivers/ccd/daheng/test_reset_exposure_time.py` (假相机模拟 SDK 排队: 改曝光时旧帧留在队列里)。
+  - **注意**: `get_numpy_image` 的 `skip_first=True` 只丢 1 帧, **不足以**覆盖本坑; 且 MiiCam 走 Stop→设置→重启拉流, 天然没有这个问题 —— 两者不可混为一谈。
 
 ## 包入口
 

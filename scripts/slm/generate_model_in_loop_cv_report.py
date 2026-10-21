@@ -75,8 +75,8 @@ from ml.zernike.cv_harness import (  # noqa: E402
     paired_fold_report,
 )
 
-REPORT_KEY = "report/shape_trials/model_in_loop_cv.md"
-OUT_DIR = ROOT / "report" / "shape_trials"
+REPORT_KEY = "report/shape_trials/model_in_loop_cv/model_in_loop_cv.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "model_in_loop_cv"
 FIG_DIR = OUT_DIR / "figures"
 
 #: Base for the probe-seed pool a folded reserve is drawn from. Far from the

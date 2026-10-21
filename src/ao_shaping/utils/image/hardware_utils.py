@@ -400,7 +400,7 @@ def find_exposure_ms(
     # 热像素守卫: 某探针峰值 > ceiling 而下一探针峰值 < floor 在物理上不
     # 可能 (真实光束曝光更高只会更亮) —— 视为热像素帧, 剔除该探针。
     guarded_peaks: list[tuple[float, float]] = []  # (exposure, peak)
-    for i, (ms, peak) in enumerate(zip(probes, peaks)):
+    for i, (ms, peak) in enumerate(zip(probes, peaks, strict=True)):
         if peak > peak_ceiling and i + 1 < len(peaks) and peaks[i + 1] < peak_floor:
             logger.warning("探针 {:.3f}ms 峰值 {:.0f} 判为热像素, 已剔除", ms, peak)
             continue

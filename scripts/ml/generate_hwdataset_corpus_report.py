@@ -53,7 +53,7 @@ DEBUG_ROOT = ROOT / "data" / "debug"
 REPORT_DIR = ROOT / "report" / "hwdataset_corpus"
 FIGURE_DIR = REPORT_DIR / "figures"
 REPORT_PATH = REPORT_DIR / "report.md"
-REPORT_KEY = "report/hwdataset_corpus/report.md"
+REPORT_KEY = "report/hwdataset_corpus/hwdataset_corpus_report/report.md"
 #: Array-level distribution stats, produced by ``scripts/ml/analyze_hwdataset_distributions.py``.
 #: The generator only *reads* this file; it never materialises a pickle itself, so the
 #: metadata-only contract of this script is preserved.  When absent, the new §10/§11

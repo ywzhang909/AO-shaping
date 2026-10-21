@@ -341,7 +341,7 @@ def scan_panel(
                                      "peak": peak, "time_utc": datetime.now(timezone.utc).isoformat()})
             logger.info(
                 "panel y={:>4}: {}", py,
-                "  ".join(f"x={px}:{v:+7.3f}" for px, v in zip(xs, row)),
+                "  ".join(f"x={px}:{v:+7.3f}" for px, v in zip(xs, row, strict=True)),
             )
             if debug_dir is not None:
                 (debug_dir / "measurements.json").write_text(

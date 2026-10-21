@@ -9,6 +9,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from ao_shaping.optimizer import combined_optimizer as combined_module
 from ao_shaping.optimizer.wfless import pib as pib_module
 from ao_shaping.optimizer import _camera_inject as camera_inject
 
@@ -222,8 +223,13 @@ class _SimDMRegistry:
 
 
 @contextmanager
-def patched_pib_simulation():
-    """Temporarily replace physical devices/tqdm with deterministic simulation."""
+def patched_sensorless_simulation():
+    """Temporarily replace physical devices/tqdm with deterministic simulation.
+
+    Covers both sensorless optimizers (``wfless.pib`` and ``combined_optimizer``):
+    each binds ``get_dm_registry`` and ``tqdm`` at module level, so each needs
+    its own seam patched even though the camera is shared.
+    """
     # The camera is injected through the shared ``_camera_inject`` global rather
     # than a module-level ``pib.MIICamera`` alias: the alias would have to be
     # bound at import time, which loads the native MiiCam SDK on every
@@ -231,10 +237,16 @@ def patched_pib_simulation():
     original_camera = camera_inject._CAMERA_CLASS_OVERRIDE
     original_get_dm_registry = pib_module.get_dm_registry
     original_tqdm = pib_module.tqdm.tqdm
+    original_combined_registry = combined_module.get_dm_registry
+    original_combined_tqdm = combined_module.tqdm.tqdm
     SimDM.current_voltages = np.zeros(8, dtype=np.float64)
     camera_inject._CAMERA_CLASS_OVERRIDE = SimCamera
     pib_module.get_dm_registry = lambda: _SimDMRegistry()
     pib_module.tqdm.tqdm = lambda *args, **kwargs: original_tqdm(
+        *args, **({"disable": True} | kwargs)
+    )
+    combined_module.get_dm_registry = lambda: _SimDMRegistry()
+    combined_module.tqdm.tqdm = lambda *args, **kwargs: original_combined_tqdm(
         *args, **({"disable": True} | kwargs)
     )
     try:
@@ -243,6 +255,13 @@ def patched_pib_simulation():
         camera_inject._CAMERA_CLASS_OVERRIDE = original_camera
         pib_module.get_dm_registry = original_get_dm_registry
         pib_module.tqdm.tqdm = original_tqdm
+        combined_module.get_dm_registry = original_combined_registry
+        combined_module.tqdm.tqdm = original_combined_tqdm
+
+
+#: Kept for callers that only drive ``wfless.pib``; both optimizers are patched
+#: either way.
+patched_pib_simulation = patched_sensorless_simulation
 
 
 def run_case(name: str, **kwargs):

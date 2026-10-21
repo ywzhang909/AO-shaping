@@ -16,6 +16,7 @@ import numpy as np
 from scipy.ndimage import gaussian_filter, map_coordinates, median_filter
 
 from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure, sweep_focus
+from loguru import logger
 
 
 def symmetry_metrics(frame: np.ndarray, half_width: int = 100) -> dict:
@@ -279,7 +280,7 @@ def main():
     if not args.verify_directory and any(getattr(args, name) is None for name in ("center_x", "center_y", "radius")):
         parser.error("new scans require --center-x, --center-y and --radius")
     result = verify_saved(args) if args.verify_directory else run_probe(args)
-    print(json.dumps(result, indent=2))
+    logger.info(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

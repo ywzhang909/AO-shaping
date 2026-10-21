@@ -3,8 +3,10 @@
 import numpy as np
 import pytest
 
+from ao_shaping.utils.image import exposure_control
 from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
+    ExposureCeilingEstimate,
     choose_exposure,
     configured_daheng_exposure_limit,
     estimate_exposure_ceiling_ms,
@@ -113,8 +115,12 @@ def test_probe_respects_the_hardware_cap() -> None:
         return float(ms)
 
     def shoot() -> np.ndarray:
+        # A dim but *real* signal: a small blob well above the frame's noise
+        # floor, so the frame counts as signal (a lone count on a zero
+        # background is indistinguishable from read noise — that is the defect
+        # the noise-floor criterion removes).
         frame = np.zeros((4, 4), dtype=np.uint8)
-        frame[2, 2] = 1  # dim but nonzero: never saturates within the cap
+        frame[1:3, 1:3] = 8
         return frame
 
     estimate = probe_exposure_ceiling_ms(
@@ -193,3 +199,102 @@ def test_resolve_rejects_invalid_requested_value() -> None:
         resolve_daheng_exposure_limit(-1.0)
     with pytest.raises(ValueError, match="finite and non-negative"):
         resolve_daheng_exposure_limit(float("inf"))
+
+
+# --- noise floor: the ladder floor is read noise, not light ----------------
+
+
+def _noise_frame(peak_counts: int = 2, size: int = 64) -> np.ndarray:
+    """A frame that carries no light: a zero background with a few hot pixels."""
+    frame = np.zeros((size, size), dtype=np.uint8)
+    frame[0, 0] = peak_counts
+    frame[1, 1] = peak_counts
+    frame[2, 2] = peak_counts
+    return frame
+
+
+def _signal_frame(peak_counts: int, size: int = 64) -> np.ndarray:
+    """A frame whose brightest pixel carries ``peak_counts`` of real light."""
+    frame = np.zeros((size, size), dtype=np.uint8)
+    frame[size // 2, size // 2] = peak_counts
+    return frame
+
+
+class _NoiseFloorCamera:
+    """Fake camera whose dark end of the ladder is pure read noise.
+
+    Models the bench measured on the experiment system (Daheng MER2,
+    2026-10-21): the ladder floor sits at the sensor minimum exposure, where
+    the frame carries no light at all — its peak is **2 counts** of read noise
+    on a zero background — while the peak grows linearly with the exposure
+    above it and clips at ``saturate_at_ms``.
+    """
+
+    def __init__(self, *, saturate_at_ms: float = 50.0) -> None:
+        self.saturate_at_ms = float(saturate_at_ms)
+        self.current_ms = 0.0
+
+    def reset_exposure_time(self, ms: float) -> float:
+        self.current_ms = float(ms)
+        return float(ms)
+
+    def get_numpy_image(self, n_sample: int = 1, skip_first: bool = True) -> np.ndarray:
+        if n_sample != 1:
+            raise ValueError("the fake camera serves single frames only")
+        signal = int(255.0 * min(1.0, self.current_ms / self.saturate_at_ms))
+        if signal <= 0:
+            return _noise_frame()
+        return _signal_frame(signal)
+
+
+def _probe_with(camera, **kwargs) -> ExposureCeilingEstimate:
+    """Probe the fake camera exactly like the Daheng resolver does."""
+    return probe_exposure_ceiling_ms(
+        camera.reset_exposure_time,
+        lambda: np.asarray(camera.get_numpy_image(n_sample=1)),
+        **kwargs,
+    )
+
+
+def test_probe_ignores_the_noise_frames_at_the_bottom_of_the_ladder() -> None:
+    """The 2026-10-21 failure: the noise floor dragged the ceiling to 2 ms.
+
+    The bench saturates at 50 ms, but the 0.02 ms frame peaks at 2 counts of
+    read noise, so extrapolating from it gives
+    ``0.02 * 0.9 / (2/255) = 2.295 ms`` -> a ceiling of 2.0655 ms, ~30x below
+    the truth, and the hardware flow then refused legal exposures.
+    """
+    camera = _NoiseFloorCamera(saturate_at_ms=50.0)
+    estimate = _probe_with(camera, start_ms=0.02)
+    assert 25.0 <= estimate.ceiling_ms <= 100.0
+    assert estimate.ceiling_ms > 10.0  # nowhere near the 2.0655 ms failure
+
+
+def test_the_noise_floor_is_what_used_to_break_the_ceiling(monkeypatch) -> None:
+    """With the noise-floor test switched off the old 2.0655 ms comes back."""
+    monkeypatch.setattr(exposure_control, "NOISE_FLOOR_SIGMAS", 0.0)
+    camera = _NoiseFloorCamera(saturate_at_ms=50.0)
+    estimate = _probe_with(camera, start_ms=0.02)
+    assert estimate.ceiling_ms == pytest.approx(2.0655, rel=1e-3)
+
+
+def test_a_ladder_of_nothing_but_noise_fails_with_an_actionable_error() -> None:
+    camera = _NoiseFloorCamera(saturate_at_ms=50.0)
+    # Every frame of this ladder is a noise frame: the bench is dark enough
+    # that even the top of the ladder carries no light.
+    camera.saturate_at_ms = 1e6
+    with pytest.raises(ValueError, match="no ladder frame carries signal"):
+        _probe_with(camera, start_ms=0.02)
+
+
+def test_a_clean_signal_ladder_matches_the_analytic_ceiling() -> None:
+    """With a linear, pedestal-free response the estimate is the analytic value."""
+    ladder = [
+        (ms, _signal_frame(int(255.0 * ms / 50.0)))
+        for ms in (1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 50.0)
+    ]
+    estimate = estimate_exposure_ceiling_ms(ladder)
+    # 0.9 (saturation fraction) * 50 ms (true ceiling) * 0.9 (headroom)
+    assert estimate.ceiling_ms == pytest.approx(40.5, rel=0.05)
+    assert estimate.saturated_ms == 50.0
+    assert estimate.last_safe_ms == 32.0

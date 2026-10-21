@@ -171,10 +171,14 @@ none
 /skills-lock.json
 
 # Machine-local tool/config dirs: untracked 2026-10-19, kept on dev machines.
-# .github (CI workflows), .vscode (IDE config), .claude/.codegraph (AI agent
-# configs), .slim (agent work logs), .streamlit (local runtime config),
-# .auto_doc_review (doc-review poller state), _scripts (one-off scratch scripts).
-/.github/
+# .vscode (IDE config), .claude/.codegraph (AI agent configs), .slim (agent
+# work logs), .streamlit (local runtime config), .auto_doc_review (doc-review
+# poller state), _scripts (one-off scratch scripts).
+#
+# NOTE: .github is intentionally NOT ignored — the CI quality gate
+# (.github/workflows/ci.yml) must live in version control. It was removed from
+# VCS on 2026-10-19 (see the /github/ ignore added that day) and restored on
+# 2026-10-21 per maintainer instruction.
 /.vscode/
 /.claude/
 /.codegraph/

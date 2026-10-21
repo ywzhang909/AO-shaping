@@ -9,13 +9,13 @@
 **本轮结论**：实验系统 smoke（§2）与一次完整 `slm-gsnet spgd` 优化已于 2026-10-01 执行。结论：(1) 命令链路（memory mode、slot 轮换、argmax 定位、Daheng 相机）已验证可运行，硬件访问层无阻塞；(2) 但 SPGD 优化实测为**随机游走**（衰减因子 dec=0.487），末态较初态恶化 35.9%，环围能量流失 6 倍，0 阶峰值由 225 降至 17，优化层尚未收敛；(3) 根因与 6 项修复清单见 `hardware_run_20261001.md`，在其修复前不应期待方形远场输出。本清单其余项（DM/WFS 可达性、完整验收）仍待执行。
 
 > 作用域: 仅 FourierGSNet (SLM freeform 方形光斑整形) 的**实验系统光路验证**。
-> 离线训练部分 (corpus → cache → dataset → train → W&B) 已完成并验收, 详见 [`report.md`](report.md)。
-> 本文件只记录"设备 + 激光就绪后"待执行的实验系统工作, 与 `docs/TODO.md` (slm_zernike_pib 对账版) 无关。
+> 离线训练部分 (corpus → cache → dataset → train → W&B) 已完成并验收, 详见 [`report.md`](./offline_training/report.md)。
+> 本文件只记录"设备 + 激光就绪后"待执行的实验系统工作, 与 `TODO.md` (slm_zernike_pib 对账版) 无关。
 >
 > ✅ **2026-10-01 已执行 §2 (SLM+Daheng smoke) 与一次完整 `slm-gsnet spgd` 优化。**
 > 实测结论: 该优化是**随机游走** (`dec=0.487`), 末态比初态**差 35.9%**,
 > EE 流失 6 倍, 0 阶峰值 225→17。完整实测量、根因与修复清单见
-> **[`hardware_run_20261001.md`](hardware_run_20261001.md)**。
+> **[`hardware_run_20261001.md`](./hardware_run_20261001.md)**。
 > 下面 §4 的命令**已验证可运行**, 但在修掉报告 §6 列的 6 项之前不要期待方形远场。
 
 ## 0. 前置条件

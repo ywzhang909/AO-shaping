@@ -112,7 +112,7 @@ score 口径与既有报告一致: ``0.5·PIB + 0.5·(1/(1+CV))``, CV / PIB 在�
     python scripts/slm/experiment_gs_fresnel_vs_virtuallens.py           # 完整网格
     python scripts/slm/experiment_gs_fresnel_vs_virtuallens.py --quick   # 小网格冒烟
 
-产物写到 ``report/shape_trials/``, 文件名带 ``_fresnel_vs_vl``:
+产物写到 ``report/shape_trials/gs_defocus_sim/artifacts/``, 文件名带 ``_fresnel_vs_vl``:
 两个 CSV (等价性逐点 / 四组完整轨迹 + 各组最优点)、一个 summary JSON、三张图
 (A/B 等价性误差 vs Δz、CV vs Δz 四组对照、G3 最优离焦幅度 vs Δz)。
 
@@ -1178,7 +1178,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     p.add_argument("--quick", action="store_true", help="小网格冒烟跑")
     p.add_argument("--tag", default=None, help="产物文件名后缀 (默认: --quick 时 _quick)")
-    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials)")
+    p.add_argument("--out", default=None, help="产物目录 (默认 report/shape_trials/gs_defocus_sim/artifacts)")
     return p
 
 
@@ -1226,7 +1226,7 @@ def main() -> None:
     rc = QUICK if args.quick else FULL
     if args.tag is not None:
         rc = replace(rc, tag=args.tag)
-    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials"
+    out = Path(args.out) if args.out else ROOT / "report" / "shape_trials" / "gs_defocus_sim" / "artifacts"
     out.mkdir(parents=True, exist_ok=True)
     t0 = time.perf_counter()
 

@@ -368,7 +368,7 @@ class PhaseGrayscaleLUT:
 
         # Build LUT dictionary
         lut: dict[int, float] = {}
-        for gs, phase in zip(grayscale_values, measured_phases):
+        for gs, phase in zip(grayscale_values, measured_phases, strict=True):
             lut[gs] = phase
 
         # Fit polynomial: phase = f(grayscale)

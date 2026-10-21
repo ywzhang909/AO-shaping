@@ -3,26 +3,33 @@ flowchart TD
     nao_shaping_utils_io_cli_helpers_get_debug_mode["ao_shaping.utils.io.cli_helpers.get_debug_mode"]
     nao_shaping_main_cli --> nao_shaping_utils_io_cli_helpers_get_debug_mode
     nao_shaping_optimizer_combined_optimizer_optimize_pib["ao_shaping.optimizer.combined_optimizer.optimize_pib"]
-    nao_shaping_drivers_ccd_common_capture_with_exposure["ao_shaping.drivers.ccd.common.capture_with_exposure"]
-    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_drivers_ccd_common_capture_with_exposure
     nao_shaping_drivers_ccd_common_get_camera_exposure_ms["ao_shaping.drivers.ccd.common.get_camera_exposure_ms"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_drivers_ccd_common_get_camera_exposure_ms
     nao_shaping_drivers_ccd_common_resample_on_saturation["ao_shaping.drivers.ccd.common.resample_on_saturation"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_drivers_ccd_common_resample_on_saturation
     nao_shaping_drivers_dm__registry_get_dm_registry["ao_shaping.drivers.dm._registry.get_dm_registry"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_drivers_dm__registry_get_dm_registry
-    nao_shaping_optimizer_spgd_spgd_gradient["ao_shaping.optimizer.spgd.spgd_gradient"]
-    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_optimizer_spgd_spgd_gradient
-    nao_shaping_utils_image_hardware_utils_log_center_brightness["ao_shaping.utils.image.hardware_utils.log_center_brightness"]
-    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_utils_image_hardware_utils_log_center_brightness
-    nao_shaping_utils_image_hardware_utils_resolve_spot_center["ao_shaping.utils.image.hardware_utils.resolve_spot_center"]
-    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_utils_image_hardware_utils_resolve_spot_center
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench["ao_shaping.optimizer.spid_pib_loop.open_pib_bench"]
+    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_optimizer_spid_pib_loop_open_pib_bench
+    nao_shaping_optimizer_spid_pib_loop_spid_pib_epoch["ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch"]
+    nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_optimizer_spid_pib_loop_spid_pib_epoch
     nao_shaping_utils_image_spots_calc_pib_ratio_mask["ao_shaping.utils.image.spots_calc.pib_ratio_mask"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_utils_image_spots_calc_pib_ratio_mask
     nao_shaping_utils_image_spots_calc_power_in_bucket_mask["ao_shaping.utils.image.spots_calc.power_in_bucket_mask"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_utils_image_spots_calc_power_in_bucket_mask
     nao_shaping_utils_image_spots_calc_radius["ao_shaping.utils.image.spots_calc.radius"]
     nao_shaping_optimizer_combined_optimizer_optimize_pib --> nao_shaping_utils_image_spots_calc_radius
+    nao_shaping_drivers_ccd_common_capture_with_exposure["ao_shaping.drivers.ccd.common.capture_with_exposure"]
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench --> nao_shaping_drivers_ccd_common_capture_with_exposure
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench --> nao_shaping_drivers_ccd_common_get_camera_exposure_ms
+    nao_shaping_optimizer__camera_inject__camera_cls["ao_shaping.optimizer._camera_inject._camera_cls"]
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench --> nao_shaping_optimizer__camera_inject__camera_cls
+    nao_shaping_utils_image_hardware_utils_log_center_brightness["ao_shaping.utils.image.hardware_utils.log_center_brightness"]
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench --> nao_shaping_utils_image_hardware_utils_log_center_brightness
+    nao_shaping_utils_image_hardware_utils_resolve_spot_center["ao_shaping.utils.image.hardware_utils.resolve_spot_center"]
+    nao_shaping_optimizer_spid_pib_loop_open_pib_bench --> nao_shaping_utils_image_hardware_utils_resolve_spot_center
+    nao_shaping_optimizer_spgd_spgd_gradient["ao_shaping.optimizer.spgd.spgd_gradient"]
+    nao_shaping_optimizer_spid_pib_loop_spid_pib_epoch --> nao_shaping_optimizer_spgd_spgd_gradient
     nao_shaping_optimizer_wf_dm_response_matrix_calibrate_dm_response_matrix["ao_shaping.optimizer.wf.dm_response_matrix.calibrate_dm_response_matrix"]
     nao_shaping_utils_wavefront_matrix_utils_compute_lstsq["ao_shaping.utils.wavefront.matrix_utils.compute_lstsq"]
     nao_shaping_optimizer_wf_dm_response_matrix_calibrate_dm_response_matrix --> nao_shaping_utils_wavefront_matrix_utils_compute_lstsq
@@ -60,29 +67,16 @@ flowchart TD
     nao_shaping_optimizer_wfless_pib_optimize_pib --> n_extract_optimizer_momentum
     n_reset_optimizer_state["_reset_optimizer_state"]
     nao_shaping_optimizer_wfless_pib_optimize_pib --> n_reset_optimizer_state
-    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_drivers_ccd_common_capture_with_exposure
     nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_drivers_ccd_common_get_camera_exposure_ms
     nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_drivers_ccd_common_resample_on_saturation
     nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_drivers_dm__registry_get_dm_registry
     nao_shaping_optimizer_constants_create_optimizer["ao_shaping.optimizer.constants.create_optimizer"]
     nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_optimizer_constants_create_optimizer
-    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_optimizer_spgd_spgd_gradient
-    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_utils_image_hardware_utils_log_center_brightness
-    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_utils_image_hardware_utils_resolve_spot_center
+    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_optimizer_spid_pib_loop_open_pib_bench
+    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_optimizer_spid_pib_loop_spid_pib_epoch
     nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_utils_image_spots_calc_radius
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square["ao_shaping.optimizer.wfless.slm_square_shaping.optimize_slm_square"]
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_algorithm_heuristic_search_run_heuristic_search
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_drivers_ccd_common_capture_with_exposure
-    nao_shaping_drivers_ccd_common_create_camera["ao_shaping.drivers.ccd.common.create_camera"]
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_drivers_ccd_common_create_camera
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_drivers_ccd_common_get_camera_exposure_ms
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_drivers_ccd_common_resample_on_saturation
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_optimizer_constants_create_optimizer
-    nao_shaping_optimizer_wfless_adaptive_spgd_core_get_stage_weights["ao_shaping.optimizer.wfless.adaptive_spgd_core.get_stage_weights"]
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_optimizer_wfless_adaptive_spgd_core_get_stage_weights
-    nao_shaping_optimizer_wfless_adaptive_spgd_core_should_boost_stagnation["ao_shaping.optimizer.wfless.adaptive_spgd_core.should_boost_stagnation"]
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_optimizer_wfless_adaptive_spgd_core_should_boost_stagnation
-    nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square --> nao_shaping_utils_image_hardware_utils_log_center_brightness
+    nao_shaping_utils_objective_direction_objective_direction["ao_shaping.utils.objective_direction.objective_direction"]
+    nao_shaping_optimizer_wfless_pib_optimize_pib --> nao_shaping_utils_objective_direction_objective_direction
     nao_shaping_runners_matrix_runner_hadamard_matrix_run["ao_shaping.runners.matrix_runner.hadamard_matrix_run"]
     nao_shaping_utils_cli_params_with_params["ao_shaping.utils.cli.params.with_params"]
     nao_shaping_runners_matrix_runner_hadamard_matrix_run --> nao_shaping_utils_cli_params_with_params
@@ -110,9 +104,17 @@ flowchart TD
     nao_shaping_runners_nlight_dm_axis_beam_runner_run["ao_shaping.runners.nlight_dm.axis_beam_runner.run"]
     nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_drivers_dm__registry_resolve_dm
     nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_optimizer_wfless_pib_optimize_pib
+    nao_shaping_runners_runner_common_load_init_v["ao_shaping.runners.runner_common.load_init_v"]
+    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_runners_runner_common_load_init_v
+    nao_shaping_runners_runner_common_plot_pib_debug_grid["ao_shaping.runners.runner_common.plot_pib_debug_grid"]
+    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_runners_runner_common_plot_pib_debug_grid
+    nao_shaping_runners_runner_common_save_best_voltages["ao_shaping.runners.runner_common.save_best_voltages"]
+    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_runners_runner_common_save_best_voltages
+    nao_shaping_utils_cli_exposure_exposure_ms_legacy["ao_shaping.utils.cli.exposure.exposure_ms_legacy"]
+    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_utils_cli_exposure_resolve_exposure["ao_shaping.utils.cli.exposure.resolve_exposure"]
+    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_utils_cli_exposure_resolve_exposure
     nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_utils_io_cli_helpers_get_date_dir_name["ao_shaping.utils.io.cli_helpers.get_date_dir_name"]
-    nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_utils_io_cli_helpers_get_date_dir_name
     nao_shaping_utils_io_cli_helpers_resolve_debug["ao_shaping.utils.io.cli_helpers.resolve_debug"]
     nao_shaping_runners_nlight_dm_axis_beam_runner_run --> nao_shaping_utils_io_cli_helpers_resolve_debug
     nao_shaping_utils_io_file_gen_date_dir["ao_shaping.utils.io.file.gen_date_dir"]
@@ -124,8 +126,12 @@ flowchart TD
     nao_shaping_runners_nlight_dm_combined_runner_run["ao_shaping.runners.nlight_dm.combined_runner.run"]
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_drivers_dm__registry_resolve_dm
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_optimizer_combined_optimizer_optimize_pib
+    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_runners_runner_common_load_init_v
+    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_runners_runner_common_plot_pib_debug_grid
+    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_runners_runner_common_save_best_voltages
+    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_cli_exposure_resolve_exposure
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_io_cli_helpers_get_date_dir_name
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_io_cli_helpers_resolve_debug
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_io_file_gen_date_dir
     nao_shaping_runners_nlight_dm_combined_runner_run --> nao_shaping_utils_io_file_gen_file_path_uuid
@@ -133,33 +139,51 @@ flowchart TD
     nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_drivers_dm__registry_resolve_dm
     nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_optimizer_wf_rms_optimizer_rms_dm
     nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_optimizer_wfless_pib_optimize_pib
+    nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_runners_runner_common_load_init_v
+    nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_runners_runner_common_save_best_voltages
+    nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_utils_cli_exposure_resolve_exposure
     nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_utils_io_cli_helpers_get_date_dir_name
     nao_shaping_runners_nlight_dm_pipeline_runner_run --> nao_shaping_utils_io_cli_helpers_get_debug_mode
     nao_shaping_runners_nlight_dm_wf_runner_run["ao_shaping.runners.nlight_dm.wf_runner.run"]
     nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_drivers_dm__registry_resolve_dm
     nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_optimizer_wf_rms_optimizer_rms_dm
+    nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_runners_runner_common_save_best_voltages
     nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_utils_io_cli_helpers_get_date_dir_name
     nao_shaping_runners_nlight_dm_wf_runner_run --> nao_shaping_utils_io_cli_helpers_get_debug_mode
-    nao_shaping_runners_slm_gs_refine_runner_run["ao_shaping.runners.slm.gs_refine_runner.run"]
     nao_shaping_runners_runner_common_build_gs_refine_config["ao_shaping.runners.runner_common.build_gs_refine_config"]
+    nao_shaping_runners_runner_common_build_gs_refine_config --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_runners_runner_common_build_gs_refine_config --> nao_shaping_utils_cli_exposure_resolve_exposure
+    nao_shaping_runners_runner_common_build_model_in_loop_config["ao_shaping.runners.runner_common.build_model_in_loop_config"]
+    nao_shaping_runners_runner_common_build_model_in_loop_config --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_runners_runner_common_build_model_in_loop_config --> nao_shaping_utils_cli_exposure_resolve_exposure
+    nao_shaping_utils_io_cli_helpers_get_date_dir_name["ao_shaping.utils.io.cli_helpers.get_date_dir_name"]
+    nao_shaping_runners_runner_common_save_best_voltages --> nao_shaping_utils_io_cli_helpers_get_date_dir_name
+    nao_shaping_runners_slm_gs_refine_runner_run["ao_shaping.runners.slm.gs_refine_runner.run"]
     nao_shaping_runners_slm_gs_refine_runner_run --> nao_shaping_runners_runner_common_build_gs_refine_config
     nao_shaping_runners_runner_common_save_gs_refine_results["ao_shaping.runners.runner_common.save_gs_refine_results"]
     nao_shaping_runners_slm_gs_refine_runner_run --> nao_shaping_runners_runner_common_save_gs_refine_results
+    nao_shaping_runners_slm_gs_refine_runner_run --> nao_shaping_utils_cli_exposure_resolve_exposure
     nao_shaping_runners_slm_gs_refine_runner_run --> nao_shaping_utils_cli_params_with_params
     nao_shaping_runners_slm_gs_refine_runner_run --> nao_shaping_utils_io_cli_helpers_resolve_debug
     nao_shaping_runners_slm_gsnet_runner_run["ao_shaping.runners.slm.gsnet_runner.run"]
     nao_shaping_runners_slm_gsnet_runner_run --> nao_shaping_utils_cli_params_with_params
     nao_shaping_runners_slm_model_in_loop_runner_run["ao_shaping.runners.slm.model_in_loop_runner.run"]
-    nao_shaping_runners_runner_common_build_model_in_loop_config["ao_shaping.runners.runner_common.build_model_in_loop_config"]
     nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_runner_common_build_model_in_loop_config
     nao_shaping_runners_runner_common_parse_point["ao_shaping.runners.runner_common.parse_point"]
     nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_runner_common_parse_point
+    nao_shaping_runners_runner_common_save_model_in_loop_config["ao_shaping.runners.runner_common.save_model_in_loop_config"]
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_runner_common_save_model_in_loop_config
     nao_shaping_runners_runner_common_save_model_in_loop_results["ao_shaping.runners.runner_common.save_model_in_loop_results"]
     nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_runner_common_save_model_in_loop_results
+    nao_shaping_runners_slm_model_in_loop_session_apply_session_calibration["ao_shaping.runners.slm.model_in_loop_session.apply_session_calibration"]
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_slm_model_in_loop_session_apply_session_calibration
+    nao_shaping_runners_slm_model_in_loop_session_calibrate_session["ao_shaping.runners.slm.model_in_loop_session.calibrate_session"]
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_runners_slm_model_in_loop_session_calibrate_session
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_utils_cli_exposure_exposure_ms_legacy
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_utils_cli_exposure_resolve_exposure
     nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_utils_io_cli_helpers_get_debug_mode
+    nao_shaping_runners_slm_model_in_loop_runner_run --> nao_shaping_utils_io_cli_helpers_resolve_debug
     nao_shaping_runners_slm_rms_zernike_runner_run["ao_shaping.runners.slm.rms_zernike_runner.run"]
     nao_shaping_runners_slm_rms_zernike_runner_run --> nao_shaping_optimizer_wf_rms_by_zernike_optimizer_rms_slm
     nao_shaping_runners_slm_rms_zernike_runner_run --> nao_shaping_utils_cli_params_with_params
@@ -171,15 +195,6 @@ flowchart TD
     nao_shaping_runners_slm_rms_zernike_runner_run --> nao_shaping_utils_wavefront_matrix_utils_calc_n_zernike_terms
     nao_shaping_runners_slm_slm_shaping_runner_run["ao_shaping.runners.slm.slm_shaping_runner.run"]
     nao_shaping_runners_slm_slm_shaping_runner_run --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_runners_slm_slm_shaping_runner_square["ao_shaping.runners.slm.slm_shaping_runner.square"]
-    nao_shaping_runners_slm_slm_shaping_runner_square --> nao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square
-    nao_shaping_runners_runner_common_parse_center["ao_shaping.runners.runner_common.parse_center"]
-    nao_shaping_runners_slm_slm_shaping_runner_square --> nao_shaping_runners_runner_common_parse_center
-    nao_shaping_runners_runner_common_patch_sim_square_shaping["ao_shaping.runners.runner_common.patch_sim_square_shaping"]
-    nao_shaping_runners_slm_slm_shaping_runner_square --> nao_shaping_runners_runner_common_patch_sim_square_shaping
-    nao_shaping_runners_slm_slm_shaping_runner_square --> nao_shaping_utils_cli_params_with_params
-    nao_shaping_utils_io_file_save_recorder_debug_artifacts["ao_shaping.utils.io.file.save_recorder_debug_artifacts"]
-    nao_shaping_runners_slm_slm_shaping_runner_square --> nao_shaping_utils_io_file_save_recorder_debug_artifacts
     nao_shaping_runners_slm_zernike_matrix_runner_closed_loop_run["ao_shaping.runners.slm.zernike_matrix_runner.closed_loop_run"]
     nao_shaping_runners_slm_zernike_matrix_runner_closed_loop_run --> nao_shaping_utils_cli_params_with_params
     nao_shaping_runners_slm_zernike_matrix_runner_closed_loop_run --> nao_shaping_utils_io_cli_helpers_get_timestamp_str

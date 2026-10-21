@@ -833,7 +833,7 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 
 > **Shared analysis helpers**: `scripts/` report generators in the SLM/Zernike
 > family delegate measurement/analysis logic to
-> `src/ao_shaping/tools/slm/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
+> `src/ao_shaping/tools/kernels/sweep_analysis.py` (`outlier_mask`, `clamp_shift`,
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
 
@@ -861,7 +861,7 @@ python scripts/ml/generate_hwdataset_corpus_report.py
 ### generate_zernike_amp_report.py
 
 Generates the **illustrated Chinese report** for the learned Zernike far-field
-model: `report/zernike_phase2amp/report.md` + `report/zernike_phase2amp/figures/*.png`.
+model: `report/zernike_phase2amp/zernike_amp_report/report.md` + `report/zernike_phase2amp/figures/*.png`.
 **Fully offline** — reads only saved artefacts, never opens a camera or SLM.
 
 **Usage:**
@@ -1124,7 +1124,7 @@ python scripts/slm/generate_pib_bench_report.py --root data/debug -o report/slm_
 python scripts/slm/generate_pib_bench_report.py --no-figures
 ```
 
-**What it does** (writes `report/slm_pib_bench/report.md` + `figures/`):
+**What it does** (writes `report/slm_pib_bench/pib_bench_report/report.md` + `figures/`):
 1. **Noise floor + SNR per amplitude** from every `summary_snr.json` (recursive
    glob — the artefacts sit one level deeper than the search runs). Reports
    single- **and** multi-mode SNR, and states that the floor is *not* a bench
@@ -1231,7 +1231,7 @@ Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`)
 - `objectives/<n>_<slug>_spot.png` — best un-windowed frame per variant with the target box drawn and the yardstick annotated;
 - `objectives_summary.png` — CV / energy / peak bars per variant;
 - `objectives.csv` — the raw numbers;
-- an `<!-- OBJECTIVES_START --> … <!-- OBJECTIVES_END -->` section **appended idempotently** to `--append-to` (default `report/slm_pib_heuristic_hw/report.md`), so re-runs replace rather than duplicate it.
+- an `<!-- OBJECTIVES_START --> … <!-- OBJECTIVES_END -->` section **appended idempotently** to `--append-to` (default `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md`), so re-runs replace rather than duplicate it.
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -1239,7 +1239,7 @@ Variants: `shape` default, `shape` uniformity-heavy (`w_uniformity=5, w_peak=0`)
 | `--cam-type` / `--cam-id` / `--cam-size` | `daheng` / `0` / `320` | camera backend / id / window |
 | `--exposure-ms` / `--target-brightness` | `0.0` / `180` | `0` = auto-expose |
 | `--zoom` | `300` | display zoom box (px) around the spot |
-| `--append-to` | `report/slm_pib_heuristic_hw/report.md` | report to append the section to |
+| `--append-to` | `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md` | report to append the section to |
 | `-o, --output` | `report/slm_pib_heuristic_hw` | output directory |
 
 > ⚠️ **Measured (2026-09-20, fixed SA, fixed ROI = 21 px = 2×waist)**: CV 0.259 (energy-only)
@@ -1283,7 +1283,7 @@ logic. Debug artefacts are always on.
 | `--zernike-radius` | `480.0` | Aperture (px) |
 | `--target-size` | `50.0` | Target size (px) |
 | `--target-shape` | `square` | Target shape |
-| `--out` | `report/slm_pib_bench/delta_scan.md` | Markdown summary path |
+| `--out` | `report/slm_pib_bench/explore_delta/delta_scan.md` | Markdown summary path |
 | `--analyze-only` | off | No hardware; re-judge the newest existing run per delta |
 
 ### repeat_shape_objectives.py
@@ -1331,7 +1331,7 @@ Needs hardware (default camera backend `daheng`).
 | `--n-max` | `4` | Zernike order |
 | `--seed` | `42` | Random seed |
 | `-o, --output` | `report/slm_pib_heuristic_hw` | Output directory |
-| `--append-to` | `report/slm_pib_heuristic_hw/report.md` | Report to append the section to |
+| `--append-to` | `report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md` | Report to append the section to |
 
 ### generate_slm_pib_online_report.py
 
@@ -1400,7 +1400,7 @@ Outputs to `report/slm_pib_rms_pib_hw/`:
 ### generate_gs_refine_fwdmodel_report.py
 
 Generates the **forward-model calibration** report for the three-panel
-`slm-gs-refine` GIFs: `report/shape_trials/gs_refine_fwdmodel_calibration.md` +
+`slm-gs-refine` GIFs: `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` +
 `figures/`. Fully offline — reads only the saved `data/debug/slm_gs_refine/*/*.pkl`
 artefacts (recorded SLM grayscale + measured CCD frame) and drives
 `ao_shaping.utils.slm.gs_debug_optics`. Never opens a device.
@@ -1454,7 +1454,7 @@ verbatim, and the artefacts land in `<out>/<group>/`. The root directory keeps a
 sweep share a root and stay separable.
 
 > ⚠️ **Sim caveat**: with `--cam-type sim` the GS warm start is **not calibrated**
-> to the bench forward model (see `report/shape_trials/gs_refine_zernike_uniformity.md`
+> to the bench forward model (see `report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md`
 > `## 口径与已知局限`), so Stage A's best phase is near-flat and the order-scan
 > signal is only meaningful on hardware (`--cam-type daheng|miicam`). The sim path
 > validates plumbing, guards, and fit monotonicity — not the science.
@@ -1547,10 +1547,100 @@ Plan file:
 `<root>/groups_manifest.json` **after every group**, so a hard kill still leaves
 the completed groups indexed.
 
+### build_hw_sweep_plan.py
+
+Generates the **JSON plan** that `run_hw_sweep_groups.py` drives, for the
+hardware defocus scan + multi-order Zernike uniformity round. The plan is a
+*generated artefact*, not a hand-written file: every variable (focal length,
+exposure, chunk count, total epochs, per-chunk epochs, wall-clock budget, data
+roots, Δz point tables, apertures) is a command-line argument, and the generator
+**self-checks** the result before writing it.
+
+**Why it exists**: the previous round's plan was hand-written JSON (26 groups).
+Hand-editing it failed in two ways that cost a whole round:
+
+- **A change that reaches many places reached only some of them.** When the
+  focal length moved from 1626.2 mm to 1523.8 mm, twenty `--defocus-focal-mm`
+  arguments had to be edited one at a time. A generator makes that one
+  parameter — and the test suite asserts the new value appears in *every* group
+  that takes it.
+- **A wrong path did not fail loudly.** The previous round's plan pointed the
+  defocus and far-field groups at the **old** sweep root for their phase
+  files. When the per-order groups failed, the defocus groups silently reused
+  the phase left over from the previous round and nothing complained. The
+  self-check now refuses to emit a plan whose phase files live outside this
+  round's sweep root.
+
+**Why the round needs its own roots**: the previous two rounds shared
+`data/debug/hw_groups_20261021/` and `data/debug/hw_zernike_sweep_20261021/`,
+so the third round's defocus/far-field groups **overwrote** the second round's
+11 group directories (`measurements.json` included) — the second-round report's
+numbers for those groups are no longer reproducible on disk. This round writes
+to `..._r3` roots, and the archived copy of the plan is the round's input
+contract: `report/shape_trials/hw_defocus_zernike/artifacts/plan_20261021_r3.json`.
+
+**Why 7 chunks and not 6**: each Stage-A chunk has a wall-clock budget
+(`--time-budget-s 540`); the measured first chunk ran **39** epochs in 549.3 s
+(not the 45 requested), so 6 chunks × 39 ≈ 234 epochs does not reach the
+250-epoch target. The chunk count is computed as
+`ceil(total_epochs / epochs_per_chunk)` with `epochs_per_chunk` = the epochs a
+chunk actually achieves under the budget. ⚠️ 39 is the **result** of the
+wall-clock truncation, not "run 39 per chunk": the requested value stays 45
+(`--chunk-epochs`), and the sweep driver shrinks the last chunk to the
+remaining epochs by itself.
+
+**Usage:**
+```bash
+# print the plan + the self-check report, write nothing
+python scripts/slm/build_hw_sweep_plan.py --print-plan
+# write the plan (default: <groups-root>/plan.json)
+python scripts/slm/build_hw_sweep_plan.py
+# move the round: new roots + a new focal length
+python scripts/slm/build_hw_sweep_plan.py --defocus-focal-mm 1600.0 \
+    --groups-root data/debug/hw_groups_20261022 \
+    --sweep-root data/debug/hw_zernike_sweep_20261022 \
+    --out data/debug/hw_groups_20261022/plan.json
+# then run it
+python scripts/slm/run_hw_sweep_groups.py \
+    --plan data/debug/hw_groups_20261021_r3/plan.json --dry-run
+```
+
+**Self-checks** (all five must pass or nothing is written, exit code 2):
+
+| check | what it catches |
+|---|---|
+| group names unique | a copy-pasted group would overwrite another group's directory |
+| chunk chain complete | chunk 1 has no `--stage-a-in`; chunk N reads chunk N-1; every referenced chunk is *in this plan* |
+| phase files under this round's sweep root | the silent "reused last round's phase" failure |
+| chunk chain covers the total epochs | `chunks × min(requested, actual) ≥ total_epochs` |
+| every group has a variable and a `meta.role` | the driver's index column "which axis does this group scan" would be blank |
+
+| Option | Default | Description |
+|---|---|---|
+| `--groups-root` | `data/debug/hw_groups_20261021_r3` | this round's group root (defocus/far-field groups, focus-calibration evidence) |
+| `--sweep-root` | `data/debug/hw_zernike_sweep_20261021_r3` | this round's Zernike sweep root (Stage A, per-order groups, phase files) |
+| `--out` | `<groups-root>/plan.json` | where the plan JSON is written |
+| `--print-plan` | off | print the plan to stdout and write nothing |
+| `--defocus-focal-mm` | `1523.8` | pupil Fresnel focus-correction focal length (mm); appears in **every** group that takes it |
+| `--total-epochs` | `250` | Stage-A total refinement epochs (the learning-rate horizon) |
+| `--chunk-epochs` | `45` | epochs **requested** per chunk (the wall-clock budget only limits what actually happens) |
+| `--epochs-per-chunk` | `39` | epochs a chunk actually achieves under the budget — the chunk count is `ceil(total / this)` |
+| `--time-budget-s` | `540` | Stage-A wall-clock budget per chunk (s) |
+| `--orders` | `3,4,6,8,11,15,20,25` | Zernike truncation orders for the per-order and far-field groups (**ascending**) |
+| `--dz-noise-mm` / `--dz-scan-mm` / `--dz-scan-model-mm` | 9 × `0` / 23 pts / 29 pts | Δz point tables (mm) for the noise group, the hardware scan and the model-phase control |
+| `--hw-target-side-px` / `--model-target-side-px` | `10` / `44` | target-box side (CCD px) — **pre-registered**: 10 px = flat-field waist 2·w0 for the hardware phase, 44 px = the model square's side. Putting 44 px on the hardware phase hid the defocus response behind the aperture, so these two are not interchangeable |
+| `--stage-a-exposure-ms` / `--dz-hw-exposure-ms` / `--dz-model-exposure-ms` / `--farfield-exposure-ms` | `0.2` / `0.2` / `0.4` / `0.2` | per-family exposure (ms) |
+| `--focus-exposure-ms` / `--focus-frames` / `--focus-max-exposure-ms` / `--focus-steps` / `--focus-diopter-range` / `--focus-refine` | `0.1` / `3` / `20` / `33` / `6.0` / `9` | focus-calibration probe parameters |
+| `--frames` | `4` | averaged frames per measurement in the defocus/far-field groups |
+| `--cam-type` / `--cam-id` / `--cam-size` / `--beam-radius-px` / `--slm-number` | `daheng` / `0` / `256` / `450` / `1` | camera and panel geometry |
+| `--gs-iters` / `--spgd-epochs` / `--lr` / `--delta` / `--max-energy-loss` / `--seed` | `200` / `150` / `0.01` / `0.02` / `0.6` / `0` | optimiser knobs |
+| `--plan-exposure-cap-ms` / `--focus-exposure-cap-ms` | `0.4` / `40` | `AO_DAHENG_MAX_EXPOSURE_MS` for the measurement groups and for the focus-calibration group (it has to walk the exposure ladder up to 20 ms). The built-in doubling-ladder estimate reports a **false** ceiling on a dark bench, so the value must be written down explicitly |
+| `--chirp-tilt-cancel` / `--no-chirp-tilt-cancel` | on | pupil-slope tilt cancellation for the Δz **scan** groups (the far-field groups are single Δz=0 shots and do not use it) |
+
 ### generate_gs_refine_zernike_report.py
 
 Generates the **GS-refine Zernike order-scan** report:
-`report/shape_trials/gs_refine_zernike_uniformity.md` + `figures/`. Fully offline —
+`report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md` + `figures/`. Fully offline —
 reads only the `summary.json` + `spgd_nmax*.csv` artefacts written by
 `scripts/slm/run_gs_refine_zernike_sweep.py`. Never opens a device.
 
@@ -1628,7 +1718,7 @@ python scripts/slm/exp_fast_recal_adapter.py --seeds 6 --frames 1 2 4 8      # ~
 
 ### exp_fast_recal_adapter_report.py
 
-Renders `report/shape_trials/fast_recal_adapter.md` + `figures/` from the JSON
+Renders `report/shape_trials/fast_recal_adapter/fast_recal_adapter.md` + `figures/` from the JSON
 above. Reads the protocol constants (adapter size, arm list, perturbation
 families) **from the experiment module**, so the report cannot describe a
 protocol the script no longer implements.
@@ -1645,7 +1735,7 @@ the design's **power limit** (`min_attainable_pvalue`) next to every p-value, so
 ### generate_model_in_loop_cv_report.py
 
 Generates the **K-fold cross-validation** report for the `slm-model-in-loop`
-held-out probes: `report/shape_trials/model_in_loop_cv.md` + `figures/`. **Fully
+held-out probes: `report/shape_trials/model_in_loop_cv/model_in_loop_cv.md` + `figures/`. **Fully
 offline** — simulated bench only, no camera and no SLM.
 
 The question it answers: the loop splits its probes by a **fixed seed offset**
@@ -1701,7 +1791,7 @@ python scripts/slm/generate_model_in_loop_cv_report.py --quick    # 2 folds, 1 r
 
 ### generate_gs_golden_reference.py
 
-Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference.md`
+Generates the **GS golden-reference comparator**: `report/shape_trials/gs_golden_reference/gs_golden_reference.md`
 + `figures/`. **Fully offline** — simulated bench only, no camera and no SLM.
 
 The GS square phase is treated as an **upper bound** — "what a phase-only SLM could
@@ -1804,7 +1894,7 @@ Runs the Cython optimizer benchmark (`src.calculators.benchmark`, reading
 comparison with tables + analysis. **Fully offline** — no hardware, no CLI
 arguments.
 
-**Output**: `report/benchmarks/cython_optimizer_performance.md`
+**Output**: `report/benchmarks/cython_optimizer_report/cython_optimizer_performance.md`
 
 ```powershell
 $env:PYTHONPATH = "src;libs"
@@ -1817,7 +1907,7 @@ Runs the **NumPy / Numba / CuPy** kernel benchmark for `utils/image/spots_calc`
 (`calculate_sharpness`, `crop`, `center_of_mass`, `center_of_brightness`) and
 emits the comparison table. **Fully offline** — no hardware, no CLI arguments.
 
-**Output**: `report/benchmarks/backend_kernels_performance.md`
+**Output**: `report/benchmarks/backend_kernels_report/backend_kernels_performance.md`
 
 ```bash
 python scripts/generate_backend_kernels_report.py
@@ -1969,7 +2059,7 @@ python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir /tmp/fgn_pro
 python scripts/slm/generate_fouriergsnet_sim_report.py --matrix-dir data/fouriergsnet_sim/<ts> -o report/fouriergsnet_sim
 ```
 
-**What it does** (writes `report/fouriergsnet_sim/report.md` + `figures/` + `gifs/`):
+**What it does** (writes `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md` + `figures/` + `gifs/`):
 - **Header**: matrix config (k_px / steps / seed / env noise params), generation
   timestamp, `**Fully offline**` marker
 - **Summary table**: all scenarios × shape/aberration/turbulence/
@@ -2043,7 +2133,7 @@ python scripts/oopao/generate_oopao_vs_numpy_report.py --aberrations none,defocu
   is `@lru_cache`), and **fails fast** if OOPAO is not importable rather than
   silently producing a two-arm-numpy report.
 - Reports the `phase_std_rad` ratio per scenario; on the default config the two
-  backends are **not** equivalent (≈8.7×, see `report/oopao_vs_numpy/report.md`),
+  backends are **not** equivalent (≈8.7×, see `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`),
   so the report states that absolute Strehl/FWHM must not be compared across arms.
 
 **Zernike coefficients are radians**: aberration cases use Noll indices fed to
@@ -2148,7 +2238,7 @@ python scripts/slm/generate_slm_gsnet_sim_gif.py -o report/fouriergsnet_sim
 - Both via the repo `_frames_to_gif` convention (reused from
   `generate_diff_shaping_report`, LANCZOS 128px + adaptive 256 palette, 15 fps)
 - Prints the `![...](gifs/...)` markdown lines for embedding in
-  `report/fouriergsnet_sim/report.md` §5.6
+  `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md` §5.6
 
 | Option | Default | Description |
 |--------|---------|-------------|
@@ -2286,7 +2376,7 @@ smoothly apodised out to `--halo-radius-px` and PV-normalised to
   `slm-gsnet --objective pearson` help)
 
 **Outputs:** `data/debug/slm_pib_shape_<ts>/` (PNG/PKL/JSON), then
-`report/slm_pib_sim/report.md` + `figures/` + `gifs/` via
+`report/slm_pib_sim/slm_pib_sim_report/report.md` + `figures/` + `gifs/` via
 `generate_slm_pib_sim_report.py`.
 
 When `--disturbance` is not `none`, the harness also writes a **companion**
@@ -2388,7 +2478,7 @@ python scripts/slm/generate_slm_shaping_sim_report.py --out report/slm_shaping_s
 python scripts/slm/generate_slm_shaping_sim_report.py --no-figures
 ```
 
-**What it does** (writes `report/slm_shaping_sim/report.md` + `figures/`):
+**What it does** (writes `report/slm_shaping_sim/slm_shaping_sim_report/report.md` + `figures/`):
 - Covers the three **SLM-driven** runners (`slm-pib`, `slm-gsnet`, `spgd-square`)
   — the ones whose actuator the model actually represents, so their objective
   responds to the optimiser
@@ -2426,7 +2516,7 @@ FourierGSNet `1 - Pearson` loss may be promoted onto the hardware path.
 python scripts/slm/generate_shape_objective_comparison.py
 ```
 
-**What it does** (writes `report/slm_pib_online/objective_comparison.md` +
+**What it does** (writes `report/slm_pib_online/shape_objective_comparison/objective_comparison.md` +
 `figures/`):
 - loads each `data/debug/slm_pib_online/*/recorder_*.pkl`; the SNR sweeps
   (`history is None`) are skipped, as is any run with no scored frame
@@ -2588,7 +2678,7 @@ python scripts/slm/generate_slm_pib_sim_report.py --debug-dir data/debug/slm_pib
 python scripts/slm/generate_slm_pib_sim_report.py --max-runs 3
 ```
 
-**What it does** (writes `report/slm_pib_sim/report.md` + `figures/` + `gifs/`):
+**What it does** (writes `report/slm_pib_sim/slm_pib_sim_report/report.md` + `figures/` + `gifs/`):
 - **Header**: run description (sim camera / monkeypatched SLM / square target /
   SPGD Zernike n≤4), 2f-Fourier optical model, `**Fully offline**` marker
 - **Per-run section**: metric table (epochs / initial+final J / in-target
@@ -2632,7 +2722,7 @@ python scripts/slm/generate_slm_zernike_shaping_report.py --debug-root data/debu
   algorithm / optimizer_type / delta / w_outside / r_bucket / cam_type / cam_size`).
 - `*.png` — the run-time summary figure.
 
-**What it does** (writes `report/slm_zernike_shaping/report.md` + `figures/`):
+**What it does** (writes `report/slm_zernike_shaping/slm_zernike_shaping_report/report.md` + `figures/`):
 - **Header + run config** from the JSON sidecar; `**Fully offline**` marker
 - **Per-run section**: objective-vs-epoch curve (min/max aware), best objective
   + epoch, Zernike-coefficient evolution, first-vs-last CCD frames
@@ -2658,7 +2748,7 @@ python scripts/slm/generate_fouriergsnet_pipeline_report.py
 python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 ```
 
-**What it does** (writes `report/fouriergsnet_pipeline/report.md`):
+**What it does** (writes `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`):
 - Documents the 5 integration tests in
   `tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py` that drive
   the REAL standalone `fouriergsnet_optimize.py` pipeline
@@ -2717,7 +2807,7 @@ python scripts/slm/generate_gsnet_offline_report.py -o report/fouriergsnet_pipel
   is a *library* module (no `__main__`, no Click command), so invoking it as a
   module path is **not** a valid way to retrain
 - Writes into the `offline_training/` **subdirectory** so it never overwrites the
-  sibling `report/fouriergsnet_pipeline/report.md` owned by
+  sibling `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md` owned by
   `generate_fouriergsnet_pipeline_report.py`
 - Robust: every `summary.json` key is read through a defensive `.get()` chain, so
   an older/partial summary still renders; a missing `comparison.png` degrades to
@@ -3071,8 +3161,8 @@ corpus, no hardware.
 | `forward_search.py` | Forward-model search: physics × U-Net residual × loss × normalization × n_max. Writes `report/loss_defects/forward_search.json`. |
 | `forward_search_extra.py` | Expanded forward search with additional loss/augmentation combinations. |
 | `generate_zernike_coeff_report.py` | Render the illustrated coefficient-training report (`report/zernike_coeff2amp/`). Reads `logs/zernike_coeff/` summaries. |
-| `generate_inverse_design_report.py` | Render the inverse-design report (`report/loss_defects/inverse_design_report.md`). Reads `logs/zernike_coeff/` and `report/loss_defects/forward_search.json`. |
-| `write_forward_search_report.py` | Render `report/loss_defects/forward_search_report.md` from `forward_search.json`. |
+| `generate_inverse_design_report.py` | Render the inverse-design report (`report/loss_defects/inverse_design_report/inverse_design_report.md`). Reads `logs/zernike_coeff/` and `report/loss_defects/forward_search.json`. |
+| `write_forward_search_report.py` | Render `report/loss_defects/forward_search_report/forward_search_report.md` from `forward_search.json`. |
 | `probe_device_metadata.py` | Dump per-family FOV / pixel scale / exposure metadata from the index. |
 | `wire_ellipse.py` | Wire the `w_ellipse` loss term into `train_amp`. |
 | `check_ellipse_term.py` | Validate `ellipse_gap_term` against synthetic inputs. |
@@ -3182,7 +3272,7 @@ model (pre-processing / deep modules / post-processing).
 conclusion of a measurement. AGENTS.md draws that line: `report/<topic>/` holds
 measurement conclusions, `docs/` holds device/usage documentation. The *hardware
 measurement* of this same runner is
-[`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md)
+[`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)
 and the two are deliberately kept apart. Consequently this generator is **not**
 registered in `scripts/_common/provenance.py::REPORTS`: that registry renders
 `report/README.md` and assumes every key is under `report/`, so a `docs/` key
@@ -3279,7 +3369,7 @@ solve) and is how the logic is verified while the bench is offline.
 
 > Bench constants, the measured 29.5× far-field sampling mismatch, and the
 > failure modes this works around are documented in
-> [`report/slm/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_bench_calibration.md).
+> [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md).
 
 ### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
 
@@ -3438,7 +3528,7 @@ python scripts/slm/check_flat_stability.py <out> --exposure-ms 0.02 --repeats 6 
 - The ROI center is frozen at the first repeat's centroid so drift shows up in
   the ROI energy rather than being chased
 
-First field use: `report/shape_trials/model_in_loop_live_20261015.md` (21 s
+First field use: `report/shape_trials/model_in_loop/model_in_loop_live_20261015.md` (21 s
 replay, 0.52% ROI-energy spread).
 
 | Option | Default | Description |
@@ -3713,7 +3803,7 @@ One fixed convention for every figure:
   frame centre while the centroid stays within ~15 px.
 
 **The rendering is not this script's.** Both panels and the cut point come from
-[`ao_shaping.display.beam_profile`](../../src/ao_shaping/display/beam_profile.py) — the single
+[`ao_shaping.display.beam_profile`](../src/ao_shaping/display/beam_profile.py) — the single
 implementation of the far-field / SLM-phase / X-Y cross-section renderers, shared with the debug
 artefacts a run's `Recorder` writes next to its `.pkl`. This script only calls `cut_point` /
 `save_xy_profile`; keeping a private copy of the convention here is the drift this repo keeps
@@ -3838,4 +3928,31 @@ while the experiment system is offline.
 > The exposure is a **token**, never a bare `0`: the runner rejects `0`, so the
 > profile carries `auto` (the runner's own default) or an explicit positive
 > number of milliseconds.
+
+### generate_model_in_loop_hw_ab_report.py
+
+Offline report generator for the A/B campaign above: it reads the campaign's
+recorded artefacts only (the manifest, each stage's log, the MIL run's probe
+frames, the recorder's pkl/json and the panel-scan evidence) and never opens a
+device, so the report can be recomputed at any time.
+
+```bash
+python scripts/slm/generate_model_in_loop_hw_ab_report.py \
+    --session data/debug/model_in_loop_hw_ab/<stamp> --stamp <stamp>
+```
+
+Output — `report/shape_trials/model_in_loop/`:
+
+| file | what |
+|---|---|
+| `model_in_loop_hw_ab_<stamp>.md` | the report: expected vs measured per arm, the A/B conclusion, the day's exposure window and geometry calibration, the blockers hit and how they were handled |
+| `figures/<stamp>_mil_inverse_<arm>.gif` | the real inverse-optimization process: measured probe frame / model prediction / pupil phase / recorder curves, frame by frame |
+| `figures/<stamp>_hw_ab_summary.png` | per-arm comparison (score / CV / EE / holdout correlation / rounds / status) |
+| `figures/<stamp>_panel_scan_<arm>.png` | the panel-locate scan response and flat drift |
+
+The model prediction is mapped onto the camera grid with the run's own
+`bench_geometry.json` (`camera_px_per_model_px`, `far_field_size`) and the
+run's frozen ROI centre, so the GIF overlays prediction and measurement on the
+same pixels. The real run's "whole process" comes from the recorder (pkl/json);
+the report never recomputes it.
 

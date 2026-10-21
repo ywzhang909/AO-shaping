@@ -21,15 +21,60 @@ window, which sidesteps the known ``cam_size`` default bug where a target
 larger than the window makes ``square_mask`` clip to the whole frame and pins
 ``pib`` at exactly 1.0.
 
+Split into segments
+-------------------
+
+One call doing Stage A plus all eight orders takes ~55 min on the bench, which
+does not fit in a single 10-minute slot. So the driver can be **split into
+independent calls**, each recording its own segment:
+
+1. **Stage A, once** -- ``--stage-a-only`` runs Stage A, writes
+   ``<group>/stage_a.npz`` (best phase, flat frame, best frame) and
+   ``<group>/stage_a.json`` (geometry, epochs actually run, best score, the
+   config), then exits.
+2. **One order per call** -- ``--stage-a-in <group>/stage_a.npz`` reads that
+   state back, skips the flat probe and Stage A, and runs Stage B/C for the
+   orders named by ``--orders``.
+3. **Stage A in chunks** -- ``--stage-a-only --stage-a-in <prev chunk>`` is
+   *both* at once: it reads the previous chunk's end state and continues the
+   same optimisation for one more chunk. ``--epochs`` stays the **total** number
+   of refinement epochs (the learning-rate schedule's horizon), ``--chunk-epochs``
+   says how many this chunk runs (capped by the epochs still left), and
+   ``--time-budget-s`` caps the chunk's wall clock. Without this, a 250-epoch
+   Stage A needs ~50 min on the bench, which cannot fit in a 10-minute slot.
+
+Every call writes only its own segment: ``summary.json`` lists just the orders
+processed by that call. Give each call its own ``--group`` so the artefacts of
+the eight orders live side by side under one ``--out`` root.
+
 Usage::
 
     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type sim \\
         --cam-size 256 --epochs 4 --gs-iters 20 --spgd-epochs 4 --n-max 4 6
 
+    # Segment 1: Stage A only (writes stage_a.npz / stage_a.json)
+    python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \\
+        --defocus-focal-mm 1597.4 --stage-a-only --time-budget-s 540 \\
+        --group zernike_stage_a --out data/debug/hw_zernike_sweep_20261021
+
+    # Segment 2: one order, reading the Stage A result back
+    python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \\
+        --defocus-focal-mm 1597.4 \\
+        --stage-a-in data/debug/hw_zernike_sweep_20261021/zernike_stage_a/stage_a.npz \\
+        --orders 4 --group zernike_order_nmax4 \\
+        --out data/debug/hw_zernike_sweep_20261021
+
     # Hardware run: the 2f bench camera is not on the 2f plane, so the pupil
     # Fresnel focus correction has to be applied explicitly.
     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \\
         --defocus-focal-mm 1597.4
+
+Exit codes
+----------
+
+0 = the sweep ran; 2 = bad arguments; 3 = **the optical path is blocked** (the
+flat far field carries no localisable spot, so every Zernike order would be
+measured against noise -- see :class:`PathBlockedError`).
 
 One variable group per invocation
 ---------------------------------
@@ -70,7 +115,9 @@ from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM  # noqa: E402
 from ao_shaping.gui.utils.phase_overlay import PhaseOverlay  # noqa: E402
 from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import (  # noqa: E402
     fit_best_phase,
+    panel_phase_from_coefficients,
 )
+from ao_shaping.optimizer.wfless._measure import locate_zero_order  # noqa: E402
 from ao_shaping.optimizer.wfless.slm_gs_refine import (  # noqa: E402
     SlmGsRefineConfig,
     optimize_slm_gs_refine,
@@ -96,6 +143,7 @@ from ao_shaping.runners.runner_common import (  # noqa: E402
 from ao_shaping.tools.kernels.bench_kernels import fresnel_panel  # noqa: E402
 from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN  # noqa: E402
 from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import assess_spot  # noqa: E402
 from ao_shaping.utils.image.target.metrics import spot_waist_sigma  # noqa: E402
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
 from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
@@ -261,6 +309,48 @@ def sweep_plan(n_max_list: tuple[int, ...] | list[int]) -> list[dict[str, int]]:
         {"n_max": int(n_max), "n_modes": int(calc_n_zernike_terms(int(n_max)))}
         for n_max in n_max_list
     ]
+
+
+def parse_orders(text: str) -> tuple[int, ...]:
+    """把 ``--orders 3,4,6`` 解析成阶数元组。
+
+    Args:
+        text: 逗号分隔的整数串。
+
+    Returns:
+        阶数元组 (保持书写顺序)。
+
+    Raises:
+        ValueError: 串里不是整数, 或解析后为空。
+    """
+    orders: list[int] = []
+    for chunk in str(text).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        try:
+            orders.append(int(chunk))
+        except ValueError as exc:
+            raise ValueError(
+                f"--orders 需要逗号分隔的整数, 收到 {chunk!r}"
+            ) from exc
+    if not orders:
+        raise ValueError("--orders 不能为空")
+    return tuple(orders)
+
+
+def resolve_orders(params: SweepParams) -> tuple[int, ...]:
+    """本次调用要处理的阶: ``--orders`` 优先, 否则用 ``--n-max``。
+
+    Args:
+        params: 扫描参数。
+
+    Returns:
+        阶数元组。
+    """
+    if params.orders:
+        return tuple(int(n) for n in params.orders)
+    return tuple(int(n) for n in params.n_max_list)
 
 
 def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:
@@ -476,6 +566,16 @@ def configure_sim_system(seed: int, far_field_padding: int) -> None:
     system.far_field_padding = int(far_field_padding)
 
 
+class PathBlockedError(RuntimeError):
+    """平场远场里没有光 —— 光路受阻, 继续跑只是在对着死路测噪声。
+
+    2026-10-21 实测: 光束没进 2f 透镜时, 平场画面里只剩读出噪声, 而噪声照样能
+    算出零级位置与腰径 —— 于是整套 8 个泽尼克阶次都跑在一条**死路**上, 而且
+    看上去毫无异常。判据必须看**结构** (见
+    :func:`ao_shaping.utils.image.frame_analysis.assess_spot`)。
+    """
+
+
 def probe_flat_field(
     cam_type: str,
     cam_id: int,
@@ -483,6 +583,9 @@ def probe_flat_field(
     seed: int,
     cam_size: int,
     far_field_padding: int = DEFAULT_SIM_FAR_FIELD_PADDING,
+    *,
+    send_overlay: PhaseOverlay | None = None,
+    slm_number: int = 1,
 ) -> tuple[tuple[int, int], float, tuple[int, int]]:
     """Probe a flat-phase far field for the 0-order centre, waist and shape.
 
@@ -493,6 +596,11 @@ def probe_flat_field(
     wide enough for the target box to clear :data:`MIN_TARGET_SIDE`. The 0-order
     is located by ``argmax`` (never by geometry - the optical axis is not the
     frame centre).
+
+    🔴 **光路自检**: 抓到的平场画面先判一次「有没有可评分的局域光斑」。光路被
+    挡住时画面里只有读出噪声, 而噪声照样能给出零级位置与腰径 —— 于是后面 8 个
+    泽尼克阶次全都跑在一条死路上, 且看上去毫无异常。所以这里直接抛
+    :class:`PathBlockedError`, 由调用方中止整轮。
 
     Args:
         cam_type: Camera backend (``sim`` / ``daheng`` / ``miicam``).
@@ -506,20 +614,57 @@ def probe_flat_field(
 
     Returns:
         ``(center_xy, w0_px, frame_shape)`` where ``center_xy`` is ``(x, y)``.
+
+    Raises:
+        PathBlockedError: The flat frame carries no localisable spot (the path is
+            not delivering light).
     """
     if cam_type == "sim":
         configure_sim_system(seed, far_field_padding)
 
-    from ao_shaping.drivers.ccd.common import create_camera
+    from types import SimpleNamespace
 
-    cam = create_camera(
-        cam_type,
+    from ao_shaping.drivers.slm.factory import open_camera, open_slm
+    from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
+    from ao_shaping.optimizer.wfless._measure import display_and_average
+    from ao_shaping.utils.slm.phase_embed import panel_shape_from_slm
+
+    # ``BenchDeviceParams`` 是 **Protocol** (结构化类型), 不能直接实例化 ——
+    # 工厂只按属性取用, 所以给一个同形状的命名空间即可。
+    device_params = SimpleNamespace(
+        cam_type=cam_type,
         cam_id=cam_id,
         exposure_time_ms=exposure_time_ms,
         cam_size=cam_size,
+        slm_number=slm_number,
+        slm_wavelength=DEFAULT_WAVELENGTH_NM,
     )
-    with cam:
+    slm = open_slm(device_params)
+    cam = open_camera(device_params)
+    with slm, cam:
+        # 🔴 **面板必须由本函数摆成「平相位 + 焦面矫正」**, 不能只开相机抓一帧:
+        # 抓到的会是面板上**上一次**留下的相位。2026-10-21 13:14 实测: 焦面标定组
+        # 刚跑完, 面板上留的是**未矫正**的平相位 ⇒ 画面是一圈弥散环 ⇒ 峰值停在
+        # 读出噪声本底上 ⇒ 被判成「光路受阻」(退出码 3), 整整一轮白跑。
+        if send_overlay is not None:
+            apply_overlays_to_handle(slm, send_overlay)
+        panel_shape = panel_shape_from_slm(slm)
+        # display_and_average 负责「等面板稳定」(按稳定性判, 不按时间); 它返回的
+        # 是减过中位数的帧, 所以下面再抓一张**原始**帧来量腰径与判光路。
+        display_and_average(
+            cam,
+            slm,
+            np.zeros(panel_shape, dtype=np.float64),
+            n_frames=1,
+            settle_wait_s=0.5,
+            settle_tol=0.02,
+            settle_max_wait_s=6.0,
+            settle_max_discard=40,
+        )
         frame = np.asarray(cam.get_numpy_image(), dtype=np.float64)
+    assessment = assess_spot(frame)
+    if assessment.blocked:
+        raise PathBlockedError(assessment.reason)
     center = zero_order_center(frame)
     w0 = float(spot_waist_sigma(frame, center))
     return center, w0, (int(frame.shape[0]), int(frame.shape[1]))
@@ -583,6 +728,41 @@ def _patch_sim_stage_c_camera_window() -> None:
     pib_opt.create_camera = create_camera_with_window
 
 
+def _window_mask_centre(
+    flat_frame: np.ndarray,
+    persisted: tuple[int, int] | None,
+    side: float,
+) -> tuple[tuple[int, int], str]:
+    """续跑块的目标框中心 —— 一律**窗口内**坐标。
+
+    框是画在**平场帧**上的, 而平场帧是相机裁出来的 ROI 窗口 (256x256), 所以框
+    中心必须是这个窗口自己的坐标 (零级在 ~128)。全幅传感器坐标 (例如
+    (1434, 973)) 落在窗口之外, 框整个跑到画面外 —— 2026-10-21 实测的分块续跑
+    失败正是这么来的。
+
+    优先用交接文件里记的窗口内中心; 缺了 (老版交接文件) 或者它落在窗口之外
+    (有人把全幅坐标写进去了) ⇒ 从平场帧重新定位, 与优化器自己用的峰值定位
+    同一套 routine。
+
+    Args:
+        flat_frame: 交接文件里的平场帧 (ROI 窗口坐标系)。
+        persisted: 交接文件里记的窗口内中心 ``(x, y)``; ``None`` = 没记。
+        side: 共享方形目标框边长 (相机像素)。
+
+    Returns:
+        ``((x, y), how)`` —— 框中心与取值途径 (``"persisted"`` / ``"relocated"``)。
+    """
+    frame = np.asarray(flat_frame, dtype=np.float64)
+    side_px = max(1, int(round(side)))
+    if persisted is not None:
+        cx, cy = int(persisted[0]), int(persisted[1])
+        if square_mask(frame.shape, cy, cx, side_px).any():
+            return (cx, cy), "persisted"
+    # ``locate_zero_order`` 返回的是 (行, 列), 这里要的是 (列, 行)。
+    cy, cx = locate_zero_order(frame)
+    return (int(cx), int(cy)), "relocated"
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -626,6 +806,26 @@ class SweepParams:
     group_meta: dict[str, str] = field(default_factory=dict)
     """Fixed parameters of this group, recorded verbatim (see ``--group-meta``)."""
 
+    stage_a_only: bool = False
+    """只跑 Stage A, 落盘后退出 (不再跑 Stage B/C)。"""
+
+    stage_a_in: str = ""
+    """读回 Stage A 产物的路径 (``stage_a.npz``); 非空 = 跳过平场探测与 Stage A。"""
+
+    orders: tuple[int, ...] = ()
+    """本次调用要处理的阶 (非空时**优先于** ``n_max_list``)。"""
+
+    time_budget_s: float = 0.0
+    """Stage A 的墙钟预算 (s); 0 = 不限。"""
+
+    chunk_epochs: int = 0
+    """本块 Stage A 跑多少个精化 epoch (0 = 跑满 ``epochs``)。
+
+    「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, ``epochs`` 保持**总轮数**
+    (学习率调度的总地平线不变), 本字段只说这一块跑多少轮; 实际轮数还会被
+    「总轮数 - 已跑轮数」夹住, 所以最后一块自动收口。
+    """
+
 
 def _jsonable(value: Any) -> Any:
     """Recursively convert numpy scalars/arrays to JSON-serialisable values."""
@@ -638,6 +838,242 @@ def _jsonable(value: Any) -> Any:
     if isinstance(value, np.generic):
         return value.item()
     return value
+
+
+# ---------------------------------------------------------------------------
+# Stage A 的落盘 / 读回 (分段扫描的接缝)
+# ---------------------------------------------------------------------------
+
+#: Stage A 落盘的两个文件名 (基名)。``--stage-a-only`` 写它们, ``--stage-a-in`` 读它们。
+STAGE_A_NPZ_NAME = "stage_a.npz"
+STAGE_A_JSON_NAME = "stage_a.json"
+
+
+@dataclass
+class StageAResult:
+    """一次 Stage A 跑出来的全部可复用状态 (落盘与读回共用这一个形状)。
+
+    Stage B 每次都从 ``best_phase`` 重新拟合, 所以「可复用的东西」就是这三个
+    数组 (最佳相位 + 两张基线帧) 加上一份几何元数据 —— 没有别的隐藏状态。
+    """
+
+    best_phase: np.ndarray
+    """Stage A 的最佳相位 (面板尺寸的 raw 弧度)。"""
+
+    flat_frame: np.ndarray
+    """平场基线帧 (raw 相机帧)。"""
+
+    best_frame: np.ndarray
+    """最佳相位对应的远场帧 (raw 相机帧)。"""
+
+    center_xy: tuple[int, int]
+    """零级位置 ``(x, y)`` (**全幅**传感器坐标)。
+
+    这是平场探测在全幅画面上找到的零级 —— Stage C 用它摆 ROI 窗口, 所以它必须
+    留在全幅坐标系里。它**不是**评分用的框中心。
+    """
+
+    w0: float
+    """平场光斑腰径 (相机像素)。"""
+
+    side: float
+    """共享方形目标框边长 (相机像素)。"""
+
+    probe_shape: tuple[int, int]
+    """平场探测时的画面尺寸 ``(h, w)``。"""
+
+    best_stage: str
+    """最佳结果来自哪个阶段 (flat / gs / refine)。"""
+
+    best_score: float
+    """最佳复合分数。"""
+
+    epochs_executed: int
+    """实际跑掉的精化 epoch 数 (被墙钟预算截断时小于请求值)。"""
+
+    elapsed_s: float = 0.0
+    """Stage A 实测墙钟耗时 (s) —— 「一次扫描不超过 10 分钟」这条约束的账本。"""
+
+    config: dict[str, Any] = field(default_factory=dict)
+    """本次 Stage A 用的配置 (含 ``defocus_focal_mm``), 供读回时复现。"""
+
+    dof: np.ndarray | None = None
+    """精化阶段的自由参数量 (grid×grid)。续跑必须带上它, 否则等于从头再来。"""
+
+    base_panel: np.ndarray | None = None
+    """精化所依附的基座相位 (GS 面板或平场), **未叠加**零级叠加层。"""
+
+    best_phase_plain: np.ndarray | None = None
+    """最佳相位的**未叠加**版本 (显示时再加叠加层; 续跑要的是这个)。"""
+
+    epochs_total: int = 0
+    """到这一块为止累计跑掉的精化轮数 (= 下一块的起点)。"""
+
+    mask_center_xy: tuple[int, int] | None = None
+    """目标框中心 ``(x, y)`` —— **窗口内**坐标 (ROI 窗口自己的坐标系)。
+
+    评分用的方形框就画在这里, 所以它必须是**窗口内**坐标: 平场帧是相机裁出来的
+    ROI 窗口 (256x256), 而 :attr:`center_xy` 是全幅传感器坐标 —— 拿后者当框中心,
+    框整个落在窗口之外 (2026-10-21 实测: "target square ... is empty")。
+    """
+
+    full_frame_center: tuple[int, int] | None = None
+    """ROI 窗口在全幅传感器上的中心 ``(x, y)``。
+
+    下一块据此把窗口摆在**同一个**位置: 重新定位零级会落到近等的散斑颗粒上,
+    窗口一平移, 窗口坐标系就跟着挪, 冻结的框就指错了地方。
+    """
+
+
+def _resumable_arrays(stage_a: StageAResult) -> bool:
+    """交接文件里够不够续跑一块。
+
+    DOF 与基座相位都必须在, 而且不能是**空数组**: 老版交接文件干脆没有这两个
+    键 (读回来是 None), 而写坏的文件可能留下长度为 0 的数组 —— 两者都意味着
+    「这一块没法接着跑」, 必须当场报错, 而不是带着空 DOF 往下跑、在更难懂的地方
+    炸掉。
+    """
+    for name in ("dof", "base_panel"):
+        value = getattr(stage_a, name, None)
+        if value is None or np.asarray(value).size == 0:
+            return False
+    return True
+
+
+def save_stage_a(result: StageAResult, out_dir: Path) -> tuple[Path, Path]:
+    """把 Stage A 的产物落盘。
+
+    数组进 ``stage_a.npz`` (raw 数组, 不做任何归一化 —— 读回时要能逐位复现
+    评分), 元数据进 ``stage_a.json`` (人可读, 记录几何与实际跑掉的 epoch 数)。
+
+    Args:
+        result: Stage A 的产物。
+        out_dir: 组目录 (不存在会被创建)。
+
+    Returns:
+        ``(npz_path, json_path)``。
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    npz_path = out_dir / STAGE_A_NPZ_NAME
+    arrays: dict[str, np.ndarray] = {
+        "best_phase": np.asarray(result.best_phase, dtype=np.float64),
+        "flat_frame": np.asarray(result.flat_frame, dtype=np.float64),
+        "best_frame": np.asarray(result.best_frame, dtype=np.float64),
+    }
+    # 续跑需要的三件 (自由参数量 / 基座相位 / 未叠加的最佳相位): **值为 None 就
+    # 不写这个键**。写成空数组的话, 读回来是「长度 0 的数组」而不是 None ——
+    # 「不可续跑」的守卫就形同虚设, 带着空 DOF 往下跑会在更难懂的地方炸掉
+    # (2026-10-21 复核时发现的老坑)。缺键 = None, 读回语义才与写出一致。
+    if result.dof is not None:
+        arrays["dof"] = np.asarray(result.dof, dtype=np.float64)
+    if result.base_panel is not None:
+        arrays["base_panel"] = np.asarray(result.base_panel, dtype=np.float64)
+    if result.best_phase_plain is not None:
+        arrays["best_phase_plain"] = np.asarray(
+            result.best_phase_plain, dtype=np.float64
+        )
+    np.savez(npz_path, **arrays)
+    json_path = out_dir / STAGE_A_JSON_NAME
+    payload = {
+        "center_xy": [int(result.center_xy[0]), int(result.center_xy[1])],
+        # 框中心 (**窗口内**坐标) 与摆窗口用的全幅零级位置分开放: 这两个坐标
+        # 系混用就是 2026-10-21 那次分块续跑失败的根因。
+        "mask_center_xy": (
+            None
+            if result.mask_center_xy is None
+            else [int(result.mask_center_xy[0]), int(result.mask_center_xy[1])]
+        ),
+        "full_frame_center": (
+            None
+            if result.full_frame_center is None
+            else [int(result.full_frame_center[0]), int(result.full_frame_center[1])]
+        ),
+        "w0": float(result.w0),
+        "side": float(result.side),
+        "probe_shape": [int(result.probe_shape[0]), int(result.probe_shape[1])],
+        "best_stage": str(result.best_stage),
+        "best_score": float(result.best_score),
+        "epochs_executed": int(result.epochs_executed),
+        "epochs_total": int(result.epochs_total),
+        "elapsed_s": float(result.elapsed_s),
+        "config": _jsonable(result.config),
+    }
+    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return npz_path, json_path
+
+
+def load_stage_a(path: str | Path) -> StageAResult:
+    """读回 Stage A 的产物。
+
+    ``path`` 给到 ``stage_a.npz`` 即可, 同目录的 ``stage_a.json`` 自动配对;
+    给目录也行 (取目录里的 ``stage_a.npz``)。
+
+    Args:
+        path: ``stage_a.npz`` 的路径, 或它所在的目录。
+
+    Returns:
+        读回的 :class:`StageAResult`。
+
+    Raises:
+        FileNotFoundError: ``stage_a.npz`` 或配对的 ``stage_a.json`` 不存在。
+        ValueError: 元数据缺字段, 或 npz 里的数组不齐。
+    """
+    npz_path = Path(path)
+    if npz_path.is_dir():
+        npz_path = npz_path / STAGE_A_NPZ_NAME
+    json_path = npz_path.with_name(STAGE_A_JSON_NAME)
+    if not npz_path.is_file():
+        raise FileNotFoundError(f"Stage A 产物不存在: {npz_path}")
+    if not json_path.is_file():
+        raise FileNotFoundError(f"Stage A 元数据不存在: {json_path}")
+
+    meta = json.loads(json_path.read_text(encoding="utf-8"))
+    if not isinstance(meta, dict):
+        raise ValueError(f"Stage A 元数据必须是 JSON 对象: {json_path}")
+    with np.load(npz_path) as data:
+        arrays = {
+            key: np.asarray(data[key], dtype=np.float64)
+            for key in ("best_phase", "flat_frame", "best_frame")
+        }
+        # 续跑用的两件是**可选**的 (旧版交接文件没有它们 ⇒ 只能从头跑)
+        for key in ("dof", "base_panel", "best_phase_plain"):
+            if key in data:
+                arrays[key] = np.asarray(data[key], dtype=np.float64)
+    try:
+        center = meta["center_xy"]
+        shape = meta["probe_shape"]
+        mask_center = meta.get("mask_center_xy")
+        full_center = meta.get("full_frame_center")
+        return StageAResult(
+            best_phase=arrays["best_phase"],
+            flat_frame=arrays["flat_frame"],
+            best_frame=arrays["best_frame"],
+            center_xy=(int(center[0]), int(center[1])),
+            w0=float(meta["w0"]),
+            side=float(meta["side"]),
+            probe_shape=(int(shape[0]), int(shape[1])),
+            best_stage=str(meta.get("best_stage", "")),
+            best_score=float(meta.get("best_score", float("nan"))),
+            epochs_executed=int(meta.get("epochs_executed", 0)),
+            epochs_total=int(meta.get("epochs_total", meta.get("epochs_executed", 0))),
+            elapsed_s=float(meta.get("elapsed_s", 0.0)),
+            dof=arrays.get("dof"),
+            base_panel=arrays.get("base_panel"),
+            best_phase_plain=arrays.get("best_phase_plain"),
+            config=dict(meta.get("config") or {}),
+            mask_center_xy=(
+                None
+                if mask_center is None
+                else (int(mask_center[0]), int(mask_center[1]))
+            ),
+            full_frame_center=(
+                None
+                if full_center is None
+                else (int(full_center[0]), int(full_center[1]))
+            ),
+        )
+    except (KeyError, IndexError, TypeError, ValueError) as exc:
+        raise ValueError(f"Stage A 元数据缺字段或格式不对: {json_path} ({exc})") from exc
 
 
 def _scalar_columns(history: list[dict[str, Any]]) -> list[str]:
@@ -732,13 +1168,22 @@ def _run_stage_a_with_saturation_backoff(
 
 
 def run_sweep(params: SweepParams) -> dict[str, Any]:
-    """Run the full GS-refine -> Zernike-fit -> SPGD sweep.
+    """Run the GS-refine -> Zernike-fit -> SPGD sweep, one segment per call.
+
+    Three ways to call it, all recording only their own segment:
+
+    * **默认**: 平场探测 + Stage A + Stage B/C (``--n-max`` 里的每个阶)。
+    * **``--stage-a-only``**: 只跑 Stage A, 落盘 ``stage_a.npz`` /
+      ``stage_a.json`` 后返回 (``orders`` 为空)。
+    * **``--stage-a-in``**: 读回 Stage A 的产物, 跳过平场探测与 Stage A,
+      直接跑 Stage B/C (只跑 ``--orders`` 指名的阶)。
 
     Args:
         params: Fully-specified sweep parameters.
 
     Returns:
-        The summary dict that is also written to ``<out>/summary.json``.
+        The summary dict that is also written to ``<group>/summary.json``.
+        Its ``orders`` list holds **only** the orders processed by this call.
     """
     out_root = (
         Path(params.out)
@@ -756,57 +1201,284 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         patch_sim_pib_shaping(params.cam_type)
         _patch_sim_stage_c_camera_window()
 
-    center_xy, w0, probe_shape = probe_flat_field(
-        params.cam_type,
-        params.cam_id,
-        params.exposure_time_ms,
-        params.seed,
-        params.cam_size,
-        params.sim_far_field_padding,
-    )
-    side = resolve_target_side(w0, params.cam_size, params.target_side)
-    print(
-        f"[probe] cam_type={params.cam_type} probe_shape={probe_shape} "
-        f"center={center_xy} w0={w0:.2f}px target_side={side:.2f}px"
-    )
+    n_max_list = resolve_orders(params)
+    stage_a: StageAResult
+    stage_a_source = ""
 
-    # --- Focus correction (2f bench camera is not on the 2f plane) ---------
-    # Both optimizers accept a send-pipeline overlay, so ONE overlay covers
-    # Stage A (GS) and Stage C (SPGD): the three stages then share the same
-    # optical correction and their baselines stay comparable.
-    send_overlay = build_focus_overlay(
-        params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
-    )
+    # 分块续跑要用: 续跑块的状态与本块轮数 (不走续跑时都是空/0)。
+    resume_state: dict[str, Any] | None = None
+    chunk_count = 0
 
-    # --- Stage A: one GS-refine optimisation ------------------------------
-    stage_a = SlmGsRefineConfig(
-        epochs=params.epochs,
-        seed=params.seed,
-        gs_iters=params.gs_iters,
-        target_side=int(round(side)),
-        side_factor=1.0,
-        cam_type=params.cam_type,
-        cam_id=params.cam_id,
-        exposure_time_ms=params.exposure_time_ms,
-        cam_size=params.cam_size,
-        slm_number=params.slm_number,
-        beam_radius_px=params.beam_radius_px,
-        record_debug=True,
-        send_overlay=send_overlay,
-    )
-    rec_a = _run_stage_a_with_saturation_backoff(stage_a, params)
-    best_phase = np.asarray(rec_a.best_phase, dtype=np.float64)
-    best_frame = np.asarray(rec_a.best_frame, dtype=np.float64)
-    flat_frame = _flat_frame(rec_a.history)
-    print(
-        f"[stage A] best_stage={rec_a.best_stage} "
-        f"best_score={max(r['score'] for r in rec_a.history):.4f} "
-        f"evals={len(rec_a.history)}"
-    )
+    if params.stage_a_in:
+        # --- Segment 2+: read the Stage A result back ---------------------
+        stage_a = load_stage_a(params.stage_a_in)
+        stage_a_source = str(params.stage_a_in)
+        center_xy = stage_a.center_xy
+        w0 = stage_a.w0
+        probe_shape = stage_a.probe_shape
+        side = stage_a.side
+        best_phase = stage_a.best_phase
+        flat_frame = stage_a.flat_frame
+        best_frame = stage_a.best_frame
+        # The baselines are measured in Stage A's exposure. If Stage A backed
+        # off from saturation, Stage C must use the SAME exposure, otherwise
+        # the flat/GS baselines and the Stage-C numbers are not comparable.
+        recorded_exposure = stage_a.config.get("exposure_time_ms")
+        if recorded_exposure is not None:
+            recorded = float(recorded_exposure)
+            if abs(recorded - float(params.exposure_time_ms)) > 1e-9:
+                print(
+                    f"[stage A] 曝光以 Stage A 记录为准 ({recorded} ms), "
+                    f"忽略命令行的 {params.exposure_time_ms} ms —— "
+                    f"基线可比性要求两段用同一个曝光",
+                    flush=True,
+                )
+                params.exposure_time_ms = recorded
+        # Same argument for the focus correction: Stage C must optimise the
+        # optical configuration the baselines were taken in.
+        recorded_focus = stage_a.config.get("defocus_focal_mm")
+        if params.defocus_focal_mm is None and recorded_focus is not None:
+            params.defocus_focal_mm = float(recorded_focus)
+            print(
+                f"[stage A] 焦面矫正沿用 Stage A 记录的 {params.defocus_focal_mm} mm",
+                flush=True,
+            )
+        # --- Focus correction (2f bench camera is not on the 2f plane) -----
+        # Both optimizers accept a send-pipeline overlay, so ONE overlay covers
+        # Stage A (GS) and Stage C (SPGD): the three stages then share the same
+        # optical correction and their baselines stay comparable.
+        # 叠加层在**采用 Stage A 记录的焦距之后**才建: 否则会拿命令行的焦距建叠加层,
+        # 而基线是在 Stage A 的焦距下拍的 —— 两段的光学状态就不一样了。
+        send_overlay = build_focus_overlay(
+            params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
+        )
+        print(
+            f"[stage A] 读回 {stage_a_source}: center={center_xy} w0={w0:.2f}px "
+            f"target_side={side:.2f}px epochs={stage_a.epochs_executed} "
+            f"best_score={stage_a.best_score:.4f}"
+        )
+        # 续跑这一块 Stage A (--stage-a-only 与 --stage-a-in 同时给): 把上一块
+        # 的末态交给优化器接着跑。
+        if params.stage_a_only:
+            if not _resumable_arrays(stage_a):
+                raise SystemExit(
+                    "参数错误: --stage-a-in 读回的交接文件里没有续跑需要的 "
+                    "DOF / 基座相位 (缺失或长度为 0; 旧版交接文件只能从头跑)"
+                )
+            done = int(stage_a.epochs_total)
+            remaining = max(0, int(params.epochs) - done)
+            chunk_count = (
+                min(int(params.chunk_epochs), remaining)
+                if int(params.chunk_epochs) > 0
+                else remaining
+            )
+            # 框中心必须是**窗口内**坐标: 平场帧是相机裁出来的 ROI 窗口 (256x256),
+            # 而 stage_a.json 里的 center_xy 是**全幅**传感器坐标 (例如 (1434, 973))
+            # —— 拿后者当框中心, 框整个落在窗口之外, 续跑块两秒就挂
+            # (2026-10-21 实测: "target square (side=12px at (973,1434)) is empty")。
+            mask_center, mask_center_source = _window_mask_centre(
+                stage_a.flat_frame, stage_a.mask_center_xy, side
+            )
+            if mask_center_source == "relocated":
+                print(
+                    f"[stage A] 交接文件里没有可用的窗口内零级位置, 改从平场帧"
+                    f"重新定位: {mask_center}",
+                    flush=True,
+                )
+            resume_state = {
+                "base_panel": np.asarray(stage_a.base_panel, dtype=np.float64),
+                "dof": np.asarray(stage_a.dof, dtype=np.float64),
+                "flat_frame": np.asarray(stage_a.flat_frame, dtype=np.float64),
+                "center_y": int(mask_center[1]),
+                "center_x": int(mask_center[0]),
+                # 全幅零级位置: 下一块据此把 ROI 窗口摆在同一个地方 (冻结 ROI)。
+                # 拿不到就退回「重新发现零级」—— 实测两者一致 (chunk-1/chunk-2
+                # 的窗口都是 (1429, 971))。
+                "full_frame_center": (
+                    None
+                    if stage_a.full_frame_center is None
+                    else (
+                        int(stage_a.full_frame_center[0]),
+                        int(stage_a.full_frame_center[1]),
+                    )
+                ),
+                "best_score": float(stage_a.best_score),
+                "best_phase": np.asarray(
+                    stage_a.best_phase_plain
+                    if stage_a.best_phase_plain is not None
+                    else stage_a.best_phase,
+                    dtype=np.float64,
+                ),
+                "best_frame": np.asarray(stage_a.best_frame, dtype=np.float64),
+                "best_stage": str(stage_a.best_stage),
+                "epoch_offset": done,
+            }
+            print(
+                f"[stage A] 续跑: 已跑 {done} 轮, 本块跑 {chunk_count} 轮 "
+                f"(总轮数 {params.epochs})",
+                flush=True,
+            )
+    else:
+        # --- Segment 1: probe the flat far field ---------------------------
+        # 叠加层必须在探测**之前**建好: 平场探测要自己把面板摆成
+        # 「平相位 + 这张矫正」(见 probe_flat_field 的说明)。
+        send_overlay = build_focus_overlay(
+            params.defocus_focal_mm, beam_radius_px=params.beam_radius_px
+        )
+        center_xy, w0, probe_shape = probe_flat_field(
+            params.cam_type,
+            params.cam_id,
+            params.exposure_time_ms,
+            params.seed,
+            params.cam_size,
+            params.sim_far_field_padding,
+            send_overlay=send_overlay,
+            slm_number=params.slm_number,
+        )
+        side = resolve_target_side(w0, params.cam_size, params.target_side)
+        print(
+            f"[probe] cam_type={params.cam_type} probe_shape={probe_shape} "
+            f"center={center_xy} w0={w0:.2f}px target_side={side:.2f}px"
+        )
+
+    if not params.stage_a_in or params.stage_a_only:
+        # --- Stage A: one GS-refine optimisation --------------------------
+        # (续跑块也走这里: --stage-a-only + --stage-a-in)
+        stage_a_cfg = SlmGsRefineConfig(
+            epochs=params.epochs,
+            seed=params.seed,
+            gs_iters=params.gs_iters,
+            target_side=int(round(side)),
+            side_factor=1.0,
+            cam_type=params.cam_type,
+            cam_id=params.cam_id,
+            exposure_time_ms=params.exposure_time_ms,
+            cam_size=params.cam_size,
+            slm_number=params.slm_number,
+            beam_radius_px=params.beam_radius_px,
+            record_debug=True,
+            send_overlay=send_overlay,
+            time_budget_s=float(params.time_budget_s),
+            chunk_epochs=int(chunk_count),
+            resume_state=resume_state,
+        )
+        rec_a = _run_stage_a_with_saturation_backoff(stage_a_cfg, params)
+        best_phase = np.asarray(rec_a.best_phase, dtype=np.float64)
+        best_frame = np.asarray(rec_a.best_frame, dtype=np.float64)
+        # 续跑块的历史里**没有** flat 行 (平场是上一块测的, 重测会引入漂移) ⇒
+        # 沿用上一块的基线帧。
+        has_flat = any(r["stage"] == "flat" for r in rec_a.history)
+        flat_frame = (
+            _flat_frame(rec_a.history)
+            if has_flat
+            else np.asarray(stage_a.flat_frame, dtype=np.float64)
+        )
+        chunk_best = max((r["score"] for r in rec_a.history), default=float("-inf"))
+        best_score = (
+            max(float(stage_a.best_score), float(chunk_best))
+            if resume_state is not None
+            else chunk_best
+        )
+        epochs_executed = int(getattr(rec_a, "epochs_executed", 0))
+        print(
+            f"[stage A] best_stage={rec_a.best_stage} "
+            f"best_score={best_score:.4f} "
+            f"epochs={epochs_executed}/{params.epochs} "
+            f"evals={len(rec_a.history)}"
+        )
+        # 框中心取**优化器冻结的窗口内**零级位置 (recorder.center_*), 而不是
+        # center_xy —— 后者是全幅传感器坐标, 拿来当框中心会让框落在窗口之外。
+        mask_center_xy = (
+            int(getattr(rec_a, "center_x", 0)),
+            int(getattr(rec_a, "center_y", 0)),
+        )
+        full_frame_center = getattr(rec_a, "full_frame_center", None)
+        stage_a = StageAResult(
+            best_phase=best_phase,
+            flat_frame=flat_frame,
+            best_frame=best_frame,
+            center_xy=center_xy,
+            w0=w0,
+            side=side,
+            probe_shape=probe_shape,
+            best_stage=str(rec_a.best_stage),
+            best_score=float(best_score),
+            epochs_executed=epochs_executed,
+            epochs_total=int(
+                getattr(rec_a, "epochs_total", epochs_executed)
+            ),
+            elapsed_s=float(getattr(rec_a, "elapsed_s", 0.0)),
+            dof=np.asarray(getattr(rec_a, "dof", np.zeros(0)), dtype=np.float64),
+            base_panel=np.asarray(
+                getattr(rec_a, "base_panel", np.zeros(0)), dtype=np.float64
+            ),
+            best_phase_plain=np.asarray(
+                getattr(rec_a, "best_phase_plain", best_phase), dtype=np.float64
+            ),
+            config=_jsonable(asdict(params)),
+            mask_center_xy=mask_center_xy,
+            full_frame_center=(
+                None
+                if full_frame_center is None
+                else (int(full_frame_center[0]), int(full_frame_center[1]))
+            ),
+        )
+        if params.stage_a_only:
+            npz_path, json_path = save_stage_a(stage_a, out_dir)
+            print(f"[stage A] 落盘 {npz_path} / {json_path}")
+            summary = {
+                **group_fields(params.group, params.group_meta),
+                "config": _jsonable(asdict(params)),
+                "cam_size": int(params.cam_size),
+                "probe_shape": [int(probe_shape[0]), int(probe_shape[1])],
+                "frame_shape": [int(probe_shape[0]), int(probe_shape[1])],
+                # center_xy = 全幅探测到的零级 (Stage C 摆窗口用);
+                # mask_center_xy = 窗口内的框中心 (评分用)。两个坐标系别混。
+                "center_xy": [int(center_xy[0]), int(center_xy[1])],
+                "mask_center_xy": [
+                    int(mask_center_xy[0]),
+                    int(mask_center_xy[1]),
+                ],
+                "full_frame_center": (
+                    None
+                    if full_frame_center is None
+                    else [
+                        int(full_frame_center[0]),
+                        int(full_frame_center[1]),
+                    ]
+                ),
+                "w0_px": float(w0),
+                "target_side": float(side),
+                "beam_radius_px": float(params.beam_radius_px),
+                "best_stage": str(stage_a.best_stage),
+                "stage_a": {
+                    "source": str(npz_path),
+                    "epochs_executed": int(stage_a.epochs_executed),
+                    "best_score": float(stage_a.best_score),
+                    "elapsed_s": float(stage_a.elapsed_s),
+                },
+                "baselines": {},
+                "orders": [],
+            }
+            (out_dir / "summary.json").write_text(
+                json.dumps(_jsonable(summary), indent=2), encoding="utf-8"
+            )
+            update_manifest(
+                out_root,
+                group_record(
+                    group=params.group,
+                    variable=GROUP_VARIABLE,
+                    meta=params.group_meta,
+                    dir_name=str(params.group),
+                    n_rows=0,
+                ),
+            )
+            print(f"[done] wrote {out_dir / 'summary.json'} (Stage A only)")
+            return summary
 
     # --- Stage B + C: per-order fit and SPGD ------------------------------
     runs: list[dict[str, Any]] = []
-    for entry in sweep_plan(params.n_max_list):
+    for entry in sweep_plan(n_max_list):
         n_max = entry["n_max"]
         fit = fit_best_phase(best_phase, n_max, params.beam_radius_px)
         clip_warning = check_zernike_clip(fit.max_abs_coefficient)
@@ -901,6 +1573,17 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         _write_history_csv(rec_c.history, out_dir / f"spgd_nmax{n_max}.csv")
         np.save(out_dir / f"best_phase_nmax{n_max}.npy", best_phase)
         np.save(out_dir / f"fit_coefficients_nmax{n_max}.npy", fit.coefficients)
+        # 这一阶的**泽尼克拟合相位** (Stage B 的拟合还原到面板的 raw 弧度)。
+        # 远场补拍组要用**本轮**的相位拍: 上一轮的相位对应的是上一轮的焦面矫正
+        # (10-20 是 f_v=1597.4 mm), 沿用就等于拿别的光路状态的相位去拍这一轮。
+        np.save(
+            out_dir / f"phase_nmax{n_max}.npy",
+            panel_phase_from_coefficients(
+                fit.coefficients,
+                params.beam_radius_px,
+                (SLM_PANEL_H, SLM_PANEL_W),
+            ),
+        )
         if params.save_images:
             _save_frame_png(
                 before_frame, out_dir / f"before_nmax{n_max}.png", f"n_max={n_max} fit"
@@ -939,7 +1622,13 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         "w0_px": float(w0),
         "target_side": float(side),
         "beam_radius_px": float(params.beam_radius_px),
-        "best_stage": str(rec_a.best_stage),
+        "best_stage": str(stage_a.best_stage),
+        "stage_a": {
+            "source": stage_a_source,
+            "epochs_executed": int(stage_a.epochs_executed),
+            "best_score": float(stage_a.best_score),
+            "elapsed_s": float(stage_a.elapsed_s),
+        },
         "baselines": baselines,
         "orders": orders,
     }
@@ -998,6 +1687,48 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs="+",
         default=list(DEFAULT_N_MAX),
         help="Zernike truncation orders to sweep.",
+    )
+    parser.add_argument(
+        "--orders",
+        default="",
+        help=(
+            "只处理这几个 n_max (逗号分隔, 如 --orders 3,4,6)。与 --n-max 联用时 "
+            "--orders 优先: 分段扫描时每次调用只跑一个阶, 整轮时间才压得下来。"
+        ),
+    )
+    parser.add_argument(
+        "--stage-a-only",
+        action="store_true",
+        help=(
+            "只跑 Stage A: 把最佳相位与两张基线帧落盘到 <组目录>/stage_a.npz "
+            "(配 stage_a.json), 然后退出 (不再跑 Stage B/C)。"
+        ),
+    )
+    parser.add_argument(
+        "--stage-a-in",
+        default="",
+        help=(
+            "读回 Stage A 的产物 (路径给到 stage_a.npz 即可, 同目录的 stage_a.json "
+            "自动配对), 跳过平场探测与 Stage A, 直接跑 Stage B/C。"
+        ),
+    )
+    parser.add_argument(
+        "--chunk-epochs",
+        type=int,
+        default=0,
+        help=(
+            "本块 Stage A 跑多少个精化 epoch (0 = 跑满 --epochs)。"
+            "分块续跑用: 每块 <=10 分钟, 但总轮数不变 (学习率按全局 epoch 继续)"
+        ),
+    )
+    parser.add_argument(
+        "--time-budget-s",
+        type=float,
+        default=0.0,
+        help=(
+            "Stage A 的墙钟预算 (s); 0 = 不限。超预算就提前收工并保留目前的最佳"
+            "相位 —— 「一次扫描不超过 10 分钟」由这个参数保证, 而不是靠掐表掐进程。"
+        ),
     )
     parser.add_argument(
         "--delta",
@@ -1088,6 +1819,17 @@ def main(argv: list[str] | None = None) -> int:
     except ValueError as exc:
         print(f"参数错误: {exc}")
         return 2
+    # --stage-a-only 与 --stage-a-in **可以**同时给: 那是「续跑这一块 Stage A」
+    # (读回上一块的末态, 接着跑, 再把新末态落盘)。两者互斥会让「分块但总强度不变」
+    # 做不到 —— 一块跑不完就得整轮重跑, 所以这里放开。
+    try:
+        orders = parse_orders(args.orders) if args.orders else ()
+    except ValueError as exc:
+        print(f"参数错误: {exc}")
+        return 2
+    if args.time_budget_s < 0:
+        print(f"参数错误: --time-budget-s 不能为负, 收到 {args.time_budget_s}")
+        return 2
     params = SweepParams(
         cam_type=args.cam_type,
         cam_id=args.cam_id,
@@ -1110,8 +1852,26 @@ def main(argv: list[str] | None = None) -> int:
         defocus_focal_mm=args.defocus_focal_mm,
         group=args.group,
         group_meta=group_meta,
+        stage_a_only=bool(args.stage_a_only),
+        stage_a_in=str(args.stage_a_in),
+        orders=orders,
+        time_budget_s=float(args.time_budget_s),
+        chunk_epochs=int(args.chunk_epochs),
     )
-    run_sweep(params)
+    try:
+        run_sweep(params)
+    except PathBlockedError as exc:
+        # 光路受阻: 继续跑 8 个泽尼克阶次只是在对着死路测噪声, 而且结果看上去
+        # 毫无异常。给出操作者要动手的检查清单, 并用**专属**退出码 (3) 与
+        # 「参数错误」(2) 区分开。
+        print(f"光路受阻: {exc}")
+        print("  请先确认 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。")
+        return 3
+    except (FileNotFoundError, ValueError) as exc:
+        # 读不回 Stage A 产物 (路径写错 / 文件损坏) 属于「参数错误」: 那条
+        # 命令行本身就跑不起来, 与光路无关。
+        print(f"参数错误: {exc}")
+        return 2
     return 0
 
 

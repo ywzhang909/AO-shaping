@@ -33,6 +33,7 @@ from ao_shaping.utils.image.exposure_control import (
 )
 from ao_shaping.utils.io.file import save_recorder_debug_artifacts
 from ao_shaping.utils.slm.phase_disturbance import zernike_panel_disturbance
+from loguru import logger
 
 
 def _utc() -> str:
@@ -188,7 +189,7 @@ def main() -> None:
     parser.add_argument("--step-a-iters", type=int, default=25)
     parser.add_argument("--step-b-iters", type=int, default=200)
     args = parser.parse_args()
-    print(run_comparison(args))
+    logger.info(run_comparison(args))
 
 
 if __name__ == "__main__":

@@ -3,7 +3,7 @@
 Reads the saved run artefacts under ``data/debug/slm_gs_refine/<ts>/`` (CSV
 history, replay ``*.npy`` frames and ``measurements.json``) and renders every
 figure and the summary table used by
-``report/shape_trials/gui_closed_loop_shaping_20261014.md``.
+``report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md``.
 
 Pure numpy + matplotlib: no hardware, no SDK, instruments may be powered off.
 
@@ -26,7 +26,7 @@ import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "data" / "debug" / "slm_gs_refine"
-OUT = ROOT / "report" / "shape_trials" / "images" / "gui_shaping_20261014"
+OUT = ROOT / "report" / "shape_trials" / "gui_closed_loop_shaping" / "images" / "gui_shaping_20261014"
 
 matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 matplotlib.rcParams["axes.unicode_minus"] = False

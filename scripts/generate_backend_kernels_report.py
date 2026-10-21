@@ -88,7 +88,7 @@ if CUPY_AVAILABLE:
     }
 
 #: Repo-root-relative artifact path; also the provenance registry key.
-REPORT_KEY = "report/benchmarks/backend_kernels_performance.md"
+REPORT_KEY = "report/benchmarks/backend_kernels_report/backend_kernels_performance.md"
 
 #: Benchmark functions in the order the original table rows appear.
 ROWS = (

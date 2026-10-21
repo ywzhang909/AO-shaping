@@ -3,39 +3,39 @@
 | 256                      | 4.69 | 9.50 | 14.44 |
 | 255                      | 4.96 | 9.50 | 15.32 |
 
-![1781690640001](images/voltage_test/1781690640001.png)
+![1781690640001](./images/voltage_test/1781690640001.png)
 
 > 对应相机原图：`data/md_test/md_img-100v/192.168.0.124/192.168.0.124-002.png`（本地原始采集，`data/` 目录被 gitignore，未入库）
 
 ---
 
-![1787218057514](images/voltage_test/1787218057514.png)
+![1787218057514](./images/voltage_test/1787218057514.png)
 
 > 对应相机原图：`data/md_test/md_img-100v/192.168.0.114/192.168.0.114-000.png`（本地原始采集，`data/` 目录被 gitignore，未入库）
 
 ---
 
-![1787218161063](images/voltage_test/1787218161063.png)
+![1787218161063](./images/voltage_test/1787218161063.png)
 
 > 对应相机原图：`data/md_test/md_img-100v/192.168.0.114/192.168.0.114-001.png`（本地原始采集，`data/` 目录被 gitignore，未入库）
 
 ---
 
-![1787218239448](images/voltage_test/1787218239448.png)
+![1787218239448](./images/voltage_test/1787218239448.png)
 
 > 对应相机原图：`data/md_test/md_img-100v/192.168.0.114/192.168.0.114-002.png`（本地原始采集，`data/` 目录被 gitignore，未入库）
 
 ---
 
-![1787218294426](images/voltage_test/1787218294426.png)
+![1787218294426](./images/voltage_test/1787218294426.png)
 
 ---
 
-![1787218335564](images/voltage_test/1787218335564.png)
+![1787218335564](./images/voltage_test/1787218335564.png)
 
 ---
 
-![1787218370323](images/voltage_test/1787218370323.png)
+![1787218370323](./images/voltage_test/1787218370323.png)
 
 # 驱动器位置测试
 
@@ -47,11 +47,11 @@
 
 **本轮结论**（R50Power 微驱动器电压标定与位置测试）：高位偏移输入 5/10/15 V 档实测输出 4.69–4.96 / 9.50 / 14.44–15.32 V，映射基本线性、误差在 ±0.6 V 内，控制器电压刻度可用；记录中同时含一次 GUI（`r50_sidebar`）连接异常栈，属驱动侧软件缺陷而非硬件问题，后续连接流程需加固。本记录为 R50 系列进入闭环前的电压可用性基准。
 
-![1789549169974](images/voltage_test/1789549169974.png)
+![1789549169974](./images/voltage_test/1789549169974.png)
 
-![1789549207712](images/voltage_test/1789549207712.png)
+![1789549207712](./images/voltage_test/1789549207712.png)
 
-![1789549288806](images/voltage_test/1789549288806.png)
+![1789549288806](./images/voltage_test/1789549288806.png)
 
   File "D:\workspace\AO-shaping\src\ao_shaping\gui\r50\r50_sidebar.py", line 112, in _sidebar_connection_config
     _sidebar_joint_connection()
@@ -84,21 +84,21 @@ ao_shaping.drivers.dm.MicroDM.MicroDMConnectionError: Failed to connect to any o
 **影响**：通过 (IP组, 序号) 反查 A 列时，上述 key 存在歧义（无法唯一确定位置序号）。当前 CSV 反向重建时按原 xlsx 中的出现顺序匹配，仍可 100% 还原；但这两个 key 的语义对应关系不唯一，疑似为源数据录入错误，需人工核实。
 
 其余 1293 个 (IP组, 序号) key 均为唯一映射，可无损还原。
-![1787886733436](images/voltage_test/1787886733436.png)
+![1787886733436](./images/voltage_test/1787886733436.png)
 
 # 驱动器响应频率测试
 
 ### 静态
 
-![1787902906886](images/voltage_test/1787902906886.png)
+![1787902906886](./images/voltage_test/1787902906886.png)
 
 ### 行程测试
 
 10Hz
 
-![1787902879085](images/voltage_test/1787902879085.png)
+![1787902879085](./images/voltage_test/1787902879085.png)
 
-![1787902950811](images/voltage_test/1787902950811.png)
+![1787902950811](./images/voltage_test/1787902950811.png)
 
 ---
 
@@ -106,24 +106,24 @@ ao_shaping.drivers.dm.MicroDM.MicroDMConnectionError: Failed to connect to any o
 
 20Hz
 
-![1787903033656](images/voltage_test/1787903033656.png)
+![1787903033656](./images/voltage_test/1787903033656.png)
 
-![1787903090558](images/voltage_test/1787903090558.png)
+![1787903090558](./images/voltage_test/1787903090558.png)
 
-![1787902985750](images/voltage_test/1787902985750.png)
+![1787902985750](./images/voltage_test/1787902985750.png)
 
 ---
 
 40Hz
 
-![1787903138563](images/voltage_test/1787903138563.png)
+![1787903138563](./images/voltage_test/1787903138563.png)
 
 80Hz
 
-![1787903320341](images/voltage_test/1787903320341.png)
+![1787903320341](./images/voltage_test/1787903320341.png)
 
 ---
 
 ### 单控制器比较
 
-![1787903577118](images/voltage_test/1787903577118.png)
+![1787903577118](./images/voltage_test/1787903577118.png)

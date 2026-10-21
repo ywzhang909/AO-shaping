@@ -44,9 +44,6 @@ flowchart TD
         Ccombined_run["combined_run"]
         CLI --> Ccombined_run["combined_run"]
         Ccombined_run --> Rcombined_run["run<br/>ao_shaping...runners"]
-        Cslm_square_run["slm_square_run"]
-        CLI --> Cslm_square_run["slm_square_run"]
-        Cslm_square_run --> Rslm_square_run["square<br/>ao_shaping...runners"]
         Cslm_pib_run["slm_pib_run"]
         CLI --> Cslm_pib_run["slm_pib_run"]
         Cslm_pib_run --> Rslm_pib_run["run<br/>ao_shaping...runners"]
@@ -83,8 +80,6 @@ flowchart TD
         Rao_shaping_runners_nlight_dm_wf_runner_run --> Oao_shaping_optimizer_wf_rms_optimizer_rms_dm
         Oao_shaping_optimizer_wf_rms_by_zernike_optimizer_rms_slm["optimizer_rms_slm<br/>ao_shaping.optimizer.wf.rms_by_zernike"]
         Rao_shaping_runners_slm_rms_zernike_runner_run --> Oao_shaping_optimizer_wf_rms_by_zernike_optimizer_rms_slm
-        Oao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square["optimize_slm_square<br/>ao_shaping.optimizer.wfless.slm_square_shaping"]
-        Rao_shaping_runners_slm_slm_shaping_runner_square --> Oao_shaping_optimizer_wfless_slm_square_shaping_optimize_slm_square
         Oao_shaping_optimizer_wf_zernike_response_matrix_ZernikeResponseMatrixResult["ao_shaping.optimizer.wf.zernike_response_matrix.ZernikeResponseMatrixResult (ext)"]
         Rao_shaping_runners_slm_zernike_matrix_runner_run --> Oao_shaping_optimizer_wf_zernike_response_matrix_ZernikeResponseMatrixResult
         Oao_shaping_optimizer_wf_zernike_response_matrix_save_zernike_response_matrix["save_zernike_response_matrix<br/>ao_shaping.optimizer.wf.zernike_response_matrix"]

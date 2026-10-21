@@ -262,7 +262,7 @@ class ParticleSwarmOptimizer(GMOptimizerMixin, HeuristicOptimizer):
         保留原速度, 从而保住 PSO 的动量。被注入的粒子由紧随其后的
         ``_evaluate_particles`` 调用打分。
         """
-        for particle, position in zip(self.particles, population):
+        for particle, position in zip(self.particles, population, strict=True):
             if not np.array_equal(particle.position, position):
                 particle.position = np.array(position, dtype=np.float64)
                 particle.velocity = np.zeros_like(particle.velocity)

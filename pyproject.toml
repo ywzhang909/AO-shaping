@@ -21,6 +21,10 @@ addopts = [
     "--ignore=tests/ao_shaping/gui/slm/test_zernike_abort_repro.py",
     "--ignore=tests/ao_shaping/drivers",
     "--ignore=tests/ao_shaping/ml",
+    # 2026-10-21: 全局超时，避免未被忽略区域的测试在 CI / 本地无限挂起
+    # （硬件驱动 SDK 等待、Streamlit AppTest 等曾有挂起先例；超过阈值即判失败而非卡死）。
+    "--timeout=600",
+    "--timeout-method=thread",
 ]
 markers = [
     "hardware: requires physical hardware device (enable with --hardware)",
@@ -92,6 +96,7 @@ dev = [
     "ipywidgets>=8.1.8",
     "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.1",
     "ruff>=0.15.12",
 ]
 ml = [

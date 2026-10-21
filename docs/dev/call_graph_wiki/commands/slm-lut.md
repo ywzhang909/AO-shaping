@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: command
 tags: [command]
-source: src/ao_shaping/tools/slm/calibration/lut_runner.py:488
+source: src/ao_shaping/tools/slm/calibration/lut_runner.py:473
 ---
 
 ## 一句话
@@ -13,7 +13,7 @@ SLM 灰度-相位 LUT 标定（衍射效率反演）
 
 ## 入口函数
 
-`tools.slm.calibration.lut_runner.run`（`src/ao_shaping/tools/slm/calibration/lut_runner.py:488`）
+`tools.slm.calibration.lut_runner.run`（`src/ao_shaping/tools/slm/calibration/lut_runner.py:473`）
 
 ```python
 run(params)

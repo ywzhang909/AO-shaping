@@ -277,7 +277,7 @@ def export_driver_correction(h5_path: str | Path,
         "zernike_radius_px": radius,
         "slm_mode_ids_dll": ids,
         "coeff_waves": {f"DL{i}({nm[0]},{nm[1]})": round(float(v), 6)
-                        for i, nm, v in zip(ids, nm_list, c_waves)},
+                        for i, nm, v in zip(ids, nm_list, c_waves, strict=True)},
         "consumption": (
             "官方软件: 直接加载本 CSV (与 Wavefront_correction_Data_*.csv 同格式, "
             f"满量程 2π = {max_gray} = 设备 10 位常量 get_max_grayscale())。"
@@ -303,7 +303,7 @@ def export_driver_correction(h5_path: str | Path,
     click.echo(f"[OK] 矫正 CSV: {dest}  ({gray.shape[0]}×{gray.shape[1]} uint16, "
                f"max_gray={max_gray}, {shift_tag})")
     click.echo(f"[OK] 侧车 JSON: {sidecar_path}")
-    active = [(i, nm, c) for i, nm, c in zip(ids, nm_list, c_waves)
+    active = [(i, nm, c) for i, nm, c in zip(ids, nm_list, c_waves, strict=True)
               if abs(float(c)) > 1e-3]
     click.echo("[INFO] 矫正系数 (λ): "
                + ", ".join(f"DL{i}({nm[0]},{nm[1]}) = {c:+.3f}" for i, nm, c in

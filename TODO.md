@@ -51,7 +51,7 @@
  | H-23 | ✅ **已实施（2026-10-14）**：三处协调改动全部落地。①`slm_shaping_runner.py::_square_json_payload` 增记 `active_modes`（用 `_active_zernike_modes(n_max, mask)`）+ `n_terms_total`；②`index.py` 增 `_Verdict.active_modes`/`HwRecordRef.active_modes` + **规则 4b**（规则 5 之前，仅当 sidecar 声明且 `len(_c)==len(active)` 才收），`_CACHE_VERSION` 2→3 且缓存 encode/decode 都带上该字段；③`transforms.py::expand_active_modes_to_noll` 用 canonical `noll_indices` 把活动模式散射回全长 Noll 向量，`records.py` 在 `zernike_coeffs_to_panel` 前调用。实测散射后 panel 与「手搭全长向量」**逐位一致**；**无 sidecar 声明的旧语料仍按 `ODD_COEFFICIENT_LENGTH` 排除**（不追溯重解释）。新增 20 测试（`tests/ao_shaping/ml/hwdataset/test_active_modes.py`），`hwdataset/` 380 passed | [#40](https://github.com/ywzhang909/AO-shaping/issues/40)（**本 commit `Closes`**） |
 | H-24 | 方形家族进 `hwdataset` 会换 `fov_px` ⇒ `far_field_padding` 标定必须重扫 | [#41](https://github.com/ywzhang909/AO-shaping/issues/41) |
 | **H-32** | **`--w-loggrad` 结构项已落地但未实验验收**。离线全绿（`utils/` 992、`wfless/` 626、sim 端到端 `J≠shape`）；6 类候选里只落地这 1 类，2 类早已存在、3 类否决（附实测数字）⇒ [`report/pib_loss_terms/README.md`](report/pib_loss_terms/README.md)。**⚠️ 它不能修复不收敛**（H-14 已证瓶颈是慢漂移），故默认 `0.0`。验收请在 **δ=0.05** 这类「有信号但被漂移污染」的档位做，**勿用 0.0005**（梯度信号本身在噪声下）。**待开 issue** | — |
-| **H-33** | 🔴 **GS → Zernike 拟合 → SPGD 匀化阶数扫描：代码已就绪并合入 `banckend`，但「多少阶 Zernike 才能复现 GS 整形」只能在实验系统回答**。采集 [`scripts/slm/run_gs_refine_zernike_sweep.py`](scripts/slm/run_gs_refine_zernike_sweep.py)（Stage A 跑一次 `slm_gs_refine` 留全历史 → Stage B 按 `n_max` 拟合 GS 最优相位 → Stage C 在系数上跑 SPGD，逐阶独立记录）；计划 **H0~H12** 见 [`report/shape_trials/gs_refine_zernike_hardware_plan.md`](report/shape_trials/gs_refine_zernike_hardware_plan.md)。**仿真已确立（硬件无关）**：拟合残差随 `n_max` 单调不增（8 阶 0.0719→0.0385 rad，−46.5%）、`n_max=25`（351 模）不触发 `ZERNIKE_CLIP`、`--lr 0` 复现步长拒绝失效、能量守卫非瓶颈。**仿真答不了本条**：数字孪生 GS 前向模型未标定 ⇒ `best_phase`≈平场（`max\|c\|` 各阶恒 0.0142 rad），且阶数间**不可排序**（跨阶 PIB 极差 0.0046 / CV 极差 0.0039 ≈ 单轮 SPGD 抖动 0.0010~0.0035）⇒ 报告据此**拒绝**给出「最优阶数」。**两个 P0 硬门**：① GS 对比择优 —— GS 打不过平场即**停止**，先查 `--camera-pixel-um` / `--beam-radius-px` / 面板配准；② 噪声地板 σ —— 它是后续一切判据的分母，σ 与阶数差同量级则排序**物理上不可判**，须如实报告。核心科学项 = **H6**（Zernike 在**远场**复现了多少 GS 效果，`fit_rms` 只是相位空间代理）。⚠️ `fit_rms` **只在同一次 run 内跨阶可比**（换 `--n-max` / `--max-energy-loss` 会改变 Stage A 相位 0.008~0.012 rad，根因未查明）。**已知未做**：SPGD 预算放大（E1）在仿真下需 300 epoch 被砍，「不改善是预算不足还是物理上限」未答 → 列为 H-7 项 | — 待开 issue（正文已提交于 `report/shape_trials/gs_refine_zernike_hardware_plan.issue.md`；**API 被网络中间人拦截，无法从本机创建**，见 H-14 下方同类记录） |
+| **H-33** | 🔴 **GS → Zernike 拟合 → SPGD 匀化阶数扫描：代码已就绪并合入 `banckend`，但「多少阶 Zernike 才能复现 GS 整形」只能在实验系统回答**。采集 [`scripts/slm/run_gs_refine_zernike_sweep.py`](scripts/slm/run_gs_refine_zernike_sweep.py)（Stage A 跑一次 `slm_gs_refine` 留全历史 → Stage B 按 `n_max` 拟合 GS 最优相位 → Stage C 在系数上跑 SPGD，逐阶独立记录）；计划 **H0~H12** 见 [`report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md`](./report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.md)。**仿真已确立（硬件无关）**：拟合残差随 `n_max` 单调不增（8 阶 0.0719→0.0385 rad，−46.5%）、`n_max=25`（351 模）不触发 `ZERNIKE_CLIP`、`--lr 0` 复现步长拒绝失效、能量守卫非瓶颈。**仿真答不了本条**：数字孪生 GS 前向模型未标定 ⇒ `best_phase`≈平场（`max\|c\|` 各阶恒 0.0142 rad），且阶数间**不可排序**（跨阶 PIB 极差 0.0046 / CV 极差 0.0039 ≈ 单轮 SPGD 抖动 0.0010~0.0035）⇒ 报告据此**拒绝**给出「最优阶数」。**两个 P0 硬门**：① GS 对比择优 —— GS 打不过平场即**停止**，先查 `--camera-pixel-um` / `--beam-radius-px` / 面板配准；② 噪声地板 σ —— 它是后续一切判据的分母，σ 与阶数差同量级则排序**物理上不可判**，须如实报告。核心科学项 = **H6**（Zernike 在**远场**复现了多少 GS 效果，`fit_rms` 只是相位空间代理）。⚠️ `fit_rms` **只在同一次 run 内跨阶可比**（换 `--n-max` / `--max-energy-loss` 会改变 Stage A 相位 0.008~0.012 rad，根因未查明）。**已知未做**：SPGD 预算放大（E1）在仿真下需 300 epoch 被砍，「不改善是预算不足还是物理上限」未答 → 列为 H-7 项 | — 待开 issue（正文已提交于 `report/shape_trials/gs_refine/gs_refine_zernike_hardware_plan.issue.md`；**API 被网络中间人拦截，无法从本机创建**，见 H-14 下方同类记录） |
 
 > ⚠️ **H 编号说明（2026-10-19 复核）**：上两条原为 H-25/H-26，已重编为 **H-32/H-33**。
 > 2026-10-16 的硬件验收批次在 GitHub 上**已占用** H-25~H-31 号段
@@ -226,7 +226,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 |---|---|---|
 | ~~F-4~~ | ✅ **决策已定（2026-10-14）：保留 `src/ml/` 为独立顶层包，不迁移**（依赖方向是 ml→主包，torch 可选性靠 PEP-562 惰性隔离已验证，迁移 155 文件零收益）。`gsnet_runner.py` 顶层 `from ml...` 属 GSNet 专用 runner、被 `_LAZY_RUNNERS` 惰性加载，`import ao_shaping.runners` 不拖 torch，**无需改动** | [#55](https://github.com/ywzhang909/AO-shaping/issues/55) |
 | F-5 | `docs/issues_report.md` §11 代码规范整改。**已重新扫描（2026-10-04），原文数字低估 5～14 倍** ⇒ 建议按切片做。**切片 1 已完成（2026-10-14）：`src/ao_shaping` + `scripts` 41 个文件补齐 `from __future__ import annotations`（tests 67 与 `__init__.py` 39 有意跳过）** → archive §5.36；余 3 片（print→loguru / 宽泛 except / 大文件）未动 | [#56](https://github.com/ywzhang909/AO-shaping/issues/56) |
-| F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
+| F-10 | ✅ 已解决 (2026-10-13)：单因子改写其实**已于 2026-10-02 落地** (commit `284fbb5`)，`sim/AGENTS.md` 第 3/4 条与代码已对齐 (第 4 条改为「已落地」)。`report/oopao_impact/oopao_impact_report/report.md` 的 1.068/2.628 是改写前旧公式 (commit `5e12fa2`) 的实测值，随公式变更现已不可复现，须重跑生成器更新 | [#57](https://github.com/ywzhang909/AO-shaping/issues/57) |
 | F-11 | 🔴 **SLM 序列号三路冲突**：22030108 / 22030102 / 23020026 ⇒ 引用前必须确认并回写 `drivers/AGENTS.md` 硬件表 | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
 | ~~F-14~~ | ✅ **已修**（2026-10-14）：**30 → 0 个 `F821`**，`ruff.toml` 的 `exclude = ["src/ml/**"]` 已删除。根因比原判断更严重 —— 不只是 `DataLoader`：`build_gan_models`（`ml.train` 3 处引用）**在全部提交历史里从未被定义过**；`build_model` 在 `40d65af` 删除后**接线被遗忘**（`_zernike_regression_removed` 定义了却零调用）；另有 `d1645486` 把 coeffs 模式整块误粘进了 `_train_phase_mode`。`ao-train`（`pyproject.toml` 注册的 console script）三条命令**全部**因 `NameError` 不可运行，且零测试覆盖。证据与守卫见 `tests/ao_shaping/ml/test_train_cli_runnable.py` | — 待开 issue（API 被网络拦截，无法从本机创建） |
@@ -243,7 +243,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 | ID | 原结论 | 实际情况 |
 |---|---|---|
-| X-1 | `docs/refactor/TODO.md` #16：「`utils/image/resample.py` **0 导入** → 删模块」 | ✅ **前提已消失** —— 现在有 1 个生产导入方（`FourierGSNet.py:42`），照原文删会打断 FourierGSNet。**且 `docs/refactor/TODO.md` 本身已不存在**（已并入本账本） |
+| X-1 | `TODO.md` #16：「`utils/image/resample.py` **0 导入** → 删模块」 | ✅ **前提已消失** —— 现在有 1 个生产导入方（`FourierGSNet.py:42`），照原文删会打断 FourierGSNet。**且 `TODO.md` 本身已不存在**（已并入本账本） |
 | ~~X-2~~ | ✅ **已加显式标记**（commit `f4b9afee`，2026-10-14）：`tools/slm/TODO.md` D2 的 min-max 是**误报** —— 那处 `P` 是实测功率-扫描位置曲线（`power()` 返回 `float(p.sum())`），归一化**强度轴**后 `np.interp` 找 50/84/16% CDF 分位点是标准做法，与相位/尺度无关性无关。陷阱在**代码**里（读 `calibration.py` 的人看不到 markdown 论证），故把标记**就地**加在 `calibration/calibration.py` 的 `find_beam_on_slm`（原引 `:2182` 行号已漂移，真身在 `:2204`）：一句不变量 + 指向 D2/archive §4 X-2。纯注释，行为不变（`test_slm_calibration_{pure,windowed}` 17 项绿） | [#60](https://github.com/ywzhang909/AO-shaping/issues/60) |
 | X-3 | 两个 runner 的 `ZERNIKE_APERTURE_RADIUS` 不同（300 vs 600） | ✅ **2026-10-04 解开，原结论前提是错的** —— `slm_zernike_shaping` 无任何生产导入方（`rms-zernike` 走 `optimizer.wf.rms_by_zernike`），所以**不存在「换个 runner 就换光阑」的生产风险**，600 是死代码。详见 archive §5.17 |
 
@@ -318,7 +318,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | `prepare_roi_frame`：`tools/slm/slm_abba_probe.py:169` vs `slm_floor_probe.py:106` | **用户钦定的有意分歧**（`finite_clip` vs `finite_median_subtract`） |
 | `compute_metrics` 三份 | 三种真实契约 ⇒ 改**名**不合并，见 R-53 |
 | `main` / `run`（各 entrypoint） | 合法 |
-| ~~`gui/slm/pyarrow_probe.py` vs `scripts/pyarrow_probe.py`~~ | **曾是误判**：原文写「已漂移（各 106 行但 SHA256 不同）」，实测**两份各 130 行、归一化行尾后 SHA256 完全相同**（`9d4a448b78d7028f`），差异**仅 CRLF vs LF**。副本已删（F-13） |
+| ~~`gui/slm/pyarrow_probe.py` vs `src/ao_shaping/gui/slm/pyarrow_probe.py`~~ | **曾是误判**：原文写「已漂移（各 106 行但 SHA256 不同）」，实测**两份各 130 行、归一化行尾后 SHA256 完全相同**（`9d4a448b78d7028f`），差异**仅 CRLF vs LF**。副本已删（F-13） |
 
 > 上述行号是 2026-10-06 审计时的快照。**动手前必须重新核对** —— 用户工作区当时有
 > 大量未提交改动，行号大概率已漂移。
@@ -374,7 +374,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 类别 | 条数 | 处置 |
 |---|---|---|
 | **真缺陷** | 1 | `tools/slm/slm_zernike_sweep_probe.py:44` —— re-export 块里 `core_fraction` / `display_and_average` 确实未被使用 ⇒ **删这两个名字** |
-| **noqa 已多余**（别名其实被用了） | 3 | `utils/wavefront/matrix_utils.py:51`（用在 `:58`）、`drivers/sim/beam_backend.py:209`（用在 `:212`）、`optimizer/wfless/pib.py:95`（用在 L525/L545）⇒ 直接删 noqa |
+| **noqa 已多余**（别名其实被用了） | 0 | 2026-10-21 复核：原 3 处（`utils/wavefront/matrix_utils.py:51`、`drivers/sim/beam_backend.py:209`、`optimizer/wfless/pib.py:95`）已由 `1faaabb5` 全部删除 ⇒ 本类已清空。⚠️ 勿误删 `pib.py` 现有 3 条 `# noqa: F401`（`:19`/`:20`/`:21`）：那是**必需**的再导出豁免（该文件无 `__all__`，去掉即报 F401），且 `pib._camera_cls` 被 `tests/ao_shaping/runners/test_sensorless_sim_params.py:132-133` 断言身份 |
 | **应改为正式再导出** | 1 | `display/image_display.py:15` ⇒ 补 `__all__`，让 F401 不再是问题。⚠️ 不能改成 `import as` 冗余别名 —— `tests/ao_shaping/display/test_image_voltages_display.py` 有身份断言（`a is b`） |
 | **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:703`（注册 sim 相机；`test_sim_camera_registration.py` 依赖）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
 | **全域 `E402` ignore 是错的工具** | — | `scripts/` 的 **435 条** E402 是仓库**明文约定**的 `sys.path` bootstrap ⇒ 正确做法是 `lint.per-file-ignores` 给 `scripts/*` 加 E402，而不是全局 ignore，这样 `src/` 与 `tests/` 才能被检查 |
@@ -403,7 +403,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1286`（`BaseException`，在 finally 清理里）、`:1298` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`）|
+| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1285`（`BaseException`，在 finally 清理里）、`:1297` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`；`1ce4717a` 常量收敛后整体 −1）|
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -417,7 +417,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **`src/` 无标注的 `except Exception`** | **312** | 上表 31 条带 noqa 的只占 **9%**；主流写法是**完全不标注**，而 `BLE001` 不在 `select` ⇒ 这 312 条从未被任何工具看见。热点：`gui/zernike/zernike_response_matrix_ui.py` 19、`gui/slm/multi_slm_controller.py` 19、`gui/ccd/ccd_analyzer.py` 18、`drivers/ccd/miicam/driver.py` 16 |
 | **`src/` 把 `assert` 当运行期护栏** | **111**（37 文件） | `drivers/ccd/miicam/driver.py` 21、`daheng/driver.py` 18、`ffmpeg/driver.py` 8。含**设备已打开断言、曝光范围检查、安全检查** ⇒ `python -O` 下**全部消失**。对硬件安全护栏这是正确性问题，不是风格问题 |
 | `# type: ignore` | `src/` 44 · `scripts/` 7 · `tests/` 53 | 仅 4 处无理由：`utils/image/target/patterns.py:233`、`tools/slm/slm_train_data_collect.py:183,848,849` |
-| 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 曾于 2026-10-15 建立 ruff 硬门禁 + pylint 参考级，**2026-10-19 起 `.github/` 整体移出 git 跟踪**（本地 `ruff check .` 仍须全绿）；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
+| 其它 lint 配置 | — | `pyrightconfig.json` 存在但 `typeCheckingMode: "basic"`（宽松）；**无** mypy / flake8 / pylint / bandit；`.github/workflows` 于 2026-10-15 建立 ruff 硬门禁 + pylint 参考级，2026-10-19 曾整体移出跟踪，**2026-10-21 恢复入库**（现 `ci.yml`：ruff 硬门禁 + best-effort pytest，本地 `ruff check .` 仍须全绿）；`.pre-commit-config.yaml` 只有 ruff + ruff-format |
 
 ### 8.6 `ruff.toml` 重构顺序（**必须按序**）
 
@@ -471,10 +471,10 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
 | 参数校验 | 10 | `n_sample > 0` / `tolerance > 0` / `width and height` / offset ≥0，散在 3 个相机驱动 | 相机侧入口统一 `raise ValueError`；调用侧的重复项删 |
 | cartographer 设备前置 | 13 | `assert self.slm.is_open` / `assert self.wfs.is_connected()` | **删** —— 驱动的 `_ensure_open` 已覆盖；`is_connected()` 是**询问**，不是断言 |
-| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:781` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证（行号 2026-10-20 复核，原 `:721`）|
+| optimizer 设备非空 | 7 | `assert cam is not None and slm is not None`（`slm_zernike_pib.py:780` 等）| **删** —— 已由 `create_camera` / `Santec.from_params` 的返回值契约保证（行号 2026-10-20 复核，原 `:721`；`1ce4717a` 常量收敛后整体 −1）|
 | 编程不变式 | ~40 | `assert img.ndim == 2`、`assert best_q is not None`、`assert G.ndim >= 2` 等 | **保留 `assert`**（内部不变量，外部输入到不了）|
 
-> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1586-1606`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`）；
+> 🔴 **`--max_peak` 不要动。** 它在 **optimizer**（`slm_zernike_pib.py:1585-1605`），不在驱动（行号 2026-10-20 复核，原 `:1456-1474`；`1ce4717a` 常量收敛后整体 −1）；
 > 且其 CLI 帮助与 archive R-57 **明文声明它不是安全联锁**（"NOT a safety interlock"，
 > 只拒绝提交下一轮更新，光已出）。把它搬进驱动等于把**策略**伪装成**机制** ——
 > 与 TODO 里 R-57 的结论直接冲突。
@@ -542,13 +542,13 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 | 来源文档 | 提出日期 | 主题 | 现落点 |
 |---|---|---|---|
-| `docs/TODO.md` | 2026-09-25 | `slm_zernike_pib.py` P0–P3 | 文件已删，内容 → §1 / §2 + archive §5.2/§5.3 |
-| `docs/refactor/TODO.md` | 2026-10-01 | `utils/`+`scripts/`+`tools/` 架构重构 | 文件已删，内容 → §2 + archive §5.4–§5.13 |
+| `TODO.md` | 2026-09-25 | `slm_zernike_pib.py` P0–P3 | 文件已删，内容 → §1 / §2 + archive §5.2/§5.3 |
+| `TODO.md` | 2026-10-01 | `utils/`+`scripts/`+`tools/` 架构重构 | 文件已删，内容 → §2 + archive §5.4–§5.13 |
 | `src/ao_shaping/tools/slm/TODO.md` | 2026-10-01 | `tools/slm/` 22 个探针 | **文件仍在** ⇒ §2.3 + X-2 |
 | `report/fouriergsnet_pipeline/TODO.md` | 2026-10-01 | FourierGSNet 实验系统验证 | 文件仍在 ⇒ §1.2 |
 | `report/slm/report2.md` §4 | 2026-09-16 | Zernike 矫正后续动作 | → §1.4 |
-| `report/slm_pib_bench/report.md` | 2026-09-30 | slm-pib 实验系统下一步 | → §1.3 |
-| `report/slm/bench_calibration_20261001.md` | 2026-10-01 | 稳定化判据 | → H-18 |
+| `report/slm_pib_bench/pib_bench_report/report.md` | 2026-09-30 | slm-pib 实验系统下一步 | → §1.3 |
+| `report/slm/bench/bench_calibration_20261001.md` | 2026-10-01 | 稳定化判据 | → H-18 |
 | 代码注释 ×4 | 2026-09-17 ~ 09-25 | runner 待测清单 | → §1.1 |
 | `docs/issues_report.md` §10/§11 | 2026-05-26 | 架构建议 + 新增扫描 | → F-4 / F-5 |
 | `OBJECTIVE_TARGET_SHAPE_MERGE_PLAN.md` | 2026-09-26 | objective/target_shape 合并 | ✅ 已落地 → archive §5 |

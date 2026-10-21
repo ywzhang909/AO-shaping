@@ -4,7 +4,7 @@
 > **复现命令**: `python scripts/slm/generate_model_in_loop_report.py`
 > **运行环境**: 离线 (纯源码静态分析 + 可选 torch 实测; 不开设备)
 > **说明**: 本文档是**使用/结构说明**, 不是测量结论 —— 硬件实测另见
-> [`report/slm/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_bench_calibration.md)。
+> [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)。
 
 本报告描述 `slm-model-in-loop` 的**结构与算法**, 不是一次测量的结论。
 全文离线可重生成: 图中的每个符号都对着源码解析过, 表格里的默认值是从 dataclass
@@ -727,7 +727,7 @@ payload 的键:
 当时散斑相关度在几何 对比择优 处就被拒绝, 运行根本没进 Step B。2026-10-19 的会话
 **已经越过几何标定**(标准相位族验证集相关性约 0.78–0.87), 改被**验证集相关性门槛**拦下
 (全频随机相位验证集仅约 0.11–0.28, 低于逐样本门槛 `0.5`)
-(`report/shape_trials/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。
+(`report/shape_trials/model_in_loop/model_in_loop_live_20261019.md`)。门槛既没被调低, 也没被绕过。
 
 - 更早那次的实测: 散斑相关度在这台实验系统上**无论怎么拟合几何都上不去 ~0.07** —— LCOS 把高空间频率
   强烈低通掉, 于是"随机瞳面相位 ⇒ 远场散斑"这个模型前提本身不成立, 实测帧是**一个紧致

@@ -16,7 +16,7 @@
 >    `utils/cli_helpers.py` → **`utils/io/cli_helpers.py`**、
 >    `runners/zernike_matrix_runner.py` → **`runners/slm/zernike_matrix_runner.py`**）。
 > 2. **SLM 序列号存疑**：本文写 `#23020026`（532nm），
->    而 `drivers/AGENTS.md:158` 与 `report/slm/bench_calibration_20261001.md` 均写
+>    而 `drivers/AGENTS.md:158` 与 `report/slm/bench/bench_calibration_20261001.md` 均写
 >    **SLM#1 = `22030108`（1064nm，2π=993）**。仓库中同时存在 `22030102`、`22030108`、
 >    `23020026` 三个「SLM#1」序列号，尚未统一，见 `TODO.md`。
 
@@ -215,7 +215,7 @@ WFS Python 侧不存在数组尺寸不足/越界写:
 重写 (设备生命周期/推拉内核/pupil（瞳面） 自动与写回/弧度制/产物与 CLI 保持), runner 侧时序与
 `--debug` 落盘问题已消除; 残留假设中的 SLM DLL 侧问题只能由**实验重标**验证
 (待办项, 设备可用后执行)。**当前处置**: 改用**等价的、已验证的** `tools/slm/slm_zernike_response.py`
-(同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `report/slm/report3.md`。
+(同为推拉法, 且已记录完整设备参数) 完成重标 → 见 `report/slm/zernike_response_matrix_report/report3.md`。
 
 ### 2.7 ✅ 修复 `parse_tuple` 的整数限制
 
@@ -323,9 +323,9 @@ data/zernike_correction/debug_<ts>/
 
 ## 6. 相关文档
 
-- **`report/slm/report3.md`** — **Zernike 响应矩阵重标 完整测试报告 (2026-09-16)**: 含设备参数、
+- **`report/slm/zernike_response_matrix_report/report3.md`** — **Zernike 响应矩阵重标 完整测试报告 (2026-09-16)**: 含设备参数、
   矩阵热图/对角主导/奇异值/方差/线性度、离线反解与结论解读 (带图带文字分析)
-- `report/slm/daily_2026-09-15.md` — 实验日报 (§9 含线性度分析)
+- `report/slm/daily/daily_2026-09-15.md` — 实验日报 (§9 含线性度分析)
 - `report/slm/zernike_response_matrix_report/report.md` — 响应矩阵报告 (创建/分析/检测)
 - `report/slm/zernike_linearity/linearity.md` — 线性度分析
 - `src/ao_shaping/drivers/slm/AGENTS.md` — SLM 域文档 (含三个已踩坑)
@@ -387,31 +387,31 @@ data/zernike_correction/debug_<ts>/
 
 #### 2.1 响应矩阵热图
 
-![matrix heatmap](zernike_response_matrix_report/figures/01_matrix_heatmap.png)
+![matrix heatmap](./zernike_response_matrix_report/figures/01_matrix_heatmap.png)
 
 绿框 = 对角线 (同索引 SLM 模式 → WFS 系数)。
 
 #### 2.2 对角主导性
 
-![diagonal](zernike_response_matrix_report/figures/02_diagonal_dominance.png)
+![diagonal](./zernike_response_matrix_report/figures/02_diagonal_dominance.png)
 
 **8/14** 个模式的列主导项即对角线项。
 
 #### 2.3 奇异值谱 / 条件数
 
-![svd](zernike_response_matrix_report/figures/03_singular_values.png)
+![svd](./zernike_response_matrix_report/figures/03_singular_values.png)
 
 条件数 **11.90** (良态, 伪逆稳定)。
 
 #### 2.4 重复性方差
 
-![variance](zernike_response_matrix_report/figures/04_variance_map.png)
+![variance](./zernike_response_matrix_report/figures/04_variance_map.png)
 
 平均方差 **1.205e-04**, 最大 **1.324e-02**。
 
 #### 2.5 线性度 (多尺寸扫描)
 
-![linearity](zernike_response_matrix_report/figures/05_linearity.png)
+![linearity](./zernike_response_matrix_report/figures/05_linearity.png)
 
 **正确判据**: 响应已按单位幅度归一化 → 线性响应表现为 `|resp|` **恒定**, 故用幅度离散度 **CV** 与响应向量方向一致性 **cos** (原 slope/R² 判据在线性时 slope≈0, 无意义)。
 
@@ -450,19 +450,19 @@ data/zernike_correction/debug_<ts>/
 
 #### 3.1 异常点诊断
 
-![outlier](zernike_response_matrix_report/figures/06_outlier_diagnosis.png)
+![outlier](./zernike_response_matrix_report/figures/06_outlier_diagnosis.png)
 
 **根因**: Zernike 半径 ≈ 光束半径 (实测 200px) 时, 大幅度高阶模式把子孔径光斑推出有效区 → DLL Zernike 拟合崩溃, `|resp|` 暴涨 (实测最高 4288)。故标定应取 **R ≈ 1.5×光束半径**。
 
 #### 3.2 离线反解验证
 
-![inverse](zernike_response_matrix_report/figures/07_inverse_demo.png)
+![inverse](./zernike_response_matrix_report/figures/07_inverse_demo.png)
 
 合成像差 `[5]defocus=+0.30λ, [9]coma=−0.20λ` → 反解 `c = pinv(M) @ w`, 残差 ‖Mc−w‖=0.0369 / ‖w‖=0.3606 → **降低 89.8%**。
 
 #### 3.3 实测闭环矫正
 
-![closed loop](zernike_response_matrix_report/figures/08_closed_loop.png)
+![closed loop](./zernike_response_matrix_report/figures/08_closed_loop.png)
 
 恢复 WFS 内部参考后, 矫正前 RMS=0.3564λ → 矫正后 0.2065λ (**42.1%**)。
 

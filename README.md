@@ -174,7 +174,7 @@ Santec SLM-200 实验系统上踩出来的实验系统常数与测量陷阱，**
 `tools/kernels/sweep_analysis.py` (扫描线性 / `delta` 探索 / SNR)。Zernike 共用量在
 `tools/zernike/common.py`。`scripts/slm/model_in_loop_hw_runbook.py --stage sweep` 的采集内核
 收敛自 `tools/zernike/sweep_probe.py`; 面板与几何常数来源见
-[`report/slm/model_in_loop_bench_calibration.md`](report/slm/model_in_loop_bench_calibration.md)。
+[`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](./report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md)。
 
 ### Micro-DM 数据目录
 
@@ -187,7 +187,7 @@ Santec SLM-200 实验系统上踩出来的实验系统常数与测量陷阱，**
 
 ## GUI 界面 (Streamlit)
 
-项目提供了基于Streamlit的图形界面，按设备域分包于 `src/ao_shaping/gui/` 下，各 UI 独立运行：
+项目提供了基于 Streamlit 的图形界面，**代码**按设备域分包于 `src/ao_shaping/gui/` 下，各 UI 独立运行；对应的**操作手册与需求规格说明书**在 `docs/GUI/<子包>/<页面名>/` 下（与 py 文件同名的包目录）：
 
 ```bash
 # R50 控制器 (单单元/单控制器/组/联合控制)
@@ -207,9 +207,18 @@ streamlit run src/ao_shaping/gui/slm/multi_slm_controller.py
 
 # 1300 陶瓷单元查看器 (网格浏览 + 图片标注)
 streamlit run src/ao_shaping/gui/r50/ceramic_viewer.py
+
+# CCD 实时图像分析 (大恒/MIICAM + 椭圆拟合 + 截面)
+streamlit run src/ao_shaping/gui/ccd/ccd_analyzer.py
+
+# Zernike 调试查看器 (响应矩阵/系数可视化)
+streamlit run src/ao_shaping/gui/zernike/zernike_debug_viewer.py
+
+# Micro-DM 图像分析 (diff 图/网格)
+streamlit run src/ao_shaping/gui/dm/md_img_analysis_ui.py
 ```
 
-`multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md) 与 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md)。
+各页面的用户手册与需求规格说明书见 [`docs/gui.md`](docs/gui.md) 的文档索引。其中 `multi_slm_controller.py` 是 Santec SLM-200 空间光调制器的 Streamlit 前端页面，支持最多两台 SLM、相位图案生成/下发、CSV 加载与导出、周期切换后台任务，以及闭环远场光束整形（GS+SPGD 与正向模型闭环）。完整操作手册与需求规格说明书见 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_user_manual.md) 与 [`docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md`](docs/GUI/slm/multi_slm_controller/multi_slm_controller_srs.md)。
 
 ## 项目结构（简版）
 
@@ -234,6 +243,6 @@ AO-shaping/
 
 ## 近期更新
 
-版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.18.0**, 2026-10-12）。
-最近一轮要点：逆向整形 PhasorUNet、自适应 SPGD、GS 预矫正上硬件、仿真 WFS 接入
-runner 命令面、DM→瞳面相位耦合进入仿真、相机噪声模型修复、实验系统工具重组。
+版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.19.0**, 2026-10-19）。
+最近一轮要点：正向模型在环（model-in-loop）闭环成型、GS→Zernike 阶数扫描立项、
+scripts/ 按处理对象重组、ruff 硬门禁（2026-10-21 恢复入库，见 CHANGELOG v0.19.0 节）。

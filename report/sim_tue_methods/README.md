@@ -17,7 +17,7 @@ TU/e 的可微物理仿真与本文 MIL 闭环物理同构（单色激光经 LCO
 - TU/e 在纯仿真域内的「系统松弛收益」「混合拟合可造任意形状」，在**本实验系统的前向模型 + 器件带宽约束**下是否成立？
 - 仿真结论与实测的定量差距有多大（能否把仿真当实验的离线代理）？
 
-后者由 `shape_trials/gs_refine_fwdmodel_calibration.md` 的实验标定回答（见第 6 节）。
+后者由 `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` 的实验标定回答（见第 6 节）。
 
 ## 2. T1 系统松弛 A/B（对应 #124 / R-83）
 
@@ -103,7 +103,7 @@ issue 原计划用仿真在 2 至 8 张探针下复现「低参数在小样本�
 
 ## 6. 实验与仿真的定量对照（为什么仿真可信 / 不可信）
 
-上述 T1/T2/T4 仿真与本实验系统正向模型的关系，由 `shape_trials/gs_refine_fwdmodel_calibration.md` 的实验标定定量回答（2026-10-13，Santec SLM #1 22030108、Daheng CCD，1064 nm 实际光路，3 个 run × 平场 / GS）：
+上述 T1/T2/T4 仿真与本实验系统正向模型的关系，由 `report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md` 的实验标定定量回答（2026-10-13，Santec SLM #1 22030108、Daheng CCD，1064 nm 实际光路，3 个 run × 平场 / GS）：
 
 | run | 相位 | FWHM 实测/仿真 (px) | EE50 实测/仿真 | 远场相关 |
 |---|---|---:|---|---:|

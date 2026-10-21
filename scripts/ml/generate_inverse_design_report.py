@@ -59,7 +59,7 @@ _fmt = partial(fmt_signed, missing="MISSING")
 
 OUT_DIR = ROOT / "report" / "loss_defects"
 FIG_DIR = OUT_DIR / "figures"
-REPORT_KEY = "report/loss_defects/inverse_design_report.md"
+REPORT_KEY = "report/loss_defects/inverse_design_report/inverse_design_report.md"
 
 SIZE_FRAC, ASPECT = 0.375, 4.0 / 3.0
 

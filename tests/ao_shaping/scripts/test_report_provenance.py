@@ -56,38 +56,38 @@ _LINKABLE = re.compile(
 #: reason)``. Each needs a justification, because an unexplained baseline is just
 #: a suppressed failure.
 _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
-    "report/shape_trials/gs_refine_live_20261012.md": {
-        "../../data/debug/slm_gs_refine/20261012_173710/slm_gs_refine_20261012_173710_20261012_173710.gif": (
+    "report/shape_trials/gs_refine/gs_refine_live_20261012.md": {
+        "../../../data/debug/slm_gs_refine/20261012_173710/slm_gs_refine_20261012_173710_20261012_173710.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_174456/slm_gs_refine_20261012_174456_20261012_174456.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_174456/slm_gs_refine_20261012_174456_20261012_174456.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_174627/slm_gs_refine_20261012_174628_20261012_174628.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_174627/slm_gs_refine_20261012_174628_20261012_174628.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_175632/slm_gs_refine_20261012_175632_20261012_175632.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_175632/slm_gs_refine_20261012_175632_20261012_175632.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_175810/slm_gs_refine_20261012_175811_20261012_175811.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_175810/slm_gs_refine_20261012_175811_20261012_175811.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_175929/slm_gs_refine_20261012_175929_20261012_175929.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_175929/slm_gs_refine_20261012_175929_20261012_175929.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
         ),
-        "../../data/debug/slm_gs_refine/20261012_180222/slm_gs_refine_20261012_180222_20261012_180222.gif": (
+        "../../../data/debug/slm_gs_refine/20261012_180222/slm_gs_refine_20261012_180222_20261012_180222.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "
             "(`data/*`) keeps out of the repo entirely -- it exists only "
             "on the collecting machine, so the embed cannot resolve here."
@@ -103,47 +103,47 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "exists nowhere. The embed has always rendered broken."
         ),
     },
-    "report/shape_trials/model_in_loop_live_20261013.md": {
+    "report/shape_trials/model_in_loop/model_in_loop_live_20261013.md": {
         # Hardware debug artefacts under data/debug/, kept out by .gitignore
         # (`data/*`). They exist only on the collecting bench, so the relative
         # links resolve there but not in a clean clone.
-        "../../data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json": (
+        "../../../data/debug/slm_model_in_loop/20261013_105911/bench_geometry.json": (
             "bench geometry json under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
+        "../../../data/debug/slm_model_in_loop/20261013_114650/best_far_field.png": (
             "hardware capture under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_in_loop/20261013_145819/best_far_field.png": (
+        "../../../data/debug/slm_model_in_loop/20261013_145819/best_far_field.png": (
             "hardware capture under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_in_loop/20261013_152341/best_far_field.png": (
+        "../../../data/debug/slm_model_in_loop/20261013_152341/best_far_field.png": (
             "hardware capture under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json": (
+        "../../../data/debug/slm_exposure_analysis/20261013_1935/analysis_pixelwise.json": (
             "exposure analysis json under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv": (
+        "../../../data/debug/slm_model_compare/20261013_psf_trial/paired_observable_holdouts.csv": (
             "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv": (
+        "../../../data/debug/slm_model_compare/20261013_phase_bandwidth_trial/paired_holdouts.csv": (
             "paired-holdout csv under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv": (
+        "../../../data/debug/slm_model_compare/20261013_2015_new_session/psf_paired.csv": (
             "paired csv under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_model_compare/20261013_2015_new_session/phase_bandwidth_paired.csv": (
+        "../../../data/debug/slm_model_compare/20261013_2015_new_session/phase_bandwidth_paired.csv": (
             "paired csv under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
-        "../../data/debug/slm_disturbance_compare/20261013_165039/disturbance.json": (
+        "../../../data/debug/slm_disturbance_compare/20261013_165039/disturbance.json": (
             "disturbance json under data/debug/, gitignored (`data/*`) -- "
             "exists only on the collecting machine."
         ),
@@ -167,14 +167,6 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "(`data/*`) -- exists only on the collecting machine."
         ),
     },
-    "report/slm_pib_bench/report.md": {
-        # Cross-links a report that is registered but gitignored
-        # (report/slm_pib_online*), so it has no committed file to resolve to.
-        "../slm_pib_online_hw/objective_comparison.md": (
-            "target report is gitignored (report/slm_pib_online*) -- registered "
-            "but not committed, so the relative link cannot resolve here."
-        ),
-    },
 }
 
 
@@ -192,11 +184,16 @@ def _link_targets(text: str) -> list[str]:
 
 
 def _report_markdown() -> list[Path]:
-    """Every markdown file under ``report/`` except the generated index."""
+    """Every markdown file under ``report/`` except the generated index.
+
+    ``report/AGENTS.md`` is the *layout spec* for the report tree, not a
+    report -- it carries no provenance block and is never regenerated.
+    """
+    skip = {"report/README.md", "report/AGENTS.md"}
     return [
         p
         for p in sorted(REPORT_DIR.rglob("*.md"))
-        if p.relative_to(REPO).as_posix() != "report/README.md"
+        if p.relative_to(REPO).as_posix() not in skip
     ]
 
 
@@ -320,14 +317,15 @@ def test_index_links_resolve() -> None:
     """Every link in the generated ``report/README.md`` must resolve on disk."""
     index = REPORT_DIR / "README.md"
     assert index.is_file(), "report/README.md is missing -- run the sync script"
-    broken = [h for h in _link_targets(index.read_text(encoding="utf-8-sig"))
-              if not (index.parent / h).exists()]
+    broken = [
+        h
+        for h in _link_targets(index.read_text(encoding="utf-8-sig"))
+        if not (index.parent / h).exists()
+    ]
     assert not broken, f"report/README.md links to missing files: {broken}"
 
 
-@pytest.mark.parametrize(
-    "path", _report_markdown(), ids=lambda p: p.as_posix()[-60:]
-)
+@pytest.mark.parametrize("path", _report_markdown(), ids=lambda p: p.as_posix()[-60:])
 def test_report_relative_links_resolve(path: Path) -> None:
     """Relative links inside a report must still resolve after the move.
 
@@ -339,7 +337,8 @@ def test_report_relative_links_resolve(path: Path) -> None:
     """
     key = path.relative_to(REPO).as_posix()
     broken = [
-        h for h in _link_targets(path.read_text(encoding="utf-8-sig"))
+        h
+        for h in _link_targets(path.read_text(encoding="utf-8-sig"))
         if not (path.parent / h).exists()
     ]
     allowed = _PREEXISTING_BROKEN.get(key)
@@ -396,7 +395,8 @@ def test_the_preexisting_baseline_is_still_justified() -> None:
         path = REPO / key
         assert path.is_file(), f"{key} is baselined but no longer exists"
         broken = {
-            h for h in _link_targets(path.read_text(encoding="utf-8-sig"))
+            h
+            for h in _link_targets(path.read_text(encoding="utf-8-sig"))
             if not (path.parent / h).exists()
         }
         for href, reason in links.items():

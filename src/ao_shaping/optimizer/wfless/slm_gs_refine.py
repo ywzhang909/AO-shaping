@@ -58,6 +58,7 @@ slot twice is a firmware no-op that does not refresh the panel.
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -182,6 +183,25 @@ class SlmGsRefineConfig:
     early_stop_score: float = 0.0
     """Stop once the composite score reaches this (0 = run all epochs)."""
 
+    time_budget_s: float = 0.0
+    """Stage A 的墙钟预算 (s); 0 = 不限。超预算就**提前收工**: 保留目前最好的相位,
+    把实际跑掉的 epoch 数记进记录器, 让「一次扫描不超过 10 分钟」这条约束由配置保证,
+    而不是靠掐表掐进程。"""
+    chunk_epochs: int = 0
+    """本块要跑多少个**精化** epoch (0 = 用 ``epochs``)。
+
+    「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, ``epochs`` 必须保持
+    **总轮数** —— 学习率调度的总地平线就靠它, 改了调度就不是同一条轨迹了。
+    本字段只说这一块跑多少轮。
+    """
+
+    resume_state: dict[str, Any] | None = None
+    """从上一块续跑的状态 (由 :func:`resume_state_from_recorder` 产出)。
+
+    块边界必须能续上: 学习率按**全局** epoch 继续 (不热重启), 最佳值跨块取全局最优,
+    基线帧与零级位置沿用。否则 250 轮就被切成 6 段互不相干的优化。
+    """
+
     # --- objective ---------------------------------------------------------
     target_side: int = 0
     """Target square side in **camera** pixels. 0 = derive from the pupil image."""
@@ -231,13 +251,6 @@ class SlmGsRefineConfig:
     """HIO 松弛系数或自适应目标域反馈上限 (0≤β≤1)。"""
     gs_hio_fraction: float = 0.7
     """hio-weighted 前段 HIO 迭代占比 (0≤f≤1)。"""
-
-    init_from_gsnet: str | None = None
-    """Path to a square pupil-grid ``.npy`` phase (raw radians) that replaces the
-    analytic GS phase as the GS-stage initial phase. The existing measured
-    bake-off still decides adoption: the network phase is kept only if it beats
-    flat, and on rejection the analytic GS path runs as usual. ``None``
-    (default) keeps the historical GS warm start bit-for-bit."""
 
     # --- bench model (only used to compute the GS phase) -------------------
     panel_pixel_um: float = _DEFAULT_PANEL_PIXEL_UM
@@ -402,19 +415,6 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"far_field_padding must be at least 1, got {self.far_field_padding}"
             )
-        if self.init_from_gsnet is not None:
-            # Validate at config time, before any device opens, against the same
-            # pupil-square side the GS stage embeds. Deferred import:
-            # slm_model_in_loop's __post_init__ imports this module, so a
-            # module-level import here would be circular.
-            from ao_shaping.optimizer.wfless.slm_model_in_loop import (
-                _load_gsnet_phase,
-            )
-
-            _load_gsnet_phase(
-                self.init_from_gsnet,
-                pupil_side(max(8.0, float(self.beam_radius_px))),
-            )
         if self.cam_size < 0:
             raise ValueError(f"cam_size must be non-negative, got {self.cam_size}")
         if 0 < self.cam_size < 16:
@@ -441,6 +441,10 @@ class SlmGsRefineConfig:
         if self.early_stop_score < 0:
             raise ValueError(
                 f"early_stop_score must be non-negative, got {self.early_stop_score}"
+            )
+        if self.time_budget_s < 0:
+            raise ValueError(
+                f"time_budget_s must be non-negative, got {self.time_budget_s}"
             )
         if self.progress_every < 1:
             raise ValueError(
@@ -487,6 +491,63 @@ def _metrics(
     pib = power_in_bucket(frame, mask)
     cv = uniformity_cv(frame, mask if cv_mask is None else cv_mask)
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
+
+
+def _target_mask(frame: np.ndarray, cy: int, cx: int, side: int) -> np.ndarray:
+    """Build the frozen target square, or say which frame the centre came from.
+
+    框中心必须是 ``frame`` 的**窗口内**坐标: ``frame`` 是相机裁出来的 ROI 窗口
+    (通常是 256x256, 零级在 ~128)。而**全幅**传感器坐标 (未裁剪画面上的零级,
+    例如 2592x1944 传感器上的 (1434, 973)) 落在窗口之外, 框就整个跑到画面外 ——
+    2026-10-21 实测的分块续跑失败正是这么来的, 而报错只有一句
+    "target square ... is empty", 两个坐标系被静默混用, 根本看不出是哪一处。
+
+    所以这里把两个坐标系、画幅尺寸都写进报错里。
+    """
+    mask = square_mask(frame.shape, cy, cx, side)
+    if mask.any():
+        return mask
+    h, w = frame.shape[0], frame.shape[1]
+    raise ValueError(
+        f"target square (side={side}px at window-local ({cy},{cx})) is empty on "
+        f"the {h}x{w} ROI frame: the mask centre must be a WINDOW-LOCAL "
+        f"coordinate (inside the cropped ROI, 0..{min(h, w) - 1}), not a "
+        f"FULL-FRAME sensor coordinate (e.g. (1434, 973) on a 2592x1944 "
+        f"sensor). The two coordinate frames must not be mixed."
+    )
+
+
+def _camera_frame_shape(cam: Any) -> tuple[int, int] | None:
+    """相机当前窗口的尺寸 ``(h, w)``; 拿不到就返回 ``None``。
+
+    只用于「零级离传感器边缘太近」这个检查 —— 续跑块跳过了零级重定位, 手上
+    没有全幅画面, 只能问相机自己的尺寸。相机刚打开时窗口就是全幅, 所以这里读
+    到的就是传感器尺寸。
+    """
+    width = int(getattr(cam, "cam_width", 0) or 0)
+    height = int(getattr(cam, "cam_height", 0) or 0)
+    if width > 0 and height > 0:
+        return height, width
+    return None
+
+
+def _resume_full_frame_center(
+    resume: dict[str, Any] | None,
+) -> tuple[int, int] | None:
+    """续跑状态里带的**全幅**零级位置 ``(x, y)``; 没有就 ``None``。
+
+    有它 ⇒ 下一块把 ROI 窗口摆在同一个位置 (冻结 ROI 的前提); 没有 ⇒ 照旧
+    重新定位零级。
+    """
+    if not resume:
+        return None
+    raw = resume.get("full_frame_center")
+    if raw is None:
+        return None
+    try:
+        return int(raw[0]), int(raw[1])
+    except (TypeError, ValueError, IndexError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -620,6 +681,60 @@ def _lr_at(config: SlmGsRefineConfig, epoch: int) -> float:
 # ---------------------------------------------------------------------------
 
 
+def resume_state_from_recorder(
+    recorder: Any,
+    *,
+    flat_frame: np.ndarray,
+    center_y: int | None = None,
+    center_x: int | None = None,
+) -> dict[str, Any]:
+    """把一块的末态打包成「下一块的起点」。
+
+    「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, 每一块都要从上一块的
+    末态继续 —— 否则块边界会重置学习率调度, 250 轮就变成 6 段互不相干的优化。
+
+    ⚠️ 打包的是**未叠加**的相位: 零级叠加是显示时加的 (驱动层), 进了状态下一块
+    就会叠加两次。焦面矫正走的是**另一个通道** (``set_phase_overlay``), 本来就不在
+    相位里, 所以不用管。
+
+    Args:
+        recorder: 一块跑完的 :class:`Recorder`。
+        flat_frame: 平场基线帧 (续跑时沿用, 免得再测一次)。
+        center_y: 零级**行**坐标 —— 必须是**窗口内**坐标 (平场帧所在的那张 ROI
+            窗口的坐标系)。``None`` ⇒ 取记录器里冻结的窗口内零级位置。
+        center_x: 零级**列**坐标 (同上)。
+
+    Returns:
+        可直接塞进 :attr:`SlmGsRefineConfig.resume_state` 的字典。
+    """
+    if center_y is None or center_x is None:
+        # 默认取记录器冻结的**窗口内**零级位置 —— 全幅坐标不能当框中心用。
+        center_y = int(getattr(recorder, "center_y", 0))
+        center_x = int(getattr(recorder, "center_x", 0))
+    full_center = getattr(recorder, "full_frame_center", None)
+    return {
+        "base_panel": np.asarray(recorder.base_panel, dtype=np.float64),
+        "dof": np.asarray(recorder.dof, dtype=np.float64),
+        "flat_frame": np.asarray(flat_frame, dtype=np.float64),
+        "center_y": int(center_y),
+        "center_x": int(center_x),
+        # 全幅零级位置: 下一块据此摆**同一个** ROI 窗口 (冻结 ROI 的前提)。
+        # 没有它 (仿真路径 / 旧版交接文件) ⇒ 下一块照旧重新定位。
+        "full_frame_center": (
+            None
+            if full_center is None
+            else (int(full_center[0]), int(full_center[1]))
+        ),
+        "best_score": float(recorder.best_score),
+        "best_phase": np.asarray(recorder.best_phase_plain, dtype=np.float64),
+        "best_frame": np.asarray(recorder.best_frame, dtype=np.float64),
+        "best_stage": str(recorder.best_stage),
+        # 下一块的**起点** = 已经跑过的总轮数 (不是本块的起始偏移:
+        # 第一块的起始偏移是 0, 但它跑完之后下一块该从 2 接着跑)。
+        "epoch_offset": int(getattr(recorder, "epochs_total", 0)),
+    }
+
+
 def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     """Shape the far field into a uniform square on real SLM + CCD hardware.
 
@@ -633,6 +748,9 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
 
     Returns:
         A :class:`Recorder` whose ``mark`` is ``"score"`` in ``mode="max"``.
+        The recorder also carries ``epochs_executed`` (refinement epochs that
+        actually ran) and ``stopped_on_budget`` (the wall-clock budget cut the
+        run short), so a caller can tell a finished run from a truncated one.
     """
     if config.cam_type == "sim":
         # Registers the "sim" camera type as an import side effect.
@@ -700,6 +818,13 @@ def _run_gs_refine_session(
     best_stage = _STAGE_FLAT
     best_phase: np.ndarray | None = None
     best_frame: np.ndarray | None = None
+    # The wall-clock budget covers the WHOLE Stage A session (flat probe + GS
+    # + refinement), not just the refinement loop: the promise is about the
+    # caller's 10-minute slot, so the clock starts when the session starts.
+    budget_s = float(config.time_budget_s)
+    session_started = time.monotonic()
+    epochs_executed = 0
+    stopped_on_budget = False
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
     disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
@@ -749,25 +874,57 @@ def _run_gs_refine_session(
     target_side = _derive_target_side(config, radius_px)
     if config.blaze_period_px >= 0 and config.cam_type == "sim":
         raise ValueError("blaze calibration requires a full-frame hardware CCD")
+    # 续跑块沿用上一块记录的**全幅**零级位置, **不重新定位**: 重新定位会落在一个
+    # 近等的散斑颗粒上, ROI 窗口随之平移一两像素 —— 窗口坐标系整个挪动, 冻结的
+    # 目标框就指到了别处, 指标在块边界上不可比。
+    recorded_full_center = _resume_full_frame_center(config.resume_state)
+    # 摆窗口用的全幅位置 (仿真路径没有全幅发现 ⇒ None)。
+    full_frame_center: tuple[int, int] | None = None
     if config.cam_type != "sim":
-        # Locate the zero order on the full sensor before restricting the CCD ROI.
-        discovery = display_and_average(
-            cam,
-            slm,
-            displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
-            n_frames=1,
-            settle_wait_s=config.settle_wait_s,
-            settle_tol=config.settle_tol,
-            settle_max_wait_s=config.settle_max_wait_s,
-            settle_max_discard=config.settle_max_discard,
-            memory_number=work_slots[2],
-        )
-        if config.cam_type == "daheng" and np.max(discovery) >= 255:
-            raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
-        full_y, full_x = locate_zero_order(discovery)
+        discovery = None
+        if recorded_full_center is not None:
+            full_x, full_y = recorded_full_center
+            logger.info(
+                "沿用续跑状态里的全幅零级位置 ({}, {}): 跳过零级重定位, "
+                "ROI 窗口与上一块逐像素一致",
+                full_x,
+                full_y,
+            )
+        else:
+            # Locate the zero order on the full sensor before restricting the CCD ROI.
+            discovery = display_and_average(
+                cam,
+                slm,
+                displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                n_frames=1,
+                settle_wait_s=config.settle_wait_s,
+                settle_tol=config.settle_tol,
+                settle_max_wait_s=config.settle_max_wait_s,
+                settle_max_discard=config.settle_max_discard,
+                memory_number=work_slots[2],
+            )
+            if config.cam_type == "daheng" and np.max(discovery) >= 255:
+                raise ValueError(
+                    "Daheng full-frame discovery saturated; reduce exposure"
+                )
+            full_y, full_x = locate_zero_order(discovery)
         if config.blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
 
+            if discovery is None:
+                # blaze 标定要在**全幅**画面上找零级与信号阶, 续跑块跳过零级重定位
+                # 后没有全幅帧, 这里补拍一张 (只用于标定, 不参与定位)。
+                discovery = display_and_average(
+                    cam,
+                    slm,
+                    displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                    n_frames=1,
+                    settle_wait_s=config.settle_wait_s,
+                    settle_tol=config.settle_tol,
+                    settle_max_wait_s=config.settle_max_wait_s,
+                    settle_max_discard=config.settle_max_discard,
+                    memory_number=work_slots[2],
+                )
             blaze_probe_count = 0
 
             def capture_blaze(phase: np.ndarray) -> np.ndarray:
@@ -794,20 +951,32 @@ def _run_gs_refine_session(
                 direction=config.blaze_direction, flat_frame=discovery,
             )
             overlay = choice.params
-            full_x, full_y = choice.signal_xy
+            if recorded_full_center is None:
+                full_x, full_y = choice.signal_xy
+            else:
+                # 冻结 ROI 优先于 blaze 的信号阶位置: 挪窗口就等于挪坐标系。
+                logger.warning(
+                    "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
+                    full_x,
+                    full_y,
+                )
             logger.info(
                 "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
                 overlay.blaze_period_px, overlay.blaze_direction, choice.zero_xy,
                 choice.signal_xy, choice.separation_px,
             )
+        full_frame_center = (int(full_x), int(full_y))
         signal_local_xy = (full_x, full_y)
         if config.cam_size > 0:
             half = config.cam_size // 2
-            if (
+            full_shape = (
+                discovery.shape if discovery is not None else _camera_frame_shape(cam)
+            )
+            if full_shape is not None and (
                 full_x - half < 0
                 or full_y - half < 0
-                or full_x + half >= discovery.shape[1]
-                or full_y + half >= discovery.shape[0]
+                or full_x + half >= full_shape[1]
+                or full_y + half >= full_shape[0]
             ):
                 raise ValueError(
                     "CCD zero order too close to edge for requested window"
@@ -925,126 +1094,177 @@ def _run_gs_refine_session(
         recorder.append(row)
         return score
 
-    # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
-    flat_panel = np.zeros(panel_shape, dtype=np.float64)
-    frame0 = measure(flat_panel)
-    cy, cx = (
-        (signal_local_xy[1], signal_local_xy[0])
-        if overlay is not None
-        else locate_zero_order(frame0)
-    )
-    mask = square_mask(frame0.shape, cy, cx, target_side)
-    if not mask.any():
-        raise ValueError(
-            f"target square (side={target_side}px at ({cy},{cx})) is empty"
-        )
-    if config.exclude_zero_order_for_cv:
-        from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
-
-        core = zero_order_exclusion_mask(frame0, mask)
-        cv_mask = mask & ~core
-        logger.info(
-            "CV excludes {} zero-order pixels from {} target pixels",
-            int(core.sum()), int(mask.sum()),
-        )
-    score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
-    best_score = score_flat
-    best_phase = flat_panel
-    best_frame = frame0
-    logger.info(
-        "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
-        cy,
-        cx,
-        target_side,
-        score_flat,
-    )
-
-    # --- Stage 1: GS warm start, admitted only if it wins -------------
-    base_panel = flat_panel
-    init_from_gsnet_status = "disabled"
-    if config.init_from_gsnet is not None:
-        # The network phase REPLACES the analytic GS phase as the GS-stage
-        # initial phase; the stage's measured bake-off is the same rule and
-        # still decides, so a bad network costs one measurement, not the run.
-        # The load cannot fail here: SlmGsRefineConfig.__post_init__ validated
-        # this exact file against this exact pupil-square side.
-        from ao_shaping.optimizer.wfless.slm_model_in_loop import _load_gsnet_phase
-
-        gsnet_box = _load_gsnet_phase(
-            config.init_from_gsnet, pupil_side(radius_px)
-        )
-        gsnet_panel = embed_pupil_square(gsnet_box, panel_shape, radius_px, center_xy)
-        gsnet_frame = measure(gsnet_panel)
-        gsnet_score = _metrics(
-            gsnet_frame, mask, config.w_pib, config.w_unif, cv_mask
-        )[0]
+    resume = config.resume_state
+    epoch_offset = 0
+    grid = max(2, int(config.phase_grid))
+    if resume is not None:
+        # --- 续跑: 跳过平场基线与 GS 热启动, 从上一块的末态继续 --------------
+        base_panel = np.asarray(resume["base_panel"], dtype=np.float64)
+        dof = np.asarray(resume["dof"], dtype=np.float64)
+        frame0 = np.asarray(resume["flat_frame"], dtype=np.float64)
+        if "center_y" in resume and "center_x" in resume:
+            cy, cx = int(resume["center_y"]), int(resume["center_x"])
+        else:
+            # 交接文件里没有窗口内的零级位置 ⇒ 从平场帧重新定位 (与优化器自己
+            # 用的峰值定位同一套 routine)。
+            cy, cx = locate_zero_order(frame0)
+            logger.info(
+                "续跑状态里没有窗口内的零级位置, 改从平场帧重新定位 (row={}, col={})",
+                cy,
+                cx,
+            )
+        mask = _target_mask(frame0, cy, cx, target_side)
+        best_score = float(resume["best_score"])
+        best_phase = np.asarray(resume["best_phase"], dtype=np.float64)
+        best_frame = np.asarray(resume["best_frame"], dtype=np.float64)
+        best_stage = str(resume["best_stage"])
+        epoch_offset = int(resume.get("epoch_offset", 0))
+        # 续跑时整段 GS 阶段被跳过（初值来自交接文件），所以网络初值没有参与，
+        # 判决如实记下来。
         init_from_gsnet_status = (
-            "adopted" if gsnet_score > score_flat else "flat_bake_off_rejected"
+            "skipped_on_resume" if config.init_from_gsnet is not None else "disabled"
         )
-        record(
-            _STAGE_GS,
-            gsnet_frame,
-            mask,
-            gsnet_panel,
-            cy=cy,
-            cx=cx,
-            init_from_gsnet_status=init_from_gsnet_status,
+        logger.info(
+            "续跑 Stage A: 从全局 epoch {} 继续, 当前最佳 {:.4f} (stage={})",
+            epoch_offset,
+            best_score,
+            best_stage,
         )
-        if init_from_gsnet_status == "adopted":
-            base_panel = gsnet_panel
-            best_score = gsnet_score
-            best_phase = gsnet_panel
-            best_frame = gsnet_frame
-            best_stage = _STAGE_GS
+    else:
+        # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
+        flat_panel = np.zeros(panel_shape, dtype=np.float64)
+        frame0 = measure(flat_panel)
+        cy, cx = (
+            (signal_local_xy[1], signal_local_xy[0])
+            if overlay is not None
+            else locate_zero_order(frame0)
+        )
+        mask = _target_mask(frame0, cy, cx, target_side)
+        if config.exclude_zero_order_for_cv:
+            from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
+
+            core = zero_order_exclusion_mask(frame0, mask)
+            cv_mask = mask & ~core
             logger.info(
-                "init_from_gsnet ADOPTED: measured {:.4f} beats flat {:.4f}",
-                gsnet_score,
-                score_flat,
+                "CV excludes {} zero-order pixels from {} target pixels",
+                int(core.sum()), int(mask.sum()),
             )
-        else:
-            logger.info(
-                "init_from_gsnet {:.4f} did not beat flat {:.4f}; falling back "
-                "to the analytic GS phase",
-                gsnet_score,
-                score_flat,
+        score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
+        best_score = score_flat
+        best_phase = flat_panel
+        best_frame = frame0
+        logger.info(
+            "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
+            cy,
+            cx,
+            target_side,
+            score_flat,
+        )
+
+        # --- Stage 1: GS warm start, admitted only if it wins -------------
+        base_panel = flat_panel
+        init_from_gsnet_status = "disabled"
+        if config.init_from_gsnet is not None:
+            # The network phase REPLACES the analytic GS phase as the GS-stage
+            # initial phase; the stage's measured bake-off is the same rule and
+            # still decides, so a bad network costs one measurement, not the run.
+            # The load cannot fail here: SlmGsRefineConfig.__post_init__ validated
+            # this exact file against this exact pupil-square side.
+            from ao_shaping.optimizer.wfless.slm_model_in_loop import _load_gsnet_phase
+
+            gsnet_box = _load_gsnet_phase(
+                config.init_from_gsnet, pupil_side(radius_px)
             )
-    gs_box = (
-        None
-        if init_from_gsnet_status == "adopted"
-        else _gs_pupil_phase(config, radius_px, target_side)
-    )
-    if gs_box is not None:
-        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
-        gs_frame = measure(gs_panel)
-        score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
-        if score_gs > score_flat:
-            base_panel = gs_panel
-            best_score = score_gs
-            best_phase = gs_panel
-            best_frame = gs_frame
-            best_stage = _STAGE_GS
-        else:
-            logger.info(
-                "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
-                "(check --camera-pixel-um / --beam-radius-px)",
-                score_gs,
-                score_flat,
+            gsnet_panel = embed_pupil_square(gsnet_box, panel_shape, radius_px, center_xy)
+            gsnet_frame = measure(gsnet_panel)
+            gsnet_score = _metrics(
+                gsnet_frame, mask, config.w_pib, config.w_unif, cv_mask
+            )[0]
+            init_from_gsnet_status = (
+                "adopted" if gsnet_score > score_flat else "flat_bake_off_rejected"
             )
+            record(
+                _STAGE_GS,
+                gsnet_frame,
+                mask,
+                gsnet_panel,
+                cy=cy,
+                cx=cx,
+                init_from_gsnet_status=init_from_gsnet_status,
+            )
+            if init_from_gsnet_status == "adopted":
+                base_panel = gsnet_panel
+                best_score = gsnet_score
+                best_phase = gsnet_panel
+                best_frame = gsnet_frame
+                best_stage = _STAGE_GS
+                logger.info(
+                    "init_from_gsnet ADOPTED: measured {:.4f} beats flat {:.4f}",
+                    gsnet_score,
+                    score_flat,
+                )
+            else:
+                logger.info(
+                    "init_from_gsnet {:.4f} did not beat flat {:.4f}; falling back "
+                    "to the analytic GS phase",
+                    gsnet_score,
+                    score_flat,
+                )
+        gs_box = (
+            None
+            if init_from_gsnet_status == "adopted"
+            else _gs_pupil_phase(config, radius_px, target_side)
+        )
+        if gs_box is not None:
+            gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
+            gs_frame = measure(gs_panel)
+            score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
+            if score_gs > score_flat:
+                base_panel = gs_panel
+                best_score = score_gs
+                best_phase = gs_panel
+                best_frame = gs_frame
+                best_stage = _STAGE_GS
+            else:
+                logger.info(
+                    "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
+                    "(check --camera-pixel-um / --beam-radius-px)",
+                    score_gs,
+                    score_flat,
+                )
 
     # --- Stage 2: SPGD freeform refinement --------------------------
     # The DOF vector stays flat: ``Base.update`` keeps its moments at
     # ``(dim,)`` and would not broadcast against a ``(grid, grid)``
     # gradient. It is reshaped only when embedded into the panel.
-    grid = max(2, int(config.phase_grid))
-    dof = np.zeros(grid * grid, dtype=np.float64)
-    optimizer = make_optimizer(config.optimizer_type, dof.size, _lr_at(config, 0))
+    if resume is None:
+        dof = np.zeros(grid * grid, dtype=np.float64)
+    optimizer = make_optimizer(
+        config.optimizer_type, dof.size, _lr_at(config, epoch_offset)
+    )
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return compose_pupil_dof(
             base_panel, vec.reshape(grid, grid), panel_shape, radius_px, center_xy
         )
 
-    for epoch in range(max(1, int(config.epochs))):
+    chunk_count = (
+        int(config.chunk_epochs) if int(config.chunk_epochs) > 0 else int(config.epochs)
+    )
+    for epoch in range(epoch_offset, epoch_offset + max(1, chunk_count)):
+        # Checked BEFORE spending an epoch: a budget that is already spent must
+        # not buy another pair of far-field reads. The best phase/frame found so
+        # far are kept -- an unfinished run is still a usable measurement.
+        if budget_s > 0.0 and (time.monotonic() - session_started) >= budget_s:
+            stopped_on_budget = True
+            logger.info(
+                "Stage A 墙钟预算 {:.1f}s 已用尽: 在第 {} 个精化 epoch 前收工, "
+                "保留目前的最佳相位 (实跑 {} 个 epoch)",
+                budget_s,
+                epoch,
+                epochs_executed,
+            )
+            break
         lr = _lr_at(config, epoch)
         if hasattr(optimizer, "lr"):
             optimizer.lr = lr
@@ -1097,6 +1317,7 @@ def _run_gs_refine_session(
             dof_score=dof_score,
             dof_timestamp_utc=dof_timestamp,
         )
+        epochs_executed += 1
         if config.record_debug and confirmed:
             row = recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
@@ -1144,11 +1365,35 @@ def _run_gs_refine_session(
         best_row.get("epoch", "-"),
         len(recorder.history),
     )
+    # How many refinement epochs actually ran: the number of ``refine`` rows in
+    # the history. A run cut short by the wall-clock budget must be visible as
+    # "fewer epochs than asked for", not as a silent gap.
+    recorder.epochs_executed = epochs_executed
+    recorder.time_budget_s = budget_s
+    recorder.stopped_on_budget = stopped_on_budget
+    recorder.elapsed_s = round(time.monotonic() - session_started, 6)
+    # 可续跑的状态: DOF 向量 + 基座相位 (都是**未叠加**的 —— 零级叠加是显示时加的,
+    # 进了状态下一块就会叠加两次) + ��局 epoch 计数。
+    recorder.base_panel = base_panel
+    recorder.dof = dof
+    recorder.epoch_offset = epoch_offset
+    recorder.epochs_total = epoch_offset + epochs_executed
+    # 冻结的零级中心: 续跑块必须沿用同一块 ROI (重新定位会把指标挪到别的位置)。
+    recorder.center_y = int(cy)
+    recorder.center_x = int(cx)
+    # 摆 ROI 窗口用的**全幅**位置: 下一块据此把窗口摆在同一个地方 ——
+    # 重新定位零级会落到近等的散斑颗粒上, 窗口一平移, 窗口坐标系就跟着挪。
+    # 默认是零级; 开了 blaze 载波时是信号阶位置 (窗口是按它摆的)。
+    # 仿真路径没有全幅发现 ⇒ None (下一块照旧重新定位)。
+    recorder.full_frame_center = full_frame_center
     # The best phase and frame ride on the Recorder as attributes rather than as
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array
     # into a CSV cell.
     recorder.best_phase = displayed_phase(best_phase)
+    # 未叠加零级的原始相位: 续跑时要用它 (显示时再加叠加层)。
+    recorder.best_phase_plain = best_phase
+    recorder.best_score = best_score
     recorder.best_frame = best_frame
     recorder.best_stage = best_stage
     recorder.blaze_choice = (

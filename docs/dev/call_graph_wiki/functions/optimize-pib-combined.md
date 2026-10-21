@@ -4,7 +4,7 @@ created: 2026-10-13
 updated: 2026-10-13
 type: function
 tags: [optimizer,pib,adapmod]
-source: src/ao_shaping/optimizer/combined_optimizer.py:118
+source: src/ao_shaping/optimizer/combined_optimizer.py:76
 ---
 
 ## 签名
@@ -50,21 +50,18 @@ Optimize PIB (Power in Bucket) with AdaMOD and adaptive bucket radius.
 
 ## 直接调用（出边）
 
-- `ao_shaping.drivers.ccd.common.get_camera_exposure_ms`
 - [[functions/spots|`pib_ratio_mask`]]
-- [[functions/spots|`power_in_bucket_mask`]]
 - [[functions/spots|`radius`]]
-- `ao_shaping.drivers.ccd.common.capture_with_exposure`
+- `ao_shaping.drivers.ccd.common.get_camera_exposure_ms`
+- [[functions/spots|`power_in_bucket_mask`]]
 - `learning_schedule`
-- `_camera_cls`
 - `ao_shaping.algorithm.gradient.adam.AdaMOD` *(未解析/外部)*
 - `ao_shaping.drivers.ccd.common.resample_on_saturation`
 - `ao_shaping.drivers.dm._registry.get_dm_registry`
-- [[functions/spgd-gradient|`spgd_gradient`]]
+- `ao_shaping.optimizer.spid_pib_loop.open_pib_bench`
+- `ao_shaping.optimizer.spid_pib_loop.spid_pib_epoch`
 - `ao_shaping.utils.ImageVoltagesDisplay` *(未解析/外部)*
 - `ao_shaping.utils.Recorder` *(未解析/外部)*
-- `ao_shaping.utils.image.hardware_utils.log_center_brightness`
-- `ao_shaping.utils.image.hardware_utils.resolve_spot_center`
 
 ## 谁调用它（入边）
 

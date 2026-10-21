@@ -1,0 +1,183 @@
+[
+  {
+    "group": "dz_scan_model_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_scan_control",
+      "phase": "model_gs",
+      "exposure_ms": "0.4",
+      "defocus_focal_mm": "1523.8",
+      "target_side_px": "44",
+      "chirp_tilt_cancel": "true",
+      "target_side_source": "explicit",
+      "chirp_tilt_enabled": "true"
+    },
+    "dir": "dz_scan_model_gs",
+    "n_rows": 30,
+    "created_utc": "2026-10-21T08:00:07+00:00"
+  },
+  {
+    "group": "dz_noise_hw_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_noise",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1523.8",
+      "target_side_px": "10",
+      "chirp_tilt_cancel": "true",
+      "phase_file": "data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy",
+      "target_side_source": "explicit",
+      "chirp_tilt_enabled": "true"
+    },
+    "dir": "dz_noise_hw_gs",
+    "n_rows": 10,
+    "created_utc": "2026-10-21T07:58:04+00:00"
+  },
+  {
+    "group": "dz_scan_hw_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_scan",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1523.8",
+      "target_side_px": "10",
+      "chirp_tilt_cancel": "true",
+      "phase_file": "data/debug/hw_zernike_sweep_20261021/zernike_order_nmax4/best_phase_nmax4.npy",
+      "target_side_source": "explicit",
+      "chirp_tilt_enabled": "true"
+    },
+    "dir": "dz_scan_hw_gs",
+    "n_rows": 24,
+    "created_utc": "2026-10-21T07:58:50+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax11",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "11",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax11",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:00:20+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax15",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "15",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax15",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:00:30+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax20",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "20",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax20",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:00:41+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax25",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "25",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax25",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:00:54+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax3",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "3",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax3",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:01:05+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax4",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "4",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax4",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:01:17+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax6",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "6",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax6",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:01:28+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax8",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "8",
+      "phase": "zernike_fit",
+      "target_side_px": "10",
+      "target_side_source": "explicit",
+      "chirp_tilt_cancel": "false",
+      "chirp_tilt_enabled": "false"
+    },
+    "dir": "zernike_farfield_nmax8",
+    "n_rows": 2,
+    "created_utc": "2026-10-21T08:01:38+00:00"
+  }
+]

@@ -7,11 +7,11 @@ ML 代码在独立包 `src/ml/` (可选依赖组), 与硬件层解耦。训练�
 
 | 任务 | 入口 | 报告 |
 |---|---|---|
-| Zernike 系数 → 远场前向模型 (`ml/zernike/`) | `python -m ml.zernike.train_coeff` | [`report/zernike_coeff2amp/report.md`](../report/zernike_coeff2amp/report.md) |
-| 前向模型搜索 (physics × U-Net × loss) | `python scripts/ml/forward_search.py` | [`report/loss_defects/forward_search_report.md`](../report/loss_defects/forward_search_report.md) |
+| Zernike 系数 → 远场前向模型 (`ml/zernike/`) | `python -m ml.zernike.train_coeff` | [`report/zernike_coeff2amp/zernike_coeff_report/report.md`](../logs/mamba_curriculum_20260323_121023/report.md) |
+| 前向模型搜索 (physics × U-Net × loss) | `python scripts/ml/forward_search.py` | [`report/loss_defects/forward_search_report/forward_search_report.md`](../report/loss_defects/forward_search_report/forward_search_report.md) |
 | U-Net+GAN 相位预测 (`ml/phase/`) | `python -m ml.train train --output-mode phase --data-dir <dir>` (click CLI, 见 `src/ml/train.py`) | — |
-| FourierGSNet 仿真矩阵 (phase→far-field 逆问题) | `python scripts/slm/fouriergsnet_sim_train.py` | [`report/fouriergsnet_sim/report.md`](../report/fouriergsnet_sim/report.md) |
-| 逆向光束整形 PhasorUNet (`ml/shaping/`, 目标远场 → SLM 相位, 带物理 round-trip 损失) | `python -m ml.shaping.train` (评估: `python -m ml.shaping.evaluate`) | [`report/inverse_shaping_unet/report.md`](../report/inverse_shaping_unet/report.md) |
+| FourierGSNet 仿真矩阵 (phase→far-field 逆问题) | `python scripts/slm/fouriergsnet_sim_train.py` | [`report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`](../logs/mamba_curriculum_20260323_121023/report.md) |
+| 逆向光束整形 PhasorUNet (`ml/shaping/`, 目标远场 → SLM 相位, 带物理 round-trip 损失) | `python -m ml.shaping.train` (评估: `python -m ml.shaping.evaluate`) | [`report/inverse_shaping_unet/inverse_shaping_report/report.md`](../logs/mamba_curriculum_20260323_121023/report.md) |
 
 两个关键口径 (完整论证见报告):
 

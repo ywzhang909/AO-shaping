@@ -1,0 +1,67 @@
+[
+  {
+    "group": "dz_scan_hw_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_scan",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1597.4"
+    },
+    "dir": "dz_scan_hw_gs",
+    "n_rows": 24,
+    "created_utc": "2026-10-20T03:19:12+00:00"
+  },
+  {
+    "group": "dz_noise_hw_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_noise",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1597.4"
+    },
+    "dir": "dz_noise_hw_gs",
+    "n_rows": 10,
+    "created_utc": "2026-10-20T03:19:31+00:00"
+  },
+  {
+    "group": "dz_scan_model_gs",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "dz_scan_control",
+      "phase": "model_gs",
+      "exposure_ms": "0.4",
+      "defocus_focal_mm": "1597.4"
+    },
+    "dir": "dz_scan_model_gs",
+    "n_rows": 30,
+    "created_utc": "2026-10-20T03:20:48+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax3",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "3",
+      "phase": "zernike_fit",
+      "exposure_ms": "0.2"
+    },
+    "dir": "zernike_farfield_nmax3",
+    "n_rows": 2,
+    "created_utc": "2026-10-20T03:45:40+00:00"
+  },
+  {
+    "group": "zernike_farfield_nmax4",
+    "variable": "dz_mm",
+    "meta": {
+      "role": "zernike_farfield",
+      "n_max": "4",
+      "phase": "zernike_fit",
+      "exposure_ms": "0.2"
+    },
+    "dir": "zernike_farfield_nmax4",
+    "n_rows": 2,
+    "created_utc": "2026-10-20T03:45:50+00:00"
+  }
+]

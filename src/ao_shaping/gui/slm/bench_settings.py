@@ -2117,10 +2117,18 @@ def _render_slm_block(prefix: str, slm_num: int) -> None:
             if focus.get("error"):
                 st.error(f"焦面探测失败: {focus['error']}")
             elif focus.get("best_focal_mm") is None:
-                st.warning(
-                    "焦面探测没有找到可用点（所有点的曝光都落在可测带之外）；"
-                    f"证据 {FOCUS_PROBE_DEBUG_DIR}"
-                )
+                if focus.get("path_blocked"):
+                    # 光路受阻与「没找到焦面」是两件事: 前者要查三段光路, 后者要
+                    # 重扫焦距。混成同一句话正是 2026-10-21 那次误判的根源 ——
+                    # 操作者只看到「没找到可用点」, 不知道光根本没到相机。
+                    st.error(
+                        f"焦面探测：**光路受阻** —— {focus.get('blockage_reason')}"
+                    )
+                else:
+                    st.warning(
+                        "焦面探测没有找到可用点（所有点的曝光都落在可测带之外）；"
+                        f"证据 {FOCUS_PROBE_DEBUG_DIR}"
+                    )
             else:
                 gain = focus.get("gain_vs_flat") or 0.0
                 lin = focus.get("linearity_ratio")

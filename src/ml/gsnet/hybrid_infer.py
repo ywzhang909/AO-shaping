@@ -25,6 +25,7 @@ from ml.gsnet.hybrid_phase import (
 )
 from ml.gsnet.forward_ops import ForwardOperator
 from ml.gsnet.model import FourierGSNet
+from loguru import logger
 
 
 def load_gsnet_checkpoint(
@@ -235,7 +236,7 @@ def main() -> None:
         )
     except (OSError, KeyError, TypeError, ValueError) as exc:
         parser.error(str(exc))
-    print(out_dir)
+    logger.info(out_dir)
 
 
 if __name__ == "__main__":

@@ -61,31 +61,31 @@
 
 ### 2.1 响应矩阵热图
 
-![matrix heatmap](figures/01_matrix_heatmap.png)
+![matrix heatmap](./figures/01_matrix_heatmap.png)
 
 绿框 = 对角线 (同索引 SLM 模式 → WFS 系数)。
 
 ### 2.2 对角主导性
 
-![diagonal](figures/02_diagonal_dominance.png)
+![diagonal](./figures/02_diagonal_dominance.png)
 
 **9/14** 个模式的列主导项即对角线项。
 
 ### 2.3 奇异值谱 / 条件数
 
-![svd](figures/03_singular_values.png)
+![svd](./figures/03_singular_values.png)
 
 条件数 **8.18** (良态, 伪逆稳定)。
 
 ### 2.4 重复性方差
 
-![variance](figures/04_variance_map.png)
+![variance](./figures/04_variance_map.png)
 
 平均方差 **8.647e-06**, 最大 **7.226e-04**。
 
 ### 2.5 线性度 (多尺寸扫描)
 
-![linearity](figures/05_linearity.png)
+![linearity](./figures/05_linearity.png)
 
 **正确判据**: 响应已按单位幅度归一化 → 线性响应表现为 `|resp|` **恒定**, 故用幅度离散度 **CV** 与响应向量方向一致性 **cos** (原 slope/R² 判据在线性时 slope≈0, 无意义)。
 
@@ -124,23 +124,23 @@
 
 ### 3.1 离群点诊断
 
-![outlier](figures/06_outlier_diagnosis.png)
+![outlier](./figures/06_outlier_diagnosis.png)
 
 **根因**: Zernike 半径 ≈ 光束半径 (实测 200px) 时, 大幅度高阶模式把子孔径光斑推出有效区 → DLL Zernike 拟合崩溃, `|resp|` 暴涨 (实测最高 4288)。故标定应取 **R ≈ 1.5×光束半径**。
 
 ### 3.2 离线反解验证
 
-![1789532219834](image/capture/1789532219834.png)
+![1789532219834](./image/capture/1789532219834.png)
 
-![1789532257762](image/capture/1789532257762.png)
+![1789532257762](./image/capture/1789532257762.png)
 
-![inverse](figures/07_inverse_demo.png)
+![inverse](./figures/07_inverse_demo.png)
 
 合成像差 `[5]defocus=+0.30λ, [9]coma=−0.20λ` → 反解 `c = pinv(M) @ w`, 残差 ‖Mc−w‖=0.0326 / ‖w‖=0.3606 → **降低 91.0%**。
 
 ### 3.3 实测闭环矫正
 
-![closed loop](figures/08_closed_loop.png)
+![closed loop](./figures/08_closed_loop.png)
 
 恢复 WFS 内部参考后, 矫正前 RMS=0.3564λ → 矫正后 0.2065λ (**42.1%**)。
 
@@ -150,16 +150,16 @@
 
 光束在 SLM 面板上**偏离光学轴 (离心)**。矫正前先做 **SLM 平移标定** (扫描图案相对光束的平移量, 取 V 曲线谷值), 之后所有矫正相位都在同一**同心**坐标系下生成。
 
-![shift scan](figures/09_shift_scan.png)
+![shift scan](./figures/09_shift_scan.png)
 
 平移标定 V 曲线 (共 48 个扫描点): 选定 shift = **[105, 40]** px, 即矫正相位下发时的平移基准 (与 §1.1 的 SLM shift 一致)。
 
 
-![wavefront before/after](figures/10_wavefront_before_after.png)
+![wavefront before/after](./figures/10_wavefront_before_after.png)
 
-![zernike coeffs](figures/11_zernike_coeffs.png)
+![zernike coeffs](./figures/11_zernike_coeffs.png)
 
-![rms pv history](figures/12_rms_pv_history.png)
+![rms pv history](./figures/12_rms_pv_history.png)
 
 - **波前 RMS** 0.3564λ → **0.2065λ** (iter1, 降低 42.1%); **PV** 1.6040λ → **1.2730λ** (iter3, 降低 20.6%)。
 - **两指标最优帧不一致**: RMS 最优于 iter1、PV 最优于 iter3 (显式标注, 避免误读单一 after 值; RMS 最优时 PV 尚在回落)。
