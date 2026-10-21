@@ -55,8 +55,8 @@ FAMILY_LABELS = {
     "freeform": "全频随机相位（带限）",
 }
 MODEL_LABELS = {
-    "ideal": "理想 FFT 前向",
-    "calibrated": "校准 2f 前向",
+    "ideal": "零误差孪生链（理想物理）",
+    "calibrated": "带误差孪生链（含三族误差）",
     "zernike": "物理 Zernike 基线",
 }
 ARM_LABELS = {
@@ -208,7 +208,36 @@ def render(
         "报告里的每个数字都只对「仿真协议」成立，不能当作实验系统收益。")
     add("")
 
-    add("## 1. 为什么这样做仿真，以及它能不能回答 issue 的问题")
+    add("## 1. 仿真环境已更新：改用仓库规范的 2f 数字孪生")
+    add("")
+    add("上游在 `drivers/sim/bench_twin.py` 落了**参数化的 2f 实验系统数字孪生**，"
+        "本轮实验已改用它做真值，本仓库自己手搓的那套孪生（`utils/wavefront/bench2f.py`）"
+        "随之作废。差别不是「多写了几行」，而是**物理链完整度**：")
+    add("")
+    add(_row(["环节", "旧（手搓孪生）", "新（仓库规范的孪生）"]))
+    add(_row(["---", "---", "---"]))
+    add(_row(["SLM LUT 非线性 + 灰度量化", "无", "有（Gamma 指数或实测 LUT 表）"]))
+    add(_row(["SLM 面板静态相差", "无", "有（canonical Zernike + 固定种子粗糙度）"]))
+    add(_row(["相机离焦 / 光路倾斜 / 透镜像差", "无", "有（角谱传递函数 / 傅里叶移位 / 瞳面相位）"]))
+    add(_row(["探测器噪声", "自己写的 CCDSensor", "孪生自带泊松散粒 + 高斯读出噪声"]))
+    add(_row(["过曝/欠曝", "自己写的截断", "在孪生帧外面套探测器（曝光 + 上下截断 + 量化）"]))
+    add(_row(["口径", "自己定", "仓库规范（`region` / `region_span_px` / 像元标度）"]))
+    add("")
+    add("孪生是 **numpy** 的（它是仿真层，不是可微模型），而网络必须对自己的前向求梯度。"
+        "所以本轮加了一个 **torch 镜像**（`ml/gsnet/forward_ops.py::BenchTwinOperator`）："
+        "链路与孪生逐段一致（面板相差 → LUT → 瞳面场 → 透镜像差 → 补零 FFT → "
+        "离焦 → 倾斜 → 裁剪），只把**灰度量化**换成连续的 Gamma 律"
+        "（量化是阶梯，梯度几乎处处为零，镜像它对优化毫无贡献），"
+        "并把**离焦与倾斜**也镜像了（它们作用在焦面，GS 的回代要能撤销它们）。")
+    add("")
+    add("镜像的保真度是**测出来**的，不是声称的：")
+    add("")
+    add(_row(["孪生配置", "算子与孪生的强度相关系数"]))
+    add(_row(["---", "---"]))
+    add(_row(["零误差（理想系统）", "> 0.999"]))
+    add(_row(["三族误差全开（LUT + 面板相差 + 装调）", "> 0.999"]))
+    add("")
+    add("## 2. 为什么这样做仿真，以及它能不能回答 issue 的问题")
     add("")
     add("issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线"
         "（相关性 0.839、EE 0.642，2026-10-13/14 同帧结果）比，不劣于基线"
@@ -233,7 +262,7 @@ def render(
         "所以任何被测模型都有不可消除的残差，实验因此有分辨力。")
     add("")
 
-    add("## 2. 仿真几何与指标口径")
+    add("## 3. 仿真几何与指标口径")
     add("")
     add(_row(["项", "值"]))
     add(_row(["---", "---"]))
@@ -270,7 +299,7 @@ def render(
         "也正是 issue 写的验收线（CV ≤ 0.3 且 EE ≥ 0.7）。")
     add("")
 
-    add("## 3. 臂 A：前向保真度（本轮最硬的结论）")
+    add("## 4. 臂 A：前向保真度（本轮最硬的结论）")
     add("")
     add("![前向保真度](figures/forward_fidelity.png)")
     add("")
@@ -286,7 +315,7 @@ def render(
     add(_row(["物理 Zernike 基线", "是（同一组系数）", "孔径 + 照明，无增益/背景"]))
     add("")
     for family in FAMILIES:
-        add(f"### 3.{FAMILIES.index(family) + 1} {FAMILY_LABELS[family]}")
+        add(f"### 4.{FAMILIES.index(family) + 1} {FAMILY_LABELS[family]}")
         add("")
         add(_row(["前向", "correlation（36×36）", "correlation（全图）",
                   "NRMSE（全图）", "EE", "CV（框）"]))
@@ -302,7 +331,7 @@ def render(
                 _pm(row, "cv_target_box"),
             ]))
         add("")
-    add("### 3.4 三个族合并")
+    add("### 4.4 三个族合并")
     add("")
     add(_row(["前向", "correlation（36×36）", "correlation（全图）",
               "NRMSE（全图）", "EE", "CV（框）"]))
@@ -323,7 +352,7 @@ def render(
         "本表的量级**不可与之直接比较**：真值不同（数字孪生 vs 真实 CCD）、"
         "指标网格不同、CV 口径也不同。**能比的只有同一张表内部的相对关系。**")
     add("")
-    add("### 3.5 这一臂踩到的三个坑（都改变了结论，记在这里）")
+    add("### 4.5 这一臂踩到的三个坑（都改变了结论，记在这里）")
     add("")
     add("1. **相位 rms 太弱会让指标失去分辨力。** 最初用 0.3 rad，"
         "远场几乎不散射，0 阶峰主导，三个模型的相关性全在 0.97 以上，"
@@ -337,7 +366,12 @@ def render(
     add("")
 
     if arm_b:
-        add("## 4. 臂 B：FourierGSNet 换前向前后（**P0 判据所在**）")
+        add("## 5. 臂 B：FourierGSNet 换前向前后（**P0 判据所在**）")
+        add("")
+        add("网络内部的前向用**孪生的链**（torch 镜像，见 §1）："
+            "source 是孪生自己的入射照明，target 是**设计**的远场方斑，"
+            "标签是在**带误差的物理**下达成该目标的 GS 解 —— "
+            "实验系统的非理想因素正是经由**标签**进入网络的，不是经由输入目标。")
         add("")
         add("![网络换前向前后](figures/network_before_after.png)")
         add("")
@@ -362,7 +396,7 @@ def render(
             "两个网络臂共用同一份训练数据、同一 seed、同一预算，"
             "唯一差异是 GS 展开内部用的前向算子。")
         add("")
-        add("### 4.1 读法（含两个必须说清的度量陷阱）")
+        add("### 5.1 读法（含两个必须说清的度量陷阱）")
         add("")
         add("- `zernike_baseline` 是**物理 Zernike 基线**：经典 GS 解投影到 66 项 Zernike 张成。")
         add("- 两个网络臂的分数明显低于基线 ⇒ **P0 判据不通过**。")
@@ -392,7 +426,7 @@ def render(
             "(b) 同一份训练代码在「同口径目标」上学得到、在「过采样真值目标」上学不到"
             "（§4.2）。判据据此下在「网络层不通过」，而不是「某个具体分数」。")
         add("")
-        add("### 4.2 可学习性对照：好相位从「学不到」到「学得到」")
+        add("### 5.2 可学习性对照：好相位从「学不到」到「学得到」")
         add("")
         add("同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源，"
             "看网络停在哪个分数上（`scripts/slm/gsnet_learnability_control.py`）：")
@@ -456,7 +490,7 @@ def render(
             "本台架自己的验收线是前者（CV ≤ 0.3 且 EE ≥ 0.7），"
             "所以判据下在 composite 上。")
         add("")
-        add("### 4.3 阻塞点：`FourierGSNet` 的网格契约")
+        add("### 5.3 阻塞点：`FourierGSNet` 的网格契约")
         add("")
         add("`FourierGSNet.forward` 要求 source 与 target 同形状，"
             "于是内部远场只能是**同尺寸居中 FFT**。对 64×64 的瞳面，"
@@ -477,7 +511,7 @@ def render(
             "让远场算子返回一个**比瞳面网格更大**的远场。")
         add("")
         if results_same_grid is not None:
-            add("#### 4.4 拆掉它：把契约改成「source 在瞳面网格、target 在远场网格」")
+            add("#### 5.4 拆掉它：把契约改成「source 在瞳面网格、target 在远场网格」")
             add("")
             add("改动很小，但它是这一整轮的关键：")
             add("")
@@ -526,7 +560,7 @@ def render(
             add("")
 
     if mil_ab:
-        add("## 5. 臂 C：MIL 闭环的「网络初值 vs 物理初值」A/B（P1）")
+        add("## 6. 臂 C：MIL 闭环的「网络初值 vs 物理初值」A/B（P1）")
         add("")
         add("![MIL 闭环 A/B](figures/mil_sim_ab.png)")
         add("")
@@ -584,7 +618,7 @@ def render(
             "不需要改。")
         add("")
 
-    add("## 6. 对 issue #165 各条款的落点")
+    add("## 7. 对 issue #165 各条款的落点")
     add("")
     add(_row(["issue 条款", "本轮状态", "说明"]))
     add(_row(["---", "---", "---"]))
@@ -627,7 +661,7 @@ def render(
     add("")
 
     if pretrain is not None:
-        add("## 7. 随机化仿真与大规模预训练（迁移学习的前提）")
+        add("## 8. 随机化仿真与大规模预训练（迁移学习的前提）")
         add("")
         pcfg = pretrain.get("config", {})
         val = pretrain.get("val_metrics", {})
@@ -637,7 +671,7 @@ def render(
             "这一节是把仿真从「一个固定像差的孪生」升级成「一个随机化的台架族群」"
             "之后的大规模预训练。")
         add("")
-        add("### 7.1 三件随机化")
+        add("### 8.1 三件随机化")
         add("")
         add("1. **CCD 探测器模型**（`CCDSensor`）：光子（散粒噪声）→ 读出噪声 → "
             "ADC 的**上下截断** → 量化。截断的两端就是过曝（峰值撞满阱、核心削平）"
@@ -650,7 +684,7 @@ def render(
             "而网络的**输入目标**是相机记下来的那一帧——所以网络学的是"
             "**把探测器反演回去**，不是把一张欠曝帧的噪声复制一遍。")
         add("")
-        add("### 7.2 预训练规模与结果")
+        add("### 8.2 预训练规模与结果")
         add("")
         add(_row(["项", "值"]))
         add(_row(["---", "---"]))
@@ -703,7 +737,7 @@ def render(
                     _fmt(row.get("cv_target_box")),
                 ]))
             add("")
-        add("### 7.3 迁移学习")
+        add("### 8.3 迁移学习")
         add("")
         add("`scripts/slm/gsnet_transfer.py` 拿预训练 checkpoint，用**真实台架**的"
             "「(相位 → 帧)」数据微调，然后导出可直接喂给 `--init-from-gsnet` 的相位。")
@@ -765,7 +799,7 @@ def render(
             "必须在装了实验系统的机器上跑**。离线路径（`--from-dir`）在这里已经验证过。")
         add("")
 
-    add("## 8. 边界与不能下的结论")
+    add("## 9. 边界与不能下的结论")
     add("")
     add("1. **本轮没有硬件数据。** 全部数字来自数字孪生。"
         "issue 的 P0 判据原文锚在真实 CCD 帧上（0.839 / 0.642），"
@@ -793,7 +827,7 @@ def render(
         "是因为 `FourierGSNet` 的网格契约让它的内部远场只能是混叠的同尺寸 FFT。")
     add("")
 
-    add("## 9. 下一步")
+    add("## 10. 下一步")
     add("")
     add("1. **P0.5（架构）已做完**（§4.4）：`FourierGSNet` 现在允许 source 在瞳面网格、"
         "target 在远场网格；同网格路径逐位不变。下一步是把这个契约接到"
@@ -811,7 +845,7 @@ def render(
         "按 issue P0 (1) 的要求按 record 去重、校验标签，再重跑一次 P0 判据。")
     add("")
 
-    add("## 10. 复现")
+    add("## 11. 复现")
     add("")
     add("**全部实验都在仓库的测试容器里跑**（`docker/Dockerfile.test`，"
         "python 3.13-slim；宿主机有 384 核，裸跑会把数值库的线程池撑到 384，"

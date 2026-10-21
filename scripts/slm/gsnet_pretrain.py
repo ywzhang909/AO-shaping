@@ -63,14 +63,13 @@ if str(ROOT / "src") not in sys.path:
 if str(ROOT / "scripts" / "slm") not in sys.path:
     sys.path.insert(0, str(ROOT / "scripts" / "slm"))
 
-from ao_shaping.utils.wavefront.bench2f import (  # noqa: E402
-    Bench2FGeometry,
-    Bench2FGroundTruth,
-    Bench2FPropagator,
-    CCDSensor,
-    ZernikeAberrationField,
+from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
+    BenchTwin,
+    BenchTwinConfig,
+    TwinErrorModel,
 )
-from ml.gsnet.forward_ops import Bench2FOperator, IdealFFTOperator  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: E402
+from ml.gsnet.forward_ops import BenchTwinOperator  # noqa: E402
 from ml.gsnet.model import FourierGSNet  # noqa: E402
 
 REGION = 64
@@ -80,13 +79,38 @@ GT_ITERATIONS = 12
 #: 目标支撑区（远场中心裁剪）的边长，也是评价用的口径。
 METRIC_SIDE = 36
 
+#: 三族误差的随机化幅度（域随机化的轴）。范围取自实验系统的量级。
+LUT_GAMMA_RANGE = (0.85, 1.25)
+PANEL_ZERNIKE_MAX_RAD = 0.12
+PANEL_ROUGHNESS_RANGE = (0.0, 0.04)
+DEFOCUS_RANGE_M = (-2.0e-4, 2.0e-4)
+TILT_RANGE_RAD = (-1.5e-4, 1.5e-4)
+LENS_ZERNIKE_MAX_RAD = 0.10
+
 #: 几何在进程之间要能重建，所以做成模块级常量（worker 进程会重新 import）。
-GEOMETRY = Bench2FGeometry(
-    region=REGION,
-    far_field_size=FAR_FIELD,
-    panel_disc_radius_px=450.0,
-    beam_waist_panel_px=450.0,
-    camera_px_per_model_px=8.0,
+REGION_SPAN_PX = 900.0
+FAR_FIELD_PADDING = 8
+PEAK_ADU = 100.0
+NOISE_ADU = 2.0
+
+#: 理想孪生（零误差）—— 网络内部前向与 source 照明都用它。
+IDEAL_TWIN = BenchTwin(
+    BenchTwinConfig(
+        wavelength_m=1064e-9,
+        slm_pixel_um=8.0,
+        ccd_pixel_um=2.2,
+        focal_length_m=0.125,
+        region=REGION,
+        region_span_px=REGION_SPAN_PX,
+        far_field_padding=FAR_FIELD_PADDING,
+        beam_w0_px=250.0,
+        center_crop=True,
+        crop_px=REGION * FAR_FIELD_PADDING,
+        peak_adu=PEAK_ADU,
+        noise_adu=0.0,
+        seed=0,
+        errors=TwinErrorModel(),
+    )
 )
 
 
@@ -96,71 +120,118 @@ class SampleSpec:
 
     index: int
     seed: int
-    source_waist: float
-    source_dx: float
-    source_dy: float
     target_side: float
     target_dx: float
     target_dy: float
     exposure: float
-    sensor_seed: int
-    aberration_seed: int
+    lut_gamma: float
+    panel_modes: tuple[int, ...]
+    panel_coeffs: tuple[float, ...]
+    roughness_sigma_rad: float
+    roughness_seed: int
+    defocus_m: float
+    tilt_x_rad: float
+    tilt_y_rad: float
+    lens_modes: tuple[int, ...]
+    lens_coeffs: tuple[float, ...]
 
     def to_json(self) -> dict[str, Any]:
         return {
             "index": self.index,
             "seed": self.seed,
-            "source_waist": self.source_waist,
-            "source_dx": self.source_dx,
-            "source_dy": self.source_dy,
             "target_side": self.target_side,
             "target_dx": self.target_dx,
             "target_dy": self.target_dy,
             "exposure": self.exposure,
-            "sensor_seed": self.sensor_seed,
-            "aberration_seed": self.aberration_seed,
+            "lut_gamma": self.lut_gamma,
+            "panel_modes": list(self.panel_modes),
+            "panel_coeffs": list(self.panel_coeffs),
+            "roughness_sigma_rad": self.roughness_sigma_rad,
+            "roughness_seed": self.roughness_seed,
+            "defocus_m": self.defocus_m,
+            "tilt_x_rad": self.tilt_x_rad,
+            "tilt_y_rad": self.tilt_y_rad,
+            "lens_modes": list(self.lens_modes),
+            "lens_coeffs": list(self.lens_coeffs),
         }
 
 
 def draw_spec(index: int, seed: int) -> SampleSpec:
     """随机抽一个样本的生成参数。
 
-    曝光在 log 均匀的 [0.05, 3] 上抽：<1 是欠曝（弱散斑被黑电平切掉），
-    >1 是过曝（核心削顶）。
+    随机化的轴就是孪生的三族误差（LUT 非线性 / 面板静态相差 / 装调），
+    外加目标的边长与位置、以及**曝光**（过曝会削顶、欠曝会切底）。
     """
     rng = np.random.default_rng(seed + index * 7919)
+    panel_modes = tuple(
+        int(m) for m in rng.choice(np.arange(4, 19), size=int(rng.integers(3, 9)), replace=False)
+    )
+    lens_modes = tuple(
+        int(m) for m in rng.choice(np.arange(4, 13), size=int(rng.integers(2, 6)), replace=False)
+    )
     return SampleSpec(
         index=index,
         seed=seed,
-        source_waist=float(rng.uniform(0.7, 1.3)),
-        source_dx=float(rng.uniform(-0.08, 0.08)),
-        source_dy=float(rng.uniform(-0.08, 0.08)),
-        target_side=float(rng.uniform(0.6, 1.4) * TARGET_SIDE),
-        # 目标的**位置**偏移只取很小一段：网络这一版学的是「形状」，
-        # 指向由闭环自己的 ROI（argmax 锚定）负责。偏移一大，网络预测的
-        # 远场（起点在画面中心）与目标就对不上，损失窗口里没有信号，
-        # 相关性的梯度会炸。
+        target_side=float(rng.uniform(0.75, 1.25) * TARGET_SIDE),
         target_dx=float(rng.uniform(-0.012, 0.012)),
         target_dy=float(rng.uniform(-0.012, 0.012)),
         exposure=float(np.exp(rng.uniform(np.log(0.05), np.log(3.0)))),
-        sensor_seed=int(rng.integers(0, 2**31 - 1)),
-        aberration_seed=int(rng.integers(0, 2**31 - 1)),
+        lut_gamma=float(rng.uniform(*LUT_GAMMA_RANGE)),
+        panel_modes=panel_modes,
+        panel_coeffs=tuple(
+            float(rng.uniform(-PANEL_ZERNIKE_MAX_RAD, PANEL_ZERNIKE_MAX_RAD))
+            for _ in panel_modes
+        ),
+        roughness_sigma_rad=float(rng.uniform(*PANEL_ROUGHNESS_RANGE)),
+        roughness_seed=int(rng.integers(0, 2**31 - 1)),
+        defocus_m=float(rng.uniform(*DEFOCUS_RANGE_M)),
+        tilt_x_rad=float(rng.uniform(*TILT_RANGE_RAD)),
+        tilt_y_rad=float(rng.uniform(*TILT_RANGE_RAD)),
+        lens_modes=lens_modes,
+        lens_coeffs=tuple(
+            float(rng.uniform(-LENS_ZERNIKE_MAX_RAD, LENS_ZERNIKE_MAX_RAD))
+            for _ in lens_modes
+        ),
     )
 
 
-def source_intensity(spec: SampleSpec) -> np.ndarray:
-    """瞳面照明（高斯，带随机腰宽与中心偏移），峰值归一。"""
-    axis = np.arange(REGION) - (REGION - 1) / 2.0
-    waist = (REGION / 2.0) * spec.source_waist
-    xx, yy = np.meshgrid(
-        axis - spec.source_dx * REGION, axis - spec.source_dy * REGION, indexing="ij"
+def build_twin(spec: SampleSpec) -> BenchTwin:
+    """按样本参数造一台孪生。"""
+    errors = TwinErrorModel(
+        lut_gamma=spec.lut_gamma,
+        lut_phase_max_rad=2.0 * np.pi,
+        gray_levels=1023,
+        slm_zernike=dict(zip(spec.panel_modes, spec.panel_coeffs, strict=True)),
+        slm_zernike_n_max=6,
+        slm_roughness_sigma_rad=spec.roughness_sigma_rad,
+        slm_roughness_seed=spec.roughness_seed,
+        defocus_m=spec.defocus_m,
+        tilt_x_rad=spec.tilt_x_rad,
+        tilt_y_rad=spec.tilt_y_rad,
+        lens_zernike=dict(zip(spec.lens_modes, spec.lens_coeffs, strict=True)),
+        lens_zernike_n_max=4,
     )
-    src = np.exp(-2.0 * (xx**2 + yy**2) / (waist**2))
-    return (src / src.max()).astype(np.float32)
+    config = BenchTwinConfig(
+        wavelength_m=1064e-9,
+        slm_pixel_um=8.0,
+        ccd_pixel_um=2.2,
+        focal_length_m=0.125,
+        region=REGION,
+        region_span_px=REGION_SPAN_PX,
+        far_field_padding=FAR_FIELD_PADDING,
+        beam_w0_px=250.0,
+        center_crop=True,
+        crop_px=REGION * FAR_FIELD_PADDING,
+        peak_adu=PEAK_ADU,
+        noise_adu=NOISE_ADU,
+        seed=spec.seed + spec.index,
+        errors=errors,
+    )
+    return BenchTwin(config)
 
 
 def square_target(spec: SampleSpec, side: int = FAR_FIELD) -> np.ndarray:
-    """远场方斑（带随机边长与中心偏移）。"""
+    """远场上的方形目标（峰值 1，带随机边长与中心偏移）。"""
     target = np.zeros((side, side), dtype=np.float32)
     half = spec.target_side / 2.0
     cx = side / 2.0 + spec.target_dx * side
@@ -174,124 +245,70 @@ def square_target(spec: SampleSpec, side: int = FAR_FIELD) -> np.ndarray:
     return target
 
 
-#: 诊断开关：置 True 时所有样本共用同一条像差（用于把「学不到」拆成
-#: 「规模不够」还是「任务本身不可能」）。
-FIXED_ABERRATION = False
-
-
-def random_aberration(spec: SampleSpec) -> torch.Tensor:
-    """随机的实验系统像差：张成内的 Zernike + 张成外的自由形状。
-
-    Zernike 部分用**随机模式子集**（不是固定的前若干项），这样网络不会
-    只见过某几阶；自由形状部分带限随机，66 项模型拟合不掉——它代表真实
-    设备上「物理模型解释不了」的那部分。
-    """
-    rng = np.random.default_rng(
-        0 if FIXED_ABERRATION else spec.aberration_seed
-    )
-    field = ZernikeAberrationField(region=REGION, n_max=10)
-    basis = field.basis().numpy()
-    n_terms = basis.shape[0]
-    chosen = rng.choice(np.arange(3, n_terms), size=int(rng.integers(4, 18)), replace=False)
-    coeffs = rng.normal(0.0, 1.0, size=chosen.size)
-    zernike = np.tensordot(coeffs, basis[chosen], axes=(0, 0))
-    zernike_rms = float(rng.uniform(0.15, 0.9))
-    scale = zernike_rms / max(float(np.sqrt((zernike**2).mean())), 1e-9)
-    zernike = zernike * scale
-
-    raw = rng.normal(0.0, 1.0, size=(REGION, REGION))
-    k = np.fft.fftfreq(REGION)[:, None]
-    l = np.fft.fftfreq(REGION)[None, :]
-    kernel = np.exp(-2.0 * (np.pi**2) * (2.0**2) * (k**2 + l**2))
-    freeform = np.real(np.fft.ifft2(np.fft.fft2(raw) * kernel))
-    freeform_rms = float(rng.uniform(0.02, 0.15))
-    fscale = freeform_rms / max(float(np.sqrt((freeform**2).mean())), 1e-9)
-    total = zernike + freeform * fscale
-    return torch.from_numpy(total.astype(np.float32))[None, None]
-
-
-def build_sensor(spec: SampleSpec) -> CCDSensor:
-    """该样本的 CCD 探测器（噪声/量化位深固定，曝光按样本随机）。"""
-    return CCDSensor(
-        exposure=spec.exposure,
-        full_well=1.0,
-        black_level=0.0,
-        bit_depth=12,
-        shot_noise=0.02,
-        read_noise=0.004,
-        generator=torch.Generator().manual_seed(spec.sensor_seed),
-    )
-
-
-def measured_target(spec: SampleSpec) -> np.ndarray:
-    """相机**记下来的**目标帧（方斑过探测器模型）。"""
-    ideal = torch.from_numpy(square_target(spec))[None, None]
-    return build_sensor(spec).apply(ideal)[0, 0].numpy().astype(np.float32)
-
-
-def _pupil_back(far_field: torch.Tensor, pupil_side: int) -> torch.Tensor:
-    back = torch.fft.ifft2(torch.fft.ifftshift(far_field, dim=(-2, -1)), dim=(-2, -1))
-    back = torch.fft.fftshift(back, dim=(-2, -1))
-    side = back.shape[-1]
-    half = (side - pupil_side) // 2
-    return back[..., half : half + pupil_side, half : half + pupil_side]
-
-
-def solve_phase(
-    spec: SampleSpec, target: np.ndarray, iterations: int = GT_ITERATIONS
+def apply_detector(
+    frame_adu: np.ndarray,
+    exposure: float,
+    *,
+    full_well: float = PEAK_ADU,
+    black_level: float = 0.0,
+    bit_depth: int = 12,
 ) -> np.ndarray:
-    """在该样本自己的像差下，用经典 GS 求「能把**理想**方斑做出来」的相位。
+    """在孪生的帧外面套一层探测器：曝光 + 上下截断 + 量化。
 
-    GS 跑在**过采样真值**上（512²），相位落在瞳面网格（64²）。
-
-    目标是**理想**方斑而不是相机记下来的那一帧：相位决定远场的形状，
-    曝光只决定整帧的亮度。标签必须是「好相位」，否则网络学的是怎么把
-    一张欠曝/过曝的帧复制一遍——那在闭环里没有用（闭环自己会用实测帧
-    继续优化，网络只负责给一个**起点**）。
+    孪生自己把帧**峰值归一**到 ``peak_adu``，所以它本身不会过曝也不会欠曝；
+    真实相机会。曝光系数 > 1 ⇒ 峰值撞满阱（过曝，核心削平）；< 1 ⇒ 信号落到
+    黑电平以下（欠曝，弱散斑被切掉）。散粒噪声由孪生自己加（峰值处
+    σ = √peak_adu ADU），这里只补截断与量化。
     """
-    twin = Bench2FGroundTruth(
-        GEOMETRY, freeform=None, illumination_exponent=2.0, shot_noise=0.0, read_noise=0.0
+    scaled = np.asarray(frame_adu, dtype=np.float64) * float(exposure)
+    scaled = np.clip(scaled, black_level, full_well)
+    levels = float(2**int(bit_depth) - 1)
+    return np.round(scaled * levels) / levels
+
+
+def measured_frame(spec: SampleSpec, phase: np.ndarray) -> np.ndarray:
+    """相机**记下来的**那一帧（孪生 + 探测器 + 本底去除）。"""
+    twin = build_twin(spec)
+    frame = apply_detector(twin.frame(phase), spec.exposure)
+    return prepare_frame(frame)
+
+
+def solve_phase(spec: SampleSpec, target: np.ndarray, iterations: int = GT_ITERATIONS) -> np.ndarray:
+    """在该样本自己的像差下，用经典 GS 求「能把理想方斑做出来」的相位。
+
+    GS 跑在**带误差的孪生链**上（走 torch 镜像的算子，因为 GS 需要远场的
+    **相位**，而孪生只给强度），相位落在瞳面网格（64×64）。
+    """
+    twin = build_twin(spec)
+    operator = BenchTwinOperator(twin)
+    target_amp = torch.sqrt(
+        torch.from_numpy(np.asarray(target, dtype=np.float32))[None, None].clamp_min(0.0)
+        + 1e-12
     )
-    aberration = random_aberration(spec)
-    # GS 的幅度约束用**归一化**后的**理想**目标：相位决定远场的形状，
-    # 曝光只决定整帧的亮度。
-    ideal = torch.from_numpy(target).clamp_min(0.0)[None, None]
-    ideal = ideal / ideal.max().clamp_min(1e-12)
-    target_amp = torch.sqrt(ideal + 1e-12)
-    phase = torch.angle(_pupil_back(target_amp.to(torch.complex64), REGION))
+    phase = operator.warm_start(target_amp)
     for _ in range(iterations):
-        far = twin.complex_far_field(phase, aberration=aberration)
+        far = operator.forward(None, phase)
         far_c = target_amp * torch.exp(1j * torch.angle(far))
-        phase = torch.angle(_pupil_back(far_c, REGION))
+        phase = torch.angle(operator.back_propagate(far_c))
     return phase[0, 0].numpy().astype(np.float32)
 
 
-def _worker(args: tuple[int, int]) -> tuple[int, bytes, list[float]]:
-    """进程池里的一个样本：返回 (index, gt_phase 的 bytes, 目标参数)。"""
+def _worker(args: tuple[int, int]) -> tuple[int, bytes]:
+    """进程池里的一个样本：返回 (index, 真值相位的 bytes)。"""
     index, seed = args
     torch.set_num_threads(1)
     spec = draw_spec(index, seed)
     ideal = square_target(spec)
     phase = solve_phase(spec, ideal)
-    return index, phase.tobytes(), [
-        spec.target_side,
-        spec.target_dx,
-        spec.target_dy,
-        spec.exposure,
-        spec.sensor_seed,
-    ]
+    return index, phase.tobytes()
 
 
 def build_dataset(
     samples: int, seed: int, workers: int, verbose: bool = True
-) -> tuple[np.ndarray, list[SampleSpec], np.ndarray, np.ndarray]:
-    """并行生成数据集：真值相位 (N, 64, 64) 与目标参数。"""
+) -> tuple[np.ndarray, list[SampleSpec]]:
+    """并行生成数据集：真值相位 (N, 64, 64) 与生成参数。"""
     specs = [draw_spec(i, seed) for i in range(samples)]
     phases = np.zeros((samples, REGION, REGION), dtype=np.float32)
-    # 网络的**输入**目标是相机记下来的那一帧（欠曝/过曝都被削顶或淹没）；
-    # 评价另用理想帧。
-    targets = np.zeros((samples, FAR_FIELD, FAR_FIELD), dtype=np.float16)
-    ideals = np.zeros((samples, FAR_FIELD, FAR_FIELD), dtype=np.float16)
     started = time.time()
     if workers <= 1:
         results = [_worker((i, seed)) for i in range(samples)]
@@ -304,16 +321,12 @@ def build_dataset(
                 pool.imap_unordered(_worker, [(i, seed) for i in range(samples)]), 1
             ):
                 results.append(item)
-                if verbose and done % 50 == 0:
+                if verbose and done % 100 == 0:
                     rate = done / max(time.time() - started, 1e-9)
                     print(f"  生成 {done}/{samples}  ({rate:.1f}/s)", flush=True)
-    for index, blob, _params in results:
+    for index, blob in results:
         phases[index] = np.frombuffer(blob, dtype=np.float32).reshape(REGION, REGION)
-    for spec in specs:
-        targets[spec.index] = measured_target(spec).astype(np.float16)
-        ideals[spec.index] = square_target(spec).astype(np.float16)
-    return phases, specs, targets, ideals
-
+    return phases, specs
 
 
 def _target_boxes(
@@ -342,14 +355,19 @@ def _crop_boxes(tensor: torch.Tensor, boxes: list[tuple[int, int]]) -> torch.Ten
     return torch.stack(crops)
 
 def _batch_tensors(
-    indices: np.ndarray, specs: list[SampleSpec], targets: np.ndarray
-) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    sources = np.stack([source_intensity(specs[i]) for i in indices])
-    return (
-        torch.from_numpy(sources)[:, None],
-        torch.from_numpy(targets[indices].astype(np.float32))[:, None],
-        torch.from_numpy(targets[indices].astype(np.float32))[:, None],
-    )
+    indices: np.ndarray, specs: list[SampleSpec]
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """按 spec 现算 (source, target)。
+
+    * ``source`` —— 瞳面入射幅度（孪生自己的照明），所有样本共用；
+    * ``target`` —— **设计**的远场方斑（不是实测帧：网络回答的是「给出这个
+      目标该下发什么相位」，实验系统的非理想因素经由**标签**进入）。
+    """
+    source = torch.from_numpy(
+        np.asarray(IDEAL_TWIN.pupil_amplitude(), dtype=np.float32)
+    )[None, None]
+    targets = [torch.from_numpy(square_target(specs[i]))[None] for i in indices]
+    return source.expand(len(indices), 1, REGION, REGION), torch.stack(targets)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -387,14 +405,15 @@ def main(argv: list[str] | None = None) -> int:
 
     total = args.samples + args.val_samples
     print(f"生成 {total} 个样本（{args.workers} 进程）…", flush=True)
-    phases, specs, targets, ideals = build_dataset(total, args.seed, args.workers)
+    phases, specs = build_dataset(total, args.seed, args.workers)
 
     train_idx = np.arange(args.samples)
     val_idx = np.arange(args.samples, total)
 
     torch.manual_seed(args.seed)
-    propagator = Bench2FPropagator(GEOMETRY, n_max=10)
-    operator = Bench2FOperator(propagator)
+    # 网络内部的前向 = **理想**孪生的链（它并不知道实验系统的非理想因素）。
+    # 实验系统的误差经由**标签**进入网络：标签是在带误差的物理下求的 GS 解。
+    operator = BenchTwinOperator(IDEAL_TWIN)
     model = FourierGSNet(
         num_layers=args.num_layers,
         base_channels=args.base_channels,
@@ -418,7 +437,7 @@ def main(argv: list[str] | None = None) -> int:
         shaping_losses: list[float] = []
         for start in range(0, order.size, args.batch_size):
             idx = order[start : start + args.batch_size]
-            source, target, _ = _batch_tensors(idx, specs, targets)
+            source, target = _batch_tensors(idx, specs)
             gt = torch.from_numpy(phases[idx])[:, None]
             pred = model(source, target)
             diff = torch.remainder(pred - gt + torch.pi, 2 * torch.pi) - torch.pi
@@ -472,64 +491,35 @@ def main(argv: list[str] | None = None) -> int:
             flush=True,
         )
 
-    # ---- 留出集：在**过采样真值**上评分（与 P0 验收同一口径） ----
+    # ---- 留出集：在**孪生**上评分（与 P0 验收同一口径）----
     from calibrate_gsnet_2f import frame_metrics  # noqa: PLC0415
 
     model.eval()
     rows: list[dict[str, float]] = []
-    rows_measured: list[dict[str, float]] = []
     rows_gt: list[dict[str, float]] = []
     with torch.no_grad():
         for index in val_idx:
             spec = specs[index]
-            source, target, _ = _batch_tensors(np.array([index]), specs, targets)
+            source, target = _batch_tensors(np.array([index]), specs)
             pred = model(source, target)
-            twin = Bench2FGroundTruth(
-                GEOMETRY,
-                freeform=None,
-                illumination_exponent=2.0,
-                shot_noise=0.0,
-                read_noise=0.0,
+            ideal = target[0, 0].numpy().astype(np.float64)
+            measured = measured_frame(spec, pred[0, 0].numpy().astype(np.float64))
+            rows.append(frame_metrics(measured, ideal, 36, int(spec.target_side)))
+            # 同一把尺子量**标签自己**（带误差物理下的 GS 解）—— 任务的上限
+            gt_measured = measured_frame(
+                spec, phases[index].astype(np.float64)
             )
-            ideal = ideals[index].astype(np.float64)
-            # 度量窗口跟着目标走（和仓库的 ROI 指标一致）
-            cy = FAR_FIELD / 2.0 + spec.target_dy * FAR_FIELD
-            cx = FAR_FIELD / 2.0 + spec.target_dx * FAR_FIELD
-            box = (cy, cx)
-            far = twin.forward(
-                pred, aberration=random_aberration(spec)
-            )[0, 0].numpy().astype(np.float64)
-            # 同一把尺子量**标签自己**（GS 解）：它给出这个任务的**上限**。
-            # 网络追不上时，先看标签本身能得多少分——否则分不清是网络不行
-            # 还是标签本身就不成形。
-            gt_far = twin.forward(
-                torch.from_numpy(phases[index])[None, None],
-                aberration=random_aberration(spec),
-            )[0, 0].numpy().astype(np.float64)
             rows_gt.append(
-                frame_metrics(gt_far, ideal, 36, int(spec.target_side), box)
-            )
-            rows.append(
-                frame_metrics(far, ideal, 36, int(spec.target_side), box)
-            )
-            measured = targets[index].astype(np.float64)
-            rows_measured.append(
-                frame_metrics(far, measured, 36, int(spec.target_side), box)
+                frame_metrics(gt_measured, ideal, 36, int(spec.target_side))
             )
     summary_metrics = {
         key: float(np.mean([row[key] for row in rows]))
-        for key in ("composite", "encircled_energy", "cv_target_box", "correlation")
-    }
-    summary_metrics_measured = {
-        key: float(np.mean([row[key] for row in rows_measured]))
         for key in ("composite", "encircled_energy", "cv_target_box", "correlation")
     }
     summary_metrics_labels = {
         key: float(np.mean([row[key] for row in rows_gt]))
         for key in ("composite", "encircled_energy", "cv_target_box", "correlation")
     }
-    # 按曝光分桶：欠曝/正常/过曝。**不能把三桶平均成一个数**——
-    # 欠曝的目标几乎全是噪声、过曝的目标被削顶，两者的上限本来就低。
     buckets: dict[str, list[int]] = {"under": [], "normal": [], "over": []}
     for position, index in enumerate(val_idx):
         exposure = specs[index].exposure
@@ -545,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
         if positions
     }
 
-    # 存**最好**的一轮，而不是最后一轮：总损失受整形项噪声支配，末轮未必最好。
+    # 存**最好**的一轮（按相位项），不是最后一轮：总损失受整形项噪声支配。
     best = min(
         (row for row in history),
         key=lambda row: row.get("phase_loss", float("inf")),
@@ -573,7 +563,6 @@ def main(argv: list[str] | None = None) -> int:
         "config": vars(args) | {"out": str(out_dir)},
         "history": history,
         "val_metrics": summary_metrics,
-        "val_metrics_vs_measured_target": summary_metrics_measured,
         "val_metrics_labels": summary_metrics_labels,
         "val_metrics_by_exposure": bucket_metrics,
         "checkpoint": str(out_dir / "checkpoint.pt"),
@@ -582,7 +571,6 @@ def main(argv: list[str] | None = None) -> int:
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
     print(f"留出集（对理想目标）: {summary_metrics}")
-    print(f"留出集（对相机记下的目标）: {summary_metrics_measured}")
     print(f"留出集（**标签自己**，即任务上限）: {summary_metrics_labels}")
     print(f"留出集（按曝光分桶）: {bucket_metrics}")
     print(f"产物: {out_dir}")

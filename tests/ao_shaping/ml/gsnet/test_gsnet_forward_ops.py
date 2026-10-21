@@ -10,23 +10,20 @@ from __future__ import annotations
 
 import importlib.util
 import math
+from typing import Any
 
+import numpy as np
 import pytest
 import torch
 
 from ao_shaping.utils.wavefront.fraunhofer import focal_field
 from ml.gsnet.forward_ops import (
-    Bench2FOperator,
+    BenchTwinOperator,
     ForwardOperator,
     IdealFFTOperator,
     make_forward_operator,
 )
 from ml.gsnet.model import FFTLayer, FourierGSNet
-
-_BENCH2F_AVAILABLE = (
-    importlib.util.find_spec("ao_shaping.utils.wavefront.bench2f") is not None
-)
-
 
 def _fixed_inputs(batch: int = 2, side: int = 32, seed: int = 11) -> tuple[torch.Tensor, torch.Tensor]:
     torch.manual_seed(seed)
@@ -34,14 +31,6 @@ def _fixed_inputs(batch: int = 2, side: int = 32, seed: int = 11) -> tuple[torch
     target = torch.zeros(batch, 1, side, side)
     target[:, :, side // 4: 3 * side // 4, side // 4: 3 * side // 4] = 1.0
     return source, target
-
-
-def _make_propagator():
-    from ao_shaping.utils.wavefront.bench2f import Bench2FGeometry, Bench2FPropagator
-
-    return Bench2FPropagator(
-        Bench2FGeometry(region=32, far_field_size=64), n_max=5
-    )
 
 
 class TestBitIdentity:
@@ -281,13 +270,12 @@ class TestMakeForwardOperator:
         with pytest.raises(ValueError):
             make_forward_operator("fourier-optics")
 
-    @pytest.mark.skipif(
-        not _BENCH2F_AVAILABLE,
-        reason="bench2f module landing in parallel",
-    )
-    def test_bench2f_dispatch(self):
-        op = make_forward_operator("bench2f", propagator=_make_propagator())
-        assert isinstance(op, Bench2FOperator)
+    def test_bench_twin_dispatch(self):
+        from ao_shaping.drivers.sim.bench_twin import BenchTwin, BenchTwinConfig
+
+        twin = BenchTwin(BenchTwinConfig(region=32, region_span_px=900.0))
+        op = make_forward_operator("bench-twin", twin=twin)
+        assert isinstance(op, BenchTwinOperator)
 
     def test_ideal_operators_satisfy_protocol(self):
         assert isinstance(IdealFFTOperator(16), ForwardOperator)
@@ -333,48 +321,81 @@ class TestProtocolPlumbing:
         assert len(model.layers) == 1
 
 
-@pytest.mark.skipif(
-    not _BENCH2F_AVAILABLE,
-    reason="bench2f module landing in parallel",
-)
-class TestBench2FOperator:
-    def test_satisfies_protocol(self):
-        assert isinstance(Bench2FOperator(_make_propagator()), ForwardOperator)
+class TestBenchTwinOperator:
+    """孪生的 torch 镜像：与孪生逐位一致，且回代是精确的逆。"""
 
-    def test_forward_shape_dtype_and_peak_normalisation(self):
-        op = Bench2FOperator(_make_propagator())
-        phase = torch.randn(2, 1, 32, 32)
-        amp = torch.ones(2, 1, 32, 32)
-        far = op.forward(amp, phase)
-        assert tuple(far.shape) == (2, 1, 64, 64)
-        assert far.is_complex()
-        assert far.dtype == torch.complex64
-        assert torch.allclose(far.abs().amax(), torch.tensor(1.0), atol=1e-5)
+    def _twin(self, **errors: object) -> Any:
+        from ao_shaping.drivers.sim.bench_twin import (
+            BenchTwin,
+            BenchTwinConfig,
+            TwinErrorModel,
+        )
 
-    def test_forward_differentiable_in_phase(self):
-        op = Bench2FOperator(_make_propagator())
-        phase = torch.randn(1, 1, 32, 32, requires_grad=True)
-        far = op.forward(torch.ones(1, 1, 32, 32), phase)
-        far.abs().square().sum().backward()
-        assert phase.grad is not None
-        assert torch.isfinite(phase.grad).all()
+        config = BenchTwinConfig(
+            region=64,
+            region_span_px=900.0,
+            far_field_padding=8,
+            beam_w0_px=250.0,
+            peak_adu=100.0,
+            noise_adu=0.0,
+            seed=0,
+            errors=TwinErrorModel(**errors),  # type: ignore[arg-type]
+        )
+        return BenchTwin(config)
 
-    def test_back_propagate_shape(self):
-        op = Bench2FOperator(_make_propagator())
-        far = torch.ones(1, 1, 64, 64, dtype=torch.complex64)
-        back = op.back_propagate(far)
-        assert tuple(back.shape) == (1, 1, 32, 32)
-        assert back.is_complex()
+    def test_matches_the_twin_without_errors(self) -> None:
+        from ml.gsnet.forward_ops import BenchTwinOperator
 
-    def test_warm_start_shape_dtype(self):
-        op = Bench2FOperator(_make_propagator())
-        target_amp = torch.rand(2, 1, 64, 64)
-        phase = op.warm_start(target_amp)
-        assert tuple(phase.shape) == (2, 1, 32, 32)
-        assert phase.dtype == torch.float32
-        assert not phase.is_complex()
-        assert bool((phase.abs() <= math.pi + 1e-6).all())
+        twin = self._twin()
+        operator = BenchTwinOperator(twin)
+        phase = np.random.default_rng(0).uniform(-np.pi, np.pi, (64, 64))
+        truth = np.asarray(twin.far_field(phase), dtype=np.float64)
+        far = operator.forward(None, torch.from_numpy(phase).float()[None, None])
+        mine = (far.real**2 + far.imag**2)[0, 0].numpy().astype(np.float64)
+        # 孪生把帧峰值归一到 peak_adu=100，算子归一的是复场（|F| 的峰值 = 1）。
+        assert float(np.corrcoef(truth.ravel(), mine.ravel())[0, 1]) > 0.999
+        assert float(truth.max() / mine.max()) == pytest.approx(100.0, rel=1e-3)
 
-    def test_rejects_non_propagator(self):
-        with pytest.raises(TypeError):
-            Bench2FOperator(object())
+    def test_matches_the_twin_with_all_three_error_families(self) -> None:
+        from ml.gsnet.forward_ops import BenchTwinOperator
+
+        twin = self._twin(
+            lut_gamma=1.2,
+            slm_zernike={4: 0.15, 5: -0.1},
+            slm_roughness_sigma_rad=0.02,
+            slm_roughness_seed=3,
+            defocus_m=3e-4,
+            tilt_x_rad=2e-4,
+            tilt_y_rad=-1e-4,
+            lens_zernike={4: 0.08},
+        )
+        operator = BenchTwinOperator(twin)
+        phase = np.random.default_rng(1).uniform(-np.pi, np.pi, (64, 64))
+        truth = np.asarray(twin.far_field(phase), dtype=np.float64)
+        far = operator.forward(None, torch.from_numpy(phase).float()[None, None])
+        mine = (far.real**2 + far.imag**2)[0, 0].numpy().astype(np.float64)
+        assert float(np.corrcoef(truth.ravel(), mine.ravel())[0, 1]) > 0.999
+
+    def test_back_propagate_is_the_inverse_pair(self) -> None:
+        """回代必须把瞳面还原 —— 少了 fftshift 就会返回全零。"""
+        from ml.gsnet.forward_ops import BenchTwinOperator
+
+        twin = self._twin()
+        operator = BenchTwinOperator(twin)
+        phase = np.random.default_rng(2).uniform(-np.pi, np.pi, (64, 64))
+        far = operator.forward(None, torch.from_numpy(phase).float()[None, None])
+        back = operator.back_propagate(far)
+        assert tuple(back.shape) == (1, 1, 64, 64)
+        assert float(back.abs().max()) > 0.5
+        recovered = torch.angle(back)
+        assert float(recovered.std()) > 0.1
+
+    def test_warm_start_returns_a_pupil_grid_phase(self) -> None:
+        from ml.gsnet.forward_ops import BenchTwinOperator
+
+        twin = self._twin()
+        operator = BenchTwinOperator(twin)
+        target = torch.rand(1, 1, operator.far_side, operator.far_side)
+        phase = operator.warm_start(target)
+        assert tuple(phase.shape) == (1, 1, 64, 64)
+        assert float(phase.std()) > 0.1

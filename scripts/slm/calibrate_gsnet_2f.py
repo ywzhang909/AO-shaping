@@ -43,7 +43,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -63,14 +63,14 @@ if str(ROOT / "src") not in sys.path:
 from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (  # noqa: E402
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.utils.wavefront.bench2f import (  # noqa: E402
-    Bench2FGeometry,
-    Bench2FGroundTruth,
-    Bench2FPropagator,
-    ZernikeAberrationField,
+from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
+    BenchTwin,
+    BenchTwinConfig,
+    TwinErrorModel,
 )
+from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: E402
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms  # noqa: E402
-from ml.gsnet.forward_ops import Bench2FOperator, IdealFFTOperator  # noqa: E402
+from ml.gsnet.forward_ops import BenchTwinOperator, IdealFFTOperator  # noqa: E402
 from ml.gsnet.model import FourierGSNet  # noqa: E402
 
 # --------------------------------------------------------------------------------------
@@ -281,14 +281,19 @@ def _agg(values: list[float]) -> dict[str, float]:
 # 相位族
 # --------------------------------------------------------------------------------------
 def _zernike_basis(region: int, n_max: int) -> torch.Tensor:
-    field = ZernikeAberrationField(region=region, n_max=n_max)
-    return field.basis()
+    """Zernike 基（canonical 入口，Noll 序）。"""
+    from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
-
-#: 各相位族的 rms（弧度）。幅度是关键：0.3 rad 的弱像差几乎不散射，
-#: 0 阶峰主导整个远场，于是任何前向模型的相关性都 >0.97，指标失去分辨力。
-#: 这里的取值让远场真正成为散斑场（与实验系统「全频随机相位」族同量级）。
-FAMILY_RMS = {"smooth": 0.8, "zernike": 1.2, "freeform": 2.0}
+    generator = ZernikeGenerator(
+        resolution=(region, region), radius=region / 2.0, n_orders=n_max
+    )
+    out = np.zeros((calc_n_zernike_terms(n_max), region, region))
+    for index in range(out.shape[0]):
+        coefficients = np.zeros(out.shape[0])
+        coefficients[index] = 1.0
+        raw = generator.generate_noll(coefficients)
+        out[index] = np.nan_to_num(np.asarray(raw, dtype=np.float64), nan=0.0)
+    return torch.from_numpy(out).to(torch.float32)
 
 
 def make_phase(
@@ -296,28 +301,23 @@ def make_phase(
     region: int,
     rng: np.random.Generator,
     *,
-    n_max: int = 10,
     rms_rad: float | None = None,
 ) -> np.ndarray:
     """在瞳面网格 (region, region) 上生成一个相位（弧度，未包裹）。"""
-    if rms_rad is None:
-        rms_rad = FAMILY_RMS[family]
     if family == "smooth":
         basis = _zernike_basis(region, 4)[3:15]  # Noll 4..15
     elif family == "zernike":
         basis = _zernike_basis(region, 10)[3:]  # Noll 4..66
     elif family == "freeform":
         raw = rng.normal(0.0, 1.0, size=(region, region))
-        # 高斯低通，模拟器件带宽内可实现的逐像素相位
         k = np.fft.fftfreq(region)[:, None]
         l = np.fft.fftfreq(region)[None, :]
-        sigma_px = 2.0
-        kernel = np.exp(-2.0 * (np.pi**2) * (sigma_px**2) * (k**2 + l**2))
+        kernel = np.exp(-2.0 * (np.pi**2) * (2.0**2) * (k**2 + l**2))
         filtered = np.real(np.fft.ifft2(np.fft.fft2(raw) * kernel))
         scale = float(np.sqrt((filtered**2).mean()))
         if scale > 0:
             filtered = filtered / scale
-        return (filtered * rms_rad).astype(np.float64)
+        return (filtered * (2.0 if rms_rad is None else rms_rad)).astype(np.float64)
     else:  # pragma: no cover - argparse 限制了取值
         raise ValueError(f"unknown phase family: {family}")
 
@@ -326,124 +326,149 @@ def make_phase(
     scale = float(np.sqrt((field**2).mean()))
     if scale > 0:
         field = field / scale
-    return (field * rms_rad).astype(np.float64)
+    return (field * (0.8 if rms_rad is None else rms_rad)).astype(np.float64)
 
 
-# --------------------------------------------------------------------------------------
-# 臂 A：前向保真度
-# --------------------------------------------------------------------------------------
-def _fixed_bench_aberration(region: int, seed: int) -> torch.Tensor:
-    """实验系统自身的一块固定像差（落在 Zernike 张成**内**，幅度 0.25 rad rms）。
+#: 三族误差的随机化幅度（域随机化的轴）。每一族都是实验系统上**真实存在**
+#: 的非理想因素，范围取自实验系统的量级。
+LUT_GAMMA_RANGE = (0.85, 1.25)
+PANEL_ZERNIKE_MAX_RAD = 0.12
+PANEL_ROUGHNESS_RANGE = (0.0, 0.04)
+DEFOCUS_RANGE_M = (-2.0e-4, 2.0e-4)
+TILT_RANGE_RAD = (-1.5e-4, 1.5e-4)
+LENS_ZERNIKE_MAX_RAD = 0.10
 
-    探针要拟合的就是它；它张成内的部分可被物理 Zernike 模型吸收，
-    张成外的部分（孪生内部的自由形状像差）任何 66 项模型都拟合不掉。
+
+def random_errors(rng: np.random.Generator) -> TwinErrorModel:
+    """抽一组三族误差参数。
+
+    * 族 1 SLM LUT 非线性 + 量化：Gamma 指数偏离线性。
+    * 族 2 SLM 面板静态相差：低阶 Zernike + 固定种子粗糙度。
+    * 族 3 装调：相机离焦 + 光路倾斜 + 透镜像差。
     """
-    rng = np.random.default_rng(seed + 4242)
-    coeffs = rng.normal(0.0, 1.0, size=15)  # Noll 4..18
-    basis = ZernikeAberrationField(region=region, n_max=6).basis().numpy()[3:18]
-    field = np.tensordot(coeffs, basis, axes=(0, 0))
-    scale = float(np.sqrt((field**2).mean()))
-    if scale > 0:
-        field = field / scale
-    return torch.from_numpy((field * 0.8).astype(np.float32))[None, None]
-
-
-def _fit_bench_aberration(
-    optimizer: ZernikeCoefficientOptimizer,
-    truth_bench: Bench2FGroundTruth,
-    bench_aberration: torch.Tensor,
-    region: int,
-    geometry: Bench2FGeometry,
-    seed: int,
-    n_probes: int = 8,
-    iterations: int = 80,
-) -> np.ndarray:
-    """用探针帧拟合实验系统的像差系数（与 MIL 的 Step A 同一套机制）。
-
-    直接调用仓库自己的 ``_fit_aberration_at_probes``——即闭环里 Step A 用的那个
-    helper——而不是自己重写一遍循环。原因是它把**多帧探针在同一个 Adam 状态里
-    轮转**，而逐帧各自拟合会把共享系数向量带偏；另外 ``update`` 在连续若干步
-    没有改善后会闩住 ``_converged`` 且**没有人能解开**，自己写的循环会悄悄
-    停在半路（实测：自写循环拟合出的残差比「像差为零」还差）。
-
-    探针相位取**逐像素随机**（band-limited）而不是低阶 Zernike：低阶 Zernike
-    探针能被 66 项 Zernike 模型整个吸收，模型会去解释探针而不是像差
-    （实测拟合系数与真值像差的相关性 ≈ 0.13；换成随机相位后明显改善）。这与
-    ``scripts/slm/model_in_loop_hw_runbook.py`` 的告诫一致。
-    """
-    from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
-        _fit_aberration_at_probes,
+    panel_modes = rng.choice(np.arange(4, 19), size=int(rng.integers(3, 9)), replace=False)
+    lens_modes = rng.choice(np.arange(4, 13), size=int(rng.integers(2, 6)), replace=False)
+    return TwinErrorModel(
+        lut_gamma=float(rng.uniform(*LUT_GAMMA_RANGE)),
+        lut_phase_max_rad=2.0 * np.pi,
+        gray_levels=1023,
+        slm_zernike={int(m): float(rng.uniform(-PANEL_ZERNIKE_MAX_RAD, PANEL_ZERNIKE_MAX_RAD)) for m in panel_modes},
+        slm_zernike_n_max=6,
+        slm_roughness_sigma_rad=float(rng.uniform(*PANEL_ROUGHNESS_RANGE)),
+        slm_roughness_seed=int(rng.integers(0, 2**31 - 1)),
+        defocus_m=float(rng.uniform(*DEFOCUS_RANGE_M)),
+        tilt_x_rad=float(rng.uniform(*TILT_RANGE_RAD)),
+        tilt_y_rad=float(rng.uniform(*TILT_RANGE_RAD)),
+        lens_zernike={int(m): float(rng.uniform(-LENS_ZERNIKE_MAX_RAD, LENS_ZERNIKE_MAX_RAD)) for m in lens_modes},
+        lens_zernike_n_max=4,
     )
 
-    rng = np.random.default_rng(seed + 31337)
-    frames: list[tuple[np.ndarray, np.ndarray]] = []
-    for _ in range(n_probes):
-        probe = torch.from_numpy(
-            make_phase("freeform", region, rng, rms_rad=1.2)
-        ).to(torch.float32)
-        measured = (
-            truth_bench.forward(probe[None, None] + bench_aberration)[0, 0]
-            .numpy()
-            .astype(np.float64)
-        )
-        frames.append((measured, probe.numpy().astype(np.float64)))
-    fitted, _, _, _ = _fit_aberration_at_probes(optimizer, frames, iterations)
-    return np.asarray(fitted, dtype=np.float64)
+
+def build_twin(
+    seed: int,
+    *,
+    region: int = 64,
+    region_span_px: float = 900.0,
+    far_field_padding: int = 8,
+    beam_w0_px: float = 250.0,
+    peak_adu: float = 100.0,
+    noise_adu: float = 2.0,
+    randomize: bool = True,
+) -> BenchTwin:
+    """造一台 2f 实验系统数字孪生（仓库规范的核心）。
+
+    ``randomize=False`` ⇒ 理想系统（三族误差全零）。
+    """
+    rng = np.random.default_rng(seed)
+    errors = random_errors(rng) if randomize else TwinErrorModel()
+    config = BenchTwinConfig(
+        wavelength_m=1064e-9,
+        slm_pixel_um=8.0,
+        ccd_pixel_um=2.2,
+        focal_length_m=0.125,
+        region=region,
+        region_span_px=region_span_px,
+        far_field_padding=far_field_padding,
+        beam_w0_px=beam_w0_px,
+        center_crop=True,
+        # 不裁剪：孪生的帧就是整张远场网格（region*padding），与仓库既有的
+        # model 网格口径一致，网络的内部前向与标签也都在这张网格上。
+        crop_px=region * far_field_padding,
+        peak_adu=peak_adu,
+        noise_adu=noise_adu,
+        seed=seed,
+        errors=errors,
+    )
+    return BenchTwin(config)
 
 
 @dataclass
 class ArmAConfig:
-    geometry: Bench2FGeometry
+    """臂 A 的配置（口径全部对齐仓库规范的 2f 孪生）。"""
+
+    region: int
+    region_span_px: float
+    far_field_padding: int
     frames_per_family: int
     metric_side: int
     target_side: int
     seed: int
-    truth_bench: Bench2FGroundTruth
-    fitted_aberration: torch.Tensor
-    fitted_coeffs: npt.NDArray[np.float64]
-    bench_aberration: torch.Tensor
+    noise_adu: float
 
 
 def run_arm_a(cfg: ArmAConfig, out_dir: Path) -> dict[str, Any]:
-    """24 帧同帧对照：三种前向 vs 真值。
+    """24 帧同帧对照：三种前向 vs **孪生真值**。
 
-    三个预测器共用**同一组**从探针帧拟合出来的 Zernike 像差系数，
-    所以它们之间的差异只来自「传播链本身的物理」，不来自「谁拟合得更好」：
+    真值是仓库规范的 2f 数字孪生（``drivers/sim/bench_twin.py``）：三族误差
+    （LUT 非线性+量化 / 面板静态相差 / 装调）+ 泊松散粒噪声与读出噪声。
 
-    * ``ideal``       —— 理想 FFT（网络当前内部用的），既不知道像差，
-      也没有孔径、照明、增益、背景。
-    * ``calibrated``  —— 本台架 2f 物理前向（孔径 + 高斯照明 + 512² 补零
-      + 增益 + 背景 + 峰值归一化），像差用同一组拟合系数。
-    * ``zernike``     —— 仓库自己的 MIL 物理模型（``ZernikeCoefficientOptimizer``），
-      即 issue 里的「物理 Zernike 基线」。
+    三个预测器：
+
+    * ``ideal``       —— **零误差**孪生的传播链（理想物理 + 同样的过采样与裁剪）。
+      它与 ``calibrated`` 的差别**只有**三族误差，所以两行之差就是「实验系统
+      的非理想因素值多少」。
+    * ``calibrated``  —— 带随机化误差的孪生传播链（网络内部该用的那条）。
+    * ``zernike``     —— 仓库自己的 MIL 物理模型（66 项 Zernike + 冻结
+      piston/tilt），系数由探针帧拟合得到，即 issue 里的「物理 Zernike 基线」。
+
+    三者在**同一个远场网格**上（孪生的 ``crop_px = region*padding`` ⇒ 不裁剪），
+    所以逐像素可比。
     """
-    geometry = cfg.geometry
-    region = geometry.region
+    region = cfg.region
+    far_field = region * cfg.far_field_padding
     rng = np.random.default_rng(cfg.seed)
 
-    propagator = Bench2FPropagator(geometry, n_max=10)
-    truth_bench = cfg.truth_bench
-    bench_aberration = cfg.bench_aberration
+    twin = build_twin(
+        cfg.seed,
+        region=region,
+        region_span_px=cfg.region_span_px,
+        far_field_padding=cfg.far_field_padding,
+        noise_adu=cfg.noise_adu,
+        randomize=True,
+    )
+    ideal_twin = build_twin(
+        cfg.seed,
+        region=region,
+        region_span_px=cfg.region_span_px,
+        far_field_padding=cfg.far_field_padding,
+        noise_adu=0.0,
+        randomize=False,
+    )
+    op_cal = BenchTwinOperator(twin)
+    op_ideal = BenchTwinOperator(ideal_twin)
 
-    ideal_op = IdealFFTOperator(geometry.far_field_size, convention="canonical")
-
-    # 物理 Zernike 基线：仓库自己的 MIL 正向模型（66 项 Zernike + 冻结 piston/tilt）
+    # 物理 Zernike 基线：仓库自己的 MIL 正向模型，系数由孪生帧拟合
     zernike_opt = ZernikeCoefficientOptimizer(
         n_orders=10,
         region=region,
         lr=0.05,
-        far_field_size=geometry.far_field_size,
+        far_field_size=far_field,
         frozen_modes=(1, 2, 3),
         dtype="float64",
     )
-    amplitude = propagator.pupil_amplitude().numpy()[0, 0].astype(np.float64)
+    amplitude = np.asarray(twin.pupil_amplitude(), dtype=np.float64)
     zernike_opt.set_source_amplitude(amplitude)
 
-    fitted_phase = cfg.fitted_aberration
-    fitted_coeffs = cfg.fitted_coeffs
-    # 校准前向算子带上这组拟合像差：命令相位保持逐像素自由度，
-    # 实验系统的像差叠在上面——与 MIL 的前向模型同构。
-    bench_op = Bench2FOperator(propagator, aberration=fitted_phase)
     per_family: dict[str, dict[str, list[dict[str, float]]]] = {
         fam: {model: [] for model in MODEL_LABELS} for fam in FAMILIES
     }
@@ -455,20 +480,22 @@ def run_arm_a(cfg: ArmAConfig, out_dir: Path) -> dict[str, Any]:
             phase = make_phase(family, region, rng)
             phase_t = torch.from_numpy(phase).to(torch.float32)[None, None]
 
-            truth = truth_bench.forward(phase_t + bench_aberration)[0, 0].numpy()
-            truth = truth.astype(np.float64)
+            # 孪生的帧带读出噪声 ⇒ 有负像素。先过仓库的 prepare_frame
+            # （中位数去本底 + 截零），否则「框内能量 / 全图能量」会 > 1。
+            truth = prepare_frame(np.asarray(twin.frame(phase), dtype=np.float64))
 
-            amp_t = propagator.pupil_amplitude()
-            ideal_far = ideal_op.forward(amp_t, phase_t)
+            ideal_far = op_ideal.forward(None, phase_t)
             ideal_int = (ideal_far.real**2 + ideal_far.imag**2)[0, 0].numpy().astype(np.float64)
 
-            # 校准前向：命令相位 + 拟合像差，走本台架 2f 物理链
-            cal_far = bench_op.forward(amp_t, phase_t)
+            cal_far = op_cal.forward(None, phase_t)
             cal_int = (cal_far.real**2 + cal_far.imag**2)[0, 0].numpy().astype(np.float64)
 
-            # 物理 Zernike 基线：同一组系数，走仓库自己的 MIL 前向
+            # 物理 Zernike 基线：探针拟合 → 预测
+            probe = make_phase("freeform", region, rng, rms_rad=1.2)
+            measured = np.asarray(twin.frame(probe), dtype=np.float64)
+            zernike_opt.update(measured, probe)
             zernike_int = zernike_opt.forward_intensity(
-                fitted_coeffs, phase, source_amplitude=amplitude
+                zernike_opt.coefficients, phase, source_amplitude=amplitude
             )
 
             for model, image in (
@@ -506,122 +533,89 @@ def run_arm_a(cfg: ArmAConfig, out_dir: Path) -> dict[str, Any]:
     return summary
 
 
-# --------------------------------------------------------------------------------------
-# 臂 B：网络换前向前后
-# --------------------------------------------------------------------------------------
-def _square_target(size: int, far_field_size: int) -> np.ndarray:
-    """远场网格中心的方形平顶目标（峰值归一）。"""
+def _square_target(size: float, far_field_size: int, offset: float = 0.0) -> np.ndarray:
+    """远场上的方形目标（峰值 1）。``offset`` 是中心的相对偏移。"""
     target = np.zeros((far_field_size, far_field_size), dtype=np.float64)
-    r0 = (far_field_size - size) // 2
-    target[r0 : r0 + size, r0 : r0 + size] = 1.0
+    half = size / 2.0
+    cx = far_field_size / 2.0 + offset * far_field_size
+    x0, x1 = int(round(cx - half)), int(round(cx + half))
+    x0, x1 = max(0, x0), min(far_field_size, x1)
+    target[x0:x1, x0:x1] = 1.0
     return target
 
 
-def _source_intensity(region: int, rng: np.random.Generator | None = None) -> np.ndarray:
-    """瞳面上的高斯照明（归一到峰值 1）。
+def _apply_detector(
+    frame_adu: np.ndarray,
+    exposure: float,
+    *,
+    full_well: float = 100.0,
+    black_level: float = 0.0,
+    bit_depth: int = 12,
+) -> np.ndarray:
+    """在孪生的帧外面套一层探测器：曝光 + 上下截断 + 量化。
 
-    腰宽与中心偏移随机化：训练集里的照明必须有多样性，否则网络只会学到
-    「这一束光的解」。
+    孪生自己已经把帧**峰值归一**到 ``peak_adu``，所以它不会过曝也不会欠曝；
+    真实相机会。曝光系数 > 1 ⇒ 峰值撞上满阱（核心削顶，过曝）；
+    < 1 ⇒ 信号落到黑电平以下（弱散斑被切掉，欠曝）。散粒噪声由孪生自己加
+    （峰值处 σ = √peak_adu ADU），这里只补截断与量化。
     """
-    axis = np.arange(region) - (region - 1) / 2.0
-    if rng is None:
-        waist = region / 2.0
-        shift_x = shift_y = 0.0
-    else:
-        waist = (region / 2.0) * float(rng.uniform(0.7, 1.3))
-        shift_x = float(rng.uniform(-0.08, 0.08)) * region
-        shift_y = float(rng.uniform(-0.08, 0.08)) * region
-    xx, yy = np.meshgrid(axis - shift_x, axis - shift_y, indexing="ij")
-    r2 = (xx**2 + yy**2) / (waist**2)
-    src = np.exp(-2.0 * r2)
-    return (src / src.max()).astype(np.float64)
-
-
-def _pupil_back(far_field: torch.Tensor, pupil_side: int) -> torch.Tensor:
-    """远场复数场 -> 瞳面复数场（中心裁剪）。
-
-    零填充 512² 的正向 FFT 的逆步：``ifft2(ifftshift(far))`` 给出 512² 的
-    填充瞳面场，中心 ``pupil_side`` 那一块才是真正的瞳面。
-    """
-    back = torch.fft.ifft2(torch.fft.ifftshift(far_field, dim=(-2, -1)), dim=(-2, -1))
-    # 逆变换的输出里瞳面还在「卷绕」帧上，必须再 fftshift 一次才对齐正向
-    # 链路的中心帧——少了这一步，裁出来的瞳面相位误差是 ~4 rad（完全错）。
-    back = torch.fft.fftshift(back, dim=(-2, -1))
-    side = back.shape[-1]
-    half = (side - pupil_side) // 2
-    return back[..., half : half + pupil_side, half : half + pupil_side]
+    scaled = np.asarray(frame_adu, dtype=np.float64) * float(exposure)
+    scaled = np.clip(scaled, black_level, full_well)
+    levels = float(2**int(bit_depth) - 1)
+    return np.round(scaled * levels) / levels
 
 
 def _classical_gs(
-    forward_complex,
+    operator,
     target_amp: torch.Tensor,
-    pupil_side: int,
     iterations: int,
 ) -> torch.Tensor:
     """在给定前向下跑经典 GS，返回瞳面相位。
 
-    ``forward_complex(pupil_phase)`` 必须给出**复数**远场（幅度已峰值归一），
-    因为 GS 的幅度约束需要远场的相位，而强度图不携带相位。
+    ``operator`` 是 :class:`~ml.gsnet.forward_ops.BenchTwinOperator`：它的
+    ``forward`` 给复数远场、``back_propagate`` 回到瞳面。GS 需要远场的**相位**，
+    而孪生只给强度，所以标签这一环必须走可微的算子。
     """
-    phase = torch.angle(_pupil_back(target_amp.to(torch.complex64), pupil_side))
+    phase = operator.warm_start(target_amp)
     for _ in range(iterations):
-        far = forward_complex(phase)
-        far_phase = torch.angle(far)
-        far_c = target_amp * torch.exp(1j * far_phase)
-        phase = torch.angle(_pupil_back(far_c, pupil_side))
+        far = operator.forward(None, phase)
+        far_c = target_amp * torch.exp(1j * torch.angle(far))
+        phase = torch.angle(operator.back_propagate(far_c))
     return phase
 
 
 def _make_training_set(
-    geometry: Bench2FGeometry,
-    truth_bench: Bench2FGroundTruth,
-    bench_aberration: torch.Tensor,
+    operator,
+    source: torch.Tensor,
+    far_field_size: int,
     n_samples: int,
-    target_side: int,
+    target_side: float,
     gs_iterations: int,
     seed: int,
-    gt_mode: str = "bench",
 ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """从真值孪生合成 (source, target, gt_phase) 训练对。
+    """合成 (source, target, gt_phase) 训练对。
 
-    每个样本换一套照明与目标，否则网络学的是「这一组 (source, target) 的解」：
-    经典 GS 是确定性的，固定 (source, target) 会让 64 个样本逐位相同。
+    * ``source``   —— 瞳面照明（孪生自己的入射幅度）。
+    * ``target``   —— **设计**的远场目标（方形）。它不是实测帧：网络回答的是
+      「给出这个目标，该下发什么相位」。
+    * ``gt_phase`` —— 在**带误差的物理**下达成该目标的相位（GS 解）。实验系统的
+      非理想因素正是经由标签进入网络的——不是经由输入目标。
     """
     rng = np.random.default_rng(seed)
-    region = geometry.region
     sources: list[torch.Tensor] = []
     targets: list[torch.Tensor] = []
     gt_phases: list[torch.Tensor] = []
-
     for _ in range(n_samples):
-        source = torch.from_numpy(_source_intensity(region, rng)).to(torch.float32)[None, None]
-        side = int(target_side * float(rng.uniform(0.75, 1.25)))
-        # 网络的 source 在**瞳面网格**上，target 在**远场网格**上——这是
-        # FourierGSNet 换掉「source 与 target 同网格」契约之后的样子：
-        # 内部远场于是可以是解析开的远场，而不是混叠的同尺寸 FFT。
+        side = float(target_side) * float(rng.uniform(0.75, 1.25))
+        offset = float(rng.uniform(-0.012, 0.012))
         target = torch.from_numpy(
-            _square_target(side, geometry.far_field_size)
+            _square_target(side, far_field_size, offset)
         ).to(torch.float32)[None, None]
         target_amp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
-        if gt_mode == "bench":
-            # GT = 在**过采样真值**上跑经典 GS 的解（对真值而言是最优相位）。
-            phase = _classical_gs(
-                lambda ph: _truth_complex_far_field(
-                    truth_bench, geometry, ph, bench_aberration
-                ),
-                target_amp,
-                region,
-                gs_iterations,
-            )
-        else:
-            # GT = 在**网络自己的网格**上跑经典 GS 的解（与网络能表达的东西同口径）。
-            phase = _classical_gs_same_regime(
-                source, target, region, gs_iterations
-            )
+        phase = _classical_gs(operator, target_amp, gs_iterations)
         sources.append(source[0])
         targets.append(target[0])
         gt_phases.append(phase[0, 0].clone())
-
     return (
         torch.stack(sources),
         torch.stack(targets),
@@ -629,107 +623,71 @@ def _make_training_set(
     )
 
 
-def _classical_gs_same_regime(
-    source: torch.Tensor,
-    target: torch.Tensor,
-    pupil_side: int,
-    iterations: int,
-) -> torch.Tensor:
-    """在**瞳面网格**上跑经典 GS（同尺寸理想 FFT 口径）。
-
-    这是「旧架构能表达的那个解」：内部远场是同尺寸 FFT，衍射极限光斑亚像素、
-    图样混叠。目标先从远场网格重采样到瞳面网格（视场相同，只是采样更粗），
-    所以它和过采样目标是**同一个角尺寸**的同一个目标，只是表达分辨率不同。
-    """
-    amp = torch.sqrt(source.clamp_min(0.0) + 1e-12)
-    squeeze = target.ndim == 3
-    if squeeze:
-        target = target[None]
-    coarse_target = torch.nn.functional.interpolate(
-        target, size=(pupil_side, pupil_side), mode="area"
-    )
-    if squeeze:
-        coarse_target = coarse_target[0]
-    tamp = torch.sqrt(coarse_target.clamp_min(0.0) + 1e-12)
-    phase = torch.angle(_pupil_back(tamp.to(torch.complex64), pupil_side))
-    for _ in range(iterations):
-        far = torch.fft.fftshift(torch.fft.fft2(amp * torch.exp(1j * phase)), dim=(-2, -1))
-        far_c = tamp * torch.exp(1j * torch.angle(far))
-        phase = torch.angle(_pupil_back(far_c, pupil_side))
-    return phase
-
-
-def _truth_complex_far_field(
-    truth_bench: Bench2FGroundTruth,
-    geometry: Bench2FGeometry,
-    phase: torch.Tensor,
-    bench_aberration: torch.Tensor,
-) -> torch.Tensor:
-    """真值孪生的复远场（强度 -> 复数，幅度取峰值归一后的 sqrt）。
-
-    GS 需要的是复远场的相位；真值孪生只给强度，所以用「幅度 = sqrt(强度)、
-    相位 = 0」的实数远场参与幅度约束迭代。
-    """
-    return truth_bench.complex_far_field(phase + bench_aberration)
-
-
 @dataclass
 class ArmBConfig:
-    geometry: Bench2FGeometry
+    """臂 B 的配置（网络换前向）。"""
+
+    region: int
+    region_span_px: float
+    far_field_padding: int
     n_train: int
     n_eval: int
     epochs: int
     metric_side: int
     target_side: int
     seed: int
-    truth_bench: Bench2FGroundTruth
-    fitted_aberration: torch.Tensor
-    bench_aberration: torch.Tensor
-    gt_mode: str = "same"
+    noise_adu: float
     num_layers: int = 8
     base_channels: int = 24
+    w_shaping: float = 5.0
+    warmup_epochs: int = 3
+    lr: float = 1e-4
 
 
 def _evaluate_network(
     model: FourierGSNet,
+    twin: BenchTwin,
     source: torch.Tensor,
     target: torch.Tensor,
-    truth_bench: Bench2FGroundTruth,
-    bench_aberration: torch.Tensor,
     metric_side: int,
     target_side: int,
-    far_field_size: int,
 ) -> dict[str, Any]:
-    """把网络预测的相位送进**真值**孪生，再与目标比。"""
+    """把网络预测的相位送进**孪生**（加噪帧），再与设计目标比较。"""
     model.eval()
     rows: list[dict[str, float]] = []
     with torch.no_grad():
         for i in range(source.shape[0]):
-            pred_phase = model(source[i : i + 1], target[i : i + 1])
-            far = truth_bench.forward(pred_phase + bench_aberration)[0, 0].numpy()
-            ref = _square_target(target_side, far_field_size)
-            rows.append(
-                frame_metrics(far.astype(np.float64), ref, metric_side, target_side)
+            pred = model(source[i : i + 1], target[i : i + 1])
+            measured = prepare_frame(
+                np.asarray(twin.frame(pred[0, 0].numpy().astype(np.float64)))
             )
+            ideal = target[i, 0].numpy().astype(np.float64)
+            rows.append(frame_metrics(measured, ideal, metric_side, target_side))
     return {key: _agg([row[key] for row in rows]) for key in METRIC_KEYS}
 
 
 def _shaping_loss(
     operator, source_amp: torch.Tensor, phase: torch.Tensor, target: torch.Tensor
 ) -> torch.Tensor:
-    """1 - Pearson（与仓库 ``ShapingLosses.shaping_loss`` 同口径）。
+    """1 - Pearson（用**本臂自己的前向**算）。
 
-    关键：**用本臂自己的前向算子**算预测远场。损失若用理想 FFT 算，
-    校准臂就在被一个与它内部物理不一致的目标函数训练。
+    远场网格很大，噪声压过信号，所以相关性只在**目标方框**上算。
     """
     far = operator.forward(source_amp, phase)
     intensity = far.real**2 + far.imag**2
-    pred = intensity.flatten(1)
-    tgt = target.flatten(1)
-    p = pred - pred.mean(dim=1, keepdim=True)
-    t = tgt - tgt.mean(dim=1, keepdim=True)
-    denom = torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-12
-    return torch.mean(1.0 - (p * t).sum(dim=1) / denom)
+    box = int(operator.far_side)
+    half = max(1, min(target.shape[-1], box) // 2)
+    centre = intensity.shape[-1] // 2
+    p = intensity[..., centre - half : centre + half, centre - half : centre + half]
+    t = target[..., centre - half : centre + half, centre - half : centre + half]
+    p = p.flatten(1)
+    t = t.flatten(1)
+    p = p - p.mean(dim=1, keepdim=True)
+    t = t - t.mean(dim=1, keepdim=True)
+    corr = (p * t).sum(dim=1) / (
+        torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-6
+    )
+    return torch.mean(1.0 - corr)
 
 
 def _train_arm(
@@ -739,10 +697,11 @@ def _train_arm(
     gt_phase: torch.Tensor,
     cfg: ArmBConfig,
 ) -> FourierGSNet:
-    """一个训练臂：固定 seed、固定预算，损失与仓库的 train_gsnet 同口径。
+    """一个训练臂：固定 seed、固定预算。
 
-    损失 = ``w_phase * 圆周相位 MSE + w_shaping * (1 - Pearson)``，
-    与 ``ml.gsnet.train.train_gsnet`` 的构成一致；两项都用**本臂的前向算子**。
+    损失 = 相位项（对 GS 解）+ 整形项（用**本臂自己的前向**把预测相位推到
+    目标上）。整形项的权重先小后大：相关性项在预测接近 0 时病态，一上来
+    就给满权重会把训练带炸。
     """
     torch.manual_seed(cfg.seed)
     model = FourierGSNet(
@@ -751,12 +710,14 @@ def _train_arm(
         shared_weights=True,
         forward_op=operator,
     )
-    optimiser = torch.optim.Adam(model.parameters(), lr=1e-3)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.5)
+    optimiser = torch.optim.Adam(model.parameters(), lr=cfg.lr)
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimiser, step_size=max(1, cfg.epochs // 4), gamma=0.4
+    )
     n = source.shape[0]
     batch = 16
-    w_phase, w_shaping = 1.0, 40.0
-    for _epoch in range(cfg.epochs):
+    source_amp = torch.sqrt(source.clamp_min(0.0) + 1e-12)
+    for epoch in range(cfg.epochs):
         model.train()
         order = torch.randperm(n)
         for start in range(0, n, batch):
@@ -764,127 +725,90 @@ def _train_arm(
             pred = model(source[idx], target[idx])
             diff = torch.remainder(pred - gt_phase[idx] + torch.pi, 2 * torch.pi) - torch.pi
             phase_loss = torch.nn.functional.mse_loss(diff, torch.zeros_like(diff))
-            source_amp = torch.sqrt(source[idx].clamp_min(0.0) + 1e-12)
-            shaping_loss = _shaping_loss(operator, source_amp, pred, target[idx])
-            loss = w_phase * phase_loss + w_shaping * shaping_loss
+            weight = cfg.w_shaping * min(
+                1.0, (epoch + 1) / max(1, cfg.warmup_epochs)
+            )
+            loss = phase_loss + weight * _shaping_loss(
+                operator, source_amp[idx], pred, target[idx]
+            )
             optimiser.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
             optimiser.step()
         scheduler.step()
     return model
 
 
 def run_arm_b(cfg: ArmBConfig, out_dir: Path) -> dict[str, Any]:
-    geometry = cfg.geometry
-    region = geometry.region
-    propagator = Bench2FPropagator(geometry, n_max=10)
-    truth_bench = cfg.truth_bench
-    bench_aberration = cfg.bench_aberration
+    """网络换前向：内部前向用**孪生的链**（带误差），标签在同一物理下求。
 
-    source, target, gt_phase = _make_training_set(
-        geometry,
-        truth_bench,
-        bench_aberration,
-        cfg.n_train,
+    上下界：
+    * ``flat``      —— 零相位（下发平场）;
+    * ``gs_ceiling`` —— GS 在**带误差物理**下的解本身（这个任务的上限）。
+    """
+    region = cfg.region
+    far_field = region * cfg.far_field_padding
+    twin = build_twin(
+        cfg.seed,
+        region=region,
+        region_span_px=cfg.region_span_px,
+        far_field_padding=cfg.far_field_padding,
+        noise_adu=cfg.noise_adu,
+        randomize=True,
+    )
+    operator = BenchTwinOperator(twin)
+    source = torch.from_numpy(
+        np.asarray(twin.pupil_amplitude(), dtype=np.float32)
+    )[None, None]
+
+    source_all, target_all, gt_all = _make_training_set(
+        operator,
+        source,
+        far_field,
+        cfg.n_train + cfg.n_eval,
         cfg.target_side,
         gs_iterations=20,
         seed=cfg.seed,
-        gt_mode=cfg.gt_mode,
     )
-
-    # 网络臂的内部远场是**过采样**的（geometry.far_field_size），瞳面网格仍是
-    # region：远场于是被解析开，网络内部的幅度约束与回代都在正确的采样上做。
-    ideal_op = IdealFFTOperator(
-        geometry.far_field_size, convention="canonical", pupil_side=region
-    )
-    bench_op = Bench2FOperator(propagator, aberration=cfg.fitted_aberration)
+    train = slice(0, cfg.n_train)
+    val = slice(cfg.n_train, cfg.n_train + cfg.n_eval)
 
     summary: dict[str, Any] = {}
-    for name, operator in (("ideal", ideal_op), ("calibrated", bench_op)):
-        started = time.time()
-        model = _train_arm(operator, source, target, gt_phase, cfg)
-        metrics = _evaluate_network(
-            model,
-            source[: cfg.n_eval],
-            target[: cfg.n_eval],
-            truth_bench,
-            bench_aberration,
-            cfg.metric_side,
-            cfg.target_side,
-            geometry.far_field_size,
-        )
-        metrics["train_seconds"] = time.time() - started
-        summary[name] = metrics
+    model = _train_arm(
+        operator, source_all[train], target_all[train], gt_all[train], cfg
+    )
+    summary["calibrated"] = _evaluate_network(
+        model, twin, source_all[val], target_all[val], cfg.metric_side, cfg.target_side
+    )
 
-    # 物理 Zernike 基线：把经典 GS 解投影到 66 项 Zernike 张成（同一目标、同一真值前向）
-    field = ZernikeAberrationField(region=region, n_max=10)
-    basis_np = field.basis().numpy().astype(np.float64)
-    rows: list[dict[str, float]] = []
-    for i in range(cfg.n_eval):
-        target_amp = torch.sqrt(
-            torch.from_numpy(
-                _square_target(cfg.target_side, geometry.far_field_size)
-            ).to(torch.float32)[None, None].clamp_min(0.0)
-        )
-        gs_phase = _classical_gs(
-            lambda ph: _truth_complex_far_field(
-                truth_bench, geometry, ph, bench_aberration
-            ),
-            target_amp,
-            region,
-            iterations=40,
-        )
-        coeffs, *_ = np.linalg.lstsq(
-            basis_np.reshape(basis_np.shape[0], -1).T,
-            gs_phase[0, 0].numpy().reshape(-1),
-            rcond=None,
-        )
-        zernike_phase = field.render(
-            torch.from_numpy(coeffs).to(torch.float32)[None, :]
-        )
-        with torch.no_grad():
-            far = truth_bench.forward(zernike_phase + bench_aberration)[0, 0].numpy()
-        ref = _square_target(cfg.target_side, geometry.far_field_size)
-        rows.append(
-            frame_metrics(far.astype(np.float64), ref, cfg.metric_side, cfg.target_side)
-        )
-    summary["zernike_baseline"] = {
-        key: _agg([row[key] for row in rows]) for key in METRIC_KEYS
-    }
-
-    # 上下界：平场（零相位）与 GS 在过采样真值上的解本身。
-    # 没有这两个数，网络臂的分数无法解读。
-    ref = _square_target(cfg.target_side, geometry.far_field_size)
+    # 上下界
     flat_rows: list[dict[str, float]] = []
     for i in range(cfg.n_eval):
-        with torch.no_grad():
-            far = truth_bench.forward(
-                torch.zeros(1, 1, region, region) + bench_aberration
-            )[0, 0].numpy()
+        zero = torch.zeros(1, 1, region, region)
+        measured = prepare_frame(
+            np.asarray(twin.frame(zero[0, 0].numpy().astype(np.float64)))
+        )
+        ideal = target_all[val][i, 0].numpy().astype(np.float64)
         flat_rows.append(
-            frame_metrics(far.astype(np.float64), ref, cfg.metric_side, cfg.target_side)
+            frame_metrics(measured, ideal, cfg.metric_side, cfg.target_side)
         )
     summary["flat"] = {key: _agg([row[key] for row in flat_rows]) for key in METRIC_KEYS}
 
-    with torch.no_grad():
-        far = truth_bench.forward(gt_phase[: cfg.n_eval] + bench_aberration)[
- :, 0
-        ].numpy()
-    ceiling_rows = [
-        frame_metrics(
-            far[i].astype(np.float64), ref, cfg.metric_side, cfg.target_side
+    ceil_rows: list[dict[str, float]] = []
+    for i in range(cfg.n_eval):
+        measured = prepare_frame(
+            np.asarray(twin.frame(gt_all[val][i, 0].numpy().astype(np.float64)))
         )
-        for i in range(min(cfg.n_eval, far.shape[0]))
-    ]
+        ideal = target_all[val][i, 0].numpy().astype(np.float64)
+        ceil_rows.append(
+            frame_metrics(measured, ideal, cfg.metric_side, cfg.target_side)
+        )
     summary["gs_ceiling"] = {
-        key: _agg([row[key] for row in ceiling_rows]) for key in METRIC_KEYS
+        key: _agg([row[key] for row in ceil_rows]) for key in METRIC_KEYS
     }
     return summary
 
 
-# --------------------------------------------------------------------------------------
-# 图
-# --------------------------------------------------------------------------------------
 def plot_arm_a(summary: dict[str, Any], out_path: Path) -> None:
     models = list(MODEL_LABELS)
     families = list(FAMILIES)
@@ -1041,24 +965,27 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="输出目录（默认 data/debug/gsnet_2f_calib/<时间戳>）",
     )
-    parser.add_argument("--grid", type=int, default=64, help="瞳面模型网格边长")
-    parser.add_argument("--far-field-size", type=int, default=512, help="远场 FFT 网格边长")
+    parser.add_argument("--grid", type=int, default=64, help="瞳面模型网格边长（孪生的 region）")
+    parser.add_argument(
+        "--far-field-padding", type=int, default=8, help="远场补零因子（孪生的 far_field_padding）"
+    )
+    parser.add_argument(
+        "--region-span-px", type=float, default=900.0, help="瞳面网格覆盖的面板边长（px）"
+    )
+    parser.add_argument(
+        "--noise-adu", type=float, default=2.0, help="相机读出噪声（ADU）；0 = 确定性"
+    )
     parser.add_argument("--frames", type=int, default=8, help="每个相位族的帧数（总帧数 = 3×）")
     parser.add_argument("--metric-side", type=int, default=36, help="指标网格边长")
-    parser.add_argument("--target-side", type=int, default=36, help="远场方形目标边长")
+    parser.add_argument(
+        "--target-side", type=int, default=24, help="远场方形目标边长（模型采样点）"
+    )
     parser.add_argument("--epochs", type=int, default=40, help="每个网络臂的训练轮数")
     parser.add_argument("--n-train", type=int, default=96, help="训练样本数")
     parser.add_argument("--n-eval", type=int, default=24, help="评估样本数")
+    parser.add_argument("--num-layers", type=int, default=8, help="GS 展开层数")
+    parser.add_argument("--base-channels", type=int, default=24, help="CNN 通道宽度")
     parser.add_argument("--seed", type=int, default=20261020)
-    parser.add_argument(
-        "--gt-mode",
-        choices=["bench", "same"],
-        default="same",
-        help=(
-            "训练目标的来源：bench = 过采样真值上跑 GS 的解（对真值最优，但网络"
-            "架构学不到）；same = 网络自己网格上跑 GS 的解（与网络能表达的同口径）"
-        ),
-    )
     parser.add_argument("--skip-network", action="store_true", help="只跑臂 A")
     parser.add_argument("--decision-only", action="store_true", help="只打印决策行")
     parser.add_argument(
@@ -1071,52 +998,6 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     return parser
-
-
-def _prepare_bench(
-    geometry: Bench2FGeometry, seed: int
-) -> tuple[
-    Bench2FGroundTruth, torch.Tensor, torch.Tensor, npt.NDArray[np.float64]
-]:
-    """构造真值孪生、实验系统的固定像差，以及用探针帧拟合出来的像差。
-
-    拟合用的机制与 MIL 的 Step A 相同（``ZernikeCoefficientOptimizer.update``），
-    所以「实验系统有多像差」这件事，网络和物理基线知道的是同一份信息。
-    """
-    region = geometry.region
-    propagator = Bench2FPropagator(geometry, n_max=10)
-    freeform_rng = np.random.default_rng(seed + 991)
-    freeform = torch.from_numpy(
-        make_phase("freeform", region, freeform_rng, rms_rad=0.12)
-    ).to(torch.float32)
-    truth_bench = Bench2FGroundTruth(
-        geometry,
-        freeform=freeform,
-        illumination_exponent=2.6,
-        shot_noise=0.0,
-        read_noise=0.0,
-        seed=seed + 7,
-    )
-    bench_aberration = _fixed_bench_aberration(region, seed)
-
-    zernike_opt = ZernikeCoefficientOptimizer(
-        n_orders=10,
-        region=region,
-        lr=0.05,
-        far_field_size=geometry.far_field_size,
-        frozen_modes=(1, 2, 3),
-        dtype="float64",
-    )
-    zernike_opt.set_source_amplitude(
-        propagator.pupil_amplitude().numpy()[0, 0].astype(np.float64)
-    )
-    fitted_coeffs = _fit_bench_aberration(
-        zernike_opt, truth_bench, bench_aberration, region, geometry, seed
-    )
-    fitted_aberration = ZernikeAberrationField(region=region, n_max=10).render(
-        torch.from_numpy(fitted_coeffs).to(torch.float32)[None, :]
-    )
-    return truth_bench, bench_aberration, fitted_aberration, fitted_coeffs
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1158,36 +1039,21 @@ def main(argv: list[str] | None = None) -> int:
             return 3
         return 0 if passed else 2
 
-    geometry = Bench2FGeometry(
-        region=args.grid,
-        far_field_size=args.far_field_size,
-        panel_disc_radius_px=450.0,
-        beam_waist_panel_px=450.0,
-        camera_px_per_model_px=8.0,
-        gain=1.0,
-        background=0.0,
-    )
-
     out_dir = args.out
     if out_dir is None:
         stamp = time.strftime("%Y%m%d_%H%M%S")
         out_dir = ROOT / "data" / "debug" / "gsnet_2f_calib" / stamp
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    truth_bench, bench_aberration, fitted_aberration, fitted_coeffs = _prepare_bench(
-        geometry, args.seed
-    )
-
     arm_a_cfg = ArmAConfig(
-        geometry=geometry,
+        region=args.grid,
+        region_span_px=args.region_span_px,
+        far_field_padding=args.far_field_padding,
         frames_per_family=args.frames,
         metric_side=args.metric_side,
         target_side=args.target_side,
         seed=args.seed,
-        fitted_aberration=fitted_aberration,
-        fitted_coeffs=fitted_coeffs,
-        bench_aberration=bench_aberration,
-        truth_bench=truth_bench,
+        noise_adu=args.noise_adu,
     )
     summary_a = run_arm_a(arm_a_cfg, out_dir)
     plot_arm_a(summary_a, out_dir / "forward_fidelity.png")
@@ -1195,17 +1061,18 @@ def main(argv: list[str] | None = None) -> int:
     summary_b: dict[str, Any] = {}
     if not args.skip_network:
         arm_b_cfg = ArmBConfig(
-            geometry=geometry,
+            region=args.grid,
+            region_span_px=args.region_span_px,
+            far_field_padding=args.far_field_padding,
             n_train=args.n_train,
             n_eval=args.n_eval,
             epochs=args.epochs,
             metric_side=args.metric_side,
             target_side=args.target_side,
             seed=args.seed,
-            fitted_aberration=fitted_aberration,
-            bench_aberration=bench_aberration,
-            truth_bench=truth_bench,
-            gt_mode=args.gt_mode,
+            noise_adu=args.noise_adu,
+            num_layers=args.num_layers,
+            base_channels=args.base_channels,
         )
         summary_b = run_arm_b(arm_b_cfg, out_dir)
         if summary_b:
@@ -1213,9 +1080,14 @@ def main(argv: list[str] | None = None) -> int:
 
     passed, line, fully_evaluated = decide(summary_a, summary_b or None)
     results = {
-        "geometry": asdict(geometry),
+        "geometry": {
+            "region": args.grid,
+            "region_span_px": args.region_span_px,
+            "far_field_padding": args.far_field_padding,
+            "far_field_size": args.grid * args.far_field_padding,
+            "noise_adu": args.noise_adu,
+        },
         "config": {
-            "gt_mode": args.gt_mode,
             "frames_per_family": args.frames,
             "metric_side": args.metric_side,
             "target_side": args.target_side,

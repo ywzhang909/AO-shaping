@@ -7,8 +7,8 @@ calibrated bench-2f propagator of issue #165) without touching the CNN
 conditioning contract.
 
 Layering: ``ml/`` may import ``ao_shaping.utils.*`` only — the bench-2f
-propagator lives in :mod:`ao_shaping.utils.wavefront.bench2f` and is referenced
-exclusively through its public API.
+2f simulation lives in :mod:`ao_shaping.drivers.sim.bench_twin`; the torch
+mirror below is what the network differentiates through.
 
 ⚠️ The two ideal conventions are a **real numerical difference**, not a
 cosmetic one.  ``ifftshift`` before ``fft2`` multiplies the spectrum by
@@ -20,16 +20,47 @@ a GS iteration is only self-consistent when both halves share one convention.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
+import math
+
+import numpy as np
 import torch
 
 from ao_shaping.utils.wavefront.fraunhofer import focal_field
 
-if TYPE_CHECKING:
-    from ao_shaping.utils.wavefront.bench2f import Bench2FPropagator
+__all__ = [
+    "ForwardOperator",
+    "IdealFFTOperator",
+    "BenchTwinOperator",
+    "make_forward_operator",
+]
 
-__all__ = ["ForwardOperator", "IdealFFTOperator", "Bench2FOperator", "make_forward_operator"]
+
+def make_forward_operator(spec: str | None, **kwargs: Any) -> ForwardOperator | None:
+    """Build a forward operator from a string spec.
+
+    Args:
+        spec: ``None`` -> ``None`` (the caller keeps its own hard-coded default);
+            ``"ideal-legacy"`` / ``"ideal-canonical"`` ->
+            :class:`IdealFFTOperator` (``out_size`` goes through ``kwargs``);
+            ``"bench-twin"`` -> :class:`BenchTwinOperator` (``twin`` goes
+            through ``kwargs``).
+        **kwargs: Forwarded to the selected class.
+
+    Returns:
+        The operator, or ``None`` for ``spec=None``.
+
+    Raises:
+        ValueError: On an unknown spec string.
+    """
+    if spec is None:
+        return None
+    if spec in ("ideal-legacy", "ideal-canonical"):
+        return IdealFFTOperator(convention=spec.split("-", 1)[1], **kwargs)
+    if spec == "bench-twin":
+        return BenchTwinOperator(**kwargs)
+    raise ValueError(f"unknown forward operator spec: {spec!r}")
 
 
 def _centre_pad(field: torch.Tensor, out_size: int) -> torch.Tensor:
@@ -245,117 +276,204 @@ class IdealFFTOperator:
         return torch.angle(_centre_crop(init_field, self.pupil_side))
 
 
-class Bench2FOperator:
-    """The calibrated bench-2f forward, exposed through the ForwardOperator protocol.
+class BenchTwinOperator:
+    """The canonical bench twin's chain, in torch, for use inside the network.
 
-    ``forward`` returns the propagator's complex far field: the **reduced**
-    pupil field (propagator illumination × aperture × Zernike-reduced phase)
-    pushed through the canonical centred zero-padded FFT, PEAK-NORMALISED —
-    i.e. ``F / max|F|`` — so the network's far-plane amplitude constraint
-    (``target_amp`` = ``sqrt(target_intensity)`` in peak units) keeps its
-    semantics; the caller computes ``|F|^2`` for intensity.
+    :mod:`ao_shaping.drivers.sim.bench_twin` is the **canonical** 2f simulation
+    and it is numpy (it is a simulation layer, not a differentiable model).  The
+    network, however, has to differentiate through its own forward step.  This
+    class mirrors the twin's chain in torch so the two speak the same physics:
 
-    ``back_propagate`` delegates to the propagator's own canonical inverse
-    (scaled by ``(region/S)**2``).  ``warm_start`` is the angle of the
-    back-propagated target amplitude, centre-padded to the propagator's
-    ``far_field_size`` first so the geometry matches.
+    ``panel aberration -> LUT -> pupil field -> lens aberration -> centred
+    zero-padded FFT -> |.|^2 -> centre crop -> peak normalise``
 
-    ``source_amp`` is accepted for protocol compatibility but deliberately NOT
-    used to build the pupil field: the calibrated illumination × aperture
-    profile is part of the calibration and lives inside the propagator.
+    Two deliberate differences from the twin, both documented here because they
+    change what the network can learn:
 
-    Args:
-        propagator: A :class:`ao_shaping.utils.wavefront.bench2f.Bench2FPropagator`
-            (duck-typed: needs ``geometry``, ``pupil_amplitude``, ``reduce_phase``,
-            ``forward`` and ``back_propagate``).
+    1. **The grey quantisation is not mirrored.**  The twin's LUT round trip goes
+       through ``uint16`` grey levels, which has zero gradient almost
+       everywhere — a torch mirror would contribute no gradient at all.  The
+       continuous Gamma law is mirrored instead, so the LUT's *shape* (its
+       non-linearity) is visible to the optimiser while the quantisation residual
+       stays what it physically is: a staircase the reduced model cannot
+       represent.
+    2. **The focal-plane defocus and tilt are not mirrored.**  They act in the
+       focal plane and are exactly what
+       :mod:`ao_shaping.tools.slm.bench_twin_calibrate` fits; the network's
+       reduced model leaves them to the closed loop's probe fit.
 
-    Raises:
-        TypeError: If ``propagator`` lacks any required member.
+    Everything else — the panel Zernike + roughness, the lens Zernike, the
+    illumination, the aperture, the padding factor and the centre crop — comes
+    from the twin's own public API, so the two cannot drift apart.
     """
 
-    def __init__(
-        self,
-        propagator: Bench2FPropagator,
-        *,
-        aberration: torch.Tensor | None = None,
-    ) -> None:
-        for member in ("geometry", "pupil_amplitude", "reduce_phase", "back_propagate"):
-            if not hasattr(propagator, member):
-                raise TypeError(
-                    "propagator must expose "
-                    f"{member!r} (Bench2FPropagator protocol)"
-                )
-        self._propagator = propagator
-        self._aberration = aberration
+    def __init__(self, twin: Any) -> None:
+        self._twin = twin
+        region = int(twin.region)
+        # Panel-side static aberration (Zernike + fixed-seed roughness): the twin
+        # exposes it as a phase offset, so ask it for the zero-phase case.
+        self._panel = torch.from_numpy(
+            np.asarray(twin.apply_panel_aberration(np.zeros((region, region))), dtype=np.float64)
+        ).to(torch.float32)
+        # Lens-side wavefront error, applied on the pupil field.
+        ones = np.ones((region, region), dtype=np.complex128)
+        self._lens = torch.from_numpy(
+            np.angle(np.asarray(twin.apply_lens_aberration(ones), dtype=np.complex128))
+        ).to(torch.float32)
+        self._amplitude = torch.from_numpy(
+            np.asarray(twin.pupil_amplitude(), dtype=np.float64)
+        ).to(torch.float32)
+        self._levels = float(twin.errors.gray_levels)
+        self._gamma = float(twin.errors.lut_gamma)
+        self._phase_max = float(twin.errors.lut_phase_max_rad)
+        self._table = twin.errors.lut_table
+        self._far_size = int(twin.far_field_size)
+        self._crop = int(twin.crop_side)
+        self._region = region
+        # 焦面（远场）两段：离焦（角谱传递函数）与倾斜（傅里叶移位）。
+        self._p_fft = float(twin.p_fft)
+        self._wavelength = float(twin.config.wavelength_m)
+        self._focal_length = float(twin.config.focal_length_m)
+        self._defocus = float(twin.errors.defocus_m)
+        self._tilt_x = float(twin.errors.tilt_x_rad)
+        self._tilt_y = float(twin.errors.tilt_y_rad)
 
     @property
     def pupil_side(self) -> int:
-        """Side of the pupil grid (the propagator's ``region``)."""
-        return int(self._propagator.geometry.region)
+        """Side of the pupil grid."""
+        return self._region
 
     @property
     def far_side(self) -> int:
-        """Side of the far-field grid (the propagator's ``far_field_size``)."""
-        return int(self._propagator.geometry.far_field_size)
+        """Side of the far-field grid the operator produces (the twin's crop)."""
+        return self._crop
+
+    def _lut(self, phase: torch.Tensor) -> torch.Tensor:
+        """The twin's LUT round trip, continuous (no grey quantisation)."""
+        wrapped = torch.remainder(phase, 2.0 * torch.pi)
+        gray = wrapped / (2.0 * torch.pi) * self._levels
+        if self._table is not None:
+            table = torch.from_numpy(
+                np.asarray(self._table, dtype=np.float64)
+            ).to(phase.dtype)
+            index = gray.round().long().clamp(0, table.numel() - 1)
+            return table[index]
+        return self._phase_max * (gray / self._levels) ** self._gamma
+
+    def _apply_defocus(self, field: torch.Tensor, dz: float | None = None) -> torch.Tensor:
+        """相机离焦: 角谱传递函数作用在焦面复场上（孪生的同一写法）。
+
+        ``H = exp(i·k·Δz·sqrt(1 - (λf_x)² - (λf_y)²))``，倏逝分量置 0。
+        """
+        if dz is None:
+            dz = self._defocus
+        if dz == 0.0:
+            return field
+        m = field.shape[-1]
+        lam = self._wavelength
+        k_wave = 2.0 * math.pi / lam
+        freq = np.fft.fftfreq(m) / self._p_fft  # cycles/m
+        fx = torch.from_numpy(freq).to(field.real.dtype)
+        arg = 1.0 - (lam * fx)[None, :] ** 2 - (lam * fx)[:, None] ** 2
+        propagating = arg > 0.0
+        transfer = torch.zeros_like(arg, dtype=field.dtype)
+        root = torch.sqrt(arg.clamp_min(0.0))
+        transfer = torch.where(
+            propagating,
+            torch.exp(1j * k_wave * dz * root.to(field.dtype)),
+            torch.zeros_like(root, dtype=field.dtype),
+        )
+        un = torch.fft.ifftshift(field, dim=(-2, -1))
+        propagated = torch.fft.ifft2(
+            torch.fft.fft2(un, norm="ortho") * transfer, norm="ortho"
+        )
+        return torch.fft.fftshift(propagated, dim=(-2, -1))
+
+    def _apply_tilt(self, field: torch.Tensor, sign: float = 1.0) -> torch.Tensor:
+        """光路倾斜: 焦面图样平移 ``f · tilt``（傅里叶移位，孪生的同一写法）。"""
+        dx = sign * self._focal_length * self._tilt_x
+        dy = sign * self._focal_length * self._tilt_y
+        if dx == 0.0 and dy == 0.0:
+            return field
+        m = field.shape[-1]
+        freq = torch.from_numpy(np.fft.fftfreq(m) * m).to(field.real.dtype)
+        shift = torch.exp(
+            -2j
+            * math.pi
+            * (freq[:, None] * dy + freq[None, :] * dx)
+            / (m * self._p_fft)
+        ).to(field.dtype)
+        un = torch.fft.ifftshift(field, dim=(-2, -1))
+        shifted = torch.fft.ifft2(
+            torch.fft.fft2(un, norm="ortho") * shift, norm="ortho"
+        )
+        return torch.fft.fftshift(shifted, dim=(-2, -1))
 
     def forward(self, source_amp: torch.Tensor, phase: torch.Tensor) -> torch.Tensor:
-        """Complex, peak-normalised far field of the pupil field.
+        """Pupil phase -> complex far field on the crop grid.
 
-        ``source_amp`` is unused (see class docstring): the propagator's own
-        illumination × aperture amplitude is the calibration.
+        Args:
+            source_amp: Unused — the calibrated illumination is part of the
+                calibration and comes from the twin.
+            phase: ``(B, 1, region, region)`` commanded phase in radians.
 
-        With no ``aberration`` the pupil phase is first projected onto the
-        Zernike span (the calibrated model as a ~70-parameter model).  With an
-        ``aberration`` the structure is the model-in-loop one instead — the
-        **commanded** phase keeps its full per-pixel freedom and the bench's own
-        aberration is added on top.
+        Returns:
+            ``(B, 1, crop, crop)`` complex far field, peak-normalised.
         """
-        if self._aberration is None:
-            total = self._propagator.reduce_phase(phase)
-        else:
-            total = self._propagator.reduce_phase(self._aberration) + phase
-        amplitude = self._propagator.pupil_amplitude().to(total.device)
-        pupil_field = amplitude * torch.exp(1j * total)
-        far = focal_field(pupil_field, self._propagator.geometry.far_field_size)
-        peak = far.abs().amax()
-        if not bool(peak > 0):
-            return far
-        return far / peak
+        total = phase + self._panel.to(phase.device)
+        actual = self._lut(total)
+        amplitude = self._amplitude.to(phase.device)
+        pupil = amplitude * torch.exp(1j * actual)
+        pupil = pupil * torch.exp(1j * self._lens.to(phase.device))
+        side = self._far_size
+        buffer = torch.zeros(
+            phase.shape[0], 1, side, side, dtype=pupil.dtype, device=phase.device
+        )
+        half = (side - self._region) // 2
+        buffer[..., half : half + self._region, half : half + self._region] = pupil
+        focal = torch.fft.fftshift(
+            torch.fft.fft2(torch.fft.ifftshift(buffer, dim=(-2, -1)), norm="ortho"),
+            dim=(-2, -1),
+        )
+        focal = self._apply_defocus(focal)
+        focal = self._apply_tilt(focal)
+        crop = self._crop
+        if crop < side:
+            start = (side - crop) // 2
+            focal = focal[..., start : start + crop, start : start + crop]
+        peak = focal.abs().amax(dim=(-2, -1), keepdim=True)
+        return focal / torch.where(peak > 0, peak, torch.ones_like(peak))
 
     def back_propagate(self, far_field: torch.Tensor) -> torch.Tensor:
-        """(B,1,S,S) complex far field -> (B,1,region,region) complex pupil field."""
-        return self._propagator.back_propagate(far_field)
+        """Complex far field (crop grid) -> complex pupil field (pupil grid)."""
+        side = self._far_size
+        buffer = torch.zeros(
+            far_field.shape[0],
+            1,
+            side,
+            side,
+            dtype=far_field.dtype,
+            device=far_field.device,
+        )
+        crop = self._crop
+        start = max(0, (side - crop) // 2)
+        if start + crop <= side:
+            buffer[..., start : start + crop, start : start + crop] = far_field
+        else:
+            keep = side - start
+            buffer[..., start:side, start:side] = far_field[..., :keep, :keep]
+        pupil = torch.fft.ifft2(torch.fft.ifftshift(buffer, dim=(-2, -1)), norm="ortho")
+        # 逆变换把瞳面放回**角落**（正向是先 ifftshift 再 fft2），所以这里要
+        # 再 fftshift 一次把它挪回中心，之后裁中心窗口才是瞳面。
+        # 少了这一步，裁出来的是零 ⇒ 回代完全失效（GS 一步都不动）。
+        pupil = torch.fft.fftshift(pupil, dim=(-2, -1))
+        # 逆序撤销焦面两段：先反倾斜，再反离焦（两者在频域都是酉的）。
+        pupil = self._apply_tilt(pupil, sign=-1.0)
+        pupil = self._apply_defocus(pupil, -self._defocus)
+        region = self._region
+        half = (side - region) // 2
+        return pupil[..., half : half + region, half : half + region]
 
     def warm_start(self, target_amp: torch.Tensor) -> torch.Tensor:
-        """Initial pupil phase from the target amplitude via the propagator's back step."""
-        padded = _centre_pad(target_amp, self._propagator.geometry.far_field_size)
-        back = self._propagator.back_propagate(padded.to(torch.complex64))
-        return torch.angle(back)
-
-
-def make_forward_operator(spec: str | None, **kwargs) -> ForwardOperator | None:
-    """Build a forward operator from a string spec.
-
-    Args:
-        spec: ``None`` -> ``None`` (the caller keeps its own hard-coded default);
-            ``"ideal-legacy"`` / ``"ideal-canonical"`` -> :class:`IdealFFTOperator`
-            (``out_size`` goes through ``kwargs``); ``"bench2f"`` ->
-            :class:`Bench2FOperator` (``propagator`` goes through ``kwargs``).
-        **kwargs: Forwarded to the selected class.
-
-    Returns:
-        The operator, or ``None`` for ``spec=None``.
-
-    Raises:
-        ValueError: On an unknown spec string.
-    """
-    if spec is None:
-        return None
-    if spec in ("ideal-legacy", "ideal-canonical"):
-        return IdealFFTOperator(convention=spec.split("-", 1)[1], **kwargs)
-    if spec == "bench2f":
-        return Bench2FOperator(**kwargs)
-    raise ValueError(
-        "unknown forward-operator spec "
-        f"{spec!r}; expected 'ideal-legacy', 'ideal-canonical', 'bench2f' or None"
-    )
+        """Classical GS initial phase from the target amplitude (pupil grid)."""
+        return torch.angle(self.back_propagate(target_amp.to(torch.complex64)))

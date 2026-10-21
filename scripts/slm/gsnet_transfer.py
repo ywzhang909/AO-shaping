@@ -55,11 +55,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.utils.wavefront.bench2f import (  # noqa: E402
-    Bench2FGeometry,
-    Bench2FPropagator,
+from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
+    BenchTwin,
+    BenchTwinConfig,
+    TwinErrorModel,
 )
-from ml.gsnet.forward_ops import Bench2FOperator  # noqa: E402
+from ml.gsnet.forward_ops import BenchTwinOperator  # noqa: E402
 from ml.gsnet.hybrid_infer import load_gsnet_checkpoint  # noqa: E402
 from ml.gsnet.model import FourierGSNet  # noqa: E402
 
@@ -147,22 +148,27 @@ def _capture_live(
     return _load_probe_dataset(run_dir, limit=None)
 
 
-def _geometry_from_arrays(dataset: dict[str, np.ndarray]) -> Bench2FGeometry:
-    """按数据实际的网格建几何（瞳面 = 标签的边长，远场 = 目标的边长）。"""
+def _geometry_from_arrays(dataset: dict[str, np.ndarray]) -> BenchTwin:
+    """按数据实际的网格建孪生（瞳面 = 标签的边长，远场 = 目标的边长）。"""
     region = int(dataset["label"].shape[-1])
     far_field = int(dataset["target"].shape[-1])
-    return Bench2FGeometry(
-        region=region,
-        far_field_size=far_field,
-        panel_disc_radius_px=450.0,
-        beam_waist_panel_px=450.0,
-        camera_px_per_model_px=8.0,
+    return BenchTwin(
+        BenchTwinConfig(
+            region=region,
+            region_span_px=900.0,
+            far_field_padding=max(1, far_field // max(1, region)),
+            beam_w0_px=250.0,
+            peak_adu=100.0,
+            noise_adu=0.0,
+            seed=0,
+            errors=TwinErrorModel(),
+        )
     )
 
 
 def finetune(
     model: FourierGSNet,
-    operator: Bench2FOperator,
+    operator: BenchTwinOperator,
     dataset: dict[str, np.ndarray],
     epochs: int,
     lr: float,
@@ -276,9 +282,8 @@ def main(argv: list[str] | None = None) -> int:
     else:
         dataset = _load_probe_dataset(args.from_dir)
 
-    geometry = _geometry_from_arrays(dataset)
-    propagator = Bench2FPropagator(geometry, n_max=10)
-    operator = Bench2FOperator(propagator)
+    twin = _geometry_from_arrays(dataset)
+    operator = BenchTwinOperator(twin)
 
     model = load_gsnet_checkpoint(args.checkpoint, forward_op=operator)
     history = finetune(
@@ -318,8 +323,8 @@ def main(argv: list[str] | None = None) -> int:
         }
         | {"out": str(out_dir)},
         "n_samples": int(dataset["source"].shape[0]),
-        "region": geometry.region,
-        "far_field_size": geometry.far_field_size,
+        "region": int(dataset["label"].shape[-1]),
+        "far_field_size": int(dataset["target"].shape[-1]),
         "history": history,
         "phase": str(out_dir / "phase.npy"),
         # 相位项的**随机猜测水平**：相位差在 (-π, π] 上均匀分布时，
@@ -338,7 +343,8 @@ def main(argv: list[str] | None = None) -> int:
         f"(相位项 {final_phase_loss:.4f}，随机猜测水平 {chance:.4f}，"
         f"{'低于' if summary['phase_loss_below_chance'] else '尚未低于'})"
     )
-    print(f"  相位：{out_dir / 'phase.npy'}（{geometry.region}×{geometry.region}，弧度）")
+    region_side = int(dataset["label"].shape[-1])
+    print(f"  相位：{out_dir / 'phase.npy'}（{region_side}×{region_side}，弧度）")
     print(
         "  交给闭环：python src/ao_shaping/main.py --debug slm-model-in-loop "
         f"--init-from-gsnet {out_dir / 'phase.npy'} ..."

@@ -26,7 +26,7 @@ from ml.gsnet.dataset import (
     make_target,
 )
 from ml.gsnet.forward_ops import (
-    Bench2FOperator,
+    BenchTwinOperator,
     ForwardOperator,
     IdealFFTOperator,
     make_forward_operator,

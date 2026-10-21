@@ -18,7 +18,8 @@ issue #165 的 P1 实验系统路径需要一个文件：**瞳面模型网格**�
 ``--forward`` 选择网络内部用的前向算子：
 
 * ``ideal``（默认）—— 规范居中 FFT，与仓库现有 FourierGSNet 一致；
-* ``calibrated`` —— 本台架 2f 物理前向（``ao_shaping.utils.wavefront.bench2f``），
+* ``calibrated`` —— 本台架 2f 物理前向（仓库规范的数字孪生 ``drivers/sim/bench_twin.py`` 的
+  torch 镜像，可用 ``--twin-config`` 换上在真实台架上反演出来的参数），
   可用 ``--aberration`` 带上拟合出来的实验系统像差。
 """
 
@@ -37,7 +38,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from ml.gsnet.forward_ops import Bench2FOperator, IdealFFTOperator  # noqa: E402
+from ml.gsnet.forward_ops import BenchTwinOperator, IdealFFTOperator  # noqa: E402
 from ml.gsnet.hybrid_infer import load_gsnet_checkpoint  # noqa: E402
 
 
@@ -49,26 +50,45 @@ def _load_grid(path: Path) -> np.ndarray:
 
 
 def build_operator(args: argparse.Namespace):
-    """按 ``--forward`` 构造网络内部用的前向算子。"""
+    """按 ``--forward`` 构造网络内部用的前向算子。
+
+    ``calibrated`` 用**仓库规范的 2f 数字孪生**（``drivers/sim/bench_twin.py``）
+    的 torch 镜像；``--twin-config`` 可以指向一个反演出来的孪生参数 JSON
+    （``tools/slm/bench_twin_calibrate.save_fit`` 的产物），于是网络内部的前向
+    用的是**在真实台架上拟合过**的那台实验系统。
+    """
     if args.forward == "ideal":
         return IdealFFTOperator(args.grid, convention="canonical")
-    from ao_shaping.utils.wavefront.bench2f import (
-        Bench2FGeometry,
-        Bench2FPropagator,
+    from ao_shaping.drivers.sim.bench_twin import (
+        BenchTwin,
+        BenchTwinConfig,
+        TwinErrorModel,
     )
 
-    geometry = Bench2FGeometry(
+    errors = TwinErrorModel()
+    if args.twin_config is not None:
+        import json
+
+        payload = json.loads(args.twin_config.read_text(encoding="utf-8"))
+        fitted = payload.get("config", payload)
+        errors = TwinErrorModel(
+            **{
+                key: value
+                for key, value in fitted.get("errors", {}).items()
+                if key in TwinErrorModel.__dataclass_fields__
+            }
+        )
+    config = BenchTwinConfig(
         region=args.grid,
-        far_field_size=args.grid,
-        panel_disc_radius_px=450.0,
-        beam_waist_panel_px=450.0,
-        camera_px_per_model_px=8.0,
+        region_span_px=args.region_span_px,
+        far_field_padding=args.far_field_padding,
+        beam_w0_px=250.0,
+        peak_adu=100.0,
+        noise_adu=0.0,
+        seed=0,
+        errors=errors,
     )
-    propagator = Bench2FPropagator(geometry, n_max=10)
-    aberration = None
-    if args.aberration is not None:
-        aberration = torch.from_numpy(_load_grid(args.aberration)).to(torch.float32)
-    return Bench2FOperator(propagator, aberration=aberration)
+    return BenchTwinOperator(BenchTwin(config))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -77,6 +97,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--source", type=Path, required=True, help="源面强度 .npy")
     parser.add_argument("--target", type=Path, required=True, help="目标远场强度 .npy")
     parser.add_argument("--out", type=Path, required=True, help="输出相位 .npy")
+    parser.add_argument(
+        "--twin-config",
+        type=Path,
+        default=None,
+        help="反演出来的孪生参数 JSON（bench_twin_calibrate.save_fit 的产物）",
+    )
+    parser.add_argument("--region-span-px", type=float, default=900.0)
+    parser.add_argument("--far-field-padding", type=int, default=8)
     parser.add_argument(
         "--forward",
         choices=["ideal", "calibrated"],
