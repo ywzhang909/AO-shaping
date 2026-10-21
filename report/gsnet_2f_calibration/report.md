@@ -264,5 +264,13 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
     --learnability /workspace/data/debug/gsnet_learnability/container/result.json
 ```
 
+**退出码**（驱动脚本的约定，别把「没跑」当成「跑过了」）：
+
+| 退出码 | 含义 |
+| --- | --- |
+| 0 | P0 判据**已评估**且通过 |
+| 2 | P0 判据**已评估**且不通过 |
+| 3 | P0 判据**未被评估**（臂 B 没跑，例如 `--skip-network`）——此时判据行打印 `NOT_EVALUATED`，**不是** PASS |
+
 数据来源: `/workspace/data/debug/gsnet_2f_calib/container_bench/results.json`
 与 `/workspace/data/debug/gsnet_init_sim_ab/container/sim_ab.json`

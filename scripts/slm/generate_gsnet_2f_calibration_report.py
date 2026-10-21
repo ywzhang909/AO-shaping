@@ -563,6 +563,15 @@ def render(
     add("    --learnability /workspace/data/debug/gsnet_learnability/container/result.json")
     add("```")
     add("")
+    add("**退出码**（驱动脚本的约定，别把「没跑」当成「跑过了」）：")
+    add("")
+    add(_row(["退出码", "含义"]))
+    add(_row(["---", "---"]))
+    add(_row(["0", "P0 判据**已评估**且通过"]))
+    add(_row(["2", "P0 判据**已评估**且不通过"]))
+    add(_row(["3", "P0 判据**未被评估**（臂 B 没跑，例如 `--skip-network`）"
+            "——此时判据行打印 `NOT_EVALUATED`，**不是** PASS"]))
+    add("")
     add(f"数据来源: `{results_path}`")
     if mil_ab_path is not None:
         add(f"与 `{mil_ab_path}`")

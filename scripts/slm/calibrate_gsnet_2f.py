@@ -929,6 +929,7 @@ def decide(
     """
     parts: list[str] = []
     passed = True
+    evaluated = True
 
     if summary_b:
         cal = summary_b.get("calibrated")
@@ -957,6 +958,12 @@ def decide(
                     f"corr_full={ideal['correlation_full']['mean']:.4f}"
                 )
 
+    else:
+        # 臂 B 没跑 ⇒ **P0 判据（网络层）没有被评估**。此时报 PASS 等于
+        # 对一个没跑过的门签字，不允许。臂 A 的前向保真度是另一件事，
+        # 单独报在 forward corr 那一段里。
+        evaluated = False
+
     overall = summary_a["overall"]
     parts.append(
         f"|| forward corr: ideal={overall['ideal']['correlation']['mean']:.4f} "
@@ -964,6 +971,10 @@ def decide(
         f"zernike={overall['zernike']['correlation']['mean']:.4f}"
     )
 
+    if not evaluated:
+        line = "P0_DECISION: NOT_EVALUATED  (arm B not run; the network gate was " \
+               "not evaluated)  " + "  ".join(parts)
+        return False, line
     line = f"P0_DECISION: {'PASS' if passed else 'FAIL'}  " + "  ".join(parts)
     return passed, line
 
@@ -1119,7 +1130,11 @@ def main(argv: list[str] | None = None) -> int:
         },
         "arm_a_forward_fidelity": summary_a,
         "arm_b_network": summary_b,
-        "decision": {"passed": passed, "line": line},
+        "decision": {
+            "passed": passed,
+            "evaluated": bool(summary_b),
+            "line": line,
+        },
     }
     (out_dir / "results.json").write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -1151,6 +1166,10 @@ def main(argv: list[str] | None = None) -> int:
                     f"NRMSE={row['nrmse']['mean']:.4f} "
                     f"cv_box={row['cv_target_box']['mean']:.4f}"
                 )
+    # 退出码 2 = 判据不通过；退出码 3 = 判据未被评估（臂 B 没跑）。
+    # 两者都**不是**成功。
+    if not summary_b:
+        return 3
     return 0 if passed else 2
 
 
