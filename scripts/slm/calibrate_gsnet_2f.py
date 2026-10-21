@@ -76,7 +76,12 @@ from ml.gsnet.model import FourierGSNet  # noqa: E402
 # --------------------------------------------------------------------------------------
 # 绘图约定（仓库 scripts 规范）
 # --------------------------------------------------------------------------------------
-plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+plt.rcParams["font.sans-serif"] = [
+    "Microsoft YaHei",
+    "SimHei",
+    "Noto Sans CJK SC",
+    "DejaVu Sans",
+]
 plt.rcParams["axes.unicode_minus"] = False
 
 FAMILIES = ("smooth", "zernike", "freeform")
