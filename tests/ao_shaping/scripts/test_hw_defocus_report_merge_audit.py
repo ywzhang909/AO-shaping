@@ -18,6 +18,17 @@ These tests pin the fix:
   no "none" placeholder);
 * the audit block never leaks an absolute path into the report.
 
+On top of that, the audit must **discriminate** two very different kinds of
+difference (measured on the second hardware round):
+
+* **(A) benign — same-round localisation jitter.**  Each per-order group
+  re-locates the zero order **on its own frame**, so the centres scatter by
+  **±1 px** while ``w0_px`` / ``target_side`` / ``center_xy`` stay identical.
+  That must be listed, but **not** under the ``⚠️`` heading.
+* **(B) malignant — data from another round mixed in.**  The optical state
+  really changed: ``w0_px`` differs by **1.13%**.  That must stay under the
+  ``⚠️`` heading.
+
 Everything runs on **synthetic** data in ``tmp_path`` — the real corpus under
 ``data/debug/`` is never touched, and no device is opened.
 """
@@ -119,17 +130,32 @@ def _write_summary(
     *,
     w0: float = W0_A,
     n_max: int | None = None,
+    n_maxes: list[int] | None = None,
+    center_xy: list[int] | None = None,
+    mask_center_xy: list[int] | None = None,
+    frame_shape: list[int] | None = None,
 ) -> Path:
-    """造一份 ``summary.json`` (泽尼克扫描一组的产物)。"""
+    """造一份 ``summary.json`` (泽尼克扫描一组的产物)。
+
+    默认值照抄第二轮实测到的那一组: ``w0_px`` 5.742078、``target_side`` 2·w0、
+    ``center_xy`` [1433,971] (全幅传感器坐标)、``mask_center_xy`` [126,128]
+    (256x256 窗口内坐标)、``frame_shape`` [256,256]。
+    """
     d = root / group
     d.mkdir(parents=True, exist_ok=True)
+    if n_maxes is not None:
+        orders = [_order(n) for n in n_maxes]
+    else:
+        orders = [_order(n_max)] if n_max is not None else []
     data = {
         "group": group,
         "w0_px": w0,
         "target_side": 2.0 * w0,
-        "center_xy": [1433, 971],
-        "mask_center_xy": [126, 128],
-        "frame_shape": [256, 256],
+        "center_xy": list(center_xy) if center_xy is not None else [1433, 971],
+        "mask_center_xy": (
+            list(mask_center_xy) if mask_center_xy is not None else [126, 128]
+        ),
+        "frame_shape": list(frame_shape) if frame_shape is not None else [256, 256],
         "config": {
             "exposure_time_ms": 0.2,
             "defocus_focal_mm": 1523.8,
@@ -145,27 +171,46 @@ def _write_summary(
                 "quality": 0.45,
             },
         },
-        "orders": [_order(n_max)] if n_max is not None else [],
+        "orders": orders,
     }
     (d / "summary.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
     return d
 
 
-def _fake_root(tmp_path: Path, *, inconsistent: bool) -> Path:
+def _fake_root(
+    tmp_path: Path,
+    *,
+    inconsistent: bool,
+    mask_jitter: bool = False,
+    center_shift: int = 0,
+    dup_n_max: bool = False,
+) -> Path:
     """一份假的数据根: 一条离焦扫描组 + 三份泽尼克 ``summary.json``。
 
-    ``inconsistent=True`` 时, ``zernike_stage_a`` 那份的 ``w0_px`` 与别的组
-    **故意不同** (照抄第二轮实测到的 5.742 vs 5.807)。
+    - ``inconsistent=True``: ``zernike_stage_a`` 那份的 ``w0_px`` (以及按 2·w0 算的
+      ``target_side``) 与别的组**故意不同** —— 照抄第二轮实测到的 5.742 vs 5.807,
+      相对差 **1.13%** ⇒ 光学状态真的变了 (恶性)。
+    - ``mask_jitter=True``: ``zernike_order_nmax4`` 的 ``mask_center_xy`` 差 **1 px**
+      —— 照抄第二轮逐阶组各自重新定位零级的实测散布 (良性)。
+    - ``center_shift``: ``zernike_stage_a`` 的 ``center_xy`` 整体平移多少 px。
+    - ``dup_n_max=True``: ``zernike_stage_a`` 里也放一份 n_max=3 ⇒ 同一个 n_max 出现两次。
     """
     root = tmp_path / "fake_root"
     root.mkdir(parents=True, exist_ok=True)
     _write_probe_group(root)
     _write_summary(root, "zernike_order_nmax3", n_max=3)
-    _write_summary(root, "zernike_order_nmax4", n_max=4)
+    _write_summary(
+        root,
+        "zernike_order_nmax4",
+        n_max=4,
+        mask_center_xy=[127, 128] if mask_jitter else None,
+    )
     _write_summary(
         root,
         "zernike_stage_a",
         w0=W0_B if inconsistent else W0_A,
+        center_xy=[1433 + center_shift, 971 + center_shift] if center_shift else None,
+        n_maxes=[3] if dup_n_max else None,
     )
     return root
 
@@ -224,6 +269,17 @@ def _run_generator(
     assert gen.main() == 0
     assert report.is_file()
     return report.read_text(encoding="utf-8")
+
+
+def _audit_section(body: str) -> str:
+    """从报告正文里抠出「数据来源与同源性核查」那一段 (§3 开头)。
+
+    报告正文里**别处**也有「⚠️」(与合并无关的提示), 所以「这一段有没有 ⚠️」只能
+    在这一段里判。
+    """
+    start = body.index("**数据来源与同源性核查**")
+    end = body.index("### 3.1", start)
+    return body[start:end]
 
 
 # ---------------------------------------------------------------------------
@@ -315,3 +371,159 @@ class TestReportBodyShowsTheMismatch:
         assert str(root) not in block
         assert str(tmp_path) not in block
         assert "zernike_stage_a" in block
+
+
+# ---------------------------------------------------------------------------
+# 判别: 定位抖动 (良性) vs 真的混进别轮数据 (恶性)
+# ---------------------------------------------------------------------------
+class TestMergeAuditDiscriminatesJitterFromContamination:
+    """跨组差异必须**分两类**报, 不能一律塞进「⚠️ 跨组字段不一致」。
+
+    实测有两类完全不同的差异:
+
+    - **(A) 同轮内的定位抖动 (良性)** —— 逐阶组各自在**自己那一帧**上重新定位零级,
+      散布 **±1 px**; ``w0_px`` / ``target_side`` / ``center_xy`` 完全一致。
+    - **(B) 真的混进别轮数据 (恶性)** —— 光学状态真的变了 (焦面/曝光/口径不同),
+      实测 ``w0_px`` 相对差 **1.13%**。
+    """
+
+    def test_one_pixel_mask_center_jitter_is_benign(self, tmp_path):
+        """只有 ±1 px 的 ``mask_center_xy`` 差异 ⇒ 良性, **不出现**「⚠️」标题。"""
+        root = _fake_root(tmp_path, inconsistent=False, mask_jitter=True)
+        merged = gen.load_zernike(root)
+        block = gen.merge_audit_block(merged)
+        assert "同轮内的定位抖动" in block
+        assert "⚠️" not in block
+        # 良性差异也要**列出来** (读者能核对): 两个取值 + 各自来源组
+        assert "`[126, 128]`（`zernike_order_nmax3`）" in block
+        assert "`[127, 128]`（`zernike_order_nmax4`）" in block
+
+    def test_benign_jitter_says_it_does_not_change_the_calibre(self, tmp_path):
+        """良性差异的措辞要说清「各组在自己那一帧上重新定位零级」+「不影响口径」。"""
+        root = _fake_root(tmp_path, inconsistent=False, mask_jitter=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "自己那一帧" in block
+        assert "重新定位零级" in block
+        assert "±1 px" in block
+        assert "不影响口径" in block
+
+    def test_w0_relative_diff_is_suspect(self, tmp_path):
+        """``w0_px`` 差 1.13% ⇒ 恶性: 出现「⚠️」标题, 两个值与各自来源组都列出。"""
+        root = _fake_root(tmp_path, inconsistent=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "⚠️" in block
+        assert "疑似跨轮次数据混入" in block
+        assert "`w0_px`" in block
+        assert "`5.742078`（`zernike_order_nmax3`）" in block
+        assert "`5.807177`（`zernike_stage_a`）" in block
+        # 相对差也要写出来 (读者能核对判定依据)
+        assert "1.13%" in block
+
+    def test_center_xy_shift_of_three_px_is_suspect(self, tmp_path):
+        """像素坐标类字段逐轴偏差 > 2 px ⇒ 恶性。"""
+        root = _fake_root(tmp_path, inconsistent=False, center_shift=3)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "⚠️" in block
+        assert "疑似跨轮次数据混入" in block
+        assert "`center_xy`" in block
+        assert "`[1433, 971]`（`zernike_order_nmax3`）" in block
+        assert "`[1436, 974]`（`zernike_stage_a`）" in block
+
+    def test_suspect_row_states_which_value_the_report_uses(self, tmp_path):
+        """恶性一类里要能看出「合并采用了哪个值、来自哪个组」。"""
+        root = _fake_root(tmp_path, inconsistent=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "合并采用" in block
+        assert "`5.742078`（`zernike_order_nmax3`）" in block
+        # 采用的是**第一份含该字段的** summary 的值 ⇒ 来自 zernike_order_nmax3
+        assert "zernike_stage_a" in block
+
+    def test_duplicate_n_max_is_recorded_and_flagged(self, tmp_path):
+        """同一个 n_max 出现在两个组 ⇒ 记下来并在正文里提示。"""
+        root = _fake_root(tmp_path, inconsistent=False, dup_n_max=True)
+        merged = gen.load_zernike(root)
+        dups = [w for w in merged["merge_warnings"] if w.get("kind") == "orders"]
+        assert len(dups) == 1
+        assert dups[0]["n_max"] == 3
+        assert dups[0]["kept_group"] == "zernike_stage_a"
+        assert dups[0]["other_group"] == "zernike_order_nmax3"
+        block = gen.merge_audit_block(merged)
+        assert "同一个 n_max 出现了多次" in block
+        assert "⚠️" in block
+
+    def test_thresholds_and_their_rationale_are_written_out(self, tmp_path):
+        """判定依据 (2 px / 0.5% 是什么、为什么) 必须写在正文里。"""
+        root = _fake_root(tmp_path, inconsistent=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "2 px" in block
+        assert "0.5%" in block
+        assert "±1 px" in block
+        assert "1.13%" in block
+
+    def test_benign_section_says_the_calibre_is_identical_when_it_is(self, tmp_path):
+        """没有恶性差异时, 良性段可以说「口径完全一致」。"""
+        root = _fake_root(tmp_path, inconsistent=False, mask_jitter=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "完全一致" in block
+        assert "不影响口径" in block
+
+    def test_benign_section_never_claims_an_identical_calibre_when_it_is_not(
+        self, tmp_path
+    ):
+        """口径字段有超阈值差异时, 良性段**不能**说「口径完全一致」。"""
+        root = _fake_root(tmp_path, inconsistent=True, mask_jitter=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        benign = block[
+            block.index("**同轮内的定位抖动（良性差异）**") : block.index(
+                "⚠️ **跨组字段不一致"
+            )
+        ]
+        assert "完全一致" not in benign
+        assert "不涉及" in benign
+        # 良性段里**不许**出现「⚠️」标记 (否则读者会把良性差异当成报警)
+        assert "⚠️" not in benign
+
+    def test_different_coordinate_frames_are_neither_jitter_nor_contamination(
+        self, tmp_path
+    ):
+        """窗口不同 ⇒ ``mask_center_xy`` 不可直接比较: 既不算抖动, 也不算混入。
+
+        (Stage A 在全幅 1944x2592 上跑, 逐阶组在 256x256 窗口上跑 —— 两者的
+        ``mask_center_xy`` 不是同一个坐标系。)
+        """
+        root = tmp_path / "fake_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(root, "zernike_order_nmax3", n_max=3)
+        _write_summary(
+            root,
+            "zernike_stage_a",
+            mask_center_xy=[1433, 971],
+            frame_shape=[1944, 2592],
+        )
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "坐标参考系不同" in block
+        assert "不参与判定" in block
+        # 不可比 ⇒ 不能报成「疑似混入」
+        assert "疑似跨轮次数据混入" not in block
+        assert "⚠️" not in block
+
+    def test_report_body_separates_the_two_kinds(self, tmp_path, monkeypatch):
+        """报告正文里两类差异的**措辞不同**: 良性不带「⚠️」, 恶性带。"""
+        root = _fake_root(tmp_path, inconsistent=False, mask_jitter=True)
+        body = _run_generator(tmp_path, root, monkeypatch)
+        audit = _audit_section(body)
+        assert "同轮内的定位抖动" in audit
+        assert "⚠️" not in audit
+        # 良性差异照样列出来 (读者能核对)
+        assert "`[126, 128]`" in audit
+        assert "`[127, 128]`" in audit
+
+    def test_report_body_flags_contamination(self, tmp_path, monkeypatch):
+        root = _fake_root(tmp_path, inconsistent=True)
+        body = _run_generator(tmp_path, root, monkeypatch)
+        audit = _audit_section(body)
+        assert "疑似跨轮次数据混入" in audit
+        assert "5.807177" in audit
+        assert "⚠️" in audit
+
