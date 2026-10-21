@@ -1029,6 +1029,31 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
+    "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021_r3.md": ReportProvenance(
+        script="scripts/slm/generate_hw_defocus_zernike_report.py",
+        command=(
+            "python scripts/slm/generate_hw_defocus_zernike_report.py "
+            "--groups-root data/debug/hw_groups_20261021_r3 "
+            "--groups-root data/debug/hw_zernike_sweep_20261021_r3 "
+            "--focus-evidence-dir data/debug/hw_groups_20261021_r3/focus_calibration "
+            "--report-key report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021_r3.md"
+        ),
+        environment="硬件",
+        note=(
+            "实验系统离焦扫描 + 多阶泽尼克匀化测试的**第三轮**: 27 组每组一次独立调用且"
+            "每组 <=10 分钟 (焦面标定 → Stage A 分 **7** 块 → 8 个逐阶组 → 离焦噪声组 → "
+            "离焦扫描组 → 模型相位对照组 → 8 个各阶远场补拍组); 数据落在**新根** "
+            "hw_groups_20261021_r3 / hw_zernike_sweep_20261021_r3, 不再覆盖第二轮的原始"
+            "记录; 采集计划由 scripts/slm/build_hw_sweep_plan.py **生成** (不再手写 JSON: "
+            "上一轮焦距一变要改 20 处)。Stage A 分块数由实测定的: 每块 540 s 墙钟预算只"
+            "跑出 39 轮 ⇒ 6 块只到 ~234 轮, 够不到 250 轮的目标 ⇒ 7 块"
+        ),
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/run_gs_refine_zernike_sweep.py",
+            "scripts/slm/build_hw_sweep_plan.py",
+        ),
+    ),
     "report/shape_trials/hw_defocus_zernike/artifacts/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
