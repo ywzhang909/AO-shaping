@@ -1029,6 +1029,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
+    "report/shape_trials/hw_defocus_zernike/artifacts/README.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="硬件",
+        note=(
+            "本系列的**输入契约**归档 (按轮): 两轮各自的分组记录 JSON/CSV、泽尼克阶数扫描的 "
+            "summary.json 与 spgd_nmax*.csv、以及 before/after PNG (报告里 16 张泽尼克图的"
+            "**直接来源**)、焦面标定证据 JSON; 逐帧 .npz 与相位 .npy 体积大不入库, 仍在 "
+            "data/debug/。**第二轮那 11 个组的原始记录已被 10-21 15:57-16:01 第三轮首次"
+            "尝试覆盖**, 归档的是现存的那一份, 详见正文"
+        ),
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/run_gs_refine_zernike_sweep.py",
+        ),
+    ),
     "report/shape_trials/gs_refine/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

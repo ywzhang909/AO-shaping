@@ -295,9 +295,9 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 #### 2.2.6 CCD 远场光斑与光斑截面
 
-![hw_farfield_dz_scan_hw_gs](figures/hw_farfield_dz_scan_hw_gs.png)
+![hw_farfield_dz_scan_hw_gs_20261021](figures/hw_farfield_dz_scan_hw_gs_20261021.png)
 
-![hw_xsec_dz_scan_hw_gs](figures/hw_xsec_dz_scan_hw_gs.png)
+![hw_xsec_dz_scan_hw_gs_20261021](figures/hw_xsec_dz_scan_hw_gs_20261021.png)
 
 ### 2.3 分组「dz_scan_model_gs」（曝光 0.400 ms，相位来源：模型 GS 相位（`OffFocusBench` 现场生成，Δz=0 的 plain GS））
 
@@ -508,9 +508,9 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 #### 2.3.6 CCD 远场光斑与光斑截面
 
-![hw_farfield_dz_scan_model_gs](figures/hw_farfield_dz_scan_model_gs.png)
+![hw_farfield_dz_scan_model_gs_20261021](figures/hw_farfield_dz_scan_model_gs_20261021.png)
 
-![hw_xsec_dz_scan_model_gs](figures/hw_xsec_dz_scan_model_gs.png)
+![hw_xsec_dz_scan_model_gs_20261021](figures/hw_xsec_dz_scan_model_gs_20261021.png)
 
 
 
@@ -553,37 +553,37 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 `after` = 再叠加该阶的 SPGD 优化结果），窗口是该扫描的 256×256 ROI、
 目标框 11.48 px（= 平场 waist 5.74 px 的两倍）。
 
-![hw_zernike_before_nmax3](figures/hw_zernike_before_nmax3.png)
+![hw_zernike_before_nmax3_20261021](figures/hw_zernike_before_nmax3_20261021.png)
 
-![hw_zernike_after_nmax3](figures/hw_zernike_after_nmax3.png)
+![hw_zernike_after_nmax3_20261021](figures/hw_zernike_after_nmax3_20261021.png)
 
-![hw_zernike_before_nmax4](figures/hw_zernike_before_nmax4.png)
+![hw_zernike_before_nmax4_20261021](figures/hw_zernike_before_nmax4_20261021.png)
 
-![hw_zernike_after_nmax4](figures/hw_zernike_after_nmax4.png)
+![hw_zernike_after_nmax4_20261021](figures/hw_zernike_after_nmax4_20261021.png)
 
-![hw_zernike_before_nmax6](figures/hw_zernike_before_nmax6.png)
+![hw_zernike_before_nmax6_20261021](figures/hw_zernike_before_nmax6_20261021.png)
 
-![hw_zernike_after_nmax6](figures/hw_zernike_after_nmax6.png)
+![hw_zernike_after_nmax6_20261021](figures/hw_zernike_after_nmax6_20261021.png)
 
-![hw_zernike_before_nmax8](figures/hw_zernike_before_nmax8.png)
+![hw_zernike_before_nmax8_20261021](figures/hw_zernike_before_nmax8_20261021.png)
 
-![hw_zernike_after_nmax8](figures/hw_zernike_after_nmax8.png)
+![hw_zernike_after_nmax8_20261021](figures/hw_zernike_after_nmax8_20261021.png)
 
-![hw_zernike_before_nmax11](figures/hw_zernike_before_nmax11.png)
+![hw_zernike_before_nmax11_20261021](figures/hw_zernike_before_nmax11_20261021.png)
 
-![hw_zernike_after_nmax11](figures/hw_zernike_after_nmax11.png)
+![hw_zernike_after_nmax11_20261021](figures/hw_zernike_after_nmax11_20261021.png)
 
-![hw_zernike_before_nmax15](figures/hw_zernike_before_nmax15.png)
+![hw_zernike_before_nmax15_20261021](figures/hw_zernike_before_nmax15_20261021.png)
 
-![hw_zernike_after_nmax15](figures/hw_zernike_after_nmax15.png)
+![hw_zernike_after_nmax15_20261021](figures/hw_zernike_after_nmax15_20261021.png)
 
-![hw_zernike_before_nmax20](figures/hw_zernike_before_nmax20.png)
+![hw_zernike_before_nmax20_20261021](figures/hw_zernike_before_nmax20_20261021.png)
 
-![hw_zernike_after_nmax20](figures/hw_zernike_after_nmax20.png)
+![hw_zernike_after_nmax20_20261021](figures/hw_zernike_after_nmax20_20261021.png)
 
-![hw_zernike_before_nmax25](figures/hw_zernike_before_nmax25.png)
+![hw_zernike_before_nmax25_20261021](figures/hw_zernike_before_nmax25_20261021.png)
 
-![hw_zernike_after_nmax25](figures/hw_zernike_after_nmax25.png)
+![hw_zernike_after_nmax25_20261021](figures/hw_zernike_after_nmax25_20261021.png)
 
 ![hw_zernike_xsec_20261021](figures/hw_zernike_xsec_20261021.png)
 

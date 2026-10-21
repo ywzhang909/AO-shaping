@@ -1,0 +1,55 @@
+{
+  "center_xy": [
+    1433,
+    971
+  ],
+  "w0": 5.742078245970301,
+  "side": 11.484156491940603,
+  "probe_shape": [
+    1944,
+    2592
+  ],
+  "best_stage": "refine",
+  "best_score": 0.5442702250091147,
+  "epochs_executed": 45,
+  "elapsed_s": 541.987444,
+  "config": {
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_time_ms": 0.2,
+    "cam_size": 256,
+    "sim_far_field_padding": 16,
+    "slm_number": 1,
+    "beam_radius_px": 450.0,
+    "epochs": 250,
+    "gs_iters": 200,
+    "spgd_epochs": 200,
+    "n_max_list": [
+      4,
+      6,
+      8,
+      11,
+      15
+    ],
+    "delta": 0.02,
+    "lr": 0.01,
+    "seed": 0,
+    "out": "data/debug/hw_zernike_sweep_20261021",
+    "target_side": 0.0,
+    "max_energy_loss": 0.6,
+    "save_images": true,
+    "defocus_focal_mm": 1523.8,
+    "group": "zernike_stage_a",
+    "group_meta": {
+      "role": "zernike_stage_a",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1523.8",
+      "time_budget_s": "540"
+    },
+    "stage_a_only": true,
+    "stage_a_in": "",
+    "orders": [],
+    "time_budget_s": 540.0
+  }
+}

@@ -1,0 +1,402 @@
+{
+  "slm_number": 1,
+  "cam_type": "daheng",
+  "cam_id": 0,
+  "best_focal_mm": 1597.3843998131715,
+  "best_diopter_m1": 0.6260233918128655,
+  "gain_vs_flat": 44.37037037037037,
+  "linearity_ratio": 1.0517529215358932,
+  "range_m1": [
+    -1.2,
+    1.2
+  ],
+  "exposure_bounds_ms": [
+    0.02,
+    1.2
+  ],
+  "notes": [
+    "21 个点落在可用曝光带之外（clipped 0 / dim 21），未参与排序",
+    "抛物线顶点 +0.626 m⁻¹，四点复测后取 +0.626 m⁻¹"
+  ],
+  "points": [
+    {
+      "diopter_m1": -1.2,
+      "focal_mm": -833.3333333333334,
+      "exposure_ms": 1.2,
+      "peak": 3.0,
+      "peak_fraction": 0.011764705882352941,
+      "peak_per_ms": 2.5,
+      "fwhm_px": 282.56458333333336,
+      "hollowness": 0.9777777777777777,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -1.0999999999999999,
+      "focal_mm": -909.0909090909092,
+      "exposure_ms": 1.2,
+      "peak": 3.0,
+      "peak_fraction": 0.011764705882352941,
+      "peak_per_ms": 2.5,
+      "fwhm_px": 151.34479166666665,
+      "hollowness": 0.8759999999999999,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.9999999999999999,
+      "focal_mm": -1000.0000000000001,
+      "exposure_ms": 1.2,
+      "peak": 3.0,
+      "peak_fraction": 0.011764705882352941,
+      "peak_per_ms": 2.5,
+      "fwhm_px": 224.35656565656558,
+      "hollowness": 0.8109090909090909,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.8999999999999999,
+      "focal_mm": -1111.1111111111113,
+      "exposure_ms": 1.2,
+      "peak": 4.0,
+      "peak_fraction": 0.01568627450980392,
+      "peak_per_ms": 3.3333333333333335,
+      "fwhm_px": 150.5,
+      "hollowness": 0.750769230769231,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.7999999999999999,
+      "focal_mm": -1250.0,
+      "exposure_ms": 1.2,
+      "peak": 5.0,
+      "peak_fraction": 0.0196078431372549,
+      "peak_per_ms": 4.166666666666667,
+      "fwhm_px": 74.85128205128217,
+      "hollowness": 0.7306666666666667,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.7,
+      "focal_mm": -1428.5714285714287,
+      "exposure_ms": 1.2,
+      "peak": 5.0,
+      "peak_fraction": 0.0196078431372549,
+      "peak_per_ms": 4.166666666666667,
+      "fwhm_px": 133.98065476190482,
+      "hollowness": 0.8293333333333335,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.6,
+      "focal_mm": -1666.6666666666667,
+      "exposure_ms": 1.2,
+      "peak": 5.0,
+      "peak_fraction": 0.0196078431372549,
+      "peak_per_ms": 4.166666666666667,
+      "fwhm_px": 123.97445436507934,
+      "hollowness": 0.8399999999999999,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.49999999999999994,
+      "focal_mm": -2000.0000000000002,
+      "exposure_ms": 1.2,
+      "peak": 6.333333333333333,
+      "peak_fraction": 0.02483660130718954,
+      "peak_per_ms": 5.277777777777778,
+      "fwhm_px": 113.19044117647059,
+      "hollowness": 0.9000000000000001,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.39999999999999997,
+      "focal_mm": -2500.0,
+      "exposure_ms": 1.2,
+      "peak": 6.0,
+      "peak_fraction": 0.023529411764705882,
+      "peak_per_ms": 5.0,
+      "fwhm_px": 121.85576923076928,
+      "hollowness": 0.9073684210526315,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.3,
+      "focal_mm": -3333.3333333333335,
+      "exposure_ms": 1.2,
+      "peak": 7.0,
+      "peak_fraction": 0.027450980392156862,
+      "peak_per_ms": 5.833333333333334,
+      "fwhm_px": 176.48076923076917,
+      "hollowness": 0.950909090909091,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.19999999999999998,
+      "focal_mm": -5000.0,
+      "exposure_ms": 1.2,
+      "peak": 8.333333333333334,
+      "peak_fraction": 0.032679738562091505,
+      "peak_per_ms": 6.9444444444444455,
+      "fwhm_px": 151.30862193362202,
+      "hollowness": 0.8651851851851854,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": -0.09999999999999999,
+      "focal_mm": -10000.0,
+      "exposure_ms": 1.2,
+      "peak": 8.666666666666666,
+      "peak_fraction": 0.03398692810457516,
+      "peak_per_ms": 7.222222222222222,
+      "fwhm_px": 92.52698412698408,
+      "hollowness": 0.8888888888888888,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.0,
+      "focal_mm": Infinity,
+      "exposure_ms": 1.2,
+      "peak": 10.0,
+      "peak_fraction": 0.0392156862745098,
+      "peak_per_ms": 8.333333333333334,
+      "fwhm_px": 107.96527777777783,
+      "hollowness": 0.895483870967742,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.09999999999999999,
+      "focal_mm": 10000.0,
+      "exposure_ms": 1.2,
+      "peak": 12.333333333333334,
+      "peak_fraction": 0.048366013071895426,
+      "peak_per_ms": 10.277777777777779,
+      "fwhm_px": 113.48016208597608,
+      "hollowness": 0.8502564102564102,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.19999999999999998,
+      "focal_mm": 5000.0,
+      "exposure_ms": 1.2,
+      "peak": 18.333333333333332,
+      "peak_fraction": 0.0718954248366013,
+      "peak_per_ms": 15.277777777777777,
+      "fwhm_px": 86.11568343553637,
+      "hollowness": 0.88140350877193,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.3,
+      "focal_mm": 3333.3333333333335,
+      "exposure_ms": 1.2,
+      "peak": 25.0,
+      "peak_fraction": 0.09803921568627451,
+      "peak_per_ms": 20.833333333333336,
+      "fwhm_px": 65.7596694459632,
+      "hollowness": 0.9087179487179486,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.39999999999999997,
+      "focal_mm": 2500.0,
+      "exposure_ms": 1.2,
+      "peak": 40.333333333333336,
+      "peak_fraction": 0.1581699346405229,
+      "peak_per_ms": 33.611111111111114,
+      "fwhm_px": 53.54657616840052,
+      "hollowness": 0.9283870967741935,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.49999999999999994,
+      "focal_mm": 2000.0000000000002,
+      "exposure_ms": 1.2,
+      "peak": 126.66666666666667,
+      "peak_fraction": 0.49673202614379086,
+      "peak_per_ms": 105.55555555555556,
+      "fwhm_px": 22.638966992362157,
+      "hollowness": 0.8080417754569189,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.5260233918128655,
+      "focal_mm": 1901.0561423012784,
+      "exposure_ms": 0.54,
+      "peak": 89.33333333333333,
+      "peak_fraction": 0.3503267973856209,
+      "peak_per_ms": 165.43209876543207,
+      "fwhm_px": 17.67299285143838,
+      "hollowness": 0.7250557620817843,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.5510233918128655,
+      "focal_mm": 1814.8049880604933,
+      "exposure_ms": 0.54,
+      "peak": 123.0,
+      "peak_fraction": 0.4823529411764706,
+      "peak_per_ms": 227.77777777777777,
+      "fwhm_px": 14.802589411515669,
+      "hollowness": 0.8035978835978836,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.5760233918128654,
+      "focal_mm": 1736.040609137056,
+      "exposure_ms": 0.54,
+      "peak": 160.33333333333334,
+      "peak_fraction": 0.6287581699346405,
+      "peak_per_ms": 296.91358024691357,
+      "fwhm_px": 13.21707900782684,
+      "hollowness": 0.842217659137577,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.6,
+      "focal_mm": 1666.6666666666667,
+      "exposure_ms": 0.54,
+      "peak": 187.0,
+      "peak_fraction": 0.7333333333333333,
+      "peak_per_ms": 346.29629629629625,
+      "fwhm_px": 12.624997088283862,
+      "hollowness": 0.9043109540636043,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.6010233918128655,
+      "focal_mm": 1663.828752128436,
+      "exposure_ms": 0.54,
+      "peak": 186.33333333333334,
+      "peak_fraction": 0.7307189542483661,
+      "peak_per_ms": 345.0617283950617,
+      "fwhm_px": 12.595609986164959,
+      "hollowness": 0.902797202797203,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.6260233918128655,
+      "focal_mm": 1597.3843998131715,
+      "exposure_ms": 0.54,
+      "peak": 199.66666666666666,
+      "peak_fraction": 0.7830065359477124,
+      "peak_per_ms": 369.75308641975306,
+      "fwhm_px": 12.50794228815596,
+      "hollowness": 0.9352000000000003,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.6510233918128655,
+      "focal_mm": 1536.0431169997755,
+      "exposure_ms": 0.54,
+      "peak": 190.0,
+      "peak_fraction": 0.7450980392156863,
+      "peak_per_ms": 351.85185185185185,
+      "fwhm_px": 12.959519861393517,
+      "hollowness": 0.9301388888888891,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.6760233918128655,
+      "focal_mm": 1479.2387543252594,
+      "exposure_ms": 0.54,
+      "peak": 170.0,
+      "peak_fraction": 0.6666666666666666,
+      "peak_per_ms": 314.8148148148148,
+      "fwhm_px": 13.776336697695797,
+      "hollowness": 0.915370018975332,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.7,
+      "focal_mm": 1428.5714285714287,
+      "exposure_ms": 0.54,
+      "peak": 146.0,
+      "peak_fraction": 0.5725490196078431,
+      "peak_per_ms": 270.3703703703704,
+      "fwhm_px": 14.814696491378015,
+      "hollowness": 0.9356053811659193,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.7010233918128654,
+      "focal_mm": 1426.485922836288,
+      "exposure_ms": 0.54,
+      "peak": 141.66666666666666,
+      "peak_fraction": 0.5555555555555555,
+      "peak_per_ms": 262.34567901234567,
+      "fwhm_px": 14.882467271034898,
+      "hollowness": 0.9412037037037041,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.7260233918128655,
+      "focal_mm": 1377.3660894079742,
+      "exposure_ms": 0.54,
+      "peak": 117.66666666666667,
+      "peak_fraction": 0.46143790849673205,
+      "peak_per_ms": 217.90123456790124,
+      "fwhm_px": 16.043526761821965,
+      "hollowness": 0.9541573033707864,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.7999999999999999,
+      "focal_mm": 1250.0,
+      "exposure_ms": 1.0158196721311477,
+      "peak": 107.33333333333333,
+      "peak_fraction": 0.42091503267973857,
+      "peak_per_ms": 105.66179832701255,
+      "fwhm_px": 23.093242795981382,
+      "hollowness": 0.960246913580247,
+      "status": "ok"
+    },
+    {
+      "diopter_m1": 0.8999999999999999,
+      "focal_mm": 1111.1111111111113,
+      "exposure_ms": 1.2,
+      "peak": 52.333333333333336,
+      "peak_fraction": 0.20522875816993466,
+      "peak_per_ms": 43.611111111111114,
+      "fwhm_px": 38.58941553443361,
+      "hollowness": 0.9314999999999998,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 0.9999999999999999,
+      "focal_mm": 1000.0000000000001,
+      "exposure_ms": 1.2,
+      "peak": 34.0,
+      "peak_fraction": 0.13333333333333333,
+      "peak_per_ms": 28.333333333333336,
+      "fwhm_px": 44.453634598099654,
+      "hollowness": 0.8846153846153848,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 1.0999999999999999,
+      "focal_mm": 909.0909090909092,
+      "exposure_ms": 1.2,
+      "peak": 35.0,
+      "peak_fraction": 0.13725490196078433,
+      "peak_per_ms": 29.166666666666668,
+      "fwhm_px": 51.95614747095004,
+      "hollowness": 0.8959259259259258,
+      "status": "dim"
+    },
+    {
+      "diopter_m1": 1.2,
+      "focal_mm": 833.3333333333334,
+      "exposure_ms": 1.2,
+      "peak": 25.0,
+      "peak_fraction": 0.09803921568627451,
+      "peak_per_ms": 20.833333333333336,
+      "fwhm_px": 53.05985604157917,
+      "hollowness": 0.7823376623376622,
+      "status": "dim"
+    }
+  ],
+  "radius_px": 450.0,
+  "centre_panel_px": [
+    960.0,
+    600.0
+  ]
+}

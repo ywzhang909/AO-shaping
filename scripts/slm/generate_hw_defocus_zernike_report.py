@@ -63,35 +63,72 @@ from ao_shaping.utils.image.targets import square_mask  # noqa: E402
 
 REPORT_KEY = "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md"
 
-#: 同系列里若还有别的报告, 它们的图必须**带日期戳**, 否则会覆盖这份的图
+#: 同系列里若还有别的报告, 它们的图必须**带戳**, 否则会覆盖这份的图
 #: (先例: model_in_loop/ 一个系列 9 份报告, 图名都带日期戳)。默认这份不带戳
 #: (图名已入库, 不改动)。
 DEFAULT_REPORT_STEM = "hw_defocus_zernike_20261020"
+
+#: 系列前缀 —— 从上面的常量**推导**出来 (不另抄一份字面量): 砍掉最后一段
+#: (默认那份的日期戳) 即是。
+SERIES_PREFIX = DEFAULT_REPORT_STEM.rsplit("_", 1)[0] + "_"
+
+#: 默认那份的日期。标题用它, 「文件名里取不到日期」时也回落用它
+#: (刻意独立于 :data:`REPORT_DATE`, 后者会被 main() 改写成当前这份的日期)。
+DEFAULT_REPORT_DATE = "2026-10-20"
+
+#: 图名戳里允许的字符: 数字、字母、下划线。其余一律换成下划线。
+_TAG_DISALLOWED = re.compile(r"[^0-9A-Za-z_]")
 
 
 #: 当前这份报告的图名戳 (由 main() 按报告键设置)。
 FIG_TAG = ""
 
 #: 当前这份报告的日期 (由 main() 按报告键设置) —— 标题里用它, 不写死。
-REPORT_DATE = "2026-10-20"
+REPORT_DATE = DEFAULT_REPORT_DATE
 
 
 def report_date(report_key: str) -> str:
-    """从报告键里取日期 (YYYYMMDD -> YYYY-MM-DD); 取不到就用默认那份的。"""
+    """从报告键里取日期 (YYYYMMDD -> YYYY-MM-DD); 取不到就用默认那份的。
+
+    取的是文件名里**第一段** 8 位数字, 所以同日追加轮次的
+    ``hw_defocus_zernike_20261021_r3`` 仍然是 2026-10-21 (轮次后缀不是日期)。
+    """
     match = re.search(r"(\d{8})", Path(report_key).stem)
     if not match:
-        return REPORT_DATE
+        return DEFAULT_REPORT_DATE
     stamp = match.group(1)
     return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}"
 
 
 def figure_tag(report_key: str) -> str:
-    """报告的图名戳: 与默认那份不同就带上自己的日期戳。"""
+    """报告的图名戳: **同一系列里每份报告都必须唯一**, 否则会互相覆盖图。
+
+    戳由报告名里系列前缀之后的**整段后缀**决定:
+
+    - ``hw_defocus_zernike_20261020`` -> ``""`` (默认那份, 图名已入库, 不改名)
+    - ``hw_defocus_zernike_20261021`` -> ``"_20261021"``
+    - ``hw_defocus_zernike_20261021_r3`` -> ``"_20261021_r3"`` (同日追加的一轮)
+
+    ⚠️ 旧实现只在文件名**以 8 位数字结尾**时才给戳, 于是同日追加轮次的后缀
+    ``_r3`` 让它匹配不上 -> 拿到**空戳** -> 直接盖掉默认那份的图。所以戳必须
+    取**整段后缀**, 而不是「结尾那段数字」。
+    """
     stem = Path(report_key).stem
     if stem == DEFAULT_REPORT_STEM:
         return ""
-    match = re.search(r"(\d{8})$", stem)
-    return f"_{match.group(1)}" if match else ""
+    if not stem.startswith(SERIES_PREFIX):
+        raise ValueError(
+            f"报告名 {stem!r} 不属于本系列 (应以 {SERIES_PREFIX!r} 开头); "
+            "本脚本只给这一系列生成报告, 图名戳由系列前缀推导。"
+        )
+    suffix = stem[len(SERIES_PREFIX) :]
+    if not suffix:
+        raise ValueError(
+            f"报告名 {stem!r} 缺日期/轮次后缀; 图名戳取的是系列前缀之后的整段后缀。"
+        )
+    return "_" + _TAG_DISALLOWED.sub("_", suffix)
+
+
 OUT_DIR = ROOT / "report" / "shape_trials" / "hw_defocus_zernike"
 FIG_DIR = OUT_DIR / "figures"
 #: 仿真的 G1 参考曲线。报告目录正在重构 (每份报告一个子目录), 所以**按名字找**而不是
@@ -1217,17 +1254,17 @@ def render_group_farfields(
         if render_farfield_grid(
             run,
             picks,
-            FIG_DIR / f"hw_farfield_{name}.png",
+            FIG_DIR / f"hw_farfield_{name}{FIG_TAG}.png",
             f"CCD 远场光斑 (log10) — 分组「{name}」, 绿框为目标框",
         ):
-            made.append(f"figures/hw_farfield_{name}.png")
+            made.append(f"figures/hw_farfield_{name}{FIG_TAG}.png")
         if render_crosssection_grid(
             run,
             picks,
-            FIG_DIR / f"hw_xsec_{name}.png",
+            FIG_DIR / f"hw_xsec_{name}{FIG_TAG}.png",
             f"光斑 X/Y 截面 (过光斑中心) — 分组「{name}」",
         ):
-            made.append(f"figures/hw_xsec_{name}.png")
+            made.append(f"figures/hw_xsec_{name}{FIG_TAG}.png")
         if made:
             out[name] = made
     return out
@@ -1247,9 +1284,9 @@ def copy_zernike_farfields(
             src = _find_under(zernike_dir, f"{tag}_nmax{n_max}.png")
             if src is None:
                 continue
-            dst = FIG_DIR / f"hw_zernike_{tag}_nmax{n_max}.png"
+            dst = FIG_DIR / f"hw_zernike_{tag}_nmax{n_max}{FIG_TAG}.png"
             dst.write_bytes(src.read_bytes())
-            made.append(f"figures/hw_zernike_{tag}_nmax{n_max}.png")
+            made.append(f"figures/hw_zernike_{tag}_nmax{n_max}{FIG_TAG}.png")
     return made
 
 
@@ -1608,7 +1645,7 @@ def render_defocus_responses(
         if not matched:
             continue
         _table, data = defocus_response_table(run, matched)
-        path = FIG_DIR / f"hw_defocus_response_{name}.png"
+        path = FIG_DIR / f"hw_defocus_response_{name}{FIG_TAG}.png"
         if render_defocus_response(
             run,
             matched,
@@ -2484,7 +2521,8 @@ def build_markdown(
 """
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """命令行解析器 (单独抽出来, 便于测试 CLI 契约)。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--groups-root",
@@ -2539,13 +2577,24 @@ def main() -> int:
         "给绝对路径可以把「报告 + 图」整包放到仓库外",
     )
     parser.add_argument(
+        "--figures-only",
+        action="store_true",
+        help="只重画图, **不写报告正文** (不插溯源块, 不动 report/README.md): "
+        "用于「正文一个字都不改, 只把图换回自己那一轮」的场景 —— "
+        "正文若是当时那版生成器写的, 重新生成会让它出现与那一轮事实不符的叙述",
+    )
+    parser.add_argument(
         "--order-noise-dir",
         type=Path,
         default=None,
         help="阶数比较用的噪声地板目录 (硬件 GS 相位重复采集, 曝光须与 "
         "泽尼克扫描一致); 不给则按曝光自动挑",
     )
-    args = parser.parse_args()
+    return parser
+
+
+def main() -> int:
+    args = build_parser().parse_args()
 
     global FIG_DIR, FIG_TAG, REPORT_DATE
     FIG_TAG = figure_tag(args.report_key)
@@ -2647,7 +2696,14 @@ def main() -> int:
     # 泽尼克扫描拆成多次调用后, 产物分散在各个组目录里 ⇒ 用**根目录**去找, 不是某一个组。
     zernike_dir = args.zernike_dir
     if zernike_dir is None and found["zernike"]:
-        zernike_dir = found["zernike"][0]["dir"].parent
+        # summary.json 落在**组根目录里**(第一轮布局)时, 那个根目录**就是**扫描目录;
+        # 落在**子目录里**(分块续跑布局)时, 扫描目录是它的上一级 —— 两种布局都要收齐。
+        # ⚠️ 不能一律取「summary 所在目录的上一级」: 第一轮布局会退到 data/debug,
+        # 于是 data/debug 下**别的实验**的 summary.json 也被并进来 (orders 被顶掉,
+        # 阶数扫描图就不是这一轮的数据了)。
+        owners = {g["dir"].resolve() for g in found["zernike"]}
+        direct = [r for r in roots if r.resolve() in owners]
+        zernike_dir = direct[0] if direct else found["zernike"][0]["dir"].parent
     zernike = load_zernike(zernike_dir) if zernike_dir else {}
     zernike_exposure = (zernike.get("config") or {}).get("exposure_time_ms")
     order_run = (
@@ -2682,6 +2738,13 @@ def main() -> int:
         farfield_runs, FIG_DIR / f"hw_zernike_farfield_grid{FIG_TAG}.png"
     ):
         zernike_figures = zernike_figures + [f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"]
+    if args.figures_only:
+        # 正文一个字都不写: 图归位用。溯源块与 report/README.md 也不碰 ——
+        # 这一轮只认「把图换回自己那一轮」, 不认「重新叙述那一轮」。
+        print(
+            f"[done] 只重画了图, 未写报告正文 ({args.report_key}); 图名戳 = {FIG_TAG!r}"
+        )
+        return 0
     repro = repro_block(
         manifest, manifest_path, roots, zernike_dir, focus_evidence, args.report_key
     )
