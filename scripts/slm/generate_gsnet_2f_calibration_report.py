@@ -72,6 +72,16 @@ def _pm(row: dict[str, Any], key: str) -> str:
     return f"{_fmt(row[key]['mean'])} ± {_fmt(row[key]['sd'])}"
 
 
+def _rel(path: str) -> str:
+    """把容器里的绝对路径换成仓库相对路径，报告里好读。"""
+    text = str(path)
+    for prefix in ("/workspace/", "/workspace"):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+            break
+    return text or str(path)
+
+
 def _same_grid_value(
     results_same_grid: dict[str, Any] | None, key: str, arm: str = "calibrated"
 ) -> float:
@@ -649,7 +659,7 @@ def render(
         add(_row(["轮数 / 批大小", f"{pcfg.get('epochs', '—')} / {pcfg.get('batch_size', '—')}"]))
         add(_row(["网络", f"{pcfg.get('num_layers', '—')} 层 × "
                     f"{pcfg.get('base_channels', '—')} 通道（共享权重）"]))
-        add(_row(["checkpoint", f"`{pretrain.get('checkpoint', '—')}`"]))
+        add(_row(["checkpoint", f"`{_rel(pretrain.get('checkpoint', '—'))}`"]))
         add("")
         add(_row(["指标", "composite", "EE", "CV（框）", "correlation（全图）"]))
         add(_row(["---"] * 5))
@@ -710,16 +720,36 @@ def render(
         add("")
         if transfer is not None:
             tcfg = transfer.get("config", {})
+            final = (transfer.get("history") or [{}])[-1]
             add(_row(["项", "值"]))
             add(_row(["---", "---"]))
-            add(_row(["数据来源", tcfg.get("from_dir") or ("在机采集 " + str(tcfg.get("capture")) + " 帧")]))
+            add(_row([
+                "数据来源",
+                _rel(tcfg.get("from_dir") or "")
+                or f"在机采集 {tcfg.get('capture_rounds')} 轮 × {tcfg.get('capture_probes')} 探针",
+            ]))
             add(_row(["样本数", str(transfer.get("n_samples", "—"))]))
             add(_row(["网格（瞳面 / 远场）",
                       f"{transfer.get('region', '—')} / {transfer.get('far_field_size', '—')}"]))
-            add(_row(["导出相位", f"`{transfer.get('phase', '—')}`"]))
+            add(_row(["导出相位", f"`{_rel(transfer.get('phase', '—'))}`"]))
+            chance = transfer.get("phase_loss_chance_level")
+            if chance is not None:
+                below = transfer.get("phase_loss_below_chance")
+                add(_row([
+                    "相位项 vs 随机猜测水平",
+                    f"{_fmt(final.get('phase_loss'))} vs {_fmt(chance)}"
+                    + ("（**低于**）" if below else "（尚未低于）"),
+                ]))
             add("")
             history = transfer.get("history") or []
             if history:
+                add("")
+                add(
+                    "> ⚠️ **这一组数字要按「随机猜测水平」读。** 探针相位是随机的，"
+                    "由一张远场帧反解出那个相位本身是**病态逆问题**；"
+                    "只有几帧数据时相位项停在猜测水平是正常的，"
+                    "它说明的是「数据量不够」，不是「迁移这条路走不通」。"
+                )
                 add(_row(["轮", "相位项", "整形项"]))
                 add(_row(["---"] * 3))
                 for row in history:
@@ -754,7 +784,11 @@ def render(
         "已经证过：U-Net 版 hybrid 与物理模型统计不可区分，"
         "而物理模型只有 230 个可解释参数。issue #165 的「不劣于基线才进 P1」"
         "正是这条经验的延续。")
-    add("5. **§4.3 的架构阻塞是本轮最有价值的发现，但它不否定 §3。** "
+    add("5. **预训练与迁移都只在仿真/合成数据上验证过。** §7 的预训练是在数字孪生"
+        "的族群上做的，它的「好相位」标签也来自同一个孪生；迁移学习那一段在"
+        "开发机上只有 8 帧合成探针，相位项停在随机猜测水平。**在真实台架上，"
+        "「仿真里学到的逆问题」能不能迁移过去，只有一件事能回答：在台架上跑一次。**")
+    add("6. **§4.3 的架构阻塞是本轮最有价值的发现，但它不否定 §3。** "
         "前向校准在数值上成立；网络层之所以用不上，"
         "是因为 `FourierGSNet` 的网格契约让它的内部远场只能是混叠的同尺寸 FFT。")
     add("")
