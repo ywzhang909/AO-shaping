@@ -117,6 +117,7 @@ from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import (  # noqa: E402
     fit_best_phase,
     panel_phase_from_coefficients,
 )
+from ao_shaping.optimizer.wfless._measure import locate_zero_order  # noqa: E402
 from ao_shaping.optimizer.wfless.slm_gs_refine import (  # noqa: E402
     SlmGsRefineConfig,
     optimize_slm_gs_refine,
@@ -727,6 +728,41 @@ def _patch_sim_stage_c_camera_window() -> None:
     pib_opt.create_camera = create_camera_with_window
 
 
+def _window_mask_centre(
+    flat_frame: np.ndarray,
+    persisted: tuple[int, int] | None,
+    side: float,
+) -> tuple[tuple[int, int], str]:
+    """续跑块的目标框中心 —— 一律**窗口内**坐标。
+
+    框是画在**平场帧**上的, 而平场帧是相机裁出来的 ROI 窗口 (256x256), 所以框
+    中心必须是这个窗口自己的坐标 (零级在 ~128)。全幅传感器坐标 (例如
+    (1434, 973)) 落在窗口之外, 框整个跑到画面外 —— 2026-10-21 实测的分块续跑
+    失败正是这么来的。
+
+    优先用交接文件里记的窗口内中心; 缺了 (老版交接文件) 或者它落在窗口之外
+    (有人把全幅坐标写进去了) ⇒ 从平场帧重新定位, 与优化器自己用的峰值定位
+    同一套 routine。
+
+    Args:
+        flat_frame: 交接文件里的平场帧 (ROI 窗口坐标系)。
+        persisted: 交接文件里记的窗口内中心 ``(x, y)``; ``None`` = 没记。
+        side: 共享方形目标框边长 (相机像素)。
+
+    Returns:
+        ``((x, y), how)`` —— 框中心与取值途径 (``"persisted"`` / ``"relocated"``)。
+    """
+    frame = np.asarray(flat_frame, dtype=np.float64)
+    side_px = max(1, int(round(side)))
+    if persisted is not None:
+        cx, cy = int(persisted[0]), int(persisted[1])
+        if square_mask(frame.shape, cy, cx, side_px).any():
+            return (cx, cy), "persisted"
+    # ``locate_zero_order`` 返回的是 (行, 列), 这里要的是 (列, 行)。
+    cy, cx = locate_zero_order(frame)
+    return (int(cx), int(cy)), "relocated"
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -831,7 +867,11 @@ class StageAResult:
     """最佳相位对应的远场帧 (raw 相机帧)。"""
 
     center_xy: tuple[int, int]
-    """零级位置 ``(x, y)`` (相机坐标)。"""
+    """零级位置 ``(x, y)`` (**全幅**传感器坐标)。
+
+    这是平场探测在全幅画面上找到的零级 —— Stage C 用它摆 ROI 窗口, 所以它必须
+    留在全幅坐标系里。它**不是**评分用的框中心。
+    """
 
     w0: float
     """平场光斑腰径 (相机像素)。"""
@@ -869,6 +909,36 @@ class StageAResult:
     epochs_total: int = 0
     """到这一块为止累计跑掉的精化轮数 (= 下一块的起点)。"""
 
+    mask_center_xy: tuple[int, int] | None = None
+    """目标框中心 ``(x, y)`` —— **窗口内**坐标 (ROI 窗口自己的坐标系)。
+
+    评分用的方形框就画在这里, 所以它必须是**窗口内**坐标: 平场帧是相机裁出来的
+    ROI 窗口 (256x256), 而 :attr:`center_xy` 是全幅传感器坐标 —— 拿后者当框中心,
+    框整个落在窗口之外 (2026-10-21 实测: "target square ... is empty")。
+    """
+
+    full_frame_center: tuple[int, int] | None = None
+    """ROI 窗口在全幅传感器上的中心 ``(x, y)``。
+
+    下一块据此把窗口摆在**同一个**位置: 重新定位零级会落到近等的散斑颗粒上,
+    窗口一平移, 窗口坐标系就跟着挪, 冻结的框就指错了地方。
+    """
+
+
+def _resumable_arrays(stage_a: StageAResult) -> bool:
+    """交接文件里够不够续跑一块。
+
+    DOF 与基座相位都必须在, 而且不能是**空数组**: 老版交接文件干脆没有这两个
+    键 (读回来是 None), 而写坏的文件可能留下长度为 0 的数组 —— 两者都意味着
+    「这一块没法接着跑」, 必须当场报错, 而不是带着空 DOF 往下跑、在更难懂的地方
+    炸掉。
+    """
+    for name in ("dof", "base_panel"):
+        value = getattr(stage_a, name, None)
+        if value is None or np.asarray(value).size == 0:
+            return False
+    return True
+
 
 def save_stage_a(result: StageAResult, out_dir: Path) -> tuple[Path, Path]:
     """把 Stage A 的产物落盘。
@@ -885,31 +955,39 @@ def save_stage_a(result: StageAResult, out_dir: Path) -> tuple[Path, Path]:
     """
     out_dir.mkdir(parents=True, exist_ok=True)
     npz_path = out_dir / STAGE_A_NPZ_NAME
-    np.savez(
-        npz_path,
-        best_phase=np.asarray(result.best_phase, dtype=np.float64),
-        flat_frame=np.asarray(result.flat_frame, dtype=np.float64),
-        best_frame=np.asarray(result.best_frame, dtype=np.float64),
-        # 续跑需要的两件: 自由参数量与基座相位 (都是**未叠加**的)
-        dof=(
-            np.zeros(0)
-            if result.dof is None
-            else np.asarray(result.dof, dtype=np.float64)
-        ),
-        base_panel=(
-            np.zeros(0)
-            if result.base_panel is None
-            else np.asarray(result.base_panel, dtype=np.float64)
-        ),
-        best_phase_plain=(
-            np.asarray(result.best_phase, dtype=np.float64)
-            if result.best_phase_plain is None
-            else np.asarray(result.best_phase_plain, dtype=np.float64)
-        ),
-    )
+    arrays: dict[str, np.ndarray] = {
+        "best_phase": np.asarray(result.best_phase, dtype=np.float64),
+        "flat_frame": np.asarray(result.flat_frame, dtype=np.float64),
+        "best_frame": np.asarray(result.best_frame, dtype=np.float64),
+    }
+    # 续跑需要的三件 (自由参数量 / 基座相位 / 未叠加的最佳相位): **值为 None 就
+    # 不写这个键**。写成空数组的话, 读回来是「长度 0 的数组」而不是 None ——
+    # 「不可续跑」的守卫就形同虚设, 带着空 DOF 往下跑会在更难懂的地方炸掉
+    # (2026-10-21 复核时发现的老坑)。缺键 = None, 读回语义才与写出一致。
+    if result.dof is not None:
+        arrays["dof"] = np.asarray(result.dof, dtype=np.float64)
+    if result.base_panel is not None:
+        arrays["base_panel"] = np.asarray(result.base_panel, dtype=np.float64)
+    if result.best_phase_plain is not None:
+        arrays["best_phase_plain"] = np.asarray(
+            result.best_phase_plain, dtype=np.float64
+        )
+    np.savez(npz_path, **arrays)
     json_path = out_dir / STAGE_A_JSON_NAME
     payload = {
         "center_xy": [int(result.center_xy[0]), int(result.center_xy[1])],
+        # 框中心 (**窗口内**坐标) 与摆窗口用的全幅零级位置分开放: 这两个坐标
+        # 系混用就是 2026-10-21 那次分块续跑失败的根因。
+        "mask_center_xy": (
+            None
+            if result.mask_center_xy is None
+            else [int(result.mask_center_xy[0]), int(result.mask_center_xy[1])]
+        ),
+        "full_frame_center": (
+            None
+            if result.full_frame_center is None
+            else [int(result.full_frame_center[0]), int(result.full_frame_center[1])]
+        ),
         "w0": float(result.w0),
         "side": float(result.side),
         "probe_shape": [int(result.probe_shape[0]), int(result.probe_shape[1])],
@@ -964,6 +1042,8 @@ def load_stage_a(path: str | Path) -> StageAResult:
     try:
         center = meta["center_xy"]
         shape = meta["probe_shape"]
+        mask_center = meta.get("mask_center_xy")
+        full_center = meta.get("full_frame_center")
         return StageAResult(
             best_phase=arrays["best_phase"],
             flat_frame=arrays["flat_frame"],
@@ -981,6 +1061,16 @@ def load_stage_a(path: str | Path) -> StageAResult:
             base_panel=arrays.get("base_panel"),
             best_phase_plain=arrays.get("best_phase_plain"),
             config=dict(meta.get("config") or {}),
+            mask_center_xy=(
+                None
+                if mask_center is None
+                else (int(mask_center[0]), int(mask_center[1]))
+            ),
+            full_frame_center=(
+                None
+                if full_center is None
+                else (int(full_center[0]), int(full_center[1]))
+            ),
         )
     except (KeyError, IndexError, TypeError, ValueError) as exc:
         raise ValueError(f"Stage A 元数据缺字段或格式不对: {json_path} ({exc})") from exc
@@ -1170,10 +1260,10 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
         # 续跑这一块 Stage A (--stage-a-only 与 --stage-a-in 同时给): 把上一块
         # 的末态交给优化器接着跑。
         if params.stage_a_only:
-            if stage_a.dof is None or stage_a.base_panel is None:
+            if not _resumable_arrays(stage_a):
                 raise SystemExit(
                     "参数错误: --stage-a-in 读回的交接文件里没有续跑需要的 "
-                    "DOF / 基座相位 (旧版交接文件只能从头跑)"
+                    "DOF / 基座相位 (缺失或长度为 0; 旧版交接文件只能从头跑)"
                 )
             done = int(stage_a.epochs_total)
             remaining = max(0, int(params.epochs) - done)
@@ -1182,12 +1272,36 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 if int(params.chunk_epochs) > 0
                 else remaining
             )
+            # 框中心必须是**窗口内**坐标: 平场帧是相机裁出来的 ROI 窗口 (256x256),
+            # 而 stage_a.json 里的 center_xy 是**全幅**传感器坐标 (例如 (1434, 973))
+            # —— 拿后者当框中心, 框整个落在窗口之外, 续跑块两秒就挂
+            # (2026-10-21 实测: "target square (side=12px at (973,1434)) is empty")。
+            mask_center, mask_center_source = _window_mask_centre(
+                stage_a.flat_frame, stage_a.mask_center_xy, side
+            )
+            if mask_center_source == "relocated":
+                print(
+                    f"[stage A] 交接文件里没有可用的窗口内零级位置, 改从平场帧"
+                    f"重新定位: {mask_center}",
+                    flush=True,
+                )
             resume_state = {
                 "base_panel": np.asarray(stage_a.base_panel, dtype=np.float64),
                 "dof": np.asarray(stage_a.dof, dtype=np.float64),
                 "flat_frame": np.asarray(stage_a.flat_frame, dtype=np.float64),
-                "center_y": int(stage_a.center_xy[1]),
-                "center_x": int(stage_a.center_xy[0]),
+                "center_y": int(mask_center[1]),
+                "center_x": int(mask_center[0]),
+                # 全幅零级位置: 下一块据此把 ROI 窗口摆在同一个地方 (冻结 ROI)。
+                # 拿不到就退回「重新发现零级」—— 实测两者一致 (chunk-1/chunk-2
+                # 的窗口都是 (1429, 971))。
+                "full_frame_center": (
+                    None
+                    if stage_a.full_frame_center is None
+                    else (
+                        int(stage_a.full_frame_center[0]),
+                        int(stage_a.full_frame_center[1]),
+                    )
+                ),
                 "best_score": float(stage_a.best_score),
                 "best_phase": np.asarray(
                     stage_a.best_phase_plain
@@ -1272,6 +1386,13 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
             f"epochs={epochs_executed}/{params.epochs} "
             f"evals={len(rec_a.history)}"
         )
+        # 框中心取**优化器冻结的窗口内**零级位置 (recorder.center_*), 而不是
+        # center_xy —— 后者是全幅传感器坐标, 拿来当框中心会让框落在窗口之外。
+        mask_center_xy = (
+            int(getattr(rec_a, "center_x", 0)),
+            int(getattr(rec_a, "center_y", 0)),
+        )
+        full_frame_center = getattr(rec_a, "full_frame_center", None)
         stage_a = StageAResult(
             best_phase=best_phase,
             flat_frame=flat_frame,
@@ -1295,6 +1416,12 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 getattr(rec_a, "best_phase_plain", best_phase), dtype=np.float64
             ),
             config=_jsonable(asdict(params)),
+            mask_center_xy=mask_center_xy,
+            full_frame_center=(
+                None
+                if full_frame_center is None
+                else (int(full_frame_center[0]), int(full_frame_center[1]))
+            ),
         )
         if params.stage_a_only:
             npz_path, json_path = save_stage_a(stage_a, out_dir)
@@ -1305,8 +1432,21 @@ def run_sweep(params: SweepParams) -> dict[str, Any]:
                 "cam_size": int(params.cam_size),
                 "probe_shape": [int(probe_shape[0]), int(probe_shape[1])],
                 "frame_shape": [int(probe_shape[0]), int(probe_shape[1])],
+                # center_xy = 全幅探测到的零级 (Stage C 摆窗口用);
+                # mask_center_xy = 窗口内的框中心 (评分用)。两个坐标系别混。
                 "center_xy": [int(center_xy[0]), int(center_xy[1])],
-                "mask_center_xy": [int(center_xy[0]), int(center_xy[1])],
+                "mask_center_xy": [
+                    int(mask_center_xy[0]),
+                    int(mask_center_xy[1]),
+                ],
+                "full_frame_center": (
+                    None
+                    if full_frame_center is None
+                    else [
+                        int(full_frame_center[0]),
+                        int(full_frame_center[1]),
+                    ]
+                ),
                 "w0_px": float(w0),
                 "target_side": float(side),
                 "beam_radius_px": float(params.beam_radius_px),

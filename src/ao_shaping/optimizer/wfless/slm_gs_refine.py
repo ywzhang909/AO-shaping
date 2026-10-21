@@ -493,6 +493,63 @@ def _metrics(
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
 
 
+def _target_mask(frame: np.ndarray, cy: int, cx: int, side: int) -> np.ndarray:
+    """Build the frozen target square, or say which frame the centre came from.
+
+    框中心必须是 ``frame`` 的**窗口内**坐标: ``frame`` 是相机裁出来的 ROI 窗口
+    (通常是 256x256, 零级在 ~128)。而**全幅**传感器坐标 (未裁剪画面上的零级,
+    例如 2592x1944 传感器上的 (1434, 973)) 落在窗口之外, 框就整个跑到画面外 ——
+    2026-10-21 实测的分块续跑失败正是这么来的, 而报错只有一句
+    "target square ... is empty", 两个坐标系被静默混用, 根本看不出是哪一处。
+
+    所以这里把两个坐标系、画幅尺寸都写进报错里。
+    """
+    mask = square_mask(frame.shape, cy, cx, side)
+    if mask.any():
+        return mask
+    h, w = frame.shape[0], frame.shape[1]
+    raise ValueError(
+        f"target square (side={side}px at window-local ({cy},{cx})) is empty on "
+        f"the {h}x{w} ROI frame: the mask centre must be a WINDOW-LOCAL "
+        f"coordinate (inside the cropped ROI, 0..{min(h, w) - 1}), not a "
+        f"FULL-FRAME sensor coordinate (e.g. (1434, 973) on a 2592x1944 "
+        f"sensor). The two coordinate frames must not be mixed."
+    )
+
+
+def _camera_frame_shape(cam: Any) -> tuple[int, int] | None:
+    """相机当前窗口的尺寸 ``(h, w)``; 拿不到就返回 ``None``。
+
+    只用于「零级离传感器边缘太近」这个检查 —— 续跑块跳过了零级重定位, 手上
+    没有全幅画面, 只能问相机自己的尺寸。相机刚打开时窗口就是全幅, 所以这里读
+    到的就是传感器尺寸。
+    """
+    width = int(getattr(cam, "cam_width", 0) or 0)
+    height = int(getattr(cam, "cam_height", 0) or 0)
+    if width > 0 and height > 0:
+        return height, width
+    return None
+
+
+def _resume_full_frame_center(
+    resume: dict[str, Any] | None,
+) -> tuple[int, int] | None:
+    """续跑状态里带的**全幅**零级位置 ``(x, y)``; 没有就 ``None``。
+
+    有它 ⇒ 下一块把 ROI 窗口摆在同一个位置 (冻结 ROI 的前提); 没有 ⇒ 照旧
+    重新定位零级。
+    """
+    if not resume:
+        return None
+    raw = resume.get("full_frame_center")
+    if raw is None:
+        return None
+    try:
+        return int(raw[0]), int(raw[1])
+    except (TypeError, ValueError, IndexError):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # GS warm start
 # ---------------------------------------------------------------------------
@@ -628,8 +685,8 @@ def resume_state_from_recorder(
     recorder: Any,
     *,
     flat_frame: np.ndarray,
-    center_y: int,
-    center_x: int,
+    center_y: int | None = None,
+    center_x: int | None = None,
 ) -> dict[str, Any]:
     """把一块的末态打包成「下一块的起点」。
 
@@ -643,18 +700,31 @@ def resume_state_from_recorder(
     Args:
         recorder: 一块跑完的 :class:`Recorder`。
         flat_frame: 平场基线帧 (续跑时沿用, 免得再测一次)。
-        center_y: 零级行坐标。
-        center_x: 零级列坐标。
+        center_y: 零级**行**坐标 —— 必须是**窗口内**坐标 (平场帧所在的那张 ROI
+            窗口的坐标系)。``None`` ⇒ 取记录器里冻结的窗口内零级位置。
+        center_x: 零级**列**坐标 (同上)。
 
     Returns:
         可直接塞进 :attr:`SlmGsRefineConfig.resume_state` 的字典。
     """
+    if center_y is None or center_x is None:
+        # 默认取记录器冻结的**窗口内**零级位置 —— 全幅坐标不能当框中心用。
+        center_y = int(getattr(recorder, "center_y", 0))
+        center_x = int(getattr(recorder, "center_x", 0))
+    full_center = getattr(recorder, "full_frame_center", None)
     return {
         "base_panel": np.asarray(recorder.base_panel, dtype=np.float64),
         "dof": np.asarray(recorder.dof, dtype=np.float64),
         "flat_frame": np.asarray(flat_frame, dtype=np.float64),
         "center_y": int(center_y),
         "center_x": int(center_x),
+        # 全幅零级位置: 下一块据此摆**同一个** ROI 窗口 (冻结 ROI 的前提)。
+        # 没有它 (仿真路径 / 旧版交接文件) ⇒ 下一块照旧重新定位。
+        "full_frame_center": (
+            None
+            if full_center is None
+            else (int(full_center[0]), int(full_center[1]))
+        ),
         "best_score": float(recorder.best_score),
         "best_phase": np.asarray(recorder.best_phase_plain, dtype=np.float64),
         "best_frame": np.asarray(recorder.best_frame, dtype=np.float64),
@@ -804,25 +874,57 @@ def _run_gs_refine_session(
     target_side = _derive_target_side(config, radius_px)
     if config.blaze_period_px >= 0 and config.cam_type == "sim":
         raise ValueError("blaze calibration requires a full-frame hardware CCD")
+    # 续跑块沿用上一块记录的**全幅**零级位置, **不重新定位**: 重新定位会落在一个
+    # 近等的散斑颗粒上, ROI 窗口随之平移一两像素 —— 窗口坐标系整个挪动, 冻结的
+    # 目标框就指到了别处, 指标在块边界上不可比。
+    recorded_full_center = _resume_full_frame_center(config.resume_state)
+    # 摆窗口用的全幅位置 (仿真路径没有全幅发现 ⇒ None)。
+    full_frame_center: tuple[int, int] | None = None
     if config.cam_type != "sim":
-        # Locate the zero order on the full sensor before restricting the CCD ROI.
-        discovery = display_and_average(
-            cam,
-            slm,
-            displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
-            n_frames=1,
-            settle_wait_s=config.settle_wait_s,
-            settle_tol=config.settle_tol,
-            settle_max_wait_s=config.settle_max_wait_s,
-            settle_max_discard=config.settle_max_discard,
-            memory_number=work_slots[2],
-        )
-        if config.cam_type == "daheng" and np.max(discovery) >= 255:
-            raise ValueError("Daheng full-frame discovery saturated; reduce exposure")
-        full_y, full_x = locate_zero_order(discovery)
+        discovery = None
+        if recorded_full_center is not None:
+            full_x, full_y = recorded_full_center
+            logger.info(
+                "沿用续跑状态里的全幅零级位置 ({}, {}): 跳过零级重定位, "
+                "ROI 窗口与上一块逐像素一致",
+                full_x,
+                full_y,
+            )
+        else:
+            # Locate the zero order on the full sensor before restricting the CCD ROI.
+            discovery = display_and_average(
+                cam,
+                slm,
+                displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                n_frames=1,
+                settle_wait_s=config.settle_wait_s,
+                settle_tol=config.settle_tol,
+                settle_max_wait_s=config.settle_max_wait_s,
+                settle_max_discard=config.settle_max_discard,
+                memory_number=work_slots[2],
+            )
+            if config.cam_type == "daheng" and np.max(discovery) >= 255:
+                raise ValueError(
+                    "Daheng full-frame discovery saturated; reduce exposure"
+                )
+            full_y, full_x = locate_zero_order(discovery)
         if config.blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze
 
+            if discovery is None:
+                # blaze 标定要在**全幅**画面上找零级与信号阶, 续跑块跳过零级重定位
+                # 后没有全幅帧, 这里补拍一张 (只用于标定, 不参与定位)。
+                discovery = display_and_average(
+                    cam,
+                    slm,
+                    displayed_phase(np.zeros(panel_shape, dtype=np.float64)),
+                    n_frames=1,
+                    settle_wait_s=config.settle_wait_s,
+                    settle_tol=config.settle_tol,
+                    settle_max_wait_s=config.settle_max_wait_s,
+                    settle_max_discard=config.settle_max_discard,
+                    memory_number=work_slots[2],
+                )
             blaze_probe_count = 0
 
             def capture_blaze(phase: np.ndarray) -> np.ndarray:
@@ -849,20 +951,32 @@ def _run_gs_refine_session(
                 direction=config.blaze_direction, flat_frame=discovery,
             )
             overlay = choice.params
-            full_x, full_y = choice.signal_xy
+            if recorded_full_center is None:
+                full_x, full_y = choice.signal_xy
+            else:
+                # 冻结 ROI 优先于 blaze 的信号阶位置: 挪窗口就等于挪坐标系。
+                logger.warning(
+                    "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
+                    full_x,
+                    full_y,
+                )
             logger.info(
                 "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
                 overlay.blaze_period_px, overlay.blaze_direction, choice.zero_xy,
                 choice.signal_xy, choice.separation_px,
             )
+        full_frame_center = (int(full_x), int(full_y))
         signal_local_xy = (full_x, full_y)
         if config.cam_size > 0:
             half = config.cam_size // 2
-            if (
+            full_shape = (
+                discovery.shape if discovery is not None else _camera_frame_shape(cam)
+            )
+            if full_shape is not None and (
                 full_x - half < 0
                 or full_y - half < 0
-                or full_x + half >= discovery.shape[1]
-                or full_y + half >= discovery.shape[0]
+                or full_x + half >= full_shape[1]
+                or full_y + half >= full_shape[0]
             ):
                 raise ValueError(
                     "CCD zero order too close to edge for requested window"
@@ -988,12 +1102,18 @@ def _run_gs_refine_session(
         base_panel = np.asarray(resume["base_panel"], dtype=np.float64)
         dof = np.asarray(resume["dof"], dtype=np.float64)
         frame0 = np.asarray(resume["flat_frame"], dtype=np.float64)
-        cy, cx = int(resume["center_y"]), int(resume["center_x"])
-        mask = square_mask(frame0.shape, cy, cx, target_side)
-        if not mask.any():
-            raise ValueError(
-                f"target square (side={target_side}px at ({cy},{cx})) is empty"
+        if "center_y" in resume and "center_x" in resume:
+            cy, cx = int(resume["center_y"]), int(resume["center_x"])
+        else:
+            # 交接文件里没有窗口内的零级位置 ⇒ 从平场帧重新定位 (与优化器自己
+            # 用的峰值定位同一套 routine)。
+            cy, cx = locate_zero_order(frame0)
+            logger.info(
+                "续跑状态里没有窗口内的零级位置, 改从平场帧重新定位 (row={}, col={})",
+                cy,
+                cx,
             )
+        mask = _target_mask(frame0, cy, cx, target_side)
         best_score = float(resume["best_score"])
         best_phase = np.asarray(resume["best_phase"], dtype=np.float64)
         best_frame = np.asarray(resume["best_frame"], dtype=np.float64)
@@ -1014,11 +1134,7 @@ def _run_gs_refine_session(
             if overlay is not None
             else locate_zero_order(frame0)
         )
-        mask = square_mask(frame0.shape, cy, cx, target_side)
-        if not mask.any():
-            raise ValueError(
-                f"target square (side={target_side}px at ({cy},{cx})) is empty"
-            )
+        mask = _target_mask(frame0, cy, cx, target_side)
         if config.exclude_zero_order_for_cv:
             from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
 
@@ -1209,6 +1325,11 @@ def _run_gs_refine_session(
     # 冻结的零级中心: 续跑块必须沿用同一块 ROI (重新定位会把指标挪到别的位置)。
     recorder.center_y = int(cy)
     recorder.center_x = int(cx)
+    # 摆 ROI 窗口用的**全幅**位置: 下一块据此把窗口摆在同一个地方 ——
+    # 重新定位零级会落到近等的散斑颗粒上, 窗口一平移, 窗口坐标系就跟着挪。
+    # 默认是零级; 开了 blaze 载波时是信号阶位置 (窗口是按它摆的)。
+    # 仿真路径没有全幅发现 ⇒ None (下一块照旧重新定位)。
+    recorder.full_frame_center = full_frame_center
     # The best phase and frame ride on the Recorder as attributes rather than as
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array

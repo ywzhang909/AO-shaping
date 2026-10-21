@@ -1547,6 +1547,96 @@ Plan file:
 `<root>/groups_manifest.json` **after every group**, so a hard kill still leaves
 the completed groups indexed.
 
+### build_hw_sweep_plan.py
+
+Generates the **JSON plan** that `run_hw_sweep_groups.py` drives, for the
+hardware defocus scan + multi-order Zernike uniformity round. The plan is a
+*generated artefact*, not a hand-written file: every variable (focal length,
+exposure, chunk count, total epochs, per-chunk epochs, wall-clock budget, data
+roots, Δz point tables, apertures) is a command-line argument, and the generator
+**self-checks** the result before writing it.
+
+**Why it exists**: the previous round's plan was hand-written JSON (26 groups).
+Hand-editing it failed in two ways that cost a whole round:
+
+- **A change that reaches many places reached only some of them.** When the
+  focal length moved from 1626.2 mm to 1523.8 mm, twenty `--defocus-focal-mm`
+  arguments had to be edited one at a time. A generator makes that one
+  parameter — and the test suite asserts the new value appears in *every* group
+  that takes it.
+- **A wrong path did not fail loudly.** The previous round's plan pointed the
+  defocus and far-field groups at the **old** sweep root for their phase
+  files. When the per-order groups failed, the defocus groups silently reused
+  the phase left over from the previous round and nothing complained. The
+  self-check now refuses to emit a plan whose phase files live outside this
+  round's sweep root.
+
+**Why the round needs its own roots**: the previous two rounds shared
+`data/debug/hw_groups_20261021/` and `data/debug/hw_zernike_sweep_20261021/`,
+so the third round's defocus/far-field groups **overwrote** the second round's
+11 group directories (`measurements.json` included) — the second-round report's
+numbers for those groups are no longer reproducible on disk. This round writes
+to `..._r3` roots, and the archived copy of the plan is the round's input
+contract: `report/shape_trials/hw_defocus_zernike/artifacts/plan_20261021_r3.json`.
+
+**Why 7 chunks and not 6**: each Stage-A chunk has a wall-clock budget
+(`--time-budget-s 540`); the measured first chunk ran **39** epochs in 549.3 s
+(not the 45 requested), so 6 chunks × 39 ≈ 234 epochs does not reach the
+250-epoch target. The chunk count is computed as
+`ceil(total_epochs / epochs_per_chunk)` with `epochs_per_chunk` = the epochs a
+chunk actually achieves under the budget. ⚠️ 39 is the **result** of the
+wall-clock truncation, not "run 39 per chunk": the requested value stays 45
+(`--chunk-epochs`), and the sweep driver shrinks the last chunk to the
+remaining epochs by itself.
+
+**Usage:**
+```bash
+# print the plan + the self-check report, write nothing
+python scripts/slm/build_hw_sweep_plan.py --print-plan
+# write the plan (default: <groups-root>/plan.json)
+python scripts/slm/build_hw_sweep_plan.py
+# move the round: new roots + a new focal length
+python scripts/slm/build_hw_sweep_plan.py --defocus-focal-mm 1600.0 \
+    --groups-root data/debug/hw_groups_20261022 \
+    --sweep-root data/debug/hw_zernike_sweep_20261022 \
+    --out data/debug/hw_groups_20261022/plan.json
+# then run it
+python scripts/slm/run_hw_sweep_groups.py \
+    --plan data/debug/hw_groups_20261021_r3/plan.json --dry-run
+```
+
+**Self-checks** (all five must pass or nothing is written, exit code 2):
+
+| check | what it catches |
+|---|---|
+| group names unique | a copy-pasted group would overwrite another group's directory |
+| chunk chain complete | chunk 1 has no `--stage-a-in`; chunk N reads chunk N-1; every referenced chunk is *in this plan* |
+| phase files under this round's sweep root | the silent "reused last round's phase" failure |
+| chunk chain covers the total epochs | `chunks × min(requested, actual) ≥ total_epochs` |
+| every group has a variable and a `meta.role` | the driver's index column "which axis does this group scan" would be blank |
+
+| Option | Default | Description |
+|---|---|---|
+| `--groups-root` | `data/debug/hw_groups_20261021_r3` | this round's group root (defocus/far-field groups, focus-calibration evidence) |
+| `--sweep-root` | `data/debug/hw_zernike_sweep_20261021_r3` | this round's Zernike sweep root (Stage A, per-order groups, phase files) |
+| `--out` | `<groups-root>/plan.json` | where the plan JSON is written |
+| `--print-plan` | off | print the plan to stdout and write nothing |
+| `--defocus-focal-mm` | `1523.8` | pupil Fresnel focus-correction focal length (mm); appears in **every** group that takes it |
+| `--total-epochs` | `250` | Stage-A total refinement epochs (the learning-rate horizon) |
+| `--chunk-epochs` | `45` | epochs **requested** per chunk (the wall-clock budget only limits what actually happens) |
+| `--epochs-per-chunk` | `39` | epochs a chunk actually achieves under the budget — the chunk count is `ceil(total / this)` |
+| `--time-budget-s` | `540` | Stage-A wall-clock budget per chunk (s) |
+| `--orders` | `3,4,6,8,11,15,20,25` | Zernike truncation orders for the per-order and far-field groups (**ascending**) |
+| `--dz-noise-mm` / `--dz-scan-mm` / `--dz-scan-model-mm` | 9 × `0` / 23 pts / 29 pts | Δz point tables (mm) for the noise group, the hardware scan and the model-phase control |
+| `--hw-target-side-px` / `--model-target-side-px` | `10` / `44` | target-box side (CCD px) — **pre-registered**: 10 px = flat-field waist 2·w0 for the hardware phase, 44 px = the model square's side. Putting 44 px on the hardware phase hid the defocus response behind the aperture, so these two are not interchangeable |
+| `--stage-a-exposure-ms` / `--dz-hw-exposure-ms` / `--dz-model-exposure-ms` / `--farfield-exposure-ms` | `0.2` / `0.2` / `0.4` / `0.2` | per-family exposure (ms) |
+| `--focus-exposure-ms` / `--focus-frames` / `--focus-max-exposure-ms` / `--focus-steps` / `--focus-diopter-range` / `--focus-refine` | `0.1` / `3` / `20` / `33` / `6.0` / `9` | focus-calibration probe parameters |
+| `--frames` | `4` | averaged frames per measurement in the defocus/far-field groups |
+| `--cam-type` / `--cam-id` / `--cam-size` / `--beam-radius-px` / `--slm-number` | `daheng` / `0` / `256` / `450` / `1` | camera and panel geometry |
+| `--gs-iters` / `--spgd-epochs` / `--lr` / `--delta` / `--max-energy-loss` / `--seed` | `200` / `150` / `0.01` / `0.02` / `0.6` / `0` | optimiser knobs |
+| `--plan-exposure-cap-ms` / `--focus-exposure-cap-ms` | `0.4` / `40` | `AO_DAHENG_MAX_EXPOSURE_MS` for the measurement groups and for the focus-calibration group (it has to walk the exposure ladder up to 20 ms). The built-in doubling-ladder estimate reports a **false** ceiling on a dark bench, so the value must be written down explicitly |
+| `--chirp-tilt-cancel` / `--no-chirp-tilt-cancel` | on | pupil-slope tilt cancellation for the Δz **scan** groups (the far-field groups are single Δz=0 shots and do not use it) |
+
 ### generate_gs_refine_zernike_report.py
 
 Generates the **GS-refine Zernike order-scan** report:

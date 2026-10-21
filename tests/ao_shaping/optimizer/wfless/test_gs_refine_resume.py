@@ -79,11 +79,18 @@ def _fast_config(**overrides: Any) -> SlmGsRefineConfig:
 
 
 def _resume_from(recorder: Any) -> dict[str, Any]:
-    """用记录器 + 平场帧打包出下一块的起点。"""
+    """用记录器 + 平场帧打包出下一块的起点。
+
+    框中心用记录器冻结的**窗口内**零级位置 —— 全幅传感器坐标不能当框中心用
+    (框会整个落在 ROI 窗口之外)。
+    """
     flat_row = next(r for r in recorder.history if r["stage"] == "flat")
     flat_frame = np.asarray(flat_row["_img"], dtype=np.float64)
     return resume_state_from_recorder(
-        recorder, flat_frame=flat_frame, center_y=0, center_x=0
+        recorder,
+        flat_frame=flat_frame,
+        center_y=int(recorder.center_y),
+        center_x=int(recorder.center_x),
     )
 
 
@@ -142,3 +149,43 @@ class TestStageAResume:
         rec = optimize_slm_gs_refine(_fast_config(epochs=2, chunk_epochs=0))
         assert rec.epochs_executed == 2
         assert rec.epochs_total == 2
+
+    def test_resume_state_records_the_full_frame_centre(self, small_sim_bench):
+        """续跑状态要带上**全幅**零级位置 —— 下一块据此摆同一个 ROI 窗口。
+
+        仿真路径没有全幅发现 (没有裁剪窗口那一步), 所以它是 ``None`` ⇒ 下一块
+        照旧重新定位。
+        """
+        first = optimize_slm_gs_refine(_fast_config(epochs=1))
+        state = _resume_from(first)
+
+        assert first.full_frame_center is None
+        assert state["full_frame_center"] is None
+
+    def test_out_of_frame_mask_centre_names_both_coordinate_frames(
+        self, small_sim_bench
+    ):
+        """框中心落在窗口外 ⇒ 报错必须点名两个坐标系。
+
+        2026-10-21 实测: 分块续跑两秒就挂在 "target square (side=12px at
+        (973,1434)) is empty" —— 报错只说「框是空的」, 完全看不出是**全幅**
+        传感器坐标被当成了**窗口内**坐标。所以这里锁定: 报错里必须同时出现两个
+        坐标系的说法与画幅尺寸。
+        """
+        first = optimize_slm_gs_refine(_fast_config(epochs=1))
+        state = _resume_from(first)
+        # 换成**全幅**传感器坐标: 硬件上就是这样混用的 (973, 1434) 落在
+        # 256x256 的 ROI 窗口之外。
+        state["center_y"] = 973
+        state["center_x"] = 1434
+
+        with pytest.raises(ValueError) as excinfo:
+            optimize_slm_gs_refine(
+                _fast_config(epochs=1, chunk_epochs=1, resume_state=state)
+            )
+
+        message = str(excinfo.value)
+        assert "WINDOW-LOCAL" in message
+        assert "FULL-FRAME" in message
+        height, width = state["flat_frame"].shape
+        assert f"{height}x{width}" in message
