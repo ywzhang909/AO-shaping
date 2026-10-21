@@ -2,26 +2,31 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/generate_hw_defocus_zernike_report.py`](../../scripts/slm/generate_hw_defocus_zernike_report.py)
-> **复现命令**: `python scripts/slm/generate_hw_defocus_zernike_report.py --defocus-dir report/shape_trials/hw_gs_defocus_probe_<UTC> --noise-dir report/shape_trials/hw_gs_defocus_probe_<UTC> --zernike-dir data/debug/hw_zernike_sweep_20261020`
+> **复现命令**: `python scripts/slm/generate_hw_defocus_zernike_report.py --groups-root data/debug/hw_groups_20261020 --groups-root data/debug/hw_zernike_sweep_20261020b --focus-evidence data/debug/bench_settings/focus_probe/slm1_20261020_093932.json`
 > **数据/关联脚本**: [`scripts/slm/hw_gs_defocus_probe.py`](../../scripts/slm/hw_gs_defocus_probe.py)
 > **数据/关联脚本**: [`scripts/slm/run_gs_refine_zernike_sweep.py`](../../scripts/slm/run_gs_refine_zernike_sweep.py)
 > **运行环境**: 硬件
-> **说明**: 实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD FJB24112232, 1064 nm, 2f-Fourier 臂): 实验系统常驻离焦的瞳面菲涅尔焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算逐帧光斑量并渲染 4 张图
+> **说明**: 实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD FJB24112232, 1064 nm, 2f-Fourier 臂) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算逐帧光斑量并渲染 4 张图。**该轮的目标框沿用了模型相位的方斑边长 (44 px), 与硬件相位的光斑不匹配 —— 口径问题在第二轮 (hw_defocus_zernike_20261021.md) 用预先登记的孔径重测, 本轮数字保留作历史对照**
 <!-- provenance:end -->
 
 **本轮结论**：离焦扫描与泽尼克阶数扫描都在**真实实验系统**上在线实现，与
 [`gs_defocus_sim_20261019.md`](gs_defocus_sim_20261019.md) 的纯仿真结论逐条对拍。三条主要结论：
 
-1. **实验系统自带约 8 mm 的常驻离焦，必须先做瞳面焦面矫正**。平相位下光斑 FWHM ≈ 115 px 且呈环形；
-   加上 `fresnel_panel(f_v = 1597.4 mm)` 的瞳面二次相位后，光斑收到 **15.5 px**，峰值/曝光提高
-   **约 25 倍**。不矫正就直接扫 Δz，测到的不是离焦响应而是一个弥散环。
+1. **实验系统自带 |Δz| ≈ 9.4 mm 的常驻离焦，必须先做瞳面焦面矫正**。
+   第一轮实测：平相位下光斑 FWHM ≈ 115 px 且呈环形；
+   加上 `fresnel_panel(f_v = 1597.4 mm)` 的瞳面二次相位后，
+   光斑收到 **12.5 px**，峰值/曝光提高
+   **约 44 倍**（本轮重新标定，见 §1.3）。
+   不矫正就直接扫 Δz，测到的不是离焦响应而是一个弥散环。
 2. **瞳面二次相位在这套实验系统上不是纯粹的离焦，它同时把光斑推走**（转向）。主组实测转向速率
    **-5.20 px/mm**（质心 x 相对冻结零级，|Δz| ≤ 2.5 mm 内拟合）。
    转向叠加在「光斑本来就不在框中心」之上，于是同一个 |Δz| 在正负半轴上的劣化不对称：
    本轮各组在 ±1.5007 mm 处的差值是 「dz_scan_hw_gs」0.0006、「dz_scan_model_gs」0.1126（噪声地板 0.00061），
    而仿真那边只差 0.0008 —— 这是硬件与仿真最大的口径差异。
-   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 「dz_scan_hw_gs」-0.004、「dz_scan_model_gs」0.217：模型相位组与仿真同量级，
-   硬件 GS 相位组却几乎不变，原因见 §2.2.2（44 px 目标框远大于该相位 ~10 px 的实际光斑）。
+   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 「dz_scan_hw_gs」-0.004、「dz_scan_model_gs」0.217。
+   本轮离焦组带**去倾斜自标定**（`--chirp-tilt-cancel`：先用测试斜坡测出面板→相机轴的
+   映射与符号，再加一片反向的瞳面斜坡把转向分量抵消），所以转向对读数的影响应比第一轮小；
+   孔径是否仍会藏住响应由本组的孔径灵敏度表自己给出。
 3. **泽尼克阶数扫描在硬件上在线实现 8 阶**：**差异可以分辨，但不是「阶数越高越好」。** 阶数之间的 CV 跨度 0.0243 是同口径噪声 0.00543 的 4.5 倍，PIB 跨度 0.0161 是地板 0.00250 的 6.4 倍 —— **超过 3σ，差异不是噪声**。 但三点必须同时说：
 
    - **CV 随阶数只是整体下降、并不单调**：SPGD 之前（纯 Zernike 拟合）CV 从 0.2238（n_max=3）降到 0.1984（n_max=20），跨度 0.0254，但 n_max=11 与 25 处有回升，**不是单调改善**。
@@ -52,7 +57,7 @@
 |---|---|---|---|---|---|---|
 | dz_scan_hw_gs | dz_scan | dz_mm | 0.200 | 指定相位文件（data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy） | 24 | `data\debug\hw_groups_20261020\dz_scan_hw_gs` |
 | dz_scan_model_gs | dz_scan_control | dz_mm | 0.400 | 模型 GS 相位（`OffFocusBench` 现场生成，Δz=0 的 plain GS） | 30 | `data\debug\hw_groups_20261020\dz_scan_model_gs` |
-| hw_zernike_sweep_20261020b | zernike_order | n_max | 0.200 | 硬件 GS 相位（Stage A 产出，Stage B 拟合的就是它） | 8 | `data\debug\hw_zernike_sweep_20261020b` |
+| debug | zernike_order | n_max | 0.200 | 硬件 GS 相位（Stage A 产出，Stage B 拟合的就是它） | 8 | `data\debug` |
 
 本轮的全部数字都来自上表：离焦扫描与泽尼克匀化**叠加在同一张 GS 相位上**
 （泽尼克扫描 Stage A 产出的那一张），每组单独记录、单独出表。
@@ -69,15 +74,14 @@
 | 复合分数 | 0.5814 | 0.00061 | 10 |
 | 整帧峰值 (counts) | 153.45 | 1.33 | 10 |
 
-### 1.3 实验系统的常驻离焦与曝光
+### 1.3 焦面矫正（自动标定）与常驻离焦
 
-- 平相位光斑 FWHM ≈ 115 px、环形度 ≈ 0.9；加上焦面矫正后 FWHM 15.5 px、峰值/曝光 ×25。
-- 焦面标定：`focus_probe` 粗扫（±6 m⁻¹）给 1/f = +0.541 m⁻¹，细扫（±1.2 m⁻¹, 25 点 +
-  9 点细化）给 **1/f = +0.626 m⁻¹（f_v = 1597.4 mm）**，峰值/曝光 370 counts/ms，相对平场 ×44.37。
-  峰值判据在 D ∈ [0.58, 0.70] m⁻¹ 上**饱和成平台**，FWHM 判据的极小值在 D ≈ 0.58；
-  本轮取 +0.626（平台中部），并在报告里如实标注该平台。
-- 该焦面矫正等价于探针参数下 **Δz ≈ -9.4 mm** 的常驻离焦 —— 落在探针默认扫描区间正中，
-  所以「Δz = 0」若不做矫正**不是焦点**。
+- **焦面标定**（`focus_probe` 自动标定，证据文件落盘）：最佳 **1/f = +0.626 m⁻¹（f_v = 1597.4 mm）**，该点峰值/曝光 369.8 counts/ms、FWHM 12.5 px，相对平场 ×44.37；曝光线性自检比 1.05（≈1 表示曝光与亮度线性）。
+- 扫描 34 个焦距点，其中 13 个落在可用曝光带内（其余按 `dim`/`clipped` 排除，不参与排序）。
+  - 标定器记录：21 个点落在可用曝光带之外（clipped 0 / dim 21），未参与排序
+  - 标定器记录：抛物线顶点 +0.626 m⁻¹，四点复测后取 +0.626 m⁻¹
+- 探针本轮用的焦面矫正是 `fresnel_panel(f_v = 1597.4 mm)`，与标定值相差 0.0 mm（0.00%）。
+- 该矫正等价于探针自己的 Δz 单位下 **|Δz| ≈ 9.38 mm** 的常驻离焦（瞳面边缘二次相位 23.96 rad ≈ 3.81 波，按计划里逐点记录的 Δz→边缘相位斜率折算）。 **符号**不报：它取决于 Δz 轴的方向与面板相位相加的约定（仓库自己的 `fresnel_panel` 文档明确写着「哪一支能把相机拉回焦点不作假设，由探测实测」），所以本报告只断言**幅度**。 幅度落在探针扫描区间（±20 mm）之内，所以「Δz = 0」若不做矫正**不是焦点**。
 
 ---
 
@@ -157,7 +161,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 读法：
 
-- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 0.8147（掉了 18.5%），这一组是 1.0038，**基本持平**（只动了 -0.4%，而仿真是 18.5%） —— 换成硬件 GS 相位后，冻结框口径下这个指标**几乎不随离焦变**。 **绝对值与仿真不可比，原因是目标框尺寸对不上**：离焦探针的目标框恒为 44 px， 那是按**模型** GS 相位的方斑尺寸定的；而这一组用的是硬件闭环优化出来的 GS 相位， 它的实际光斑只有约 10 px（泽尼克扫描从平场 waist 量到 target_side = 9.96 px）。 于是 44 px 的框里只有一小块是亮的 —— Δz=0 的定尺框 CV 是 1.7334，这个绝对值主要由「框远大于光斑」决定， 而不是均匀度本身；**能比的是相对量**（随 |Δz| 变化的趋势与幅度）， 以及 §3 里同一张相位的泽尼克阶数结果。 ⚠️ 与仿真的**同尺度**对拍需要仿真在 10 px 目标上重跑（**本轮未做**）， 所以这一行对拍只成立到「形状」这一层。
+- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 0.8147（掉了 18.5%），这一组是 1.0038，**基本持平**（只动了 -0.4%，而仿真是 18.5%） —— 换成硬件 GS 相位后，冻结框口径下这个指标**几乎不随离焦变**。 **绝对值与仿真不可比，原因是目标尺度不同**：这一组用的目标框是 44 px，而该相位自己的光斑实测只有 12.9 px（框/光斑 = 3.41）—— **框是继承来的**（沿用模型相位的方斑边长），用它读出来的绝对值只能当「口径 A」；**按光斑自己的宽度重算的那套框（本组「三套口径」对照里的「匹配框」口径）才是对的**；仿真的 G1 行用的是 47 px 的框 + 47 px 的方斑，**尺度完全不同**，绝对值没有可比性。 能比的是相对量（随 |Δz| 变化的趋势与幅度），以及 §3 里同一张相位的泽尼克阶数结果。 ⚠️ 与仿真的**同尺度**对拍需要仿真在 44 px 目标上重跑（**本轮未做**）， 所以这一行对拍只成立到「形状」这一层。
 - **正负半轴**：仿真 G1 在 ±1.5007 mm 处差 0.0008，这一组差 0.0006，
   噪声地板 0.00061，**与噪声地板同量级 —— 在这个口径下分不出不对称**。
 
@@ -245,7 +249,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
    不看位置，所以转向污染不到它。
 
 ⇒ 冻结框心的 PIB 衰减在 |Δz| ≳ 1.5 mm 之后**不能**读作「离焦把光打散了」：
-光斑同时被**推走**了（见上 §x.3 的转向率）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
+光斑同时被**推走**了（见本组的「转向」小节）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
 （去倾斜），那部分已进代码（`--chirp-tilt-cancel`，自标定），等设备上线后复测。
 
 | Δz (mm) | 光斑 FWHM (px) | 复合分数 44px (现口径) | PIB 13px (冻结框心) | 复合分数 13px (冻结框心) | 质心位移 dx (px) | r50 (px) | PIB (互相关跟中心) | g r50 (归一) |
@@ -276,17 +280,16 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 **孔径灵敏度**（同一批帧，只换目标框尺寸；正半轴）：
 
-| 目标框边长 | 复合分数 @Δz=0 | 复合分数 @Δz=1.5007 mm | 复合分数 @Δz=20 mm | 首末降幅 | 最小 PIB (正半轴) |
-|---|---|---|---|---|---|
-| 8 px | 0.5069 | 0.4334 | 0.0000 | 1.000 | 0.0000 |
-| 10 px | 0.5282 | 0.4361 | 0.0000 | 1.000 | 0.0000 |
-| 13 px | 0.5666 | 0.4529 | 0.0000 | 1.000 | 0.0000 |
-| 16 px | 0.5797 | 0.4649 | 0.0000 | 1.000 | 0.0000 |
-| 20 px | 0.5926 | 0.4906 | 0.0000 | 1.000 | 0.0000 |
-| 44 px | 0.5847 | 0.5874 | 0.0000 | 1.000 | 0.0000 |
+| 目标框边长 | 复合分数 @Δz=0 | 复合分数 @Δz=1.5007 mm | 相对降幅 | 最小 PIB (正半轴) |
+|---|---|---|---|---|
+| 8 px | 0.5069 | 0.4334 | 0.145 | 0.0000 |
+| 10 px | 0.5282 | 0.4361 | 0.174 | 0.0000 |
+| 13 px | 0.5666 | 0.4529 | 0.201 | 0.0000 |
+| 16 px | 0.5797 | 0.4649 | 0.198 | 0.0000 |
+| 20 px | 0.5926 | 0.4906 | 0.172 | 0.0000 |
+| 44 px | 0.5847 | 0.5874 | -0.005 | 0.0000 |
 
-⇒ 在 8 ~ 20 px 的范围内离焦响应都在，**只有 44 px 那个「模型相位方斑的边长」把响应藏住了**；
-所以结论不是孔径选出来的。
+⇒ 在 8 ~ 20 px 的范围内离焦响应都在（降幅 ≥5%）；**只有 44 px 那个孔径把响应藏住了**（降幅 <5%）—— 结论不是孔径选出来的。
 
 
 
@@ -365,7 +368,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 读法：
 
-- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 0.8147（掉了 18.5%），这一组是 0.7828，**同样在下降**（掉了 21.7%，仿真是 18.5%）。 绝对值也对不上（硬件 Δz=0 的复合分数 0.6807 对仿真 0.8073）： 这一组的相位来源、目标框尺寸（44 px 对 43 px）、目标边长都与仿真的 G1 行**同口径**， 所以差距来自光路本身：仿真里 GS 相位与数字孪生**自洽**， 而同一张相位下发到真实实验系统上，照明没落在瞳面中心、相机也不在 2f 面上， 方斑并不成立（CV ≈ 0.73，与 2026-10-15 的硬件记录 CV ≈ 0.723 同量级）。
+- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 0.8147（掉了 18.5%），这一组是 0.7828，**同样在下降**（掉了 21.7%，仿真是 18.5%）。 绝对值也对不上（硬件 Δz=0 的复合分数 0.6807 对仿真 0.8073）： 这一组的相位来源、目标框尺寸（44 px 对 47 px）、目标边长都与仿真的 G1 行**同口径**， 所以差距来自光路本身：仿真里 GS 相位与数字孪生**自洽**， 而同一张相位下发到真实实验系统上，照明没落在瞳面中心、相机也不在 2f 面上， 方斑并不成立（CV ≈ 0.73，与 2026-10-15 的硬件记录 CV ≈ 0.723 同量级）。
 - **正负半轴**：仿真 G1 在 ±1.5007 mm 处差 0.0008，这一组差 0.1126，
   噪声地板 0.00061，是噪声地板的 185.4 倍 —— **这不是噪声**。
 
@@ -453,7 +456,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
    不看位置，所以转向污染不到它。
 
 ⇒ 冻结框心的 PIB 衰减在 |Δz| ≳ 1.5 mm 之后**不能**读作「离焦把光打散了」：
-光斑同时被**推走**了（见上 §x.3 的转向率）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
+光斑同时被**推走**了（见本组的「转向」小节）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
 （去倾斜），那部分已进代码（`--chirp-tilt-cancel`，自标定），等设备上线后复测。
 
 | Δz (mm) | 光斑 FWHM (px) | 复合分数 44px (现口径) | PIB 23px (冻结框心) | 复合分数 23px (冻结框心) | 质心位移 dx (px) | r50 (px) | PIB (互相关跟中心) | g r50 (归一) |
@@ -490,17 +493,16 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 **孔径灵敏度**（同一批帧，只换目标框尺寸；正半轴）：
 
-| 目标框边长 | 复合分数 @Δz=0 | 复合分数 @Δz=1.5007 mm | 复合分数 @Δz=50 mm | 首末降幅 | 最小 PIB (正半轴) |
-|---|---|---|---|---|---|
-| 8 px | 0.4417 | 0.3754 | 0.2427 | 0.451 | 0.0000 |
-| 10 px | 0.4420 | 0.3671 | 0.2534 | 0.427 | 0.0000 |
-| 13 px | 0.4474 | 0.3622 | 0.2559 | 0.428 | 0.0000 |
-| 16 px | 0.4626 | 0.3725 | 0.2482 | 0.463 | 0.0000 |
-| 20 px | 0.4892 | 0.3878 | 0.2476 | 0.494 | 0.0000 |
-| 44 px | 0.6760 | 0.5329 | 0.2606 | 0.615 | 0.0000 |
+| 目标框边长 | 复合分数 @Δz=0 | 复合分数 @Δz=1.5007 mm | 相对降幅 | 最小 PIB (正半轴) |
+|---|---|---|---|---|
+| 8 px | 0.4417 | 0.3754 | 0.150 | 0.0000 |
+| 10 px | 0.4420 | 0.3671 | 0.169 | 0.0000 |
+| 13 px | 0.4474 | 0.3622 | 0.190 | 0.0000 |
+| 16 px | 0.4626 | 0.3725 | 0.195 | 0.0000 |
+| 20 px | 0.4892 | 0.3878 | 0.207 | 0.0000 |
+| 44 px | 0.6760 | 0.5329 | 0.212 | 0.0000 |
 
-⇒ 在 8 ~ 20 px 的范围内离焦响应都在，**只有 44 px 那个「模型相位方斑的边长」把响应藏住了**；
-所以结论不是孔径选出来的。
+⇒ 所测的全部孔径（8 ~ 44 px）都能看到离焦响应，结论与孔径无关。
 
 
 
@@ -520,7 +522,7 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 ## 3. 泽尼克阶数扫描（硬件）
 
 采集脚本：`scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --defocus-focal-mm 1597.4`，
-数据目录 `data\debug\hw_zernike_sweep_20261020b`。
+数据目录 `data\debug`。
 
 三阶段：Stage A = GS 预矫正 + SPGD 细化（硬件闭环）→ Stage B = Noll 序 Zernike 最小二乘拟合
 → Stage C = 在 Zernike 系数上做 SPGD。目标框由平场光斑 waist 推导，**全程冻结**。
@@ -548,7 +550,8 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 ### 3.2.1 各阶的 CCD 远场光斑图
 
 下面是泽尼克扫描自己在每一阶保存的远场图（`before` = 纯 Zernike 拟合相位，
-`after` = 再叠加该阶的 SPGD 优化结果），窗口是该扫描的 256×256 ROI、目标框 9.96 px。
+`after` = 再叠加该阶的 SPGD 优化结果），窗口是该扫描的 256×256 ROI、
+目标框 9.96 px（= 平场 waist 4.98 px 的两倍）。
 
 ![hw_zernike_before_nmax3](figures/hw_zernike_before_nmax3.png)
 
@@ -584,6 +587,8 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 ![hw_zernike_xsec](figures/hw_zernike_xsec.png)
 
+![hw_zernike_farfield_grid](figures/hw_zernike_farfield_grid.png)
+
 ### 3.3 阶数能不能排序
 
 **差异可以分辨，但不是「阶数越高越好」。** 阶数之间的 CV 跨度 0.0243 是同口径噪声 0.00543 的 4.5 倍，PIB 跨度 0.0161 是地板 0.00250 的 6.4 倍 —— **超过 3σ，差异不是噪声**。 但三点必须同时说：
@@ -592,7 +597,8 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
    - **CV 变好不等于整形变好**：同一批相位的框内功率 PIB 反而从 0.1622 降到 0.1468（跨度 0.0155），而 GS 逐像素相位本身是 CV 0.3065 / PIB 0.2803。 截断到低阶 Zernike 会把方斑**抹平**：框内更均匀（CV 低），但代价是**近一半的框内功率被摊到框外**。 只看 CV 会把这个「平滑」误读成「整形更好」。
    - **Stage C 的 SPGD 基本没有改变结果**：各阶 `after` 与 `before` 的 CV 差最大只有 0.0113，与同口径噪声 0.00543 同量级，且 n_max=25 直接记为 `spgd_improved=false`。 所以阶数之间的差异**全部来自 Stage B 的 Zernike 拟合**，不是 SPGD 优化出来的。
 
-判据用的噪声地板必须与阶数比较**同口径**（泽尼克扫描那把 9.96 px 目标框、0.2 ms 曝光），
+判据用的噪声地板必须与阶数比较**同口径**（泽尼克扫描那把 9.96 px 目标框、
+0.200 ms 曝光），
 所以不能用 §1.2 那条（那条是离焦探针的 44 px 目标框，框大了 ~20 倍，光子数多一个量级，
 σ 小得多，拿来判阶数差异会**高估**可分辨性）。这里从泽尼克扫描自己的逐轮记录里取：
 
@@ -631,35 +637,39 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
    只有 +0.0179）。硬件上逐 Δz 重跑 GS 闭环的成本是本轮预算的数十倍，**本报告没有验证这一条**。
 3. **离焦扫描用的是硬件 GS 相位**（泽尼克扫描 Stage A 产出、Stage B 拟合的就是这一张），
    与第 3 节同一张相位；模型 GS 相位那组只是**对照**（它证明模型相位在实验系统上不成方斑）。
-4. **焦面矫正存在一个平台**（D ∈ [0.58, 0.70] m⁻¹ 上峰值判据饱和），本轮取 +0.626。
-   平台内的选择会改变 Δz=0 的参考点。
-5. **离焦组与噪声组各有一条噪声地板，口径不同**：离焦组用 44 px 目标框（0.2 ms，硬件 GS 相位），
-   阶数比较用泽尼克扫描自己的 9.96 px 目标框（见 §3.3）。**两者不可互相替代**。
+4. **焦面标定有平台**：峰值判据在一段 D 上饱和（判别说明见 §1.3 的标定器记录），
+   本轮取 **1/f = 0.626 m⁻¹
+   （f_v = 1597.4 mm）**。平台内的选择会改变 Δz=0
+   的参考点，所以本报告所有「相对 Δz=0 的变化」都带着这个参考点的不确定性。
+5. **离焦组与噪声组各有一条噪声地板，口径不同**：离焦组用 44 px 目标框
+   （0.200 ms，硬件 GS 相位），阶数比较用泽尼克扫描自己的
+   目标框（见 §3.3）。**两者不可互相替代**。
 6. **泽尼克阶数只有 1 个 seed**，且 Stage A 的 GS 相位只优化了 250 轮、Stage C 每阶 150 轮。
    没有配对轴，所以不做显著性检验（`ml/zernike/eval_stats.py` 的 sign-flip 置换检验
    需要「同 seed 配 seed」）。
 7. **本轮只测了一个离焦方向的两个半轴，没有做「在工作点上重新优化」的硬件版**（见上第 2 条）。
-8. **补拍「泽尼克各阶远场组」时设备已下线**：8 个阶里只有 n_max=3 与 n_max=4 两组拍到了
-   原始帧（其余 6 组的 SLM 打开报 **-10002 未找到 USB 设备**，是控制器断电，不是脚本问题）。
-   所以 §3 的各阶远场图用的是**泽尼克扫描自己保存的那份**（`before/after_nmax*.png`，
-   256×256 ROI、9.96 px 目标框），而带 X/Y 截面的那组只覆盖已经拍到的两阶。
-   设备恢复后重跑 `data/debug/hw_groups_20261020/plan_zernike_farfield.json` 即可补齐。
+8. **补拍「泽尼克各阶远场组」的覆盖情况**：本轮 只有 2/8 阶拍到了原始帧（已拍到 n_max = 3, 4，缺 6, 8, 11, 15, 20, 25）；缺的那些阶在 §3.2.1 里用泽尼克扫描自己保存的 PNG 顶上。
 9. **本报告不主张的事情**（逐条列出来，避免被误读）：
    - **不**主张「实验系统对离焦不敏感」—— 复合分数在 |Δz| ≤ 2.5 mm 上「平」是**口径的产物**
      （框 ≫ 光斑 ⇒ 均匀项奖励离焦），不是物理结论。
-   - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— |Δz| ≳ 1.5 mm 时光斑同时被
-     **推走**了（转向 −5.2 px/mm，Δz=2.5 mm 时已移出 13 px 的框），那量到的是**模拟方式的倾斜**，
-     不是离焦。消除它要靠去倾斜（`--chirp-tilt-cancel`），复测后才能下这个结论。
+   - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— 光斑会随 Δz 被**推走**（瞳面 chirp
+     带 ∝ Δz 的倾斜分量），推走的量是**模拟方式的倾斜**、不是离焦。本组实测的转向速率是
+     -5.20 px/mm，光斑在 |Δz| ≳ 4.2 mm 处就会被推出 44 px 的框，换成按光斑自身宽度的「匹配框」口径（13 px）则是 ≳ 1.3 mm；
+     要不要把转向当成主导项，看这个数与光斑被推出框所需的 Δz（4.2 mm）的关系，
+     不能只看复合分数。
    - **不**主张硬件与仿真的正负半轴不对称是**实验系统**的性质 —— 瞳面 chirp 以面板标称中心
      (960, 600) 为中心而照明不在那里，于是它带一个 ∝ Δz 的**倾斜**分量（远场位移 ∝ Δz），
      而仿真的 chirp 打在光束中心、**没有**倾斜。所以这里的不对称有一部分来自**模拟方式**，
      不是光学。
-   - **不**跨相位比较复合分数/PIB 的**绝对值**（两组的孔径不同：13 px 对 23 px），只比
+   - **不**跨相位比较复合分数/PIB 的**绝对值**（两组的孔径不同：44 px 对 44 px），只比
      **归一化**曲线。
    - **不**把 FWHM 当离焦指标（环形/分裂图样会让它量到环的厚度；本组实测 FWHM 在 3.5 ~ 174.6 px
      之间跳，模型相位组还非单调）。FWHM 只作描述列。
-   - **不**说「跟中心就消除了转向污染」—— 互相关在本实验系统的散斑图样上不可用（见 §x.5 第 2 条）。
-   - 44 px 那组数字**本身没错**（对该孔径而言是对的），错的是从它推出的结论；所以保留为「口径 A」。
+   - **不**说「跟中心就消除了转向污染」—— 互相关在本实验系统的散斑图样上不可用
+      （见「三套口径」对照里「跟中心」口径的第 2 条注）。
+   - 44 px 那组数字**本身没错**（对该孔径而言是对的），错的是从它推出的结论；
+     所以它只当「口径 A」保留 —— 结论要看按光斑自身宽度重算的「匹配框」口径，
+     并由孔径灵敏度表说明结论不是孔径选出来的。
 
 ---
 
@@ -667,41 +677,38 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 
 ```bash
 # 一次只跑一组变量: 计划文件里每一组是一次独立调用, 各自单独记录。
-# (完整计划见 data/debug/hw_groups_20261020/plan.json)
-python scripts/slm/run_hw_sweep_groups.py \
-    --plan data/debug/hw_groups_20261020/plan.json \
-    --adopt-existing zernike_order data/debug/hw_zernike_sweep_20261020b \
-    --timeout-s 1800
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json
 
-# 单组单独跑 (驱动只挑这一组)
-python scripts/slm/run_hw_sweep_groups.py \
-    --plan data/debug/hw_groups_20261020/plan.json --only dz_scan_hw_gs
+# 离线出图 (本报告)
+python scripts/slm/generate_hw_defocus_zernike_report.py --groups-root data\debug\hw_groups_20261020 --groups-root data\debug\hw_zernike_sweep_20261020b --focus-evidence data\debug\bench_settings\focus_probe\slm1_20261020_093932.json --report-key report/shape_trials/hw_defocus_zernike_20261020.md
 
-# 计划里每组对应的实际调用 (节选; 下一轮上机要加的两个开关见括号)
-#   dz_scan_hw_gs:
-#     python scripts/slm/hw_gs_defocus_probe.py --execute --group dz_scan_hw_gs \
-#       --group-meta role=dz_scan --group-meta phase=hardware_gs \
-#       --out-root data/debug/hw_groups_20261020 \
-#       --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 \
-#       --gs-phase data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy \
-#       --dz-mm -20 -15 ... 20
-#       (下一轮: --target-side-px 10  --chirp-tilt-cancel)
-#   dz_scan_model_gs:
-#     同上, 但不传 --gs-phase (用模型相位), 曝光 0.4 ms
-#       (下一轮: --target-side-px 44  --chirp-tilt-cancel)
-#   zernike_order:
-#     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 \
-#       --exposure-time-ms 0.2 --cam-size 256 --beam-radius-px 450 --slm-number 1 \
-#       --epochs 250 --gs-iters 200 --spgd-epochs 150 \
-#       --n-max 3 4 6 8 11 15 20 25 --lr 0.01 --delta 0.02 --max-energy-loss 0.6 \
-#       --seed 0 --defocus-focal-mm 1597.4 --save-images
-
-# 离线出图
-python scripts/slm/generate_hw_defocus_zernike_report.py \
-    --groups-root data/debug/hw_groups_20261020 \
-    --groups-root data/debug/hw_zernike_sweep_20261020b
+# 本轮每一组的**实际调用** (取自分组索引 groups_manifest.json, 原样照抄)
+# dz_scan_hw_gs  [adopted, 24 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only dz_scan_hw_gs
+# dz_noise_hw_gs  [adopted, 10 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only dz_noise_hw_gs
+# dz_scan_model_gs  [adopted, 30 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only dz_scan_model_gs
+# zernike_farfield_nmax3  [adopted, 2 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only zernike_farfield_nmax3
+# zernike_farfield_nmax4  [adopted, 2 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only zernike_farfield_nmax4
+# zernike_farfield_nmax6  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax6 --group-meta role=zernike_farfield --group-meta n_max=6 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax6.npy --dz-mm 0
+# zernike_farfield_nmax8  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax8 --group-meta role=zernike_farfield --group-meta n_max=8 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax8.npy --dz-mm 0
+# zernike_farfield_nmax11  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax11 --group-meta role=zernike_farfield --group-meta n_max=11 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax11.npy --dz-mm 0
+# zernike_farfield_nmax15  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax15 --group-meta role=zernike_farfield --group-meta n_max=15 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax15.npy --dz-mm 0
+# zernike_farfield_nmax20  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax20 --group-meta role=zernike_farfield --group-meta n_max=20 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax20.npy --dz-mm 0
+# zernike_farfield_nmax25  [failed, None 行]
+D:\Projects\TIFO\AO-shaping\.venv\Scripts\python.exe scripts/slm/hw_gs_defocus_probe.py --execute --group zernike_farfield_nmax25 --group-meta role=zernike_farfield --group-meta n_max=25 --group-meta phase=zernike_fit --group-meta exposure_ms=0.2 --out-root data/debug/hw_groups_20261020 --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 --gs-phase data/debug/hw_groups_20261020/zernike_farfield/phases/phase_nmax25.npy --dz-mm 0
+# zernike_order  [adopted, None 行]
+python scripts/slm/run_hw_sweep_groups.py --plan data/debug/hw_groups_20261020/plan_all.json --only zernike_order
 ```
 
-采集目录：离焦与噪声组在 `data/debug/hw_groups_20261020/<组名>/`；
-泽尼克阶数组在 `hw_zernike_sweep_20261020b`；
-分组索引 `data/debug/hw_groups_20261020/groups_manifest.json`。
+采集目录：离焦与噪声组在 `data\debug\hw_groups_20261020`；
+泽尼克阶数组在 `data\debug`；
+分组索引 `data\debug\hw_groups_20261020\groups_manifest.json`。

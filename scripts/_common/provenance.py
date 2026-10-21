@@ -989,19 +989,45 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_hw_defocus_zernike_report.py",
         command=(
             "python scripts/slm/generate_hw_defocus_zernike_report.py "
-            "--defocus-dir report/shape_trials/hw_gs_defocus_probe_<UTC> "
-            "--noise-dir report/shape_trials/hw_gs_defocus_probe_<UTC> "
-            "--zernike-dir data/debug/hw_zernike_sweep_20261020"
+            "--groups-root data/debug/hw_groups_20261020 "
+            "--groups-root data/debug/hw_zernike_sweep_20261020b "
+            "--focus-evidence data/debug/bench_settings/focus_probe/slm1_20261020_093932.json"
         ),
         environment="硬件",
         note=(
             "实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD "
-            "FJB24112232, 1064 nm, 2f-Fourier 臂): 实验系统常驻离焦的瞳面菲涅尔焦面矫正、"
-            "噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、"
+            "FJB24112232, 1064 nm, 2f-Fourier 臂) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔"
+            "焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、"
             "与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的"
             "可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 "
             "scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算"
-            "逐帧光斑量并渲染 4 张图"
+            "逐帧光斑量并渲染 4 张图。**该轮的目标框沿用了模型相位的方斑边长 (44 px), "
+            "与硬件相位的光斑不匹配 —— 口径问题在第二轮 (hw_defocus_zernike_20261021.md) "
+            "用预先登记的孔径重测, 本轮数字保留作历史对照**"
+        ),
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/run_gs_refine_zernike_sweep.py",
+        ),
+    ),
+    "report/shape_trials/hw_defocus_zernike_20261021.md": ReportProvenance(
+        script="scripts/slm/generate_hw_defocus_zernike_report.py",
+        command=(
+            "python scripts/slm/generate_hw_defocus_zernike_report.py "
+            "--groups-root data/debug/hw_groups_20261021 "
+            "--groups-root data/debug/hw_zernike_sweep_20261021 "
+            "--focus-evidence data/debug/bench_settings/focus_probe/slm1_20261021_103452.json"
+        ),
+        environment="硬件",
+        note=(
+            "实验系统离焦扫描 + 多阶泽尼克匀化测试的**第二轮 (复测)**: 光路恢复后重新标定"
+            "焦面 (f_v = 1626.2 mm), 12 组每组一次独立调用 (泽尼克阶数组 → 离焦噪声组 → "
+            "离焦扫描组 → 模型相位对照组 → 8 个各阶远场补拍组), 目标框改为**预先登记**的"
+            "该相位自己的成形目标, 离焦扫描带瞳面二次相位的去倾斜自标定; 受阻检测已并入"
+            "自动焦面标定 (焦面探测把「光路受阻」与「找不到焦面」分成退出码 3 / 2, "
+            "两个采集脚本开跑前做同样的光路自检); 数字全部来自 "
+            "scripts/slm/hw_gs_defocus_probe.py 与 scripts/slm/run_gs_refine_zernike_sweep.py "
+            "的落盘产物, 本脚本只离线重算逐帧光斑量并渲染图"
         ),
         extra_scripts=(
             "scripts/slm/hw_gs_defocus_probe.py",

@@ -172,9 +172,59 @@ def load_sim_g1() -> list[dict[str, Any]]:
     return sorted(out, key=lambda r: r["dz_mm"])
 
 
+def _find_under(root: Path | None, pattern: str) -> Path | None:
+    """在根目录下**递归**找第一个匹配的文件。
+
+    泽尼克扫描拆成多次短调用之后 (Stage A 一组 + 每阶一组), 产物分散在各个组目录里,
+    所以这里不能再假设「文件就在组目录的正下方」。
+    """
+    if root is None or not root.exists():
+        return None
+    matches = sorted(root.rglob(pattern))
+    return matches[0] if matches else None
+
+
 def load_zernike(run_dir: Path) -> dict[str, Any]:
-    """读 ``run_gs_refine_zernike_sweep.py`` 的 ``summary.json``。"""
-    return json.loads((run_dir / "summary.json").read_text(encoding="utf-8"))
+    """读泽尼克扫描的 ``summary.json``, 并把**多组**的合并起来。
+
+    扫描拆成多次短调用之后, 每组各有一份 ``summary.json`` (Stage A 一份 + 每阶一份),
+    所以这里递归收齐根目录下的所有 summary: ``orders`` 拼起来 (同阶重复跑过时取后一次),
+    标量字段 (``w0_px`` / ``target_side`` / ``center_xy`` / ``mask_center_xy``) 取任一,
+    真不一致就**记下来**而不是静默取第一个 —— 混进别轮数据时必须看得见。
+    """
+    summaries: list[dict[str, Any]] = []
+    for path in sorted(run_dir.rglob("summary.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict):
+            data = dict(data)
+            data["_summary_path"] = str(path)
+            summaries.append(data)
+    if not summaries:
+        return {}
+    merged: dict[str, Any] = {}
+    by_order: dict[int, dict[str, Any]] = {}
+    warnings: list[str] = []
+    for data in summaries:
+        for key, value in data.items():
+            if key in ("orders", "_summary_path"):
+                continue
+            if key not in merged:
+                merged[key] = value
+            elif key in ("w0_px", "target_side", "center_xy", "mask_center_xy") \
+                    and merged[key] != value:
+                warnings.append(
+                    f"{key} 在不同组里不一致: {merged[key]!r} vs {value!r} "
+                    f"({data['_summary_path']})"
+                )
+        for order in data.get("orders") or []:
+            by_order[int(order.get("n_max", 0))] = order
+    merged["orders"] = [by_order[n] for n in sorted(by_order)]
+    merged["merge_warnings"] = warnings
+    merged["summary_paths"] = [d["_summary_path"] for d in summaries]
+    return merged
 
 
 def discover_groups(roots: list[Path]) -> dict[str, list[dict[str, Any]]]:
@@ -540,7 +590,7 @@ def defocus_group_section(
     # --- 三套口径的离焦响应 -------------------------------------------------
     matched = matched_box_side(run)
     response_table, response_data = defocus_response_table(run, matched)
-    aperture_table = aperture_sensitivity_table(run)
+    aperture_table, aperture_summary = aperture_sensitivity_table(run)
     legacy_side = int(cfg["target_side_px"])
     resp_fig = (response_figures or {}).get(group_name, "")
     peak_values = [
@@ -577,7 +627,7 @@ def defocus_group_section(
    不看位置，所以转向污染不到它。
 
 ⇒ 冻结框心的 PIB 衰减在 |Δz| ≳ 1.5 mm 之后**不能**读作「离焦把光打散了」：
-光斑同时被**推走**了（见上 §x.3 的转向率）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
+光斑同时被**推走**了（见本组的「转向」小节）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
 （去倾斜），那部分已进代码（`--chirp-tilt-cancel`，自标定），等设备上线后复测。
 
 {response_table}
@@ -586,8 +636,7 @@ def defocus_group_section(
 
 {aperture_table}
 
-⇒ 在 8 ~ 20 px 的范围内离焦响应都在，**只有 44 px 那个「模型相位方斑的边长」把响应藏住了**；
-所以结论不是孔径选出来的。
+{aperture_summary}
 
 {resp_fig}
 """
@@ -641,24 +690,44 @@ def defocus_group_section(
         f"{fmt_metric(sim_ratio_15, 4)}（掉了 {sim_drop:.1%}），这一组是 "
         f"{fmt_metric(hw_ratio_15, 4)}，{shape_word}。"
     )
+    hw_side = int(run["config"].get("target_side_px", 0))
+    sim_box = int(sim_g1[0]["side_px"]) if sim_g1 else 0
     if phase == "model_gs":
         comparison_note += (
             f" 绝对值也对不上（硬件 Δz=0 的复合分数 {fmt_metric(base_hw, 4)} 对仿真 0.8073）："
-            f" 这一组的相位来源、目标框尺寸（44 px 对 43 px）、目标边长都与仿真的 G1 行**同口径**，"
+            f" 这一组的相位来源、目标框尺寸（{hw_side} px 对 {sim_box} px）、目标边长都与"
+            f"仿真的 G1 行**同口径**，"
             f" 所以差距来自光路本身：仿真里 GS 相位与数字孪生**自洽**，"
             f" 而同一张相位下发到真实实验系统上，照明没落在瞳面中心、相机也不在 2f 面上，"
             f" 方斑并不成立（CV ≈ 0.73，与 2026-10-15 的硬件记录 CV ≈ 0.723 同量级）。"
         )
     elif phase == "hardware_gs":
+        recorded_side = int(cfg.get("target_side_px", legacy_side))
+        spot0 = response_data.get(0.0, {}).get("fwhm", float("nan"))
+        ratio = (recorded_side / spot0) if (spot0 and spot0 == spot0) else float("nan")
+        # 框与光斑同量级 ⇒ 这个孔径就是该相位自己的口径; 框远大于光斑 ⇒ 它是**继承来的**
+        # 孔径 (上一轮沿用了模型相位的方斑边长), 用它读出来的东西只能当「口径 A」。
+        same_scale = bool(ratio == ratio and ratio <= 1.5)
+        if same_scale:
+            aperture_word = (
+                f"这一组的目标框是**预先登记**的该相位成形目标（{recorded_side} px = "
+                f"泽尼克扫描从平场 waist 量到的 2·w0_flat），而这一组光斑的实测宽度是 "
+                f"{fmt_metric(spot0, 1)} px（框/光斑 = {fmt_metric(ratio, 2)}，"
+                f"同量级，所以这一组的口径是对的）"
+            )
+        else:
+            aperture_word = (
+                f"这一组用的目标框是 {recorded_side} px，而该相位自己的光斑实测只有 "
+                f"{fmt_metric(spot0, 1)} px（框/光斑 = {fmt_metric(ratio, 2)}）—— "
+                f"**框是继承来的**（沿用模型相位的方斑边长），用它读出来的绝对值只能当"
+                f"「口径 A」；**按光斑自己的宽度重算的那套框（本组「三套口径」对照里的「匹配框」口径）才是对的**"
+            )
         comparison_note += (
-            f" **绝对值与仿真不可比，原因是目标框尺寸对不上**：离焦探针的目标框恒为 44 px，"
-            f" 那是按**模型** GS 相位的方斑尺寸定的；而这一组用的是硬件闭环优化出来的 GS 相位，"
-            f" 它的实际光斑只有约 10 px（泽尼克扫描从平场 waist 量到 target_side = 9.96 px）。"
-            f" 于是 44 px 的框里只有一小块是亮的 —— Δz=0 的定尺框 CV 是 "
-            f"{fmt_metric(at(0.0, 'cv_frozen'), 4)}，这个绝对值主要由「框远大于光斑」决定，"
-            f" 而不是均匀度本身；**能比的是相对量**（随 |Δz| 变化的趋势与幅度），"
-            f" 以及 §3 里同一张相位的泽尼克阶数结果。"
-            f" ⚠️ 与仿真的**同尺度**对拍需要仿真在 10 px 目标上重跑（**本轮未做**），"
+            f" **绝对值与仿真不可比，原因是目标尺度不同**：{aperture_word}；"
+            f"仿真的 G1 行用的是 {sim_box} px 的框 + {sim_box} px 的方斑，"
+            f"**尺度完全不同**，绝对值没有可比性。"
+            f" 能比的是相对量（随 |Δz| 变化的趋势与幅度），以及 §3 里同一张相位的泽尼克阶数结果。"
+            f" ⚠️ 与仿真的**同尺度**对拍需要仿真在 {recorded_side} px 目标上重跑（**本轮未做**），"
             f" 所以这一行对拍只成立到「形状」这一层。"
         )
 
@@ -729,10 +798,10 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，
 def zernike_noise_floor(
     zernike_dir: Path | None, orders: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    """**同口径**的噪声地板: 泽尼克扫描自己那把 9.96 px 目标框、0.2 ms。
+    """**同口径**的噪声地板: 泽尼克扫描自己的那把目标框、同曝光。
 
-    离焦探针的噪声地板是 44 px 目标框上的, 拿来判「9.96 px 框里的阶数差异」是错的口径
-    (框小了 ~20 倍, 每次测量的光子数少一个量级)。所以这里从泽尼克扫描**自己**的
+    离焦探针的噪声地板是**另一个**孔径上的, 拿来判「泽尼克那把小框里的阶数差异」是错的
+    口径 (框差 ~20 倍, 每次测量的光子数差一个量级)。所以这里从泽尼克扫描**自己**的
     逐轮记录里取:
 
     - **PIB**: 每轮都测同一个 (几乎不变的) 相位 —— SPGD 的更新被噪声门挡掉了
@@ -750,8 +819,8 @@ def zernike_noise_floor(
     cv_sigmas: list[float] = []
     for order in orders:
         n_max = int(order["n_max"])
-        path = zernike_dir / f"spgd_nmax{n_max}.csv"
-        if not path.exists():
+        path = _find_under(zernike_dir, f"spgd_nmax{n_max}.csv")
+        if path is None:
             continue
         with path.open(encoding="utf-8") as handle:
             rows = list(csv.DictReader(handle))
@@ -997,8 +1066,8 @@ def copy_zernike_farfields(zernike_dir: Path | None, orders: list[dict[str, Any]
     for order in orders:
         n_max = int(order["n_max"])
         for tag in ("before", "after"):
-            src = zernike_dir / f"{tag}_nmax{n_max}.png"
-            if not src.exists():
+            src = _find_under(zernike_dir, f"{tag}_nmax{n_max}.png")
+            if src is None:
                 continue
             dst = FIG_DIR / f"hw_zernike_{tag}_nmax{n_max}.png"
             dst.write_bytes(src.read_bytes())
@@ -1052,10 +1121,11 @@ def render_zernike_xsec(
 def matched_box_side(run: dict[str, Any]) -> int:
     """与该相位自身光斑匹配的目标框边长 (Δz=0 光斑的 FWHM, 只定一次)。
 
-    探针原先把目标框写死成 44 px —— 那是**模型** GS 相位方斑的边长。硬件 GS 相位的
-    实际光斑只有 12.9 px, 框比光斑大 3.4 倍, 于是复合分数的两项
-    (``0.5·PIB`` 与 ``0.5·(1/(1+CV))``) 方向相反、量级相当, 互相抵消 ——
-    「离焦效果不佳」其实是度量口径的假象, 不是实验系统的问题。
+    这个口径存在的理由: 目标框的边长应当**跟着该相位自己的光斑走**, 而不是跟着别的
+    相位。第一轮把框写死成模型 GS 相位方斑的边长, 而硬件 GS 相位的实际光斑小得多,
+    框比光斑大好几倍, 于是复合分数的两项 (``0.5·PIB`` 与 ``0.5·(1/(1+CV))``)
+    方向相反、量级相当, 互相抵消 —— 「离焦效果不佳」其实是度量口径的假象,
+    不是实验系统的问题。第二轮起目标框改为**预先登记**的该相位自己的成形目标。
     """
     frames = _scan_frames_by_dz(run)
     zeros = [dz for dz in frames if abs(dz) < 1e-9]
@@ -1079,20 +1149,28 @@ def score_in_box(frame: np.ndarray, cx: int, cy: int, side: int) -> tuple[float,
 
 def aperture_sensitivity_table(
     run: dict[str, Any], sides: tuple[int, ...] = (8, 10, 13, 16, 20, 44)
-) -> str:
+) -> tuple[str, str]:
     """孔径灵敏度: 同一批帧在若干目标框尺寸下, 离焦响应是否还在。
 
-    用来排除「结论只是某个框选出来的」这一类反驳: 只要在 8 ~ 20 px 的范围内
-    复合分数都随 Δz 下降, 结论就不是孔径的产物; 只有 44 px 那个「模型相位的方斑
-    边长」会把响应藏起来。
+    用来排除「结论只是某个框选出来的」这一类反驳: 只要在多个孔径下复合分数都随
+    Δz 下降, 结论就不是孔径的产物; 反过来, 哪个孔径会把响应藏住, 也由这张表
+    自己给出, 不写死。
+
+    返回 (表格, 一句结论)。结论按「Δz=0 → Δz=+1.5 mm 的相对降幅」判定:
+    降幅小于 5% 记作「藏住了」。
     """
     frames = _scan_frames_by_dz(run)
     cfg = run["config"]
     cx, cy = cfg["zero_order_roi_xy_frozen"]
     positives = sorted(dz for dz in frames if dz >= 0)
     if not positives:
-        return ""
+        return "", ""
+    probe_dz = 1.5007
+    if probe_dz not in positives:
+        probe_dz = positives[min(4, len(positives) - 1)]
     rows: list[list[Any]] = []
+    responsive: list[int] = []
+    hidden: list[int] = []
     for side in sides:
         scores: list[float] = []
         pibs: list[float] = []
@@ -1104,21 +1182,36 @@ def aperture_sensitivity_table(
             pibs.append(p)
             scores.append(float(composite_from_pib_cv(p, c)))
         first = scores[0] if scores else math.nan
-        last = scores[-1] if scores else math.nan
-        drop = (first - last) / first if first else math.nan
+        idx = positives.index(probe_dz)
+        at_probe = scores[idx] if idx < len(scores) else math.nan
+        drop = (first - at_probe) / first if first else math.nan
+        (responsive if drop >= 0.05 else hidden).append(side)
         rows.append([
             f"{side} px",
             fmt_metric(scores[0], 4),
-            fmt_metric(scores[min(4, len(scores) - 1)], 4),
-            fmt_metric(last, 4),
+            fmt_metric(at_probe, 4),
             fmt_metric(drop, 3),
             fmt_metric(min(pibs), 4),
         ])
-    return markdown_table(
-        ["目标框边长", "复合分数 @Δz=0", f"复合分数 @Δz={positives[min(4, len(positives)-1)]:g} mm",
-         f"复合分数 @Δz={positives[-1]:g} mm", "首末降幅", "最小 PIB (正半轴)"],
+    table = markdown_table(
+        ["目标框边长", "复合分数 @Δz=0", f"复合分数 @Δz={probe_dz:g} mm",
+         "相对降幅", "最小 PIB (正半轴)"],
         rows,
     )
+    if responsive and hidden:
+        summary = (
+            f"⇒ 在 {min(responsive)} ~ {max(responsive)} px 的范围内离焦响应都在"
+            f"（降幅 ≥5%）；**只有 {', '.join(str(s) for s in hidden)} px 那个孔径把响应藏住了**"
+            f"（降幅 <5%）—— 结论不是孔径选出来的。"
+        )
+    elif responsive:
+        summary = (
+            f"⇒ 所测的全部孔径（{min(responsive)} ~ {max(responsive)} px）都能看到离焦响应，"
+            f"结论与孔径无关。"
+        )
+    else:
+        summary = "⇒ 所测的孔径都没看到响应（降幅 <5%），本组的离焦响应需要换指标读。"
+    return table, summary
 
 
 def defocus_response_table(
@@ -1130,8 +1223,8 @@ def defocus_response_table(
     - ``R(Δz)`` = 跟中心框内的功率保持率 (相对 Δz=0 归一) —— 跨相位可比;
     - ``g(Δz)`` = 功率半径 r50 的相对增长 —— 对形状不敏感。
     复合分数**只作辅助读数**: 框空掉时 CV→0, 1/(1+CV)→1, 复合分数的地板是 0.5
-    而不是 0, 于是它在任何孔径下都会**反弹** (实测硬件组 13 px 框: 0.3682 @3.75 mm
-    → 0.4224 @5.0 mm —— 更差的图样反而得分更高), 所以它不能当主指标。
+    而不是 0, 于是它在任何孔径下都会**反弹** (第一轮实测硬件组 13 px 框:
+    0.3682 @3.75 mm → 0.4224 @5.0 mm —— 更差的图样反而得分更高), 所以它不能当主指标。
     """
     frames = _scan_frames_by_dz(run)
     cfg = run["config"]
@@ -1268,6 +1361,283 @@ def render_defocus_responses(
     return out
 
 
+def render_zernike_farfield_grid(
+    farfield_runs: list[tuple[str, Path, dict[str, Any]]], out_png: Path
+) -> bool:
+    """泽尼克各阶的**实测**远场光斑图 + X/Y 截面 (用补拍组的原始帧)。
+
+    每一阶一行: 上格是 log10 远场 (带目标框), 下格是过光斑中心的 X/Y 强度剖面。
+    这样每一阶的「方斑有多匀、有多亮」都能直接看, 而不是只给一张渲染图。
+    """
+    items: list[tuple[int, dict[str, Any], np.ndarray]] = []
+    for name, _dir, run in farfield_runs:
+        meta = run["config"].get("group_meta") or {}
+        n_max = int(meta.get("n_max", 0) or 0)
+        frames = _scan_frames_by_dz(run)
+        if not frames or not n_max:
+            continue
+        dz = min(frames)
+        items.append((n_max, run, frames[dz]))
+    if not items:
+        return False
+    items.sort(key=lambda t: t[0])
+
+    ncol = len(items)
+    fig, axes = plt.subplots(2, ncol, figsize=(2.3 * ncol, 5.4), squeeze=False)
+    for k, (n_max, run, raw) in enumerate(items):
+        cfg = run["config"]
+        cx, cy = cfg["zero_order_roi_xy_frozen"]
+        side = int(cfg.get("target_side_px", 44))
+        frame = prepare_frame(raw.astype(np.float64))
+        spot = measure_spot(raw)
+
+        ax = axes[0][k]
+        ax.imshow(np.log10(np.maximum(frame, 1e-3)), cmap="magma", origin="upper")
+        mask = square_mask(frame.shape, int(cy), int(cx), side)
+        ys, xs = np.nonzero(mask)
+        if xs.size:
+            ax.add_patch(plt.Rectangle(
+                (xs.min() - 0.5, ys.min() - 0.5), np.ptp(xs) + 1, np.ptp(ys) + 1,
+                fill=False, edgecolor="lime", linewidth=1.0,
+            ))
+        ax.set_title(f"n_max={n_max}", fontsize=9)
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+        ax = axes[1][k]
+        sx, sy = int(round(spot.centroid_x)), int(round(spot.centroid_y))
+        ax.plot(np.arange(frame.shape[1]) - sx,
+                np.log10(np.maximum(frame[sy, :], 1e-3)), lw=1.1, label="X")
+        ax.plot(np.arange(frame.shape[0]) - sy,
+                np.log10(np.maximum(frame[:, sx], 1e-3)), lw=1.1, ls="--", label="Y")
+        ax.axvline(0.0, color="grey", lw=0.7, ls=":")
+        ax.set_xlabel("相对光斑中心 (px)", fontsize=8)
+        ax.set_ylim(-3.3, 2.6)
+        ax.grid(alpha=0.25)
+        if k == 0:
+            ax.set_ylabel("log10 强度 (counts)", fontsize=8)
+            ax.legend(fontsize=7)
+    fig.suptitle(
+        f"泽尼克各阶的实测远场光斑（上）与 X/Y 截面（下）—— 目标框 {side} px",
+        fontsize=11,
+    )
+    fig.tight_layout(rect=(0, 0, 1, 0.95))
+    savefig(fig, out_png)
+    plt.close(fig)
+    return True
+
+
+
+# ---------------------------------------------------------------------------
+# 焦面标定 (§1.3)
+# ---------------------------------------------------------------------------
+#
+# 这一节的数字**全部**来自焦面探测的证据文件 (`focus_probe` 落盘的 JSON) 与
+# 探针计划里逐点记下的瞳面二次相位幅度。**不写死**: 换一轮实验系统、换一次
+# 焦面标定, 同一段脚本要能说出新的一轮的值, 而不是把上一轮的常数搬过来。
+
+
+def load_focus_evidence(path: Path | None) -> dict[str, Any]:
+    """读焦面标定的证据文件 (§1.3 的唯一数字来源)。
+
+    证据由 ``python -m ao_shaping.tools.slm.panel.focus_probe`` 落盘。文件不在
+    或读不出来就返回空字典 —— 报告照常生成, §1.3 只说明「本轮没有附证据」。
+    """
+    if path is None or not Path(path).exists():
+        return {}
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def correction_edge_rad(cfg: dict[str, Any]) -> float:
+    """焦面矫正在瞳面**边缘**产生的二次相位 (rad)。
+
+    φ(r) = π·r²/(λ·f_v), r = 瞳面照明半径 (面板 px × 像元)。
+    """
+    optics = (cfg.get("plan") or {}).get("optics") or {}
+    radius_m = float(optics.get("beam_radius_panel", 0.0)) * float(
+        optics.get("panel_pitch_m", 0.0)
+    )
+    lam_m = float(optics.get("wavelength_nm", 1064.0)) * 1e-9
+    focal_mm = float(cfg.get("defocus_focal_mm") or 0.0)
+    if radius_m <= 0.0 or lam_m <= 0.0 or focal_mm <= 0.0:
+        return float("nan")
+    return float(math.pi * radius_m**2 / (lam_m * (focal_mm * 1e-3)))
+
+
+def dz_edge_slope_rad_per_mm(cfg: dict[str, Any]) -> float:
+    """探针的 Δz 每毫米对应多少**瞳面边缘**的二次相位 (rad/mm)。
+
+    探针计划里逐点记了 ``chirp_edge_rad``, 取任意两点做斜率即可 (它对 |Δz| 是
+    线性的: 两次相位都是 ∝ r²/(λ·长度))。
+    """
+    steps = (cfg.get("plan") or {}).get("steps") or []
+    # 计划里记的 ``chirp_edge_rad`` 是**幅度** (abs), 正负半轴的幅度相等, 所以跨零
+    # 做斜率会算成 0。取同一侧 (Δz ≥ 0) 的点做直线, 斜率即为每毫米的幅度增长。
+    pts = sorted(
+        (float(s["dz_mm"]), float(s["chirp_edge_rad"]))
+        for s in steps
+        if s.get("dz_mm") is not None and s.get("chirp_edge_rad") is not None
+        and float(s["dz_mm"]) >= 0.0
+    )
+    if len(pts) < 2:
+        return float("nan")
+    (d0, e0), (d1, e1) = pts[0], pts[-1]
+    if d1 == d0:
+        return float("nan")
+    return (e1 - e0) / (d1 - d0)
+
+
+def standing_defocus_mm(cfg: dict[str, Any]) -> float:
+    """焦面矫正抵消掉的**常驻离焦**的**幅度**, 换算成探针自己的 Δz 单位 (mm)。
+
+    矫正的瞳面二次相位与探针的 Δz 二次相位是同一族, 所以「与矫正等价的 |Δz|」
+    = 矫正的边缘相位 ÷ (Δz 的边缘相位斜率)。
+
+    **只报幅度, 不报符号**: 符号取决于两套约定 —— Δz 轴的方向 (探针的 chirp 符号
+    是从仿真脚本数值反解出来的) 与面板相位相加的约定。仓库自己的
+    :func:`ao_shaping.tools.kernels.bench_kernels.fresnel_panel` 文档就写着
+    「哪一支能把相机拉回焦点不作假设, 由探测实测」, 所以这里不替它做主。
+    """
+    edge = correction_edge_rad(cfg)
+    slope = dz_edge_slope_rad_per_mm(cfg)
+    if not (edge == edge) or not (slope == slope) or slope == 0.0:
+        return float("nan")
+    return abs(edge / slope)
+
+
+def focus_best_point(focus: dict[str, Any]) -> dict[str, Any]:
+    """证据文件里**离最佳焦距最近的那个可用点** (最佳点本身的读数)。"""
+    best_d = float(focus.get("best_diopter_m1", float("nan")))
+    usable = [p for p in (focus.get("points") or [])
+              if p.get("status") not in ("dim", "clipped")]
+    for p in usable:
+        if abs(float(p.get("diopter_m1", 0.0)) - best_d) < 1e-9:
+            return p
+    return {}
+
+
+def focus_block(focus: dict[str, Any], cfg: dict[str, Any]) -> str:
+    """§1.3 的正文: 焦面矫正的证据 (数字全部来自证据文件与探针计划)。"""
+    stand = standing_defocus_mm(cfg)
+    edge = correction_edge_rad(cfg)
+    edge_waves = edge / (2.0 * math.pi) if edge == edge else float("nan")
+    focal_mm = float(cfg.get("defocus_focal_mm") or 0.0)
+    lines: list[str] = []
+
+    if not focus:
+        lines.append(
+            "- 本轮**没有附焦面标定证据文件**（`focus_probe` 的 JSON），"
+            "所以下面只给出探针计划里能反推的两项。"
+        )
+    else:
+        best_d = float(focus.get("best_diopter_m1", float("nan")))
+        best_f = float(focus.get("best_focal_mm", float("nan")))
+        gain = float(focus.get("gain_vs_flat", float("nan")))
+        lin = float(focus.get("linearity_ratio", float("nan")))
+        points = focus.get("points") or []
+        usable = [p for p in points if p.get("status") not in ("dim", "clipped")]
+        bp = focus_best_point(focus)
+        best_peak_per_ms = float(bp.get("peak_per_ms", float("nan")))
+        best_fwhm = float(bp.get("fwhm_px", float("nan")))
+        lines.append(
+            f"- **焦面标定**（`focus_probe` 自动标定，证据文件落盘）：最佳 "
+            f"**1/f = {best_d:+.3f} m⁻¹（f_v = {best_f:.1f} mm）**，"
+            f"该点峰值/曝光 {fmt_metric(best_peak_per_ms, 1)} counts/ms、"
+            f"FWHM {fmt_metric(best_fwhm, 1)} px，相对平场 ×{fmt_metric(gain, 2)}；"
+            f"曝光线性自检比 {fmt_metric(lin, 2)}（≈1 表示曝光与亮度线性）。"
+        )
+        lines.append(
+            f"- 扫描 {len(points)} 个焦距点，其中 {len(usable)} 个落在可用曝光带内"
+            f"（其余按 `dim`/`clipped` 排除，不参与排序）。"
+        )
+        for note in focus.get("notes") or []:
+            lines.append(f"  - 标定器记录：{note}")
+        if best_d == best_d and best_f == best_f:
+            lines.append(
+                f"- 探针本轮用的焦面矫正是 `fresnel_panel(f_v = {focal_mm:.1f} mm)`，"
+                f"与标定值相差 {abs(focal_mm - best_f):.1f} mm"
+                f"（{abs(focal_mm - best_f) / best_f * 100:.2f}%）。"
+            )
+    lines.append(
+        f"- 该矫正等价于探针自己的 Δz 单位下 **|Δz| ≈ {stand:.2f} mm** 的常驻离焦"
+        f"（瞳面边缘二次相位 {edge:.2f} rad ≈ {edge_waves:.2f} 波，"
+        f"按计划里逐点记录的 Δz→边缘相位斜率折算）。"
+        f" **符号**不报：它取决于 Δz 轴的方向与面板相位相加的约定"
+        f"（仓库自己的 `fresnel_panel` 文档明确写着「哪一支能把相机拉回焦点不作假设，"
+        f"由探测实测」），所以本报告只断言**幅度**。"
+        f" 幅度落在探针扫描区间（±20 mm）之内，所以「Δz = 0」若不做矫正**不是焦点**。"
+    )
+    return "\n".join(lines)
+
+
+
+def load_manifest(roots: list[Path]) -> tuple[dict[str, Any], Path | None]:
+    """读分组索引 (驱动写的 ``groups_manifest.json``)。
+
+    索引里记着每一组的**实际调用** (``argv``) 与落盘目录, 所以报告的「复现」一节
+    可以照抄真实跑过的那条命令, 而不是手写一份可能过时的。
+    """
+    for root in roots:
+        cand = Path(root) / "groups_manifest.json"
+        if not cand.exists():
+            continue
+        try:
+            data = json.loads(cand.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(data, dict):
+            return data, cand
+    return {}, None
+
+
+def repro_block(
+    manifest: dict[str, Any],
+    manifest_path: Path | None,
+    roots: list[Path],
+    zernike_dir: Path | None,
+    focus_evidence: Path | None,
+    report_key: str,
+) -> dict[str, str]:
+    """「复现」一节需要的几段文本 (全部从分组索引里取, 不写死路径)。"""
+    plan = str(manifest.get("plan") or "")
+    groups = manifest.get("groups") or []
+    plan_cmd = (
+        f"python scripts/slm/run_hw_sweep_groups.py --plan {plan}"
+        if plan else "（本轮没有记录计划文件）"
+    )
+    lines: list[str] = []
+    for g in groups:
+        name = g.get("group", "?")
+        script = g.get("script") or ""
+        argv = g.get("argv") or []
+        if argv:
+            # argv[0] 是解释器本身 (Windows 上是绝对路径), 整条照抄即可。
+            cmd = " ".join(str(a) for a in argv)
+        else:
+            cmd = (f"python scripts/slm/run_hw_sweep_groups.py --plan {plan} "
+                   f"--only {name}")
+        lines.append(f"# {name}  [{g.get('status', '?')}, {g.get('n_rows', '?')} 行]")
+        lines.append(cmd)
+    report_cmd = (
+        "python scripts/slm/generate_hw_defocus_zernike_report.py"
+        + "".join(f" --groups-root {r}" for r in roots)
+        + (f" --focus-evidence {focus_evidence}" if focus_evidence else "")
+        + f" --report-key {report_key}"
+    )
+    return {
+        "plan": plan_cmd,
+        "report": report_cmd,
+        "groups": "\n".join(lines),
+        "groups_root": str(roots[0]) if roots else "（未记录）",
+        "zernike_dir": (str(zernike_dir) if zernike_dir else "（本轮未采集）"),
+        "manifest": str(manifest_path) if manifest_path else "（未记录）",
+    }
+
+
 def build_markdown(
     scan: dict[str, Any],
     noise: dict[str, Any],
@@ -1280,12 +1650,82 @@ def build_markdown(
     group_figures: dict[str, list[str]] | None = None,
     response_figures: dict[str, str] | None = None,
     zernike_figures: list[str] | None = None,
+    focus: dict[str, Any] | None = None,
+    farfield_runs: list[tuple[str, Path, dict[str, Any]]] | None = None,
+    repro: dict[str, str] | None = None,
 ) -> str:
     cfg = scan["config"]
+    focus = focus or {}
+    focus_text = focus_block(focus, cfg)
+    repro = repro or {}
+    # 数据驱动的局部量: 泽尼克扫描自己的目标框、仿真 G1 行的框、焦面标定的读数。
+    zernike_w0 = float(zernike.get("w0_px") or float("nan"))
+    zernike_box = (2.0 * zernike_w0) if zernike_w0 == zernike_w0 else float("nan")
+    sim_box = int(sim_g1[0]["side_px"]) if sim_g1 else 0
+    focus_gain = float(focus.get("gain_vs_flat", float("nan")))
+    focus_fwhm = float(focus_best_point(focus).get("fwhm_px", float("nan")))
+    stand_mm = standing_defocus_mm(cfg)
+    hw_side = int(cfg.get("target_side_px", 0))
+    model_side = 0
+    for grp in (scan_groups or []):
+        if grp.get("phase") == "model_gs":
+            model_side = int(grp["run"]["config"].get("target_side_px", 0))
+            break
+    farfield_runs = farfield_runs or []
+    covered = sorted(
+        int((run["config"].get("group_meta") or {}).get("n_max", 0) or 0)
+        for _n, _d, run in farfield_runs
+        if (run["config"].get("group_meta") or {}).get("n_max")
+    )
+    order_list = [int(o.get("n_max", 0) or 0) for o in (zernike.get("orders") or [])]
+    missing = [n for n in order_list if n not in covered]
+    if covered and not missing:
+        farfield_summary = (
+            f"**全部 {len(covered)} 阶都拍到了原始帧**（n_max = "
+            f"{', '.join(str(n) for n in covered)}），所以 §3.2.1 的远场光斑图与 X/Y 截面"
+            f"**直接来自这些补拍组的原始帧**（带目标框标注），不依赖泽尼克扫描自己保存的 PNG。"
+        )
+    elif covered:
+        farfield_summary = (
+            f"只有 {len(covered)}/{len(order_list)} 阶拍到了原始帧（已拍到 n_max = "
+            f"{', '.join(str(n) for n in covered)}，缺 {', '.join(str(n) for n in missing)}）；"
+            f"缺的那些阶在 §3.2.1 里用泽尼克扫描自己保存的 PNG 顶上。"
+        )
+    else:
+        farfield_summary = "**本轮没有补拍各阶远场组**，§3.2.1 全部用泽尼克扫描自己保存的 PNG。"
     rows = [r for r in scan["rows"] if not r.get("frame_missing")]
     orders = zernike.get("orders", [])
     bases = zernike.get("baselines", {})
     steer = steering_fit(rows)
+
+    # 转向是否主导: 光斑被推出框所需的 Δz = (框半宽) / |转向速率|
+    matched_side = matched_box_side(scan)
+    steer_slope = float(steer.get("slope_local_px_per_mm", float("nan")))
+    steer_dz = (
+        (hw_side / 2.0) / abs(steer_slope)
+        if steer_slope == steer_slope and abs(steer_slope) > 1e-9 else float("nan")
+    )
+    steer_dz_matched = (
+        (matched_side / 2.0) / abs(steer_slope)
+        if steer_slope == steer_slope and abs(steer_slope) > 1e-9 else float("nan")
+    )
+    if steer_slope != steer_slope:
+        steer_word = "本轮没有可用的转向拟合"
+        steer_dz_word = "不可判"
+    elif abs(steer_slope) < 0.5:
+        steer_word = "去倾斜自标定已把转向压到可忽略的量级（<0.5 px/mm）"
+        steer_dz_word = (
+            f"{steer_dz:.1f} mm 以上才推得出去" if steer_dz == steer_dz else "不可判"
+        )
+    else:
+        steer_word = (
+            f"光斑在 |Δz| ≳ {steer_dz:.1f} mm 处就会被推出 {hw_side} px 的框，"
+            f"换成按光斑自身宽度的「匹配框」口径（{matched_side} px）则是 ≳ "
+            f"{steer_dz_matched:.1f} mm"
+            if steer_dz == steer_dz and steer_dz_matched == steer_dz_matched
+            else "转向量级不可判"
+        )
+        steer_dz_word = f"{steer_dz:.1f} mm" if steer_dz == steer_dz else "不可判"
     spread = order_spread(orders)
     if scan_groups is None:
         scan_groups = [{"name": "main", "dir": scan["dir"], "run": scan,
@@ -1483,7 +1923,7 @@ def build_markdown(
 
 ## 3. 泽尼克阶数扫描（硬件）
 
-采集脚本：`scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --defocus-focal-mm 1597.4`，
+采集脚本：`scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --defocus-focal-mm {fmt_metric((zernike.get('config') or {}).get('defocus_focal_mm'), 1)}`，
 数据目录 `{zernike_dir.relative_to(ROOT) if zernike_dir.is_relative_to(ROOT) else zernike_dir}`。
 
 三阶段：Stage A = GS 预矫正 + SPGD 细化（硬件闭环）→ Stage B = Noll 序 Zernike 最小二乘拟合
@@ -1500,7 +1940,8 @@ def build_markdown(
 ### 3.2.1 各阶的 CCD 远场光斑图
 
 下面是泽尼克扫描自己在每一阶保存的远场图（`before` = 纯 Zernike 拟合相位，
-`after` = 再叠加该阶的 SPGD 优化结果），窗口是该扫描的 256×256 ROI、目标框 9.96 px。
+`after` = 再叠加该阶的 SPGD 优化结果），窗口是该扫描的 256×256 ROI、
+目标框 {fmt_metric(zernike_box, 2)} px（= 平场 waist {fmt_metric(zernike_w0, 2)} px 的两倍）。
 
 {zernike_farfield_block}
 
@@ -1508,8 +1949,9 @@ def build_markdown(
 
 {verdict}
 
-判据用的噪声地板必须与阶数比较**同口径**（泽尼克扫描那把 9.96 px 目标框、0.2 ms 曝光），
-所以不能用 §1.2 那条（那条是离焦探针的 44 px 目标框，框大了 ~20 倍，光子数多一个量级，
+判据用的噪声地板必须与阶数比较**同口径**（泽尼克扫描那把 {fmt_metric(zernike_box, 2)} px 目标框、
+{fmt_metric((zernike.get('config') or {}).get('exposure_time_ms'), 3)} ms 曝光），
+所以不能用 §1.2 那条（那条是离焦探针的 {hw_side} px 目标框，框大了 ~20 倍，光子数多一个量级，
 σ 小得多，拿来判阶数差异会**高估**可分辨性）。这里从泽尼克扫描自己的逐轮记录里取：
 
 {order_noise_table}
@@ -1555,16 +1997,21 @@ def build_markdown(
 **本轮结论**：离焦扫描与泽尼克阶数扫描都在**真实实验系统**上在线实现，与
 [`gs_defocus_sim_20261019.md`](gs_defocus_sim_20261019.md) 的纯仿真结论逐条对拍。三条主要结论：
 
-1. **实验系统自带约 8 mm 的常驻离焦，必须先做瞳面焦面矫正**。平相位下光斑 FWHM ≈ 115 px 且呈环形；
-   加上 `fresnel_panel(f_v = 1597.4 mm)` 的瞳面二次相位后，光斑收到 **15.5 px**，峰值/曝光提高
-   **约 25 倍**。不矫正就直接扫 Δz，测到的不是离焦响应而是一个弥散环。
+1. **实验系统自带 |Δz| ≈ {stand_mm:.1f} mm 的常驻离焦，必须先做瞳面焦面矫正**。
+   第一轮实测：平相位下光斑 FWHM ≈ 115 px 且呈环形；
+   加上 `fresnel_panel(f_v = {fmt_metric(cfg.get('defocus_focal_mm'), 1)} mm)` 的瞳面二次相位后，
+   光斑收到 **{fmt_metric(focus_fwhm, 1)} px**，峰值/曝光提高
+   **约 {fmt_metric(focus_gain, 0)} 倍**（本轮重新标定，见 §1.3）。
+   不矫正就直接扫 Δz，测到的不是离焦响应而是一个弥散环。
 2. **瞳面二次相位在这套实验系统上不是纯粹的离焦，它同时把光斑推走**（转向）。主组实测转向速率
    **{fmt_metric(steer['slope_local_px_per_mm'], 2)} px/mm**（质心 x 相对冻结零级，|Δz| ≤ 2.5 mm 内拟合）。
    转向叠加在「光斑本来就不在框中心」之上，于是同一个 |Δz| 在正负半轴上的劣化不对称：
    本轮各组在 ±1.5007 mm 处的差值是 {asym_parts}（噪声地板 {fmt_metric(sigma_score, 5)}），
    而仿真那边只差 0.0008 —— 这是硬件与仿真最大的口径差异。
-   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 {drop_parts}：模型相位组与仿真同量级，
-   硬件 GS 相位组却几乎不变，原因见 §2.2.2（44 px 目标框远大于该相位 ~10 px 的实际光斑）。
+   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 {drop_parts}。
+   本轮离焦组带**去倾斜自标定**（`--chirp-tilt-cancel`：先用测试斜坡测出面板→相机轴的
+   映射与符号，再加一片反向的瞳面斜坡把转向分量抵消），所以转向对读数的影响应比第一轮小；
+   孔径是否仍会藏住响应由本组的孔径灵敏度表自己给出。
 3. **泽尼克阶数扫描在硬件上在线实现 8 阶**：{verdict}
    唯一随阶数**严格单调**的量是**拟合残差**（{'单调不增' if monotone else '非单调'}，
    {fmt_metric(rms_vals[0], 4)} → {fmt_metric(rms_vals[-1], 4)} rad）。
@@ -1599,21 +2046,15 @@ def build_markdown(
 
 {noise_table}
 
-### 1.3 实验系统的常驻离焦与曝光
+### 1.3 焦面矫正（自动标定）与常驻离焦
 
-- 平相位光斑 FWHM ≈ 115 px、环形度 ≈ 0.9；加上焦面矫正后 FWHM 15.5 px、峰值/曝光 ×25。
-- 焦面标定：`focus_probe` 粗扫（±6 m⁻¹）给 1/f = +0.541 m⁻¹，细扫（±1.2 m⁻¹, 25 点 +
-  9 点细化）给 **1/f = +0.626 m⁻¹（f_v = 1597.4 mm）**，峰值/曝光 370 counts/ms，相对平场 ×44.37。
-  峰值判据在 D ∈ [0.58, 0.70] m⁻¹ 上**饱和成平台**，FWHM 判据的极小值在 D ≈ 0.58；
-  本轮取 +0.626（平台中部），并在报告里如实标注该平台。
-- 该焦面矫正等价于探针参数下 **Δz ≈ -9.4 mm** 的常驻离焦 —— 落在探针默认扫描区间正中，
-  所以「Δz = 0」若不做矫正**不是焦点**。
+{focus_text}
 
 ---
 
 ## 2. 离焦扫描（硬件）
 
-采集脚本：`scripts/slm/hw_gs_defocus_probe.py --execute --defocus-focal-mm 1597.4`。
+采集脚本：`scripts/slm/hw_gs_defocus_probe.py --execute --defocus-focal-mm {fmt_metric(cfg.get('defocus_focal_mm'), 1)}`。
 原始帧逐点落盘（`frame_*.npz`，未经任何处理），下表的 FWHM / 环形度 / 质心 / 随斑框指标
 都是**离线**从原始帧重算的。
 
@@ -1647,35 +2088,39 @@ def build_markdown(
    只有 +0.0179）。硬件上逐 Δz 重跑 GS 闭环的成本是本轮预算的数十倍，**本报告没有验证这一条**。
 3. **离焦扫描用的是硬件 GS 相位**（泽尼克扫描 Stage A 产出、Stage B 拟合的就是这一张），
    与第 3 节同一张相位；模型 GS 相位那组只是**对照**（它证明模型相位在实验系统上不成方斑）。
-4. **焦面矫正存在一个平台**（D ∈ [0.58, 0.70] m⁻¹ 上峰值判据饱和），本轮取 +0.626。
-   平台内的选择会改变 Δz=0 的参考点。
-5. **离焦组与噪声组各有一条噪声地板，口径不同**：离焦组用 44 px 目标框（0.2 ms，硬件 GS 相位），
-   阶数比较用泽尼克扫描自己的 9.96 px 目标框（见 §3.3）。**两者不可互相替代**。
+4. **焦面标定有平台**：峰值判据在一段 D 上饱和（判别说明见 §1.3 的标定器记录），
+   本轮取 **1/f = {fmt_metric(focus.get('best_diopter_m1'), 3)} m⁻¹
+   （f_v = {fmt_metric(focus.get('best_focal_mm'), 1)} mm）**。平台内的选择会改变 Δz=0
+   的参考点，所以本报告所有「相对 Δz=0 的变化」都带着这个参考点的不确定性。
+5. **离焦组与噪声组各有一条噪声地板，口径不同**：离焦组用 {cfg['target_side_px']} px 目标框
+   （{fmt_metric(cfg['exposure_ms_working'], 3)} ms，硬件 GS 相位），阶数比较用泽尼克扫描自己的
+   目标框（见 §3.3）。**两者不可互相替代**。
 6. **泽尼克阶数只有 1 个 seed**，且 Stage A 的 GS 相位只优化了 250 轮、Stage C 每阶 150 轮。
    没有配对轴，所以不做显著性检验（`ml/zernike/eval_stats.py` 的 sign-flip 置换检验
    需要「同 seed 配 seed」）。
 7. **本轮只测了一个离焦方向的两个半轴，没有做「在工作点上重新优化」的硬件版**（见上第 2 条）。
-8. **补拍「泽尼克各阶远场组」时设备已下线**：8 个阶里只有 n_max=3 与 n_max=4 两组拍到了
-   原始帧（其余 6 组的 SLM 打开报 **-10002 未找到 USB 设备**，是控制器断电，不是脚本问题）。
-   所以 §3 的各阶远场图用的是**泽尼克扫描自己保存的那份**（`before/after_nmax*.png`，
-   256×256 ROI、9.96 px 目标框），而带 X/Y 截面的那组只覆盖已经拍到的两阶。
-   设备恢复后重跑 `data/debug/hw_groups_20261020/plan_zernike_farfield.json` 即可补齐。
+8. **补拍「泽尼克各阶远场组」的覆盖情况**：本轮 {farfield_summary}
 9. **本报告不主张的事情**（逐条列出来，避免被误读）：
    - **不**主张「实验系统对离焦不敏感」—— 复合分数在 |Δz| ≤ 2.5 mm 上「平」是**口径的产物**
      （框 ≫ 光斑 ⇒ 均匀项奖励离焦），不是物理结论。
-   - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— |Δz| ≳ 1.5 mm 时光斑同时被
-     **推走**了（转向 −5.2 px/mm，Δz=2.5 mm 时已移出 13 px 的框），那量到的是**模拟方式的倾斜**，
-     不是离焦。消除它要靠去倾斜（`--chirp-tilt-cancel`），复测后才能下这个结论。
+   - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— 光斑会随 Δz 被**推走**（瞳面 chirp
+     带 ∝ Δz 的倾斜分量），推走的量是**模拟方式的倾斜**、不是离焦。本组实测的转向速率是
+     {fmt_metric(steer['slope_local_px_per_mm'], 2)} px/mm，{steer_word}；
+     要不要把转向当成主导项，看这个数与光斑被推出框所需的 Δz（{steer_dz_word}）的关系，
+     不能只看复合分数。
    - **不**主张硬件与仿真的正负半轴不对称是**实验系统**的性质 —— 瞳面 chirp 以面板标称中心
      (960, 600) 为中心而照明不在那里，于是它带一个 ∝ Δz 的**倾斜**分量（远场位移 ∝ Δz），
      而仿真的 chirp 打在光束中心、**没有**倾斜。所以这里的不对称有一部分来自**模拟方式**，
      不是光学。
-   - **不**跨相位比较复合分数/PIB 的**绝对值**（两组的孔径不同：13 px 对 23 px），只比
+   - **不**跨相位比较复合分数/PIB 的**绝对值**（两组的孔径不同：{hw_side} px 对 {model_side} px），只比
      **归一化**曲线。
    - **不**把 FWHM 当离焦指标（环形/分裂图样会让它量到环的厚度；本组实测 FWHM 在 3.5 ~ 174.6 px
      之间跳，模型相位组还非单调）。FWHM 只作描述列。
-   - **不**说「跟中心就消除了转向污染」—— 互相关在本实验系统的散斑图样上不可用（见 §x.5 第 2 条）。
-   - 44 px 那组数字**本身没错**（对该孔径而言是对的），错的是从它推出的结论；所以保留为「口径 A」。
+   - **不**说「跟中心就消除了转向污染」—— 互相关在本实验系统的散斑图样上不可用
+      （见「三套口径」对照里「跟中心」口径的第 2 条注）。
+   - 44 px 那组数字**本身没错**（对该孔径而言是对的），错的是从它推出的结论；
+     所以它只当「口径 A」保留 —— 结论要看按光斑自身宽度重算的「匹配框」口径，
+     并由孔径灵敏度表说明结论不是孔径选出来的。
 
 ---
 
@@ -1683,44 +2128,18 @@ def build_markdown(
 
 ```bash
 # 一次只跑一组变量: 计划文件里每一组是一次独立调用, 各自单独记录。
-# (完整计划见 data/debug/hw_groups_20261020/plan.json)
-python scripts/slm/run_hw_sweep_groups.py \\
-    --plan data/debug/hw_groups_20261020/plan.json \\
-    --adopt-existing zernike_order data/debug/hw_zernike_sweep_20261020b \\
-    --timeout-s 1800
+{repro.get('plan', '（本轮没有分组索引）')}
 
-# 单组单独跑 (驱动只挑这一组)
-python scripts/slm/run_hw_sweep_groups.py \\
-    --plan data/debug/hw_groups_20261020/plan.json --only dz_scan_hw_gs
+# 离线出图 (本报告)
+{repro.get('report', '（本轮没有分组索引）')}
 
-# 计划里每组对应的实际调用 (节选; 下一轮上机要加的两个开关见括号)
-#   dz_scan_hw_gs:
-#     python scripts/slm/hw_gs_defocus_probe.py --execute --group dz_scan_hw_gs \\
-#       --group-meta role=dz_scan --group-meta phase=hardware_gs \\
-#       --out-root data/debug/hw_groups_20261020 \\
-#       --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 \\
-#       --gs-phase data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy \\
-#       --dz-mm -20 -15 ... 20
-#       (下一轮: --target-side-px 10  --chirp-tilt-cancel)
-#   dz_scan_model_gs:
-#     同上, 但不传 --gs-phase (用模型相位), 曝光 0.4 ms
-#       (下一轮: --target-side-px 44  --chirp-tilt-cancel)
-#   zernike_order:
-#     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 \\
-#       --exposure-time-ms 0.2 --cam-size 256 --beam-radius-px 450 --slm-number 1 \\
-#       --epochs 250 --gs-iters 200 --spgd-epochs 150 \\
-#       --n-max 3 4 6 8 11 15 20 25 --lr 0.01 --delta 0.02 --max-energy-loss 0.6 \\
-#       --seed 0 --defocus-focal-mm 1597.4 --save-images
-
-# 离线出图
-python scripts/slm/generate_hw_defocus_zernike_report.py \\
-    --groups-root data/debug/hw_groups_20261020 \\
-    --groups-root data/debug/hw_zernike_sweep_20261020b
+# 本轮每一组的**实际调用** (取自分组索引 groups_manifest.json, 原样照抄)
+{repro.get('groups', '（本轮没有分组索引）')}
 ```
 
-采集目录：离焦与噪声组在 `data/debug/hw_groups_20261020/<组名>/`；
-泽尼克阶数组在 `{zernike_dir.name if zernike_dir else '（本轮未采集）'}`；
-分组索引 `data/debug/hw_groups_20261020/groups_manifest.json`。
+采集目录：离焦与噪声组在 `{repro.get('groups_root', '（未记录）')}`；
+泽尼克阶数组在 `{repro.get('zernike_dir', '（本轮未采集）')}`；
+分组索引 `{repro.get('manifest', '（未记录）')}`。
 """
 
 
@@ -1734,6 +2153,11 @@ def main() -> int:
                         help="噪声地板的测量目录 (同一相位重复采集)")
     parser.add_argument("--zernike-dir", type=Path, default=None,
                         help="泽尼克阶数扫描的 run 目录 (含 summary.json)")
+    parser.add_argument("--focus-evidence", type=Path, default=None,
+                        help="焦面标定的证据文件 (focus_probe 落盘的 JSON); "
+                             "不给则取 data/debug/bench_settings/focus_probe/ 下最新的一份")
+    parser.add_argument("--report-key", default=REPORT_KEY,
+                        help="报告的仓库内相对路径 (决定输出文件与溯源键)")
     parser.add_argument("--order-noise-dir", type=Path, default=None,
                         help="阶数比较用的噪声地板目录 (硬件 GS 相位重复采集, 曝光须与 "
                              "泽尼克扫描一致); 不给则按曝光自动挑")
@@ -1742,6 +2166,13 @@ def main() -> int:
     roots = [p for p in (args.groups_root + [args.defocus_dir, args.noise_dir,
                                              args.order_noise_dir, args.zernike_dir])
              if p is not None]
+    focus_evidence = args.focus_evidence
+    if focus_evidence is None:
+        fp_dir = ROOT / "data/debug/bench_settings/focus_probe"
+        candidates = sorted(fp_dir.glob("*.json"), key=lambda q: q.stat().st_mtime)
+        focus_evidence = candidates[-1] if candidates else None
+    focus = load_focus_evidence(focus_evidence)
+    manifest, manifest_path = load_manifest(roots)
     found = discover_groups(roots)
 
     # --- 离焦分组: 噪声地板组 (Δz 全 0) 与扫描组 (Δz 有跨度) -----------------
@@ -1792,7 +2223,10 @@ def main() -> int:
     noise["dir"] = noise_run["dir"]
 
     # --- 泽尼克组 ------------------------------------------------------------
-    zernike_dir = found["zernike"][0]["dir"] if found["zernike"] else args.zernike_dir
+    # 泽尼克扫描拆成多次调用后, 产物分散在各个组目录里 ⇒ 用**根目录**去找, 不是某一个组。
+    zernike_dir = args.zernike_dir
+    if zernike_dir is None and found["zernike"]:
+        zernike_dir = found["zernike"][0]["dir"].parent
     zernike = load_zernike(zernike_dir) if zernike_dir else {}
     zernike_exposure = (zernike.get("config") or {}).get("exposure_time_ms")
     order_run = (load_probe_run(args.order_noise_dir) if args.order_noise_dir
@@ -1815,12 +2249,17 @@ def main() -> int:
     zernike_figures = copy_zernike_farfields(zernike_dir, zernike.get("orders", []))
     if render_zernike_xsec(farfield_runs, FIG_DIR / "hw_zernike_xsec.png"):
         zernike_figures = zernike_figures + ["figures/hw_zernike_xsec.png"]
+    if render_zernike_farfield_grid(farfield_runs, FIG_DIR / "hw_zernike_farfield_grid.png"):
+        zernike_figures = zernike_figures + ["figures/hw_zernike_farfield_grid.png"]
+    repro = repro_block(manifest, manifest_path, roots, zernike_dir,
+                        focus_evidence, args.report_key)
     body = build_markdown(
         primary_run, noise, sim_g1, zernike, zernike_dir, figures, order_noise,
         groups_for_report, group_figures, response_figures, zernike_figures,
+        focus, farfield_runs, repro,
     )
-    text = insert_header(body, REPORT_KEY)
-    out_path = ROOT / REPORT_KEY
+    text = insert_header(body, args.report_key)
+    out_path = ROOT / args.report_key
     out_path.write_text(text, encoding="utf-8")
     print(f"[done] wrote {out_path}")
     return 0
