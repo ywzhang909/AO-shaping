@@ -43,16 +43,24 @@ jobs:
           python-version: "3.12"
       - name: Install uv
         uses: astral-sh/setup-uv@v5
-      - name: Sync dependencies (CPU torch)
-        # Default `uv sync` installs NO torch: torch/torchvision are declared as
-        # [project.optional-dependencies] extras (torch-cpu / torch-cu12x) with
-        # explicit PyTorch indexes, so a bare sync leaves torch absent. But the
-        # default test subset imports torch directly (e.g.
-        # tests/.../test_zernike_coefficient_optimizer.py), which then aborts the
-        # whole run at collection with "No module named 'torch'".
-        # CI runners are CPU-only (no GPU) -> the torch-cpu extra selects the
-        # `pytorch-cpu` index (download.pytorch.org/whl/cpu), so this pulls the
-        # small CPU wheel instead of a multi-GB CUDA build.
-        run: uv sync --extra torch-cpu
+      - name: Sync dependencies (CPU torch + ml group)
+        # Default `uv sync` installs the main deps + the `dev` group only, which
+        # leaves two gaps for the default test subset:
+        # (1) NO torch: torch/torchvision are declared as [project.optional-dependencies]
+        #     extras (torch-cpu / torch-cu12x) with explicit PyTorch indexes, so a
+        #     bare sync leaves torch absent, but the default subset imports torch
+        #     directly (e.g. tests/.../test_zernike_coefficient_optimizer.py).
+        #     --extra torch-cpu selects the `pytorch-cpu` index
+        #     (download.pytorch.org/whl/cpu) so CI (no GPU) pulls the small CPU
+        #     wheel instead of a multi-GB CUDA build.
+        # (2) NO ml group: tests under runners/ pull `ml` transitively
+        #     (runners/slm/gsnet_runner.py -> ml.gsnet_debug.train -> wandb),
+        #     so without the ml group those tests abort at collection with
+        #     "No module named 'wandb'". --group ml installs wandb + torchmetrics.
+        # The rl group is intentionally NOT added: tests/ao_shaping/optimizer/rl
+        # are excluded from the default subset anyway, and the few that remain
+        # already skip gracefully ("could not import gymnasium") -- adding rl
+        # would only make them execute and slow the run.
+        run: uv sync --extra torch-cpu --group ml
       - name: Run pytest (default subset; hardware/ml/gui-hang areas are excluded by pyproject)
         run: uv run pytest
