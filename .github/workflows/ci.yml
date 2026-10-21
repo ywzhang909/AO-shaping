@@ -32,6 +32,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # `oopao` is a hard dep (pyproject [tool.uv.sources] -> path libs/OOPAO,
+          # editable). Without this the submodule dir is empty on the runner and
+          # `uv sync` fails: "libs/OOPAO does not appear to be a Python project".
+          submodules: recursive
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
