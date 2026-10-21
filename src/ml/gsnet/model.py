@@ -142,6 +142,26 @@ class FiLMLayer(nn.Module):
         return gamma * feat + beta
 
 
+def _match_grid(tensor: torch.Tensor, side: int) -> torch.Tensor:
+    """Bilinearly resample ``tensor`` to a ``side x side`` grid.
+
+    Exact no-op when the tensor already has that side, so the same-grid path
+    keeps its bit-identical arithmetic.
+
+    Args:
+        tensor: Tensor whose last two dims are the grid to resample.
+        side: Target side length.
+
+    Returns:
+        The tensor on the target grid.
+    """
+    if tensor.shape[-1] == side:
+        return tensor
+    return torch.nn.functional.interpolate(
+        tensor, size=(side, side), mode="bilinear", align_corners=False
+    )
+
+
 class FFTLayer(nn.Module):
     """One unrolled Gerchberg–Saxton iteration with a learned phase update.
 
@@ -207,9 +227,13 @@ class FFTLayer(nn.Module):
         """Run one unrolled GS step.
 
         Args:
-            phase: Current source-plane phase ``(B, 1, H, W)`` radians.
-            source_amp: Source-plane amplitude ``(B, 1, H, W)``.
-            target_amp: Far-field (target) amplitude ``(B, 1, H, W)``.
+            phase: Current source-plane phase ``(B, 1, H, W)`` radians, on the
+                **pupil** grid.
+            source_amp: Source-plane amplitude ``(B, 1, H, W)``, pupil grid.
+            target_amp: Far-field (target) amplitude ``(B, 1, S, S)``, on the
+                **far-field** grid.  ``S`` may differ from ``H`` when the
+                operator oversamples the far field; the historical same-grid
+                regime has ``S == H``.
 
         Returns:
             Updated source-plane phase ``(B, 1, H, W)`` radians.
@@ -236,9 +260,22 @@ class FFTLayer(nn.Module):
         pupil_phase = torch.angle(pupil_back)
 
         # ---- 5. Learned phase refinement ----
-        cnn_input = torch.cat([phase, target_amp**2], dim=1)      # (B, 2, H, W)
+        # The CNN works on the PUPIL grid: the far-field tensors are the hint,
+        # the phase is the answer, and the answer has to live on the pupil grid.
+        # When the two grids coincide this is the historical expression, bit for
+        # bit; when they differ the far-field parts are bilinearly resampled
+        # down to the pupil grid.
+        pupil_side = phase.shape[-1]
+        cnn_input = torch.cat(
+            [phase, _match_grid(target_amp**2, pupil_side)], dim=1
+        )                                                       # (B, 2, H, W)
         condition = torch.cat(
-            [pupil_phase, far_field_c.real, far_field_c.imag], dim=1
+            [
+                pupil_phase,
+                _match_grid(far_field_c.real, pupil_side),
+                _match_grid(far_field_c.imag, pupil_side),
+            ],
+            dim=1,
         )                                                        # (B, 3, H, W)
 
         delta = self.phase_net(cnn_input, condition)
@@ -289,9 +326,11 @@ class FourierGSNet(nn.Module):
         """Predict the SLM phase mask.
 
         Args:
-            source_intensity: Source-plane intensity ``(B, 1, H, W)``, non-negative.
-            target_intensity: Desired far-field intensity ``(B, 1, H, W)``,
-                non-negative.
+            source_intensity: Source-plane intensity ``(B, 1, H, W)``,
+                non-negative, on the **pupil** grid.
+            target_intensity: Desired far-field intensity, non-negative.  On the
+                **far-field** grid, which in the oversampled regime is larger
+                than the pupil grid.
 
         Returns:
             Phase mask ``(B, 1, H, W)`` radians, unwrapped-free (mod 2π).
@@ -301,11 +340,28 @@ class FourierGSNet(nn.Module):
                 "Expected 4D inputs (B, 1, H, W), got "
                 f"{tuple(source_intensity.shape)} and {tuple(target_intensity.shape)}"
             )
-        if source_intensity.shape != target_intensity.shape:
-            raise ValueError(
-                "source_intensity and target_intensity shapes must match: "
-                f"{tuple(source_intensity.shape)} vs {tuple(target_intensity.shape)}"
-            )
+        if self._forward_op is None:
+            # Legacy path: one grid for both, exactly as before.
+            if source_intensity.shape != target_intensity.shape:
+                raise ValueError(
+                    "source_intensity and target_intensity shapes must match: "
+                    f"{tuple(source_intensity.shape)} vs {tuple(target_intensity.shape)}"
+                )
+        else:
+            # The operator owns the two grid sides; check them when it publishes
+            # them, so a mismatched training set fails before a device is touched.
+            pupil_side = getattr(self._forward_op, "pupil_side", None)
+            far_side = getattr(self._forward_op, "far_side", None)
+            if pupil_side is not None and source_intensity.shape[-1] != pupil_side:
+                raise ValueError(
+                    f"source_intensity side {source_intensity.shape[-1]} does not "
+                    f"match the operator's pupil grid {pupil_side}"
+                )
+            if far_side is not None and target_intensity.shape[-1] != far_side:
+                raise ValueError(
+                    f"target_intensity side {target_intensity.shape[-1]} does not "
+                    f"match the operator's far-field grid {far_side}"
+                )
 
         source_amp = torch.sqrt(source_intensity.clamp_min(0.0) + 1e-12)
         target_amp = torch.sqrt(target_intensity.clamp_min(0.0) + 1e-12)

@@ -55,9 +55,49 @@ def _centre_pad(field: torch.Tensor, out_size: int) -> torch.Tensor:
     return field
 
 
+def _centre_crop(field: torch.Tensor, side: int) -> torch.Tensor:
+    """Centre-crop the last two dims to ``side``.
+
+    Exact no-op when the field is already that size (a slice, never a resize),
+    so the same-grid path stays bit-identical.
+
+    Args:
+        field: Tensor whose last two dims are the grid to crop.
+        side: Target side length.
+
+    Returns:
+        The cropped tensor.
+
+    Raises:
+        ValueError: If the field is smaller than ``side``.
+    """
+    n = field.shape[-1]
+    if n == side:
+        return field
+    if n < side:
+        raise ValueError(f"cannot crop a {n}-px field to {side} px")
+    half = (n - side) // 2
+    return field[..., half : half + side, half : half + side]
+
+
 @runtime_checkable
 class ForwardOperator(Protocol):
-    """Physics contract for one unrolled GS iteration's forward/back pair."""
+    """Physics contract for one unrolled GS iteration's forward/back pair.
+
+    **Grid semantics** (this is the contract the network relies on):
+
+    * ``forward`` takes the **pupil**-grid source amplitude and phase and
+      returns the **far-field**-grid complex spectrum;
+    * ``back_propagate`` takes a far-field-grid complex field and returns the
+      **pupil**-grid complex field;
+    * ``warm_start`` takes a far-field-grid target amplitude and returns the
+      **pupil**-grid phase.
+
+    The two grids are the same size in the historical same-grid regime and
+    different in the oversampled regime, where the far field is the resolved
+    one and the pupil is the coarse parameterisation.  An operator that knows
+    its two grid sides exposes them as ``pupil_side`` / ``far_side``.
+    """
 
     def forward(self, source_amp: torch.Tensor, phase: torch.Tensor) -> torch.Tensor:
         """(B,1,H,W) source amplitude + (B,1,H,W) phase rad -> (B,1,S,S) far-field
@@ -106,23 +146,50 @@ class IdealFFTOperator:
     the pupil-plane scale.  The legacy convention applies no factor (today's
     un-scaled ``ifft2`` pair).
 
+    **Pupil grid vs far-field grid.**  ``pupil_side`` is the side of the
+    *pupil* grid the operator consumes and produces; ``out_size`` is the side
+    of the *far-field* grid.  They are equal by default (the historical
+    behaviour: the network's far field was a same-size FFT, so the
+    diffraction-limited spot was sub-pixel and the pattern aliased).  Setting
+    ``pupil_side < out_size`` is what lets the network see a **resolved** far
+    field: the forward zero-pads the pupil to ``out_size`` and the backward
+    step crops the centre back to ``pupil_side``.  The 2f bench needs that
+    oversampling (8x and more) for its far field to be sampled at all.
+
     Args:
         out_size: Far-field grid side (zero-pad target of the forward).
         convention: ``"legacy"`` (default) or ``"canonical"``.
+        pupil_side: Side of the pupil grid.  ``None`` (default) means
+            ``out_size``, i.e. the historical same-grid behaviour.
 
     Raises:
-        ValueError: On an unknown ``convention`` or a non-positive ``out_size``.
+        ValueError: On an unknown ``convention``, a non-positive ``out_size``,
+            or a non-positive ``pupil_side``.
     """
 
-    def __init__(self, out_size: int, *, convention: str = "legacy") -> None:
+    def __init__(
+        self,
+        out_size: int,
+        *,
+        convention: str = "legacy",
+        pupil_side: int | None = None,
+    ) -> None:
         if convention not in ("legacy", "canonical"):
             raise ValueError(
                 f"convention must be 'legacy' or 'canonical', got {convention!r}"
             )
         if out_size < 1:
             raise ValueError(f"out_size must be >= 1, got {out_size}")
+        if pupil_side is not None and pupil_side < 1:
+            raise ValueError(f"pupil_side must be >= 1, got {pupil_side}")
         self.out_size = int(out_size)
         self.convention = convention
+        self.pupil_side = int(out_size if pupil_side is None else pupil_side)
+
+    @property
+    def far_side(self) -> int:
+        """Side of the far-field grid this operator produces."""
+        return self.out_size
 
     def forward(self, source_amp: torch.Tensor, phase: torch.Tensor) -> torch.Tensor:
         """Propagate the pupil field to the complex far field on ``out_size``."""
@@ -135,15 +202,38 @@ class IdealFFTOperator:
         return torch.fft.fftshift(torch.fft.fft2(pupil_field), dim=(-2, -1))
 
     def back_propagate(self, far_field: torch.Tensor) -> torch.Tensor:
-        """Inverse-propagate a complex far field to the complex pupil field."""
-        back = torch.fft.ifft2(torch.fft.ifftshift(far_field, dim=(-2, -1)))
-        if self.convention == "legacy":
-            return back
-        scale = (far_field.shape[-2] * far_field.shape[-1]) / float(self.out_size**2)
-        return back * scale
+        """Inverse-propagate a complex far field to the complex pupil field.
+
+        The result is on the **pupil** grid (``pupil_side``), i.e. the centre
+        window of the inverse transform when the far-field grid is larger.
+
+        The two conventions are **exact inverse pairs** of their own forward:
+        the legacy forward is an unnormalised ``fft2`` and its back is the
+        unnormalised ``ifft2``; the canonical forward shifts the pupil before
+        the transform (``ifftshift``) and normalises by the grid side
+        (``norm="ortho"``), so its back has to shift back and undo the
+        normalisation.  Only the phase of the result reaches the network, but an
+        exact pair is what makes the round-trip testable — and it keeps the two
+        operators in the same pupil frame.
+        """
+        if self.convention == "canonical":
+            back = torch.fft.fftshift(
+                torch.fft.ifft2(
+                    torch.fft.ifftshift(far_field, dim=(-2, -1)),
+                    dim=(-2, -1),
+                    norm="ortho",
+                ),
+                dim=(-2, -1),
+            )
+        else:
+            back = torch.fft.ifft2(torch.fft.ifftshift(far_field, dim=(-2, -1)))
+        return _centre_crop(back, self.pupil_side)
 
     def warm_start(self, target_amp: torch.Tensor) -> torch.Tensor:
-        """Classical GS initial phase from the target amplitude."""
+        """Classical GS initial phase from the target amplitude.
+
+        The returned phase is on the **pupil** grid.
+        """
         if self.convention == "canonical":
             init_field = torch.fft.ifft2(
                 torch.fft.ifftshift(target_amp, dim=(-2, -1)), norm="ortho"
@@ -152,7 +242,7 @@ class IdealFFTOperator:
             init_field = torch.fft.ifft2(
                 torch.fft.ifftshift(target_amp, dim=(-2, -1))
             )
-        return torch.angle(init_field)
+        return torch.angle(_centre_crop(init_field, self.pupil_side))
 
 
 class Bench2FOperator:
@@ -197,6 +287,16 @@ class Bench2FOperator:
                 )
         self._propagator = propagator
         self._aberration = aberration
+
+    @property
+    def pupil_side(self) -> int:
+        """Side of the pupil grid (the propagator's ``region``)."""
+        return int(self._propagator.geometry.region)
+
+    @property
+    def far_side(self) -> int:
+        """Side of the far-field grid (the propagator's ``far_field_size``)."""
+        return int(self._propagator.geometry.far_field_size)
 
     def forward(self, source_amp: torch.Tensor, phase: torch.Tensor) -> torch.Tensor:
         """Complex, peak-normalised far field of the pupil field.

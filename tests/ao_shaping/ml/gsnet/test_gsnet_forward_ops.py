@@ -155,13 +155,98 @@ class TestIdealFFTConventions:
         expected = torch.fft.ifft2(torch.fft.ifftshift(far, dim=(-2, -1)))
         assert torch.equal(op.back_propagate(far), expected)
 
-    def test_canonical_back_scale_factor(self):
-        """canonical back = ifft2(ifftshift(F)) * (H*W)/(S*S)."""
+    def test_canonical_back_is_the_exact_inverse_pair(self):
+        """canonical back = ifft2(ifftshift(F)) * S，是 canonical forward 的精确逆。
+
+        canonical forward 做了 ``norm="ortho"``（除以网格边长 S），所以逆步要乘回来。
+        """
         op = IdealFFTOperator(64, convention="canonical")
-        far = torch.ones(1, 1, 32, 32, dtype=torch.complex64)
+        far = torch.ones(1, 1, 64, 64, dtype=torch.complex64)
         back = op.back_propagate(far)
-        expected = torch.fft.ifft2(torch.fft.ifftshift(far, dim=(-2, -1))) * (32 * 32) / (64 * 64)
+        expected = torch.fft.fftshift(
+            torch.fft.ifft2(
+                torch.fft.ifftshift(far, dim=(-2, -1)), dim=(-2, -1), norm="ortho"
+            ),
+            dim=(-2, -1),
+        )
         assert torch.allclose(back, expected)
+        assert back.shape == (1, 1, 64, 64)
+
+
+class TestOversampledGrids:
+    """远场网格比瞳面网格大时（2f 台架真正需要的采样）。
+
+    这是 issue #165 的架构前提：同尺寸 FFT 的衍射极限光斑是亚像素的、图样混叠，
+    网络内部必须能看到**被解析开**的远场。
+    """
+
+    def test_pupil_side_defaults_to_out_size(self):
+        op = IdealFFTOperator(64)
+        assert op.pupil_side == 64
+        assert op.far_side == 64
+
+    def test_forward_pads_pupil_to_far_grid(self):
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        amp = torch.rand(1, 1, 64, 64)
+        phase = torch.randn(1, 1, 64, 64)
+        far = op.forward(amp, phase)
+        assert far.shape == (1, 1, 256, 256)
+        # 与规范居中 FFT 逐位相同
+        expected = focal_field(amp * torch.exp(1j * phase), 256)
+        assert torch.equal(far, expected)
+
+    def test_back_propagate_crops_to_pupil_grid(self):
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        far = torch.randn(1, 1, 256, 256, dtype=torch.complex64)
+        back = op.back_propagate(far)
+        assert back.shape == (1, 1, 64, 64)
+
+    def test_back_propagate_is_the_inverse_pair(self):
+        """forward -> back 必须还原瞳面场（对规范约定，误差 < 1e-4）。"""
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        amp = torch.rand(1, 1, 64, 64)
+        phase = torch.randn(1, 1, 64, 64)
+        back = op.back_propagate(op.forward(amp, phase))
+        expected = amp * torch.exp(1j * phase)
+        assert torch.allclose(back, expected, atol=1e-4)
+
+    def test_warm_start_returns_pupil_grid_phase(self):
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        target = torch.rand(1, 1, 256, 256)
+        phase = op.warm_start(target)
+        assert phase.shape == (1, 1, 64, 64)
+        assert phase.dtype == torch.float32
+
+    def test_same_grid_stays_bit_identical(self):
+        """pupil_side == out_size 时，旧行为逐位不变。"""
+        op = IdealFFTOperator(64, convention="legacy")
+        far = torch.randn(1, 1, 64, 64, dtype=torch.complex64)
+        expected = torch.fft.ifft2(torch.fft.ifftshift(far, dim=(-2, -1)))
+        assert torch.equal(op.back_propagate(far), expected)
+
+    def test_network_accepts_pupil_and_far_field_grids(self):
+        """source 在瞳面网格、target 在远场网格时，网络能跑且输出仍是瞳面相位。"""
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        model = FourierGSNet(num_layers=2, base_channels=8, shared_weights=True, forward_op=op)
+        source = torch.rand(2, 1, 64, 64)
+        target = torch.rand(2, 1, 256, 256)
+        with torch.no_grad():
+            phase = model(source, target)
+        assert phase.shape == (2, 1, 64, 64)
+        assert torch.isfinite(phase).all()
+
+    def test_network_rejects_mismatched_grids(self):
+        op = IdealFFTOperator(256, convention="canonical", pupil_side=64)
+        model = FourierGSNet(num_layers=1, base_channels=8, forward_op=op)
+        with pytest.raises(ValueError):
+            model(torch.rand(1, 1, 32, 32), torch.rand(1, 1, 256, 256))
+        with pytest.raises(ValueError):
+            model(torch.rand(1, 1, 64, 64), torch.rand(1, 1, 128, 128))
+
+    def test_legacy_path_still_requires_matching_shapes(self):
+        model = FourierGSNet(num_layers=1, base_channels=8)
+        with pytest.raises(ValueError):
+            model(torch.rand(1, 1, 64, 64), torch.rand(1, 1, 256, 256))
 
 
 class TestWarmStart:
