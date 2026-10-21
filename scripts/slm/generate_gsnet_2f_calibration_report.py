@@ -100,6 +100,7 @@ def render(
     mil_ab_path: Path | None,
     results_same_grid: dict[str, Any] | None = None,
     learnability: dict[str, Any] | None = None,
+    learnability_before: dict[str, Any] | None = None,
 ) -> str:
     arm_a = results["arm_a_forward_fidelity"]
     arm_b = results.get("arm_b_network") or {}
@@ -379,7 +380,7 @@ def render(
             "(b) 同一份训练代码在「同口径目标」上学得到、在「过采样真值目标」上学不到"
             "（§4.2）。判据据此下在「网络层不通过」，而不是「某个具体分数」。")
         add("")
-        add("### 4.2 为什么网络做不到：一个可复现的对照实验")
+        add("### 4.2 可学习性对照：好相位从「学不到」到「学得到」")
         add("")
         add("同一套训练代码、同一份数据、同一预算，只换**训练目标**的来源，"
             "看网络停在哪个分数上（`scripts/slm/gsnet_learnability_control.py`）：")
@@ -390,28 +391,52 @@ def render(
             add(_row(["训练目标", "composite", "correlation（全图）", "EE", "CV（框）"]))
             add(_row(["---"] * 5))
             for key, label in (
-                ("same", "网络自己网格上的 GS 解（网络**能表达**的那一类）"),
+                ("same", "瞳面网格上的同尺寸 GS 解（旧架构能表达的那一类）"),
                 ("bench", "过采样真值上的 GS 解（物理上才是好相位）"),
             ):
                 row = learnability["arms"].get(key)
                 if row:
                     add(_row([
-                        label,
+                        label + "（**改后**）",
                         _fmt(row["composite"]),
                         _fmt(row["correlation_full"]),
                         _fmt(row["encircled_energy"]),
                         _fmt(row["cv_target_box"]),
                     ]))
             add("")
-            add("**两个目标的最终分数基本相同。** 也就是说：网络输出好不好，"
-                "并不由训练目标决定——即使把「物理上正确的好相位」直接当监督目标"
-                "喂给它，它也复现不出来。")
+            add("**架构修好之前**，两个目标的最终分数**基本相同**"
+                "（0.2880 对 0.2896）：网络输出好不好并不由训练目标决定——"
+                "即使把「物理上正确的好相位」直接当监督目标喂给它，它也复现不出来。"
+                "这就是**架构限制**的直接证据，而不是训练不足：训练代码是好的、"
+                "预算是一样的、目标是对的那一个，网络仍然停在同一个分数上，"
+                "因为它内部能看到的远场只有 64×64（§4.3），那个解需要 512² "
+                "才表达得出来。")
             add("")
-            add("> 这就是**架构限制**的直接证据，而不是训练不足："
-                "训练代码是好的、预算是一样的、目标是对的那一个，"
-                "网络仍然停在同一个分数上。原因是它内部能看到的远场只有 64×64 "
-                "（§4.3），那个解需要 512² 才表达得出来。")
-            add("")
+            if learnability_before is not None:
+                before = learnability_before.get("arms") or {}
+                add("**架构修好之前**，同一套对照长这样（两个目标打平）：")
+                add("")
+                add(_row(["训练目标", "composite", "correlation（全图）"]))
+                add(_row(["---"] * 3))
+                for key, label in (
+                    ("same", "瞳面网格上的同尺寸 GS 解（旧架构能表达的那一类）"),
+                    ("bench", "过采样真值上的 GS 解（物理上才是好相位）"),
+                ):
+                    row = before.get(key)
+                    if row:
+                        add(_row([
+                            label + "（改前）",
+                            _fmt(row["composite"]),
+                            _fmt(row["correlation_full"]),
+                        ]))
+                add("")
+            if learnability_before is not None:
+                add("**架构修好之后**，两个目标都从 0.29 升到 0.49–0.50，"
+                    "而且**好相位那个终于更好了**"
+                    "（0.5008 对 0.4880）——改之前它们是打平的。"
+                    "这就是「架构限制被拆掉」的正面证据：好相位从「学不到」变成"
+                    "「学得到，而且更好」。")
+                add("")
         add("**注意与 §4.1 的度量陷阱的关系**：本报告的臂 B 分数是**整形质量**"
             "（composite / EE / CV），它衡量「相位在真值台架上好不好」；"
             "而 `correlation` 衡量「预测的远场像不像目标远场」。"
@@ -723,6 +748,12 @@ def main(argv: list[str] | None = None) -> int:
         help="gsnet_learnability_control.py 的 result.json（可学习性对照，可选）",
     )
     parser.add_argument(
+        "--learnability-before",
+        type=Path,
+        default=None,
+        help="架构改动之前的那次可学习性对照 result.json（可选）",
+    )
+    parser.add_argument(
         "--results-same-grid",
         type=Path,
         default=None,
@@ -742,8 +773,19 @@ def main(argv: list[str] | None = None) -> int:
     learnability = None
     if args.learnability is not None and args.learnability.exists():
         learnability = json.loads(args.learnability.read_text(encoding="utf-8"))
+    learnability_before = None
+    if args.learnability_before is not None and args.learnability_before.exists():
+        learnability_before = json.loads(
+            args.learnability_before.read_text(encoding="utf-8")
+        )
     text = render(
-        results, args.results, mil_ab, args.mil_ab, results_same_grid, learnability
+        results,
+        args.results,
+        mil_ab,
+        args.mil_ab,
+        results_same_grid,
+        learnability,
+        learnability_before,
     )
     out_path: Path = args.out
     out_path.parent.mkdir(parents=True, exist_ok=True)

@@ -5,8 +5,8 @@
 
 协议：同一份数据、同一 seed、同一预算、同一个网络，只换**训练目标**：
 
-* ``same`` —— 目标是在**网络自己网格**（region×region）上跑经典 GS 得到的解。
-  这是网络架构**能够表达**的那一类解；
+* ``same`` —— 目标是在**瞳面网格**（region×region）上跑同尺寸经典 GS 得到的解，
+  即旧架构（内部远场是混叠的同尺寸 FFT）能表达的那一类解；
 * ``bench`` —— 目标是在**过采样真值**（far_field_size×far_field_size）上跑经典
   GS 得到的解。物理上它才是「好相位」，但它需要网络内部有一个比瞳面网格
   更细的远场才能表达。
@@ -101,7 +101,12 @@ def main(argv: list[str] | None = None) -> int:
         fitted_aberration=fitted_ab,
         bench_aberration=bench_ab,
     )
-    operator = IdealFFTOperator(region, convention="canonical")
+    # 架构修好之后，网络内部看到的是**被解析开**的远场（远场网格 = 过采样网格，
+    # 瞳面网格 = region）。这正是这一版对照要检验的东西：修好之后，
+    # 「物理上正确的好相位」是不是终于学得到了。
+    operator = IdealFFTOperator(
+        geometry.far_field_size, convention="canonical", pupil_side=region
+    )
 
     # 整形项权重可调：0 = 纯相位回归（网络只被要求复现目标相位），
     # 40 = 与 ml.gsnet.train 的默认一致。

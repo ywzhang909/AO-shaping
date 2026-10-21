@@ -618,9 +618,14 @@ def _classical_gs_same_regime(
     所以它和过采样目标是**同一个角尺寸**的同一个目标，只是表达分辨率不同。
     """
     amp = torch.sqrt(source.clamp_min(0.0) + 1e-12)
+    squeeze = target.ndim == 3
+    if squeeze:
+        target = target[None]
     coarse_target = torch.nn.functional.interpolate(
         target, size=(pupil_side, pupil_side), mode="area"
     )
+    if squeeze:
+        coarse_target = coarse_target[0]
     tamp = torch.sqrt(coarse_target.clamp_min(0.0) + 1e-12)
     phase = torch.angle(_pupil_back(tamp.to(torch.complex64), pupil_side))
     for _ in range(iterations):
