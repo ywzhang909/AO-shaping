@@ -905,12 +905,6 @@ REPORTS: dict[str, ReportProvenance] = {
         note="响应矩阵采集现场截图记录 (image/capture/)",
     ),
     # -- loss 算法对比 (compare_loss_algorithms.py 的 --out 家族) -----------
-    "report/loss_algorithms/loss_algorithms_smoke/loss_algorithms/report.md": ReportProvenance(
-        script="scripts/ml/compare_loss_algorithms.py",
-        command="python scripts/ml/compare_loss_algorithms.py",
-        environment="离线",
-        note="默认 --out 落点；summary.csv / summary.json / summary.png 为本脚本产物",
-    ),
     "report/loss_algorithms_smoke/loss_algorithms/report.md": ReportProvenance(
         script="scripts/ml/compare_loss_algorithms.py",
         command="python scripts/ml/compare_loss_algorithms.py --quick --out report/loss_algorithms_smoke",
@@ -1015,12 +1009,14 @@ REPORTS: dict[str, ReportProvenance] = {
             "python scripts/slm/generate_hw_defocus_zernike_report.py "
             "--groups-root data/debug/hw_groups_20261021 "
             "--groups-root data/debug/hw_zernike_sweep_20261021 "
-            "--focus-evidence data/debug/bench_settings/focus_probe/slm1_20261021_103452.json"
+            "--focus-evidence-dir data/debug/hw_groups_20261021/focus_calibration "
+            "--report-key report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021.md"
         ),
         environment="硬件",
         note=(
             "实验系统离焦扫描 + 多阶泽尼克匀化测试的**第二轮 (复测)**: 光路恢复后重新标定"
-            "焦面 (f_v = 1626.2 mm), 12 组每组一次独立调用 (泽尼克阶数组 → 离焦噪声组 → "
+            "焦面 (f_v = 1523.8 mm, 本轮 13:31 实测 1/f = +0.652 m^-1), 26 组每组一次独立"
+            "调用且每组 <=10 分钟 (焦面标定 → Stage A 分 6 块 → 8 个逐阶组 → 离焦噪声组 → "
             "离焦扫描组 → 模型相位对照组 → 8 个各阶远场补拍组), 目标框改为**预先登记**的"
             "该相位自己的成形目标, 离焦扫描带瞳面二次相位的去倾斜自标定; 受阻检测已并入"
             "自动焦面标定 (焦面探测把「光路受阻」与「找不到焦面」分成退出码 3 / 2, "

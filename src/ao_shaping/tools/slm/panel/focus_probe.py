@@ -831,6 +831,17 @@ class FocusProbeParams:
     max_exposure_ms: Annotated[
         float, option("--max-exposure-ms", help="曝光上限 ms (默认 20)")
     ] = 20.0
+    debug_dir: Annotated[
+        str,
+        option(
+            "--debug-dir",
+            help=(
+                "证据文件落盘目录 (默认 data/debug/bench_settings/focus_probe)。"
+                "下一轮把本轮的标定证据放进一个**专属目录**, 报告才不会读到"
+                "另一次上机留下的证据"
+            ),
+        ),
+    ] = ""
 
 
 @click.command()
@@ -850,6 +861,7 @@ def main(params: FocusProbeParams) -> None:
         frames=params.frames,
         max_exposure_ms=params.max_exposure_ms,
         wavelength_nm=params.slm_wavelength,
+        debug_dir=Path(params.debug_dir) if params.debug_dir else None,
     )
     if result.get("error"):
         logger.error("焦面探测失败: {}", result["error"])

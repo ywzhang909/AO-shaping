@@ -31,6 +31,7 @@ import argparse
 import csv
 import json
 import math
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -61,6 +62,36 @@ from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
 
 REPORT_KEY = "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md"
+
+#: 同系列里若还有别的报告, 它们的图必须**带日期戳**, 否则会覆盖这份的图
+#: (先例: model_in_loop/ 一个系列 9 份报告, 图名都带日期戳)。默认这份不带戳
+#: (图名已入库, 不改动)。
+DEFAULT_REPORT_STEM = "hw_defocus_zernike_20261020"
+
+
+#: 当前这份报告的图名戳 (由 main() 按报告键设置)。
+FIG_TAG = ""
+
+#: 当前这份报告的日期 (由 main() 按报告键设置) —— 标题里用它, 不写死。
+REPORT_DATE = "2026-10-20"
+
+
+def report_date(report_key: str) -> str:
+    """从报告键里取日期 (YYYYMMDD -> YYYY-MM-DD); 取不到就用默认那份的。"""
+    match = re.search(r"(\d{8})", Path(report_key).stem)
+    if not match:
+        return REPORT_DATE
+    stamp = match.group(1)
+    return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:]}"
+
+
+def figure_tag(report_key: str) -> str:
+    """报告的图名戳: 与默认那份不同就带上自己的日期戳。"""
+    stem = Path(report_key).stem
+    if stem == DEFAULT_REPORT_STEM:
+        return ""
+    match = re.search(r"(\d{8})$", stem)
+    return f"_{match.group(1)}" if match else ""
 OUT_DIR = ROOT / "report" / "shape_trials" / "hw_defocus_zernike"
 FIG_DIR = OUT_DIR / "figures"
 #: 仿真的 G1 参考曲线。报告目录正在重构 (每份报告一个子目录), 所以**按名字找**而不是
@@ -440,9 +471,9 @@ def render_figures(
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     fig.tight_layout()
-    savefig(fig, FIG_DIR / "hw_defocus_score_vs_dz.png")
+    savefig(fig, FIG_DIR / f"hw_defocus_score_vs_dz{FIG_TAG}.png")
     plt.close(fig)
-    made.append("figures/hw_defocus_score_vs_dz.png")
+    made.append(f"figures/hw_defocus_score_vs_dz{FIG_TAG}.png")
 
     # Figure b: 转向 —— 质心位移 vs Δz
     fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -468,9 +499,9 @@ def render_figures(
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     fig.tight_layout()
-    savefig(fig, FIG_DIR / "hw_defocus_steering_vs_dz.png")
+    savefig(fig, FIG_DIR / f"hw_defocus_steering_vs_dz{FIG_TAG}.png")
     plt.close(fig)
-    made.append("figures/hw_defocus_steering_vs_dz.png")
+    made.append(f"figures/hw_defocus_steering_vs_dz{FIG_TAG}.png")
 
     # Figure c: 光斑 FWHM vs Δz
     fig, ax = plt.subplots(figsize=(8, 4.5))
@@ -489,9 +520,9 @@ def render_figures(
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
     fig.tight_layout()
-    savefig(fig, FIG_DIR / "hw_defocus_fwhm_vs_dz.png")
+    savefig(fig, FIG_DIR / f"hw_defocus_fwhm_vs_dz{FIG_TAG}.png")
     plt.close(fig)
-    made.append("figures/hw_defocus_fwhm_vs_dz.png")
+    made.append(f"figures/hw_defocus_fwhm_vs_dz{FIG_TAG}.png")
 
     # Figure d: 泽尼克阶数扫描
     orders = zernike.get("orders", [])
@@ -537,9 +568,9 @@ def render_figures(
         axes[1].legend(fontsize=8)
         axes[1].grid(alpha=0.3)
         fig.tight_layout()
-        savefig(fig, FIG_DIR / "hw_zernike_order_scan.png")
+        savefig(fig, FIG_DIR / f"hw_zernike_order_scan{FIG_TAG}.png")
         plt.close(fig)
-        made.append("figures/hw_zernike_order_scan.png")
+        made.append(f"figures/hw_zernike_order_scan{FIG_TAG}.png")
     return made
 
 
@@ -852,7 +883,7 @@ def defocus_group_section(
 #### {level}.2 与仿真 G1 曲线对拍
 
 仿真的 G1 组（Δz 盲 GS、无离焦）取自 `report/shape_trials/fv_groups_fresnel_vs_vl.csv`
-（与 `gs_defocus_sim_20261019.md` §2.1 的 G1 行同源：Δz=0 处 score_fixed = 0.8073、
+（与 `../gs_defocus_sim/gs_defocus_sim_20261019.md` §2.1 的 G1 行同源：Δz=0 处 score_fixed = 0.8073、
 cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，各自对自己的 Δz=0 归一化。
 
 {cmp_table}
@@ -2014,7 +2045,7 @@ def build_markdown(
                 fmt_metric(run["config"].get("exposure_ms_working"), 3),
                 grp.get("phase_label", "未标注"),
                 str(len([r for r in run["rows"] if not r.get("frame_missing")])),
-                f"`{grp['dir']}`",
+                f"`{Path(grp['dir']).as_posix()}`",
             ]
         )
     if zernike.get("orders"):
@@ -2077,7 +2108,7 @@ def build_markdown(
             f"### {level} 分组「{grp['name']}」"
             f"（曝光 {fmt_metric(run['config'].get('exposure_ms_working'), 3)} ms，"
             f"相位来源：{grp.get('phase_label', '未标注')}）\n\n"
-            f"记录目录：`{grp['dir']}`\n"
+            f"记录目录：`{Path(grp['dir']).as_posix()}`\n"
         )
         group_sections += heading + defocus_group_section(
             run, sim_g1, sigma_score, level, grp.get("phase", ""), response_figures
@@ -2302,10 +2333,10 @@ def build_markdown(
         f"「{g['name']}」{fmt_metric(g['drop15'], 3)}" for g in group_readings
     )
 
-    return f"""# 硬件离焦扫描 + 多阶泽尼克匀化测试报告（2026-10-20）
+    return f"""# 硬件离焦扫描 + 多阶泽尼克匀化测试报告（{REPORT_DATE}）
 
 **本轮结论**：离焦扫描与泽尼克阶数扫描都在**真实实验系统**上在线实现，与
-[`gs_defocus_sim_20261019.md`](gs_defocus_sim_20261019.md) 的纯仿真结论逐条对拍。三条主要结论：
+[`gs_defocus_sim_20261019.md`](../gs_defocus_sim/gs_defocus_sim_20261019.md) 的纯仿真结论逐条对拍。三条主要结论：
 
 1. **实验系统自带 |Δz| ≈ {stand_mm:.1f} mm 的常驻离焦，必须先做瞳面焦面矫正**。
    第一轮实测：平相位下光斑 FWHM ≈ 115 px 且呈环形；
@@ -2516,7 +2547,9 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    global FIG_DIR
+    global FIG_DIR, FIG_TAG, REPORT_DATE
+    FIG_TAG = figure_tag(args.report_key)
+    REPORT_DATE = report_date(args.report_key)
     if args.figures_dir is not None:
         # 报告路径正在重构时, 「报告 + 图」可以整包写到仓库外 (临时目录)。
         FIG_DIR = Path(args.figures_dir)
@@ -2643,12 +2676,12 @@ def main() -> int:
     group_figures = render_group_farfields(groups_for_report)
     response_figures = render_defocus_responses(groups_for_report)
     zernike_figures = copy_zernike_farfields(zernike_dir, zernike.get("orders", []))
-    if render_zernike_xsec(farfield_runs, FIG_DIR / "hw_zernike_xsec.png"):
-        zernike_figures = zernike_figures + ["figures/hw_zernike_xsec.png"]
+    if render_zernike_xsec(farfield_runs, FIG_DIR / f"hw_zernike_xsec{FIG_TAG}.png"):
+        zernike_figures = zernike_figures + [f"figures/hw_zernike_xsec{FIG_TAG}.png"]
     if render_zernike_farfield_grid(
-        farfield_runs, FIG_DIR / "hw_zernike_farfield_grid.png"
+        farfield_runs, FIG_DIR / f"hw_zernike_farfield_grid{FIG_TAG}.png"
     ):
-        zernike_figures = zernike_figures + ["figures/hw_zernike_farfield_grid.png"]
+        zernike_figures = zernike_figures + [f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"]
     repro = repro_block(
         manifest, manifest_path, roots, zernike_dir, focus_evidence, args.report_key
     )

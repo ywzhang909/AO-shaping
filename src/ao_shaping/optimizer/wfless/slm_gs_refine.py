@@ -58,6 +58,7 @@ slot twice is a firmware no-op that does not refresh the panel.
 from __future__ import annotations
 
 import math
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -181,6 +182,25 @@ class SlmGsRefineConfig:
     seed: int | None = None
     early_stop_score: float = 0.0
     """Stop once the composite score reaches this (0 = run all epochs)."""
+
+    time_budget_s: float = 0.0
+    """Stage A 的墙钟预算 (s); 0 = 不限。超预算就**提前收工**: 保留目前最好的相位,
+    把实际跑掉的 epoch 数记进记录器, 让「一次扫描不超过 10 分钟」这条约束由配置保证,
+    而不是靠掐表掐进程。"""
+    chunk_epochs: int = 0
+    """本块要跑多少个**精化** epoch (0 = 用 ``epochs``)。
+
+    「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, ``epochs`` 必须保持
+    **总轮数** —— 学习率调度的总地平线就靠它, 改了调度就不是同一条轨迹了。
+    本字段只说这一块跑多少轮。
+    """
+
+    resume_state: dict[str, Any] | None = None
+    """从上一块续跑的状态 (由 :func:`resume_state_from_recorder` 产出)。
+
+    块边界必须能续上: 学习率按**全局** epoch 继续 (不热重启), 最佳值跨块取全局最优,
+    基线帧与零级位置沿用。否则 250 轮就被切成 6 段互不相干的优化。
+    """
 
     # --- objective ---------------------------------------------------------
     target_side: int = 0
@@ -422,6 +442,10 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"early_stop_score must be non-negative, got {self.early_stop_score}"
             )
+        if self.time_budget_s < 0:
+            raise ValueError(
+                f"time_budget_s must be non-negative, got {self.time_budget_s}"
+            )
         if self.progress_every < 1:
             raise ValueError(
                 f"progress_every must be at least 1, got {self.progress_every}"
@@ -600,6 +624,47 @@ def _lr_at(config: SlmGsRefineConfig, epoch: int) -> float:
 # ---------------------------------------------------------------------------
 
 
+def resume_state_from_recorder(
+    recorder: Any,
+    *,
+    flat_frame: np.ndarray,
+    center_y: int,
+    center_x: int,
+) -> dict[str, Any]:
+    """把一块的末态打包成「下一块的起点」。
+
+    「一次扫描不超过 10 分钟」把 Stage A 切成若干块后, 每一块都要从上一块的
+    末态继续 —— 否则块边界会重置学习率调度, 250 轮就变成 6 段互不相干的优化。
+
+    ⚠️ 打包的是**未叠加**的相位: 零级叠加是显示时加的 (驱动层), 进了状态下一块
+    就会叠加两次。焦面矫正走的是**另一个通道** (``set_phase_overlay``), 本来就不在
+    相位里, 所以不用管。
+
+    Args:
+        recorder: 一块跑完的 :class:`Recorder`。
+        flat_frame: 平场基线帧 (续跑时沿用, 免得再测一次)。
+        center_y: 零级行坐标。
+        center_x: 零级列坐标。
+
+    Returns:
+        可直接塞进 :attr:`SlmGsRefineConfig.resume_state` 的字典。
+    """
+    return {
+        "base_panel": np.asarray(recorder.base_panel, dtype=np.float64),
+        "dof": np.asarray(recorder.dof, dtype=np.float64),
+        "flat_frame": np.asarray(flat_frame, dtype=np.float64),
+        "center_y": int(center_y),
+        "center_x": int(center_x),
+        "best_score": float(recorder.best_score),
+        "best_phase": np.asarray(recorder.best_phase_plain, dtype=np.float64),
+        "best_frame": np.asarray(recorder.best_frame, dtype=np.float64),
+        "best_stage": str(recorder.best_stage),
+        # 下一块的**起点** = 已经跑过的总轮数 (不是本块的起始偏移:
+        # 第一块的起始偏移是 0, 但它跑完之后下一块该从 2 接着跑)。
+        "epoch_offset": int(getattr(recorder, "epochs_total", 0)),
+    }
+
+
 def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
     """Shape the far field into a uniform square on real SLM + CCD hardware.
 
@@ -613,6 +678,9 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
 
     Returns:
         A :class:`Recorder` whose ``mark`` is ``"score"`` in ``mode="max"``.
+        The recorder also carries ``epochs_executed`` (refinement epochs that
+        actually ran) and ``stopped_on_budget`` (the wall-clock budget cut the
+        run short), so a caller can tell a finished run from a truncated one.
     """
     if config.cam_type == "sim":
         # Registers the "sim" camera type as an import side effect.
@@ -680,6 +748,13 @@ def _run_gs_refine_session(
     best_stage = _STAGE_FLAT
     best_phase: np.ndarray | None = None
     best_frame: np.ndarray | None = None
+    # The wall-clock budget covers the WHOLE Stage A session (flat probe + GS
+    # + refinement), not just the refinement loop: the promise is about the
+    # caller's 10-minute slot, so the clock starts when the session starts.
+    budget_s = float(config.time_budget_s)
+    session_started = time.monotonic()
+    epochs_executed = 0
+    stopped_on_budget = False
     sync_device_wavelength(config, slm)
     panel_shape = panel_shape_from_slm(slm)
     disturbance = load_panel_disturbance(config.phase_disturbance_file, panel_shape)
@@ -905,75 +980,119 @@ def _run_gs_refine_session(
         recorder.append(row)
         return score
 
-    # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
-    flat_panel = np.zeros(panel_shape, dtype=np.float64)
-    frame0 = measure(flat_panel)
-    cy, cx = (
-        (signal_local_xy[1], signal_local_xy[0])
-        if overlay is not None
-        else locate_zero_order(frame0)
-    )
-    mask = square_mask(frame0.shape, cy, cx, target_side)
-    if not mask.any():
-        raise ValueError(
-            f"target square (side={target_side}px at ({cy},{cx})) is empty"
-        )
-    if config.exclude_zero_order_for_cv:
-        from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
-
-        core = zero_order_exclusion_mask(frame0, mask)
-        cv_mask = mask & ~core
-        logger.info(
-            "CV excludes {} zero-order pixels from {} target pixels",
-            int(core.sum()), int(mask.sum()),
-        )
-    score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
-    best_score = score_flat
-    best_phase = flat_panel
-    best_frame = frame0
-    logger.info(
-        "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
-        cy,
-        cx,
-        target_side,
-        score_flat,
-    )
-
-    # --- Stage 1: GS warm start, admitted only if it wins -------------
-    base_panel = flat_panel
-    gs_box = _gs_pupil_phase(config, radius_px, target_side)
-    if gs_box is not None:
-        gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
-        gs_frame = measure(gs_panel)
-        score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
-        if score_gs > score_flat:
-            base_panel = gs_panel
-            best_score = score_gs
-            best_phase = gs_panel
-            best_frame = gs_frame
-            best_stage = _STAGE_GS
-        else:
-            logger.info(
-                "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
-                "(check --camera-pixel-um / --beam-radius-px)",
-                score_gs,
-                score_flat,
+    resume = config.resume_state
+    epoch_offset = 0
+    grid = max(2, int(config.phase_grid))
+    if resume is not None:
+        # --- 续跑: 跳过平场基线与 GS 热启动, 从上一块的末态继续 --------------
+        base_panel = np.asarray(resume["base_panel"], dtype=np.float64)
+        dof = np.asarray(resume["dof"], dtype=np.float64)
+        frame0 = np.asarray(resume["flat_frame"], dtype=np.float64)
+        cy, cx = int(resume["center_y"]), int(resume["center_x"])
+        mask = square_mask(frame0.shape, cy, cx, target_side)
+        if not mask.any():
+            raise ValueError(
+                f"target square (side={target_side}px at ({cy},{cx})) is empty"
             )
+        best_score = float(resume["best_score"])
+        best_phase = np.asarray(resume["best_phase"], dtype=np.float64)
+        best_frame = np.asarray(resume["best_frame"], dtype=np.float64)
+        best_stage = str(resume["best_stage"])
+        epoch_offset = int(resume.get("epoch_offset", 0))
+        logger.info(
+            "续跑 Stage A: 从全局 epoch {} 继续, 当前最佳 {:.4f} (stage={})",
+            epoch_offset,
+            best_score,
+            best_stage,
+        )
+    else:
+        # --- Stage 0: flat baseline; locate 0-order; freeze the ROI ------
+        flat_panel = np.zeros(panel_shape, dtype=np.float64)
+        frame0 = measure(flat_panel)
+        cy, cx = (
+            (signal_local_xy[1], signal_local_xy[0])
+            if overlay is not None
+            else locate_zero_order(frame0)
+        )
+        mask = square_mask(frame0.shape, cy, cx, target_side)
+        if not mask.any():
+            raise ValueError(
+                f"target square (side={target_side}px at ({cy},{cx})) is empty"
+            )
+        if config.exclude_zero_order_for_cv:
+            from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
+
+            core = zero_order_exclusion_mask(frame0, mask)
+            cv_mask = mask & ~core
+            logger.info(
+                "CV excludes {} zero-order pixels from {} target pixels",
+                int(core.sum()), int(mask.sum()),
+            )
+        score_flat = record(_STAGE_FLAT, frame0, mask, flat_panel, cy=cy, cx=cx)
+        best_score = score_flat
+        best_phase = flat_panel
+        best_frame = frame0
+        logger.info(
+            "0-order at (row={}, col={}); target side {}px; flat score {:.4f}",
+            cy,
+            cx,
+            target_side,
+            score_flat,
+        )
+
+        # --- Stage 1: GS warm start, admitted only if it wins -------------
+        base_panel = flat_panel
+        gs_box = _gs_pupil_phase(config, radius_px, target_side)
+        if gs_box is not None:
+            gs_panel = embed_pupil_square(gs_box, panel_shape, radius_px, center_xy)
+            gs_frame = measure(gs_panel)
+            score_gs = record(_STAGE_GS, gs_frame, mask, gs_panel, cy=cy, cx=cx)
+            if score_gs > score_flat:
+                base_panel = gs_panel
+                best_score = score_gs
+                best_phase = gs_panel
+                best_frame = gs_frame
+                best_stage = _STAGE_GS
+            else:
+                logger.info(
+                    "GS warm start {:.4f} did not beat flat {:.4f}; keeping flat "
+                    "(check --camera-pixel-um / --beam-radius-px)",
+                    score_gs,
+                    score_flat,
+                )
 
     # --- Stage 2: SPGD freeform refinement --------------------------
     # The DOF vector stays flat: ``Base.update`` keeps its moments at
     # ``(dim,)`` and would not broadcast against a ``(grid, grid)``
     # gradient. It is reshaped only when embedded into the panel.
-    grid = max(2, int(config.phase_grid))
-    dof = np.zeros(grid * grid, dtype=np.float64)
-    optimizer = make_optimizer(config.optimizer_type, dof.size, _lr_at(config, 0))
+    if resume is None:
+        dof = np.zeros(grid * grid, dtype=np.float64)
+    optimizer = make_optimizer(
+        config.optimizer_type, dof.size, _lr_at(config, epoch_offset)
+    )
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return compose_pupil_dof(
             base_panel, vec.reshape(grid, grid), panel_shape, radius_px, center_xy
         )
 
-    for epoch in range(max(1, int(config.epochs))):
+    chunk_count = (
+        int(config.chunk_epochs) if int(config.chunk_epochs) > 0 else int(config.epochs)
+    )
+    for epoch in range(epoch_offset, epoch_offset + max(1, chunk_count)):
+        # Checked BEFORE spending an epoch: a budget that is already spent must
+        # not buy another pair of far-field reads. The best phase/frame found so
+        # far are kept -- an unfinished run is still a usable measurement.
+        if budget_s > 0.0 and (time.monotonic() - session_started) >= budget_s:
+            stopped_on_budget = True
+            logger.info(
+                "Stage A 墙钟预算 {:.1f}s 已用尽: 在第 {} 个精化 epoch 前收工, "
+                "保留目前的最佳相位 (实跑 {} 个 epoch)",
+                budget_s,
+                epoch,
+                epochs_executed,
+            )
+            break
         lr = _lr_at(config, epoch)
         if hasattr(optimizer, "lr"):
             optimizer.lr = lr
@@ -1026,6 +1145,7 @@ def _run_gs_refine_session(
             dof_score=dof_score,
             dof_timestamp_utc=dof_timestamp,
         )
+        epochs_executed += 1
         if config.record_debug and confirmed:
             row = recorder.history[-1]
             row["_img_pos"] = np.asarray(frame_pos).copy()
@@ -1073,11 +1193,30 @@ def _run_gs_refine_session(
         best_row.get("epoch", "-"),
         len(recorder.history),
     )
+    # How many refinement epochs actually ran: the number of ``refine`` rows in
+    # the history. A run cut short by the wall-clock budget must be visible as
+    # "fewer epochs than asked for", not as a silent gap.
+    recorder.epochs_executed = epochs_executed
+    recorder.time_budget_s = budget_s
+    recorder.stopped_on_budget = stopped_on_budget
+    recorder.elapsed_s = round(time.monotonic() - session_started, 6)
+    # 可续跑的状态: DOF 向量 + 基座相位 (都是**未叠加**的 —— 零级叠加是显示时加的,
+    # 进了状态下一块就会叠加两次) + ��局 epoch 计数。
+    recorder.base_panel = base_panel
+    recorder.dof = dof
+    recorder.epoch_offset = epoch_offset
+    recorder.epochs_total = epoch_offset + epochs_executed
+    # 冻结的零级中心: 续跑块必须沿用同一块 ROI (重新定位会把指标挪到别的位置)。
+    recorder.center_y = int(cy)
+    recorder.center_x = int(cx)
     # The best phase and frame ride on the Recorder as attributes rather than as
     # row columns: a 1200x1920 float64 panel is 17.6 MB, so one column would cost
     # ~7 GB across 400 epochs, and ``save_dataframe`` would stringify every array
     # into a CSV cell.
     recorder.best_phase = displayed_phase(best_phase)
+    # 未叠加零级的原始相位: 续跑时要用它 (显示时再加叠加层)。
+    recorder.best_phase_plain = best_phase
+    recorder.best_score = best_score
     recorder.best_frame = best_frame
     recorder.best_stage = best_stage
     recorder.blaze_choice = (
