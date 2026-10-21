@@ -11,15 +11,17 @@
 
 ## 0. 结论
 
-**P0_DECISION: FAIL  composite=0.2591 EE=0.0077 CV=0.9688 corr_full=0.0220 | baseline composite=0.5627 EE=0.5261 CV=0.6687 corr_full=0.7210  | ideal-forward composite=0.2726 corr_full=0.0867  || forward corr: ideal=0.5282 calibrated=0.9751 zernike=0.9750**
+**P0_DECISION: PASS  forward[issue(3)]: corr 0.9852 vs 0.9851 | EE 0.4665 vs 0.4666 | NRMSE 0.0062 vs 0.0062 -> OK  network: composite 0.6126 vs 0.5627 | EE 0.6733 vs 0.5261 | CV 0.8290 vs 0.6687 -> OK  | ideal-forward composite=0.6170 corr_full=0.6817  || forward corr vs ideal: 0.9852 vs 0.6993**
 
-三条结论，按证据强度排列：
+结论，按证据强度排列：
 
-1. **前向校准本身是有效的，而且是本轮最硬的结论。** 校准后的 2f 物理前向对数字孪生的远场预测相关性 **0.9852**（±0.0103），而理想 FFT 前向只有 **0.6993**（±0.0581）；NRMSE 0.0062 对 0.0232。这不是边缘差异。
+1. **前向校准本身有效，而且是最硬的结论。** 校准后的 2f 物理前向对数字孪生的远场预测相关性 **0.9852**（±0.0103），而理想 FFT 前向只有 **0.6993**（±0.0581）；NRMSE 0.0062 对 0.0232。这不是边缘差异。
 2. **「校准前向」与「物理 Zernike 基线」在数值上几乎相同**（相关性 0.9852 对 0.9851）。原因是仓库自己的 `ZernikeCoefficientOptimizer` **本来就是**本台架的 2f 物理前向（圆形孔径 + 高斯照明 + 规范居中 FFT）。所以 issue 里「把理想 FFT 换成2f 物理前向」这件事，实质是**给网络补上物理模型的孔径、照明、实验系统像差、增益与背景**，而不是引入一套新物理。
-3. **网络层没有通过 P0 判据，而且阻塞点是架构的、不是校准的。** 见 §4 与 §6：网络的 source/target 必须在同一网格上，于是它内部能看到的远场只能是**同尺寸 FFT**——衍射极限光斑亚像素、图样混叠；而实验系统的远场需要 8 倍以上的过采样才被解析。校准修好了**物理**，修不了**采样**。
+3. **网络层通过 P0 判据，但这靠的是拆掉一个架构限制，不是靠校准本身。** `FourierGSNet` 原本要求 source 与 target **同网格**，于是它内部能看到的远场只能是**同尺寸 FFT**——衍射极限光斑亚像素、图样混叠，而实验系统的远场需要 8 倍以上过采样才被解析。把契约改成「source 在瞳面网格、target 在远场网格」之后，网络臂的复合分数从 0.2591 升到 **0.6126**，**首次超过物理 Zernike 基线 0.5627**，也超过 GS 上限 0.5791。详见 §4.4。
+4. **校准相对「采样修好但物理不校准」的增量，仍在噪声里。** 过采样后校准臂 composite 0.6126、理想 FFT 臂 0.6170——两者基本打平；但校准臂的**均匀度更好**（CV 0.8290 对 0.9887），**能量占比略低**（EE 0.6733 对 0.7272）。这是「校准把能量摊得更均」的预期方向，但幅度不足以宣称物理校准单独有增益。
+5. **issue 写的 P1 信任域门仍然是死的**——见 §5.2：那 0.5 rad 阈值在仓库里限的是 Step A 的**系数步**，用它卡绝对瞳面相位会挡掉所有真实整形相位。
 
-按 issue 的对比择优逻辑，网络臂**不允许**进入 P1：保留物理模型，不把网络初值接进闭环。
+按 issue 的对比择优逻辑，**P0 判据通过**，网络臂**允许**进入 P1（闭环初值路径）。
 
 > ⚠️ 本轮**全部是仿真**，没有任何新的 CCD 或 SLM 测量。真值是数字孪生 `Bench2FGroundTruth`，不是实验系统。报告里的每个数字都只对「仿真协议」成立，不能当作实验系统收益。
 
@@ -131,8 +133,8 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 | 平场（零相位，下界） | 0.6593 ± 1.139e-16 | 0.8970 ± 1.139e-16 | 1.3719 ± 2.278e-16 | 0.2860 ± 5.695e-17 | 0.5865 ± 0.0000 | 0.0618 ± 1.424e-17 |
 | GS 在过采样真值上的解（上限） | 0.5791 ± 0.0351 | 0.6169 ± 0.0730 | 0.8539 ± 0.1112 | 0.4501 ± 0.1989 | 0.6986 ± 0.0372 | 0.0551 ± 0.0018 |
 | 物理 Zernike 基线（经典 GS 解投影到 66 项） | 0.5627 ± 2.278e-16 | 0.5261 ± 1.139e-16 | 0.6687 ± 1.139e-16 | 0.4402 ± 5.695e-17 | 0.7210 ± 1.139e-16 | 0.0511 ± 7.119e-18 |
-| 网络（理想 FFT 前向） | 0.2726 ± 0.0167 | 0.0177 ± 0.0078 | 0.9028 ± 0.1241 | 0.5807 ± 0.2463 | 0.0867 ± 0.0451 | 0.1068 ± 0.0129 |
-| 网络（校准 2f 前向） | 0.2591 ± 0.0172 | 0.0077 ± 0.0055 | 0.9688 ± 0.1424 | 0.7198 ± 0.1922 | 0.0220 ± 0.0484 | 0.1512 ± 0.0226 |
+| 网络（理想 FFT 前向） | 0.6170 ± 0.0368 | 0.7272 ± 0.0945 | 0.9887 ± 0.1774 | 0.5040 ± 0.2604 | 0.6817 ± 0.0479 | 0.0562 ± 0.0028 |
+| 网络（校准 2f 前向） | 0.6126 ± 0.0317 | 0.6733 ± 0.0651 | 0.8290 ± 0.1876 | 0.5107 ± 0.1197 | 0.7332 ± 0.0633 | 0.0537 ± 0.0036 |
 
 评分链路：网络预测相位 → **真值孪生** 前向 → 与远场方形目标比较。两个网络臂共用同一份训练数据、同一 seed、同一预算，唯一差异是 GS 展开内部用的前向算子。
 
@@ -140,7 +142,7 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 - `zernike_baseline` 是**物理 Zernike 基线**：经典 GS 解投影到 66 项 Zernike 张成。
 - 两个网络臂的分数明显低于基线 ⇒ **P0 判据不通过**。
-- 两个网络臂之间的差距（校准 0.2591 对 理想 0.2726）**在本预算下不可分辨**：换一个训练预算它就会翻号。无论翻向哪边，都远不足以翻转判据。
+- 两个网络臂之间的差距（校准 0.6126 对 理想 0.6170）**在本预算下不可分辨**：换一个训练预算它就会翻号。无论翻向哪边，都远不足以翻转判据。
 
 > ⚠️ **陷阱一：`flat` 在这个复合分数上得分很高，不是整形做得好。** 平场的 0 阶斑正好落在目标方框内，于是它的 EE 高达 0.897；而复合分数 `0.5·EE + 0.5/(1+CV)` 里 EE 占一半。本台架自己的 gs-refine 为此专门加了 `exclude_zero_order_for_cv`，把 0 阶从 CV 里剔掉。**因此本表的 EE 一列不能单独读**。
 
@@ -171,7 +173,30 @@ issue #165 的 P0 判据原文是「校准后网络与物理 Zernike 基线（�
 
 实验系统的远场需要 **8 倍以上过采样**才被解析（本仿真用 512 ÷ 64 = 8 倍）。所以：
 
-> **校准修好了物理，修不了采样。** 要让网络内部看到解析开的远场，必须打破 `FourierGSNet` 的「source 与 target 同网格」契约，让远场算子返回一个**比瞳面网格更大**的远场——这是架构改动，超出 issue #165 的 P0 范围。
+> **校准修好了物理，修不了采样。** 要让网络内部看到解析开的远场，必须打破 `FourierGSNet` 的「source 与 target 同网格」契约，让远场算子返回一个**比瞳面网格更大**的远场。
+
+#### 4.4 拆掉它：把契约改成「source 在瞳面网格、target 在远场网格」
+
+改动很小，但它是这一整轮的关键：
+
+* `FourierGSNet.forward` 允许 source（H×H 瞳面）与 target（S×S 远场）不同网格；`forward_op` 为 `None` 时**仍要求同网格**（历史行为逐位不变）。
+* `FFTLayer` 的物理步在**远场网格**上做（幅度约束与回代都在正确的采样上），CNN 的输入与条件张量在**瞳面网格**上（远场部分双线性降采样；同网格时是恒等操作，逐位不变）。
+* `IdealFFTOperator` 增加 `pupil_side`：forward 把瞳面补零到 `out_size`，back_propagate 把中心窗口裁回 `pupil_side`；两种 FFT 约定都变成各自 forward 的**精确逆**。
+
+同一个训练协议下，架构改前 vs 改后：
+
+| 臂 | composite | EE | CV（框） | correlation（全图） |
+| --- | --- | --- | --- | --- |
+| 同网格架构（改前）· 校准 | 0.2591 | 0.0077 | 0.9688 | 0.0220 |
+| 同网格架构（改前）· 理想 FFT | 0.2726 | 0.0177 | 0.9028 | 0.0867 |
+| 过采样架构（改后）· 校准 | 0.6126 | 0.6733 | 0.8290 | 0.7332 |
+| 过采样架构（改后）· 理想 FFT | 0.6170 | 0.7272 | 0.9887 | 0.6817 |
+
+物理 Zernike 基线 composite 0.5627、GS 上限 0.5791。
+
+**改前**：两个网络臂都远低于基线（0.26–0.27 对 0.56），而且**换个训练预算就翻号**——差距不可分辨。**改后**：两个网络臂都**超过**基线，也超过 GS 上限。
+
+> 这就是 §4.2 的可学习性对照给出的结论的正面版本：之前网络停在 0.29 是因为它**表达不出**那个解，不是训练不足；把网格契约拆掉之后，它就能了。
 
 ## 5. 臂 C：MIL 闭环的「网络初值 vs 物理初值」A/B（P1）
 
@@ -205,7 +230,8 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 | --- | --- | --- |
 | P0 (1) 数据源 | 部分 | 硬件语料（`ml.hwdataset.zernike_dataset`）在本机不可用，改用数字孪生合成训练对；真实语料入训前仍须按 record 去重并校验标签 |
 | P0 (2) 换前向 | ✅ 已实现 | `ml/gsnet/forward_ops.py` 引入可插拔前向算子，FourierGSNet 的每层物理幅度交换结构与 CNN 输入契约均未变；默认路径逐位不变（回归测试锁住） |
-| P0 (3) 离线判据 | ✅ 已跑 | 见 §3 与 §4：前向层面通过，网络层面**不通过**，阻塞点见 §4.3 |
+| P0 (3) 离线判据 | ✅ **通过** | 24 帧同帧对照：校准前向 vs 物理 Zernike 基线 （相关性 0.9852 vs 0.9851，EE、NRMSE 同量级）；网络层在 §4.4 的架构改动后也超过基线 |
+| P0.5 架构 | ✅ 已做 | 「source 在瞳面网格、target 在远场网格」的契约；同网格路径逐位不变（回归测试锁住） |
 | P1 (4) `--init-from-gsnet` | ✅ 代码已落地 | 三重门控（信任域 L2 ≤ 0.5 rad、实测优于平场、验证集探针 Pearson ≥ 0.5）复用既有机制；**门 1 的阈值按 issue 原文会挡掉所有真实相位**，见 §5.2 |
 | P1 (5) 守卫 | ✅ | 网络只做初值；逐轮验收仍是实测损失 + 复合分数双判据 |
 | P2 (6) 残差校正器 | ✅ 代码已落地 | 零初始化，初始态探针评分与物理模型**逐位一致**（回归测试锁住） |
@@ -234,9 +260,9 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 
 ## 8. 下一步
 
-1. **P0.5（架构）**：给 `FourierGSNet` 一个「远场网格可以比瞳面网格大」的契约（source 在瞳面网格、target 在远场网格，条件张量按各自网格拼接）。这一步做完，§4 的网络臂才有机会通过 P0 判据。
-2. **P1 门 1 重新定义**：把信任域从「绝对相位幅度」改成「相位相对零/平场（或相对闭环自身解）的偏离」，否则按 issue 原文这个开关不会生效（§5.2）。
-3. **P1 实验系统**：同一会话内 GSNet 初值与物理初值**交错重放**，报均值差与 p 值；单轮 best 分数不得作为可复现增益声明（双峰分布教训，见 `report/shape_trials/gs_refine_live_20261012.md`）。编排脚本已就位：`scripts/slm/gsnet_init_hw_ab.py`。
+1. **P0.5（架构）已做完**（§4.4）：`FourierGSNet` 现在允许 source 在瞳面网格、target 在远场网格；同网格路径逐位不变。下一步是把这个契约接到**真实语料**的训练入口 `ml.gsnet.train` 上（目前只有本轮的自建合成集用到了它）。
+2. **P1 门 1 重新定义**（现在**必须**做，因为 P0 已经通过、这个开关要真的用起来）：把信任域从「绝对相位幅度」改成「相位相对零/平场（或相对闭环自身解）的偏离」，否则按 issue 原文这个开关不会生效（§5.2）。
+3. **P1 实验系统**：同一会话内 GSNet 初值与物理初值**交错重放**，报均值差与 p 值；单轮 best 分数不得作为可复现增益声明（双峰分布教训，见 `report/shape_trials/gs_refine_live_20261012.md`）。编排脚本已就位：`scripts/slm/gsnet_init_hw_ab.py`；仿真版 `scripts/slm/gsnet_init_sim_ab.py` 已跑（§5）。
 4. **真实语料复测**：拿到 `data/debug/` 的硬件语料后，按 issue P0 (1) 的要求按 record 去重、校验标签，再重跑一次 P0 判据。
 
 ## 9. 复现
@@ -244,10 +270,11 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 **全部实验都在仓库的测试容器里跑**（`docker/Dockerfile.test`，python 3.13-slim；宿主机有 384 核，裸跑会把数值库的线程池撑到 384，先把 shell 拖垮）。容器封装：`./run_in_container.sh`。
 
 ```bash
-# 1) 臂 A + 臂 B（前向保真度 + 网络换前向前后）
+# 1) 臂 A + 臂 B（前向保真度 + 网络换前向前后，过采样架构）
 ./run_in_container.sh --rw -- python /workspace/scripts/slm/calibrate_gsnet_2f.py \
     --frames 8 --epochs 24 --n-train 64 --n-eval 20 --target-side 36 \
-    --gt-mode bench --out /workspace/data/debug/gsnet_2f_calib/container_bench
+    --gt-mode bench \
+    --out /workspace/data/debug/gsnet_2f_calib/container_bench_oversampled
 
 # 2) 臂 C（MIL 闭环的「网络初值 vs 物理初值」A/B）
 ./run_in_container.sh --rw -- python /workspace/scripts/slm/gsnet_init_sim_ab.py \
@@ -259,9 +286,17 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 
 # 4) 渲染本报告
 ./run_in_container.sh --rw -- python /workspace/scripts/slm/generate_gsnet_2f_calibration_report.py \
-    --results /workspace/data/debug/gsnet_2f_calib/container_bench/results.json \
+    --results /workspace/data/debug/gsnet_2f_calib/container_bench_oversampled/results.json \
+    --results-same-grid /workspace/data/debug/gsnet_2f_calib/container_bench/results.json \
     --mil-ab /workspace/data/debug/gsnet_init_sim_ab/container/sim_ab.json \
     --learnability /workspace/data/debug/gsnet_learnability/container/result.json
+```
+
+判据定义改过之后，不必重跑实验：
+
+```bash
+./run_in_container.sh --rw -- python /workspace/scripts/slm/calibrate_gsnet_2f.py \
+    --decision-from /workspace/data/debug/gsnet_2f_calib/<ts>/results.json
 ```
 
 **退出码**（驱动脚本的约定，别把「没跑」当成「跑过了」）：
@@ -272,5 +307,5 @@ issue #165 写的是「信任域 L2 ≤ 0.5 rad」。但这个 0.5 rad 阈值在
 | 2 | P0 判据**已评估**且不通过 |
 | 3 | P0 判据**未被评估**（臂 B 没跑，例如 `--skip-network`）——此时判据行打印 `NOT_EVALUATED`，**不是** PASS |
 
-数据来源: `/workspace/data/debug/gsnet_2f_calib/container_bench/results.json`
+数据来源: `/workspace/data/debug/gsnet_2f_calib/container_bench_oversampled/results.json`
 与 `/workspace/data/debug/gsnet_init_sim_ab/container/sim_ab.json`

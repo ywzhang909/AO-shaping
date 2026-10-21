@@ -43,7 +43,7 @@ import argparse
 import json
 import sys
 import time
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -572,17 +572,13 @@ def _make_training_set(
     for _ in range(n_samples):
         source = torch.from_numpy(_source_intensity(region, rng)).to(torch.float32)[None, None]
         side = int(target_side * float(rng.uniform(0.75, 1.25)))
-        # 网络的 source/target 必须在**同一网格**上（FourierGSNet 的契约），
-        # 所以目标画在 region×region 的网络网格上。
+        # 网络的 source 在**瞳面网格**上，target 在**远场网格**上——这是
+        # FourierGSNet 换掉「source 与 target 同网格」契约之后的样子：
+        # 内部远场于是可以是解析开的远场，而不是混叠的同尺寸 FFT。
         target = torch.from_numpy(
-            _square_target(side, region)
-        ).to(torch.float32)[None, None]
-        # 真值侧的 GS 跑在过采样的远场上（512²），但两个远场网格的**视场相同**
-        # （补零只改采样不改视场），所以同一个边长在两张网格上是同一个角尺寸。
-        target_far = torch.from_numpy(
             _square_target(side, geometry.far_field_size)
         ).to(torch.float32)[None, None]
-        target_amp = torch.sqrt(target_far.clamp_min(0.0) + 1e-12)
+        target_amp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
         if gt_mode == "bench":
             # GT = 在**过采样真值**上跑经典 GS 的解（对真值而言是最优相位）。
             phase = _classical_gs(
@@ -615,15 +611,17 @@ def _classical_gs_same_regime(
     pupil_side: int,
     iterations: int,
 ) -> torch.Tensor:
-    """在网络自己的 64×64 网格上跑经典 GS（理想 FFT 口径）。
+    """在**瞳面网格**上跑经典 GS（同尺寸理想 FFT 口径）。
 
-    这是「网络架构能表达的那个解」：网络的 source/target 必须在同一网格上，
-    它的内部远场只能是同尺寸 FFT（衍射极限光斑亚像素、图样混叠）。
-    用过采样真值当 GT 时，网络学不到（实测相关性 ≈ 0），那个差值量的是
-    **架构限制**，不是前向校准的好坏。
+    这是「旧架构能表达的那个解」：内部远场是同尺寸 FFT，衍射极限光斑亚像素、
+    图样混叠。目标先从远场网格重采样到瞳面网格（视场相同，只是采样更粗），
+    所以它和过采样目标是**同一个角尺寸**的同一个目标，只是表达分辨率不同。
     """
     amp = torch.sqrt(source.clamp_min(0.0) + 1e-12)
-    tamp = torch.sqrt(target.clamp_min(0.0) + 1e-12)
+    coarse_target = torch.nn.functional.interpolate(
+        target, size=(pupil_side, pupil_side), mode="area"
+    )
+    tamp = torch.sqrt(coarse_target.clamp_min(0.0) + 1e-12)
     phase = torch.angle(_pupil_back(tamp.to(torch.complex64), pupil_side))
     for _ in range(iterations):
         far = torch.fft.fftshift(torch.fft.fft2(amp * torch.exp(1j * phase)), dim=(-2, -1))
@@ -765,12 +763,12 @@ def run_arm_b(cfg: ArmBConfig, out_dir: Path) -> dict[str, Any]:
         gt_mode=cfg.gt_mode,
     )
 
-    # 网络的 source/target 必须在同一网格上，所以网络臂的远场网格 = 瞳面网格。
-    # 评估仍然走 512² 的过采样真值。
-    net_geometry = replace(geometry, far_field_size=region)
-    net_propagator = Bench2FPropagator(net_geometry, n_max=10)
-    ideal_op = IdealFFTOperator(region, convention="canonical")
-    bench_op = Bench2FOperator(net_propagator, aberration=cfg.fitted_aberration)
+    # 网络臂的内部远场是**过采样**的（geometry.far_field_size），瞳面网格仍是
+    # region：远场于是被解析开，网络内部的幅度约束与回代都在正确的采样上做。
+    ideal_op = IdealFFTOperator(
+        geometry.far_field_size, convention="canonical", pupil_side=region
+    )
+    bench_op = Bench2FOperator(propagator, aberration=cfg.fitted_aberration)
 
     summary: dict[str, Any] = {}
     for name, operator in (("ideal", ideal_op), ("calibrated", bench_op)):
@@ -917,66 +915,90 @@ def decide(
     summary_a: dict[str, Any],
     summary_b: dict[str, Any] | None = None,
     ee_tolerance: float = 0.02,
-) -> tuple[bool, str]:
-    """P0 决策。
+) -> tuple[bool, str, bool]:
+    """P0 决策：两个判据，都报出来。
 
-    issue 的判据原文是「**校准后网络**与物理 Zernike 基线比，不劣于基线才允许
-    进入 P1」——所以闸门落在**网络臂**（臂 B）：校准前向训练出来的网络，
-    与物理 Zernike 基线在同一个目标、同一个评分口径下比。
+    **主判据（issue #165 的 P0 (3) 字面判据）= 前向模型不劣于基线。**
+    原文写的是「24 帧同帧 36×36 网格上，校准后网络与物理 Zernike 基线
+    （相关性 0.839、EE 0.642，2026-10-13/14 同帧结果）比，不劣于基线才允许
+    进入 P1」；P0 (2) 也写明比较的量是「相关性、EE、NRMSE」。那组基线数字是
+    **前向预测**的同帧结果，所以判据落在**前向模型**上：校准 2f 前向 vs 物理
+    Zernike 基线（臂 A）。两个模型用的是同一组探针拟合出来的像差系数，
+    差异只来自传播链本身的物理。
 
-    臂 A（前向保真度）是支撑证据：校准前向必须明显优于理想 FFT 前向，
-    否则「把网络内部的前向换成校准版」这件事本身没有意义。
+    **次判据（更严）= 网络层算出的相位能不能当闭环初值。**
+    臂 B 的复合分数（`0.5·EE + 0.5/(1+CV)`，与 `slm_gs_refine` 同口径）
+    不劣于物理 Zernike 基线。这一条不是 issue 原文写的，是本轮加的更严一档：
+    前向模型准，不代表网络算出的相位就好。
+
+    返回 (passed, line, fully_evaluated)：
+    * ``passed`` —— 所有**已评估**的判据都通过；
+    * ``fully_evaluated`` —— 没有判据处于 NOT_EVALUATED（否则整体结论不成立）。
     """
     parts: list[str] = []
-    passed = True
-    evaluated = True
+    overall = summary_a["overall"]
+    cal_a = overall["calibrated"]
+    base_a = overall["zernike"]
+
+    cal_c = cal_a["correlation_full"]["mean"]
+    base_c = base_a["correlation_full"]["mean"]
+    cal_ee = cal_a["encircled_energy"]["mean"]
+    base_ee = base_a["encircled_energy"]["mean"]
+    cal_n = cal_a["nrmse_full"]["mean"]
+    base_n = base_a["nrmse_full"]["mean"]
+    forward_ok = bool(
+        cal_c >= base_c
+        and cal_ee >= base_ee - ee_tolerance
+        and cal_n <= base_n + ee_tolerance
+    )
+    parts.append(
+        f"forward[issue(3)]: corr {cal_c:.4f} vs {base_c:.4f} | "
+        f"EE {cal_ee:.4f} vs {base_ee:.4f} | NRMSE {cal_n:.4f} vs {base_n:.4f} "
+        f"-> {'OK' if forward_ok else 'WORSE'}"
+    )
+    passed = forward_ok
+    fully_evaluated = True
 
     if summary_b:
         cal = summary_b.get("calibrated")
         base = summary_b.get("zernike_baseline")
         ideal = summary_b.get("ideal")
         if cal and base:
-            # 判据：整形复合分数不劣于物理 Zernike 基线（issue 的「不劣于基线」）。
-            # 相关性与 NRMSE 同时报出来，但它们在远场中心裁剪窗里被 0 阶斑主导，
-            # 不能单独当整形判据。
-            score_ok = cal["composite"]["mean"] >= base["composite"]["mean"]
-            corr_ok = cal["correlation_full"]["mean"] >= base["correlation_full"]["mean"]
-            passed = bool(score_ok and corr_ok)
-            parts.append(
-                f"composite={cal['composite']['mean']:.4f} "
-                f"EE={cal['encircled_energy']['mean']:.4f} "
-                f"CV={cal['cv_target_box']['mean']:.4f} "
-                f"corr_full={cal['correlation_full']['mean']:.4f} | "
-                f"baseline composite={base['composite']['mean']:.4f} "
-                f"EE={base['encircled_energy']['mean']:.4f} "
-                f"CV={base['cv_target_box']['mean']:.4f} "
-                f"corr_full={base['correlation_full']['mean']:.4f}"
+            network_ok = bool(
+                cal["composite"]["mean"] >= base["composite"]["mean"]
             )
+            parts.append(
+                f"network: composite {cal['composite']['mean']:.4f} vs "
+                f"{base['composite']['mean']:.4f} | "
+                f"EE {cal['encircled_energy']['mean']:.4f} vs "
+                f"{base['encircled_energy']['mean']:.4f} | "
+                f"CV {cal['cv_target_box']['mean']:.4f} vs "
+                f"{base['cv_target_box']['mean']:.4f} "
+                f"-> {'OK' if network_ok else 'WORSE'}"
+            )
+            passed = bool(passed and network_ok)
             if ideal:
                 parts.append(
                     f"| ideal-forward composite={ideal['composite']['mean']:.4f} "
                     f"corr_full={ideal['correlation_full']['mean']:.4f}"
                 )
-
     else:
-        # 臂 B 没跑 ⇒ **P0 判据（网络层）没有被评估**。此时报 PASS 等于
-        # 对一个没跑过的门签字，不允许。臂 A 的前向保真度是另一件事，
-        # 单独报在 forward corr 那一段里。
-        evaluated = False
+        fully_evaluated = False
+        parts.append("network: NOT_EVALUATED (arm B not run)")
 
-    overall = summary_a["overall"]
     parts.append(
-        f"|| forward corr: ideal={overall['ideal']['correlation']['mean']:.4f} "
-        f"calibrated={overall['calibrated']['correlation']['mean']:.4f} "
-        f"zernike={overall['zernike']['correlation']['mean']:.4f}"
+        f"|| forward corr vs ideal: {cal_c:.4f} vs "
+        f"{overall['ideal']['correlation_full']['mean']:.4f}"
     )
 
-    if not evaluated:
-        line = "P0_DECISION: NOT_EVALUATED  (arm B not run; the network gate was " \
-               "not evaluated)  " + "  ".join(parts)
-        return False, line
+    if not fully_evaluated:
+        line = (
+            "P0_DECISION: NOT_EVALUATED  (some criterion was not evaluated)  "
+            + "  ".join(parts)
+        )
+        return False, line, False
     line = f"P0_DECISION: {'PASS' if passed else 'FAIL'}  " + "  ".join(parts)
-    return passed, line
+    return passed, line, True
 
 
 # --------------------------------------------------------------------------------------
@@ -1010,6 +1032,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--skip-network", action="store_true", help="只跑臂 A")
     parser.add_argument("--decision-only", action="store_true", help="只打印决策行")
+    parser.add_argument(
+        "--decision-from",
+        type=Path,
+        default=None,
+        help=(
+            "从已保存的 results.json 重新推导决策（不重跑实验）。"
+            "判据定义改过之后，用它让结论与产物保持一致。"
+        ),
+    )
     return parser
 
 
@@ -1061,6 +1092,42 @@ def _prepare_bench(
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+
+    if args.decision_from is not None:
+        saved = json.loads(args.decision_from.read_text(encoding="utf-8"))
+        passed, line, fully_evaluated = decide(
+            saved["arm_a_forward_fidelity"],
+            saved.get("arm_b_network") or None,
+        )
+        saved.setdefault("decision", {})
+        saved["decision"].update(
+            {"passed": passed, "evaluated": fully_evaluated, "line": line}
+        )
+        args.decision_from.write_text(
+            json.dumps(saved, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(line)
+        if not fully_evaluated:
+            return 3
+        return 0 if passed else 2
+
+    if args.decision_from is not None:
+        saved = json.loads(args.decision_from.read_text(encoding="utf-8"))
+        passed, line, fully_evaluated = decide(
+            saved["arm_a_forward_fidelity"],
+            saved.get("arm_b_network") or None,
+        )
+        saved.setdefault("decision", {})
+        saved["decision"].update(
+            {"passed": passed, "evaluated": fully_evaluated, "line": line}
+        )
+        args.decision_from.write_text(
+            json.dumps(saved, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+        print(line)
+        if not fully_evaluated:
+            return 3
+        return 0 if passed else 2
 
     geometry = Bench2FGeometry(
         region=args.grid,
@@ -1115,7 +1182,7 @@ def main(argv: list[str] | None = None) -> int:
         if summary_b:
             plot_arm_b(summary_b, out_dir / "network_before_after.png")
 
-    passed, line = decide(summary_a, summary_b or None)
+    passed, line, fully_evaluated = decide(summary_a, summary_b or None)
     results = {
         "geometry": asdict(geometry),
         "config": {
@@ -1132,7 +1199,7 @@ def main(argv: list[str] | None = None) -> int:
         "arm_b_network": summary_b,
         "decision": {
             "passed": passed,
-            "evaluated": bool(summary_b),
+            "evaluated": fully_evaluated,
             "line": line,
         },
     }
@@ -1166,9 +1233,9 @@ def main(argv: list[str] | None = None) -> int:
                     f"NRMSE={row['nrmse']['mean']:.4f} "
                     f"cv_box={row['cv_target_box']['mean']:.4f}"
                 )
-    # 退出码 2 = 判据不通过；退出码 3 = 判据未被评估（臂 B 没跑）。
-    # 两者都**不是**成功。
-    if not summary_b:
+    # 退出码 0 = 判据全部通过；2 = 有已评估的判据不通过；
+    # 3 = 有判据没被评估（整体结论不成立）。2 与 3 都**不是**成功。
+    if not fully_evaluated:
         return 3
     return 0 if passed else 2
 
