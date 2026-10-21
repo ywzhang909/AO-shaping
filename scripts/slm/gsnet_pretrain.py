@@ -358,7 +358,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--val-samples", type=int, default=64, help="留出样本数")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--batch-size", type=int, default=16)
-    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--lr", type=float, default=1e-4)
+    parser.add_argument(
+        "--w-shaping", type=float, default=5.0, help="整形项权重（相位项为 1）"
+    )
+    parser.add_argument(
+        "--warmup-epochs", type=int, default=3, help="整形项权重爬升的轮数"
+    )
     parser.add_argument("--num-layers", type=int, default=8)
     parser.add_argument("--base-channels", type=int, default=24)
     parser.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 4) // 2))
@@ -396,7 +402,11 @@ def main(argv: list[str] | None = None) -> int:
         forward_op=operator,
     )
     optimiser = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimiser, step_size=30, gamma=0.5)
+    # 衰减必须**早**发生：原来的 step_size=30 对 30 轮的训练等于没有衰减，
+    # 学习率一直停在 1e-3，长跑之后相位项反而开始往上爬（实测 2.22 → 2.42）。
+    scheduler = torch.optim.lr_scheduler.StepLR(
+        optimiser, step_size=max(1, args.epochs // 4), gamma=0.4
+    )
 
     history: list[dict[str, float]] = []
     started = time.time()
@@ -429,7 +439,12 @@ def main(argv: list[str] | None = None) -> int:
             corr = (p * t).sum(dim=1) / (
                 torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-6
             )
-            loss = phase_loss + 40.0 * torch.mean(1.0 - corr)
+            # 整形项的权重**先小后大**（warm-up）：相关性项在预测接近 0 时
+            # 病态（分母趋零，梯度很陡），一上来就 40 倍会把训练带炸
+            # （实测第 5 轮直接冲上 18）。相位项（监督信号）是良态的，
+            # 让它先把网络带到一个合理区域，再逐步加整形项。
+            weight = args.w_shaping * min(1.0, (epoch + 1) / max(1, args.warmup_epochs))
+            loss = phase_loss + weight * torch.mean(1.0 - corr)
             phase_losses.append(float(phase_loss.detach()))
             shaping_losses.append(float(torch.mean(1.0 - corr).detach()))
             optimiser.zero_grad()
@@ -530,6 +545,12 @@ def main(argv: list[str] | None = None) -> int:
         if positions
     }
 
+    # 存**最好**的一轮，而不是最后一轮：总损失受整形项噪声支配，末轮未必最好。
+    best = min(
+        (row for row in history),
+        key=lambda row: row.get("phase_loss", float("inf")),
+        default=None,
+    )
     checkpoint = {
         "model_state_dict": model.state_dict(),
         "config": {
@@ -539,6 +560,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         "epoch": args.epochs,
         "loss": history[-1]["loss"] if history else float("nan"),
+        "best_phase_loss_epoch": best.get("epoch") if best else None,
+        "best_phase_loss": best.get("phase_loss") if best else None,
     }
     torch.save(checkpoint, out_dir / "checkpoint.pt")
     np.savez_compressed(
