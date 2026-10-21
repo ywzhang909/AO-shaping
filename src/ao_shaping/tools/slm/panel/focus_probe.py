@@ -48,6 +48,23 @@ Usage
     python -m ao_shaping.tools.slm.panel.focus_probe --exposure-ms 0.1
     python -m ao_shaping.tools.slm.panel.focus_probe --steps 25 --frames 3
 
+退出码
+------
+
+=====  ==========================================================================
+ 码    含义
+=====  ==========================================================================
+  0    找到了焦面 (最佳 1/f 与焦距都写进了证据文件)
+  1    探测本身失败 (设备报错, 证据文件里有 ``error``)
+  2    没找到焦面 —— 扫描范围内没有任何一点落进可用曝光带
+  3    **光路受阻** —— 画面里根本没有光, 不是「没对上焦」, 是光没到相机
+=====  ==========================================================================
+
+🔴 **2 与 3 必须分开**: 光路被挡住时画面里同样「找不到光斑」, 而被挡住这件事
+**只能靠结构看出来** (峰值停在读出噪声本底 + 没有任何局域结构)。两者的处置完全
+不同: 2 要重新扫焦距 / 挪相机, 3 要去查 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。
+判据见 :func:`ao_shaping.utils.image.frame_analysis.assess_spot`。
+
 The GUI entry point is :func:`probe_session_focus`, called from the SLM bench
 sidebar "探测焦面" (focus-plane probe) button; the recommended focal it writes
 feeds the sidebar defocus-overlay block (see
@@ -74,6 +91,11 @@ from ao_shaping.tools.kernels.bench_kernels import (
     fresnel_panel,
 )
 from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.image.frame_analysis import (
+    BLOCKED_PATH_REASON,
+    SpotUsability,
+    assess_spot,
+)
 
 #: Probe evidence, next to the exposure and radius probes.
 FOCUS_PROBE_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "focus_probe"
@@ -118,6 +140,10 @@ class FocusPoint:
 
     ``peak_per_ms`` is the only comparable number: ``peak`` alone is not, because
     every point is measured at its own exposure.
+
+    ``spot`` carries the *structural* verdict for this frame (is there a localisable
+    spot at all?). It is what lets the sweep tell "the path is blocked" apart from
+    "the focus is not where we scanned" -- both look like "no usable point".
     """
 
     diopter_m1: float
@@ -129,6 +155,7 @@ class FocusPoint:
     fwhm_px: float
     hollowness: float
     status: str
+    spot: SpotUsability | None = None
 
 
 @dataclass(frozen=True)
@@ -144,6 +171,12 @@ class FocusProbeResult:
     range_m1: tuple[float, float]
     exposure_bounds_ms: tuple[float, float]
     notes: tuple[str, ...]
+    #: True when *every* measured point showed a structureless frame: the path is
+    #: not delivering light at all. That is a different fault from "no focus" and
+    #: gets its own exit code (3) so a caller can tell them apart.
+    path_blocked: bool = False
+    #: One Chinese sentence naming the fault (operator-facing).
+    blockage_reason: str = ""
 
     def as_evidence(self) -> dict[str, Any]:
         """JSON-able form, for the probe evidence file."""
@@ -155,6 +188,8 @@ class FocusProbeResult:
             "range_m1": list(self.range_m1),
             "exposure_bounds_ms": list(self.exposure_bounds_ms),
             "notes": list(self.notes),
+            "path_blocked": self.path_blocked,
+            "blockage_reason": self.blockage_reason,
             "points": [
                 {
                     "diopter_m1": p.diopter_m1,
@@ -166,6 +201,7 @@ class FocusProbeResult:
                     "fwhm_px": p.fwhm_px,
                     "hollowness": p.hollowness,
                     "status": p.status,
+                    "spot": p.spot.as_dict() if p.spot is not None else None,
                 }
                 for p in self.points
             ],
@@ -267,14 +303,6 @@ def _measure_frame(
     return acc / max(int(frames), 1)
 
 
-def _spot_shape(frame: np.ndarray) -> tuple[float, float]:
-    """``(fwhm_px, hollowness)`` from the canonical spot measurement."""
-    from ao_shaping.utils.image.frame_analysis import measure_spot
-
-    m = measure_spot(frame)
-    return float(m.fwhm_px), float(m.hollowness)
-
-
 def _measure_point(
     diopter: float,
     *,
@@ -336,7 +364,9 @@ def _measure_point(
         fraction = peak / full_scale if full_scale else 0.0
         status = "ok" if ACCEPT_LOW <= fraction <= ACCEPT_HIGH else "clipped"
 
-    fwhm, hollow = _spot_shape(frame)
+    # 一次测量出**结构**判定: 光斑够不够亮、够不够集中、够不够窄。光路被挡住时
+    # 这一步就已经能看出来 —— 那时每个点都只有读出噪声, 帧里没有任何局域结构。
+    spot = assess_spot(frame)
     return FocusPoint(
         diopter_m1=float(diopter),
         focal_mm=focal_mm,
@@ -344,9 +374,10 @@ def _measure_point(
         peak=peak,
         peak_fraction=fraction,
         peak_per_ms=peak / exposure if exposure > 0 else 0.0,
-        fwhm_px=fwhm,
-        hollowness=hollow,
+        fwhm_px=float(spot.fwhm_px),
+        hollowness=float(spot.hollowness),
         status=status,
+        spot=spot,
     )
 
 
@@ -587,6 +618,23 @@ def sweep_focus(
     if best is not None and flat is not None and flat.peak_per_ms > 0:
         gain = best.peak_per_ms / flat.peak_per_ms
 
+    # 光路受阻的判定: **每个**测点都是一张没有局域结构的画面。
+    #
+    # 为什么要求「每个点」而不是「最亮的那一个」: 只有当整条扫描线上都找不到光时
+    # 才能说「光没到相机」。有一个点还能看到光斑, 就说明光路是通的, 只是焦面不在
+    # 扫到的范围里 —— 那是另一件事 (退出码 2), 处置完全不同。
+    blocked_reason = ""
+    path_blocked = False
+    if measured:
+        verdicts = [p.spot.blocked for p in measured.values() if p.spot is not None]
+        if verdicts and all(verdicts):
+            path_blocked = True
+            blocked_reason = BLOCKED_PATH_REASON
+            notes.append(
+                f"光路受阻: {len(measured)} 个测点全部没有局域光斑, "
+                "画面停在读出噪声本底上"
+            )
+
     return FocusProbeResult(
         points=tuple(sorted(measured.values(), key=lambda p: p.diopter_m1)),
         best=best,
@@ -602,6 +650,8 @@ def sweep_focus(
         ),
         exposure_bounds_ms=(float(floor_ms), float(ceiling_ms)),
         notes=tuple(notes),
+        path_blocked=path_blocked,
+        blockage_reason=blocked_reason,
     )
 
 
@@ -712,7 +762,13 @@ def probe_session_focus(
         logger.warning("焦面探测证据写入 {} 失败: {}", target, exc)
 
     if result.best is None:
-        logger.warning("SLM {} 焦面探测：没有任何点落在可用曝光带内", slm_number)
+        if result.path_blocked:
+            # 光路受阻与「没找到焦面」是两件事: 前者要查三段光路, 后者要重扫焦距。
+            logger.error(
+                "SLM {} 焦面探测：光路受阻 —— {}", slm_number, result.blockage_reason
+            )
+        else:
+            logger.warning("SLM {} 焦面探测：没有任何点落在可用曝光带内", slm_number)
     else:
         logger.info(
             "SLM {} 焦面探测：最佳 1/f = {:+.3f} m⁻¹ (f = {:.0f} mm)，"
@@ -799,6 +855,11 @@ def main(params: FocusProbeParams) -> None:
         logger.error("焦面探测失败: {}", result["error"])
         raise SystemExit(1)
     if result.get("best_focal_mm") is None:
+        if result.get("path_blocked"):
+            # 退出码 3 = 光路受阻, 与 2 (没找到焦面) 区分开: 前者要查
+            # 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。
+            logger.error("焦面探测：光路受阻 —— {}", result.get("blockage_reason"))
+            raise SystemExit(3)
         logger.error("焦面探测：没有任何点落在可用曝光带内，见证据文件")
         raise SystemExit(2)
     logger.info(

@@ -29,6 +29,18 @@
 
 因此 ``--dry-run`` 在**没有任何硬件的机器上**也必须 exit 0。
 
+🔴 **扫描前先自检光路 (pre-flight)**: 基准帧 (Δz=0, GS 相位已施加) 一抓到就判
+一次「有没有可评分的局域光斑」。判据看**结构**而不是亮度 —— 光路被挡住时画面里
+只有读出噪声, 而噪声帧照样能算出 CV/PIB/光斑, 于是本探针会安安静静地记下 30 行
+**纯噪声** 当成测量结果 (2026-10-21 实测)。所以:
+
+* 判为**光路受阻** ⇒ **中止整轮** (退出码 4), 不写 ``measurements.csv``, 只写一份
+  带判定与理由的 ``run_config.json``, 并打印三段光路的检查清单;
+* 只是**没聚焦** (光到了但光斑太宽) ⇒ **警告并继续**, 那一轮仍然有意义。
+
+退出码: 0 = 正常; 2 = 读帧超时 (:func:`guarded` 硬退出); 3 = dry-run 违约
+(:func:`assert_no_drivers`); 4 = 光路受阻。
+
 🔴 **不要按 M=(f+d)/f 重采样。** 有外部材料主张 CCD 挪到 f+d 时图样被放大 ``M``、
 target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了透镜。Collins/ABCD::
 
@@ -167,7 +179,11 @@ import numpy as np
 # (实测: sys.modules 里没有任何 ao_shaping.drivers 出现)。单一事实源仍是
 # bench_constants / matrix_utils, 本文件不另立一份。
 # ---------------------------------------------------------------------------
-from ao_shaping.utils.image.frame_analysis import measure_spot  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+    SpotUsability,
+    assess_spot,
+    measure_spot,
+)
 from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
@@ -275,6 +291,13 @@ STEP_ROW_FIELDS = (
 #: + 硬退出, 见 :func:`guarded`。
 ACQUIRE_TIMEOUT_S = 60.0
 OPEN_TIMEOUT_S = 180.0
+
+#: **光路受阻**时本脚本的退出码。
+#:
+#: 与本脚本的另外两个退出码区分开: 2 = 读帧超时 (见 :func:`guarded`),
+#: 3 = dry-run 违约 (见 :func:`assert_no_drivers`)。光路受阻是**操作者要动手**
+#: 的故障, 给出自己的码, 免得被当成超时或 dry-run 违约去查错方向。
+EXIT_PATH_BLOCKED = 4
 
 #: USB 瞬时错误的重试策略。驱动的 ``_write_phase`` 内部只试 3 次 (间隔 100 ms),
 #: 而 FTDI 的 ``-10032 USB其他错误`` 常连着三次一起失败 (2026-10-20 实测: 写
@@ -588,6 +611,38 @@ def spot_centroid(frame: np.ndarray) -> tuple[float, float] | None:
     if not (np.isfinite(spot.centroid_x) and np.isfinite(spot.centroid_y)):
         return None
     return float(spot.centroid_x), float(spot.centroid_y)
+
+
+class PathBlockedError(RuntimeError):
+    """光路受阻 —— 画面里根本没有光, 继续扫只是在测噪声。
+
+    2026-10-21 实测: 光路被挡住时, 本探针会安安静静地记下 30 行**纯读出噪声**
+    当成测量结果。人肉翻帧才发现光束根本没进 2f 透镜。判据必须看**结构**
+    (峰值停在噪声本底 + 帧里没有局域光斑), 判据本身在
+    :func:`ao_shaping.utils.image.frame_analysis.assess_spot`。
+    """
+
+
+def preflight_assessment(baseline_frame: np.ndarray) -> SpotUsability:
+    """扫描前的光路自检: 基线帧 (Δz=0, 相位已施加) 里有没有可评分的局域光斑。
+
+    Args:
+        baseline_frame: 基线帧 (原始帧或已减背景的帧都可以)。
+
+    Returns:
+        :class:`~ao_shaping.utils.image.frame_analysis.SpotUsability`。
+    """
+    return assess_spot(baseline_frame)
+
+
+def raise_if_path_blocked(assessment: SpotUsability) -> None:
+    """光路受阻就抛 :class:`PathBlockedError` —— 调用方据此中止整轮扫描。
+
+    「只是不够聚焦」(光到了但太宽) **不**抛: 那种情况这一轮扫描仍然有意义,
+    只该警告。该不该中止只看「有没有光」这一件事。
+    """
+    if assessment.blocked:
+        raise PathBlockedError(assessment.reason)
 
 
 def shift_per_mm(
@@ -1143,6 +1198,19 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         ),
         "target_box": target_box,
         "chirp_tilt": chirp_tilt,
+        "preflight": {
+            "what": "扫描开始前先对**基线帧** (Δz=0, GS 相位已施加) 做一次光路自检",
+            "criteria": (
+                "判据看**结构**而不是亮度: 峰值停在读出噪声本底 **且** 帧里没有任何"
+                "局域光斑 ⇒ 光路受阻; 光到了但光斑太宽 ⇒ 只是没聚焦 (另一回事)"
+            ),
+            "blocked": (
+                f"判为受阻就**中止整轮** (退出码 {EXIT_PATH_BLOCKED}), "
+                "**不写** measurements.csv —— 只写一份带判定与理由的 run_config.json"
+            ),
+            "not_usable": "只是不够聚焦时**警告并继续**: 那种情况这一轮仍然有意义",
+            "checklist": "光束→SLM 面板 → 2f 透镜 → CCD 三段光路",
+        },
         "steps": steps,
         "estimate": {
             "per_step_s": per_step,
@@ -1233,6 +1301,14 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add("")
     add("零级晕斑 (硬件侧最该量的东西)")
     add(f"  {plan['zero_order_halo']}")
+    add("")
+    add("光路自检 (扫描前的 pre-flight)")
+    pf = plan["preflight"]
+    add(f"  做什么   = {pf['what']}")
+    add(f"  判据     = {pf['criteria']}")
+    add(f"  受阻时   = {pf['blocked']}")
+    add(f"  没聚焦时 = {pf['not_usable']}")
+    add(f"  检查清单 = {pf['checklist']}")
     add("")
     add("离焦施加方式")
     add(f"  {plan['overlay_api']}")
@@ -1610,6 +1686,53 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     # 定尺后响应恢复单调。
                     slm.set_phase_overlay(focus_panel)
                     baseline_frame = capture_retry(slm, cam, gs_panel, next_slot)
+
+                    # -- 光路自检 (扫描前的 pre-flight) ---------------------------
+                    # 判据看**结构**, 不看亮度: 光路被挡住时画面里只有读出噪声,
+                    # 而噪声帧照样能算出 CV/PIB/光斑 —— 2026-10-21 实测本探针就
+                    # 那样安安静静记了 30 行纯噪声。所以这里在**扫描开始之前**
+                    # 先判一次: 受阻就中止 (不写 measurements.csv), 只是没聚焦
+                    # 就警告并继续 (那种情况这一轮仍然有意义)。
+                    assessment = preflight_assessment(baseline_frame)
+                    if assessment.blocked:
+                        abort_config = {
+                            "timestamp_utc": stamp,
+                            **group_fields(group_name, group_meta),
+                            "out_root": str(out_root),
+                            "plan": plan,
+                            "exposure_ms_requested": float(args.exposure_ms),
+                            "exposure_ceiling_ms": float(ceiling),
+                            "exposure_ms_working": actual,
+                            "frames_per_measurement": int(args.frames),
+                            "zero_order_full_frame_xy": [int(cx_full), int(cy_full)],
+                            "zero_order_roi_xy_frozen": [int(cx), int(cy)],
+                            "roi_px": int(args.roi_px),
+                            "path_blocked": True,
+                            "spot_assessment": assessment.as_dict(),
+                            "aborted": "path_blocked",
+                        }
+                        (out_dir / "run_config.json").write_text(
+                            json.dumps(abort_config, indent=2, ensure_ascii=False),
+                            encoding="utf-8",
+                        )
+                        print(
+                            "\n[中止] 光路受阻: " + assessment.reason + "\n"
+                            "       基线帧里没有任何局域光斑 (峰值 "
+                            f"{assessment.excess:.2f} counts, FWHM "
+                            f"{assessment.fwhm_px:.0f} px / 画幅 "
+                            f"{assessment.frame_px} px), 扫描只会记下噪声。\n"
+                            f"       判定与理由已写进 {out_dir / 'run_config.json'}",
+                            flush=True,
+                        )
+                        raise SystemExit(EXIT_PATH_BLOCKED)
+                    if not assessment.usable:
+                        print(
+                            "[警告] 基线帧有光但没有可评分的局域光斑 "
+                            f"({assessment.reason}); 这一轮仍然继续, "
+                            "但指标要按「光斑没聚焦」来解读",
+                            flush=True,
+                        )
+
                     target_side, target_side_source, baseline_fwhm = resolve_probe_target_side(
                         baseline_frame, int(args.roi_px), int(args.target_side_px)
                     )
@@ -1732,6 +1855,8 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         "target_side_source": target_side_source,
                         "target_side_px_requested": int(args.target_side_px),
                         "baseline_spot_fwhm_px": float(baseline_fwhm),
+                        "path_blocked": bool(assessment.blocked),
+                        "spot_assessment": assessment.as_dict(),
                         "slm_number": int(args.slm_number),
                         "cam_id": int(args.cam_id),
                         "cam_type": args.cam_type,

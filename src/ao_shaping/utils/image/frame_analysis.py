@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
@@ -255,6 +256,266 @@ def measure_spot(frame: np.ndarray, box: int = 40) -> SpotMeasurement:
     ix = min(max(int(round(mx)), 0), sm.shape[1] - 1)
     hollow = float(sm[iy, ix] / peak) if peak > 0 else 0.0
     return SpotMeasurement(peak, fwhm, mx, my, hollow)
+
+
+# ---------------------------------------------------------------------------
+# 光路受阻判定 (blocked path)
+# ---------------------------------------------------------------------------
+#
+# 为什么需要它
+# ------------
+# 光路被挡住 (光束没进 2f 透镜、透镜没对准、CCD 窗口被挡) 时, 画面里**没有任何
+# 局域结构**: 峰值停在读出噪声本底上, 剩下的全是噪声。此时任何「找光斑」的流程
+# 看到的都是**同一个**东西 —— 一张没有光斑的图。焦面探测会报「找不到焦面」,
+# 离焦探针会把 30 行纯噪声当成测量结果记下来, 两者都**看不出**光路已经断了。
+#
+# 所以判据不能是「亮不亮」: 严重离焦时传感器上的**总光量**甚至比正常状态还高
+# (光被摊开了), 而真正决定「有没有光斑」的是**结构** —— 亮区是否集中成一小块。
+#
+# 三个判据合起来才是「局域光斑」:
+#
+# 1. **够亮**: 背景之上的峰值高于读出噪声本底 (:data:`DEFAULT_MIN_PEAK`);
+# 2. **够集中**: 半高区的填充率不低于 :data:`MIN_BRIGHT_FILL` (噪点是散开的,
+#    光斑是一整块) 且它的包围盒最长边不超过画幅短边的
+#    :data:`MAX_BRIGHT_SPAN_FRACTION`;
+# 3. **够窄**: FWHM 不超过画幅短边的 ``max_fwhm_fraction``。
+#
+# 「峰值低 **且** 没有局域结构」= 光路受阻; 「峰值够但没有局域结构」= 光到了
+# 但没聚焦 (另一种故障); 其余 = 可用。
+
+#: 背景之上的峰值低于这个数 (counts) 就当成「在读出噪声本底上」。
+#:
+#: 取 8.0 的依据: 2026-10-20 正常实验系统的实测峰值是 42 counts, 而 2026-10-21
+#: 光路受阻时每个标定点都停在 1-2 counts —— 8 落在两者之间, 两侧都留了余量。
+DEFAULT_MIN_PEAK = 8.0
+
+#: FWHM 超过画幅短边的这个比例就算「太宽, 没法评分了」。
+#:
+#: 2026-10-20 正常实验系统实测 FWHM 12.9 px @ 250x250 ROI (占画幅 5%), 所以
+#: 0.5 有 10 倍余量; 而「光到了但没聚焦」的光斑弥散到画幅的一半以上。
+DEFAULT_MAX_FWHM_FRACTION = 0.5
+
+#: 半高区的**填充率**下限: 亮区必须是一块, 而不是散落在画幅里的噪点。
+#:
+#: 高斯光斑是 π/4 ≈ 0.785, 矩形斑 ≈ 1.0, 而纯读出噪声只有 ~0.01。
+MIN_BRIGHT_FILL = 0.25
+
+#: 半高区包围盒**最长边**占画幅短边的比例上限: 亮区必须**小**。
+#:
+#: 整幅渐变 (ramp) 的半高区横跨整幅画面 (占比 1.0), 所以渐变被判成「有光但没有
+#: 局域光斑」, 而不是「光路受阻」—— 这一条把两种故障分开。
+MAX_BRIGHT_SPAN_FRACTION = 0.5
+
+#: 背景水平用**低分位** (而不是中位数) 估计。
+#:
+#: 中位数在「光铺满整幅画面」时会落在信号本身的中段: 一个峰值 20 counts、弥散到
+#: 整幅的离焦光斑, 它的中位数是 ~12 counts, 于是「背景之上的余量」只剩 8 counts,
+#: 被误判成「在读出噪声本底上」—— 也就是把「光到了但没聚焦」说成「光路断了」。
+#: 低分位取的是**画幅里的暗部**, 那个才是本底。
+BACKGROUND_PERCENTILE = 10.0
+
+#: 峰值必须比本底高出这个倍数的**噪声**才算「有光」。
+#:
+#: 绝对阈值 (8 counts) 只在本实验系统这台相机上成立 (读出噪声 σ≈0.29 counts);
+#: 换一台噪声大的相机, 噪声本身的峰值就能顶穿绝对阈值, 于是「光路受阻」永远
+#: 判不出来。噪声用**高频余量**估计 (帧减去 3x3 盒式模糊), 所以一张平滑的
+#: 离焦光斑不会被误当成噪声。
+NOISE_PROMINENCE_FACTOR = 6.0
+
+#: 探测器满量程 (counts)。本仓库的消费者都按 0-255 的探测器量纲汇报。
+DETECTOR_FULL_SCALE = 255.0
+
+#: 噪声倍数给出的「有光」下限**封顶**在满量程的这个比例上。
+#:
+#: 没有封顶的话, 一张又亮又花的帧 (杂散光很强、高频内容也很强) 的噪声估计会
+#: 很大, 于是它的峰值被判成「还在噪声本底上」—— 而它其实**亮得很**, 只是没有
+#: 局域光斑。封顶之后那种帧落到「光到了但没聚焦」那一档, 而不是「光路受阻」。
+MAX_NOISE_FLOOR_FRACTION = 0.1
+
+#: 光路受阻时给操作者的检查清单: 光束到相机之间的**三段**光路。
+BLOCKED_PATH_CHECKLIST = "光束→SLM 面板 → 2f 透镜 → CCD 三段光路"
+
+#: 光路受阻时给操作者的**一句话** (含上面的检查清单)。
+BLOCKED_PATH_REASON = f"光束没有到达相机：检查 {BLOCKED_PATH_CHECKLIST}"
+
+
+@dataclass(frozen=True)
+class SpotUsability:
+    """一帧里「有没有可评分的局域光斑」的判定结果。
+
+    ``blocked`` 与 ``usable`` 是**两个不同**的结论:
+
+    * ``blocked`` —— 画面里没有光, 光路断了 (见 :data:`BLOCKED_PATH_REASON`);
+    * ``usable=False`` 且 ``blocked=False`` —— 光**到了**但没有聚焦 / 太宽,
+      这是另一种故障, 换焦面标定就能救;
+    * ``usable=True`` —— 有一块可评分的局域光斑。
+    """
+
+    usable: bool
+    blocked: bool
+    peak: float
+    fwhm_px: float
+    frame_px: int
+    reason: str
+    #: 帧的背景水平 (低分位)。相机本底会抬高原始峰值, 判「够不够亮」时必须
+    #: 拿**背景之上**的余量去比, 否则一个带本底的帧永远「够亮」。
+    background: float = 0.0
+    #: 背景之上的峰值 (counts) —— 判「够不够亮」用的就是这个。
+    excess: float = 0.0
+    #: 帧的**噪声**估计 (counts): 高频余量的标准差。
+    noise: float = 0.0
+    #: 半高区的填充率 (亮像素数 / 包围盒面积)。
+    fill: float = 0.0
+    #: 半高区包围盒最长边占画幅短边的比例。
+    span_fraction: float = 0.0
+    #: 光斑空心度 (强度/峰值比)。~1 = 单瓣, 明显小于 1 = 焦面散成环。
+    hollowness: float = 0.0
+
+    def as_dict(self) -> dict[str, Any]:
+        """JSON 化的形式 (写进证据文件 / run_config)。"""
+        return {
+            "usable": self.usable,
+            "blocked": self.blocked,
+            "peak": self.peak,
+            "excess": self.excess,
+            "noise": self.noise,
+            "fwhm_px": self.fwhm_px,
+            "frame_px": self.frame_px,
+            "fill": self.fill,
+            "span_fraction": self.span_fraction,
+            "hollowness": self.hollowness,
+            "reason": self.reason,
+        }
+
+
+def _bright_region_shape(centered: np.ndarray, excess: float) -> tuple[float, float]:
+    """半高区的 ``(填充率, 最长边占比)``。
+
+    「半高区」= 背景之上、高于半个余量的像素。纯噪声时这些像素是**散点**
+    (填充率 ~0.01, 包围盒几乎铺满画幅); 真实光斑时它们是一**块**
+    (填充率 ~0.78, 包围盒很小)。
+
+    Args:
+        centered: 减掉背景之后的帧。
+        excess: 背景之上的峰值 (counts)。
+
+    Returns:
+        ``(fill, span_fraction)``: 填充率与包围盒最长边占画幅短边的比例。
+        帧里根本没有亮区时返回 ``(0.0, 1.0)`` (即「没有局域结构」)。
+    """
+    height, width = centered.shape
+    short_side = float(min(height, width))
+    if not np.isfinite(excess) or excess <= 0.0:
+        return 0.0, 1.0
+    mask = centered > 0.5 * excess
+    count = int(mask.sum())
+    if count == 0:
+        return 0.0, 1.0
+    rows = np.flatnonzero(mask.any(axis=1))
+    cols = np.flatnonzero(mask.any(axis=0))
+    row_span = int(rows[-1] - rows[0] + 1)
+    col_span = int(cols[-1] - cols[0] + 1)
+    bbox_area = float(row_span * col_span)
+    fill = count / bbox_area if bbox_area > 0 else 0.0
+    span = max(row_span, col_span) / short_side if short_side > 0 else 1.0
+    return float(fill), float(span)
+
+
+def assess_spot(
+    frame: np.ndarray,
+    *,
+    min_peak: float = DEFAULT_MIN_PEAK,
+    max_fwhm_fraction: float = DEFAULT_MAX_FWHM_FRACTION,
+) -> SpotUsability:
+    """判断一帧里有没有**可评分的局域光斑**, 以及光路是不是被挡住了。
+
+    为什么必须有它
+    --------------
+    光路受阻时画面里**没有任何局域结构**, 而「找不到光斑」的流程看到的正是
+    同一张图: 焦面探测报「找不到焦面」, 离焦探针把纯噪声记成 30 行测量结果。
+    两种表现都不告诉操作者「光路断了」, 于是人只能去翻帧才发现。
+
+    判据
+    ----
+    * 背景 (中位数) 之上的峰值 **≤ ``min_peak``** ⇒ 画面停在读出噪声本底上;
+    * 「局域结构」= 半高区**集中成一块** (填充率 ≥ :data:`MIN_BRIGHT_FILL`)、
+      **足够小** (最长边 ≤ :data:`MAX_BRIGHT_SPAN_FRACTION` × 画幅短边) 且
+      **足够窄** (FWHM ≤ ``max_fwhm_fraction`` × 画幅短边)。
+
+    于是:
+
+    * 峰值低 **且** 没有局域结构 ⇒ ``blocked`` (光路断了, 见
+      :data:`BLOCKED_PATH_REASON`);
+    * 峰值够 **但** 没有局域结构 ⇒ ``usable=False`` 而 ``blocked=False``
+      (光到了但没聚焦 —— 另一种故障);
+    * 其余 ⇒ ``usable=True``。
+
+    Args:
+        frame: 2D 相机画面 (原始帧或已减背景的帧都可以)。
+        min_peak: 背景之上的峰值下限 (counts)。
+        max_fwhm_fraction: FWHM 占画幅短边的比例上限。
+
+    Returns:
+        :class:`SpotUsability`。
+    """
+    arr = _as_2d_float(frame)
+    height, width = arr.shape
+    frame_px = int(min(height, width))
+    # 相机本底会把原始峰值整体抬高; 判「够不够亮」必须看**背景之上**的余量。
+    # 背景取**低分位**而不是中位数: 光铺满整幅画面时中位数落在信号里 (见
+    # :data:`BACKGROUND_PERCENTILE` 的说明)。
+    background = float(np.percentile(arr, BACKGROUND_PERCENTILE))
+    centered = arr - background
+    measurement = measure_spot(centered)
+    excess = float(measurement.peak)
+    peak = float(arr.max())
+    fwhm = float(measurement.fwhm_px)
+    fill, span = _bright_region_shape(centered, excess)
+    # 噪声 = 高频余量 (帧减去 3x3 盒式模糊) 的标准差。平滑的离焦光斑在这一项上
+    # 几乎是 0, 所以它不会被误当成「噪声里的一个峰」。
+    noise = float((arr - smooth_frame(arr, 3)).std())
+
+    dim = excess <= max(
+        float(min_peak),
+        min(
+            NOISE_PROMINENCE_FACTOR * noise,
+            MAX_NOISE_FLOOR_FRACTION * DETECTOR_FULL_SCALE,
+        ),
+    )
+    broad = (not np.isfinite(fwhm)) or fwhm > float(max_fwhm_fraction) * frame_px
+    localised = (
+        fill >= MIN_BRIGHT_FILL
+        and span <= MAX_BRIGHT_SPAN_FRACTION
+        and not broad
+    )
+    blocked = bool(dim and not localised)
+
+    if blocked:
+        reason = BLOCKED_PATH_REASON
+    elif not localised:
+        reason = (
+            "光路有光但没有可评分的局域光斑（光斑过大或弥散）: "
+            "先用焦面探测标定瞳面菲涅尔焦距"
+        )
+    elif dim:
+        reason = "光斑偏暗但结构完整: 画面里有局域光斑, 多半是曝光不足"
+    else:
+        reason = "光斑可用"
+
+    return SpotUsability(
+        usable=bool(localised),
+        blocked=blocked,
+        peak=peak,
+        fwhm_px=fwhm,
+        frame_px=frame_px,
+        reason=reason,
+        background=background,
+        excess=excess,
+        noise=noise,
+        fill=fill,
+        span_fraction=span,
+        hollowness=float(measurement.hollowness),
+    )
 
 
 def core_fraction(
