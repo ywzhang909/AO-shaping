@@ -20,6 +20,7 @@ from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
     resolve_daheng_exposure_limit,
 )
+from loguru import logger
 
 
 def _utc() -> str:
@@ -118,7 +119,7 @@ def main() -> None:
     parser.add_argument("--exposure-ms", type=float, default=0.1)
     parser.add_argument("--repeats", type=int, default=3)
     args = parser.parse_args()
-    print(replay(args.run_dir, args.exposure_ms, args.repeats))
+    logger.info(replay(args.run_dir, args.exposure_ms, args.repeats))
 
 
 if __name__ == "__main__":

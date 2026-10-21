@@ -24,6 +24,7 @@ from torch import nn
 from ao_shaping.drivers import NlightDM as DM
 from ao_shaping.drivers.wfs import MlaRes
 from ao_shaping.drivers.wfs import ThorlabWFS as WFS
+from loguru import logger
 
 
 class WFSLaserCastEnv(gym.Env):
@@ -387,7 +388,7 @@ if __name__ == "__main__":
         ckpt_paths = glob('ckpts/rl_wfs/rl_model_*_steps.zip')
         if ckpt_paths:
             latest_ckpt_path = list(sorted(ckpt_paths, key=lambda x: os.path.getmtime(x)))[-1]
-            print(latest_ckpt_path)
+            logger.info(latest_ckpt_path)
             agent.load(latest_ckpt_path, env=env)
 
             # 创建测试环境

@@ -16,6 +16,7 @@ import wandb
 # Internal imports - using new ml package paths
 from ml.phase.unet import UNetGenerator
 from ml.phase.discriminator import PatchGANDiscriminator
+from loguru import logger
 
 
 def angular_loss(pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -301,7 +302,7 @@ class PhaseGANTrainer:
             epoch_time = time.time() - epoch_start
             lr = self.opt_gen.param_groups[0]["lr"]
 
-            print(
+            logger.info(
                 f"Epoch {epoch + 1}/{epochs} | "
                 f"G: {epoch_losses['gen_loss']:.4f} | "
                 f"D: {epoch_losses['disc_loss']:.4f} | "

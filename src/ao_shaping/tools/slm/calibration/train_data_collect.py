@@ -836,7 +836,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     plan = build_plan(params)
-    print(describe_plan(plan, params))
+    logger.info(describe_plan(plan, params))
 
     if params.no_hw:
         logger.info("已打印计划（--no-hw/--dry-run），未触发任何硬件。")

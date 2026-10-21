@@ -10,6 +10,7 @@ import numpy as np
 
 from ao_shaping.tools.slm.compare_disturbance import _common_quality
 from ao_shaping.utils.image.beam_metrics import zero_order_center
+from loguru import logger
 
 
 def analyze(root: Path) -> dict:
@@ -53,7 +54,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("run_dir", type=Path)
     result = analyze(parser.parse_args().run_dir)
-    print(json.dumps(result, indent=2))
+    logger.info(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":
