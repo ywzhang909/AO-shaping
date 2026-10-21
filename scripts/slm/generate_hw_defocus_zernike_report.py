@@ -54,7 +54,10 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E40
     uniformity_cv,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: E402
-from ao_shaping.utils.image.frame_analysis import measure_spot  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+    estimate_shift,
+    measure_spot,
+)
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
 
 REPORT_KEY = "report/shape_trials/hw_defocus_zernike_20261020.md"
@@ -313,7 +316,7 @@ def render_figures(
     rows = [r for r in scan["rows"] if not r.get("frame_missing")]
     made: list[str] = []
 
-    # Figure a: 综合分 vs Δz (硬件定尺框 / 硬件随斑框 / 仿真定尺框)
+    # Figure a: 复合分数 vs Δz (硬件定尺框 / 硬件随斑框 / 仿真定尺框)
     hw = [r for r in rows if "score_frozen" in r]
     fig, ax = plt.subplots(figsize=(8, 4.5))
     ax.plot(
@@ -333,8 +336,8 @@ def render_figures(
         "^-", color="#6b46c1", markersize=5, label="仿真 G1 (定尺框)",
     )
     ax.set_xlabel("离焦 Δz (mm)")
-    ax.set_ylabel("综合分")
-    ax.set_title("离焦下的综合分: 硬件 vs 仿真")
+    ax.set_ylabel("复合分数")
+    ax.set_title("离焦下的复合分数: 硬件 vs 仿真")
     ax.set_ylim(0, 1)
     ax.legend(fontsize=8)
     ax.grid(alpha=0.3)
@@ -432,6 +435,8 @@ def defocus_group_section(
     sigma_score: float,
     level: str = "2",
     phase: str = "",
+    response_figures: dict[str, str] | None = None,
+    group_name: str = "",
 ) -> str:
     """一个离焦分组的完整小节（主表 + 与仿真对拍 + 转向 + 大 Δz）。
 
@@ -466,8 +471,8 @@ def defocus_group_section(
         )
     main_table = markdown_table(
         ["类型", "Δz (mm)", "面板边缘相位 (波)", "FWHM (px)", "环形度", "整帧峰值",
-         "质心偏移 (px)", "CV 定尺", "PIB 定尺", "综合分 定尺", "CV 随斑",
-         "综合分 随斑", "框外功率占比"],
+         "质心偏移 (px)", "CV 定尺", "PIB 定尺", "复合分数 定尺", "CV 随斑",
+         "复合分数 随斑", "框外功率占比"],
         main_rows,
     )
 
@@ -492,7 +497,7 @@ def defocus_group_section(
             ]
         )
     cmp_table = markdown_table(
-        ["Δz (mm)", "仿真 G1 综合分 (定尺)", "硬件 综合分 (定尺)",
+        ["Δz (mm)", "仿真 G1 复合分数 (定尺)", "硬件 复合分数 (定尺)",
          "仿真 归一化", "硬件 归一化", "硬件 质心偏移 (px)"],
         cmp_rows,
     )
@@ -514,7 +519,7 @@ def defocus_group_section(
         )
     steer_table = markdown_table(
         ["Δz (mm)", "质心 x 偏移 (px, 带符号)", "质心 y 偏移 (px)",
-         "综合分 定尺", "综合分 随斑"],
+         "复合分数 定尺", "复合分数 随斑"],
         steer_rows,
     )
 
@@ -532,23 +537,80 @@ def defocus_group_section(
             f"{fmt_metric(abs(float(zero_rows[0].get('score_frozen', zero_rows[0].get('score', 0))) - float(zero_scan[0].get('score_frozen', 0))), 4)}"
         )
 
+    # --- 三套口径的离焦响应 -------------------------------------------------
+    matched = matched_box_side(run)
+    response_table, response_data = defocus_response_table(run, matched)
+    aperture_table = aperture_sensitivity_table(run)
+    legacy_side = int(cfg["target_side_px"])
+    resp_fig = (response_figures or {}).get(group_name, "")
+    peak_values = [
+        float(v["corr_peak"]) for v in response_data.values() if v.get("tracked_ok") is False
+    ]
+    peak_txt = (
+        f"（互相关峰值在 Δz ≥ 0.19 mm 就低于 0.3 的可用门限，最低到 {fmt_metric(min(peak_values), 2)}）"
+        if peak_values else ""
+    )
+    response_block = f"""
+#### {level}.5 离焦响应：三套口径的对照
+
+**目标框尺寸必须与被测相位匹配。** 探针原先把框写死成 {legacy_side} px —— 那是**模型** GS 相位方斑的边长；
+这一组的实际光斑只有 {fmt_metric(response_data[0]['fwhm'] if response_data else float('nan'), 1)} px 宽，
+框比光斑大 {fmt_metric(legacy_side / max(response_data[0]['fwhm'], 1e-9), 1) if response_data else '-'} 倍。
+复合分数是 `0.5·PIB + 0.5·(1/(1+CV))`：框远大于光斑时，离焦的**弥散把光填满框**（CV 反而变好），
+均匀项**奖励**离焦，而功率项同时变差，两项几乎等量抵消 ⇒ 复合分数看起来「毫无反应」。
+**离焦效果一直都在**（框内功率保持率在**正半轴**上严格单调下降；负半轴系统性地低一档，
+那是转向不对称、不是非单调），只是被口径藏起来了。
+
+匹配框 = 该相位 Δz=0 光斑自己的 FWHM（只定一次、之后冻结，不逐帧缩放）。
+**读单调性必须按半轴读**：把 ±Δz 按 |Δz| 合并，量到的是正负不对称，不是离焦响应。
+
+**三条读数纪律**（本表逐条对应）：
+
+1. **复合分数不能当主指标。** 框空掉时 CV→0，`1/(1+CV)`→1，复合分数的地板是 **0.5 而不是 0**，
+   于是它在**任何**孔径下都会**反弹**（本组 {fmt_metric(response_data[3.75]['score_matched'], 4) if 3.75 in response_data else '-'}
+   → {fmt_metric(response_data[5.0]['score_matched'], 4) if 5.0 in response_data else '-'}，|Δz| 3.75 → 5.0 mm：
+   更差的图样反而得分更高）。
+2. **「跟中心」口径在本实验系统的图样上不可用。** 相位互相关（`estimate_shift`）是仓库里
+   为「模型自己的光斑」写的，对**散斑化的远场图样**不灵 {peak_txt}；
+   本表的「PIB（互相关跟中心）」列因此大面积为空。质心位移列只在光斑仍是单瓣时可信。
+3. **唯一与转向无关的离焦读数是 `g r50`**（功率半径的相对增长）：它量的是图样摊开了多少，
+   不看位置，所以转向污染不到它。
+
+⇒ 冻结框心的 PIB 衰减在 |Δz| ≳ 1.5 mm 之后**不能**读作「离焦把光打散了」：
+光斑同时被**推走**了（见上 §x.3 的转向率）。消除这个污染的办法是**给 chirp 配一个反向的瞳面斜坡**
+（去倾斜），那部分已进代码（`--chirp-tilt-cancel`，自标定），等设备上线后复测。
+
+{response_table}
+
+**孔径灵敏度**（同一批帧，只换目标框尺寸；正半轴）：
+
+{aperture_table}
+
+⇒ 在 8 ~ 20 px 的范围内离焦响应都在，**只有 44 px 那个「模型相位方斑的边长」把响应藏住了**；
+所以结论不是孔径选出来的。
+
+{resp_fig}
+"""
+
     edge20 = at(20.0, "chirp_edge_waves")
     edge50 = at(50.0, "chirp_edge_waves")
     big_dz = ""
     if edge20 == edge20:  # not NaN
+        edge50_txt = (
+            f"、Δz = 50 mm 时是 {fmt_metric(edge50, 2)} 波" if edge50 == edge50 else ""
+        )
         big_dz = f"""
 #### {level}.4 大 Δz 与 SLM 采样
 
-面板边缘相位在 Δz = 20 mm 时是 {fmt_metric(edge20, 2)} 波，
-Δz = 50 mm 时是 {fmt_metric(edge50, 2)} 波。相邻像元的相位步进
-在 Δz = 50 mm 时约 0.57 rad，**远小于 π**，所以**采样（奈奎斯特）不是瓶颈**；真正的限制是
+面板边缘相位在 Δz = 20 mm 时是 {fmt_metric(edge20, 2)} 波{edge50_txt}。相邻像元的相位步进
+在 Δz = 20 mm 时约 0.23 rad，**远小于 π**，所以**采样（奈奎斯特）不是瓶颈**；真正的限制是
 
 - 晕斑半径：Δz = 20 mm 对应约 335 µm ≈ 152 px，而 ROI 半宽只有 {cfg['roi_px'] // 2} px
   ⇒ 光斑整体跑出窗口（PIB = 0、框外功率占比 = 1）；
-- 零级/杂散光：|Δz| ≥ 25 mm 后整帧峰值降到 0.25 counts，**框里基本没有光**。
+- 零级/杂散光：|Δz| ≥ 15 mm 后整帧峰值降到 3 counts 以下，**框里基本没有光**。
 
-⇒ **首轮把扫描限制在 |Δz| ≤ 20 mm 是对的**（面板边缘 {fmt_metric(edge20, 2)} 波）；50 mm 处既没有可测信号，
-也没有物理意义（晕斑已跑出 ROI）。
+⇒ **把扫描限制在 |Δz| ≤ 20 mm 是对的**（面板边缘 {fmt_metric(edge20, 2)} 波）；再往大推，
+晕斑已跑出 ROI，既没有可测信号也没有物理意义。
 """
 
     # --- 读法: 全部由本组数据算出, 不写死结论 ------------------------------
@@ -575,13 +637,13 @@ def defocus_group_section(
         asym_word = "**与噪声地板同量级 —— 在这个口径下分不出不对称**"
 
     comparison_note = (
-        f"- **形状**：仿真在 |Δz| = 1.5007 mm 处的综合分降到 Δz=0 的 "
+        f"- **形状**：仿真在 |Δz| = 1.5007 mm 处的复合分数降到 Δz=0 的 "
         f"{fmt_metric(sim_ratio_15, 4)}（掉了 {sim_drop:.1%}），这一组是 "
         f"{fmt_metric(hw_ratio_15, 4)}，{shape_word}。"
     )
     if phase == "model_gs":
         comparison_note += (
-            f" 绝对值也对不上（硬件 Δz=0 的综合分 {fmt_metric(base_hw, 4)} 对仿真 0.8073）："
+            f" 绝对值也对不上（硬件 Δz=0 的复合分数 {fmt_metric(base_hw, 4)} 对仿真 0.8073）："
             f" 这一组的相位来源、目标框尺寸（44 px 对 43 px）、目标边长都与仿真的 G1 行**同口径**，"
             f" 所以差距来自光路本身：仿真里 GS 相位与数字孪生**自洽**，"
             f" 而同一张相位下发到真实实验系统上，照明没落在瞳面中心、相机也不在 2f 面上，"
@@ -596,6 +658,8 @@ def defocus_group_section(
             f"{fmt_metric(at(0.0, 'cv_frozen'), 4)}，这个绝对值主要由「框远大于光斑」决定，"
             f" 而不是均匀性本身；**能比的是相对量**（随 |Δz| 变化的趋势与幅度），"
             f" 以及 §3 里同一张相位的泽尼克阶数结果。"
+            f" ⚠️ 与仿真的**同尺度**对拍需要仿真在 10 px 目标上重跑（**本轮未做**），"
+            f" 所以这一行对拍只成立到「形状」这一层。"
         )
 
     return f"""
@@ -617,7 +681,7 @@ def defocus_group_section(
 
 仿真的 G1 组（Δz 盲 GS、无离焦）取自 `report/shape_trials/fv_groups_fresnel_vs_vl.csv`
 （与 `gs_defocus_sim_20261019.md` §2.1 的 G1 行同源：Δz=0 处 score_fixed = 0.8073、
-cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框综合分，各自对自己的 Δz=0 归一化。
+cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框复合分数，各自对自己的 Δz=0 归一化。
 
 {cmp_table}
 
@@ -654,12 +718,12 @@ cv_fixed = 0.4215，两边逐位相同）。硬件侧取定尺框综合分，各
 后果：冻结框在 |Δz| ≳ 1.5 mm 之后开始被光斑**拖出框外**，于是
 
 - 框内功率（PIB）随 |Δz| 单调掉到 0；
-- 但**随斑框**的综合分在 +3.75 mm 处回到 {fmt_metric(at(3.75, 'score_moved'), 4)}，
+- 但**随斑框**的复合分数在 +3.75 mm 处回到 {fmt_metric(at(3.75, 'score_moved'), 4)}，
   高于 +1.5007 mm 处的 {fmt_metric(at(1.5007, 'score_moved'), 4)}。
 
 ⇒ **冻结框口径下 |Δz| ≳ 1.5 mm 的劣化不能读作「离焦把光打散了」**；光还在，只是被搬走了。
-本报告因此把「离焦响应」的可读区间限定在 **|Δz| ≤ 1.5 mm** —— 恰好也是仿真 G1 组用过的区间。
-{big_dz}"""
+{big_dz}
+{response_block}"""
 
 
 def zernike_noise_floor(
@@ -721,24 +785,83 @@ def zernike_noise_floor(
     return out
 
 
-def _group_frames(run: dict[str, Any]) -> dict[float, np.ndarray]:
-    """读出该组每个 Δz 的原始帧 (未经处理)。"""
-    out: dict[float, np.ndarray] = {}
+def _frames_by_index(run: dict[str, Any]) -> dict[int, tuple[float, np.ndarray]]:
+    """读出该组每一行的原始帧, 按**行索引**建键 (未经处理)。
+
+    ⚠️ 早期版本按 ``dz_mm`` 建键, 于是**基线行会被扫描里的 Δz=0 行覆盖** —— 两者
+    物理等价 (一个是空叠加层, 一个是全零二次相位), 但基线行是「重复性」的唯一参照,
+    被悄悄顶掉就没法核对重复性了。这里按**行索引**存, 由调用方显式挑选基线行。
+    """
+    out: dict[int, tuple[float, np.ndarray]] = {}
     for row in run["rows"]:
         if row.get("frame_missing"):
             continue
         path = Path(run["dir"]) / f"frame_{int(row['index']):03d}.npz"
         if not path.exists():
             continue
-        out[float(row["dz_mm"])] = np.load(path)["frame"]
+        out[int(row["index"])] = (float(row["dz_mm"]), np.load(path)["frame"])
     return out
+
+
+def _split_baseline_and_scan(
+    run: dict[str, Any],
+) -> tuple[dict[int, tuple[float, np.ndarray]], dict[int, tuple[float, np.ndarray]]]:
+    """把该组的帧分成「基线行」(空叠加层) 与「扫描行」。"""
+    frames = _frames_by_index(run)
+    baseline: dict[int, tuple[float, np.ndarray]] = {}
+    scan: dict[int, tuple[float, np.ndarray]] = {}
+    for row in run["rows"]:
+        idx = int(row["index"])
+        if idx not in frames:
+            continue
+        if float(row.get("chirp_sign", -1.0)) == 0.0:
+            baseline[idx] = frames[idx]
+        else:
+            scan[idx] = frames[idx]
+    return baseline, scan
+
+
+def _scan_frames_by_dz(run: dict[str, Any]) -> dict[float, np.ndarray]:
+    """扫描行的帧, 按 Δz 建键 (扫描行里 Δz 唯一)。"""
+    _baseline, scan = _split_baseline_and_scan(run)
+    return {dz: raw for dz, raw in scan.values()}
+
+
+def _baseline_frame(run: dict[str, Any]) -> np.ndarray | None:
+    """基线行 (空叠加层) 的帧; 没有就返回 None。"""
+    baseline, _scan = _split_baseline_and_scan(run)
+    for _dz, raw in baseline.values():
+        return raw
+    return None
+
+
+def encircled_power_radius(
+    frame: np.ndarray, cx: float, cy: float, fraction: float = 0.5
+) -> float:
+    """含 ``fraction`` 帧功率的半径 (绕 (cx, cy))。
+
+    用「功率半径」而不是 FWHM: FWHM 走的是过极值点的直线, 遇到环形/分裂图样就量到
+    环的**厚度** (本实验系统实测: 同一组里 FWHM 在 3.5 ~ 174.6 px 之间跳, 且模型相位
+    组非单调)。功率半径对形状不敏感, 适合当「图样摊开了多少」的指标。
+    """
+    yy, xx = np.indices(frame.shape, dtype=np.float64)
+    r = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2)
+    weight = np.maximum(frame, 0.0)
+    total = float(weight.sum())
+    if total <= 0:
+        return math.nan
+    order = np.argsort(r.ravel())
+    cum = np.cumsum(weight.ravel()[order])
+    idx = int(np.searchsorted(cum, fraction * total))
+    idx = min(idx, order.size - 1)
+    return float(r.ravel()[order[idx]])
 
 
 def render_farfield_grid(
     run: dict[str, Any], dz_list: list[float], out_png: Path, title: str
 ) -> bool:
     """CCD 远场光斑图拼版: 每个 Δz 一格 (log10), 画出目标框。"""
-    frames = _group_frames(run)
+    frames = _scan_frames_by_dz(run)
     picked = [dz for dz in dz_list if dz in frames]
     if not picked:
         return False
@@ -798,7 +921,7 @@ def render_crosssection_grid(
     run: dict[str, Any], dz_list: list[float], out_png: Path, title: str
 ) -> bool:
     """光斑 X/Y 截面 (过光斑中心的 log10 强度剖面)。"""
-    frames = _group_frames(run)
+    frames = _scan_frames_by_dz(run)
     picked = [dz for dz in dz_list if dz in frames]
     if not picked:
         return False
@@ -840,7 +963,7 @@ def render_group_farfields(
     for grp in scan_groups:
         run = grp["run"]
         name = grp["name"]
-        frames = _group_frames(run)
+        frames = _scan_frames_by_dz(run)
         if not frames:
             continue
         dzs = sorted(frames)
@@ -893,7 +1016,7 @@ def render_zernike_xsec(
     cmap = plt.get_cmap("viridis")
     plotted = 0
     for k, (name, _dir, run) in enumerate(farfield_runs):
-        frames = _group_frames(run)
+        frames = _scan_frames_by_dz(run)
         if not frames:
             continue
         dz = sorted(frames)[0]
@@ -926,6 +1049,225 @@ def render_zernike_xsec(
     return True
 
 
+def matched_box_side(run: dict[str, Any]) -> int:
+    """与该相位自身光斑匹配的目标框边长 (Δz=0 光斑的 FWHM, 只定一次)。
+
+    探针原先把目标框写死成 44 px —— 那是**模型** GS 相位方斑的边长。硬件 GS 相位的
+    实际光斑只有 12.9 px, 框比光斑大 3.4 倍, 于是复合分数的两项
+    (``0.5·PIB`` 与 ``0.5·(1/(1+CV))``) 方向相反、量级相当, 互相抵消 ——
+    「离焦效果不佳」其实是度量口径的假象, 不是实验系统的问题。
+    """
+    frames = _scan_frames_by_dz(run)
+    zeros = [dz for dz in frames if abs(dz) < 1e-9]
+    if not zeros:
+        return 0
+    base_dz = min(zeros, key=lambda z: abs(z))
+    fwhm = float(measure_spot(frames[base_dz]).fwhm_px)
+    if not math.isfinite(fwhm) or fwhm <= 0:
+        return 0
+    roi = int(run["config"]["roi_px"])
+    return int(max(4, min(int(round(fwhm)), int(0.6 * roi))))
+
+
+def score_in_box(frame: np.ndarray, cx: int, cy: int, side: int) -> tuple[float, float, float]:
+    """(PIB, CV, 复合分数) —— 在给定框上。"""
+    mask = square_mask(frame.shape, int(cy), int(cx), int(side))
+    pib = float(power_in_bucket(frame, mask))
+    cv = float(uniformity_cv(frame, mask))
+    return pib, cv, float(composite_from_pib_cv(pib, cv))
+
+
+def aperture_sensitivity_table(
+    run: dict[str, Any], sides: tuple[int, ...] = (8, 10, 13, 16, 20, 44)
+) -> str:
+    """孔径灵敏度: 同一批帧在若干目标框尺寸下, 离焦响应是否还在。
+
+    用来排除「结论只是某个框选出来的」这一类反驳: 只要在 8 ~ 20 px 的范围内
+    复合分数都随 Δz 下降, 结论就不是孔径的产物; 只有 44 px 那个「模型相位的方斑
+    边长」会把响应藏起来。
+    """
+    frames = _scan_frames_by_dz(run)
+    cfg = run["config"]
+    cx, cy = cfg["zero_order_roi_xy_frozen"]
+    positives = sorted(dz for dz in frames if dz >= 0)
+    if not positives:
+        return ""
+    rows: list[list[Any]] = []
+    for side in sides:
+        scores: list[float] = []
+        pibs: list[float] = []
+        for dz in positives:
+            frame = prepare_frame(frames[dz].astype(np.float64))
+            mask = square_mask(frame.shape, int(cy), int(cx), int(side))
+            p = float(power_in_bucket(frame, mask))
+            c = float(uniformity_cv(frame, mask))
+            pibs.append(p)
+            scores.append(float(composite_from_pib_cv(p, c)))
+        first = scores[0] if scores else math.nan
+        last = scores[-1] if scores else math.nan
+        drop = (first - last) / first if first else math.nan
+        rows.append([
+            f"{side} px",
+            fmt_metric(scores[0], 4),
+            fmt_metric(scores[min(4, len(scores) - 1)], 4),
+            fmt_metric(last, 4),
+            fmt_metric(drop, 3),
+            fmt_metric(min(pibs), 4),
+        ])
+    return markdown_table(
+        ["目标框边长", "复合分数 @Δz=0", f"复合分数 @Δz={positives[min(4, len(positives)-1)]:g} mm",
+         f"复合分数 @Δz={positives[-1]:g} mm", "首末降幅", "最小 PIB (正半轴)"],
+        rows,
+    )
+
+
+def defocus_response_table(
+    run: dict[str, Any], matched: int
+) -> tuple[str, dict[float, dict[str, float]]]:
+    """三套口径的离焦响应表 + 逐 Δz 的数值。
+
+    主指标按门禁的结论取**两个**:
+    - ``R(Δz)`` = 跟中心框内的功率保持率 (相对 Δz=0 归一) —— 跨相位可比;
+    - ``g(Δz)`` = 功率半径 r50 的相对增长 —— 对形状不敏感。
+    复合分数**只作辅助读数**: 框空掉时 CV→0, 1/(1+CV)→1, 复合分数的地板是 0.5
+    而不是 0, 于是它在任何孔径下都会**反弹** (实测硬件组 13 px 框: 0.3682 @3.75 mm
+    → 0.4224 @5.0 mm —— 更差的图样反而得分更高), 所以它不能当主指标。
+    """
+    frames = _scan_frames_by_dz(run)
+    cfg = run["config"]
+    cx, cy = cfg["zero_order_roi_xy_frozen"]
+    legacy = int(cfg["target_side_px"])
+    if not frames:
+        return "", {}
+    zeros = [dz for dz in frames if abs(dz) < 1e-9]
+    ref_dz = min(zeros, key=lambda z: abs(z)) if zeros else min(frames)
+    ref_raw = frames[ref_dz]
+    ref_frame = prepare_frame(ref_raw.astype(np.float64))
+
+    rows: list[list[Any]] = []
+    data: dict[float, dict[str, float]] = {}
+    for dz in sorted(frames):
+        raw = frames[dz]
+        frame = prepare_frame(raw.astype(np.float64))
+        spot = measure_spot(raw)
+        p_leg, c_leg, s_leg = score_in_box(frame, cx, cy, legacy)
+        p_mat, c_mat, s_mat = score_in_box(frame, cx, cy, matched)
+        # 跟中心: 用相位互相关 (estimate_shift) 而不是逐帧质心 —— 质心在图样
+        # 弥散/分裂时不稳定, 而互相关对形状变化不敏感, 且亚像素。
+        try:
+            dy, dx, peak = estimate_shift(ref_frame, frame)
+        except Exception:  # noqa: BLE001 - 互相关失败就退回质心
+            dy = dx = 0.0
+            peak = 0.0
+        tx = cx + dx
+        ty = cy + dy
+        # 互相关峰值低 ⇒ 图样已经不成单瓣, 跟中心没有意义 ⇒ 标 N/A
+        tracked_ok = bool(peak >= 0.30)
+        if tracked_ok:
+            p_trk, c_trk, s_trk = score_in_box(frame, round(tx), round(ty), matched)
+        else:
+            p_trk = c_trk = s_trk = math.nan
+        r50 = encircled_power_radius(frame, tx, ty, 0.5)
+        data[dz] = {
+            "fwhm": float(spot.fwhm_px), "pib_legacy": p_leg, "cv_legacy": c_leg,
+            "score_legacy": s_leg, "pib_matched": p_mat, "cv_matched": c_mat,
+            "score_matched": s_mat, "pib_tracked": p_trk, "cv_tracked": c_trk,
+            "score_tracked": s_trk, "shift_dx": float(dx), "shift_dy": float(dy),
+            "corr_peak": float(peak), "tracked_ok": tracked_ok, "r50_px": r50,
+            # 质心位移: 光斑仍是单瓣时可靠 (近焦区), 是转向量的直接读数。
+            "centroid_dx": float(spot.centroid_x - cx),
+            "centroid_dy": float(spot.centroid_y - cy),
+        }
+        rows.append([
+            fmt_metric(dz, 4),
+            fmt_metric(float(spot.fwhm_px), 1),
+            fmt_metric(s_leg, 4),
+            fmt_metric(p_mat, 4), fmt_metric(s_mat, 4),
+            fmt_metric(float(spot.centroid_x - cx), 1),
+            fmt_metric(r50, 1),
+            fmt_metric(p_trk, 4),
+        ])
+    # 归一化: 相对 Δz=0 (g r50 是无量纲比值, 跨相位可比)
+    ref = data.get(ref_dz, {})
+    ref_r50 = float(ref.get("r50_px", math.nan))
+    for dz, item in data.items():
+        r50 = float(item["r50_px"])
+        item["g_r50"] = (r50 / ref_r50) if (ref_r50 and math.isfinite(r50)) else math.nan
+    for row, dz in zip(rows, sorted(data)):
+        row.append(fmt_metric(data[dz]["g_r50"], 3))
+    table = markdown_table(
+        ["Δz (mm)", "光斑 FWHM (px)",
+         f"复合分数 {legacy}px (现口径)",
+         f"PIB {matched}px (冻结框心)", f"复合分数 {matched}px (冻结框心)",
+         "质心位移 dx (px)", "r50 (px)", "PIB (互相关跟中心)", "g r50 (归一)"],
+        rows,
+    )
+    return table, data
+
+
+def render_defocus_response(
+    run: dict[str, Any], matched: int, data: dict[float, dict[str, float]],
+    out_png: Path, title: str,
+) -> bool:
+    """离焦响应图: 三套口径的复合分数 + 框内功率保持率。"""
+    if not data:
+        return False
+    dzs = sorted(data)
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.3))
+    axes[0].plot(dzs, [data[d]["score_legacy"] for d in dzs], "s--", color="#c53030",
+                 markersize=4, label=f"复合分数（现口径, 冻结 {int(run['config']['target_side_px'])} px 框）")
+    axes[0].plot(dzs, [data[d]["score_matched"] for d in dzs], "o-", color="#2b6cb0",
+                 markersize=4, label=f"复合分数（匹配框 {matched} px，框心冻结）")
+    axes[0].plot(dzs, [data[d]["score_tracked"] for d in dzs], "^-", color="#6b46c1",
+                 markersize=4, label=f"复合分数（匹配框 {matched} px，跟中心）")
+    base = data[0]["score_legacy"]
+    axes[0].axhline(base, color="grey", lw=0.8, ls=":")
+    axes[0].set_xlabel("离焦 Δz (mm)")
+    axes[0].set_ylabel("复合分数")
+    axes[0].set_title("三套口径的复合分数（同一个 Δz=0 归一）", fontsize=10)
+    axes[0].legend(fontsize=7)
+    axes[0].grid(alpha=0.3)
+
+    axes[1].plot(dzs, [data[d]["pib_matched"] for d in dzs], "o-", color="#2b6cb0",
+                 markersize=4, label="PIB（匹配框，框心冻结）")
+    axes[1].plot(dzs, [data[d]["pib_tracked"] for d in dzs], "^-", color="#6b46c1",
+                 markersize=4, label="PIB（匹配框，跟中心）")
+    axes[1].plot(dzs, [data[d]["fwhm"] / 20.0 for d in dzs], "s--", color="#975a16",
+                 markersize=4, label="光斑 FWHM / 20（换算到同一纵轴）")
+    axes[1].set_xlabel("离焦 Δz (mm)")
+    axes[1].set_ylabel("框内功率保持率 / 相对尺度")
+    axes[1].set_title("离焦对目标能量保持率的破坏（单调）", fontsize=10)
+    axes[1].legend(fontsize=7)
+    axes[1].grid(alpha=0.3)
+    fig.suptitle(title, fontsize=11)
+    fig.tight_layout(rect=(0, 0, 1, 0.93))
+    savefig(fig, out_png)
+    plt.close(fig)
+    return True
+
+
+def render_defocus_responses(
+    scan_groups: list[dict[str, Any]],
+) -> dict[str, str]:
+    """每个离焦分组出一张「三套口径的离焦响应」图。"""
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    out: dict[str, str] = {}
+    for grp in scan_groups:
+        run = grp["run"]
+        name = grp["name"]
+        matched = matched_box_side(run)
+        if not matched:
+            continue
+        _table, data = defocus_response_table(run, matched)
+        path = FIG_DIR / f"hw_defocus_response_{name}.png"
+        if render_defocus_response(
+            run, matched, data, path,
+            f"离焦响应（三套口径）— 分组「{name}」",
+        ):
+            out[name] = f"figures/{path.name}"
+    return out
+
+
 def build_markdown(
     scan: dict[str, Any],
     noise: dict[str, Any],
@@ -936,6 +1278,7 @@ def build_markdown(
     order_noise: dict[str, Any] | None = None,
     scan_groups: list[dict[str, Any]] | None = None,
     group_figures: dict[str, list[str]] | None = None,
+    response_figures: dict[str, str] | None = None,
     zernike_figures: list[str] | None = None,
 ) -> str:
     cfg = scan["config"]
@@ -1001,7 +1344,7 @@ def build_markdown(
              str(noise["n_repeats"])],
             ["PIB", fmt_metric(noise["mean_pib"]), fmt_metric(sigma_pib, 5),
              str(noise["n_repeats"])],
-            ["综合分", fmt_metric(noise["mean_score"]), fmt_metric(sigma_score, 5),
+            ["复合分数", fmt_metric(noise["mean_score"]), fmt_metric(sigma_score, 5),
              str(noise["n_repeats"])],
             ["整帧峰值 (counts)", fmt_metric(noise["mean_frame_peak"], 2),
              fmt_metric(noise["sigma_frame_peak"], 2), str(noise["n_repeats"])],
@@ -1023,12 +1366,12 @@ def build_markdown(
             f"记录目录：`{grp['dir']}`\n"
         )
         group_sections += heading + defocus_group_section(
-            run, sim_g1, sigma_score, level, grp.get("phase", "")
+            run, sim_g1, sigma_score, level, grp.get("phase", ""), response_figures
         )
         group_figs = group_figures.get(grp["name"], [])
         if group_figs:
             group_sections += (
-                f"\n#### {level}.5 CCD 远场光斑与光斑截面\n\n"
+                f"\n#### {level}.6 CCD 远场光斑与光斑截面\n\n"
                 + "\n\n".join(f"![{Path(f).stem}]({f})" for f in group_figs)
             )
         group_sections += "\n\n"
@@ -1054,7 +1397,7 @@ def build_markdown(
         )
     zernike_table = markdown_table(
         ["n_max", "模态数", "拟合残差 (rad)", "max|c| (rad)", "clip 警告",
-         "CV 前", "CV 后", "PIB 前", "PIB 后", "EE 后", "综合分 后", "SPGD 有改善"],
+         "CV 前", "CV 后", "PIB 前", "PIB 后", "EE 后", "复合分数 后", "SPGD 有改善"],
         zrows,
     )
     base_rows = []
@@ -1067,7 +1410,7 @@ def build_markdown(
              fmt_metric(b["ee"], 4), fmt_metric(b["ar"], 4), fmt_metric(b["quality"], 4)]
         )
     baseline_table = markdown_table(
-        ["相位", "CV", "PIB", "EE", "AR", "综合分"], base_rows
+        ["相位", "CV", "PIB", "EE", "AR", "复合分数"], base_rows
     )
 
     # --- 阶数可排序性 -------------------------------------------------------
@@ -1220,7 +1563,7 @@ def build_markdown(
    转向叠加在「光斑本来就不在框中心」之上，于是同一个 |Δz| 在正负半轴上的劣化不对称：
    本轮各组在 ±1.5007 mm 处的差值是 {asym_parts}（噪声地板 {fmt_metric(sigma_score, 5)}），
    而仿真那边只差 0.0008 —— 这是硬件与仿真最大的口径差异。
-   各组 |Δz| = 1.5007 mm 相对 Δz=0 的综合分变化是 {drop_parts}：模型相位组与仿真同量级，
+   各组 |Δz| = 1.5007 mm 相对 Δz=0 的复合分数变化是 {drop_parts}：模型相位组与仿真同量级，
    硬件 GS 相位组却几乎不变，原因见 §2.2.2（44 px 目标框远大于该相位 ~10 px 的实际光斑）。
 3. **泽尼克阶数扫描在硬件上在线实现 8 阶**：{verdict}
    唯一随阶数**严格单调**的量是**拟合残差**（{'单调不增' if monotone else '非单调'}，
@@ -1317,6 +1660,22 @@ def build_markdown(
    所以 §3 的各阶远场图用的是**泽尼克扫描自己保存的那份**（`before/after_nmax*.png`，
    256×256 ROI、9.96 px 目标框），而带 X/Y 截面的那组只覆盖已经拍到的两阶。
    设备恢复后重跑 `data/debug/hw_groups_20261020/plan_zernike_farfield.json` 即可补齐。
+9. **本报告不主张的事情**（逐条列出来，避免被误读）：
+   - **不**主张「实验系统对离焦不敏感」—— 复合分数在 |Δz| ≤ 2.5 mm 上「平」是**口径的产物**
+     （框 ≫ 光斑 ⇒ 均匀项奖励离焦），不是物理结论。
+   - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— |Δz| ≳ 1.5 mm 时光斑同时被
+     **推走**了（转向 −5.2 px/mm，Δz=2.5 mm 时已移出 13 px 的框），那量到的是**模拟方式的倾斜**，
+     不是离焦。消除它要靠去倾斜（`--chirp-tilt-cancel`），复测后才能下这个结论。
+   - **不**主张硬件与仿真的正负半轴不对称是**实验系统**的性质 —— 瞳面 chirp 以面板标称中心
+     (960, 600) 为中心而照明不在那里，于是它带一个 ∝ Δz 的**倾斜**分量（远场位移 ∝ Δz），
+     而仿真的 chirp 打在光束中心、**没有**倾斜。所以这里的不对称有一部分来自**模拟方式**，
+     不是光学。
+   - **不**跨相位比较复合分数/PIB 的**绝对值**（两组的孔径不同：13 px 对 23 px），只比
+     **归一化**曲线。
+   - **不**把 FWHM 当离焦指标（环形/分裂图样会让它量到环的厚度；本组实测 FWHM 在 3.5 ~ 174.6 px
+     之间跳，模型相位组还非单调）。FWHM 只作描述列。
+   - **不**说「跟中心就消除了转向污染」—— 互相关在本实验系统的散斑图样上不可用（见 §x.5 第 2 条）。
+   - 44 px 那组数字**本身没错**（对该孔径而言是对的），错的是从它推出的结论；所以保留为「口径 A」。
 
 ---
 
@@ -1334,7 +1693,7 @@ python scripts/slm/run_hw_sweep_groups.py \\
 python scripts/slm/run_hw_sweep_groups.py \\
     --plan data/debug/hw_groups_20261020/plan.json --only dz_scan_hw_gs
 
-# 计划里每组对应的实际调用 (节选)
+# 计划里每组对应的实际调用 (节选; 下一轮上机要加的两个开关见括号)
 #   dz_scan_hw_gs:
 #     python scripts/slm/hw_gs_defocus_probe.py --execute --group dz_scan_hw_gs \\
 #       --group-meta role=dz_scan --group-meta phase=hardware_gs \\
@@ -1342,6 +1701,10 @@ python scripts/slm/run_hw_sweep_groups.py \\
 #       --defocus-focal-mm 1597.4 --exposure-ms 0.2 --frames 4 \\
 #       --gs-phase data/debug/hw_zernike_sweep_20261020b/best_phase_nmax4.npy \\
 #       --dz-mm -20 -15 ... 20
+#       (下一轮: --target-side-px 10  --chirp-tilt-cancel)
+#   dz_scan_model_gs:
+#     同上, 但不传 --gs-phase (用模型相位), 曝光 0.4 ms
+#       (下一轮: --target-side-px 44  --chirp-tilt-cancel)
 #   zernike_order:
 #     python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng --cam-id 0 \\
 #       --exposure-time-ms 0.2 --cam-size 256 --beam-radius-px 450 --slm-number 1 \\
@@ -1448,12 +1811,13 @@ def main() -> int:
 
     figures = render_figures(primary_run, sim_g1, zernike)
     group_figures = render_group_farfields(groups_for_report)
+    response_figures = render_defocus_responses(groups_for_report)
     zernike_figures = copy_zernike_farfields(zernike_dir, zernike.get("orders", []))
     if render_zernike_xsec(farfield_runs, FIG_DIR / "hw_zernike_xsec.png"):
         zernike_figures = zernike_figures + ["figures/hw_zernike_xsec.png"]
     body = build_markdown(
         primary_run, noise, sim_g1, zernike, zernike_dir, figures, order_noise,
-        groups_for_report, group_figures, zernike_figures,
+        groups_for_report, group_figures, response_figures, zernike_figures,
     )
     text = insert_header(body, REPORT_KEY)
     out_path = ROOT / REPORT_KEY

@@ -36,8 +36,38 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 
 核是 ``e^{−ikxξ/B}`` 而 ``B`` 恒等于 ``f`` ⇒ 核尺度是 ``λf`` 而非 ``λ(f+d)``, **没有
 放大**。CCD 离焦只让图样**变模糊**: 单个倾斜平面波经透镜聚到 fθ 之后只是发散, 中心
-不跑。本脚本因此不缩放 ROI、不按 d 重采样目标框 (目标框边长恒为 ``--target-side-px``),
-瞳面二次相位的分母取 **λf²**。
+不跑。本脚本因此不缩放 ROI、不按 d 重采样目标框 (目标框边长在扫描开始前定一次就
+**冻结**), 瞳面二次相位的分母取 **λf²**。
+
+🟡 **目标框按被探的那张相位定尺 (``--target-side-px 0`` = 默认)**
+
+目标框的边长默认**不是**写死的: 它由**本次相位自己的** Δz=0 远场光斑量出来
+(``side = clamp(round(FWHM), 4, floor(0.6·ROI))``), **只量一次**然后**冻结**,
+基线行与所有扫描行共用同一个框, 中心一直是冻结的零级。
+
+为什么不能写死: 历史上写死的 44 px 是**模型** GS 相位方形边长换算到硬件 CCD
+像元上的值, 而硬件 GS 相位实际打出的光斑只有 **12.9 px** 宽。框比光斑大 3.4 倍时,
+离焦弥散会把整个框**填满**, 均匀性项 ``1/(1+CV)`` 反而**上升** (CV 1.733 → 1.157),
+恰好抵消功率项 PIB 的下降, 合成分 ``0.5·PIB + 0.5/(1+CV)`` 于是**看起来是平的** ——
+离焦响应被两个项的抵消抹掉了。按相位自己的光斑定尺后响应恢复单调。
+
+⚠️ **框只定一次**: 逐帧按光斑重定尺会把离焦弥散本身藏起来 (弥散越大 → 框越大 →
+框内越均匀), 那正是仓库记下的自适应框刷分陷阱。
+
+🟡 **瞳面斜坡去倾斜 (opt-in, 默认关闭)**
+
+瞳面二次相位以面板的**标称**照明中心 (960, 600) 为中心, 而真实照明并不在那里 ——
+偏心的二次相位等价于一片**偏心透镜**: 它既离焦, 又**转向** (实测 2026-10-20 组
+``dz_scan_hw_gs``: 远场质心随 Δz 走 **-5.2 camera px/mm**)。这个转向是**模拟**的
+性质 —— 对拍的仿真把二次相位对准**光束**中心, 所以它没有转向分量。于是冻结的目标框
+会随 Δz 挪走, 量到的变成转向而不是离焦, 硬件与仿真也不同口径。
+
+``--chirp-tilt-cancel`` 打开**现场自标定**的去倾斜: 先测出「面板斜坡 → 相机位移」
+的映射与**符号** (本实验系统面板/相机轴交换 90°, 而这个符号仓库里没记, 所以只能
+现场量), 再逐 Δz 叠一条瞳面斜坡把转向补掉, 最后在标定 Δz 上复测残差。补偿斜坡与
+二次相位**相加**进同一张叠加图 (叠加层只有一条通道)。任何一步量不到可用光斑, 或实测
+标度与 bench 常量的比值越界, 一律**放弃去倾斜**并按原来的纯二次相位继续 —— 标定失败
+不许让整轮扫描作废。不给这个开关时, 行为与引入本选项之前**逐位一致**。
 
 🟡 **零级背景 (硬件侧最该量的东西)**
 
@@ -79,6 +109,10 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
     # 装好设备后
     python scripts/slm/hw_gs_defocus_probe.py --execute
     python scripts/slm/hw_gs_defocus_probe.py --replot <测量目录>   # 离线重新出图
+
+    # 打开去倾斜 (把二次相位的转向补掉; 默认关闭)
+    python scripts/slm/hw_gs_defocus_probe.py --execute --chirp-tilt-cancel \
+        --chirp-tilt-cal-dz-mm 2.0 --chirp-tilt-test-period-px 1000
 
 一次只探一组变量
 ----------------
@@ -133,6 +167,7 @@ import numpy as np
 # (实测: sys.modules 里没有任何 ao_shaping.drivers 出现)。单一事实源仍是
 # bench_constants / matrix_utils, 本文件不另立一份。
 # ---------------------------------------------------------------------------
+from ao_shaping.utils.image.frame_analysis import measure_spot  # noqa: E402
 from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
@@ -146,6 +181,7 @@ from ao_shaping.utils.wavefront.matrix_utils import (  # noqa: E402
 )
 from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     fresnel_panel,
+    ramp_panel,
 )
 from scripts._common.group_manifest import (  # noqa: E402
     group_output_dir,
@@ -176,10 +212,63 @@ CHIRP_ALPHA = 1.0001626284163687
 #: 默认扫描网格 (mm)。**与仿真脚本的 ΔZ_SCAN_MM 逐点一致**, 两个脚本才能对拍。
 DZ_SCAN_MM: tuple[float, ...] = tuple(float(v) for v in range(0, 55, 5))
 
-#: 目标框边长 (CCD px)。默认值来自仿真的 43 远场 px × 2.2606 µm/px = 97.2 µm,
-#: 换到 2.2 µm 的 CCD 像元上是 44.2 px —— 即仿真目标在硬件上的等效物理尺寸。
-DEFAULT_TARGET_SIDE_PX = 44
+#: ``--target-side-px`` 的默认值 = **自动定尺**。边长由**本次相位自己的** Δz=0
+#: 远场光斑量出来 (见 :func:`resolve_probe_target_side`), 量一次就**冻结**。
+#:
+#: 🔴 **为什么不能写死一个框**: 历史上写死的 44 px 是**模型** GS 相位的方形边长
+#: 换算到硬件 CCD 像元上的值 (43 远场 px × 2.2606 µm/px = 97.2 µm, 换到 2.2 µm
+#: 像元上是 44.2 px)。但硬件 GS 相位实际打出的光斑只有 **12.9 px** 宽 —— 框比光斑
+#: 大 3.4 倍时, 离焦弥散会把整个框**填满**, 均匀性项 ``1/(1+CV)`` 于是**上升**
+#: (CV 1.733 → 1.157), 恰好抵消功率项 PIB 的下降, 合成分
+#: ``0.5·PIB + 0.5/(1+CV)`` 于是**看起来是平的**。把框定到相位自己的光斑尺度上,
+#: 离焦响应才恢复成单调 (见 ``report/shape_trials/gs_defocus_sim_20261019.md`` §7)。
+AUTO_TARGET_SIDE_PX = 0
+
+#: 自动定尺测不出光斑时的兜底边长 (px) —— 即历史上的写死值。
+FALLBACK_TARGET_SIDE_PX = 44
+
+#: 自动定尺的夹取区间。下界: 边长太小则框内像素太少, CV 完全被噪声支配;
+#: 上界: 框不能超过 ROI 的这个比例, 否则框会被 ROI 边界裁掉一半。
+AUTO_TARGET_SIDE_MIN_PX = 4
+AUTO_TARGET_SIDE_ROI_FRACTION = 0.6
+
 DEFAULT_ROI_PX = 250
+
+# ---------------------------------------------------------------------------
+# 瞳面斜坡去倾斜 (自标定) 的默认参数
+# ---------------------------------------------------------------------------
+#: 去倾斜的**标定** Δz (mm)。二次相位的转向量按 Δz 线性, 所以在**一个** Δz 上
+#: 量一次就够外推; 取 2.0 mm 是因为实测转向的局部拟合 (|Δz| ≤ 2.5 mm) 在那里
+#: 还成立, 且位移 (~10 camera px) 远大于质心噪声。
+DEFAULT_CHIRP_TILT_CAL_DZ_MM = 2.0
+
+#: 标定用的**测试**斜坡周期 (panel px)。位移 ∝ 1/period, 所以 1000 px 对应
+#: TILT_SHIFT_SCALE/1000 ≈ 7.4 camera px —— 足够大到压过质心噪声, 又不至于
+#: 把光斑甩出窗口。
+DEFAULT_CHIRP_TILT_TEST_PERIOD_PX = 1000
+
+#: 自标定的**可信区间**: 实测斜率与 bench 常量 TILT_SHIFT_SCALE 的比值必须落在
+#: 区间内。比值越界说明光路变过 (或标定时光斑根本没定住), 这次标定不可信 ——
+#: 宁可不做去倾斜, 也不要用一个错的映射去补转向。
+CHIRP_TILT_RATIO_MIN = 0.5
+CHIRP_TILT_RATIO_MAX = 2.0
+
+#: 斜坡的最小周期 (panel px)。周期 1 px 不是斜坡而是棋盘格, 光斑会被甩到几千
+#: 相机 px 之外, 那种补偿没有意义。
+MIN_RAMP_PERIOD_PX = 2
+
+#: 标定时认为「光斑没动」的位移下限 (camera px)。低于它就当作这次斜坡没生效,
+#: 对应的面板轴判为不可用。
+CHIRP_TILT_MIN_SHIFT_PX = 0.2
+
+#: 逐行落盘的 Δz 相关字段 (基线行与扫描行共用同一组键)。
+#: 去倾斜的字段也在里面 —— 每一行都要能看出「这一行叠了多大的补偿」。
+STEP_ROW_FIELDS = (
+    "dz_mm", "dz_units", "chirp_sign", "chirp_alpha", "chirp_edge_rad",
+    "chirp_edge_waves", "chirp_corner_rad", "defocus_focal_mm",
+    "chirp_tilt_enabled", "chirp_tilt_comp_shift_x_px",
+    "chirp_tilt_comp_shift_y_px", "chirp_tilt_comp_specs",
+)
 
 #: 每次读帧的超时保护 (s)。Santec 的 ``WaitImageV3`` 原生等待由 SDK 内部驱动,
 #: **不受 Python 侧超时保护** (2026-09-08 实测可无限阻塞), 所以这里用看门狗线程
@@ -359,6 +448,475 @@ def build_focus_panel(focal_mm: float | None, optics: Optics) -> np.ndarray | No
 
 
 # ---------------------------------------------------------------------------
+# 瞳面斜坡去倾斜 (自标定)
+# ---------------------------------------------------------------------------
+# 🟡 **为什么需要去倾斜**
+#
+# 瞳面二次相位以面板的**标称**照明中心 (960, 600) 为中心, 而真实照明并不落在
+# 那里 —— 一片**偏心**的二次相位等价于一片偏心透镜: 它既离焦, 又**转向**。
+# 实测 (2026-10-20, 组 dz_scan_hw_gs): 远场质心随 Δz 以 **-5.2 camera px/mm**
+# 移动 (|Δz| ≤ 2.5 mm 的局部拟合)。
+#
+# 这个转向是**模拟**的性质, 不是实验系统的性质: 对拍的仿真把二次相位对准**光束**
+# 中心, 所以它没有转向分量。于是 (a) 冻结的目标框会随 Δz 挪走, 量到的变成
+# 转向而不是离焦; (b) 硬件与仿真的对比不同口径。
+#
+# 去倾斜 = 现场**自标定**出一条瞳面斜坡, 把转向补掉:
+#
+#   1. 现场测出「面板斜坡 → 相机位移」的映射 (哪条面板轴挪哪条相机轴) 与**符号**;
+#   2. 与 Δz=0 基线相减, 得二次相位的每 mm 转向量;
+#   3. 逐 Δz 反解出补偿斜坡, 与二次相位**相加**进同一张叠加图 (叠加层只有一条
+#      通道, 分两次 set_phase_overlay 会互相覆盖);
+#   4. 回到标定 Δz 复测, 记残差。
+#
+# 🔴 **符号一律现场测, 不许假设**: 本实验系统的面板轴与相机轴**交换 90°**
+# (面板 x 斜坡挪的是相机 y), 而且这个**符号**仓库里任何地方都没记 —— 假设错了
+# 去倾斜就会把转向**加倍**。
+class ChirpTiltCalibrationError(RuntimeError):
+    """去倾斜自标定失败。
+
+    调用方必须**降级**为「不做去倾斜」继续跑 (记 ``chirp_tilt_enabled=false``),
+    绝不让整轮扫描因为标定失败而作废。
+    """
+
+
+@dataclass(frozen=True)
+class RampSpec:
+    """一条面板斜坡的规格 (加进叠加层的那一条)。
+
+    ``sign`` 是相位梯度的方向: ``+1`` 是 ``ramp_panel`` 本身, ``-1`` 是它的负
+    (相位梯度反向 ⇒ 光斑往反方向走)。
+    """
+
+    panel_axis: int
+    period_px: int
+    sign: float = 1.0
+
+
+@dataclass(frozen=True)
+class RampAxisResponse:
+    """面板某条轴的斜坡 → 相机位移的**实测**响应。"""
+
+    panel_axis: int
+    camera_axis: int
+    shift_px: float
+    period_px: int
+    shift_vector_px: tuple[float, float] = (0.0, 0.0)
+
+    @property
+    def slope(self) -> float:
+        """相机 px × panel px —— 位移 ∝ 1/period 的斜率 (与 bench 常量同量纲)。"""
+        return float(self.shift_px) * float(self.period_px)
+
+    @property
+    def expected_ratio(self) -> float:
+        """实测斜率与 bench 常量的比值 (只比**幅度**, 符号是现场学的)。"""
+        return abs(self.slope) / float(TILT_SHIFT_SCALE)
+
+
+@dataclass(frozen=True)
+class RampAxisMap:
+    """面板斜坡 → 相机位移的实测映射 (每条面板轴一条响应)。"""
+
+    responses: tuple[RampAxisResponse, ...] = ()
+
+    def for_panel_axis(self, panel_axis: int) -> RampAxisResponse | None:
+        for response in self.responses:
+            if response.panel_axis == int(panel_axis):
+                return response
+        return None
+
+    def for_camera_axis(self, camera_axis: int) -> RampAxisResponse | None:
+        for response in self.responses:
+            if response.camera_axis == int(camera_axis):
+                return response
+        return None
+
+
+@dataclass(frozen=True, eq=False)
+class OverlayState:
+    """一次采集对应的叠加层状态。
+
+    ``overlay`` 是真正下发给 SLM 的瞳面相位 (焦面矫正 + 二次相位 + 去倾斜斜坡)。
+    ``ramps`` / ``chirp_dz_mm`` 只是**描述** —— 硬件路径用不上, 但离线复算与
+    单元测试 (假实现) 需要知道这一帧到底叠了什么。
+
+    ``eq=False``: 字段里有 numpy 数组, 默认的逐字段比较会得到「数组的真值不
+    明确」这种没意义的报错 —— 状态本来就只当**载荷**用, 不参与比较。
+    """
+
+    label: str
+    overlay: np.ndarray | None
+    ramps: tuple[RampSpec, ...] = ()
+    chirp_dz_mm: float | None = None
+
+
+@dataclass(frozen=True)
+class ChirpTiltCalibration:
+    """一次去倾斜自标定的结果。"""
+
+    axis_map: RampAxisMap
+    raw_shift_px_per_mm: tuple[float, float]
+    cal_dz_mm: float
+    test_period_px: int
+    cal_centroid_xy: tuple[float, float]
+    test_shifts_px: tuple[tuple[float, float], ...] = ()
+
+
+def compose_overlay(*parts: np.ndarray | None) -> np.ndarray | None:
+    """把若干张瞳面相位**相加**成一张 (驱动的叠加层只有一个通道)。
+
+    ``None`` 的项直接跳过 —— 焦面矫正与去倾斜斜坡都是**可选**的。
+    """
+    acc: np.ndarray | None = None
+    for part in parts:
+        if part is None:
+            continue
+        acc = np.asarray(part, dtype=np.float64) if acc is None else acc + part
+    return acc
+
+
+def spot_centroid(frame: np.ndarray) -> tuple[float, float] | None:
+    """帧里**可用**的光斑质心 (相机 x/y); 没有可用光斑时返回 ``None``。
+
+    「可用」= 峰值非零且质心有限。全黑帧的质心会被 argmax 落在 (0, 0), 那是
+    数组下标而不是光斑 —— 不挡掉它, 去倾斜就会拿着一堆假坐标去标定。
+    """
+    spot = measure_spot(frame)
+    if not (np.isfinite(spot.peak) and spot.peak > 0.0):
+        return None
+    if not (np.isfinite(spot.centroid_x) and np.isfinite(spot.centroid_y)):
+        return None
+    return float(spot.centroid_x), float(spot.centroid_y)
+
+
+def shift_per_mm(
+    baseline_xy: tuple[float, float],
+    shifted_xy: tuple[float, float],
+    dz_mm: float,
+) -> tuple[float, float]:
+    """把「某个 Δz 上的位移」折算成**每 mm** 的位移 (相机 x/y)。
+
+    二次相位的转向量按 Δz 线性 (转向来自二次相位里那个固定的偏心项, 幅度 ∝ Δz),
+    所以在**一个** Δz 上量一次就够外推。
+    """
+    dz = float(dz_mm)
+    if dz == 0.0:
+        raise ValueError("Δz = 0 无法折算成每 mm 位移")
+    return (
+        (float(shifted_xy[0]) - float(baseline_xy[0])) / dz,
+        (float(shifted_xy[1]) - float(baseline_xy[1])) / dz,
+    )
+
+
+def predict_shift_px(
+    per_mm: tuple[float, float], dz_mm: float
+) -> tuple[float, float]:
+    """按每 mm 位移外推到某个 Δz 上的期望位移 (相机 x/y)。"""
+    return (float(per_mm[0]) * float(dz_mm), float(per_mm[1]) * float(dz_mm))
+
+
+def learn_ramp_axis_map(
+    shifts: dict[int, tuple[float, float]],
+    period_px: int,
+) -> RampAxisMap:
+    """由「每条面板轴的斜坡让光斑挪了多少」学出面板→相机的映射。
+
+    每条面板轴的位移里, **较大的那个分量**就是它驱动的相机轴 (本实验系统面板/
+    相机轴交换 90°: 面板 x 斜坡挪的是相机 y); 分量的**符号**一并学 —— 仓库里
+    没有任何地方记着这个符号, 所以只能现场量。
+
+    Args:
+        shifts: ``{面板轴: (相机 x 位移, 相机 y 位移)}``。
+        period_px: 测试斜坡的周期 (panel px)。
+
+    Returns:
+        学到的映射 (某个面板轴没测出可用位移时, 它就不在结果里)。
+    """
+    responses: list[RampAxisResponse] = []
+    for panel_axis in (0, 1):
+        vector = shifts.get(int(panel_axis))
+        if vector is None:
+            continue
+        if abs(vector[0]) >= abs(vector[1]):
+            camera_axis, signed = 0, float(vector[0])
+        else:
+            camera_axis, signed = 1, float(vector[1])
+        responses.append(
+            RampAxisResponse(
+                panel_axis=int(panel_axis),
+                camera_axis=int(camera_axis),
+                shift_px=float(signed),
+                period_px=int(period_px),
+                shift_vector_px=(float(vector[0]), float(vector[1])),
+            )
+        )
+    return RampAxisMap(tuple(responses))
+
+
+def ramp_camera_shift_px(
+    axis_map: RampAxisMap, spec: RampSpec
+) -> tuple[float, float]:
+    """给定一条斜坡的规格, 预测它在**相机**上造成的位移 (相机 x/y)。
+
+    位移 ∝ 1/period, 所以周期翻倍位移减半 —— 这也是 ``TILT_SHIFT_SCALE`` 的定义。
+    """
+    response = axis_map.for_panel_axis(spec.panel_axis)
+    if response is None:
+        return (0.0, 0.0)
+    value = float(spec.sign) * response.slope / float(spec.period_px)
+    if response.camera_axis == 0:
+        return (value, 0.0)
+    return (0.0, value)
+
+
+def compensating_ramp(
+    desired_shift_px: tuple[float, float],
+    axis_map: RampAxisMap,
+    panel_shape: tuple[int, int],
+    *,
+    min_period_px: int = MIN_RAMP_PERIOD_PX,
+) -> tuple[np.ndarray, tuple[RampSpec, ...]]:
+    """按**期望的相机位移**反解出要叠加的瞳面斜坡 (每条相机轴最多一条)。
+
+    周期由实测斜率反解: 位移 ∝ 1/period ⇒ ``period = |斜率| / |期望位移|``;
+    符号取「让实测响应与期望同向」的那一侧 (斜坡取负即相位梯度反向)。周期只能
+    取整 (panel px), 所以实际位移与期望之间有一个 1/(2·period) 的相对误差 ——
+    记在返回的规格里, 由调用方核对。
+
+    Args:
+        desired_shift_px: 期望的**相机**位移 (x, y)。
+        axis_map: 自标定学到的面板→相机映射。
+        panel_shape: 面板形状 (h, w)。
+        min_period_px: 允许的最小周期 (panel px)。
+
+    Returns:
+        ``(叠加相位, 斜坡规格列表)``。无可用响应时返回全零相位与空列表。
+    """
+    phase: np.ndarray | None = None
+    specs: list[RampSpec] = []
+    for camera_axis in (0, 1):
+        desired = float(desired_shift_px[camera_axis])
+        if not np.isfinite(desired) or abs(desired) < 1e-9:
+            continue
+        response = axis_map.for_camera_axis(camera_axis)
+        if response is None:
+            continue
+        slope = response.slope
+        if not np.isfinite(slope) or abs(slope) <= 0.0:
+            continue
+        period = max(int(round(abs(slope) / abs(desired))), int(min_period_px))
+        sign = 1.0 if (slope * desired) > 0.0 else -1.0
+        spec = RampSpec(response.panel_axis, period, sign)
+        specs.append(spec)
+        ramp = ramp_panel(period, response.panel_axis, panel_shape) * sign
+        phase = ramp if phase is None else phase + ramp
+    if phase is None:
+        phase = np.zeros(panel_shape, dtype=np.float64)
+    return phase, tuple(specs)
+
+
+def axis_map_to_dict(axis_map: RampAxisMap) -> dict[str, Any]:
+    """把自标定结果摊成可 JSON 化的字典 (写进 ``run_config.json``)。"""
+    out: dict[str, Any] = {}
+    for response in axis_map.responses:
+        out[f"panel_axis_{response.panel_axis}"] = {
+            "panel_axis": response.panel_axis,
+            "camera_axis": response.camera_axis,
+            "shift_px": response.shift_px,
+            "period_px": response.period_px,
+            "slope_px_per_inv_period": response.slope,
+            "expected_ratio": response.expected_ratio,
+            "shift_vector_px": list(response.shift_vector_px),
+        }
+    ratios = [r.expected_ratio for r in axis_map.responses]
+    out["measured_vs_expected_ratio"] = float(min(ratios)) if ratios else float("nan")
+    return out
+
+
+def calibrate_chirp_tilt(
+    capture: Callable[[OverlayState], np.ndarray],
+    *,
+    baseline_xy: tuple[float, float],
+    focus_panel: np.ndarray | None,
+    chirp_panel: np.ndarray,
+    cal_dz_mm: float,
+    test_period_px: int,
+    panel_shape: tuple[int, int],
+) -> ChirpTiltCalibration:
+    """现场标定「面板斜坡 → 相机位移」的映射, 并量出二次相位的每 mm 转向量。
+
+    标定序列 (每一步都是一次抓帧):
+
+    1. Δz = ``cal_dz_mm`` 的二次相位, 记质心;
+    2. 在**同一**状态上只多叠一条测试斜坡 (面板 y), 记质心位移;
+    3. 面板 x 再来一次;
+    4. 由这两次位移学出面板→相机的映射与符号 (不假设);
+    5. 与 Δz=0 基线相减, 得每 mm 转向量。
+
+    Raises:
+        ChirpTiltCalibrationError: 任何一步量不到可用光斑, 或实测标度与 bench
+            常量的比值落在可信区间之外 —— 调用方必须降级为「不做去倾斜」。
+    """
+    cal_dz = float(cal_dz_mm)
+    if cal_dz == 0.0:
+        raise ChirpTiltCalibrationError("标定 Δz 不能为 0 (无法折算成每 mm 位移)")
+    period = int(test_period_px)
+    if period <= 0:
+        raise ChirpTiltCalibrationError(f"测试斜坡周期非法: {period}")
+
+    chirp_only = compose_overlay(focus_panel, chirp_panel)
+    cal_xy = spot_centroid(capture(OverlayState("chirp", chirp_only, (), cal_dz)))
+    if cal_xy is None:
+        raise ChirpTiltCalibrationError(
+            f"Δz={cal_dz} mm 的二次相位上量不到可用光斑, 去倾斜标定放弃"
+        )
+
+    shifts: dict[int, tuple[float, float]] = {}
+    for panel_axis in (0, 1):
+        spec = RampSpec(panel_axis, period, 1.0)
+        ramp = ramp_panel(period, panel_axis, panel_shape)
+        state = OverlayState(
+            f"chirp+ramp{panel_axis}",
+            compose_overlay(focus_panel, chirp_panel, ramp),
+            (spec,),
+            cal_dz,
+        )
+        xy = spot_centroid(capture(state))
+        if xy is None:
+            raise ChirpTiltCalibrationError(
+                f"面板轴 {panel_axis} 的测试斜坡上量不到可用光斑, 去倾斜标定放弃"
+            )
+        shifts[panel_axis] = (xy[0] - cal_xy[0], xy[1] - cal_xy[1])
+
+    axis_map = learn_ramp_axis_map(shifts, period)
+    if not axis_map.responses:
+        raise ChirpTiltCalibrationError("两条面板轴都没测出可用位移, 去倾斜标定放弃")
+    for response in axis_map.responses:
+        if abs(response.shift_px) < CHIRP_TILT_MIN_SHIFT_PX:
+            raise ChirpTiltCalibrationError(
+                f"面板轴 {response.panel_axis} 的测试斜坡只挪了 "
+                f"{response.shift_px:.3f} camera px (低于 {CHIRP_TILT_MIN_SHIFT_PX}), "
+                "标定不可信, 去倾斜放弃"
+            )
+        ratio = response.expected_ratio
+        if not (CHIRP_TILT_RATIO_MIN <= ratio <= CHIRP_TILT_RATIO_MAX):
+            raise ChirpTiltCalibrationError(
+                f"面板轴 {response.panel_axis} 的实测标度 / bench 常量 = {ratio:.3f} "
+                f"(可信区间 [{CHIRP_TILT_RATIO_MIN}, {CHIRP_TILT_RATIO_MAX}]) —— "
+                "光路可能变过, 标定不可信, 去倾斜放弃"
+            )
+
+    raw_per_mm = shift_per_mm(baseline_xy, cal_xy, cal_dz)
+    return ChirpTiltCalibration(
+        axis_map=axis_map,
+        raw_shift_px_per_mm=raw_per_mm,
+        cal_dz_mm=cal_dz,
+        test_period_px=period,
+        cal_centroid_xy=cal_xy,
+        test_shifts_px=tuple(shifts[axis] for axis in (0, 1) if axis in shifts),
+    )
+
+
+def verify_chirp_tilt(
+    capture: Callable[[OverlayState], np.ndarray],
+    *,
+    baseline_xy: tuple[float, float],
+    focus_panel: np.ndarray | None,
+    chirp_panel: np.ndarray,
+    comp_phase: np.ndarray | None,
+    comp_specs: tuple[RampSpec, ...],
+    cal_dz_mm: float,
+) -> tuple[float, float] | None:
+    """在标定 Δz 上复测一次, 返回**残差**的每 mm 位移; 测不到则返回 ``None``。"""
+    state = OverlayState(
+        "chirp+comp",
+        compose_overlay(focus_panel, chirp_panel, comp_phase),
+        comp_specs,
+        float(cal_dz_mm),
+    )
+    xy = spot_centroid(capture(state))
+    if xy is None:
+        return None
+    return shift_per_mm(baseline_xy, xy, float(cal_dz_mm))
+
+
+def compensation_for_dz(
+    dz_mm: float,
+    calibration: ChirpTiltCalibration,
+    panel_shape: tuple[int, int],
+) -> tuple[np.ndarray, tuple[RampSpec, ...], tuple[float, float]]:
+    """某个 Δz 上的补偿斜坡。
+
+    期望位移 = **负的**二次相位转向量 (把转向补掉), 周期由实测斜率反解。
+
+    Returns:
+        ``(相位, 斜坡规格, 实际达成的相机位移)``。实际位移用**取整后的**周期
+        算 —— 周期只能取整 (panel px), 所以它与期望之间有一个
+        1/(2·period) 的相对误差, 记下来由调用方核对。
+    """
+    desired = tuple(
+        -value
+        for value in predict_shift_px(calibration.raw_shift_px_per_mm, float(dz_mm))
+    )
+    phase, specs = compensating_ramp(desired, calibration.axis_map, panel_shape)
+    realised = [0.0, 0.0]
+    for spec in specs:
+        dx, dy = ramp_camera_shift_px(calibration.axis_map, spec)
+        realised[0] += dx
+        realised[1] += dy
+    return phase, specs, (realised[0], realised[1])
+
+
+def run_chirp_tilt_calibration(
+    capture: Callable[[OverlayState], np.ndarray],
+    *,
+    baseline_xy: tuple[float, float],
+    focus_panel: np.ndarray | None,
+    chirp_panel: np.ndarray,
+    cal_dz_mm: float,
+    test_period_px: int,
+    panel_shape: tuple[int, int],
+) -> tuple[ChirpTiltCalibration | None, tuple[float, float] | None, str]:
+    """跑一次「自标定 + 验证」, 失败时**降级**而不是抛出去。
+
+    降级是硬要求: 标定只是**锦上添花**的转向补偿, 它失败绝不该让整轮扫描作废
+    (那会白扔一整轮实验系统的机时)。所以这里把任何异常都吞成
+    ``(None, None, 说明)`` —— 调用方看到 ``None`` 就按纯二次相位继续。
+
+    Returns:
+        ``(标定结果, 残差, 说明)``。标定结果为 ``None`` ⇒ **不做去倾斜**。
+    """
+    try:
+        calibration = calibrate_chirp_tilt(
+            capture,
+            baseline_xy=baseline_xy,
+            focus_panel=focus_panel,
+            chirp_panel=chirp_panel,
+            cal_dz_mm=cal_dz_mm,
+            test_period_px=test_period_px,
+            panel_shape=panel_shape,
+        )
+    except Exception as exc:  # noqa: BLE001 - 标定失败不许整轮作废
+        return None, None, f"标定失败: {exc}"
+
+    comp_phase, comp_specs, _ = compensation_for_dz(
+        cal_dz_mm, calibration, panel_shape
+    )
+    residual = verify_chirp_tilt(
+        capture,
+        baseline_xy=baseline_xy,
+        focus_panel=focus_panel,
+        chirp_panel=chirp_panel,
+        comp_phase=comp_phase,
+        comp_specs=comp_specs,
+        cal_dz_mm=cal_dz_mm,
+    )
+    note = "标定与验证均完成" if residual is not None else "验证帧没有可用光斑, 残差未测到"
+    return calibration, residual, note
+
+
+# ---------------------------------------------------------------------------
 # 超时保护
 # ---------------------------------------------------------------------------
 def guarded(label: str, fn: Callable[[], Any], *, timeout_s: float) -> Any:
@@ -391,6 +949,62 @@ def guarded(label: str, fn: Callable[[], Any], *, timeout_s: float) -> Any:
 # ---------------------------------------------------------------------------
 # 实验计划 (dry-run 的全部输出)
 # ---------------------------------------------------------------------------
+def build_chirp_tilt_plan(args: argparse.Namespace) -> dict[str, Any]:
+    """去倾斜选项的计划描述 (dry-run 要把**怎么标定**和**怎么失败**讲清楚)。"""
+    enabled = bool(getattr(args, "chirp_tilt_cancel", False))
+    cal_dz = float(getattr(args, "chirp_tilt_cal_dz_mm", DEFAULT_CHIRP_TILT_CAL_DZ_MM))
+    period = int(
+        getattr(args, "chirp_tilt_test_period_px", DEFAULT_CHIRP_TILT_TEST_PERIOD_PX)
+    )
+    dz_list = [float(v) for v in getattr(args, "dz_mm", []) or []]
+    in_scan = any(abs(v - cal_dz) < 1e-9 for v in dz_list)
+    return {
+        "enabled": enabled,
+        "cal_dz_mm": cal_dz,
+        "test_period_px": period,
+        "cal_dz_in_scan": in_scan,
+        "why": (
+            "瞳面二次相位以面板的**标称**照明中心 (960, 600) 为中心, 而真实照明"
+            "并不在那里 —— 偏心的二次相位等价于一片**偏心透镜**: 它既离焦, 又"
+            "**转向** (实测 2026-10-20 组 dz_scan_hw_gs: 远场质心随 Δz 走 "
+            "-5.2 camera px/mm)。这个转向是**模拟**的性质 (对拍的仿真把二次相位"
+            "对准光束中心, 所以没有转向), 于是冻结的目标框会随 Δz 挪走, 量到的"
+            "变成转向而不是离焦, 硬件与仿真也不同口径"
+        ),
+        "policy": (
+            "**opt-in, 默认关闭**: 不给 --chirp-tilt-cancel 时行为与引入本选项"
+            "之前逐位一致。打开后逐 Δz 在**同一张**叠加图里加一条瞳面斜坡, 把"
+            "转向补掉; 目标框 / ROI / 冻结零级一律不动"
+        ),
+        "calibration_steps": [
+            f"1) 在 Δz = {cal_dz:.3f} mm 叠加二次相位, 抓帧记质心 (与 Δz=0 基线相减 "
+            "→ 二次相位的转向量)",
+            f"2) 在**同一**状态上只多叠一条测试斜坡 (面板 y, 周期 {period} panel px), "
+            "抓帧记质心位移",
+            "3) 面板 x 再来一次",
+            "4) 由这两次位移**现场学**出「面板轴 → 相机轴」的映射与符号 —— "
+            "不假设: 本实验系统面板/相机轴交换 90° (面板 x 斜坡挪的是相机 y), "
+            "而且这个符号仓库里任何地方都没记",
+            "5) 实测标度与 bench 常量 TILT_SHIFT_SCALE 的比值必须落在 "
+            f"[{CHIRP_TILT_RATIO_MIN}, {CHIRP_TILT_RATIO_MAX}] 内, 否则这次标定"
+            "不可信",
+            "6) 逐 Δz 反解补偿斜坡 (周期 = |实测斜率| / |期望位移|, 符号取与"
+            "期望同向的一侧), 与二次相位**相加**进同一张叠加图",
+            f"7) 回到 Δz = {cal_dz:.3f} mm 复测, 记**残差** (原始转向与残差都写进"
+            "run_config.json)",
+        ],
+        "fail_safe": (
+            "任何一步量不到可用光斑, 或标度比值越界, 一律**放弃去倾斜** "
+            "(记 chirp_tilt_enabled=false) 并按原来的纯二次相位继续 —— 绝不因为"
+            "标定失败让整轮扫描作废"
+        ),
+        "note": (
+            f"标定 Δz = {cal_dz:.3f} mm "
+            + ("在扫描列表内" if in_scan else "**不在**扫描列表内 —— 会额外抓一帧")
+        ),
+    }
+
+
 def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
     """完整实验计划: 扫哪些 Δz、每次施加什么相位、预计多久、需要哪些设备。"""
     dz_list = [float(v) for v in args.dz_mm]
@@ -426,6 +1040,36 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
     per_step = 1.5 + int(args.frames) * 0.3
     group_name = str(getattr(args, "group", None) or "main")
     group_meta = dict(getattr(args, "group_meta", None) or {})
+    requested_side = int(args.target_side_px)
+    if requested_side > 0:
+        target_box = {
+            "requested_side_px": requested_side,
+            "mode": "explicit",
+            "policy": (
+                f"显式 {requested_side} px (--target-side-px 给的); 中心冻结在零级, "
+                "全程不变"
+            ),
+        }
+    else:
+        target_box = {
+            "requested_side_px": 0,
+            "mode": "auto",
+            "policy": (
+                "自动定尺: 用**本次相位自己的** Δz=0 远场光斑定边长 —— "
+                "side = clamp(round(FWHM), 4, floor(0.6·ROI)); "
+                "**只量一次**然后冻结, 之后每一行 (含基线行) 都用同一个框"
+            ),
+        }
+    target_box["fallback_side_px"] = FALLBACK_TARGET_SIDE_PX
+    target_box["why"] = (
+        "框必须跟着**被探的那张相位**走: 硬件 GS 相位打出的光斑只有 12.9 px 宽, "
+        "而历史上写死的 44 px 是**模型** GS 相位方形边长换算到硬件像元上的值 —— "
+        "框比光斑大 3.4 倍时, 离焦弥散把整个框填满, 均匀性项 1/(1+CV) 上升 "
+        "(CV 1.733 → 1.157) 恰好抵消功率项 PIB 的下降, 合成分 "
+        "0.5·PIB + 0.5/(1+CV) 于是**看起来是平的**。按相位自己的光斑定尺后, "
+        "离焦响应恢复单调"
+    )
+    chirp_tilt = build_chirp_tilt_plan(args)
     return {
         "group": {
             "name": group_name,
@@ -494,9 +1138,11 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         ),
         "no_magnification": (
             "不按 M=(f+d)/f 重采样: Collins/ABCD T(f+d)·Lens(f)·T(f) 的 B ≡ f ⇒ "
-            "核尺度是 λf 而非 λ(f+d), CCD 离焦只使图样变模糊而不缩放。目标框边长恒为 "
-            "--target-side-px, ROI 不随 d 改"
+            "核尺度是 λf 而非 λ(f+d), CCD 离焦只使图样变模糊而不缩放。目标框边长"
+            "在扫描开始前定一次就**冻结**, ROI 不随 d 改"
         ),
+        "target_box": target_box,
+        "chirp_tilt": chirp_tilt,
         "steps": steps,
         "estimate": {
             "per_step_s": per_step,
@@ -560,6 +1206,30 @@ def print_plan(plan: dict[str, Any], optics: Optics) -> None:
     add("")
     add("零级与 ROI (关键: 不能假设 0 级在画面中心)")
     add(f"  {plan['zero_order']}")
+    add("")
+    add("目标框 (按**本次相位**的光斑定尺)")
+    tb = plan["target_box"]
+    mode_text = (
+        f"显式 {tb['requested_side_px']} px (--target-side-px 给的)"
+        if tb["mode"] == "explicit"
+        else "自动 (--target-side-px 0, **默认**)"
+    )
+    add(f"  模式     = {mode_text}")
+    add(f"  定尺     = {tb['policy']}")
+    add(f"  兜底     = {tb['fallback_side_px']} px (基线帧测不出光斑时)")
+    add(f"  为什么   = {tb['why']}")
+    add("")
+    add("瞳面斜坡去倾斜 (自标定, opt-in)")
+    ct = plan["chirp_tilt"]
+    add(f"  状态     = {'打开 (--chirp-tilt-cancel)' if ct['enabled'] else '关闭 (默认)'}")
+    add(f"  标定 Δz  = {ct['cal_dz_mm']:.3f} mm; 测试斜坡周期 = {ct['test_period_px']} panel px")
+    add(f"  为什么   = {ct['why']}")
+    add(f"  策略     = {ct['policy']}")
+    add("  标定步骤:")
+    for line in ct["calibration_steps"]:
+        add(f"    {line}")
+    add(f"  失败保护 = {ct['fail_safe']}")
+    add(f"  备注     = {ct['note']}")
     add("")
     add("零级晕斑 (硬件侧最该量的东西)")
     add(f"  {plan['zero_order_halo']}")
@@ -653,6 +1323,76 @@ def halo_metrics(frame: np.ndarray, box: np.ndarray) -> dict[str, float]:
             float(outside.sum() / total) if total > 0 else 0.0
         ),
     }
+
+
+def spot_geometry(frame: np.ndarray) -> dict[str, float]:
+    """一帧的光斑几何: FWHM / 质心 / 空心度。
+
+    口径与离线报告生成器 (``scripts/slm/generate_hw_defocus_zernike_report.py``)
+    完全一致: 都在**存下来的那一帧**上量。把它写进测量行, ``measurements.csv``
+    就是**自足**的 —— 报告不必再逐个打开 ``frame_*.npz`` 重算光斑。
+
+    Args:
+        frame: 探针存盘的那一帧 (原始帧, 未再加工)。
+
+    Returns:
+        ``{"spot_fwhm_px", "spot_centroid_x", "spot_centroid_y", "spot_hollowness"}``。
+    """
+    spot = measure_spot(frame)
+    return {
+        "spot_fwhm_px": float(spot.fwhm_px),
+        "spot_centroid_x": float(spot.centroid_x),
+        "spot_centroid_y": float(spot.centroid_y),
+        "spot_hollowness": float(spot.hollowness),
+    }
+
+
+def resolve_probe_target_side(
+    baseline_frame: np.ndarray,
+    roi_px: int,
+    requested_side_px: int,
+) -> tuple[int, str, float]:
+    """定目标框边长: 显式值照用, 否则按**本次相位自己的** Δz=0 光斑定尺。
+
+    🔴 **名字必须带 ``probe_``**: 仓库里另有一个 ``resolve_target_side``
+    (``scripts/slm/run_gs_refine_zernike_sweep.py``), 它的规则是 ``2·w0_flat``
+    (平场腰径推导) —— 与这里的「按光斑 FWHM 定尺」是**两套不同的策略**。
+    同名会让人以为它们是一回事, 所以这里显式改名; 但**不要**去统一两条规则 ——
+    它们服务于不同的测量, 各有各的道理。
+
+    框的大小必须跟着**被探的那张相位**走, 不能是别的相位的尺寸: 硬件 GS 相位
+    与模型 GS 相位打出的光斑宽度差 12.9 px vs 22.6 px, 用同一个框去量两者,
+    量到的根本不是同一件事。
+
+    规则 (自动模式)::
+
+        side = clamp(round(fwhm_px), 4, floor(0.6 * roi_px))
+
+    其中 ``fwhm_px`` 是**基线帧** (Δz=0, GS 相位已施加) 的光斑 FWHM。框只量**一次**
+    然后**冻结**: 逐帧按光斑重定尺会把离焦弥散本身藏起来 (弥散越大 → 框越大 →
+    框内越均匀), 那正是仓库已经记下的自适应框刷分陷阱。
+
+    Args:
+        baseline_frame: 基线帧 (Δz=0, GS 相位已施加)。
+        roi_px: ROI 边长 (px), 决定自动边长的上界。
+        requested_side_px: ``--target-side-px``; 正数 = 显式框, ``0`` = 自动。
+
+    Returns:
+        ``(side, source, fwhm_px)``: 边长、来源标签 (``"explicit"`` /
+        ``"auto_fwhm"`` / ``"fallback_44"``)、基线光斑的 FWHM (测不出时是 NaN)。
+    """
+    if int(requested_side_px) > 0:
+        return int(requested_side_px), "explicit", float("nan")
+
+    spot = measure_spot(baseline_frame)
+    fwhm = float(spot.fwhm_px)
+    if not np.isfinite(fwhm) or fwhm <= 0.0:
+        # 基线帧没有可用光斑 (全黑 / 全平 / 退化) —— 退回历史写死值, 不让整轮作废。
+        return FALLBACK_TARGET_SIDE_PX, "fallback_44", fwhm
+    hi = int(np.floor(AUTO_TARGET_SIDE_ROI_FRACTION * int(roi_px)))
+    hi = max(hi, AUTO_TARGET_SIDE_MIN_PX)
+    side = int(min(max(int(round(fwhm)), AUTO_TARGET_SIDE_MIN_PX), hi))
+    return side, "auto_fwhm", fwhm
 
 
 def load_gs_phase_panel(args: argparse.Namespace, optics: Optics) -> np.ndarray:
@@ -859,9 +1599,121 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     roi_flat = capture(slm, cam, flat, next_slot())
                     cx, cy = zero_order_center(roi_flat, refine=False, despike_k=3)
                     # ⚠️ 冻结: 之后所有测量复用这一个 center 与框, 不逐帧重定位。
-                    target = square_mask(roi_flat.shape, cy, cx, int(args.target_side_px))
-                    print(f"零级 (ROI 内 argmax, 已冻结): ({cx}, {cy}), "
-                          f"target_side={args.target_side_px} px")
+                    print(f"零级 (ROI 内 argmax, 已冻结): ({cx}, {cy})")
+
+                    # -- 基线帧 (Δz=0, **GS 相位已施加**): 目标框按它定尺 ----------
+                    # 框的边长必须由**本次相位自己的**光斑量出来。历史上写死的
+                    # 44 px 是**模型** GS 相位的方形边长换算到硬件像元上的值, 而
+                    # 硬件 GS 相位打出的光斑只有 12.9 px 宽 —— 框比光斑大 3.4 倍
+                    # 时, 离焦弥散把框填满, 均匀性项 1/(1+CV) 上升恰好抵消功率项
+                    # PIB 的下降, 合成分于是**看起来是平的**。按相位自己的光斑
+                    # 定尺后响应恢复单调。
+                    slm.set_phase_overlay(focus_panel)
+                    baseline_frame = capture_retry(slm, cam, gs_panel, next_slot)
+                    target_side, target_side_source, baseline_fwhm = resolve_probe_target_side(
+                        baseline_frame, int(args.roi_px), int(args.target_side_px)
+                    )
+                    target = square_mask(baseline_frame.shape, cy, cx, target_side)
+                    print(f"目标框: 边长 {target_side} px (来源 {target_side_source}, "
+                          f"基线光斑 FWHM {baseline_fwhm:.2f} px), 中心冻结在 ({cx}, {cy})")
+                    # 这一组的**固定**参数: 定下来的框。写进 group_meta ⇒ 根目录的
+                    # manifest.json 也带着它 (清单是这一组的事实记录)。
+                    group_meta["target_side_px"] = str(int(target_side))
+                    group_meta["target_side_source"] = str(target_side_source)
+
+                    # -- 去倾斜自标定 (opt-in) ------------------------------------
+                    # 放在 ROI / 冻结零级 / 目标框都定好之后: 标定要用**同一套**
+                    # 坐标 (质心是相机坐标, 与目标框中心无关), 但绝不能碰框本身。
+                    def capture_state(state: OverlayState) -> np.ndarray:
+                        """按状态设置叠加层并抓一帧 (标定与验证共用同一条路径)。"""
+                        slm.set_phase_overlay(state.overlay)
+                        return capture_retry(slm, cam, gs_panel, next_slot)
+
+                    chirp_tilt_cal: ChirpTiltCalibration | None = None
+                    chirp_tilt_enabled = False
+                    chirp_tilt_residual: tuple[float, float] | None = None
+                    chirp_tilt_note = "未启用 (--chirp-tilt-cancel 未给)"
+
+                    def compensation_for(
+                        dz_mm: float,
+                    ) -> tuple[np.ndarray | None, tuple[RampSpec, ...], tuple[float, float]]:
+                        """某个 Δz 上要叠加的补偿斜坡。
+
+                        未启用去倾斜时是空的 (行为与引入本选项之前逐位一致)。
+                        """
+                        if not chirp_tilt_enabled or chirp_tilt_cal is None:
+                            return None, (), (0.0, 0.0)
+                        return compensation_for_dz(
+                            float(dz_mm), chirp_tilt_cal, optics.panel_shape
+                        )
+
+                    if bool(getattr(args, "chirp_tilt_cancel", False)):
+                        cal_dz = float(args.chirp_tilt_cal_dz_mm)
+                        test_period = int(args.chirp_tilt_test_period_px)
+                        print(f"[去倾斜] 自标定开始: Δz={cal_dz} mm, "
+                              f"测试斜坡周期 {test_period} panel px")
+                        try:
+                            baseline_xy = spot_centroid(baseline_frame)
+                            if baseline_xy is None:
+                                raise ChirpTiltCalibrationError("基线帧没有可用光斑")
+                            cal_chirp = panel_pupil_chirp(
+                                cal_dz * 1e-3, optics,
+                                sign=args.chirp_sign, alpha=args.chirp_alpha,
+                            )
+                            chirp_tilt_cal, chirp_tilt_residual, chirp_tilt_note = (
+                                run_chirp_tilt_calibration(
+                                    capture_state,
+                                    baseline_xy=baseline_xy,
+                                    focus_panel=focus_panel,
+                                    chirp_panel=cal_chirp,
+                                    cal_dz_mm=cal_dz,
+                                    test_period_px=test_period,
+                                    panel_shape=optics.panel_shape,
+                                )
+                            )
+                            if chirp_tilt_cal is None:
+                                chirp_tilt_enabled = False
+                                print(f"[去倾斜] {chirp_tilt_note} —— "
+                                      "本组按**无去倾斜**继续")
+                            else:
+                                chirp_tilt_enabled = True
+                                for response in chirp_tilt_cal.axis_map.responses:
+                                    print(
+                                        f"[去倾斜] 面板轴 {response.panel_axis} ("
+                                        f"{'y/行' if response.panel_axis == 0 else 'x/列'}) "
+                                        f"→ 相机轴 {response.camera_axis}: 实测 "
+                                        f"{response.shift_px:+.2f} camera px @ "
+                                        f"{response.period_px} px, 实测标度/bench 常量 = "
+                                        f"{response.expected_ratio:.3f}"
+                                    )
+                                print("[去倾斜] 二次相位的转向量: "
+                                      f"({chirp_tilt_cal.raw_shift_px_per_mm[0]:+.3f}, "
+                                      f"{chirp_tilt_cal.raw_shift_px_per_mm[1]:+.3f}) "
+                                      "camera px/mm")
+                                comp_phase, comp_specs, comp_shift = compensation_for(cal_dz)
+                                if chirp_tilt_residual is not None:
+                                    print(
+                                        f"[去倾斜] 补偿后残差: "
+                                        f"({chirp_tilt_residual[0]:+.3f}, "
+                                        f"{chirp_tilt_residual[1]:+.3f}) camera px/mm "
+                                        f"(补偿斜坡 {comp_specs}, 预期位移 "
+                                        f"({comp_shift[0]:+.2f}, {comp_shift[1]:+.2f}) px)"
+                                    )
+                                else:
+                                    print(f"[去倾斜] {chirp_tilt_note}")
+                        except Exception as exc:  # noqa: BLE001 - 标定失败不许整轮作废
+                            chirp_tilt_cal = None
+                            chirp_tilt_enabled = False
+                            chirp_tilt_residual = None
+                            chirp_tilt_note = f"标定失败: {exc}"
+                            print(f"[去倾斜] {chirp_tilt_note} —— 本组按**无去倾斜**继续")
+                    # 记录: 这一组跑没跑去倾斜, 清单里必须看得见。
+                    group_meta["chirp_tilt_cancel"] = (
+                        "true" if bool(getattr(args, "chirp_tilt_cancel", False)) else "false"
+                    )
+                    group_meta["chirp_tilt_enabled"] = (
+                        "true" if chirp_tilt_enabled else "false"
+                    )
 
                     run_config = {
                         "timestamp_utc": stamp,
@@ -876,12 +1728,32 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         "zero_order_full_frame_xy": [int(cx_full), int(cy_full)],
                         "zero_order_roi_xy_frozen": [int(cx), int(cy)],
                         "roi_px": int(args.roi_px),
-                        "target_side_px": int(args.target_side_px),
+                        "target_side_px": int(target_side),
+                        "target_side_source": target_side_source,
+                        "target_side_px_requested": int(args.target_side_px),
+                        "baseline_spot_fwhm_px": float(baseline_fwhm),
                         "slm_number": int(args.slm_number),
                         "cam_id": int(args.cam_id),
                         "cam_type": args.cam_type,
                         "protected_memory_slot": protected,
                         "defocus_focal_mm": args.defocus_focal_mm,
+                        "chirp_tilt_cancel": bool(getattr(args, "chirp_tilt_cancel", False)),
+                        "chirp_tilt_cal_dz_mm": float(args.chirp_tilt_cal_dz_mm),
+                        "chirp_tilt_test_period_px": int(args.chirp_tilt_test_period_px),
+                        "chirp_tilt_enabled": bool(chirp_tilt_enabled),
+                        "chirp_tilt_raw_shift_px_per_mm": (
+                            list(chirp_tilt_cal.raw_shift_px_per_mm)
+                            if chirp_tilt_cal is not None else None
+                        ),
+                        "chirp_tilt_residual_shift_px_per_mm": (
+                            list(chirp_tilt_residual)
+                            if chirp_tilt_residual is not None else None
+                        ),
+                        "chirp_tilt_axis_map": (
+                            axis_map_to_dict(chirp_tilt_cal.axis_map)
+                            if chirp_tilt_cal is not None else None
+                        ),
+                        "chirp_tilt_note": chirp_tilt_note,
                     }
                     (out_dir / "run_config.json").write_text(
                         json.dumps(run_config, indent=2, ensure_ascii=False), encoding="utf-8"
@@ -895,16 +1767,14 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             "timestamp_utc": datetime.now(timezone.utc).isoformat(
                                 timespec="seconds"
                             ),
-                            **{k: step[k] for k in
-                               ("dz_mm", "dz_units", "chirp_sign", "chirp_alpha",
-                                "chirp_edge_rad", "chirp_edge_waves", "chirp_corner_rad",
-                                "defocus_focal_mm")},
+                            **{k: step[k] for k in STEP_ROW_FIELDS},
                             "exposure_ms_readback": float(cam.get_exposure_time_ms()),
                             "frame_mean_in_target": float(np.mean(frame[target])),
                             "cv": cv,
                             "pib": pib,
                             "score": float(composite_from_pib_cv(pib, cv)),
                             **halo_metrics(frame, target),
+                            **spot_geometry(frame),
                         }
                         np.savez_compressed(
                             out_dir / f"frame_{row['index']:03d}.npz",
@@ -930,10 +1800,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             "timestamp_utc": datetime.now(timezone.utc).isoformat(
                                 timespec="seconds"
                             ),
-                            **{k: step[k] for k in
-                               ("dz_mm", "dz_units", "chirp_sign", "chirp_alpha",
-                                "chirp_edge_rad", "chirp_edge_waves", "chirp_corner_rad",
-                                "defocus_focal_mm")},
+                            **{k: step[k] for k in STEP_ROW_FIELDS},
                             "exposure_ms_readback": float(cam.get_exposure_time_ms()),
                             "frame_mean_in_target": float("nan"),
                             "cv": float("nan"),
@@ -942,6 +1809,10 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                             "frame_peak": float("nan"),
                             "halo_peak_outside_box": float("nan"),
                             "halo_power_fraction_outside_box": float("nan"),
+                            "spot_fwhm_px": float("nan"),
+                            "spot_centroid_x": float("nan"),
+                            "spot_centroid_y": float("nan"),
+                            "spot_hollowness": float("nan"),
                             "error": str(exc),
                         }
                         rows.append(row)
@@ -950,13 +1821,20 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         return row
 
                     # -- 基线行 (Δz = 0, GS 相位, 只带焦面矫正) -------------------
+                    # 帧在上面已经取好 (定框要用它), 这里只是用**已经定好的**框把它
+                    # 记成第一行 —— 基线行与扫描行用同一个框, 口径一致。
+                    # Δz=0 的补偿斜坡是空的 (期望位移 0), 所以基线行与「不做去
+                    # 倾斜」时逐位一致。
                     baseline = {"step": -1, "dz_mm": 0.0, "dz_units": 0.0,
                                 "chirp_sign": 0.0, "chirp_alpha": 0.0,
                                 "chirp_edge_rad": 0.0, "chirp_edge_waves": 0.0,
                                 "chirp_corner_rad": 0.0,
-                                "defocus_focal_mm": args.defocus_focal_mm}
-                    slm.set_phase_overlay(focus_panel)
-                    record(baseline, capture_retry(slm, cam, gs_panel, next_slot))
+                                "defocus_focal_mm": args.defocus_focal_mm,
+                                "chirp_tilt_enabled": bool(chirp_tilt_enabled),
+                                "chirp_tilt_comp_shift_x_px": 0.0,
+                                "chirp_tilt_comp_shift_y_px": 0.0,
+                                "chirp_tilt_comp_specs": "[]"}
+                    record(baseline, baseline_frame)
 
                     # -- 扫描 --------------------------------------------------------
                     try:
@@ -965,20 +1843,39 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 step["dz_mm"] * 1e-3, optics,
                                 sign=args.chirp_sign, alpha=args.chirp_alpha,
                             )
-                            # ⚠️ 驱动的叠加层只有**一个**通道: 焦面矫正与 Δz 二次
-                            # 相位必须相加进同一张图, 分两次 set_phase_overlay 会让
-                            # 后者覆盖前者, 焦点矫正就丢了。
-                            overlay = chirp if focus_panel is None else focus_panel + chirp
+                            # 去倾斜的补偿斜坡 (未启用时是空的)。
+                            comp_phase, comp_specs, comp_shift = compensation_for(
+                                step["dz_mm"]
+                            )
+                            # ⚠️ 驱动的叠加层只有**一个**通道: 焦面矫正、Δz 二次
+                            # 相位与去倾斜斜坡必须相加进同一张图, 分多次
+                            # set_phase_overlay 会让后者覆盖前者, 焦点矫正就丢了。
+                            overlay = compose_overlay(focus_panel, chirp, comp_phase)
                             slm.set_phase_overlay(overlay)
+                            step_row = {
+                                **step,
+                                "chirp_tilt_enabled": bool(chirp_tilt_enabled),
+                                "chirp_tilt_comp_shift_x_px": float(comp_shift[0]),
+                                "chirp_tilt_comp_shift_y_px": float(comp_shift[1]),
+                                "chirp_tilt_comp_specs": json.dumps(
+                                    [
+                                        {"panel_axis": s.panel_axis,
+                                         "period_px": s.period_px,
+                                         "sign": s.sign}
+                                        for s in comp_specs
+                                    ],
+                                    ensure_ascii=False,
+                                ),
+                            }
                             try:
                                 frame = capture_retry(slm, cam, gs_panel, next_slot)
                             except SantecError as exc:
                                 # 单点失败不能让整轮扫描作废: 记一行失败, 继续下一个 Δz。
                                 print(f"[跳过] Δz={step['dz_mm']} mm 取帧失败: {exc}",
                                       flush=True)
-                                record_failure(step, exc)
+                                record_failure(step_row, exc)
                                 continue
-                            record(step, frame)
+                            record(step_row, frame)
                     finally:
                         # 叠加层是驱动的持久状态, 必须清掉 —— 否则之后的调用方会在
                         # 毫不知情的情况下一直带着这张离焦相位图。
@@ -1171,6 +2068,22 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--defocus-focal-mm", type=float, default=None,
                    help="瞳面菲涅尔焦面矫正焦距 (mm; 不给 = 不矫正, 探针默认 0; "
                         "2f 台架 CCD 不在焦面, 用 focus_probe 标定值, 例 1848.4)")
+    p.add_argument("--chirp-tilt-cancel", action="store_true",
+                   help="打开瞳面斜坡去倾斜: 现场自标定「面板斜坡 → 相机位移」的"
+                        "映射与符号, 再用一条瞳面斜坡把二次相位的**转向**补掉 "
+                        "(二次相位以面板标称照明中心为中心 ⇒ 等价偏心透镜, 实测"
+                        "转向 -5.2 camera px/mm)。**默认关闭** —— 不给这个开关时"
+                        "行为与引入本选项之前逐位一致")
+    p.add_argument("--chirp-tilt-cal-dz-mm", type=float,
+                   default=DEFAULT_CHIRP_TILT_CAL_DZ_MM,
+                   help=f"去倾斜的**标定** Δz (mm, 默认 "
+                        f"{DEFAULT_CHIRP_TILT_CAL_DZ_MM}); 应落在扫描区间内, "
+                        "不在的话会额外抓一帧")
+    p.add_argument("--chirp-tilt-test-period-px", type=int,
+                   default=DEFAULT_CHIRP_TILT_TEST_PERIOD_PX,
+                   help=f"标定用的**测试**斜坡周期 (panel px, 默认 "
+                        f"{DEFAULT_CHIRP_TILT_TEST_PERIOD_PX}); 位移 ∝ 1/周期, "
+                        "该周期对应约 7.4 camera px 的位移")
     p.add_argument("--slm-number", type=int, default=1)
     p.add_argument("--cam-id", type=int, default=0)
     p.add_argument("--cam-type", default="daheng")
@@ -1179,7 +2092,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--exposure-ms", type=float, default=0.12)
     p.add_argument("--frames", type=int, default=4)
     p.add_argument("--roi-px", type=int, default=DEFAULT_ROI_PX)
-    p.add_argument("--target-side-px", type=int, default=DEFAULT_TARGET_SIDE_PX)
+    p.add_argument("--target-side-px", type=int, default=AUTO_TARGET_SIDE_PX,
+                   help="目标框边长 (CCD px)。**0 = 自动 (默认)**: 用**本次相位自己的** "
+                        "Δz=0 远场光斑定尺 (side = clamp(round(FWHM), 4, "
+                        "floor(0.6·ROI))), 边长**只量一次**然后**冻结**, "
+                        "基线行与所有扫描行共用同一个框、中心一直是冻结的零级; "
+                        "基线帧测不出光斑时退回 44 px。给正数 = 显式框 "
+                        "(保持原行为: 框固定、中心冻结)")
     p.add_argument("--settle-wait-s", type=float, default=0.5)
     p.add_argument("--settle-max-wait-s", type=float, default=6.0)
     p.add_argument("--settle-max-discard", type=int, default=40)
