@@ -273,8 +273,32 @@ class DahengCamera(BaseCamera):
             raise RuntimeError("Daheng stream buffer mode did not switch to NewestOnly")
         self.cam.stream_on()
 
+    #: 改曝光后必须消费掉的帧数 (2026-10-21 实测, 见 ``reset_exposure_time``)。
+    EXPOSURE_CHANGE_DISCARD_FRAMES: int = 3
+    """改曝光后主动丢掉的帧数。
+
+    大恒 SDK 在取流进行中直接写 ``ExposureTime``, **改动之前**就已经开始积分的帧
+    仍留在 SDK 流水线里。实测滞后的帧数是 1~2 帧, 这里留 1 帧余量。
+
+    该值可按后端实际行为调整: 把它设成 0 就退回到「不消费」的行为 (旧行为)。
+    """
+
     def reset_exposure_time(self, time_ms: float) -> float:
-        """重设相机曝光时间。
+        """重设相机曝光时间, 并让**改曝光后的第一帧就是新曝光**。
+
+        大恒 SDK 在取流进行中直接写 ``ExposureTime``, 于是**改动之前**就已经开始
+        积分的帧仍留在 SDK 流水线里: 改完曝光后紧接着取到的 1~2 帧还是**上一档曝光**
+        的画面。2026-10-21 实测 (相机 FJB24112232):
+
+        - 2 -> 20 ms: 第 1 帧 mean=0.343/max=5、第 2 帧 0.320/5 (都还是 2 ms 的画面),
+          第 3 帧才出现 20 ms 的 0.559/42;
+        - 20 -> 2 ms: 前两帧 0.596/43、0.596/41 (还是 20 ms), 第 3 帧 0.326/5。
+
+        ``get_numpy_image`` 自带的 ``skip_first`` 只丢 1 帧, **不够** —— 2026-10-20
+        录下的测光阶梯就是这样把 5 ms 档的峰值记成了 2 ms 档的值。因此这里在曝光
+        真的改变后主动消费掉 ``EXPOSURE_CHANGE_DISCARD_FRAMES`` 帧, 把这条从
+        「调用方的时序巧合」变成**驱动层的不变量**。代价是 3 帧的采集时间 (曝光
+        100 ms 时约 300 ms)。
 
         参数:
             time_ms: 新的曝光时间, 单位毫秒。
@@ -296,10 +320,23 @@ class DahengCamera(BaseCamera):
             )
         else:
             v = time_ms
+        previous = float(self.__exposure_time_ms.current)
         self.cam.ExposureTime.set(int(v * 1000))
         self.__exposure_time_ms.ms = self.exposure_time
+        if abs(float(v) - previous) > 1e-6:
+            self._consume_stale_exposure_frames()
 
         return self.exposure_time
+
+    def _consume_stale_exposure_frames(self) -> int:
+        """消费掉改曝光之前就在 SDK 流水线里的那些帧。
+
+        返回:
+            int: 实际消费的帧数。
+        """
+        for _ in range(self.EXPOSURE_CHANGE_DISCARD_FRAMES):
+            self.__take_one_shot()
+        return self.EXPOSURE_CHANGE_DISCARD_FRAMES
 
     @staticmethod
     def _clamp_int(value: int, int_range: dict | None) -> int:
