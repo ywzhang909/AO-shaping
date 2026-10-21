@@ -22,6 +22,7 @@ No hardware is touched: the generator imports nothing from ``ao_shaping``.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -79,8 +80,37 @@ class TestNoHardware:
     """导入生成器不许牵进驱动包。"""
 
     def test_import_does_not_pull_in_drivers(self):
-        # 本模块已经 import 过生成器 ⇒ 若它牵进了驱动包, 这里就能看到。
-        leaked = sorted(m for m in sys.modules if m.startswith("ao_shaping.drivers"))
+        # 在**干净的子进程**里查, 不查当前 pytest 进程。
+        # 理由: 当前进程的 sys.modules 是**所有测试共享**的 —— 别的测试文件先 import
+        # 过 ao_shaping.drivers.* 时, 这里就会看到它们, 于是这条断言会在「测试顺序」
+        # 上失败, 而与生成器无关 (生成器自己只 import 标准库)。
+        # 这条断言真正想问的是: 「import 这个生成器会不会把驱动包带进来」⇒ 只有一个
+        # 干净的解释器能回答。
+        code = (
+            "import sys; import scripts.slm.build_hw_sweep_plan; "
+            "print('LEAKED=' + ','.join(sorted("
+            "m for m in sys.modules if m.startswith('ao_shaping.drivers'))))"
+        )
+        env = dict(os.environ)
+        env["PYTHONPATH"] = os.pathsep.join(
+            [str(REPO_ROOT), env.get("PYTHONPATH", "")]
+        ).rstrip(os.pathsep)
+        proc = subprocess.run(
+            [sys.executable, "-c", code],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            env=env,
+        )
+        assert proc.returncode == 0, f"子进程导入失败: {proc.stderr[-800:]}"
+        marker = next(
+            (line for line in proc.stdout.splitlines() if line.startswith("LEAKED=")),
+            None,
+        )
+        assert marker is not None, f"子进程没有给出结论: {proc.stdout[-800:]}"
+        leaked = [m for m in marker[len("LEAKED=") :].split(",") if m]
         assert not leaked, f"生成器牵进了驱动包: {leaked}"
 
 
