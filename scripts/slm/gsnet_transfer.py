@@ -319,6 +319,8 @@ def main(argv: list[str] | None = None) -> int:
         },
         out_dir / "checkpoint.pt",
     )
+    final_phase_loss = history[-1]["phase_loss"] if history else float("nan")
+    chance = float(np.pi**2 / 3.0)
     summary = {
         "config": {
             key: str(value) if isinstance(value, Path) else value
@@ -330,11 +332,22 @@ def main(argv: list[str] | None = None) -> int:
         "far_field_size": geometry.far_field_size,
         "history": history,
         "phase": str(out_dir / "phase.npy"),
+        # 相位项的**随机猜测水平**：相位差在 (-π, π] 上均匀分布时，
+        # 圆周 MSE 的期望是 π²/3。没有这个参照，读者分不清「学到了」和
+        # 「还在瞎猜」。
+        "phase_loss_chance_level": chance,
+        "phase_loss_below_chance": bool(
+            (history[-1]["phase_loss"] if history else chance) < chance
+        ),
     }
     (out_dir / "summary.json").write_text(
         json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    print(f"迁移学习完成：{out_dir}")
+    print(
+        f"迁移学习完成：{out_dir}  "
+        f"(相位项 {final_phase_loss:.4f}，随机猜测水平 {chance:.4f}，"
+        f"{'低于' if summary['phase_loss_below_chance'] else '尚未低于'})"
+    )
     print(f"  相位：{out_dir / 'phase.npy'}（{geometry.region}×{geometry.region}，弧度）")
     print(
         "  交给闭环：python src/ao_shaping/main.py --debug slm-model-in-loop "

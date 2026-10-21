@@ -404,6 +404,8 @@ def main(argv: list[str] | None = None) -> int:
         model.train()
         order = np.random.permutation(train_idx)
         losses: list[float] = []
+        phase_losses: list[float] = []
+        shaping_losses: list[float] = []
         for start in range(0, order.size, args.batch_size):
             idx = order[start : start + args.batch_size]
             source, target, _ = _batch_tensors(idx, specs, targets)
@@ -428,6 +430,8 @@ def main(argv: list[str] | None = None) -> int:
                 torch.sqrt((p**2).sum(dim=1) * (t**2).sum(dim=1)) + 1e-6
             )
             loss = phase_loss + 40.0 * torch.mean(1.0 - corr)
+            phase_losses.append(float(phase_loss.detach()))
+            shaping_losses.append(float(torch.mean(1.0 - corr).detach()))
             optimiser.zero_grad()
             loss.backward()
             # 梯度范数护栏：相关性项在预测几乎为 0 的时候梯度很陡，
@@ -439,11 +443,16 @@ def main(argv: list[str] | None = None) -> int:
         row = {
             "epoch": epoch + 1,
             "loss": float(np.mean(losses)) if losses else float("nan"),
+            "phase_loss": float(np.mean(phase_losses)) if phase_losses else float("nan"),
+            "shaping_loss": (
+                float(np.mean(shaping_losses)) if shaping_losses else float("nan")
+            ),
             "seconds": time.time() - started,
         }
         history.append(row)
         print(
             f"epoch {epoch + 1}/{args.epochs}  loss={row['loss']:.4f}  "
+            f"phase={row['phase_loss']:.4f}  shaping={row['shaping_loss']:.4f}  "
             f"{row['seconds']:.0f}s",
             flush=True,
         )
