@@ -81,16 +81,16 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import numpy as np
+from loguru import logger
 
-from ao_shaping.drivers.sim.slm_pib_sim import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_pib_sim import (
     SimPibSystem,
     register_sim_camera,
     reset_system,
 )
-from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm  # noqa: E402
-from ao_shaping.tools.kernels.sweep_analysis import analyse_trace  # noqa: E402
+from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
+from ao_shaping.tools.kernels.sweep_analysis import analyse_trace
 
 #: 孪生光学系统种子 (与 ``slm_pib_sim_run.py`` 的 SYSTEM_SEED 一致)。
 SYSTEM_SEED = 42
@@ -847,7 +847,7 @@ def write_figures(
     import matplotlib
 
     matplotlib.use("Agg")
-    import matplotlib.pyplot as plt  # noqa: E402
+    import matplotlib.pyplot as plt
 
     out_dir.mkdir(parents=True, exist_ok=True)
     written: list[Path] = []

@@ -717,7 +717,7 @@ def run_probe(args: argparse.Namespace) -> int:
         # --------------------------------------------------- post state
         try:
             ae_state = cam.get_auto_exposure_state()
-        except Exception as exc:  # noqa: BLE001 - SDK getters may be absent
+        except Exception as exc:  # SDK getters may be absent
             ae_state = {"error": f"{type(exc).__name__}: {exc}"}
         post = {
             "auto_exposure_state": ae_state,
@@ -739,7 +739,7 @@ def run_probe(args: argparse.Namespace) -> int:
     finally:
         try:
             cam.close()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("camera close failed: {}", exc)
 
     # ----------------------------------------------------- run verdicts

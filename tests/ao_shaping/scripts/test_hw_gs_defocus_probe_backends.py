@@ -153,7 +153,7 @@ class FakeSimSLM(RecordingSLM):
     探针里那套「排除运行前正在显示的槽」的保护对它没有意义, 也不该被调用。
     """
 
-    def display_data(  # noqa: D102 - 签名照孪生契约
+    def display_data(  # 签名照孪生契约
         self,
         gray: np.ndarray,
         memory_number: int | None = None,
