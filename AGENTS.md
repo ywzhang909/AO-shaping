@@ -264,7 +264,7 @@ Utility functions for image processing and calculations, organized into 4 subpac
 |------|---------|-------|
 | `utils/io/` | `file`, `timestamp`, `cli_helpers`, `device_config`, `network`, `handler` | `handler` becomes a backward-compat shim to `display/` |
 | `utils/image/` | `spots_calc`, `beam_metrics`, `targets`, `resample`, `display`, `hardware_utils` | `gs_visualization` 已迁至 `display/`（2026-10-03）；`utils/hardware_utils.py` 别名 shim 已删（2026-10-03）。**仍开放**: `display.py` 本身仍是 utils 里的渲染器，需连同 `ImageVoltagesDisplay` / `plot_funcs` / `VOLT_HEIGHT` 的 re-export 一起搬 |
-| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm |
+| `utils/wavefront/` | `zernike_calc`, `zernike_utils`, `wavefront_calc`, `wfs_utils`, `phase_unwrap`, `hadamard_calc`, `matrix_utils`, `zero_order_overlay`, `model_error_terms` | `zero_order_overlay` (2026-10-15 新增): 2f 实验系统零级衍射叠加 (BLAZE/FRESNEL 模式), 用实测 `TILT_SHIFT_SCALE` 预测光斑位移, 不 import drivers/gui/algorithm; `model_error_terms` (2026-10-22 新增, 跟进 `3d8ef224`): model-in-loop 正向模型误差项 `ModelErrorTerms` / `load_error_terms` / `save_error_terms` (LUT γ / 相机离焦 / 倾斜 / 面板相位), 孪生 `bench_twin` 与 MIL 优化器共用同一份误差口径 |
 | `utils/slm/` | `pattern_helper`, `slm_lut`, `phase_display` | |
 | `utils/cli/params.py` (`utils/cli/` 子包) | `option`, `with_params`, `ClickGroup` | **零 `ao_shaping` 导入**（2026-10-03 从 `runners/runner_common.py` 抽出，TODO R-36）。见下方红线 |
 
