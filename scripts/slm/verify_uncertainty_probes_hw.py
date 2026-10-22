@@ -1,8 +1,8 @@
-"""实机试跑: commit 080e0ac9 (issue #134) 的不确定性采样探针 (R-86)。
+"""实验试跑: commit 080e0ac9 (issue #134) 的不确定性采样探针 (R-86)。
 
 #134 的验收写明 **"sim 通过后才讨论硬件试跑"**; sim 侧结论 (含一个 `ratio < 1`
 的机制负结果) 见 ``report/shape_trials/uncertainty_probe_hw_20261016.md``。本
-脚本是那次 sim 验收之后的**首次实机试跑**, 目标不是宣称整形成功, 而是回答三个
+脚本是那次 sim 验收之后的**首次实验试跑**, 目标不是宣称整形成功, 而是回答三个
 只有硬件能回答的问题:
 
 1. **选择器在真实规模下跑不跑得起来**。它的梯度要穿过 ``far_field_tensor``
@@ -18,7 +18,7 @@
 ``ratio_matched ≈ 0.17`` (选出的探针比盲随机的预测方差**更低**)。硬件上复现
 同一个符号是一个有价值的复现结果, 不是失败。
 
-台架约定 (AGENTS.md / drivers/slm/AGENTS.md):
+实验系统约定 (AGENTS.md / drivers/slm/AGENTS.md):
 
 * Santec SLM **只用 memory 模式** (``video_mode=0``): DVI 模式曾观测到 ``open()``
   挂死, 且挂死后必须物理断电才恢复。
@@ -27,7 +27,7 @@
   :func:`~ao_shaping.tools.slm.panel.phase_to_panel.phase_to_panel`)。本脚本
   不自己拼 ``create_phase_from_array``/``display_memory`` —— 那正是
   "重复实现漂移"最容易咬人的地方, 而槽位 no-op 那条红线已经踩过一次。
-* 零级由全帧 ``argmax`` 定位, 不按几何中心猜 (本台架零级不在画面中心)。
+* 零级由全帧 ``argmax`` 定位, 不按几何中心猜 (本实验系统零级不在画面中心)。
 * 固定曝光, 不自动抬到饱和; 曝光上限优先取 ``AO_DAHENG_MAX_EXPOSURE_MS``。
 
 用法::
@@ -122,7 +122,7 @@ def main() -> int:
     ap.add_argument(
         "--selector-bandlimit", type=float, default=None,
         help=("钉住选择器 bandlimit_sigma (0 = 关带限)。不指定用线上默认 1.5。"
-              "sim 扫描显示该项是机制成败的关键, 实机需要复现。"),
+              "sim 扫描显示该项是机制成败的关键, 实验需要复现。"),
     )
     ap.add_argument("--panel-span-px", type=float, default=900.0)
     ap.add_argument("--panel-center", default="960,600")

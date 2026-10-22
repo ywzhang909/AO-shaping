@@ -1225,7 +1225,7 @@ FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时正向模型的输出与引�
         piston 是一个全局相位, 使 ``|E|**2`` 完全不变; tilt 只是把光斑
         平移, 而同窗口或按 argmax 对齐的比较几乎察觉不到。把它们放开并非
         无害 —— 没有可辨识信号时, 优化器会把残余停在那几个退化方向上,
-        而不是报告 "没有像差"。在真实硬件采集上实测: 拟合出的系数范数有
+        而不是报告 "没有像差"。在实验采集上实测: 拟合出的系数范数有
         56% 落在 Noll 1-3, 而拟合质量毫无改善。冻结它们遵循本仓库既有的
         约定 (``slm_square_shaping --zernike-mask`` 同样把 Noll 1-3 强制为零)。
         """
@@ -1283,7 +1283,7 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
     ) -> torch.Tensor:
         """可微的正向远场强度 (与 :meth:`forward_intensity` 同一套计算)。
 
-        这是**给调用方的同一个前向**: Step B 的自由相位合成直接调用它, 所以
+        这是**给调用方的同一个前向**: Step B 的全频随机相位合成直接调用它, 所以
         标定 (Step A 的拟合) 与合成 (Step B) 不可能落在不同的正向链上 ——
         误差项 (LUT 非线性 / 相机离焦 / 光路倾斜) 的作用位置与顺序由这一处
         代码决定。
@@ -1354,9 +1354,9 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
         当 ``far_field_size`` 大于 ``region`` 时, 瞳面光场会在 FFT 之前被
         零填充到该尺寸。填充**不会**改变视场 —— 采样范围仍是
         ``lambda * f / d_slm`` —— 它只是以 ``far_field_size / region``
-        倍的精细度去采样它。这在真实台架上很重要: 远场像素间距是
+        倍的精细度去采样它。这在真实实验系统上很重要: 远场像素间距是
         ``lambda * f / (P * d_slm)``, 所以未填充的 ``P = region = 256``
-        网格间距约 65 um, 会把本台架约 27 um 的光斑渲染成一个亚像素的
+        网格间距约 65 um, 会把本实验系统约 27 um 的光斑渲染成一个亚像素的
         delta (sigma ~0.4 px), 既无法与像素约 2.2 um 的相机比较, 更谈不上
         拿它做整形。数字孪生通过其零填充尺寸 ``P`` 暴露同一个开关;
         规范的填充采样另见 ``generate_zernike_farfield_sim_report``
@@ -1405,8 +1405,8 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
 
         上游 :func:`focal_intensity` 用的是补零夫琅禾费 FFT, **刻意不换角谱
         (ASM) 传播** (``signal_processing/angular_spectrum.py`` 提供规范实现):
-        在 2f 台架几何实测, ASM 在 ``z = f`` 处返回的是**传播后的光束**
-        (``max|out| = 1.0066``, 峰值落在瞳孔位置), 而不是透镜的傅里叶变换;
+        在 2f 实验系统几何实测, ASM 在 ``z = f`` 处返回的是**传播后的光束**
+        (``max|out| = 1.0066``, 峰值落在瞳面位置), 而不是透镜的傅里叶变换;
         真正的夫琅禾费图样需``z >> a**2/lambda = 271 m``。边界由
         ``test_angular_spectrum.py::TestNotAFraunhoferSubstitute`` 锁定。
 
@@ -1543,8 +1543,8 @@ apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量�
         正是修好这一点才让 ``far_field_size`` 真正可用。此前测量被重采样
         到 ``region`` 而预测是 ``far_field_size``, 于是每一个满足
         ``far_field_size > region`` 的 ``update()`` 都抛形状不匹配 ——
-        而这恰恰是 ``far_field_size`` 的 docstring 对真实台架所要求的配置,
-        因为未填充的网格会把本台架约 27 um 的光斑采样成一个亚像素 delta。
+        而这恰恰是 ``far_field_size`` 的 docstring 对真实实验系统所要求的配置,
+        因为未填充的网格会把本实验系统约 27 um 的光斑采样成一个亚像素 delta。
         """
         pad = int(self._far_field_size)
         side = pad if pad > 0 else int(self._region)

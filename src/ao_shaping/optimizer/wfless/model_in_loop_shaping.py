@@ -7,7 +7,7 @@
   ``|fftshift(fft2(ifftshift(U), norm="ortho))|**2``, 与
   :class:`~ao_shaping.drivers.sim.fouriergsnet_env.SimFourierGSNetEnv` **共用同一个**
   前向模型, 因此拟合出的系数可与注入的真值直接逐位比较。
-* **Step B —— 自由相位整形。** 冻结拟合出的系数, 用
+* **Step B —— 全频随机相位整形。** 冻结拟合出的系数, 用
   :mod:`ao_shaping.algorithm.signal_processing.differentiable_shaping` 的规范可微
   损失优化整幅逐像素 SLM 相位, 使远场逼近方形目标。
 
@@ -28,7 +28,7 @@
   ``utils/image/beam_metrics.py``, Zernike 计数来自 ``utils/wavefront/zernike_calc.py``。
 * 硬件对应路径: 同一整形目标在实验系统上由 ``runners/slm/gsnet_runner.py``
   (``slm-gsnet``) 与 ``runners/slm/slm_shaping_runner.py`` (``spgd-square``) 驱动,
-  但那两条走 Zernike/自由相位搜索而非本模块的迭代正向模型闭环。
+  但那两条走 Zernike/全频随机相位搜索而非本模块的迭代正向模型闭环。
 
 本模块是**仅仿真**的: 它从不 import 硬件驱动, 唯一接触的"设备"是
 :class:`SimFourierGSNetEnv`。

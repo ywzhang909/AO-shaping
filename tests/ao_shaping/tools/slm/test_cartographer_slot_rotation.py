@@ -1,6 +1,6 @@
 """SLM memory-slot rotation guard for the cartographer's dynamic compensation.
 
-Bench rule (README "四条台架铁律" #3): pinning ``memory_number=`` is a firmware
+Bench rule (README "四条实验系统铁律" #3): pinning ``memory_number=`` is a firmware
 NO-OP — ``display_memory(slot)`` does not refresh the LCOS panel when that slot
 is already displayed, so every frame afterwards is a stale picture.
 

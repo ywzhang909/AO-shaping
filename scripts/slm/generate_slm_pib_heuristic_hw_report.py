@@ -322,7 +322,7 @@ def fig_curves(results: dict[str, dict], out: Path) -> None:
         ax.plot(x, r["curve"], marker=".", ms=3, lw=1.3, label=f"{name} (max={r['final_pib']:.3f})")
     ax.set_xlabel("设备相位加载次数 (loads)")
     ax.set_ylabel(f"最优 {_obj_label()} (best-so-far)")
-    ax.set_title(f"SLM 相位优化收敛曲线 (真机, 目标: {_obj_label()})")
+    ax.set_title(f"SLM 相位优化收敛曲线 (实验系统, 目标: {_obj_label()})")
     ax.grid(alpha=0.3)
     ax.legend(fontsize=9, ncol=2)
     fig.tight_layout()
@@ -345,7 +345,7 @@ def fig_convergence(results: dict[str, dict], out: Path) -> None:
     ax.set_xticks(x)
     ax.set_xticklabels(names)
     ax.set_ylabel("加载次数")
-    ax.set_title(f"收敛速度: 达到自身最优{_obj_label()}所需加载次数 (真机)")
+    ax.set_title(f"收敛速度: 达到自身最优{_obj_label()}所需加载次数 (实验系统)")
     ax.grid(alpha=0.3, axis="y")
     ax.legend()
     fig.tight_layout()
@@ -380,7 +380,7 @@ def fig_summary_bars(results: dict[str, dict], out: Path) -> None:
     for i, v in enumerate(vals):
         ax.text(v + 0.002, i, f"{v:.4f}", va="center", fontsize=9)
     ax.set_xlabel(f"最终 {_obj_label()}")
-    ax.set_title(f"各算法最终 {_obj_label()} (真机, 升序)")
+    ax.set_title(f"各算法最终 {_obj_label()} (实验系统, 升序)")
     ax.grid(alpha=0.3, axis="x")
     fig.tight_layout()
     fig.savefig(out / "summary_bars.png", dpi=150)
@@ -434,9 +434,9 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
                 loads=r["loads"], tmax=_first_load(r, r["final_pib"] - 1e-9) or "—", sec=r["elapsed_s"],
             )
         )
-    md = f"""# SLM 相位优化真机基准报告 (目标: {_obj_label()})
+    md = f"""# SLM 相位优化实验系统基准报告 (目标: {_obj_label()})
 
-> 本报告为**真实硬件**实测 (非仿真): Santec SLM-200 + Daheng **MER2-507-23GM NIR** 相机。
+> 本报告为**实验**实测 (非仿真): Santec SLM-200 + Daheng **MER2-507-23GM NIR** 相机。
 > ⚠️ 每个算法仅约 **{min(r['loads'] for r in results.values())}–{max(r['loads'] for r in results.values())} 次设备加载**
 > (SLM 每次翻转需 ~0.3 s 稳定), 属**指示性对比**, 非完整收敛研究。
 
@@ -508,7 +508,7 @@ def write_report(results: dict[str, dict], cam: dict, args) -> str:
 - 所有算法都提升了远场桶内能量比, 但**在相同的 ~30 次加载预算下差异明显**:
   种群类 (GA/PSO/CEM/DE) 每次迭代消耗 `pop_size` 次加载, 起步更"陡"但每次迭代更贵;
   单点类 (SA/HC/RS) 每次迭代只加载一次, 同样预算下点数更多、更细腻。
-- **真机选型建议**:
+- **实验系统选型建议**:
   - 每次加载 ~0.3 s (SLM 翻转) + 相机曝光, 时间成本很高 →
     优先**小种群 GA/DE** 或**单点 HC/SA**;
   - 建议**两段式**: 先用种群类粗搜跳出局部最优, 再用 HC/SA (或 SPGD) 精修;

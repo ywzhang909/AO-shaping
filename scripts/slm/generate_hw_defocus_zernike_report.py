@@ -3520,7 +3520,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="焦面标定证据**所在目录**, 取里面最新的一份。"
-        "下一轮用本轮专属的目录, 就不会读到另一次上机留下的证据",
+        "下一轮用本轮专属的目录, 就不会读到另一次实验留下的证据",
     )
     parser.add_argument(
         "--repeat-evidence",

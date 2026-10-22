@@ -779,7 +779,7 @@ recorder.append({step, uniformity, encircled, inference_ms, ccd, phase})
 
 ### 5.6 slm-gsnet 无硬件仿真演示 (Freeform SPGD, `--cam-type sim`)
 
-本小节用 **`slm-gsnet`** 命令 (自由相位 per-pixel SPGD 方形整形, 见 README `slm-gsnet` 节)
+本小节用 **`slm-gsnet`** 命令 (全频随机相位 per-pixel SPGD 方形整形, 见 README `slm-gsnet` 节)
 在纯数值仿真下跑一次完整搜索, 展示 freeform 相位自由度如何把远场整形成方形。
 
 **运行命令** (无硬件, 无 DVI 挂起风险):

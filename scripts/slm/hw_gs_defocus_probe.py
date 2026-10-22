@@ -59,7 +59,7 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 
 为什么不能写死: 历史上写死的 44 px 是**模型** GS 相位方形边长换算到硬件 CCD
 像元上的值, 而硬件 GS 相位实际打出的光斑只有 **12.9 px** 宽。框比光斑大 3.4 倍时,
-离焦弥散会把整个框**填满**, 均匀性项 ``1/(1+CV)`` 反而**上升** (CV 1.733 → 1.157),
+离焦弥散会把整个框**填满**, 均匀度项 ``1/(1+CV)`` 反而**上升** (CV 1.733 → 1.157),
 恰好抵消功率项 PIB 的下降, 合成分 ``0.5·PIB + 0.5/(1+CV)`` 于是**看起来是平的** ——
 离焦响应被两个项的抵消抹掉了。按相位自己的光斑定尺后响应恢复单调。
 
@@ -99,7 +99,7 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
 * **同内存槽连续 display 是 no-op**: 每次写入都从 ``2..125`` 里**随机**挑一个未占用
   的槽, 并排除运行开始前正在显示的那个 (``get_displayed_memory_number()``;
   它在 ``set_grayscale`` 模式下报错误码 1, 那是**正常**的, 不是故障)。
-* **零级必须 ``argmax`` 定位**, 绝不假设在画面中心 (2f 台架上画面中心 (1344,760)
+* **零级必须 ``argmax`` 定位**, 绝不假设在画面中心 (2f 实验系统上画面中心 (1344,760)
   vs 零级 (1441,705) 是实测值)。**定位一次就冻结**: 之后不逐帧重定位, 否则类散斑场
   上 ``argmax`` 会在近等晶粒间跳, 让 CV/PIB 不连续。
 * **曝光上限**遵守 ``AO_DAHENG_MAX_EXPOSURE_MS``; 未设置时由画面探测 (倍增阶梯到饱和)。
@@ -239,7 +239,7 @@ SCALE_MEASURED_AT_NM = 1064.0
 CAMERA_PIXEL_UM = 2.2
 
 #: 瞳面二次相位的符号/前因子。**不是照抄公式**: 仿真脚本
-#: ``experiment_gs_defocus_sweep_visuals.py`` 用方案A 的 |U_CCD|^2 数值对拍反解
+#: ``experiment_gs_defocus_sweep_visuals.py`` 用方案A 的 |U_CCD|^2 数值一致性比对反解
 #: (完整网格, 探针 Δz=0.1876mm):
 #:   sign = -1 → 相对误差 4.46e-6 ; sign = +1 → 1.65e-3 (差 ~370 倍, 符号唯一)
 #:   再对 α 做黄金分割 → alpha = 1.00016 (理论 1, 残差降到 2.24e-7)
@@ -256,7 +256,7 @@ DZ_SCAN_MM: tuple[float, ...] = tuple(float(v) for v in range(0, 55, 5))
 #: 🔴 **为什么不能写死一个框**: 历史上写死的 44 px 是**模型** GS 相位的方形边长
 #: 换算到硬件 CCD 像元上的值 (43 远场 px × 2.2606 µm/px = 97.2 µm, 换到 2.2 µm
 #: 像元上是 44.2 px)。但硬件 GS 相位实际打出的光斑只有 **12.9 px** 宽 —— 框比光斑
-#: 大 3.4 倍时, 离焦弥散会把整个框**填满**, 均匀性项 ``1/(1+CV)`` 于是**上升**
+#: 大 3.4 倍时, 离焦弥散会把整个框**填满**, 均匀度项 ``1/(1+CV)`` 于是**上升**
 #: (CV 1.733 → 1.157), 恰好抵消功率项 PIB 的下降, 合成分
 #: ``0.5·PIB + 0.5/(1+CV)`` 于是**看起来是平的**。把框定到相位自己的光斑尺度上,
 #: 离焦响应才恢复成单调 (见 ``report/shape_trials/gs_defocus_sim_20261019.md`` §7)。
@@ -533,7 +533,7 @@ def chirp_edge_rad(dz_m: float, optics: Optics, *, sign: float, alpha: float) ->
 def build_focus_panel(focal_mm: float | None, optics: Optics) -> np.ndarray | None:
     """瞳面菲涅尔焦面矫正相位 ``pi·r²/(λ·f_v)`` (raw 弧度, 盘外为 0)。
 
-    2f 台架的 CCD 并不在 2f 焦面上 (实测 :mod:`ao_shaping.tools.slm.panel.focus_probe`
+    2f 实验系统的 CCD 并不在 2f 焦面上 (实测 :mod:`ao_shaping.tools.slm.panel.focus_probe`
     标定出 1/f = +0.541 m⁻¹, 即 f_v ≈ 1848 mm), 真实光路需要这张瞳面二次相位把
     焦面搬回探测器。``None`` = 不矫正, 与本脚本引入该选项之前逐位一致。
 
@@ -1201,7 +1201,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
     target_box["why"] = (
         "框必须跟着**被探的那张相位**走: 硬件 GS 相位打出的光斑只有 12.9 px 宽, "
         "而历史上写死的 44 px 是**模型** GS 相位方形边长换算到硬件像元上的值 —— "
-        "框比光斑大 3.4 倍时, 离焦弥散把整个框填满, 均匀性项 1/(1+CV) 上升 "
+        "框比光斑大 3.4 倍时, 离焦弥散把整个框填满, 均匀度项 1/(1+CV) 上升 "
         "(CV 1.733 → 1.157) 恰好抵消功率项 PIB 的下降, 合成分 "
         "0.5·PIB + 0.5/(1+CV) 于是**看起来是平的**。按相位自己的光斑定尺后, "
         "离焦响应恢复单调"
@@ -1757,7 +1757,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
 
     with guarded("SLM 打开", lambda: open_slm(params), timeout_s=OPEN_TIMEOUT_S) as slm:
         # ⚠️ `Santec.open()` 返回 None, 不能拿它的返回值当上下文管理器 —— 上一版
-        # 这里写成 `with guarded(...):` 而 guarded 回传的是函数返回值, 于是真机上
+        # 这里写成 `with guarded(...):` 而 guarded 回传的是函数返回值, 于是实验系统上
         # 必然炸 `TypeError: 'NoneType' object does not support the context manager
         # protocol`。超时保护本身是对的, 只是需要一个不消费返回值的上下文。
         with nullcontext(
@@ -1837,7 +1837,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                     # 框的边长必须由**本次相位自己的**光斑量出来。历史上写死的
                     # 44 px 是**模型** GS 相位的方形边长换算到硬件像元上的值, 而
                     # 硬件 GS 相位打出的光斑只有 12.9 px 宽 —— 框比光斑大 3.4 倍
-                    # 时, 离焦弥散把框填满, 均匀性项 1/(1+CV) 上升恰好抵消功率项
+                    # 时, 离焦弥散把框填满, 均匀度项 1/(1+CV) 上升恰好抵消功率项
                     # PIB 的下降, 合成分于是**看起来是平的**。按相位自己的光斑
                     # 定尺后响应恢复单调。
                     slm.set_phase_overlay(focus_panel)
@@ -2357,7 +2357,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help=f"瞳面二次相位前因子 (默认 {CHIRP_ALPHA}, 理论值 1)")
     p.add_argument("--defocus-focal-mm", type=float, default=None,
                    help="瞳面菲涅尔焦面矫正焦距 (mm; 不给 = 不矫正, 探针默认 0; "
-                        "2f 台架 CCD 不在焦面, 用 focus_probe 标定值, 例 1848.4)")
+                        "2f 实验系统 CCD 不在焦面, 用 focus_probe 标定值, 例 1848.4)")
     p.add_argument("--chirp-tilt-cancel", action="store_true",
                    help="打开瞳面斜坡去倾斜: 现场自标定「面板斜坡 → 相机位移」的"
                         "映射与符号, 再用一条瞳面斜坡把二次相位的**转向**补掉 "

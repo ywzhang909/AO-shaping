@@ -152,7 +152,7 @@ class SimulateDM(DM):
         if values.shape != (self.channel,):
             raise ValueError(f"Expected {self.channel} voltages, got {values.shape}")
         vs = np.clip(values, self.v_min, self.v_max)
-        # 加入噪声以模拟真实硬件
+        # 加入噪声以模拟硬件
         noisy_vs = vs + np.random.normal(0, self.noise_level, size=vs.shape)
         # 施加电压速率限制逻辑
         __gap = noisy_vs - self.__last_v

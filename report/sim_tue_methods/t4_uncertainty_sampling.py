@@ -13,7 +13,7 @@ CPU, 无硬件) 上复现 TU/e 可微仿真的第四类能力「样本查询 / �
     uncertainty_boxed       —— 梯度搜索 + 幅值盒约束 |c_i| <= BOX;
     uncertainty_unconstrained —— 梯度搜索不加幅值约束 (TU/e 的塌缩演示:
                                   参数被推向极端, 数据集塌缩)。
-- 验证: 每轮把选出的样本并入逆模型训练集、重训、在固定留出集上测系数
+- 验证: 每轮把选出的样本并入逆模型训练集、重训、在固定验证集上测系数
   RMSE, 得三条"查询数 vs 测试 RMSE"学习曲线; 反向验证: 最小化 U(c) 应收敛
   到低幅值 (分布内) 样本, 对应 TU/e "最小化不确定度会让物体消失"。
 
@@ -53,7 +53,7 @@ SEARCH_LR = 0.02
 RANDOM_POOL = 1000              # 随机变体每轮盲采样池 (TU/e 传统做法: 盲仿一大批再挑最不确定的)
 UNCONST_RADIUS = 6.0            # 无约束变体允许搜索到的范数上限 (仅停止条件, 让塌缩可见)
 HOLDOUT_N = 64
-FULL_RADIUS = 0.8               # 留出集/域定义半径 (rad, 与 BOX 同域)
+FULL_RADIUS = 0.8               # 验证集/域定义半径 (rad, 与 BOX 同域)
 
 
 def _build_forward() -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -240,7 +240,7 @@ def main() -> None:
     rng = np.random.default_rng(0)
 
     print("== T4 不确定性采样 / 主动学习 ==")
-    # 域与留出集 (固定)
+    # 域与验证集 (固定)
     c_init = sample_domain(rng, INIT_N, INIT_SCALE)
     c_holdout = sample_domain(rng, HOLDOUT_N, FULL_RADIUS)
 
@@ -250,7 +250,7 @@ def main() -> None:
     train_ensemble(nets, c_init)
     print(f"初始集成训练 {time.time() - t0:.1f}s")
     rmse0 = test_rmse(nets, c_holdout)
-    print(f"初始 (仅 {INIT_N} 个分布内样本) 留出 RMSE = {rmse0:.4f}")
+    print(f"初始 (仅 {INIT_N} 个分布内样本) 验证集 RMSE = {rmse0:.4f}")
 
     results = {
         "region": REGION, "n_act": N_ACT, "box": BOX, "unconst_radius": UNCONST_RADIUS,
@@ -334,7 +334,7 @@ def main() -> None:
     with open(out / "t4_uncertainty_sampling.json", "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
     print(f"\n完成, 共 {time.time() - t_start:.0f}s。结果: {out / 't4_uncertainty_sampling.json'}")
-    print("=== 学习曲线 (留出 RMSE) ===")
+    print("=== 学习曲线 (验证集 RMSE) ===")
     print(f"{'round':>5} {'n_q':>4} | " + " | ".join(results["arms"]))
     for r in range(ROUNDS):
         row = f"{r+1:>5} {results['arms']['random']['curve'][r]['n_queries']:>4} | "

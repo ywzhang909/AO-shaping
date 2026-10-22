@@ -17,7 +17,7 @@ Commands:
     ga-zernike      GA Zernike优化器
     greedy-zernike  贪婪局部搜索Zernike优化器
     slm-pib         SLM Zernike PIB优化器 (runners/slm/slm_shaping_runner.py)
-    slm-gs-refine   GS 预矫正 + 自由相位 SPGD 细化
+    slm-gs-refine   GS 预矫正 + 全频随机相位 SPGD 细化
     slm-model-in-loop  正向模型闭环校正 + 目标光斑相位合成 (反复迭代)
 
 Examples:

@@ -252,7 +252,7 @@ class TestValidationGate:
         monkeypatch.setitem(__import__("sys").modules, "torch", object())
         method = sc.ModelInLoopMethod("slm1", 1)
         message = method._validate_holdout({"holdout_probe_count": 0})
-        assert message is not None and "自由相位留出探针" in message
+        assert message is not None and "全频随机相位验证集探针" in message
         assert method._validate_holdout({"holdout_probe_count": 2}) is None
 
 
@@ -417,7 +417,7 @@ class TestRelaxedBounds:
         assert widgets["远场补零"]["max_value"] == 64
         assert widgets["探针 σ (rad)"]["max_value"] == pytest.approx(12.0)
         assert widgets["探针 σ (rad)"]["min_value"] == pytest.approx(3.0)  # hard floor
-        assert widgets["留出探针"]["min_value"] == 0
+        assert widgets["验证集探针"]["min_value"] == 0
         # The padding default stays MIL's 8; GS's 3 lives in its own hook.
         assert widgets["远场补零"]["value"] == 8
 

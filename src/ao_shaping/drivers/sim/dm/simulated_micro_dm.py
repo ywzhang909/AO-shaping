@@ -23,7 +23,7 @@ from ao_shaping.drivers.dm.micro import (
 class SimMicroDM(DM):
     """无硬件情况下 MicroDM 的仿真模式。
 
-    本类用于在没有真实硬件时做测试与开发。它镜像真实 MicroDM 的接口, 但完全在
+    本类用于在没有硬件时做测试与开发。它镜像真实 MicroDM 的接口, 但完全在
     内存中运行。
 
     Attributes:

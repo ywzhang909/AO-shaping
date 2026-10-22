@@ -59,7 +59,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class SquareShapingConfig:
-    """2f 傅里 Fourier SLM 整形台架的算法参数。
+    """2f 傅里 Fourier SLM 整形实验系统的算法参数。
 
     该配置**不依赖任何 sim / 驱动模块** —— Gaussian 瞳面和正向模型都在算法层内联
     计算。它镜像 :class:`ao_shaping.drivers.sim.slm_shaping_bench.ShapingBenchConfig`
@@ -183,9 +183,9 @@ _L2 = 2.0  # pupil radius in normalised coords
 
 
 def _pad_centred(arr: np.ndarray, far_field_size: int) -> np.ndarray:
-    """把方形瞳孔网格数组居中补零到 ``far_field_size``。
+    """把方形瞳面网格数组居中补零到 ``far_field_size``。
 
-    瞳孔占据中央的 ``n_grid x n_grid`` 块; 补零区域就是 SLM 口径之外的暗区域。
+    瞳面占据中央的 ``n_grid x n_grid`` 块; 补零区域就是 SLM 口径之外的暗区域。
     """
     n = arr.shape[0]
     m = far_field_size
@@ -202,11 +202,11 @@ def _fraunhofer_intensity_from_field(
 ) -> np.ndarray:
     """补零 FFT 得到的焦平面强度。
 
-    2f 台架把 SLM 瞳孔场映射到傅里叶变换 (透镜相位 + 传播到 z=f)。瞳孔被补零到
+    2f 实验系统把 SLM 瞳面场映射到傅里叶变换 (透镜相位 + 传播到 z=f)。瞳面被补零到
     ``far_field_size`` 后做居中 FFT; 不补零会混叠成点阵 (每个束腰半径 ~1.1 px)。
 
     Args:
-        field: 瞳孔场 (复数)。可以是 n_grid 网格 (会补零) 或已补零的 far_field_size。
+        field: 瞳面场 (复数)。可以是 n_grid 网格 (会补零) 或已补零的 far_field_size。
         far_field_size: 目标远场网格边长。
     """
     padded = _pad_centred(field, far_field_size)
@@ -262,7 +262,7 @@ def _initial_field(
     * ``amp_slm``: 补零后的 Gaussian 瞳面幅度;
     * ``amp_target``: 目标幅度 (``sqrt(target)``);
     * ``target``: 目标强度;
-    * ``base``: 固定的瞳孔相位 (raw 弧度, 补零后), 未使用时为零。
+    * ``base``: 固定的瞳面相位 (raw 弧度, 补零后), 未使用时为零。
     """
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_square_target(cfg)
@@ -390,7 +390,7 @@ def compute_bench_metrics(
     """计算综述中所用的整套目标函数。
 
     ``center`` 是目标框中心: ``None`` 表示使用目标自身居中的支撑域, 这对居中
-    的仿真台架是正确的。**不要**把它默认成强度的 ``argmax`` —— 对类散斑场, 全
+    的仿真实验系统是正确的。**不要**把它默认成强度的 ``argmax`` —— 对类散斑场, 全
     局最大值在 ~1e-3 扰动下跳动, 让 ``argmax``-滚动的框让 PIB/CV 不连续。
     """
     peak = np.unravel_index(np.argmax(intensity), intensity.shape)[::-1]
@@ -522,7 +522,7 @@ def gs_shape(
         seed: 覆盖 ``cfg.seed``。
         verbose: 每 20 轮记录一次 history。
         return_phase_only: 保留接口兼容 (当前总是返回相位)。
-        base_phase: 固定的瞳孔相位 (raw 弧度, n_grid x n_grid), GS 解加在其上。
+        base_phase: 固定的瞳面相位 (raw 弧度, n_grid x n_grid), GS 解加在其上。
     """
     field, amp_slm, amp_target, target, _base = _initial_field(
         cfg, seed=seed, base_phase=base_phase
@@ -586,14 +586,14 @@ class UniformSquareShaper:
     * ``sf``: Fienup 2006 Simplified Hybrid Input-Output。与 ``hio`` 同构, 但
       支撑域外的反馈只用**输出** ``b``: ``(1 - beta) * b`` (HIO 用 ``g - beta*b``)。
     * ``dm``: Elser 2003 Difference Map。两个投影 ``P_A`` (远场幅度约束) 与
-      ``P_B`` (瞳孔幅度约束) 交替, 由 ``dm_gamma_a`` / ``dm_gamma_b`` 控制。
+      ``P_B`` (瞳面幅度约束) 交替, 由 ``dm_gamma_a`` / ``dm_gamma_b`` 控制。
 
     **DM → HIO 退化 (Elser 2003)**: 取 ``beta=1``, ``gamma_A = -1/beta_HIO``,
     ``gamma_B = +1/beta_HIO`` 时, difference map 退化为 HIO (松弛系数
     ``beta_HIO``)。数值验证见
     ``tests/ao_shaping/algorithm/test_square_shaping_fienup_variants.py``。
 
-    能量守恒: 构造时把 ``amp_target`` 重标定到与瞳孔总能量一致; 因子 c 在
+    能量守恒: 构造时把 ``amp_target`` 重标定到与瞳面总能量一致; 因子 c 在
     ``angle(c*X) = angle(X)`` 下被抵消, 故 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。
     """
 
@@ -650,7 +650,7 @@ class UniformSquareShaper:
         field, amp_slm, amp_target, target, base = _initial_field(
             cfg, seed=seed, base_phase=base_phase
         )
-        # 能量守恒: 把目标幅度重标到与瞳孔总能量一致。
+        # 能量守恒: 把目标幅度重标到与瞳面总能量一致。
         n_total = amp_slm.size
         rescale = np.sqrt(
             n_total
@@ -763,7 +763,7 @@ class UniformSquareShaper:
         两个投影:
 
         * ``P_A`` — 远场幅度约束 (支撑域内取目标幅度, 域外恒等);
-        * ``P_B`` — 瞳孔幅度约束 (经瞳孔往返)。
+        * ``P_B`` — 瞳面幅度约束 (经瞳面往返)。
 
         更新 ``g_{k+1} = g_k + beta * [P_A(f_B(g_k)) - P_B(f_A(g_k))]``, 其中
         ``f_A(g) = (1 + gamma_A) P_A(g) - gamma_A g``,
@@ -779,7 +779,7 @@ class UniformSquareShaper:
             self.amp_target * g / (np.abs(g) + 1e-12),
             g,
         )
-        # P_B: 瞳孔幅度约束 (经瞳孔往返)。
+        # P_B: 瞳面幅度约束 (经瞳面往返)。
         pupil = self.amp_slm * np.exp(
             1j * np.angle(np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(g))))
         )

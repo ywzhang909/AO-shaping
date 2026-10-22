@@ -56,7 +56,7 @@ def pick_representatives(rows, branches=("U", "C")):
 def render_spot_figure(
     captures, evaluation, model_name, out_path, *, branches=("U", "C")
 ):
-    """上机整形实验的**测试数据可视化**: 下发的相位 + CCD 远场光斑 + 光斑截面。
+    """硬件整形实验的**测试数据可视化**: 下发的相位 + CCD 远场光斑 + 光斑截面。
 
     每个分支一行, 四列:
 

@@ -10,7 +10,7 @@ SLM + CCD 训练数据采集器（面向 ml/hwdataset 语料库）
 - 填补目标覆盖率（objective coverage）不足（32%）的问题：通过 `build_plan` 在
   `--exposure-ms` × `--cam-size` 的交叉组合中循环采样，刻意覆盖曝光时长与视场尺寸（FOV）两类缺口。
 - 提升曝光（exposure）分布稀疏性：显式列出曝光列表并在计划中均匀穿插。
-- 丰富自由相位（freeform）网格多样性：支持 `--phase-grid` 控制自由相位面板尺寸（24² 对应 576 长度系数）。
+- 丰富全频随机相位（freeform）网格多样性：支持 `--phase-grid` 控制全频随机相位面板尺寸（24² 对应 576 长度系数）。
 - 增强视场（FOV）多样性：支持 `--cam-size`/`--region` 参数组合，记录 `cam_size`、`region`、`far_field_size` 等元数据。
 
 关键约束（zernike_radius）：
@@ -87,7 +87,7 @@ class CollectParams:
     - samples：计划采样总数（build_plan 根据交叉组合循环生成）
     - mode：相位生成模式：{"zernike", "freeform", "turbulence", "flat"}
     - n_max：Zernike 最大阶数（mode="zernike" 时生效）
-    - phase_grid：自由相位网格边长（mode="freeform" 时生效，对应 24²→576）
+    - phase_grid：全频随机相位网格边长（mode="freeform" 时生效，对应 24²→576）
     - turbulence_count：湍流模式下叠加的正弦分量个数
     - turbulence_kmax：湍流空间频率上限（像素单位的归一化概念）
     - zernike_radius：Zernike 光瞳半径（像素）。**注意**：records.py 硬编码 300.0 用于 ZERNIKE 重建
@@ -99,7 +99,7 @@ class CollectParams:
     - far_field_size：远场图像尺寸（元数据）
     - camera_type：相机类型标识（传递给 open_camera）
     - cam_id：远场相机 ID
-    - pupil_cam_id：瞳孔相机 ID（None 表示不采集）
+    - pupil_cam_id：瞳面相机 ID（None 表示不采集）
     - slm_number：SLM 编号（元数据）
     - slm_wavelength：波长（nm，元数据）
     - target_shape/target_size：目标光斑形状/尺寸（元数据）
@@ -162,7 +162,7 @@ class PlanPoint:
     - exposure_ms：本点曝光时长（ms）
     - cam_size：本点视场尺寸（像素）
     - coeffs：Zernike 系数映射（mode="zernike" 时）
-    - phase_grid：自由相位网格边长（mode="freeform" 时）
+    - phase_grid：全频随机相位网格边长（mode="freeform" 时）
     - turb_count/turb_kmax：湍流参数（mode="turbulence" 时）
     """
 
@@ -552,13 +552,13 @@ def acquire(
 
     每个点：
     - 生成相位（raw 弧度）并下发：通过 `display_and_average` 获取远场平均图像
-    - 若 pupil_cam 非 None，额外采集瞳孔图像（键 `pupil`）
+    - 若 pupil_cam 非 None，额外采集瞳面图像（键 `pupil`）
     - 构造 Recorder 行：包含 `mark="J"`、`exp_t`、`_epoch`、`_img`，可选 `_c` 或 `_phase`
 
     Args:
         cam: 远场相机实例
         slm: Santec SLM 实例（memory mode）
-        pupil_cam: 瞳孔相机实例或 None
+        pupil_cam: 瞳面相机实例或 None
         plan: 采样计划
         params: 采集参数
         on_record: 每条记录回调（可选）
@@ -602,13 +602,13 @@ def acquire(
             max_wait_s=params.settle_max_wait_s,
         )
         img_arr = np.asarray(img)
-        # 采集瞳孔（可选）
+        # 采集瞳面（可选）
         pupil_arr = None
         if pupil_cam is not None:
             try:
                 pupil_arr = np.asarray(pupil_cam.get_numpy_image())
             except Exception as e:
-                logger.debug("瞳孔相机采集失败：%s", e)
+                logger.debug("瞳面相机采集失败：%s", e)
                 pupil_arr = None
         # 构造记录
         #
@@ -869,7 +869,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         cam.open()
         logger.info("远场相机已打开（type=%s, id=%d）", params.camera_type, params.cam_id)
 
-        # 打开瞳孔相机（可选）
+        # 打开瞳面相机（可选）
         if params.pupil_cam_id is not None:
             try:
                 pupil_cam = open_camera(
@@ -879,9 +879,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     bit_depth=8,
                 )
                 pupil_cam.open()
-                logger.info("瞳孔相机已打开（id=%d）", params.pupil_cam_id)
+                logger.info("瞳面相机已打开（id=%d）", params.pupil_cam_id)
             except Exception as e:
-                logger.warning("瞳孔相机打开失败：%s", e)
+                logger.warning("瞳面相机打开失败：%s", e)
                 pupil_cam = None
 
         # 采集

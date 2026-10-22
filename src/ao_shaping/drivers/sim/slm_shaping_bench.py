@@ -1,4 +1,4 @@
-"""闭环 SLM 远场整形仿真台架 —— 重新导出 + sim 前向模型。
+"""闭环 SLM 远场整形仿真实验系统 —— 重新导出 + sim 前向模型。
 
 本模块作为 **数字孪生 (数字双胞胎)** 层的门面:
 
@@ -6,19 +6,19 @@
   :mod:`ao_shaping.algorithm.signal_processing.square_shaping` —— 算法层不
   导入任何驱动 / sim 代码, 保持纯数学。
 * **sim-specific 前向模型** (``forward_intensity``) 与其物理参数
-  ``ShapingBenchConfig`` 保留在这里, 封装 2f 傅里 Fourier 台架的物理。
+  ``ShapingBenchConfig`` 保留在这里, 封装 2f 傅里 Fourier 实验系统的物理。
 * **ShapingBenchConfig** 继承自 ``SquareShapingConfig``, 增加 ``cn2`` /
   ``l_max`` / ``l_min`` 与 ``make_beam_config()`` —— 这些是 sim-only 的大
   时湍流参数, 算法层不需要 (算法层的正向模型是纯 FFT, 不路由 ``cn2``)。
 
 关于物理模型的说明
 ------------------
-2f 傅里 Fourier 台架 (SLM 前焦面 → f 透镜 → 相机后焦面) 把 SLM 瞳孔场映射到
+2f 傅里 Fourier 实验系统 (SLM 前焦面 → f 透镜 → 相机后焦面) 把 SLM 瞳面场映射到
 它的**傅里叶变换** (透镜相位 + 传播到 ``z=f``, 除一个全局相位外就等于夫琅
-禾费变换)。因此在 FFT 之前瞳孔要补零到 ``far_field_size``, 使焦平面被正确
+禾费变换)。因此在 FFT 之前瞳面要补零到 ``far_field_size``, 使焦平面被正确
 采样: 同尺寸的 FFT 是以 ``w_far/dx_far = aperture/(pi*w0) = 3.5/pi = 1.11`` px
 每腰半径对焦平面采样的 —— 这一个与 ``n_grid`` 无关的模型常数 —— 它会把经透镜
-相位调制的瞳孔混叠成一个点阵 (见 ``far_field_padding``)。0 级光斑位于全局强
+相位调制的瞳面混叠成一个点阵 (见 ``far_field_padding``)。0 级光斑位于全局强
 度最大值处 (用 ``argmax`` 定位, 从不按几何定位)。
 
 ⚠️ ``cn2`` 是**死配置** (2026-10-01 实测):
@@ -102,7 +102,7 @@ __all__ = [
 
 @dataclass(frozen=True)
 class ShapingBenchConfig(SquareShapingConfig):
-    """2f 傅里 Fourier SLM 整形台架的参数 (sim-only 扩展)。
+    """2f 傅里 Fourier SLM 整形实验系统的参数 (sim-only 扩展)。
 
     继承自 :class:`~ao_shaping.algorithm.signal_processing.square_shaping.SquareShapingConfig`,
     增加 sim-only 的大气湍流参数 (``cn2`` / ``l_max`` / ``l_min``) 与
@@ -136,7 +136,7 @@ class ShapingBenchConfig(SquareShapingConfig):
 
 
 def _pad_centred(arr: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
-    """把方形瞳孔网格数组居中补零到远场网格。
+    """把方形瞳面网格数组居中补零到远场网格。
 
     委托 :func:`~ao_shaping.algorithm.signal_processing.square_shaping._pad_centred`
     (仅 ``far_field_size`` 取自 ``cfg``)。
@@ -145,7 +145,7 @@ def _pad_centred(arr: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
 
 
 def _fraunhofer_intensity(field: np.ndarray, cfg: ShapingBenchConfig) -> np.ndarray:
-    """瞳孔场的补零夫琅禾费 (焦平面) 强度。
+    """瞳面场的补零夫琅禾费 (焦平面) 强度。
 
     ``field`` 在 ``n_grid`` 网格上 (会被补零), 或者已补零到 ``far_field_size``
     (补零是 no-op)。委托算法层的
@@ -199,12 +199,12 @@ def camera_window_from_far_field(
     为什么需要这一步: :func:`forward_intensity` 的远场像元间距是
     ``lambda*f/(aperture_size*padding)`` (见
     :attr:`SquareShapingConfig.far_field_pixel_size`), 与相机像元间距**无关**。
-    在本台架上 ``n_grid = pupil_side(450) = 900``、``padding = 3`` 时远场视场约
+    在本实验系统上 ``n_grid = pupil_side(450) = 900``、``padding = 3`` 时远场视场约
     16.6 mm, 而相机 250 px 窗只覆盖 0.55 mm —— 相差约 30 倍。直接并排显示会让
     第三栏与第一栏无法逐像素比较。
 
     两个方向都要处理: 远场比相机**细**时抽稀, 比相机**粗**时插值放大 (否则光斑
-    会被画得比真实更小)。本台架 ``padding=3`` 属后者。
+    会被画得比真实更小)。本实验系统 ``padding=3`` 属后者。
 
     Args:
         intensity: :func:`forward_intensity` 的输出 (焦平面强度)。

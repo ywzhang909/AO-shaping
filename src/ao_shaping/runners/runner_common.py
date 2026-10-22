@@ -301,7 +301,7 @@ class WfsParams:
         str, option("-r", "--wfs-res", help="WFS分辨率 (default: 1024)")
     ] = "1024"
     pupil_diameter: Annotated[
-        float, option("-p", "--pupil-diameter", help="瞳孔直径 (default: 2.7)")
+        float, option("-p", "--pupil-diameter", help="瞳面直径 (default: 2.7)")
     ] = 2.7
     pupil_center: Annotated[
         str | tuple[float, float],
@@ -309,7 +309,7 @@ class WfsParams:
             "-c",
             "--pupil-center",
             callback=parse_tuple,
-            help="瞳孔中心坐标 (default: (0,0))",
+            help="瞳面中心坐标 (default: (0,0))",
         ),
     ] = "(0,0)"
     wfs_exposure_ms: Annotated[
@@ -1227,7 +1227,7 @@ class SlmSquareParams:
         option(
             "--basis",
             type=click.Choice(["freeform", "zernike"]),
-            help="相位参数化: zernike(默认, 与GUI一致: radius=600 + defocus(2,0) + spherical(4,0))/freeform(自由相位, 可合成方形)",
+            help="相位参数化: zernike(默认, 与GUI一致: radius=600 + defocus(2,0) + spherical(4,0))/freeform(全频随机相位, 可合成方形)",
         ),
     ] = "zernike"
     phase_grid: Annotated[
@@ -1595,7 +1595,7 @@ class WfAlgorithmParams:
     delta: Annotated[
         float | None,
         option(
-            "--delta", type=float, help="覆盖 SPGD 扰动幅度 (V); 自动调度按真实硬件标度"
+            "--delta", type=float, help="覆盖 SPGD 扰动幅度 (V); 自动调度按实验标度"
         ),
     ] = None
 
@@ -1649,7 +1649,7 @@ class WfRunnerParams:
         option(
             "--delta",
             type=float,
-            help="覆盖 SPGD 扰动幅度 (V); 自动调度按真实硬件标度, 对仿真 DM 过小",
+            help="覆盖 SPGD 扰动幅度 (V); 自动调度按实验标度, 对仿真 DM 过小",
         ),
     ] = None
     show: Annotated[
@@ -3422,7 +3422,7 @@ def describe_bench_geometry(path: str | Path | None) -> str:
     )
 
     if path is None or str(path).strip() == "":
-        return "未指定几何文件: 真机会退回已废弃的 speckle 标定"
+        return "未指定几何文件: 实验系统会退回已废弃的 speckle 标定"
     try:
         geometry = load_bench_geometry(path)
     except (OSError, ValueError, TypeError) as error:

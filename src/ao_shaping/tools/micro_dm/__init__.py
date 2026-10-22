@@ -1,4 +1,4 @@
-"""Micro-DM (R50Power) 台架工具。
+"""Micro-DM (R50Power) 实验系统工具。
 
 包含:
 - micro_dm_image_collect.py — 逐单元图像采集 (CLI:

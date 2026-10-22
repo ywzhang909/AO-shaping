@@ -1,6 +1,6 @@
 """FourierGSNet 仿真环境的物理回归测试 (TDD)。
 
-验证 ``SimFourierGSNetEnv`` 的 2f 傅里叶台架物理模型:
+验证 ``SimFourierGSNetEnv`` 的 2f 傅里叶实验系统物理模型:
 
 * **K 定律** —— 周期 ``P_slm`` 个 SLM 像素的闪耀光栅, 其 +1 级恰好落在距 0 级
   ``K_px / P_slm`` 个 CCD 像素处;

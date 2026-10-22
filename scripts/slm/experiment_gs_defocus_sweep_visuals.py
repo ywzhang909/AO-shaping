@@ -42,7 +42,7 @@ d=50mm、f=122.4mm 时会把 chirp 弱化 1.408 倍)。:func:`self_check_no_magn
 把「像元 pitch 与 Δz 无关」钉成回归门禁, 防止有人日后把 M 改回来。
 
 **符号与前因子仍不照抄公式**: ``s ∈ {−1, +1}`` 与连续系数 ``α`` (理论值 1) 由
-:func:`resolve_chirp_sign_alpha` **数值对拍**方案A 定出来, 结论落进 summary JSON。
+:func:`resolve_chirp_sign_alpha` **数值一致性比对**方案A 定出来, 结论落进 summary JSON。
 实测 (完整网格): ``sign = −1`` 残差 4.46e−6, ``sign = +1`` 残差 1.65e−3 (差 ~370 倍),
 ``α = 1.00016`` (残差 2.24e−7)。
 
@@ -63,7 +63,7 @@ d=50mm、f=122.4mm 时会把 chirp 弱化 1.408 倍)。:func:`self_check_no_magn
 ``OffFocusBench`` 的 ``amp`` / ``pad`` / ``_asm`` —— **传播与 GS 一行不重写**,
 :func:`self_check_two_component_at_eta0` 在 ``η=0`` 上钉到 1e−15 证明这一点)。
 
-⚠️ **建模选择 (明写)**: 瞳孔二次相位乘在**整个**瞳面场上, 含零级分量。因为 chirp 是
+⚠️ **建模选择 (明写)**: 瞳面二次相位乘在**整个**瞳面场上, 含零级分量。因为 chirp 是
 「传播了 d」这件事的替身, 而传播距离对零级和整形分量是共用的; 这样方案A 与瞳面
 二次相位两条路才仍然 apples-to-apples。若认为零级不该吃这个虚拟透镜, 退化掉
 ``pupil_field`` 里的 chirp 即可, 其余结构不变。
@@ -298,7 +298,7 @@ class PupilChirp:
     """瞳面二次相位算子 ``exp(s·i·α·π·Δz·r²/(λf²))`` (硬件可施加的那张相位图)。
 
     构造时**不假设** ``s`` 与 ``α``: 由 :func:`resolve_chirp_sign_alpha` 在方案A 上
-    数值对拍定出来, 过程与结论落进 summary JSON。``α`` 是理论值为 1 的连续前因子,
+    数值一致性比对定出来, 过程与结论落进 summary JSON。``α`` 是理论值为 1 的连续前因子,
     保留成可反解参数而不是写死, 就是为了让「是不是 1」成为一个被测量的结论。
     """
 
@@ -522,7 +522,7 @@ def pupil_field(
     """双分量瞳面场 ``U_inc·[η + (1−η)·e^{iφ}]`` (n×n, 复数)。
 
     :param amp: 照明幅度 (:attr:`OffFocusBench.amp`)。
-    :param add_chirp: 可选的瞳孔二次相位 (n×n, rad), 乘在**整个**场上 —— 它是
+    :param add_chirp: 可选的瞳面二次相位 (n×n, rad), 乘在**整个**场上 —— 它是
         「传播了 d」的替身, 对零级与整形分量是共用的 (见模块 docstring 的建模选择)。
     """
     ph = np.asarray(phase, dtype=np.float64)

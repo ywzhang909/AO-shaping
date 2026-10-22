@@ -190,7 +190,7 @@ class RunData:
 
     @property
     def is_hardware(self) -> bool:
-        """是否真实硬件运行 (``cam_type != "sim"``)。"""
+        """是否实验运行 (``cam_type != "sim"``)。"""
         return str(self.config.get("cam_type", "daheng")) != "sim"
 
 
@@ -2061,7 +2061,7 @@ def _render_summary(
     lines.append(f"- 产物目录：`{_rel(out_dir)}`")
     lines.append(f"- 扫描根：{', '.join(f'`{root}`' for root in roots)}")
     lines.append(
-        f"- 运行数：**{len(analyses)}**（其中真实硬件 {len(hardware)}，"
+        f"- 运行数：**{len(analyses)}**（其中实验 {len(hardware)}，"
         f"仿真 {len(analyses) - len(hardware)}）"
     )
     lines.append("")

@@ -4,12 +4,12 @@
 > **生成脚本**: [`scripts/ml/generate_inverse_shaping_report.py`](../../../scripts/ml/generate_inverse_shaping_report.py)
 > **复现命令**: `python scripts/ml/generate_inverse_shaping_report.py`
 > **运行环境**: 离线
-> **说明**: 逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; 输入为 ml.shaping.train + ml.shaping.evaluate 的产物
+> **说明**: 逆向光束整形 U-Net 在实验语料上的首个结果: 语料快照固定/预处理决策/平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; 输入为 ml.shaping.train + ml.shaping.evaluate 的产物
 <!-- provenance:end -->
 
 **本轮结论**（逆向 U-Net 首个真实语料结果）：模型的**远场物理指标显著优于均值相位基线，但 phasor 监督指标未达显著**（p=0.0642）——模型学到的远场表现真实存在，但在原始 phasor 空间尚未稳定超过"预测训练集平均相位"这一弱基线。训练被 6 epoch 预算截断（最优 epoch=5 即最后一个），验证曲线不可按收敛曲线读；语料中 `slm_zernike_shaping` 家族（1,010 条）目标为常数相位、抬高 phasor_mae，是否剔除留待实验决定。相关系数类指标不可排序（仅换切分种子 R² 即在 0.748–0.937 间移动），只有按文件配对差有信息量。扩大训练预算前不应将该模型视为已验证的逆向整形器。
 
-`ml.shaping` 在真实硬件语料（远场图像 → SLM 相位 phasor）上的首个端到端结果，含数据预处理决策、配对统计评估与 pred-vs-true 可视化。
+`ml.shaping` 在实验语料（远场图像 → SLM 相位 phasor）上的首个端到端结果，含数据预处理决策、配对统计评估与 pred-vs-true 可视化。
 
 ## 0. 结论先行
 

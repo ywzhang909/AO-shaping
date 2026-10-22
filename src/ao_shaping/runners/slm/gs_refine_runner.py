@@ -38,7 +38,7 @@ CLI 两种入口等价::
    不高于平场就丢弃 GS、从平场继续 —— 模型参数 (相机像素间距 / 光斑半径) 错了
    时, 代价只是两次测量, 而不是整轮跑坏。
 
-3. **自由相位 SPGD 细化**: 粗网格 (默认 24x24 = 576 自由度) 自由相位, 每个 epoch
+3. **全频随机相位 SPGD 细化**: 粗网格 (默认 24x24 = 576 自由度) 全频随机相位, 每个 epoch
    扰动正负两次读帧, 用差分估计梯度, Adam 更新。仿真的细化靠 torch autograd
    穿过解析远场 FFT, 硬件上唯一的前向模型就是测量本身、不可微, 因此换成无感知
    (SPGD) 形式 —— 与既有 ``spgd-square`` / ``slm-gsnet`` 一致。
@@ -83,10 +83,10 @@ from ao_shaping.utils.io.cli_helpers import resolve_debug
 @click.pass_context
 @with_params(SlmGsRefineParams, kw_name="params")
 def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
-    """SLM GS 预整形 + 自由相位 SPGD 细化 (SLM + CCD 闭环)。
+    """SLM GS 预整形 + 全频随机相位 SPGD 细化 (SLM + CCD 闭环)。
 
     把远场光斑整形为均匀方形。先用 GS 算一个开环预整形相位 (只在实测优于平场时
-    采用), 再用无感知 SPGD 细化自由相位。
+    采用), 再用无感知 SPGD 细化全频随机相位。
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """

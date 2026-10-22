@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 144 个 Markdown 文档（2026-10-21 盘点）。新文档请在本索引登记后再提交。
+> 共 140 个 Markdown 文档（2026-10-22 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -129,7 +129,7 @@
 | `daheng/` | 4 | 大恒相机：Python 接口开发说明书、亮度调节、回调采集实战、曝光融合（exposure fusion，文献笔记） |
 | `miicam_simulation/` | 1 | `miicam_report.md` MiiCam 仿真报告 |
 
-## 工具（tools/）— 12 篇
+## 工具（tools/）— 13 篇
 
 | 文档 | 说明 |
 |---|---|
@@ -137,6 +137,7 @@
 | `tools/slm_bench_fingerprint.md` | 光路指纹：平场 FWHM + 已知倾斜位移 + 质心，判定标定所量光路是否仍是当前光路（防过期标定被静默复用） |
 | `tools/micro_dm_image_collect.md` | Micro-DM 逐单元加电压采集远场光斑（响应矩阵/影响函数/系统标定） |
 | `tools/slm_beam_extent.md` | 光束范围测量 |
+| `tools/slm_diffraction_efficiency.md` | 闪耀光栅衍射效率 / 相位响应标定：一维闪耀光栅测器件相位调制深度与 ±1 级效率（`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`；measure 需光路标定 `.npz` 前置） |
 | `tools/slm_drift_probe.md` | SLM 漂移探测 |
 | `tools/slm_exposure_check.md` | 曝光检查 |
 | `tools/slm_floor_probe.md` | 本底（floor）探测 |

@@ -133,7 +133,7 @@ def main(argv: list[str] | None = None) -> int:
     body.append(
         "本报告记录一个**学习出来的**前向模型：输入 Noll 序 Zernike 系数"
         "（弧度），输出归一化的 CCD 远场强度。物理上这条链路是确定的"
-        "（系数 → 瞳孔相位 → FFT → |F|²），网络的作用是把它变成一个"
+        "（系数 → 瞳面相位 → FFT → |F|²），网络的作用是把它变成一个"
         "可微、可微分的快速代理，供闭环整形使用。\n"
     )
 
@@ -151,7 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         "本网络把这步变成一次前向传播，是**可微**的。物理链路本身是确定的：\n"
         "\n"
         "```\n"
-        "系数 c → 瞳孔相位 Σ c_j Z_j → 瞳孔场 exp(iφ) → FFT → |F|²\n"
+        "系数 c → 瞳面相位 Σ c_j Z_j → 瞳面场 exp(iφ) → FFT → |F|²\n"
         "```\n"
         "\n"
         "**它不替代什么**：不替代相位**反解**。网络出的是图像，"
@@ -190,7 +190,7 @@ def main(argv: list[str] | None = None) -> int:
         _table(
             ["决策", "取值", "理由"],
             [
-                ["目标归一化", "`image_mode=\"robust\"`", "中位数扣除 + 正残差 50 分位；`peak` 在本台架会被热像素支配（实测热像素峰 22–46 vs 帧均 0.26）"],
+                ["目标归一化", "`image_mode=\"robust\"`", "中位数扣除 + 正残差 50 分位；`peak` 在本实验系统会被热像素支配（实测热像素峰 22–46 vs 帧均 0.26）"],
                 ["系数标准化", "按**训练折**逐维 z-score", "用全语料会泄漏；`fit_coeff_stats` 只接受训练位置"],
                 ["padding", "Noll 前缀补 0", "Noll 1..N 是 1..136 的前缀，实测误差 0.0"],
                 ["拆分粒度", "按文件（18 折）/ 按优化目标（5 折）", "同一 pickle 内是同一 run 的连续 epoch，记录级拆分会泄漏"],
@@ -295,7 +295,7 @@ def main(argv: list[str] | None = None) -> int:
                 )
             )
             body.append(
-                "\n\n金丝雀用**训练位置**的均值图预测留出折，却拿到正 R²。"
+                "\n\n金丝雀用**训练位置**的均值图预测验证集折，却拿到正 R²。"
                 "这不是代码泄漏，而是**语料结构**如实反映的结果：同一 family 的每个"
                 "pickle 都来自同一次优化 run，train/val 共享很大一个公共分量。"
                 "**因此按文件切分的绝对 R² 是偏乐观的**，必须配合按目标切分来看。\n"
@@ -311,7 +311,7 @@ def main(argv: list[str] | None = None) -> int:
             }
             for name, (value, n_val) in sorted(by_obj.items()):
                 rows.append([arm, name, _fmt(value), str(n_val)])
-        body.append(_table(["模型", "留出的目标", "val R²", "val 记录数"], rows) + "\n")
+        body.append(_table(["模型", "验证集的目标", "val R²", "val 记录数"], rows) + "\n")
         for arm, stats in obj_sweep.get("arm_means", {}).items():
             body.append(f"\n- `{arm}`：均值 **{_fmt(stats['mean_r2'])}**"
                         f" ± {_fmt(stats.get('std_r2'))}\n")
@@ -328,7 +328,7 @@ def main(argv: list[str] | None = None) -> int:
             _table(
                 ["项", "值"],
                 [
-                    ["留出", Path(production["held_out"]).name],
+                    ["验证集", Path(production["held_out"]).name],
                     ["train / val 记录", f"{production['n_train']} / {production['n_val']}"],
                     ["参数量", f"{production['parameters']:,}"],
                     ["epoch", str(len(production["history"]))],
@@ -374,7 +374,7 @@ def main(argv: list[str] | None = None) -> int:
         _table(
             ["杠杆", "结果"],
             [
-                ["目标归一化 `image_mode`", "**唯一的大杠杆**：`robust` 取代 `peak`（本台架 `peak` 会被热像素支配，实测热像素峰 22–46 vs 帧均 0.26）"],
+                ["目标归一化 `image_mode`", "**唯一的大杠杆**：`robust` 取代 `peak`（本实验系统 `peak` 会被热像素支配，实测热像素峰 22–46 vs 帧均 0.26）"],
                 ["目标顺序 `n_max`", "15 → 136 项。**已饱和**：语料最长只有 78 项，再加维度只是加死杠杆（见下）"],
                 ["epoch 数", "15 → 80 有效：折 13 从 +0.9152 升到 +0.9300"],
                 ["架构 `conv` vs `mlp`", "**测不出差异**（18 折 p=0.17，5 折 p=0.50）"],
@@ -514,7 +514,7 @@ def main(argv: list[str] | None = None) -> int:
             [
                 [
                     "`peak` 归一化是唯一正确选择",
-                    "本台架 `peak` 由**探测器缺陷**决定（热像素峰 22–46 vs 帧均 0.26），故改用 `robust`",
+                    "本实验系统 `peak` 由**探测器缺陷**决定（热像素峰 22–46 vs 帧均 0.26），故改用 `robust`",
                 ],
                 [
                     "目标窗口覆盖足够视场",

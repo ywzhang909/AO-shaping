@@ -432,7 +432,7 @@ class SweepProbeParams:
 @click.command()
 @with_params(SweepProbeParams, kw_name="params")
 def main(params: SweepProbeParams) -> None:
-    """光滑 Zernike 台架扫描探针 (需硬件: Santec SLM-200 + 远场相机)."""
+    """光滑 Zernike 实验系统扫描探针 (需硬件: Santec SLM-200 + 远场相机)."""
     from ao_shaping.drivers.ccd.common import create_camera
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts

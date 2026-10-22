@@ -373,7 +373,7 @@ class TestAutoSideOnMeasuredFrames:
     def test_fixed_44px_box_cancels_the_hardware_response(self):
         """硬件相位: 44 px 的框让两个合成分**互相抵消**, 响应看起来是平的。
 
-        框比光斑大 3.4 倍时, 离焦弥散把整个框填满 —— CV 下降 (均匀性项
+        框比光斑大 3.4 倍时, 离焦弥散把整个框填满 —— CV 下降 (均匀度项
         ``1/(1+CV)`` **上升**) 恰好抵消 PIB 的下降, 合成分于是不降反升。
         """
         loaded = _load_group("dz_scan_hw_gs")
@@ -382,7 +382,7 @@ class TestAutoSideOnMeasuredFrames:
         assert not all(
             later < earlier for earlier, later in zip(scores, scores[1:])
         ), scores
-        # 机制: 弥散把框填满 -> 均匀性项上升, 而功率项下降。
+        # 机制: 弥散把框填满 -> 均匀度项上升, 而功率项下降。
         first, later = series[0], next(s for s in series if s["dz_mm"] > 1.0)
         assert later["cv"] < first["cv"]
         assert 1.0 / (1.0 + later["cv"]) > 1.0 / (1.0 + first["cv"])

@@ -90,11 +90,11 @@ def differentiable_far_field(
     ⚠️ **不要把这里换成角谱 (ASM) 传播** —— 已实测, 它不是傅里叶远场的等价物。
     规范实现见 ``signal_processing/angular_spectrum.py``; 边界由
     ``tests/ao_shaping/algorithm/test_angular_spectrum.py::TestNotAFraunhoferSubstitute``
-    锁定。在 2f 傅里叶台架几何 (口径 12 mm, ``f = 0.125 m``, ``lambda = 532 nm``)
+    锁定。在 2f 傅里叶实验系统几何 (口径 12 mm, ``f = 0.125 m``, ``lambda = 532 nm``)
     实测: FFT 峰值在阵列中心、``max|F| = 4057``; 而 ASM 在 ``z = f`` 处
-    ``max|out| = 1.0066`` (纯相位瞳孔的入射模长就是 1) 且峰值落在**瞳孔位置** ——
+    ``max|out| = 1.0066`` (纯相位瞳面的入射模长就是 1) 且峰值落在**瞳面位置** ——
     ASM 返回的是**传播后的光束**, 而远场是**透镜的傅里叶变换**。真正的夫琅禾费
-    图样需要 ``z >> a**2/lambda = 271 m``, 比台架焦距大三个数量级。
+    图样需要 ``z >> a**2/lambda = 271 m``, 比实验系统焦距大三个数量级。
     """
     torch = _torch()
     amp = _to_tensor(amplitude, phase.device)
@@ -349,7 +349,7 @@ class DifferentiableBeamOptimizer(IterativeOptimizer):
         loss_meas.backward()  # -> i_meas.grad = 在实测图像处求值的 ∂ℓ/∂I
 
         # 用实测图像处的损失梯度给模型 Jacobian ∂I_sim/∂φ 加权:
-        # 相位梯度由此锚定在真实硬件图像上。
+        # 相位梯度由此锚定在实验图像上。
         i_sim = far_field_intensity(self._source_amplitude, self._phase)
         i_sim.backward(gradient=i_meas.grad)
 

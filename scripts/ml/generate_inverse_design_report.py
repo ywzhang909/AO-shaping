@@ -297,7 +297,7 @@ def figure_phases(path: Path) -> dict:
         ax.set_xticks([])
         ax.set_yticks([])
         fig.colorbar(im, ax=ax, fraction=0.046)
-    fig.suptitle("瞳孔相位分布（弧度，mod 2π 显示仅为观看）", fontsize=13, y=1.03)
+    fig.suptitle("瞳面相位分布（弧度，mod 2π 显示仅为观看）", fontsize=13, y=1.03)
     fig.tight_layout()
     fig.savefig(path, bbox_inches="tight")
     plt.close(fig)
@@ -367,21 +367,21 @@ GLOSSARY = """
 
 | 术语 | 英文 / 符号 | 含义 |
 |---|---|---|
-| 正向模型 | forward model | 给定**实测**的瞳孔相位，预测相机拍到的远场。`ZernikeAmpModel.forward(phase_cos, phase_sin)` |
-| 逆向整形 | inverse design / shaping | 给定**想要的**远场目标，反解出一块瞳孔相位。对应 `correction_far_field()` |
+| 正向模型 | forward model | 给定**实测**的瞳面相位，预测相机拍到的远场。`ZernikeAmpModel.forward(phase_cos, phase_sin)` |
+| 逆向整形 | inverse design / shaping | 给定**想要的**远场目标，反解出一块瞳面相位。对应 `correction_far_field()` |
 | pred | prediction | 模型给出的图 |
 | true | ground truth | 独立来源的参照图：正向用 CCD 实测帧，逆向用独立仿真 |
-| 瞳孔相位 | pupil phase | SLM 上逐像素施加的相位 `φ(x,y)`，单位弧度（rad） |
+| 瞳面相位 | pupil phase | SLM 上逐像素施加的相位 `φ(x,y)`，单位弧度（rad） |
 | 相位矢量 | phasor | `exp(i·φ)` 的复数表示，拆成 `phase_cos`/`phase_sin` 两张实数图 |
 | 远场 | far field | 2f 傅里叶透镜后焦面上的光强分布，`I ∝ |FFT(pupil·exp(iφ))|²` |
-| GS | Gerchberg–Saxton | 一种**开环**迭代算法：在瞳孔面与远场面之间反复来回投影，快速得到一个近似解 |
-| Zernike 系数 | Zernike coefficients | 用 135 个正交基（n_max=15）把瞳孔相位展开成一串系数 |
+| GS | Gerchberg–Saxton | 一种**开环**迭代算法：在瞳面面与远场面之间反复来回投影，快速得到一个近似解 |
+| Zernike 系数 | Zernike coefficients | 用 135 个正交基（n_max=15）把瞳面相位展开成一串系数 |
 | 梯度精修 | gradient refinement | 以上一步的结果为起点，用 AdamW 再优化若干步 |
 | shape_sum | — | 本项目的评价指标，等于 `pib_term + uniformity_term`，越高越好 |
 | PIB | power in bucket | 目标框内的能量占比 |
 | 均匀度 | uniformity | 目标框内光强是否平整，越接近 1 越均匀 |
 | 目标框 | ROI (region of interest) | 评价用的方形区域，大小由 `SIZE_FRAC × ASPECT` 决定 |
-| 平场 | flat phase | 瞳孔相位全零，即不做任何矫正的基准 |
+| 平场 | flat phase | 瞳面相位全零，即不做任何矫正的基准 |
 | R² | coefficient of determination | 预测与实测的吻合度，1 为完美，0 等于"只猜均值" |
 | Spearman | Spearman rank correlation | 只看**排名**的相关性；本项目用它是因为少量样本下 Pearson 会被极端点主导 |
 | 独立仿真 | independent simulator | `SimPibSystem`，一套与模型完全无关的 numpy 傅里叶光路 |
@@ -507,7 +507,7 @@ def _taxonomy_rows() -> list[str]:
         r = v[name]
         if not r.get("screenable_here", True):
             out.append(
-                f"| {labels[name]} | — | — | — | **本台架无法筛选**（见下） |"
+                f"| {labels[name]} | — | — | — | **本实验系统无法筛选**（见下） |"
             )
             continue
         rho = r["max_abs_spearman_vs_incumbent"]
@@ -552,14 +552,14 @@ def build_report(stats: dict, figures_ok: bool) -> str:
     TAXONOMY_ROWS = _taxonomy_rows()
     CROSSTALK_ROWS = _removed_note(
         "串扰增强实验（`scripts/crosstalk_augmentation_train.py`）",
-        "实验作废：该台架当时**不可复现**（两次相同调用 R² 差 0.006、拟合系数差 0.065），"
+        "实验作废：该实验系统当时**不可复现**（两次相同调用 R² 差 0.006、拟合系数差 0.065），"
         "且一次并行 `git stash` 移走了 `SimPibSystem._pupil_field` seam，使每一个变体静默变成空操作。"
         "真实结果未知，需要重做。",
     )
     INVERSE_TRANSFER_ROWS = _removed_note(
         "串扰模型的逆向转移检验（`scripts/inverse_crosstalk_check.py`）",
         "随上一条一并作废（同一生成器，故 `D2+xt2.0` 与 `D2+same` 配置等价）。"
-        "**但第 8 节的结论不受影响**：那三次解离来自各自独立的脚本，不在这个非确定性台架上。",
+        "**但第 8 节的结论不受影响**：那三次解离来自各自独立的脚本，不在这个非确定性实验系统上。",
     )
     PHASE_SMOOTH_ROWS = _removed_note(
         "`losses.phase_smoothness_penalty`（相位 TV + 2π 峰谷铰链）与 `LossConfig.w_phase_smooth`",
@@ -595,7 +595,7 @@ def build_report(stats: dict, figures_ok: bool) -> str:
     if figures_ok:
         lines += _inverse_figures(invst)
     lines += [
-        "## 4. 瞳孔相位",
+        "## 4. 瞳面相位",
         "",
     ]
     if figures_ok:
@@ -647,9 +647,9 @@ def _inverse_figures(invst: dict):
 
 
 def _phase_figures(ph: dict):
-    """§4 瞳孔相位图表块（figures_ok 时插入）。"""
+    """§4 瞳面相位图表块（figures_ok 时插入）。"""
     return [
-            "![瞳孔相位](figures/phases.png)",
+            "![瞳面相位](figures/phases.png)",
             "",
             f"GS 相位在独立仿真上 shape_sum = **{ph['gs_score']:.4f}**；"
             f"再做 60 步 Zernike 梯度精修后 = **{ph['refined_score']:.4f}**。",
@@ -711,8 +711,8 @@ def _tail_section_5():
         "2. **GS 单独用常常不比平场好。** `GS − 平场` 在 90/90 次里都是负的"
         "（−0.0025…−0.0364）。真正的收益来自 **GS + 精修**：GS 给出正确的盆地，梯度把它走完。",
         "",
-        "自由相位参数化下结论**不一致**：精修反而在 9/9 个 ROI 里都**破坏** GS 解（−0.2779）。"
-        "原因是自由相位有 576 个自由度，而模型只表达 135 个 Zernike 模式——"
+        "全频随机相位参数化下结论**不一致**：精修反而在 9/9 个 ROI 里都**破坏** GS 解（−0.2779）。"
+        "原因是全频随机相位有 576 个自由度，而模型只表达 135 个 Zernike 模式——"
         "精修在一个目标函数看不见的方向上走了。这与 §9 的正向结论是同一件事。",
         "",
         "---",
@@ -837,9 +837,9 @@ def _tail_section_9():
     return [
         "## 9. 尚未验证的边界",
         "",
-        "* 以上全部是**仿真**结论，不是台架实测结论。",
-        "* 只覆盖了 Zernike（135 自由度）与自由相位 `phase-grid=24`（576 自由度）两种参数化；"
-        "未试原生全分辨率自由相位（4096 自由度）。",
+        "* 以上全部是**仿真**结论，不是实验系统实测结论。",
+        "* 只覆盖了 Zernike（135 自由度）与全频随机相位 `phase-grid=24`（576 自由度）两种参数化；"
+        "未试原生全分辨率全频随机相位（4096 自由度）。",
         "* ROI 几何扫描用的是 `SIZE_FRAC × ASPECT` 的 3×3 组合，中间没有更密的采样。",
         "* 跨目标的分组比较**做不了**：每个 seed 的验证划分只覆盖 1–2 个优化目标，"
         "只有 `rmse_out` 出现在 2 个以上的 seed 里。要做这件事需要 10 折分组交叉验证。",
@@ -900,13 +900,13 @@ def _tail_section_10(taxonomy_rows):
         "以及像差本身的大幅偏离。但仿真器里没有任何一项的模型，"
         "所以这三者都只能作为**训练数据的生成器**引入，不能靠仿真自己长出来。",
         "",
-        "### 两个我自己的台架错误（都曾伪造出读数）",
+        "### 两个我自己的实验系统错误（都曾伪造出读数）",
         "",
         "* **用「真值处的取值」做归一化**：清单里每一项都是 anchored 的，真值处取值按"
         "构造为 0，于是所有比值都是 `inf`。改为「该项自身动态范围」才可比。",
         "* **在扰动扫描上给相位域项打分**：它们按构造与输入无关，于是必然得到 "
-        "`判别力=0 / 不安全`。这是台架的伪影不是结论，现在显式标为"
-        "**本台架无法筛选**，必须配训练实验。",
+        "`判别力=0 / 不安全`。这是实验系统的伪影不是结论，现在显式标为"
+        "**本实验系统无法筛选**，必须配训练实验。",
         "",
     ]
 
@@ -942,7 +942,7 @@ def _tail_section_11(phase_smooth_rows):
         "**仿真器的相位响应是理想的**——没有串扰、没有填充因子、没有效率耦合。"
         "所以可实现性惩罚在这里**只可能损失精度，不可能赚回任何东西**，"
         "因为不存在一个会向它收费的串扰模型。",
-        "换句话说：**PV 23 rad 在真实台架上是否真的损失效率，这是一个本仓无法回答的硬件问题。**"
+        "换句话说：**PV 23 rad 在真实实验系统上是否真的损失效率，这是一个本仓无法回答的硬件问题。**"
         "在有人实测之前，`w_phase_smooth` 保持 0。本报告能给出的只是："
         "模型确实在命令一个面板撑不住的相位，以及用仿真无法判断这件事的代价。",
         "",
@@ -973,7 +973,7 @@ def _tail_section_12(crosstalk_rows, inverse_transfer_rows):
 def _tail_section_13():
     """§13 小节。"""
     return [
-        "## 13. 保留下来的一条方法学发现：这套训练台架此前**不可复现**",
+        "## 13. 保留下来的一条方法学发现：这套训练实验系统此前**不可复现**",
         "",
         "串扰实验作废的直接原因，是一条本来应该让整个实验从头就作废的发现。"
         "把同一个变体、同一 seed、同样的代码**跑两遍**，结果不一样：",

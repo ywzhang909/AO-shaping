@@ -1166,10 +1166,10 @@ def _part_1(add, facts, dist_stats, total, disk_total, indexed_on_disk, unindexe
         f"- **家族与相位表示完全共线**: {len(facts.fam_records)} 个家族中有 "
         f"{facts.collinear_families} 个只对应单一 `source` "
         f"(占记录 {_pct(sum(c for f, c in facts.fam_records.items() if len(facts.fam_source.get(f, {})) == 1), total)})。"
-        f"因此「表示方式的差异」与「家族/台架/目标的差异」在本语料内**无法解耦**。"
+        f"因此「表示方式的差异」与「家族/实验系统/目标的差异」在本语料内**无法解耦**。"
     )
     add(
-        f"- **采集条件跨台架不一致**: 曝光 {len(exposure_labels)} 个取值、跨 "
+        f"- **采集条件跨实验系统不一致**: 曝光 {len(exposure_labels)} 个取值、跨 "
         f"{exposure_span:.2f} 个数量级 ({exposure_labels[0]}–{exposure_labels[-1]} ms); "
         f"视场代理量 (sidecar 记录值) 覆盖 {len(FOV_PROXY_KEYS)} 个不同键名, "
         f"Zernike 指令孔径半径取值 {len(facts.aperture_counts)} 种而重建端固定为 "
@@ -1415,8 +1415,8 @@ def _part_4(add, facts) -> None:
     add(
         f"\n**这是本语料最重要的结构性事实**: {facts.collinear_families}/"
         f"{len(facts.fam_records)} 个家族只出现单一 `source`, 交叉格全为 0。"
-        f"`source` 与「家族 / 台架 / 优化目标」是同一个自变量的别名, "
-        f"所以任何跨 `source` 的对比都同时换了台架与目标, "
+        f"`source` 与「家族 / 实验系统 / 优化目标」是同一个自变量的别名, "
+        f"所以任何跨 `source` 的对比都同时换了实验系统与目标, "
         f"**不能**读作「哪种相位表示更好」。\n"
     )
     add(_figure_ref(FIGURE_NAMES[2]))
@@ -1839,7 +1839,7 @@ def _part_10(add, facts, dist_stats, total, newer_unindexed) -> None:
         spr_online = _fam_stat(dist_stats, "slm_pib_online", "phase_spread")
         add(
             "3. **相位表示差异在数组里同样可见。** `slm_gsnet_square` 相位展宽 ≈ "
-            f"{_s(spr_gs, '.2f')} rad (近满幅自由相位), `slm_pib_online` ≈ "
+            f"{_s(spr_gs, '.2f')} rad (近满幅全频随机相位), `slm_pib_online` ≈ "
             f"{_s(spr_online, '.3f')} rad (近平场); 而 `phase_coh_mean` 全家族都很高 "
             "(填充区是 `cos=0, sin=0` 的零相量, 不是未定义相位)。\n"
         )
@@ -1885,8 +1885,8 @@ def _part_10(add, facts, dist_stats, total, newer_unindexed) -> None:
                         "相位表示差异 (展宽 40×)",
                         "输入恒为 phasor `(cos, sin)` (无 arctan2 分支切口, 现有契约); "
                         "Zernike 系数→136 维零填充可加, 但表示与家族共线, 增益有限。",
-                        "`slm_pib_online` 近平场 vs `slm_gsnet_square` 满幅自由相位"
-                        "是**任务本质**差异 (在线微调 vs 自由相位整形), 数据处理消不掉。",
+                        "`slm_pib_online` 近平场 vs `slm_gsnet_square` 满幅全频随机相位"
+                        "是**任务本质**差异 (在线微调 vs 全频随机相位整形), 数据处理消不掉。",
                     ],
                     [
                         "纹理差异 (熵 3×, CV 8×)",
@@ -1929,7 +1929,7 @@ def _part_11(add) -> None:
     add("3. 曝光 / 视场代理量 / Zernike 指令孔径半径都跨家族不一致, 属真实协变量。")
     add("4. 每个 pkl 的记录数极不均匀, 必须按文件分组读取。\n")
     add("**不可断言 (本语料结构上不支持):**\n")
-    add("1. ❌ 「`panel_gray` vs `zernike` 哪种表示更好」—— 与家族/台架/目标完全混淆。")
+    add("1. ❌ 「`panel_gray` vs `zernike` 哪种表示更好」—— 与家族/实验系统/目标完全混淆。")
     add("2. ❌ 任何**物理**角尺度或跨家族统一视场口径 —— sidecar 只有各 writer 自记的 px。")
     add("3. ❌ 按优化目标分层的结论 —— 目标标签成族缺失, 无合法对照组。")
     add("4. ❌ 逐记录显著性检验 / p 值 / 置信区间 —— 记录不是独立样本, 同文件内高度相关。")

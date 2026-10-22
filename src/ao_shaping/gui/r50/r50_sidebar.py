@@ -260,7 +260,7 @@ def _sidebar_single_connection() -> None:
                 "🟡 仿真模式 (无硬件)",
                 value=st.session_state.get(f"{P}_simulate", False),
                 disabled=_connected,
-                help="启用后连接/上电/下发均使用模拟设备，不连接真实硬件",
+                help="启用后连接/上电/下发均使用模拟设备，不连接硬件",
                 key=f"{P}_simulate_sb",
             )
             st.session_state[f"{P}_simulate"] = _sim

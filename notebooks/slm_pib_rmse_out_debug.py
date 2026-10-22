@@ -1,5 +1,5 @@
 """独立调试脚本: slm-pib spgd, objective=rmse_out, target_shape=square, target_size=100.
-后端: Santec SLM + Daheng CCD (真实硬件).
+后端: Santec SLM + Daheng CCD (实验).
 
 对应 CLI:
     python src/ao_shaping/main.py slm-pib spgd --show --debug -c max \
@@ -38,7 +38,7 @@ OBJECTIVE = "rmse_out"               # --objective rmse_out
 CAM_TYPE = "daheng"                  # 真实大恒 CCD
 CAM_ID = 0                           # Far_Cam_ID
 CAM_SIZE = 300
-# 真实硬件需要固定曝光; 0 会被 Daheng 驱动钳到设备最小值 (~0.02 ms)。
+# 实验需要固定曝光; 0 会被 Daheng 驱动钳到设备最小值 (~0.02 ms)。
 # 按实际 bench 调节 (例如 0.5~5 ms), 这里给一个保守默认。
 EXPOSURE_MS = 1.0
 TARGET_MAX_BRIGHTNESS = 40           # 仅 auto-exposure 路径用, 此处不自动调曝光

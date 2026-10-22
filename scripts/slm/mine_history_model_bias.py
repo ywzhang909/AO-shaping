@@ -43,7 +43,7 @@ MIL 闭环的瓶颈被审计判定为**正向模型失配** (宽度比 1.328 / �
 ``logs/history_model_bias/<时间戳>/`` 下::
 
     pairs.json        # 每条配对的来源 / 会话 / 曝光 / 归一化参数 / 网格口径 + 排除清单
-    fit.json          # 拟合到的系统误差项 + 诊断 (训练集与历史留出集)
+    fit.json          # 拟合到的系统误差项 + 诊断 (训练集与历史验证集)
     validation.json   # B1 / B2 上的标定前后对照
     summary.md        # 中文结论 + 阈值对照表 + 「还差多少采集」
     calibration.png   # 标定前 / 后的宽度比与质心偏移对照
@@ -143,7 +143,7 @@ CV_ABS_LIMIT = 0.05
 #: 焦距尺度拟合的搜索范围 (相对宽度比)。
 SCALE_SEARCH = (0.55, 1.80)
 
-#: 会话切分: 训练 / 历史留出。
+#: 会话切分: 训练 / 历史验证集。
 SESSION_SPLIT_FRACTION = 0.7
 
 
@@ -288,7 +288,7 @@ def fit_exposure_response(
     Args:
         points: ``(exposure_ms, peak_counts)`` 序列。
         source: 拟合所用的数据来源说明 (写进产物)。
-        holdout_index: 留出做交叉验证的点下标; None = 全部参与拟合。
+        holdout_index: 验证集做交叉验证的点下标; None = 全部参与拟合。
 
     Returns:
         拟合结果; 点少于 2 个或曝光全相同时退化为 ``bias=0, gain=1``。
@@ -2377,7 +2377,7 @@ def run(args: argparse.Namespace) -> int:
     )
     train_pairs = [pair for s in train_sessions for pair in s.pairs]
     held_pairs = [pair for s in held_sessions for pair in s.pairs]
-    logger.info("训练 {} 会话 / {} 对, 历史留出 {} 会话 / {} 对",
+    logger.info("训练 {} 会话 / {} 对, 历史验证集 {} 会话 / {} 对",
                 len(train_sessions), len(train_pairs), len(held_sessions), len(held_pairs))
 
     # --- 3. 拟合系统误差 --------------------------------------------------
@@ -2435,11 +2435,11 @@ def run(args: argparse.Namespace) -> int:
     threshold_rows: list[dict[str, Any]] = []
     validation_summary: dict[str, Any] = {}
 
-    # 历史留出集 (按会话分组切分) —— 「历史预标定能否泛化」的第一道检验。
+    # 历史验证集 (按会话分组切分) —— 「历史预标定能否泛化」的第一道检验。
     if held_eval and held_eval.get("after"):
         before = held_eval["before"]
         after = held_eval["after"]
-        validation_summary["历史留出集"] = {"before": before, "after": after}
+        validation_summary["历史验证集"] = {"before": before, "after": after}
         for name, key, limit, mode in (
             ("宽度比 ∈ 1.0 ± 0.10", "width_ratio", WIDTH_RATIO_TOLERANCE, "band"),
             ("质心偏移 ≤ 0.5 模型格", "centroid_shift_cells", CENTROID_SHIFT_LIMIT_CELLS, "max"),
@@ -2450,7 +2450,7 @@ def run(args: argparse.Namespace) -> int:
                 continue
             threshold_rows.append(
                 {
-                    "group": "历史留出集 (会话分组)",
+                    "group": "历史验证集 (会话分组)",
                     "name": name,
                     "threshold": f"{limit}",
                     "before": before_value,
@@ -2574,11 +2574,11 @@ def run(args: argparse.Namespace) -> int:
             )
     if held_eval:
         decomposition_table.append(
-            _decomposition_row("历史留出集", "留出会话", held_eval["before"])
+            _decomposition_row("历史验证集", "验证集会话", held_eval["before"])
         )
         if held_eval.get("after"):
             decomposition_table.append(
-                _decomposition_row("历史留出集", "留出会话 (标定后)", held_eval["after"])
+                _decomposition_row("历史验证集", "验证集会话 (标定后)", held_eval["after"])
             )
 
     payload = {
@@ -2674,8 +2674,8 @@ def run(args: argparse.Namespace) -> int:
         width_after.append(train_eval["after"]["width_ratio"]["median"] or 0.0)
         centroid_before.append(train_eval["before"]["centroid_shift_cells"]["median"] or 0.0)
         centroid_after.append(train_eval["after"]["centroid_shift_cells"]["median"] or 0.0)
-    if held_eval and held_eval.get("after") and "历史留出集" not in validation_summary:
-        labels.append("历史留出集")
+    if held_eval and held_eval.get("after") and "历史验证集" not in validation_summary:
+        labels.append("历史验证集")
         width_before.append(held_eval["before"]["width_ratio"]["median"] or 0.0)
         width_after.append(held_eval["after"]["width_ratio"]["median"] or 0.0)
         centroid_before.append(held_eval["before"]["centroid_shift_cells"]["median"] or 0.0)
@@ -2779,7 +2779,7 @@ def _acquisition_guidance(
 
     lines = [
         f"历史数据共覆盖 {n_sessions} 个会话 / {n_pairs} 条配对; "
-        f"按会话分组后训练集 {len(train_sessions)} 个会话、留出集 {len(held_sessions)} 个会话。",
+        f"按会话分组后训练集 {len(train_sessions)} 个会话、验证集 {len(held_sessions)} 个会话。",
         f"预标定给出的系统误差项: 焦距尺度 {calibration.scale:.4f}、"
         f"瞳面中心偏移 ({calibration.shift_dx:+.3f}, {calibration.shift_dy:+.3f}) 远场格、"
         f"增益 {calibration.gain:.4f}。",
@@ -2793,7 +2793,7 @@ def _acquisition_guidance(
         ),
         "仍需实验采集的只有**逐会话漂移量** (光强、面板状态、光轴零点): "
         "按现有 MIL 的探针口径, 一次确认只需**平场 + 1 条 Zernike 探针** (2 帧), "
-        "而不是每轮 16 条训练探针 + 4 条留出探针 (20 帧)。",
+        "而不是每轮 16 条训练探针 + 4 条验证集探针 (20 帧)。",
         "Step A 的**初值**可以直接取历史拟合的**逐 Noll 序中位系数** "
         "(见 `fit.json` 的 `historical_median_coefficients`), 于是拟合从零起步变成"
         "「从中位像差起步」, 信任域不必从零一路顶到真值 —— 审计里 50/56 轮撞满"
@@ -2838,7 +2838,7 @@ def _limitations(
         "它对应的是**远场采样尺度 / 等效焦距**口径。",
     ]
     if not held_sessions:
-        lines.append("**历史留出集为空**: 会话数不足, 训 / 验分离退化为只报训练集。")
+        lines.append("**历史验证集为空**: 会话数不足, 训 / 验分离退化为只报训练集。")
     hwdataset = validation.get("hwdataset", {})
     if hwdataset.get("available"):
         lines.append(

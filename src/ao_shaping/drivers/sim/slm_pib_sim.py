@@ -20,14 +20,14 @@ SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳面场的二
 
 硬件契约 (2026-10-22 补齐)
 --------------------------
-本模块的仿真替身必须能**原样**跑那些在真实硬件上出过报告的采集脚本, 所以它对齐
+本模块的仿真替身必须能**原样**跑那些在实验系统上出过报告的采集脚本, 所以它对齐
 硬件驱动的三个调用形态:
 
 1. ``display_data(gray, wait_time_s)`` —— 硬件驱动的第二个**位置**参数就是
    ``wait_time_s`` (见 :meth:`Santec.display_data`), 而
    ``tools/kernels/bench_kernels.py`` 的 ``acquire_settled`` / ``capture_settled`` /
    ``display_and_average`` 正是这么调的。仿真没有面板松弛时间, 故该参数被**接受并忽略**
-   (真实硬件的松弛由 ``bench_kernels`` 的稳定性判据处理, 仿真里面板是理想瞬时响应)。
+   (实验的松弛由 ``bench_kernels`` 的稳定性判据处理, 仿真里面板是理想瞬时响应)。
 2. ``set_phase_overlay(phase_rad | None)`` —— 弧度制**叠加层** (离焦等), 在
    :meth:`SimSLMPib.create_phase_from_array` 内部、**弧度→灰度之前**相加; ``None`` 清除。
    语义与硬件 :meth:`Santec.set_phase_overlay` 一致 (叠加后的相位**同时**进入远场,
@@ -116,7 +116,7 @@ BEAM_W0 = 400.0
 # CCD 远场分辨率 (正方形)。0 级光斑落在画面正中。
 CCD_RES = (512, 512)
 
-# 在 ``fft2`` 之前施加到瞳孔上的补零因子。远场像元间距由该变换固定, 因此不补零的 FFT
+# 在 ``fft2`` 之前施加到瞳面上的补零因子。远场像元间距由该变换固定, 因此不补零的 FFT
 # 会把 0 级光斑放到 ~1.8 px FWHM —— 横跨它的采样几乎只有一个, 于是每个功率比指标都要
 # 去除一个在数值上根本没被分辨的峰值。补零把这个间距按该因子缩小, 这在数字上等价于
 # 真实实验系统通过缩小相机 ROI 获得的更长有效焦距 (裁剪*同一*数组只会放大它, 不增加任何
@@ -357,7 +357,7 @@ class SimPibSystem:
         与 ``AGENTS.md`` 里的 2f 实验系统约定一致。
         """
         with self._lock:
-            # DM 电压每次变化都会自增 ``dm_optics.version``; 版本变化说明瞳孔相位
+            # DM 电压每次变化都会自增 ``dm_optics.version``; 版本变化说明瞳面相位
             # 已变, 缓存的远场 (基于旧电压) 必须失效, 否则 DM 耦合看起来毫无效果。
             dm_ver = self.dm_optics.version
             if dm_ver != self._dm_version:
@@ -798,7 +798,7 @@ class SimSLMPib:
         与仿真下都能跑:
 
         * ``wait_time_s`` —— **接受并忽略**: 仿真没有松弛时间 (面板是理想瞬时响应),
-          真实硬件的松弛由 ``tools/kernels/bench_kernels.py`` 的稳定性判据处理
+          实验的松弛由 ``tools/kernels/bench_kernels.py`` 的稳定性判据处理
           (``acquire_settled`` / ``capture_settled`` / ``display_and_average``)。
         * ``memory_number`` / ``memory_mode`` —— 仿真没有内存槽, 同样**接受并忽略**
           (返回的仍是 ``memory_number``, 以免影响既有调用方)。

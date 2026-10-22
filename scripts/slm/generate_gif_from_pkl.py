@@ -115,7 +115,7 @@ def generate_gif(
     geometry = _pupil_geometry(pkl_path, pupil_center)
     if geometry is None:
         logger.warning(
-            "缺少瞳孔几何, 跳过第三栏仿真 (pupil centre / beam radius unknown). "
+            "缺少瞳面几何, 跳过第三栏仿真 (pupil centre / beam radius unknown). "
             "来源需为: {}.json, 同目录 forward_diagnostic.json, "
             "或命令行第三参数 pupil_x,pupil_y。",
             pkl_path.stem,

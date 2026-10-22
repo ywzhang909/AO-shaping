@@ -40,7 +40,7 @@ def install_sim_slm(*optimizer_modules: ModuleType) -> None:
 
     Raises:
         AttributeError: 给定的模块没有 ``Santec`` 全局。若不做这项检查, ``setattr``
-            会欣然*创建*该属性, 补丁看上去生效了, 而被测模块仍会去打开真实硬件 ——
+            会欣然*创建*该属性, 补丁看上去生效了, 而被测模块仍会去打开硬件 ——
             这正是这层间接所要避免的失败。报错信息会指出是哪个模块。
     """
     if not optimizer_modules:

@@ -308,7 +308,7 @@ def _body(
     else:
         lines.append(
             "在**本仿真**中 GS **没有**胜过平相位。这是与多数 GS 叙事相反的结果，"
-            "因此必须照实记录：本台架参数下 GS 不是有效上界，"
+            "因此必须照实记录：本实验系统参数下 GS 不是有效上界，"
             "任何引用「GS 上界」的结论都应先复核 §1 的参数。"
         )
     lines.append("")
@@ -346,14 +346,14 @@ def _body(
         f"CV {fmt_metric(flat['uniformity_cv'])}、EE {fmt_metric(flat['encircled_energy'])}、"
         f"Strehl {fmt_metric(flat['strehl'])}。"
         "**把这张表当成 GS 的收敛曲线读**：第一个越过平相位分数的迭代次数，"
-        "就是这个台架上 GS 值得花的钱；再多迭代只买仿真里的边际改善。"
+        "就是这个实验系统上 GS 值得花的钱；再多迭代只买仿真里的边际改善。"
     )
     lines.append("")
 
     lines.append("## 3. 口径与本报告不宣称什么")
     lines.append("")
     lines.append(
-        "1. **0 级由 `argmax` 定位，不用几何中心。** 2f 傅里叶台架里光轴落在画面"
+        "1. **0 级由 `argmax` 定位，不用几何中心。** 2f 傅里叶实验系统里光轴落在画面"
         "全局最大值处，几何中心只是碰巧重合；所有箱内指标都按定位到的中心计算。"
     )
     lines.append(

@@ -93,7 +93,7 @@ def _defocus_normalized_builder(slm: "Santec") -> np.ndarray:
     """控制器同款 Zernike 离焦: generate_zernike_polynomial({(2,0): 1.0})。
 
     弧度相位 → ``slm.create_phase_from_array()`` 转换: 保留系数绝对幅度
-    (mod-2π 包裹, 整个瞳孔 0~1023 灰度 ≈ 一个 2π 周期) + 驱动波前校正/LUT。
+    (mod-2π 包裹, 整个瞳面 0~1023 灰度 ≈ 一个 2π 周期) + 驱动波前校正/LUT。
     (2026-09: 原实现经 PatternHelper min-max 归一化, 已删除)
     """
     from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
