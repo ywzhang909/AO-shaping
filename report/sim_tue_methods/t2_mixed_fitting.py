@@ -5,7 +5,7 @@
 可微前向，与目标形状 (三角形 / 五角星) 做损失 (w·CV + (1-w)·(1-EE))，
 梯度下降同时更新两组参数。
 
-三臂对照 (同一真值像差 A, 同一目标, 同预算):
+三个变体对照 (同一真值像差 A, 同一目标, 同预算):
   1. zernike_only   : φ_slm = 15 项 Zernike (验证"15 项 Zernike 做不出三角形"的表达力缺口)
   2. perpixel_only  : φ_slm = 逐像素 (现有 Step B 架构, 冻结式)
   3. joint          : φ_slm = 15 项 Zernike + 逐像素 (联合, 同时更新; 记录全程最佳 epoch)
@@ -76,7 +76,7 @@ def _make_forward(basis15, aperture, amp, target, aberr15):
     """返回一个闭包 (c_15, f) -> loss。
 
     总瞳面相位 = (c_15·Z_15 + f + A_15)。A_15 是真值像差 (Noll≤15 部分, 15 维
-    系数向量), 优化时必须在场里, 各臂 (含 perpixel-only) 才会学到去补偿它,
+    系数向量), 优化时必须在场里, 各变体 (含 perpixel-only) 才会学到去补偿它,
     与真实 model-in-loop (Step A 拟合 A、Step B 在 A 下优化相位) 一致。
     """
     b15 = torch.from_numpy(np.ascontiguousarray(np.nan_to_num(basis15))).to("cpu", dtype=torch.float64)

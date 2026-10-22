@@ -18,6 +18,14 @@ self-reference-interferometry reference implementation kept for study/unit tests
 CLI (see ``__main__``):
     python -m ao_shaping.tools.slm.calibration [OPTIONS]        # geometry calibration
     python -m ao_shaping.tools.slm.calibration shift [OPTIONS]  # defocus shift calibration
+
+Sub-packages
+------------
+``diffraction_efficiency/``
+    Blazed-grating diffraction-efficiency measurement (core algorithms +
+    digital twin + Santec/Daheng hardware backend). It is **not** re-exported
+    here: its public API lives in its own lazy facade, and importing it must
+    not pull the native SDK into this package's import path.
 """
 
 from __future__ import annotations

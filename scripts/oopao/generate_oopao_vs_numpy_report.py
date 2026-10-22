@@ -1,22 +1,22 @@
-"""OOPAO 后端 vs 传统 numpy/FFT 光束后端 —— 对比报告生成器。
+"""OOPAO 仿真后端分支 vs 传统 numpy/FFT 光束仿真后端分支 —— 对比报告生成器。
 
-对比项目自身仿真后端的两个"臂" (arm):
+对比项目自身仿真后端的两个"仿真后端分支" (backend):
 
-* ``numpy`` 臂 — ``AO_OOPAO_BACKEND`` 未设置, ``beam_backend`` 走历史遗留的
+* ``numpy`` 仿真后端分支 — ``AO_OOPAO_BACKEND`` 未设置, ``beam_backend`` 走历史遗留的
   FFT 频谱 Kolmogorov 相位屏 + 角谱传播 (``beam_simulation``)。
-* ``oopao`` 臂 — ``AO_OOPAO_BACKEND=1``, 相位屏走 OOPAO ``Atmosphere``
+* ``oopao`` 仿真后端分支 — ``AO_OOPAO_BACKEND=1``, 相位屏走 OOPAO ``Atmosphere``
   (von Karman), 传播走 OOPAO ``Atmosphere.ASM``。
 
 ⚠️ 适用范围 (务必先读): 在
 ``src/ao_shaping/drivers/sim/beam_backend.py`` 中**只有两个函数会切换内核** ——
 ``turbulence_phase()`` 与 ``propagate()``。``focal_plane()`` / ``apply_lens()`` /
-``gaussian_pupil()`` / ``grid()`` 两条臂走的是**同一份纯 numpy 代码**。因此:
+``gaussian_pupil()`` / ``grid()`` 两个仿真后端分支走的是**同一份纯 numpy 代码**。因此:
 
 * 湍流差异 → 出现在相位屏上;
 * 传播差异 → 只有经过 ``propagate()`` 时才可能出现;
 * 焦面 (远场/PSF) 差异 → 全部来自相位屏不同, 而不是来自焦面传播内核不同。
 
-本脚本对每个 (静态像差 × 大气湍流) 场景同时跑两条臂, 输出
+本脚本对每个 (静态像差 × 大气湍流) 场景同时跑两个仿真后端分支, 输出
 ``report.md`` + ``summary.csv`` + 每场景对比图。**完全离线** (纯数值仿真,
 不接触任何硬件), 但**必须**能导入 OOPAO —— 若 OOPAO 不可用, 脚本会**大声中止**
 (退出码 2), 绝不允许静默降级成一个被标成 ``oopao`` 的 numpy 重复结果。
@@ -143,9 +143,9 @@ METRIC_LABELS: tuple[tuple[str, str], ...] = (
     ("energy_frac", "ASM 能量守恒比"),
 )
 
-# cn2=0 对照组中两臂应当逐位相同的指标: 全部相位类 + 焦面类。
+# cn2=0 对照组中两个仿真后端分支应当逐位相同的指标: 全部相位类 + 焦面类。
 # 刻意排除 energy_frac —— 它经由 propagate(), 正是两个传播核唯一会差的那一项,
-# 把它纳入相等性断言会让"双臂一致"永远不成立。
+# 把它纳入相等性断言会让"两个仿真后端分支一致"永远不成立。
 ARM_INVARIANT_METRICS: tuple[str, ...] = (
     "phase_std_rad",
     "phase_rms_rad",
@@ -264,21 +264,21 @@ def build_scenarios(
 
 
 # --------------------------------------------------------------------------- #
-# 两条臂的启用 / 校验
+# 两个仿真后端分支的启用 / 校验
 # --------------------------------------------------------------------------- #
 def activate_arm(arm_name: str, seed: int) -> None:
-    """切换到指定臂, 清缓存, 播种全局 RNG, 并断言路由真的生效。
+    """切换到指定仿真后端分支, 清缓存, 播种全局 RNG, 并断言路由真的生效。
 
     ``oopao_backend._get_backend`` 是 ``@lru_cache(maxsize=8)``, 键里**只有**
-    物理配置、没有臂标志。不清缓存时第二条臂可能拿到第一条臂缓存下来的
-    ``Atmosphere``, 于是"oopao"臂会静默退化成 numpy —— 这正是本脚本最大的坑。
+    物理配置、没有后端标志。不清缓存时第二个仿真后端分支可能拿到第一个分支缓存下来的
+    ``Atmosphere``, 于是"oopao"分支会静默退化成 numpy —— 这正是本脚本最大的坑。
 
     Args:
         arm_name: ``"numpy"`` 或 ``"oopao"``。
         seed: 写进 ``np.random.seed`` 的全局种子。
 
     Raises:
-        ValueError: 臂名未知。
+        ValueError: 仿真后端分支名未知。
         OopaoBackendUnavailableError: 路由与预期不符 (静默回退 / 误路由)。
     """
     if arm_name not in ARMS:
@@ -289,10 +289,10 @@ def activate_arm(arm_name: str, seed: int) -> None:
     else:
         os.environ.pop("AO_OOPAO_BACKEND", None)
 
-    # 强制: 每次换臂 / 换场景配置都清掉 lru_cache。
+    # 强制: 每次切换仿真后端分支 / 换场景配置都清掉 lru_cache。
     oopao_backend._get_backend.cache_clear()
 
-    # 两条臂不对称: 显式 rng 覆盖 turbulence_phase, 而遗留全局 RNG 路径
+    # 两个仿真后端分支不对称: 显式 rng 覆盖 turbulence_phase, 而遗留全局 RNG 路径
     # (TraditionalAOSystem._sample_turbulence_phase 不传 rng) 需要全局播种。
     np.random.seed(seed)
 
@@ -311,7 +311,7 @@ def assert_oopao_usable() -> None:
     """启动自检: OOPAO 必须真的可用且路由得通, 否则大声中止。
 
     Raises:
-        OopaoBackendUnavailableError: OOPAO 缺失或任一臂路由不符。
+        OopaoBackendUnavailableError: OOPAO 缺失或任一仿真后端分支路由不符。
     """
     if not oopao_backend._oopao_available():
         raise OopaoBackendUnavailableError(
@@ -322,7 +322,7 @@ def assert_oopao_usable() -> None:
         )
     activate_arm(ARM_OOPAO, seed=0)
     activate_arm(ARM_NUMPY, seed=0)
-    logger.info("OOPAO backend 可用且双臂路由自检通过")
+    logger.info("OOPAO backend 可用且两个仿真后端分支的路由自检通过")
 
 
 # --------------------------------------------------------------------------- #
@@ -361,7 +361,7 @@ def aberration_phase_rad(
     Returns:
         ``(n_grid, n_grid)`` float64 弧度数组, 已 ``nan_to_num`` (Zernike 网格与
         光束网格在瞳孔边缘最多差 1 px, 那里 ``generate_zernike_phase`` 返回 NaN;
-        置 0 对两臂完全一致, 不引入任何臂间偏置)。
+        置 0 对两个仿真后端分支完全一致, 不引入任何仿真后端分支间的偏置)。
     """
     if not case.noll_coefficients or case.pv_waves == 0.0:
         # coefficients 为空时 generate_zernike_phase 返回 uint16 全零, 该路径不使用。
@@ -486,11 +486,11 @@ def make_beam_config_for(scenario: Scenario, n_grid: int) -> bb.BeamSimConfig:
 
 
 # --------------------------------------------------------------------------- #
-# 单臂执行
+# 单个仿真后端分支执行
 # --------------------------------------------------------------------------- #
 @dataclass
 class ArmResult:
-    """一条臂在单个场景下的全部中间量与指标。"""
+    """一个仿真后端分支在单个场景下的全部中间量与指标。"""
 
     scenario: Scenario
     arm: str
@@ -520,9 +520,9 @@ class ArmResult:
 
 
 def compute_ideal(cfg: bb.BeamSimConfig) -> tuple[float, float, np.ndarray]:
-    """计算与臂无关的"理想"参考量。
+    """计算与仿真后端分支无关的"理想"参考量。
 
-    ``focal_plane()`` 两条臂走的是同一份纯 numpy 代码, 所以理想参考只需算一次。
+    ``focal_plane()`` 两个仿真后端分支走的是同一份纯 numpy 代码, 所以理想参考只需算一次。
 
     Returns:
         ``(ideal_peak, ideal_fwhm_px, ideal_intensity)``。
@@ -544,15 +544,15 @@ def run_arm(
     ideal_peak: float,
     ideal_fwhm: float,
 ) -> ArmResult:
-    """在指定臂上跑完一个场景的物理链路并计算指标。
+    """在指定仿真后端分支上跑完一个场景的物理链路并计算指标。
 
     链路: ``turbulence_phase`` → ``+ Zernike 像差`` → ``gaussian_pupil · e^{iφ}``
-    → ``propagate()`` (唯一发生内核切换的传播) → ``focal_plane()`` (臂不变)。
+    → ``propagate()`` (唯一发生内核切换的传播) → ``focal_plane()`` (后端分支不变)。
     """
     turb = scenario.turbulence
     cfg = make_beam_config_for(scenario, n_grid)
 
-    # 换臂 + 清 OOPAO lru_cache + 全局播种, 并断言路由真的切换了。
+    # 切换仿真后端分支 + 清 OOPAO lru_cache + 全局播种, 并断言路由真的切换了。
     activate_arm(arm_name, seed=seed)
 
     screen = bb.turbulence_phase(
@@ -617,14 +617,14 @@ def render_scenario_figure(
     focal_length: float,
     path: Path,
 ) -> None:
-    """渲染单个场景的 5×2 对比图 (行 = 物理量, 列 = 两条臂)。
+    """渲染单个场景的 5×2 对比图 (行 = 物理量, 列 = 两个仿真后端分支)。
 
     Rows:
-        0. 湍流相位屏 [rad]  —— 两条臂的生成器不同, 差异最直接
+        0. 湍流相位屏 [rad]  —— 两个仿真后端分支的生成器不同, 差异最直接
         1. 总相位 (湍流 + 像差) [rad]
         2. ``propagate()`` 强度 (z = asm_z) —— 唯一内核真正切换的传播
-        3. ``focal_plane()`` 焦面强度 (f = focal_length) —— 该函数臂不变
-        4. 指标归一化条形图 (两臂)
+        3. ``focal_plane()`` 焦面强度 (f = focal_length) —— 该函数后端分支不变
+        4. 指标归一化条形图 (两个仿真后端分支)
     """
     turb = scenario.turbulence
     aberr = scenario.aberration
@@ -639,7 +639,7 @@ def render_scenario_figure(
         ax.set_xticks([])
         ax.set_yticks([])
 
-    # 每行统一色阶, 保证两臂视觉可比。
+    # 每行统一色阶, 保证两个仿真后端分支视觉可比。
     screen_limit = max(float(np.abs(results[arm].phase_screen).max()) for arm in ARMS)
     total_limit = max(float(np.abs(results[arm].total_phase).max()) for arm in ARMS)
     screen_limit = screen_limit if screen_limit > 0 else 1.0
@@ -723,7 +723,7 @@ def render_scenario_figure(
     ):
         _colorbar(fig, mappables[row][0], axes[row, :], label)
 
-    # 第 5 行: 两臂指标归一化条形图 (按每指标两臂最大值归一, 并标注原始值)。
+    # 第 5 行: 两个仿真后端分支的指标归一化条形图 (按每指标两分支最大值归一, 并标注原始值)。
     metric_keys = [key for key, _ in METRIC_LABELS]
     values = {
         arm_name: [float(results[arm_name].metrics[key]) for key in metric_keys]
@@ -765,7 +765,7 @@ def render_scenario_figure(
             ha="right",
         )
         ax.set_ylim(0.0, 1.25)
-        ax.set_ylabel("归一化 (两臂最大值 = 1)")
+        ax.set_ylabel("归一化 (两个仿真后端分支最大值 = 1)")
         ax.grid(axis="y", alpha=0.3)
         ax.set_title(f"[{ARM_LABELS[arm_name]}] 指标对比 (标注为原始值)", fontsize=10)
 
@@ -774,7 +774,7 @@ def render_scenario_figure(
         f"场景 {scenario.key} | 像差 {aberr.label()} @ {aberr.pv_waves:g} waves PV | "
         f"湍流 {turb.name} (Cn2={turb.cn2_label}, L={turb.distance:g} m) | "
         f"seed={seed} n_grid={n_grid}\n"
-        f"传播核双臂相对强度差 max|ΔI|/Imax = {diff:.3e} "
+        f"传播核两个仿真后端分支相对强度差 max|ΔI|/Imax = {diff:.3e} "
         f"({'完全一致' if diff == 0.0 else '非零'})",
         fontsize=11,
     )
@@ -785,7 +785,7 @@ def render_scenario_figure(
 
 
 def propagation_relative_difference(results: dict[str, ArmResult]) -> float:
-    """两臂 ``propagate()`` 强度图的最大相对差 ``max|ΔI| / max(I_numpy)``。"""
+    """两个仿真后端分支 ``propagate()`` 强度图的最大相对差 ``max|ΔI| / max(I_numpy)``。"""
     base = results[ARM_NUMPY].propagate_intensity
     other = results[ARM_OOPAO].propagate_intensity
     peak = float(base.max())
@@ -795,7 +795,7 @@ def propagation_relative_difference(results: dict[str, ArmResult]) -> float:
 
 
 def render_summary_figure(rows: list[dict[str, Any]], path: Path) -> None:
-    """汇总图: Strehl 与相位 RMS 随湍流档位的变化 (颜色=像差, 线型=臂)。"""
+    """汇总图: Strehl 与相位 RMS 随湍流档位的变化 (颜色=像差, 线型=仿真后端分支)。"""
     fig, axes = plt.subplots(1, 2, figsize=(13.5, 5.2))
     turb_order = [case.name for case in TURBULENCES]
     aberr_order = [case.name for case in ABERRATIONS]
@@ -834,7 +834,9 @@ def render_summary_figure(rows: list[dict[str, Any]], path: Path) -> None:
     axes[0].set_ylim(0.0, 1.05)
     handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=4, fontsize=8)
-    fig.suptitle("OOPAO 臂 vs numpy 臂: Strehl / 相位 RMS 随湍流档位变化")
+    fig.suptitle(
+        "OOPAO 仿真后端分支 vs numpy 仿真后端分支: Strehl / 相位 RMS 随湍流档位变化"
+    )
     fig.tight_layout(rect=(0.0, 0.12, 1.0, 0.95))
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(path, dpi=140, bbox_inches="tight")
@@ -908,7 +910,7 @@ def collect_provenance(oopao_repo: Path) -> dict[str, str]:
 def run_matrix(
     scenarios: list[Scenario], n_grid: int, seed: int
 ) -> list[dict[str, Any]]:
-    """跑完整矩阵, 每场景两臂, 返回带图数据与 CSV 行的记录列表。"""
+    """跑完整矩阵, 每场景两个仿真后端分支, 返回带图数据与 CSV 行的记录列表。"""
     mask = pupil_mask(n_grid)
     records: list[dict[str, Any]] = []
     for scenario in scenarios:
@@ -951,7 +953,7 @@ def run_matrix(
 def write_csv(
     records: list[dict[str, Any]], n_grid: int, seed: int, path: Path
 ) -> list[dict[str, Any]]:
-    """把矩阵结果写成 ``summary.csv`` (每 (场景, 臂) 一行), 并返回这些行。
+    """把矩阵结果写成 ``summary.csv`` (每 (场景, 仿真后端分支) 一行), 并返回这些行。
 
     Args:
         records: :func:`run_matrix` 的返回值。
@@ -979,7 +981,7 @@ def write_csv(
 
 
 def _rel_diff(numpy_value: float, oopao_value: float) -> str:
-    """两臂相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
+    """两个仿真后端分支相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
     if numpy_value == 0.0:
         return "—"
     return f"{(oopao_value - numpy_value) / abs(numpy_value) * 100.0:+.2f}%"
@@ -1007,12 +1009,12 @@ def write_report(
     lines: list[str] = []
     add = lines.append
 
-    add("# OOPAO 后端 vs 传统 numpy/FFT 后端 —— 对比报告")
+    add("# OOPAO 仿真后端分支 vs 传统 numpy/FFT 仿真后端分支 —— 对比报告")
     add("")
     add(f"- 生成时间: `{generated_at}`")
     add(
         f"- 场景矩阵: **{len(records)}** 个 (像差 {len(ABERRATIONS)} × 湍流 "
-        f"{len(TURBULENCES)}, 本次实际取子集) × 2 条臂 = {len(rows)} 行 CSV"
+        f"{len(TURBULENCES)}, 本次实际取子集) × 2 个仿真后端分支 = {len(rows)} 行 CSV"
     )
     add(
         f"- 仿真参数: `n_grid={n_grid}`、`seed={seed}`、口径 "
@@ -1072,7 +1074,7 @@ def write_report(
     )
     add("")
     add(
-        "| 函数 | `AO_OOPAO_BACKEND` 未设置 (numpy 臂) | `AO_OOPAO_BACKEND=1` (oopao 臂) |"
+        "| 函数 | `AO_OOPAO_BACKEND` 未设置 (numpy 仿真后端分支) | `AO_OOPAO_BACKEND=1` (oopao 仿真后端分支) |"
     )
     add("|---|---|---|")
     add(
@@ -1093,7 +1095,7 @@ def write_report(
         "对比基准, 不是整条 `beam_backend` 链路的替换。"
     )
     add(
-        "2. **远场 (焦面) 差异只来自相位屏, 不来自焦面传播核**。`focal_plane()` 两条臂"
+        "2. **远场 (焦面) 差异只来自相位屏, 不来自焦面传播核**。`focal_plane()` 两个仿真后端分支"
         "逐字节相同, 所以本报告里 Strehl / FWHM / EE 的差异 100% 是湍流相位屏不同造成的。"
     )
     add(
@@ -1106,7 +1108,7 @@ def write_report(
     # ---------------- 方法 ---------------- #
     add("## 3. 方法与指标定义")
     add("")
-    add("每个 (像差, 湍流) 场景在**同一进程**内依次跑两条臂, 物理链路:")
+    add("每个 (像差, 湍流) 场景在**同一进程**内依次跑两个仿真后端分支, 物理链路:")
     add("")
     add("```text")
     add(
@@ -1116,7 +1118,7 @@ def write_report(
     add("total  = screen + aberr                       # rad, 未包裹")
     add("field  = gaussian_pupil(cfg) * exp(1j * total)")
     add("prop   = propagate(field, cfg, z)             # ← 唯一内核切换的传播")
-    add("focal  = focal_plane(field, cfg, f)           # ← 臂不变")
+    add("focal  = focal_plane(field, cfg, f)           # ← 后端不变")
     add("```")
     add("")
     add("| 指标 | 定义 |")
@@ -1126,7 +1128,7 @@ def write_report(
         "| `phase_rms_rad` | 瞳孔掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |"
     )
     add(
-        "| `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (臂无关) |"
+        "| `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (与仿真后端分支无关) |"
     )
     add(
         "| `fwhm_px` | 过峰值的**行剖面 / 列剖面**各求半高宽 (阈值交点线性插值) 后取平均 |"
@@ -1137,10 +1139,10 @@ def write_report(
     add("| `energy_frac` | `Σ|propagate 输出|² / Σ|输入场|²` (角谱能量守恒比) |")
     add("")
     add(
-        "**播种与确定性**: 每条臂都 (a) 向 `turbulence_phase` 显式传 "
-        "`rng=np.random.default_rng(seed)`, (b) 在换臂时执行 `np.random.seed(seed)` "
-        "—— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 "
-        "`TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两条臂的相位屏"
+        "**播种与确定性**: 每个仿真后端分支都 (a) 向 `turbulence_phase` 显式传 "
+        "`rng=np.random.default_rng(seed)`, (b) 在切换仿真后端分支时执行 "
+        "`np.random.seed(seed)` —— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 "
+        "`TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两个仿真后端分支的相位屏"
         '**不会**相同 (生成器不同), 这是预期且正确的, 不做任何"对齐"处理。'
     )
     add("")
@@ -1152,9 +1154,9 @@ def write_report(
     add("")
     add(
         "**防静默回退**: `_get_backend` 是 `@lru_cache(maxsize=8)`, 键中只有物理配置、"
-        "**没有臂标志**。脚本在每次换臂和每个场景开始前都调用 "
+        "**没有后端标志**。脚本在每次切换仿真后端分支和每个场景开始前都调用 "
         "`oopao_backend._get_backend.cache_clear()`, 并断言 "
-        "`oopao_backend._oopao_available() is True` 且 `bb._oopao_enabled()` 与预期臂一致; "
+        "`oopao_backend._oopao_available() is True` 且 `bb._oopao_enabled()` 与预期仿真后端分支一致; "
         "不一致即以退出码 2 中止, 绝不会产出被标成 `oopao` 的 numpy 重复结果。"
     )
     add("")
@@ -1219,10 +1221,10 @@ def write_report(
         add(
             f"- 理想 (无像差无湍流) 焦面: 峰值 {record['ideal_peak']:.6g}, "
             f"FWHM {record['ideal_fwhm_px']:.3f} px → EE 半径 "
-            f"{record['ee_radius_px']:.3f} px (臂无关, 每场景只算一次)"
+            f"{record['ee_radius_px']:.3f} px (与仿真后端分支无关, 每场景只算一次)"
         )
         add(
-            f"- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = "
+            f"- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = "
             f"{record['propagation_rel_diff']:.6e}`"
         )
         add("")
@@ -1261,24 +1263,24 @@ def write_report(
         if record["results"][ARM_NUMPY].metrics["phase_std_rad"] > 0.0
     ]
     add(
-        f"**(a) 湍流相位屏是两臂唯一真正的物理分歧点。** 在 "
+        f"**(a) 湍流相位屏是两个仿真后端分支唯一真正的物理分歧点。** 在 "
         f"{len(set(record['scenario'].turbulence.name for record in turbulent))} "
-        f"个含湍流的档位里, 两臂的 `phase_std_rad` / `phase_rms_rad` / Strehl / "
+        f"个含湍流的档位里, 两个仿真后端分支的 `phase_std_rad` / `phase_rms_rad` / Strehl / "
         "FWHM / EE 全部不同 —— 这是 FFT 频谱 Kolmogorov 与 OOPAO von Karman 两个"
-        "**不同生成器**的必然结果, 不是 bug。两条臂不可互相替代, 也不应把 oopao 的"
+        "**不同生成器**的必然结果, 不是 bug。两个仿真后端分支不可互相替代, 也不应把 oopao 的"
         "数值直接当成 numpy 的续值。"
     )
     add("")
     if std_ratios:
         add(
-            f"> ⚠️ **同 Cn2 下两臂的湍流强度归一化并不一致** —— 这是本次运行最值得注意"
-            f"的定量结果。在 {len(std_ratios)} 个含湍流场景中, oopao 臂的 "
-            f"`phase_std_rad` / numpy 臂之比 = **{min(std_ratios):.2f}× ~ "
+            f"> ⚠️ **同 Cn2 下两个仿真后端分支的湍流强度归一化并不一致** —— 这是本次运行最值得注意"
+            f"的定量结果。在 {len(std_ratios)} 个含湍流场景中, oopao 仿真后端分支的 "
+            f"`phase_std_rad` / numpy 仿真后端分支之比 = **{min(std_ratios):.2f}× ~ "
             f"{max(std_ratios):.2f}×** (中位 {sorted(std_ratios)[len(std_ratios) // 2]:.2f}×)。"
             "尽管 `beam_backend.turbulence_phase` 的 docstring 声称 OOPAO 分层已"
             '"rescaling to the per-slab r0 that matches the historical aotools/FFT '
             'path", 实测两条路径在**相同 Cn2** 下给出的相位起伏强度差了一个量级左右。'
-            "因此: **Strehl / FWHM 的绝对值不可跨臂直接比较** —— oopao 臂并不是"
+            "因此: **Strehl / FWHM 的绝对值不可跨仿真后端分支直接比较** —— oopao 仿真后端分支并不是"
             '"同条件下的等价实现", 而是一个把同样的 Cn2 映射到更湍流的光场的实现。'
         )
         add("")
@@ -1286,10 +1288,10 @@ def write_report(
         f"**(b) 角谱传播核在本配置下几乎是恒等替换。** `beam_simulation.propagation` 用 "
         f"`kz = sqrt(|(2π/λ)² - f_x² - f_y²|)`, OOPAO `ASM` 用抛物近似 "
         f"`exp(-iπλz f²)`; 二者只差一个全局相位 `exp(ikz)` (强度不可见) 与 "
-        f"`O((f λ)²)` 量级的高阶项。实测两臂 `propagate()` 强度图最大相对差 "
+        f"`O((f λ)²)` 量级的高阶项。实测两个仿真后端分支 `propagate()` 强度图最大相对差 "
         f"`{max_prop_diff:.3e}`, 能量守恒比在 "
         f"`{min(energy_values):.9f}`–`{max(energy_values):.9f}` 之间 —— "
-        "**因此 `energy_frac` 不是区分两臂的指标**, 它的价值在于证明两条核都严格保能量。"
+        "**因此 `energy_frac` 不是区分两个仿真后端分支的指标**, 它的价值在于证明两条核都严格保能量。"
     )
     add("")
     add(
@@ -1302,16 +1304,16 @@ def write_report(
     )
     add("")
     add(
-        "**(c) 焦面指标差异的归因。** `focal_plane()` 两臂代码完全相同, 所以上表里 "
+        "**(c) 焦面指标差异的归因。** `focal_plane()` 两个仿真后端分支代码完全相同, 所以上表里 "
         "Strehl / FWHM / EE 的所有差异都只能沿链路回溯到 `turbulence_phase()`。"
         '任何用焦面指标去判断"传播核是否被换掉"的读法都是错的。'
     )
     add("")
     if cn2_zero_present:
         add(
-            "**(d) `cn2=0` 对照组两臂数值完全相同 —— 这是设计如此, 不是缺陷。** "
+            "**(d) `cn2=0` 对照组两个仿真后端分支数值完全相同 —— 这是设计如此, 不是缺陷。** "
             "`turbulence_phase()` 在 `cn2 <= 0` 时直接返回全零 (在切换内核之前), "
-            "而像差相位是确定性、无 RNG 的, 于是两臂的入射场逐字节相同, "
+            "而像差相位是确定性、无 RNG 的, 于是两个仿真后端分支的入射场逐字节相同, "
             "相位类指标与焦面指标必然一致; 此时唯一还可能不同的是 `propagate()` 核, "
             '见 (b)。把这一行当作"双盲对照"来验证报告没有把 numpy 结果误标成 oopao。'
         )
@@ -1319,7 +1321,7 @@ def write_report(
     add(
         "**(e) 使用建议.** 若目标是**数值可比性** (回归基线、与历史数据对齐), 保持 "
         "`AO_OOPAO_BACKEND` 未设置; 若目标是**物理保真度** (更接近真实大气相位谱), "
-        "则应在同一份基准里同时保留两臂结果, 不要跨臂直接比较绝对值。"
+        "则应在同一份基准里同时保留两个仿真后端分支的结果, 不要跨仿真后端分支直接比较绝对值。"
     )
     add("")
 
@@ -1327,7 +1329,7 @@ def write_report(
     add("")
     add("- `report.md` — 本文件")
     add(
-        f"- `summary.csv` — {len(rows)} 行 (每 (场景, 臂) 一行), 列: "
+        f"- `summary.csv` — {len(rows)} 行 (每 (场景, 仿真后端分支) 一行), 列: "
         + ", ".join(f"`{c}`" for c in CSV_COLUMNS)
     )
     add("- `figures/summary_overview.png` — 汇总图 (Strehl / 相位 RMS vs 湍流档位)")
@@ -1343,7 +1345,7 @@ def write_report(
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """解析命令行参数。"""
     parser = argparse.ArgumentParser(
-        description="生成 OOPAO 后端 vs 传统 numpy/FFT 后端的对比报告 (离线)",
+        description="生成 OOPAO 仿真后端分支 vs 传统 numpy/FFT 仿真后端分支的对比报告 (离线)",
     )
     parser.add_argument("--n-grid", type=int, default=64, help="仿真网格边长 (默认 64)")
     parser.add_argument("--seed", type=int, default=42, help="随机种子 (默认 42)")
@@ -1398,7 +1400,7 @@ def main(argv: list[str] | None = None) -> int:
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "矩阵: {} 场景 × {} 臂 = {} 次运行 (n_grid={}, seed={})",
+        "矩阵: {} 场景 × {} 个仿真后端分支 = {} 次运行 (n_grid={}, seed={})",
         len(scenarios),
         len(ARMS),
         len(scenarios) * len(ARMS),
@@ -1470,8 +1472,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     else:
         logger.warning(
-            "没有任何情景的两臂相位/焦面指标逐位相同 —— 若矩阵含 cn2=0 情景, "
-            "请检查相位生成是否引入了臂间偏置"
+            "没有任何情景的两个仿真后端分支相位/焦面指标逐位相同 —— 若矩阵含 cn2=0 情景, "
+            "请检查相位生成是否引入了仿真后端分支间的偏置"
         )
     logger.info("完成: {}", out_dir)
     return 0

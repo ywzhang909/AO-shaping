@@ -787,10 +787,10 @@ def _section_forward_model(cfg: dict[str, str]) -> list[str]:
         "相对结构。\n"
     )
 
-    A("### 8.4 基线臂与参数量\n")
+    A("### 8.4 基线变体与参数量\n")
     A(
-        '`build_forward_model(config)` 按 `config.architecture` (`"conv"` / `"mlp"`) 实例化其中一条臂。\n'
-        "`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 臂完全一致 (raw、无界、`(B,1,g,g)`),\n"
+        '`build_forward_model(config)` 按 `config.architecture` (`"conv"` / `"mlp"`) 实例化其中一个变体。\n'
+        "`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 变体完全一致 (raw、无界、`(B,1,g,g)`),\n"
         "但把 `grid*grid` 全部从一个 `Linear` 里吐出来 —— 丢掉的正是 2-D 局部性, 而这正是该对照要\n"
         "检验的假设。\n"
     )

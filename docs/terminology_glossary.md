@@ -133,6 +133,36 @@
 | confirm-best | **confirm-best（最优复测）** | 每轮结束重测历史最优相位并以其为参考态，防止噪声把「假提升」写入参考态。 |
 | 焦度 | **光焦度** | 菲涅尔焦度 1/f（m⁻¹）；「焦度扫描」= 菲涅尔焦度扫描。 |
 
+### 1.9 A/B 对照语境术语
+
+| 编号 | 口语 / 非规范（禁止） | 规范术语（必须） | 说明 |
+|---|---|---|---|
+| T-65 | 臂（A/B 对照语境：两臂 / 三臂 / 各臂 / 每臂 / 单臂 / A 臂 / B 臂 / 一臂） | **变体（variant）** | ML / MLOps 里同一个系统的两条 A/B 对照配置就叫 variant（变体）。仓库语境：`model_in_loop_hw_ab` campaign 的 `baseline_a` / `baseline_b` / `large_1000`、`sim_tue_methods` 的 `zernike_only` / `perpixel_only` / `joint`、前向模型架构对照的 `conv` / `mlp` 等，都是**同一命令的两种（多种）门槛/配置设定**。量词搭配：「两臂」→「两个变体」、「三臂对照」→「三个变体对照」、「各臂」→「各变体」、「每臂」→「每个变体」、「A 臂」→「变体 A」。 |
+
+> **T-65 的例外（必须遵守）**：OOPAO 对比语境里的「臂」指的是 **numpy 路径与 OOPAO 路径
+> 这两个并列的仿真后端分支**，**不是** A/B 对照的臂 → 一律写「**两个仿真后端分支** /
+> **仿真后端分支**」（量词按语境取「两个 / 每个 / 某个 / 任一 / numpy / OOPAO /
+> 2 个」）。**为什么不用「双后端 / 两后端 / 两个后端」**：那两个是**两个并列的仿真
+> 后端分支**（两套彼此独立的实现：FFT 谱 Kolmogorov 路径 vs OOPAO `Atmosphere`
+> 路径），**不是同一后端的两种配置**；「双后端」会被读成后者。涉及文件：
+> `scripts/oopao/generate_oopao_vs_numpy_report.py`、
+> `scripts/oopao/generate_oopao_impact_report.py`、
+> `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`、
+> `report/oopao_impact/oopao_impact_report/report.md`、
+> `src/ao_shaping/drivers/sim/AGENTS.md`、`src/ao_shaping/drivers/sim/beam_backend.py`。
+>
+> **保留「后端」的地方**：指**路由机制本身**（后端开关 / 后端标志 / 后端路由 /
+> 后端缓存 / 后端卫生 / 后端回归测试）与「与分支选择无关」（后端无关 / 后端不变）
+> 时仍写「后端」—— 那是 code 层的概念（`beam_backend` / `_get_backend`），
+> 不指那两个并列分支。
+>
+> **代码标识符不改**：`baseline_a` / `baseline_b` / `large_1000` / `arm` / `arms` /
+> `ARM_LABEL` / `backend_arm` 等英文标识符，以及 `scripts/slm/model_in_loop_hw_ab.py`
+> 里的 stage 名与 CLI 选项名，一律保持原样；本条只改中文叙述（§0.1）。
+>
+> **非 A/B 语义**：「2f-Fourier 臂」原本指的是光路**配置**的分支，不套用「变体」，
+> 改写为「**2f-Fourier 配置**」。
+
 ---
 
 ## 2. 保留不动清单（DO-NOT-TOUCH）
@@ -163,6 +193,7 @@
 | T-62 | 留出（holdout，数据集划分语境） | **验证集（validation）** | 2026-10-20 | 用户指示：数据术语统一——学术汇报 v6 先行，仓库报告/文档/论文跟进 |
 | T-63 | 综合分 / 综合分数（composite 指标语境） | **复合分数** | 2026-10-20 | 学术汇报 v6 术语扫描：composite 指标在 deck/报告中混用「composite / 复合分数 / 综合分」，统一为「复合分数」（§1.7 新增指标定义登记） |
 | T-64 | 均匀性（uniformity 语境，CV 衡量的是目标区内强度均匀程度） | **均匀度** | 2026-10-20 | 学术汇报 v7 对标论文术语再对齐：8 篇 CrossRef 对标文献（Zhou 2010、2020 SPIE IFTA 等）的 uniformity 规范词统一为「均匀度」，仓库亦为多数派（101 vs 84）；deck 自身 S3 用「均匀性」而 S24/S31/S35 用「均匀度」自相矛盾。统一为「均匀度」。例外保留：「不均匀性」与指标标识符 `均匀性_CV`（同 `uniformity_cv`）不在此列。 |
+| T-65 | 臂（A/B 对照语境：两臂 / 三臂 / 各臂 / 每臂 / 单臂 / A 臂 / B 臂） | **变体（variant）** | 2026-10-22 | ML/MLOps 的 A/B 对照配置称 variant（变体）：仓库两条配置是同一命令的两种门槛设定（model-in-loop A/B campaign 的 `baseline_a` / `baseline_b` / `large_1000`、仿真方法的 `zernike_only` / `perpixel_only` / `joint`、前向模型架构的 `conv` / `mlp`），故统一写「变体」。**例外**：numpy / OOPAO 两个**并列的仿真后端分支**这一对原文写作「双臂 / 两臂」，不适用本条 → 写「两个仿真后端分支 / 仿真后端分支」（**不用「双后端」**：那会被读成同一后端的两种配置，实为两套独立实现）。**代码标识符**（`baseline_a` / `baseline_b` / `large_1000` / `arm` / `arms` / `ARM_LABEL` / `backend_arm`、stage 名、CLI 选项名）一律不改。详见 §1.9。 |
 
 > T-60 说明：代码标签为 `freeform`（`slm_model_in_loop.py::_holdout_phase` 返回的字面量
 > 标签，与 `smooth` / `zernike` 并列）。三者都是去均值、标准差缩放到 `probe_spread` 的
@@ -215,6 +246,7 @@ git diff -U0 | grep -E '^[+-]' | grep -vE '实验|瞳面|加性背景|pupil|bake
 3. 无残留口语（正文）：`git grep -E '平场泄漏|台架|实机|真机|上机|瞳孔|跑通|打散|灌进|钻空子|金标准|围栅' -- '*.md'` 的命中**全部**落在 §2 的 DO-NOT-TOUCH 集合（代码/英文/mermaid/生成文档）内。
 4. 数据守恒：改写前后每个数值/单位字符串计数一致（脚本内置 `must` 清单，见脚本头注释）。
 5. 无残留「留出」（正文）：`git grep -E '留出' -- '*.md'` 的命中**全部**落在 §2 的 DO-NOT-TOUCH 集合内（代码标识符 `holdout*`、数据表 `holdout_*` 标签、行内 code、围栏块）；中文叙述一律「验证集」（T-62）。注意 `holdout` 英文标识符与 `留出` 中文词是两套体系：只统一中文叙述，`holdout_*` 数据列名、`--holdout-probe-count` CLI 参数、`freeform_holdout_count` 字段一律保留。
+6. 无残留「臂」（正文）：`git grep -n 臂 -- '*.md' '*.py'` 须为空。A/B 对照语境一律「变体」（T-65）；numpy / OOPAO 两个仿真后端分支的语境一律「两个仿真后端分支 / 仿真后端分支」（T-65 例外，**不用「双后端」**）。二进制资产（png / gif / npz）里的字节巧合不在此列。
 
 ---
 
@@ -222,6 +254,8 @@ git diff -U0 | grep -E '^[+-]' | grep -vE '实验|瞳面|加性背景|pupil|bake
 
 | 版本 | 日期 | 变更 |
 |---|---|---|
+| v1.5 | 2026-10-22 | T-65 例外措辞细化：「双后端 / 两后端 / 两个后端」→「**两个仿真后端分支 / 仿真后端分支**」（用户指示：那两个不是同一实现的后端配置，而是**两个并列的仿真后端分支**（numpy 路径 / OOPAO 路径），叫「双后端」会读成「同一后端的两种配置」）。§1.9 例外块补理由 + 「保留『后端』的地方」（指路由机制本身：后端开关 / 标志 / 路由 / 缓存 / 卫生 / 回归测试，以及与分支选择无关的「后端无关 / 后端不变」）；§3 登记行、§5 验收第 6 条同步。涉及 6 个文件：`report/oopao_impact/oopao_impact_report/report.md`、`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`、`scripts/oopao/generate_oopao_impact_report.py`、`scripts/oopao/generate_oopao_vs_numpy_report.py`、`src/ao_shaping/drivers/sim/AGENTS.md`、`src/ao_shaping/drivers/sim/beam_backend.py`（数字 / 公式 / 路径 / 标识符 / 图名 / 围栏代码块一律不动，生成器不重跑）。脚本 `term_unify_20261016.py` 同步：两套规则表的目标措辞改为「两个仿真后端分支 / 仿真后端分支」；文件级后端表补「旧措辞 → 新措辞」幂等反向守卫（`双后端` / `两后端` / `两个后端` / `每条后端` / `某后端` / `任一个后端` / `2 条后端`），全局首条 `双臂 → 两个仿真后端分支`。 |
+| v1.4 | 2026-10-22 | 新增 T-65「臂 → 变体（variant）」（§1.9 + §3 登记 + §5 验收第 6 条）：A/B 对照语境统一用 ML/MLOps 专业术语「变体」；例外：numpy / OOPAO 两个**后端**这一对原文写作「双臂 / 两臂」→ 改写为「双后端 / 两后端」（§1.9 说明含涉及文件清单）；「2f-Fourier 臂」（光路配置语义）改写为「2f-Fourier 配置」；代码标识符（`baseline_a` / `arm` / `ARM_LABEL` 等）、stage 名与 CLI 选项名一律不改。脚本 `term_unify_20261016.py` 同步加 T-65 规则（两套规则表：通用「变体」表 + 按文件的「双后端」表；「双臂 → 双后端」例外在两套表里都排第一）。 |
 | v1.3 | 2026-10-20 | 学术汇报 v7 对标论文术语再对齐：新增 T-64「均匀性 → 均匀度」（uniformity 语境统一为「均匀度」，对齐 8 篇 CrossRef 对标文献；例外保留「不均匀性」与 `均匀性_CV` 标识符）。§1.7 CV 定义行「衡量均匀性」同步改「衡量均匀度」。脚本 `term_unify_20261016.py` 同步加 T-64 规则（regex 负向后行断言保护 `均匀性_` 指标标识符）。 |
 | v1.2 | 2026-10-20 | 学术汇报 v6 全文术语扫描：§1.7 新增指标/分数定义登记（CV/EE/PIB/composite），§1.8 新增协议/流程术语（探针、门控、交错重放、同帧、热启动、双稳态、confirm-best、焦度）；新增 T-63「综合分 → 复合分数」。脚本 `term_unify_20261016.py` 同步加 T-63 规则。 |
 | v1.1 | 2026-10-20 | 新增 T-62「留出 → 验证集」（数据集划分术语，§1.6 + §3 登记 + §5 验收第 5 条）。脚本 `term_unify_20261016.py` 同步加规则；仓库全部 md 报告/文档/论文副本按此统一。 |

@@ -17,6 +17,7 @@
 |--------|----------|------------|
 | `round1_20261020/` | 第一轮（2026-10-20） | `hw_groups_20261020/`（离焦组、噪声组、远场补拍组）、`hw_zernike_sweep_20261020b/`（泽尼克阶数扫描）、`focus_calibration/`（焦面标定证据） |
 | `round2_20261021/` | 第二轮（2026-10-21） | `hw_groups_20261021/`、`hw_zernike_sweep_20261021/`、`focus_calibration/` |
+| `round3_20261022/` | 第三轮（2026-10-22） | `hw_groups_20261022/`、`hw_zernike_sweep_20261022/`、`focus_calibration/`（27 组；新数据根，不覆盖前两轮） |
 | `plan_20261021.json` | 第二轮 | 下一轮（26 组）的采集计划，与 `round2_20261021/hw_groups_20261021/plan.json` 是同一份 |
 | `plan_20261022.json` | 第三轮 | 第三轮（27 组）的采集计划，**由 `scripts/slm/build_hw_sweep_plan.py` 生成**（不是手写） |
 

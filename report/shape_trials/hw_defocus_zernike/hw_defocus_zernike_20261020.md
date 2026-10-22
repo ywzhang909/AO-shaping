@@ -6,7 +6,7 @@
 > **数据/关联脚本**: [`scripts/slm/hw_gs_defocus_probe.py`](../../../scripts/slm/hw_gs_defocus_probe.py)
 > **数据/关联脚本**: [`scripts/slm/run_gs_refine_zernike_sweep.py`](../../../scripts/slm/run_gs_refine_zernike_sweep.py)
 > **运行环境**: 硬件
-> **说明**: 实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD FJB24112232, 1064 nm, 2f-Fourier 臂) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算逐帧光斑量并渲染 4 张图。**该轮的目标框沿用了模型相位的方斑边长 (44 px), 与硬件相位的光斑不匹配 —— 口径问题在第二轮 (hw_defocus_zernike_20261021.md) 用预先登记的孔径重测, 本轮数字保留作历史对照**
+> **说明**: 实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD FJB24112232, 1064 nm, 2f-Fourier 配置) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 scripts/slm/run_gs_refine_zernike_sweep.py 的落盘产物, 本脚本只离线重算逐帧光斑量并渲染 4 张图。**该轮的目标框沿用了模型相位的方斑边长 (44 px), 与硬件相位的光斑不匹配 —— 口径问题在第二轮 (hw_defocus_zernike_20261021.md) 用预先登记的孔径重测, 本轮数字保留作历史对照**
 <!-- provenance:end -->
 
 **本轮结论**：离焦扫描与泽尼克阶数扫描都在**真实实验系统**上在线实现，与

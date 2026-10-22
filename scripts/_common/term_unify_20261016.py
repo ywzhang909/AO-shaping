@@ -130,6 +130,104 @@ EXACT_RULES = [
 ]
 
 # ---------------------------------------------------------------------------
+# T-65 「臂」→「变体」（2026-10-22，A/B 对照语境）
+#
+# 规范词取 ML / MLOps 的专业术语 **variant（变体）**：同一个系统的两条 A/B 对照
+# 配置在机器学习语境里就叫 variant。仓库语境：model-in-loop A/B campaign 的
+# `baseline_a` / `baseline_b` / `large_1000`、仿真方法的 `zernike_only` /
+# `perpixel_only` / `joint`、前向模型架构的 `conv` / `mlp` —— 都是同一命令的
+# 两种（多种）门槛/配置设定。
+#
+# ⚠️ **例外（必须先于裸词规则）**：OOPAO 对比语境里的「臂」指的是 **numpy 路径与
+# OOPAO 路径这两个并列的仿真后端分支**，不是 A/B 对照的臂 → 一律写
+# 「**两个仿真后端分支** / **仿真后端分支**」（同文件本来就把它们叫 backend /
+# 后端）。**为什么不用「双后端」**：那两个是**两个并列的仿真后端分支**（两套独立
+# 实现），**不是同一后端的两种配置**；叫「双后端」会被读成后者。见术语表 §1.9。
+#
+# **规则顺序约定**（同 T-61「GS 语境先于裸词」）：
+#   1. 数量词组合先于裸词（「两臂」→「两个变体」，否则会产出「两变体」这种
+#      半文半白的写法；同理「A 臂」→「变体 A」）。
+#   2. 「双臂」例外先于裸词，否则会被吞成「双变体」。
+#
+# 代码标识符（`baseline_a` / `baseline_b` / `large_1000` / `arm` / `arms` /
+# `ARM_LABEL` / `backend_arm`、stage 名、CLI 选项名）**一律不改**（§2 保护）：
+# 本表只匹配中文叙述里的「臂」字。
+# ---------------------------------------------------------------------------
+T65_VARIANT_RULES = [
+    # ⚠️ 例外先行：「双臂」在仓库里的唯一含义是 numpy / OOPAO 两个**仿真后端分支**
+    #    （见术语表 §1.9），不能被下面的裸词规则吞成「双变体」。
+    ('双臂',     '两个仿真后端分支'),
+    ('两臂',     '两个变体'),
+    ('三臂',     '三个变体'),
+    ('各臂',     '各变体'),
+    ('每臂',     '每个变体'),
+    ('单臂',     '单个变体'),
+    ('两条臂',   '两个变体'),
+    ('第二条臂', '第二个变体'),
+    ('第一条臂', '第一个变体'),
+    ('一条臂',   '一个变体'),
+    ('一臂',     '一个变体'),
+    ('3 臂',     '3 个变体'),
+    ('2 臂',     '2 个变体'),
+    ('臂',       '变体'),
+]
+
+# 「A 臂」/「B 臂」→「变体 A」/「变体 B」。
+# 这条必须走正则而不是字符串替换：源文「B 臂把门槛…」里「臂」与后文之间**没有**
+# 空格，纯 replace 会产出半文半白的「变体 B把门槛…」。故按后文首字符决定补不补空格
+# （后文是汉字则补，是括号/标点则不补）。
+T65_AB_ARM_RE = re.compile(r'([AB]) 臂')
+
+def _t65_ab_arm(m):
+    tail = m.string[m.end():m.end() + 1]
+    sep = ' ' if tail and re.match(r'[\u4e00-\u9fff]', tail) else ''
+    return f'变体 {m.group(1)}{sep}'
+
+# T-65 例外：这些文件里「臂」= numpy / OOPAO 两个**并列的仿真后端分支**，
+# 不是 A/B 变体。这些文件写「两个仿真后端分支 / 仿真后端分支」；其余文件写「变体」。
+# ⚠️ 「双臂」→「两个仿真后端分支」在两套规则里都放在第一条：它是全局例外，任何
+#    文件里的「双臂」都不允许被裸词规则吞成「双变体」。
+#
+# 表内后几条（「双后端 / 两后端 / 两个后端 / 每条后端 / 某后端 / 任一个后端 /
+# 2 条后端」）是**反向守卫**：万一有人把旧措辞写回来，直接在这里改写成新措辞。
+# 它们全部幂等 —— 产物「两个仿真后端分支」不含任何源串，不会被再次命中。
+# ⚠️ 这张表**只对 T65_BACKEND_FILES 里的文件生效**（文件级例外）：仓库别处的
+#    「两个后端」说的是别的东西（如 ccd 驱动里 Daheng / MiiCam 两个相机后端），
+#    绝不能被这张表误伤。
+T65_BACKEND_FILES = (
+    'report/oopao_impact/oopao_impact_report/report.md',
+    'report/oopao_vs_numpy/oopao_vs_numpy_report/report.md',
+    'scripts/oopao/generate_oopao_impact_report.py',
+    'scripts/oopao/generate_oopao_vs_numpy_report.py',
+    'src/ao_shaping/drivers/sim/AGENTS.md',
+    'src/ao_shaping/drivers/sim/beam_backend.py',
+)
+
+T65_BACKEND_RULES = [
+    ('两后臂',   '两个仿真后端分支'),
+    ('后端臂',   '仿真后端分支'),
+    ('双臂',     '两个仿真后端分支'),
+    ('两臂',     '两个仿真后端分支'),
+    ('两条臂',   '两个仿真后端分支'),
+    ('第二条臂', '第二个仿真后端分支'),
+    ('第一条臂', '第一个仿真后端分支'),
+    ('一条臂',   '一个仿真后端分支'),
+    ('单臂',     '单个仿真后端分支'),
+    ('每臂',     '每个仿真后端分支'),
+    ('一臂',     '一个仿真后端分支'),
+    ('臂',       '仿真后端分支'),
+    # --- 旧措辞 → 新措辞（幂等反向守卫，见上） ---
+    ('两个后端', '两个仿真后端分支'),
+    ('双后端',   '两个仿真后端分支'),
+    ('两后端',   '两个仿真后端分支'),
+    ('2 个后端', '2 个仿真后端分支'),
+    ('2 条后端', '2 个仿真后端分支'),
+    ('每条后端', '每个仿真后端分支'),
+    ('某后端',   '某个仿真后端分支'),
+    ('任一个后端', '任一仿真后端分支'),
+]
+
+# ---------------------------------------------------------------------------
 # 正则级术语规则（带上下文守卫）：用于裸子串会吞噬合成词的特例。
 # ---------------------------------------------------------------------------
 REGEX_RULES = [
@@ -179,7 +277,7 @@ def _is_registration_record(line):
 # ---------------------------------------------------------------------------
 # 单行处理
 # ---------------------------------------------------------------------------
-def process_line(line):
+def process_line(line, t65_rules=T65_VARIANT_RULES):
     out = line
 
     # 1) 精确术语
@@ -190,6 +288,15 @@ def process_line(line):
     # 1.5) 正则级术语（带上下文守卫, 见 REGEX_RULES 注释）
     for pat, new in REGEX_RULES:
         out = pat.sub(new, out)
+
+    # 1.6) T-65 「臂」→ 变体 / 后端（文件级例外，见 T65_* 注释）。
+    #      放在 EXACT_RULES 之后、pupil/bake-off 之前：数量词组合与「双臂」例外
+    #      都在同一张表里按序生效，不受其它规则干扰。
+    #      「A 臂 / B 臂」走正则（_t65_ab_arm），必须先于裸词规则。
+    out = T65_AB_ARM_RE.sub(_t65_ab_arm, out)
+    for old, new in t65_rules:
+        if old in out:
+            out = out.replace(old, new)
 
     # 2) 英文 pupil：仅中文叙述中加注释；代码符号/英文叙述/行内 code 保留
     line_has_pupil_cn = ('瞳面' in out) or ('瞳孔' in out)
@@ -229,7 +336,10 @@ def process_line(line):
 
     return out
 
-def transform(text):
+def transform(text, rel_path=''):
+    """rel_path: 仓库相对路径（posix 风格）。用于 T-65 的按文件例外。"""
+    # T-65 文件级例外：OOPAO 语境写「仿真后端分支」，其余文件写「变体」。
+    t65_rules = T65_BACKEND_RULES if rel_path in T65_BACKEND_FILES else T65_VARIANT_RULES
     lines = text.split('\n')
     fence = False
     out = []
@@ -244,7 +354,7 @@ def transform(text):
         if _is_registration_record(ln):
             out.append(ln)
             continue
-        out.append(process_line(ln))
+        out.append(process_line(ln, t65_rules))
     return '\n'.join(out)
 
 # ---------------------------------------------------------------------------
@@ -271,12 +381,13 @@ for f in REPO.rglob('*.md'):
 apply_mode = '--apply' in sys.argv
 total = {}
 for f in FILES:
+    rel_posix = f.relative_to(REPO).as_posix()
     orig = f.read_text(encoding='utf-8')
-    new = transform(orig)
+    new = transform(orig, rel_posix)
     if new == orig:
         continue
     changed = sum(1 for a, b in zip(orig.split('\n'), new.split('\n')) if a != b)
-    total[str(f.relative_to(REPO))] = changed
+    total[rel_posix] = changed
     if apply_mode:
         f.write_text(new, encoding='utf-8')
 

@@ -94,7 +94,7 @@ SimulatedDevice (Device)
 (即完全去相关 / white-in-time 极限, **不是**风场平流模型 —— 真实大气去相关时间 ~10–50 ms 远短于本环路的每评估 ~0.375 s)。
 
 > ⚠️ **`cn2` 与 `distance_m` 是退化旋钮**: 生成器的 `r0 = (0.423·k²·Cn2·L)^(-3/5)` 只依赖二者**乘积**;
-> 单层薄屏没有任何传播物理。且 numpy 后端缺少次谐波/低频补偿 (见下方第 4 条), 实测 σ **低于**同 r0 的解析
+> 单层薄屏没有任何传播物理。且 numpy 仿真后端分支缺少次谐波/低频补偿 (见下方第 4 条), 实测 σ **低于**同 r0 的解析
 > von Karman 方差。因此报告一律引用 **实测** σ, 不得用解析公式反推。
 
 > ⚠️ **相位屏只支持方形网格**。`turbulence_phase` 输出 `n×n`; 对 1200×1920 面板的做法是
@@ -141,10 +141,10 @@ SimulatedDevice (Device)
 
 ## 光束后端路由 (`AO_OOPAO_BACKEND`)
 
-`beam_backend.py` 是 numpy/legacy 与 OOPAO 双后端的**唯一路由层**。OOPAO 实现在
+`beam_backend.py` 是 numpy/legacy 与 OOPAO 两个仿真后端分支的**唯一路由层**。OOPAO 实现在
 `oopao_backend.py` (OOPAO `Atmosphere` 相位屏 + `Atmosphere.ASM` 传播核)。
 
-| 环境变量 `AO_OOPAO_BACKEND` | 后端 |
+| 环境变量 `AO_OOPAO_BACKEND` | 仿真后端分支 |
 |---|---|
 | 未设置 / 非 `1`/`true`/`yes`/`on` (**默认**) | numpy/legacy (FFT 谱 Kolmogorov + `beam_simulation.propagation`) |
 | `1` / `true` / `yes` / `on` | OOPAO |
@@ -158,7 +158,7 @@ SimulatedDevice (Device)
 | `focal_plane()` | **无** — 始终 `bs.lens_fft_propagation_to_focal()` | 同左 |
 | `apply_lens()` | **无** — 始终 `bs.apply_lens()` | 同左 |
 
-因此焦面/Strehl/FWHM/EE 的两后端差异**只来自相位屏**, 不来自传播或取焦。
+因此焦面/Strehl/FWHM/EE 的两个仿真后端分支差异**只来自相位屏**, 不来自传播或取焦。
 
 **端到端实际路由到 OOPAO 的调用点** (实测确认, 2026-09):
 
@@ -172,7 +172,7 @@ SimulatedDevice (Device)
 ⚠️ **`slm_shaping_bench` 的 `cn2` 是死配置 (实测)**: 该模块 import 了 `turbulence_phase`
 但**从不调用**, 其 `forward_intensity()` 只走 `focal_plane()` —— 而 `focal_plane` 永不路由。
 实测 `forward_intensity` 在 `cn2=0` 与 `cn2=5e-14` 下输出**字节一致** (max|ΔI| = 0)。
-因此**不能**用该 bench 做后端影响测试 (会得到两臂完全相同的假结果); 也不要在该 bench 上
+因此**不能**用该 bench 做仿真后端分支影响测试 (会得到两个仿真后端分支完全相同的假结果); 也不要在该 bench 上
 调 `cn2` 后期待看到湍流效果。需真实湍流路由请用 `SimulatedTurbulentScreen` 或
 `SimTurbulenceAOEnv`。
 
@@ -350,13 +350,13 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    否则命中旧后端实例得到与配置不符的相位屏。
 2. **静默回退**: `_oopao_enabled()` 在 OOPAO 不可导入或不可用时返回 `False` 并**静默退回
    numpy**。开启后务必确认 `oopao_backend._oopao_available()` 为 `True`, 否则会误以为在跑 OOPAO。
-3. **两后端不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
+3. **两个仿真后端分支不等价 (勿假设同 Cn2 可互换)**: 端到端实测 `disturbance_rms` 的
    oopao/numpy 比值在**所有**湍流档位上**恒定**, 但**随仿真配置变化**, 详见
    `report/oopao_impact/oopao_impact_report/report.md` §4.3。**不要把某次配置的常数当成普适标定系数。**
-   绝对 Strehl / FWHM / PIB **不可跨臂直接比较**。
+   绝对 Strehl / FWHM / PIB **不可跨仿真后端分支直接比较**。
    ⚠️ 比较时注意 `init_rms` (`compat.py::_phase_rms()` = **截瞳后总波前** RMS, 含像差与 DM)
    与 `disturbance_rms` (`env._disturbance_rms` = **全网格未截瞳**原始相位屏 RMS) 是**两个不同的量**,
-   不可互相推断 —— 前者可因像差项跨臂反向。
+   不可互相推断 —— 前者可因像差项跨仿真后端分支反向。
    > 📌 **常数溯源 (2026-10-13 复核)**: `report/oopao_impact/oopao_impact_report/report.md` §4.3 实测
    > **open 1.068× / closed 2.628×** (离散度 ≤1.8e-09) —— 该报告生成于 2026-09-29,
    > 当时 `_rescale_for` 还是**多因子**版本 (commit `5e12fa2`)。此前本条一度被写成
@@ -379,7 +379,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
    掩盖真实差异; OOPAO 次谐波增强使其方差更接近解析 von-Karman。
    **不要再引入独立的 λ 因子** —— 波长已由 `compute_r0()` 里的 `r0_slab` 携带。
    ⚠️ 因公式已变, 第 3 条引用 2026-09-29 报告的常数 (1.068/2.628) **对应旧公式, 现已
-   不可复现**; 与当前单因子代码一致的两后端比值须重跑
+   不可复现**; 与当前单因子代码一致的两个仿真后端分支比值须重跑
    `scripts/oopao/generate_oopao_impact_report.py` 后更新本条 (OOPAO 环境可用时)。
 
 5. **内尺度 `l_min` 无法兑现 (OOPAO 限制)**: `OOPAO/Atmosphere.py` `__init__` **没有 `l0`

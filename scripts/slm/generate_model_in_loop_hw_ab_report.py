@@ -536,7 +536,7 @@ def collect_stages(session_dir: Path, campaign) -> tuple[list, dict | None]:
             outcome = "进行中（阶段产物未齐，campaign 清单未生成）"
             expectation_met = None
             notes = [
-                "campaign 清单尚未生成，本臂仍在运行或未收尾；"
+                "campaign 清单尚未生成，本变体仍在运行或未收尾；"
                 "已落盘的产物已全部读入"
             ] + notes
         stages.append(
@@ -775,7 +775,7 @@ def load_forward_model(stage: StageData) -> ForwardModel:
     run = stage.run
     model = ForwardModel()
     if run.run_dir is None:
-        model.note = "该臂没有运行目录，无法重建正向模型"
+        model.note = "该变体没有运行目录，无法重建正向模型"
         return model
     coefficients = load_npy(run.run_dir / "fitted_coefficients.npy")
     amplitude = load_npy(run.run_dir / "source_amplitude.npy")
@@ -1041,7 +1041,7 @@ def arm_alignment(stage: StageData, pairs: list) -> Alignment:
             roi_center=roi_center,
         )
     if not pairs:
-        return Alignment(anchor="未记录（该臂没有可对齐的探针）")
+        return Alignment(anchor="未记录（该变体没有可对齐的探针）")
     template = np.mean([pair[0] for pair in pairs], axis=0)
     image = np.mean([pair[1] for pair in pairs], axis=0)
     dy, dx, quality = best_shift(template, image)
@@ -1414,7 +1414,7 @@ def _render_gif_tail(stage, curves, rounds, shift, quality, geometry, anchor, in
 
     text = _recorder_text(stage)
     ax_measured.text(0.02, 0.98, text, ha="left", va="top", fontsize=9)
-    ax_measured.set_title("该臂 recorder 记录", fontsize=9)
+    ax_measured.set_title("该变体 recorder 记录", fontsize=9)
     ax_measured.set_xticks([])
     ax_measured.set_yticks([])
     ax_measured.axis("off")
@@ -1612,7 +1612,7 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
     ax.set_xticks(positions)
     ax.set_xticklabels(labels, fontsize=11)
     ax.set_ylim(0, 1.05)
-    ax.set_title("验证集 (holdout) 相关性与该臂门槛", fontsize=12)
+    ax.set_title("验证集 (holdout) 相关性与该变体门槛", fontsize=12)
     ax.tick_params(labelsize=10)
     ax.grid(axis="y", alpha=0.3)
 
@@ -1630,11 +1630,11 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
             ]
         )
     ax.axis("off")
-    ax.set_title("各臂状态", fontsize=12)
+    ax.set_title("各变体状态", fontsize=12)
     if rows:
         table = ax.table(
             cellText=rows,
-            colLabels=["臂", "outcome", "期望达成", "接受轮数", "总轮数", "几何相关性"],
+            colLabels=["变体", "outcome", "期望达成", "接受轮数", "总轮数", "几何相关性"],
             loc="upper center",
             cellLoc="center",
             colWidths=[0.167, 0.306, 0.134, 0.134, 0.105, 0.153],
@@ -2474,7 +2474,7 @@ def build_report(
         )
     lines.append(
         markdown_table(
-            ["臂", "0 级质心 (全传感器坐标)", "FWHM", "标定的瞳面中心 (面板 px)"],
+            ["变体", "0 级质心 (全传感器坐标)", "FWHM", "标定的瞳面中心 (面板 px)"],
             spot_rows,
         )
     )
@@ -2482,7 +2482,7 @@ def build_report(
     lines.append(
         "光照闸门的 0 级按**帧全局最大**（`argmax`）定位，不按相机几何中心 —— "
         "这条光路的光轴与画幅中心不重合；"
-        "而 MIL 各臂自己的帧用的是运行期**冻结的光轴**"
+        "而 MIL 各变体自己的帧用的是运行期**冻结的光轴**"
         "（`stage.log` 里的 `frozen ROI centre`），动画里的两个面板都按它对齐。"
     )
     lines.append("")
@@ -2509,7 +2509,7 @@ def build_report(
     lines.append(
         markdown_table(
             [
-                "臂",
+                "变体",
                 "方法",
                 "sweep 相关性",
                 "camera/model px",
@@ -2528,22 +2528,22 @@ def build_report(
             lines.append(f"- **{stage.name}** 标定备注: {notes}")
     lines.append("")
     lines.append(
-        "注意：两臂的 `camera_px_per_model_px` 相差约一倍（见上表），"
-        "而两臂的标定备注里 FOV 交叉核对都写着 FOV 与 ramp 尺度"
+        "注意：两个变体的 `camera_px_per_model_px` 相差约一倍（见上表），"
+        "而两个变体的标定备注里 FOV 交叉核对都写着 FOV 与 ramp 尺度"
         "「相差数倍」—— 见 §4.1 与 §4.2，这条几何标定本身还没自洽。"
     )
     lines.append("")
     if summary_figure:
-        lines.append(f"![各臂汇总]({summary_figure})")
+        lines.append(f"![各变体汇总]({summary_figure})")
         lines.append("")
 
     # 3 -- expectation vs measurement
-    lines.append("## 3. 每臂的期望 vs 实测")
+    lines.append("## 3. 每个变体的期望 vs 实测")
     lines.append("")
     lines.append(
         markdown_table(
             [
-                "臂",
+                "变体",
                 "类别",
                 "campaign 期望",
                 "实测 outcome",
@@ -2673,7 +2673,7 @@ def build_report(
                 ", ".join(f"`{name}`" for name in names) if names else "未记录",
             ]
         )
-    lines.append(markdown_table(["臂", "recorder 产物"], recorder_rows))
+    lines.append(markdown_table(["变体", "recorder 产物"], recorder_rows))
     lines.append("")
     lines.append("### 7.3 图")
     lines.append("")
@@ -2705,7 +2705,7 @@ def _conclusion(stages, arms) -> str:
     completed = [stage for stage in arms if stage.run.recorder_status]
     if not completed:
         return (
-            "本会话的各臂都还没有写出 recorder 产物，结论无法给出；"
+            "本会话的各变体都还没有写出 recorder 产物，结论无法给出；"
             "已记录的部分见下表。"
         )
     outcomes = {stage.run.recorder_status for stage in completed}
@@ -2720,11 +2720,11 @@ def _conclusion(stages, arms) -> str:
     parts = []
     if same:
         parts.append(
-            "两臂的 recorder 状态相同（`" + "`、`".join(sorted(outcomes)) + "`）"
+            "两个变体的 recorder 状态相同（`" + "`、`".join(sorted(outcomes)) + "`）"
         )
     else:
         parts.append(
-            "各臂状态: "
+            "各变体状态: "
             + "；".join(f"{stage.name} → {stage.run.recorder_status}" for stage in completed)
         )
     if holds:
@@ -2734,7 +2734,7 @@ def _conclusion(stages, arms) -> str:
             + "，均未触发验证集门槛的中止"
         )
     parts.append(
-        "两臂的整形后分数都没有超过平场分数，因此两臂都走了对比择优的「保留平场」分支"
+        "两个变体的整形后分数都没有超过平场分数，因此两个变体都走了对比择优的「保留平场」分支"
     )
     missing = [stage for stage in arms if stage.run.recorder_status is None]
     if missing:
@@ -2748,7 +2748,7 @@ def _conclusion(stages, arms) -> str:
     return (
         "**"
         + "；".join(parts)
-        + "。结论: 本轮验证集门槛不是限制项 —— 两臂结局相同, 差别不在门槛上。**"
+        + "。结论: 本轮验证集门槛不是限制项 —— 两个变体结局相同, 差别不在门槛上。**"
     )
 
 
@@ -2785,7 +2785,7 @@ def _ab_section(arms) -> str:
     lines.append(
         markdown_table(
             [
-                "臂",
+                "变体",
                 "验证集门槛",
                 "status",
                 "接受轮数",
@@ -2810,19 +2810,19 @@ def _ab_section(arms) -> str:
     if a_holdout is not None and a_threshold is not None:
         if a_holdout >= a_threshold:
             lines.append(
-                f"- **A 臂（门槛不动, {a_threshold:g}）并没有被门槛拦住**: 实测验证集相关性 "
+                f"- **变体 A（门槛不动, {a_threshold:g}）并没有被门槛拦住**: 实测验证集相关性 "
                 f"{a_holdout:.4f} ≥ 门槛 {a_threshold:g}，于是这一轮被接受。"
             )
         else:
             lines.append(
-                f"- A 臂（门槛 {a_threshold:g}）被拦下: 实测验证集相关性 "
+                f"- 变体 A（门槛 {a_threshold:g}）被拦下: 实测验证集相关性 "
                 f"{a_holdout:.4f} < 门槛。"
             )
     lines.append(
-        "- B 臂把门槛强制放开到 "
+        "- 变体 B 把门槛强制放开到 "
         f"{fmt(b_arm.profile.get('min_holdout_correlation'))}，实测验证集相关性 "
         f"{fmt((b_arm.observed.get('holdout_correlation') or [None])[-1])} —— "
-        "两臂实测的相关性在同一量级，门槛的取值并没有改变任何一臂的判定。"
+        "两个变体实测的相关性在同一量级，门槛的取值并没有改变任何一个变体的判定。"
     )
     same_status = (
         a_arm.run.recorder_status is not None
@@ -2830,16 +2830,16 @@ def _ab_section(arms) -> str:
     )
     if same_status:
         lines.append(
-            f"- **两臂的 recorder 状态相同**（`{a_arm.run.recorder_status}`），"
+            f"- **两个变体的 recorder 状态相同**（`{a_arm.run.recorder_status}`），"
             "接受的轮数也相同 ⇒ **本轮验证集门槛不是限制项**: "
             "把门槛从 0.5 放开到 0 没有改变结局, 真正的差别不在门槛上。"
         )
     lines.append(
-        "- 两臂都以「整形后分数没有超过平场分数」收场（对比择优保留平场），"
+        "- 两个变体都以「整形后分数没有超过平场分数」收场（对比择优保留平场），"
         "所以这一轮 A/B 并没有产生一个可用于比较整形效果的样本。"
     )
     lines.append("")
-    lines.append("### 4.1 两臂真正的差别（都在几何标定上）")
+    lines.append("### 4.1 两个变体真正的差别（都在几何标定上）")
     lines.append("")
     geometry_rows = []
     for stage in (a_arm, b_arm):
@@ -2859,7 +2859,7 @@ def _ab_section(arms) -> str:
     lines.append(
         markdown_table(
             [
-                "臂",
+                "变体",
                 "sweep 相关性",
                 "camera/model px",
                 "FWHM (cam px)",
@@ -2873,14 +2873,14 @@ def _ab_section(arms) -> str:
     lines.append("### 4.2 数字之外的读法")
     lines.append("")
     lines.append(
-        "- 两臂的 `camera_px_per_model_px` 相差约一倍（见上表），"
-        "而两臂的标定备注都写着 FOV 交叉核对「与 ramp 尺度相差数倍」。"
+        "- 两个变体的 `camera_px_per_model_px` 相差约一倍（见上表），"
+        "而两个变体的标定备注都写着 FOV 交叉核对「与 ramp 尺度相差数倍」。"
         "这说明**几何标定本身还没有自洽**，任何依赖绝对尺度的比较（EE、CV 的绝对值、"
         "模型与实测的逐像素对齐）都带着这个不确定性。"
     )
     lines.append(
-        "- 两臂的 `cv` 都超过了 campaign 记的 `max_cv=0.5`，`ee` 与 `iou` 都没到 "
-        "`min_ee=0.4` / `min_iou=0.5`；两臂的交接判定都是 `review_required`。"
+        "- 两个变体的 `cv` 都超过了 campaign 记的 `max_cv=0.5`，`ee` 与 `iou` 都没到 "
+        "`min_ee=0.4` / `min_iou=0.5`；两个变体的交接判定都是 `review_required`。"
     )
     lines.append(
         "- 因此本轮 A/B 能支持的结论只有一条: **门槛的取值没有改变结局**；"
@@ -2982,7 +2982,7 @@ def _truth_section(
         lines.append(
             markdown_table(
                 [
-                    "臂",
+                    "变体",
                     "轮次",
                     "探针类型",
                     "序号",
@@ -2995,7 +2995,7 @@ def _truth_section(
             )
         )
     else:
-        lines.append("未记录（各臂都没有留下探针）")
+        lines.append("未记录（各变体都没有留下探针）")
     lines.append("")
     agreements = [
         truth.agreement
@@ -3100,7 +3100,7 @@ def _truth_section(
         lines.append(
             markdown_table(
                 [
-                    "臂",
+                    "变体",
                     "平场基线分 (第 0 轮)",
                     "首个偏离平场的轮次",
                     "该轮分数",
@@ -3115,13 +3115,13 @@ def _truth_section(
     lines.append(
         "曲线上的圆点是 recorder 接受的轮次、空心红方块是被拒绝的轮次、"
         "灰色菱形是第 0 轮（平场基线），灰色虚线是平场基线分，"
-        "验证集面板上的红色点线是该臂的两个验收阈值"
+        "验证集面板上的红色点线是该变体的两个验收阈值"
         "（`min_holdout_correlation` 与 `min_geometry_correlation`）。"
     )
     lines.append("")
 
     # --- 5.5 the A/B difference ---
-    lines.append("### 5.5 A/B 两臂的曲线差别")
+    lines.append("### 5.5 A/B 两个变体的曲线差别")
     lines.append("")
     ab_rows = []
     for stage in arms:
@@ -3152,7 +3152,7 @@ def _truth_section(
         lines.append(
             markdown_table(
                 [
-                    "臂",
+                    "变体",
                     "验证集门槛",
                     "平场基线分",
                     "首个偏离平场的偏差",
@@ -3163,10 +3163,10 @@ def _truth_section(
         )
     lines.append("")
     lines.append(
-        "两臂的曲线差别要分两层读：**门槛层**（验证集门槛的取值有没有改变判定，"
+        "两个变体的曲线差别要分两层读：**门槛层**（验证集门槛的取值有没有改变判定，"
         "见 §4）与**保真度层**（模型对每一类探针的预测准不准，"
         "也就是上面逐探针 r 的分布）。只有当保真度层也一致时，"
-        "「门槛不是限制项」这条结论才对该臂的整形效果同样成立。"
+        "「门槛不是限制项」这条结论才对该变体的整形效果同样成立。"
     )
     lines.append("")
     return "\n".join(lines)
@@ -3221,7 +3221,7 @@ def _defects_section(session_dir: Path, stages) -> str:
     )
     lines.append(
         "- 后果: `Error: panel scan rejected; ...: 1 panel candidates rejected by "
-        "flat drift`，该臂连几何标定都没开始。"
+        "flat drift`，该变体连几何标定都没开始。"
     )
     lines.append("- 证据路径:")
     lines.append(
@@ -3234,7 +3234,7 @@ def _defects_section(session_dir: Path, stages) -> str:
     )
     lines.append(
         "  - `data/debug/model_in_loop_hw_ab/20261021_170646/manifest.json`"
-        "（该臂 outcome = failed）"
+        "（该变体 outcome = failed）"
     )
     scans = [
         (stage.name, stage.run.panel_scan.get("rejected_count"))
@@ -3265,27 +3265,27 @@ def _defects_section(session_dir: Path, stages) -> str:
     )
     lines.append("- 证据路径:")
     lines.append(
-        "  - 各臂 `probes/manifest.json` 的 `frame_reference_exposure_ms: 0.02` 与 "
+        "  - 各变体 `probes/manifest.json` 的 `frame_reference_exposure_ms: 0.02` 与 "
         "`raw_frame_note: \"separate CCD read after the settled frame\"`"
     )
     lines.append(
-        "  - 各臂 `stage.log` 里的 `CCD exposure ... ms, peak ...% of full scale` 行"
+        "  - 各变体 `stage.log` 里的 `CCD exposure ... ms, peak ...% of full scale` 行"
     )
     lines.append(
         "  - 实现: `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py`"
         "（`measure()` 里的稳定帧 + 单独读回 + 曝光判据）"
     )
     lines.append("")
-    lines.append("### 6.4 SLM 内存写入的 USB 错误（-10032）断了大面积臂")
+    lines.append("### 6.4 SLM 内存写入的 USB 错误（-10032）断了大面积变体")
     lines.append("")
     lines.append(
-        "- 现象: 大面积臂（`large_1000`）在会话几何 sweep 阶段写 SLM 内存时抛 "
+        "- 现象: 大面积变体（`large_1000`）在会话几何 sweep 阶段写 SLM 内存时抛 "
         "`SantecError: 写入相位数据到内存#30失败 (错误码: -10032, USB其他错误)`，"
-        "sweep 子进程以退出码 1 结束，于是该臂既没有几何也没有 recorder 产物。"
+        "sweep 子进程以退出码 1 结束，于是该变体既没有几何也没有 recorder 产物。"
     )
     lines.append(
-        "- 后果: campaign 在该臂上中止（`campaign_state: aborted`），"
-        "大面积臂只留下全板定位与 sweep 的部分帧。"
+        "- 后果: campaign 在该变体上中止（`campaign_state: aborted`），"
+        "大面积变体只留下全板定位与 sweep 的部分帧。"
     )
     lines.append("- 证据路径:")
     lines.append(
@@ -3294,7 +3294,7 @@ def _defects_section(session_dir: Path, stages) -> str:
     )
     lines.append(
         "  - `data/debug/model_in_loop_hw_ab/20261021_172236/manifest.json`"
-        "（该臂 exit_code = 1, outcome = failed）"
+        "（该变体 exit_code = 1, outcome = failed）"
     )
     lines.append(
         "  - 驱动侧: `src/ao_shaping/drivers/slm/santec/driver.py::_write_to_memory`"
@@ -3307,7 +3307,7 @@ def _defects_section(session_dir: Path, stages) -> str:
         "- 全板定位报告的照明半径是 `radius_px: 0.0`（`radius_source: scan_fall_width`，"
         "`radius_uncertainty_px: 120.0`）—— 面板照明没有被测到，"
         "所以瞳面中心只能用扫描的中心点（`centre_panel_px: [960, 980]`），"
-        "不能用实测照明边缘 —— 证据在各臂 `illumination_radius/slm1_*.json`。"
+        "不能用实测照明边缘 —— 证据在各变体 `illumination_radius/slm1_*.json`。"
     )
     return "\n".join(lines)
 
@@ -3407,7 +3407,7 @@ def main(argv: list[str] | None = None) -> int:
     render_summary_figure(stages, summary_path, exposure_ladder, stamp)
     summary_figure = f"figures/{summary_path.name}"
     figure_notes.append(
-        ["`figures/" + summary_path.name + "`", "各臂关键指标对比 + 曝光窗口 + 几何标定"]
+        ["`figures/" + summary_path.name + "`", "各变体关键指标对比 + 曝光窗口 + 几何标定"]
     )
 
     for stage in stages:

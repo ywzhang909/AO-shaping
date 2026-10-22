@@ -39,8 +39,8 @@ from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
 REGION = 64
 N_ACT = 12                      # Noll 4..15 (1-indexed)
 ACT_IDX = np.array(list(range(3, 15)))  # 0-indexed 位置
-BOX = 0.8                       # 有约束臂的幅值盒 (rad)
-UNCONST_RADIUS = 3.0            # 无约束臂允许搜索到的半径上限 (仅停止条件)
+BOX = 0.8                       # 有约束变体的幅值盒 (rad)
+UNCONST_RADIUS = 3.0            # 无约束变体允许搜索到的半径上限 (仅停止条件)
 NET_SIZE = 32                   # 逆模型输入 (远场降采样)
 N_MEMBERS = 3                   # 集成成员数
 INIT_N = 300                    # 初始 (分布内) 训练集大小
@@ -50,8 +50,8 @@ PER_ROUND = 8
 SEARCH_INITS = 8                # 每轮梯度搜索的随机起点数
 SEARCH_ITERS = 40
 SEARCH_LR = 0.02
-RANDOM_POOL = 1000              # 随机臂每轮盲采样池 (TU/e 传统做法: 盲仿一大批再挑最不确定的)
-UNCONST_RADIUS = 6.0            # 无约束臂允许搜索到的范数上限 (仅停止条件, 让塌缩可见)
+RANDOM_POOL = 1000              # 随机变体每轮盲采样池 (TU/e 传统做法: 盲仿一大批再挑最不确定的)
+UNCONST_RADIUS = 6.0            # 无约束变体允许搜索到的范数上限 (仅停止条件, 让塌缩可见)
 HOLDOUT_N = 64
 FULL_RADIUS = 0.8               # 留出集/域定义半径 (rad, 与 BOX 同域)
 
@@ -281,7 +281,7 @@ def main() -> None:
         "uncertainty_boxed": "梯度搜索 + 幅值盒 |c_i|<=BOX",
         "uncertainty_unconstrained": "梯度搜索, 无幅值约束 (塌缩演示)",
     }
-    # 每个臂从同一组 (同种子) 初始逆模型出发, 避免跨臂污染。
+    # 每个变体从同一组 (同种子) 初始逆模型出发, 避免跨变体污染。
     for arm, desc in arms.items():
         arm_nets = make_ensemble((11, 22, 33))
         train_ensemble(arm_nets, c_init)

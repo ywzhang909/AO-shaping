@@ -1,6 +1,6 @@
 """sim 验收脚本: commit 080e0ac9 (issue #134) 的不确定性采样探针 A/B 对照。
 
-在**同一 seed、同一预算**下跑两臂 model-in-loop, 只让"拒绝轮之后那几轮用哪种
+在**同一 seed、同一预算**下跑两个变体 model-in-loop, 只让"拒绝轮之后那几轮用哪种
 探针"这一个变量不同:
 
 * **arm A (blind)** -- ``uncertainty_on_rejection=False`` (历史路径): 拒绝后
@@ -16,7 +16,7 @@
    本脚本只做运行期观测, 不替换任何一个被测函数 (三个包装器都只记录再转发);
 4. 与 R-82 共用同一选择器模块 (本脚本只 import, 不复制其度量)。
 
-机制层面的直接测量: 在**两臂探针的并集**算出的同一个 Fisher 后验下, 把两臂
+机制层面的直接测量: 在**两个变体探针的并集**算出的同一个 Fisher 后验下, 把两个变体
 的探针都送进选择器的 ``predictive_variance`` 比大小。调用选择器自己的公共方法
 而不是自己重写一遍 ``U(p)`` 公式 —— 这个仓库反复被"重复实现漂移"咬伤, 度量
 必须单一真源。后验也必须是共用的: 各用各的后验自证等于没比。
@@ -274,7 +274,7 @@ def _pair_cos(probes: list[np.ndarray]) -> list[float]:
 
 
 def run_arm(name: str, *, uncertainty_on_rejection: bool) -> dict:
-    """跑一臂, 返回逐轮记录 + 该轮下发的探针 (不评分, 评分留给共后验的第二遍)。"""
+    """跑一个变体, 返回逐轮记录 + 该轮下发的探针 (不评分, 评分留给共后验的第二遍)。"""
     inst = _Instrumented()
     inst.install()
     try:
@@ -298,7 +298,7 @@ def run_arm(name: str, *, uncertainty_on_rejection: bool) -> dict:
             probes = call["probes"]
             source = "uncertainty"
         else:
-            # blind 臂没有 selector 调用; 按循环里同样的算术 + 同样的 smooth
+            # blind 变体没有 selector 调用; 按循环里同样的算术 + 同样的 smooth
             # 开关重建它下发的探针, 否则比的就不是同一批硬件指令了。
             from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase
 
@@ -532,15 +532,15 @@ def _main_inner(args) -> int:  # noqa: ANN001
         print(f"  status={arm['status']} accepted={arm['accepted_rounds']}"
               f"/{len(arm['rounds'])} selector_calls={arm['selector_calls']}")
 
-    # 机制测量: 共后验下的 U(p)。优化器取 R-86 臂在那一轮的真实优化器
-    # (只有该臂在那些轮真的走过选择器), 看不到就用 None。
+    # 机制测量: 共后验下的 U(p)。优化器取 R-86 变体在那一轮的真实优化器
+    # (只有该变体在那些轮真的走过选择器), 看不到就用 None。
     u_scores = _collect_u_scores(arms)
     print("\n" + "=" * 78)
     print("机制测量: 同一后验下, 不确定性探针 vs 同种子盲随机探针的 U(p)")
     print("  结论只看 ratio_matched (幅度归一); ratio_raw 混着幅度差, 不可用")
     print("=" * 78)
     if not u_scores:
-        print("  (无 R-86 轮次: 本次两臂都没有触发不确定采样)")
+        print("  (无 R-86 轮次: 本次两个变体都没有触发不确定采样)")
     for row in u_scores:
         print(f"  rd{row['round']} [{row['posterior']}] "
               f"std unc={np.mean(row['std_uncertainty']):.2f} "
@@ -570,7 +570,7 @@ def _main_inner(args) -> int:  # noqa: ANN001
             if overlap:
                 collisions.append({"arm": a["arm"], "round": s["round"],
                                    "overlap": sorted(overlap)})
-    print(f"\n种子不变量: 两臂种子逐轮一致={seeds_identical}; "
+    print(f"\n种子不变量: 两个变体种子逐轮一致={seeds_identical}; "
           f"train/holdout 碰撞={collisions or '无'}")
 
     # --- 验收 2: 约束集 ----------------------------------------------------
@@ -598,10 +598,10 @@ def _main_inner(args) -> int:  # noqa: ANN001
     # --- 多种子扫描: 单 seed 的 A/B 没有统计功效 ---------------------------
     # 上面那组是把机制看清楚用的 (逐轮日志最全)。#134 的验收要的是"回退幅度更小
     # 或更快被接受"这种**比较性**结论, 一个 seed 只是一次抽样, 差值完全可能落在
-    # 噪声里。所以另跑一组多种子配对扫描: 同一个 seed 同时喂两臂 (配对), 差值在
+    # 噪声里。所以另跑一组多种子配对扫描: 同一个 seed 同时喂两个变体 (配对), 差值在
     # 配对内抵消难度的差异。
     print("\n" + "=" * 78)
-    print("多种子配对扫描 (每个 seed 同时跑两臂)")
+    print("多种子配对扫描 (每个 seed 同时跑两个变体)")
     print("=" * 78)
     sweep_seeds = [20261016, 7, 11, 42, 1234, 20260101, 555, 90210]
     sweep: list[dict] = []

@@ -42,7 +42,7 @@
 
 - **物理-optical 前向模型** (`ml/zernike/models.py`): `ZernikeAmpModel` —— 用单个全局 Zernike 系数向量 (raw 弧度, Noll 1 piston 排除) 表示整个台面的波到远场的确定性映射: `phasor(cos,sin) → complex pupil → exp(i·Σc_k·Z_k) → centre-pad + fftshift(fft2(ifftshift)) → |F|² (intensity)`。可观测量 `intensity` (默认) / `amplitude`, 归一化 `peak`/`sum`/`none`。默认 `n_max=15` (135 系数), `grid=64`, `observable="intensity"`, `normalization="peak"`。详见 [`report/zernike_coeff2amp/zernike_coeff_report/report.md`](./report/zernike_coeff2amp/zernike_coeff_report/report.md)。
 
-- **可微前向模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照臂。
+- **可微前向模型** (`ml/zernike/forward_model.py`): `ZernikeCoeffConvNet` (coefficient projection → conv decoder) + `ZernikeCoeffMLP` (baseline)。两者都输出 raw unbounded 单通道图像, peak-normalize 由 caller 完成。ConvNet 拥有空间局部性优势 (移形/尺度), MLP 作为对照变体。
 
 - **训练器** (`ml/zernike/train_coeff.py`): `CoeffTrainConfig` (冻结 dataclass, `--input-terms`/`--protocol`/`--fold`/`--held-out-path`, W&B 集成, `--w-ellipse`). 两种折叠协议: `"file"` (18 折 leave-one-pickle-out) / `"objective"` (4 折 leave-one-objective-out). R² 选择 checkpoint (PSNR/SSIM/MSE 仅作诊断 —— 它们在 per-frame peak-normalised 目标上是退化的)。`--input-terms` 修剪输入到前 N 项 (语料最长向量 78 项, 136 维中 58 维恒为 0)。
 
@@ -61,7 +61,7 @@
   - **结构项 `log_gradient_difference_metric`** (`utils/image/target/metrics.py`): `log_gradient_field`/`log_gradient_difference_from_fields`/`log_gradient_difference_metric` + `LOGGRAD_EPS`/`LOGGRAD_SIGMA` 常量。惩罚过度细微结构 (speckle), 能量-in-bucket 目标无法捕捉。
   - **`--w_loggrad` CLI** (`runner_common.py`, `objective.py`, `slm_zernike_pib.py`): 新增 `--w_loggrad` (默认 0), 串接 log-gradient 差异度量进 PIB 目标函数。
 
-- **slm-model-in-loop** (`6b85858` + `efedabe`): `slm_model_in_loop` 闭环优化器 recorder pkl 修复 (写入现在真正生效), 负效应臂移除, README 补充硬件使用指南 (pkl 总是写出, 曝光陷阱, 运行前探针)。
+- **slm-model-in-loop** (`6b85858` + `efedabe`): `slm_model_in_loop` 闭环优化器 recorder pkl 修复 (写入现在真正生效), 负效应变体移除, README 补充硬件使用指南 (pkl 总是写出, 曝光陷阱, 运行前探针)。
 
 - **CLI 帮助测试** (`493ef1e`): CLI 帮助 golden-file 测试增强, SLM 训练数据采集器 (`slm_train_data_collect.py`) 测试引入。
 

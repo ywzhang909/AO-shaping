@@ -391,6 +391,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     order_group: dict[int, str] = {}
     origin: dict[str, str] = {}
     frame_shapes: dict[str, Any] = {}
+    mask_centers: dict[str, Any] = {}
     warnings: list[dict[str, Any]] = []
     for data in summaries:
         group = str(data["_group"])
@@ -400,6 +401,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
         # ROI 窗口) ⇒ 可比性最终由**取值本身**是否落在共同窗口内决定
         # (见 :func:`_window_local_comparability`)。
         frame_shapes[group] = data.get("frame_shape")
+        mask_centers[group] = data.get("mask_center_xy")
         for key, value in data.items():
             if key in ("orders", "_summary_path", "_group"):
                 continue
@@ -438,6 +440,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     merged["summary_groups"] = [d["_group"] for d in summaries]
     merged["merge_origin"] = origin
     merged["summary_frame_shapes"] = frame_shapes
+    merged["summary_mask_centers"] = mask_centers
     merged["order_groups"] = order_group
     return merged
 
@@ -695,6 +698,55 @@ def classify_merge_difference(
             return ("suspect", f"相对差 {rel * 100:.2f}% > {pct:g}%", rel)
         return ("jitter", f"相对差 {rel * 100:.2f}% ≤ {pct:g}%", rel)
     return ("suspect", "未归类的字段差异", None)
+
+
+def _round_mask_window_verdict(zernike: dict[str, Any]) -> dict[str, Any]:
+    """本轮 ``mask_center_xy`` 的可比性判定 —— **由数据算出**, 不写死任何一轮的取值。
+
+    为什么要有它: 早先的版本把「第三轮的块是 ``[127, 128]``」**写死**在正文里, 而第三轮
+    真跑出来的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者能一眼
+    看出来)。这里改成从本轮数据算: 各组取到了哪些值、共同窗口多大、哪些取值落在窗口外。
+
+    共同窗口的口径与 :func:`_window_local_comparability` 一致 (逐轴取小)。
+    """
+    centers = dict(zernike.get("summary_mask_centers") or {})
+    shapes = dict(zernike.get("summary_frame_shapes") or {})
+    # 只取「取值确实是坐标对」且「知道它的工作窗口」的组: 其余的既没法列取值,
+    # 也没法判它落在共同窗口内外。
+    usable: dict[str, tuple[float, float]] = {}
+    for group, value in centers.items():
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+        try:
+            usable[group] = (float(value[0]), float(value[1]))
+        except (TypeError, ValueError):
+            continue
+    if not usable:
+        return {}
+    heights: list[float] = []
+    widths: list[float] = []
+    for group in usable:
+        hw = _frame_shape_hw(shapes.get(group))
+        if hw is None:
+            continue
+        heights.append(hw[0])
+        widths.append(hw[1])
+    if not heights:
+        return {}
+    height = min(heights)
+    width = min(widths)
+    values = sorted(set(usable.values()))
+    outside: list[tuple[str, tuple[float, float]]] = []
+    for group, pair in usable.items():
+        if _coord_inside_window(list(pair), height, width) is False:
+            outside.append((group, pair))
+    return {
+        "height": height,
+        "width": width,
+        "values": values,
+        "outside": outside,
+        "n_groups": len(usable),
+    }
 
 
 def merge_audit_block(zernike: dict[str, Any]) -> str:

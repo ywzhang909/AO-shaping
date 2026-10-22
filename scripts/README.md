@@ -2744,6 +2744,42 @@ single pass, and the unshaped initial state.
 > must beat plain GS; `test_s10_calibration_is_finite_and_reduces_mismatch` —
 > Zernike calibration must stay finite and beat the zero-coefficient baseline).
 
+### generate_diffraction_efficiency_sim_report.py
+
+Simulation study of the **blazed-grating diffraction-efficiency tool**
+(`src/ao_shaping/tools/slm/calibration/diffraction_efficiency/`): how the
+device's non-idealities (fill factor, phase LUT, panel aberration, optical
+defocus) move the measured efficiency curve and the fitted phase response.
+**Fully offline** — it drives the digital twin
+(`...diffraction_efficiency.simulate.SimulatedBench`) and then runs the **same**
+analysis chain the hardware uses (`core.run_sweep` → `core.measure_orders` →
+`core.fit_phase_response` → `core.diagnose`), so the numbers are the ones the
+bench would produce. The device truth lives only in `SimConfig`; the analysis
+never sees it and is only reconciled afterwards.
+
+**Usage:**
+```bash
+python scripts/slm/generate_diffraction_efficiency_sim_report.py
+python scripts/slm/generate_diffraction_efficiency_sim_report.py --quick
+```
+
+**What it does** (writes `report/slm/diffraction_efficiency/sim_nonideality_20261022.md` + `figures/` + `artifacts/`):
+- **Study A — fill factor** (1.0 → 0.6, plus a dead-area phase of π): the ±1
+  order's **absolute** energy scales as `ff²` while the **relative** efficiency
+  barely moves, and the fitted phase depth drifts *up* (a nominal device gets
+  reported as over-modulated)
+- **Study B — phase LUT** (identity / γ=1.4 / S-shaped / dead-zone): a power-law
+  fit cannot describe a non-power-law device — the fitted γ becomes meaningless
+- **Study C — panel aberration** (tilt / defocus / astig / coma / roughness):
+  the efficiency is robust; the aberration shows up in the spot-shape
+  diagnostics (ellipticity, FWHM), not in the efficiency
+- **Study D — optical defocus**: the camera leaving the back focal plane blurs
+  the spot until the orders are no longer separable — the tool now says so
+  explicitly ("零级光斑过宽 … 阶次不可分辨")
+- 21 cases in total, each with the truth-vs-fit table, the verdict, the
+  geometry residual and the spot metrics; the report states which of the
+  tool's outputs survive the non-idealities and which do not
+
 ### generate_slm_pib_sim_report.py
 
 Generates the illustrated **slm-pib simulation** report from a

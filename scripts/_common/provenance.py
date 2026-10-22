@@ -177,6 +177,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "必要性 (曝光跨度达 96×)、峰值与整帧能量两项交叉验证、4 趟重复性与跨趟光强 7.3× 变化"
         ),
     ),
+    "report/slm/diffraction_efficiency/sim_nonideality_20261022.md": ReportProvenance(
+        script="scripts/slm/generate_diffraction_efficiency_sim_report.py",
+        command="python scripts/slm/generate_diffraction_efficiency_sim_report.py",
+        environment="离线",
+        extra_scripts=(
+            "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/simulate.py",
+            "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py",
+        ),
+        note=(
+            "闪耀光栅衍射效率标定工具的非理想因素仿真 (填充因子 / 相位 LUT / 面板静态相差 / "
+            "光学离焦): 23 个工况里 10 个的欠调制-过调制判定与真值不符, 相位深度拟合偏差最大 "
+            "+27% —— 工具的**相对效率曲线**可信, 拟合出的相位深度只在幂律器件上可信; "
+            "并给出光斑宽度门禁 (相对在焦参照值的倍数) 的行为与失效边界"
+        ),
+    ),
     "report/slm/report2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
@@ -661,6 +676,16 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/ml/freeform_vs_zernike.py",),
     ),
     # -- 方形整形实验记录 ---------------------------------------------------
+    "report/shape_trials/physical_forward_defocus_plan_20261022.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note="基于现有离焦、Zernike 与 model-in-loop 报告及工作区代码拟定实验方案；没有新增设备测量。",
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/model_in_loop_hw_runbook.py",
+            "scripts/slm/model_in_loop_hw_ab.py",
+        ),
+    ),
     "report/shape_trials/experiment_summary_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
@@ -785,10 +810,10 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note=(
             "2026-10-21 model-in-loop 实验系统 A/B campaign 的离线报告 (Santec #1 22030108 + "
-            "大恒 FJB24112232, 1064 nm)：验证集门槛不动 (0.5) vs 强制放开 (0) 两臂实测对比 —— "
-            "两臂结局相同 (bake_off_rejected, 整形未打赢平场) ⇒ **本轮验证集门槛不是限制项**, "
+            "大恒 FJB24112232, 1064 nm)：验证集门槛不动 (0.5) vs 强制放开 (0) 两个变体实测对比 —— "
+            "两个变体结局相同 (bake_off_rejected, 整形未打赢平场) ⇒ **本轮验证集门槛不是限制项**, "
             "10-19 那条「门槛按构造不可达」未被沿用; 含当天曝光窗口、sweep 几何标定 "
-            "(相关性 0.7188)、全板定位扫描证据、逐臂实测探针与模型预测并排的 GIF, "
+            "(相关性 0.7188)、全板定位扫描证据、逐变体实测探针与模型预测并排的 GIF, "
             "以及三个拦路缺陷与处置 (曝光上限估计被噪声底毒化 / 全板定位严格模式在噪声底上"
             "误拒 / 驱动改曝光后的陈旧帧)"
         ),
@@ -1033,7 +1058,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="硬件",
         note=(
             "实验系统离焦扫描 + 多阶泽尼克匀化测试 (Santec SLM #1 22030108 + 大恒 CCD "
-            "FJB24112232, 1064 nm, 2f-Fourier 臂) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔"
+            "FJB24112232, 1064 nm, 2f-Fourier 配置) 的**第一轮**: 实验系统常驻离焦的瞳面菲涅尔"
             "焦面矫正、噪声地板、逐 Δz 的定尺框/随斑框双口径、瞳面二次相位的转向分量、"
             "与 gs_defocus_sim_20261019.md 的仿真 G1 曲线对拍, 以及 8 阶泽尼克扫描的"
             "可排序性判定; 数字全部来自 scripts/slm/hw_gs_defocus_probe.py 与 "
