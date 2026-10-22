@@ -717,7 +717,7 @@ def _configure_sim_system(seed: int, far_field_padding: int) -> None:
     之前**改到新 system 上的 (那时 ``_far_field`` 与 ``_pad_buffer`` 还是
     ``None``, 改动安全)。已装的干扰项 (disturbance) 会被带过去。
     """
-    from ao_shaping.drivers.sim.slmpib_sim import get_system, reset_system
+    from ao_shaping.drivers.sim.slm_pib_sim import get_system, reset_system
 
     existing = get_system()
     system = reset_system(seed=seed, disturbance=existing.disturbance)
