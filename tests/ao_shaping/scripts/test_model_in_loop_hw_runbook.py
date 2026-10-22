@@ -532,6 +532,297 @@ class TestStagesWithMocks:
         assert codes[int(first["mode_id"])] == "flat"
 
 
+class TestFocusPreflight:
+    """The focus (defocus) compensation preflight stage.
+
+    The 2f bench sits permanently **out of focus**, and a forward model fitted
+    on an uncorrected bench predicts a **broader** spot than the hardware
+    produces (measured width ratio 1.328, CV bias -0.3009 over 51/51 records
+    -- ``report/shape_trials/experiment_summary_20261022.md`` §2).  So the
+    Fresnel focus phase must be on the panel for *every* displayed pupil
+    phase.
+
+    The hard requirement is the **default**: with the compensation off, the
+    panel phase that reaches the SLM must be the very same array it was
+    before the stage existed.  That is checked against ``HEAD`` directly
+    (``git show HEAD:...``), not against a re-implementation.
+    """
+
+    @staticmethod
+    def _focus_json(directory: Path, *, focal_mm: float = 1783.5418257111967) -> Path:
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / "focus.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "focus": {
+                        "best_focal_mm": focal_mm,
+                        "best_diopter_m1": 1.0 / focal_mm,
+                        "gain_vs_flat": 31.36,
+                    },
+                    "settings": {
+                        "center_x": 960,
+                        "center_y": 600,
+                        "radius": 450,
+                        "wavelength": 1064,
+                        "slm_number": 1,
+                        "cam_type": "daheng",
+                        "cam_id": 0,
+                    },
+                },
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        return path
+
+    @staticmethod
+    def _head_runbook(tmp_path: Path) -> Any:
+        """The pre-change runbook, straight out of git."""
+        import subprocess
+
+        source = subprocess.run(
+            ["git", "show", "HEAD:scripts/slm/model_in_loop_hw_runbook.py"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        path = tmp_path / "head_runbook.py"
+        path.write_text(source, encoding="utf-8")
+        spec = importlib.util.spec_from_file_location("mil_hw_runbook_head", path)
+        assert spec is not None and spec.loader is not None
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = module
+        spec.loader.exec_module(module)
+        return module
+
+    @staticmethod
+    def _patch_devices(monkeypatch: pytest.MonkeyPatch, module: Any) -> dict[str, Any]:
+        created: dict[str, Any] = {}
+
+        def make_slm(**kwargs: Any) -> MockSLM:
+            created["slm"] = MockSLM(**kwargs)
+            return created["slm"]
+
+        def make_cam(*args: Any, **kwargs: Any) -> MockCamera:
+            created["cam"] = MockCamera(*args, slm=created.get("slm"), **kwargs)
+            return created["cam"]
+
+        monkeypatch.setattr(module, "Santec", make_slm)
+        monkeypatch.setattr(module, "create_camera", make_cam)
+        module._created = created  # type: ignore[attr-defined]
+        return created
+
+    def test_collect_is_bit_identical_to_head_when_the_compensation_is_off(
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The strongest form of "off means off": diff against ``HEAD``."""
+        head = self._head_runbook(tmp_path)
+        self._patch_devices(monkeypatch, head)
+        head_out = tmp_path / "head_out"
+        head_out.mkdir()
+        head_args = _args(runbook, head_out)
+        head.stage_collect(head_args, head_out)
+        head_shown = list(head._created["slm"].shown)  # type: ignore[attr-defined]
+
+        out = tmp_path / "new_out"
+        out.mkdir()
+        args = _args(runbook, out)
+        runbook.stage_collect(args, out)
+        shown = list(runbook._created["slm"].shown)
+
+        assert len(shown) == len(head_shown) == 2 * args.probes + 1
+        for index, (new, old) in enumerate(zip(shown, head_shown, strict=True)):
+            assert new.dtype == old.dtype
+            assert np.array_equal(new, old), f"frame {index} differs from HEAD"
+
+    def test_sweep_is_bit_identical_to_head_when_the_compensation_is_off(
+        self, runbook: Any, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        head = self._head_runbook(tmp_path)
+        self._patch_devices(monkeypatch, head)
+        head_out = tmp_path / "head_out"
+        head_out.mkdir()
+        head.stage_sweep(_args(runbook, head_out), head_out)
+        head_shown = list(head._created["slm"].shown)  # type: ignore[attr-defined]
+
+        out = tmp_path / "new_out"
+        out.mkdir()
+        runbook.stage_sweep(_args(runbook, out), out)
+        shown = list(runbook._created["slm"].shown)
+
+        assert len(shown) == len(head_shown)
+        for index, (new, old) in enumerate(zip(shown, head_shown, strict=True)):
+            assert np.array_equal(new, old), f"frame {index} differs from HEAD"
+
+    def test_collect_adds_the_focus_phase_to_every_display(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        focus_dir = tmp_path / "focus"
+        self._focus_json(focus_dir)
+        out = tmp_path / "run"
+        out.mkdir()
+        args = _args(
+            runbook,
+            out,
+            focus_dir=str(focus_dir),
+            focus_compensation=True,
+        )
+        runbook.stage_collect(args, out)
+
+        from ao_shaping.tools.kernels.bench_kernels import fresnel_panel
+
+        focus = fresnel_panel(
+            1783.5418257111967,
+            radius=450,
+            pupil_center=(960, 600),
+            panel_shape=(PANEL_H, PANEL_W),
+            wavelength_nm=1064.0,
+        )
+        slm = runbook._created["slm"]
+        shown = slm.shown
+        assert len(shown) == 2 * args.probes + 1
+
+        def gray(phase: np.ndarray) -> np.ndarray:
+            return np.clip(
+                np.mod(phase, 2 * np.pi) / (2 * np.pi) * 1023, 0, 1023
+            ).astype(np.uint16)
+
+        # Flat reference first, then bare + defocus per probe.
+        assert np.array_equal(shown[0], gray(focus))
+        for index in range(args.probes):
+            probe = runbook.probe_phase(args.region, args.seed + index)
+            base = runbook.phase_to_panel(probe, args.collect_disc, (960, 600))
+            defocus = runbook.defocus_panel(
+                args.defocus_rad, args.zernike_radius, (960, 600)
+            )
+            assert np.array_equal(shown[1 + 2 * index], gray(base + focus))
+            assert np.array_equal(
+                shown[2 + 2 * index], gray(base + defocus + focus)
+            )
+
+    def test_the_evidence_file_is_written_even_when_the_compensation_is_off(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        out = tmp_path / "run"
+        out.mkdir()
+        runbook.stage_collect(_args(runbook, out), out)
+        path = out / "focus_preflight.json"
+        assert path.exists(), "the off state must be recorded too"
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["requested"] is False
+        assert payload["enabled"] is False
+        assert payload["disable_reason"]
+
+    def test_the_evidence_file_records_the_calibration_when_enabled(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        focus_dir = tmp_path / "focus"
+        self._focus_json(focus_dir)
+        out = tmp_path / "run"
+        out.mkdir()
+        args = _args(
+            runbook, out, focus_dir=str(focus_dir), focus_compensation=True
+        )
+        runbook.stage_collect(args, out)
+        payload = json.loads(
+            (out / "focus_preflight.json").read_text(encoding="utf-8")
+        )
+        assert payload["requested"] is True
+        assert payload["enabled"] is True
+        assert payload["calibration"]["focal_mm"] == pytest.approx(
+            1783.5418257111967
+        )
+        assert payload["calibration"]["gain_vs_flat"] == pytest.approx(31.36)
+        assert payload["overlay_order"] == ["focus", "tilt", "panel"]
+        assert payload["focus_phase_stats"]["max_abs_rad"] > 0.0
+
+    def test_a_broken_focus_file_aborts_the_stage(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        focus_dir = tmp_path / "focus"
+        focus_dir.mkdir()
+        (focus_dir / "focus.json").write_text("{not json", encoding="utf-8")
+        out = tmp_path / "run"
+        out.mkdir()
+        args = _args(
+            runbook, out, focus_dir=str(focus_dir), focus_compensation=True
+        )
+        with pytest.raises(SystemExit, match="焦面补偿前置阶段失败"):
+            runbook.stage_collect(args, out)
+
+    def test_requesting_the_compensation_without_evidence_aborts(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        """Silently collecting on an uncorrected bench is the failure this
+        stage exists to remove, so it must not be a quiet no-op."""
+        out = tmp_path / "run"
+        out.mkdir()
+        args = _args(runbook, out, focus_compensation=True)
+        with pytest.raises(SystemExit, match="焦面补偿被要求但没有生效"):
+            runbook.stage_collect(args, out)
+        # The evidence is still written, so the operator can see why.
+        payload = json.loads(
+            (out / "focus_preflight.json").read_text(encoding="utf-8")
+        )
+        assert payload["requested"] is True
+        assert payload["enabled"] is False
+
+    def test_the_de_steer_ramp_is_added_on_top_of_the_focus_phase(
+        self, runbook: Any, tmp_path: Path
+    ) -> None:
+        focus_dir = tmp_path / "focus"
+        self._focus_json(focus_dir)
+        tilt_map = tmp_path / "axis_map.json"
+        shift = 7400.0 / 240
+        tilt_map.write_text(
+            json.dumps(
+                {
+                    "axis_map": {
+                        "panel_axis_0": {
+                            "panel_axis": 0,
+                            "camera_axis": 1,
+                            "shift_px": shift,
+                            "period_px": 240,
+                        },
+                        "panel_axis_1": {
+                            "panel_axis": 1,
+                            "camera_axis": 0,
+                            "shift_px": -shift,
+                            "period_px": 240,
+                        },
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        out = tmp_path / "run"
+        out.mkdir()
+        args = _args(
+            runbook,
+            out,
+            focus_dir=str(focus_dir),
+            focus_compensation=True,
+            focus_tilt_map=str(tilt_map),
+            focus_tilt_shift="3.5,-2.25",
+        )
+        runbook.stage_collect(args, out)
+        payload = json.loads(
+            (out / "focus_preflight.json").read_text(encoding="utf-8")
+        )
+        assert payload["enabled"] is True
+        assert payload["tilt_specs"], "the de-steer ramp must be recorded"
+        assert payload["tilt_source"].endswith("axis_map.json")
+        assert payload["tilt_phase_stats"]["max_abs_rad"] > 0.0
+        # The ramp is a 2*pi-per-period sawtooth, so it is not a constant.
+        assert payload["tilt_phase_stats"]["max_abs_rad"] > 1.0
+        assert payload["tilt_phase_stats"]["min_rad"] < -1.0
+        # The period comes from the measured slope: |slope| / |desired shift|.
+        periods = sorted(spec["period_px"] for spec in payload["tilt_specs"])
+        assert periods == sorted([round(7400.0 / 2.25), round(7400.0 / 3.5)])
+
+
 class TestDryRun:
     """The offline self-check must run green with no devices."""
 

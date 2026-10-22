@@ -74,6 +74,12 @@ from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
 from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     measure_spot as _measure_spot,
 )
+from ao_shaping.tools.slm.panel.focus_preflight import (  # noqa: E402
+    FocusPreflight,
+    FocusPreflightError,
+    build_focus_preflight,
+    write_preflight_record,
+)
 from ao_shaping.tools.zernike.sweep_probe import (  # noqa: E402
     capture_settled,
 )
@@ -238,6 +244,91 @@ def _pupil_center(args: argparse.Namespace) -> tuple[int, int]:
     return int(parts[0]), int(parts[1])
 
 
+def _focus_tilt_shift(args: argparse.Namespace) -> tuple[float, float] | None:
+    """``--focus-tilt-shift 'dx,dy'`` → 相机像素的期望位移 (``None`` = 不用)。"""
+    raw = str(getattr(args, "focus_tilt_shift", "") or "").strip()
+    if not raw:
+        return None
+    parts = [float(v) for v in raw.split(",") if v.strip()]
+    if len(parts) != 2:
+        raise SystemExit(
+            f"--focus-tilt-shift must be 'dx,dy' in camera px, got {raw!r}"
+        )
+    return (parts[0], parts[1])
+
+
+def _build_focus_preflight(args: argparse.Namespace, out_dir: Path) -> FocusPreflight:
+    """Assemble the acquisition preflight stage and write its evidence.
+
+    The preflight is the *first* thing a capture stage does: the 2f bench
+    sits permanently **out of focus**, and a forward model fitted on an
+    uncorrected bench predicts a **broader** spot than the hardware produces
+    (measured width ratio 1.328, CV bias -0.3009 on 51/51 records -- see
+    ``report/shape_trials/experiment_summary_20261022.md`` §2).  So the
+    Fresnel focus phase has to be on the panel for *every* displayed pupil
+    phase, not just for the probes.
+
+    Compensation is **off by default** and, when off, the panel phase that
+    reaches the SLM is the very same object it was before this stage existed
+    -- the run stays bit-identical.
+
+    The evidence file is written **either way** (``focus_preflight.json``), so
+    a later reader can tell "compensation was off" from "nothing was
+    recorded".
+    """
+    pupil = _pupil_center(args)
+    focus_dir = str(getattr(args, "focus_dir", "") or "").strip()
+    try:
+        preflight = build_focus_preflight(
+            focus_dir=focus_dir or None,
+            enabled=bool(getattr(args, "focus_compensation", False)),
+            allow_live_probe=bool(getattr(args, "focus_live_probe", False)),
+            live_probe_kwargs={
+                "slm_number": int(args.slm_number),
+                "cam_type": str(args.cam_type),
+                "cam_id": int(args.cam_id),
+                "wavelength_nm": int(args.slm_wavelength),
+            },
+            panel_shape=(PANEL_H, PANEL_W),
+            pupil_center=pupil,
+            run_pupil_center=pupil,
+            tilt_axis_map_path=(
+                str(getattr(args, "focus_tilt_map", "") or "").strip() or None
+            ),
+            desired_shift_px=_focus_tilt_shift(args),
+        )
+    except FocusPreflightError as exc:
+        raise SystemExit(f"焦面补偿前置阶段失败: {exc}") from exc
+    path = write_preflight_record(out_dir, preflight)
+    if preflight.enabled:
+        calibration = preflight.calibration
+        logger.info(
+            "[*] focus compensation ON: f={:.1} mm (1/f={:+.4f} m^-1), "
+            "centre={} r={}px -> {}",
+            calibration.focal_mm if calibration else float("nan"),
+            calibration.diopter_m1 if calibration and calibration.diopter_m1 else float("nan"),
+            pupil,
+            calibration.radius_px if calibration else 0,
+            path,
+        )
+        for note in preflight.warnings:
+            logger.warning("[*] focus compensation: {}", note)
+    else:
+        logger.info(
+            "[*] focus compensation OFF ({}); evidence -> {}",
+            preflight.disable_reason,
+            path,
+        )
+        if preflight.requested:
+            # The operator asked for compensation and did not get it: running
+            # anyway would put the run back on the uncorrected bench, which is
+            # exactly the failure this stage exists to remove.
+            raise SystemExit(
+                f"焦面补偿被要求但没有生效: {preflight.disable_reason}"
+            )
+    return preflight
+
+
 def measure_spot(frame: np.ndarray) -> tuple[float, float, float, float, float]:
     """``(peak, fwhm_px, cx, cy, hollowness)`` for one CCD frame.
 
@@ -322,6 +413,10 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
     vis = out_dir / "frames" / "collect"
     from ao_shaping.utils.io.file import Recorder
 
+    # The preflight runs before any device is opened, so a bad focus.json
+    # costs nothing.
+    preflight = _build_focus_preflight(args, out_dir)
+
     recorder = Recorder(mark="peak", mode="min")
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
@@ -342,7 +437,9 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
                 )
                 args.exposure_ms = max(0.02, 0.5 * estimate.ceiling_ms)
             cam.reset_exposure_time(float(args.exposure_ms))
-        flat = shoot(cam, slm, np.zeros((PANEL_H, PANEL_W)), args)
+        flat = shoot(
+            cam, slm, preflight.apply_to_panel_phase(np.zeros((PANEL_H, PANEL_W))), args
+        )
         if args.save_frames:
             save_frame_png(vis / "flat_ccd.png", flat)
         cx, cy = zero_order_center(flat, refine=False)
@@ -369,19 +466,23 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
             base_panel = phase_to_panel(phase, args.collect_disc, pupil)
             # Bare set: the model prediction must match this one exactly, so no
             # aberration may be displayed here or the geometry solve is fitting
-            # a model of a beam that does not exist.
-            frame = shoot(cam, slm, base_panel, args)
+            # a model of a beam that does not exist.  (The focus compensation is
+            # not an aberration: it is the bench's own defocus being undone,
+            # so the model still only ever sees the probe phase.)
+            display_panel = preflight.apply_to_panel_phase(base_panel)
+            frame = shoot(cam, slm, display_panel, args)
             probes.append(phase)
             frames.append(crop_around_zero_order(frame, args.crop))
             # Defocus set: identical probe seed, plus a known aberration the
             # model never sees, so Step A has something to recover.
             dpanel = base_panel + defocus
-            dframe = shoot(cam, slm, dpanel, args)
+            ddisplay = preflight.apply_to_panel_phase(dpanel)
+            dframe = shoot(cam, slm, ddisplay, args)
             dframes.append(crop_around_zero_order(dframe, args.crop))
             tag = f"probe{index:02d}"
             for variant, panel_v, frame_v in (
-                ("bare", base_panel, frame),
-                ("defocus", dpanel, dframe),
+                ("bare", display_panel, frame),
+                ("defocus", ddisplay, dframe),
             ):
                 pk, fw, rcx, rcy, rh = measure_spot(frame_v)
                 recorder.append(
@@ -407,8 +508,8 @@ def stage_collect(args: argparse.Namespace, out_dir: Path) -> None:
                     }
                 )
             if args.save_frames:
-                save_phase_png(vis / f"{tag}_phase_bare.png", base_panel)
-                save_phase_png(vis / f"{tag}_phase_defocus.png", dpanel)
+                save_phase_png(vis / f"{tag}_phase_bare.png", display_panel)
+                save_phase_png(vis / f"{tag}_phase_defocus.png", ddisplay)
                 save_frame_png(vis / f"{tag}_ccd_bare.png", frame)
                 save_frame_png(vis / f"{tag}_ccd_defocus.png", dframe)
             logger.info(
@@ -570,6 +671,11 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
     flat_core = float("nan")
     flat_frame: np.ndarray | None = None
 
+    # The preflight runs before any device is opened, so a bad focus.json
+    # costs nothing.  The sweep measures the *bench as it is actually used*,
+    # so the compensation has to be on the panel for every point.
+    preflight = _build_focus_preflight(args, out_dir)
+
     with Santec(
         slm_number=args.slm_number, wavelength=args.slm_wavelength, video_mode=0
     ) as slm, create_camera(
@@ -604,6 +710,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                         "spherical": (4, 0),
                     }[mode]
                 panel = zernike_panel({nm: float(coeff)}, args.zernike_radius, pupil)
+            panel = preflight.apply_to_panel_phase(panel)
             frame = shoot(cam, slm, panel, args)
             peak, fwhm, cx, cy, hollow = measure_spot(frame)
             if mode == "flat":
@@ -668,6 +775,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 panel = ramp_panel(
                     int(period), 1 if axis == "x" else 0, (PANEL_H, PANEL_W)
                 )
+                panel = preflight.apply_to_panel_phase(panel)
                 frame = shoot(cam, slm, panel, args)
                 pk, fw, rcx, rcy, rh = measure_spot(frame)
                 points.append(
@@ -710,6 +818,7 @@ def stage_sweep(args: argparse.Namespace, out_dir: Path) -> None:
                 for k, c in enumerate(seq):
                     nm = tilt_axis[0] if axis == "x" else tilt_axis[1]
                     panel = zernike_panel({nm: float(c)}, args.zernike_radius, pupil)
+                    panel = preflight.apply_to_panel_phase(panel)
                     frame = shoot(cam, slm, panel, args)
                     _pk, _fw, rcx, rcy, _rh = measure_spot(frame)
                     # Phase correlation against the flat reference: immune to the
@@ -1208,6 +1317,47 @@ def main() -> int:
     ap.add_argument(
         "--no-save-frames", dest="save_frames", action="store_false",
         help="Do not write the phase/CCD image record",
+    )
+    # Focus (defocus) compensation as an acquisition preflight stage.  Off by
+    # default: the 2f bench sits permanently out of focus, and the forward
+    # model fitted on an uncorrected bench predicts a broader spot than the
+    # hardware produces.  Two options sharing one dest because argparse has no
+    # `--x/--no-x` syntax (that is Click) -- see the `--save-frames` pair.
+    ap.add_argument(
+        "--focus-dir", default="",
+        help="Directory holding the focus calibration evidence (focus.json), "
+        "as written by `python -m ao_shaping.tools.slm.panel.alignment_probe`. "
+        "The Fresnel focus phase is built from it and added to every "
+        "displayed pupil phase.",
+    )
+    ap.add_argument(
+        "--focus-compensation", dest="focus_compensation", action="store_true",
+        default=False,
+        help="Enable the focus (defocus) compensation preflight stage "
+        "(default: off, so the run stays bit-identical to before)",
+    )
+    ap.add_argument(
+        "--no-focus-compensation", dest="focus_compensation", action="store_false",
+        help="Explicitly disable the focus compensation even if --focus-dir "
+        "is given (the evidence file then records that it was turned off)",
+    )
+    ap.add_argument(
+        "--focus-live-probe", dest="focus_live_probe", action="store_true",
+        default=False,
+        help="Allow an on-the-spot focus calibration when --focus-dir is not "
+        "given. This OPENS the panel and the camera; the offline paths never "
+        "do it.",
+    )
+    ap.add_argument(
+        "--focus-tilt-map", default="",
+        help="JSON file with the measured panel-ramp -> camera-shift map "
+        "(the `axis_map` block written by scripts/slm/hw_gs_defocus_probe.py). "
+        "Enables the de-steer ramp; needs --focus-tilt-shift as well.",
+    )
+    ap.add_argument(
+        "--focus-tilt-shift", default="",
+        help="Camera-pixel shift the de-steer ramp must cancel, 'dx,dy'. "
+        "Needs --focus-tilt-map as well.",
     )
     ap.add_argument(
         "--pupil-center",
