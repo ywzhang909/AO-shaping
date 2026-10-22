@@ -258,6 +258,11 @@ def _unresolved() -> dict[str, list[str]]:
         if info is None:
             problems.setdefault(mod, []).append(f"{where} (no such module)")
         elif not any(info):
+            # 一个包只要有 ``__main__.py`` (且带 ``__main__`` 守卫) 就能用
+            # ``python -m <pkg>`` 运行; 守卫 / click 可能写在 ``__main__.py`` 而非
+            # ``__init__.py`` 里, 这种情况不算「不可运行」。
+            if INVENTORY.get(f"{mod}.__main__", (False, False))[0]:
+                return
             problems.setdefault(mod, []).append(f"{where} (no __main__, no click)")
 
     for path in _PY_MODULE_DOCS:

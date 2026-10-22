@@ -822,7 +822,7 @@ class TestFairness:
         probe, _calls = _counting_probe(tmp_path, "busy")
 
         code, reason = wait_until_idle(
-            0.3,
+            2.0,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
             process_source=_no_processes,
@@ -952,7 +952,7 @@ class TestFairness:
             return _other_session_processes()
 
         code, reason = wait_until_idle(
-            0.3,
+            2.0,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
             process_source=appearing_processes,

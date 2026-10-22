@@ -180,6 +180,22 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "the figure it embeds does not, so the link cannot resolve there."
         ),
     },
+    # The tracked model-in-loop reports embed their generated radiometry CSVs,
+    # but those CSVs are gitignored (*.csv, .gitignore:7) and exist only on the
+    # machine that produced the report -- same situation as the data/debug/
+    # baselines above: they resolve there but not in a clean clone.
+    "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": {
+        "artifacts/physical_forward_rows_20261022.csv": (
+            "generated radiometry CSV, gitignored (*.csv, .gitignore:7) -- exists "
+            "only on the machine that ran the model-in-loop experiment"
+        ),
+    },
+    "report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md": {
+        "artifacts/sampling_radiometry_metrics_20261022_r2.csv": (
+            "generated radiometry CSV, gitignored (*.csv, .gitignore:7) -- exists "
+            "only on the machine that ran the model-in-loop experiment"
+        ),
+    },
 }
 
 
