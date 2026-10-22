@@ -3145,6 +3145,67 @@ the p-value**; a single best-round score is not a reproducible gain on this
 bench (the score distribution is bimodal — see
 `report/shape_trials/gs_refine_live_20261012.md`).
 
+### dual_aperture_cv.py
+
+Offline post-processing for the **two CV conventions** of issue #165 (P1, parallel
+line): the plateau-rms convention used for literature comparison (Zhou 2010,
+"small flat area < 6 % rms") and the target-box `std/mean` convention the
+closed loop actually optimises. **Fully offline** — reads the frames a
+`slm-model-in-loop --debug` run already wrote, never opens a camera or an SLM.
+
+Every number carries its aperture: the CSV/JSON/MD rows have an `aperture` column
+(`target_full` / `plateau_inner`) plus an `aperture_definition` string, and the two
+conventions are never merged into one figure.
+
+The optical axis is **not** stored on disk, so it is recomputed from the flat
+frame with the canonical `beam_metrics.zero_order_center` (the same call the
+runner makes). If no flat frame can be found the script exits with code 2 — it
+never falls back to the geometric frame centre (the 0-order is not at the frame
+centre on this bench).
+
+A self-check recomputes the `target_full` convention and compares it with the
+`uniformity_cv` the run recorded in its history CSV (`cv_check_rel_delta`); with
+`--strict` a deviation beyond `--tol` exits with code 1. That is the tripwire for
+a centre/aperture mismatch.
+
+**Usage:**
+```bash
+python scripts/slm/dual_aperture_cv.py --from-dir data/debug/slm_model_in_loop/<ts>
+python scripts/slm/dual_aperture_cv.py --from-dir <ts> --split shaped --rounds 1,2 --strict
+python scripts/slm/dual_aperture_cv.py --from-dir <ts> --csv cv.csv --json cv.json --md cv.md
+```
+
+**Output** — the CSV/JSON/MD files given on the command line; with none given, a
+table on stdout.
+
+### gsnet_sim_dryrun.py
+
+Device-free rehearsal of the **whole issue #165 hardware chain**, stage by stage:
+simulated model-in-loop → probe fixture → twin fit → coupling fit → phase export
+→ transfer → closed-loop A/B plan → dual-aperture CV. **Never opens a device**;
+each stage reports `OK` / `BLOCKED` / `FAILED` with its seconds, artifacts and
+verdict, and the report ends with the checklist of what still needs the bench.
+
+Two facts it makes explicit instead of hiding:
+
+* the simulated path writes **no** `probes/*.npz` and **no**
+  `preflight/geometry.json` (probe records are hardware-only), so the twin fit
+  cannot consume a simulated run directory — hence the `probe_fixture` stage,
+  which writes a fixture with exactly the layout the offline scripts expect;
+* the coupling stage fits a **synthetic** gray-response CSV, so it proves the
+  fitter's math, not the bench's coupling.
+
+**Usage:**
+```bash
+python scripts/slm/gsnet_sim_dryrun.py
+python scripts/slm/gsnet_sim_dryrun.py --only probe_fixture --only coupling
+python scripts/slm/gsnet_sim_dryrun.py --checkpoint data/gsnet_pretrain/<ts>/checkpoint.pt --strict
+```
+
+**Output** — `data/debug/gsnet_sim_dryrun/<ts>/`: `dryrun.json` (per-stage
+records), `dryrun.md` (stage table + the "still needs the bench" checklist) and
+the fixture directory it built.
+
 ### generate_models_report.py
 
 Generates the ML model training analysis report from TensorBoard event files.
