@@ -56,6 +56,20 @@ _LINKABLE = re.compile(
 #: reason)``. Each needs a justification, because an unexplained baseline is just
 #: a suppressed failure.
 _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
+    "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": {
+        "artifacts/physical_forward_rows_20261022.csv": (
+            "per-phase metrics CSV, which .gitignore:7 (`*.csv`) keeps out of "
+            "the repo entirely -- it exists only on the collecting machine, so "
+            "the link cannot resolve on a clean clone."
+        ),
+    },
+    "report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md": {
+        "artifacts/sampling_radiometry_metrics_20261022_r2.csv": (
+            "radiometry metrics CSV, which .gitignore:7 (`*.csv`) keeps out of "
+            "the repo entirely -- it exists only on the collecting machine, so "
+            "the link cannot resolve on a clean clone."
+        ),
+    },
     "report/shape_trials/gs_refine/gs_refine_live_20261012.md": {
         "../../../data/debug/slm_gs_refine/20261012_173710/slm_gs_refine_20261012_173710_20261012_173710.gif": (
             "hardware capture under data/debug/, which .gitignore:28 "

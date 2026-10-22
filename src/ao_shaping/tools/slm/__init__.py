@@ -7,16 +7,18 @@ and the camera-only / WFS probes now live beside it::
     tools/
       kernels/   bench_kernels, sweep_analysis      (shared, device-injected)
       zernike/   common, sweep_probe, abba_probe    (shared Zernike + sweep)
-      ccd/       exposure_check, drift_probe, floor_probe
+      ccd/       exposure_check, drift_probe, floor_probe, short_exposure_probe
       wfs/       wfs_probe, wfs_reference, zernike_response, zernike_correction
       slm/
         panel/         diagnose, tilt_probe, panel_locate, beam_extent,
-                       focus_probe, phase_resolution, phase_response
+                       focus_probe, focus_preflight, alignment_probe,
+                       bench_fingerprint, display_state, phase_resolution,
+                       phase_response
         calibration/   calibration, gray_response, lut_runner, phase_capture,
-                       train_data_collect
+                       train_data_collect, diffraction_efficiency/
         cartographer/  cosine_pattern, hartmann_capture,
                        wavefront_reconstruction, phase_grayscale_lut,
-                       dynamic_compensation
+                       dynamic_compensation, slm_cartographer_ui
         gs_refine_replay.py  interleaved hardware replay of GS-refine phases
                        saved in one run directory
         analyze_disturbance.py  paired-run metrics with the optical axis

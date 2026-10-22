@@ -1494,38 +1494,6 @@ python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \
 | `--max-energy-loss` | `0.6` | in-ROI energy-loss fraction that abandons an SPGD evaluation (0 disables the guard). Lower it if every perturbation of an already-good fitted phase is rejected |
 | `--save-images` | off | dump per-stage far-field PNGs |
 
-### compare_sim_vs_hw.py
-
-Runs the **same acquisition scripts** on the digital twin and compares every
-metric with the **hardware** numbers of a finished round, item by item.
-
-**Why it exists**: a simulation that "runs" proves nothing about physics. This
-script makes the claim checkable: the hardware side is read from a round's
-**archived artefacts** (never hard-coded), the simulation side is produced by
-the very same probes (`hw_gs_defocus_probe.py`, `run_gs_refine_zernike_sweep.py`,
-`focus_probe.py`) with `--cam-type sim`, and both sides go through the **same**
-metric code, so a difference in the numbers is a difference in the *physics*,
-not in the bookkeeping.
-
-**Usage:**
-```bash
-# render the comparison table from an existing simulation run
-python scripts/slm/compare_sim_vs_hw.py
-# run the simulation side first (minutes) and then render
-python scripts/slm/compare_sim_vs_hw.py --execute
-# which round's hardware artefacts to compare against
-python scripts/slm/compare_sim_vs_hw.py --round-root report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022
-```
-
-**Outputs**: a markdown table (metric / hardware / simulation / relative
-difference / verdict) plus a gap list, written to
-`report/shape_trials/sim_vs_hw/artifacts/`.
-
-**Cost**: one far-field evaluation is ~1.4 s and ~1.5 GB peak
-(`far_field_padding = 4`, panel 1200x1920); a full pass over the round's groups
-is ~13 min. `--sim-far-field-padding 16` would need ~9.4 GB per evaluation —
-never use it for the comparison.
-
 ### run_hw_sweep_groups.py
 
 Plan-driven runner for the **one-variable-group-per-invocation** hardware
@@ -3235,6 +3203,13 @@ it, display it, and measure the result (needs hardware: Santec SLM-200 + camera)
 > `src/ao_shaping/tools/slm/slm_zernike_sweep_probe.py`, and this runbook imports
 > it. `--stage sweep` keeps only the calibration-protocol specifics (ABBA tilt
 > interleaving, phase-correlation shifts, per-point frame dumps).
+>
+> A **focus preflight** stage (2026-10-22, `tools/slm/panel/focus_preflight.py`)
+> now runs as the first step of the capture stage: the 2f bench sits permanently
+> out of focus, so it layers the measured Fresnel focus compensation (plus an
+> optional de-steer ramp) onto every displayed pupil phase. **Off by default**
+> (`--no-focus-compensation` keeps a run bit-identical to before); `focus_preflight.json`
+> is written either way as audit evidence.
 
 **Usage:**
 ```bash
@@ -3271,6 +3246,11 @@ solve) and is how the logic is verified while the bench is offline.
 | `--probes` | `12` | calibration records to capture |
 | `--region` / `--far-field-size` | `256` / `4096` | model grid and zero-padding |
 | `--collect-disc` | `200` | panel radius used when probing, px |
+| `--focus-dir` | (empty) | dir holding `focus.json` (from `alignment_probe`); the Fresnel focus phase is built from it and added to every displayed pupil phase |
+| `--focus-compensation` / `--no-focus-compensation` | off | enable/disable the focus preflight stage (off ⇒ run stays bit-identical to before) |
+| `--focus-live-probe` | off | allow an on-the-spot focus calibration when `--focus-dir` is empty (**opens the panel and camera**; the offline path never does) |
+| `--focus-tilt-map` | (empty) | JSON with the measured panel-ramp → camera-shift map (`axis_map` from `scripts/slm/hw_gs_defocus_probe.py`); enables the de-steer ramp, needs `--focus-tilt-shift` too |
+| `--focus-tilt-shift` | (empty) | camera-pixel shift the de-steer ramp must cancel, `dx,dy`; needs `--focus-tilt-map` |
 | `--target-cam-px` | `40` | target square side in camera pixels |
 | `--shape-iterations` | `600` | Step B budget |
 | `--exposure-ms` | `3.0` | camera exposure (ms) |
