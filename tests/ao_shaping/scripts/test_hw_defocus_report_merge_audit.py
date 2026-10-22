@@ -769,3 +769,176 @@ class TestComparabilityUsesValuesNotFrameShapeEquality:
         assert comparable is True
 
 
+class TestAuditBlockIsRoundAgnostic:
+    """§3 的同源性核查段必须**只讲本轮的数据**。
+
+    早先的版本把「第三轮的块是 ``[127, 128]``」**写死**在正文里, 而第三轮真跑出来
+    的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者一眼能看出来)。
+
+    ⇒ 判据两条:
+      1. 段里「本轮」的取值必须等于**本轮数据**的取值;
+      2. 段里不得出现**某一轮专属**的说法 (轮次名) —— 段是轮次无关的, 轮次由文件/日期决定。
+    """
+
+    @staticmethod
+    def _block(tmp_path: Path, centers: dict[str, list[int]], shapes: dict[str, list[int]] | None = None) -> str:
+        """造一份假数据根, 返回它的 §3 同源性核查段。"""
+        root = tmp_path / "fake_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        for i, (group, center) in enumerate(centers.items()):
+            _write_summary(
+                root,
+                group,
+                n_max=3 + i,
+                mask_center_xy=center,
+                frame_shape=(shapes or {}).get(group),
+            )
+        return gen.merge_audit_block(gen.load_zernike(root))
+
+    def test_this_rounds_values_are_printed(self, tmp_path):
+        """「本轮各组的取值」那一句必须列的是**本轮数据**的取值。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax4": [126, 127],
+            },
+        )
+        # 取值按数值排序后列出 (与正文里的排序一致)
+        assert "取值为 `[126, 127]` / `[128, 129]`" in block
+
+    def test_no_round_specific_wording(self, tmp_path):
+        """段里不得出现轮次名 (「第三轮」) —— 写死轮次名就会在某轮变成一句不成立的话。"""
+        block = self._block(tmp_path, {"zernike_order_nmax3": [128, 129]})
+        assert "第三轮" not in block
+        assert "本轮" in block
+
+    def test_large_deviation_is_reported_as_suspect(self, tmp_path):
+        """大偏差 (第三轮实测有一组差 123 px) 必须被**报出来**, 不能被当成抖动吞掉。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax25": [6, 6],
+            },
+        )
+        assert "[6, 6]" in block
+        assert "疑似跨轮次数据混入" in block
+        assert "逐轴偏差 123 px > 2 px" in block
+        assert "本轮实测散布 **±123 px**" in block
+
+    def test_value_outside_common_window_is_named(self, tmp_path):
+        """落在共同窗口之外的取值要**点名说是谁** (可能是别的组, 也可能是合并采用值)。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_stage_a": [1433, 971],
+            },
+            shapes={"zernike_order_nmax3": [256, 256], "zernike_stage_a": [1944, 2592]},
+        )
+        assert "不在同一空间" in block
+        assert "落在共同窗口 256x256 之外" in block
+        assert "全幅传感器" in block
+
+    def test_spread_is_computed_from_this_rounds_data(self, tmp_path):
+        """散布必须由本轮数据算出来 (两组的逐轴偏差 2 px), 不是某个写死的数。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax4": [126, 127],
+            },
+        )
+        assert "本轮实测散布 **±2 px**" in block
+
+
+class TestSuspectQualifier:
+    """「超过阈值」的跨组差异要给出**数据驱动**的补充判定, 而不是一律说「混进别轮」。
+
+    实测背景 (第三轮): Stage A 块 (全幅帧) 与逐阶组 (ROI 窗口帧) 定位零级差 4 px,
+    超过 2 px 阈值 ⇒ 审计段会喊「疑似跨轮次数据混入」⇒ 但这一轮是**同一次采集**里
+    连续产出的 (写入时间相隔 66 分钟), 差异按 ``frame_shape`` 分簇 ⇒ 那是**两套取景口径**
+    的系统性偏差, 不是污染。
+    """
+
+    @staticmethod
+    def _root(tmp_path: Path, *, apart: bool) -> Path:
+        root = tmp_path / "fake_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(
+            root, "zernike_stage_a_1", mask_center_xy=[133, 128], frame_shape=[1944, 2592]
+        )
+        _write_summary(
+            root, "zernike_order_nmax3", mask_center_xy=[129, 128], frame_shape=[256, 256]
+        )
+        if apart:
+            # 把其中一份的写入时间推到 3 小时前 ⇒ 模拟「别轮遗留的产物」
+            import os
+            import time
+
+            target = root / "zernike_stage_a_1" / "summary.json"
+            os.utime(target, (time.time() - 3 * 3600, time.time() - 3 * 3600))
+        return root
+
+    def test_same_session_framing_offset_gets_a_qualifier(self, tmp_path):
+        root = self._root(tmp_path, apart=False)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        # 守卫的声音仍在 (读者必须看见「超过阈值」这件事), 但正文**不**断言
+        # 「光学状态不是同一轮的」—— 那一批的数据给出的解释是「两套取景口径」。
+        assert "跨组字段不一致" in block
+        assert "疑似跨轮次数据混入" in block
+        assert "补充判定" in block
+        assert "frame_shape" in block
+        assert "这批数据的**光学状态不是同一轮的**" not in block
+
+    def test_old_wording_kept_when_groups_are_far_apart(self, tmp_path):
+        root = self._root(tmp_path, apart=True)
+        block = gen.merge_audit_block(gen.load_zernike(root))
+        assert "疑似跨轮次数据混入" in block
+        assert "这批数据的**光学状态不是同一轮的**" in block
+        assert "补充判定" not in block
+
+
+class TestRepeatCheckBlock:
+    """§5 的「同组复测对照」段: 同一组换个时间/协议再测一次, 差多少。"""
+
+    @staticmethod
+    def _round_and_repeat(tmp_path: Path) -> tuple[dict, dict]:
+        root = tmp_path / "fake_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        _write_summary(root, "zernike_order_nmax3", n_max=3)
+        merged = gen.load_zernike(root)
+        # 复测那一份: 同一组, 但 PIB 差了一大截 (实测就是这种情况)
+        repeat = json.loads(
+            (root / "zernike_order_nmax3" / "summary.json").read_text(encoding="utf-8")
+        )
+        order = repeat["orders"][0]
+        order["after"]["pib"] = 0.2
+        order["before"]["pib"] = 0.3
+        return merged, repeat
+
+    def test_block_lists_both_measurements_and_the_relative_difference(self, tmp_path):
+        merged, repeat = self._round_and_repeat(tmp_path)
+        block = gen.repeat_check_block(merged, repeat)
+        assert "zernike_order_nmax3" in block
+        assert "本轮" in block and "复测" in block
+        # PIB 那一行必须带相对差
+        assert "pib" in block
+        assert "%" in block
+        assert "批次级的漂移" in block
+
+    def test_no_repeat_evidence_means_no_block(self, tmp_path):
+        merged, _repeat = self._round_and_repeat(tmp_path)
+        assert gen.repeat_check_block(merged, None) == ""
+
+    def test_unknown_group_means_no_block(self, tmp_path):
+        merged, repeat = self._round_and_repeat(tmp_path)
+        repeat = dict(repeat)
+        repeat["group"] = "zernike_order_nmax999"
+        assert gen.repeat_check_block(merged, repeat) == ""
+
+

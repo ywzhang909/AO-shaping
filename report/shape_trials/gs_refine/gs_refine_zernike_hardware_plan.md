@@ -11,7 +11,7 @@
 > **状态**：待实验执行（计划文档，非实验结论）
 > **关联脚本**：[`scripts/slm/run_gs_refine_zernike_sweep.py`](../../../scripts/slm/run_gs_refine_zernike_sweep.py)（采集）、[`scripts/slm/generate_gs_refine_zernike_report.py`](../../../scripts/slm/generate_gs_refine_zernike_report.py)（离线出图）
 > **仿真基线**：[`report/shape_trials/gs_refine_zernike/gs_refine_zernike_uniformity.md`](../gs_refine_zernike/gs_refine_zernike_uniformity.md)
-> **实验系统**：Santec SLM #1 `optionboardID 23020027` + 大恒 CCD `FJB24112232`，1064 nm，2f-Fourier 臂
+> **实验系统**：Santec SLM #1 `optionboardID 23020027` + 大恒 CCD `FJB24112232`，1064 nm，2f-Fourier 配置
 
 ---
 

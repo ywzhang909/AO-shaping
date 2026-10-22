@@ -1,4 +1,4 @@
-# OOPAO 后端 vs 传统 numpy/FFT 后端 —— 对比报告
+# OOPAO 仿真后端分支 vs 传统 numpy/FFT 仿真后端分支 —— 对比报告
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/oopao/generate_oopao_vs_numpy_report.py`](../../../scripts/oopao/generate_oopao_vs_numpy_report.py)
@@ -7,10 +7,10 @@
 > **说明**: 像差 x 湍流 12 场景 x 2 后端对比
 <!-- provenance:end -->
 
-**本轮结论**（12 场景 × 2 后端组件级对比）：两后端差异**唯一来源是 `turbulence_phase()`**——`focal_plane()` 两臂代码逐字节相同，故 Strehl/FWHM/EE 的一切差异只能沿链路回溯到湍流相位生成，用焦面指标判断"传播核是否被换掉"的读法不成立。`cn2=0` 对照组两臂数值完全相同属设计使然（湍流相位在切换内核前返回全零、像差相位确定性无 RNG），可作双盲对照验证报告未误标臂。使用建议：追求**数值可比性**（回归基线、历史对齐）时保持 `AO_OOPAO_BACKEND` 未设置；追求**物理保真度**时在同一基准内保留两臂结果，不跨臂直接比较绝对值。
+**本轮结论**（12 场景 × 2 个仿真后端分支组件级对比）：两个仿真后端分支的差异**唯一来源是 `turbulence_phase()`**——`focal_plane()` 两个仿真后端分支的代码逐字节相同，故 Strehl/FWHM/EE 的一切差异只能沿链路回溯到湍流相位生成，用焦面指标判断"传播核是否被换掉"的读法不成立。`cn2=0` 对照组两个仿真后端分支的数值完全相同属设计使然（湍流相位在切换内核前返回全零、像差相位确定性无 RNG），可作双盲对照验证报告未误标仿真后端分支。使用建议：追求**数值可比性**（回归基线、历史对齐）时保持 `AO_OOPAO_BACKEND` 未设置；追求**物理保真度**时在同一基准内保留两个仿真后端分支的结果，不跨仿真后端分支直接比较绝对值。
 
 - 生成时间: `2026-09-29T16:38:27`
-- 场景矩阵: **12** 个 (像差 4 × 湍流 4, 本次实际取子集) × 2 条臂 = 24 行 CSV
+- 场景矩阵: **12** 个 (像差 4 × 湍流 4, 本次实际取子集) × 2 个仿真后端分支 = 24 行 CSV
 - 仿真参数: `n_grid=64`、`seed=42`、口径 `64 mm`、波长 `1064 nm`
 - 输出: `report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`、`logs/pib_sim_eval/summary.csv`、`docs/oopao_vs_numpy/figures/*.png`
 - 重跑命令: `.venv/bin/python scripts/oopao/generate_oopao_vs_numpy_report.py`
@@ -43,7 +43,7 @@ OOPAO Warning: Significant changes were done to the OOPAO repository, the Telesc
 
 在 `src/ao_shaping/drivers/sim/beam_backend.py` 中, **只有两个函数会切换内核**:
 
-| 函数 | `AO_OOPAO_BACKEND` 未设置 (numpy 臂) | `AO_OOPAO_BACKEND=1` (oopao 臂) |
+| 函数 | `AO_OOPAO_BACKEND` 未设置 (numpy 仿真后端分支) | `AO_OOPAO_BACKEND=1` (oopao 仿真后端分支) |
 |---|---|---|
 | `turbulence_phase()` | FFT 频谱 Kolmogorov 频谱合成 | OOPAO `Atmosphere` von Karman 层 |
 | `propagate()` | `beam_simulation.propagation` (角谱) | OOPAO `Atmosphere.ASM` |
@@ -53,12 +53,12 @@ OOPAO Warning: Significant changes were done to the OOPAO repository, the Telesc
 由此得到三条必须写明的结论:
 
 1. **这不是一次全光学模型替换**。本报告是 *湍流相位屏生成器 + 角谱传播核* 的对比基准, 不是整条 `beam_backend` 链路的替换。
-2. **远场 (焦面) 差异只来自相位屏, 不来自焦面传播核**。`focal_plane()` 两条臂逐字节相同, 所以本报告里 Strehl / FWHM / EE 的差异 100% 是湍流相位屏不同造成的。
+2. **远场 (焦面) 差异只来自相位屏, 不来自焦面传播核**。`focal_plane()` 两个仿真后端分支逐字节相同, 所以本报告里 Strehl / FWHM / EE 的差异 100% 是湍流相位屏不同造成的。
 3. **完全不受影响的模块**: `drivers/sim/slm_pib_sim.py` 与 `drivers/sim/fouriergsnet_env.py` (⚠️ 2026-10-01: 原文写的 `optimizer/rl/envs/fouriergsnet_env.py` 从未存在) 均不 import 任何 `beam_backend` 符号, 其仿真路径与 OOPAO 后端开关**完全无关**。
 
 ## 3. 方法与指标定义
 
-每个 (像差, 湍流) 场景在**同一进程**内依次跑两条臂, 物理链路:
+每个 (像差, 湍流) 场景在**同一进程**内依次跑两个仿真后端分支, 物理链路:
 
 ```text
 screen = turbulence_phase(cfg, cn2/l_max/l_min/distance, rng=default_rng(seed))
@@ -66,23 +66,23 @@ aberr  = nan_to_num(generate_zernike_phase(noll_coeffs_rad, (n, n), n_max=4))
 total  = screen + aberr                       # rad, 未包裹
 field  = gaussian_pupil(cfg) * exp(1j * total)
 prop   = propagate(field, cfg, z)             # ← 唯一内核切换的传播
-focal  = focal_plane(field, cfg, f)           # ← 臂不变
+focal  = focal_plane(field, cfg, f)           # ← 后端不变
 ```
 
 | 指标 | 定义 |
 |---|---|
 | `phase_std_rad` | 瞳面掩码内湍流相位屏的 std (rad) |
 | `phase_rms_rad` | 瞳面掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |
-| `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (臂无关) |
+| `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (与仿真后端分支无关) |
 | `fwhm_px` | 过峰值的**行剖面 / 列剖面**各求半高宽 (阈值交点线性插值) 后取平均 |
 | `ee_r4` | 圆心取 `argmax` (仓库"0 级 = argmax"约定)、半径 `4 × 衍射极限 FWHM` 的包围能量占比 |
 | `energy_frac` | `Σ|propagate 输出|² / Σ|输入场|²` (角谱能量守恒比) |
 
-**播种与确定性**: 每条臂都 (a) 向 `turbulence_phase` 显式传 `rng=np.random.default_rng(seed)`, (b) 在换臂时执行 `np.random.seed(seed)` —— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 `TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两条臂的相位屏**不会**相同 (生成器不同), 这是预期且正确的, 不做任何"对齐"处理。
+**播种与确定性**: 每个仿真后端分支都 (a) 向 `turbulence_phase` 显式传 `rng=np.random.default_rng(seed)`, (b) 在切换仿真后端分支时执行 `np.random.seed(seed)` —— 遗留 numpy 路径在 `rng=None` 时回落到全局 RNG, 而 `TraditionalAOSystem._sample_turbulence_phase` 恰好不传 rng。两个仿真后端分支的相位屏**不会**相同 (生成器不同), 这是预期且正确的, 不做任何"对齐"处理。
 
 **像差幅值**: 通过 canonical `generate_zernike_phase` 生成单位系数相位, 实测其在瞳面内的峰谷值, 再线性缩放到目标 waves-PV (×2π 得弧度)。该函数对系数线性, 因此缩放是精确的; 全程复用官方多项式求值, 未自写任何 Zernike 数学。
 
-**防静默回退**: `_get_backend` 是 `@lru_cache(maxsize=8)`, 键中只有物理配置、**没有臂标志**。脚本在每次换臂和每个场景开始前都调用 `oopao_backend._get_backend.cache_clear()`, 并断言 `oopao_backend._oopao_available() is True` 且 `bb._oopao_enabled()` 与预期臂一致; 不一致即以退出码 2 中止, 绝不会产出被标成 `oopao` 的 numpy 重复结果。
+**防静默回退**: `_get_backend` 是 `@lru_cache(maxsize=8)`, 键中只有物理配置、**没有后端标志**。脚本在每次切换仿真后端分支和每个场景开始前都调用 `oopao_backend._get_backend.cache_clear()`, 并断言 `oopao_backend._oopao_available() is True` 且 `bb._oopao_enabled()` 与预期仿真后端分支一致; 不一致即以退出码 2 中止, 绝不会产出被标成 `oopao` 的 numpy 重复结果。
 
 ## 4. 场景矩阵
 
@@ -185,8 +185,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **none** (Cn2=0, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 2.357710e-07`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 2.357710e-07`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -203,8 +203,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.414196e-02`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.414196e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -221,8 +221,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.151875e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.151875e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -239,8 +239,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **none (无像差)**, 目标 PV 0 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.073027e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.073027e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -257,8 +257,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **none** (Cn2=0, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.682283e-07`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.682283e-07`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -275,8 +275,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.753640e-02`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.753640e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -293,8 +293,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.166597e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.166597e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -311,8 +311,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **defocus (Noll 4=Defocus)**, 目标 PV 0.5 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.643585e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.643585e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -329,8 +329,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **none** (Cn2=0, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 4.034145e-07`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 4.034145e-07`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -347,8 +347,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **weak** (Cn2=1e-16, l0=0.002 m, L0=30 m, 传播距离=500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.983628e-02`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.983628e-02`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -365,8 +365,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **moderate** (Cn2=5e-15, l0=0.001 m, L0=20 m, 传播距离=1000 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.868582e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 3.868582e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -383,8 +383,8 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 - 像差: **astig+coma (Noll 5=Astigmatism 45°, Noll 6=Astigmatism 0°, Noll 7=Coma Y, Noll 8=Coma X)**, 目标 PV 0.8 waves
 - 湍流: **strong** (Cn2=5e-14, l0=0.0005 m, L0=10 m, 传播距离=1500 m)
-- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (臂无关, 每场景只算一次)
-- 两臂 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.358712e-01`
+- 理想 (无像差无湍流) 焦面: 峰值 22.0708, FWHM 4.070 px → EE 半径 16.281 px (与仿真后端分支无关, 每场景只算一次)
+- 两个仿真后端分支 `propagate()` 强度最大相对差 `max|ΔI|/Imax = 8.358712e-01`
 
 | 指标 | numpy | oopao | 相对差 |
 |---|---|---|---|
@@ -399,23 +399,23 @@ focal  = focal_plane(field, cfg, f)           # ← 臂不变
 
 ## 7. 解读与结论
 
-**(a) 湍流相位屏是两臂唯一真正的物理分歧点。** 在 3 个含湍流的档位里, 两臂的 `phase_std_rad` / `phase_rms_rad` / Strehl / FWHM / EE 全部不同 —— 这是 FFT 频谱 Kolmogorov 与 OOPAO von Karman 两个**不同生成器**的必然结果, 不是 bug。两条臂不可互相替代, 也不应把 oopao 的数值直接当成 numpy 的续值。
+**(a) 湍流相位屏是两个仿真后端分支唯一真正的物理分歧点。** 在 3 个含湍流的档位里, 两个仿真后端分支的 `phase_std_rad` / `phase_rms_rad` / Strehl / FWHM / EE 全部不同 —— 这是 FFT 频谱 Kolmogorov 与 OOPAO von Karman 两个**不同生成器**的必然结果, 不是 bug。两个仿真后端分支不可互相替代, 也不应把 oopao 的数值直接当成 numpy 的续值。
 
-> ⚠️ **同 Cn2 下两臂的湍流强度归一化并不一致** —— 这是本次运行最值得注意的定量结果。在 9 个含湍流场景中, oopao 臂的 `phase_std_rad` / numpy 臂之比 = **2.50× ~ 2.53×** (中位 2.51×)。尽管 `beam_backend.turbulence_phase` 的 docstring 声称 OOPAO 分层已"rescaling to the per-slab r0 that matches the historical aotools/FFT path", 实测两条路径在**相同 Cn2** 下给出的相位起伏强度差了一个量级左右。因此: **Strehl / FWHM 的绝对值不可跨臂直接比较** —— oopao 臂并不是"同条件下的等价实现", 而是一个把同样的 Cn2 映射到更湍流的光场的实现。
+> ⚠️ **同 Cn2 下两个仿真后端分支的湍流强度归一化并不一致** —— 这是本次运行最值得注意的定量结果。在 9 个含湍流场景中, oopao 仿真后端分支的 `phase_std_rad` / numpy 仿真后端分支之比 = **2.50× ~ 2.53×** (中位 2.51×)。尽管 `beam_backend.turbulence_phase` 的 docstring 声称 OOPAO 分层已"rescaling to the per-slab r0 that matches the historical aotools/FFT path", 实测两条路径在**相同 Cn2** 下给出的相位起伏强度差了一个量级左右。因此: **Strehl / FWHM 的绝对值不可跨仿真后端分支直接比较** —— oopao 仿真后端分支并不是"同条件下的等价实现", 而是一个把同样的 Cn2 映射到更湍流的光场的实现。
 
-**(b) 角谱传播核在本配置下几乎是恒等替换。** `beam_simulation.propagation` 用 `kz = sqrt(|(2π/λ)² - f_x² - f_y²|)`, OOPAO `ASM` 用抛物近似 `exp(-iπλz f²)`; 二者只差一个全局相位 `exp(ikz)` (强度不可见) 与 `O((f λ)²)` 量级的高阶项。实测两臂 `propagate()` 强度图最大相对差 `8.644e-01`, 能量守恒比在 `1.000000000`–`1.000000000` 之间 —— **因此 `energy_frac` 不是区分两臂的指标**, 它的价值在于证明两条核都严格保能量。
+**(b) 角谱传播核在本配置下几乎是恒等替换。** `beam_simulation.propagation` 用 `kz = sqrt(|(2π/λ)² - f_x² - f_y²|)`, OOPAO `ASM` 用抛物近似 `exp(-iπλz f²)`; 二者只差一个全局相位 `exp(ikz)` (强度不可见) 与 `O((f λ)²)` 量级的高阶项。实测两个仿真后端分支 `propagate()` 强度图最大相对差 `8.644e-01`, 能量守恒比在 `1.000000000`–`1.000000000` 之间 —— **因此 `energy_frac` 不是区分两个仿真后端分支的指标**, 它的价值在于证明两条核都严格保能量。
 
 > 注: 上式的 `|·|` 是**实现事实而非严格解** —— 常规角谱对倏逝分量(参数为负) 应取纯虚 `kz` 使其随 z 衰减, 而 `sqrt(np.abs(...))` 会把它变成实数 `kz` 并因此 **放大** 而非衰减。本台参数 (口径 64 mm、λ=1064 nm、ASM z=200 m) 下频谱上限远低于 1/λ, 不存在倏逝分量, 故该差异在本报告中不产生任何影响; 但把 `propagation()` 推到高空间频率或大 z 时必须记得这处 `abs`。
 
-**(c) 焦面指标差异的归因。** `focal_plane()` 两臂代码完全相同, 所以上表里 Strehl / FWHM / EE 的所有差异都只能沿链路回溯到 `turbulence_phase()`。任何用焦面指标去判断"传播核是否被换掉"的读法都是错的。
+**(c) 焦面指标差异的归因。** `focal_plane()` 两个仿真后端分支代码完全相同, 所以上表里 Strehl / FWHM / EE 的所有差异都只能沿链路回溯到 `turbulence_phase()`。任何用焦面指标去判断"传播核是否被换掉"的读法都是错的。
 
-**(d) `cn2=0` 对照组两臂数值完全相同 —— 这是设计如此, 不是缺陷。** `turbulence_phase()` 在 `cn2 <= 0` 时直接返回全零 (在切换内核之前), 而像差相位是确定性、无 RNG 的, 于是两臂的入射场逐字节相同, 相位类指标与焦面指标必然一致; 此时唯一还可能不同的是 `propagate()` 核, 见 (b)。把这一行当作"双盲对照"来验证报告没有把 numpy 结果误标成 oopao。
+**(d) `cn2=0` 对照组两个仿真后端分支数值完全相同 —— 这是设计如此, 不是缺陷。** `turbulence_phase()` 在 `cn2 <= 0` 时直接返回全零 (在切换内核之前), 而像差相位是确定性、无 RNG 的, 于是两个仿真后端分支的入射场逐字节相同, 相位类指标与焦面指标必然一致; 此时唯一还可能不同的是 `propagate()` 核, 见 (b)。把这一行当作"双盲对照"来验证报告没有把 numpy 结果误标成 oopao。
 
-**(e) 使用建议.** 若目标是**数值可比性** (回归基线、与历史数据对齐), 保持 `AO_OOPAO_BACKEND` 未设置; 若目标是**物理保真度** (更接近真实大气相位谱), 则应在同一份基准里同时保留两臂结果, 不要跨臂直接比较绝对值。
+**(e) 使用建议.** 若目标是**数值可比性** (回归基线、与历史数据对齐), 保持 `AO_OOPAO_BACKEND` 未设置; 若目标是**物理保真度** (更接近真实大气相位谱), 则应在同一份基准里同时保留两个仿真后端分支的结果, 不要跨仿真后端分支直接比较绝对值。
 
 ## 8. 产物清单
 
 - `report.md` — 本文件
-- `summary.csv` — 24 行 (每 (场景, 臂) 一行), 列: `scenario`, `arm`, `n_grid`, `seed`, `cn2`, `aberration`, `aberration_pv_waves`, `distance_m`, `phase_std_rad`, `phase_rms_rad`, `strehl`, `fwhm_px`, `ee_r4`, `energy_frac`
+- `summary.csv` — 24 行 (每 (场景, 仿真后端分支) 一行), 列: `scenario`, `arm`, `n_grid`, `seed`, `cn2`, `aberration`, `aberration_pv_waves`, `distance_m`, `phase_std_rad`, `phase_rms_rad`, `strehl`, `fwhm_px`, `ee_r4`, `energy_frac`
 - `figures/summary_overview.png` — 汇总图 (Strehl / 相位 RMS vs 湍流档位)
 - `figures/*_20260929_163816.png` — 每个场景一张 5×2 对比图 (共 12 张)

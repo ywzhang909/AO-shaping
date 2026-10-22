@@ -1,7 +1,7 @@
 """Tests for the figure-stamp derivation of the hardware defocus report.
 
 One series (``report/shape_trials/hw_defocus_zernike/``) can hold **several**
-reports — the same day may add another round (``..._20261021_r3``).  Each
+reports — the same day may add another round (``..._20261022_r2``).  Each
 report owns its figures, so the stamp that is appended to every figure file
 name must be **unique per report inside the series**.
 
@@ -63,7 +63,7 @@ FIGURE_NAME_PREFIXES = (
 STEMS = (
     "hw_defocus_zernike_20261020",  # 默认那份 (图名已入库, 不带戳)
     "hw_defocus_zernike_20261021",  # 第二轮
-    "hw_defocus_zernike_20261021_r3",  # 同日追加的第三轮
+    "hw_defocus_zernike_20261022_r2",  # 同日追加的第三轮
 )
 
 
@@ -83,14 +83,14 @@ class TestFigureTag:
 
     def test_same_day_round_gets_its_own_unique_stamp(self):
         # ⚠️ 旧实现只在「以 8 位数字结尾」时给戳 -> 这一份拿到空戳 -> 覆盖默认那份的图。
-        assert figure_tag(_key("hw_defocus_zernike_20261021_r3")) == "_20261021_r3"
+        assert figure_tag(_key("hw_defocus_zernike_20261022_r2")) == "_20261022_r2"
 
     def test_stamps_are_pairwise_distinct(self):
         stamps = [figure_tag(_key(stem)) for stem in STEMS]
         assert len(set(stamps)) == len(stamps)
 
     def test_suffix_is_sanitised_to_alnum_underscore(self):
-        assert figure_tag(_key("hw_defocus_zernike_20261021-r3")) == "_20261021_r3"
+        assert figure_tag(_key("hw_defocus_zernike_20261022-r2")) == "_20261022_r2"
 
     def test_foreign_stem_raises(self):
         # 不属于本系列的名字必须**报错**, 而不是悄悄给一个空戳去覆盖别人的图。
@@ -112,8 +112,8 @@ class TestReportDate:
         assert report_date(_key("hw_defocus_zernike_20261021")) == "2026-10-21"
 
     def test_same_day_round_keeps_that_day(self):
-        # 轮次后缀不是日期 —— 同日追加的一轮仍是 2026-10-21。
-        assert report_date(_key("hw_defocus_zernike_20261021_r3")) == "2026-10-21"
+        # 轮次后缀不是日期 —— 同日追加的一轮仍是那一天 (2026-10-22)。
+        assert report_date(_key("hw_defocus_zernike_20261022_r2")) == "2026-10-22"
 
     def test_no_date_in_stem_falls_back_to_default(self):
         assert report_date(_key("hw_defocus_zernike_round_x")) == DEFAULT_REPORT_DATE

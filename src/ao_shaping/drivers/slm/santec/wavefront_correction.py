@@ -224,8 +224,12 @@ class WavefrontCorrection:
         """从优先级链解析并加载矫正数据
 
         优先级顺序: explicit → config['correction_csv_path'] → default_path
-        跳过不存在的路径，从第一个有效路径加载并返回完整实例。
-        均无效时返回 None。
+        跳过不存在的路径（**以及 None/空串**），从第一个有效路径加载并返回
+        完整实例。均无效时返回 None。
+
+        ⚠️ config 里的 ``correction_csv_path`` 值可能为 None/空串
+        (配置写入 ``correction_csv_path: null`` 时即是) —— 此时**跳过该候选**,
+        不抛 TypeError。
 
         Args:
             explicit_path: __init__ 显式指定的路径（最高优先级）
@@ -242,8 +246,11 @@ class WavefrontCorrection:
         if explicit_path is not None and explicit_path != "":
             candidates.append(("显式指定", Path(explicit_path)))
         if config is not None and "correction_csv_path" in config:
-            candidates.append(("配置文件", Path(config["correction_csv_path"])))
-        if default_path is not None:
+            raw = config["correction_csv_path"]
+            # None/空串 ⇒ 该候选无效（不是错误），跳过而非崩溃
+            if raw is not None and str(raw).strip() != "":
+                candidates.append(("配置文件", Path(raw)))
+        if default_path is not None and default_path != "":
             candidates.append(("默认路径", Path(default_path)))
 
         for source, path in candidates:

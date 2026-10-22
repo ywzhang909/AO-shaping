@@ -59,6 +59,7 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 实验系统的**�
 | 模块 | 作用 |
 |---|---|
 | `calibration/` | SLM 标定工具**子包**（2026-10 由单文件 `calibration.py` 拆出）：`calibration.py`（`SantecCalibrator`/`AutoExposureController` + shift CLI）/ `gray_response.py`（灰度→亮度响应，周期 ≈ 2π）/ `phase_capture.py`（随机相位采集）/ `lut_runner.py`（灰度→相位 LUT，**注册为 `slm-lut`**）/ `train_data_collect.py`（训练数据采集，`exposure_ms × cam_size` 交叉扫描，产物供 `ml/hwdataset` 索引；`--no-hw` 只打印采集计划）。CLI 入口不变：`python -m ao_shaping.tools.slm.calibration`（默认几何标定，`shift` 子命令做 defocus 零点标定） |
+| `calibration/diffraction_efficiency/` | **闪耀光栅衍射效率测量**（子包）：`core.py`（纯算法：图案/阶次识别/离散器件模型/拟合/诊断）/ `simulate.py`（数字孪生：填充因子/相位 LUT/面板相差/离焦，无硬件跑完整链路）/ `measure.py`（硬件后端：Santec + Daheng）/ `artifacts.py`（CSV/JSON/PNG）。CLI：`python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**：必须先有光路标定 `.npz`（`python -m ao_shaping.tools.slm.calibration` 产出），否则无法预测 ±1 级落点。⚠️ **可信范围**（`report/slm/diffraction_efficiency/sim_nonideality_20261022.md`）：相对效率曲线可信；拟合出的相位深度只在「幂律器件 + 在焦 + 填充因子≈1」三前提同时成立时可信。**光斑宽度门禁**（`--fwhm-gate-ratio`，默认 3×；`--reference-fwhm-px` 给一条**在焦**的绝对参照）把这类失真变成显式失败：门禁触发时越限点与「零级被熄灭」的点一并退出拟合，有效点不足即拟合报错 |
 
 
 
@@ -79,4 +80,4 @@ SLM(Santec SLM-200)+ 远场相机(Daheng / MiiCam)2f-Fourier 实验系统的**�
 pytest tests/ao_shaping/tools/slm/ -q
 ```
 
-全部离线(硬件用 mock 或门控 skip)。当前 **293 passed / 3 skipped**。
+全部离线(硬件用 mock 或门控 skip)。当前 **634 passed / 4 skipped**。

@@ -1,0 +1,126 @@
+{
+  "group": "zernike_order_nmax3",
+  "variable": "n_max",
+  "group_meta": {
+    "role": "zernike_order",
+    "phase": "hardware_gs",
+    "exposure_ms": "0.2",
+    "defocus_focal_mm": "1549.332046",
+    "n_max": "3"
+  },
+  "config": {
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_time_ms": 0.2,
+    "cam_size": 256,
+    "sim_far_field_padding": 16,
+    "slm_number": 1,
+    "beam_radius_px": 450.0,
+    "epochs": 400,
+    "gs_iters": 200,
+    "spgd_epochs": 150,
+    "n_max_list": [
+      4,
+      6,
+      8,
+      11,
+      15
+    ],
+    "delta": 0.02,
+    "lr": 0.01,
+    "seed": 0,
+    "out": "data/debug/hw_zernike_sweep_20261022",
+    "target_side": 0.0,
+    "max_energy_loss": 0.6,
+    "save_images": true,
+    "defocus_focal_mm": 1549.332046,
+    "group": "zernike_order_nmax3",
+    "group_meta": {
+      "role": "zernike_order",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1549.332046",
+      "n_max": "3"
+    },
+    "stage_a_only": false,
+    "stage_a_in": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
+    "orders": [
+      3
+    ],
+    "time_budget_s": 0.0,
+    "chunk_epochs": 0
+  },
+  "cam_size": 256,
+  "probe_shape": [
+    1944,
+    2592
+  ],
+  "frame_shape": [
+    256,
+    256
+  ],
+  "center_xy": [
+    1429,
+    973
+  ],
+  "mask_center_xy": [
+    130,
+    128
+  ],
+  "w0_px": 6.26977019319377,
+  "target_side": 12.53954038638754,
+  "beam_radius_px": 450.0,
+  "best_stage": "refine",
+  "stage_a": {
+    "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
+    "epochs_executed": 154,
+    "best_score": 0.5113545502049804,
+    "elapsed_s": 541.214912
+  },
+  "baselines": {
+    "flat": {
+      "pib": 0.20202576707916595,
+      "cv": 0.4463159368643903,
+      "ee": 0.20202576707916595,
+      "ar": 1.0,
+      "quality": 0.4446408587016557
+    },
+    "gs_freeform": {
+      "pib": 0.21498344875205622,
+      "cv": 0.36461584281298987,
+      "ee": 0.21498344875205622,
+      "ar": 0.9090909090909091,
+      "quality": 0.4311652128273223
+    }
+  },
+  "orders": [
+    {
+      "n_max": 3,
+      "n_modes": 10,
+      "fit_rms_rad": 0.31818714653390584,
+      "max_abs_coefficient": 0.08428169328591828,
+      "clip_warning": null,
+      "before": {
+        "pib": 0.08264462809917356,
+        "cv": 0.26021405425288396,
+        "ee": 0.08264462809917356,
+        "ar": 1.0909090909090908,
+        "quality": 0.4230243618350123
+      },
+      "after": {
+        "pib": 0.0806673546611627,
+        "cv": 0.24658920055906985,
+        "ee": 0.0806673546611627,
+        "ar": 1.0909090909090908,
+        "quality": 0.4287999443797476
+      },
+      "best_epoch": 78,
+      "best_objective": 0.6209974098118154,
+      "spgd_improved": true,
+      "spgd_epochs_executed": 150,
+      "spgd_J_min": 0.607838785333239,
+      "spgd_J_max": 0.6183105145220797,
+      "spgd_J_final": 0.6127894338668245
+    }
+  ]
+}

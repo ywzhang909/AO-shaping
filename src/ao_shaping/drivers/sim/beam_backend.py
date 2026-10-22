@@ -89,10 +89,10 @@ def turbulence_phase(
 ) -> np.ndarray:
     """在 cfg 网格上生成单张 von-Karman 相位屏 [rad]。
 
-    OOPAO 后端 (``AO_OOPAO_BACKEND``): 委托给
+    OOPAO 仿真后端分支 (``AO_OOPAO_BACKEND``): 委托给
     :class:`ao_shaping.drivers.sim.oopao_backend.OopaoScreenBackend.make_screens`
     (单 slab, seed 取自 ``rng``), 并重新缩放到与历史 aotools/FFT 路径相匹配的每 slab r0。
-    Numpy 后端 (默认): FFT 谱 Kolmogorov 生成 (legacy 行为, 不变)。
+    Numpy 仿真后端分支 (默认): FFT 谱 Kolmogorov 生成 (legacy 行为, 不变)。
     """
     beam_cfg = to_bs_config(cfg)
     cn2_value = beam_cfg.Cn2 if cn2 is None else float(cn2)
@@ -109,7 +109,7 @@ def turbulence_phase(
             logger.warning(
                 "AO_OOPAO_BACKEND 激活且 l_min={:.3e} m 在当前网格 (dx={:.3e} m) "
                 "上可分辨, 但 OOPAO 的 Atmosphere 不接受内尺度参数 (固定 l0=1e-10) "
-                "—— 该档位的两后臂会真实分歧, Strehl 不可跨臂比较。",
+                "—— 该档位的两个仿真后端分支会真实分歧, Strehl 不可跨仿真后端分支比较。",
                 l_min_value,
                 beam_cfg.pixel_size,
             )
@@ -179,8 +179,8 @@ def apply_lens(field: np.ndarray, cfg: BeamSimConfig, focal_length: float) -> np
 def propagate(field: np.ndarray, cfg: BeamSimConfig, distance: float) -> np.ndarray:
     """把 ``field`` 按角谱传播 ``distance`` 米。
 
-    OOPAO 后端 (``AO_OOPAO_BACKEND``): OOPAO 的 ``Atmosphere.ASM`` 核。
-    Numpy 后端 (默认): legacy 的 ``beam_simulation.propagation``。
+    OOPAO 仿真后端分支 (``AO_OOPAO_BACKEND``): OOPAO 的 ``Atmosphere.ASM`` 核。
+    Numpy 仿真后端分支 (默认): legacy 的 ``beam_simulation.propagation``。
     """
     beam_cfg = to_bs_config(cfg)
     if _oopao_enabled():
@@ -196,7 +196,7 @@ def propagate(field: np.ndarray, cfg: BeamSimConfig, distance: float) -> np.ndar
 
 
 def _oopao_enabled() -> bool:
-    """当通过 ``AO_OOPAO_BACKEND`` 启用 OOPAO 后端时返回 True。
+    """当通过 ``AO_OOPAO_BACKEND`` 启用 OOPAO 仿真后端分支时返回 True。
 
     默认关闭 (走 numpy/legacy 路径)。设 ``AO_OOPAO_BACKEND=1/true/yes`` 以使用
     OOPAO 库; 若 OOPAO 不可用则自动回落到 numpy。

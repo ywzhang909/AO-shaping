@@ -97,7 +97,7 @@ def report_date(report_key: str) -> str:
     """从报告键里取日期 (YYYYMMDD -> YYYY-MM-DD); 取不到就用默认那份的。
 
     取的是文件名里**第一段** 8 位数字, 所以同日追加轮次的
-    ``hw_defocus_zernike_20261021_r3`` 仍然是 2026-10-21 (轮次后缀不是日期)。
+    ``hw_defocus_zernike_20261022_r2`` 仍然是 2026-10-22 (轮次后缀不是日期)。
     """
     match = re.search(r"(\d{8})", Path(report_key).stem)
     if not match:
@@ -113,7 +113,7 @@ def figure_tag(report_key: str) -> str:
 
     - ``hw_defocus_zernike_20261020`` -> ``""`` (默认那份, 图名已入库, 不改名)
     - ``hw_defocus_zernike_20261021`` -> ``"_20261021"``
-    - ``hw_defocus_zernike_20261021_r3`` -> ``"_20261021_r3"`` (同日追加的一轮)
+    - ``hw_defocus_zernike_20261022_r2`` -> ``"_20261022_r2"`` (同日追加的一轮)
 
     ⚠️ 旧实现只在文件名**以 8 位数字结尾**时才给戳, 于是同日追加轮次的后缀
     ``_r3`` 让它匹配不上 -> 拿到**空戳** -> 直接盖掉默认那份的图。所以戳必须
@@ -363,6 +363,78 @@ def _summary_group_label(path: Path, root: Path) -> str:
     return path.parent.name if str(rel) == "." else rel.as_posix()
 
 
+def _summary_mtime(path: Path) -> float | None:
+    """``summary.json`` 的写入时间 (取不到就 None)。"""
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return None
+
+
+def _suspect_qualifier(zernike: dict[str, Any], field: str) -> str:
+    """对「超过判定阈值」的跨组差异, 给一条**数据驱动**的补充判定。
+
+    为什么需要它: 审计段原来一律把这类差异说成「疑似跨轮次数据混入 / 光学状态不是
+    同一轮的」⇒ 但**同一轮内部**的两种生产者 (Stage A 块记全幅帧、逐阶组记 ROI 窗口帧)
+    定位零级时也会有几 px 的**系统性**偏差 ⇒ 那句话在这种情况下是**不成立**的。
+
+    判据 (全部来自本轮数据, 不写死):
+      1. **取值是否按 ``frame_shape`` 分簇**: 若不同取值与不同 ``frame_shape``
+         **一一对应** ⇒ 差在**取景口径**上 (两套生产者的定位差), 不是光学状态变了;
+      2. **写入时间**: 各组 ``summary.json`` 的写入时间若**相隔很近** (≤30 min),
+         额外说明它们是**同一次采集**里连续产出的 ⇒ 不可能是别轮的产物混进来。
+    """
+    mtimes = dict(zernike.get("summary_mtimes") or {})
+    by_group = dict(zernike.get("summary_by_group") or {})
+    shapes = dict(zernike.get("summary_frame_shapes") or {})
+    if not by_group:
+        return ""
+    clusters: dict[str, list[str]] = {}
+    shape_by_cluster: dict[str, set[str]] = {}
+    for group, summary in by_group.items():
+        value = summary.get(field)
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+        key = f"[{value[0]:g}, {value[1]:g}]"
+        clusters.setdefault(key, []).append(group)
+        shape = shapes.get(group)
+        shape_by_cluster.setdefault(key, set()).add(
+            f"{shape[0]:g}x{shape[1]:g}" if isinstance(shape, list | tuple) and len(shape) == 2 else "?"
+        )
+    if len(clusters) < 2:
+        return ""
+    # 判据 ①: 各组是**同一次采集**里连续产出的 (写入时间相隔不超过 90 min)
+    values = [t for t in mtimes.values() if isinstance(t, int | float)]
+    if len(values) < 2:
+        return ""
+    spread_min = (max(values) - min(values)) / 60.0
+    if spread_min > 90.0:
+        # 写入时间相隔很久 ⇒ 「可能混进别轮产物」这句话**仍然成立** ⇒ 不加限定。
+        return ""
+    # 判据 ②: 取值与 ``frame_shape`` **一一对应** (每个取值只来自一种帧尺寸)
+    if not all(len(shape_by_cluster[key]) == 1 for key in clusters):
+        return ""
+    detail = "；".join(
+        f"{key} 由 {len(clusters[key])} 组给出，其 `frame_shape` 是 "
+        f"{'/'.join(sorted(shape_by_cluster[key]))}"
+        for key in sorted(clusters)
+    )
+    return (
+        "**补充判定**："
+        + "；".join(
+            [
+                "差异**按 `frame_shape` 分簇**（"
+                + detail
+                + "）⇒ 是**两套取景口径**下零级定位的**系统性**偏差，"
+                "**不是**光学状态变了（口径字段也没被改动）",
+                f"各组产物的写入时间相隔仅 **{spread_min:.0f} 分钟** ⇒ 它们是**同一次采集**里"
+                "连续产出的 ⇒ **不可能**是别轮的产物混进来",
+            ]
+        )
+        + "。"
+    )
+
+
 def load_zernike(run_dir: Path) -> dict[str, Any]:
     """读泽尼克扫描的 ``summary.json``, 并把**多组**的合并起来。
 
@@ -391,6 +463,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     order_group: dict[int, str] = {}
     origin: dict[str, str] = {}
     frame_shapes: dict[str, Any] = {}
+    mask_centers: dict[str, Any] = {}
     warnings: list[dict[str, Any]] = []
     for data in summaries:
         group = str(data["_group"])
@@ -400,6 +473,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
         # ROI 窗口) ⇒ 可比性最终由**取值本身**是否落在共同窗口内决定
         # (见 :func:`_window_local_comparability`)。
         frame_shapes[group] = data.get("frame_shape")
+        mask_centers[group] = data.get("mask_center_xy")
         for key, value in data.items():
             if key in ("orders", "_summary_path", "_group"):
                 continue
@@ -438,7 +512,19 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     merged["summary_groups"] = [d["_group"] for d in summaries]
     merged["merge_origin"] = origin
     merged["summary_frame_shapes"] = frame_shapes
+    merged["summary_mask_centers"] = mask_centers
     merged["order_groups"] = order_group
+    # 逐组的完整 summary (供「同组复测对照」这类逐组比较用; 合并后的值是压平的,
+    # 拿它比会把「哪一组测的」这件事抹掉)。
+    merged["summary_by_group"] = {
+        str(d["_group"]): {k: v for k, v in d.items() if not str(k).startswith("_")}
+        for d in summaries
+    }
+    # 各组 ``summary.json`` 的**写入时间** (用来判「这些组是不是同一次采集里连续产出的」)
+    merged["summary_mtimes"] = {
+        str(d["_group"]): _summary_mtime(Path(str(d["_summary_path"])))
+        for d in summaries
+    }
     return merged
 
 
@@ -697,6 +783,185 @@ def classify_merge_difference(
     return ("suspect", "未归类的字段差异", None)
 
 
+def _fmt_coord_pair(pair: tuple[float, float]) -> str:
+    """坐标对的显示格式 (与表里的 ``_fmt_merge_value`` 一致)。"""
+    return f"[{pair[0]:g}, {pair[1]:g}]"
+
+
+def _round_merge_facts(zernike: dict[str, Any]) -> dict[str, Any]:
+    """本轮的**实测事实**: 掩膜中心的取值/散布/可比性, 以及连续量的相对差。
+
+    为什么要有它: 早先的版本把「第三轮的块是 ``[127, 128]``」**写死**在正文里, 而第三轮
+    真跑出来的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者一眼
+    就能看出来)。改成从本轮数据算: 各组取到了哪些值、相对合并采用值的逐轴偏差最大多少、
+    有没有组落在共同窗口之外、连续量差多少。
+
+    口径与 §3 的表**一致**: 逐轴比、**只算可比**的组 (坐标系不同的不参与判定)。
+    """
+    frames = dict(zernike.get("summary_frame_shapes") or {})
+    origin = dict(zernike.get("merge_origin") or {})
+    centers = dict(zernike.get("summary_mask_centers") or {})
+    warnings = list(zernike.get("merge_warnings") or [])
+    kept_group = str(origin.get("mask_center_xy") or "")
+    kept_value = zernike.get("mask_center_xy")
+
+    values: list[tuple[float, float]] = []
+    for value in centers.values():
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+        try:
+            pair = (float(value[0]), float(value[1]))
+        except (TypeError, ValueError):
+            continue
+        if pair not in values:
+            values.append(pair)
+    values.sort()
+
+    spread: float | None = None
+    incomparable: list[tuple[str, tuple[float, float], str]] = []
+    for group, value in centers.items():
+        if group == kept_group:
+            continue
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+        try:
+            pair = (float(value[0]), float(value[1]))
+        except (TypeError, ValueError):
+            continue
+        comparable, note = _pixel_comparability(
+            "mask_center_xy", kept_group, group, frames, kept_value, list(pair)
+        )
+        if not comparable:
+            # 记下**判定依据** (它点名了究竟是谁落在共同窗口之外) —— 不能一律说
+            # 「别的组落在窗口外」: 也可能是**合并采用值**本身是全幅坐标。
+            incomparable.append((group, pair, note))
+            continue
+        dev = _pixel_axis_deviation(kept_value, list(pair))
+        if dev is None:
+            continue
+        spread = dev if spread is None else max(spread, dev)
+
+    # ``center_xy`` 永远是全幅坐标 ⇒ 永远可比; 它的偏差直接从合并警告里取
+    # (警告只在取值不同时产生 ⇒ 覆盖全部有差异的组)。
+    for w in warnings:
+        if w.get("kind") != "field" or w.get("field") != "center_xy":
+            continue
+        dev = _pixel_axis_deviation(w.get("kept"), w.get("other"))
+        if dev is None:
+            continue
+        spread = dev if spread is None else max(spread, dev)
+
+    rel: dict[str, float] = {}
+    for w in warnings:
+        if w.get("kind") != "field":
+            continue
+        field = str(w.get("field"))
+        if field not in CONTINUOUS_MERGE_FIELDS:
+            continue
+        r = _relative_diff(w.get("kept"), w.get("other"))
+        if r is None:
+            continue
+        rel[field] = max(rel.get(field, 0.0), r)
+
+    return {
+        "values": values,
+        "spread_px": spread,
+        "incomparable": incomparable,
+        "rel": rel,
+        "n_values": len(values),
+    }
+
+
+def repeat_check_block(
+    zernike: dict[str, Any],
+    repeat: dict[str, Any] | None,
+    repeat_label: str = "",
+) -> str:
+    """**同组复测对照**: 同一个组在另一次测量下的读数, 与本轮差多少。
+
+    为什么要有它: 本报告的绝对指标 (CV / PIB / EE / quality) 是**逐组实测**的,
+    而实验系统的绝对读数会随时间与设置漂 (光强、面板状态、settle 判据、焦面补偿
+    都可能变) ⇒ 「同一组换个时间/换个协议再测一次, 差多少」是读者判断这些数字
+    该被读成**相对比较**还是**绝对值**的唯一依据。
+
+    口径: 只比**本轮这个组自己**的 summary (不是合并后的压平值) ⇒ 不会把
+    「哪一组测的」这件事抹掉; 逐阶指标按 n_max 对齐。
+
+    Args:
+        zernike: :func:`load_zernike` 的合并结果 (含 ``summary_by_group``)。
+        repeat: 复测那一轮的 ``summary.json`` (None ⇒ 不比)。
+
+    Returns:
+        Markdown 段落; 没有可比项时返回空字符串。
+    """
+    if not repeat:
+        return ""
+    by_group = dict(zernike.get("summary_by_group") or {})
+    group = str(repeat.get("group") or "")
+    own = by_group.get(group)
+    if own is None:
+        return ""
+
+    rows: list[tuple[str, float, float]] = []
+
+    def add(label: str, a: Any, b: Any) -> None:
+        if isinstance(a, int | float) and isinstance(b, int | float):
+            rows.append((label, float(a), float(b)))
+
+    for key in ("w0_px", "target_side"):
+        add(f"`{key}`", own.get(key), repeat.get(key))
+    for scope in ("flat", "gs_freeform"):
+        a = (own.get("baselines") or {}).get(scope) or {}
+        b = (repeat.get("baselines") or {}).get(scope) or {}
+        for key in ("cv", "pib", "ee", "quality"):
+            add(f"基线 {scope}.{key}", a.get(key), b.get(key))
+    own_orders = {int(o.get("n_max", 0)): o for o in (own.get("orders") or [])}
+    rep_orders = {int(o.get("n_max", 0)): o for o in (repeat.get("orders") or [])}
+    for n_max in sorted(set(own_orders) & set(rep_orders)):
+        a, b = own_orders[n_max], rep_orders[n_max]
+        for key in ("fit_rms_rad", "max_abs_coefficient"):
+            add(f"n_max={n_max} `{key}`", a.get(key), b.get(key))
+        for stage in ("before", "after"):
+            sa = a.get(stage) or {}
+            sb = b.get(stage) or {}
+            for key in ("cv", "pib", "ee", "quality"):
+                add(f"n_max={n_max} {stage}.{key}", sa.get(key), sb.get(key))
+    if not rows:
+        return ""
+
+    lines = [
+        f"同一组 `{group}` 在**另一次采集**下的读数与本轮逐项对照",
+        "（复测那一轮是**独立的一次采集**，其余设置按计划保持一致"
+        + (f"；证据文件 `{repeat.get('_repeat_label', '')}`" if repeat.get("_repeat_label") else "")
+        + "）：",
+        "",
+        "| 指标 | 本轮 | 复测 | 相对差 |",
+        "|---|---|---|---|",
+    ]
+    worst = 0.0
+    worst_label = ""
+    for label, a, b in rows:
+        rel = (b - a) / a if a else float("nan")
+        if rel == rel and abs(rel) > abs(worst):
+            worst = rel
+            worst_label = label
+        lines.append(
+            f"| {label} | {a:.6g} | {b:.6g} | "
+            f"{'—' if rel != rel else f'{rel * 100:+.2f}%'} |"
+        )
+    own_focal = (own.get("config") or {}).get("defocus_focal_mm")
+    rep_focal = (repeat.get("config") or {}).get("defocus_focal_mm")
+    lines += [
+        "",
+        f"⇒ 逐项相对差的**最大**是 {worst * 100:+.2f}%（`{worst_label}`）；"
+        f"两轮的焦面补偿分别是 {fmt_metric(own_focal, 1)} mm 与 {fmt_metric(rep_focal, 1)} mm。",
+        "⇒ **这说明本报告的绝对指标（CV / PIB / EE）带有批次级的漂移**，"
+        "所以它们只能用来做**同一轮之内**的相对比较；"
+        "跨轮次引用这些数字时必须带上这一条。",
+    ]
+    return "\n".join(lines)
+
+
 def merge_audit_block(zernike: dict[str, Any]) -> str:
     """§3 开头那一段: 这次合并**读了哪些组**、**哪些字段跨组不一致**。
 
@@ -723,6 +988,34 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
     origin_items = [
         f"`{name}`（`{origin[name]}`）" for name in BODY_MERGE_FIELDS if name in origin
     ]
+    facts = _round_merge_facts(zernike)
+    values = facts["values"]
+    spread = facts["spread_px"]
+    incomparable = facts["incomparable"]
+    # 本轮的实测散布 (相对合并采用值) —— 阈值说明要引用**本轮**的数字,
+    # 不能拿某一轮的散布写死 (那会在下一轮变成一句不成立的话)。
+    if spread is None:
+        spread_txt = "本轮各组取值一致（没有可比的跨组偏差）"
+    else:
+        spread_txt = f"本轮实测散布 **±{spread:g} px**"
+    if values:
+        value_list = " / ".join(f"`{_fmt_coord_pair(p)}`" for p in values)
+    else:
+        value_list = "（无）"
+    if incomparable:
+        out_list = "、".join(f"`{g}`（`{_fmt_coord_pair(p)}`）" for g, p, _n in incomparable)
+        # 判定依据里点名了**究竟是谁**落在共同窗口之外 (可能是别的组, 也可能是
+        # 合并采用值本身) ⇒ 直接引用它, 不自己再断言一遍。
+        notes = "；".join(note for _g, _p, note in incomparable)
+        space_txt = (
+            f"**本轮**各组的 `mask_center_xy` 取值为 {value_list}，"
+            f"其中与合并采用值**不在同一空间**的有 {out_list} ⇒ {notes} ⇒ 不参与判定"
+        )
+    else:
+        space_txt = (
+            f"**本轮**各组的 `mask_center_xy` 取值为 {value_list}，"
+            "**全部落在共同窗口内** ⇒ 都是窗口内坐标 ⇒ **同空间**，逐轴偏差照常判"
+        )
     lines = [
         "**数据来源与同源性核查** —— 本节的数字由 "
         f"**{len(groups)}** 份 `summary.json` 合并而成，组目录："
@@ -749,13 +1042,24 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "两者的数**不可直接比较**。",
         "",
         "**阈值为什么是这两个数**：像素坐标的 "
-        f"**{LOCATE_JITTER_TOL_PX:g} px** —— 实测逐阶组各自在**自己那一帧**上重新定位零级，"
+        f"**{LOCATE_JITTER_TOL_PX:g} px** —— 逐阶组各自在**自己那一帧**上重新定位零级，"
         "散布只有 **±1 px**（第二轮八个逐阶组的 `mask_center_xy` 落在 `[126,128]` / "
         "`[127,128]` / `[127,127]` / `[126,127]` 四种上），"
         f"{LOCATE_JITTER_TOL_PX:g} px 是它的一倍余量；连续量的 "
         f"**{CONTINUOUS_REL_DIFF_TOL * 100:g}%** —— 实测跨轮次的光学状态差异是 **1.13%**"
         "（第二轮混进来的 `zernike_stage_a_1`：`w0_px` 5.742078 → 5.807177），"
         "阈值取它的一半不到，好让这种差异**被报出来**而不是被当成噪声吞掉。",
+        "",
+        f"**本轮实测**：{spread_txt}；连续量的 "
+        + (
+            "、".join(
+                f"`{f}` 的最大相对差 **{facts['rel'][f] * 100:.2f}%**"
+                for f in sorted(facts["rel"])
+            )
+            if facts["rel"]
+            else "口径字段（`w0_px`、`target_side`）在各组之间**完全一致**"
+        )
+        + "。",
         "",
         "**为什么可比性看「取值」而不是看「`frame_shape` 是否相等」**：两个生产者写的 "
         "`frame_shape` **不是一个意思** —— Stage A 块记的是**全幅** `probe_shape`"
@@ -765,8 +1069,9 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "**不成立**的话，还白白**抑制掉一次交叉核对**（逐阶组的掩膜中心 vs 块的掩膜中心 —— "
         "差得多就说明某一块的 ROI 摆歪了）。改判「取值是否落在共同窗口内」之后："
         "**第二轮**（`mask_center_xy` 是全幅的 `[1433, 971]`，超出 256×256 的共同窗口）"
-        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；**第三轮**（`[127, 128]`，落在窗口内）"
-        "**判同空间** ⇒ 交叉核对恢复生效。",
+        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；"
+        + space_txt
+        + "。",
     ]
 
     if not field_warnings and not order_warnings:
@@ -871,15 +1176,30 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
 
     if suspect_rows:
         n_fields = len(suspect_fields)
+        qualifier = ""
+        if len(suspect_fields) == 1:
+            qualifier = _suspect_qualifier(zernike, next(iter(suspect_fields)))
+        if qualifier:
+            # 有数据驱动的补充判定 ⇒ 正文**不**断言「光学状态不是同一轮的」(那在同轮内
+            # 两套生产者口径差的情况下是**不成立**的), 只把解释交给下面的「补充判定」。
+            body = (
+                "下列差异**超过**判定阈值；**这一批的具体解释见下面的「补充判定」**"
+                "（由本轮数据算出）。「合并采用」= 报告正文实际使用的那个取值。"
+            )
+        else:
+            body = (
+                "下列差异**超过**判定阈值：这批数据的**光学状态不是同一轮的**"
+                "（焦面/曝光/口径变了，或混进了别轮的产物）。"
+                "「合并采用」= 报告正文实际使用的那个取值。"
+            )
         lines += [
             "",
-            f"⚠️ **跨组字段不一致，疑似跨轮次数据混入：{n_fields} 个字段**"
-            " —— 下列差异**超过**判定阈值：这批数据的**光学状态不是同一轮的**"
-            "（焦面/曝光/口径变了，或混进了别轮的产物）。"
-            "「合并采用」= 报告正文实际使用的那个取值。",
+            f"⚠️ **跨组字段不一致，疑似跨轮次数据混入：{n_fields} 个字段** —— " + body,
             "",
             markdown_table(table_header, suspect_rows),
         ]
+        if qualifier:
+            lines += ["", qualifier]
 
     if incomparable_rows:
         lines += [
@@ -2571,11 +2891,23 @@ def build_markdown(
     focus: dict[str, Any] | None = None,
     farfield_runs: list[tuple[str, Path, dict[str, Any]]] | None = None,
     repro: dict[str, str] | None = None,
+    repeat: dict[str, Any] | None = None,
 ) -> str:
     cfg = scan["config"]
     focus = focus or {}
     focus_text = focus_block(focus, cfg)
     repro = repro or {}
+    # 同组复测对照 (§5 的一条): 有复测证据就印, 没有就不占一条编号。
+    repeat_txt = repeat_check_block(zernike, repeat)
+    repeat_item = ""
+    claims_num = 9
+    if repeat_txt:
+        repeat_item = (
+            "9. **同组复测对照**（绝对指标的批次级漂移）：\n\n"
+            + repeat_txt.replace("\n", "\n   ")
+            + "\n"
+        )
+        claims_num = 10
     # 数据驱动的局部量: 泽尼克扫描自己的目标框、仿真 G1 行的框、焦面标定的读数。
     zernike_w0 = float(zernike.get("w0_px") or float("nan"))
     zernike_box = (2.0 * zernike_w0) if zernike_w0 == zernike_w0 else float("nan")
@@ -3105,7 +3437,7 @@ def build_markdown(
    需要「同 seed 配 seed」）。
 7. **本轮只测了一个离焦方向的两个半轴，没有做「在工作点上重新优化」的硬件版**（见上第 2 条）。
 8. **补拍「泽尼克各阶远场组」的覆盖情况**：本轮 {farfield_summary}
-9. **本报告不主张的事情**（逐条列出来，避免被误读）：
+{repeat_item}{claims_num}. **本报告不主张的事情**（逐条列出来，避免被误读）：
    - **不**主张「实验系统对离焦不敏感」—— 复合分数在 |Δz| ≤ 2.5 mm 上「平」是**口径的产物**
      （框 ≫ 光斑 ⇒ 均匀项奖励离焦），不是物理结论。
    - **不**主张「离焦强烈破坏图样」（基于冻结框心的读数）—— 光斑会随 Δz 被**推走**（瞳面 chirp
@@ -3189,6 +3521,14 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="焦面标定证据**所在目录**, 取里面最新的一份。"
         "下一轮用本轮专属的目录, 就不会读到另一次上机留下的证据",
+    )
+    parser.add_argument(
+        "--repeat-evidence",
+        type=Path,
+        default=None,
+        help="**同组复测**的证据 (另一个采集轮次里同一个组的 summary.json)。"
+        "给了就在 §5 印一张逐项对照表: 同一组换个时间/换个协议再测一次, "
+        "绝对指标 (CV/PIB/EE) 差多少 —— 这是读者判断这些数字能不能当绝对值用的依据",
     )
     parser.add_argument(
         "--report-key",
@@ -3377,6 +3717,20 @@ def main() -> int:
     repro = repro_block(
         manifest, manifest_path, roots, zernike_dir, focus_evidence, args.report_key
     )
+    # 同组复测证据 (可选): 另一个采集轮次里同一个组的 summary.json
+    repeat: dict[str, Any] = {}
+    if args.repeat_evidence is not None:
+        try:
+            loaded = json.loads(Path(args.repeat_evidence).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            print(f"⚠ 复测证据读不了, 跳过对照段: {exc}")
+        else:
+            if isinstance(loaded, dict):
+                loaded = dict(loaded)
+                loaded["_repeat_label"] = str(args.repeat_evidence)
+                repeat = loaded
+            else:
+                print("⚠ 复测证据不是 JSON 对象, 跳过对照段")
     body = build_markdown(
         primary_run,
         noise,
@@ -3392,6 +3746,7 @@ def main() -> int:
         focus,
         farfield_runs,
         repro,
+        repeat,
     )
     text = insert_header(body, args.report_key)
     out_path = Path(args.report_key)

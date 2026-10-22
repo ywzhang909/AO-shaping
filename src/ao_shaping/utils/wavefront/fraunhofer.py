@@ -29,7 +29,12 @@ from __future__ import annotations
 
 import torch
 
-__all__ = ["focal_field", "focal_intensity", "interpolated_pupil_intensity"]
+__all__ = [
+    "focal_field",
+    "focal_intensity",
+    "interpolated_pupil_field",
+    "interpolated_pupil_intensity",
+]
 
 
 def focal_field(field: torch.Tensor, out_size: int) -> torch.Tensor:
@@ -83,19 +88,34 @@ def focal_intensity(field: torch.Tensor, out_size: int) -> torch.Tensor:
     return focal.real.pow(2) + focal.imag.pow(2)
 
 
-def interpolated_pupil_intensity(
+def interpolated_pupil_field(
     phase: torch.Tensor,
     amplitude: torch.Tensor,
     out_size: int,
     factor: int = 1,
 ) -> torch.Tensor:
-    """Propagate a bilinearly enlarged panel phase on the original CCD grid."""
+    """Propagate a bilinearly enlarged panel phase, keeping the complex field.
+
+    The complex far field is what the focal-plane error terms need (a defocus
+    transfer function and a tilt shift both act on the field, not on its
+    intensity), so this is the primitive :func:`interpolated_pupil_intensity`
+    is built from.
+
+    Args:
+        phase: Panel phase on the pupil grid (2-D ``(g, g)``).
+        amplitude: Panel amplitude on the same grid.
+        out_size: Target side length of the far-field grid.
+        factor: Sub-pixel enlargement factor (``1`` = command grid).
+
+    Returns:
+        Complex far field on the ``out_size`` grid.
+    """
     if not isinstance(factor, int) or isinstance(factor, bool) or factor < 1:
         raise ValueError("factor must be a positive integer")
     if phase.shape != amplitude.shape or phase.ndim != 2:
         raise ValueError("phase and amplitude must be matching 2D grids")
     if factor == 1:
-        return focal_intensity(amplitude * torch.exp(1j * phase), out_size)
+        return focal_field(amplitude * torch.exp(1j * phase), out_size)
 
     # phase_to_panel uses scipy zoom(order=1), which aligns end points.
     size = (phase.shape[0] * factor, phase.shape[1] * factor)
@@ -105,8 +125,19 @@ def interpolated_pupil_intensity(
     amplitude = torch.nn.functional.interpolate(
         amplitude[None, None], size=size, mode="bilinear", align_corners=True
     )[0, 0]
-    expanded = focal_intensity(
+    expanded = focal_field(
         amplitude * torch.exp(1j * phase), out_size * factor
     )
     offset = (expanded.shape[0] - out_size) // 2
     return expanded[offset:offset + out_size, offset:offset + out_size]
+
+
+def interpolated_pupil_intensity(
+    phase: torch.Tensor,
+    amplitude: torch.Tensor,
+    out_size: int,
+    factor: int = 1,
+) -> torch.Tensor:
+    """Propagate a bilinearly enlarged panel phase on the original CCD grid."""
+    field = interpolated_pupil_field(phase, amplitude, out_size, factor)
+    return field.real.pow(2) + field.imag.pow(2)

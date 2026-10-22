@@ -62,4 +62,8 @@ size=(0,0) 全幅、inc 向下取整、offset≥0 断言、返回 `((w,h),(cx-x0
 (3px/帧 → sy=664)、not_converged/no_spot/no_period 恢复全幅、apply_stored_window、
 calibrate 保留 align keys。
 
-运行: `python -m pytest tests/ao_shaping/tools/slm/ -q` (90 passed, 3 skipped)。
+运行: `./run_pytest.sh tests/ao_shaping/tools/slm/ -q` (90 passed, 3 skipped)。
+
+> 注（2026-10-22）：命令已由 `python -m pytest …` 改为容器入口 `./run_pytest.sh …` ——
+> `conftest.py` 现拒绝宿主机裸跑 pytest（2026-10-21 宿主机跑死事故后续，上游
+> commit `063b3bf6`），唯一推荐入口为 `run_pytest.sh`。

@@ -264,7 +264,7 @@ def _body(
     lines.append(
         markdown_table(
             [
-                "臂",
+                "变体",
                 "质量分 (canonical)",
                 "箱内 CV",
                 "箱内能量 EE",

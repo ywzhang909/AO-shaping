@@ -384,7 +384,7 @@ def summarise(runs: list[Run]) -> dict:
     return summary
 
 
-def _fmt(value, spec: str = "", default: str = "—") -> str:
+def _cell(value, spec: str = "", default: str = "—") -> str:
     """Format a value that may be missing from the artefacts."""
     if value is None:
         return default
@@ -427,38 +427,38 @@ def four_elements(runs: list[Run], summary: dict) -> str:
     if cfg and rc:
         center = cfg.get("pupil_center") or [None, None]
         rows = [
-            ("SLM", f"Santec SLM #{_fmt(cfg.get('slm_number'))}, "
-                    f"序列号 {_fmt(rc.get('slm_serial'))}", "`replay/replay_config.json`"),
-            ("波长", f"{_fmt(rc.get('expected_wavelength_nm'))} nm "
+            ("SLM", f"Santec SLM #{_cell(cfg.get('slm_number'))}, "
+                    f"序列号 {_cell(rc.get('slm_serial'))}", "`replay/replay_config.json`"),
+            ("波长", f"{_cell(rc.get('expected_wavelength_nm'))} nm "
                     "(设备报告, 非配置假定)", "`replay/replay_config.json`"),
-            ("CCD", f"大恒 (cam_type={_fmt(cfg.get('cam_type'))}, "
-                    f"cam_id={_fmt(cfg.get('cam_id'))})", "落盘 run JSON"),
-            ("面板像元 / 相机像元", f"{_fmt(cfg.get('panel_pixel_um'))} µm / "
-                                   f"{_fmt(cfg.get('camera_pixel_um'))} µm", "落盘 run JSON"),
-            ("透镜焦距", f"{_fmt(cfg.get('focal_length_m'), '.6f')} m "
+            ("CCD", f"大恒 (cam_type={_cell(cfg.get('cam_type'))}, "
+                    f"cam_id={_cell(cfg.get('cam_id'))})", "落盘 run JSON"),
+            ("面板像元 / 相机像元", f"{_cell(cfg.get('panel_pixel_um'))} µm / "
+                                   f"{_cell(cfg.get('camera_pixel_um'))} µm", "落盘 run JSON"),
+            ("透镜焦距", f"{_cell(cfg.get('focal_length_m'), '.6f')} m "
                         f"(标定标志 `_focal_length_pinned`="
-                        f"{_fmt(cfg.get('_focal_length_pinned'))})", "落盘 run JSON"),
-            ("照明瞳面", f"中心 ({_fmt(center[0])}, {_fmt(center[1])}), "
-                        f"半径 {_fmt(cfg.get('beam_radius_px'), 'g')} px", "落盘 run JSON"),
-            ("曝光", f"{_fmt(cfg.get('exposure_time_ms'), 'g')} ms 固定, "
-                    f"n_eval_frames={_fmt(cfg.get('n_eval_frames'))}", "落盘 run JSON"),
-            ("相机窗口", f"请求 {_fmt(cfg.get('cam_size'))} → 驱动按 4 px 粒度夹到 "
-                        f"{_fmt(rc.get('cam_size'))}", "落盘 run JSON / `replay/replay_config.json`"),
-            ("目标框", f"{_fmt(cfg.get('target_side'))}×{_fmt(cfg.get('target_side'))} px",
+                        f"{_cell(cfg.get('_focal_length_pinned'))})", "落盘 run JSON"),
+            ("照明瞳面", f"中心 ({_cell(center[0])}, {_cell(center[1])}), "
+                        f"半径 {_cell(cfg.get('beam_radius_px'), 'g')} px", "落盘 run JSON"),
+            ("曝光", f"{_cell(cfg.get('exposure_time_ms'), 'g')} ms 固定, "
+                    f"n_eval_frames={_cell(cfg.get('n_eval_frames'))}", "落盘 run JSON"),
+            ("相机窗口", f"请求 {_cell(cfg.get('cam_size'))} → 驱动按 4 px 粒度夹到 "
+                        f"{_cell(rc.get('cam_size'))}", "落盘 run JSON / `replay/replay_config.json`"),
+            ("目标框", f"{_cell(cfg.get('target_side'))}×{_cell(cfg.get('target_side'))} px",
              "落盘 run JSON"),
-            ("远场 padding / 瞳面相位网格", f"{_fmt(cfg.get('far_field_padding'))} / "
-                                          f"{_fmt(cfg.get('phase_grid'))}×"
-                                          f"{_fmt(cfg.get('phase_grid'))}", "落盘 run JSON"),
-            ("GS / SPGD 配方", f"gs_iters={_fmt(cfg.get('gs_iters'))}, "
-                               f"epochs={_fmt(cfg.get('epochs'))}, seed={_fmt(cfg.get('seed'))}, "
-                               f"delta={_fmt(cfg.get('delta'), 'g')}", "落盘 run JSON"),
-            ("目标函数", f"w_pib={_fmt(cfg.get('w_pib'), 'g')}, "
-                         f"w_unif={_fmt(cfg.get('w_unif'), 'g')} "
+            ("远场 padding / 瞳面相位网格", f"{_cell(cfg.get('far_field_padding'))} / "
+                                          f"{_cell(cfg.get('phase_grid'))}×"
+                                          f"{_cell(cfg.get('phase_grid'))}", "落盘 run JSON"),
+            ("GS / SPGD 配方", f"gs_iters={_cell(cfg.get('gs_iters'))}, "
+                               f"epochs={_cell(cfg.get('epochs'))}, seed={_cell(cfg.get('seed'))}, "
+                               f"delta={_cell(cfg.get('delta'), 'g')}", "落盘 run JSON"),
+            ("目标函数", f"w_pib={_cell(cfg.get('w_pib'), 'g')}, "
+                         f"w_unif={_cell(cfg.get('w_unif'), 'g')} "
                          "(复合分数 = 0.5·PIB + 0.5·1/(1+CV))", "落盘 run JSON"),
-            ("优化器 / GS 方法", f"{_fmt(cfg.get('optimizer_type'))} (cosine 调度) / "
-                                f"{_fmt(cfg.get('gs_method'))} "
-                                f"(warm_start={_fmt(cfg.get('gs_warm_start'))}, "
-                                f"confirm_best={_fmt(cfg.get('confirm_best'))})", "落盘 run JSON"),
+            ("优化器 / GS 方法", f"{_cell(cfg.get('optimizer_type'))} (cosine 调度) / "
+                                f"{_cell(cfg.get('gs_method'))} "
+                                f"(warm_start={_cell(cfg.get('gs_warm_start'))}, "
+                                f"confirm_best={_cell(cfg.get('confirm_best'))})", "落盘 run JSON"),
             ("曝光工作点", f"{work:g} ms (阶梯预检选定, 饱和保护线 {guard})",
              "本脚本 `EXPOSURE_LADDER_MS` / `PREFLIGHT_PEAKS`"),
         ]

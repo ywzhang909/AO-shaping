@@ -24,6 +24,10 @@ Codex / Cursor / Copilot / Hermes / 子代理）生成的中文叙述，**必须
   `git grep -E 'pupil（瞳面）（|bake-off（对比择优）|bake-off（强制对比择优）'` 须为空；
   残留 `平场泄漏|台架|实机|真机|上机|瞳孔|跑通|打散|灌进|钻空子|金标准|围栅`
   的命中须全部落在术语表 §2 的 DO-NOT-TOUCH 集合内。
+  残留 `臂`（T-65）的命中只允许落在术语表 §1.9 / §3 的登记行与
+  `scripts/_common/term_unify_20261016.py` 的规则表里；正文一律「变体」
+  （A/B 对照语境）或「两个仿真后端分支 / 仿真后端分支」（numpy / OOPAO 两个仿真
+  后端分支语境）。
 - **新词须登记**：出现未收录的口语词，先在术语表 §3 登记（T-60 起）再替换。
 
 > 详细规则、150+ 条对照、保留清单见 [`docs/terminology_glossary.md`](docs/terminology_glossary.md)。
@@ -102,6 +106,7 @@ AO-shaping/
 | GS 预整形 + 自由相位 SPGD 细化 (硬件) | `src/ao_shaping/optimizer/wfless/slm_gs_refine.py` + `runners/slm/gs_refine_runner.py` | 仿真 `iterative_zernike_shaping.py` 的硬件移植: GS 开环预矫正 (仅当实测优于平场才采用) + 无感知 SPGD 细化 (CLI: `slm-gs-refine`) |
 | 正向模型闭环校正 + 反复迭代 (硬件) | `src/ao_shaping/optimizer/wfless/slm_model_in_loop.py` + `runners/slm/model_in_loop_runner.py` | 仿真 `model_in_loop_shaping.simulate_iterative_shaping` 的硬件移植: 每轮用强随机探针重拟合正向模型的 Zernike 像差 (Step A), 再冻结该像差合成目标方斑相位 (Step B), 用 trust region + 逐轮验收抑制两者相互耦合振荡 (CLI: `slm-model-in-loop`) |
 | Zernike 工具 | `src/ao_shaping/utils/wavefront/zernike_utils.py` | 系数解析 (Noll/(n,m)/数组) + 相位生成，Noll 1976 约定 |
+| **SLM 闪耀光栅衍射效率 / 相位响应标定** | `src/ao_shaping/tools/slm/calibration/diffraction_efficiency/` | 2f 实验系统里用一维闪耀光栅测器件的相位调制深度与衍射效率: `core.py` (纯算法: 图案/阶次识别/**离散器件模型**/拟合/诊断) + `simulate.py` (数字孪生: 填充因子/LUT/面板相差/离焦) + `measure.py` (Santec+Daheng 硬件后端) + `artifacts.py` (CSV/JSON/PNG)。CLI: `python -m ao_shaping.tools.slm.calibration.diffraction_efficiency {simulate,measure,analyze}`。**硬件前置条件**: 必须先有光路标定 `.npz` (几何标定产出), 否则无法预测 ±1 级落点。⚠️ **可信范围** (见 `report/slm/diffraction_efficiency/sim_nonideality_20261022.md`): **相对效率曲线可信, 但拟合出的相位深度只在"幂律器件 + 在焦 + 填充因子≈1"三前提同时成立时可信** —— 填充因子 0.8 会把标称器件报成过调制 (+16%), 非幂律 LUT 偏 +42%, 离焦偏 +11%。**光斑宽度门禁** (`--fwhm-gate-ratio`, 默认 3×; `--reference-fwhm-px` 给一条**在焦**的绝对参照) 把这类失真变成显式失败: 门禁触发时越限点与"零级被熄灭"的点**一并**退出拟合, 有效点不足即**拟合报错**而不是给出一个偏了的深度 |
 | RL training | `src/ao_shaping/optimizer/rl/` | SAC, LR-WFS |
 | Simulation | `src/ao_shaping/drivers/sim/` | Digital twin devices |
 | **2f 数字孪生（可复用）** | `src/ao_shaping/drivers/sim/bench_twin.py` | 参数化 2f 实验系统：把物理非理想因素注入传播链 —— SLM 的 LUT 非线性+量化、面板静态相差（Zernike+粗糙度）、装调（相机离焦/光路倾斜/透镜像差）。口径=瞳面区域→CCD 远场（与 region/padding/像元标度约定一致），默认全零误差=理想系统。与既有 `slm_pib_sim.py`（面板级 FFT 仿真）、`fouriergsnet_env.py`（带真实 λ/f/像元节距的傅里叶环境）并存，互不替代 |

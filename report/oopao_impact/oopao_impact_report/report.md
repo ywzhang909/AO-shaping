@@ -7,7 +7,7 @@
 > **说明**: 端到端 AO 环境下的后端影响
 <!-- provenance:end -->
 
-**本轮结论**（AO_OOPAO_BACKEND 端到端消融，SimTurbulenceAOEnv）：切换 OOPAO/numpy 湍流后端会**改变端到端行为**（Strehl 随 Cn² 曲线与 PIB/RMS 收敛特征均有可见差异），但两臂相位屏未标定到同一 r0/phase_std，**当前数据不足以判定哪一臂的绝对 Strehl 更接近物理真值**——本报告对比的是"同一 Cn² 配置下切换后端的影响"，不是"等价实现"验证。若要绝对可比，须先标定两臂相位屏统计再重跑矩阵。
+**本轮结论**（AO_OOPAO_BACKEND 端到端消融，SimTurbulenceAOEnv）：切换 OOPAO/numpy 湍流仿真后端分支会**改变端到端行为**（Strehl 随 Cn² 曲线与 PIB/RMS 收敛特征均有可见差异），但两个仿真后端分支的相位屏未标定到同一 r0/phase_std，**当前数据不足以判定哪个仿真后端分支的绝对 Strehl 更接近物理真值**——本报告对比的是"同一 Cn² 配置下切换仿真后端分支的影响"，不是"等价实现"验证。若要绝对可比，须先标定两个仿真后端分支的相位屏统计再重跑矩阵。
 
 > 生成时间: 2026-09-29T16:39:36 | 脚本: `scripts/oopao/generate_oopao_impact_report.py` | OOPAO rev: `e8e9aa6` (2026-09-24, git 校验=是) | OOPAO 包目录: `libs/OOPAO/OOPAO`
 >
@@ -20,12 +20,12 @@
 > 2026-10-02 代码改为单因子 `_rescale_for(r0_slab) = (_R0_REF_500/r0_slab)**(5/6)`
 > (commit `284fbb5`, 移除 `lam/_LAM_REF_500`、`/_CAL_REF`、`*sqrt(1.03)`, 现仅存于 docstring 作说明)
 > 之后, 本报告的 1.068 / 2.628 **已不可复现**。`sim/AGENTS.md`「已知约束」第 3/4 条已按
-> 单因子现状对齐 (见该文件)。若需与当前代码一致的两后端比值, 请重跑
+> 单因子现状对齐 (见该文件)。若需与当前代码一致的两个仿真后端分支比值, 请重跑
 > `python scripts/oopao/generate_oopao_impact_report.py` (OOPAO 环境可用时)。
 
 ## 1. 适用范围 (路由红线)
 
-`AO_OOPAO_BACKEND` 只路由 `beam_backend.turbulence_phase()` 与 `beam_backend.propagate()`; `focal_plane()` / `apply_lens()` 恒为 numpy。本报告驱动的是 `SimTurbulenceAOEnv` (RL AO 环境: DM 影响函数 + WFS 斜率 + 焦面 FFT), 其湍流相位屏经 `turbulence_phase()` 路由, 焦面/Strehl/PIB/RMS 下游计算是同一份代码。因此两臂差异**只来自湍流相位屏**。
+`AO_OOPAO_BACKEND` 只路由 `beam_backend.turbulence_phase()` 与 `beam_backend.propagate()`; `focal_plane()` / `apply_lens()` 恒为 numpy。本报告驱动的是 `SimTurbulenceAOEnv` (RL AO 环境: DM 影响函数 + WFS 斜率 + 焦面 FFT), 其湍流相位屏经 `turbulence_phase()` 路由, 焦面/Strehl/PIB/RMS 下游计算是同一份代码。因此两个仿真后端分支的差异**只来自湍流相位屏**。
 
 ## 2. 方法与指标定义
 
@@ -35,7 +35,7 @@
   - `open` 开环: 滑动湍流窗口 (screen_step_px=2), 零动作, 记录湍流演化下的端到端指标
   - `closed` 闭环: 冻结湍流 (screen_step_px=0), 3 步贪婪 SPGD (δ=0.03, 随机方向 ± 评估 + 回位到更优位置), 记录校正收敛
 - 指标: Strehl (焦面峰值/理想峰值), PIB (桶内功率, r=4px), RMS (相位 RMS), best-Strehl (episode 内最优)
-- 后端卫生: 每臂切换时 set/pop `AO_OOPAO_BACKEND` + `oopao_backend._get_backend.cache_clear()` (进入与退出都清); 每行记录实测 `_oopao_enabled()` 并校验与臂一致
+- 后端卫生: 每个仿真后端分支切换时 set/pop `AO_OOPAO_BACKEND` + `oopao_backend._get_backend.cache_clear()` (进入与退出都清); 每行记录实测 `_oopao_enabled()` 并校验与仿真后端分支一致
 
 ## 3. Cn2 阶梯
 
@@ -50,7 +50,7 @@
 
 ### 4.1 开环 (open)
 
-| cn2 | 臂 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |
+| cn2 | 仿真后端分支 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |
 |-----|-----|------------|-------------|----------|----------|-----------------|-------------|
 | 0 | numpy | 1.0000 | 1.0000 | 2.818e+06 | 0.0000 | 0.0000 | +0.0000 |
 | 0 | oopao | 1.0000 | 1.0000 | 2.818e+06 | 0.0000 | 0.0000 | +0.0000 |
@@ -63,7 +63,7 @@
 
 ### 4.2 闭环 (closed)
 
-| cn2 | 臂 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |
+| cn2 | 仿真后端分支 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |
 |-----|-----|------------|-------------|----------|----------|-----------------|-------------|
 | 0 | numpy | 1.0000 | 1.0000 | 2.818e+06 | 0.0000 | 0.0000 | +0.0000 |
 | 0 | oopao | 1.0000 | 1.0000 | 2.818e+06 | 0.0000 | 0.0000 | +0.0000 |
@@ -76,7 +76,7 @@
 
 ### 4.3 关键分析: 相位屏强度差异是固定标定偏置
 
-`disturbance_rms` 是被路由的 `turbulence_phase` 原始相位屏的 RMS —— 两臂**唯一**的物理输入差异, 所以它的 oopao/numpy 比值可以直接读作「同一 Cn2 下 OOPAO 相位起伏比 numpy 强多少倍」。cn2=0 已短路为零屏 (比值无定义), 从表中省略:
+`disturbance_rms` 是被路由的 `turbulence_phase` 原始相位屏的 RMS —— 两个仿真后端分支**唯一**的物理输入差异, 所以它的 oopao/numpy 比值可以直接读作「同一 Cn2 下 OOPAO 相位起伏比 numpy 强多少倍」。cn2=0 已短路为零屏 (比值无定义), 从表中省略:
 
 | mode | cn2=1.000000e-16 | cn2=5.000000e-15 | cn2=5.000000e-14 | 相对离散度 | 判定 |
 |------|-----|-----|-----|--------|------|
@@ -93,37 +93,37 @@
 ⚠️ **`init_rms` 与 `disturbance_rms` 是两个不同的量, 不可互相推断**:
 - `disturbance_rms` = `env._disturbance_rms` = **全网格未截瞳**的原始相位屏 RMS, 不含像差, 不含 DM 校正;
 - `init_rms` = `info["rms"]` = `compat.py::_phase_rms()` = `angle(湍流 + 像差 + DM 校正)` 后按 `self._mask` **截瞳**的总波前 RMS。
-因此即使 oopao 臂的相位屏强 1.068×, `init_rms` 仍可跨臂反向: 实测 open/1.000000e-16 numpy init_rms 0.1922 > oopao 0.1888, 而同一格的 disturbance_rms 是 0.1818 vs 0.1942。像差项与截瞳权重同时参与合成, 所以「相位屏更强 → init_rms 必然更大」不成立。
+因此即使 oopao 仿真后端分支的相位屏强 1.068×, `init_rms` 仍可跨仿真后端分支反向: 实测 open/1.000000e-16 numpy init_rms 0.1922 > oopao 0.1888, 而同一格的 disturbance_rms 是 0.1818 vs 0.1942。像差项与截瞳权重同时参与合成, 所以「相位屏更强 → init_rms 必然更大」不成立。
 Strehl 同理 —— 它由截瞳后的**总**波前决定, 而不只是相位屏。
 
 ## 5. 收敛轨迹 (closed)
 
 ![收敛轨迹](../figures/convergence_trace.png)
 
-闭环模式下湍流被冻结, 3 步贪婪 SPGD 用 16 路 DM 校正静态像差。两臂的收敛轨迹差异直接反映相位屏强度差异: numpy 臂湍流弱 (init Strehl 高), 校正增益小; oopao 臂湍流强 (init Strehl 低), 校正增益大但绝对上限低。
+闭环模式下湍流被冻结, 3 步贪婪 SPGD 用 16 路 DM 校正静态像差。两个仿真后端分支的收敛轨迹差异直接反映相位屏强度差异: numpy 仿真后端分支湍流弱 (init Strehl 高), 校正增益小; oopao 仿真后端分支湍流强 (init Strehl 低), 校正增益大但绝对上限低。
 
 ## 6. cn2=0 对照组
 
-cn2=0 时 `turbulence_phase` 短路为零屏, 两臂应**位级一致**。校验结果: **通过**。
+cn2=0 时 `turbulence_phase` 短路为零屏, 两个仿真后端分支应**位级一致**。校验结果: **通过**。
 
 ## 7. 反空洞守卫
 
-两臂在 cn2>0 下确实不同: **通过** (6 个 (mode, cn2>0) 单元格的 init/best Strehl 或 PIB/RMS 不同)。若此处失败, 说明后端开关 没有影响被测路径, 报告将拒绝写出。
+两个仿真后端分支在 cn2>0 下确实不同: **通过** (6 个 (mode, cn2>0) 单元格的 init/best Strehl 或 PIB/RMS 不同)。若此处失败, 说明后端开关 没有影响被测路径, 报告将拒绝写出。
 
 ## 8. 负发现: slm_shaping_bench 的 cn2 是死配置
 
-`slm_shaping_bench.forward_intensity` 在 cn2=0 与 cn2=5e-14 下输出**字节一致** (max|ΔI| = 0)。它 import 了 `turbulence_phase` 但从不调用; 只调用 `focal_plane` (永不路由)。因此 `slm_shaping_bench` **不能**作为后端影响测试载体。
+`slm_shaping_bench.forward_intensity` 在 cn2=0 与 cn2=5e-14 下输出**字节一致** (max|ΔI| = 0)。它 import 了 `turbulence_phase` 但从不调用; 只调用 `focal_plane` (永不路由)。因此 `slm_shaping_bench` **不能**作为仿真后端分支影响测试载体。
 
 ## 9. 非可比性声明
 
-绝对 Strehl/PIB 不可跨臂直接比较 —— 同 Cn2 下 OOPAO 相位起伏远强于 numpy。
-`disturbance_rms` 的两臂比值在本次阶梯上**逐位恒定** (§4.3):
+绝对 Strehl/PIB 不可跨仿真后端分支直接比较 —— 同 Cn2 下 OOPAO 相位起伏远强于 numpy。
+`disturbance_rms` 的两个仿真后端分支比值在本次阶梯上**逐位恒定** (§4.3):
 - `open` 模式: **1.068×** (相对离散度 1.84e-09, 在 3 个湍流档位上恒定)
 - `closed` 模式: **2.628×** (相对离散度 1.65e-09, 在 3 个湍流档位上恒定)
 
-这意味着表中某些行**看似「OOPAO 更优」, 但不可解读为后端更优**: 例如 open 模式 cn2=5.000000e-14 时, oopao 的 init Strehl (0.6183) 高于 numpy (0.3276)。但同一格的 disturbance_rms 是 4.3416 vs 4.0647 —— 两臂承受的相位屏强度本就不同; 且 init_rms 为 1.5835 vs 2.1649, Strehl 由**截瞳后总波前** (湍流 + 像差 + DM 校正) 决定, 而不是相位屏单独决定 (见 §4.3 注)。该行的 Strehl 高低主要反映**各自所受扰动的合成相位**, 无法据此判定哪一臂的传播核更优。
+这意味着表中某些行**看似「OOPAO 更优」, 但不可解读为某个仿真后端分支更优**: 例如 open 模式 cn2=5.000000e-14 时, oopao 的 init Strehl (0.6183) 高于 numpy (0.3276)。但同一格的 disturbance_rms 是 4.3416 vs 4.0647 —— 两个仿真后端分支承受的相位屏强度本就不同; 且 init_rms 为 1.5835 vs 2.1649, Strehl 由**截瞳后总波前** (湍流 + 像差 + DM 校正) 决定, 而不是相位屏单独决定 (见 §4.3 注)。该行的 Strehl 高低主要反映**各自所受扰动的合成相位**, 无法据此判定哪个仿真后端分支的传播核更优。
 
-要判定哪一臂的绝对 Strehl 更接近物理真值, 需先把两臂的相位屏**标定到同一 r0 / 同一 phase_std**, 再重跑本矩阵 —— 当前数据不足以支持该结论。本报告对比的是「同一 Cn2 配置下, 切换后端对端到端行为的影响」, 不是「等价实现」。
+要判定哪个仿真后端分支的绝对 Strehl 更接近物理真值, 需先把两个仿真后端分支的相位屏**标定到同一 r0 / 同一 phase_std**, 再重跑本矩阵 —— 当前数据不足以支持该结论。本报告对比的是「同一 Cn2 配置下, 切换仿真后端分支对端到端行为的影响」, 不是「等价实现」。
 
 ## 10. 产物清单
 

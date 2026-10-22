@@ -41,14 +41,14 @@ python scripts/slm/model_in_loop_auto.py path/to/bench_profile.json
 
 ### 3.1 一次跑完 A/B 对照与大面积目标
 
-需要「验证集门槛不动」与「强制放开门槛」两臂对照、以及 1000–1600 相机像素的大面积正方形目标时，用编排脚本（它复用上面的 `model_in_loop_auto.py` 入口，并在每个硬件阶段前加一道测光门禁）：
+需要「验证集门槛不动」与「强制放开门槛」两个变体对照、以及 1000–1600 相机像素的大面积正方形目标时，用编排脚本（它复用上面的 `model_in_loop_auto.py` 入口，并在每个硬件阶段前加一道测光门禁）：
 
 ```powershell
 python scripts/slm/model_in_loop_hw_ab.py --plan      # 只打印计划，不开设备
 python scripts/slm/model_in_loop_hw_ab.py             # light → baseline_a → baseline_b → large_1000 / large_1600
 ```
 
-各阶段的期望先写进 manifest 再执行，产物在 `data/debug/model_in_loop_hw_ab/<时间戳>/`（`manifest.json` + `summary.md` + 各阶段 `stage.log`）。测光判定 `no_light` 直接停，`weak` 默认停（`--allow-weak` 放行）。大面积臂会把相机窗口放大到目标边长 +100 px，目标框必须落在读出窗口内。
+各阶段的期望先写进 manifest 再执行，产物在 `data/debug/model_in_loop_hw_ab/<时间戳>/`（`manifest.json` + `summary.md` + 各阶段 `stage.log`）。测光判定 `no_light` 直接停，`weak` 默认停（`--allow-weak` 放行）。大面积变体会把相机窗口放大到目标边长 +100 px，目标框必须落在读出窗口内。
 
 ## 4. 固定曝光复核与交接
 

@@ -6,17 +6,17 @@
 协议 (#139 步骤 1 的"同连接内交错"):
 
 * 一次几何标定, 全程共用 (同连接、同曝光、同 ROI 中心);
-* 每个臂开始前**重新测一遍共享留出探针集**, 于是评分对照明漂移免疫, 且
-  各臂在时间上交错, 任何漂移都落在差值里;
-* 训练探针按臂的策略生成 (固定随机 / 不确定性采样), 各自独立拟合系数;
+* 每个变体开始前**重新测一遍共享留出探针集**, 于是评分对照明漂移免疫, 且
+  各变体在时间上交错, 任何漂移都落在差值里;
+* 训练探针按变体的策略生成 (固定随机 / 不确定性采样), 各自独立拟合系数;
 * 评分: 用拟合出的系数预测留出探针的远场, 与实测做 Pearson 相关 —— 与循环
   里 ``holdout_correlation`` 同一个口径与同一条代码路径
   (``forward_intensity`` + ``_prediction_correlation``)。
 
-臂:
+变体:
 
 ===========  ==========================  ==========================================
-臂           训练探针                     意图
+变体           训练探针                     意图
 ===========  ==========================  ==========================================
 A8           8 张固定随机 (spread 4.0)     基线 (线上默认探针预算)
 A3           3 张固定随机                 基线在**同预算**下的参照
@@ -65,7 +65,7 @@ from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
     zero_order_center,
 )
 
-#: 共享留出探针张数。留出集**各臂完全相同**, 所以相关性的差值就是探针策略
+#: 共享留出探针张数。留出集**各变体完全相同**, 所以相关性的差值就是探针策略
 #: 的差值, 不掺探针实现的随机性。
 HOLDOUT_COUNT = 4
 
@@ -209,7 +209,7 @@ def main() -> int:
         _log(f"正向模型 n_coeffs={n_coeffs} region={args.region} "
              f"far_field={geometry.far_field_size}")
 
-        # 共享留出探针: 固定随机, **各臂完全相同**
+        # 共享留出探针: 固定随机, **各变体完全相同**
         holdout_phases = [
             mil._probe_phase(args.region, args.probe_spread, 777_000 + k,
                              smooth=True)
@@ -233,10 +233,10 @@ def main() -> int:
             ("B2_s0", 2, "uncertainty", 0.0),
         ]
         results: list[dict] = []
-        print(f"\n{'臂':<10}{'探针':>5}{'留出相关':>11}{'逐张':>26}"
+        print(f"\n{'变体':<9}{'探针':>5}{'留出相关':>11}{'逐张':>26}"
               f"{'std(选中)':>12}{'塌缩?':>8}")
         for name, count, kind, sigma in arms:
-            # 留出**先测**, 再测训练集 —— 交错顺序, 漂移落在两臂差值里
+            # 留出**先测**, 再测训练集 —— 交错顺序, 漂移落在两个变体差值里
             holdout_frames = [(capture(ph), ph) for ph in holdout_phases]
 
             train_phases: list[np.ndarray] = []
@@ -301,7 +301,7 @@ def main() -> int:
         print("\n" + "=" * 84)
         print("相对基线 A8 (8 张固定随机) 的独立留出相关性")
         print("=" * 84)
-        print(f"{'臂':<10}{'探针':>5}{'留出相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
+        print(f"{'变体':<9}{'探针':>5}{'留出相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
         for r in results:
             d = r["holdout_correlation"] - base
             per = d / r["n_probes"] if r["n_probes"] else float("nan")
@@ -338,7 +338,7 @@ def main() -> int:
                 _log(f"{r['arm']}: {r['holdout_correlation']:.4f} "
                      f"(Δ={r['holdout_correlation'] - a8:+.4f}, "
                      f"{r['n_probes']} 张)")
-        _log(f"塌缩检查: {'有臂塌缩' if summary['any_collapse'] else '全部在幅度带内'}")
+        _log(f"塌缩检查: {'有变体塌缩' if summary['any_collapse'] else '全部在幅度带内'}")
         _log(f"summary: {out_dir / 'summary.json'}")
         return 0
     except Exception as exc:  # noqa: BLE001

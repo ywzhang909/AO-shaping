@@ -38,10 +38,21 @@ reinvents them wrong.
    made a ramp sweep non-monotone and the Zernike tilt slope read **1.63 cam
    px/rad instead of 5.36**, a 3.3x error that survived three runs because
    repeats were masking it. :func:`display_and_average` therefore discards
-   frames until two consecutive readings agree.
+   frames until several consecutive readings agree *on peak, position and
+   shape* -- see the "Settle criterion" section below, which is shared by
+   every acquisition path in this module.
 """
 
 from __future__ import annotations
+
+import math
+import time
+from dataclasses import dataclass
+from typing import Any
+
+from loguru import logger
+
+import numpy as np
 
 from ao_shaping.utils.image.beam_metrics import despike_frame
 from ao_shaping.utils.image.frame_analysis import (
@@ -79,21 +90,24 @@ from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
 
-from typing import Any
-
-import numpy as np
-
 #: Union of both sources' star-export surfaces (`slm_bench_probe` had no `__all__`,
 #: `slm_bench_metrics` declared 9). Keeping the union stops `import *` narrowing.
 __all__ = [
     "BEAM_CENTER_PANEL",
     "BEAM_RADIUS_PANEL",
+    "DEFAULT_MIN_WAIT_S",
+    "DEFAULT_N_STABLE",
     "SLM_PANEL_H",
     "SLM_PANEL_W",
     "SLM_PITCH_M",
+    "SettleReport",
+    "SettledAcquisition",
     "SpotMeasurement",
     "TILT_SHIFT_SCALE",
+    "acquire_settled",
     "build_block_pattern",
+    "capture_settled",
+    "capture_settled_report",
     "core_fraction",
     "crop_around_zero_order",
     "crop_roi",
@@ -107,6 +121,7 @@ __all__ = [
     "fit_linear_slope",
     "flat_to_flat_floor",
     "measure_flat_reference",
+    "measure_flat_reference_report",
     "measure_spot",
     "ramp_panel",
     "random_phase",
@@ -115,6 +130,7 @@ __all__ = [
     "smooth_frame",
     "snr_vs_averages",
     "tilt_shift_px",
+    "wait_for_settle",
     "zernike_panel",
     "camera_pixel_um_from_focal_scale",
     "focal_length_from_camera_pixel",
@@ -141,6 +157,327 @@ __all__ = [
 # (imported above) so the bench value cannot drift across modules.
 
 
+# ---------------------------------------------------------------------------
+# Settle criterion -- shared by every acquisition path in this module
+# ---------------------------------------------------------------------------
+#
+# 为什么判据长成这样
+# ------------------
+# 面板不会瞬时切换: 写入相位后液晶仍在松弛, 而驱动**无法**知道要松弛多久 ——
+# 它的翻转时间估算按灰度图变化量推算, 两个灰度统计相近的相位会让它报 **0.0 ms**。
+#
+# 旧判据 ("连续两次读数的 peak 与质心一致") 在松弛中途**太容易**满足: 质心
+# 往往还没动, 而光斑仍在展宽变暗, 于是两帧"一致", 闸门就在松弛中的帧上打开。
+# 2026-10-21 本实验系统实测: 同一条平场阶梯在 09:02 / 13:32 / 16:44 读出
+# 213 / 33 / 213 counts (10 ms 曝光), 几何自检的平场光斑 FWHM 在两天之间于
+# 40.6 px 与 48.1 px 之间跳 —— 每条阶梯**内部严格线性**, 所以既不是曝光没生效,
+# 也不是只有第一档被污染, 而是闸门在松弛中途就打开了。
+#
+# 现在判据要求同时满足:
+#
+# 1. ``n_stable`` (默认 3) 帧**彼此**一致的连续读数 —— 两帧一致在松弛中途很容易
+#    偶然命中, 三帧显著更难。
+# 2. 一致性覆盖**形状** (FWHM) 而不只是位置与峰值 —— "峰值已稳但仍在展宽"的
+#    中间态正是旧判据漏掉的那一类。
+# 3. 写入到第一次探测之间的**最小等待** (``min_wait_s``) —— 闸门在面板还没机会
+#    松弛时就打开是没有意义的。
+#
+# 若在 ``max_wait_s`` 内仍未满足判据, 帧**仍然返回** (既有契约, 调用方依赖它),
+# 但结论被明确标记为**未稳定** (:class:`SettleReport`): 沉降失败绝不能与
+# "已经稳定" 混为一谈。
+
+#: Consecutive agreeing readings required before a frame counts as settled.
+#:
+#: Why 3 and not 2: two agreeing readings are easy to hit *by accident* while the
+#: panel is still relaxing -- the centroid has often not moved yet. Measured
+#: 2026-10-21, a flat ladder read 3.8-6.4x brighter at one time of day than at
+#: another, and the flat-spot FWHM flipped between 40.6 px and 48.1 px across two
+#: runs of the same geometric self-check. Three mutually consistent readings
+#: remove the accidental case at the cost of two extra camera reads.
+DEFAULT_N_STABLE = 3
+
+#: Floor on the delay between the phase write and the first stability probe.
+#:
+#: 0.3 s is the settle time this repo's own flat-phase check uses
+#: (``scripts/slm/validate_flat_phase_gray.py --wait-time-s 0.3 --discard-count 3``,
+#: documented in ``scripts/README.md``). It is a *floor*, not the whole wait:
+#: when the driver-level ``wait_time_s`` already exceeded it, nothing is added.
+#: The measured relaxation of this bench reaches past 1 s (fwhm 43.2 px -> 12.8 px
+#: over 3 s), so the floor alone is not enough -- it only stops the criterion
+#: from opening before the panel has had any chance to relax at all.
+DEFAULT_MIN_WAIT_S = 0.3
+
+#: One spot reading: ``(peak, centroid_x, centroid_y, fwhm_px)``.
+_SpotReading = tuple[float, float, float, float]
+
+#: Absolute floor (counts) for the relative peak comparison.
+_PEAK_FLOOR = 1.0
+#: Absolute floor (px) for the relative width comparison.
+_WIDTH_FLOOR_PX = 1.0
+#: Centroid tolerance per unit of ``stable_tol`` (px).
+_CENTROID_TOL_PX = 40.0
+
+
+@dataclass(frozen=True)
+class SettleReport:
+    """What the settle criterion concluded for one phase write.
+
+    Attributes:
+        settled: ``True`` only when the criterion was met.
+        reason: ``"stable"`` or ``"timeout"``.
+        n_probes: Number of stability probes taken.
+        n_stable: Consecutive agreeing readings the criterion demands.
+        waited_s: Seconds from the phase write to the end of the criterion.
+        peak: Peak of the last reading.
+        fwhm_px: FWHM of the last reading.
+        centroid_x: Centroid x of the last reading.
+        centroid_y: Centroid y of the last reading.
+    """
+
+    settled: bool
+    reason: str
+    n_probes: int
+    n_stable: int
+    waited_s: float
+    peak: float
+    fwhm_px: float
+    centroid_x: float
+    centroid_y: float
+
+    def as_row(self) -> str:
+        """One-line summary for a log line."""
+        return (
+            f"settled={self.settled} ({self.reason}) probes={self.n_probes} "
+            f"peak={self.peak:.0f} fwhm={self.fwhm_px:.1f}px "
+            f"c=({self.centroid_x:.1f},{self.centroid_y:.1f})"
+        )
+
+
+@dataclass(frozen=True)
+class SettledAcquisition:
+    """An averaged frame plus the settle verdict that gated it."""
+
+    frame: np.ndarray
+    settle: SettleReport
+
+    @property
+    def settled(self) -> bool:
+        """``True`` when the frame was taken after the criterion was met."""
+        return self.settle.settled
+
+
+def _probe_spot(cam) -> _SpotReading:
+    """Read one frame and characterise its spot: ``(peak, cx, cy, fwhm)``.
+
+    A frame that cannot be measured -- a non-finite pixel makes
+    :func:`measure_spot` raise -- yields a reading with a ``nan`` width, which
+    never counts as "agreeing". An unmeasurable frame must not be mistaken for
+    a settled one, and it must not abort the whole acquisition either.
+    """
+    img = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
+    try:
+        m = measure_spot(img)
+    except (ValueError, FloatingPointError) as exc:
+        logger.debug("spot measurement failed on this frame: {}", exc)
+        return 0.0, 0.0, 0.0, float("nan")
+    return m.peak, m.centroid_x, m.centroid_y, m.fwhm_px
+
+
+def _readings_agree(a: _SpotReading, b: _SpotReading, stable_tol: float) -> bool:
+    """Whether two spot readings agree within ``stable_tol``.
+
+    Peak and width are compared *relatively* (the same shape of criterion, with
+    an absolute floor so a near-zero value cannot make the test vacuous); the
+    centroid is compared absolutely, in pixels.
+
+    A non-finite width (``nan`` for a degenerate frame) makes the pair
+    **disagree**: an unmeasurable shape must never be read as "unchanged".
+    """
+    peak_a, cx_a, cy_a, width_a = a
+    peak_b, cx_b, cy_b, width_b = b
+    if not (math.isfinite(peak_a) and math.isfinite(peak_b)):
+        return False
+    if not (math.isfinite(width_a) and math.isfinite(width_b)):
+        return False
+    peak_tol = stable_tol * max(abs(peak_a), abs(peak_b), _PEAK_FLOOR)
+    width_tol = stable_tol * max(abs(width_a), abs(width_b), _WIDTH_FLOOR_PX)
+    centroid_tol = stable_tol * _CENTROID_TOL_PX
+    return (
+        abs(peak_a - peak_b) <= peak_tol
+        and abs(cx_a - cx_b) <= centroid_tol
+        and abs(cy_a - cy_b) <= centroid_tol
+        and abs(width_a - width_b) <= width_tol
+    )
+
+
+def _window_agrees(window: list[_SpotReading], stable_tol: float) -> bool:
+    """Whether every pair in ``window`` agrees within ``stable_tol``."""
+    return all(
+        _readings_agree(window[i], window[j], stable_tol)
+        for i in range(len(window))
+        for j in range(i + 1, len(window))
+    )
+
+
+def wait_for_settle(
+    cam,
+    *,
+    n_discard: int = 3,
+    min_wait_s: float = DEFAULT_MIN_WAIT_S,
+    stable_tol: float = 0.02,
+    max_wait_s: float = 6.0,
+    n_stable: int = DEFAULT_N_STABLE,
+    started_at: float | None = None,
+) -> SettleReport:
+    """Discard frames until ``n_stable`` consecutive readings agree.
+
+    The single settle criterion of this module -- :func:`display_and_average`,
+    :func:`capture_settled` and :func:`acquire_settled` all go through it, so
+    there is exactly one definition of "settled" on the bench.
+
+    A reading is ``(peak, centroid_x, centroid_y, fwhm_px)``; two readings must
+    agree on **all four** to ``stable_tol`` (peak and width relatively, the
+    centroid absolutely) and ``n_stable`` of them must agree *with each other*.
+
+    Args:
+        cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
+        n_discard: Frames discarded before the first probe.
+        min_wait_s: Floor on the delay between the phase write and the first
+            probe. ``started_at`` is the timestamp of the write.
+        stable_tol: Relative agreement required between readings.
+        max_wait_s: Cap on the wait for stability, measured from the first probe.
+        n_stable: Consecutive agreeing readings required.
+        started_at: Monotonic timestamp of the phase write; defaults to now.
+
+    Returns:
+        A :class:`SettleReport`. ``settled`` is ``False`` when the criterion
+        could not be met within ``max_wait_s`` -- the caller must not silently
+        treat such a frame as a settled measurement.
+    """
+    n_stable = int(n_stable)
+    if n_stable < 1:
+        raise ValueError(f"n_stable must be >= 1, got {n_stable!r}")
+
+    t_write = time.monotonic() if started_at is None else float(started_at)
+
+    for _ in range(int(n_discard)):
+        cam.get_numpy_image(n_sample=1)
+
+    # Floor on the time between the phase write and the first probe. The
+    # driver-level wait usually already covers it; when it does not (an
+    # automatic flip-time estimate can be 0.0 ms), this is what stops the
+    # criterion from opening on the very first frame after the write.
+    remaining = float(min_wait_s) - (time.monotonic() - t_write)
+    if remaining > 0.0:
+        time.sleep(remaining)
+
+    deadline = time.monotonic() + float(max_wait_s)
+    window: list[_SpotReading] = []
+    n_probes = 0
+    last: _SpotReading = (0.0, 0.0, 0.0, float("nan"))
+    settled = False
+    while True:
+        last = _probe_spot(cam)
+        n_probes += 1
+        window.append(last)
+        if len(window) > n_stable:
+            window.pop(0)
+        if len(window) >= n_stable and _window_agrees(window, float(stable_tol)):
+            settled = True
+            break
+        if time.monotonic() >= deadline:
+            break
+
+    peak, cx, cy, width = last
+    return SettleReport(
+        settled=settled,
+        reason="stable" if settled else "timeout",
+        n_probes=n_probes,
+        n_stable=n_stable,
+        waited_s=time.monotonic() - t_write,
+        peak=peak,
+        fwhm_px=width,
+        centroid_x=cx,
+        centroid_y=cy,
+    )
+
+
+def _warn_if_unsettled(settle: SettleReport) -> None:
+    """Log a warning when the settle criterion was not met.
+
+    A relaxing frame must not look like a settled one. The numpy-returning
+    entry points keep their historical signature, so the verdict is carried by
+    this warning -- and by :func:`acquire_settled` for callers that want it
+    programmatically.
+    """
+    if settle.settled:
+        return
+    logger.warning(
+        "settle criterion not met after {:.2f} s ({} probes, n_stable={}): {} "
+        "-- the frame is still relaxing and must be treated as provisional",
+        settle.waited_s,
+        settle.n_probes,
+        settle.n_stable,
+        settle.as_row(),
+    )
+
+
+def acquire_settled(
+    cam,
+    slm,
+    phase_rad: np.ndarray,
+    *,
+    n_frames: int = 4,
+    n_discard: int = 3,
+    wait_time_s: float | None = 0.5,
+    min_wait_s: float = DEFAULT_MIN_WAIT_S,
+    stable_tol: float = 0.02,
+    max_wait_s: float = 6.0,
+    n_stable: int = DEFAULT_N_STABLE,
+) -> SettledAcquisition:
+    """Display ``phase_rad``, wait for the panel to settle, average the frames.
+
+    The one acquisition implementation of this module: it writes the phase with
+    ``display_data()`` (no ``memory_number``, so the slot rotates itself --
+    fact 3 in the module docstring), applies the shared settle criterion, and
+    averages ``n_frames`` fresh frames afterwards.
+
+    Args:
+        cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
+        slm: An open SLM exposing ``create_phase_from_array`` and
+            ``display_data(gray, wait_time_s)``.
+        phase_rad: Raw unwrapped radians, panel-shaped.
+        n_frames: Frames averaged into the returned measurement.
+        n_discard: Frames discarded before the first stability probe.
+        wait_time_s: Driver-level wait after the write (``None`` = the driver
+            estimates it, which it under-reports -- see the module docstring).
+        min_wait_s: Floor on the delay between the write and the first probe.
+        stable_tol: Relative agreement required between readings.
+        max_wait_s: Cap on the wait for stability.
+        n_stable: Consecutive agreeing readings required.
+
+    Returns:
+        A :class:`SettledAcquisition`: the averaged frame plus the verdict.
+    """
+    gray = slm.create_phase_from_array(phase_rad)
+    t_write = time.monotonic()
+    slm.display_data(gray, wait_time_s)
+    settle = wait_for_settle(
+        cam,
+        n_discard=n_discard,
+        min_wait_s=min_wait_s,
+        stable_tol=stable_tol,
+        max_wait_s=max_wait_s,
+        n_stable=n_stable,
+        started_at=t_write,
+    )
+    acc = [
+        np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
+        for _ in range(int(n_frames))
+    ]
+    return SettledAcquisition(frame=np.mean(acc, axis=0), settle=settle)
+
+
 def measure_flat_reference(
     cam,
     slm,
@@ -158,6 +495,28 @@ def measure_flat_reference(
     return frame, measure_spot(frame)
 
 
+def measure_flat_reference_report(
+    cam,
+    slm,
+    n_frames: int = 4,
+    panel_shape: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W),
+) -> tuple[np.ndarray, SpotMeasurement, SettleReport]:
+    """Same flat reference as :func:`measure_flat_reference`, **with** the verdict.
+
+    The flat reference is the frame every later measurement is compared against,
+    so "was it settled?" matters most here. :func:`measure_flat_reference` keeps
+    its historical two-value return and logs a warning instead.
+
+    Returns:
+        The averaged frame, its spot measurement, and the settle verdict.
+    """
+    result = acquire_settled(
+        cam, slm, np.zeros(panel_shape), n_frames=n_frames
+    )
+    _warn_if_unsettled(result.settle)
+    return result.frame, measure_spot(result.frame), result.settle
+
+
 def display_and_average(
     cam,
     slm,
@@ -167,6 +526,9 @@ def display_and_average(
     wait_time_s: float | None = 0.5,
     stable_tol: float = 0.02,
     max_wait_s: float = 6.0,
+    *,
+    min_wait_s: float = DEFAULT_MIN_WAIT_S,
+    n_stable: int = DEFAULT_N_STABLE,
 ) -> np.ndarray:
     """Display ``phase_rad`` and return an averaged frame once the spot settles.
 
@@ -183,39 +545,41 @@ def display_and_average(
     records an unsettled frame, and the resulting numbers look plausible -- a
     ramp sweep came out non-monotone purely for this reason.
 
-    So: wait ``wait_time_s``, then keep discarding frames until two consecutive
-    measurements of (peak, centroid) agree to ``stable_tol`` relative, capped at
-    ``max_wait_s``.
+    So: write the phase, wait at least ``min_wait_s``, then keep reading until
+    ``n_stable`` consecutive readings agree with *each other* on peak, position
+    **and width** to ``stable_tol``, capped at ``max_wait_s``.
+
+    The verdict is **not** folded into the return value -- this function keeps
+    its historical ``np.ndarray`` contract -- but an unsettled outcome is logged
+    as a warning, and :func:`acquire_settled` exposes it programmatically.
+
+    Args:
+        cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
+        slm: An open SLM exposing ``create_phase_from_array`` and
+            ``display_data(gray, wait_time_s)``.
+        phase_rad: Raw unwrapped radians, panel-shaped.
+        n_frames: Frames averaged into the returned measurement.
+        n_discard: Frames discarded before the first stability probe.
+        wait_time_s: Driver-level wait after the write.
+        stable_tol: Relative agreement required between readings.
+        max_wait_s: Cap on the wait for stability.
+        min_wait_s: Floor on the delay between the write and the first probe.
+        n_stable: Consecutive agreeing readings required.
     """
-    import time
-
-    gray = slm.create_phase_from_array(phase_rad)
-    slm.display_data(gray, wait_time_s)
-    for _ in range(int(n_discard)):
-        cam.get_numpy_image(n_sample=1)
-
-    def probe() -> tuple[float, float, float]:
-        img = np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
-        m = measure_spot(img)
-        return m.peak, m.centroid_x, m.centroid_y
-
-    prev = probe()
-    deadline = time.time() + float(max_wait_s)
-    while time.time() < deadline:
-        cur = probe()
-        if (
-            abs(cur[0] - prev[0]) <= stable_tol * max(prev[0], 1.0)
-            and abs(cur[1] - prev[1]) <= stable_tol * 40.0
-            and abs(cur[2] - prev[2]) <= stable_tol * 40.0
-        ):
-            break
-        prev = cur
-
-    acc = [
-        np.asarray(cam.get_numpy_image(n_sample=1), dtype=np.float64)
-        for _ in range(int(n_frames))
-    ]
-    return np.mean(acc, axis=0)
+    result = acquire_settled(
+        cam,
+        slm,
+        phase_rad,
+        n_frames=n_frames,
+        n_discard=n_discard,
+        wait_time_s=wait_time_s,
+        min_wait_s=min_wait_s,
+        stable_tol=stable_tol,
+        max_wait_s=max_wait_s,
+        n_stable=n_stable,
+    )
+    _warn_if_unsettled(result.settle)
+    return result.frame
 
 
 def zernike_panel(
@@ -453,12 +817,18 @@ def capture_settled(
     wait_time_s: float = 0.5,
     stable_tol: float = 0.02,
     max_wait_s: float = 6.0,
+    min_wait_s: float = DEFAULT_MIN_WAIT_S,
+    n_stable: int = DEFAULT_N_STABLE,
 ) -> np.ndarray:
     """Display one phase and return the averaged far-field frame once settled.
 
     The single-phase entry point, for callers that build their own acquisition
     order (an ABBA interleave, a repeated push-pull) and only need the settle
     discipline and the averaging from here.
+
+    It shares the settle criterion with :func:`display_and_average` verbatim --
+    both go through :func:`acquire_settled`, so there is only one definition of
+    "settled" on this bench.
 
     Args:
         cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
@@ -470,17 +840,73 @@ def capture_settled(
         wait_time_s: Explicit LCOS settle before measuring.
         stable_tol: Relative agreement required between consecutive readings.
         max_wait_s: Cap on the wait for stability.
+        min_wait_s: Floor on the delay between the write and the first probe.
+        n_stable: Consecutive agreeing readings required.
 
     Returns:
         The averaged frame.
     """
-    return display_and_average(
+    result = acquire_settled(
         cam,
         slm,
         phase_rad,
         n_frames=n_frames,
         n_discard=n_discard,
         wait_time_s=wait_time_s,
+        min_wait_s=min_wait_s,
         stable_tol=stable_tol,
         max_wait_s=max_wait_s,
+        n_stable=n_stable,
+    )
+    _warn_if_unsettled(result.settle)
+    return result.frame
+
+
+def capture_settled_report(
+    cam: Any,
+    slm: Any,
+    phase_rad: np.ndarray,
+    *,
+    n_frames: int = 4,
+    n_discard: int = 3,
+    wait_time_s: float = 0.5,
+    stable_tol: float = 0.02,
+    max_wait_s: float = 6.0,
+    min_wait_s: float = DEFAULT_MIN_WAIT_S,
+    n_stable: int = DEFAULT_N_STABLE,
+) -> SettledAcquisition:
+    """Same acquisition as :func:`capture_settled`, but **with** the verdict.
+
+    Use this when the caller has to know whether the frame it got was really
+    settled -- a settling failure must never be silently turned into a
+    measurement. :func:`capture_settled` keeps its historical ``np.ndarray``
+    return type and logs a warning instead.
+
+    Args:
+        cam: An open camera exposing ``get_numpy_image(n_sample=...)``.
+        slm: An open SLM exposing ``create_phase_from_array`` and
+            ``display_data(gray, wait_time_s)``.
+        phase_rad: Raw unwrapped radians, panel-shaped.
+        n_frames: Frames averaged into the returned measurement.
+        n_discard: Frames discarded before the stability loop starts.
+        wait_time_s: Explicit LCOS settle before measuring.
+        stable_tol: Relative agreement required between consecutive readings.
+        max_wait_s: Cap on the wait for stability.
+        min_wait_s: Floor on the delay between the write and the first probe.
+        n_stable: Consecutive agreeing readings required.
+
+    Returns:
+        The averaged frame plus the settle verdict.
+    """
+    return acquire_settled(
+        cam,
+        slm,
+        phase_rad,
+        n_frames=n_frames,
+        n_discard=n_discard,
+        wait_time_s=wait_time_s,
+        min_wait_s=min_wait_s,
+        stable_tol=stable_tol,
+        max_wait_s=max_wait_s,
+        n_stable=n_stable,
     )

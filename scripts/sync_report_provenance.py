@@ -46,6 +46,9 @@ START = START_MARKER
 END = END_MARKER
 REPORT_DIR = ROOT / "report"
 INDEX = REPORT_DIR / "README.md"
+#: ``report/AGENTS.md`` is the layout spec for the report tree, not a report: it
+#: carries no generation script and must not be asked for a provenance block.
+NON_REPORT_DOCS = frozenset({INDEX, REPORT_DIR / "AGENTS.md"})
 
 
 def _read(path: Path) -> tuple[str, bool]:
@@ -91,7 +94,7 @@ def process(check: bool, verbose: bool) -> int:
 
     for md in sorted(REPORT_DIR.rglob("*.md")):
         key = md.relative_to(ROOT).as_posix()
-        if key == INDEX.relative_to(ROOT).as_posix():
+        if key in {p.relative_to(ROOT).as_posix() for p in NON_REPORT_DOCS}:
             continue
         if key not in REPORTS:
             unregistered.append(key)

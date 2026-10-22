@@ -1,7 +1,7 @@
 """生成 AO_OOPAO_BACKEND 端到端影响报告 (SimTurbulenceAOEnv, 离线)。
 
 驱动真实的 RL AO 环境 ``SimTurbulenceAOEnv`` (DM 影响函数 + WFS 斜率 + 焦面 FFT),
-在 ``AO_OOPAO_BACKEND`` 开关的两种后端臂 (``numpy`` / ``oopao``) 下, 沿 cn2 阶梯
+在 ``AO_OOPAO_BACKEND`` 开关的两个仿真后端分支 (``numpy`` / ``oopao``) 下, 沿 cn2 阶梯
 跑两种模式:
 
 - ``open`` 开环: 滑动湍流窗口 (screen_step_px=2), 零动作, 记录湍流演化下的端到端指标;
@@ -13,9 +13,9 @@
 守卫 (任一失败即中止, 拒绝写出空洞报告):
 
 1. OOPAO 不可用 / 路由自检失败 → 退出码 2;
-2. 每行实测 ``_oopao_enabled()`` 与臂不一致 (静默回退 numpy) → RuntimeError;
-3. 反空洞守卫: 每个 mode 至少一个 cn2>0 单元格两臂指标不同, 否则 RuntimeError;
-4. cn2=0 对照组两臂须位级一致 (不一致仅告警)。
+2. 每行实测 ``_oopao_enabled()`` 与仿真后端分支不一致 (静默回退 numpy) → RuntimeError;
+3. 反空洞守卫: 每个 mode 至少一个 cn2>0 单元格两个仿真后端分支指标不同, 否则 RuntimeError;
+4. cn2=0 对照组两个仿真后端分支须位级一致 (不一致仅告警)。
 
 负发现: ``slm_shaping_bench.forward_intensity`` 的 cn2 是死配置 (只调用永不路由的
 ``focal_plane``), 探测结果写入报告。
@@ -159,10 +159,10 @@ CSV_COLUMNS: tuple[str, ...] = (
 )
 
 # 相位屏强度比值 (oopao/numpy) 的「恒定」判据: 相对离散度 (max-min)/mean 上限。
-# 实测两条后端实现的比值在整条 cn2 阶梯上相对离散度 ~1e-5, 属浮点舍入量级。
+# 实测两个仿真后端分支实现的比值在整条 cn2 阶梯上相对离散度 ~1e-5, 属浮点舍入量级。
 RATIO_CONSTANT_TOL_REL = 1e-3
 
-# cn2=0 对照组要求两臂位级一致的指标 (全部不经过 propagate(), 只经 focal_plane)
+# cn2=0 对照组要求两个仿真后端分支位级一致的指标 (全部不经过 propagate(), 只经 focal_plane)
 ARM_INVARIANT_METRICS: tuple[str, ...] = (
     "init_strehl",
     "final_strehl",
@@ -182,16 +182,16 @@ ARM_MARKERS = {ARM_NUMPY: "o", ARM_OOPAO: "s"}
 
 
 # --------------------------------------------------------------------------- #
-# 后端臂切换与自检
+# 仿真后端分支切换与自检
 # --------------------------------------------------------------------------- #
 @contextlib.contextmanager
 def backend_arm(arm_name: str) -> Iterator[None]:
-    """切换到指定后端臂, 进入与退出都清 OOPAO lru_cache。
+    """切换到指定仿真后端分支, 进入与退出都清 OOPAO lru_cache。
 
     ``oopao_backend._get_backend`` 是 ``@lru_cache(maxsize=8)``, 缓存键里只有物理
-    配置没有臂标志 —— 不清缓存时第二条臂可能拿到第一条臂的 ``Atmosphere``, 于是
-    "oopao" 臂静默退化成 numpy。进入时清一次 (换臂), 退出时再清一次 (防止残留
-    实例泄漏到下一个 cn2/臂/模式)。
+    配置没有后端标志 —— 不清缓存时第二个仿真后端分支可能拿到第一个分支的 ``Atmosphere``, 于是
+    "oopao" 分支静默退化成 numpy。进入时清一次 (切换分支), 退出时再清一次 (防止残留
+    实例泄漏到下一个 cn2/仿真后端分支/模式)。
 
     Args:
         arm_name: ``numpy`` 或 ``oopao``。
@@ -222,14 +222,14 @@ def assert_oopao_usable() -> None:
     with backend_arm(ARM_OOPAO):
         if not bb._oopao_enabled():
             raise OopaoBackendUnavailableError(
-                "AO_OOPAO_BACKEND=1 未激活 OOPAO 后端 (静默回退 numpy)。"
+                "AO_OOPAO_BACKEND=1 未激活 OOPAO 仿真后端分支 (静默回退 numpy)。"
             )
     with backend_arm(ARM_NUMPY):
         if bb._oopao_enabled():
             raise OopaoBackendUnavailableError(
-                "移除 AO_OOPAO_BACKEND 后 OOPAO 后端仍处于激活状态。"
+                "移除 AO_OOPAO_BACKEND 后 OOPAO 仿真后端分支仍处于激活状态。"
             )
-    logger.info("OOPAO 后端可用且双臂路由自检通过")
+    logger.info("OOPAO 后端可用且两个仿真后端分支的路由自检通过")
 
 
 # --------------------------------------------------------------------------- #
@@ -308,7 +308,7 @@ def run_episode(
     seed: int,
     steps: int,
 ) -> EpisodeResult:
-    """在指定后端臂下驱动一次 ``SimTurbulenceAOEnv`` episode。
+    """在指定仿真后端分支下驱动一次 ``SimTurbulenceAOEnv`` episode。
 
     Args:
         mode: ``open`` (开环, 滑动湍流, 零动作) 或 ``closed`` (闭环, 冻结湍流,
@@ -385,37 +385,39 @@ def run_episode(
 # 守卫
 # --------------------------------------------------------------------------- #
 def verify_backend_routing(results: list[EpisodeResult]) -> None:
-    """每行记录的 ``_oopao_enabled()`` 必须与臂一致, 否则大声中止。
+    """每行记录的 ``_oopao_enabled()`` 必须与仿真后端分支一致, 否则大声中止。
 
     Args:
         results: 全部 episode 结果。
 
     Raises:
-        RuntimeError: 某行实测后端与臂不符 (静默回退 numpy)。
+        RuntimeError: 某行实测仿真后端分支与预期不符 (静默回退 numpy)。
     """
     for result in results:
         expected = result.arm == ARM_OOPAO
         if result.oopao_enabled != expected:
             raise RuntimeError(
-                f"后端路由不符: {result.mode}/{fmt_ratio(result.cn2)}/{result.arm} 实测 "
+                f"仿真后端分支路由不符: {result.mode}/{fmt_ratio(result.cn2)}/{result.arm} 实测 "
                 f"_oopao_enabled()={result.oopao_enabled} (期望 {expected})。"
                 "AO_OOPAO_BACKEND 静默回退 numpy —— 拒绝信任该数字。"
             )
-    logger.info("后端路由校验通过: 全部 {} 行 _oopao_enabled() 与臂一致", len(results))
+    logger.info(
+        "仿真后端分支路由校验通过: 全部 {} 行 _oopao_enabled() 与预期一致", len(results)
+    )
 
 
 def verify_anti_vacuity(results: list[EpisodeResult], cn2_values: list[float]) -> int:
-    """反空洞守卫: 每个 mode 至少一个 cn2>0 单元格两臂必须不同, 否则中止。
+    """反空洞守卫: 每个 mode 至少一个 cn2>0 单元格两个仿真后端分支必须不同, 否则中止。
 
     Args:
         results: 全部 episode 结果。
         cn2_values: 本次实际使用的 cn2 阶梯。
 
     Returns:
-        两臂指标不同的 (mode, cn2>0) 单元格数。
+        两个仿真后端分支指标不同的 (mode, cn2>0) 单元格数。
 
     Raises:
-        RuntimeError: 没有任何 cn2>0 单元格两臂不同 —— 后端开关没有影响被测路径。
+        RuntimeError: 没有任何 cn2>0 单元格两个仿真后端分支不同 —— 后端开关没有影响被测路径。
     """
     differing = 0
     for mode in MODES:
@@ -437,15 +439,17 @@ def verify_anti_vacuity(results: list[EpisodeResult], cn2_values: list[float]) -
                 differing += 1
     if differing == 0:
         raise RuntimeError(
-            "反空洞守卫失败: 所有 cn2>0 单元格的两臂指标完全相同。后端开关没有影响 "
-            "被测路径 —— 拒绝写出一份空洞报告。"
+            "反空洞守卫失败: 所有 cn2>0 单元格的两个仿真后端分支指标完全相同。后端开关"
+            "没有影响被测路径 —— 拒绝写出一份空洞报告。"
         )
-    logger.info("反空洞守卫通过: {} 个 (mode, cn2>0) 单元格两臂指标不同", differing)
+    logger.info(
+        "反空洞守卫通过: {} 个 (mode, cn2>0) 单元格两个仿真后端分支指标不同", differing
+    )
     return differing
 
 
 def verify_control(results: list[EpisodeResult], cn2_values: list[float]) -> bool:
-    """cn2=0 对照组: 两臂必须位级一致 (turbulence_phase 在 cn2<=0 短路为零屏)。
+    """cn2=0 对照组: 两个仿真后端分支必须位级一致 (turbulence_phase 在 cn2<=0 短路为零屏)。
 
     Args:
         results: 全部 episode 结果。
@@ -476,9 +480,11 @@ def verify_control(results: list[EpisodeResult], cn2_values: list[float]) -> boo
                     getattr(oopao_row, metric),
                 )
     if ok:
-        logger.info("cn2=0 对照组通过: 两臂全部指标位级一致")
+        logger.info("cn2=0 对照组通过: 两个仿真后端分支全部指标位级一致")
     else:
-        logger.warning("cn2=0 对照组存在不一致 —— 相位生成可能引入了臂间偏置")
+        logger.warning(
+            "cn2=0 对照组存在不一致 —— 相位生成可能引入了仿真后端分支间的偏置"
+        )
     return ok
 
 
@@ -513,7 +519,7 @@ def probe_slm_shaping_bench_dead_cn2() -> dict[str, Any]:
 # 格式化与表格
 # --------------------------------------------------------------------------- #
 def _rel_diff(numpy_value: float, oopao_value: float) -> str:
-    """两臂相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
+    """两个仿真后端分支相对差 (百分比); numpy 值为 0 时返回 ``—``。"""
     if numpy_value == 0.0:
         return "—"
     return f"{(oopao_value - numpy_value) / abs(numpy_value) * 100.0:+.2f}%"
@@ -537,7 +543,7 @@ def _metric_table(
 ) -> str:
     """渲染某个模式的汇总对比 markdown 表。"""
     lines = [
-        "| cn2 | 臂 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |",
+        "| cn2 | 仿真后端分支 | init Strehl | best Strehl | init PIB | init RMS | disturbance RMS | Strehl 增益 |",
         "|-----|-----|------------|-------------|----------|----------|-----------------|-------------|",
     ]
     for cn2 in cn2_values:
@@ -603,7 +609,7 @@ def _arm_row(
 def disturbance_ratio(
     results: list[EpisodeResult], mode: str, cn2: float
 ) -> float | None:
-    """两臂 ``disturbance_rms`` 之比 (oopao/numpy)。
+    """两个仿真后端分支 ``disturbance_rms`` 之比 (oopao/numpy)。
 
     Args:
         results: 全部 episode 结果。
@@ -611,7 +617,7 @@ def disturbance_ratio(
         cn2: 湍流强度 (cn2<=0 时相位屏短路为零屏, 比值无定义 → 返回 ``None``)。
 
     Returns:
-        比值, 或 ``None`` (对照组 / 任一臂为零 / 该单元格缺失)。
+        比值, 或 ``None`` (对照组 / 任一仿真后端分支为零 / 该单元格缺失)。
     """
     if cn2 <= 0.0:
         return None
@@ -744,7 +750,7 @@ def _max_init_strehl_gap(
 def render_strehl_figure(
     results: list[EpisodeResult], cn2_values: list[float], path: Path
 ) -> None:
-    """每 cn2 的 Strehl 对比 (init + best, 两臂, 两种模式)。"""
+    """每 cn2 的 Strehl 对比 (init + best, 两个仿真后端分支, 两种模式)。"""
     x = np.arange(len(cn2_values))
     width = 0.19
     fig, axes = plt.subplots(1, 2, figsize=(13, 5), sharey=True)
@@ -790,7 +796,7 @@ def render_strehl_figure(
 def render_convergence_figure(
     results: list[EpisodeResult], cn2_values: list[float], path: Path
 ) -> None:
-    """闭环收敛轨迹: 每 cn2 一子图, 两臂 Strehl vs SPGD 迭代。"""
+    """闭环收敛轨迹: 每 cn2 一子图, 两个仿真后端分支 Strehl vs SPGD 迭代。"""
     fig, axes = plt.subplots(2, 2, figsize=(12, 9))
     for ax, cn2 in zip(axes.flat, cn2_values):
         for arm in ARMS:
@@ -958,7 +964,7 @@ def collect_provenance(oopao_repo: Path) -> dict[str, str]:
 def _phase_screen_ratio_section(
     results: list[EpisodeResult], cn2_values: list[float]
 ) -> list[str]:
-    """§4.3: 相位屏强度 (disturbance_rms) 两臂比值的分析小节。"""
+    """§4.3: 相位屏强度 (disturbance_rms) 两个仿真后端分支比值的分析小节。"""
     table_lines, profiles = ratio_table(results, cn2_values)
     claimable = [p for p in profiles if p.is_constancy_claimable]
     positive = [p for p in profiles if p.ratios]
@@ -966,7 +972,7 @@ def _phase_screen_ratio_section(
     lines: list[str] = []
     lines.append(
         "`disturbance_rms` 是被路由的 `turbulence_phase` 原始相位屏的 RMS —— "
-        "两臂**唯一**的物理输入差异, 所以它的 oopao/numpy 比值可以直接读作"
+        "两个仿真后端分支**唯一**的物理输入差异, 所以它的 oopao/numpy 比值可以直接读作"
         "「同一 Cn2 下 OOPAO 相位起伏比 numpy 强多少倍」。"
         "cn2=0 已短路为零屏 (比值无定义), 从表中省略:"
     )
@@ -1027,8 +1033,8 @@ def _phase_screen_ratio_section(
     if inversion is not None:
         inv_cn2, inv_numpy, inv_oopao = inversion
         lines.append(
-            f"因此即使 oopao 臂的相位屏强 {inv_oopao.disturbance_rms / inv_numpy.disturbance_rms:.3f}×, "
-            f"`init_rms` 仍可跨臂反向: 实测 {inv_numpy.mode}/{fmt_ratio(inv_cn2)} "
+            f"因此即使 oopao 仿真后端分支的相位屏强 {inv_oopao.disturbance_rms / inv_numpy.disturbance_rms:.3f}×, "
+            f"`init_rms` 仍可跨仿真后端分支反向: 实测 {inv_numpy.mode}/{fmt_ratio(inv_cn2)} "
             f"numpy init_rms {inv_numpy.init_rms:.4f} > oopao {inv_oopao.init_rms:.4f}, "
             f"而同一格的 disturbance_rms 是 {inv_numpy.disturbance_rms:.4f} vs "
             f"{inv_oopao.disturbance_rms:.4f}。像差项与截瞳权重同时参与合成, "
@@ -1050,10 +1056,12 @@ def _incomparability_section(
     constant = [p for p in profiles if p.is_constant]
     lines: list[str] = []
     lines.append(
-        "绝对 Strehl/PIB 不可跨臂直接比较 —— 同 Cn2 下 OOPAO 相位起伏远强于 numpy。"
+        "绝对 Strehl/PIB 不可跨仿真后端分支直接比较 —— 同 Cn2 下 OOPAO 相位起伏远强于 numpy。"
     )
     if constant:
-        lines.append("`disturbance_rms` 的两臂比值在本次阶梯上**逐位恒定** (§4.3):")
+        lines.append(
+            "`disturbance_rms` 的两个仿真后端分支比值在本次阶梯上**逐位恒定** (§4.3):"
+        )
         for profile in constant:
             lines.append(
                 f"- `{profile.mode}` 模式: **{profile.mean:.3f}×** "
@@ -1062,37 +1070,37 @@ def _incomparability_section(
             )
     else:
         lines.append(
-            "`disturbance_rms` 的两臂比值需要至少 2 个 cn2>0 档位才能判定恒定性; "
+            "`disturbance_rms` 的两个仿真后端分支比值需要至少 2 个 cn2>0 档位才能判定恒定性; "
             "本次阶梯档位不足, 未能给出可判定的比值 (§4.3) —— "
-            "跨臂绝对指标同样不可比 (定性结论不变)。"
+            "跨仿真后端分支的绝对指标同样不可比 (定性结论不变)。"
         )
     gap = _max_init_strehl_gap(results, cn2_values)
     lines.append("")
     if gap is not None:
         gap_cn2, gap_numpy, gap_oopao = gap
         lines.append(
-            f"这意味着表中某些行**看似「OOPAO 更优」, 但不可解读为后端更优**: "
+            f"这意味着表中某些行**看似「OOPAO 更优」, 但不可解读为某个仿真后端分支更优**: "
             f"例如 {gap_numpy.mode} 模式 cn2={fmt_ratio(gap_cn2)} 时, oopao 的 init Strehl "
             f"({gap_oopao.init_strehl:.4f}) 高于 numpy ({gap_numpy.init_strehl:.4f})。"
             f"但同一格的 disturbance_rms 是 {gap_oopao.disturbance_rms:.4f} vs "
-            f"{gap_numpy.disturbance_rms:.4f} —— 两臂承受的相位屏强度本就不同; "
+            f"{gap_numpy.disturbance_rms:.4f} —— 两个仿真后端分支承受的相位屏强度本就不同; "
             f"且 init_rms 为 {gap_oopao.init_rms:.4f} vs {gap_numpy.init_rms:.4f}, "
             "Strehl 由**截瞳后总波前** (湍流 + 像差 + DM 校正) 决定, "
             "而不是相位屏单独决定 (见 §4.3 注)。该行的 Strehl 高低主要反映"
-            "**各自所受扰动的合成相位**, 无法据此判定哪一臂的传播核更优。"
+            "**各自所受扰动的合成相位**, 无法据此判定哪个仿真后端分支的传播核更优。"
         )
     else:
         lines.append(
-            "任何单行指标的两臂差异都**不可**解读为「某臂后端更优」: "
-            "两臂承受的相位屏强度不同, 且 Strehl/PIB 由截瞳后总波前 "
+            "任何单行指标的两个仿真后端分支差异都**不可**解读为「某个仿真后端分支更优」: "
+            "两个仿真后端分支承受的相位屏强度不同, 且 Strehl/PIB 由截瞳后总波前 "
             "(湍流 + 像差 + DM 校正) 决定, 而不是相位屏单独决定 (见 §4.3 注)。"
         )
     lines.append("")
     lines.append(
-        "要判定哪一臂的绝对 Strehl 更接近物理真值, 需先把两臂的相位屏"
+        "要判定哪个仿真后端分支的绝对 Strehl 更接近物理真值, 需先把两个仿真后端分支的相位屏"
         "**标定到同一 r0 / 同一 phase_std**, 再重跑本矩阵 —— "
         "当前数据不足以支持该结论。本报告对比的是「同一 Cn2 配置下, "
-        "切换后端对端到端行为的影响」, 不是「等价实现」。"
+        "切换仿真后端分支对端到端行为的影响」, 不是「等价实现」。"
     )
     return lines
 
@@ -1149,7 +1157,7 @@ def write_report(
         "`beam_backend.propagate()`; `focal_plane()` / `apply_lens()` 恒为 numpy。"
         "本报告驱动的是 `SimTurbulenceAOEnv` (RL AO 环境: DM 影响函数 + WFS 斜率 + "
         "焦面 FFT), 其湍流相位屏经 `turbulence_phase()` 路由, 焦面/Strehl/PIB/RMS "
-        "下游计算是同一份代码。因此两臂差异**只来自湍流相位屏**。"
+        "下游计算是同一份代码。因此两个仿真后端分支的差异**只来自湍流相位屏**。"
     )
     lines.append("")
     lines.append("## 2. 方法与指标定义")
@@ -1176,9 +1184,9 @@ def write_report(
         "best-Strehl (episode 内最优)"
     )
     lines.append(
-        "- 后端卫生: 每臂切换时 set/pop `AO_OOPAO_BACKEND` + "
+        "- 后端卫生: 每个仿真后端分支切换时 set/pop `AO_OOPAO_BACKEND` + "
         "`oopao_backend._get_backend.cache_clear()` (进入与退出都清); 每行记录实测 "
-        "`_oopao_enabled()` 并校验与臂一致"
+        "`_oopao_enabled()` 并校验与仿真后端分支一致"
     )
     lines.append("")
     lines.append("## 3. Cn2 阶梯")
@@ -1209,23 +1217,24 @@ def write_report(
     lines.append("")
     lines.append(
         "闭环模式下湍流被冻结, 3 步贪婪 SPGD 用 16 路 DM 校正静态像差。"
-        "两臂的收敛轨迹差异直接反映相位屏强度差异: numpy 臂湍流弱 (init Strehl 高), "
-        "校正增益小; oopao 臂湍流强 (init Strehl 低), 校正增益大但绝对上限低。"
+        "两个仿真后端分支的收敛轨迹差异直接反映相位屏强度差异: numpy 仿真后端分支湍流弱 "
+        "(init Strehl 高), 校正增益小; oopao 仿真后端分支湍流强 (init Strehl 低), "
+        "校正增益大但绝对上限低。"
     )
     lines.append("")
     lines.append("## 6. cn2=0 对照组")
     lines.append("")
     lines.append(
-        "cn2=0 时 `turbulence_phase` 短路为零屏, 两臂应**位级一致**。"
+        "cn2=0 时 `turbulence_phase` 短路为零屏, 两个仿真后端分支应**位级一致**。"
         f"校验结果: **{'通过' if control_ok else '失败 (见日志警告)'}**。"
     )
     lines.append("")
     lines.append("## 7. 反空洞守卫")
     lines.append("")
     lines.append(
-        f"两臂在 cn2>0 下确实不同: **通过** ({differing_cells} 个 (mode, cn2>0) "
-        "单元格的 init/best Strehl 或 PIB/RMS 不同)。若此处失败, 说明后端开关 "
-        "没有影响被测路径, 报告将拒绝写出。"
+        f"两个仿真后端分支在 cn2>0 下确实不同: **通过** ({differing_cells} 个 "
+        "(mode, cn2>0) 单元格的 init/best Strehl 或 PIB/RMS 不同)。若此处失败, "
+        "说明后端开关 没有影响被测路径, 报告将拒绝写出。"
     )
     lines.append("")
     lines.append("## 8. 负发现: slm_shaping_bench 的 cn2 是死配置")
@@ -1234,7 +1243,7 @@ def write_report(
         f"`slm_shaping_bench.forward_intensity` 在 cn2=0 与 cn2=5e-14 下输出"
         f"**字节一致** (max|ΔI| = {dead_cn2_probe['max_abs_diff']:.6g})。"
         "它 import 了 `turbulence_phase` 但从不调用; 只调用 `focal_plane` "
-        "(永不路由)。因此 `slm_shaping_bench` **不能**作为后端影响测试载体。"
+        "(永不路由)。因此 `slm_shaping_bench` **不能**作为仿真后端分支影响测试载体。"
     )
     lines.append("")
     lines.append("## 9. 非可比性声明")
@@ -1312,7 +1321,7 @@ def main(argv: list[str] | None = None) -> int:
     figures_dir.mkdir(parents=True, exist_ok=True)
 
     logger.info(
-        "矩阵: {} cn2 × {} 臂 × {} 模式 = {} 次 episode (n_grid={}, seed={}, steps={})",
+        "矩阵: {} cn2 × {} 个仿真后端分支 × {} 模式 = {} 次 episode (n_grid={}, seed={}, steps={})",
         len(cn2_values),
         len(ARMS),
         len(MODES),

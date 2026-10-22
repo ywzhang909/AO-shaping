@@ -94,7 +94,7 @@ U(p) = (1/K) Σ_k ‖ far(c* + δ_k, p) − far(c*, p) ‖²,   δ_k ~ N(0, Σ)
 
 ## 闭环 A/B：#134 的第 1 条验收
 
-`verify_uncertainty_probes_sim.py`，同一 seed 同时喂两臂（配对）。拒绝场景靠 `acceptance_loss_delta=1e-12` 构造 —— 是 config 里已有的旋钮，不是 monkeypatch；被包装的只有三个观测点函数，`acceptance_verdict` / trust region / `max_rejection_streak` 全程未被替换。
+`verify_uncertainty_probes_sim.py`，同一 seed 同时喂两个变体（配对）。拒绝场景靠 `acceptance_loss_delta=1e-12` 构造 —— 是 config 里已有的旋钮，不是 monkeypatch；被包装的只有三个观测点函数，`acceptance_verdict` / trust region / `max_rejection_streak` 全程未被替换。
 
 | seed | σ=1.5 配对差值 | σ=0 配对差值 |
 |---|---|---|

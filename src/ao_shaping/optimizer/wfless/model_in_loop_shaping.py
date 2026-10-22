@@ -882,6 +882,92 @@ def _probe_set_loss(
     return float(np.mean(losses))
 
 
+def fit_lut_gamma(
+    optimizer: ZernikeCoefficientOptimizer,
+    frames: Sequence[tuple[np.ndarray, np.ndarray]],
+    *,
+    gammas: Sequence[float] = tuple(np.linspace(1.0, 3.0, 21)),
+    coefficients: np.ndarray | None = None,
+    source_amplitude: np.ndarray | None = None,
+) -> tuple[float, list[tuple[float, float]]]:
+    """Fit the SLM's LUT nonlinearity (the gamma) to measured far fields.
+
+    The gamma is the one error level the ideal model cannot absorb: the
+    command phase and the phase the panel actually displays are related by
+    ``actual = 2π · (wrap(cmd) / 2π) ** gamma``, and a bench whose gamma is
+    2 makes every phase the model synthesises half as deep as intended. The
+    measured value on this bench is 2.07, so the model has to know it.
+
+    The fit is a one-dimensional scan: for each candidate gamma the model's
+    far field is computed for every probe and compared with the measurement
+    (peak-normalised MSE -- the same normalisation the forward model itself
+    uses). The coefficients are held fixed (all zeros by default): the gamma
+    is a property of the *command -> actual* map, and letting the Zernike
+    coefficients absorb the mismatch would hide it.
+
+    Args:
+        optimizer: The Step A optimizer. Its region, far-field grid and
+            aperture are used; its own error terms are **replaced** by the
+            candidate gamma during the scan and **restored** before the
+            function returns.
+        frames: One or more ``(measured_far_field, probe_phase)`` pairs.
+            ``probe_phase`` is the raw command phase in radians.
+        gammas: The gamma candidates to try.
+        coefficients: The Zernike coefficients held fixed during the scan.
+            ``None`` means zeros.
+        source_amplitude: The illumination on the model grid. ``None`` uses the
+            optimizer's own amplitude.
+
+    Returns:
+        A tuple of the best gamma and the ``(gamma, loss)`` history, sorted by
+        gamma.
+
+    Raises:
+        ValueError: If no frame was given, or a gamma is not positive.
+    """
+    from dataclasses import replace
+
+    if not frames:
+        raise ValueError("fit_lut_gamma needs at least one frame")
+    candidates = [float(value) for value in gammas]
+    if not candidates:
+        raise ValueError("fit_lut_gamma needs at least one gamma candidate")
+    if any(value <= 0.0 for value in candidates):
+        raise ValueError("every gamma candidate must be positive")
+
+    fixed = (
+        np.zeros(optimizer.n_coefficients, dtype=np.float64)
+        if coefficients is None
+        else np.asarray(coefficients, dtype=np.float64)
+    )
+    base = optimizer.error_terms
+    history: list[tuple[float, float]] = []
+    try:
+        for gamma in sorted(candidates):
+            optimizer.set_error_terms(replace(base, lut_gamma=gamma))
+            losses = []
+            for measured, probe in frames:
+                predicted = optimizer.forward_intensity(
+                    fixed, probe, source_amplitude
+                )
+                measured_peak = float(np.max(measured))
+                predicted_peak = float(np.max(predicted))
+                if measured_peak <= 0.0 or predicted_peak <= 0.0:
+                    continue
+                target = np.asarray(measured, dtype=np.float64) / measured_peak
+                estimate = np.asarray(predicted, dtype=np.float64) / predicted_peak
+                losses.append(float(np.mean((estimate - target) ** 2)))
+            if not losses:
+                continue
+            history.append((gamma, float(np.mean(losses))))
+    finally:
+        optimizer.set_error_terms(base)
+    if not history:
+        raise ValueError("fit_lut_gamma could not evaluate any candidate")
+    best = min(history, key=lambda item: item[1])
+    return float(best[0]), history
+
+
 def shape_phase_with_frozen_aberration(
     optimizer: ZernikeCoefficientOptimizer,
     coefficients: np.ndarray,
@@ -905,6 +991,14 @@ def shape_phase_with_frozen_aberration(
     the *sum* is masked, because the twin applies
     ``nan_to_num(phi_slm + aberration)`` and the aberration is NaN outside the
     aperture. Gradients therefore flow only into the SLM phase.
+
+    The **error terms** (:attr:`ZernikeCoefficientOptimizer.error_terms`) are
+    applied by the optimizer's own forward model, which this function calls
+    directly: the LUT nonlinearity acts on the *command* phase (before the
+    pupil phase is formed), the defocus and the tilt act on the *focal complex
+    field* (before the intensity is taken). Step A's fit and Step B's
+    synthesis therefore evaluate the *same* chain by construction, not by
+    convention.
 
     Args:
         optimizer: The Step A optimizer, used for its cached basis and native
@@ -934,15 +1028,15 @@ def shape_phase_with_frozen_aberration(
     torch = _require_torch()
     # Function-local, like every other torch touch in this module: the package
     # must stay importable without PyTorch so the CPU-only paths still work.
-    from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
 
     tdtype = getattr(torch, dtype)
     dev = torch.device(device) if device is not None else _auto_device(torch)
 
     region = initial_phase.shape[0]
-    basis_np = optimizer.generate_basis()
-    basis = torch.from_numpy(basis_np).to(device=dev, dtype=tdtype)
-    aperture = torch.from_numpy(_aperture_from_basis(basis_np)).to(
+    # The aperture mask is still needed here: the relaxation noise is injected
+    # inside the pupil only. The *forward* itself (the aberration, the error
+    # terms) belongs to the optimizer, so Step A and Step B cannot drift.
+    aperture = torch.from_numpy(_aperture_from_basis(optimizer.generate_basis())).to(
         device=dev, dtype=tdtype
     )
     amplitude_grid = (
@@ -982,13 +1076,9 @@ def shape_phase_with_frozen_aberration(
         weights = torch.exp(-0.5 * (coords / psf_sigma) ** 2)
         weights /= weights.sum()
         gaussian_kernel = torch.outer(weights, weights)[None, None]
-    aberration = torch.einsum(
-        "j,jhw->hw",
-        torch.from_numpy(np.ascontiguousarray(coefficients, dtype=np.float64)).to(
-            device=dev, dtype=tdtype
-        ),
-        basis,
-    )
+    coefficient_tensor = torch.from_numpy(
+        np.ascontiguousarray(coefficients, dtype=np.float64)
+    ).to(device=dev, dtype=tdtype)
     target_t = torch.from_numpy(np.ascontiguousarray(target)).to(
         device=dev, dtype=tdtype
     )
@@ -1027,16 +1117,12 @@ def shape_phase_with_frozen_aberration(
 
     def closure() -> Any:
         opt.zero_grad()
-        oversampling = int(getattr(optimizer, "_pupil_oversampling", 1))
-        patch = phase + aberration
-        if oversampling == 1:
-            patch = patch * aperture
-        # Honour the optimizer's zero-padding so the far field is sampled at the
-        # same pitch as Step A and as the measurement. Without this the FFT
-        # always ran at `region`, so a padded run compared a `region`-sized
-        # intensity against a `far_field_size`-sized target.
-        pad = int(getattr(optimizer, "far_field_size", region))
-        intensity = interpolated_pupil_intensity(patch, amplitude, pad, oversampling)
+        # The SAME forward the Step A fit uses: the optimizer owns the chain
+        # (LUT nonlinearity on the command, defocus and tilt on the focal
+        # field), so the calibration and the synthesis cannot drift apart.
+        intensity = optimizer.far_field_intensity_tensor(
+            coefficient_tensor, phase, amplitude
+        )
         if gaussian_kernel is not None:
             import torch.nn.functional as F
 

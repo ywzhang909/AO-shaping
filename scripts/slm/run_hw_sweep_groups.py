@@ -80,16 +80,24 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 * 「**设备不可用**」⇒ 记 ``device_unavailable``, **中止整轮**, 剩下的组记
   ``skipped``, 退出码非 0, 并打印一句说清根因的中文。
 
-设备不可用又分四类, 因为**处置不同**:
+设备不可用又分五类, 因为**处置不同**:
 
-======================  ==========================================  ==============
-归类                   特征                                        能不能等
-======================  ==========================================  ==============
-``slm_absent``         ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
-``slm_busy``           ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
-``camera_busy``        ``camera not initialized`` (相机被占)        能 (等一会儿)
-``camera_absent``      相机不在 (``Camera ID not found``)          不能 (要人处理)
-======================  ==========================================  ==============
+========================  =========================================  ==============
+归类                     特征                                        能不能等
+========================  =========================================  ==============
+``slm_absent``           ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
+``slm_busy``             ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
+``camera_busy``          ``camera not initialized`` (相机被占)        能 (等一会儿)
+``camera_absent``        相机不在 (``Camera ID not found``)          不能 (要人处理)
+``light_path_blocked``   光路不通 (相机上一个光斑都没有)             不能 (要人查光路)
+========================  =========================================  ==============
+
+🔴 ``light_path_blocked`` 与前四类**必须分开**: 前四类是「设备」的问题, 这一类是
+**实验系统光路**的问题 —— SLM 与相机都能正常打开, 但光束没走到 CCD (面板被挪/
+被挡/光源关了)。实测 2026-10-22 12:5x: 光路断掉后驱动把剩下 8 组逐个跑了一遍
+(每组 8-28 s), 每组都报「光束没有到达相机」⇒ 根因在索引里被埋掉了, 白占设备。
+所以它**立刻中止整轮** (退出码非 0, 剩下的组记 ``skipped``), 并把三段光路
+(光束 → SLM 面板 → 2f 透镜 → CCD) 的检查清单打给人。
 
 判别逻辑在**模块级纯函数** :func:`classify_device_unavailable` 里 (不散在主流程中),
 单元测试直接测它。
@@ -102,6 +110,26 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 直到设备空出来再开跑; 超过 SECONDS 仍拿不到 ⇒ 报错退出 (退出码非 0), 并打印
 **占用它的进程命令行** (用 CIM 查 python 进程, 挑出命令行里含设备关键字的那些),
 让人知道**是谁**在占。
+
+🔴 **公平性: 先看进程, 再探针** (2026-10-22 09:03-09:48 实测)
+
+「探针能打开」**不等于**「这台机器现在没人用设备」。同一台机器上另一个会话在跑
+多 stage 的 hardware campaign (4 个进程), 我方探针 09:03 得到 -10003 (设备**确实**
+被占着), 09:47 却**成功打开**了 SLM 与相机 —— 那一刻对方正好走到**两个 stage 之间**
+(进程还活着, 但没持有句柄)。若我方此时抢下句柄开跑 (27 组约 2 h, 全程独占), 对方的
+**下一个 stage 就会拿到 -10003 而失败**。反过来, 我方**探针本身要开一次 SLM**, 也会
+让对方的下一次 open 撞上 -10003 ⇒ **探针本身也是干扰源**。
+
+所以等待循环每轮**先查进程**:
+
+* **有别的会话的硬件进程** ⇒ **一次都不探针** (不碰设备), 直接等下一轮, 并把对方是谁
+  (进程命令行) 打印出来 (最多每分钟一行, 别刷屏);
+* **没有** ⇒ 才探针。探针成功 ⇒ **再扫一次** (探针开锁的那一瞬间可能刚好有别的会话
+  开始) —— 仍没人 ⇒ 打印「设备可用, 且无其它硬件进程 ⇒ 开始采集」并开跑;
+* 探针报被占 ⇒ 说明有我们**没认出来**的占用者, 继续等并报「设备被占但没认出占用者」。
+
+「自己这条线上的进程」不算占用者: 自身、祖先、后代 (探针子进程)、命令行里出现我们
+自己的脚本的那些, 以及用 ``--own-pid`` / ``AO_HW_OWN_PIDS`` 显式声明的。
 
 探针有两条硬约束:
 
@@ -136,7 +164,7 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -170,6 +198,14 @@ KIND_SLM_ABSENT = "slm_absent"
 KIND_SLM_BUSY = "slm_busy"
 KIND_CAMERA_BUSY = "camera_busy"
 KIND_CAMERA_ABSENT = "camera_absent"
+#: 光路不通: 设备都在 (SLM 能开、相机能开), 但**相机上一个光斑都没有** ⇒
+#: 光束没到相机 (光路被挡/被挪/光源关了)。
+#:
+#: ⚠️ 单独一类, 因为**处置完全不同**: 上面四类是「设备」的问题, 这一类是**实验系统
+#: 光路**的问题 —— 等是等不来的, 也不该继续往下跑组 (每组都会立刻失败, 白占设备)。
+#: 实测 2026-10-22 12:5x: 光路不通后, 驱动把剩下 8 组逐个跑了一遍, 每组 8-28 s
+#: ⇒ 全是「光束没有到达相机」, 而**根因 (光路断了) 在索引里看不出来**。
+KIND_LIGHT_PATH_BLOCKED = "light_path_blocked"
 
 #: 可以自动等的那几类 (别人在用 ⇒ 等一会儿就好)。
 WAITABLE_KINDS = frozenset({KIND_SLM_BUSY, KIND_CAMERA_BUSY})
@@ -192,7 +228,17 @@ DEVICE_UNAVAILABLE_INFO: dict[str, tuple[str, str]] = {
         "相机不在 (Camera ID not found)",
         "需要人检查相机的供电/网线 —— 等是等不来的",
     ),
+    KIND_LIGHT_PATH_BLOCKED: (
+        "相机上没有任何光斑 (SLM 与相机都打开着, 但探测器上没读到光斑)",
+        "先确认**激光器是否开着** (2026-10-22 12:15-12:59 那 45 分钟就是这样: "
+        "光源被关掉了, 属正常操作); 再查实验系统的三段光路: 光束 → SLM 面板 → 2f 透镜 → CCD "
+        "(面板被挪/被挡) —— 等是等不来的",
+    ),
 }
+
+#: 光路受阻时给操作者的**三段光路**检查清单 (与探针脚本的 ``BLOCKED_PATH_REASON``
+#: 同一口径: 光束 → SLM 面板 → 2f 透镜 → CCD)。
+LIGHT_PATH_CHECKLIST = "光束 → SLM 面板 → 2f 透镜 → CCD"
 
 #: 设备不可用的特征串。**数字错误码与中文短语都认**: 驱动异常文本带码
 #: (「错误码: -10002」), 而 GUI 的中文提示只带短语。
@@ -200,6 +246,13 @@ _SLM_ABSENT_RE = re.compile(r"未找到USB设备|错误码[:：]?\s*-10002(?!\d)
 _SLM_BUSY_RE = re.compile(r"USB设备已打开|错误码[:：]?\s*-10003(?!\d)")
 _CAMERA_BUSY_RE = re.compile(r"camera not initialized|REPEAT_OPENED|device has been open")
 _CAMERA_ABSENT_RE = re.compile(r"camera not found|Camera ID \d+ not found")
+#: 光路不通的特征串 (探针的中文提示 + 曝光阶梯估不出上限时的英文报错)。
+#:
+#: ⚠️ 与上面四类**必须分开**: 那些是「设备」的问题, 这一类是**实验系统光路**的问题 ——
+#: SLM 与相机都正常, 但光束没走到 CCD (面板被挪/被挡/光源关了)。
+#: 实测 2026-10-22 12:5x: 光路断掉后驱动把剩下 8 组逐个跑了一遍 (每组 8-28 s),
+#: 每组都报「光束没有到达相机」⇒ 根因在索引里被埋掉了, 白占设备。
+_LIGHT_PATH_BLOCKED_RE = re.compile(r"光路受阻|光束没有到达相机|no ladder frame carries signal")
 
 #: 异常文本里的 Santec 错误码 (「错误码: -10003」/「错误码 -10003」)。
 _SANTEC_CODE_RE = re.compile(r"错误码[:：]?\s*(-?\d+)")
@@ -231,6 +284,12 @@ class DeviceUnavailable:
     remedy: str = ""
     """该怎么处置。"""
 
+    reason_text: str = ""
+    """**判定理由原文** —— 命中判定的那一行 (从子进程输出里摘出来的)。
+
+    为什么留着原文: 「光路不通」这句话本身不说明**是哪一段**断了, 而操作者要
+    看的正是探针给出的那一句 (它带着三段光路的检查清单与实测数字)。"""
+
     @property
     def waitable(self) -> bool:
         """这一类能不能靠「等」解决 (别人在用 vs 设备没插上)。"""
@@ -244,6 +303,53 @@ class DeviceUnavailable:
     def advice(self) -> str:
         """处置建议。"""
         return self.remedy
+
+
+#: 「判定理由原文」最多留多少字符 (够看清一句报错, 又不至于把整页日志塞进索引)。
+REASON_TEXT_CHARS = 400
+
+
+@dataclass(frozen=True)
+class RoundAbort:
+    """整轮中止的上下文: **哪一组**、什么根因、判定理由原文。"""
+
+    group: str
+    """触发中止的那一组 (组名)。"""
+
+    verdict: DeviceUnavailable
+    """根因的判定结果 (:func:`classify_device_unavailable`)。"""
+
+    def label(self) -> str:
+        """中止原因的一句话标签 (写进「被跳过的组」的跳过详情里)。"""
+        if self.verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+            return "光路不通"
+        return "设备不可用"
+
+    def reason(self) -> str:
+        """判定理由原文 (没有原文时退回根因描述)。"""
+        return self.verdict.reason_text or self.verdict.headline()
+
+
+def _reason_text(text: str, pattern: re.Pattern[str]) -> str:
+    """摘出命中判定的那一行原文。
+
+    Args:
+        text: 子进程输出 (stderr + stdout 拼起来)。
+        pattern: 判定用的正则。
+
+    Returns:
+        命中处所在的**整行** (去掉首尾空白, 最多 :data:`REASON_TEXT_CHARS` 字符);
+        没命中则空字符串。
+    """
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return ""
+    start = matches[-1].start()
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    return text[line_start:line_end].strip()[:REASON_TEXT_CHARS]
 
 
 def _extract_santec_error_code(text: str) -> int | None:
@@ -272,6 +378,13 @@ def classify_device_unavailable(text: str) -> DeviceUnavailable | None:
     索引里完全看不出来。「设备不可用」与「这一组坏了」是**两件不同的事**:
     前者要中止整轮, 后者跑下一组。
 
+    五类归类 (处置不同, 所以必须分开): 断电类 (``slm_absent`` /
+    ``camera_absent``) 要人处理; 被占类 (``slm_busy`` / ``camera_busy``)
+    等一会儿就好; **光路不通** (``light_path_blocked``) 是实验系统光路的问题 ——
+    设备都在, 但光束没到 CCD, 等是等不来的, 而且**必须立刻中止整轮**
+    (实测 2026-10-22 12:5x: 驱动把剩下 8 组逐个跑了一遍, 每组都报
+    「光束没有到达相机」, 根因在索引里被埋掉了)。
+
     Args:
         text: 子进程的输出 (stderr + stdout 拼起来)。
 
@@ -288,13 +401,21 @@ def classify_device_unavailable(text: str) -> DeviceUnavailable | None:
         (KIND_SLM_BUSY, _SLM_BUSY_RE),
         (KIND_CAMERA_BUSY, _CAMERA_BUSY_RE),
         (KIND_CAMERA_ABSENT, _CAMERA_ABSENT_RE),
+        # 🔴 光路不通: 设备都在, 光束没到 CCD ⇒ 立刻中止整轮, 不等、不续跑。
+        (KIND_LIGHT_PATH_BLOCKED, _LIGHT_PATH_BLOCKED_RE),
     ):
         positions = [m.start() for m in pattern.finditer(text)]
         if not positions:
             continue
         detail, remedy = DEVICE_UNAVAILABLE_INFO[kind]
+        # 光路不通**不是**设备错误码能解释的: 输出里若混着别的 Santec 码
+        # (例如上一次失败留下的), 挂上去只会把根因指歪 ⇒ 这一类不带码。
         candidate = DeviceUnavailable(
-            kind=kind, code=code, detail=detail, remedy=remedy
+            kind=kind,
+            code=None if kind == KIND_LIGHT_PATH_BLOCKED else code,
+            detail=detail,
+            remedy=remedy,
+            reason_text=_reason_text(text, pattern),
         )
         # 取**最后**出现的那一处: 一组失败时最后一条错误才是致命原因。
         if positions[-1] > best_pos:
@@ -345,15 +466,46 @@ PROBE_TIMEOUT_S = 120.0
 PROBE_CMD_ENV = "AO_HW_DEVICE_PROBE_CMD"
 
 #: 占用者进程的命令行里出现这些关键字就算「可能在用设备」。
-#: 收得比较紧 (``camera`` / ``ccd`` 太宽, 满屏都是), 但要能盖住两种真实占用者:
-#: ``scripts/slm/*.py`` 那一类探针, 以及 ``python src/ao_shaping/main.py ... --debug``。
+#:
+#: 🔴 **刻意不含裸的 ``ao_shaping``**: 本仓库里**每一个** python 进程 (pytest、
+#: 编辑器、报告生成器) 的命令行里都有它 ⇒ 假阳性满天飞, 等待永远等不到。
+#:
+#: 🔴 **也刻意不含裸的 ``slm``**: 它同样会命中**只是在测试路径里提到 slm** 的进程 ——
+#: 实测另一个会话的 ``pytest .../tests/ao_shaping/gui/slm/test_zernike_abort_repro.py``
+#: 与 ``pytest .../tests/ao_shaping/optimizer/wfless/test_slm_gs_refine.py`` 都被当成了
+#: 「占用设备的进程」, 于是一台**没人用设备**的机器上, 采集永远等下去 (2026-10-22 实测)。
+#:
+#: 所以判据是「这个进程**在执行**设备代码」, 而不是「命令行里提到设备相关字样」:
+#: 硬件探针与采集脚本住在 ``scripts/slm/``; 图形界面住在 ``src/ao_shaping/gui/``;
+#: 相机/面板的驱动模块与工具模块各有自己的顶层包; 真正持有句柄的那几个入口
+#: (``src/ao_shaping/main.py`` / ``-m ao_shaping.main`` / 直用 SDK) 单独列出。
 OCCUPIER_KEYWORDS: tuple[str, ...] = (
-    "slm",
+    "scripts/slm/",
+    "src/ao_shaping/gui/",
+    "ao_shaping.drivers.santec",
+    "ao_shaping.drivers.ccd",
+    "ao_shaping.tools.slm",
     "daheng",
     "santec",
     "gxipy",
-    "ao_shaping",
+    "ao_shaping/main.py",
+    "-m ao_shaping.main",
 )
+
+#: **纯离线报告生成器不算占用者** (仓库约定: 报告生成脚本一律叫
+#: ``scripts/generate_*_report.py``)。它们虽然住在 ``scripts/slm/`` 下 (于是
+#: 命令行里带 ``slm``), 却**一次都不碰设备** —— 不排除它们的话, 一台正在跑
+#: 报告的机器会让硬件采集永远等下去 (实测: 三个 ``generate_bench_twin_report.py``)。
+NON_DEVICE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"generate_[a-z0-9_]*report", re.IGNORECASE),
+    re.compile(r"build_[a-z0-9_]*report", re.IGNORECASE),
+)
+
+#: 等待时每隔多久汇报一次 (s) —— 别刷屏。
+WAIT_REPORT_INTERVAL_S = 60.0
+
+#: 显式声明「这些进程是我们自己的」的环境变量 (逗号分隔的 pid)。
+OWN_PIDS_ENV = "AO_HW_OWN_PIDS"
 
 
 @dataclass(frozen=True)
@@ -622,20 +774,34 @@ def run_device_probe(
     return parse_probe_output(completed.stdout, completed.stderr)
 
 
-def query_windows_python_processes() -> list[tuple[int, str]]:
-    """用 CIM 列出 python 进程 (pid, 命令行)。
+@dataclass(frozen=True)
+class ProcessInfo:
+    """一个 python 进程 (pid / 父 pid / 命令行)。"""
 
-    非 Windows 或查询失败时返回空列表 —— 查不到占用者不该让整轮失败。
+    pid: int
+    ppid: int = 0
+    """父进程 pid (用来算进程树 —— 我们自己启动的进程不算占用者)。"""
+
+    cmdline: str = ""
+    """命令行 (可能为空: 有些进程的 CommandLine 拿不到)。"""
+
+
+def query_windows_python_processes() -> list[ProcessInfo]:
+    """用 CIM 列出 python 进程 (pid, 父 pid, 命令行)。
+
+    非 Windows 或查询失败时返回空列表 —— 查不到占用者不该让整轮失败, 退化成
+    「只靠探针」即可。
 
     Returns:
-        ``[(pid, 命令行), ...]``。
+        ``[ProcessInfo, ...]``。
     """
     if os.name != "nt":
         return []
     command = (
         "Get-CimInstance Win32_Process | "
         "Where-Object { $_.Name -like 'python*' } | "
-        "ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
+        "ForEach-Object { "
+        "\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }"
     )
     try:
         completed = subprocess.run(  # noqa: S603 - 固定命令, 不带用户输入
@@ -649,49 +815,142 @@ def query_windows_python_processes() -> list[tuple[int, str]]:
         return []
     if completed.returncode != 0:
         return []
-    processes: list[tuple[int, str]] = []
+    processes: list[ProcessInfo] = []
     for raw in completed.stdout.splitlines():
         line = raw.strip()
         if not line:
             continue
-        pid_text, _, cmdline = line.partition("\t")
+        pid_text, _, rest = line.partition("\t")
+        ppid_text, _, cmdline = rest.partition("\t")
         try:
             pid = int(pid_text)
         except ValueError:
             continue
-        processes.append((pid, cmdline))
+        try:
+            ppid = int(ppid_text)
+        except ValueError:
+            ppid = 0
+        processes.append(ProcessInfo(pid=pid, ppid=ppid, cmdline=cmdline))
     return processes
+
+
+def own_process_ids(
+    processes: Sequence[ProcessInfo],
+    *,
+    self_pid: int | None = None,
+    extra_pids: Sequence[int] = (),
+) -> set[int]:
+    """算「我们自己」这条线上的进程 (自身 + 祖先 + 后代 + 显式声明的)。
+
+    为什么: 「别的会话的硬件进程」与「我们自己启动的」必须分开 —— 我们自己
+    启动的探针子进程 (它**会**开一次 SLM) 不能算成「别人在用设备」, 否则等待
+    永远等不到。
+
+    Args:
+        processes: 进程列表。
+        self_pid: 自己的 pid; ``None`` = 当前进程。
+        extra_pids: 额外算作「我们自己的」pid (例如同一条线上的另一个脚本)。
+
+    Returns:
+        pid 集合。
+    """
+    pid = os.getpid() if self_pid is None else int(self_pid)
+    by_pid = {proc.pid: proc for proc in processes}
+    own: set[int] = {pid}
+    own.update(int(extra) for extra in extra_pids)
+    # 祖先: 启动我们的那个 **python** 进程 (同一条线上的脚本) 也不算占用者。
+    # 只沿**列表里有的**进程往上走: 祖先若是 cmd.exe 之类, 它的其它子进程未必是
+    # 我们这条线的 (别的会话可能共用同一个终端) ⇒ 不能把它们一并当成自己的。
+    current = by_pid.get(pid)
+    while current is not None and current.ppid:
+        if current.ppid in own or current.ppid not in by_pid:
+            break
+        own.add(current.ppid)
+        current = by_pid.get(current.ppid)
+    # 后代: 我们启动的探针子进程 (以及我们那条线上的脚本启动的子进程)。
+    changed = True
+    while changed:
+        changed = False
+        for proc in processes:
+            if proc.ppid and proc.ppid in own and proc.pid not in own:
+                own.add(proc.pid)
+                changed = True
+    return own
+
+
+def select_device_using_processes(
+    processes: Sequence[ProcessInfo],
+    *,
+    keywords: Sequence[str] = OCCUPIER_KEYWORDS,
+    exclude_pids: Sequence[int] = (),
+    own_paths: Sequence[str | Path] = (),
+    self_pid: int | None = None,
+) -> list[ProcessInfo]:
+    """从进程列表里挑出「**别的会话的**硬件进程」。
+
+    自己这条线上的进程一律排除: 自身、祖先、后代 (探针子进程), 以及命令行里
+    出现**我们自己的脚本**的那些 (同一条线上的另一个实例)。
+
+    Args:
+        processes: 进程列表 (可注入 ⇒ 测试不用真查 CIM)。
+        keywords: 命令行里要匹配的关键字。
+        exclude_pids: 额外要排除的 pid。
+        own_paths: 我们自己的脚本路径 (命令行里出现它们的不算占用者)。
+        self_pid: 自己的 pid; ``None`` = 当前进程。
+
+    Returns:
+        ``[ProcessInfo, ...]``。
+    """
+    own = own_process_ids(
+        processes, self_pid=self_pid, extra_pids=exclude_pids
+    )
+    needles: list[str] = []
+    for path in own_paths:
+        text = str(path)
+        needles.append(text.lower())
+        needles.append(Path(text).name.lower())
+    hits: list[ProcessInfo] = []
+    for proc in processes:
+        if proc.pid in own:
+            continue
+        lowered = proc.cmdline.lower()
+        if any(needle in lowered for needle in needles):
+            continue
+        if any(pattern.search(proc.cmdline) for pattern in NON_DEVICE_PATTERNS):
+            # 纯离线报告生成器 —— 不住设备, 不算占用者。
+            continue
+        if any(str(keyword).lower() in lowered for keyword in keywords):
+            hits.append(proc)
+    return hits
 
 
 def find_device_using_processes(
     keywords: Sequence[str] = OCCUPIER_KEYWORDS,
     *,
     exclude_pids: Sequence[int] = (),
-) -> list[tuple[int, str]]:
-    """挑出命令行里含设备关键字的进程 (排除自己)。
+    own_paths: Sequence[str | Path] = (),
+) -> list[ProcessInfo]:
+    """挑出命令行里含设备关键字、且**不是我们自己**的进程。
 
     Args:
         keywords: 命令行里要匹配的关键字。
         exclude_pids: 额外要排除的 pid。
+        own_paths: 我们自己的脚本路径。
 
     Returns:
-        ``[(pid, 命令行), ...]``。
+        ``[ProcessInfo, ...]``。
     """
-    skip = {int(pid) for pid in exclude_pids}
-    skip.update({os.getpid(), os.getppid()})
-    hits: list[tuple[int, str]] = []
-    for pid, cmdline in query_windows_python_processes():
-        if pid in skip:
-            continue
-        lowered = cmdline.lower()
-        if any(str(keyword).lower() in lowered for keyword in keywords):
-            hits.append((pid, cmdline))
-    return hits
+    return select_device_using_processes(
+        query_windows_python_processes(),
+        keywords=keywords,
+        exclude_pids=exclude_pids,
+        own_paths=own_paths,
+    )
 
 
-def format_occupier_lines(hits: Sequence[tuple[int, str]]) -> list[str]:
+def format_occupier_lines(hits: Sequence[ProcessInfo]) -> list[str]:
     """把占用者列表排成给人看的行。"""
-    return [f"  pid {pid}: {cmdline}" for pid, cmdline in hits]
+    return [f"  pid {proc.pid}: {proc.cmdline}" for proc in hits]
 
 
 def wait_until_idle(
@@ -704,8 +963,28 @@ def wait_until_idle(
     cam_type: str = "daheng",
     exposure_ms: float = 0.2,
     keywords: Sequence[str] = OCCUPIER_KEYWORDS,
+    own_pids: Sequence[int] = (),
+    own_paths: Sequence[str | Path] = (),
+    process_source: Callable[[], Sequence[ProcessInfo]] | None = None,
+    report_interval_s: float = WAIT_REPORT_INTERVAL_S,
 ) -> tuple[int, str]:
-    """开跑前等设备空出来。
+    """开跑前等设备空出来 —— **公平**地等。
+
+    🔴 **顺序很重要: 先看进程, 再探针** (2026-10-22 09:03-09:48 实测)
+
+    「探针能打开」**不等于**「这台机器现在没人用设备」。一个多 stage 的 campaign
+    在 stage 之间会短暂放开句柄 (它的进程还活着, 但没持有句柄)。若此时我方立刻
+    抢下句柄开跑 (27 组约 2 h, 全程独占), 对方的**下一个 stage 就会拿到 -10003
+    而失败**。反过来, 我方**探针本身要开一次 SLM**, 也会让对方的下一次 open
+    撞上 -10003 ⇒ **探针本身也是干扰源**。
+
+    所以每轮:
+
+    1. **先**查「有没有别的会话的硬件进程」。**有** ⇒ **不探针** (一次都不碰
+       设备), 直接等下一轮, 并把对方是谁打印出来;
+    2. **没有** ⇒ 才探针。探针成功 ⇒ 设备大概率归我们了, 但**再扫一次**进程
+       (探针开锁的那一瞬间可能刚好有别的会话开始) —— 仍没人 ⇒ 开始采集;
+    3. 探针报被占 ⇒ 说明有我们没认出来的占用者, 继续等。
 
     只有**可以等**的那两类 (被别的进程占着) 才会等; 设备没插上 / 探针自己坏了
     立刻报错退出 —— 等是等不来的。
@@ -718,52 +997,100 @@ def wait_until_idle(
         cam_id: 相机编号。
         cam_type: 相机类型。
         exposure_ms: 曝光 (ms)。
-        keywords: 占用者进程的关键字。
+        keywords: 占用者进程的命令行关键字。
+        own_pids: 额外算作「我们自己的」的 pid (同一条线上的另一个脚本)。
+        own_paths: 我们自己的脚本路径 (命令行里出现它们的不算占用者)。
+        process_source: 进程列表的来源 (可注入 ⇒ 测试不用真查 CIM);
+            ``None`` = 用 :func:`query_windows_python_processes`。
+        report_interval_s: 汇报间隔 (s) —— 状态变了就立刻报, 否则最多每分钟一行。
 
     Returns:
         ``(退出码, 中文说明)``; 退出码 0 = 设备可用, 可以开跑。
     """
     deadline = time.monotonic() + max(0.0, float(seconds))
+    started = time.monotonic()
+    paths = list(own_paths) or [Path(__file__).resolve()]
     attempt = 0
+    last_report_at = float("-inf")
+    last_state = ""
+    last_reason = ""
     while True:
         attempt += 1
-        result = run_device_probe(
-            probe_cmd,
-            slm_number=slm_number,
-            cam_id=cam_id,
-            cam_type=cam_type,
-            exposure_ms=exposure_ms,
+        others = _other_hardware_processes(
+            process_source,
+            keywords=keywords,
+            own_pids=own_pids,
+            own_paths=paths,
         )
-        if result.status == PROBE_IDLE:
-            print(f"[等待] 设备可用 (第 {attempt} 次探测)", flush=True)
-            return 0, ""
-        if result.status == PROBE_BROKEN:
-            print(
-                f"[等待] 探针自己坏了, 无法判断设备是否被占: {result.message}",
-                file=sys.stderr,
+        if others:
+            # 🔴 有别的会话在用 ⇒ **不探针** (探针要开一次 SLM, 会打断对方)。
+            state = "others_using"
+            last_reason = "别的会话在用设备"
+            detail_lines = format_occupier_lines(others)
+        else:
+            result = run_device_probe(
+                probe_cmd,
+                slm_number=slm_number,
+                cam_id=cam_id,
+                cam_type=cam_type,
+                exposure_ms=exposure_ms,
             )
-            return 2, result.message
-        # 设备不可用: 分成「能等」与「等不来」两类。
-        kind = result.kind or KIND_SLM_BUSY
-        info = DEVICE_UNAVAILABLE_INFO.get(kind)
-        verdict = DeviceUnavailable(
-            kind=kind,
-            code=result.code,
-            detail=result.message or (info[0] if info else "设备不可用"),
-            remedy=info[1] if info else "",
-        )
-        if not verdict.waitable:
-            print(
-                f"[等待] 设备不可用且等不来: {verdict.headline()} —— "
-                f"{verdict.advice()}",
-                file=sys.stderr,
-            )
-            return 1, verdict.headline()
+            if result.status == PROBE_IDLE:
+                # 探针开锁的那一瞬间可能刚好有别的会话开始 ⇒ 再扫一次。
+                others_after = _other_hardware_processes(
+                    process_source,
+                    keywords=keywords,
+                    own_pids=own_pids,
+                    own_paths=paths,
+                )
+                if others_after:
+                    state = "idle_but_others"
+                    last_reason = "设备可用, 但还有别的硬件进程 (抢早了)"
+                    detail_lines = format_occupier_lines(others_after)
+                else:
+                    print(
+                        "[等待] 设备可用, 且无其它硬件进程 ⇒ 开始采集",
+                        flush=True,
+                    )
+                    return 0, ""
+            elif result.status == PROBE_BROKEN:
+                print(
+                    f"[等待] 探针自己坏了, 无法判断设备是否被占: {result.message}",
+                    file=sys.stderr,
+                )
+                return 2, result.message
+            else:
+                # 设备不可用: 分成「能等」与「等不来」两类。
+                kind = result.kind or KIND_SLM_BUSY
+                info = DEVICE_UNAVAILABLE_INFO.get(kind)
+                verdict = DeviceUnavailable(
+                    kind=kind,
+                    code=result.code,
+                    detail=result.message or (info[0] if info else "设备不可用"),
+                    remedy=info[1] if info else "",
+                )
+                if not verdict.waitable:
+                    print(
+                        f"[等待] 设备不可用且等不来: {verdict.headline()} —— "
+                        f"{verdict.advice()}",
+                        file=sys.stderr,
+                    )
+                    return 1, verdict.headline()
+                state = "busy_unidentified"
+                last_reason = f"设备被占但没认出占用者 ({verdict.headline()})"
+                detail_lines = []
+
         remaining = deadline - time.monotonic()
+        waited = time.monotonic() - started
         if remaining <= 0:
-            hits = find_device_using_processes(keywords)
+            hits = _other_hardware_processes(
+                process_source,
+                keywords=keywords,
+                own_pids=own_pids,
+                own_paths=paths,
+            )
             print(
-                f"[等待] 等了 {float(seconds):.0f}s 仍拿不到设备: {verdict.headline()}",
+                f"[等待] 等了 {float(seconds):.0f}s 仍拿不到设备: {last_reason}",
                 file=sys.stderr,
             )
             if hits:
@@ -776,14 +1103,43 @@ def wait_until_idle(
                     "python 进程还握着设备)",
                     file=sys.stderr,
                 )
-            return 1, verdict.headline()
+            return 1, last_reason
         sleep_s = min(float(poll_s), remaining)
-        print(
-            f"[等待] 设备被占 ({verdict.kind}): {verdict.headline()}; "
-            f"{sleep_s:.0f}s 后重试 (还剩 {remaining:.0f}s)",
-            flush=True,
-        )
+        now = time.monotonic()
+        if state != last_state or (now - last_report_at) >= float(report_interval_s):
+            print(
+                f"[等待] {last_reason}; 已等 {waited:.0f}s, {sleep_s:.0f}s 后再看"
+                f" (第 {attempt} 轮)",
+                flush=True,
+            )
+            for line in detail_lines:
+                print(line, flush=True)
+            last_report_at = now
+            last_state = state
         time.sleep(sleep_s)
+
+
+def _other_hardware_processes(
+    process_source: Callable[[], Sequence[ProcessInfo]] | None,
+    *,
+    keywords: Sequence[str],
+    own_pids: Sequence[int],
+    own_paths: Sequence[str | Path],
+) -> list[ProcessInfo]:
+    """当前**别的会话**在用设备的进程 (自己这条线上的已排除)。
+
+    非 Windows (没有 CIM) ⇒ 空列表 ⇒ 退化成「只靠探针」, 不崩。
+    """
+    if process_source is None:
+        return find_device_using_processes(
+            keywords, exclude_pids=own_pids, own_paths=own_paths
+        )
+    return select_device_using_processes(
+        list(process_source()),
+        keywords=keywords,
+        exclude_pids=own_pids,
+        own_paths=own_paths,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -934,8 +1290,53 @@ def read_group_metadata(directory: Path) -> tuple[str, dict[str, str]]:
     return "", {}
 
 
+#: 每组「跑完了」的判据: 组目录里存在这些文件之一就算跑过 (续跑时登记为 adopted)。
+#:
+#: ⚠️ **焦面标定组写的是 ``slm1_<时间戳>.json``** (focus_probe 自己命名), 不叫
+#: ``measurements.json`` / ``summary.json`` ⇒ 早先的判据认不出它 ⇒ 每次续跑都判
+#: 「focus_calibration 没有产物」⇒ **每次续跑都重跑一遍焦面标定 (140-210 s 设备时间)**。
+#: 实测 2026-10-22: 因为这个, 看门狗在 50 分钟里续跑了 14 次, 而**设备全程被我们自己占着**
+#: —— 而操作者的要求是「尽快空出设备」。
+#: ⇒ 判据要认「**这一类组的证据文件**」, 而不只是探针组那两个名字。
+FOCUS_PROBE_EVIDENCE_GLOB = "slm1_*.json"
+
+
+def _blocked_focus_evidence(directory: Path) -> str | None:
+    """焦面标定证据是不是「**光路受阻**时写的」⇒ 这一轮标定没完成。
+
+    🔴 焦面探测在「光路受阻」时**照样**把证据写盘 (它是「本轮发生了什么」的记录,
+    不是「标定成功」的证明) —— 证据 JSON 里 ``path_blocked`` 为 ``true``。
+    所以判据若只看「文件存不存在」, 续跑会把**一次失败的标定**当成「已经跑过」
+    ⇒ 后面每一组都拿着一个不存在的 f_v 去测, 而根因 (光路断了) 被埋掉。
+
+    Args:
+        directory: 待登记目录。
+
+    Returns:
+        不能登记时的中文原因; 可以登记则返回 ``None``。
+    """
+    for path in sorted(directory.glob(FOCUS_PROBE_EVIDENCE_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("path_blocked"):
+            return (
+                f"焦面标定证据 {path.name} 记的是「光路受阻」(path_blocked=true) "
+                "⇒ 这一轮标定没有完成, 不能当作已跑过的产物"
+            )
+    return None
+
+
 def check_adopt_dir(directory: Path) -> str | None:
     """检查一个待登记的目录: 存在, 且有落盘产物。
+
+    认两种产物 (见 :data:`ARTEFACT_MARKERS` 与
+    :data:`FOCUS_PROBE_EVIDENCE_GLOB`): 探针组写 ``measurements.json`` /
+    ``summary.json``, 焦面标定组写 ``slm1_<时间戳>.json``。
+
+    ⚠️ 但「焦面标定证据**存在**」不等于「标定**成功**」: 光路受阻时那份证据
+    照样落盘 (见 :func:`_blocked_focus_evidence`) ⇒ 那种目录不许登记。
 
     Args:
         directory: 待登记目录。
@@ -947,10 +1348,16 @@ def check_adopt_dir(directory: Path) -> str | None:
         return f"目录不存在: {directory}"
     if not directory.is_dir():
         return f"不是目录: {directory}"
-    if not any((directory / marker).is_file() for marker in ARTEFACT_MARKERS):
+    if not any((directory / marker).is_file() for marker in ARTEFACT_MARKERS) and not any(
+        directory.glob(FOCUS_PROBE_EVIDENCE_GLOB)
+    ):
         return (
-            f"目录里没有落盘产物 (需要 {' 或 '.join(ARTEFACT_MARKERS)} 之一): {directory}"
+            f"目录里没有落盘产物 (需要 {' 或 '.join(ARTEFACT_MARKERS)} "
+            f"之一, 或焦面标定证据 {FOCUS_PROBE_EVIDENCE_GLOB}): {directory}"
         )
+    blocked = _blocked_focus_evidence(directory)
+    if blocked is not None:
+        return blocked
     return None
 
 
@@ -1037,7 +1444,9 @@ def apply_resume(specs: list[GroupSpec], root: Path) -> list[GroupSpec]:
             continue
         directory = find_resume_artefact_dir(spec, root)
         if directory is None:
-            print(f"[续跑] {spec.group}: 没有产物 → 这一组要跑", flush=True)
+            # 「没有**可登记的**产物」: 目录里可能压根没有产物, 也可能只有一份
+            # 「光路受阻时写的」焦面标定证据 (那一轮标定并没有完成)。
+            print(f"[续跑] {spec.group}: 没有可登记的产物 → 这一组要跑", flush=True)
             continue
         spec.adopted_dir = str(directory)
         print(
@@ -1399,6 +1808,17 @@ def _build_parser() -> argparse.ArgumentParser:
         help="等设备时的重探间隔 (s); 默认 15。",
     )
     parser.add_argument(
+        "--own-pid",
+        action="append",
+        default=[],
+        type=int,
+        metavar="PID",
+        help=(
+            "声明这个 pid 是**我们自己**的 (同一条线上的另一个脚本), 不算占用者;"
+            " 可重复。也可用环境变量 " + OWN_PIDS_ENV + " 写逗号分隔的 pid。"
+        ),
+    )
+    parser.add_argument(
         "--resume",
         action="store_true",
         help=(
@@ -1631,6 +2051,15 @@ def main(argv: list[str] | None = None) -> int:
     # -- 开跑前等设备空出来 -------------------------------------------------
     if float(args.wait_until_idle) > 0:
         device_params = plan_device_params(specs)
+        own_pids = list(args.own_pid)
+        for piece in os.environ.get(OWN_PIDS_ENV, "").split(","):
+            piece = piece.strip()
+            if not piece:
+                continue
+            try:
+                own_pids.append(int(piece))
+            except ValueError:
+                continue
         code, reason = wait_until_idle(
             float(args.wait_until_idle),
             probe_cmd=resolve_probe_cmd(args.device_probe_cmd),
@@ -1639,6 +2068,7 @@ def main(argv: list[str] | None = None) -> int:
             cam_id=int(device_params["cam_id"]),
             cam_type=str(device_params["cam_type"]),
             exposure_ms=float(device_params["exposure_ms"]),
+            own_pids=own_pids,
         )
         if code != 0:
             print(
@@ -1650,7 +2080,7 @@ def main(argv: list[str] | None = None) -> int:
 
     created_utc = utc_now_iso()
     records: list[dict[str, Any]] = []
-    aborted: DeviceUnavailable | None = None
+    aborted: RoundAbort | None = None
     for index, spec in enumerate(specs):
         if spec.adopted_dir:
             record = adopt_group(spec, Path(spec.adopted_dir))
@@ -1677,21 +2107,41 @@ def main(argv: list[str] | None = None) -> int:
                         f"{record.get('stderr_tail', '')}\n{record.get('stdout_tail', '')}"
                     )
                 if verdict is not None:
-                    # 🔴 设备不可用 ≠ 这一组坏了: 中止整轮, 别把剩下的组也烧一遍
-                    # (2026-10-21 18:23 实测 27 组在 100 s 内全灭)。
-                    record["status"] = "device_unavailable"
-                    record["device_unavailable"] = {
-                        "kind": verdict.kind,
-                        "code": verdict.code,
-                        "detail": verdict.detail,
-                        "remedy": verdict.remedy,
-                    }
-                    aborted = verdict
-                    print(
-                        f"[组] {spec.group}: device_unavailable "
-                        f"({verdict.kind}) —— 中止整轮",
-                        flush=True,
-                    )
+                    # 🔴 设备不可用 / 光路不通 ≠ 这一组坏了: 中止整轮, 别把剩下的组
+                    # 也烧一遍 (2026-10-21 18:23 实测 27 组在 100 s 内全灭;
+                    # 2026-10-22 12:5x 实测光路断掉后剩下 8 组逐个跑了一遍)。
+                    if verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+                        # 光路不通: 设备都是好的, 但光束没到 CCD ⇒ 这一组之后的
+                        # 每一组都会立刻失败 ⇒ 立刻停, 并把三段光路打给人。
+                        record["status"] = "light_path_blocked"
+                        record["light_path_blocked"] = {
+                            "kind": verdict.kind,
+                            "detail": verdict.detail,
+                            "remedy": verdict.remedy,
+                            "reason_text": verdict.reason_text,
+                        }
+                        record["reason_text"] = verdict.reason_text
+                        print(
+                            f"[组] {spec.group}: light_path_blocked "
+                            f"—— {verdict.reason_text or verdict.detail} "
+                            "—— 中止整轮",
+                            flush=True,
+                        )
+                    else:
+                        record["status"] = "device_unavailable"
+                        record["device_unavailable"] = {
+                            "kind": verdict.kind,
+                            "code": verdict.code,
+                            "detail": verdict.detail,
+                            "remedy": verdict.remedy,
+                            "reason_text": verdict.reason_text,
+                        }
+                        print(
+                            f"[组] {spec.group}: device_unavailable "
+                            f"({verdict.kind}) —— 中止整轮",
+                            flush=True,
+                        )
+                    aborted = RoundAbort(group=spec.group, verdict=verdict)
         records.append(record)
         # 每组跑完立刻写 —— 整轮被强杀时, 已完成的组仍然在索引里。
         write_groups_manifest(
@@ -1705,7 +2155,7 @@ def main(argv: list[str] | None = None) -> int:
                         rest,
                         root,
                         "round_aborted",
-                        detail="因整轮中止 (设备不可用) 而跳过",
+                        detail=f"因整轮中止 ({aborted.label()}) 而跳过",
                     )
                 )
             break
@@ -1716,7 +2166,8 @@ def main(argv: list[str] | None = None) -> int:
     failed = [
         r
         for r in records
-        if r["status"] in ("failed", "timeout", "device_unavailable")
+        if r["status"]
+        in ("failed", "timeout", "device_unavailable", "light_path_blocked")
     ]
     over_budget = [r for r in records if r["status"] == "over_budget"]
     skipped = [r for r in records if r["status"] == "skipped"]
@@ -1745,11 +2196,23 @@ def main(argv: list[str] | None = None) -> int:
     if skipped:
         print(f"有 {len(skipped)} 组被跳过 (见索引里的 skip_reason)", file=sys.stderr)
     if aborted is not None:
-        print(
-            f"[中止] 设备不可用: {aborted.headline()} —— {aborted.advice()}。"
-            "本轮已中止 (剩余组标记为 skipped); 设备恢复后可用 --resume 续跑",
-            file=sys.stderr,
-        )
+        if aborted.verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+            # 光路不通: 说清**哪一组**、**判定理由原文**与**该查哪三段光路**。
+            print(
+                f"[中止] 光路不通 (第 {aborted.group} 组): {aborted.reason()}\n"
+                f"       {aborted.verdict.detail}\n"
+                f"       {aborted.verdict.advice()}\n"
+                f"       请人检查这三段光路: {LIGHT_PATH_CHECKLIST}\n"
+                "       本轮已中止 (剩余组标记为 skipped); 光路恢复后可用 --resume 续跑",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[中止] 设备不可用 (第 {aborted.group} 组): "
+                f"{aborted.verdict.headline()} —— {aborted.verdict.advice()}。"
+                "本轮已中止 (剩余组标记为 skipped); 设备恢复后可用 --resume 续跑",
+                file=sys.stderr,
+            )
         return 1
     if failed:
         print(f"有 {len(failed)} 组失败/超时 (其余组已照常完成并记录)", file=sys.stderr)

@@ -466,10 +466,10 @@ flowchart LR
 所以这个模型的输出**回答不了任何绝对亮度问题**(到了传感器多少光、激光漂没漂), 只回答
 相对结构。
 
-### 8.4 基线臂与参数量
+### 8.4 基线变体与参数量
 
-`build_forward_model(config)` 按 `config.architecture` (`"conv"` / `"mlp"`) 实例化其中一条臂。
-`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 臂完全一致 (raw、无界、`(B,1,g,g)`),
+`build_forward_model(config)` 按 `config.architecture` (`"conv"` / `"mlp"`) 实例化其中一个变体。
+`ZernikeCoeffMLP` 是**刻意的对照组**: 输出契约与 conv 变体完全一致 (raw、无界、`(B,1,g,g)`),
 但把 `grid*grid` 全部从一个 `Linear` 里吐出来 —— 丢掉的正是 2-D 局部性, 而这正是该对照要
 检验的假设。
 

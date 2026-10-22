@@ -28,6 +28,11 @@ from ao_shaping.utils.wavefront.matrix_utils import (
     noll_to_index,
     index_to_noll,
 )
+from ao_shaping.utils.wavefront.model_error_terms import (
+    ModelErrorTerms,
+    load_error_terms,
+    save_error_terms,
+)
 from ao_shaping.utils.wavefront.phase_unwrap import (
     PhaseUnwrapper,
     UnwrapStrategy,
@@ -75,6 +80,10 @@ __all__ = [
     "calc_n_zernike_terms",
     "noll_to_index",
     "index_to_noll",
+    # model_error_terms
+    "ModelErrorTerms",
+    "load_error_terms",
+    "save_error_terms",
     # phase_unwrap
     "PhaseUnwrapper",
     "UnwrapStrategy",

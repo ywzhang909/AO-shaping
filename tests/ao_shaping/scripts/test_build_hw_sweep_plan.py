@@ -170,7 +170,7 @@ class TestChunkChain:
         for index in range(2, 8):
             group = _group(plan, f"zernike_stage_a_{index}")
             assert arg_value(_args(group), "--stage-a-in") == (
-                f"data/debug/hw_zernike_sweep_20261021_r3/"
+                f"data/debug/hw_zernike_sweep_20261022/"
                 f"zernike_stage_a_{index - 1}/stage_a.npz"
             )
 
@@ -179,7 +179,7 @@ class TestChunkChain:
         for n_max in EXPECTED_ORDERS:
             group = _group(plan, f"zernike_order_nmax{n_max}")
             assert arg_value(_args(group), "--stage-a-in") == (
-                "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz"
+                "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz"
             )
 
     def test_a_broken_chain_is_reported(self):
@@ -202,7 +202,7 @@ class TestChunkChain:
         args = _args(group)
         index = args.index("--stage-a-in")
         args[index + 1] = (
-            "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_99/stage_a.npz"
+            "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_99/stage_a.npz"
         )
         group["args"] = args
 
@@ -226,7 +226,7 @@ class TestPhasePaths:
     def test_defocus_and_farfield_phase_files_are_under_this_round_root(self):
         cfg = _cfg()
         plan = build_plan(cfg)
-        root = "data/debug/hw_zernike_sweep_20261021_r3"
+        root = "data/debug/hw_zernike_sweep_20261022"
 
         checked = 0
         for group in plan["groups"]:
@@ -246,7 +246,7 @@ class TestPhasePaths:
         for name in ("dz_noise_hw_gs", "dz_scan_hw_gs"):
             group = _group(plan, name)
             expected = (
-                "data/debug/hw_zernike_sweep_20261021_r3/"
+                "data/debug/hw_zernike_sweep_20261022/"
                 "zernike_order_nmax4/best_phase_nmax4.npy"
             )
             assert arg_value(_args(group), "--gs-phase") == expected
@@ -257,7 +257,7 @@ class TestPhasePaths:
         for n_max in EXPECTED_ORDERS:
             group = _group(plan, f"zernike_farfield_nmax{n_max}")
             assert arg_value(_args(group), "--gs-phase") == (
-                f"data/debug/hw_zernike_sweep_20261021_r3/"
+                f"data/debug/hw_zernike_sweep_20261022/"
                 f"zernike_order_nmax{n_max}/phase_nmax{n_max}.npy"
             )
 
@@ -290,10 +290,10 @@ class TestPhasePaths:
             args = _args(group)
             out_root = arg_value(args, "--out-root")
             if out_root is not None:
-                assert out_root == "data/debug/hw_groups_20261021_r3"
+                assert out_root == "data/debug/hw_groups_20261022"
             out = arg_value(args, "--out")
             if out is not None:
-                assert out == "data/debug/hw_zernike_sweep_20261021_r3"
+                assert out == "data/debug/hw_zernike_sweep_20261022"
 
 
 class TestEpochCoverage:
@@ -411,7 +411,7 @@ class TestCli:
         assert rc == 0
         assert out.is_file()
         payload = json.loads(out.read_text(encoding="utf-8"))
-        assert payload["root"] == "data/debug/hw_groups_20261021_r3"
+        assert payload["root"] == "data/debug/hw_groups_20261022"
         assert len(payload["groups"]) == 27
 
     def test_default_out_is_under_the_groups_root(self):
@@ -419,8 +419,8 @@ class TestCli:
 
         args = _build_parser().parse_args([])
         assert args.out is None, "默认落盘路径由 groups_root 推导, 不是写死的"
-        assert args.groups_root == "data/debug/hw_groups_20261021_r3"
-        assert args.sweep_root == "data/debug/hw_zernike_sweep_20261021_r3"
+        assert args.groups_root == "data/debug/hw_groups_20261022"
+        assert args.sweep_root == "data/debug/hw_zernike_sweep_20261022"
 
     def test_cli_can_move_the_roots(self, tmp_path):
         out = tmp_path / "plan.json"
