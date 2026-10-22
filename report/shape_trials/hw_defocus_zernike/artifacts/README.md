@@ -117,4 +117,3 @@ python scripts/slm/build_hw_sweep_plan.py \
   用的证据就是那份里的 `zernike_order_nmax3/summary.json`。
 - 本轮的焦面标定证据是 `focus_calibration/slm1_20261022_142207.json`
   （`best_focal_mm` = 1549.3）⇒ 计划里写死的 `defocus_focal_mm` 用的就是它。
-
