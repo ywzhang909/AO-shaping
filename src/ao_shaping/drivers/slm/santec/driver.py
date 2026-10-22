@@ -287,6 +287,17 @@ class Santec:
     Response_time_ms = RESPONSE_TIME_MS
     Gray_Scale_bits = GRAY_SCALE_BITS
     MAX_GRAYSCALE_VALUE = get_max_grayscale()
+    # 厂商随仓库分发的出厂矫正 CSV —— 属于**另一块面板** (序列号 240236000006)
+    # 在 **520nm** 下测得，与本机面板 (22030108 @1064nm) 不匹配。套用会把一片
+    # 无关波前叠加到面板上（零级从 ~14px 弥散成 ~68px 弥散晕），因此**不再自动
+    # 兜底**：只有配置显式给出 ``correction_enabled=true`` 且
+    # ``use_vendor_default_correction=true`` 时才使用。
+    VENDOR_DEFAULT_CORRECTION_CSV = (
+        PROJECT_ROOT
+        / "data"
+        / "calibration"
+        / "Wavefront_correction_Data_240236000006(520nm).csv"
+    )
     MAX_PIXEL_FLIP_TIME_MS = MAX_PIXEL_FLIP_TIME_MS  # 像素全量翻转(0→2π)最大耗时 (ms)
     MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_S  # 同上，单位秒
     # 发送管线的两个叠加层都是可选修正项：未设置即"无叠加"，是正常状态而非缺失标定。
@@ -336,9 +347,11 @@ class Santec:
             shift_x: X方向平移像素数（正=右，负=左），设为None从配置文件加载
             shift_y: Y方向平移像素数（正=下，负=上），设为None从配置文件加载
             correction_csv_path: 误差矫正CSV文件路径，默认为None；
-                格式如 libs/SLM_DLL_ver.2.51/Wavefront_correction_Data/
-                Wavefront_correction_Data_240236000006(520nm).csv；
-                若提供则在create_phase_from_array时自动叠加矫正
+                若提供则在create_phase_from_array时自动叠加矫正。
+                ⚠️ 厂商随仓库分发的
+                Wavefront_correction_Data_240236000006(520nm).csv 属于别的面板/波长，
+                不会被自动套用（需 ``correction_enabled=true`` 且
+                ``use_vendor_default_correction=true`` 显式 opt-in）
         """
         # 参数验证仅在设备控制函数中进行，此处不重复验证
         self.slm_number = slm_number
@@ -1945,28 +1958,48 @@ class Santec:
     def _load_correction(self, config: dict) -> None:
         """加载波前误差矫正数据（委托至 WavefrontCorrection.resolve）
 
-        优先级（由工具类 resolve() 处理）:
-          __init__ 显式路径 → 配置文件路径 → 默认路径
+        启用状态由配置文件中的 ``correction_enabled`` 决定，三档语义:
 
-        若配置文件记录了 correction_enabled=False，则跳过加载，
-        保持矫正禁用状态（与上次关闭时一致）。
+        - 显式 **False** ⇒ **不加载任何矫正**（保持与上次关闭时一致）;
+        - 显式 **True** ⇒ 按 resolve 优先级加载:
+          ``__init__`` 显式路径 → 配置文件 ``correction_csv_path`` →
+          厂商默认 CSV（**仅当** ``use_vendor_default_correction: true`` opt-in）;
+        - **未记录**（键缺失或值为 null）⇒
+          - **不加载厂商默认 CSV**（本次修复的核心，绝不能回退）;
+          - 但**显式路径仍然加载**：构造参数 ``correction_csv_path`` 与配置里的
+            ``correction_csv_path``（两者都表示「有人明确指定了文件」），
+            取第一个存在的;
+          - 两者都没有 ⇒ 空实例（is_valid=False）+ warning。
+
+        ⚠️ 厂商随仓库分发的矫正 CSV
+        ``Wavefront_correction_Data_240236000006(520nm).csv`` 是**另一块面板**
+        (序列号 240236000006) 在 **520nm** 下测得的，与本机面板
+        (22030108 @1064nm) 不匹配。自动套用会把一片无关波前叠加到面板上，
+        实测零级从 ~14px 弥散成 ~68px 弥散晕、峰值只剩 33/255。
+        因此它**不再自动兜底**，只有显式 opt-in 时才会被使用。
 
         Args:
             config: 从 load_config() 获取的配置字典
         """
-        # 配置文件中记录的矫正启用状态（默认 True，向后兼容）
-        correction_enabled = config.get("correction_enabled", True)
-        if not correction_enabled:
+        enabled = self._parse_correction_enabled(config)
+
+        if enabled is False:
+            # 显式关闭 ⇒ 任何路径都不加载（显式路径也不例外）。
             self._correction = WavefrontCorrection()  # 空实例（is_valid=False）
             logger.info(f"SLM #{self.slm_number} 矫正已禁用（配置文件记录）")
             return
 
-        default_path = (
-            PROJECT_ROOT
-            / "data"
-            / "calibration"
-            / "Wavefront_correction_Data_240236000006(520nm).csv"
-        )
+        # 厂商默认 CSV 只在「显式 True + 显式 opt-in」时才可能生效。
+        default_path = None
+        if enabled is True and self._parse_vendor_default_optin(config):
+            default_path = self.VENDOR_DEFAULT_CORRECTION_CSV
+            logger.warning(
+                f"SLM #{self.slm_number} 显式启用厂商默认矫正 CSV: "
+                f"{self.VENDOR_DEFAULT_CORRECTION_CSV.name} —— "
+                f"该文件是面板 240236000006 在 520nm 下测得的, "
+                f"与本面板/当前工作波长不匹配时会把无关波前叠加到面板上"
+            )
+
         resolved = WavefrontCorrection.resolve(
             explicit_path=self._correction.csv_path
             if self._correction.is_valid
@@ -1977,12 +2010,68 @@ class Santec:
         )
         if resolved is not None:
             self._correction = resolved
-            logger.info(
-                f"SLM #{self.slm_number} 已加载矫正数据: {resolved.csv_path.name}"
-            )
+            if enabled is None:
+                # 未记录启用状态, 但有人明确指定了文件 ⇒ 按显式路径加载。
+                logger.info(
+                    f"SLM #{self.slm_number} 已加载矫正数据: "
+                    f"{resolved.csv_path.name}"
+                    f"（配置未记录矫正启用状态, 按显式路径加载）"
+                )
+            else:
+                logger.info(
+                    f"SLM #{self.slm_number} 已加载矫正数据: {resolved.csv_path.name}"
+                )
         else:
             self._correction = WavefrontCorrection()  # 空实例（is_valid=False）
-            logger.info(f"SLM #{self.slm_number} 未加载矫正数据")
+            if enabled is None:
+                logger.warning(
+                    f"SLM #{self.slm_number} 配置未记录矫正启用状态 ⇒ 视为不启用, "
+                    f"厂商默认矫正 CSV 属于别的面板/波长, 不会自动套用; "
+                    f"如需启用请在配置里写 correction_enabled=true "
+                    f"并给出 correction_csv_path"
+                )
+            else:
+                logger.info(f"SLM #{self.slm_number} 未加载矫正数据")
+
+    @staticmethod
+    def _parse_correction_enabled(config: dict) -> bool | None:
+        """解析配置里的矫正启用状态。
+
+        Args:
+            config: 配置字典
+
+        Returns:
+            True/False 表示显式记录的启用状态；**None 表示未记录**
+            (键缺失或值为 null)，调用方须按「未记录」处理：不套用厂商默认
+            CSV，但显式路径仍然加载。
+        """
+        if not isinstance(config, dict):
+            return None
+        raw = config.get("correction_enabled", None)
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(raw)
+
+    @staticmethod
+    def _parse_vendor_default_optin(config: dict) -> bool:
+        """解析是否显式 opt-in 使用厂商默认矫正 CSV (默认 False)。
+
+        Args:
+            config: 配置字典
+
+        Returns:
+            True 表示配置里写了 ``use_vendor_default_correction: true``
+        """
+        if not isinstance(config, dict):
+            return False
+        raw = config.get("use_vendor_default_correction", False)
+        if raw is None:
+            return False
+        if isinstance(raw, str):
+            return raw.strip().lower() in ("1", "true", "yes", "on")
+        return bool(raw)
 
     def _pick_next_memory_slot(self) -> int:
         """选取下一个内存槽 (2..125, 排除当前显示槽).

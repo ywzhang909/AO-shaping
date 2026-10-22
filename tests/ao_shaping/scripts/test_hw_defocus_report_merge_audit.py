@@ -769,3 +769,88 @@ class TestComparabilityUsesValuesNotFrameShapeEquality:
         assert comparable is True
 
 
+class TestAuditBlockIsRoundAgnostic:
+    """§3 的同源性核查段必须**只讲本轮的数据**。
+
+    早先的版本把「第三轮的块是 ``[127, 128]``」**写死**在正文里, 而第三轮真跑出来
+    的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者一眼能看出来)。
+
+    ⇒ 判据两条:
+      1. 段里「本轮」的取值必须等于**本轮数据**的取值;
+      2. 段里不得出现**某一轮专属**的说法 (轮次名) —— 段是轮次无关的, 轮次由文件/日期决定。
+    """
+
+    @staticmethod
+    def _block(tmp_path: Path, centers: dict[str, list[int]], shapes: dict[str, list[int]] | None = None) -> str:
+        """造一份假数据根, 返回它的 §3 同源性核查段。"""
+        root = tmp_path / "fake_root"
+        root.mkdir(parents=True, exist_ok=True)
+        _write_probe_group(root)
+        for i, (group, center) in enumerate(centers.items()):
+            _write_summary(
+                root,
+                group,
+                n_max=3 + i,
+                mask_center_xy=center,
+                frame_shape=(shapes or {}).get(group),
+            )
+        return gen.merge_audit_block(gen.load_zernike(root))
+
+    def test_this_rounds_values_are_printed(self, tmp_path):
+        """「本轮各组的取值」那一句必须列的是**本轮数据**的取值。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax4": [126, 127],
+            },
+        )
+        # 取值按数值排序后列出 (与正文里的排序一致)
+        assert "取值为 `[126, 127]` / `[128, 129]`" in block
+
+    def test_no_round_specific_wording(self, tmp_path):
+        """段里不得出现轮次名 (「第三轮」) —— 写死轮次名就会在某轮变成一句不成立的话。"""
+        block = self._block(tmp_path, {"zernike_order_nmax3": [128, 129]})
+        assert "第三轮" not in block
+        assert "本轮" in block
+
+    def test_large_deviation_is_reported_as_suspect(self, tmp_path):
+        """大偏差 (第三轮实测有一组差 123 px) 必须被**报出来**, 不能被当成抖动吞掉。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax25": [6, 6],
+            },
+        )
+        assert "[6, 6]" in block
+        assert "疑似跨轮次数据混入" in block
+        assert "逐轴偏差 123 px > 2 px" in block
+        assert "本轮实测散布 **±123 px**" in block
+
+    def test_value_outside_common_window_is_named(self, tmp_path):
+        """落在共同窗口之外的取值要**点名说是谁** (可能是别的组, 也可能是合并采用值)。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_stage_a": [1433, 971],
+            },
+            shapes={"zernike_order_nmax3": [256, 256], "zernike_stage_a": [1944, 2592]},
+        )
+        assert "不在同一空间" in block
+        assert "落在共同窗口 256x256 之外" in block
+        assert "全幅传感器" in block
+
+    def test_spread_is_computed_from_this_rounds_data(self, tmp_path):
+        """散布必须由本轮数据算出来 (两组的逐轴偏差 2 px), 不是某个写死的数。"""
+        block = self._block(
+            tmp_path,
+            {
+                "zernike_order_nmax3": [128, 129],
+                "zernike_order_nmax4": [126, 127],
+            },
+        )
+        assert "本轮实测散布 **±2 px**" in block
+
+

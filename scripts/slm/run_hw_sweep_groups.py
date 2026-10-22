@@ -80,16 +80,24 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 * 「**设备不可用**」⇒ 记 ``device_unavailable``, **中止整轮**, 剩下的组记
   ``skipped``, 退出码非 0, 并打印一句说清根因的中文。
 
-设备不可用又分四类, 因为**处置不同**:
+设备不可用又分五类, 因为**处置不同**:
 
-======================  ==========================================  ==============
-归类                   特征                                        能不能等
-======================  ==========================================  ==============
-``slm_absent``         ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
-``slm_busy``           ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
-``camera_busy``        ``camera not initialized`` (相机被占)        能 (等一会儿)
-``camera_absent``      相机不在 (``Camera ID not found``)          不能 (要人处理)
-======================  ==========================================  ==============
+========================  =========================================  ==============
+归类                     特征                                        能不能等
+========================  =========================================  ==============
+``slm_absent``           ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
+``slm_busy``             ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
+``camera_busy``          ``camera not initialized`` (相机被占)        能 (等一会儿)
+``camera_absent``        相机不在 (``Camera ID not found``)          不能 (要人处理)
+``light_path_blocked``   光路不通 (相机上一个光斑都没有)             不能 (要人查光路)
+========================  =========================================  ==============
+
+🔴 ``light_path_blocked`` 与前四类**必须分开**: 前四类是「设备」的问题, 这一类是
+**实验系统光路**的问题 —— SLM 与相机都能正常打开, 但光束没走到 CCD (面板被挪/
+被挡/光源关了)。实测 2026-10-22 12:5x: 光路断掉后驱动把剩下 8 组逐个跑了一遍
+(每组 8-28 s), 每组都报「光束没有到达相机」⇒ 根因在索引里被埋掉了, 白占设备。
+所以它**立刻中止整轮** (退出码非 0, 剩下的组记 ``skipped``), 并把三段光路
+(光束 → SLM 面板 → 2f 透镜 → CCD) 的检查清单打给人。
 
 判别逻辑在**模块级纯函数** :func:`classify_device_unavailable` 里 (不散在主流程中),
 单元测试直接测它。
@@ -190,6 +198,14 @@ KIND_SLM_ABSENT = "slm_absent"
 KIND_SLM_BUSY = "slm_busy"
 KIND_CAMERA_BUSY = "camera_busy"
 KIND_CAMERA_ABSENT = "camera_absent"
+#: 光路不通: 设备都在 (SLM 能开、相机能开), 但**相机上一个光斑都没有** ⇒
+#: 光束没到相机 (光路被挡/被挪/光源关了)。
+#:
+#: ⚠️ 单独一类, 因为**处置完全不同**: 上面四类是「设备」的问题, 这一类是**实验系统
+#: 光路**的问题 —— 等是等不来的, 也不该继续往下跑组 (每组都会立刻失败, 白占设备)。
+#: 实测 2026-10-22 12:5x: 光路不通后, 驱动把剩下 8 组逐个跑了一遍, 每组 8-28 s
+#: ⇒ 全是「光束没有到达相机」, 而**根因 (光路断了) 在索引里看不出来**。
+KIND_LIGHT_PATH_BLOCKED = "light_path_blocked"
 
 #: 可以自动等的那几类 (别人在用 ⇒ 等一会儿就好)。
 WAITABLE_KINDS = frozenset({KIND_SLM_BUSY, KIND_CAMERA_BUSY})
@@ -212,7 +228,16 @@ DEVICE_UNAVAILABLE_INFO: dict[str, tuple[str, str]] = {
         "相机不在 (Camera ID not found)",
         "需要人检查相机的供电/网线 —— 等是等不来的",
     ),
+    KIND_LIGHT_PATH_BLOCKED: (
+        "光路不通: 相机上一个光斑都没有 (SLM 与相机都在, 但光束没到相机)",
+        "需要人检查实验系统的三段光路: 光束 → SLM 面板 → 2f 透镜 → CCD "
+        "(面板被挪/被挡/光源关了) —— 等是等不来的",
+    ),
 }
+
+#: 光路受阻时给操作者的**三段光路**检查清单 (与探针脚本的 ``BLOCKED_PATH_REASON``
+#: 同一口径: 光束 → SLM 面板 → 2f 透镜 → CCD)。
+LIGHT_PATH_CHECKLIST = "光束 → SLM 面板 → 2f 透镜 → CCD"
 
 #: 设备不可用的特征串。**数字错误码与中文短语都认**: 驱动异常文本带码
 #: (「错误码: -10002」), 而 GUI 的中文提示只带短语。
@@ -220,6 +245,13 @@ _SLM_ABSENT_RE = re.compile(r"未找到USB设备|错误码[:：]?\s*-10002(?!\d)
 _SLM_BUSY_RE = re.compile(r"USB设备已打开|错误码[:：]?\s*-10003(?!\d)")
 _CAMERA_BUSY_RE = re.compile(r"camera not initialized|REPEAT_OPENED|device has been open")
 _CAMERA_ABSENT_RE = re.compile(r"camera not found|Camera ID \d+ not found")
+#: 光路不通的特征串 (探针的中文提示 + 曝光阶梯估不出上限时的英文报错)。
+#:
+#: ⚠️ 与上面四类**必须分开**: 那些是「设备」的问题, 这一类是**实验系统光路**的问题 ——
+#: SLM 与相机都正常, 但光束没走到 CCD (面板被挪/被挡/光源关了)。
+#: 实测 2026-10-22 12:5x: 光路断掉后驱动把剩下 8 组逐个跑了一遍 (每组 8-28 s),
+#: 每组都报「光束没有到达相机」⇒ 根因在索引里被埋掉了, 白占设备。
+_LIGHT_PATH_BLOCKED_RE = re.compile(r"光路受阻|光束没有到达相机|no ladder frame carries signal")
 
 #: 异常文本里的 Santec 错误码 (「错误码: -10003」/「错误码 -10003」)。
 _SANTEC_CODE_RE = re.compile(r"错误码[:：]?\s*(-?\d+)")
@@ -251,6 +283,12 @@ class DeviceUnavailable:
     remedy: str = ""
     """该怎么处置。"""
 
+    reason_text: str = ""
+    """**判定理由原文** —— 命中判定的那一行 (从子进程输出里摘出来的)。
+
+    为什么留着原文: 「光路不通」这句话本身不说明**是哪一段**断了, 而操作者要
+    看的正是探针给出的那一句 (它带着三段光路的检查清单与实测数字)。"""
+
     @property
     def waitable(self) -> bool:
         """这一类能不能靠「等」解决 (别人在用 vs 设备没插上)。"""
@@ -264,6 +302,53 @@ class DeviceUnavailable:
     def advice(self) -> str:
         """处置建议。"""
         return self.remedy
+
+
+#: 「判定理由原文」最多留多少字符 (够看清一句报错, 又不至于把整页日志塞进索引)。
+REASON_TEXT_CHARS = 400
+
+
+@dataclass(frozen=True)
+class RoundAbort:
+    """整轮中止的上下文: **哪一组**、什么根因、判定理由原文。"""
+
+    group: str
+    """触发中止的那一组 (组名)。"""
+
+    verdict: DeviceUnavailable
+    """根因的判定结果 (:func:`classify_device_unavailable`)。"""
+
+    def label(self) -> str:
+        """中止原因的一句话标签 (写进「被跳过的组」的跳过详情里)。"""
+        if self.verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+            return "光路不通"
+        return "设备不可用"
+
+    def reason(self) -> str:
+        """判定理由原文 (没有原文时退回根因描述)。"""
+        return self.verdict.reason_text or self.verdict.headline()
+
+
+def _reason_text(text: str, pattern: re.Pattern[str]) -> str:
+    """摘出命中判定的那一行原文。
+
+    Args:
+        text: 子进程输出 (stderr + stdout 拼起来)。
+        pattern: 判定用的正则。
+
+    Returns:
+        命中处所在的**整行** (去掉首尾空白, 最多 :data:`REASON_TEXT_CHARS` 字符);
+        没命中则空字符串。
+    """
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return ""
+    start = matches[-1].start()
+    line_start = text.rfind("\n", 0, start) + 1
+    line_end = text.find("\n", start)
+    if line_end < 0:
+        line_end = len(text)
+    return text[line_start:line_end].strip()[:REASON_TEXT_CHARS]
 
 
 def _extract_santec_error_code(text: str) -> int | None:
@@ -292,6 +377,13 @@ def classify_device_unavailable(text: str) -> DeviceUnavailable | None:
     索引里完全看不出来。「设备不可用」与「这一组坏了」是**两件不同的事**:
     前者要中止整轮, 后者跑下一组。
 
+    五类归类 (处置不同, 所以必须分开): 断电类 (``slm_absent`` /
+    ``camera_absent``) 要人处理; 被占类 (``slm_busy`` / ``camera_busy``)
+    等一会儿就好; **光路不通** (``light_path_blocked``) 是实验系统光路的问题 ——
+    设备都在, 但光束没到 CCD, 等是等不来的, 而且**必须立刻中止整轮**
+    (实测 2026-10-22 12:5x: 驱动把剩下 8 组逐个跑了一遍, 每组都报
+    「光束没有到达相机」, 根因在索引里被埋掉了)。
+
     Args:
         text: 子进程的输出 (stderr + stdout 拼起来)。
 
@@ -308,13 +400,21 @@ def classify_device_unavailable(text: str) -> DeviceUnavailable | None:
         (KIND_SLM_BUSY, _SLM_BUSY_RE),
         (KIND_CAMERA_BUSY, _CAMERA_BUSY_RE),
         (KIND_CAMERA_ABSENT, _CAMERA_ABSENT_RE),
+        # 🔴 光路不通: 设备都在, 光束没到 CCD ⇒ 立刻中止整轮, 不等、不续跑。
+        (KIND_LIGHT_PATH_BLOCKED, _LIGHT_PATH_BLOCKED_RE),
     ):
         positions = [m.start() for m in pattern.finditer(text)]
         if not positions:
             continue
         detail, remedy = DEVICE_UNAVAILABLE_INFO[kind]
+        # 光路不通**不是**设备错误码能解释的: 输出里若混着别的 Santec 码
+        # (例如上一次失败留下的), 挂上去只会把根因指歪 ⇒ 这一类不带码。
         candidate = DeviceUnavailable(
-            kind=kind, code=code, detail=detail, remedy=remedy
+            kind=kind,
+            code=None if kind == KIND_LIGHT_PATH_BLOCKED else code,
+            detail=detail,
+            remedy=remedy,
+            reason_text=_reason_text(text, pattern),
         )
         # 取**最后**出现的那一处: 一组失败时最后一条错误才是致命原因。
         if positions[-1] > best_pos:
@@ -1189,8 +1289,53 @@ def read_group_metadata(directory: Path) -> tuple[str, dict[str, str]]:
     return "", {}
 
 
+#: 每组「跑完了」的判据: 组目录里存在这些文件之一就算跑过 (续跑时登记为 adopted)。
+#:
+#: ⚠️ **焦面标定组写的是 ``slm1_<时间戳>.json``** (focus_probe 自己命名), 不叫
+#: ``measurements.json`` / ``summary.json`` ⇒ 早先的判据认不出它 ⇒ 每次续跑都判
+#: 「focus_calibration 没有产物」⇒ **每次续跑都重跑一遍焦面标定 (140-210 s 设备时间)**。
+#: 实测 2026-10-22: 因为这个, 看门狗在 50 分钟里续跑了 14 次, 而**设备全程被我们自己占着**
+#: —— 而操作者的要求是「尽快空出设备」。
+#: ⇒ 判据要认「**这一类组的证据文件**」, 而不只是探针组那两个名字。
+FOCUS_PROBE_EVIDENCE_GLOB = "slm1_*.json"
+
+
+def _blocked_focus_evidence(directory: Path) -> str | None:
+    """焦面标定证据是不是「**光路受阻**时写的」⇒ 这一轮标定没完成。
+
+    🔴 焦面探测在「光路受阻」时**照样**把证据写盘 (它是「本轮发生了什么」的记录,
+    不是「标定成功」的证明) —— 证据 JSON 里 ``path_blocked`` 为 ``true``。
+    所以判据若只看「文件存不存在」, 续跑会把**一次失败的标定**当成「已经跑过」
+    ⇒ 后面每一组都拿着一个不存在的 f_v 去测, 而根因 (光路断了) 被埋掉。
+
+    Args:
+        directory: 待登记目录。
+
+    Returns:
+        不能登记时的中文原因; 可以登记则返回 ``None``。
+    """
+    for path in sorted(directory.glob(FOCUS_PROBE_EVIDENCE_GLOB)):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict) and data.get("path_blocked"):
+            return (
+                f"焦面标定证据 {path.name} 记的是「光路受阻」(path_blocked=true) "
+                "⇒ 这一轮标定没有完成, 不能当作已跑过的产物"
+            )
+    return None
+
+
 def check_adopt_dir(directory: Path) -> str | None:
     """检查一个待登记的目录: 存在, 且有落盘产物。
+
+    认两种产物 (见 :data:`ARTEFACT_MARKERS` 与
+    :data:`FOCUS_PROBE_EVIDENCE_GLOB`): 探针组写 ``measurements.json`` /
+    ``summary.json``, 焦面标定组写 ``slm1_<时间戳>.json``。
+
+    ⚠️ 但「焦面标定证据**存在**」不等于「标定**成功**」: 光路受阻时那份证据
+    照样落盘 (见 :func:`_blocked_focus_evidence`) ⇒ 那种目录不许登记。
 
     Args:
         directory: 待登记目录。
@@ -1202,10 +1347,16 @@ def check_adopt_dir(directory: Path) -> str | None:
         return f"目录不存在: {directory}"
     if not directory.is_dir():
         return f"不是目录: {directory}"
-    if not any((directory / marker).is_file() for marker in ARTEFACT_MARKERS):
+    if not any((directory / marker).is_file() for marker in ARTEFACT_MARKERS) and not any(
+        directory.glob(FOCUS_PROBE_EVIDENCE_GLOB)
+    ):
         return (
-            f"目录里没有落盘产物 (需要 {' 或 '.join(ARTEFACT_MARKERS)} 之一): {directory}"
+            f"目录里没有落盘产物 (需要 {' 或 '.join(ARTEFACT_MARKERS)} "
+            f"之一, 或焦面标定证据 {FOCUS_PROBE_EVIDENCE_GLOB}): {directory}"
         )
+    blocked = _blocked_focus_evidence(directory)
+    if blocked is not None:
+        return blocked
     return None
 
 
@@ -1292,7 +1443,9 @@ def apply_resume(specs: list[GroupSpec], root: Path) -> list[GroupSpec]:
             continue
         directory = find_resume_artefact_dir(spec, root)
         if directory is None:
-            print(f"[续跑] {spec.group}: 没有产物 → 这一组要跑", flush=True)
+            # 「没有**可登记的**产物」: 目录里可能压根没有产物, 也可能只有一份
+            # 「光路受阻时写的」焦面标定证据 (那一轮标定并没有完成)。
+            print(f"[续跑] {spec.group}: 没有可登记的产物 → 这一组要跑", flush=True)
             continue
         spec.adopted_dir = str(directory)
         print(
@@ -1926,7 +2079,7 @@ def main(argv: list[str] | None = None) -> int:
 
     created_utc = utc_now_iso()
     records: list[dict[str, Any]] = []
-    aborted: DeviceUnavailable | None = None
+    aborted: RoundAbort | None = None
     for index, spec in enumerate(specs):
         if spec.adopted_dir:
             record = adopt_group(spec, Path(spec.adopted_dir))
@@ -1953,21 +2106,41 @@ def main(argv: list[str] | None = None) -> int:
                         f"{record.get('stderr_tail', '')}\n{record.get('stdout_tail', '')}"
                     )
                 if verdict is not None:
-                    # 🔴 设备不可用 ≠ 这一组坏了: 中止整轮, 别把剩下的组也烧一遍
-                    # (2026-10-21 18:23 实测 27 组在 100 s 内全灭)。
-                    record["status"] = "device_unavailable"
-                    record["device_unavailable"] = {
-                        "kind": verdict.kind,
-                        "code": verdict.code,
-                        "detail": verdict.detail,
-                        "remedy": verdict.remedy,
-                    }
-                    aborted = verdict
-                    print(
-                        f"[组] {spec.group}: device_unavailable "
-                        f"({verdict.kind}) —— 中止整轮",
-                        flush=True,
-                    )
+                    # 🔴 设备不可用 / 光路不通 ≠ 这一组坏了: 中止整轮, 别把剩下的组
+                    # 也烧一遍 (2026-10-21 18:23 实测 27 组在 100 s 内全灭;
+                    # 2026-10-22 12:5x 实测光路断掉后剩下 8 组逐个跑了一遍)。
+                    if verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+                        # 光路不通: 设备都是好的, 但光束没到 CCD ⇒ 这一组之后的
+                        # 每一组都会立刻失败 ⇒ 立刻停, 并把三段光路打给人。
+                        record["status"] = "light_path_blocked"
+                        record["light_path_blocked"] = {
+                            "kind": verdict.kind,
+                            "detail": verdict.detail,
+                            "remedy": verdict.remedy,
+                            "reason_text": verdict.reason_text,
+                        }
+                        record["reason_text"] = verdict.reason_text
+                        print(
+                            f"[组] {spec.group}: light_path_blocked "
+                            f"—— {verdict.reason_text or verdict.detail} "
+                            "—— 中止整轮",
+                            flush=True,
+                        )
+                    else:
+                        record["status"] = "device_unavailable"
+                        record["device_unavailable"] = {
+                            "kind": verdict.kind,
+                            "code": verdict.code,
+                            "detail": verdict.detail,
+                            "remedy": verdict.remedy,
+                            "reason_text": verdict.reason_text,
+                        }
+                        print(
+                            f"[组] {spec.group}: device_unavailable "
+                            f"({verdict.kind}) —— 中止整轮",
+                            flush=True,
+                        )
+                    aborted = RoundAbort(group=spec.group, verdict=verdict)
         records.append(record)
         # 每组跑完立刻写 —— 整轮被强杀时, 已完成的组仍然在索引里。
         write_groups_manifest(
@@ -1981,7 +2154,7 @@ def main(argv: list[str] | None = None) -> int:
                         rest,
                         root,
                         "round_aborted",
-                        detail="因整轮中止 (设备不可用) 而跳过",
+                        detail=f"因整轮中止 ({aborted.label()}) 而跳过",
                     )
                 )
             break
@@ -1992,7 +2165,8 @@ def main(argv: list[str] | None = None) -> int:
     failed = [
         r
         for r in records
-        if r["status"] in ("failed", "timeout", "device_unavailable")
+        if r["status"]
+        in ("failed", "timeout", "device_unavailable", "light_path_blocked")
     ]
     over_budget = [r for r in records if r["status"] == "over_budget"]
     skipped = [r for r in records if r["status"] == "skipped"]
@@ -2021,11 +2195,23 @@ def main(argv: list[str] | None = None) -> int:
     if skipped:
         print(f"有 {len(skipped)} 组被跳过 (见索引里的 skip_reason)", file=sys.stderr)
     if aborted is not None:
-        print(
-            f"[中止] 设备不可用: {aborted.headline()} —— {aborted.advice()}。"
-            "本轮已中止 (剩余组标记为 skipped); 设备恢复后可用 --resume 续跑",
-            file=sys.stderr,
-        )
+        if aborted.verdict.kind == KIND_LIGHT_PATH_BLOCKED:
+            # 光路不通: 说清**哪一组**、**判定理由原文**与**该查哪三段光路**。
+            print(
+                f"[中止] 光路不通 (第 {aborted.group} 组): {aborted.reason()}\n"
+                f"       {aborted.verdict.detail}\n"
+                f"       {aborted.verdict.advice()}\n"
+                f"       请人检查这三段光路: {LIGHT_PATH_CHECKLIST}\n"
+                "       本轮已中止 (剩余组标记为 skipped); 光路恢复后可用 --resume 续跑",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                f"[中止] 设备不可用 (第 {aborted.group} 组): "
+                f"{aborted.verdict.headline()} —— {aborted.verdict.advice()}。"
+                "本轮已中止 (剩余组标记为 skipped); 设备恢复后可用 --resume 续跑",
+                file=sys.stderr,
+            )
         return 1
     if failed:
         print(f"有 {len(failed)} 组失败/超时 (其余组已照常完成并记录)", file=sys.stderr)

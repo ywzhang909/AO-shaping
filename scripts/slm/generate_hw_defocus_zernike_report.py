@@ -700,52 +700,92 @@ def classify_merge_difference(
     return ("suspect", "未归类的字段差异", None)
 
 
-def _round_mask_window_verdict(zernike: dict[str, Any]) -> dict[str, Any]:
-    """本轮 ``mask_center_xy`` 的可比性判定 —— **由数据算出**, 不写死任何一轮的取值。
+def _fmt_coord_pair(pair: tuple[float, float]) -> str:
+    """坐标对的显示格式 (与表里的 ``_fmt_merge_value`` 一致)。"""
+    return f"[{pair[0]:g}, {pair[1]:g}]"
+
+
+def _round_merge_facts(zernike: dict[str, Any]) -> dict[str, Any]:
+    """本轮的**实测事实**: 掩膜中心的取值/散布/可比性, 以及连续量的相对差。
 
     为什么要有它: 早先的版本把「第三轮的块是 ``[127, 128]``」**写死**在正文里, 而第三轮
-    真跑出来的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者能一眼
-    看出来)。这里改成从本轮数据算: 各组取到了哪些值、共同窗口多大、哪些取值落在窗口外。
+    真跑出来的是 ``[128, 129]`` ⇒ 正文会印一句与**同一节的数据表**对不上的话 (读者一眼
+    就能看出来)。改成从本轮数据算: 各组取到了哪些值、相对合并采用值的逐轴偏差最大多少、
+    有没有组落在共同窗口之外、连续量差多少。
 
-    共同窗口的口径与 :func:`_window_local_comparability` 一致 (逐轴取小)。
+    口径与 §3 的表**一致**: 逐轴比、**只算可比**的组 (坐标系不同的不参与判定)。
     """
+    frames = dict(zernike.get("summary_frame_shapes") or {})
+    origin = dict(zernike.get("merge_origin") or {})
     centers = dict(zernike.get("summary_mask_centers") or {})
-    shapes = dict(zernike.get("summary_frame_shapes") or {})
-    # 只取「取值确实是坐标对」且「知道它的工作窗口」的组: 其余的既没法列取值,
-    # 也没法判它落在共同窗口内外。
-    usable: dict[str, tuple[float, float]] = {}
-    for group, value in centers.items():
+    warnings = list(zernike.get("merge_warnings") or [])
+    kept_group = str(origin.get("mask_center_xy") or "")
+    kept_value = zernike.get("mask_center_xy")
+
+    values: list[tuple[float, float]] = []
+    for value in centers.values():
         if not isinstance(value, (list, tuple)) or len(value) != 2:
             continue
         try:
-            usable[group] = (float(value[0]), float(value[1]))
+            pair = (float(value[0]), float(value[1]))
         except (TypeError, ValueError):
             continue
-    if not usable:
-        return {}
-    heights: list[float] = []
-    widths: list[float] = []
-    for group in usable:
-        hw = _frame_shape_hw(shapes.get(group))
-        if hw is None:
+        if pair not in values:
+            values.append(pair)
+    values.sort()
+
+    spread: float | None = None
+    incomparable: list[tuple[str, tuple[float, float], str]] = []
+    for group, value in centers.items():
+        if group == kept_group:
             continue
-        heights.append(hw[0])
-        widths.append(hw[1])
-    if not heights:
-        return {}
-    height = min(heights)
-    width = min(widths)
-    values = sorted(set(usable.values()))
-    outside: list[tuple[str, tuple[float, float]]] = []
-    for group, pair in usable.items():
-        if _coord_inside_window(list(pair), height, width) is False:
-            outside.append((group, pair))
+        if not isinstance(value, (list, tuple)) or len(value) != 2:
+            continue
+        try:
+            pair = (float(value[0]), float(value[1]))
+        except (TypeError, ValueError):
+            continue
+        comparable, note = _pixel_comparability(
+            "mask_center_xy", kept_group, group, frames, kept_value, list(pair)
+        )
+        if not comparable:
+            # 记下**判定依据** (它点名了究竟是谁落在共同窗口之外) —— 不能一律说
+            # 「别的组落在窗口外」: 也可能是**合并采用值**本身是全幅坐标。
+            incomparable.append((group, pair, note))
+            continue
+        dev = _pixel_axis_deviation(kept_value, list(pair))
+        if dev is None:
+            continue
+        spread = dev if spread is None else max(spread, dev)
+
+    # ``center_xy`` 永远是全幅坐标 ⇒ 永远可比; 它的偏差直接从合并警告里取
+    # (警告只在取值不同时产生 ⇒ 覆盖全部有差异的组)。
+    for w in warnings:
+        if w.get("kind") != "field" or w.get("field") != "center_xy":
+            continue
+        dev = _pixel_axis_deviation(w.get("kept"), w.get("other"))
+        if dev is None:
+            continue
+        spread = dev if spread is None else max(spread, dev)
+
+    rel: dict[str, float] = {}
+    for w in warnings:
+        if w.get("kind") != "field":
+            continue
+        field = str(w.get("field"))
+        if field not in CONTINUOUS_MERGE_FIELDS:
+            continue
+        r = _relative_diff(w.get("kept"), w.get("other"))
+        if r is None:
+            continue
+        rel[field] = max(rel.get(field, 0.0), r)
+
     return {
-        "height": height,
-        "width": width,
         "values": values,
-        "outside": outside,
-        "n_groups": len(usable),
+        "spread_px": spread,
+        "incomparable": incomparable,
+        "rel": rel,
+        "n_values": len(values),
     }
 
 
@@ -775,6 +815,34 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
     origin_items = [
         f"`{name}`（`{origin[name]}`）" for name in BODY_MERGE_FIELDS if name in origin
     ]
+    facts = _round_merge_facts(zernike)
+    values = facts["values"]
+    spread = facts["spread_px"]
+    incomparable = facts["incomparable"]
+    # 本轮的实测散布 (相对合并采用值) —— 阈值说明要引用**本轮**的数字,
+    # 不能拿某一轮的散布写死 (那会在下一轮变成一句不成立的话)。
+    if spread is None:
+        spread_txt = "本轮各组取值一致（没有可比的跨组偏差）"
+    else:
+        spread_txt = f"本轮实测散布 **±{spread:g} px**"
+    if values:
+        value_list = " / ".join(f"`{_fmt_coord_pair(p)}`" for p in values)
+    else:
+        value_list = "（无）"
+    if incomparable:
+        out_list = "、".join(f"`{g}`（`{_fmt_coord_pair(p)}`）" for g, p, _n in incomparable)
+        # 判定依据里点名了**究竟是谁**落在共同窗口之外 (可能是别的组, 也可能是
+        # 合并采用值本身) ⇒ 直接引用它, 不自己再断言一遍。
+        notes = "；".join(note for _g, _p, note in incomparable)
+        space_txt = (
+            f"**本轮**各组的 `mask_center_xy` 取值为 {value_list}，"
+            f"其中与合并采用值**不在同一空间**的有 {out_list} ⇒ {notes} ⇒ 不参与判定"
+        )
+    else:
+        space_txt = (
+            f"**本轮**各组的 `mask_center_xy` 取值为 {value_list}，"
+            "**全部落在共同窗口内** ⇒ 都是窗口内坐标 ⇒ **同空间**，逐轴偏差照常判"
+        )
     lines = [
         "**数据来源与同源性核查** —— 本节的数字由 "
         f"**{len(groups)}** 份 `summary.json` 合并而成，组目录："
@@ -801,13 +869,24 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "两者的数**不可直接比较**。",
         "",
         "**阈值为什么是这两个数**：像素坐标的 "
-        f"**{LOCATE_JITTER_TOL_PX:g} px** —— 实测逐阶组各自在**自己那一帧**上重新定位零级，"
+        f"**{LOCATE_JITTER_TOL_PX:g} px** —— 逐阶组各自在**自己那一帧**上重新定位零级，"
         "散布只有 **±1 px**（第二轮八个逐阶组的 `mask_center_xy` 落在 `[126,128]` / "
         "`[127,128]` / `[127,127]` / `[126,127]` 四种上），"
         f"{LOCATE_JITTER_TOL_PX:g} px 是它的一倍余量；连续量的 "
         f"**{CONTINUOUS_REL_DIFF_TOL * 100:g}%** —— 实测跨轮次的光学状态差异是 **1.13%**"
         "（第二轮混进来的 `zernike_stage_a_1`：`w0_px` 5.742078 → 5.807177），"
         "阈值取它的一半不到，好让这种差异**被报出来**而不是被当成噪声吞掉。",
+        "",
+        f"**本轮实测**：{spread_txt}；连续量的 "
+        + (
+            "、".join(
+                f"`{f}` 的最大相对差 **{facts['rel'][f] * 100:.2f}%**"
+                for f in sorted(facts["rel"])
+            )
+            if facts["rel"]
+            else "口径字段（`w0_px`、`target_side`）在各组之间**完全一致**"
+        )
+        + "。",
         "",
         "**为什么可比性看「取值」而不是看「`frame_shape` 是否相等」**：两个生产者写的 "
         "`frame_shape` **不是一个意思** —— Stage A 块记的是**全幅** `probe_shape`"
@@ -817,8 +896,9 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "**不成立**的话，还白白**抑制掉一次交叉核对**（逐阶组的掩膜中心 vs 块的掩膜中心 —— "
         "差得多就说明某一块的 ROI 摆歪了）。改判「取值是否落在共同窗口内」之后："
         "**第二轮**（`mask_center_xy` 是全幅的 `[1433, 971]`，超出 256×256 的共同窗口）"
-        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；**第三轮**（`[127, 128]`，落在窗口内）"
-        "**判同空间** ⇒ 交叉核对恢复生效。",
+        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；"
+        + space_txt
+        + "。",
     ]
 
     if not field_warnings and not order_warnings:
