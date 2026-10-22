@@ -33,6 +33,54 @@ PANEL_SHAPE = (1200, 1920)
 PUPIL_CENTER = (960, 600)
 PUPIL_RADIUS = 450
 
+#: The capture sequence of the default run, recorded before the cadence and
+#: exposure options existed: ``(label, branch, family, split)`` per capture.
+#: Its first 24 entries are byte-identical to the measured B2 run
+#: (``data/debug/physical_forward_defocus/capture_20261022_s20261022_prior``),
+#: which is the reference this list was taken from.
+EXPECTED_DEFAULT_SEQUENCE = [
+    ('reference_start', 'U', 'reference', 'calibration'),
+    ('reference_start', 'C', 'reference', 'calibration'),
+    ('ramp_x_480_-1', 'C', 'ramp', 'calibration'),
+    ('ramp_x_480_1', 'C', 'ramp', 'calibration'),
+    ('ramp_x_960_-1', 'C', 'ramp', 'calibration'),
+    ('ramp_x_960_1', 'C', 'ramp', 'calibration'),
+    ('ramp_y_480_-1', 'C', 'ramp', 'calibration'),
+    ('ramp_y_480_1', 'C', 'ramp', 'calibration'),
+    ('ramp_y_960_-1', 'C', 'ramp', 'calibration'),
+    ('ramp_y_960_1', 'C', 'ramp', 'calibration'),
+    ('probe_000', 'U', 'zernike', 'train'),
+    ('probe_000', 'C', 'zernike', 'train'),
+    ('probe_001', 'C', 'smooth', 'train'),
+    ('probe_001', 'U', 'smooth', 'train'),
+    ('probe_002', 'U', 'bandlimited', 'train'),
+    ('probe_002', 'C', 'bandlimited', 'train'),
+    ('probe_003', 'C', 'zernike', 'test'),
+    ('probe_003', 'U', 'zernike', 'test'),
+    ('probe_004', 'U', 'smooth', 'test'),
+    ('probe_004', 'C', 'smooth', 'test'),
+    ('probe_005', 'C', 'bandlimited', 'test'),
+    ('probe_005', 'U', 'bandlimited', 'test'),
+    ('reference_5', 'U', 'reference', 'calibration'),
+    ('reference_5', 'C', 'reference', 'calibration'),
+    ('prior_000', 'U', 'prior', 'train'),
+    ('prior_000', 'C', 'prior', 'train'),
+    ('reference_prior_000', 'U', 'reference', 'calibration'),
+    ('reference_prior_000', 'C', 'reference', 'calibration'),
+    ('prior_001', 'C', 'prior', 'train'),
+    ('prior_001', 'U', 'prior', 'train'),
+    ('reference_prior_001', 'U', 'reference', 'calibration'),
+    ('reference_prior_001', 'C', 'reference', 'calibration'),
+    ('prior_002', 'U', 'prior', 'train'),
+    ('prior_002', 'C', 'prior', 'train'),
+    ('reference_prior_002', 'U', 'reference', 'calibration'),
+    ('reference_prior_002', 'C', 'reference', 'calibration'),
+    ('prior_003', 'C', 'prior', 'train'),
+    ('prior_003', 'U', 'prior', 'train'),
+    ('reference_prior_003', 'U', 'reference', 'calibration'),
+    ('reference_prior_003', 'C', 'reference', 'calibration'),
+]
+
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -367,6 +415,20 @@ def _fake_adapt_exposure(set_exposure_ms, read_frame, *, start_ms, floor_ms, cei
     return ExposureSetting(float(start_ms), 100.0, 100.0 / full_scale, "ok", 1)
 
 
+class _ExposureLadder:
+    """Counts how often the exposure ladder was actually run."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self, set_exposure_ms, read_frame, *, start_ms, floor_ms, ceiling_ms,
+                 full_scale, **kwargs):
+        self.calls += 1
+        return _fake_adapt_exposure(set_exposure_ms, read_frame, start_ms=start_ms,
+                                    floor_ms=floor_ms, ceiling_ms=ceiling_ms,
+                                    full_scale=full_scale)
+
+
 def _fake_capture_settled_report(cam, slm, phase, **kwargs):
     from ao_shaping.tools.kernels.bench_kernels import SettleReport
 
@@ -375,15 +437,16 @@ def _fake_capture_settled_report(cam, slm, phase, **kwargs):
     return SimpleNamespace(frame=frame, settle=settle)
 
 
-def _install_fake_devices(monkeypatch) -> None:
+def _install_fake_devices(monkeypatch) -> _ExposureLadder:
+    ladder = _ExposureLadder()
     monkeypatch.setattr("ao_shaping.drivers.ccd.common.create_camera",
                         lambda *args, **kwargs: _FakeCamera())
     monkeypatch.setattr("ao_shaping.drivers.slm.santec.Santec",
                         lambda *args, **kwargs: _FakeSlm())
-    monkeypatch.setattr("ao_shaping.tools.slm.panel.focus_probe.adapt_exposure",
-                        _fake_adapt_exposure)
+    monkeypatch.setattr("ao_shaping.tools.slm.panel.focus_probe.adapt_exposure", ladder)
     monkeypatch.setattr("ao_shaping.tools.kernels.bench_kernels.capture_settled_report",
                         _fake_capture_settled_report)
+    return ladder
 
 
 def test_capture_loop_writes_the_format_contract_of_the_baseline_group(monkeypatch, capsys,
@@ -478,6 +541,179 @@ def test_an_unusable_exposure_aborts_the_run(monkeypatch, capsys, workspace, tmp
         main()
     rows = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
     assert rows[-1]["exposure_status"] == "clipped"
+
+
+# ---------------------------------------------------------------------------
+# Reference cadence
+# ---------------------------------------------------------------------------
+
+
+def _sequence(plan: dict) -> list[tuple[str, str, str, str]]:
+    return [(s["label"], s["branch"], s["family"], s["split"]) for s in plan["samples"]]
+
+
+def test_the_default_sequence_is_the_one_measured_before_the_options_existed(monkeypatch,
+                                                                             capsys, workspace,
+                                                                             tmp_path):
+    """Default behaviour must not move: the cadence options are opt-in."""
+    _forbid_devices(monkeypatch)
+    plan = _plan(workspace, capsys, monkeypatch, tmp_path)
+    assert _sequence(plan) == EXPECTED_DEFAULT_SEQUENCE
+    assert plan["reference_every"] == 6
+    # reference_start + one pair after the sixth probe + one pair per prior phase.
+    assert plan["reference_pairs"] == 6
+    assert plan["reference_max_gap"] == 6
+    assert plan["fixed_exposure"] == {"enabled": False, "branches": {}}
+
+
+def test_reference_every_twelve_thins_the_drift_references(monkeypatch, capsys, workspace,
+                                                           tmp_path):
+    _forbid_devices(monkeypatch)
+    default = _plan(workspace, capsys, monkeypatch, tmp_path)
+    thinned = _plan(workspace, capsys, monkeypatch, tmp_path, extra=["--reference-every", "12"])
+    assert thinned["reference_pairs"] < default["reference_pairs"]
+    # The cadence is measured in the counter's units, so it is exactly 12 there;
+    # in content captures the gap depends on how many priors sit in between.
+    assert thinned["reference_max_gap_units"] == 12
+    assert thinned["reference_max_gap"] <= 12
+    # The geometry and the content are untouched; only the references move.
+    content = [s for s in thinned["samples"] if s["family"] != "reference"]
+    assert [s["label"] for s in content] == [s["label"] for s in default["samples"]
+                                              if s["family"] != "reference"]
+    assert thinned["capture_count"] < default["capture_count"]
+
+
+def test_reference_every_one_puts_a_reference_between_every_two_captures(monkeypatch, capsys,
+                                                                          workspace, tmp_path):
+    _forbid_devices(monkeypatch)
+    plan = _plan(workspace, capsys, monkeypatch, tmp_path, extra=["--reference-every", "1"])
+    assert plan["reference_max_gap"] == 1
+    samples = plan["samples"]
+    captures: list[tuple[str, int, int]] = []
+    for index, step in enumerate(samples):
+        if step["source"]["kind"] not in ("probe", "prior"):
+            continue
+        if captures and captures[-1][0] == step["label"]:
+            captures[-1] = (step["label"], captures[-1][1], index)
+        else:
+            captures.append((step["label"], index, index))
+    for index in range(len(captures) - 1):
+        between = samples[captures[index][2] + 1:captures[index + 1][1]]
+        assert [step["family"] for step in between] == ["reference", "reference"], (
+            "at --reference-every 1 exactly one reference pair sits between two "
+            "content captures"
+        )
+
+
+def test_reference_every_must_be_positive(monkeypatch, capsys, workspace, tmp_path):
+    _forbid_devices(monkeypatch)
+    focus, candidates = workspace
+    monkeypatch.setattr(sys, "argv", [
+        "capture_prior_phase_dataset.py",
+        "--output", str(tmp_path / "out"),
+        "--focus-directory", str(focus),
+        "--candidates", str(candidates),
+        "--count", "6", "--seed", "20261022", "--region", "128",
+        "--reference-every", "0",
+    ])
+    with pytest.raises(SystemExit):
+        main()
+
+
+# ---------------------------------------------------------------------------
+# Fixed exposure
+# ---------------------------------------------------------------------------
+
+
+def _run_capture(monkeypatch, workspace, tmp_path, extra=()) -> Path:
+    focus, candidates = workspace
+    out = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", [
+        "capture_prior_phase_dataset.py",
+        "--output", str(out),
+        "--focus-directory", str(focus),
+        "--candidates", str(candidates),
+        "--count", "6", "--seed", "20261022", "--region", "128", "--execute",
+        *extra,
+    ])
+    assert main() == 0
+    return out
+
+
+def test_fixed_exposure_runs_the_ladder_once_per_branch(monkeypatch, capsys, workspace,
+                                                         tmp_path):
+    ladder = _install_fake_devices(monkeypatch)
+    _run_capture(monkeypatch, workspace, tmp_path, extra=["--fixed-exposure"])
+    assert ladder.calls == 2, "the ladder must run once per branch, not once per capture"
+
+
+def test_an_adaptive_run_still_runs_the_ladder_for_every_capture(monkeypatch, capsys,
+                                                                   workspace, tmp_path):
+    ladder = _install_fake_devices(monkeypatch)
+    out = _run_capture(monkeypatch, workspace, tmp_path)
+    rows = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert ladder.calls == len(rows)
+    # The adaptive run is unchanged: no fixed-exposure bookkeeping in the rows.
+    for row in rows:
+        assert "exposure_fixed" not in row
+        assert "fixed_exposure_ms" not in row
+
+
+def test_fixed_exposure_is_recorded_in_the_manifest_and_the_run_config(monkeypatch, capsys,
+                                                                       workspace, tmp_path):
+    _install_fake_devices(monkeypatch)
+    out = _run_capture(monkeypatch, workspace, tmp_path, extra=["--fixed-exposure"])
+    rows = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    assert "exposure_fixed" in rows[0]
+    # The first capture of a branch is the one that ran the ladder.
+    assert rows[0]["exposure_fixed"] is False
+    assert rows[1]["exposure_fixed"] is False
+    assert rows[2]["exposure_fixed"] is True
+    assert rows[0]["fixed_exposure_ms"] == rows[2]["fixed_exposure_ms"]
+    config = json.loads((out / "run_config.json").read_text(encoding="utf-8"))
+    assert config["fixed_exposure"]["enabled"] is True
+    branches = config["fixed_exposure"]["branches"]
+    assert set(branches) == {"U", "C"}
+    for branch, record in branches.items():
+        assert record["exposure_ms"] > 0
+        assert record["source_label"] == "reference_start"
+        assert record["source_index"] in (0, 1)
+        assert record["source_utc_start"]
+
+
+def test_the_summary_reports_the_reference_coverage_density(monkeypatch, capsys, workspace,
+                                                             tmp_path):
+    _install_fake_devices(monkeypatch)
+    _run_capture(monkeypatch, workspace, tmp_path)
+    printed = capsys.readouterr().out
+    assert "reference 覆盖密度" in printed
+    assert "最多间隔 6 条内容采集" in printed
+    assert "U 分支漂移率" in printed and "C 分支漂移率" in printed
+
+
+def test_the_summary_says_not_recorded_when_there_is_too_little_to_measure(monkeypatch, capsys,
+                                                                            workspace, tmp_path):
+    """One reference per branch cannot give a drift rate."""
+    _install_fake_devices(monkeypatch)
+    focus, candidates = workspace
+    out = tmp_path / "out"
+    monkeypatch.setattr(sys, "argv", [
+        "capture_prior_phase_dataset.py",
+        "--output", str(out),
+        "--focus-directory", str(focus),
+        "--candidates", str(candidates),
+        "--count", "6", "--seed", "20261022", "--region", "128", "--execute",
+        "--reference-every", "1",
+    ])
+    assert main() == 0
+    printed = capsys.readouterr().out
+    assert "reference 覆盖密度" in printed
+    rows = json.loads((out / "manifest.json").read_text(encoding="utf-8"))
+    references = sum(1 for row in rows if row["family"] == "reference")
+    if references >= 4:
+        assert "px/min" in printed
+    else:  # pragma: no cover - defensive
+        assert "未记录" in printed
 
 
 # ---------------------------------------------------------------------------
