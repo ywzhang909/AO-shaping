@@ -11,6 +11,12 @@ Options:
     --device DEVICE    Run only specific device (slm-200, micro-dm, miicam, wfs)
     --simulate         Run in simulation mode (no hardware required)
     --help             Show this help message
+
+Note:
+    The miicam entry is the auto-exposure hardware probe
+    (``test_miicam_auto_exposure_report.py``) since 2026-10-22 -- it replaced
+    the simulated report and needs the camera online, so ``--simulate`` no
+    longer makes miicam hardware-free.
 """
 
 import argparse
@@ -60,9 +66,10 @@ def run_test_module(module_path: str, device_name: str, simulate: bool = False) 
             print(f"✓ {device_name} report generated successfully")
             return True
         elif (
-            hasattr(module, "test_miicam_simulation_report") and device_name == "miicam"
+            hasattr(module, "test_miicam_auto_exposure_report")
+            and device_name == "miicam"
         ):
-            module.test_miicam_simulation_report()
+            module.test_miicam_auto_exposure_report()
             print(f"✓ {device_name} report generated successfully")
             return True
         elif hasattr(module, "test_wfs_standalone_report") and device_name == "wfs":
@@ -166,7 +173,9 @@ Examples:
     parser.add_argument(
         "--simulate",
         action="store_true",
-        help="Run in simulation mode (no hardware required)",
+        help="Run in simulation mode where a device offers one (miicam has "
+             "run its hardware auto-exposure probe since 2026-10-22 and "
+             "needs the camera online)",
     )
     parser.add_argument(
         "--pytest",
@@ -189,11 +198,13 @@ Examples:
         "wfs": "tests/ao_shaping/drivers/wfs/test_wfs_report.py",
     }
 
-    # Test modules mapping for simulation mode
-    simulation_modules = {
+    # Modules run directly (import + call the standalone function) rather than
+    # through pytest. Named for the mechanism, not "simulation": the miicam
+    # entry has been the hardware auto-exposure probe since 2026-10-22.
+    direct_modules = {
         "slm-200": "tests/ao_shaping/drivers/slm/test_slm_report.py",
         "micro-dm": "tests/ao_shaping/drivers/dm/test_micro_dm_report.py",
-        "miicam": "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
+        "miicam": "tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py",
         "wfs": "tests/ao_shaping/drivers/wfs/test_wfs_report.py",
     }
 
@@ -208,7 +219,7 @@ Examples:
         if args.pytest:
             module_path = project_root / test_modules[device]
         else:
-            module_path = project_root / simulation_modules[device]
+            module_path = project_root / direct_modules[device]
 
         if not module_path.exists():
             print(f"✗ Module not found: {module_path}")

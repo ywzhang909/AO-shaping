@@ -79,7 +79,6 @@ from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
 from ao_shaping.drivers.sim.dm_optics import SimDmOptics
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
-from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 try:  # scipy 的 pocketfft 是多线程的, 而补零后的变换需要它。
     from scipy import fft as _scipy_fft
@@ -415,7 +414,15 @@ class SimPibSystem:
         Zernike 用 canonical 入口 :func:`generate_zernike_phase` 生成 (不自写第二套
         Zernike 数学); 孔径外是 NaN, 按硬件路径置 0。粗糙度是固定种子的高斯随机场,
         RMS = ``roughness_sigma_rad``。
+
+        ⚠️ canonical 入口是**函数内延迟 import** 的: ``utils.wavefront`` 的包初始化
+        会拉起 ``aotools`` → ``matplotlib``, 而本模块在 import 期就注册 ``"sim"``
+        相机 (必须在一个**纯净**解释器里也能 import —— 见
+        ``tests/ao_shaping/drivers/sim/test_sim_camera_registration.py``)。
         """
+        # 延迟 import: 见 docstring 的说明 (import 期不得拉起 matplotlib)。
+        from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+
         spec = self.panel_aberration
         if spec is None or spec.is_empty():
             return None

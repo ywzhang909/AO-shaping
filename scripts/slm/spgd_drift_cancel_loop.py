@@ -53,6 +53,16 @@ ROI 里的固定底噪)。因此本 harness 把台架照明建模为::
 
     python scripts/slm/spgd_drift_cancel_loop.py --smoke      # 2 epoch 接线自检
     python scripts/slm/spgd_drift_cancel_loop.py --epochs 40  # 完整 A/B 矩阵
+    # 本底 σ 探针 (drift off, 杂散底板开): 给 3σ 判据一个基准行
+    python scripts/slm/spgd_drift_cancel_loop.py --variants baseline --epochs 12 \\
+        --a-smooth 0 --walk-sigma 0 --data-root <scratch>/intrinsic
+    # 修 compute_metrics 后不重跑矩阵: 从已有 pkl 重算指标并重写双落点报告
+    python scripts/slm/spgd_drift_cancel_loop.py --recompute \\
+        --data-root <scratch>/full --intrinsic <scratch>/intrinsic/results.json
+
+报告双落点 (report/AGENTS.md §3: 路径常量写死): 仓库外 ``<data-root>/report.md``
+速览 + 仓库内 ``report/shape_trials/spgd_drift_cancel_loop/`` (带日期戳的图与
+``artifacts/results.json`` 输入契约)。
 """
 
 from __future__ import annotations
@@ -60,8 +70,10 @@ from __future__ import annotations
 import argparse
 import json
 import pickle
+import shutil
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
@@ -104,6 +116,21 @@ MIN_REF_REPEATS = 8
 
 #: 增益估计量: 参考帧最亮的 N 个像素均值 (抗单像素噪声; 峰值法实测 ~1.6% 抖动)。
 GAIN_TOP_K = 64
+
+#: 报告落点 (report/AGENTS.md §2.2: 新脚本 → 新子目录, 目录名 = 脚本语义名;
+#: 路径常量写死, 不用「写到别处再手工搬」)。
+REPORT_KEY = "report/shape_trials/spgd_drift_cancel_loop/spgd_drift_cancel_loop_20261022.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "spgd_drift_cancel_loop"
+FIG_DIR = OUT_DIR / "figures"
+ARTIFACT_DIR = OUT_DIR / "artifacts"
+
+#: 图名日期戳, 与报告名后缀一致 (report/AGENTS.md §2.1: 同系列每份报告独占图)。
+FIG_STAMP = "20261022"
+
+#: 优化器噪声门参数 (``SlmZernikePibConfig`` 默认值, 本 harness 未覆盖):
+#: ``|diff| <= k * sigma(前序 window 个 diff)`` 即零置本轮更新。
+NOISE_GATE_K = 3.0
+NOISE_GATE_WINDOW = 20
 
 
 # === SECTION: 照明环境模型 =================================================
@@ -550,6 +577,37 @@ def run_variant(
     return result
 
 
+def _reproduce_noise_gates(
+    diffs: list[float], *, k: float = NOISE_GATE_K, window: int = NOISE_GATE_WINDOW
+) -> list[bool]:
+    """离线复算优化器的噪声门判据 (与 ``slm_zernike_pib._noise_gate`` 同构)。
+
+    recorder 的 pkl **不落盘** ``_gate`` 列 (``slm_shaping_runner._DEBUG_SCALAR_KEYS``
+    未列入它), 门控零置数不能从行里直读 —— 曾按不存在的键统计, 得到恒 0 的错误值。
+    这里按判据本身复算: 对第 i 个更新, sigma 取**前序** diff (deque, maxlen=window)
+    的标准差, ``|diff_i| <= k * sigma`` 即零置; sigma 不可用 (不足 2 个样本) 时门开。
+    与优化器日志 "N noise-gated updates" 逐变体一致 (实测 29/30/29/29, 共 32 轮)。
+    """
+    history: deque[float] = deque(maxlen=window)
+    out: list[bool] = []
+    for d in diffs:
+        sigma = (
+            float(np.std(np.asarray(history, dtype=np.float64)))
+            if len(history) >= 2
+            else 0.0
+        )
+        out.append(
+            bool(
+                k > 0.0
+                and np.isfinite(sigma)
+                and sigma > 0.0
+                and abs(d) <= k * sigma
+            )
+        )
+        history.append(float(d))
+    return out
+
+
 def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """从 recorder 行计算全部 issue 判据指标。
 
@@ -573,14 +631,20 @@ def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         ],
         dtype=np.float64,
     )
-    gates = [
-        bool(r.get("_gate", False))
-        for i, r in enumerate(rows[1:], start=1)
-        if not guard_mask[i]
-    ]
+    # 噪声门零置数按判据复算 (pkl 无 ``_gate`` 列, 见 ``_reproduce_noise_gates``)。
+    # 复算覆盖**全部**更新行 (含护栏行 —— 护栏行的 diff 仍是真实测量值, 会进
+    # 优化器的 diff 历史), 只有 dec/late_gain 等指标才剔除哨兵行。
+    gate_flags = _reproduce_noise_gates(
+        [float(r.get("_diff", 0.0)) for r in rows[1:]]
+    )
+    n_gate_zeroed = int(sum(gate_flags))
 
     if j.size < 2:
-        return {"metrics": "too-few-scored-rows", "guard_rows": int(guard_mask.sum())}
+        return {
+            "metrics": "too-few-scored-rows",
+            "guard_rows": int(guard_mask.sum()),
+            "n_gate_zeroed": n_gate_zeroed,
+        }
     stats = analyse_trace(j, delta=0.2, lower_is_better=False)
     r2 = float("nan")
     if max_brt[scored].size > 1 and max_brt[scored].std() > 0 and j.std() > 0:
@@ -601,8 +665,10 @@ def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "verdict": stats.verdict(),
         "diff_abs_mean": float(diffs.mean()) if diffs.size else float("nan"),
         "diff_abs_median": float(np.median(diffs)) if diffs.size else float("nan"),
-        "gate_fraction": float(np.mean(gates)) if gates else float("nan"),
-        "n_gate_zeroed": int(sum(gates)),
+        "gate_fraction": (
+            float(np.mean(gate_flags)) if gate_flags else float("nan")
+        ),
+        "n_gate_zeroed": n_gate_zeroed,
         "guard_rows": int(guard_mask.sum()),
         "scored_rows": int(scored.sum()),
     }
@@ -621,8 +687,25 @@ def _fmt(value: Any, spec: str = ".3f") -> str:
     return str(value)
 
 
-def write_report(results: list[dict[str, Any]], out: Path, meta: dict[str, Any]) -> Path:
-    """把 A/B 矩阵写成 markdown 报告 (判据逐条对照 issue 原文)。"""
+def _fig(name: str, stamp: str = "") -> str:
+    """图链接 (report/AGENTS.md §5: 同目录资产不带 ``../``; 图名带日期戳)。"""
+    return f"figures/{name}_{stamp}.png" if stamp else f"figures/{name}.png"
+
+
+def write_report(
+    results: list[dict[str, Any]],
+    out: Path,
+    meta: dict[str, Any],
+    *,
+    intrinsic: dict[str, Any] | None = None,
+    fig_stamp: str = "",
+) -> Path:
+    """把 A/B 矩阵写成 markdown 报告 (判据逐条对照 issue 原文)。
+
+    ``intrinsic`` 是本底 σ 探针 (drift-off 运行) 的 results.json 内容, 用于在
+    同相位噪声底表里给出 3σ 判据的基准行 —— 没有它, 各变体的 σ 无法判断有多少
+    来自漂移、多少来自孪生本身的读出噪声。
+    """
     lines: list[str] = []
     lines.append("# SPGD 闭环照明漂移对消 A/B (数字孪生, #144 第 1 项 / #36 判据)")
     lines.append("")
@@ -642,7 +725,7 @@ def write_report(results: list[dict[str, Any]], out: Path, meta: dict[str, Any])
     lines.append("")
     lines.append(
         "| 变体 | 协议 | dec (>0.55) | late_gain (>=10%) | verdict | "
-        "R²(J~亮度) | J 首→末 | 亮度摆幅 | 门控零置 |"
+        "R²(J~亮度) | J 首→末 | 亮度摆幅 | 噪声门零置 |"
     )
     lines.append("|---|---|---|---|---|---|---|---|---|")
     for r in results:
@@ -655,10 +738,28 @@ def write_report(results: list[dict[str, Any]], out: Path, meta: dict[str, Any])
             f"| {r.get('n_gate_zeroed', '-')}/{r.get('rows', 0) - 1} |"
         )
     lines.append("")
+    lines.append(
+        "噪声门零置列为**离线复算** (pkl 不落盘 ``_gate`` 列, 按优化器判据 "
+        "``|diff| <= 3σ(前序 20 个 diff)`` 用 ``_diff`` 列重算, 与优化器日志一致)。"
+    )
+    lines.append("")
+    lines.append("![J 轨迹](" + _fig("j_trace", fig_stamp) + ")")
+    lines.append("")
+    lines.append("![亮度轨迹](" + _fig("max_brt_trace", fig_stamp) + ")")
+    lines.append("")
     lines.append("## 同相位噪声底与可分辨性 (#144 测试方法)")
     lines.append("")
     lines.append("| 变体 | σ(J) 同相位 | 3σ 判据 | 协议采集次数 |")
     lines.append("|---|---|---|---|")
+    if intrinsic is not None:
+        ir = intrinsic["results"][0]
+        sp = ir.get("same_phase", {})
+        if sp and np.isfinite(sp.get("sigma", float("nan"))):
+            lines.append(
+                f"| intrinsic (drift off) | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
+                f"| 基准行: 漂移关、杂散底板开时的读出+评估噪声底 | "
+                f"{ir.get('n_protocol_captures', '-')} |"
+            )
     for r in results:
         sp = r.get("same_phase")
         if not sp or not np.isfinite(sp.get("sigma", float("nan"))):
@@ -669,7 +770,7 @@ def write_report(results: list[dict[str, Any]], out: Path, meta: dict[str, Any])
         ok = "是" if np.isfinite(resolvable) and resolvable > thr else "否"
         lines.append(
             f"| {r['variant']} | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
-            f"| 3σ={_fmt(thr, '.4f')}, 中位 |ΔJ|={_fmt(resolvable, '.4f')} → {ok} "
+            f"| 3σ={_fmt(thr, '.4f')}, 中位 abs(ΔJ)={_fmt(resolvable, '.4f')} → {ok} "
             f"| {r.get('n_protocol_captures', '-')} |"
         )
     lines.append("")
@@ -694,8 +795,16 @@ def write_report(results: list[dict[str, Any]], out: Path, meta: dict[str, Any])
         lines.append(
             f"- |ΔJ| 均值={_fmt(r.get('diff_abs_mean'), '.4f')}, "
             f"中位={_fmt(r.get('diff_abs_median'), '.4f')}, "
-            f"门控零置 {r.get('n_gate_zeroed')} 轮"
+            f"噪声门零置 {r.get('n_gate_zeroed')} 轮"
         )
+        log = r.get("capture_log") or []
+        pts = [(c["n"], c["g_true"]) for c in log if c.get("g_true") is not None]
+        if len(pts) >= 2:
+            lines.append("")
+            lines.append(
+                f"![增益轨迹 {r['variant']}]("
+                + _fig(f"drift_gain_{r['variant']}", fig_stamp) + ")"
+            )
     lines.append("")
     lines.append("## 解读边界")
     lines.append("")
@@ -728,8 +837,13 @@ def _variant_color(name: str) -> str:
     }.get(name, "#7f7f7f")
 
 
-def write_figures(results: list[dict[str, Any]], out_dir: Path) -> list[Path]:
-    """从 results.json + recorder pkl 画 A/B 对比图 (J 轨迹 / 亮度轨迹 / 增益轨迹)。"""
+def write_figures(
+    results: list[dict[str, Any]], out_dir: Path, *, stamp: str = ""
+) -> list[Path]:
+    """从 results.json + recorder pkl 画 A/B 对比图 (J 轨迹 / 亮度轨迹 / 增益轨迹)。
+
+    ``stamp`` 非空时图名带日期戳 (report/AGENTS.md §2.1: 同系列每份报告独占图)。
+    """
     import matplotlib
 
     matplotlib.use("Agg")
@@ -760,7 +874,7 @@ def write_figures(results: list[dict[str, Any]], out_dir: Path) -> list[Path]:
         ax.set_title("SPGD closed loop: objective trace per protocol (twin)")
         ax.legend()
         ax.grid(alpha=0.3)
-        path = out_dir / "j_trace.png"
+        path = out_dir / f"j_trace_{stamp}.png" if stamp else out_dir / "j_trace.png"
         fig.tight_layout()
         fig.savefig(path, dpi=150)
         plt.close(fig)
@@ -783,7 +897,11 @@ def write_figures(results: list[dict[str, Any]], out_dir: Path) -> list[Path]:
         ax.set_title("Measured brightness per epoch (drift visibility + normalization)")
         ax.legend()
         ax.grid(alpha=0.3)
-        path = out_dir / "max_brt_trace.png"
+        path = (
+            out_dir / f"max_brt_trace_{stamp}.png"
+            if stamp
+            else out_dir / "max_brt_trace.png"
+        )
         fig.tight_layout()
         fig.savefig(path, dpi=150)
         plt.close(fig)
@@ -803,7 +921,11 @@ def write_figures(results: list[dict[str, Any]], out_dir: Path) -> list[Path]:
         ax.set_ylabel("laser gain g(t)")
         ax.set_title(f"Illumination drift seen at candidate reads ({r['variant']})")
         ax.grid(alpha=0.3)
-        path = out_dir / f"drift_gain_{r['variant']}.png"
+        path = (
+            out_dir / f"drift_gain_{r['variant']}_{stamp}.png"
+            if stamp
+            else out_dir / f"drift_gain_{r['variant']}.png"
+        )
         fig.tight_layout()
         fig.savefig(path, dpi=150)
         plt.close(fig)
@@ -849,6 +971,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="不跑闭环, 只从 <data-root>/results.json + pkl 重新生成图",
     )
+    parser.add_argument(
+        "--intrinsic",
+        type=Path,
+        default=None,
+        help=(
+            "本底 σ 探针 (drift-off 运行) 的 results.json; 给出后, 报告的同相位"
+            "噪声底表增加 intrinsic 基准行, 并复制到 artifacts/"
+        ),
+    )
+    parser.add_argument(
+        "--recompute",
+        action="store_true",
+        help=(
+            "不跑闭环: 从 <data-root>/results.json 里各变体的 pkl 重算指标"
+            " (修 compute_metrics 的 bug 后用), 重写双落点报告与图"
+        ),
+    )
     return parser.parse_args(argv)
 
 
@@ -863,15 +1002,87 @@ def _make_drift(args: argparse.Namespace) -> IlluminationDrift:
     )
 
 
+def _emit_outputs(
+    results: list[dict[str, Any]],
+    meta: dict[str, Any],
+    data_root: Path,
+    intrinsic: dict[str, Any] | None,
+    intrinsic_path: Path | None,
+    out: Path | None = None,
+    repo: bool = True,
+) -> None:
+    """双落点写报告+图, 并把 results.json 复制进仓库 artifacts/ (输入契约)。
+
+    ``repo=False`` (smoke 自检) 只写仓库外速览报告 —— 2 epoch 的接线数字没有
+    结论价值, 不应覆盖仓库正式报告。
+    """
+    scratch_report = out or (data_root / "report.md")
+    write_report(results, scratch_report, meta, intrinsic=intrinsic)
+    (data_root / "results.json").write_text(
+        json.dumps({"meta": meta, "results": results}, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    write_figures(results, data_root / "figures")
+    if not repo:
+        logger.info("smoke mode: scratch report only ({})", scratch_report)
+        return
+    repo_report = write_report(
+        results,
+        OUT_DIR / Path(REPORT_KEY).name,
+        meta,
+        intrinsic=intrinsic,
+        fig_stamp=FIG_STAMP,
+    )
+    written = write_figures(results, FIG_DIR, stamp=FIG_STAMP)
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    shutil.copy(data_root / "results.json", ARTIFACT_DIR / "results.json")
+    if intrinsic is not None and intrinsic_path is not None:
+        shutil.copy(intrinsic_path, ARTIFACT_DIR / "intrinsic_sigma_probe.json")
+    logger.info("report written: {} ({} figures)", repo_report, len(written))
+
+
 def main() -> None:
-    """Entry point: 跑 A/B 矩阵并写报告 (或仅重画图)。"""
+    """Entry point: 跑 A/B 矩阵并写报告 (或仅重画图 / 重算指标)。
+
+    报告双落点: ``<data-root>/report.md`` (仓库外速览, 无戳图) 与
+    ``report/shape_trials/spgd_drift_cancel_loop/`` (仓库正式报告, 图带日期戳,
+    ``artifacts/results.json`` 作为输入契约) —— 后者路径常量写死在
+    :data:`REPORT_KEY` (report/AGENTS.md §3)。
+    """
     args = parse_args()
     args.data_root.mkdir(parents=True, exist_ok=True)
 
     if args.figures_only:
         payload = json.loads((args.data_root / "results.json").read_text(encoding="utf-8"))
         written = write_figures(payload["results"], args.data_root / "figures")
+        written += write_figures(payload["results"], FIG_DIR, stamp=FIG_STAMP)
         logger.info("figures written: {}", [str(p) for p in written])
+        return
+
+    if args.recompute:
+        payload = json.loads(
+            (args.data_root / "results.json").read_text(encoding="utf-8")
+        )
+        for r in payload["results"]:
+            pkl = r.get("pkl")
+            if not pkl or not Path(pkl).is_file():
+                logger.warning("pkl missing for {}: {}", r["variant"], pkl)
+                continue
+            metrics = compute_metrics(_load_rows(Path(pkl)))
+            r.update(metrics)  # dec/late_gain/r2/摆幅/diff 统计/门控/J_*/护栏行
+            logger.info(
+                "{} recomputed: dec={:.3f} gate_zeroed={}",
+                r["variant"],
+                metrics.get("dec", float("nan")),
+                metrics.get("n_gate_zeroed"),
+            )
+        intrinsic = None
+        if args.intrinsic is not None and args.intrinsic.is_file():
+            intrinsic = json.loads(args.intrinsic.read_text(encoding="utf-8"))
+        _emit_outputs(
+            payload["results"], payload["meta"], args.data_root, intrinsic,
+            args.intrinsic, args.out,
+        )
         return
 
     epochs = 2 if args.smoke else args.epochs
@@ -908,16 +1119,16 @@ def main() -> None:
         results.append(result)
         logger.info(
             "variant {} done: dec={:.3f} late_gain={:+.1f}% verdict={} "
-            "r2={:.3f} (wall {:.0f}s)",
+            "r2={:.3f} gate_zeroed={} (wall {:.0f}s)",
             name,
             result.get("dec", float("nan")),
             result.get("late_gain_pct", float("nan")),
             result.get("verdict"),
             result.get("r2_J_maxbrt", float("nan")),
+            result.get("n_gate_zeroed"),
             result["wall_s"],
         )
 
-    out = args.out or (args.data_root / "report.md")
     meta = {
         "date": time.strftime("%Y-%m-%d %H:%M"),
         "system_seed": SYSTEM_SEED,
@@ -929,13 +1140,13 @@ def main() -> None:
         "stray_adu": args.stray_adu,
         "epochs": epochs,
     }
-    report = write_report(results, out, meta)
-    (args.data_root / "results.json").write_text(
-        json.dumps({"meta": meta, "results": results}, indent=2, ensure_ascii=False),
-        encoding="utf-8",
+    intrinsic = None
+    if args.intrinsic is not None and args.intrinsic.is_file():
+        intrinsic = json.loads(args.intrinsic.read_text(encoding="utf-8"))
+    _emit_outputs(
+        results, meta, args.data_root, intrinsic, args.intrinsic, args.out,
+        repo=not args.smoke,
     )
-    written = write_figures(results, args.data_root / "figures")
-    logger.info("report written: {} ({} figures)", report, len(written))
 
 
 if __name__ == "__main__":

@@ -11,6 +11,7 @@ script from the repository root so its `data/` and `report/` paths resolve.
 | Subfolder | What it processes |
 |---|---|
 | `slm/` | The Santec SLM-200 + CCD far-field bench (2f-Fourier), hardware and its simulation twin: `slm-pib`, `spgd-square`, `slm-gsnet`, diff-beam, bench probes, model-in-loop runbook, the shape-objective studies, and the beam-shaping benchmark family. |
+| `ccd/` | Camera-driver probes that are not tied to the SLM bench: `miicam_auto_exposure_probe.py` verifies the MiiCam `auto_exposure` contract on hardware (response map, knee scan, dirty-data scan, convergence/boundary/dead-zone runs). Opens the camera through the miicam SDK only and never touches the Daheng backend. |
 | `zernike_bench/` | The Zernike calibration bench — Zernike phase written to the SLM and read back by the WFS: response matrix, linearity, far-field morphology, phase→WFS readout, and the WFS-only probe. |
 | `dm/` | Deformable mirrors: Micro-DM (R50Power) per-channel image diff pipeline, 1300-channel wiring tables, the DM response-matrix report, and the DM-side simulation references. |
 | `wfs/` | The Thorlabs WFS driver on its own: spot-field function comparison and the driver hardware smoke test. |
