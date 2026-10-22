@@ -566,10 +566,13 @@ REPORTS: dict[str, ReportProvenance] = {
             "MIL 实验落盘的探针 npz / bench_geometry.json / run_config.json / recorder pkl, "
             "把 300×300 相机像元窗口换算到 115×115 模型采样点 (旋转象限由落盘 model_grid "
             "逐像素反推, 偏差 7.44e-08), 比较理想孪生与反演后孪生在训练集/验证集上的 "
-            "SSIM / Pearson r / 标度无关能量比, 并与 MIL 自己的正向模型在 1024² 网格上"
-            "同口径对拍 (复现其落盘的验证集相关 0.3918); 反演走 bench_twin_calibrate.fit_twin "
-            "自己的两阶段路径, 过程 GIF 由拟合期间临时包一层模块级 twin_loss 取优化器真实"
-            "访问过的候选序列; 同时给出孪生解析焦面标度与实测标度差 2.54 倍这一口径缺口"
+            "SSIM / Pearson r / 标度无关能量比 (验证集: SSIM 0.1526→0.5116, 能量比 "
+            "4.7044→1.1656), 并与 MIL 自己的正向模型在 1024² 网格上同口径对拍 (复现其落盘的"
+            "验证集相关 0.3918); **焦面标度口径已统一**: 孪生按实测标度 2.614022 经 "
+            "BenchTwinConfig.from_measured_scale 反推等效焦距 311.32 mm (解析/实测比 "
+            "1.000000000), 标称 122.4060 mm 的解析标度与之差 2.54 倍仅作提醒; 反演走 "
+            "bench_twin_calibrate.fit_twin 自己的两阶段路径, 过程 GIF 由拟合期间临时包一层"
+            "模块级 twin_loss 取优化器真实访问过的候选序列"
         ),
         extra_scripts=("src/ao_shaping/runners/slm/model_in_loop_runner.py",),
     ),
@@ -1070,21 +1073,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
-    "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021_r3.md": ReportProvenance(
+    "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261022.md": ReportProvenance(
         script="scripts/slm/generate_hw_defocus_zernike_report.py",
         command=(
             "python scripts/slm/generate_hw_defocus_zernike_report.py "
-            "--groups-root data/debug/hw_groups_20261021_r3 "
-            "--groups-root data/debug/hw_zernike_sweep_20261021_r3 "
-            "--focus-evidence-dir data/debug/hw_groups_20261021_r3/focus_calibration "
-            "--report-key report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261021_r3.md"
+            "--groups-root data/debug/hw_groups_20261022 "
+            "--groups-root data/debug/hw_zernike_sweep_20261022 "
+            "--focus-evidence-dir data/debug/hw_groups_20261022/focus_calibration "
+            "--report-key report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261022.md"
         ),
         environment="硬件",
         note=(
             "实验系统离焦扫描 + 多阶泽尼克匀化测试的**第三轮**: 27 组每组一次独立调用且"
             "每组 <=10 分钟 (焦面标定 → Stage A 分 **7** 块 → 8 个逐阶组 → 离焦噪声组 → "
             "离焦扫描组 → 模型相位对照组 → 8 个各阶远场补拍组); 数据落在**新根** "
-            "hw_groups_20261021_r3 / hw_zernike_sweep_20261021_r3, 不再覆盖第二轮的原始"
+            "hw_groups_20261022 / hw_zernike_sweep_20261022, 不再覆盖第二轮的原始"
             "记录; 采集计划由 scripts/slm/build_hw_sweep_plan.py **生成** (不再手写 JSON: "
             "上一轮焦距一变要改 20 处)。Stage A 分块数由实测定的: 每块 540 s 墙钟预算只"
             "跑出 39 轮 ⇒ 6 块只到 ~234 轮, 够不到 250 轮的目标 ⇒ 7 块"
