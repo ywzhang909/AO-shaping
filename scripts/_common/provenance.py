@@ -196,6 +196,22 @@ REPORTS: dict[str, ReportProvenance] = {
     # 在**报告文件真正生成之后**再加 —— 索引里的链接必须可解析, 提前登记会让
     # `sync_report_provenance.py --check` 报索引漂移。生成它的脚本是
     # `scripts/slm/hw_differentiable_phase_opt.py`。
+    "report/slm/differentiable_opt/differentiable_opt_report.md": ReportProvenance(
+        script="scripts/slm/hw_differentiable_phase_opt.py",
+        command="python scripts/slm/hw_differentiable_phase_opt.py --execute",
+        environment="硬件",
+        extra_scripts=(
+            "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
+            "src/ao_shaping/tools/slm/panel/focus_probe.py",
+        ),
+        note=(
+            "正向调优模型 + 反向可微优化 SLM 相位的硬件全流程记录: **开测前先脚本判在焦**"
+            "(不在焦即退出 5, 一帧不测), 现场几何标定, 150 次纯模型反向传播的相位/梯度/损失史, "
+            "上屏后的 CCD 远场, 模型与实测的对照 (峰值位置差 ~18 CCD px、强度相关系数 0.15), "
+            "测量锚定的硬件闭环迭代 (实测损失 9.5e-4 → 8.5e-4), 以及"
+            "**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**这一负结果"
+        ),
+    ),
     "report/slm/report2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
@@ -722,6 +738,22 @@ REPORTS: dict[str, ReportProvenance] = {
             "2026-10-09 ~ 2026-10-16 方斑整形全部报告的汇总: 不含任何新测量, "
             "全部数字来自已有报告与保存的实验产物离线复算; 含研究路径时间线、"
             "公式体系与结论, 供脱离硬件复现"
+        ),
+    ),
+    "report/shape_trials/experiment_summary_20261022.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="人工撰写",
+        note=(
+            "2026-10-22 MIL + 离焦测试的联合分析: 把 10-21~22 的 MIL 损失审计、"
+            "硬件离焦/多阶泽尼克测试与当天四轮 campaign 的失败现场串成一条因果链; "
+            "不含任何新测量, 全部数字引自已落盘产物; 含 10 条规律、scripts/slm/ "
+            "脚本盘点与去留、以及阶段 0~6 的后续实验计划"
+        ),
+        extra_scripts=(
+            "scripts/slm/analyze_model_in_loop_loss.py",
+            "scripts/slm/probe_optical_path_validity.py",
+            "scripts/slm/model_in_loop_selfcal_bakeoff.py",
+            "scripts/slm/model_in_loop_hw_ab.py",
         ),
     ),
     "report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md": ReportProvenance(
