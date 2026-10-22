@@ -2,7 +2,7 @@
 
 > 本文件从 README.md 拆出（2026-10-13）。README 只保留索引，完整版本历史在此维护。
 
-## v0.20.0 (v0.19.0 末 `3b74eaec` 之后 → 2026-10-22, 30 个提交（含 1 合并）, `3b74eaec..HEAD`)
+## v0.20.0 (v0.19.0 末 `3b74eaec` 之后 → 2026-10-22, 59 个提交（含合并）, `3b74eaec..HEAD`)
 
 **banckend × gitub/banckend 双向分叉合并 + 测试一律容器化（#167 事故后续）+ #167 长函数拆分批次 + 仓库卫生 + 合并后 8 个本地提交**
 
@@ -18,6 +18,7 @@
 - **报告与文档** (`12cda866`, `dc688a5d`, `456f61c7`, `be408568`, `aa557908`, `518fc58d`): shape_trials 全部实验补齐目的/设置/算法修改/结果分析四要素与实验目的小节；跨组差异分两类判别（同轮定位抖动 vs 疑似跨轮次混入）；坐标系可比性看取值不看 `frame_shape` 相等（第三轮形状）；`report/README.md` 索引 3 条死链修复（gitignored 报告移回「尚未生成」区段）；6 个侧栏/主区按钮的 widget 键登记到 Session State Schema。
 - **banckend 合并后追加的 8 个本地提交** (`5d56438e`, `251b2328`, `68b47bde`, `a0d33481`, `92ed59cb`, `8c31debf`, `575bfdf1`, `a08951d1`): `feat(slm)` 采集驱动认设备被占 / 不可用支持等空闲与续跑；`feat(sim)` 孪生焦面标度口径统一（新增由实测标度反推等效焦距入口）；`fix(ci)` logs 挂载从 tmpfs 改为 scratch bind（修 ro 挂载下 exit 125）；`fix(pillow13)` 移除 `Image.fromarray` 显式 mode 参数（Pillow 13 已移除该 API）；`docs(ccd)` 复核 2026-10-20 测光阶梯（整份作废，补 2026-10-22 重录结果与噪声底陷阱）；`docs(TODO)` 重钉 `slm_gs_refine.py` 4 处行号（跟进 `dcd9c44b` 拆分）；`fix(scripts)` 相机开窗必须大于目标边长（加大余量并加开跑前守卫）。
 - **仓库卫生（本回合 worktree 侧）**: `.gitignore` 补 `/models/`（RL 检查点目录，主仓库约 2.4 GB，随 `logs*` 一并排除，避免误提交进 worktree）。
+- **二次并入 `gitub/banckend` 的 27 个新提交** (`0720ab78` merge, 位于 `bc9fca22` 之后): 把远端截至 2026-10-22 的全部新工作并入 worktree，使其与 `gitub/banckend` 内容零落后。关键修复含 `d12b7bb3`（`_fmt` → `_cell`，消 `test_common_helpers_not_reintroduced` 重引入告警）、`0ae0773b`（修 3 类 CI 失败：error_terms 登记 + 重生成 golden + `ppid=1`→`0`）、`cd6b5b1e`（重生成 `report/README.md` 修死链）、`e2c54855`（术语 T-65：ML「变体」替代旧称, OOPAO 语境改「两个仿真后端分支」）；功能含 `7e1a2716`/`3d8ef224` MIL Step A 自标定（仿射 τ_θ + 行程 γ）+ 误差参数接入正向模型、`113965b1`/`4c0f40cc` 光路有效性探针、`b0d1b077`/`ef3bb0ac` 采集前等空闲与设备健康检查；报告含 `926a1c1f` 第三轮整轮重采报告、`f369de97`/`34eb9fe6` MIL 单次运行记录报告。`7d0fb21d`/`29eaccec` 是 `banckend` 侧向 `gitub/banckend` 回并的两个合并。本次合并唯一冲突在 2 个 shape_trials 报告（`zero_order_blaze_20261015.md` / `gs_refine_fwdmodel_calibration.md`），均取远端权威版本后重跑术语统一门禁归零。
 
 ## v0.19.0 (v0.18.0 末 `e51ed38d` 之后 → 2026-10-19, 387 个提交, `e51ed38d..HEAD`)
 

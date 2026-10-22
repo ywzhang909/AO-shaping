@@ -247,4 +247,6 @@ AO-shaping/
 最近一轮要点：banckend × gitub/banckend 双向分叉合并完成、测试一律容器化（#167 事故后续，
 宿主机裸跑 pytest 现被拒绝）、#167/#168 长函数拆分 + 数值 golden、默认子集 13 个真实失败归零、
 仓库卫生（空格目录改名 / ruff format 清零）、合并后 8 个本地提交（采集驱动等空闲续跑、
-孪生焦面标度统一、Pillow 13 适配等）。详见 [CHANGELOG.md](CHANGELOG.md) v0.20.0 节。
+孪生焦面标度统一、Pillow 13 适配等）。随后又二次并入 `gitub/banckend` 的 27 个新提交
+（`0720ab78`）：修 3 类 CI 失败、MIL Step A 自标定 + 误差参数接入、光路有效性探针、
+第三轮整轮重采报告等。详见 [CHANGELOG.md](CHANGELOG.md) v0.20.0 节。
