@@ -335,7 +335,9 @@ def test_index_links_resolve() -> None:
         for h in _link_targets(index.read_text(encoding="utf-8-sig"))
         if not (index.parent / h).exists()
     ]
-    assert not broken, f"report/README.md links to missing files: {broken}"
+    assert not broken, (
+        f"report/README.md links to missing files: {_describe_broken(index.parent, broken)}"
+    )
 
 
 @pytest.mark.parametrize("path", _report_markdown(), ids=lambda p: p.as_posix()[-60:])
@@ -356,12 +358,14 @@ def test_report_relative_links_resolve(path: Path) -> None:
     ]
     allowed = _PREEXISTING_BROKEN.get(key)
     if allowed is None:
-        assert not broken, f"{key}: broken relative links {broken}"
+        assert not broken, (
+            f"{key}: broken relative links {_describe_broken(path.parent, broken)}"
+        )
         return
     unexpected = [h for h in broken if h not in allowed]
     assert not unexpected, (
-        f"{key}: new broken links {unexpected} — only the baselined ones in "
-        "_PREEXISTING_BROKEN are tolerated"
+        f"{key}: new broken links {_describe_broken(path.parent, unexpected)} — only "
+        "the baselined ones in _PREEXISTING_BROKEN are tolerated"
     )
 
 
@@ -385,6 +389,32 @@ def _is_gitignored(path: Path) -> bool | None:
     if proc.returncode == 1:
         return False
     return None
+
+
+def _describe_broken(parent: Path, hrefs: list[str]) -> list[str]:
+    """Label each unresolved link as policy-blocked or simply missing.
+
+    The two need opposite fixes and look identical in a plain link list: a target
+    git refuses to track can never be repaired by committing it, so the link itself
+    is the defect (#192 -- ``artifacts/*.csv`` under the global ``*.csv`` rule),
+    while a non-ignored target is a file that should have been committed.
+    ``None`` from :func:`_is_gitignored` is reported as unknown rather than folded
+    into "missing", which would push the reader toward committing a file that
+    ``.gitignore`` will keep refusing.
+    """
+    labels = []
+    for href in hrefs:
+        verdict = _is_gitignored(parent / href)
+        if verdict is True:
+            labels.append(
+                f"{href} [gitignored -- can never be committed: render the path "
+                f"as code, not a link]"
+            )
+        elif verdict is None:
+            labels.append(f"{href} [git unavailable -- ignored status unknown]")
+        else:
+            labels.append(f"{href} [not ignored -- missing file]")
+    return labels
 
 
 def test_the_preexisting_baseline_is_still_justified() -> None:
