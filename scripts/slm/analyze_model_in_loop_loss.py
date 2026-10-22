@@ -2078,7 +2078,7 @@ def _render_summary(
                 f"{row['label']} {group['iteration_budget']} 步档：末段相对变化 "
                 f"{_pct(group['median_tail_observed_change'])}"
                 f"（抖动 {_pct(group['median_tail_jitter'])}，t 中位 "
-                f"{_fmt(group['median_tail_slope_t'], 3)}）"
+                f"{fmt_mil_loss(group['median_tail_slope_t'], 3)}）"
                 + (
                     f"，翻倍外推 {_pct(group['median_extrapolated_extra_drop_doubling'])}"
                     if group["runs_with_reliable_extrapolation"]
@@ -2088,14 +2088,14 @@ def _render_summary(
     lines.append(f"| A 迭代次数不足 | {a['verdict']} | " + "；".join(a_parts) + " |")
     b = verdict_block["B"]
     b_text = (
-        f"模型−实测 复合分数 {_fmt(b['evidence']['median_score_bias_model_minus_measured'])}、"
-        f"CV {_fmt(b['evidence']['median_cv_bias'])}（{_pct(b['evidence'].get('fraction_of_runs_model_cv_below_measured'))} 的运行为负）、"
-        f"EE {_fmt(b['evidence']['median_ee_bias'])}、"
-        f"IoU {_fmt(b['evidence'].get('median_iou_bias'))};"
-        f"能量比 {_fmt(b['evidence']['median_energy_ratio'])}、"
-        f"宽度比 {_fmt(b['evidence']['median_width_ratio'])}、"
-        f"质心偏移 {_fmt(b['evidence']['median_centroid_shift_cells'])} 格、"
-        f"形状相关 {_fmt(b['evidence']['median_shape_correlation'])}"
+        f"模型−实测 复合分数 {fmt_mil_loss(b['evidence']['median_score_bias_model_minus_measured'])}、"
+        f"CV {fmt_mil_loss(b['evidence']['median_cv_bias'])}（{_pct(b['evidence'].get('fraction_of_runs_model_cv_below_measured'))} 的运行为负）、"
+        f"EE {fmt_mil_loss(b['evidence']['median_ee_bias'])}、"
+        f"IoU {fmt_mil_loss(b['evidence'].get('median_iou_bias'))};"
+        f"能量比 {fmt_mil_loss(b['evidence']['median_energy_ratio'])}、"
+        f"宽度比 {fmt_mil_loss(b['evidence']['median_width_ratio'])}、"
+        f"质心偏移 {fmt_mil_loss(b['evidence']['median_centroid_shift_cells'])} 格、"
+        f"形状相关 {fmt_mil_loss(b['evidence']['median_shape_correlation'])}"
     )
     lines.append(f"| B 模型失配 | {'成立' if b['supported'] else '否证'} | {b_text} |")
     c = verdict_block["C"]
@@ -2103,8 +2103,8 @@ def _render_summary(
         f"真正跑 Step A 的 {c['evidence']['fitted_rounds']} 轮里 "
         f"{c['evidence']['fitted_rounds_clamped']} 轮撞满"
         f"（{_pct(c['evidence']['fitted_clamped_fraction'])}），"
-        f"步长/上限 中位 {_fmt(c['evidence']['median_applied_over_limit'])}、"
-        f"拟合需求/上限 中位 {_fmt(c['evidence'].get('median_step_l2_raw_over_limit'))}；"
+        f"步长/上限 中位 {fmt_mil_loss(c['evidence']['median_applied_over_limit'])}、"
+        f"拟合需求/上限 中位 {fmt_mil_loss(c['evidence'].get('median_step_l2_raw_over_limit'))}；"
         f"撞满时损失降幅中位 {_pct(c['evidence']['median_loss_drop_when_clamped'])}"
         f"（{c['evidence'].get('clamped_rounds_with_loss')} 轮），"
         f"未撞满对照 {c['evidence'].get('free_rounds_with_loss')} 轮"
@@ -2126,8 +2126,8 @@ def _render_summary(
                 f"| {label} | {group['iteration_budget']} | {group['runs_with_trace']} | "
                 f"{_pct(group['relative_drop'].get('median'))} | "
                 f"{_pct(group['tail_20pct_observed_change'].get('median'))} | "
-                f"{_fmt(group['tail_20pct_slope_relative'].get('median'))} | "
-                f"{_fmt(group['tail_20pct_slope_t'].get('median'), 3)} | "
+                f"{fmt_mil_loss(group['tail_20pct_slope_relative'].get('median'))} | "
+                f"{fmt_mil_loss(group['tail_20pct_slope_t'].get('median'), 3)} | "
                 f"{_pct(group['tail_20pct_extrapolated_extra_drop'].get('median'))} | "
                 f"{group['runs_still_moving']}/{group['runs_with_trace']} | "
                 f"{group['runs_diverging']} |"
@@ -2156,12 +2156,12 @@ def _render_summary(
         "零拟合对照（`step_a_iterations=0`，损失前后恒等，不能当作「未撞满」的反例）。"
     )
     lines.append(
-        f"- 实际施加步长 / 上限：中位 {_fmt(trust['applied_over_limit'].get('median'))}、"
-        f"最大 {_fmt(trust['applied_over_limit'].get('max'))}。"
+        f"- 实际施加步长 / 上限：中位 {fmt_mil_loss(trust['applied_over_limit'].get('median'))}、"
+        f"最大 {fmt_mil_loss(trust['applied_over_limit'].get('max'))}。"
     )
     lines.append(
-        f"- 提交系数 L2 / 上限：中位 {_fmt(trust['coeff_norm_over_limit'].get('median'))}、"
-        f"最大 {_fmt(trust['coeff_norm_over_limit'].get('max'))}。"
+        f"- 提交系数 L2 / 上限：中位 {fmt_mil_loss(trust['coeff_norm_over_limit'].get('median'))}、"
+        f"最大 {fmt_mil_loss(trust['coeff_norm_over_limit'].get('max'))}。"
     )
     lines.append(
         f"- 损失相对降幅（只统计跑了 Step A 的轮次）：撞满轮中位 "
@@ -2173,8 +2173,8 @@ def _render_summary(
     )
     lines.append(
         f"- 拟合**想要**的步长 / 上限：中位 "
-        f"{_fmt(trust['step_l2_raw_over_limit'].get('median'))}、最大 "
-        f"{_fmt(trust['step_l2_raw_over_limit'].get('max'))} —— 这就是护栏把一步"
+        f"{fmt_mil_loss(trust['step_l2_raw_over_limit'].get('median'))}、最大 "
+        f"{fmt_mil_loss(trust['step_l2_raw_over_limit'].get('max'))} —— 这就是护栏把一步"
         "截成了几分之一。"
     )
     lines.append("")
@@ -2197,7 +2197,7 @@ def _render_summary(
         block = mismatch["model_minus_measured"][key]
         fraction = block.get("fraction_negative")
         lines.append(
-            f"| {label} | {_fmt(block.get('median'))} | {block.get('n', 0)} | "
+            f"| {label} | {fmt_mil_loss(block.get('median'))} | {block.get('n', 0)} | "
             f"{_pct(fraction) if fraction is not None else MISSING} |"
         )
     lines.append("")
@@ -2222,12 +2222,12 @@ def _render_summary(
         lines.append(
             f"| `{analysis['inventory']['stamp']}` | "
             f"{max(mismatch_block.get('verified_rounds') or [0])} | "
-            f"{_fmt(metrics.get('score'))} | {_fmt(metrics.get('cv'))} | "
-            f"{_fmt(metrics.get('ee'))} | {_fmt(decomposition.get('energy_ratio'))} | "
-            f"{_fmt(decomposition.get('width_ratio'))} | "
-            f"{_fmt(decomposition.get('centroid_shift_cells'))} | "
-            f"{_fmt(decomposition.get('shape_correlation'))} | "
-            f"{_fmt(decomposition.get('mse_peak_normalised'))} |"
+            f"{fmt_mil_loss(metrics.get('score'))} | {fmt_mil_loss(metrics.get('cv'))} | "
+            f"{fmt_mil_loss(metrics.get('ee'))} | {fmt_mil_loss(decomposition.get('energy_ratio'))} | "
+            f"{fmt_mil_loss(decomposition.get('width_ratio'))} | "
+            f"{fmt_mil_loss(decomposition.get('centroid_shift_cells'))} | "
+            f"{fmt_mil_loss(decomposition.get('shape_correlation'))} | "
+            f"{fmt_mil_loss(decomposition.get('mse_peak_normalised'))} |"
         )
     lines.append("")
     lines.append("### 差异的四类分解（整形探针，相机视场）")
@@ -2246,7 +2246,7 @@ def _render_summary(
     for label, quantity, key in rows:
         block = decomp[key]
         lines.append(
-            f"| {label} | {quantity} | {_fmt(block.get('median'))} | {block.get('n', 0)} |"
+            f"| {label} | {quantity} | {fmt_mil_loss(block.get('median'))} | {block.get('n', 0)} |"
         )
     lines.append("")
     lines.append("### 分日期（= 分实验会话）的失配方向")
@@ -2259,11 +2259,11 @@ def _render_summary(
     for group in mismatch.get("by_date", []):
         lines.append(
             f"| {group['date']} | {group['runs']} | "
-            f"{_fmt(group['camera_px_per_model_px'])} | "
-            f"{_fmt(group['energy_ratio'])} | {_fmt(group['width_ratio'])} | "
-            f"{_fmt(group['centroid_shift_cells'])} | "
-            f"{_fmt(group['shape_correlation'])} | {_fmt(group['correlation_raw'])} | "
-            f"{_fmt(group['score_bias'])} | {_fmt(group['cv_bias'])} |"
+            f"{fmt_mil_loss(group['camera_px_per_model_px'])} | "
+            f"{fmt_mil_loss(group['energy_ratio'])} | {fmt_mil_loss(group['width_ratio'])} | "
+            f"{fmt_mil_loss(group['centroid_shift_cells'])} | "
+            f"{fmt_mil_loss(group['shape_correlation'])} | {fmt_mil_loss(group['correlation_raw'])} | "
+            f"{fmt_mil_loss(group['score_bias'])} | {fmt_mil_loss(group['cv_bias'])} |"
         )
     lines.append("")
     lines.append(
@@ -2287,14 +2287,14 @@ def _render_summary(
         ("correlation_gain", "相关增益"),
     ):
         lines.append(
-            f"| {label} | {_fmt(gain[key].get('median'))} | {gain[key].get('n', 0)} |"
+            f"| {label} | {fmt_mil_loss(gain[key].get('median'))} | {gain[key].get('n', 0)} |"
         )
     lines.append("")
     scores = agg["scores"]
     lines.append(
-        f"平场复合分数中位 {_fmt(scores['flat_score'].get('median'))}，"
-        f"最后一轮**实测**复合分数中位 {_fmt(scores['shaped_score'].get('median'))}，"
-        f"差中位 {_fmt(scores['score_delta'].get('median'))}；{scores['runs']} 个硬件运行里"
+        f"平场复合分数中位 {fmt_mil_loss(scores['flat_score'].get('median'))}，"
+        f"最后一轮**实测**复合分数中位 {fmt_mil_loss(scores['shaped_score'].get('median'))}，"
+        f"差中位 {fmt_mil_loss(scores['score_delta'].get('median'))}；{scores['runs']} 个硬件运行里"
         f"有 **{scores['runs_beating_flat']}** 个的最后一轮实测分数高于平场。"
         "注意这是**该轮的实测值**，不是「提交结果」——"
         "是否真的提交由对比择优与验收另行判定（见各 run 的 `status`）。"
@@ -2342,8 +2342,8 @@ def _render_summary(
         ee_median = _stat(ee_values).get("median")
         if cv_median is not None and ee_median is not None:
             lines.append(
-                f"- ⚠️ 这些条目的改善**主要来自能量集中**（EE 中位 {_fmt(ee_median)}，"
-                f"而 CV 中位 {_fmt(cv_median)} 仍然很高）：复合分数里 EE 权重 0.6、"
+                f"- ⚠️ 这些条目的改善**主要来自能量集中**（EE 中位 {fmt_mil_loss(ee_median)}，"
+                f"而 CV 中位 {fmt_mil_loss(cv_median)} 仍然很高）：复合分数里 EE 权重 0.6、"
                 "均匀度项 0.4/(1+CV) 上限只有 0.4，所以「分数上升」并不等于「更均匀」。"
                 "用它们做探测训练集是可以的，但别当成「均匀整形成功」的样本。"
             )
@@ -2360,7 +2360,7 @@ def _render_summary(
             lines.append(
                 f"| {index + 1} | `{item['stamp']}` | {item['round']} | "
                 f"{item['score_before']:.4f} → {item['score_after']:.4f} | "
-                f"{_pct(item['relative_improvement'])} | {_fmt(delta)} | "
+                f"{_pct(item['relative_improvement'])} | {fmt_mil_loss(delta)} | "
                 f"`{item.get('phase_file', MISSING)}` |"
             )
     else:
@@ -2406,8 +2406,8 @@ def _recommendations(verdict_block: dict[str, Any], agg: dict[str, Any]) -> list
             f"{rank}. **放开 / 自适应信任域半径**（真正跑 Step A 的 "
             f"{trust['evidence']['fitted_rounds']} 轮里 "
             f"{_pct(trust['evidence']['fitted_clamped_fraction'])} 撞满；"
-            f"步长/上限中位 {_fmt(over)}、拟合需求/上限中位 "
-            f"{_fmt(trust['evidence'].get('median_step_l2_raw_over_limit'))}）。"
+            f"步长/上限中位 {fmt_mil_loss(over)}、拟合需求/上限中位 "
+            f"{fmt_mil_loss(trust['evidence'].get('median_step_l2_raw_over_limit'))}）。"
             f"撞满轮的损失仍在降（中位 "
             f"{_pct(trust['evidence']['median_loss_drop_when_clamped'])}），"
             "却全部被硬截在半径上——这是唯一一处「损失还在降但被截断」的位置。"
@@ -2424,12 +2424,12 @@ def _recommendations(verdict_block: dict[str, Any], agg: dict[str, Any]) -> list
         cv_consistency = evidence.get("fraction_of_runs_model_cv_below_measured")
         out.append(
             f"{rank}. **按会话修模型，不要一次改一个全局项**（全局中位偏差："
-            f"模型−实测 复合分数 {_fmt(evidence['median_score_bias_model_minus_measured'])}、"
-            f"CV {_fmt(evidence['median_cv_bias'])}、EE {_fmt(evidence['median_ee_bias'])}；"
-            f"能量比 {_fmt(evidence['median_energy_ratio'])}、宽度比 "
-            f"{_fmt(evidence['median_width_ratio'])}、质心偏移 "
-            f"{_fmt(evidence['median_centroid_shift_cells'])} 格、去尺度去平移后相关 "
-            f"{_fmt(evidence['median_shape_correlation'])}）。全局最突出的一类是"
+            f"模型−实测 复合分数 {fmt_mil_loss(evidence['median_score_bias_model_minus_measured'])}、"
+            f"CV {fmt_mil_loss(evidence['median_cv_bias'])}、EE {fmt_mil_loss(evidence['median_ee_bias'])}；"
+            f"能量比 {fmt_mil_loss(evidence['median_energy_ratio'])}、宽度比 "
+            f"{fmt_mil_loss(evidence['median_width_ratio'])}、质心偏移 "
+            f"{fmt_mil_loss(evidence['median_centroid_shift_cells'])} 格、去尺度去平移后相关 "
+            f"{fmt_mil_loss(evidence['median_shape_correlation'])}）。全局最突出的一类是"
             f"「{dominant}」，但**分会话看主导类别会变**（{date_text}）——"
             "所以先按会话用候选探针复测几何（尤其 `camera_px_per_model_px` 与离焦），"
             "再决定改哪一项。"
@@ -2507,7 +2507,7 @@ def _dominant_by_date(mismatch: dict[str, Any]) -> list[tuple[str, str]]:
     return out
 
 
-def _fmt(value: Any, digits: int = 4) -> str:
+def fmt_mil_loss(value: Any, digits: int = 4) -> str:
     """数值格式化 (``None`` → 「未记录」)。"""
     if value is None:
         return MISSING

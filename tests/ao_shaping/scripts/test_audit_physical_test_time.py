@@ -27,6 +27,27 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 SCRIPT = ROOT / "scripts" / "slm" / "audit_physical_test_time.py"
 
+#: The two end-to-end tests below build the ledger from the **real** on-bench capture
+#: corpus under ``data/debug/`` (gitignored -- present only on the collecting machine,
+#: absent on a clean clone / CI). Guard them on corpus presence: skip with a named
+#: reason when the tree is gone rather than failing on ``capture == {}`` (issue #163
+#: class: a hard dependency on gitignored data with no fixture/skip mechanism). The
+#: synthetic-fixture coverage in the other tests still runs unconditionally.
+_REAL_CAPTURE_GLOB = "data/debug/physical_forward_defocus/*/manifest.json"
+
+
+def _real_capture_present() -> bool:
+    return any(ROOT.glob(_REAL_CAPTURE_GLOB))
+
+
+#: Skip message reused by the two real-corpus end-to-end tests.
+_REAL_CAPTURE_SKIP = (
+    "real capture corpus missing: no "
+    "data/debug/physical_forward_defocus/*/manifest.json on this checkout (the data "
+    "tree is gitignored and exists only on the collecting machine); synthetic-fixture "
+    "coverage above still runs"
+)
+
 
 def _load_audit():
     """按路径加载审计脚本 (它住在 ``scripts/slm`` 下, 不在包路径上)。"""
@@ -500,12 +521,18 @@ class TestEndToEnd:
             range(1, len(ledger["optimizations"]) + 1)
         )
 
+    @pytest.mark.skipif(
+        not _real_capture_present(), reason=_REAL_CAPTURE_SKIP
+    )
     def test_optimizations_are_ranked_by_saving(self):
         repo = Path(__file__).resolve().parents[3]
         ledger = audit.build_ledger(repo, write_cost_s=5.0, mil_round_seconds=700.0)
         savings = [item["saving_seconds"] for item in ledger["optimizations"]]
         assert savings == sorted(savings, reverse=True)
 
+    @pytest.mark.skipif(
+        not _real_capture_present(), reason=_REAL_CAPTURE_SKIP
+    )
     def test_markdown_renderers_produce_non_empty_reports(self, tmp_path: Path):
         repo = Path(__file__).resolve().parents[3]
         ledger = audit.build_ledger(repo, write_cost_s=5.0, mil_round_seconds=700.0)

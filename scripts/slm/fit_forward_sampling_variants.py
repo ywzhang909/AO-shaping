@@ -631,14 +631,14 @@ def build_condition_rows(conditions: dict) -> list:
     rows.append({
         "name": "条件 1：平均强度相关性",
         "requirement": f"中位数 ≥ {GATES['corr_median']}，最差 ≥ {GATES['corr_min']}",
-        "observed": " / ".join(f"{b} 中位 {_fmt(g['corr_median'])} 最低 {_fmt(g['corr_min'])}"
+        "observed": " / ".join(f"{b} 中位 {fmt_variant(g['corr_median'])} 最低 {fmt_variant(g['corr_min'])}"
                               for b, g in conditions["condition_1_correlation"]["per_branch"].items()),
         "verdict": "通过" if conditions["condition_1_correlation"]["passed"] else "未通过",
     })
     rows.append({
         "name": "条件 2：CV 绝对误差",
         "requirement": f"< {GATES['cv_absolute']}",
-        "observed": " / ".join(f"{b} {_fmt(g)}"
+        "observed": " / ".join(f"{b} {fmt_variant(g)}"
                               for b, g in conditions["condition_2_uniformity"]["per_branch"].items()),
         "verdict": "通过" if conditions["condition_2_uniformity"]["passed"] else "未通过",
     })
@@ -653,7 +653,7 @@ def build_condition_rows(conditions: dict) -> list:
         "name": "条件 3b：中心/环围宽度误差",
         "requirement": f"中心误差 ≤ {GATES['center_px']} px，环围宽度相对误差 ≤ {GATES['width_relative']:.0%}",
         "observed": " / ".join(
-            f"{b} 中心 {_fmt(g['center_mae_px'], 3)} px 环围 {_fmt(g['width_relative_mae'])}"
+            f"{b} 中心 {fmt_variant(g['center_mae_px'], 3)} px 环围 {fmt_variant(g['width_relative_mae'])}"
             for b, g in geometry["per_branch"].items()),
         "verdict": "通过" if geometry["geometry_evaluated"] else "未通过",
     })
@@ -713,7 +713,7 @@ def cross_check(evaluate_mod, fit_json: Path, dataset_path: Path, reference_path
 # ---------------------------------------------------------------------------
 
 
-def _fmt(value, digits: int = 4) -> str:
+def fmt_variant(value, digits: int = 4) -> str:
     if value is None:
         return "-"
     if isinstance(value, bool):
@@ -741,11 +741,11 @@ def _variant_table(results: list, dataset_name: str, stages: tuple, scope: str) 
                 f"| {variant['label']} | {variant['fft_size']} | {variant['pixel_samples']} "
                 f"| {'是' if variant['learn_amplitude'] else '否'} "
                 f"| {'是' if variant['learn_residual'] else '否'} | {branch} "
-                f"| {_fmt(entry['mean_corr'])}/{_fmt(entry['median_corr'])}/{_fmt(entry['min_corr'])} "
-                f"| {_fmt(entry['cv_mae'])} | {_fmt(entry['ee_mae'])} "
-                f"| {_fmt(entry['center_mae_px'], 3)} | {_fmt(entry['d80_mae_px'], 3)} "
-                f"| {_fmt(entry['d80_relative_mae'])} | {_fmt(entry['fwhm_mae_px'], 3)} "
-                f"| {_fmt(entry['rms_relative_mae'])} | {_fmt(entry['iou_mean'])} |")
+                f"| {fmt_variant(entry['mean_corr'])}/{fmt_variant(entry['median_corr'])}/{fmt_variant(entry['min_corr'])} "
+                f"| {fmt_variant(entry['cv_mae'])} | {fmt_variant(entry['ee_mae'])} "
+                f"| {fmt_variant(entry['center_mae_px'], 3)} | {fmt_variant(entry['d80_mae_px'], 3)} "
+                f"| {fmt_variant(entry['d80_relative_mae'])} | {fmt_variant(entry['fwhm_mae_px'], 3)} "
+                f"| {fmt_variant(entry['rms_relative_mae'])} | {fmt_variant(entry['iou_mean'])} |")
     return "\n".join(lines)
 
 
@@ -800,8 +800,8 @@ def _cross_dataset_table(results: list, dataset_names: list, scope: str = "test"
                     cells.append("-")
                     correlations.append("-")
                     continue
-                cells.append(_fmt(block["cv_mae"]))
-                correlations.append(_fmt(block["mean_corr"]))
+                cells.append(fmt_variant(block["cv_mae"]))
+                correlations.append(fmt_variant(block["mean_corr"]))
                 values.append(block["cv_mae"])
             delta = f"{values[-1] - values[0]:+.4f}" if len(values) == len(dataset_names) else "-"
             lines.append(f"| {label} | {branch} | " + " | ".join(cells) + " | "

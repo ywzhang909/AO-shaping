@@ -56,7 +56,7 @@ ROI 里的固定底噪)。因此本 harness 把实验系统照明建模为::
     # 本底 σ 探针 (drift off, 杂散底板开): 给 3σ 判据一个基准行
     python scripts/slm/spgd_drift_cancel_loop.py --variants baseline --epochs 12 \\
         --a-smooth 0 --walk-sigma 0 --data-root <scratch>/intrinsic
-    # 修 compute_metrics 后不重跑矩阵: 从已有 pkl 重算指标并重写双落点报告
+    # 修 compute_drift_metrics 后不重跑矩阵: 从已有 pkl 重算指标并重写双落点报告
     python scripts/slm/spgd_drift_cancel_loop.py --recompute \\
         --data-root <scratch>/full --intrinsic <scratch>/intrinsic/results.json
 
@@ -72,6 +72,7 @@ import json
 import pickle
 import shutil
 import sys
+import tempfile
 import time
 from collections import deque
 from pathlib import Path
@@ -573,7 +574,7 @@ def run_variant(
         result["same_phase"] = wrapper.same_phase_sigma()
         result["n_protocol_captures"] = len(wrapper.captures)
         result["capture_log"] = wrapper.captures
-    result.update(compute_metrics(rows))
+    result.update(compute_drift_metrics(rows))
     return result
 
 
@@ -608,7 +609,7 @@ def _reproduce_noise_gates(
     return out
 
 
-def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_drift_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """从 recorder 行计算全部 issue 判据指标。
 
     能量护栏 (``--max-energy-loss`` 默认 0.6) 触发的轮次记录的是惩罚值
@@ -677,7 +678,7 @@ def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 # === SECTION: 报告 =========================================================
 
 
-def _fmt(value: Any, spec: str = ".3f") -> str:
+def fmt_drift(value: Any, spec: str = ".3f") -> str:
     if value is None:
         return "-"
     if isinstance(value, float):
@@ -731,10 +732,10 @@ def write_report(
     for r in results:
         lines.append(
             f"| {r['variant']} | {r['protocol']}{'+abba' if r['abba'] else ''} "
-            f"| {_fmt(r.get('dec'), '.2f')} | {_fmt(r.get('late_gain_pct'), '+.1f')} "
-            f"| {r.get('verdict', '-')} | {_fmt(r.get('r2_J_maxbrt'), '.3f')} "
-            f"| {_fmt(r.get('J_first'), '+.3f')} → {_fmt(r.get('J_final'), '+.3f')} "
-            f"| {_fmt(r.get('max_brt_swing_pct'), '.0f')}% "
+            f"| {fmt_drift(r.get('dec'), '.2f')} | {fmt_drift(r.get('late_gain_pct'), '+.1f')} "
+            f"| {r.get('verdict', '-')} | {fmt_drift(r.get('r2_J_maxbrt'), '.3f')} "
+            f"| {fmt_drift(r.get('J_first'), '+.3f')} → {fmt_drift(r.get('J_final'), '+.3f')} "
+            f"| {fmt_drift(r.get('max_brt_swing_pct'), '.0f')}% "
             f"| {r.get('n_gate_zeroed', '-')}/{r.get('rows', 0) - 1} |"
         )
     lines.append("")
@@ -756,7 +757,7 @@ def write_report(
         sp = ir.get("same_phase", {})
         if sp and np.isfinite(sp.get("sigma", float("nan"))):
             lines.append(
-                f"| intrinsic (drift off) | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
+                f"| intrinsic (drift off) | {fmt_drift(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
                 f"| 基准行: 漂移关、杂散底板开时的读出+评估噪声底 | "
                 f"{ir.get('n_protocol_captures', '-')} |"
             )
@@ -769,8 +770,8 @@ def write_report(
         resolvable = r.get("diff_abs_median", float("nan"))
         ok = "是" if np.isfinite(resolvable) and resolvable > thr else "否"
         lines.append(
-            f"| {r['variant']} | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
-            f"| 3σ={_fmt(thr, '.4f')}, 中位 abs(ΔJ)={_fmt(resolvable, '.4f')} → {ok} "
+            f"| {r['variant']} | {fmt_drift(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
+            f"| 3σ={fmt_drift(thr, '.4f')}, 中位 abs(ΔJ)={fmt_drift(resolvable, '.4f')} → {ok} "
             f"| {r.get('n_protocol_captures', '-')} |"
         )
     lines.append("")
@@ -785,16 +786,16 @@ def write_report(
                 f"- 增益摆幅 {r['drift']['swing_pct']}% (共 {r['drift']['n_reads']} 次读出)"
             )
         lines.append(
-            f"- dec={_fmt(r.get('dec'), '.3f')}, late_gain={_fmt(r.get('late_gain_pct'), '+.1f')}%, "
+            f"- dec={fmt_drift(r.get('dec'), '.3f')}, late_gain={fmt_drift(r.get('late_gain_pct'), '+.1f')}%, "
             f"verdict={r.get('verdict')}"
         )
         lines.append(
-            f"- R²(J~max_brt)={_fmt(r.get('r2_J_maxbrt'), '.3f')}, "
-            f"max_brt 摆幅={_fmt(r.get('max_brt_swing_pct'), '.1f')}%"
+            f"- R²(J~max_brt)={fmt_drift(r.get('r2_J_maxbrt'), '.3f')}, "
+            f"max_brt 摆幅={fmt_drift(r.get('max_brt_swing_pct'), '.1f')}%"
         )
         lines.append(
-            f"- |ΔJ| 均值={_fmt(r.get('diff_abs_mean'), '.4f')}, "
-            f"中位={_fmt(r.get('diff_abs_median'), '.4f')}, "
+            f"- |ΔJ| 均值={fmt_drift(r.get('diff_abs_mean'), '.4f')}, "
+            f"中位={fmt_drift(r.get('diff_abs_median'), '.4f')}, "
             f"噪声门零置 {r.get('n_gate_zeroed')} 轮"
         )
         log = r.get("capture_log") or []
@@ -957,7 +958,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("D:/Projects/TIFO/.drift_study_scratch"),
+        default=Path(tempfile.gettempdir()) / "drift_study_scratch",
         help="运行产物根目录 (仓库外)",
     )
     parser.add_argument(
@@ -985,7 +986,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "不跑闭环: 从 <data-root>/results.json 里各变体的 pkl 重算指标"
-            " (修 compute_metrics 的 bug 后用), 重写双落点报告与图"
+            " (修 compute_drift_metrics 的 bug 后用), 重写双落点报告与图"
         ),
     )
     return parser.parse_args(argv)
@@ -1068,7 +1069,7 @@ def main() -> None:
             if not pkl or not Path(pkl).is_file():
                 logger.warning("pkl missing for {}: {}", r["variant"], pkl)
                 continue
-            metrics = compute_metrics(_load_rows(Path(pkl)))
+            metrics = compute_drift_metrics(_load_rows(Path(pkl)))
             r.update(metrics)  # dec/late_gain/r2/摆幅/diff 统计/门控/J_*/护栏行
             logger.info(
                 "{} recomputed: dec={:.3f} gate_zeroed={}",
