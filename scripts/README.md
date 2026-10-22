@@ -3249,6 +3249,30 @@ solve) and is how the logic is verified while the bench is offline.
 > failure modes this works around are documented in
 > [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md).
 
+### hw_focus_gate_verification.py
+
+**硬件验证「不在焦就停止测试」这条限制**: 判据与实机脚本**同一份**
+(`hw_differentiable_phase_opt.judge_focus_gate`), 所以这里验的就是实机真正会走
+的那条分支, 不是另写一份。
+
+**Usage:**
+```bash
+python scripts/slm/hw_focus_gate_verification.py --dry-run
+python scripts/slm/hw_focus_gate_verification.py --execute --wait-until-idle 1800
+```
+
+**What it does**:
+- 采一帧**未加焦面补偿**的平场 ⇒ 量出"现在有多离焦" (FWHM, CCD px)
+- 跑 `focus_probe.sweep_focus` ⇒ 补偿能把光斑收到多宽 (最佳 1/f 与该点 FWHM)
+- 用**实机脚本同一套**判定函数逐个门限 (40/20/15/12/8 px) 评估 ⇒ 每档的
+  判定与退出码
+- 只做判定与取证: **不写优化相位、不跑反向传播、不写 CCD 对照** (那些是
+  `hw_differentiable_phase_opt.py` 的职责)
+
+**产物**: `data/debug/focus_gate_check/<UTC戳>/` (未补偿平场原始帧 + 焦面扫描
+证据 + 门禁评估) 与报告
+`report/slm/differentiable_opt/focus_gate_verification_20261022.md`。
+
 ### hw_differentiable_phase_opt.py
 
 **正向调优模型 + 反向可微优化 SLM 相位的完整实验**（硬件）: 在 2f 实验系统上把
@@ -3970,4 +3994,80 @@ python scripts/slm/model_in_loop_selfcal_bakeoff.py \
 输出落在 `logs/selfcal_bakeoff/<时间戳>/` (`bakeoff.csv` / `bakeoff.json` /
 `bakeoff.png`)。**不写** `report/`: 那个目录下的每一份 markdown 都必须登记在
 `scripts/_common/provenance.py` 里并带溯源块, 而本脚本不在那份登记表内。
+
+
+### analyze_model_in_loop_loss.py
+
+**model-in-loop (MIL) 历史运行的只读损失审计 + 候选相位清单**。回答「整形成绩压不过
+平场到底卡在哪」的三个假设, 并把后续实验要用的相位挑出来。
+
+* **假设 A (迭代次数不足)**: 读 recorder pkl 的 `step_a_trace` / `step_b_trace`
+  (逐迭代), 给总相对降幅、末段 10% / 20% 的线性斜率 (带标准误与 t)、
+  「迭代翻倍还能降多少」的外推。外推只在 `|t| > 2` 且外推值 <100% 时计入, 否则写
+  「不可分辨」—— 抖动主导的末段上按斜率外推外推的是噪声。统计**按迭代预算分档**
+  (80 / 200 / 600 步), 因为不同预算的收敛程度差一个量级。
+* **假设 B (模型失配)**: 用落盘的 `fitted_coefficients.npy` + `source_amplitude.npy`
+  + `run_config.json` 离线复算正向模型预测 (与 MIL 内的 `forward_intensity` 同一实现),
+  再用落盘 `prediction` 逐像素校验; **校验不通过的轮次一律排除** (被回滚 / 多轮时
+  落盘系数只对应末轮)。把「预测 vs 实测」的差异拆成**能量尺度 / 宽度(模糊) /
+  位置(平移) / 形状**四类, 并在相机域复算 CV / EE / IoU / 复合分数做偏差配对。
+* **假设 C (信任域太紧)**: `clamp_applied` 比例、实际步长与拟合需求步长各自除以
+  上限、撞满轮的损失降幅。**只统计真正跑了 Step A 的轮次** (`step_a_iterations > 0`)
+  —— 零拟合对照的损失前后恒等, 算成「未撞满轮」会把「没有拟合」误读成「拟合没有收益」。
+
+```bash
+# 全量扫描 (默认四个 data/debug 根)
+python scripts/slm/analyze_model_in_loop_loss.py
+
+# 只要 region=128 的候选 (当前光路的瞳面网格)
+python scripts/slm/analyze_model_in_loop_loss.py --region 128
+```
+
+候选相位的选取口径: 该轮 `accepted=True` 且实测复合分数相对基线改善 ≥
+`--min-improvement` (默认 >0), 且该轮模型预测可复算; 相位取该轮**实际下发的
+整形探针** (`split == "shaped"`), 无则取 `best_phase.npy` (全零视为保留平场, 不收)。
+再以「去掉 piston 后的 L2 距离」做**最远点采样**保证多样性; 不同 region 的相位长度
+不同, 所以按 region 分组各自挑选并各自给一份距离矩阵 (主组 + `secondary_groups`)。
+
+输出落在 `logs/mil_loss_audit/<时间戳>/`: `audit.json` (全量逐 run 诊断)、
+`summary.md` (中文摘要 + 假设 A/B/C 判定)、`candidates.json` (清单 + 两两距离/相关
+矩阵)、`candidates/*.npy` (相位, 弧度, raw 未包裹)、`candidates_grid.png`
+(相位 / 实测光斑 / 模型预测三联缩略图)。**不写** `report/` (未登记在
+`scripts/_common/provenance.py`), 也**不碰硬件**。
+# Current-plane physical forward validation (2026-10-22)
+
+Follow-up diagnostics use `slm/diagnose_defocus_sampling.py` to compare fixed
+physical parameters across input/FFT grids and detector pixel integration.
+`slm/diagnose_defocus_radiometry.py` fits illuminated exposure intercepts and
+compares effective blur with phase-independent intensity templates. Neither is
+a substitute for a dark-frame or detector PSF calibration.
+`slm/refit_defocus_uniformity_model.py` adds image intensity and fixed-mask CV
+supervision using only training phases; every iteration saves predictions and
+parameters. `slm/summarize_defocus_sampling.py` renders the evidence.
+All diagnostics require new output directories and preserve source hashes,
+input/prediction arrays and script snapshots. The exposure capture tool accepts
+`--fractions`, `--branches` and `--max-wait-s` for explicit repeat protocols.
+See [the sampling and response record](../report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md).
+
+`slm/capture_defocus_forward_dataset.py` records paired uncompensated/focus-compensated
+phase families, full panel commands, three raw frames per record, exposure readbacks,
+explicit settle verdicts, UTC timestamps and monotonic nanosecond intervals. It defaults
+to a device-free plan; pass `--execute` for acquisition and use a new output directory.
+The focus input comes from `python -m ao_shaping.tools.slm.panel.alignment_probe`.
+
+`slm/fit_defocus_forward_dataset.py` fits a compact physical model using canonical
+propagation and Zernike functions, sharing camera geometry across both branches.
+Its `--residual-from <fit.json> --output <new-directory>` arm adds Noll 5–11 without
+a redundant second defocus parameter. `slm/evaluate_defocus_forward_dataset.py`
+predicts a separate acquisition with **all** fitted parameters frozen, including gain,
+background and camera origin. Neither test images nor individual image registration
+adjust predictions.
+
+`slm/validate_defocus_exposure.py` replays recorded reference phases at three relative
+exposures and repeats the middle level. It reads current camera/environment bounds,
+retains five raw frames per record and defaults to a device-free plan.
+`slm/summarize_defocus_forward_experiment.py` renders the recorded metrics into CSV,
+JSON and a fixed-grid prediction figure. See
+[the experiment record](../report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md)
+for measured results, commands and the remaining uniformity prediction limitation.
 
