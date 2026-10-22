@@ -3249,6 +3249,116 @@ solve) and is how the logic is verified while the bench is offline.
 > failure modes this works around are documented in
 > [`report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md`](../report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md).
 
+### hw_differentiable_phase_opt.py
+
+**正向调优模型 + 反向可微优化 SLM 相位的完整实验**（硬件）: 在 2f 实验系统上把
+「用可微前向模型反向传播出最优相位 → 上屏 → 采 CCD 远场 → 与模型对照」整条链
+走一遍，并把**全过程**记录下来 (SLM 相位 / 梯度场 / 损失与梯度范数史 / CCD 远场 /
+模型与实测的对照 / 全部参数)。
+
+**开测前先脚本判在焦** — 这是硬门禁: 焦面扫描 (`focus_probe.sweep_focus`, 设备无关)
+给出最佳菲涅尔补偿与该点的零级 FWHM, 判定不过就**拒绝测量**:
+
+| 判定 | 退出码 | 行为 |
+|---|---|---|
+| 光路受阻 (画面里没有局域光斑) | 4 | 写 `run_config.json` 的判定, **不写任何测量数据** |
+| 扫描范围内没有可用测点 | 5 | 同上 |
+| 最佳点 FWHM > `--focus-fwhm-max` (默认 40px) | 5 | 同上 —— **不在焦就不测** |
+| 在焦 | 0 | 用最佳补偿继续 (P3 几何 → P4 模型 → P5 上屏 → P6 对照 → P7 产物) |
+
+**模型与口径**: 瞳面被采样成 N×N 并零填充到 M=padding·N 的网格 (零填充让远场
+采样足够密), 远场一个采样点 = `K/(M·dp)` 个 CCD 像素 (K 来自**现场**几何标定 ——
+仓库里的 `data/calib.npz` 是陈旧的, 脚本默认现测)。相位经驱动的正规管线下发
+(`phase_to_slm_grayscale(..., slm=slm)`), 内存槽用 `SlotRotator` 轮换。
+
+**不抢设备**: `--wait-until-idle` 复用 `run_hw_sweep_groups.wait_until_idle` 的公平
+仲裁 (先看别的会话有没有在用设备, 没有才探针); 等不到空闲就退出码 7 退出。
+
+**用法:**
+```bash
+python scripts/slm/hw_differentiable_phase_opt.py --dry-run          # 只打印计划 (默认)
+python scripts/slm/hw_differentiable_phase_opt.py --execute --wait-until-idle 3600
+python scripts/slm/hw_differentiable_phase_opt.py --execute --quick  # 冒烟 (2 轮)
+```
+
+**产物**: `data/debug/differentiable_opt/<UTC戳>/` (原始帧 / 相位 npy / history.csv /
+focus_sweep.csv / run_config.json) 与报告
+`report/slm/differentiable_opt/differentiable_opt_report.md` (图与 artifacts 同住)。
+
+### probe_optical_path_validity.py
+
+**光路有效性前置探针**: 曝光阶梯 + 离焦响应, 一次跑完给出三态判定 (`ok` /
+`low_snr` / `no_response`), 用来回答「这条光路现在能不能继续做几何标定」。
+
+**Why it exists** — 2026-10-22 的 MIL 硬件 campaign 两次死在几何标定, 报的是
+`no swept mode produced a usable width response; the spot width does not respond
+to any of them on this bench` (`model_in_loop_shaping.py::
+calibrate_bench_geometry_from_sweep`)。那条报错只说「宽度不响应」, 完全没提
+**信噪比不足**: 当时的曝光窗口是 1–10 ms (峰值 24–213 counts), 而几何 sweep 靠
+「光斑宽度随扫描模式变化」来拟合焦面标度, 那个响应整个淹在噪声里。所以标定
+之前需要先有一个**前置判定**, 而不是直接撞上几何拟合失败。
+
+**What it does** — 两阶段:
+
+1. **曝光阶梯** (面板保持平场): 每档曝光抓几帧, 记峰值/均值/p99/质心/FWHM/二阶矩
+   半径 ⇒ 得到**噪声底** (最短曝光档的 `中位数 + 4σ`, σ 取 `1.4826·MAD`) 与
+   **可用窗口** (峰值高于噪声底且未饱和的档位), 并给出**建议曝光** (峰值落在
+   ~100–200 counts 的那一档)。
+2. **离焦响应**: 在平场与若干离焦幅度之间切换 (canonical Zernike 的 **Noll 4 =
+   离焦**, 幅度扫 0 / ±0.5 / ±1.0 rad), 每个状态取同样曝光下的帧 ⇒ 光斑是否随
+   离焦变宽/变暗。相位显示走 canonical 路径 (`Santec.create_phase_from_array` +
+   `utils/slm/phase_display.py` 的内存槽轮换), SLM **恒用 memory 模式**
+   (`video_mode=0`; DVI 模式 `open()` 会挂死, 挂死后必须物理断电)。
+
+**判定** (三态, 每一条都带实测数字):
+
+| 状态 | 含义 | 判据 |
+|---|---|---|
+| `ok` | 光路有效, 可继续标定 | 离焦有显著响应: 变化超过 `3×合并标准误`, 或相对变化 ≥ 宽度 20% / 峰值 25% |
+| `low_snr` | 光路未必坏, 是**曝光/信噪比不足** | 没有显著响应, 且宽度分辨率 > 25% (或峰值分辨率 > 50%) —— 即「测不准」 |
+| `no_response` | 光路或 SLM 可疑 | 测得准, 但离焦毫无响应 ⇒ 面板没调制 / 光束位置不对 / 离焦没加上 |
+
+**噪声尺度**取自平场那几组: 组内逐帧散布与**组间差** (平场复测, 即「换一次显示
+再测一遍」能差多少) 取大者。响应在**每个非零幅度**上分别判定 —— 实验系统自身的
+离焦偏置会让 +A 与 −A 的效果差很多 (实测 +1 rad 让峰值涨 21%, −1 rad 让峰值跌
+27% 且光斑变宽 36%), 只看一个幅度会漏掉真正的响应。
+
+**Usage:**
+```bash
+# 等设备空出来 (最多 1800 s), 跑完整探测
+python scripts/slm/probe_optical_path_validity.py --wait-until-idle 1800
+# 自定义阶梯与离焦幅度
+python scripts/slm/probe_optical_path_validity.py \
+    --exposures 0.05,0.2,1,2,5,10,20,50 --defocus-amps 0,0.5,1.0,-1.0
+```
+
+**证据** 落盘在 `data/debug/optical_path_probe/<UTC戳>/`: 每档曝光与每种离焦状态
+的 npz (原始帧)、`optical_path_probe.json` (全部读数 + 判定 + 阈值 + 建议)、
+`optical_path_probe.png` (曝光-峰值曲线 + 离焦响应曲线)。
+
+| Option | Default | Description |
+|---|---|---|
+| `--exposures` | `0.05,0.2,1,2,5,10,20,50` | 曝光阶梯 (ms) |
+| `--defocus-amps` | `0,0.5,1.0,-1.0` | 离焦幅度 (rad, Noll 4) |
+| `--slm-number` / `--slm-wavelength` | `1` / `1064` | SLM 设备 / 波长 |
+| `--cam-type` / `--cam-id` | `daheng` / `0` | 相机后端 / 编号 |
+| `--wait-until-idle` | `0` | 设备被占时的等待预算 (s); 0 = 不等, 立刻报错 |
+| `--frames` / `--defocus-frames` | `2` / `5` | 每档/每状态抓几帧 (离焦扫描多抓几帧: 平场 + 平场复测 ⇒ 噪声尺度按组估计) |
+| `--defocus-radius` | `450` | 离焦 Zernike 的孔径半径 (面板 px) |
+| `--pupil-center` | `960,600` | 瞳面中心 (面板 px) —— 离焦盘以它为准, 偏心会带上倾斜与像散 |
+| `--defocus-exposure-ms` | 自动 | 离焦扫描用的曝光 (缺省 = 建议曝光) |
+| `--settle-s` | `0.5` | 每次改面板后的稳定等待 (s) |
+| `--out-root` | `data/debug/optical_path_probe` | 证据输出根目录 |
+| `--no-plot` | off | 不画图 |
+
+**退出码**: `0` = 判定 `ok`; `2` = 判定 `low_snr` 或 `no_response` —— 可以直接
+当上层门禁用。
+
+> 设备互斥: SLM 的 USB 句柄是独占的。探针开跑前复用
+> `run_hw_sweep_groups.py` 的 `probe_devices` / `classify_device_unavailable` /
+> `WAITABLE_KINDS` 探一次; 被占且属于「可以等」的那两类时按 `--wait-until-idle`
+> 的预算等, 设备没插上这类等不来的立刻报错退出。
+
 ### evaluate_model_in_loop_*.py — offline A/B tests on a saved run
 
 Seven evaluators that answer one design question each **without touching the
@@ -3833,4 +3943,31 @@ The model prediction is mapped onto the camera grid with the run's own
 run's frozen ROI centre, so the GIF overlays prediction and measurement on the
 same pixels. The real run's "whole process" comes from the recorder (pkl/json);
 the report never recomputes it.
+
+### model_in_loop_selfcal_bakeoff.py
+
+**model-in-loop Step A 自标定的对比择优**: 在**已录的真实探针**上比较 Step A 的
+几个变体 (基线 / 傅里叶域损失 / 瞳面仿射 τ_θ / 行程缩放 γ / 图像域 L1) 在
+**验证集探针**上的残差 (SSIM / Pearson r / 能量比 / 峰值归一化 MSE)。
+
+依据 GRAPHYCS (Cho 等 2026) 的思路: 前向模型仍是经典 Fourier 光学物理模型,
+可学习量里多了两类**自标定量** —— 行程缩放 γ (逐模式族, 只作用在**指令**相位上)
+与瞳面平面内仿射 τ_θ (6 个标量)。论文给了结构但**没有**给「加 / 不加傅里叶项
+× 低探针数」的消融数字, 所以这里自己测。
+
+```bash
+python scripts/slm/model_in_loop_selfcal_bakeoff.py \
+    --run-dir data/debug/slm_model_in_loop/20261016_175048 \
+              data/debug/slm_model_in_loop/20261019_103208
+```
+
+输入是一次硬件 model-in-loop 运行的目录: `probes/*.npz` (每次 (命令相位, 实测
+画面) 配对)、`run_config.json`、`bench_geometry.json`、`source_amplitude.npy`。
+验证集探针的 `model_grid` 已落盘, 训练集探针的没有 —— 脚本用**同一套**几何换算
+重建 (冻结的 ROI 中心取自平场画面的 0 级 argmax), 重建结果与验证集已落盘的
+`model_grid` 相对 L1 误差 ~1e-11, 所以两半数据可以用同一把尺子量。
+
+输出落在 `logs/selfcal_bakeoff/<时间戳>/` (`bakeoff.csv` / `bakeoff.json` /
+`bakeoff.png`)。**不写** `report/`: 那个目录下的每一份 markdown 都必须登记在
+`scripts/_common/provenance.py` 里并带溯源块, 而本脚本不在那份登记表内。
 
