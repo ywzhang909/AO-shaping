@@ -1231,6 +1231,23 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/run_gs_refine_zernike_sweep.py",
         ),
     ),
+    "report/shape_trials/spgd_drift_cancel_loop/spgd_drift_cancel_loop_20261022.md": ReportProvenance(
+        script="scripts/slm/spgd_drift_cancel_loop.py",
+        command=(
+            "python scripts/slm/spgd_drift_cancel_loop.py --epochs 32 "
+            "--data-root <scratch>/full "
+            "--intrinsic <scratch>/intrinsic/results.json"
+        ),
+        environment="离线",
+        note=(
+            "#144 第 1 项 (照明漂移对消) / #36 验收判据的数字孪生 A/B: 在 2f-Fourier "
+            "孪生上跑真实 slm-pib SPGD 闭环, 对照 control / baseline / abba / "
+            "flat_norm 四变体。孪生标定结论 (纯倍增增益对 shape 目标不可见, 须引入"
+            "不随功率缩放的杂散底板 B 才能复现 bench 的亮度耦合) 也记在正文; "
+            "``--recompute`` 可只从 pkl 重算指标重写报告 (噪声门零置数按优化器判据"
+            "离线复算, pkl 不落盘 _gate 列)"
+        ),
+    ),
     "report/shape_trials/gs_refine/online_20261010.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
