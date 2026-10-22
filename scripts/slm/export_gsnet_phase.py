@@ -78,6 +78,24 @@ def build_operator(args: argparse.Namespace):
                 if key in TwinErrorModel.__dataclass_fields__
             }
         )
+        # 拟合出来的孪生**自带几何**（region / far_field_padding / crop_px /
+        # 焦面标度口径）。重造一台会把它丢掉：远场网格边长对不上、网络看到
+        # 的远场标度差 2.54 倍 ⇒ 导出的相位不可用。
+        fitted_region = int(fitted.get("region", args.grid))
+        if fitted_region != int(args.grid):
+            raise ValueError(
+                f"--twin-config was fitted at region={fitted_region} but "
+                f"--grid says {args.grid}; they must agree (the pupil grid is "
+                f"the phase's grid)"
+            )
+        config = BenchTwinConfig(
+            **{
+                key: value
+                for key, value in fitted.items()
+                if key in BenchTwinConfig.__dataclass_fields__ and key != "errors"
+            }
+        )
+        return BenchTwinOperator(BenchTwin(config))
     config = BenchTwinConfig(
         region=args.grid,
         region_span_px=args.region_span_px,
@@ -122,17 +140,35 @@ def main(argv: list[str] | None = None) -> int:
 
     source = _load_grid(args.source)
     target = _load_grid(args.target)
-    if source.shape != target.shape:
-        raise ValueError(
-            f"source {source.shape} and target {target.shape} must have the same shape"
-        )
-    if source.shape != (args.grid, args.grid):
-        raise ValueError(
-            f"source/target must be ({args.grid}, {args.grid}) on this grid, "
-            f"got {source.shape}"
-        )
-
     operator = build_operator(args)
+    pupil_side = getattr(operator, "pupil_side", None)
+    far_side = getattr(operator, "far_side", None)
+    if pupil_side is not None and far_side is not None:
+        # 算子公布了两个网格：source 在**瞳面**网格，target 在**远场**网格。
+        # 这正是 `FourierGSNet` 拆掉网格契约之后的样子（旧的同网格时代
+        # 要求两者同形，现在远场可以过采样到 8 倍以上才被解析）。
+        if source.shape != (pupil_side, pupil_side):
+            raise ValueError(
+                f"source must be on the pupil grid ({pupil_side}, {pupil_side}), "
+                f"got {source.shape}"
+            )
+        if target.shape != (far_side, far_side):
+            raise ValueError(
+                f"target must be on the far-field grid ({far_side}, {far_side}), "
+                f"got {target.shape}"
+            )
+    else:
+        if source.shape != target.shape:
+            raise ValueError(
+                f"source {source.shape} and target {target.shape} must have the "
+                f"same shape"
+            )
+        if source.shape != (args.grid, args.grid):
+            raise ValueError(
+                f"source/target must be ({args.grid}, {args.grid}) on this grid, "
+                f"got {source.shape}"
+            )
+
     model = load_gsnet_checkpoint(args.checkpoint, forward_op=operator)
 
     source_t = torch.from_numpy(source).to(torch.float32)[None, None]
@@ -162,9 +198,12 @@ def main(argv: list[str] | None = None) -> int:
         "\n下一步（实验系统）:\n"
         f"  python src/ao_shaping/main.py --debug slm-model-in-loop "
         f"--init-from-gsnet {args.out} ...\n"
-        "⚠️ 仿真已实测：信任域门（L2 ≤ 0.5 rad）会挡掉 rms 1.7 rad 量级的"
-        "真实整形相位，见 report/gsnet_2f_calibration/report.md §5.2 —— "
-        "上机前先决定门 1 怎么改。"
+        "ℹ️ 门 1（信任域）已单独给网络初值开了一个阈值"
+        "（--init-from-gsnet-trust-region-c-l2，默认 2.5 rad，由实测尺度定："
+        "闭环自己的最优相位 rms 1.678 rad、网络整形相位 1.8–2.1 rad）；"
+        "Step A 的系数步阈值（--trust-region-c-l2）语义不变。"
+        "见 report/gsnet_2f_calibration/report.md 与 "
+        "docs/slm/gsnet_hw_session.md §6.1。"
     )
     return 0
 

@@ -121,6 +121,24 @@ python src/ao_shaping/main.py slm-model-in-loop \
     --out data/debug/slm_model_in_loop/<ts>
 ```
 
+**落盘的东西**（`--debug` 目录里）：
+
+| 文件 | 内容 |
+|---|---|
+| `probes/round_NN_{split}_II.npz` | `phase` (64×64, 弧度)、`frame` / `raw_frame`（相机窗口）、`model_grid`（512×512 的远场模型网格）。split 有 `flat` / `train` / `holdout` / `shaped`；**只有 `holdout` 与 `shaped` 带 `model_grid`** |
+| `probes/manifest.json` | 每个探针的元数据（轮次、split、曝光、时间戳、相关性） |
+| `preflight/geometry.json` | **实测焦面标度** `camera_px_per_model_px`（拟合孪生要用，见 §3.2） |
+| `preflight/flat.npz`、`preflight/calibration_*.npz` | 平场与标定帧 |
+| `source_amplitude.npy` | 标定出来的瞳面照明振幅（64×64，网络的 source 输入） |
+| `best_phase.npy` | 闭环采纳的最优相位（64×64，**原始弧度**）—— 门 1 的量级就是从它量的 |
+| `fitted_coefficients.npy` | Step A 拟合的 66 个 Zernike 系数（弧度） |
+| `bench_geometry.json`、`run_config.json` | 几何与全部配置（复现用） |
+| `slm_model_in_loop_<ts>.{csv,json,pkl,png}` | 逐轮记录（CSV 第一行有 `init_from_gsnet_status` 列） |
+
+> ⚠️ **`probes/` 只有实验系统模式才写**（`--cam-type sim` 的运行不落探针）。
+> 所以阶段 2 的孪生拟合**必须在实验系统上采到的运行目录上做**，
+> 仿真跑出来的目录里没有探针。
+
 ### 3.2 拟合孪生
 
 ```bash
@@ -242,7 +260,7 @@ python src/ao_shaping/main.py slm-model-in-loop \
 真正表态的是门 2 和门 3。**报告里不要把门 1 写成质量判据。**
 
 > 门 1 的阈值 2.5 rad 是从**实测尺度**来的：闭环自己的最优相位 rms 1.678 rad、
-> 网络的整形相位 1.8–2.1 rad ⇒ 2.5 验证集余量，同时仍挡掉明显越界的相位。
+> 网络的整形相位 1.8–2.1 rad ⇒ 2.5 预留余量，同时仍挡掉明显越界的相位。
 > 原来的 0.5 rad 是给 Step A 的**系数步**定的，两个量不在同一个空间。
 
 ### 6.2 判据（issue #165 的 P1 条款）

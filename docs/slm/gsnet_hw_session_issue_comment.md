@@ -60,7 +60,7 @@ issue 原文的「信任域 L2 ≤ 0.5 rad」卡的是 **Step A 的 Zernike 系�
 
 **已改**：给网络初值单开一个阈值 `--init-from-gsnet-trust-region-c-l2`（默认
 **2.5 rad**，由实测尺度定：闭环自己的最优相位 1.678 rad、网络整形相位 1.8–2.1 rad ⇒
-验证集余量），Step A 的系数步阈值不动。
+预留余量），Step A 的系数步阈值不动。
 
 改完第一次真跑（仿真 A/B）：
 

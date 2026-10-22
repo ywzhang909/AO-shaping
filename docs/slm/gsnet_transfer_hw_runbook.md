@@ -243,7 +243,7 @@ issue #165 写「信任域 L2 ≤ 0.5 rad」。但仓库里的 `trust_region_c_l
 
 仿真实测（`report/gsnet_2f_calibration/report.md` §5.2）：
 
-- 闭环自己产生的最优相位 **rms = 1.71 rad**；
+- 闭环自己产生的最优相位 **rms = 1.678 rad**（从 `best_phase.npy` 实测）；
 - GSNet 给出的整形相位同量级（1.8–2.1 rad）；
 - 用 0.5 rad 去卡绝对相位 ⇒ **这个开关永远不会生效**，A/B 会得到「两边完全一样」。
 

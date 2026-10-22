@@ -198,8 +198,9 @@ def load_gray_csv(path: Path, metric: str) -> GrayResponse:
         if row.get("wavelength_nm", "").strip().isdigit():
             wavelengths.add(int(row["wavelength_nm"]))
         try:
-            exposures.add(float(row["exposure_ms"]))
-        except (TypeError, ValueError):
+            exposures.add(float(row.get("exposure_ms", "")))
+        except (KeyError, TypeError, ValueError):
+            # exposure_ms 只是元数据，缺这一列不该让整条拟合失败
             pass
     gray_arr = np.asarray(gray, dtype=float)
     y_arr = np.asarray(y, dtype=float)

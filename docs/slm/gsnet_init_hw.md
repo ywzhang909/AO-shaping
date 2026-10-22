@@ -96,7 +96,7 @@ gsnet_phase_l2 = float(np.linalg.norm(gsnet_phase) / math.sqrt(gsnet_phase.size)
 | 参数 | 卡的是什么 | 默认 | 依据 |
 |---|---|---|---|
 | `trust_region_c_l2` | Step A 每轮的**系数步** | 0.5 | 不动，语义不变 |
-| `init_from_gsnet_trust_region_c_l2` | GSNet 瞳面相位的 **rms（弧度）** | **2.5** | 实测尺度：闭环自己的最优相位 1.678 rad、GSNet 整形相位 1.8–2.1 rad ⇒ 2.5 验证集余量，同时仍挡掉明显越界的相位；`0.0` = 关闭这道门 |
+| `init_from_gsnet_trust_region_c_l2` | GSNet 瞳面相位的 **rms（弧度）** | **2.5** | 实测尺度：闭环自己的最优相位 1.678 rad、GSNet 整形相位 1.8–2.1 rad ⇒ 2.5 预留余量，同时仍挡掉明显越界的相位；`0.0` = 关闭这道门 |
 
 ⚠️ **门 1 只是预筛，不是质量门。** 均匀随机相位的 rms 是
 √(π²/3) = **1.81 rad**，与真实整形相位（1.68 rad）几乎一样 ——
