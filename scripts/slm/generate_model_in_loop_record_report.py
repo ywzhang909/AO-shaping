@@ -11,7 +11,7 @@
 4. **CCD 远场光斑** —— 平场参考 / 整形后实测 / 模型预测 / 差值 四联，
    逐探针的相关系数与 SSIM。
 5. **参数设置** —— 相机 / 曝光 / 目标 / 探针 / 预算 / 几何 / 误差项 / 随机种子。
-6. **结论** —— 整形后综合分是否**严格大于**平场分，以及未提交相位的原因。
+6. **结论** —— 整形后复合分数是否**严格大于**平场分，以及未提交相位的原因。
 
 **数据**是一次真实实验的落盘目录（只读、离线）：
 
@@ -974,7 +974,7 @@ def _flat_row(bundle: RunBundle) -> dict[str, str] | None:
 
 
 def _scores(bundle: RunBundle) -> tuple[float | None, float | None, str]:
-    """返回 ``(平场综合分, 整形后综合分, 判定文字)``。
+    """返回 ``(平场复合分数, 整形后复合分数, 判定文字)``。
 
     平场分取标定基线行的 ``score_after``；整形后分取最后一个「round」行的
     ``score_after``。两者都读不到时返回 ``(None, None, ...)``。
@@ -984,7 +984,7 @@ def _scores(bundle: RunBundle) -> tuple[float | None, float | None, str]:
     rounds = _round_rows(bundle)
     shaped_score = _as_float(rounds[-1].get("score_after")) if rounds else None
     if flat_score is None or shaped_score is None:
-        return flat_score, shaped_score, f"{MISSING}（产物里没有可比的综合分）"
+        return flat_score, shaped_score, f"{MISSING}（产物里没有可比的复合分数）"
     if shaped_score > flat_score:
         verdict = "是"
     elif shaped_score == flat_score:
@@ -1080,23 +1080,50 @@ def _hide_axes(ax: Any) -> None:
         spine.set_visible(False)
 
 
+def _target_side_camera(bundle: RunBundle) -> int | None:
+    """目标框在**相机像元**里的边长（与 MIL 自己的换算一致）。
+
+    远场采样点 ↔ 相机像元的标度是 ``camera_px_per_model_px``；一个远场采样点
+    覆盖 ``far_field_size / region`` 个瞳面网格，于是
+    ``camera_px_per_target_cell = cell_scale * far_field_size / region``。
+    ``config["target_side"]`` 是**标称**的相机像元值，``_metrics_at`` 实际用的是
+    换算后的 ``target_camera``（60 → 6 个模型格 → 63 相机像元）。
+    """
+    if not bundle.cell_scale or not bundle.far_field_size:
+        return None
+    region = int(bundle.config.get("region", 0) or 0)
+    side = _as_float(bundle.config.get("target_side"))
+    if region <= 0 or side is None:
+        return None
+    per_cell = bundle.cell_scale * bundle.far_field_size / float(region)
+    side_model = max(3, int(round(side / per_cell)))
+    side_model = min(side_model, region - 2)
+    return max(3, int(round(side_model * per_cell)))
+
+
 def _target_mask_camera(bundle: RunBundle, frame_shape: tuple[int, int]) -> np.ndarray:
     """相机窗口上的目标掩模（与 runner 的 ``_metrics_at`` 同一口径）。
 
     口径：``create_target_mask`` 在图像**中心**生成 → 按
     ``camera_rotation_quarters`` 旋转 → ``roll`` 到**冻结光轴**。
     冻结光轴来自平场帧全局 argmax（见报告 §2「冻结光轴」），不随每帧重定位。
+
+    ⚠️ 旋转象限取**本脚本反推出来的** ``bundle.rotation_quarters``，不是
+    ``run_config.json`` 里的 ``camera_rotation_quarters`` —— 后者在硬件路径上
+    并不落盘（runner 里它是写死的 1），读不到就退化成 0，目标框会转错 90°。
+    目标边长同理：``config["target_side"]`` 是**相机像元**的标称值，而
+    ``_metrics_at`` 用的是换算后的 ``target_camera``（见 ``_target_side_camera``）。
     """
     from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
         create_target_mask,
     )
 
     shape = str(bundle.config.get("target_shape", "square"))
-    side = int(bundle.config.get("target_side", 0) or 0)
-    if side <= 0 or bundle.roi_center is None:
+    side = _target_side_camera(bundle)
+    if side is None or side <= 0 or bundle.roi_center is None:
         return np.zeros(frame_shape, dtype=bool)
 
-    quarters = int(bundle.config.get("camera_rotation_quarters", 0) or 0)
+    quarters = int(bundle.rotation_quarters)
     target = create_target_mask(shape, frame_shape, side)
     target = np.rot90(target, quarters)
     center_x, center_y = bundle.roi_center
@@ -1114,17 +1141,15 @@ def _target_metrics(bundle: RunBundle, frame: np.ndarray) -> dict[str, float]:
 
     if bundle.roi_center is None:
         return {}
-    side = int(bundle.config.get("target_side", 0) or 0)
-    if side <= 0:
+    side = _target_side_camera(bundle)
+    if side is None or side <= 0:
         return {}
     return _metrics_at(
         np.asarray(frame, dtype=np.float64),
         side,
         bundle.roi_center,
         target_shape=str(bundle.config.get("target_shape", "square")),
-        camera_rotation_quarters=int(
-            bundle.config.get("camera_rotation_quarters", 0) or 0
-        ),
+        camera_rotation_quarters=int(bundle.rotation_quarters),
     )
 
 
@@ -1301,6 +1326,14 @@ def figure_aberration(bundle: RunBundle, path: Path) -> Path:
     return path
 
 
+def _overlay_target(ax: Any, bundle: RunBundle, cam_size: int) -> None:
+    """在远场图上叠目标框轮廓（青线）。"""
+    mask = _target_mask_camera(bundle, (cam_size, cam_size))
+    if mask is None or not mask.any():
+        return
+    _draw_target_outline(ax, mask)
+
+
 def figure_farfield(bundle: RunBundle, path: Path) -> Path:
     """平场 / 整形后实测 / 模型预测 / 差值 四联。"""
     fig, axes = plt.subplots(2, 2, figsize=(12, 10))
@@ -1328,12 +1361,14 @@ def figure_farfield(bundle: RunBundle, path: Path) -> Path:
 
     if flat is not None:
         _imshow(axes[0][0], flat, "平场参考（preflight/flat.npz）", vmax=vmax)
+        _overlay_target(axes[0][0], bundle, flat.shape[0])
     else:
         axes[0][0].text(0.5, 0.5, f"平场参考\n{MISSING}", ha="center", va="center")
         axes[0][0].axis("off")
 
     if measured_camera is not None:
         _imshow(axes[0][1], measured_camera, "整形后实测远场（CCD 300×300）", vmax=vmax)
+        _overlay_target(axes[0][1], bundle, measured_camera.shape[0])
     else:
         axes[0][1].text(0.5, 0.5, f"整形后实测\n{MISSING}", ha="center", va="center")
         axes[0][1].axis("off")
@@ -1342,6 +1377,7 @@ def figure_farfield(bundle: RunBundle, path: Path) -> Path:
         _imshow(
             axes[1][0], predicted_camera, "模型预测（远场网格 → 相机窗口）", vmax=vmax
         )
+        _overlay_target(axes[1][0], bundle, predicted_camera.shape[0])
     else:
         axes[1][0].text(0.5, 0.5, f"模型预测\n{MISSING}", ha="center", va="center")
         axes[1][0].axis("off")
@@ -1353,6 +1389,7 @@ def figure_farfield(bundle: RunBundle, path: Path) -> Path:
         axes[1][1].imshow(difference, cmap="coolwarm", vmin=-span, vmax=span)
         axes[1][1].set_title("差值 = 实测 − 预测", fontsize=11)
         _hide_axes(axes[1][1])
+        _overlay_target(axes[1][1], bundle, difference.shape[0])
         axes[1][1].set_xlabel(
             f"标度 ±{span:.4g}（与上三格同一）· 最大 |差值| "
             f"{float(np.abs(difference).max()):.4g} · 相关 r = "
@@ -1363,8 +1400,11 @@ def figure_farfield(bundle: RunBundle, path: Path) -> Path:
         axes[1][1].text(0.5, 0.5, f"差值\n{MISSING}", ha="center", va="center")
         axes[1][1].axis("off")
 
+    side = _target_side_camera(bundle)
     fig.suptitle(
-        f"MIL {bundle.stamp} · CCD 远场光斑：平场 / 实测 / 预测 / 差值", fontsize=13
+        f"MIL {bundle.stamp} · CCD 远场光斑：平场 / 实测 / 预测 / 差值"
+        + (f"（青线 = 目标框 {side} 相机像元）" if side else ""),
+        fontsize=13,
     )
     fig.tight_layout()
     savefig(fig, path)
@@ -1447,7 +1487,7 @@ def figure_gradient(bundle: RunBundle, path: Path) -> Path:
         score = [_as_float(row.get("score_after")) for row in rounds]
         cv = [_as_float(row.get("cv_after")) for row in rounds]
         ee = [_as_float(row.get("ee_after")) for row in rounds]
-        axes[1][1].plot(numbers, score, "o-", label="综合分", color="#c44e52")
+        axes[1][1].plot(numbers, score, "o-", label="复合分数", color="#c44e52")
         axes[1][1].plot(numbers, cv, "s--", label="CV", color="#4c72b0")
         axes[1][1].plot(numbers, ee, "^-.", label="EE", color="#55a868")
         flat_score, _, _ = _scores(bundle)
@@ -1460,7 +1500,7 @@ def figure_gradient(bundle: RunBundle, path: Path) -> Path:
                 label=f"平场基线 {flat_score:.4f}",
             )
         axes[1][1].set_xlabel("轮次", fontsize=10)
-        axes[1][1].set_title("逐轮综合分 / CV / EE", fontsize=11)
+        axes[1][1].set_title("逐轮复合分数 / CV / EE", fontsize=11)
         axes[1][1].legend(fontsize=9)
         axes[1][1].grid(alpha=0.3)
     else:
@@ -1584,7 +1624,7 @@ def figure_process_gif(bundle: RunBundle, path: Path) -> Path | None:
                 ("预测来源", probe.prediction_source),
                 ("曝光 (ms)", fmt_metric(probe.exposure_ms, 3)),
                 ("模型增益", fmt_metric(gain, 4)),
-                ("加性背景系数", fmt_metric(leakage, 4)),
+                ("加性背景（杂散光）项系数", fmt_metric(leakage, 4)),
             ],
         )
 
@@ -1595,14 +1635,20 @@ def figure_process_gif(bundle: RunBundle, path: Path) -> Path | None:
         predicted_metrics = (
             _target_metrics(bundle, predicted) if predicted is not None else {}
         )
+        target_side_camera = _target_side_camera(bundle)
         _text_panel(
             axes[1][2],
             "目标 metrics（实测 / 预测）",
             [
                 (
                     "形状 / 边长",
-                    f"{bundle.config.get('target_shape', MISSING)} / "
-                    f"{bundle.config.get('target_side', MISSING)} px",
+                    f"{bundle.config.get('target_shape', MISSING)} / 标称 "
+                    f"{bundle.config.get('target_side', MISSING)} px"
+                    + (
+                        f" → 实际 {target_side_camera} 相机像元"
+                        if target_side_camera
+                        else ""
+                    ),
                 ),
                 ("冻结光轴 (x, y)", str(bundle.roi_center or MISSING)),
                 (
@@ -1701,7 +1747,7 @@ def _config_table(bundle: RunBundle) -> str:
             "`target_shape` / `target_side`",
         ],
         [
-            "综合分权重（EE / CV）",
+            "复合分数权重（EE / CV）",
             f"{config.get('w_efficiency', MISSING)} / {config.get('w_uniformity', MISSING)}",
             "`w_efficiency` / `w_uniformity`",
         ],
@@ -2015,6 +2061,57 @@ def _exposure_spread(bundle: RunBundle) -> str:
     return "; ".join(parts)
 
 
+def _frame_metrics(bundle: RunBundle, frame: np.ndarray) -> dict[str, float] | None:
+    """一张相机帧在目标框上的指标 + 复合分数（与 MIL 同一套口径）。"""
+    from ao_shaping.optimizer.wfless.slm_model_in_loop import _quality
+
+    metrics = _target_metrics(bundle, frame)
+    if not metrics:
+        return None
+    score = _quality(
+        metrics,
+        float(bundle.config.get("w_efficiency", 0.6)),
+        float(bundle.config.get("w_uniformity", 0.4)),
+    )
+    return {
+        "score": float(score),
+        "cv": float(metrics.get("uniformity_cv", float("nan"))),
+        "ee": float(metrics.get("encircled_energy", float("nan"))),
+        "iou": float(metrics.get("shape_iou", float("nan"))),
+    }
+
+
+def _metrics_comparison(bundle: RunBundle) -> list[dict[str, Any]] | None:
+    """平场（实测）/ 模型预测 / 整形后实测 三者在目标框上的指标对照。"""
+    shaped = _shaped_probe(bundle)
+    if shaped is None or bundle.roi_center is None:
+        return None
+    rows: list[dict[str, Any]] = []
+    flat_metrics = (
+        _frame_metrics(bundle, bundle.flat_frame) if bundle.flat_frame is not None else None
+    )
+    if flat_metrics:
+        rows.append({"label": "平场（实测）", **flat_metrics})
+    predicted_camera = None
+    if shaped.prediction is not None and bundle.cell_scale and bundle.far_field_size:
+        predicted_camera = _model_grid_to_camera(
+            shaped.prediction,
+            bundle.roi_center,
+            far_field_size=bundle.far_field_size,
+            cell_scale=bundle.cell_scale,
+            cam_size=shaped.frame.shape[0],
+            rotation_quarters=bundle.rotation_quarters,
+        )
+    if predicted_camera is not None:
+        predicted_metrics = _frame_metrics(bundle, predicted_camera)
+        if predicted_metrics:
+            rows.append({"label": "模型预测的整形结果", **predicted_metrics})
+    measured_metrics = _frame_metrics(bundle, shaped.frame)
+    if measured_metrics:
+        rows.append({"label": "整形后（实测）", **measured_metrics})
+    return rows or None
+
+
 def build_report(
     bundle: RunBundle,
     *,
@@ -2050,18 +2147,18 @@ def build_report(
     lines.append("")
     if flat_score is None or shaped_score is None:
         lines.append(
-            f"**整形后综合分是否严格大于平场分：{MISSING}**（产物里没有可比的综合分）。"
+            f"**整形后复合分数是否严格大于平场分：{MISSING}**（产物里没有可比的复合分数）。"
         )
     else:
         lines.append(
-            f"**整形后综合分是否严格大于平场分：{verdict}。** "
+            f"**整形后复合分数是否严格大于平场分：{verdict}。** "
             f"整形后 **{shaped_score:.6f}**，平场 **{flat_score:.6f}**，"
             f"差值 **{delta:+.6f}**。"
         )
     lines.append("")
     if bundle.status == "bake_off_rejected":
         lines.append(
-            "**没有提交相位的原因**：最终对比择优（bake-off）判定整形相位没有打赢平场"
+            "**没有提交相位的原因**：最终对比择优判定整形相位没有打赢平场"
             f"（{fmt_metric(shaped_score)} ≤ {fmt_metric(flat_score)}），于是保留平场，"
             "运行状态置为 `bake_off_rejected`。因此落盘的 `best_phase.npy` 是**全零的平场相位**，"
             "它不是「整形失败后随便存的一个相位」，而是「择优之后仍然选中的那一个」。"
@@ -2206,7 +2303,7 @@ def build_report(
                         f"{fmt_metric(_as_float(row.get('shape_loss_final')), 6)}",
                     ],
                     [
-                        "综合分（前 / 后）",
+                        "复合分数（前 / 后）",
                         f"{fmt_metric(_as_float(row.get('score_before')), 6)} / "
                         f"{fmt_metric(_as_float(row.get('score_after')), 6)}",
                     ],
@@ -2228,7 +2325,7 @@ def build_report(
     lines.append("")
     if rounds:
         lines.append(
-            "> 第 1 轮的「综合分（前）」为空是 MIL 的设计：平场基线不是同口径的参照，"
+            "> 第 1 轮的「复合分数（前）」为空是 MIL 的设计：平场基线不是同口径的参照，"
             "所以首轮没有「前」可填；与平场的比较统一在 §1 与 §7 给出。"
         )
         lines.append("")
@@ -2364,6 +2461,39 @@ def build_report(
     lines.append("")
     lines.append(f"预测来源说明：{bundle.recompute_note}。")
     lines.append("")
+    lines.append("### 6.2 模型自认为的整形效果 vs 实测")
+    lines.append("")
+    comparison = _metrics_comparison(bundle)
+    if comparison is None:
+        lines.append(
+            f"模型预测与实测的指标对照：{MISSING}（缺目标框几何或整形探针）。"
+        )
+    else:
+        lines.append(
+            markdown_table(
+                ["对象", "复合分数", "CV", "EE", "IoU"],
+                [
+                    [
+                        row["label"],
+                        fmt_metric(row.get("score"), 4),
+                        fmt_metric(row.get("cv"), 4),
+                        fmt_metric(row.get("ee"), 4),
+                        fmt_metric(row.get("iou"), 4),
+                    ]
+                    for row in comparison
+                ],
+            )
+        )
+        lines.append("")
+        lines.append(
+            "**读法**：三行分别是「平场（实测）」「模型预测的整形结果」「整形后实测」。"
+            "**模型预测那行高于平场、实测那行低于平场** —— 也就是说，"
+            "正向模型以为它把光斑整成了矩形（§6 的第三格确实是个矩形），"
+            "而实验系统给回的是一团更散的光。"
+            "这就是 §1 判定「没有打赢平场」的物理原因："
+            "**不是优化器没找到更好的相位，而是它找到的相位只对模型成立。**"
+        )
+    lines.append("")
 
     # --- 7. 逐轮指标 -------------------------------------------------------
     lines.append("## 7. 逐轮指标")
@@ -2399,23 +2529,80 @@ def build_report(
     lines.append("## 9. 证据索引与生成方式")
     lines.append("")
     run_rel = _rel_to_root(bundle.run_dir)
+    run_dir = bundle.run_dir
+
+    def _exists(relative: str) -> str:
+        """产物是否存在（相对运行目录）。"""
+        return "有" if (run_dir / relative).exists() else "无"
+
+    def _exists_glob(pattern: str) -> str:
+        return "有" if any(run_dir.glob(pattern)) else "无"
+
     lines.append(
         markdown_table(
-            ["产物", "相对路径"],
+            ["产物", "相对路径", "本次运行落盘"],
             [
-                ["运行目录", f"`{run_rel}`"],
-                ["运行参数", f"`{run_rel}/run_config.json`"],
-                ["实测几何", f"`{run_rel}/bench_geometry.json`"],
-                ["像差系数", f"`{run_rel}/fitted_coefficients.npy`"],
-                ["落盘最佳相位", f"`{run_rel}/best_phase.npy`"],
-                ["瞳面照明幅度", f"`{run_rel}/source_amplitude.npy`"],
-                ["逐探针清单", f"`{run_rel}/probes/manifest.json`"],
-                ["逐轮记录（CSV）", f"`{run_rel}/` 下的 `slm_model_in_loop_*.csv`"],
+                ["运行目录", f"`{run_rel}`", "-"],
+                [
+                    "运行参数",
+                    f"`{run_rel}/run_config.json`",
+                    _exists("run_config.json"),
+                ],
+                [
+                    "实测几何",
+                    f"`{run_rel}/bench_geometry.json`",
+                    _exists("bench_geometry.json"),
+                ],
+                [
+                    "像差系数",
+                    f"`{run_rel}/fitted_coefficients.npy`",
+                    _exists("fitted_coefficients.npy"),
+                ],
+                [
+                    "落盘最佳相位",
+                    f"`{run_rel}/best_phase.npy`",
+                    _exists("best_phase.npy"),
+                ],
+                [
+                    "瞳面照明幅度",
+                    f"`{run_rel}/source_amplitude.npy`",
+                    _exists("source_amplitude.npy"),
+                ],
+                [
+                    "注入的误差参数",
+                    f"`{run_rel}/model_error_terms.json`",
+                    _exists("model_error_terms.json"),
+                ],
+                [
+                    "平场参考",
+                    f"`{run_rel}/preflight/flat.npz`",
+                    _exists("preflight/flat.npz"),
+                ],
+                [
+                    "逐探针清单",
+                    f"`{run_rel}/probes/manifest.json`",
+                    _exists("probes/manifest.json"),
+                ],
+                [
+                    "逐轮记录（CSV）",
+                    f"`{run_rel}/` 下的 `slm_model_in_loop_*.csv`",
+                    _exists_glob("slm_model_in_loop_*.csv"),
+                ],
                 [
                     "recorder 全过程（pkl）",
                     f"`{run_rel}/` 下的 `slm_model_in_loop_*.pkl`",
+                    _exists_glob("slm_model_in_loop_*.pkl"),
                 ],
-                ["验收结论", f"`{run_rel}/handoff_summary.json`"],
+                [
+                    "验收结论",
+                    f"`{run_rel}/handoff_summary.json`",
+                    _exists("handoff_summary.json"),
+                ],
+                [
+                    "失败记录",
+                    f"`{run_rel}/failure.json`",
+                    _exists("failure.json"),
+                ],
             ],
         )
     )

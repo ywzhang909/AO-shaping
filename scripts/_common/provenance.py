@@ -192,6 +192,10 @@ REPORTS: dict[str, ReportProvenance] = {
             "并给出光斑宽度门禁 (相对在焦参照值的倍数) 的行为与失效边界"
         ),
     ),
+    # NOTE: `report/slm/differentiable_opt/differentiable_opt_report.md` 的登记
+    # 在**报告文件真正生成之后**再加 —— 索引里的链接必须可解析, 提前登记会让
+    # `sync_report_provenance.py --check` 报索引漂移。生成它的脚本是
+    # `scripts/slm/hw_differentiable_phase_opt.py`。
     "report/slm/report2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",

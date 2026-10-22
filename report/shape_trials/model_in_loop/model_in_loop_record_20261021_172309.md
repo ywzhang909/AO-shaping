@@ -16,9 +16,9 @@
 
 ## 1. 结论
 
-**整形后综合分是否严格大于平场分：否。** 整形后 **0.345118**，平场 **0.402527**，差值 **-0.057409**。
+**整形后复合分数是否严格大于平场分：否。** 整形后 **0.345118**，平场 **0.402527**，差值 **-0.057409**。
 
-**没有提交相位的原因**：最终对比择优（bake-off）判定整形相位没有打赢平场（0.3451 ≤ 0.4025），于是保留平场，运行状态置为 `bake_off_rejected`。因此落盘的 `best_phase.npy` 是**全零的平场相位**，它不是「整形失败后随便存的一个相位」，而是「择优之后仍然选中的那一个」。
+**没有提交相位的原因**：最终对比择优判定整形相位没有打赢平场（0.3451 ≤ 0.4025），于是保留平场，运行状态置为 `bake_off_rejected`。因此落盘的 `best_phase.npy` 是**全零的平场相位**，它不是「整形失败后随便存的一个相位」，而是「择优之后仍然选中的那一个」。
 
 验收结论（`handoff_summary.json`）：
 
@@ -45,7 +45,7 @@
 | 焦距（标称） | 0.122406 m | `focal_length_m` |
 | 瞳面中心（面板坐标） | [960, 980] | `pupil_center` |
 | 目标形状 / 边长 | rectangle / 60 px | `target_shape` / `target_side` |
-| 综合分权重（EE / CV） | 0.6 / 0.4 | `w_efficiency` / `w_uniformity` |
+| 复合分数权重（EE / CV） | 0.6 / 0.4 | `w_efficiency` / `w_uniformity` |
 | 轮数 / 随机种子 | 1 / 19 | `n_rounds` / `seed` |
 | 探针数 / 展布 | 6 / 4.0 | `probe_count` / `probe_spread` |
 | 验证集探针数 | 2 | `holdout_probe_count` |
@@ -158,11 +158,11 @@ Step A 的逐迭代损失轨迹已落盘（来源：recorder pkl `slm_model_in_l
 |---|---|
 | Step B 迭代数 | 600 |
 | 形状损失（首 / 末） | 1.078142 / 0.471966 |
-| 综合分（前 / 后） | - / 0.345118 |
+| 复合分数（前 / 后） | - / 0.345118 |
 | CV / EE / IoU（整形后） | 0.5195 / 0.1365 / 0.2109 |
 | 接受 / 理由 | True / accepted |
 
-> 第 1 轮的「综合分（前）」为空是 MIL 的设计：平场基线不是同口径的参照，所以首轮没有「前」可填；与平场的比较统一在 §1 与 §7 给出。
+> 第 1 轮的「复合分数（前）」为空是 MIL 的设计：平场基线不是同口径的参照，所以首轮没有「前」可填；与平场的比较统一在 §1 与 §7 给出。
 
 **逐迭代损失轨迹已落盘**（来源：recorder pkl `slm_model_in_loop_20261021_172309.pkl`，共 600 次迭代，从 1.07814 降到 0.471966）。
 
@@ -220,6 +220,16 @@ Step A 的逐迭代损失轨迹已落盘（来源：recorder pkl `slm_model_in_l
 
 预测来源说明：已用本次运行的正向模型离线复算（与落盘预测的最大绝对偏差 2.44e-09，3 条探针）。
 
+### 6.2 模型自认为的整形效果 vs 实测
+
+| 对象 | 复合分数 | CV | EE | IoU |
+|---|---|---|---|---|
+| 平场（实测） | 0.4025 | 0.2650 | 0.1438 | 0.3375 |
+| 模型预测的整形结果 | 0.4837 | 0.1099 | 0.2055 | 0.4937 |
+| 整形后（实测） | 0.3451 | 0.5195 | 0.1365 | 0.2109 |
+
+**读法**：三行分别是「平场（实测）」「模型预测的整形结果」「整形后实测」。**模型预测那行高于平场、实测那行低于平场** —— 也就是说，正向模型以为它把光斑整成了矩形（§6 的第三格确实是个矩形），而实验系统给回的是一团更散的光。这就是 §1 判定「没有打赢平场」的物理原因：**不是优化器没找到更好的相位，而是它找到的相位只对模型成立。**
+
 ## 7. 逐轮指标
 
 | 阶段 | 轮次 | 接受 | 理由 | 分（前） | 分（后） | CV | EE | IoU | 损失（前） | 损失（后） | Step A 迭代 | Step B 迭代 | 验证集相关 | 模型增益 | 加性背景（杂散光）项系数 |
@@ -235,18 +245,21 @@ Step A 的逐迭代损失轨迹已落盘（来源：recorder pkl `slm_model_in_l
 
 ## 9. 证据索引与生成方式
 
-| 产物 | 相对路径 |
-|---|---|
-| 运行目录 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309` |
-| 运行参数 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json` |
-| 实测几何 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json` |
-| 像差系数 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy` |
-| 落盘最佳相位 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy` |
-| 瞳面照明幅度 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy` |
-| 逐探针清单 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json` |
-| 逐轮记录（CSV） | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/` 下的 `slm_model_in_loop_*.csv` |
-| recorder 全过程（pkl） | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/` 下的 `slm_model_in_loop_*.pkl` |
-| 验收结论 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json` |
+| 产物 | 相对路径 | 本次运行落盘 |
+|---|---|---|
+| 运行目录 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309` | - |
+| 运行参数 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/run_config.json` | 有 |
+| 实测几何 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/bench_geometry.json` | 有 |
+| 像差系数 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/fitted_coefficients.npy` | 有 |
+| 落盘最佳相位 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/best_phase.npy` | 有 |
+| 瞳面照明幅度 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/source_amplitude.npy` | 有 |
+| 注入的误差参数 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/model_error_terms.json` | 无 |
+| 平场参考 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/preflight/flat.npz` | 有 |
+| 逐探针清单 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/probes/manifest.json` | 有 |
+| 逐轮记录（CSV） | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/` 下的 `slm_model_in_loop_*.csv` | 有 |
+| recorder 全过程（pkl） | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/` 下的 `slm_model_in_loop_*.pkl` | 有 |
+| 验收结论 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/handoff_summary.json` | 有 |
+| 失败记录 | `data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309/failure.json` | 无 |
 
 - 复现命令: `python scripts/slm/generate_model_in_loop_record_report.py --run-dir data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/slm_model_in_loop/20261021_172309 --stamp 20261021_172309`
 - 溯源: 离线读盘，不碰设备；本报告的溯源块由 `scripts/sync_report_provenance.py` 在 `scripts/_common/provenance.py::REPORTS` 登记本报告后写入。
