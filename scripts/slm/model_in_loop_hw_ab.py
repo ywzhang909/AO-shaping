@@ -71,6 +71,7 @@ PROFILE_FIELDS = frozenset(
         "step_b_iterations", "seed", "w_uniformity", "w_efficiency",
         "max_cv_regression", "min_geometry_correlation",
         "min_holdout_correlation", "max_cv", "min_ee", "min_iou",
+        "panel_scan_max_flat_drift", "panel_scan_step_px",
     }
 )
 
@@ -222,6 +223,22 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-cv-regression", type=float, default=0.02)
     parser.add_argument("--min-geometry-correlation", type=float, default=0.5)
     parser.add_argument(
+        "--panel-scan-max-flat-drift",
+        type=float,
+        default=0.02,
+        help="Paired flat/candidate/flat drift limit of the panel-locate preflight. "
+        "The panel scan aborts the session when ANY candidate exceeds it, so the "
+        "limit has to sit above the bench's own shot-noise floor: at 20 ms with a "
+        "45-count peak the 0-order box energy carries ~1.8% shot noise (2026-10-21 "
+        "measured), so 0.02 rejects candidates on noise alone.",
+    )
+    parser.add_argument(
+        "--panel-scan-step-px",
+        type=int,
+        default=120,
+        help="Panel-locate grid spacing in panel pixels.",
+    )
+    parser.add_argument(
         "--light-exposures",
         default="0.02,0.1,0.5,1,2,5,20",
         help="Exposure sweep of the light-level gate (ms).",
@@ -293,6 +310,8 @@ def build_profiles(args: argparse.Namespace) -> dict[str, dict]:
         "seed": args.seed,
         "max_cv_regression": args.max_cv_regression,
         "min_geometry_correlation": args.min_geometry_correlation,
+        "panel_scan_max_flat_drift": args.panel_scan_max_flat_drift,
+        "panel_scan_step_px": args.panel_scan_step_px,
         "max_cv": args.max_cv,
         "min_ee": args.min_ee,
         "min_iou": args.min_iou,
@@ -306,11 +325,40 @@ def build_profiles(args: argparse.Namespace) -> dict[str, dict]:
             **base,
             "target_shape": args.large_target_shape,
             "target_side": side,
-            # The target box has to sit inside the readout window.
-            "cam_size": max(args.cam_size, side + 100),
+            # The target box has to sit inside the readout window, with room
+            # around it: the 0-order is not exactly at the window centre, so a
+            # box that fills the window would get clipped and bias EE / CV.
+            "cam_size": window_for_target(side, args.cam_size),
             "min_holdout_correlation": args.forced_holdout,
         }
+    for name, profile in profiles.items():
+        _assert_window_fits_target(name, profile)
     return profiles
+
+
+def window_for_target(target_side: int, base_cam_size: int) -> int:
+    """Return the camera window that comfortably contains a target box.
+
+    The window must be **larger** than the target's side (the runner measures
+    the target in camera pixels, so a window that is not larger truncates the
+    box and biases EE / CV), and the margin has to absorb the 0-order's
+    off-centre position -- the box is centred on the spot, not on the frame.
+    The margin is therefore the larger of 100 px and 10% of the side.
+    """
+    margin = max(100, int(round(0.10 * target_side)))
+    return int(max(base_cam_size, target_side + margin))
+
+
+def _assert_window_fits_target(name: str, profile: dict) -> None:
+    """Fail before any device is opened when the window cannot hold the target."""
+    cam_size = int(profile["cam_size"])
+    target_side = int(profile["target_side"])
+    if cam_size <= target_side:
+        raise ValueError(
+            f"stage {name}: camera window {cam_size} px must be larger than the "
+            f"target side {target_side} px -- a truncated target box biases "
+            f"EE and CV"
+        )
 
 
 def stage_kind(name: str) -> str:

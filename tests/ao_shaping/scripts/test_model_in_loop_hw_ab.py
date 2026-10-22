@@ -65,8 +65,25 @@ def test_large_arm_uses_a_square_target_that_fits_the_readout_window():
         profile = profiles[f"large_{side}"]
         assert profile["target_shape"] == "square"
         assert profile["target_side"] == side
-        assert profile["cam_size"] >= side + 100
-    assert profiles["large_1600"]["cam_size"] == 1700
+        # The window must be **larger** than the target (a truncated box biases
+        # EE / CV) and carry a margin for the 0-order's off-centre position.
+        assert profile["cam_size"] > side
+        assert profile["cam_size"] >= side + max(100, int(round(0.10 * side)))
+    assert profiles["large_1600"]["cam_size"] == 1760
+
+
+def test_a_window_that_cannot_hold_the_target_is_refused_before_any_device():
+    """The guard runs while the profiles are built, so no device is opened."""
+    with pytest.raises(ValueError, match="must be larger than the target side"):
+        campaign._assert_window_fits_target(
+            "bad", {"cam_size": 900, "target_side": 1000}
+        )
+
+
+def test_window_for_target_keeps_the_base_window_when_it_already_fits():
+    assert campaign.window_for_target(60, 300) == 300
+    assert campaign.window_for_target(1000, 300) == 1100
+    assert campaign.window_for_target(1600, 300) == 1760
 
 
 def test_exposure_is_never_the_bare_zero_the_runner_rejects():
