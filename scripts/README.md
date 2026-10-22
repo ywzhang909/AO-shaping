@@ -1494,6 +1494,38 @@ python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \
 | `--max-energy-loss` | `0.6` | in-ROI energy-loss fraction that abandons an SPGD evaluation (0 disables the guard). Lower it if every perturbation of an already-good fitted phase is rejected |
 | `--save-images` | off | dump per-stage far-field PNGs |
 
+### compare_sim_vs_hw.py
+
+Runs the **same acquisition scripts** on the digital twin and compares every
+metric with the **hardware** numbers of a finished round, item by item.
+
+**Why it exists**: a simulation that "runs" proves nothing about physics. This
+script makes the claim checkable: the hardware side is read from a round's
+**archived artefacts** (never hard-coded), the simulation side is produced by
+the very same probes (`hw_gs_defocus_probe.py`, `run_gs_refine_zernike_sweep.py`,
+`focus_probe.py`) with `--cam-type sim`, and both sides go through the **same**
+metric code, so a difference in the numbers is a difference in the *physics*,
+not in the bookkeeping.
+
+**Usage:**
+```bash
+# render the comparison table from an existing simulation run
+python scripts/slm/compare_sim_vs_hw.py
+# run the simulation side first (minutes) and then render
+python scripts/slm/compare_sim_vs_hw.py --execute
+# which round's hardware artefacts to compare against
+python scripts/slm/compare_sim_vs_hw.py --round-root report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022
+```
+
+**Outputs**: a markdown table (metric / hardware / simulation / relative
+difference / verdict) plus a gap list, written to
+`report/shape_trials/sim_vs_hw/artifacts/`.
+
+**Cost**: one far-field evaluation is ~1.4 s and ~1.5 GB peak
+(`far_field_padding = 4`, panel 1200x1920); a full pass over the round's groups
+is ~13 min. `--sim-far-field-padding 16` would need ~9.4 GB per evaluation —
+never use it for the comparison.
+
 ### run_hw_sweep_groups.py
 
 Plan-driven runner for the **one-variable-group-per-invocation** hardware
