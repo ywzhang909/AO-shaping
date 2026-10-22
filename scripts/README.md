@@ -3436,6 +3436,42 @@ python scripts/slm/replay_model_in_loop_config.py data/debug/slm_model_in_loop/<
 | `--step-a-iterations` | `0` | Override Step-A budget (`0` = keep the saved value) |
 | `output_dir` | (optional) | Output root; defaults to the source run's debug root |
 
+### fit_slm_amplitude_coupling.py
+
+把灰度响应 CSV 拟合出 2f 数字孪生的灰度→振幅耦合两参数
+(`TwinErrorModel.slm_amplitude_coupling` = c, `slm_amplitude_coupling_phase_rad` = ψ),
+写出 `bench_twin_calibrate.save_fit` 形状的孪生配置 JSON,可直接喂
+`gsnet_transfer.py --twin-config` / `export_gsnet_phase.py --twin-config`。
+**Fully offline** — 只读 `python -m ao_shaping.tools.slm.calibration` 采出的 CSV,不碰硬件。
+
+拟合模型与 `tools/slm/calibration/gray_response.py` 的 `_sin_model` 同形
+(`y = offset + amplitude·sin(2π·g/period + phase)`),换算 `c = amplitude/offset`、
+`ψ = phase`;平相位下远场整体按 |η|² = I(g) 缩放,所以测得亮度**正比于 I 本身**
+(平方已在孪生内部 η=sqrt(I) 处抵消)。周期默认自由拟合(器件 2π 灰度数是查询值),
+拟合周期偏离 `--levels`(1064 nm 下 993,不是满量程 1023)超过 2% 时大声警告。
+打印实测 rel_spread 与仓库调制判据 `rel_spread > 0.15 ⇒ c ≳ 0.075` 对照。
+拟合失败/CSV 不可用 → 退出码 1(**不**退回 c = 0);`--check` 不一致 → 退出码 2。
+
+```bash
+python scripts/slm/fit_slm_amplitude_coupling.py --csv data/slm_gray_response.csv
+python scripts/slm/fit_slm_amplitude_coupling.py --csv data/slm_gray_response.csv \
+    --metric max --fix-period --base-config data/debug/bench_twin_fit/<ts>/fit.json
+python scripts/slm/fit_slm_amplitude_coupling.py --csv data/slm_gray_response.csv \
+    --check data/debug/slm_amplitude_coupling/<ts>/twin_config.json --plot /tmp/fit.png
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--csv` | (required) | 灰度响应 CSV (gray_response.py 产物) |
+| `--metric` | `sum` | 拟合列: `sum`=全帧总能量(物理正确) / `max`=峰值 |
+| `--fix-period` | off | 周期钉在 CSV 的 `slm_max_gray` |
+| `--levels` | `993` | 孪生 2π 灰度数,写入 `errors.gray_levels` |
+| `--base-config` | none | 已有孪生配置 JSON,在其上合并 |
+| `--out` | `data/debug/slm_amplitude_coupling/<ts>/twin_config.json` | 输出 JSON |
+| `--check` | none | 只校验: 配置的 (c, ψ) vs CSV |
+| `--plot` | none | PNG (图内文字英文,容器无 CJK 字体) |
+| `--resid-tol` / `--spread-tol` | `0.05` / `0.02` | `--check` 容差 |
+
 ### verify_correction_csv.py
 
 Offline verification for the `--export-correction` gray-offset CSV

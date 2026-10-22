@@ -615,13 +615,37 @@ class SlmModelInLoopConfig:
 
     ``None`` (default) keeps the historical zero start byte-for-byte. When set, the
     phase is still subject to the three mandatory guards before adoption -- the
-    trust-region radius (:attr:`trust_region_c_l2`), a *measured* win over the flat
-    baseline (the gs-refine stage-1 bake-off rule), and the holdout-probe Pearson
-    floor (:attr:`min_holdout_correlation`). Any guard that fails (or cannot be
-    evaluated) falls back to the zero start; the outcome is recorded per run as
-    ``init_from_gsnet_status`` in the first round's history row and in
-    :attr:`ModelInLoopResult.init_from_gsnet_status`. Step A's coefficient fitting
-    is not changed.
+    GSNet trust-region radius (:attr:`init_from_gsnet_trust_region_c_l2`), a
+    *measured* win over the flat baseline (the gs-refine stage-1 bake-off rule),
+    and the holdout-probe Pearson floor (:attr:`min_holdout_correlation`). Any
+    guard that fails (or cannot be evaluated) falls back to the zero start; the
+    outcome is recorded per run as ``init_from_gsnet_status`` in the first round's
+    history row and in :attr:`ModelInLoopResult.init_from_gsnet_status`. Step A's
+    coefficient fitting is not changed.
+    """
+
+    init_from_gsnet_trust_region_c_l2: float = 2.5
+    """Gate-1 pre-filter radius for the GSNet warm start, in radians.
+
+    The thresholded quantity is the **RMS of the GSNet pupil phase in radians**
+    (the (region, region) grid's L2 norm divided by sqrt(area)) -- **not** a
+    Zernike coefficient step. It therefore does NOT share
+    :attr:`trust_region_c_l2`'s value: that one caps Step A's per-round
+    coefficient change, a different space, and its 0.5 rad default rejected
+    every real shaping phase (the A/B run's ``gsnet_full`` arm died on this
+    gate before any measurement).
+
+    The 2.5 rad default comes from the measured scale: the closed loop's own
+    best phase has rms 1.678 rad (``data/debug/gsnet_init_sim_ab`` twin,
+    ``phase_rms_rad``) and the GSNet's shaping phase sits at 1.8-2.1 rad, so
+    2.5 admits real shaping phases with margin while still rejecting a grossly
+    out-of-range one. ``0.0`` disables this guard, exactly as
+    :attr:`trust_region_c_l2` ``<= 0`` does in the round loop.
+
+    This is a **pre-filter only**: it exists to skip the gate-2 measurement for
+    a wild phase. A uniform-random phase has rms sqrt(pi^2/3) = 1.81 rad, so
+    phase magnitude alone says nothing about quality -- gates 2 (measured win
+    over the flat baseline) and 3 (holdout Pearson floor) are the real guards.
     """
 
     # --- Step B: target synthesis with the aberration frozen ----------------
@@ -2691,17 +2715,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
         gsnet_warm_phase: np.ndarray | None = None
         if config.init_from_gsnet is not None:
             gsnet_phase = _load_gsnet_phase(config.init_from_gsnet, int(config.region))
-            # Pixel-normalised L2 so the quantity is in radians and comparable
-            # to the coefficient radius; a raw norm of a (region, region) grid
-            # would scale with sqrt(area), not with the phase amplitude.
+            # Pixel-normalised L2 = the phase RMS in radians. A raw norm of a
+            # (region, region) grid would scale with sqrt(area), not with the
+            # phase amplitude. This is NOT Step A's coefficient step, so gate 1
+            # has its own radius (init_from_gsnet_trust_region_c_l2); a phase
+            # magnitude can only pre-filter (random phases sit at 1.81 rad rms)
+            # -- gates 2/3 are what actually vouch for the phase.
             gsnet_phase_l2 = float(
                 np.linalg.norm(gsnet_phase) / math.sqrt(gsnet_phase.size)
             )
             gsnet_score: float | None = None
             gsnet_correlation: float | None = None
             if (
-                float(config.trust_region_c_l2) <= 0.0
-                or gsnet_phase_l2 <= float(config.trust_region_c_l2)
+                float(config.init_from_gsnet_trust_region_c_l2) <= 0.0
+                or gsnet_phase_l2 <= float(config.init_from_gsnet_trust_region_c_l2)
             ):
                 # Gate 2 demands a MEASUREMENT before adoption -- a model that
                 # merely likes the phase proves nothing (same reasoning as the
@@ -2736,7 +2763,9 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             init_from_gsnet_status = _gsnet_init_admissible(
                 phase_l2=gsnet_phase_l2,
-                trust_region_c_l2=float(config.trust_region_c_l2),
+                trust_region_c_l2=float(
+                    config.init_from_gsnet_trust_region_c_l2
+                ),
                 score_candidate=gsnet_score,
                 score_flat=float(flat_score),
                 holdout_correlation=gsnet_correlation,

@@ -2900,6 +2900,22 @@ class SlmModelInLoopParams:
             ),
         ),
     ] = None
+    init_from_gsnet_trust_region_c_l2: Annotated[
+        float,
+        option(
+            "--init-from-gsnet-trust-region-c-l2",
+            help=(
+                "Gate-1 pre-filter radius for --init-from-gsnet, in radians of "
+                "phase RMS (NOT a Zernike coefficient step, so it is decoupled "
+                "from --trust-region-c-l2). Default 2.5 rad admits real shaping "
+                "phases (measured scale 1.7-2.1 rad rms) with margin while "
+                "rejecting a grossly out-of-range one; 0.0 disables the guard. "
+                "Magnitude alone says nothing about quality (a random phase "
+                "sits at 1.81 rad rms) -- the measured win over flat and the "
+                "Pearson floor are the real guards."
+            ),
+        ),
+    ] = 2.5
 
     # --- Step B: target synthesis with the aberration frozen ----------------
     step_b_iterations: Annotated[
@@ -3423,6 +3439,7 @@ def build_model_in_loop_config(
         forward_checkpoint=params.forward_checkpoint,
         prior_run_dir=params.prior_run_dir,
         init_from_gsnet=params.init_from_gsnet,
+        init_from_gsnet_trust_region_c_l2=params.init_from_gsnet_trust_region_c_l2,
         assume_unverified_geometry=params.assume_unverified_geometry,
         step_b_iterations=params.step_b_iterations,
         step_b_lr=params.step_b_lr,

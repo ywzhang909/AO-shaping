@@ -216,6 +216,68 @@ class TestGsnetInitAdmissible:
             min_holdout_correlation=0.5,
         ) == "trust_region_rejected"
 
+    def test_measured_scale_phase_passes_the_2p5_rad_default(self):
+        # 1.678 rad rms is the closed loop's own best phase as measured in the
+        # A/B twin (sim_ab.json, phase_rms_rad). With the gate-1 default at
+        # 2.5 rad a real shaping phase clears gate 1, so gates 2/3 decide.
+        assert _gsnet_init_admissible(
+            phase_l2=1.678,
+            trust_region_c_l2=2.5,
+            score_candidate=0.61,
+            score_flat=0.58,
+            holdout_correlation=0.72,
+            min_holdout_correlation=0.5,
+        ) == "adopted"
+
+    def test_grossly_out_of_range_phase_rejected_at_2p5_rad(self):
+        assert _gsnet_init_admissible(
+            phase_l2=4.0,
+            trust_region_c_l2=2.5,
+            score_candidate=0.9,
+            score_flat=0.1,
+            holdout_correlation=1.0,
+            min_holdout_correlation=0.5,
+        ) == "trust_region_rejected"
+
+
+class TestTrustRegionDecoupling:
+    """Gate 1 for the GSNet warm start is decoupled from Step A's cap."""
+
+    def test_gsnet_gate_default_is_2p5_rad(self):
+        assert SlmModelInLoopConfig().init_from_gsnet_trust_region_c_l2 == 2.5
+
+    def test_step_a_cap_default_unchanged(self):
+        # The decoupling is real, not a rename: Step A keeps 0.5.
+        assert SlmModelInLoopConfig().trust_region_c_l2 == 0.5
+
+    def test_step_a_threshold_still_rejects_the_measured_scale(self):
+        # If the loop ever handed the helper the Step A radius, the 1.678 rad
+        # phase would be rejected again -- this pins the two thresholds'
+        # distinct behaviour at the helper's contract level.
+        assert _gsnet_init_admissible(
+            phase_l2=1.678,
+            trust_region_c_l2=0.5,
+            score_candidate=0.9,
+            score_flat=0.1,
+            holdout_correlation=1.0,
+            min_holdout_correlation=0.5,
+        ) == "trust_region_rejected"
+
+    def test_zero_disables_the_gate_for_the_gsnet_path(self):
+        assert _gsnet_init_admissible(
+            phase_l2=10.0,
+            trust_region_c_l2=0.0,
+            score_candidate=0.61,
+            score_flat=0.58,
+            holdout_correlation=0.72,
+            min_holdout_correlation=0.5,
+        ) == "adopted"
+
+    def test_zero_config_value_is_accepted_and_kept(self):
+        config = SlmModelInLoopConfig(init_from_gsnet_trust_region_c_l2=0.0)
+
+        assert config.init_from_gsnet_trust_region_c_l2 == 0.0
+
 
 class TestCliWiring:
     def test_builders_map_the_field(self, tmp_path):
@@ -232,7 +294,11 @@ class TestCliWiring:
         gs_path = _write_phase(tmp_path / "gs.npy", gs_side)
 
         mil_config = build_model_in_loop_config(
-            SlmModelInLoopParams(init_from_gsnet=mil_path), debug=False
+            SlmModelInLoopParams(
+                init_from_gsnet=mil_path,
+                init_from_gsnet_trust_region_c_l2=3.25,
+            ),
+            debug=False,
         )
         gs_config = build_gs_refine_config(
             SlmGsRefineParams(init_from_gsnet=gs_path), debug=False
@@ -240,6 +306,17 @@ class TestCliWiring:
 
         assert mil_config.init_from_gsnet == mil_path
         assert gs_config.init_from_gsnet == gs_path
+        assert mil_config.init_from_gsnet_trust_region_c_l2 == 3.25
+
+    def test_builder_default_matches_config_default(self):
+        from ao_shaping.runners.runner_common import (
+            SlmModelInLoopParams,
+            build_model_in_loop_config,
+        )
+
+        config = build_model_in_loop_config(SlmModelInLoopParams(), debug=False)
+
+        assert config.init_from_gsnet_trust_region_c_l2 == 2.5
 
     @pytest.mark.parametrize(
         "command",
@@ -252,3 +329,17 @@ class TestCliWiring:
 
         assert result.exit_code == 0, result.output
         assert "--init-from-gsnet" in result.output
+
+    def test_gsnet_trust_region_option_only_on_model_in_loop(self):
+        # gs-refine has no trust-region gate, so the flag must not leak there.
+        from ao_shaping.main import cli
+
+        mil_help = CliRunner().invoke(cli, ["slm-model-in-loop", "--help"])
+        gs_help = CliRunner().invoke(cli, ["slm-gs-refine", "--help"])
+
+        assert mil_help.exit_code == 0, mil_help.output
+        assert "--init-from-gsnet-trust-region-c-l2" in mil_help.output
+        assert gs_help.exit_code == 0, gs_help.output
+        assert (
+            "--init-from-gsnet-trust-region-c-l2" not in gs_help.output
+        )
