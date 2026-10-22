@@ -33,6 +33,10 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_VOLTAGES,
+)
 
 
 @click.command()
@@ -136,7 +140,7 @@ def run(
         saved_file_name = gen_file_path_uuid(save_dir, "pkl")
 
         def _calc_second_moment_radius(row: dict) -> float | None:
-            img = row.get("_img")
+            img = row.get(RECORD_IMAGE)
             if img is None:
                 return None
             target = ImageTargetFunc.build_from_init_image(img)
@@ -171,10 +175,10 @@ def run(
         # hardcoded "pib" column raised KeyError for the other objectives.
         first_val = float(res_df.iloc[0][algorithm.objective])
         plot_pib_debug_grid(
-            init_img=res_df.iloc[0]["_img"],
-            best_img=res_df.iloc[max_j_id]["_img"],
+            init_img=res_df.iloc[0][RECORD_IMAGE],
+            best_img=res_df.iloc[max_j_id][RECORD_IMAGE],
             history_values=res_df[algorithm.objective],
-            voltages=best_iter["_v"],
+            voltages=best_iter[RECORD_VOLTAGES],
             init_title=f"Init Image, {algorithm.objective}={first_val:.3f}",
             best_title=f"Best {algorithm.objective} Image, {algorithm.objective}={max_j:.3f}",
             history_title=f"{algorithm.objective} History",

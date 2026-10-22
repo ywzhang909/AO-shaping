@@ -52,6 +52,11 @@ import numpy as np
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts._common import fmt_signed
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_GATE,
+    RECORD_IMAGE,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -230,19 +235,19 @@ def load_frame_sets(root: Path) -> list[FrameSet]:
             # desynchronises the three lists whenever a row lacks ``_img``:
             # ``frames`` would skip it while ``epochs``/``gates`` kept it,
             # shifting every later gate label by one epoch.
-            kept = [r for r in rows[1:] if "_img" in r]
+            kept = [r for r in rows[1:] if RECORD_IMAGE in r]
             if not kept:
                 continue
-            frames = [np.asarray(r["_img"]) for r in kept]
+            frames = [np.asarray(r[RECORD_IMAGE]) for r in kept]
             epochs = np.asarray(
-                [float(r.get("_epoch", i + 1)) for i, r in enumerate(kept)]
+                [float(r.get(RECORD_EPOCH, i + 1)) for i, r in enumerate(kept)]
             )
-            gates = [str(r.get("_gate", "unknown")) for r in kept]
+            gates = [str(r.get(RECORD_GATE, "unknown")) for r in kept]
             # Anchor on the true pre-optimization row. ``frames[0]`` is the first
             # post-optimization row (row 0 is skipped above), so anchoring on it
             # would silently move the target box by one epoch of drift.
-            anchor = (np.asarray(rows[0]["_img"])
-                      if "_img" in rows[0] else frames[0])
+            anchor = (np.asarray(rows[0][RECORD_IMAGE])
+                      if RECORD_IMAGE in rows[0] else frames[0])
             # Best-effort provenance from the sibling JSON sidecar.
             config: dict | None = None
             for sidecar in sorted(run_dir.glob("*.json")):

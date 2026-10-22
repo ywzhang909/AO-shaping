@@ -22,6 +22,9 @@ from ao_shaping.runners.runner_common import (
     WfsParams,
 )
 from ao_shaping.utils.cli.params import with_params
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_VOLTAGES,
+)
 
 
 @click.command()
@@ -75,7 +78,7 @@ def run(
         rms_values = records.get_sublist()
         plot_funcs["rms_history"](rms_values, ax[0, 0], min_epoch, min_rms)
         plot_funcs["voltages"](
-            min_iter["_v"], ax[0, 1], f"Min J: {min_rms:.3f} @ epoch {min_epoch}"
+            min_iter[RECORD_VOLTAGES], ax[0, 1], f"Min J: {min_rms:.3f} @ epoch {min_epoch}"
         )
         im = plot_funcs["wavefront"](
             records.first["_wavefront"][0], ax[1, 0], "init wavefront"

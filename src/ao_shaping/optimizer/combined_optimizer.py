@@ -44,6 +44,13 @@ from ao_shaping.optimizer.constants import (
     KEEP_VOLTAGE_WHEN_EXIT,
     TEST_EXPOSURE_TIME_BRIGHTNESS,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+    RECORD_ROI_ENERGY,
+    RECORD_VOLTAGES,
+)
 
 BETA1: float = 0.9
 BETA2: float = 0.99
@@ -208,15 +215,15 @@ def optimize_pib(
                     "J": j,
                     "pib": pib_ratio_mask(init_img, pib_mask, pib_scaler),
                     "_raw_pib": pib_ratio_mask(init_img, pib_mask),
-                    "_p%": 0.0,
+                    RECORD_ROI_ENERGY: 0.0,
                     "_max_r": init_r,
-                    "_v": _init_v.copy(),
-                    "_img": init_img,
-                    "_diff": 0,
+                    RECORD_VOLTAGES: _init_v.copy(),
+                    RECORD_IMAGE: init_img,
+                    RECORD_DIFF: 0,
                     "lr": optimizer.lr,
                     "r": r_bucket,
                     "delta": delta,
-                    "_epoch": 0,
+                    RECORD_EPOCH: 0,
                     "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": float(np.max(init_img)),
                 }
@@ -320,17 +327,17 @@ def optimize_pib(
 
                     log = {
                         "J": J,
-                        "_p%": pib_ratio,
+                        RECORD_ROI_ENERGY: pib_ratio,
                         "_max_r": init_r,
                         "pib": pib,
                         "_raw_pib": pib_ratio_mask(pos_img, pib_mask),
-                        "_diff": diff,
+                        RECORD_DIFF: diff,
                         "lr": optimizer.lr,
                         "r": r_bucket,
                         "delta": delta,
-                        "_epoch": epoch,
-                        "_v": _init_v.copy(),
-                        "_img": pos_img,
+                        RECORD_EPOCH: epoch,
+                        RECORD_VOLTAGES: _init_v.copy(),
+                        RECORD_IMAGE: pos_img,
                         "exp_t": get_camera_exposure_ms(cam),
                         "max_brt": avg_brightness,
                     }

@@ -17,6 +17,10 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (
     forward_intensity,
 )
 from ao_shaping.utils.slm.phase_embed import pupil_side
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 
 MAX_GRAYSCALE = 1023
@@ -129,8 +133,8 @@ def generate_gif(
     frames = []
     for k in keys:
         entry = data[k]
-        img = entry.get("_img")
-        phase = entry.get("_phase")
+        img = entry.get(RECORD_IMAGE)
+        phase = entry.get(RECORD_PHASE)
 
         if img is None or phase is None:
             continue

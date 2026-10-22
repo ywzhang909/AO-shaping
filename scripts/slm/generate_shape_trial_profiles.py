@@ -95,6 +95,9 @@ from ao_shaping.display.beam_profile import (
     cut_point,
     save_xy_profile,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 REPORT_DIR = ROOT / "report" / "shape_trials"
 #: 报告按生成脚本分目录存放, 图跟随其报告同住 -> 图的输出目录由源图决定,
@@ -347,7 +350,7 @@ def _load_gs_pkl_frame(path: Path) -> np.ndarray | None:
     for rec in recs.values():
         if not isinstance(rec, dict):
             continue
-        img = rec.get("_img")
+        img = rec.get(RECORD_IMAGE)
         if img is None:
             continue
         score = float(rec.get("score", -np.inf))
@@ -717,7 +720,7 @@ def verify(spec: FrameSpec, frame: np.ndarray) -> bool | None:
         with pkl.open("rb") as fh:
             recs = pickle.load(fh)
         _, best_rec = max(
-            (r for r in recs.items() if isinstance(r[1], dict) and "_img" in r[1]),
+            (r for r in recs.items() if isinstance(r[1], dict) and RECORD_IMAGE in r[1]),
             key=lambda kv: float(kv[1].get("score", -np.inf)),
             default=(None, None),
         )

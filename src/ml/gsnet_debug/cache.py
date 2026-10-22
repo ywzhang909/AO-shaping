@@ -95,6 +95,10 @@ import numpy as np
 from loguru import logger
 
 from ml.gsnet_debug.offline import RecordIndex
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+)
 
 __all__ = [
     "CACHE_FILENAMES",
@@ -298,7 +302,7 @@ class CachedRecord(dict[str, Any]):
         """
         self.family = family
         self.position = int(position)
-        super().__init__({"_img": _UNRESOLVED, "_c": _UNRESOLVED})
+        super().__init__({RECORD_IMAGE: _UNRESOLVED, RECORD_COEFFS: _UNRESOLVED})
 
     def __getitem__(self, key: str) -> Any:
         """Return the field, reading it from the cache on first access."""
@@ -801,8 +805,8 @@ def _build_family(
                     f"Record {key} in {source} has no {field!r} key; it cannot "
                     f"be cached (available keys: {sorted(record)})"
                 )
-        coeffs = _coerce_coefficients(record["_c"], source=source, key=key)
-        frame = _coerce_image(record["_img"], source=source, key=key)
+        coeffs = _coerce_coefficients(record[RECORD_COEFFS], source=source, key=key)
+        frame = _coerce_image(record[RECORD_IMAGE], source=source, key=key)
 
         c_chunks.append(coeffs)
         c_offsets[position + 1] = c_offsets[position] + coeffs.size

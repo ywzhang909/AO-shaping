@@ -62,6 +62,9 @@ from ao_shaping.utils.image.targets import roi_pib_metric, target_shape_roi
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_GATE,
+)
 
 # === SECTION: slm_scan_analysis (from slm_scan_analysis.py) ===
 LINEARITY_AMPS: tuple[float, float, float] = (2.0, 5.0, 10.0)
@@ -534,8 +537,8 @@ def explore_delta(
         guarded = [r for r in rows if abs(float(r.get("J", 0.0))) > GUARD_SENTINEL]
         scored = [r for r in rows if abs(float(r.get("J", 0.0))) <= GUARD_SENTINEL]
         accepted = None
-        if any("_gate" in r for r in rows):
-            accepted = sum(1 for r in rows if str(r.get("_gate")) == "applied")
+        if any(RECORD_GATE in r for r in rows):
+            accepted = sum(1 for r in rows if str(r.get(RECORD_GATE)) == "applied")
 
         vals = [float(r[key]) for r in scored if key in r]
         if not vals:

@@ -95,6 +95,7 @@ from ao_shaping.drivers.sim.slm_pib_sim import (
 )
 from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 from ao_shaping.tools.kernels.sweep_analysis import analyse_trace
+from ao_shaping.utils.io.recorder_keys import RECORD_DIFF, RECORD_EPOCH
 
 from scripts._common import fmt_general
 
@@ -629,7 +630,7 @@ def compute_drift_verdict_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """
     if not rows:
         return {"metrics": "no-rows"}
-    rows = sorted(rows, key=lambda r: float(r.get("_epoch", 0)))
+    rows = sorted(rows, key=lambda r: float(r.get(RECORD_EPOCH, 0)))
     j_all = np.array([float(r["J"]) for r in rows], dtype=np.float64)
     max_brt = np.array([float(r["max_brt"]) for r in rows], dtype=np.float64)
     guard_mask = np.abs(j_all) > 100.0  # 护栏哨兵 (|J| 正常量级 ~10)
@@ -637,7 +638,7 @@ def compute_drift_verdict_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     j = j_all[scored]
     diffs = np.array(
         [
-            abs(float(r.get("_diff", 0.0)))
+            abs(float(r.get(RECORD_DIFF, 0.0)))
             for i, r in enumerate(rows[1:], start=1)
             if not guard_mask[i]
         ],
@@ -647,7 +648,7 @@ def compute_drift_verdict_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # 复算覆盖**全部**更新行 (含护栏行 —— 护栏行的 diff 仍是真实测量值, 会进
     # 优化器的 diff 历史), 只有 dec/late_gain 等指标才剔除哨兵行。
     gate_flags = _reproduce_noise_gates(
-        [float(r.get("_diff", 0.0)) for r in rows[1:]]
+        [float(r.get(RECORD_DIFF, 0.0)) for r in rows[1:]]
     )
     n_gate_zeroed = int(sum(gate_flags))
 
@@ -860,10 +861,10 @@ def write_figures(
         if not pkl or not Path(pkl).is_file():
             continue
         rows = _load_rows(Path(pkl))
-        rows = sorted(rows, key=lambda x: float(x.get("_epoch", 0)))
+        rows = sorted(rows, key=lambda x: float(x.get(RECORD_EPOCH, 0)))
         if not rows:
             continue
-        epochs = np.array([float(x.get("_epoch", 0)) for x in rows], dtype=np.float64)
+        epochs = np.array([float(x.get(RECORD_EPOCH, 0)) for x in rows], dtype=np.float64)
         j = np.array([float(x["J"]) for x in rows], dtype=np.float64)
         series[r["variant"]] = (epochs, j)
 
@@ -887,10 +888,10 @@ def write_figures(
             pkl = r.get("pkl")
             if not pkl or not Path(pkl).is_file():
                 continue
-            rows = sorted(_load_rows(Path(pkl)), key=lambda x: float(x.get("_epoch", 0)))
+            rows = sorted(_load_rows(Path(pkl)), key=lambda x: float(x.get(RECORD_EPOCH, 0)))
             if not rows:
                 continue
-            ep = [float(x.get("_epoch", 0)) for x in rows]
+            ep = [float(x.get(RECORD_EPOCH, 0)) for x in rows]
             brt = [float(x["max_brt"]) for x in rows]
             ax.plot(ep, brt, marker="o", ms=3, lw=1.2, color=_variant_color(r["variant"]),
                     label=r["variant"])

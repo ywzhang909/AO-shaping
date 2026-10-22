@@ -57,6 +57,9 @@ from ao_shaping.utils import Recorder
 from ao_shaping.utils.image.hardware_utils import call_with_timeout
 from ao_shaping.utils.slm.phase_display import DEFAULT_WAVELENGTH
 from ao_shaping.utils.image.targets import crop_resize_to_grid
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+)
 
 # Hardware drivers are imported guarded: the SDKs are not installed on every
 # machine, and this module must stay importable without them. The auto-create
@@ -302,7 +305,7 @@ def optimize_beam_shaping(
                     {
                         "loss": loss_val,
                         "lr": lr,
-                        "_epoch": step,
+                        RECORD_EPOCH: step,
                         "best_loss": best_loss,
                         "best_phase": (
                             best_phase.copy() if best_phase is not None else None
@@ -392,7 +395,7 @@ def optimize_beam_shaping(
                     {
                         "loss": loss_val,
                         "lr": lr,
-                        "_epoch": step,
+                        RECORD_EPOCH: step,
                         "best_loss": best_loss,
                         "best_phase": (
                             best_phase.copy() if best_phase is not None else None

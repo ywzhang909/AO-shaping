@@ -18,6 +18,10 @@ from scipy.ndimage import map_coordinates
 from ao_shaping.algorithm.signal_processing.square_shaping import SquareShapingConfig
 from ao_shaping.drivers.sim.slm_shaping_bench import forward_intensity
 from ao_shaping.utils.slm.gs_debug_optics import grayscale_to_radians
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 
 def sample_camera(
@@ -114,8 +118,8 @@ def compare_run(
     results = []
     for key in selected:
         row = rows[key]
-        measured = np.asarray(row["_img"])
-        gray = np.asarray(row["_phase"])
+        measured = np.asarray(row[RECORD_IMAGE])
+        gray = np.asarray(row[RECORD_PHASE])
         pupil_gray = gray[y0 : y0 + n, x0 : x0 + n]
         if pupil_gray.shape != (n, n):
             raise ValueError(f"pupil for record {key} leaves SLM panel")

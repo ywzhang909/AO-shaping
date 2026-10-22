@@ -27,6 +27,10 @@ from ao_shaping.runners.runner_common import (
 )
 from ao_shaping.utils.cli.params import with_params
 from ao_shaping.utils.cli.exposure import exposure_ms_legacy, resolve_exposure
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_VOLTAGES,
+)
 
 
 @click.command()
@@ -97,13 +101,13 @@ def run(
             shrink_iter=20,
             shrink_ratio=0.8,
             r_bucket=int(os.environ.get("IDEAL_SPOT_RADIUS", 6)),
-            init_v=min_iter["_v"],
+            init_v=min_iter[RECORD_VOLTAGES],
             show=False,
             dm=dm,
         )
 
         max_pid_iter, (max_epoch, max_pib) = ccd_records.get_best_iter()
-        last_V = max_pid_iter["_v"]
+        last_V = max_pid_iter[RECORD_VOLTAGES]
 
         save_best_voltages(
             [wf_records, ccd_records], run.dir, process_fn=truncate_to_int
@@ -121,8 +125,8 @@ def run(
             )
             axim = plot_funcs["wavefront"](min_wf, ax[1, 1], "Best WF")
             plt.colorbar(axim, ax=ax[1, 1], orientation="vertical")
-            plot_funcs["img"](ccd_records.first["_img"], ax[0, 2], "Init CCD")
-            axim2 = plot_funcs["img"](max_pid_iter["_img"], ax[1, 2], "Best CCD")
+            plot_funcs["img"](ccd_records.first[RECORD_IMAGE], ax[0, 2], "Init CCD")
+            axim2 = plot_funcs["img"](max_pid_iter[RECORD_IMAGE], ax[1, 2], "Best CCD")
             plt.colorbar(
                 axim2, ax=ax[1, 2], fraction=0.046, pad=0.04, orientation="vertical"
             )

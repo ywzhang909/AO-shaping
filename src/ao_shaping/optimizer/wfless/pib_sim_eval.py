@@ -12,6 +12,10 @@ import pandas as pd
 from ao_shaping.optimizer import combined_optimizer as combined_module
 from ao_shaping.optimizer.wfless import pib as pib_module
 from ao_shaping.optimizer import _camera_inject as camera_inject
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+    RECORD_VOLTAGES,
+)
 
 
 @dataclass
@@ -290,17 +294,17 @@ def run_case(name: str, **kwargs):
         **kwargs,
     )
     df = recorder.dataframe.copy()
-    df["global_score"] = df["_v"].apply(
+    df["global_score"] = df[RECORD_VOLTAGES].apply(
         lambda voltages: LANDSCAPE.score(np.asarray(voltages))[1]
     )
-    df["local_score"] = df["_v"].apply(
+    df["local_score"] = df[RECORD_VOLTAGES].apply(
         lambda voltages: LANDSCAPE.score(np.asarray(voltages))[2]
     )
     df["epoch_index"] = np.arange(len(df))
     best_iter, (_, best_pib) = recorder.get_best_iter()
     final = recorder.last
     _, global_score, local_score = LANDSCAPE.score(
-        np.asarray(final["_v"], dtype=np.float64)
+        np.asarray(final[RECORD_VOLTAGES], dtype=np.float64)
     )
     summary = {
         "case": name,
@@ -426,12 +430,12 @@ def save_visualizations(
         best_row = _find_stage_row(
             best_history, stage if stage != "best" else "search_accept"
         )
-        axes[0, col].imshow(baseline_row["_img"], cmap="gray")
+        axes[0, col].imshow(baseline_row[RECORD_IMAGE], cmap="gray")
         axes[0, col].set_title(
             f"Baseline {stage}\nPIB={float(baseline_row['pib']):.3f}"
         )
         axes[0, col].axis("off")
-        axes[1, col].imshow(best_row["_img"], cmap="gray")
+        axes[1, col].imshow(best_row[RECORD_IMAGE], cmap="gray")
         axes[1, col].set_title(f"{best_case} {stage}\nPIB={float(best_row['pib']):.3f}")
         axes[1, col].axis("off")
     fig.tight_layout()
@@ -463,7 +467,7 @@ def save_visualizations(
     axes[0, 1].legend()
 
     voltages = np.vstack(
-        best_history["_v"].apply(lambda value: np.asarray(value, dtype=np.float64))
+        best_history[RECORD_VOLTAGES].apply(lambda value: np.asarray(value, dtype=np.float64))
     )
     im = axes[1, 0].imshow(voltages.T, aspect="auto")
     axes[1, 0].set_title("Voltage History")

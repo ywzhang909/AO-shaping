@@ -16,6 +16,11 @@ from ao_shaping.drivers import MIICamera, MlaRes, NlightDM, ThorlabWFS
 from ao_shaping.utils import gen_file_path_inc, gen_file_path_uuid
 from ao_shaping.optimizer.constants import METROPOLIS_ALPHA
 from ao_shaping.optimizer.spgd import spgd_gradient
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_VOLTAGES,
+)
 
 ROOT_DIR = "./data/img2img"
 
@@ -76,11 +81,11 @@ def optimizer(
         history = [
             {
                 "J": wf_statics['rms'],
-                "_v": _init_v,
-                "_diff": 0,
+                RECORD_VOLTAGES: _init_v,
+                RECORD_DIFF: 0,
                 "_gamma": lr,
                 "delta": delta,
-                "_epoch": 0,
+                RECORD_EPOCH: 0,
                 "_cam_axis": cam_axis_img,
                 "_cam_focal": cam_focal_img,
                 "_wavefront": wf
@@ -90,7 +95,7 @@ def optimizer(
             {
                 "J": wf_statics['rms'],
                 "v": _init_v,
-                "_epoch": 0,
+                RECORD_EPOCH: 0,
             }
         ]
         with tqdm.tqdm(
@@ -108,9 +113,9 @@ def optimizer(
                 pos_j = wf_statics['rms']
                 history.append({
                     "J": pos_j,
-                    "_diff": pos_j - history[-1]["J"],
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
+                    RECORD_DIFF: pos_j - history[-1]["J"],
+                    RECORD_EPOCH: epoch,
+                    RECORD_VOLTAGES: _init_v + disturb_v,
                     "_cam_axis": cam_axis_img,
                     "_cam_focal": cam_focal_img,
                     "_wavefront": wf,
@@ -122,9 +127,9 @@ def optimizer(
                 neg_j = wf_statics['rms']
                 history.append({
                     "J": neg_j,
-                    "_diff": pos_j - neg_j,
-                    "_epoch": epoch,
-                    "_v": _init_v + disturb_v,
+                    RECORD_DIFF: pos_j - neg_j,
+                    RECORD_EPOCH: epoch,
+                    RECORD_VOLTAGES: _init_v + disturb_v,
                     "_cam_axis": cam_axis_img,
                     "_cam_focal": cam_focal_img,
                     "_wavefront": wf,
@@ -205,7 +210,7 @@ def optimizer(
                 J_v_history.append({
                     "J": avg_j,
                     "v": _init_v,
-                    "_epoch": epoch,
+                    RECORD_EPOCH: epoch,
                 })
                 # earlying schedule
 
@@ -239,7 +244,7 @@ def run():
 
     res_df = pd.DataFrame(res_list)
     max_j_id = res_df['J'].argmax()
-    last_V = res_df.iloc[max_j_id]["_v"]
+    last_V = res_df.iloc[max_j_id][RECORD_VOLTAGES]
     logger.info(f"{max_j_id} -> {res_df.iloc[max_j_id]['J']}")
 
     fig, ax = plt.subplots(2, 1)

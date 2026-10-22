@@ -15,6 +15,9 @@ import numpy as np
 
 from ao_shaping.utils.image.beam_metrics import compute_shape_iou
 from ao_shaping.utils.image.targets import square_mask
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 
 def summarize_run(run_dir: Path) -> dict:
@@ -33,7 +36,7 @@ def summarize_run(run_dir: Path) -> dict:
     cy, cx = int(float(flat["cy"])), int(float(flat["cx"]))
     measurements = []
     for index, row in enumerate(rows):
-        frame = np.asarray(frames[index]["_img"])
+        frame = np.asarray(frames[index][RECORD_IMAGE])
         mask = square_mask(frame.shape, cy, cx, int(float(row["target_side"])))
         measurements.append({
             "stage": row["stage"],

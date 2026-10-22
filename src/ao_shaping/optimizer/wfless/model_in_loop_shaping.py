@@ -78,6 +78,11 @@ from ao_shaping.utils.image.frame_analysis import spot_fwhm
 # fitting math keeps one home (utils/math/fitting.py, R-49/#65) and the two cannot drift.
 from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 #: ``spot_fwhm`` was sunk to the leaf ``utils/image`` layer (R-48, #64); this alias
 #: keeps the private name used throughout this module and its tests intact.
@@ -2765,9 +2770,9 @@ def _coerce_to_record(
         A record, or ``None`` when the entry lacks an image or a phase.
     """
     if isinstance(item, Mapping):
-        image = item.get("_img", item.get("image"))
-        phase = item.get("_phase", item.get("phase"))
-        truth = item.get("_c", item.get("coefficients"))
+        image = item.get(RECORD_IMAGE, item.get("image"))
+        phase = item.get(RECORD_PHASE, item.get("phase"))
+        truth = item.get(RECORD_COEFFS, item.get("coefficients"))
     else:
         image = getattr(item, "image", None)
         phase = getattr(item, "phase", None)

@@ -24,6 +24,9 @@ from ao_shaping.optimizer.wfless.sim_spgd import (
     optimize_spgd,
     optimize_spgd_zernike,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -143,7 +146,7 @@ def _history_df(recorder) -> pd.DataFrame:
     for row in recorder.history:
         rows.append(
             {
-                "epoch": row.get("_epoch", 0),
+                "epoch": row.get(RECORD_EPOCH, 0),
                 "pib": float(row.get("pib", np.nan)),
                 "J": float(row.get("J", np.nan)),
                 "strehl": float(row.get("strehl", np.nan)),

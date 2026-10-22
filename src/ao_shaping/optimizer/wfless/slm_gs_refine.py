@@ -110,6 +110,11 @@ from ao_shaping.utils.slm.phase_embed import (
 from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_EPOCH,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+)
 
 __all__ = ["SlmGsRefineConfig", "optimize_slm_gs_refine"]
 
@@ -944,7 +949,7 @@ class _RefineContext:
             ),
             "shape_iou": compute_shape_iou(frame, mask),
             "target_side": self.target_side,
-            "_epoch": len(self.recorder.history),
+            RECORD_EPOCH: len(self.recorder.history),
             "timestamp_utc": self.last_capture_utc,
             "exposure_ms_readback": (
                 self.last_exposure_ms if self.config.cam_type == "daheng" else None
@@ -952,8 +957,8 @@ class _RefineContext:
             **extra,
         }
         if self.config.record_debug:
-            row["_img"] = np.asarray(frame).copy()
-            row["_phase"] = np.asarray(
+            row[RECORD_IMAGE] = np.asarray(frame).copy()
+            row[RECORD_PHASE] = np.asarray(
                 self.slm.create_phase_from_array(self.displayed_phase(phase))
             ).copy()
             if other_frame is not None and other_phase is not None:
@@ -963,8 +968,8 @@ class _RefineContext:
                 ).copy()
                 if positive_wins:
                     row.update(
-                        _img_pos=row["_img"],
-                        _phase_pos=row["_phase"],
+                        _img_pos=row[RECORD_IMAGE],
+                        _phase_pos=row[RECORD_PHASE],
                         _img_neg=other_img,
                         _phase_neg=other_gray,
                     )
@@ -972,8 +977,8 @@ class _RefineContext:
                     row.update(
                         _img_pos=other_img,
                         _phase_pos=other_gray,
-                        _img_neg=row["_img"],
-                        _phase_neg=row["_phase"],
+                        _img_neg=row[RECORD_IMAGE],
+                        _phase_neg=row[RECORD_PHASE],
                     )
         self.recorder.append(row)
         return score

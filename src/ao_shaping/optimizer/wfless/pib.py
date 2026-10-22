@@ -50,6 +50,14 @@ from ao_shaping.algorithm.tabu.tabu_search import (
     AdaptiveSearchState,
     TabuMemory,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_GRAD,
+    RECORD_IMAGE,
+    RECORD_ROI_ENERGY,
+    RECORD_VOLTAGES,
+)
 
 
 
@@ -571,7 +579,7 @@ def optimize_pib(
                         "evaluated": evaluated,
                         "radius": adaptive_search_state.radius,
                         "anchor": search_anchor,
-                        "_epoch": epoch,
+                        RECORD_EPOCH: epoch,
                     }
                 )
                 return best_candidate
@@ -580,18 +588,18 @@ def optimize_pib(
                 {
                     "J": j,
                     objective: test_pib(init_img),
-                    "_p%": pib_ratio,
+                    RECORD_ROI_ENERGY: pib_ratio,
                     "_max_r": _init_r,
-                    "_v": _init_v,
-                    "_img": init_img,
-                    "_diff": 0,
+                    RECORD_VOLTAGES: _init_v,
+                    RECORD_IMAGE: init_img,
+                    RECORD_DIFF: 0,
                     "lr": optimizer.lr,
                     "r": r_bucket,
                     "delta": delta,
-                    "_epoch": 0,
+                    RECORD_EPOCH: 0,
                     "exp_t": get_camera_exposure_ms(cam),
                     "max_brt": np.max(init_img),
-                    "_grad": np.zeros_like(_init_v),
+                    RECORD_GRAD: np.zeros_like(_init_v),
                     "optimizer": optimizer_type,
                     f"best_{objective}": best_objective,
                     "search_radius": adaptive_search_state.radius,
@@ -724,22 +732,22 @@ def optimize_pib(
 
                     log = {
                         "J": J,
-                        "_p%": objective_ratio,
+                        RECORD_ROI_ENERGY: objective_ratio,
                         "_max_r": _init_r,
                         # Column named after the objective itself: the Recorder is
                         # built with mark=objective, so a hardcoded "pib" key made
                         # `--objective radiu/avg_radiu` fail the append assert.
                         objective: objective_val,
-                        "_diff": diff,
+                        RECORD_DIFF: diff,
                         "lr": optimizer.lr,
                         "r": r_bucket,
                         "delta": delta,
-                        "_epoch": epoch,
-                        "_v": _init_v,
-                        "_img": pos_img,
+                        RECORD_EPOCH: epoch,
+                        RECORD_VOLTAGES: _init_v,
+                        RECORD_IMAGE: pos_img,
                         "exp_t": get_camera_exposure_ms(cam),
                         "max_brt": max_brightness,
-                        "_grad": gradient,
+                        RECORD_GRAD: gradient,
                         "_opt_m": _extract_optimizer_momentum(optimizer),
                         "search_radius": adaptive_search_state.radius,
                         "tabu_size": len(tabu_memory._queue),
@@ -787,19 +795,19 @@ def optimize_pib(
                                 recorder.append(
                                     {
                                         "J": search_result["J"],
-                                        "_p%": search_result["ratio"],
+                                        RECORD_ROI_ENERGY: search_result["ratio"],
                                         "_max_r": _init_r,
                                         objective: search_result[objective],
-                                        "_diff": 0.0,
+                                        RECORD_DIFF: 0.0,
                                         "lr": optimizer.lr,
                                         "r": r_bucket,
                                         "delta": delta,
-                                        "_epoch": epoch,
-                                        "_v": _init_v.copy(),
-                                        "_img": search_result["img"],
+                                        RECORD_EPOCH: epoch,
+                                        RECORD_VOLTAGES: _init_v.copy(),
+                                        RECORD_IMAGE: search_result["img"],
                                         "exp_t": get_camera_exposure_ms(cam),
                                         "max_brt": search_result["max_brt"],
-                                        "_grad": np.zeros_like(_init_v),
+                                        RECORD_GRAD: np.zeros_like(_init_v),
                                         "_opt_m": _extract_optimizer_momentum(
                                             optimizer
                                         ),

@@ -117,6 +117,16 @@ from ao_shaping.optimizer.wfless.slm_zernike_primitives import (
     learning_schedule,
     zernike_to_phase,
 )
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_COEFFS,
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_GATE,
+    RECORD_GRAD,
+    RECORD_IMAGE,
+    RECORD_PHASE,
+    RECORD_ROI_ENERGY,
+)
 
 # adam parameters
 beta1 = 0.9
@@ -1087,18 +1097,18 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         _row0 = {
             "J": j,
             objective: best_objective,
-            "_p%": pib_ratio,
+            RECORD_ROI_ENERGY: pib_ratio,
             "_max_r": _init_r,
-            "_c": _init_c,
-            "_img": init_img,
-            "_diff": 0,
+            RECORD_COEFFS: _init_c,
+            RECORD_IMAGE: init_img,
+            RECORD_DIFF: 0,
             "lr": optimizer.lr,
             "r": r_bucket,
             "delta": delta,
-            "_epoch": 0,
+            RECORD_EPOCH: 0,
             "exp_t": get_camera_exposure_ms(cam),
             "max_brt": np.max(init_img),
-            "_grad": np.zeros_like(_init_c),
+            RECORD_GRAD: np.zeros_like(_init_c),
             "optimizer": optimizer_type,
             f"best_{objective}": best_objective,
         }
@@ -1113,7 +1123,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             _row0["ee_term"] = float(_terms[3])
         _row0.update(shaping.metric_panel(init_img))
         if record_phase:
-            _row0["_phase"] = initial_phase
+            _row0[RECORD_PHASE] = initial_phase
             _row0["_full_frame_img"] = _img
         recorder.append(_row0)
 
@@ -1145,20 +1155,20 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
             """
             row = {
                 "J": J,
-                "_p%": obj_ratio,
+                RECORD_ROI_ENERGY: obj_ratio,
                 "_max_r": _init_r,
                 objective: obj_val,
-                "_diff": diff,
-                "_gate": gate,
+                RECORD_DIFF: diff,
+                RECORD_GATE: gate,
                 "lr": lr_val,
                 "r": r_bucket,
                 "delta": delta_val,
-                "_epoch": epoch,
-                "_c": coeffs,
-                "_img": img,
+                RECORD_EPOCH: epoch,
+                RECORD_COEFFS: coeffs,
+                RECORD_IMAGE: img,
                 "exp_t": get_camera_exposure_ms(cam),
                 "max_brt": max_brt,
-                "_grad": grad,
+                RECORD_GRAD: grad,
                 "optimizer": optimizer_type,
                 f"best_{objective}": best_objective,
             }
@@ -1170,7 +1180,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 row["loggrad"] = float(loggrad)
             if record_phase and phase is not None:
                 # Display-ready grayscale exactly as sent to the SLM device.
-                row["_phase"] = phase
+                row[RECORD_PHASE] = phase
             if objective == "rms_pib":
                 _w_pib, _w_rms, _w_ee = shaping.weights
                 row["w_pib"] = float(_w_pib)

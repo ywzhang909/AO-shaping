@@ -121,6 +121,9 @@ from ml.hwdataset.index import (
     build_hw_index,
 )
 from ml.hwdataset.records import Materialiser, MaterialiserConfig
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_IMAGE,
+)
 
 __all__ = [
     "DEFAULT_PREFETCH_FACTOR",
@@ -563,7 +566,7 @@ class HwPhaseImageDataset(Dataset[dict[str, Any]]):
                 exc,
             )
         if isinstance(payload, Mapping):
-            shape = getattr(payload.get("_img"), "shape", None)
+            shape = getattr(payload.get(RECORD_IMAGE), "shape", None)
             if isinstance(shape, tuple) and len(shape) == 2:
                 return int(min(int(shape[0]), int(shape[1])))
         return _sidecar_fov_px(ref.sidecar)

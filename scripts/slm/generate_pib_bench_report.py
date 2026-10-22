@@ -49,6 +49,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from loguru import logger
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_GATE,
+)
 
 # CJK-capable font fallbacks (per repo script convention).
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -152,7 +155,7 @@ def collect_search_runs(
                 config = loaded
                 break
 
-        gates = Counter(str(r.get("_gate")) for r in rows if "_gate" in r)
+        gates = Counter(str(r.get(RECORD_GATE)) for r in rows if RECORD_GATE in r)
         # A guard-penalised row carries the sentinel J = 1e3. That marks an
         # *abandoned* evaluation, not a score, so keeping it yields absurd
         # percentages (observed: +1.3e9%). Score only the un-penalised rows.
