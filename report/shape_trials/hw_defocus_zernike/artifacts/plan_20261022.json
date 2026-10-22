@@ -1,6 +1,6 @@
 {
-  "_comment": "第三轮 (2026-10-21) 的采集计划, 由 scripts/slm/build_hw_sweep_plan.py 生成。**新数据根**: 分组根 data/debug/hw_groups_20261021_r3 / 泽尼克扫描根 data/debug/hw_zernike_sweep_20261021_r3 —— 上一轮与第二轮共用旧根, 于是第三轮的离焦/远场组把第二轮那 11 个组的 measurements.json 覆盖了, 第二轮报告里的这些数字在磁盘上已不可复现; 这一轮所有 --out-root / --out / --stage-a-in / 相位文件路径都指向新根。**块数 7**: 每块墙钟预算 540 s, 实测一块只跑出 ~39 轮 (请求 45 轮), 7 × 39 ≥ 250 才够得到总目标 —— 上一轮的 6 块 × 39 ≈ 234 轮够不到 250 轮。**焦面标定排在最前**: 后面的每一组都用它标出来的 f_v (1523.8 mm), 证据落在本轮专属目录。**曝光上限由计划显式写死**: 测量组 0.4 ms (焦面标定组 40 ms, 它要扫到 20 ms), 内置的加倍阶梯估计在暗实验系统上会给出假上限。**孔径预先登记**: 硬件相位 10 px (平场腰径 2·w0) 与模型相位 44 px (模型方斑边长) 是两套相位各自的定尺, 不可互换。",
-  "root": "data/debug/hw_groups_20261021_r3",
+  "_comment": "第三轮 (2026-10-22) 的采集计划, 由 scripts/slm/build_hw_sweep_plan.py 生成。**新数据根**: 分组根 data/debug/hw_groups_20261022 / 泽尼克扫描根 data/debug/hw_zernike_sweep_20261022 —— 上一轮与第二轮共用旧根, 于是第三轮的离焦/远场组把第二轮那 11 个组的 measurements.json 覆盖了, 第二轮报告里的这些数字在磁盘上已不可复现; 这一轮所有 --out-root / --out / --stage-a-in / 相位文件路径都指向新根。**块数 7**: 每块墙钟预算 540 s, 实测一块只跑出 ~39 轮 (请求 45 轮), 7 × 39 ≥ 250 才够得到总目标 —— 上一轮的 6 块 × 39 ≈ 234 轮够不到 250 轮。**焦面标定排在最前**: 后面的每一组都用它标出来的 f_v (1523.8 mm), 证据落在本轮专属目录。**曝光上限由计划显式写死**: 测量组 0.4 ms (焦面标定组 40 ms, 它要扫到 20 ms), 内置的加倍阶梯估计在暗实验系统上会给出假上限。**孔径预先登记**: 硬件相位 10 px (平场腰径 2·w0) 与模型相位 44 px (模型方斑边长) 是两套相位各自的定尺, 不可互换。",
+  "root": "data/debug/hw_groups_20261022",
   "groups": [
     {
       "group": "focus_calibration",
@@ -9,7 +9,7 @@
         "role": "focus_calibration",
         "phase": "hardware_gs",
         "exposure_ms": "0.1",
-        "debug_dir": "data/debug/hw_groups_20261021_r3/focus_calibration",
+        "debug_dir": "data/debug/hw_groups_20261022/focus_calibration",
         "note": "本轮的瞳面焦面标定: 证据落在本轮专属目录, 报告从这里读, 不会读到另一次实验留下的证据"
       },
       "script": "-m",
@@ -28,7 +28,7 @@
         "--refine",
         "9",
         "--debug-dir",
-        "data/debug/hw_groups_20261021_r3/focus_calibration"
+        "data/debug/hw_groups_20261022/focus_calibration"
       ],
       "env": {
         "AO_DAHENG_MAX_EXPOSURE_MS": "40"
@@ -97,7 +97,7 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3"
+        "data/debug/hw_zernike_sweep_20261022"
       ]
     },
     {
@@ -163,9 +163,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_1/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz"
       ]
     },
     {
@@ -231,9 +231,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_2/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz"
       ]
     },
     {
@@ -299,9 +299,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_3/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz"
       ]
     },
     {
@@ -367,9 +367,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_4/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz"
       ]
     },
     {
@@ -435,9 +435,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_5/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz"
       ]
     },
     {
@@ -503,9 +503,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_6/stage_a.npz"
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz"
       ]
     },
     {
@@ -558,9 +558,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "3"
       ]
@@ -615,9 +615,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "4"
       ]
@@ -672,9 +672,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "6"
       ]
@@ -729,9 +729,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "8"
       ]
@@ -786,9 +786,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "11"
       ]
@@ -843,9 +843,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "15"
       ]
@@ -900,9 +900,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "20"
       ]
@@ -957,9 +957,9 @@
         "1523.8",
         "--save-images",
         "--out",
-        "data/debug/hw_zernike_sweep_20261021_r3",
+        "data/debug/hw_zernike_sweep_20261022",
         "--stage-a-in",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz",
+        "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
         "--orders",
         "25"
       ]
@@ -974,7 +974,7 @@
         "defocus_focal_mm": "1523.8",
         "target_side_px": "10",
         "chirp_tilt_cancel": "true",
-        "phase_file": "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy"
+        "phase_file": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy"
       },
       "script": "scripts/slm/hw_gs_defocus_probe.py",
       "args": [
@@ -982,7 +982,7 @@
         "--group",
         "dz_noise_hw_gs",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1005,9 +1005,9 @@
         "--group-meta",
         "chirp_tilt_cancel=true",
         "--group-meta",
-        "phase_file=data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy",
+        "phase_file=data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy",
         "--dz-mm",
         "0",
         "0",
@@ -1030,7 +1030,7 @@
         "defocus_focal_mm": "1523.8",
         "target_side_px": "10",
         "chirp_tilt_cancel": "true",
-        "phase_file": "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy"
+        "phase_file": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy"
       },
       "script": "scripts/slm/hw_gs_defocus_probe.py",
       "args": [
@@ -1038,7 +1038,7 @@
         "--group",
         "dz_scan_hw_gs",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1061,9 +1061,9 @@
         "--group-meta",
         "chirp_tilt_cancel=true",
         "--group-meta",
-        "phase_file=data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy",
+        "phase_file=data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/best_phase_nmax4.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy",
         "--dz-mm",
         "-20",
         "-15",
@@ -1107,7 +1107,7 @@
         "--group",
         "dz_scan_model_gs",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1178,7 +1178,7 @@
         "--group",
         "zernike_farfield_nmax3",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1200,7 +1200,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax3/phase_nmax3.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy",
         "--dz-mm",
         "0"
       ]
@@ -1222,7 +1222,7 @@
         "--group",
         "zernike_farfield_nmax4",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1244,7 +1244,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax4/phase_nmax4.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy",
         "--dz-mm",
         "0"
       ]
@@ -1266,7 +1266,7 @@
         "--group",
         "zernike_farfield_nmax6",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1288,7 +1288,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax6/phase_nmax6.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy",
         "--dz-mm",
         "0"
       ]
@@ -1310,7 +1310,7 @@
         "--group",
         "zernike_farfield_nmax8",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1332,7 +1332,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax8/phase_nmax8.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy",
         "--dz-mm",
         "0"
       ]
@@ -1354,7 +1354,7 @@
         "--group",
         "zernike_farfield_nmax11",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1376,7 +1376,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax11/phase_nmax11.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy",
         "--dz-mm",
         "0"
       ]
@@ -1398,7 +1398,7 @@
         "--group",
         "zernike_farfield_nmax15",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1420,7 +1420,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax15/phase_nmax15.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy",
         "--dz-mm",
         "0"
       ]
@@ -1442,7 +1442,7 @@
         "--group",
         "zernike_farfield_nmax20",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1464,7 +1464,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax20/phase_nmax20.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy",
         "--dz-mm",
         "0"
       ]
@@ -1486,7 +1486,7 @@
         "--group",
         "zernike_farfield_nmax25",
         "--out-root",
-        "data/debug/hw_groups_20261021_r3",
+        "data/debug/hw_groups_20261022",
         "--defocus-focal-mm",
         "1523.8",
         "--exposure-ms",
@@ -1508,7 +1508,7 @@
         "--group-meta",
         "target_side_px=10",
         "--gs-phase",
-        "data/debug/hw_zernike_sweep_20261021_r3/zernike_order_nmax25/phase_nmax25.npy",
+        "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy",
         "--dz-mm",
         "0"
       ]

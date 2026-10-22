@@ -82,9 +82,9 @@ ROOT = Path(__file__).resolve().parents[2]
 # ---------------------------------------------------------------------------
 # 默认值 (对准第三轮, 但逻辑里不写死「第三轮」—— 换一轮只要改参数)
 # ---------------------------------------------------------------------------
-DEFAULT_ROUND = "round3_20261021_r3"
-DEFAULT_GROUPS_ROOT = "data/debug/hw_groups_20261021_r3"
-DEFAULT_SWEEP_ROOT = "data/debug/hw_zernike_sweep_20261021_r3"
+DEFAULT_ROUND = "round3_20261022"
+DEFAULT_GROUPS_ROOT = "data/debug/hw_groups_20261022"
+DEFAULT_SWEEP_ROOT = "data/debug/hw_zernike_sweep_20261022"
 DEFAULT_OUT = "report/shape_trials/hw_defocus_zernike/artifacts"
 
 #: 焦面标定证据目录的**默认位置**: 它是分组根的一个子目录 (由焦面标定组的

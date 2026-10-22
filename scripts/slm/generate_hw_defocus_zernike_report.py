@@ -97,7 +97,7 @@ def report_date(report_key: str) -> str:
     """从报告键里取日期 (YYYYMMDD -> YYYY-MM-DD); 取不到就用默认那份的。
 
     取的是文件名里**第一段** 8 位数字, 所以同日追加轮次的
-    ``hw_defocus_zernike_20261021_r3`` 仍然是 2026-10-21 (轮次后缀不是日期)。
+    ``hw_defocus_zernike_20261022_r2`` 仍然是 2026-10-22 (轮次后缀不是日期)。
     """
     match = re.search(r"(\d{8})", Path(report_key).stem)
     if not match:
@@ -113,7 +113,7 @@ def figure_tag(report_key: str) -> str:
 
     - ``hw_defocus_zernike_20261020`` -> ``""`` (默认那份, 图名已入库, 不改名)
     - ``hw_defocus_zernike_20261021`` -> ``"_20261021"``
-    - ``hw_defocus_zernike_20261021_r3`` -> ``"_20261021_r3"`` (同日追加的一轮)
+    - ``hw_defocus_zernike_20261022_r2`` -> ``"_20261022_r2"`` (同日追加的一轮)
 
     ⚠️ 旧实现只在文件名**以 8 位数字结尾**时才给戳, 于是同日追加轮次的后缀
     ``_r3`` 让它匹配不上 -> 拿到**空戳** -> 直接盖掉默认那份的图。所以戳必须

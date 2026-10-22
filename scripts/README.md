@@ -1577,7 +1577,7 @@ so the third round's defocus/far-field groups **overwrote** the second round's
 11 group directories (`measurements.json` included) — the second-round report's
 numbers for those groups are no longer reproducible on disk. This round writes
 to `..._r3` roots, and the archived copy of the plan is the round's input
-contract: `report/shape_trials/hw_defocus_zernike/artifacts/plan_20261021_r3.json`.
+contract: `report/shape_trials/hw_defocus_zernike/artifacts/plan_20261022.json`.
 
 **Why 7 chunks and not 6**: each Stage-A chunk has a wall-clock budget
 (`--time-budget-s 540`); the measured first chunk ran **39** epochs in 549.3 s
@@ -1602,7 +1602,7 @@ python scripts/slm/build_hw_sweep_plan.py --defocus-focal-mm 1600.0 \
     --out data/debug/hw_groups_20261022/plan.json
 # then run it
 python scripts/slm/run_hw_sweep_groups.py \
-    --plan data/debug/hw_groups_20261021_r3/plan.json --dry-run
+    --plan data/debug/hw_groups_20261022/plan.json --dry-run
 ```
 
 **Self-checks** (all five must pass or nothing is written, exit code 2):
@@ -1617,8 +1617,8 @@ python scripts/slm/run_hw_sweep_groups.py \
 
 | Option | Default | Description |
 |---|---|---|
-| `--groups-root` | `data/debug/hw_groups_20261021_r3` | this round's group root (defocus/far-field groups, focus-calibration evidence) |
-| `--sweep-root` | `data/debug/hw_zernike_sweep_20261021_r3` | this round's Zernike sweep root (Stage A, per-order groups, phase files) |
+| `--groups-root` | `data/debug/hw_groups_20261022` | this round's group root (defocus/far-field groups, focus-calibration evidence) |
+| `--sweep-root` | `data/debug/hw_zernike_sweep_20261022` | this round's Zernike sweep root (Stage A, per-order groups, phase files) |
 | `--out` | `<groups-root>/plan.json` | where the plan JSON is written |
 | `--print-plan` | off | print the plan to stdout and write nothing |
 | `--defocus-focal-mm` | `1523.8` | pupil Fresnel focus-correction focal length (mm); appears in **every** group that takes it |
@@ -1688,9 +1688,9 @@ python scripts/slm/archive_hw_defocus_round.py --write --out C:/temp/round3
 
 | Option | Default | Description |
 |---|---|---|
-| `--round` | `round3_20261021_r3` | round name = the archive directory name |
-| `--groups-root` | `data/debug/hw_groups_20261021_r3` | this round's group root (defocus/noise/far-field groups, focus-calibration evidence) |
-| `--sweep-root` | `data/debug/hw_zernike_sweep_20261021_r3` | this round's Zernike sweep root (Stage A + per-order groups) |
+| `--round` | `round3_20261022` | round name = the archive directory name |
+| `--groups-root` | `data/debug/hw_groups_20261022` | this round's group root (defocus/noise/far-field groups, focus-calibration evidence) |
+| `--sweep-root` | `data/debug/hw_zernike_sweep_20261022` | this round's Zernike sweep root (Stage A + per-order groups) |
 | `--focus-dir` | `<groups-root>/focus_calibration` | focus-calibration evidence directory |
 | `--plan` | `<groups-root>/plan.json` if it exists | collection plan JSON (used to detect missing groups) |
 | `--no-plan` | off | do not archive the plan file |

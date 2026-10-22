@@ -89,8 +89,8 @@ def _zernike_group(root: Path, name: str, n_max: int) -> Path:
 
 def _make_tree(tmp_path: Path) -> dict[str, Path]:
     """Build a fake round: groups root + sweep root + focus evidence + plan."""
-    groups_root = tmp_path / "data" / "debug" / "hw_groups_20261021_r3"
-    sweep_root = tmp_path / "data" / "debug" / "hw_zernike_sweep_20261021_r3"
+    groups_root = tmp_path / "data" / "debug" / "hw_groups_20261022"
+    sweep_root = tmp_path / "data" / "debug" / "hw_zernike_sweep_20261022"
 
     _probe_group(groups_root, "dz_scan_hw_gs")
     _probe_group(groups_root, "dz_noise_hw_gs")
@@ -105,7 +105,7 @@ def _make_tree(tmp_path: Path) -> dict[str, Path]:
     _write(focus / "slm1_20261021_120000.json", '{"best_diopter": 0.58}')
 
     plan = {
-        "root": "data/debug/hw_groups_20261021_r3",
+        "root": "data/debug/hw_groups_20261022",
         "groups": [
             {
                 "group": "dz_scan_hw_gs",
@@ -455,8 +455,8 @@ def test_the_script_does_not_import_any_driver() -> None:
 
 def test_repo_relative_paths_use_forward_slashes() -> None:
     """输出里的路径必须是仓库相对 + 正斜杠。"""
-    text = repo_rel(REPO_ROOT / "data" / "debug" / "hw_groups_20261021_r3")
-    assert text == "data/debug/hw_groups_20261021_r3"
+    text = repo_rel(REPO_ROOT / "data" / "debug" / "hw_groups_20261022")
+    assert text == "data/debug/hw_groups_20261022"
     assert "\\" not in text
 
 

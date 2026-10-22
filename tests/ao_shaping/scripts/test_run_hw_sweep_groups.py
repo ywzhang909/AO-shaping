@@ -36,6 +36,7 @@ from scripts.slm.run_hw_sweep_groups import (
     KIND_SLM_ABSENT,
     KIND_SLM_BUSY,
     PROBE_IDLE,
+    ProcessInfo,
     build_argv,
     check_adopt_dir,
     classify_device_unavailable,
@@ -43,6 +44,7 @@ from scripts.slm.run_hw_sweep_groups import (
     main,
     parse_probe_output,
     resolve_specs,
+    select_device_using_processes,
     wait_until_idle,
 )
 
@@ -617,6 +619,36 @@ def _broken_probe(tmp_path: Path) -> Path:
     )
 
 
+def _no_processes() -> list[ProcessInfo]:
+    """进程列表的注入源: 一台「没有别的会话在跑」的机器。"""
+    return []
+
+
+def _counting_probe(tmp_path: Path, verdict: str) -> tuple[Path, Path]:
+    """假探针: 每次跑都记一次数 (用来断言「探针到底跑没跑」)。
+
+    Args:
+        tmp_path: 临时目录。
+        verdict: ``"idle"`` 或 ``"busy"``。
+
+    Returns:
+        ``(探针脚本路径, 计数文件路径)``。
+    """
+    calls = tmp_path / "probe_calls.txt"
+    body = (
+        "from pathlib import Path\n"
+        f"calls = Path({str(calls)!r})\n"
+        "n = int(calls.read_text()) if calls.exists() else 0\n"
+        "calls.write_text(str(n + 1))\n"
+        + (
+            "print('DEVICE_PROBE: idle')\n"
+            if verdict == "idle"
+            else "print('DEVICE_PROBE: unavailable kind=slm_busy code=-10003')\n"
+        )
+    )
+    return _write_fake_probe(tmp_path / "counting_probe.py", body), calls
+
+
 class TestWaitUntilIdle:
     """``--wait-until-idle``: 被占就等, 空出来再开跑。"""
 
@@ -627,6 +659,7 @@ class TestWaitUntilIdle:
             30.0,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
+            process_source=_no_processes,
         )
 
         assert code == 0
@@ -641,6 +674,7 @@ class TestWaitUntilIdle:
             0.2,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
+            process_source=_no_processes,
         )
 
         assert code == 1
@@ -656,6 +690,7 @@ class TestWaitUntilIdle:
             600.0,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
+            process_source=_no_processes,
         )
 
         assert code == 1
@@ -670,6 +705,7 @@ class TestWaitUntilIdle:
             600.0,
             probe_cmd=[sys.executable, str(probe)],
             poll_s=0.05,
+            process_source=_no_processes,
         )
 
         assert code == 2
@@ -677,8 +713,13 @@ class TestWaitUntilIdle:
         err = capsys.readouterr().err
         assert "探针自己坏了" in err
 
-    def test_the_driver_waits_before_it_starts(self, tmp_path, capsys):
+    def test_the_driver_waits_before_it_starts(self, tmp_path, capsys, monkeypatch):
         """端到端: ``--wait-until-idle`` 等到设备空出来, 然后才开跑。"""
+        from scripts.slm import run_hw_sweep_groups as driver
+
+        # 这台机器上别的会话可能有 python 进程在跑 ⇒ 注入一个空的进程列表,
+        # 让测试只测「等设备」这条逻辑。
+        monkeypatch.setattr(driver, "query_windows_python_processes", _no_processes)
         probe = _busy_then_idle_probe(tmp_path, busy_times=1)
         root = tmp_path / "groups"
         plan = _write_plan(tmp_path / "plan.json", [_harmless("hello")], root)
@@ -708,10 +749,215 @@ class TestWaitUntilIdle:
             600.0,
             probe_cmd=[str(tmp_path / "no_such_probe")],
             poll_s=0.05,
+            process_source=_no_processes,
         )
 
         assert code == 2
         assert "探针" in reason
+
+
+# ---------------------------------------------------------------------------
+# 公平性: 先看进程, 再探针 (2026-10-22 09:03-09:48 实测)
+# ---------------------------------------------------------------------------
+def _other_session_processes() -> list[ProcessInfo]:
+    """假想「另一个会话」的硬件进程 (4 个进程, 逐字取自那次实测)。"""
+    return [
+        ProcessInfo(
+            pid=100001,
+            ppid=100000,
+            cmdline="python scripts/slm/model_in_loop_hw_ab.py --stage a",
+        ),
+        ProcessInfo(
+            pid=100002,
+            ppid=100000,
+            cmdline=(
+                "python src/ao_shaping/main.py wf --debug --cam-type daheng "
+                "--slm-number 1"
+            ),
+        ),
+    ]
+
+
+class TestFairness:
+    """「探针能打开」不等于「没人用设备」 ⇒ **先看进程, 再探针**。"""
+
+    def test_other_sessions_mean_the_probe_is_never_run(self, tmp_path, capsys):
+        """🔴 关键契约: 有别的会话在用 ⇒ **一次都不探针** (探针本身是干扰源)。"""
+        probe, calls = _counting_probe(tmp_path, "idle")
+
+        code, reason = wait_until_idle(
+            0.3,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+            process_source=_other_session_processes,
+        )
+
+        assert code == 1, "等不到就该超时退出"
+        assert "别的会话在用设备" in reason
+        assert not calls.exists(), "有别的会话在用时, 探针一次都不该跑"
+        out = capsys.readouterr().out
+        assert "别的会话在用设备" in out
+        # 等待过程要说人话: 打印对方是谁 + 已经等了多久
+        assert "model_in_loop_hw_ab.py" in out
+        assert "已等" in out
+
+    def test_no_other_process_and_the_probe_succeeds(self, tmp_path, capsys):
+        """没人用 + 探针成功 ⇒ 开跑, 并说清「凭什么认为设备归我们」。"""
+        probe, calls = _counting_probe(tmp_path, "idle")
+
+        code, _reason = wait_until_idle(
+            30.0,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+            process_source=_no_processes,
+        )
+
+        assert code == 0
+        assert calls.exists(), "没人用时探针应该跑过"
+        out = capsys.readouterr().out
+        assert "设备可用, 且无其它硬件进程 ⇒ 开始采集" in out
+
+    def test_the_probe_says_busy_but_nobody_is_recognised(self, tmp_path, capsys):
+        """探针报被占却认不出占用者 ⇒ 继续等, 并说明「没认出占用者」。"""
+        probe, _calls = _counting_probe(tmp_path, "busy")
+
+        code, reason = wait_until_idle(
+            0.3,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+            process_source=_no_processes,
+        )
+
+        assert code == 1
+        assert "没认出占用者" in reason
+        out = capsys.readouterr().out
+        assert "设备被占但没认出占用者" in out
+
+    def test_our_own_processes_are_not_occupiers(self, tmp_path):
+        """自己这条线上的进程 (自身/后代/自己的脚本) 不算占用者。"""
+        import os
+
+        self_pid = os.getpid()
+        processes = [
+            ProcessInfo(pid=self_pid, ppid=1, cmdline="python scripts/slm/x.py"),
+            # 我们启动的探针子进程 (它是我们的后代)
+            ProcessInfo(pid=self_pid + 1, ppid=self_pid, cmdline="python probe.py"),
+            # 同一条线上的另一个实例 (命令行里有我们自己的脚本)
+            ProcessInfo(
+                pid=self_pid + 2,
+                ppid=1,
+                cmdline="python scripts/slm/run_hw_sweep_groups.py --plan x.json",
+            ),
+            # 别的会话的进程 —— 这一个才算
+            ProcessInfo(
+                pid=self_pid + 3,
+                ppid=1,
+                cmdline="python scripts/slm/other_lane_probe.py",
+            ),
+        ]
+
+        hits = select_device_using_processes(
+            processes,
+            own_paths=[Path(__file__).resolve().parent.parent.parent
+                       / "scripts" / "slm" / "run_hw_sweep_groups.py"],
+        )
+
+        assert [proc.pid for proc in hits] == [self_pid + 3]
+
+    def test_an_explicitly_owned_pid_is_not_an_occupier(self):
+        """``--own-pid`` 声明的进程 (同一条线上的另一个脚本) 不算占用者。"""
+        processes = [
+            ProcessInfo(pid=500001, ppid=1, cmdline="python scripts/slm/mine.py"),
+        ]
+
+        assert select_device_using_processes(processes, exclude_pids=[500001]) == []
+        assert len(select_device_using_processes(processes)) == 1
+
+    def test_offline_report_generators_are_not_occupiers(self):
+        """纯离线报告生成器住在 scripts/slm/ 下, 但**不碰设备** ⇒ 不算占用者。
+
+        不排除它们的话, 一台正在跑报告的机器会让硬件采集永远等下去 (实测:
+        三个 generate_bench_twin_report.py)。
+        """
+        processes = [
+            ProcessInfo(
+                pid=600001,
+                ppid=1,
+                cmdline="python scripts/slm/generate_bench_twin_report.py --run-dir x",
+            ),
+            ProcessInfo(
+                pid=600002,
+                ppid=1,
+                cmdline="python scripts/slm/hw_gs_defocus_probe.py --execute",
+            ),
+        ]
+
+        hits = select_device_using_processes(processes)
+        assert [proc.pid for proc in hits] == [600002]
+
+    def test_pytest_that_mentions_slm_paths_is_not_an_occupier(self):
+        """🔴 回归 (2026-10-22 实测): 别的会话在跑 pytest ⇒ 采集永远等下去。
+
+        pytest 的命令行里**提到** slm / drivers 的测试路径 (还带 ``--ignore=...``),
+        裸的 ``slm`` 关键字会把它当成「占用设备的进程」—— 于是一台**没人用设备**的
+        机器上, 采集会一直等到超时 (实测: 另一个会话的 pytest 跑着, 采集等了 74 s 还
+        在等, 而设备其实是空的)。
+
+        判据必须是「这个进程在**执行**设备代码」, 而不是「命令行里提到设备相关字样」。
+        下面两条命令行**逐字取自**那次实测。
+        """
+        processes = [
+            ProcessInfo(
+                pid=700001,
+                ppid=1,
+                cmdline=(
+                    "python.exe -m pytest -p no:cacheprovider --rootdir "
+                    "C:/Users/me/Worktrees/AO-shaping/x -q --tb=short -ra "
+                    '-m "not slow" C:/Users/me/Worktrees/AO-shaping/x/tests '
+                    "--ignore=C:/Users/me/Worktrees/AO-shaping/x/tests/ao_shaping/drivers "
+                    "--ignore=C:/Users/me/Worktrees/AO-shaping/x/tests/ao_shaping/ml "
+                    "--ignore=C:/Users/me/Worktrees/AO-shaping/x/tests/ao_shaping/gui/slm"
+                    "/test_zernike_abort_repro.py"
+                ),
+            ),
+            ProcessInfo(
+                pid=700002,
+                ppid=1,
+                cmdline=(
+                    "python.exe -m pytest "
+                    "D:\\Projects\\TIFO\\AO-shaping\\tests\\ao_shaping\\optimizer\\wfless"
+                    "\\test_slm_gs_refine.py -q --no-header"
+                ),
+            ),
+        ]
+
+        assert select_device_using_processes(processes) == []
+
+    def test_a_session_that_starts_during_the_probe_means_we_were_too_early(
+        self, tmp_path, capsys
+    ):
+        """探针开锁的那一瞬间别人开始了 ⇒ 抢早了, 不能开跑。"""
+        probe, _calls = _counting_probe(tmp_path, "idle")
+        calls = {"n": 0}
+
+        def appearing_processes() -> list[ProcessInfo]:
+            # 第一次扫描 (探针之前) 没人; 第二次扫描 (探针之后) 别人开始了。
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return []
+            return _other_session_processes()
+
+        code, reason = wait_until_idle(
+            0.3,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+            process_source=appearing_processes,
+        )
+
+        assert code == 1, "抢早了就不该开跑"
+        assert "别的会话" in reason
+        out = capsys.readouterr().out
+        assert "设备可用, 但还有别的硬件进程" in out
 
 
 class TestAbortOnDeviceUnavailable:

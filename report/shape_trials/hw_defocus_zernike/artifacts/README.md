@@ -18,7 +18,7 @@
 | `round1_20261020/` | 第一轮（2026-10-20） | `hw_groups_20261020/`（离焦组、噪声组、远场补拍组）、`hw_zernike_sweep_20261020b/`（泽尼克阶数扫描）、`focus_calibration/`（焦面标定证据） |
 | `round2_20261021/` | 第二轮（2026-10-21） | `hw_groups_20261021/`、`hw_zernike_sweep_20261021/`、`focus_calibration/` |
 | `plan_20261021.json` | 第二轮 | 下一轮（26 组）的采集计划，与 `round2_20261021/hw_groups_20261021/plan.json` 是同一份 |
-| `plan_20261021_r3.json` | 第三轮 | 第三轮（27 组）的采集计划，**由 `scripts/slm/build_hw_sweep_plan.py` 生成**（不是手写） |
+| `plan_20261022.json` | 第三轮 | 第三轮（27 组）的采集计划，**由 `scripts/slm/build_hw_sweep_plan.py` 生成**（不是手写） |
 
 每个组目录里是三件套：`measurements.json` / `measurements.csv` / `run_config.json`；
 泽尼克阶数组里是 `summary.json` / `spgd_nmax*.csv`，外加 `before_nmax*.png` / `after_nmax*.png` ——
@@ -51,11 +51,11 @@
 
 ## 第三轮的采集计划是**脚本生成**的
 
-`plan_20261021_r3.json`（27 组）由 `scripts/slm/build_hw_sweep_plan.py` 生成，
+`plan_20261022.json`（27 组）由 `scripts/slm/build_hw_sweep_plan.py` 生成，
 不是手写。它与第二轮那份手写计划的三处差异：
 
-- **新数据根**：分组根 `data/debug/hw_groups_20261021_r3/`、泽尼克扫描根
-  `data/debug/hw_zernike_sweep_20261021_r3/`。第二轮与上一轮共用旧根，
+- **新数据根**：分组根 `data/debug/hw_groups_20261022/`、泽尼克扫描根
+  `data/debug/hw_zernike_sweep_20261022/`。第二轮与上一轮共用旧根，
   于是第三轮的离焦/远场组把第二轮那 11 个组的 `measurements.json` 顶掉了
   （见上文「已被第三轮的失败尝试覆盖」一节）。
 - **块数 6 → 7**：每块墙钟预算 540 s，实测一块只跑出 ~39 轮（请求 45 轮），
@@ -69,7 +69,7 @@
 
 ```bash
 python scripts/slm/build_hw_sweep_plan.py \
-    --out report/shape_trials/hw_defocus_zernike/artifacts/plan_20261021_r3.json
+    --out report/shape_trials/hw_defocus_zernike/artifacts/plan_20261022.json
 ```
 
 ## 不在库里的东西

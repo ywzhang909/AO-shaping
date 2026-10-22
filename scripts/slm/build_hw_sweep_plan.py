@@ -58,7 +58,7 @@
 
     # 跑它 (驱动会逐组开独立子进程)
     python scripts/slm/run_hw_sweep_groups.py \\
-        --plan data/debug/hw_groups_20261021_r3/plan.json --dry-run
+        --plan data/debug/hw_groups_20261022/plan.json --dry-run
 """
 
 from __future__ import annotations
@@ -80,10 +80,10 @@ if str(ROOT) not in sys.path:
 # ---------------------------------------------------------------------------
 # 默认值 (模块级常量 —— 每一项都能被命令行覆盖)
 # ---------------------------------------------------------------------------
-DEFAULT_GROUPS_ROOT = "data/debug/hw_groups_20261021_r3"
+DEFAULT_GROUPS_ROOT = "data/debug/hw_groups_20261022"
 """本轮**分组**根目录 (离焦/远场组与焦面标定证据落在这里)。"""
 
-DEFAULT_SWEEP_ROOT = "data/debug/hw_zernike_sweep_20261021_r3"
+DEFAULT_SWEEP_ROOT = "data/debug/hw_zernike_sweep_20261022"
 """本轮**泽尼克扫描**根目录 (Stage A / 逐阶组落在这里, 相位文件也从这里读)。"""
 
 DEFAULT_DEFOCUS_FOCAL_MM = 1523.8
@@ -569,7 +569,7 @@ def farfield_group(cfg: PlanConfig, n_max: int) -> dict[str, Any]:
 def plan_comment(cfg: PlanConfig) -> str:
     """计划顶层的说明: 这一轮与上一轮差在哪, 为什么。"""
     return (
-        f"第三轮 (2026-10-21) 的采集计划, 由 scripts/slm/build_hw_sweep_plan.py "
+        f"第三轮 (2026-10-22) 的采集计划, 由 scripts/slm/build_hw_sweep_plan.py "
         f"生成。**新数据根**: 分组根 {cfg.groups_root} / 泽尼克扫描根 "
         f"{cfg.sweep_root} —— 上一轮与第二轮共用旧根, 于是第三轮的离焦/远场组把"
         f"第二轮那 11 个组的 measurements.json 覆盖了, 第二轮报告里的这些数字在"
