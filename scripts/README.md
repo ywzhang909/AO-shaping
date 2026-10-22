@@ -4195,4 +4195,27 @@ trajectory rather than a re-simulation of something else.
 python scripts/slm/render_differentiable_opt_animation.py \
     --run-dir data/debug/differentiable_opt/<stamp>
 ```
+### mine_history_model_bias.py
+
+Mines the **archived** hardware runs for `phase -> measured far field` pairs,
+fits the forward model's **systematic** error offline (focal scale, pupil
+centre, gain, plus the GRAPHYCS-style travel scale), and validates the result
+on data that was never used for the fit.
+
+**Why it exists**: the loss audit showed the closed loop is limited by a model
+mismatch, so the question "can the history replace the hardware acquisitions?"
+needs an answer with numbers. The answer is: **yes for the focal/scale class,
+no for the position class** - the residual centroid offset is a per-session
+optical-axis zero drift and has to be confirmed on site, every session.
+
+**Usage:**
+```bash
+python scripts/slm/mine_history_model_bias.py --out-dir logs/history_model_bias
+```
+
+The run writes `pairs.json` (every pair with its session, exposure, the affine
+normalisation actually used, and the grid convention), `fit.json` (the fitted
+error terms, the diagnostics that say which class dominates, and the per-session
+calibration), `validation.json` (before/after on the held-out sets) and
+`summary.md`.
 
