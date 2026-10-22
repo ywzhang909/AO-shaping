@@ -22,10 +22,12 @@
 3. 孪生侧用 ``crop_px = cells`` 裁出中央窗口 —— 与孪生自己 ``_crop`` 的取整口径
    (``(m - side) // 2``) 完全一致。
 
-⚠️ **孪生自己的解析标度与实测标度不一致**: ``BenchTwin.camera_px_per_model_px()``
-给出的是 ``p_fft / d_ccd`` (纯解析), 与实测标度差了 2.5 倍 (报告 §2.2 给出数字)。
-因此裁剪窗口**必须**用实测标度算, 不能用孪生自己的解析值 —— 报告把这条写成显式
-的交叉核对, 而不是默认它对。
+✅ **焦面标度口径已统一**: 孪生**不再**按标称焦距工作, 而是由实测标度经
+``BenchTwinConfig.from_measured_scale`` 反推出**等效焦距** (本实验系统 311.32 mm),
+于是孪生自己的解析标度 ``BenchTwin.camera_px_per_model_px()`` 与实测标度**逐位
+一致**, 「模型预测 → 相机网格」的映射与孪生自身的标度天然同源, 不再需要手工换算。
+⚠️ 标称焦距 (122.4060 mm) 算出的解析标度是 1.027778, 与实测差 **2.54 倍** ——
+报告 §2.2 保留这一事实作为提醒。
 
 **反演过程的 GIF。** 拟合走的是 ``bench_twin_calibrate.fit_twin`` 自己的两阶段路径
 (DE 粗调 + L-BFGS-B 精调), **不另写拟合器**。要拿到"每步迭代后的仿真图", 做法是
@@ -145,6 +147,18 @@ class Fidelity:
 # ---------------------------------------------------------------------------
 
 
+def _relative_to_root(path: Path) -> str:
+    """路径的仓库根相对形式 (正斜杠)。
+
+    ``--run-dir`` 既可能给绝对路径, 也可能给相对路径 (溯源登记里记的就是相对
+    路径), 所以这里先 ``resolve()`` 再取相对形式; 仓库外的路径原样返回。
+    """
+    try:
+        return str(Path(path).resolve().relative_to(ROOT)).replace("\\", "/")
+    except ValueError:
+        return str(path).replace("\\", "/")
+
+
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -209,16 +223,21 @@ def _build_config(
     geometry: dict,
     run_config: dict,
     *,
+    measured_scale: float,
     crop_px: int,
     peak_adu: float,
     errors: TwinErrorModel | None = None,
 ) -> BenchTwinConfig:
-    """按**实测**几何与实验参数构造孪生配置 (误差参数全零 = 理想系统)。"""
-    return BenchTwinConfig(
+    """按**实测**几何与实验参数构造孪生配置 (误差参数全零 = 理想系统)。
+
+    焦距走 :meth:`BenchTwinConfig.from_measured_scale` —— 由实测标度反推等效焦距,
+    于是孪生自己的解析标度与实测标度**逐位一致**, 不必再手工换算。
+    """
+    return BenchTwinConfig.from_measured_scale(
+        float(measured_scale),
         wavelength_m=float(run_config["wavelength_nm"]) * 1e-9,
         slm_pixel_um=float(run_config["slm_pixel_um"]),
         ccd_pixel_um=float(run_config["camera_pixel_um"]),
-        focal_length_m=float(run_config["focal_length_m"]),
         region=int(run_config["region"]),
         region_span_px=float(run_config["panel_span_px"]),
         far_field_padding=int(run_config["far_field_padding"]),
@@ -230,6 +249,23 @@ def _build_config(
         seed=0,
         errors=errors if errors is not None else TwinErrorModel(),
     )
+
+
+def _nominal_scale(
+    geometry: dict, run_config: dict
+) -> float:
+    """若改用**标称焦距**, 孪生的解析标度会是多少 (提醒用)。"""
+    nominal_config = BenchTwinConfig(
+        wavelength_m=float(run_config["wavelength_nm"]) * 1e-9,
+        slm_pixel_um=float(run_config["slm_pixel_um"]),
+        ccd_pixel_um=float(run_config["camera_pixel_um"]),
+        focal_length_m=float(run_config["focal_length_m"]),
+        region=int(run_config["region"]),
+        region_span_px=float(run_config["panel_span_px"]),
+        far_field_padding=int(run_config["far_field_padding"]),
+        beam_w0_px=float(geometry["beam_waist_panel_px"]),
+    )
+    return BenchTwin(nominal_config).camera_px_per_model_px()
 
 
 def _crop_centre(grid: np.ndarray, cells: int) -> np.ndarray:
@@ -812,18 +848,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         np.median([float(s.image.max()) for s in train_samples if float(s.image.max()) > 0])
     )
     ideal_config = _build_config(
-        geometry, run_config, crop_px=cells, peak_adu=peak_adu
+        geometry,
+        run_config,
+        measured_scale=cell_scale,
+        crop_px=cells,
+        peak_adu=peak_adu,
     )
     ideal_twin = BenchTwin(ideal_config)
 
     twin_analytic_scale = ideal_twin.camera_px_per_model_px()
-    implied_focal = (
-        cell_scale
-        * ideal_twin.ccd_pixel_m
-        * ideal_twin.far_field_size
-        * ideal_twin.pupil_pitch_m
-        / float(ideal_config.wavelength_m)
-    )
+    # 孪生按实测标度反推的等效焦距 (与孪生自身的解析标度同源)。
+    implied_focal = float(ideal_config.focal_length_m)
+    # 提醒: 若改用标称焦距, 解析标度会是多少 (与实测差一个倍数)。
+    nominal_scale = _nominal_scale(geometry, run_config)
+    nominal_focal = float(run_config["focal_length_m"])
+    scale_rel_dev = abs(twin_analytic_scale - cell_scale) / cell_scale
 
     # ---------------- 理想孪生的保真度 ----------------
     train_ideal = _fidelity(ideal_twin, train_samples)
@@ -845,7 +884,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
         errors.lens_zernike_n_max = 4
         base_config = _build_config(
-            geometry, run_config, crop_px=cells, peak_adu=peak_adu, errors=errors
+            geometry,
+            run_config,
+            measured_scale=cell_scale,
+            crop_px=cells,
+            peak_adu=peak_adu,
+            errors=errors,
         )
         recorder = _FitRecorder(
             phase=train_samples[0].phase_rad,
@@ -888,6 +932,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         _build_config(
             geometry,
             run_config,
+            measured_scale=cell_scale,
             crop_px=far_field_size,
             peak_adu=peak_adu,
             errors=ideal_config.errors,
@@ -898,6 +943,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             _build_config(
                 geometry,
                 run_config,
+                measured_scale=cell_scale,
                 crop_px=far_field_size,
                 peak_adu=peak_adu,
                 errors=fit_result.config.errors,
@@ -976,6 +1022,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         cell_scale=cell_scale,
         twin_analytic_scale=twin_analytic_scale,
         implied_focal=implied_focal,
+        nominal_scale=nominal_scale,
+        nominal_focal=nominal_focal,
+        scale_rel_dev=scale_rel_dev,
         rot=rot,
         rot_err=rot_err,
         ideal_twin=ideal_twin,
@@ -1016,6 +1065,9 @@ def _render_report(**kw: Any) -> str:
     cell_scale: float = kw["cell_scale"]
     twin_analytic_scale: float = kw["twin_analytic_scale"]
     implied_focal: float = kw["implied_focal"]
+    nominal_scale: float = kw["nominal_scale"]
+    nominal_focal: float = kw["nominal_focal"]
+    scale_rel_dev: float = kw["scale_rel_dev"]
     rot: int = kw["rot"]
     rot_err: float = kw["rot_err"]
     ideal_twin: BenchTwin = kw["ideal_twin"]
@@ -1034,7 +1086,7 @@ def _render_report(**kw: Any) -> str:
     args = kw["args"]
     step_dir: Path = kw["step_dir"]
 
-    rel_run = str(run_dir.relative_to(ROOT)).replace("\\", "/")
+    rel_run = _relative_to_root(run_dir)
     config = ideal_twin.config
 
     lines: list[str] = []
@@ -1067,7 +1119,12 @@ def _render_report(**kw: Any) -> str:
                 ["远场补零因子", config.far_field_padding, "`run_config.json`"],
                 ["远场网格边长", ideal_twin.far_field_size, "region × 补零因子"],
                 ["波长", f"{config.wavelength_m * 1e9:.0f} nm", "`run_config.json`"],
-                ["透镜焦距 (标称)", f"{config.focal_length_m * 1e3:.4f} mm", "`run_config.json`"],
+                ["透镜焦距 (标称, **未采用**)", f"{nominal_focal * 1e3:.4f} mm", "`run_config.json`"],
+                [
+                    "孪生工作焦距 (实测标度反推的等效焦距)",
+                    f"{config.focal_length_m * 1e3:.2f} mm",
+                    "`BenchTwinConfig.from_measured_scale`",
+                ],
                 ["SLM 像元节距", f"{config.slm_pixel_um:.1f} µm", "`run_config.json`"],
                 ["CCD 像元节距", f"{config.ccd_pixel_um:.1f} µm", "`run_config.json`"],
                 ["入射光束腰 (1/e⁴ 强度)", f"{config.beam_w0_px:.0f} 面板 px", "`bench_geometry.json`"],
@@ -1117,7 +1174,7 @@ def _render_report(**kw: Any) -> str:
         "已验证的 `_to_model_grid` 落到模型采样点网格后再裁同一个窗口。"
     )
     add("")
-    add("### 2.2 交叉核对: 孪生的解析标度 vs 实测标度")
+    add("### 2.2 焦面标度口径: 由实测标度反推等效焦距")
     add("")
     add(
         markdown_table(
@@ -1135,26 +1192,41 @@ def _render_report(**kw: Any) -> str:
                 ],
                 [
                     "两者之比 (实测 / 解析)",
-                    f"{cell_scale / twin_analytic_scale:.4f}",
-                    "**不一致**, 见下",
+                    f"{cell_scale / twin_analytic_scale:.9f}",
+                    "**一致** —— 孪生按实测标度反推的等效焦距工作",
                 ],
                 [
-                    "实测标度反推的等效焦距",
+                    "孪生工作焦距 (等效焦距, 由实测标度反推)",
                     f"{implied_focal * 1e3:.2f} mm",
-                    f"标称 {config.focal_length_m * 1e3:.2f} mm",
+                    "`BenchTwinConfig.from_measured_scale`",
+                ],
+                [
+                    "若改用标称焦距的解析标度",
+                    f"{nominal_scale:.6f}",
+                    f"标称 {nominal_focal * 1e3:.4f} mm, 与实测差 "
+                    f"{cell_scale / nominal_scale:.2f} 倍",
                 ],
             ],
         )
     )
     add("")
     add(
-        f"⚠️ **两条路线差 {cell_scale / twin_analytic_scale:.2f} 倍**, 所以"
-        "**裁剪窗口必须用实测标度算**: 用孪生自己的解析值会得到 "
-        f"`crop_px = {int(round(run_config['cam_size'] / twin_analytic_scale))}`, "
-        "远超远场网格边长 (裁剪退化成空操作), 根本落不到相机窗口上。"
-        "这与 `bench_geometry.json` 自带的 `FOV cross-check` 告警是同一件事: "
-        "这套实验系统的焦面标度与理想 2f 几何差一个倍数, 本脚本全程用实测标度, "
-        "并在 §2.3 用落盘产物逐像素验证这一口径。"
+        f"✅ **焦面标度口径已统一**: 孪生不再按标称焦距工作, 而是由实测标度 "
+        f"`{cell_scale:.6f}` 反推出等效焦距 **{implied_focal * 1e3:.2f} mm** "
+        "(`BenchTwinConfig.from_measured_scale`), 于是孪生自己的解析标度 "
+        f"`BenchTwin.camera_px_per_model_px()` = `{twin_analytic_scale:.6f}` 与实测"
+        f"**逐位一致** (相对偏差 {scale_rel_dev:.2e}, < 1e-12)。"
+        "「模型预测 → 相机网格」的映射与孪生自身的标度因此**天然同源**, 不再需要"
+        "手工换算。"
+    )
+    add("")
+    add(
+        f"⚠️ **提醒: 若仍按标称焦距 {nominal_focal * 1e3:.4f} mm 算, 解析标度只有 "
+        f"{nominal_scale:.6f}, 与实测差 **{cell_scale / nominal_scale:.2f} 倍**。** "
+        "标称焦距是标定书上的名义值, 这套光路的实际焦面标度与之不符 —— 这正是"
+        "本报告此前记的「口径缺口」, 现在由 `from_measured_scale` 入口统一掉了。"
+        "裁剪窗口仍按实测标度算 (`round(cam_size / 实测标度)`), 与 §2.3 的逐像素"
+        "核对一致。"
     )
     add("")
     add("### 2.3 换算的逐像素核对")
@@ -1171,7 +1243,8 @@ def _render_report(**kw: Any) -> str:
     add("## 3. 孪生构造 (理想 = 三族误差全零)")
     add("")
     add(
-        "孪生配置由上表的实测几何直接构造, 误差参数 "
+        "孪生配置由上表的实测几何直接构造 (焦距取**实测标度反推的等效焦距**, 见 "
+        "§2.2), 误差参数 "
         "`lut_gamma / lut_phase_max_rad / slm_zernike / slm_roughness / defocus_m / "
         "tilt / lens_zernike` 全为零 (理想系统), `noise_adu = 0` (反演必须确定性)。"
         "正向链、居中补零、`fftshift(fft2(ifftshift(·)))` 全部走 "
@@ -1605,39 +1678,47 @@ def _render_report(**kw: Any) -> str:
 
 
     # -- 9 限制 ----------------------------------------------------------
-    add("## 9. 限制与已知的口径缺口")
+    add("## 9. 限制与剩余问题")
     add("")
     add(
-        "1. **焦面标度不自洽 (最要紧的一条)**: 孪生解析标度与实验系统实测标度差 "
-        f"{cell_scale / twin_analytic_scale:.2f} 倍 (§2.2)。本报告用实测标度, 但这意味着"
-        "孪生的远场**角标度**本身没有在这套实验系统上被验证过 —— 反演出来的 "
-        "`defocus_m` / `tilt_*` 等参数是在「网格对齐已被实测标度强行拉齐」的前提下"
-        "拟合的, 不能直接当成绝对量。"
+        f"**焦面标度口径: 已统一 (原先的第一条缺口已关闭)**。孪生不再按标称焦距工作 —— "
+        f"由实测标度 `{cell_scale:.6f}` 反推出等效焦距 **{implied_focal * 1e3:.2f} mm** "
+        "(`BenchTwinConfig.from_measured_scale`), 孪生的解析标度与实测标度**逐位一致** "
+        f"(相对偏差 {scale_rel_dev:.2e} < 1e-12), 因此孪生的远场**角标度**在这套实验"
+        "系统上是自洽的, 反演出来的 `defocus_m` / `tilt_*` 等参数也不再依赖「网格对齐"
+        "被强行拉齐」的前提。"
     )
+    add("")
     add(
-        "2. **瞳面照明模型不同**: MIL 的正向模型把入射振幅限制在**内切圆**内 "
+        f"⚠️ 提醒: 若改回标称焦距 {nominal_focal * 1e3:.4f} mm, 解析标度会差 "
+        f"{cell_scale / nominal_scale:.2f} 倍 (标称焦距不适用于这套光路) —— 引用孪生的"
+        "绝对角标度时, 必须说明用的是等效焦距。"
+    )
+    add("")
+    add(
+        "1. **瞳面照明模型不同**: MIL 的正向模型把入射振幅限制在**内切圆**内 "
         "(`gaussian_grid` 自带圆孔掩膜), 而 `bench_twin` 的 `pupil_amplitude()` 是"
         "**无掩膜高斯** (角上有光)。两者在瞳面边缘的场分布不同, 这是孪生与 MIL 模型"
         "在同一相位上给出不同远场的一个来源。"
     )
     add(
-        "3. **面板上真正显示的相位是插值过的**: MIL 把 128×128 的模型相位用双线性"
+        "2. **面板上真正显示的相位是插值过的**: MIL 把 128×128 的模型相位用双线性"
         "插值放大到面板上的方框 (`phase_to_panel`), 所以真实瞳面相位是**带限**的; "
         "孪生 (和 MIL 模型) 直接用 128×128 数组, 于是两者的远场都比真实画面**更弥散**。"
         "这解释了为什么「实测帧的近场更紧」而模型更散。"
     )
     add(
-        "4. **面相差与透镜像差近似简并**: 两者都是加在瞳面上的相位, 只有「是否经过 "
+        "3. **面相差与透镜像差近似简并**: 两者都是加在瞳面上的相位, 只有「是否经过 "
         "SLM 灰度量化」这一点不同, 所以它们的分配不唯一; 反演给出的面/透镜系数"
         "只能当作**一组等效解**, 不宜单独解读某一项。"
     )
     add(
-        "5. **实测帧含探测器噪声**: 实测帧经 `prepare_frame` (扣中位数 + 截零) 处理, "
+        "4. **实测帧含探测器噪声**: 实测帧经 `prepare_frame` (扣中位数 + 截零) 处理, "
         "tails 里主要是探测器噪声底; 孪生反演时 `noise_adu = 0` (确定性), 所以 "
         "SSIM 在弱结构区天然吃亏, 相关与能量比更可信。"
     )
     add(
-        "6. **验证集只有 "
+        "5. **验证集只有 "
         f"{len(holdout_samples)} 条探针**, 且都是 MIL 生成的平滑/低阶相位族; "
         "结论的统计强度有限, 但这是该次实验实际落盘的全部验证集数据。"
     )

@@ -59,9 +59,38 @@
 * ``p_fft = λ·f / (N_pad · pupil_pitch_m)``, 其中 ``pupil_pitch_m`` 是**瞳面采样
   网格的等效节距** (= ``region_span_px / region`` 个面板像元)。当
   ``region_span_px == region`` 时它退化为 SLM 像元节距本身。
+* ``N_pad = region · far_field_padding`` —— 补零后的远场网格边长, 也是 FFT 的
+  总点数。它**只由** ``region`` 与 ``far_field_padding`` 决定, 与
+  ``center_crop`` / ``crop_px`` **无关** (裁剪发生在 FFT 之后, 只截窗口, 不改标度)。
 * ``camera_px_per_model_px = p_fft / d_ccd`` —— 远场模型采样点 ↔ 相机像元的换算。
 * 居中裁剪沿用 ``ml/zernike/models.py::_centre_crop`` 的口径: 裁到
   ``region × region`` 个模型采样点 (可用 ``crop_px`` 覆盖), 以光学轴 (0 级) 为中心。
+
+两种焦面标度口径 (标称焦距 vs 实测标度)
+-----------------------------------------
+孪生的远场标度只通过焦距 ``f`` 进入, 所以「用哪个焦距」就是「用哪种标度口径」:
+
+1. **标称焦距口径** —— 直接取标定书上标称的透镜焦距 (本实验系统 122.4060 mm),
+   解析标度即 ``λ·f_nominal / (N_pad · pupil_pitch_m · d_ccd)``。
+2. **实测标度口径** —— 以实验系统**实测**的 ``camera_px_per_model_px`` 为权威,
+   由它反推**等效焦距**:
+
+   .. code-block:: text
+
+      f_eq = camera_px_per_model_px · d_ccd · N_pad · pupil_pitch_m / λ
+
+   把 ``focal_length_m = f_eq`` 交给孪生, 它的解析标度就与实测**逐位一致**。
+   入口: :func:`equivalent_focal_length_m` (纯函数) 与
+   :meth:`BenchTwinConfig.from_measured_scale` (直接给出一份配置)。
+
+🔴 **本实验系统应以实测标度为准** (2026-10-19 实测): 实测标度
+**2.614022** (相机像元/模型采样点, 相位斜坡扫描) ⇒ **等效焦距 311.32 mm**;
+按标称焦距 122.41 mm 算出的解析标度只有 1.027778, **差 2.54 倍**。标称焦距是
+标定书上的名义值, 这套光路的实际焦面标度与之不符 —— 凡是要与本实验系统实测对比的
+孪生, 都应当经 :meth:`BenchTwinConfig.from_measured_scale` 构造。
+⚠️ 反推出的 ``f_eq`` 是**等效焦距**: 它保证**角标度**与实测一致, 不代表这块透镜
+的真实焦距就是 311.32 mm (真实焦距与有效焦距之差来自焦面位置、瞳面到透镜的距离等,
+本模块不建模这些)。
 
 本模块是**纯仿真层**: 不 import 任何硬件驱动包, 不做任何设备 I/O, import 期无副作用。
 """
@@ -77,7 +106,117 @@ import numpy as np
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
-__all__ = ["TwinErrorModel", "BenchTwinConfig", "BenchTwin"]
+__all__ = [
+    "TwinErrorModel",
+    "BenchTwinConfig",
+    "BenchTwin",
+    "equivalent_focal_length_m",
+]
+
+
+# ---------------------------------------------------------------------------
+# 几何标度 (模块级纯函数 —— 孪生的属性与「实测标度 → 等效焦距」入口共用,
+# 保证 N_pad 与 pupil_pitch 的取法**逐位一致**)
+# ---------------------------------------------------------------------------
+
+
+def _as_int_at_least(name: str, value: Any, minimum: int) -> int:
+    """把一个值取成 ``>= minimum`` 的整数, 否则抛 :class:`ValueError`。"""
+    try:
+        out = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"{name} must be an integer >= {minimum}, got {value!r}"
+        ) from exc
+    if out < minimum:
+        raise ValueError(f"{name} must be >= {minimum}, got {value!r}")
+    return out
+
+
+def _far_field_size(region: int, far_field_padding: int) -> int:
+    """远场 (焦面) 网格边长 = ``region × far_field_padding``。
+
+    这是补零后 FFT 的总点数 ``N_pad``; **只**由 ``region`` 与
+    ``far_field_padding`` 决定, 与裁剪窗口无关。
+    """
+    return int(region) * max(1, int(far_field_padding))
+
+
+def _pupil_pitch_m(region_span_px: float, region: int, slm_pixel_um: float) -> float:
+    """瞳面采样网格的等效节距 (m) = ``region_span_px / region`` 个面板像元。
+
+    这是傅里叶变换真正看到的像元节距; ``region_span_px == region`` 时它就是
+    SLM 像元节距本身。
+    """
+    return float(region_span_px) / int(region) * (float(slm_pixel_um) * 1e-6)
+
+
+def equivalent_focal_length_m(
+    camera_px_per_model_px: float,
+    *,
+    wavelength_m: float,
+    slm_pixel_um: float,
+    ccd_pixel_um: float,
+    region: int,
+    region_span_px: float,
+    far_field_padding: int,
+) -> float:
+    """由**实测**焦面标度反推等效焦距 (m)。
+
+    孪生的远场标度只通过焦距进入 (``p_fft = λ·f / (N_pad · pupil_pitch_m)``,
+    ``camera_px_per_model_px = p_fft / d_ccd``), 于是把这两式消去 ``f`` 就得到
+
+    .. code-block:: text
+
+        f_eq = camera_px_per_model_px · d_ccd · N_pad · pupil_pitch_m / λ
+
+    其中 ``N_pad = region · far_field_padding`` (补零后的远场网格边长, 与裁剪
+    窗口无关), ``pupil_pitch_m = region_span_px / region`` 个 SLM 面板像元。
+    两者与 :class:`BenchTwin` 的 ``far_field_size`` / ``pupil_pitch_m`` 用的是
+    **同一对**模块级辅助函数, 所以往返必然自洽。
+
+    Args:
+        camera_px_per_model_px: 实测的「相机像元 / 模型采样点」标度 (正实数)。
+        wavelength_m: 工作波长 (m)。
+        slm_pixel_um: SLM 面板像元节距 (µm)。
+        ccd_pixel_um: 相机像元节距 (µm)。
+        region: 瞳面网格边长 (采样点数, ``>= 2``)。
+        region_span_px: 瞳面网格覆盖的 SLM 面板边长 (px)。
+        far_field_padding: 远场补零因子 (``>= 1``)。
+
+    Returns:
+        等效焦距 (m)。
+
+    Raises:
+        ValueError: 标度非正/非有限, 或几何量非法 (region < 2、补零因子 < 1、
+            波长/像元节距/覆盖边长非正)。
+    """
+    scale = float(camera_px_per_model_px)
+    if not math.isfinite(scale) or scale <= 0.0:
+        raise ValueError(
+            "camera_px_per_model_px must be a finite positive number "
+            f"(camera pixels per model sample), got {camera_px_per_model_px!r}"
+        )
+    lam = float(wavelength_m)
+    if not math.isfinite(lam) or lam <= 0.0:
+        raise ValueError(f"wavelength_m must be finite and > 0, got {wavelength_m!r}")
+    slm_um = float(slm_pixel_um)
+    if not math.isfinite(slm_um) or slm_um <= 0.0:
+        raise ValueError(f"slm_pixel_um must be finite and > 0, got {slm_pixel_um!r}")
+    ccd_um = float(ccd_pixel_um)
+    if not math.isfinite(ccd_um) or ccd_um <= 0.0:
+        raise ValueError(f"ccd_pixel_um must be finite and > 0, got {ccd_pixel_um!r}")
+    span = float(region_span_px)
+    if not math.isfinite(span) or span <= 0.0:
+        raise ValueError(
+            f"region_span_px must be finite and > 0, got {region_span_px!r}"
+        )
+    n_region = _as_int_at_least("region", region, 2)
+    padding = _as_int_at_least("far_field_padding", far_field_padding, 1)
+
+    n_pad = _far_field_size(n_region, padding)
+    pupil_pitch = _pupil_pitch_m(span, n_region, slm_um)
+    return scale * (ccd_um * 1e-6) * n_pad * pupil_pitch / lam
 
 
 @dataclass
@@ -127,7 +266,8 @@ class BenchTwinConfig:
         wavelength_m: 工作波长 (m)。
         slm_pixel_um: SLM 面板像元节距 (µm)。
         ccd_pixel_um: 相机像元节距 (µm)。
-        focal_length_m: 傅里叶透镜焦距 (m)。
+        focal_length_m: 傅里叶透镜焦距 (m); 也可以是由实测焦面标度反推的**等效焦距**
+            (见 :meth:`from_measured_scale`)。
         region: 瞳面网格边长 (采样点数)。
         region_span_px: 瞳面网格覆盖的 SLM 面板边长 (px)。
         far_field_padding: 远场补零因子 (默认 10 = hwdataset 标定过的内点最优)。
@@ -155,6 +295,89 @@ class BenchTwinConfig:
     noise_adu: float = 0.0
     seed: int = 0
     errors: TwinErrorModel = field(default_factory=TwinErrorModel)
+
+    @classmethod
+    def from_measured_scale(
+        cls,
+        camera_px_per_model_px: float,
+        *,
+        wavelength_m: float = 1064e-9,
+        slm_pixel_um: float = 8.0,
+        ccd_pixel_um: float = 2.2,
+        region: int = 128,
+        region_span_px: float = 900.0,
+        far_field_padding: int = 10,
+        beam_w0_px: float = 250.0,
+        center_crop: bool = True,
+        crop_px: int | None = None,
+        peak_adu: float = 100.0,
+        noise_adu: float = 0.0,
+        seed: int = 0,
+        errors: TwinErrorModel | None = None,
+    ) -> "BenchTwinConfig":
+        """由**实测**焦面标度构造配置: 焦距取反推出的等效焦距。
+
+        这是「实测标度口径」的入口: 传进来的 ``camera_px_per_model_px`` 被反推成
+        ``focal_length_m`` (见 :func:`equivalent_focal_length_m`), 于是
+
+        .. code-block:: text
+
+            BenchTwin(BenchTwinConfig.from_measured_scale(s, ...)).camera_px_per_model_px()
+            ≈ s
+
+        (相对偏差 < 1e-12)。未传实测标度时**不要**用本入口 —— 默认构造走的是
+        **标称焦距口径** (见模块 docstring 的「两种焦面标度口径」)。
+
+        ⚠️ 本实验系统 (2026-10-19 实测) 的实测标度是 **2.614022**, 反推出的等效
+        焦距 **311.32 mm**; 标称焦距 122.41 mm 会让解析标度差 **2.54 倍**。
+
+        Args:
+            camera_px_per_model_px: 实测的「相机像元 / 模型采样点」标度 (正实数)。
+            wavelength_m: 工作波长 (m)。
+            slm_pixel_um: SLM 面板像元节距 (µm)。
+            ccd_pixel_um: 相机像元节距 (µm)。
+            region: 瞳面网格边长 (采样点数)。
+            region_span_px: 瞳面网格覆盖的 SLM 面板边长 (px)。
+            far_field_padding: 远场补零因子。
+            beam_w0_px: 瞳面上高斯入射光束的 1/e² 强度半径 (面板 px)。
+            center_crop: 是否把远场裁到光学轴居中的方形窗口。
+            crop_px: 裁剪窗口边长 (模型采样点); ``None`` → ``region``。
+            peak_adu: 归一化后的峰值 ADU 标度。
+            noise_adu: 噪声幅度 (ADU); 0 = 完全确定性。
+            seed: 噪声 RNG 种子。
+            errors: 三族误差参数; ``None`` → 全零 (理想系统)。
+
+        Returns:
+            焦距为等效焦距的配置。
+
+        Raises:
+            ValueError: 实测标度非正/非有限, 或几何量非法。
+        """
+        focal = equivalent_focal_length_m(
+            camera_px_per_model_px,
+            wavelength_m=wavelength_m,
+            slm_pixel_um=slm_pixel_um,
+            ccd_pixel_um=ccd_pixel_um,
+            region=region,
+            region_span_px=region_span_px,
+            far_field_padding=far_field_padding,
+        )
+        return cls(
+            wavelength_m=float(wavelength_m),
+            slm_pixel_um=float(slm_pixel_um),
+            ccd_pixel_um=float(ccd_pixel_um),
+            focal_length_m=focal,
+            region=int(region),
+            region_span_px=float(region_span_px),
+            far_field_padding=int(far_field_padding),
+            beam_w0_px=float(beam_w0_px),
+            center_crop=bool(center_crop),
+            crop_px=None if crop_px is None else int(crop_px),
+            peak_adu=float(peak_adu),
+            noise_adu=float(noise_adu),
+            seed=int(seed),
+            errors=errors if errors is not None else TwinErrorModel(),
+        )
 
 
 class BenchTwin:
@@ -222,8 +445,12 @@ class BenchTwin:
 
     @property
     def far_field_size(self) -> int:
-        """远场 (焦面) 网格边长 = ``region * far_field_padding``。"""
-        return self.region * max(1, int(self.config.far_field_padding))
+        """远场 (焦面) 网格边长 = ``region * far_field_padding``。
+
+        这是补零后 FFT 的总点数 ``N_pad``; 与裁剪窗口 (``crop_px``) 无关 ——
+        裁剪发生在 FFT 之后, 只截窗口, 不改标度。
+        """
+        return _far_field_size(self.region, int(self.config.far_field_padding))
 
     @property
     def slm_pixel_m(self) -> float:
@@ -242,10 +469,10 @@ class BenchTwin:
         这是傅里叶变换真正看到的像元节距; ``region_span_px == region`` 时它就是
         SLM 像元节距本身。
         """
-        return (
-            float(self.config.region_span_px)
-            / self.region
-            * self.slm_pixel_m
+        return _pupil_pitch_m(
+            float(self.config.region_span_px),
+            self.region,
+            float(self.config.slm_pixel_um),
         )
 
     @property
