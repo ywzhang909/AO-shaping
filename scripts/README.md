@@ -1540,7 +1540,18 @@ Plan file:
 | `--dry-run` | off | print the plan and execute nothing |
 | `--print-plan` | off | dump the resolved plan as JSON and exit |
 | `--adopt-existing` | none | `GROUP DIR` pair: register an existing measurement directory as that group (repeatable). The directory must exist and contain `measurements.json` or `summary.json` |
-| `--timeout-s` | unlimited | per-group timeout in seconds |
+| `--timeout-s` | 600 | per-group hard timeout (s); on timeout the subprocess is killed and the group is recorded `status=timeout` |
+| `--max-group-seconds` | 600 | per-group wall-clock budget (s); over budget → `status=over_budget`, does **not** kill the group |
+| `--wait-until-idle` | 0 | before running, probe the device (opens one SLM+CCD then closes); if another process holds it, re-probe every `--wait-poll-s` until it frees; if still busy after `SECONDS`, error out |
+| `--wait-poll-s` | 15 | re-probe interval (s) while waiting for the device to free |
+| `--own-pid` | none | declare this PID as **ours** (repeatable); not counted as a busy-holder. Also settable via `AO_HW_OWN_PIDS` (comma-separated) |
+| `--resume` | off | resume: skip groups that already have output (registered as `adopted`, not re-run), run only the missing ones |
+
+`--device-probe-cmd`, `--probe-devices`, `--probe-slm-number`,
+`--probe-cam-id`, `--probe-cam-type`, `--probe-exposure-ms` are the device-probe
+internals: the built-in probe opens one SLM + CCD and closes them (always in
+memory mode), and `--probe-devices` probes once and exits (used internally by
+`--wait-until-idle`).
 
 `script` ending in `.py` is launched with the **current** interpreter
 (`sys.executable`); anything else is used as-is. The index is written to
