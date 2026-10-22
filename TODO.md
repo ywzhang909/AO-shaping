@@ -70,6 +70,7 @@
 | H-4 | §2 smoke test 结果区仍 `_待填_`（5 步，末尾须打印 `SMOKE_OK`） | [#21](https://github.com/ywzhang909/AO-shaping/issues/21) |
 | H-5 | §3 DM/WFS 实际 IP 与网段（上次 `192.168.0.101–126` 全段不可达） | [#22](https://github.com/ywzhang909/AO-shaping/issues/22) |
 | H-6 | `slm-gsnet spgd` 实验系统光路验证验收（0 阶 `argmax` / 框内能量与 CV / 产物落盘） | [#23](https://github.com/ywzhang909/AO-shaping/issues/23) |
+| H-34 | **GSNet 初值闭环的实验系统会话**（issue #165 的 P1 验收**第一次真实执行**；此前门 1 按 issue 原文会把所有真实整形相位挡下 ⇒ 验收条款从未真正跑过）。手册 `docs/slm/gsnet_hw_session.md`（表征 → 测耦合 → 反演孪生 → 导出相位 → 迁移学习 → 闭环 A/B，每步带命令/判据/回退）。三件**必须先做**的事：①**测灰度→振幅耦合** —— `c` 至今**没被测过**（仓库只有判据 `rel_spread > 0.15` ⇒ `c ≳ 0.075`，没有曲线），用 `validate_flat_phase_gray.py --cam-type daheng --scan --gray-step 25` 采**稠密**曲线（`slm-diagnose` 的调制检查只采 12 点，漏掉峰谷 ⇒ 只是**下界**）→ `fit_slm_amplitude_coupling.py`；②拟合孪生走**实测焦面标度**（2.614022 ⇒ 等效焦距 311.32 mm，与标称口径差 **2.54 倍**；`fit_bench_twin.py` 自动读 `preflight/geometry.json`）；③迁移学习必须 `--twin-config`（算子换成拟合孪生）+ `--freeze freeze-decoder`（实测最优：可训练 336,097，跨情形平均 Δ **+0.0191**）或 `freeze-encoder`（**86,065 = 模型的 21%**，Δ +0.0040）+ `--gate`（**默认配置会把网络弄坏**：6 情形 5 个变差，最差从 0.3401 掉到 0.2738、**低于平场 0.2911**；机制见 `report/gsnet_aberration_transfer/report.md`）。**不要**用全参数微调（Δ −0.0002，净负）。⚠️ `probes/` **只有实验系统模式才写** ⇒ 孪生拟合必须在实验系统上采到的运行目录上做 | [#165](https://github.com/ywzhang909/AO-shaping/issues/165) |
 
 ### 1.3 实验系统跑出的代码级问题（修完才能复测）
 
@@ -230,6 +231,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | F-11 | 🔴 **SLM 序列号三路冲突**：22030108 / 22030102 / 23020026 ⇒ 引用前必须确认并回写 `drivers/AGENTS.md` 硬件表 | [#58](https://github.com/ywzhang909/AO-shaping/issues/58) |
 | F-12 | 🔴 **焦面标定常数三方不一致**：`5021/Λ` / 7400–7600 / 主张 10954。⚠️ 2.2 µm 像元推得 ~7557 而非 10954 ⇒ **三方无一是已验证的** | [#59](https://github.com/ywzhang909/AO-shaping/issues/59) |
 | ~~F-14~~ | ✅ **已修**（2026-10-14）：**30 → 0 个 `F821`**，`ruff.toml` 的 `exclude = ["src/ml/**"]` 已删除。根因比原判断更严重 —— 不只是 `DataLoader`：`build_gan_models`（`ml.train` 3 处引用）**在全部提交历史里从未被定义过**；`build_model` 在 `40d65af` 删除后**接线被遗忘**（`_zernike_regression_removed` 定义了却零调用）；另有 `d1645486` 把 coeffs 模式整块误粘进了 `_train_phase_mode`。`ao-train`（`pyproject.toml` 注册的 console script）三条命令**全部**因 `NameError` 不可运行，且零测试覆盖。证据与守卫见 `tests/ao_shaping/ml/test_train_cli_runnable.py` | — 待开 issue（API 被网络拦截，无法从本机创建） |
+| F-16 | **issue #165 的实测指导评论尚未发布**：正文已写好并入库 [`docs/slm/gsnet_hw_session_issue_comment.md`](docs/slm/gsnet_hw_session_issue_comment.md)（含仿真侧三条结论、门 1 的来历与改法、六阶段实测表），但**本机 HTTPS 出口被网络策略拦截** —— `api.github.com` / `github.com` / `codeload.github.com` 全部 302 到 `1.1.1.3/disable/disable.htm?...禁止-ChatGPT访问`，只有 SSH 通 ⇒ `git push` 可用、GitHub API 不可用（token 无效）。在能连 API 的机器上执行：`gh issue comment 165 --repo ywzhang909/AO-shaping --body-file docs/slm/gsnet_hw_session_issue_comment.md`。评论内容已随分支 `feat/165-gsnet-2f-calib-sim` 推上远端 | [#165](https://github.com/ywzhang909/AO-shaping/issues/165)（**评论待发布**） |
 
 > **F-12 未定案前不要单独改 H-16 的 `K`** —— 否则只是把一个未验证的数从一处搬到另外两处。
 > **F-14 与 §8 的 R-63 互为前置**：F-14 是 R-63 第 4 步（放开 `src/ml/**`）必须先清掉的真实缺陷。
@@ -261,7 +263,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 批次 | 内容 |
 |---|---|
 | ~~第 1 批（纯收益，零行为风险）~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ 2026-10-03 → archive §5.1 |
-| **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K` |
+| **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K`。⇒ **F-16**（把 #165 的实测指导评论发出去：正文已入库 `docs/slm/gsnet_hw_session_issue_comment.md`，待在一台能连 GitHub API 的机器上 `gh issue comment`；纯离线，与硬件无关） |
 | ~~第 1.7 批 首项（lint 抑制层，纯离线，见 §8）~~ | ~~**F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）~~ ✅ 2026-10-14 |
 | **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（312 处无标注 `except Exception` + 111 处 `assert` 护栏；后者含硬件安全检查，`python -O` 下会消失，**应先于任何硬件复测处理**） |
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
@@ -270,7 +272,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **第 3.5 批（函数归属，2026-10-06 新增，见 §7）** | ~~**R-45**（#61）⇒ 误报，已结案~~ ⇒ **R-58**（#77，叶子层唯一的真违规）⇒ ~~**R-46**（#62 optimizer→tools，`gaussian_grid` 下沉 `utils/wavefront/beam_amplitude`）~~ ✅（`57ba939c`）⇒ ~~**R-47**（#63 面板几何下沉）~~ ✅（`78a9d3d7`）⇒ ~~**R-48**（#64 帧分析下沉）~~ ✅（`4d068c8f`）⇒ ~~**R-49**（#65 新建 `utils/math`）~~ ✅（`252d81e1`）⇒ **R-50**（#66 Zernike 第三套 API 层）🔴待决策 ⇒ ~~**R-51**（#67 重复收口）~~ ✅（`290ee51`，第三项 `power_bucket` 拆 R-59/#78）⇒ ~~**R-52**（#68 报告脚本参数化）~~ ✅（`3a5b23f`）⇒ ~~**R-53**（#69 `compute_metrics` 改名）~~ ✅（`3aece31`）⇒ ~~**R-54**（#70 runner 重复）~~ ✅（误报 not-planned）⇒ ~~**R-55**（#71 叶子层 matplotlib）~~ ✅ ⇒ **R-56**（#72 optimizer 内渲染面）🟡部分（item 42-45 pygame 状态机 + 47-48 开放；~~无 `__main__` 守卫的 3 文件拆 R-61~~ ⇒ ~~**R-61**（#81）~~ ✅（误报：AST 复核证伪，3 文件均有 `__main__` 守卫 + 渲染 import 已函数局部，`test_rl_no_module_rendering_import.py` 钉死））。**X-4**（#74 死分叉单向移植 ~80 LOC）待做；**F-13**（#73）已结案 |
 | **第 4 批（内部重构，需先补特征测试）** | **R-19**（#49，父项）⇒ **R-5 / R-6 / R-7 / R-8**（#42–#45）；**R-14**（#47，需先做产品决策）；**R-13**（#46）；~~**R-44**（#54）~~ ✅（`7284dc1f` 已修，见 §2.2）；**R-18**（#48，接入已有实现或删注释） |
 | **纯离线但要实验系统数据** | ~~**F-4**~~ ✅ 已决策（#55，2026-10-14：保留 `src/ml/` 不迁移）；**F-5**（#56，先切片）；~~**H-23**~~ ✅（`8a756060` 已实施，`Closes` #40）；~~**X-2**（#60，加误报标记）~~ ✅（`f4b9afee` 已加代码标记） |
-| **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.`55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有实验系统 `--debug` 产物。**H-33**（GS→Zernike→SPGD 阶数扫描）同样独立成轨：它的两个 P0 门（GS bake-off、噪声地板 σ）与上述任何一条都无依赖，但 **P0-1 若失败须先查 F-12 / H-16 的标定常数** —— 未定案前不要单独改 `K` |
+| **硬件轨道（并行，需设备在线）** | **H-7~H-13**（复测前必修）⇒ **H-19 + H-9 合并做**（ABBA 对消，`dec>0.`55` 且 `late_gain≥10%`）⇒ **H-14 复扫 δ** ⇒ **H-15 / H-16 / F-12**（曝光回读 + 标定常数）⇒ **H-1 / H-2** ⇒ **H-3~H-6**（FourierGSNet）⇒ **H-17 / H-18**。**H-20 / H-21 / H-22** 独立于上述轨道（合并回归 + `--delta` A/B），**H-24** 需先有实验系统 `--debug` 产物。**H-34**（GSNet 初值闭环的实验系统会话，issue #165 的 P1 验收第一次真实执行）也独立成轨：它只需设备在线，与上面任何一条都无依赖，但**自己那三步必须按序做**（先测灰度→振幅耦合 → 再反演孪生 → 才做迁移学习与闭环 A/B），手册 `docs/slm/gsnet_hw_session.md`。**H-33**（GS→Zernike→SPGD 阶数扫描）同样独立成轨：它的两个 P0 门（GS bake-off、噪声地板 σ）与上述任何一条都无依赖，但 **P0-1 若失败须先查 F-12 / H-16 的标定常数** —— 未定案前不要单独改 `K` |
 
 ---
 
