@@ -167,6 +167,7 @@ from ao_shaping.utils.slm.bench_constants import (
     SLM_PITCH_M,
     TILT_SHIFT_SCALE,
 )
+from scripts._common import fmt_general
 from scripts._common.provenance import insert_header
 from scripts.slm.hw_gs_defocus_probe import guarded
 
@@ -863,17 +864,6 @@ def assert_no_drivers() -> None:
 # ---------------------------------------------------------------------------
 # 小工具
 # ---------------------------------------------------------------------------
-def _fmt(value: Any, digits: int = 3) -> str:
-    """把数字格式化成报告里的样子 (非有限值写 ``n/a``)。"""
-    try:
-        f = float(value)
-    except (TypeError, ValueError):
-        return str(value)
-    if not np.isfinite(f):
-        return "n/a"
-    return f"{f:.{digits}f}"
-
-
 def _mermaid_bar(
     title: str,
     categories: list[str],
@@ -1192,10 +1182,10 @@ def plot_model_vs_hardware(
         fig.colorbar(im, ax=ax, label=f"log10({label})")
     fig.suptitle(
         "模型 vs 硬件: "
-        f"相关 {_fmt(metrics.get('intensity_correlation'))}, "
-        f"峰值偏移 {_fmt((metrics.get('peak_offset_samples') or [0, 0])[0], 2)}/"
-        f"{_fmt((metrics.get('peak_offset_samples') or [0, 0])[1], 2)} 采样, "
-        f"类 Strehl {_fmt(metrics.get('strehl_like_peak_ratio'))}"
+        f"相关 {fmt_general(metrics.get('intensity_correlation'), '.3f', missing_nonfinite='n/a')}, "
+        f"峰值偏移 {fmt_general((metrics.get('peak_offset_samples') or [0, 0])[0], '.2f', missing_nonfinite='n/a')}/"
+        f"{fmt_general((metrics.get('peak_offset_samples') or [0, 0])[1], '.2f', missing_nonfinite='n/a')} 采样, "
+        f"类 Strehl {fmt_general(metrics.get('strehl_like_peak_ratio'), '.3f', missing_nonfinite='n/a')}"
     )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1408,10 +1398,10 @@ def plot_spot_cross_section(
     offset = metrics.get("peak_offset_samples") or [0, 0]
     fig.suptitle(
         "光斑截面: 模型 vs 硬件 · "
-        f"相关 {_fmt(metrics.get('intensity_correlation'))}, "
+        f"相关 {fmt_general(metrics.get('intensity_correlation'), '.3f', missing_nonfinite='n/a')}, "
         f"峰值偏移 {offset[0]}/{offset[1]} 采样, "
-        f"模型 FWHM {_fmt(metrics.get('model_fwhm_px'), 2)} / "
-        f"实测 FWHM {_fmt(metrics.get('measured_fwhm_px'), 2)}"
+        f"模型 FWHM {fmt_general(metrics.get('model_fwhm_px'), '.2f', missing_nonfinite='n/a')} / "
+        f"实测 FWHM {fmt_general(metrics.get('measured_fwhm_px'), '.2f', missing_nonfinite='n/a')}"
     )
     fig.tight_layout()
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1552,15 +1542,15 @@ def write_report(
     param_rows = "\n".join(f"| `{k}` | {v} |" for k, v in sorted(params.items()))
 
     hist_rows = "\n".join(
-        f"| {int(row['iteration'])} | {_fmt(row['loss'], 6)} | {_fmt(row['grad_norm'], 4)} | "
-        f"{_fmt(row['phase_rms_rad'], 4)} |"
+        f"| {int(row['iteration'])} | {fmt_general(row['loss'], '.6f', missing_nonfinite='n/a')} | {fmt_general(row['grad_norm'], '.4f', missing_nonfinite='n/a')} | "
+        f"{fmt_general(row['phase_rms_rad'], '.4f', missing_nonfinite='n/a')} |"
         for row in history[:: max(1, len(history) // 12)]
     )
 
     hw_rows = "\n".join(
-        f"| {int(row['iteration'])} | {_fmt(row['loss'], 6)} | {_fmt(row['grad_norm'], 4)} | "
-        f"{_fmt(row['phase_rms_rad'], 4)} | {_fmt(row.get('measured_peak'), 1)} | "
-        f"{_fmt(row.get('exposure_ms'), 3)} |"
+        f"| {int(row['iteration'])} | {fmt_general(row['loss'], '.6f', missing_nonfinite='n/a')} | {fmt_general(row['grad_norm'], '.4f', missing_nonfinite='n/a')} | "
+        f"{fmt_general(row['phase_rms_rad'], '.4f', missing_nonfinite='n/a')} | {fmt_general(row.get('measured_peak'), '.1f', missing_nonfinite='n/a')} | "
+        f"{fmt_general(row.get('exposure_ms'), '.3f', missing_nonfinite='n/a')} |"
         for row in hw_history
     )
 
@@ -1598,7 +1588,7 @@ def write_report(
             f" (一次降了 {loss_drop_first:.0f} %); 之后 {len(history) - 1} 次迭代"
             f"合计只再降 {loss_drop_rest:.2f} %, 停在 {loss_last:.6g}"
         )
-        phase_rms_last = _fmt(hist_sample[-1]["phase_rms_rad"], 4)
+        phase_rms_last = fmt_general(hist_sample[-1]["phase_rms_rad"], '.4f', missing_nonfinite='n/a')
     else:
         loss_text = "本轮没有迭代记录"
         phase_rms_last = "n/a"
@@ -1703,9 +1693,9 @@ def write_report(
 | 粗扫 | {focus.get("coarse_points")} 点, 1/f 半宽 {focus.get("diopter_range")} m⁻¹ |
 | 细扫 | {focus.get("refine_points")} 点 |
 | 门限 (FWHM) | {focus.get("fwhm_threshold_ccd_px")} CCD px |
-| 最佳 1/f | {_fmt(focus.get("best_diopter_m1"))} m⁻¹ |
-| 最佳焦距 | {_fmt(focus.get("best_focal_mm"), 1)} mm |
-| 最佳点 FWHM | {_fmt(focus.get("best_fwhm_px"), 2)} CCD px |
+| 最佳 1/f | {fmt_general(focus.get("best_diopter_m1"), '.3f', missing_nonfinite='n/a')} m⁻¹ |
+| 最佳焦距 | {fmt_general(focus.get("best_focal_mm"), '.1f', missing_nonfinite='n/a')} mm |
+| 最佳点 FWHM | {fmt_general(focus.get("best_fwhm_px"), '.2f', missing_nonfinite='n/a')} CCD px |
 | 判定 | **{focus.get("verdict", "n/a")}** |
 
 失败时的处置:
@@ -1744,13 +1734,13 @@ def write_report(
 | 瞳面块中心下标 | {model.get("block_centre_index")} (块的几何中心, 半整数 ⇒ 面板↔模型对位的锚点) |
 | 直流格 (零级) | M//2 = {model.get("centre_index")} (fftshift 后的零频所在格, 目标就建在这里) |
 | 源面振幅 | 高斯 w0 = {model.get("w0_panel_px")} 面板像元 × 硬口径 {model.get("pupil_radius_samples")} 样本 |
-| 远场采样间距 | {_fmt(model.get("far_field_sample_ccd_px"), 4)} CCD px (= K/(M·dp)) |
-| 远场阵列覆盖 | {_fmt(model.get("far_field_span_ccd_px"), 1)} CCD px (= K/dp) |
+| 远场采样间距 | {fmt_general(model.get("far_field_sample_ccd_px"), '.4f', missing_nonfinite='n/a')} CCD px (= K/(M·dp)) |
+| 远场阵列覆盖 | {fmt_general(model.get("far_field_span_ccd_px"), '.1f', missing_nonfinite='n/a')} CCD px (= K/dp) |
 | 目标 | {model.get("target", {}).get("kind")} — {model.get("target", {}).get("note", "")} |
 
-**几何**: {geom.get("source", "n/a")}; K = (Kx+Ky)/2 = {_fmt(geom.get("k_mean"), 1)}
-CCD px/面板像元 (Kx = {_fmt(geom.get("kx"), 1)}, Ky = {_fmt(geom.get("ky"), 1)}),
-零级中心 (cy, cx) = {geom.get("centre_cycx")}, rotation = {_fmt(geom.get("rotation_deg"), 2)}°,
+**几何**: {geom.get("source", "n/a")}; K = (Kx+Ky)/2 = {fmt_general(geom.get("k_mean"), '.1f', missing_nonfinite='n/a')}
+CCD px/面板像元 (Kx = {fmt_general(geom.get("kx"), '.1f', missing_nonfinite='n/a')}, Ky = {fmt_general(geom.get("ky"), '.1f', missing_nonfinite='n/a')}),
+零级中心 (cy, cx) = {geom.get("centre_cycx")}, rotation = {fmt_general(geom.get("rotation_deg"), '.2f', missing_nonfinite='n/a')}°,
 mirror = {geom.get("mirror")}.
 
 ## 4. 优化历史 (纯模型)
@@ -1789,26 +1779,26 @@ mirror = {geom.get("mirror")}.
 | 项 | 值 |
 |---|---|
 | 口径对比择优 | {cmp_best.get("orientation_match", "n/a")} |
-| 强度相关系数 | {_fmt(cmp_best.get("intensity_correlation"))} |
+| 强度相关系数 | {fmt_general(cmp_best.get("intensity_correlation"), '.3f', missing_nonfinite='n/a')} |
 | 峰值偏移 (采样) | {cmp_best.get("peak_offset_samples")} |
-| 模型 FWHM (模型采样) | {_fmt(cmp_best.get("model_fwhm_px"), 2)} |
-| 实测 FWHM (模型采样) | {_fmt(cmp_best.get("measured_fwhm_px"), 2)} |
-| 远场采样间距 | {_fmt(model.get("far_field_sample_ccd_px"), 3)} CCD px / 采样 |
-| CCD 域光斑 FWHM (x / y / 合成) | {_fmt(cmp_best.get("ccd_fwhm_x_px"), 1)} / {_fmt(cmp_best.get("ccd_fwhm_y_px"), 1)} / {_fmt(cmp_best.get("ccd_fwhm_px"), 2)} px |
-| CCD 域光斑峰值 / 质心 | {_fmt(cmp_best.get("ccd_peak"), 1)} counts @ {cmp_best.get("ccd_centroid_xy")} px |
-| 模型的相对平场峰值比 | {_fmt(cmp_best.get("strehl_model"))} |
-| 硬件的相对平场峰值比 | {_fmt(cmp_best.get("strehl_hardware"))} |
-| 类 Strehl 比值 (硬件/模型) | {_fmt(cmp_best.get("strehl_like_peak_ratio"))} |
+| 模型 FWHM (模型采样) | {fmt_general(cmp_best.get("model_fwhm_px"), '.2f', missing_nonfinite='n/a')} |
+| 实测 FWHM (模型采样) | {fmt_general(cmp_best.get("measured_fwhm_px"), '.2f', missing_nonfinite='n/a')} |
+| 远场采样间距 | {fmt_general(model.get("far_field_sample_ccd_px"), '.3f', missing_nonfinite='n/a')} CCD px / 采样 |
+| CCD 域光斑 FWHM (x / y / 合成) | {fmt_general(cmp_best.get("ccd_fwhm_x_px"), '.1f', missing_nonfinite='n/a')} / {fmt_general(cmp_best.get("ccd_fwhm_y_px"), '.1f', missing_nonfinite='n/a')} / {fmt_general(cmp_best.get("ccd_fwhm_px"), '.2f', missing_nonfinite='n/a')} px |
+| CCD 域光斑峰值 / 质心 | {fmt_general(cmp_best.get("ccd_peak"), '.1f', missing_nonfinite='n/a')} counts @ {cmp_best.get("ccd_centroid_xy")} px |
+| 模型的相对平场峰值比 | {fmt_general(cmp_best.get("strehl_model"), '.3f', missing_nonfinite='n/a')} |
+| 硬件的相对平场峰值比 | {fmt_general(cmp_best.get("strehl_hardware"), '.3f', missing_nonfinite='n/a')} |
+| 类 Strehl 比值 (硬件/模型) | {fmt_general(cmp_best.get("strehl_like_peak_ratio"), '.3f', missing_nonfinite='n/a')} |
 | 曝光 (平场 / 优化后, ms) | {cmp_best.get("exposure_ms")} |
 
 > ⚠️ **表里有两套 FWHM, 单位不同, 不能混用**:
 > 「模型 FWHM / 实测 FWHM」量在**模型网格**上, 单位是**模型采样**
-> (每采样 {_fmt(model.get("far_field_sample_ccd_px"), 3)} CCD px) —— 描述的是**散斑**的
+> (每采样 {fmt_general(model.get("far_field_sample_ccd_px"), '.3f', missing_nonfinite='n/a')} CCD px) —— 描述的是**散斑**的
 > 半高宽; 「CCD 域光斑 FWHM」量在真实像元上, 描述的是**光斑本身**有多宽。
-> 本轮: 模型 {_fmt(cmp_best.get("model_fwhm_px"), 2)} 采样 ≈ {_fmt(model_fwhm_ccd, 1)} CCD px,
-> 实测散斑 {_fmt(cmp_best.get("measured_fwhm_px"), 2)} 采样 ≈ {_fmt(meas_fwhm_ccd, 1)} CCD px,
-> 而 CCD 域直接量的光斑是 {_fmt(cmp_best.get("ccd_fwhm_px"), 2)} px
-> (x 向 {_fmt(cmp_best.get("ccd_fwhm_x_px"), 1)} px / y 向 {_fmt(cmp_best.get("ccd_fwhm_y_px"), 1)} px —— **各向异性**)。
+> 本轮: 模型 {fmt_general(cmp_best.get("model_fwhm_px"), '.2f', missing_nonfinite='n/a')} 采样 ≈ {fmt_general(model_fwhm_ccd, '.1f', missing_nonfinite='n/a')} CCD px,
+> 实测散斑 {fmt_general(cmp_best.get("measured_fwhm_px"), '.2f', missing_nonfinite='n/a')} 采样 ≈ {fmt_general(meas_fwhm_ccd, '.1f', missing_nonfinite='n/a')} CCD px,
+> 而 CCD 域直接量的光斑是 {fmt_general(cmp_best.get("ccd_fwhm_px"), '.2f', missing_nonfinite='n/a')} px
+> (x 向 {fmt_general(cmp_best.get("ccd_fwhm_x_px"), '.1f', missing_nonfinite='n/a')} px / y 向 {fmt_general(cmp_best.get("ccd_fwhm_y_px"), '.1f', missing_nonfinite='n/a')} px —— **各向异性**)。
 > 三个数互不矛盾: 量的是三个不同的东西。
 
 ## 7. 测量锚定闭环
@@ -1852,8 +1842,8 @@ mirror = {geom.get("mirror")}.
 
 | 口径 | 模型 | 硬件 | 说明 |
 |---|---|---|---|
-| 光斑宽度 FWHM / px | {_fmt(cmp_best.get("model_fwhm_px"), 2)} | {_fmt(cmp_best.get("measured_fwhm_px"), 2)} | 硬件更宽：面板像元孔径、串扰、离焦都会加宽 |
-| 相对平场峰值比 | {_fmt(cmp_best.get("strehl_model"))} | {_fmt(cmp_best.get("strehl_hardware"))} | 硬件只保留模型峰值的类 Strehl 比值 {_fmt(cmp_best.get("strehl_like_peak_ratio"))} |
+| 光斑宽度 FWHM / px | {fmt_general(cmp_best.get("model_fwhm_px"), '.2f', missing_nonfinite='n/a')} | {fmt_general(cmp_best.get("measured_fwhm_px"), '.2f', missing_nonfinite='n/a')} | 硬件更宽：面板像元孔径、串扰、离焦都会加宽 |
+| 相对平场峰值比 | {fmt_general(cmp_best.get("strehl_model"), '.3f', missing_nonfinite='n/a')} | {fmt_general(cmp_best.get("strehl_hardware"), '.3f', missing_nonfinite='n/a')} | 硬件只保留模型峰值的类 Strehl 比值 {fmt_general(cmp_best.get("strehl_like_peak_ratio"), '.3f', missing_nonfinite='n/a')} |
 | 峰值位置 | — | 偏移 {cmp_best.get("peak_offset_samples")} 个远场采样 | 面板↔相机轴映射只能靠实测对比择优定 |
 
 * **读数**：硬件光斑比模型**更宽、峰值更低、位置有偏移**，三项同时出现。
@@ -2270,7 +2260,7 @@ def run_analyze_only(args: argparse.Namespace) -> int:
         logger.info(
             "离线重分析: 口径 {} | 相关系数 {} | 峰值偏移 {}",
             best_key,
-            _fmt(cmp_best.get("intensity_correlation")),
+            fmt_general(cmp_best.get("intensity_correlation"), '.3f', missing_nonfinite='n/a'),
             cmp_best.get("peak_offset_samples"),
         )
     else:
@@ -3119,7 +3109,7 @@ def _verdict_text(cmp_best: dict[str, Any]) -> str:
     corr = cmp_best.get("intensity_correlation")
     offset = cmp_best.get("peak_offset_samples") or [None, None]
     strehl = cmp_best.get("strehl_like_peak_ratio")
-    corr_txt = _fmt(corr)
+    corr_txt = fmt_general(corr, '.3f', missing_nonfinite='n/a')
     if corr is not None and np.isfinite(corr) and corr >= 0.8:
         verdict = "模型与硬件**高度一致** (强度相关系数 ≥ 0.8)"
     elif corr is not None and np.isfinite(corr) and corr >= 0.4:
@@ -3128,8 +3118,8 @@ def _verdict_text(cmp_best: dict[str, Any]) -> str:
         verdict = "模型与硬件**不一致** (强度相关系数 < 0.4)"
     return (
         f"{verdict}: 相关系数 {corr_txt}, 峰值偏移 "
-        f"{_fmt(offset[0], 2)}/{_fmt(offset[1], 2)} 个远场采样, "
-        f"类 Strehl 峰值比 {_fmt(strehl)}"
+        f"{fmt_general(offset[0], '.2f', missing_nonfinite='n/a')}/{fmt_general(offset[1], '.2f', missing_nonfinite='n/a')} 个远场采样, "
+        f"类 Strehl 峰值比 {fmt_general(strehl, '.3f', missing_nonfinite='n/a')}"
     )
 
 
@@ -3144,16 +3134,16 @@ def _conclusion_text(
     ]
     if history:
         lines.append(
-            f"* **纯模型侧的梯度有没有用**: 损失从 {_fmt(history[0]['loss'], 6)} 降到 "
-            f"{_fmt(history[-1]['loss'], 6)} (共 {len(history)} 次迭代), 说明 "
+            f"* **纯模型侧的梯度有没有用**: 损失从 {fmt_general(history[0]['loss'], '.6f', missing_nonfinite='n/a')} 降到 "
+            f"{fmt_general(history[-1]['loss'], '.6f', missing_nonfinite='n/a')} (共 {len(history)} 次迭代), 说明 "
             "autograd 给出的梯度方向是对的; 相位 RMS 从 "
-            f"{_fmt(history[0]['phase_rms_rad'], 4)} rad 变到 "
-            f"{_fmt(history[-1]['phase_rms_rad'], 4)} rad。"
+            f"{fmt_general(history[0]['phase_rms_rad'], '.4f', missing_nonfinite='n/a')} rad 变到 "
+            f"{fmt_general(history[-1]['phase_rms_rad'], '.4f', missing_nonfinite='n/a')} rad。"
         )
     if hw_history:
         lines.append(
-            f"* **测量锚定闭环**: 实测损失从 {_fmt(hw_history[0]['loss'], 6)} 变到 "
-            f"{_fmt(hw_history[-1]['loss'], 6)} (共 {len(hw_history)} 次)。"
+            f"* **测量锚定闭环**: 实测损失从 {fmt_general(hw_history[0]['loss'], '.6f', missing_nonfinite='n/a')} 变到 "
+            f"{fmt_general(hw_history[-1]['loss'], '.6f', missing_nonfinite='n/a')} (共 {len(hw_history)} 次)。"
             "这个数是**实测**图像处的损失, 不是模型自算的。"
         )
     lines.append(

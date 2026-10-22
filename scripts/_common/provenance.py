@@ -116,17 +116,6 @@ REPORTS: dict[str, ReportProvenance] = {
         "含 phasor 表示理由/unit_phasor/物理前向 FOV 分桶/损失/unit-vs-non-unit L1 下界实测",
     ),
     # -- beam shaping / benchmark suite -------------------------------------
-    "report/beam_shaping/papers/beam_shaping_papers.md": ReportProvenance(
-        script="scripts/slm/generate_beam_shaping_papers_report.py",
-        command="python scripts/slm/generate_beam_shaping_papers_report.py",
-        environment="离线",
-        note="文献方法在同一光学模型 + 同一 target 上的仿真对比",
-    ),
-    "report/beam_shaping/papers/literature_survey.md": ReportProvenance(
-        script=HANDWRITTEN,
-        environment="人工调研",
-        note="2026-09 文献调研，非生成产物",
-    ),
     "report/benchmarks/cython_optimizer_report/cython_optimizer_performance.md": ReportProvenance(
         script="scripts/dm/generate_cython_optimizer_report.py",
         command="python scripts/dm/generate_cython_optimizer_report.py",
@@ -428,18 +417,6 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="三种整形目标函数的排序一致性 (Spearman)",
     ),
-    "report/slm_pib_online/measure_shape_sensitivity/sensitivity.md": ReportProvenance(
-        script="scripts/slm/measure_shape_sensitivity.py",
-        command="python scripts/slm/measure_shape_sensitivity.py",
-        environment="硬件",
-        note="整形目标函数灵敏度 (噪声地板) 实测",
-    ),
-    "report/slm_pib_online_hw/shape_objective_comparison/objective_comparison.md": ReportProvenance(
-        script="scripts/slm/generate_shape_objective_comparison.py",
-        command="python scripts/slm/generate_shape_objective_comparison.py",
-        environment="离线",
-        note="实验系统帧上的目标函数排序对比",
-    ),
     "report/slm_pib_sim/slm_pib_sim_report/report.md": ReportProvenance(
         script="scripts/slm/generate_slm_pib_sim_report.py",
         command="python scripts/slm/generate_slm_pib_sim_report.py",
@@ -482,12 +459,6 @@ REPORTS: dict[str, ReportProvenance] = {
         script=HANDWRITTEN,
         environment="离线",
         note="传统 AO 仿真环境 reward 问题分析与解决",
-    ),
-    "report/models_analysis/models_report/tmp_sac_run_showcase.md": ReportProvenance(
-        script="scripts/rl/generate_models_report.py",
-        command="python scripts/rl/generate_models_report.py",
-        environment="离线",
-        note="临时调试 run 的成果展示",
     ),
     "report/zernike_phase2amp/zernike_amp_report/report.md": ReportProvenance(
         script="scripts/ml/generate_zernike_amp_report.py",
