@@ -74,6 +74,7 @@ from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
 from ao_shaping.utils.slm.bench_constants import BEAM_CENTER_PANEL, SLM_PITCH_M
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
+from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms
 
 #: Reused rather than reimplemented: median-subtract THEN clip. Clipping the raw
 #: frame would rectify symmetric read noise into a positive pedestal
@@ -670,6 +671,31 @@ class SlmModelInLoopConfig:
     n_calibration_probes: int = 8
     geometry_file: str | None = None
     """Optional independently measured sweep geometry JSON."""
+
+    error_params: str | None = None
+    """Optional calibration JSON holding the forward model's error terms.
+
+    The file may be a twin fit result (``tools/slm/bench_twin_calibrate.py``'s
+    ``save_fit`` output) or a plain :class:`ModelErrorTerms` dictionary; both
+    are read by
+    :func:`~ao_shaping.utils.wavefront.model_error_terms.load_error_terms`.
+    The error terms it carries (the SLM's LUT nonlinearity above all) are
+    applied by the forward model, so Step A's fit and Step B's synthesis see
+    the panel the way it really behaves instead of assuming "command phase =
+    actual phase".
+
+    ``None`` (default) keeps the ideal model, whose output is bit-for-bit the
+    one this path had before the error terms existed.
+    """
+
+    error_terms: ModelErrorTerms | None = None
+    """The resolved error terms, with THIS run's optical prescription attached.
+
+    Filled in by ``__post_init__`` from :attr:`error_params`; the geometry
+    (wavelength / focal length / far-field pitch) is taken from this run, not
+    from the calibration file, because the file was measured on whichever grid
+    its own run used.
+    """
     min_geometry_correlation: float = 0.5
     """Abort before shaping if the calibrated geometry scores below this.
 
@@ -941,6 +967,78 @@ class SlmModelInLoopConfig:
             )
         else:
             self._focal_length_pinned = True
+
+        # Resolve the error terms LAST: they need the focal length and the
+        # far-field grid, both of which are only known here.
+        self.error_terms = self._resolve_error_terms()
+
+    def _resolve_error_terms(self) -> ModelErrorTerms | None:
+        """Load the error terms and re-anchor them on this run's optics.
+
+        The calibration file carries the geometry of **its own** run (the
+        wavelength, the focal length and the far-field sample spacing). A
+        defocus in metres and a tilt in radians are only meaningful against a
+        specific prescription, so the geometry is replaced by this run's.
+
+        Returns:
+            The resolved error terms, or ``None`` when no file was given.
+
+        Raises:
+            ValueError: The file does not exist, cannot be read, or carries
+                error terms this run's optics cannot express.
+        """
+        if self.error_params is None:
+            # No file: keep whatever was handed in (normally ``None``, i.e.
+            # the ideal model). A manually supplied container survives a
+            # ``dataclasses.replace`` of the config.
+            return self.error_terms
+        source = Path(self.error_params)
+        if not source.is_file():
+            raise ValueError(f"error_params does not exist: {self.error_params!r}")
+        from ao_shaping.utils.wavefront.model_error_terms import load_error_terms
+
+        terms = load_error_terms(source)
+        far_field_size = int(self.region) * int(self.far_field_padding)
+        pupil_pitch_m = (
+            float(self.panel_span_px)
+            / float(self.region)
+            * float(self.slm_pixel_um)
+            * 1e-6
+        )
+        if pupil_pitch_m <= 0.0:
+            raise ValueError(
+                "the model grid's pupil pitch is not positive; check "
+                "panel_span_px / region / slm_pixel_um"
+            )
+        far_field_pitch_m = (
+            float(self.wavelength_nm) * 1e-9
+            * float(self.focal_length_m)
+            / (far_field_size * pupil_pitch_m)
+        )
+        terms = terms.with_optics(
+            wavelength_m=float(self.wavelength_nm) * 1e-9,
+            focal_length_m=float(self.focal_length_m),
+            far_field_pitch_m=far_field_pitch_m,
+        )
+        terms.validate_focal_geometry()
+        if self.cam_type == "sim":
+            logger.warning(
+                "error params are set on the simulated bench, whose far field "
+                "comes from the analytical bench model and carries no LUT "
+                "nonlinearity; the error terms will therefore make the forward "
+                "model disagree with the bench it is compared against"
+            )
+        logger.info(
+            "forward-model error terms from {}: gamma={:.4f} defocus={:.3e} m "
+            "tilt=({:.3e}, {:.3e}) rad (far-field pitch {:.4e} m)",
+            source,
+            float(terms.lut_gamma),
+            float(terms.camera_defocus_m),
+            float(terms.tilt_x_rad),
+            float(terms.tilt_y_rad),
+            far_field_pitch_m,
+        )
+        return terms
 
 
 @dataclass
@@ -2189,6 +2287,7 @@ def _make_optimizer(
         far_field_size=int(config.region) * int(config.far_field_padding),
         frozen_modes=tuple(config.frozen_modes),
         pupil_oversampling=int(config.pupil_oversampling),
+        error_terms=config.error_terms,
     )
     if source_amplitude is not None:
         optimizer.set_source_amplitude(source_amplitude)

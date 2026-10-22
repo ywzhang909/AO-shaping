@@ -4,13 +4,35 @@ One command answers three questions, each with an expectation that is written
 down before the hardware is touched:
 
 * **baseline_a** -- the holdout correlation gate is left where it was
-  (``0.5``). The run is expected to stop inside Step A with
-  ``holdout_forward_mismatch`` and to record **no** phase.
+  (``0.5``). The A arm is the **gate arm**: the threshold is not moved, so the
+  expectation is that the run is stopped -- by the holdout gate, or by the
+  bake-off against the flat baseline. It is *not* expected to produce a
+  shaping score.
 * **baseline_b** -- the gate is forced open (``--min-holdout-correlation 0``),
-  so Step B runs to completion and a phase is recorded.
+  so Step B runs to completion. The expectation is the real one: the shaped
+  phase's composite score must be **strictly greater** than the flat
+  baseline's. A completed run that lost the bake-off (``bake_off_rejected``)
+  has *not* met the expectation.
 * **large_1000`` / ``large_1600`` -- the same forced gate with a square target
   of 1000-1600 camera pixels. The camera window has to be at least as large as
   the target, otherwise the target box falls outside the readout.
+
+Shared geometry
+---------------
+The two arms must differ **only** in the gate under test, so they have to see
+the same bench geometry. Two runs of the automatic session calibration on this
+bench produced camera/model scales of 1.3043 and 2.6531 -- a factor of two --
+so letting each arm calibrate on its own would compare two different
+experiments. The campaign therefore measures the geometry **once**:
+
+* with ``--geometry-file`` the given (sweep) geometry is used by every arm;
+* otherwise the **first** model-in-loop arm runs the automatic session
+  calibration, and the geometry file it produced is copied to
+  ``<session>/bench_geometry.json`` and handed to every later arm.
+
+If the first arm produced no geometry file, the later arms fall back to their
+own session calibration and the manifest says so (a silent fallback would make
+the arms incomparable without anyone noticing).
 
 Every hardware stage is preceded by the light-level gate
 (``scripts/slm/diagnose_light_level.py``): without light there is nothing to
@@ -72,6 +94,7 @@ PROFILE_FIELDS = frozenset(
         "max_cv_regression", "min_geometry_correlation",
         "min_holdout_correlation", "max_cv", "min_ee", "min_iou",
         "panel_scan_max_flat_drift", "panel_scan_step_px",
+        "geometry_file", "error_params",
     }
 )
 
@@ -81,16 +104,26 @@ STAGE_ORDER = ("light", "baseline_a", "baseline_b", "large")
 #: The exposure words the runner accepts instead of a number of milliseconds.
 EXPOSURE_TOKENS = ("auto", "default")
 
+#: Name of the shared geometry file inside the campaign session directory.
+SHARED_GEOMETRY_NAME = "bench_geometry.json"
+
 #: What each stage is expected to show. Written into the manifest before the
 #: run, so a result can be compared against it afterwards.
 EXPECTED_TEXT = {
     "light": "verdict ok (light reaches the camera)",
     "baseline_a": (
-        "aborted_unidentifiable + holdout_forward_mismatch "
-        "(the holdout gate keeps the phase out)"
+        "A arm = the gate is left where it was; expected to be stopped -- by the "
+        "holdout gate or by the bake-off against the flat baseline -- not to "
+        "produce a shaping score"
     ),
-    "baseline_b": "completed + at least one accepted round + a recorded best phase",
-    "large": "completed + at least one accepted round + a recorded best phase",
+    "baseline_b": (
+        "completed + the shaped composite score strictly greater than the flat "
+        "baseline score"
+    ),
+    "large": (
+        "completed + the shaped composite score strictly greater than the flat "
+        "baseline score"
+    ),
 }
 
 
@@ -223,6 +256,26 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--max-cv-regression", type=float, default=0.02)
     parser.add_argument("--min-geometry-correlation", type=float, default=0.5)
     parser.add_argument(
+        "--geometry-file",
+        type=Path,
+        default=None,
+        help=(
+            "Measured sweep geometry JSON shared by EVERY arm. Passing it skips "
+            "each arm's automatic session calibration, so the arms differ only "
+            "in the gate under test. Without it the first arm measures the "
+            "geometry and the later arms reuse that file."
+        ),
+    )
+    parser.add_argument(
+        "--error-params",
+        type=Path,
+        default=None,
+        help=(
+            "Calibration JSON with the forward model's error terms (the SLM's "
+            "LUT nonlinearity gamma above all). Handed to every arm."
+        ),
+    )
+    parser.add_argument(
         "--panel-scan-max-flat-drift",
         type=float,
         default=0.02,
@@ -316,6 +369,8 @@ def build_profiles(args: argparse.Namespace) -> dict[str, dict]:
         "min_ee": args.min_ee,
         "min_iou": args.min_iou,
     }
+    if args.error_params is not None:
+        base["error_params"] = str(args.error_params)
     profiles: dict[str, dict] = {
         "baseline_a": {**base, "min_holdout_correlation": args.gate_holdout},
         "baseline_b": {**base, "min_holdout_correlation": args.forced_holdout},
@@ -332,6 +387,11 @@ def build_profiles(args: argparse.Namespace) -> dict[str, dict]:
             "min_holdout_correlation": args.forced_holdout,
         }
     for name, profile in profiles.items():
+        unknown = set(profile) - PROFILE_FIELDS
+        if unknown:
+            raise ValueError(
+                f"stage {name}: unknown profile fields {', '.join(sorted(unknown))}"
+            )
         _assert_window_fits_target(name, profile)
     return profiles
 
@@ -415,10 +475,22 @@ def with_output_root(command: list[str], root: Path) -> list[str]:
 
 
 def build_plan(args: argparse.Namespace, session_dir: Path) -> dict:
-    """Describe the whole campaign without touching a device."""
+    """Describe the whole campaign without touching a device.
+
+    The shared geometry is part of the plan: the first model-in-loop stage is
+    the **donor** (it runs the automatic session calibration and produces
+    ``bench_geometry.json``), and every later stage is handed that file. The
+    path is fixed up front (``<session>/bench_geometry.json``) so the plan can
+    be reviewed before anything runs, and so the manifest can point at one
+    stable artefact.
+    """
     profiles = build_profiles(args)
+    selected = select_stages(args.stage, profiles)
+    mil_stages = [name for name in selected if name != "light"]
+    donor = mil_stages[0] if mil_stages else None
+    shared_geometry = session_dir / SHARED_GEOMETRY_NAME
     stages: list[dict] = []
-    for name in select_stages(args.stage, profiles):
+    for name in selected:
         kind = stage_kind(name)
         if kind == "light":
             stages.append(
@@ -429,10 +501,21 @@ def build_plan(args: argparse.Namespace, session_dir: Path) -> dict:
                     "profile": None,
                     "command": build_light_command(args, session_dir / "light"),
                     "gate_command": None,
+                    "geometry_file": None,
+                    "geometry_donor": False,
                 }
             )
             continue
-        profile = profiles[name]
+        profile = dict(profiles[name])
+        geometry_file: str | None = None
+        if args.geometry_file is not None:
+            # An externally measured geometry is used by every arm, the donor
+            # included: there is nothing left for the donor to measure.
+            geometry_file = str(args.geometry_file)
+        elif name != donor:
+            geometry_file = str(shared_geometry)
+        if geometry_file is not None:
+            profile["geometry_file"] = geometry_file
         stage_dir = session_dir / name
         stages.append(
             {
@@ -446,11 +529,15 @@ def build_plan(args: argparse.Namespace, session_dir: Path) -> dict:
                     if args.skip_light_gate
                     else build_light_command(args, stage_dir / "light")
                 ),
+                "geometry_file": geometry_file,
+                "geometry_donor": name == donor and args.geometry_file is None,
             }
         )
     return {
         "session_dir": str(session_dir),
         "light_command": build_light_command(args, session_dir / "light"),
+        "shared_geometry": str(shared_geometry),
+        "geometry_donor": donor,
         "stages": stages,
     }
 
@@ -464,9 +551,15 @@ def render_plan(plan: dict) -> str:
         "light gate command (re-run in front of every model-in-loop stage):",
         f"  {subprocess.list2cmdline(plan['light_command'])}",
         "",
+        f"shared geometry: {plan['shared_geometry']}",
+        f"geometry donor (runs the automatic session calibration): "
+        f"{plan.get('geometry_donor') or '(none: an external --geometry-file was given)'}",
+        "",
     ]
     for stage in plan["stages"]:
         lines.append(f"[{stage['name']}] expectation: {stage['expected']}")
+        if stage.get("geometry_file"):
+            lines.append(f"  geometry file: {stage['geometry_file']}")
         if stage.get("profile") is not None:
             lines.append(
                 "  profile: "
@@ -737,6 +830,18 @@ def classify_stage(kind: str, exit_code: int | None, observed: dict) -> dict:
                     f"{mismatches} round(s) were rejected by the holdout gate; no phase was kept"
                 ],
             }
+        if status == "bake_off_rejected":
+            # The A arm is the *gate* arm: the threshold is not moved, so being
+            # stopped by the bake-off is an equally valid "held out" outcome.
+            return {
+                "outcome": "held_out_as_expected",
+                "expected": expected,
+                "expectation_met": True,
+                "notes": [
+                    "the shaped phase lost the bake-off against the flat baseline; "
+                    "no phase was kept"
+                ],
+            }
         notes.append(f"status={status}, holdout rejections={mismatches}")
         return {
             "outcome": "unexpected_outcome",
@@ -745,12 +850,39 @@ def classify_stage(kind: str, exit_code: int | None, observed: dict) -> dict:
             "notes": notes,
         }
 
-    if status == "completed" and accepted and observed.get("best_phase_file"):
+    # The shaping arms (B and the large-area arms) are judged by the REAL
+    # criterion: the shaped composite score must be strictly greater than the
+    # flat baseline's. A run that completed but lost the bake-off
+    # (``bake_off_rejected``) has NOT met the expectation -- the old rule
+    # ("completed + an accepted round + a best phase file") counted it as a
+    # pass, which is exactly the misjudgement this criterion removes.
+    flat_score = observed.get("flat_score")
+    best_score = observed.get("best_score")
+    beat_flat = (
+        flat_score is not None
+        and best_score is not None
+        and float(best_score) > float(flat_score)
+    )
+    if status == "completed" and beat_flat and observed.get("best_phase_file"):
         return {
             "outcome": "completed_as_expected",
             "expected": expected,
             "expectation_met": True,
-            "notes": [f"{accepted} accepted round(s), a best phase was recorded"],
+            "notes": [
+                f"{accepted} accepted round(s); the shaped score {best_score:.4f} "
+                f"beats the flat baseline {flat_score:.4f}"
+            ],
+        }
+    if status == "bake_off_rejected" or (status == "completed" and not beat_flat):
+        notes.append(
+            f"status={status}, shaped score {best_score} against the flat "
+            f"baseline {flat_score} -- shaping did not beat flat"
+        )
+        return {
+            "outcome": "shaping_did_not_beat_flat",
+            "expected": expected,
+            "expectation_met": False,
+            "notes": notes,
         }
     notes.append(
         f"status={status}, accepted rounds={accepted}, "
@@ -958,6 +1090,30 @@ def write_handoff_summary(run_dir: Path | None, args: argparse.Namespace) -> tup
     return summary.get("verdict"), None
 
 
+def find_stage_geometry(run_dir: Path | None) -> Path | None:
+    """The geometry file a model-in-loop stage produced, if any.
+
+    The automatic session calibration writes the runbook's artefact under
+    ``session_geometry/``; the runner's own saver copies it next to the run.
+    Both are looked for, the session one first (it exists even when the run
+    later aborts, which is exactly when the geometry is most valuable).
+
+    Args:
+        run_dir: The stage's run directory, or ``None``.
+
+    Returns:
+        The geometry file's path, or ``None`` when the stage produced none.
+    """
+    if run_dir is None:
+        return None
+    root = Path(run_dir)
+    for relative in ("session_geometry/bench_geometry.json", "bench_geometry.json"):
+        candidate = root / relative
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 def run_mil_stage(
     args: argparse.Namespace, stage: dict, stage_dir: Path
 ) -> dict:
@@ -1012,6 +1168,9 @@ def run_mil_stage(
         "observed": observed,
         "log_file": str(log_path),
         "notes": notes,
+        "geometry_file": stage.get("geometry_file"),
+        "geometry_donor": bool(stage.get("geometry_donor")),
+        "geometry_fallback": bool(stage.get("geometry_fallback")),
     }
 
 
@@ -1089,6 +1248,9 @@ def blocked_stage_record(stage: dict, gate: dict) -> dict:
         "notes": [
             f"the light gate reported {gate['state']} -- the stage was not executed",
         ],
+        "geometry_file": stage.get("geometry_file"),
+        "geometry_donor": bool(stage.get("geometry_donor")),
+        "geometry_fallback": bool(stage.get("geometry_fallback")),
     }
 
 
@@ -1210,6 +1372,7 @@ def main(argv: list[str] | None = None) -> int:
     session_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(args, session_dir)
     campaign_state = "completed"
+    shared_geometry = Path(plan["shared_geometry"])
 
     for stage in plan["stages"]:
         kind = stage["kind"]
@@ -1229,6 +1392,20 @@ def main(argv: list[str] | None = None) -> int:
             continue
 
         stage_dir = session_dir / stage["name"]
+        if not stage.get("geometry_donor") and stage.get("geometry_file"):
+            # The shared geometry is only usable once it exists. If the donor
+            # produced none, this arm falls back to its own session
+            # calibration -- and says so, because two arms that each calibrated
+            # on their own are not comparable.
+            if not Path(stage["geometry_file"]).is_file():
+                profile = dict(stage["profile"])
+                profile.pop("geometry_file", None)
+                stage["profile"] = profile
+                stage["command"] = with_output_root(
+                    build_command(profile), stage_dir
+                )
+                stage["geometry_file"] = None
+                stage["geometry_fallback"] = True
         if not args.skip_light_gate:
             gate = run_light_gate(args, stage_dir / "light", stage_dir / "light.log")
             allowed = gate["state"] == "ok" or (
@@ -1248,6 +1425,22 @@ def main(argv: list[str] | None = None) -> int:
             f"met={record['expectation_met']} exit={record['exit_code']}",
             flush=True,
         )
+        if stage.get("geometry_donor"):
+            # Hand the donor's geometry to the later arms, so they differ from
+            # the donor only in the gate under test.
+            produced = find_stage_geometry(
+                (record.get("observed") or {}).get("run_dir")
+            )
+            if produced is None:
+                record["notes"].append(
+                    "the geometry donor produced no bench_geometry.json; the "
+                    "later arms fall back to their own session calibration"
+                )
+            else:
+                shutil.copy2(produced, shared_geometry)
+                record["notes"].append(
+                    f"shared geometry written to {shared_geometry}"
+                )
         if record["outcome"] == "preflight_rejected":
             campaign_state = "bench_outside_model"
             break
@@ -1256,6 +1449,8 @@ def main(argv: list[str] | None = None) -> int:
             break
 
     manifest["campaign_state"] = campaign_state
+    manifest["shared_geometry"] = str(shared_geometry)
+    manifest["shared_geometry_exists"] = shared_geometry.is_file()
     (session_dir / "manifest.json").write_text(
         json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )

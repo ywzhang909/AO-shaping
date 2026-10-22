@@ -55,12 +55,15 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+import math
+
 import numpy as np
 import numpy.typing as npt
 from loguru import logger
 from scipy import ndimage
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
+from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     calc_n_zernike_terms,
@@ -107,6 +110,192 @@ def _torch():
 def _numpy_dtype(dtype_name: str) -> Any:
     """把工作精度名称映射到对应的 numpy dtype。"""
     return np.float64 if dtype_name == "float64" else np.float32
+
+
+# ---------------------------------------------------------------------------
+# 误差项 (命令相位 → 实际相位 的 LUT 非线性 + 焦面装调误差)
+#
+# 这些函数是 MIL 正向模型的**唯一**误差实现: Step A 的预测 (拟合) 与
+# Step B 的合成都调用它们, 所以标定与合成同源。
+#
+# 作用位置 (与孪生 bench_twin 的正向链逐项对应):
+#   1. ``apply_lut_nonlinearity``  —— 瞳面相位**之前** (命令 → 实际相位)
+#   2. 倾斜                      —— 焦面复场上 (图样平移 f · tilt)
+#   3. 离焦                      —— 焦面复场上 (角谱传递函数), 在 |·|² 之前
+# ---------------------------------------------------------------------------
+
+
+def apply_lut_nonlinearity(
+    phase: torch.Tensor,
+    gamma: float,
+    phi_max_rad: float = 2.0 * math.pi,
+) -> torch.Tensor:
+    """命令相位 → 实际相位 (SLM 的 LUT 非线性)。
+
+    语义与孪生 :meth:`~ao_shaping.drivers.sim.bench_twin.BenchTwin.apply_lut`
+    一致: ``actual = phi_max · (wrap(cmd) / 2π) ** gamma``, 包裹用
+    ``torch.remainder`` (取值落在 ``[0, 2π)``)。
+
+    ``gamma == 1`` 时**原样返回**输入: 2π 周期器件上包裹不改变强度, 但会
+    改变最后几个比特, 而本模型引入误差项之前的输出必须一字节不差, 所以
+    恒等映射走的是「不包裹」的捷径。
+
+    **灰度量化在可微路径里省略**: 器件把相位量化到 10 bit 灰度 (2π = 993 级),
+    量化误差 ≤ 一个量化级 = ``2π/993 ≈ 6.3e-3 rad`` (硬件) 或
+    ``2π/1023 ≈ 6.1e-3 rad`` (孪生的 10 bit 默认)。它是**不可微**的阶梯
+    (取整), 放进拟合路径只会给梯度引入量化噪声; 而它对远场强度的相对影响
+    在光斑型图样上约为 ``2·σ_φ`` (σ_φ = 一个量化级 / √12), 即 1e-3 量级 ——
+    比 γ 本身带来的偏差小两个数量级, 所以把 γ 标准到 0.1 以内时它不再是
+    限制项。
+
+    Args:
+        phase: 命令相位张量 (raw 未包裹弧度)。
+        gamma: LUT 的 Gamma 指数 (``1`` = 理想线性)。
+        phi_max_rad: 满灰度对应的相位 (rad)。
+
+    Returns:
+        实际相位张量, 与输入同形同 dtype。
+    """
+    torch = _torch()
+    if float(gamma) == 1.0:
+        return phase
+    two_pi = 2.0 * math.pi
+    wrapped = torch.remainder(phase, two_pi)
+    return float(phi_max_rad) * (wrapped / two_pi) ** float(gamma)
+
+
+def apply_focal_defocus(
+    field: torch.Tensor,
+    defocus_m: float,
+    wavelength_m: float,
+    far_field_pitch_m: float,
+) -> torch.Tensor:
+    """相机离焦: 角谱传递函数作用在**焦面复场**上。
+
+    ``H = exp(i·k·Δz·sqrt(1 - (λf_x)² - (λf_y)²))``, 其中 ``f_x = m_x / (N·p)``
+    是焦面坐标的**共轭频率** (cycles/m, ``m_x`` 是整数频移索引); 倏逝分量
+    (``λf > 1``) 置 0, **不得出 NaN** —— 负的辐角先被夹到 0 再开方, 于是
+    ``exp`` 的那一支恒为 1, 由 ``where`` 选成 0。
+
+    该写法与「瞳面乘二次相位」**逐位等价** (焦面复场的频谱就是瞳面, 所以
+    离焦在频域就是给瞳面加二次相位)。⚠️ 因此它与 MIL 模型里的 **Noll 4
+    (离焦) 系数是同一个自由度**: 不要既加「面板 Zernike 离焦」又加「相机
+    离焦」去双重表达 (Step A 拟合出的系数会把它吸收掉)。
+
+    ``Δz == 0`` 是恒等 (逐位相同)。
+
+    Args:
+        field: 焦面复场 (以 ``fftshift`` 口径存放, 即光学轴在中心)。
+        defocus_m: 离焦量 (m, 正负皆可)。
+        wavelength_m: 工作波长 (m)。
+        far_field_pitch_m: 焦面采样间距 (m)。
+
+    Returns:
+        离焦后的焦面复场。
+    """
+    torch = _torch()
+    if float(defocus_m) == 0.0:
+        return field
+    size = int(field.shape[-1])
+    lam = float(wavelength_m)
+    k_wave = 2.0 * math.pi / lam
+    # ``dtype`` matters: ``torch.fft.fftfreq`` defaults to the *default* dtype
+    # (float32), and the transfer function's argument is ``1 - (λf)²`` — a
+    # float32 frequency grid perturbs that by ~1e-7, which is 3% of the whole
+    # (λf)² term and shows up as a visible change in the defocused spot.
+    freq = torch.fft.fftfreq(size, dtype=field.real.dtype) / float(
+        far_field_pitch_m
+    )  # cycles/m
+    arg = 1.0 - (lam * freq[None, :]) ** 2 - (lam * freq[:, None]) ** 2
+    propagating = arg > 0.0
+    safe_arg = torch.clamp(arg, min=0.0)
+    transfer = torch.where(
+        propagating,
+        torch.exp(1j * k_wave * float(defocus_m) * torch.sqrt(safe_arg)),
+        torch.zeros_like(arg, dtype=torch.complex128),
+    )
+    un = torch.fft.ifftshift(field)
+    propagated = torch.fft.ifft2(
+        torch.fft.fft2(un, norm="ortho") * transfer.to(field.dtype), norm="ortho"
+    )
+    return torch.fft.fftshift(propagated)
+
+
+def apply_focal_tilt(
+    field: torch.Tensor,
+    tilt_x_rad: float,
+    tilt_y_rad: float,
+    focal_length_m: float,
+    far_field_pitch_m: float,
+) -> torch.Tensor:
+    """光路倾斜: 焦面图样平移 ``f · tilt``。
+
+    物理上, 光路倾斜 = 入射波相对透镜倾斜, 其**精确**效果是把远场图样平移
+    ``f · tilt``。本实现用傅里叶移位精确完成该平移, 与孪生
+    :meth:`~ao_shaping.drivers.sim.bench_twin.BenchTwin.apply_tilt` 逐位一致。
+
+    ⚠️ **实现方向**: 「在焦面上乘一个线性相位」**不是**等价写法 —— 按位移
+    定理它等价于**平移瞳面**, 远场强度完全不变 (孪生实测 0 级光斑不动)。
+    要让远场图样平移, 可以在**瞳面**加线性相位斜坡 (等价), 也可以像这里
+    一样直接在焦面上做精确平移。本实现选后者, 因为它与孪生的数值结果
+    逐位对齐 (孪生也用焦面平移)。
+
+    Args:
+        field: 焦面复场 (以 ``fftshift`` 口径存放)。
+        tilt_x_rad: x 方向的倾斜 (rad)。
+        tilt_y_rad: y 方向的倾斜 (rad)。
+        focal_length_m: 2f 透镜焦距 (m)。
+        far_field_pitch_m: 焦面采样间距 (m)。
+
+    Returns:
+        平移后的焦面复场。
+    """
+    torch = _torch()
+    dx = float(focal_length_m) * float(tilt_x_rad)
+    dy = float(focal_length_m) * float(tilt_y_rad)
+    if dx == 0.0 and dy == 0.0:
+        return field
+    size = int(field.shape[-1])
+    freq = torch.fft.fftfreq(size, dtype=field.real.dtype) * size  # 整数频移
+    shift = torch.exp(
+        -2j
+        * math.pi
+        * (freq[:, None] * dy + freq[None, :] * dx)
+        / (size * float(far_field_pitch_m))
+    )
+    un = torch.fft.ifftshift(field)
+    shifted = torch.fft.ifft2(
+        torch.fft.fft2(un, norm="ortho") * shift.to(field.dtype), norm="ortho"
+    )
+    return torch.fft.fftshift(shifted)
+
+
+def apply_model_error_terms(field: torch.Tensor, terms: ModelErrorTerms) -> torch.Tensor:
+    """把误差项作用在**焦面复场**上 (离焦与倾斜)。
+
+    Args:
+        field: 焦面复场。
+        terms: 误差项容器。
+
+    Returns:
+        施加误差后的焦面复场; 误差全零时**原样返回** (逐位不变)。
+    """
+    if terms is None or terms.is_identity:
+        return field
+    terms.validate_focal_geometry()
+    result = apply_focal_defocus(
+        field,
+        float(terms.camera_defocus_m),
+        float(terms.wavelength_m),
+        float(terms.far_field_pitch_m),
+    )
+    return apply_focal_tilt(
+        result,
+        float(terms.tilt_x_rad),
+        float(terms.tilt_y_rad),
+        float(terms.focal_length_m),
+        float(terms.far_field_pitch_m),
+    )
 
 
 def _to_tensor(
@@ -202,6 +391,7 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         far_field_size: int | None = None,
         frozen_modes: tuple[int, ...] = (),
         pupil_oversampling: int = 1,
+        error_terms: ModelErrorTerms | None = None,
     ) -> None:
         """初始化优化器并校验所有输入。
 
@@ -238,6 +428,10 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 ``(1, 2, 3)``: piston 与 tilt 对 ``|E|**2`` 不可见
                 (见 :meth:`_apply_mode_mask`), 把它们放开会让拟合把无法建模
                 的残余吸收到退化方向上。
+            error_terms: 可选的误差项容器 (命令相位 → 实际相位 的 LUT 非线性
+                + 相机离焦 + 光路倾斜)。``None`` (默认) = 理想系统, 此时
+                正向模型的输出与引入本参数之前**逐位相同**。几何常数
+                (波长 / 焦距 / 焦面节距) 由误差项容器自己携带。
 
         Raises:
             ValueError: 任一参数越界, 或任一数组形状不对时。
@@ -280,6 +474,14 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         ):
             raise ValueError("pupil_oversampling must be a positive integer")
         self._pupil_oversampling = pupil_oversampling
+        self._error_terms = (
+            error_terms if error_terms is not None else ModelErrorTerms()
+        )
+        if self._error_terms.needs_focal_geometry:
+            # Fail at construction: a defocus or a tilt that cannot be
+            # evaluated would otherwise surface as a NaN far field deep inside
+            # the fit, long after the hardware minutes were spent.
+            self._error_terms.validate_focal_geometry()
 
         mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
         for noll in frozen_modes:
@@ -455,6 +657,29 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     def device(self) -> str:
         """优化所在的 torch 设备。"""
         return str(self._dev)
+
+    @property
+    def error_terms(self) -> ModelErrorTerms:
+        """正向模型使用的误差项 (理想系统时为全零的默认容器)。"""
+        return self._error_terms
+
+    def set_error_terms(self, terms: ModelErrorTerms) -> None:
+        """换掉正向模型使用的误差项。
+
+        给「扫描一个误差参数」的用法用 (例如 :func:`fit_lut_gamma`): 误差项
+        容器是 frozen 的, 所以换掉它必须走这个入口, 而不是就地改字段。
+
+        Args:
+            terms: 新的误差项。
+
+        Raises:
+            ValueError: 误差项需要的几何常数缺失时。
+        """
+        if terms is None:
+            raise ValueError("set_error_terms needs a ModelErrorTerms instance")
+        if terms.needs_focal_geometry:
+            terms.validate_focal_geometry()
+        self._error_terms = terms
 
     @property
     def iterations(self) -> int:
@@ -773,6 +998,52 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         """
         return self._far_field_size
 
+    def far_field_intensity_tensor(
+        self,
+        coefficients: torch.Tensor,
+        phase_slm: torch.Tensor,
+        amplitude: torch.Tensor,
+    ) -> torch.Tensor:
+        """可微的正向远场强度 (与 :meth:`forward_intensity` 同一套计算)。
+
+        这是**给调用方的同一个前向**: Step B 的自由相位合成直接调用它, 所以
+        标定 (Step A 的拟合) 与合成 (Step B) 不可能落在不同的正向链上 ——
+        误差项 (LUT 非线性 / 相机离焦 / 光路倾斜) 的作用位置与顺序由这一处
+        代码决定。
+
+        张量的设备与精度由**调用方**决定 (基与掩膜随之转换), 所以调用方不必
+        与本优化器的设置一致; 在实际使用中两者本就一致。
+
+        Args:
+            coefficients: 一维系数张量 (弧度), 形状 ``(n_coefficients,)``。
+            phase_slm: 二维命令相位张量 (raw 未包裹弧度)。
+            amplitude: 二维瞳面振幅张量。
+
+        Returns:
+            挂在图上的二维远场强度张量。
+        """
+        torch = _torch()
+        dtype = coefficients.dtype
+        device = coefficients.device
+        basis = self._basis_t.to(device=device, dtype=dtype)
+        aperture = self._aperture_t.to(device=device, dtype=dtype)
+        aberration = torch.einsum("j,jhw->hw", coefficients, basis)
+        command = apply_lut_nonlinearity(
+            phase_slm,
+            float(self._error_terms.lut_gamma),
+            float(self._error_terms.phi_max_rad),
+        )
+        patch = command + aberration
+        if self._pupil_oversampling == 1:
+            patch = patch * aperture
+        from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_field
+
+        field = interpolated_pupil_field(
+            patch, amplitude, self._far_field_size, self._pupil_oversampling
+        )
+        field = apply_model_error_terms(field, self._error_terms)
+        return field.real.pow(2) + field.imag.pow(2)
+
     def _far_field_intensity(
         self,
         coefficients: torch.Tensor,
@@ -801,17 +1072,30 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         拿它做整形。数字孪生通过其零填充尺寸 ``P`` 暴露同一个开关;
         规范的填充采样另见 ``generate_zernike_farfield_sim_report``
         (FAR_N = 8192)。
+
+        **误差项** (:attr:`error_terms`) 串在同一条链上, 位置与孪生一致:
+        LUT 非线性作用在**命令相位**上 (瞳面相位之前), 离焦与倾斜作用在
+        **焦面复场**上 (``|·|²`` 之前)。误差项全零时, 本函数与引入误差项
+        之前的实现**逐位相同** (γ = 1 的 LUT 是恒等映射, 连 2π 包裹都不
+        引入)。
         """
         torch = _torch()
-        from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_intensity
+        from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_field
 
         aberration = torch.einsum("j,jhw->hw", coefficients, self._basis_t)
-        patch = phase_slm + aberration
+        command = apply_lut_nonlinearity(
+            phase_slm,
+            float(self._error_terms.lut_gamma),
+            float(self._error_terms.phi_max_rad),
+        )
+        patch = command + aberration
         if self._pupil_oversampling == 1:
             patch = patch * self._aperture_t
-        return interpolated_pupil_intensity(
+        field = interpolated_pupil_field(
             patch, amplitude, self._far_field_size, self._pupil_oversampling
         )
+        field = apply_model_error_terms(field, self._error_terms)
+        return field.real.pow(2) + field.imag.pow(2)
 
     def _intensity_loss(
         self, intensity: torch.Tensor, target: torch.Tensor

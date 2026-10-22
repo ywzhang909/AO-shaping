@@ -412,3 +412,274 @@ def test_the_light_gate_can_be_switched_off(tmp_path, monkeypatch):
     assert not any("diagnose_light_level.py" in part for command in calls for part in command)
     assert any("main.py" in part for command in calls for part in command)
 
+
+# ---------------------------------------------------------------------------
+# Shared geometry
+# ---------------------------------------------------------------------------
+
+
+def _geometry_payload() -> str:
+    """A sweep geometry, as the session calibration writes it."""
+    return json.dumps(
+        {
+            "panel_disc_radius": 450,
+            "region": 128,
+            "beam_waist_panel_px": 24.0,
+            "far_field_size": 1024,
+            "camera_px_per_model_px": 2.614022,
+            "spot_fwhm_camera_px": 13.19,
+            "spot_fwhm_model_px": 8.64,
+            "correlation": 0.848,
+            "method": "sweep",
+            "calibration_notes": "measured sweep",
+        }
+    )
+
+
+def _fake_geometry_runner(monkeypatch, calls: list, *, produce_geometry: bool):
+    """A stand-in runner whose donor arm may or may not produce a geometry."""
+    _fake_runner(monkeypatch, calls)
+    original = campaign.run_command
+
+    def run_command(command, cwd, timeout_s):
+        code, output, duration = original(command, cwd, timeout_s)
+        if "main.py" not in " ".join(command):
+            return code, output, duration
+        stage_dir = Path(command[command.index("--dir") + 1])
+        session = stage_dir / "debug" / "slm_model_in_loop" / "20261020_101112"
+        if produce_geometry and stage_dir.name == "baseline_a":
+            calibration = session / "session_geometry"
+            calibration.mkdir(parents=True, exist_ok=True)
+            (calibration / "bench_geometry.json").write_text(
+                _geometry_payload(), encoding="utf-8"
+            )
+        return code, output, duration
+
+    monkeypatch.setattr(campaign, "run_command", run_command)
+
+
+def test_the_later_arms_run_with_the_donors_geometry(tmp_path, monkeypatch):
+    """The B arm must be handed the geometry the donor arm measured.
+
+    Two session calibrations on this bench produced camera/model scales of
+    1.3043 and 2.6531, so arms that each calibrate on their own compare two
+    different experiments. The campaign therefore measures the geometry once
+    and shares it.
+    """
+    calls: list = []
+    _fake_geometry_runner(monkeypatch, calls, produce_geometry=True)
+    code = campaign.main(["--out-root", str(tmp_path), "--large-sides", "1000"])
+    assert code == 0
+    session = list(tmp_path.iterdir())[0]
+    manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+    stages = {stage["name"]: stage for stage in manifest["stages"]}
+
+    shared = session / campaign.SHARED_GEOMETRY_NAME
+    assert shared.is_file(), "the donor's geometry must be copied to the session"
+    assert manifest["shared_geometry"] == str(shared)
+    assert manifest["shared_geometry_exists"] is True
+
+    # The donor measured it; the later arms were given the file.
+    assert stages["baseline_a"]["geometry_donor"] is True
+    assert stages["baseline_a"]["geometry_file"] is None
+    for name in ("baseline_b", "large_1000"):
+        assert stages[name]["geometry_file"] == str(shared)
+        assert stages[name]["geometry_fallback"] is False
+        assert "--geometry-file" in stages[name]["command"]
+        assert stages[name]["command"][
+            stages[name]["command"].index("--geometry-file") + 1
+        ] == str(shared)
+
+    # The B arm really was launched with that file.
+    b_command = next(
+        command
+        for command in calls
+        if "main.py" in " ".join(command) and "baseline_b" in " ".join(command)
+    )
+    assert "--geometry-file" in b_command
+    assert b_command[b_command.index("--geometry-file") + 1] == str(shared)
+
+
+def test_without_a_donor_geometry_the_arms_fall_back_and_say_so(tmp_path, monkeypatch):
+    """A silent fallback would make the arms incomparable without a trace."""
+    calls: list = []
+    _fake_geometry_runner(monkeypatch, calls, produce_geometry=False)
+    code = campaign.main(["--out-root", str(tmp_path), "--large-sides", "1000"])
+    assert code == 0
+    session = list(tmp_path.iterdir())[0]
+    manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+    stages = {stage["name"]: stage for stage in manifest["stages"]}
+
+    assert not (session / campaign.SHARED_GEOMETRY_NAME).is_file()
+    assert manifest["shared_geometry_exists"] is False
+    for name in ("baseline_b", "large_1000"):
+        assert stages[name]["geometry_file"] is None
+        assert stages[name]["geometry_fallback"] is True
+        assert "--geometry-file" not in stages[name]["command"]
+    # The donor's record says why the hand-off did not happen.
+    donor_notes = " ".join(stages["baseline_a"]["notes"])
+    assert "produced no bench_geometry.json" in donor_notes
+
+
+def test_an_external_geometry_file_is_used_by_every_arm(tmp_path, monkeypatch):
+    """``--geometry-file`` short-circuits the donor: every arm uses it."""
+    calls: list = []
+    _fake_runner(monkeypatch, calls)
+    external = tmp_path / "measured_geometry.json"
+    external.write_text(_geometry_payload(), encoding="utf-8")
+    code = campaign.main(
+        [
+            "--out-root",
+            str(tmp_path / "runs"),
+            "--large-sides",
+            "1000",
+            "--geometry-file",
+            str(external),
+        ]
+    )
+    assert code == 0
+    session = list((tmp_path / "runs").iterdir())[0]
+    manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+    stages = {stage["name"]: stage for stage in manifest["stages"]}
+    for name in ("baseline_a", "baseline_b", "large_1000"):
+        assert stages[name]["geometry_file"] == str(external)
+        assert "--geometry-file" in stages[name]["command"]
+
+
+def test_the_error_params_reach_every_arm(tmp_path, monkeypatch):
+    """The forward model's error terms are handed to every arm."""
+    calls: list = []
+    _fake_runner(monkeypatch, calls)
+    errors = tmp_path / "model_error_terms.json"
+    errors.write_text(json.dumps({"lut_gamma": 2.07}), encoding="utf-8")
+    code = campaign.main(
+        [
+            "--out-root",
+            str(tmp_path),
+            "--large-sides",
+            "1000",
+            "--error-params",
+            str(errors),
+        ]
+    )
+    assert code == 0
+    session = list(tmp_path.iterdir())[0]
+    manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
+    for stage in manifest["stages"]:
+        if stage["kind"] == "light":
+            continue
+        assert "--error-params" in stage["command"]
+        assert (
+            stage["command"][stage["command"].index("--error-params") + 1]
+            == str(errors)
+        )
+        # The profile written next to the stage log carries it too.
+        profile = json.loads(
+            (session / stage["name"] / "profile.json").read_text(encoding="utf-8")
+        )
+        assert profile["error_params"] == str(errors)
+
+
+# ---------------------------------------------------------------------------
+# The acceptance criterion
+# ---------------------------------------------------------------------------
+
+
+def _shaping_stdout(status: str, flat: float, best: float) -> str:
+    return (
+        f"Status              : {status}\n"
+        "Rounds accepted     : 1 / 1\n"
+        f"Flat baseline score : {flat:.4f}\n"
+        f"Best shaped score   : {best:.4f}\n"
+        "Best phase saved    : C:/runs/best_phase.npy (raw radians)\n"
+    )
+
+
+def test_a_shaped_phase_that_beats_flat_meets_the_b_arm_expectation():
+    stdout = _shaping_stdout("completed", 0.7102, 0.8200)
+    rows = _write_rows(
+        [
+            {
+                "stage": "round", "round": 1, "accepted": "True",
+                "score_after": 0.82, "cv_after": 0.31, "ee_after": 0.62,
+                "shape_iou_after": 0.55, "holdout_correlation": 0.42,
+            }
+        ]
+    )
+    observed = campaign.collect_observed(stdout, {"rows": rows})
+    judgment = campaign.classify_stage("baseline_b", 0, observed)
+    assert judgment["expectation_met"] is True
+    assert judgment["outcome"] == "completed_as_expected"
+
+
+def test_a_bake_off_rejection_is_not_a_pass():
+    """``bake_off_rejected`` must not be counted as "completed + a best phase".
+
+    The old rule ("completed + an accepted round + a best phase file") called
+    that a pass, which is exactly the misjudgement this criterion removes: the
+    phase was *not* adopted, the flat baseline was kept.
+    """
+    stdout = _shaping_stdout("bake_off_rejected", 0.7102, 0.7102)
+    rows = _write_rows(
+        [
+            {
+                "stage": "round", "round": 1, "accepted": "True",
+                "score_after": 0.71, "cv_after": 0.42, "ee_after": 0.51,
+                "shape_iou_after": 0.30, "holdout_correlation": 0.61,
+            }
+        ]
+    )
+    observed = campaign.collect_observed(stdout, {"rows": rows})
+    judgment = campaign.classify_stage("baseline_b", 0, observed)
+    assert judgment["expectation_met"] is False
+    assert judgment["outcome"] == "shaping_did_not_beat_flat"
+    assert "did not beat flat" in " ".join(judgment["notes"])
+
+
+def test_a_completed_run_that_only_matches_flat_is_not_a_pass():
+    stdout = _shaping_stdout("completed", 0.7102, 0.7102)
+    rows = _write_rows(
+        [
+            {
+                "stage": "round", "round": 1, "accepted": "True",
+                "score_after": 0.7102, "cv_after": 0.42, "ee_after": 0.51,
+                "shape_iou_after": 0.30, "holdout_correlation": 0.61,
+            }
+        ]
+    )
+    observed = campaign.collect_observed(stdout, {"rows": rows})
+    judgment = campaign.classify_stage("baseline_b", 0, observed)
+    assert judgment["expectation_met"] is False
+    assert judgment["outcome"] == "shaping_did_not_beat_flat"
+
+
+def test_a_completed_run_that_loses_to_flat_is_not_a_pass():
+    stdout = _shaping_stdout("completed", 0.7102, 0.6800)
+    rows = _write_rows(
+        [
+            {
+                "stage": "round", "round": 1, "accepted": "True",
+                "score_after": 0.68, "cv_after": 0.42, "ee_after": 0.51,
+                "shape_iou_after": 0.30, "holdout_correlation": 0.61,
+            }
+        ]
+    )
+    observed = campaign.collect_observed(stdout, {"rows": rows})
+    judgment = campaign.classify_stage("baseline_b", 0, observed)
+    assert judgment["expectation_met"] is False
+    assert judgment["outcome"] == "shaping_did_not_beat_flat"
+
+
+def test_the_a_arm_expectation_says_the_gate_is_not_moved():
+    """The A arm's expectation must describe the gate arm honestly."""
+    text = campaign.EXPECTED_TEXT["baseline_a"]
+    assert "gate" in text
+    assert "bake-off" in text or "flat" in text
+    assert "completed" not in text
+
+
+def test_the_b_arm_expectation_demands_beating_flat():
+    text = campaign.EXPECTED_TEXT["baseline_b"]
+    assert "flat" in text
+    assert "greater" in text
+

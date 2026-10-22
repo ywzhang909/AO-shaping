@@ -60,7 +60,23 @@ def _exposure_ms(raw: object) -> float | None:
 
 
 def build_command(profile: dict) -> list[str]:
-    """Validate the portable profile before any device can be opened."""
+    """Validate the portable profile before any device can be opened.
+
+    Two profile fields change what the run does rather than only how it is
+    parameterised, and both are documented here because they are the ones a
+    caller can get wrong:
+
+    * ``geometry_file`` -- a measured geometry JSON. Passing it **skips** this
+      run's automatic session calibration (the full-panel locate, the exposure
+      probe and the geometry sweep), so the caller must guarantee that the
+      geometry belongs to the *current* experimental setup. The hardware A/B
+      campaign relies on that: it measures the geometry once and hands the same
+      file to every arm, so the arms differ only in the gate under test.
+    * ``error_params`` -- a calibration JSON with the forward model's error
+      terms (the SLM's LUT nonlinearity above all). Without it the model
+      assumes "command phase = actual phase", which the measured gamma on this
+      bench contradicts.
+    """
     required = ("cam_type", "cam_id", "slm_number", "slm_wavelength", "target_shape",
                 "target_side", "region", "far_field_padding", "n_rounds",
                 "max_cv", "min_ee", "min_iou")
@@ -84,7 +100,13 @@ def build_command(profile: dict) -> list[str]:
     if not math.isfinite(ceiling) or ceiling < 0 or (exposure is not None and ceiling > 0 and exposure > ceiling):
         raise ValueError("invalid exposure and session ceiling")
     if profile.get("geometry_file"):
-        raise ValueError("geometry_file bypasses fresh session calibration")
+        # Allowed on purpose: a geometry file SKIPS this run's automatic session
+        # calibration (the full-panel locate and the geometry sweep), so the
+        # caller has to guarantee that the geometry was measured on the current
+        # experimental setup. The campaign uses exactly that to give its A and B
+        # arms the same geometry, so that the only difference between them is
+        # the gate under test.
+        pass
     mapping = {
         "cam_type": "--cam-type", "cam_id": "--cam-id", "slm_number": "--slm-number",
         "slm_wavelength": "--slm-wavelength", "target_shape": "--target-shape",
@@ -98,6 +120,12 @@ def build_command(profile: dict) -> list[str]:
         "w_uniformity": "--w-uniformity", "w_efficiency": "--w-efficiency",
         "max_cv_regression": "--max-cv-regression", "min_geometry_correlation": "--min-geometry-correlation",
         "min_holdout_correlation": "--min-holdout-correlation",
+        "panel_scan_max_flat_drift": "--panel-scan-max-flat-drift",
+        "panel_scan_step_px": "--panel-scan-step-px",
+        "panel_scan_radius_px": "--panel-scan-radius-px",
+        "panel_scan_max_session_shift_px": "--panel-scan-max-session-shift-px",
+        "geometry_file": "--geometry-file",
+        "error_params": "--error-params",
     }
     unknown = set(profile) - set(mapping) - {"max_cv", "min_ee", "min_iou"}
     if unknown:

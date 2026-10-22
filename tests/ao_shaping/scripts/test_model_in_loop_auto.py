@@ -24,13 +24,24 @@ def _profile():
                 min_iou=0.5)
 
 
-def test_build_command_requires_fresh_geometry_and_valid_exposure():
+def test_build_command_accepts_a_geometry_file_and_a_valid_exposure():
+    """A geometry file is now allowed on purpose.
+
+    Passing one **skips** the run's automatic session calibration (the
+    full-panel locate, the exposure probe and the geometry sweep), so the
+    caller has to guarantee that the geometry belongs to the current
+    experimental setup. The hardware A/B campaign relies on exactly that: it
+    measures the geometry once and hands the same file to every arm, so the
+    arms differ only in the gate under test.
+    """
     profile = _profile()
     command = auto.build_command(profile)
     assert "--geometry-file" not in command
     assert command[command.index("--cam-type") + 1] == "daheng"
-    with pytest.raises(ValueError, match="geometry_file"):
-        auto.build_command({**profile, "geometry_file": "old.json"})
+    shared = auto.build_command({**profile, "geometry_file": "measured.json"})
+    assert shared[shared.index("--geometry-file") + 1] == "measured.json"
+    tuned = auto.build_command({**profile, "error_params": "errors.json"})
+    assert tuned[tuned.index("--error-params") + 1] == "errors.json"
     with pytest.raises(ValueError, match="exposure"):
         auto.build_command({**profile, "exposure_time_ms": 1, "max_exposure_ms": 0.5})
 

@@ -3007,6 +3007,19 @@ class SlmModelInLoopParams:
             help="Measured sweep geometry JSON for this optical setup.",
         ),
     ] = None
+    error_params: Annotated[
+        str | None,
+        option(
+            "--error-params",
+            help=(
+                "Calibration JSON with the forward model's error terms (the SLM's "
+                "LUT nonlinearity gamma above all). Accepts a twin fit result or a "
+                "plain ModelErrorTerms dictionary. Without it the model assumes "
+                "'command phase = actual phase', which the measured gamma (2.07 on "
+                "this bench) contradicts."
+            ),
+        ),
+    ] = None
 
     # --- coupling guards ----------------------------------------------------
     trust_region_c_l2: Annotated[
@@ -3412,6 +3425,7 @@ def build_model_in_loop_config(
         n_calibration_probes=params.n_calibration_probes,
         min_geometry_correlation=params.min_geometry_correlation,
         geometry_file=params.geometry_file,
+        error_params=params.error_params,
         trust_region_c_l2=params.trust_region_c_l2,
         acceptance_loss_delta=params.acceptance_loss_delta,
         acceptance_score_eps=params.acceptance_score_eps,
@@ -3574,6 +3588,12 @@ def save_model_in_loop_config(config: SlmModelInLoopConfig, save_dir: Path) -> P
         for field in fields(config)
         if field.name != "callback"
     }
+    # The error terms are a dataclass; ``default=str`` would file them away as
+    # their repr, which cannot be read back. Their dictionary form is what
+    # ``--error-params`` accepts, so the run config stays loadable.
+    terms = run_config.get("error_terms")
+    if terms is not None and hasattr(terms, "to_dict"):
+        run_config["error_terms"] = terms.to_dict()
     path.write_text(json.dumps(run_config, indent=2, default=str), encoding="utf-8")
     return path
 
@@ -3615,6 +3635,16 @@ def save_model_in_loop_results(
         np.save(save_dir / "fitted_coefficients.npy", result.fitted_coefficients)
     if result.source_amplitude is not None:
         np.save(save_dir / "source_amplitude.npy", result.source_amplitude)
+
+    # The error terms the run actually used, so the next run can reuse them
+    # (``--error-params <this file>``). Written even when they are the ideal
+    # system's zeros, because "the model was ideal" is itself a fact worth
+    # having on disk next to the run it belongs to.
+    error_terms = getattr(result.config, "error_terms", None)
+    if error_terms is not None:
+        from ao_shaping.utils.wavefront.model_error_terms import save_error_terms
+
+        save_error_terms(error_terms, save_dir / "model_error_terms.json")
 
     if debug and result.probe_records:
         probes_dir = save_dir / "probes"
