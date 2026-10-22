@@ -56,7 +56,7 @@ ROI 里的固定底噪)。因此本 harness 把台架照明建模为::
     # 本底 σ 探针 (drift off, 杂散底板开): 给 3σ 判据一个基准行
     python scripts/slm/spgd_drift_cancel_loop.py --variants baseline --epochs 12 \\
         --a-smooth 0 --walk-sigma 0 --data-root <scratch>/intrinsic
-    # 修 compute_metrics 后不重跑矩阵: 从已有 pkl 重算指标并重写双落点报告
+    # 修 compute_drift_verdict_metrics 后不重跑矩阵: 从已有 pkl 重算指标并重写双落点报告
     python scripts/slm/spgd_drift_cancel_loop.py --recompute \\
         --data-root <scratch>/full --intrinsic <scratch>/intrinsic/results.json
 
@@ -72,6 +72,7 @@ import json
 import pickle
 import shutil
 import sys
+import tempfile
 import time
 from collections import deque
 from pathlib import Path
@@ -105,6 +106,12 @@ DEFAULT_A_SMOOTH = 0.12
 DEFAULT_T_SMOOTH = 61.0
 DEFAULT_WALK_SIGMA = 0.02
 DEFAULT_WALK_CLIP = 0.30
+
+#: 运行产物根目录的默认暂存位置: 系统临时目录 (仓库外, 机器无关)。写死某台开发机的
+#: 绝对路径在非 Windows 上会退化成相对目录 `./D:/...` —— 脚本照常跑完, 产物却落在
+#: 没人查看的地方 (守卫: tests/ao_shaping/scripts/test_script_repo_root_bootstrap.py)。
+#: 每次实验用 --data-root 指到该次实验自己的暂存目录。
+DEFAULT_DATA_ROOT = Path(tempfile.gettempdir()) / "ao_spgd_drift_scratch"
 
 #: 默认杂散底板 [ADU/px]。实测 (report): 该值下 R²(J~max_brt)≈0.59、同相位亮度
 #: 摆幅 ~34%, 与 bench 的 37-45% / R²=0.39 同量级; B=0 时孪生目标函数对纯倍增
@@ -573,7 +580,7 @@ def run_variant(
         result["same_phase"] = wrapper.same_phase_sigma()
         result["n_protocol_captures"] = len(wrapper.captures)
         result["capture_log"] = wrapper.captures
-    result.update(compute_metrics(rows))
+    result.update(compute_drift_verdict_metrics(rows))
     return result
 
 
@@ -608,7 +615,7 @@ def _reproduce_noise_gates(
     return out
 
 
-def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def compute_drift_verdict_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """从 recorder 行计算全部 issue 判据指标。
 
     能量护栏 (``--max-energy-loss`` 默认 0.6) 触发的轮次记录的是惩罚值
@@ -957,8 +964,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--data-root",
         type=Path,
-        default=Path("D:/Projects/TIFO/.drift_study_scratch"),
-        help="运行产物根目录 (仓库外)",
+        default=DEFAULT_DATA_ROOT,
+        help="运行产物根目录 (仓库外; 默认 = 系统临时目录下的 ao_spgd_drift_scratch)",
     )
     parser.add_argument(
         "--out",
@@ -985,7 +992,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help=(
             "不跑闭环: 从 <data-root>/results.json 里各变体的 pkl 重算指标"
-            " (修 compute_metrics 的 bug 后用), 重写双落点报告与图"
+            " (修 compute_drift_verdict_metrics 的 bug 后用), 重写双落点报告与图"
         ),
     )
     return parser.parse_args(argv)
@@ -1068,7 +1075,7 @@ def main() -> None:
             if not pkl or not Path(pkl).is_file():
                 logger.warning("pkl missing for {}: {}", r["variant"], pkl)
                 continue
-            metrics = compute_metrics(_load_rows(Path(pkl)))
+            metrics = compute_drift_verdict_metrics(_load_rows(Path(pkl)))
             r.update(metrics)  # dec/late_gain/r2/摆幅/diff 统计/门控/J_*/护栏行
             logger.info(
                 "{} recomputed: dec={:.3f} gate_zeroed={}",
