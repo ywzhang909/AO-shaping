@@ -1,4 +1,4 @@
-﻿"""RED tests for r50_voltage_send (pure logic, no streamlit).
+"""RED tests for r50_voltage_send (pure logic, no streamlit).
 
 Contract covered (Wave 1):
 - S1: multi-channel send -> single correct bulk array, sim controller matches
@@ -129,6 +129,7 @@ class FailingCtrl:
 # S4: clipping
 # ---------------------------------------------------------------------------
 
+
 class TestClipVoltage:
     def test_within_range(self):
         assert clip_voltage(5.0, VMIN, VMAX) == 5.0
@@ -147,6 +148,7 @@ class TestClipVoltage:
 # ---------------------------------------------------------------------------
 # S1: bulk array construction
 # ---------------------------------------------------------------------------
+
 
 class TestBuildBulkArray:
     def test_selected_set_others_preserved(self):
@@ -178,6 +180,7 @@ class TestBuildBulkArray:
 # ---------------------------------------------------------------------------
 # S3: send with retry / reconnect
 # ---------------------------------------------------------------------------
+
 
 class TestSendBulkWithRetry:
     def test_success_first_try(self):
@@ -217,6 +220,7 @@ class TestSendAllChannels:
 # ---------------------------------------------------------------------------
 # S1: send_selection (single controller)
 # ---------------------------------------------------------------------------
+
 
 class TestSendSelection:
     def test_channels_bulk(self):
@@ -266,7 +270,9 @@ class TestApplySingleController:
     def test_empty_selection(self):
         ctrl = _sim_ctrl()
         current = np.zeros(N)
-        current, res = apply_single_controller(ctrl, current, ChannelSelection(), 5.0, VMIN, VMAX)
+        current, res = apply_single_controller(
+            ctrl, current, ChannelSelection(), 5.0, VMIN, VMAX
+        )
         assert res.ok == 0 and res.fail == 0
 
     def test_failure_truthful(self):
@@ -282,6 +288,7 @@ class TestApplySingleController:
 # ---------------------------------------------------------------------------
 # S2 (BUG regression): group send — all controllers in ONE call, one packet each
 # ---------------------------------------------------------------------------
+
 
 def _group_def() -> GroupDef:
     return GroupDef(
@@ -349,9 +356,13 @@ class TestApplyGroupControllers:
         c1.open()
         controllers = {101: c0, 102: c1}
         current_map: dict[int, np.ndarray] = {}
-        apply_group_controllers(controllers, _group_def(), [1, 2], 5.0, VMIN, VMAX, current_map)
+        apply_group_controllers(
+            controllers, _group_def(), [1, 2], 5.0, VMIN, VMAX, current_map
+        )
         # second send of a subset must preserve the other channel
-        apply_group_controllers(controllers, _group_def(), [1], 3.0, VMIN, VMAX, current_map)
+        apply_group_controllers(
+            controllers, _group_def(), [1], 3.0, VMIN, VMAX, current_map
+        )
         assert c0.readback()[0] == 3.0
         assert c0.readback()[1] == 5.0  # preserved from current_map
 
@@ -359,6 +370,7 @@ class TestApplyGroupControllers:
 # ---------------------------------------------------------------------------
 # single-unit tab helpers
 # ---------------------------------------------------------------------------
+
 
 class TestApplyUnitsViaController:
     def test_bulk_single_packet(self):
@@ -422,7 +434,9 @@ class TestApplyJoint:
         current_flat = np.zeros(100)
         current_flat[50] = 9.0
 
-        new_flat, res = apply_joint(dm, current_flat, units, 3.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl)
+        new_flat, res = apply_joint(
+            dm, current_flat, units, 3.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl
+        )
         assert res.ok == 1
         assert new_flat[50] == 9.0  # preserved, not zeroed
         assert dm.readback(102)[0] == 9.0
@@ -433,7 +447,9 @@ class TestApplyJoint:
         pos_to_hw = {5: (101, 1)}
         ip_to_ctrl = {101: 0}
         units = [_ci(101, 1, 9999)]  # physical position not in mapping
-        _, res = apply_joint(dm, np.zeros(50), units, 5.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl)
+        _, res = apply_joint(
+            dm, np.zeros(50), units, 5.0, VMIN, VMAX, pos_to_hw, ip_to_ctrl
+        )
         assert res.ok == 0
 
     def test_oversize_36x36_flat_resized_to_dm_num(self):
@@ -464,6 +480,7 @@ class TestApplyJoint:
 # ---------------------------------------------------------------------------
 # Send loops (threads)
 # ---------------------------------------------------------------------------
+
 
 def _loop_params(**overrides) -> dict:
     params = {
