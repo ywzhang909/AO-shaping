@@ -3251,8 +3251,8 @@ solve) and is how the logic is verified while the bench is offline.
 
 ### hw_focus_gate_verification.py
 
-**硬件验证「不在焦就停止测试」这条限制**: 判据与实机脚本**同一份**
-(`hw_differentiable_phase_opt.judge_focus_gate`), 所以这里验的就是实机真正会走
+**硬件验证「不在焦就停止测试」这条限制**: 判据与硬件脚本**同一份**
+(`hw_differentiable_phase_opt.judge_focus_gate`), 所以这里验的就是硬件真正会走
 的那条分支, 不是另写一份。
 
 **Usage:**
@@ -3264,7 +3264,7 @@ python scripts/slm/hw_focus_gate_verification.py --execute --wait-until-idle 180
 **What it does**:
 - 采一帧**未加焦面补偿**的平场 ⇒ 量出"现在有多离焦" (FWHM, CCD px)
 - 跑 `focus_probe.sweep_focus` ⇒ 补偿能把光斑收到多宽 (最佳 1/f 与该点 FWHM)
-- 用**实机脚本同一套**判定函数逐个门限 (40/20/15/12/8 px) 评估 ⇒ 每档的
+- 用**硬件脚本同一套**判定函数逐个门限 (40/20/15/12/8 px) 评估 ⇒ 每档的
   判定与退出码
 - 只做判定与取证: **不写优化相位、不跑反向传播、不写 CCD 对照** (那些是
   `hw_differentiable_phase_opt.py` 的职责)
