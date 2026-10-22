@@ -65,6 +65,22 @@ Usage
 不同: 2 要重新扫焦距 / 挪相机, 3 要去查 光束→SLM 面板 → 2f 透镜 → CCD 三段光路。
 判据见 :func:`ao_shaping.utils.image.frame_analysis.assess_spot`。
 
+Which SLM is used
+-----------------
+
+The panel comes from the bench backend factory
+(:func:`ao_shaping.drivers.slm.factory.open_slm`) whenever the backend is the
+simulation, so ``--cam-type sim`` runs the very same sweep on the digital twin
+(``SimSLMPib``); a hardware backend builds the Santec panel in memory mode
+(``video_mode=0``) exactly as before. This module still opens exactly **one**
+SLM session — only the class behind it depends on the backend.
+
+In simulation the sweep returns the **simulation's own** best 1/f, decided by
+the twin's geometry; it is *not* a bench measurement and it is generally not the
+measured focal length (1549.3 mm on this bench). The evidence file therefore
+carries ``backend: "sim"`` and an explicit note, so the number can never be
+mistaken for a measured value.
+
 The GUI entry point is :func:`probe_session_focus`, called from the SLM bench
 sidebar "探测焦面" (focus-plane probe) button; the recommended focal it writes
 feeds the sidebar defocus-overlay block (see
@@ -121,6 +137,20 @@ FLOOR_MS = 0.02
 #: collapses before the geometry does.
 DEFAULT_DIOPTER_RANGE = 6.0
 DEFAULT_COARSE_POINTS = 25
+
+#: 仿真后端 (``--cam-type sim``) 的默认种子与远场 FFT 补零因子。
+#:
+#: 补零 4 = 仿真孪生的库默认值 (:data:`slm_pib_sim.FAR_FIELD_PADDING`): 远场
+#: 像元够细, 代价可接受。``scripts/slm/run_gs_refine_zernike_sweep.py`` 用 16,
+#: 因为它要的是**可分辨的方形目标框**; 本工具只要一个「最佳 1/f」, 4 足够。
+SIM_SEED = 0
+SIM_FAR_FIELD_PADDING = 4
+
+#: 仿真结果的说明 —— 写进证据文件与日志, 免得它被当成实测焦距引用。
+SIM_RESULT_NOTE = (
+    "本结果来自仿真后端 (SimSLMPib + SimPibCCD): 它是**仿真几何**自己给出的最佳 "
+    "1/f, 不是实验系统实测值, 也不等于实测标定出的焦距"
+)
 
 
 @dataclass(frozen=True)
@@ -660,6 +690,40 @@ def sweep_focus(
 # ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class _FocusProbeDeviceParams:
+    """工厂 ``BenchDeviceParams`` 的结构化实现。
+
+    ``BenchDeviceParams`` 是个 Protocol (结构化类型), 不能直接实例化 ——
+    工厂只按属性取用, 所以给一个同形状的载体即可。
+
+    ``video_mode`` 显式给 0 (memory 模式): DVI 模式的 ``open()`` 会挂死,
+    驱动层明确禁止那条路。
+    """
+
+    cam_type: str
+    cam_id: int
+    exposure_time_ms: float
+    cam_size: int
+    slm_number: int
+    slm_wavelength: int
+    video_mode: int = 0
+
+
+def _configure_sim_system(seed: int, far_field_padding: int) -> None:
+    """把进程级的仿真系统重置到指定的种子与远场补零因子。
+
+    ``reset_system`` 不接受 padding 参数, 所以 padding 是在**任何一次远场求值
+    之前**改到新 system 上的 (那时 ``_far_field`` 与 ``_pad_buffer`` 还是
+    ``None``, 改动安全)。已装的干扰项 (disturbance) 会被带过去。
+    """
+    from ao_shaping.drivers.sim.slmpib_sim import get_system, reset_system
+
+    existing = get_system()
+    system = reset_system(seed=seed, disturbance=existing.disturbance)
+    system.far_field_padding = int(far_field_padding)
+
+
 def probe_session_focus(
     slm_number: int = 1,
     cam_type: str = "daheng",
@@ -676,6 +740,8 @@ def probe_session_focus(
     max_exposure_ms: float | None = None,
     wavelength_nm: int = 1064,
     debug_dir: Path | None = None,
+    sim_seed: int = SIM_SEED,
+    sim_far_field_padding: int = SIM_FAR_FIELD_PADDING,
 ) -> dict[str, Any]:
     """Open the bench, run :func:`sweep_focus`, and return JSON-able evidence.
 
@@ -683,6 +749,11 @@ def probe_session_focus(
     later run writes its own pattern, so leaving a lens in place would silently
     contaminate the next measurement. The winner is returned and stored by the
     caller, which is what actually applies it.
+
+    The simulation backend's SLM comes from the bench factory
+    (:func:`open_slm`), so ``cam_type "sim"`` runs the very same sweep on the
+    digital twin. The simulation's winner is its **own** (geometry-decided)
+    value, and the evidence says so: ``backend: "sim"`` plus a note.
 
     Failure never raises — the GUI calls this from a button — and comes back as
     ``{"error": ...}``, matching the radius probe's contract.
@@ -693,10 +764,23 @@ def probe_session_focus(
         "cam_id": int(cam_id),
     }
     from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.slm.factory import open_slm
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.utils.image.exposure_control import (
         configured_daheng_exposure_limit,
     )
+
+    is_sim = str(cam_type).strip().lower() == "sim"
+    if is_sim:
+        # 仿真系统必须在**任何一次远场求值之前**就位 (种子 + 补零因子), 否则
+        # 第一帧就已经用掉了默认系统的状态。
+        _configure_sim_system(int(sim_seed), int(sim_far_field_padding))
+        # 仿真产物必须自带「这是仿真给出的值」的标记, 否则它会被当成实测焦距
+        # 引用。硬件分支**不加**这些键: 硬件那轮的证据文件字段集逐字不变。
+        out["backend"] = "sim"
+        out["result_kind"] = "simulation"
+        out["sim_seed"] = int(sim_seed)
+        out["sim_far_field_padding"] = int(sim_far_field_padding)
 
     ceiling = float(max_exposure_ms or 0.0) or 20.0
     configured = configured_daheng_exposure_limit()
@@ -711,12 +795,39 @@ def probe_session_focus(
     def apply_phase(slm: Any, phase: np.ndarray) -> None:
         # ``display_data`` rotates the memory slot itself and waits out the LCOS
         # flip; a fixed ``memory_number`` would be a firmware no-op.
-        slm.display_data(slm.create_phase_from_array(phase), 0.4)
+        # 仿真面板没有翻转时间, 等待也没有物理含义 ⇒ 只把灰度图交下去。
+        gray = slm.create_phase_from_array(phase)
+        if is_sim:
+            slm.display_data(gray)
+        else:
+            slm.display_data(gray, 0.4)
 
+    device_params = _FocusProbeDeviceParams(
+        cam_type=cam_type,
+        cam_id=int(cam_id),
+        exposure_time_ms=float(start),
+        cam_size=0,
+        slm_number=int(slm_number),
+        slm_wavelength=int(wavelength_nm),
+        video_mode=0,
+    )
     try:
-        with Santec(
-            slm_number=int(slm_number), wavelength=int(wavelength_nm), video_mode=0
-        ) as slm, create_camera(
+        # 面板: 仿真走后端工厂 (``cam_type="sim"`` ⇒ ``SimSLMPib``, 数字孪生
+        # 面板), 硬件仍直接构造 Santec (memory 模式, video_mode=0)。
+        #
+        # 🔴 **硬件为什么不也走工厂**: ``tests/ao_shaping/tools/slm/
+        # test_cli_argv_binding.py`` 的 R3 守卫把 ``Santec`` 这个**符号**换成一个
+        # 没有 ``from_params`` 的函数, 用它拦截设备构造; 工厂走的是
+        # ``Santec.from_params(params)``, 守卫拦不到, 反而会抛一个与该守卫无关的
+        # AttributeError。所以硬件那条构造调用必须留在本文件里。
+        if is_sim:
+            slm_session = open_slm(device_params)
+        else:
+            slm_session = Santec(
+                slm_number=int(slm_number), wavelength=int(wavelength_nm), video_mode=0
+            )
+        # 相机的构造与进入顺序逐字不变 (面板先开, 相机后开)。
+        with slm_session as slm, create_camera(
             cam_type, int(cam_id), exposure_time_ms=start
         ) as cam:
             # Fact 2: the panel keeps the previous pattern, so start from a
@@ -749,6 +860,9 @@ def probe_session_focus(
 
     evidence = result.as_evidence()
     out.update(evidence)
+    if is_sim:
+        # 证据文件里必须能一眼看出这个「最佳 1/f」是仿真给的。
+        out["notes"] = [*out.get("notes", []), SIM_RESULT_NOTE]
     out["radius_px"] = radius
     out["centre_panel_px"] = [float(centre[0]), float(centre[1])]
     target = Path(debug_dir) if debug_dir is not None else FOCUS_PROBE_DEBUG_DIR
@@ -771,9 +885,10 @@ def probe_session_focus(
             logger.warning("SLM {} 焦面探测：没有任何点落在可用曝光带内", slm_number)
     else:
         logger.info(
-            "SLM {} 焦面探测：最佳 1/f = {:+.3f} m⁻¹ (f = {:.0f} mm)，"
+            "SLM {} 焦面探测{}：最佳 1/f = {:+.3f} m⁻¹ (f = {:.0f} mm)，"
             "峰值/曝光 {:.0f} counts/ms，相对平场 ×{:.2f}",
             slm_number,
+            " (仿真后端)" if is_sim else "",
             result.best_diopter_m1 or 0.0,
             result.best_focal_mm or 0.0,
             result.best.peak_per_ms,
