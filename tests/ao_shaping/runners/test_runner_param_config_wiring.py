@@ -136,6 +136,12 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         # 库调用者直接塞 ModelErrorTerms 对象; CLI 走 --error-params (str 路径)
         # 由 __post_init__ 解析填充, 不走 builder 的 kwargs。
         "error_terms",
+        # 焦面补偿前置阶段 (focus_preflight, feb4d292 引入): 由 HW runbook 自己的
+        # argparse + build_focus_preflight 设置 (设备打开前运行), 与 panel_scan 同类,
+        # 不走通用 click builder; 默认全关, 现有 run 的位级行为保持不变。
+        "focus_compensation",
+        "focus_dir",
+        "focus_live_probe",
         "holdout_on_sim",
         "output_subdir",
         "probe_split_hook",

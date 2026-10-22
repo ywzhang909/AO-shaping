@@ -272,10 +272,16 @@ def _unresolved() -> dict[str, list[str]]:
     problems: dict[str, list[str]] = {}
 
     def record(mod: str, where: str) -> None:
-        info = INVENTORY.get(mod)
-        if info is None:
+        # `python -m pkg` runs pkg/__main__.py, which the inventory keys
+        # separately as `pkg.__main__`; a package whose __init__.py carries no
+        # __main__ guard or click still resolves when its __main__.py does.
+        # A single-file module has no `mod.__main__` key, so the lookup falls
+        # through to its own entry.
+        entries = [INVENTORY.get(mod), INVENTORY.get(mod + ".__main__")]
+        present = [e for e in entries if e is not None]
+        if not present:
             problems.setdefault(mod, []).append(f"{where} (no such module)")
-        elif not any(info):
+        elif not any(any(e) for e in present):
             problems.setdefault(mod, []).append(f"{where} (no __main__, no click)")
 
     for path in _PY_MODULE_DOCS:

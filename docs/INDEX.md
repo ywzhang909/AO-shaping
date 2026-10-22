@@ -1,12 +1,12 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 141 个 Markdown 文档（2026-10-22 盘点）。新文档请在本索引登记后再提交。
+> 共 145 个 Markdown 文档（2026-10-23 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
 > 2. 要跑某条命令 → 本索引 `dm/` `wfs/` `slm/` 对应命令页（每条命令"1. 这条命令做什么"开头）
-> 3. 要改代码 → `dev/extension_guide.md`（分层 + 扩展点 + 最小模板），再查 `dev/coding_conventions.md`
+> 3. 要改代码 → `dev/coding_conventions.md` + `call_graph_wiki` 相关函数页
 > 4. 硬件/驱动细节 → `drivers_architecture.md` + 各品牌目录（`daheng/` `miicam/` `thorlab-wfs/` `slm-200/`）
 
 ## 根目录 — 架构与总览
@@ -31,7 +31,6 @@
 | 文档 | 说明 |
 |---|---|
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
-| `dev/extension_guide.md` | **二次开发入口**：分层依赖、扩展点、算法/驱动/优化器/CLI/ML/GUI 最小模板、测试与文档门禁、提交检查单 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
 
