@@ -1173,14 +1173,18 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # (1 Santec + 1 camera) landed upstream. 25 -> 29 and 23 -> 27 on 2026-10-19:
     # slm/panel/focus_probe (1+1), slm/panel/bench_fingerprint (1+1) and
     # slm/panel/alignment_probe (2 Santec + 2 camera — one session each in its
-    # scan path and its replay-verify path) landed upstream. This guard pins the census so a
+    # scan path and its replay-verify path) landed upstream. 29 -> 30 and 27 -> 28
+    # on 2026-10-21: slm/calibration/diffraction_efficiency/measure.py
+    # (1 Santec + 1 camera — the blazed-grating diffraction-efficiency sweep)
+    # landed upstream. This guard pins the census so a
     # *refactor* cannot quietly consolidate device sessions; adding a genuinely
     # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 29, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 27, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 30, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 28, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
+        "slm/calibration/diffraction_efficiency/measure.py": 1,
         "slm/calibration/gray_response.py": 1,
         "slm/calibration/lut_runner.py": 1,
         "slm/calibration/phase_capture.py": 1,
@@ -1211,6 +1215,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
 
     assert camera == {
         "slm/calibration/calibration.py": 1,
+        "slm/calibration/diffraction_efficiency/measure.py": 1,
         "slm/calibration/gray_response.py": 1,
         "slm/calibration/lut_runner.py": 2,
         "slm/calibration/phase_capture.py": 2,

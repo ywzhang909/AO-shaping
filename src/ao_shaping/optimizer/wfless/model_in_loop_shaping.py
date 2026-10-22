@@ -2,7 +2,7 @@
 
 每一轮在两步之间交替:
 
-* **Step A —— 波前拟合。** :class:`ZernikeCoefficientOptimizer` 由 (测量, 瞳孔相位)
+* **Step A —— 波前拟合。** :class:`ZernikeCoefficientOptimizer` 由 (测量, 瞳面相位)
   这一对数据拟合出静态像差。它的正向模型是规范形式
   ``|fftshift(fft2(ifftshift(U), norm="ortho))|**2``, 与
   :class:`~ao_shaping.drivers.sim.fouriergsnet_env.SimFourierGSNetEnv` **共用同一个**
@@ -26,7 +26,7 @@
 * 上游数学: ``algorithm/signal_processing/zernike_coefficient_optimizer.py`` (Step A)
   与 ``.../differentiable_shaping.py`` (Step B); 指标来自
   ``utils/image/beam_metrics.py``, Zernike 计数来自 ``utils/wavefront/zernike_calc.py``。
-* 硬件对应路径: 同一整形目标在真机上由 ``runners/slm/gsnet_runner.py``
+* 硬件对应路径: 同一整形目标在实验系统上由 ``runners/slm/gsnet_runner.py``
   (``slm-gsnet``) 与 ``runners/slm/slm_shaping_runner.py`` (``spgd-square``) 驱动,
   但那两条走 Zernike/自由相位搜索而非本模块的迭代正向模型闭环。
 
@@ -68,8 +68,12 @@ from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import
     ZernikeCoefficientOptimizer,
 )
 from ao_shaping.drivers.sim.fouriergsnet_env import BeamParams, SimFourierGSNetEnv
-from ao_shaping.utils.image.beam_metrics import compute_square_metrics, zero_order_center
+from ao_shaping.utils.image.beam_metrics import (
+    compute_square_metrics,
+    zero_order_center,
+)
 from ao_shaping.utils.image.frame_analysis import spot_fwhm
+
 # ``_linear_slope`` was a verbatim copy of the canonical leaf kernel; alias it so the
 # fitting math keeps one home (utils/math/fitting.py, R-49/#65) and the two cannot drift.
 from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
@@ -107,6 +111,7 @@ _DEFOCUS_MIN_HOLLOWNESS = 0.60
 # Minimum phase-correlation peak height for a tilt shift to be trusted over the
 # spot centroid.
 _MIN_SHIFT_CORRELATION = 0.30
+
 
 def _has_both_signs(values: np.ndarray) -> bool:
     """True when the coefficients straddle zero, so an offset is observable."""
@@ -557,9 +562,7 @@ def noll_coefficients_to_dict(coefficients: np.ndarray) -> dict[int, float]:
     """
     values = np.asarray(coefficients, dtype=np.float64).ravel()
     return {
-        index + 1: float(value)
-        for index, value in enumerate(values)
-        if value != 0.0
+        index + 1: float(value) for index, value in enumerate(values) if value != 0.0
     }
 
 
@@ -582,9 +585,7 @@ def make_native_env(
     env = SimFourierGSNetEnv(
         d_eff=params.d_eff,
         K_px=params.resolved_k_px(),
-        beam=BeamParams(
-            region=params.region, w0=params.resolved_w0(), native=True
-        ),
+        beam=BeamParams(region=params.region, w0=params.resolved_w0(), native=True),
         peak_photons=params.peak_photons,
         noise_enabled=params.noise_enabled,
         seed=params.seed,
@@ -771,7 +772,6 @@ def _fit_aberration_at_probes(
     rearm: Callable[[np.ndarray], _StepAOptimizerT] | None = None,
     on_iteration: Callable[[int, float | None], None] | None = None,
 ) -> tuple[np.ndarray, list[float], int, _StepAOptimizerT]:
-
     """Run Step A for a fixed number of Adam steps over cycling probe frames.
 
     The probes are cycled inside a *single* Adam state rather than fitted one
@@ -855,8 +855,6 @@ def _fit_aberration_at_probes(
         taken,
         optimizer,
     )
-
-
 
 
 def _probe_set_loss(
@@ -947,9 +945,7 @@ def fit_lut_gamma(
             optimizer.set_error_terms(replace(base, lut_gamma=gamma))
             losses = []
             for measured, probe in frames:
-                predicted = optimizer.forward_intensity(
-                    fixed, probe, source_amplitude
-                )
+                predicted = optimizer.forward_intensity(fixed, probe, source_amplitude)
                 measured_peak = float(np.max(measured))
                 predicted_peak = float(np.max(predicted))
                 if measured_peak <= 0.0 or predicted_peak <= 0.0:
@@ -1051,9 +1047,9 @@ def shape_phase_with_frozen_aberration(
         )
     if not np.all(np.isfinite(amplitude_grid)):
         raise ValueError("source_amplitude must be finite")
-    amplitude = torch.from_numpy(
-        np.ascontiguousarray(amplitude_grid)
-    ).to(device=dev, dtype=tdtype)
+    amplitude = torch.from_numpy(np.ascontiguousarray(amplitude_grid)).to(
+        device=dev, dtype=tdtype
+    )
     background = None
     if background_intensity is not None:
         background_array = np.asarray(background_intensity, dtype=np.float64)
@@ -1094,9 +1090,7 @@ def shape_phase_with_frozen_aberration(
     if abs(scale - 1.0) > 1e-9:
         target_t = torch.from_numpy(
             np.ascontiguousarray(
-                np.asarray(
-                    zoom(target, (scale, scale), order=1), dtype=np.float64
-                )
+                np.asarray(zoom(target, (scale, scale), order=1), dtype=np.float64)
             )
         ).to(device=dev, dtype=tdtype)
 
@@ -1106,9 +1100,7 @@ def shape_phase_with_frozen_aberration(
     start_phase = torch.from_numpy(
         np.ascontiguousarray(np.asarray(initial_phase, dtype=np.float64))
     ).to(device=dev, dtype=tdtype)
-    start = start_phase + 0.1 * torch.randn(
-        (region, region), device=dev, dtype=tdtype
-    )
+    start = start_phase + 0.1 * torch.randn((region, region), device=dev, dtype=tdtype)
     phase = torch.nn.Parameter(start.clone())
     opt = torch.optim.Adam([phase], lr=config.lr)
     # Dedicated RNG for the relaxation noise so it is independent of the torch
@@ -1150,7 +1142,11 @@ def shape_phase_with_frozen_aberration(
         loss_value = float(closure().detach().cpu().item())
         history.append(loss_value)
         opt.step()
-        if config.noise_inject_every > 0 and config.noise_sigma_rad > 0 and (index + 1) % config.noise_inject_every == 0:
+        if (
+            config.noise_inject_every > 0
+            and config.noise_sigma_rad > 0
+            and (index + 1) % config.noise_inject_every == 0
+        ):
             with torch.no_grad():
                 inject = torch.from_numpy(
                     np.ascontiguousarray(
@@ -1666,9 +1662,7 @@ def calibrate_bench_geometry(
         )
         zeros = np.zeros(opt.n_coefficients)
         for waist_grid in waist_grid_candidates:
-            model = opt.forward_intensity(
-                zeros, grid, amplitude(waist_grid, semi_axis)
-            )
+            model = opt.forward_intensity(zeros, grid, amplitude(waist_grid, semi_axis))
             window = _model_window(model, reference.shape, camera_px_per_model_px)
             if window.shape != reference.shape:
                 # Real frames are 250x248, not square, so the window is resampled
@@ -1785,6 +1779,134 @@ class SweepRecord:
     shift_corr: float = float("nan")
 
 
+class SweepCalibrationError(ValueError):
+    """A sweep calibration could not be completed, with actionable context.
+
+    The sweep route fails in two very different ways that used to look the
+    same: the bench does not respond at all, and the bench does respond but
+    the *measurement* is noise. The second one is the common one -- a campaign
+    whose exposure window put the peak at 24-213 counts produced width series
+    that bounced around at random -- and it used to end the run with a bare
+    ``KeyError: 'defocus'``, which reads like a crash rather than what it is: a
+    signal-to-noise verdict. This exception carries the evidence (which modes
+    were dropped, why, and the raw widths) plus the two concrete next steps.
+
+    Attributes:
+        dropped: Swept modes whose width response was unusable, mapped to the
+            reason (curvature <= 0, offset pinned to the scan edge, too few
+            points, ...).
+        usable_modes: The modes that did produce a usable width response.
+        widths: The measured FWHM series per swept mode, in sweep order.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        dropped: Mapping[str, str] | None = None,
+        usable_modes: Sequence[str] = (),
+        widths: Mapping[str, Sequence[float]] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.dropped: dict[str, str] = dict(dropped or {})
+        self.usable_modes: tuple[str, ...] = tuple(usable_modes)
+        self.widths: dict[str, list[float]] = {
+            mode: [float(v) for v in values] for mode, values in (widths or {}).items()
+        }
+
+
+def _publish_dropped(out: dict[str, str] | None, dropped: Mapping[str, str]) -> None:
+    """Copy the dropped-mode record into the caller's dict, in place.
+
+    The dict is an out-parameter: the caller keeps ownership of it, so the
+    record can be logged, serialised or written next to the geometry without
+    the calibration having to know about any of that.
+    """
+    if out is None:
+        return
+    out.clear()
+    out.update(dropped)
+
+
+def _format_width_series(widths: Sequence[float]) -> str:
+    """Format a measured width series for an error message."""
+    return ", ".join(f"{v:.1f}" for v in widths)
+
+
+def _dropped_summary(reason: str) -> str:
+    """Compact, parse-safe summary of a dropped-mode reason.
+
+    ``scripts/slm/generate_bench_probe_report.py`` pulls numbers out of
+    ``calibration_notes`` with narrow regexes, so the summary must not put a
+    number next to " rad" or in front of a ";" -- those would be read back as
+    a bench offset or a curvature. The full reason stays in the ``dropped``
+    record and in the error message.
+    """
+    if "no model response" in reason:
+        return "no model response"
+    if "curvature" in reason:
+        return "degenerate width response (curvature <= 0)"
+    if "scan edge" in reason:
+        return "degenerate width response (offset at the scan edge)"
+    if "sweep point" in reason or "finite positive FWHM" in reason:
+        return "too few usable points"
+    return "no usable width response"
+
+
+def _sweep_dropped_report(
+    dropped: Mapping[str, str],
+    usable: Sequence[str],
+    widths: Mapping[str, Sequence[float]],
+) -> str:
+    """The shared diagnostic block: what was dropped, why, and what survived."""
+    lines: list[str] = []
+    if dropped:
+        lines.append("被丢弃的模式 (dropped modes):")
+        for mode, reason in sorted(dropped.items()):
+            series = widths.get(mode, ())
+            lines.append(
+                f"  - {mode}: {reason}; 原始宽度序列 (raw FWHM px) = "
+                f"[{_format_width_series(series)}]"
+            )
+    else:
+        lines.append("被丢弃的模式 (dropped modes): 无 (none)")
+    lines.append(
+        "仍可用的模式 (usable modes): " + (", ".join(usable) if usable else "无 (none)")
+    )
+    return "\n".join(lines)
+
+
+def _defocus_degenerate_message(
+    dropped: Mapping[str, str],
+    usable: Sequence[str],
+    widths: Mapping[str, Sequence[float]],
+) -> str:
+    """The diagnostic message for "the defocus width response is degenerate".
+
+    Bilingual on purpose: the operator reads the Chinese half, the log/report
+    greps keep the English terms, and the two concrete next steps are spelled
+    out rather than left as a judgement call.
+    """
+    reason = dropped.get(
+        "defocus",
+        "离焦组的宽度响应不可用 (the defocus group produced no usable response)",
+    )
+    return (
+        "离焦（Noll 4）的宽度响应退化 ⇒ 几何无法标定: the defocus (Noll 4) width "
+        "response is degenerate, so the bench geometry cannot be calibrated -- "
+        "the waist and the focal scale both come from that response.\n"
+        f"  defocus: {reason}\n"
+        f"{_sweep_dropped_report(dropped, usable, widths)}\n"
+        "下一步 (next steps):\n"
+        "  (1) 提高信噪比 (improve the SNR): 提高曝光 (exposure), 并对每一档做多帧"
+        "平均再取均值。判据: 宽度的相对分辨率要 ≲ 25%, 因为 w² 拟合会把宽度的相对"
+        "误差平方放大 (25% 的宽度分辨率 ⇒ w² 约 50% 的不确定度 ⇒ 曲率就拟不出来了)。\n"
+        "  (2) 换用更稳健的宽度估计 (robust width estimator): 用二阶矩半径 "
+        "(second-moment radius) 代替 FWHM —— FWHM 由半高位置决定, 低信噪比下会被"
+        "噪声主导; 二阶矩半径用整幅光强的二阶矩, 对噪声更稳。"
+    )
+
+
 def _pupil_amplitude(
     region: int, waist_model_px: float, semi_axis_model_px: int
 ) -> np.ndarray:
@@ -1809,6 +1931,7 @@ def calibrate_bench_geometry_from_sweep(
     camera_pixel_m: float | None = 2.2e-6,
     focal_length_m: float | None = 0.125,
     wavelength_m: float = 1064e-9,
+    dropped: dict[str, str] | None = None,
 ) -> BenchGeometry:
     """Calibrate the bench from a tilt + defocus sweep instead of speckle.
 
@@ -1859,17 +1982,31 @@ def calibrate_bench_geometry_from_sweep(
         camera_pixel_m: Camera pixel pitch, metres, for the same check.
         focal_length_m: 2f lens focal length, metres, for the same check.
         wavelength_m: Laser wavelength, metres, for the same check.
+        dropped: Optional out-parameter. On return it holds the swept modes
+            whose width response was unusable, mapped to the reason
+            (``"width^2 curvature -380.1 <= 0 ..."``, ``"only 1 sweep point"``,
+            ...). The dict is filled in place, so the caller owns it and can
+            persist it next to the geometry. It is also populated when the
+            calibration raises :class:`SweepCalibrationError`.
 
     Returns:
         The best-fitting :class:`BenchGeometry`, with ``method="sweep"``.
 
     Raises:
         ValueError: If the records do not contain a usable tilt or defocus sweep.
+        SweepCalibrationError: If the defocus width response is degenerate --
+            a :class:`ValueError` subclass carrying the dropped modes, their
+            reasons, the raw width series and the two concrete next steps
+            (raise the SNR, or switch to a second-moment width estimate).
     """
     tilts = [r for r in records if r.mode == "tilt"]
     ramps = [r for r in records if r.mode == "ramp"]
     defocuses = [r for r in records if r.mode == "defocus"]
     flats = [r for r in records if r.mode == "flat"]
+    # Start from a clean out-parameter, so a record left over from an earlier
+    # call can never be mistaken for this call's evidence.
+    if dropped is not None:
+        dropped.clear()
     if len(tilts) < 2:
         raise ValueError(f"need >= 2 tilt points, got {len(tilts)}")
     if len(defocuses) < 2:
@@ -1959,13 +2096,13 @@ def calibrate_bench_geometry_from_sweep(
             if abs(s) > abs(ramp_scale) or not np.isfinite(ramp_scale):
                 ramp_scale, ramp_axis = float(s), ax
     if np.isfinite(ramp_scale) and ramp_scale != 0.0:
-        camera_px_per_model_px = abs(ramp_scale) / (model_to_panel * float(far_field_size))
+        camera_px_per_model_px = abs(ramp_scale) / (
+            model_to_panel * float(far_field_size)
+        )
         focal_source = f"ramp sweep (S={abs(ramp_scale):.0f} cam px per 1/period, axis {ramp_axis})"
     else:
         camera_px_per_model_px = k_tilt * np.pi * a / float(far_field_size)
-        focal_source = (
-            f"Zernike tilt slope {k_tilt:.2f} cam px/rad via {sorted(set(sources.values()))}"
-        )
+        focal_source = f"Zernike tilt slope {k_tilt:.2f} cam px/rad via {sorted(set(sources.values()))}"
         logger.warning(
             "no usable ramp sweep, so the focal scale comes from the Zernike tilt "
             "slope -- which has measured 3x too small on this bench when the spot "
@@ -1997,7 +2134,10 @@ def calibrate_bench_geometry_from_sweep(
             logger.info(
                 "focal scale {:.4f} cam px per model px (from {}) vs {:.4f} from "
                 "the independent field-of-view ratio -- {:.0%} apart",
-                camera_px_per_model_px, focal_source, fov_ratio, rel,
+                camera_px_per_model_px,
+                focal_source,
+                fov_ratio,
+                rel,
             )
             if rel > 0.25:
                 logger.warning(
@@ -2007,7 +2147,9 @@ def calibrate_bench_geometry_from_sweep(
                     "routes scale with. Re-measure it with "
                     "`python -m ao_shaping.tools.slm.panel.beam_extent` before "
                     "trusting either number.",
-                    rel, focal_source, fov_ratio,
+                    rel,
+                    focal_source,
+                    fov_ratio,
                 )
 
     # Physical cross-check on the Zernike tilt slope, kept as a diagnostic: the
@@ -2026,15 +2168,13 @@ def calibrate_bench_geometry_from_sweep(
     # side, so those runs were corrupted (the spot had deformed and the centroid
     # stopped tracking the peak) rather than revealing a huge beam.
     if aperture_m and camera_pixel_m and focal_length_m:
-        k_pred = (
-            focal_length_m * wavelength_m
-            / (np.pi * aperture_m * camera_pixel_m)
-        )
+        k_pred = focal_length_m * wavelength_m / (np.pi * aperture_m * camera_pixel_m)
         ratio = k_tilt / k_pred if k_pred > 0 else float("nan")
         tilt_ratio = float(ratio)
         implied_aperture_mm = (
             focal_length_m * wavelength_m / (np.pi * camera_pixel_m * k_tilt) * 1e3
-            if k_tilt > 0 else float("nan")
+            if k_tilt > 0
+            else float("nan")
         )
         if not (0.4 <= ratio <= 1.6):
             logger.warning(
@@ -2045,8 +2185,12 @@ def calibrate_bench_geometry_from_sweep(
                 "aperture of {:.1f} mm; the panel's short side is 9.6 mm, so a "
                 "measurement implying more than that is corrupted, not a discovery. "
                 "Re-run the tilt sweep with smaller coefficients.",
-                k_tilt, ratio, k_pred, 1e3 * aperture_m,
-                camera_px_per_model_px, implied_aperture_mm,
+                k_tilt,
+                ratio,
+                k_pred,
+                1e3 * aperture_m,
+                camera_px_per_model_px,
+                implied_aperture_mm,
             )
     else:
         tilt_ratio = float("nan")
@@ -2058,15 +2202,32 @@ def calibrate_bench_geometry_from_sweep(
     # which is astigmatism/coma the defocus sweep does not contain. Sweeping both
     # quadratic modes and fitting them together separates the two contributions.
     groups: dict[str, tuple[np.ndarray, np.ndarray]] = {}
+    # Modes that were swept but could not contribute a width response, with the
+    # reason. This used to live only in a log line, which made "the mode does
+    # not respond on this bench" indistinguishable from "the measurement was
+    # noise" -- and a missing defocus group ended the run with a bare
+    # KeyError. The record travels with the result and with the error instead.
+    dropped_modes: dict[str, str] = {}
+    raw_widths: dict[str, list[float]] = {}
     for mode in ("defocus", "astig_x", "astig_y", "coma_x", "coma_y", "spherical"):
         pts = [r for r in records if r.mode == mode]
+        if pts:
+            raw_widths[mode] = [float(r.fwhm_px) for r in pts]
         if len(pts) < 2:
+            if pts:
+                dropped_modes[mode] = (
+                    f"only {len(pts)} sweep point(s); a width response needs at "
+                    "least two"
+                )
             continue
         c = np.array([r.coefficient for r in pts], dtype=np.float64)
         w = np.array([r.fwhm_px for r in pts], dtype=np.float64)
         h = np.array([r.hollowness for r in pts], dtype=np.float64)
         ok = np.isfinite(w) & (w > 0) & np.isfinite(h)
         if int(ok.sum()) < 2:
+            dropped_modes[mode] = (
+                f"only {int(ok.sum())} point(s) with a finite positive FWHM"
+            )
             continue
         c, w, h = c[ok], w[ok], h[ok]
 
@@ -2079,13 +2240,17 @@ def calibrate_bench_geometry_from_sweep(
         # after an alternative was measured and rejected -- see the note on
         # _DEFOCUS_SINGLE_LOBE_FACTOR.
         single_lobe = h >= _DEFOCUS_MIN_HOLLOWNESS
-        if not single_lobe.all() and int(single_lobe.sum()) >= 2 and _has_both_signs(
-            c[single_lobe]
+        if (
+            not single_lobe.all()
+            and int(single_lobe.sum()) >= 2
+            and _has_both_signs(c[single_lobe])
         ):
             logger.info(
                 "{} sweep: dropped {} point(s) that are not a single spot lobe "
                 "(hollowness < {:.2f}): {}",
-                mode, int((~single_lobe).sum()), _DEFOCUS_MIN_HOLLOWNESS,
+                mode,
+                int((~single_lobe).sum()),
+                _DEFOCUS_MIN_HOLLOWNESS,
                 ", ".join(
                     f"c={cc:+.2f} w={ww:.1f} hollow={hh:.2f}"
                     for cc, ww, hh in zip(
@@ -2115,17 +2280,17 @@ def calibrate_bench_geometry_from_sweep(
                 else:
                     keep[j] = False
         if int(keep.sum()) >= 4 and _has_both_signs(c[keep]):
-            dropped = int((~keep).sum())
-            if dropped:
+            dropped_points = int((~keep).sum())
+            if dropped_points:
                 logger.info(
                     "{} sweep: dropped {} non-monotonic width point(s); "
                     "fitting the remaining {}",
-                    mode, dropped, int(keep.sum()),
+                    mode,
+                    dropped_points,
+                    int(keep.sum()),
                 )
             c, w = c[keep], w[keep]
         groups[mode] = (c, w)
-    if "defocus" not in groups:
-        raise ValueError("defocus sweep has fewer than two usable FWHM points")
 
     # Per-mode bench offset: the width minimum is where the bench's own
     # aberration cancels the command, so fit it rather than assuming it sits at
@@ -2153,22 +2318,68 @@ def calibrate_bench_geometry_from_sweep(
         # keep the ones that do respond.
         edge = (c0_q <= grid[0] + 1e-9) or (c0_q >= grid[-1] - 1e-9)
         if curv_q <= 0.0 or edge:
+            reasons: list[str] = []
+            if curv_q <= 0.0:
+                reasons.append(
+                    f"width^2 curvature {curv_q:+.1f} <= 0 (the width does not "
+                    "open upward, so the mode has no usable width response)"
+                )
+            if edge:
+                reasons.append(
+                    f"the fitted minimum sits at coefficient {c0_q:+.3f}, pinned "
+                    f"to the scan edge [{grid[0]:+.2f}, {grid[-1]:+.2f}] (the "
+                    "width minimum was never bracketed)"
+                )
+            reason = "; ".join(reasons)
+            dropped_modes[mode] = reason
             logger.warning(
                 "{} width response is degenerate (curvature {:.1f}, offset {:+.3f} "
                 "{}) -- dropping this mode from the fit rather than reporting a "
                 "meaningless offset. Check that the mode is actually reachable on "
                 "this bench: its spot widths were {}",
-                mode, curv_q, c0_q, "at the scan edge" if edge else "",
+                mode,
+                curv_q,
+                c0_q,
+                "at the scan edge" if edge else "",
                 ", ".join(f"{v:.1f}" for v in w),
             )
             groups.pop(mode)
             continue
         offsets[mode] = c0_q
         curvature_report[mode] = curv_q
+
+    # The dropped-mode record is published before any raise, so the caller gets
+    # the same evidence whether the calibration succeeded or not.
+    _publish_dropped(dropped, dropped_modes)
+
     if not groups:
-        raise ValueError(
+        raise SweepCalibrationError(
             "no swept mode produced a usable width response; the spot width does "
-            "not respond to any of them on this bench"
+            "not respond to any of them on this bench.\n"
+            f"{_sweep_dropped_report(dropped_modes, sorted(groups), raw_widths)}\n"
+            "下一步 (next steps):\n"
+            "  (1) 提高信噪比 (improve the SNR): 提高曝光 (exposure), 并对每一档"
+            "做多帧平均再取均值。判据: 宽度的相对分辨率要 ≲ 25%, 因为 w² 拟合会把"
+            "宽度的相对误差平方放大 (25% 的宽度分辨率 ⇒ w² 约 50% 的不确定度 ⇒ "
+            "曲率就拟不出来了)。\n"
+            "  (2) 换用更稳健的宽度估计 (robust width estimator): 用二阶矩半径 "
+            "(second-moment radius) 代替 FWHM —— FWHM 由半高位置决定, 低信噪比下"
+            "会被噪声主导; 二阶矩半径用整幅光强的二阶矩, 对噪声更稳。",
+            dropped=dropped_modes,
+            usable_modes=tuple(sorted(groups)),
+            widths=raw_widths,
+        )
+
+    # Defocus is not optional: the waist and the focal scale both come from its
+    # width response. When it is missing the run cannot continue -- but it must
+    # not die with a bare KeyError, which reads like a crash instead of the
+    # signal-to-noise verdict it actually is.
+    if "defocus" not in groups:
+        raise SweepCalibrationError(
+            _defocus_degenerate_message(dropped_modes, sorted(groups), raw_widths),
+            dropped=dropped_modes,
+            usable_modes=tuple(sorted(groups)),
+            widths=raw_widths,
         )
 
     # Width asymmetry of the defocus response at matched |c| is a direct read of
@@ -2187,7 +2398,10 @@ def calibrate_bench_geometry_from_sweep(
     if waist_candidates is None:
         waist_candidates = [region / float(2**k) for k in range(0, 8)]
     opt = ZernikeCoefficientOptimizer(
-        n_orders=1, region=region, dtype="float64", device="cpu",
+        n_orders=1,
+        region=region,
+        dtype="float64",
+        device="cpu",
         far_field_size=far_field_size,
     )
     zeros = np.zeros(opt.n_coefficients)
@@ -2204,8 +2418,20 @@ def calibrate_bench_geometry_from_sweep(
         n_pts = 0
         per_mode: dict[str, float] = {}
         ok_waist = True
-        for mode, (c, w) in groups.items():
-            nm = _SWEEP_MODE_NM[mode]
+        for mode, (c, w) in list(groups.items()):
+            nm = _SWEEP_MODE_NM.get(mode)
+            if nm is None:
+                # A mode without a model response cannot be fitted. Drop it
+                # explicitly instead of dying with a bare KeyError -- the same
+                # failure shape this whole block exists to prevent.
+                logger.warning(
+                    "no model width response for mode {}; dropping it from the "
+                    "joint fit",
+                    mode,
+                )
+                dropped_modes[mode] = "no model response for this mode"
+                groups.pop(mode)
+                continue
             curve = np.array(
                 [
                     _spot_fwhm(
@@ -2228,9 +2454,7 @@ def calibrate_bench_geometry_from_sweep(
                 okp = np.isfinite(pred) & (pred > 0)
                 if int(okp.sum()) < 2:
                     continue
-                rms = float(
-                    np.sqrt(np.mean(((pred[okp] - w[okp]) / w[okp]) ** 2))
-                )
+                rms = float(np.sqrt(np.mean(((pred[okp] - w[okp]) / w[okp]) ** 2)))
                 if rms < best_rms:
                     best_rms, best_off = rms, float(c0)
             if not np.isfinite(best_rms):
@@ -2267,7 +2491,11 @@ def calibrate_bench_geometry_from_sweep(
             "tilt-derived scale ({:.4f} cam px per model px) is unaffected -- it "
             "comes from the centroid slope alone. Add coma/spherical sweeps to "
             "identify the waist.",
-            fit_rms, asymmetry, waist_model, waist_fit, camera_px_per_model_px,
+            fit_rms,
+            asymmetry,
+            waist_model,
+            waist_fit,
+            camera_px_per_model_px,
         )
 
     # --- reported spot widths ------------------------------------------------
@@ -2285,10 +2513,10 @@ def calibrate_bench_geometry_from_sweep(
         + f", via {sorted(set(sources.values()))}), semi-axis {a} model px, "
         f"P={far_field_size}"
         + (
-        f"; physical tilt check {tilt_ratio:.2f}x predicted"
-        if np.isfinite(tilt_ratio)
-        else ""
-    )
+            f"; physical tilt check {tilt_ratio:.2f}x predicted"
+            if np.isfinite(tilt_ratio)
+            else ""
+        )
         + f"; focal scale from {focal_source}"
         + (
             f", FOV cross-check {fov_ratio:.3f} ({abs(camera_px_per_model_px / fov_ratio - 1.0):.0%} apart)"
@@ -2302,6 +2530,14 @@ def calibrate_bench_geometry_from_sweep(
         + f"; defocus asymmetry {asymmetry:+.0%}; waist "
         + ("fitted" if waist_determined else "NOT identifiable, flat-top default")
     )
+    if dropped_modes:
+        # Persisted with the geometry (bench_geometry.json) so a later reader can
+        # tell "this mode did not respond" from "this mode was never swept".
+        # The wording keeps the numbers out of the report parser's way.
+        notes += "; dropped modes " + ", ".join(
+            f"{m} ({_dropped_summary(r)})" for m, r in sorted(dropped_modes.items())
+        )
+    _publish_dropped(dropped, dropped_modes)
     logger.info(
         "bench geometry from sweep: aperture={} panel px, w0={:.1f} panel px, "
         "{:.4f} cam px per model px, flat FWHM {:.1f} cam px, joint fit {:.1%} "
@@ -2321,9 +2557,17 @@ def calibrate_bench_geometry_from_sweep(
         ),
     )
     for mode in sorted(offsets):
+        # ``offsets`` only ever holds modes that survived, but the lookup is
+        # defensive on purpose: this loop must not be the place where a dropped
+        # mode turns into a KeyError.
+        points = groups.get(mode)
+        n_points = int(points[0].size) if points is not None else 0
         logger.info(
             "  bench {}: offset {:+.3f} rad, width^2 curvature {:.1f}, {} points",
-            mode, offsets[mode], curvature_report[mode], groups[mode][0].size,
+            mode,
+            offsets[mode],
+            curvature_report[mode],
+            n_points,
         )
     return BenchGeometry(
         panel_disc_radius=int(round(a * model_to_panel)),
@@ -2366,7 +2610,9 @@ def _zernike_phase(
 
     r = int(min(int(semi_axis_model_px), region // 2))
     gen = ZernikeGenerator((region, region), radius=r, n_orders=nm[0])
-    mode = np.asarray(gen.generate_polynomial({nm: float(coefficient)}), dtype=np.float64)
+    mode = np.asarray(
+        gen.generate_polynomial({nm: float(coefficient)}), dtype=np.float64
+    )
     if mode.shape != (region, region):  # generator may return (W, H)
         mode = mode.T
     out = np.zeros((region, region), dtype=np.float64)
@@ -2652,7 +2898,9 @@ def _discover_dataset(
     candidates: list[tuple[float, int, Path]] = []
     candidates.extend((p.stat().st_mtime, 0, p) for p in search_root.rglob("*.pkl"))
     candidates.extend(
-        (p.stat().st_mtime, 1, p) for p in search_root.rglob("*.gsnet_cache") if p.is_dir()
+        (p.stat().st_mtime, 1, p)
+        for p in search_root.rglob("*.gsnet_cache")
+        if p.is_dir()
     )
     if not candidates:
         return [], "none"
@@ -2684,7 +2932,6 @@ def calibrate_shared_aberration(
     n_orders: int = 10,
     epochs: int = 50,
     lr: float = 0.05,
-
     dtype: str = "float64",
     device: str | None = None,
     seed: int = 0,
@@ -2870,7 +3117,6 @@ def calibrate_shared_aberration(
         loss = optimizer.last_loss
         if loss is not None:
             history.append(float(loss))
-
 
     coefficients = optimizer.coefficients
     errors = [

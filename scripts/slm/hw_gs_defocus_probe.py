@@ -126,6 +126,28 @@ target 要按 ``M`` 重采样 —— **对 2f 光路是错的**, 错在漏掉了
     python scripts/slm/hw_gs_defocus_probe.py --execute --chirp-tilt-cancel \
         --chirp-tilt-cal-dz-mm 2.0 --chirp-tilt-test-period-px 1000
 
+同一套 CLI 跑仿真
+-----------------
+
+``--cam-type sim`` 让本脚本在**数字孪生**上跑出**同结构**的产物
+(``run_config.json`` / ``measurements.csv`` / ``measurements.json`` /
+``frame_*.npz`` / ``hw_summary.png`` / 根目录 ``manifest.json``), 不碰任何硬件:
+
+.. code-block:: bash
+
+    python scripts/slm/hw_gs_defocus_probe.py --execute --cam-type sim \
+        --dz-mm 0 5 --sim-seed 0 --sim-far-field-padding 4
+
+* ``--sim-seed``: 仿真噪声模型的种子 (固定它 ⇒ 逐位可重复);
+* ``--sim-far-field-padding``: 仿真远场 FFT 的补零因子, 与
+  ``scripts/slm/run_gs_refine_zernike_sweep.py`` 的同名选项**同名同义**
+  (默认 16; 代价按补零的平方增长, 冒烟测试用 4 就够)。
+
+仿真里**离焦是真的**: 瞳面二次相位经 ``set_phase_overlay`` 在弧度→灰度**之前**
+加进面板相位, 远场看到的是相加后的相位, 所以光斑会随 Δz 变糊、框内功率会掉。
+仿真的最佳焦面由**仿真的几何**决定, 与实测值无关 —— 产物里的驱动字符串也会
+写成 ``SimSLMPib`` / ``create_camera('sim')``, 不会与硬件产物混淆。
+
 一次只探一组变量
 ----------------
 
@@ -249,6 +271,66 @@ AUTO_TARGET_SIDE_MIN_PX = 4
 AUTO_TARGET_SIDE_ROI_FRACTION = 0.6
 
 DEFAULT_ROI_PX = 250
+
+# ---------------------------------------------------------------------------
+# 后端模式 → 驱动字符串
+# ---------------------------------------------------------------------------
+#: 硬件后端的 SLM 驱动串 —— **逐字不变**: 第三轮已入库的产物
+#: (``report/shape_trials/hw_defocus_zernike/...``) 里就是这个字符串, 复现与
+#: 对拍都按它认后端, 所以**不许**改写。
+HARDWARE_SLM_DRIVER = "ao_shaping.drivers.slm.santec.Santec (memory 模式, video_mode=0)"
+
+#: 硬件后端的 CCD 驱动串 —— **逐字不变** (同上)。
+HARDWARE_CCD_DRIVER = "ao_shaping.drivers.ccd.common.create_camera('daheng')"
+
+#: 仿真后端的驱动串: 仿真面板 + 仿真相机 (无硬件)。
+SIM_SLM_DRIVER = "ao_shaping.drivers.sim.slm_pib_sim.SimSLMPib (仿真面板, 无硬件)"
+SIM_CCD_DRIVER = "ao_shaping.drivers.ccd.common.create_camera('sim')"
+
+#: 仿真远场 FFT 的补零因子 —— 与
+#: ``scripts/slm/run_gs_refine_zernike_sweep.py`` 的 ``--sim-far-field-padding``
+#: **同名同义** (同一个数字、同一个含义: 补零越大, 远场像元越细, 代价按平方增长)。
+DEFAULT_SIM_FAR_FIELD_PADDING = 16
+
+
+def device_driver_strings(cam_type: str) -> tuple[str, str]:
+    """(SLM 驱动串, CCD 驱动串) —— 按后端模式生成。
+
+    硬件模式的字符串**逐字**等于第三轮已入库产物里的那两条 (见
+    :data:`HARDWARE_SLM_DRIVER` / :data:`HARDWARE_CCD_DRIVER`); 仿真模式换成
+    仿真面板与仿真相机。措辞要准 —— 写的是「哪个类 / 哪个工厂入口」, 不是泛泛的
+    「仿真」。
+    """
+    kind = str(cam_type).strip().lower()
+    if kind == "sim":
+        return SIM_SLM_DRIVER, SIM_CCD_DRIVER
+    if kind == "daheng":
+        return HARDWARE_SLM_DRIVER, HARDWARE_CCD_DRIVER
+    return (
+        HARDWARE_SLM_DRIVER,
+        f"ao_shaping.drivers.ccd.common.create_camera('{cam_type}')",
+    )
+
+
+def overlay_api_text(cam_type: str) -> str:
+    """叠加层 API 的描述 —— 按后端模式给不同的措辞。
+
+    硬件模式的文本**逐字**不变 (与第三轮已入库产物一致); 仿真模式的文本说清楚
+    「叠加层在弧度→灰度**之前**相加, 远场看到的是相加后的相位」—— 这一条是离焦
+    响应在仿真里能不能出现的关键。
+    """
+    if str(cam_type).strip().lower() == "sim":
+        return (
+            "SimSLMPib.set_phase_overlay(phase_rad) —— 弧度制叠加层, 在 "
+            "create_phase_from_array 内部、弧度→灰度**之前**相加, 所以远场看到的"
+            "是**相加后**的相位 (离焦必须真的让光斑变糊); 尺寸不符只 warning 并跳过; "
+            "结束后 set_phase_overlay(None)"
+        )
+    return (
+        "Santec.set_phase_overlay(phase_rad) —— 弧度制, 在 create_phase_from_array "
+        "内部、弧度→灰度之前相加, 矫正/LUT/平移照常作用; 结束后 set_phase_overlay(None)"
+    )
+
 
 # ---------------------------------------------------------------------------
 # 瞳面斜坡去倾斜 (自标定) 的默认参数
@@ -1125,6 +1207,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         "离焦响应恢复单调"
     )
     chirp_tilt = build_chirp_tilt_plan(args)
+    slm_driver, ccd_driver = device_driver_strings(args.cam_type)
     return {
         "group": {
             "name": group_name,
@@ -1139,7 +1222,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
         "devices": [
             {
                 "role": "SLM",
-                "driver": "ao_shaping.drivers.slm.santec.Santec (memory 模式, video_mode=0)",
+                "driver": slm_driver,
                 "slm_number": int(args.slm_number),
                 "slm_wavelength_nm": int(args.wavelength_nm),
                 "panel_shape_hw": list(optics.panel_shape),
@@ -1147,7 +1230,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
             },
             {
                 "role": "CCD",
-                "driver": "ao_shaping.drivers.ccd.common.create_camera('daheng')",
+                "driver": ccd_driver,
                 "cam_id": int(args.cam_id),
                 "exposure_ms_requested": float(args.exposure_ms),
                 "roi_px": int(args.roi_px),
@@ -1180,10 +1263,7 @@ def build_plan(args: argparse.Namespace, optics: Optics) -> dict[str, Any]:
             "display_and_average 后用 zero_order_center(frame, refine=False) = 全局 argmax "
             "定位 (绝不假设在画面中心); 定位一次即冻结 center 与 target 框, 之后不逐帧重定位"
         ),
-        "overlay_api": (
-            "Santec.set_phase_overlay(phase_rad) —— 弧度制, 在 create_phase_from_array "
-            "内部、弧度→灰度之前相加, 矫正/LUT/平移照常作用; 结束后 set_phase_overlay(None)"
-        ),
+        "overlay_api": overlay_api_text(args.cam_type),
         "focus_correction": focus_text,
         "zero_order_halo": (
             "每次测量额外记整帧峰值 / 框外峰值 / 框外功率占比。真实瞳面是双分量 "
@@ -1357,6 +1437,58 @@ class _ProbeParams:
     cam_size: int
     slm_number: int
     slm_wavelength: int
+
+
+def configure_sim_system(seed: int, far_field_padding: int) -> None:
+    """把进程级的仿真系统重置到指定的种子与远场补零因子。
+
+    与 ``scripts/slm/run_gs_refine_zernike_sweep.py::configure_sim_system`` 同义:
+    ``reset_system`` 不接受 padding 参数, 所以 padding 是在**任何一次远场求值
+    之前**改到新 system 上的 (那时 ``_far_field`` 与 ``_pad_buffer`` 还是
+    ``None``, 改动安全)。已装的干扰项 (disturbance) 会被带过去。
+
+    Args:
+        seed: 仿真噪声模型的 RNG 种子。
+        far_field_padding: 远场 FFT 的补零因子。
+    """
+    from ao_shaping.drivers.sim.slm_pib_sim import get_system, reset_system
+
+    existing = get_system()
+    system = reset_system(seed=seed, disturbance=existing.disturbance)
+    system.far_field_padding = int(far_field_padding)
+
+
+def read_exposure_ms(cam: Any) -> float:
+    """当前**生效**曝光 (ms)。
+
+    硬件相机有设备回读 (``get_exposure_time_ms``), 读的是设备真值; 仿真相机
+    没有这个接口, 回落驱动缓存 (``exposure_time_ms``) —— 仿真里曝光本来就不
+    改变画面亮度, 它只是个记录值。
+    """
+    reader = getattr(cam, "get_exposure_time_ms", None)
+    if reader is None:
+        return float(getattr(cam, "exposure_time_ms", 0.0))
+    return float(reader())
+
+
+def protected_memory_slot(slm: Any) -> int | None:
+    """运行前**正在显示**的内存槽; 没有槽位概念的设备返回 ``None``。
+
+    硬件: ``get_displayed_memory_number()`` 报错误码 1 (set_grayscale 模式) 是
+    **正常**的, 不是故障 —— 那时根本没有槽位要排除。仿真面板没有这个接口,
+    于是也没有槽位要排除。
+    """
+    from ao_shaping.drivers.slm.santec import SantecError
+
+    getter = getattr(slm, "get_displayed_memory_number", None)
+    if getter is None:
+        return None
+    try:
+        return int(getter())
+    except SantecError as exc:
+        if exc.code != 1:
+            raise
+        return None  # set_grayscale 模式下没有槽位, 报错码 1 正常
 
 
 def group_fields(group: str, meta: dict[str, str] | None = None) -> dict[str, Any]:
@@ -1537,6 +1669,15 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
     )
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    # 后端模式: 仿真与硬件走**同一套** CLI, 只有几处「只有硬件/只有仿真成立」
+    # 的分支不同 (下面每处都标了为什么)。
+    is_sim = str(args.cam_type).strip().lower() == "sim"
+    if is_sim:
+        # 仿真系统必须在**任何一次远场求值之前**就位 (种子 + 补零因子), 否则
+        # 第一帧就已经用掉了默认系统的状态。
+        configure_sim_system(int(args.sim_seed), int(args.sim_far_field_padding))
+        print(f"仿真后端: seed={int(args.sim_seed)}, "
+              f"远场补零={int(args.sim_far_field_padding)}")
     # 根目录: 默认按 UTC 时间戳新建; --out-root 可以把同一轮实验的多个组钉到
     # 同一个根目录下 (根目录的 manifest.json 才会把它们都索引起来)。
     out_root = (
@@ -1623,16 +1764,24 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
             guarded("SLM open()", lambda: slm.open(), timeout_s=OPEN_TIMEOUT_S)
         ):
             sync_device_wavelength(params, slm)
+            # 仿真相机按 ``cam_size`` 裁远场, 所以窗口边长必须**显式**传给它 ——
+            # 否则它用自己的默认 250, 而 ``--roi-px`` 改了却不起作用。硬件相机的
+            # 窗口由下面的 ``reset_window`` 定 (大恒不接受 ``cam_size``), 所以
+            # 这一个 kwarg 只在仿真分支给, 硬件调用逐字不变。
+            cam_kwargs: dict[str, Any] = (
+                {"cam_size": params.cam_size} if is_sim else {}
+            )
             with create_camera(params.cam_type, params.cam_id,
-                               exposure_time_ms=params.exposure_time_ms) as cam:
-                with preserve_slm_display(slm):
+                               exposure_time_ms=params.exposure_time_ms,
+                               **cam_kwargs) as cam:
+                # 仿真面板没有「当前显示的内存槽」这回事 (它不轮换槽位), 所以
+                # 「退出时恢复原显示」那一层保护只对硬件有意义。
+                display_guard = (
+                    nullcontext() if is_sim else preserve_slm_display(slm)
+                )
+                with display_guard:
                     # -- 槽位轮换: 排除运行前正在显示的那个, 之后每次随机挑 ----------
-                    try:
-                        protected = slm.get_displayed_memory_number()
-                    except SantecError as exc:
-                        if exc.code != 1:
-                            raise
-                        protected = None  # set_grayscale 模式下没有槽位, 报错码 1 正常
+                    protected = protected_memory_slot(slm)
                     used: set[int] = set()
                     if protected is not None:
                         used.add(int(protected))
@@ -1645,15 +1794,22 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         return slot
 
                     # -- 曝光上限 -------------------------------------------------
-                    ceiling = configured_daheng_exposure_limit()
-                    if not ceiling:
-                        ceiling = probe_exposure_ceiling_ms(
-                            cam.reset_exposure_time,
-                            lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
-                        ).ceiling_ms
-                    working_ms = min(float(args.exposure_ms), float(ceiling))
-                    if working_ms < 0.02:
-                        raise RuntimeError("解出的曝光上限低于相机最小值 0.02 ms")
+                    if is_sim:
+                        # 仿真相机没有饱和概念 (远场被归一化到峰值 ~100), 曝光只是
+                        # 一个记录值; 硬件那条「倍增阶梯找饱和」的路在仿真里既不
+                        # 适用, 也会白烧掉一串远场 FFT。
+                        ceiling = float(args.exposure_ms)
+                        working_ms = float(args.exposure_ms)
+                    else:
+                        ceiling = configured_daheng_exposure_limit()
+                        if not ceiling:
+                            ceiling = probe_exposure_ceiling_ms(
+                                cam.reset_exposure_time,
+                                lambda: np.asarray(cam.get_numpy_image(n_sample=1)),
+                            ).ceiling_ms
+                        working_ms = min(float(args.exposure_ms), float(ceiling))
+                        if working_ms < 0.02:
+                            raise RuntimeError("解出的曝光上限低于相机最小值 0.02 ms")
                     actual = float(cam.reset_exposure_time(working_ms))
                     print(f"曝光: 请求 {args.exposure_ms} ms -> 上限 {ceiling} ms -> 生效 "
                           f"{actual} ms")
@@ -1880,6 +2036,15 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                         ),
                         "chirp_tilt_note": chirp_tilt_note,
                     }
+                    if is_sim:
+                        # 仿真产物必须自带「这是仿真跑出来的」标记 + 复现所需的
+                        # 仿真参数。硬件分支**不加**这些键: 硬件那轮的产物已经
+                        # 入库, 字段集必须逐字不变。
+                        run_config["backend"] = "sim"
+                        run_config["sim_seed"] = int(args.sim_seed)
+                        run_config["sim_far_field_padding"] = int(
+                            args.sim_far_field_padding
+                        )
                     (out_dir / "run_config.json").write_text(
                         json.dumps(run_config, indent=2, ensure_ascii=False), encoding="utf-8"
                     )
@@ -1893,7 +2058,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 timespec="seconds"
                             ),
                             **{k: step[k] for k in STEP_ROW_FIELDS},
-                            "exposure_ms_readback": float(cam.get_exposure_time_ms()),
+                            "exposure_ms_readback": float(read_exposure_ms(cam)),
                             "frame_mean_in_target": float(np.mean(frame[target])),
                             "cv": cv,
                             "pib": pib,
@@ -1926,7 +2091,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                 timespec="seconds"
                             ),
                             **{k: step[k] for k in STEP_ROW_FIELDS},
-                            "exposure_ms_readback": float(cam.get_exposure_time_ms()),
+                            "exposure_ms_readback": float(read_exposure_ms(cam)),
                             "frame_mean_in_target": float("nan"),
                             "cv": float("nan"),
                             "pib": float("nan"),
@@ -2211,7 +2376,18 @@ def build_parser() -> argparse.ArgumentParser:
                         "该周期对应约 7.4 camera px 的位移")
     p.add_argument("--slm-number", type=int, default=1)
     p.add_argument("--cam-id", type=int, default=0)
-    p.add_argument("--cam-type", default="daheng")
+    p.add_argument("--cam-type", default="daheng",
+                   choices=["daheng", "miicam", "sim"],
+                   help="相机后端 (daheng/miicam/sim)。sim = 无硬件的数字孪生: "
+                        "同一条命令换 --cam-type sim 就在仿真里跑出同结构的产物")
+    p.add_argument("--sim-seed", type=int, default=0,
+                   help="仿真噪声模型的随机种子 (--cam-type sim only)。固定它 ⇒ "
+                        "同样的种子给出逐位相同的远场 (可重复)")
+    p.add_argument("--sim-far-field-padding", type=int,
+                   default=DEFAULT_SIM_FAR_FIELD_PADDING,
+                   help="仿真远场 FFT 的补零因子 (--cam-type sim only); 与 "
+                        "run_gs_refine_zernike_sweep.py 的 --sim-far-field-padding "
+                        "同名同义 (补零越大远场像元越细, 代价按平方增长)")
     p.add_argument("--wavelength-nm", type=float, default=0.0,
                    help="0 = 静态读取 drivers/slm/factory.DEFAULT_WAVELENGTH_NM")
     p.add_argument("--exposure-ms", type=float, default=0.12)
