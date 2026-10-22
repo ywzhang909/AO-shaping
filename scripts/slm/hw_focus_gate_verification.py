@@ -37,27 +37,27 @@ for _candidate in (ROOT, ROOT / "src", ROOT / "libs"):
     if _text not in sys.path:
         sys.path.insert(0, _text)
 
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
     fresnel_panel,
 )
-from ao_shaping.tools.slm.panel.focus_probe import (  # noqa: E402
+from ao_shaping.tools.slm.panel.focus_probe import (
     adapt_exposure,
     frame_full_scale,
     sweep_focus,
 )
-from ao_shaping.utils.image.frame_analysis import assess_spot  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import assess_spot
 
-from scripts.slm.hw_differentiable_phase_opt import (  # noqa: E402
+from scripts.slm.hw_differentiable_phase_opt import (
     EXIT_BENCH_BUSY,
     EXIT_NOT_IN_FOCUS,
     EXIT_OK,
     EXIT_PATH_BLOCKED,
     judge_focus_gate,
 )
-from scripts.slm.hw_gs_defocus_probe import guarded  # noqa: E402
+from scripts.slm.hw_gs_defocus_probe import guarded
 
 #: 焦点判定用的门限 (与硬件脚本一致)。
 DEFAULT_GATE_FWHM_MAX = 40.0
@@ -207,11 +207,11 @@ def main(argv: list[str] | None = None) -> int:
         print("\n[dry-run] 未开任何设备。")
         return 0
 
-    from ao_shaping.drivers.ccd.common import create_camera  # noqa: PLC0415
-    from ao_shaping.drivers.slm.santec import Santec, SlotRotator  # noqa: PLC0415
+    from ao_shaping.drivers.ccd.common import create_camera
+    from ao_shaping.drivers.slm.santec import Santec, SlotRotator
 
     if float(args.wait_until_idle) > 0.0:
-        from scripts.slm.run_hw_sweep_groups import wait_until_idle  # noqa: PLC0415
+        from scripts.slm.run_hw_sweep_groups import wait_until_idle
 
         code, message = wait_until_idle(
             float(args.wait_until_idle),
