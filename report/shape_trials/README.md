@@ -27,6 +27,8 @@
 
 | 日期 | 报告 | 主题 |
 |------|------|------|
+| 2026-10-22 | [物理预测采样与响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md) | 传播采样、CCD 像素积分、曝光偏置和剩余峰宽；逐步数据保留 |
+| 2026-10-22 | [主动离焦下的物理模型实验](model_in_loop/physical_forward_defocus_live_20261022.md) | 当前功率曝光响应、U/C 配对探针、9–16 参数物理预测与独立验证 |
 | 2026-10-12 | [GS 重构后真实设备调试](gs_refine/gs_refine_live_20261012.md) | GS+SPGD 半径对照 |
 | 2026-10-13 | [正向模型闭环实验记录](model_in_loop/model_in_loop_live_20261013.md) | Step A 校准 + Step B 优化，800 iter |
 | 2026-10-13 | [正向模型闭环：暂停实验交接](model_in_loop/model_in_loop_pause_handoff_20261013.md) | 暂停期间状态、证据、工程变更摘要 |
