@@ -38,30 +38,30 @@ from typing import Any
 
 import matplotlib
 
-matplotlib.use("Agg")  # noqa: E402 -- must precede pyplot import
+matplotlib.use("Agg")  # must precede pyplot import
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common import fmt_metric, markdown_table, savefig  # noqa: E402
-from _common.provenance import insert_header  # noqa: E402
-from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E402
+from _common import fmt_metric, markdown_table, savefig
+from _common.provenance import insert_header
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_from_pib_cv,
     power_in_bucket,
     uniformity_cv,
 )
-from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: E402
-from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.image.frame_analysis import (
     estimate_shift,
     measure_spot,
 )
-from ao_shaping.utils.image.targets import square_mask  # noqa: E402
-from scripts.slm._hw_defocus_sections import (  # noqa: E402
+from ao_shaping.utils.image.targets import square_mask
+from scripts.slm._hw_defocus_sections import (
     SECTION_0_2_ALGORITHM,
     SECTION_0_PURPOSE,
     section_0_1_setup,
@@ -2398,7 +2398,7 @@ def defocus_response_table(
         # 弥散/分裂时不稳定, 而互相关对形状变化不敏感, 且亚像素。
         try:
             dy, dx, peak = estimate_shift(ref_frame, frame)
-        except Exception:  # noqa: BLE001 - 互相关失败就退回质心
+        except Exception:  # 互相关失败就退回质心
             dy = dx = 0.0
             peak = 0.0
         tx = cx + dx

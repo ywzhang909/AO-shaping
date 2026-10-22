@@ -497,7 +497,7 @@ def _capture_session_fingerprint(
         result = _probe_fingerprint(
             params, config, (int(centre[0]), int(centre[1])), save_dir
         )
-    except Exception as exc:  # noqa: BLE001 - 指纹失败不掀翻标定
+    except Exception as exc:  # 指纹失败不掀翻标定
         logger.warning("光路指纹采集异常，本次不记录指纹: {}", exc)
         notes.append("光路指纹采集失败（不影响本次标定）")
         return None

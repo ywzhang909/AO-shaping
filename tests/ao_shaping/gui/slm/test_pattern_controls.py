@@ -345,7 +345,7 @@ class TestZernikeEditorFallback:
     def test_data_editor_probe_matches_pyarrow_importability(self) -> None:
         """The probe must mirror the real pyarrow import state, not assume."""
         try:
-            import pyarrow  # noqa: F401
+            import pyarrow
         except ImportError as exc:
             expected, reason = False, f"{type(exc).__name__}: {exc}"
         else:
@@ -365,7 +365,7 @@ class TestZernikeEditorFallback:
         as a plain ``pyarrow.lib`` failure.  The probe must catch it.
         """
         try:
-            import pyarrow.pandas_compat  # noqa: F401
+            import pyarrow.pandas_compat
         except ImportError:
             expected = False
         else:

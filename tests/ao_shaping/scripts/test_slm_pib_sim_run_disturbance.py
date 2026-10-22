@@ -20,7 +20,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.drivers.sim.disturbance import DisturbanceConfig, SimDisturbance  # noqa: E402
+from ao_shaping.drivers.sim.disturbance import DisturbanceConfig, SimDisturbance
 
 _MODULE_NAME = "slm_pib_sim_run_under_test"
 _runner = None

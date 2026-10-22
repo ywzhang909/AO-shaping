@@ -379,7 +379,7 @@ def _load_payload(path: Path) -> Any:
     """
     try:
         with open(path, "rb") as handle:
-            return pickle.load(handle)  # noqa: S301 - repo-internal debug dumps
+            return pickle.load(handle)  # repo-internal debug dumps
     except _LOAD_ERRORS as exc:
         raise HwRecordError(f"Could not unpickle debug payload {path}: {exc}") from exc
 

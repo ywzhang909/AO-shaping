@@ -60,7 +60,7 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     MaterialiserConfig,
     HwPhaseImageDataset,
     build_hw_index,
@@ -210,7 +210,7 @@ def _probe(fn, p: torch.Tensor, t: torch.Tensor, **kw) -> float:
     """
     try:
         return float(fn(p, t, **kw).mean())
-    except Exception as exc:  # noqa: BLE001 - the reason is the payload here
+    except Exception as exc:  # the reason is the payload here
         _REJECTED[fn.__name__] = f"{type(exc).__name__}: {exc}"
         return float("nan")
 

@@ -196,4 +196,4 @@ def test_unknown_name_still_raises_attribute_error() -> None:
     import ao_shaping.utils as u
 
     with pytest.raises(AttributeError):
-        u.definitely_not_a_real_name  # noqa: B018
+        u.definitely_not_a_real_name

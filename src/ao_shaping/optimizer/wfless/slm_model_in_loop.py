@@ -1938,7 +1938,7 @@ class _HardwareBench:
         for device in (self._slm, self._cam):
             try:
                 device.close()
-            except Exception as exc:  # noqa: BLE001 - teardown must not mask the run
+            except Exception as exc:  # teardown must not mask the run
                 logger.warning("failed to close {}: {}", type(device).__name__, exc)
 
     def _restore_display(self) -> None:
@@ -1950,7 +1950,7 @@ class _HardwareBench:
                     self._slm.set_grayscale(self._original_gray)
             else:
                 self._slm._display_memory(self._original_slot)
-        except Exception as exc:  # noqa: BLE001 - still close both devices
+        except Exception as exc:  # still close both devices
             logger.warning("failed to restore initial SLM display: {}", exc)
 
 

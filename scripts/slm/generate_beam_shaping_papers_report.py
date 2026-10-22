@@ -34,16 +34,16 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")  # must be set BEFORE pyplot (repo-wide rule)
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib import rcParams  # noqa: E402
+import matplotlib.pyplot as plt
+from matplotlib import rcParams
 
 rcParams["font.family"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 rcParams["axes.unicode_minus"] = False
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 from ao_shaping.algorithm.signal_processing.square_shaping import (
     ShapingResult,
@@ -53,7 +53,7 @@ from ao_shaping.algorithm.signal_processing.square_shaping import (
     make_square_target as make_target,
     spgd_shape,
 )
-from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     compute_bench_metrics,
     forward_intensity,
@@ -173,7 +173,7 @@ def main() -> int:
         df = differentiable_shape(CONFIG, n_iters=200, lr=0.05)
         record("differentiable_shape", df)
         logger.info("diff elapsed: {:.1f}s", time.time() - t0)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning("differentiable_shape failed: {}", e)
 
     # --- SPGD ---------------------------------------------------------------

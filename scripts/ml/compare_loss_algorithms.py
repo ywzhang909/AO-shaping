@@ -60,12 +60,12 @@ if str(ROOT / "src") not in sys.path:
 # importable for a bare `python scripts/<name>.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts._common import fmt_signed as _fmt  # noqa: E402
+from scripts._common import fmt_signed as _fmt
 
 import matplotlib
 
 matplotlib.use("Agg")  # BEFORE pyplot
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 
 # --------------------------------------------------------------------------
@@ -314,7 +314,7 @@ def main() -> int:
                     if "m_pib" in row:
                         extra += f" m_pib={row['m_pib']:.4f}"
                 print(f"  [{done}/{len(futures)}] {tag}{extra}")
-            except Exception as exc:  # noqa: BLE001 - report, do not abort the matrix
+            except Exception as exc:  # report, do not abort the matrix
                 print(f"  [{done}/{len(futures)}] {tag} FAILED: "
                       f"{type(exc).__name__}: {exc}")
                 rows.append({"track": "A_ml" if track == "A" else "B_ao",

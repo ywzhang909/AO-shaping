@@ -46,28 +46,28 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import fmt_metric, markdown_table, savefig  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common import fmt_metric, markdown_table, savefig
+from scripts._common.provenance import insert_header
 
-from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     SquareShapingConfig,
 )
-from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import (
     compute_quality_score,
     compute_square_metrics,
     ideal_peak_from_pupil,
     m2_reference_relative,
     strehl_ratio,
 )
-from ml.shaping.gs_reference import gs_golden_phase  # noqa: E402
+from ml.shaping.gs_reference import gs_golden_phase
 
 REPORT_KEY = "report/shape_trials/gs_golden_reference/gs_golden_reference.md"
 OUT_DIR = ROOT / "report" / "shape_trials" / "gs_golden_reference"

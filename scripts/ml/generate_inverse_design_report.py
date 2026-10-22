@@ -34,11 +34,11 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # noqa: E402  (must precede pyplot)
+matplotlib.use("Agg")  # (must precede pyplot)
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
@@ -46,10 +46,10 @@ sys.path.insert(0, str(ROOT / "src"))
 # importable for a bare `python scripts/<name>.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import LossConfig  # noqa: E402
-from scripts._common import fmt_signed  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import LossConfig
+from scripts._common import fmt_signed
+from scripts._common.provenance import insert_header
 
 #: Bound to ``missing="MISSING"`` so this report keeps its own absence token. A
 #: ``def _fmt`` copy of ``fmt_signed`` is banned by

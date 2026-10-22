@@ -62,9 +62,9 @@ sys.path.insert(0, str(_SRC))
 if str(_SRC) not in sys.path:
     sys.path.insert(0, str(_SRC))
 
-from ao_shaping.drivers.sim import beam_backend as bb  # noqa: E402
-from ao_shaping.drivers.sim import oopao_backend  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_utils import (  # noqa: E402
+from ao_shaping.drivers.sim import beam_backend as bb
+from ao_shaping.drivers.sim import oopao_backend
+from ao_shaping.utils.wavefront.zernike_utils import (
     generate_zernike_phase,
     list_zernike_modes,
 )
@@ -73,8 +73,8 @@ from ao_shaping.utils.wavefront.zernike_utils import (  # noqa: E402
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts._common import fmt_ratio  # noqa: E402
-from scripts._common.oopao_probe import (  # noqa: E402
+from scripts._common import fmt_ratio
+from scripts._common.oopao_probe import (
     OopaoBackendUnavailableError,
     oopao_package_dir,
 )

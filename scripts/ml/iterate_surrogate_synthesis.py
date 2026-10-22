@@ -53,13 +53,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, collect_split  # noqa: E402
+from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
-from scripts.ml.optimize_uniform_spot_phase import (  # noqa: E402
+from scripts.ml.optimize_uniform_spot_phase import (
     box_slice,
     optimise_phase,
     predict_detached,

@@ -45,20 +45,20 @@ if str(SRC) not in sys.path:
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from ao_shaping.optimizer.wf.zernike_response_matrix import (  # noqa: E402
+from ao_shaping.optimizer.wf.zernike_response_matrix import (
     load_zernike_response_matrix,
 )
-from ao_shaping.tools.zernike.common import (  # noqa: E402
+from ao_shaping.tools.zernike.common import (
     DLL_ZERNIKE_NAMES,
     linearity_metrics,
 )
-from ao_shaping.tools.kernels.sweep_analysis import (  # noqa: E402
+from ao_shaping.tools.kernels.sweep_analysis import (
     group_raw_scan,
     latest_match,
 )

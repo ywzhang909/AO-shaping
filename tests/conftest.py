@@ -95,7 +95,7 @@ for _thread_env_var in _THREAD_ENV_VARS:
 os.environ.setdefault("MKL_DYNAMIC", "FALSE")
 
 # Below the pinning block on purpose -- see above.
-import numpy as np  # noqa: E402
+import numpy as np
 
 
 def _pin_torch_threads() -> tuple[int, int] | None:

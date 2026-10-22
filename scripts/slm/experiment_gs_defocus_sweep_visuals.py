@@ -144,7 +144,7 @@ plt.rcParams["font.sans-serif"] = [
 ]
 plt.rcParams["axes.unicode_minus"] = False
 
-from scripts.slm.experiment_gs_defocus_offocus import (  # noqa: E402
+from scripts.slm.experiment_gs_defocus_offocus import (
     APERTURE_M,
     BEAM_RADIUS_PX,
     DZ_BLUR_M,
@@ -157,16 +157,16 @@ from scripts.slm.experiment_gs_defocus_offocus import (  # noqa: E402
     QUICK as SIM_QUICK,
     FULL as SIM_FULL,
 )
-from ao_shaping.algorithm.signal_processing.angular_spectrum import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.angular_spectrum import (
     angular_spectrum_propagate,
 )
-from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_from_pib_cv,
 )
-from ao_shaping.utils.wavefront.matrix_utils import (  # noqa: E402
+from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
@@ -555,7 +555,7 @@ def intensity_scheme_a(
     """
     field = pupil_field(phase, eta, amp=bench.amp, add_chirp=chirp_rad)
     focal = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(_pad_pupil(bench, field))))
-    inten = np.abs(bench._asm(focal, dz)) ** 2  # noqa: SLF001 - 复用已验证的算子
+    inten = np.abs(bench._asm(focal, dz)) ** 2  # 复用已验证的算子
     return inten / (inten.sum() + 1e-12)
 
 

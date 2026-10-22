@@ -24,7 +24,7 @@ import pytest
 
 import numpy as np
 
-import ao_shaping.drivers.sim._oopao_compat as _oopao_compat  # noqa: F401 (import probe)
+import ao_shaping.drivers.sim._oopao_compat as _oopao_compat  # (import probe)
 
 oopao_backend = pytest.importorskip("ao_shaping.drivers.sim.oopao_backend")
 

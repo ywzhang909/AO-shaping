@@ -35,16 +35,16 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-import torch  # noqa: E402
+import torch
 
-from _common.provenance import END_MARKER, START_MARKER  # noqa: E402
-from ao_shaping.algorithm.signal_processing.angular_spectrum import (  # noqa: E402
+from _common.provenance import END_MARKER, START_MARKER
+from ao_shaping.algorithm.signal_processing.angular_spectrum import (
     angular_spectrum_propagate,
     angular_spectrum_propagate_torch,
     asm_propagator,
     band_limit_frequency,
 )
-from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     _compute_propagator,
 )
 

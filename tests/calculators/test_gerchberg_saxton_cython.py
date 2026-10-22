@@ -32,7 +32,7 @@ cython_gs = pytest.importorskip(
     reason="the optional Cython GS extension is not built in this checkout",
 )
 
-from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     gerchberg_saxton as python_gerchberg_saxton,
 )
 

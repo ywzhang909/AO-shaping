@@ -315,7 +315,7 @@ def main() -> int:
     names = sorted({r["name"] for r in rows})
     for name in names:
         group = [r for r in rows if r["name"] == name]
-        pick = lambda k: float(np.mean([r[k] for r in group]))  # noqa: E731
+        pick = lambda k: float(np.mean([r[k] for r in group]))
         print(f"{name:<22}{int(pick('params')):>10,}{pick('mse'):>10.5f}"
               f"{pick('r2'):>+9.4f}{pick('psnr'):>8.2f}dB{pick('ssim'):>8.4f}"
               f"{pick('correlation'):>7.3f}{pick('centroid_offset_px'):>8.2f}"

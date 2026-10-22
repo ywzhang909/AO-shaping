@@ -179,12 +179,12 @@ import numpy as np
 # (实测: sys.modules 里没有任何 ao_shaping.drivers 出现)。单一事实源仍是
 # bench_constants / matrix_utils, 本文件不另立一份。
 # ---------------------------------------------------------------------------
-from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import (
     SpotUsability,
     assess_spot,
     measure_spot,
 )
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
@@ -192,14 +192,14 @@ from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
     SLM_PITCH_M,
     TILT_SHIFT_SCALE,
 )
-from ao_shaping.utils.wavefront.matrix_utils import (  # noqa: E402
+from ao_shaping.utils.wavefront.matrix_utils import (
     focal_length_from_camera_pixel,
 )
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     fresnel_panel,
     ramp_panel,
 )
-from scripts._common.group_manifest import (  # noqa: E402
+from scripts._common.group_manifest import (
     group_output_dir,
     group_record,
     load_manifest,
@@ -952,7 +952,7 @@ def run_chirp_tilt_calibration(
             test_period_px=test_period_px,
             panel_shape=panel_shape,
         )
-    except Exception as exc:  # noqa: BLE001 - 标定失败不许整轮作废
+    except Exception as exc:  # 标定失败不许整轮作废
         return None, None, f"标定失败: {exc}"
 
     comp_phase, comp_specs, _ = compensation_for_dz(
@@ -986,7 +986,7 @@ def guarded(label: str, fn: Callable[[], Any], *, timeout_s: float) -> Any:
     def _run() -> None:
         try:
             box["value"] = fn()
-        except BaseException as exc:  # noqa: BLE001 - 原样转交给主线程
+        except BaseException as exc:  # 原样转交给主线程
             box["error"] = exc
 
     th = threading.Thread(target=_run, daemon=True, name=f"hw-{label}")
@@ -1824,7 +1824,7 @@ def run_execute(args: argparse.Namespace, optics: Optics, plan: dict[str, Any]) 
                                     )
                                 else:
                                     print(f"[去倾斜] {chirp_tilt_note}")
-                        except Exception as exc:  # noqa: BLE001 - 标定失败不许整轮作废
+                        except Exception as exc:  # 标定失败不许整轮作废
                             chirp_tilt_cal = None
                             chirp_tilt_enabled = False
                             chirp_tilt_residual = None

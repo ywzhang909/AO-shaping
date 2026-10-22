@@ -10,7 +10,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts.slm.fit_defocus_forward_dataset import PhysicalForwardFit, load_observations  # noqa: E402
+from scripts.slm.fit_defocus_forward_dataset import PhysicalForwardFit, load_observations
 
 
 def main():

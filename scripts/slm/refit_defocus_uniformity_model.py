@@ -16,7 +16,7 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts.slm.diagnose_defocus_sampling import (  # noqa: E402
+from scripts.slm.diagnose_defocus_sampling import (
     fixed_panel_basis, metrics, response_bias, restore_model, stamp,
 )
 

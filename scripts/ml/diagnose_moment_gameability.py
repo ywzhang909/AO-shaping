@@ -26,9 +26,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import torch  # noqa: E402
+import torch
 
-from ml.zernike.losses import roi_mask, second_moments, spot_moment_gap_term  # noqa: E402
+from ml.zernike.losses import roi_mask, second_moments, spot_moment_gap_term
 
 GRID = 64
 

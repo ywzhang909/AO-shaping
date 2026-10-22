@@ -476,7 +476,7 @@ class GSNetDebugDataset(Dataset[tuple[torch.Tensor, torch.Tensor, torch.Tensor]]
         if payload is None:
             try:
                 with open(path, "rb") as handle:
-                    payload = pickle.load(handle)  # noqa: S301 - repo-internal debug dumps
+                    payload = pickle.load(handle)  # repo-internal debug dumps
             except FileNotFoundError as exc:
                 raise GSNetRecordError(
                     f"Debug pickle does not exist: {path}"

@@ -18,8 +18,8 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.shaping.config import IMAGE_MODES, ShapingConfig  # noqa: E402
-from ml.shaping.dataset import (  # noqa: E402
+from ml.shaping.config import IMAGE_MODES, ShapingConfig
+from ml.shaping.dataset import (
     FamilyBalancedGroupedSampler,
     corpus_summary,
     family_file_counts,

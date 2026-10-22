@@ -91,7 +91,7 @@ def _metrics(frame: np.ndarray, center: tuple[int, int], side: int, bins: int) -
 
 def compare(path: Path, side: int = 100, bins: int = 5) -> dict:
     with _pkl_path(path).open("rb") as stream:
-        rows = pickle.load(stream)  # noqa: S301 - trusted local hardware debug artifact
+        rows = pickle.load(stream)  # trusted local hardware debug artifact
     if not isinstance(rows, dict) or not rows:
         raise ValueError(f"expected a nonempty row dictionary in {path}")
     flat_key = min(rows)

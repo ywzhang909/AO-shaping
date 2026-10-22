@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT / "libs"))
 # as `python scripts/<name>.py` -- so the root has to be added explicitly.
 sys.path.insert(0, str(ROOT))
 
-from ao_shaping.utils.image.spots_calc import (  # noqa: E402
+from ao_shaping.utils.image.spots_calc import (
     calculate_sharpness,
     calculate_sharpness_numba,
     center_of_brightness,
@@ -58,7 +58,7 @@ except ImportError as exc:
     CUPY_UNAVAILABLE_REASON = (
         f"CuPy is not installed in the active Python environment ({exc})"
     )
-except Exception as exc:  # noqa: BLE001 - mirror the test's broad guard
+except Exception as exc:  # mirror the test's broad guard
     cp = None
     CUPY_AVAILABLE = False
     CUPY_UNAVAILABLE_REASON = f"CuPy initialization failed ({type(exc).__name__}: {exc})"
@@ -73,7 +73,7 @@ else:
 #: GPU-less host.
 _CUPY_KERNELS: dict[str, object] = {}
 if CUPY_AVAILABLE:
-    from ao_shaping.utils.image.spots_calc import (  # noqa: E402
+    from ao_shaping.utils.image.spots_calc import (
         calculate_sharpness_cupy,
         center_of_brightness_cupy,
         center_of_mass_cupy,
@@ -148,7 +148,7 @@ def _bench_cupy(
             cp.asarray(arg) if isinstance(arg, np.ndarray) else arg for arg in args
         )
         results[f"{name}_cupy"] = _time_mean(kernel, *device_args)
-    except Exception as exc:  # noqa: BLE001 - record, never abort the report
+    except Exception as exc:  # record, never abort the report
         results[f"{name}_cupy"] = "N/A"
         cupy_reasons[name] = f"{type(exc).__name__}: {exc}"
 

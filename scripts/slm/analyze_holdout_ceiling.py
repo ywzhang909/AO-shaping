@@ -36,22 +36,22 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from scipy.ndimage import zoom as _zoom  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from scipy.ndimage import zoom as _zoom
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     _make_optimizer,
     _prediction_correlation,
     _to_model_grid,
 )
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
+from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     load_bench_geometry,
 )
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 
 
 def _load_config(run_dir: Path):

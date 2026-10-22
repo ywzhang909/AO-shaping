@@ -44,7 +44,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.beam_shaping_benchmark import (
     DEFAULT_MAX_FRAMES,
     HPRINT_KEYS,
     build_gif_frames,

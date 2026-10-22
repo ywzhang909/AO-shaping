@@ -46,16 +46,16 @@ sys.path.insert(0, str(ROOT / "src"))
 # is ``scripts/slm`` and ``scripts._common`` would not resolve without this.
 sys.path.insert(0, str(ROOT))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 # Cell formatting is shared: scripts/_common owns it, and a second copy drifts.
-from scripts._common import fmt_metric  # noqa: E402
+from scripts._common import fmt_metric
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -212,7 +212,7 @@ def build_figure(runs: list[dict], verify: dict, path: Path) -> bool:
         fig.savefig(path)
         plt.close(fig)
         return True
-    except Exception as exc:  # noqa: BLE001 - a figure must never break the report
+    except Exception as exc:  # a figure must never break the report
         logger.warning("figure generation failed: {}", exc)
         return False
 

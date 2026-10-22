@@ -40,30 +40,30 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless: must precede the pyplot import
 
-import matplotlib.pyplot as plt  # noqa: E402  (deliberately after Agg)
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt  # (deliberately after Agg)
+import numpy as np
+import torch
+from loguru import logger
 
-from ml.gsnet_debug.cache import (  # noqa: E402
+from ml.gsnet_debug.cache import (
     GSNetCacheError,
     prepare_gsnet_cache,
 )
 from ml.gsnet_debug.dataset import (
     GSNetDebugDataset,
     build_gsnet_dataloader,
-)  # noqa: E402
-from ml.gsnet_debug.offline import (  # noqa: E402
+)
+from ml.gsnet_debug.offline import (
     DEFAULT_ROOTS,
     RecordIndex,
     build_record_index,
 )
-from ao_shaping.runners.runner_common import RunParams  # noqa: E402
-from ao_shaping.utils.cli.params import option  # noqa: E402
-from ao_shaping.utils.io.cli_helpers import setup_coredumpy  # noqa: E402
-from ml.gsnet.evaluate import evaluate_model  # noqa: E402
-from ml.gsnet.model import FourierGSNet, count_parameters  # noqa: E402
-from ml.gsnet.train import train_gsnet  # noqa: E402
+from ao_shaping.runners.runner_common import RunParams
+from ao_shaping.utils.cli.params import option
+from ao_shaping.utils.io.cli_helpers import setup_coredumpy
+from ml.gsnet.evaluate import evaluate_model
+from ml.gsnet.model import FourierGSNet, count_parameters
+from ml.gsnet.train import train_gsnet
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from collections.abc import Sequence
@@ -739,7 +739,7 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
                 mode=_resolve_wandb_mode(params.wandb_mode),
             )
             wandb_url = getattr(wandb_run, "url", None)
-        except Exception as exc:  # noqa: BLE001 - W&B must never break a run
+        except Exception as exc:  # W&B must never break a run
             logger.warning("wandb.init failed ({}); training without W&B", exc)
             wandb_run = None
 
@@ -858,5 +858,5 @@ def run_offline_training(run: RunParams, params: GsnetTrainParams) -> TrainResul
         if wandb_run is not None:
             try:
                 wandb_run.finish()
-            except Exception as exc:  # noqa: BLE001 - teardown must not mask errors
+            except Exception as exc:  # teardown must not mask errors
                 logger.warning("wandb.finish failed: {}", exc)

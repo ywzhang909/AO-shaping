@@ -37,21 +37,21 @@ for p in (SRC, LIBS):
     if str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
-from ao_shaping.drivers.slm.santec import (  # noqa: E402
+from ao_shaping.drivers.slm.santec import (
     Santec,
     WavefrontCorrection,
     get_max_grayscale,
 )
-from ao_shaping.optimizer.wf.zernike_response_matrix import (  # noqa: E402
+from ao_shaping.optimizer.wf.zernike_response_matrix import (
     load_zernike_response_matrix,
 )
-from ao_shaping.tools.zernike.common import (  # noqa: E402
+from ao_shaping.tools.zernike.common import (
     DLL_ZERNIKE_ORDER,
     PANEL_H,
     PANEL_W,
     make_phase,
 )
-from ao_shaping.utils.wavefront.pattern_helper import PatternHelper  # noqa: E402
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 
 def _parse_args() -> argparse.Namespace:

@@ -32,9 +32,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib import rcParams  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import rcParams
 
 ROOT = Path(__file__).resolve().parents[2]
 # `scripts.*` is imported as a package path, so the repo ROOT itself must be
@@ -43,8 +43,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from scripts._common.provenance import insert_header  # noqa: E402
-from scripts.slm.exp_fast_recal_adapter import (  # noqa: E402
+from scripts._common.provenance import insert_header
+from scripts.slm.exp_fast_recal_adapter import (
     ARMS,
     CALIB_ERR,
     GRID,
@@ -61,7 +61,7 @@ from scripts.slm.exp_fast_recal_adapter import (  # noqa: E402
 # resolves to `scripts/ml` instead of the real `src/ml` package -- and
 # `ml.zernike.eval_stats` then does not exist.  Put `src` back in front.
 sys.path.insert(0, str(ROOT / "src"))
-from ml.zernike.eval_stats import (  # noqa: E402
+from ml.zernike.eval_stats import (
     cohens_dz,
     holm_bonferroni,
     min_attainable_pvalue,

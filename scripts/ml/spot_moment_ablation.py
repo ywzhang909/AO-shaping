@@ -28,19 +28,19 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from ml.hwdataset import build_hw_index  # noqa: E402
-from ml.zernike.inverse_design import load_corpus_sample  # noqa: E402
-from ml.zernike.losses import (  # noqa: E402
+from ml.hwdataset import build_hw_index
+from ml.zernike.inverse_design import load_corpus_sample
+from ml.zernike.losses import (
     LossConfig,
     composite_loss,
     roi_mask,
     second_moments,
     spot_moment_gap_term,
 )
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
 
 GRID, N_MAX, PADDING = 64, 15, 12
 SIZE_FRAC, ASPECT = 0.375, 4.0 / 3.0
@@ -62,7 +62,7 @@ def fit(weights: LossConfig, cos, sin, target, conserve: bool) -> ZernikeAmpMode
             normalization="peak", conserve_energy=conserve,
         )
     )
-    reference = model._normalize(target.clone())  # noqa: SLF001
+    reference = model._normalize(target.clone())
     mask = roi_mask((GRID, GRID), (GRID / 2, GRID / 2), "rectangle", SIZE_FRAC * GRID, ASPECT)
     opt = torch.optim.AdamW(model.parameters(), lr=LR)
     for _ in range(FIT_STEPS):
@@ -73,7 +73,7 @@ def fit(weights: LossConfig, cos, sin, target, conserve: bool) -> ZernikeAmpMode
 
 
 def score(model: ZernikeAmpModel, cos, sin, target) -> dict[str, float]:
-    reference = model._normalize(target.clone())  # noqa: SLF001
+    reference = model._normalize(target.clone())
     with torch.no_grad():
         pred = model(cos, sin)
         p = pred / pred.amax(dim=(-2, -1), keepdim=True).clamp(min=1e-12)

@@ -36,7 +36,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     ModelInLoopStatus,
     SlmModelInLoopConfig,
     _probe_phase,
@@ -95,7 +95,7 @@ class TestRoiIsFrozenOnce:
         seen: list[tuple[int, int]] = []
         original = mod._metrics_at
 
-        def _spy(frame, target_side, center, **_kw):  # noqa: ANN001, ANN202
+        def _spy(frame, target_side, center, **_kw):
             # ``_metrics_at`` is keyword-only for ``target_shape`` /
             # ``camera_rotation_quarters``; a 3-arg spy made every round raise
             # TypeError before the anchor could be observed at all.
@@ -168,7 +168,7 @@ class TestWarmStart:
             # has to land on the defining module rather than on a re-export.
             original = mil.shape_phase_with_frozen_aberration
 
-            def _spy(optimizer, coefficients, target, initial_phase, config, **kw):  # noqa: ANN001, ANN202
+            def _spy(optimizer, coefficients, target, initial_phase, config, **kw):
                 starts.append(np.array(initial_phase, copy=True))
                 shaped, loss = original(
                     optimizer, coefficients, target, initial_phase, config, **kw
@@ -375,7 +375,7 @@ class TestCliInvocation:
         assert "slm-model-in-loop" in cli.commands
 
 
-def _legacy_hook(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001, ANN202
+def _legacy_hook(seed, index, probe_count, holdout_probe_count):
     """A hook that reproduces the historical seed arithmetic exactly."""
     base = int(seed) + int(index) * 1000
     return (
@@ -384,7 +384,7 @@ def _legacy_hook(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001
     )
 
 
-def _nan_safe(value):  # noqa: ANN001, ANN202
+def _nan_safe(value):
     """Map every NaN to ``None`` so equal histories compare equal.
 
     ``score_before`` is NaN on round one (there is no committed score yet), and
@@ -434,7 +434,7 @@ class TestProbeSplitResolution:
         """The signature exposes everything needed to build a fold split."""
         seen: list[tuple[int, int, int, int]] = []
 
-        def _record(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001, ANN202
+        def _record(seed, index, probe_count, holdout_probe_count):
             seen.append((seed, index, probe_count, holdout_probe_count))
             return _legacy_hook(seed, index, probe_count, holdout_probe_count)
 
@@ -502,7 +502,7 @@ class TestSplitHookIsWiredIntoTheRun:
         seen: list[int] = []
         original = mod._probe_phase
 
-        def record(region, spread, seed, **kwargs):  # noqa: ANN001, ANN202
+        def record(region, spread, seed, **kwargs):
             seen.append(seed)
             return original(region, spread, seed, **kwargs)
 
@@ -519,7 +519,7 @@ class TestSplitHookIsWiredIntoTheRun:
         """The hook is consulted per round, so folds can vary probes by round."""
         rounds: list[int] = []
 
-        def _record(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001, ANN202
+        def _record(seed, index, probe_count, holdout_probe_count):
             rounds.append(index)
             return _legacy_hook(seed, index, probe_count, holdout_probe_count)
 
@@ -550,7 +550,7 @@ class TestHoldoutOnSim:
     def test_split_hook_receives_total_holdout_count(self) -> None:
         counts: list[int] = []
 
-        def split(seed, index, probe_count, holdout_count):  # noqa: ANN001, ANN202
+        def split(seed, index, probe_count, holdout_count):
             counts.append(holdout_count)
             return _legacy_hook(seed, index, probe_count, holdout_count)
 

@@ -760,7 +760,7 @@ def _build_family(
     """
     try:
         with open(source, "rb") as handle:
-            payload = pickle.load(handle)  # noqa: S301 - repo-internal debug dumps
+            payload = pickle.load(handle)  # repo-internal debug dumps
     except FileNotFoundError as exc:
         raise GSNetCacheError(f"Debug pickle does not exist: {source}") from exc
     except (OSError, pickle.UnpicklingError, EOFError) as exc:

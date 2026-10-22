@@ -12,9 +12,9 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-import click  # noqa: E402
+import click
 
-try:  # noqa: E402
+try:
     from ao_shaping.runners.diff_shaping_runner import run
 except ModuleNotFoundError:  # runner removed in fbef192
     run = None

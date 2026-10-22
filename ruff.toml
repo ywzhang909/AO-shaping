@@ -6,6 +6,19 @@
 select = [
     "E",      # pycodestyle errors
     "F",      # pyflakes
+    # RUF100 (issue #169): a `# noqa` naming a rule that is not enabled, or whose
+    # violation is already gone, suppresses nothing today -- but it still reads to a
+    # reviewer as a live exemption, and it silently masks the next real violation of
+    # that rule. 864 such directives were removed in one pass, every touched file
+    # verified AST-identical. Enforced here so the debt cannot regrow.
+    #
+    # Anyone widening `select` later: RUF100's notion of "unused" is computed against
+    # the *enabled* rule set, so measure it with the project config plus RUF100
+    # (`ruff check --extend-select RUF100`), never `--select RUF100` on its own. An
+    # isolated select makes genuinely live directives (F401 under `F`) look dead, and
+    # `--fix` then deletes them together with the trailing rationale prose. Write the
+    # reason as its own comment so a future sweep cannot eat it.
+    "RUF100",
 ]
 
 # Deliberately no `exclude` for project code. It used to hold `exclude = ["src/ml/**"]`,

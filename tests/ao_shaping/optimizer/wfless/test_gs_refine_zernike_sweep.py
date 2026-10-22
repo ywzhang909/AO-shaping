@@ -426,11 +426,11 @@ def sim_bench(monkeypatch):
 
     monkeypatch.setattr(gsr, "display_and_average", _fast_measure)
 
-    saved_system = sim._SYSTEM  # noqa: SLF001 - 进程级单例, 只能这样还原
+    saved_system = sim._SYSTEM  # 进程级单例, 只能这样还原
     try:
         yield
     finally:
-        sim._SYSTEM = saved_system  # noqa: SLF001
+        sim._SYSTEM = saved_system
 
 
 class TestOrdersResolution:

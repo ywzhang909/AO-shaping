@@ -40,15 +40,15 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")  # BEFORE pyplot: a training box has no display
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[2]
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`) must be
 # importable for a bare `python scripts/<name>.py`.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
-from scripts._common import fmt_metric as _fmt  # noqa: E402
-from scripts._common import markdown_table as _table  # noqa: E402
+from scripts._common import fmt_metric as _fmt
+from scripts._common import markdown_table as _table
 
 OUT_DIR = "report/zernike_coeff2amp"
 FIG_DIR = f"{OUT_DIR}/figures"

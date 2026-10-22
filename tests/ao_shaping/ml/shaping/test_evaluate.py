@@ -20,10 +20,10 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-import torch.utils.data as _tud  # noqa: E402
+import torch.utils.data as _tud
 
-from ml.shaping.config import ShapingConfig, UNKNOWN_FOV  # noqa: E402
-from ml.shaping.evaluate import (  # noqa: E402
+from ml.shaping.config import ShapingConfig, UNKNOWN_FOV
+from ml.shaping.evaluate import (
     DIFF_CONVENTION,
     EvaluationResult,
     _build_parser,

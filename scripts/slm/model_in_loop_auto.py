@@ -18,7 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.tools.slm.model_in_loop_summary import summarize_session  # noqa: E402
+from ao_shaping.tools.slm.model_in_loop_summary import summarize_session
 
 
 def _exposure_ms(raw: object) -> float | None:

@@ -27,7 +27,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from scripts.slm.generate_shape_objective_comparison import (  # noqa: E402
+from scripts.slm.generate_shape_objective_comparison import (
     _disagreement_order,
     load_frame_sets,
 )

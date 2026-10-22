@@ -46,12 +46,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402 - backend must be set first
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import matplotlib.pyplot as plt  # backend must be set first
+import numpy as np
+import torch
 
-from ml.shaping.dataset import network_input, phase_target  # noqa: E402
-from ml.shaping.models import unit_phasor  # noqa: E402
+from ml.shaping.dataset import network_input, phase_target
+from ml.shaping.models import unit_phasor
 
 __all__ = [
     "PANEL_KEYS_FULL",

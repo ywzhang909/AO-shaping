@@ -21,9 +21,9 @@ if TYPE_CHECKING:  # so annotations type-check; runtime torch is skipped below
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.shaping.config import ShapingConfig  # noqa: E402
-from ml.shaping.losses import ShapingLoss  # noqa: E402
-from ml.shaping.physics import ForwardBank  # noqa: E402
+from ml.shaping.config import ShapingConfig
+from ml.shaping.losses import ShapingLoss
+from ml.shaping.physics import ForwardBank
 
 GRID = 32
 BATCH = 3

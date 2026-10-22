@@ -36,7 +36,7 @@ REPORT_DIR = REPO / "report"
 SYNC = REPO / "scripts" / "sync_report_provenance.py"
 
 sys.path.insert(0, str(REPO))
-from scripts._common.provenance import REPORTS, script_link  # noqa: E402
+from scripts._common.provenance import REPORTS, script_link
 
 _MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)]+)\)")
 

@@ -396,5 +396,5 @@ def apply_overlays_to_handle(
                 handle.set_phase_overlay(phase)
             if hasattr(handle, "set_base_phase"):
                 handle.set_base_phase(base)
-    except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡连接/整形
+    except Exception as exc:  # 叠加层失败不卡连接/整形
         logger.warning("叠加层应用到句柄失败: %s", exc)

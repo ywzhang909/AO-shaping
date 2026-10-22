@@ -20,9 +20,9 @@ if TYPE_CHECKING:  # so annotations type-check; runtime torch is skipped below
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.shaping.config import UNKNOWN_FOV  # noqa: E402
-from ml.shaping.physics import ForwardBank  # noqa: E402
-from ml.zernike.models import (  # noqa: E402
+from ml.shaping.config import UNKNOWN_FOV
+from ml.shaping.physics import ForwardBank
+from ml.zernike.models import (
     NO_VALID_PADDING_FOV,
     recommended_padding,
 )

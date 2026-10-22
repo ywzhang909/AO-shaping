@@ -40,12 +40,12 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-from PIL import Image, ImageDraw, ImageFont  # noqa: E402
+import matplotlib.pyplot as plt
+from PIL import Image, ImageDraw, ImageFont
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)

@@ -200,7 +200,7 @@ def _load_record_keys(path: Path) -> list[int]:
     (~472 MB for the largest) regardless of corpus size.
     """
     with open(path, "rb") as handle:
-        payload = pickle.load(handle)  # noqa: S301 - repo-internal debug dumps
+        payload = pickle.load(handle)  # repo-internal debug dumps
     if not isinstance(payload, dict):
         raise TypeError(
             f"{path} does not contain a dict of records "

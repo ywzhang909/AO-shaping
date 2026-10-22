@@ -235,7 +235,7 @@ class TestInspectOptions:
         assert main(["--roots", str(tmp_path), "--progress-every", "0"]) == 0
         capsys.readouterr()
         try:
-            import ml.hwdataset.cache  # noqa: F401
+            import ml.hwdataset.cache
         except ImportError:
             assert main(["--roots", str(tmp_path), "--build-cache"]) == 1
             assert "unavailable" in capsys.readouterr().err

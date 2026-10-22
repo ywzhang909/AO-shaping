@@ -18,7 +18,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from scripts.ml.optimize_uniform_spot_phase import (  # noqa: E402
+from scripts.ml.optimize_uniform_spot_phase import (
     PhaseVariable,
     box_slice,
     box_target,

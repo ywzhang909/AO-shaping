@@ -34,24 +34,24 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     SlmZernikePibConfig,
     optimize_slm_zernike_pib,
 )
-from ao_shaping.runners.runner_common import (  # noqa: E402
+from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     ObjectiveTarget,
     SlmParamsPib,
 )
-from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import (
     clamp_center_to_frame,
     threshold_spot_center,
     zero_order_center,

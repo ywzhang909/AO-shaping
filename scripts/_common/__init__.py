@@ -241,7 +241,7 @@ def plot_summary_bars(
 # ---------------------------------------------------------------------------
 # Sweep output guard (issue #143 problem 2)
 # ---------------------------------------------------------------------------
-def refuse_empty_overwrite(out_path, results) -> bool:  # noqa: ANN001
+def refuse_empty_overwrite(out_path, results) -> bool:
     """Refuse to let an empty sweep result clobber a non-empty prior output.
 
     A crashed or aborted sweep must not overwrite a good prior result with ``{}``

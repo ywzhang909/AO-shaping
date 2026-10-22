@@ -34,15 +34,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import numpy as np
+from loguru import logger
 
-from ao_shaping.drivers.sim.disturbance import (  # noqa: E402
+from ao_shaping.drivers.sim.disturbance import (
     DISTURBANCE_MODES,
     DisturbanceConfig,
     SimDisturbance,
 )
-from ao_shaping.drivers.sim.slm_pib_sim import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_pib_sim import (
     SLM_H,
     SLM_W,
     SimSLMPib,

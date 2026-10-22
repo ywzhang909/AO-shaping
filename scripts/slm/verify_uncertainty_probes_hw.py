@@ -56,25 +56,25 @@ _LIBS = ROOT / "libs"
 if str(_LIBS) not in sys.path:
     sys.path.insert(0, str(_LIBS))
 
-import torch  # noqa: E402
+import torch
 
-from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (
     UncertaintyProbeSelector,
 )
-from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.drivers.ccd.common import create_camera  # noqa: E402
-from ao_shaping.drivers.slm.santec import Santec  # noqa: E402
-from ao_shaping.tools.kernels.bench_kernels import capture_settled  # noqa: E402
-from ao_shaping.tools.slm.panel.display_state import preserve_slm_display  # noqa: E402
-from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W  # noqa: E402
-from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center  # noqa: E402
-from ao_shaping.utils.image.exposure_control import (  # noqa: E402
+from ao_shaping.drivers.ccd.common import create_camera
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.tools.kernels.bench_kernels import capture_settled
+from ao_shaping.tools.slm.panel.display_state import preserve_slm_display
+from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
+from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
+from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
 )
-from ao_shaping.utils.slm.panel_geometry import phase_to_panel  # noqa: E402
-from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase  # noqa: E402
+from ao_shaping.utils.slm.panel_geometry import phase_to_panel
+from ao_shaping.optimizer.wfless.slm_model_in_loop import _probe_phase
 
 
 def _log(msg: str) -> None:
@@ -95,7 +95,7 @@ def _n_fitted_coeffs(n_orders: int) -> int:
     return max(1, int(calc_n_zernike_terms(int(n_orders))) - len(_FROZEN_MODES))
 
 
-def _u_of(selector: UncertaintyProbeSelector, batch) -> float:  # noqa: ANN001
+def _u_of(selector: UncertaintyProbeSelector, batch) -> float:
     """用选择器**自己的**公共方法给一批探针打分 (单一真源, 不重写公式)。"""
     vals = []
     for probe in batch:
@@ -361,7 +361,7 @@ def main() -> int:
             _log(f"summary: {out_dir / 'summary.json'}")
             _log("=" * 70)
             return 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"失败: {type(exc).__name__}: {exc}")
         meta["status"] = "failed"
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -373,13 +373,13 @@ def main() -> int:
             if cam is not None:
                 cam.close()
                 _log("CCD 已关闭")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log(f"CCD 关闭异常: {exc}")
         try:
             if opened_slm:
                 slm.close()
                 _log("SLM 已关闭")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log(f"SLM 关闭异常: {exc}")
 
 

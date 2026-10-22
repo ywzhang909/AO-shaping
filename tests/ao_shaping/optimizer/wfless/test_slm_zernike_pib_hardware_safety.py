@@ -158,7 +158,7 @@ def test_slm_is_left_in_a_defined_state_not_a_search_iterate(monkeypatch, algori
         _run(epochs=6, algorithm=algorithm)
 
     system = get_system()
-    gray = system._gray  # noqa: SLF001 - reading the sim twin's state is the point
+    gray = system._gray  # reading the sim twin's state is the point
     assert gray is not None, "cleanup never commanded a defined state"
     assert np.all(np.asarray(gray) == 0), (
         f"expected the flat gray-0 fallback, got min={np.min(gray)} "

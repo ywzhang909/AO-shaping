@@ -38,14 +38,14 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from ao_shaping.tools.zernike.common import DLL_ZERNIKE_NAMES  # noqa: E402
-from ao_shaping.tools.kernels.sweep_analysis import (  # noqa: E402
+from ao_shaping.tools.zernike.common import DLL_ZERNIKE_NAMES
+from ao_shaping.tools.kernels.sweep_analysis import (
     LINEARITY_AMPS, analyze_linearity, group_raw_scan, latest_match)
 
 plt.rcParams["font.sans-serif"] = [

@@ -44,14 +44,14 @@ from loguru import logger
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.drivers.ccd.common import create_camera  # noqa: E402
-from ao_shaping.drivers.slm.santec import Santec  # noqa: E402
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.drivers.ccd.common import create_camera
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.tools.kernels.bench_kernels import (
     despike_frame,
     fresnel_panel,
     measure_spot,
 )
-from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure  # noqa: E402
+from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
 
 PANEL = (1200, 1920)
 DEFAULT_OUT = ROOT / "data" / "debug" / "bench_settings" / "focus_probe"

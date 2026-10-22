@@ -57,14 +57,14 @@ import matplotlib
 
 matplotlib.use("Agg")  # BEFORE pyplot -- headless CI
 
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts._common.provenance import script_link  # noqa: E402
+from scripts._common.provenance import script_link
 
 #: Where the generated write-up lands. ``docs/``, not ``report/``: this is a usage /
 #: architecture description, and AGENTS.md reserves ``report/<topic>/`` for the
@@ -664,7 +664,7 @@ def _learned_model_facts() -> dict[str, int]:
     than an unverified one.
     """
     try:
-        from ml.zernike.forward_model import (  # noqa: PLC0415
+        from ml.zernike.forward_model import (
             DEFAULT_N_COEFFS,
             ZernikeCoeffConfig,
             ZernikeCoeffConvNet,

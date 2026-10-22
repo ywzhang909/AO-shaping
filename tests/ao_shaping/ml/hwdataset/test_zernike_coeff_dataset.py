@@ -36,24 +36,24 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from torch.utils.data import (  # noqa: E402
+from torch.utils.data import (
     DataLoader,
     SequentialSampler,
     Subset,
 )
 
-from ao_shaping.utils.wavefront.zernike_calc import (  # noqa: E402
+from ao_shaping.utils.wavefront.zernike_calc import (
     calc_n_zernike_terms,
     noll_indices,
 )
-from ml.hwdataset.dataset import FileGroupedSampler  # noqa: E402
-from ml.hwdataset.index import (  # noqa: E402
+from ml.hwdataset.dataset import FileGroupedSampler
+from ml.hwdataset.index import (
     HwCorpusIndex,
     PhaseSource,
     build_hw_index,
 )
-from ml.hwdataset.records import MaterialiserConfig  # noqa: E402
-from ml.hwdataset.zernike_dataset import (  # noqa: E402
+from ml.hwdataset.records import MaterialiserConfig
+from ml.hwdataset.zernike_dataset import (
     DEFAULT_N_MAX,
     ZERNIKE_COEFF_SOURCES,
     ZernikeCoeffDataset,

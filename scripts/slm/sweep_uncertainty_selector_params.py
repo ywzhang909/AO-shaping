@@ -32,13 +32,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import torch  # noqa: E402
-from scipy import ndimage  # noqa: E402
+import torch
+from scipy import ndimage
 
-from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (
     UncertaintyProbeSelector,
 )
-from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
 

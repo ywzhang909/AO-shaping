@@ -39,21 +39,21 @@ sys.path.insert(0, str(ROOT / "libs"))
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerType,
-)  # noqa: E402
-from ao_shaping.optimizer.spgd import spgd_gradient  # noqa: E402
-from ao_shaping.optimizer.wfless.strehl_sim_eval import StrehlLandscape  # noqa: E402
+)
+from ao_shaping.optimizer.spgd import spgd_gradient
+from ao_shaping.optimizer.wfless.strehl_sim_eval import StrehlLandscape
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -62,7 +62,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts._common import (
     format_iters,
     iters_to_threshold,
-    plot_summary_bars as _common_plot_summary_bars,  # noqa: F401
+    plot_summary_bars as _common_plot_summary_bars,
 )
 
 # ---------------------------------------------------------------------------
@@ -475,7 +475,7 @@ def load_pib_summary(pib_csv: Path) -> pd.DataFrame | None:
             logger.warning("PIB summary {} misses columns {}", pib_csv, cols)
             return None
         return df.loc[:, cols]
-    except Exception as exc:  # noqa: BLE001 - report-only, never abort the run
+    except Exception as exc:  # report-only, never abort the run
         logger.warning("Could not read PIB summary {}: {}", pib_csv, exc)
         return None
 

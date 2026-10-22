@@ -19,7 +19,7 @@ from scipy.optimize import nnls
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
-from scripts.slm.diagnose_defocus_sampling import metrics, response_bias, stamp  # noqa: E402
+from scripts.slm.diagnose_defocus_sampling import metrics, response_bias, stamp
 
 
 def main():

@@ -52,22 +52,22 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "src"))
 
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
+from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     _fit_aberration_at_probes,
 )
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     SlmModelInLoopConfig,
     _make_optimizer,
     _to_model_grid,
     trust_region_clamp,
 )
-from ao_shaping.utils.wavefront.calibration_terms import (  # noqa: E402
+from ao_shaping.utils.wavefront.calibration_terms import (
     PupilAffine,
     TravelScale,
 )

@@ -677,7 +677,7 @@ def train(cfg: ShapingConfig) -> TrainResult:
             run.summary["best_val_sup"] = best_val_sup
             run.summary["global_step"] = global_step
             run.summary["corpus"] = summary
-        except Exception as exc:  # noqa: BLE001 - never fail a finished run
+        except Exception as exc:  # never fail a finished run
             logger.warning("could not write wandb summary: {}", exc)
         run.finish()
     return TrainResult(
@@ -738,7 +738,7 @@ def _init_wandb(cfg: ShapingConfig, summary: dict[str, Any]):
                 "corpus": summary,
             },
         )
-    except Exception as exc:  # noqa: BLE001 - telemetry must never kill a run
+    except Exception as exc:  # telemetry must never kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
     logger.info(
@@ -764,7 +764,7 @@ def _log_comparison_image(run: Any, path: Path, epoch: int, caption: str) -> Non
             {"compare/pred_vs_true": wandb.Image(str(path), caption=caption)},
             step=epoch,
         )
-    except Exception as exc:  # noqa: BLE001 - telemetry must never kill a run
+    except Exception as exc:  # telemetry must never kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 
 

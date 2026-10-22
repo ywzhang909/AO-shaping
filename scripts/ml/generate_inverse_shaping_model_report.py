@@ -33,21 +33,21 @@ import matplotlib
 
 matplotlib.use("Agg")  # before pyplot, per repo convention
 
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.patches import FancyArrowPatch, FancyBboxPatch  # noqa: E402
+import matplotlib.pyplot as plt
+from matplotlib.patches import FancyArrowPatch, FancyBboxPatch
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))  # so `scripts._common` imports
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from scripts._common import fmt_metric  # noqa: E402
+from scripts._common import fmt_metric
 
-from ml.shaping.config import ShapingConfig  # noqa: E402
-from ml.shaping.models import PhasorUNet, unit_phasor  # noqa: E402
-from ml.zernike.models import (  # noqa: E402
+from ml.shaping.config import ShapingConfig
+from ml.shaping.models import PhasorUNet, unit_phasor
+from ml.zernike.models import (
     NO_VALID_PADDING_FOV,
     PADDING_BY_FOV_PX,
     ZernikeAmpModel,
@@ -303,7 +303,7 @@ def _floor_table(snapshot: Path) -> list[dict] | None:
 
     try:
         index = build_hw_index("data/debug", index_cache=str(snapshot), progress_every=0)
-    except Exception:  # noqa: BLE001 - a missing corpus must not kill the report
+    except Exception:  # a missing corpus must not kill the report
         return None
 
     by_family: dict[str, list] = collections.defaultdict(list)
@@ -322,7 +322,7 @@ def _floor_table(snapshot: Path) -> list[dict] | None:
         for record in sample:
             try:
                 sample_obj = materialiser.materialise(record)
-            except Exception:  # noqa: BLE001 - skip an unreadable pickle
+            except Exception:  # skip an unreadable pickle
                 continue
             magnitude = np.hypot(sample_obj.phase_cos, sample_obj.phase_sin).ravel()
             norms.append(float(magnitude.mean()))

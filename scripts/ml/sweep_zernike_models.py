@@ -48,19 +48,19 @@ import numpy as np
 import torch
 
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from scripts.ml.compare_models_cv import build_folds, exact_sign_flip_p, objective_of  # noqa: E402
-from scripts.ml.compare_unet_baseline import (  # noqa: E402
+from scripts.ml.compare_models_cv import build_folds, exact_sign_flip_p, objective_of
+from scripts.ml.compare_unet_baseline import (
     _inputs,
     _peak_normalise,
     build_model,
     fit,
     forward_for,
 )
-from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index  # noqa: E402
-from ml.zernike.metrics import batch_image_metrics  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, collect_split  # noqa: E402
+from ml.hwdataset import HwPhaseImageDataset, MaterialiserConfig, build_hw_index
+from ml.zernike.metrics import batch_image_metrics
+from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
 METRICS = ("mse", "r2", "ssim", "psnr", "nrmse")
 

@@ -38,19 +38,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn as nn  # noqa: E402
+import numpy as np
+import torch
+import torch.nn as nn
 
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import AmpTrainConfig
 
 GRID, N_MAX = inv.GRID, 20
 # Padding is a CONTROLLED variable here, set to 1, not 10. Gerchberg-Saxton designs on the

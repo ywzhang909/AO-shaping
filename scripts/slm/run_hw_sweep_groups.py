@@ -173,7 +173,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts._common.group_manifest import (  # noqa: E402
+from scripts._common.group_manifest import (
     group_output_dir,
     load_manifest,
     utc_now_iso,
@@ -632,7 +632,7 @@ def probe_devices(
         finally:
             with contextlib.suppress(Exception):
                 slm.close()
-    except Exception as exc:  # noqa: BLE001 - 探针要把任何异常都翻译成结论
+    except Exception as exc:  # 探针要把任何异常都翻译成结论
         return _probe_failure(f"{type(exc).__name__}: {exc}")
     # -- 相机 --------------------------------------------------------------
     try:
@@ -646,7 +646,7 @@ def probe_devices(
         finally:
             with contextlib.suppress(Exception):
                 cam.close()
-    except Exception as exc:  # noqa: BLE001 - 同上
+    except Exception as exc:  # 同上
         return _probe_failure(f"{type(exc).__name__}: {exc}")
     return ProbeResult(status=PROBE_IDLE)
 
@@ -755,7 +755,7 @@ def run_device_probe(
         else default_probe_cmd(slm_number, cam_id, cam_type, exposure_ms)
     )
     try:
-        completed = subprocess.run(  # noqa: S603 - 命令来自调用者/环境, 故意如此
+        completed = subprocess.run(  # 命令来自调用者/环境, 故意如此
             list(cmd),
             cwd=str(ROOT),
             env=build_env(),
@@ -804,7 +804,7 @@ def query_windows_python_processes() -> list[ProcessInfo]:
         "\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }"
     )
     try:
-        completed = subprocess.run(  # noqa: S603 - 固定命令, 不带用户输入
+        completed = subprocess.run(  # 固定命令, 不带用户输入
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True,
             text=True,
@@ -1594,7 +1594,7 @@ def run_group(
     print(f"[组] {spec.group} (自变量 {spec.variable or '?'}) -> {' '.join(argv)}",
           flush=True)
     try:
-        completed = subprocess.run(  # noqa: S603 - 命令来自计划文件, 本来就要执行
+        completed = subprocess.run(  # 命令来自计划文件, 本来就要执行
             argv,
             cwd=str(ROOT),
             env=build_env(spec.env),

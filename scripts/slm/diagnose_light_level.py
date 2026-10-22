@@ -22,19 +22,19 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.drivers.ccd.common import (  # noqa: E402
+from ao_shaping.drivers.ccd.common import (
     create_camera,
     get_camera_exposure_ms,
     get_camera_exposure_range,
     set_camera_exposure_ms,
 )
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     display_and_average,

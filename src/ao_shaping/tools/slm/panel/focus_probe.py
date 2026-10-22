@@ -742,7 +742,7 @@ def probe_session_focus(
             )
             # Restore a plain phase: see the docstring.
             apply_phase(slm, np.zeros((SLM_PANEL_H, SLM_PANEL_W), dtype=np.float64))
-    except Exception as exc:  # noqa: BLE001 - 探测失败不该掀翻界面
+    except Exception as exc:  # 探测失败不该掀翻界面
         logger.exception("SLM {} 焦面探测失败", slm_number)
         out["error"] = str(exc)
         return out

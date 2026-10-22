@@ -14,14 +14,14 @@ import traceback
 sys.path.insert(0, "src")
 sys.path.insert(0, "libs")
 
-from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS  # noqa: E402
+from ao_shaping.drivers.wfs.thorlab_wfs import ThorlabWFS
 
 
 def check(name: str, fn) -> None:
     try:
         result = fn()
         print(f"[PASS] {name}: {result}")
-    except Exception as e:  # noqa: BLE001 - intentional, we want all failures
+    except Exception as e:  # intentional, we want all failures
         print(f"[FAIL] {name}: {type(e).__name__}: {e}")
         traceback.print_exc(limit=2)
 
@@ -34,7 +34,7 @@ def main() -> None:
         print(f"[PASS] open(): state={wfs._state}, handle={wfs._instrument_handle.value}")
         print(f"  mla_index={wfs.mla_index}, exp={wfs._explosure_time}, gain={wfs._gain}")
         print(f"  pupil=({wfs.c_x},{wfs.c_y},{wfs.d_x},{wfs.d_y})")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[FAIL] open(): {type(e).__name__}: {e}")
         traceback.print_exc(limit=3)
         return

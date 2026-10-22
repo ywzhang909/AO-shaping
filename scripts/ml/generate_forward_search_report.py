@@ -31,15 +31,15 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
-from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records, _inputs  # noqa: E402
-from scripts.ml.forward_search import (  # noqa: E402
+from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records, _inputs
+from scripts.ml.forward_search import (
     APERTURE_R,
     BEAM_W0,
     Arm,
@@ -49,14 +49,14 @@ from scripts.ml.forward_search import (  # noqa: E402
     fwd,
     train_arm,
 )
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import augment as aug  # noqa: E402
-from ml.zernike.metrics import batch_image_metrics  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, collect_split  # noqa: E402
+from ml.zernike import augment as aug
+from ml.zernike.metrics import batch_image_metrics
+from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
 FIG_DIR = ROOT / "report" / "loss_defects" / "figures"
 CJK = {"Microsoft YaHei", "SimHei", "DejaVu Sans"}

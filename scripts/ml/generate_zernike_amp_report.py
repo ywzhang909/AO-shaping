@@ -43,9 +43,9 @@ import matplotlib
 
 matplotlib.use("Agg")  # before pyplot, per repo convention
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 ROOT = Path(__file__).resolve().parents[2]
 # `ml.*` / `ao_shaping.*` live under src/. ROOT/"scripts" is deliberately
@@ -54,7 +54,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import markdown_table, savefig  # noqa: E402
+from scripts._common import markdown_table, savefig
 
 # CJK glyphs: without this every Chinese label renders as a tofu box.
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -626,7 +626,7 @@ def build_report(
     def star(p: float) -> str:
         return "***" if p < 0.01 else ("*" if p < 0.05 else "ns")
 
-    fig_ref = lambda name: f"figures/{name}" if name else ""  # noqa: E731
+    fig_ref = lambda name: f"figures/{name}" if name else ""
 
     hybrid_verdict = (
         f"在物理模型的最优 lr 下，hybrid 反而**显著更差**"

@@ -53,8 +53,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 for _candidate in (ROOT, ROOT / "src", ROOT / "libs", ROOT / "libs" / "OOPAO"):
@@ -62,31 +62,31 @@ for _candidate in (ROOT, ROOT / "src", ROOT / "libs", ROOT / "libs" / "OOPAO"):
     if _text not in sys.path:
         sys.path.insert(0, _text)
 
-from ao_shaping.drivers.ccd.common import (  # noqa: E402
+from ao_shaping.drivers.ccd.common import (
     create_camera,
     get_camera_exposure_ms,
     get_camera_exposure_range,
     set_camera_exposure_ms,
 )
-from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import (
     beam_radius_second_moment,
     prepare_frame,
 )
-from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+from ao_shaping.utils.image.frame_analysis import (
     DEFAULT_MIN_PEAK,
     measure_spot,
     spot_fwhm,
 )
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
 )
-from ao_shaping.utils.slm.phase_display import (  # noqa: E402
+from ao_shaping.utils.slm.phase_display import (
     display_phase as display_phase_on_slm,
 )
-from ao_shaping.utils.wavefront.zernike_utils import (  # noqa: E402
+from ao_shaping.utils.wavefront.zernike_utils import (
     generate_zernike_phase,
 )
 
@@ -1298,15 +1298,15 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
     info: dict[str, Any] = {}
     try:
         info["slm_serial"] = slm.serial_number
-    except Exception:  # noqa: BLE001 - 设备信息拿不到不影响判定
+    except Exception:  # 设备信息拿不到不影响判定
         info["slm_serial"] = None
     try:
         info["slm_video_mode"] = int(getattr(slm, "video_mode", 0))
-    except Exception:  # noqa: BLE001
+    except Exception:
         info["slm_video_mode"] = None
     try:
         info["slm_wavelength_nm"] = getattr(slm, "wavelength", None)
-    except Exception:  # noqa: BLE001
+    except Exception:
         info["slm_wavelength_nm"] = None
     for attr in ("serial_number", "serial", "sn"):
         value = getattr(camera, attr, None)
@@ -1321,12 +1321,12 @@ def _collect_device_info(slm: Any, camera: Any) -> dict[str, Any]:
             info["cam_hardware"] = {
                 str(k): str(v) for k, v in hardware.items() if isinstance(v, (str, int, float))
             }
-    except Exception:  # noqa: BLE001 - 大恒驱动没有实现 get_hardware_info
+    except Exception:  # 大恒驱动没有实现 get_hardware_info
         pass
     try:
         lo, hi = get_camera_exposure_range(camera)
         info["cam_exposure_range_ms"] = [float(lo), float(hi)]
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return info
 

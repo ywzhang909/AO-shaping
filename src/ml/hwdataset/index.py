@@ -938,7 +938,7 @@ def _scan_file(pkl_path: Path) -> _FileScan:
     """
     try:
         with open(pkl_path, "rb") as handle:
-            payload = pickle.load(handle)  # noqa: S301 - repo-internal debug dumps
+            payload = pickle.load(handle)  # repo-internal debug dumps
     except _UNREADABLE_PICKLE_ERRORS as exc:
         logger.warning("Skipping unreadable debug pickle {}: {}", pkl_path, exc)
         return _FileScan(

@@ -25,23 +25,23 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from torch.utils.data import DataLoader, Subset  # noqa: E402
+from torch.utils.data import DataLoader, Subset
 
-from ml.hwdataset.dataset import (  # noqa: E402
+from ml.hwdataset.dataset import (
     DEFAULT_PREFETCH_FACTOR,
     FileGroupedSampler,
     HwPhaseImageDataset,
     build_hw_dataloader,
     create_hw_dataloaders,
 )
-from ml.hwdataset.cache import prepare_hw_cache  # noqa: E402
-from ml.hwdataset.index import (  # noqa: E402
+from ml.hwdataset.cache import prepare_hw_cache
+from ml.hwdataset.index import (
     HwCorpusIndex,
     HwRecordRef,
     PhaseSource,
     build_hw_index,
 )
-from ml.hwdataset.records import MaterialiserConfig  # noqa: E402
+from ml.hwdataset.records import MaterialiserConfig
 
 _STAMP = "20260101_000000"
 _PANEL_SHAPE = (40, 60)  # (height, width), stands in for (1200, 1920)

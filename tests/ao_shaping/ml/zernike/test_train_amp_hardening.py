@@ -24,9 +24,9 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.hwdataset import HwCorpusIndex, HwRecordRef, PhaseSource  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpFitConfig  # noqa: E402
-from ml.zernike.train_amp import (  # noqa: E402
+from ml.hwdataset import HwCorpusIndex, HwRecordRef, PhaseSource
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpFitConfig
+from ml.zernike.train_amp import (
     AmpTrainConfig,
     _build_parser,
     _cam_size_guard,

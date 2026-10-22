@@ -38,7 +38,7 @@ import numpy as np
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -47,8 +47,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
-from ao_shaping.utils.io.file import logger  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.io.file import logger
 
 MARK_START = "<!-- OBJECTIVES_REPEATS_START -->"
 MARK_END = "<!-- OBJECTIVES_REPEATS_END -->"

@@ -36,12 +36,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn as nn  # noqa: E402
+import numpy as np
+import torch
+import torch.nn as nn
 
-from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records  # noqa: E402
-from scripts.ml.forward_search import (  # noqa: E402
+from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records
+from scripts.ml.forward_search import (
     APERTURE_R,
     BEAM_W0,
     CoeffForward,
@@ -50,17 +50,17 @@ from scripts.ml.forward_search import (  # noqa: E402
     train_arm,
     Arm,
 )
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import augment as aug  # noqa: E402
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_calc import fit_zernike  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, collect_split  # noqa: E402
+from ml.zernike import augment as aug
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ao_shaping.utils.wavefront.zernike_calc import fit_zernike
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
 GRID, N_MAX, PADDING = inv.GRID, 20, 1
 SEEDS = [0, 1, 2]

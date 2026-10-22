@@ -47,8 +47,8 @@ for _entry in (str(ROOT / "src"), str(ROOT)):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)
 
-from ml.hwdataset.index import build_hw_index  # noqa: E402
-from ml.hwdataset.records import HwRecordError, Materialiser  # noqa: E402
+from ml.hwdataset.index import build_hw_index
+from ml.hwdataset.records import HwRecordError, Materialiser
 
 INDEX_CACHE = ROOT / "data" / "hw_index_cache.json"
 OUTPUT_PATH = ROOT / "report" / "hwdataset_corpus" / "distribution_stats.json"

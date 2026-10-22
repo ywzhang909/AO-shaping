@@ -13,7 +13,7 @@ import pytest
 # Skip the whole module when torch is absent (optional dependency).
 torch = pytest.importorskip("torch")
 
-from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     DifferentiableShapingResult,
     angular_spectrum_propagate_torch,
     create_target_mask,

@@ -1282,7 +1282,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                         _initial_objective,
                     )
 
-            except BaseException as _exit_exc:  # noqa: BLE001
+            except BaseException as _exit_exc:
                 # Never let cleanup raise: a masked exception loses the
                 # diagnosis, and an SLM left on a random phase damages the
                 # next run. Flat is always safe.
@@ -1294,7 +1294,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                 try:
                     slm.set_grayscale(0)
                     logger.warning("SLM forced to flat (gray 0) on cleanup failure")
-                except Exception:  # noqa: BLE001 - last resort, cannot raise
+                except Exception:  # last resort, cannot raise
                     logger.error("could not force flat phase either; SLM state unknown")
 
         def _debug_report() -> None:

@@ -802,7 +802,7 @@ def optimize_slm_gs_refine(config: SlmGsRefineConfig) -> Recorder:
                 continue
             try:
                 dev.close()
-            except Exception:  # noqa: BLE001 - cleanup must not mask the real error
+            except Exception:  # cleanup must not mask the real error
                 logger.debug("device close failed during cleanup", exc_info=True)
 
 

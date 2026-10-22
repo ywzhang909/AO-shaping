@@ -1181,7 +1181,7 @@ def fit_phase_response(
                         f_scale=0.02,
                         max_nfev=4000,
                     )
-                except Exception as exc:  # noqa: BLE001 - 单个初值失败不致命
+                except Exception as exc:  # 单个初值失败不致命
                     logger.debug("拟合初值 {} 失败: {}", (depth0, gamma0, leak0), exc)
                     continue
                 if best is None or float(result.cost) < float(best.cost):
@@ -1211,7 +1211,7 @@ def fit_phase_response(
             "gamma": float(diag[1]),
             "leakage": float(diag[2]),
         }
-    except Exception as exc:  # noqa: BLE001 - 协方差只是附加信息
+    except Exception as exc:  # 协方差只是附加信息
         logger.debug("拟合协方差计算失败: {}", exc)
 
     return PhaseResponseFit(

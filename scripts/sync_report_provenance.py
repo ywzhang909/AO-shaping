@@ -33,7 +33,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from scripts._common.provenance import (  # noqa: E402
+from scripts._common.provenance import (
     END_MARKER,
     REPORTS,
     START_MARKER,

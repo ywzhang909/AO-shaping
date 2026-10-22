@@ -53,14 +53,14 @@ _LIBS = ROOT / "libs"
 if str(_LIBS) not in sys.path:
     sys.path.insert(0, str(_LIBS))
 
-from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.uncertainty_probe_selector import (
     UncertaintyProbeSelector,
 )
-from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.optimizer.wfless import slm_model_in_loop as mil  # noqa: E402
-from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+from ao_shaping.optimizer.wfless import slm_model_in_loop as mil
+from ao_shaping.utils.image.beam_metrics import (
     prepare_frame,
     zero_order_center,
 )
@@ -87,7 +87,7 @@ def _bandlimit_patch(sigma: float):
     orig = ups.UncertaintyProbeSelector
 
     class _Pinned(orig):  # type: ignore[misc, valid-type]
-        def __init__(self, *a, **kw):  # noqa: ANN002, ANN003
+        def __init__(self, *a, **kw):
             kw["bandlimit_sigma"] = float(sigma)
             super().__init__(*a, **kw)
 
@@ -216,7 +216,7 @@ def main() -> int:
             for k in range(HOLDOUT_COUNT)
         ]
 
-        def score(coefficients: np.ndarray, frames) -> tuple[float, list[float]]:  # noqa: ANN001
+        def score(coefficients: np.ndarray, frames) -> tuple[float, list[float]]:
             vals = [
                 float(mil._prediction_correlation(
                     opt_probe.forward_intensity(coefficients, ph), meas))
@@ -341,7 +341,7 @@ def main() -> int:
         _log(f"塌缩检查: {'有变体塌缩' if summary['any_collapse'] else '全部在幅度带内'}")
         _log(f"summary: {out_dir / 'summary.json'}")
         return 0
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _log(f"失败: {type(exc).__name__}: {exc}")
         meta["status"] = "failed"
         meta["error"] = f"{type(exc).__name__}: {exc}"
@@ -352,7 +352,7 @@ def main() -> int:
         try:
             bench.close()
             _log("设备已释放")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             _log(f"关闭异常: {exc}")
 
 

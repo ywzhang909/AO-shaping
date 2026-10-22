@@ -720,7 +720,7 @@ def rebuild_defocus_overlay(prefix: str, slm) -> None:
         return
     try:
         overlay = build_defocus_overlay(prefix, slm)
-    except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡重连
+    except Exception as exc:  # 叠加层失败不卡重连
         logger.warning("SLM {} 离焦叠加重建失败: {}", slm.slm_number, exc)
         return
     if np.allclose(overlay, 0.0, atol=1e-12):
@@ -749,7 +749,7 @@ def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
     if defocus_enabled:
         try:
             built = build_defocus_overlay(prefix, slm)
-        except Exception as exc:  # noqa: BLE001 - 叠加层失败不卡主流程
+        except Exception as exc:  # 叠加层失败不卡主流程
             logger.warning("SLM 离焦叠加重建失败 (%s): %s", prefix, exc)
             built = None
         if built is not None and np.allclose(built, 0.0, atol=1e-12):
@@ -823,14 +823,14 @@ def probe_camera_window(cam_type: str = "daheng", cam_id: int = 0) -> WindowSize
             max_height=int(height_range["max"]),
             inc=int(width_range.get("inc") or 2),
         )
-    except Exception as exc:  # noqa: BLE001 - 探测失败不是错误，只是拿不到真值
+    except Exception as exc:  # 探测失败不是错误，只是拿不到真值
         logger.debug("相机窗口上限探测失败 ({}): {}", cam_type, exc)
         return None
     finally:
         if cam is not None:
             try:
                 cam.close_device()
-            except Exception:  # noqa: BLE001 - 关闭失败无可补救
+            except Exception:  # 关闭失败无可补救
                 pass
 
 
@@ -1295,7 +1295,7 @@ def measure_illuminated_radius(
             "SLM {} 实测照明半径 {:.0f} 面板px（x 边 {:.0f} / y 边 {:.0f}，曝光 {:.3f} ms）",
             slm_num, out["radius_px"], out["edge_x"], out["edge_y"], out["exposure_ms"],
         )
-    except Exception as exc:  # noqa: BLE001 - 探测失败不该掀翻侧栏
+    except Exception as exc:  # 探测失败不该掀翻侧栏
         logger.exception("SLM {} 照明半径探测失败", slm_num)
         out["error"] = str(exc)
     return out
@@ -1333,16 +1333,16 @@ def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float |
                 pixel_size = cam.PixelSize.get()
                 if pixel_size is not None and float(pixel_size) > 0:
                     return float(pixel_size)
-            except Exception:  # noqa: BLE001 - 特征缺失就落到型号表
+            except Exception:  # 特征缺失就落到型号表
                 pass
-        except Exception as exc:  # noqa: BLE001 - 探测失败不是错误
+        except Exception as exc:  # 探测失败不是错误
             logger.debug("大恒探测像元间距失败: {}", exc)
             return None
         finally:
             if cam is not None:
                 try:
                     cam.close_device()
-                except Exception:  # noqa: BLE001 - 关闭失败无可补救
+                except Exception:  # 关闭失败无可补救
                     pass
         for known_model, pitch in KNOWN_CAMERA_PIXEL_UM.items():
             if known_model in model:
@@ -1360,7 +1360,7 @@ def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float |
                     return float(pixel_size)
             finally:
                 cam.close()
-        except Exception as exc:  # noqa: BLE001 - 探测失败不是错误
+        except Exception as exc:  # 探测失败不是错误
             logger.debug("MiiCam 探测像元间距失败: {}", exc)
         return None
     return None
@@ -1557,7 +1557,7 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
         from ao_shaping.runners.runner_common import build_model_in_loop_config
 
         config = build_model_in_loop_config(params, debug=False)
-    except Exception as exc:  # noqa: BLE001 - 参数/配置不可用，交给操作者改
+    except Exception as exc:  # 参数/配置不可用，交给操作者改
         message = f"标定参数不可用: {exc}"
         logger.exception("标定参数不可用: {}", exc)
         st.error(message)
@@ -1577,7 +1577,7 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
             resolved_params, resolved_config = apply_session_calibration(
                 params, config, calibration
             )
-    except Exception as exc:  # noqa: BLE001 - calibrate_session 抛普通异常
+    except Exception as exc:  # calibrate_session 抛普通异常
         logger.exception("SLM {} 光路标定失败: {}", slm_num, exc)
         st.error(f"SLM {slm_num} 光路标定失败: {exc}")
         return str(exc)
@@ -1680,7 +1680,7 @@ def _now_text() -> str:
 
     try:
         return str(gen_date_str())
-    except Exception:  # noqa: BLE001 - 时间戳不是关键路径
+    except Exception:  # 时间戳不是关键路径
         return ""
 
 

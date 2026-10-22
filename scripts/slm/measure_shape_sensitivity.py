@@ -52,7 +52,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.utils.io.file import logger  # noqa: E402
+from ao_shaping.utils.io.file import logger
 
 
 def parse_args() -> argparse.Namespace:

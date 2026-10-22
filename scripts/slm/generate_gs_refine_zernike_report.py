@@ -21,7 +21,7 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # noqa: E402  -- must precede pyplot import
+matplotlib.use("Agg")  # must precede pyplot import
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -30,9 +30,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common import fmt_metric, markdown_table, savefig  # noqa: E402
-from _common.provenance import insert_header  # noqa: E402
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from _common import fmt_metric, markdown_table, savefig
+from _common.provenance import insert_header
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,

@@ -15,7 +15,7 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.shaping.viz import (  # noqa: E402
+from ml.shaping.viz import (
     PANEL_KEYS_FULL,
     PANEL_KEYS_PHASE_ONLY,
     build_comparison,
@@ -50,7 +50,7 @@ def _batch(fov: list[int], seed: int = 0) -> dict[str, Any]:
 class _Identity(torch.nn.Module):
     """A network that returns the true phasor exactly, for exactness tests."""
 
-    def forward(self, image: torch.Tensor) -> torch.Tensor:  # noqa: D102
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
         del image
         return torch.cat(
             (
@@ -64,7 +64,7 @@ class _Identity(torch.nn.Module):
 class _Zero(torch.nn.Module):
     """A network returning a fixed phasor, so the error is known analytically."""
 
-    def forward(self, image: torch.Tensor) -> torch.Tensor:  # noqa: D102
+    def forward(self, image: torch.Tensor) -> torch.Tensor:
         out = torch.zeros((image.shape[0], 2, GRID, GRID))
         out[:, 0] = 1.0
         return out
@@ -76,7 +76,7 @@ class _StubBank:
     def __init__(self, supported: set[int]) -> None:
         self.supported = supported
 
-    def forward(self, phase: torch.Tensor, fov: torch.Tensor):  # noqa: D102
+    def forward(self, phase: torch.Tensor, fov: torch.Tensor):
         excluded = torch.tensor(
             [int(v) not in self.supported for v in fov.tolist()],
             dtype=torch.bool,

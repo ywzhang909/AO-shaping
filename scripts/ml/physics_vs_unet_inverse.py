@@ -48,11 +48,11 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn as nn  # noqa: E402
+import numpy as np
+import torch
+import torch.nn as nn
 
-from scripts.ml.compare_unet_baseline import (  # noqa: E402
+from scripts.ml.compare_unet_baseline import (
     _inputs,
     _peak_normalise,
     _select_records,
@@ -61,15 +61,15 @@ from scripts.ml.compare_unet_baseline import (  # noqa: E402
     fit,
     forward_for,
 )
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.metrics import batch_image_metrics  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.metrics import batch_image_metrics
+from ml.zernike.train_amp import AmpTrainConfig
 
 SEEDS = [0, 1, 2]
 EPOCHS = 60

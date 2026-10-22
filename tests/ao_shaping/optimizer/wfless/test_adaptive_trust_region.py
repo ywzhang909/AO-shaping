@@ -21,18 +21,18 @@ import pytest
 ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.optimizer.wfless.adaptive_trust_region import (  # noqa: E402
+from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegion,
     AdaptiveTrustRegionConfig,
 )
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     SlmModelInLoopConfig,
     optimize_slm_model_in_loop,
     trust_region_clamp,
 )
 
 
-def _nan_safe(value):  # noqa: ANN001, ANN202
+def _nan_safe(value):
     """Map every NaN to ``None`` so equal histories compare equal.
 
     ``score_before`` is NaN on round one and ``nan == nan`` is False, so a plain

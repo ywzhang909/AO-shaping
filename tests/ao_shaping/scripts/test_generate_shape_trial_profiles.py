@@ -27,7 +27,7 @@ SCRIPT = ROOT / "scripts" / "slm" / "generate_shape_trial_profiles.py"
 
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.display import beam_profile  # noqa: E402
+from ao_shaping.display import beam_profile
 
 
 def _load_module():

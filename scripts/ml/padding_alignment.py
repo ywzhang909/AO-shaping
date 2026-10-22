@@ -23,13 +23,13 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import second_moments  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import second_moments
 
-from scripts.ml.generate_inverse_design_report import _norm, load_trained  # noqa: E402
+from scripts.ml.generate_inverse_design_report import _norm, load_trained
 
 CKPT = ROOT / "logs" / "zernike_amp_final_nmax20" / "best_coefficients.pt"
 

@@ -87,9 +87,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -98,8 +98,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import fmt_metric, markdown_table, savefig  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common import fmt_metric, markdown_table, savefig
+from scripts._common.provenance import insert_header
 
 #: MIL 手工系列子目录（一份报告 = 一个子目录，见 ``report/AGENTS.md``）。
 OUT_DIR = ROOT / "report" / "shape_trials" / "model_in_loop"
@@ -772,7 +772,7 @@ def _recompute_predictions(bundle: RunBundle) -> None:
     if bundle.cell_scale is None or bundle.roi_center is None:
         return
     try:
-        import torch  # noqa: F401
+        import torch
         from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
             ZernikeCoefficientOptimizer,
         )

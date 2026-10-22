@@ -40,7 +40,7 @@ import matplotlib
 
 matplotlib.use("Agg")  # before pyplot, per repo convention
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 ROOT = Path(__file__).resolve().parents[2]
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`) must
@@ -49,9 +49,9 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from scripts._common import fmt_metric  # noqa: E402
+from scripts._common import fmt_metric
 
 DEFAULT_RUN = "logs/shaping_main"
 DEFAULT_OUT = "report/inverse_shaping_unet"
@@ -102,7 +102,7 @@ def _load(run_dir: Path) -> tuple[list[dict], dict, dict]:
                 "global_step": payload.get("global_step"),
                 "corpus": payload.get("corpus") or {},
             }
-        except Exception:  # noqa: BLE001 - metadata is a nicety, not required
+        except Exception:  # metadata is a nicety, not required
             meta = {}
     return history, metrics, meta
 

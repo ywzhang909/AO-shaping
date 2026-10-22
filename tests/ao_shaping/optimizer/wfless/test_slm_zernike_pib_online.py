@@ -56,11 +56,11 @@ if os.environ.get("AO_RUN_HARDWARE", "").strip().lower() not in {"1", "true", "y
         allow_module_level=True,
     )
 
-from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     SlmZernikePibConfig,
     optimize_slm_zernike_pib,
 )
-from ao_shaping.runners.runner_common import (  # noqa: E402
+from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     ObjectiveTarget,
     SlmParamsPib,

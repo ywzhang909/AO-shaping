@@ -30,16 +30,16 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from PIL import Image  # noqa: E402
+from PIL import Image
 
-from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     angular_spectrum_propagate_torch,
     create_target_mask,
     train_beam_shaping,
 )
-from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
     angular_spectrum_propagate,
     gerchberg_saxton,
 )
@@ -774,7 +774,7 @@ def main() -> int:
         print(
             f"[report] asm_parity done max_err={asm_max_err:.2e} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] asm_parity FAILED: {e}")
         metrics["errors"]["asm_parity"] = str(e)
         asm_max_err = float("nan")
@@ -809,7 +809,7 @@ def main() -> int:
             f"[report] gs_baseline done CV={runs['gs_baseline']['CV']:.4f} "
             f"EE={runs['gs_baseline']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] gs_baseline FAILED: {e}")
         metrics["errors"]["gs_baseline"] = str(e)
 
@@ -846,7 +846,7 @@ def main() -> int:
             f"[report] old_default done CV={runs['old_default']['CV']:.4f} "
             f"EE={runs['old_default']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] old_default FAILED: {e}")
         metrics["errors"]["old_default"] = str(e)
 
@@ -883,7 +883,7 @@ def main() -> int:
             f"[report] win_fft done CV={runs['win_fft']['CV']:.4f} "
             f"EE={runs['win_fft']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] win_fft FAILED: {e}")
         metrics["errors"]["win_fft"] = str(e)
 
@@ -920,7 +920,7 @@ def main() -> int:
             f"[report] win_asm done CV={runs['win_asm']['CV']:.4f} "
             f"EE={runs['win_asm']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] win_asm FAILED: {e}")
         metrics["errors"]["win_asm"] = str(e)
 
@@ -957,7 +957,7 @@ def main() -> int:
             f"[report] win_spot done CV={runs['win_spot']['CV']:.4f} "
             f"EE={runs['win_spot']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] win_spot FAILED: {e}")
         metrics["errors"]["win_spot"] = str(e)
 
@@ -994,7 +994,7 @@ def main() -> int:
             f"[report] win_lbfgs done CV={runs['win_lbfgs']['CV']:.4f} "
             f"EE={runs['win_lbfgs']['EE']:.4f} ({time.time() - t0:.1f}s)"
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] win_lbfgs FAILED: {e}")
         metrics["errors"]["win_lbfgs"] = str(e)
 
@@ -1027,7 +1027,7 @@ def main() -> int:
         try:
             make_gifs(runs)
             print("[report] gifs done")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"[report] gifs FAILED: {e}")
             metrics["errors"]["gifs"] = str(e)
 
@@ -1035,7 +1035,7 @@ def main() -> int:
     try:
         save_data(runs, metrics)
         print("[report] data saved")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] save_data FAILED: {e}")
         metrics["errors"]["save_data"] = str(e)
 
@@ -1044,7 +1044,7 @@ def main() -> int:
         readme = build_readme(runs, metrics, asm_max_err)
         (OUT_DIR / "README.md").write_text(readme, encoding="utf-8")
         print("[report] README written")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] README FAILED: {e}")
         metrics["errors"]["readme"] = str(e)
 
@@ -1054,7 +1054,7 @@ def main() -> int:
             json.dumps(metrics, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[report] final metrics write FAILED: {e}")
 
     print("[report] DONE")

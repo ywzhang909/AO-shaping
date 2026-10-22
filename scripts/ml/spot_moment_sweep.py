@@ -26,10 +26,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from ml.zernike.train_amp import AmpTrainConfig, train  # noqa: E402
-from ml.zernike.losses import LossConfig  # noqa: E402
+from ml.zernike.train_amp import AmpTrainConfig, train
+from ml.zernike.losses import LossConfig
 
 SEEDS = [0, 1, 2, 3, 4]
 EPOCHS = 60

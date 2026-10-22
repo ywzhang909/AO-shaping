@@ -648,7 +648,7 @@ def _select_records(
         keep = [
             i
             for i, r in enumerate(records)
-            if dataset._fov_px(r) == cfg.fov_px  # noqa: SLF001 - same package
+            if dataset._fov_px(r) == cfg.fov_px  # same package
         ]
         if not keep:
             raise SystemExit(f"no records match fov_px={cfg.fov_px}")
@@ -789,7 +789,7 @@ def evaluate(
     """
     model.eval()
     target = tensors["target"]
-    reference = model._normalize(target.clone())  # noqa: SLF001 - same package
+    reference = model._normalize(target.clone())  # same package
     variance = float(torch.var(reference).item())
 
     predictions = []
@@ -886,7 +886,7 @@ def per_objective_r2(
     """
     model.eval()
     target = tensors["target"]
-    reference = model._normalize(target.clone())  # noqa: SLF001 - same package
+    reference = model._normalize(target.clone())  # same package
     n = target.shape[0]
     chunks = [
         model(tensors["phase_cos"][start : start + batch], tensors["phase_sin"][start : start + batch])
@@ -943,7 +943,7 @@ def split_mse_r2(
     """
     model.eval()
     target = tensors["target"]
-    reference = model._normalize(target.clone())  # noqa: SLF001 - same package
+    reference = model._normalize(target.clone())  # same package
     n = target.shape[0]
     prediction = torch.cat(
         [
@@ -1076,7 +1076,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
             attention_heads=cfg.attention_heads,
         )
     ).to(device)
-    fit_target = model._normalize(train_t["target"].clone())  # noqa: SLF001
+    fit_target = model._normalize(train_t["target"].clone())
     optimizer = _build_optimizer(model, cfg)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=cfg.epochs)
     # `enabled=False` makes scale()/step()/update() exact pass-throughs, so the same
@@ -1278,7 +1278,7 @@ def train(cfg: AmpTrainConfig) -> AmpTrainResult:
         if cfg.image_every and (epoch % cfg.image_every == 0 or epoch == cfg.epochs - 1):
             with torch.no_grad():
                 sample = model(val_t["phase_cos"][:1], val_t["phase_sin"][:1])
-            true_img = model._normalize(val_t["target"][:1].clone())  # noqa: SLF001
+            true_img = model._normalize(val_t["target"][:1].clone())
             figure_path = out_dir / f"compare_epoch{epoch:03d}.png"
             caption = (
                 f"epoch {epoch}  val_mse={metrics['mse']:.5f}  "
@@ -1385,7 +1385,7 @@ def _build_optimizer(
             f"optimizer must be one of ['adam', 'adamw', 'sgd'], got {cfg.optimizer!r}"
         )
     fit = cfg.optimizer_fit_config()
-    return model._build_optimizer(fit)  # noqa: SLF001 - same package
+    return model._build_optimizer(fit)  # same package
 
 
 def _init_wandb(cfg: AmpTrainConfig, model: ZernikeAmpModel, n_train: int, n_val: int):
@@ -1420,7 +1420,7 @@ def _init_wandb(cfg: AmpTrainConfig, model: ZernikeAmpModel, n_train: int, n_val
             },
             reinit="finish_previous",
         )
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
     # One fixed random coefficient vector, so the "true vs pred" panel has a
@@ -1448,7 +1448,7 @@ def _log_comparison_image(run, path: Path, epoch: int, caption: str) -> None:
             },
             step=epoch,
         )
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 
 

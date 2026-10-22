@@ -452,7 +452,7 @@ def probe_session_fingerprint(
                 # Leave a plain phase behind: the next run writes its own pattern,
                 # and a stray tilt would silently skew it.
                 apply_phase(slm, np.zeros((1200, 1920), dtype=np.float64))
-    except Exception as exc:  # noqa: BLE001 - 探测失败不该掀翻界面
+    except Exception as exc:  # 探测失败不该掀翻界面
         logger.exception("光路指纹采集失败")
         out["error"] = str(exc)
         return out

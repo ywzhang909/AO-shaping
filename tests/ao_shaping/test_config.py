@@ -189,8 +189,8 @@ class TestResolveDmWithPropertyDm:
     network probes for unreachable hardware DMs."""
 
     def test_registry_property_dm_resolves_to_consistent_mask(self, monkeypatch):
-        import ao_shaping.drivers.dm.hadamard_dm  # noqa: F401  (注册 HadamardDM)
-        import ao_shaping.drivers.dm.zernike_dm  # noqa: F401  (注册 ZernikeDM)
+        import ao_shaping.drivers.dm.hadamard_dm  # (注册 HadamardDM)
+        import ao_shaping.drivers.dm.zernike_dm  # (注册 ZernikeDM)
         from ao_shaping.drivers.dm.hadamard_dm import HadamardDM
 
         assert isinstance(getattr(HadamardDM, "DM_NUM"), property)

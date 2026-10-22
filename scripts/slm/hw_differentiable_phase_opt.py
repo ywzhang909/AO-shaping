@@ -143,32 +143,32 @@ from scipy.ndimage import map_coordinates
 # ---------------------------------------------------------------------------
 # 零导入叶子: 这些模块实测都不牵入 ao_shaping.drivers.*
 # ---------------------------------------------------------------------------
-from ao_shaping.algorithm.signal_processing.differentiable_beam import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_beam import (
     DifferentiableBeamOptimizer,
 )
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     fresnel_panel,
 )
-from ao_shaping.tools.slm.panel.focus_probe import (  # noqa: E402
+from ao_shaping.tools.slm.panel.focus_probe import (
     ExposureSetting,
     FocusProbeResult,
     adapt_exposure,
     sweep_focus,
 )
-from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: E402
-from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import prepare_frame
+from ao_shaping.utils.image.frame_analysis import (
     assess_spot,
     measure_spot,
 )
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     SLM_PITCH_M,
     TILT_SHIFT_SCALE,
 )
-from scripts._common.provenance import insert_header  # noqa: E402
-from scripts.slm.hw_gs_defocus_probe import guarded  # noqa: E402
+from scripts._common.provenance import insert_header
+from scripts.slm.hw_gs_defocus_probe import guarded
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -2085,12 +2085,12 @@ def run_execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     pupil_radius = float(args.pupil_radius)
 
     # ---- P1: 打开设备 ------------------------------------------------------
-    slm_factory = lambda: Santec(  # noqa: E731
+    slm_factory = lambda: Santec(
         slm_number=int(args.slm_number),
         video_mode=0,
         wavelength=int(args.slm_wavelength),
     )
-    cam_factory = lambda: create_camera(  # noqa: E731
+    cam_factory = lambda: create_camera(
         args.cam_type, int(args.cam_id), exposure_time_ms=float(args.exposure_ms)
     )
 
@@ -2122,7 +2122,7 @@ def run_execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             )
 
 
-def _run_bench(  # noqa: PLR0913
+def _run_bench(
     args: argparse.Namespace,
     plan: dict[str, Any],
     *,
@@ -2330,7 +2330,7 @@ def _run_bench(  # noqa: PLR0913
                 "resid_x": float(raw_calib["resid_x"]),
                 "resid_y": float(raw_calib["resid_y"]),
             }
-    except Exception as exc:  # noqa: BLE001 - 几何失败 ⇒ 退出码 6
+    except Exception as exc:  # 几何失败 ⇒ 退出码 6
         logger.exception("几何标定失败")
         write_abort_config({"reason": "geometry_failed", "error": str(exc)})
         print(f"\n[中止] 几何标定失败: {exc}", flush=True)
@@ -2369,7 +2369,7 @@ def _run_bench(  # noqa: PLR0913
             k_mean,
             delta_spot_px=float(args.delta_spot_px),
         )
-    except Exception as exc:  # noqa: BLE001 - 模型构建失败 ⇒ 退出码 6
+    except Exception as exc:  # 模型构建失败 ⇒ 退出码 6
         logger.exception("前向模型构建失败")
         write_abort_config({"reason": "model_build_failed", "error": str(exc)})
         print(f"\n[中止] 前向模型构建失败: {exc}", flush=True)

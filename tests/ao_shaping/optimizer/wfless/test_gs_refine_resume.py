@@ -46,12 +46,12 @@ def small_sim_bench(monkeypatch):
 
     monkeypatch.setattr(sim, "SimPibSystem", _SmallSystem)
     monkeypatch.setattr(gsr, "panel_shape_from_slm", lambda slm: SMALL_PANEL)
-    saved = sim._SYSTEM  # noqa: SLF001 - 进程级单例, 只能这样还原
+    saved = sim._SYSTEM  # 进程级单例, 只能这样还原
     sim.reset_system(seed=0)
     try:
         yield
     finally:
-        sim._SYSTEM = saved  # noqa: SLF001
+        sim._SYSTEM = saved
 
 
 def _fast_config(**overrides: Any) -> SlmGsRefineConfig:

@@ -52,12 +52,12 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.figure import Figure  # noqa: E402
+import matplotlib.pyplot as plt
+from matplotlib.figure import Figure
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -567,7 +567,7 @@ def cli(run_dir: str | None, output: str) -> None:
     try:
         loss_caption = _make_loss_figure(summary, fig_dir / "loss_curves.png")
         loss_rel = "figures/loss_curves.png"
-    except Exception as exc:  # noqa: BLE001 — report degrades, never tracebacks
+    except Exception as exc:  # report degrades, never tracebacks
         logger.warning("损失曲线图生成失败 (降级为无图): {}", exc)
 
     history_rel = _copy_artifact("train_history.png", "train_history.png", run_path, fig_dir)

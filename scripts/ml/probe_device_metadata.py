@@ -17,14 +17,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import inverse_design as inv  # noqa: E402
+from ml.zernike import inverse_design as inv
 
 PROBE = 40
 
@@ -50,7 +50,7 @@ def main() -> None:
             varies = len(exposures) > 1
             rows.append((family, n, exposures, varies))
             print(f"{family:<30}{n:>7}{str(shown):>34}{'YES' if varies else 'no':>9}")
-        except Exception as exc:  # noqa: BLE001 - a family may have no usable payload
+        except Exception as exc:  # a family may have no usable payload
             print(f"{family:<30}{'--':>7}{type(exc).__name__:>34}{'?':>9}")
 
     print("\nreading:")

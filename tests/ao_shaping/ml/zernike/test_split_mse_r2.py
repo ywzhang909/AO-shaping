@@ -10,8 +10,8 @@ import numpy as np
 import pytest
 import torch
 
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, split_mse_r2  # noqa: E402
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import AmpTrainConfig, split_mse_r2
 
 
 def _split(grid: int = 8, n: int = 5, seed: int = 0) -> dict[str, torch.Tensor]:

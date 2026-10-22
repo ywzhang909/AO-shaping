@@ -50,13 +50,13 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from PIL import Image  # noqa: E402
+from PIL import Image
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -70,10 +70,10 @@ from scripts._common import fmt_metric, markdown_table, savefig
 # ---------------------------------------------------------------------------
 try:
     sys.path.insert(0, str(ROOT / "scripts"))
-    from scripts.slm.generate_diff_shaping_report import _frames_to_gif  # noqa: E402
+    from scripts.slm.generate_diff_shaping_report import _frames_to_gif
 
     logger.debug("复用 scripts/generate_diff_shaping_report._frames_to_gif")
-except Exception as exc:  # noqa: BLE001 — fallback copy keeps the report self-contained
+except Exception as exc:  # fallback copy keeps the report self-contained
     logger.warning(
         "无法导入 generate_diff_shaping_report._frames_to_gif ({}), 使用内置副本", exc
     )
@@ -167,7 +167,7 @@ def _load_matrix_config(matrix_dir: Path) -> dict:
     if cfg_path.exists():
         try:
             cfg = _load_json(cfg_path)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("顶层 config.json 解析失败: {}", exc)
     # env noise params live in per-cell config.json (not top-level); fall back
     # to the first available cell config. Also fill shared matrix keys
@@ -178,7 +178,7 @@ def _load_matrix_config(matrix_dir: Path) -> dict:
             continue
         try:
             cc = _load_json(d / "config.json")
-        except Exception:  # noqa: BLE001
+        except Exception:
             continue
         if "env" not in cfg and "env" in cc:
             cfg["env"] = cc["env"]
@@ -197,7 +197,7 @@ def _discover_cells(matrix_dir: Path) -> list[dict]:
     if summary_path.exists():
         try:
             cells = list(_load_json(summary_path).get("cells", []))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("summary.json 解析失败: {}", exc)
 
     seen = {c.get("scenario") for c in cells}
@@ -225,7 +225,7 @@ def _discover_cells(matrix_dir: Path) -> list[dict]:
                     "wall_time_s": final.get("wall_time_s"),
                 }
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("扫描 cell {} 失败: {}", d.name, exc)
     return cells
 
@@ -430,7 +430,7 @@ def _render_scenario(cell: dict, matrix_dir: Path, fig_dir: Path, gif_dir: Path)
         _make_metrics_figure(cell_dir, scenario, fig_dir / f"{scenario}_metrics.png")
         lines.append(f"![{scenario}_metrics](figures/{scenario}_metrics.png)")
         lines.append("")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("{} metrics 图失败: {}", scenario, exc)
 
     # frames montage (needs frames; missing -> degrade to static-only)
@@ -440,7 +440,7 @@ def _render_scenario(cell: dict, matrix_dir: Path, fig_dir: Path, gif_dir: Path)
         has_frames = True
         lines.append(f"![{scenario}_frames](figures/{scenario}_frames.png)")
         lines.append("")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("{} 帧蒙太奇失败 (降级为仅静态图): {}", scenario, exc)
 
     # animated GIFs (only when frames exist)
@@ -452,7 +452,7 @@ def _render_scenario(cell: dict, matrix_dir: Path, fig_dir: Path, gif_dir: Path)
             lines.append("")
             lines.append(f"![{scenario}_far](gifs/{scenario}_far.gif)")
             lines.append("")
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("{} GIF 生成失败: {}", scenario, exc)
 
     # interpretation
@@ -460,7 +460,7 @@ def _render_scenario(cell: dict, matrix_dir: Path, fig_dir: Path, gif_dir: Path)
         df = pd.read_csv(cell_dir / "metrics.csv")
         lines.append(_scenario_interpretation(cell, df))
         lines.append("")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("{} 解读文本失败: {}", scenario, exc)
 
     return "\n".join(lines)
@@ -901,13 +901,13 @@ def cli(matrix_dir: str | None, output: str) -> None:
         scenario = cell["scenario"]
         try:
             sections.append(_render_scenario(cell, matrix_dir, fig_dir, gif_dir))
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("cell {} 报告段失败: {}", scenario, exc)
             sections.append(f"### {scenario}\n\n> ⚠️ 该 cell 报告段生成失败: {exc}\n")
 
     try:
         turb_section = _build_turbulence_impact(ok_cells, out_dir)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("湍流影响段失败: {}", exc)
         turb_section = ""
 

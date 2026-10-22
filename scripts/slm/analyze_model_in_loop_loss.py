@@ -75,23 +75,23 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO))
 sys.path.insert(0, str(REPO / "src"))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     SlmModelInLoopConfig,
     _make_optimizer,
     _metrics_at,
     _quality,
     _to_model_grid,
 )
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 
 #: 默认扫描根 (都是 ``data/debug`` 下的 MIL 系列)。
 DEFAULT_ROOTS = (

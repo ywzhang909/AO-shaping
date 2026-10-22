@@ -27,15 +27,15 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from matplotlib import rcParams  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib import rcParams
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common.provenance import insert_header  # noqa: E402
+from _common.provenance import insert_header
 
 REPORT_KEY = "report/shape_trials/online_recal_efficiency/online_recal_efficiency.md"
 OUT_DIR = ROOT / "report" / "shape_trials" / "online_recal_efficiency"

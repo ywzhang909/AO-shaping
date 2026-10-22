@@ -36,13 +36,13 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_calc import fit_zernike  # noqa: E402
-from scripts.ml.inverse_design_accuracy_ladder import load_sample  # noqa: E402
-from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.gerchberg_saxton import gerchberg_saxton
+from ao_shaping.utils.wavefront.zernike_calc import fit_zernike
+from scripts.ml.inverse_design_accuracy_ladder import load_sample
+from scripts.ml.inverse_design_sim_eval import (
     ASPECT,
     GRID,
     N_MAX,
@@ -50,9 +50,9 @@ from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
     SIZE_FRAC,
     score_on_sim,
 )
-from ml.hwdataset import build_hw_index  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
+from ml.hwdataset import build_hw_index
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
 
 DRAWS = 12
 REFINE_STEPS = 60
@@ -102,7 +102,7 @@ def fit_forward(samples, n_max: int, lr: float = FIT_LR) -> ZernikeAmpModel:
             n_max=n_max, grid=GRID, far_field_padding=PADDING, normalization="peak"
         )
     )
-    references = [model._normalize(t.clone()) for _, _, t in samples]  # noqa: SLF001
+    references = [model._normalize(t.clone()) for _, _, t in samples]
     opt = torch.optim.AdamW(model.parameters(), lr=lr)
     for step in range(FIT_STEPS):
         opt.zero_grad()
@@ -114,7 +114,7 @@ def fit_forward(samples, n_max: int, lr: float = FIT_LR) -> ZernikeAmpModel:
 
 def held_out_mse(model: ZernikeAmpModel, cos, sin, target) -> float:
     with torch.no_grad():
-        ref = model._normalize(target.clone())  # noqa: SLF001
+        ref = model._normalize(target.clone())
         return float(((model(cos, sin) - ref) ** 2).mean())
 
 

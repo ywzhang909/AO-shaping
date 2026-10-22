@@ -40,7 +40,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from scripts.slm.archive_hw_defocus_round import (  # noqa: E402
+from scripts.slm.archive_hw_defocus_round import (
     ArchivePlan,
     build_plan,
     main,

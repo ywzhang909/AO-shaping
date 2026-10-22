@@ -41,15 +41,15 @@ if str(SRC) not in sys.path:
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from ao_shaping.drivers.slm import Santec  # noqa: E402
-from ao_shaping.drivers.wfs import ThorlabWFS  # noqa: E402
-from ao_shaping.tools.zernike.common import (  # noqa: E402
+from ao_shaping.drivers.slm import Santec
+from ao_shaping.drivers.wfs import ThorlabWFS
+from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     DLL_ZERNIKE_NAMES,
     MAX_EXPOSURE_MS,
@@ -62,7 +62,7 @@ from ao_shaping.tools.zernike.common import (  # noqa: E402
     measure_zernike,
     show_phase,
 )
-from ao_shaping.utils.wavefront.pattern_helper import PatternHelper  # noqa: E402
+from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)
@@ -247,7 +247,7 @@ def acquire(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper, out: Path,
                    f"[5]={z[5]:+.4f} |z[2..6]|={np.linalg.norm(z[2:7]):.4f}λ"
                    if z is not None else f"RMS={cap['stats']['rms']:.4f}λ")
             print(f"[{i:02d}] {label:16s} {msg}")
-        except Exception as e:  # noqa: BLE001 - keep going per case
+        except Exception as e:  # keep going per case
             print(f"[WARN] case {label} failed: {type(e).__name__}: {e}")
     return records
 
@@ -404,14 +404,14 @@ def main() -> int:
 
         records = acquire(slm, wfs, ph, out, (sx, sy), args.settle_extra_s, max_gray)
         slm.display_data(flat_gray(), wait_time_s=0.5)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         print(f"[FAIL] {type(e).__name__}: {e}")
         return 1
     finally:
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
     write_markdown(out, meta, records)

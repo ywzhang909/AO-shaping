@@ -13,7 +13,7 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.zernike.models import (  # noqa: E402
+from ml.zernike.models import (
     ZernikeAmpConfig,
     ZernikeAmpFitConfig,
     ZernikeAmpHybrid,
@@ -295,7 +295,7 @@ class TestHybrid:
     def test_optimizer_covers_the_residual(self) -> None:
         """A ``[self.coefficients]`` optimizer would silently skip the CNN."""
         model = ZernikeAmpHybrid(ZernikeAmpConfig(n_max=4, grid=16))
-        opt = model._build_optimizer(ZernikeAmpFitConfig(lr=0.01))  # noqa: SLF001
+        opt = model._build_optimizer(ZernikeAmpFitConfig(lr=0.01))
         assert len(opt.param_groups[0]["params"]) == len(
             [p for p in model.parameters() if p.requires_grad]
         )

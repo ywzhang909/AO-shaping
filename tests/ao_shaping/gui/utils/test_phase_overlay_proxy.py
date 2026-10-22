@@ -37,11 +37,11 @@ import numpy as np
 
 sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec import Santec  # noqa: E402
-from ao_shaping.drivers.slm.santec.wavefront_correction import (  # noqa: E402
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.drivers.slm.santec.wavefront_correction import (
     WavefrontCorrection,
 )
-from ao_shaping.gui.utils.phase_overlay import (  # noqa: E402
+from ao_shaping.gui.utils.phase_overlay import (
     PhaseOverlay,
     OverlaidSantec,
     apply_overlays_to_handle,
@@ -144,7 +144,7 @@ def test_display_phase_is_intercepted() -> None:
     calls: dict = {}
 
     class FakeRaw(Santec):
-        def display_data(self, phase_gray, wait_time_s=None,  # noqa: N803
+        def display_data(self, phase_gray, wait_time_s=None,
                          memory_number=None, memory_mode=0):
             calls["gray"] = phase_gray
             return 1
@@ -199,10 +199,10 @@ def test_context_manager_delegates_to_raw_driver() -> None:
     events: list[str] = []
 
     class FakeRaw(Santec):
-        def open(self) -> None:  # noqa: N803 - hardware stub
+        def open(self) -> None:  # hardware stub
             events.append("open")
 
-        def close(self) -> None:  # noqa: N803 - hardware stub
+        def close(self) -> None:  # hardware stub
             events.append("close")
 
     raw = FakeRaw(slm_number=1)

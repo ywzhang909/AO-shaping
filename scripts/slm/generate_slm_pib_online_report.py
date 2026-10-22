@@ -50,8 +50,8 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -204,7 +204,7 @@ def load_runs(root: Path) -> list[Run]:
     for run_dir in sorted(p for p in root.iterdir() if p.is_dir()):
         try:
             runs.append(_load_run(run_dir))
-        except Exception as exc:  # noqa: BLE001 - one bad dir must not kill the report
+        except Exception as exc:  # one bad dir must not kill the report
             print(f"  ! skipping {run_dir.name}: {type(exc).__name__}: {exc}")
     return runs
 

@@ -16,14 +16,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from scripts.ml.generate_zernike_amp_report import (  # noqa: E402
+from scripts.ml.generate_zernike_amp_report import (
     MODELS,
     build_report,
     final_table,
     grid_table,
     paired_table,
 )
-from scripts.ml.sweep_zernike_models import METRICS, PHYSICS_GRID, UNET_GRID  # noqa: E402
+from scripts.ml.sweep_zernike_models import METRICS, PHYSICS_GRID, UNET_GRID
 
 
 def _entry(model: str, r2: float, ssim: float, **extra) -> dict:

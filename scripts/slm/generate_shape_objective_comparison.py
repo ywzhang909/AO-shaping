@@ -44,8 +44,8 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it

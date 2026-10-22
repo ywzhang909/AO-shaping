@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
-from scripts.ml.compare_models_cv import (  # noqa: E402
+from scripts.ml.compare_models_cv import (
     build_folds,
     exact_sign_flip_p,
     holm_bonferroni,

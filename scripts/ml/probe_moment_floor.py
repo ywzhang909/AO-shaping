@@ -20,16 +20,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import second_moments, spot_moment_gap_term, roi_mask  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import second_moments, spot_moment_gap_term, roi_mask
 
 GRID = inv.GRID
 

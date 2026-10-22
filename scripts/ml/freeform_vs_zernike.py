@@ -43,16 +43,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn.functional as F  # noqa: E402
+import numpy as np
+import torch
+import torch.nn.functional as F
 
-from ao_shaping.utils.wavefront.zernike_calc import (  # noqa: E402
+from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
     fit_zernike,
 )
-from ml.zernike import inverse_design as inv  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss  # noqa: E402
+from ml.zernike import inverse_design as inv
+from ml.zernike.losses import LossConfig, composite_loss
 
 GRID, N_MAX, PADDING = inv.GRID, inv.N_MAX, inv.PADDING
 GS_ITERS, STEPS, DRAWS, COARSE = inv.GS_ITERS, 60, 8, inv.COARSE_GRID

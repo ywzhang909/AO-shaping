@@ -54,22 +54,22 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import fmt_metric, markdown_table, savefig  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common import fmt_metric, markdown_table, savefig
+from scripts._common.provenance import insert_header
 
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     SlmModelInLoopConfig,
     optimize_slm_model_in_loop,
 )
-from ml.zernike.cv_harness import (  # noqa: E402
+from ml.zernike.cv_harness import (
     build_folds,
     min_attainable_pvalue_folds,
     paired_fold_report,
@@ -134,7 +134,7 @@ def _legacy_hook():
     under-supply from the second round on.
     """
 
-    def _hook(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001, ANN202
+    def _hook(seed, index, probe_count, holdout_probe_count):
         base = int(seed) + int(index) * 1000
         return (
             [base + n for n in range(int(probe_count))],
@@ -159,7 +159,7 @@ def _fold_hook(legacy_hook, holdout_seeds: list[int]):
     stop testing independence.
     """
 
-    def _hook(seed, index, probe_count, holdout_probe_count):  # noqa: ANN001, ANN202
+    def _hook(seed, index, probe_count, holdout_probe_count):
         train, _legacy_reserve = legacy_hook(
             seed, index, probe_count, holdout_probe_count
         )

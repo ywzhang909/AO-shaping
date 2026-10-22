@@ -33,14 +33,14 @@ import matplotlib
 
 matplotlib.use("Agg")  # headless: must be set before importing pyplot
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.utils.objective_direction import (  # noqa: E402
+from ao_shaping.utils.objective_direction import (
     objective_direction as _objective_direction,
 )
 

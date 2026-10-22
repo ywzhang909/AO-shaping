@@ -104,7 +104,7 @@ class _MJPEGHandler(BaseHTTPRequestHandler):
         except Exception:
             pass
 
-    def log_message(self, format, *args):  # noqa: A002
+    def log_message(self, format, *args):
         pass  # suppress server logs
 
 

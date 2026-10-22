@@ -54,7 +54,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
+from scripts.ml.inverse_design_sim_eval import (
     ASPECT,
     GRID,
     N_MAX,
@@ -62,10 +62,10 @@ from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
     SIZE_FRAC,
     score_on_sim,
 )
-from ml.hwdataset import MaterialiserConfig, build_hw_index  # noqa: E402
-from ml.hwdataset.records import Materialiser  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
+from ml.hwdataset import MaterialiserConfig, build_hw_index
+from ml.hwdataset.records import Materialiser
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
 
 FIT_LADDER = [0, 5, 15, 40, 80, 200]
 DESIGN_LADDER = [0, 5, 20, 60]
@@ -101,7 +101,7 @@ def fit_forward(cos, sin, target, steps: int, lr: float = 0.03) -> ZernikeAmpMod
     )
     if steps == 0:
         return model
-    reference = model._normalize(target.clone())  # noqa: SLF001
+    reference = model._normalize(target.clone())
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr)
     for _ in range(steps):
         optimiser.zero_grad()
@@ -113,7 +113,7 @@ def fit_forward(cos, sin, target, steps: int, lr: float = 0.03) -> ZernikeAmpMod
 def held_out_mse(model: ZernikeAmpModel, cos, sin, target) -> float:
     """Forward error on a sample the model was NOT fitted on."""
     with torch.no_grad():
-        reference = model._normalize(target.clone())  # noqa: SLF001
+        reference = model._normalize(target.clone())
         return float(((model(cos, sin) - reference) ** 2).mean())
 
 

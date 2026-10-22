@@ -34,18 +34,18 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-from scripts._common.provenance import insert_header  # noqa: E402
-from scripts.slm.generate_gif_from_pkl import (  # noqa: E402
+from scripts._common.provenance import insert_header
+from scripts.slm.generate_gif_from_pkl import (
     _build_bench_config,
     _extract_pupil_phase,
     _gray_to_radians,
 )
 
-from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_shaping_bench import (
     camera_window_from_far_field,
     forward_intensity,
 )
-from scripts.slm._fwdmodel_sections import (  # noqa: E402
+from scripts.slm._fwdmodel_sections import (
     SECTION_1_1,
     SECTION_4X,
 )

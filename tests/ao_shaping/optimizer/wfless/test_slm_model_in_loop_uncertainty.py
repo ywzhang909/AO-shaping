@@ -25,7 +25,7 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     AcceptanceVerdict,
     ModelInLoopStatus,
     SlmModelInLoopConfig,
@@ -63,24 +63,24 @@ def _always_reject(*_args, **_kwargs) -> AcceptanceVerdict:
 class _ProbeRecorder:
     """Wrap the two probe sources so a test can see which path each round took."""
 
-    def __init__(self, mod) -> None:  # noqa: ANN001
+    def __init__(self, mod) -> None:
         self.selector_calls: list[list[np.ndarray]] = []
         self.fixed_seeds: list[int] = []
         self._original_selector = mod._select_uncertainty_probes
         self._original_probe = mod._probe_phase
 
-    def selector(self, optimizer, config, seeds, *, prev_probes=None):  # noqa: ANN001
+    def selector(self, optimizer, config, seeds, *, prev_probes=None):
         probes = self._original_selector(
             optimizer, config, seeds, prev_probes=prev_probes
         )
         self.selector_calls.append(probes)
         return probes
 
-    def probe(self, region, spread, seed, **kwargs):  # noqa: ANN001
+    def probe(self, region, spread, seed, **kwargs):
         self.fixed_seeds.append(seed)
         return self._original_probe(region, spread, seed, **kwargs)
 
-    def install(self, monkeypatch, mod) -> None:  # noqa: ANN001
+    def install(self, monkeypatch, mod) -> None:
         monkeypatch.setattr(mod, "_select_uncertainty_probes", self.selector)
         monkeypatch.setattr(mod, "_probe_phase", self.probe)
 

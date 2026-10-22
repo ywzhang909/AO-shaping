@@ -213,7 +213,7 @@ class TestAttempt12Invariance:
                 fitted.parameters(), lr=0.02, weight_decay=l2
             )
             target = inv.target_tensor()
-            reference = fitted._normalize(target.clone())  # noqa: SLF001
+            reference = fitted._normalize(target.clone())
             for _ in range(steps):
                 optimiser.zero_grad()
                 ((fitted(reference.new_zeros(1, 1, inv.GRID, inv.GRID) + 0.0,

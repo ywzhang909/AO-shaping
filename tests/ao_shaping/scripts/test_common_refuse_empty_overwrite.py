@@ -16,7 +16,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
-from scripts._common import refuse_empty_overwrite  # noqa: E402
+from scripts._common import refuse_empty_overwrite
 
 
 def test_empty_result_over_existing_nonempty_is_refused(tmp_path: Path) -> None:

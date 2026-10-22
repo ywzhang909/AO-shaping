@@ -57,9 +57,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ml.zernike.models import (  # noqa: E402
+from ml.zernike.models import (
     Normalization,
     Observable,
     ZernikeAmpConfig,
@@ -70,7 +70,7 @@ from ml.zernike.models import (  # noqa: E402
 # deliberate and is the whole division of labour here: the optimiser minimises a
 # smooth torch surrogate of the objective, and every *reported* number comes from
 # the repo's canonical metric so it is comparable with the hardware runs.
-from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import (
     compute_quality_score,
     compute_square_metrics,
     measure_spot_diameter_cam,

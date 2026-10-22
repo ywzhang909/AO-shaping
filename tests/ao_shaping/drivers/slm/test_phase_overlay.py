@@ -23,7 +23,7 @@ import numpy as np
 
 sys.modules["ao_shaping.drivers.slm.santec._slm_win"] = MagicMock()
 
-from ao_shaping.drivers.slm.santec import Santec  # noqa: E402
+from ao_shaping.drivers.slm.santec import Santec
 
 
 def _gray(phase: float, base: int = 0) -> int:

@@ -50,24 +50,24 @@ if str(ROOT) not in sys.path:
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import torch  # noqa: E402
+import matplotlib.pyplot as plt
+import torch
 
-from ml.hwdataset.index import PhaseSource, build_hw_index  # noqa: E402
-from ml.hwdataset.records import MaterialiserConfig  # noqa: E402
-from ml.hwdataset.zernike_dataset import (  # noqa: E402
+from ml.hwdataset.index import PhaseSource, build_hw_index
+from ml.hwdataset.records import MaterialiserConfig
+from ml.hwdataset.zernike_dataset import (
     ZERNIKE_COEFF_SOURCES,
     ZernikeCoeffDataset,
     fit_coeff_stats,
     pad_coefficients,
 )
-from ml.zernike.eval_stats import (  # noqa: E402
+from ml.zernike.eval_stats import (
     cohens_dz,
     holm_bonferroni,
     sign_flip_pvalue,
 )
-from ml.zernike.forward_model import peak_normalize  # noqa: E402
-from ml.zernike.train_coeff import (  # noqa: E402
+from ml.zernike.forward_model import peak_normalize
+from ml.zernike.train_coeff import (
     INDEX_CACHE,
     CoeffTrainConfig,
     build_folds,

@@ -17,8 +17,8 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.shaping.config import ShapingConfig  # noqa: E402
-from ml.shaping.models import (  # noqa: E402
+from ml.shaping.config import ShapingConfig
+from ml.shaping.models import (
     PhasorUNet,
     build_phasor_unet,
     unit_phasor,

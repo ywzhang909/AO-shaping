@@ -32,11 +32,11 @@ sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from scripts.ml.inverse_design_accuracy_ladder import make_target  # noqa: E402
-from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
+from scripts.ml.inverse_design_accuracy_ladder import make_target
+from scripts.ml.inverse_design_sim_eval import (
     ASPECT,
     GRID,
     N_MAX,
@@ -44,8 +44,8 @@ from scripts.ml.inverse_design_sim_eval import (  # noqa: E402
     SIZE_FRAC,
     score_on_sim,
 )
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
 
 TRIALS = 30
 RESTARTS = 12

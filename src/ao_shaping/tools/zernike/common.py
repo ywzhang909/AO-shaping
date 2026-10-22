@@ -113,7 +113,7 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
     def _get(obj: Any, attr: str) -> Any:
         try:
             return getattr(obj, attr)
-        except Exception as e:      # noqa: BLE001 - 单点读取失败不应中断
+        except Exception as e:      # 单点读取失败不应中断
             logger.debug("读取 {}.{} 失败: {}", type(obj).__name__, attr, e)
             return None
 
@@ -128,7 +128,7 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
         s["two_pi_gray"] = int(mg)
         s["max_phase_rad"] = 2.0 * float(np.pi)    # 相位调制上限 = 2π
         s["max_phase_waves"] = 1.0
-    except Exception as e:                          # noqa: BLE001
+    except Exception as e:
         logger.debug("get_wavelength_info 失败: {}", e)
     s["max_grayscale_value"] = _get(slm, "MAX_GRAYSCALE_VALUE")
     pr = _get(slm, "Panel_Res")
@@ -154,18 +154,18 @@ def collect_device_info(slm: Santec, wfs: ThorlabWFS | None = None,
         w = info["wfs"]
         try:
             w.update(wfs.get_hardware_info())
-        except Exception as e:                      # noqa: BLE001
+        except Exception as e:
             logger.debug("wfs.get_hardware_info 失败: {}", e)
         w["exposure_time_ms"] = _get(wfs, "exposure_time")
         try:
             cx, cy, dx, dy = wfs.pupil
             w["pupil_center_mm"] = [float(cx), float(cy)]
             w["pupil_diameter_mm"] = [float(dx), float(dy)]
-        except Exception as e:                      # noqa: BLE001
+        except Exception as e:
             logger.debug("wfs.pupil 读取失败: {}", e)
         try:
             w["mla_name"] = wfs.get_mla_name()
-        except Exception as e:                      # noqa: BLE001
+        except Exception as e:
             logger.debug("wfs.get_mla_name 失败: {}", e)
         w["num_spots_x"] = _get(wfs, "num_spots_x")
         w["num_spots_y"] = _get(wfs, "num_spots_y")

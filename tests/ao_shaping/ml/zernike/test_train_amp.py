@@ -14,8 +14,8 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import (  # noqa: E402
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import (
     AmpTrainConfig,
     grad_statistics,
     regression_perplexity,

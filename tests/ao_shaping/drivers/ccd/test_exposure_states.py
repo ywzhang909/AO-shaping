@@ -96,7 +96,7 @@ def cam(request):
     finally:
         try:
             camera.close()
-        except Exception:  # noqa: BLE001 - teardown must not mask the assertion
+        except Exception:  # teardown must not mask the assertion
             pass
 
 

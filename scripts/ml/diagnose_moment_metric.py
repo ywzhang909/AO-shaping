@@ -18,16 +18,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn.functional as F  # noqa: E402
+import numpy as np
+import torch
+import torch.nn.functional as F
 
-from ml.zernike.losses import (  # noqa: E402
+from ml.zernike.losses import (
     second_moments,
     spot_moment_gap_term,
     roi_mask,
 )
-from ml.zernike.metrics import roi_shape_terms  # noqa: E402
+from ml.zernike.metrics import roi_shape_terms
 
 GRID = 64
 

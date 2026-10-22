@@ -27,14 +27,14 @@ sys.path.insert(0, str(ROOT / "libs"))
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo rule)

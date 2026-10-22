@@ -27,8 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ml.zernike.eval_stats import seed_agreement  # noqa: E402
-from ml.zernike.train_coeff import CoeffTrainConfig, train  # noqa: E402
+from ml.zernike.eval_stats import seed_agreement
+from ml.zernike.train_coeff import CoeffTrainConfig, train
 
 OUT = "logs/seed_sensitivity.json"
 

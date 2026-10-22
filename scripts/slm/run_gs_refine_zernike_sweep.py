@@ -107,53 +107,53 @@ if str(ROOT / "src") not in sys.path:
 if str(ROOT / "libs") not in sys.path:
     sys.path.insert(0, str(ROOT / "libs"))
 
-from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     power_in_bucket,
     uniformity_cv,
 )
-from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM  # noqa: E402
-from ao_shaping.gui.utils.phase_overlay import PhaseOverlay  # noqa: E402
-from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import (  # noqa: E402
+from ao_shaping.drivers.slm.factory import DEFAULT_WAVELENGTH_NM
+from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
+from ao_shaping.optimizer.wfless.gs_refine_zernike_fit import (
     fit_best_phase,
     panel_phase_from_coefficients,
 )
-from ao_shaping.optimizer.wfless._measure import locate_zero_order  # noqa: E402
-from ao_shaping.optimizer.wfless.slm_gs_refine import (  # noqa: E402
+from ao_shaping.optimizer.wfless._measure import locate_zero_order
+from ao_shaping.optimizer.wfless.slm_gs_refine import (
     SlmGsRefineConfig,
     optimize_slm_gs_refine,
 )
-from ao_shaping.optimizer.wfless.slm_square_shaping import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_square_shaping import (
     square_aspect_ratio,
     square_encircled_energy,
     square_quality_score,
 )
-from ao_shaping.optimizer.wfless.slm_zernike_pib import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_zernike_pib import (
     CAM_WINDOW_TARGET_MARGIN,
     TARGET_BOX_WAIST_FACTOR,
     ZERNIKE_CLIP,
     SlmZernikePibConfig,
     optimize_slm_zernike_pib,
 )
-from ao_shaping.runners.runner_common import (  # noqa: E402
+from ao_shaping.runners.runner_common import (
     CameraParamsPib,
     ObjectiveTarget,
     SlmParamsPib,
     patch_sim_pib_shaping,
 )
-from ao_shaping.tools.kernels.bench_kernels import fresnel_panel  # noqa: E402
-from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN  # noqa: E402
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
-from ao_shaping.utils.image.frame_analysis import assess_spot  # noqa: E402
-from ao_shaping.utils.image.target.metrics import spot_waist_sigma  # noqa: E402
-from ao_shaping.utils.image.targets import square_mask  # noqa: E402
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import fresnel_panel
+from ao_shaping.utils.cli.exposure import DEFAULT_EXPOSURE_TOKEN
+from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.image.frame_analysis import assess_spot
+from ao_shaping.utils.image.target.metrics import spot_waist_sigma
+from ao_shaping.utils.image.targets import square_mask
+from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
     SLM_PITCH_M,
 )
-from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms  # noqa: E402
-from scripts._common.group_manifest import (  # noqa: E402
+from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
+from scripts._common.group_manifest import (
     group_output_dir,
     group_record,
     parse_group_meta,

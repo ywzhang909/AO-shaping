@@ -499,7 +499,7 @@ def cli(out, k_px, shapes, aberrations, turbulence, steps, replay, ft_samples,
                 ft_epochs, cell_seed, device, save_frames, cell_dir, frames_dir,
                 native,
             )
-        except Exception as exc:  # noqa: BLE001 — 单 cell 失败不中断矩阵
+        except Exception as exc:  # 单 cell 失败不中断矩阵
             logger.exception("cell {} 失败: {}", scenario, exc)
             entry = {
                 "scenario": scenario,

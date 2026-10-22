@@ -35,6 +35,11 @@ What each guard is for, and why a plain grep is not enough:
   set and its position *above* the first native import, which is the part that
   silently rots when someone tidies the imports.
 
+* **Ruff gate breadth.** A ``# noqa`` naming a rule the config never enables
+  suppresses nothing, yet still reads to a reviewer as a live exemption and
+  masks the next real violation of that rule (issue #169 cleared 864 of them).
+  The ruff job in CI is only as wide as ``select``, so the guard below pins
+  RUF100 staying in it.
 """
 
 from __future__ import annotations
@@ -43,7 +48,10 @@ import ast
 import importlib.util
 import os
 import re
+import shutil
+import subprocess
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 
@@ -779,3 +787,86 @@ def test_the_thread_watch_reports_a_count_on_this_platform() -> None:
         "psutil fallback is what keeps the thread watch alive off Linux"
     )
     assert count >= 1, f"a live process has at least one thread, got {count!r}"
+
+
+# ---------------------------------------------------------------------------
+# 7. the ruff gate stays wide enough to see dead noqa directives
+# ---------------------------------------------------------------------------
+
+
+def _ruff_lint_section() -> dict:
+    return tomllib.loads((REPO / "ruff.toml").read_text(encoding="utf-8"))["lint"]
+
+
+def test_the_ruff_gate_still_selects_ruf100() -> None:
+    """A ``# noqa`` naming a rule that is never enabled is a decoy, not a nit.
+
+    Issue #169 cleared 864 of them. They named rules ``select`` never enables
+    (``ANN*``, ``BLE001``, ``SLF001``) or rules the config ignores outright
+    (``E402``), so each suppressed nothing while still reading to a reviewer as
+    a live exemption -- and it would also have hidden the next real violation of
+    that same rule. Dropping RUF100 from ``select`` breaks nothing visible; it
+    just lets the count grow back.
+    """
+    lint = _ruff_lint_section()
+
+    assert "RUF100" in lint.get("select", []), (
+        "ruff.toml no longer selects RUF100, so unused `# noqa` directives "
+        f"regrow unnoticed (select = {lint.get('select', [])})"
+    )
+    assert "RUF100" not in lint.get("ignore", []), (
+        "RUF100 appears in both select and ignore, which cancels the gate"
+    )
+
+
+def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
+    """Zero unused directives today, and the measurement must not be done alone.
+
+    RUF100 judges a directive "unused" against the *enabled* rule set, so
+    ``--select RUF100`` on its own reclassifies the live ones -- the ``F401``
+    exemptions that sit under ``F`` -- as dead, and ``--fix`` then deletes them
+    together with the rationale prose trailing them. Doing exactly that on this
+    tree reported 891 instead of 864 and unmasked 24 real ``F401`` findings.
+
+    An isolated select can therefore only ever find *at least* as many unused
+    directives as the configured gate does, which is the direction asserted here:
+    it stays true whichever way the tree moves, and it fails the moment someone
+    hard-codes the dangerous invocation into the gate.
+    """
+    ruff_bin = shutil.which("ruff")
+    if ruff_bin is None:
+        pytest.skip("ruff not on PATH; the pinned ruff job in CI is the real gate")
+
+    def _run(*extra_flags: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [
+                ruff_bin,
+                "check",
+                "--no-cache",
+                "--output-format",
+                "concise",
+                *extra_flags,
+                ".",
+            ],
+            cwd=REPO,
+            capture_output=True,
+            text=True,
+        )
+
+    def _findings(proc: subprocess.CompletedProcess[str]) -> int:
+        # `concise` also prints "All checks passed!" and a "Found N errors."
+        # summary, so counting stdout lines would report 1 on a clean tree.
+        return len(
+            [ln for ln in proc.stdout.splitlines() if re.search(r":\d+:\d+:\s+[A-Z]+\d", ln)]
+        )
+
+    configured = _run("--extend-select", "RUF100")
+    isolated_findings = _findings(_run("--select", "RUF100"))
+
+    assert configured.returncode == 0, (
+        f"unused `# noqa` directives are back ({_findings(configured)}):\n{configured.stdout}"
+    )
+    assert isolated_findings >= _findings(configured), (
+        f"`--select RUF100` alone found {isolated_findings} while the configured "
+        "gate found 0; a lone select misjudges live directives as dead"
+    )

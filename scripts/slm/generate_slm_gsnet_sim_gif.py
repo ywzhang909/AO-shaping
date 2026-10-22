@@ -44,20 +44,20 @@ sys.path.insert(0, str(ROOT))
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 # ---------------------------------------------------------------------------
 # _frames_to_gif: prefer the repo reference implementation, fall back to a
 # verbatim copy (it is a pure module-level function).
 # ---------------------------------------------------------------------------
 try:
-    from scripts.slm.generate_diff_shaping_report import _frames_to_gif  # noqa: E402
+    from scripts.slm.generate_diff_shaping_report import _frames_to_gif
     logger.debug("复用 scripts/generate_diff_shaping_report._frames_to_gif")
-except ImportError as exc:  # noqa: F841
+except ImportError as exc:
 
     def _frames_to_gif(frames: list[np.ndarray], out_path: Path, cmap: str) -> None:
         """Downscale + quantize 2D arrays into an animated GIF (repo convention)."""

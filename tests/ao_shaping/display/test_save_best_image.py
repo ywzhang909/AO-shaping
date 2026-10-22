@@ -15,7 +15,7 @@ import pytest
 
 matplotlib.use("Agg")
 
-from ao_shaping.display import save_best_image  # noqa: E402
+from ao_shaping.display import save_best_image
 
 
 @pytest.fixture

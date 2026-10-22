@@ -21,13 +21,13 @@ import pytest
 
 torch = pytest.importorskip("torch")
 
-from torch.utils.data import DataLoader, TensorDataset  # noqa: E402
+from torch.utils.data import DataLoader, TensorDataset
 
-import ml.shaping.dataset as shaping_module  # noqa: E402
-from ml.hwdataset.dataset import FileGroupedSampler  # noqa: E402
-from ml.hwdataset.index import HwRecordRef, PhaseSource  # noqa: E402
-from ml.shaping.config import UNKNOWN_EXPOSURE, UNKNOWN_FOV  # noqa: E402
-from ml.shaping.dataset import (  # noqa: E402
+import ml.shaping.dataset as shaping_module
+from ml.hwdataset.dataset import FileGroupedSampler
+from ml.hwdataset.index import HwRecordRef, PhaseSource
+from ml.shaping.config import UNKNOWN_EXPOSURE, UNKNOWN_FOV
+from ml.shaping.dataset import (
     build_shaping_loaders,
     network_input,
     phase_target,

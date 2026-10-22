@@ -56,9 +56,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei"]
 plt.rcParams["axes.unicode_minus"] = False
@@ -67,10 +67,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import fmt_metric, markdown_table, savefig  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common import fmt_metric, markdown_table, savefig
+from scripts._common.provenance import insert_header
 
-from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
+from ao_shaping.drivers.sim.bench_twin import (
     BenchTwin,
     BenchTwinConfig,
     TwinErrorModel,
@@ -79,9 +79,9 @@ from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
 # MIL 自己那套"相机帧 → 模型采样点网格"的实现 (私有但已被实验系统验证过, 报告
 # 用它落盘的 model_grid 逐像素核对; 这里复用它而不是另写一份换算, 免得两份口径
 # 漂移)。
-from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid  # noqa: E402
-from ao_shaping.tools.slm import bench_twin_calibrate as btc  # noqa: E402
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid
+from ao_shaping.tools.slm import bench_twin_calibrate as btc
+from ao_shaping.utils.image.beam_metrics import zero_order_center
 
 #: 默认实验目录 (一次真实 MIL 实验的落盘目录)。
 DEFAULT_RUN_DIR = ROOT / "data/debug/slm_model_in_loop/20261019_103208"

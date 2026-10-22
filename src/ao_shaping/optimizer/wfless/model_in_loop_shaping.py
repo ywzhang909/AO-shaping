@@ -2805,7 +2805,7 @@ def _records_from_pkl(
         ValueError: If the file holds no entry with both an image and a phase.
     """
     with path.open("rb") as handle:
-        payload = pickle.load(handle)  # noqa: S301 - trusted local dataset
+        payload = pickle.load(handle)  # trusted local dataset
     entries = payload if isinstance(payload, (list, tuple)) else [payload]
     records: list[CalibrationRecord] = []
     for index, entry in enumerate(entries):

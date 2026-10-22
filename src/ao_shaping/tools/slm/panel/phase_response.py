@@ -44,7 +44,7 @@ from loguru import logger
 import matplotlib
 
 matplotlib.use("Agg")  # 无界面后端, 只保存 PNG
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
 from ao_shaping.utils.slm_phase import flat_gray
 from ao_shaping.drivers.slm.santec import SlotRotator

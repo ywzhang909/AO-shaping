@@ -83,14 +83,14 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import numpy as np  # noqa: E402
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
 # The panels and the cut point are owned by the canonical renderer -- the same
 # one a run's Recorder uses for its debug artefacts. See the module docstring.
-from ao_shaping.display.beam_profile import (  # noqa: E402
+from ao_shaping.display.beam_profile import (
     ProfileCut,
     cut_point,
     save_xy_profile,

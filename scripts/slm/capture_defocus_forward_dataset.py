@@ -20,8 +20,8 @@ from scipy.ndimage import zoom
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.utils.slm.panel_geometry import phase_to_panel  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase  # noqa: E402
+from ao_shaping.utils.slm.panel_geometry import phase_to_panel
+from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 
 def probe_grid(index: int, size: int, seed: int) -> tuple[str, np.ndarray]:

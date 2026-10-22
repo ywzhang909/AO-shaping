@@ -649,7 +649,7 @@ def calibrate_response_matrix_pushpull(
         mask, _ = wfs.build_subaperture_mask(
             n_avg=min(n_averages, 5), threshold_ratio=0.3, edge_clip=1
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         logger.warning(f"build_subaperture_mask 失败 (跳过斜率空间): {e}")
 
     for col, midx in enumerate(modes):
@@ -690,7 +690,7 @@ def calibrate_response_matrix_pushpull(
                 try:
                     dx, dy = wfs.get_spot_deviation(cancel_tile=cancel_tile)
                     devs_sign[sign] = np.concatenate([dx.ravel(), dy.ravel()])
-                except Exception as e:  # noqa: BLE001
+                except Exception as e:
                     logger.debug("get_spot_deviation 失败: {}", e)
                     devs_sign[sign] = None
 
@@ -756,13 +756,13 @@ def calibrate_response_matrix_pushpull(
                     wfs, cancel_tile=cancel_tile, zernike_order=n_max
                 )
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.warning("模式 {} 后波前捕获失败: {}", midx, e)
 
         if progress_cb is not None:
             try:
                 progress_cb(col + 1, len(modes), matrix[:, col], variance[:, col])
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.debug("progress_cb 失败: {}", e)
 
     dev_mat = np.column_stack(dev_cols) if dev_cols else None
@@ -1239,7 +1239,7 @@ def run(
                     total_cycles=norm["n_cycles"],
                     mean_variance=float(np.mean(var)),
                 )
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.debug("ui_display.update 失败: {}", e)
 
         for mag in magnitudes:
@@ -1364,7 +1364,7 @@ def run(
                         f"{offline_summary['after_rms']:.4f}λ "
                         f"({offline_summary['improvement_pct']:.1f}%)"
                     )
-            except Exception as e:  # noqa: BLE001 - 矫正测试失败不使标定整体失败
+            except Exception as e:  # 矫正测试失败不使标定整体失败
                 logger.error("离线矫正测试失败: {}", e)
                 click.echo(f"[WARN] 离线矫正测试失败: {type(e).__name__}: {e}")
 
@@ -1374,7 +1374,7 @@ def run(
         for dev in (wfs, slm):
             try:
                 dev.close()
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         if ui_display is not None:
             ui_display.close()

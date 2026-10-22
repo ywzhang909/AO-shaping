@@ -27,14 +27,14 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
+import numpy as np
+import torch
 
-from ml.hwdataset import MaterialiserConfig, build_hw_index  # noqa: E402
-from ml.hwdataset.records import Materialiser  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import evaluate  # noqa: E402
-from scripts._common import refuse_empty_overwrite  # noqa: E402
+from ml.hwdataset import MaterialiserConfig, build_hw_index
+from ml.hwdataset.records import Materialiser
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import evaluate
+from scripts._common import refuse_empty_overwrite
 
 GRID = 64
 N_MAX = 15

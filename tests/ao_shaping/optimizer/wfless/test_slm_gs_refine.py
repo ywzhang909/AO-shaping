@@ -51,9 +51,9 @@ from unittest.mock import MagicMock
 # setters are pure attribute stores, so no SDK call is needed to exercise them.
 sys.modules.setdefault("ao_shaping.drivers.slm.santec._slm_win", MagicMock())
 
-from ao_shaping.drivers.slm.santec import Santec as _RealSantec  # noqa: E402
-from ao_shaping.gui.utils.phase_overlay import PhaseOverlay  # noqa: E402
-from ao_shaping.optimizer.wfless import slm_gs_refine as gsr  # noqa: E402
+from ao_shaping.drivers.slm.santec import Santec as _RealSantec
+from ao_shaping.gui.utils.phase_overlay import PhaseOverlay
+from ao_shaping.optimizer.wfless import slm_gs_refine as gsr
 
 
 def test_pupil_phase_uses_measured_panel_center():
@@ -122,12 +122,12 @@ def small_sim_bench(monkeypatch):
 
     monkeypatch.setattr(sim, "SimPibSystem", _SmallSystem)
     monkeypatch.setattr(gsr, "panel_shape_from_slm", lambda slm: SMALL_PANEL)
-    saved = sim._SYSTEM  # noqa: SLF001 - 进程级单例, 只能这样还原
+    saved = sim._SYSTEM  # 进程级单例, 只能这样还原
     sim.reset_system(seed=0)
     try:
         yield
     finally:
-        sim._SYSTEM = saved  # noqa: SLF001
+        sim._SYSTEM = saved
 
 
 # ---------------------------------------------------------------------------

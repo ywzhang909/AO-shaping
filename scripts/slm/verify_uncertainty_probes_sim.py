@@ -38,10 +38,10 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import torch  # noqa: E402
+import torch
 
-from ao_shaping.optimizer.wfless import slm_model_in_loop as mod  # noqa: E402
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless import slm_model_in_loop as mod
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     SlmModelInLoopConfig,
     optimize_slm_model_in_loop,
 )
@@ -111,12 +111,12 @@ class _Instrumented:
         self._orig_seeds = mod._resolve_probe_seeds
         self._orig_make_opt = mod._make_optimizer
 
-    def make_opt(self, config, coefficients, source_amplitude):  # noqa: ANN001
+    def make_opt(self, config, coefficients, source_amplitude):
         opt = self._orig_make_opt(config, coefficients, source_amplitude)
         self._pending_opt = opt
         return opt
 
-    def seeds(self, seed, index, probe_count, holdout_probe_count, hook=None):  # noqa: ANN001
+    def seeds(self, seed, index, probe_count, holdout_probe_count, hook=None):
         train, holdout = self._orig_seeds(
             seed, index, probe_count, holdout_probe_count, hook
         )
@@ -127,7 +127,7 @@ class _Instrumented:
         )
         return train, holdout
 
-    def selector(self, optimizer, config, seeds, *, prev_probes=None):  # noqa: ANN001
+    def selector(self, optimizer, config, seeds, *, prev_probes=None):
         probes = self._orig_selector(
             optimizer, config, seeds, prev_probes=prev_probes
         )
@@ -143,7 +143,7 @@ class _Instrumented:
         return probes
 
     @staticmethod
-    def _u_under_same_ruler(optimizer, config, seeds, prev_probes, probes):  # noqa: ANN001
+    def _u_under_same_ruler(optimizer, config, seeds, prev_probes, probes):
         """在**同一后验**下, 给不确定性探针与"同样种子的盲随机探针"打同一把尺。
 
         后验必须就是选择器自己用来上升的那一个 (``prev_probes``; 没有时退化为
@@ -175,7 +175,7 @@ class _Instrumented:
             for s in seeds
         ]
 
-        def score(batch):  # noqa: ANN001
+        def score(batch):
             vals = []
             for probe in batch:
                 leaf = torch.from_numpy(
@@ -193,7 +193,7 @@ class _Instrumented:
         # ratio 会系统性地偏向盲随机。必须先把两者归一到**同一幅度**再比。
         target = float(np.mean([np.std(p) for p in probes]))
 
-        def at_amplitude(batch, std: float) -> list[np.ndarray]:  # noqa: ANN001
+        def at_amplitude(batch, std: float) -> list[np.ndarray]:
             out = []
             for p in batch:
                 s = float(np.std(p))
@@ -441,7 +441,7 @@ class _ForceBandlimit:
         sigma = self._sigma
 
         class _Pinned(orig):  # type: ignore[misc, valid-type]
-            def __init__(self, *a, **kw):  # noqa: ANN002, ANN003
+            def __init__(self, *a, **kw):
                 kw["bandlimit_sigma"] = sigma
                 super().__init__(*a, **kw)
 
@@ -458,7 +458,7 @@ class _ForceBandlimit:
         self._orig = None
 
 
-def _jsonable(obj):  # noqa: ANN001
+def _jsonable(obj):
     """去掉 ndarray / 非序列化对象, 供 json.dump。"""
     if isinstance(obj, dict):
         return {k: _jsonable(v) for k, v in obj.items() if k != "probes"
@@ -500,7 +500,7 @@ def main() -> int:
             band.restore()
 
 
-def _main_inner(args) -> int:  # noqa: ANN001
+def _main_inner(args) -> int:
     out_dir = ROOT / "data" / "debug" / "uncertainty_probes_sim"
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     save_dir = out_dir / stamp
@@ -641,7 +641,7 @@ def _main_inner(args) -> int:  # noqa: ANN001
         b, r = row["blind"], row["r86"]
         dd = row.get("delta_dloss")
 
-        def fmt(v):  # noqa: ANN001
+        def fmt(v):
             return "n/a" if v is None else f"{v:+.6f}"
 
         print(f"  seed {sd:>8}: blind acc={b['accepted']}/{b['rounds']} "

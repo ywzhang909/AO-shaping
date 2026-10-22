@@ -29,20 +29,20 @@ sys.path.insert(0, str(ROOT / "libs"))
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 from ao_shaping.algorithm.heuristic.heuristic_base import (
     HeuristicOptimizer,
     OptimizerType,
-)  # noqa: E402
-from ao_shaping.optimizer.wfless.pib_sim_eval import SimLandscape  # noqa: E402
+)
+from ao_shaping.optimizer.wfless.pib_sim_eval import SimLandscape
 # `scripts._common` lives in this package, so the REPO ROOT (not just `src`)
 # must be importable. A direct `python scripts/<name>.py` does not put it
 # there; pytest does, via `pythonpath = ["src", ".", "scripts"]` in pyproject.
@@ -51,7 +51,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from scripts._common import (
     format_iters,
     iters_to_threshold,
-    plot_summary_bars as _common_plot_summary_bars,  # noqa: F401
+    plot_summary_bars as _common_plot_summary_bars,
 )
 
 # ---------------------------------------------------------------------------

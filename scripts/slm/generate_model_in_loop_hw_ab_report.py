@@ -74,16 +74,16 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from PIL import Image  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT))
 
-from scripts._common import fmt_metric, markdown_table, savefig  # noqa: E402
-from scripts._common.provenance import insert_header  # noqa: E402
+from scripts._common import fmt_metric, markdown_table, savefig
+from scripts._common.provenance import insert_header
 
 #: Where the report and its figures live (the manual MIL series directory).
 DEFAULT_OUT_DIR = ROOT / "report" / "shape_trials" / "model_in_loop"

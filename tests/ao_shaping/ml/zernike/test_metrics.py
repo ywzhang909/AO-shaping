@@ -13,7 +13,7 @@ import pytest
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-from ml.zernike.metrics import (  # noqa: E402
+from ml.zernike.metrics import (
     available_perceptual_metrics,
     batch_image_metrics,
     per_sample_beam_metrics,

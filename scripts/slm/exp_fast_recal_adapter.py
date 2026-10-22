@@ -47,12 +47,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
+from ao_shaping.drivers.sim.slm_shaping_bench import (
     ShapingBenchConfig,
     camera_window_from_far_field,
     forward_intensity,
 )
-from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase  # noqa: E402
+from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 GRID = 64
 WIN = (64, 64)

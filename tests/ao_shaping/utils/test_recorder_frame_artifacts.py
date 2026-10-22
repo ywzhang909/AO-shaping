@@ -25,8 +25,8 @@ import pytest
 
 matplotlib.use("Agg")
 
-from ao_shaping.display.beam_profile import ProfileCut, cut_point  # noqa: E402
-from ao_shaping.utils.io.file import (  # noqa: E402
+from ao_shaping.display.beam_profile import ProfileCut, cut_point
+from ao_shaping.utils.io.file import (
     Recorder,
     _save_data_mode_debug_artifacts,
     save_recorder_debug_artifacts,

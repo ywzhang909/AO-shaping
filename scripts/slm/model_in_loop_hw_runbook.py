@@ -41,15 +41,15 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from ao_shaping.algorithm.signal_processing.differentiable_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     create_target_mask,
 )
-from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
     ZernikeCoefficientOptimizer,
 )
-from ao_shaping.drivers.ccd.common import create_camera  # noqa: E402
-from ao_shaping.drivers.slm.santec import Santec  # noqa: E402
-from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
+from ao_shaping.drivers.ccd.common import create_camera
+from ao_shaping.drivers.slm.santec import Santec
+from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     BenchGeometry,
     CalibrationRecord,
     StepBConfig,
@@ -58,7 +58,7 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (  # noqa: E402
     shape_phase_with_frozen_aberration,
     square_metrics_at_zero_order,
 )
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
     SLM_PITCH_M,
@@ -71,14 +71,14 @@ from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
     ramp_panel,
     zernike_panel,
 )
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: E402
+from ao_shaping.tools.kernels.bench_kernels import (
     measure_spot as _measure_spot,
 )
-from ao_shaping.tools.zernike.sweep_probe import (  # noqa: E402
+from ao_shaping.tools.zernike.sweep_probe import (
     capture_settled,
 )
-from ao_shaping.utils.image.beam_metrics import zero_order_center  # noqa: E402
-from ao_shaping.utils.image.exposure_control import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import zero_order_center
+from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
     probe_exposure_ceiling_ms,

@@ -282,7 +282,7 @@ def main() -> None:
             out_path = args.output / f"{ip_dir.name}.gif"
             try:
                 render_ip_gif(ip_dir, out_path, args.scale, args.fps)
-            except Exception as e:  # noqa: BLE001 - report and continue
+            except Exception as e:  # report and continue
                 print(f"[{ip_dir.name}] FAILED: {e}")
                 continue
             made.append(out_path)
@@ -304,7 +304,7 @@ def main() -> None:
             )
             print(f"\nCombined GIF -> {combine_path} "
                   f"({combine_path.stat().st_size / 1024:.0f} KiB)")
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             raise SystemExit(f"Combine FAILED: {e}")
 
 

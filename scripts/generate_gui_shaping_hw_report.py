@@ -21,8 +21,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[1]
 RUNS = ROOT / "data" / "debug" / "slm_gs_refine"

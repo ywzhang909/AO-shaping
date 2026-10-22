@@ -23,9 +23,9 @@ if TYPE_CHECKING:  # so annotations type-check; runtime torch is skipped below
 
 torch = pytest.importorskip("torch", reason="torch lives in the optional ml group")
 
-import torch.nn as nn  # noqa: E402
+import torch.nn as nn
 
-from ml.zernike.forward_model import (  # noqa: E402
+from ml.zernike.forward_model import (
     DEFAULT_N_COEFFS,
     ZernikeCoeffConfig,
     ZernikeCoeffConvNet,

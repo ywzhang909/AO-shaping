@@ -202,7 +202,7 @@ class TestParserConvention:
         cfg_default = CoeffTrainConfig()
         parser = _build_parser()
         mismatched: list[str] = []
-        for action in parser._actions:  # noqa: SLF001 - the contract under test
+        for action in parser._actions:  # the contract under test
             dest = action.dest
             if dest in ("help",) or dest not in {f.name for f in fields(cfg_default)}:
                 continue

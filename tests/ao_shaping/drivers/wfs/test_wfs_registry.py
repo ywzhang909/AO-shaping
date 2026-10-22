@@ -135,7 +135,7 @@ class TestRegistration:
         with pytest.raises(TypeError):
 
             @register_wfs("bogus")
-            class NotAWFS:  # noqa: D401 - deliberately not a BaseWFS
+            class NotAWFS:  # deliberately not a BaseWFS
                 pass
 
     def test_registering_returns_the_class_unchanged(self):

@@ -34,8 +34,8 @@ register_dm_lazy("zernike", "ao_shaping.drivers.dm.zernike_dm", "ZernikeDM")
 
 # 子包驱动 (micro, nlight) 的 ``register_dm_lazy`` 调用在各自 ``__init__`` 里,
 # 这里只做 lightweight import 以触发那些注册副作用, 不导入任何驱动模块。
-import ao_shaping.drivers.dm.micro  # noqa: E402,F401
-import ao_shaping.drivers.dm.nlight  # noqa: E402,F401
+import ao_shaping.drivers.dm.micro
+import ao_shaping.drivers.dm.nlight
 
 # 仿真 DM 是惰性解析的。在此处导入它们会造成循环:
 # 本 (硬件) 包 -> drivers.sim.dm -> simulated_micro_dm ->

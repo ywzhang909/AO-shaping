@@ -561,7 +561,7 @@ def _init_wandb(
             # fresh one on every call, so a resume in the same process orphans its own
             # history and _finish_wandb below then closes the wrong run object.
         )
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("wandb.init failed ({}); continuing offline-only", exc)
         return None
     return run
@@ -573,7 +573,7 @@ def _log_wandb_row(run, row: dict[str, float], epoch: int) -> None:
         return
     try:
         run.log(row, step=epoch)
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log epoch {} to wandb: {}", epoch, exc)
 
 
@@ -596,7 +596,7 @@ def _log_comparison_image(run, path: Path, epoch: int, caption: str) -> None:
             },
             step=epoch,
         )
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not log {} to wandb: {}", path.name, exc)
 
 
@@ -630,7 +630,7 @@ def _log_wandb_summary(run, result: CoeffTrainResult) -> None:
             columns=list(result.history[0].keys()) if result.history else ["epoch"],
             data=[[row.get(k) for k in (result.history[0].keys() if result.history else ["epoch"])] for row in result.history],
         )
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not write the wandb summary: {}", exc)
 
 
@@ -640,7 +640,7 @@ def _finish_wandb(run) -> None:
         return
     try:
         run.finish()
-    except Exception as exc:  # noqa: BLE001 - never let telemetry kill a run
+    except Exception as exc:  # never let telemetry kill a run
         logger.warning("could not finish the wandb run: {}", exc)
 
 

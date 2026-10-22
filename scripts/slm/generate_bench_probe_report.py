@@ -52,13 +52,13 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 # CJK-capable font fallbacks (per repo script convention).
 plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -76,7 +76,7 @@ DEFAULT_OUT = ROOT / "report" / "slm" / "bench_probe"
 #: the import failed and the fallback below was used instead.
 #: Single source of truth -- import from the zero-import leaf (side-effect-free)
 #: instead of the hardware-bound ``bench_kernels`` module that used to define it.
-from ao_shaping.utils.slm.bench_constants import (  # noqa: E402
+from ao_shaping.utils.slm.bench_constants import (
     TILT_SHIFT_SCALE as FALLBACK_TILT_SHIFT_SCALE,
 )
 #: Joint width-fit rel-RMS above which the illumination profile is *not*

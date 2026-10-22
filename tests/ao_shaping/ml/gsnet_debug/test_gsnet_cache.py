@@ -154,7 +154,7 @@ def _write_pickle(
 def _read_pickle(path: Path) -> dict[int, dict[str, Any]]:
     """Read a synthetic pickle straight from disk (the reference path)."""
     with open(path, "rb") as handle:
-        return pickle.load(handle)  # noqa: S301 - test fixture written above
+        return pickle.load(handle)  # test fixture written above
 
 
 def _index_for(path: Path) -> RecordIndex:

@@ -430,7 +430,7 @@ def _release_slm_handle(slm_num: int) -> None:
     if slm is not None and getattr(slm, "is_open", False):
         try:
             slm.close()
-        except Exception as exc:  # noqa: BLE001 - must not block the reacquire
+        except Exception as exc:  # must not block the reacquire
             logger.exception("SLM {} 整形前释放句柄失败: {}", slm_num, exc)
     st.session_state[prefix] = None
     st.session_state[f"{prefix}_connected"] = False
@@ -617,7 +617,7 @@ def shaping_session(
             with with_slm_ownership(self.slm_num, owned):
                 outcome = run(self, *args, **kwargs)
             return outcome
-        except Exception as exc:  # noqa: BLE001 - surfaced to the operator
+        except Exception as exc:  # surfaced to the operator
             logger.exception("闭环整形 [{}] 失败: {}", self.key, exc)
             st.error(f"{self.label} 失败: {exc}")
             return None
@@ -883,7 +883,7 @@ class ShapingMethod(ABC):
             refresh_phase_preview(self.slm_num)
             max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
             st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
-        except Exception as exc:  # noqa: BLE001 - surfaced to the operator
+        except Exception as exc:  # surfaced to the operator
             logger.exception("下发最佳相位失败: {}", exc)
             st.error(f"最佳相位下发失败: {exc}")
             return

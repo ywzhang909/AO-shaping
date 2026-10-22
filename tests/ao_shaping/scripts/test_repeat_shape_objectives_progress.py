@@ -20,8 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from scripts.slm import repeat_shape_objectives  # noqa: E402
-from scripts.slm.repeat_shape_objectives import _progress_label  # noqa: E402
+from scripts.slm import repeat_shape_objectives
+from scripts.slm.repeat_shape_objectives import _progress_label
 
 
 def test_progress_label_reports_all_three_counters():

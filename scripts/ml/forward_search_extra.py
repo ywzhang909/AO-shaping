@@ -42,12 +42,12 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
-import torch  # noqa: E402
-import torch.nn as nn  # noqa: E402
+import numpy as np
+import torch
+import torch.nn as nn
 
-from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records, _inputs  # noqa: E402
-from scripts.ml.forward_search import (  # noqa: E402
+from scripts.ml.compare_unet_baseline import _peak_normalise, _select_records, _inputs
+from scripts.ml.forward_search import (
     APERTURE_R,
     BEAM_W0,
     Arm,
@@ -57,16 +57,16 @@ from scripts.ml.forward_search import (  # noqa: E402
     fwd,
     train_arm,
 )
-from ml.hwdataset import (  # noqa: E402
+from ml.hwdataset import (
     HwPhaseImageDataset,
     MaterialiserConfig,
     build_hw_index,
 )
-from ml.phase.unet import UNetGenerator  # noqa: E402
-from ml.zernike import augment as aug  # noqa: E402
-from ml.zernike.metrics import batch_image_metrics  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
-from ml.zernike.train_amp import AmpTrainConfig, collect_split  # noqa: E402
+from ml.phase.unet import UNetGenerator
+from ml.zernike import augment as aug
+from ml.zernike.metrics import batch_image_metrics
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
+from ml.zernike.train_amp import AmpTrainConfig, collect_split
 
 SEEDS = [0, 1, 2, 3, 4]
 EPOCHS, BS, LR = 60, 64, 0.02

@@ -32,9 +32,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
-from ml.zernike import inverse_design as inv  # noqa: E402
+from ml.zernike import inverse_design as inv
 
 GRID, N_MAX, REFINE_STEPS, DRAWS = inv.GRID, inv.N_MAX, 60, 10
 N_MODES = N_MAX * (N_MAX + 3) // 2

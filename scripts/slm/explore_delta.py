@@ -122,9 +122,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ao_shaping.tools.kernels.sweep_analysis import explore_delta  # noqa: E402
+from ao_shaping.tools.kernels.sweep_analysis import explore_delta
 
 
 def build_parser() -> argparse.ArgumentParser:

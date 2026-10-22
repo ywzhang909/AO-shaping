@@ -40,22 +40,22 @@ if str(SRC) not in sys.path:
 # ---------------------------------------------------------------------------
 # Matplotlib must be configured to Agg BEFORE importing pyplot (repo-wide rule)
 # ---------------------------------------------------------------------------
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
+import matplotlib.pyplot as plt
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
 try:
-    from ao_shaping.optimizer.wf.dm_response_matrix import (  # noqa: E402
+    from ao_shaping.optimizer.wf.dm_response_matrix import (
         load_dm_response_matrix,
     )
 except ImportError:
     load_dm_response_matrix = None  # type: ignore[assignment]
 
-import h5py  # noqa: E402
+import h5py
 
 # ---------------------------------------------------------------------------
 # Global matplotlib conventions (repo-wide)

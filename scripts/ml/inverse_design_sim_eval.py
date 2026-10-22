@@ -38,13 +38,13 @@ import torch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem  # noqa: E402
-from ao_shaping.utils.image.target.metrics import rms_pib_terms  # noqa: E402
-from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator  # noqa: E402
-from ml.hwdataset import MaterialiserConfig, build_hw_index  # noqa: E402
-from ml.hwdataset.records import Materialiser  # noqa: E402
-from ml.zernike.losses import LossConfig, composite_loss, roi_mask  # noqa: E402
-from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel  # noqa: E402
+from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem
+from ao_shaping.utils.image.target.metrics import rms_pib_terms
+from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
+from ml.hwdataset import MaterialiserConfig, build_hw_index
+from ml.hwdataset.records import Materialiser
+from ml.zernike.losses import LossConfig, composite_loss, roi_mask
+from ml.zernike.models import ZernikeAmpConfig, ZernikeAmpModel
 
 # Discretisation shared with `inverse_design_accuracy_ladder.py`, which imports
 # these rather than re-declaring them. Kept as module constants (not argparse-only
@@ -128,7 +128,7 @@ def fit_forward(index, position: int, grid: int, n_max: int, padding: int, steps
     model = ZernikeAmpModel(
         ZernikeAmpConfig(n_max=n_max, grid=grid, far_field_padding=padding, normalization="peak")
     )
-    reference = model._normalize(target.clone())  # noqa: SLF001
+    reference = model._normalize(target.clone())
     optimiser = torch.optim.AdamW(model.parameters(), lr=lr)
     for _ in range(steps):
         optimiser.zero_grad()

@@ -75,7 +75,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
-from ao_shaping.tools.slm.model_in_loop_summary import summarize_session  # noqa: E402
+from ao_shaping.tools.slm.model_in_loop_summary import summarize_session
 
 AUTO_SCRIPT = ROOT / "scripts" / "slm" / "model_in_loop_auto.py"
 LIGHT_SCRIPT = ROOT / "scripts" / "slm" / "diagnose_light_level.py"

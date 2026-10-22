@@ -113,4 +113,4 @@ def test_old_display_path_raises() -> None:
     import sys
     sys.path.insert(0, str(REPO_ROOT / 'src'))
     with pytest.raises(ImportError):
-        import ao_shaping.utils.image.display  # noqa: F401
+        import ao_shaping.utils.image.display

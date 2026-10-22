@@ -44,18 +44,18 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from PIL import Image  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common.provenance import insert_header  # noqa: E402
+from _common.provenance import insert_header
 
-from ao_shaping.algorithm.signal_processing.square_shaping import (  # noqa: E402
+from ao_shaping.algorithm.signal_processing.square_shaping import (
     composite_score,
     compute_bench_metrics,
     make_square_target,

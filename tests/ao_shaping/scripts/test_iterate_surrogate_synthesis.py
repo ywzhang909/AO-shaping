@@ -19,7 +19,7 @@ import torch
 ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT))
 
-from scripts.ml.iterate_surrogate_synthesis import (  # noqa: E402
+from scripts.ml.iterate_surrogate_synthesis import (
     SYNTH_N_MAX,
     ZOO,
     _peak_norm,
@@ -58,7 +58,7 @@ class TestHeldOutR2:
         normalised = _peak_norm(tensors["target"].clone())
 
         class _Echo(torch.nn.Module):
-            def forward(self, cos, sin):  # noqa: D102, ANN001
+            def forward(self, cos, sin):
                 return normalised
 
         assert held_out_r2(_Echo(), tensors) == pytest.approx(1.0, abs=1e-5)
@@ -68,7 +68,7 @@ class TestHeldOutR2:
         normalised = _peak_norm(tensors["target"].clone())
 
         class _Mean(torch.nn.Module):
-            def forward(self, cos, sin):  # noqa: D102, ANN001
+            def forward(self, cos, sin):
                 return normalised.mean()
 
         assert held_out_r2(_Mean(), tensors) == pytest.approx(0.0, abs=1e-5)
@@ -80,7 +80,7 @@ class TestHeldOutR2:
         normalised = _peak_norm(tensors["target"].clone())
 
         class _Model(torch.nn.Module):
-            def forward(self, cos, sin):  # noqa: D102, ANN001
+            def forward(self, cos, sin):
                 assert isinstance(cos, torch.Tensor) and isinstance(sin, torch.Tensor)
                 return normalised
 

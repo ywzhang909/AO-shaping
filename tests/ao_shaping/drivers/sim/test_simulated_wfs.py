@@ -29,7 +29,7 @@ pytest.importorskip(
     reason="OOPAO not available",
 )
 
-from ao_shaping.drivers.sim.wfs.simulated_wfs import SimulatedWFS  # noqa: E402
+from ao_shaping.drivers.sim.wfs.simulated_wfs import SimulatedWFS
 
 BASE_WFS_METHODS = (
     "take_image",

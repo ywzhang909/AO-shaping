@@ -93,7 +93,7 @@ def compare_run(
         raise ValueError("run directory must contain one PKL with a matching JSON sidecar")
     config = json.loads(pickles[0].with_suffix(".json").read_text(encoding="utf-8"))
     with pickles[0].open("rb") as stream:
-        rows = pickle.load(stream)  # noqa: S301 - trusted local hardware record
+        rows = pickle.load(stream)  # trusted local hardware record
     radius = float(config["beam_radius_px"])
     n = int(round(2 * radius))
     if n < 2 or abs(n - 2 * radius) > 1e-9:

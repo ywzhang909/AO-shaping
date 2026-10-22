@@ -181,7 +181,7 @@ def _use_calibrated_sim_bench(monkeypatch: pytest.MonkeyPatch) -> list[_Calibrat
         opened.append(bench)
         return bench
 
-    def _fake_solve(records, **kwargs) -> Any:  # noqa: ANN001, ANN003, ANN202
+    def _fake_solve(records, **kwargs) -> Any:
         # The simulated bench knows its geometry by construction, so the solve is
         # a no-op returning the same answer ``_SimBench.true_geometry`` would.
         # Correlation is 1.0, so the bake-off gate always passes.
@@ -199,7 +199,7 @@ def _key(overrides: dict) -> tuple:
     return tuple(sorted((k, repr(v)) for k, v in overrides.items()))
 
 
-def _memo(key: tuple, build) -> dict:  # noqa: ANN001, ANN202
+def _memo(key: tuple, build) -> dict:
     if key not in _run_cache:
         _run_cache[key] = build()
     return copy.deepcopy(_run_cache[key])

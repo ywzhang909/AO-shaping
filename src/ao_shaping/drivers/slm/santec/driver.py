@@ -1463,7 +1463,7 @@ class Santec:
         """
         try:
             slot = self.get_displayed_memory_number()
-        except Exception:  # noqa: BLE001 - 内存模式之外, 错误码 1 属正常
+        except Exception:  # 内存模式之外, 错误码 1 属正常
             return None
         return int(slot) if isinstance(slot, int) else None
 

@@ -58,18 +58,18 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from _common.provenance import insert_header  # noqa: E402
+from _common.provenance import insert_header
 
-from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (  # noqa: E402
+from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
     OVER_MODULATION_RAD,
     UNDER_MODULATION_RAD,
     BlazeSpec,
@@ -82,7 +82,7 @@ from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (  # no
     fit_phase_response,
     run_sweep,
 )
-from ao_shaping.tools.slm.calibration.diffraction_efficiency.simulate import (  # noqa: E402
+from ao_shaping.tools.slm.calibration.diffraction_efficiency.simulate import (
     SimConfig,
     SimulatedBench,
 )

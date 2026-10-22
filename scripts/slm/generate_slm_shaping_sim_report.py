@@ -31,10 +31,10 @@ from pathlib import Path
 
 import matplotlib
 
-matplotlib.use("Agg")  # noqa: E402  (must precede pyplot import)
+matplotlib.use("Agg")  # (must precede pyplot import)
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))

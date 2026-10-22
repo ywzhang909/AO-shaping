@@ -624,7 +624,7 @@ def call_with_timeout(fn: Any, timeout_s: float, desc: str) -> Any:
     def _runner() -> None:
         try:
             result.append(fn())
-        except BaseException as exc:  # noqa: BLE001
+        except BaseException as exc:
             error.append(exc)
 
     thread = threading.Thread(target=_runner, daemon=True)
