@@ -680,6 +680,19 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/ml/freeform_vs_zernike.py",),
     ),
     # -- 方形整形实验记录 ---------------------------------------------------
+    "report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件",
+        note="2026-10-22 当前功率与主动离焦下的聚焦、斜坡及未补偿/补偿配对相位采集和低参数物理模型验证；保留失败边界。",
+        extra_scripts=(
+            "scripts/slm/capture_defocus_forward_dataset.py",
+            "scripts/slm/fit_defocus_forward_dataset.py",
+            "scripts/slm/evaluate_defocus_forward_dataset.py",
+            "scripts/slm/validate_defocus_exposure.py",
+            "scripts/slm/summarize_defocus_forward_experiment.py",
+            "src/ao_shaping/tools/slm/panel/alignment_probe.py",
+        ),
+    ),
     "report/shape_trials/physical_forward_defocus_plan_20261022.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",
