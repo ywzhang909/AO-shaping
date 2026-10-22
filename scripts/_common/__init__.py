@@ -85,7 +85,15 @@ def fmt_ratio(value: float, digits: int = 6) -> str:
     return f"{value:.{digits}g}"
 
 
-def fmt_general(v: Any, spec: str = ".4g", *, missing_nonfinite: str | None = None) -> str:
+def fmt_general(
+    v: Any,
+    spec: str = ".4g",
+    *,
+    missing_nonfinite: str | None = None,
+    missing_none: str | None = None,
+    nan_token: str | None = None,
+    float_only: bool = False,
+) -> str:
     """Passthrough to Python's ``format`` with an explicit ``spec``.
 
     The ``generate_slm_pib_online_report.py`` formatter. Kept separate from
@@ -103,9 +111,29 @@ def fmt_general(v: Any, spec: str = ".4g", *, missing_nonfinite: str | None = No
     ``scripts/slm/hw_differentiable_phase_opt.py``'s retired local formatter,
     whose saved reports already contain ``"None"`` cells, and the point of the
     extraction is byte-identical output, not a behaviour fix.
+
+    ``missing_none`` and ``float_only`` (both default off = today's behaviour)
+    exist for the third retired copy, ``scripts/slm/spgd_drift_cancel_loop.py``:
+
+    * ``missing_none`` replaces ``None`` alone. With ``missing_nonfinite`` left
+      unset, NaN/inf still print ``"nan"``/``"inf"`` — that report spells the
+      sentinel out rather than rendering a "no data" cell.
+    * ``float_only`` formats genuine ``float`` instances only and sends every
+      other type through ``str(v)``, so a JSON-sourced integer renders ``3``, not
+      ``3.000``. ``np.float64`` subclasses ``float`` and still formats;
+      ``np.float32`` does not.
+    * ``nan_token`` replaces NaN alone, before the spec is applied. With a sign
+      flag (``"+.1f"``) ``format(nan, spec)`` renders ``"+nan"``, but that report
+      wants ``"nan"``; ``inf`` still goes through the spec (``"+inf"``).
     """
+    if v is None and missing_none is not None:
+        return missing_none
+    if float_only and not isinstance(v, float):
+        return str(v)
     try:
         f = float(v)
+        if nan_token is not None and np.isnan(f):
+            return nan_token
         if missing_nonfinite is not None and not np.isfinite(f):
             return missing_nonfinite
         return format(f, spec)

@@ -79,6 +79,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+#: 仓库根必须在 sys.path 上: 直接以 ``python scripts/slm/...`` 运行时只有脚本目录
+#: 在路径里, ``from scripts._common import ...`` 会 ImportError。
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
@@ -92,6 +95,8 @@ from ao_shaping.drivers.sim.slm_pib_sim import (
 )
 from ao_shaping.drivers.sim.sim_bench_patch import install_sim_slm
 from ao_shaping.tools.kernels.sweep_analysis import analyse_trace
+
+from scripts._common import fmt_general
 
 #: 孪生光学系统种子 (与 ``slm_pib_sim_run.py`` 的 SYSTEM_SEED 一致)。
 SYSTEM_SEED = 42
@@ -684,16 +689,6 @@ def compute_drift_verdict_metrics(rows: list[dict[str, Any]]) -> dict[str, Any]:
 # === SECTION: 报告 =========================================================
 
 
-def _fmt(value: Any, spec: str = ".3f") -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, float):
-        if np.isnan(value):
-            return "nan"
-        return format(value, spec)
-    return str(value)
-
-
 def _fig(name: str, stamp: str = "") -> str:
     """图链接 (report/AGENTS.md §5: 同目录资产不带 ``../``; 图名带日期戳)。"""
     return f"figures/{name}_{stamp}.png" if stamp else f"figures/{name}.png"
@@ -738,10 +733,10 @@ def write_report(
     for r in results:
         lines.append(
             f"| {r['variant']} | {r['protocol']}{'+abba' if r['abba'] else ''} "
-            f"| {_fmt(r.get('dec'), '.2f')} | {_fmt(r.get('late_gain_pct'), '+.1f')} "
-            f"| {r.get('verdict', '-')} | {_fmt(r.get('r2_J_maxbrt'), '.3f')} "
-            f"| {_fmt(r.get('J_first'), '+.3f')} → {_fmt(r.get('J_final'), '+.3f')} "
-            f"| {_fmt(r.get('max_brt_swing_pct'), '.0f')}% "
+            f"| {fmt_general(r.get('dec'), '.2f', missing_none='-', float_only=True, nan_token='nan')} | {fmt_general(r.get('late_gain_pct'), '+.1f', missing_none='-', float_only=True, nan_token='nan')} "
+            f"| {r.get('verdict', '-')} | {fmt_general(r.get('r2_J_maxbrt'), '.3f', missing_none='-', float_only=True, nan_token='nan')} "
+            f"| {fmt_general(r.get('J_first'), '+.3f', missing_none='-', float_only=True, nan_token='nan')} → {fmt_general(r.get('J_final'), '+.3f', missing_none='-', float_only=True, nan_token='nan')} "
+            f"| {fmt_general(r.get('max_brt_swing_pct'), '.0f', missing_none='-', float_only=True, nan_token='nan')}% "
             f"| {r.get('n_gate_zeroed', '-')}/{r.get('rows', 0) - 1} |"
         )
     lines.append("")
@@ -763,7 +758,7 @@ def write_report(
         sp = ir.get("same_phase", {})
         if sp and np.isfinite(sp.get("sigma", float("nan"))):
             lines.append(
-                f"| intrinsic (drift off) | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
+                f"| intrinsic (drift off) | {fmt_general(sp['sigma'], '.4f', missing_none='-', float_only=True, nan_token='nan')} (n={int(sp['n'])}) "
                 f"| 基准行: 漂移关、杂散底板开时的读出+评估噪声底 | "
                 f"{ir.get('n_protocol_captures', '-')} |"
             )
@@ -776,8 +771,8 @@ def write_report(
         resolvable = r.get("diff_abs_median", float("nan"))
         ok = "是" if np.isfinite(resolvable) and resolvable > thr else "否"
         lines.append(
-            f"| {r['variant']} | {_fmt(sp['sigma'], '.4f')} (n={int(sp['n'])}) "
-            f"| 3σ={_fmt(thr, '.4f')}, 中位 abs(ΔJ)={_fmt(resolvable, '.4f')} → {ok} "
+            f"| {r['variant']} | {fmt_general(sp['sigma'], '.4f', missing_none='-', float_only=True, nan_token='nan')} (n={int(sp['n'])}) "
+            f"| 3σ={fmt_general(thr, '.4f', missing_none='-', float_only=True, nan_token='nan')}, 中位 abs(ΔJ)={fmt_general(resolvable, '.4f', missing_none='-', float_only=True, nan_token='nan')} → {ok} "
             f"| {r.get('n_protocol_captures', '-')} |"
         )
     lines.append("")
@@ -792,16 +787,16 @@ def write_report(
                 f"- 增益摆幅 {r['drift']['swing_pct']}% (共 {r['drift']['n_reads']} 次读出)"
             )
         lines.append(
-            f"- dec={_fmt(r.get('dec'), '.3f')}, late_gain={_fmt(r.get('late_gain_pct'), '+.1f')}%, "
+            f"- dec={fmt_general(r.get('dec'), '.3f', missing_none='-', float_only=True, nan_token='nan')}, late_gain={fmt_general(r.get('late_gain_pct'), '+.1f', missing_none='-', float_only=True, nan_token='nan')}%, "
             f"verdict={r.get('verdict')}"
         )
         lines.append(
-            f"- R²(J~max_brt)={_fmt(r.get('r2_J_maxbrt'), '.3f')}, "
-            f"max_brt 摆幅={_fmt(r.get('max_brt_swing_pct'), '.1f')}%"
+            f"- R²(J~max_brt)={fmt_general(r.get('r2_J_maxbrt'), '.3f', missing_none='-', float_only=True, nan_token='nan')}, "
+            f"max_brt 摆幅={fmt_general(r.get('max_brt_swing_pct'), '.1f', missing_none='-', float_only=True, nan_token='nan')}%"
         )
         lines.append(
-            f"- |ΔJ| 均值={_fmt(r.get('diff_abs_mean'), '.4f')}, "
-            f"中位={_fmt(r.get('diff_abs_median'), '.4f')}, "
+            f"- |ΔJ| 均值={fmt_general(r.get('diff_abs_mean'), '.4f', missing_none='-', float_only=True, nan_token='nan')}, "
+            f"中位={fmt_general(r.get('diff_abs_median'), '.4f', missing_none='-', float_only=True, nan_token='nan')}, "
             f"噪声门零置 {r.get('n_gate_zeroed')} 轮"
         )
         log = r.get("capture_log") or []
