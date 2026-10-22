@@ -437,6 +437,9 @@ def transform(text, rel_path=""):
 PY_EXCLUDE = {
     'scripts/_common/term_unify_20261016.py',
     'tests/ao_shaping/runners/test_model_in_loop_session_preflight.py',
+    # 这个文件的注释与字符串刻意保留禁词作为**测试夹具**(门禁必须能证明它会报错)。
+    # 改写它等于把"检测器会失败"的测试改成"永远通过"。
+    'tests/ao_shaping/scripts/test_term_gate_enforced.py',
 }
 
 # 「留出」多义保护：holdout 义之外的 "预留/腾出" 义（留出时间/几何/空间/余量），
@@ -627,8 +630,8 @@ for f in ROOT.rglob("*.md"):
 # .py 文件清单（2026-10-22，issue #187）：中文叙述（docstring/字符串/注释）
 # 进入引擎；排除集见 PY_EXCLUDE 注释。
 PY_FILES = []
-for f in REPO.rglob('*.py'):
-    rel = f.relative_to(REPO).as_posix()
+for f in ROOT.rglob('*.py'):
+    rel = f.relative_to(ROOT).as_posix()
     if rel.startswith(('.git', '.venv', 'venv')):
         continue
     if rel.startswith(LOCAL_DIR_PREFIXES):
@@ -641,7 +644,6 @@ for f in REPO.rglob('*.py'):
         continue
     PY_FILES.append(f)
 
-apply_mode = '--apply' in sys.argv
 total = {}
 for f in FILES:
     rel_posix = f.relative_to(ROOT).as_posix()
@@ -655,7 +657,7 @@ for f in FILES:
         f.write_text(new, encoding="utf-8")
 
 for f in PY_FILES:
-    rel_posix = f.relative_to(REPO).as_posix()
+    rel_posix = f.relative_to(ROOT).as_posix()
     orig = f.read_text(encoding='utf-8')
     new = transform_py(orig, rel_posix)
     if new == orig:

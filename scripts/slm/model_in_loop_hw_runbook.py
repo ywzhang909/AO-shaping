@@ -74,13 +74,13 @@ from ao_shaping.tools.kernels.bench_kernels import (
 from ao_shaping.tools.kernels.bench_kernels import (
     measure_spot as _measure_spot,
 )
-from ao_shaping.tools.slm.panel.focus_preflight import (  # noqa: E402
+from ao_shaping.tools.slm.panel.focus_preflight import (
     FocusPreflight,
     FocusPreflightError,
     build_focus_preflight,
     write_preflight_record,
 )
-from ao_shaping.tools.zernike.sweep_probe import (  # noqa: E402
+from ao_shaping.tools.zernike.sweep_probe import (
     capture_settled,
 )
 from ao_shaping.utils.image.beam_metrics import zero_order_center

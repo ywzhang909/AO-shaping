@@ -550,7 +550,7 @@ def zernike_decomposition(
         noll = index + 1
         try:
             nm = gen.noll_to_nm(noll)
-        except Exception:  # noqa: BLE001 - 超出基底的 Noll 索引没有名字
+        except Exception:  # 超出基底的 Noll 索引没有名字
             continue
         modes[f"noll{noll}_n{nm[0]}m{nm[1]}"] = float(value)
     return {

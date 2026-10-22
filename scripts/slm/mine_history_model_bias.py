@@ -66,6 +66,7 @@ import json
 import math
 import sys
 from dataclasses import asdict, dataclass, field
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -74,8 +75,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
@@ -83,24 +84,25 @@ if str(ROOT) not in sys.path:
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from loguru import logger  # noqa: E402
+from loguru import logger
 
-from ao_shaping.drivers.sim.bench_twin import (  # noqa: E402
+from ao_shaping.drivers.sim.bench_twin import (
     BenchTwinConfig,
     equivalent_focal_length_m,
 )
-from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
+from ao_shaping.optimizer.wfless.slm_model_in_loop import (
     _make_optimizer,
     _to_model_grid,
 )
-from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center  # noqa: E402
-from ao_shaping.utils.wavefront.calibration_terms import (  # noqa: E402
+from ao_shaping.utils.image.beam_metrics import prepare_frame, zero_order_center
+from ao_shaping.utils.wavefront.calibration_terms import (
     PupilAffine,
     TravelScale,
     family_of_noll,
 )
-from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms  # noqa: E402
-from scripts.slm.analyze_model_in_loop_loss import (  # noqa: E402
+from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms
+from scripts._common import fmt_general
+from scripts.slm.analyze_model_in_loop_loss import (
     MISSING,
     RECOMPUTE_TOL,
     RunData,
@@ -2189,14 +2191,7 @@ def write_figure(
     plt.close(figure)
 
 
-def _fmt(value: Any, digits: int = 4) -> str:
-    """数字格式化 (缺失 → 「未记录」)。"""
-    if value is None:
-        return MISSING
-    try:
-        return f"{float(value):.{digits}f}"
-    except (TypeError, ValueError):
-        return str(value)
+_FMT = partial(fmt_general, missing_none=MISSING)
 
 
 def write_summary(path: Path, payload: dict[str, Any]) -> None:
@@ -2242,9 +2237,9 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
     for row in mining["exposure_fits"][:12]:
         holdout = row.get("holdout") or {}
         lines.append(
-            f"| `{row['session_id']}` | {row['source']} | {_fmt(row['bias'], 3)} | "
-            f"{_fmt(row['gain'], 4)} | {_fmt(row['max_abs_residual'], 3)} | "
-            f"{_fmt(row['r_squared'], 5)} | {_fmt(holdout.get('residual_counts'), 3)} |"
+            f"| `{row['session_id']}` | {row['source']} | {_FMT(row['bias'], ".3f")} | "
+            f"{_FMT(row['gain'], ".4f")} | {_FMT(row['max_abs_residual'], ".3f")} | "
+            f"{_FMT(row['r_squared'], ".5f")} | {_FMT(holdout.get('residual_counts'), ".3f")} |"
         )
     if len(mining["exposure_fits"]) > 12:
         lines.append(
@@ -2256,7 +2251,7 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
     lines.append("| 项 | 含义 | 训练集拟合值 |")
     lines.append("|---|---|---|")
     for row in fit["parameter_table"]:
-        lines.append(f"| `{row['key']}` | {row['meaning']} | {_fmt(row['value'], 5)} |")
+        lines.append(f"| `{row['key']}` | {row['meaning']} | {_FMT(row['value'], ".5f")} |")
     lines.append("")
     lines.append("## 4. 四类分解: 标定前 vs 标定后")
     lines.append("")
@@ -2264,9 +2259,9 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
     lines.append("|---|---|---|---|---|---|---|")
     for row in fit["decomposition_table"]:
         lines.append(
-            f"| {row['group']} | {row['scope']} | {_fmt(row['energy_ratio'], 4)} | "
-            f"{_fmt(row['width_ratio'], 4)} | {_fmt(row['centroid_shift_cells'], 4)} | "
-            f"{_fmt(row['shape_correlation'], 4)} | {_fmt(row['correlation_raw'], 4)} |"
+            f"| {row['group']} | {row['scope']} | {_FMT(row['energy_ratio'], ".4f")} | "
+            f"{_FMT(row['width_ratio'], ".4f")} | {_FMT(row['centroid_shift_cells'], ".4f")} | "
+            f"{_FMT(row['shape_correlation'], ".4f")} | {_FMT(row['correlation_raw'], ".4f")} |"
         )
     lines.append("")
     lines.append("### 4.1 物理诊断: 哪一类误差主导")
@@ -2276,7 +2271,7 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
         lines.append(
             "- **照明包络缩放** (τ_θ 的 `amp_x` / `amp_y`) 扫描: "
             + ", ".join(
-                f"amp={row['amp']:.2f} → 宽度比 {_fmt(row['width_ratio_median'], 4)}"
+                f"amp={row['amp']:.2f} → 宽度比 {_FMT(row['width_ratio_median'], ".4f")}"
                 for row in diagnostics.get("amp_scan", [])
             )
             + " —— 几乎不改变宽度 (振幅包络是平顶, 照明直径由瞳面掩膜决定)。"
@@ -2285,7 +2280,7 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
             "- **相机离焦** 扫描: "
             + ", ".join(
                 f"Δz={row['defocus_m'] * 1e3:.1f} mm → 宽度比 "
-                f"{_fmt(row['width_ratio_median'], 4)}"
+                f"{_FMT(row['width_ratio_median'], ".4f")}"
                 for row in diagnostics.get("defocus_scan", [])
             )
             + " —— 离焦是角谱传递函数 (快速相位扰动), 解释不了实测的宽度比。"
@@ -2297,10 +2292,10 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
         )
         lines.append(
             f"- **位置误差** 用 canonical 的焦面精确平移 (`ModelErrorTerms.tilt_*`) 修正: "
-            f"tilt_x={_fmt(diagnostics.get('tilt_x_rad'), 8)} rad、"
-            f"tilt_y={_fmt(diagnostics.get('tilt_y_rad'), 8)} rad "
-            f"(对应质心偏移 {_fmt(diagnostics.get('shift_dx_cells'), 4)} / "
-            f"{_fmt(diagnostics.get('shift_dy_cells'), 4)} 远场格)。"
+            f"tilt_x={_FMT(diagnostics.get('tilt_x_rad'), ".8f")} rad、"
+            f"tilt_y={_FMT(diagnostics.get('tilt_y_rad'), ".8f")} rad "
+            f"(对应质心偏移 {_FMT(diagnostics.get('shift_dx_cells'), ".4f")} / "
+            f"{_FMT(diagnostics.get('shift_dy_cells'), ".4f")} 远场格)。"
         )
     lines.append("")
     lines.append("## 5. 阶段 5 判据对照 (验证集)")
@@ -2309,8 +2304,8 @@ def write_summary(path: Path, payload: dict[str, Any]) -> None:
     lines.append("|---|---|---|---|---|")
     for row in validation["threshold_table"]:
         lines.append(
-            f"| {row['name']} | {row['threshold']} | {_fmt(row['before'], 4)} | "
-            f"{_fmt(row['after'], 4)} | {row['verdict']} |"
+            f"| {row['name']} | {row['threshold']} | {_FMT(row['before'], ".4f")} | "
+            f"{_FMT(row['after'], ".4f")} | {row['verdict']} |"
         )
     lines.append("")
     lines.append("## 6. 还差多少实验采集")
@@ -2483,7 +2478,7 @@ def run(args: argparse.Namespace) -> int:
                     before_px = before.get("centroid_shift_px", {}).get("median")
                     after_px = after.get("centroid_shift_px", {}).get("median")
                     verdict += (
-                        f" (相机像元口径 {_fmt(before_px, 3)} → {_fmt(after_px, 3)} px; "
+                        f" (相机像元口径 {_FMT(before_px, ".3f")} → {_FMT(after_px, ".3f")} px; "
                         "该组的「模型格」换算依赖斜坡反推焦距, 不可靠)"
                     )
                 threshold_rows.append(
@@ -2772,9 +2767,9 @@ def _acquisition_guidance(
             width_before = before.get("width_ratio", {}).get("median")
             width_after = after.get("width_ratio", {}).get("median")
             transfer.append(
-                f"{label}: 宽度比 {_fmt(width_before, 4)} → {_fmt(width_after, 4)}, "
-                f"CV 绝对误差 {_fmt(before.get('cv_abs_error', {}).get('median'), 4)} → "
-                f"{_fmt(after.get('cv_abs_error', {}).get('median'), 4)}"
+                f"{label}: 宽度比 {_FMT(width_before, ".4f")} → {_FMT(width_after, ".4f")}, "
+                f"CV 绝对误差 {_FMT(before.get('cv_abs_error', {}).get('median'), ".4f")} → "
+                f"{_FMT(after.get('cv_abs_error', {}).get('median'), ".4f")}"
             )
 
     lines = [
@@ -2784,8 +2779,8 @@ def _acquisition_guidance(
         f"瞳面中心偏移 ({calibration.shift_dx:+.3f}, {calibration.shift_dy:+.3f}) 远场格、"
         f"增益 {calibration.gain:.4f}。",
         f"逐会话拟合的焦距尺度散布 (p10 / 中位 / p90): "
-        f"{_fmt(spread.get('p10'), 4)} / {_fmt(spread.get('median'), 4)} / "
-        f"{_fmt(spread.get('p90'), 4)} —— "
+        f"{_FMT(spread.get('p10'), ".4f")} / {_FMT(spread.get('median'), ".4f")} / "
+        f"{_FMT(spread.get('p90'), ".4f")} —— "
         + (
             "散布远小于 1, 所以它是**实验系统级**的常量, 一次离线拟合即可跨会话复用。"
             if spread and (spread["p90"] - spread["p10"]) < 0.25

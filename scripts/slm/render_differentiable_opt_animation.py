@@ -62,13 +62,13 @@ sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 sys.path.insert(0, str(ROOT / "src"))
 
-import matplotlib  # noqa: E402
+import matplotlib
 
 matplotlib.use("Agg")  # must precede pyplot
 
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-from loguru import logger  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+from loguru import logger
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -288,9 +288,9 @@ def reproduce_model_side(
         Exception: anything that prevents the reproduction (the caller turns
             it into the degraded path).
     """
-    import torch  # noqa: PLC0415 - optional dependency, failure is handled
+    import torch  # optional dependency, failure is handled
 
-    from ao_shaping.algorithm.signal_processing.differentiable_beam import (  # noqa: PLC0415
+    from ao_shaping.algorithm.signal_processing.differentiable_beam import (
         DifferentiableBeamOptimizer,
     )
 
@@ -412,7 +412,7 @@ def collect_hardware_frames(
     phase on the panel -- the very phase the loop starts from). Step 2 has no
     file at all; it is skipped and the report says so.
     """
-    from ao_shaping.utils.image.beam_metrics import prepare_frame  # noqa: PLC0415
+    from ao_shaping.utils.image.beam_metrics import prepare_frame
 
     rows = read_csv_rows(ctx.run_dir / "history_hw.csv")
     if not rows:
@@ -631,7 +631,7 @@ def render_gif(
     stamp: str,
 ) -> dict[str, Any]:
     """Render the process animation and write the GIF."""
-    from PIL import Image  # noqa: PLC0415
+    from PIL import Image
 
     if not records:
         raise ValueError("没有可渲染的帧")
@@ -1005,7 +1005,7 @@ def render_curves(
 
 def iter_markdown_links(text: str) -> list[str]:
     """Relative link targets of a markdown document (images included)."""
-    import re  # noqa: PLC0415
+    import re
 
     out: list[str] = []
     for match in re.finditer(r"!?\[[^\]]*\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)", text):
@@ -1053,7 +1053,7 @@ def render(
     target_half = _target_half_samples(ctx, main_mod, spec)
     blind_loss = None
     if ctx.k_mean > 0:
-        blind_loss = main_mod._blind_loss_value(  # noqa: SLF001 - reuse, do not re-implement
+        blind_loss = main_mod._blind_loss_value(  # reuse, do not re-implement
             spec.far_field_sample_ccd_px(ctx.k_mean),
             float(ctx.params.get("target_side_px", 60.0)),
             int(spec.m_grid),
@@ -1094,7 +1094,7 @@ def render(
                 device,
                 check.get("max_rel_loss_diff", float("nan")),
             )
-        except Exception as exc:  # noqa: BLE001 - the degraded path is the contract
+        except Exception as exc:  # the degraded path is the contract
             degraded = True
             degrade_reason = f"{type(exc).__name__}: {exc}"
             logger.warning("模型侧离线复现失败, 走降级路径: {}", degrade_reason)
@@ -1106,7 +1106,7 @@ def render(
     if include_hardware:
         try:
             hw_frames = collect_hardware_frames(ctx, main_mod, spec)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("实测帧读取失败, 跳过硬件锚点: {}: {}", type(exc).__name__, exc)
             hw_frames = []
 

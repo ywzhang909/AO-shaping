@@ -23,6 +23,7 @@ import json
 import sys
 import time
 from dataclasses import dataclass
+from functools import partial
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -33,6 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 for _entry in (str(ROOT), str(ROOT / "src")):
     if _entry not in sys.path:
         sys.path.insert(0, _entry)
+
+from scripts._common import fmt_general
 
 FIT_MODULE = "scripts.slm.fit_defocus_forward_dataset"
 EVALUATE_MODULE = "scripts.slm.evaluate_defocus_forward_dataset"
@@ -91,7 +94,7 @@ def load_workstream_module(name: str, relative: str):
         setattr(parent, leaf, module)
     try:
         spec.loader.exec_module(module)
-    except Exception as error:  # noqa: BLE001 - the message must name the cause
+    except Exception as error:  # the message must name the cause
         sys.modules.pop(name, None)
         raise SystemExit(
             f"加载 {relative} 失败：{error!r}。"
@@ -631,14 +634,14 @@ def build_condition_rows(conditions: dict) -> list:
     rows.append({
         "name": "条件 1：平均强度相关性",
         "requirement": f"中位数 ≥ {GATES['corr_median']}，最差 ≥ {GATES['corr_min']}",
-        "observed": " / ".join(f"{b} 中位 {_fmt(g['corr_median'])} 最低 {_fmt(g['corr_min'])}"
+        "observed": " / ".join(f"{b} 中位 {_FMT(g['corr_median'], ".4f")} 最低 {_FMT(g['corr_min'], ".4f")}"
                               for b, g in conditions["condition_1_correlation"]["per_branch"].items()),
         "verdict": "通过" if conditions["condition_1_correlation"]["passed"] else "未通过",
     })
     rows.append({
         "name": "条件 2：CV 绝对误差",
         "requirement": f"< {GATES['cv_absolute']}",
-        "observed": " / ".join(f"{b} {_fmt(g)}"
+        "observed": " / ".join(f"{b} {_FMT(g, ".4f")}"
                               for b, g in conditions["condition_2_uniformity"]["per_branch"].items()),
         "verdict": "通过" if conditions["condition_2_uniformity"]["passed"] else "未通过",
     })
@@ -653,7 +656,7 @@ def build_condition_rows(conditions: dict) -> list:
         "name": "条件 3b：中心/环围宽度误差",
         "requirement": f"中心误差 ≤ {GATES['center_px']} px，环围宽度相对误差 ≤ {GATES['width_relative']:.0%}",
         "observed": " / ".join(
-            f"{b} 中心 {_fmt(g['center_mae_px'], 3)} px 环围 {_fmt(g['width_relative_mae'])}"
+            f"{b} 中心 {_FMT(g['center_mae_px'], ".3f")} px 环围 {_FMT(g['width_relative_mae'], ".4f")}"
             for b, g in geometry["per_branch"].items()),
         "verdict": "通过" if geometry["geometry_evaluated"] else "未通过",
     })
@@ -713,14 +716,12 @@ def cross_check(evaluate_mod, fit_json: Path, dataset_path: Path, reference_path
 # ---------------------------------------------------------------------------
 
 
-def _fmt(value, digits: int = 4) -> str:
-    if value is None:
-        return "-"
-    if isinstance(value, bool):
-        return "是" if value else "否"
-    if isinstance(value, (int, np.integer)):
-        return str(int(value))
-    return f"{float(value):.{digits}f}"
+_FMT = partial(
+    fmt_general,
+    missing_none="-",
+    bool_labels=("是", "否"),
+    verbatim_int=True,
+)
 
 
 def _variant_table(results: list, dataset_name: str, stages: tuple, scope: str) -> str:
@@ -741,11 +742,11 @@ def _variant_table(results: list, dataset_name: str, stages: tuple, scope: str) 
                 f"| {variant['label']} | {variant['fft_size']} | {variant['pixel_samples']} "
                 f"| {'是' if variant['learn_amplitude'] else '否'} "
                 f"| {'是' if variant['learn_residual'] else '否'} | {branch} "
-                f"| {_fmt(entry['mean_corr'])}/{_fmt(entry['median_corr'])}/{_fmt(entry['min_corr'])} "
-                f"| {_fmt(entry['cv_mae'])} | {_fmt(entry['ee_mae'])} "
-                f"| {_fmt(entry['center_mae_px'], 3)} | {_fmt(entry['d80_mae_px'], 3)} "
-                f"| {_fmt(entry['d80_relative_mae'])} | {_fmt(entry['fwhm_mae_px'], 3)} "
-                f"| {_fmt(entry['rms_relative_mae'])} | {_fmt(entry['iou_mean'])} |")
+                f"| {_FMT(entry['mean_corr'], ".4f")}/{_FMT(entry['median_corr'], ".4f")}/{_FMT(entry['min_corr'], ".4f")} "
+                f"| {_FMT(entry['cv_mae'], ".4f")} | {_FMT(entry['ee_mae'], ".4f")} "
+                f"| {_FMT(entry['center_mae_px'], ".3f")} | {_FMT(entry['d80_mae_px'], ".3f")} "
+                f"| {_FMT(entry['d80_relative_mae'], ".4f")} | {_FMT(entry['fwhm_mae_px'], ".3f")} "
+                f"| {_FMT(entry['rms_relative_mae'], ".4f")} | {_FMT(entry['iou_mean'], ".4f")} |")
     return "\n".join(lines)
 
 
@@ -800,8 +801,8 @@ def _cross_dataset_table(results: list, dataset_names: list, scope: str = "test"
                     cells.append("-")
                     correlations.append("-")
                     continue
-                cells.append(_fmt(block["cv_mae"]))
-                correlations.append(_fmt(block["mean_corr"]))
+                cells.append(_FMT(block["cv_mae"], ".4f"))
+                correlations.append(_FMT(block["mean_corr"], ".4f"))
                 values.append(block["cv_mae"])
             delta = f"{values[-1] - values[0]:+.4f}" if len(values) == len(dataset_names) else "-"
             lines.append(f"| {label} | {branch} | " + " | ".join(cells) + " | "

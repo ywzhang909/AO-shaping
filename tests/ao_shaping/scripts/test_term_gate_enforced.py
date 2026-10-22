@@ -134,3 +134,24 @@ def test_chinese_narrative_gets_the_gloss_exactly_once(tmp_path: Path) -> None:
     assert again.returncode == 0, (
         f"a second pass wants to annotate again (double gloss):\n{again.stdout}"
     )
+
+#: A ``.py`` whose only prose is Chinese. The ``--root`` seam was first honoured for
+#: ``*.md`` only, so a temp-root run still scanned -- and rewrote -- the real repo.
+_PY_VIOLATION = 'def probe() -> None:\n    """本次在台架上完成验证。"""\n'
+
+
+def test_root_isolation_also_holds_for_python_prose(tmp_path: Path) -> None:
+    """``--root`` must own *every* scan, or a test run mutates the checkout.
+
+    Regression: the ``*.py`` pipeline resolved ``REPO`` instead of ``ROOT``, so
+    ``--apply --root <tmp>`` rewrote files in the real worktree while a temp-root
+    ``--check`` reported unrelated repo paths (the totals were the giveaway).
+    """
+    root = tmp_path / "py"
+    root.mkdir()
+    (root / "probe.py").write_text(_PY_VIOLATION, encoding="utf-8")
+
+    proc = _run("--check", "--root", str(root))
+    assert proc.returncode == 1, proc.stdout
+    assert "probe.py" in proc.stdout, proc.stdout
+    assert "合计: 1 个文件, 1 行" in proc.stdout, proc.stdout

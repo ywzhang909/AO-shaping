@@ -93,6 +93,8 @@ def fmt_general(
     missing_none: str | None = None,
     nan_token: str | None = None,
     float_only: bool = False,
+    bool_labels: tuple[str, str] | None = None,
+    verbatim_int: bool = False,
 ) -> str:
     """Passthrough to Python's ``format`` with an explicit ``spec``.
 
@@ -122,12 +124,21 @@ def fmt_general(
       other type through ``str(v)``, so a JSON-sourced integer renders ``3``, not
       ``3.000``. ``np.float64`` subclasses ``float`` and still formats;
       ``np.float32`` does not.
-    * ``nan_token`` replaces NaN alone, before the spec is applied. With a sign
-      flag (``"+.1f"``) ``format(nan, spec)`` renders ``"+nan"``, but that report
-      wants ``"nan"``; ``inf`` still goes through the spec (``"+inf"``).
-    """
+      * ``nan_token`` replaces NaN alone, before the spec is applied. With a sign
+        flag (``"+.1f"``) ``format(nan, spec)`` renders ``"+nan"``, but that report
+        wants ``"nan"``; ``inf`` still goes through the spec (``"+inf"``).
+      * ``bool_labels`` and ``verbatim_int`` cover the fifth retired copy,
+        ``scripts/slm/fit_forward_sampling_variants.py``, whose table cells are
+        heterogeneous: ``bool_labels`` renders a flag as a language-specific pair
+        (``"是"``/``"否"``) and ``verbatim_int`` prints an integer (``np.integer``
+        included) as ``3`` instead of ``3.0000``.
+      """
     if v is None and missing_none is not None:
         return missing_none
+    if bool_labels is not None and isinstance(v, bool):
+        return bool_labels[0] if v else bool_labels[1]
+    if verbatim_int and isinstance(v, (int, np.integer)) and not isinstance(v, bool):
+        return str(int(v))
     if float_only and not isinstance(v, float):
         return str(v)
     try:

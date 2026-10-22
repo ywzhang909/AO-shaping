@@ -24,7 +24,7 @@ if str(ROOT) not in sys.path:
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
-from scripts.slm.mine_history_model_bias import (  # noqa: E402
+from scripts.slm.mine_history_model_bias import (
     CENTROID_SHIFT_LIMIT_CELLS,
     CV_ABS_LIMIT,
     WIDTH_RATIO_TOLERANCE,
