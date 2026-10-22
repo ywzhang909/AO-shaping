@@ -315,14 +315,19 @@ def process_line(line, t65_rules=T65_VARIANT_RULES):
             return m.group(0)
         if line_has_pupil_cn:
             return m.group(0)
+        # 判据窗口必须止于本行。跨行窗口会让"英文句子换行后紧跟中文段落"的样本
+        # 被中文污染, 把纯英文的 pupil 误判成中文叙述并加夹注 (实测把
+        # scripts/README.md 的 `(focal scale, pupil` 改成了 `pupil（瞳面）`,
+        # 而术语表只要求**中文叙述**首现加注)。同窗口内判据才与该口径一致。
         w = 40
-        before = out[max(0, i - w) : i]
-        after = out[i + len("pupil") : i + len("pupil") + w]
-        if (
-            _ascii_dominant(before)
-            and _ascii_dominant(after)
-            and not _has_cjk(before + after)
-        ):
+        line_start = out.rfind("\n", 0, i) + 1
+        line_end = out.find("\n", i)
+        if line_end < 0:
+            line_end = len(out)
+        before = out[max(line_start, i - w) : i]
+        after = out[i + len("pupil") : min(line_end, i + len("pupil") + w)]
+        after_is_ascii = not after.strip() or _ascii_dominant(after)
+        if _ascii_dominant(before) and after_is_ascii and not _has_cjk(before + after):
             return m.group(0)
         return "pupil（瞳面）"
 

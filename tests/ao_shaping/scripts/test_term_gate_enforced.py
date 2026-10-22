@@ -97,3 +97,40 @@ def test_ci_workflow_actually_calls_the_gate() -> None:
         "the terminology job was downgraded to advisory: findings would report "
         "but never block, which is the failure mode this job was added to fix"
     )
+
+#: English prose whose last word is ``pupil``, followed by a Chinese paragraph. The
+#: context window used to span the newline, see a CJK neighbour, and gloss the English
+#: word -- it rewrote exactly this shape in ``scripts/README.md``.
+_ENGLISH_PUPIL_WRAP = (
+    "fits the model offline (focal scale, pupil\n与世界坐标系的对齐另行说明。\n"
+)
+#: Chinese narrative: the one place the glossary *does* want the gloss.
+_CHINESE_PUPIL = "调整 pupil 的共轭位置后再采集。\n"
+
+
+def test_english_pupil_at_a_line_end_stays_bare(tmp_path: Path) -> None:
+    """Scope: the gloss is for 中文叙述, not for an English word that wraps.
+
+    Regression: the 40-char window crossed the newline, so the following Chinese
+    paragraph made ``pupil`` look like Chinese narrative and it was rewritten to
+    ``pupil（瞳面）`` mid-sentence in ``scripts/README.md``. That false positive is
+    now a hard CI failure, so it would block every merge that touches the line.
+    """
+    proc = _run("--check", "--root", str(_seed(tmp_path, _ENGLISH_PUPIL_WRAP)))
+    assert proc.returncode == 0, (
+        f"English prose was treated as Chinese narrative:\n{proc.stdout}"
+    )
+    assert "0 个文件" in proc.stdout, proc.stdout
+
+
+def test_chinese_narrative_gets_the_gloss_exactly_once(tmp_path: Path) -> None:
+    """The rule must still fire where it is meaningful -- and stay idempotent."""
+    root = _seed(tmp_path, _CHINESE_PUPIL)
+    _run("--apply", "--root", str(root))
+    text = (root / "probe.md").read_text(encoding="utf-8")
+    assert "pupil（瞳面）" in text, text
+
+    again = _run("--check", "--root", str(root))
+    assert again.returncode == 0, (
+        f"a second pass wants to annotate again (double gloss):\n{again.stdout}"
+    )
