@@ -20,14 +20,14 @@ SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳面场的二
 
 硬件契约 (2026-10-22 补齐)
 --------------------------
-本模块的仿真替身必须能**原样**跑那些在真实硬件上出过报告的采集脚本, 所以它对齐
+本模块的仿真替身必须能**原样**跑那些在实验系统上出过报告的采集脚本, 所以它对齐
 硬件驱动的三个调用形态:
 
 1. ``display_data(gray, wait_time_s)`` —— 硬件驱动的第二个**位置**参数就是
    ``wait_time_s`` (见 :meth:`Santec.display_data`), 而
    ``tools/kernels/bench_kernels.py`` 的 ``acquire_settled`` / ``capture_settled`` /
    ``display_and_average`` 正是这么调的。仿真没有面板松弛时间, 故该参数被**接受并忽略**
-   (真实硬件的松弛由 ``bench_kernels`` 的稳定性判据处理, 仿真里面板是理想瞬时响应)。
+   (实验的松弛由 ``bench_kernels`` 的稳定性判据处理, 仿真里面板是理想瞬时响应)。
 2. ``set_phase_overlay(phase_rad | None)`` —— 弧度制**叠加层** (离焦等), 在
    :meth:`SimSLMPib.create_phase_from_array` 内部、**弧度→灰度之前**相加; ``None`` 清除。
    语义与硬件 :meth:`Santec.set_phase_overlay` 一致 (叠加后的相位**同时**进入远场,
@@ -798,7 +798,7 @@ class SimSLMPib:
         与仿真下都能跑:
 
         * ``wait_time_s`` —— **接受并忽略**: 仿真没有松弛时间 (面板是理想瞬时响应),
-          真实硬件的松弛由 ``tools/kernels/bench_kernels.py`` 的稳定性判据处理
+          实验的松弛由 ``tools/kernels/bench_kernels.py`` 的稳定性判据处理
           (``acquire_settled`` / ``capture_settled`` / ``display_and_average``)。
         * ``memory_number`` / ``memory_mode`` —— 仿真没有内存槽, 同样**接受并忽略**
           (返回的仍是 ``memory_number``, 以免影响既有调用方)。

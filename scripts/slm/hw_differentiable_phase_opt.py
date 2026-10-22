@@ -17,7 +17,7 @@
    「类 Strehl」峰值比;
 4. **测量锚定闭环**: 把实测远场喂回优化器
    (:meth:`DifferentiableBeamOptimizer.update` 的 ``measured_intensity`` 分支),
-   看梯度在真实硬件上是否仍然指向正确方向。
+   看梯度在实验系统上是否仍然指向正确方向。
 
 🔴 **本脚本默认 dry-run: 只打印完整实验计划, 绝不 import 或 open 任何设备。**
 
@@ -1651,7 +1651,7 @@ def write_report(
 * **反向传播优化**: {model.get("iters")} 次 Adam 迭代, 损失是峰值归一化远场强度与
   目标之间的 MSE, 梯度由 autograd 直接给出。
 * **模型 vs 硬件**: 优化出的相位真的上屏, 抓帧后重采样到模型的远场网格对比。
-* **测量锚定闭环**: 再把实测远场喂回优化器, 看梯度在真实硬件上是否仍指对方向。
+* **测量锚定闭环**: 再把实测远场喂回优化器, 看梯度在实验系统上是否仍指对方向。
 
 **结论一句话**: {cmp_best.get("verdict", "本轮未完成硬件对比 (见下)")}
 
@@ -1667,7 +1667,7 @@ def write_report(
    说明问题在目标函数本身（见 §8.1）。
 2. **模型能不能预测硬件？** 把优化出的相位真的上屏、抓帧、重采样到模型的远场
    网格，比较强度相关性与峰值位置（见 §6）。
-3. **把实测远场喂回优化器，梯度在真实硬件上还指不指对方向？** 这是「测量锚定
+3. **把实测远场喂回优化器，梯度在实验系统上还指不指对方向？** 这是「测量锚定
    闭环」，{params.get("hw_iters")} 步，看**实测**损失是否单调下降（见 §7）。
 
 ### 0.2 实验条件
@@ -2058,7 +2058,7 @@ def render_only(run_dir: Path) -> int:
 def run_analyze_only(args: argparse.Namespace) -> int:
     """离线重做分析与报告 —— **一个设备都不碰**。
 
-    上机采到的数据 (原始帧 / 初始与最终相位 / 实测远场网格 / 几何标定 /
+    实验采到的数据 (原始帧 / 初始与最终相位 / 实测远场网格 / 几何标定 /
     焦面扫描 / 全部参数) 全部落盘, 所以分析可以**事后**重做: 换目标、换初值、
     换拟合口径都不必再上一次机。
 
@@ -2258,7 +2258,7 @@ def run_analyze_only(args: argparse.Namespace) -> int:
             orientation_match=best_key,
             metrics=cmp_best,
         )
-        # 光斑截面 (CCD 域 + 模型网格域) —— 上机整形实验缺这张就看不出
+        # 光斑截面 (CCD 域 + 模型网格域) —— 硬件整形实验缺这张就看不出
         # "光斑到底差在哪"。
         plot_spot_cross_section(
             model_farfield,
@@ -2911,7 +2911,7 @@ def _run_bench(  # noqa: PLR0913
         orientation_match=best_key,
         metrics=cmp_best,
     )
-    # 光斑截面: 模型 vs 实测 —— 上机整形实验缺了这张就看不出"光斑到底差在哪"。
+    # 光斑截面: 模型 vs 实测 —— 硬件整形实验缺了这张就看不出"光斑到底差在哪"。
     plot_spot_cross_section(
         model_farfield,
         _apply_axis_convention(measured_opt, cmp_best),
@@ -2979,7 +2979,7 @@ def _run_bench(  # noqa: PLR0913
         ],
         hw_history,
     )
-    # metrics 随 step 变化的曲线 (闭环) —— 上机整形实验缺了这条就看不出
+    # metrics 随 step 变化的曲线 (闭环) —— 硬件整形实验缺了这条就看不出
     # "每一步到底有没有变好"。
     plot_metrics_vs_step(
         history,
@@ -3320,7 +3320,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="只做离线重分析: 读这个运行目录里的产物 (参数/几何/相位/实测远场), "
         "重跑纯模型侧的反向传播与「模型 vs 硬件」对照, 并重写报告。"
-        "**一个设备都不碰** —— 上机采到的数据可以事后分析",
+        "**一个设备都不碰** —— 实验采到的数据可以事后分析",
     )
     p.add_argument(
         "--model-pupil-samples",
@@ -3423,7 +3423,7 @@ def main() -> None:
         # ⚠️ 焦面扫描**不能**跟着缩: 13 点的粗扫在 ±6 m⁻¹ 上步长 3 m⁻¹,
         # 而本实验系统的最佳值在 1/f ≈ 0.67 m⁻¹ —— 5 点的粗网格根本采不到
         # 那里, 扫出来的"最佳点"是 71 px 的宽斑, 于是门禁给出**假拒绝**
-        # (2026-10-22 冒烟实测: 门限 40 px 被触发, 而同一台架的完整扫描
+        # (2026-10-22 冒烟实测: 门限 40 px 被触发, 而同一实验系统的完整扫描
         # 给出 15 px)。焦面扫描是判定在焦的依据, 必须保持分辨率。
         args.frames = 1
         args.discard = 1
