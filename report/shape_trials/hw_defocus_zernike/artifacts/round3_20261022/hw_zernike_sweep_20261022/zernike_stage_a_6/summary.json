@@ -1,0 +1,88 @@
+{
+  "group": "zernike_stage_a_6",
+  "variable": "n_max",
+  "group_meta": {
+    "role": "zernike_stage_a",
+    "chunk": "6/7",
+    "phase": "hardware_gs",
+    "exposure_ms": "0.2",
+    "defocus_focal_mm": "1549.332046",
+    "chunk_epochs": "45",
+    "total_epochs": "250"
+  },
+  "config": {
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_time_ms": 0.2,
+    "cam_size": 256,
+    "sim_far_field_padding": 16,
+    "slm_number": 1,
+    "beam_radius_px": 450.0,
+    "epochs": 250,
+    "gs_iters": 200,
+    "spgd_epochs": 200,
+    "n_max_list": [
+      4,
+      6,
+      8,
+      11,
+      15
+    ],
+    "delta": 0.02,
+    "lr": 0.01,
+    "seed": 0,
+    "out": "data/debug/hw_zernike_sweep_20261022",
+    "target_side": 0.0,
+    "max_energy_loss": 0.6,
+    "save_images": true,
+    "defocus_focal_mm": 1549.332046,
+    "group": "zernike_stage_a_6",
+    "group_meta": {
+      "role": "zernike_stage_a",
+      "chunk": "6/7",
+      "phase": "hardware_gs",
+      "exposure_ms": "0.2",
+      "defocus_focal_mm": "1549.332046",
+      "chunk_epochs": "45",
+      "total_epochs": "250"
+    },
+    "stage_a_only": true,
+    "stage_a_in": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz",
+    "orders": [],
+    "time_budget_s": 540.0,
+    "chunk_epochs": 45
+  },
+  "cam_size": 256,
+  "probe_shape": [
+    1944,
+    2592
+  ],
+  "frame_shape": [
+    1944,
+    2592
+  ],
+  "center_xy": [
+    1429,
+    973
+  ],
+  "mask_center_xy": [
+    133,
+    128
+  ],
+  "full_frame_center": [
+    1427,
+    973
+  ],
+  "w0_px": 6.26977019319377,
+  "target_side": 12.53954038638754,
+  "beam_radius_px": 450.0,
+  "best_stage": "refine",
+  "stage_a": {
+    "source": "data\\debug\\hw_zernike_sweep_20261022\\zernike_stage_a_6\\stage_a.npz",
+    "epochs_executed": 11,
+    "best_score": 0.507942499337225,
+    "elapsed_s": 39.451324
+  },
+  "baselines": {},
+  "orders": []
+}

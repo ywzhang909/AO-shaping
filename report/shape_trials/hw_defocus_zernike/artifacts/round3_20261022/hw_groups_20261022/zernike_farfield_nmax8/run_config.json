@@ -1,0 +1,180 @@
+{
+  "timestamp_utc": "20261022_080927",
+  "group": "zernike_farfield_nmax8",
+  "variable": "dz_mm",
+  "group_meta": {
+    "role": "zernike_farfield",
+    "n_max": "8",
+    "phase": "zernike_fit",
+    "exposure_ms": "0.2",
+    "defocus_focal_mm": "1549.332046",
+    "target_side_px": "10",
+    "target_side_source": "explicit",
+    "chirp_tilt_cancel": "false",
+    "chirp_tilt_enabled": "false"
+  },
+  "out_root": "data\\debug\\hw_groups_20261022",
+  "plan": {
+    "group": {
+      "name": "zernike_farfield_nmax8",
+      "variable": "dz_mm",
+      "meta": {
+        "role": "zernike_farfield",
+        "n_max": "8",
+        "phase": "zernike_fit",
+        "exposure_ms": "0.2",
+        "defocus_focal_mm": "1549.332046",
+        "target_side_px": "10"
+      },
+      "out_root": "data/debug/hw_groups_20261022",
+      "out_dir": "<根目录>/zernike_farfield_nmax8"
+    },
+    "devices": [
+      {
+        "role": "SLM",
+        "driver": "ao_shaping.drivers.slm.santec.Santec (memory 模式, video_mode=0)",
+        "slm_number": 1,
+        "slm_wavelength_nm": 1064,
+        "panel_shape_hw": [
+          1200,
+          1920
+        ],
+        "fatal_if": "open() 在 DVI 模式会挂死 → 本脚本恒用 memory 模式"
+      },
+      {
+        "role": "CCD",
+        "driver": "ao_shaping.drivers.ccd.common.create_camera('daheng')",
+        "cam_id": 0,
+        "exposure_ms_requested": 0.2,
+        "roi_px": 250,
+        "fatal_if": "曝光必须 <= AO_DAHENG_MAX_EXPOSURE_MS (未设则探测)"
+      }
+    ],
+    "optics": {
+      "wavelength_nm": 1064.0,
+      "focal_length_m": 0.12240601503759398,
+      "aperture_m": 0.0072,
+      "panel_shape_hw": [
+        1200,
+        1920
+      ],
+      "panel_pitch_m": 8e-06,
+      "beam_center_panel": [
+        960,
+        600
+      ],
+      "beam_radius_panel": 450.0,
+      "camera_pixel_um": 2.2,
+      "dz_blur_mm": 0.7503639840341595
+    },
+    "gs_phase_source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy",
+    "upsampling": "upsample_bilinear_to_shape(n_grid, (900, 900)) -> embed_pupil_square(..., panel, 450, (960, 600)) —— 复用 ao_shaping.utils 的既有实现, 不自己写",
+    "zero_order": "display_and_average 后用 zero_order_center(frame, refine=False) = 全局 argmax 定位 (绝不假设在画面中心); 定位一次即冻结 center 与 target 框, 之后不逐帧重定位",
+    "overlay_api": "Santec.set_phase_overlay(phase_rad) —— 弧度制, 在 create_phase_from_array 内部、弧度→灰度之前相加, 矫正/LUT/平移照常作用; 结束后 set_phase_overlay(None)",
+    "focus_correction": "瞳面菲涅尔焦面矫正: f_v = 1549.3 mm (pi·r²/(λ·f_v), 盘外为 0) —— CCD 不在 2f 焦面时用它把焦面搬回探测器; 与 Δz 二次相位**相加**进同一张叠加图 (驱动只有一个叠加通道, 第二次 set_phase_overlay 会覆盖第一次)",
+    "zero_order_halo": "每次测量额外记整帧峰值 / 框外峰值 / 框外功率占比。真实瞳面是双分量 U=U_inc*[eta+(1-eta)e^{iφ}], 零级只过物理透镜, 在 f+d 处散成晕斑 (ρ≈d*D/(2f), I_halo ∝ f²/d²)。口径提示: Δz 小时零级峰仍在目标框内, 框外峰值量不到它, 要看整帧峰值; Δz 大到散出框后框外峰值才代表污染",
+    "no_magnification": "不按 M=(f+d)/f 重采样: Collins/ABCD T(f+d)·Lens(f)·T(f) 的 B ≡ f ⇒ 核尺度是 λf 而非 λ(f+d), CCD 离焦只使图样变模糊而不缩放。目标框边长在扫描开始前定一次就**冻结**, ROI 不随 d 改",
+    "target_box": {
+      "requested_side_px": 10,
+      "mode": "explicit",
+      "policy": "显式 10 px (--target-side-px 给的); 中心冻结在零级, 全程不变",
+      "fallback_side_px": 44,
+      "why": "框必须跟着**被探的那张相位**走: 硬件 GS 相位打出的光斑只有 12.9 px 宽, 而历史上写死的 44 px 是**模型** GS 相位方形边长换算到硬件像元上的值 —— 框比光斑大 3.4 倍时, 离焦弥散把整个框填满, 均匀性项 1/(1+CV) 上升 (CV 1.733 → 1.157) 恰好抵消功率项 PIB 的下降, 合成分 0.5·PIB + 0.5/(1+CV) 于是**看起来是平的**。按相位自己的光斑定尺后, 离焦响应恢复单调"
+    },
+    "chirp_tilt": {
+      "enabled": false,
+      "cal_dz_mm": 2.0,
+      "test_period_px": 1000,
+      "cal_dz_in_scan": false,
+      "why": "瞳面二次相位以面板的**标称**照明中心 (960, 600) 为中心, 而真实照明并不在那里 —— 偏心的二次相位等价于一片**偏心透镜**: 它既离焦, 又**转向** (实测 2026-10-20 组 dz_scan_hw_gs: 远场质心随 Δz 走 -5.2 camera px/mm)。这个转向是**模拟**的性质 (对拍的仿真把二次相位对准光束中心, 所以没有转向), 于是冻结的目标框会随 Δz 挪走, 量到的变成转向而不是离焦, 硬件与仿真也不同口径",
+      "policy": "**opt-in, 默认关闭**: 不给 --chirp-tilt-cancel 时行为与引入本选项之前逐位一致。打开后逐 Δz 在**同一张**叠加图里加一条瞳面斜坡, 把转向补掉; 目标框 / ROI / 冻结零级一律不动",
+      "calibration_steps": [
+        "1) 在 Δz = 2.000 mm 叠加二次相位, 抓帧记质心 (与 Δz=0 基线相减 → 二次相位的转向量)",
+        "2) 在**同一**状态上只多叠一条测试斜坡 (面板 y, 周期 1000 panel px), 抓帧记质心位移",
+        "3) 面板 x 再来一次",
+        "4) 由这两次位移**现场学**出「面板轴 → 相机轴」的映射与符号 —— 不假设: 本实验系统面板/相机轴交换 90° (面板 x 斜坡挪的是相机 y), 而且这个符号仓库里任何地方都没记",
+        "5) 实测标度与 bench 常量 TILT_SHIFT_SCALE 的比值必须落在 [0.5, 2.0] 内, 否则这次标定不可信",
+        "6) 逐 Δz 反解补偿斜坡 (周期 = |实测斜率| / |期望位移|, 符号取与期望同向的一侧), 与二次相位**相加**进同一张叠加图",
+        "7) 回到 Δz = 2.000 mm 复测, 记**残差** (原始转向与残差都写进run_config.json)"
+      ],
+      "fail_safe": "任何一步量不到可用光斑, 或标度比值越界, 一律**放弃去倾斜** (记 chirp_tilt_enabled=false) 并按原来的纯二次相位继续 —— 绝不因为标定失败让整轮扫描作废",
+      "note": "标定 Δz = 2.000 mm **不在**扫描列表内 —— 会额外抓一帧"
+    },
+    "preflight": {
+      "what": "扫描开始前先对**基线帧** (Δz=0, GS 相位已施加) 做一次光路自检",
+      "criteria": "判据看**结构**而不是亮度: 峰值停在读出噪声本底 **且** 帧里没有任何局域光斑 ⇒ 光路受阻; 光到了但光斑太宽 ⇒ 只是没聚焦 (另一回事)",
+      "blocked": "判为受阻就**中止整轮** (退出码 4), **不写** measurements.csv —— 只写一份带判定与理由的 run_config.json",
+      "not_usable": "只是不够聚焦时**警告并继续**: 那种情况这一轮仍然有意义",
+      "checklist": "光束→SLM 面板 → 2f 透镜 → CCD 三段光路"
+    },
+    "steps": [
+      {
+        "step": 0,
+        "dz_mm": 0.0,
+        "dz_units": 0.0,
+        "chirp_sign": -1.0,
+        "chirp_alpha": 1.0001626284163687,
+        "chirp_edge_rad": 0.0,
+        "chirp_edge_waves": 0.0,
+        "chirp_corner_rad": 0.0,
+        "defocus_focal_mm": 1549.332046,
+        "action": "set_phase_overlay(瞳面二次相位) + display_and_average(GS 相位)",
+        "frames": 4
+      }
+    ],
+    "estimate": {
+      "per_step_s": 2.7,
+      "sweep_s": 2.7,
+      "baseline_and_window_s": 12.0,
+      "total_s": 14.7,
+      "note": "不含 SLM/CCD open 与 close (各 5-60 s, SDK 而定)"
+    },
+    "outputs": "report/shape_trials/hw_gs_defocus_probe_<UTC>/<组名>/: 每次测量一个 npz (原始帧 + 参数) + measurements.csv + run_config.json + hw_summary.png; 根目录另有 manifest.json 按组索引; npz 存的是未处理原始帧, --replot 可离线重新出图",
+    "predicted_by_simulation": "report/shape_trials/scheme_gap_dz0_50mm*.csv —— 对拍用的仿真预测 (CV/PIB/score 与逐点差异表)"
+  },
+  "gs_phase_source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy",
+  "exposure_ms_requested": 0.2,
+  "exposure_ceiling_ms": 0.4,
+  "exposure_ms_working": 0.2,
+  "frames_per_measurement": 4,
+  "zero_order_full_frame_xy": [
+    1428,
+    972
+  ],
+  "zero_order_roi_xy_frozen": [
+    124,
+    126
+  ],
+  "roi_px": 250,
+  "target_side_px": 10,
+  "target_side_source": "explicit",
+  "target_side_px_requested": 10,
+  "baseline_spot_fwhm_px": NaN,
+  "path_blocked": false,
+  "spot_assessment": {
+    "usable": true,
+    "blocked": false,
+    "peak": 28.25,
+    "excess": 28.25,
+    "noise": 0.12744951601249802,
+    "fwhm_px": 13.78012082891815,
+    "frame_px": 248,
+    "fill": 0.7954545454545454,
+    "span_fraction": 0.06451612903225806,
+    "hollowness": 0.8948672566371682,
+    "reason": "光斑可用"
+  },
+  "slm_number": 1,
+  "cam_id": 0,
+  "cam_type": "daheng",
+  "protected_memory_slot": 57,
+  "defocus_focal_mm": 1549.332046,
+  "chirp_tilt_cancel": false,
+  "chirp_tilt_cal_dz_mm": 2.0,
+  "chirp_tilt_test_period_px": 1000,
+  "chirp_tilt_enabled": false,
+  "chirp_tilt_raw_shift_px_per_mm": null,
+  "chirp_tilt_residual_shift_px_per_mm": null,
+  "chirp_tilt_axis_map": null,
+  "chirp_tilt_note": "未启用 (--chirp-tilt-cancel 未给)"
+}

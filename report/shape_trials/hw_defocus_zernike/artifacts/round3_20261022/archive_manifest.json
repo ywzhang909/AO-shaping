@@ -1,0 +1,1173 @@
+{
+  "round": "round3_20261022",
+  "archived_utc": "2026-10-22T08:25:28+00:00",
+  "generator": "scripts/slm/archive_hw_defocus_round.py",
+  "sources": {
+    "groups_root": "data/debug/hw_groups_20261022",
+    "sweep_root": "data/debug/hw_zernike_sweep_20261022",
+    "focus_dir": "data/debug/hw_groups_20261022/focus_calibration",
+    "plan": "data/debug/hw_groups_20261022/plan.json"
+  },
+  "destination": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022",
+  "archived_files": [
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_noise_hw_gs/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.csv",
+      "category": "分组记录",
+      "bytes": 3141,
+      "source_mtime": "2026-10-22T08:05:28+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_noise_hw_gs/measurements.json",
+      "source": "data/debug/hw_groups_20261022/dz_noise_hw_gs/measurements.json",
+      "category": "分组记录",
+      "bytes": 9213,
+      "source_mtime": "2026-10-22T08:05:28+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_noise_hw_gs/run_config.json",
+      "source": "data/debug/hw_groups_20261022/dz_noise_hw_gs/run_config.json",
+      "category": "分组记录",
+      "bytes": 13911,
+      "source_mtime": "2026-10-22T08:05:19+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_hw_gs/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.csv",
+      "category": "分组记录",
+      "bytes": 11277,
+      "source_mtime": "2026-10-22T08:06:28+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_hw_gs/measurements.json",
+      "source": "data/debug/hw_groups_20261022/dz_scan_hw_gs/measurements.json",
+      "category": "分组记录",
+      "bytes": 26363,
+      "source_mtime": "2026-10-22T08:06:28+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_hw_gs/run_config.json",
+      "source": "data/debug/hw_groups_20261022/dz_scan_hw_gs/run_config.json",
+      "category": "分组记录",
+      "bytes": 21092,
+      "source_mtime": "2026-10-22T08:06:00+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_model_gs/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.csv",
+      "category": "分组记录",
+      "bytes": 14170,
+      "source_mtime": "2026-10-22T08:07:57+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_model_gs/measurements.json",
+      "source": "data/debug/hw_groups_20261022/dz_scan_model_gs/measurements.json",
+      "category": "分组记录",
+      "bytes": 33141,
+      "source_mtime": "2026-10-22T08:07:57+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/dz_scan_model_gs/run_config.json",
+      "source": "data/debug/hw_groups_20261022/dz_scan_model_gs/run_config.json",
+      "category": "分组记录",
+      "bytes": 24186,
+      "source_mtime": "2026-10-22T08:07:20+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.csv",
+      "category": "分组记录",
+      "bytes": 938,
+      "source_mtime": "2026-10-22T08:10:22+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax11/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/measurements.json",
+      "category": "分组记录",
+      "bytes": 1834,
+      "source_mtime": "2026-10-22T08:10:22+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax11/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/run_config.json",
+      "category": "分组记录",
+      "bytes": 9598,
+      "source_mtime": "2026-10-22T08:10:20+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.csv",
+      "category": "分组记录",
+      "bytes": 940,
+      "source_mtime": "2026-10-22T08:10:48+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax15/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/measurements.json",
+      "category": "分组记录",
+      "bytes": 1836,
+      "source_mtime": "2026-10-22T08:10:48+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax15/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/run_config.json",
+      "category": "分组记录",
+      "bytes": 9597,
+      "source_mtime": "2026-10-22T08:10:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.csv",
+      "category": "分组记录",
+      "bytes": 941,
+      "source_mtime": "2026-10-22T08:11:16+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax20/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/measurements.json",
+      "category": "分组记录",
+      "bytes": 1837,
+      "source_mtime": "2026-10-22T08:11:16+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax20/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/run_config.json",
+      "category": "分组记录",
+      "bytes": 9598,
+      "source_mtime": "2026-10-22T08:11:15+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.csv",
+      "category": "分组记录",
+      "bytes": 935,
+      "source_mtime": "2026-10-22T08:11:46+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax25/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/measurements.json",
+      "category": "分组记录",
+      "bytes": 1831,
+      "source_mtime": "2026-10-22T08:11:46+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax25/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/run_config.json",
+      "category": "分组记录",
+      "bytes": 9595,
+      "source_mtime": "2026-10-22T08:11:44+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.csv",
+      "category": "分组记录",
+      "bytes": 940,
+      "source_mtime": "2026-10-22T08:08:27+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax3/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/measurements.json",
+      "category": "分组记录",
+      "bytes": 1836,
+      "source_mtime": "2026-10-22T08:08:27+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax3/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/run_config.json",
+      "category": "分组记录",
+      "bytes": 9573,
+      "source_mtime": "2026-10-22T08:08:26+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.csv",
+      "category": "分组记录",
+      "bytes": 939,
+      "source_mtime": "2026-10-22T08:08:56+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax4/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/measurements.json",
+      "category": "分组记录",
+      "bytes": 1835,
+      "source_mtime": "2026-10-22T08:08:56+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax4/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/run_config.json",
+      "category": "分组记录",
+      "bytes": 9587,
+      "source_mtime": "2026-10-22T08:08:54+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.csv",
+      "category": "分组记录",
+      "bytes": 943,
+      "source_mtime": "2026-10-22T08:09:25+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax6/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/measurements.json",
+      "category": "分组记录",
+      "bytes": 1839,
+      "source_mtime": "2026-10-22T08:09:25+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax6/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/run_config.json",
+      "category": "分组记录",
+      "bytes": 9588,
+      "source_mtime": "2026-10-22T08:09:23+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.csv",
+      "category": "分组记录",
+      "bytes": 939,
+      "source_mtime": "2026-10-22T08:09:53+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax8/measurements.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/measurements.json",
+      "category": "分组记录",
+      "bytes": 1835,
+      "source_mtime": "2026-10-22T08:09:53+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/zernike_farfield_nmax8/run_config.json",
+      "source": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/run_config.json",
+      "category": "分组记录",
+      "bytes": 9588,
+      "source_mtime": "2026-10-22T08:09:51+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/groups_manifest.json",
+      "source": "data/debug/hw_groups_20261022/groups_manifest.json",
+      "category": "分组索引",
+      "bytes": 149011,
+      "source_mtime": "2026-10-22T08:11:46+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/manifest.json",
+      "source": "data/debug/hw_groups_20261022/manifest.json",
+      "category": "分组索引",
+      "bytes": 5674,
+      "source_mtime": "2026-10-22T08:11:46+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/after_nmax11.png",
+      "category": "泽尼克记录",
+      "bytes": 131133,
+      "source_mtime": "2026-10-22T07:35:18+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/before_nmax11.png",
+      "category": "泽尼克记录",
+      "bytes": 130487,
+      "source_mtime": "2026-10-22T07:35:18+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/spgd_nmax11.csv",
+      "category": "泽尼克记录",
+      "bytes": 64712,
+      "source_mtime": "2026-10-22T07:35:18+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3030,
+      "source_mtime": "2026-10-22T07:35:18+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/after_nmax15.png",
+      "category": "泽尼克记录",
+      "bytes": 137287,
+      "source_mtime": "2026-10-22T07:52:19+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/before_nmax15.png",
+      "category": "泽尼克记录",
+      "bytes": 127953,
+      "source_mtime": "2026-10-22T07:52:19+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/spgd_nmax15.csv",
+      "category": "泽尼克记录",
+      "bytes": 63939,
+      "source_mtime": "2026-10-22T07:52:19+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3036,
+      "source_mtime": "2026-10-22T07:52:19+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/after_nmax20.png",
+      "category": "泽尼克记录",
+      "bytes": 130854,
+      "source_mtime": "2026-10-22T07:57:15+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/before_nmax20.png",
+      "category": "泽尼克记录",
+      "bytes": 130889,
+      "source_mtime": "2026-10-22T07:57:15+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/spgd_nmax20.csv",
+      "category": "泽尼克记录",
+      "bytes": 63783,
+      "source_mtime": "2026-10-22T07:57:14+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3039,
+      "source_mtime": "2026-10-22T07:57:15+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/after_nmax25.png",
+      "category": "泽尼克记录",
+      "bytes": 130422,
+      "source_mtime": "2026-10-22T08:04:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/before_nmax25.png",
+      "category": "泽尼克记录",
+      "bytes": 128348,
+      "source_mtime": "2026-10-22T08:04:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/spgd_nmax25.csv",
+      "category": "泽尼克记录",
+      "bytes": 63550,
+      "source_mtime": "2026-10-22T08:04:46+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3035,
+      "source_mtime": "2026-10-22T08:04:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/after_nmax3.png",
+      "category": "泽尼克记录",
+      "bytes": 129741,
+      "source_mtime": "2026-10-22T07:23:34+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/before_nmax3.png",
+      "category": "泽尼克记录",
+      "bytes": 119056,
+      "source_mtime": "2026-10-22T07:23:34+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/spgd_nmax3.csv",
+      "category": "泽尼克记录",
+      "bytes": 67314,
+      "source_mtime": "2026-10-22T07:23:34+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3041,
+      "source_mtime": "2026-10-22T07:23:34+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/after_nmax4.png",
+      "category": "泽尼克记录",
+      "bytes": 129265,
+      "source_mtime": "2026-10-22T07:26:22+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/before_nmax4.png",
+      "category": "泽尼克记录",
+      "bytes": 118720,
+      "source_mtime": "2026-10-22T07:26:22+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/spgd_nmax4.csv",
+      "category": "泽尼克记录",
+      "bytes": 66245,
+      "source_mtime": "2026-10-22T07:26:21+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3043,
+      "source_mtime": "2026-10-22T07:26:22+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/after_nmax6.png",
+      "category": "泽尼克记录",
+      "bytes": 131334,
+      "source_mtime": "2026-10-22T07:29:13+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/before_nmax6.png",
+      "category": "泽尼克记录",
+      "bytes": 130095,
+      "source_mtime": "2026-10-22T07:29:13+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/spgd_nmax6.csv",
+      "category": "泽尼克记录",
+      "bytes": 66108,
+      "source_mtime": "2026-10-22T07:29:13+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3023,
+      "source_mtime": "2026-10-22T07:29:13+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/after_nmax8.png",
+      "category": "泽尼克记录",
+      "bytes": 131748,
+      "source_mtime": "2026-10-22T07:32:07+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/before_nmax8.png",
+      "category": "泽尼克记录",
+      "bytes": 130097,
+      "source_mtime": "2026-10-22T07:32:07+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/spgd_nmax8.csv",
+      "category": "泽尼克记录",
+      "bytes": 68210,
+      "source_mtime": "2026-10-22T07:32:07+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 3027,
+      "source_mtime": "2026-10-22T07:32:07+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1368,
+      "source_mtime": "2026-10-22T06:58:57+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1888,
+      "source_mtime": "2026-10-22T06:58:57+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1435,
+      "source_mtime": "2026-10-22T07:01:53+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1954,
+      "source_mtime": "2026-10-22T07:01:53+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1435,
+      "source_mtime": "2026-10-22T07:04:49+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1954,
+      "source_mtime": "2026-10-22T07:04:49+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1435,
+      "source_mtime": "2026-10-22T07:07:45+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1954,
+      "source_mtime": "2026-10-22T07:07:45+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1435,
+      "source_mtime": "2026-10-22T07:10:40+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1954,
+      "source_mtime": "2026-10-22T07:10:40+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1434,
+      "source_mtime": "2026-10-22T07:11:33+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1953,
+      "source_mtime": "2026-10-22T07:11:33+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.json",
+      "category": "泽尼克记录",
+      "bytes": 1437,
+      "source_mtime": "2026-10-22T07:20:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json",
+      "source": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/summary.json",
+      "category": "泽尼克记录",
+      "bytes": 1956,
+      "source_mtime": "2026-10-22T07:20:47+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/focus_calibration/slm1_20261022_105213.json",
+      "source": "data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_105213.json",
+      "category": "焦面标定",
+      "bytes": 34665,
+      "source_mtime": "2026-10-22T02:52:13+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/focus_calibration/slm1_20261022_115811.json",
+      "source": "data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_115811.json",
+      "category": "焦面标定",
+      "bytes": 33647,
+      "source_mtime": "2026-10-22T03:58:11+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/focus_calibration/slm1_20261022_142207.json",
+      "source": "data/debug/hw_groups_20261022/focus_calibration/slm1_20261022_142207.json",
+      "category": "焦面标定",
+      "bytes": 33505,
+      "source_mtime": "2026-10-22T06:22:07+00:00"
+    },
+    {
+      "path": "report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022/hw_groups_20261022/plan.json",
+      "source": "data/debug/hw_groups_20261022/plan.json",
+      "category": "采集计划",
+      "bytes": 39790,
+      "source_mtime": "2026-10-22T06:24:06+00:00"
+    }
+  ],
+  "skipped_files": [
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_002.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_003.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_004.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_005.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_006.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_007.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_008.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/frame_009.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_noise_hw_gs/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_002.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_003.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_004.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_005.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_006.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_007.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_008.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_009.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_010.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_011.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_012.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_013.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_014.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_015.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_016.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_017.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_018.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_019.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_020.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_021.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_022.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/frame_023.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_hw_gs/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_002.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_003.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_004.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_005.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_006.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_007.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_008.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_009.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_010.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_011.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_012.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_013.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_014.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_015.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_016.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_017.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_018.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_019.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_020.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_021.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_022.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_023.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_024.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_025.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_026.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_027.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_028.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/frame_029.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/dz_scan_model_gs/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax11/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax15/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax20/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax25/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax3/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax4/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax6/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_000.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/frame_001.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_groups_20261022/zernike_farfield_nmax8/hw_summary.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/best_phase_nmax11.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/fit_coefficients_nmax11.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax11/phase_nmax11.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/best_phase_nmax15.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/fit_coefficients_nmax15.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax15/phase_nmax15.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/best_phase_nmax20.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/fit_coefficients_nmax20.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax20/phase_nmax20.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/best_phase_nmax25.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/fit_coefficients_nmax25.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax25/phase_nmax25.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/best_phase_nmax3.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/fit_coefficients_nmax3.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax3/phase_nmax3.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/best_phase_nmax4.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/fit_coefficients_nmax4.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax4/phase_nmax4.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/best_phase_nmax6.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/fit_coefficients_nmax6.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax6/phase_nmax6.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_flat.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/baseline_gs_freeform.png",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/best_phase_nmax8.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/fit_coefficients_nmax8.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_order_nmax8/phase_nmax8.npy",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_1/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_2/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_3/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_4/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_5/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_6/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/zernike_stage_a_7/stage_a.npz",
+      "reason": "组目录内未列入白名单的文件"
+    },
+    {
+      "path": "data/debug/hw_zernike_sweep_20261022/manifest.json",
+      "reason": "扫描根内未列入白名单的文件"
+    }
+  ],
+  "missing_groups": [],
+  "empty_groups": [],
+  "unplanned_groups": [],
+  "missing_index_files": [],
+  "plan_archived": true,
+  "archived_file_count": 85
+}
