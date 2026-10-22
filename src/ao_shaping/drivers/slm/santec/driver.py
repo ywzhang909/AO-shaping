@@ -3,6 +3,23 @@
 提供对Santec系列空间光调制器(SLM-200/SLM-300 等)的控制接口，
 支持相位图显示、波长设置、内存模式等功能。
 
+🔴 **采集实验开始前必须断言驱动板健康** (2026-10-22 实测确认的静默失效)
+--------------------------------------------------------------------------
+Santec 控制器上有驱动板 (Drive board) 与选板 (Option board) 两块板, 各有一个
+ID, 二者属于**同一台**设备。只有驱动板应答才说明面板驱动链路在线 ——
+2026-10-22 15:33 的实验里驱动板不应答、只剩选板应答, 驱动**静默回退**到选板
+ID 当设备身份, 于是整轮实验在面板根本不调制 (离焦响应落在噪声级) 的状态下跑
+完, 数据全无效却没有任何报错, 还被误读成光路故障。
+
+因此本模块提供:
+  - :meth:`Santec.serial_source` —— 区分身份来源 (``driveboard`` /
+    ``driveboard_readsd`` / ``optionboard_fallback`` / ``None``);
+  - :meth:`Santec.check_drive_board` —— 只读健康检查 (不改设备状态);
+  - :meth:`Santec.require_drive_board` —— **显式断言**, 采集实验开始前调用,
+    驱动板不应答时抛 :class:`SLMDriveBoardError`;
+  - :meth:`Santec.open` 本身**不抛** (保守策略: 不打断既有流程), 只记录
+    warning 级日志与可查询的健康状态 (:meth:`Santec.drive_board_status`)。
+
 智能体 Wiki: docs/slm-200/agent_wiki.md
 """
 
@@ -16,7 +33,7 @@ import random
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Self
+from typing import Any, Callable, Literal, Self
 
 import numpy as np
 import numpy.typing as npt
@@ -64,6 +81,30 @@ MAX_PIXEL_FLIP_TIME_S = MAX_PIXEL_FLIP_TIME_MS / 1000.0
 # 跨进程重启仍有效)。原 ``utils/slm_slot`` 模块已合并到此处。
 SLOT_MIN: int = 2
 SLOT_MAX: int = 125
+
+# ── 设备身份来源 (canonical identity source) ───────────────────────────────
+# Santec SLM-200 控制器上有驱动板 (Drive board) 与选板 (Option board) 两块板,
+# 各自带一个 ID —— 二者是**同一台**设备的两个 ID, 但只有驱动板负责给 LCOS
+# 面板施加驱动电压。
+#
+# SDK 语义 (docs/slm-200/SLMFuncDLL_Programmer's_Guide(v2.5).md §3.2.41-3.2.43):
+#   - ``SLM_Ctrl_ReadSDO``: 一次读两块板的 ID, **两块都成功才返回 SLM_OK**;
+#   - ``SLM_Ctrl_ReadSD``: 只读驱动板 ID;
+#   - ``SLM_Ctrl_ReadSO``: 只读选板 ID。
+# 于是 "ReadSDO 失败 + ReadSD 失败 + ReadSO 成功" 就是**驱动板不应答**的
+# 确证 (2026-10-22 15:33 实测: 此时面板完全不调制, 而驱动此前会静默把选板
+# ID 当设备身份, 整轮实验数据无效且无任何报错)。
+SERIAL_SOURCE_DRIVEBOARD = "driveboard"
+SERIAL_SOURCE_DRIVEBOARD_READSD = "driveboard_readsd"
+SERIAL_SOURCE_OPTIONBOARD_FALLBACK = "optionboard_fallback"
+
+SerialSource = Literal["driveboard", "driveboard_readsd", "optionboard_fallback"]
+
+#: 视为 canonical 身份的来源 (驱动板 ID 确实读到了)。
+CANONICAL_SERIAL_SOURCES: tuple[SerialSource, ...] = (
+    SERIAL_SOURCE_DRIVEBOARD,
+    SERIAL_SOURCE_DRIVEBOARD_READSD,
+)
 
 
 def apply_lut_remap(
@@ -229,6 +270,47 @@ class SantecError(Exception):
             super().__init__(message)
 
 
+class SLMDriveBoardError(SantecError):
+    """驱动板 (Drive board) 不应答 —— 面板很可能不调制。
+
+    抛出时机: :meth:`Santec.require_drive_board` 的显式断言失败 (采集实验
+    开始前调用)。继承 :class:`SantecError`, 因此既有的
+    ``except SantecError`` 仍然兜得住。
+
+    含义 (2026-10-22 实测确认):
+      Santec 控制器上驱动板与选板各有一个 ID, 二者属于同一台设备。读不到驱动
+      板 ID 而只读到选板 ID ⇒ 驱动板不应答 ⇒ 面板不调制 ⇒ 下发的相位不产生
+      任何远场变化, 采集到的是未调制的整束光。此时数据无效, 且现象 (光斑不
+      响应、光路"看起来"正常) 极易被误读成光路故障。
+
+    处置: 给 SLM 控制器**物理断电重置**后再采集 (USB 句柄被抢占中途掉线的
+    常规处置, 见 ``drivers/slm/AGENTS.md``)。
+    """
+
+
+@dataclass(frozen=True)
+class DriveBoardStatus:
+    """驱动板健康检查结果 (只读)。
+
+    Attributes:
+        ok: 驱动板 ID 是否可读 (True = 面板驱动链路在线)。
+        drive_board_id: 读到的驱动板 ID; 不可读时为 None。
+        option_board_id: 读到的选板 ID (仅在驱动板不可读时用于诊断)。
+        source: 身份来源, 与 :meth:`Santec.serial_source` 同义。
+        detail: 人类可读的判定说明。
+    """
+
+    ok: bool
+    drive_board_id: str | None = None
+    option_board_id: str | None = None
+    source: SerialSource | None = None
+    detail: str = ""
+
+    def __bool__(self) -> bool:
+        """``bool(status)`` 等价于 ``status.ok``。"""
+        return self.ok
+
+
 def _is_retryable_santec_error(exception) -> bool:
     """判断某个异常对 SLM 操作是否可重试。
 
@@ -384,6 +466,11 @@ class Santec:
 
         # 设备序列号（open后获取）
         self._serial_number: str | None = None
+        # 身份来源 (最近一次板 ID 读取的结果): "driveboard" /
+        # "driveboard_readsd" / "optionboard_fallback" / None
+        self._serial_source: SerialSource | None = None
+        # 最近一次驱动板健康检查结果 (open() 或 check_drive_board() 之后)
+        self._drive_board_status: DriveBoardStatus | None = None
 
         # 波前误差矫正工具（从CSV加载，在create_phase_from_array中叠加）
         # 文件有效性由 WavefrontCorrection.__init__ 内部判断
@@ -611,6 +698,22 @@ class Santec:
             logger.warning(f"无法读取SLM标识: {e}")
             self._serial_number = None
 
+        # 记录驱动板健康状态 (只读检查)。open() **不抛异常** —— 保守策略:
+        # 驱动板不应答时面板不调制, 但打断既有流程比拿到一条无效数据更糟;
+        # 因此这里只记 warning 级日志 + 可查询的状态, 由上层在采集实验开始前
+        # 显式调用 require_drive_board() 断言 (2026-10-22 静默失效的修复入口)。
+        try:
+            self.check_drive_board()
+        except Exception as e:  # pragma: no cover - 防御性: 健康检查不应影响打开
+            logger.debug(f"SLM #{self.slm_number} 驱动板健康检查失败: {e}")
+        if self._drive_board_status is not None and not self._drive_board_status.ok:
+            logger.warning(
+                f"SLM #{self.slm_number} 驱动板 (Drive board) 应答异常: "
+                f"{self._drive_board_status.detail} "
+                f"⇒ 面板很可能不调制; 采集实验开始前请调用 require_drive_board() 断言, "
+                f"否则数据无效且会被误读成光路故障"
+            )
+
         # 如果 board ID 为空，尝试读取产品序列号作为备用标识
         if not self._serial_number:
             try:
@@ -701,6 +804,12 @@ class Santec:
         2. SLM_Ctrl_ReadSD 读取 Drive board ID
         3. SLM_Ctrl_ReadSO 读取 Option board ID
 
+        ⚠️ 第 3 步是**回退**: 选板 (Option board) ID 不是 canonical 身份 ——
+        只读到选板 ID 说明**驱动板不应答**, 面板很可能不调制 (2026-10-22 实测:
+        此时整轮实验在面板不调制下跑完, 数据全无效却无任何报错)。因此这里
+        额外打 warning 级日志, 并把来源记进 :meth:`serial_source`; 采集实验
+        开始前请用 :meth:`require_drive_board` 显式断言。
+
         Args:
             timeout: 已弃用（保留参数兼容旧调用）。
 
@@ -709,6 +818,129 @@ class Santec:
         """
         self._ensure_open()
 
+        serial, source = self._read_identity()
+        self._serial_source = source
+
+        if source == SERIAL_SOURCE_OPTIONBOARD_FALLBACK:
+            logger.warning(
+                f"SLM #{self.slm_number} 驱动板 (Drive board) ID 读不到, "
+                f"只拿到选板 (Option board) ID={serial} "
+                f"⇒ 面板很可能不可驱动 (不调制), 采集到的数据无效; "
+                f"需要给 SLM 控制器物理断电重置"
+            )
+        elif source is None:
+            logger.warning(f"SLM #{self.slm_number} 无法读取设备标识")
+
+        return serial
+
+    def serial_source(self) -> SerialSource | None:
+        """返回当前设备身份的来源 (最近一次板 ID 读取的结果)。
+
+        Returns:
+            - ``"driveboard"``: ReadSDO 读到驱动板 ID —— canonical 身份;
+            - ``"driveboard_readsd"``: ReadSDO 没给出驱动板 ID, 但 ReadSD
+              (只读驱动板) 读到 —— 仍是 canonical 身份;
+            - ``"optionboard_fallback"``: **只**读到选板 ID —— 非 canonical,
+              驱动板多半不应答, 面板很可能不调制;
+            - ``None``: 三路都读不到板 ID (尚未 open() 或设备完全无应答)。
+        """
+        return self._serial_source
+
+    def drive_board_status(self) -> DriveBoardStatus | None:
+        """返回最近一次记录的驱动板健康状态。
+
+        记录时机: :meth:`open` 与 :meth:`check_drive_board` 之后。从未检查过时
+        返回 None。
+        """
+        return self._drive_board_status
+
+    def check_drive_board(self) -> DriveBoardStatus:
+        """只读健康检查: 驱动板 (Drive board) ID 是否可读。
+
+        只调用三路板 ID 读取接口, 不下发任何显示/配置命令, **不改变设备状态**。
+
+        判定依据 (SDK 语义, docs/slm-200/SLMFuncDLL_Programmer's_Guide(v2.5).md
+        §3.2.41-3.2.43): ``SLM_Ctrl_ReadSDO`` 一次读两块板的 ID 且**两块都成功
+        才返回 SLM_OK**; ``SLM_Ctrl_ReadSD`` 只读驱动板 ID。因此
+        "ReadSDO 失败 + ReadSD 失败" 即可判定**驱动板不应答** (与选板是否应答
+        无关), 而选板 ID 仍能读到 (ReadSO 成功) 只是说明 USB 链路没全断。
+
+        Returns:
+            DriveBoardStatus: ``ok=True`` 表示驱动板 ID 可读 (面板驱动链路在线)。
+        """
+        self._ensure_open()
+
+        serial, source = self._read_identity()
+        ok = source in CANONICAL_SERIAL_SOURCES
+        if ok:
+            status = DriveBoardStatus(
+                ok=True,
+                drive_board_id=serial,
+                option_board_id=None,
+                source=source,
+                detail=f"驱动板 ID 可读: {serial} (来源 {source})",
+            )
+        else:
+            option_id = serial if source == SERIAL_SOURCE_OPTIONBOARD_FALLBACK else None
+            if option_id:
+                detail = f"驱动板 ID 读不到, 只读到选板 ID={option_id}"
+            else:
+                detail = "驱动板 ID 与选板 ID 都读不到"
+            status = DriveBoardStatus(
+                ok=False,
+                drive_board_id=None,
+                option_board_id=option_id,
+                source=source,
+                detail=detail,
+            )
+
+        self._drive_board_status = status
+        return status
+
+    def require_drive_board(self) -> str:
+        """显式断言驱动板健康 —— **采集实验开始前**调用。
+
+        与 :meth:`check_drive_board` 的区别: 本方法在失败时**抛异常**, 供上层
+        在开始采集前硬拦截 (否则面板不调制, 数据无效, 且极易被误读成光路故障)。
+
+        Returns:
+            驱动板 ID 字符串。
+
+        Raises:
+            SLMDriveBoardError: 驱动板 ID 读不到 (面板很可能不调制)。
+        """
+        status = self.check_drive_board()
+        if status.ok and status.drive_board_id:
+            return status.drive_board_id
+        raise SLMDriveBoardError(self._drive_board_error_message(status))
+
+    def _drive_board_error_message(self, status: DriveBoardStatus) -> str:
+        """构造驱动板不应答的异常消息 (要点齐全, 便于直接贴进实验记录)。"""
+        option_id = status.option_board_id
+        if option_id:
+            seen = f"只读到选板 (Option board) ID={option_id}"
+        else:
+            seen = "选板 (Option board) ID 也读不到"
+        return (
+            f"SLM #{self.slm_number} 驱动板 (Drive board) 不应答: "
+            f"驱动板 ID 读不到, {seen} "
+            f"⇒ 面板很可能不调制 (未调制的整束光直接打到相机), "
+            f"此时采集到的数据无效且会被误读成光路故障; "
+            f"需要给 SLM 控制器物理断电重置后再采集"
+        )
+
+    def _read_identity(self) -> tuple[str | None, SerialSource | None]:
+        """按 SDK 语义依次尝试三路板 ID 读取, 返回 (标识, 来源)。
+
+        回退链 (每一步都留 debug 日志, 便于事后从日志复盘身份来源):
+          1. ``SLM_Ctrl_ReadSDO`` —— 一次读驱动板+选板 ID, 全成功才返回 SLM_OK;
+          2. ``SLM_Ctrl_ReadSD``  —— 只读驱动板 ID;
+          3. ``SLM_Ctrl_ReadSO``  —— 只读选板 ID (**非 canonical**)。
+
+        "ReadSDO 失败 + ReadSD 失败 + ReadSO 成功" 说明**驱动板不应答**:
+        此时若静默把选板 ID 当设备身份, 面板其实不调制, 整轮实验数据无效
+        (2026-10-22 15:33 实测)。
+        """
         drive_id = ctypes.create_string_buffer(16)
         option_id = ctypes.create_string_buffer(16)
 
@@ -717,11 +949,11 @@ class Santec:
             serial = drive_id.value.decode("utf-8").strip()
             if serial:
                 logger.debug(f"SLM #{self.slm_number} driveboardID: {serial}")
-                return serial
+                return serial, SERIAL_SOURCE_DRIVEBOARD
             serial = option_id.value.decode("utf-8").strip()
             if serial:
                 logger.debug(f"SLM #{self.slm_number} optionboardID: {serial}")
-                return serial
+                return serial, SERIAL_SOURCE_OPTIONBOARD_FALLBACK
 
         device_id = ctypes.create_string_buffer(16)
         ret = self._slm.SLM_Ctrl_ReadSD(self.slm_number, device_id)
@@ -729,7 +961,7 @@ class Santec:
             serial = device_id.value.decode("utf-8").strip()
             if serial:
                 logger.debug(f"SLM #{self.slm_number} driveboardID(ReadSD): {serial}")
-                return serial
+                return serial, SERIAL_SOURCE_DRIVEBOARD_READSD
 
         option_only = ctypes.create_string_buffer(16)
         ret = self._slm.SLM_Ctrl_ReadSO(self.slm_number, option_only)
@@ -737,10 +969,9 @@ class Santec:
             serial = option_only.value.decode("utf-8").strip()
             if serial:
                 logger.debug(f"SLM #{self.slm_number} optionboardID(ReadSO): {serial}")
-                return serial
+                return serial, SERIAL_SOURCE_OPTIONBOARD_FALLBACK
 
-        logger.warning(f"SLM #{self.slm_number} 无法读取设备标识")
-        return None
+        return None, None
 
     def get_product_serial_number(self, board: int = 0) -> str | None:
         """读取产品序列号（标签上的 12 位数字）。
@@ -811,15 +1042,26 @@ class Santec:
     def get_device_info(self) -> dict[str, Any]:
         """收集所有可用的设备标识信息。
 
+        ⚠️ ``driveboard_id`` 只在**驱动板确实应答**时才有值; 身份回退到选板
+        ID 时它是 None, 选板 ID 记在 ``optionboard_id``, 回退事实记在
+        ``serial_source`` (2026-10-22 实测: 把选板 ID 当成 driveboard_id 写进
+        实验报告, 会把一台不调样的设备记成正常设备)。
+
         Returns:
-            包含 driveboard_id, optionboard_id, product_serial,
-            lcos_serial, display_name, version 的字典
+            包含 driveboard_id, optionboard_id, serial_source, identity_id,
+            product_serial, lcos_serial, display_name, version 的字典
         """
         info: dict[str, Any] = {}
         try:
-            info["driveboard_id"] = self.get_serial_number()
+            status = self.check_drive_board()
+            info["driveboard_id"] = status.drive_board_id
         except Exception as e:
             logger.debug(f"读取 driveboard_id 失败: {e}")
+            info["driveboard_id"] = None
+
+        # 身份来源与当前持有的标识 (可能是回退到选板 ID 的)
+        info["serial_source"] = self._serial_source
+        info["identity_id"] = self._serial_number
 
         try:
             info["optionboard_id"] = self._read_option_id()
@@ -1607,15 +1849,34 @@ class Santec:
 
         return np.mod(grayscale, max_grayscale).astype(np.uint16)
 
+    def _config_identity(self) -> str | None:
+        """返回用于配置读写的设备键。
+
+        身份来自选板回退时返回 None —— **不按回退 ID 存取配置**:
+        选板 ID 与驱动板 ID 是同一台设备的两个 ID, 拿它当配置键会把同一台设备
+        拆成两份互不一致的配置 (2026-10-22 实测误建
+        ``data/slm_configs/slm/23020027.json``)。驱动板恢复应答后, 配置会回到
+        canonical 的驱动板 ID 上。
+        """
+        if self._serial_source == SERIAL_SOURCE_OPTIONBOARD_FALLBACK:
+            return None
+        return self._serial_number
+
     def load_config(self) -> dict:
         """加载当前设备的配置文件
 
         Returns:
             配置字典；无序列号或文件不存在时返回空字典
         """
-        if not self._serial_number:
+        key = self._config_identity()
+        if not key:
+            if self._serial_source == SERIAL_SOURCE_OPTIONBOARD_FALLBACK:
+                logger.warning(
+                    f"SLM #{self.slm_number} 身份来自选板 (Option board) ID, "
+                    f"跳过配置加载 (不按回退 ID 存取配置)"
+                )
             return {}
-        return SLM_CONFIG._manager.load_config(self._serial_number)
+        return SLM_CONFIG._manager.load_config(key)
 
     def save_config(self) -> None:
         """将当前参数保存到JSON配置文件
@@ -1625,9 +1886,15 @@ class Santec:
         同时记录矫正文件的启用状态与当前生效路径，使下次启动时
         保持与上次一致的矫正行为。
         """
-        serial = self._serial_number
+        serial = self._config_identity()
         if not serial:
-            logger.warning("未获取到序列号，跳过配置保存")
+            if self._serial_source == SERIAL_SOURCE_OPTIONBOARD_FALLBACK:
+                logger.warning(
+                    f"SLM #{self.slm_number} 身份来自选板 (Option board) ID, "
+                    f"跳过配置保存 (不按回退 ID 建配置)"
+                )
+            else:
+                logger.warning("未获取到序列号，跳过配置保存")
             return
 
         # 从现有配置文件加载（保留 correction_csv_path 等额外字段）
