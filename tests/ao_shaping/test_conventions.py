@@ -34,6 +34,7 @@ What each guard is for, and why a plain grep is not enough:
   The policy lives in ``tests/conftest.py``; the guard below pins both the var
   set and its position *above* the first native import, which is the part that
   silently rots when someone tidies the imports.
+
 """
 
 from __future__ import annotations
@@ -125,6 +126,15 @@ def _module_inventory() -> dict[str, tuple[bool, bool]]:
             for node in ast.walk(tree)
         )
         out[rel] = ("__main__" in text, has_click)
+        if path.name == "__main__.py":
+            # `python -m <package>` resolves through the package's `__main__.py`;
+            # the package's own `__init__.py` holds no entry point and says nothing
+            # about one. Without this, a package that is genuinely runnable reads as
+            # dead -- and the substring test above only passes by accident when
+            # `__init__.py` happens to mention `__main__` in prose.
+            pkg = rel[: -len(".__main__")]
+            had_main, had_click = out.get(pkg, (False, False))
+            out[pkg] = (True, had_click or has_click)
     return out
 
 
@@ -307,6 +317,38 @@ def test_the_baseline_has_not_grown_and_is_still_justified() -> None:
     )
     for mod, reason in _ALLOWED_UNRESOLVED.items():
         assert reason and not reason.startswith("TBD"), f"{mod} has no justification"
+
+
+def test_a_package_may_resolve_only_through_its_main_module() -> None:
+    """A package is runnable through ``__main__.py``, not through a mention.
+
+    ``diffraction_efficiency`` is the case that broke the old rule: its
+    ``__init__.py`` neither says ``__main__`` nor declares a click command, so the
+    inventory read a package that ``python -m`` genuinely runs as dead, and every
+    document naming it failed. The reverse hazard is just as real -- a package
+    whose ``__init__.py`` merely *mentions* ``__main__`` in prose resolves for the
+    wrong reason. Pinning both directions keeps the ``__main__.py`` branch in
+    ``_module_inventory`` from being tidied away into dead code.
+    """
+    silent_packages = [
+        mod
+        for mod in INVENTORY
+        if (pkg := SRC / mod.replace(".", "/")).is_dir()
+        and (pkg / "__main__.py").is_file()
+        and (pkg / "__init__.py").is_file()
+        and "__main__"
+        not in (pkg / "__init__.py").read_text(encoding="utf-8-sig", errors="replace")
+    ]
+
+    assert silent_packages, (
+        "no package resolves through `__main__.py` alone; if that is genuinely "
+        "true the branch in _module_inventory is dead code and both it and this "
+        "test should go together"
+    )
+    unrunnable = [mod for mod in silent_packages if not any(INVENTORY[mod])]
+    assert not unrunnable, (
+        f"these packages have __main__.py but read as unrunnable: {unrunnable}"
+    )
 
 
 def test_the_reorganisation_stale_paths_are_gone_from_the_files_that_had_them() -> None:
