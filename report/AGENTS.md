@@ -37,7 +37,7 @@ report/<topic>/
 | 子目录 | 生成脚本 | 报告 |
 |--------|----------|------|
 | `gs_defocus_sim/` | `scripts/slm/generate_gs_defocus_sim_report.py` | `gs_defocus_sim_20261019.md` |
-| `hw_defocus_zernike/` | `scripts/slm/generate_hw_defocus_zernike_report.py` | `hw_defocus_zernike_20261020.md`、`hw_defocus_zernike_20261021.md` |
+| `hw_defocus_zernike/` | `scripts/slm/generate_hw_defocus_zernike_report.py` | `hw_defocus_zernike_20261020.md`、`hw_defocus_zernike_20261021.md`、`hw_defocus_zernike_20261022.md` |
 | `gs_golden_reference/` | `scripts/slm/generate_gs_golden_reference.py` | `gs_golden_reference.md` |
 | `gs_refine_fwdmodel/` | `scripts/slm/generate_gs_refine_fwdmodel_report.py` | `gs_refine_fwdmodel_calibration.md` |
 | `gs_refine_zernike/` | `scripts/slm/generate_gs_refine_zernike_report.py` | `gs_refine_zernike_uniformity.md` |
