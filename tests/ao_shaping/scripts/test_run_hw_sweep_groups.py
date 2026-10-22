@@ -11,7 +11,15 @@ pin is the one that makes the split worth anything:
   written **after every group**, so a hard kill still leaves the completed
   groups indexed.
 
-No hardware is touched: the plans here run ``sys.executable -c "..."``.
+Plus the two "somebody else is holding the device" contracts (2026-10-21/22):
+
+* **device unavailable** (SLM not plugged in / already opened by another
+  process / camera taken) **aborts the round** instead of burning every group;
+* ``--wait-until-idle`` waits for the device to free up, ``--resume`` picks up
+  where the previous (aborted) round stopped.
+
+No hardware is touched: the plans here run ``sys.executable -c "..."``, and the
+device probe is a **fake probe** (a script printing a canned verdict).
 """
 
 from __future__ import annotations
@@ -24,10 +32,18 @@ import pytest
 
 from scripts.slm.run_hw_sweep_groups import (
     GROUPS_MANIFEST_NAME,
+    KIND_CAMERA_BUSY,
+    KIND_SLM_ABSENT,
+    KIND_SLM_BUSY,
+    PROBE_IDLE,
     build_argv,
     check_adopt_dir,
+    classify_device_unavailable,
+    classify_probe_setup_error,
     main,
+    parse_probe_output,
     resolve_specs,
+    wait_until_idle,
 )
 
 
@@ -404,3 +420,433 @@ class TestHelpers:
             ["b"],
         )
         assert [s.group for s in specs] == ["b"]
+
+
+# ---------------------------------------------------------------------------
+# 设备不可用的判别 (2026-10-21 18:23 实测: 27 组在 100 s 内全灭)
+# ---------------------------------------------------------------------------
+#: 实测到的 SLM 异常文本 (USB 断开) —— 逐字取自失败轮的索引。
+SLM_ABSENT_STDERR = (
+    "Traceback (most recent call last):\n"
+    "  File \"scripts/slm/hw_gs_defocus_probe.py\", line 1617, in run_execute\n"
+    "    with guarded(\"SLM 打开\", lambda: open_slm(params), timeout_s=OPEN_TIMEOUT_S) as slm:\n"
+    "ao_shaping.drivers.slm.santec.driver.SantecError: 无法打开SLM #1 "
+    "(错误码: -10002, 未找到USB设备，请检查设备电源和连接)\n"
+)
+
+#: 实测到的 SLM 异常文本 (被别的进程占着) —— 2026-10-22 09:03。
+SLM_BUSY_STDERR = (
+    "ao_shaping.drivers.slm.santec.driver.SantecError: 无法打开SLM #1 "
+    "(错误码: -10003, USB设备已打开)\n"
+)
+
+
+class TestClassifyDeviceUnavailable:
+    """「设备不可用」必须分四类 —— 处置不同 (要人插拔 vs 等一会儿)。"""
+
+    def test_slm_absent_is_not_waitable(self):
+        verdict = classify_device_unavailable(SLM_ABSENT_STDERR)
+        assert verdict is not None
+        assert verdict.kind == KIND_SLM_ABSENT
+        assert verdict.code == -10002
+        # 设备没插上 ⇒ 等是等不来的
+        assert not verdict.waitable
+        assert "重新插拔" in verdict.advice()
+
+    def test_slm_busy_is_waitable(self):
+        verdict = classify_device_unavailable(SLM_BUSY_STDERR)
+        assert verdict is not None
+        assert verdict.kind == KIND_SLM_BUSY
+        assert verdict.code == -10003
+        # 别人在用 ⇒ 等一会儿就好
+        assert verdict.waitable
+
+    def test_camera_busy_is_waitable(self):
+        verdict = classify_device_unavailable(
+            "AssertionError: camera not initialized"
+        )
+        assert verdict is not None
+        assert verdict.kind == KIND_CAMERA_BUSY
+        assert verdict.waitable
+
+    def test_ordinary_failure_is_not_device_unavailable(self):
+        assert classify_device_unavailable("Traceback: ValueError: bad config") is None
+        assert classify_device_unavailable("") is None
+
+    def test_the_last_error_wins(self):
+        text = SLM_ABSENT_STDERR + SLM_BUSY_STDERR
+        verdict = classify_device_unavailable(text)
+        assert verdict is not None
+        assert verdict.kind == KIND_SLM_BUSY
+
+    def test_the_error_code_alone_is_enough(self):
+        verdict = classify_device_unavailable("SantecError: 错误码 -10003")
+        assert verdict is not None
+        assert verdict.kind == KIND_SLM_BUSY
+
+
+class TestClassifyProbeSetupError:
+    """「探针自己没装好」必须与「设备被占」分开 (2026-10-21 空转 55 分钟)。"""
+
+    def test_missing_gxipy_is_a_setup_error(self):
+        reason = classify_probe_setup_error(
+            "NameError: name 'gx' is not defined"
+        )
+        assert reason is not None
+        assert "gxipy" in reason
+        assert "PYTHONPATH" in reason
+
+    def test_a_busy_device_is_not_a_setup_error(self):
+        assert classify_probe_setup_error(SLM_BUSY_STDERR) is None
+
+
+class TestParseProbeOutput:
+    """探针的输出协议。"""
+
+    def test_idle_line(self):
+        result = parse_probe_output("DEVICE_PROBE: idle\n")
+        assert result.status == PROBE_IDLE
+
+    def test_unavailable_line_with_kind_and_code(self):
+        result = parse_probe_output(
+            "DEVICE_PROBE_NOTE: SLM 的 USB 句柄已被别的进程打开\n"
+            "DEVICE_PROBE: unavailable kind=slm_busy code=-10003\n"
+        )
+        assert result.status == "unavailable"
+        assert result.kind == KIND_SLM_BUSY
+        assert result.code == -10003
+        assert "USB 句柄" in result.message
+
+    def test_no_verdict_at_all_is_broken(self):
+        result = parse_probe_output("", "boom")
+        assert result.status == "broken"
+
+
+class TestProbeMode:
+    """``--probe-devices``: 只探一次就退出 (探针本身不碰硬件, 这里也替换掉)。"""
+
+    def test_probe_mode_prints_the_protocol_line(self, monkeypatch, capsys):
+        from scripts.slm import run_hw_sweep_groups as driver
+
+        monkeypatch.setattr(
+            driver,
+            "probe_devices",
+            lambda **kwargs: driver.ProbeResult(status=driver.PROBE_IDLE),
+        )
+
+        rc = driver.main(["--probe-devices"])
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "DEVICE_PROBE: idle" in out
+
+    def test_probe_mode_reports_a_busy_device(self, monkeypatch, capsys):
+        from scripts.slm import run_hw_sweep_groups as driver
+
+        monkeypatch.setattr(
+            driver,
+            "probe_devices",
+            lambda **kwargs: driver.ProbeResult(
+                status=driver.PROBE_UNAVAILABLE,
+                kind=KIND_SLM_BUSY,
+                code=-10003,
+                message="SLM 的 USB 句柄已被别的进程打开",
+            ),
+        )
+
+        rc = driver.main(["--probe-devices"])
+
+        assert rc == 1
+        out = capsys.readouterr().out
+        assert "DEVICE_PROBE: unavailable kind=slm_busy code=-10003" in out
+
+    def test_a_missing_plan_is_a_usage_error(self, capsys):
+        assert main([]) == 2
+        assert "--plan" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# 假探针 (不碰硬件)
+# ---------------------------------------------------------------------------
+def _write_fake_probe(path: Path, body: str) -> Path:
+    """写一个假探针脚本 (打印既定的 DEVICE_PROBE 结论)。"""
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+def _busy_then_idle_probe(tmp_path: Path, busy_times: int = 1) -> Path:
+    """假探针: 前 ``busy_times`` 次报「被占」, 之后报「可用」。"""
+    counter = tmp_path / "probe_counter.txt"
+    body = (
+        "from pathlib import Path\n"
+        f"counter = Path({str(counter)!r})\n"
+        "n = int(counter.read_text()) if counter.exists() else 0\n"
+        "counter.write_text(str(n + 1))\n"
+        "if n < "
+        f"{busy_times}:\n"
+        "    print('DEVICE_PROBE: unavailable kind=slm_busy code=-10003')\n"
+        "else:\n"
+        "    print('DEVICE_PROBE: idle')\n"
+    )
+    return _write_fake_probe(tmp_path / "fake_probe_busy.py", body)
+
+
+def _always_busy_probe(tmp_path: Path) -> Path:
+    """假探针: 一直报「被占」。"""
+    return _write_fake_probe(
+        tmp_path / "fake_probe_always_busy.py",
+        "print('DEVICE_PROBE: unavailable kind=slm_busy code=-10003')\n",
+    )
+
+
+def _always_absent_probe(tmp_path: Path) -> Path:
+    """假探针: 一直报「设备没插上」。"""
+    return _write_fake_probe(
+        tmp_path / "fake_probe_absent.py",
+        "print('DEVICE_PROBE: unavailable kind=slm_absent code=-10002')\n",
+    )
+
+
+def _broken_probe(tmp_path: Path) -> Path:
+    """假探针: 自己坏了 (gxipy 不在 PYTHONPATH 里)。"""
+    return _write_fake_probe(
+        tmp_path / "fake_probe_broken.py",
+        "import sys\n"
+        "print(\"NameError: name 'gx' is not defined\", file=sys.stderr)\n"
+        "sys.exit(1)\n",
+    )
+
+
+class TestWaitUntilIdle:
+    """``--wait-until-idle``: 被占就等, 空出来再开跑。"""
+
+    def test_waits_until_the_device_is_free(self, tmp_path, capsys):
+        probe = _busy_then_idle_probe(tmp_path, busy_times=1)
+
+        code, _reason = wait_until_idle(
+            30.0,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+        )
+
+        assert code == 0
+        out = capsys.readouterr().out
+        assert "设备被占" in out
+        assert "设备可用" in out
+
+    def test_gives_up_after_the_timeout(self, tmp_path, capsys):
+        probe = _always_busy_probe(tmp_path)
+
+        code, reason = wait_until_idle(
+            0.2,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+        )
+
+        assert code == 1
+        assert reason
+        err = capsys.readouterr().err
+        assert "仍拿不到设备" in err
+
+    def test_a_missing_device_does_not_wait(self, tmp_path, capsys):
+        """-10002 (没插上) 等不来 ⇒ 立刻报错, 不空等。"""
+        probe = _always_absent_probe(tmp_path)
+
+        code, _reason = wait_until_idle(
+            600.0,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+        )
+
+        assert code == 1
+        err = capsys.readouterr().err
+        assert "等不来" in err
+
+    def test_a_broken_probe_stops_immediately(self, tmp_path, capsys):
+        """探针自己坏了 ⇒ 立刻报错 (不能当成「相机被占」去空等)。"""
+        probe = _broken_probe(tmp_path)
+
+        code, reason = wait_until_idle(
+            600.0,
+            probe_cmd=[sys.executable, str(probe)],
+            poll_s=0.05,
+        )
+
+        assert code == 2
+        assert "gxipy" in reason
+        err = capsys.readouterr().err
+        assert "探针自己坏了" in err
+
+    def test_the_driver_waits_before_it_starts(self, tmp_path, capsys):
+        """端到端: ``--wait-until-idle`` 等到设备空出来, 然后才开跑。"""
+        probe = _busy_then_idle_probe(tmp_path, busy_times=1)
+        root = tmp_path / "groups"
+        plan = _write_plan(tmp_path / "plan.json", [_harmless("hello")], root)
+
+        rc = main(
+            [
+                "--plan",
+                str(plan),
+                "--wait-until-idle",
+                "30",
+                "--wait-poll-s",
+                "0.05",
+                "--device-probe-cmd",
+                json.dumps([sys.executable, str(probe)]),
+            ]
+        )
+
+        assert rc == 0
+        out = capsys.readouterr().out
+        assert "设备被占" in out
+        assert "设备可用" in out
+        assert _read_manifest(root)["groups"][0]["status"] == "ok"
+
+    def test_a_probe_that_cannot_start_is_broken(self, tmp_path, capsys):
+        """探针命令根本起不来 ⇒ 立刻报错, 不空等。"""
+        code, reason = wait_until_idle(
+            600.0,
+            probe_cmd=[str(tmp_path / "no_such_probe")],
+            poll_s=0.05,
+        )
+
+        assert code == 2
+        assert "探针" in reason
+
+
+class TestAbortOnDeviceUnavailable:
+    """设备不可用 ⇒ 中止整轮, 而不是把剩下的组也烧一遍。"""
+
+    def test_round_is_aborted_and_the_rest_is_skipped(self, tmp_path, capsys):
+        root = tmp_path / "groups"
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [
+                _harmless("boom", "import sys; sys.stderr.write(%r); sys.exit(1)"
+                          % SLM_ABSENT_STDERR),
+                _harmless("after"),
+                _harmless("after2"),
+            ],
+            root,
+        )
+
+        rc = main(["--plan", str(plan)])
+
+        assert rc != 0, "设备不可用时整轮要报失败"
+        groups = _read_manifest(root)["groups"]
+        assert [g["group"] for g in groups] == ["boom", "after", "after2"]
+        # 🔴 关键契约: 致命的那一组不是「failed」, 剩下的组不是「failed」而是 skipped
+        assert groups[0]["status"] == "device_unavailable"
+        assert groups[0]["device_unavailable"]["kind"] == KIND_SLM_ABSENT
+        assert groups[1]["status"] == "skipped"
+        assert groups[1]["skip_reason"] == "round_aborted"
+        assert groups[2]["status"] == "skipped"
+        err = capsys.readouterr().err
+        assert "设备不可用" in err
+        assert "--resume" in err
+
+    def test_an_ordinary_failure_still_lets_the_round_continue(self, tmp_path):
+        """「这一组坏了」≠「设备不可用」: 前者照常跑下一组 (原行为不变)。"""
+        root = tmp_path / "groups"
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [
+                _harmless("boom", "import sys; sys.stderr.write('ValueError: x'); sys.exit(3)"),
+                _harmless("after"),
+            ],
+            root,
+        )
+
+        rc = main(["--plan", str(plan)])
+
+        assert rc == 1
+        groups = _read_manifest(root)["groups"]
+        assert groups[0]["status"] == "failed"
+        assert groups[1]["status"] == "ok"
+
+
+class TestResume:
+    """``--resume``: 已经有产物的组不重跑, 依赖缺失的组一并跳过。"""
+
+    def test_groups_with_artefacts_are_adopted(self, tmp_path, capsys):
+        root = tmp_path / "groups"
+        done = root / "already"
+        done.mkdir(parents=True)
+        (done / "summary.json").write_text("{}", encoding="utf-8")
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [
+                {
+                    "group": "already",
+                    "variable": "none",
+                    "script": sys.executable,
+                    "args": ["-c", "import sys; sys.exit(9)"],
+                },
+                _harmless("fresh"),
+            ],
+            root,
+        )
+
+        rc = main(["--plan", str(plan), "--resume"])
+
+        assert rc == 0
+        groups = _read_manifest(root)["groups"]
+        assert groups[0]["status"] == "adopted"
+        assert groups[0]["argv"] == []
+        assert groups[1]["status"] == "ok"
+        assert "已有产物" in capsys.readouterr().out
+
+    def test_a_group_whose_upstream_is_missing_is_skipped(self, tmp_path, capsys):
+        """Stage A 的块之间有链: 上游缺产物 ⇒ 这一组不能跑。"""
+        root = tmp_path / "groups"
+        upstream = root / "block_1" / "stage_a.npz"
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [
+                {
+                    "group": "block_2",
+                    "variable": "chunk",
+                    "script": sys.executable,
+                    "args": [
+                        "-c",
+                        "print('should not run')",
+                        "--stage-a-in",
+                        str(upstream),
+                    ],
+                },
+            ],
+            root,
+        )
+
+        rc = main(["--plan", str(plan)])
+
+        assert rc == 0, "跳过的组不算失败"
+        record = _read_manifest(root)["groups"][0]
+        assert record["status"] == "skipped"
+        assert record["skip_reason"] == "missing_dependency"
+        out = capsys.readouterr().out
+        assert "因缺上游产物而跳过" in out
+        assert "block_1" in out
+
+    def test_a_group_whose_upstream_exists_runs(self, tmp_path):
+        root = tmp_path / "groups"
+        upstream = root / "block_1" / "stage_a.npz"
+        upstream.parent.mkdir(parents=True)
+        upstream.write_bytes(b"npz")
+        plan = _write_plan(
+            tmp_path / "plan.json",
+            [
+                {
+                    "group": "block_2",
+                    "variable": "chunk",
+                    "script": sys.executable,
+                    "args": ["-c", "print('ok')", "--stage-a-in", str(upstream)],
+                },
+            ],
+            root,
+        )
+
+        rc = main(["--plan", str(plan)])
+
+        assert rc == 0
+        assert _read_manifest(root)["groups"][0]["status"] == "ok"
