@@ -133,6 +133,7 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "adaptive_trust_region",
         "callback",
         "debug_dir",
+        "error_terms",
         "holdout_on_sim",
         "output_subdir",
         "probe_split_hook",

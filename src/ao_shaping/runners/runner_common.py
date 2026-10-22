@@ -3021,6 +3021,80 @@ class SlmModelInLoopParams:
         ),
     ] = None
 
+    # --- self-calibration (GRAPHYCS-style) -----------------------------------
+    fourier_weight: Annotated[
+        float,
+        option(
+            "--fourier-weight",
+            help=(
+                "Weight of the Fourier-domain L1 term in Step A's loss. 0 (the "
+                "default) keeps the term off and the fit bit-for-bit unchanged. "
+                "The paper uses 7e-4 (simulation) / 5e-4 / 1e-3 and reports the "
+                "result to be insensitive to it over 1e-5..1e-3."
+            ),
+        ),
+    ] = 0.0
+    loss_kind: Annotated[
+        str,
+        option(
+            "--loss-kind",
+            type=click.Choice(["mse", "l1"]),
+            help=(
+                "Image-domain loss of Step A: 'mse' (the historical "
+                "peak-normalised MSE) or 'l1' (the paper's choice)."
+            ),
+        ),
+    ] = "mse"
+    selfcal_affine: Annotated[
+        bool,
+        option(
+            "--selfcal-affine",
+            is_flag=True,
+            help=(
+                "Fit the pupil-plane affine self-calibration (6 scalars: amp_x, "
+                "amp_y, off_x, off_y, rot, grid) inside Step A."
+            ),
+        ),
+    ] = False
+    selfcal_travel: Annotated[
+        bool,
+        option(
+            "--selfcal-travel",
+            is_flag=True,
+            help=(
+                "Fit the per-mode-family travel scale (7 scalars) inside Step A. "
+                "It scales the command phase only, never the aberration."
+            ),
+        ),
+    ] = False
+    selfcal_lr: Annotated[
+        float,
+        option(
+            "--selfcal-lr",
+            help="Adam learning rate of the self-calibration parameters.",
+        ),
+    ] = 1e-3
+    selfcal_theta_step_max: Annotated[
+        float,
+        option(
+            "--selfcal-theta-step-max",
+            help=(
+                "Per-round trust region on the pupil affine (per parameter). A "
+                "round that exceeds it is rejected. 0 disables the guard."
+            ),
+        ),
+    ] = 0.02
+    selfcal_gamma_step_max: Annotated[
+        float,
+        option(
+            "--selfcal-gamma-step-max",
+            help=(
+                "Per-round trust region on the travel scale (per family). A round "
+                "that exceeds it is rejected. 0 disables the guard."
+            ),
+        ),
+    ] = 0.05
+
     # --- coupling guards ----------------------------------------------------
     trust_region_c_l2: Annotated[
         float,
@@ -3426,6 +3500,13 @@ def build_model_in_loop_config(
         min_geometry_correlation=params.min_geometry_correlation,
         geometry_file=params.geometry_file,
         error_params=params.error_params,
+        fourier_weight=params.fourier_weight,
+        loss_kind=params.loss_kind,
+        selfcal_affine=params.selfcal_affine,
+        selfcal_travel=params.selfcal_travel,
+        selfcal_lr=params.selfcal_lr,
+        selfcal_theta_step_max=params.selfcal_theta_step_max,
+        selfcal_gamma_step_max=params.selfcal_gamma_step_max,
         trust_region_c_l2=params.trust_region_c_l2,
         acceptance_loss_delta=params.acceptance_loss_delta,
         acceptance_score_eps=params.acceptance_score_eps,
@@ -3596,6 +3677,40 @@ def save_model_in_loop_config(config: SlmModelInLoopConfig, save_dir: Path) -> P
         run_config["error_terms"] = terms.to_dict()
     path.write_text(json.dumps(run_config, indent=2, default=str), encoding="utf-8")
     return path
+
+
+def _model_in_loop_json_payload(result: ModelInLoopResult) -> dict[str, Any]:
+    """Build the JSON sidecar of a model-in-loop run.
+
+    The status and the config are always there. The **self-calibration
+    trajectory** is added only when that feature actually ran, so a run with
+    the self-calibration off keeps exactly the payload it had.
+
+    Args:
+        result: The run's result.
+
+    Returns:
+        A JSON-serialisable dictionary.
+    """
+    payload: dict[str, Any] = {
+        "status": result.status,
+        "config": str(result.config),
+    }
+    trajectory = [
+        {
+            "round": row.get("round"),
+            "affine": row.get("selfcal_affine"),
+            "travel": row.get("selfcal_travel"),
+            "theta_step": row.get("selfcal_theta_step"),
+            "gamma_step": row.get("selfcal_gamma_step"),
+            "violated": row.get("selfcal_violated"),
+        }
+        for row in result.recorder.history
+        if row.get("selfcal_violated") is not None
+    ]
+    if trajectory:
+        payload["selfcal"] = trajectory
+    return payload
 
 
 def save_model_in_loop_results(
@@ -3769,12 +3884,20 @@ def save_model_in_loop_results(
             "n_calibration_probes",
             "holdout_correlation",
             "exposure_ms",
+            "selfcal_theta_step",
+            "selfcal_gamma_step",
+            "selfcal_violated",
         ),
         img_keys=("_img",),
         text_keys=("timestamp_utc",),
-        object_keys=("step_a_trace", "step_b_trace"),
+        object_keys=(
+            "step_a_trace",
+            "step_b_trace",
+            "selfcal_affine",
+            "selfcal_travel",
+        ),
         output_dir=save_dir,
-        json_payload={"status": result.status, "config": str(result.config)},
+        json_payload=_model_in_loop_json_payload(result),
         title="slm-model-in-loop",
     )
 

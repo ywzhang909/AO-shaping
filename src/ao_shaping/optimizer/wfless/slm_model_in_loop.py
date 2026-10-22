@@ -42,6 +42,22 @@ instead. Persistent rejection means the bench is outside the model (pupil
 registration, panel tilt, out-of-plane defocus, vignetting), and the run aborts
 rather than committing a phase the model merely likes.
 
+Self-calibration (opt-in)
+-------------------------
+Step A can additionally fit two **self-calibration** quantities inside the
+forward model -- the pupil-plane affine ``tau_theta`` (6 scalars) and the
+per-mode-family travel scale ``gamma`` (7 scalars), following GRAPHYCS (Cho et
+al. 2026) -- plus an optional Fourier-domain term in the loss. They are off by
+default, so the default run is bit-for-bit the one it was.
+
+The paper has **no** trust region and **no** per-round acceptance test on those
+quantities, which is exactly the failure mode this module refuses: a
+calibration parameter that sprints away from its start means the forward model
+is being bent to fit the data instead of describing the bench. So the per-round
+change of every calibration parameter is bounded
+(:func:`calibration_trust_region_check`), and a violation rolls the parameters
+back and rejects the round.
+
 Nothing in this module imports a hardware driver at import time; every device
 import is deferred into the functions that open it.
 """
@@ -74,6 +90,10 @@ from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
 from ao_shaping.utils.slm.bench_constants import BEAM_CENTER_PANEL, SLM_PITCH_M
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
+from ao_shaping.utils.wavefront.calibration_terms import (
+    PupilAffine,
+    TravelScale,
+)
 from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms
 
 #: Reused rather than reimplemented: median-subtract THEN clip. Clipping the raw
@@ -97,6 +117,7 @@ __all__ = [
     "RoundRecord",
     "SlmModelInLoopConfig",
     "acceptance_verdict",
+    "calibration_trust_region_check",
     "optimize_slm_model_in_loop",
     "trust_region_clamp",
 ]
@@ -171,7 +192,8 @@ class AcceptanceVerdict:
         loss_worsened: Step A's loss ended materially above where it started.
         score_degraded: The measured composite fell by more than the tolerance.
         reason: Short machine-readable tag for the history (``"accepted"``,
-            ``"loss_worsened"``, ``"score_degraded"`` or both joined by ``"+"``).
+            ``"loss_worsened"``, ``"score_degraded"``,
+            ``"calibration_trust_region"`` or any of them joined by ``"+"``).
     """
 
     accepted: bool
@@ -195,6 +217,7 @@ def acceptance_verdict(
     cv_before: float | None = None,
     cv_after: float | None = None,
     max_cv_regression: float = 0.02,
+    calibration_violated: bool = False,
 ) -> AcceptanceVerdict:
     """Decide whether a round may be committed, or must be rolled back.
 
@@ -222,6 +245,12 @@ def acceptance_verdict(
         cv_before: Best accepted shaped CV, if any.
         cv_after: CV of this round's measured shaped phase.
         max_cv_regression: Allowed absolute CV increase between shaped rounds.
+        calibration_violated: ``True`` when the round's **self-calibration**
+            parameters (the pupil affine τ_θ or the travel scale γ) moved
+            further than the per-round trust region allows. Such a round is
+            rejected: a calibration quantity that sprints away from its start
+            means the forward model is being bent to fit the data rather than
+            describing the bench.
 
     Returns:
         The :class:`AcceptanceVerdict`.
@@ -251,6 +280,7 @@ def acceptance_verdict(
             ("loss_worsened", loss_worsened),
             ("score_degraded", score_degraded),
             ("cv_degraded", cv_degraded),
+            ("calibration_trust_region", bool(calibration_violated)),
         )
         if hit
     ]
@@ -260,6 +290,56 @@ def acceptance_verdict(
         score_degraded=score_degraded,
         reason="+".join(tags) if tags else "accepted",
     )
+
+
+def calibration_trust_region_check(
+    affine_after: PupilAffine | None,
+    affine_before: PupilAffine | None,
+    travel_after: TravelScale | None,
+    travel_before: TravelScale | None,
+    *,
+    theta_step_max: float = 0.02,
+    gamma_step_max: float = 0.05,
+) -> tuple[bool, float, float]:
+    """Check whether the self-calibration parameters moved too far this round.
+
+    The paper (GRAPHYCS) has **no** trust region on its self-calibration
+    quantities. That is exactly the failure mode this repository refuses: a
+    calibration parameter that sprints away from its start means the forward
+    model is being bent to fit the data instead of describing the bench. So the
+    per-round change is bounded, and a violation rejects the round (see
+    :func:`acceptance_verdict`).
+
+    The bound is **per parameter**, not an L2 norm over the group: the six
+    affine components have different units (a scale factor, a normalised
+    offset, an angle), so one norm would mix them.
+
+    Args:
+        affine_after: The pupil affine τ_θ after this round's fit.
+        affine_before: The value in force before this round.
+        travel_after: The travel scale γ after this round's fit.
+        travel_before: The value in force before this round.
+        theta_step_max: Allowed per-parameter change of τ_θ. ``<= 0`` disables
+            the guard.
+        gamma_step_max: Allowed per-family change of γ. ``<= 0`` disables the
+            guard.
+
+    Returns:
+        A ``(violated, theta_step, gamma_step)`` tuple. ``violated`` is
+        ``True`` when any enabled bound was exceeded.
+    """
+    violated = False
+    theta_step = 0.0
+    gamma_step = 0.0
+    if affine_after is not None and affine_before is not None:
+        theta_step = affine_after.max_abs_step(affine_before)
+        if float(theta_step_max) > 0.0 and theta_step > float(theta_step_max):
+            violated = True
+    if travel_after is not None and travel_before is not None:
+        gamma_step = travel_after.max_abs_step(travel_before)
+        if float(gamma_step_max) > 0.0 and gamma_step > float(gamma_step_max):
+            violated = True
+    return violated, theta_step, gamma_step
 
 
 # ---------------------------------------------------------------------------
@@ -704,6 +784,64 @@ class SlmModelInLoopConfig:
     uncalibrated model costs one calibration pass instead of the run.
     """
 
+    # --- self-calibration (GRAPHYCS-style) -----------------------------------
+    fourier_weight: float = 0.0
+    """Weight α of the Fourier-domain L1 term in Step A's loss.
+
+    ``0`` (default) = the term is off and Step A's output is bit-for-bit the
+    one it had before the term existed. The paper uses 7e-4 (simulation) /
+    5e-4 / 1e-3, and its sensitivity scan shows the result is flat over
+    1e-5…1e-3.
+    """
+
+    loss_kind: str = "mse"
+    """Image-domain loss: ``"mse"`` (the historical peak-normalised MSE) or
+    ``"l1"`` (the paper's choice).
+
+    The default stays ``"mse"`` on purpose: swapping it changes the
+    optimisation's basin, so it must be an explicit opt-in, not a silent
+    change. The two are compared on recorded hardware probes by
+    ``scripts/slm/model_in_loop_selfcal_bakeoff.py``.
+    """
+
+    selfcal_affine: bool = False
+    """Enable the pupil-plane affine self-calibration τ_θ (6 scalars).
+
+    Off by default, so the forward model's output stays bit-for-bit identical.
+    When on, the affine is fitted *inside* Step A (it is part of the forward
+    model, not a term in the loss) and is carried across rounds.
+    """
+
+    selfcal_travel: bool = False
+    """Enable the per-mode-family travel scale γ (7 scalars).
+
+    Off by default. γ scales the **command** phase only -- never the
+    aberration being estimated -- exactly as in the paper.
+    """
+
+    selfcal_lr: float = 1e-3
+    """Adam learning rate of the self-calibration parameters.
+
+    The paper uses 1e-2 for the Zernike coefficients and 1e-6…1e-3 for the
+    affine θ, and gives γ the same rate as θ.
+    """
+
+    selfcal_theta_step_max: float = 0.02
+    """Per-round trust region on the pupil affine τ_θ (per parameter).
+
+    ``<= 0`` disables the guard. The paper has **no** trust region, which is
+    exactly the failure mode this repository refuses: a calibration quantity
+    that sprints away from its start means the forward model is being bent to
+    fit the data rather than describing the bench.
+    """
+
+    selfcal_gamma_step_max: float = 0.05
+    """Per-round trust region on the travel scale γ (per family).
+
+    ``<= 0`` disables the guard. Same reasoning as
+    :attr:`selfcal_theta_step_max`.
+    """
+
     # --- coupling guards ----------------------------------------------------
     trust_region_c_l2: float = 0.5
     """Fixed per-round L2 cap on the coefficient step, radians.
@@ -915,6 +1053,18 @@ class SlmModelInLoopConfig:
             )
         if self.pupil_oversampling not in (1, 2, 4):
             raise ValueError("pupil_oversampling must be 1, 2 or 4")
+        if not math.isfinite(self.fourier_weight) or self.fourier_weight < 0.0:
+            raise ValueError("fourier_weight must be finite and non-negative")
+        if self.loss_kind not in ("mse", "l1"):
+            raise ValueError(
+                f"loss_kind must be 'mse' or 'l1', got {self.loss_kind!r}"
+            )
+        if not math.isfinite(self.selfcal_lr) or self.selfcal_lr <= 0.0:
+            raise ValueError("selfcal_lr must be a positive finite float")
+        if not math.isfinite(self.selfcal_theta_step_max):
+            raise ValueError("selfcal_theta_step_max must be finite")
+        if not math.isfinite(self.selfcal_gamma_step_max):
+            raise ValueError("selfcal_gamma_step_max must be finite")
         if self.panel_span_px <= 0:
             raise ValueError(f"panel_span_px must be > 0, got {self.panel_span_px}")
         if self.cam_type == "daheng" and (
@@ -1109,6 +1259,14 @@ class RoundRecord:
         step_a_lr: Step-A learning rate used this round (damps after rejections).
         rejection_streak: Consecutive rejections *before* this round.
         phase: The committed phase, raw unwrapped radians, or ``None`` on reject.
+        selfcal_affine: The pupil affine τ_θ after this round, if that
+            self-calibration is on (empty dict otherwise).
+        selfcal_travel: The travel scale γ after this round, if that
+            self-calibration is on (empty dict otherwise).
+        selfcal_theta_step: Largest per-parameter change of τ_θ this round.
+        selfcal_gamma_step: Largest per-family change of γ this round.
+        selfcal_violated: Whether the self-calibration trust region was
+            exceeded (the round is then rejected).
     """
 
     round_index: int
@@ -1132,6 +1290,11 @@ class RoundRecord:
     step_a_lr: float
     rejection_streak: int
     phase: np.ndarray | None = field(default=None, repr=False)
+    selfcal_affine: dict[str, float] = field(default_factory=dict)
+    selfcal_travel: dict[str, float] = field(default_factory=dict)
+    selfcal_theta_step: float = 0.0
+    selfcal_gamma_step: float = 0.0
+    selfcal_violated: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -2263,6 +2426,9 @@ def _make_optimizer(
     config: SlmModelInLoopConfig,
     coefficients: np.ndarray | None,
     source_amplitude: np.ndarray | None = None,
+    *,
+    affine: PupilAffine | None = None,
+    travel: TravelScale | None = None,
 ) -> Any:
     """Build a :class:`ZernikeCoefficientOptimizer` around ``coefficients``.
 
@@ -2270,6 +2436,10 @@ def _make_optimizer(
     Re-arming rebuilds around the current coefficients on purpose:
     :meth:`~...ZernikeCoefficientOptimizer.reset` would restore the values passed
     to ``__init__`` and throw away the whole fit.
+
+    The self-calibration parameters (τ_θ and γ) are passed in explicitly: they
+    describe the **bench**, not the fit, so they must survive the per-round
+    rebuild of the optimizer. ``None`` means "that self-calibration is off".
     """
     from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
         ZernikeCoefficientOptimizer,
@@ -2288,6 +2458,12 @@ def _make_optimizer(
         frozen_modes=tuple(config.frozen_modes),
         pupil_oversampling=int(config.pupil_oversampling),
         error_terms=config.error_terms,
+        fourier_weight=float(config.fourier_weight),
+        loss_kind=str(config.loss_kind),
+        affine_params=affine,
+        affine_lr=float(config.selfcal_lr),
+        travel_gammas=(None if travel is None else tuple(travel.gammas)),
+        travel_lr=float(config.selfcal_lr),
     )
     if source_amplitude is not None:
         optimizer.set_source_amplitude(source_amplitude)
@@ -2627,6 +2803,16 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             / float(config.panel_span_px),
         )
         source_amplitude = gaussian_grid(int(config.region), waist_model)
+        # --- self-calibration state ----------------------------------------
+        # The affine τ_θ and the travel scale γ describe the **bench**, so they
+        # are initialised once (at identity / zero) and carried across rounds.
+        # ``None`` means the corresponding self-calibration is off.
+        calibration_affine: PupilAffine | None = (
+            PupilAffine() if config.selfcal_affine else None
+        )
+        calibration_travel: TravelScale | None = (
+            TravelScale() if config.selfcal_travel else None
+        )
         flat_grid: np.ndarray | None = None
         if config.cam_type != "sim":
             flat_grid = _to_model_grid(
@@ -2637,7 +2823,11 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 camera_rotation_quarters,
             )
             reference_model = _make_optimizer(
-                config, coefficients, source_amplitude
+                config,
+                coefficients,
+                source_amplitude,
+                affine=calibration_affine,
+                travel=calibration_travel,
             ).forward_intensity(coefficients, flat_phase, source_amplitude)
             measured_peak = float(np.max(flat_grid))
             model_peak = float(np.max(reference_model))
@@ -2758,7 +2948,13 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
         for index in range(int(config.n_rounds)):
             # --- Step A: probe the bench, refit one shared aberration -------
-            optimizer = _make_optimizer(config, coefficients, source_amplitude)
+            optimizer = _make_optimizer(
+                config,
+                coefficients,
+                source_amplitude,
+                affine=calibration_affine,
+                travel=calibration_travel,
+            )
             step_a_lr = float(getattr(optimizer, "lr", step_a_lr)) or step_a_lr
             train_seeds, holdout_seeds = _resolve_probe_seeds(
                 config.seed,
@@ -2873,6 +3069,42 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 )
             else:
                 fitted, step_a_iters = coefficients.copy(), 0
+            # --- Guard 0: trust region on the self-calibration --------------
+            # The paper has NO trust region on its self-calibration quantities,
+            # which is exactly the failure mode this repository refuses: a
+            # calibration parameter that sprints away from its start means the
+            # forward model is being bent to fit the data instead of
+            # describing the bench. So the step is measured against the round's
+            # starting values, and a violation rolls the parameters back and
+            # rejects the round (see ``acceptance_verdict``).
+            affine_after = optimizer.affine
+            travel_after = optimizer.travel
+            calibration_violated, theta_step, gamma_step = (
+                calibration_trust_region_check(
+                    affine_after,
+                    calibration_affine,
+                    travel_after,
+                    calibration_travel,
+                    theta_step_max=float(config.selfcal_theta_step_max),
+                    gamma_step_max=float(config.selfcal_gamma_step_max),
+                )
+            )
+            if calibration_violated:
+                logger.warning(
+                    "round {}: self-calibration trust region exceeded (theta step "
+                    "{:.4g} > {:.4g}, gamma step {:.4g} > {:.4g}); rolling the "
+                    "calibration back and rejecting the round",
+                    index + 1,
+                    theta_step,
+                    float(config.selfcal_theta_step_max),
+                    gamma_step,
+                    float(config.selfcal_gamma_step_max),
+                )
+                optimizer.set_calibration(
+                    affine=calibration_affine, travel=calibration_travel
+                )
+                affine_after = optimizer.affine
+                travel_after = optimizer.travel
             if config.uncertainty_probes or config.uncertainty_on_rejection:
                 prev_uncertainty_probes = [probe for _, probe in frames]
             if config.cam_type != "sim":
@@ -3081,6 +3313,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 cv_before=best_accepted_cv,
                 cv_after=float(shaped_metrics["uniformity_cv"]),
                 max_cv_regression=float(config.max_cv_regression),
+                calibration_violated=calibration_violated,
             )
             applied_l2 = float(np.linalg.norm(clamped - coefficients))
             if trust_region is not None:
@@ -3135,6 +3368,20 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 # fields stay hardware-only: they come from measurements the sim
                 # path does not take.
                 row["holdout_correlation"] = holdout_correlation
+            if affine_after is not None or travel_after is not None:
+                # Opt-in only: the default history keeps exactly the keys it
+                # had before the self-calibration existed. The per-round step
+                # sizes are recorded so a reader can see whether the calibration
+                # parameters are running away.
+                row["selfcal_affine"] = (
+                    {} if affine_after is None else affine_after.to_dict()
+                )
+                row["selfcal_travel"] = (
+                    {} if travel_after is None else travel_after.to_dict()
+                )
+                row["selfcal_theta_step"] = float(theta_step)
+                row["selfcal_gamma_step"] = float(gamma_step)
+                row["selfcal_violated"] = bool(calibration_violated)
             if row_trust_state:
                 # Opt-in only, so the default history keeps exactly the keys it
                 # had before the adaptive schedule existed.
@@ -3172,6 +3419,13 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
 
             if verdict.accepted:
                 coefficients = clamped
+                # The self-calibration is part of the model, so it is committed
+                # with the round: a rejected round keeps the previous values,
+                # exactly like the coefficients.
+                if affine_after is not None:
+                    calibration_affine = affine_after
+                if travel_after is not None:
+                    calibration_travel = travel_after
                 # `.copy()` is load-bearing: `phase` is the warm start for the next
                 # round's Step B, and `np.asarray` on an already-float64 array is a
                 # no-op, so without it the committed phase would alias the one the

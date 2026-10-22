@@ -63,6 +63,13 @@ from loguru import logger
 from scipy import ndimage
 
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
+from ao_shaping.utils.wavefront.calibration_terms import (
+    FAMILY_NAMES,
+    PupilAffine,
+    TravelScale,
+    apply_pupil_affine,
+    apply_travel_scale,
+)
 from ao_shaping.utils.wavefront.model_error_terms import ModelErrorTerms
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
@@ -86,6 +93,46 @@ ABSOLUTE_FLOOR = 1e-12
 PLATEAU_PATIENCE = 30
 #: 无论平台期启发式怎么说, 在这么多步之前都不停止。
 MIN_ITERATIONS = 5
+#: 傅里叶域损失的权重 α。``0`` = 关闭 (默认), 此时正向模型与损失的输出
+#: 与引入本特性之前**逐位相同**。论文用的值是 7e-4 (仿真) / 5e-4 / 1e-3。
+DEFAULT_FOURIER_WEIGHT = 0.0
+#: 图像域损失的种类: ``"mse"`` (历史行为) 或 ``"l1"`` (论文用的那一种)。
+LOSS_KINDS = ("mse", "l1")
+#: 自标定参数的 Adam 学习率 (像差系数用 :attr:`lr`, 两者相差 1-2 个量级)。
+DEFAULT_CALIBRATION_LR = 1e-3
+
+#: Zernike 基伪逆的进程内缓存。键是 (系数个数, 网格边长, 瞳面半径), 值是
+#: ``(K, N)`` 的 float64 伪逆。伪逆只依赖基本身, 而基只依赖这三个数 ——
+#: 每一轮 MIL 循环都会重建优化器, 不缓存的话每轮都要重算一次 SVD。
+_PROJECTOR_CACHE: dict[tuple[int, int, int], npt.NDArray[np.float64]] = {}
+
+
+def _projector_for_basis(
+    basis: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """返回 Zernike 基的最小二乘伪逆 ``(K, N)``。
+
+    Zernike 模式在**离散**网格上并非严格正交 (实测 Gram 矩阵的非对角元最大
+    约为对角元的 5%), 所以投影必须用伪逆而不是简单的 ``basis @ phase``。
+
+    Args:
+        basis: Zernike 基, 形状 ``(K, R, R)``。
+
+    Returns:
+        ``(K, N)`` 的 float64 伪逆, ``N = R * R``。
+    """
+    n_coeffs, region, radius = basis.shape
+    key = (int(n_coeffs), int(region), int(radius))
+    cached = _PROJECTOR_CACHE.get(key)
+    if cached is not None:
+        return cached
+    flat = np.ascontiguousarray(basis.reshape(int(n_coeffs), -1))
+    # ``rcond`` 取 1e-10: 基的条件数是两位数, 而 numpy 的默认 (1e-15) 会把
+    # 数值噪声当成有效方向, 把伪逆放大成噪声。
+    projector = np.linalg.pinv(flat.T, rcond=1e-10)
+    _PROJECTOR_CACHE[key] = projector
+    return projector
+
 
 
 def _torch():
@@ -392,6 +439,12 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         frozen_modes: tuple[int, ...] = (),
         pupil_oversampling: int = 1,
         error_terms: ModelErrorTerms | None = None,
+        fourier_weight: float = DEFAULT_FOURIER_WEIGHT,
+        loss_kind: str = "mse",
+        affine_params: PupilAffine | None = None,
+        affine_lr: float = DEFAULT_CALIBRATION_LR,
+        travel_gammas: tuple[float, ...] | None = None,
+        travel_lr: float | None = None,
     ) -> None:
         """初始化优化器并校验所有输入。
 
@@ -432,6 +485,25 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
                 + 相机离焦 + 光路倾斜)。``None`` (默认) = 理想系统, 此时
                 正向模型的输出与引入本参数之前**逐位相同**。几何常数
                 (波长 / 焦距 / 焦面节距) 由误差项容器自己携带。
+            fourier_weight: 傅里叶域 L1 项的权重 α。``0`` (默认) = 关闭,
+                此时损失与正向模型的输出与引入本参数之前**逐位相同**。
+                论文用的是 7e-4 (仿真) / 5e-4 / 1e-3, 且论文的敏感性扫描
+                显示结果对 α 不敏感 (1e-5…1e-3 基本平坦)。
+            loss_kind: 图像域损失的种类。``"mse"`` (默认) = 历史的峰值归一化
+                MSE; ``"l1"`` = 论文用的 L1。**不要**为了跟论文一致就顺手改
+                默认值: MSE 与 L1 的收敛行为不同, 换过去会改变既有结果。
+            affine_params: 可选的瞳面仿射自标定量 τ_θ (6 个标量)。
+                ``None`` (默认) = 关闭, 此时正向模型的输出与引入本参数之前
+                **逐位相同**。``PupilAffine()`` = 单位变换 (也是恒等)。
+            affine_lr: τ_θ 的 Adam 学习率。论文给的是 1e-6…1e-3, 比像差
+                系数 (1e-2) 小 1-2 个量级。
+            travel_gammas: 可选的逐模式族行程缩放 γ (长度 = 7, 见
+                :data:`~ao_shaping.utils.wavefront.calibration_terms.\
+FAMILY_NAMES`)。``None`` (默认) = 关闭, 此时正向模型的输出与引入本参数
+                之前**逐位相同**。全零 = 无缩放 (也是恒等)。
+            travel_lr: γ 的 Adam 学习率。``None`` (默认) = 与
+                :attr:`affine_lr` 相同 (论文就是这么设的: 行程 γ 用 θ 的
+                学习率)。
 
         Raises:
             ValueError: 任一参数越界, 或任一数组形状不对时。
@@ -482,6 +554,37 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             # evaluated would otherwise surface as a NaN far field deep inside
             # the fit, long after the hardware minutes were spent.
             self._error_terms.validate_focal_geometry()
+
+        if not np.isfinite(fourier_weight) or fourier_weight < 0.0:
+            raise ValueError(
+                f"fourier_weight must be finite and >= 0, got {fourier_weight!r}"
+            )
+        self._fourier_weight = float(fourier_weight)
+        if loss_kind not in LOSS_KINDS:
+            raise ValueError(
+                f"loss_kind must be one of {LOSS_KINDS}, got {loss_kind!r}"
+            )
+        self._loss_kind = str(loss_kind)
+        if not np.isfinite(affine_lr) or affine_lr <= 0:
+            raise ValueError(
+                f"affine_lr must be a positive finite float, got {affine_lr!r}"
+            )
+        self._affine_lr = float(affine_lr)
+        self._travel_lr = (
+            self._affine_lr if travel_lr is None else float(travel_lr)
+        )
+        if not np.isfinite(self._travel_lr) or self._travel_lr <= 0:
+            raise ValueError(
+                f"travel_lr must be a positive finite float, got {travel_lr!r}"
+            )
+        # 自标定参数是**优化器状态**, 不是构造参数: 它们的初值由
+        # ``affine_params`` / ``travel_gammas`` 给出, 之后由拟合自己推动。
+        self._affine_seed: PupilAffine | None = (
+            None if affine_params is None else affine_params.clamped()
+        )
+        self._travel_seed: TravelScale | None = (
+            None if travel_gammas is None else TravelScale(travel_gammas).clamped()
+        )
 
         mask = np.ones(calc_n_zernike_terms(n_orders), dtype=np.float64)
         for noll in frozen_modes:
@@ -545,6 +648,36 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         self._loss_history: list[float] = []
         self._converged = False
         self._no_improve = 0
+
+        # --- 自标定参数 (可选) ---------------------------------------------
+        # 两者都是**优化器状态**: 它们跨轮次保留 (每轮重建优化器时由
+        # ``set_calibration`` 把上一轮的取值带过来), 因为它们描述的是实验
+        # 系统而不是某一次拟合。
+        self._affine: Any = None
+        if self._affine_seed is not None:
+            self._affine = torch.tensor(
+                self._affine_seed.to_vector(),
+                dtype=self._basis_t.dtype,
+                device=self._dev,
+                requires_grad=True,
+            )
+        self._travel_gammas: Any = None
+        self._projector_t: Any = None
+        self._basis_flat_t: Any = None
+        if self._travel_seed is not None:
+            self._travel_gammas = torch.tensor(
+                self._travel_seed.to_vector(),
+                dtype=self._basis_t.dtype,
+                device=self._dev,
+                requires_grad=True,
+            )
+            self._basis_flat_t = _to_tensor(
+                self._basis_np.reshape(self._n_coeffs, -1), self._dev, dtype
+            )
+            self._projector_t = _to_tensor(
+                _projector_for_basis(self._basis_np), self._dev, dtype
+            )
+
         self._restart(restore_initial=True)
 
         logger.debug(
@@ -601,13 +734,35 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         ).to(self._dev)
         coefficients.requires_grad_(True)
         self._coefficients = coefficients
-        self._opt = torch.optim.Adam([coefficients], lr=self._lr)
+        self._opt = self._build_optimizer(coefficients)
         self._iteration = 0
         self._convergence_history = []
         self._best_value = float("inf")
         self._loss_history = []
         self._converged = False
         self._no_improve = 0
+
+    def _build_optimizer(self, coefficients: Any) -> Any:
+        """按参数分组建立 Adam (像差系数一组, 自标定参数各一组)。
+
+        分组学习率是论文的做法: 像差系数用 1e-2, 仿射 θ 用 1e-6…1e-3,
+        行程 γ 用 θ 的学习率。三组的量纲互不相同, 用同一个 lr 会让自标定
+        参数要么不动、要么飞掉。
+
+        没有自标定参数时走**单组**的旧写法, 以保证默认路径逐位不变。
+        """
+        torch = _torch()
+        groups: list[dict[str, Any]] = []
+        if self._affine is not None:
+            groups.append({"params": [self._affine], "lr": float(self._affine_lr)})
+        if self._travel_gammas is not None:
+            groups.append(
+                {"params": [self._travel_gammas], "lr": float(self._travel_lr)}
+            )
+        if not groups:
+            return torch.optim.Adam([coefficients], lr=self._lr)
+        groups.insert(0, {"params": [coefficients], "lr": float(self._lr)})
+        return torch.optim.Adam(groups)
 
     # ------------------------------------------------------------------
     # 公开的辅助函数
@@ -662,6 +817,95 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
     def error_terms(self) -> ModelErrorTerms:
         """正向模型使用的误差项 (理想系统时为全零的默认容器)。"""
         return self._error_terms
+
+    # ------------------------------------------------------------------
+    # 自标定量 (傅里叶域损失 / 瞳面仿射 τ_θ / 行程缩放 γ)
+    # ------------------------------------------------------------------
+    @property
+    def fourier_weight(self) -> float:
+        """傅里叶域 L1 项的权重 α (``0`` = 关闭)。"""
+        return float(self._fourier_weight)
+
+    @property
+    def loss_kind(self) -> str:
+        """图像域损失的种类 (``"mse"`` 或 ``"l1"``)。"""
+        return str(self._loss_kind)
+
+    @property
+    def affine(self) -> PupilAffine | None:
+        """当前的瞳面仿射 τ_θ; ``None`` = 该自标定量关闭。"""
+        if self._affine is None:
+            return None
+        return PupilAffine.from_vector(
+            self._affine.detach().cpu().numpy().astype(np.float64)
+        )
+
+    @property
+    def travel(self) -> TravelScale | None:
+        """当前的逐模式族行程缩放 γ; ``None`` = 该自标定量关闭。"""
+        if self._travel_gammas is None:
+            return None
+        return TravelScale.from_vector(
+            self._travel_gammas.detach().cpu().numpy().astype(np.float64)
+        )
+
+    def set_calibration(
+        self,
+        affine: PupilAffine | None = None,
+        travel: TravelScale | None = None,
+    ) -> None:
+        """设置自标定参数的取值 (跨轮次携带, 或回滚)。
+
+        MIL 循环每一轮都会重建优化器, 所以上一轮推到的自标定取值必须
+        **显式**带过来, 否则每一轮都从单位变换重新开始, 参数永远学不到
+        东西。同一个入口也用于**回滚**: 逐轮信任域越界时把参数退回本轮开始
+        的取值。
+
+        Args:
+            affine: 新的 τ_θ; ``None`` = 保持现状。
+            travel: 新的 γ; ``None`` = 保持现状。
+
+        Raises:
+            ValueError: 取值越界时。
+        """
+        torch = _torch()
+        if affine is not None and self._affine is not None:
+            clamped = affine.clamped()
+            with torch.no_grad():
+                self._affine.copy_(
+                    torch.tensor(
+                        clamped.to_vector(),
+                        dtype=self._affine.dtype,
+                        device=self._affine.device,
+                    )
+                )
+        if travel is not None and self._travel_gammas is not None:
+            clamped = travel.clamped()
+            with torch.no_grad():
+                self._travel_gammas.copy_(
+                    torch.tensor(
+                        clamped.to_vector(),
+                        dtype=self._travel_gammas.dtype,
+                        device=self._travel_gammas.device,
+                    )
+                )
+
+    def calibration_state(self) -> dict[str, Any]:
+        """返回自标定参数的当前取值 (供逐轮记录)。
+
+        Returns:
+            一个字典, 含 ``"affine"`` / ``"travel"`` 两个子字典 (关闭时为空
+            字典) 以及 ``"fourier_weight"`` / ``"loss_kind"``。
+        """
+        affine = self.affine
+        travel = self.travel
+        return {
+            "fourier_weight": float(self._fourier_weight),
+            "loss_kind": str(self._loss_kind),
+            "affine": {} if affine is None else affine.to_dict(),
+            "travel": {} if travel is None else travel.to_dict(),
+            "travel_families": list(FAMILY_NAMES),
+        }
 
     def set_error_terms(self, terms: ModelErrorTerms) -> None:
         """换掉正向模型使用的误差项。
@@ -904,9 +1148,15 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         intensity = self._far_field_intensity(self._coefficients, phase_t, amplitude_t)
         # 测量锚定的梯度: 目标与归一化尺度都来自实测图像;
         # 残差落在模型图像上。
-        self._anchored_intensity_loss(intensity, target, peak_anchor).backward()
+        loss = self._anchored_intensity_loss(intensity, target, peak_anchor)
+        if self._fourier_weight > 0.0:
+            loss = loss + float(self._fourier_weight) * self._fourier_domain_loss(
+                intensity, target, peak_anchor
+            )
+        loss.backward()
         self._opt.step()
         self._apply_mode_mask()
+        self._clamp_calibration()
 
         with torch.no_grad():
             recorded = float(self._intensity_loss(intensity, target).detach().cpu())
@@ -987,6 +1237,33 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         with torch.no_grad():
             self._coefficients.mul_(self._mode_mask)
 
+    def _clamp_calibration(self) -> None:
+        """在一步优化器之后把自标定参数夹回硬边界。
+
+        论文的约束是 ``γ ≥ −1`` (缩放因子非负) 与 ``o ≥ 0`` (物体振幅非负,
+        在 :func:`~ao_shaping.utils.wavefront.calibration_terms.\
+apply_pupil_affine` 里施加)。τ_θ 的边界是本仓库加的: 6 个分量都是几何量,
+        越界意味着模型已经离开它能解释的物理范围。
+
+        夹边界**不是**逐轮信任域 —— 逐轮信任域在
+        :mod:`ao_shaping.optimizer.wfless.slm_model_in_loop` 那一层, 它管的是
+        「这一轮最多能走多远」, 这里管的是「参数不许越界」。
+        """
+        torch = _torch()
+        if self._affine is not None:
+            with torch.no_grad():
+                self._affine[0].clamp_(PupilAffine.AMP_MIN, PupilAffine.AMP_MAX)
+                self._affine[1].clamp_(PupilAffine.AMP_MIN, PupilAffine.AMP_MAX)
+                self._affine[2].clamp_(-PupilAffine.OFF_LIMIT, PupilAffine.OFF_LIMIT)
+                self._affine[3].clamp_(-PupilAffine.OFF_LIMIT, PupilAffine.OFF_LIMIT)
+                self._affine[4].clamp_(-PupilAffine.ROT_LIMIT, PupilAffine.ROT_LIMIT)
+                self._affine[5].clamp_(PupilAffine.GRID_MIN, PupilAffine.GRID_MAX)
+        if self._travel_gammas is not None:
+            with torch.no_grad():
+                self._travel_gammas.clamp_(
+                    TravelScale.GAMMA_MIN, TravelScale.GAMMA_MAX
+                )
+
     @property
     def far_field_size(self) -> int:
         """正向模型产出的远场网格边长。
@@ -1033,7 +1310,19 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             float(self._error_terms.lut_gamma),
             float(self._error_terms.phi_max_rad),
         )
-        patch = command + aberration
+        if self._travel_gammas is not None:
+            command = apply_travel_scale(
+                command,
+                self._travel_gammas.to(device=device, dtype=dtype),
+                self._projector_t.to(device=device, dtype=dtype),
+                self._basis_flat_t.to(device=device, dtype=dtype),
+            )
+        if self._affine is not None:
+            patch, amplitude = apply_pupil_affine(
+                command, aberration, amplitude, self._affine.to(device=device, dtype=dtype)
+            )
+        else:
+            patch = command + aberration
         if self._pupil_oversampling == 1:
             patch = patch * aperture
         from ao_shaping.utils.wavefront.fraunhofer import interpolated_pupil_field
@@ -1088,7 +1377,19 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             float(self._error_terms.lut_gamma),
             float(self._error_terms.phi_max_rad),
         )
-        patch = command + aberration
+        if self._travel_gammas is not None:
+            command = apply_travel_scale(
+                command,
+                self._travel_gammas,
+                self._projector_t,
+                self._basis_flat_t,
+            )
+        if self._affine is not None:
+            patch, amplitude = apply_pupil_affine(
+                command, aberration, amplitude, self._affine
+            )
+        else:
+            patch = command + aberration
         if self._pupil_oversampling == 1:
             patch = patch * self._aperture_t
         field = interpolated_pupil_field(
@@ -1123,6 +1424,8 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
         """
         torch = _torch()
         normalized = intensity / (intensity.max() + PEAK_EPS)
+        if self._loss_kind == "l1":
+            return torch.mean(torch.abs(normalized - target))
         return torch.mean((normalized - target) ** 2)
 
     def _anchored_intensity_loss(
@@ -1146,7 +1449,49 @@ class ZernikeCoefficientOptimizer(IterativeOptimizer):
             标量损失张量, 对 ``intensity`` 可微。
         """
         torch = _torch()
-        return torch.mean((intensity / peak_anchor - target) ** 2)
+        scaled = intensity / peak_anchor
+        if self._loss_kind == "l1":
+            return torch.mean(torch.abs(scaled - target))
+        return torch.mean((scaled - target) ** 2)
+
+    def _fourier_domain_loss(
+        self,
+        intensity: torch.Tensor,
+        target: torch.Tensor,
+        peak_anchor: torch.Tensor,
+    ) -> torch.Tensor:
+        """傅里叶域的 L1 残差: ``mean(|Re[fft2(I_model)] − Re[fft2(I_meas)]|)``。
+
+        论文 (GRAPHYCS) 的损失是 ``Σ|I_n − q_n| + α·|F{I_n} − F{q_n}|``,
+        傅里叶项取的是 **``Re[fft2]``** 的 L1 —— 不是复场, 也不是幅度谱。
+        本实现与论文的差别有两条, 都写在这里以免被当成 bug:
+
+        * **归一化**: 论文用「整组 min(正值) 扣背景 + 组内 max 归一」, 本
+          仓库用 :func:`~ao_shaping.utils.image.beam_metrics.prepare_frame`
+          (中值扣除 + clip)。**不替换**既有的预处理 —— 只在傅里叶项内部沿用
+          既有路径的**峰值归一化** (模型侧除以实测峰值锚点, 实测侧已是峰值
+          归一化), 所以两项的量纲与既有损失一致。
+        * **求和 vs 均值**: 论文写的是像素**和**, 本实现取**均值**。两项都
+          取均值时比值不变, 所以论文的 α 仍然可用; 但 α 的绝对含义依赖
+          图像域项的量纲 (默认是 MSE, 论文是 L1), 这是与论文的一处已知
+          差异, 实测数值见 ``scripts/slm/model_in_loop_selfcal_bakeoff.py``
+          在已录真实探针上的对比择优。
+
+        ⚠️ ``Re[fft2]`` 的 **DC 分量 = 图像的总能量**, 所以这一项同时约束了
+        能量比 —— 而峰值归一化的 MSE 完全看不到能量差。
+
+        Args:
+            intensity: 二维模型强度张量。
+            target: 二维峰值归一化的实测张量。
+            peak_anchor: 标量张量, 用作归一化尺度的实测峰值。
+
+        Returns:
+            标量损失张量, 对 ``intensity`` 可微。
+        """
+        torch = _torch()
+        model = torch.fft.fft2(intensity / peak_anchor).real
+        measured = torch.fft.fft2(target).real
+        return torch.mean(torch.abs(model - measured))
 
     # ------------------------------------------------------------------
     # 输入准备与记账
