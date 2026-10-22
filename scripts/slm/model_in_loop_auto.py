@@ -119,6 +119,7 @@ def build_command(profile: dict) -> list[str]:
         "step_b_iterations": "--step-b-iterations", "seed": "--seed",
         "w_uniformity": "--w-uniformity", "w_efficiency": "--w-efficiency",
         "max_cv_regression": "--max-cv-regression", "min_geometry_correlation": "--min-geometry-correlation",
+        "loss_kind": "--loss-kind",
         "min_holdout_correlation": "--min-holdout-correlation",
         "panel_scan_max_flat_drift": "--panel-scan-max-flat-drift",
         "panel_scan_step_px": "--panel-scan-step-px",

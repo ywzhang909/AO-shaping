@@ -95,7 +95,7 @@ PROFILE_FIELDS = frozenset(
         "camera_pixel_um", "slm_pixel_um", "probe_count", "holdout_probe_count",
         "step_b_iterations", "seed", "w_uniformity", "w_efficiency",
         "max_cv_regression", "min_geometry_correlation",
-        "min_holdout_correlation", "max_cv", "min_ee", "min_iou",
+        "min_holdout_correlation", "max_cv", "min_ee", "min_iou", "loss_kind",
         "panel_scan_max_flat_drift", "panel_scan_step_px",
         "geometry_file", "error_params",
     }
@@ -321,6 +321,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "can also surface mid-run as -10032 during the panel scan.",
     )
     parser.add_argument(
+        "--loss-kind",
+        choices=("mse", "l1"),
+        default="mse",
+        help="Step A fit loss: peak-normalised MSE (default) or the image-domain L1 "
+        "that GRAPHYCS uses (the only single switch that improved every metric on "
+        "the recorded probes).",
+    )
+    parser.add_argument(
         "--timeout-s", type=float, default=5400.0, help="Timeout of one stage in seconds."
     )
     return parser.parse_args(argv)
@@ -374,6 +382,7 @@ def build_profiles(args: argparse.Namespace) -> dict[str, dict]:
         "seed": args.seed,
         "max_cv_regression": args.max_cv_regression,
         "min_geometry_correlation": args.min_geometry_correlation,
+        "loss_kind": args.loss_kind,
         "panel_scan_max_flat_drift": args.panel_scan_max_flat_drift,
         "panel_scan_step_px": args.panel_scan_step_px,
         "max_cv": args.max_cv,
