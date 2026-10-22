@@ -295,7 +295,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 ## 8. 验证
 
 ```
-python -m pytest tests/ao_shaping/gui/ -q
+./run_pytest.sh tests/ao_shaping/gui/ -q
 python -m ruff check src/ao_shaping/gui/slm/ tests/ao_shaping/gui/
 python scripts/_common/term_unify_20261016.py          # dry-run，应输出 0 个文件
 ```

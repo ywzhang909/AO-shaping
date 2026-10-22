@@ -536,7 +536,7 @@ def build_gif_frames(
         t = i / max(n_frames - 1, 1)
         frame = stack[..., 0] * (1 - t) + stack[..., 1] * t
         gray = (255 * frame).astype(np.uint8)
-        frames.append(Image.fromarray(gray, mode="L").convert("P"))
+        frames.append(Image.fromarray(gray).convert("P"))
     return frames
 
 

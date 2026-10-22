@@ -719,40 +719,58 @@ main (click.group)
 
 ### Running Tests
 
+> 🔴 **测试必须在容器里跑。** 本机 384 核 + 755 GiB 内存，数值库按「能看到的核数」
+> 开线程池；不受限的 `pytest` 会把整机跑满，**2026-10-21 就是这样把宿主机跑死、
+> 强制断电才恢复**。`conftest.py` 现在会**直接拒绝**宿主机上的测试运行（报
+> `Refusing to run the test suite directly on the host`），CI 同样走容器。
+
 ```bash
-# Run all tests
-pytest
+# 整棵树（唯一推荐入口）
+./run_pytest.sh
 
-# Run all tests with verbose output
-pytest -v
+# 子树
+./run_pytest.sh tests/ao_shaping/runners
 
-# Run tests with coverage
-pytest --cov=ao_shaping
+# 附加参数放在 -- 之后
+./run_pytest.sh -k "not slow" -- -x
 
-# Run a specific test file
-pytest tests/ao_shaping/utils/test_spots_calc.py
+# 指定单个文件/类/函数
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py::TestCentroid
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
 
-# Run a specific test class
-pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid
+# 按 pattern / marker 过滤
+./run_pytest.sh -k "spots_calc"
+./run_pytest.sh -k "test_centroid"
+./run_pytest.sh -m "not slow"
 
-# Run a specific test function
-pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
+# 带覆盖率（容器内）
+./run_pytest.sh -- --cov=ao_shaping
+```
 
-# Run tests matching a pattern
-pytest -k "spots_calc"
-pytest -k "test_centroid"
+首次使用需先构建测试镜像（`run_pytest.sh` 只用现成镜像，不自己 build）：
 
-# Run with live output (no capture)
-pytest -s
+```bash
+docker build -f docker/Dockerfile.test -t ao-shaping-test:gpu .
+```
 
-# Run with specific markers
-pytest -m "not slow"
+**宿主机上确实只想跑一个文件时**（调试用），显式放行 —— 线程与显存上限仍然生效：
+
+```bash
+AO_ALLOW_HOST_PYTEST=1 .venv/bin/python -m pytest tests/ao_shaping/utils/test_spots_calc.py
+```
+
+CI 走同一套容器口径（CPU 镜像，无 GPU）：
+
+```bash
+docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
+./scripts/build/run_pytest_ci.sh
 ```
 
 ### 常规测试默认排除（pytest addopts，2026-10-16）
 
 `pyproject.toml` 的 `addopts` 默认 `--ignore` 三类**会阻塞**（挂死、无输出）的测试，
-裸 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
+容器里的 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
 
 | 排除 | 原因 |
 |---|---|
@@ -766,7 +784,7 @@ pytest -m "not slow"
 恢复：
 
 ```bash
-pytest -o "addopts=-ra --strict-markers"
+./run_pytest.sh -- -o "addopts=-ra --strict-markers"
 ```
 
 ### Environment Setup

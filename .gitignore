@@ -98,7 +98,7 @@ performance_comparison.md
 # this negation the bare pattern above matches at ANY depth, so moving the file
 # silently untracked it while the README kept linking to it.
 !report/benchmarks/cython_optimizer_performance.md
-docs/micro deformable mirror/docs/shiliang_extracted*
+docs/micro_deformable_mirror/docs/shiliang_extracted*
 !docs/**/*.png
 !report/**/*.png
 docs/**/*.npy

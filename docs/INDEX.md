@@ -60,8 +60,8 @@
 | `dm/hadamard_matrix.md` | Hadamard 并行扰动矩阵标定 |
 | `micro_drive/alt_voltage.md` | R50Power 交替电压下发 + NI DAQ ADC 同步采集 |
 | `micro_drive/full_voltage.md` | AsyncMicroDM 全量单元 0V↔V 同时交替（老化/寿命验证） |
-| `micro deformable mirror/docs/refactor.md` | Micro-DM 模块重构记录 |
-| `micro deformable mirror/docs/README.md` | Micro-DM 模块说明 |
+| `micro_deformable_mirror/docs/refactor.md` | Micro-DM 模块重构记录 |
+| `micro_deformable_mirror/docs/README.md` | Micro-DM 模块说明 |
 
 ## WFS 波前传感器 — 3 条命令
 

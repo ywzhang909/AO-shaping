@@ -405,6 +405,241 @@ class DifferentiableShapingResult:
 # ---------------------------------------------------------------------------
 
 
+def _validate_shaping_inputs(
+    target: "npt.NDArray[np.floating] | Tensor",
+    grid_size: tuple[int, int],
+    propagation: str,
+    optimizer: str,
+    iterations: int,
+) -> tuple[int, int]:
+    """Validate the run's inputs; return the grid height and width."""
+    if propagation not in ("fft", "asm"):
+        raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
+    if optimizer not in ("adam", "lbfgs"):
+        raise ValueError(f"optimizer must be 'adam' or 'lbfgs', got {optimizer!r}")
+    if len(grid_size) != 2:
+        raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
+    H, W = grid_size
+    if H <= 0 or W <= 0:
+        raise ValueError(f"grid_size must have positive dimensions, got {(H, W)}")
+    if iterations < 1:
+        raise ValueError(f"iterations must be >= 1, got {iterations}")
+
+    # 校验目标的维度, 以及是否与 grid_size 匹配
+    if isinstance(target, np.ndarray):
+        if target.ndim != 2:
+            raise ValueError(f"target must be 2D, got {target.ndim}D")
+        target_shape = target.shape
+    else:  # torch 张量
+        if target.dim() != 2:
+            raise ValueError(f"target must be 2D, got {target.dim()}D")
+        target_shape = tuple(target.shape)
+
+    if target_shape != (H, W):
+        raise ValueError(
+            f"target shape {target_shape} does not match grid_size {(H, W)}"
+        )
+    return H, W
+
+
+def _shaping_tensors(
+    torch: Any,
+    target: "npt.NDArray[np.floating] | Tensor",
+    source_amplitude: "npt.NDArray[np.floating] | Tensor | None",
+    initial_phase: "npt.NDArray[np.floating] | Tensor | None",
+    height: int,
+    width: int,
+    dev: Any,
+    dtype: Any,
+) -> tuple[Any, Any, Any]:
+    """Build the target, amplitude and initial-phase tensors."""
+    if isinstance(target, np.ndarray):
+        t_tensor = torch.from_numpy(target).to(device=dev, dtype=dtype)
+    else:
+        t_tensor = target.to(device=dev, dtype=dtype)
+
+    if source_amplitude is not None:
+        if isinstance(source_amplitude, np.ndarray):
+            amp = torch.from_numpy(source_amplitude).to(device=dev, dtype=dtype)
+        else:
+            amp = source_amplitude.to(device=dev, dtype=dtype)
+    else:
+        amp = torch.ones((height, width), device=dev, dtype=dtype)
+
+    if initial_phase is not None:
+        if isinstance(initial_phase, np.ndarray):
+            phase_init = torch.from_numpy(initial_phase).to(
+                device=dev,
+                dtype=dtype,
+            )
+        else:
+            phase_init = initial_phase.to(device=dev, dtype=dtype)
+    else:
+        # 加入小随机噪声, 避开那种光场为纯实数 (强度在那里是相位的二次函数)
+        # 的零梯度退化起点。实测发现 (report/slm_differential_shaping/):
+        # 平坦 / 零相位是一个 ASM 永远逃不出的临界点 (损失反而变大而不是
+        # 收敛); 0.1 量级的噪声能把预测踢离它。均匀 / `scale=0.1` 这一点
+        # 也很关键 —— 1.0 量级的噪声聚焦很慢。
+        phase_init = 0.1 * torch.randn((height, width), device=dev, dtype=dtype)
+    return t_tensor, amp, phase_init
+
+
+def _shaping_optimizer(torch: Any, phase: Any, optimizer: str, lr: float) -> Any:
+    """The Adam / L-BFGS optimizer over the phase parameter."""
+    if optimizer == "adam":
+        # 用 `Any` 是因为 torch 是可选依赖 —— 具体的优化器类型只能
+        # 在运行时由 `optimizer` 字符串确定。
+        opt: Any = torch.optim.Adam([phase], lr=lr)
+    else:
+        opt = torch.optim.LBFGS(
+            [phase],
+            lr=lr,
+            max_iter=20,
+            history_size=10,
+            line_search_fn="strong_wolfe",
+        )
+    return opt
+
+
+def _run_shaping_loop(
+    torch: Any,
+    phase: Any,
+    opt: Any,
+    forward: Any,
+    amp: Any,
+    t_tensor: Any,
+    *,
+    propagation: str,
+    optimizer: str,
+    iterations: int,
+    device: str,
+    w_uniformity: float,
+    w_efficiency: float,
+    w_zero_order: float,
+    w_smoothness: float,
+    progress_callback: Callable[[int, float], None] | None,
+    phase_callback: Callable[["Tensor"], None] | None,
+) -> tuple[list[float], bool]:
+    """Run the optimization loop; return the loss history and the converged flag."""
+    loss_history: list[float] = []
+
+    def _closure():
+        """Adam 与 L-BFGS 共用的单次前向 + 反向传播。"""
+        opt.zero_grad()
+        intensity = forward(phase, amp)
+        loss = total_loss(
+            intensity,
+            phase,
+            t_tensor,
+            w_uniformity=w_uniformity,
+            w_efficiency=w_efficiency,
+            w_zero_order=w_zero_order,
+            w_smoothness=w_smoothness,
+        )
+        loss.backward()
+        return loss
+
+    converged = False
+    logger.info(
+        "Starting differentiable beam shaping: {} iterations, "
+        "propagation={}, optimizer={}, device={}",
+        iterations,
+        propagation,
+        optimizer,
+        device,
+    )
+
+    for it in range(iterations):
+        if optimizer == "adam":
+            opt.zero_grad()
+            loss = _closure()
+            if torch.isnan(loss):
+                logger.warning("NaN loss at iteration {}; stopping early", it)
+                break
+            opt.step()
+        else:  # lbfgs —— 闭包由优化器内部调用
+            loss = opt.step(_closure)
+            if loss is None or torch.isnan(loss):
+                logger.warning(
+                    "L-BFGS returned NaN/None at iteration {}; stopping early", it
+                )
+                break
+
+        # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
+        # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
+        # 最后才包裹。
+        if optimizer == "adam":
+            with torch.no_grad():
+                phase.data = phase.data % (2.0 * math.pi)
+
+        loss_val = float(loss.item())
+        loss_history.append(loss_val)
+
+        if progress_callback is not None:
+            progress_callback(it, loss_val)
+
+        if phase_callback is not None:
+            phase_callback(phase.detach())
+
+        # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
+        # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
+        logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
+
+    if len(loss_history) >= iterations:
+        converged = True
+
+    return loss_history, converged
+
+
+def _extract_shaping_result(
+    torch: Any,
+    phase: Any,
+    forward: Any,
+    amp: Any,
+    target: "npt.NDArray[np.floating] | Tensor",
+    loss_history: list[float],
+    converged: bool,
+) -> DifferentiableShapingResult:
+    """Evaluate the final phase and assemble the result record."""
+    with torch.no_grad():
+        final_intensity = forward(phase, amp)
+        final_phase = (
+            (phase.detach() % (2.0 * math.pi))
+            .cpu()
+            .numpy()
+            .astype(
+                np.float64,
+            )
+        )
+        final_intensity_np = (
+            final_intensity.detach()
+            .cpu()
+            .numpy()
+            .astype(
+                np.float64,
+            )
+        )
+        if isinstance(target, np.ndarray):
+            target_np = target.astype(np.float64)
+        else:
+            target_np = target.detach().cpu().numpy().astype(np.float64)
+
+    logger.info(
+        "Beam shaping complete: final loss={:.6f}, converged={}",
+        loss_history[-1] if loss_history else float("nan"),
+        converged,
+    )
+
+    return DifferentiableShapingResult(
+        phase=final_phase,
+        target_intensity=target_np,
+        simulated_intensity=final_intensity_np,
+        loss_history=loss_history,
+        iterations=len(loss_history),
+        converged=converged,
+    )
+
+
 def train_beam_shaping(
     target: "npt.NDArray[np.floating] | Tensor",
     grid_size: tuple[int, int],
@@ -472,33 +707,9 @@ def train_beam_shaping(
     """
     torch = _torch()
 
-    # -- 校验 -----------------------------------------------------------
-    if propagation not in ("fft", "asm"):
-        raise ValueError(f"propagation must be 'fft' or 'asm', got {propagation!r}")
-    if optimizer not in ("adam", "lbfgs"):
-        raise ValueError(f"optimizer must be 'adam' or 'lbfgs', got {optimizer!r}")
-    if len(grid_size) != 2:
-        raise ValueError(f"grid_size must be a 2-tuple, got {len(grid_size)}D")
-    H, W = grid_size
-    if H <= 0 or W <= 0:
-        raise ValueError(f"grid_size must have positive dimensions, got {(H, W)}")
-    if iterations < 1:
-        raise ValueError(f"iterations must be >= 1, got {iterations}")
-
-    # 校验目标的维度, 以及是否与 grid_size 匹配
-    if isinstance(target, np.ndarray):
-        if target.ndim != 2:
-            raise ValueError(f"target must be 2D, got {target.ndim}D")
-        target_shape = target.shape
-    else:  # torch 张量
-        if target.dim() != 2:
-            raise ValueError(f"target must be 2D, got {target.dim()}D")
-        target_shape = tuple(target.shape)
-
-    if target_shape != (H, W):
-        raise ValueError(
-            f"target shape {target_shape} does not match grid_size {(H, W)}"
-        )
+    H, W = _validate_shaping_inputs(
+        target, grid_size, propagation, optimizer, iterations
+    )
 
     # -- 可复现性 ----------------------------------------------------
     if seed is not None:
@@ -514,34 +725,9 @@ def train_beam_shaping(
     dtype = torch.float32
 
     # -- 准备张量 ----------------------------------------------------
-    if isinstance(target, np.ndarray):
-        t_tensor = torch.from_numpy(target).to(device=dev, dtype=dtype)
-    else:
-        t_tensor = target.to(device=dev, dtype=dtype)
-
-    if source_amplitude is not None:
-        if isinstance(source_amplitude, np.ndarray):
-            amp = torch.from_numpy(source_amplitude).to(device=dev, dtype=dtype)
-        else:
-            amp = source_amplitude.to(device=dev, dtype=dtype)
-    else:
-        amp = torch.ones((H, W), device=dev, dtype=dtype)
-
-    if initial_phase is not None:
-        if isinstance(initial_phase, np.ndarray):
-            phase_init = torch.from_numpy(initial_phase).to(
-                device=dev,
-                dtype=dtype,
-            )
-        else:
-            phase_init = initial_phase.to(device=dev, dtype=dtype)
-    else:
-        # 加入小随机噪声, 避开那种光场为纯实数 (强度在那里是相位的二次函数)
-        # 的零梯度退化起点。实测发现 (report/slm_differential_shaping/):
-        # 平坦 / 零相位是一个 ASM 永远逃不出的临界点 (损失反而变大而不是
-        # 收敛); 0.1 量级的噪声能把预测踢离它。均匀 / `scale=0.1` 这一点
-        # 也很关键 —— 1.0 量级的噪声聚焦很慢。
-        phase_init = 0.1 * torch.randn((H, W), device=dev, dtype=dtype)
+    t_tensor, amp, phase_init = _shaping_tensors(
+        torch, target, source_amplitude, initial_phase, H, W, dev, dtype
+    )
 
     phase = torch.nn.Parameter(phase_init.clone())
 
@@ -549,122 +735,29 @@ def train_beam_shaping(
     forward = _build_forward(propagation, cell_spacing, distance, wavelength)
 
     # -- 优化器 ------------------------------------------------------
-    loss_history: list[float] = []
-
-    def _closure():
-        """Adam 与 L-BFGS 共用的单次前向 + 反向传播。"""
-        opt.zero_grad()
-        intensity = forward(phase, amp)
-        loss = total_loss(
-            intensity,
-            phase,
-            t_tensor,
-            w_uniformity=w_uniformity,
-            w_efficiency=w_efficiency,
-            w_zero_order=w_zero_order,
-            w_smoothness=w_smoothness,
-        )
-        loss.backward()
-        return loss
-
-    if optimizer == "adam":
-        # 用 `Any` 是因为 torch 是可选依赖 —— 具体的优化器类型只能
-        # 在运行时由 `optimizer` 字符串确定。
-        opt: Any = torch.optim.Adam([phase], lr=lr)
-    else:
-        opt = torch.optim.LBFGS(
-            [phase],
-            lr=lr,
-            max_iter=20,
-            history_size=10,
-            line_search_fn="strong_wolfe",
-        )
+    opt = _shaping_optimizer(torch, phase, optimizer, lr)
 
     # -- 训练循环 ----------------------------------------------------
-    converged = False
-    logger.info(
-        "Starting differentiable beam shaping: {} iterations, "
-        "propagation={}, optimizer={}, device={}",
-        iterations,
-        propagation,
-        optimizer,
-        device,
+    loss_history, converged = _run_shaping_loop(
+        torch,
+        phase,
+        opt,
+        forward,
+        amp,
+        t_tensor,
+        propagation=propagation,
+        optimizer=optimizer,
+        iterations=iterations,
+        device=device,
+        w_uniformity=w_uniformity,
+        w_efficiency=w_efficiency,
+        w_zero_order=w_zero_order,
+        w_smoothness=w_smoothness,
+        progress_callback=progress_callback,
+        phase_callback=phase_callback,
     )
-
-    for it in range(iterations):
-        if optimizer == "adam":
-            opt.zero_grad()
-            loss = _closure()
-            if torch.isnan(loss):
-                logger.warning("NaN loss at iteration {}; stopping early", it)
-                break
-            opt.step()
-        else:  # lbfgs —— 闭包由优化器内部调用
-            loss = opt.step(_closure)
-            if loss is None or torch.isnan(loss):
-                logger.warning(
-                    "L-BFGS returned NaN/None at iteration {}; stopping early", it
-                )
-                break
-
-        # 把相位包裹到 [0, 2π)。对 Adam 来说每步都做是安全的; 对
-        # L-BFGS 来说, 运行中包裹会破坏它的梯度历史记账, 所以只在
-        # 最后才包裹。
-        if optimizer == "adam":
-            with torch.no_grad():
-                phase.data = phase.data % (2.0 * math.pi)
-
-        loss_val = float(loss.item())
-        loss_history.append(loss_val)
-
-        if progress_callback is not None:
-            progress_callback(it, loss_val)
-
-        if phase_callback is not None:
-            phase_callback(phase.detach())
-
-        # 每个迭代输出一次进度日志 (library 层为 debug 级别, 由 DEBUG=1 控制;
-        # runner 层通过 progress_callback 在 INFO 级别逐迭代输出)
-        logger.debug("Iter {}/{}  loss={:.6f}", it + 1, iterations, loss_val)
-
-    if len(loss_history) >= iterations:
-        converged = True
 
     # -- 提取结果 ----------------------------------------------------
-    with torch.no_grad():
-        final_intensity = forward(phase, amp)
-        final_phase = (
-            (phase.detach() % (2.0 * math.pi))
-            .cpu()
-            .numpy()
-            .astype(
-                np.float64,
-            )
-        )
-        final_intensity_np = (
-            final_intensity.detach()
-            .cpu()
-            .numpy()
-            .astype(
-                np.float64,
-            )
-        )
-        if isinstance(target, np.ndarray):
-            target_np = target.astype(np.float64)
-        else:
-            target_np = target.detach().cpu().numpy().astype(np.float64)
-
-    logger.info(
-        "Beam shaping complete: final loss={:.6f}, converged={}",
-        loss_history[-1] if loss_history else float("nan"),
-        converged,
-    )
-
-    return DifferentiableShapingResult(
-        phase=final_phase,
-        target_intensity=target_np,
-        simulated_intensity=final_intensity_np,
-        loss_history=loss_history,
-        iterations=len(loss_history),
-        converged=converged,
+    return _extract_shaping_result(
+        torch, phase, forward, amp, target, loss_history, converged
     )

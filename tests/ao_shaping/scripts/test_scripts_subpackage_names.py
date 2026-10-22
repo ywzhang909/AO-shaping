@@ -37,6 +37,28 @@ ALLOWED_OVERLAP = {
     "ml": "src/ precedes scripts/ on pythonpath, so `ml` resolves to src/ml",
 }
 
+#: Name -> (why the only owner is not a real distribution, what that owner
+#: must look like). The owner is checked, so the exemption cannot outlive its
+#: reason: if the name ever gets claimed by a real distribution the exemption
+#: stops applying and the guard reports the shadowing again.
+#:
+#: ``build`` is the one case. Its only owner is the vendored OOPAO
+#: submodule's build artifact directory -- setuptools' scratch output, which
+#: the submodule gitignores -- so there is no distribution to break. It sits
+#: at ``libs/OOPAO/build`` in a checkout and at ``/opt/OOPAO/build`` in the
+#: test image, so the check matches the path tail rather than a fixed prefix.
+#: PyPI's own ``build`` IS a real distribution with a real ``__file__``; if
+#: it is ever installed, the owner stops being the artifact and the guard
+#: fires.
+ALLOWED_ARTIFACT_OWNER = {
+    "build": (
+        "the vendored OOPAO submodule's build artifact directory (setuptools "
+        "scratch output, gitignored by the submodule), not an importable "
+        "distribution",
+        "OOPAO/build",
+    ),
+}
+
 
 def _subpackages() -> list[Path]:
     return sorted(
@@ -51,12 +73,23 @@ def _subpackages() -> list[Path]:
 def _taken_without_scripts(name: str) -> str | None:
     """Resolve ``name`` with ``scripts/`` REMOVED from the path.
 
-    Returns the winning module's ``__file__``, or ``None`` when nothing on the
+    Returns the winning module's location, or ``None`` when nothing on the
     path claims the name. A non-``None`` result means ``scripts/<name>/`` would
     steal that name from its real owner.
+
+    A namespace package has no ``__file__``, so the probe reports the
+    package's own directory for it. Printing ``__file__`` for one yields the
+    string "None", which is truthy and used to be reported as the owner of a
+    module that does not exist.
     """
+    probe = (
+        "import importlib;"
+        "m = importlib.import_module({name!r});"
+        "f = getattr(m, '__file__', None);"
+        "print(f if f else (list(m.__path__)[0] if hasattr(m, '__path__') else ''))"
+    ).format(name=name)
     out = subprocess.run(
-        [sys.executable, "-c", f"import {name} as m; print(m.__file__)"],
+        [sys.executable, "-c", probe],
         cwd=_ROOT,
         capture_output=True,
         text=True,
@@ -64,7 +97,7 @@ def _taken_without_scripts(name: str) -> str | None:
     )
     if out.returncode != 0:
         return None
-    return out.stdout.strip()
+    return out.stdout.strip() or None
 
 
 def test_scripts_has_subpackages() -> None:
@@ -79,6 +112,13 @@ def test_subpackage_does_not_shadow_an_import(pkg: Path) -> None:
         assert owner is None or str(_ROOT / "src" / name) in owner, (
             f"{name} was exempted because src/ wins the path order, but the "
             f"real owner moved to {owner}; re-check the exemption"
+        )
+        return
+    if name in ALLOWED_ARTIFACT_OWNER:
+        reason, expected = ALLOWED_ARTIFACT_OWNER[name]
+        assert owner is None or expected in owner, (
+            f"{name} was exempted because {reason}, but the owner is now "
+            f"{owner}; re-check the exemption"
         )
         return
     assert owner is None, (
