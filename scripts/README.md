@@ -1494,6 +1494,38 @@ python scripts/slm/run_gs_refine_zernike_sweep.py --cam-type daheng \
 | `--max-energy-loss` | `0.6` | in-ROI energy-loss fraction that abandons an SPGD evaluation (0 disables the guard). Lower it if every perturbation of an already-good fitted phase is rejected |
 | `--save-images` | off | dump per-stage far-field PNGs |
 
+### compare_sim_vs_hw.py
+
+Runs the **same acquisition scripts** on the digital twin and compares every
+metric with the **hardware** numbers of a finished round, item by item.
+
+**Why it exists**: a simulation that "runs" proves nothing about physics. This
+script makes the claim checkable: the hardware side is read from a round's
+**archived artefacts** (never hard-coded), the simulation side is produced by
+the very same probes (`hw_gs_defocus_probe.py`, `run_gs_refine_zernike_sweep.py`,
+`focus_probe.py`) with `--cam-type sim`, and both sides go through the **same**
+metric code, so a difference in the numbers is a difference in the *physics*,
+not in the bookkeeping.
+
+**Usage:**
+```bash
+# render the comparison table from an existing simulation run
+python scripts/slm/compare_sim_vs_hw.py
+# run the simulation side first (minutes) and then render
+python scripts/slm/compare_sim_vs_hw.py --execute
+# which round's hardware artefacts to compare against
+python scripts/slm/compare_sim_vs_hw.py --round-root report/shape_trials/hw_defocus_zernike/artifacts/round3_20261022
+```
+
+**Outputs**: a markdown table (metric / hardware / simulation / relative
+difference / verdict) plus a gap list, written to
+`report/shape_trials/sim_vs_hw/artifacts/`.
+
+**Cost**: one far-field evaluation is ~1.4 s and ~1.5 GB peak
+(`far_field_padding = 4`, panel 1200x1920); a full pass over the round's groups
+is ~13 min. `--sim-far-field-padding 16` would need ~9.4 GB per evaluation —
+never use it for the comparison.
+
 ### run_hw_sweep_groups.py
 
 Plan-driven runner for the **one-variable-group-per-invocation** hardware
@@ -4071,4 +4103,119 @@ retains five raw frames per record and defaults to a device-free plan.
 JSON and a fixed-grid prediction figure. See
 [the experiment record](../report/shape_trials/model_in_loop/physical_forward_defocus_live_20261022.md)
 for measured results, commands and the remaining uniformity prediction limitation.
+### capture_prior_phase_dataset.py
+
+Captures a **prior-phase training set** on the real bench: the candidate phases
+whose optimiser had *actually* improved the metric in earlier MIL rounds are
+displayed next to the regular random probes, so the run yields
+`phase -> measured far field` pairs for calibrating the model's **systematic**
+error (energy scale / width / position).
+
+**Why it exists**: the loss audit showed the closed loop is limited by a model
+mismatch, not by iteration count (model-minus-measured CV bias -0.3009 in 51/51
+runs, width ratio 1.328). Probing the phases that already worked gives an
+informative, reproducible training set instead of more random probes.
+
+**Usage:**
+```bash
+# device-free plan first (prints the phase list and the split)
+python scripts/slm/capture_prior_phase_dataset.py --output <new-dir> \
+    --focus-directory <dir-with-focus.json> --candidates logs/mil_loss_audit/<stamp> \
+    --count 12 --seed 20261022 --region 128
+# then execute (this is the only branch that opens devices)
+python scripts/slm/capture_prior_phase_dataset.py --output <new-dir> \
+    --focus-directory <dir-with-focus.json> --candidates logs/mil_loss_audit/<stamp> \
+    --count 12 --seed 20261022 --region 128 --execute
+# faster acquisition: thin the drift references and pin the exposure per plane
+python scripts/slm/capture_prior_phase_dataset.py ... --reference-every 12 --fixed-exposure
+```
+
+`--reference-every N` (default 6) sets the interval between drift-reference
+pairs; a random probe counts as one unit and a prior phase as six, because a
+shaping phase perturbs the panel far more than a probe. `--fixed-exposure`
+(default off) pins each plane's exposure to the value the exposure ladder
+picked the first time that plane was measured, which removes the per-capture
+ladder (106 ladder runs -> 2) but also stops tracking the light level, so the
+interval must follow the measured drift rate of that plane (the compensated
+plane drifts 0.014 px/min, the uncompensated one 1.035 px/min).
+
+The dataset format is byte-compatible with `capture_defocus_forward_dataset.py`,
+so that line's fitter consumes it unchanged.
+
+### fit_forward_sampling_variants.py
+
+Runs a **variant grid** of the physical forward model over an already captured
+phase/far-field dataset: FFT size, per-pixel integration, panel-grid density,
+and whether the illumination amplitude and residual Zernike modes are learned.
+Every variant is scored on the held-out probes with the metrics of the existing
+diagnostics, and the run writes a comparison table plus a convergence verdict.
+
+**Why it exists**: the "sampling is not converged" objection has to be answered
+with numbers, not with a feeling. The script also proves that changing only the
+FFT size does **not** change the coordinate mapping (the physical frequency per
+camera sample is invariant, residual 6.9e-18), so every variant in the grid is
+interpretable.
+
+**Usage:**
+```bash
+python scripts/slm/fit_forward_sampling_variants.py \
+    --dataset baseline=data/debug/physical_forward_defocus/capture_20261022_s20261022 \
+    --evaluation-dataset locked=data/debug/physical_forward_defocus/locked_20261022_1834 \
+    --output data/debug/physical_forward_defocus/forward_variants_<stamp> \
+    --iterations 150 --stage all
+```
+
+### audit_physical_test_time.py
+
+Reads the archived records of the hardware test scripts and recomputes an
+**action-level time budget** (which stage, how many times, how long each, what
+share of the total), ranks the optimisations with their expected saving, and
+prices the device time in three tiers: decisive / full campaign / research loop.
+
+**Why it exists**: the device is the scarcest resource on this bench, and the
+sweep/probe stages are serialised by the exclusive SLM USB handle. Knowing that
+the panel scan and the illumination-radius measurement each cost about a third
+of a campaign is what turns "just run it again" into a plan.
+
+**Usage:**
+```bash
+python scripts/slm/audit_physical_test_time.py
+```
+
+### render_differentiable_opt_animation.py
+
+Renders a finished differentiable-shaping round into a **GIF**, a curve figure
+and the underlying per-frame data, entirely offline: the model-side backprop is
+**reproduced** from the recorded initial phase and seed (max relative deviation
+1.06e-07 against `history.csv`), so the animation shows the real optimisation
+trajectory rather than a re-simulation of something else.
+
+**Usage:**
+```bash
+python scripts/slm/render_differentiable_opt_animation.py \
+    --run-dir data/debug/differentiable_opt/<stamp>
+```
+### mine_history_model_bias.py
+
+Mines the **archived** hardware runs for `phase -> measured far field` pairs,
+fits the forward model's **systematic** error offline (focal scale, pupil
+centre, gain, plus the GRAPHYCS-style travel scale), and validates the result
+on data that was never used for the fit.
+
+**Why it exists**: the loss audit showed the closed loop is limited by a model
+mismatch, so the question "can the history replace the hardware acquisitions?"
+needs an answer with numbers. The answer is: **yes for the focal/scale class,
+no for the position class** - the residual centroid offset is a per-session
+optical-axis zero drift and has to be confirmed on site, every session.
+
+**Usage:**
+```bash
+python scripts/slm/mine_history_model_bias.py --out-dir logs/history_model_bias
+```
+
+The run writes `pairs.json` (every pair with its session, exposure, the affine
+normalisation actually used, and the grid convention), `fit.json` (the fitted
+error terms, the diagnostics that say which class dominates, and the per-session
+calibration), `validation.json` (before/after on the held-out sets) and
+`summary.md`.
 

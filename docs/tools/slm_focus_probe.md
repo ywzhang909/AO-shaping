@@ -51,7 +51,7 @@ GUI 入口为 `probe_session_focus`（侧栏「本次实验光路」D 组「探�
 |------|------|--------|
 | `--slm-number` | SLM 设备编号 | 1 |
 | `--slm-wavelength` | SLM 波长 (nm) | 1064 |
-| `--cam-type` | 相机类型 (daheng/miicam) | daheng |
+| `--cam-type` | 相机类型 (daheng/miicam/sim；`sim` 走数字孪生 `SimSLMPib` + 仿真相机，同结构产物，无需硬件) | daheng |
 | `--cam-id` | 相机 ID | 0 |
 | `--exposure-ms` | 起始曝光 ms（每点自动调整） | 0.1 |
 | `--radius-px` | 照明半径 (面板px) | `BEAM_RADIUS_PANEL` |

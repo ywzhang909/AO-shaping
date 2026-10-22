@@ -195,10 +195,30 @@ REPORTS: dict[str, ReportProvenance] = {
         ),
         note=(
             "正向调优模型 + 反向可微优化 SLM 相位的硬件全流程记录: **开测前先脚本判在焦**"
-            "(不在焦即退出 5, 一帧不测), 现场几何标定, 150 次纯模型反向传播的相位/梯度/损失史, "
-            "上屏后的 CCD 远场, 模型与实测的对照 (峰值位置差 ~18 CCD px、强度相关系数 0.15), "
-            "测量锚定的硬件闭环迭代 (实测损失 9.5e-4 → 8.5e-4), 以及"
-            "**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**这一负结果"
+            "(不在焦即退出 5, 一帧不测), 现场几何标定, 200 次纯模型反向传播的相位/梯度/损失史, "
+            "上屏后的 CCD 远场, 模型与实测的对照 (强度相关系数 0.089、峰值偏移 [-6,-3] 远场采样、"
+            "类 Strehl 0.450), 测量锚定的硬件闭环迭代 (实测损失 9.08e-4 → 6.50e-4, 梯度范数 "
+            "0.12 → 0.79 仍在升), 以及**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**"
+            "与**相位 RMS 几乎不变**这两个负结果"
+        ),
+    ),
+    "report/slm/differentiable_opt/differentiable_opt_animation_20261022.md": ReportProvenance(
+        script="scripts/slm/render_differentiable_opt_animation.py",
+        command=(
+            "python scripts/slm/render_differentiable_opt_animation.py "
+            "--run-dir data/debug/differentiable_opt/20261022_213000"
+        ),
+        environment="离线",
+        extra_scripts=(
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_beam.py",
+        ),
+        note=(
+            "可微相位优化实验的**过程动画**配套报告: 模型侧 200 次反向传播**离线复现**"
+            "(同初值 + 同 seed, 与 history.csv 的最大相对偏差 1.06e-07, 最终相位差 6.29e-05 rad), "
+            "GIF 展示「随机初值 → 远场演化 → 测量锚定实测帧」并逐帧标注损失/梯度范数, "
+            "曲线图把 5 个测量锚定点叠加到模型侧损失/梯度范数曲线上 (拼接时间轴) 并标出 "
+            "曝光自适应 2.0 → 72.0 ms; 附落盘数据 (每帧远场/损失/梯度)"
         ),
     ),
     "report/slm/differentiable_opt/focus_gate_verification_20261022.md": ReportProvenance(

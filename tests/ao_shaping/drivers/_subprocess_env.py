@@ -50,7 +50,22 @@ REPO_PYTHONPATH_ENTRIES = ("src", "libs")
 #: Variables Windows needs before a bare interpreter can start. ``SYSTEMROOT`` locates
 #: the Winsock catalog (without it: ``WinError 10106``); ``COMSPEC``/``PATHEXT`` are
 #: needed for command invocation; ``TEMP``/``TMP`` for anything touching a temp file.
-_WINDOWS_REQUIRED = ("SYSTEMROOT", "WINDIR", "COMSPEC", "PATHEXT", "TEMP", "TMP")
+#: ``USERPROFILE``/``APPDATA``/``LOCALAPPDATA`` cover libraries that resolve the user
+#: profile at **import** time: matplotlib's ``matplotlib_fname()`` looks up its config
+#: dir under ``APPDATA`` and raises without it -- and the sim system pulls matplotlib
+#: in transitively (``aotools → turbulence → pyplot``), so any child importing
+#: ``ao_shaping.drivers.sim`` died before running a single line of the snippet.
+_WINDOWS_REQUIRED = (
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "PATHEXT",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "APPDATA",
+    "LOCALAPPDATA",
+)
 
 
 def minimal_subprocess_env() -> dict[str, str]:

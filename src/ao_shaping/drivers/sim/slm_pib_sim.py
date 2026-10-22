@@ -275,6 +275,7 @@ class SimPibSystem:
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
         self._far_field: np.ndarray | None = None
         self._pad_buffer: np.ndarray | None = None
+        self._amplitude: np.ndarray | None = None
         self._gray: np.ndarray | None = None
         self._panel_aberration_phase: np.ndarray | None = None
         # DM 电压 → 瞳面相位耦合 (见 dm_optics.py)。未注入时使用与 SLM 面板
@@ -378,11 +379,8 @@ class SimPibSystem:
             panel_phase = self._panel_aberration_field()
             if panel_phase is not None:
                 phase = phase + panel_phase
-            # SLM 网格上的高斯入射光束幅度。
-            yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
-            cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
-            r2 = (xx - cx) ** 2 + (yy - cy) ** 2
-            amplitude = np.exp(-r2 / (2.0 * self.beam_w0**2))
+            # SLM 网格上的高斯入射光束幅度 (静态几何 ⇒ 懒缓存, 见下)。
+            amplitude = self._amplitude_field()
             pupil = amplitude * np.exp(1j * phase)
             pad = self.far_field_padding
             if pad > 1:
@@ -407,6 +405,20 @@ class SimPibSystem:
                 spectrum = spectrum * (100.0 / peak)
             self._far_field = spectrum.astype(np.float64)
             return self._far_field.copy()
+
+    def _amplitude_field(self) -> np.ndarray:
+        """高斯入射光束幅度 (峰值 1), 只依赖静态几何 (``slm_h/w`` + ``beam_w0``)。
+
+        懒缓存: 每次远场求值都重算 ``mgrid`` + ``exp`` 会白白 churn 4 个
+        2.3M 元素临时数组 (~74 MB/次, 1920x1200 面板), 闭环里这是 FFT 之外
+        最大的单笔浪费。
+        """
+        if self._amplitude is None:
+            yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
+            cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
+            r2 = (xx - cx) ** 2 + (yy - cy) ** 2
+            self._amplitude = np.exp(-r2 / (2.0 * self.beam_w0**2))
+        return self._amplitude
 
     def _panel_aberration_field(self) -> np.ndarray | None:
         """面板静态相差 (Zernike + 粗糙度) 的瞳面相位, ``None`` = 理想面板。

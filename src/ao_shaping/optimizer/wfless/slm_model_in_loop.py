@@ -912,6 +912,38 @@ class SlmModelInLoopConfig:
     the setters). ``None`` (default) = no overlay, so CLI runs are untouched;
     the GUI entry fills it from the session via ``build_send_overlay``."""
 
+    focus_dir: str | None = None
+    """Directory holding the focus calibration evidence (``focus.json``).
+
+    The 2f bench sits permanently **out of focus**; a forward model fitted on
+    an uncorrected bench predicts a **broader** spot than the hardware
+    produces (measured width ratio 1.328, CV bias -0.3009 over 51/51 records
+    -- ``report/shape_trials/experiment_summary_20261022.md`` §2).  When
+    ``focus_compensation`` is on, the Fresnel focus phase built from this
+    directory is added to **every** displayed pupil phase.
+
+    ``None`` (default) = no focus evidence, so nothing is prepended.
+    """
+
+    focus_compensation: bool = False
+    """Enable the focus (defocus) compensation preflight stage.
+
+    **Off by default**: the preflight is a new capability and must not change
+    the behaviour of an existing run.  With it off the panel phase that
+    reaches the SLM is the very same array it was before -- the run stays
+    bit-identical.
+
+    With it on and no usable ``focus_dir``, the run **aborts** rather than
+    quietly collecting on an uncorrected bench; the evidence file
+    (``focus_preflight.json``) is written either way.
+    """
+
+    focus_live_probe: bool = False
+    """Allow an on-the-spot focus calibration when ``focus_dir`` is unset.
+
+    This **opens the panel and the camera**.  Offline paths never set it.
+    """
+
     n_eval_frames: int = 4
     """Frames averaged per measurement."""
 
@@ -1010,6 +1042,15 @@ class SlmModelInLoopConfig:
             raise ValueError("blaze_direction must be vertical or horizontal")
         if self.blaze_period_px >= 0 and self.cam_type == "sim":
             raise ValueError("blaze calibration requires a full-frame hardware CCD")
+        if self.focus_compensation and self.cam_type == "sim":
+            # The digital twin is in focus by construction (its forward model
+            # is a plain FFT), so a Fresnel focus phase would *defocus* it.
+            # Accepting the flag as a silent no-op would be worse than saying
+            # so.
+            raise ValueError(
+                "focus_compensation is a hardware-only stage: the simulated "
+                "bench is already in focus, so the focus phase would defocus it"
+            )
         if self.n_rounds < 1:
             raise ValueError(f"n_rounds must be >= 1, got {self.n_rounds}")
         if self.probe_count < 2:
@@ -1647,6 +1688,10 @@ class _HardwareBench:
 
         self._capture = capture_settled
         self._config = config
+        # The focus (defocus) compensation preflight is assembled **before any
+        # device is opened**: a broken focus.json must cost nothing, and an
+        # uncompensated bench is exactly the failure this stage removes.
+        self._preflight = self._build_preflight(config)
         # create_camera forwards only the keys in the backend's accepted_kwargs,
         # and Daheng's allow-list does NOT include cam_size, so the window has to
         # be set explicitly afterwards.
@@ -1702,7 +1747,11 @@ class _HardwareBench:
                 )
                 self._capture(
                     self._cam, self._slm,
-                    flat_panel if self._disturbance is None else flat_panel + self._disturbance,
+                    self._preflight.apply_to_panel_phase(
+                        flat_panel
+                        if self._disturbance is None
+                        else flat_panel + self._disturbance
+                    ),
                     n_frames=1, n_discard=config.settle_max_discard,
                     wait_time_s=config.settle_wait_s, stable_tol=config.settle_tol,
                     max_wait_s=config.settle_max_wait_s,
@@ -1720,6 +1769,7 @@ class _HardwareBench:
 
                 def capture_blaze(phase: np.ndarray) -> np.ndarray:
                     displayed = phase if self._disturbance is None else phase + self._disturbance
+                    displayed = self._preflight.apply_to_panel_phase(displayed)
                     image = np.asarray(self._capture(
                         self._cam, self._slm, displayed, n_frames=1,
                         n_discard=config.settle_max_discard,
@@ -1751,7 +1801,11 @@ class _HardwareBench:
                 full_frame = self._capture(
                     self._cam,
                     self._slm,
-                    blank_panel if self._disturbance is None else blank_panel + self._disturbance,
+                    self._preflight.apply_to_panel_phase(
+                        blank_panel
+                        if self._disturbance is None
+                        else blank_panel + self._disturbance
+                    ),
                     n_frames=1,
                     n_discard=config.settle_max_discard,
                     wait_time_s=config.settle_wait_s,
@@ -1809,6 +1863,63 @@ class _HardwareBench:
         self.last_raw_frame: np.ndarray | None = None
         self._closed = False
 
+    def _build_preflight(self, config: SlmModelInLoopConfig) -> Any:
+        """Assemble the focus (defocus) compensation preflight stage.
+
+        The evidence file is written **either way** (``focus_preflight.json``
+        in ``config.debug_dir``), so a later reader can tell "compensation was
+        off" from "nothing was recorded".
+
+        With the compensation requested but no usable calibration, the run
+        aborts: collecting on an uncorrected bench is precisely the failure
+        this stage exists to remove, and a silently uncompensated run would
+        look like a compensated one in the report.
+        """
+        from ao_shaping.tools.slm.panel.focus_preflight import (
+            FocusPreflightError,
+            build_focus_preflight,
+            write_preflight_record,
+        )
+        from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
+
+        try:
+            preflight = build_focus_preflight(
+                focus_dir=config.focus_dir,
+                enabled=bool(config.focus_compensation),
+                allow_live_probe=bool(config.focus_live_probe),
+                live_probe_kwargs={
+                    "slm_number": int(config.slm_number),
+                    "cam_type": str(config.cam_type),
+                    "cam_id": int(config.cam_id),
+                    "wavelength_nm": int(config.slm_wavelength or 1064),
+                },
+                panel_shape=(SLM_PANEL_H, SLM_PANEL_W),
+                pupil_center=tuple(config.pupil_center),
+                run_pupil_center=tuple(config.pupil_center),
+            )
+        except FocusPreflightError as exc:
+            raise RuntimeError(f"焦面补偿前置阶段失败: {exc}") from exc
+        if config.debug_dir is not None:
+            path = write_preflight_record(config.debug_dir, preflight)
+            logger.info("focus preflight evidence -> {}", path)
+        if preflight.enabled:
+            calibration = preflight.calibration
+            logger.info(
+                "focus compensation ON: f={:.1f} mm, 1/f={} m^-1, centre={}",
+                calibration.focal_mm if calibration else float("nan"),
+                calibration.diopter_m1 if calibration else None,
+                tuple(config.pupil_center),
+            )
+            for note in preflight.warnings:
+                logger.warning("focus compensation: {}", note)
+        else:
+            logger.info("focus compensation OFF: {}", preflight.disable_reason)
+            if preflight.requested:
+                raise RuntimeError(
+                    "焦面补偿被要求但没有生效: " + preflight.disable_reason
+                )
+        return preflight
+
     def _resolve_daheng_ceiling(self) -> float:
         """Resolve the session exposure ceiling: explicit > env > image probe.
 
@@ -1845,6 +1956,11 @@ class _HardwareBench:
             from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
 
             self._pending = apply_zero_order_overlay(self._pending, self._blaze_choice.params)
+        # The focus (defocus) compensation is the LAST thing added: it is the
+        # bench's own defocus being undone, so it sits on top of whatever
+        # pupil phase (plus the fixed disturbance / blaze carrier) is going
+        # out.  With the compensation off this returns the very same array.
+        self._pending = self._preflight.apply_to_panel_phase(self._pending)
 
     def measure(self) -> np.ndarray:
         if self._pending is None:

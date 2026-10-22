@@ -45,6 +45,44 @@ that was validated in the historical run.  Those samples are therefore
 
 Defaults to a device-free plan: the plan is printed as JSON plus a capture
 list, and nothing is opened.  ``--execute`` opens the bench.
+
+Cadence and exposure
+--------------------
+Two options trade monitoring density against wall-clock time.  Both default to
+the behaviour that produced the measured B2 run, so a default run stays
+comparable with it.
+
+``--reference-every N`` (default 6)
+    A pair of reference captures (one per plane) is inserted after every ``N``
+    content captures.  One counter covers both families: a random probe adds
+    one unit, a prior phase adds :data:`PRIOR_PROBE_EQUIVALENTS` units because
+    it is a shaping phase and perturbs the panel state far more than a random
+    probe.  With the default ``N=6`` that reproduces the measured cadence
+    exactly -- a reference pair after every sixth random probe **and** after
+    every prior phase -- so a default run stays comparable with the B2
+    dataset.
+
+    **The interval has to be chosen per drift rate**: the B2 run measured the
+    compensated plane (``C``) at 0.014-0.034 px/min of centroid drift and a
+    0.6-2.6 % FWHM span over 28.5 min, so its interval can be stretched to a
+    dozen captures; the uncompensated plane (``U``) drifted at 1.0-1.35 px/min
+    with a 68-71 % FWHM span, so it needs the denser monitoring.  A reference
+    pair covers both planes at once, so the cadence is a compromise -- pick it
+    from the drift of the plane you care about.
+
+``--fixed-exposure`` (default off)
+    Pins the exposure of each plane to the value the exposure ladder picked the
+    first time that plane was measured, and stops running the ladder.  That
+    removes the ladder's settle from every capture (about 5 s each in the B2
+    run) and it is what makes the peak a usable drift monitor: with an
+    adaptive exposure the peak moves because the exposure moved, not because
+    the light did.
+
+    The price: a fixed exposure no longer tracks the light level per capture,
+    so it may only be enabled on the compensated plane (or once the light
+    level is known to be stable).  Data taken with a fixed exposure cannot be
+    compared with adaptively exposed data on an absolute intensity scale --
+    normalise each set on its own.
 """
 
 from __future__ import annotations
@@ -100,8 +138,17 @@ NPZ_KEYS = ("frame", "raw_frames", "panel_phase", "model_phase")
 PROBE_TEST_MODULUS = 6
 PROBE_TEST_OFFSET = 3
 
-#: How many random probes share one drift reference pair.
+#: Default cadence of the drift references: one reference pair after every
+#: ``REFERENCE_EVERY`` content captures.
 REFERENCE_EVERY = 6
+
+#: How many probe-equivalents one prior phase counts as in the reference
+#: counter.  A prior phase is a shaping phase: it perturbs the panel state far
+#: more than a random probe, and the measured B2 run gave every one of them
+#: its own reference pair.  Expressing that as a weight keeps **one** counter
+#: for both families, so ``--reference-every`` means the same interval
+#: everywhere while the default stays bit-identical to the B2 cadence.
+PRIOR_PROBE_EQUIVALENTS = 6
 
 
 # ---------------------------------------------------------------------------
@@ -329,15 +376,37 @@ def resolve_step(step: dict, ctx: CaptureContext) -> tuple[np.ndarray, np.ndarra
 def build_steps(
     count: int,
     priors: list[PriorPhase],
+    reference_every: int = REFERENCE_EVERY,
 ) -> list[dict]:
     """Describe the whole capture sequence, in acquisition order.
 
     The baseline part (references, ramps, random probes, drift references) comes
     first and is **index-identical** to the baseline group, so the two datasets
-    pair sample by sample.  The prior phases follow, each followed by its own
-    reference pair: a prior phase is a shaping phase and drifts the panel state
-    more readily than a random probe.
+    pair sample by sample.  The prior phases follow.
+
+    The drift references are placed by **one** counter that covers both
+    families: a random probe adds one unit, a prior phase adds
+    :data:`PRIOR_PROBE_EQUIVALENTS` units (it is a shaping phase and drifts the
+    panel state more readily), and a reference pair is inserted as soon as the
+    counter reaches ``reference_every``.  With the default ``reference_every=6``
+    this reproduces the measured cadence exactly -- a reference pair after every
+    sixth random probe and after every prior phase -- so a default run stays
+    comparable with the B2 dataset.  The calibration ramps are not counted:
+    they measure the camera geometry, they are not content.
+
+    Args:
+        count: Number of random probes.
+        priors: Prior phases to capture after the probes.
+        reference_every: Content captures between two reference pairs.
+
+    Returns:
+        The planned captures, in acquisition order.
+
+    Raises:
+        ValueError: ``reference_every`` is below one.
     """
+    if reference_every < 1:
+        raise ValueError(f"reference_every must be >= 1; got {reference_every}")
     steps: list[dict] = []
 
     def add(label: str, branch: str, family: str, split: str, source: dict,
@@ -352,18 +421,20 @@ def build_steps(
             "phase_spec": phase_spec,
         })
 
-    add("reference_start", "U", "reference", "calibration",
-        {"kind": "flat", "note": "flat panel"},
-        {"kind": "flat"})
-    add("reference_start", "C", "reference", "calibration",
-        {"kind": "focus", "note": "defocus compensation"},
-        {"kind": "focus"})
+    def add_reference(label: str, note: str) -> None:
+        add(label, "U", "reference", "calibration",
+            {"kind": "flat", "note": note}, {"kind": "flat"})
+        add(label, "C", "reference", "calibration",
+            {"kind": "focus", "note": note}, {"kind": "focus"})
+
+    add_reference("reference_start", "flat panel / defocus compensation")
     for axis in ("x", "y"):
         for period in (480, 960):
             for sign in (-1, 1):
                 add(f"ramp_{axis}_{period}_{sign}", "C", "ramp", "calibration",
                     {"kind": "ramp", "axis": axis, "period": period, "sign": sign},
                     {"kind": "ramp", "axis": axis, "period": period, "sign": sign})
+    units = 0
     for index in range(count):
         family = ("zernike", "smooth", "bandlimited")[index % 3]
         split = "test" if index % PROBE_TEST_MODULUS >= PROBE_TEST_OFFSET else "train"
@@ -372,13 +443,10 @@ def build_steps(
             add(f"probe_{index:03d}", branch, family, split,
                 {"kind": "probe", "index": index, "family": family},
                 {"kind": "probe", "index": index})
-        if index % REFERENCE_EVERY == REFERENCE_EVERY - 1:
-            add(f"reference_{index}", "U", "reference", "calibration",
-                {"kind": "flat", "note": "drift reference"},
-                {"kind": "flat"})
-            add(f"reference_{index}", "C", "reference", "calibration",
-                {"kind": "focus", "note": "drift reference"},
-                {"kind": "focus"})
+        units += 1
+        if units >= reference_every:
+            add_reference(f"reference_{index}", "drift reference")
+            units = 0
     for order_index, prior in enumerate(priors):
         order = ("U", "C") if order_index % 2 == 0 else ("C", "U")
         for branch in order:
@@ -387,12 +455,11 @@ def build_steps(
                  "run_path": prior.source.get("run_path"),
                  "relative_improvement": prior.source.get("relative_improvement")},
                 {"kind": "prior", "prior_index": order_index})
-        add(f"reference_prior_{order_index:03d}", "U", "reference", "calibration",
-            {"kind": "flat", "note": "drift reference after a prior phase"},
-            {"kind": "flat"})
-        add(f"reference_prior_{order_index:03d}", "C", "reference", "calibration",
-            {"kind": "focus", "note": "drift reference after a prior phase"},
-            {"kind": "focus"})
+        units += PRIOR_PROBE_EQUIVALENTS
+        if units >= reference_every:
+            add_reference(f"reference_prior_{order_index:03d}",
+                          "drift reference after a prior phase")
+            units = 0
     return steps
 
 
@@ -408,25 +475,120 @@ def summarize_plan(steps: list[dict]) -> dict:
     return {"split_counts": splits, "family_counts": families, "branch_counts": branches}
 
 
+def reference_coverage(steps: list[dict]) -> dict:
+    """How densely the drift references cover the content captures.
+
+    A content capture is one phase measured on both planes (the ``U`` row
+    counts it once); the calibration ramps are geometry probes, not content.
+
+    Args:
+        steps: The planned captures.
+
+    Returns:
+        ``{"pairs": int, "max_gap": int, "max_units": int, "gaps": list[int]}``
+        -- the number of reference pairs, the largest number of content
+        captures between two pairs, and the same interval measured in the
+        counter units of :func:`build_steps`.
+    """
+    gaps: list[int] = []
+    units: list[int] = []
+    since = 0
+    since_units = 0
+    last_label: str | None = None
+    for step in steps:
+        if step["family"] == "reference":
+            if step["label"] != last_label:
+                gaps.append(since)
+                units.append(since_units)
+                since = 0
+                since_units = 0
+                last_label = step["label"]
+            continue
+        if step["family"] == "ramp" or step["branch"] != "U":
+            continue
+        since += 1
+        since_units += (PRIOR_PROBE_EQUIVALENTS
+                        if step["phase_spec"]["kind"] == "prior" else 1)
+    return {"pairs": len(gaps), "max_gap": max(gaps) if gaps else 0,
+            "max_units": max(units) if units else 0, "gaps": gaps}
+
+
+def branch_drift(rows: list[dict], branch: str) -> dict | None:
+    """Drift statistics of one branch, measured on its reference captures.
+
+    Args:
+        rows: The manifest rows.
+        branch: ``"U"`` or ``"C"``.
+
+    Returns:
+        ``None`` when the branch has fewer than two references (not enough to
+        measure a drift), otherwise the centroid drift rate in px/min, the
+        largest neighbouring centroid step, the FWHM span and the peak span.
+    """
+    references = sorted((row for row in rows
+                         if row["family"] == "reference" and row["branch"] == branch),
+                        key=lambda row: row["monotonic_start_ns"])
+    if len(references) < 2:
+        return None
+    stamps = np.array([row["monotonic_start_ns"] for row in references], dtype=float)
+    minutes = float(stamps[-1] - stamps[0]) / 1e9 / 60.0
+    if minutes <= 0:
+        return None
+    centroids = np.array([[row["spot"]["centroid_x"], row["spot"]["centroid_y"]]
+                          for row in references])
+    steps = np.linalg.norm(np.diff(centroids, axis=0), axis=1)
+    net = float(np.linalg.norm(centroids[-1] - centroids[0]))
+    fwhm = np.array([row["spot"]["fwhm_px"] for row in references])
+    peaks = np.array([row["peak"] for row in references])
+
+    def span(values: np.ndarray) -> float:
+        mean = float(values.mean())
+        return float((values.max() - values.min()) / mean * 100.0) if mean > 0 else float("nan")
+
+    return {
+        "references": len(references),
+        "minutes": minutes,
+        "centroid_drift_px_per_min": net / minutes,
+        "centroid_step_max_px": float(steps.max()) if steps.size else 0.0,
+        "fwhm_span_pct": span(fwhm),
+        "peak_span_pct": span(peaks),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Capture
 # ---------------------------------------------------------------------------
 
 
+def write_run_config(out: Path, plan: dict) -> None:
+    """Write ``run_config.json`` -- the record of how the run was set up.
+
+    The file is rewritten whenever the run learns something new about itself
+    (in fixed-exposure mode, which exposure each plane ended up with and which
+    capture produced it), so an interrupted run still says what it was doing.
+    """
+    (out / "run_config.json").write_text(json.dumps(plan, default=str, indent=2),
+                                          encoding="utf-8")
+
+
 def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                     priors: list[PriorPhase], steps: list[dict],
-                    probe_grid: Callable[..., tuple[str, np.ndarray]]) -> list[dict]:
+                    probe_grid: Callable[..., tuple[str, np.ndarray]],
+                    plan: dict) -> list[dict]:
     """Run the acquisition and return the manifest rows.
 
     Every row is flushed to ``manifest.json`` and ``capture_records.pkl`` right
     after it is written, so an interrupted run keeps everything it measured.
+    With ``--fixed-exposure`` the exposure ladder runs once per branch and the
+    value it picked is recorded in ``run_config.json`` together with the capture
+    it came from.
     """
     from ao_shaping.drivers.ccd.common import create_camera, get_camera_exposure_range
     from ao_shaping.drivers.slm.santec import Santec
     from ao_shaping.tools.kernels.bench_kernels import (
         SLM_PANEL_H, SLM_PANEL_W, capture_settled_report, fresnel_panel, measure_spot,
     )
-    from ao_shaping.tools.slm.panel.focus_probe import adapt_exposure
+    from ao_shaping.tools.slm.panel.focus_probe import ExposureSetting, adapt_exposure
     from ao_shaping.utils.image.exposure_control import configured_daheng_exposure_limit
 
     out = args.output.resolve()
@@ -460,6 +622,8 @@ def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                 if limit > 0:
                     ceiling = min(ceiling, limit)
                 current = 1.0
+                fixed: dict[str, float] = {}
+                fixed_source: dict[str, dict] = {}
 
                 def capture(phase, label, branch, family, split, model_phase=None,
                             extra=None):
@@ -467,11 +631,33 @@ def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                     started = time.monotonic_ns()
                     utc_start = datetime.now(timezone.utc).isoformat(timespec="microseconds")
                     slm.display_data(slm.create_phase_from_array(phase), .8)
-                    setting = adapt_exposure(cam.reset_exposure_time,
-                                             lambda: cam.get_numpy_image(n_sample=1),
-                                             start_ms=current, floor_ms=floor,
-                                             ceiling_ms=ceiling, full_scale=255)
-                    current = float(cam.exposure_time)
+                    if args.fixed_exposure and branch in fixed:
+                        # The ladder already vetted this exposure when it was
+                        # picked; running it again would only cost its settle.
+                        value = fixed[branch]
+                        cam.reset_exposure_time(value)
+                        setting = ExposureSetting(value, 0.0, 0.0, "ok", 0)
+                        exposure_fixed = True
+                    else:
+                        setting = adapt_exposure(cam.reset_exposure_time,
+                                                 lambda: cam.get_numpy_image(n_sample=1),
+                                                 start_ms=current, floor_ms=floor,
+                                                 ceiling_ms=ceiling, full_scale=255)
+                        current = float(cam.exposure_time)
+                        exposure_fixed = False
+                        if args.fixed_exposure:
+                            fixed[branch] = current
+                            fixed_source[branch] = {
+                                "exposure_ms": current,
+                                "source_index": len(rows),
+                                "source_label": label,
+                                "source_utc_start": utc_start,
+                            }
+                            plan["fixed_exposure"] = {
+                                "enabled": True,
+                                "branches": dict(fixed_source),
+                            }
+                            write_run_config(out, plan)
                     acquisition = capture_settled_report(cam, slm, phase, n_frames=3,
                                                          stable_tol=.05, max_wait_s=12)
                     raw = np.stack([np.asarray(cam.get_numpy_image(n_sample=1))
@@ -499,12 +685,18 @@ def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                                spot=asdict(measure_spot(acquisition.frame)))
                     if extra:
                         row.update(extra)
+                    if args.fixed_exposure:
+                        # Only present in fixed mode: with an adaptive exposure
+                        # there is no fixed value to report.
+                        row["exposure_fixed"] = bool(exposure_fixed)
+                        row["fixed_exposure_ms"] = fixed.get(branch)
                     rows.append(row)
                     (out / "manifest.json").write_text(json.dumps(rows, indent=2),
                                                        encoding="utf-8")
                     with (out / "capture_records.pkl").open("wb") as stream:
                         pickle.dump(rows, stream, protocol=5)
-                    print(f"{number:03d} {label} {branch}: exposure={current:.4f} "
+                    print(f"{number:03d} {label} {branch}: "
+                          f"exposure={row['exposure_ms']:.4f} "
                           f"peak={raw.max()} settled={acquisition.settle.settled}",
                           flush=True)
                     if setting.status != "ok" or raw.max() >= 250:
@@ -529,8 +721,14 @@ def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
 # ---------------------------------------------------------------------------
 
 
-def print_summary(rows: list[dict], priors: list[PriorPhase]) -> None:
-    """Print what the run measured: counts, ranges and the prior provenance."""
+def print_summary(rows: list[dict], priors: list[PriorPhase], steps: list[dict]) -> None:
+    """Print what the run measured: counts, ranges and the prior provenance.
+
+    Besides the per-branch counts it reports the **reference coverage density**
+    (how many content captures may sit between two drift references) and the
+    drift rate that density has to cover, measured on the reference captures
+    themselves.
+    """
     print("\n=== capture summary ===", flush=True)
     branches = sorted({row["branch"] for row in rows})
     for branch in branches:
@@ -545,6 +743,27 @@ def print_summary(rows: list[dict], priors: list[PriorPhase]) -> None:
               f"exposure={min(exposures):.4f}..{max(exposures):.4f} ms, "
               f"peak={min(peaks):.0f}..{max(peaks):.0f}, "
               f"settled={settled}/{len(selected)}", flush=True)
+    coverage = reference_coverage(steps)
+    print(f"reference 覆盖密度：最多间隔 {coverage['max_gap']} 条内容采集"
+          f"（reference 对 {coverage['pairs']} 对）", flush=True)
+    for branch in branches:
+        drift = branch_drift(rows, branch)
+        if drift is None:
+            print(f"  {branch} 分支漂移率：未记录（该分支的 reference 少于 2 条）",
+                  flush=True)
+            continue
+        print(f"  {branch} 分支漂移率：质心 {drift['centroid_drift_px_per_min']:.3f} px/min"
+              f"（相邻最大 {drift['centroid_step_max_px']:.2f} px，"
+              f"跨 {drift['minutes']:.1f} min / {drift['references']} 条 reference），"
+              f"FWHM 跨度 {drift['fwhm_span_pct']:.1f}%，"
+              f"峰值跨度 {drift['peak_span_pct']:.1f}%"
+              f"（自适应曝光引起，非光漂）", flush=True)
+    fixed = {row["branch"]: row.get("fixed_exposure_ms") for row in rows
+             if "fixed_exposure_ms" in row}
+    if fixed:
+        print("fixed exposure: "
+              + ", ".join(f"{branch} {value:.4f} ms" for branch, value in sorted(fixed.items())),
+              flush=True)
     print("prior phases:", flush=True)
     measured = {row["label"]: row for row in rows if row["family"] == "prior"}
     for prior in priors:
@@ -592,6 +811,17 @@ def main() -> int:
                         help="Model-grid size of the probe and prior phases")
     parser.add_argument("--prior-holdout", type=int, default=0,
                         help="Number of prior phases moved to the validation split")
+    parser.add_argument("--reference-every", type=int, default=REFERENCE_EVERY,
+                        help="每 N 条内容采集插入一对 reference（漂移监测）。"
+                             "默认 6 = 现有节奏（每 6 条随机探针后一对、每条先验相位后一对）。"
+                             "间隔要按分支的漂移率选：补偿面（C）实测质心漂移 0.014–0.034 px/min、"
+                             "FWHM 跨度 0.6–2.6%%，可放宽到十几条；未补偿面（U）实测 1.0–1.35 px/min、"
+                             "FWHM 跨度 68–71%%，应保持较密的 reference。")
+    parser.add_argument("--fixed-exposure", action="store_true",
+                        help="按分支固定曝光：沿用该分支第一次自适应出来的值，之后不再走曝光阶梯。"
+                             "每条可省下阶梯里的沉降（约 5 s），且峰值才可用于漂移监测。"
+                             "代价：不再逐条跟踪光强漂移，只宜在补偿面（或已确认光强稳定）开启；"
+                             "固定曝光采的数据不能与自适应曝光的数据在强度口径上直接混比（要各自归一化）。")
     parser.add_argument("--execute", action="store_true",
                         help="Open the bench; without it only the plan is printed")
     args = parser.parse_args()
@@ -612,6 +842,8 @@ def main() -> int:
         parser.error("count >= 6 and region >= 24 required")
     if args.prior_holdout < 0:
         parser.error("--prior-holdout must not be negative")
+    if args.reference_every < 1:
+        parser.error("--reference-every must be >= 1")
 
     try:
         probe_grid = load_probe_grid()
@@ -626,8 +858,9 @@ def main() -> int:
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"cannot read the prior candidates: {exc}") from exc
 
-    steps = build_steps(args.count, priors)
+    steps = build_steps(args.count, priors, int(args.reference_every))
     counts = summarize_plan(steps)
+    coverage = reference_coverage(steps)
     plan = {
         **vars(args),
         "settings": settings,
@@ -638,6 +871,11 @@ def main() -> int:
         "capture_count": len(steps),
         "pairing": "U/C pairs (current plane / defocus-compensated plane)",
         **counts,
+        "reference_every": int(args.reference_every),
+        "reference_pairs": coverage["pairs"],
+        "reference_max_gap": coverage["max_gap"],
+        "reference_max_gap_units": coverage["max_units"],
+        "fixed_exposure": {"enabled": bool(args.fixed_exposure), "branches": {}},
         "prior_holdout_entries": int(args.prior_holdout),
         "prior_sources": [
             {
@@ -660,10 +898,17 @@ def main() -> int:
 
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    (out / "run_config.json").write_text(
-        json.dumps(plan, default=str, indent=2), encoding="utf-8")
-    rows = capture_dataset(args, settings, focus, priors, steps, probe_grid)
-    print_summary(rows, priors)
+    write_run_config(out, plan)
+    rows = capture_dataset(args, settings, focus, priors, steps, probe_grid, plan)
+    if args.fixed_exposure:
+        # The capture loop already recorded which capture produced each fixed
+        # exposure; keep that detail and only make sure the section is there.
+        plan["fixed_exposure"] = {
+            "enabled": True,
+            "branches": plan.get("fixed_exposure", {}).get("branches", {}),
+        }
+        write_run_config(out, plan)
+    print_summary(rows, priors, steps)
     return 0
 
 
