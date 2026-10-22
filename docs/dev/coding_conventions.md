@@ -1,6 +1,8 @@
 # 开发指南：编码规范与测试
 
 > 本文件从 README.md 拆出（2026-10-13）。分层契约的速查版见仓库根 [AGENTS.md](../../AGENTS.md)，本文是完整版。
+> 要新增设备 / 算法 / 优化器 / CLI 命令 / ML 模型 / GUI 页面，先看
+> [`extension_guide.md`](extension_guide.md)（扩展点、最小模板、测试与文档门禁）。
 
 ## 编码规范
 
