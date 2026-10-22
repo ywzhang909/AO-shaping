@@ -1984,6 +1984,24 @@ def _render_figures_from_artifacts(
     return written
 
 
+def _load_hw_artifacts(
+    run_dir: Path,
+) -> tuple[list[dict[str, Any]], np.ndarray | None]:
+    """读回硬件侧的产物: 测量锚定闭环的迭代史 + 优化后那张 CCD 帧。
+
+    离线重做分析时, **硬件侧的东西一个都不能丢**: 没有迭代史就画不出
+    "metrics 随 step 变化", 没有 CCD 帧就量不出光斑的绝对宽度。丢了它们,
+    报告里会出现空的表格与空的条形图 —— 看起来像"没测", 其实是没读。
+    """
+    hw_history = _read_csv_rows(run_dir / "history_hw.csv")
+    ccd_frame = None
+    ccd_path = run_dir / "ccd_optimized.npz"
+    if ccd_path.exists():
+        with np.load(ccd_path) as payload:
+            ccd_frame = payload["frame"]
+    return hw_history, ccd_frame
+
+
 def render_only(run_dir: Path) -> int:
     """从已落盘的运行目录**离线**重生成报告 (不 import 驱动, 不碰设备)。
 
@@ -2037,6 +2055,257 @@ def render_only(run_dir: Path) -> int:
 # ---------------------------------------------------------------------------
 # --execute
 # ---------------------------------------------------------------------------
+def run_analyze_only(args: argparse.Namespace) -> int:
+    """离线重做分析与报告 —— **一个设备都不碰**。
+
+    上机采到的数据 (原始帧 / 初始与最终相位 / 实测远场网格 / 几何标定 /
+    焦面扫描 / 全部参数) 全部落盘, 所以分析可以**事后**重做: 换目标、换初值、
+    换拟合口径都不必再上一次机。
+
+    读 ``<run_dir>/run_config.json`` 拿到参数与几何, 用保存的
+    ``phase_initial.npy`` 重跑纯模型侧的反向传播 (同一初值 ⇒ 可复现),
+    用保存的 ``measured_model_grid.npy`` 重做「模型 vs 硬件」对照, 然后重写报告。
+
+    Args:
+        args: 命令行参数 (``--analyze-only`` 指向运行目录)。
+
+    Returns:
+        退出码。
+    """
+    import json
+
+    run_dir = Path(args.analyze_only)
+    cfg_path = run_dir / "run_config.json"
+    if not cfg_path.is_file():
+        logger.error("找不到运行配置: {}", cfg_path)
+        return EXIT_MODEL_FAILED
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
+    params = cfg.get("params", {})
+    geometry = cfg.get("geometry", {})
+    k_mean = float(geometry.get("k_mean", 0.0))
+    if k_mean <= 0.0:
+        logger.error("运行配置里没有可用的 K (几何标定缺失), 无法重做对照")
+        return EXIT_MODEL_FAILED
+
+    pupil_center = tuple(float(v) for v in params.get("pupil_center", (960.0, 600.0)))
+    spec = build_model_spec(
+        pupil_radius=float(params.get("pupil_radius", 480.0)),
+        pupil_center=pupil_center,
+        n_pupil=int(params.get("model_pupil_samples", 256)),
+        padding=int(params.get("model_padding", 4)),
+        w0_px=float(params.get("beam_w0_px", 260.0)),
+    )
+    amplitude = build_source_amplitude(spec)
+    target, target_info = build_target(
+        spec,
+        str(params.get("target", "square")),
+        float(params.get("target_side_px", 60.0)),
+        k_mean,
+        delta_spot_px=float(params.get("delta_spot_px", 15.0)),
+    )
+    init_path = run_dir / "phase_initial.npy"
+    init_phase = np.load(init_path) if init_path.is_file() else None
+    # 硬件侧的读数从落盘产物里补回来 (离线重分析没有设备可问):
+    # 没有迭代史就画不出 "metrics 随 step 变化", 没有 CCD 帧就量不出
+    # 光斑的绝对宽度 —— 少了它们, 报告里会出现空的表格与空的条形图。
+    hw_history, ccd_frame = _load_hw_artifacts(run_dir)
+    logger.info(
+        "离线重分析: 目标={} ({}) | 初值来自 {} | 迭代 {} 次",
+        params.get("target"),
+        target_info.get("note", ""),
+        init_path.name if init_phase is not None else "随机 (按 seed)",
+        int(params.get("iters", 0)),
+    )
+
+    import torch
+
+    setup_cjk_font()  # 离线重画图也要有中文字体, 否则标签全是豆腐块
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    opt = DifferentiableBeamOptimizer(
+        target,
+        source_amplitude=amplitude,
+        lr=float(params.get("lr", 0.05)),
+        device=device,
+        seed=int(params.get("seed", 0)),
+        init_phase=init_phase,
+    )
+    history: list[dict[str, Any]] = []
+    grad_fields: dict[int, np.ndarray] = {}
+    grad_every = max(int(params.get("grad_every", 10)), 1)
+    n_iters = int(params.get("iters", 0))
+    phase_mid: np.ndarray | None = None
+    for it in range(n_iters):
+        opt.update()
+        grad = opt.phase_tensor.grad
+        gnorm = float(grad.norm()) if grad is not None else float("nan")
+        phase_now = opt.current_phase
+        history.append(
+            {
+                "iteration": it + 1,
+                "loss": float(
+                    opt.last_loss if opt.last_loss is not None else float("nan")
+                ),
+                "grad_norm": gnorm,
+                "phase_rms_rad": float(np.sqrt(np.mean(phase_now**2))),
+                "device": device,
+            }
+        )
+        if (it + 1) % grad_every == 0 or it == 0:
+            grad_fields[it + 1] = (
+                grad.detach().cpu().numpy().copy()
+                if grad is not None
+                else np.zeros((spec.m_grid, spec.m_grid))
+            )
+        if phase_mid is None and it == n_iters // 2:
+            phase_mid = phase_now.copy()
+    phase_final = opt.current_phase.copy()
+    if phase_mid is None:
+        phase_mid = phase_final.copy()
+
+    # 图: 重画到运行目录的 figures/ (报告再从这里搬)
+    fig_dir = run_dir / "figures"
+    fig_dir.mkdir(parents=True, exist_ok=True)
+    plot_phase(phase_mid, spec, fig_dir / "phase_mid.png", title="中间相位")
+    plot_phase(phase_final, spec, fig_dir / "phase_final.png", title="最终相位")
+    if grad_fields:
+        first_key = min(grad_fields)
+        plot_gradient(
+            grad_fields[first_key],
+            spec,
+            fig_dir / f"gradient_{first_key:04d}.png",
+            title=f"梯度场 (第 {first_key} 次迭代后)",
+        )
+        last_key = max(grad_fields)
+        plot_gradient(
+            grad_fields[last_key],
+            spec,
+            fig_dir / "gradient_final.png",
+            title=f"梯度场 (第 {last_key} 次迭代后, 最后一张)",
+        )
+    plot_history(history, fig_dir / "history.png")
+    plot_metrics_vs_step(
+        history,
+        hw_history,
+        fig_dir / "metrics_vs_step.png",
+        blind_loss=_blind_loss_value(
+            spec.far_field_sample_ccd_px(k_mean),
+            float(params.get("target_side_px", 60.0)),
+            int(spec.m_grid),
+        ),
+    )
+
+    model_farfield = model_far_field(amplitude, phase_final)
+    np.save(run_dir / "model_farfield.npy", model_farfield)
+    plot_farfield(
+        model_farfield,
+        fig_dir / "model_farfield.png",
+        title="模型预测的远场 (最终相位)",
+    )
+
+    # 对照: 用保存的实测网格重做 (八个轴向口径择优)
+    measured_path = run_dir / "measured_model_grid.npy"
+    comparison = cfg.get("comparison", {})
+    if measured_path.is_file():
+        measured_opt = np.load(measured_path)
+        candidates: dict[str, dict[str, Any]] = {}
+        for name, transpose, flip_rows, flip_cols in _AXIS_CANDIDATES:
+            variant = measured_opt
+            if transpose:
+                variant = variant.T
+            if flip_rows:
+                variant = variant[::-1, :]
+            if flip_cols:
+                variant = variant[:, ::-1]
+            candidates[name] = {
+                **compare_farfields(model_farfield, variant, transpose_measured=False),
+                "transpose": bool(transpose),
+                "flip_rows": bool(flip_rows),
+                "flip_cols": bool(flip_cols),
+            }
+        best_key = max(
+            candidates,
+            key=lambda key: (
+                candidates[key]["intensity_correlation"]
+                if np.isfinite(candidates[key]["intensity_correlation"])
+                else -np.inf
+            ),
+        )
+        cmp_best = candidates[best_key]
+        cmp_best["orientation_match"] = best_key
+        for key in (
+            "strehl_model",
+            "strehl_hardware",
+            "strehl_like_peak_ratio",
+            "exposure_ms",
+        ):
+            if key in comparison.get("best", {}):
+                cmp_best[key] = comparison["best"][key]
+        if ccd_frame is not None:
+            cmp_best.update(_ccd_spot_profile(ccd_frame))
+        # 判定语要在**所有**指标都补齐之后再算 —— 否则会出现
+        # 「类 Strehl 峰值比 None」这种半截句子。
+        cmp_best["verdict"] = _verdict_text(cmp_best)
+        comparison = {
+            "best": cmp_best,
+            "candidates": candidates,
+            "flat_reference": comparison.get("flat_reference", {}),
+            "note": comparison.get("note", ""),
+        }
+        plot_model_vs_hardware(
+            model_farfield,
+            _apply_axis_convention(measured_opt, cmp_best),
+            fig_dir / "model_vs_hardware.png",
+            orientation_match=best_key,
+            metrics=cmp_best,
+        )
+        # 光斑截面 (CCD 域 + 模型网格域) —— 上机整形实验缺这张就看不出
+        # "光斑到底差在哪"。
+        plot_spot_cross_section(
+            model_farfield,
+            _apply_axis_convention(measured_opt, cmp_best),
+            fig_dir / "spot_cross_section.png",
+            metrics=cmp_best,
+            ccd_frame=ccd_frame,
+        )
+        logger.info(
+            "离线重分析: 口径 {} | 相关系数 {} | 峰值偏移 {}",
+            best_key,
+            _fmt(cmp_best.get("intensity_correlation")),
+            cmp_best.get("peak_offset_samples"),
+        )
+    else:
+        logger.warning("运行目录里没有 measured_model_grid.npy, 跳过对照重做")
+
+    cfg["model"]["target"] = target_info
+    cfg["comparison"] = comparison
+    cfg["history_summary"] = {
+        "iters": len(history),
+        "first_loss": history[0]["loss"] if history else float("nan"),
+        "last_loss": history[-1]["loss"] if history else float("nan"),
+        "hw_iters": int(cfg.get("history_summary", {}).get("hw_iters", 0)),
+        "hw_first_loss": cfg.get("history_summary", {}).get("hw_first_loss"),
+        "hw_last_loss": cfg.get("history_summary", {}).get("hw_last_loss"),
+        "reanalyzed_offline": True,
+    }
+    cfg["conclusion"] = _conclusion_text(
+        comparison.get("best", {}), history, hw_history
+    )
+    (run_dir / "run_config.json").write_text(
+        json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+    stamp = run_dir.name
+    write_report(
+        cfg,
+        history,
+        hw_history,
+        run_dir,
+        stamp,
+        copy_artifacts=False,
+    )
+    print(f"\n离线重分析完成: {run_dir}")
+    return EXIT_OK
+
+
 def run_execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
     """真正开设备, 按 P1–P7 走完。返回退出码。"""
     # ---- 设备 import 全部锁在 --execute 分支内 -----------------------------
@@ -2769,6 +3038,12 @@ def _run_bench(
         json.dumps(run_config, indent=2, ensure_ascii=False, default=str),
         encoding="utf-8",
     )
+    if bool(getattr(args, "quick", False)):
+        # 冒烟跑**不写报告**: 报告是"这一轮真实实验"的结论, 被一次 2 轮迭代的
+        # 冒烟覆盖掉, 就等于把结论换成了没意义的数。产物仍照常落盘。
+        logger.info("冒烟模式: 产物已落盘, 报告不覆盖")
+        print(f"产物: {out_dir}")
+        return EXIT_OK
     report_path = write_report(run_config, history, hw_history, out_dir, stamp)
     print(f"报告: {report_path}")
     print(f"产物: {out_dir}")
@@ -3041,6 +3316,13 @@ def build_parser() -> argparse.ArgumentParser:
         "先看别的会话有没有在用设备, 没有才探针 —— 本脚本不抢设备",
     )
     p.add_argument(
+        "--analyze-only",
+        default=None,
+        help="只做离线重分析: 读这个运行目录里的产物 (参数/几何/相位/实测远场), "
+        "重跑纯模型侧的反向传播与「模型 vs 硬件」对照, 并重写报告。"
+        "**一个设备都不碰** —— 上机采到的数据可以事后分析",
+    )
+    p.add_argument(
         "--model-pupil-samples",
         type=int,
         default=DEFAULT_MODEL_PUPIL_SAMPLES,
@@ -3126,6 +3408,11 @@ def main() -> None:
         if code != EXIT_OK:
             raise SystemExit(code)
         return
+    if args.analyze_only:
+        code = run_analyze_only(args)
+        if code != EXIT_OK:
+            raise SystemExit(code)
+        return
     args.pupil_center = _parse_centre(args.pupil_center)
     if args.out_dir is None:
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -3133,8 +3420,11 @@ def main() -> None:
     if args.quick:
         args.iters = 2
         args.hw_iters = 1
-        args.focus_points = 5
-        args.focus_refine = 3
+        # ⚠️ 焦面扫描**不能**跟着缩: 13 点的粗扫在 ±6 m⁻¹ 上步长 3 m⁻¹,
+        # 而本实验系统的最佳值在 1/f ≈ 0.67 m⁻¹ —— 5 点的粗网格根本采不到
+        # 那里, 扫出来的"最佳点"是 71 px 的宽斑, 于是门禁给出**假拒绝**
+        # (2026-10-22 冒烟实测: 门限 40 px 被触发, 而同一台架的完整扫描
+        # 给出 15 px)。焦面扫描是判定在焦的依据, 必须保持分辨率。
         args.frames = 1
         args.discard = 1
 
