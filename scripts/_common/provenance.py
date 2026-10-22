@@ -212,6 +212,18 @@ REPORTS: dict[str, ReportProvenance] = {
             "**随机初值 + 强度 MSE 会掉进「把远场摊平」局部极小**这一负结果"
         ),
     ),
+    "report/slm/differentiable_opt/focus_gate_verification_20261022.md": ReportProvenance(
+        script="scripts/slm/hw_focus_gate_verification.py",
+        command="python scripts/slm/hw_focus_gate_verification.py --execute",
+        environment="硬件",
+        extra_scripts=("scripts/slm/hw_differentiable_phase_opt.py",),
+        note=(
+            "「不在焦就停止测试」这条限制的**硬件验证**: 未加焦面补偿时零级光斑 "
+            "FWHM 71.3 px (补偿后 15.2 px, 即离焦可补偿), 门禁在硬件上按设计工作"
+            "——门限收紧到 15 px 以下即退出码 5, 运行目录里只有判定证据, "
+            "一帧测量数据都没有"
+        ),
+    ),
     "report/slm/report2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
