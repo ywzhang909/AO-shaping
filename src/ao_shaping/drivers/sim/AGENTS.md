@@ -60,7 +60,7 @@ sim/
 | `SimulatedSLMError` | `optics/simulated_slm.py` | SLM 异常 |
 | `SimulatedCCDError` | `ccd/simulated_ccd.py` | CCD 异常 |
 | `SimulateDM` | `dm/simulated_dm.py` | 模拟 DM (注册为 `sim`); `send_voltages` 会把电压推给 `SimDmOptics` |
-| `SimDmOptics` | `dm_optics.py` | DM 电压 → 瞳孔相位 (可分离高斯影响力函数, 固定线性算子) |
+| `SimDmOptics` | `dm_optics.py` | DM 电压 → 瞳面相位 (可分离高斯影响力函数, 固定线性算子) |
 | `SimulatedWFS` | `wfs/simulated_wfs.py` | 模拟 SH 波前传感器 (继承 `BaseWFS`; 瞳面 slope 模型, 非焦平面) |
 
 ## 继承层次
@@ -89,7 +89,7 @@ SimulatedDevice (Device)
 | `SimDisturbance` | `disturbance.py` | 生成 `(h, w)` float64 **raw 弧度** 干扰相位; `.phase()` / `.stats()` (实测 σ) / `.trace()` / `.archive()` / `.to_dict()` |
 
 `SimPibSystem.__init__(..., *, disturbance=None)` 在 `far_field()` 的 **cache-miss 分支**把干扰加到 SLM 命令相位上
-(即在 FFT 之前、瞳孔面内 —— 2f 实验系统的正确位置)。`self._phase` 保持为纯 SLM 命令, 因此干扰不会被重复计入。
+(即在 FFT 之前、瞳面面内 —— 2f 实验系统的正确位置)。`self._phase` 保持为纯 SLM 命令, 因此干扰不会被重复计入。
 缓存语义保证 **每次真实光学评估只推进一次**干扰; `static` 全程复用一张冻结屏, `dynamic` 每次评估重抽一张独立屏
 (即完全去相关 / white-in-time 极限, **不是**风场平流模型 —— 真实大气去相关时间 ~10–50 ms 远短于本环路的每评估 ~0.375 s)。
 
@@ -178,7 +178,7 @@ SimulatedDevice (Device)
 
 ✅ **DM→相位耦合已接入 (2026-10-01) —— `pib` / `combined` 仿真结果已有物理意义**:
 
-`SimDmOptics` (`sim/dm_optics.py`) 把 DM 电压映射为瞳孔相位, 经
+`SimDmOptics` (`sim/dm_optics.py`) 把 DM 电压映射为瞳面相位, 经
 `SimPibSystem.dm_optics` 在 `far_field()` 的 **cache-miss 分支**叠加 (与
 `disturbance` 同一约定: 相位贡献者在**求值时**相加, 绝不烘进 `self._phase`)。
 
@@ -233,7 +233,7 @@ raw 帧本就允许略微低于黑电平; 去黑电平靠暗帧扣除, 不是每
 
 `sim/wfs/simulated_wfs.py`, 实现 `BaseWFS`, 可直接顶替 `ThorlabWFS`。
 
-**必须用瞳面梯度模型, 不能用焦平面传播**。SH 通过微透镜阵列成像瞳孔, 探测器上
+**必须用瞳面梯度模型, 不能用焦平面传播**。SH 通过微透镜阵列成像瞳面, 探测器上
 光斑位移编码各子孔径的局部 tip/tilt, 因此测量量是**瞳面相位梯度**:
 `wfs_measure(src, sh, phase_in=...)` 正是该量。⚠️ 早前计划复用本仓
 `wave.py` 的焦平面传播 —— 那产出的是**相机图像**而非 slope, 二者不可互换,
@@ -244,7 +244,7 @@ y-slope (用纯倾斜探针实测确认: 纯 x 倾斜 → 上半 rms 1.29e-4, �
 
 🔴 **SH 测不到 piston**: 子孔径的绝对相位偏移不移动光斑。`list_zernike_modes`
 从 Noll 1 = piston 起, 把它放进拟合基会留下一个近零空间列, `pinv` 把它放大成
-巨大的伪系数 (实测纯离焦瞳孔下 **+0.50 rad**)。故 piston 必须排除出拟合基
+巨大的伪系数 (实测纯离焦瞳面下 **+0.50 rad**)。故 piston 必须排除出拟合基
 (`_FIT_FIRST_MODE`) —— 这不是 off-by-one, 改回去会静默退化。
 
 **单位** (历史上出过两次真实 bug: 系数放大 1.88×, 相位缩小 2π = 6.28×):
@@ -289,16 +289,16 @@ npp 8→32、n_subap 6→24 反而更差, 且条件数始终良性 2~6, 排除�
 `runners/slm/zernike_matrix_runner.py`。其余优化器/runner 内部已不再直接
 `ThorlabWFS(...)`。
 
-**DM→WFS 瞳孔耦合**: `SimulateDM.send_voltages` 现在**同时**推给两处 ——
+**DM→WFS 瞳面耦合**: `SimulateDM.send_voltages` 现在**同时**推给两处 ——
 `SimPibSystem.dm_optics` (远场, 供 `pib`/`combined`) 与当前活跃的
-`SimulatedWFS.dm_optics` (瞳孔, 供 `wf`/`rms-zernike` 等)。传感器按自己的
-瞳孔网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
+`SimulatedWFS.dm_optics` (瞳面, 供 `wf`/`rms-zernike` 等)。传感器按自己的
+瞳面网格 (48×48) 持有一份 `SimDmOptics`, 因此**无需**把 1200×1920 重采样。
 ⚠️ 以前只发布到远场, 于是 `wf` 永远读到平 pupil（瞳面）、无论 DM 怎么动 RMS 都是 0。
 
 ⚠️ **`wf --wfs-type sim` 在无像差时最优就是不动 (不是 bug)**: 仿真未注入任何
 扰动/像差时, DM 只能**增加**相位, 因此平场 (`wighted_rms ≈ 2.8e-05`) 才是
 RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正过程, 必须先注入
-像差 —— 已加 `--disturbance-cn2` (经 `SimDisturbance` 注入**瞳孔**, 默认 `0`
+像差 —— 已加 `--disturbance-cn2` (经 `SimDisturbance` 注入**瞳面**, 默认 `0`
 = 不注入)。
 
 ⚠️ **注入了像差后 SPGD 能收敛, 但比硬件慢约一个数量级 —— 要加 epoch 或提 lr**

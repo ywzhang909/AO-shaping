@@ -79,7 +79,7 @@ uv sync
 | [docs/dev/call_graph_wiki/index.md](docs/dev/call_graph_wiki/index.md) | main.py 函数调用图开发手册：20 命令逐命令 + 骨架函数逐函数文档（AST 静态分析，脚本在 `scripts/call_graph/` 可重跑） |
 | [docs/slm/pre_run_characterization.md](docs/slm/pre_run_characterization.md) | 实验系统表征流程、验收阈值、四条实验系统铁律 |
 | [docs/slm/slm_gui_manual.md](docs/slm/slm_gui_manual.md) | SLM GUI 完整操作手册 |
-| [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.19.0) |
+| [CHANGELOG.md](CHANGELOG.md) | 版本历史 (v0.1.0 → v0.20.0) |
 | [report/](report/) | 实验报告 (结论/测量/基准)，每份带生成脚本溯源块 |
 
 各设备域 CLI 命令文档在 `docs/{dm,slm,wfs,micro_drive,tools}/` 下（见下方命令总览表）。
@@ -243,6 +243,8 @@ AO-shaping/
 
 ## 近期更新
 
-版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.19.0**, 2026-10-19）。
-最近一轮要点：正向模型在环（model-in-loop）闭环成型、GS→Zernike 阶数扫描立项、
-scripts/ 按处理对象重组、ruff 硬门禁（2026-10-21 恢复入库，见 CHANGELOG v0.19.0 节）。
+版本历史已迁至 [CHANGELOG.md](CHANGELOG.md)（当前最新 **v0.20.0**, 2026-10-22）。
+最近一轮要点：banckend × gitub/banckend 双向分叉合并完成、测试一律容器化（#167 事故后续，
+宿主机裸跑 pytest 现被拒绝）、#167/#168 长函数拆分 + 数值 golden、默认子集 13 个真实失败归零、
+仓库卫生（空格目录改名 / ruff format 清零）、合并后 8 个本地提交（采集驱动等空闲续跑、
+孪生焦面标度统一、Pillow 13 适配等）。详见 [CHANGELOG.md](CHANGELOG.md) v0.20.0 节。

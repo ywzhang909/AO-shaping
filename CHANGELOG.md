@@ -2,6 +2,23 @@
 
 > 本文件从 README.md 拆出（2026-10-13）。README 只保留索引，完整版本历史在此维护。
 
+## v0.20.0 (v0.19.0 末 `3b74eaec` 之后 → 2026-10-22, 30 个提交（含 1 合并）, `3b74eaec..HEAD`)
+
+**banckend × gitub/banckend 双向分叉合并 + 测试一律容器化（#167 事故后续）+ #167 长函数拆分批次 + 仓库卫生 + 合并后 8 个本地提交**
+
+- **banckend × gitub/banckend 双向分叉合并** (`6a10abc0`): 本地 `banckend`（旧基线 `3b74eaec` 后 5 个提交）与 `gitub/banckend`（16 个提交）在 worktree 并行合并后，`banckend` 自身也合并了同一 `gitub/banckend`（`6a10abc0`）并追加 8 个本地提交；worktree `workbuddy/banckend-8e700579` 最终对齐该合并结果（与 `banckend` 零差异）。唯一冲突 `tests/ao_shaping/scripts/test_build_hw_sweep_plan.py::TestNoHardware::test_import_does_not_pull_in_drivers` 是两侧对同一修复的并行实现（远端 `599bc278` × 本地 `9923bbf5`，均把进程内 `sys.modules` 检查改为干净子进程探测以免同会话污染误报）；`banckend` 侧合并采纳远端简化版（`check=False` + 打印泄漏个数），worktree 与之保持一致。
+- **测试一律走容器** (`063b3bf6`, #167 事故后续): 2026-10-21 03:31 宿主机一次不受限的测试运行把 384 核 / 755 GiB 机器跑死（journal 断点、磁盘 dirty bit 未清，硬断电恢复）——根因不是测试本身，是**测试在宿主机上跑**，数值库按可见核数开线程池而宿主机没有 cgroup 上限。`conftest.py` 的 `pytest_configure` 增加 `_enforce_containerized_run`，宿主机裸跑 pytest 直接报 `UsageError`；放行口子仅 `AO_ALLOW_HOST_PYTEST=1`（单文件调试，线程/显存上限照旧）与 `CI=true`。新增 `docker/Dockerfile.test.cpu`（torch CPU 轮先装 + `--extra-index-url` 保 PyPI + 线程上限 16）与 `scripts/build/run_pytest_ci.sh`（三类排除改绝对路径、内存 16g、worktree 的 `.git` 与 commondir 单独挂、`safe.directory=*` 放行 root、`data/` 每次从 pristine 暂存）；`.github/workflows/ci.yml` 的 pytest job 改为「构建 CPU 镜像 → 容器内跑」。容器内完整套件 **6663 passed / 129 skipped / 0 failed**（连跑两次一致）。
+- **golden 钉法加固** (`063b3bf6` 内): `test_differentiable_shaping_golden` 由 SHA256 逐字节摘要改为形状/极值/均值（带容差）——逐字节 golden 只在一处库组合（torch 2.14/numpy 2.4 vs 2.6/2.5）上复现，等于什么都没钉住；损失序列仍逐位比对。`test_sim_tue_shaping_score` 的 `_common` 一名两主（本目录 `_common.py` 与 `scripts/_common/` 包）改为按路径加载，不碰名字缓存。
+- **CI 默认子集 13 个真实失败归零** (`599bc278`): torch/wandb/deprecated 环境错误清零后的第一批真回归——GUI `zip(..., strict=True)` 格数失配、`phase_response` 单用例 strict、`build_hw_sweep_plan` 导入隔离改干净子进程、`train_data_collect` 的 capsys 改 loguru sink（仓库既有惯例）、shape_trial 6 例按 `data/debug` 语料有无 skipif、miicam 报告死链登记 `_PREEXISTING_BROKEN`、wiring 4 个非 click 消费的选项登记 `LIBRARY_ONLY`。
+- **默认子集可收集性** (`95ce5753`, `83c5602f`): torch-cpu extra 让默认子集可收集（部分测试直接 import torch）；`typing_extensions.deprecated` 修 3.12 import；`uv sync` 补 `--group ml`（wandb）修 `scripts/runners` 传递 import。
+- **#163 遮蔽守卫第 2 类误报** (`c2889b23`): 守卫报出的命中内容是假的——`build` 的属主是 `libs/OOPAO/build` 构建产物目录（namespace package 无 `__file__`，探针打印出字符串 "None"，字符串是真值于是被当成属主）。探针改为如实报告属主（普通模块报 `__file__`，namespace package 报 `__path__[0]`）；`build` 走具名豁免 `ALLOWED_ARTIFACT_OWNER` 且**校验属主**必须仍是 OOPAO 构建产物目录——PyPI 的 `build` 一旦真装上（有 `__file__` 的真发行版）豁免自动失效、守卫照常报警。豁免不会比它的理由活得更久。
+- **#167 长函数拆分 + 数值 golden** (`58e530e1`, `2354bf73`, `6bac5686`, `dcd9c44b`): `_render_slm_settings` / `render_phase_control` 拆为分节渲染 + 纯标签函数；`train_beam_shaping` 拆为校验/张量/优化器/训练循环/结果提取五段；`_run_gs_refine_session` 拆为共享上下文 + 三阶段；三处各配数值 golden 钉住行为。
+- **#168 bench_settings 拆分** (`f2905e5b`): 4 个长函数拆出可测纯函数。
+- **仓库卫生** (`e30d0bc1`, `b884e25a`, `84925f4e`, `0bc1eee6`): #175 `docs/micro deformable mirror` → `docs/micro_deformable_mirror` 空格目录改名（`b884e25a` 跟进修 `.gitignore` 陈旧路径）；#177 补 4 个 `__init__` docstring；修 CI 3 个 `_common` 命名污染 error；ruff format 清零 8 个历史 format 偏差文件（BOM + 空白，纯格式无逻辑变更）。
+- **报告与文档** (`12cda866`, `dc688a5d`, `456f61c7`, `be408568`, `aa557908`, `518fc58d`): shape_trials 全部实验补齐目的/设置/算法修改/结果分析四要素与实验目的小节；跨组差异分两类判别（同轮定位抖动 vs 疑似跨轮次混入）；坐标系可比性看取值不看 `frame_shape` 相等（第三轮形状）；`report/README.md` 索引 3 条死链修复（gitignored 报告移回「尚未生成」区段）；6 个侧栏/主区按钮的 widget 键登记到 Session State Schema。
+- **banckend 合并后追加的 8 个本地提交** (`5d56438e`, `251b2328`, `68b47bde`, `a0d33481`, `92ed59cb`, `8c31debf`, `575bfdf1`, `a08951d1`): `feat(slm)` 采集驱动认设备被占 / 不可用支持等空闲与续跑；`feat(sim)` 孪生焦面标度口径统一（新增由实测标度反推等效焦距入口）；`fix(ci)` logs 挂载从 tmpfs 改为 scratch bind（修 ro 挂载下 exit 125）；`fix(pillow13)` 移除 `Image.fromarray` 显式 mode 参数（Pillow 13 已移除该 API）；`docs(ccd)` 复核 2026-10-20 测光阶梯（整份作废，补 2026-10-22 重录结果与噪声底陷阱）；`docs(TODO)` 重钉 `slm_gs_refine.py` 4 处行号（跟进 `dcd9c44b` 拆分）；`fix(scripts)` 相机开窗必须大于目标边长（加大余量并加开跑前守卫）。
+- **仓库卫生（本回合 worktree 侧）**: `.gitignore` 补 `/models/`（RL 检查点目录，主仓库约 2.4 GB，随 `logs*` 一并排除，避免误提交进 worktree）。
+
 ## v0.19.0 (v0.18.0 末 `e51ed38d` 之后 → 2026-10-19, 387 个提交, `e51ed38d..HEAD`)
 
 **正向模型在环（model-in-loop）闭环成型 + GS→Zernike 阶数扫描立项 + scripts/ 重组 + ruff 硬门禁**

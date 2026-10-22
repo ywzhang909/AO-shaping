@@ -39,6 +39,8 @@ DM_cam.*
 DM_combined.dist*
 
 logs*
+# RL 检查点等模型权重目录（主仓库约 2.4 GB，随 logs* 一并排除，避免误提交进 worktree）
+/models/
 .history*
 logs/**/*.png
 logs/*.txt
