@@ -1,4 +1,4 @@
-﻿"""衍射效率标定工具的非理想因素仿真报告 (2026-10-22)。
+"""衍射效率标定工具的非理想因素仿真报告 (2026-10-22)。
 
 **纯离线、纯仿真**: 全程不打开任何设备 (SLM / 相机 / 光学平台), 只跑仓库里
 已经落地的**同一条**分析链路 ——
@@ -877,7 +877,7 @@ def fig_defocus(results: list[CaseResult], out_dir: Path) -> Path:
     )
     axes[0].set_xlabel("光学离焦系数 (rad / panel px²)")
     axes[0].set_ylabel("零级光斑 FWHM (px)")
-    axes[0].set_title("① 离焦把零级光斑打散 (FWHM 涨到 19 倍)", fontsize=10)
+    axes[0].set_title("① 离焦把零级光斑弥散 (FWHM 涨到 19 倍)", fontsize=10)
     axes[0].grid(alpha=0.3)
     axes[0].legend(fontsize=7.5, loc="upper left")
     axes[1].plot(coeffs, [r.depth_pi for r in rows], "o-", color="#c53030", ms=6, label="拟合 Δφ_max (π)")
