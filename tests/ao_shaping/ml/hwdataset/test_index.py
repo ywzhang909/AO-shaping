@@ -322,7 +322,7 @@ class TestModuleContract:
 
         import ml.hwdataset.index as index_module
 
-        tree = ast.parse(Path(index_module.__file__).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(index_module.__file__).read_text(encoding="utf-8-sig"))
         imported: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
@@ -352,7 +352,7 @@ class TestModuleContract:
 
         import ml.hwdataset.index as index_module
 
-        tree = ast.parse(Path(index_module.__file__).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(index_module.__file__).read_text(encoding="utf-8-sig"))
         relative = [
             node.module
             for node in ast.walk(tree)
@@ -1000,7 +1000,7 @@ class TestIndexCache:
         cache = tmp_path / "index.json"
         build_hw_index(corpus, index_cache=cache)
 
-        payload = json.loads(cache.read_text(encoding="utf-8"))
+        payload = json.loads(cache.read_text(encoding="utf-8-sig"))
         # Version-agnostic on purpose: the guard must reject a STALE cache, so the
         # constant is expected to move. What matters is that it is recorded and
         # compared, which `test_stale_version_is_rejected` pins.
@@ -1095,7 +1095,7 @@ class TestIndexCache:
         write_panel_rad_pkl(corpus / "model_in_loop_hw_collect_x")
         cache = tmp_path / "index.json"
         build_hw_index(corpus, index_cache=cache)
-        payload = json.loads(cache.read_text(encoding="utf-8"))
+        payload = json.loads(cache.read_text(encoding="utf-8-sig"))
         payload["version"] = 0
         cache.write_text(json.dumps(payload), encoding="utf-8")
 

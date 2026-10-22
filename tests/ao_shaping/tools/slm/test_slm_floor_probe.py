@@ -280,7 +280,7 @@ class TestNoHardware:
         import ast
         from pathlib import Path
 
-        tree = ast.parse(Path(probe.__file__).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(probe.__file__).read_text(encoding="utf-8-sig"))
         eager = [
             n for n in tree.body
             if isinstance(n, (ast.Import, ast.ImportFrom)) and "drivers" in ast.dump(n)

@@ -128,7 +128,7 @@ class TestLeafLayer:
     )
 
     def _imported_modules(self, path: Path) -> list[str]:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         mods: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

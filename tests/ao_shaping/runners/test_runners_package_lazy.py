@@ -176,7 +176,7 @@ def test_every_name_main_imports_is_resolvable() -> None:
 
     main_py = Path(ao_shaping.__file__).resolve().parent / "main.py"
     required: set[str] = set()
-    for node in ast.parse(main_py.read_text(encoding="utf-8")).body:
+    for node in ast.parse(main_py.read_text(encoding="utf-8-sig")).body:
         if (
             isinstance(node, ast.ImportFrom)
             and node.module == "ao_shaping.runners"
@@ -224,7 +224,7 @@ def test_no_module_is_imported_at_scope_time() -> None:
 
     import ao_shaping.runners as pkg
 
-    source = Path(pkg.__file__).read_text(encoding="utf-8")
+    source = Path(pkg.__file__).read_text(encoding="utf-8-sig")
     offenders = []
     for node in ast.parse(source).body:  # module scope only
         targets: list[str] = []

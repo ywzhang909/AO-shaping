@@ -674,5 +674,5 @@ class TestEnergyLossViolationsIsAnExplicitRunLevelField:
         import pathlib
 
         script = pathlib.Path(__file__).resolve().parents[4] / "scripts" / "slm" / "compare_shape_objectives.py"
-        src = script.read_text(encoding="utf-8")
+        src = script.read_text(encoding="utf-8-sig")
         assert 'getattr(rec, "energy_loss_violations", 0)' in src

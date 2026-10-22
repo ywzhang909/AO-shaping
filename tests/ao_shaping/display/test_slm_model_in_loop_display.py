@@ -92,7 +92,7 @@ def test_golden_help_contains_the_show_flag() -> None:
     Without this the option exists but the golden drifts silently; with it the
     golden's rendering of ``--show`` is pinned too.
     """
-    data = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    data = json.loads(GOLDEN.read_text(encoding="utf-8-sig"))
     text = data["slm-model-in-loop"]
     assert "--show " in text or text.rstrip().endswith("--show"), "flag not rendered"
     assert "PREDICTED" in text, "the help must state the predicted-far-field panel"

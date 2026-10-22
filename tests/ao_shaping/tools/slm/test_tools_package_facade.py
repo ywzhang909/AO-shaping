@@ -43,7 +43,7 @@ def _top_level_imports(path: Path) -> list[ast.Import | ast.ImportFrom]:
     carry it (README: "所有模块文件第一行应包含此导入"), so counting it would fail
     the lazy-import contract for every compliant package at once.
     """
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     return [
         node
         for node in tree.body
@@ -62,7 +62,7 @@ class TestToolsSlmPackage:
     @pytest.mark.parametrize("module_name", sorted(p.name for p in _SLM_PKG.glob("*.py")))
     def test_no_facade_star_import_anywhere(self, module_name: str) -> None:
         """``from ao_shaping.tools.slm import *`` would rely on a facade surface."""
-        source = (_SLM_PKG / module_name).read_text(encoding="utf-8")
+        source = (_SLM_PKG / module_name).read_text(encoding="utf-8-sig")
         assert "from ao_shaping.tools.slm import *" not in source
 
 
@@ -105,6 +105,6 @@ class TestToolsMicroDmPackage:
 
 class TestMicroDmDocstringsAreCurrent:
     def test_no_stale_module_path_in_docstrings(self) -> None:
-        source = (_MICRO_DM_PKG / "micro_dm_image_collect.py").read_text(encoding="utf-8")
+        source = (_MICRO_DM_PKG / "micro_dm_image_collect.py").read_text(encoding="utf-8-sig")
         assert "ao_shaping.tools.micro_dm_image_collect" not in source
         assert "python -m ao_shaping.tools.micro_dm.micro_dm_image_collect" in source

@@ -149,7 +149,7 @@ def test_src_contains_no_test_files_pytest_would_skip(pattern: str) -> None:
 
 def test_the_testpaths_setting_is_what_makes_the_guard_mean_something() -> None:
     """If ``testpaths`` ever widens to include src/, this guard needs rethinking."""
-    text = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    text = (REPO / "pyproject.toml").read_text(encoding="utf-8-sig")
     assert re.search(r'testpaths\s*=\s*\["tests"\]', text), (
         "testpaths no longer restricts collection to tests/; re-check whether "
         "orphan tests under src/ are still a problem."
@@ -546,7 +546,7 @@ def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
     """Pins where the serialisation went, so it cannot quietly move back."""
     writer = REPO / "scripts" / "slm" / "generate_beam_shaping_benchmark_report.py"
     assert writer.is_file(), "the report writer moved; update this guard"
-    text = writer.read_text(encoding="utf-8")
+    text = writer.read_text(encoding="utf-8-sig")
     assert "def write_table(" in text and "def write_artifacts(" in text
     # And the algorithm module must no longer expose them.
     algo = (
@@ -555,7 +555,7 @@ def test_the_benchmark_writer_is_reachable_from_scripts() -> None:
         / "algorithm"
         / "signal_processing"
         / "beam_shaping_benchmark.py"
-    ).read_text(encoding="utf-8")
+    ).read_text(encoding="utf-8-sig")
     assert "def _write_table" not in algo and "def _write_artifacts" not in algo
     assert "output_dir" not in algo, (
         "beam_shaping_benchmark still takes an output_dir, so it is still a writer"

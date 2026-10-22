@@ -139,7 +139,7 @@ class TestZernikeToPhase:
     def test_shared_module_declares_no_aperture_constant(self):
         # The two consumers disagree (300 vs 600). A module-level constant here
         # would silently re-forge that 600 -> 300 divergence.
-        src = Path(common.__file__).read_text(encoding="utf-8")
+        src = Path(common.__file__).read_text(encoding="utf-8-sig")
         assert "ZERNIKE_APERTURE_RADIUS" not in src
 
 
@@ -203,7 +203,7 @@ class TestSharedModuleContract:
     def test_module_defines_no_module_level_mutable_state(self):
         # Slot rotation state must be owned per-consumer, never shared through a
         # module global -- otherwise two importers in one process would interleave.
-        tree = ast.parse(Path(common.__file__).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(common.__file__).read_text(encoding="utf-8-sig"))
         for node in tree.body:
             if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
                 pytest.fail(f"module-level dict state at line {node.lineno}")

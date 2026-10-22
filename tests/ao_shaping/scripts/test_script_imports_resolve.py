@@ -42,7 +42,7 @@ def _gitignored(path: pathlib.Path) -> bool:
 
 def _ao_imports(path: pathlib.Path) -> set[str]:
     """Module names imported from ``ao_shaping`` in any scope of ``path``."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("ao_shaping"):
@@ -77,10 +77,29 @@ def test_script_ao_shaping_imports_resolve(script: pathlib.Path) -> None:
     )
 
 
+def test_bom_prefixed_script_does_not_crash_the_guard(tmp_path: pathlib.Path) -> None:
+    """A UTF-8 BOM is legal in a .py file; the guard must parse it, not crash.
+
+    Regression guard for the BOM trap: an earlier version read source with
+    ``encoding="utf-8"`` and ran the text straight into ``ast.parse``, so a
+    BOM-prefixed (but perfectly importable) script raised
+    ``SyntaxError: invalid non-printable character U+FEFF`` and the guard
+    reported a false "broken import". Read with ``utf-8-sig`` so the BOM is
+    stripped, then assert the same imports are recovered.
+    """
+    bom_script = tmp_path / "bom_probe.py"
+    bom_script.write_bytes(
+        "\ufefffrom ao_shaping.utils import wavefront_calc\n".encode("utf-8")
+    )
+    # Must not raise (the old utf-8 read + ast.parse crashed here).
+    names = _ao_imports(bom_script)
+    assert "ao_shaping.utils" in names
+
+
 @pytest.mark.parametrize("script", _scripts(), ids=lambda p: p.name)
 def test_script_has_no_dangling_local_import_of_moved_code(script: pathlib.Path) -> None:
     """A moved module leaves its old path behind; catch the literal."""
-    source = script.read_text(encoding="utf-8")
+    source = script.read_text(encoding="utf-8-sig")
     for gone in (
         "ao_shaping.optimizer.wfless.slm_zernike_common",
     ):

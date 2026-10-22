@@ -95,7 +95,7 @@ def _widget_keys() -> set[str]:
     is a read of a key the module owns, not a widget the user interacts with,
     and mixing the two would make the contract depend on internal plumbing.
     """
-    tree = ast.parse(MODULE.read_text(encoding="utf-8"))
+    tree = ast.parse(MODULE.read_text(encoding="utf-8-sig"))
     keys: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -125,7 +125,7 @@ def _scoped_key_names() -> set[str]:
     plumbing rather than a user-facing widget identity, so only the widget
     call sites are collected.
     """
-    tree = ast.parse(MODULE.read_text(encoding="utf-8"))
+    tree = ast.parse(MODULE.read_text(encoding="utf-8-sig"))
     out: set[str] = set()
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
@@ -190,7 +190,7 @@ class TestWidgetKeyContract:
 
     def test_per_slm_keys_are_scoped(self) -> None:
         """Per-SLM keys must go through ``_scoped`` so two SLMs do not collide."""
-        tree = ast.parse(MODULE.read_text(encoding="utf-8"))
+        tree = ast.parse(MODULE.read_text(encoding="utf-8-sig"))
         bare: list[str] = []
         for node in ast.walk(tree):
             if not isinstance(node, ast.Call):

@@ -43,7 +43,7 @@ _ALLOWED = _allowed_roots()
 
 
 def _imported_roots(path: Path) -> set[str]:
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     roots: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -65,7 +65,7 @@ def test_leaf_imports_only_stdlib_and_numpy() -> None:
 
 
 def test_no_deferred_ao_shaping_import_can_hide_in_a_function() -> None:
-    tree = ast.parse(_MODULE.read_text(encoding="utf-8"), filename=str(_MODULE))
+    tree = ast.parse(_MODULE.read_text(encoding="utf-8-sig"), filename=str(_MODULE))
     nested = [
         node
         for node in ast.walk(tree)

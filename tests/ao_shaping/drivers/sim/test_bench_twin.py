@@ -596,7 +596,7 @@ class TestCompensation:
 class TestAvailability:
     def test_module_does_not_import_any_driver_package(self) -> None:
         """静态检查: bench_twin 不 import 任何 ``ao_shaping.drivers.*`` 模块。"""
-        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8"))
+        tree = ast.parse(MODULE_PATH.read_text(encoding="utf-8-sig"))
         offenders: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

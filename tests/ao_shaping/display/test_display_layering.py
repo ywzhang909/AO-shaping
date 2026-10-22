@@ -59,7 +59,7 @@ def test_the_old_import_path_is_gone() -> None:
 
 
 def test_gs_viz_no_longer_lists_utils_in_its_own_docstring() -> None:
-    text = (_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8")
+    text = (_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8-sig")
     doc = ast.get_docstring(ast.parse(text))
     assert doc is not None
     assert "display/" in doc, "the module must document why it lives in display/"
@@ -72,7 +72,7 @@ def test_gs_viz_no_longer_lists_utils_in_its_own_docstring() -> None:
 
 def test_it_drives_the_canonical_gerchberg_saxton() -> None:
     """The canonical loop is imported *inside* the function (deferred), not copied."""
-    tree = ast.parse((_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8-sig"))
     fn = next(
         n
         for n in ast.walk(tree)
@@ -98,7 +98,7 @@ def test_it_drives_the_canonical_gerchberg_saxton() -> None:
 
 def test_no_module_scope_algorithm_import() -> None:
     """``display/`` must not depend on ``algorithm/`` at import time."""
-    tree = ast.parse((_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8"))
+    tree = ast.parse((_DISPLAY / "gs_visualization.py").read_text(encoding="utf-8-sig"))
     for node in tree.body:
         if isinstance(node, ast.ImportFrom):
             assert not (node.module or "").startswith("ao_shaping.algorithm"), (

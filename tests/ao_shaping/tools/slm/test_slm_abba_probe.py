@@ -576,7 +576,7 @@ def test_driver_imports_are_function_local() -> None:
     ``--no-hw`` must run on a machine with no SLM/CCD SDK, so the drivers may
     only ever be imported inside the hardware branch of ``main()``.
     """
-    tree = ast.parse(Path(probe.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(probe.__file__).read_text(encoding="utf-8-sig"))
     eager = [
         node
         for node in tree.body
