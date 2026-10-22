@@ -22,6 +22,19 @@ jobs:
       - name: Run ruff (enforced E+F gate from ruff.toml)
         run: ruff check .
 
+  terminology:
+    name: Terminology gate
+    # AGENTS.md makes the glossary gate a required pre-commit check, but nothing
+    # enforced it: the unifier scanned only markdown, exited 0 whatever it found,
+    # and no workflow or test invoked it -- so the rule survived on memory (#194).
+    # --check turns the same scan into an exit code. Stdlib-only, so no uv and no
+    # container; it costs under a second and is a hard gate, like ruff above.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Glossary gate (exit 1 on non-canonical terms)
+        run: python3 scripts/_common/term_unify_20261016.py --check
+
   pytest:
     name: Pytest (containerised)
     # The suite runs inside a container, not on the runner. The numeric stack

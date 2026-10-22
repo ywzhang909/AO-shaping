@@ -5,8 +5,12 @@
 规则：先特殊（长/组合）后一般（短），围栏代码块与 mermaid 图跳过，行内 `code` 保护。
 
 用法：
-  python3 term_unify_20261016.py          # dry-run（默认）
+  python3 term_unify_20261016.py          # dry-run（默认，恒退 0）
   python3 term_unify_20261016.py --apply  # 写入
+  python3 term_unify_20261016.py --check  # 只判定：有漂移则退出码 1（CI 用）
+
+  两者都可加 --root <dir> 指定扫描根；默认是仓库根。生产调用不带该参数，
+  它只给守卫测试植入样本用（见 tests/ao_shaping/scripts/test_term_gate_enforced.py）。
 """
 
 import re
@@ -392,9 +396,21 @@ LOCAL_DIR_PREFIXES = (
     "_scripts/",
     "logs/",
 )
+apply_mode = "--apply" in sys.argv
+check_mode = "--check" in sys.argv
+if apply_mode and check_mode:
+    raise SystemExit("--apply 与 --check 互斥: 前者写文件, 后者只判定退出码")
+
+#: 扫描根。默认仓库根; --root 只给守卫测试指向临时样本目录, 使"检测器真的会
+#: 报错"可被断言而不是只能相信 dry-run 输出。
+ROOT = REPO
+for _i, _a in enumerate(sys.argv):
+    if _a == "--root" and _i + 1 < len(sys.argv):
+        ROOT = Path(sys.argv[_i + 1]).resolve()
+
 FILES = []
-for f in REPO.rglob("*.md"):
-    rel = f.relative_to(REPO).as_posix()
+for f in ROOT.rglob("*.md"):
+    rel = f.relative_to(ROOT).as_posix()
     if rel.startswith((".git/", ".venv/", "venv/")):
         continue
     if rel.startswith(LOCAL_DIR_PREFIXES):
@@ -405,10 +421,9 @@ for f in REPO.rglob("*.md"):
         continue
     FILES.append(f)
 
-apply_mode = "--apply" in sys.argv
 total = {}
 for f in FILES:
-    rel_posix = f.relative_to(REPO).as_posix()
+    rel_posix = f.relative_to(ROOT).as_posix()
     orig = f.read_text(encoding="utf-8")
     new = transform(orig, rel_posix)
     if new == orig:
@@ -423,3 +438,7 @@ print(f"{tag}: 变化行数")
 for k, v in sorted(total.items()):
     print(f"  {v:4d}  {k}")
 print(f"合计: {len(total)} 个文件, {sum(total.values())} 行")
+
+if check_mode and total:
+    print("术语门禁未通过: 先跑 --apply 统一, 或改写正文后重试")
+    raise SystemExit(1)
