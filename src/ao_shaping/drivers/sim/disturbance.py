@@ -22,7 +22,7 @@
 --------------------------------------
 ``cn2`` 与 ``distance_m`` 是**退化的生成器旋钮**: 规范生成器推出的是
 ``r0 = (0.423 * k**2 * cn2 * distance) ** (-3/5)``, 它只依赖二者的*乘积*。
-单张薄屏不携带任何传播物理, 所以这里并没有在建模真实的公里级大气光路 —— 本台架是
+单张薄屏不携带任何传播物理, 所以这里并没有在建模真实的公里级大气光路 —— 本实验系统是
 一台 ~0.3 m 的实验室 2f 傅里叶装置。
 
 此外, 本仓库默认的 (numpy) 相位屏生成器是用滤波后的白噪声场做 FFT 合成相位屏的,
@@ -56,7 +56,7 @@ DISTURBANCE_MODES: tuple[str, ...] = ("none", "static", "dynamic")
 #: import 的是*本*模块)。
 DEFAULT_BEAM_W0: float = 400.0
 
-#: 在归一化热晕的峰谷值时, 低于该幅度的高斯瞳孔就算未被照亮, 以免归一化被数值
+#: 在归一化热晕的峰谷值时, 低于该幅度的高斯瞳面就算未被照亮, 以免归一化被数值
 #: 噪声较大的远翼主导。
 _AMPLITUDE_FLOOR: float = 1e-3
 
@@ -73,7 +73,7 @@ class DisturbanceConfig:
     Attributes:
         mode: ``"none"``、``"static"`` 或 ``"dynamic"``。
         cn2: 折射率结构常数。与 :attr:`distance_m` 退化: 只有二者的乘积决定 ``r0``。
-        distance_m: 生成器的路径长度旋钮, 而不是本台架上的真实传播路径
+        distance_m: 生成器的路径长度旋钮, 而不是本实验系统上的真实传播路径
             (见模块 docstring)。
         l_max: 外尺度 [m]。
         l_min: 内尺度 [m]。
@@ -82,7 +82,7 @@ class DisturbanceConfig:
             面板保持各向同性。
         thermal_halo_pv_waves: 热晕相位的峰谷值, 单位 waves。``0`` 表示禁用光晕。
         thermal_halo_radius_px: 保留光晕相位的半径, 单位 SLM 像素。远大于
-            ``~2 * beam_w0`` 的取值会被高斯瞳孔幅度衰减到不可见 (在默认 400 px 腰
+            ``~2 * beam_w0`` 的取值会被高斯瞳面幅度衰减到不可见 (在默认 400 px 腰
             半径下, 600 px 处为 0.325、800 px 处为 0.135)。
         halo_noll: 喂给规范入口
             :func:`~ao_shaping.utils.wavefront.zernike_utils.generate_zernike_phase`
@@ -182,7 +182,7 @@ class SimDisturbance:
     # --- 构造辅助 ---------------------------------------------------
 
     def _amplitude_mask(self) -> np.ndarray:
-        """高斯瞳孔被有效照亮处的布尔掩模。"""
+        """高斯瞳面被有效照亮处的布尔掩模。"""
         h, w = self.shape
         yy, xx = np.mgrid[0:h, 0:w]
         r2 = (xx - w / 2.0) ** 2 + (yy - h / 2.0) ** 2
@@ -195,7 +195,7 @@ class SimDisturbance:
         上, 而不重新随机化。
 
         构造过程遵循仓库规则: 所有 Zernike 数学都走规范 API 入口 —— 单位系数的相位
-        来自 :func:`generate_zernike_phase` (对系数线性), 其峰谷值在被照亮的瞳孔内
+        来自 :func:`generate_zernike_phase` (对系数线性), 其峰谷值在被照亮的瞳面内
         量出, 再对数组做线性缩放, 使 PV 等于 ``thermal_halo_pv_waves * 2*pi`` 弧度。
         """
         h, w = self.shape

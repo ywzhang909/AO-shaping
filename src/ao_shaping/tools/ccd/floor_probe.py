@@ -495,7 +495,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     setup_coredumpy()
     ap = argparse.ArgumentParser(
         description=(
-            "SLM 台架本底探针 (需硬件: Santec SLM-200 + 远场相机): "
+            "SLM 实验系统本底探针 (需硬件: Santec SLM-200 + 远场相机): "
             "重复性本底 / 稳定时间 / SNR-平均帧数 梯度"
         ),
     )

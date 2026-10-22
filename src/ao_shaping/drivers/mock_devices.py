@@ -1,6 +1,6 @@
 """用于测试与开发的 Mock 设备。
 
-本模块提供各种硬件设备的模拟实现, 便于在无需真实硬件的情况下进行
+本模块提供各种硬件设备的模拟实现, 便于在无需硬件的情况下进行
 测试、开发与演示。
 """
 
@@ -742,7 +742,7 @@ class MockWFS(Device):
         Args:
             device_id: 唯一设备标识。
             n_lenslets: 每边的微透镜数量。
-            pupil_size_mm: 瞳孔直径, 单位毫米。
+            pupil_size_mm: 瞳面直径, 单位毫米。
             random_seed: 用于可复现输出的随机种子。为 None 时使用随机初始化。
         """
         super().__init__(device_id)

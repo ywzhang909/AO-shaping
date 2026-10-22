@@ -21,7 +21,7 @@ SPGD (Stochastic Parallel Gradient Descent) 每步随机生成一个扰动方向
 
 **2. 为什么不能只看"目标值降了多少"**
 
-直觉上"降得多 = delta 选得好"。但这是**错的**, 而且在这个台架上被实测证伪:
+直觉上"降得多 = delta 选得好"。但这是**错的**, 而且在这个实验系统上被实测证伪:
 
     真实轨迹 (200 epoch, n_max=9, delta=0.02):
     0.529 → 0.400 → 0.522 → 0.527 → 0.533 → 0.534 → ... → 0.456 → 0.402
@@ -60,7 +60,7 @@ SPGD (Stochastic Parallel Gradient Descent) 每步随机生成一个扰动方向
 退而求其次给"最好的那个"。**拒绝封王才是本工具的意义**: 一个被标成
 "+24% 改善"的随机游走若被选中, 会被当成结论继续用下去。
 
-**6. 实机扫描结论 (2026-09-30, n_max=9, 150-200 epoch, Pearson)**
+**6. 实验扫描结论 (2026-09-30, n_max=9, 150-200 epoch, Pearson)**
 
 ===============  =======  ========  ========  ==========================
 delta             dec     late %   guard %  结论
@@ -81,7 +81,7 @@ delta             dec     late %   guard %  结论
   - 小 delta (5e-4) 确实彻底停滞 (符合用户约束 `delta<0.001` 的历史观察);
   - 大 delta (0.5) 被**亮度折叠门**拒绝 —— 扰动过猛导致亮度崩塌, 这是上界;
   - 把 n_max 从 9 降到 1 (54 → 3 自由度) 反而更差 (3/200 采纳), 说明
-    "自由度稀释"能解释 SNR 数值, **不能**解释实机为什么不收敛。
+    "自由度稀释"能解释 SNR 数值, **不能**解释实验为什么不收敛。
 
 **7. 真正的下一步: 把回文采样接入 SPGD 主循环**
 
@@ -285,7 +285,7 @@ def main() -> int:
     out = Path(args.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     lines = [
-        "# SPGD delta 扫描 (实机)",
+        "# SPGD delta 扫描 (实验)",
         "",
         f"- 目标 `{args.objective}`, n_max={args.n_max}, epochs={args.epochs}, "
         f"lr={args.lr}, 相机 `{args.cam_type}`/{args.cam_id}, "
@@ -293,7 +293,7 @@ def main() -> int:
         f"- 每个候选都带 `--debug`, recorder/sidecar/PNG 落在 `data/debug/slm_pib_{args.objective}/`",
         "",
         "判据: `dec` = 下降步占比 (0.5 为随机游走), `late` = 前 1/3 与后 1/3 均值之差。",
-        "**不使用 final-vs-first** —— 实机上它会被端点噪声骗到 (见 report/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。",
+        "**不使用 final-vs-first** —— 实验上它会被端点噪声骗到 (见 report/slm_pib_bench/EXPERIMENT_REPORT.md §3.2)。",
         "",
         scan.table(),
         "",

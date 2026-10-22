@@ -240,7 +240,7 @@ def fig_per_fold(sweep: dict) -> str:
             values = sweep["final"][name]["summary"][metric]["per_fold"]
             ax.plot(xs, values, "o-", label=LABELS[name], color=COLOURS[name], alpha=0.85)
         ax.set_xticks(xs)
-        ax.set_xlabel("留出折（按源 pickle 分组）")
+        ax.set_xlabel("验证集折（按源 pickle 分组）")
         ax.set_ylabel(METRIC_LABEL[metric])
         ax.set_title(f"每折 {METRIC_LABEL[metric]}（三个模型共用同一批折）")
         ax.legend(fontsize=8)
@@ -529,7 +529,7 @@ def synthesis_table(synthesis: dict) -> str:
         ])
     rows += [
         ["仓库参照：GS 单次", "—", "0.41", "—", "—", "数值仿真"],
-        ["仓库参照：GS + 自由相位细化", "—", "0.12", "—", "—", "数值仿真"],
+        ["仓库参照：GS + 全频随机相位细化", "—", "0.12", "—", "—", "数值仿真"],
     ]
     return markdown_table(["方案", "参数量", "CV", "EE", "quality", "评判者"], rows)
 
@@ -549,7 +549,7 @@ def fig_parametrization_sweep(sweep: dict, iteration: dict | None) -> dict[str, 
     ax.set_xticks(range(len(rows)))
     ax.set_xticklabels(labels, fontsize=7)
     ax.set_ylabel("CV（越低越好）")
-    ax.set_title("参数化扫描：带限 vs 自由相位")
+    ax.set_title("参数化扫描：带限 vs 全频随机相位")
     ax.invert_yaxis()
     ax.grid(alpha=0.3, axis="y")
 
@@ -608,7 +608,7 @@ def iteration_table(iteration: dict | None) -> str:
             f"{r['synth_cv']:.4f}", f"{r['synth_quality']:.4f}",
         ])
     return markdown_table(
-        ["代理", "DOF", "留出 R²（3 折）", "合成相位 CV", "quality"], rows
+        ["代理", "DOF", "验证集 R²（3 折）", "合成相位 CV", "quality"], rows
     )
 
 
@@ -683,7 +683,7 @@ def build_report(
 
 ## 1. 模型是什么
 
-`src/ml/zernike/models.py` 实现了一个可微的瞳孔 → 远场前向模型，唯一可训练参数是一个
+`src/ml/zernike/models.py` 实现了一个可微的瞳面 → 远场前向模型，唯一可训练参数是一个
 **全局** Zernike 向量 `Z`：
 
 ```
@@ -715,7 +715,7 @@ loss   = MSE(observable(focal), ccd)
 ## 3. 三个靠测量发现的陷阱
 
 **3.1 尺度不匹配（最关键）。** `_anchored_window` 取的是以 0 阶为中心的 `grid×grid`
-窗口，**不缩放**。若 `far_field_padding=1`，FFT 展的是瞳孔完整衍射场，与目标的角尺度差约
+窗口，**不缩放**。若 `far_field_padding=1`，FFT 展的是瞳面完整衍射场，与目标的角尺度差约
 4 倍，逐像素不可比：
 
 | `far_field_padding`（中心裁剪） | `Z=0` 时 val R² |
@@ -1024,7 +1024,7 @@ U-Net 也看到光斑变均匀（{s_x_flat_cv} → {s_x_cv}），所以这个相
 "完美方斑"，另一个说"一个中心亮斑"）。
 
 **关键在于这个分歧有多少来自外推。** 语料相位是 `n_max` 限定的 Zernike 相位，
-天然带限；自由相位不是。定量测一下：
+天然带限；全频随机相位不是。定量测一下：
 
 | | Zernike 张成空间内的能量占比 | 0.25×Nyquist 以上的能量占比 |
 |---|---|---|
@@ -1060,14 +1060,14 @@ U-Net 也看到光斑变均匀（{s_x_flat_cv} → {s_x_cv}），所以这个相
    上训练并验证的，所以"带限"的分界不是数学上的，是**验证过的**分界。
 
 **4. 迭代优化这个模型 —— 试了，但它不是瓶颈。** 用一个代理"动物园"（DOF 14→135、
-epoch 25→100，横跨欠拟合到过训练）迭代，每个都在**留出 pickle** 上评 R²，
+epoch 25→100，横跨欠拟合到过训练）迭代，每个都在**验证集 pickle** 上评 R²，
 再各自在可信流形内合成相位：
 
 {iteration_table(iteration)}
 
-**结论一：更好的模型并不给出更好的相位。** 留出 R² 从 +0.849 升到 +0.872，
+**结论一：更好的模型并不给出更好的相位。** 验证集 R² 从 +0.849 升到 +0.872，
 合成相位 CV 却在 0.39–0.44 之间（跨度仅 **{s_cv_spread:.3f}**），
-`corr(留出 R², 合成 CV) = {s_corr:+.3f}`（n=5，**p = {s_corr_p:.3f}，不显著**）。
+`corr(验证集 R², 合成 CV) = {s_corr:+.3f}`（n=5，**p = {s_corr_p:.3f}，不显著**）。
 
 **结论二：每个代理都认为自己的相位最好。** 交叉评判矩阵里，**对角线在每一行都是最小值**
 （自评 0.399/0.418/0.387/0.410/0.443，逐行等于该行的最优裁判）。这是把
@@ -1083,8 +1083,8 @@ self-confirmation bias 直接量化出来了。
 前向模型，而那需要硬件 —— 学习到的回归器按定义就把散斑抹平了。第 2 节那个 {s_gap:.1f} 倍
 的分歧、以及这里 {s_noise_ratio:.0f} 倍的模型间噪声，都指向同一件事。
 
-> **这条结论只到"代理空间"为止。** 物理模型在留出 pickle 上 R² ≈ 0.88，
-> 一个把代理优化到 CV 0.17 的相位，并不因此在真实台架上也是 CV 0.17。
+> **这条结论只到"代理空间"为止。** 物理模型在验证集 pickle 上 R² ≈ 0.88，
+> 一个把代理优化到 CV 0.17 的相位，并不因此在实验系统上也是 CV 0.17。
 > **必须在硬件上验证**；上面的 U-Net 交叉检验是硬件不可用时能做的最强旁证，
 > 而它的结论是"有改善但远不如代理声称的"。
 

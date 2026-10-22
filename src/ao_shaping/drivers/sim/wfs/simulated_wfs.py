@@ -2,7 +2,7 @@
 
 为何用 slope 模型而非焦平面模型
 --------------------------------
-Shack-Hartmann 传感器测量的是**瞳面相位梯度**: 微透镜阵列把瞳孔成像到探测器上, 光斑
+Shack-Hartmann 传感器测量的是**瞳面相位梯度**: 微透镜阵列把瞳面成像到探测器上, 光斑
 位移编码各子孔径的局部 tip/tilt。因此驱动 ``wfs_measure(..., phase_in=)`` 所测得的,
 恰好就是 AO 环路所需的量。
 
@@ -78,7 +78,7 @@ def get_active_sim_wfs() -> SimulatedWFS | None:
 
 #: Shack-Hartmann 传感器对 piston 是盲的: 子孔径的绝对相位偏移不会移动它的光斑。
 #: ``list_zernike_modes`` 从 Noll 1 (piston) 起, 把它一起拟合会留下一列近零空间向量,
-#: 而 ``pinv`` 会把它放大成一个巨大的伪系数 (实测: 对纯离焦瞳孔为 +0.50 rad)。因此
+#: 而 ``pinv`` 会把它放大成一个巨大的伪系数 (实测: 对纯离焦瞳面为 +0.50 rad)。因此
 #: piston 被排除出拟合基。
 _FIT_FIRST_MODE = 1
 
@@ -140,7 +140,7 @@ class SimulatedWFS(BaseWFS):
         self.high_speed = True
         self.use_custom_ref = False
         self.pupil = np.ones((self.grid, self.grid), dtype=np.float64)
-        # 子孔径间距, 单位像素; SH 网格把瞳孔均分。
+        # 子孔径间距, 单位像素; SH 网格把瞳面均分。
         self.d_x = self.diameter / self.n_subap if self.n_subap else self.diameter
 
         self._phase_rad = np.zeros((self.grid, self.grid), dtype=float)
@@ -249,7 +249,7 @@ class SimulatedWFS(BaseWFS):
             n_max=order,
             radius=self.grid / 2.4,
         )
-        # 规范生成器在口径外返回 NaN; 瞳孔掩模本就排除了那一块, 因此把它压平供 FFT 使用。
+        # 规范生成器在口径外返回 NaN; 瞳面掩模本就排除了那一块, 因此把它压平供 FFT 使用。
         return np.nan_to_num(np.asarray(phase, dtype=float), nan=0.0)
 
     # ---- 状态 ---------------------------------------------------------
@@ -406,7 +406,7 @@ class SimulatedWFS(BaseWFS):
     # ---- Thorlabs 专有接口面 (仿真侧无对应物) ------------------------
 
     def optimize_pupil(self) -> tuple[float, float, float, float]:
-        """返回所配置的瞳孔; 没有可优化的东西。"""
+        """返回所配置的瞳面; 没有可优化的东西。"""
         return (0.0, 0.0, float(self.diameter), float(self.diameter))
 
     def optimize_exposure_time_and_gain(self) -> tuple[float, float]:

@@ -1,16 +1,29 @@
 # -*- coding: utf-8 -*-
-"""AO-shaping 术语统一引擎（2026-10-16）
+"""AO-shaping 术语统一引擎（2026-10-16；2026-10-22 扩展 .py，issue #187）
 
-依据 docs/terminology_glossary.md 的术语对照表，对仓库 markdown 文档做专业化替换。
-规则：先特殊（长/组合）后一般（短），围栏代码块与 mermaid 图跳过，行内 `code` 保护。
+依据 docs/terminology_glossary.md 的术语对照表，对仓库 markdown 文档与
+Python 文件做专业化替换。
+规则：先特殊（长/组合）后一般（短），围栏代码块与 mermaid 图跳过，行内
+`code` 保护。
+
+.py 扩展（2026-10-22，issue #187）：.py 的中文叙述（docstring / 字符串
+字面量 / 注释）进入同一套中文术语规则；f-string 的 {expr} 部分保护
+（表达式内可能是与禁词同名的标识符/字典键）。pupil / bake-off 的英文
+夹注规则**不适用**于 .py（§2 纯英文 DO-NOT-TOUCH + 保护
+`--pupil-diameter` 等 CLI 标识符）。.py 排除集：本文件自身（规则表用
+禁词作源串，扫描会自我改写、失去幂等，同 .md 侧 EXCLUDE_NAMES）、
+禁词守卫测试（banned 元组是测试数据，替换即反转守卫）、libs/（vendored
+第三方库）、call_graph_wiki（生成文档）。
 
 用法：
   python3 term_unify_20261016.py          # dry-run（默认）
   python3 term_unify_20261016.py --apply  # 写入
 """
-
+import ast as _ast
+import io
 import re
 import sys
+import tokenize
 from pathlib import Path
 
 # 自定位：脚本位于 <repo>/scripts/_common/term_unify_20261016.py
@@ -28,19 +41,45 @@ EXACT_RULES = [
     # T-20 瞳孔 → 瞳面（先于 pupil 夹注逻辑，避免误判）
     ("瞳孔", "瞳面"),
     # T-02 台架
-    ("2f-Fourier SLM-PIB 仿真台架", "2f-Fourier SLM-PIB 仿真系统"),
-    ("2f-Fourier 台架", "2f-Fourier 实验系统"),
-    ("2f 台架", "2f 实验系统"),
-    ("台架事实", "实验系统事实"),
-    ("台架探针", "实验系统探针"),
-    ("台架纪律", "实验系统纪律"),
-    ("台架实测", "实验系统实测"),
-    ("台架稳定性", "实验系统稳定性"),
-    ("台架参数", "实验系统参数"),
-    ("台架健康度", "实验系统健康度"),
-    ("台架验收", "实验系统验收"),
-    ("台架表征", "实验系统表征"),
-    ("台架", "实验系统"),
+    # 组合词（2026-10-22，issue #187 二审：真+台架 需整体映为 实验系统，
+    # 与 真机→实验系统 一致；否则裸 台架 规则会映出冗余的「真实验系统」）
+    ('真台架',     '实验系统'),
+    ('真实台架',   '实验系统'),
+    ('2f-Fourier SLM-PIB 仿真台架', '2f-Fourier SLM-PIB 仿真系统'),
+    ('2f-Fourier 台架',             '2f-Fourier 实验系统'),
+    ('2f 台架',                     '2f 实验系统'),
+    ('台架事实',   '实验系统事实'),
+    ('台架探针',   '实验系统探针'),
+    ('台架纪律',   '实验系统纪律'),
+    ('台架实测',   '实验系统实测'),
+    ('台架稳定性', '实验系统稳定性'),
+    ('台架参数',   '实验系统参数'),
+    ('台架健康度', '实验系统健康度'),
+    ('台架验收',   '实验系统验收'),
+    ('台架表征',   '实验系统表征'),
+    ('台架',       '实验系统'),
+
+    # T-66 真实硬件（2026-10-22，issue #187 登记：此前该词同时绕过引擎与 git-grep
+    # 兜底）。语义分层（同 T-11 注）：
+    #   - 指"硬件实体本身"（无需/没有/模拟/连接/依赖/打开 真实硬件）→ 硬件
+    #   - 指"区别于仿真 sim 的实验"（真实硬件 语料/图像/采集/标度/CLI/实测）→ 实验
+    #   - 特例：真实硬件 曝光 → 实测曝光
+    # 顺序敏感：组合词先于裸词。与 T-11 无子串重叠（真实硬件 不含 实机），可安全共表。
+    ('真实硬件曝光', '实测曝光'),
+    ('无需真实硬件', '无需硬件'),
+    ('没有真实硬件', '没有硬件'),
+    ('模拟真实硬件', '模拟硬件'),
+    ('连接真实硬件', '连接硬件'),
+    ('依赖真实硬件', '依赖硬件'),
+    ('打开真实硬件', '打开硬件'),
+    # 指"硬件实体本身"的其余搭配（SECURITY 安全路径 / 架构图驱动分支 / CLI 设备上下文）
+    ('涉及真实硬件', '涉及硬件'),
+    ('真实硬件驱动', '硬件驱动'),
+    ('真实硬件，', '硬件，'),
+    ('真实硬件上', '实验系统上'),
+    ('真实硬件上的', '实验系统上的'),
+    ('真实硬件',   '实验'),
+
     # T-03 实机 / 真机 / 上机
     ("实机实验", "实验"),
     ("未上真机", "未完成实验验证"),
@@ -108,11 +147,16 @@ EXACT_RULES = [
     # 顺序敏感：组合词先于裸词；量词搭配与 deck v6 对齐（「N 张验证集帧」）。
     # 代码标识符（holdout_*、freeform_holdout_count、--holdout-probe-count）不在
     # 中文词表内，天然不受影响（§2 DO-NOT-TOUCH）。
-    ("张留出帧", "张验证集帧"),
-    ("张留出", "张验证集帧"),
-    ("留出集合", "验证集"),
-    ("留出集", "验证集"),
-    ("留出", "验证集"),
+    #
+    # 多义保护（2026-10-22，issue #187 .py 扩展）：「留出」除 holdout 义外还有
+    # "预留/腾出"义（留出时间、留出几何/空间/余量），须先占位否则被裸词吞成
+    # 「验证集时间/几何」。用占位符保护后再还原（见 process_py 的 _t62_holdout_guard）。
+    ('张留出帧',   '张验证集帧'),
+    ('张留出',     '张验证集帧'),
+    ('留出集合',   '验证集'),
+    ('留出集',     '验证集'),
+    ('留出',       '验证集'),
+
     # T-63 综合分 → 复合分数（2026-10-20，指标术语；学术汇报 v6 扫描发现 deck
     # 与报告在 composite 指标上混用「composite / 复合分数 / 综合分」三种写法）。
     # 规范统一为「复合分数」（与论文 v4.2 及 report/ 主流一致）。顺序敏感：
@@ -369,6 +413,160 @@ def transform(text, rel_path=""):
 
 
 # ---------------------------------------------------------------------------
+# .py 处理管线（2026-10-22，issue #187）
+# ---------------------------------------------------------------------------
+# 只处理 tokenizer 识别出的 STRING / COMMENT token 内的中文叙述；代码标识符、
+# 围栏代码、纯英文（§2）天然不受影响。pupil / bake-off 英文夹注规则不适用。
+# f-string 的 {expr} 洞保护（表达式内可能是与禁词同名的标识符/字典键）。
+#
+# .py 排除集：
+#   - 本文件自身：规则表用禁词作源串，扫描会自我改写、失去幂等（同 .md 侧
+#     EXCLUDE_NAMES 排除术语表/AGENTS.md 的理由）。
+#   - 禁词守卫测试：banned 元组是"断言正文不得含禁词"的测试数据，替换即反转守卫。
+#   - libs/：vendored 第三方库，不属于本仓库叙述。
+#   - call_graph_wiki：生成文档。
+PY_EXCLUDE = {
+    'scripts/_common/term_unify_20261016.py',
+    'tests/ao_shaping/runners/test_model_in_loop_session_preflight.py',
+}
+
+# 「留出」多义保护：holdout 义之外的 "预留/腾出" 义（留出时间/几何/空间/余量），
+# 先占位再让 EXACT 规则跑，跑完还原（否则裸词规则吞成「验证集时间/几何」）。
+_HOLDOUT_SAFE_RE = re.compile(r'留出\s*(?=时间|几何|空间|余量|余地|缺口|缓冲|间隔)')
+
+def _is_py_meta_line(line):
+    """术语元注释行：引用禁词作"不用 X"式反例（同 .md 侧登记记录行保护）。"""
+    return '不用「' in line
+
+def _apply_cn_rules(seg, t65_rules):
+    """对一段 .py 字符串/注释文本应用中文术语规则（不含 pupil/bake-off）。"""
+    out = seg
+    for old, new in EXACT_RULES:
+        if old in out:
+            out = out.replace(old, new)
+    for pat, new in REGEX_RULES:
+        out = pat.sub(new, out)
+    out = T65_AB_ARM_RE.sub(_t65_ab_arm, out)
+    for old, new in t65_rules:
+        if old in out:
+            out = out.replace(old, new)
+    return out
+
+def _fstring_holes(seg):
+    """f-string 段内 {expr} 洞的 (start, end) 区间列表（相对 seg 起点）。"""
+    holes = []
+    depth = 0
+    hstart = None
+    for j, ch in enumerate(seg):
+        if ch == '{':
+            if depth == 0:
+                hstart = j
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0 and hstart is not None:
+                if not (hstart + 1 < len(seg) and seg[hstart + 1] == '{'):  # {{ 转义
+                    holes.append((hstart, j + 1))
+                hstart = None
+    return holes
+
+def transform_py(text, rel_path=''):
+    """对 .py 的字符串字面量与注释应用中文术语规则（.py 侧不含 pupil/bake-off）。
+    只处理 tokenizer 识别出的 STRING/COMMENT token；代码标识符、纯英文（§2）
+    天然不受影响。f-string 的 {expr} 洞与「留出」多义组合词先保护后还原。"""
+    t65_rules = T65_BACKEND_RULES if rel_path in T65_BACKEND_FILES else T65_VARIANT_RULES
+    lines = text.split('\n')
+    try:
+        toks = list(tokenize.generate_tokens(io.StringIO(text).readline))
+    except (SyntaxError, tokenize.TokenError, IndentationError):
+        return text
+    # 行 -> [(start, end, is_fstring)]
+    # STRING: 普通字符串（f-string 整体在 <3.12 是一个 STRING token，需洞保护）。
+    # FSTRING_MIDDLE: 3.12+ 多行 f-string 的**纯文本**段（{expr} 已拆成
+    #   FSTRING_PART 独立 token），无需洞保护，直接按普通文本处理。
+    #   缺这类 token 会漏掉报告生成器里 f-string 模板的中文叙述（issue #187 主战场）。
+    spans = {}
+    for tok in toks:
+        if tok.type in (tokenize.STRING, tokenize.COMMENT):
+            is_f = tok.string[:1] in 'fF' and len(tok.string) > 1 and tok.string[1] in '"\''
+        elif tok.type == getattr(tokenize, 'FSTRING_MIDDLE', None):
+            is_f = False  # 表达式已分离，文本段按普通字符串处理
+        else:
+            continue
+        sl, sc = tok.start[0] - 1, tok.start[1]
+        el, ec = tok.end[0] - 1, tok.end[1]
+        if sl == el:
+            spans.setdefault(sl, []).append((sc, ec, is_f))
+        else:
+            # 多行字符串（docstring / f-string 模板）：按行拆段
+            spans.setdefault(sl, []).append((sc, len(lines[sl]), is_f))
+            for i in range(sl + 1, el):
+                spans.setdefault(i, []).append((0, len(lines[i]), is_f))
+            spans.setdefault(el, []).append((0, ec, is_f))
+    for li, segs in spans.items():
+        line = lines[li]
+        if _is_py_meta_line(line):
+            continue
+        for (s, e, is_f) in segs:
+            seg = line[s:e]
+            if not _has_cjk(seg):
+                continue
+            newseg = _apply_py_segment(seg, t65_rules, is_f)
+            if newseg != seg:
+                line = line[:s] + newseg + line[e:]
+        lines[li] = line
+    return '\n'.join(lines)
+
+_HOLE_PH = '\x01'     # f-string {expr} 洞占位
+_HOLDOUT_PH = '\x02'  # 「留出」多义组合词占位
+
+def _protect_holes(seg, is_f):
+    """把 f-string {expr} 洞替换为占位符，返回 (新串, 洞文本列表)。"""
+    if not is_f:
+        return seg, []
+    holes = _fstring_holes(seg)
+    if not holes:
+        return seg, []
+    parts, saved = [], []
+    pos = 0
+    for (hs, he) in holes:
+        parts.append(seg[pos:hs])
+        saved.append(seg[hs:he])
+        parts.append(_HOLE_PH)
+        pos = he
+    parts.append(seg[pos:])
+    return ''.join(parts), saved
+
+def _restore_holes(seg, saved):
+    idx = [0]
+    def _ph(m):
+        s = saved[idx[0]] if idx[0] < len(saved) else ''
+        idx[0] += 1
+        return s
+    return re.sub(_HOLE_PH, _ph, seg)
+
+def _apply_py_segment(seg, t65_rules, is_f):
+    """单段 .py 字符串/注释的术语替换（含 f-string 洞与 留出 多义保护）。"""
+    # 1) f-string {expr} 洞先保护（洞内可能是与禁词同名的标识符/字典键）
+    seg, hole_saved = _protect_holes(seg, is_f)
+    # 2) 「留出」多义组合词（留出时间/几何…）占位，防裸词规则吞成「验证集…」
+    holdout_saved = []
+    def _hold_ph(m):
+        holdout_saved.append(m.group(0))
+        return _HOLDOUT_PH
+    seg = _HOLDOUT_SAFE_RE.sub(_hold_ph, seg)
+    # 3) 应用中文术语规则
+    seg = _apply_cn_rules(seg, t65_rules)
+    # 4) 还原占位（先 留出 后 洞）
+    idx = [0]
+    def _hold_restore(m):
+        s = holdout_saved[idx[0]] if idx[0] < len(holdout_saved) else ''
+        idx[0] += 1
+        return s
+    seg = re.sub(_HOLDOUT_PH, _hold_restore, seg)
+    return _restore_holes(seg, hole_saved)
+
+# ---------------------------------------------------------------------------
 # 文件清单。论文走独立工作流；术语表与 agent 配置"故意"引用禁词作示例，须排除。
 # ---------------------------------------------------------------------------
 EXCLUDE_NAMES = {
@@ -405,7 +603,24 @@ for f in REPO.rglob("*.md"):
         continue
     FILES.append(f)
 
-apply_mode = "--apply" in sys.argv
+# .py 文件清单（2026-10-22，issue #187）：中文叙述（docstring/字符串/注释）
+# 进入引擎；排除集见 PY_EXCLUDE 注释。
+PY_FILES = []
+for f in REPO.rglob('*.py'):
+    rel = f.relative_to(REPO).as_posix()
+    if rel.startswith(('.git', '.venv', 'venv')):
+        continue
+    if rel.startswith(LOCAL_DIR_PREFIXES):
+        continue
+    if rel.startswith('libs/') or 'libs/' in rel:   # vendored 第三方库
+        continue
+    if 'call_graph_wiki' in rel:
+        continue
+    if rel in PY_EXCLUDE:
+        continue
+    PY_FILES.append(f)
+
+apply_mode = '--apply' in sys.argv
 total = {}
 for f in FILES:
     rel_posix = f.relative_to(REPO).as_posix()
@@ -418,7 +633,18 @@ for f in FILES:
     if apply_mode:
         f.write_text(new, encoding="utf-8")
 
-tag = "文件 (dry-run)" if not apply_mode else "文件 (已写入)"
+for f in PY_FILES:
+    rel_posix = f.relative_to(REPO).as_posix()
+    orig = f.read_text(encoding='utf-8')
+    new = transform_py(orig, rel_posix)
+    if new == orig:
+        continue
+    changed = sum(1 for a, b in zip(orig.split('\n'), new.split('\n')) if a != b)
+    total[rel_posix] = changed
+    if apply_mode:
+        f.write_text(new, encoding='utf-8')
+
+tag = '文件 (dry-run)' if not apply_mode else '文件 (已写入)'
 print(f"{tag}: 变化行数")
 for k, v in sorted(total.items()):
     print(f"  {v:4d}  {k}")

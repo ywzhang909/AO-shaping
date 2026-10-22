@@ -10,7 +10,7 @@
   2. _setup_debug_callback        — 条件创建调试数据保存回调
   3. ZernikeCalibrationDisplay     — 条件创建pygame实时显示
   4. Santec / PatternHelper / ThorlabWFS — 设备初始化
-     (2026-09-16 重写: 原 ZernikeSLM 链路实机原生崩溃 0xC0000005/0xC000041C,
+     (2026-09-16 重写: 原 ZernikeSLM 链路实验原生崩溃 0xC0000005/0xC000041C,
       改用与 tools/slm/slm_zernike_response.py 相同的 Santec 直控链路)
   5. pupil 启发式                 — CLI 默认 pupil (2.0mm/(0,0)) 视为"未指定"
      -> optimize_pupil() 自动获取并**写回** (硬编码 pupil 会污染 WFS_ZernikeLsf 拟合)
@@ -49,7 +49,7 @@
   8. loop.run(control_law)         — 迭代闭环优化
   9. 保存 history.npz / final_coefficients.txt / meta.json / convergence.png
 
-TODO (实机待测试清单, 完整清单见 run() docstring):
+TODO (实验待测试清单, 完整清单见 run() docstring):
     ⚠️ 2026-09-16 重写后的标定内核 (λ/λ 单位 + n_max 透传) 已按已验证的
     tools/slm/slm_zernike_response.py 对齐, 并新增「测完矩阵后自动离线矫正测试 +
     施加相位经 export_correction_csv 导出」。以上改动**尚未上设备实测**,
@@ -611,7 +611,7 @@ def calibrate_response_matrix_pushpull(
         ``matrix[wfs_coeff, slm_mode] = Δ(WFS) / Δ(SLM 幅度)``,  单位 **λ/λ**
 
     与旧实现 (`calibrate_zernike_response_matrix` + `ZernikeSLM`) 的差异:
-      - 走 **Santec + PatternHelper** 直控链路 (已验证; 旧链路在实机出现原生崩溃)
+      - 走 **Santec + PatternHelper** 直控链路 (已验证; 旧链路在实验出现原生崩溃)
       - 单位统一 **µm → λ** (`um_to_waves`), 与闭环矫正的 `w` 同单位
       - 内置 **光斑有效比门控** (`wfs_validity`) + **逐点幅度合理性剔除**
       - 矩阵**统一使用同一 Zernike 半径** (矫正相位按单一 R 生成, 否则归一化不匹配)
@@ -1075,7 +1075,7 @@ def run(
         - WFS Zernike系数 (averaging前)
 
     标定内核 (2026-09-16 按已验证的 tools/slm/slm_zernike_response.py 重写):
-        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实机原生崩溃)
+        - 直控链路: Santec + PatternHelper (与原 ZernikeSLM 链路不同; 旧链路实验原生崩溃)
         - 矩阵单位 **λ/λ**: 列 = Δ(WFS λ) / Δ(SLM 幅度 λ); 幅度 λ = rad/(2π)
         - make_phase **透传 n_max** (不再硬编码 4 → n≥5 模式不再被截断)
         - 测完矩阵后自动执行 offline_correction_test():
@@ -1084,7 +1084,7 @@ def run(
             → export_correction_csv 保存施加的矫正相位
               (文件名含 序列号/波长/shift/半径/时间 + sidecar JSON)
 
-    TODO (实机待测试清单 —— 重写后尚未上设备实测):
+    TODO (实验待测试清单 —— 重写后尚未上设备实测):
         [ ] 重标响应矩阵, 检查主导系数: [5](2,0)defocus [9](3,1)coma [13](4,0)spherical
             应与理论形状对应; n≥5 模式不再被截断 (旧 bug: 硬编码 n_max=4)
         [ ] 矩阵量纲: cond_eff 应仍 ≈8 量级; 反解系数幅值与推拉幅度 (λ) 同量级
@@ -1125,7 +1125,7 @@ def run(
         )
 
     try:
-        # 2026-09-16 重写: 原 ZernikeSLM 链路在实机出现原生崩溃 (0xC0000005/0xC000041C),
+        # 2026-09-16 重写: 原 ZernikeSLM 链路在实验出现原生崩溃 (0xC0000005/0xC000041C),
         # 改用与 tools/slm/slm_zernike_response.py 相同的 **Santec + PatternHelper** 直控链路。
         slm = Santec(
             slm_number=slm_params.slm_number,
@@ -1338,7 +1338,7 @@ def run(
         # === 8. 离线矫正测试 (测完响应矩阵后自动执行) ===
         #     恢复内部参考 → 平场基线 → pinv 反解当前像差 → ×2π 弧度加载
         #     → 复测残差 + 模型自检 → export_correction_csv 保存施加的矫正相位。
-        #     ⚠️ 需要实机验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
+        #     ⚠️ 需要实验验证: 基线 RMS→残差 RMS 应有明显改善且模型自检比 ∈ 0.7~1.4;
         #     失败多半是单位 (λ/rad) 或 zernike_radius 与标定不一致。
         if last_cal is not None:
             try:

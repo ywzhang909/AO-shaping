@@ -349,18 +349,18 @@ def aberration_phase_rad(
     """生成像差相位图 [rad] (raw 未包裹, 孔径外为 0)。
 
     走 canonical 入口 ``generate_zernike_phase`` (禁止自写 Zernike 数学)。该函数
-    对系数**线性**, 因此先取单位系数相位、实测其在瞳孔内的峰谷值, 再整体线性缩放
+    对系数**线性**, 因此先取单位系数相位、实测其在瞳面内的峰谷值, 再整体线性缩放
     到目标 ``pv_waves`` 弧度 —— 这样"waves-PV"是真正可控的量, 且全程只用官方
     多项式求值。
 
     Args:
         case: 像差用例。
         n_grid: 网格边长。
-        mask: 瞳孔内掩码。
+        mask: 瞳面内掩码。
 
     Returns:
         ``(n_grid, n_grid)`` float64 弧度数组, 已 ``nan_to_num`` (Zernike 网格与
-        光束网格在瞳孔边缘最多差 1 px, 那里 ``generate_zernike_phase`` 返回 NaN;
+        光束网格在瞳面边缘最多差 1 px, 那里 ``generate_zernike_phase`` 返回 NaN;
         置 0 对两个仿真后端分支完全一致, 不引入任何仿真后端分支间的偏置)。
     """
     if not case.noll_coefficients or case.pv_waves == 0.0:
@@ -803,7 +803,7 @@ def render_summary_figure(rows: list[dict[str, Any]], path: Path) -> None:
 
     for ax, (key, title) in zip(
         axes,
-        (("strehl", "Strehl"), ("phase_rms_rad", "瞳孔内总相位 RMS [rad]")),
+        (("strehl", "Strehl"), ("phase_rms_rad", "瞳面内总相位 RMS [rad]")),
         strict=True,
     ):
         for aberr_name in aberr_order:
@@ -1123,9 +1123,9 @@ def write_report(
     add("")
     add("| 指标 | 定义 |")
     add("|---|---|")
-    add("| `phase_std_rad` | 瞳孔掩码内湍流相位屏的 std (rad) |")
+    add("| `phase_std_rad` | 瞳面掩码内湍流相位屏的 std (rad) |")
     add(
-        "| `phase_rms_rad` | 瞳孔掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |"
+        "| `phase_rms_rad` | 瞳面掩码内 `total` 的 RMS (rad), 同 `compat.TraditionalAOSystem._phase_rms` |"
     )
     add(
         "| `strehl` | `clip(max(I_focal) / max(I_ideal), 0, 1)`, 理想值每场景只算一次 (与仿真后端分支无关) |"
@@ -1148,7 +1148,7 @@ def write_report(
     add("")
     add(
         "**像差幅值**: 通过 canonical `generate_zernike_phase` 生成单位系数相位, 实测其"
-        "在瞳孔内的峰谷值, 再线性缩放到目标 waves-PV (×2π 得弧度)。该函数对系数线性, "
+        "在瞳面内的峰谷值, 再线性缩放到目标 waves-PV (×2π 得弧度)。该函数对系数线性, "
         "因此缩放是精确的; 全程复用官方多项式求值, 未自写任何 Zernike 数学。"
     )
     add("")

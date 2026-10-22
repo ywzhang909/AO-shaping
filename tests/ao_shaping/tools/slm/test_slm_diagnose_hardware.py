@@ -36,7 +36,7 @@ from ao_shaping.tools.slm.panel.diagnose import (
 pytestmark = pytest.mark.hardware
 
 # 与 slm_diagnose.main 的 CLI 参数一致 (除 slm_wavelength: CLI 默认 1064 为
-# 历史基准, 实机为 532nm; Santec 按 wavelength 动态查询 2π 对应灰度).
+# 历史基准, 实验为 532nm; Santec 按 wavelength 动态查询 2π 对应灰度).
 _SLM_NUMBER = 1
 _SLM_WAVELENGTH_NM = 532
 _CAM_ID = 0

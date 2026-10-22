@@ -589,8 +589,8 @@ def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("输入 pred phasor (B,2,64,64)  ── 网络输出，已过 unit_phasor")
     add("   │")
     add("   ├─(1) 拆成复数场   measured = complex(cos, sin)          (B,64,64) complex")
-    add("   ├─(2) 瞳孔掩模     cos,sin *= inscribed_mask(64)          半径 32px，覆盖 78.81%")
-    add("   ├─(3) 叠加台架像差 field = measured * exp(i·correction)   correction = Σ c_k·Z_k")
+    add("   ├─(2) 瞳面掩模     cos,sin *= inscribed_mask(64)          半径 32px，覆盖 78.81%")
+    add("   ├─(3) 叠加实验系统像差 field = measured * exp(i·correction)   correction = Σ c_k·Z_k")
     add("   ├─(4) 补零 + FFT   fftshift(fft2(ifftshift(field_padded)))")
     add("   │                   padding = recommended_padding(fov)    ★ 按 FOV 分桶")
     add("   ├─(5) 中心裁剪回   (B,64,64)   ← 与语料 image 同尺寸，才能逐像素比")
@@ -604,12 +604,12 @@ def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
         "初始化时 `correction ≡ 0`（实测 `|correction|max = 0`），即起步是纯 Fraunhofer 模型。"
     )
     add("")
-    add("**关键语义：这是一个「台架前向模型」，不是生成器。** 它的公式是")
+    add("**关键语义：这是一个「实验系统前向模型」，不是生成器。** 它的公式是")
     add("")
     add("```")
     add("field = measured_phasor · exp(i·correction)")
     add("        ^^^^^^^^^^^^^^^   ^^^^^^^^^^^^^^^^")
-    add("        你下发的相位       台架自身的像差")
+    add("        你下发的相位       实验系统自身的像差")
     add("```")
     add(
         "所以把它喂零 phasor 会让整场恒为零、梯度**精确**为 0（`ZernikeAmpModel` 的"
@@ -650,12 +650,12 @@ def _section_5(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add(
         "`ForwardBank.forward` 在传播前把 phasor 乘上 `inscribed_mask`（内接圆，半径 "
         "`grid/2 = 32 px`，覆盖网格的 78.81% ≡ π/4）。理由：`forward()` 直接使用输入的 phasor，"
-        "若不掩模，一个「只有相位」的瞳面在照明圆盘之外仍是单位振幅，而台架只照亮有限圆盘。"
+        "若不掩模，一个「只有相位」的瞳面在照明圆盘之外仍是单位振幅，而实验系统只照亮有限圆盘。"
     )
     add("")
     add(
         "但**监督项 `L_sup` 不掩模** —— 它对完整 `grid×grid` 逐格求 L1。"
-        "这是一个刻意的不对称，后果在 §7.1 量化：瞳孔外那些格子的目标 phasor 模长很小"
+        "这是一个刻意的不对称，后果在 §7.1 量化：瞳面外那些格子的目标 phasor 模长很小"
         "（如 `panel_gray` 源填的是小常值），而 `unit_phasor` 强制预测模长为 1，"
         "于是**这些格子的误差不可能被消除**，构成一块结构性地板。"
     )
@@ -714,7 +714,7 @@ def _section_6(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("| 项 | 权重（默认） | 覆盖范围 | 是否掩模 |")
     add("|---|---|---|---|")
     add(f"| `sup` 监督 phasor L1 | `{cfg.w_sup}` | 全图 64×64 逐格 | ❌ 不掩模 |")
-    add(f"| `phy` 物理往返 L1 | `{cfg.w_phy}` | 仅已标定 FOV 的行 | ✅ 瞳孔内接圆 |")
+    add(f"| `phy` 物理往返 L1 | `{cfg.w_phy}` | 仅已标定 FOV 的行 | ✅ 瞳面内接圆 |")
     add(f"| `smooth` 全变差 | `{cfg.w_smooth}` | 全图 | ❌ |")
     add("")
     add("### 6.1 监督项 `L_sup`")
@@ -747,7 +747,7 @@ def _section_6(add, cfg, rows, meta, total, stage_totals, floors) -> None:
         "`mean|1 − |t||` —— 逐家族实测见 §7.1。"
     )
     add(
-        "2. **不掩模**：瞳孔外的格子也计入。这些格子目标模长小、预测模长为 1，"
+        "2. **不掩模**：瞳面外的格子也计入。这些格子目标模长小、预测模长为 1，"
         "其误差无法消除（同上）。物理项掩模而监督项不掩模，是刻意保留的不对称。"
     )
     add("")
@@ -828,7 +828,7 @@ def _section_7(add, cfg, rows, meta, total, stage_totals, floors) -> None:
     add("")
     add(
         "`unit_phasor` 强制预测模长为 1，但**语料给出的目标 phasor 本身并不总是单位模长**"
-        "（例如 `panel_gray` 源在瞳孔外填的是一个小的常值，`phase_sin ≡ 0`）。"
+        "（例如 `panel_gray` 源在瞳面外填的是一个小的常值，`phase_sin ≡ 0`）。"
         "单位模长的预测对模长 `r` 的目标，最小可能 L1 是 `|1 − r|` —— "
         "这是一块**任何模型都无法消除的误差地板**。"
     )

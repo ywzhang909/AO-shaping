@@ -153,8 +153,8 @@ def render_phase_ccd_comparison() -> Path:
         label_text = (
             f"{exp['condition']}\n"
             f"目录: {exp['dir']}\n"
-            f"6留出均值: {exp['six_holdout_avg']:.4f}\n"
-            f"自由相位: {exp['free_phase_avg']:.4f}\n"
+            f"6验证集均值: {exp['six_holdout_avg']:.4f}\n"
+            f"全频随机相位: {exp['free_phase_avg']:.4f}\n"
             f"预测相关: {exp['pred_corr']:.4f}\n"
             f"CV/EE: {exp['cv_ee']}\n"
             f"分数: {exp['score']:.4f}"

@@ -215,13 +215,13 @@ MIL_PUPIL_CENTER_FALLBACK: str = bench_settings.PUPIL_CENTER_FALLBACK
 #: Shared 目标与评分 caption — one formula for both methods, so switching the
 #: algorithm never means re-learning what the score means.
 _OBJECTIVE_CAPTION = (
-    "目标与评分（相机像素；综合分 = w_pib·PIB + w_unif·1/(1+CV)）。"
+    "目标与评分（相机像素；复合分数 = w_pib·PIB + w_unif·1/(1+CV)）。"
     "GS 的权重是 w_pib / w_unif，正向模型的是 w_eff / w_uni。"
 )
 
 #: GS 相位网格上限放开后的耗时提示（上界 64 → 128 时的代价必须说清）。
 _PHASE_GRID_HELP = (
-    "自由相位网格边长。验证配方用 12；网格边长翻倍 = 可控自由度 ×4，"
+    "全频随机相位网格边长。验证配方用 12；网格边长翻倍 = 可控自由度 ×4，"
     "而 SPGD 每轮要遍历整个网格，耗时随之上升（本实验系统 12 网格约 1 s/轮）。"
 )
 
@@ -247,8 +247,8 @@ _PROBE_COUNT_HELP = (
     "往返就多一轮（本实验系统一轮探针约 2 s）。"
 )
 _HOLDOUT_HELP = (
-    "留出探针数（不参与拟合，只用来验相关度）。0 = 不做留出验证；"
-    "注意 Step A 拟合本身要求 ≥ 1，真要关闭留出请用「自由相位留出探针」= 0。"
+    "验证集探针数（不参与拟合，只用来验相关度）。0 = 不做验证集验证；"
+    "注意 Step A 拟合本身要求 ≥ 1，真要关闭验证集请用「全频随机相位验证集探针」= 0。"
 )
 
 #: MIL 权重默认值（``SlmModelInLoopParams`` 的 0.6 / 0.4）。
@@ -1270,7 +1270,7 @@ class GsRefineMethod(ShapingMethod):
     def render_advanced(self, values: dict[str, Any]) -> None:
         """GS 专属高级参数（默认收起）。"""
         r = GS_REFINE_RECIPE
-        st.caption("SPGD 细化（粗网格自由相位）")
+        st.caption("SPGD 细化（粗网格全频随机相位）")
         spgd_fields = (
             ("epochs", "SPGD 轮数", 1, 400, 1, None),
             ("phase_grid", "相位网格", 2, 128, 1, _PHASE_GRID_HELP),
@@ -1610,8 +1610,8 @@ class ModelInLoopMethod(ShapingMethod):
         probe_fields = (
             ("probe_count", "探针数", 1, 64, 1, _PROBE_COUNT_HELP),
             ("probe_spread", "探针 σ (rad)", 3.0, 12.0, 0.5, _PROBE_SPREAD_HELP),
-            ("holdout_probe_count", "留出探针", 0, 8, 1, _HOLDOUT_HELP),
-            ("freeform_holdout_count", "自由相位留出探针", 0, 8, 1, None),
+            ("holdout_probe_count", "验证集探针", 0, 8, 1, _HOLDOUT_HELP),
+            ("freeform_holdout_count", "全频随机相位验证集探针", 0, 8, 1, None),
         )
         for cell, (key, label, lo, hi, step, help_) in zip(
             _param_cells(4), probe_fields, strict=True
@@ -1627,7 +1627,7 @@ class ModelInLoopMethod(ShapingMethod):
             0.0,
             1.0,
             0.01,
-            help="留出探针相关度低于此值即判定拟合失败（实测 speckle 路线 corr≈0.07）",
+            help="验证集探针相关度低于此值即判定拟合失败（实测 speckle 路线 corr≈0.07）",
         )
         st.caption("正向模型几何")
         for cell, (key, label, lo, hi, step, help_) in zip(
@@ -1935,7 +1935,7 @@ class ModelInLoopMethod(ShapingMethod):
         )
 
     def _validate_holdout(self, values: Mapping[str, Any]) -> str | None:
-        """留出探针 0 被控件允许，但 Step A 拟合本身要求 ≥ 1。
+        """验证集探针 0 被控件允许，但 Step A 拟合本身要求 ≥ 1。
 
         The widget bound is 0 so the operator can *see* that holdout validation is
         optional (the caption says how to actually turn it off), but
@@ -1945,8 +1945,8 @@ class ModelInLoopMethod(ShapingMethod):
         if int(values.get("holdout_probe_count", 1) or 0) >= 1:
             return None
         return (
-            "留出探针必须 ≥ 1（Step A 拟合依赖它）。真要关闭留出验证请把"
-            "「自由相位留出探针」设为 0。"
+            "验证集探针必须 ≥ 1（Step A 拟合依赖它）。真要关闭验证集验证请把"
+            "「全频随机相位验证集探针」设为 0。"
         )
 
     def _validate_geometry_region(self, values: Mapping[str, Any]) -> str | None:

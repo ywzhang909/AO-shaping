@@ -75,7 +75,7 @@ SimSLM 内部无 sleep, 无需全局 monkeypatch `time.sleep`。
 > 与 `fouriergsnet_env.py:67-68` 仍为 `(1920,1200)`，两个文件混用 `(宽,高)` 与
 > `(PANEL_H, PANEL_W)`）。
 
-### 3.1 `phi.detach()` bug — 影响真实硬件 CLI ✅ 已修复
+### 3.1 `phi.detach()` bug — 影响实验 CLI ✅ 已修复
 
 ```python
 recorder.append({"step": step, "uniformity": uni, "encircled": ee,
@@ -105,7 +105,7 @@ recorder.append({"step": step, "uniformity": uni, "encircled": ee,
 - 管线: `place_on_panel` L450 `h, w = self.panel_res` → 把 (1920,1200) 当 (h,w),
   产出 (1920,1200) 面板。
 - 仿真: `SimFourierGSNetEnv` 特意用 `PANEL_H, PANEL_W = 1920, 1200` (校准器
-  h,w 约定) 匹配管线 → **仿真掩盖了真实硬件上的转置不匹配**。
+  h,w 约定) 匹配管线 → **仿真掩盖了实验上的转置不匹配**。
 
 ## 4. 运行方式
 

@@ -438,7 +438,7 @@ def _paced(capture: Callable[[], np.ndarray], period_s: float) -> Callable[[], n
 class DriftProbeParams:
     """平场漂移 + 曝光阶梯探针的 CLI 参数。
 
-    默认值来自本台架的实测标定, 不与其他探针共享: ``--exposure-ms`` 默认 0.4 ms
+    默认值来自本实验系统的实测标定, 不与其他探针共享: ``--exposure-ms`` 默认 0.4 ms
     (1.1 ms 时 0 阶峰值约 60, 但 0.4 ms 才能看出漂移幅度), ``--exposure-ladder``
     默认取 :data:`LADDER_DEFAULT`。
 

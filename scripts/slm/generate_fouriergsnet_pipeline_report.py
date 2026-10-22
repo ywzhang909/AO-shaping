@@ -75,7 +75,7 @@ SimSLM 内部无 sleep, 无需全局 monkeypatch `time.sleep`。
 
 ## 3. 发现 (供后续修复参考)
 
-### 3.1 L938 真实 bug (影响真实硬件 CLI)
+### 3.1 L938 真实 bug (影响实验 CLI)
 
 `closed_loop` L936-938:
 ```python
@@ -107,7 +107,7 @@ CLI) 下同样崩溃。修复方向: `phi.detach().cpu().numpy()`。
 - 管线: `place_on_panel` L450 `h, w = self.panel_res` → 把 (1920,1200) 当 (h,w),
   产出 (1920,1200) 面板。
 - 仿真: `SimFourierGSNetEnv` 特意用 `PANEL_H, PANEL_W = 1920, 1200` (校准器
-  h,w 约定) 匹配管线 → **仿真掩盖了真实硬件上的转置不匹配**。
+  h,w 约定) 匹配管线 → **仿真掩盖了实验上的转置不匹配**。
 
 ## 4. 运行方式
 

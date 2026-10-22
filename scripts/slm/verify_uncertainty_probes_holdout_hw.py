@@ -1,15 +1,15 @@
-"""实机配对 A/B (GitHub #139): 独立留出相关性上, 不确定性探针是否真优于固定随机探针。
+"""实验配对 A/B (GitHub #139): 独立验证集相关性上, 不确定性探针是否真优于固定随机探针。
 
-本脚本只补 #139 验收口径里**唯一没测过的那一项**: *独立留出相关性* (#117/#119
+本脚本只补 #139 验收口径里**唯一没测过的那一项**: *独立验证集相关性* (#117/#119
 确立的口径), 不跑整形闭环, 因此不涉及形状验收。
 
 协议 (#139 步骤 1 的"同连接内交错"):
 
 * 一次几何标定, 全程共用 (同连接、同曝光、同 ROI 中心);
-* 每个变体开始前**重新测一遍共享留出探针集**, 于是评分对照明漂移免疫, 且
+* 每个变体开始前**重新测一遍共享验证集探针集**, 于是评分对照明漂移免疫, 且
   各变体在时间上交错, 任何漂移都落在差值里;
 * 训练探针按变体的策略生成 (固定随机 / 不确定性采样), 各自独立拟合系数;
-* 评分: 用拟合出的系数预测留出探针的远场, 与实测做 Pearson 相关 —— 与循环
+* 评分: 用拟合出的系数预测验证集探针的远场, 与实测做 Pearson 相关 —— 与循环
   里 ``holdout_correlation`` 同一个口径与同一条代码路径
   (``forward_intensity`` + ``_prediction_correlation``)。
 
@@ -28,7 +28,7 @@ B2_s0        2 张不确定性, sigma=0         同探针预算对比 (#139 步�
 
 同时记录每张探针的相位标准差 (#139 首要风险: 样本塌缩 / 被推到极端)。
 
-台架约定与前置: Santec #1 memory 模式; 零级按全帧 argmax 冻结; 曝光固定;
+实验系统约定与前置: Santec #1 memory 模式; 零级按全帧 argmax 冻结; 曝光固定;
 进出现场恢复显示。**几何在本次会话内现标**, 不沿用任何历史文件 —— 2026-10-15
 报告已作废当时的面板入射中心, 而 #139 要求"同一几何"。
 
@@ -65,12 +65,12 @@ from ao_shaping.utils.image.beam_metrics import (  # noqa: E402
     zero_order_center,
 )
 
-#: 共享留出探针张数。留出集**各变体完全相同**, 所以相关性的差值就是探针策略
+#: 共享验证集探针张数。验证集**各变体完全相同**, 所以相关性的差值就是探针策略
 #: 的差值, 不掺探针实现的随机性。
 HOLDOUT_COUNT = 4
 
 #: 训练探针上的拟合预算。刻意压小: #139 问的是"同样的拟合努力下, 哪套探针
-#: 换来的留出相关性更高", 而不是各自跑到收敛。
+#: 换来的验证集相关性更高", 而不是各自跑到收敛。
 FIT_ITERATIONS = 60
 
 
@@ -166,8 +166,8 @@ def main() -> int:
              f"corr={geometry.correlation:.4f}")
         if geometry.correlation < float(config.min_geometry_correlation):
             _log(f"!! 几何相关 {geometry.correlation:.4f} < "
-                 f"{config.min_geometry_correlation} —— 本台架不在正向模型描述范围内, "
-                 f"留出相关性不可信, 中止")
+                 f"{config.min_geometry_correlation} —— 本实验系统不在正向模型描述范围内, "
+                 f"验证集相关性不可信, 中止")
             meta["status"] = "geometry_rejected"
             meta["geometry_correlation"] = float(geometry.correlation)
             (out_dir / "summary.json").write_text(
@@ -209,7 +209,7 @@ def main() -> int:
         _log(f"正向模型 n_coeffs={n_coeffs} region={args.region} "
              f"far_field={geometry.far_field_size}")
 
-        # 共享留出探针: 固定随机, **各变体完全相同**
+        # 共享验证集探针: 固定随机, **各变体完全相同**
         holdout_phases = [
             mil._probe_phase(args.region, args.probe_spread, 777_000 + k,
                              smooth=True)
@@ -233,10 +233,10 @@ def main() -> int:
             ("B2_s0", 2, "uncertainty", 0.0),
         ]
         results: list[dict] = []
-        print(f"\n{'变体':<9}{'探针':>5}{'留出相关':>11}{'逐张':>26}"
+        print(f"\n{'变体':<9}{'探针':>5}{'验证集相关':>11}{'逐张':>26}"
               f"{'std(选中)':>12}{'塌缩?':>8}")
         for name, count, kind, sigma in arms:
-            # 留出**先测**, 再测训练集 —— 交错顺序, 漂移落在两个变体差值里
+            # 验证集**先测**, 再测训练集 —— 交错顺序, 漂移落在两个变体差值里
             holdout_frames = [(capture(ph), ph) for ph in holdout_phases]
 
             train_phases: list[np.ndarray] = []
@@ -299,9 +299,9 @@ def main() -> int:
         by = {r["arm"]: r for r in results}
         base = by["A8"]["holdout_correlation"]
         print("\n" + "=" * 84)
-        print("相对基线 A8 (8 张固定随机) 的独立留出相关性")
+        print("相对基线 A8 (8 张固定随机) 的独立验证集相关性")
         print("=" * 84)
-        print(f"{'变体':<9}{'探针':>5}{'留出相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
+        print(f"{'变体':<9}{'探针':>5}{'验证集相关':>11}{'Δ vs A8':>11}{'每张探针换到的':>18}")
         for r in results:
             d = r["holdout_correlation"] - base
             per = d / r["n_probes"] if r["n_probes"] else float("nan")

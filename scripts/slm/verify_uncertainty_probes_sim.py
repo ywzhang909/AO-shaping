@@ -52,7 +52,7 @@ from ao_shaping.optimizer.wfless.slm_model_in_loop import (  # noqa: E402
 #: "拒绝轮探针选择有没有用" 就无从谈起。
 _TIGHT_LOSS_DELTA = 1e-12
 
-#: 已知的台架像差 (Noll 序 -> 弧度), 让 Step A 有真信号可拟合。
+#: 已知的实验系统像差 (Noll 序 -> 弧度), 让 Step A 有真信号可拟合。
 #: `_SimBench` 的文档说明: 完美瞳面上没有像差可找, 拟合纯噪声, 每轮给出不同的
 #: 随机系数, 接受守卫会正确地全部拒收 —— 一个正确但空洞的测试。
 _SIM_ABERRATION = {

@@ -122,7 +122,7 @@ def render_psf_trial_comparison() -> Path:
     grouped = _group_by_family_family(rows)
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "全频随机相位"}
 
     fig, axes = plt.subplots(1, 3, figsize=(16, 5))
 
@@ -197,7 +197,7 @@ def render_phase_bandwidth_comparison() -> Path:
     grouped = _group_by_family_family(rows)
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "全频随机相位"}
 
     fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
@@ -275,7 +275,7 @@ def render_model_candidate_comparison() -> Path:
     )
 
     families = ["smooth", "zernike", "freeform"]
-    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "自由相位"}
+    family_names = {"smooth": "平滑", "zernike": "Zernike", "freeform": "全频随机相位"}
 
     combos = [
         ("旧会话\n(种子 79)", old_psf, old_bw),
@@ -499,7 +499,7 @@ def render_replay_comparison() -> Path:
     ax2.bar(x + width, ee_vals, width, label="EE", color="#4caf50", alpha=0.7)
     ax.set_xticks(x)
     ax.set_xticklabels(categories, fontsize=9)
-    ax.set_ylabel("综合分", fontsize=11)
+    ax.set_ylabel("复合分数", fontsize=11)
     ax2.set_ylabel("CV / EE", fontsize=11)
     ax.set_title("AB 相位复放对比")
     ax.legend(loc="upper left", fontsize=9)
@@ -675,7 +675,7 @@ def render_model_in_loop_20261014_table() -> Path:
         ["20261014_110203", "扰动，长方形，Step A 零步，种子 86", 0.8316, 0.8213, 0.8016, "0.6851 / 0.6944", 0.6540],
         ["20261014_110305", "扰动，长方形，Step A 10 步，种子 86", 0.8417, 0.7767, 0.8037, "0.8088 / 0.7471", 0.6694],
     ]
-    col_labels = ["运行目录", "条件", "6 留出相关性均值", "自由相位相关性均值", "成形预测相关性", "实测 CV / EE", "分数"]
+    col_labels = ["运行目录", "条件", "6 验证集相关性均值", "全频随机相位相关性均值", "成形预测相关性", "实测 CV / EE", "分数"]
     
     # Create figure and axis
     fig, ax = plt.subplots(figsize=(12, 4))

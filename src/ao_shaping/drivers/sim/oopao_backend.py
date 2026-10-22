@@ -143,11 +143,11 @@ class OopaoScreenBackend:
     Parameters
     ----------
     N : int
-        瞳孔网格边长, 单位像素。
+        瞳面网格边长, 单位像素。
     dx : float
         像元尺度, 单位米。
     Dscope : float
-        望远镜口径, 单位米 (定义 OOPAO 的瞳孔)。
+        望远镜口径, 单位米 (定义 OOPAO 的瞳面)。
     lam : float
         仿真波长, 单位米。
     cn2 : float

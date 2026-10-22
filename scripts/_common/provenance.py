@@ -104,7 +104,7 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/ml/generate_inverse_shaping_report.py",
         command="python scripts/ml/generate_inverse_shaping_report.py",
         environment="离线",
-        note="逆向光束整形 U-Net 在真实硬件语料上的首个结果: 语料快照固定/预处理决策/"
+        note="逆向光束整形 U-Net 在实验语料上的首个结果: 语料快照固定/预处理决策/"
         "平场退化/6 epoch 训练/按文件配对统计评估/pred-vs-true 可视化; "
         "输入为 ml.shaping.train + ml.shaping.evaluate 的产物",
     ),

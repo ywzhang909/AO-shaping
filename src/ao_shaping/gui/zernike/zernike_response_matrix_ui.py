@@ -1005,7 +1005,7 @@ def render_sidebar() -> None:
         )
 
         st.session_state.zrm_wfs_pupil_diameter = st.number_input(
-            "瞳孔直径 (mm)",
+            "瞳面直径 (mm)",
             min_value=0.5,
             max_value=10.0,
             value=st.session_state.zrm_wfs_pupil_diameter,
@@ -1015,9 +1015,9 @@ def render_sidebar() -> None:
 
         col1, col2 = st.columns(2)
         with col1:
-            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳孔中心 X", value=st.session_state.zrm_wfs_pupil_center_x, step=0.1, format="%.1f")
+            st.session_state.zrm_wfs_pupil_center_x = st.number_input("瞳面中心 X", value=st.session_state.zrm_wfs_pupil_center_x, step=0.1, format="%.1f")
         with col2:
-            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳孔中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
+            st.session_state.zrm_wfs_pupil_center_y = st.number_input("瞳面中心 Y", value=st.session_state.zrm_wfs_pupil_center_y, step=0.1, format="%.1f")
 
         # Use user reference checkbox
         st.session_state.zrm_wfs_use_user_ref = st.checkbox(

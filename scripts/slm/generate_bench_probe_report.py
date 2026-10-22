@@ -953,14 +953,14 @@ def figure_ramp(
         )
     xs = np.arange(len(labels))
     ax2.bar(xs - 0.2, measured, width=0.38, label="本次实测 S")
-    ax2.bar(xs + 0.2, predicted, width=0.38, label="台架常数")
+    ax2.bar(xs + 0.2, predicted, width=0.38, label="实验系统常数")
     for x, base, delta in zip(xs, measured, deltas):
         ax2.text(x - 0.2, base, f"{base:.0f}", ha="center", va="bottom", fontsize=9)
         ax2.text(x, max(base, shift_scale) * 1.04, f"{delta:+.1f}%", ha="center",
                  fontsize=9.5, color="crimson" if abs(delta) > 10 else "0.35")
     ax2.set_xticks(xs, labels)
     ax2.set_ylabel("S (相机 px · 周期)")
-    ax2.set_title("实测尺度与台架常数的一致性")
+    ax2.set_title("实测尺度与实验系统常数的一致性")
     ax2.legend(fontsize=8.5)
     ax2.grid(alpha=0.3, axis="y")
     path = out / "01_ramp_linearity.png"
@@ -1311,7 +1311,7 @@ def render_report(
 
 
 def _part_0(add) -> None:
-    add("# SLM 台架探针离线报告")
+    add("# SLM 实验系统探针离线报告")
     add("")
     add(
         "本报告由 `scripts/slm/generate_bench_probe_report.py` **完全离线** 生成："
@@ -1328,9 +1328,9 @@ def _part_1(add, sweep, geometry, geometry_path, sidecar, sidecar_path, npz_path
     add("|---|---|---|")
     add(f"| 扫描记录 (必需) | `{_display_path(npz_path)}` | ✅ {len(sweep)} 行 |")
     if geometry is not None:
-        add(f"| 台架几何 | `{_display_path(geometry_path)}` | ✅ 已读取 |")
+        add(f"| 实验系统几何 | `{_display_path(geometry_path)}` | ✅ 已读取 |")
     else:
-        add(f"| 台架几何 | `{_display_path(geometry_path)}` | ⚠️ 缺失 |")
+        add(f"| 实验系统几何 | `{_display_path(geometry_path)}` | ⚠️ 缺失 |")
     if sidecar is not None and sidecar_path is not None:
         add(f"| 调试 sidecar | `{_display_path(sidecar_path)}` | ✅ 已读取 |")
     else:
@@ -1344,7 +1344,7 @@ def _part_1(add, sweep, geometry, geometry_path, sidecar, sidecar_path, npz_path
     add("")
     if fallbacks:
         add(
-            "> ⚠️ 以下台架常数导入失败，报告使用的是字面回退值："
+            "> ⚠️ 以下实验系统常数导入失败，报告使用的是字面回退值："
             + "、".join(f"`{name}`" for name in fallbacks)
             + "。相关图注已注明。"
         )
@@ -1411,7 +1411,7 @@ def _part_1(add, sweep, geometry, geometry_path, sidecar, sidecar_path, npz_path
 
 
 def _part_2(add, geometry, geometry_conflicts, max_rms, notes_raw, notes) -> None:
-    add("## 2. 台架几何标定结果")
+    add("## 2. 实验系统几何标定结果")
     add("")
     if geometry is None:
         add("⚠️ 未找到 `bench_geometry.json`，本节无可用标定结果。")
@@ -1519,7 +1519,7 @@ def _part_3(add, ramp_routes, figures, shift_scale, fallbacks, ramp_scale) -> No
             )
         add("")
         add(
-            f"两条轴的 S 平均 **{ramp_scale:.0f}**，与台架常数 "
+            f"两条轴的 S 平均 **{ramp_scale:.0f}**，与实验系统常数 "
             f"`TILT_SHIFT_SCALE = {shift_scale:.0f}` 相差 "
             f"**{(ramp_scale - shift_scale) / shift_scale * 100:+.1f}%**"
             + ("（导入失败，用的是回退值）" if "TILT_SHIFT_SCALE" in fallbacks else "")
@@ -1556,7 +1556,7 @@ def _part_3(add, ramp_routes, figures, shift_scale, fallbacks, ramp_scale) -> No
             "实际打到硬件上就会变成 40 / (S 的相对误差) 倍的边长，"
             "即**目标尺寸直接成比例地错**。因此整形前必须确认 S 来自斜坡"
             "（本节）而不是任何解析公式：后者需要 f 与像元尺寸，"
-            "本台架的斜入射会让它偏差一个 cos θ 因子。")
+            "本实验系统的斜入射会让它偏差一个 cos θ 因子。")
     add("")
 
 
@@ -1581,7 +1581,7 @@ def _part_4(add, tilt_routes, figures, min_corr, ramp_scale, k_tilt, zernike_rad
         if max_corrs and max(max_corrs) < min_corr:
             add(
                 f"> 两个轴的 `shift_corr` 最高只有 **{max(max_corrs):.3f}**，"
-                f"远低于阈值 {min_corr:.2f}，所以**相位相关位移在本台架上不可用**，"
+                f"远低于阈值 {min_corr:.2f}，所以**相位相关位移在本实验系统上不可用**，"
                 "拟合只能回退到光斑质心。"
             )
             add("")
@@ -1691,7 +1691,7 @@ def _part_5(add, sweep, curve_map, figures, min_hollow) -> None:
         "孔径上打相位，如果实际孔径里有彗差、球差或者未消的离焦，"
         "模型算出的远场就与硬件会产生的远场不同——整形会把能量送到"
         "错误的地方。这里测的是**光斑宽度对各 Zernike 模式的响应**，"
-        "用来反推台架自身的像差状态。")
+        "用来反推实验系统自身的像差状态。")
     add("")
     dropped_all = [
         (mode, c, w, h, reason)
@@ -1705,7 +1705,7 @@ def _part_5(add, sweep, curve_map, figures, min_hollow) -> None:
         add("**结果分析**　六个模式全部有明确响应，曲率排序为 "
             + " > ".join(f"{m} ({c:.0f})" for m, c in order)
             + "。曲率为正且量级相近，说明它们都在**展宽**光斑——"
-            "这正是低阶 Zernike 对焦面宽度的物理预期，模型与台架没有失配到"
+            "这正是低阶 Zernike 对焦面宽度的物理预期，模型与实验系统没有失配到"
             "「某个模式完全不动」的程度。")
         add("")
         if dropped_all:
@@ -1726,8 +1726,8 @@ def _part_5(add, sweep, curve_map, figures, min_hollow) -> None:
         "需要的梯度信号；反过来说，**落进被剔除的那些系数区间，宽度反馈会"
         "失真甚至反向**，优化器会把能量推向一个它误以为「变暗=变窄」的区域。"
         "所以整形的扰动步长必须让工作点留在单瓣区。")
-    add("2. **台架自身的像差是整形精度的上限。** 拟合出的 `defocus` / `astig` / "
-        "`coma` / `spherical` 偏移量就是台架**当前带着的**这些像差。"
+    add("2. **实验系统自身的像差是整形精度的上限。** 拟合出的 `defocus` / `astig` / "
+        "`coma` / `spherical` 偏移量就是实验系统**当前带着的**这些像差。"
         "模型若不把它们算进去，算出的方形远场与硬件实际会差一个低阶像差，"
         "表现为：能量在目标框内发散、均匀度（CV）怎么优化都降不下去，"
         "而此时**加大迭代次数毫无帮助**——这不是优化器的问题，"
@@ -1745,7 +1745,7 @@ def _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_t
             "它与本 npz 不是同一次标定（见 §1.3）。")
         add(">")
         add("> 在这种情况下三条路线会**必然**互不一致，而这种不一致完全是"
-            "伪影：它度量的是两份标定之间的差，不是台架的性质。"
+            "伪影：它度量的是两份标定之间的差，不是实验系统的性质。"
             "先重跑 `--stage calibrate --method sweep`，本节会自动恢复。")
         add(">")
         add("> 可直接引用的、**不依赖模型网格**的结论仍然成立，见第 3、4 节："
@@ -1784,7 +1784,7 @@ def _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_t
             if spread > 25:
                 add(
                     "> ⚠️ 偏离超过 25% 警戒线。前两条路线（斜坡、倾斜）都只依赖"
-                    "**孔径半径**，而 FOV 路线额外假设**正入射**；本台架是倾斜入射，"
+                    "**孔径半径**，而 FOV 路线额外假设**正入射**；本实验系统是倾斜入射，"
                     "所以 FOV 路线偏低是预期内的。**测量路线（斜坡）为准**，"
                     "FOV 路线仅作记录。"
                 )
@@ -1810,7 +1810,7 @@ def _part_6(add, figures, geometry_conflicts, far_field_size, semi_axis, model_t
 def _part_7(add, sweep, ramp_scale, k_tilt, flat, peak_lo, peak_hi) -> None:
     add("## 7. 关键陷阱")
     add(
-        "以下四条台架铁律固化在 `ao_shaping/tools/slm/bench_kernels.py` 的模块"
+        "以下四条实验系统铁律固化在 `ao_shaping/tools/slm/bench_kernels.py` 的模块"
         "文档里。**每一条都附上本数据集里能证明它仍然生效的具体数字**——"
         "因为违反它们得到的是「看起来完全可信的错误结论」，而不是报错。"
     )
@@ -1823,7 +1823,7 @@ def _part_7(add, sweep, ramp_scale, k_tilt, flat, peak_lo, peak_hi) -> None:
             f"**(a) 暗帧上不能用裸 `argmax` 定位光斑。** "
             f"本数据集平场光斑在 ({fx:.1f}, {fy:.1f})，而画面中心是 "
             f"({FALLBACK_CAMERA_PIXELS / 2.0:.0f}, {1944.0 / 2.0:.0f})——"
-            f"横向相差 **{abs(dx):.0f} px**。台架记录更狠：峰值只有 22~46 而帧均值 0.26 时，"
+            f"横向相差 **{abs(dx):.0f} px**。实验系统记录更狠：峰值只有 22~46 而帧均值 0.26 时，"
             "单个热像素就能抢到 argmax，参考帧质心曾在 60 px 内自漂，"
             "足以把健康的板判成「没动」。`measure_spot` 先去尖刺再模糊后才定位。"
         )
@@ -1921,18 +1921,18 @@ def _part_8(add, tilt_routes, curve_map, geometry_conflicts, shift_scale, max_rm
         dev = abs(ramp_scale - shift_scale) / shift_scale * 100.0
         conclusions.append(
             f"焦面尺度由斜坡扫描确定为 **S = {ramp_scale:.0f}** 相机 px·周期，"
-            f"与台架常数 {shift_scale:.0f} 相差 {dev:.1f}%，"
+            f"与实验系统常数 {shift_scale:.0f} 相差 {dev:.1f}%，"
             "说明面板确实在正常调制、槽位轮换正确。"
         )
     if np.isfinite(k_tilt):
         conclusions.append(
-            f"Zernike 倾斜斜率 **{k_tilt:.3f} 相机 px/rad** 落在台架预测"
+            f"Zernike 倾斜斜率 **{k_tilt:.3f} 相机 px/rad** 落在实验系统预测"
             f"（450 px 照明半径约 5.34）的可信带内，"
             "**不是**历史上那个 1.63 的坏值——稳定性等待是有效的。"
         )
     if tilt_routes and max(r.max_corr for r in tilt_routes) < min_corr:
         conclusions.append(
-            f"相位相关位移在本台架不可用（shift_corr 峰值 "
+            f"相位相关位移在本实验系统不可用（shift_corr 峰值 "
             f"{max(r.max_corr for r in tilt_routes):.3f} < {min_corr:.2f}），"
             "所有位移量都来自光斑质心；报告与标定器都应保持这一回退路径。"
         )
@@ -1944,7 +1944,7 @@ def _part_8(add, tilt_routes, curve_map, geometry_conflicts, shift_scale, max_rm
                 f"低于阈值 {max_rms:.0%}，腰包可辨识。"
                 if joint <= max_rms
                 else f"高于阈值 {max_rms:.0%}，**腰包不可辨识**——"
-                "台架带有扫描模式未覆盖的像差，应退回平顶默认值，"
+                "实验系统带有扫描模式未覆盖的像差，应退回平顶默认值，"
                 "并补扫 coma/spherical。"
             )
         )
@@ -2008,7 +2008,7 @@ def _part_9(add, curve_map, geometry_conflicts, min_hollow, notes, ramp_scale, r
     if curve_map and not np.isfinite(notes.get("joint_rel_rms", float("nan"))):
         actionable.append((
             "光斑 waist 仍未确定",
-            "若整形精度不理想，先考虑把台架自身的低阶像差"
+            "若整形精度不理想，先考虑把实验系统自身的低阶像差"
             "（拟合偏移量）纳入前向模型，而不是加大迭代次数。",
         ))
     add("| 结论 | 依据与用法 |")

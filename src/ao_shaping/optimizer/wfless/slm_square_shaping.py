@@ -52,7 +52,7 @@ CLI 入口 (推荐):
 其中 CV 为目标区域内光强变异系数, EE 为环围能量占比, AR 为方形度偏差。
 
 注意事项:
-- 依赖真实硬件 (SLM200 + Daheng/MiiCam 相机), 无模拟模式。
+- 依赖硬件 (SLM200 + Daheng/MiiCam 相机), 无模拟模式。
 - Zernike 约定: 使用 aotools Noll 1976 约定 (见 zernike_utils 模块文档),
   Noll 5 = (2, -2), Noll 11 = (4, 0)。
 - zernike 基 (--basis zernike) 只优化 Defocus (2,0) 与 Spherical (4,0) 两种

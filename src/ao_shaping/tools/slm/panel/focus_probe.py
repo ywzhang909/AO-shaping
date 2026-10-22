@@ -953,7 +953,7 @@ class FocusProbeParams:
             help=(
                 "证据文件落盘目录 (默认 data/debug/bench_settings/focus_probe)。"
                 "下一轮把本轮的标定证据放进一个**专属目录**, 报告才不会读到"
-                "另一次上机留下的证据"
+                "另一次实验留下的证据"
             ),
         ),
     ] = ""

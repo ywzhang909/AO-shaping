@@ -232,7 +232,7 @@ def build_report(
     add("# 逆向光束整形 U-Net —— 首个真实语料结果")
     add("")
     add(
-        "`ml.shaping` 在真实硬件语料（远场图像 → SLM 相位 phasor）上的首个端到端结果，"
+        "`ml.shaping` 在实验语料（远场图像 → SLM 相位 phasor）上的首个端到端结果，"
         "含数据预处理决策、配对统计评估与 pred-vs-true 可视化。"
     )
     add("")
@@ -264,7 +264,7 @@ def build_report(
     elif phy_sig and not sup_sig:
         add(
             "**物理项显著优于基线，但监督 phasor 指标没有**（p="
-            f"{fmt_metric(sup.get('p_sign_flip'), 4)}）。这是本轮最重要的结论，且**不应被粉饰**："
+            f"{fmt_metric(sup.get('p_sign_flip'), 4)}）。这是本轮最重要的结论，且**不应被拔高**："
             "模型学到的远场表现是真实的，但它在原始 phasor 空间上还没有稳定超过"
             "「直接预测训练集平均相位」这个几乎不需要学习的基线。"
         )

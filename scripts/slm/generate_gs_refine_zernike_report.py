@@ -283,7 +283,7 @@ def build_markdown(summary: dict, run_dir: Path) -> str:
 3. **仿真模式下 GS 预矫正未经物理标定。** 数字孪生是纯 FFT；`_derive_target_side`
    的实验系统模型（`camera_pixel_um=2.2`、焦距来自实测 tilt-shift scale）与仿真角尺度
    不匹配。日志会出现 "GS warm start ... did not beat flat ...; keeping flat"。
-   仿真只验证 Zernike 拟合 + SPGD 路径与退化几何守卫；物理对比仅在真实硬件上有意义。
+   仿真只验证 Zernike 拟合 + SPGD 路径与退化几何守卫；物理对比仅在实验系统上有意义。
 4. **`max_abs_coefficient` vs `ZERNIKE_CLIP = 5.0` rad。** 超过阈值会触发 clip，
    拟合质量不可信；上表 clip 列非空即为警告。
 5. **已知潜在缺陷 (未修)：** `SlmGsRefineConfig` 自动目标边长约 400 px vs `cam_size`

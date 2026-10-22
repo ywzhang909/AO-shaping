@@ -1,4 +1,4 @@
-"""仿真光学台架中 DM 电压 → 瞳孔相位的耦合。
+"""仿真光学实验系统中 DM 电压 → 瞳面相位的耦合。
 
 本模块为何存在
 --------------
@@ -19,7 +19,7 @@ x 与 y 上是*可分离*的。正是这种可分离性让实现变得可负担:
 
 对应的物理设备
 ---------------
-本模型代替的是 **NLight 变形镜** (``drivers/dm/nlight/driver.py``), 即本台架的主 DM。
+本模型代替的是 **NLight 变形镜** (``drivers/dm/nlight/driver.py``), 即本实验系统的主 DM。
 它的致动器数与电压上下限直接取自那个驱动自身的类属性, 而不在此重述, 以免仿真设备
 悄悄地偏离它所镜像的硬件。
 
@@ -69,7 +69,7 @@ DEFAULT_SIGMA_FRACTION = 0.5
 
 
 class SimDmOptics:
-    """把 NLight DM 的电压向量映射为瞳孔相位图。"""
+    """把 NLight DM 的电压向量映射为瞳面相位图。"""
 
     def __init__(
         self,
@@ -97,7 +97,7 @@ class SimDmOptics:
         # 传入的 ``config.DM_N_ACTUATORS`` —— 一次活的硬件可达性探测的结果。删守卫把
         # 50 塞进 7x8 布局, 却没解决真问题, 反而让
         # ``SimulateDM._publish_to_optics`` 因计数不匹配而静默跳过 (50 != 64), 致 DM
-        # 电压永远到不了瞳孔 (实测远场 max|Δ| = 0.0)。调用方现在传的是方阵数, 守卫恢复生效。
+        # 电压永远到不了瞳面 (实测远场 max|Δ| = 0.0)。调用方现在传的是方阵数, 守卫恢复生效。
         side = math.isqrt(n_act)
         if side * side != n_act:
             raise ValueError(
@@ -200,7 +200,7 @@ class SimDmOptics:
         return self._opd.copy()
 
     def phase(self) -> np.ndarray:
-        """raw 未包裹弧度的瞳孔相位, 形状与 SLM 面板一致。"""
+        """raw 未包裹弧度的瞳面相位, 形状与 SLM 面板一致。"""
         if self._dirty:
             r0, r1, c0, c1 = self._box
             block = (self._gy * self._opd[:, None]).T @ self._gx

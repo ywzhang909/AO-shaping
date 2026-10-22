@@ -1,6 +1,6 @@
 """WFS-only 隔离探针 - 定位 0xC0000374 堆损坏源头 (2026-09-16).
 
-背景: n=5 zernike-matrix 实机 3/3 崩溃 0xC0000374, faulthandler 检测点在
+背景: n=5 zernike-matrix 实验 3/3 崩溃 0xC0000374, faulthandler 检测点在
 thorlab_wfs.py L1493 (get_zernike 内下一次 np.empty 堆分配)。检测点 != 源头,
 源头必在更早的原生调用 (take_image / get_spot_deviation / get_zernike /
 get_wavefront)。本探针不开 SLM, 仅 WFS 循环镜像 _capture_wfs_full_state 调用序列:

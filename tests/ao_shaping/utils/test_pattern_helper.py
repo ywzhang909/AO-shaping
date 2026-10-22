@@ -95,7 +95,7 @@ class TestZernikeRoundTrip:
 
     验证 PatternHelper 生成的 Zernike 相位经过 SLM 灰度化管线后,
     反解回弧度相位再拟合 Zernike 系数, 结果与原始系数一致.
-    使用 ``phase_to_slm_grayscale(slm=None)`` 纯数学后端, 无需真实硬件.
+    使用 ``phase_to_slm_grayscale(slm=None)`` 纯数学后端, 无需硬件.
 
     注意: SLM 只能显示 [0, 2π) 相位, ``phase_to_slm_grayscale`` 内部会做
     ``np.mod(phase, 2π)``. 这会破坏 Zernike 多项式的零均值结构, 导致拟合系数

@@ -1,6 +1,6 @@
 """FourierGSNet 仿真环境 (SimSLM / SimCCD / SimFourierGSNetEnv)。
 
-真实 2f 傅里叶台架 (SLM 前焦面 → f=125mm 透镜 → CCD 后焦面) 的数字孪生:
+真实 2f 傅里叶实验系统 (SLM 前焦面 → f=125mm 透镜 → CCD 后焦面) 的数字孪生:
 SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅禾费衍射图样,
 按 CCD 像元格采样。
 
@@ -52,7 +52,7 @@ SLM 面板按 Santec SLM200 的 1920×1200 建, CCD 远场即 SLM 场的夫琅�
     ``fouriergsnet_optimize.py`` 已于 f19dced 从仓库根删除, 脚本目前不可运行);
   - 物理回归测试 ``tests/ao_shaping/drivers/sim/test_sim_fouriergsnet.py`` 与湍流测试
     ``test_sim_fouriergsnet_turbulence.py``。
-* 与 ``drivers/sim/slm_pib_sim.py`` 的区别: 后者是 SLM-PIB 族的台架孪生并注册为
+* 与 ``drivers/sim/slm_pib_sim.py`` 的区别: 后者是 SLM-PIB 族的实验系统孪生并注册为
   ``--cam-type sim`` 的相机, 本模块**不注册**任何设备类型, 只能被显式构造。
 """
 from __future__ import annotations
@@ -71,7 +71,7 @@ MEMORY_MODE_INTERNAL = 0
 PANEL_RES = (1920, 1200)  # (宽, 高) — 驱动约定
 PANEL_H, PANEL_W = 1920, 1200  # 标定器约定 (h, w)
 
-# 2f 傅里叶台架的默认光学参数。
+# 2f 傅里叶实验系统的默认光学参数。
 LAMBDA = 1064e-9
 D_SLM = 8e-6
 D_CCD = 2.2e-6
@@ -239,7 +239,7 @@ class SimCCD:
 
 
 class SimFourierGSNetEnv:
-    """2f 傅里叶台架 (SLM → 透镜 → CCD) 的数字孪生。"""
+    """2f 傅里叶实验系统 (SLM → 透镜 → CCD) 的数字孪生。"""
 
     def __init__(
         self,

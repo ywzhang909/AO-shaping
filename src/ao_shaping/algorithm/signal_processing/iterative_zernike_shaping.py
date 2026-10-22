@@ -68,7 +68,7 @@ class IterativeZernikeShapingConfig:
         far_field_padding: 夫琅禾费 FFT 的零填充倍数。远场网格为
             ``n_grid * far_field_padding``; 同尺寸的 FFT 会在每个束腰半径约
             1.1 px 的尺度上欠采样焦平面 (这是一个模型常量), 并混叠成一个
-            点阵。必须与构建参考远场所用的台架配置一致。
+            点阵。必须与构建参考远场所用的实验系统配置一致。
     """
 
     n_grid: int = 64
@@ -215,7 +215,7 @@ class IterativeZernikeShapingOptimizer:
         self._far_field_size = m
         self._pad = (m - n) // 2
 
-        # 瞳面上的高斯光斑, 与台架同约定
+        # 瞳面上的高斯光斑, 与实验系统同约定
         # (exp(-r^2/w0^2), w0 = aperture/3.5, 在边缘 r = 1 处截断)。
         w0_norm = 2.0 / 3.5
         aperture_mask = (self._r <= 1.0).to(t.float64)
@@ -349,7 +349,7 @@ class IterativeZernikeShapingOptimizer:
             intensity: 归一化的远场强度张量。
 
         Returns:
-            标量张量 (综合分数, 越大越好)。
+            标量张量 (复合分数, 越大越好)。
         """
         t = _torch()
         # 固定的居中支撑区 (与 center=None 的 compute_beam_metrics 一致)。滚动
@@ -363,7 +363,7 @@ class IterativeZernikeShapingOptimizer:
             cv = t.tensor(float("inf"), dtype=t.float64, device=intensity.device)
         else:
             # 用总体标准差 (unbiased=False) 以匹配 numpy 的 np.std,
-            # 台架的 composite_score 用的正是它 -- 否则两个目标函数会不一致。
+            # 实验系统的 composite_score 用的正是它 -- 否则两个目标函数会不一致。
             cv = vals.std(unbiased=False) / (vals.mean() + 1e-12)
         # 与 slm_shaping_bench.composite_from_pib_cv 保持同步。
         return 0.5 * pib + 0.5 * (1.0 / (1.0 + cv))
@@ -447,7 +447,7 @@ class IterativeZernikeShapingOptimizer:
         """跑一轮 SLM 相位整形 (阶段 B)。
 
         冻结 Zernike 系数, 对照方形目标优化自由形式的 SLM 相位,
-        使综合分数 (PIB + 均匀度) 最大化。
+        使复合分数 (PIB + 均匀度) 最大化。
 
         Args:
             zernike_coeffs: 冻结的 Zernike 系数 (原始弧度), 或 None。

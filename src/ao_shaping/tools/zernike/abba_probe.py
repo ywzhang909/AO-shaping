@@ -638,7 +638,7 @@ def main(params: AbbaProbeParams) -> None:
     )
     if summary["verdict"] == "unusable":
         logger.warning(
-            "密集随机相位响应淹没在漂移里: 该台架当前 delta={} rad 不足以支撑"
+            "密集随机相位响应淹没在漂移里: 该实验系统当前 delta={} rad 不足以支撑"
             "model-in-the-loop 散斑标定 (可先加大 --delta-rad 或 --pairs)",
             params.delta_rad,
         )

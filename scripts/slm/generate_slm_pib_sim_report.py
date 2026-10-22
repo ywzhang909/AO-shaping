@@ -494,7 +494,7 @@ def disturbance_section(
         "两次运行之间的**唯一差异**是波前干扰体制; 目标函数、优化器、步长、相机与目标框完全一致。"
         "干扰 = **大气湍流** (`beam_backend.turbulence_phase`, von Karman 相位屏) + "
         "**热晕** (负热透镜: Noll 4 离焦 + Noll 11 球差, 经 smoothstep 光晕窗延伸到光束半径之外), "
-        "二者相加后与 SLM 命令相位一起进入瞳孔场。"
+        "二者相加后与 SLM 命令相位一起进入瞳面场。"
     )
     lines.append("")
     lines.append(
@@ -556,7 +556,7 @@ def disturbance_section(
     lines.append("")
     lines.append(
         "1. **没有真实的公里级大气路径。** `r0 = (0.423·k²·Cn2·L)^(-3/5)` 只依赖 `Cn2·L` 的**乘积**, "
-        "两者在单层薄屏模型里完全退化; 本台架是约 0.3 m 的实验室 2f-Fourier 光路, 因此这里是"
+        "两者在单层薄屏模型里完全退化; 本实验系统是约 0.3 m 的实验室 2f-Fourier 光路, 因此这里是"
         "**参数化应力测试**, 不是大气传输仿真。"
     )
     lines.append(
@@ -579,7 +579,7 @@ def disturbance_section(
     )
     lines.append(
         "6. **绝对数值是仿真内部单位** (`far_field()` 把峰值归一到 100 并加泊松散粒噪声), "
-        "只可做**相对**比较 (static vs dynamic、优化前 vs 优化后), 不可与硬件台架对比。"
+        "只可做**相对**比较 (static vs dynamic、优化前 vs 优化后), 不可与硬件实验系统对比。"
     )
     lines.append(
         "6b. **远场经过 4× 零填充过采样** (`FAR_FIELD_PADDING`): 未填充时 0 级光斑仅约 "
@@ -680,7 +680,7 @@ def build_markdown(
     )
     lines.append("")
     lines.append(
-        "光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D "
+        "光学模型: SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳面场的 2D "
         "FFT (夫琅禾费远场)。输入为高斯光束, 施加 Zernike 相位后经 `np.fft.fft2` 传播到远场。"
     )
     lines.append("")

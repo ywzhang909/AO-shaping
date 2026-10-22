@@ -315,7 +315,7 @@ def build_markdown(
     lines.append("## 1. 光学模型与适用范围")
     lines.append("")
     lines.append(
-        "SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳孔场的 2D FFT"
+        "SLM 位于 2f 光路前焦面, CCD 位于后焦面, 因此 CCD 图像 = SLM 瞳面场的 2D FFT"
         "(夫琅禾费远场), 0 级光斑位于帧中心。"
     )
     lines.append("")
@@ -392,7 +392,7 @@ def build_markdown(
     lines.append("")
     if runs:
         lines.append(
-            "1. **SLM 家族 3 个 runner 均可在纯仿真下端到端跑通**, 调试产物与硬件运行"
+            "1. **SLM 家族 3 个 runner 均可在纯仿真下端到端在线实现**, 调试产物与硬件运行"
             "同格式, 因此离线报告可在断电状态下重生成。"
         )
         lines.append(

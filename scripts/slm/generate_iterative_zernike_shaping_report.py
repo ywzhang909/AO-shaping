@@ -207,7 +207,7 @@ def plot_score_history(res: dict, gs_score: float, out: Path) -> None:
     )
     ax.set_xlabel("外迭代次数")
     ax.set_ylabel("综合评分 (PIB + 均匀度)")
-    ax.set_title("GS 预热 + 自由相位细化 — 评分收敛")
+    ax.set_title("GS 预热 + 全频随机相位细化 — 评分收敛")
     ax.legend()
     ax.grid(True, alpha=0.3)
     fig.tight_layout()

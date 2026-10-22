@@ -80,7 +80,7 @@ def sync_device_wavelength(config: BenchDeviceParams, slm: Any) -> None:
         # because the caller asked the device and got nothing.
         config.slm_wavelength = int(DEFAULT_WAVELENGTH_NM)
         logger.info(
-            "SLM 未报告工作波长(仿真面板?), 几何推导沿用台架fallback {}nm; "
+            "SLM 未报告工作波长(仿真面板?), 几何推导沿用实验系统fallback {}nm; "
             "如实际不同请显式传 --slm-wavelength",
             DEFAULT_WAVELENGTH_NM,
         )

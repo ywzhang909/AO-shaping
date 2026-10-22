@@ -165,7 +165,7 @@ BODY = """\
 | Parseval，`band_limit=True` | `{parseval_True:.1f}` |
 
 最后一行**不是** bug：限带会丢掉输出采样无法表示的分量。实测限带截止频率
-`{band_limit_f_max:.0f} /m`，而瞳孔内容一直到 `{pupil_f_max:.0f} /m`，于是约 99% 的
+`{band_limit_f_max:.0f} /m`，而瞳面内容一直到 `{pupil_f_max:.0f} /m`，于是约 99% 的
 频谱被抑制 —— Parseval 只在 `band_limit=False` 时才是不变量。
 
 三个必须保留的实现约定（都写在模块 docstring 里）：
@@ -179,20 +179,20 @@ BODY = """\
 
 ## 2. 分界：ASM 不是夫琅禾费远场的等价物
 
-在 2f 傅里叶台架几何上（口径 12 mm，`f = 0.125 m`，`λ = 532 nm`），纯相位 SLM
+在 2f 傅里叶实验系统几何上（口径 12 mm，`f = 0.125 m`，`λ = 532 nm`），纯相位 SLM
 图样 + 高斯相位鼓包：
 
 | | FFT | ASM @ `z = f` |
 |---|---|---|
 | `max|out|` | `{bench_fft_absmax:.1f}` | `{bench_asm_absmax:.4f}` |
-| 峰值位置 | `{bench_fft_argmax}`（阵列中心） | `{bench_asm_argmax}`（**瞳孔位置**） |
+| 峰值位置 | `{bench_fft_argmax}`（阵列中心） | `{bench_asm_argmax}`（**瞳面位置**） |
 
-纯相位瞳孔的入射模长就是 `{bench_input_absmax:.0f}`。也就是说 ASM 的输出几乎就是
-输入本身 —— 它返回的是**传播后的光束**，而 2f 台架的远场是**透镜的傅里叶变换**。
+纯相位瞳面的入射模长就是 `{bench_input_absmax:.0f}`。也就是说 ASM 的输出几乎就是
+输入本身 —— 它返回的是**传播后的光束**，而 2f 实验系统的远场是**透镜的傅里叶变换**。
 
 物理原因：`f = 0.125 m` 上衍射几乎不改变光束（`z_R = πw₀²/λ = 13.3 m`，故
 `w(f)/w₀ = 1.0004`）。要用 ASM 得到真正的夫琅禾费图样，需要
-`z ≫ a²/λ = {bench_z_fraunhofer:.0f} m`，比台架焦距大三个数量级。
+`z ≫ a²/λ = {bench_z_fraunhofer:.0f} m`，比实验系统焦距大三个数量级。
 
 **因此下列站点一律保留 FFT**，并各自写了注释指向本文件：
 `slm_shaping_bench.forward_intensity`、`differentiable_beam.far_field_intensity`、
@@ -215,7 +215,7 @@ GS 总是成对调用正向/反向传播，两次移位互相抵消。**不要�
 
 ## 4. WKB 适用域（与上一条独立）
 
-即便不考虑第 2 条，单步 ASM 的适用条件是 `2πλz·f_sig² ≪ 1`，即本台架
+即便不考虑第 2 条，单步 ASM 的适用条件是 `2πλz·f_sig² ≪ 1`，即本实验系统
 （512 µm 口径、`dx = 8 µm`）要求 `z ≪ 39 mm`；而夫琅禾费图样只在
 `z ≫ a²/λ = 61.6 mm` 才成形。**不存在同时"ASM 有效"且"处于远场"的 z。**
 
