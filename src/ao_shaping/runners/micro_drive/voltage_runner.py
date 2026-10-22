@@ -265,6 +265,12 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
     adc_queue: queue.Queue[tuple[float, float]] | None = None
     adc_data: list[dict[str, float]] = []
     adc_t_start = 0.0
+    # ADC 滚动统计 (min/max/sum): 显示端若每次都对全量 adc_data 求值,
+    # 长跑 (小时级, 采样率 kHz) 会退化成 O(n^2) 并随持续时间线性变慢。
+    adc_min = float("inf")
+    adc_max = float("-inf")
+    adc_sum = 0.0
+    adc_n = 0
 
     if params.adc_enabled:
         if not ADC_AVAILABLE:
@@ -341,6 +347,12 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
                             "adc_mean_V": adc_mean,
                         })
                         n_drained += 1
+                        if adc_mean < adc_min:
+                            adc_min = adc_mean
+                        if adc_mean > adc_max:
+                            adc_max = adc_mean
+                        adc_sum += adc_mean
+                        adc_n += 1
                     except queue.Empty:
                         break
                 if n_drained > 0:
@@ -361,10 +373,9 @@ def run(ctx: click.Context, params: AltVoltageRunnerParams) -> None:
 
             if adc_data:
                 latest = adc_data[-1]
-                vals = [d["adc_mean_V"] for d in adc_data]
                 click.echo(
                     f"  ADC: {latest['adc_mean_V']:.4f}V"
-                    f"  [min={min(vals):.4f}  max={max(vals):.4f}  avg={sum(vals)/len(vals):.4f}]"
+                    f"  [min={adc_min:.4f}  max={adc_max:.4f}  avg={adc_sum / adc_n:.4f}]"
                 )
             else:
                 click.echo("")

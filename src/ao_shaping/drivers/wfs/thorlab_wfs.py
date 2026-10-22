@@ -8,7 +8,6 @@ from __future__ import annotations
 import ctypes
 import os
 import shutil
-from copy import deepcopy
 from ctypes import (
     byref,
     c_bool,
@@ -1386,7 +1385,9 @@ class ThorlabWFS(BaseWFS):
                     (self.num_spots_x, self.num_spots_y), dtype=np.float32
                 )
             else:
-                wavefront = deepcopy(wavefront)[: self.num_spots_x, : self.num_spots_y]
+                # numpy 基本切片即返回拷贝视图所需的独立数据 (底层 buffer 为
+                # 本函数局部 np.empty, 无外部别名), 无需 deepcopy 整幅。
+                wavefront = wavefront[: self.num_spots_x, : self.num_spots_y]
 
         # 由波前计算统计量 (无论波前是怎么得到的)
         min_val, max_val, diff_val, mean_val = (

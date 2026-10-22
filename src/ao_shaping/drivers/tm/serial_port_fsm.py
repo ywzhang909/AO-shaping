@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, Self
 
 import serial
@@ -43,6 +44,10 @@ class SerialPortFSM:
         self.tx_que = queue.Queue()
         self.worker = None
         self.running = False
+        #: 写互斥锁: ``send`` (调用者线程直写) 与 worker 排空 ``tx_que``
+        #: 必须互斥, 否则两条线程交替写同一串口会把 13 字节帧打散, 下位机
+        #: 收到错位帧可能走到错误位置。
+        self._write_lock = threading.Lock()
 
     def __enter__(self):
         self.open()
@@ -138,9 +143,14 @@ class SerialPortFSM:
         logger.info(f"串口 {self.ser.port} 已关闭")
 
     # -------------------- 业务 API --------------------
+    def _write(self, frame: bytes) -> None:
+        """串口写的唯一入口 (持 ``_write_lock``, 保证帧原子性)。"""
+        with self._write_lock:
+            self.ser.write(frame)
+
     def send(self, x:float, y:float):
         frame = self._build_frame(x, y)
-        self.ser.write(frame)
+        self._write(frame)
         logger.info(f"发送位置命令：X={x:.3f}, Y={y:.3f}")
         return frame
 
@@ -160,13 +170,23 @@ class SerialPortFSM:
     # -------------------- 内部 --------------------
     def _loop(self):
         while self.running and self.ser.is_open:
-            # 发
-            while not self.tx_que.empty():
-                self.ser.write(self.tx_que.get())
-            # 收
-            if self.ser.in_waiting:
-                data = self.ser.read(self.ser.in_waiting)
-                self.rx_que.put(data)
+            try:
+                # 发
+                while not self.tx_que.empty():
+                    self._write(self.tx_que.get())
+                # 收
+                if self.ser.in_waiting:
+                    data = self.ser.read(self.ser.in_waiting)
+                    self.rx_que.put(data)
+            except Exception as exc:
+                # 设备拔出/USB 掉线时 worker 若静默死亡, running 仍为 True,
+                # send_in_queue 的帧将永远发不出去 —— 必须显式停并留痕。
+                logger.error(f"串口 worker 异常退出：{exc!r}")
+                self.running = False
+                break
+            # 空闲让出 CPU: 无 sleep 时本循环 100% 占满一核 (忙转)。
+            # 1 ms 轮询对 2 Mbaud 串口命令延迟无感。
+            time.sleep(0.001)
 
     @staticmethod
     def _pack_position_xy(position_x: float, position_y: float) -> bytes:
