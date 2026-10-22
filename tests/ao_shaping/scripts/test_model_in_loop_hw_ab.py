@@ -362,7 +362,7 @@ def test_campaign_runs_end_to_end_offline(tmp_path, monkeypatch):
     calls: list = []
     _fake_runner(monkeypatch, calls)
     code = campaign.main(
-        ["--out-root", str(tmp_path), "--large-sides", "1000"]
+        ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
     )
     assert code == 0
     sessions = list(tmp_path.iterdir())
@@ -386,7 +386,9 @@ def test_campaign_runs_end_to_end_offline(tmp_path, monkeypatch):
 def test_a_dark_bench_stops_the_campaign_before_any_run(tmp_path, monkeypatch):
     calls: list = []
     _fake_runner(monkeypatch, calls, light_state="no_light")
-    code = campaign.main(["--out-root", str(tmp_path), "--large-sides", "1000"])
+    code = campaign.main(
+        ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
+    )
     assert code == 2
     session = list(tmp_path.iterdir())[0]
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
@@ -400,7 +402,17 @@ def test_the_light_gate_can_be_switched_off(tmp_path, monkeypatch):
     calls: list = []
     _fake_runner(monkeypatch, calls)
     code = campaign.main(
-        ["--out-root", str(tmp_path), "--large-sides", "1000", "--skip-light-gate"]
+        [
+            "--wait-until-idle",
+            "0",
+            "--out-root",
+            str(tmp_path),
+            "--large-sides",
+            "1000",
+            "--skip-light-gate",
+            "--wait-until-idle",
+            "0",
+        ]
     )
     assert code == 0
     session = list(tmp_path.iterdir())[0]
@@ -468,7 +480,9 @@ def test_the_later_arms_run_with_the_donors_geometry(tmp_path, monkeypatch):
     """
     calls: list = []
     _fake_geometry_runner(monkeypatch, calls, produce_geometry=True)
-    code = campaign.main(["--out-root", str(tmp_path), "--large-sides", "1000"])
+    code = campaign.main(
+        ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
+    )
     assert code == 0
     session = list(tmp_path.iterdir())[0]
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
@@ -504,7 +518,9 @@ def test_without_a_donor_geometry_the_arms_fall_back_and_say_so(tmp_path, monkey
     """A silent fallback would make the arms incomparable without a trace."""
     calls: list = []
     _fake_geometry_runner(monkeypatch, calls, produce_geometry=False)
-    code = campaign.main(["--out-root", str(tmp_path), "--large-sides", "1000"])
+    code = campaign.main(
+        ["--out-root", str(tmp_path), "--large-sides", "1000", "--wait-until-idle", "0"]
+    )
     assert code == 0
     session = list(tmp_path.iterdir())[0]
     manifest = json.loads((session / "manifest.json").read_text(encoding="utf-8"))
@@ -529,6 +545,8 @@ def test_an_external_geometry_file_is_used_by_every_arm(tmp_path, monkeypatch):
     external.write_text(_geometry_payload(), encoding="utf-8")
     code = campaign.main(
         [
+            "--wait-until-idle",
+            "0",
             "--out-root",
             str(tmp_path / "runs"),
             "--large-sides",
@@ -554,6 +572,8 @@ def test_the_error_params_reach_every_arm(tmp_path, monkeypatch):
     errors.write_text(json.dumps({"lut_gamma": 2.07}), encoding="utf-8")
     code = campaign.main(
         [
+            "--wait-until-idle",
+            "0",
             "--out-root",
             str(tmp_path),
             "--large-sides",
