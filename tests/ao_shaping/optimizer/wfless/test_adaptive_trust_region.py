@@ -284,7 +284,7 @@ class TestDeviceFreeImport:
             / "optimizer"
             / "wfless"
             / "adaptive_trust_region.py"
-        ).read_text(encoding="utf-8")
+        ).read_text(encoding="utf-8-sig")
         tree = ast.parse(source)
         imported: list[str] = []
         for node in ast.walk(tree):

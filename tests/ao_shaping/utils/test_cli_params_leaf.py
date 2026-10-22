@@ -82,7 +82,7 @@ _STDLIB = _stdlib_roots()
 
 def _imported_roots(path: Path) -> set[str]:
     """Every ``import`` / ``from ... import`` root in ``path``, at any depth."""
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     roots: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -115,7 +115,7 @@ def test_leaf_imports_only_stdlib_and_click() -> None:
 
 def test_no_deferred_ao_shaping_import_can_hide_in_a_function() -> None:
     """AST, not grep: an import inside a function body must still be caught."""
-    tree = ast.parse(_MODULE.read_text(encoding="utf-8"), filename=str(_MODULE))
+    tree = ast.parse(_MODULE.read_text(encoding="utf-8-sig"), filename=str(_MODULE))
     nested = [
         node
         for node in ast.walk(tree)
@@ -136,9 +136,9 @@ def test_no_deferred_ao_shaping_import_can_hide_in_a_function() -> None:
 
 
 def test_mechanism_is_defined_in_the_leaf() -> None:
-    defined = {n.name for n in ast.parse(_MODULE.read_text(encoding="utf-8")).body
+    defined = {n.name for n in ast.parse(_MODULE.read_text(encoding="utf-8-sig")).body
                if isinstance(n, (ast.FunctionDef, ast.ClassDef))}
-    defined |= {t.id for n in ast.parse(_MODULE.read_text(encoding="utf-8")).body
+    defined |= {t.id for n in ast.parse(_MODULE.read_text(encoding="utf-8-sig")).body
                 if isinstance(n, ast.Assign) for t in n.targets if isinstance(t, ast.Name)}
     missing = [n for n in _MECHANISM_NAMES if n not in defined]
     assert not missing, f"missing from {_LEAF}: {missing}"

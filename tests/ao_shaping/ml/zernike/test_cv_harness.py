@@ -176,7 +176,7 @@ class TestReusesEvalStats:
     """Pins the 'never re-derive statistics' rule by inspecting the source AST."""
 
     def test_imports_statistics_from_eval_stats(self):
-        source = Path(cv_harness.__file__).read_text(encoding="utf-8")
+        source = Path(cv_harness.__file__).read_text(encoding="utf-8-sig")
         tree = ast.parse(source)
 
         imported: set[str] = set()

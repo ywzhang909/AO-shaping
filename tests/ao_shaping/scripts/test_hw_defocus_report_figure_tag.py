@@ -126,7 +126,7 @@ def test_default_report_key_is_the_untagged_one():
 
 def _figure_name_fstrings() -> list[ast.JoinedStr]:
     """生成器源码里所有拼图名的 f-string。"""
-    tree = ast.parse(GENERATOR.read_text(encoding="utf-8"))
+    tree = ast.parse(GENERATOR.read_text(encoding="utf-8-sig"))
     return [n for n in ast.walk(tree) if isinstance(n, ast.JoinedStr)]
 
 

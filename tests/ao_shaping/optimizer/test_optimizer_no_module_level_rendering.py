@@ -81,7 +81,7 @@ class ScopeWalker(ast.NodeVisitor):
 
 
 def _analyse(path: Path) -> tuple[list[int], dict[tuple[str | None, bool], list[int]], set[tuple[str | None, bool]]]:
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     mod_level = [
         n.lineno
         for n in tree.body

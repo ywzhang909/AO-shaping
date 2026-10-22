@@ -1309,7 +1309,7 @@ def _module_level_imports() -> set[str]:
 
     import ao_shaping.optimizer.wfless.slm_model_in_loop as module
 
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8-sig"))
     names: set[str] = set()
     for node in tree.body:
         if isinstance(node, ast.Import):

@@ -200,7 +200,7 @@ def _declared_flags(path: Path) -> list[str]:
 
 
 def _golden() -> dict[str, dict[str, object]]:
-    return json.loads(GOLDEN.read_text(encoding="utf-8"))
+    return json.loads(GOLDEN.read_text(encoding="utf-8-sig"))
 
 
 def test_the_flag_scanner_sees_both_declaration_forms() -> None:

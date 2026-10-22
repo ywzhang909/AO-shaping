@@ -281,7 +281,7 @@ class TestMissingGroups:
         tree = _make_tree(tmp_path)
         assert _run(tree, "--write") == 0
         manifest = json.loads(
-            (tree["out"] / ROUND / "archive_manifest.json").read_text(encoding="utf-8")
+            (tree["out"] / ROUND / "archive_manifest.json").read_text(encoding="utf-8-sig")
         )
         assert "dz_scan_model_gs" in manifest["missing_groups"]
 
@@ -303,7 +303,7 @@ class TestOverwriteGuard:
         marker = tree["out"] / ROUND / "marker.txt"
         marker.write_text("keep me", encoding="utf-8")
         assert _run(tree, "--write") == 2
-        assert marker.read_text(encoding="utf-8") == "keep me"
+        assert marker.read_text(encoding="utf-8-sig") == "keep me"
 
     def test_force_overwrites(self, tmp_path: Path) -> None:
         tree = _make_tree(tmp_path)

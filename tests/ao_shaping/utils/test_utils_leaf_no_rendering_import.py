@@ -33,7 +33,7 @@ _CARVE_OUT = set()
 def _module_level_rendering_imports(path: Path) -> list[int]:
     """Line numbers of matplotlib/pygame imports in the module body (not inside a def)."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     except (SyntaxError, UnicodeDecodeError):  # pragma: no cover
         return []
     hits: list[int] = []
@@ -82,7 +82,7 @@ def test_file_py_plotting_helpers_still_work() -> None:
     local import and the function failed only at call time, so pin the pairing.
     """
     path = REPO_ROOT / "src/ao_shaping/utils/io/file.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
 
     uses_plt = {
         fn.name

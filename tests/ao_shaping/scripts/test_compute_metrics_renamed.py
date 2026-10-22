@@ -53,7 +53,7 @@ def _python_files() -> list[Path]:
 def _defined_names(path: Path) -> set[str]:
     """Top-level + class-level function/method names defined in ``path``."""
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     except (SyntaxError, UnicodeDecodeError):
         return set()
     names: set[str] = set()

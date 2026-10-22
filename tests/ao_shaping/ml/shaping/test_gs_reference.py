@@ -58,7 +58,7 @@ _CANONICAL_GS_MODULE = "ao_shaping.algorithm.signal_processing.square_shaping"
 
 
 def _parse() -> ast.Module:
-    return ast.parse(_GOLDEN_PATH.read_text(encoding="utf-8"), filename=str(_GOLDEN_PATH))
+    return ast.parse(_GOLDEN_PATH.read_text(encoding="utf-8-sig"), filename=str(_GOLDEN_PATH))
 
 
 def _leaf_imports() -> list[tuple[int, str, bool]]:

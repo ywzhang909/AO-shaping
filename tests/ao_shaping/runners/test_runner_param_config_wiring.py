@@ -167,7 +167,7 @@ def _config_call_kwargs(builder_name: str) -> dict[str, str]:
     Read off the AST rather than by calling the builder, so a kwarg whose value
     is a literal is still visible (a call would hide it behind the default).
     """
-    tree = ast.parse(Path(runner_common.__file__).read_text(encoding="utf-8"))
+    tree = ast.parse(Path(runner_common.__file__).read_text(encoding="utf-8-sig"))
     func = next(
         node
         for node in tree.body
@@ -302,7 +302,7 @@ class TestCuratedExceptions:
         """
         dead = {}
         for field, consumer in family.cli_only.items():
-            source = Path(consumer.__file__).read_text(encoding="utf-8")
+            source = Path(consumer.__file__).read_text(encoding="utf-8-sig")
             if f"params.{field}" not in source:
                 dead[field] = consumer.__name__
         assert not dead, (

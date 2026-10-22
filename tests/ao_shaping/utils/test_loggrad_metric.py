@@ -294,7 +294,7 @@ class TestLayering:
     """``target`` is a leaf: the metric must not drag a heavy stack in."""
 
     def test_metric_module_stays_pure_numpy(self) -> None:
-        source = Path(metrics_module.__file__).read_text(encoding="utf-8")
+        source = Path(metrics_module.__file__).read_text(encoding="utf-8-sig")
         imported: set[str] = set()
         for node in ast.walk(ast.parse(source)):
             if isinstance(node, ast.Import):

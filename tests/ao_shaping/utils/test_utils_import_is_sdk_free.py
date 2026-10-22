@@ -129,7 +129,7 @@ def test_pattern_helper_has_no_module_scope_aotools_import() -> None:
         / "wavefront"
         / "pattern_helper.py"
     )
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"), filename=str(path))
     for node in tree.body:  # module scope only
         if isinstance(node, ast.Import):
             assert all(not a.name.startswith("aotools") for a in node.names), (
@@ -155,7 +155,7 @@ def test_utils_package_uses_pep562_lazy_reexports() -> None:
     path = (
         Path(__file__).resolve().parents[3] / "src" / "ao_shaping" / "utils" / "__init__.py"
     )
-    source = path.read_text(encoding="utf-8")
+    source = path.read_text(encoding="utf-8-sig")
     tree = ast.parse(source, filename=str(path))
 
     eager: list[str] = []

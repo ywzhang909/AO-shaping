@@ -751,7 +751,7 @@ def _discover_click_commands() -> set[tuple[str, str]]:
     """
     found: set[tuple[str, str]] = set()
     for path in _iter_probe_sources():
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         module_id = _STEM_TO_ID.get(path.stem, path.stem)
         for node in tree.body:
             if not isinstance(node, ast.FunctionDef):
@@ -803,7 +803,7 @@ def _tested_names(test: ast.AST) -> set[str]:
 def _diverges_before_device_open(module_name: str, attr: str, field: str) -> bool:
     """True if ``attr`` returns/raises on ``field`` before its first device open."""
     source = _source_file(module_name)
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = ast.parse(source.read_text(encoding="utf-8-sig"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
     for node in tree.body:
         if not (isinstance(node, ast.FunctionDef) and node.name == attr):
@@ -842,7 +842,7 @@ def _gates_device_open(module_name: str, attr: str, field: str) -> bool:
     run on without ever reaching the blocked device.
     """
     source = _source_file(module_name)
-    tree = ast.parse(source.read_text(encoding="utf-8"))
+    tree = ast.parse(source.read_text(encoding="utf-8-sig"))
     device_names = {n for _, n in _DEVICE_SOURCES} | _DEVICE_NAMES
     for node in tree.body:
         if not (isinstance(node, ast.FunctionDef) and node.name == attr):
@@ -1125,7 +1125,7 @@ def _code_only(path: Path) -> str:
 
 def _module_docstring(path: Path) -> str:
     return (
-        ast.get_docstring(ast.parse(path.read_text(encoding="utf-8")), clean=False)
+        ast.get_docstring(ast.parse(path.read_text(encoding="utf-8-sig")), clean=False)
         or ""
     )
 
@@ -1246,7 +1246,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # ``Santec(`` hits are the ``Typical use::`` module-docstring example — hence
     # the census key above is 1, not 0.
     snr_path = TOOLS_DIR / "kernels" / "sweep_analysis.py"
-    snr_source = snr_path.read_text(encoding="utf-8")
+    snr_source = snr_path.read_text(encoding="utf-8-sig")
     assert "import click" not in snr_source, "sweep_analysis must stay CLI-free"
     assert "@click.command" not in snr_source
     assert not _SANTEC_RE.search(_code_only(snr_path)), (
@@ -1277,7 +1277,7 @@ def test_params_module_does_not_import_runners() -> None:
     metadata and must never reach for hardware orchestration.
     """
     params_path = TOOLS_SLM_DIR / "params.py"
-    tree = ast.parse(params_path.read_text(encoding="utf-8"))
+    tree = ast.parse(params_path.read_text(encoding="utf-8-sig"))
 
     offenders: list[str] = []
     for node in ast.walk(tree):

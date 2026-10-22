@@ -299,7 +299,7 @@ class TestModuleContract:
         ``import torch.nn``-style spellings that a real regression would use.
         Every ``import``/``from`` target in the module is checked instead.
         """
-        tree = ast.parse(Path(records_module.__file__).read_text(encoding="utf-8"))
+        tree = ast.parse(Path(records_module.__file__).read_text(encoding="utf-8-sig"))
         imported: set[str] = set()
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

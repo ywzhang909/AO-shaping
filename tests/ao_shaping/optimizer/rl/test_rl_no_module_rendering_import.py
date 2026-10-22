@@ -83,7 +83,7 @@ def test_rl_training_modules_are_import_clean() -> None:
     for fname in TARGETS:
         path = RL_ROOT / fname
         assert path.is_file(), f"expected RL module missing: {path}"
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         problems: list[str] = []
         if not _has_main_guard(tree):
             problems.append("missing if __name__ == '__main__' guard")

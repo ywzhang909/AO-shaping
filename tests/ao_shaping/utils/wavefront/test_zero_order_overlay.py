@@ -248,7 +248,7 @@ def test_no_forbidden_imports() -> None:
     a deferred import inside a function body still counts.
     """
     module_path = Path(zoo.__file__).resolve()
-    tree = ast.parse(module_path.read_text(encoding="utf-8"), filename=str(module_path))
+    tree = ast.parse(module_path.read_text(encoding="utf-8-sig"), filename=str(module_path))
     forbidden = ("ao_shaping.drivers", "ao_shaping.gui", "ao_shaping.algorithm")
 
     offenders: list[str] = []

@@ -33,7 +33,7 @@ CANONICAL = OPTIMIZER_ROOT / "constants.py"
 
 def _module_assign_names(path: Path) -> set[str]:
     try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     except (SyntaxError, UnicodeDecodeError):  # pragma: no cover
         return set()
     names: set[str] = set()
@@ -49,7 +49,7 @@ def test_no_private_create_optimizer_anywhere() -> None:
     offenders: list[str] = []
     for path in sorted(OPTIMIZER_ROOT.rglob("*.py")):
         try:
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
         except (SyntaxError, UnicodeDecodeError):  # pragma: no cover
             continue
         if any(
@@ -78,7 +78,7 @@ def test_optimizer_map_has_exactly_one_home() -> None:
 
 
 def test_canonical_factory_lives_in_constants() -> None:
-    tree = ast.parse(CANONICAL.read_text(encoding="utf-8"))
+    tree = ast.parse(CANONICAL.read_text(encoding="utf-8-sig"))
     assert any(
         isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "create_optimizer"
         for n in tree.body
