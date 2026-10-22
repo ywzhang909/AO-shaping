@@ -516,7 +516,7 @@ python scripts/slm/evaluate_defocus_forward_dataset.py <independent-data-dir> --
 物理拟合/梯度 3 项，共 5 项通过；这些离线测试不替代上述实验验收。
 
 仓库级 Ruff、`git diff --check`、术语 dry-run（`0 个文件`）及溯源同步检查通过。
-报告溯源测试为 `487 passed, 1 failed`；唯一失败是工作区已有的
+报告溯源测试最终复核为 `515 passed, 1 failed`；唯一失败是工作区已有的
 `report/miicam_simulation/miicam_report.md` 未登记（该文件被 `.gitignore` 忽略，
 是测试框架写到 `report/` 根的产物），不涉及本轮新增报告。
 没有为通过检查而移动或删除该并行工作文件。
