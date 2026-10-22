@@ -429,8 +429,9 @@ python scripts/slm/evaluate_defocus_forward_dataset.py <independent-data-dir> --
 尚未替代生产 `slm-model-in-loop` 的自动标定与 Step A/Step B；
 将其辨识结果接入生产流程前还需统一采样和响应模型。
 
-汇总数据：[逐模型统计 JSON](artifacts/physical_forward_summary_20261022.json)、
-[逐相位指标 CSV](artifacts/physical_forward_rows_20261022.csv)。
+汇总数据：[逐模型统计 JSON](artifacts/physical_forward_summary_20261022.json)；
+逐相位指标 CSV 为本地工件（`artifacts/physical_forward_rows_20261022.csv`，
+仓库全局忽略 `*.csv`，未提交，故不写成链接）。
 拟合每个迭代在 `fit_iterations_*.pkl` 保存 UTC 微秒格式时间戳及单调时钟起止；
 其格式精度不等于硬件同步精度，当前没有相机硬件时间戳证据。
 

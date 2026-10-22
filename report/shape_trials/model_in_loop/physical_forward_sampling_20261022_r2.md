@@ -213,8 +213,9 @@ python scripts/slm/summarize_defocus_sampling.py --sampling <audit-dir> --radiom
 曝光边界读取设备及当前环境配置，不固化旧光路的曝光上限。
 
 汇总：[逐组统计 JSON](artifacts/sampling_radiometry_summary_20261022_r2.json)、
-[指标 CSV](artifacts/sampling_radiometry_metrics_20261022_r2.csv)、
-[固定相位逐帧重复指标](artifacts/fixed_phase_repeat_metrics_20261022_r2.json)。
+[固定相位逐帧重复指标](artifacts/fixed_phase_repeat_metrics_20261022_r2.json)；
+指标 CSV 为本地工件（`artifacts/sampling_radiometry_metrics_20261022_r2.csv`，
+仓库全局忽略 `*.csv`，未提交，故不写成链接）。
 图表从保存数组重新生成，不依赖设备在线。
 
 ## 7. 检查结果
