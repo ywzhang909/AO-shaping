@@ -57,7 +57,11 @@ if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
     rm -rf "$SCRATCH/data" 2>/dev/null || true
     cp -r "$SEED_DATA" "$SCRATCH/data"
 fi
-mkdir -p "$SCRATCH/data"
+# --tmpfs /workspace/logs 在这里行不通：/workspace 是 ro bind，docker 建
+# tmpfs 挂载点要在底层 overlay 上 mkdir，ro 下必报 "read-only file system"
+# (run 39697306909 的 exit 125)。data/ 早已用 scratch bind 绕开，logs 同理：
+# 挂宿主机 scratch 目录，docker 不需要在 ro 底层建任何挂载点。
+mkdir -p "$SCRATCH/data" "$SCRATCH/logs"
 
 # .git is mounted separately, and git is told to trust it.
 #
@@ -154,7 +158,7 @@ exec docker run --rm \
     --shm-size=1g \
     -v "$REPO:$WORKDIR_IN_CONTAINER:ro" \
     "${GIT_MOUNT[@]}" \
-    --tmpfs "$WORKDIR_IN_CONTAINER/logs:size=512m" \
+    -v "$SCRATCH/logs:$WORKDIR_IN_CONTAINER/logs" \
     -v "$SCRATCH/data:$WORKDIR_IN_CONTAINER/data" \
     --tmpfs /tmp:size=4g,mode=1777 \
     -e AO_PYTEST_ROOT="$WORKDIR_IN_CONTAINER" \
