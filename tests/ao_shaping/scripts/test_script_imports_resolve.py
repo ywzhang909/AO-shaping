@@ -41,8 +41,14 @@ def _gitignored(path: pathlib.Path) -> bool:
 
 
 def _ao_imports(path: pathlib.Path) -> set[str]:
-    """Module names imported from ``ao_shaping`` in any scope of ``path``."""
-    tree = ast.parse(path.read_text(encoding="utf-8"))
+    """Module names imported from ``ao_shaping`` in any scope of ``path``.
+
+    ``utf-8-sig``, not ``utf-8``: a leading BOM is legal in a Python source file,
+    but under ``utf-8`` it survives as U+FEFF and ``ast.parse`` raises
+    "invalid non-printable character U+FEFF" -- the guard then reports a perfectly
+    importable script as broken. See issue #189.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
     found: set[str] = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom) and (node.module or "").startswith("ao_shaping"):
@@ -87,3 +93,31 @@ def test_script_has_no_dangling_local_import_of_moved_code(script: pathlib.Path)
         assert gone not in source, (
             f"{script.relative_to(REPO_ROOT)} still references the renamed {gone!r}"
         )
+
+def test_a_bom_in_a_script_does_not_blind_the_guard(tmp_path: pathlib.Path) -> None:
+    """A BOM'd script must still be swept, not reported as broken.
+
+    The corpus is walked with ``rglob``, so anyone can add a file whose first
+    bytes are a BOM -- editors and Windows toolchains do that silently, and
+    CPython imports such a file happily. Two files have already hit this: the
+    diffraction-efficiency report at ``c58e9fd5`` (whose CI failure was pinned on
+    "imports do not exist" while both imports resolved fine), and
+    ``analyze_model_in_loop_loss.py`` four commits later at ``18809d4f``.
+
+    This is a synthetic fixture rather than one of those two files: a real file
+    can lose its BOM in an unrelated cleanup and the guard would silently stop
+    covering the case.
+    """
+    bom_file = tmp_path / "bom_script.py"
+    bom_file.write_bytes(
+        b"\xef\xbb\xbf"
+        b"from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients\n"
+        b"import ao_shaping.drivers.dm as _dm\n"
+    )
+
+    assert bom_file.read_bytes()[:3] == b"\xef\xbb\xbf", "fixture must carry a BOM"
+    mods = _ao_imports(bom_file)
+    assert mods == {
+        "ao_shaping.utils.wavefront.zernike_utils",
+        "ao_shaping.drivers.dm",
+    }, f"a BOM hid the imports from the guard: got {sorted(mods)}"
