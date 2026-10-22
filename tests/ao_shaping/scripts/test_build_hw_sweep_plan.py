@@ -72,16 +72,32 @@ def _args(group: dict) -> list[str]:
 def _dz_points(group: dict) -> list[str]:
     """``--dz-mm`` 后面的全部点 (它是该命令的最后一个参数)。"""
     args = _args(group)
-    return args[args.index("--dz-mm") + 1:]
+    return args[args.index("--dz-mm") + 1 :]
 
 
 class TestNoHardware:
     """导入生成器不许牵进驱动包。"""
 
     def test_import_does_not_pull_in_drivers(self):
-        # 本模块已经 import 过生成器 ⇒ 若它牵进了驱动包, 这里就能看到。
-        leaked = sorted(m for m in sys.modules if m.startswith("ao_shaping.drivers"))
-        assert not leaked, f"生成器牵进了驱动包: {leaked}"
+        # 在**干净子进程**里 import 生成器再查 sys.modules。主测试进程里
+        # 同会话别的测试早已牵动驱动包 (惰性注册副作用), 直接查 sys.modules
+        # 会把别人的加载记到生成器头上, 误报泄漏。
+        probe = (
+            "import sys\n"
+            "from scripts.slm import build_hw_sweep_plan\n"
+            "leaked = sorted(m for m in sys.modules if m.startswith('ao_shaping.drivers'))\n"
+            "print(len(leaked))\n"
+        )
+        proc = subprocess.run(
+            [sys.executable, "-c", probe],
+            cwd=str(REPO_ROOT),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert proc.returncode == 0, f"clean import failed:\n{proc.stderr}"
+        leaked = int(proc.stdout.strip().splitlines()[-1])
+        assert leaked == 0, f"生成器牵进了驱动包 ({leaked} 个模块)"
 
 
 class TestLayout:
@@ -145,7 +161,9 @@ class TestChunkChain:
 
     def test_first_chunk_has_no_stage_a_in(self):
         plan = build_plan(_cfg())
-        assert arg_value(_args(_group(plan, "zernike_stage_a_1")), "--stage-a-in") is None
+        assert (
+            arg_value(_args(_group(plan, "zernike_stage_a_1")), "--stage-a-in") is None
+        )
 
     def test_chunk_n_reads_chunk_n_minus_one(self):
         plan = build_plan(_cfg())
@@ -161,8 +179,7 @@ class TestChunkChain:
         for n_max in EXPECTED_ORDERS:
             group = _group(plan, f"zernike_order_nmax{n_max}")
             assert arg_value(_args(group), "--stage-a-in") == (
-                "data/debug/hw_zernike_sweep_20261021_r3/"
-                "zernike_stage_a_7/stage_a.npz"
+                "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_7/stage_a.npz"
             )
 
     def test_a_broken_chain_is_reported(self):
@@ -171,7 +188,7 @@ class TestChunkChain:
         group = _group(plan, "zernike_stage_a_3")
         args = _args(group)
         index = args.index("--stage-a-in")
-        del args[index:index + 2]
+        del args[index : index + 2]
         group["args"] = args
 
         problems = check_chunk_chain(plan, _cfg())
@@ -184,7 +201,9 @@ class TestChunkChain:
         group = _group(plan, "zernike_stage_a_2")
         args = _args(group)
         index = args.index("--stage-a-in")
-        args[index + 1] = "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_99/stage_a.npz"
+        args[index + 1] = (
+            "data/debug/hw_zernike_sweep_20261021_r3/zernike_stage_a_99/stage_a.npz"
+        )
         group["args"] = args
 
         problems = check_chunk_chain(plan, _cfg())
@@ -216,7 +235,9 @@ class TestPhasePaths:
             if phase is None:
                 continue
             checked += 1
-            assert phase.startswith(root + "/"), f"{group['group']} 的相位路径不在本轮根下"
+            assert phase.startswith(root + "/"), (
+                f"{group['group']} 的相位路径不在本轮根下"
+            )
         # 离焦 2 组 (模型对照组不带相位文件) + 远场 8 组
         assert checked == 10
 
@@ -337,7 +358,9 @@ class TestIdentityFields:
     def test_every_group_has_variable_and_role(self):
         plan = build_plan(_cfg())
         for group in plan["groups"]:
-            assert str(group.get("variable", "")).strip(), f"{group['group']} 没有自变量"
+            assert str(group.get("variable", "")).strip(), (
+                f"{group['group']} 没有自变量"
+            )
             assert str((group.get("meta") or {}).get("role", "")).strip(), (
                 f"{group['group']} 没有 meta.role"
             )
@@ -403,9 +426,12 @@ class TestCli:
         out = tmp_path / "plan.json"
         rc = main(
             [
-                "--out", str(out),
-                "--groups-root", "data/debug/hw_groups_20261022",
-                "--sweep-root", "data/debug/hw_zernike_sweep_20261022",
+                "--out",
+                str(out),
+                "--groups-root",
+                "data/debug/hw_groups_20261022",
+                "--sweep-root",
+                "data/debug/hw_zernike_sweep_20261022",
             ]
         )
 
@@ -413,9 +439,11 @@ class TestCli:
         payload = json.loads(out.read_text(encoding="utf-8"))
         assert payload["root"] == "data/debug/hw_groups_20261022"
         for group in payload["groups"]:
-            for value in (arg_value(_args(group), "--out"),
-                          arg_value(_args(group), "--stage-a-in"),
-                          arg_value(_args(group), "--gs-phase")):
+            for value in (
+                arg_value(_args(group), "--out"),
+                arg_value(_args(group), "--stage-a-in"),
+                arg_value(_args(group), "--gs-phase"),
+            ):
                 if value is None:
                     continue
                 assert "20261021" not in value
@@ -438,14 +466,34 @@ class TestPointTables:
         # 点数照抄上一轮: 硬件组 23 点, 模型组在那 23 点再加 6 个大 Δz 点 = 29 点。
         scan = _dz_points(_group(plan, "dz_scan_hw_gs"))
         assert scan == [
-            "-20", "-15", "-10", "-7.5", "-5", "-3.75", "-2.5", "-1.5007",
-            "-0.7504", "-0.3752", "-0.1876", "0", "0.1876", "0.3752", "0.7504",
-            "1.5007", "2.5", "3.75", "5", "7.5", "10", "15", "20",
+            "-20",
+            "-15",
+            "-10",
+            "-7.5",
+            "-5",
+            "-3.75",
+            "-2.5",
+            "-1.5007",
+            "-0.7504",
+            "-0.3752",
+            "-0.1876",
+            "0",
+            "0.1876",
+            "0.3752",
+            "0.7504",
+            "1.5007",
+            "2.5",
+            "3.75",
+            "5",
+            "7.5",
+            "10",
+            "15",
+            "20",
         ]
 
         model = _dz_points(_group(plan, "dz_scan_model_gs"))
-        assert model[:len(scan)] == scan
-        assert model[len(scan):] == ["25", "30", "35", "40", "45", "50"]
+        assert model[: len(scan)] == scan
+        assert model[len(scan) :] == ["25", "30", "35", "40", "45", "50"]
 
     def test_default_tables_are_the_documented_ones(self):
         assert len(DEFAULT_DZ_SCAN_MM) == 23
@@ -456,10 +504,17 @@ class TestPointTables:
     def test_apertures_are_preserved(self):
         """孔径是**预先登记**的: 硬件 10 px / 模型 44 px, 不可互换。"""
         plan = build_plan(_cfg())
-        assert arg_value(_args(_group(plan, "dz_scan_hw_gs")), "--target-side-px") == "10"
-        assert arg_value(_args(_group(plan, "dz_scan_model_gs")), "--target-side-px") == "44"
+        assert (
+            arg_value(_args(_group(plan, "dz_scan_hw_gs")), "--target-side-px") == "10"
+        )
+        assert (
+            arg_value(_args(_group(plan, "dz_scan_model_gs")), "--target-side-px")
+            == "44"
+        )
         assert arg_value(_args(_group(plan, "dz_scan_hw_gs")), "--exposure-ms") == "0.2"
-        assert arg_value(_args(_group(plan, "dz_scan_model_gs")), "--exposure-ms") == "0.4"
+        assert (
+            arg_value(_args(_group(plan, "dz_scan_model_gs")), "--exposure-ms") == "0.4"
+        )
 
 
 class TestDriverDryRun:

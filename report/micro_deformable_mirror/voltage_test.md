@@ -74,7 +74,7 @@ ao_shaping.drivers.dm.MicroDM.MicroDMConnectionError: Failed to connect to any o
 
 ## 1300-5.xlsx 歧义 Key 记录
 
-反向重建验证 `data/1300-5-enriched.csv` → `docs/micro deformable mirror/docs/1300-5.xlsx` 时发现：原 xlsx 中存在 **同一 (IP组, 序号) 组合对应多个不同 A 列（位置序号）** 的情况，即反向映射不唯一。明细如下：
+反向重建验证 `data/1300-5-enriched.csv` → `docs/micro_deformable_mirror/docs/1300-5.xlsx` 时发现：原 xlsx 中存在 **同一 (IP组, 序号) 组合对应多个不同 A 列（位置序号）** 的情况，即反向映射不唯一。明细如下：
 
 | IP组 | 序号 | 对应的 A 列值（位置序号） | 出现次数 |
 | ---- | ---- | ------------------------- | -------- |

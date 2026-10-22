@@ -1,3 +1,12 @@
+"""显示与可视化包 (display & visualization).
+
+统一暴露所有面向用户的帧渲染与交互窗口：相机/相位/截面三件套
+(:mod:`ao_shaping.display.beam_profile`)、GUI 帧对象
+(:mod:`~ao_shaping.display.frames`)、GS 动画 (:mod:`~ao_shaping.display.gs_visualization`)、
+Zernike 校准与电压面板 (:mod:`~ao_shaping.display.image_display`) 与
+各 Slm* 显示窗口 (:mod:`~ao_shaping.display.windows`)。
+"""
+
 from __future__ import annotations
 from ao_shaping.display.beam_profile import (
     ProfileCut,

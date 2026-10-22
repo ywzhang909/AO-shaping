@@ -44,6 +44,7 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
@@ -60,6 +61,11 @@ from ao_shaping.utils.image.frame_analysis import (  # noqa: E402
     measure_spot,
 )
 from ao_shaping.utils.image.targets import square_mask  # noqa: E402
+from scripts.slm._hw_defocus_sections import (  # noqa: E402
+    SECTION_0_2_ALGORITHM,
+    SECTION_0_PURPOSE,
+    section_0_1_setup,
+)
 
 REPORT_KEY = "report/shape_trials/hw_defocus_zernike/hw_defocus_zernike_20261020.md"
 
@@ -289,6 +295,56 @@ def _find_under(root: Path | None, pattern: str) -> Path | None:
 #: 这批数据**不同源** (混进了别轮的产物), 报告正文里必须看得见。
 SCALAR_MERGE_FIELDS = ("w0_px", "target_side", "center_xy", "mask_center_xy")
 
+#: 像素坐标类字段 (零级位置 / 框中心)。逐组各自在**自己那一帧**上重新定位 ⇒
+#: 允许有 ±1 px 的抖动 —— 那是**良性的**, 不是数据混入。
+PIXEL_COORD_MERGE_FIELDS = ("center_xy", "mask_center_xy")
+
+#: 连续量字段 (口径: 高斯半径 / 目标框边长)。跨组不一致 ⇒ **光学状态真的变了**
+#: (焦面/曝光/口径不同) ⇒ 疑似混进了别轮的数据。
+CONTINUOUS_MERGE_FIELDS = ("w0_px", "target_side")
+
+#: 像素坐标逐轴偏差的**容忍上限** (px): 超过它就不算「定位抖动」而是判为疑似混入。
+#:
+#: 取 **2** 的理由: 实测逐阶组各自重新定位零级的散布只有 **±1 px** —— 第二轮八个
+#: 逐阶组的 ``mask_center_xy`` 落在 ``[126,128]`` / ``[127,128]`` / ``[127,127]`` /
+#: ``[126,127]`` 四种上, 而 ``w0_px`` / ``target_side`` / ``center_xy`` 完全一致。
+#: 2 px 是这个实测散布的**一倍余量**: 抖动留余量, 真正的位移 (>2 px) 仍会被报出来。
+LOCATE_JITTER_TOL_PX = 2.0
+
+#: 连续量**相对差**的阈值: 超过它就判为「光学状态真的变了」(疑似跨轮次混入)。
+#:
+#: 取 **0.5%** 的理由: 实测跨轮次的光学状态差异是 **1.13%** —— 第二轮数据根里混进来的
+#: ``zernike_stage_a_1`` 的 ``w0_px`` 5.742078 → 5.807177 (``target_side`` 同比例)。
+#: 阈值取它的一半不到, 好让这种差异**被报出来**, 而不是被当成噪声吞掉。
+CONTINUOUS_REL_DIFF_TOL = 0.005
+
+#: 各像素坐标字段所在的**坐标系**。同一个坐标系之间才谈得上「偏差多少」:
+#:
+#: - ``center_xy`` = **全幅传感器**坐标 (每组都在同一块传感器上定位零级) ⇒ 永远可比,
+#:   **不要**给它套「小窗口」规则 (全幅坐标本来就比窗口大);
+#: - ``mask_center_xy`` = **窗口内**坐标 ⇒ 可比性由**取值本身**决定, 而**不是**由
+#:   ``frame_shape`` 是否相等决定 —— 见 :func:`_window_local_comparability`。
+#:
+#: ⚠️ 为什么不能用「``frame_shape`` 相等」判可比: 两个生产者写的 ``frame_shape``
+#: **不是一个意思** —— Stage A 块记的是**全幅** ``probe_shape`` (1944x2592), 但它的
+#: ``mask_center_xy`` 在 2026-10-21 的续跑坐标修复 (提交 07139db6) **之后**已经是
+#: **窗口内**坐标 (优化器冻结的 ROI 中心)。按 ``frame_shape`` 判会把**其实同空间**的
+#: 取值误判成「坐标系不同」⇒ 正文里印一句不成立的话, 还白白抑制掉一次交叉核对
+#: (逐阶组的掩膜中心 vs 块的掩膜中心 —— 差得多就说明某一块的 ROI 摆歪了)。
+PIXEL_COORD_SPACES = {
+    "center_xy": "full_sensor",
+    "mask_center_xy": "window_local",
+}
+
+#: 判定「某个坐标是否落在窗口内」时, **上界是否含端点** (``<=`` vs ``<``)。
+#:
+#: 取 ``True`` (用 ``<=``): 窗口边长是**像素数**, 而窗口内像素坐标的合法最大值是
+#: ``边长 - 1``; 用 ``<= 边长`` 等于把上界**放宽 1 px**。这是**故意**的: 判据要回答的
+#: 是「这个数**是不是**全幅坐标」, 而不是「它是不是**恰好**某个窗口里的合法像素下标」
+#: —— 宁可放宽 1 px, 也不要**误把一个窗口内坐标判成全幅坐标** (那会再次抑制交叉核对)。
+#: 下界一律用 ``0`` (窗口内坐标不可能为负)。
+WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE = True
+
 #: 本报告**正文**真正读到的合并字段 (其余字段只留在采集脚本自己的产物里)。
 #: 写清楚是为了让「合并后用的是哪个值」这个问题在报告里有确定答案。
 BODY_MERGE_FIELDS = ("w0_px", "baselines", "config")
@@ -334,9 +390,16 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     by_order: dict[int, dict[str, Any]] = {}
     order_group: dict[int, str] = {}
     origin: dict[str, str] = {}
+    frame_shapes: dict[str, Any] = {}
     warnings: list[dict[str, Any]] = []
     for data in summaries:
         group = str(data["_group"])
+        # 每组**在哪个窗口里**工作: 判定像素坐标能否直接比较时要用 (见
+        # :data:`PIXEL_COORD_SPACES`)。⚠️ ``frame_shape`` 只是**线索**: 两个生产者
+        # 写的它不是一个意思 (Stage A 块记的是全幅 ``probe_shape``, 逐阶组记的是
+        # ROI 窗口) ⇒ 可比性最终由**取值本身**是否落在共同窗口内决定
+        # (见 :func:`_window_local_comparability`)。
+        frame_shapes[group] = data.get("frame_shape")
         for key, value in data.items():
             if key in ("orders", "_summary_path", "_group"):
                 continue
@@ -374,6 +437,7 @@ def load_zernike(run_dir: Path) -> dict[str, Any]:
     merged["summary_paths"] = [d["_summary_path"] for d in summaries]
     merged["summary_groups"] = [d["_group"] for d in summaries]
     merged["merge_origin"] = origin
+    merged["summary_frame_shapes"] = frame_shapes
     merged["order_groups"] = order_group
     return merged
 
@@ -389,18 +453,270 @@ def _fmt_merge_value(value: Any) -> str:
     return str(value)
 
 
+def _pixel_axis_deviation(kept: Any, other: Any) -> float | None:
+    """两个像素坐标之间的**最大逐轴偏差** (px)。
+
+    不是同长度的坐标对 (或压根不是坐标) 就返回 ``None`` —— 调用方据此把差异判成
+    「无法比较」, 而不是默默当成 0。
+    """
+    if not isinstance(kept, (list, tuple)) or not isinstance(other, (list, tuple)):
+        return None
+    if len(kept) == 0 or len(kept) != len(other):
+        return None
+    try:
+        return max(abs(float(a) - float(b)) for a, b in zip(kept, other))
+    except (TypeError, ValueError):
+        return None
+
+
+def _relative_diff(kept: Any, other: Any) -> float | None:
+    """连续量两个取值的**相对差** ``|other - kept| / |kept|`` (取不到就 None)。"""
+    if isinstance(kept, bool) or isinstance(other, bool):
+        return None
+    if not isinstance(kept, (int, float)) or not isinstance(other, (int, float)):
+        return None
+    base = abs(float(kept))
+    if base == 0.0:
+        return None
+    return abs(float(other) - base) / base
+
+
+def _frame_shape_hw(value: Any) -> tuple[float, float] | None:
+    """把 ``frame_shape`` 规整成 ``(height, width)``; 取不到就 ``None``。
+
+    ``frame_shape`` 沿用 numpy ``frame.shape`` 的约定 = ``(高, 宽)``; 而
+    ``mask_center_xy`` / ``center_xy`` 是 ``(x, y)`` —— 两者的**轴序相反**, 比较时
+    必须换算 (x 对**宽**, y 对**高**), 否则非方形窗口会判错。
+    """
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        height = float(value[0])
+        width = float(value[1])
+    except (TypeError, ValueError):
+        return None
+    if height <= 0.0 or width <= 0.0:
+        return None
+    return height, width
+
+
+def _coord_inside_window(value: Any, height: float, width: float) -> bool | None:
+    """某个 ``(x, y)`` 取值是否落在 ``height x width`` 的窗口内。
+
+    判据: ``0 <= x <= width`` 且 ``0 <= y <= height`` (上界**含端点**, 见
+    :data:`WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE`)。
+
+    Returns:
+        ``True`` / ``False`` = 判定结果; ``None`` = **取不到** (不是坐标对, 或数值
+        不可解析) ⇒ 调用方按「无法证明它是全幅坐标」处理 (按可比), 而不是硬判。
+    """
+    if not isinstance(value, (list, tuple)) or len(value) < 2:
+        return None
+    try:
+        x = float(value[0])
+        y = float(value[1])
+    except (TypeError, ValueError):
+        return None
+    upper_x = width if WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE else width - 1.0
+    upper_y = height if WINDOW_LOCAL_UPPER_BOUND_INCLUSIVE else height - 1.0
+    return 0.0 <= x <= upper_x and 0.0 <= y <= upper_y
+
+
+def _window_local_comparability(
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any,
+    other_value: Any,
+) -> tuple[bool, str]:
+    """两个组的**窗口内**坐标 (``mask_center_xy``) 是否落在同一个空间。
+
+    规则 (取代「``frame_shape`` 是否相等」):
+
+    - 两个组的窗口**相同** ⇒ 同一空间 ⇒ 可比;
+    - 窗口**不同** ⇒ 取两组的**共同窗口** (逐轴取小: 高取小、宽取小) 作为
+      「**可能的窗口内空间**」:
+      - 两个取值**都落在共同窗口内** ⇒ 它们**都是窗口内坐标** ⇒ **同空间** ⇒ 可比,
+        逐轴偏差照常判;
+      - **有一个落在共同窗口之外** ⇒ 那个取值**不是**窗口内坐标 ⇒ 它是**全幅
+        传感器**坐标 ⇒ 两者**确实不同空间** ⇒ 判「坐标系不同, 不参与判定」。
+
+    ⚠️ 为什么第二轮仍然是「不同空间」: 第二轮 ``zernike_stage_a`` 的
+    ``mask_center_xy`` 确实是**全幅**坐标 ``[1433, 971]`` (超出 256x256 的共同窗口)
+    ⇒ 仍判不可比 ⇒ **不改变已入库的第二轮报告的结论**。
+    而第三轮 (2026-10-21 续跑坐标修复之后) 块的 ``mask_center_xy`` 是**窗口内**的
+    ``[127, 128]`` ⇒ 落在共同窗口内 ⇒ 判**可比** ⇒ 交叉核对恢复生效。
+
+    Returns:
+        ``(comparable, note)`` —— ``note`` 是写进报告的判定依据。
+    """
+    kept_shape = _frame_shape_hw(frame_shapes.get(kept_group))
+    other_shape = _frame_shape_hw(frame_shapes.get(other_group))
+    if kept_shape is None or other_shape is None:
+        return (
+            True,
+            "缺少可用的 `frame_shape` ⇒ 按可比处理（缺元数据不该把一处差异藏起来）",
+        )
+    if kept_shape == other_shape:
+        return True, "窗口（`frame_shape`）相同 ⇒ 同一空间 ⇒ 可比"
+    height = min(kept_shape[0], other_shape[0])
+    width = min(kept_shape[1], other_shape[1])
+    inside_kept = _coord_inside_window(kept_value, height, width)
+    inside_other = _coord_inside_window(other_value, height, width)
+    if inside_kept is None or inside_other is None:
+        return (
+            True,
+            "取值不是坐标对 ⇒ 无法判断它是否落在窗口内 ⇒ 按可比处理",
+        )
+    if inside_kept and inside_other:
+        return (
+            True,
+            f"窗口不同，但两个取值都落在共同窗口 {width:g}x{height:g} 内 "
+            "⇒ 都是窗口内坐标 ⇒ 同一空间 ⇒ 可比",
+        )
+    outside = []
+    if not inside_kept:
+        outside.append(f"`{kept_group}`（`{_fmt_merge_value(kept_value)}`）")
+    if not inside_other:
+        outside.append(f"`{other_group}`（`{_fmt_merge_value(other_value)}`）")
+    who = "、".join(outside)
+    return (
+        False,
+        f"{who} 落在共同窗口 {width:g}x{height:g} 之外 ⇒ 它是**全幅传感器**坐标，"
+        "与窗口内坐标**不同空间**",
+    )
+
+
+def _pixel_comparability(
+    field: str,
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any = None,
+    other_value: Any = None,
+) -> tuple[bool, str]:
+    """某个像素坐标字段的两个取值**是否在同一空间**, 并给出判定依据。
+
+    - ``center_xy`` = **全幅传感器**坐标 ⇒ 永远可比 (**不套**「小窗口」规则);
+    - ``mask_center_xy`` = **窗口内**坐标 ⇒ 由 :func:`_window_local_comparability` 判。
+    """
+    if PIXEL_COORD_SPACES.get(field, "full_sensor") != "window_local":
+        return (
+            True,
+            "`center_xy` 是**全幅传感器**坐标（每组都在同一块传感器上定位零级）"
+            "⇒ 永远可比",
+        )
+    return _window_local_comparability(
+        kept_group, other_group, frame_shapes, kept_value, other_value
+    )
+
+
+def _pixel_values_comparable(
+    field: str,
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any],
+    kept_value: Any = None,
+    other_value: Any = None,
+) -> bool:
+    """两个组的该字段取值**是否在同一个坐标系**里 (只要布尔结论时用这个)。
+
+    ``center_xy`` 是**全幅传感器**坐标 (每组都在同一块传感器上定位零级) ⇒ 永远可比;
+    ``mask_center_xy`` 是**窗口内**坐标 ⇒ 由**取值本身**是否落在两组的**共同窗口**内
+    决定 (见 :func:`_window_local_comparability`): 两个取值都落在里面 ⇒ 同空间可比;
+    有一个落在外面 ⇒ 那是**全幅**坐标 ⇒ 确实不同空间。
+
+    某个组没记 ``frame_shape`` 时**按可比处理**: 缺元数据不该把一处差异悄悄藏起来。
+    """
+    comparable, _note = _pixel_comparability(
+        field, kept_group, other_group, frame_shapes, kept_value, other_value
+    )
+    return comparable
+
+
+def classify_merge_difference(
+    field: str,
+    kept: Any,
+    other: Any,
+    kept_group: str,
+    other_group: str,
+    frame_shapes: dict[str, Any] | None = None,
+) -> tuple[str, str, float | None]:
+    """判定**一处**跨组差异属于哪一类, 并给出写进报告的判定说明。
+
+    Args:
+        field: 字段名 (``w0_px`` / ``target_side`` / ``center_xy`` / ``mask_center_xy``)。
+        kept: 合并采用的取值 (第一份含该字段的 summary 的值)。
+        other: 另一个组里的取值。
+        kept_group: 合并采用值来自哪个组目录。
+        other_group: 另一个组目录。
+        frame_shapes: ``{组目录: frame_shape}`` —— 判断两个组的坐标是否同一参考系。
+
+    Returns:
+        ``(bucket, verdict, deviation)``。bucket ∈
+
+        - ``"jitter"`` —— 同轮内的定位抖动 (**良性**);
+        - ``"suspect"`` —— 疑似跨轮次数据混入 (**恶性**);
+        - ``"incomparable"`` —— 坐标系不同, 数值不可直接比较。
+
+        deviation 是量化值 (像素偏差 px 或相对差), 取不到就 None。
+    """
+    frames = frame_shapes or {}
+    if field in PIXEL_COORD_MERGE_FIELDS:
+        comparable, note = _pixel_comparability(
+            field, kept_group, other_group, frames, kept, other
+        )
+        if not comparable:
+            return (
+                "incomparable",
+                f"坐标系不同 ⇒ 不参与判定（{note}）",
+                None,
+            )
+        dev = _pixel_axis_deviation(kept, other)
+        if dev is None:
+            return ("suspect", "坐标无法逐轴比较", None)
+        if dev <= LOCATE_JITTER_TOL_PX:
+            return (
+                "jitter",
+                f"逐轴偏差 {dev:g} px ≤ {LOCATE_JITTER_TOL_PX:g} px（定位抖动）",
+                dev,
+            )
+        return (
+            "suspect",
+            f"逐轴偏差 {dev:g} px > {LOCATE_JITTER_TOL_PX:g} px",
+            dev,
+        )
+    if field in CONTINUOUS_MERGE_FIELDS:
+        rel = _relative_diff(kept, other)
+        if rel is None:
+            return ("suspect", "无法计算相对差", None)
+        pct = CONTINUOUS_REL_DIFF_TOL * 100.0
+        if rel > CONTINUOUS_REL_DIFF_TOL:
+            return ("suspect", f"相对差 {rel * 100:.2f}% > {pct:g}%", rel)
+        return ("jitter", f"相对差 {rel * 100:.2f}% ≤ {pct:g}%", rel)
+    return ("suspect", "未归类的字段差异", None)
+
+
 def merge_audit_block(zernike: dict[str, Any]) -> str:
     """§3 开头那一段: 这次合并**读了哪些组**、**哪些字段跨组不一致**。
 
     合并本身会把不同组的取值压成一个 —— 所以「这批数据是不是同源的」必须在**报告正文里
     可核查**: 列出参与合并的组目录, 再逐条列出不一致的字段、各自的取值与来源组。
-    只摆事实, 不替读者下结论: 哪些字段不一致、合并后用的是哪个值, 由读者自己判断。
+
+    差异**分两类判别** (不是「一律不一致」):
+
+    - **良性** (同轮内的定位抖动): 差异只在像素坐标类字段上、且逐轴偏差 ≤
+      :data:`LOCATE_JITTER_TOL_PX` ⇒ 各组在**自己那一帧**上重新定位零级, 散布 ±N px,
+      **不影响口径**;
+    - **恶性** (疑似跨轮次混入): 连续量的相对差 > :data:`CONTINUOUS_REL_DIFF_TOL`,
+      或像素坐标的逐轴偏差超过阈值, 或同一个 n_max 出现在两个组里。
     """
     groups = [str(g) for g in (zernike.get("summary_groups") or [])]
     if not groups:
         return ""
     warnings = list(zernike.get("merge_warnings") or [])
     origin = dict(zernike.get("merge_origin") or {})
+    frame_shapes = dict(zernike.get("summary_frame_shapes") or {})
     field_warnings = [w for w in warnings if w.get("kind") == "field"]
     order_warnings = [w for w in warnings if w.get("kind") == "orders"]
 
@@ -420,6 +736,37 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "- 跨组核对的**标量口径字段**是 "
         + "、".join(f"`{f}`" for f in SCALAR_MERGE_FIELDS)
         + "（同一轮扫描里它们本应一致）。",
+        "- 跨组差异**分两类判别**：像素坐标类字段（"
+        + "、".join(f"`{f}`" for f in PIXEL_COORD_MERGE_FIELDS)
+        + f"）的逐轴偏差 ≤ **{LOCATE_JITTER_TOL_PX:g} px** ⇒ **良性**（同轮内的定位抖动）；"
+        "连续量字段（"
+        + "、".join(f"`{f}`" for f in CONTINUOUS_MERGE_FIELDS)
+        + f"）的相对差 > **{CONTINUOUS_REL_DIFF_TOL * 100:g}%** ⇒ **恶性**（疑似跨轮次混入）。",
+        "- **可比性先判**：同一空间才谈得上「偏差多少」。`center_xy` 是**全幅传感器**坐标"
+        "（每组都在同一块传感器上定位零级）⇒ **永远可比**；`mask_center_xy` 是**窗口内**"
+        "坐标 ⇒ 取两组的**共同窗口**（逐轴取小）作为「可能的窗口内空间」，两个取值"
+        "**都落在里面**才当同空间判偏差；**有一个落在外面** ⇒ 它是**全幅**坐标 ⇒ "
+        "两者的数**不可直接比较**。",
+        "",
+        "**阈值为什么是这两个数**：像素坐标的 "
+        f"**{LOCATE_JITTER_TOL_PX:g} px** —— 实测逐阶组各自在**自己那一帧**上重新定位零级，"
+        "散布只有 **±1 px**（第二轮八个逐阶组的 `mask_center_xy` 落在 `[126,128]` / "
+        "`[127,128]` / `[127,127]` / `[126,127]` 四种上），"
+        f"{LOCATE_JITTER_TOL_PX:g} px 是它的一倍余量；连续量的 "
+        f"**{CONTINUOUS_REL_DIFF_TOL * 100:g}%** —— 实测跨轮次的光学状态差异是 **1.13%**"
+        "（第二轮混进来的 `zernike_stage_a_1`：`w0_px` 5.742078 → 5.807177），"
+        "阈值取它的一半不到，好让这种差异**被报出来**而不是被当成噪声吞掉。",
+        "",
+        "**为什么可比性看「取值」而不是看「`frame_shape` 是否相等」**：两个生产者写的 "
+        "`frame_shape` **不是一个意思** —— Stage A 块记的是**全幅** `probe_shape`"
+        "（1944×2592），但它的 `mask_center_xy` 在 2026-10-21 的续跑坐标修复"
+        "（提交 07139db6）**之后**已经是**窗口内**坐标（优化器冻结的 ROI 中心）。"
+        "按 `frame_shape` 判 ⇒ 把**其实同空间**的取值误判成「不同空间」⇒ 正文里印一句"
+        "**不成立**的话，还白白**抑制掉一次交叉核对**（逐阶组的掩膜中心 vs 块的掩膜中心 —— "
+        "差得多就说明某一块的 ROI 摆歪了）。改判「取值是否落在共同窗口内」之后："
+        "**第二轮**（`mask_center_xy` 是全幅的 `[1433, 971]`，超出 256×256 的共同窗口）"
+        "**仍判不同空间** ⇒ 已入库的第二轮报告结论不变；**第三轮**（`[127, 128]`，落在窗口内）"
+        "**判同空间** ⇒ 交叉核对恢复生效。",
     ]
 
     if not field_warnings and not order_warnings:
@@ -433,39 +780,119 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
             {"kept": w.get("kept"), "kept_group": w.get("kept_group"), "others": []},
         )
         rec["others"].append((w.get("other"), str(w.get("other_group"))))
-    rows: list[list[Any]] = []
+
+    jitter_rows: list[list[Any]] = []
+    suspect_rows: list[list[Any]] = []
+    incomparable_rows: list[list[Any]] = []
+    jitter_px: list[float] = []
+    jitter_cont_fields: set[str] = set()
+    suspect_fields: set[str] = set()
     for field in sorted(
         by_field,
         key=lambda f: (
-            SCALAR_MERGE_FIELDS.index(f) if f in SCALAR_MERGE_FIELDS else len(SCALAR_MERGE_FIELDS),
+            SCALAR_MERGE_FIELDS.index(f)
+            if f in SCALAR_MERGE_FIELDS
+            else len(SCALAR_MERGE_FIELDS),
             f,
         ),
     ):
         rec = by_field[field]
-        others: dict[str, list[str]] = {}
+        kept = rec["kept"]
+        kept_group = str(rec["kept_group"])
+        # 同一个取值可能来自**坐标系不同**的组 ⇒ 分格时带上「是否同一参考系」,
+        # 否则会把「不可比」和「可比」混在一格里, 判定也就跟着混。
+        cells: dict[tuple[str, bool], tuple[Any, list[str]]] = {}
         for value, group in rec["others"]:
-            others.setdefault(_fmt_merge_value(value), []).append(group)
-        other_txt = "、".join(
-            f"`{value}`（" + "、".join(f"`{g}`" for g in groups_) + "）"
-            for value, groups_ in others.items()
-        )
-        rows.append(
-            [
+            same_frame = _pixel_values_comparable(
+                field, kept_group, group, frame_shapes, kept, value
+            )
+            key = (_fmt_merge_value(value), same_frame)
+            if key not in cells:
+                cells[key] = (value, [])
+            cells[key][1].append(group)
+        for (text, _same_frame), (raw, other_groups) in cells.items():
+            bucket, verdict, dev = classify_merge_difference(
+                field, kept, raw, kept_group, other_groups[0], frame_shapes
+            )
+            row = [
                 f"`{field}`",
-                f"`{_fmt_merge_value(rec['kept'])}`（`{rec['kept_group']}`）",
-                other_txt,
+                f"`{_fmt_merge_value(kept)}`（`{kept_group}`）",
+                f"`{text}`（" + "、".join(f"`{g}`" for g in other_groups) + "）",
+                verdict,
             ]
-        )
-    if rows:
+            if bucket == "jitter":
+                jitter_rows.append(row)
+                if field in CONTINUOUS_MERGE_FIELDS:
+                    jitter_cont_fields.add(field)
+                elif dev is not None:
+                    jitter_px.append(dev)
+            elif bucket == "incomparable":
+                incomparable_rows.append(row)
+            else:
+                suspect_rows.append(row)
+                suspect_fields.add(field)
+
+    table_header = ["字段", "合并采用（组目录）", "其他组里的取值（组目录）", "判定"]
+
+    if jitter_rows:
+        # 「口径没变」这句话只在**真的没变**时才能说 —— 口径字段若在下面的 ⚠️ 段里
+        # 有超阈值的差异, 这里只能说「本段的差异不涉及口径」。
+        cont_suspect = sorted(suspect_fields & set(CONTINUOUS_MERGE_FIELDS))
+        if cont_suspect:
+            caliber = (
+                "口径字段（"
+                + "、".join(f"`{f}`" for f in cont_suspect)
+                + "）在**部分组**之间有超阈值的差异"
+                "（见下面「疑似跨轮次数据混入」那一段）"
+                " —— 本段里的差异都**不涉及**口径"
+            )
+        elif jitter_cont_fields:
+            caliber = (
+                "口径字段（"
+                + "、".join(f"`{f}`" for f in sorted(jitter_cont_fields))
+                + f"）的相对差都在 {CONTINUOUS_REL_DIFF_TOL * 100:g}% 以内"
+                " ⇒ 未见口径变化"
+            )
+        else:
+            caliber = (
+                "口径字段（"
+                + "、".join(f"`{f}`" for f in CONTINUOUS_MERGE_FIELDS)
+                + "）在各组之间**完全一致** ⇒ 不影响口径"
+            )
+        spread = f"散布 **±{max(jitter_px):g} px**" if jitter_px else "坐标没有差别"
         lines += [
             "",
-            f"⚠️ **跨组字段不一致：{len(rows)} 个字段** —— 合并把不同组的取值压成了一个。"
+            "**同轮内的定位抖动（良性差异）** —— 下列差异都**没有**超过判定阈值："
+            "各组在**自己那一帧**上重新定位零级，"
+            f"{spread}，{caliber}。",
+            "",
+            markdown_table(table_header, jitter_rows),
+        ]
+
+    if suspect_rows:
+        n_fields = len(suspect_fields)
+        lines += [
+            "",
+            f"⚠️ **跨组字段不一致，疑似跨轮次数据混入：{n_fields} 个字段**"
+            " —— 下列差异**超过**判定阈值：这批数据的**光学状态不是同一轮的**"
+            "（焦面/曝光/口径变了，或混进了别轮的产物）。"
             "「合并采用」= 报告正文实际使用的那个取值。",
             "",
-            markdown_table(
-                ["字段", "合并采用（组目录）", "其他组里的取值（组目录）"], rows
-            ),
+            markdown_table(table_header, suspect_rows),
         ]
+
+    if incomparable_rows:
+        lines += [
+            "",
+            "**坐标参考系不同（不参与判定）** —— 下列差异是**坐标系不同**造成的："
+            "`center_xy` 是**全幅传感器**坐标（永远可比），`mask_center_xy` 是**窗口内**"
+            "坐标 —— 当某个取值**落在两组的共同窗口之外**时，它就是**全幅**坐标，"
+            "与窗口内坐标**不同空间**，这两个数**不可直接比较**。"
+            "因此它们既不算定位抖动，也不构成数据混入的证据。",
+            "",
+            markdown_table(table_header, incomparable_rows),
+        ]
+
     if order_warnings:
         items = "、".join(
             f"n_max={w.get('n_max')}：采用 `{w.get('kept_group')}`，"
@@ -490,7 +917,8 @@ def merge_audit_block(zernike: dict[str, Any]) -> str:
         "**后果（只列事实）**：",
         "",
         "- 上表「合并采用」那一列就是 §3 正文里用的值：`w0_px` 决定 §3.2.1 与 §3.3 引用的"
-        f"目标框边长{box_txt}；" + "、".join(f"`{f}`" for f in unused)
+        f"目标框边长{box_txt}；"
+        + "、".join(f"`{f}`" for f in unused)
         + " 在本报告正文里**没有被引用**（它们只记录在采集脚本自己的产物里）。",
         "- §3.2 的阶数指标（CV / PIB / 拟合残差 / max|c|）来自各组自己的 `orders`，"
         "**不经过**上面这几个标量字段。",
@@ -2568,6 +2996,33 @@ def build_markdown(
 
 ---
 
+{SECTION_0_PURPOSE}
+{section_0_1_setup(cfg, fmt_metric)}
+{SECTION_0_2_ALGORITHM}
+## 0.3 结果分析
+
+**离焦侧**（详见 §1.3 与 §2）：
+
+- 实验系统常驻 |Δz| ≈ {stand_mm:.1f} mm。瞳面焦面矫正后平相位光斑 FWHM
+  由约 115 px 收到 **{fmt_metric(focus_fwhm, 1)} px**，峰值/曝光提高约
+  **{fmt_metric(focus_gain, 0)} 倍** —— 不矫正就扫 Δz，测到的是弥散环而非离焦响应。
+- 转向速率 **{fmt_metric(steer["slope_local_px_per_mm"], 2)} px/mm**（|Δz| ≤ 2.5 mm 内
+  拟合，质心 x 相对冻结零级）。各组在 ±1.5007 mm 处的差值是 {asym_parts}，
+  同口径噪声地板 {fmt_metric(sigma_score, 5)} —— 这是硬件与仿真最大的口径差异
+  （仿真那边只差 0.0008）。
+- 离焦组带**去倾斜自标定**（`--chirp-tilt-cancel`），故转向对读数的影响应比
+  第一轮小；孔径是否仍会藏住响应由本组的孔径灵敏度表自己给出。
+
+**泽尼克侧**（详见 §3）：
+
+- {verdict}
+- 唯一随阶数**严格单调**的量是**拟合残差**（{"单调不增" if monotone else "非单调"}，
+  {fmt_metric(rms_vals[0], 4)} → {fmt_metric(rms_vals[-1], 4)} rad）。
+
+**判据边界**：以上任何"改善"都必须大于 §1.2 的 3σ 噪声地板才可采信。
+
+---
+
 ## 1. 实验系统与前提
 
 | 项 | 值 |
@@ -2909,7 +3364,9 @@ def main() -> int:
     if render_zernike_farfield_grid(
         farfield_runs, FIG_DIR / f"hw_zernike_farfield_grid{FIG_TAG}.png"
     ):
-        zernike_figures = zernike_figures + [f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"]
+        zernike_figures = zernike_figures + [
+            f"figures/hw_zernike_farfield_grid{FIG_TAG}.png"
+        ]
     if args.figures_only:
         # 正文一个字都不写: 图归位用。溯源块与 report/README.md 也不碰 ——
         # 这一轮只认「把图换回自己那一轮」, 不认「重新叙述那一轮」。

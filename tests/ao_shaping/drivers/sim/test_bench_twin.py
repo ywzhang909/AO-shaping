@@ -13,6 +13,8 @@
 * **透镜像差** —— 非零频域像差改变远场, 零 → 恒等;
 * **噪声** —— ``noise_adu=0`` 确定性, ``noise_adu>0`` 均值不变、标准差 > 0;
 * **相机标度** —— ``camera_px_per_model_px`` 等于解析式 ``p_fft / d_ccd``;
+* **焦面标度口径** —— 由实测标度反推的等效焦距与手算一致 (311.32 mm), 往返后孪生的
+  解析标度与传入的实测标度一致; 默认路径的解析标度逐位不变; 非法输入抛 ValueError;
 * **序列化** —— ``to_dict`` → JSON → ``from_dict`` → 远场逐位相同;
 * **预补偿** —— LUT 往返与面板 Zernike 相差被消除 (残余 ≤ 一个量化级);
 * **可用性** —— import 期无副作用, 且不 import 任何驱动包。
@@ -35,11 +37,27 @@ from ao_shaping.drivers.sim.bench_twin import (
     BenchTwin,
     BenchTwinConfig,
     TwinErrorModel,
+    equivalent_focal_length_m,
 )
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 MODULE_PATH = REPO_ROOT / "src" / "ao_shaping" / "drivers" / "sim" / "bench_twin.py"
+
+#: 2026-10-19 那次实验系统的实测焦面标度 (`bench_geometry.json` 的相位斜坡扫描):
+#: 「相机像元 / 模型采样点」。它反推出的等效焦距是 311.32 mm, 而标称焦距
+#: 122.4060 mm 算出的解析标度只有 1.027778 (差 2.54 倍)。
+MEASURED_SCALE_20261019 = 2.614022035287756
+
+#: 与上面那个实测标度配套的几何量 (`run_config.json`)。
+MEASURED_GEOMETRY_20261019: dict = {
+    "wavelength_m": 1064e-9,
+    "slm_pixel_um": 8.0,
+    "ccd_pixel_um": 2.2,
+    "region": 128,
+    "region_span_px": 900.0,
+    "far_field_padding": 8,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -628,3 +646,119 @@ class TestAvailability:
         image = twin.far_field(np.zeros((twin.region, twin.region)))
         assert image.shape == (twin.crop_side, twin.crop_side)
         assert float(image.max()) == pytest.approx(twin.config.peak_adu, rel=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# 12. 焦面标度口径 (实测标度 ↔ 等效焦距)
+# ---------------------------------------------------------------------------
+
+
+class TestMeasuredScale:
+    """由实测标度反推等效焦距的入口。
+
+    孪生的远场标度只通过焦距进入 (``p_fft = λ·f/(N_pad·pupil_pitch_m)``),
+    所以「实测标度 → 等效焦距 → 孪生」这条链必须往返自洽。
+    """
+
+    def test_round_trip_reproduces_the_measured_scale(self) -> None:
+        """实测标度 → 反推 f → 孪生解析标度 = 传入值。"""
+        config = BenchTwinConfig.from_measured_scale(
+            MEASURED_SCALE_20261019, **MEASURED_GEOMETRY_20261019
+        )
+        twin = BenchTwin(config)
+        assert twin.camera_px_per_model_px() == pytest.approx(
+            MEASURED_SCALE_20261019, rel=1e-12
+        )
+        # 反推公式与解析式共用同一对模块级辅助函数 ⇒ 逐位相同。
+        assert twin.camera_px_per_model_px() == MEASURED_SCALE_20261019
+
+    def test_equivalent_focal_length_matches_the_hand_computed_value(self) -> None:
+        """反推的 f 与手算一致 (2026-10-19 那组数字 → 311.32 mm)。"""
+        geo = MEASURED_GEOMETRY_20261019
+        focal = equivalent_focal_length_m(MEASURED_SCALE_20261019, **geo)
+
+        n_pad = geo["region"] * geo["far_field_padding"]
+        pupil_pitch = (
+            geo["region_span_px"] / geo["region"] * geo["slm_pixel_um"] * 1e-6
+        )
+        hand = (
+            MEASURED_SCALE_20261019
+            * (geo["ccd_pixel_um"] * 1e-6)
+            * n_pad
+            * pupil_pitch
+            / geo["wavelength_m"]
+        )
+        assert focal == pytest.approx(hand, abs=1e-9)
+        # 报告里印的是两位小数: 311.32 mm。
+        assert round(focal * 1e3, 2) == pytest.approx(311.32, abs=1e-9)
+
+    def test_nominal_focal_length_would_be_off_by_the_measured_ratio(self) -> None:
+        """按标称焦距算的解析标度与实测差 2.54 倍 (提醒, 不是断言口径)。"""
+        geo = MEASURED_GEOMETRY_20261019
+        nominal = BenchTwinConfig(
+            wavelength_m=geo["wavelength_m"],
+            slm_pixel_um=geo["slm_pixel_um"],
+            ccd_pixel_um=geo["ccd_pixel_um"],
+            focal_length_m=0.12240601503759398,
+            region=geo["region"],
+            region_span_px=geo["region_span_px"],
+            far_field_padding=geo["far_field_padding"],
+        )
+        nominal_scale = BenchTwin(nominal).camera_px_per_model_px()
+        assert nominal_scale == pytest.approx(1.027778, rel=1e-5)
+        ratio = MEASURED_SCALE_20261019 / nominal_scale
+        assert ratio == pytest.approx(2.5434, rel=1e-4)
+
+    def test_default_path_is_bitwise_unchanged(self) -> None:
+        """默认配置 (标称焦距口径) 的解析标度逐位不变。"""
+        twin = BenchTwin(BenchTwinConfig())
+        assert twin.far_field_size == 1280
+        assert twin.pupil_pitch_m == 5.625e-05
+        assert twin.p_fft == 1.8472222222222225e-06
+        assert twin.camera_px_per_model_px() == 0.8396464646464648
+
+    def test_default_far_field_is_bitwise_unchanged(self) -> None:
+        """默认路径的远场逐位不变 (等效焦距入口不改变默认行为)。"""
+        twin = BenchTwin(BenchTwinConfig())
+        phase = _tilt_phase(twin.region)
+        expected = _reference_far_field(BenchTwinConfig(), phase)
+        np.testing.assert_array_equal(twin.far_field(phase), expected)
+
+    @pytest.mark.parametrize(
+        "scale", [0.0, -1.0, float("nan"), float("inf"), -2.614022035287756]
+    )
+    def test_invalid_measured_scale_raises(self, scale: float) -> None:
+        with pytest.raises(ValueError):
+            equivalent_focal_length_m(
+                scale, **MEASURED_GEOMETRY_20261019
+            )
+        with pytest.raises(ValueError):
+            BenchTwinConfig.from_measured_scale(
+                scale, **MEASURED_GEOMETRY_20261019
+            )
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("region", 1),
+            ("region", 0),
+            ("region", -3),
+            ("far_field_padding", 0),
+            ("far_field_padding", -2),
+            ("wavelength_m", 0.0),
+            ("wavelength_m", -1e-9),
+            ("slm_pixel_um", 0.0),
+            ("ccd_pixel_um", 0.0),
+            ("region_span_px", 0.0),
+            ("region_span_px", -900.0),
+        ],
+    )
+    def test_invalid_geometry_raises(self, field: str, value: object) -> None:
+        kwargs = dict(MEASURED_GEOMETRY_20261019)
+        kwargs[field] = value
+        with pytest.raises(ValueError):
+            equivalent_focal_length_m(MEASURED_SCALE_20261019, **kwargs)
+        with pytest.raises(ValueError):
+            BenchTwinConfig.from_measured_scale(
+                MEASURED_SCALE_20261019, **kwargs
+            )

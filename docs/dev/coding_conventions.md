@@ -223,16 +223,20 @@ class MyDriver(Device):
 
 ## 测试
 
+测试**必须在容器里跑**。本机 384 核，数值库按可见核数开线程池，不受限的
+`pytest` 会跑满整机（2026-10-21 曾因此把宿主机跑死、需强制断电）。`conftest.py`
+会直接拒绝宿主机运行。
+
 ```bash
 # 运行所有测试
-pytest -v
+./run_pytest.sh -v
 
 # 运行特定测试文件
-pytest tests/ao_shaping/utils/test_spots_calc.py
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py
 
 # 运行测试并查看输出
-pytest -s
+./run_pytest.sh -- -s
 
 # 运行特定测试函数
-pytest tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
+./run_pytest.sh tests/ao_shaping/utils/test_spots_calc.py::TestCentroid::test_centroid_uniform
 ```

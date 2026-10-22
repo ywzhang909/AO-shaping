@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from warnings import deprecated
+# `deprecated` 装饰器从 typing_extensions 导入, 而非 `warnings` / `typing`:
+# 后两者仅在 Python 3.13+ 提供, 而 CI runner 用 3.12 (requires-python>=3.12)。
+# typing_extensions.deprecated 是其官方后向兼容实现, 且 typing-extensions>=4.12.2
+# 已是硬依赖, 3.12/3.13 均可用。
+from typing_extensions import deprecated
 
 import numpy as np
 from loguru import logger

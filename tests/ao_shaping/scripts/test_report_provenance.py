@@ -167,6 +167,19 @@ _PREEXISTING_BROKEN: dict[str, dict[str, str]] = {
             "(`data/*`) -- exists only on the collecting machine."
         ),
     },
+    # The tracked miicam report embeds its simulated-image figure, but the image
+    # itself is gitignored (`.gitignore:147` report/miicam_simulation/images/001_
+    # simulated_images.png) and the top-level miicam_report.md that sits next to
+    # it is gitignored too. On a clean clone only the tracked markdown survives,
+    # so the figure link cannot resolve. Baselined, not a regression.
+    "report/miicam_simulation/test_miicam_simulation_report/miicam_report.md": {
+        "../images/001_simulated_images.png": (
+            "simulated camera image, gitignored (.gitignore:147 keeps "
+            "report/miicam_simulation/images/001_simulated_images.png out of "
+            "the repo) -- the tracked report markdown survives a clean clone but "
+            "the figure it embeds does not, so the link cannot resolve there."
+        ),
+    },
 }
 
 

@@ -274,7 +274,8 @@ def build_sequence(cases: list[PhaseCase]) -> list[tuple[str, str, object]]:
     """
     assert 1 <= len(cases) <= 2, "相位响应探针支持 1~2 个相位用例"
     seq: list[tuple[str, str, object]] = [(_BASELINE, "flat baseline", None)]
-    for c, prefix in zip(cases, ("B", "C"), strict=True):
+    # 1 个用例只用前缀 B; 2 个用例用 B/C。前缀表比用例长, 故不用 strict。
+    for c, prefix in zip(cases, ("B", "C")):
         seq.append((f"{prefix}_{c.name}", c.description, c.builder))
     seq.append((_REPEAT, "flat repeat (reversibility check)", None))
     return seq
@@ -447,27 +448,21 @@ class PhaseResponseParams:
             help="相位用例组 (默认 lens)",
         ),
     ] = "lens"
-    slm_number: Annotated[
-        int, option("--slm-number", help="SLM 设备编号 (默认 1)")
-    ] = 1
+    slm_number: Annotated[int, option("--slm-number", help="SLM 设备编号 (默认 1)")] = 1
     slm_wavelength: Annotated[
         int, option("--slm-wavelength", help="SLM 工作波长 nm (默认 1064)")
     ] = 1064
-    cam_id: Annotated[
-        int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")
-    ] = 0
+    cam_id: Annotated[int, option("--cam-id", help="MiiCam 相机 ID (默认 0)")] = 0
     exposure_ms: Annotated[
         float, option("--exposure-ms", help="相机曝光 ms (默认 0.02)")
     ] = 0.02
-    n_sample: Annotated[
-        int, option("--n-sample", help="每帧平均采样数 (默认 10)")
-    ] = 10
-    slot_min: Annotated[
-        int, option("--slot-min", help="内存槽下限 (默认 2)")
-    ] = _SLOT_MIN
-    slot_max: Annotated[
-        int, option("--slot-max", help="内存槽上限 (默认 125)")
-    ] = _SLOT_MAX
+    n_sample: Annotated[int, option("--n-sample", help="每帧平均采样数 (默认 10)")] = 10
+    slot_min: Annotated[int, option("--slot-min", help="内存槽下限 (默认 2)")] = (
+        _SLOT_MIN
+    )
+    slot_max: Annotated[int, option("--slot-max", help="内存槽上限 (默认 125)")] = (
+        _SLOT_MAX
+    )
     settle_s: Annotated[
         float, option("--settle-s", help="写相位后稳定等待 s (默认 0.4)")
     ] = 0.4

@@ -41,6 +41,26 @@
   逐像素不可比，拟合出的参数没有物理意义 —— 本脚本会**明确报错**而不是
   静默继续。
 
+🔴 焦面标度口径（本脚本反演的是**真实实验系统**的孪生，标度错了全部系数存疑）
+------------------------------------------------------------------------------
+孪生的远场标度只通过焦距 ``focal_length_m`` 进入（见
+``drivers/sim/bench_twin.py`` 的「两种焦面标度口径」）：**用哪个焦距就是哪种
+口径**。``BenchTwinConfig`` 的默认焦距是**标称口径**，上游实测（2026-10-19，
+相位斜坡扫描）表明本实验系统的**实测标度 camera_px_per_model_px = 2.614022**
+⇒ 等效焦距 311.32 mm，而标称焦距给出的解析标度只有 1.027778，**差 2.54 倍**。
+所以本脚本按下面的优先级选标度，并把口径打进摘要：
+
+1. ``--camera-px-per-model-px``（操作员显式给定，最高优先）；
+2. ``<from-dir>/preflight/geometry.json`` 的 ``camera_px_per_model_px``
+   —— model-in-loop 预检写下的**本次运行实测**几何（``asdict(BenchGeometry)``）；
+   若其 ``far_field_size`` 与本批 ``model_grid`` 边长不同，按上游
+   ``_geometry_on_model_grid`` 的同一条规则（标度 ∝ 1/补零尺寸）换算；
+3. 两者都没有 → 回落**标称口径**，但会**大声警告**：这样拟合出的孪生与本实验
+   系统的实测标度不可直接比较，并点名实测值 2.614022 让操作员显式补传。
+
+有标度时经 ``BenchTwinConfig.from_measured_scale`` 构造 —— 焦距即等效焦距，
+孪生的解析标度与实测口径逐位一致（往返偏差 < 1e-12）。
+
 用法
 ----
 ::
@@ -53,12 +73,18 @@
     python scripts/slm/fit_bench_twin.py \
         --from-dir data/debug/slm_model_in_loop/<ts> \
         --coupling-config data/debug/slm_amplitude_coupling/<ts>/twin_config.json
+
+    # 运行目录没有 preflight/geometry.json 时, 显式给实测标度 (本实验系统 2.614022):
+    python scripts/slm/fit_bench_twin.py \
+        --from-dir data/debug/slm_model_in_loop/<ts> \
+        --camera-px-per-model-px 2.614022 --fit-modes 4,5,6
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -121,6 +147,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                         "region × padding 恰等于远场帧边长, 否则网格标度不可比)")
     p.add_argument("--region-span-px", type=float, default=900.0,
                    help="瞳面网格覆盖的 SLM 面板边长 (px, 默认 900)")
+    p.add_argument("--camera-px-per-model-px", type=float, default=None,
+                   help="实测焦面标度 (相机像元/模型采样点)。缺省: 自动读 "
+                        "<from-dir>/preflight/geometry.json; 两者都没有则回落"
+                        "**标称焦距口径**并大声警告 (本实验系统 2026-10-19 实测 "
+                        "标度为 2.614022, 标称口径差 2.54 倍)")
     p.add_argument("--beam-w0-px", type=float, default=250.0,
                    help="瞳面入射高斯光束的 1/e² 强度半径 (面板 px, 默认 250)")
     p.add_argument("--levels", type=int, default=DEFAULT_LEVELS,
@@ -148,6 +179,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         p.error("--limit 必须 >= 1")
     if args.levels < 1:
         p.error("--levels 必须 >= 1")
+    if args.camera_px_per_model_px is not None and (
+        not math.isfinite(args.camera_px_per_model_px)
+        or args.camera_px_per_model_px <= 0.0
+    ):
+        p.error("--camera-px-per-model-px 必须是正的有限数 "
+                f"(收到 {args.camera_px_per_model_px!r})")
     return args
 
 
@@ -283,13 +320,97 @@ def check_geometry(
         )
 
 
-def build_initial_config(
+#: 上游实测 (2026-10-19, 相位斜坡扫描): 本实验系统应以此标度为准;
+#: 标称焦距口径只有 1.027778, 差 2.54 倍。回落警告里点名该值供操作员显式补传。
+MEASURED_SCALE_REFERENCE = 2.614022
+
+
+def resolve_scale(
     args: argparse.Namespace, region: int, model_side: int
+) -> tuple[float | None, str]:
+    """按优先级确定焦面标度: CLI 选项 > 运行目录实测几何 > 无 (标称口径)。
+
+    ``preflight/geometry.json`` 是 ``asdict(BenchGeometry)``, 其中的
+    ``camera_px_per_model_px`` 钉在该文件自己的 ``far_field_size`` 上; 若与本批
+    ``model_grid`` 边长不同, 按上游 ``_geometry_on_model_grid`` 的同一条规则换算
+    (标度 ∝ 1/补零尺寸)。``region`` 不符则**报错** —— 瞳面网格本身不同, 任何
+    换算都修不了 (上游同样拒绝)。
+
+    Returns:
+        ``(scale, source)``; ``scale is None`` 表示无实测标度, 走标称口径。
+
+    Raises:
+        SystemExit: 几何文件存在但非法, 或其 ``region`` 与探针相位边长矛盾。
+    """
+    if args.camera_px_per_model_px is not None:
+        return (
+            float(args.camera_px_per_model_px),
+            "--camera-px-per-model-px (操作员显式给定)",
+        )
+    geometry_path = args.from_dir / "preflight" / "geometry.json"
+    if not geometry_path.is_file():
+        return None, f"无 (未给 --camera-px-per-model-px, 也没有 {geometry_path})"
+    try:
+        geometry = json.loads(geometry_path.read_text(encoding="utf-8"))
+        scale = float(geometry["camera_px_per_model_px"])
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+        sys.exit(
+            f"错误: {geometry_path} 存在但读不出合法的 camera_px_per_model_px: "
+            f"{exc}; 请修复该文件或用 --camera-px-per-model-px 显式给定"
+        )
+    if not math.isfinite(scale) or scale <= 0.0:
+        sys.exit(
+            f"错误: {geometry_path} 的 camera_px_per_model_px = {scale!r} 不是正的"
+            f"有限数; 请修复该文件或用 --camera-px-per-model-px 显式给定"
+        )
+    geometry_region = int(geometry.get("region", region))
+    if geometry_region != region:
+        sys.exit(
+            f"错误: {geometry_path} 的 region {geometry_region} != 探针相位边长 "
+            f"{region}: 瞳面网格本身不同, 标度无法互相换算 (上游 "
+            f"_geometry_on_model_grid 同样拒绝); 请用与这批探针同一次运行的目录"
+        )
+    geometry_ffs = int(geometry.get("far_field_size", model_side))
+    if geometry_ffs != model_side:
+        print(
+            f"提示: {geometry_path.name} 的标度 {scale:.6f} 标定在远场网格 "
+            f"{geometry_ffs}×{geometry_ffs} 上, 本批 model_grid 边长为 {model_side}; "
+            f"按「标度 ∝ 1/补零尺寸」换算为 {scale * geometry_ffs / model_side:.6f} "
+            f"(与上游 _geometry_on_model_grid 同一规则)"
+        )
+        scale = scale * geometry_ffs / model_side
+    return scale, f"{geometry_path} (本次运行的预检实测几何)"
+
+
+def print_scale_fallback_warning() -> None:
+    """无实测标度时的大声警告: 本次拟合走**标称口径**, 与本实验系统不可直接比较。"""
+    print(
+        "\n" + "!" * 78 + "\n"
+        "⚠️⚠️ 警告 (焦面标度口径): 没有拿到实测标度, 本次反演的孪生使用\n"
+        "    **标称焦距口径** (BenchTwinConfig 默认 focal_length_m) ——\n"
+        "    这样拟合出的孪生与本实验系统的实测标度**不可直接比较**,\n"
+        "    每一个反演出的系数都因此存疑。\n"
+        f"    上游实测 (2026-10-19, 相位斜坡扫描): camera_px_per_model_px = "
+        f"{MEASURED_SCALE_REFERENCE}\n"
+        "    ⇒ 等效焦距 311.32 mm; 标称焦距 122.41 mm 的解析标度只有 1.027778,\n"
+        "    **差 2.54 倍**。\n"
+        f"    补救: 重跑并加 --camera-px-per-model-px {MEASURED_SCALE_REFERENCE},\n"
+        "    或使用带 preflight/geometry.json 的 slm-model-in-loop --debug 运行目录。\n"
+        + "!" * 78
+    )
+
+
+def build_initial_config(
+    args: argparse.Namespace, region: int, model_side: int,
+    scale: float | None,
 ) -> BenchTwinConfig:
     """按数据几何 + 声明的待反演模式构造初始配置。
 
     ``TwinErrorModel`` 的 Zernike 字典里**写入哪些 Noll 键**就是「要反演哪些
     模式」(``fit_twin`` 的约定, 值为 0.0 只是初值)。
+
+    有实测标度时经 ``BenchTwinConfig.from_measured_scale`` 构造 (焦距即等效
+    焦距, 孪生解析标度与实测口径一致); 没有则回落标称焦距默认值, 并大声警告。
     """
     panel_modes = parse_noll_modes(args.fit_modes, "--fit-modes")
     lens_modes = parse_noll_modes(args.fit_lens_modes, "--fit-lens-modes")
@@ -302,10 +423,28 @@ def build_initial_config(
         lens_zernike={j: 0.0 for j in lens_modes},
         lens_zernike_n_max=mode_n_max(lens_modes),
     )
+    padding = model_side // max(1, region)
+    if scale is not None:
+        try:
+            return BenchTwinConfig.from_measured_scale(
+                scale,
+                region=region,
+                region_span_px=float(args.region_span_px),
+                far_field_padding=padding,
+                beam_w0_px=float(args.beam_w0_px),
+                crop_px=model_side,
+                peak_adu=100.0,
+                noise_adu=0.0,
+                seed=int(args.seed),
+                errors=errors,
+            )
+        except ValueError as exc:
+            sys.exit(f"错误: 实测标度 {scale!r} 与几何参数组合非法: {exc}")
+    print_scale_fallback_warning()
     return BenchTwinConfig(
         region=region,
         region_span_px=float(args.region_span_px),
-        far_field_padding=model_side // max(1, region),
+        far_field_padding=padding,
         crop_px=model_side,
         beam_w0_px=float(args.beam_w0_px),
         peak_adu=100.0,
@@ -389,6 +528,14 @@ def format_summary(
         print("  灰度→振幅耦合: 未合并 (耦合应从 fit_slm_amplitude_coupling.py 测量, "
               "探针数据上不可辨识)")
 
+    if any(noll_to_nm(j) == (2, 0) for j in errors.slm_zernike):
+        # 相机离焦 (defocus_m) 是 fit_twin 两阶段始终反演的全局量, 无需开关;
+        # 简并说明同 upstream tools/slm/bench_twin_calibrate.py 模块 docstring。
+        print("\n⚠️  参数可辨识性注记: 本次同时反演了**面板 Noll 4 离焦 (n=2, m=0)** "
+              "与**相机离焦** (defocus_m, Stage-1 始终反演) —— 二者在远场上**近似"
+              "简并** (瞳面二次相位与焦面角谱离焦逐位等价), 损失主要约束两者的**和**,"
+              " 二者之间的份额是**弱决定**的, 单独解读任何一个的数值都不可靠。")
+
     print("\n=== 拟合质量 ===")
     stages = result.stages
     print(f"  使用探针配对             = {len(samples)} 对")
@@ -432,6 +579,7 @@ def main(argv: list[str] | None = None) -> int:
         args.from_dir, args.limit
     )
     check_geometry(region, model_side, args.region, args.far_field_padding)
+    scale, scale_source = resolve_scale(args, region, model_side)
     if amplitude is not None and amplitude.ndim == 2:
         if amplitude.shape == (model_side, model_side):
             amp_note = f"{model_side}×{model_side} (远场模型网格)"
@@ -445,7 +593,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"提示: source_amplitude.npy 形状 = {amp_note} (本脚本只核验几何, "
               f"孪生的入射幅度由 --beam-w0-px 的高斯参数化)")
 
-    config = build_initial_config(args, region, model_side)
+    config = build_initial_config(args, region, model_side, scale)
     n_panel = len(config.errors.slm_zernike)
     n_lens = len(config.errors.lens_zernike)
     print(f"数据: {args.from_dir}")
@@ -454,6 +602,15 @@ def main(argv: list[str] | None = None) -> int:
           f"(far_field_padding = {config.far_field_padding}, crop_px = {model_side})")
     print(f"  待反演: LUT Γ / 满灰度相位 / 相机离焦 (全局) + 面板 Zernike "
           f"{n_panel} 项 + 倾斜 2 项 + 透镜 Zernike {n_lens} 项 (空间)")
+    if scale is None:
+        print("  焦面标度口径: **标称焦距口径** (无实测标度; 见上方警告) "
+              f"→ focal_length_m = {config.focal_length_m:.6f} m")
+    else:
+        print(f"  焦面标度口径: **实测标度** camera_px_per_model_px = {scale:.6f} "
+              f"(来源: {scale_source})")
+        print(f"    → 等效焦距 focal_length_m = {config.focal_length_m:.6f} m; "
+              f"孪生解析标度 camera_px_per_model_px() = "
+              f"{BenchTwin(config).camera_px_per_model_px():.6f}")
 
     result = fit_twin(
         samples,
@@ -499,6 +656,8 @@ def main(argv: list[str] | None = None) -> int:
     print("\n几何契约 (gsnet_transfer / export_gsnet_phase 的 --twin-config 核验):")
     print(f"  孪生 region = {twin.region} = 探针相位边长 {region} ✓")
     print(f"  孪生 crop_side = {twin.crop_side} = 目标帧边长 {model_side} ✓")
+    print(f"  孪生 camera_px_per_model_px() = {twin.camera_px_per_model_px():.6f} "
+          f"口径 = {'实测标度 → 等效焦距' if scale is not None else '标称焦距 (无实测标度)'}")
     print(f"\n拟合结果已写出 (save_fit 形状, load_fit 可读回): {written}")
     return 0
 

@@ -23,21 +23,31 @@ jobs:
         run: ruff check .
 
   pytest:
-    name: Pytest (best-effort)
-    # Continues on error until dependency resolution is hardened for CI runners
-    # (the default `uv sync` pulls cupy-cuda13x / torch which need a CUDA host).
-    # The ruff job above is the hard gate; this job surfaces test regressions
-    # without blocking merges while the environment is being tuned.
+    name: Pytest (containerised)
+    # The suite runs inside a container, not on the runner. The numeric stack
+    # sizes every thread pool at the core count it can see, so an
+    # unconstrained run saturates the machine; the caps here are what keep it
+    # survivable. `conftest.py` refuses a host run outright, so this job
+    # cannot silently regress to one.
+    #
+    # Still `continue-on-error`: the image build pulls torch and the whole
+    # scientific stack, and the ruff job above is the hard gate. This job
+    # surfaces test regressions without blocking merges.
     continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-      - name: Sync dependencies
-        run: uv sync
-      - name: Run pytest (default subset; hardware/ml/gui-hang areas are excluded by pyproject)
-        run: uv run pytest
+          # `oopao` is a hard dep (pyproject [tool.uv.sources] -> path libs/OOPAO,
+          # editable). Without this the submodule dir is empty on the runner and
+          # the image build fails: "libs/OOPAO does not appear to be a Python project".
+          submodules: recursive
+      - name: Build the CPU test image
+        # The GPU image (docker/Dockerfile.test) is unusable here: a runner has
+        # no GPU and the CUDA wheels are multi-GB. The CPU variant carries the
+        # same thread caps, which is the part that matters.
+        run: docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
+      - name: Run pytest in the container
+        # Default subset; the hardware/ml/gui-hang areas are excluded by
+        # pyproject's addopts. The container caps CPU, memory and pids.
+        run: ./scripts/build/run_pytest_ci.sh

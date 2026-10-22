@@ -456,7 +456,7 @@ python scripts/dm/process_1300_data.py
 
 **What it does:**
 - Reads `1300-5.xlsx` and `1300路机柜输出线序表(1).xlsx` from
-  `docs/micro deformable mirror/docs`
+  `docs/micro_deformable_mirror/docs`
 - Maps each channel to its 36x36 grid position, IP group, sequence number,
   connector group and pin number
 - Writes `data/1300-5-enriched.xlsx` and `data/1300-5-enriched.csv`
@@ -1636,6 +1636,85 @@ python scripts/slm/run_hw_sweep_groups.py \
 | `--gs-iters` / `--spgd-epochs` / `--lr` / `--delta` / `--max-energy-loss` / `--seed` | `200` / `150` / `0.01` / `0.02` / `0.6` / `0` | optimiser knobs |
 | `--plan-exposure-cap-ms` / `--focus-exposure-cap-ms` | `0.4` / `40` | `AO_DAHENG_MAX_EXPOSURE_MS` for the measurement groups and for the focus-calibration group (it has to walk the exposure ladder up to 20 ms). The built-in doubling-ladder estimate reports a **false** ceiling on a dark bench, so the value must be written down explicitly |
 | `--chirp-tilt-cancel` / `--no-chirp-tilt-cancel` | on | pupil-slope tilt cancellation for the Δz **scan** groups (the far-field groups are single Δz=0 shots and do not use it) |
+
+### archive_hw_defocus_round.py
+
+Archives **one round** of hardware collection into
+`report/shape_trials/hw_defocus_zernike/artifacts/<round>/` — the input
+contract the reports read from (`report/AGENTS.md` §4: `artifacts/` holds the
+upstream scripts' raw CSV/JSON and must sit next to the report).
+
+**Why it exists**: the first two rounds were archived **by hand** — one-off,
+irreproducible, and the second round happened to be archived *after* the
+third round's first attempt had already overwritten eleven of its group
+directories. What landed in the archive was "whatever is on disk now", not the
+second round's original data (`report/shape_trials/hw_defocus_zernike/artifacts/README.md`
+records that). From this round on the archive is produced by a script, so it
+is reproducible and auditable.
+
+**What it copies** (raw records only, byte-for-byte, timestamps preserved):
+
+| source | archived |
+|---|---|
+| defocus / noise / far-field groups | `measurements.json`, `measurements.csv`, `run_config.json` |
+| Zernike groups | `summary.json`, `stage_a.json`, `spgd_nmax*.csv`, `before_nmax*.png`, `after_nmax*.png` |
+| focus calibration | `slm*.json` |
+| group root index | `manifest.json`, `groups_manifest*.json` |
+| collection plan | `plan.json` |
+
+**What it does not copy**: the per-frame `frame_*.npz`, the phase `*.npy` and
+`stage_a.npz` (17–56 MB each). They stay under `data/debug/` and the script
+says so in its output — the report's figures cannot be rebuilt from the
+archive alone, and the reader has to know that.
+
+**Usage:**
+```bash
+# dry run (default): print what would be archived, what is skipped, which
+# groups are missing -- and touch nothing on disk
+python scripts/slm/archive_hw_defocus_round.py
+
+# write it
+python scripts/slm/archive_hw_defocus_round.py --write
+
+# a different round / different data roots
+python scripts/slm/archive_hw_defocus_round.py --write \
+    --round round4_20261022 \
+    --groups-root data/debug/hw_groups_20261022 \
+    --sweep-root data/debug/hw_zernike_sweep_20261022
+
+# archive somewhere else (self-check, sharing)
+python scripts/slm/archive_hw_defocus_round.py --write --out C:/temp/round3
+```
+
+| Option | Default | Description |
+|---|---|---|
+| `--round` | `round3_20261021_r3` | round name = the archive directory name |
+| `--groups-root` | `data/debug/hw_groups_20261021_r3` | this round's group root (defocus/noise/far-field groups, focus-calibration evidence) |
+| `--sweep-root` | `data/debug/hw_zernike_sweep_20261021_r3` | this round's Zernike sweep root (Stage A + per-order groups) |
+| `--focus-dir` | `<groups-root>/focus_calibration` | focus-calibration evidence directory |
+| `--plan` | `<groups-root>/plan.json` if it exists | collection plan JSON (used to detect missing groups) |
+| `--no-plan` | off | do not archive the plan file |
+| `--out` | `report/shape_trials/hw_defocus_zernike/artifacts` | archive root; the round directory is created below it |
+| `--write` | off | actually write (the default is a dry run that only prints) |
+| `--force` | off | overwrite an existing archive (deletes the old snapshot first) |
+
+Three guards, each of which exists because of a real failure:
+
+- **Never overwrite silently.** An existing non-empty archive directory makes
+  the script exit 2. An archive is a *snapshot*; quietly rewriting it makes it
+  meaningless. `--force` deletes the old snapshot and rebuilds it, so no
+  stale file from the previous version survives.
+- **Never archive an empty round.** If the data roots hold no group records at
+  all, the script refuses: an empty archive reads as "this round ran and
+  produced nothing", when the truth is "this round never ran".
+- **Never hide a missing group.** The plan lists the groups the round was
+  supposed to run; groups present in the plan but absent from the data roots
+  are printed (`缺组`) and recorded in `archive_manifest.json`. A group that
+  did not run is exactly the fact a reader needs.
+
+The archive also carries its own `archive_manifest.json`: which files were
+copied (with source path, size and source mtime), which were skipped and why,
+and which groups were missing. The archive therefore explains itself.
 
 ### generate_gs_refine_zernike_report.py
 

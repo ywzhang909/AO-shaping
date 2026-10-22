@@ -587,6 +587,26 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线+硬件",
         note="本目录用本仓库 `model_in_loop_shaping.py` 的 sim 复现 TU/e 可微物理仿真的四项能力（系统松弛 / 混合拟合 / 低参数 vs 深度 / 样本查询与不确定性采样），并与 `shape_trials` 的实验、正向模型标定做定量对照，为论文 7.7 节提供定量证据；T1/T2/T4 定量表由本目录 `t1_noise_relaxation.py`、`t2_mixed_fitting.py`、`t4_uncertainty_sampling.py` 生成（`.venv/bin/python3 report/sim_tue_methods/<脚本>.py` 可复现），T3 复用论文 5.4 节实测数据、无新脚本。全部 sim-only（SimFourierGSNetEnv，64×64，CPU，无硬件），T3 与实验对照用 `shape_trials` 实测 (Santec SLM #1 23020027、Daheng CCD，1064 nm 实际光路)；不触碰硬件写入路径",
     ),
+    "report/simulation/bench_twin/bench_twin_fidelity_20261021.md": ReportProvenance(
+        script="scripts/slm/generate_bench_twin_report.py",
+        command=(
+            "python scripts/slm/generate_bench_twin_report.py "
+            "--run-dir data/debug/slm_model_in_loop/20261019_103208 "
+            "--n-train 5 --maxiter 3 --popsize 5 --maxiter-fine 8 --seed 0"
+        ),
+        environment="离线",
+        note=(
+            "2f 实验系统数字孪生 (bench_twin) 的保真度验证与误差参数反演: 读 2026-10-19 那次 "
+            "MIL 实验落盘的探针 npz / bench_geometry.json / run_config.json / recorder pkl, "
+            "把 300×300 相机像元窗口换算到 115×115 模型采样点 (旋转象限由落盘 model_grid "
+            "逐像素反推, 偏差 7.44e-08), 比较理想孪生与反演后孪生在训练集/验证集上的 "
+            "SSIM / Pearson r / 标度无关能量比, 并与 MIL 自己的正向模型在 1024² 网格上"
+            "同口径对拍 (复现其落盘的验证集相关 0.3918); 反演走 bench_twin_calibrate.fit_twin "
+            "自己的两阶段路径, 过程 GIF 由拟合期间临时包一层模块级 twin_loss 取优化器真实"
+            "访问过的候选序列; 同时给出孪生解析焦面标度与实测标度差 2.54 倍这一口径缺口"
+        ),
+        extra_scripts=("src/ao_shaping/runners/slm/model_in_loop_runner.py",),
+    ),
     # -- 基准网格的逐 GIF 指标 (同一脚本按 单元 生成) ----------------------
     "report/benchmarks/device_less_full/gif/gs_circle/gs_circle_metrics.md": ReportProvenance(
         script="scripts/slm/generate_beam_shaping_benchmark_report.py",

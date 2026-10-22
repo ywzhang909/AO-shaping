@@ -1,3 +1,13 @@
+"""DM (Deformable Mirror) 驱动器包.
+
+提供统一 :class:`~ao_shaping.drivers.dm.base.DM` 基类与 :class:`~ao_shaping.drivers.dm._registry.DMRegistry`
+注册表, 支持按名称惰性解析硬件/仿真 DM (Hadamard / Zernike / Micro / NLight /
+SimulateDM)。本 ``__init__`` 在模块作用域只注册类型名, 不触发任何驱动
+模块的 import; 属性级惰性解析由 ``install_lazy_attrs`` 实现, 使
+``from ao_shaping.drivers.dm import MicroDM`` 这种旧路径在零驱动加载
+的前提下可用。
+"""
+
 from __future__ import annotations
 from typing import TYPE_CHECKING
 

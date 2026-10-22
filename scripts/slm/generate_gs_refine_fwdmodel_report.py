@@ -45,6 +45,10 @@ from ao_shaping.drivers.sim.slm_shaping_bench import (  # noqa: E402
     camera_window_from_far_field,
     forward_intensity,
 )
+from scripts.slm._fwdmodel_sections import (  # noqa: E402
+    SECTION_1_1,
+    SECTION_4X,
+)
 
 REPORT_KEY = "report/shape_trials/gs_refine_fwdmodel/gs_refine_fwdmodel_calibration.md"
 OUT_DIR = ROOT / "report" / "shape_trials" / "gs_refine_fwdmodel"
@@ -141,8 +145,8 @@ def simulate(sample, blur_camera_px: float = 0.0):
     if blur_camera_px > 0:
         # Multiplicative focal-plane low-pass, applied on the CAMERA grid.
         rows, cols = cam.shape
-        y = (np.arange(rows) - (rows - 1) / 2.0)
-        x = (np.arange(cols) - (cols - 1) / 2.0)
+        y = np.arange(rows) - (rows - 1) / 2.0
+        x = np.arange(cols) - (cols - 1) / 2.0
         ry = np.exp(-0.5 * (y / blur_camera_px) ** 2)
         rx = np.exp(-0.5 * (x / blur_camera_px) ** 2)
         cam = cam * ry[:, None] * rx[None, :]
@@ -150,8 +154,10 @@ def simulate(sample, blur_camera_px: float = 0.0):
 
 
 def gate(samples, blur=0.0):
-    print(f"{'run':16s} {'phase':5s} | {'pib m':>7s} {'pib p':>7s} "
-          f"| {'cv m':>7s} {'cv p':>7s} | {'sc m':>7s} {'sc p':>7s} {'corr':>7s}")
+    print(
+        f"{'run':16s} {'phase':5s} | {'pib m':>7s} {'pib p':>7s} "
+        f"| {'cv m':>7s} {'cv p':>7s} | {'sc m':>7s} {'sc p':>7s} {'corr':>7s}"
+    )
     rows = []
     for s in samples:
         cam = simulate(s, blur)
@@ -162,8 +168,10 @@ def gate(samples, blur=0.0):
         comp = 0.5 * pib + 0.5 / (1.0 + cv)
         c = pearson(s["img"], cam)
         rows.append((s, pib, cv, comp, c))
-        print(f"{s['run']:16s} {s['phase']:5s} | {s['pib']:7.4f} {pib:7.4f} "
-              f"| {s['cv']:7.4f} {cv:7.4f} | {s['score']:7.4f} {comp:7.4f} {c:+7.4f}")
+        print(
+            f"{s['run']:16s} {s['phase']:5s} | {s['pib']:7.4f} {pib:7.4f} "
+            f"| {s['cv']:7.4f} {cv:7.4f} | {s['score']:7.4f} {comp:7.4f} {c:+7.4f}"
+        )
     return rows
 
 
@@ -182,8 +190,9 @@ def render_figures(samples, rows, blur_sweep):
         ax[1, j].set_title("simulated", fontsize=7)
         for r in (0, 1):
             ax[r, j].axis("off")
-    fig.suptitle("Measured CCD vs simulated far field (same camera pixel grid)",
-                 fontsize=12)
+    fig.suptitle(
+        "Measured CCD vs simulated far field (same camera pixel grid)", fontsize=12
+    )
     fig.tight_layout()
     fig.savefig(FIG_DIR / "measured_vs_simulated.png", dpi=115)
     plt.close(fig)
@@ -198,8 +207,9 @@ def render_figures(samples, rows, blur_sweep):
         ax[k].bar(x - 0.2, meas, 0.4, label="measured", color="#2b6cb0")
         ax[k].bar(x + 0.2, simv, 0.4, label="simulated", color="#c53030")
         ax[k].set_xticks(x)
-        ax[k].set_xticklabels([f"{s['run'][-6:]}\n{s['phase']}" for s in samples],
-                              fontsize=7)
+        ax[k].set_xticklabels(
+            [f"{s['run'][-6:]}\n{s['phase']}" for s in samples], fontsize=7
+        )
         ax[k].set_ylabel(ylab)
         ax[k].set_title(title)
         ax[k].legend(fontsize=8)
@@ -247,8 +257,10 @@ def build_markdown(samples, rows, blur_sweep):
     scM = max(s["score"] for s in samples if s["phase"] == "GS")
     scp = min(r[3] for r in gs)
     scP = max(r[3] for r in gs)
-    maxdev = max(abs(s["score"] - r[3]) for s, r in zip(
-        [r[0] for r in rows if r[0]["phase"] == "GS"], gs))
+    maxdev = max(
+        abs(s["score"] - r[3])
+        for s, r in zip([r[0] for r in rows if r[0]["phase"] == "GS"], gs)
+    )
 
     return f"""# slm-gs-refine 正向模型标定 (2026-10-13)
 
@@ -264,7 +276,7 @@ def build_markdown(samples, rows, blur_sweep):
 （`idealized_far_field`）是一个**未标定的同尺寸 FFT**：无波长、无焦距、无像元间距，
 `2π` 取 1023 灰度而非台架实测的 993，且 1200×1920 不补零 ⇒ 远场像元
 8.66 µm(x) / 13.85 µm(y)，**各向异性 1.60×**，平场核心塌到 1~3 px。
-
+{SECTION_1_1}
 ## 2. 硬件基线（先确认台架是好的）
 
 | 量 | 值 |
@@ -309,7 +321,7 @@ GS 把 11.5 px 的平场展开成 ~86 px 方斑，**尺度正确** ⇒ 问题在
 `camera_window_from_far_field()`，按 `λf/(aperture·padding)` 与相机像元间距之比
 重采样（**两个方向都要处理**：远场比相机细则抽稀，比相机粗则插值放大——本台架
 `padding=3` 属后者，早期实现漏了后者，光斑被画得比真实更小）。
-
+{SECTION_4X}
 ## 5. 标定后验证
 
 ![measured vs simulated](figures/measured_vs_simulated.png)
@@ -363,8 +375,12 @@ def main() -> None:
     import argparse
 
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--data-root", type=Path, default=None,
-                    help="dir holding slm_gs_refine/ (default <repo>/data/debug)")
+    ap.add_argument(
+        "--data-root",
+        type=Path,
+        default=None,
+        help="dir holding slm_gs_refine/ (default <repo>/data/debug)",
+    )
     args = ap.parse_args()
 
     debug_root = args.data_root or (ROOT / "data" / "debug")
@@ -393,8 +409,10 @@ def main() -> None:
     render_figures(samples, rows, sweep)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     out = ROOT / REPORT_KEY
-    out.write_text(insert_header(build_markdown(samples, rows, sweep), REPORT_KEY),
-                   encoding="utf-8")
+    out.write_text(
+        insert_header(build_markdown(samples, rows, sweep), REPORT_KEY),
+        encoding="utf-8",
+    )
     print(f"\nWrote {out}")
 
 

@@ -1,4 +1,15 @@
+"""优化算法包 (optimization algorithms).
+
+统一暴露仓库里全部可复用的优化原语：深度学习优化器 (Adam 系列 /
+SGD, Cython 优先 + 纯 Python 回退)、启发式搜索 (GA / PSO / SA / 模拟
+退火 / 交叉熵 / 差分进化 / 爬山 / 随机搜索 / 禁忌搜索)、信号处理
+(GS / 相位卷绕 / 可微光束整形) 与目标函数 (ImageTargetFunc)。
+对外 API 通过本 ``__init__`` 的 ``__all__`` 一次性导出, 子包内部
+实现按全路径 (``ao_shaping.algorithm.<子包>.<模块>``) 访问。
+"""
+
 from __future__ import annotations
+
 try:
     from ao_shaping.algorithm.adam_cython import (
         Base,

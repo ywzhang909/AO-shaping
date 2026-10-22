@@ -208,10 +208,9 @@ def _save_frame(
     filename = f"{stem}.png"
     png_path = ip_dir / filename
 
-    if frame.dtype == np.uint16:
-        img = Image.fromarray(frame, mode="I;16")
-    else:
-        img = Image.fromarray(frame, mode="L")
+    # 不传 mode=: numpy dtype 自动映射 (uint16→I;16, uint8→L);
+    # Pillow 13 已移除 fromarray 的显式 mode 参数
+    img = Image.fromarray(frame)
     img.save(png_path)
 
     if save_npy:
