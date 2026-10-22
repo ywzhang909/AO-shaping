@@ -1,0 +1,1948 @@
+{
+  "probe": "miicam_auto_exposure",
+  "started_at": "2026-10-22T21:21:20",
+  "checks": [
+    {
+      "check": "premise_brightness",
+      "passed": true,
+      "detail": "median peak 212 counts at 0.020 ms (range 211-213); scene must be clearly lit"
+    },
+    {
+      "check": "premise_lit_fraction",
+      "passed": true,
+      "detail": "min lit fraction 0.63 (expected >= 0.5)"
+    },
+    {
+      "check": "info_response_mean_linearity",
+      "passed": null,
+      "detail": "mean = 1.619 counts/us, R2=0.7014 (n=7, axis = requested exposure quantised to integer us), saturation onset 40 us -- the proportional iteration assumes linearity; a stepped scene breaks it"
+    },
+    {
+      "check": "info_response_peak_linearity",
+      "passed": null,
+      "detail": "peak = 9.622 counts/us, R2=-1.5517 (n=5) -- diagnostic only, see above"
+    },
+    {
+      "check": "device_expo_matches_request",
+      "passed": true,
+      "detail": "frame-info expotime not provided by this camera/SDK (flag lacks MIICAM_FRAMEINFO_FLAG_EXPOTIME=0x04, field reads 0); device-side exposure readback unavailable, requested exposure taken from the driver cache"
+    },
+    {
+      "check": "frame_seq_advances",
+      "passed": true,
+      "detail": "17.0 us: [1, 1, 1, 1, 1, 1, 1]; 20.0 us: [1, 1, 1, 1, 1, 1, 1]"
+    },
+    {
+      "check": "frame_timestamps_advance",
+      "passed": true,
+      "detail": "17.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572]; 20.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572]"
+    },
+    {
+      "check": "frames_not_duplicated",
+      "passed": true,
+      "detail": "17.0 us: mean|diff|=1.91 counts, exact duplicates=0; 20.0 us: mean|diff|=2.07 counts, exact duplicates=0"
+    },
+    {
+      "check": "switch_step_deterministic",
+      "passed": true,
+      "detail": "16.0 us: mean 30.37 (spread 0.4%); 17.0 us: mean 30.43 (spread 3.9%); 18.0 us: mean 40.78 (spread 0.7%); 19.0 us: mean 40.76 (spread 0.8%)"
+    },
+    {
+      "check": "switch_no_lag",
+      "passed": true,
+      "detail": "17.0->18.0 us: lag 0%; 19.0->16.0 us: lag 0%; 17.0->18.0 us: lag 1%; 19.0->16.0 us: lag 1%; 17.0->18.0 us: lag 2%"
+    },
+    {
+      "check": "sdk_auto_exposure_disabled",
+      "passed": true,
+      "detail": "state={'enabled': False, 'mode': 0, 'target': 120}"
+    },
+    {
+      "check": "exposure_readback_consistent",
+      "passed": true,
+      "detail": "readback=0.0110 ms, last applied=0.0110 ms"
+    },
+    {
+      "check": "converged[target=220_tol12_n1_twice1_conv]",
+      "passed": true,
+      "detail": "band contains a response rung: final peak 221 in [208, 232], exp 0.0200 ms, 0 reset(s)"
+    },
+    {
+      "check": "returned_matches_last[target=220_tol12_n1_twice1_conv]",
+      "passed": true,
+      "detail": "returned peak 221 vs last measured 221.0"
+    },
+    {
+      "check": "frames_fresh[target=220_tol12_n1_twice1_conv]",
+      "passed": true,
+      "detail": "at 0.0200 ms: peaks ['221', '221', '221'], mean|diff|=2.08 counts, duplicates=0, peak spread 0.0%"
+    },
+    {
+      "check": "converged[target=240_tol15_n1_twice1_conv]",
+      "passed": true,
+      "detail": "band contains a response rung: final peak 244 in [225, 254], exp 0.0260 ms, 3 reset(s)"
+    },
+    {
+      "check": "returned_matches_last[target=240_tol15_n1_twice1_conv]",
+      "passed": true,
+      "detail": "returned peak 244 vs last measured 244.0"
+    },
+    {
+      "check": "frames_fresh[target=240_tol15_n1_twice1_conv]",
+      "passed": true,
+      "detail": "at 0.0260 ms: peaks ['243', '243', '242'], mean|diff|=2.18 counts, duplicates=0, peak spread 0.4%"
+    },
+    {
+      "check": "deadzone_bounded[target=200_tol10_n1_twice1_dead]",
+      "passed": true,
+      "detail": "band between rungs: terminated after 20 reset(s) of max 20, converged=False, final peak 221 at 0.0182 ms"
+    },
+    {
+      "check": "returned_matches_last[target=200_tol10_n1_twice1_dead]",
+      "passed": true,
+      "detail": "returned peak 221 vs last measured 221.0"
+    },
+    {
+      "check": "frames_fresh[target=200_tol10_n1_twice1_dead]",
+      "passed": true,
+      "detail": "at 0.0182 ms: peaks ['222', '223', '222'], mean|diff|=2.08 counts, duplicates=0, peak spread 0.5%"
+    },
+    {
+      "check": "deadzone_bounded[target=200_tol5_n1_twice1_dead]",
+      "passed": true,
+      "detail": "band between rungs: terminated after 20 reset(s) of max 20, converged=False, final peak 189 at 0.0169 ms"
+    },
+    {
+      "check": "returned_matches_last[target=200_tol5_n1_twice1_dead]",
+      "passed": true,
+      "detail": "returned peak 189 vs last measured 189.0"
+    },
+    {
+      "check": "frames_fresh[target=200_tol5_n1_twice1_dead]",
+      "passed": true,
+      "detail": "at 0.0169 ms: peaks ['191', '189', '193'], mean|diff|=1.91 counts, duplicates=0, peak spread 2.1%"
+    },
+    {
+      "check": "boundary_exit[target=40_tol5_n1_twice1_bound]",
+      "passed": true,
+      "detail": "target below the lowest response rung: final exp 0.0110 ms (min boundary), 1 reset(s) of max 20 iterations, returned peak 224"
+    },
+    {
+      "check": "returned_matches_last[target=40_tol5_n1_twice1_bound]",
+      "passed": true,
+      "detail": "returned peak 224 vs last measured 224.0"
+    },
+    {
+      "check": "frames_fresh[target=40_tol5_n1_twice1_bound]",
+      "passed": true,
+      "detail": "at 0.0110 ms: peaks ['190', '189', '191'], mean|diff|=1.91 counts, duplicates=0, peak spread 1.1%"
+    },
+    {
+      "check": "boundary_exit[target=120_tol10_n3_twice1_bound]",
+      "passed": true,
+      "detail": "target below the lowest response rung: final exp 0.0110 ms (min boundary), 1 reset(s) of max 20 iterations, returned peak 222"
+    },
+    {
+      "check": "returned_matches_last[target=120_tol10_n3_twice1_bound]",
+      "passed": true,
+      "detail": "returned peak 222 vs last measured 222.0"
+    },
+    {
+      "check": "frames_fresh[target=120_tol10_n3_twice1_bound]",
+      "passed": true,
+      "detail": "at 0.0110 ms: peaks ['190', '190', '192'], mean|diff|=1.92 counts, duplicates=0, peak spread 1.1%"
+    }
+  ],
+  "runs": [
+    {
+      "label": "target=220_tol12_n1_twice1_conv",
+      "target_max": 220.0,
+      "tolerance": 12.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "expect": "conv",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.02,
+      "final_peak_returned": 221.0,
+      "final_peak_last_measured": 221.0,
+      "converged": true,
+      "n_measurements": 2,
+      "n_resets": 0,
+      "wall_s": 0.13,
+      "returned_type": "ndarray",
+      "returned_is_ndarray": true,
+      "resets": [],
+      "trajectory": [
+        {
+          "t_rel_s": 0.011,
+          "exposure_ms": 0.02,
+          "peak": 221.0,
+          "mean": 40.84990503602757,
+          "min": 1.0,
+          "lit_fraction": 0.6223104147086466
+        },
+        {
+          "t_rel_s": 0.074,
+          "exposure_ms": 0.02,
+          "peak": 221.0,
+          "mean": 40.865719719219925,
+          "min": 1.0,
+          "lit_fraction": 0.6224991188909774
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [],
+      "freshness_probe": {
+        "exposure_ms": 0.02,
+        "peaks": [
+          221.0,
+          221.0,
+          221.0
+        ],
+        "mean_abs_diffs": [
+          2.0774766506109024,
+          2.0738513764880953
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.0
+      },
+      "frames_fresh": true
+    },
+    {
+      "label": "target=240_tol15_n1_twice1_conv",
+      "target_max": 240.0,
+      "tolerance": 15.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "expect": "conv",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.025965976006266094,
+      "final_peak_returned": 244.0,
+      "final_peak_last_measured": 244.0,
+      "converged": true,
+      "n_measurements": 5,
+      "n_resets": 3,
+      "wall_s": 2.76,
+      "returned_type": "ndarray",
+      "returned_is_ndarray": true,
+      "resets": [
+        {
+          "request_ms": 0.021917808219178082,
+          "applied_ms": 0.021917808219178082
+        },
+        {
+          "request_ms": 0.023802144672410586,
+          "applied_ms": 0.023802144672410586
+        },
+        {
+          "request_ms": 0.025965976006266094,
+          "applied_ms": 0.025965976006266094
+        }
+      ],
+      "trajectory": [
+        {
+          "t_rel_s": 0.007,
+          "exposure_ms": 0.02,
+          "peak": 219.0,
+          "mean": 41.07068819509712,
+          "min": 1.0,
+          "lit_fraction": 0.6280251409774437
+        },
+        {
+          "t_rel_s": 0.889,
+          "exposure_ms": 0.021917808219178082,
+          "peak": 221.0,
+          "mean": 41.16682453203321,
+          "min": 1.0,
+          "lit_fraction": 0.6287009026472431
+        },
+        {
+          "t_rel_s": 1.765,
+          "exposure_ms": 0.023802144672410586,
+          "peak": 220.0,
+          "mean": 42.21466116463033,
+          "min": 2.0,
+          "lit_fraction": 0.6556388529918546
+        },
+        {
+          "t_rel_s": 2.631,
+          "exposure_ms": 0.025965976006266094,
+          "peak": 243.0,
+          "mean": 50.93580141760652,
+          "min": 2.0,
+          "lit_fraction": 0.6915565280388472
+        },
+        {
+          "t_rel_s": 2.699,
+          "exposure_ms": 0.025965976006266094,
+          "peak": 244.0,
+          "mean": 50.92994669290414,
+          "min": 2.0,
+          "lit_fraction": 0.691582227052005
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [
+        {
+          "exposure_before_ms": 0.02,
+          "exposure_after_ms": 0.021917808219178082,
+          "exp_rel": 0.09589041095890409,
+          "peak_before": 219.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.0091324200913242
+        },
+        {
+          "exposure_before_ms": 0.021917808219178082,
+          "exposure_after_ms": 0.023802144672410586,
+          "exp_rel": 0.08597285067873299,
+          "peak_before": 221.0,
+          "peak_after": 220.0,
+          "peak_rel": 0.004524886877828055
+        },
+        {
+          "exposure_before_ms": 0.023802144672410586,
+          "exposure_after_ms": 0.025965976006266094,
+          "exp_rel": 0.09090909090909088,
+          "peak_before": 220.0,
+          "peak_after": 243.0,
+          "peak_rel": 0.10454545454545454
+        }
+      ],
+      "freshness_probe": {
+        "exposure_ms": 0.025965976006266094,
+        "peaks": [
+          243.0,
+          243.0,
+          242.0
+        ],
+        "mean_abs_diffs": [
+          2.180027705983709,
+          2.176158168859649
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.00411522633744856
+      },
+      "frames_fresh": true
+    },
+    {
+      "label": "target=200_tol10_n1_twice1_dead",
+      "target_max": 200.0,
+      "tolerance": 10.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "expect": "dead",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.018245632940936212,
+      "final_peak_returned": 221.0,
+      "final_peak_last_measured": 221.0,
+      "converged": false,
+      "n_measurements": 21,
+      "n_resets": 20,
+      "wall_s": 17.55,
+      "returned_type": "ndarray",
+      "returned_is_ndarray": true,
+      "resets": [
+        {
+          "request_ms": 0.01809954751131222,
+          "applied_ms": 0.01809954751131222
+        },
+        {
+          "request_ms": 0.016379681005712417,
+          "applied_ms": 0.016379681005712417
+        },
+        {
+          "request_ms": 0.017901290716625592,
+          "applied_ms": 0.017901290716625592
+        },
+        {
+          "request_ms": 0.01945792469198434,
+          "applied_ms": 0.01945792469198434
+        },
+        {
+          "request_ms": 0.01768902244725849,
+          "applied_ms": 0.01768902244725849
+        },
+        {
+          "request_ms": 0.0188181089864452,
+          "applied_ms": 0.0188181089864452
+        },
+        {
+          "request_ms": 0.017029962883660814,
+          "applied_ms": 0.017029962883660814
+        },
+        {
+          "request_ms": 0.01851082922137045,
+          "applied_ms": 0.01851082922137045
+        },
+        {
+          "request_ms": 0.01667642272195536,
+          "applied_ms": 0.01667642272195536
+        },
+        {
+          "request_ms": 0.018028565104816607,
+          "applied_ms": 0.018028565104816607
+        },
+        {
+          "request_ms": 0.016315443533770686,
+          "applied_ms": 0.016315443533770686
+        },
+        {
+          "request_ms": 0.017543487670721166,
+          "applied_ms": 0.017543487670721166
+        },
+        {
+          "request_ms": 0.019069008337740397,
+          "applied_ms": 0.019069008337740397
+        },
+        {
+          "request_ms": 0.017257021120127055,
+          "applied_ms": 0.017257021120127055
+        },
+        {
+          "request_ms": 0.018656239048786008,
+          "applied_ms": 0.018656239048786008
+        },
+        {
+          "request_ms": 0.01680742256647388,
+          "applied_ms": 0.01680742256647388
+        },
+        {
+          "request_ms": 0.017880236772844553,
+          "applied_ms": 0.017880236772844553
+        },
+        {
+          "request_ms": 0.019021528481749525,
+          "applied_ms": 0.019021528481749525
+        },
+        {
+          "request_ms": 0.017059666799775358,
+          "applied_ms": 0.017059666799775358
+        },
+        {
+          "request_ms": 0.018245632940936212,
+          "applied_ms": 0.018245632940936212
+        }
+      ],
+      "trajectory": [
+        {
+          "t_rel_s": 0.008,
+          "exposure_ms": 0.02,
+          "peak": 221.0,
+          "mean": 41.07651281524123,
+          "min": 1.0,
+          "lit_fraction": 0.6238560267857143
+        },
+        {
+          "t_rel_s": 0.86,
+          "exposure_ms": 0.01809954751131222,
+          "peak": 221.0,
+          "mean": 41.05022076676065,
+          "min": 1.0,
+          "lit_fraction": 0.6231876076911027
+        },
+        {
+          "t_rel_s": 1.73,
+          "exposure_ms": 0.016379681005712417,
+          "peak": 183.0,
+          "mean": 30.569752995770678,
+          "min": 1.0,
+          "lit_fraction": 0.5519709919329574
+        },
+        {
+          "t_rel_s": 2.606,
+          "exposure_ms": 0.017901290716625592,
+          "peak": 184.0,
+          "mean": 30.461647037515664,
+          "min": 1.0,
+          "lit_fraction": 0.5513483415570175
+        },
+        {
+          "t_rel_s": 3.448,
+          "exposure_ms": 0.01945792469198434,
+          "peak": 220.0,
+          "mean": 40.959622200031326,
+          "min": 1.0,
+          "lit_fraction": 0.6224051339285714
+        },
+        {
+          "t_rel_s": 4.317,
+          "exposure_ms": 0.01768902244725849,
+          "peak": 188.0,
+          "mean": 30.712979959664786,
+          "min": 1.0,
+          "lit_fraction": 0.5574397419329574
+        },
+        {
+          "t_rel_s": 5.21,
+          "exposure_ms": 0.0188181089864452,
+          "peak": 221.0,
+          "mean": 41.216919006500625,
+          "min": 1.0,
+          "lit_fraction": 0.6277904233239349
+        },
+        {
+          "t_rel_s": 6.099,
+          "exposure_ms": 0.017029962883660814,
+          "peak": 184.0,
+          "mean": 30.665196927866543,
+          "min": 1.0,
+          "lit_fraction": 0.5560918898809524
+        },
+        {
+          "t_rel_s": 6.964,
+          "exposure_ms": 0.01851082922137045,
+          "peak": 222.0,
+          "mean": 41.19027647243108,
+          "min": 1.0,
+          "lit_fraction": 0.6280811893013785
+        },
+        {
+          "t_rel_s": 7.835,
+          "exposure_ms": 0.01667642272195536,
+          "peak": 185.0,
+          "mean": 30.719687157346492,
+          "min": 1.0,
+          "lit_fraction": 0.5568300634398496
+        },
+        {
+          "t_rel_s": 8.722,
+          "exposure_ms": 0.018028565104816607,
+          "peak": 221.0,
+          "mean": 41.00244385377506,
+          "min": 1.0,
+          "lit_fraction": 0.6222771283677945
+        },
+        {
+          "t_rel_s": 9.609,
+          "exposure_ms": 0.016315443533770686,
+          "peak": 186.0,
+          "mean": 30.570377114661653,
+          "min": 1.0,
+          "lit_fraction": 0.55123086035401
+        },
+        {
+          "t_rel_s": 10.476,
+          "exposure_ms": 0.017543487670721166,
+          "peak": 184.0,
+          "mean": 30.756867021068295,
+          "min": 1.0,
+          "lit_fraction": 0.5566021988565163
+        },
+        {
+          "t_rel_s": 11.338,
+          "exposure_ms": 0.019069008337740397,
+          "peak": 221.0,
+          "mean": 41.04650126292293,
+          "min": 1.0,
+          "lit_fraction": 0.6222347861842106
+        },
+        {
+          "t_rel_s": 12.224,
+          "exposure_ms": 0.017257021120127055,
+          "peak": 185.0,
+          "mean": 30.564649416510026,
+          "min": 1.0,
+          "lit_fraction": 0.5515363114818296
+        },
+        {
+          "t_rel_s": 13.112,
+          "exposure_ms": 0.018656239048786008,
+          "peak": 222.0,
+          "mean": 41.135642328477445,
+          "min": 1.0,
+          "lit_fraction": 0.6226611450501253
+        },
+        {
+          "t_rel_s": 13.98,
+          "exposure_ms": 0.01680742256647388,
+          "peak": 188.0,
+          "mean": 30.803499716087092,
+          "min": 1.0,
+          "lit_fraction": 0.5570890115914787
+        },
+        {
+          "t_rel_s": 14.859,
+          "exposure_ms": 0.017880236772844553,
+          "peak": 188.0,
+          "mean": 30.839701059288846,
+          "min": 1.0,
+          "lit_fraction": 0.5579226386278195
+        },
+        {
+          "t_rel_s": 15.734,
+          "exposure_ms": 0.019021528481749525,
+          "peak": 223.0,
+          "mean": 41.39790883458647,
+          "min": 1.0,
+          "lit_fraction": 0.6280956296992481
+        },
+        {
+          "t_rel_s": 16.606,
+          "exposure_ms": 0.017059666799775358,
+          "peak": 187.0,
+          "mean": 31.1189805568609,
+          "min": 1.0,
+          "lit_fraction": 0.5643870418233082
+        },
+        {
+          "t_rel_s": 17.475,
+          "exposure_ms": 0.018245632940936212,
+          "peak": 221.0,
+          "mean": 41.4201289356203,
+          "min": 1.0,
+          "lit_fraction": 0.6282148241697995
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [
+        {
+          "exposure_before_ms": 0.02,
+          "exposure_after_ms": 0.01809954751131222,
+          "exp_rel": 0.09502262443438908,
+          "peak_before": 221.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.0
+        },
+        {
+          "exposure_before_ms": 0.01809954751131222,
+          "exposure_after_ms": 0.016379681005712417,
+          "exp_rel": 0.09502262443438905,
+          "peak_before": 221.0,
+          "peak_after": 183.0,
+          "peak_rel": 0.17194570135746606
+        },
+        {
+          "exposure_before_ms": 0.016379681005712417,
+          "exposure_after_ms": 0.017901290716625592,
+          "exp_rel": 0.092896174863388,
+          "peak_before": 183.0,
+          "peak_after": 184.0,
+          "peak_rel": 0.00546448087431694
+        },
+        {
+          "exposure_before_ms": 0.017901290716625592,
+          "exposure_after_ms": 0.01945792469198434,
+          "exp_rel": 0.08695652173913042,
+          "peak_before": 184.0,
+          "peak_after": 220.0,
+          "peak_rel": 0.1956521739130435
+        },
+        {
+          "exposure_before_ms": 0.01945792469198434,
+          "exposure_after_ms": 0.01768902244725849,
+          "exp_rel": 0.09090909090909095,
+          "peak_before": 220.0,
+          "peak_after": 188.0,
+          "peak_rel": 0.14545454545454545
+        },
+        {
+          "exposure_before_ms": 0.01768902244725849,
+          "exposure_after_ms": 0.0188181089864452,
+          "exp_rel": 0.06382978723404246,
+          "peak_before": 188.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.17553191489361702
+        },
+        {
+          "exposure_before_ms": 0.0188181089864452,
+          "exposure_after_ms": 0.017029962883660814,
+          "exp_rel": 0.09502262443438916,
+          "peak_before": 221.0,
+          "peak_after": 184.0,
+          "peak_rel": 0.167420814479638
+        },
+        {
+          "exposure_before_ms": 0.017029962883660814,
+          "exposure_after_ms": 0.01851082922137045,
+          "exp_rel": 0.0869565217391304,
+          "peak_before": 184.0,
+          "peak_after": 222.0,
+          "peak_rel": 0.20652173913043478
+        },
+        {
+          "exposure_before_ms": 0.01851082922137045,
+          "exposure_after_ms": 0.01667642272195536,
+          "exp_rel": 0.09909909909909909,
+          "peak_before": 222.0,
+          "peak_after": 185.0,
+          "peak_rel": 0.16666666666666666
+        },
+        {
+          "exposure_before_ms": 0.01667642272195536,
+          "exposure_after_ms": 0.018028565104816607,
+          "exp_rel": 0.08108108108108117,
+          "peak_before": 185.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.1945945945945946
+        },
+        {
+          "exposure_before_ms": 0.018028565104816607,
+          "exposure_after_ms": 0.016315443533770686,
+          "exp_rel": 0.09502262443438905,
+          "peak_before": 221.0,
+          "peak_after": 186.0,
+          "peak_rel": 0.1583710407239819
+        },
+        {
+          "exposure_before_ms": 0.016315443533770686,
+          "exposure_after_ms": 0.017543487670721166,
+          "exp_rel": 0.07526881720430095,
+          "peak_before": 186.0,
+          "peak_after": 184.0,
+          "peak_rel": 0.010752688172043012
+        },
+        {
+          "exposure_before_ms": 0.017543487670721166,
+          "exposure_after_ms": 0.019069008337740397,
+          "exp_rel": 0.08695652173913036,
+          "peak_before": 184.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.20108695652173914
+        },
+        {
+          "exposure_before_ms": 0.019069008337740397,
+          "exposure_after_ms": 0.017257021120127055,
+          "exp_rel": 0.09502262443438918,
+          "peak_before": 221.0,
+          "peak_after": 185.0,
+          "peak_rel": 0.16289592760180996
+        },
+        {
+          "exposure_before_ms": 0.017257021120127055,
+          "exposure_after_ms": 0.018656239048786008,
+          "exp_rel": 0.08108108108108124,
+          "peak_before": 185.0,
+          "peak_after": 222.0,
+          "peak_rel": 0.2
+        },
+        {
+          "exposure_before_ms": 0.018656239048786008,
+          "exposure_after_ms": 0.01680742256647388,
+          "exp_rel": 0.09909909909909913,
+          "peak_before": 222.0,
+          "peak_after": 188.0,
+          "peak_rel": 0.15315315315315314
+        },
+        {
+          "exposure_before_ms": 0.01680742256647388,
+          "exposure_after_ms": 0.017880236772844553,
+          "exp_rel": 0.0638297872340425,
+          "peak_before": 188.0,
+          "peak_after": 188.0,
+          "peak_rel": 0.0
+        },
+        {
+          "exposure_before_ms": 0.017880236772844553,
+          "exposure_after_ms": 0.019021528481749525,
+          "exp_rel": 0.06382978723404259,
+          "peak_before": 188.0,
+          "peak_after": 223.0,
+          "peak_rel": 0.18617021276595744
+        },
+        {
+          "exposure_before_ms": 0.019021528481749525,
+          "exposure_after_ms": 0.017059666799775358,
+          "exp_rel": 0.10313901345291483,
+          "peak_before": 223.0,
+          "peak_after": 187.0,
+          "peak_rel": 0.16143497757847533
+        },
+        {
+          "exposure_before_ms": 0.017059666799775358,
+          "exposure_after_ms": 0.018245632940936212,
+          "exp_rel": 0.06951871657754012,
+          "peak_before": 187.0,
+          "peak_after": 221.0,
+          "peak_rel": 0.18181818181818182
+        }
+      ],
+      "freshness_probe": {
+        "exposure_ms": 0.018245632940936212,
+        "peaks": [
+          222.0,
+          223.0,
+          222.0
+        ],
+        "mean_abs_diffs": [
+          2.076821448151629,
+          2.076156210839599
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.0045045045045045045
+      },
+      "frames_fresh": true
+    },
+    {
+      "label": "target=200_tol5_n1_twice1_dead",
+      "target_max": 200.0,
+      "tolerance": 5.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "expect": "dead",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.016894213940540467,
+      "final_peak_returned": 189.0,
+      "final_peak_last_measured": 189.0,
+      "converged": false,
+      "n_measurements": 21,
+      "n_resets": 20,
+      "wall_s": 17.39,
+      "returned_type": "ndarray",
+      "returned_is_ndarray": true,
+      "resets": [
+        {
+          "request_ms": 0.017937219730941704,
+          "applied_ms": 0.017937219730941704
+        },
+        {
+          "request_ms": 0.019184192225606102,
+          "applied_ms": 0.019184192225606102
+        },
+        {
+          "request_ms": 0.017283056059104598,
+          "applied_ms": 0.017283056059104598
+        },
+        {
+          "request_ms": 0.018386229850111274,
+          "applied_ms": 0.018386229850111274
+        },
+        {
+          "request_ms": 0.016489892242252262,
+          "applied_ms": 0.016489892242252262
+        },
+        {
+          "request_ms": 0.017542438555587514,
+          "applied_ms": 0.017542438555587514
+        },
+        {
+          "request_ms": 0.01856342704294975,
+          "applied_ms": 0.01856342704294975
+        },
+        {
+          "request_ms": 0.016574488431205132,
+          "applied_ms": 0.016574488431205132
+        },
+        {
+          "request_ms": 0.017539141197042467,
+          "applied_ms": 0.017539141197042467
+        },
+        {
+          "request_ms": 0.01875843978293312,
+          "applied_ms": 0.01875843978293312
+        },
+        {
+          "request_ms": 0.016899495299939747,
+          "applied_ms": 0.016899495299939747
+        },
+        {
+          "request_ms": 0.01807432652399973,
+          "applied_ms": 0.01807432652399973
+        },
+        {
+          "request_ms": 0.016137791539285476,
+          "applied_ms": 0.016137791539285476
+        },
+        {
+          "request_ms": 0.017077028083899975,
+          "applied_ms": 0.017077028083899975
+        },
+        {
+          "request_ms": 0.018070929189312142,
+          "applied_ms": 0.018070929189312142
+        },
+        {
+          "request_ms": 0.016134758204742985,
+          "applied_ms": 0.016134758204742985
+        },
+        {
+          "request_ms": 0.017256425887425653,
+          "applied_ms": 0.017256425887425653
+        },
+        {
+          "request_ms": 0.017975443632735056,
+          "applied_ms": 0.017975443632735056
+        },
+        {
+          "request_ms": 0.01892151961340532,
+          "applied_ms": 0.01892151961340532
+        },
+        {
+          "request_ms": 0.016894213940540467,
+          "applied_ms": 0.016894213940540467
+        }
+      ],
+      "trajectory": [
+        {
+          "t_rel_s": 0.008,
+          "exposure_ms": 0.02,
+          "peak": 223.0,
+          "mean": 41.4082266212406,
+          "min": 1.0,
+          "lit_fraction": 0.6278009476817042
+        },
+        {
+          "t_rel_s": 0.881,
+          "exposure_ms": 0.017937219730941704,
+          "peak": 187.0,
+          "mean": 30.843622973449246,
+          "min": 1.0,
+          "lit_fraction": 0.5571827518013784
+        },
+        {
+          "t_rel_s": 1.763,
+          "exposure_ms": 0.019184192225606102,
+          "peak": 222.0,
+          "mean": 41.39437460839599,
+          "min": 1.0,
+          "lit_fraction": 0.6278092692669173
+        },
+        {
+          "t_rel_s": 2.631,
+          "exposure_ms": 0.017283056059104598,
+          "peak": 188.0,
+          "mean": 30.730421268013785,
+          "min": 1.0,
+          "lit_fraction": 0.552334449404762
+        },
+        {
+          "t_rel_s": 3.51,
+          "exposure_ms": 0.018386229850111274,
+          "peak": 223.0,
+          "mean": 41.52766559954574,
+          "min": 1.0,
+          "lit_fraction": 0.628249334273183
+        },
+        {
+          "t_rel_s": 4.388,
+          "exposure_ms": 0.016489892242252262,
+          "peak": 188.0,
+          "mean": 30.741791245692355,
+          "min": 1.0,
+          "lit_fraction": 0.5524254973370928
+        },
+        {
+          "t_rel_s": 5.272,
+          "exposure_ms": 0.017542438555587514,
+          "peak": 189.0,
+          "mean": 30.73668130286654,
+          "min": 1.0,
+          "lit_fraction": 0.5521021792763158
+        },
+        {
+          "t_rel_s": 6.138,
+          "exposure_ms": 0.01856342704294975,
+          "peak": 224.0,
+          "mean": 41.27654536732456,
+          "min": 1.0,
+          "lit_fraction": 0.6220000685307018
+        },
+        {
+          "t_rel_s": 7.013,
+          "exposure_ms": 0.016574488431205132,
+          "peak": 189.0,
+          "mean": 30.791773378759398,
+          "min": 1.0,
+          "lit_fraction": 0.5532826206140351
+        },
+        {
+          "t_rel_s": 7.885,
+          "exposure_ms": 0.017539141197042467,
+          "peak": 187.0,
+          "mean": 30.980892416588347,
+          "min": 1.0,
+          "lit_fraction": 0.5578127447525063
+        },
+        {
+          "t_rel_s": 8.759,
+          "exposure_ms": 0.01875843978293312,
+          "peak": 222.0,
+          "mean": 41.319541284852754,
+          "min": 1.0,
+          "lit_fraction": 0.6218994752506266
+        },
+        {
+          "t_rel_s": 9.612,
+          "exposure_ms": 0.016899495299939747,
+          "peak": 187.0,
+          "mean": 31.01333778782895,
+          "min": 1.0,
+          "lit_fraction": 0.5583333333333333
+        },
+        {
+          "t_rel_s": 10.455,
+          "exposure_ms": 0.01807432652399973,
+          "peak": 224.0,
+          "mean": 41.37069774044486,
+          "min": 1.0,
+          "lit_fraction": 0.6231031680764411
+        },
+        {
+          "t_rel_s": 11.328,
+          "exposure_ms": 0.016137791539285476,
+          "peak": 189.0,
+          "mean": 30.970141173245615,
+          "min": 1.0,
+          "lit_fraction": 0.5579767289317042
+        },
+        {
+          "t_rel_s": 12.167,
+          "exposure_ms": 0.017077028083899975,
+          "peak": 189.0,
+          "mean": 30.95489970042293,
+          "min": 1.0,
+          "lit_fraction": 0.5576208587875939
+        },
+        {
+          "t_rel_s": 13.03,
+          "exposure_ms": 0.018070929189312142,
+          "peak": 224.0,
+          "mean": 41.301796972901,
+          "min": 1.0,
+          "lit_fraction": 0.6224988741384712
+        },
+        {
+          "t_rel_s": 13.893,
+          "exposure_ms": 0.016134758204742985,
+          "peak": 187.0,
+          "mean": 30.760599986293858,
+          "min": 1.0,
+          "lit_fraction": 0.5524176652568922
+        },
+        {
+          "t_rel_s": 14.759,
+          "exposure_ms": 0.017256425887425653,
+          "peak": 192.0,
+          "mean": 31.043727972274436,
+          "min": 1.0,
+          "lit_fraction": 0.5585741697994987
+        },
+        {
+          "t_rel_s": 15.627,
+          "exposure_ms": 0.017975443632735056,
+          "peak": 190.0,
+          "mean": 31.041634604088348,
+          "min": 1.0,
+          "lit_fraction": 0.5586940985275689
+        },
+        {
+          "t_rel_s": 16.484,
+          "exposure_ms": 0.01892151961340532,
+          "peak": 224.0,
+          "mean": 41.6199297070802,
+          "min": 1.0,
+          "lit_fraction": 0.6279664003759399
+        },
+        {
+          "t_rel_s": 17.331,
+          "exposure_ms": 0.016894213940540467,
+          "peak": 189.0,
+          "mean": 31.05717467496867,
+          "min": 1.0,
+          "lit_fraction": 0.5580227424028822
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [
+        {
+          "exposure_before_ms": 0.02,
+          "exposure_after_ms": 0.017937219730941704,
+          "exp_rel": 0.10313901345291483,
+          "peak_before": 223.0,
+          "peak_after": 187.0,
+          "peak_rel": 0.16143497757847533
+        },
+        {
+          "exposure_before_ms": 0.017937219730941704,
+          "exposure_after_ms": 0.019184192225606102,
+          "exp_rel": 0.06951871657754023,
+          "peak_before": 187.0,
+          "peak_after": 222.0,
+          "peak_rel": 0.18716577540106952
+        },
+        {
+          "exposure_before_ms": 0.019184192225606102,
+          "exposure_after_ms": 0.017283056059104598,
+          "exp_rel": 0.09909909909909906,
+          "peak_before": 222.0,
+          "peak_after": 188.0,
+          "peak_rel": 0.15315315315315314
+        },
+        {
+          "exposure_before_ms": 0.017283056059104598,
+          "exposure_after_ms": 0.018386229850111274,
+          "exp_rel": 0.06382978723404252,
+          "peak_before": 188.0,
+          "peak_after": 223.0,
+          "peak_rel": 0.18617021276595744
+        },
+        {
+          "exposure_before_ms": 0.018386229850111274,
+          "exposure_after_ms": 0.016489892242252262,
+          "exp_rel": 0.10313901345291485,
+          "peak_before": 223.0,
+          "peak_after": 188.0,
+          "peak_rel": 0.15695067264573992
+        },
+        {
+          "exposure_before_ms": 0.016489892242252262,
+          "exposure_after_ms": 0.017542438555587514,
+          "exp_rel": 0.0638297872340426,
+          "peak_before": 188.0,
+          "peak_after": 189.0,
+          "peak_rel": 0.005319148936170213
+        },
+        {
+          "exposure_before_ms": 0.017542438555587514,
+          "exposure_after_ms": 0.01856342704294975,
+          "exp_rel": 0.058201058201058094,
+          "peak_before": 189.0,
+          "peak_after": 224.0,
+          "peak_rel": 0.18518518518518517
+        },
+        {
+          "exposure_before_ms": 0.01856342704294975,
+          "exposure_after_ms": 0.016574488431205132,
+          "exp_rel": 0.10714285714285714,
+          "peak_before": 224.0,
+          "peak_after": 189.0,
+          "peak_rel": 0.15625
+        },
+        {
+          "exposure_before_ms": 0.016574488431205132,
+          "exposure_after_ms": 0.017539141197042467,
+          "exp_rel": 0.05820105820105812,
+          "peak_before": 189.0,
+          "peak_after": 187.0,
+          "peak_rel": 0.010582010582010581
+        },
+        {
+          "exposure_before_ms": 0.017539141197042467,
+          "exposure_after_ms": 0.01875843978293312,
+          "exp_rel": 0.0695187165775401,
+          "peak_before": 187.0,
+          "peak_after": 222.0,
+          "peak_rel": 0.18716577540106952
+        },
+        {
+          "exposure_before_ms": 0.01875843978293312,
+          "exposure_after_ms": 0.016899495299939747,
+          "exp_rel": 0.0990990990990991,
+          "peak_before": 222.0,
+          "peak_after": 187.0,
+          "peak_rel": 0.15765765765765766
+        },
+        {
+          "exposure_before_ms": 0.016899495299939747,
+          "exposure_after_ms": 0.01807432652399973,
+          "exp_rel": 0.06951871657754018,
+          "peak_before": 187.0,
+          "peak_after": 224.0,
+          "peak_rel": 0.19786096256684493
+        },
+        {
+          "exposure_before_ms": 0.01807432652399973,
+          "exposure_after_ms": 0.016137791539285476,
+          "exp_rel": 0.10714285714285703,
+          "peak_before": 224.0,
+          "peak_after": 189.0,
+          "peak_rel": 0.15625
+        },
+        {
+          "exposure_before_ms": 0.016137791539285476,
+          "exposure_after_ms": 0.017077028083899975,
+          "exp_rel": 0.05820105820105822,
+          "peak_before": 189.0,
+          "peak_after": 189.0,
+          "peak_rel": 0.0
+        },
+        {
+          "exposure_before_ms": 0.017077028083899975,
+          "exposure_after_ms": 0.018070929189312142,
+          "exp_rel": 0.05820105820105815,
+          "peak_before": 189.0,
+          "peak_after": 224.0,
+          "peak_rel": 0.18518518518518517
+        },
+        {
+          "exposure_before_ms": 0.018070929189312142,
+          "exposure_after_ms": 0.016134758204742985,
+          "exp_rel": 0.10714285714285705,
+          "peak_before": 224.0,
+          "peak_after": 187.0,
+          "peak_rel": 0.16517857142857142
+        },
+        {
+          "exposure_before_ms": 0.016134758204742985,
+          "exposure_after_ms": 0.017256425887425653,
+          "exp_rel": 0.0695187165775401,
+          "peak_before": 187.0,
+          "peak_after": 192.0,
+          "peak_rel": 0.026737967914438502
+        },
+        {
+          "exposure_before_ms": 0.017256425887425653,
+          "exposure_after_ms": 0.017975443632735056,
+          "exp_rel": 0.041666666666666734,
+          "peak_before": 192.0,
+          "peak_after": 190.0,
+          "peak_rel": 0.010416666666666666
+        },
+        {
+          "exposure_before_ms": 0.017975443632735056,
+          "exposure_after_ms": 0.01892151961340532,
+          "exp_rel": 0.05263157894736835,
+          "peak_before": 190.0,
+          "peak_after": 224.0,
+          "peak_rel": 0.17894736842105263
+        },
+        {
+          "exposure_before_ms": 0.01892151961340532,
+          "exposure_after_ms": 0.016894213940540467,
+          "exp_rel": 0.10714285714285705,
+          "peak_before": 224.0,
+          "peak_after": 189.0,
+          "peak_rel": 0.15625
+        }
+      ],
+      "freshness_probe": {
+        "exposure_ms": 0.016894213940540467,
+        "peaks": [
+          191.0,
+          189.0,
+          193.0
+        ],
+        "mean_abs_diffs": [
+          1.909165981359649,
+          1.9102698151629072
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.020942408376963352
+      },
+      "frames_fresh": true
+    },
+    {
+      "label": "target=40_tol5_n1_twice1_bound",
+      "target_max": 40.0,
+      "tolerance": 5.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "expect": "bound",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.011,
+      "final_peak_returned": 224.0,
+      "final_peak_last_measured": 224.0,
+      "converged": false,
+      "n_measurements": 1,
+      "n_resets": 1,
+      "wall_s": 0.87,
+      "returned_type": "ndarray",
+      "returned_is_ndarray": true,
+      "resets": [
+        {
+          "request_ms": 0.011,
+          "applied_ms": 0.011
+        }
+      ],
+      "trajectory": [
+        {
+          "t_rel_s": 0.009,
+          "exposure_ms": 0.02,
+          "peak": 224.0,
+          "mean": 41.448472989113405,
+          "min": 1.0,
+          "lit_fraction": 0.6225147830513784
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [],
+      "freshness_probe": {
+        "exposure_ms": 0.011,
+        "peaks": [
+          190.0,
+          189.0,
+          191.0
+        ],
+        "mean_abs_diffs": [
+          1.9069568452380952,
+          1.907295582706767
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.010526315789473684
+      },
+      "frames_fresh": true
+    },
+    {
+      "label": "target=120_tol10_n3_twice1_bound",
+      "target_max": 120.0,
+      "tolerance": 10.0,
+      "n_sample": 3,
+      "twice_valid": true,
+      "expect": "bound",
+      "start_exposure_ms": 0.02,
+      "final_exposure_ms": 0.011,
+      "final_peak_returned": 222.0,
+      "final_peak_last_measured": 222.0,
+      "converged": false,
+      "n_measurements": 1,
+      "n_resets": 1,
+      "wall_s": 0.99,
+      "returned_type": "AveragedFrame",
+      "returned_is_ndarray": true,
+      "resets": [
+        {
+          "request_ms": 0.011,
+          "applied_ms": 0.011
+        }
+      ],
+      "trajectory": [
+        {
+          "t_rel_s": 0.11,
+          "exposure_ms": 0.02,
+          "peak": 222.0,
+          "mean": 41.44439280296919,
+          "min": 1.6666666269302368,
+          "lit_fraction": 0.6288852012844611
+        }
+      ],
+      "returned_matches_last": true,
+      "change_responses": [],
+      "freshness_probe": {
+        "exposure_ms": 0.011,
+        "peaks": [
+          190.0,
+          190.0,
+          192.0
+        ],
+        "mean_abs_diffs": [
+          1.9187387413847117,
+          1.9145099075814536
+        ],
+        "exact_duplicate_pairs": 0,
+        "peak_spread_rel": 0.010526315789473684
+      },
+      "frames_fresh": true
+    }
+  ],
+  "response_map": {
+    "requested_ms": [
+      0.011,
+      0.015,
+      0.02,
+      0.025,
+      0.03,
+      0.04,
+      0.05
+    ],
+    "requested_us": [
+      11,
+      15,
+      20,
+      25,
+      30,
+      40,
+      50
+    ],
+    "device_expo_us": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "peaks": [
+      177.0,
+      176.0,
+      213.0,
+      237.0,
+      236.0,
+      255.0,
+      255.0
+    ],
+    "means": [
+      29.814562774122805,
+      29.892505678258146,
+      40.20228745692356,
+      48.9474533501723,
+      48.91525077341792,
+      63.79357353344298,
+      69.8868237488252
+    ],
+    "peak_fit": {
+      "slope": 9.6221928665786,
+      "r2": -1.5516786286795528,
+      "n_fit": 5
+    },
+    "mean_fit": {
+      "slope": 1.6194665689159502,
+      "r2": 0.7013825727124428,
+      "n_fit": 7
+    },
+    "saturation_onset_us": 40
+  },
+  "knee_scan": [
+    {
+      "requested_us": 15.0,
+      "device_expo_us": 0,
+      "seq": 25074,
+      "peak": 182.0,
+      "mean": 30.128492128759397,
+      "min": 1.0,
+      "lit_fraction": 0.5555504973370927
+    },
+    {
+      "requested_us": 15.0,
+      "device_expo_us": 0,
+      "seq": 25075,
+      "peak": 178.0,
+      "mean": 30.14287231751253,
+      "min": 1.0,
+      "lit_fraction": 0.5556182937813283
+    },
+    {
+      "requested_us": 16.0,
+      "device_expo_us": 0,
+      "seq": 25105,
+      "peak": 182.0,
+      "mean": 30.080518190006266,
+      "min": 1.0,
+      "lit_fraction": 0.5545291451284461
+    },
+    {
+      "requested_us": 16.0,
+      "device_expo_us": 0,
+      "seq": 25106,
+      "peak": 179.0,
+      "mean": 30.096520598370926,
+      "min": 1.0,
+      "lit_fraction": 0.5550005384555138
+    },
+    {
+      "requested_us": 17.0,
+      "device_expo_us": 0,
+      "seq": 25137,
+      "peak": 180.0,
+      "mean": 30.14660895402569,
+      "min": 1.0,
+      "lit_fraction": 0.5547141780231829
+    },
+    {
+      "requested_us": 17.0,
+      "device_expo_us": 0,
+      "seq": 25138,
+      "peak": 183.0,
+      "mean": 30.17827503328634,
+      "min": 1.0,
+      "lit_fraction": 0.5557634320175439
+    },
+    {
+      "requested_us": 18.0,
+      "device_expo_us": 0,
+      "seq": 25169,
+      "peak": 217.0,
+      "mean": 40.51568545386905,
+      "min": 1.0,
+      "lit_fraction": 0.6276274181547619
+    },
+    {
+      "requested_us": 18.0,
+      "device_expo_us": 0,
+      "seq": 25170,
+      "peak": 216.0,
+      "mean": 40.5189959762688,
+      "min": 1.0,
+      "lit_fraction": 0.6273961270363408
+    },
+    {
+      "requested_us": 19.0,
+      "device_expo_us": 0,
+      "seq": 25200,
+      "peak": 218.0,
+      "mean": 40.527804863721805,
+      "min": 1.0,
+      "lit_fraction": 0.6279952811716792
+    },
+    {
+      "requested_us": 19.0,
+      "device_expo_us": 0,
+      "seq": 25201,
+      "peak": 216.0,
+      "mean": 40.535595091243735,
+      "min": 1.0,
+      "lit_fraction": 0.6275415100250626
+    },
+    {
+      "requested_us": 20.0,
+      "device_expo_us": 0,
+      "seq": 25235,
+      "peak": 218.0,
+      "mean": 40.59818320214599,
+      "min": 1.0,
+      "lit_fraction": 0.628362654683584
+    },
+    {
+      "requested_us": 20.0,
+      "device_expo_us": 0,
+      "seq": 25236,
+      "peak": 219.0,
+      "mean": 40.61853437304198,
+      "min": 1.0,
+      "lit_fraction": 0.6288967046522557
+    },
+    {
+      "requested_us": 22.0,
+      "device_expo_us": 0,
+      "seq": 25268,
+      "peak": 218.0,
+      "mean": 40.65040579965539,
+      "min": 1.0,
+      "lit_fraction": 0.6288032091948621
+    },
+    {
+      "requested_us": 22.0,
+      "device_expo_us": 0,
+      "seq": 25269,
+      "peak": 218.0,
+      "mean": 40.663497366463034,
+      "min": 1.0,
+      "lit_fraction": 0.6283298578477443
+    }
+  ],
+  "premise": {
+    "exposure_ms": 0.02,
+    "frames": [
+      {
+        "peak": 212.0,
+        "mean": 39.86806958803258,
+        "min": 1.0,
+        "lit_fraction": 0.6270174949091478
+      },
+      {
+        "peak": 212.0,
+        "mean": 39.89492138549499,
+        "min": 1.0,
+        "lit_fraction": 0.6275268248746867
+      },
+      {
+        "peak": 213.0,
+        "mean": 39.8925157131109,
+        "min": 1.0,
+        "lit_fraction": 0.6269878798558898
+      },
+      {
+        "peak": 212.0,
+        "mean": 39.9198398829104,
+        "min": 1.0,
+        "lit_fraction": 0.6270402568922305
+      },
+      {
+        "peak": 211.0,
+        "mean": 39.9430627349624,
+        "min": 1.0,
+        "lit_fraction": 0.6274869302161654
+      }
+    ],
+    "peak_median": 212.0,
+    "peak_min": 211.0,
+    "peak_max": 213.0,
+    "lit_fraction_min": 0.6269878798558898
+  },
+  "post_state": {
+    "auto_exposure_state": {
+      "enabled": false,
+      "mode": 0,
+      "target": 120
+    },
+    "exposure_readback_ms": 0.011,
+    "last_applied_ms": 0.011
+  },
+  "camera": {
+    "sn": "TP2408221418059418FD83E3A448D82",
+    "width": 2688,
+    "height": 1520,
+    "bit_depth": 8,
+    "capture_mode": "wait"
+  },
+  "knee_steps": [],
+  "dirty_data": {
+    "switch_records": [
+      {
+        "round": 0,
+        "requested_us": 16.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25307,
+        "peak": 183.0,
+        "mean": 30.345105194627195,
+        "min": 1.0,
+        "lit_fraction": 0.5553808838502506
+      },
+      {
+        "round": 0,
+        "requested_us": 17.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25335,
+        "peak": 184.0,
+        "mean": 30.33168394619361,
+        "min": 1.0,
+        "lit_fraction": 0.5557132577537593
+      },
+      {
+        "round": 0,
+        "requested_us": 18.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25364,
+        "peak": 219.0,
+        "mean": 40.78181562304198,
+        "min": 1.0,
+        "lit_fraction": 0.6283966752819549
+      },
+      {
+        "round": 0,
+        "requested_us": 19.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25393,
+        "peak": 219.0,
+        "mean": 40.76075344611529,
+        "min": 1.0,
+        "lit_fraction": 0.6281477619830828
+      },
+      {
+        "round": 1,
+        "requested_us": 16.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25421,
+        "peak": 184.0,
+        "mean": 30.372507195723685,
+        "min": 1.0,
+        "lit_fraction": 0.5560818550281955
+      },
+      {
+        "round": 1,
+        "requested_us": 17.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25449,
+        "peak": 184.0,
+        "mean": 30.43248795817669,
+        "min": 1.0,
+        "lit_fraction": 0.556887580278822
+      },
+      {
+        "round": 1,
+        "requested_us": 18.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25477,
+        "peak": 219.0,
+        "mean": 40.65579573934837,
+        "min": 1.0,
+        "lit_fraction": 0.6236776022086467
+      },
+      {
+        "round": 1,
+        "requested_us": 19.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25507,
+        "peak": 219.0,
+        "mean": 40.661440711152885,
+        "min": 1.0,
+        "lit_fraction": 0.6232284813596491
+      },
+      {
+        "round": 2,
+        "requested_us": 16.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25536,
+        "peak": 186.0,
+        "mean": 30.45619052514098,
+        "min": 1.0,
+        "lit_fraction": 0.5562972372337093
+      },
+      {
+        "round": 2,
+        "requested_us": 17.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25565,
+        "peak": 185.0,
+        "mean": 31.518452870457395,
+        "min": 2.0,
+        "lit_fraction": 0.5872674851190476
+      },
+      {
+        "round": 2,
+        "requested_us": 18.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25594,
+        "peak": 219.0,
+        "mean": 40.94168967340226,
+        "min": 1.0,
+        "lit_fraction": 0.6283070958646616
+      },
+      {
+        "round": 2,
+        "requested_us": 19.0,
+        "device_expo_us": 0,
+        "flag": 3,
+        "seq": 25623,
+        "peak": 221.0,
+        "mean": 40.99304951832707,
+        "min": 1.0,
+        "lit_fraction": 0.6285322681704261
+      }
+    ],
+    "per_exposure": {
+      "16.0": {
+        "mean_median": 30.372507195723685,
+        "mean_spread_rel": 0.003657430379320966,
+        "peak_median": 184.0,
+        "device_expo_us": [
+          0
+        ]
+      },
+      "17.0": {
+        "mean_median": 30.43248795817669,
+        "mean_spread_rel": 0.03899677627063416,
+        "peak_median": 184.0,
+        "device_expo_us": [
+          0
+        ]
+      },
+      "18.0": {
+        "mean_median": 40.78181562304198,
+        "mean_spread_rel": 0.007010328738094641,
+        "peak_median": 219.0,
+        "device_expo_us": [
+          0
+        ]
+      },
+      "19.0": {
+        "mean_median": 40.76075344611529,
+        "mean_spread_rel": 0.008135492578972153,
+        "peak_median": 219.0,
+        "device_expo_us": [
+          0
+        ]
+      }
+    },
+    "switch_lags": [
+      {
+        "from_us": 17.0,
+        "to_us": 18.0,
+        "measured_mean": 40.78181562304198,
+        "target_mean": 40.78181562304198,
+        "lag": 0.0
+      },
+      {
+        "from_us": 19.0,
+        "to_us": 16.0,
+        "measured_mean": 30.372507195723685,
+        "target_mean": 30.372507195723685,
+        "lag": 0.0
+      },
+      {
+        "from_us": 17.0,
+        "to_us": 18.0,
+        "measured_mean": 40.65579573934837,
+        "target_mean": 40.78181562304198,
+        "lag": 0.01217662516584827
+      },
+      {
+        "from_us": 19.0,
+        "to_us": 16.0,
+        "measured_mean": 30.45619052514098,
+        "target_mean": 30.372507195723685,
+        "lag": 0.008055578140933987
+      },
+      {
+        "from_us": 17.0,
+        "to_us": 18.0,
+        "measured_mean": 40.94168967340226,
+        "target_mean": 40.78181562304198,
+        "lag": 0.015447771636705715
+      }
+    ],
+    "freshness": {
+      "17.0": {
+        "seqs": [
+          25655,
+          25656,
+          25657,
+          25658,
+          25659,
+          25660,
+          25661,
+          25662
+        ],
+        "seq_deltas": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "timestamp_us": [
+          186240,
+          198812,
+          211384,
+          223956,
+          236528,
+          249100,
+          261672,
+          274244
+        ],
+        "ts_deltas_us": [
+          12572,
+          12572,
+          12572,
+          12572,
+          12572,
+          12572,
+          12572
+        ],
+        "device_expo_us": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "flags": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "expo_flag_present": false,
+        "consecutive_mean_abs_diff": [
+          1.9029984629542607,
+          1.9079334077380952,
+          1.9055049733709273,
+          1.905524064066416,
+          1.906516290726817,
+          1.9063268522869674,
+          1.9060534637374686
+        ],
+        "exact_duplicate_pairs": 0,
+        "all_zero_rows": 0,
+        "all_saturated_rows": 0,
+        "device_expo_match": false,
+        "seq_advance": true,
+        "timestamps_advance": true
+      },
+      "20.0": {
+        "seqs": [
+          25730,
+          25731,
+          25732,
+          25733,
+          25734,
+          25735,
+          25736,
+          25737
+        ],
+        "seq_deltas": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "timestamp_us": [
+          186239,
+          198811,
+          211383,
+          223955,
+          236527,
+          249099,
+          261671,
+          274243
+        ],
+        "ts_deltas_us": [
+          12572,
+          12572,
+          12572,
+          12572,
+          12572,
+          12572,
+          12572
+        ],
+        "device_expo_us": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "flags": [
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3,
+          3
+        ],
+        "expo_flag_present": false,
+        "consecutive_mean_abs_diff": [
+          2.0728040805137846,
+          2.072624676926692,
+          2.0729284147869675,
+          2.0698567708333333,
+          2.0717342673088974,
+          2.0740422834429824,
+          2.070693090147243
+        ],
+        "exact_duplicate_pairs": 0,
+        "all_zero_rows": 0,
+        "all_saturated_rows": 0,
+        "device_expo_match": false,
+        "seq_advance": true,
+        "timestamps_advance": true
+      }
+    },
+    "all_device_expo_match": true,
+    "device_expo_detail": "frame-info expotime not provided by this camera/SDK (flag lacks MIICAM_FRAMEINFO_FLAG_EXPOTIME=0x04, field reads 0); device-side exposure readback unavailable, requested exposure taken from the driver cache",
+    "all_seq_advance": true,
+    "seq_detail": "17.0 us: [1, 1, 1, 1, 1, 1, 1]; 20.0 us: [1, 1, 1, 1, 1, 1, 1]",
+    "all_timestamps_advance": true,
+    "timestamp_detail": "17.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572]; 20.0 us: [12572, 12572, 12572, 12572, 12572, 12572, 12572]",
+    "no_duplicate_frames": true,
+    "duplicate_detail": "17.0 us: mean|diff|=1.91 counts, exact duplicates=0; 20.0 us: mean|diff|=2.07 counts, exact duplicates=0",
+    "step_deterministic": true,
+    "step_detail": "16.0 us: mean 30.37 (spread 0.4%); 17.0 us: mean 30.43 (spread 3.9%); 18.0 us: mean 40.78 (spread 0.7%); 19.0 us: mean 40.76 (spread 0.8%)",
+    "no_switch_lag": true,
+    "lag_detail": "17.0->18.0 us: lag 0%; 19.0->16.0 us: lag 0%; 17.0->18.0 us: lag 1%; 19.0->16.0 us: lag 1%; 17.0->18.0 us: lag 2%"
+  },
+  "summary": {
+    "n_checks": 28,
+    "n_info": 2,
+    "n_passed": 28,
+    "all_passed": true,
+    "finished_at": "2026-10-22T21:22:35"
+  }
+}

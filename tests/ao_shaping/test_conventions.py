@@ -394,11 +394,10 @@ _HARNESS_MODULE = "tests/ao_shaping/utils/test_report.py"
 
 #: Consumers that write only into an UNTRACKED docs dir. They still leave the tree
 #: dirty, but they cannot corrupt a commit, so they are allowed -- and each one
-#: needs a reason.
-_ALLOWED_UNTRACKED_WRITERS = {
-    "tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py": "targets report/miicam_simulation/, which git does not track, and needs no "
-    "device (it is the simulated camera)",
-}
+#: needs a reason. Empty since 2026-10-22: the only entry was the simulated
+#: miicam report, replaced by the hardware auto-exposure probe
+#: (``test_miicam_auto_exposure_report.py``), which does not use this harness.
+_ALLOWED_UNTRACKED_WRITERS: dict[str, str] = {}
 
 
 def _targets_a_tracked_docs_dir(path: Path) -> str | None:
@@ -418,8 +417,8 @@ def _targets_a_tracked_docs_dir(path: Path) -> str | None:
 
     text = path.read_text(encoding="utf-8-sig", errors="replace")
     # An explicit device_dir OVERRIDES the device name, so it is the answer whether
-    # or not it is tracked. Falling through to the name here would flag
-    # TestReport("miicam", device_dir="report/miicam_simulation") as writing to
+    # or not it is tracked. Falling through to the name here would flag a
+    # TestReport("miicam", device_dir="report/<series>") as writing to
     # docs/miicam, which it does not touch.
     override = re.search(r'device_dir\s*=\s*"([^"]+)"', text)
     if override:
@@ -436,8 +435,9 @@ def test_only_the_harness_or_hardware_tests_write_tracked_docs() -> None:
     """A test that rewrites a TRACKED docs/ file must carry the hardware marker.
 
     Narrower than "uses the harness": the hazard is corrupting a commit, not
-    merely leaving untracked files behind. test_miicam_simulation_report.py is
-    therefore allowed -- it needs no device and writes to an untracked dir.
+    merely leaving untracked files behind, so a hardware-free writer that
+    targets an untracked dir can be whitelisted in
+    ``_ALLOWED_UNTRACKED_WRITERS`` with a reason.
     """
     offenders: dict[str, str] = {}
     for path in sorted((REPO / "tests").rglob("*.py")):

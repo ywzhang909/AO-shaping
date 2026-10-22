@@ -566,11 +566,17 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="端到端 AO 环境下的后端影响",
     ),
-    "report/miicam_simulation/test_miicam_simulation_report/miicam_report.md": ReportProvenance(
-        script="tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
-        command="python -m pytest tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
-        environment="离线",
-        note="仿真 MiiCam 的测试报告 (无需设备)",
+    "report/miicam_auto_exposure/miicam_auto_exposure_probe/report.md": ReportProvenance(
+        script="tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py",
+        command="python -m pytest tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py -m hardware -s",
+        environment="硬件",
+        note=(
+            "MiiCam auto_exposure 算法硬件验证 (2026-10-22 起替代 miicam_simulation "
+            "仿真报告): 响应台阶扫描 / 脏数据核查 (帧序号-时间戳-重复帧-交叉切换) / "
+            "六类目标场景的收敛-边界退出-有界不收敛行为; 报告正文与图由探针脚本生成, "
+            "线性度 R2 等为诊断项不计入通过率"
+        ),
+        extra_scripts=("scripts/ccd/miicam_auto_exposure_probe.py",),
     ),
     "report/zotero_objectives/README.md": ReportProvenance(
         script=HANDWRITTEN,

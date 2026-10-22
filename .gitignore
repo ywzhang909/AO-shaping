@@ -141,10 +141,11 @@ docs/micro-dm/images/00*.png
 # to tests/ao_shaping/test_conventions.py's tracked-docs guard.
 #
 # Everything under report/ that used to be listed here moved with the tree; these
-# four rules had to move too, or the artefacts would have been silently untracked
-# by paths that no longer exist.
-report/miicam_simulation/miicam_report.md
-report/miicam_simulation/images/001_simulated_images.png
+# rules had to move too, or the artefacts would have been silently untracked
+# by paths that no longer exist. (The miicam_simulation pair was dropped on
+# 2026-10-22: that simulated report was replaced by the auto-exposure probe
+# report, whose figure and artefacts are tracked on purpose so the report's
+# relative links resolve in a clean clone.)
 report/slm_pib_online*
 # report/pearson_gifs/*.gif is deliberately NOT ignored: those 10 GIFs (~69 MB) are
 # the animated record of the Pearson-correlation runs and are the only visual
