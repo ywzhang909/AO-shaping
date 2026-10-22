@@ -24,6 +24,19 @@ two arms ended up the same -- say so plainly instead of inventing a difference.
   geometry calibration.
 * ``<stamp>_panel_scan_<arm>.png`` -- the panel-locate response map and the
   flat drift that the strict mode judged on.
+* ``<stamp>_true_vs_pred_<arm>_probes_p<n>.png`` -- **ground truth vs
+  prediction**, one row per probe: the measured frame / the model prediction
+  on the camera grid / their difference, with the probe's type, round, index,
+  exposure, Pearson r and SSIM printed on the panel itself. The rows are split
+  over several pages (at most four probes per page) so that one panel stays
+  large enough to read in the report's column.
+* ``<stamp>_true_vs_pred_<arm>_stats.png`` -- the pooled 1:1 density plot of
+  measured against predicted pixels, next to the distribution of the per-probe
+  r split by probe type.
+* ``<stamp>_metrics_curves_<arm>.png`` -- the **metrics curves**: composite
+  score, CV, EE and validation correlation against the round, with the flat
+  baseline, the acceptance thresholds and the accepted/rejected state of each
+  round.
 
 **How the model's prediction reaches the camera grid.** The forward model
 predicts on the ``far_field_size`` grid (1024 cells here); the camera records
@@ -32,7 +45,11 @@ conversion (``camera_px_per_model_px`` = camera pixels per far-field cell), so
 the prediction is cropped to the cells the camera actually sees, resampled to
 the camera grid and rotated back by the quarter turn the hardware path applies.
 Nothing is re-simulated and no number is invented: a value that was not
-recorded reads as "未记录".
+recorded reads as "未记录". The one thing the runner does not store is the
+model's prediction for the *training* and *flat* probes, so those two are
+recomputed offline from the coefficients and the source amplitude the run did
+write down -- and the recomputation is checked against the prediction the
+runner did store before any of it is used.
 
 Run:
     python scripts/slm/generate_model_in_loop_hw_ab_report.py \
@@ -51,7 +68,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import matplotlib
 
@@ -83,6 +100,40 @@ GIF_DPI = 90
 #: compared with the model (``camera_rotation_quarters = 1`` for every
 #: non-simulated bench, see ``optimizer/wfless/slm_model_in_loop.py``).
 HARDWARE_ROTATION_QUARTERS = 1
+
+#: Probe splits, in the order the truth-vs-prediction figure groups them.
+PROBE_SPLIT_ORDER = ("flat", "train", "holdout", "shaped")
+
+#: One colour per probe split (the per-probe correlation bar chart).
+SPLIT_COLOURS = {
+    "flat": "#7f7f7f",
+    "train": "#1f77b4",
+    "holdout": "#ff7f0e",
+    "shaped": "#2ca02c",
+}
+
+#: The truth-vs-prediction pages are laid out in inches, because the report
+#: reads them in a ~900 px column: a 10 in wide page is read at ~90 px/in, so
+#: one square panel lands at ~260 px and a 10 pt label at ~12 px. The probe
+#: rows are therefore split over several pages instead of all landing on one
+#: (the single-page version squeezed ten rows into a 1655x440 px image, i.e.
+#: 44 px per panel).
+TRUTH_FIG_WIDTH_IN = 10.0
+TRUTH_PANEL_IN = 2.9
+TRUTH_ROW_GAP_IN = 0.45
+TRUTH_HEADER_IN = 1.35
+TRUTH_BOTTOM_IN = 0.15
+TRUTH_PAGE_ROWS = 4
+
+#: The recorder's metric columns, read from the run's history CSV.
+#: Each entry is ``(key, label, column, baseline column)``; the baseline column
+#: is the one the calibration row carries for the same metric.
+ROUND_METRICS = (
+    ("score", "composite score", "score_after", "score_after"),
+    ("cv", "CV", "cv_after", "cv_after"),
+    ("ee", "EE", "ee_after", "ee_after"),
+    ("holdout", "验证集相关性", "holdout_correlation", None),
+)
 
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -634,6 +685,452 @@ def display_image(array: np.ndarray) -> np.ndarray:
 
 
 # ---------------------------------------------------------------------------
+# The forward model, rebuilt offline from the run's own artefacts
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ForwardModel:
+    """The arm's forward model, rebuilt offline from the artefacts on disk.
+
+    The runner writes the fitted Zernike coefficients and the source amplitude,
+    but only stores the model's prediction for the probes it judged (the
+    validation probes and the shaped frame). The training and the flat probes
+    carry no prediction, so the model is rebuilt here -- the same optimiser
+    class, the same configuration, the same coefficients -- and their
+    predictions are recomputed.
+
+    ``torch`` is an optional extra of this repository, so a missing torch
+    degrades to "no model" instead of failing the report.
+
+    Attributes:
+        predict: Maps a pupil phase to the model's far field, or ``None``.
+        gain: The forward calibration gain the recorder recorded.
+        leakage: The additive background (stray light) term coefficient.
+        flat_grid: The measured flat frame on the model's far-field grid.
+        note: Why the model is unavailable, when it is.
+    """
+
+    predict: Callable[[np.ndarray], np.ndarray] | None = None
+    gain: float = 1.0
+    leakage: float = 0.0
+    flat_grid: np.ndarray | None = None
+    note: str = ""
+
+    @property
+    def available(self) -> bool:
+        """Whether the model could be rebuilt."""
+        return self.predict is not None
+
+
+def load_npy(path: Path) -> np.ndarray | None:
+    """Read a ``.npy`` file, returning ``None`` when it is missing or unreadable."""
+    try:
+        return np.load(path)
+    except (OSError, ValueError):
+        return None
+
+
+def forward_calibration(run: RunData) -> tuple[float, float]:
+    """The forward calibration of the run's last round.
+
+    The runner fits one non-negative model gain and one additive background
+    (stray light) term per round and records both in the history CSV. They are
+    what turns the model's own intensity into the camera's scale, so the
+    recomputed predictions have to carry them too.
+
+    Returns:
+        ``(gain, leakage)``; ``(1.0, 0.0)`` -- the runner's own defaults --
+        when the run recorded neither.
+    """
+    gain: float | None = None
+    leakage: float | None = None
+    for row in round_rows(run):
+        value = as_float(row.get("model_gain"))
+        if value is not None:
+            gain = value
+        value = as_float(row.get("flat_leakage"))
+        if value is not None:
+            leakage = value
+    return (
+        1.0 if gain is None else gain,
+        0.0 if leakage is None else leakage,
+    )
+
+
+def load_forward_model(stage: StageData) -> ForwardModel:
+    """Rebuild the arm's forward model from the artefacts the run wrote down.
+
+    Only what is on disk is used: the fitted coefficients, the source
+    amplitude, the configuration in ``run_config.json`` and the forward
+    calibration the recorder recorded. The camera-frame resampling is the
+    runner's own :func:`~ao_shaping.optimizer.wfless.slm_model_in_loop._to_model_grid`,
+    reused verbatim rather than re-derived, so the recomputed prediction is
+    the same quantity the runner compared against.
+
+    Returns:
+        A :class:`ForwardModel`; ``available`` is ``False`` when torch or the
+        artefacts are missing, and ``note`` says which.
+    """
+    run = stage.run
+    model = ForwardModel()
+    if run.run_dir is None:
+        model.note = "该臂没有运行目录，无法重建正向模型"
+        return model
+    coefficients = load_npy(run.run_dir / "fitted_coefficients.npy")
+    amplitude = load_npy(run.run_dir / "source_amplitude.npy")
+    if coefficients is None or amplitude is None:
+        model.note = "运行目录缺少 fitted_coefficients.npy / source_amplitude.npy"
+        return model
+
+    model.gain, model.leakage = forward_calibration(run)
+    config = run.config or {}
+    try:
+        from ao_shaping.algorithm.signal_processing.zernike_coefficient_optimizer import (
+            ZernikeCoefficientOptimizer,
+        )
+        from ao_shaping.optimizer.wfless.slm_model_in_loop import _to_model_grid
+    except Exception as exc:  # pragma: no cover - torch is an optional extra
+        model.note = f"正向模型不可用 ({type(exc).__name__})"
+        return model
+
+    region = int(config.get("region", 128) or 128)
+    try:
+        optimizer = ZernikeCoefficientOptimizer(
+            n_orders=int(config.get("n_orders", 10) or 10),
+            region=region,
+            initial_coefficients=coefficients,
+            lr=float(config.get("step_a_lr", 0.05) or 0.05),
+            max_iterations=max(1, int(config.get("step_a_iterations", 1) or 1)),
+            device="cpu",
+            seed=int(config.get("seed", 0) or 0),
+            dtype=str(config.get("dtype", "float32")),
+            far_field_size=region * int(config.get("far_field_padding", 8) or 8),
+            frozen_modes=tuple(config.get("frozen_modes") or ()),
+            pupil_oversampling=int(config.get("pupil_oversampling", 1) or 1),
+        )
+        optimizer.set_source_amplitude(amplitude)
+    except Exception as exc:  # pragma: no cover - torch is an optional extra
+        model.note = f"正向模型初始化失败 ({type(exc).__name__})"
+        return model
+
+    geometry = run.geometry or run.session_geometry
+    far_field_size = int(as_float(geometry.get("far_field_size")) or 1024)
+    cell_scale = as_float(geometry.get("camera_px_per_model_px"))
+    roi_center = parse_roi_center(stage.log_text)
+    flat_frame = flat_frame_of(run)
+    if flat_frame is not None and cell_scale and roi_center is not None:
+        model.flat_grid = _to_model_grid(
+            flat_frame,
+            roi_center,
+            far_field_size,
+            cell_scale,
+            HARDWARE_ROTATION_QUARTERS,
+        )
+
+    def predict(phase: np.ndarray) -> np.ndarray:
+        """The model's far field for one pupil phase, on the model's own grid."""
+        base = optimizer.forward_intensity(
+            coefficients, np.asarray(phase, dtype=np.float64), amplitude
+        )
+        prediction = model.gain * np.asarray(base, dtype=np.float64)
+        if model.flat_grid is not None:
+            prediction = prediction + model.leakage * model.flat_grid
+        return prediction
+
+    model.predict = predict
+    model.note = (
+        f"离线重建 (gain {model.gain:.4f}, 加性背景（杂散光）项 {model.leakage:.4f})"
+    )
+    return model
+
+
+def flat_frame_of(run: RunData) -> np.ndarray | None:
+    """The run's measured flat frame (the preflight one, or the flat probe)."""
+    for candidate in (
+        run.run_dir / "preflight" / "flat.npz" if run.run_dir else None,
+    ):
+        if candidate is None or not candidate.exists():
+            continue
+        try:
+            data = np.load(candidate)
+        except (OSError, ValueError):
+            continue
+        if "frame" in data:
+            return np.asarray(data["frame"], dtype=np.float64)
+    for probe in run.probes:
+        if probe.split != "flat":
+            continue
+        try:
+            data = np.load(probe.path)
+        except (OSError, ValueError):
+            continue
+        if "frame" in data:
+            return np.asarray(data["frame"], dtype=np.float64)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# The truth (measurement) against the prediction, probe by probe
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ProbeTruth:
+    """One probe: what the camera saw next to what the model predicted.
+
+    Attributes:
+        probe: The probe this entry belongs to.
+        frame: The measured frame (camera grid).
+        prediction: The model's far field (model grid).
+        mapped: The prediction on the camera grid, aligned to the frame.
+        model_grid: The measurement resampled onto the model grid, when stored.
+        stored: The prediction the runner stored, when it stored one.
+        recomputed: The prediction rebuilt offline, when it was rebuilt.
+        r_camera: Pearson r between the aligned prediction and the frame.
+        r_model: Pearson r on the model grid (the runner's own metric).
+        ssim_camera: Peak-normalised SSIM between the aligned prediction and
+            the frame.
+        r2_camera: R^2 of the linear fit of the prediction onto the frame.
+        source: Where the prediction came from.
+        agreement: Relative deviation between the stored and the recomputed
+            prediction, when both exist.
+    """
+
+    probe: ProbeEntry
+    frame: np.ndarray | None = None
+    prediction: np.ndarray | None = None
+    mapped: np.ndarray | None = None
+    model_grid: np.ndarray | None = None
+    stored: np.ndarray | None = None
+    recomputed: np.ndarray | None = None
+    r_camera: float | None = None
+    r_model: float | None = None
+    ssim_camera: float | None = None
+    r2_camera: float | None = None
+    source: str = "未记录"
+    agreement: float | None = None
+
+    @property
+    def split(self) -> str:
+        """The probe's type (``flat`` / ``train`` / ``holdout`` / ``shaped``)."""
+        return self.probe.split
+
+    @property
+    def label(self) -> str:
+        """A short label for the probe, e.g. ``r1 train#0``."""
+        return f"r{self.probe.round} {self.probe.split}#{self.probe.index}"
+
+
+def probe_sort_key(truth: ProbeTruth) -> tuple:
+    """Group the probes by type, then by round and index."""
+    split = truth.split if truth.split in PROBE_SPLIT_ORDER else ""
+    order = (
+        PROBE_SPLIT_ORDER.index(split) if split else len(PROBE_SPLIT_ORDER),
+        truth.probe.round,
+        truth.probe.index,
+    )
+    return order
+
+
+def ssim_score(a: np.ndarray, b: np.ndarray) -> float | None:
+    """Peak-normalised SSIM of two images (``skimage``, 7x7 Gaussian window).
+
+    Returns ``None`` when ``scikit-image`` is unavailable or the images do not
+    match, so a missing backend reads as "未记录" rather than as a zero.
+    """
+    first = np.asarray(a, dtype=np.float64)
+    second = np.asarray(b, dtype=np.float64)
+    if first.shape != second.shape or min(first.shape) < 3:
+        return None
+    for array in (first, second):
+        peak = float(np.max(array))
+        if peak <= 0:
+            return None
+    try:
+        from skimage.metrics import structural_similarity
+    except Exception:  # pragma: no cover - scikit-image is a declared dependency
+        return None
+    normalised_a = first / float(np.max(first))
+    normalised_b = second / float(np.max(second))
+    return float(
+        structural_similarity(normalised_a, normalised_b, data_range=1.0, win_size=7)
+    )
+
+
+def linear_r2(measured: np.ndarray, predicted: np.ndarray) -> float | None:
+    """R^2 of the linear fit of ``predicted`` onto ``measured``.
+
+    For a fit with an intercept this is the squared Pearson correlation, so it
+    is the number a 1:1 plot is read with.
+    """
+    x = np.asarray(predicted, dtype=np.float64).ravel()
+    y = np.asarray(measured, dtype=np.float64).ravel()
+    if x.size < 2:
+        return None
+    x = x - x.mean()
+    y = y - y.mean()
+    denominator = float(np.linalg.norm(x) * np.linalg.norm(y))
+    if denominator <= 0:
+        return None
+    return float((x @ y / denominator) ** 2)
+
+
+def align_to_camera(mapped: np.ndarray, shift: tuple[int, int]) -> np.ndarray:
+    """Roll a mapped prediction onto the measured frame's optical axis."""
+    return np.roll(np.roll(mapped, shift[0], axis=0), shift[1], axis=1)
+
+
+@dataclass
+class Alignment:
+    """How the model's prediction is put on the camera frame.
+
+    Attributes:
+        shift: The ``(dy, dx)`` roll that lands the prediction's optical axis
+            on the measured frame's optical axis.
+        quality: The mean correlation the shift reaches over the run's probes.
+        anchor: What the shift was derived from.
+        roi_center: The run's frozen optical axis in camera pixels.
+    """
+
+    shift: tuple[int, int] = (0, 0)
+    quality: float = float("nan")
+    anchor: str = "未记录"
+    roi_center: tuple[int, int] | None = None
+
+
+def arm_alignment(stage: StageData, pairs: list) -> Alignment:
+    """Work out how the model's prediction lines up with the measured frame.
+
+    The run's own frozen optical axis (``stage.log``'s ``frozen ROI centre``)
+    is the anchor: the prediction is centred on the optical axis by
+    construction, so rolling it to where the axis sits in the frame puts the
+    two on top of each other. When the log carries no axis, the shift is fitted
+    from the frames themselves and the anchor says so.
+
+    Args:
+        stage: The arm.
+        pairs: ``(mapped prediction, measured frame)`` pairs.
+
+    Returns:
+        The :class:`Alignment` to use for every probe of the arm.
+    """
+    cam_size = int(as_float(stage.run.config.get("cam_size")) or 300)
+    roi_center = parse_roi_center(stage.log_text)
+    if roi_center is not None:
+        shift = (
+            int(round(roi_center[1] - cam_size / 2)),
+            int(round(roi_center[0] - cam_size / 2)),
+        )
+        quality = float("nan")
+        if pairs:
+            quality = float(
+                np.mean(
+                    [
+                        normalized_correlation(
+                            align_to_camera(mapped, shift), frame
+                        )
+                        for mapped, frame in pairs
+                    ]
+                )
+            )
+        return Alignment(
+            shift=shift,
+            quality=quality,
+            anchor="冻结光轴 (stage.log 的 frozen ROI centre)",
+            roi_center=roi_center,
+        )
+    if not pairs:
+        return Alignment(anchor="未记录（该臂没有可对齐的探针）")
+    template = np.mean([pair[0] for pair in pairs], axis=0)
+    image = np.mean([pair[1] for pair in pairs], axis=0)
+    dy, dx, quality = best_shift(template, image)
+    return Alignment(
+        shift=(int(dy), int(dx)),
+        quality=float(quality),
+        anchor="整幅互相关拟合的公共平移 (日志未记录 frozen ROI centre)",
+        roi_center=None,
+    )
+
+
+def collect_probe_truths(stage: StageData) -> list[ProbeTruth]:
+    """Pair every measured probe of the arm with the model's prediction.
+
+    The prediction of a validation or shaped probe is the one the runner
+    stored; the prediction of a training or flat probe is recomputed offline
+    from the run's own coefficients (see :func:`load_forward_model`). The
+    recomputation is checked against the stored prediction wherever both
+    exist, so the offline numbers can be trusted.
+
+    Returns:
+        The probes, grouped by type and ordered by round and index.
+    """
+    run = stage.run
+    geometry = run.geometry or run.session_geometry
+    cam_size = int(as_float(run.config.get("cam_size")) or 300)
+    model = load_forward_model(stage)
+
+    truths: list[ProbeTruth] = []
+    for probe in run.probes:
+        try:
+            data = np.load(probe.path)
+        except (OSError, ValueError):
+            continue
+        frame = np.asarray(data["frame"], dtype=np.float64) if "frame" in data else None
+        phase = np.asarray(data["phase"], dtype=np.float64) if "phase" in data else None
+        stored = (
+            np.asarray(data["prediction"], dtype=np.float64)
+            if "prediction" in data
+            else None
+        )
+        model_grid = (
+            np.asarray(data["model_grid"], dtype=np.float64)
+            if "model_grid" in data
+            else None
+        )
+        truth = ProbeTruth(
+            probe=probe,
+            frame=frame,
+            model_grid=model_grid,
+            stored=stored,
+        )
+        prediction = stored
+        truth.source = "落盘" if stored is not None else "未记录"
+        if prediction is None and model.available and phase is not None:
+            truth.recomputed = model.predict(phase)
+            prediction = truth.recomputed
+            truth.source = "离线重算"
+        truth.prediction = prediction
+        if prediction is not None:
+            truth.mapped = prediction_to_camera(prediction, geometry, cam_size)
+        truths.append(truth)
+
+    pairs = [
+        (truth.mapped, truth.frame)
+        for truth in truths
+        if truth.mapped is not None and truth.frame is not None
+    ]
+    alignment = arm_alignment(stage, pairs)
+    for truth in truths:
+        if truth.stored is not None and truth.recomputed is not None:
+            scale = float(np.max(np.abs(truth.stored)))
+            if scale > 0:
+                truth.agreement = float(
+                    np.max(np.abs(truth.stored - truth.recomputed)) / scale
+                )
+        if truth.mapped is None or truth.frame is None:
+            continue
+        truth.mapped = align_to_camera(truth.mapped, alignment.shift)
+        truth.r_camera = normalized_correlation(truth.mapped, truth.frame)
+        truth.ssim_camera = ssim_score(truth.mapped, truth.frame)
+        truth.r2_camera = linear_r2(truth.frame, truth.mapped)
+        if truth.model_grid is not None and truth.prediction is not None:
+            truth.r_model = normalized_correlation(truth.prediction, truth.model_grid)
+    truths.sort(key=probe_sort_key)
+    return truths
+
+
+# ---------------------------------------------------------------------------
 # Figures
 # ---------------------------------------------------------------------------
 
@@ -688,6 +1185,19 @@ def round_rows(run: RunData) -> list:
     return sorted(fallback, key=lambda row: float(row.get("round", 0) or 0))
 
 
+def calibration_row(run: RunData) -> dict | None:
+    """The recorder's calibration row -- the run's flat baseline.
+
+    The flat CSV labels it ``stage = calibration``; it carries the metrics of
+    the flat frame the run started from, which is the reference every later
+    round is compared against.
+    """
+    for row in run.history:
+        if isinstance(row, dict) and str(row.get("stage", "")).strip() == "calibration":
+            return row
+    return None
+
+
 def style_axes() -> None:
     """Apply the repository's Chinese font settings."""
     plt.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
@@ -730,10 +1240,6 @@ def render_probe_gif(stage: StageData, out_path: Path) -> dict:
     # The anchor: the run's own frozen ROI centre, i.e. the optical axis the
     # runner measured everything about. When the log does not carry it, the
     # alignment is fitted from the frames themselves and the report says so.
-    roi_center = parse_roi_center(stage.log_text)
-    shift = (0, 0)
-    quality = float("nan")
-    anchor = "冻结光轴 (stage.log 的 frozen ROI centre)"
     pairs = []
     for probe, frame, _phase, prediction in loaded:
         if frame is None or prediction is None:
@@ -742,28 +1248,11 @@ def render_probe_gif(stage: StageData, out_path: Path) -> dict:
         if mapped is None:
             continue
         pairs.append((mapped, frame))
-    if roi_center is not None:
-        shift = (int(round(roi_center[1] - cam_size / 2)), int(round(roi_center[0] - cam_size / 2)))
-        if pairs:
-            quality = float(
-                np.mean(
-                    [
-                        normalized_correlation(
-                            np.roll(
-                                np.roll(mapped, shift[0], axis=0), shift[1], axis=1
-                            ),
-                            frame,
-                        )
-                        for mapped, frame in pairs
-                    ]
-                )
-            )
-    elif pairs:
-        template = np.mean([pair[0] for pair in pairs], axis=0)
-        image = np.mean([pair[1] for pair in pairs], axis=0)
-        dy, dx, quality = best_shift(template, image)
-        shift = (dy, dx)
-        anchor = "整幅互相关拟合的公共平移 (日志未记录 frozen ROI centre)"
+    alignment = arm_alignment(stage, pairs)
+    shift = alignment.shift
+    quality = alignment.quality
+    anchor = alignment.anchor
+    roi_center = alignment.roi_center
 
     history = round_rows(stage.run)
     rounds = [int(float(row.get("round", 0) or 0)) for row in history]
@@ -868,7 +1357,7 @@ def _render_gif_frame(
         mapped = prediction_to_camera(prediction, geometry, cam_size)
     correlation = float("nan")
     if mapped is not None:
-        rolled = np.roll(np.roll(mapped, shift[0], axis=0), shift[1], axis=1)
+        rolled = align_to_camera(mapped, shift)
         ax_predicted.imshow(display_image(rolled), cmap="inferno", vmin=0.0, vmax=1.0)
         if roi_center is not None:
             ax_predicted.plot(roi_center[0], roi_center[1], "+", color="cyan", markersize=10)
@@ -1036,8 +1525,12 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
     arms = [stage for stage in stages if stage.kind != "light"]
     labels = [stage.name for stage in arms]
     style_axes()
-    fig, axes = plt.subplots(2, 3, figsize=(15.0, 8.4))
-    fig.subplots_adjust(wspace=0.3, hspace=0.42)
+    # The arm-status table needs the extra width: its ``outcome`` column holds
+    # a long word, and a table whose cells overflow overlap each other.
+    fig, axes = plt.subplots(
+        2, 3, figsize=(14.0, 7.9), width_ratios=[1.4, 1.0, 1.0]
+    )
+    fig.subplots_adjust(wspace=0.34, hspace=0.46, left=0.065, right=0.985)
 
     flat_scores = [as_float(stage.observed.get("flat_score")) for stage in arms]
     shaped_scores = [as_float(stage.observed.get("score_after")) for stage in arms]
@@ -1060,9 +1553,10 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
         color="#1f77b4",
     )
     ax.set_xticks(positions)
-    ax.set_xticklabels(labels)
-    ax.set_title("分数 (越大越好)")
-    ax.legend(fontsize=8)
+    ax.set_xticklabels(labels, fontsize=11)
+    ax.set_title("分数 (越大越好)", fontsize=12)
+    ax.legend(fontsize=10)
+    ax.tick_params(labelsize=10)
     ax.grid(axis="y", alpha=0.3)
 
     ax = axes[0][1]
@@ -1077,9 +1571,10 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
             color=["#d62728", "#2ca02c", "#9467bd"][offset],
         )
     ax.set_xticks(positions)
-    ax.set_xticklabels(labels)
-    ax.set_title("CV / EE / IoU")
-    ax.legend(fontsize=8)
+    ax.set_xticklabels(labels, fontsize=11)
+    ax.set_title("CV / EE / IoU", fontsize=12)
+    ax.legend(fontsize=10)
+    ax.tick_params(labelsize=10)
     ax.grid(axis="y", alpha=0.3)
 
     ax = axes[0][2]
@@ -1112,12 +1607,13 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
             threshold + 0.02,
             f"门槛 {threshold:g}",
             ha="center",
-            fontsize=8,
+            fontsize=10,
         )
     ax.set_xticks(positions)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels(labels, fontsize=11)
     ax.set_ylim(0, 1.05)
-    ax.set_title("验证集 (holdout) 相关性与该臂门槛")
+    ax.set_title("验证集 (holdout) 相关性与该臂门槛", fontsize=12)
+    ax.tick_params(labelsize=10)
     ax.grid(axis="y", alpha=0.3)
 
     ax = axes[1][0]
@@ -1134,39 +1630,45 @@ def render_summary_figure(stages, out_path: Path, exposure_ladder, stamp: str) -
             ]
         )
     ax.axis("off")
-    ax.set_title("各臂状态")
+    ax.set_title("各臂状态", fontsize=12)
     if rows:
         table = ax.table(
             cellText=rows,
             colLabels=["臂", "outcome", "期望达成", "接受轮数", "总轮数", "几何相关性"],
             loc="upper center",
             cellLoc="center",
-            colWidths=[0.19, 0.24, 0.14, 0.13, 0.13, 0.17],
+            colWidths=[0.167, 0.306, 0.134, 0.134, 0.105, 0.153],
         )
         table.auto_set_font_size(False)
-        table.set_fontsize(7)
-        table.scale(1.0, 1.6)
+        table.set_fontsize(8.5)
+        table.scale(1.0, 1.8)
 
     ax = axes[1][1]
     _plot_exposure_window(ax, stages, exposure_ladder)
-    ax.set_title("曝光窗口 (曝光 ms → 峰值 counts)")
+    ax.set_title("曝光窗口 (曝光 ms → 峰值 counts)", fontsize=12)
+    ax.tick_params(labelsize=10)
 
     ax = axes[1][2]
     ax.axis("off")
-    ax.set_title("几何标定 (sweep)")
+    ax.set_title("几何标定 (sweep)", fontsize=12)
     notes = [f"会话戳: {stamp}"]
     for stage in arms:
         geometry = stage.run.geometry or stage.run.session_geometry
         if not geometry:
             continue
+        # Two lines per arm: a single long line runs past the panel and
+        # stretches the whole figure.
+        notes.append(f"{stage.name}")
         notes.append(
-            f"{stage.name}: sweep 相关性 {fmt(geometry.get('correlation'))}, "
-            f"camera/model px {fmt(geometry.get('camera_px_per_model_px'))}, "
-            f"远场 {geometry.get('far_field_size', '未记录')}, "
+            f"  sweep 相关性 {fmt(geometry.get('correlation'))} · "
+            f"远场 {geometry.get('far_field_size', '未记录')}"
+        )
+        notes.append(
+            f"  camera/model px {fmt(geometry.get('camera_px_per_model_px'))} · "
             f"FWHM {fmt(geometry.get('spot_fwhm_camera_px'), 3)} cam px"
         )
-    ax.text(0.02, 0.98, "\n".join(notes), ha="left", va="top", fontsize=9)
-    fig.suptitle(f"model-in-loop 实验系统 A/B campaign 汇总 ({stamp})", fontsize=12)
+    ax.text(0.02, 0.98, "\n".join(notes), ha="left", va="top", fontsize=10.5)
+    fig.suptitle(f"model-in-loop 实验系统 A/B campaign 汇总 ({stamp})", fontsize=14)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     savefig(fig, out_path)
     return out_path
@@ -1206,10 +1708,10 @@ def _plot_exposure_window(ax, stages, exposure_ladder) -> None:
     if plotted:
         ax.set_xscale("log")
         ax.set_yscale("log")
-    ax.set_xlabel("曝光 (ms)")
-    ax.set_ylabel("峰值 (counts)")
+    ax.set_xlabel("曝光 (ms)", fontsize=11)
+    ax.set_ylabel("峰值 (counts)", fontsize=11)
     ax.grid(alpha=0.3, which="both")
-    ax.legend(fontsize=7, loc="best")
+    ax.legend(fontsize=9, loc="best")
 
 
 def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
@@ -1219,8 +1721,8 @@ def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
     if not measurements and not summary:
         return None
     style_axes()
-    fig, axes = plt.subplots(1, 3, figsize=(15.0, 4.6))
-    fig.subplots_adjust(wspace=0.32)
+    fig, axes = plt.subplots(1, 3, figsize=(12.2, 5.2))
+    fig.subplots_adjust(wspace=0.48, left=0.075, right=0.985, top=0.86, bottom=0.24)
 
     ax = axes[0]
     if measurements:
@@ -1241,13 +1743,15 @@ def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
                     grid[row, col] = delta
             image = ax.imshow(grid, cmap="coolwarm", vmin=-0.02, vmax=0.02)
             ax.set_xticks(range(5))
-            ax.set_xticklabels([240, 600, 960, 1320, 1680], fontsize=8)
+            ax.set_xticklabels([240, 600, 960, 1320, 1680], fontsize=10)
             ax.set_yticks(range(5))
-            ax.set_yticklabels([220, 480, 720, 980, 1240], fontsize=8)
-            ax.set_xlabel("面板 x (px)")
-            ax.set_ylabel("面板 y (px)")
-            fig.colorbar(image, ax=ax, label="delta")
-    ax.set_title(f"{stage.name} 全板定位响应 (delta)")
+            ax.set_yticklabels([220, 480, 720, 980, 1240], fontsize=10)
+            ax.set_xlabel("面板 x (px)", fontsize=11)
+            ax.set_ylabel("面板 y (px)", fontsize=11)
+            colourbar = fig.colorbar(image, ax=ax, fraction=0.046)
+            colourbar.ax.tick_params(labelsize=9)
+            colourbar.set_label("delta", fontsize=10)
+    ax.set_title(f"{stage.name} 全板定位响应 (delta)", fontsize=12)
 
     ax = axes[1]
     threshold = as_float(summary.get("max_flat_drift"))
@@ -1262,11 +1766,12 @@ def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
         ]
         ax.bar(range(len(labels)), [d if d is not None else 0.0 for d in drift], color=colours)
         ax.set_xticks(range(len(labels)))
-        ax.set_xticklabels(labels, rotation=90, fontsize=6)
+        ax.set_xticklabels(labels, rotation=90, fontsize=8)
         ax.axhline(threshold, color="black", linestyle="--", linewidth=1.0)
-        ax.set_ylabel("平场漂移")
+        ax.set_ylabel("平场漂移", fontsize=11)
+        ax.tick_params(axis="y", labelsize=10)
         ax.grid(axis="y", alpha=0.3)
-    ax.set_title(f"每个位置的平场漂移 (虚线 = 严格模式阈值 {threshold:g})")
+    ax.set_title(f"每个位置的平场漂移 (虚线 = 严格模式阈值 {threshold:g})", fontsize=12)
 
     ax = axes[2]
     ax.axis("off")
@@ -1285,10 +1790,518 @@ def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
     ):
         if key in summary:
             lines.append(f"{key}: {summary[key]}")
-    ax.text(0.02, 0.98, "\n".join(lines), ha="left", va="top", fontsize=9)
-    ax.set_title("严格模式判定")
+    ax.text(0.02, 0.98, "\n".join(lines), ha="left", va="top", fontsize=10.5)
+    ax.set_title("严格模式判定", fontsize=12)
 
-    fig.suptitle(f"{stage.name} 全板定位扫描证据", fontsize=12)
+    fig.suptitle(f"{stage.name} 全板定位扫描证据", fontsize=14)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    savefig(fig, out_path)
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# The truth against the prediction, and the metrics curves
+# ---------------------------------------------------------------------------
+
+
+def _probe_row_title(truth: ProbeTruth) -> str:
+    """The title of one probe row: its type, its round and its index."""
+    exposure = (
+        f", 曝光 {truth.probe.exposure_ms:.3f} ms"
+        if truth.probe.exposure_ms
+        else ""
+    )
+    return f"{truth.split} · 第 {truth.probe.round} 轮 · 探针 #{truth.probe.index}{exposure}"
+
+
+def _truth_page_height(rows: int) -> float:
+    """The height (in inches) of a truth-vs-prediction page with ``rows`` probes."""
+    return (
+        TRUTH_HEADER_IN
+        + rows * (TRUTH_PANEL_IN + TRUTH_ROW_GAP_IN)
+        + TRUTH_BOTTOM_IN
+    )
+
+
+def render_truth_probe_pages(
+    stage: StageData, truths: list[ProbeTruth], fig_dir: Path, stamp: str
+) -> list[Path]:
+    """Render the arm's probes as pages of readable three-panel rows.
+
+    One row per probe -- the measured frame, the model's prediction on the
+    camera grid, and their difference -- with the probe's identity on the
+    measured panel and its Pearson r / SSIM on the difference panel. The rows
+    are split over several pages (see :data:`TRUTH_PAGE_ROWS`) so that one
+    panel stays large enough to read: a 10 in wide page is read in a 900 px
+    report column at about 90 px/in, which puts one square panel at ~260 px
+    and a 10 pt label at ~12 px.
+
+    Args:
+        stage: The arm.
+        truths: The arm's probes, grouped by type and ordered.
+        fig_dir: The directory the pages are written to.
+        stamp: The stamp every file name carries.
+
+    Returns:
+        The paths of the pages, in reading order.
+    """
+    if not truths:
+        return []
+    pages = [
+        truths[start : start + TRUTH_PAGE_ROWS]
+        for start in range(0, len(truths), TRUTH_PAGE_ROWS)
+    ]
+    written: list[Path] = []
+    for index, page in enumerate(pages):
+        out_path = fig_dir / f"{stamp}_true_vs_pred_{stage.name}_probes_p{index + 1}.png"
+        render_truth_probe_page(stage, page, out_path, index + 1, len(pages))
+        written.append(out_path)
+    return written
+
+
+def render_truth_probe_page(
+    stage: StageData,
+    truths: list[ProbeTruth],
+    out_path: Path,
+    page_index: int,
+    page_count: int,
+) -> Path:
+    """Render one page of the arm's probes.
+
+    Args:
+        stage: The arm.
+        truths: The probes on this page.
+        out_path: Where the page is written.
+        page_index: This page's number, counting from 1.
+        page_count: How many pages the arm's probes take.
+
+    Returns:
+        The path of the page.
+    """
+    rows = len(truths)
+    height = _truth_page_height(rows)
+    style_axes()
+    fig = plt.figure(figsize=(TRUTH_FIG_WIDTH_IN, height))
+    available = height - TRUTH_HEADER_IN - TRUTH_BOTTOM_IN
+    hspace = (available / TRUTH_PANEL_IN - rows) / max(rows - 1, 1)
+    grid = fig.add_gridspec(
+        rows,
+        3,
+        left=0.012,
+        right=0.988,
+        top=1.0 - TRUTH_HEADER_IN / height,
+        bottom=TRUTH_BOTTOM_IN / height,
+        wspace=0.055,
+        hspace=hspace,
+    )
+    for row, truth in enumerate(truths):
+        _draw_probe_row(fig, grid, row, truth)
+
+    column_span = (0.988 - 0.012) / 3
+    for index, header in enumerate(
+        ("实测帧（相机网格）", "模型预测（相机网格）", "差值（预测 − 实测）")
+    ):
+        fig.text(
+            0.012 + (index + 0.5) * column_span,
+            1.0 - 0.95 / height,
+            header,
+            ha="center",
+            va="top",
+            fontsize=13,
+        )
+    page_note = (
+        f"第 {page_index}/{page_count} 页" if page_count > 1 else f"共 {rows} 条探针"
+    )
+    fig.text(
+        0.5,
+        1.0 - 0.28 / height,
+        f"{stage.name} — 真实光路下的真值 vs 预测（逐探针，{page_note}）",
+        ha="center",
+        va="top",
+        fontsize=14,
+    )
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    savefig(fig, out_path)
+    return out_path
+
+
+def _draw_probe_row(fig, grid, row: int, truth: ProbeTruth) -> None:
+    """Draw one probe row: the measured frame, the prediction, the difference."""
+    colour = SPLIT_COLOURS.get(truth.split, "#444444")
+    ax_measured = fig.add_subplot(grid[row, 0])
+    ax_predicted = fig.add_subplot(grid[row, 1])
+    ax_difference = fig.add_subplot(grid[row, 2])
+
+    if truth.frame is not None:
+        ax_measured.imshow(
+            display_image(truth.frame), cmap="inferno", vmin=0.0, vmax=1.0
+        )
+    else:
+        ax_measured.text(0.5, 0.5, "未记录", ha="center", va="center", fontsize=11)
+    identity = f"{truth.split} · 第 {truth.probe.round} 轮 · 探针 #{truth.probe.index}"
+    if truth.probe.exposure_ms:
+        identity += f"\n曝光 {truth.probe.exposure_ms:.3f} ms"
+    ax_measured.text(
+        0.025,
+        0.975,
+        identity,
+        transform=ax_measured.transAxes,
+        ha="left",
+        va="top",
+        fontsize=10.5,
+        color="white",
+        bbox={
+            "facecolor": (0.0, 0.0, 0.0, 0.55),
+            "pad": 3,
+            "edgecolor": colour,
+            "linewidth": 1.4,
+        },
+    )
+    ax_measured.set_xticks([])
+    ax_measured.set_yticks([])
+
+    if truth.mapped is not None:
+        ax_predicted.imshow(
+            display_image(truth.mapped), cmap="inferno", vmin=0.0, vmax=1.0
+        )
+    else:
+        ax_predicted.text(
+            0.5,
+            0.5,
+            "模型预测未记录",
+            ha="center",
+            va="center",
+            fontsize=11,
+        )
+    ax_predicted.set_xticks([])
+    ax_predicted.set_yticks([])
+
+    if truth.frame is not None and truth.mapped is not None:
+        difference = truth.mapped - truth.frame
+        span = float(np.max(np.abs(difference))) or 1.0
+        ax_difference.imshow(difference, cmap="coolwarm", vmin=-span, vmax=span)
+        ax_difference.text(
+            0.025,
+            0.975,
+            f"r = {fmt(truth.r_camera)}\nSSIM = {fmt(truth.ssim_camera)}\n"
+            f"预测来源: {truth.source}\n色标 ±{span:.3g}",
+            transform=ax_difference.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10,
+            color="white",
+            bbox={
+                "facecolor": (0.0, 0.0, 0.0, 0.55),
+                "pad": 3,
+                "edgecolor": colour,
+                "linewidth": 1.4,
+            },
+        )
+    else:
+        ax_difference.text(0.5, 0.5, "未记录", ha="center", va="center", fontsize=11)
+    ax_difference.set_xticks([])
+    ax_difference.set_yticks([])
+
+
+def render_truth_stats_figure(
+    stage: StageData, truths: list[ProbeTruth], out_path: Path
+) -> Path | None:
+    """Render the arm's pooled 1:1 density plot and the per-probe r spread.
+
+    The left panel is the 1:1 density plot of the measured against the
+    predicted pixels; the right panel is the per-probe Pearson r, coloured by
+    probe type, with the mean of each type drawn as a dotted line.
+
+    Returns:
+        The path of the figure, or ``None`` when the arm recorded no probe.
+    """
+    if not truths:
+        return None
+    style_axes()
+    fig, axes = plt.subplots(1, 2, figsize=(9.8, 4.9))
+    fig.subplots_adjust(wspace=0.40, left=0.075, right=0.965, top=0.85, bottom=0.13)
+
+    ax_scatter = axes[0]
+    measured_all: list[np.ndarray] = []
+    predicted_all: list[np.ndarray] = []
+    for truth in truths:
+        if truth.frame is None or truth.mapped is None:
+            continue
+        measured_all.append(truth.frame.ravel())
+        predicted_all.append(truth.mapped.ravel())
+    if measured_all:
+        measured = np.concatenate(measured_all)
+        predicted = np.concatenate(predicted_all)
+        upper = float(max(np.max(measured), np.max(predicted)))
+        edges = np.linspace(0.0, upper, 61)
+        density, _, _ = np.histogram2d(
+            measured, predicted, bins=(edges, edges)
+        )
+        image = ax_scatter.imshow(
+            np.log10(density.T + 1.0),
+            origin="lower",
+            aspect="equal",
+            cmap="magma",
+            extent=(0.0, upper, 0.0, upper),
+        )
+        ax_scatter.plot([0, upper], [0, upper], "w--", linewidth=1.2, alpha=0.8)
+        pooled_r = normalized_correlation(predicted, measured)
+        pooled_r2 = linear_r2(measured, predicted)
+        ax_scatter.text(
+            0.03,
+            0.97,
+            f"实测像素 vs 预测像素\nr = {fmt(pooled_r)}\n"
+            f"R²(线性拟合) = {fmt(pooled_r2)}\n"
+            f"像素数 = {measured.size}",
+            transform=ax_scatter.transAxes,
+            ha="left",
+            va="top",
+            fontsize=10,
+            color="white",
+            bbox={"facecolor": (0.0, 0.0, 0.0, 0.55), "pad": 3},
+        )
+        ax_scatter.set_xlabel("实测像素值", fontsize=11)
+        ax_scatter.set_ylabel("预测像素值", fontsize=11)
+        ax_scatter.tick_params(labelsize=10)
+        colourbar = fig.colorbar(
+            image, ax=ax_scatter, label="log10 像素计数", fraction=0.046
+        )
+        colourbar.ax.tick_params(labelsize=9)
+        colourbar.set_label("log10 像素计数", fontsize=10)
+    else:
+        ax_scatter.text(0.5, 0.5, "未记录", ha="center", va="center", fontsize=11)
+    ax_scatter.set_title("1:1 密度图", fontsize=12)
+
+    ax_bars = axes[1]
+    labels = [truth.label for truth in truths]
+    values = [np.nan if truth.r_camera is None else truth.r_camera for truth in truths]
+    colours = [
+        SPLIT_COLOURS.get(truth.split, "#444444") for truth in truths
+    ]
+    positions = np.arange(len(truths), dtype=float)
+    ax_bars.bar(positions, values, color=colours)
+    for position, value in zip(positions, values):
+        if value != value:
+            continue
+        ax_bars.text(
+            position,
+            value + (0.04 if value >= 0 else -0.04),
+            f"{value:.3f}",
+            ha="center",
+            va="bottom" if value >= 0 else "top",
+            fontsize=9,
+        )
+    ax_bars.set_xticks(positions)
+    ax_bars.set_xticklabels(labels, rotation=90, fontsize=9)
+    ax_bars.set_ylabel("r (实测 vs 预测)", fontsize=11)
+    ax_bars.set_ylim(-1.1, 1.1)
+    ax_bars.tick_params(axis="y", labelsize=10)
+    ax_bars.grid(axis="y", alpha=0.3)
+    for split, group in _split_groups(truths).items():
+        group_values = [
+            truth.r_camera for truth in group if truth.r_camera is not None
+        ]
+        if not group_values:
+            continue
+        ax_bars.axhline(
+            float(np.mean(group_values)),
+            color=SPLIT_COLOURS.get(split, "#444444"),
+            linestyle=":",
+            linewidth=1.2,
+            alpha=0.8,
+        )
+    handles = [
+        plt.Rectangle((0, 0), 1, 1, color=SPLIT_COLOURS.get(split, "#444444"))
+        for split in _split_groups(truths)
+    ]
+    ax_bars.legend(
+        handles,
+        list(_split_groups(truths)),
+        fontsize=9,
+        title="探针类型 (虚线 = 该类均值)",
+        title_fontsize=9,
+        loc="lower left",
+    )
+    ax_bars.set_title("逐探针 r 的分布", fontsize=12)
+
+    fig.suptitle(f"{stage.name} — 真值 vs 预测的汇总统计", fontsize=14, y=0.97)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    savefig(fig, out_path)
+    return out_path
+
+
+def _split_groups(truths: list[ProbeTruth]) -> dict:
+    """The probes grouped by type, in the report's group order."""
+    groups: dict[str, list[ProbeTruth]] = {}
+    for truth in truths:
+        groups.setdefault(truth.split, []).append(truth)
+    ordered: dict[str, list[ProbeTruth]] = {}
+    for split in PROBE_SPLIT_ORDER:
+        if split in groups:
+            ordered[split] = groups[split]
+    for split, group in groups.items():
+        ordered.setdefault(split, group)
+    return ordered
+
+
+def first_deviation(
+    rows: list, baseline: dict | None, column: str
+) -> tuple[int, float, float] | None:
+    """The first round whose metric left the flat baseline.
+
+    Args:
+        rows: The recorder's per-round rows.
+        baseline: The recorder's calibration row (the flat baseline).
+        column: The metric column to compare.
+
+    Returns:
+        ``(round, value, value - baseline)``, or ``None`` when the run recorded
+        neither a baseline nor a round value.
+    """
+    if not baseline:
+        return None
+    base = as_float(baseline.get(column))
+    if base is None:
+        return None
+    for row in rows:
+        value = as_float(row.get(column))
+        if value is None:
+            continue
+        if abs(value - base) > 1e-12:
+            return int(float(row.get("round", 0) or 0)), value, value - base
+    return None
+
+
+def render_metrics_curves_figure(stage: StageData, out_path: Path) -> Path | None:
+    """Render the recorder's per-round metrics of the arm.
+
+    Four panels -- composite score, CV, EE and the validation correlation --
+    against the round. The flat baseline the run started from is drawn as a
+    dashed line, the acceptance thresholds as a second dashed line, and each
+    round is marked by whether the recorder accepted it.
+
+    Returns:
+        The path of the figure, or ``None`` when the arm recorded no round.
+    """
+    run = stage.run
+    rows = round_rows(run)
+    baseline = calibration_row(run)
+    if not rows and baseline is None:
+        return None
+    style_axes()
+    fig, axes = plt.subplots(2, 2, figsize=(11.0, 7.2))
+    fig.subplots_adjust(wspace=0.30, hspace=0.46, left=0.085, right=0.985)
+    config = run.config or {}
+    thresholds = {
+        "min_holdout_correlation": as_float(config.get("min_holdout_correlation")),
+        "min_geometry_correlation": as_float(config.get("min_geometry_correlation")),
+    }
+
+    for ax, (key, label, column, baseline_column) in zip(axes.ravel(), ROUND_METRICS):
+        base_value = (
+            as_float(baseline.get(baseline_column)) if baseline and baseline_column else None
+        )
+        xs: list[float] = []
+        ys: list[float] = []
+        accepted: list[bool] = []
+        if base_value is not None:
+            xs.append(0.0)
+            ys.append(base_value)
+            accepted.append(True)
+        for row in rows:
+            value = as_float(row.get(column))
+            if value is None:
+                continue
+            xs.append(float(row.get("round", 0) or 0))
+            ys.append(value)
+            flag = str(row.get("accepted", "")).strip().lower()
+            accepted.append(flag in ("true", "1", "yes"))
+        if xs:
+            ax.plot(xs, ys, "-", color="#1f77b4", linewidth=1.2, zorder=1)
+            for x, y, ok in zip(xs, ys, accepted):
+                if x == 0.0:
+                    ax.plot(
+                        x,
+                        y,
+                        "D",
+                        color="#7f7f7f",
+                        markersize=6,
+                        label="平场基线 (第 0 轮)",
+                        zorder=3,
+                    )
+                elif ok:
+                    ax.plot(
+                        x,
+                        y,
+                        "o",
+                        color="#1f77b4",
+                        markersize=6,
+                        label="该轮被接受",
+                        zorder=3,
+                    )
+                else:
+                    ax.plot(
+                        x,
+                        y,
+                        "s",
+                        markerfacecolor="none",
+                        markeredgecolor="#d62728",
+                        markersize=7,
+                        label="该轮被拒绝",
+                        zorder=3,
+                    )
+        if base_value is not None:
+            ax.axhline(
+                base_value,
+                color="#7f7f7f",
+                linestyle="--",
+                linewidth=1.0,
+                label="平场基线分",
+            )
+        if key == "holdout":
+            for name, threshold in thresholds.items():
+                if threshold is None:
+                    continue
+                ax.axhline(
+                    threshold,
+                    color="#d62728",
+                    linestyle=":",
+                    linewidth=1.2,
+                    label=f"验收阈值 {name} = {threshold:g}",
+                )
+            ax.set_ylim(0.0, 1.05)
+        deviation = first_deviation(rows, baseline, column)
+        if deviation is not None:
+            round_no, value, delta = deviation
+            ax.axvline(round_no, color="#ff7f0e", linewidth=1.0, alpha=0.7)
+            # The note is anchored inside the axes: the round usually sits at
+            # the right edge, and an offset annotation would be clipped off
+            # the figure.
+            low, high = ax.get_ylim()
+            fraction = (value - low) / (high - low) if high > low else 0.5
+            # The note goes to the half of the panel the point is *not* in.
+            below = fraction > 0.5
+            ax.annotate(
+                f"第 {round_no} 轮偏离平场 {delta:+.4f}",
+                xy=(round_no, value),
+                xytext=(0.97, 0.06 if below else 0.94),
+                textcoords="axes fraction",
+                ha="right",
+                va="bottom" if below else "top",
+                fontsize=10,
+                color="#ff7f0e",
+                arrowprops={"arrowstyle": "->", "color": "#ff7f0e", "linewidth": 1.0},
+            )
+        ax.set_xlabel("轮次 (0 = 平场基线)", fontsize=11)
+        ax.set_ylabel(label, fontsize=11)
+        ax.set_title(label, fontsize=12)
+        ax.tick_params(labelsize=10)
+        ax.grid(alpha=0.3)
+        ax.legend(fontsize=9, loc="best")
+
+    fig.suptitle(
+        f"{stage.name} — recorder 的逐轮指标曲线（真实侧的全过程）", fontsize=14
+    )
     out_path.parent.mkdir(parents=True, exist_ok=True)
     savefig(fig, out_path)
     return out_path
@@ -1349,6 +2362,10 @@ def build_report(
     summary_figure: str,
     gif_figures: dict,
     scan_figures: dict,
+    truth_figures: dict,
+    truth_stats_figures: dict,
+    metrics_figures: dict,
+    truths_by_arm: dict,
 ) -> str:
     """Assemble the report body."""
     arms = [stage for stage in stages if stage.kind != "light"]
@@ -1420,7 +2437,7 @@ def build_report(
         )
         lines.append("")
     lines.append(
-        "曝光上限的坑见 §5.1：仓库自带的倍增阶梯在弱光下会被噪声底带偏，"
+        "曝光上限的坑见 §6.1：仓库自带的倍增阶梯在弱光下会被噪声底带偏，"
         "给出的上限比真实工作点低一个量级。"
     )
     lines.append("")
@@ -1582,16 +2599,24 @@ def build_report(
     lines.append(_ab_section(arms))
     lines.append("")
 
-    # 5 -- the defects that blocked the way
-    lines.append("## 5. 过程中撞到的拦路缺陷与处置")
+    # 5 -- the truth against the prediction, and the metrics curves
+    lines.append(
+        _truth_section(
+            arms, truth_figures, truth_stats_figures, metrics_figures, truths_by_arm
+        )
+    )
+    lines.append("")
+
+    # 6 -- the defects that blocked the way
+    lines.append("## 6. 过程中撞到的拦路缺陷与处置")
     lines.append("")
     lines.append(_defects_section(session_dir, stages))
     lines.append("")
 
-    # 6 -- evidence index
-    lines.append("## 6. 证据索引")
+    # 7 -- evidence index
+    lines.append("## 7. 证据索引")
     lines.append("")
-    lines.append("### 6.1 会话与阶段")
+    lines.append("### 7.1 会话与阶段")
     lines.append("")
     evidence_rows = [["会话目录", f"`{session_dir.name}/`", ""]]
     for stage in stages:
@@ -1619,7 +2644,7 @@ def build_report(
             )
     lines.append(markdown_table(["对象", "相对会话目录", "日志 / 备注"], evidence_rows))
     lines.append("")
-    lines.append("### 6.2 recorder 产物")
+    lines.append("### 7.2 recorder 产物")
     lines.append("")
     recorder_rows = []
     for stage in arms:
@@ -1650,14 +2675,14 @@ def build_report(
         )
     lines.append(markdown_table(["臂", "recorder 产物"], recorder_rows))
     lines.append("")
-    lines.append("### 6.3 图")
+    lines.append("### 7.3 图")
     lines.append("")
     if figure_notes:
         lines.append(markdown_table(["图", "说明"], figure_notes))
     else:
         lines.append("未生成图")
     lines.append("")
-    lines.append("### 6.4 生成方式")
+    lines.append("### 7.4 生成方式")
     lines.append("")
     lines.append("```bash")
     lines.append(
@@ -1864,6 +2889,289 @@ def _ab_section(arms) -> str:
     return "\n".join(lines)
 
 
+def _truth_section(
+    arms,
+    truth_figures: dict,
+    truth_stats_figures: dict,
+    metrics_figures: dict,
+    truths_by_arm: dict,
+) -> str:
+    """The truth-vs-prediction section: per-probe fidelity and the metrics curves.
+
+    Args:
+        arms: The arms of the session (the light gate excluded).
+        truth_figures: ``{arm: [figure path]}`` of the truth-vs-prediction pages.
+        truth_stats_figures: ``{arm: figure path}`` of the pooled statistics.
+        metrics_figures: ``{arm: figure path}`` of the metrics-curve figures.
+        truths_by_arm: ``{arm: [ProbeTruth]}`` of the per-probe numbers.
+    """
+    lines: list = []
+    lines.append("## 5. 真值 vs 预测：逐探针的模型保真度与 metrics 曲线")
+    lines.append("")
+    lines.append(
+        "本节回答两个问题：**模型在真实光路下预测得准不准**（逐探针的真值 vs 预测），"
+        "以及**优化过程本身走了哪条路**（recorder 的逐轮指标曲线）。"
+        "两组图都只读盘产物，不打开任何设备。"
+    )
+    lines.append("")
+
+    lines.append("### 5.1 口径（图是怎么画的）")
+    lines.append("")
+    lines.append(
+        "- **真值** = 探针的实测帧（`probes/*.npz` 的 `frame`，按 0.02 ms 参考曝光归一化）。"
+    )
+    lines.append(
+        "- **预测** = 正向模型对该探针相位的远场强度（1024² 模型网格）。"
+        "验证集探针与整形帧的预测是 runner 落盘的（npz 的 `prediction`）；"
+        "**训练探针与平场探针 runner 不落盘预测**，本报告用运行目录里落盘的"
+        "系数（`fitted_coefficients.npy`）与源面振幅（`source_amplitude.npy`）"
+        "**离线重算同一套正向模型**（`ZernikeCoefficientOptimizer`，CPU，"
+        "配置取自 `run_config.json`），再按 recorder 记录的增益与"
+        "加性背景（杂散光）项系数合成到相机的量纲上。"
+    )
+    lines.append(
+        "- **映射到相机网格** = 本脚本既有的 `prediction_to_camera`：按该次运行的 "
+        "`bench_geometry.json`（`camera_px_per_model_px`）把模型远场裁到相机看到的范围、"
+        "重采样到 300×300，再按硬件路径的 90° 旋转转回相机朝向；"
+        "随后按该次运行**冻结的光轴**（`stage.log` 的 `frozen ROI centre`）平移，"
+        "使预测与实测逐像素可比 —— 与 §3 的动画用的是同一套对齐。"
+    )
+    lines.append(
+        "- **r** = 实测帧与对齐后的预测之间的 Pearson 相关系数（相机网格）。"
+        "另给出模型网格上的 r（实测重采样到 1024² 与预测之比）—— 那正是 runner "
+        "自己记的 `holdout_correlation`，用来交叉核对。"
+    )
+    lines.append(
+        "- **SSIM** = peak 归一化后的结构相似度（`scikit-image`，7×7 高斯窗，"
+        "`data_range=1`）。"
+    )
+    lines.append(
+        "- **metrics 曲线只用 recorder 的产物**：真值侧的「全过程」以 recorder 的"
+        "逐轮记录为准（`slm_model_in_loop_*.csv` 的 `stage = round` 行），"
+        "平场基线取同一份记录里 `stage = calibration` 的那一行，"
+        "本节不自己重算任何指标。"
+    )
+    lines.append(
+        "- **图的版式**：逐探针的三联图按每页至多 4 条拆成多页，"
+        "每页 10 in 宽（在报告的 900 px 栏宽下约为 93 px/in，"
+        "一个方形图元约 270 px、10 pt 的标注约 13 px），"
+        "1:1 密度图与逐探针 r 的分布另作一张汇总统计图；"
+        "拆图只改版式，不改任何数值。"
+    )
+    lines.append("")
+
+    # --- 5.2 the per-probe table ---
+    lines.append("### 5.2 逐探针的 r 与 SSIM")
+    lines.append("")
+    rows = []
+    for stage in arms:
+        for truth in truths_by_arm.get(stage.name, []):
+            rows.append(
+                [
+                    stage.name,
+                    truth.probe.round,
+                    truth.split,
+                    truth.probe.index,
+                    fmt(truth.r_camera),
+                    fmt(truth.ssim_camera),
+                    fmt(truth.r_model),
+                    truth.source,
+                ]
+            )
+    if rows:
+        lines.append(
+            markdown_table(
+                [
+                    "臂",
+                    "轮次",
+                    "探针类型",
+                    "序号",
+                    "r (相机网格)",
+                    "SSIM",
+                    "r (模型网格)",
+                    "预测来源",
+                ],
+                rows,
+            )
+        )
+    else:
+        lines.append("未记录（各臂都没有留下探针）")
+    lines.append("")
+    agreements = [
+        truth.agreement
+        for truths in truths_by_arm.values()
+        for truth in truths
+        if truth.agreement is not None
+    ]
+    if agreements:
+        lines.append(
+            f"- **离线重算的可信度**: 有 {len(agreements)} 条探针同时有 runner 落盘的预测"
+            f"与本报告离线重算的预测，两者相对偏差最大 "
+            f"{max(agreements):.2e}（即两者在数值上是同一个量），"
+            "所以训练探针与平场探针上重算出来的 r 与 SSIM 可以和验证集探针放在同一张表里读。"
+        )
+        lines.append(
+            "- 落盘预测的探针一律直接用落盘值（`预测来源 = 落盘`），"
+            "离线重算只用于 runner 没有落盘预测的探针。"
+        )
+    else:
+        lines.append("- 离线重算与落盘预测的一致性: 未记录（没有两条预测可比的探针）")
+    lines.append("")
+
+    # --- 5.3 the per-probe correlation distribution ---
+    lines.append("### 5.3 逐探针 r 的分布")
+    lines.append("")
+    for stage in arms:
+        pages = truth_figures.get(stage.name) or []
+        for index, figure in enumerate(pages):
+            caption = f"{stage.name} 真值 vs 预测"
+            if len(pages) > 1:
+                caption += f"（第 {index + 1}/{len(pages)} 页）"
+            lines.append(f"![{caption}]({figure})")
+            lines.append("")
+        stats = truth_stats_figures.get(stage.name)
+        if stats:
+            lines.append(
+                f"![{stage.name} 真值 vs 预测 · 汇总统计"
+                f"（1:1 密度图与逐探针 r 的分布）]({stats})"
+            )
+            lines.append("")
+        groups = _split_groups(truths_by_arm.get(stage.name, []))
+        if groups:
+            readings = []
+            for split, group in groups.items():
+                values = [
+                    truth.r_camera for truth in group if truth.r_camera is not None
+                ]
+                if not values:
+                    readings.append(f"{split}: 未记录")
+                    continue
+                readings.append(
+                    f"{split} {len(values)} 条，r 从 {min(values):.4f} 到 {max(values):.4f}，"
+                    f"均值 {np.mean(values):.4f}"
+                )
+                lows = [truth.r_camera for truth in group if truth.r_camera is not None]
+                if lows and min(lows) < 0.0:
+                    readings.append(
+                        f"{split} 里有 {sum(1 for v in lows if v < 0.0)} 条 r 为负"
+                    )
+            lines.append(f"- **{stage.name}**: " + "；".join(readings) + "。")
+        lines.append("")
+    lines.append(
+        "读法: 三联图每行一条探针（左：实测帧；中：模型预测；右：差值），"
+        "图元上直接标出探针类型、轮次、序号、曝光与该条的 r / SSIM；"
+        "汇总统计图左半是 1:1 密度图，右半是逐探针 r 的条形图 —— "
+        "条形图按探针类型分色，虚线是每一类的均值。"
+        "「改善落在均值还是每一条探针」看两处 —— 若某类探针的条形高度接近而均值明显不同，"
+        "说明该类被少数几条拉高；若条形高度参差很大而均值居中，"
+        "说明均值掩盖了逐条探针的差异。"
+    )
+    lines.append("")
+
+    # --- 5.4 the metrics curves ---
+    lines.append("### 5.4 metrics 曲线与第一个偏离平场的轮次")
+    lines.append("")
+    for stage in arms:
+        figure = metrics_figures.get(stage.name)
+        if not figure:
+            continue
+        lines.append(f"![{stage.name} metrics 曲线]({figure})")
+        lines.append("")
+    curve_rows = []
+    for stage in arms:
+        rows = round_rows(stage.run)
+        baseline = calibration_row(stage.run)
+        base_score = (
+            as_float(baseline.get("score_after")) if baseline else None
+        )
+        deviation = first_deviation(rows, baseline, "score_after")
+        curve_rows.append(
+            [
+                stage.name,
+                fmt(base_score),
+                deviation[0] if deviation else "未记录",
+                fmt(deviation[1]) if deviation else "未记录",
+                f"{deviation[2]:+.4f}" if deviation else "未记录",
+                str(rows[0].get("accepted", "")).strip() if rows else "未记录",
+                stage.run.recorder_status or "未记录",
+            ]
+        )
+    if curve_rows:
+        lines.append(
+            markdown_table(
+                [
+                    "臂",
+                    "平场基线分 (第 0 轮)",
+                    "首个偏离平场的轮次",
+                    "该轮分数",
+                    "偏差",
+                    "该轮是否被接受",
+                    "recorder 状态",
+                ],
+                curve_rows,
+            )
+        )
+    lines.append("")
+    lines.append(
+        "曲线上的圆点是 recorder 接受的轮次、空心红方块是被拒绝的轮次、"
+        "灰色菱形是第 0 轮（平场基线），灰色虚线是平场基线分，"
+        "验证集面板上的红色点线是该臂的两个验收阈值"
+        "（`min_holdout_correlation` 与 `min_geometry_correlation`）。"
+    )
+    lines.append("")
+
+    # --- 5.5 the A/B difference ---
+    lines.append("### 5.5 A/B 两臂的曲线差别")
+    lines.append("")
+    ab_rows = []
+    for stage in arms:
+        truths = truths_by_arm.get(stage.name, [])
+        by_split: dict[str, list[float]] = {}
+        for truth in truths:
+            if truth.r_camera is None:
+                continue
+            by_split.setdefault(truth.split, []).append(truth.r_camera)
+        summary = "；".join(
+            f"{split} 均值 {np.mean(values):.4f}（{len(values)} 条）"
+            for split, values in by_split.items()
+        )
+        rows = round_rows(stage.run)
+        baseline = calibration_row(stage.run)
+        base_score = as_float(baseline.get("score_after")) if baseline else None
+        deviation = first_deviation(rows, baseline, "score_after")
+        ab_rows.append(
+            [
+                stage.name,
+                fmt(stage.profile.get("min_holdout_correlation")),
+                fmt(base_score),
+                f"{deviation[2]:+.4f}" if deviation else "未记录",
+                summary or "未记录",
+            ]
+        )
+    if ab_rows:
+        lines.append(
+            markdown_table(
+                [
+                    "臂",
+                    "验证集门槛",
+                    "平场基线分",
+                    "首个偏离平场的偏差",
+                    "逐探针 r 的分类均值",
+                ],
+                ab_rows,
+            )
+        )
+    lines.append("")
+    lines.append(
+        "两臂的曲线差别要分两层读：**门槛层**（验证集门槛的取值有没有改变判定，"
+        "见 §4）与**保真度层**（模型对每一类探针的预测准不准，"
+        "也就是上面逐探针 r 的分布）。只有当保真度层也一致时，"
+        "「门槛不是限制项」这条结论才对该臂的整形效果同样成立。"
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _defects_section(session_dir: Path, stages) -> str:
     """The blockers hit on the way, each with its evidence path."""
     lines: list = []
@@ -1872,7 +3180,7 @@ def _defects_section(session_dir: Path, stages) -> str:
         "它们决定了本会话为什么长这样，因此一并记录，证据路径逐条给出。"
     )
     lines.append("")
-    lines.append("### 5.1 曝光上限估计被噪声底毒化")
+    lines.append("### 6.1 曝光上限估计被噪声底毒化")
     lines.append("")
     lines.append(
         "- 现象: `Daheng exposure ceiling probed from the image: 2.0655 ms "
@@ -1905,7 +3213,7 @@ def _defects_section(session_dir: Path, stages) -> str:
         "  会话内各阶段的光照闸门都给出「峰值 113/255 ~ 201/255，有可用信号」。"
     )
     lines.append("")
-    lines.append("### 5.2 全板定位的严格模式在噪声底上误拒")
+    lines.append("### 6.2 全板定位的严格模式在噪声底上误拒")
     lines.append("")
     lines.append(
         "- 现象: `panel (960, 980): flat reference drift 2.0% exceeds 2.0%` —— "
@@ -1938,12 +3246,12 @@ def _defects_section(session_dir: Path, stages) -> str:
             f"{name} rejected_count={count}" for name, count in scans
         )
         lines.append(
-            f"- 处置: 本会话的全板定位都过了严格模式（{detail}），标定图见 §3 与 §6.3。"
+            f"- 处置: 本会话的全板定位都过了严格模式（{detail}），标定图见 §3 与 §7.3。"
         )
     else:
         lines.append("- 处置: 本会话没有留下全板定位产物。")
     lines.append("")
-    lines.append("### 5.3 驱动改曝光后的陈旧帧")
+    lines.append("### 6.3 驱动改曝光后的陈旧帧")
     lines.append("")
     lines.append(
         "- 现象: 每换一个曝光，驱动的第一帧读回是**上一次曝光的陈旧帧**；"
@@ -1968,7 +3276,7 @@ def _defects_section(session_dir: Path, stages) -> str:
         "（`measure()` 里的稳定帧 + 单独读回 + 曝光判据）"
     )
     lines.append("")
-    lines.append("### 5.4 SLM 内存写入的 USB 错误（-10032）断了大面积臂")
+    lines.append("### 6.4 SLM 内存写入的 USB 错误（-10032）断了大面积臂")
     lines.append("")
     lines.append(
         "- 现象: 大面积臂（`large_1000`）在会话几何 sweep 阶段写 SLM 内存时抛 "
@@ -1993,7 +3301,7 @@ def _defects_section(session_dir: Path, stages) -> str:
         "（错误码 -10032 的抛出处）"
     )
     lines.append("")
-    lines.append("### 5.5 其它当天的读数")
+    lines.append("### 6.5 其它当天的读数")
     lines.append("")
     lines.append(
         "- 全板定位报告的照明半径是 `radius_px: 0.0`（`radius_source: scan_fall_width`，"
@@ -2115,6 +3423,54 @@ def main(argv: list[str] | None = None) -> int:
                 ]
             )
 
+    truth_figures: dict = {}
+    truth_stats_figures: dict = {}
+    metrics_figures: dict = {}
+    truths_by_arm: dict = {}
+    for stage in stages:
+        if stage.kind == "light" or not stage.run.probes:
+            continue
+        truths = collect_probe_truths(stage)
+        if not truths:
+            continue
+        truths_by_arm[stage.name] = truths
+        pages = render_truth_probe_pages(stage, truths, fig_dir, stamp)
+        truth_figures[stage.name] = [f"figures/{path.name}" for path in pages]
+        for index, page_path in enumerate(pages):
+            figure_notes.append(
+                [
+                    f"`figures/{page_path.name}`",
+                    f"{stage.name} 的逐探针真值 vs 预测（实测帧 / 模型预测 / 差值，"
+                    f"图元上标注探针类型、轮次、序号、r 与 SSIM）"
+                    f"第 {index + 1}/{len(pages)} 页",
+                ]
+            )
+        stats_path = fig_dir / f"{stamp}_true_vs_pred_{stage.name}_stats.png"
+        if render_truth_stats_figure(stage, truths, stats_path) is not None:
+            truth_stats_figures[stage.name] = f"figures/{stats_path.name}"
+            figure_notes.append(
+                [
+                    f"`figures/{stats_path.name}`",
+                    f"{stage.name} 的真值 vs 预测汇总统计"
+                    "（1:1 密度图与逐探针 r 的分布）",
+                ]
+            )
+        # The single-page renderer that used to draw every probe of the arm
+        # into one image is gone; drop its file so report/ keeps no orphan.
+        legacy_path = fig_dir / f"{stamp}_true_vs_pred_{stage.name}.png"
+        if legacy_path.exists():
+            legacy_path.unlink()
+        metrics_path = fig_dir / f"{stamp}_metrics_curves_{stage.name}.png"
+        if render_metrics_curves_figure(stage, metrics_path) is not None:
+            metrics_figures[stage.name] = f"figures/{metrics_path.name}"
+            figure_notes.append(
+                [
+                    "`figures/" + metrics_path.name + "`",
+                    f"{stage.name} 的 recorder 逐轮指标曲线"
+                    "（composite score / CV / EE / 验证集相关性，含平场基线与验收阈值）",
+                ]
+            )
+
     body = build_report(
         session_dir,
         stages,
@@ -2127,6 +3483,10 @@ def main(argv: list[str] | None = None) -> int:
         summary_figure,
         gif_figures,
         scan_figures,
+        truth_figures,
+        truth_stats_figures,
+        metrics_figures,
+        truths_by_arm,
     )
     try:
         key = (out_dir / report_name).relative_to(ROOT).as_posix()
