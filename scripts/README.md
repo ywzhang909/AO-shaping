@@ -3941,9 +3941,21 @@ python scripts/slm/model_in_loop_hw_ab.py --stage baseline_a --stage baseline_b
 | Stage | What it changes | Expectation |
 |---|---|---|
 | `light` | the light-level gate | verdict `ok` |
-| `baseline_a` | `--min-holdout-correlation 0.5` (gate kept) | `aborted_unidentifiable` plus a `holdout_forward_mismatch` round, and no phase |
-| `baseline_b` | `--min-holdout-correlation 0` (forced open) | `completed`, at least one accepted round, a recorded best phase |
+| `baseline_a` | `--min-holdout-correlation 0.5` (gate kept) | stopped — by the holdout gate (`aborted_unidentifiable` + a `holdout_forward_mismatch` round) **or** by the bake-off against flat (`bake_off_rejected`) — and no phase kept; *not* expected to produce a shaping score |
+| `baseline_b` | `--min-holdout-correlation 0` (forced open) | `completed` **and** the shaped composite score **strictly greater** than the flat baseline score (a `bake_off_rejected`, or a completed run that lost the bake-off, does *not* meet the expectation) |
 | `large_<side>` | square target of `<side>` camera px, `cam_size ≥ side + 100` | same as `baseline_b` |
+
+**Shared geometry + error terms.** The two arms must differ *only* in the gate
+under test, so they have to see the same bench geometry (two independent
+session calibrations on this bench produced camera/model scales differing by a
+factor of two). `--geometry-file` hands one measured sweep geometry to **every**
+arm; without it the **first** MIL arm is the geometry *donor* — it runs the
+automatic session calibration, and the `bench_geometry.json` it produces is
+copied to `<session>/bench_geometry.json` and handed to every later arm. If the
+donor produces no geometry file, the later arms fall back to their own
+calibration and the manifest records `geometry_fallback: true` (not silent).
+`--error-params` hands the forward model's error-term JSON (the SLM's LUT
+nonlinearity γ above all) to every arm.
 
 The defaults follow the 2026-10-19 profile
 (`data/debug/model_in_loop_auto/20261019_camera_reposition/profile.json`), so the
@@ -3952,8 +3964,9 @@ campaign keeps the same measurement setup.
 **Output** — `data/debug/model_in_loop_hw_ab/<stamp>/`:
 
 ```
-manifest.json                       campaign record: expectation, exit code, measurements, evidence paths
+manifest.json                       campaign record: expectation, exit code, measurements, evidence paths, per-arm geometry_file / geometry_donor / geometry_fallback
 summary.md                          the same record as a table
+bench_geometry.json                 the shared sweep geometry (the donor arm's output, or the --geometry-file input)
 light/<stamp>/light_level.json      the gate's own verdict
 baseline_a/{stage.log, profile.json, slm_model_in_loop/<stamp>/}
 ```
@@ -3994,6 +4007,9 @@ Output — `report/shape_trials/model_in_loop/`:
 | `figures/<stamp>_mil_inverse_<arm>.gif` | the real inverse-optimization process: measured probe frame / model prediction / pupil phase / recorder curves, frame by frame |
 | `figures/<stamp>_hw_ab_summary.png` | per-arm comparison (score / CV / EE / holdout correlation / rounds / status) |
 | `figures/<stamp>_panel_scan_<arm>.png` | the panel-locate scan response and flat drift |
+| `figures/<stamp>_true_vs_pred_<arm>_probes_p<n>.png` | ground truth vs prediction, one row per probe (measured frame / model prediction on the camera grid / their difference, with the probe's type, round, index, exposure, Pearson r and SSIM printed on the panel); probes are split over several pages (≤4 per page) |
+| `figures/<stamp>_true_vs_pred_<arm>_stats.png` | the pooled 1:1 density plot of measured vs predicted pixels, next to the per-probe-r distribution split by probe type |
+| `figures/<stamp>_metrics_curves_<arm>.png` | the metrics curves: composite score / CV / EE / validation-set correlation vs round, with the flat baseline, the acceptance thresholds and each round's accepted/rejected state |
 
 The model prediction is mapped onto the camera grid with the run's own
 `bench_geometry.json` (`camera_px_per_model_px`, `far_field_size`) and the
