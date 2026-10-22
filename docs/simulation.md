@@ -23,7 +23,10 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 - 2f 实验系统数字孪生核心（参数化误差注入，可被其他任务直接复用）— `bench_twin.py`：
   口径=瞳面区域→CCD 远场，三族误差（LUT 非线性+量化 / 面板静态相差 / 装调：离焦+倾斜+透镜像差），
   默认全零=理想系统；`far_field()`/`frame()` 正向、`apply_*` 分阶段注入、`compensate()` 算法级预补偿、
-  `to_dict()/from_dict()` 序列化（详见 [src/ao_shaping/drivers/sim/AGENTS.md](../src/ao_shaping/drivers/sim/AGENTS.md)）
+  `to_dict()/from_dict()` 序列化；焦面标度口径另有 `equivalent_focal_length_m()`（由实测焦面标度
+  反推等效焦距，纯函数）与 `BenchTwinConfig.from_measured_scale()`（按实测标度构造配置的入口，
+  传 `camera_px_per_model_px` 反推 `focal_length_m`，使孪生解析标度与实测逐位一致）
+  （详见 [src/ao_shaping/drivers/sim/AGENTS.md](../src/ao_shaping/drivers/sim/AGENTS.md)）
 - 数字孪生参数反演（联合损失 + 两阶段反演 + 算法级预补偿，接在孪生核心公开 API 上，不另写传播链）—
   `tools/slm/bench_twin_calibrate.py`（`twin_loss` / `fit_twin` / `compensated_phase`；
   实测结论：面板 Noll-4 离焦与相机离焦在远场近乎简并，Stage 2 须与粗调量联合重拟合）

@@ -848,10 +848,11 @@ class TestFairness:
                 ppid=1,
                 cmdline="python scripts/slm/run_hw_sweep_groups.py --plan x.json",
             ),
-            # 别的会话的进程 —— 这一个才算
+            # 别的会话的进程 —— 这一个才算 (ppid=0: init 之下, 与 pytest 进程链无关;
+            # 不能用 ppid=1 —— CI 容器里 pytest 自己是 PID 1, ppid=1 会被误判为自己的后代)
             ProcessInfo(
                 pid=self_pid + 3,
-                ppid=1,
+                ppid=0,
                 cmdline="python scripts/slm/other_lane_probe.py",
             ),
         ]
@@ -867,7 +868,8 @@ class TestFairness:
     def test_an_explicitly_owned_pid_is_not_an_occupier(self):
         """``--own-pid`` 声明的进程 (同一条线上的另一个脚本) 不算占用者。"""
         processes = [
-            ProcessInfo(pid=500001, ppid=1, cmdline="python scripts/slm/mine.py"),
+            # ppid=0 而非 1: CI 容器里 pytest 是 PID 1, ppid=1 会被误判为自己的后代
+            ProcessInfo(pid=500001, ppid=0, cmdline="python scripts/slm/mine.py"),
         ]
 
         assert select_device_using_processes(processes, exclude_pids=[500001]) == []
@@ -880,14 +882,15 @@ class TestFairness:
         三个 generate_bench_twin_report.py)。
         """
         processes = [
+            # ppid=0 而非 1: CI 容器里 pytest 是 PID 1, ppid=1 会被误判为自己的后代
             ProcessInfo(
                 pid=600001,
-                ppid=1,
+                ppid=0,
                 cmdline="python scripts/slm/generate_bench_twin_report.py --run-dir x",
             ),
             ProcessInfo(
                 pid=600002,
-                ppid=1,
+                ppid=0,
                 cmdline="python scripts/slm/hw_gs_defocus_probe.py --execute",
             ),
         ]
@@ -907,9 +910,10 @@ class TestFairness:
         下面两条命令行**逐字取自**那次实测。
         """
         processes = [
+            # ppid=0 而非 1: CI 容器里 pytest 是 PID 1, ppid=1 会被误判为自己的后代
             ProcessInfo(
                 pid=700001,
-                ppid=1,
+                ppid=0,
                 cmdline=(
                     "python.exe -m pytest -p no:cacheprovider --rootdir "
                     "C:/Users/me/Worktrees/AO-shaping/x -q --tb=short -ra "
@@ -922,7 +926,7 @@ class TestFairness:
             ),
             ProcessInfo(
                 pid=700002,
-                ppid=1,
+                ppid=0,
                 cmdline=(
                     "python.exe -m pytest "
                     "D:\\Projects\\TIFO\\AO-shaping\\tests\\ao_shaping\\optimizer\\wfless"

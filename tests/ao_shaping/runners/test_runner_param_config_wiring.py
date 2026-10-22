@@ -133,6 +133,8 @@ LIBRARY_ONLY: dict[str, set[str]] = {
         "adaptive_trust_region",
         "callback",
         "debug_dir",
+        # 库调用者直接塞 ModelErrorTerms 对象; CLI 走 --error-params (str 路径)
+        # 由 __post_init__ 解析填充, 不走 builder 的 kwargs。
         "error_terms",
         "holdout_on_sim",
         "output_subdir",
