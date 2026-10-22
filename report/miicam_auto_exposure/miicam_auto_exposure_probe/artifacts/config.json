@@ -1,0 +1,86 @@
+{
+  "cam_id": 0,
+  "initial_exposure_ms": 0.02,
+  "premise_frames": 5,
+  "response_exposures": [
+    0.011,
+    0.015,
+    0.02,
+    0.025,
+    0.03,
+    0.04,
+    0.05
+  ],
+  "knee_exposures": [
+    15.0,
+    16.0,
+    17.0,
+    18.0,
+    19.0,
+    20.0,
+    22.0
+  ],
+  "knee_repeats": 2,
+  "switch_exposures": [
+    16.0,
+    17.0,
+    18.0,
+    19.0
+  ],
+  "switch_rounds": 3,
+  "fresh_exposures": [
+    17.0,
+    20.0
+  ],
+  "fresh_frames": 8,
+  "determinism_tol": 0.05,
+  "switch_lag_tol": 0.5,
+  "targets": [
+    {
+      "target_max": 220.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "tolerance": 12.0,
+      "expect": "conv"
+    },
+    {
+      "target_max": 240.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "tolerance": 15.0,
+      "expect": "conv"
+    },
+    {
+      "target_max": 200.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "tolerance": 10.0,
+      "expect": "dead"
+    },
+    {
+      "target_max": 200.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "tolerance": 5.0,
+      "expect": "dead"
+    },
+    {
+      "target_max": 40.0,
+      "n_sample": 1,
+      "twice_valid": true,
+      "tolerance": 5.0,
+      "expect": "bound"
+    },
+    {
+      "target_max": 120.0,
+      "n_sample": 3,
+      "twice_valid": true,
+      "tolerance": 10.0,
+      "expect": "bound"
+    }
+  ],
+  "reachable_floor": 180.0,
+  "max_iterations": 20,
+  "python": "3.13.2 (main, Mar 17 2025, 21:04:07) [MSC v.1943 64 bit (AMD64)]",
+  "device_safety": "miicam SDK only; Daheng/gxipy never touched"
+}

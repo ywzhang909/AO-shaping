@@ -1,0 +1,245 @@
+{
+  "meta": {
+    "date": "2026-10-22 20:43",
+    "system_seed": 42,
+    "drift_seed": 20261022,
+    "a_smooth": 0.0,
+    "t_smooth": 61.0,
+    "walk_sigma": 0.0,
+    "walk_clip": 0.3,
+    "stray_adu": 0.005,
+    "epochs": 12
+  },
+  "results": [
+    {
+      "variant": "baseline",
+      "protocol": "observe",
+      "abba": false,
+      "epochs": 12,
+      "exit_code": 0,
+      "wall_s": 118.8,
+      "pkl": "D:\\Projects\\TIFO\\.drift_study_scratch\\intrinsic\\debug\\slm_pib_shape\\20261022_204313\\slm_pib_shape_20261022_204313.pkl",
+      "rows": 13,
+      "drift": {
+        "swing_pct": 0.0,
+        "n_reads": 57,
+        "stray_adu": 0.005
+      },
+      "same_phase": {
+        "n": 24.0,
+        "sigma": 0.03062475360531845,
+        "mean": -1.4140942367984923
+      },
+      "n_protocol_captures": 24,
+      "capture_log": [
+        {
+          "kind": "establish",
+          "n": 5,
+          "g_true": 1.0,
+          "measured": 39.00570674156256,
+          "j_ref": -1.3794188765431663,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 7,
+          "g_true": 1.0,
+          "measured": 39.03559830572224,
+          "j_ref": -1.370925244121623,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 9,
+          "g_true": 1.0,
+          "measured": 39.22388397149571,
+          "j_ref": -1.406338056658324,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 11,
+          "g_true": 1.0,
+          "measured": 39.22387725612762,
+          "j_ref": -1.3817390926156063,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 13,
+          "g_true": 1.0,
+          "measured": 39.12752104167588,
+          "j_ref": -1.4311856148864466,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 15,
+          "g_true": 1.0,
+          "measured": 39.170016893774644,
+          "j_ref": -1.4461403492585894,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 17,
+          "g_true": 1.0,
+          "measured": 38.92405987471851,
+          "j_ref": -1.3757563310234708,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 19,
+          "g_true": 1.0,
+          "measured": 39.09265709773163,
+          "j_ref": -1.4190294188332304,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 21,
+          "g_true": 1.0,
+          "measured": 38.910905144229645,
+          "j_ref": -1.3881324146166076,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 23,
+          "g_true": 1.0,
+          "measured": 38.932795555887296,
+          "j_ref": -1.415308844689193,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 25,
+          "g_true": 1.0,
+          "measured": 38.94085679799075,
+          "j_ref": -1.3858580513850949,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 27,
+          "g_true": 1.0,
+          "measured": 39.02039700781859,
+          "j_ref": -1.416909939213701,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 29,
+          "g_true": 1.0,
+          "measured": 39.18379557780343,
+          "j_ref": -1.413656594069932,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 31,
+          "g_true": 1.0,
+          "measured": 38.8405805265989,
+          "j_ref": -1.4595230583951755,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 33,
+          "g_true": 1.0,
+          "measured": 38.79827961438554,
+          "j_ref": -1.4379629404814176,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 35,
+          "g_true": 1.0,
+          "measured": 38.94314408937676,
+          "j_ref": -1.4089546870663128,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 37,
+          "g_true": 1.0,
+          "measured": 39.32014340078707,
+          "j_ref": -1.4189762971458184,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 39,
+          "g_true": 1.0,
+          "measured": 39.07047433433543,
+          "j_ref": -1.4573790238427904,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 41,
+          "g_true": 1.0,
+          "measured": 39.042261475070845,
+          "j_ref": -1.45992518123093,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 43,
+          "g_true": 1.0,
+          "measured": 39.09994397212198,
+          "j_ref": -1.4528263510145711,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 45,
+          "g_true": 1.0,
+          "measured": 39.00018241894183,
+          "j_ref": -1.387930026538341,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 47,
+          "g_true": 1.0,
+          "measured": 39.11046060602642,
+          "j_ref": -1.367506126431446,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 49,
+          "g_true": 1.0,
+          "measured": 39.10844988053789,
+          "j_ref": -1.4574180657686877,
+          "normalized": false
+        },
+        {
+          "kind": "observe",
+          "n": 51,
+          "g_true": 1.0,
+          "measured": 39.026177373660204,
+          "j_ref": -1.3994610973333357,
+          "normalized": false
+        }
+      ],
+      "J_first": -1.5067012272815972,
+      "J_final": -1.4016083698020565,
+      "J_best": -1.3546898730555337,
+      "J_span_pct": 10.089017747753722,
+      "max_brt_swing_pct": 3.141774559360722,
+      "r2_J_maxbrt": 0.01734459987655989,
+      "dec": 0.5833333333333334,
+      "late_gain_pct": 0.6640976950459748,
+      "verdict": "not-converging",
+      "diff_abs_mean": 0.03140283709903752,
+      "diff_abs_median": 0.022515436333039207,
+      "gate_fraction": 0.0,
+      "n_gate_zeroed": 0,
+      "guard_rows": 0,
+      "scored_rows": 13
+    }
+  ]
+}

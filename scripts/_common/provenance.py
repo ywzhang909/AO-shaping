@@ -566,11 +566,17 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线",
         note="端到端 AO 环境下的后端影响",
     ),
-    "report/miicam_simulation/test_miicam_simulation_report/miicam_report.md": ReportProvenance(
-        script="tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
-        command="python -m pytest tests/ao_shaping/drivers/ccd/test_miicam_simulation_report.py",
-        environment="离线",
-        note="仿真 MiiCam 的测试报告 (无需设备)",
+    "report/miicam_auto_exposure/miicam_auto_exposure_probe/report.md": ReportProvenance(
+        script="tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py",
+        command="python -m pytest tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py -m hardware -s",
+        environment="硬件",
+        note=(
+            "MiiCam auto_exposure 算法硬件验证 (2026-10-22 起替代 miicam_simulation "
+            "仿真报告): 响应台阶扫描 / 脏数据核查 (帧序号-时间戳-重复帧-交叉切换) / "
+            "六类目标场景的收敛-边界退出-有界不收敛行为; 报告正文与图由探针脚本生成, "
+            "线性度 R2 等为诊断项不计入通过率"
+        ),
+        extra_scripts=("scripts/ccd/miicam_auto_exposure_probe.py",),
     ),
     "report/zotero_objectives/README.md": ReportProvenance(
         script=HANDWRITTEN,
@@ -1229,6 +1235,23 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=(
             "scripts/slm/hw_gs_defocus_probe.py",
             "scripts/slm/run_gs_refine_zernike_sweep.py",
+        ),
+    ),
+    "report/shape_trials/spgd_drift_cancel_loop/spgd_drift_cancel_loop_20261022.md": ReportProvenance(
+        script="scripts/slm/spgd_drift_cancel_loop.py",
+        command=(
+            "python scripts/slm/spgd_drift_cancel_loop.py --epochs 32 "
+            "--data-root <scratch>/full "
+            "--intrinsic <scratch>/intrinsic/results.json"
+        ),
+        environment="离线",
+        note=(
+            "#144 第 1 项 (照明漂移对消) / #36 验收判据的数字孪生 A/B: 在 2f-Fourier "
+            "孪生上跑真实 slm-pib SPGD 闭环, 对照 control / baseline / abba / "
+            "flat_norm 四变体。孪生标定结论 (纯倍增增益对 shape 目标不可见, 须引入"
+            "不随功率缩放的杂散底板 B 才能复现 bench 的亮度耦合) 也记在正文; "
+            "``--recompute`` 可只从 pkl 重算指标重写报告 (噪声门零置数按优化器判据"
+            "离线复算, pkl 不落盘 _gate 列)"
         ),
     ),
     "report/shape_trials/gs_refine/online_20261010.md": ReportProvenance(
