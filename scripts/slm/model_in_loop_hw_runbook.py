@@ -859,11 +859,16 @@ def stage_calibrate_sweep(args: argparse.Namespace, out_dir: Path) -> BenchGeome
         )
         for i in range(len(d["label"]))
     ]
+    dropped_modes: dict[str, str] = {}
     geo = calibrate_bench_geometry_from_sweep(
         records,
         region=args.region,
         far_field_size=args.far_field_size,
         model_to_panel=2.0 * sweep_disc / args.region,
+        # Which swept modes had no usable width response, and why. The
+        # calibration drops them from the fit; without this record the run
+        # looks like it calibrated cleanly even when a whole mode was noise.
+        dropped=dropped_modes,
         # Physical cross-check on the tilt slope: the measured shift per radian
         # of Zernike tilt must be consistent with the illuminated aperture, or the
         # spot has deformed and the measurement is worthless.
@@ -880,6 +885,12 @@ def stage_calibrate_sweep(args: argparse.Namespace, out_dir: Path) -> BenchGeome
         )
         * SLM_PITCH_M,
     )
+    if dropped_modes:
+        logger.info(
+            "  swept modes with no usable width response (dropped from the "
+            "fit): {}",
+            ", ".join(f"{m} ({r})" for m, r in sorted(dropped_modes.items())),
+        )
     if args.illumination_radius_px > 0:
         logger.info(
             "  aperture_m from the MEASURED illumination radius {:.0f} px "
