@@ -13,6 +13,10 @@ Modules:
 - ``focus_probe`` — sweep the Fresnel focal length on a plain phase → the 1/f
   that brings the 0-order spot back onto the detector (auto-exposure per point,
   coarse scan + local refinement).
+- ``focus_preflight`` — first-class pre-acquisition stage that layers the
+  measured focus (defocus) compensation + de-steer ramp onto every displayed
+  pupil phase; pure compute, no devices (the live-probe path is gated by the
+  caller). Order/symbol are frozen: focus → de-steer → pupil.
 - ``phase_resolution`` — per-pixel random phase vs smooth Zernike: the panel's
   effective phase resolution (decides whether a speckle route is usable).
 - ``phase_response`` — phase → CCD response curve (defocus / lens cases) with a
