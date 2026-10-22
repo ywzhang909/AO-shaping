@@ -4214,7 +4214,7 @@ python scripts/slm/render_differentiable_opt_animation.py \
 ### mine_history_model_bias.py
 
 Mines the **archived** hardware runs for `phase -> measured far field` pairs,
-fits the forward model's **systematic** error offline (focal scale, pupil
+fits the forward model's **systematic** error offline (focal scale, pupil（瞳面）
 centre, gain, plus the GRAPHYCS-style travel scale), and validates the result
 on data that was never used for the fit.
 
