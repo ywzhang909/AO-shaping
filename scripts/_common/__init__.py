@@ -85,7 +85,7 @@ def fmt_ratio(value: float, digits: int = 6) -> str:
     return f"{value:.{digits}g}"
 
 
-def fmt_general(v: Any, spec: str = ".4g") -> str:
+def fmt_general(v: Any, spec: str = ".4g", *, missing_nonfinite: str | None = None) -> str:
     """Passthrough to Python's ``format`` with an explicit ``spec``.
 
     The ``generate_slm_pib_online_report.py`` formatter. Kept separate from
@@ -95,9 +95,20 @@ def fmt_general(v: Any, spec: str = ".4g") -> str:
     Folding it into :func:`fmt_metric` would silently rewrite committed reports.
 
     Non-numeric input falls back to ``str(v)`` rather than raising.
+
+    ``missing_nonfinite`` (default ``None`` = today's behaviour) replaces only a
+    **non-finite float** (NaN / ±inf) with the given token; ``None`` itself is
+    still non-numeric and still falls through to ``str(v)`` → ``"None"``. That
+    asymmetry is deliberate: it is the exact shape of
+    ``scripts/slm/hw_differentiable_phase_opt.py``'s retired local formatter,
+    whose saved reports already contain ``"None"`` cells, and the point of the
+    extraction is byte-identical output, not a behaviour fix.
     """
     try:
-        return format(float(v), spec)
+        f = float(v)
+        if missing_nonfinite is not None and not np.isfinite(f):
+            return missing_nonfinite
+        return format(f, spec)
     except (TypeError, ValueError):
         return str(v)
 
