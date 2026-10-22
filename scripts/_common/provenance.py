@@ -822,6 +822,26 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/diagnose_light_level.py",
         ),
     ),
+    "report/shape_trials/model_in_loop/model_in_loop_record_20261021_172309.md": ReportProvenance(
+        script="scripts/slm/generate_model_in_loop_record_report.py",
+        command=(
+            "python scripts/slm/generate_model_in_loop_record_report.py "
+            "--run-dir data/debug/model_in_loop_hw_ab/20261021_172236/baseline_a/"
+            "slm_model_in_loop/20261021_172309 --stamp 20261021_172309"
+        ),
+        environment="离线",
+        note=(
+            "2026-10-21 baseline_a 变体的 MIL 单次运行记录 (离线读盘, 不碰设备)："
+            "Step A 像差系数 + 信赖域截断、Step B 600 步轨迹、逐探针实测/预测远场与"
+            "相关/SSIM、逐轮 CV/EE/IoU、bake_off_rejected 结论 (整形 0.3451 未打赢"
+            "平场 0.4025, 落盘相位为零相位平场)；过程动画每帧给相位/实测/预测远场"
+            "(叠目标掩模轮廓) + 差值 + 正向预测模型 metrics + 目标 metrics"
+        ),
+        extra_scripts=(
+            "scripts/slm/model_in_loop_hw_ab.py",
+            "scripts/slm/generate_shape_trial_profiles.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop/model_in_loop_live_20261016.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",
