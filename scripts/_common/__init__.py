@@ -31,6 +31,7 @@ __all__ = [
     "fmt_metric",
     "fmt_ratio",
     "fmt_signed",
+    "fmt_sigfig",
     "format_iters",
     "iters_to_threshold",
     "markdown_table",
@@ -191,6 +192,25 @@ def fmt_signed(v: float, spec: str = "+.4f", missing: str = "n/a") -> str:
     except (TypeError, ValueError):
         return missing if v is None else str(v)
     return missing if not np.isfinite(f) else format(f, spec)
+
+
+def fmt_sigfig(v: float | None, digits: int = 4) -> str:
+    """Significant-digit ``g`` formatting; ``—`` when missing, ``∞``/``-∞`` for infinities.
+
+    The ``compare_sim_vs_hw.py`` formatter. Kept separate from :func:`fmt_general`
+    (which shares the ``g`` spec) because the non-finite rendering carries meaning
+    in that report: a diverged focus distance must read as ``∞``, and a missing
+    metric as an em dash --- :func:`fmt_general` prints ``inf``/``None`` and
+    :func:`fmt_metric` prints ``inf``-free ``-``. Extraction is behaviour-preserving
+    only if this stays its own function; see the module docstring.
+    """
+    if v is None:
+        return "—"
+    if math.isinf(v):
+        return "∞" if v > 0 else "-∞"
+    if not math.isfinite(v):
+        return "—"
+    return f"{v:.{digits}g}"
 
 
 # ---------------------------------------------------------------------------

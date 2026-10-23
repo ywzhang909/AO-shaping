@@ -71,8 +71,10 @@ from typing import Any, Callable, Iterable, Sequence
 
 ROOT = Path(__file__).resolve().parents[2]
 # `scripts.*` 以包路径被导入, 所以仓库 ROOT 本身必须可导入。
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 sys.path.insert(0, str(ROOT / "src"))
+
+from scripts._common import fmt_sigfig
 
 import numpy as np
 
@@ -725,17 +727,6 @@ def frame_total_stats(group_dir: Path) -> dict[str, float] | None:
 # ---------------------------------------------------------------------------
 
 
-def _fmt(value: float | None, digits: int = 4) -> str:
-    """格式化一个数 (缺失给 ``—``; 无穷给 ``±∞``)。"""
-    if value is None:
-        return "—"
-    if math.isinf(value):
-        return "∞" if value > 0 else "-∞"
-    if not math.isfinite(value):
-        return "—"
-    return f"{value:.{digits}g}"
-
-
 def _noise_group_dir(bundle: Bundle, group_name: str) -> Path | None:
     """找一侧的噪声组**帧目录** (归档里只有 measurements, 原始帧在 data/debug)。"""
     candidates = [
@@ -789,17 +780,17 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
     gaps.append(
         "① **几何 / 焦面** — "
         f"{'✅ 已对齐' if focus_verdict == '一致' else '⚠️ 仍不一致'}: 实测最佳 1/f = "
-        f"{_fmt(hw_diopter)} m⁻¹ (f = {_fmt(hw_focus, 6)} mm), 仿真最佳 1/f = "
-        f"{_fmt(sim_diopter)} m⁻¹ (f = {_fmt(sim_focus, 6)} mm)。"
+        f"{fmt_sigfig(hw_diopter)} m⁻¹ (f = {fmt_sigfig(hw_focus, 6)} mm), 仿真最佳 1/f = "
+        f"{fmt_sigfig(sim_diopter)} m⁻¹ (f = {fmt_sigfig(sim_focus, 6)} mm)。"
         "**机理**: 孪生原来没有「CCD 离焦」这个自由度 (远场是面板相位的纯 FFT ⇒ 焦面"
         "按构造就在探测器上), 所以「用瞳面菲涅尔相位把焦面搬回探测器」在仿真里毫无"
         "效果、最佳 1/f 恒为 0。现在孪生有 `camera_defocus_m` (探测器在 f+Δz 处, "
         "瞳面上等价地乘 `-π·Δz·r²/(λf²)`), 补偿焦距 `f_v = f²/Δz` ⇒ 实测的 "
-        f"{_fmt(hw_diopter)} m⁻¹ (= 瞳面二次相位焦距 {_fmt(hw_focus, 6)} mm, 边缘相位 "
+        f"{fmt_sigfig(hw_diopter)} m⁻¹ (= 瞳面二次相位焦距 {fmt_sigfig(hw_focus, 6)} mm, 边缘相位 "
         "24.7 rad) 就是 **Δz ≈ 10.09 mm**。更硬的证据是**平场对菲涅尔矫正的响应**: "
-        f"实测平场宽度 {_fmt(hw_zero_fwhm, 4)} px → {_fmt(hw_best_fwhm, 4)} px "
-        f"(收到 {_fmt(flat_response, 3)}×), 仿真 {_fmt(sim_zero_fwhm, 4)} px → "
-        f"{_fmt(sim_best_fwhm, 4)} px (收到 {_fmt(sim_flat_response, 3)}×) —— 两侧现在"
+        f"实测平场宽度 {fmt_sigfig(hw_zero_fwhm, 4)} px → {fmt_sigfig(hw_best_fwhm, 4)} px "
+        f"(收到 {fmt_sigfig(flat_response, 3)}×), 仿真 {fmt_sigfig(sim_zero_fwhm, 4)} px → "
+        f"{fmt_sigfig(sim_best_fwhm, 4)} px (收到 {fmt_sigfig(sim_flat_response, 3)}×) —— 两侧现在"
         "都是「一个被离焦散开的平场 + 一片把它收回来的菲涅尔相位」。"
     )
 
@@ -819,11 +810,11 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
     gaps.append(
         "② **光斑宽度 / 面板静态相差** — "
         f"{'✅ 已对齐' if width_verdict == '一致' else '⚠️ 仍不一致'}: GS 相位下的"
-        f"光斑宽度 实测 {_fmt(hw_gs_fwhm, 4)} px vs 仿真 {_fmt(sim_gs_fwhm, 4)} px。"
+        f"光斑宽度 实测 {fmt_sigfig(hw_gs_fwhm, 4)} px vs 仿真 {fmt_sigfig(sim_gs_fwhm, 4)} px。"
         + scale_note
         + " **机理**: 孪生的光斑宽度由**入射光的有效口径**定 (衍射极限 ~ "
         "1.03·λf/D), 实测焦面矫正后的平场宽度 "
-        f"{_fmt(hw_best_fwhm, 4)} px 反推出**强度** 1/e² 半径 ≈ 170–400 面板 px —— "
+        f"{fmt_sigfig(hw_best_fwhm, 4)} px 反推出**强度** 1/e² 半径 ≈ 170–400 面板 px —— "
         "本轮取 `beam_w0 = 120` 面板 px (孪生的 `beam_w0` 是**幅度**的 1/e 半径 ⇒ "
         "强度的 1/e² 半径 ≈ 170 px), 并且**不**再截断到照明盘。"
         "面板静态相差 (`SimPanelAberration.zernike_rad`) 会把光斑**再**撑宽, 但它同时"
@@ -843,13 +834,13 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
     gaps.append(
         "③ **光度 / 离焦能量守恒** — "
         f"{'✅ 已对齐' if verdict(peak_rel, TOL_PHOTOMETRY) == '一致' else '⚠️ 仍不一致'}"
-        f": 0.2 ms 曝光下整帧峰值 实测 {_fmt(hw_peak, 4)} counts "
-        f"(⇒ {_fmt(hw_counts_rate, 4)} counts/ms) vs 仿真 {_fmt(sim_peak, 4)} counts "
-        f"(⇒ {_fmt(sim_counts_rate, 4)} counts/ms)。**机理**: counts 口径原来**逐帧**"
+        f": 0.2 ms 曝光下整帧峰值 实测 {fmt_sigfig(hw_peak, 4)} counts "
+        f"(⇒ {fmt_sigfig(hw_counts_rate, 4)} counts/ms) vs 仿真 {fmt_sigfig(sim_peak, 4)} counts "
+        f"(⇒ {fmt_sigfig(sim_counts_rate, 4)} counts/ms)。**机理**: counts 口径原来**逐帧**"
         "把远场峰值归一到 100 ⇒ 离焦散开的光又被拉回原峰值 (实测峰值随离焦崩塌到 "
-        f"{_fmt(hw_far_peak, 4)} counts, 仿真几乎不动)。现在 `counts_reference=\"flat\"` "
+        f"{fmt_sigfig(hw_far_peak, 4)} counts, 仿真几乎不动)。现在 `counts_reference=\"flat\"` "
         "用**固定参考** (平场在理想聚焦下的峰值), 峰值分数 = 当前远场 / 该参考 ⇒ "
-        f"Δz=+20 mm 处仿真 {_fmt(sim_far_peak, 4)} counts "
+        f"Δz=+20 mm 处仿真 {fmt_sigfig(sim_far_peak, 4)} counts "
         f"({'一致' if verdict(far_rel, TOL_PHOTOMETRY) == '一致' else '仍偏高'})。"
     )
 
@@ -866,7 +857,7 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
     ):
         hw_std = (hw_noise.get(key) or {}).get("std")
         sim_std = (sim_noise.get(key) or {}).get("std")
-        noise_parts.append(f"{label} 实测 {_fmt(hw_std, 3)} vs 仿真 {_fmt(sim_std, 3)}")
+        noise_parts.append(f"{label} 实测 {fmt_sigfig(hw_std, 3)} vs 仿真 {fmt_sigfig(sim_std, 3)}")
         noise_verdicts.append(verdict(relative_diff(hw_std, sim_std), TOL_NOISE))
     hw_pedestal = frame_total_stats(
         _noise_group_dir(hw, "dz_noise_hw_gs") or Path("nonexistent")
@@ -880,11 +871,11 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
             " **根因是暗电平, 不是噪声大小**: 探针的帧处理是「减中位数 + 裁负」, 而"
             "孪生的 counts 帧原来**背景恒为 0** ⇒ 读出噪声被**整流**成一块与像素数"
             "成正比的 DC 底座, 而它的「中位数」恰好卡在 0/0.25 的跳变边界上 ⇒ 逐帧"
-            f"跳变。整帧总功率 实测 {_fmt(hw_pedestal['mean'], 5)} ± "
-            f"{_fmt(hw_pedestal['std'], 3)} counts "
-            f"({_fmt(hw_pedestal['rel_std'] * 100, 3)}%), 仿真 "
-            f"{_fmt(sim_pedestal['mean'], 5)} ± {_fmt(sim_pedestal['std'], 3)} counts "
-            f"({_fmt(sim_pedestal['rel_std'] * 100, 3)}%)。补上实测相机的 26.75 counts "
+            f"跳变。整帧总功率 实测 {fmt_sigfig(hw_pedestal['mean'], 5)} ± "
+            f"{fmt_sigfig(hw_pedestal['std'], 3)} counts "
+            f"({fmt_sigfig(hw_pedestal['rel_std'] * 100, 3)}%), 仿真 "
+            f"{fmt_sigfig(sim_pedestal['mean'], 5)} ± {fmt_sigfig(sim_pedestal['std'], 3)} counts "
+            f"({fmt_sigfig(sim_pedestal['rel_std'] * 100, 3)}%)。补上实测相机的 26.75 counts "
             "暗电平 (量化作用在**带暗电平的原始 ADU** 上, 暗电平靠减中位数去掉) 之后,"
             " 中位数不再落在跳变边界上 ⇒ 底座稳了, σ(PIB) 也随之落到同一档。"
         )
@@ -914,9 +905,9 @@ def build_gap_list(hw: Bundle, sim: Bundle) -> list[str]:
     cv_verdict = verdict(relative_diff(hw_cv, sim_cv), TOL_UNIFORMITY)
     gaps.append(
         "⑥ **基线** (Δz=0, GS 相位, 同一目标框): CV 实测 "
-        f"{_fmt(hw_cv, 4)} vs 仿真 {_fmt(sim_cv, 4)} ({cv_verdict}); PIB 实测 "
-        f"{_fmt(hw_pib, 4)} vs 仿真 {_fmt(sim_pib, 4)}; 空心度 实测 "
-        f"{_fmt(hw_hollow, 4)} vs 仿真 {_fmt(sim_hollow, 4)}。"
+        f"{fmt_sigfig(hw_cv, 4)} vs 仿真 {fmt_sigfig(sim_cv, 4)} ({cv_verdict}); PIB 实测 "
+        f"{fmt_sigfig(hw_pib, 4)} vs 仿真 {fmt_sigfig(sim_pib, 4)}; 空心度 实测 "
+        f"{fmt_sigfig(hw_hollow, 4)} vs 仿真 {fmt_sigfig(sim_hollow, 4)}。"
         "**注意**: 目标框边长固定 10 px, 光斑一旦比框**宽**, 框内就接近平顶 ⇒ CV 低; "
         "光斑比框**窄**时框采到的是翼 ⇒ CV 爆炸。所以 CV 对**光斑宽度与剖面形状**"
         "极其敏感: 宽度对上之后, 剩下的差主要是**剖面形状** (实测 GS 相位打出来的"
@@ -996,8 +987,8 @@ def _curve_shape_note(
     if hw_median and sim_median:
         robust = (
             f"**稳健量** (|Δz| ≥ 5 mm 的 {len(hw_far)} 点, 归一化 FWHM 的中位数): "
-            f"实测 {_fmt(hw_median, 3)} vs 仿真 {_fmt(sim_median, 3)} ⇒ 仿真的离焦响应"
-            f"**陡 {_fmt(sim_median / hw_median, 3)}×**。"
+            f"实测 {fmt_sigfig(hw_median, 3)} vs 仿真 {fmt_sigfig(sim_median, 3)} ⇒ 仿真的离焦响应"
+            f"**陡 {fmt_sigfig(sim_median / hw_median, 3)}×**。"
         )
     return (
         f"{head}{tail}。逐点相对差最大 {worst:+.1%} @ Δz={worst_dz:+.4g} mm "
@@ -1012,7 +1003,7 @@ def _curve_shape_note(
 
 
 def _format_cell(value: float | None, digits: int = 4) -> str:
-    return _fmt(value, digits)
+    return fmt_sigfig(value, digits)
 
 
 def render_table(
@@ -1372,7 +1363,7 @@ def render_report(
     add("")
     add(
         "**两侧同源的三件事** (不同源就是两种口径, 表就没有意义): 同一张瞳面菲涅尔"
-        f"焦面矫正片 (`defocus_focal_mm` = {_fmt(hw_focal_mm, 6)} mm)、同一批 1/f "
+        f"焦面矫正片 (`defocus_focal_mm` = {fmt_sigfig(hw_focal_mm, 6)} mm)、同一批 1/f "
         "格点 (焦面标定的 42 个点)、同一个目标框 (阶数扫描) —— 全部从实测那一轮的 "
         "`run_config.json` / `summary.json` 读出。"
     )
@@ -1396,29 +1387,29 @@ def render_report(
     )
     add(
         "| `peak_counts_per_ms` | "
-        f"{_fmt(sim_config.get('绝对光度 (peak_counts_per_ms)'), 5)} | 实测平场 "
-        f"0.2 ms 整帧峰值 {_fmt(hw_flat_peak, 4)} counts ⇒ "
-        f"{_fmt(hw_counts_rate, 4)} counts/(峰值分数·ms) ⇒ 取 133.5 使仿真帧与实测帧"
+        f"{fmt_sigfig(sim_config.get('绝对光度 (peak_counts_per_ms)'), 5)} | 实测平场 "
+        f"0.2 ms 整帧峰值 {fmt_sigfig(hw_flat_peak, 4)} counts ⇒ "
+        f"{fmt_sigfig(hw_counts_rate, 4)} counts/(峰值分数·ms) ⇒ 取 133.5 使仿真帧与实测帧"
         "**同一量纲** (不再是「归一到 ~100」的相对强度) |"
     )
     add(
         "| `read_sigma_counts` / `shot_k` / `quantize_bits` | "
-        f"{_fmt(sim_config.get('读出噪声 (read_sigma_counts)'), 3)} / "
-        f"{_fmt(sim_config.get('散粒系数 (shot_k)'), 3)} / "
+        f"{fmt_sigfig(sim_config.get('读出噪声 (read_sigma_counts)'), 3)} / "
+        f"{fmt_sigfig(sim_config.get('散粒系数 (shot_k)'), 3)} / "
         f"{sim_config.get('量化位深 (quantize_bits)')} | 实测帧是 uint8、4 帧平均、"
         "背景只有 0 / 0.25 / 0.5 三个值 ⇒ 每原始帧 σ ≈ 0.56 counts; 而 "
-        f"σ(整帧峰值) 只有 {_fmt((hw_noise.get('frame_peak') or {}).get('std'), 3)} "
-        f"counts ({_fmt(hw_flat_peak, 4)} counts 处) ⇒ 该光级**不是散粒受限** "
+        f"σ(整帧峰值) 只有 {fmt_sigfig((hw_noise.get('frame_peak') or {}).get('std'), 3)} "
+        f"counts ({fmt_sigfig(hw_flat_peak, 4)} counts 处) ⇒ 该光级**不是散粒受限** "
         "⇒ `shot_k = 0` |"
     )
     add(
         "| `dark_level_counts` | "
-        f"{_fmt(sim_config.get('暗电平 (dark_level_counts)'), 4)} | 实测相机的暗电平"
+        f"{fmt_sigfig(sim_config.get('暗电平 (dark_level_counts)'), 4)} | 实测相机的暗电平"
         " (远高于读出噪声)。它让背景**不再落在中位数的跳变边界**上: 整帧总功率的"
         "相对抖动 "
         + (
-            f"实测 {_fmt(hw_pedestal['rel_std'] * 100, 3)}% vs 仿真 "
-            f"{_fmt(sim_pedestal['rel_std'] * 100, 3)}%"
+            f"实测 {fmt_sigfig(hw_pedestal['rel_std'] * 100, 3)}% vs 仿真 "
+            f"{fmt_sigfig(sim_pedestal['rel_std'] * 100, 3)}%"
             if hw_pedestal and sim_pedestal
             else "(无帧文件, 未统计)"
         )
@@ -1426,9 +1417,9 @@ def render_report(
     )
     add(
         "| `camera_defocus_m` | "
-        f"{_fmt(sim_config.get('相机离焦 (camera_defocus_m)'), 9)} m | 实测最佳 "
-        f"1/f = {_fmt(hw_diopter, 4)} m⁻¹ ⇒ 瞳面二次相位的补偿焦距 "
-        f"{_fmt(hw_focal_mm, 6)} mm; 孪生里 `f_v = f²/Δz` (Collins/ABCD) ⇒ "
+        f"{fmt_sigfig(sim_config.get('相机离焦 (camera_defocus_m)'), 9)} m | 实测最佳 "
+        f"1/f = {fmt_sigfig(hw_diopter, 4)} m⁻¹ ⇒ 瞳面二次相位的补偿焦距 "
+        f"{fmt_sigfig(hw_focal_mm, 6)} mm; 孪生里 `f_v = f²/Δz` (Collins/ABCD) ⇒ "
         "`Δz = 0.125²/1.54933` |"
     )
     add(
@@ -1439,8 +1430,8 @@ def render_report(
     )
     add(
         "| `beam_w0` | "
-        f"{_fmt(sim_config.get('入射光束幅度 1/e 半径 (beam_w0)'), 4)} | 实测焦面"
-        f"矫正后的平场 FWHM {_fmt(hw_flat_fwhm, 4)} 相机像元 ⇒ 反推**强度** 1/e² 半径 "
+        f"{fmt_sigfig(sim_config.get('入射光束幅度 1/e 半径 (beam_w0)'), 4)} | 实测焦面"
+        f"矫正后的平场 FWHM {fmt_sigfig(hw_flat_fwhm, 4)} 相机像元 ⇒ 反推**强度** 1/e² 半径 "
         "≈ 170 面板 px; 孪生的 `beam_w0` 是**幅度**的 1/e 半径 ⇒ 120 (衍射极限由"
         "入射有效口径定, 不是面板尺寸) |"
     )
@@ -1453,7 +1444,7 @@ def render_report(
     add(
         "| 面板静态相差 (`SimPanelAberration`) | "
         f"`{sim_config.get('面板 Zernike (rad)')}` / 粗糙度 "
-        f"{_fmt(sim_config.get('面板粗糙度 (roughness_sigma_rad)'), 3)} | 孪生的面板是"
+        f"{fmt_sigfig(sim_config.get('面板粗糙度 (roughness_sigma_rad)'), 3)} | 孪生的面板是"
         "**理想相位板**。实测多出来的宽度已由「入射有效口径」解释; 再叠低阶 Zernike "
         "虽然能把光斑撑宽, 但会把**平顶**光斑变成**带裙边的尖峰** ⇒ 目标框内的 CV "
         "反而变差 ⇒ 本轮**不用它凑宽度** |"
@@ -1494,7 +1485,7 @@ def render_report(
     add(
         "- **§4 的「最佳点峰值/曝光」与「相对平场增益」**: 两侧的「平场」不是同一个量"
         " —— 硬件那一轮的 GS 相位是**针对这块面板的相差优化过**的, 所以它的 GS 光斑"
-        f"比未整形平场亮 (实测增益 {_fmt(hw_gain, 4)}×); 孪生把同一张 GS 相位打在"
+        f"比未整形平场亮 (实测增益 {fmt_sigfig(hw_gain, 4)}×); 孪生把同一张 GS 相位打在"
         "**另一块 (合成的)**面板相差上, 那个增益不存在。要真正对上, 得先**实测反演**"
         "出这块面板的面形再注入, 超出「对照尺」能定的范围。"
     )
@@ -1535,7 +1526,7 @@ def render_report(
     add(
         "- **曝光线性度检查在孪生里量的是噪声**: 孪生没有真实的曝光非线性 / 暗电流 / "
         "增益切换, 所以 `linearity_ratio` "
-        f"(实测 {_fmt(hw_linearity, 4)} vs 仿真 {_fmt(sim_linearity, 4)}) 在仿真侧只是"
+        f"(实测 {fmt_sigfig(hw_linearity, 4)} vs 仿真 {fmt_sigfig(sim_linearity, 4)}) 在仿真侧只是"
         "「同一帧换个曝光」的量化噪声, 不能当作传感器线性度的验证。"
     )
     add(
