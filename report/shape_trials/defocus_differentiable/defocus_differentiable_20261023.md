@@ -1,0 +1,93 @@
+# 离焦光路下的可微整形（2026-10-23）
+
+<!-- provenance:start -->
+> **生成脚本**: [`scripts/slm/generate_defocus_differentiable_report.py`](../../../scripts/slm/generate_defocus_differentiable_report.py)
+> **复现命令**: `python scripts/slm/generate_defocus_differentiable_report.py --run-dir data/debug/defocus_differentiable/20261023_101822`
+> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py`](../../../src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py)
+> **数据/关联脚本**: [`src/ao_shaping/optimizer/wfless/defocus_uniformity_shaping.py`](../../../src/ao_shaping/optimizer/wfless/defocus_uniformity_shaping.py)
+> **运行环境**: 硬件
+> **说明**: 离焦光路（相机未移动）下的可微均匀度优化：冻结物理前向 + 固定 60 px 掩膜 CV。 现场前置测量（面板斜坡→相机轴映射、去倾斜补偿残差 0.14/0.47 px/mm、可用曝光 1.6–32 ms、噪声地板 CV 1.1274±0.0055 ⇒ 3σ 0.0165）；C 阶段方向检验 Δ+ = −0.01942 / Δ− = +0.02132（两向超 3σ 且符号相反 ⇒ 模型梯度方向正确）；D 阶段逐块 A-B-B-A 重放 (B1/B2 差 0.0001、漂移 +0.0017)；报告含「模型预测 vs 实测」逐 step 指标曲线与并排 GIF。 **未决**：拟合 ramp_matrix 与现场轴映射互为转置，空间放置需标记测量裁决。
+<!-- provenance:end -->
+
+## 摘要
+
+在**未移动相机**的离焦光路上，用冻结的物理前向模型做可微优化，并用 A-B-B-A 重放逐块验收。
+本轮回答三件事：模型↔实测的**方向**对不对、**幅度**差多少、**逐块**能否稳定改善。
+
+* **方向检验（C）**：模型下降方向正/负两个方向在实验系统上给出**符号相反**的 CV 变化
+  （Δ+ = -0.01942，Δ− = +0.02132），
+  3σ 分辨率 0.0165 ⇒ **方向正确**。
+* **逐块（D）**：第一块 `-0.09752`（5.9σ）⇒ 接受；
+  逐块结果见下表。
+* **幅度**：实测改善只有模型预测的 ~29%
+  —— 与主报告 §8.3 的结构性口径差一致（模型幅度不可信、方向可测）。
+
+![指标曲线](figures/20261023_metrics_curves.png)
+
+![过程动画](figures/20261023_process.gif)
+
+## 1. 现场前置测量
+
+| 项 | 实测值 | 来源 |
+|---|---|---|
+| 轴映射 | 面板 x → 相机 x（+8083，比值 1.092）；面板 y → 相机 y（−8136，1.099） | `stage_a/chirp_tilt` |
+| 去倾斜补偿 | 原始 −2.04/+2.06 → 残差 0.14/0.47 px/mm（`enabled=true`） | 同上 |
+| 可用曝光 | 1.6–32 ms（今日光路） | `stage_a/reference`、`stage_a/exposure_retry` |
+| 参考+探针 | 24 样本，原始帧全留 | `stage_a/reference` |
+| 复放一致性 | 真实面板相位 @4 ms：峰值 110，存档 128；质心一致 | 本报告 §5 |
+| 噪声地板 | CV_core = 1.1274 ± 0.0055，**3σ = 0.0165** | `stage_a/repeatability` |
+
+![噪声地板](figures/20261023_noise_floor.png)
+
+## 2. 方向检验（C 阶段）
+
+![方向检验](figures/20261023_direction_test.png)
+
+方案要求 B± 的增量归一到照明加权 RMS 0.03 rad。
+模型预测 CV：seed 1.5934 →
+B+ 1.4918 /
+B− 1.6974（对称 ±0.1017）；
+实测 Δ+ = -0.01942、Δ− = +0.02132，两向都超过 3σ 且符号相反。
+
+## 3. 逐块闭环（D 阶段）
+
+| 块 | cap / rad | 基线 CV | 候选 CV | Δ | 判定 | 模型 CV |
+|---|---|---|---|---|---|---|
+| 1 | 0.100 | 1.16432 | 1.06680 | -0.09752 | 接受 | 1.5934 → 1.2553 |
+
+每块都是 **A1-B1-B2-A2**（各 5 帧）：B1/B2 两次重放差见 `stage_d/run_block*/stage_d_block1.json`，
+A2−A1 为漂移。接受条件为 Δ < −3σ（0.0165）。
+
+## 4. 指标随优化的变化
+
+上图上半栏：**模型预测**的 CV 逐步曲线（蓝）与**实验系统实测**的 CV 锚点（红方块，误差棒为 3σ）；
+下半栏：模型预测的目标区均值。数据由 `scripts/slm/generate_defocus_differentiable_report.py`
+离线重放每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
+
+![过程动画](figures/20261023_process.gif)
+
+GIF 左栏是模型预测的远场演化，右栏是该块的实测帧（A1/B1/A2 穿插），顶部标注该块的 Δ 与 3σ 判定。
+
+## 5. 轴映射的口径矛盾（未决）
+
+拟合用的 `ramp_matrix` = [[465.1, 7174.7], [−7533.2, −30.3]]（面板 x → 相机 y）；
+本次现场标定是面板 x → 相机 x。两者**互为转置**且 y 符号相反。
+冻结模型的空间放置因此**不能**被这次复现证明（复现只用同一份 `ramp_matrix`）。
+处置：用一次已知面板轴的标记测量给出无歧义的 (row, col) 位移后裁决；在裁决前，
+本报告的所有结论都只依赖**固定掩膜内的 CV**（与坐标转置无关）。
+
+## 6. 边界
+
+* 单次会话、单一初值；E 阶段的冻结重放 3× 只用于重复性，不足以宣称跨光路泛化。
+* 接受判据用 3σ（4 次独立上屏 × 5 帧估计），小样本不确定度仍在。
+* 模型幅度与实测相差约 29%，
+  所以**不能用模型预测的改善量**替代理事实测。
+
+## 7. 复现
+
+```bash
+python scripts/slm/generate_defocus_differentiable_report.py \
+    --run-dir data/debug/defocus_differentiable/20261023_101822
+```
+
+原始数据（含逐文件 SHA256）见 `data/debug/defocus_differentiable/20261023_101822/manifest_checksums.json`。

@@ -202,6 +202,26 @@ REPORTS: dict[str, ReportProvenance] = {
             "与**相位 RMS 几乎不变**这两个负结果"
         ),
     ),
+    "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md": ReportProvenance(
+        script="scripts/slm/generate_defocus_differentiable_report.py",
+        command=(
+            "python scripts/slm/generate_defocus_differentiable_report.py "
+            "--run-dir data/debug/defocus_differentiable/20261023_101822"
+        ),
+        environment="硬件",
+        extra_scripts=(
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+            "src/ao_shaping/optimizer/wfless/defocus_uniformity_shaping.py",
+        ),
+        note=(
+            "离焦光路（相机未移动）下的可微均匀度优化：冻结物理前向 + 固定 60 px 掩膜 CV。 "
+            "现场前置测量（面板斜坡→相机轴映射、去倾斜补偿残差 0.14/0.47 px/mm、可用曝光 "
+            "1.6–32 ms、噪声地板 CV 1.1274±0.0055 ⇒ 3σ 0.0165）；C 阶段方向检验 Δ+ = −0.01942 / "
+            "Δ− = +0.02132（两向超 3σ 且符号相反 ⇒ 模型梯度方向正确）；D 阶段逐块 A-B-B-A 重放 "
+            "(B1/B2 差 0.0001、漂移 +0.0017)；报告含「模型预测 vs 实测」逐 step 指标曲线与并排 GIF。 "
+            "**未决**：拟合 ramp_matrix 与现场轴映射互为转置，空间放置需标记测量裁决。"
+        ),
+    ),
     "report/slm/differentiable_opt/differentiable_opt_animation_20261022.md": ReportProvenance(
         script="scripts/slm/render_differentiable_opt_animation.py",
         command=(

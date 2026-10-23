@@ -1,0 +1,26 @@
+{
+  "blocks": 1,
+  "replays": {
+    "1": 10
+  },
+  "artifacts": {
+    "direction": {
+      "delta_plus": -0.01941797667479861,
+      "delta_minus": 0.021319226283519566,
+      "resolution": 0.01648262014525826
+    },
+    "noise": {
+      "cv_mean": 1.1274337547260145,
+      "cv_sd": 0.0054942067150860864,
+      "three_sigma": 0.01648262014525826
+    },
+    "curves": {
+      "resolution": 0.01648262014525826,
+      "steps": 10
+    },
+    "gif": {
+      "frames": 13,
+      "path": "D:\\Projects\\TIFO\\AO-shaping\\report\\shape_trials\\defocus_differentiable\\figures\\20261023_process.gif"
+    }
+  }
+}
