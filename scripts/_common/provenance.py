@@ -705,6 +705,18 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/ml/freeform_vs_zernike.py",),
     ),
     # -- 方形整形实验记录 ---------------------------------------------------
+    "report/shape_trials/defocus_differentiable_test_plan_20261023.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note="结合可微实验、离焦正向模型及曝光诊断制定探索性短块整形协议；本方案没有新增设备测量。",
+        extra_scripts=(
+            "scripts/slm/hw_differentiable_phase_opt.py",
+            "scripts/slm/refit_defocus_uniformity_model.py",
+            "scripts/slm/diagnose_defocus_sampling.py",
+            "scripts/slm/validate_defocus_exposure.py",
+            "scripts/slm/fit_forward_sampling_variants.py",
+        ),
+    ),
     "report/shape_trials/model_in_loop/physical_forward_sampling_20261022_r2.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线+硬件",

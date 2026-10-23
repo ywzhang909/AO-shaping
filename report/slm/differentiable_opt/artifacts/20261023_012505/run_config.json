@@ -1,0 +1,734 @@
+{
+  "timestamp_utc": "20261023_012505",
+  "params": {
+    "dry_run": false,
+    "execute": true,
+    "out_dir": "data\\debug\\differentiable_opt\\gs_20261023_092501",
+    "slm_number": 1,
+    "slm_wavelength": 1064,
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_ms": 2.0,
+    "exposure_ceiling_ms": 200.0,
+    "frames": 3,
+    "discard": 2,
+    "settle_s": 0.5,
+    "pupil_center": [
+      960.0,
+      600.0
+    ],
+    "pupil_radius": 480.0,
+    "focus_fwhm_max": 40.0,
+    "focus_points": 13,
+    "focus_diopter_range": 6.0,
+    "focus_refine": 7,
+    "geometry_npz": null,
+    "wait_until_idle": 1200.0,
+    "analyze_only": null,
+    "model_pupil_samples": 256,
+    "model_padding": 4,
+    "beam_w0_px": 260.0,
+    "target": "square",
+    "target_side_px": 60.0,
+    "delta_spot_px": 15.0,
+    "init_phase": "gs",
+    "gs_iters": 100,
+    "iters": 150,
+    "hw_iters": 4,
+    "lr": 0.05,
+    "seed": 0,
+    "grad_every": 10,
+    "quick": false,
+    "render_only": null
+  },
+  "plan": {
+    "devices": [
+      {
+        "role": "SLM",
+        "driver": "ao_shaping.drivers.slm.santec.Santec (memory 模式, video_mode=0)",
+        "slm_number": 1,
+        "slm_wavelength_nm": 1064,
+        "panel_shape_hw": [
+          1920,
+          1200
+        ],
+        "fatal_if": "open() 在 DVI 模式会挂死 ⇒ 本脚本恒用 memory 模式"
+      },
+      {
+        "role": "CCD",
+        "driver": "ao_shaping.drivers.ccd.common.create_camera('daheng')",
+        "cam_type": "daheng",
+        "cam_id": 0,
+        "exposure_ms_requested": 2.0,
+        "fatal_if": "曝光必须 <= AO_DAHENG_MAX_EXPOSURE_MS (未设则用 20 ms)"
+      }
+    ],
+    "focus_gate": {
+      "what": "**测量之前**先判实验系统在不在焦 (用户明确要求)",
+      "method": "ao_shaping.tools.slm.panel.focus_probe.sweep_focus: 在 plain 相位上扫菲涅尔焦距 (1/f), 每点重新对曝光, 用 peak/曝光 排序",
+      "coarse_points": 13,
+      "diopter_range": 6.0,
+      "refine_points": 7,
+      "fwhm_threshold_ccd_px": 40.0,
+      "blocked": "判为光路受阻 ⇒ exit 4, 不写任何测量数据",
+      "not_in_focus": "最佳点 FWHM > 阈值 ⇒ exit 5 (不在焦, 拒绝测量), 仍然不写任何测量数据",
+      "compensation": "通过后, 每张图案都叠加 fresnel_panel(best_focal_mm, 同一瞳面中心/半径) 这张瞳面菲涅尔补偿相位"
+    },
+    "geometry": {
+      "source": "现场实测 (SLMCCDCalibrator.calibrate)",
+      "why_not_stored_default": "仓库里的 data/calib.npz 是**陈旧**的 (Kx=4416, rotation=27.3°), 与当前光路对不上 ⇒ 默认现测; 要复用必须显式给 --geometry-npz, 并且脚本会把「这次用的是存档」写进 run_config.json",
+      "gives": "center (cy,cx) / Kx / Ky / rotation_deg / mirror",
+      "k_choice": "K = (Kx+Ky)/2 (各向同性), 取法写进 run_config.json"
+    },
+    "model": {
+      "grid": "瞳面跨度 960 面板像元 → N=256 采样 (dp=3.7500 面板像元) → M=1024 模型网格 (零填充 ×4)",
+      "source": "高斯 exp(-r²/2w0²), w0=260 面板像元 (69.3 样本) × 硬口径 (半径 128.0 样本), 瞳面中心 (960, 600)",
+      "pupil_placement": "瞳面块 (N×N) 占据模型网格中央, 块的几何中心在 511.5 号格; 傅里叶变换的直流格 (零级) 在 M//2=512; 口径半径 N/2 样本恰好内接于瞳面块",
+      "far_field_scale": "远场采样间距 = K/(M·dp) CCD 像元; 整个远场阵列覆盖 K/dp CCD 像元",
+      "target": "square (方形边长 60 CCD 像元), 建在 M×M 远场网格上 (目标网格 = 远场网格)",
+      "optimizer": "ao_shaping.algorithm.signal_processing.differentiable_beam.DifferentiableBeamOptimizer(target, source_amplitude=amp, lr=0.05, device=cuda/cpu, seed=0)",
+      "iters": 150,
+      "hw_iters": 4,
+      "grad_every": 10
+    },
+    "artifacts": {
+      "run_dir": "data\\debug\\differentiable_opt\\gs_20261023_092501",
+      "files": [
+        "run_config.json (全部参数 + 设备序列号 + 在焦判定 + 几何 + 模型 + 对比数字)",
+        "history.csv (iteration, loss, grad_norm, phase_rms_rad)",
+        "focus_sweep.csv (diopter, focal, exposure, peak, fwhm, hollowness, status)",
+        "phase_initial.npy / phase_final.npy / phase_model.npy (M×M 模型网格, 弧度)",
+        "ccd_flat.npz / ccd_optimized.npz / ccd_hw_iter_*.npz (原始 CCD 帧, float32 压缩)",
+        "figures/ (焦面扫描、相位、梯度、模型远场、CCD 实测、模型 vs 硬件、优化历史)"
+      ],
+      "report": "report/slm/differentiable_opt/differentiable_opt_report.md",
+      "report_dir": "D:\\Projects\\TIFO\\AO-shaping\\report\\slm\\differentiable_opt"
+    },
+    "exit_codes": {
+      "0": "正常",
+      "2": "设备挂死/超时 (guarded 硬退出)",
+      "3": "dry-run 违约 (驱动包被 import)",
+      "4": "光路受阻",
+      "5": "不在焦 —— 拒绝测量",
+      "6": "几何标定或前向模型这一步失败",
+      "7": "设备被别的会话占用, 等不到空闲 (本脚本不抢设备)"
+    },
+    "safety": {
+      "memory_mode_only": "SLM 恒用 memory 模式 (video_mode=0), DVI 模式 open() 会挂死",
+      "slot_rotation": "用 SlotRotator 在 2..125 里轮换内存槽 —— 同槽连写是固件 no-op, 面板不会刷新",
+      "phase_pipeline": "相位一律经 utils.slm.phase_display.phase_to_slm_grayscale(..., slm=slm) 走驱动管线 (弧度→灰度 + 矫正 + LUT + 平移), 不自己拼灰度图",
+      "no_device_reuse": "设备只在本次运行内打开/关闭, 绝不跨 run 复用"
+    }
+  },
+  "devices": {
+    "slm_serial": "22030108",
+    "ccd_sn": "FJB24112232",
+    "slm_number": 1,
+    "slm_wavelength_nm": 1064,
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "exposure_ms_requested": 2.0,
+    "exposure_ceiling_ms": 200.0
+  },
+  "focus": {
+    "coarse_points": 13,
+    "diopter_range": 6.0,
+    "refine_points": 7,
+    "fwhm_threshold_ccd_px": 40.0,
+    "best_diopter_m1": 0.6152506573381175,
+    "best_focal_mm": 1625.3538099845368,
+    "best_fwhm_px": 13.947110192229559,
+    "path_blocked": false,
+    "blockage_reason": "",
+    "notes": [
+      "2 个点落在可用曝光带之外（clipped 0 / dim 2），未参与排序",
+      "抛物线顶点 +0.949 m⁻¹，四点复测后取 +0.949 m⁻¹"
+    ],
+    "points": [
+      {
+        "diopter_m1": -6.0,
+        "focal_mm": -166.66666666666666,
+        "exposure_ms": 200.0,
+        "peak": 71.33333333333333,
+        "peak_fraction": 0.2797385620915033,
+        "peak_per_ms": 0.35666666666666663,
+        "fwhm_px": 48.49864284155723,
+        "hollowness": 0.9312676056338028,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": -5.0,
+        "focal_mm": -200.0,
+        "exposure_ms": 200.0,
+        "peak": 66.66666666666667,
+        "peak_fraction": 0.26143790849673204,
+        "peak_per_ms": 0.33333333333333337,
+        "fwhm_px": 42.44240407076654,
+        "hollowness": 0.8396,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": -4.0,
+        "focal_mm": -250.0,
+        "exposure_ms": 200.0,
+        "peak": 61.0,
+        "peak_fraction": 0.23921568627450981,
+        "peak_per_ms": 0.305,
+        "fwhm_px": 60.35672355480591,
+        "hollowness": 0.8082608695652175,
+        "status": "dim"
+      },
+      {
+        "diopter_m1": -3.0,
+        "focal_mm": -333.3333333333333,
+        "exposure_ms": 200.0,
+        "peak": 47.333333333333336,
+        "peak_fraction": 0.18562091503267975,
+        "peak_per_ms": 0.2366666666666667,
+        "fwhm_px": 292.84810279888103,
+        "hollowness": 0.7149295774647888,
+        "status": "dim"
+      },
+      {
+        "diopter_m1": -2.0,
+        "focal_mm": -500.0,
+        "exposure_ms": 200.0,
+        "peak": 64.0,
+        "peak_fraction": 0.25098039215686274,
+        "peak_per_ms": 0.32,
+        "fwhm_px": 127.27822914641689,
+        "hollowness": 0.889375,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": -1.0,
+        "focal_mm": -1000.0,
+        "exposure_ms": 200.0,
+        "peak": 137.66666666666666,
+        "peak_fraction": 0.5398692810457516,
+        "peak_per_ms": 0.6883333333333332,
+        "fwhm_px": 103.780611835233,
+        "hollowness": 0.9300726392251816,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": -0.05141600932854917,
+        "focal_mm": -19449.19516429179,
+        "exposure_ms": 32.45149784482759,
+        "peak": 110.66666666666667,
+        "peak_fraction": 0.4339869281045752,
+        "peak_per_ms": 3.410217525115122,
+        "fwhm_px": 42.0126837008969,
+        "hollowness": 0.9003571428571426,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 0.0,
+        "focal_mm": Infinity,
+        "exposure_ms": 40.5,
+        "peak": 142.33333333333334,
+        "peak_fraction": 0.5581699346405229,
+        "peak_per_ms": 3.51440329218107,
+        "fwhm_px": 42.11966761633437,
+        "hollowness": 0.9311627906976746,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 0.28191732400478414,
+        "focal_mm": 3547.139231440172,
+        "exposure_ms": 16.477032644663566,
+        "peak": 113.66666666666667,
+        "peak_fraction": 0.44575163398692813,
+        "peak_per_ms": 6.898491319277686,
+        "fwhm_px": 59.33755144353944,
+        "hollowness": 0.8396531791907516,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 0.6152506573381175,
+        "focal_mm": 1625.3538099845368,
+        "exposure_ms": 1.5014695997449676,
+        "peak": 167.66666666666666,
+        "peak_fraction": 0.657516339869281,
+        "peak_per_ms": 111.668372569878,
+        "fwhm_px": 13.947110192229559,
+        "hollowness": 0.9300594059405939,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 0.9485839906714508,
+        "focal_mm": 1054.202906473421,
+        "exposure_ms": 8.201250000000002,
+        "peak": 161.0,
+        "peak_fraction": 0.6313725490196078,
+        "peak_per_ms": 19.631153787532384,
+        "fwhm_px": 31.53667693422375,
+        "hollowness": 0.9362474226804125,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 1.0,
+        "focal_mm": 1000.0,
+        "exposure_ms": 8.201250000000002,
+        "peak": 119.33333333333333,
+        "peak_fraction": 0.46797385620915033,
+        "peak_per_ms": 14.550627445003299,
+        "fwhm_px": 40.82029684947565,
+        "hollowness": 0.9588857938718665,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 1.281917324004784,
+        "focal_mm": 780.0815085921001,
+        "exposure_ms": 21.09717998825327,
+        "peak": 112.0,
+        "peak_fraction": 0.4392156862745098,
+        "peak_per_ms": 5.308766387847127,
+        "fwhm_px": 71.90451078556566,
+        "hollowness": 0.9675294117647057,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 1.6152506573381173,
+        "focal_mm": 619.098958701536,
+        "exposure_ms": 50.43544590941797,
+        "peak": 118.33333333333333,
+        "peak_fraction": 0.4640522875816993,
+        "peak_per_ms": 2.3462335109688515,
+        "fwhm_px": 78.76027847097453,
+        "hollowness": 0.8850279329608935,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 1.9485839906714508,
+        "focal_mm": 513.1931724715731,
+        "exposure_ms": 105.22668032919478,
+        "peak": 107.0,
+        "peak_fraction": 0.4196078431372549,
+        "peak_per_ms": 1.0168523768426174,
+        "fwhm_px": 170.75649708007472,
+        "hollowness": 0.942360248447205,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 2.0,
+        "focal_mm": 500.0,
+        "exposure_ms": 110.71687500000002,
+        "peak": 109.0,
+        "peak_fraction": 0.42745098039215684,
+        "peak_per_ms": 0.9844931045967472,
+        "fwhm_px": 87.87009025476931,
+        "hollowness": 0.960244648318043,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 3.0,
+        "focal_mm": 333.3333333333333,
+        "exposure_ms": 110.71687500000002,
+        "peak": 119.33333333333333,
+        "peak_fraction": 0.46797385620915033,
+        "peak_per_ms": 1.0778242551854296,
+        "fwhm_px": 25.89523157371923,
+        "hollowness": 0.21013774104683194,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 4.0,
+        "focal_mm": 250.0,
+        "exposure_ms": 110.71687500000002,
+        "peak": 119.66666666666667,
+        "peak_fraction": 0.469281045751634,
+        "peak_per_ms": 1.080834937462484,
+        "fwhm_px": 41.66527185534437,
+        "hollowness": 0.442534435261708,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 5.0,
+        "focal_mm": 200.0,
+        "exposure_ms": 200.0,
+        "peak": 104.33333333333333,
+        "peak_fraction": 0.4091503267973856,
+        "peak_per_ms": 0.5216666666666666,
+        "fwhm_px": 63.02532443146498,
+        "hollowness": 0.6455128205128204,
+        "status": "ok"
+      },
+      {
+        "diopter_m1": 6.0,
+        "focal_mm": 166.66666666666666,
+        "exposure_ms": 200.0,
+        "peak": 78.33333333333333,
+        "peak_fraction": 0.3071895424836601,
+        "peak_per_ms": 0.39166666666666666,
+        "fwhm_px": 38.686416232481236,
+        "hollowness": 0.8276923076923077,
+        "status": "ok"
+      }
+    ],
+    "verdict": "在焦 ✓ (最佳点 FWHM 13.95 px ≤ 40 px)"
+  },
+  "focus_compensation_focal_mm": 1625.3538099845368,
+  "geometry": {
+    "source": "现场实测 (SLMCCDCalibrator.calibrate)",
+    "measured_this_run": true,
+    "center": [
+      970.1347874265541,
+      1430.8156816126889
+    ],
+    "kx": 7534.296262271034,
+    "ky": 7495.17877820549,
+    "rotation_deg": 0.32256930125450367,
+    "mirror": false,
+    "fwhm0": 13.5,
+    "resid_x": 1.7035735749939729,
+    "resid_y": 0.8625320026655174,
+    "k_mean": 7514.737520238262,
+    "k_choice": "K = (Kx + Ky)/2 (各向同性)",
+    "centre_cycx": [
+      970.1347874265541,
+      1430.8156816126889
+    ]
+  },
+  "model": {
+    "n_pupil": 256,
+    "m_grid": 1024,
+    "padding": 4,
+    "dp_panel_px": 3.75,
+    "span_panel_px": 960.0,
+    "pupil_radius_panel_px": 480.0,
+    "pupil_center_panel_xy": [
+      960.0,
+      600.0
+    ],
+    "w0_panel_px": 260.0,
+    "w0_samples": 69.33333333333333,
+    "pupil_radius_samples": 128.0,
+    "pupil_block_start_index": 384,
+    "block_centre_index": 511.5,
+    "centre_index": 512,
+    "grid_extent_panel_px": 3840.0,
+    "far_field_sample_ccd_px": 1.9569628958953806,
+    "far_field_span_ccd_px": 2003.9300053968698,
+    "far_field_span_note": "覆盖范围 = M·采样间距 = K/dp (傅里叶变换给出的真实覆盖); K·M·dp/span 不是远场覆盖范围, 量纲上不成立",
+    "target": {
+      "kind": "square",
+      "grid": [
+        1024,
+        1024
+      ],
+      "side_ccd_px_requested": 60.0,
+      "side_samples": 31,
+      "side_ccd_px_effective": 60.6658497727568,
+      "far_field_sample_ccd_px": 1.9569628958953806,
+      "peak_sample": [
+        512,
+        512
+      ],
+      "note": "以零级为中心的均匀方块, 边长按 CCD 像元给再换算成远场样本"
+    },
+    "initial_phase": {
+      "kind": "gs",
+      "gs_iters": 100,
+      "gs_converged": false,
+      "gs_first_error": 14600.963952966129,
+      "gs_last_error": 14595.303439192518,
+      "propagation": "fft",
+      "note": "交替投影 (GS) 解析整形解当初值; 传播用 fft (= 2f 透镜的傅里叶变换)"
+    },
+    "iters": 150,
+    "hw_iters": 4,
+    "device": "cuda",
+    "lr": 0.05,
+    "seed": 0,
+    "grad_every": 10
+  },
+  "comparison": {
+    "best": {
+      "transpose_measured": false,
+      "model_peak_xy": [
+        518.0,
+        523.0
+      ],
+      "measured_peak_xy": [
+        520.0,
+        510.0
+      ],
+      "peak_offset_samples": [
+        2.0,
+        -13.0
+      ],
+      "model_fwhm_px": 31.246614018088422,
+      "measured_fwhm_px": 17.037160969088234,
+      "model_peak": 18175572.22821483,
+      "measured_peak": 111.43112691185233,
+      "peak_ratio_raw": 6.1308180844437095e-06,
+      "intensity_correlation": 0.8098276452215161,
+      "transpose": true,
+      "flip_rows": false,
+      "flip_cols": true,
+      "orientation_match": "transpose_flip_cols",
+      "strehl_like_peak_ratio": 5.666194872383282,
+      "strehl_model": 0.029771582620153104,
+      "strehl_hardware": 0.16869158878504675,
+      "exposure_ms": {
+        "flat": 1.0724299065420562,
+        "optimized": 6.0394736842105265
+      },
+      "verdict": "模型与硬件**高度一致** (强度相关系数 ≥ 0.8): 相关系数 0.810, 峰值偏移 2.00/-13.00 个远场采样, 类 Strehl 峰值比 5.666",
+      "ccd_peak": 113.66666666666667,
+      "ccd_fwhm_px": 28.91791671382822,
+      "ccd_fwhm_x_px": 54.0,
+      "ccd_fwhm_y_px": 20.0,
+      "ccd_centroid_xy": [
+        1432,
+        959
+      ],
+      "ccd_hollowness": 0.5146041055718474
+    },
+    "candidates": {
+      "identity": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          510.0,
+          503.0
+        ],
+        "peak_offset_samples": [
+          -8.0,
+          -20.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088262,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.8096795758931667,
+        "transpose": false,
+        "flip_rows": false,
+        "flip_cols": false
+      },
+      "transpose": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          503.0,
+          510.0
+        ],
+        "peak_offset_samples": [
+          -15.0,
+          -13.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088262,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.8065699587549996,
+        "transpose": true,
+        "flip_rows": false,
+        "flip_cols": false
+      },
+      "flip_rows": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          510.0,
+          520.0
+        ],
+        "peak_offset_samples": [
+          -8.0,
+          -3.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088234,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.8085879471501229,
+        "transpose": false,
+        "flip_rows": true,
+        "flip_cols": false
+      },
+      "flip_cols": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          513.0,
+          503.0
+        ],
+        "peak_offset_samples": [
+          -5.0,
+          -20.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088234,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.7925552593187638,
+        "transpose": false,
+        "flip_rows": false,
+        "flip_cols": true
+      },
+      "flip_both": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          513.0,
+          520.0
+        ],
+        "peak_offset_samples": [
+          -5.0,
+          -3.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088205,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.796747074676786,
+        "transpose": false,
+        "flip_rows": true,
+        "flip_cols": true
+      },
+      "transpose_flip_rows": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          503.0,
+          513.0
+        ],
+        "peak_offset_samples": [
+          -15.0,
+          -10.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088234,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.7848014371955789,
+        "transpose": true,
+        "flip_rows": true,
+        "flip_cols": false
+      },
+      "transpose_flip_cols": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          520.0,
+          510.0
+        ],
+        "peak_offset_samples": [
+          2.0,
+          -13.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088234,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.8098276452215161,
+        "transpose": true,
+        "flip_rows": false,
+        "flip_cols": true,
+        "orientation_match": "transpose_flip_cols",
+        "strehl_like_peak_ratio": 5.666194872383282,
+        "strehl_model": 0.029771582620153104,
+        "strehl_hardware": 0.16869158878504675,
+        "exposure_ms": {
+          "flat": 1.0724299065420562,
+          "optimized": 6.0394736842105265
+        },
+        "verdict": "模型与硬件**高度一致** (强度相关系数 ≥ 0.8): 相关系数 0.810, 峰值偏移 2.00/-13.00 个远场采样, 类 Strehl 峰值比 5.666",
+        "ccd_peak": 113.66666666666667,
+        "ccd_fwhm_px": 28.91791671382822,
+        "ccd_fwhm_x_px": 54.0,
+        "ccd_fwhm_y_px": 20.0,
+        "ccd_centroid_xy": [
+          1432,
+          959
+        ],
+        "ccd_hollowness": 0.5146041055718474
+      },
+      "transpose_flip_both": {
+        "transpose_measured": false,
+        "model_peak_xy": [
+          518.0,
+          523.0
+        ],
+        "measured_peak_xy": [
+          520.0,
+          513.0
+        ],
+        "peak_offset_samples": [
+          2.0,
+          -10.0
+        ],
+        "model_fwhm_px": 31.246614018088422,
+        "measured_fwhm_px": 17.037160969088205,
+        "model_peak": 18175572.22821483,
+        "measured_peak": 111.43112691185233,
+        "peak_ratio_raw": 6.1308180844437095e-06,
+        "intensity_correlation": 0.7918747513864075,
+        "transpose": true,
+        "flip_rows": true,
+        "flip_cols": true
+      }
+    },
+    "flat_reference": {
+      "transpose_measured": false,
+      "model_peak_xy": [
+        518.0,
+        523.0
+      ],
+      "measured_peak_xy": [
+        511.0,
+        512.0
+      ],
+      "peak_offset_samples": [
+        -7.0,
+        -11.0
+      ],
+      "model_fwhm_px": 31.246614018088422,
+      "measured_fwhm_px": 7.966557087712943,
+      "model_peak": 18175572.22821483,
+      "measured_peak": 116.85941279696367,
+      "peak_ratio_raw": 6.429476405455729e-06,
+      "intensity_correlation": 0.3789092488534349
+    },
+    "note": "面板↔相机的 90° 轴交换与几何标定返回值的约定不自洽, 所以脚本不假设, 把「转置」当作两个候选口径实测对比择优 (对比择优结果见 orientation_match)"
+  },
+  "history_summary": {
+    "iters": 150,
+    "first_loss": 0.00030285189859569073,
+    "last_loss": 0.00012830758350901306,
+    "hw_iters": 4,
+    "hw_first_loss": 0.000502111972309649,
+    "hw_last_loss": 0.0004889135016128421
+  },
+  "conclusion": "* **模型能不能预测硬件**: 模型与硬件**高度一致** (强度相关系数 ≥ 0.8): 相关系数 0.810, 峰值偏移 2.00/-13.00 个远场采样, 类 Strehl 峰值比 5.666。\n* **纯模型侧的梯度有没有用**: 损失从 0.000303 降到 0.000128 (共 150 次迭代), 说明 autograd 给出的梯度方向是对的; 相位 RMS 从 1.8102 rad 变到 1.8152 rad。\n* **测量锚定闭环**: 实测损失从 0.000502 变到 0.000489 (共 4 次)。这个数是**实测**图像处的损失, 不是模型自算的。\n* **相位分辨率的限制**: 模型瞳面采样间距 dp 不是整数面板像元, 上屏时是**块状**相位 (每个模型采样占 dp×dp 面板像元) —— 硬件看到的相位比模型优化的那组值更粗, 这是模型与硬件之间**不可消除**的口径差。",
+  "open_questions": "* **远场覆盖范围的公式**: 任务书里给的 `K·M·dp/span` CCD 像元在量纲上不成立 (它是「网格跨度/瞳面跨度」这个放大率乘 K), 脚本改用傅里叶变换真正给出的 `K/dp` (即 M×远场采样间距)。两个数都写进了 `run_config.json` 以便核对 —— **待确认**: 远场阵列覆盖 K/dp CCD 像元时, 有多少比例落在传感器内 (传感器 2592×1944, 零级不在画幅中心)。\n* **面板↔相机的 90° 轴交换**: 仓库记着「面板 x 斜坡挪的是相机 y」, 但 几何标定返回的 `rotation_deg` 只编码两条光栅轴的**正交性偏差**, 不能 无歧义地定出轴映射。脚本因此**不假设**, 把「转置」当两个候选口径实测 对比择优 —— **待确认**: 若模型远场明显非对称, 对比择优本身就不可靠, 需要另做 一次带标记图案的轴映射标定。\n* **几何标定期间用了焦面补偿**: `SLMCCDCalibrator` 自己管理显示路径 (只显示 plain 相位), 脚本用驱动的叠加层把补偿临时挂上去, 让 ±1 级 在焦时测量 —— **待确认**: 补偿相位以**标称**照明中心为中心, 而真实 照明并不在那里, 偏心二次相位等价于偏心透镜 (会转向), 可能给标定 引入几十 px 的系统偏差。\n* **零填充倍数与远场采样**: 默认 padding=4 意味着远场比瞳面角分辨率 细 4 倍, 光斑在远场网格上只占几个采样 —— 目标若是单像素尖峰, 模型 物理上**不可能**完全命中, 损失里有一项是「不可达」的部分。\n* 🔴 **随机初值 + 强度 MSE 会掉进「把远场摊平」的局部极小** (2026-10-22 实测, 这是本轮最主要的负结果): 损失从 1.07e-2 **一步**降到 1.09e-3, 之后 150 次迭代只再降 15% (最后 9.29e-4)。而 9.29e-4 与「目标块面积 / 网格面积」= 31²/1024² = 9.2e-4 几乎相等 —— 也就是**目标一块都没命中**时的损失。相位 RMS 全程停在 3.63 rad (≈ 均匀 [0,2π) 的 raw RMS),说明相位仍近似随机。物理上说得通: 纯相位元件不能把远场压成 0, 于是优化器 选了「把能量摊平成一圈散斑、峰值归一后处处 ≈ 1e-3」这条捷径, 而不是「造出目标结构」。**待确认/下一步**: 用 GS (或任何解析整形解) 做初值再让 可微细化接手 —— 这正是 `optimizer/wfless/slm_gs_refine.py` 的思路; 或把损失换成对目标块加权的形式。**本轮所有「模型 vs 硬件」数字都受这条 限制**: 上屏的相位近似随机, 所以硬件看到的是散斑, 相关系数自然只有 0.1 量级。"
+}

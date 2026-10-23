@@ -881,6 +881,10 @@ def plot_results(
 def load_sweep_module() -> Any:
     """按路径加载采集驱动 (``scripts/slm/run_hw_sweep_groups.py``)。
 
+    ⚠️ **设备互斥已经不再经过它** —— 判别 / 探针 / 等待都直接用权威模块
+    :mod:`ao_shaping.tools.kernels.device_mutex` (同一份实现, 不再按路径加载一份
+    可能已经过期的副本)。这个函数留着只是因为别处的调试代码会按名字找它。
+
     **必须先注册进 ``sys.modules`` 再执行**: ``dataclasses`` 通过
     ``sys.modules[cls.__module__].__dict__`` 解析 ``KW_ONLY`` /
     ``_HAS_DEFAULT_FACTORY``, 按路径加载而不注册的话, 里面每个 dataclass 都会炸
@@ -895,48 +899,60 @@ def load_sweep_module() -> Any:
     return module
 
 
-def acquire_devices(args: argparse.Namespace) -> None:
-    """开跑前确认设备没被别人占着。
+def acquire_devices(args: argparse.Namespace) -> DeviceLock:
+    """开跑前拿到设备, 并把**设备锁拿在手里**。
 
-    SLM 的 USB 句柄是独占的: 谁先打开谁拥有, 另一个会话只会拿到 -10003。所以
-    先探一次; 报「被占」且属于**可以等**的那两类 (别人在用) 时, 按
-    ``--wait-until-idle`` 的预算等。设备没插上 / 探针自己没装好这类等不来,
-    立刻报错退出。
+    为什么必须持锁到采集结束 (不是等到它空闲就放掉): SLM 的 USB 句柄是独占的,
+    谁先打开谁拥有; SLM 与大恒相机的**互斥锁**也一样 —— 只等到「空闲」就放锁,
+    另一个会话会在我们采集的中途拿走句柄 (表现为 -10003, 或更糟的 -10032
+    「USB其他错误」出现在面板扫描中途)。
+
+    三种情况在此分开 (由权威模块判定, 不再由本脚本猜):
+
+    * **别人持有** ⇒ 按 ``--wait-until-idle`` 的预算等, 并报出持有者的 pid 与命令行;
+    * **自己这一棵进程树持有** ⇒ 不是冲突, 直接放行 (旧判据在这里把「自己启动的
+      子进程」当成「别的会话」⇒ 永远抢不到设备);
+    * **锁空 + SDK 报 -10003** ⇒ **SDK 陈旧状态**: 排队等不来, 提示给 SLM 控制器
+      物理断电重置。
+
+    Args:
+        args: 命令行参数。
+
+    Returns:
+        已经拿在手里的设备锁 (调用方在 ``finally`` 里 ``release``)。
+
+    Raises:
+        SystemExit: 设备等不来 (没插上 / 光路不通 / 陈旧句柄 / 探针自己没装好)。
     """
-    module = load_sweep_module()
     budget = float(args.wait_until_idle)
-    if budget > 0:
-        code, message = module.wait_until_idle(
-            budget,
-            slm_number=int(args.slm_number),
-            cam_id=int(args.cam_id),
-            cam_type=str(args.cam_type),
-            exposure_ms=float(args.exposures[0]),
-            own_paths=[Path(__file__).resolve()],
-        )
-        if code == 0:
-            return
-        verdict = module.classify_device_unavailable(message)
-        waitable = verdict is not None and verdict.kind in module.WAITABLE_KINDS
-        kind = verdict.kind if verdict is not None else "unknown"
-        raise SystemExit(
-            f"等 {budget:.0f}s 后仍拿不到设备 ({kind}, 可等={waitable}): {message}"
-        )
-
-    result = module.probe_devices(
+    verdict = device_mutex.wait_until_idle(
+        budget,
         slm_number=int(args.slm_number),
         cam_id=int(args.cam_id),
         cam_type=str(args.cam_type),
         exposure_ms=float(args.exposures[0]),
+        own_paths=[Path(__file__).resolve()],
     )
-    if result.status == module.PROBE_IDLE:
-        return
-    verdict = module.classify_device_unavailable(result.message)
-    if verdict is None:
-        raise SystemExit(f"设备探针没有给出可用结论: {result.message}")
+    if verdict.ok:
+        lock = verdict.lock if verdict.lock is not None else DeviceLock.default()
+        if not lock.is_locked():
+            lock.acquire(timeout=0.0)
+        return lock
+    if verdict.status == "stale":
+        raise SystemExit(
+            f"设备不可用 ({verdict.kind}): {verdict.headline()} —— {verdict.remedy}"
+        )
+    if verdict.status == "broken":
+        raise SystemExit(f"设备探针没有给出可用结论: {verdict.detail}")
+    if verdict.status == "timeout":
+        raise SystemExit(
+            f"设备被占: {verdict.reason} (加/放大 --wait-until-idle 可以等; "
+            f"当前预算 {budget:.0f}s)"
+        )
     raise SystemExit(
-        f"设备不可用 ({verdict.kind}): {verdict.headline()} —— {verdict.advice()}"
-        + ("" if verdict.kind in module.WAITABLE_KINDS else " (加 --wait-until-idle 也等不来)")
+        f"设备不可用 ({verdict.kind or 'unknown'}): {verdict.headline()} —— "
+        f"{verdict.remedy or verdict.detail}"
+        + ("" if verdict.kind in WAITABLE_KINDS else " (加 --wait-until-idle 也等不来)")
     )
 
 
@@ -1056,14 +1072,23 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     """跑一次探测, 返回退出码 (0 = ok, 2 = low_snr / no_response)。"""
     args = build_parser().parse_args(argv)
+    # 🔴 设备锁**整段探测期间**都握在手里 (不是等到空闲就放掉): 只放到「空闲」
+    # 就撒手, 另一个会话会在采集的中途拿走句柄。
+    lock = acquire_devices(args)
+    try:
+        return run_probe(args)
+    finally:
+        lock.release()
+
+
+def run_probe(args: argparse.Namespace) -> int:
+    """探测主体 (调用方已拿到设备锁)。"""
     exposures = _parse_float_list(args.exposures, "--exposures")
     amplitudes = _parse_float_list(args.defocus_amps, "--defocus-amps")
     pupil_center = _parse_center(args.pupil_center)
     for exposure in exposures:
         if exposure <= 0:
             raise SystemExit(f"曝光必须为正: {exposure}")
-
-    acquire_devices(args)
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%SZ")
     out_dir = Path(args.out_root) / stamp

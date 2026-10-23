@@ -2045,6 +2045,65 @@ def render_only(run_dir: Path) -> int:
 # ---------------------------------------------------------------------------
 # --execute
 # ---------------------------------------------------------------------------
+def build_initial_phase(
+    spec: "ModelSpec",
+    amplitude: np.ndarray,
+    target: np.ndarray,
+    *,
+    kind: str,
+    gs_iters: int,
+    seed: int,
+) -> tuple[np.ndarray | None, dict[str, Any]]:
+    """按 ``--init-phase`` 造初值 (只对 ``kind="gs"`` 返回非 ``None``)。
+
+    ⚠️ **为什么默认要用 GS 初值**: 随机初值 + 强度 MSE 会掉进「把远场摊平」的
+    局部极小 —— 2026-10-22 实测: 损失一步从 1.07e-2 掉到 1.09e-3, 之后 150 次
+    只再降 15%, 而 9.29e-4 恰好等于「目标块一块都没命中」的损失 (31²/1024²),
+    相位 RMS 全程停在 3.63 rad (均匀 [0,2π) 的 raw RMS) ⇒ 上屏的相位近似随机
+    ⇒ 硬件看到散斑, 模型与硬件的相关系数只有 0.1 量级。
+
+    GS (交替投影) 给的是**解析整形解**: 它先把目标结构造出来, 可微细化再接手。
+    这正是仓库 `optimizer/wfless/slm_gs_refine.py` 的思路。传播用
+    ``propagation="fft"`` —— 2f 透镜做的就是傅里叶变换, **不是**角谱
+    (仓库里已实测 ASM 在 z=f 处给的是传播后的光束, 不是远场)。
+    """
+    if kind != "gs":
+        return None, {"kind": kind, "note": "不用 GS 初值, 走优化器自己的初值"}
+    from ao_shaping.algorithm.signal_processing.gerchberg_saxton import (
+        gerchberg_saxton,
+    )
+
+    t_amp = np.sqrt(np.clip(np.asarray(target, dtype=np.float64), 0.0, None))
+    result = gerchberg_saxton(
+        np.asarray(amplitude, dtype=np.float64),
+        t_amp,
+        iterations=int(gs_iters),
+        propagation="fft",
+    )
+    phase = np.asarray(result.phase, dtype=np.float64)
+    if phase.shape != (spec.m_grid, spec.m_grid):
+        raise ValueError(
+            f"GS 初值形状 {phase.shape} 与模型网格 {(spec.m_grid, spec.m_grid)} 不符"
+        )
+    info = {
+        "kind": kind,
+        "gs_iters": int(gs_iters),
+        "gs_converged": bool(result.converged),
+        "gs_first_error": float(result.error_history[0]) if result.error_history else None,
+        "gs_last_error": float(result.error_history[-1]) if result.error_history else None,
+        "propagation": "fft",
+        "note": ("交替投影 (GS) 解析整形解当初值; 传播用 fft (= 2f 透镜的傅里叶变换)"),
+    }
+    logger.info(
+        "[P4] GS 初值: {} 次迭代, 误差 {} → {} (converged={})",
+        info["gs_iters"],
+        _fmt(info["gs_first_error"]),
+        _fmt(info["gs_last_error"]),
+        info["gs_converged"],
+    )
+    return phase, info
+
+
 def run_analyze_only(args: argparse.Namespace) -> int:
     """离线重做分析与报告 —— **一个设备都不碰**。
 
@@ -2647,12 +2706,22 @@ def _run_bench(
         device,
     )
 
+    # 初值: gs (默认) = 用交替投影的解析整形解起手; random = 优化器自己的随机初值
+    gs_phase, init_info = build_initial_phase(
+        spec,
+        amplitude,
+        target,
+        kind=str(getattr(args, "init_phase", "gs")),
+        gs_iters=int(getattr(args, "gs_iters", 50)),
+        seed=int(args.seed),
+    )
     opt = DifferentiableBeamOptimizer(
         target,
         source_amplitude=amplitude,
         lr=float(args.lr),
         device=device,
         seed=int(args.seed),
+        init_phase=gs_phase,
     )
     phase_initial = opt.current_phase.copy()
     np.save(out_dir / "phase_initial.npy", phase_initial)
@@ -2985,6 +3054,7 @@ def _run_bench(
     # ---- P7: 产物 + 报告 --------------------------------------------------
     model_info = spec.as_dict(k_mean)
     model_info["target"] = target_info
+    model_info["initial_phase"] = init_info
     model_info["iters"] = int(args.iters)
     model_info["hw_iters"] = int(args.hw_iters)
     model_info["device"] = device
@@ -3353,6 +3423,22 @@ def build_parser() -> argparse.ArgumentParser:
         "**不能是单像素**: 远场网格有 10^6 格, 单像素目标在峰值归一化的"
         " MSE 里只占 10^-6, 峰值位置几乎不被约束 (实测: 损失降到 1.5e-5, "
         "峰值却落在离中心 183/262 个采样点处)",
+    )
+    p.add_argument(
+        "--init-phase",
+        choices=["gs", "random"],
+        default="gs",
+        help="初值: gs (默认) = 交替投影 (GS) 的解析整形解起手, propagation='fft'; "
+        "random = 优化器自己的随机初值。"
+        "⚠️ 随机初值 + 强度 MSE 会掉进「把远场摊平」的局部极小"
+        "(2026-10-22 实测: 损失一步降到「目标一块都没命中」的底, 相位 RMS 停在"
+        "均匀随机的 3.63 rad) —— 上屏的相位近似随机, 模型与硬件相关系数只有 0.1",
+    )
+    p.add_argument(
+        "--gs-iters",
+        type=int,
+        default=50,
+        help="GS 初值的交替投影迭代数 (默认 50)",
     )
     p.add_argument(
         "--iters",

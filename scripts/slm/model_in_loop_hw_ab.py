@@ -79,9 +79,6 @@ from ao_shaping.tools.slm.model_in_loop_summary import summarize_session
 
 AUTO_SCRIPT = ROOT / "scripts" / "slm" / "model_in_loop_auto.py"
 LIGHT_SCRIPT = ROOT / "scripts" / "slm" / "diagnose_light_level.py"
-#: 设备可用性探针 (SLM USB 句柄是独占的: 谁先 open 谁占住, 别人只拿到 -10003)。
-#: 复用采集驱动 (scripts/slm/run_hw_sweep_groups.py) 已有的探针与分类, 不另写一份。
-DEVICE_PROBE_SCRIPT = ROOT / "scripts" / "slm" / "run_hw_sweep_groups.py"
 
 MIL_SUBCOMMAND = "slm-model-in-loop"
 
@@ -1375,28 +1372,8 @@ def create_session_dir(out_root: Path) -> Path:
     return (Path(out_root).expanduser().resolve() / stamp)
 
 
-def _load_device_probe_module():
-    """Load the shared device-probe helper (the sweep collector's).
-
-    The module **must** be registered in ``sys.modules`` before it executes:
-    ``dataclasses`` resolves ``KW_ONLY`` / ``_HAS_DEFAULT_FACTORY`` through
-    ``sys.modules[cls.__module__].__dict__``, so a module loaded by path
-    without registration makes every dataclass in it blow up with
-    ``'NoneType' object has no attribute '__dict__'``.
-    """
-    spec = importlib.util.spec_from_file_location(
-        "run_hw_sweep_groups", DEVICE_PROBE_SCRIPT
-    )
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"cannot load the device probe from {DEVICE_PROBE_SCRIPT}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
-def wait_for_device(args: argparse.Namespace) -> str:
-    """Block until the SLM and the camera are free.
+def acquire_device_lock(args: argparse.Namespace) -> tuple[DeviceLock | None, str]:
+    """Block until the SLM and the camera are free, and take the lock.
 
     The SLM's USB handle is exclusive: whoever opens it first owns it, and the
     other session only gets -10003.  Worse, the collision does not always show
@@ -1404,12 +1381,28 @@ def wait_for_device(args: argparse.Namespace) -> str:
     ("USB其他错误") in the middle of the panel scan, after the other session had
     grabbed the device.  So probe before touching anything and wait it out.
 
+    The verdict comes from :mod:`ao_shaping.tools.kernels.device_mutex`, which
+    separates the three cases that used to be conflated:
+
+    * **another session holds it** -- wait, and report the holder's pid and
+      command line;
+    * **our own process tree holds it** -- not a conflict, pass straight through
+      (the old check counted our own spawned child as "another session", so the
+      queue never cleared);
+    * **the lock is free but the SDK still reports -10003** -- a stale handle:
+      waiting never fixes it, so it stops with the physical power-cycle advice.
+
+    The lock is returned **held**: the caller keeps it for the whole campaign
+    (releasing it as soon as the device is merely "free" would let another
+    session take the handle right in the middle of a stage) and must release it.
+
     Args:
         args: Parsed arguments; ``wait_until_idle`` is the budget in seconds
             (``0`` disables waiting).
 
     Returns:
-        A short record of what happened, for the manifest.
+        ``(lock, record)`` -- ``lock`` is ``None`` when waiting was disabled;
+        ``record`` is a short line for the manifest.
 
     Raises:
         RuntimeError: If the device is unavailable for a reason that will not
@@ -1417,31 +1410,34 @@ def wait_for_device(args: argparse.Namespace) -> str:
     """
     budget = float(getattr(args, "wait_until_idle", 0.0) or 0.0)
     if budget <= 0:
-        return "skipped"
-    probe = _load_device_probe_module()
-    deadline = time.monotonic() + budget
-    announced = False
-    while True:
-        result = probe.probe_devices(
-            slm_number=int(args.slm_number),
-            cam_id=int(args.cam_id),
-            cam_type=str(args.cam_type),
+        return None, "skipped"
+    verdict = device_mutex.wait_until_idle(
+        budget,
+        slm_number=int(args.slm_number),
+        cam_id=int(args.cam_id),
+        cam_type=str(args.cam_type),
+        own_paths=[Path(__file__).resolve()],
+    )
+    if verdict.ok:
+        lock = verdict.lock if verdict.lock is not None else DeviceLock.default()
+        if not lock.is_locked():
+            lock.acquire(timeout=0.0)
+        if verdict.holder_is_me:
+            return lock, "own-process tree holds the device lock"
+        return lock, ("idle after waiting" if verdict.waited_s > 0 else "idle")
+    detail = verdict.headline()
+    if verdict.status == "stale":
+        raise RuntimeError(
+            f"device unavailable and will not clear by waiting: {detail} -- "
+            f"{verdict.remedy}"
         )
-        if result.status == "idle":
-            return "idle after waiting" if announced else "idle"
-        waitable = result.status == "unavailable" and result.kind in probe.WAITABLE_KINDS
-        detail = result.message or result.kind or result.status
-        if not waitable:
-            raise RuntimeError(f"device unavailable and will not clear by waiting: {detail}")
-        if not announced:
-            print(f"[device] 等待设备空闲: {detail}", flush=True)
-            announced = True
-        if time.monotonic() >= deadline:
-            raise RuntimeError(
-                f"device still busy after {budget:g} s: {detail} "
-                "(another session holds the SLM's exclusive USB handle)"
-            )
-        time.sleep(min(30.0, max(1.0, deadline - time.monotonic())))
+    if verdict.status == "timeout":
+        holder = verdict.holder
+        who = f" (held by {holder.describe()})" if holder is not None else ""
+        raise RuntimeError(
+            f"device still busy after {budget:g} s: {detail}{who}"
+        )
+    raise RuntimeError(f"device unavailable and will not clear by waiting: {detail}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1460,14 +1456,14 @@ def main(argv: list[str] | None = None) -> int:
 
     session_dir.mkdir(parents=True, exist_ok=True)
     manifest = build_manifest(args, session_dir)
-    campaign_state = "completed"
-    shared_geometry = Path(plan["shared_geometry"])
 
     # --- 设备互斥: SLM 的 USB 句柄是独占的, 别的会话正拿着时会报 -10003 / -10032
     # (2026-10-22 实测: 抢设备的失败表现为面板扫描写内存时 -10032, 而不是开就报
     # -10003 —— 所以开跑前先探一次, 探到被占就等, 别直接撞上去)。
+    # 🔴 判定的三种情况 (别人持有 / 自己这棵进程树持有 / SDK 陈旧状态) 由权威模块
+    # `ao_shaping.tools.kernels.device_mutex` 分开, 本脚本不再自己猜。
     try:
-        manifest["device_wait"] = wait_for_device(args)
+        lock, manifest["device_wait"] = acquire_device_lock(args)
     except RuntimeError as exc:
         print(f"campaign refused: {exc}", flush=True)
         manifest["campaign_state"] = "device_unavailable"
@@ -1476,6 +1472,25 @@ def main(argv: list[str] | None = None) -> int:
             json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8"
         )
         return 2
+
+    # 🔴 锁**整轮**握在手里: 只放到「设备空闲」就撒手, 另一个会话会在某个 stage
+    # 的中途拿走句柄 (实测就是 -10032 出现在面板扫描里)。
+    try:
+        return run_campaign(args, plan, session_dir, manifest)
+    finally:
+        if lock is not None:
+            lock.release()
+
+
+def run_campaign(
+    args: argparse.Namespace,
+    plan: dict,
+    session_dir: Path,
+    manifest: dict,
+) -> int:
+    """Run every stage of the plan (the caller already holds the device lock)."""
+    campaign_state = "completed"
+    shared_geometry = Path(plan["shared_geometry"])
 
     for stage in plan["stages"]:
         kind = stage["kind"]

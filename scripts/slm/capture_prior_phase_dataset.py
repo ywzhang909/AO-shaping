@@ -571,6 +571,92 @@ def write_run_config(out: Path, plan: dict) -> None:
                                           encoding="utf-8")
 
 
+def acquire_device_lock(
+    args: argparse.Namespace, settings: dict, plan: dict
+) -> DeviceLock | None:
+    """Wait for the bench, then hold the device lock for the whole capture.
+
+    This script used to have **no** waiting at all: it opened the SLM and simply
+    died with -10003 when another session held the USB handle.  The verdict now
+    comes from :mod:`ao_shaping.tools.kernels.device_mutex`, which separates the
+    three cases that used to be conflated:
+
+    * **another session holds it** -- wait out ``--wait-until-idle``, reporting
+      the holder's pid and command line;
+    * **our own process tree holds it** -- not a conflict, pass straight through;
+    * **the lock is free but the SDK still says -10003** -- a stale handle that
+      no amount of waiting clears; it stops with the physical power-cycle advice.
+
+    The lock stays held until the capture finishes: releasing it as soon as the
+    device is merely *free* would let another session grab the handle mid-run.
+
+    ``--wait-until-idle 0`` (the default) keeps the pre-2026-10-22 behaviour:
+    no probe, no lock, just open the devices.
+
+    Args:
+        args: Parsed command line (``wait_until_idle`` is the budget in seconds).
+        settings: The focus settings (device identity).
+        plan: The run config, updated with a ``device_wait`` record.
+
+    Returns:
+        The held device lock, or ``None`` when waiting was disabled.
+
+    Raises:
+        SystemExit: The device will not become usable within the budget.
+    """
+    budget = float(args.wait_until_idle)
+    if budget <= 0:
+        plan["device_wait"] = {
+            "budget_s": 0.0,
+            "status": "skipped",
+            "waited_s": 0.0,
+            "own_process_tree": False,
+            "holder_pid": None,
+            "holder_cmdline": None,
+            "detail": "waiting disabled (--wait-until-idle 0)",
+            "remedy": "",
+        }
+        return None
+    verdict = device_mutex.wait_until_idle(
+        budget,
+        slm_number=int(settings["slm_number"]),
+        cam_id=int(settings["cam_id"]),
+        cam_type=str(settings["cam_type"]),
+        own_paths=[Path(__file__).resolve()],
+    )
+    plan["device_wait"] = {
+        "budget_s": budget,
+        "status": verdict.status,
+        "waited_s": round(verdict.waited_s, 3),
+        "own_process_tree": verdict.holder_is_me,
+        "holder_pid": verdict.holder.pid if verdict.holder is not None else None,
+        "holder_cmdline": verdict.holder.cmdline if verdict.holder is not None else None,
+        "detail": verdict.detail,
+        "remedy": verdict.remedy,
+    }
+    if verdict.ok:
+        lock = verdict.lock if verdict.lock is not None else DeviceLock.default()
+        if not lock.is_locked():
+            lock.acquire(timeout=0.0)
+        return lock
+    if verdict.status == "stale":
+        raise SystemExit(
+            f"device unavailable ({verdict.kind}): {verdict.headline()} -- "
+            f"{verdict.remedy}"
+        )
+    if verdict.status == "timeout":
+        holder = verdict.holder
+        who = f" (held by {holder.describe()})" if holder is not None else ""
+        raise SystemExit(
+            f"device busy after {budget:g}s: {verdict.reason}{who}; "
+            "re-run with a larger --wait-until-idle to queue instead"
+        )
+    raise SystemExit(
+        f"device unavailable ({verdict.kind or verdict.status}): {verdict.headline()}"
+        + (f" -- {verdict.remedy}" if verdict.remedy else "")
+    )
+
+
 def capture_dataset(args: argparse.Namespace, settings: dict, focus: dict,
                     priors: list[PriorPhase], steps: list[dict],
                     probe_grid: Callable[..., tuple[str, np.ndarray]],
@@ -798,7 +884,8 @@ def print_plan(plan: dict, steps: list[dict]) -> None:
     print(f"  total: {len(steps)} captures", flush=True)
 
 
-def main() -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """命令行参数 (``main`` 与测试共用同一个 parser)。"""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--focus-directory", type=Path, required=True)
@@ -824,6 +911,19 @@ def main() -> int:
                              "固定曝光采的数据不能与自适应曝光的数据在强度口径上直接混比（要各自归一化）。")
     parser.add_argument("--execute", action="store_true",
                         help="Open the bench; without it only the plan is printed")
+    parser.add_argument("--wait-until-idle", type=float, default=0.0,
+                        metavar="SECONDS",
+                        help="开跑前等设备空闲的预算（s）。SLM 的 USB 句柄是独占的，"
+                             "别的会话持有时只会拿到 -10003 —— 以前本脚本直接崩，现在按"
+                             "这个预算**排队**。三种情况分开：别人持有 ⇒ 等并报出对方的"
+                             "pid+命令行；自己这棵进程树持有 ⇒ 不是冲突，直接放行；"
+                             "锁空但 SDK 报 -10003 ⇒ SDK 陈旧状态，排队等不来，"
+                             "需给 SLM 控制器物理断电重置。0 = 不等（只探一次）。")
+    return parser
+
+
+def main() -> int:
+    parser = build_parser()
     args = parser.parse_args()
 
     focus_file = args.focus_directory / "focus.json"
@@ -899,7 +999,19 @@ def main() -> int:
     out = args.output.resolve()
     out.mkdir(parents=True, exist_ok=False)
     write_run_config(out, plan)
-    rows = capture_dataset(args, settings, focus, priors, steps, probe_grid, plan)
+    # 设备互斥: 撞上 -10003 时是**排队**而不是崩 (以前没有等待能力)。
+    # 0 = 不等 (保持旧行为: 直接开设备)。
+    lock: DeviceLock | None = None
+    try:
+        lock = acquire_device_lock(args, settings, plan)
+    finally:
+        # 等待的结论也要落盘 —— **失败时同样** (报告要能回答「当时为什么没跑」)。
+        write_run_config(out, plan)
+    try:
+        rows = capture_dataset(args, settings, focus, priors, steps, probe_grid, plan)
+    finally:
+        if lock is not None:
+            lock.release()
     if args.fixed_exposure:
         # The capture loop already recorded which capture produced each fixed
         # exposure; keep that detail and only make sure the section is there.

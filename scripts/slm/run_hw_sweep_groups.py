@@ -80,17 +80,18 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 * 「**设备不可用**」⇒ 记 ``device_unavailable``, **中止整轮**, 剩下的组记
   ``skipped``, 退出码非 0, 并打印一句说清根因的中文。
 
-设备不可用又分五类, 因为**处置不同**:
+设备不可用又分**六类**, 因为**处置不同**:
 
-========================  =========================================  ==============
-归类                     特征                                        能不能等
-========================  =========================================  ==============
-``slm_absent``           ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
-``slm_busy``             ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
-``camera_busy``          ``camera not initialized`` (相机被占)        能 (等一会儿)
-``camera_absent``        相机不在 (``Camera ID not found``)          不能 (要人处理)
-``light_path_blocked``   光路不通 (相机上一个光斑都没有)             不能 (要人查光路)
-========================  =========================================  ==============
+=========================  =========================================  ==============
+归类                       特征                                        能不能等
+=========================  =========================================  ==============
+``slm_absent``             ``-10002`` 未找到USB设备 (没插上/没通电)     不能 (要人插拔)
+``slm_busy``               ``-10003`` USB设备已打开 (被别的进程占着)   能 (等一会儿)
+``camera_busy``            ``camera not initialized`` (相机被占)        能 (等一会儿)
+``camera_absent``          相机不在 (``Camera ID not found``)          不能 (要人处理)
+``light_path_blocked``     光路不通 (相机上一个光斑都没有)             不能 (要人查光路)
+``sdk_stale``              **锁空**却报 ``-10003`` (陈旧句柄)          不能 (**物理断电**)
+=========================  =========================================  ==============
 
 🔴 ``light_path_blocked`` 与前四类**必须分开**: 前四类是「设备」的问题, 这一类是
 **实验系统光路**的问题 —— SLM 与相机都能正常打开, 但光束没走到 CCD (面板被挪/
@@ -99,8 +100,14 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 所以它**立刻中止整轮** (退出码非 0, 剩下的组记 ``skipped``), 并把三段光路
 (光束 → SLM 面板 → 2f 透镜 → CCD) 的检查清单打给人。
 
+🔴 ``sdk_stale`` 又是另一种: **SDK 说句柄已被打开, 但设备锁是空的** —— 没有任何
+活着的持有者, 只剩上一轮留下的陈旧句柄。实测 2026-10-22 21:18-21:27: 排了 1800 s
+也排不到, 而 ``AGENTS.md`` 与 ``src/ao_shaping/drivers/slm/AGENTS.md`` 记录的处置是
+**给 SLM 控制器物理断电重置** ⇒ 排队等不来, 所以**立刻停**并打这句提示。
+
 判别逻辑在**模块级纯函数** :func:`classify_device_unavailable` 里 (不散在主流程中),
-单元测试直接测它。
+单元测试直接测它。⚠️ 判别的**唯一事实源**已搬到
+:mod:`ao_shaping.tools.kernels.device_mutex`, 本文件只是转发 (见下方「设备互斥」节)。
 
 ``--wait-until-idle SECONDS``: 开跑前等设备空出来
 --------------------------------------------------
@@ -111,7 +118,7 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 **占用它的进程命令行** (用 CIM 查 python 进程, 挑出命令行里含设备关键字的那些),
 让人知道**是谁**在占。
 
-🔴 **公平性: 先看进程, 再探针** (2026-10-22 09:03-09:48 实测)
+🔴 **公平性: 先看锁, 再看进程, 最后探针** (2026-10-22 09:03-09:48 与 21:18-21:27 实测)
 
 「探针能打开」**不等于**「这台机器现在没人用设备」。同一台机器上另一个会话在跑
 多 stage 的 hardware campaign (4 个进程), 我方探针 09:03 得到 -10003 (设备**确实**
@@ -120,16 +127,24 @@ SLM 的 USB 当时是**断开**的, 于是每一组都在 2-5 s 内死于
 **下一个 stage 就会拿到 -10003 而失败**。反过来, 我方**探针本身要开一次 SLM**, 也会
 让对方的下一次 open 撞上 -10003 ⇒ **探针本身也是干扰源**。
 
-所以等待循环每轮**先查进程**:
+所以等待循环每轮:
 
-* **有别的会话的硬件进程** ⇒ **一次都不探针** (不碰设备), 直接等下一轮, 并把对方是谁
-  (进程命令行) 打印出来 (最多每分钟一行, 别刷屏);
-* **没有** ⇒ 才探针。探针成功 ⇒ **再扫一次** (探针开锁的那一瞬间可能刚好有别的会话
-  开始) —— 仍没人 ⇒ 打印「设备可用, 且无其它硬件进程 ⇒ 开始采集」并开跑;
-* 探针报被占 ⇒ 说明有我们**没认出来**的占用者, 继续等并报「设备被占但没认出占用者」。
+1. **先看锁** (权威): 锁被**别的进程**持有 ⇒ 等, 并把对方的 pid 与命令行打出来;
+   锁被**自己这棵进程树**持有 ⇒ **不是冲突**, 直接放行。(旧判据在这里把「自己启动
+   的子进程」当成「别的会话」⇒ 2026-10-22 21:18-21:27 那个 455 s 一直抢不到设备的
+   假阳性就是这么来的。)
+2. **再看进程** (给没参与互斥的老脚本兜底): **有别的会话的硬件进程** ⇒ **一次都
+   不探针** (不碰设备), 直接等下一轮, 并把对方是谁 (进程命令行) 打印出来 (最多每
+   分钟一行, 别刷屏);
+3. **最后才探针**: 探针成功 ⇒ **再扫一次** (探针开锁的那一瞬间可能刚好有别的会话
+   开始) —— 仍没人 ⇒ 打印「设备可用, 且无其它硬件进程 ⇒ 开始采集」并开跑;
+4. 探针报被占 ⇒ 若这是**真探针**、**锁空**、且**没有别的硬件进程** ⇒ 判 ``sdk_stale``
+   并停下 (物理断电); 否则说明有我们**没认出来**的占用者, 继续等并报「设备被占但
+   没认出占用者」。
 
-「自己这条线上的进程」不算占用者: 自身、祖先、后代 (探针子进程)、命令行里出现我们
-自己的脚本的那些, 以及用 ``--own-pid`` / ``AO_HW_OWN_PIDS`` 显式声明的。
+「自己这条线上的进程」不算占用者: 自身、祖先、后代 (探针子进程; **穿过**
+``cmd.exe`` 这样的中间层也认得出)、命令行里出现我们自己的脚本的那些, 以及用
+``--own-pid`` / ``AO_HW_OWN_PIDS`` 显式声明的。
 
 探针有两条硬约束:
 
@@ -170,8 +185,12 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+for _candidate in (ROOT, ROOT / "src"):
+    # ``src`` 也要: 设备互斥的权威模块住在 ``src/ao_shaping/tools/kernels/`` 下。
+    # 缺了它, 没做 editable 安装的环境 (`pip install -e .`) 会在 import 期就炸。
+    _text = str(_candidate)
+    if _text not in sys.path:
+        sys.path.insert(0, _text)
 
 from scripts._common.group_manifest import (
     group_output_dir,
@@ -190,123 +209,81 @@ OUTPUT_TAIL_CHARS = 4000
 
 
 # ---------------------------------------------------------------------------
-# 设备不可用的判别 (模块级纯函数)
+# 设备互斥: 判别 / 探针 / 等待 一律**转发**给唯一事实源
 # ---------------------------------------------------------------------------
-#: 「设备不可用」的四种归类。**处置不同, 所以必须分开**:
-#: 断电类要人重新插拔 (等是等不来的); 被占类别人在用, 等一会儿就空出来。
-KIND_SLM_ABSENT = "slm_absent"
-KIND_SLM_BUSY = "slm_busy"
-KIND_CAMERA_BUSY = "camera_busy"
-KIND_CAMERA_ABSENT = "camera_absent"
-#: 光路不通: 设备都在 (SLM 能开、相机能开), 但**相机上一个光斑都没有** ⇒
-#: 光束没到相机 (光路被挡/被挪/光源关了)。
+#: 设备互斥的权威实现 —— 错误分类的正则与中文处置文案、跨进程锁、规范等待
+#: 都在 ``src/ao_shaping/tools/kernels/device_mutex.py``。
 #:
-#: ⚠️ 单独一类, 因为**处置完全不同**: 上面四类是「设备」的问题, 这一类是**实验系统
-#: 光路**的问题 —— 等是等不来的, 也不该继续往下跑组 (每组都会立刻失败, 白占设备)。
-#: 实测 2026-10-22 12:5x: 光路不通后, 驱动把剩下 8 组逐个跑了一遍, 每组 8-28 s
-#: ⇒ 全是「光束没有到达相机」, 而**根因 (光路断了) 在索引里看不出来**。
-KIND_LIGHT_PATH_BLOCKED = "light_path_blocked"
-
-#: 可以自动等的那几类 (别人在用 ⇒ 等一会儿就好)。
-WAITABLE_KINDS = frozenset({KIND_SLM_BUSY, KIND_CAMERA_BUSY})
-
-#: 每种归类的中文说明与处置办法 (操作者看到的就是这两句)。
-DEVICE_UNAVAILABLE_INFO: dict[str, tuple[str, str]] = {
-    KIND_SLM_ABSENT: (
-        "SLM 未找到USB设备: 设备没插上或没通电",
-        "需要人重新插拔 SLM 控制器的电源/USB —— 等是等不来的",
-    ),
-    KIND_SLM_BUSY: (
-        "SLM 的 USB 句柄已被别的进程打开",
-        "别的进程正在用这台 SLM, 等它跑完就空出来 (可加 --wait-until-idle 自动等)",
-    ),
-    KIND_CAMERA_BUSY: (
-        "相机没初始化成功 (camera not initialized): 相机被别的进程占着",
-        "别的进程正在用这台相机, 等它跑完就空出来 (可加 --wait-until-idle 自动等)",
-    ),
-    KIND_CAMERA_ABSENT: (
-        "相机不在 (Camera ID not found)",
-        "需要人检查相机的供电/网线 —— 等是等不来的",
-    ),
-    KIND_LIGHT_PATH_BLOCKED: (
-        "相机上没有任何光斑 (SLM 与相机都打开着, 但探测器上没读到光斑)",
-        "先确认**激光器是否开着** (2026-10-22 12:15-12:59 那 45 分钟就是这样: "
-        "光源被关掉了, 属正常操作); 再查实验系统的三段光路: 光束 → SLM 面板 → 2f 透镜 → CCD "
-        "(面板被挪/被挡) —— 等是等不来的",
-    ),
-}
-
-#: 光路受阻时给操作者的**三段光路**检查清单 (与探针脚本的 ``BLOCKED_PATH_REASON``
-#: 同一口径: 光束 → SLM 面板 → 2f 透镜 → CCD)。
-LIGHT_PATH_CHECKLIST = "光束 → SLM 面板 → 2f 透镜 → CCD"
-
-#: 设备不可用的特征串。**数字错误码与中文短语都认**: 驱动异常文本带码
-#: (「错误码: -10002」), 而 GUI 的中文提示只带短语。
-_SLM_ABSENT_RE = re.compile(r"未找到USB设备|错误码[:：]?\s*-10002(?!\d)")
-_SLM_BUSY_RE = re.compile(r"USB设备已打开|错误码[:：]?\s*-10003(?!\d)")
-_CAMERA_BUSY_RE = re.compile(r"camera not initialized|REPEAT_OPENED|device has been open")
-_CAMERA_ABSENT_RE = re.compile(r"camera not found|Camera ID \d+ not found")
-#: 光路不通的特征串 (探针的中文提示 + 曝光阶梯估不出上限时的英文报错)。
+#: 🔴 为什么改成转发: 2026-10-22 21:18-21:27 实测, 排队循环把**自己这一棵
+#: 进程树**启动的子进程当成了「别的会话占用」⇒ 22 轮 / 455 s 一直报「别的会话
+#: 在用设备」, 而直连验证 SLM 与大恒相机都能正常打开; 同一时段并发会话的离焦
+#: 探针也是**两个同名进程** ⇒ 这个「一对同名进程」是这类脚本的常态 (Windows
+#: spawn / 子进程), 不是「别的会话」。同一份判据散在几个脚本里, 就一定会有一份
+#: 先修好、另一份还在误判 ⇒ 现在只有一份。
 #:
-#: ⚠️ 与上面四类**必须分开**: 那些是「设备」的问题, 这一类是**实验系统光路**的问题 ——
-#: SLM 与相机都正常, 但光束没走到 CCD (面板被挪/被挡/光源关了)。
-#: 实测 2026-10-22 12:5x: 光路断掉后驱动把剩下 8 组逐个跑了一遍 (每组 8-28 s),
-#: 每组都报「光束没有到达相机」⇒ 根因在索引里被埋掉了, 白占设备。
-_LIGHT_PATH_BLOCKED_RE = re.compile(r"光路受阻|光束没有到达相机|no ladder frame carries signal")
-
-#: 异常文本里的 Santec 错误码 (「错误码: -10003」/「错误码 -10003」)。
-_SANTEC_CODE_RE = re.compile(r"错误码[:：]?\s*(-?\d+)")
-
-#: 「**探针自己**没装好」的特征 (不是设备被占, 是环境不对) —— 这类必须
-#: **立刻**报错退出, 绝不能当成「设备被占」去空等 (2026-10-21 空转 55 分钟)。
-PROBE_SETUP_ERROR_RES = (
-    re.compile(r"name 'gx' is not defined"),
-    re.compile(r"No module named ['\"]gxipy['\"]"),
-    re.compile(r"missing SDK"),
-    re.compile(r"ModuleNotFoundError"),
-    re.compile(r"ImportError"),
+#: **名字与调用形态保持不变** (``probe_devices`` / ``classify_device_unavailable``
+#: / ``wait_until_idle`` / ``WAITABLE_KINDS`` / ``DEVICE_UNAVAILABLE_INFO`` /
+#: 那些正则), 所以本文件之外的在制品脚本不用改也能继续工作。
+from ao_shaping.tools.kernels import device_mutex as _device_mutex
+from ao_shaping.tools.kernels.device_mutex import (
+    KIND_LIGHT_PATH_BLOCKED,
+    OWN_PIDS_ENV,
+    PROBE_CMD_ENV,
+    PROBE_IDLE,
+    PROBE_NOTE_PREFIX,
+    DeviceLock,
+    DeviceUnavailable,
+    classify_device_unavailable,
+    format_probe_line,
+    probe_devices,
+    resolve_probe_cmd,
 )
 
-
-@dataclass(frozen=True)
-class DeviceUnavailable:
-    """「设备不可用」的判定结果: 哪一类设备 + 为什么 + 该怎么办。"""
-
-    kind: str
-    """归类 (:data:`KIND_SLM_ABSENT` 等)。"""
-
-    code: int | None = None
-    """Santec 错误码 (相机侧没有码, 是 ``None``)。"""
-
-    detail: str = ""
-    """一句话说清根因 (给操作者看)。"""
-
-    remedy: str = ""
-    """该怎么处置。"""
-
-    reason_text: str = ""
-    """**判定理由原文** —— 命中判定的那一行 (从子进程输出里摘出来的)。
-
-    为什么留着原文: 「光路不通」这句话本身不说明**是哪一段**断了, 而操作者要
-    看的正是探针给出的那一句 (它带着三段光路的检查清单与实测数字)。"""
-
-    @property
-    def waitable(self) -> bool:
-        """这一类能不能靠「等」解决 (别人在用 vs 设备没插上)。"""
-        return self.kind in WAITABLE_KINDS
-
-    def headline(self) -> str:
-        """根因的一句话 (带错误码)。"""
-        code = f" (错误码 {self.code})" if self.code is not None else ""
-        return f"{self.detail}{code}"
-
-    def advice(self) -> str:
-        """处置建议。"""
-        return self.remedy
-
-
-#: 「判定理由原文」最多留多少字符 (够看清一句报错, 又不至于把整页日志塞进索引)。
-REASON_TEXT_CHARS = 400
+# --- 兼容再导出: 名字不变, 实现只有一份 --------------------------------
+KIND_SLM_ABSENT = _device_mutex.KIND_SLM_ABSENT
+KIND_SLM_BUSY = _device_mutex.KIND_SLM_BUSY
+KIND_CAMERA_BUSY = _device_mutex.KIND_CAMERA_BUSY
+KIND_CAMERA_ABSENT = _device_mutex.KIND_CAMERA_ABSENT
+#: **SDK 陈旧状态** (2026-10-22 新增): SDK 报「已被打开」, 但**设备锁是空的**
+#: ⇒ 没有任何活着的持有者 ⇒ 排队等不来, 处置是**给 SLM 控制器物理断电重置**。
+KIND_SDK_STALE = _device_mutex.KIND_SDK_STALE
+#: 探针自己没装好 —— **立刻**报错, 不能当成「设备被占」空等。
+KIND_PROBE_SETUP = _device_mutex.KIND_PROBE_SETUP
+WAITABLE_KINDS = _device_mutex.WAITABLE_KINDS
+DEVICE_UNAVAILABLE_INFO = _device_mutex.DEVICE_UNAVAILABLE_INFO
+LIGHT_PATH_CHECKLIST = _device_mutex.LIGHT_PATH_CHECKLIST
+PROBE_SETUP_ERROR_RES = _device_mutex.PROBE_SETUP_ERROR_RES
+REASON_TEXT_CHARS = _device_mutex.REASON_TEXT_CHARS
+_SLM_ABSENT_RE = _device_mutex._SLM_ABSENT_RE
+_SLM_BUSY_RE = _device_mutex._SLM_BUSY_RE
+_CAMERA_BUSY_RE = _device_mutex._CAMERA_BUSY_RE
+_CAMERA_ABSENT_RE = _device_mutex._CAMERA_ABSENT_RE
+_LIGHT_PATH_BLOCKED_RE = _device_mutex._LIGHT_PATH_BLOCKED_RE
+PROBE_LINE_PREFIX = _device_mutex.PROBE_LINE_PREFIX
+PROBE_UNAVAILABLE = _device_mutex.PROBE_UNAVAILABLE
+PROBE_BROKEN = _device_mutex.PROBE_BROKEN
+PROBE_POLL_S = _device_mutex.PROBE_POLL_S
+PROBE_TIMEOUT_S = _device_mutex.PROBE_TIMEOUT_S
+WAIT_REPORT_INTERVAL_S = _device_mutex.WAIT_REPORT_INTERVAL_S
+OCCUPIER_KEYWORDS = _device_mutex.OCCUPIER_KEYWORDS
+NON_DEVICE_PATTERNS = _device_mutex.NON_DEVICE_PATTERNS
+ProbeResult = _device_mutex.ProbeResult
+ProcessInfo = _device_mutex.ProcessInfo
+WaitVerdict = _device_mutex.WaitVerdict
+LockHolder = _device_mutex.LockHolder
+classify_probe_setup_error = _device_mutex.classify_probe_setup_error
+escalate_stale_state = _device_mutex.escalate_stale_state
+format_probe_line = _device_mutex.format_probe_line
+parse_probe_output = _device_mutex.parse_probe_output
+parse_probe_cmd = _device_mutex.parse_probe_cmd
+run_device_probe = _device_mutex.run_device_probe
+default_probe_cmd = _device_mutex.default_probe_cmd
+query_windows_python_processes = _device_mutex.query_windows_python_processes
+own_process_ids = _device_mutex.own_process_ids
+select_device_using_processes = _device_mutex.select_device_using_processes
+find_device_using_processes = _device_mutex.find_device_using_processes
+format_occupier_lines = _device_mutex.format_occupier_lines
+default_lock_path = _device_mutex.default_lock_path
 
 
 @dataclass(frozen=True)
@@ -967,179 +944,68 @@ def wait_until_idle(
     own_paths: Sequence[str | Path] = (),
     process_source: Callable[[], Sequence[ProcessInfo]] | None = None,
     report_interval_s: float = WAIT_REPORT_INTERVAL_S,
+    lock: DeviceLock | None = None,
 ) -> tuple[int, str]:
-    """开跑前等设备空出来 —— **公平**地等。
+    """开跑前等设备空出来 —— **兼容转发**给权威实现。
 
-    🔴 **顺序很重要: 先看进程, 再探针** (2026-10-22 09:03-09:48 实测)
+    🔴 **顺序 (权威实现里)**: 先看**锁** ⇒ 再看**进程** ⇒ 最后才**探针**:
 
-    「探针能打开」**不等于**「这台机器现在没人用设备」。一个多 stage 的 campaign
-    在 stage 之间会短暂放开句柄 (它的进程还活着, 但没持有句柄)。若此时我方立刻
-    抢下句柄开跑 (27 组约 2 h, 全程独占), 对方的**下一个 stage 就会拿到 -10003
-    而失败**。反过来, 我方**探针本身要开一次 SLM**, 也会让对方的下一次 open
-    撞上 -10003 ⇒ **探针本身也是干扰源**。
+    * 锁被**自己这棵进程树**持有 ⇒ **不是冲突**, 立刻放行 (假阳性的正身);
+    * 锁被**别人**持有 ⇒ 等, 并报出持有者的 pid 与命令行;
+    * 没人在用互斥锁的老脚本靠**进程扫描**兜底 ⇒ 有别的会话的硬件进程就**不探针**
+      (探针本身要开一次 SLM, 是干扰源);
+    * 探针报被占, 而这是**真探针**、**锁空**、**没有别的硬件进程** ⇒ 判为
+      **SDK 陈旧状态** ⇒ 立刻停并提示「给 SLM 控制器物理断电重置」(排队等不来)。
 
-    所以每轮:
-
-    1. **先**查「有没有别的会话的硬件进程」。**有** ⇒ **不探针** (一次都不碰
-       设备), 直接等下一轮, 并把对方是谁打印出来;
-    2. **没有** ⇒ 才探针。探针成功 ⇒ 设备大概率归我们了, 但**再扫一次**进程
-       (探针开锁的那一瞬间可能刚好有别的会话开始) —— 仍没人 ⇒ 开始采集;
-    3. 探针报被占 ⇒ 说明有我们没认出来的占用者, 继续等。
-
-    只有**可以等**的那两类 (被别的进程占着) 才会等; 设备没插上 / 探针自己坏了
-    立刻报错退出 —— 等是等不来的。
+    ⚠️ 本函数保留旧的 ``(退出码, 说明)`` 形态, 并在返回前**放掉**它自己拿到的
+    锁 (它只做**仲裁**, 不替调用方一直占着设备)。要用结构化结论、或在整段采集
+    期间**持锁**, 直接用 :func:`ao_shaping.tools.kernels.device_mutex.wait_until_idle`
+    (返回 :class:`WaitVerdict`, 其中的 ``lock`` 已经拿在手里, 由调用方 release)。
 
     Args:
         seconds: 最长等多久 (s)。
-        probe_cmd: 探针命令; ``None`` = 用内置探针。
+        probe_cmd: 探针命令; ``None`` = 用内置探针 (真问过 SDK)。
         poll_s: 重试间隔 (s)。
         slm_number: SLM 编号。
         cam_id: 相机编号。
         cam_type: 相机类型。
         exposure_ms: 曝光 (ms)。
         keywords: 占用者进程的命令行关键字。
-        own_pids: 额外算作「我们自己的」的 pid (同一条线上的另一个脚本)。
-        own_paths: 我们自己的脚本路径 (命令行里出现它们的不算占用者)。
-        process_source: 进程列表的来源 (可注入 ⇒ 测试不用真查 CIM);
-            ``None`` = 用 :func:`query_windows_python_processes`。
-        report_interval_s: 汇报间隔 (s) —— 状态变了就立刻报, 否则最多每分钟一行。
+        own_pids: 额外算作「我们自己的」的 pid。
+        own_paths: 我们自己的脚本路径。
+        process_source: 进程列表的来源 (可注入 ⇒ 测试不用真查 CIM)。
+        report_interval_s: 汇报间隔 (s)。
+        lock: 设备锁; ``None`` = 默认路径上那把 (返回前会放掉)。
 
     Returns:
         ``(退出码, 中文说明)``; 退出码 0 = 设备可用, 可以开跑。
     """
-    deadline = time.monotonic() + max(0.0, float(seconds))
-    started = time.monotonic()
-    paths = list(own_paths) or [Path(__file__).resolve()]
-    attempt = 0
-    last_report_at = float("-inf")
-    last_state = ""
-    last_reason = ""
-    while True:
-        attempt += 1
-        others = _other_hardware_processes(
-            process_source,
-            keywords=keywords,
-            own_pids=own_pids,
-            own_paths=paths,
-        )
-        if others:
-            # 🔴 有别的会话在用 ⇒ **不探针** (探针要开一次 SLM, 会打断对方)。
-            state = "others_using"
-            last_reason = "别的会话在用设备"
-            detail_lines = format_occupier_lines(others)
-        else:
-            result = run_device_probe(
-                probe_cmd,
-                slm_number=slm_number,
-                cam_id=cam_id,
-                cam_type=cam_type,
-                exposure_ms=exposure_ms,
-            )
-            if result.status == PROBE_IDLE:
-                # 探针开锁的那一瞬间可能刚好有别的会话开始 ⇒ 再扫一次。
-                others_after = _other_hardware_processes(
-                    process_source,
-                    keywords=keywords,
-                    own_pids=own_pids,
-                    own_paths=paths,
-                )
-                if others_after:
-                    state = "idle_but_others"
-                    last_reason = "设备可用, 但还有别的硬件进程 (抢早了)"
-                    detail_lines = format_occupier_lines(others_after)
-                else:
-                    print(
-                        "[等待] 设备可用, 且无其它硬件进程 ⇒ 开始采集",
-                        flush=True,
-                    )
-                    return 0, ""
-            elif result.status == PROBE_BROKEN:
-                print(
-                    f"[等待] 探针自己坏了, 无法判断设备是否被占: {result.message}",
-                    file=sys.stderr,
-                )
-                return 2, result.message
-            else:
-                # 设备不可用: 分成「能等」与「等不来」两类。
-                kind = result.kind or KIND_SLM_BUSY
-                info = DEVICE_UNAVAILABLE_INFO.get(kind)
-                verdict = DeviceUnavailable(
-                    kind=kind,
-                    code=result.code,
-                    detail=result.message or (info[0] if info else "设备不可用"),
-                    remedy=info[1] if info else "",
-                )
-                if not verdict.waitable:
-                    print(
-                        f"[等待] 设备不可用且等不来: {verdict.headline()} —— "
-                        f"{verdict.advice()}",
-                        file=sys.stderr,
-                    )
-                    return 1, verdict.headline()
-                state = "busy_unidentified"
-                last_reason = f"设备被占但没认出占用者 ({verdict.headline()})"
-                detail_lines = []
-
-        remaining = deadline - time.monotonic()
-        waited = time.monotonic() - started
-        if remaining <= 0:
-            hits = _other_hardware_processes(
-                process_source,
-                keywords=keywords,
-                own_pids=own_pids,
-                own_paths=paths,
-            )
-            print(
-                f"[等待] 等了 {float(seconds):.0f}s 仍拿不到设备: {last_reason}",
-                file=sys.stderr,
-            )
-            if hits:
-                print("占用它的进程 (命令行):", file=sys.stderr)
-                for line in format_occupier_lines(hits):
-                    print(line, file=sys.stderr)
-            else:
-                print(
-                    "  (没找到可疑的占用进程 —— 用任务管理器看看是不是有残留的 "
-                    "python 进程还握着设备)",
-                    file=sys.stderr,
-                )
-            return 1, last_reason
-        sleep_s = min(float(poll_s), remaining)
-        now = time.monotonic()
-        if state != last_state or (now - last_report_at) >= float(report_interval_s):
-            print(
-                f"[等待] {last_reason}; 已等 {waited:.0f}s, {sleep_s:.0f}s 后再看"
-                f" (第 {attempt} 轮)",
-                flush=True,
-            )
-            for line in detail_lines:
-                print(line, flush=True)
-            last_report_at = now
-            last_state = state
-        time.sleep(sleep_s)
-
-
-def _other_hardware_processes(
-    process_source: Callable[[], Sequence[ProcessInfo]] | None,
-    *,
-    keywords: Sequence[str],
-    own_pids: Sequence[int],
-    own_paths: Sequence[str | Path],
-) -> list[ProcessInfo]:
-    """当前**别的会话**在用设备的进程 (自己这条线上的已排除)。
-
-    非 Windows (没有 CIM) ⇒ 空列表 ⇒ 退化成「只靠探针」, 不崩。
-    """
-    if process_source is None:
-        return find_device_using_processes(
-            keywords, exclude_pids=own_pids, own_paths=own_paths
-        )
-    return select_device_using_processes(
-        list(process_source()),
+    verdict = _device_mutex.wait_until_idle(
+        seconds,
+        lock=lock,
+        probe_cmd=probe_cmd,
+        poll_s=poll_s,
+        slm_number=slm_number,
+        cam_id=cam_id,
+        cam_type=cam_type,
+        exposure_ms=exposure_ms,
         keywords=keywords,
-        exclude_pids=own_pids,
+        own_pids=own_pids,
         own_paths=own_paths,
+        # 🔴 进程来源必须在本模块的全局名上解析 (而不是直接让权威模块去查 CIM):
+        # 单测用 ``monkeypatch.setattr(driver, "query_windows_python_processes", ...)``
+        # 把一台「没人用设备」的机器注入进来, 那条 patch 只有经过这里才生效。
+        process_source=(
+            process_source
+            if process_source is not None
+            else (lambda: query_windows_python_processes())
+        ),
+        report_interval_s=report_interval_s,
     )
+    if lock is None and verdict.lock is not None:
+        # 我们自己造了锁 ⇒ 只当仲裁用, 别把设备一直占着 (调用方还没准备好开跑)。
+        verdict.lock.release()
+    return verdict.exit_code, verdict.reason
 
 
 # ---------------------------------------------------------------------------
