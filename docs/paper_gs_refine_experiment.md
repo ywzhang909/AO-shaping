@@ -115,7 +115,7 @@ MIL 的正向模型是一条闭式可微物理链：Noll 序 Zernike 系数向�
 
 正向模型前向计算链的结构如图 3 所示。整条链只有一个可训练对象：66 项 Zernike 系数向量 c。像差场由 c 与 Zernike 基函数线性合成（einsum 张量缩并），与 Step B 的逐像素全频随机相位 φ 相加后乘圆形孔径掩模，乘入射高斯幅度 A 得瞳面场 U，中心补零到 512×512 后做解析傅里叶变换，得到模型远场 I_model。同一前向输出由两条支路共用：Step A 支路把 I_model 与实测 CCD 帧 I_meas 按实测峰值归一化后求强度均方误差，经 Adam 更新 c（每轮 80 步），φ 本步冻结；Step B 支路把 I_model 与目标形状 T 组成均匀度与环围能量加权和，经 Adam 更新 φ（每轮 600 步），c 本步冻结。两条支路共用同一条解析前向链，梯度均经 FFT 与相位合成反传，无离散化近似。
 
-![MIL 正向模型前向计算链结构](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_fwd_model_structure.png)
+![MIL 正向模型前向计算链结构](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_fwd_model_structure.png)
 
 图 3　MIL 正向模型前向计算链：同一解析傅里叶前向分别供 Step A（更新 66 项 Zernike 系数，φ 冻结）与 Step B（更新逐像素全频随机相位，系数冻结）两条支路，66 项系数加 1 个非负增益与 1 个加性背景项为全部可拟合参数
 
@@ -142,7 +142,7 @@ MIL 的正向模型是一条闭式可微物理链：Noll 序 Zernike 系数向�
 
 MIL 的完整处理链如图 4：先做一次性几何标定（n 张标定探针验证正向模型与实验系统的几何一致性，相关度低于阈值即中止），再测平场基线，然后进入 Step A 拟合与 Step B 合成的交替循环，每轮末尾做一次实测验收。
 
-![MIL 相位-CCD 处理链](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_phase_ccd_chain.png)
+![MIL 相位-CCD 处理链](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_phase_ccd_chain.png)
 
 图 4　MIL 相位-CCD 处理链：SLM 加载相位，2f 光路成像到 CCD，实测帧与正向模型预测对比后驱动 Step A/Step B 交替
 
@@ -162,15 +162,15 @@ MIL 的完整处理链如图 4：先做一次性几何标定（n 张标定探针
 
 该流程并非首次上线运行即成立。10 月 10 日的预试验（曝光 1 ms，12 次 GS 迭代、远场 padding 3、12×12 网格、24 轮细化）已给出同构结果：平场 0.5720、GS 0.7509、细化第 19 轮最佳 0.7635（PIB 0.9270、CV 0.6666）。图 5 与图 6 分别为该预试验 GS 一级与细化后的最佳实测远场，图 7 为其分数曲线与首末图像。预试验中细化增益（+0.0126）大于 10 月 12 日主运行，但当时尚无交错重放协议，该增益未经配对验证；10 月 12 日在更严格的协议下重做，增益绝对值缩小但可复现性确立。
 
-![10-10 预试验 GS 一级最佳实测远场](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_best_far_field.png)
+![10-10 预试验 GS 一级最佳实测远场](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_best_far_field.png)
 
 图 5　10 月 10 日预试验：GS 一级最佳实测远场（composite 0.7509）
 
-![10-10 预试验 24 轮细化后最佳实测远场](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_refine24_best_far_field.png)
+![10-10 预试验 24 轮细化后最佳实测远场](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_refine24_best_far_field.png)
 
 图 6　10 月 10 日预试验：24 轮细化后最佳实测远场（第 19 轮，composite 0.7635，仍有热点与空洞）
 
-![10-10 预试验分数曲线与首末图像](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_debug_summary.png)
+![10-10 预试验分数曲线与首末图像](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_debug_summary.png)
 
 图 7　10 月 10 日预试验：分数曲线与首末图像（GS padding 3 + 24 轮细化）
 
@@ -248,7 +248,7 @@ MIL 的完整处理链如图 4：先做一次性几何标定（n 张标定探针
 
 上述验证集是固定种子偏移而非交叉验证。为量化换用验证集时验证集分数会移动多少，在仿真后端做了 K 折配对对比：5 折、16 探针池、折划分种子 20261014，每折两个变体共享同一随机种子基线（base seed）与完全相同的训练探针，唯一差别是验证集（图 8）。固定划分为 0.4033 ± 0.0473，轮换划分为 0.4106 ± 0.0371，差值均值 0.0074、折间标准差 0.0565、Cohen's d_z 0.1308，sign-flip（符号翻转）精确置换检验 p 值为 0.9375，未达到最小可达 p 值 0.0625（2 的负 5 次方分之一）。0.4033 这一个数不能当作模型属性引用：它只是这一个验证集的抽样结果，同协议下换一个验证集可以看到 0.057 量级的移动。这也是第 5.2 节与第 5.3 节验证集协议的依据：候选模型必须在冻结的验证集上比较，最终验收必须改用未参与选择的新会话。
 
-![MIL 验证集 K 折交叉验证](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/model_in_loop_cv.png)
+![MIL 验证集 K 折交叉验证](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop_cv/figures/model_in_loop_cv.png)
 
 图 8　MIL 验证集 K 折交叉验证：验证集分数随验证集的移动（差值均值 0.0074，折间标准差 0.0565，均值与标准差之比 0.13）
 
@@ -256,7 +256,7 @@ MIL 的完整处理链如图 4：先做一次性几何标定（n 张标定探针
 
 2026-10-13 在固定 0.5 rad RMS Zernike 扰动下，长方形、三角形与五角星三个形状都完成了 SLM 到 CCD 的闭环采集（图 9），实测图像仍明显呈散斑状。为回答训练探针预算问题，做了同曝光交错重放（平场、A、B、平场、B、A、平场），A 为 4 探针 25 步、B 为 2 探针 10 步：无扰动组 A 得分 0.72927（CV 1.00688）、B 为 0.71746（CV 1.08534）；扰动组 A 为 0.71940（CV 0.89790、EE 0.84773）、B 为 0.71538（CV 0.97372、EE 0.85453）。4 探针的优势仅 0.004 至 0.012，且同会话内平场自动曝光从约 0.065 ms 变为 0.121 ms、平场分数也升高约 0.014，A/B 差值不能当作无漂移的因果估计；当前证据不支持存在通用的最优探针预算。8 张随机强探针的几何重标定两次低于 0.5 门槛（第二次失败证据保存在 `data/debug/slm_model_in_loop/20261013_210403/preflight`），说明该配置下的几何重标定缺乏足够的可辨识信号，这并不证明真实几何参数一定发生了变化。
 
-![固定扰动下的多形状闭环对比](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_multitarget_shape_experiment.png)
+![固定扰动下的多形状闭环对比](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_multitarget_shape_experiment.png)
 
 图 9　固定 0.5 rad Zernike 扰动下的实验闭环多形状对比（长方形、三角形、五角星；实测远场仍为散斑，未形成均匀实心形状）
 
@@ -264,7 +264,7 @@ MIL 的完整处理链如图 4：先做一次性几何标定（n 张标定探针
 
 三组证据界定了拟合预算。其一是短 Step A 不改善全频随机相位泛化：种子 85 的 5 轮中，10 步拟合相对零系数预测的全频随机相位相关性全面更低（无扰动方形 0.7874 至 0.7473、扰动方形 0.8294 至 0.7601、长方形 0.8318 至 0.7664、三角形 0.8463 至 0.7846、五角星 0.8316 至 0.7722）；新种子 86 的 10 步候选总体相关性 0.8307 至 0.8417 虽有所改善，全频随机相位却从 0.8224 降到 0.7767，两轮实测 CV/EE 呈权衡（零步 0.685/0.694，10 步 0.809/0.747）。其二是 400 步长方形 Step B 的模型内损失单调下降，实测 CV/EE 反而退化：模型内损失不能用作验收判据，验收只以轮末实测指标为准，这也是 trust region 与逐轮验收双守卫存在的直接原因。其三是逐像素全频随机相位残差是系统性偏大的误差成分：在 4 个真实运行保存的 6 张验证集帧上，NRMSE 均值为平滑 0.490 至 0.518、Zernike 0.458 至 0.485、全频随机相位 0.677 至 0.800；峰值归一残差图在同条件两次运行间的相关性达 0.914 至 0.935，说明全频随机相位的误差包含可重复的空间结构，候选物理机制为有限相位带宽、SLM 串扰与 CCD 采样，残差相关性本身不能区分这些机制。
 
-![实验闭环分数演化](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_score_progression.png)
+![实验闭环分数演化](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_score_progression.png)
 
 图 10　实验闭环分数演化（模型内损失与实测分数可背离，含 400 步过拟合与短拟合对照）
 
@@ -307,7 +307,7 @@ model-in-loop 的正向模型是双路径设计：除闭式 Zernike 物理模型
 
 曝光敏感性：同一成形相位的 0.20、0.30、0.40 ms 曝光下 CV/EE 约为 1.194/0.891、1.149/0.874、1.127/0.865，重复帧稳定但不满足逐像素线性，故只使用同相位同曝光的配对比较。本节 24 张验证集帧与其训练探针的曝光回读均为 0.400 ms，因此 U-Net 与物理模型的同帧巨大预测差距不能归因于混合曝光这一因素。
 
-![物理模型与 U-Net 同帧预测对比](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_unet_prediction_montage.png)
+![物理模型与 U-Net 同帧预测对比](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_unet_prediction_montage.png)
 
 图 11　24 张同帧验证集上的物理模型与 U-Net 预测对比（36 乘 36 CCD 网格中心；U-Net 预测近似均匀低信息、相关性近零，物理模型捕捉散斑结构）
 
@@ -341,7 +341,7 @@ PSF 宽度候选取 0、0.5、1、1.5、2 模型像素，四轮分别选出 sigm
 | 逐像素全频随机相位 | 0.8081/0.5973 | 0.8118/0.6282 |
 | 全部 24 帧 | 0.8392/0.5258 | 0.8663/0.4927 |
 
-![CCD 点扩散函数宽度候选对验证集相关性的影响](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_psf_trial_comparison.png)
+![CCD 点扩散函数宽度候选对验证集相关性的影响](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_psf_trial_comparison.png)
 
 图 12　CCD 点扩散函数宽度候选对验证集相关性与形状 NRMSE 的影响（24 帧配对；sigma 为 1.5、1.0、1.5、1.5 对四轮训练探针最优）
 
@@ -356,7 +356,7 @@ PSF 宽度候选取 0、0.5、1、1.5、2 模型像素，四轮分别选出 sigm
 | 逐像素全频随机相位 | 0.8081/0.5973 | 0.6387/0.7669 |
 | 全部 24 帧 | 0.8392/0.5258 | 0.7836/0.5813 |
 
-![相位平滑宽度候选对验证集相关性的影响](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_phase_bandwidth_comparison.png)
+![相位平滑宽度候选对验证集相关性的影响](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_phase_bandwidth_comparison.png)
 
 图 13　相位平滑宽度候选对验证集相关性与形状 NRMSE 的影响（24 帧配对；宽度 1、1、1、0.5 对四轮训练探针最优，但全频随机相位跨探针泛化失败）
 
@@ -408,11 +408,11 @@ MIL 的模型侧成绩与整形侧成绩是分离的。模型侧，约 70 参数
 
 FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩阵：64×64 原生方板、网格 K=512、30 闭环步、峰值光子数 50000、读出噪声 2 e−，并注入标定噪声（波数偏差 2%、中心偏移 2 像素、旋转 0.3°），场景为 3 种目标形状 × 3 种像差 × 2 档湍流速度共 12 个，全部成功。方形目标的最终均匀度（CV）为 0.0106–0.0519，高斯目标接近 0，环围能量 1.77×10⁶–5.08×10⁶ counts（图 14、图 15）。
 
-![FourierGSNet 仿真矩阵方形场景指标曲线](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/fouriergsnet_sim/figures/square__none__off_metrics.png)
+![FourierGSNet 仿真矩阵方形场景指标曲线](https://github.com/ywzhang909/AO-shaping/raw/master/report/fouriergsnet_sim/figures/square__none__off_metrics.png)
 
 图 14　FourierGSNet 仿真矩阵（方形目标、无像差、无湍流）：闭环指标演化曲线
 
-![FourierGSNet 仿真矩阵方形场景远场帧](https://github.com/ywzhang909/AO-shaping/raw/banckend/report/fouriergsnet_sim/figures/square__none__off_frames.png)
+![FourierGSNet 仿真矩阵方形场景远场帧](https://github.com/ywzhang909/AO-shaping/raw/master/report/fouriergsnet_sim/figures/square__none__off_frames.png)
 
 图 15　同场景闭环过程中的远场帧序列
 
@@ -583,7 +583,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 ## 附录 B 素材与代码链接（GitHub）
 
-本文全部代码、报告与图素材公开托管于 [ywzhang909/AO-shaping](https://github.com/ywzhang909/AO-shaping)（分支 `banckend`，commit `e7942568`，2026-10-16 核对）。正文图 3 至图 15 的图片链接均采用该仓库的 raw 地址，附录 A 所列报告、脚本与数据文件均可在仓库内按路径访问。
+本文全部代码、报告与图素材公开托管于 [ywzhang909/AO-shaping](https://github.com/ywzhang909/AO-shaping)（分支 `master`，commit `e7942568`，2026-10-16 核对；2026-10-23 起镜像分支 `banckend` 已删除，图片链接随之改指 `master`）。正文图 3 至图 15 的图片链接均采用该仓库的 raw 地址，附录 A 所列报告、脚本与数据文件均可在仓库内按路径访问。
 
 | 素材 | GitHub 路径 |
 |---|---|
@@ -606,19 +606,19 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 | 图号 | 图题（简） | raw 链接 |
 |---|---|---|
-| 图 3 | MIL 正向模型前向计算链 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_fwd_model_structure.png |
-| 图 4 | MIL 相位-CCD 处理链 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_phase_ccd_chain.png |
-| 图 5 | 10-10 预试验 GS 一级最佳远场 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_best_far_field.png |
-| 图 6 | 预试验 24 轮细化后最佳远场 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_refine24_best_far_field.png |
-| 图 7 | 预试验分数曲线与首末图像 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/gs_pad3_debug_summary.png |
-| 图 8 | MIL 验证集 K 折交叉验证 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/figures/model_in_loop_cv.png |
-| 图 9 | 固定扰动下多形状闭环对比 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_multitarget_shape_experiment.png |
-| 图 10 | 实验闭环分数演化 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_score_progression.png |
-| 图 11 | 物理模型与 U-Net 同帧预测对比 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_unet_prediction_montage.png |
-| 图 12 | CCD 点扩散宽度候选影响 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_psf_trial_comparison.png |
-| 图 13 | 相位平滑宽度候选影响 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/shape_trials/images/mil_phase_bandwidth_comparison.png |
-| 图 14 | FourierGSNet 仿真矩阵指标曲线 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/fouriergsnet_sim/figures/square__none__off_metrics.png |
-| 图 15 | FourierGSNet 仿真矩阵远场帧 | https://github.com/ywzhang909/AO-shaping/raw/banckend/report/fouriergsnet_sim/figures/square__none__off_frames.png |
+| 图 3 | MIL 正向模型前向计算链 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_fwd_model_structure.png |
+| 图 4 | MIL 相位-CCD 处理链 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_phase_ccd_chain.png |
+| 图 5 | 10-10 预试验 GS 一级最佳远场 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_best_far_field.png |
+| 图 6 | 预试验 24 轮细化后最佳远场 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_refine24_best_far_field.png |
+| 图 7 | 预试验分数曲线与首末图像 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/gs_refine/figures/gs_pad3_debug_summary.png |
+| 图 8 | MIL 验证集 K 折交叉验证 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop_cv/figures/model_in_loop_cv.png |
+| 图 9 | 固定扰动下多形状闭环对比 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_multitarget_shape_experiment.png |
+| 图 10 | 实验闭环分数演化 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_score_progression.png |
+| 图 11 | 物理模型与 U-Net 同帧预测对比 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_unet_prediction_montage.png |
+| 图 12 | CCD 点扩散宽度候选影响 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_psf_trial_comparison.png |
+| 图 13 | 相位平滑宽度候选影响 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/model_in_loop/images/mil_phase_bandwidth_comparison.png |
+| 图 14 | FourierGSNet 仿真矩阵指标曲线 | https://github.com/ywzhang909/AO-shaping/raw/master/report/fouriergsnet_sim/figures/square__none__off_metrics.png |
+| 图 15 | FourierGSNet 仿真矩阵远场帧 | https://github.com/ywzhang909/AO-shaping/raw/master/report/fouriergsnet_sim/figures/square__none__off_frames.png |
 
 ## 附录 A 数据与可复现性
 
