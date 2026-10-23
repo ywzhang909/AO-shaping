@@ -97,7 +97,7 @@ def main() -> None:
                    exposure_bounds_ms=[float(np.nanmin(exposures)), float(np.nanmax(exposures))]
                    if exposures else None,
                    backend=probe.get("backend")),
-        settings=dict(center_x=None, center_y=None,
+        settings=dict(center_x=960.0, center_y=600.0,
                       radius=args.radius_px, wavelength=args.wavelength_nm,
                       slm_number=args.slm_number, cam_type=args.cam_type, cam_id=args.cam_id),
         probe=probe,
@@ -128,5 +128,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
