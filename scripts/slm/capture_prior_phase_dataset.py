@@ -104,6 +104,8 @@ from scipy.ndimage import zoom
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.tools.kernels import device_mutex
+from ao_shaping.tools.kernels.device_mutex import DeviceLock
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 
 #: The baseline capture whose ``probe_grid`` is reused verbatim.  Loading it by

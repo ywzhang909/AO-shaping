@@ -2097,8 +2097,8 @@ def build_initial_phase(
     logger.info(
         "[P4] GS 初值: {} 次迭代, 误差 {} → {} (converged={})",
         info["gs_iters"],
-        _fmt(info["gs_first_error"]),
-        _fmt(info["gs_last_error"]),
+        fmt_general(info["gs_first_error"]),
+        fmt_general(info["gs_last_error"]),
         info["gs_converged"],
     )
     return phase, info

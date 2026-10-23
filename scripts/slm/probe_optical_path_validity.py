@@ -68,6 +68,8 @@ from ao_shaping.drivers.ccd.common import (
     get_camera_exposure_range,
     set_camera_exposure_ms,
 )
+from ao_shaping.tools.kernels import device_mutex
+from ao_shaping.tools.kernels.device_mutex import DeviceLock, WAITABLE_KINDS
 from ao_shaping.utils.image.beam_metrics import (
     beam_radius_second_moment,
     prepare_frame,

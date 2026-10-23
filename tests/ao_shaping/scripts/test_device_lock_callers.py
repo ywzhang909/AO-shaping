@@ -324,11 +324,11 @@ class TestOpticalPathProbeLock:
     def test_main_releases_the_lock_when_the_probe_body_raises(self, monkeypatch, tmp_path):
         lock = DeviceLock(tmp_path / "bench.lock")
 
-        def _acquire(args):  # noqa: ARG001
+        def _acquire(args):
             assert lock.acquire(timeout=0.0)
             return lock
 
-        def _boom(args):  # noqa: ARG001
+        def _boom(args):
             assert lock.is_locked(), "采集主体跑的时候锁必须还在手里"
             raise RuntimeError("probe body failed")
 
@@ -386,7 +386,7 @@ class TestCampaignLock:
         )
         seen: dict = {}
 
-        def _fake_campaign(args, plan, session_dir, manifest):  # noqa: ARG001
+        def _fake_campaign(args, plan, session_dir, manifest):
             seen["held"] = fake_lock.is_locked()
             return 0
 

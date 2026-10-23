@@ -98,7 +98,7 @@ def _spawn_holder(lock_path: Path, seconds: float = 60.0):
         stop=str(stop),
         seconds=float(seconds),
     )
-    proc = subprocess.Popen(  # noqa: S603 - 固定命令, 只在测试里用
+    proc = subprocess.Popen(  # 固定命令, 只在测试里用
         [sys.executable, "-c", code],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -123,7 +123,7 @@ def _kill_tree(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
     if os.name == "nt":
-        subprocess.run(  # noqa: S603,S607 - 固定命令
+        subprocess.run(  # 固定命令
             ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
             capture_output=True,
             timeout=30,
@@ -513,9 +513,9 @@ class _ExclusiveDevice:
 def _install_fake_drivers(monkeypatch, slm, cam) -> None:
     """把假驱动塞进 ``sys.modules`` (探针在函数体内 import, 所以这里能接管)。"""
     santec = ModuleType("ao_shaping.drivers.slm.santec")
-    santec.Santec = lambda **kwargs: slm  # noqa: ARG005 - 形状与真驱动一致
+    santec.Santec = lambda **kwargs: slm  # 形状与真驱动一致
     ccd_common = ModuleType("ao_shaping.drivers.ccd.common")
-    ccd_common.create_camera = lambda *a, **kw: cam  # noqa: ARG005
+    ccd_common.create_camera = lambda *a, **kw: cam
     for name, module in (
         ("ao_shaping.drivers", ModuleType("ao_shaping.drivers")),
         ("ao_shaping.drivers.slm", ModuleType("ao_shaping.drivers.slm")),

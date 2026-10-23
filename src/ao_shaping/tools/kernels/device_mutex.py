@@ -470,7 +470,7 @@ def _posix_process_table() -> dict[int, tuple[int, str]]:
                 continue
         return table
     try:
-        completed = subprocess.run(  # noqa: S603 - 固定命令
+        completed = subprocess.run(  # 固定命令
             ["ps", "-eo", "pid=,ppid=,comm="],
             capture_output=True,
             text=True,
@@ -679,7 +679,7 @@ def query_windows_python_processes() -> list[ProcessInfo]:
         "\"$($_.ProcessId)`t$($_.ParentProcessId)`t$($_.CommandLine)\" }"
     )
     try:
-        completed = subprocess.run(  # noqa: S603 - 固定命令, 不带用户输入
+        completed = subprocess.run(  # 固定命令, 不带用户输入
             ["powershell", "-NoProfile", "-NonInteractive", "-Command", command],
             capture_output=True,
             text=True,
@@ -1035,7 +1035,7 @@ def probe_devices(
         finally:
             with contextlib.suppress(Exception):
                 slm.close()
-    except Exception as exc:  # noqa: BLE001 - 探针要把任何异常都翻译成结论
+    except Exception as exc:  # 探针要把任何异常都翻译成结论
         return _probe_failure(f"{type(exc).__name__}: {exc}")
     # -- 相机 --------------------------------------------------------------
     try:
@@ -1049,7 +1049,7 @@ def probe_devices(
         finally:
             with contextlib.suppress(Exception):
                 cam.close()
-    except Exception as exc:  # noqa: BLE001 - 同上
+    except Exception as exc:  # 同上
         return _probe_failure(f"{type(exc).__name__}: {exc}")
     return ProbeResult(status=PROBE_IDLE, source=PROBE_SOURCE_SDK)
 
@@ -1169,7 +1169,7 @@ def run_device_probe(
         else default_probe_cmd(slm_number, cam_id, cam_type, exposure_ms)
     )
     try:
-        completed = subprocess.run(  # noqa: S603 - 命令来自调用者/环境, 故意如此
+        completed = subprocess.run(  # 命令来自调用者/环境, 故意如此
             list(cmd),
             cwd=str(ROOT),
             env=build_probe_env(),

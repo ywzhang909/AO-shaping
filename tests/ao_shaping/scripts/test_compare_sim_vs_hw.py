@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from scripts.slm.compare_sim_vs_hw import (  # noqa: E402
+from scripts.slm.compare_sim_vs_hw import (
     PROBE_METRICS,
     SimConfig,
     _parse_args,

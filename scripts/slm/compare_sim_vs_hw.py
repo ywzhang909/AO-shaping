@@ -74,7 +74,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "src"))
 
-import numpy as np  # noqa: E402
+import numpy as np
 
 # ---------------------------------------------------------------------------
 # 默认路径与口径常量
@@ -656,7 +656,7 @@ def far_field_scale(padding: int = SIM_FAR_FIELD_PADDING) -> tuple[float, float]
 
         system = SimPibSystem(far_field_padding=int(padding))
         return system.camera_px_per_model_px
-    except Exception:  # noqa: BLE001 - 孪生 API 漂移不该让整张表崩掉
+    except Exception:  # 孪生 API 漂移不该让整张表崩掉
         return None
 
 

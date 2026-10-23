@@ -75,6 +75,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ao_shaping.tools.kernels import device_mutex
+from ao_shaping.tools.kernels.device_mutex import DeviceLock
 from ao_shaping.tools.slm.model_in_loop_summary import summarize_session
 
 AUTO_SCRIPT = ROOT / "scripts" / "slm" / "model_in_loop_auto.py"
