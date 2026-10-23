@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<title>physical_forward_defocus · PKL 可视化画廊</title>
+<style>
+ body{font-family:-apple-system,"Segoe UI",Roboto,"Helvetica Neue","PingFang SC","Microsoft YaHei",sans-serif;margin:0;background:#f5f6f8;color:#1f2937;}
+ header{background:#0f172a;color:#fff;padding:22px 28px;}
+ header h1{margin:0;font-size:20px;} header p{margin:6px 0 0;opacity:.8;font-size:13px;}
+ main{max-width:1180px;margin:0 auto;padding:24px;}
+ section{background:#fff;border:1px solid #e5e7eb;border-radius:10px;padding:18px 20px;margin-bottom:22px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
+ h2{font-size:17px;margin:0 0 4px;color:#0f172a;border-left:4px solid #2563eb;padding-left:10px;}
+ .desc{color:#6b7280;font-size:13px;margin:0 0 14px;}
+ .cap{font-size:12px;color:#6b7280;margin:4px 0 12px;}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px;}
+ .card{background:#fff;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;}
+ .card img{width:100%;display:block;}
+ .card .meta{padding:8px 10px;font-size:12px;color:#374151;}
+ .row{margin-bottom:18px;}
+ .chart img{width:100%;border:1px solid #e5e7eb;border-radius:8px;}
+</style></head><body>
+<header><h1>相机主动离焦 · 物理正向模型 PKL 可视化画廊</h1>
+<p>数据根目录：<code>data/debug/physical_forward_defocus/</code> · 对应报告 <code>physical_forward_defocus_live_20261022.md</code> 与 <code>physical_forward_sampling_20261022_r2.md</code> 的"接续"目录表。</p></header>
+<main>
+<section><h2>fixed_phase_repeat_20261022_r4</h2><p class="desc">U/C 同相位同曝光重复参考（区分测量重复性与模型误差）</p>
+<p class="cap">说明：U 分支为平相位基线（panel_phase≈0 属预期），C 分支为平相位 + 菲涅尔聚焦补偿；两者同曝光重复采集。</p>
+<p class="cap">每个卡片为「SLM 面板总相位（展开, rad）｜相位包裹图（mod 2π）｜CCD 远场光斑（平均帧 log 缩放）」三联图。</p>
+<div class="grid">
+<div class="card"><img src="fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__C_frac1.0_exp3.079ms.png"><div class="meta">branch=C · fraction=1.0 · exposure=3.079 ms · peak=137.0 counts</div></div>
+<div class="card"><img src="fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__U_frac1.0_exp75.109ms.png"><div class="meta">branch=U · fraction=1.0 · exposure=75.109 ms · peak=121.0 counts</div></div>
+</div></section>
+<section><h2>response_bias_20261022_r2</h2><p class="desc">多曝光逐帧响应偏置补测（含超时组）</p>
+<p class="cap">每个卡片为「SLM 面板总相位（展开, rad）｜相位包裹图（mod 2π）｜CCD 远场光斑（平均帧 log 缩放）」三联图。</p>
+<div class="grid">
+<div class="card"><img src="response_bias_20261022_r2/response_bias_20261022_r2__C_frac0.1_exp0.307ms.png"><div class="meta">branch=C · fraction=0.1 · exposure=0.307 ms · peak=15.0 counts</div></div>
+<div class="card"><img src="response_bias_20261022_r2/response_bias_20261022_r2__U_frac0.1_exp7.51ms.png"><div class="meta">branch=U · fraction=0.1 · exposure=7.51 ms · peak=11.0 counts</div></div>
+</div></section>
+<section><h2>response_repeat_20261022_r3</h2><p class="desc">U 分支固定曝光重复采集（短时响应稳定性）</p>
+<p class="cap">每个卡片为「SLM 面板总相位（展开, rad）｜相位包裹图（mod 2π）｜CCD 远场光斑（平均帧 log 缩放）」三联图。</p>
+<div class="grid">
+<div class="card"><img src="response_repeat_20261022_r3/response_repeat_20261022_r3__U_frac0.5_exp37.554ms.png"><div class="meta">branch=U · fraction=0.5 · exposure=37.554 ms · peak=52.0 counts</div></div>
+</div></section>
+<section><h2>sampling_audit_20261022_r1</h2><p class="desc">传播采样 / 像素积分 / 有效展宽诊断（8 个模糊步）。diagnostic_iterations.pkl 记录每一步的训练得分、增益与背景。</p>
+<div class="row chart"><img src="sampling_audit_20261022_r1/metrics.png"></div>
+<div class="row chart"><img src="sampling_audit_20261022_r1/meas_pred_montage.png"></div>
+</section>
+<section><h2>radiometry_audit_20261022_r2</h2><p class="desc">逐像素仿射截距与展宽/模板对照（14 个阶段：单分量展宽 + 非相干混合模板）。diagnostic_iterations.pkl 记录训练得分与混合系数。</p>
+<div class="row chart"><img src="radiometry_audit_20261022_r2/metrics.png"></div>
+</section>
+<section><h2>uniformity_refit_20261022_r1</h2><p class="desc">联合强度 / CV 目标的物理模型微调，共 151 个迭代快照（含初值）。iterations.pkl 记录 loss / nmse / cv_mse 与全部物理参数。</p>
+<div class="row chart"><img src="uniformity_refit_20261022_r1/metrics_loss.png"></div>
+<div class="row chart"><img src="uniformity_refit_20261022_r1/metrics_params.png"></div>
+<p class="cap">下方为代表性探针的「SLM 相位（展开）｜相位包裹｜CCD 实测 ｜模型预测」四联图（log 缩放）。</p>
+<div class="grid">
+<div class="card"><img src="uniformity_refit_20261022_r1/probe_peak_max.png"><div class="meta">probe[15] (peak_max)</div></div>
+<div class="card"><img src="uniformity_refit_20261022_r1/probe_peak_min.png"><div class="meta">probe[9] (peak_min)</div></div>
+</div></section>
+</main></body></html>
