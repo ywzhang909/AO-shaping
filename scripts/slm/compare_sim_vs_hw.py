@@ -69,6 +69,14 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Iterable, Sequence
 
+# 让脚本可独立运行: `python scripts/slm/compare_sim_vs_hw.py` 时, 解释器的
+# sys.path[0] 是 scripts/slm/, 既找不到 `ao_shaping` (在 src/) 也找不到
+# `scripts` 包 (在仓库根) —— 这里把仓库根与 src/ 显式加进去, 否则 import 直接挂。
+_ROOT = Path(__file__).resolve().parents[2]
+for _p in (str(_ROOT / "src"), str(_ROOT)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 ROOT = Path(__file__).resolve().parents[2]
 # `scripts.*` 以包路径被导入, 所以仓库 ROOT 本身必须可导入。
 sys.path.insert(0, str(ROOT))
@@ -392,7 +400,12 @@ def _get(mapping: dict[str, Any], key: str) -> float | None:
 # ---------------------------------------------------------------------------
 
 
-def build_cells(hw: Bundle, sim: Bundle) -> list[Cell]:
+def build_cells(
+    hw: Bundle,
+    sim: Bundle,
+    *,
+    far_field_padding: int | tuple[int, int] = SIM_FAR_FIELD_PADDING,
+) -> list[Cell]:
     """把两侧的产物变成对照表的行。
 
     每一行都是「同一个量」在两侧的取值 —— 指标口径完全一致 (采集脚本用的是同一套
@@ -401,6 +414,8 @@ def build_cells(hw: Bundle, sim: Bundle) -> list[Cell]:
     Args:
         hw: 实测侧。
         sim: 仿真侧。
+        far_field_padding: 仿真远场补零因子 (决定宽度换算系数; 各向异性时
+            两轴都对齐相机像元 ⇒ 换算 → 1.0)。
 
     Returns:
         :class:`Cell` 列表 (按 section 顺序)。
@@ -408,7 +423,7 @@ def build_cells(hw: Bundle, sim: Bundle) -> list[Cell]:
     cells: list[Cell] = []
 
     # 仿真侧的光斑宽度要换算成**相机像元**才能与实测侧相比 (见 ``sim_width_scale``)。
-    width_scale = sim_width_scale()
+    width_scale = sim_width_scale(far_field_padding)
 
     # --- §1 基线 (Δz=0, 相位已施加) -------------------------------------
     hw_base = hw.dz_scan.baseline
@@ -635,7 +650,9 @@ def _focus_value(focus: dict[str, Any], key: str) -> float | None:
     return _get(best_point, source)
 
 
-def far_field_scale(padding: int = SIM_FAR_FIELD_PADDING) -> tuple[float, float] | None:
+def far_field_scale(
+    padding: int | tuple[int, int] = SIM_FAR_FIELD_PADDING,
+) -> tuple[float, float] | None:
     """孪生的一个远场采样点等于多少**相机像元** (行, 列)。
 
     孪生自己有这个换算 (:attr:`SimPibSystem.camera_px_per_model_px`), 但它绑在
@@ -646,7 +663,7 @@ def far_field_scale(padding: int = SIM_FAR_FIELD_PADDING) -> tuple[float, float]
     差距里有一部分只是这个标度差, 不算物理模型的差距。
 
     Args:
-        padding: 远场补零因子。
+        padding: 远场补零因子 (``int`` 或 ``(行, 列)`` 元组, 见 V2.0 各向异性)。
 
     Returns:
         ``(行, 列)`` 两个换算系数; 孪生 API 变了就返回 ``None``。
@@ -654,13 +671,15 @@ def far_field_scale(padding: int = SIM_FAR_FIELD_PADDING) -> tuple[float, float]
     try:
         from ao_shaping.drivers.sim.slm_pib_sim import SimPibSystem
 
-        system = SimPibSystem(far_field_padding=int(padding))
+        system = SimPibSystem(far_field_padding=padding)
         return system.camera_px_per_model_px
     except Exception:  # 孪生 API 漂移不该让整张表崩掉
         return None
 
 
-def sim_width_scale() -> float:
+def sim_width_scale(
+    padding: int | tuple[int, int] = SIM_FAR_FIELD_PADDING,
+) -> float:
     """仿真侧的光斑宽度 (远场采样点) -> 相机像元 的换算因子。
 
     实测侧的光斑宽度是**相机像元**, 仿真侧是**远场采样点**: 孪生的约定是
@@ -673,8 +692,12 @@ def sim_width_scale() -> float:
     对一幅各向同性的图样, 行向量到的采样点数 = `W/行距`、列向 = `W/列距`,
     所以平均值 `f = W*(1/行 + 1/列)/2` => 换算因子取两者的**调和平均**
     `2/(1/行 + 1/列)` (约 1.21)。
+
+    Args:
+        padding: 远场补零因子 (决定换算系数; 各向异性补零时两轴都 = 相机像元
+            ⇒ 换算因子 → 1.0)。
     """
-    scale = far_field_scale()
+    scale = far_field_scale(padding)
     if scale is None:
         return 1.0
     row, col = (float(v) for v in scale)
@@ -1389,7 +1412,9 @@ def render_report(
     add("| 旋钮 | 本轮取值 | 为什么是那个值 (依据哪条实测) |")
     add("|---|---|---|")
     add(
-        "| `far_field_padding` | 4 | 孪生的角标度 = `λf/(N_pad·p)`; 实测 "
+        "| `far_field_padding` | "
+        f"{sim_config.get('远场补零 (far_field_padding)')} | 孪生的角标度 = "
+        "`λf/(N_pad·p)`; 实测 "
         "Kx = 7546.4 / Ky = 7495.9 (相机像元/面板像元), 面板 1920 列 ⇒ "
         "7557/1920 = 3.94 ⇒ **4** 才复现实测角标度 (脚本默认的 16 是 4× 放大的"
         "显示口径, 角标度会差 4 倍) |"
@@ -1585,11 +1610,27 @@ def render_report(
     add("")
     add("按本轮实际看到的写, 不列「可能」:")
     add("")
+    # V2.0 旋钮的实际状态 (决定下面各条是否标注「本轮已开启」)
+    _eta = float(sim_config.get("零级光占比 (zero_order_eta)") or 0.0)
+    _prnu = float(sim_config.get("PRNU σ (prnu_sigma)") or 0.0)
+    _dark = float(sim_config.get("暗电流 FPN σ (dark_fpn_sigma)") or 0.0)
+    _g = sim_config.get("SLM LUT gamma")
+    _lt = sim_config.get("SLM LUT 表")
+    zo_on = _eta > 0.0
+    cam_on = (_prnu > 0.0) or (_dark > 0.0)
+    lut_on = (_g is not None) or (_lt is not None)
     add(
         "1. **零级 (η) 分量**: 真实 SLM 的瞳面是双分量 "
         "`U = U_inc·[η + (1−η)e^{iφ}]`, 零级只过物理透镜、在 `f+d` 处散成一圈弥散晕; "
         "孪生的瞳面只有**一路光**, 没有这个双分量 ⇒ 「框外功率占比」虽然对上了, 但"
         "它的**来源构成**不同 (实测含零级晕, 仿真只有边瓣与焦外弥散)。"
+        + (
+            f"*(V2.0 已建模: `SimPibSystem(zero_order_eta=...)` / `ZeroOrderModel`; "
+            f"**本轮已开启** (eta = {_eta:g}), 零级晕已进入远场。)*"
+            if zo_on
+            else "*(V2.0 已建模: `SimPibSystem(zero_order_eta=...)` / `ZeroOrderModel`, 由"
+            "`--zero-order-eta` 开启; 本对照默认 0 = 理想单分量, 数字不变。)*"
+        )
     )
     add(
         "2. **面板面形误差**: 只有「合成 Zernike + 可选空间相关粗糙度」, 没有这块面板"
@@ -1599,6 +1640,15 @@ def render_report(
     add(
         "3. **探测器非理想性**: 曝光非线性、暗电流、增益切换、像素响应非均匀 (PRNU)、"
         "读出噪声的空间相关性 —— 都没有。噪声是逐像元高斯白噪声 + 8-bit 量化。"
+        "*(V2.0 已建模 PRNU + 暗电流 FPN: `CameraNonIdealModel`, 由 `--prnu-sigma` / "
+        "`--dark-fpn-sigma` 开启, 固定图在量化**前**乘/加; "
+        + (
+            f"**本轮已开启** (prnu_sigma = {_prnu:g}, dark_fpn_sigma = {_dark:g}), "
+            "噪声地板会上抬。"
+            if cam_on
+            else "本对照默认关闭。"
+        )
+        + ")*"
     )
     add(
         "4. **LCOS 的响应时间与松弛**: 仿真面板是**瞬时响应** "
@@ -1609,12 +1659,24 @@ def render_report(
         "5. **SLM 的 LUT 非线性与 10-bit 灰度量化对远场的影响**: 孪生只做"
         "「弧度 → 灰度 → 远场」的理想映射 (`two_pi_gray = 993`), 没有 LUT 曲线、"
         "没有灰度级量化误差。"
+        "*(V2.0 已建模: `SlmLutModel`, 由 `--slm-lut-gamma` / `--slm-lut-table` 开启;"
+        "设备**实际显示**的相位 = LUT 反查 + 量化误差, 喂给远场。"
+        + (
+            f"**本轮已开启** (gamma = {_g if _g is not None else 1.0}, "
+            f"table = {_lt})。"
+            if lut_on
+            else "本对照默认 γ=1 = 理想线性。"
+        )
+        + ")*"
     )
     add("6. **热漂移 / 长期漂移**: 没有。噪声组只重复 9 次 (几十秒尺度)。")
     add(
         "7. **远场网格的各向异性**: 面板 1920×1200 是长方形, 单一补零因子无法让两轴"
         "都等于一个相机像元 (行 1.57 / 列 0.98) —— 宽度比较已按调和平均 ×1.21 换算,"
         "但仍有 ~1% 的标度残差。"
+        "*(V2.0 已支持各向异性补零: `far_field_padding=(行,列)`, 由 "
+        "`--sim-far-field-padding 行,列` 开启, 使两轴节距都 = 相机像元 ⇒ 残差归零;"
+        "本对照默认 `4` (int) 保持原角标度。)*"
     )
     add("")
     return "\n".join(lines)
@@ -1648,10 +1710,16 @@ def _twin_default(name: str) -> Any:
 
 @dataclass(frozen=True)
 class SimConfig:
-    """仿真口径: 种子 + 角标度 + 光度 + 噪声 + 孪生的物理旋钮。"""
+    """仿真口径: 种子 + 角标度 + 光度 + 噪声 + 孪生的物理旋钮。
+
+    V2.0 新增 ``zero_order_eta`` / ``slm_lut_*`` / ``prnu_sigma`` / ``dark_fpn_sigma``
+    四组旋钮, 对应报告第 7 节列缺的器件级物理效应 (零级光 / SLM LUT 非线性 /
+    探测器 PRNU + 暗电流 FPN)。它们**默认全部 = 理想器件** (identity), 本比较脚本
+    的默认口径不变 ⇒ 表里数字与改进前逐位相同; 要启用就调旋钮或从 ``--params`` 文件读。
+    """
 
     seed: int = SIM_SEED
-    far_field_padding: int = SIM_FAR_FIELD_PADDING
+    far_field_padding: int | tuple[int, int] = SIM_FAR_FIELD_PADDING
     peak_counts_per_ms: float | None = PEAK_COUNTS_PER_MS
     read_sigma_counts: float = READ_SIGMA_COUNTS
     shot_k: float = SHOT_K
@@ -1674,6 +1742,19 @@ class SimConfig:
     panel_roughness_sigma_rad: float = 0.0
     panel_roughness_corr_px: float = 0.0
     panel_roughness_seed: int = 0
+    # --- V2.0 非理想物理 (NonIdealModule) ---------------------------------
+    #: 零级光能量占比 η (0~1); 0 = 理想单分量器件。
+    zero_order_eta: float = 0.0
+    #: SLM LUT 的 Gamma 指数 (1 = 理想线性); ``None`` = 不建 LUT 模型。
+    slm_lut_gamma: float | None = None
+    #: 实测 LUT 表 (灰度→弧度) 的 .npy 路径; 给了就**优先于** ``slm_lut_gamma``。
+    slm_lut_table: str | None = None
+    #: 探测器 PRNU 乘性图标准差 (1%~2% 量级); 0 = 无 PRNU。
+    prnu_sigma: float = 0.0
+    #: 探测器暗电流 FPN 标准差 (counts); 0 = 暗电平是全局常数。
+    dark_fpn_sigma: float = 0.0
+    #: 生成固定 PRNU / 暗场图的 RNG 种子 (固定 ⇒ 可复现)。
+    nonideal_seed: int = 0
 
     def __post_init__(self) -> None:
         """把「用孪生默认值」的旋钮解析掉。
@@ -1687,11 +1768,25 @@ class SimConfig:
             object.__setattr__(
                 self, "counts_reference", _twin_default("COUNTS_REFERENCE_FRAME")
             )
+        # 远场补零因子归一化: ``None`` / 列表 → 默认值 / tuple。
+        ffp = self.far_field_padding
+        if ffp is None:
+            object.__setattr__(self, "far_field_padding", SIM_FAR_FIELD_PADDING)
+        elif isinstance(ffp, (list, tuple)):
+            object.__setattr__(
+                self,
+                "far_field_padding",
+                (int(ffp[0]), int(ffp[1])),
+            )
 
     def as_dict(self) -> dict[str, Any]:
+        ffp = self.far_field_padding
+        ffp_text = (
+            f"{ffp[0]},{ffp[1]}" if isinstance(ffp, (tuple, list)) else ffp
+        )
         return {
             "仿真种子 (sim_seed)": self.seed,
-            "远场补零 (far_field_padding)": self.far_field_padding,
+            "远场补零 (far_field_padding)": ffp_text,
             "绝对光度 (peak_counts_per_ms)": self.peak_counts_per_ms,
             "读出噪声 (read_sigma_counts)": self.read_sigma_counts,
             "散粒系数 (shot_k)": self.shot_k,
@@ -1704,13 +1799,22 @@ class SimConfig:
             "面板 Zernike (rad)": dict(self.panel_zernike_rad),
             "面板粗糙度 (roughness_sigma_rad)": self.panel_roughness_sigma_rad,
             "面板粗糙度相关长度 (roughness_corr_px)": self.panel_roughness_corr_px,
+            # --- V2.0 非理想物理 -------------------------------------------
+            "零级光占比 (zero_order_eta)": self.zero_order_eta,
+            "SLM LUT gamma": self.slm_lut_gamma,
+            "SLM LUT 表": self.slm_lut_table,
+            "PRNU σ (prnu_sigma)": self.prnu_sigma,
+            "暗电流 FPN σ (dark_fpn_sigma)": self.dark_fpn_sigma,
+            "非理想模型种子 (nonideal_seed)": self.nonideal_seed,
         }
 
     def to_json(self) -> dict[str, Any]:
         """可序列化的口径 (写进参数文件)。"""
+        ffp = self.far_field_padding
+        ffp_json = list(ffp) if isinstance(ffp, (tuple, list)) else ffp
         return {
             "seed": self.seed,
-            "far_field_padding": self.far_field_padding,
+            "far_field_padding": ffp_json,
             "peak_counts_per_ms": self.peak_counts_per_ms,
             "read_sigma_counts": self.read_sigma_counts,
             "shot_k": self.shot_k,
@@ -1727,6 +1831,13 @@ class SimConfig:
             "panel_roughness_sigma_rad": self.panel_roughness_sigma_rad,
             "panel_roughness_corr_px": self.panel_roughness_corr_px,
             "panel_roughness_seed": self.panel_roughness_seed,
+            # --- V2.0 非理想物理 -------------------------------------------
+            "zero_order_eta": self.zero_order_eta,
+            "slm_lut_gamma": self.slm_lut_gamma,
+            "slm_lut_table": self.slm_lut_table,
+            "prnu_sigma": self.prnu_sigma,
+            "dark_fpn_sigma": self.dark_fpn_sigma,
+            "nonideal_seed": self.nonideal_seed,
         }
 
     @classmethod
@@ -1735,9 +1846,15 @@ class SimConfig:
         zernike = {
             int(k): float(v) for k, v in (payload.get("panel_zernike_rad") or {}).items()
         }
+        ffp_raw = payload.get("far_field_padding", SIM_FAR_FIELD_PADDING)
+        ffp = (
+            (int(ffp_raw[0]), int(ffp_raw[1]))
+            if isinstance(ffp_raw, (list, tuple))
+            else int(ffp_raw)
+        )
         return cls(
             seed=int(payload.get("seed", SIM_SEED)),
-            far_field_padding=int(payload.get("far_field_padding", SIM_FAR_FIELD_PADDING)),
+            far_field_padding=ffp,
             peak_counts_per_ms=payload.get("peak_counts_per_ms", PEAK_COUNTS_PER_MS),
             read_sigma_counts=float(payload.get("read_sigma_counts", READ_SIGMA_COUNTS)),
             shot_k=float(payload.get("shot_k", SHOT_K)),
@@ -1754,6 +1871,12 @@ class SimConfig:
             ),
             panel_roughness_corr_px=float(payload.get("panel_roughness_corr_px", 0.0)),
             panel_roughness_seed=int(payload.get("panel_roughness_seed", 0)),
+            zero_order_eta=float(payload.get("zero_order_eta", 0.0)),
+            slm_lut_gamma=payload.get("slm_lut_gamma"),
+            slm_lut_table=payload.get("slm_lut_table"),
+            prnu_sigma=float(payload.get("prnu_sigma", 0.0)),
+            dark_fpn_sigma=float(payload.get("dark_fpn_sigma", 0.0)),
+            nonideal_seed=int(payload.get("nonideal_seed", 0)),
         )
 
 
@@ -1788,6 +1911,52 @@ def build_panel_aberration(config: SimConfig) -> Any:
     return None if spec.is_empty() else spec
 
 
+def build_nonideal(config: SimConfig) -> dict[str, Any]:
+    """构造 V2.0 的 NonIdealModule 参数 (零级光 / SLM LUT / 探测器非理想性)。
+
+    把 ``SimConfig`` 里那几个旋钮收成 :func:`reset_system` 能直接解的字典
+    (``zero_order_eta`` / ``slm_lut`` / ``nonideal_camera``)。全部旋钮置 0/None
+    时返回的模型是 identity ⇒ 与改进前的孪生逐位相同。
+
+    Args:
+        config: 仿真口径。
+
+    Returns:
+        ``{"zero_order_eta": ..., "slm_lut": SlmLutModel|None,
+        "nonideal_camera": CameraNonIdealModel|None}``。
+    """
+    from ao_shaping.drivers.sim.nonideal import (
+        SlmLutModel,
+        CameraNonIdealModel,
+    )
+
+    lut: SlmLutModel | None = None
+    if config.slm_lut_gamma is not None or config.slm_lut_table is not None:
+        table = (
+            np.load(str(config.slm_lut_table))
+            if config.slm_lut_table
+            else None
+        )
+        lut = SlmLutModel(
+            gamma=(
+                float(config.slm_lut_gamma)
+                if config.slm_lut_gamma is not None
+                else 1.0
+            ),
+            lut_table=table,
+        )
+    camera = CameraNonIdealModel(
+        prnu_sigma=float(config.prnu_sigma),
+        dark_fpn_sigma=float(config.dark_fpn_sigma),
+        seed=int(config.nonideal_seed),
+    )
+    return {
+        "zero_order_eta": float(config.zero_order_eta),
+        "slm_lut": lut,
+        "nonideal_camera": camera if not camera.is_identity() else None,
+    }
+
+
 def reset_sim_system(config: SimConfig) -> None:
     """把**进程级**的仿真系统重置到指定口径。
 
@@ -1802,7 +1971,7 @@ def reset_sim_system(config: SimConfig) -> None:
 
     reset_system(
         seed=int(config.seed),
-        far_field_padding=int(config.far_field_padding),
+        far_field_padding=config.far_field_padding,
         peak_counts_per_ms=config.peak_counts_per_ms,
         noise_spec=build_noise_spec(config),
         panel_aberration=build_panel_aberration(config),
@@ -1810,6 +1979,7 @@ def reset_sim_system(config: SimConfig) -> None:
         counts_reference=str(config.counts_reference),
         beam_w0=float(config.beam_w0),
         illumination_radius_px=config.illumination_radius_px,
+        **build_nonideal(config),
     )
 
 
@@ -1833,7 +2003,7 @@ def patch_sim_configurer(module: Any, attr: str, config: SimConfig) -> None:
 
         reset_system(
             seed=int(seed),
-            far_field_padding=int(far_field_padding),
+            far_field_padding=config.far_field_padding,
             peak_counts_per_ms=config.peak_counts_per_ms,
             noise_spec=build_noise_spec(config),
             panel_aberration=build_panel_aberration(config),
@@ -1841,6 +2011,7 @@ def patch_sim_configurer(module: Any, attr: str, config: SimConfig) -> None:
             counts_reference=str(config.counts_reference),
             beam_w0=float(config.beam_w0),
             illumination_radius_px=config.illumination_radius_px,
+            **build_nonideal(config),
         )
 
     setattr(module, attr, _configure)
@@ -2237,6 +2408,42 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default=None,
         help="照明盘半径 (面板 px); 0 = 不截断",
     )
+    # --- V2.0 非理想物理 (NonIdealModule) 旋钮 ----------------------------
+    parser.add_argument(
+        "--zero-order-eta",
+        type=float,
+        default=None,
+        help="零级光能量占比 η (0~1); 0 = 理想单分量 (V2.0 NonIdealModule)",
+    )
+    parser.add_argument(
+        "--slm-lut-gamma",
+        type=float,
+        default=None,
+        help="SLM LUT 的 Gamma 指数 (1 = 理想线性); 给了就建 LUT 模型 (V2.0)",
+    )
+    parser.add_argument(
+        "--slm-lut-table",
+        default="",
+        help="实测 LUT 表 (灰度→弧度) 的 .npy 路径; 优先于 --slm-lut-gamma (V2.0)",
+    )
+    parser.add_argument(
+        "--prnu-sigma",
+        type=float,
+        default=None,
+        help="探测器 PRNU 乘性图标准差 (1%~2%); 0 = 无 PRNU (V2.0)",
+    )
+    parser.add_argument(
+        "--dark-fpn-sigma",
+        type=float,
+        default=None,
+        help="探测器暗电流 FPN 标准差 (counts); 0 = 暗电平全局常数 (V2.0)",
+    )
+    parser.add_argument(
+        "--nonideal-seed",
+        type=int,
+        default=None,
+        help="生成固定 PRNU/暗场图的 RNG 种子 (V2.0)",
+    )
     parser.add_argument(
         "--panel-zernike",
         default="",
@@ -2346,7 +2553,7 @@ def build_config(args: argparse.Namespace) -> SimConfig:
 
     return SimConfig(
         seed=int(pick(args.sim_seed, base.seed)),
-        far_field_padding=int(pick(args.sim_far_field_padding, base.far_field_padding)),
+        far_field_padding=pick(args.sim_far_field_padding, base.far_field_padding),
         peak_counts_per_ms=(
             float(peak_counts) if peak_counts is not None else base.peak_counts_per_ms
         ),
@@ -2387,6 +2594,15 @@ def build_config(args: argparse.Namespace) -> SimConfig:
             pick(args.panel_roughness_corr_px, base.panel_roughness_corr_px)
         ),
         panel_roughness_seed=int(base.panel_roughness_seed),
+        # --- V2.0 非理想物理 -------------------------------------------
+        zero_order_eta=float(pick(args.zero_order_eta, base.zero_order_eta)),
+        slm_lut_gamma=pick(args.slm_lut_gamma, base.slm_lut_gamma),
+        slm_lut_table=(
+            args.slm_lut_table if args.slm_lut_table else base.slm_lut_table
+        ),
+        prnu_sigma=float(pick(args.prnu_sigma, base.prnu_sigma)),
+        dark_fpn_sigma=float(pick(args.dark_fpn_sigma, base.dark_fpn_sigma)),
+        nonideal_seed=int(pick(args.nonideal_seed, base.nonideal_seed)),
     )
 
 

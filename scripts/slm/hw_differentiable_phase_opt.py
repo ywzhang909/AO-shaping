@@ -116,6 +116,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shutil
 import sys
 from contextlib import contextmanager
@@ -155,6 +156,7 @@ from ao_shaping.tools.slm.panel.focus_probe import (
     ExposureSetting,
     FocusProbeResult,
     adapt_exposure,
+    judge_focus,
     sweep_focus,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame
@@ -2391,7 +2393,12 @@ def run_execute(args: argparse.Namespace, plan: dict[str, Any]) -> int:
             cam_id=int(args.cam_id),
             cam_type=str(args.cam_type),
             exposure_ms=float(args.exposure_ms),
-            own_paths=[str(Path(__file__).resolve())],
+            # ⚠️ 只按 **pid** 排除自己, **不要**传 own_paths=[本脚本路径]:
+            # 同一个脚本的**另一个**会话也会被 own_paths 当成"我们自己"排除掉,
+            # 于是占用者看不见 ⇒ 探针直接撞 -10003 ⇒ 被误判成"陈旧句柄"
+            # (2026-10-23 实测: 另一个会话正在跑同一个脚本的 rep 系列, 本脚本
+            #  却报「设备锁是空的」并让人去断电 ✗)。
+            own_pids=(os.getpid(),),
         )
         if code != 0:
             logger.error("设备未等到空闲: {}", message)
@@ -3149,29 +3156,14 @@ def judge_focus_gate(
             "verdict": "光路受阻 —— 拒绝测量",
             "reason": result.blockage_reason or "画面里没有局域光斑 (光没到相机)",
         }
-    if result.best is None:
+    verdict = judge_focus(result, fwhm_max_px=float(fwhm_max))
+    if verdict.kind == "not_in_focus":
         return {
             "code": EXIT_NOT_IN_FOCUS,
-            "verdict": "扫描范围内没有任何点落进可用曝光带 —— 拒绝测量",
-            "reason": "无法判定在焦 (没有可用测点)",
+            "verdict": verdict.verdict,
+            "reason": verdict.reason,
         }
-    best_fwhm = float(result.best.fwhm_px)
-    if best_fwhm > float(fwhm_max):
-        return {
-            "code": EXIT_NOT_IN_FOCUS,
-            "verdict": (
-                f"不在焦 (最佳点 FWHM {best_fwhm:.2f} px > 门限 "
-                f"{float(fwhm_max):.0f} px) —— 拒绝测量"
-            ),
-            "reason": f"best_fwhm_px={best_fwhm:.3f} > {float(fwhm_max):.3f}",
-        }
-    return {
-        "code": None,
-        "verdict": (
-            f"在焦 ✓ (最佳点 FWHM {best_fwhm:.2f} px ≤ {float(fwhm_max):.0f} px)"
-        ),
-        "reason": "",
-    }
+    return {"code": None, "verdict": verdict.verdict, "reason": verdict.reason}
 
 
 def _verdict_text(cmp_best: dict[str, Any]) -> str:
@@ -3247,16 +3239,21 @@ def _open_questions_text() -> str:
             " 细 4 倍, 光斑在远场网格上只占几个采样 —— 目标若是单像素尖峰, 模型"
             " 物理上**不可能**完全命中, 损失里有一项是「不可达」的部分。",
             "* 🔴 **随机初值 + 强度 MSE 会掉进「把远场摊平」的局部极小** (2026-10-22"
-            " 实测, 这是本轮最主要的负结果): 损失从 1.07e-2 **一步**降到 1.09e-3,"
+            " 实测, 这是**上一轮**的负结果): 损失从 1.07e-2 **一步**降到 1.09e-3,"
             " 之后 150 次迭代只再降 15% (最后 9.29e-4)。而 9.29e-4 与"
             "「目标块面积 / 网格面积」= 31²/1024² = 9.2e-4 几乎相等 —— 也就是"
             "**目标一块都没命中**时的损失。相位 RMS 全程停在 3.63 rad (≈ 均匀 [0,2π) 的 raw RMS),"
-            "说明相位仍近似随机。物理上说得通: 纯相位元件不能把远场压成 0, 于是优化器"
-            " 选了「把能量摊平成一圈散斑、峰值归一后处处 ≈ 1e-3」这条捷径, 而不是"
-            "「造出目标结构」。**待确认/下一步**: 用 GS (或任何解析整形解) 做初值再让"
-            " 可微细化接手 —— 这正是 `optimizer/wfless/slm_gs_refine.py` 的思路;"
-            " 或把损失换成对目标块加权的形式。**本轮所有「模型 vs 硬件」数字都受这条"
-            " 限制**: 上屏的相位近似随机, 所以硬件看到的是散斑, 相关系数自然只有 0.1 量级。",
+            "说明相位仍近似随机 ⇒ 硬件看到散斑, 模型与硬件相关系数只有 0.11~0.15。",
+            "* ✅ **改用 GS 初值就出得来** (2026-10-23 实测, 现在是默认):"
+            " `--init-phase gs` 用交替投影 (传播取 `fft`, 即 2f 透镜的傅里叶变换)"
+            " 造一个解析整形解当初值, 可微细化再接手 —— 损失 3.03e-4 → **1.28e-4**,"
+            " 相位 RMS 1.82 rad (不再是随机的 3.63), 模型远场峰值落在目标中心 ±6 个"
+            " 采样内, **模型与硬件的强度相关系数 0.81 (高度一致)**, 峰值位置差"
+            " 2/−13 个采样。同一台架、同一目标, **只换初值**, 相关系数从 0.15 跳到 0.81"
+            " ⇒ 初值比损失函数更决定成败 (与仓库 `slm_gs_refine` 的判断一致)。",
+            "* **待确认**: `gerchberg_saxton` 自己的误差指标 (14600 → 14595) 几乎不动,"
+            " 它的 `converged` 也一直为 False —— 说明它的误差口径与本实验的「目标块」"
+            " 口径不一致; 本轮只把 GS 当**初值**, 没有依赖它的收敛判据。",
         ]
     )
 

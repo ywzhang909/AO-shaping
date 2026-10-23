@@ -16,7 +16,7 @@
   "panel_roughness_corr_px": 0.0,
   "panel_roughness_seed": 0,
   "zero_order_eta": 0.1,
-  "slm_lut_gamma": null,
+  "slm_lut_gamma": 1.0,
   "slm_lut_table": null,
   "prnu_sigma": 0.015,
   "dark_fpn_sigma": 2.0,

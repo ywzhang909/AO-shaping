@@ -759,6 +759,17 @@ REPORTS: dict[str, ReportProvenance] = {
         extra_scripts=("scripts/ml/freeform_vs_zernike.py",),
     ),
     # -- 方形整形实验记录 ---------------------------------------------------
+    "report/shape_trials/defocus_differentiable/multishape_forward_plan_20261023.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note="结合焦面重标定、旧离焦模型和闪耀响应证据制定器件响应矫正及多形状可微整形实验；没有新增采集。",
+        extra_scripts=(
+            "scripts/slm/direction_test_after_optics_change.py",
+            "scripts/slm/refit_model_after_optics_change.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+            "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py",
+        ),
+    ),
     "report/shape_trials/defocus_differentiable_test_plan_20261023.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线",

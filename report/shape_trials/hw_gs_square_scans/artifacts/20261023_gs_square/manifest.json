@@ -1,0 +1,55 @@
+[
+  {
+    "group": "sides",
+    "variable": "side_px",
+    "meta": {
+      "cam_type": "daheng",
+      "exposure_ms": "20.0",
+      "gs_iters": "200"
+    },
+    "dir": "sides",
+    "n_rows": 18,
+    "created_utc": "2026-10-23T08:54:34+00:00",
+    "summary": {
+      "n_rows": 18,
+      "side_max_px": 1800,
+      "selected_side_px": 1200
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_gs_square\\sides"
+  },
+  {
+    "group": "zernike",
+    "variable": "n_max",
+    "meta": {
+      "cam_type": "daheng",
+      "exposure_ms": "20.0",
+      "gs_iters": "200"
+    },
+    "dir": "zernike",
+    "n_rows": 24,
+    "created_utc": "2026-10-23T08:54:34+00:00",
+    "summary": {
+      "n_rows": 24,
+      "selected_side_px": 1200
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_gs_square\\zernike"
+  },
+  {
+    "group": "blaze",
+    "variable": "blaze_period_px",
+    "meta": {
+      "cam_type": "daheng",
+      "exposure_ms": "20.0",
+      "gs_iters": "200"
+    },
+    "dir": "blaze",
+    "n_rows": 8,
+    "created_utc": "2026-10-23T08:54:34+00:00",
+    "summary": {
+      "n_rows": 8,
+      "selected_side_px": 1200,
+      "blaze_base": "gs"
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_gs_square\\blaze"
+  }
+]

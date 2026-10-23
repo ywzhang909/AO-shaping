@@ -1,0 +1,402 @@
+{
+  "timestamp_utc": "2026-10-23T08:46:46+00:00",
+  "stage": "sides",
+  "variable": "side_px",
+  "plan": {
+    "stages": [
+      "sides",
+      "zernike",
+      "blaze"
+    ],
+    "bench": {
+      "wavelength_nm": 1064.0,
+      "focal_length_m": 0.12240601503759398,
+      "panel_shape": [
+        1200,
+        1920
+      ],
+      "panel_pitch_um": 8.0,
+      "beam_center_panel": [
+        960,
+        600
+      ],
+      "beam_radius_px": 450.0,
+      "pupil_side_px": 900,
+      "camera_pixel_um": 2.2
+    },
+    "frame": {
+      "shape": [
+        1944,
+        2592
+      ],
+      "zero_order_xy": [
+        1296.0,
+        972.0
+      ],
+      "zero_order_assumed": true,
+      "assumed_note": "--dry-run 的计划假设 (取画幅中心); 实测一律在平场帧上 argmax 现场量",
+      "edge_margin_px": 10,
+      "side_max_raw": 1922,
+      "side_max": 1900,
+      "side_max_note": "auto (由 0 级到画面边缘反解, 再向下取到 --side-step 的整数倍)"
+    },
+    "scan": {
+      "gs_grid": 512,
+      "gs_grid_note": "auto: 需要装下边长 1900 + 2×光栅位移 462 = 2825 camera px; 每格 8.222 camera px ⇒ N ≥ 344, 取 2 的幂 512",
+      "gs_iters": 200,
+      "camera_px_per_gs_px": 8.222222222222221,
+      "fft_window_camera_px": 4209.777777777777,
+      "sides": [
+        100,
+        200,
+        300,
+        400,
+        500,
+        600,
+        700,
+        800,
+        900,
+        1000,
+        1100,
+        1200,
+        1300,
+        1400,
+        1500,
+        1600,
+        1700,
+        1800,
+        1900
+      ],
+      "near_target": 1000.0,
+      "near_tolerance": 200.0,
+      "near_window": [
+        800.0,
+        1200.0
+      ],
+      "near_candidates": [
+        800,
+        900,
+        1000,
+        1100,
+        1200
+      ],
+      "orders": [
+        30,
+        29,
+        28,
+        27,
+        26,
+        25,
+        24,
+        23,
+        22,
+        21,
+        20,
+        19,
+        18,
+        17,
+        16,
+        15,
+        14,
+        13,
+        12,
+        11,
+        10,
+        9,
+        8,
+        7
+      ],
+      "orders_modes": {
+        "30": 496,
+        "29": 465,
+        "28": 435,
+        "27": 406,
+        "26": 378,
+        "25": 351,
+        "24": 325,
+        "23": 300,
+        "22": 276,
+        "21": 253,
+        "20": 231,
+        "19": 210,
+        "18": 190,
+        "17": 171,
+        "16": 153,
+        "15": 136,
+        "14": 120,
+        "13": 105,
+        "12": 91,
+        "11": 78,
+        "10": 66,
+        "9": 55,
+        "8": 45,
+        "7": 36
+      },
+      "rank_by": "score",
+      "side_px_override": null,
+      "blaze_periods": [
+        16,
+        24,
+        32,
+        40,
+        48,
+        64,
+        96,
+        128
+      ],
+      "blaze_table": [
+        {
+          "blaze_period_px": 16,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 462.5,
+          "predicted_shift_px": 462.5,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1434.5,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 24,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 308.3333333333333,
+          "predicted_shift_px": 308.3333333333333,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1280.3333333333333,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 32,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 231.25,
+          "predicted_shift_px": 231.25,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1203.25,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 40,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 185.0,
+          "predicted_shift_px": 185.0,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1157.0,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 48,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 154.16666666666666,
+          "predicted_shift_px": 154.16666666666666,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1126.1666666666667,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 64,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 115.625,
+          "predicted_shift_px": 115.625,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1087.625,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 96,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 77.08333333333333,
+          "predicted_shift_px": 77.08333333333333,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1049.0833333333333,
+          "fits_frame": true
+        },
+        {
+          "blaze_period_px": 128,
+          "predicted_shift_x_px": 0.0,
+          "predicted_shift_y_px": 57.8125,
+          "predicted_shift_px": 57.8125,
+          "box_center_predicted_x": 1296.0,
+          "box_center_predicted_y": 1029.8125,
+          "fits_frame": true
+        }
+      ],
+      "blaze_planning_side_px": 1000.0,
+      "max_blaze_shift_px": 462.5,
+      "zernike_fit_grid": 256
+    },
+    "devices": {
+      "slm_driver": "ao_shaping.drivers.slm.santec.Santec (memory 模式, video_mode=0)",
+      "ccd_driver": "ao_shaping.drivers.ccd.common.create_camera('daheng')",
+      "cam_type": "daheng",
+      "cam_id": 0,
+      "slm_number": 1,
+      "slm_wavelength_nm": 1064,
+      "exposure_ms_requested": 20.0,
+      "frames_per_measurement": 4,
+      "sim_seed": 0,
+      "sim_far_field_padding": 4,
+      "sim_cam_size": 2500
+    },
+    "optics_notes": {
+      "gs": "gerchberg_saxton(propagation='fft'): 2f 焦面 = 源面的傅里叶变换; cell_spacing = pupil_side·d/N, 所以远场一格恒为 TILT_SHIFT_SCALE/pupil_side 相机像素",
+      "gs_deterministic": "GS 初值 = 目标的反向传播 ⇒ 没有随机数; --seed 只影响内存槽轮换与仿真噪声, 不影响 GS 相位",
+      "side_map": "side_gs_px = side_cam_px · pupil_side_px / TILT_SHIFT_SCALE (与网格边长无关, 也与波长锚点无关)",
+      "focus": "不加焦面补偿 (默认) —— CCD 现在就在 2f 焦面上, 旧的瞳面菲涅尔补偿已过期",
+      "blaze": "apply_zero_order_overlay(BLAZE, vertical) 加进模式相位; 预测位移 predicted_shift_px 已含面板↔相机 90° 交换",
+      "metrics": "cv/pib/score 来自 square_shaping (与 compare_sim_vs_hw 同一批函数); ee/ar/quality 来自 slm_square_shaping (惰性 import); 帧先过 prepare_frame",
+      "zero_order": "平场帧 argmax (zero_order_center) 定位并冻结; 绝不假设在画面中心"
+    },
+    "stage_plans": {
+      "sides": {
+        "variable": "side_px",
+        "n_configs": 19,
+        "configs": [
+          100,
+          200,
+          300,
+          400,
+          500,
+          600,
+          700,
+          800,
+          900,
+          1000,
+          1100,
+          1200,
+          1300,
+          1400,
+          1500,
+          1600,
+          1700,
+          1800,
+          1900
+        ],
+        "gs_seconds_each": 7.5497472000000005,
+        "seconds": 295.4451968,
+        "detail": "每个边长跑一次 GS (从零造方斑), 然后测量"
+      },
+      "zernike": {
+        "variable": "n_max",
+        "n_configs": 24,
+        "configs": [
+          30,
+          29,
+          28,
+          27,
+          26,
+          25,
+          24,
+          23,
+          22,
+          21,
+          20,
+          19,
+          18,
+          17,
+          16,
+          15,
+          14,
+          13,
+          12,
+          11,
+          10,
+          9,
+          8,
+          7
+        ],
+        "gs_seconds_each": 0.0,
+        "seconds": 192.0,
+        "detail": "一次 GS (选定边长) + 一次拟合 + 每个阶数一次截断重构与测量; 拟合网格 256, 最高 30 阶 (496 个模式)"
+      },
+      "blaze": {
+        "variable": "blaze_period_px",
+        "n_configs": 8,
+        "configs": [
+          16,
+          24,
+          32,
+          40,
+          48,
+          64,
+          96,
+          128
+        ],
+        "gs_seconds_each": 0.0,
+        "seconds": 64.0,
+        "detail": "选定相位上逐周期叠加面板 x 斜坡; 框跟着预测位移走"
+      }
+    },
+    "estimate": {
+      "capture_s": 8.0,
+      "gs_seconds_each": 7.5497472000000005,
+      "total_s": 551.4451968000001,
+      "limit_s": 600.0,
+      "over_budget": [],
+      "npz_mb": 510.0
+    },
+    "out_root": "data/debug/hw_gs_square_scans/20261023_gs_square",
+    "is_sim": false
+  },
+  "zero_order_xy_frozen": [
+    1214,
+    948
+  ],
+  "frame_shape_hw": [
+    1944,
+    2592
+  ],
+  "exposure_ms_requested": 20.0,
+  "exposure_ceiling_ms": 40.0,
+  "exposure_ms_working": 20.0,
+  "frames_per_measurement": 4,
+  "settle": {
+    "n_discard": 3,
+    "wait_s": 0.5,
+    "tol": 0.02,
+    "max_wait_s": 6.0
+  },
+  "spot_assessment": {
+    "usable": true,
+    "blocked": false,
+    "peak": 255.0,
+    "excess": 255.0,
+    "noise": 0.10129815833581764,
+    "fwhm_px": 32.923278933006486,
+    "frame_px": 1944,
+    "fill": 0.6248366013071895,
+    "span_fraction": 0.026234567901234566,
+    "hollowness": 1.0,
+    "reason": "光斑可用"
+  },
+  "defocus_focal_mm": null,
+  "slm_number": 1,
+  "cam_type": "daheng",
+  "cam_id": 0,
+  "protected_memory_slot": 3,
+  "sides": [
+    100,
+    200,
+    300,
+    400,
+    500,
+    600,
+    700,
+    800,
+    900,
+    1000,
+    1100,
+    1200,
+    1300,
+    1400,
+    1500,
+    1600,
+    1700,
+    1800
+  ],
+  "side_max_px": 1800,
+  "side_max_raw_px": 1876,
+  "gs_grid": 512,
+  "gs_iters": 200,
+  "near_window_px": [
+    800.0,
+    1200.0
+  ]
+}

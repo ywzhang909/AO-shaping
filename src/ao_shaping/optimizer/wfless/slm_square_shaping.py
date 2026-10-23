@@ -788,6 +788,7 @@ def learning_schedule(
 
     return base_lr * lr_factor, base_delta * delta_factor
 
+
 @dataclass
 class SlmSquareConfig:
     """Configuration bundle for :func:`optimize_slm_square`.
@@ -838,7 +839,7 @@ class SlmSquareConfig:
     #: may only update the learning rate. Set by the CLI when the user actually
     #: typed ``--delta``; otherwise the schedule owns ``delta`` as before.
     delta_pinned: bool = False
-#: When True (default), the target box center is fixed from the initial
+    #: When True (default), the target box center is fixed from the initial
     #: detection and NOT re-detected after exposure adjustment. When False, the
     #: center is re-detected on the post-exposure frame (legacy behavior).
     fix_target: bool = True
@@ -864,8 +865,12 @@ class SlmSquareConfig:
             raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
         if self.blaze_direction not in ("vertical", "horizontal"):
             raise ValueError("blaze_direction must be vertical or horizontal")
-        if self.blaze_period_px >= 0 and (self.target_side < 1 or self.exposure_time_ms <= 0):
-            raise ValueError("off-axis shaping requires target_side and a fixed exposure")
+        if self.blaze_period_px >= 0 and (
+            self.target_side < 1 or self.exposure_time_ms <= 0
+        ):
+            raise ValueError(
+                "off-axis shaping requires target_side and a fixed exposure"
+            )
         if self.blaze_period_px >= 0 and self.cam_type == "sim":
             raise ValueError("blaze calibration requires a full-frame hardware CCD")
         if self.target_side < 0:
@@ -1366,10 +1371,13 @@ def optimize_slm_square(
             # over-limit exposure: explicit config, env, else probe the image.
             ceiling = resolve_daheng_exposure_limit(camera=cam)
             if exposure_time_ms > ceiling + 1e-9:
-                raise ValueError(
-                    f"Daheng exposure_time_ms {exposure_time_ms} ms exceeds the "
-                    f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
+                logger.warning(
+                    "Daheng exposure_time_ms {} ms exceeds resolved ceiling {} ms; "
+                    "clamping to ceiling",
+                    exposure_time_ms,
+                    ceiling,
                 )
+                exposure_time_ms = ceiling
             # The probe left the camera at the last ladder step; re-arm the
             # working exposure before the first measurement.
             cam.reset_exposure_time(exposure_time_ms)
@@ -1390,8 +1398,11 @@ def optimize_slm_square(
                 return frame
 
             blaze_choice = select_blaze(
-                capture_blaze, (SLM_HEIGHT, SLM_WIDTH), target_side=target_side,
-                window_size=cam_size, period_px=blaze_period_px,
+                capture_blaze,
+                (SLM_HEIGHT, SLM_WIDTH),
+                target_side=target_side,
+                window_size=cam_size,
+                period_px=blaze_period_px,
                 direction=blaze_direction,
             )
             center = blaze_choice.signal_xy
@@ -1488,7 +1499,9 @@ def optimize_slm_square(
                 if _has_rotation:
                     _rad = _rotate_pattern(_rad, _rot)
                 if blaze_choice is not None:
-                    from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+                    from ao_shaping.utils.wavefront.zero_order_overlay import (
+                        apply_zero_order_overlay,
+                    )
 
                     _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
                 return slm.create_phase_from_array(_rad)
@@ -1496,7 +1509,9 @@ def optimize_slm_square(
             if _has_rotation:
                 _rad = _rotate_pattern(_rad, _rot)
             if blaze_choice is not None:
-                from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+                from ao_shaping.utils.wavefront.zero_order_overlay import (
+                    apply_zero_order_overlay,
+                )
 
                 _rad = apply_zero_order_overlay(_rad, blaze_choice.params)
             return slm.create_phase_from_array(_rad)
@@ -1783,7 +1798,9 @@ def optimize_slm_square(
                         "ar": last_eval["ar"],
                         "pbr": last_eval["pbr"],
                         "side": target_side,
-                        RECORD_COEFFS: _record_vec(np.asarray(params, dtype=np.float64)),
+                        RECORD_COEFFS: _record_vec(
+                            np.asarray(params, dtype=np.float64)
+                        ),
                         RECORD_IMAGE: last_eval["img"],
                         RECORD_DIFF: 0.0,
                         "lr": 0.0,

@@ -38,7 +38,7 @@
 | 2 | 断开 SLM | 设备表「断开」 | 侧栏 | 侧栏 | 不变 |
 | 3 | 刷新设备列表 | 按钮 | 侧栏 | 侧栏 | 不变 |
 | 4 | 刷新相机状态 | 按钮 | 侧栏「相机工具」 | 侧栏「相机工具」 | 不变（诊断按钮留在原位） |
-| 5 | 相机像素间距 | number_input + 「探测」+ 渲染期自动探测 | 侧栏「相机工具」 | 侧栏「**本次实验光路**」A 组 | **本轮搬迁**（`key="camera_pixel_um"` 不变、不新建同 key widget） |
+| 5 | 相机像素间距 | number_input + 「探测」+ 渲染期自动探测 | 侧栏「相机工具」 | 侧栏「**CCD参数设置**」A 组 | **本轮搬迁**（`key="camera_pixel_um"` 不变、不新建同 key widget） |
 
 ### T4 长期配置（17 项）
 
@@ -89,8 +89,8 @@
 | # | 操作 | 入口 | 当前位置 | 目标位置 | 变化 |
 |---|---|---|---|---|---|
 | 30 | 闭环整形 | 方法 selectbox + 状态条 + 目标/预算/高级参数 + 校验区 +「开始」按钮（阻塞，进度条） | 主区 expander | 主区 expander | **本轮重构**（见 §4.1；仍缺停止入口，遗留项 1） |
-| 31 | 标定光路 | 「标定 SLM N 光路」按钮（阻塞，定位→曝光探测→sweep 几何） | **无**（主区只有手填 `pupil_center` / `panel_span_px`） | 侧栏「本次实验光路」D/E 组 | **本轮新增** |
-| 32 | 恢复探测值 | 「恢复探测值」secondary 按钮（仅手动覆盖时出现） | **无** | 侧栏「本次实验光路」E 组 | **本轮新增** |
+| 31 | 标定光路 | 「标定 SLM N 光路」按钮（阻塞，定位→曝光探测→sweep 几何） | **无**（主区只有手填 `pupil_center` / `panel_span_px`） | 侧栏「CCD参数设置」D/E 组 | **本轮新增** |
+| 32 | 恢复探测值 | 「恢复探测值」secondary 按钮（仅手动覆盖时出现） | **无** | 侧栏「CCD参数设置」E 组 | **本轮新增** |
 
 ---
 
@@ -148,7 +148,7 @@ SLM N 设置 [expander, expanded]
 ```
 SLM 设备表（连接/断开）+ 刷新设备列表
 相机工具：刷新相机状态                    ← 只剩诊断按钮
-本次实验光路 [expander, 收起]            ← v1.1 新增；折叠态仍可见光路摘要卡
+CCD参数设置 [expander, 收起]            ← v1.1 新增；折叠态仍可见光路摘要卡
   A 相机：类型 / ID / 像元间距(探测+告警) / 会话曝光
   B 读出窗口：启用开窗 / 窗口边长（上下界来自设备 Width/Height 特征网格）
   C 去零级载波：载波 / 光栅方向
@@ -221,7 +221,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 
 **路线 4 闭环整形**（v1.1 重写；T3，约 6 步）：
 
-(1) 左侧「本次实验光路」→ A/B/C 组：选相机、按当前激光功率实测**曝光**（0 会被钳到约 0.02 ms，比可用区间暗 20–75×）、决定开窗与窗口边长、选载波；像元间距可点「探测」 (2) SLM N · 光路几何与标定：入射中心留空（= 自动定位），必要时点「标定 SLM N 光路」等 1–3 分钟（只在**换光路 / 换 SLM / 换相机**后需要） (3) 主区：选方法 → 看状态条（●/○/✎）→ 确认目标与预算 → 展开「高级参数」按需微调 → 确认校验区无红字 (4)「开始」：页面阻塞，进度条推进，SLM 句柄临时交优化器（另一台 SLM 不受影响），侧栏光路控件全部 disabled (5) 结束后自动显示最佳相位并落盘 `{save_dir}/params.json`（本次生效的光路参数 + 每字段三态标记），预览目检 (6) 若远场仍偏模糊：侧栏「离焦 (发送叠加)」开总开关，点「用推荐值」取「探测焦面」实测焦距（或手填焦距 + Zernike (2,0) 细调），该层经 `set_phase_overlay` 对**其后所有发送**自动叠加
+(1) 左侧「CCD参数设置」→ A/B/C 组：选相机、按当前激光功率实测**曝光**（0 会被钳到约 0.02 ms，比可用区间暗 20–75×）、决定开窗与窗口边长、选载波；像元间距可点「探测」 (2) SLM N · 光路几何与标定：入射中心留空（= 自动定位），必要时点「标定 SLM N 光路」等 1–3 分钟（只在**换光路 / 换 SLM / 换相机**后需要） (3) 主区：选方法 → 看状态条（●/○/✎）→ 确认目标与预算 → 展开「高级参数」按需微调 → 确认校验区无红字 (4)「开始」：页面阻塞，进度条推进，SLM 句柄临时交优化器（另一台 SLM 不受影响），侧栏光路控件全部 disabled (5) 结束后自动显示最佳相位并落盘 `{save_dir}/params.json`（本次生效的光路参数 + 每字段三态标记），预览目检 (6) 若远场仍偏模糊：侧栏「离焦 (发送叠加)」开总开关，点「用推荐值」取「探测焦面」实测焦距（或手填焦距 + Zernike (2,0) 细调），该层经 `set_phase_overlay` 对**其后所有发送**自动叠加
 
 **路线 5 换光路**（v1.1 新增，3 步）：
 
@@ -247,7 +247,7 @@ SLM N 设置 [expander, expanded]        ← 工作条件
 
 | 项 | 文件 | 说明 |
 |---|---|---|
-| 5 | `bench_settings.py`（新） | 侧栏「本次实验光路」区块（实验级 A/B/C + 每 SLM 级 D/E）+ 三态 session 契约（`{prefix}_bench_{detected,manual,pending,effective}`）+ `bench_busy` + pending-flush 写值机制 + `calibrate_session` 调用 + 光路摘要卡 |
+| 5 | `bench_settings.py`（新） | 侧栏「CCD参数设置」区块（实验级 A/B/C + 每 SLM 级 D/E）+ 三态 session 契约（`{prefix}_bench_{detected,manual,pending,effective}`）+ `bench_busy` + pending-flush 写值机制 + `calibrate_session` 调用 + 光路摘要卡 |
 | 6 | `shaping_controls.py` | 抽 `with_slm_ownership(slm_num)`（停 toggle → 释放句柄 → `finally` 重连，全程置 `bench_busy`），`shaping_session` 改为其薄封装（语义不变）；`ShapingMethod` 拆 `render_objective` / `render_budget` / `render_advanced` 三钩子；主区固定八段顺序；校验区移到按钮之前；新增状态条 + 生效光路参数快照（写 session + `{save_dir}/params.json`）；上限放开 |
 | 7 | `multi_slm_controller.py` | 相机像元间距控件 /「探测」按钮 / `auto_check_camera_pixel_um` 告警整体搬进 `bench_settings` 并从「相机工具」删除；侧栏改调 `render_bench_settings()` |
 | 8 | `tests/ao_shaping/gui/slm/test_bench_settings.py`（新） | 37 项：session key 契约、pending-flush（含"必须抛异常而非吞掉"）、三态与恢复探测值、差异阈值、`WindowSize` 真值/兜底与缓存、曝光与步长校验、`bench_busy` 使控件 disabled、摘要卡、`geometry_region_mismatch`、`merge_bench_values` |

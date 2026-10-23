@@ -113,7 +113,7 @@ classDiagram
 | ----------------------- | ---------------------------------------------------------- |
 | multi_slm_controller.py | Streamlit 页面：设备发现、连接、相位控制、周期切换后台线程 |
 | pattern_controls.py     | 图案类型注册表 + 相位生成流水线（generate_phase_gray）     |
-| bench_settings.py       | 侧栏「本次实验光路」区块 + 三态（探测/人工）session 契约  |
+| bench_settings.py       | 侧栏「CCD参数设置」区块 + 三态（探测/人工）session 契约  |
 | shaping_controls.py     | 闭环整形主区：GS+SPGD 闭环 / 正向模型闭环（render_closed_loop_shaping） |
 | slm_calibration_ui.py   | 独立的 LUT 标定页面（不在本说明书范围）                    |
 
@@ -156,7 +156,7 @@ classDiagram
 | slm{N}_preview_colormap     | str             | 预览色图标签                |
 | slm{N}_preview_colormap_widget | str          | 预览色图 radio（widget 键）   |
 | available_slms              | list[dict]      | 设备发现缓存              |
-| camera_pixel_um             | float           | 相机像元间距（μm，全局；**已在「本次实验光路」区块内**，key 不变） |
+| camera_pixel_um             | float           | 相机像元间距（μm，全局；**已在「CCD参数设置」区块内**，key 不变） |
 | _cam_pixel_checked/mismatch/detected | bool/bool/float | 像素间距自动探测状态（一次性） |
 | bench_busy                  | bool            | 标定或闭环整形运行中（侧栏光路控件据此 disabled） |
 | bench_detected              | dict            | 实验级探测值（exposure_ms 等） |
@@ -627,7 +627,7 @@ flowchart LR
    `far_field_padding=3`、`phase_grid=12`、`epochs=12`、`seed=0`、`confirm_best` 开、
    `gs_method=plain`。验证结果：**flat 0.527 → plain GS 0.775 → SPGD best 0.780**
    （两次一致的交替重放）。⚠️ `cam_type` / `pupil_center` / `camera_pixel_um` 已不在主区，
-   改由侧栏「本次实验光路」提供（见 §8.1）。
+   改由侧栏「CCD参数设置」提供（见 §8.1）。
 
 2. **正向模型闭环整形（前沿）**：每轮用强随机探针重拟合正向模型的 Zernike 像差
    （Step A），再冻结该像差合成目标方斑相位（Step B），带 trust region 与逐轮验收。
@@ -644,7 +644,7 @@ flowchart LR
 > 运行结束时额外落盘 **`{save_dir}/params.json`** —— 本次运行**生效**的光路参数
 > （逐字段带 `detected` / `manual` / `unset` 三态标记）。
 
-### 8.1 侧栏「本次实验光路」（`bench_settings.py`）
+### 8.1 侧栏「CCD参数设置」（`bench_settings.py`）
 
 **一次实验 = 一条光路**。相机、读出窗口、曝光、载波，以及每台 SLM 的入射位置与几何，
 都在侧栏按「实验级 / 每 SLM 级」两层下沉到 `st.expander(..., expanded=False)`，

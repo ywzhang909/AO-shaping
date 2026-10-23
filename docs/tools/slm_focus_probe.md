@@ -24,7 +24,7 @@ graph TD
     CLI --> CCD
 ```
 
-GUI 入口为 `probe_session_focus`（侧栏「本次实验光路」D 组「探测焦面」按钮）。
+GUI 入口为 `probe_session_focus`（侧栏「CCD参数设置」D 组「探测焦面」按钮）。
 
 ## 3. 测量原理
 

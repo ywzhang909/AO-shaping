@@ -1,0 +1,63 @@
+{
+  "report": "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md",
+  "generator": "scripts/slm/generate_hw_gs_square_scans_report.py",
+  "run_root": "data/debug/hw_gs_square_scans/20261023_gs_square",
+  "log": "logs/gs_square_scan.log",
+  "files": {
+    "manifest.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json",
+      "sha256": "3090b0d16c7d48cd1059b5ff3ef520880f3cccb79c48f8087cac850800bc7751",
+      "bytes": 1406
+    },
+    "sides/measurements.csv": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.csv",
+      "sha256": "b322d506ad8619bd2a24db5c3d0c986330e6eebd745af62b1c7922b09e0dd01e",
+      "bytes": 7401
+    },
+    "sides/measurements.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/sides/measurements.json",
+      "sha256": "90b97baca727df32d99cb774368c58aededae2260c725d2106e2c3b978efb6a5",
+      "bytes": 18479
+    },
+    "sides/run_config.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/sides/run_config.json",
+      "sha256": "601a1c21b02e3e94c151539b4e376e54f97d7a2f1749ce6fd0d4221151a2ed78",
+      "bytes": 10275
+    },
+    "zernike/measurements.csv": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.csv",
+      "sha256": "343d98b58f0b9ba3110dff521534ddeebdb3b7c49285e1feffc2941f6d7710e4",
+      "bytes": 9131
+    },
+    "zernike/measurements.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/zernike/measurements.json",
+      "sha256": "4b53c4c42e6427141480d75804c3ab2a7ecb4f0c39b733ae22d351c36259bf70",
+      "bytes": 24277
+    },
+    "zernike/run_config.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/zernike/run_config.json",
+      "sha256": "44c5ff1cfed2cab628b4b750ee288b75f79d4a70b4f515eb5e72a6f6ab2e19c3",
+      "bytes": 24108
+    },
+    "blaze/measurements.csv": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.csv",
+      "sha256": "45e150c540a0e54de2222f8d86bc86a9658d37cd9fd1d8f208d7b825ff820698",
+      "bytes": 3860
+    },
+    "blaze/measurements.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/blaze/measurements.json",
+      "sha256": "2ff3b1d98560b399fcc4fc9c1090043ceca1758f9cacb31a89df3388ceab8019",
+      "bytes": 9665
+    },
+    "blaze/run_config.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_gs_square/blaze/run_config.json",
+      "sha256": "7e1f7d7a5befa6017fe942806051af0d9ce895a1a58c1460557bb315748442ba",
+      "bytes": 12405
+    },
+    "run.log": {
+      "source": "logs/gs_square_scan.log",
+      "sha256": "b0c912c1c92f7cf2d87a8014e8ff3546508ca1c210e9e0d23f4911fac8e629b9",
+      "bytes": 233254
+    }
+  }
+}

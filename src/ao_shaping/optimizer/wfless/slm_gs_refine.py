@@ -726,9 +726,7 @@ def resume_state_from_recorder(
         # 全幅零级位置: 下一块据此摆**同一个** ROI 窗口 (冻结 ROI 的前提)。
         # 没有它 (仿真路径 / 旧版交接文件) ⇒ 下一块照旧重新定位。
         "full_frame_center": (
-            None
-            if full_center is None
-            else (int(full_center[0]), int(full_center[1]))
+            None if full_center is None else (int(full_center[0]), int(full_center[1]))
         ),
         "best_score": float(recorder.best_score),
         "best_phase": np.asarray(recorder.best_phase_plain, dtype=np.float64),
@@ -879,7 +877,9 @@ class _RefineContext:
 
     def displayed_phase(self, phase: np.ndarray) -> np.ndarray:
         """The phase actually shown: plus the disturbance, plus the overlay."""
-        from ao_shaping.utils.wavefront.zero_order_overlay import apply_zero_order_overlay
+        from ao_shaping.utils.wavefront.zero_order_overlay import (
+            apply_zero_order_overlay,
+        )
 
         result = phase if self.disturbance is None else phase + self.disturbance
         return (
@@ -892,7 +892,9 @@ class _RefineContext:
         """Display a phase and return the measured frame."""
         memory_number = None
         if self.config.cam_type != "sim":
-            memory_number = self.work_slots[self.measurement_count % len(self.work_slots)]
+            memory_number = self.work_slots[
+                self.measurement_count % len(self.work_slots)
+            ]
             self.measurement_count += 1
         frame = display_and_average(
             self.cam,
@@ -1004,12 +1006,20 @@ def _resolve_daheng_ceiling(ctx: "_RefineContext") -> float:
             settle_max_discard=config.settle_max_discard,
             memory_number=ctx.work_slots[-1],
         )
-    ceiling = resolve_daheng_exposure_limit(camera=ctx.cam)
+    try:
+        ceiling = resolve_daheng_exposure_limit(camera=ctx.cam)
+    except ValueError as exc:
+        if "no ladder frame carries signal" in str(exc):
+            raise RuntimeError("入射光强不足：请检查光路/对准/激光出光") from exc
+        raise
     if config.exposure_time_ms > ceiling + 1e-9:
-        raise ValueError(
-            f"Daheng exposure_time_ms {config.exposure_time_ms} ms exceeds the "
-            f"resolved ceiling {ceiling} ms ({DAHENG_EXPOSURE_LIMIT_ENV} or probe)"
+        logger.warning(
+            "Daheng exposure_time_ms {} ms exceeds resolved ceiling {} ms; "
+            "clamping to ceiling",
+            config.exposure_time_ms,
+            ceiling,
         )
+        config.exposure_time_ms = ceiling
     # The probe left the camera at the last ladder step; re-arm the
     # working exposure before the first measurement.
     ctx.cam.reset_exposure_time(config.exposure_time_ms)
@@ -1086,9 +1096,11 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
                 slot = ctx.work_slots[blaze_probe_count % 2]
                 blaze_probe_count += 1
                 frame = display_and_average(
-                    ctx.cam, ctx.slm,
+                    ctx.cam,
+                    ctx.slm,
                     phase if ctx.disturbance is None else phase + ctx.disturbance,
-                    n_frames=1, settle_wait_s=config.settle_wait_s,
+                    n_frames=1,
+                    settle_wait_s=config.settle_wait_s,
                     settle_tol=config.settle_tol,
                     settle_max_wait_s=config.settle_max_wait_s,
                     settle_max_discard=config.settle_max_discard,
@@ -1098,36 +1110,57 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
                     raise RuntimeError("blaze CCD probe saturated; reduce exposure")
                 return frame
 
-            choice = select_blaze(
-                capture_blaze, panel_shape, target_side=ctx.target_side,
-                window_size=config.cam_size or ctx.target_side,
-                period_px=config.blaze_period_px,
-                direction=config.blaze_direction, flat_frame=discovery,
-            )
-            overlay = choice.params
-            ctx.overlay = overlay
-            ctx.blaze_choice = choice
-            if recorded_full_center is None:
-                full_x, full_y = choice.signal_xy
-            else:
-                # 冻结 ROI 优先于 blaze 的信号阶位置: 挪窗口就等于挪坐标系。
-                logger.warning(
-                    "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
-                    full_x,
-                    full_y,
+            try:
+                choice = select_blaze(
+                    capture_blaze,
+                    panel_shape,
+                    target_side=ctx.target_side,
+                    window_size=config.cam_size or ctx.target_side,
+                    period_px=config.blaze_period_px,
+                    direction=config.blaze_direction,
+                    flat_frame=discovery,
                 )
-            logger.info(
-                "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
-                overlay.blaze_period_px, overlay.blaze_direction, choice.zero_xy,
-                choice.signal_xy, choice.separation_px,
+                overlay = choice.params
+                ctx.overlay = overlay
+                ctx.blaze_choice = choice
+            except (RuntimeError, ValueError) as exc:
+                logger.warning("blaze calibration skipped: {}", exc)
+                ctx.overlay = None
+                ctx.blaze_choice = None
+            if ctx.overlay is not None:
+                if recorded_full_center is None:
+                    full_x, full_y = ctx.blaze_choice.signal_xy
+                else:
+                    logger.warning(
+                        "blaze 重新标定不挪动 ROI: 续跑块继续用记录的全幅零级位置 ({}, {})",
+                        full_x,
+                        full_y,
+                    )
+                logger.info(
+                    "measured blaze: period={} direction={} zero={} signal={} separation={:.1f}px",
+                    ctx.overlay.blaze_period_px,
+                    ctx.overlay.blaze_direction,
+                    ctx.blaze_choice.zero_xy,
+                    ctx.blaze_choice.signal_xy,
+                    ctx.blaze_choice.separation_px,
+                )
+        if ctx.overlay is not None:
+            full_frame_center = (int(full_x), int(full_y))
+        elif discovery is not None:
+            zy, zx = np.unravel_index(
+                int(np.argmax(discovery)), np.asarray(discovery).shape
             )
-        full_frame_center = (int(full_x), int(full_y))
-        signal_local_xy = (full_x, full_y)
+            full_frame_center = (int(zx), int(zy))
+        else:
+            full_frame_center = (0, 0)
+        signal_local_xy = full_frame_center
         ctx.signal_local_xy = signal_local_xy
         if config.cam_size > 0:
             half = config.cam_size // 2
             full_shape = (
-                discovery.shape if discovery is not None else _camera_frame_shape(ctx.cam)
+                discovery.shape
+                if discovery is not None
+                else _camera_frame_shape(ctx.cam)
             )
             if full_shape is not None and (
                 full_x - half < 0
@@ -1281,11 +1314,10 @@ def _stage_flat_baseline(ctx: _RefineContext) -> None:
         ctx.cv_mask = ctx.mask & ~core
         logger.info(
             "CV excludes {} zero-order pixels from {} target pixels",
-            int(core.sum()), int(ctx.mask.sum()),
+            int(core.sum()),
+            int(ctx.mask.sum()),
         )
-    score_flat = ctx.record(
-        _STAGE_FLAT, frame0, ctx.mask, flat_panel, cy=cy, cx=cx
-    )
+    score_flat = ctx.record(_STAGE_FLAT, frame0, ctx.mask, flat_panel, cy=cy, cx=cx)
     ctx.best_score = score_flat
     ctx.base_panel = flat_panel
     ctx.best_phase = flat_panel
@@ -1306,13 +1338,9 @@ def _stage_gs_warm_start(ctx: _RefineContext) -> None:
     gs_box = _gs_pupil_phase(config, ctx.radius_px, ctx.target_side)
     if gs_box is None:
         return
-    gs_panel = embed_pupil_square(
-        gs_box, ctx.panel_shape, ctx.radius_px, ctx.center_xy
-    )
+    gs_panel = embed_pupil_square(gs_box, ctx.panel_shape, ctx.radius_px, ctx.center_xy)
     gs_frame = ctx.measure(gs_panel)
-    score_gs = ctx.record(
-        _STAGE_GS, gs_frame, ctx.mask, gs_panel, cy=ctx.cy, cx=ctx.cx
-    )
+    score_gs = ctx.record(_STAGE_GS, gs_frame, ctx.mask, gs_panel, cy=ctx.cy, cx=ctx.cx)
     if score_gs > ctx.best_score:
         ctx.base_panel = gs_panel
         ctx.best_score = score_gs
@@ -1342,15 +1370,21 @@ def _stage_spgd_refine(ctx: _RefineContext) -> None:
 
     def phase_of(vec: np.ndarray) -> np.ndarray:
         return compose_pupil_dof(
-            ctx.base_panel, vec.reshape(grid, grid), ctx.panel_shape,
-            ctx.radius_px, ctx.center_xy,
+            ctx.base_panel,
+            vec.reshape(grid, grid),
+            ctx.panel_shape,
+            ctx.radius_px,
+            ctx.center_xy,
         )
 
     for epoch in range(ctx.epoch_offset, ctx.epoch_offset + max(1, ctx.chunk_count)):
         # Checked BEFORE spending an epoch: a budget that is already spent must
         # not buy another pair of far-field reads. The best phase/frame found so
         # far are kept -- an unfinished run is still a usable measurement.
-        if ctx.budget_s > 0.0 and (time.monotonic() - ctx.session_started) >= ctx.budget_s:
+        if (
+            ctx.budget_s > 0.0
+            and (time.monotonic() - ctx.session_started) >= ctx.budget_s
+        ):
             ctx.stopped_on_budget = True
             logger.info(
                 "Stage A 墙钟预算 {:.1f}s 已用尽: 在第 {} 个精化 epoch 前收工, "
@@ -1373,12 +1407,8 @@ def _stage_spgd_refine(ctx: _RefineContext) -> None:
         pos_timestamp = ctx.last_capture_utc
         frame_neg = ctx.measure(phase_neg)
         neg_timestamp = ctx.last_capture_utc
-        pos = _metrics(
-            frame_pos, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask
-        )[0]
-        neg = _metrics(
-            frame_neg, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask
-        )[0]
+        pos = _metrics(frame_pos, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask)[0]
+        neg = _metrics(frame_neg, ctx.mask, config.w_pib, config.w_unif, ctx.cv_mask)[0]
 
         take_pos = pos >= neg
         measured_phase = phase_pos if take_pos else phase_neg
@@ -1475,9 +1505,7 @@ def _run_gs_refine_session(
     A chunk resume (``config.resume_state``) skips the flat baseline and the GS
     warm start and continues from the previous chunk's end state instead.
     """
-    ctx = _prepare_refine_context(
-        config, slm, cam, recorder, rng, protected_slot
-    )
+    ctx = _prepare_refine_context(config, slm, cam, recorder, rng, protected_slot)
     if ctx.resume is not None:
         _apply_resume_state(ctx)
     else:
