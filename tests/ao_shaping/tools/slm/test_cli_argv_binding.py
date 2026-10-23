@@ -361,6 +361,7 @@ CASES: tuple[Case, ...] = (
             "--align-min-window", "96",
             "--exposure-ms", "2.4",
             "--settle-s", "0.5",
+            "--defocus-focal-mm", "1500.0",
         ),
     ),
     Case(

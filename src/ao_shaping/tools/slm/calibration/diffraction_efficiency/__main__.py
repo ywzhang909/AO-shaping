@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import csv
+import json
 import math
 from dataclasses import dataclass
 from pathlib import Path
@@ -269,7 +270,10 @@ class MeasureParams:
     settle_s: Annotated[float, option("--settle-s")] = 0.4
     pupil_center: Annotated[
         tuple[float, float],
-        option("--pupil-center", callback=parse_tuple),
+        # ⚠️ 必须显式 ``type=str``: ``option()`` 在有 callback 时**跳过**类型推断,
+        # 于是 click 自己按注解推 —— ``tuple[...]`` 会被推成 FLOAT, 然后拿默认值
+        # ``(960.0, 600.0)`` 去做 ``float(tuple)``, 命令在解析参数阶段就 TypeError。
+        option("--pupil-center", type=str, callback=parse_tuple),
     ] = (960.0, 600.0)
     pupil_radius: Annotated[int, option("--pupil-radius")] = 480
     defocus_focal_mm: Annotated[float, option("--defocus-focal-mm")] = float("inf")
@@ -281,18 +285,45 @@ class MeasureParams:
     strict_geometry: Annotated[
         bool, option("--strict-geometry/--no-strict-geometry")
     ] = True
+    focus_gate: Annotated[
+        bool, option("--focus-gate/--no-focus-gate")
+    ] = True
+    focus_fwhm_max_px: Annotated[
+        float | None, option("--focus-fwhm-max-px", type=float)
+    ] = None
+    focus_diopter_range: Annotated[
+        float, option("--focus-diopter-range")
+    ] = 6.0
+    focus_points: Annotated[int, option("--focus-points")] = 25
+    focus_refine: Annotated[int, option("--focus-refine")] = 7
+    focus_auto_defocus: Annotated[
+        bool, option("--focus-auto-defocus/--no-focus-auto-defocus")
+    ] = True
+    focus_only: Annotated[bool, option("--focus-only/--no-focus-only")] = False
+    command_min_gray: Annotated[
+        int | None, option("--gray-min", type=int)
+    ] = None
+    command_max_gray: Annotated[
+        int | None, option("--gray-max", type=int)
+    ] = None
 
 
 @click.command()
 @with_params(MeasureParams, kw_name="params")
 def measure(params: MeasureParams) -> None:
-    """在硬件上采集并拟合 (需要先有光路标定)。"""
+    """在硬件上采集并拟合 (需要先有光路标定)。
+
+    默认**先做焦面判定再测量**: 扫描前上下扫 1/f 找到最佳离焦补偿, 判最佳点的
+    零级 FWHM; 不合格即以非零退出码拒绝, 只留下 ``focus_sweep.csv/png`` 两份
+    诊断产物, **不写任何测量数据**。``--focus-only`` 可以只做这一步。
+    """
     from ao_shaping.tools.slm.calibration.diffraction_efficiency.artifacts import (
         plot_efficiency,
         write_measurements_csv,
         write_summary_json,
     )
     from ao_shaping.tools.slm.calibration.diffraction_efficiency.measure import (
+        FocusRefusedError,
         MeasurementConfig,
         run_measurement,
     )
@@ -319,9 +350,36 @@ def measure(params: MeasureParams) -> None:
         fwhm_gate_ratio=float(params.fwhm_gate_ratio),
         save_frames=bool(params.save_frames),
         strict_geometry=bool(params.strict_geometry),
+        focus_gate=bool(params.focus_gate),
+        focus_fwhm_max_px=params.focus_fwhm_max_px,
+        focus_diopter_range=float(params.focus_diopter_range),
+        focus_points=int(params.focus_points),
+        focus_refine=int(params.focus_refine),
+        focus_auto_defocus=bool(params.focus_auto_defocus),
+        focus_only=bool(params.focus_only),
+        command_min_gray=params.command_min_gray,
+        command_max_gray=params.command_max_gray,
     )
-    result = run_measurement(config)
+    try:
+        result = run_measurement(config)
+    except FocusRefusedError as exc:
+        # 刻意不写任何测量产物: 离焦的扫描看着正常, 却会把相位深度抬高
+        # 约 11%, 宁可空跑一轮也不要留下会被后人引用的错数据。
+        raise click.ClickException(str(exc)) from exc
+
     out_dir = Path(params.out_dir)
+    if params.focus_only:
+        logger.info(
+            "焦面判定结果: {}",
+            json.dumps(result.meta.get("focus_gate", {}), ensure_ascii=False, default=str),
+        )
+        logger.info(
+            "--focus-only: 只写了 {} / {}, 未做效率扫描",
+            out_dir / "focus_sweep.csv",
+            out_dir / "focus_sweep.png",
+        )
+        return
+
     out_dir.mkdir(parents=True, exist_ok=True)
     csv_path = write_measurements_csv(
         out_dir / "measurements.csv", result.points, result.fit

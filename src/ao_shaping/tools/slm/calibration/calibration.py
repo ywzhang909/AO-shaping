@@ -1832,6 +1832,12 @@ class SLMCCDCalibrator:
         self.panel_res = slm.Panel_Res[::-1]
         self.settle_s = settle_s
         self.calib: dict | None = None
+        #: 叠加到每一次上屏的菲涅尔离焦补偿相位 (None = 不补偿)。
+        #: 相机不在焦面时, 0 级光斑会摊开成几百像素的一团, 质心/FWHM/±1 级
+        #: 定位全部失真, 几何标定会解出 nan (实测 2026-10-23: FWHM 983 px →
+        #: ``K`` 为 NaN → ``calibrate()`` 崩在 ``int(nan)``)。见
+        #: :meth:`set_defocus_compensation`。
+        self._defocus_phase: np.ndarray | None = None
 
     # ------------------------------------------------------------ 底层工具
     @staticmethod
@@ -1865,7 +1871,55 @@ class SLMCCDCalibrator:
         row = img[min(max(cy, 0), h - 1), :]
         return 0.5 * (self._fwhm1d(col) + self._fwhm1d(row))
 
+    def set_defocus_compensation(
+        self,
+        focal_mm: float,
+        *,
+        radius_px: int = 480,
+        centre_px: tuple[int, int] | None = None,
+        wavelength_nm: float = 1064.0,
+    ) -> None:
+        """给每一次上屏叠加菲涅尔离焦补偿 (相机不在焦面时必需)。
+
+        本实验系统的 CCD 停在一个固定的离焦面上, 未补偿时 0 级光斑 FWHM 可达
+        数百 px, 而 ``align`` 与 ``calibrate`` 全靠 0 级质心与 ±1 级落点:
+        光斑一糊, 质心就不可信, 于是 ``K`` 解出 ``nan``。补偿之后 0 级
+        FWHM 约 13~15 px (2026-10-23 实测 983 px → 13.0 px), 各阶段恢复。
+
+        Args:
+            focal_mm: 补偿焦距 (mm)。``inf`` = 取消补偿。
+            radius_px: 补偿作用区半径 (面板 px), 应覆盖照明区。
+            centre_px: 补偿作用区中心 (面板 px, x/y); None = 面板几何中心。
+            wavelength_nm: 工作波长 (nm)。
+
+        ⚠️ 焦距必须先用 ``measure --focus-only`` 之类的焦面扫描量出来, 不要
+        凭公式猜: 相机面相对 2f 焦面的偏移决定了它, 与标称焦距无关。
+        """
+        if not math.isfinite(float(focal_mm)):
+            self._defocus_phase = None
+            return
+        from ao_shaping.tools.kernels.bench_kernels import fresnel_panel
+
+        h, w = int(self.panel_res[0]), int(self.panel_res[1])
+        centre = (
+            (w // 2, h // 2)
+            if centre_px is None
+            else (int(centre_px[0]), int(centre_px[1]))
+        )
+        self._defocus_phase = np.asarray(
+            fresnel_panel(
+                float(focal_mm),
+                radius=int(radius_px),
+                pupil_center=centre,
+                panel_shape=(h, w),
+                wavelength_nm=float(wavelength_nm),
+            ),
+            dtype=np.float32,
+        )
+
     def _show(self, phase: np.ndarray):
+        if self._defocus_phase is not None:
+            phase = phase + self._defocus_phase
         self.slm.display_phase(phase)
         time.sleep(self.settle_s)
 
@@ -2774,6 +2828,17 @@ class GeometryCalibParams:
     settle_s: Annotated[
         float, option("--settle-s", show_default=True, help="SLM显示稳定等待(s)")
     ] = 0.2
+    defocus_focal_mm: Annotated[
+        float,
+        option(
+            "--defocus-focal-mm",
+            show_default=True,
+            help=(
+                "菲涅尔离焦补偿焦距(mm); 相机不在焦面时必填 —— 否则 0 级糊成"
+                "几百像素、K 解出来是 NaN。先跑 `measure --focus-only` 拿 best_focal_mm"
+            ),
+        ),
+    ] = float("inf")
 
 
 @click.command(context_settings=dict(help_option_names=["-h", "--help"]))
@@ -2782,6 +2847,12 @@ def main(params: GeometryCalibParams) -> None:
     """SLM+CCD 几何标定工具: 装配 -> 光束位置 -> 几何标定 -> 验证."""
     with Santec() as slm, DahengCamera(exposure_time_ms=params.exposure_ms) as ccd:
         geo = SLMCCDCalibrator(slm, ccd, settle_s=params.settle_s)
+        if math.isfinite(float(params.defocus_focal_mm)):
+            geo.set_defocus_compensation(float(params.defocus_focal_mm))
+            logger.info(
+                "离焦补偿已启用: 焦距 {} mm (相机不在焦面时必需)",
+                params.defocus_focal_mm,
+            )
 
         # ---------- 仅验证 ----------
         if params.verify_only:

@@ -239,6 +239,50 @@ class TestOrderDetection:
         # 一级总能量 40, 零级 100 → r1 ≈ 0.29 (不是"旁瓣"给出的 0.66)
         assert measurement.eta_plus_total == pytest.approx(40.0 / 140.0, rel=0.15)
 
+    def test_one_side_only_and_a_self_split_zero_order_still_measures(self) -> None:
+        """回归 (2026-10-23 台架实测): 闪耀光栅只有 **+1** 级, 且零级自己会分成
+        几个局部极大。此前的两处判据会同时失效:
+
+        1. "锚点 → 最亮旁斑"取方向时, 最亮的"旁斑"其实是**零级自己的次极大**
+           (实测距中心 9px), 于是方向指向零级旁瓣方向, 真正的 +1 级
+           (在 −行 235px) 投影到 ~0 而被整条丢掉;
+        2. 窗口内按"最接近预测间距"挑, 会挑到同一条 +1 光斑里最弱的那个次峰。
+
+        现象: ``η0`` 恒等于 1.000 (低调制端整段作废)。修法: 锚点自身光斑内
+        (``ANCHOR_CORE_FRACTION``) 的峰不参与方向判定; 窗口内取**最亮**者。
+        """
+        size = 560
+        center = (300.0, 280.0)
+        separation = 235.0
+        yy, xx = np.mgrid[0:size, 0:size]
+        frame = np.zeros((size, size), dtype=np.float64)
+        # 零级: 一个宽斑, 内部两个相距 12px 的极大 (实测就是这样)
+        frame += 100.0 * np.exp(
+            -((yy - center[0]) ** 2 + (xx - (center[1] - 6.0)) ** 2) / (2 * 5.0**2)
+        )
+        frame += 95.0 * np.exp(
+            -((yy - center[0]) ** 2 + (xx - (center[1] + 6.0)) ** 2) / (2 * 5.0**2)
+        )
+        # 只有 +1 级 (锯齿光栅在 Δφ→2π 时 −1 级消失), 沿**行**负方向
+        frame += 35.0 * np.exp(
+            -((yy - (center[0] - separation)) ** 2 + (xx - center[1]) ** 2)
+            / (2 * 5.0**2)
+        )
+        measurement = measure_orders(
+            frame,
+            expected_center=center,
+            predicted_separation_px=separation,
+        )
+        assert measurement.plus_one is not None
+        assert measurement.minus_one is None
+        assert measurement.separation_px == pytest.approx(separation, rel=0.05)
+        assert measurement.eta_plus_total is not None
+        assert measurement.eta_plus_total > 0.0
+        # 零级不再被当成"全部能量" (此前 η0 恒为 1.000, 低调制端整段作废)。
+        assert 0.0 < measurement.eta_zero < 1.0
+        # 归一化是"三者和", 所以两者必须互补。
+        assert measurement.eta_zero + measurement.eta_plus_total == pytest.approx(1.0)
+
     def test_a_point_without_visible_orders_reports_zero_efficiency(self) -> None:
         """深度太浅时一级衍射不可见 —— 本点一级效率应记 0 (正确读数, 不是失败)。"""
         size = 512
@@ -855,3 +899,246 @@ class TestHardwareContract:
         )
         with pytest.raises((RuntimeError, FileNotFoundError)):
             module.run_measurement(config)
+
+
+# ---------------------------------------------------------------------------
+# 前置焦面判定: 先判在焦, 再测量
+# ---------------------------------------------------------------------------
+
+
+def _focus_point(*, diopter: float, fwhm: float, status: str = "ok"):
+    from ao_shaping.tools.slm.panel.focus_probe import FocusPoint
+
+    focal_mm = float("inf") if abs(diopter) < 1e-12 else 1000.0 / float(diopter)
+    return FocusPoint(
+        diopter_m1=float(diopter),
+        focal_mm=focal_mm,
+        exposure_ms=1.0,
+        peak=100.0,
+        peak_fraction=0.5,
+        peak_per_ms=100.0,
+        fwhm_px=float(fwhm),
+        hollowness=0.1,
+        status=status,
+    )
+
+
+def _focus_result(points, best=None, *, blocked: bool = False, reason: str = ""):
+    from ao_shaping.tools.slm.panel.focus_probe import FocusProbeResult
+
+    return FocusProbeResult(
+        points=tuple(points),
+        best=best,
+        best_focal_mm=(best.focal_mm if best is not None else None),
+        best_diopter_m1=(best.diopter_m1 if best is not None else None),
+        gain_vs_flat=None,
+        linearity_ratio=None,
+        range_m1=(-6.0, 6.0),
+        exposure_bounds_ms=(0.02, 20.0),
+        notes=(),
+        path_blocked=blocked,
+        blockage_reason=reason,
+    )
+
+
+class TestFocusPreflight:
+    """``judge_focus`` 是"拒绝测量"的唯一判据, 必须离线可测。"""
+
+    def test_a_narrow_best_point_authorises_the_measurement(self) -> None:
+        from ao_shaping.tools.slm.panel.focus_probe import judge_focus
+
+        best = _focus_point(diopter=0.62, fwhm=15.2)
+        verdict = judge_focus(_focus_result([best], best), fwhm_max_px=40.0)
+        assert verdict.ok
+        assert verdict.kind == "ok"
+        assert verdict.best_fwhm_px == pytest.approx(15.2)
+        assert verdict.best_focal_mm == pytest.approx(1000.0 / 0.62)
+        assert "在焦" in verdict.verdict
+
+    def test_a_blurred_best_point_refuses(self) -> None:
+        from ao_shaping.tools.slm.panel.focus_probe import judge_focus
+
+        best = _focus_point(diopter=0.0, fwhm=71.3)
+        verdict = judge_focus(_focus_result([best], best), fwhm_max_px=40.0)
+        assert not verdict.ok
+        assert verdict.kind == "not_in_focus"
+        assert "拒绝测量" in verdict.verdict
+        assert "71.3" in verdict.reason
+
+    def test_the_threshold_is_inclusive(self) -> None:
+        from ao_shaping.tools.slm.panel.focus_probe import judge_focus
+
+        best = _focus_point(diopter=0.6, fwhm=40.0)
+        assert judge_focus(_focus_result([best], best), fwhm_max_px=40.0).ok
+
+    def test_no_usable_point_refuses(self) -> None:
+        from ao_shaping.tools.slm.panel.focus_probe import judge_focus
+
+        verdict = judge_focus(_focus_result([], None), fwhm_max_px=40.0)
+        assert verdict.kind == "not_in_focus"
+        assert verdict.best_fwhm_px is None
+        assert "没有可用测点" in verdict.reason
+
+    def test_a_blocked_path_is_a_separate_fault(self) -> None:
+        from ao_shaping.tools.slm.panel.focus_probe import judge_focus
+
+        verdict = judge_focus(
+            _focus_result([], None, blocked=True, reason="光没到相机"),
+            fwhm_max_px=40.0,
+        )
+        assert verdict.kind == "blocked"
+        assert "光路受阻" in verdict.verdict
+        assert verdict.reason == "光没到相机"
+
+
+class TestRawGrayConversion:
+    """原始灰度路径的包裹点: 叠加离焦补偿后必须绕回, 不能被削平。"""
+
+    def test_phase_to_gray_wraps_instead_of_clipping(self) -> None:
+        from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
+            phase_to_gray,
+        )
+
+        gray = phase_to_gray(np.array([[2.0 * math.pi + 1.0]]), 993)
+        # 1.0 rad 折成灰度 ≈ 993/(2π) ≈ 158; 不包裹的实现会夹成 993。
+        assert int(gray.ravel()[0]) == pytest.approx(round(993 / (2 * math.pi)), abs=1)
+
+    def test_phase_to_gray_matches_blaze_gray_for_a_plain_ramp(self) -> None:
+        from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
+            phase_to_gray,
+        )
+
+        spec = BlazeSpec(period_px=16, axis="x", depth_rad=math.pi)
+        phase = blaze_phase(spec, (8, 16))
+        assert np.array_equal(phase_to_gray(phase, 993), blaze_gray(spec, (8, 16), 993))
+
+    def test_extra_phase_wraps_and_keeps_the_ramp_depth(self) -> None:
+        spec = BlazeSpec(period_px=16, axis="x", depth_rad=2.0 * math.pi)
+        extra = np.full((8, 16), 1.0)
+        gray_extra = blaze_gray(spec, (8, 16), 993, extra_phase_rad=extra)
+        gray_plain = blaze_gray(spec, (8, 16), 993)
+
+        # 期望值 = 斜坡相位 + 1.0 rad 后**按 2π 绕回**再标度。
+        # 斜坡约定: 第 j 个像元 (1..P) 取 depth·j/P, 所以最后一格正好等于 2π。
+        j = np.arange(1, 17, dtype=np.float64) / 16.0
+        expected = np.rint(
+            np.mod(j * 2.0 * math.pi + 1.0, 2.0 * math.pi) / (2.0 * math.pi) * 993.0
+        ).astype(np.uint16)
+        assert np.array_equal(gray_extra[0], expected)
+
+        # 关键判据: 不包裹的实现会把接缝夹成 993 的平顶, 有效深度被削掉一截。
+        assert not np.array_equal(gray_extra, gray_plain)
+        assert int(gray_extra.max()) <= 993
+        assert not np.any(gray_extra == 993)
+        # 斜坡的 16 级台阶必须全部保留 (削平会少掉若干级)。
+        assert len(np.unique(gray_extra)) == 16
+
+    def test_extra_phase_shape_mismatch_is_rejected(self) -> None:
+        spec = BlazeSpec(period_px=16, axis="x", depth_rad=math.pi)
+        with pytest.raises(ValueError, match="extra_phase_rad"):
+            blaze_gray(spec, (8, 16), 993, extra_phase_rad=np.zeros((4, 4)))
+
+
+class TestPreflightConfig:
+    def _measure_module(self):
+        return importlib.import_module(
+            "ao_shaping.tools.slm.calibration.diffraction_efficiency.measure"
+        )
+
+    def test_the_gate_is_on_by_default(self, tmp_path: Path) -> None:
+        module = self._measure_module()
+        config = module.MeasurementConfig(
+            calibration_path=tmp_path / "calib.npz", out_dir=tmp_path / "out"
+        )
+        assert config.focus_gate is True
+        assert config.focus_auto_defocus is True
+        assert config.focus_fwhm_max_px is None
+        assert module.DEFAULT_FOCUS_FWHM_MAX_PX == pytest.approx(40.0)
+
+    def test_too_few_focus_points_are_rejected(self, tmp_path: Path) -> None:
+        module = self._measure_module()
+        with pytest.raises(ValueError, match="focus_points"):
+            module.MeasurementConfig(
+                calibration_path=tmp_path / "calib.npz",
+                out_dir=tmp_path / "out",
+                focus_points=2,
+            )
+
+    def test_a_non_positive_fwhm_threshold_is_rejected(self, tmp_path: Path) -> None:
+        module = self._measure_module()
+        with pytest.raises(ValueError, match="focus_fwhm_max_px"):
+            module.MeasurementConfig(
+                calibration_path=tmp_path / "calib.npz",
+                out_dir=tmp_path / "out",
+                focus_fwhm_max_px=0.0,
+            )
+
+    def test_focus_only_does_not_need_the_geometry_calibration(
+        self, tmp_path: Path
+    ) -> None:
+        """焦面扫描不用 Kx/Ky, 所以重新标定前也能先判在焦。"""
+        module = self._measure_module()
+        missing = tmp_path / "no_such_calib.npz"
+        focus_only = module.MeasurementConfig(
+            calibration_path=missing, out_dir=tmp_path / "a", focus_only=True
+        )
+        assert module.calibration_is_required(focus_only) is False
+        # 正式扫描 (需要 ±1 级落点预测) 仍然必须已有标定。
+        full_run = module.MeasurementConfig(
+            calibration_path=missing, out_dir=tmp_path / "b"
+        )
+        assert module.calibration_is_required(full_run) is True
+
+
+class TestMeasureCliSurface:
+    def test_help_lists_the_preflight_flags(self) -> None:
+        from click.testing import CliRunner
+
+        module = importlib.import_module(
+            "ao_shaping.tools.slm.calibration.diffraction_efficiency.__main__"
+        )
+        result = CliRunner().invoke(module.main, ["measure", "--help"])
+        assert result.exit_code == 0, result.output
+        for flag in (
+            "--focus-gate",
+            "--focus-fwhm-max-px",
+            "--focus-diopter-range",
+            "--focus-points",
+            "--focus-refine",
+            "--focus-auto-defocus",
+            "--focus-only",
+        ):
+            assert flag in result.output
+
+    def test_measure_command_parses_the_pupil_center_option(
+        self, tmp_path: Path
+    ) -> None:
+        """``--pupil-center`` 必须是字符串类型 + ``parse_tuple`` 回调。
+
+        历史缺陷: 注解写成 ``tuple[float, float]`` 时 click 把类型推成 FLOAT,
+        于是拿默认值 ``(960.0, 600.0)`` 去做 ``float(...)``, 命令在**解析参数**
+        阶段就 TypeError 崩掉 —— 也就是说这个命令以前从未真正从 CLI 跑过。
+        """
+        from click.testing import CliRunner
+
+        module = importlib.import_module(
+            "ao_shaping.tools.slm.calibration.diffraction_efficiency.__main__"
+        )
+        result = CliRunner().invoke(
+            module.main,
+            [
+                "measure",
+                "--calibration",
+                str(tmp_path / "no_such_calib.npz"),
+                "--out-dir",
+                str(tmp_path / "out"),
+                "--pupil-center",
+                "960,600",
+            ],
+        )
+        # 缺标定必须**按契约**失败 (RuntimeError/FileNotFoundError/ClickException),
+        # 而不是参数解析阶段的 TypeError。注意**不能**加 ``--focus-only``: 那条路
+        # 故意绕过标定前置条件, 会真的去开设备。
+        assert result.exit_code != 0
+        assert "float() argument" not in result.output
+

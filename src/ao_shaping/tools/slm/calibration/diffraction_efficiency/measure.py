@@ -13,15 +13,30 @@
 ``"gray"`` (默认) —— **器件本征表征**:
     灰度图**直接**写进 SLM 内存, 绕开驱动的 弧度→灰度 管线 (波前矫正图 /
     相位 LUT / 平移 / 底相位)。命令轴是灰度值本身, 拟合出的 Δφ_max 是器件
-    在该灰度下的**真实**相位深度。代价: 这条路径上无法叠加菲涅尔离焦补偿
-    (补偿是弧度量, 折回灰度必须由驱动完成, 而驱动管线正是本模式要绕开的),
-    因此本模式下给了有限焦距会告警并忽略。
+    在该灰度下的**真实**相位深度。菲涅尔离焦补偿在这条路径上由
+    :func:`core.blaze_gray` 的 ``extra_phase_rad`` 叠加 (弧度量先加成、再经
+    :func:`core.phase_to_gray` 按 ``2π = max_gray`` 包裹成灰度), 因此本模式
+    **也能**在离焦的相机上测量 —— 但补偿项同样落在器件非线性的灰度→相位上,
+    实际成焦效果由前置的焦面扫描自己验证 (扫不出够窄的光斑就拒绝测量)。
 
 ``"phase"`` —— **命令弧度链路核对**:
     图案以**弧度**生成 (raw 未包裹), 再经
     :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale` 交给驱动
     管线 (矫正 / LUT / 平移 / mod 2π)。测的是"命令弧度 → 器件实际相位"这条
     链路, 不是器件本征。
+
+先判在焦, 再测量
+----------------
+本实验系统上的 CCD 并**不**在焦面上, 离焦会把拟合出的相位深度抬高约 11%
+(见 ``report/slm/diffraction_efficiency/sim_nonideality_20261022.md``), 而在
+一次全量扫描里"事后"才发现离焦等于白测一轮。所以 ``focus_gate=True`` 时:
+
+1. 先跑 :func:`ao_shaping.tools.slm.panel.focus_probe.sweep_focus` 找最佳
+   离焦补偿 (上下扫 1/f), 写 ``focus_sweep.csv`` / ``focus_sweep.png``;
+2. :func:`~ao_shaping.tools.slm.panel.focus_probe.judge_focus` 判最佳点的
+   零级 FWHM 是否 ≤ 门限;
+3. **不在焦 ⇒ 抛** :class:`FocusRefusedError`, 只留下焦面诊断产物, **一个
+   测量点都不写**; 在焦 ⇒ (可选) 自动采用最佳焦距作补偿, 然后开始扫描。
 
 光路标定是前置条件
 ------------------
@@ -56,25 +71,50 @@ from ao_shaping.tools.slm.calibration.diffraction_efficiency.core import (
     diagnose,
     evaluate_fwhm_gate,
     fit_phase_response,
+    phase_to_gray,
     run_sweep,
+)
+from ao_shaping.tools.slm.panel.focus_probe import (
+    FocusProbeResult,
+    FocusVerdict,
+    judge_focus,
+    sweep_focus,
 )
 from ao_shaping.utils.image.beam_metrics import prepare_frame
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 __all__ = [
+    "DEFAULT_FOCUS_FWHM_MAX_PX",
+    "FocusRefusedError",
     "MeasurementConfig",
     "MeasurementResult",
+    "calibration_is_required",
     "run_measurement",
 ]
 
 #: 零级中心相对光路标定中心的最大允许漂移 (CCD 像素)。超过即认为标定已过期。
 GEOMETRY_DRIFT_TOL_PX: float = 40.0
 
+#: 在焦判定的默认 FWHM 门限 (CCD 像素)。本实验系统实测: 在焦零级 FWHM
+#: 15.2 px, 未补偿的离焦光斑 71.3 px, 所以 40 px 明确落在两者之间。
+#: 出处 ``report/slm/differentiable_opt/focus_gate_verification_20261022.md``。
+DEFAULT_FOCUS_FWHM_MAX_PX: float = 40.0
+
 #: 零级峰值占满量程的比例上限 (超过即过曝, 效率会被严重低估)。
 SATURATION_WARN_FRACTION: float = 0.8
 
 #: 光路标定里必须存在的键 (缺一即拒绝继续)。
 REQUIRED_CALIBRATION_KEYS: tuple[str, ...] = ("center", "Kx", "Ky")
+
+
+class FocusRefusedError(RuntimeError):
+    """前置焦面判定认为**不在焦**, 拒绝测量。
+
+    抛出时只写过 ``focus_sweep.csv`` / ``focus_sweep.png`` 两份诊断产物,
+    **没有**任何测量数据落盘 —— 这是刻意的: 离焦的扫描结果看着正常,
+    却会把相位深度抬高约 11% (见仿真报告), 宁可空跑一轮也不要留下
+    一份会被后人不加怀疑地引用的数据。
+    """
 
 
 @dataclass(frozen=True)
@@ -112,6 +152,22 @@ class MeasurementConfig:
             参照值这么多倍的点, 其相位深度读数被截断失真 ⇒ 从拟合里剔除。
         save_frames: 是否把每个扫描点的原始帧存成 ``.npz``。
         strict_geometry: 几何标定失配时是否直接失败 (True) 还是只告警。
+        focus_gate: 是否在扫描前先做焦面判定 (默认 True)。
+        focus_fwhm_max_px: 在焦门限 (零级 FWHM, CCD 像素)。None = 用
+            :data:`DEFAULT_FOCUS_FWHM_MAX_PX`。
+        focus_diopter_range: 焦面扫描的 1/f 半宽 (m^-1)。
+        focus_points: 焦面扫描的粗扫点数 (≥ 3)。
+        focus_refine: 找到最佳点后在其邻域内细扫的点数。
+        focus_frames / focus_discard: 焦面扫描每点平均帧数 / 丢弃帧数。
+        focus_auto_defocus: 判定在焦后, 若 ``defocus_focal_mm`` 是 ``inf``
+            则自动采用最佳焦距作补偿。
+        focus_only: 只做焦面判定, 不做扫描 (CLI ``--focus-only``)。
+        command_min_gray / command_max_gray: 灰度模式下的**原始灰度**扫描区间
+            (含两端)。None = ``0`` / 设备读到的 2π 灰度 (``slm._max_gray``)。
+            ⚠️ 器件的 2π 灰度**不是**准的: 1064 nm 标称 993, 但真实值随温度/
+            波长/LUT 漂移, 而"转移能量最多"的点正是真实 2π 处。所以找最优点
+            时必须把上界放到硬件满量程 (``--gray-max 1023``), 不能停在标称值
+            上 —— 否则曲线会在标称值处仍在单调上升, 最优点根本没被扫到。
     """
 
     calibration_path: Path
@@ -135,6 +191,17 @@ class MeasurementConfig:
     fwhm_gate_ratio: float = 3.0
     save_frames: bool = False
     strict_geometry: bool = True
+    focus_gate: bool = True
+    focus_fwhm_max_px: float | None = None
+    focus_diopter_range: float = 6.0
+    focus_points: int = 25
+    focus_refine: int = 7
+    focus_frames: int = 3
+    focus_discard: int = 2
+    focus_auto_defocus: bool = True
+    focus_only: bool = False
+    command_min_gray: int | None = None
+    command_max_gray: int | None = None
 
     def __post_init__(self) -> None:
         if str(self.mode).strip().lower() not in ("gray", "phase"):
@@ -151,6 +218,26 @@ class MeasurementConfig:
             raise ValueError(f"frames 必须 >= 1, 得到 {self.frames}")
         if int(self.discard) < 0:
             raise ValueError(f"discard 不能为负, 得到 {self.discard}")
+        if self.focus_fwhm_max_px is not None and float(self.focus_fwhm_max_px) <= 0:
+            raise ValueError(
+                f"focus_fwhm_max_px 必须 > 0, 得到 {self.focus_fwhm_max_px}"
+            )
+        if int(self.focus_points) < 3:
+            raise ValueError(
+                f"focus_points 必须 >= 3 (抛物线顶点至少需要 3 点), 得到 {self.focus_points}"
+            )
+        if float(self.focus_diopter_range) <= 0:
+            raise ValueError(
+                f"focus_diopter_range 必须 > 0, 得到 {self.focus_diopter_range}"
+            )
+        lo = 0 if self.command_min_gray is None else int(self.command_min_gray)
+        hi = None if self.command_max_gray is None else int(self.command_max_gray)
+        if lo < 0:
+            raise ValueError(f"command_min_gray 不能为负, 得到 {lo}")
+        if hi is not None and hi <= lo:
+            raise ValueError(
+                f"command_max_gray ({hi}) 必须大于 command_min_gray ({lo})"
+            )
 
 
 @dataclass(frozen=True)
@@ -158,14 +245,14 @@ class MeasurementResult:
     """一次实验扫描的完整结果。
 
     Attributes:
-        points: 扫描点 (逐点命令、能量、效率、几何残差)。
-        fit: 相位响应拟合结果。
+        points: 扫描点 (逐点命令、能量、效率、几何残差)。``--focus-only`` 时为空。
+        fit: 相位响应拟合结果。``--focus-only`` 时为 None (只做了焦面判定)。
         diagnosis: 光路与器件体检结论 (来自 :func:`core.diagnose`)。
-        meta: 可 JSON 序列化的元数据 (设备、标定、几何核对)。
+        meta: 可 JSON 序列化的元数据 (设备、标定、几何核对、焦面判定)。
     """
 
     points: list[SweepPoint]
-    fit: PhaseResponseFit
+    fit: PhaseResponseFit | None
     diagnosis: dict
     meta: dict
 
@@ -269,6 +356,18 @@ def _fmt_opt(value: Any, digits: int = 4) -> str:
 # ---------------------------------------------------------------------------
 
 
+def calibration_is_required(config: MeasurementConfig) -> bool:
+    """本次运行是否必须已有光路标定。
+
+    ``--focus-only`` 只做焦面扫描, 不用 ``Kx``/``Ky`` (那是"±1 级落在哪"的
+    问题), 所以它**不**被缺失的标定挡住 —— 否则"先判在焦"在刚重新标定之前
+    根本跑不了, 而恰恰那时最需要确认焦面。其余情况一律要求标定。
+    """
+    if config.focus_only and not Path(config.calibration_path).exists():
+        return False
+    return True
+
+
 def run_measurement(config: MeasurementConfig) -> MeasurementResult:
     """跑完一整条实验扫描: 读光路标定 → 前置检查 → 扫描 → 拟合 → 诊断。
 
@@ -286,19 +385,32 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
     axis = str(config.axis).strip().lower()
 
     # --- 光路标定 (前置条件) -------------------------------------------
-    calib = _load_calibration(config.calibration_path)
-    calib_center = _calib_center(calib)
-    k_scale = _k_scale(calib, axis)
-    predicted_separation = k_scale / float(config.period_px)
-    logger.info(
-        "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
-        config.calibration_path,
-        float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
-        float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
-        calib_center[0],
-        calib_center[1],
-        predicted_separation,
-    )
+    # ``--focus-only`` 只做焦面扫描, 不用 Kx/Ky (那是"±1 级落在哪"的问题),
+    # 所以它**不**该被缺失的标定挡住 —— 否则"先判在焦"这一步在刚重新标定
+    # 之前根本跑不了, 而恰恰那时最需要确认焦面。
+    if not calibration_is_required(config):
+        logger.warning(
+            "--focus-only: 跳过光路标定前置条件 (焦面扫描不需要 Kx/Ky): {}",
+            config.calibration_path,
+        )
+        calib: dict[str, Any] = {}
+        calib_center = (float("nan"), float("nan"))
+        k_scale = float("nan")
+        predicted_separation = float("nan")
+    else:
+        calib = _load_calibration(config.calibration_path)
+        calib_center = _calib_center(calib)
+        k_scale = _k_scale(calib, axis)
+        predicted_separation = k_scale / float(config.period_px)
+        logger.info(
+            "光路标定 {}: Kx={:.2f} Ky={:.2f} 中心=({:.1f}, {:.1f}) → 预期间距 {:.2f}px",
+            config.calibration_path,
+            float(np.asarray(calib["Kx"], dtype=np.float64).ravel()[0]),
+            float(np.asarray(calib["Ky"], dtype=np.float64).ravel()[0]),
+            calib_center[0],
+            calib_center[1],
+            predicted_separation,
+        )
 
     out_dir = Path(config.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -348,12 +460,139 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
         pupil_center = (int(config.pupil_center[0]), int(config.pupil_center[1]))
         pupil_radius = int(config.pupil_radius)
 
-        # 离焦补偿只在 phase 模式生效 (见模块 docstring): 灰度模式绕开了驱动的
-        # 弧度→灰度 管线, 补偿折不回灰度。
-        use_defocus = mode == "phase" and math.isfinite(float(config.defocus_focal_mm))
+        slot_rotator = SlotRotator(slm)
+        captured: list[np.ndarray] = []
+
+        def phase_to_display(phase_rad: np.ndarray) -> np.ndarray:
+            """弧度相位 → 本模式**实际下发**的灰度图。
+
+            前置焦面扫描与正式扫描必须走**同一条**转换: 若前置用驱动管线找
+            焦距、正式扫描却用原始灰度写, 两种路径的器件非线性不同, 扫出来
+            的"在焦"在正式扫描里并不成立。
+            """
+            if mode == "gray":
+                return phase_to_gray(phase_rad, max_gray)
+            return phase_to_slm_grayscale(phase_rad, slm=slm)
+
+        def display_phase(phase_rad: np.ndarray) -> None:
+            slot_rotator.display_data(
+                slm, phase_to_display(phase_rad), float(config.settle_s)
+            )
+
+        # --- 前置: 焦面判定 (先判在焦, 再测量) -----------------------------
+        # 本实验系统的 CCD 不在焦面上, 离焦会把拟合深度抬高约 11%, 而"事后"
+        # 才发现等于白测一整轮。所以扫描前先上下扫 1/f: 不合格就抛
+        # :class:`FocusRefusedError`, 一个测量点都不写。
+        defocus_focal_mm = float(config.defocus_focal_mm)
+        focus_info: dict[str, Any] = {
+            "enabled": bool(config.focus_gate),
+            "fwhm_max_px": float(
+                config.focus_fwhm_max_px or DEFAULT_FOCUS_FWHM_MAX_PX
+            ),
+        }
+        if config.focus_gate:
+            from ao_shaping.tools.slm.calibration.diffraction_efficiency.artifacts import (
+                plot_focus_sweep,
+                write_focus_sweep_csv,
+            )
+
+            fwhm_max = float(focus_info["fwhm_max_px"])
+            logger.info(
+                "[焦面判定] 扫描 1/f (粗扫 {} 点, 半宽 {} m⁻¹), 在焦门限 FWHM ≤ {} px",
+                config.focus_points,
+                config.focus_diopter_range,
+                fwhm_max,
+            )
+            focus_result: FocusProbeResult = sweep_focus(
+                apply_phase=display_phase,
+                read_frame=lambda: np.asarray(
+                    camera.get_numpy_image(n_sample=1, skip_first=False),
+                    dtype=np.float64,
+                ),
+                set_exposure_ms=lambda ms: float(
+                    camera.reset_exposure_time(float(ms)) or ms
+                ),
+                panel_shape=panel_shape,
+                radius_px=float(pupil_radius),
+                centre_px=(float(pupil_center[0]), float(pupil_center[1])),
+                coarse_points=int(config.focus_points),
+                diopter_range=float(config.focus_diopter_range),
+                refine_points=int(config.focus_refine),
+                start_exposure_ms=float(config.exposure_ms),
+                frames=int(config.focus_frames),
+                discard=int(config.focus_discard),
+                wavelength_nm=float(config.slm_wavelength),
+            )
+            write_focus_sweep_csv(out_dir / "focus_sweep.csv", focus_result.points)
+            plot_focus_sweep(
+                out_dir / "focus_sweep.png",
+                focus_result.points,
+                fwhm_max_px=fwhm_max,
+                best_diopter_m1=focus_result.best_diopter_m1,
+            )
+            verdict: FocusVerdict = judge_focus(focus_result, fwhm_max_px=fwhm_max)
+            logger.info("[焦面判定] {}", verdict.verdict)
+
+            focus_info.update(
+                {
+                    "kind": verdict.kind,
+                    "verdict": verdict.verdict,
+                    "reason": verdict.reason,
+                    "best_fwhm_px": verdict.best_fwhm_px,
+                    "best_focal_mm": verdict.best_focal_mm,
+                    "best_diopter_m1": verdict.best_diopter_m1,
+                    "points": len(focus_result.points),
+                    "auto_defocus": bool(config.focus_auto_defocus),
+                    "configured_defocus_focal_mm": (
+                        None if math.isinf(defocus_focal_mm) else defocus_focal_mm
+                    ),
+                }
+            )
+
+            if not verdict.ok:
+                raise FocusRefusedError(
+                    f"焦面判定未通过: {verdict.verdict} ({verdict.reason}). "
+                    f"未写出任何测量数据, 只留下 {out_dir / 'focus_sweep.csv'} / "
+                    f"{out_dir / 'focus_sweep.png'} 两份诊断产物。"
+                    "请检查: 光路是否在遮挡/失准; --focus-diopter-range 是否覆盖"
+                    "真实焦距; --focus-fwhm-max-px 是否定得过严。"
+                )
+
+            if (
+                config.focus_auto_defocus
+                and math.isinf(defocus_focal_mm)
+                and verdict.best_focal_mm is not None
+                and math.isfinite(float(verdict.best_focal_mm))
+            ):
+                defocus_focal_mm = float(verdict.best_focal_mm)
+                logger.info(
+                    "[焦面判定] 采用最佳焦距 {} mm (1/f={:.4f} m⁻¹) 作离焦补偿",
+                    defocus_focal_mm,
+                    (1e3 / defocus_focal_mm if defocus_focal_mm else 0.0),
+                )
+
+            # 焦面扫描会改曝光; 正式扫描必须回到配置值, 否则各点亮度不可比。
+            camera.reset_exposure_time(float(config.exposure_ms))
+            focus_info["adopted_defocus_focal_mm"] = (
+                None if math.isinf(defocus_focal_mm) else defocus_focal_mm
+            )
+
+            if config.focus_only:
+                logger.info("[焦面判定] --focus-only: 到此为止, 不测效率")
+                return MeasurementResult(
+                    points=[],
+                    fit=None,
+                    diagnosis={},
+                    meta={"focus_gate": focus_info, "out_dir": str(out_dir)},
+                )
+
+        # 离焦补偿在两种模式下都生效: phase 模式叠在弧度上走驱动管线;
+        # gray 模式由 :func:`core.blaze_gray` 的 ``extra_phase_rad`` 叠在斜坡上,
+        # 再经 :func:`core.phase_to_gray` 按 2π = max_gray 包裹成灰度。
+        use_defocus = math.isfinite(defocus_focal_mm)
         defocus_phase = (
             fresnel_panel(
-                float(config.defocus_focal_mm),
+                defocus_focal_mm,
                 radius=pupil_radius,
                 pupil_center=pupil_center,
                 panel_shape=panel_shape,
@@ -362,16 +601,6 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
             if use_defocus
             else np.zeros(panel_shape, dtype=np.float64)
         )
-        if mode == "gray" and not math.isinf(float(config.defocus_focal_mm)):
-            logger.warning(
-                "mode='gray' 走原始灰度直写路径 (绕开驱动的 弧度→灰度 管线), "
-                "因此菲涅尔离焦补偿 (焦距 {} mm) 无法叠加 —— 补偿必须由驱动做, "
-                "而驱动管线正是本模式要绕开的。需要补偿请用 mode='phase'。",
-                config.defocus_focal_mm,
-            )
-
-        slot_rotator = SlotRotator(slm)
-        captured: list[np.ndarray] = []
 
         def pattern_for(command: float) -> np.ndarray:
             """命令值 → 灰度图 (uint16)。
@@ -388,7 +617,12 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
                     pupil_center=pupil_center,
                     pupil_radius=pupil_radius,
                 )
-                return blaze_gray(spec, panel_shape, max_gray)
+                return blaze_gray(
+                    spec,
+                    panel_shape,
+                    max_gray,
+                    extra_phase_rad=defocus_phase if use_defocus else None,
+                )
             spec = BlazeSpec(
                 period_px=int(config.period_px),
                 axis=axis,
@@ -429,16 +663,15 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
             return np.mean(np.stack(captured, axis=0), axis=0)
 
         def flat_pattern() -> np.ndarray:
-            """平场 (零相位) 的灰度图, 走与扫描同一条下发路径。
+            """平场 (零相位 + 离焦补偿) 的灰度图, 走与扫描**同一条**下发路径。
 
-            平场**不**经 ``create_phase_from_array``: 灰度模式下是原始灰度
-            直写 (全 0), 相位模式下是零弧度走正常路径。
+            ⚠️ 必须带上 ``defocus_phase``: 平场是坐标与门禁的基准 ——
+            零级中心用它定位、FWHM 门禁拿它的宽度当"本轮在焦参照"。若这里
+            漏掉补偿, 而扫描图案带补偿 (2026-10-23 实测): 零级中心偏 51 px
+            (> 40 px 漂移容差, 直接报"标定过期"), 参照宽度变成未补偿的
+            70 px 糊斑, 3 倍门限 (210 px) 等于失效。
             """
-            if mode == "gray":
-                return np.zeros(panel_shape, dtype=np.uint16)
-            return phase_to_slm_grayscale(
-                np.zeros(panel_shape, dtype=np.float64), slm=slm
-            )
+            return phase_to_display(defocus_phase)
 
         # --- 前置检查: 零级位置 + 过曝 -----------------------------------
         display(flat_pattern())
@@ -480,8 +713,26 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
                 )
 
         # --- 扫描 ---------------------------------------------------------
+        # 扫描区间的上界默认取设备读到的 2π 灰度, 但**可以也鼓励**推到硬件满量程:
+        # 真实 2π 灰度不等于标称值, 停在标称值会切掉最优点 (2026-10-23 实测:
+        # 到 993 时 η₊₁ 仍单调上升)。
+        scan_lo = int(config.command_min_gray or 0)
+        scan_hi = int(config.command_max_gray or max_gray)
+        if scan_hi > int(slm.MAX_GRAYSCALE_VALUE):
+            raise RuntimeError(
+                f"command_max_gray={scan_hi} 超过硬件满量程 "
+                f"{int(slm.MAX_GRAYSCALE_VALUE)}"
+            )
+        if mode == "gray":
+            logger.info(
+                "灰度扫描区间: {} ~ {} (标称 2π 灰度 {}, 硬件满量程 {})",
+                scan_lo,
+                scan_hi,
+                max_gray,
+                int(slm.MAX_GRAYSCALE_VALUE),
+            )
         commands = (
-            np.linspace(0.0, float(max_gray), int(config.n_steps))
+            np.linspace(float(scan_lo), float(scan_hi), int(config.n_steps))
             if mode == "gray"
             else np.linspace(0.0, 2.0 * math.pi, int(config.n_steps))
         )
@@ -519,7 +770,7 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
         )
 
     # --- 拟合与诊断 -------------------------------------------------------
-    command_max = float(max_gray) if mode == "gray" else 2.0 * math.pi
+    command_max = float(scan_hi) if mode == "gray" else 2.0 * math.pi
     # 光斑宽度门禁: 相对**在焦参照值**的倍数。参照值默认取扫描里命令最小
     # 那一点 (平相位) 的零级 FWHM —— 也就是这条光路在本次运行开始时的光斑
     # 宽度; 也允许传入一条已知在焦的光路量出来的绝对参照值 (跨次运行可比)。
@@ -576,6 +827,8 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
         "discard": int(config.discard),
         "settle_s": float(config.settle_s),
         "two_pi_gray": int(max_gray),
+        "command_min_gray": int(scan_lo),
+        "command_max_gray": int(scan_hi),
         "hardware_max_gray": int(slm.MAX_GRAYSCALE_VALUE),
         "device_two_pi_gray": (
             int(device_two_pi_gray) if device_two_pi_gray is not None else None
@@ -592,11 +845,10 @@ def run_measurement(config: MeasurementConfig) -> MeasurementResult:
         "pupil_radius": int(pupil_radius),
         "panel_shape": [int(panel_shape[0]), int(panel_shape[1])],
         "defocus_focal_mm": (
-            None
-            if math.isinf(float(config.defocus_focal_mm))
-            else float(config.defocus_focal_mm)
+            None if math.isinf(defocus_focal_mm) else float(defocus_focal_mm)
         ),
         "defocus_compensated": bool(use_defocus),
+        "focus_gate": focus_info,
         "fwhm_gate": {
             "reference_fwhm_px": float(gate.reference_fwhm_px),
             "gate_ratio": float(gate.gate_ratio),

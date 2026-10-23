@@ -101,6 +101,13 @@ SATURATION_FRACTION: float = 0.8
 #: "零级锚点改用两侧中点"这类结构性判断 —— 否则低相位端 (只有零级可见)
 #: 会被两个弱噪声光斑拖走, 零级能量直接测错。
 SIGNIFICANT_FRACTION: float = 0.2
+#: 锚点**自身光斑**的半径判据 (相对阶次间距)。零级不是一个数学点: 它是个
+#: 十几到几十像素宽的斑, 内部会出好几个局部极大 (实测 1.0ms/14px 的斑在
+#: 6.6/9.4/11.5/15.6px 处各有一个)。这些次极大**不是**衍射阶次 —— 若让它们
+#: 参与"锚点 → 最亮旁斑"的方向判定, 方向会指向零级自己的旁瓣 (实测指向 +列),
+#: 真正的 +1 级 (在 −行 235px) 投影到 ~0 而被整条丢掉, 于是 η0 恒等于 1。
+#: 真阶次落在 0.5×~2×间距, 所以 0.25× 的内边界不会误杀任何真阶次。
+ANCHOR_CORE_FRACTION: float = 0.25
 #: 一级衍射总效率峰值的下限 (低于此值 = 偏振不纯 / 填充因子不足)。
 #: 理想情况下 Δφ=2π 时能量全在 +1 级, 峰值 = 1 - 泄漏。
 PEAK_ETA_WARN: float = 0.75
@@ -190,7 +197,35 @@ def blaze_phase(spec: BlazeSpec, panel_shape: tuple[int, int]) -> np.ndarray:
     return phase
 
 
-def blaze_gray(spec: BlazeSpec, panel_shape: tuple[int, int], max_gray: int) -> np.ndarray:
+def phase_to_gray(phase_rad: np.ndarray, max_gray: int) -> np.ndarray:
+    """原始弧度相位 → 灰度图 (uint16), **绕开**驱动的弧度→灰度管线。
+
+    这是"原始灰度直写"路径上**唯一**的包裹点: 先 ``mod 2π`` 再按
+    ``2π = max_gray`` 标度, 所以叠加了额外相位 (例如菲涅尔离焦补偿) 的图案
+    会正常绕回, 而不是被 ``clip`` 削平 —— 削平会在瞳面里造出一条条平顶,
+    把该点的衍射效率读数拉低。
+
+    Args:
+        phase_rad: 弧度相位 (可超出 ``[0, 2π)``, 会被包裹)。
+        max_gray: 设备的 2π 灰度 (SLM-200 @1064nm 为 993)。
+
+    Returns:
+        ``(height, width)`` 的 uint16 灰度图, 取值 ``[0, max_gray]``。
+    """
+    if int(max_gray) < 1:
+        raise ValueError(f"max_gray 必须 >= 1, 得到 {max_gray}")
+    wrapped = np.mod(np.asarray(phase_rad, dtype=np.float64), 2.0 * math.pi)
+    gray = wrapped / (2.0 * math.pi) * float(max_gray)
+    return np.clip(np.rint(gray), 0, int(max_gray)).astype(np.uint16)
+
+
+def blaze_gray(
+    spec: BlazeSpec,
+    panel_shape: tuple[int, int],
+    max_gray: int,
+    *,
+    extra_phase_rad: np.ndarray | None = None,
+) -> np.ndarray:
     """生成灰度斜坡 (uint16), 直接写进 SLM 内存。
 
     与 :func:`blaze_phase` 的区别: 这里**绕开**驱动的 弧度→灰度 管线
@@ -202,6 +237,10 @@ def blaze_gray(spec: BlazeSpec, panel_shape: tuple[int, int], max_gray: int) -> 
         spec: 光栅规格 (``depth_rad`` 决定斜坡的最大灰度)。
         panel_shape: ``(height, width)`` 面板尺寸。
         max_gray: 设备的 2π 灰度 (SLM-200 @1064nm 为 993)。
+        extra_phase_rad: 叠加到斜坡上的额外相位 (弧度), 例如
+            :func:`ao_shaping.tools.kernels.bench_kernels.fresnel_panel` 给出的
+            菲涅尔离焦补偿。给了就走 :func:`phase_to_gray` 的**包裹**路径;
+            不给则保持历史行为 (不包裹, 只夹取), 输出逐位不变。
 
     Returns:
         ``(height, width)`` 的 uint16 灰度图。
@@ -209,6 +248,13 @@ def blaze_gray(spec: BlazeSpec, panel_shape: tuple[int, int], max_gray: int) -> 
     if int(max_gray) < 1:
         raise ValueError(f"max_gray 必须 >= 1, 得到 {max_gray}")
     phase = blaze_phase(spec, panel_shape)
+    if extra_phase_rad is not None:
+        extra = np.asarray(extra_phase_rad, dtype=np.float64)
+        if extra.shape != phase.shape:
+            raise ValueError(
+                f"extra_phase_rad 形状 {extra.shape} 与面板 {phase.shape} 不一致"
+            )
+        return phase_to_gray(phase + extra, max_gray)
     gray = phase / (2.0 * math.pi) * float(max_gray)
     return np.clip(np.rint(gray), 0, int(max_gray)).astype(np.uint16)
 
@@ -456,7 +502,13 @@ def _pick_orders(
     else:
         anchor = peaks[0]  # peaks 已按峰值降序
 
-    rest = [p for p in peaks if p is not anchor]
+    rest = [
+        p
+        for p in peaks
+        if p is not anchor
+        and math.hypot(p[0] - anchor[0], p[1] - anchor[1])
+        > ANCHOR_CORE_FRACTION * sep
+    ]
     if not rest:
         return (anchor[0], anchor[1]), None, None, notes
 
@@ -488,14 +540,14 @@ def _pick_orders(
     else:
         lo, hi = 0.0, math.inf
 
-    positive = min(
+    positive = max(
         (item for item in projections if lo <= item[0] <= hi),
-        key=lambda item: abs(item[0] - sep),
+        key=lambda item: item[1][2],
         default=None,
     )
-    negative = min(
+    negative = max(
         (item for item in projections if -hi <= item[0] <= -lo),
-        key=lambda item: abs(-item[0] - sep),
+        key=lambda item: item[1][2],
         default=None,
     )
     side_a = positive[1] if positive is not None else None
@@ -999,6 +1051,7 @@ def discrete_order_efficiencies(
     gamma: float,
     period_px: int,
     leakage: float = 0.0,
+    fill_factor: float = 1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     """**离散器件模型**给出的归一化比值 ``(r0, r1)``。
 
@@ -1042,10 +1095,22 @@ def discrete_order_efficiencies(
     a_zero = base.sum(axis=1) / float(period)
     a_plus = (base * np.exp(-2j * math.pi * idx / float(period))).sum(axis=1) / float(period)
     a_minus = (base * np.exp(+2j * math.pi * idx / float(period))).sum(axis=1) / float(period)
+    # 填充因子 ff: 像元死区 (宽度 1-ff) 不调制, 对零级贡献一个**与深度无关的
+    # 相干直流** (E_0 = ff·a_0 + 1-ff); 它只进零级, 因为死区的周期等于像元间距。
+    # ⚠️ 它**不能**用 leakage 顶替: leakage 是归一化能量里的加性份额, 而 ff 是
+    # 幅度相干相加, 过 2π 时会抵消零级 —— 两者在 η₀ 地板上简并, 必须靠两侧比
+    # 或短周期包络区分 (见 report/slm/diffraction_efficiency/ff_vs_2pi_method_20261023)。
+    ff = float(fill_factor)
+    if not (0.0 < ff <= 1.0):
+        raise ValueError(f"fill_factor 必须在 (0, 1], 得到 {fill_factor}")
+    env = float(np.sinc(ff / float(period)))  # 像元有限宽度包络 (m=±1)
+    e_zero = ff * a_zero + (1.0 - ff)
+    e_plus = ff * a_plus * env
+    e_minus = ff * a_minus * env
     ell = float(leakage)
-    f_zero = (1.0 - ell) * np.abs(a_zero) ** 2 + ell
-    f_plus = (1.0 - ell) * np.abs(a_plus) ** 2
-    f_minus = (1.0 - ell) * np.abs(a_minus) ** 2
+    f_zero = (1.0 - ell) * np.abs(e_zero) ** 2 + ell
+    f_plus = (1.0 - ell) * np.abs(e_plus) ** 2
+    f_minus = (1.0 - ell) * np.abs(e_minus) ** 2
     denom = f_zero + f_plus + f_minus
     denom = np.where(denom <= 0.0, np.nan, denom)
     return f_zero / denom, (f_plus + f_minus) / denom
@@ -1071,6 +1136,8 @@ class PhaseResponseFit:
     gate_excluded: int = 0
     gate_reference_fwhm_px: float = float("nan")
     gate_ratio: float = float("nan")
+    #: 拟合出的像元占空比 (填充因子)。1.0 = 无死区 (或本次未拟合它)。
+    fill_factor: float = 1.0
 
     @property
     def depth_max_pi(self) -> float:
@@ -1083,10 +1150,17 @@ def _fit_model(
     u: np.ndarray,
     y: np.ndarray,
     period_px: int,
+    fit_fill: bool = True,
 ) -> np.ndarray:
     """scipy ``least_squares`` 的残差函数 (参数向量在前, 固定参数在 ``args``)。"""
-    depth_max, gamma, leakage = (float(v) for v in params)
-    _, r1 = discrete_order_efficiencies(u, depth_max, gamma, period_px, leakage)
+    if fit_fill:
+        depth_max, gamma, leakage, fill = (float(v) for v in params)
+    else:
+        depth_max, gamma, leakage = (float(v) for v in params)
+        fill = 1.0
+    _, r1 = discrete_order_efficiencies(
+        u, depth_max, gamma, period_px, leakage, fill
+    )
     return np.nan_to_num(r1, nan=0.0) - y
 
 
@@ -1099,6 +1173,8 @@ def fit_phase_response(
     gate: FwhmGate | None = None,
     depth_max_bounds: tuple[float, float] = (0.0, 8.0 * math.pi),
     gamma_bounds: tuple[float, float] = (0.05, 10.0),
+    fit_fill_factor: bool = True,
+    fill_factor_bounds: tuple[float, float] = (0.5, 1.0),
 ) -> PhaseResponseFit:
     """拟合"命令 → 实际相位深度"的响应。
 
@@ -1153,45 +1229,59 @@ def fit_phase_response(
     period = int(period_px)
 
     best = None
+    fill_initials = (1.0, 0.85) if fit_fill_factor else (1.0,)
+    lo_extra = [0.0, float(fill_factor_bounds[0])] if fit_fill_factor else [0.0]
+    hi_extra = [1.0, float(fill_factor_bounds[1])] if fit_fill_factor else [1.0]
     for depth0 in (2.0 * math.pi, 4.0 * math.pi, 6.0 * math.pi):
         for gamma0 in (0.6, 1.0, 1.6):
             for leak0 in (0.0, 0.15):
-                try:
-                    result = least_squares(
-                        _fit_model,
-                        x0=np.array([depth0, gamma0, leak0], dtype=np.float64),
-                        args=(u, y, period),
-                        bounds=(
-                            np.array(
-                                [
-                                    float(depth_max_bounds[0]),
-                                    float(gamma_bounds[0]),
-                                    0.0,
-                                ]
-                            ),
-                            np.array(
-                                [
-                                    float(depth_max_bounds[1]),
-                                    float(gamma_bounds[1]),
-                                    1.0,
-                                ]
-                            ),
-                        ),
-                        loss="soft_l1",
-                        f_scale=0.02,
-                        max_nfev=4000,
+                for fill0 in fill_initials:
+                    x0 = [depth0, gamma0, leak0] + (
+                        [fill0] if fit_fill_factor else []
                     )
-                except Exception as exc:  # 单个初值失败不致命
-                    logger.debug("拟合初值 {} 失败: {}", (depth0, gamma0, leak0), exc)
-                    continue
-                if best is None or float(result.cost) < float(best.cost):
-                    best = result
+                    try:
+                        result = least_squares(
+                            _fit_model,
+                            x0=np.array(x0, dtype=np.float64),
+                            args=(u, y, period, fit_fill_factor),
+                            bounds=(
+                                np.array(
+                                    [
+                                        float(depth_max_bounds[0]),
+                                        float(gamma_bounds[0]),
+                                    ]
+                                    + lo_extra
+                                ),
+                                np.array(
+                                    [
+                                        float(depth_max_bounds[1]),
+                                        float(gamma_bounds[1]),
+                                    ]
+                                    + hi_extra
+                                ),
+                            ),
+                            loss="soft_l1",
+                            f_scale=0.02,
+                            max_nfev=4000,
+                        )
+                    except Exception as exc:  # 单个初值失败不致命
+                        logger.debug(
+                            "拟合初值 {} 失败: {}", (depth0, gamma0, leak0, fill0), exc
+                        )
+                        continue
+                    if best is None or float(result.cost) < float(best.cost):
+                        best = result
     if best is None:
         raise RuntimeError("相位响应拟合失败: 所有初值都未收敛")
 
-    depth_max, gamma, leakage = (float(v) for v in best.x)
+    if fit_fill_factor:
+        depth_max, gamma, leakage, fill = (float(v) for v in best.x)
+    else:
+        depth_max, gamma, leakage = (float(v) for v in best.x)
+        fill = 1.0
     model_r1 = np.nan_to_num(
-        discrete_order_efficiencies(u, depth_max, gamma, period, leakage)[1], nan=0.0
+        discrete_order_efficiencies(u, depth_max, gamma, period, leakage, fill)[1],
+        nan=0.0,
     )
     residual = model_r1 - y
     rms = float(np.sqrt(np.mean(residual**2)))
@@ -1200,7 +1290,12 @@ def fit_phase_response(
         int(i) for i in np.nonzero(np.abs(residual) > max(3.0 * mad, 0.02))[0]
     )
 
-    stderr = {"depth_max_rad": float("nan"), "gamma": float("nan"), "leakage": float("nan")}
+    stderr = {
+        "depth_max_rad": float("nan"),
+        "gamma": float("nan"),
+        "leakage": float("nan"),
+        "fill_factor": float("nan"),
+    }
     try:
         jac = np.asarray(best.jac, dtype=np.float64)
         dof = max(1, jac.shape[0] - jac.shape[1])
@@ -1210,6 +1305,7 @@ def fit_phase_response(
             "depth_max_rad": float(diag[0]),
             "gamma": float(diag[1]),
             "leakage": float(diag[2]),
+            "fill_factor": float(diag[3]) if fit_fill_factor else float("nan"),
         }
     except Exception as exc:  # 协方差只是附加信息
         logger.debug("拟合协方差计算失败: {}", exc)
@@ -1218,6 +1314,7 @@ def fit_phase_response(
         depth_max_rad=depth_max,
         gamma=gamma,
         leakage=leakage,
+        fill_factor=fill,
         residual_rms=rms,
         n_points=int(cmd.size),
         converged=bool(best.success),

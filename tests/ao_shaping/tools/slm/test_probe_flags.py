@@ -472,8 +472,8 @@ def test_the_flag_surface_is_the_size_we_think_it_is() -> None:
     g = _golden()
     declared = sum(len(g[p]["declared"]) for p in PROBES)
     visible = sum(len(g[p]["help_flags"]) for p in PROBES)
-    assert declared == 359, f"declared flag inventory is {declared}, expected 359"
-    assert visible == 376, f"help-visible flag inventory is {visible}, expected 376"
+    assert declared == 360, f"declared flag inventory is {declared}, expected 360"
+    assert visible == 378, f"help-visible flag inventory is {visible}, expected 378"
     assert len(PROBES) == 24
 
 

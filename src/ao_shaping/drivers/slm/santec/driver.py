@@ -2444,6 +2444,52 @@ class Santec:
                 )
                 self.set_wavelength(self.wavelength, save_to_device=True)
 
+        self._apply_two_pi_gray_override()
+
+    def _apply_two_pi_gray_override(self) -> None:
+        """可选: 用环境变量覆盖设备相位表给出的 2π 灰度。
+
+        设备通过 ``SLM_Ctrl_ReadWL`` 回报"满量程 (灰度 1023) 处能到多少相位",
+        驱动据此换算 2π 灰度 (本机 1064 nm 回报 phase=206 ⇒ 2.06π ⇒ 2π 在灰度
+        **993**)。但这个标称值可能比面板实际响应乐观: 2026-10-23 的衍射效率实测
+        (在焦, P=32, 见 ``report/slm/diffraction_efficiency/hw_blaze_20261023/report.md``)
+        给出零级地板 4.16%, 与"满量程真实深度 = 2.00π + 填充因子 0.828"精确吻合
+        (预测 η±1_max = 95.84%, 实测 95.84%), 而 1.71π 会预测 13% 的地板 ——
+        被实测排除。故本机真实 2π 灰度 ≈ 1023。
+
+        ⚠️ **设备侧不可写**: ``set_wavelength()`` 请求 2.00π (200) 会被设备改成
+        206 (手册 ``docs/slm-200/dev.md:1066``: "Set phase 2.00π ⇒ calculation
+        result 2.01π"), 实测确认。所以只能在驱动侧覆盖。
+
+        用法: ``AO_SLM_TWO_PI_GRAY=1023`` (不设 = 用设备标称值, 行为不变)。
+        """
+        override = os.environ.get("AO_SLM_TWO_PI_GRAY")
+        if not override:
+            return
+        try:
+            value = int(float(override))
+        except (TypeError, ValueError):
+            logger.warning(
+                "AO_SLM_TWO_PI_GRAY={} 无法解析为整数, 忽略", override
+            )
+            return
+        clamped = max(1, min(value, int(self.MAX_GRAYSCALE_VALUE)))
+        if clamped != value:
+            logger.warning(
+                "AO_SLM_TWO_PI_GRAY={} 超出 [1, {}], 已钳位至 {}",
+                value,
+                self.MAX_GRAYSCALE_VALUE,
+                clamped,
+            )
+        logger.warning(
+            "SLM #{}: 2π 灰度被 AO_SLM_TWO_PI_GRAY 覆盖: 设备标称 {} -> {} "
+            "(相位→灰度换算与 max_gray 都随之改变)",
+            self.slm_number,
+            self._max_gray,
+            clamped,
+        )
+        self._max_gray = clamped
+
     def _wait_for_ready(self, max_retries: int = 10, retry_delay: float = 0.1) -> bool:
         """等待设备就绪（参考官方demo）
 

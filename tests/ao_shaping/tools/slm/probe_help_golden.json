@@ -1,7 +1,7 @@
 {
   "calibration": {
-    "body_literals": 628,
-    "body_literals_sha256": "60a2a988177020ab",
+    "body_literals": 630,
+    "body_literals_sha256": "20427fdff8f504a9",
     "declared": [
       "--align-margin",
       "--align-min-window",
@@ -9,6 +9,7 @@
       "--coarse-half",
       "--coarse-step",
       "--defocus-a",
+      "--defocus-focal-mm",
       "--exposure-ms",
       "--fine-half",
       "--help",
@@ -30,12 +31,14 @@
       "--wfs-exposure-ms",
       "--zernike-radius"
     ],
-    "help": "Usage: ao_shaping.tools.slm.calibration [OPTIONS]\n\n  SLM+CCD 几何标定工具: 装配 -> 光束位置 -> 几何标定 -> 验证.\n\nOptions:\n  --out-calib TEXT            几何标定输出路径  [default: calib.npz]\n  --calib TEXT                已有几何标定文件(verify-only时作为输入)\n  --skip-align                跳过装配辅助\n  --skip-beam                 跳过光束位置测量(沿用已有beam_center)\n  --verify-only               只验证已有几何标定(需 --calib)\n  --align-margin FLOAT        align 窗口边缘余量倍数(×FWHM)  [default: 4.0]\n  --align-min-window INTEGER  align 最小窗口边长(px)  [default: 128]\n  --exposure-ms FLOAT         CCD曝光(ms)  [default: 1.2]\n  --settle-s FLOAT            SLM显示稳定等待(s)  [default: 0.2]\n  -h, --help                  Show this message and exit.",
+    "help": "Usage: ao_shaping.tools.slm.calibration [OPTIONS]\n\n  SLM+CCD 几何标定工具: 装配 -> 光束位置 -> 几何标定 -> 验证.\n\nOptions:\n  --out-calib TEXT            几何标定输出路径  [default: calib.npz]\n  --calib TEXT                已有几何标定文件(verify-only时作为输入)\n  --skip-align                跳过装配辅助\n  --skip-beam                 跳过光束位置测量(沿用已有beam_center)\n  --verify-only               只验证已有几何标定(需 --calib)\n  --align-margin FLOAT        align 窗口边缘余量倍数(×FWHM)  [default: 4.0]\n  --align-min-window INTEGER  align 最小窗口边长(px)  [default: 128]\n  --exposure-ms FLOAT         CCD曝光(ms)  [default: 1.2]\n  --settle-s FLOAT            SLM显示稳定等待(s)  [default: 0.2]\n  --defocus-focal-mm FLOAT    菲涅尔离焦补偿焦距(mm); 相机不在焦面时必填 —— 否则 0 级糊成几百像素、K 解出来是\n                              NaN。先跑 `measure --focus-only` 拿 best_focal_mm\n                              [default: inf]\n  -h, --help                  Show this message and exit.",
     "help_flags": [
       "--align-margin",
       "--align-min-window",
       "--calib",
+      "--defocus-focal-mm",
       "--exposure-ms",
+      "--focus-only",
       "--help",
       "--out-calib",
       "--settle-s",
@@ -441,8 +444,8 @@
     ]
   },
   "slm_focus_probe": {
-    "body_literals": 112,
-    "body_literals_sha256": "5c58188d188c5ac3",
+    "body_literals": 140,
+    "body_literals_sha256": "06a6d2e78cf1dcb1",
     "declared": [
       "--cam-id",
       "--cam-type",

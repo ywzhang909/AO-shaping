@@ -51,7 +51,10 @@ except ImportError:  # pragma: no cover - 取决于运行环境
     HAS_PLOT = False
 
 __all__ = [
+    "FOCUS_SWEEP_COLUMNS",
     "plot_efficiency",
+    "plot_focus_sweep",
+    "write_focus_sweep_csv",
     "write_measurements_csv",
     "write_summary_json",
 ]
@@ -343,4 +346,112 @@ def plot_efficiency(
         plt.close(fig)
 
     logger.info("效率曲线图已写出: {}", path)
+    return path
+
+
+# ---------------------------------------------------------------------------
+# 前置焦面扫描的产物 (离焦拒绝时**只有**这两份落盘)
+# ---------------------------------------------------------------------------
+
+#: 焦面扫描 CSV 的固定表头。
+FOCUS_SWEEP_COLUMNS: tuple[str, ...] = (
+    "diopter_m1",
+    "focal_mm",
+    "exposure_ms",
+    "peak",
+    "peak_fraction",
+    "peak_per_ms",
+    "fwhm_px",
+    "hollowness",
+    "status",
+)
+
+
+def write_focus_sweep_csv(path: Path, points: Sequence[Any]) -> Path:
+    """把焦面扫描的逐点结果写成 CSV。
+
+    表头见 :data:`FOCUS_SWEEP_COLUMNS`; ``focal_mm`` 在零焦度处是 ``inf``,
+    写成空串 (不是合法 CSV 数值)。
+
+    Args:
+        path: 输出路径。
+        points: :class:`~ao_shaping.tools.slm.panel.focus_probe.FocusPoint` 序列。
+
+    Returns:
+        写出的路径。
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="", encoding="utf-8") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(FOCUS_SWEEP_COLUMNS)
+        for point in points:
+            writer.writerow(
+                [
+                    _fmt(point.diopter_m1),
+                    _fmt(point.focal_mm),
+                    _fmt(point.exposure_ms),
+                    _fmt(point.peak),
+                    _fmt(point.peak_fraction),
+                    _fmt(point.peak_per_ms),
+                    _fmt(point.fwhm_px),
+                    _fmt(point.hollowness),
+                    str(point.status),
+                ]
+            )
+    logger.info("焦面扫描 CSV 已写出: {}", path)
+    return path
+
+
+def plot_focus_sweep(
+    path: Path,
+    points: Sequence[Any],
+    *,
+    fwhm_max_px: float,
+    best_diopter_m1: float | None = None,
+) -> Path | None:
+    """把焦面扫描画成 FWHM vs 1/f 曲线, 并画出门限线。
+
+    离焦拒绝时这张图就是唯一的证据: 一眼能看出最佳点落在哪、离门限差多少,
+    以及扫描范围是否够宽 (最佳点贴边 = 真正的焦面在范围外)。
+
+    Args:
+        path: 输出路径。
+        points: :class:`~ao_shaping.tools.slm.panel.focus_probe.FocusPoint` 序列。
+        fwhm_max_px: 在焦门限 (水平红线)。
+        best_diopter_m1: 最佳点 (竖直虚线); None 则不画。
+
+    Returns:
+        写出的路径; matplotlib 不可用时返回 None (只告警)。
+    """
+    if not HAS_PLOT:  # pragma: no cover - 取决于运行环境
+        logger.warning("matplotlib 不可用, 跳过焦面扫描图: {}", path)
+        return None
+    usable = [p for p in points if str(p.status) == "ok" and np.isfinite(p.fwhm_px)]
+    if not usable:
+        logger.warning("焦面扫描没有可用点, 跳过作图: {}", path)
+        return None
+
+    diopters = np.array([p.diopter_m1 for p in usable], dtype=np.float64)
+    fwhm = np.array([p.fwhm_px for p in usable], dtype=np.float64)
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig, ax = plt.subplots(figsize=(7.5, 4.4), constrained_layout=True)
+    ax.plot(diopters, fwhm, "o-", color="#1f77b4", lw=1.4, ms=4.5, label="零级 FWHM")
+    ax.axhline(
+        float(fwhm_max_px), color="#d62728", ls="--", lw=1.4,
+        label=f"在焦门限 {float(fwhm_max_px):.0f} px",
+    )
+    if best_diopter_m1 is not None and np.isfinite(best_diopter_m1):
+        ax.axvline(
+            float(best_diopter_m1), color="#2ca02c", ls=":", lw=1.4,
+            label=f"最佳 1/f = {float(best_diopter_m1):.3f} m⁻¹",
+        )
+    ax.set_xlabel("离焦补偿 1/f (m⁻¹)")
+    ax.set_ylabel("零级 FWHM (CCD px)")
+    ax.set_title("测量前置: 焦面扫描")
+    ax.grid(True, alpha=0.3)
+    ax.legend(fontsize=9)
+    fig.savefig(path, dpi=200, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    logger.info("焦面扫描图已写出: {}", path)
     return path

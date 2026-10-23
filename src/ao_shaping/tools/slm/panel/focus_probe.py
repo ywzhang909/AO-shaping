@@ -238,6 +238,88 @@ class FocusProbeResult:
         }
 
 
+@dataclass(frozen=True)
+class FocusVerdict:
+    """在焦判定结论 (纯判定, 不含退出码语义)。
+
+    ``kind`` 三态, 调用方自己映射成退出码:
+
+    * ``"ok"`` —— 在焦, 可以测量;
+    * ``"blocked"`` —— 画面里根本没有局域光斑 (光没到相机), 与"离焦"是不同的故障;
+    * ``"not_in_focus"`` —— 有光斑但最佳点仍然太宽 (或扫描范围内没有可用测点)。
+
+    ``best_*`` 只在有最佳点时填写, 供调用方写进证据文件。
+    """
+
+    kind: str
+    verdict: str
+    reason: str = ""
+    best_fwhm_px: float | None = None
+    best_focal_mm: float | None = None
+    best_diopter_m1: float | None = None
+
+    @property
+    def ok(self) -> bool:
+        """是否在焦 (``kind == "ok"``)。"""
+        return self.kind == "ok"
+
+
+def judge_focus(result: FocusProbeResult, *, fwhm_max_px: float) -> FocusVerdict:
+    """按"最佳点 FWHM 是否超过门限"判在焦。**不碰设备**, 可离线自检。
+
+    判定顺序 (先排除"根本没光", 再判宽度):
+
+    1. ``result.path_blocked`` ⇒ ``kind="blocked"`` (光路受阻);
+    2. ``result.best is None`` ⇒ ``kind="not_in_focus"`` (扫描范围内没有任何点
+       落进可用曝光带, 无法判定);
+    3. ``result.best.fwhm_px > fwhm_max_px`` ⇒ ``kind="not_in_focus"`` (离焦);
+    4. 其余 ⇒ ``kind="ok"``。
+
+    Args:
+        result: :func:`sweep_focus` 的产物。
+        fwhm_max_px: 在焦允许的最大零级光斑 FWHM (CCD 像素)。
+
+    Returns:
+        :class:`FocusVerdict`。
+    """
+    if result.path_blocked:
+        return FocusVerdict(
+            kind="blocked",
+            verdict="光路受阻 —— 拒绝测量",
+            reason=result.blockage_reason or "画面里没有局域光斑 (光没到相机)",
+            best_fwhm_px=(float(result.best.fwhm_px) if result.best else None),
+        )
+    if result.best is None:
+        return FocusVerdict(
+            kind="not_in_focus",
+            verdict="扫描范围内没有任何点落进可用曝光带 —— 拒绝测量",
+            reason="无法判定在焦 (没有可用测点)",
+        )
+    best_fwhm = float(result.best.fwhm_px)
+    best = {
+        "best_fwhm_px": best_fwhm,
+        "best_focal_mm": result.best_focal_mm,
+        "best_diopter_m1": result.best_diopter_m1,
+    }
+    if best_fwhm > float(fwhm_max_px):
+        return FocusVerdict(
+            kind="not_in_focus",
+            verdict=(
+                f"不在焦 (最佳点 FWHM {best_fwhm:.2f} px > 门限 "
+                f"{float(fwhm_max_px):.0f} px) —— 拒绝测量"
+            ),
+            reason=f"best_fwhm_px={best_fwhm:.3f} > {float(fwhm_max_px):.3f}",
+            **best,
+        )
+    return FocusVerdict(
+        kind="ok",
+        verdict=(
+            f"在焦 ✓ (最佳点 FWHM {best_fwhm:.2f} px ≤ {float(fwhm_max_px):.0f} px)"
+        ),
+        **best,
+    )
+
+
 def robust_peak(frame: np.ndarray) -> float:
     """Frame peak with isolated hot pixels removed.
 

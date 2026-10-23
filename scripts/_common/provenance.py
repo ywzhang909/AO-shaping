@@ -166,6 +166,21 @@ REPORTS: dict[str, ReportProvenance] = {
             "必要性 (曝光跨度达 96×)、峰值与整帧能量两项交叉验证、4 趟重复性与跨趟光强 7.3× 变化"
         ),
     ),
+    "report/slm/diffraction_efficiency/hw_blaze_20261023/report.md": ReportProvenance(
+        script="scripts/slm/gen_diffraction_efficiency_hw_report.py",
+        command="python scripts/slm/gen_diffraction_efficiency_hw_report.py",
+        environment="离线 (读已落盘的实测扫描 CSV)",
+        extra_scripts=(
+            "scripts/slm/calib_geometry_from_orders.py",
+            "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/measure.py",
+            "src/ao_shaping/tools/slm/calibration/diffraction_efficiency/core.py",
+        ),
+        note=(
+            "闪耀光栅实测衍射效率曲线 + 光斑演化 GIF: 在焦条件下器件满命令只有 1.89π, "
+            "0 级仍剩 4.2% —— 2π 灰度外推约 1083, 超出面板上限 1023, 因此"
+            "“调灰度把 0 级彻底搬空”在这台器件上不可达; 同时给出离焦把深度抬高到 2.2π 的实测对比"
+        ),
+    ),
     "report/slm/diffraction_efficiency/sim_nonideality_20261022.md": ReportProvenance(
         script="scripts/slm/generate_diffraction_efficiency_sim_report.py",
         command="python scripts/slm/generate_diffraction_efficiency_sim_report.py",

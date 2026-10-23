@@ -641,6 +641,14 @@ CENTER=577,655
 # session; unset or 0 = code probes the CCD image (doubling ladder to saturation)
 # AO_DAHENG_MAX_EXPOSURE_MS=0.6
 
+# SLM 2π gray override. The device reports its phase table via SLM_Ctrl_ReadWL
+# (1064 nm -> phase=206 => 2.06π at gray 1023 => driver derives 2π gray = 993).
+# Measured 2026-10-23 by diffraction-efficiency sweep: the panel's real depth at
+# gray 1023 is ≈2.00π and the zero-order floor 4.16% is explained by fill factor
+# 0.828 (predicts η±1_max = 95.84%, measured 95.84%). Device-side write is
+# impossible (requesting 200 returns 206), so override in the driver:
+# AO_SLM_TWO_PI_GRAY=1023
+
 # Library paths
 PYTHONPATH=src;libs
 PATH=libs\Drv_UDPST\x64\Release;libs\gxipy;${PATH}
