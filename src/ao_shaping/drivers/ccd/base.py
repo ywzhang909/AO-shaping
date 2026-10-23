@@ -74,6 +74,21 @@ class BaseCamera(ABC):
         self.initialize()
         return self
 
+    def _ensure_open(self, detail: str = "camera not initialized") -> None:
+        """设备未初始化 ⇒ 抛 :class:`CameraError`。
+
+        取代此前散在三个驱动里的 ``assert self.cam, "camera not initialized"``:
+        它校验的是**外部设备状态** (``initialize()`` 是否真的成功), 而 `assert` 在
+        ``python -O`` 下被整条移除 —— 之后就是拿空句柄去调 SDK。SLM 侧早已有同一
+        范式 (``Santec._ensure_open``), 这里是相机侧的对应入口。
+        """
+        if not self._device_open():
+            raise CameraError(detail)
+
+    def _device_open(self) -> bool:
+        """设备是否已初始化。用 ``cv2`` 视频流 / 图像序列回放等后端时覆写本方法。"""
+        return self.cam is not None
+
     @abstractmethod
     def __exit__(self, exc_type, exc_value, traceback):
         """上下文管理器出口 —— 清理相机资源。

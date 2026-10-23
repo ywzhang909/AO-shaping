@@ -467,11 +467,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | | 现状 | 判定 |
 |---|---|---|
 | **SLM（范式）** | `Santec._ensure_open()`（`santec/driver.py:1807`，**18 处**调用）+ `ZernikeSLM._ensure_open()`（`zernike_slm.py:100`，**5 处**）—— 单一入口、`raise RuntimeError` | ✅ 照抄这个 |
-| **CCD（反范式）** | `assert self.cam, "camera not initialized"` 在 `miicam/driver.py` 重复 **18 处**、`daheng/driver.py` **13 处**、`ffmpeg/driver.py` **6 处**（两种写法）| ❌ 收口到 `BaseCamera._ensure_open()`，抛 `CameraError` |
+| CCD（原反范式） | ✅ **已收口**：`assert self.cam, "camera not initialized"` 曾在 `miicam/driver.py` 重复 **18 处**、`daheng/driver.py` **12 处**（+1 处 `camera not found`）、`ffmpeg/driver.py` **6 处**（两种写法：`_cap.isOpened()` 与 `_folder_path`）| 现全部走 `BaseCamera._ensure_open()`（`base.py:77`）/ `_device_open()`，抛 `CameraError`；ffmpeg 覆写 `_device_open()`，录制源前置另设 `_ensure_recording()` |
 
 | 簇 | 条数 | 现状 | 应收口到 |
 |---|---|---|---|
-| CCD 设备已打开 | **37** | 见上 | `BaseCamera._ensure_open()`，照抄 SLM 范式 |
+| CCD 设备已打开 | ~~**37**~~ 实测 **37**（`miicam` 18 + `daheng` 12 + **1** `camera not found` + `ffmpeg` 3 `_cap` + 3 `_folder_path`；原表 daheng 记 13 是把 `camera not found` 计入） | ✅ **已收口**（`BaseCamera._ensure_open()` / `_device_open()` 抛 `CameraError`；`ffmpeg` 的 `_folder_path` 是**录制源前置**而非设备状态 ⇒ 单独 `_ensure_recording()`，不与设备就绪混为一谈；`thorlab` 式参数断言 2 处改 `ValueError`） | 照 SLM 范式，`BaseCamera._ensure_open()` 抛 `CameraError`（调用方已捕获它）。守卫落在 **CI 默认发现集内** 的 `test_conventions.py::test_ccd_drivers_never_assert_on_device_state`（AST 扫 `drivers/ccd/**`，任何 `assert self.cam/_cap/_folder_path` 复活即失败）—— 因为 `addopts --ignore` 把 `tests/ao_shaping/drivers/**` 排除在发现集外，守卫若放那里等于不设 |
 | WFS 曝光**安全上限** | ~~5~~ **6**（实测：`scripts/zernike_bench/generate_zernike_wfs_report.py:381` 也是同一写法，原行数漏计） | ✅ **机制已修 + 已单源 + 已改名**（`e6f80254`，2026-10-23）。原状：`MAX_EXPOSURE_MS = 7.0` 在 `tools/zernike/common.py:40`、`tools/wfs/wfs_probe.py:44`、`tools/slm/calibration/calibration.py:127` **声明 3 处**（原表把路径写作 `slm_wfs_probe.py` / `slm_zernike_common.py`，2026-10-12 重组后已移动），6 个脚本各查**两遍**：CLI 层 `if…raise`（策略，保留）+ 内层 `assert`（机制，`-O` 下整条消失）。被 `assert` 守护的是 `exp = float(wfs.exposure_time)` —— **打开后从硬件读回的实际曝光**（上一次会话可能遗留更大值），属外部状态 ⇒ 正是 Python 文档所说"不得用 assert 校验外部输入"。现统一到 `tools/zernike/common.py` 的 `WFS_EXPOSURE_SAFETY_MAX_MS` + `require_wfs_exposure_within_safety_ceiling()`（显式 `ValueError`；`wfs_probe.py:159` 那个吞掉它的 `except AssertionError` 已确认由 `:161` 的 `except Exception` 等价接管，控制流不变），并加 AST 守卫防复发 | ⚠️ **原计划"移进 `ThorlabWFS.exposure_time` setter"这一步与本表 §8.10 的红线冲突，建议撤销**：setter（`thorlab_wfs.py:1774-1776`）**已经**用显式 raise 校验**硬件边界** `EXP_TIME_LOW/HIGH = 0.002/86`（与设备无关的事实）；而 `7.0` 是**随光路/激光功率变化的策略上限**，写进驱动就是把策略伪装成机制（与 R-57 对 `--max_peak` 的结论同形）。要做的是把它变成**可配置**（类比 `AO_DAHENG_MAX_EXPOSURE_MS` 的按会话设上限），而不是搬进驱动 |
 | 曝光/范围校验（**层已对，机制错**）| ~~9~~ **0 剩余**（2026-10-23 实测） | ✅ **已完成**（#174：`009e621d`/`bb64c162`/`2ceb288f`）。实测 `drivers/ccd/common.py`、`drivers/dm/nlight/driver.py`、`drivers/dm/nlight/sdk.py` 的 `assert` 计数均为 **0**，`thorlab_wfs.py:1774` 注释即写明 "Explicit raise, not `assert`"。⇒ 本行原列的 `common.py:66,81,86,95` / `thorlab_wfs.py:1811` / `nlight/driver.py:147,148` 全部过时，勿重复处理。**仍在的 WFS `assert`（另一类，非本行）**：`thorlab_wfs.py:446`（`device_in_use`）、`:1074`/`:1184`（high speed mode 前置）、`:1475`（`zernike_order <= 10` 设备边界）、`:468` 已是 `or` 表达式非断言 | 就地改 `raise`（原计划）——**该子项已结** |
 | NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
@@ -558,6 +558,8 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
+
+🔴 **新发现（2026-10-23，不是本轮改动引入，已证明）**：`tests/ao_shaping/drivers/ccd/` 在**未含任何本轮改动**的同一提交上就是 **6 failed + 1 error** —— `daheng/test_reset_exposure_time.py` 5 条 + `test_miicam_auto_exposure_report.py` 1 条，外加 `test_miicam_report.py` 的 setup error。根因：测试仍按 `daheng_driver.gx.GxFrameStatusList.SUCCESS` 取**模块级 SDK 属性**，而惰性加载契约已把 SDK 收进 `_load_sdk()` ⇒ `AttributeError: module ... has no attribute 'gx'`。因为 `addopts --ignore=tests/ao_shaping/drivers` 把它排除在**发现集**之外，CI 从来没看过这组测试的状态。证明方法（可复现）：`git worktree add --detach /home/ws/wt-verify HEAD` 后在同一个容器 runner 里跑同一条命令，得到**完全相同**的 6+1（本轮改动未提交时 HEAD 即改前状态）。⇒ 建议单独一刀：测试改为通过驱动注入已加载的 SDK 句柄（不要恢复模块级 `gx`，那会破坏惰性加载红线），并把**纯 mock** 的相机测试移出 `--ignore` 名单，否则这类腐烂会一直不可见。
 
 **仍未收口的一条**：两个 ruff 工作流钉版不一致 —— `ci.yml` 用 `uv tool install ruff==0.11.10`，而
 `ruff.yml` 用 `pip install "ruff>=0.15.12"`，两者都跑 `ruff check .` 且都是硬门禁。**已实测两版真的不等价**：

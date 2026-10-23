@@ -40,6 +40,13 @@ What each guard is for, and why a plain grep is not enough:
   masks the next real violation of that rule (issue #169 cleared 864 of them).
   The ruff job in CI is only as wide as ``select``, so the guard below pins
   RUF100 staying in it.
+
+* **CCD device guards survive ``python -O``.** ``assert self.cam`` guarded an
+  *external device state* and is stripped wholesale under ``-O``; the tree
+  collapsed those 36 sites into ``BaseCamera._ensure_open`` (the SLM
+  ``_ensure_open`` paradigm). The AST guard below lives in *this* file because
+  ``pyproject`` ``addopts --ignore`` prunes ``tests/ao_shaping/drivers/**`` from
+  default discovery, so a guard placed there would run for nobody in CI.
 """
 
 from __future__ import annotations
@@ -907,4 +914,70 @@ def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
     assert isolated_findings >= _findings(configured), (
         f"`--select RUF100` alone found {isolated_findings} while the configured "
         "gate found 0; a lone select misjudges live directives as dead"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 8. CCD device-readiness guards survive `python -O`
+# ---------------------------------------------------------------------------
+
+#: Handle attributes whose nullness marks "device already open" in the CCD
+#: drivers: ``self.cam`` (daheng / miicam), ``self._cap`` (ffmpeg video source),
+#: ``self._folder_path`` (image-sequence replay).
+_CCD_DEVICE_ATTRS = frozenset({"cam", "_cap", "_folder_path"})
+
+
+def _ccd_device_state_asserts(path: Path) -> list[int]:
+    """Line numbers of ``assert`` statements that test a CCD device handle.
+
+    Walks the whole ``test`` subtree, so ``assert self.cam``,
+    ``assert self._cap is not None and self._cap.isOpened()`` and
+    ``assert self._folder_path is not None`` all count -- the guard must not be
+    defeatable by re-spelling the condition.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    except (OSError, SyntaxError):
+        return []
+
+    found: list[int] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assert):
+            continue
+        if any(
+            isinstance(sub, ast.Attribute)
+            and sub.attr in _CCD_DEVICE_ATTRS
+            and isinstance(sub.value, ast.Name)
+            and sub.value.id == "self"
+            for sub in ast.walk(node.test)
+        ):
+            found.append(node.lineno)
+    return found
+
+
+def test_ccd_drivers_never_assert_on_device_state() -> None:
+    """No ``assert`` may guard CCD device readiness -- it dies under ``-O``.
+
+    What these asserts guarded is **external device state** (did
+    ``initialize()`` actually open the handle?), not a programmer invariant.
+    ``python -O`` strips every ``assert`` statement wholesale, after which the
+    driver would call the vendor SDK through a null handle. The collapse keeps
+    one inherited entry point that always runs -- ``BaseCamera._ensure_open``
+    raising ``CameraError``, mirroring the SLM side's ``Santec._ensure_open``
+    precedent -- plus ``FFmpegCamera._device_open`` /
+    ``ImageFolderCamera._ensure_recording`` for the backends whose readiness is
+    not ``self.cam``.
+
+    This guard sits here, not under ``tests/ao_shaping/drivers/ccd/``, because
+    ``pyproject`` ``addopts --ignore`` prunes ``tests/ao_shaping/drivers/**``
+    from default discovery -- a guard there would never run in CI.
+    """
+    offenders: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "drivers" / "ccd").rglob("*.py")):
+        for lineno in _ccd_device_state_asserts(path):
+            offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
+    assert not offenders, (
+        "`assert` on self.cam / self._cap / self._folder_path is back under "
+        "src/ao_shaping/drivers/ccd/ -- use BaseCamera._ensure_open() "
+        f"(or _ensure_recording) so the check survives `python -O`: {offenders}"
     )
