@@ -105,73 +105,73 @@
 
 **SLM 相位**
 
-![plain 相位](../figures/figures/gs_issue_live_phase_20261015_205654.png)
+![plain 相位](../figures/gs_issue_live_phase_20261015_205654.png)
 
 **CCD 远场**
 
-![plain 远场](../figures/figures/gs_issue_live_farfield_20261015_205654.png)
+![plain 远场](../figures/gs_issue_live_farfield_20261015_205654.png)
 
 > 勘误：本节旧版误嵌入了 `20261019_100334`（2026-10-19 正向模型闭环校正运行）的相位与远场图；现已更正为本运行 `20261015_205654` 的图（`best_phase.npy` 与调试 PKL 最佳帧，与下方 X/Y 光强截面同源）。
 
 **X/Y 光强截面**
 
-![plain X/Y 光强截面](../figures/figures/gs_issue_live_farfield_20261015_205654_xy_profile.png)
+![plain X/Y 光强截面](../figures/gs_issue_live_farfield_20261015_205654_xy_profile.png)
 
 ### weighted (`20261015_205848`，GS CV = 0.7793)
 
 **SLM 相位**
 
-![weighted 相位](../figures/figures/gs_issue_live_phase_20261015_205848.png)
+![weighted 相位](../figures/gs_issue_live_phase_20261015_205848.png)
 
 **CCD 远场**
 
-![weighted 远场](../figures/figures/gs_issue_live_farfield_20261015_205848.png)
+![weighted 远场](../figures/gs_issue_live_farfield_20261015_205848.png)
 
 **X/Y 光强截面**
 
-![weighted X/Y 光强截面](../figures/figures/gs_issue_live_farfield_20261015_205848_xy_profile.png)
+![weighted X/Y 光强截面](../figures/gs_issue_live_farfield_20261015_205848_xy_profile.png)
 
 ### adaptive-feedback (`20261015_210048`，GS CV = 0.7064)
 
 **SLM 相位**
 
-![adaptive-feedback 相位](../figures/figures/gs_issue_live_phase_20261015_210048.png)
+![adaptive-feedback 相位](../figures/gs_issue_live_phase_20261015_210048.png)
 
 **CCD 远场**
 
-![adaptive-feedback 远场](../figures/figures/gs_issue_live_farfield_20261015_210048.png)
+![adaptive-feedback 远场](../figures/gs_issue_live_farfield_20261015_210048.png)
 
 **X/Y 光强截面**
 
-![adaptive-feedback X/Y 光强截面](../figures/figures/gs_issue_live_farfield_20261015_210048_xy_profile.png)
+![adaptive-feedback X/Y 光强截面](../figures/gs_issue_live_farfield_20261015_210048_xy_profile.png)
 
 ### plain 复测 (`20261015_210155`，GS CV = 0.6152)
 
 **SLM 相位**
 
-![plain 复测 相位](../figures/figures/gs_issue_live_phase_20261015_210155.png)
+![plain 复测 相位](../figures/gs_issue_live_phase_20261015_210155.png)
 
 **CCD 远场**
 
-![plain 复测 远场](../figures/figures/gs_issue_live_farfield_20261015_210155.png)
+![plain 复测 远场](../figures/gs_issue_live_farfield_20261015_210155.png)
 
 **X/Y 光强截面**
 
-![plain 复测 X/Y 光强截面](../figures/figures/gs_issue_live_farfield_20261015_210155_xy_profile.png)
+![plain 复测 X/Y 光强截面](../figures/gs_issue_live_farfield_20261015_210155_xy_profile.png)
 
 ### plain 再复测 (`20261015_211345`，GS CV = 0.6080，最优 CV)
 
 **SLM 相位**
 
-![plain 再复测 相位](../figures/figures/gs_issue_live_phase_20261015_211345.png)
+![plain 再复测 相位](../figures/gs_issue_live_phase_20261015_211345.png)
 
 **CCD 远场**
 
-![plain 再复测 远场](../figures/figures/gs_issue_live_farfield_20261015_211345.png)
+![plain 再复测 远场](../figures/gs_issue_live_farfield_20261015_211345.png)
 
 **X/Y 光强截面**
 
-![plain 再复测 X/Y 光强截面](../figures/figures/gs_issue_live_farfield_20261015_211345_xy_profile.png)
+![plain 再复测 X/Y 光强截面](../figures/gs_issue_live_farfield_20261015_211345_xy_profile.png)
 
 ### 图像解读
 
