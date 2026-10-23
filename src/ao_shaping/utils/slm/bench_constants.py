@@ -53,3 +53,24 @@ SLM_PITCH_M = 8e-6
 BEAM_CENTER_PANEL = (960, 600)
 #: Illuminated beam radius in panel px.
 BEAM_RADIUS_PANEL = 450
+
+# ---------------------------------------------------------------------------
+# Device / grating limits shared by the off-axis shaping configs (batch of
+# #173). These were spelled out as bare literals in the per-mode config
+# validators (``slm_gs_refine`` / ``slm_model_in_loop`` / ``slm_square_shaping``
+# / ``_blaze_calibration``). A bench change (different SLM bank, larger CCD
+# crop) would have to update several copies by hand -- the same drift failure
+# the bench-geometry constants above already prevent.
+# ---------------------------------------------------------------------------
+
+#: Minimum blaze (diffraction-grating) period in panel px. A period below this
+#: is not a resolvable grating for the off-axis zero-order overlay, so the
+#: configs reject ``0 < period < BLAZE_PERIOD_MIN_PX``.
+BLAZE_PERIOD_MIN_PX = 4
+
+#: Largest SLM bank number the bench can address (slm_number is 1-based).
+MAX_SLM_NUMBER = 8
+
+#: Smallest full-frame CCD crop (px) the auto-calibration can target; smaller
+#: crops lack the zero-order separation the blaze probe needs.
+MIN_CAM_SIZE_PX = 16

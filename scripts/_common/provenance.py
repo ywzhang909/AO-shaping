@@ -1416,6 +1416,45 @@ REPORTS: dict[str, ReportProvenance] = {
             "报告正文 `sim_vs_hw_20261022.md` 直接嵌入这张表 (共用同一个渲染函数)"
         ),
     ),
+    "report/shape_trials/sim_vs_hw/sim_vs_hw_20261023.md": ReportProvenance(
+        script="scripts/slm/compare_sim_vs_hw.py",
+        command=(
+            "python scripts/slm/compare_sim_vs_hw.py --execute "
+            "--params report/shape_trials/sim_vs_hw/artifacts/sim_twin_params_20261023.json "
+            "--out report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261023.md "
+            "--report report/shape_trials/sim_vs_hw/sim_vs_hw_20261023.md"
+        ),
+        environment="离线",
+        note=(
+            "V2.0 孪生 (ZeroOrderModel / SlmLutModel / CameraNonIdealModel 四个旋钮 "
+            "全部开启) vs 第三轮硬件归档的逐项对照; 与 V1.0 的差异见 "
+            "`compare_v1_v2_20261023.md`"
+        ),
+    ),
+    "report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261023.md": ReportProvenance(
+        script="scripts/slm/compare_sim_vs_hw.py",
+        command=(
+            "python scripts/slm/compare_sim_vs_hw.py --execute "
+            "--params report/shape_trials/sim_vs_hw/artifacts/sim_twin_params_20261023.json "
+            "--out report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261023.md "
+            "--report report/shape_trials/sim_vs_hw/sim_vs_hw_20261023.md"
+        ),
+        environment="离线",
+        note=(
+            "V2.0 轮次渲染出的**数据表**; 与报告正文 `sim_vs_hw_20261023.md` "
+            "同一次运行产出 (--out 写表, --report 写正文)"
+        ),
+    ),
+    "report/shape_trials/sim_vs_hw/compare_v1_v2_20261023.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线",
+        note=(
+            "V1.0 与 V2.0 两轮对照报告的人工比对分析: 硬件基准完全相同 "
+            "(第三轮 round3_20261022 归档), 差异全部来自孪生模型的非理想旋钮; "
+            "两侧数字分别摘自 `sim_vs_hw_20261022.md` 与 `sim_vs_hw_20261023.md`"
+        ),
+        extra_scripts=("scripts/slm/compare_sim_vs_hw.py",),
+    ),
     "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md": ReportProvenance(
         script="scripts/slm/generate_hw_gs_square_scans_report.py",
         command=(

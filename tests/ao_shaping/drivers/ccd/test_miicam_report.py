@@ -38,6 +38,11 @@ class TestMIICAMReport:
         """Import and return MIICAM module."""
         if not MIICAM_AVAILABLE:
             pytest.skip("MIICAM module not available")
+        if miicam_driver.miicam is None:
+            pytest.skip(
+                "MIICAM SDK not available in this environment "
+                f"(_MIICAM_AVAILABLE={miicam_driver._MIICAM_AVAILABLE})"
+            )
         return miicam_driver
 
     @pytest.fixture
@@ -48,8 +53,12 @@ class TestMIICAMReport:
     @pytest.fixture
     def camera(self, MIICamera):
         """Create and return camera instance."""
+        # 相机不在线时失败在 open() 里显现, 异常类型因设备而异 (见 drivers/hardware/conftest.py 的异常契约), 不得收窄。
         cam = MIICamera(cam_id=0, exposure_time_ms=20)
-        cam.open()
+        try:
+            cam.open()
+        except Exception as e:
+            pytest.skip(f"MiiCam hardware not available: {e}")
         yield cam
         cam.close()
 

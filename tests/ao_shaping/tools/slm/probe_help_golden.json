@@ -1,7 +1,7 @@
 {
   "calibration": {
-    "body_literals": 630,
-    "body_literals_sha256": "20427fdff8f504a9",
+    "body_literals": 628,
+    "body_literals_sha256": "376daed0d3d423c9",
     "declared": [
       "--align-margin",
       "--align-min-window",
@@ -750,8 +750,8 @@
     ]
   },
   "slm_wfs_probe": {
-    "body_literals": 93,
-    "body_literals_sha256": "9387ccc49127277d",
+    "body_literals": 91,
+    "body_literals_sha256": "2030d1cf0b0f1096",
     "declared": [
       "--exposure-ms",
       "--mla-index",
@@ -772,8 +772,8 @@
     ]
   },
   "slm_wfs_reference": {
-    "body_literals": 252,
-    "body_literals_sha256": "07a103ae89b8fac0",
+    "body_literals": 253,
+    "body_literals_sha256": "a5c9d00d9e7a6a20",
     "declared": [
       "--flat-rms-threshold",
       "--n-avg",
@@ -802,8 +802,8 @@
     ]
   },
   "slm_zernike_correction": {
-    "body_literals": 519,
-    "body_literals_sha256": "8529738e426ef409",
+    "body_literals": 520,
+    "body_literals_sha256": "162dbf81fbcaa943",
     "declared": [
       "--amps",
       "--coverage-tol",
@@ -858,8 +858,8 @@
     ]
   },
   "slm_zernike_response": {
-    "body_literals": 286,
-    "body_literals_sha256": "6ffbdd31886f7755",
+    "body_literals": 287,
+    "body_literals_sha256": "872fdf36f99aabe6",
     "declared": [
       "--amplitude-rad",
       "--exclude-tip-tilt",

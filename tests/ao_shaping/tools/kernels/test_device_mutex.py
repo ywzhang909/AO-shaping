@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import subprocess
 import sys
@@ -133,6 +134,64 @@ def _kill_tree(proc: subprocess.Popen) -> None:
         proc.kill()
     with contextlib.suppress(subprocess.TimeoutExpired):
         proc.wait(timeout=20)
+
+
+#: 子进程: 把「持有者是**我的父进程**」这一条**在子进程里**判一遍再回报。
+#:
+#: ⚠️ 为什么必须在子进程里: 容器里 pytest 常常就是 PID 1, ``os.getppid()`` 于是
+#: 返回 **0** (父进程在 PID 命名空间之外) ⇒ 「父进程持有」这个前提在测试进程内
+#: 根本不存在, 拿 ``getppid()`` 写元数据只能写出一个无效 pid (实现的
+#: ``is_held_by_me`` 对 ``pid <= 0`` 直接返回 False, 这是对的)。在子进程里, 父进程
+#: 就是测试进程本身 ⇒ 命名空间内、确定可验。
+_TREE_CODE = """
+import json, os, sys
+sys.path.insert(0, {src!r})
+from ao_shaping.tools.kernels import device_mutex as dm
+
+
+def _busy_probe():
+    return dm.ProbeResult(
+        status="unavailable",
+        kind=dm.KIND_SLM_BUSY,
+        code=-10003,
+        message="SLM 的 USB 句柄已被别的进程打开",
+        source=dm.PROBE_SOURCE_SDK,
+    )
+
+
+lock = dm.DeviceLock({path!r})
+ppid = os.getppid()
+lock.write_holder_metadata(ppid, cmdline="python parent.py")
+verdict = dm.wait_until_idle(
+    0.0,
+    lock=lock,
+    probe=_busy_probe,
+    process_source=lambda: [],
+)
+print(json.dumps({{
+    "pid": os.getpid(),
+    "ppid": ppid,
+    "ppid_in_own_tree": ppid in dm.process_tree_pids(),
+    "held_by_me": lock.is_held_by_me(),
+    "ok": verdict.ok,
+    "holder_is_me": verdict.holder_is_me,
+}}), flush=True)
+"""
+
+
+def _run_as_child_of_test(tmp_path: Path) -> dict:
+    """在**本测试进程的子进程**里跑 :data:`_TREE_CODE`, 取回它的判定。"""
+    code = _TREE_CODE.format(src=str(ROOT / "src"), path=str(tmp_path / "bench.lock"))
+    proc = subprocess.Popen(  # 固定命令, 只在测试里用
+        [sys.executable, "-c", code],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    out, err = proc.communicate(timeout=60)
+    if proc.returncode != 0:
+        raise AssertionError(f"child exited {proc.returncode}: {err}")
+    return json.loads(out.strip().splitlines()[-1])
 
 
 @pytest.fixture
@@ -297,23 +356,34 @@ class TestOwnProcessTreeIsNotAConflict:
 
     def test_the_parent_pid_counts_as_ours(self, tmp_path):
         """锁的持有者是**父进程** ⇒ 也算我们自己这条线。"""
-        lock = DeviceLock(tmp_path / "bench.lock")
-        lock.write_holder_metadata(os.getppid(), cmdline="python parent.py")
+        report = _run_as_child_of_test(tmp_path)
 
-        assert lock.is_held_by_me() is True
-        verdict = device_mutex.wait_until_idle(
-            0.0,
-            lock=lock,
-            probe=_sdk_busy_probe,
-            process_source=_no_other_processes,
-        )
-        assert verdict.ok is True
-        assert verdict.holder_is_me is True
+        assert report["ppid"] == os.getpid(), "子进程的父进程就是测试进程本身"
+        assert report["ppid_in_own_tree"] is True
+        assert report["held_by_me"] is True
+        assert report["ok"] is True
+        assert report["holder_is_me"] is True
 
     def test_process_tree_pids_contains_ancestors_and_descendants(self):
         own = process_tree_pids()
         assert os.getpid() in own
-        assert os.getppid() in own
+
+        # 祖先条: 容器里 pytest 常是 PID 1 ⇒ 命名空间内没有祖先可断言, 进程表对此
+        # 返回 parent=0, 实现也正是 `if not parent: break` 停在这里 (不是漏判)。
+        ppid = device_mutex.process_table_detail(fresh=True).get(os.getpid(), (0, ""))[0]
+        if ppid:
+            assert ppid in own
+
+        # 后代条: 用例名里就写着 descendants, 但原来根本没测这一条。
+        proc = subprocess.Popen(  # 固定命令, 只在测试里用
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            assert proc.pid in process_tree_pids(fresh=True), "刚起的子进程必须算自己人"
+        finally:
+            _kill_tree(proc)
 
 
 # ---------------------------------------------------------------------------

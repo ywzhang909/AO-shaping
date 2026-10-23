@@ -591,7 +591,7 @@ EXCLUDE_NAMES = {
 #: 机内本地目录与运行时产物：不属于仓库文档，与根 ``.gitignore`` 的
 #: machine-local 清单保持一致。它们不进版本控制，术语门禁不该被它们拖成
 #: 永不收敛（2026-10-22: ``.workbuddy/memory/*.md`` 的工作日志把 dry-run
-#: 从 0 个文件变成 1 个文件）。
+#: 从 0 个文件变成 1 个文件；2026-10-23: ``.history/`` 的 IDE 快照同理）。
 LOCAL_DIR_PREFIXES = (
     ".workbuddy/",
     ".claude/",
@@ -601,6 +601,7 @@ LOCAL_DIR_PREFIXES = (
     ".auto_doc_review/",
     "_scripts/",
     "logs/",
+    ".history/",
 )
 apply_mode = "--apply" in sys.argv
 check_mode = "--check" in sys.argv

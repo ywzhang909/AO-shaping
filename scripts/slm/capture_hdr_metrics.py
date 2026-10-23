@@ -1,4 +1,4 @@
-"""大目标框的多曝光 HDR 采集与指标（上机用；``--dry-run`` 可离线复算）。
+"""大目标框的多曝光 HDR 采集与指标（实验用；``--dry-run`` 可离线复算）。
 
 为什么需要它：单个固定曝光下，大框（≥200 px）的均值落在读出噪声里，CV/EE 都是
 噪声统计；短曝光保峰值、长曝光救暗区，必须融合（见 ``utils/image/hdr.py``）。
@@ -26,12 +26,12 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
-import sys  # noqa: E402
+import sys
 
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
-from ao_shaping.utils.image.hdr import box_metrics, hdr_fuse  # noqa: E402
+from ao_shaping.utils.image.hdr import box_metrics, hdr_fuse
 
 
 def compute(frames: list[np.ndarray], exposures: list[float], boxes: list[int],

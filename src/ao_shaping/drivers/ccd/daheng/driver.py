@@ -9,16 +9,19 @@ import numpy as np
 import numpy.typing as npt
 
 from ao_shaping.drivers.ccd import BaseCamera
-from ao_shaping.drivers.ccd.base import AveragedFrame
+from ao_shaping.drivers.ccd.base import AveragedFrame, CameraError
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.drivers.ccd.daheng import constants
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.io.file import logger
 
+_SDK_IMPORT_ERROR: str | None = None
 try:
     import gxipy as gx  # type: ignore[import-untyped]
 except (ImportError, OSError) as e:
+    gx = None  # type: ignore[assignment]
+    _SDK_IMPORT_ERROR = f"{type(e).__name__}: {e}"
     logger.error(f"Daheng SDK import failed: {e}")
 
 # ── CCD 配置参数 ─────────────────────────────────────────
@@ -153,6 +156,19 @@ class DahengCamera(BaseCamera):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+    def _require_sdk(self) -> None:
+        """SDK 不可用时给出可行动的错误, 而不是 `NameError`。
+
+        模块顶层的 `import gxipy` 失败时 `gx` 被绑成 ``None`` (见模块 docstring 附近),
+        因此这里必须**先**拦住: 否则后续对 ``gx.`` 的取值会炸成一个看不出原因的
+        ``AttributeError``/``NameError``。
+        """
+        if gx is None:
+            raise CameraError(
+                f"gxipy SDK 不可用 ({_SDK_IMPORT_ERROR or 'import failed'}); "
+                "大恒相机需要 libs/gxipy 在 PYTHONPATH 上"
+            )
+
     def initialize(self):
         """
         初始化相机设备。
@@ -172,6 +188,7 @@ class DahengCamera(BaseCamera):
         返回:
             无
         """
+        self._require_sdk()
         # 关闭之前打开的相机设备（如果有）
         self.__exit__(None, None, None)
 
@@ -199,7 +216,7 @@ class DahengCamera(BaseCamera):
                 self.cam = self.device_manager.open_device_by_sn(sn)
             else:
                 raise
-        assert self.cam, "camera not found"
+        self._ensure_open("camera not found")
         # 设置相机的曝光时间
         float_range = self.cam.ExposureTime.get_range()
         if float_range:
@@ -306,7 +323,7 @@ class DahengCamera(BaseCamera):
         返回:
             float: 实际设定的曝光时间, 单位毫秒。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         time_ms = float(time_ms)
         if time_ms < self.__exposure_time_ms.min:
             v = self.__exposure_time_ms.min
@@ -387,18 +404,20 @@ class DahengCamera(BaseCamera):
             传递非法值给 SDK）；返回值为 set 后 readback 校验的真实值。
         """
         # 中心坐标大于0
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         center = int(center[0]), int(center[1])
         self.cam.stream_off()
         # 如果未指定窗口大小，则使用相机的最大宽度和高度
         if size == (0, 0):
             width, height = (self.cam.WidthMax.get(), self.cam.HeightMax.get())
-            assert width and height, "camera width and height must be greater than 0"
+            if not (width and height):
+                raise ValueError("camera width and height must be greater than 0")
             x_offset, y_offset = 0, 0
         else:
             width, height = int(size[0]), int(size[1])
             range_w, range_h = self.cam.Width.get_range(), self.cam.Height.get_range()
-            assert range_w and range_h, "camera width and height range not found"
+            if not (range_w and range_h):
+                raise ValueError("camera width and height range not found")
             # gxipy IntFeature.set 对越界值不抛异常，而是 print 噪声 + 静默
             # 保留旧窗口 —— 先钳制到相机 [min, max, inc] 网格，set 永不越界。
             width = self._clamp_int(width, range_w)
@@ -487,7 +506,7 @@ class DahengCamera(BaseCamera):
         返回:
         np.ndarray: 拍摄到的图像数据，数据类型为uint8。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         while True:
             raw_image = self.cam.data_stream[0].get_image()
             if raw_image and raw_image.get_status() == gx.GxFrameStatusList.SUCCESS:
@@ -562,7 +581,7 @@ class DahengCamera(BaseCamera):
         Returns:
             np.ndarray: 调整后采集到的图像 (uint8)。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         assert tolerance > 0, "tolerance must be > 0"
 
         target_val = float(target_max)
@@ -661,7 +680,7 @@ class DahengCamera(BaseCamera):
         return img
 
     def __update_properties(self):
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         width_val = self.cam.Width.get()
         height_val = self.cam.Height.get()
         assert width_val is not None and height_val is not None, (
@@ -676,13 +695,13 @@ class DahengCamera(BaseCamera):
 
     @property
     def exposure_time(self) -> float:
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         _exp_time = self.cam.ExposureTime.get()
         return _exp_time / 1000.0 if _exp_time else 0.0
 
     @exposure_time.setter
     def exposure_time(self, time_ms: float):
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self.reset_exposure_time(time_ms)
 
     @staticmethod
@@ -705,7 +724,7 @@ class DahengCamera(BaseCamera):
         返回:
             (min_exposure_ms, max_exposure_ms)
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         return float(self.__exposure_time_ms.min), float(self.__exposure_time_ms.max)
 
     def get_exposure_time_ms(self) -> float:
@@ -734,7 +753,7 @@ class DahengCamera(BaseCamera):
         返回:
             bool: 成功返回 True, 不支持返回 False。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         try:
             if enable:
                 self.cam.ExposureAuto.set(constants.GxAutoEntry.CONTINUOUS.value)
@@ -759,7 +778,7 @@ class DahengCamera(BaseCamera):
         返回:
             实际设定的目标值。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         target = max(0, min(255, target))
         try:
             self.cam.ExpectedGrayValue.set(target)
@@ -780,7 +799,7 @@ class DahengCamera(BaseCamera):
                 - target: int —— 当前目标亮度 (0-255)
                 - exposure_time_ms: float —— 当前曝光时间, 单位 ms
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         state: dict = {
             "enabled": False,
             "mode": 0,
@@ -822,7 +841,7 @@ class DahengCamera(BaseCamera):
         返回:
             bool: 成功返回 True, 不支持返回 False。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         try:
             self.cam.AutoExposureTimeMin.set(min_time_ms * 1000)
             self.cam.AutoExposureTimeMax.set(max_time_ms * 1000)

@@ -33,6 +33,21 @@ import pytest
 
 pytestmark = pytest.mark.hardware
 
+try:
+    from ao_shaping.drivers.ccd.miicam import driver as miicam_driver
+except ImportError:
+    miicam_driver = None
+
+# 跳过条件取自驱动自身的可用性旗标 (与 drivers/sim 的 requires_oopao 同一范式):
+# SDK 缺失时驱动里 miicam 绑成 None, 探针子进程必然失败, 那是环境缺依赖不是回归。
+requires_miicam_sdk = pytest.mark.skipif(
+    miicam_driver is None or miicam_driver.miicam is None,
+    reason=(
+        "MIICAM SDK not available in this environment "
+        f"(_MIICAM_AVAILABLE={getattr(miicam_driver, '_MIICAM_AVAILABLE', False)})"
+    ),
+)
+
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PROBE = REPO_ROOT / "scripts" / "ccd" / "miicam_auto_exposure_probe.py"
 REPORT_DIR = (
@@ -68,6 +83,7 @@ _OTHER_CHECKS = (
 _AE_SCENARIO_PREFIXES = ("converged[", "boundary_exit[", "deadzone_bounded[")
 
 
+@requires_miicam_sdk
 def test_miicam_auto_exposure_report() -> None:
     """Run the auto-exposure probe on hardware and regenerate the report."""
     assert PROBE.is_file(), f"probe script missing: {PROBE}"

@@ -16,29 +16,6 @@ import pytest
 import torch
 from scipy.ndimage import zoom
 
-# The whole pipeline runs 64x64 FFTs on CPU, where torch's default thread pool
-# (24 of 32 logical cores here) costs far more in context switching than it
-# saves in parallelism. Measured on this machine, one Step A + Step B round pair:
-# 24 threads 147.5s, 8 threads 6.1s, 1 thread 4.8s -- a 30x swing driven purely
-# by contention. The results are bit-identical at every thread count (final
-# coefficient error 0.2922 and encircled energy 0.3658 from 1 to 24 threads), so
-# the pool size is a pure performance knob here and pinning it keeps the suite
-# inside its time budget without perturbing any assertion.
-@pytest.fixture(autouse=True)
-def _single_threaded_torch():
-    """Pin torch to one thread for this module, then hand the pool back.
-
-    Scoped rather than set at import: a module-level set_num_threads(1) is a
-    process-global mutation that leaks into every test collected afterwards, and
-    it did -- test_conventions.py::test_the_thread_budget_is_in_force_in_this_process
-    asserts the harness' 16-thread budget and read 1.
-    """
-    previous = torch.get_num_threads()
-    torch.set_num_threads(1)
-    yield
-    torch.set_num_threads(previous)
-
-
 from ao_shaping.algorithm.signal_processing.differentiable_shaping import (
     create_target_mask,
 )
@@ -74,6 +51,29 @@ from ao_shaping.optimizer.wfless.model_in_loop_shaping import (
     simulate_iterative_shaping,
     square_metrics_at_zero_order,
 )
+# The whole pipeline runs 64x64 FFTs on CPU, where torch's default thread pool
+# (24 of 32 logical cores here) costs far more in context switching than it
+# saves in parallelism. Measured on this machine, one Step A + Step B round pair:
+# 24 threads 147.5s, 8 threads 6.1s, 1 thread 4.8s -- a 30x swing driven purely
+# by contention. The results are bit-identical at every thread count (final
+# coefficient error 0.2922 and encircled energy 0.3658 from 1 to 24 threads), so
+# the pool size is a pure performance knob here and pinning it keeps the suite
+# inside its time budget without perturbing any assertion.
+@pytest.fixture(autouse=True)
+def _single_threaded_torch():
+    """Pin torch to one thread for this module, then hand the pool back.
+
+    Scoped rather than set at import: a module-level set_num_threads(1) is a
+    process-global mutation that leaks into every test collected afterwards, and
+    it did -- test_conventions.py::test_the_thread_budget_is_in_force_in_this_process
+    asserts the harness' 16-thread budget and read 1.
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(1)
+    yield
+    torch.set_num_threads(previous)
+
+
 
 # A low-order, physically meaningful ground truth (defocus, astig, spherical,
 # coma) well inside the twin's n_orders=6 limit.

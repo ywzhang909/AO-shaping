@@ -253,8 +253,17 @@ class MIICamera(BaseCamera):
     # 初始化
     # =========================================================================
 
+    def _require_sdk(self) -> None:
+        """SDK 不可用时给出可行动的错误, 而不是对 ``None`` 取属性。"""
+        if miicam is None:
+            raise CameraError(
+                "miicam SDK 不可用; 需要 _setup_miicam_sdk() 成功 "
+                f"(当前 _MIICAM_AVAILABLE={_MIICAM_AVAILABLE})"
+            )
+
     def initialize(self) -> None:
         """初始化相机设备。"""
+        self._require_sdk()
         # 关闭此前已打开的相机设备 (若有)
         self.__exit__(None, None, None)
 
@@ -478,7 +487,7 @@ class MIICamera(BaseCamera):
         返回:
             实际设定的曝光时间, 单位毫秒。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         if time_ms < MIICamera.MIN_EXPOSURE_MS:
             self.exposure_time_ms = MIICamera.MIN_EXPOSURE_MS
             logger.warning(
@@ -560,7 +569,7 @@ class MIICamera(BaseCamera):
         返回:
             np.ndarray: 调整后采集到的图像 (uint8/uint16, 取决于位深)。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         assert tolerance > 0, "tolerance must be > 0"
 
         target_val = float(target_max)
@@ -652,7 +661,7 @@ class MIICamera(BaseCamera):
         返回:
             成功返回 True。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         mode_value = 1 if enable else 0
         if enable and mode > 0:
             mode_value = mode
@@ -668,7 +677,7 @@ class MIICamera(BaseCamera):
         返回:
             实际设定的目标值。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         target = max(16, min(220, target))
         try:
             self.cam.put_AutoExpoTarget(target)
@@ -682,7 +691,7 @@ class MIICamera(BaseCamera):
         返回:
             含 enabled、mode 与 target 的字典。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         state = {"enabled": False, "mode": 0, "target": 120}
         try:
             state["mode"] = self.cam.get_AutoExpoEnable()
@@ -710,7 +719,7 @@ class MIICamera(BaseCamera):
         返回:
             成功返回 True, 不支持返回 False。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         try:
             self.cam.put_AutoExpoRange(
                 max_time_ms * 1000,
@@ -741,7 +750,7 @@ class MIICamera(BaseCamera):
         返回:
             实际设定的 ((width, height), (center_x, center_y))。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         center = tuple(int(c) for c in center)
 
         try:
@@ -839,7 +848,7 @@ class MIICamera(BaseCamera):
             callback: 每来一帧新图像就被调用的函数, 签名为 (image, frame_info)。
                       为 None 时使用内部缓冲回调。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self._callback_session.start(callback)
         logger.info("Callback mode started")
 
@@ -923,7 +932,7 @@ class MIICamera(BaseCamera):
                   2 = 外部触发 (上升沿)
                   3 = 外部 + 软件触发
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self._stop_streaming()
         self.cam.put_Option(miicam.MIICAM_OPTION_TRIGGER, mode)
         logger.info("Trigger mode set to {}", mode)
@@ -934,7 +943,7 @@ class MIICamera(BaseCamera):
         返回:
             当前触发模式 (0=视频, 1=软件, 2=外部, 3=两者)。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         return self.cam.get_Option(miicam.MIICAM_OPTION_TRIGGER)
 
     def trigger(self, n_images: int = 1) -> None:
@@ -947,7 +956,7 @@ class MIICamera(BaseCamera):
             n_images: 要采集的图像张数。
                       0 = 取消触发, 0xFFFF = 连续。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self.cam.Trigger(n_images)
 
     def trigger_sync(
@@ -966,7 +975,7 @@ class MIICamera(BaseCamera):
         返回:
             采集到的图像, 为 numpy 数组。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
 
         self.cam.Trigger(n_images)
 
@@ -1007,7 +1016,7 @@ class MIICamera(BaseCamera):
             resolution_index: Snap 使用的分辨率索引。0xFFFFFFFF = 当前
                             预览分辨率。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self.cam.Snap(resolution_index)
 
     def pull_still_image(self) -> tuple[np.ndarray, miicam.MiicamFrameInfoV3]:
@@ -1016,7 +1025,7 @@ class MIICamera(BaseCamera):
         返回:
             (image, frame_info) 的 tuple。
         """
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
 
         bufsize, bits, dtype = self._get_buffer_params()
         buffer = (ctypes.c_char * bufsize)()
@@ -1030,12 +1039,12 @@ class MIICamera(BaseCamera):
 
     def get_still_resolution_count(self) -> int:
         """获取可用静态图像分辨率的数量。"""
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         return self.cam.StillResolutionNumber()
 
     def get_still_resolution(self, index: int) -> tuple[int, int]:
         """获取某个静态图像分辨率的尺寸。"""
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         return self.cam.get_StillResolution(index)
 
     # =========================================================================
@@ -1044,7 +1053,7 @@ class MIICamera(BaseCamera):
 
     def pause(self, b_pause: bool = True) -> None:
         """暂停或恢复视频流。"""
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self.cam.Pause(1 if b_pause else 0)
 
     def _stop_streaming(self) -> None:
@@ -1078,7 +1087,7 @@ class MIICamera(BaseCamera):
         return img_data.reshape((self.cam_height, self.cam_width))
 
     def __update_properties(self):
-        assert self.cam, "camera not initialized"
+        self._ensure_open()
         self.cam_width, self.cam_height = self.cam.get_Size()
         logger.info(
             f"Open cam {self._sn} success. width={self.cam_width}, height={self.cam_height}"

@@ -37,11 +37,14 @@ from loguru import logger
 
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import MlaRes, ThorlabWFS
+from ao_shaping.tools.zernike.common import (
+    WFS_EXPOSURE_SAFETY_MAX_MS,
+    require_wfs_exposure_within_safety_ceiling,
+)
 from ao_shaping.utils.cli.params import option, with_params
 
 PANEL_H, PANEL_W = 1200, 1920
 DEFAULT_OUTPUT = Path("data/calibration/wfs_light_pupil_probe.json")
-MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 
 
@@ -59,7 +62,7 @@ class WfsProbeParams:
     exposure_ms: Annotated[
         float,
         option("--exposure-ms", show_default=True,
-               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
+               help=f"WFS 曝光 ms (必须 ≤ {WFS_EXPOSURE_SAFETY_MAX_MS})"),
     ] = DEFAULT_EXPOSURE_MS
     no_save: Annotated[
         bool, option("--no-save", is_flag=True, help="不写回 pupil / 不保存报告")
@@ -73,9 +76,9 @@ class WfsProbeParams:
 @with_params(WfsProbeParams, kw_name="params")
 def main(params: WfsProbeParams) -> int:
     """SLM 纯平 + WFS 光强/pupil 检查."""
-    if params.exposure_ms > MAX_EXPOSURE_MS:
+    if params.exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {params.exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
+            f"WFS 曝光 {params.exposure_ms}ms 超过安全上限 {WFS_EXPOSURE_SAFETY_MAX_MS}ms"
         )
 
     click.echo("=" * 72)
@@ -110,7 +113,7 @@ def main(params: WfsProbeParams) -> int:
         click.echo(f"[OK] WFS open: serial={wfs.serial_num}, exposure={exp:.4f}ms, "
                    f"MLA={wfs.get_mla_name()} "
                    f"{wfs.num_spots_x}x{wfs.num_spots_y} spots")
-        assert exp <= MAX_EXPOSURE_MS, f"曝光 {exp}ms 超过 {MAX_EXPOSURE_MS}ms"
+        require_wfs_exposure_within_safety_ceiling(exp, source="WFS")
 
         # SLM 纯平相位
         flat = np.full((PANEL_H, PANEL_W), 0, dtype=np.uint16)

@@ -8,8 +8,9 @@ this bench, not just to that one script.
 
 What it buys over calling :mod:`ao_shaping.tools.kernels.bench_kernels` directly:
 
-* **One settle criterion, applied once.** :func:`display_and_average` discards
-  frames until two consecutive readings agree. An unsettled frame is not a noisy
+* **One settle criterion, applied once.**
+  :func:`bench_kernels.display_and_average` discards frames until two consecutive
+  readings agree. An unsettled frame is not a noisy
   frame, it is a *wrong* frame that still looks plausible -- see the module
   docstring of :mod:`ao_shaping.tools.kernels.bench_kernels` for the measurement
   that cost a 3.3x error.
@@ -41,13 +42,11 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.tools.slm.params import SlmAcquireParams, SlmBenchParams
-from ao_shaping.tools.kernels.bench_kernels import (  # noqa: F401  (capture_settled re-export)
-    capture_settled,
-    SLM_PITCH_M,
+from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
-    core_fraction,
-    display_and_average,
+    SLM_PITCH_M,
+    capture_settled,
     measure_spot,
     ramp_panel,
     zernike_panel,

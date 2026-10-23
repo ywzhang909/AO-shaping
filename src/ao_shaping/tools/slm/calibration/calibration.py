@@ -113,7 +113,12 @@ from ao_shaping.drivers.ccd import DahengCamera
 from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.kernels.sweep_analysis import clamp_shift, parabolic_min
-from ao_shaping.tools.zernike.common import make_phase, measure_tilt_defocus
+from ao_shaping.tools.zernike.common import (
+    WFS_EXPOSURE_SAFETY_MAX_MS,
+    make_phase,
+    measure_tilt_defocus,
+    require_wfs_exposure_within_safety_ceiling,
+)
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
@@ -124,7 +129,6 @@ DEFAULT_CONFIG = Path("data/slm_configs/slm")
 DEFAULT_OUTPUT = Path("data/calibration/defocus_shift_calib.json")
 
 # 安全阈值
-MAX_EXPOSURE_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 DEFAULT_SHIFT_LIMIT = 500
 
@@ -1525,7 +1529,7 @@ class ShiftCalibParams:
         option(
             "--wfs-exposure-ms",
             show_default=True,
-            help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})",
+            help=f"WFS 曝光 ms (必须 ≤ {WFS_EXPOSURE_SAFETY_MAX_MS})",
         ),
     ] = DEFAULT_EXPOSURE_MS
     zernike_radius: Annotated[
@@ -1594,9 +1598,9 @@ class ShiftCalibParams:
 @with_params(ShiftCalibParams, kw_name="params")
 def main_shift_calib(params: ShiftCalibParams) -> int:
     """SLM defocus 平移标定 — WFS tip/tilt 零点法."""
-    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+    if params.wfs_exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {params.wfs_exposure_ms}ms 超过安全上限 {MAX_EXPOSURE_MS}ms"
+            f"WFS 曝光 {params.wfs_exposure_ms}ms 超过安全上限 {WFS_EXPOSURE_SAFETY_MAX_MS}ms"
         )
     if params.zernike_radius <= 0:
         raise click.BadParameter("--zernike-radius 必须 > 0")
@@ -1630,7 +1634,7 @@ def main_shift_calib(params: ShiftCalibParams) -> int:
         wfs.open()
         exp = float(wfs.exposure_time)
         click.echo(f"[OK] WFS open: serial={wfs.serial_num}, exposure={exp:.4f}ms")
-        assert exp <= MAX_EXPOSURE_MS, f"曝光 {exp}ms 超过 {MAX_EXPOSURE_MS}ms"
+        require_wfs_exposure_within_safety_ceiling(exp, source="WFS")
 
         # pupil 必须自动获取并显式写回 (optimize_pupil 只计算不设置)
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)

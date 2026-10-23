@@ -34,6 +34,7 @@ EXTRACTED = {
 #: Generators migrated onto ``scripts._common``.
 MIGRATED = (
     "compare_loss_algorithms.py",
+    "compare_sim_vs_hw.py",
     "generate_diff_shaping_report.py",
     "generate_fouriergsnet_sim_report.py",
     "generate_gsnet_offline_report.py",

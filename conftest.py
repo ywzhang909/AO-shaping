@@ -82,7 +82,7 @@ def _os_thread_count() -> int | None:
         import psutil
 
         return int(psutil.Process().num_threads())
-    except Exception:  # pragma: no cover - psutil is an optional extra
+    except ImportError:  # pragma: no cover - psutil is an optional extra
         return None
 
 
@@ -110,7 +110,7 @@ def _cap_cpu_threads(threads: int) -> None:
         import numba
 
         numba.set_num_threads(threads)
-    except Exception:  # pragma: no cover - numba is optional
+    except (ImportError, RuntimeError):  # pragma: no cover - numba optional; set may fail if already started
         pass
 
     try:
@@ -118,7 +118,7 @@ def _cap_cpu_threads(threads: int) -> None:
 
         torch.set_num_threads(threads)
         torch.set_num_interop_threads(1)
-    except Exception:  # pragma: no cover - torch is optional
+    except (ImportError, RuntimeError):  # pragma: no cover - torch optional; interop set raises RuntimeError if already set
         pass
 
 
@@ -131,7 +131,7 @@ def _cap_gpu_memory(limit_mb: int) -> None:
         if torch.cuda.is_available():
             total = torch.cuda.get_device_properties(0).total_memory
             torch.cuda.set_per_process_memory_fraction(limit_bytes / total, 0)
-    except Exception:  # pragma: no cover - no GPU in some environments
+    except (ImportError, RuntimeError):  # pragma: no cover - no GPU / torch optional
         pass
 
     try:
@@ -141,7 +141,7 @@ def _cap_gpu_memory(limit_mb: int) -> None:
             cp.cuda.runtime.deviceSetLimit(
                 cp.cuda.runtime.cudaLimitMallocHeapSize, limit_bytes
             )
-    except Exception:  # pragma: no cover - cupy is optional
+    except (ImportError, RuntimeError):  # pragma: no cover - cupy optional / no GPU
         pass
 
 
@@ -156,7 +156,7 @@ def _gpu_summary() -> str:
             f"GPU {props.name}, {props.total_memory / 1024 ** 3:.1f} GiB total, "
             f"allocator capped at {_AO_VRAM_LIMIT_MB} MiB"
         )
-    except Exception:  # pragma: no cover - torch is optional
+    except (ImportError, RuntimeError):  # pragma: no cover - torch optional / no GPU
         return "torch unavailable"
 
 

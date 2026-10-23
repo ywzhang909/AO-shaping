@@ -240,7 +240,7 @@ class TestOrderDetection:
         assert measurement.eta_plus_total == pytest.approx(40.0 / 140.0, rel=0.15)
 
     def test_one_side_only_and_a_self_split_zero_order_still_measures(self) -> None:
-        """回归 (2026-10-23 台架实测): 闪耀光栅只有 **+1** 级, 且零级自己会分成
+        """回归 (2026-10-23 实验系统实测): 闪耀光栅只有 **+1** 级, 且零级自己会分成
         几个局部极大。此前的两处判据会同时失效:
 
         1. "锚点 → 最亮旁斑"取方向时, 最亮的"旁斑"其实是**零级自己的次极大**

@@ -1,10 +1,10 @@
-from __future__ import annotations
-
 """Tests for :mod:`ml.hwdataset.transforms`.
 
 These tests verify the coherent block mean, geometry equivalence with the
 canonical helpers, and the public API contracts for phase/far-field transforms.
 """
+
+from __future__ import annotations
 
 import numpy as np
 import pytest

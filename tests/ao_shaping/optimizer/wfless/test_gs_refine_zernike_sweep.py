@@ -532,6 +532,8 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--target-side",
+                "24",
                 "--epochs",
                 "2",
                 "--gs-iters",
@@ -586,6 +588,8 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--target-side",
+                "24",
                 "--spgd-epochs",
                 "2",
                 "--stage-a-in",
@@ -629,6 +633,8 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--target-side",
+                "24",
                 "--epochs", "4",
                 "--chunk-epochs", "2",
                 "--gs-iters", "4",
@@ -646,6 +652,8 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--target-side",
+                "24",
                 "--epochs", "4",
                 "--chunk-epochs", "2",
                 "--gs-iters", "4",
@@ -761,6 +769,8 @@ class TestSegmentedSweep:
         code = sweep_main(
             [
                 *SIM_ARGS,
+                "--target-side",
+                "24",
                 "--spgd-epochs",
                 "2",
                 "--stage-a-in",

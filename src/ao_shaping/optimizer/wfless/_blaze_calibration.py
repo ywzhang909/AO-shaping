@@ -8,6 +8,7 @@ from typing import Callable
 import numpy as np
 from scipy.ndimage import label
 
+from ao_shaping.utils.slm.bench_constants import BLAZE_PERIOD_MIN_PX
 from ao_shaping.utils.wavefront.zero_order_overlay import (
     OverlayParams,
     ZeroOrderOverlay,
@@ -45,8 +46,11 @@ def select_blaze(
     """
     if target_side < 1 or window_size < target_side:
         raise ValueError("target_side must fit in the requested CCD window")
-    if period_px < 0 or (0 < period_px < 4):
-        raise ValueError("blaze period must be 0 (auto) or at least 4 panel pixels")
+    if period_px < 0 or (0 < period_px < BLAZE_PERIOD_MIN_PX):
+        raise ValueError(
+            "blaze period must be 0 (auto) or at least "
+            f"{BLAZE_PERIOD_MIN_PX} panel pixels"
+        )
     if direction not in ("vertical", "horizontal"):
         raise ValueError("blaze direction must be vertical or horizontal")
     blank = np.zeros(panel_shape, dtype=np.float64)

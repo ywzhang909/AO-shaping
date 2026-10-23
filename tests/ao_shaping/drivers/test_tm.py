@@ -1,11 +1,12 @@
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Requires serial port (COM3) hardware")
-
 from ao_shaping.drivers.tm import TM
 
 import serial
 import time
+
+pytestmark = pytest.mark.skip(reason="Requires serial port (COM3) hardware")
+
 
 def test_serial():
     ser = serial.Serial(timeout=0.5)

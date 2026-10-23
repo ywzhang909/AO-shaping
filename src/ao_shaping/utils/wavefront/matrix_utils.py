@@ -8,6 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 
+from ao_shaping.utils.wavefront.zernike_calc import (
+    calc_n_zernike_terms as _calc_n_zernike_terms,
+)
+
 
 def compute_pinv(matrix: np.ndarray, rcond: float = 1e-10) -> np.ndarray:
     """Compute SVD pseudoinverse.
@@ -46,11 +50,6 @@ def compute_lstsq(matrix: np.ndarray) -> np.ndarray:
             solution, _, _, _ = np.linalg.lstsq(matrix, identity[:, i], rcond=None)
             result[:, i] = solution
         return result
-
-
-from ao_shaping.utils.wavefront.zernike_calc import (
-    calc_n_zernike_terms as _calc_n_zernike_terms,
-)
 
 
 def calc_n_zernike_terms(n_max: int) -> int:

@@ -171,6 +171,9 @@ class FFmpegCamera(BaseCamera):
         self._frame_count = 0
         logger.info(f"Closed FFmpeg camera: {self.cam_id}")
 
+    def _device_open(self) -> bool:
+        return self._cap is not None and self._cap.isOpened()
+
     def reset_exposure_time(self, time_ms: float) -> float:
         """设置仿真的曝光时间。
 
@@ -186,7 +189,7 @@ class FFmpegCamera(BaseCamera):
         异常:
             AssertionError: 相机未初始化。
         """
-        assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
+        self._ensure_open()
         self.exposure_time_ms = max(0.011, float(time_ms))
         logger.warning(
             f"[FFmpegCamera] Exposure time is SIMULATED only - adds {self.exposure_time_ms}ms "
@@ -213,7 +216,7 @@ class FFmpegCamera(BaseCamera):
         异常:
             AssertionError: 相机未初始化。
         """
-        assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
+        self._ensure_open()
         # FFmpeg 不支持 ROI —— 返回当前尺寸
         center_x = self.cam_width // 2
         center_y = self.cam_height // 2
@@ -237,7 +240,7 @@ class FFmpegCamera(BaseCamera):
             AssertionError: n_sample 不是正数, 或相机未初始化。
             FFmpegCameraError: 采集帧失败。
         """
-        assert self._cap is not None and self._cap.isOpened(), "camera not initialized"
+        self._ensure_open()
         assert n_sample > 0, "Sample count must be > 0"
 
         import cv2
@@ -565,6 +568,11 @@ class ImageFolderCamera(BaseCamera):
         self.cam_height = 0
         logger.info(f"Closed ImageFolder camera: {self.cam_id}")
 
+    def _ensure_recording(self) -> None:
+        """图像序列/录制源尚未就绪 ⇒ 抛 :class:`CameraError` (同样不用 `assert`)。"""
+        if self._folder_path is None:
+            raise CameraError("camera not initialized")
+
     def reset_exposure_time(self, time_ms: float) -> float:
         """设置仿真的曝光时间 (读帧之间的延迟)。
 
@@ -580,7 +588,7 @@ class ImageFolderCamera(BaseCamera):
         异常:
             AssertionError: 相机未初始化。
         """
-        assert self._folder_path is not None, "camera not initialized"
+        self._ensure_recording()
         self.exposure_time_ms = max(0.0, float(time_ms))
         logger.warning(
             f"[ImageFolderCamera] Delay is SIMULATED only - adds {self.exposure_time_ms}ms "
@@ -607,7 +615,7 @@ class ImageFolderCamera(BaseCamera):
         异常:
             AssertionError: 相机未初始化。
         """
-        assert self._folder_path is not None, "camera not initialized"
+        self._ensure_recording()
         center_x = self.cam_width // 2
         center_y = self.cam_height // 2
         return (self.cam_width, self.cam_height), (center_x, center_y)
@@ -630,7 +638,7 @@ class ImageFolderCamera(BaseCamera):
             AssertionError: n_sample 不是正数, 或相机未初始化。
             FFmpegCameraError: 读图失败。
         """
-        assert self._folder_path is not None, "camera not initialized"
+        self._ensure_recording()
         assert n_sample > 0, "Sample count must be > 0"
 
         # 按需跳过第一张图

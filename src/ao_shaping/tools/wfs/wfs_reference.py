@@ -36,13 +36,14 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
-    MAX_EXPOSURE_MS,
     SETTLE_REDUNDANCY_S,
+    WFS_EXPOSURE_SAFETY_MAX_MS,
     collect_device_info,
     flat_gray,
     make_phase,
     measure_wavefront,
     measure_zernike,
+    require_wfs_exposure_within_safety_ceiling,
     show_phase,
 )
 from ao_shaping.utils.cli.params import option, with_params
@@ -123,7 +124,7 @@ class WfsReferenceParams:
     wfs_exposure_ms: Annotated[
         float,
         option("--wfs-exposure-ms", show_default=True,
-               help=f"WFS 曝光 ms (必须 ≤ {MAX_EXPOSURE_MS})"),
+               help=f"WFS 曝光 ms (必须 ≤ {WFS_EXPOSURE_SAFETY_MAX_MS})"),
     ] = DEFAULT_EXPOSURE_MS
     wfs_order: Annotated[int, option("--wfs-order", show_default=True)] = 10
     zernike_radius: Annotated[
@@ -158,9 +159,9 @@ class WfsReferenceParams:
 @with_params(WfsReferenceParams, kw_name="params")
 def main(params: WfsReferenceParams) -> int:
     """SLM + WFS 参考波前标定与倾斜线性度 (三步)."""
-    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+    if params.wfs_exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {WFS_EXPOSURE_SAFETY_MAX_MS}ms")
     if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
@@ -180,7 +181,7 @@ def main(params: WfsReferenceParams) -> int:
         slm.open()
         wfs.open()
         exp = float(wfs.exposure_time)
-        assert exp <= MAX_EXPOSURE_MS
+        require_wfs_exposure_within_safety_ceiling(exp, source="WFS")
         wl, max_gray = slm.get_wavelength_info()
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()

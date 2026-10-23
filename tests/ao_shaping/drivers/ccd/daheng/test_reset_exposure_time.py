@@ -25,6 +25,7 @@ SDK 流水线里 —— 改完曝光后紧接着取到的 1~2 帧还是**上一�
 「返回的帧带的是哪一档曝光」。
 """
 
+import types
 from unittest.mock import patch
 
 import numpy as np
@@ -96,14 +97,27 @@ class _FakeCam:
         return self._make_frame(self._current_ms)
 
 
+def _fake_gx() -> types.SimpleNamespace:
+    """假 SDK 片段: 驱动取帧路径只读 ``gx.GxFrameStatusList.SUCCESS`` 这一处。"""
+    return types.SimpleNamespace(
+        GxFrameStatusList=types.SimpleNamespace(SUCCESS="fake-frame-success")
+    )
+
+
 def _make_cam(monkeypatch, stale_frames: int = 2, exposure_ms: float = 20.0):
-    """构造接上假相机的 DahengCamera (不碰真实 SDK)。"""
+    """构造接上假相机的 DahengCamera (不碰真实 SDK)。
+
+    把假 ``gx`` 注入驱动模块属性: 驱动在调用时刻读取 ``gx.GxFrameStatusList.SUCCESS``,
+    所以 patch 模块属性即可让比较路径看到与假帧相同的哨兵值, 不依赖 gxipy 是否存在。
+    """
     from ao_shaping.drivers.ccd.daheng import driver as daheng_driver
 
+    fake_gx = _fake_gx()
+    monkeypatch.setattr(daheng_driver, "gx", fake_gx)
     cam = daheng_driver.DahengCamera(cam_id=0, exposure_time_ms=exposure_ms)
     mock_cam = _FakeCam(
         stale_frames=stale_frames,
-        success_token=daheng_driver.gx.GxFrameStatusList.SUCCESS,
+        success_token=fake_gx.GxFrameStatusList.SUCCESS,
         exposure_ms=exposure_ms,
     )
     cam.cam = mock_cam
