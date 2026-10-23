@@ -1176,11 +1176,15 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # scan path and its replay-verify path) landed upstream. 29 -> 30 and 27 -> 28
     # on 2026-10-21: slm/calibration/diffraction_efficiency/measure.py
     # (1 Santec + 1 camera — the blazed-grating diffraction-efficiency sweep)
-    # landed upstream. This guard pins the census so a
+    # landed upstream. 30 -> 31 and 28 -> 30 on 2026-10-23: kernels/device_mutex.py
+    # (1 Santec + 2 camera — the availability probe really opens the SLM in memory
+    # mode and one camera, and the extra camera hit is its module-docstring usage
+    # example, which this census counts by the stated convention) landed upstream
+    # with the device-mutex feature. This guard pins the census so a
     # *refactor* cannot quietly consolidate device sessions; adding a genuinely
     # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 30, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 28, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 31, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 30, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1210,6 +1214,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "wfs/zernike_response.py": 1,
         "zernike/abba_probe.py": 1,
         "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 1,
         "kernels/sweep_analysis.py": 1,
     }, f"Santec( per-file census drifted: {santec}"
 
@@ -1237,6 +1242,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "ccd/short_exposure_probe.py": 1,
         "zernike/abba_probe.py": 1,
         "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 2,
         "kernels/sweep_analysis.py": 1,
     }, f"camera-open per-file census drifted: {camera}"
 
