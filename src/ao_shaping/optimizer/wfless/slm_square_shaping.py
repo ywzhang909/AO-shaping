@@ -119,6 +119,11 @@ from ao_shaping.utils.image.targets import (
     SQUARE_OBJECTIVE_CHOICES,
     pearson_shape_metric,
 )
+from ao_shaping.utils.slm.bench_constants import (
+    BLAZE_PERIOD_MIN_PX,
+    MAX_SLM_NUMBER,
+    MIN_CAM_SIZE_PX,
+)
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
@@ -860,8 +865,10 @@ class SlmSquareConfig:
         """
         if self.n_max < 1:
             raise ValueError(f"n_max must be at least 1, got {self.n_max}")
-        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
-            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
+            raise ValueError(
+                f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
+            )
         if self.blaze_direction not in ("vertical", "horizontal"):
             raise ValueError("blaze_direction must be vertical or horizontal")
         if self.blaze_period_px >= 0 and (self.target_side < 1 or self.exposure_time_ms <= 0):
@@ -890,14 +897,16 @@ class SlmSquareConfig:
             raise ValueError(f"lr must be non-negative, got {self.lr}")
         if self.cam_id < 0:
             raise ValueError(f"cam_id must be non-negative, got {self.cam_id}")
-        if self.cam_size < 16:
-            raise ValueError(f"cam_size must be at least 16, got {self.cam_size}")
+        if self.cam_size < MIN_CAM_SIZE_PX:
+            raise ValueError(f"cam_size must be >={MIN_CAM_SIZE_PX}, got {self.cam_size}")
         if self.target_max_brightness <= 0:
             raise ValueError(
                 f"target_max_brightness must be positive, got {self.target_max_brightness}"
             )
-        if self.slm_number < 1 or self.slm_number > 8:
-            raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
+        if self.slm_number < 1 or self.slm_number > MAX_SLM_NUMBER:
+            raise ValueError(
+                f"slm_number must be in 1..{MAX_SLM_NUMBER}, got {self.slm_number}"
+            )
         if self.slm_wavelength < 0:
             raise ValueError(
                 f"slm_wavelength must be non-negative, got {self.slm_wavelength}"

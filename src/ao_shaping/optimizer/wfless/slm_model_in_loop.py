@@ -87,7 +87,11 @@ from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegionConfig,
 )
 from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
-from ao_shaping.utils.slm.bench_constants import BEAM_CENTER_PANEL, SLM_PITCH_M
+from ao_shaping.utils.slm.bench_constants import (
+    BEAM_CENTER_PANEL,
+    BLAZE_PERIOD_MIN_PX,
+    SLM_PITCH_M,
+)
 from ao_shaping.utils.slm.panel_geometry import phase_to_panel
 from ao_shaping.utils.wavefront.beam_amplitude import gaussian_grid
 from ao_shaping.utils.wavefront.calibration_terms import (
@@ -1039,8 +1043,10 @@ class SlmModelInLoopConfig:
 
     def __post_init__(self) -> None:
         """Validate the budget, optical carrier and frozen-mode list."""
-        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
-            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
+            raise ValueError(
+                f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
+            )
         if self.blaze_direction not in ("vertical", "horizontal"):
             raise ValueError("blaze_direction must be vertical or horizontal")
         if self.blaze_period_px >= 0 and self.cam_type == "sim":

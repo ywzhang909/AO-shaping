@@ -98,6 +98,9 @@ from ao_shaping.utils.image.exposure_control import (
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.slm.bench_constants import (
+    BLAZE_PERIOD_MIN_PX,
+    MAX_SLM_NUMBER,
+    MIN_CAM_SIZE_PX,
     TILT_SHIFT_SCALE as _TILT_SHIFT_SCALE_PX,
 )
 from ao_shaping.utils.slm.phase_disturbance import load_panel_disturbance
@@ -335,8 +338,10 @@ class SlmGsRefineConfig:
         # value never reaches the hardware context managers) ---
         if self.epochs < 1:
             raise ValueError(f"epochs must be at least 1, got {self.epochs}")
-        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < 4:
-            raise ValueError("blaze_period_px must be -1 (off), 0 (auto), or >=4")
+        if self.blaze_period_px < -1 or 0 < self.blaze_period_px < BLAZE_PERIOD_MIN_PX:
+            raise ValueError(
+                f"blaze_period_px must be -1 (off), 0 (auto), or >={BLAZE_PERIOD_MIN_PX}"
+            )
         if self.blaze_direction not in ("vertical", "horizontal"):
             raise ValueError("blaze_direction must be vertical or horizontal")
         if self.phase_grid < 2:
@@ -422,12 +427,15 @@ class SlmGsRefineConfig:
             )
         if self.cam_size < 0:
             raise ValueError(f"cam_size must be non-negative, got {self.cam_size}")
-        if 0 < self.cam_size < 16:
+        if 0 < self.cam_size < MIN_CAM_SIZE_PX:
             raise ValueError(
-                f"cam_size must be >= 16 or 0 (full frame), got {self.cam_size}"
+                f"cam_size must be >={MIN_CAM_SIZE_PX} or 0 (full frame), "
+                f"got {self.cam_size}"
             )
-        if self.slm_number < 1 or self.slm_number > 8:
-            raise ValueError(f"slm_number must be in 1..8, got {self.slm_number}")
+        if self.slm_number < 1 or self.slm_number > MAX_SLM_NUMBER:
+            raise ValueError(
+                f"slm_number must be in 1..{MAX_SLM_NUMBER}, got {self.slm_number}"
+            )
         if self.slm_wavelength < 0:
             raise ValueError(
                 f"slm_wavelength must be non-negative, got {self.slm_wavelength}"
