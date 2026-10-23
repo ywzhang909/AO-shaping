@@ -72,7 +72,12 @@ ignore = [
     "F841", "F811",
     
     # Import patterns
-    "PLC0415", "E402",
+    # E402 left the global `ignore` in R-63 step 2b: measured, it was 879 findings
+    # (scripts 709 / tests 128 / src 42), and 36 of them were ordinary misplacement
+    # that a pure line move fixes (step 2a). The remainder is not "imports in the wrong
+    # place" but bootstrap / optional-dependency-gate / SDK-stub structure, so it is
+    # exempted where it actually occurs, per-file, below -- never globally.
+    "PLC0415",
     
     # Syntax issues in legacy code
     "E731", "E741",
@@ -80,10 +85,71 @@ ignore = [
 
 [lint.per-file-ignores]
 "tests/*" = ["PLR0913", "PLR2004", "T20", "F401"]
-"scripts/*" = ["E501", "PLC0415", "F401"]
+"scripts/*" = ["E501", "PLC0415", "F401", "E402"]
 "demo*/*" = ["E501", "PLC0415"]
 # Lazy loading in __init__.py is intentional to avoid circular imports
-"__init__.py" = ["PLC0415", "PLR0911", "PLR0912", "F401"]
+"__init__.py" = ["PLC0415", "PLR0911", "PLR0912", "F401", "E402"]
+
+# E402 exemptions (R-63 step 2b) -- 843 findings that are structure, not misplaced
+# imports. Measured with the project config; identical under the two pinned ruffs
+# (ci.yml `ruff==0.11.10` and ruff.yml `ruff>=0.15.12`), so this block is not a
+# version artifact.
+#
+# What ruff does and does not treat as an import-context statement, probed on both
+# versions: direct `sys.path.insert(...)`, `os.environ[k] = ...`, `os.environ.setdefault(...)`
+# and a *guarded* `if k not in sys.modules: sys.modules[k] = ...` are all exempt;
+# an *unguarded* `sys.modules[k] = MagicMock()`, a bare `warnings.filterwarnings(...)`,
+# and any intermediate assignment (`ROOT = Path(...)`, `torch = pytest.importorskip(...)`)
+# are not. So most of these sites are flagged by the assignment, not by the bootstrap.
+#
+# Cheaper follow-up, deliberately NOT taken in this slice (behaviour risk on entry
+# points and on delicate tests): the gate class could go E402-clean by dropping the
+# binding -- `pytest.importorskip("torch")` on its own line then `import torch` --
+# which would retire `tests/ao_shaping/ml/*` (48 findings) outright; and the bootstrap
+# class by inlining the path so no `ROOT =` precedes the imports. Both touch ~40 files
+# for zero correctness gain, so they are recorded here instead.
+
+# scripts/ (709): repo-root bootstrap convention for `sys.path`, plus late imports
+# inside long procedural report generators.
+# __init__.py (5): lazy backend registries import after `register_*_lazy` tables.
+# src entry points (21): must stay runnable as `python src/ao_shaping/main.py` /
+# `streamlit run gui/ccd/ccd_analyzer.py` / `python -m ...sac_train`, so each keeps a
+# sys.path bootstrap (or an miicam stub, or a warning filter that must precede the
+# imports it silences) ahead of its imports. Turning these into console scripts is a
+# separate change, not a lint fix.
+"src/ao_shaping/main.py" = ["E402"]
+"src/ao_shaping/optimizer/rl/sac_train.py" = ["E402"]
+"src/ao_shaping/gui/ccd/ccd_analyzer.py" = ["E402"]
+"src/ao_shaping/optimizer/wfless/bayes_opt_lr_delta.py" = ["E402"]
+
+# tests (104): three distinct reasons, listed narrow-to-broad.
+# optional-dependency gate -- `torch = pytest.importorskip(...)` (or gxipy) must run
+# before the imports it protects, else a missing torch becomes a collection-time
+# ImportError instead of a clean module SKIP.
+"tests/ao_shaping/ml/*" = ["E402"]
+"tests/ao_shaping/algorithm/test_differentiable_shaping.py" = ["E402"]
+"tests/ao_shaping/algorithm/test_differentiable_shaping_quality.py" = ["E402"]
+"tests/ao_shaping/algorithm/test_iterative_zernike_shaping.py" = ["E402"]
+"tests/ao_shaping/drivers/ccd/test_ccd.py" = ["E402"]
+"tests/ao_shaping/runners/test_diff_shaping_runner.py" = ["E402"]
+"tests/calculators/test_gerchberg_saxton_cython.py" = ["E402"]
+# SDK stub installed before the driver import (lazy-loading contract, drivers/AGENTS.md).
+"tests/ao_shaping/drivers/slm/*" = ["E402"]
+"tests/ao_shaping/gui/utils/test_phase_overlay_proxy.py" = ["E402"]
+"tests/ao_shaping/optimizer/wfless/test_slm_gs_refine.py" = ["E402"]
+# repo-root sys.path bootstrap needed to import `scripts.*` modules under test.
+"tests/ao_shaping/scripts/*" = ["E402"]
+"tests/ao_shaping/algorithm/test_gs_runner_shapes.py" = ["E402"]
+"tests/ao_shaping/algorithm/test_gs_viz.py" = ["E402"]
+"tests/ao_shaping/optimizer/wfless/test_adaptive_trust_region.py" = ["E402"]
+"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_loop_invariants.py" = ["E402"]
+"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop_uncertainty.py" = ["E402"]
+# import-census test: it samples `sys.modules` around its own imports, so hoisting an
+# import changes what the test measures.
+"tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py" = ["E402"]
+# thread-pool pinning loop must precede `import numpy` (numeric stack sizes its pools
+# from the env it sees at import time).
+"tests/conftest.py" = ["E402"]
 
 # F401 moved out of the global `ignore` into per-file-ignores (R-63 step 2).
 # TODO.md 8.2 predicted the noise would be "mostly __init__.py re-exports"; measured,
