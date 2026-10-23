@@ -100,8 +100,14 @@ def _module_level_key_literals(root: Path) -> list[str]:
                 continue
             for target in targets:
                 if isinstance(target, ast.Name):
+                    # ``as_posix()``: the offender strings are compared against
+                    # POSIX-style paths, and ``str(Path)`` renders the native
+                    # separator (``\`` on Windows) -- the scan then reports a
+                    # backslash path the assertion never matches. ``PurePath``
+                    # always speaks POSIX in ``as_posix()`` and is a no-op where
+                    # the native separator already is ``/``.
                     offenders.append(
-                        f"{path.relative_to(root)}:{node.lineno}: "
+                        f"{path.relative_to(root).as_posix()}:{node.lineno}: "
                         f"{target.id} = {value.value!r}"
                     )
     return offenders
