@@ -241,7 +241,9 @@ def apply_group_controllers(
                 touched = True
         if not touched:
             continue  # no selected channel lives on this controller
-        if _send_with_recovery(ctrl, lambda: ctrl.set_all_voltage_array(arr.tolist())):
+        if _send_with_recovery(
+            ctrl, lambda _ctrl=ctrl, _arr=arr: _ctrl.set_all_voltage_array(_arr.tolist())
+        ):
             cur[:] = arr
             result.ok += 1
         else:

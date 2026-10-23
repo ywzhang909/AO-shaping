@@ -593,25 +593,26 @@ def run_probe(args: argparse.Namespace) -> int:
             resets: list[dict] = []
             orig_get = cam.get_numpy_image
             orig_reset = cam.reset_exposure_time
+            t_run = time.time()
 
-            def spy_get(n_sample=1, skip_first=True, _orig=orig_get):
+            def spy_get(n_sample=1, skip_first=True, _orig=orig_get,
+                        _traj=traj, _t_run=t_run):
                 img = _orig(n_sample, skip_first)
-                traj.append({
-                    "t_rel_s": round(time.time() - t_run, 3),
+                _traj.append({
+                    "t_rel_s": round(time.time() - _t_run, 3),
                     "exposure_ms": float(cam.exposure_time_ms),
                     **_frame_stats(img),
                 })
                 return img
 
-            def spy_reset(ms, _orig=orig_reset):
+            def spy_reset(ms, _orig=orig_reset, _resets=resets):
                 applied = _orig(ms)
-                resets.append({"request_ms": float(ms),
-                               "applied_ms": float(applied)})
+                _resets.append({"request_ms": float(ms),
+                                "applied_ms": float(applied)})
                 return applied
 
             cam.get_numpy_image = spy_get  # type: ignore[method-assign]
             cam.reset_exposure_time = spy_reset  # type: ignore[method-assign]
-            t_run = time.time()
             try:
                 img = cam.auto_exposure(
                     target_max=target,

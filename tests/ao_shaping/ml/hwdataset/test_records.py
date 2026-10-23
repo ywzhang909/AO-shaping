@@ -1091,6 +1091,7 @@ class TestHwSampleShape:
         second = materialiser.materialise(_ref(path))
         assert isinstance(first == second, bool)
         assert (first == second) is False
-        assert (first == first) is True
+        same_object = first  # distinct name, identical object: identity equality is reflexive
+        assert (first == same_object) is True
         assert isinstance(first == 3, bool)
         np.testing.assert_array_equal(first.phase_cos, second.phase_cos)

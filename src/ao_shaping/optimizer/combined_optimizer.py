@@ -273,7 +273,7 @@ def optimize_pib(
                         unit_mask=dm_unit_mask,
                         rng=np.random,
                         optimizer=optimizer,
-                        evaluate=lambda img: power_in_bucket_mask(img, bucket_mask),
+                        evaluate=lambda img, _mask=bucket_mask: power_in_bucket_mask(img, _mask),
                         maximize=True,
                         diff_sign=1.0,
                         epoch=epoch,

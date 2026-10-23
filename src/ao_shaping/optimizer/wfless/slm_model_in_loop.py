@@ -3181,7 +3181,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
             if config.step_a_iterations:
                 fitted, _, step_a_iters, optimizer = _fit_aberration_at_probes(
                     optimizer, frames, int(config.step_a_iterations),
-                    on_iteration=lambda iteration, loss: step_a_trace.append({
+                    on_iteration=lambda iteration, loss, _trace=step_a_trace: _trace.append({
                         "iteration": iteration, "loss": loss,
                         "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                     }),
@@ -3350,7 +3350,7 @@ def optimize_slm_model_in_loop(config: SlmModelInLoopConfig) -> ModelInLoopResul
                 background_intensity=(
                     leakage * flat_grid if flat_grid is not None else None
                 ),
-                on_iteration=lambda iteration, loss: step_b_trace.append({
+                on_iteration=lambda iteration, loss, _trace=step_b_trace: _trace.append({
                     "iteration": iteration, "loss": loss,
                     "timestamp_utc": datetime.now(timezone.utc).isoformat(timespec="microseconds"),
                 }),

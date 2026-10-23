@@ -280,8 +280,8 @@ def _family_rows(result: dict) -> list[dict]:
         rows.setdefault(probe["family"], []).append(probe)
     summary = []
     for family, probes in rows.items():
-        def agg(key: str) -> float:
-            return float(np.mean([p[key] for p in probes]))
+        def agg(key: str, _probes=probes) -> float:
+            return float(np.mean([p[key] for p in _probes]))
 
         summary.append(
             {

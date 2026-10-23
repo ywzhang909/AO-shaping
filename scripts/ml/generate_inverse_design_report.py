@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from functools import partial
 from pathlib import Path
@@ -511,7 +512,7 @@ def _taxonomy_rows() -> list[str]:
             )
             continue
         rho = r["max_abs_spearman_vs_incumbent"]
-        rho_s = "—" if rho != rho else f"{rho:.2f}"
+        rho_s = "—" if math.isnan(rho) else f"{rho:.2f}"
         # "Independent information" = it moves beyond what the incumbent set already
         # captures on at least one corruption. `covers` empty means it does not.
         indep = "**有**（" + "、".join(r["covers"]) + "）" if r["covers"] else "无"

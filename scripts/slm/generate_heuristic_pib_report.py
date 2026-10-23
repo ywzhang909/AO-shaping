@@ -116,9 +116,9 @@ def run_all_algorithms(landscape: SimLandscape) -> dict[str, dict]:
         # Per-evaluation tracking: one fitness call == one device load.
         eval_pibs: list[float] = []
 
-        def fitness(v: np.ndarray) -> float:
+        def fitness(v: np.ndarray, _eval_pibs=eval_pibs) -> float:
             pib = float(landscape.score(v)[0])
-            eval_pibs.append(pib)
+            _eval_pibs.append(pib)
             return -pib
 
         opt = HeuristicOptimizer.create(

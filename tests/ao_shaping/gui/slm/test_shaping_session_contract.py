@@ -491,7 +491,9 @@ class TestRelaxedBounds:
         state["bench_cam_size"] = 4  # 网格步长，不是窗口边长
 
         for method in (sc.ModelInLoopMethod("slm1", 1), sc.GsRefineMethod("slm1", 1)):
-            spec = self._capture(monkeypatch, lambda: method.render_objective({}))[
+            spec = self._capture(
+                monkeypatch, lambda _method=method: _method.render_objective({})
+            )[
                 "目标方边长"
             ]
             assert spec["min_value"] <= spec["value"] <= spec["max_value"]

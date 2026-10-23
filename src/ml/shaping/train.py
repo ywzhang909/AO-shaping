@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import random
 import time
 from dataclasses import asdict, dataclass, replace
@@ -598,7 +599,7 @@ def train(cfg: ShapingConfig) -> TrainResult:
         )
 
         val_sup = float(val_stats["sup"])
-        improved = val_sup == val_sup and val_sup < best_val_sup
+        improved = not math.isnan(val_sup) and val_sup < best_val_sup
         if improved:
             best_val_sup = val_sup
             best_epoch = epoch

@@ -367,13 +367,18 @@ def dense_abba_sweep(
         # representative one for the pattern's statistics.
         latest: dict[str, Any] = {"img": None, "peak": 0.0, "sum": 0.0, "norm": 0.0}
 
-        def score() -> float:
+        # `_latest` binds the per-iteration dict at definition time. `score` is
+        # only ever called synchronously inside `abba_signal`, so this is not a
+        # late-binding bug today -- but the closure outliving the loop body is
+        # exactly what B023 guards, and the default keeps that guard honest
+        # without changing which dict the mutations land in (same object).
+        def score(_latest: dict[str, Any] = latest) -> float:
             frame = np.asarray(capture(), dtype=np.float64)
-            latest["img"] = frame
-            latest["peak"] = float(frame.max())
-            latest["sum"] = float(frame.sum())
-            latest["norm"] = roi_l2(frame, flat_ref)
-            return float(latest["norm"])
+            _latest["img"] = frame
+            _latest["peak"] = float(frame.max())
+            _latest["sum"] = float(frame.sum())
+            _latest["norm"] = roi_l2(frame, flat_ref)
+            return float(_latest["norm"])
 
         response = abba_signal(
             score,

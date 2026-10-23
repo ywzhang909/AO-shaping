@@ -108,7 +108,8 @@ def evaluate_run(run_dir: Path, sigmas: tuple[float, ...] = SIGMAS) -> list[dict
 
     candidates = []
     for sigma in sigmas:
-        blurred = lambda image: (gaussian_filter(image, sigma) if sigma else image)
+        blurred = lambda image, _sigma=sigma: (
+            gaussian_filter(image, _sigma) if _sigma else image)
         weights, error = fit_gain_leakage(
             [blurred(pred) for _, pred, _ in train],
             [measured for _, _, measured in train], flat,

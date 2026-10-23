@@ -28,7 +28,7 @@ def ramp_matrix(rows: list[dict]) -> np.ndarray:
         for period in (480, 960):
             pair = {sign: next(r for r in rows if r["label"] == f"ramp_{axis}_{period}_{sign}")
                     for sign in (-1, 1)}
-            point = lambda sign: np.array([pair[sign]["spot"][f"centroid_{k}"] for k in ("x", "y")])
+            point = lambda sign, _pair=pair: np.array([_pair[sign]["spot"][f"centroid_{k}"] for k in ("x", "y")])
             values.append((point(1) - point(-1)) * period / 2)
         columns.append(np.mean(values, axis=0))
     matrix = np.stack(columns, axis=1)

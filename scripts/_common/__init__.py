@@ -20,6 +20,7 @@ every branch):
 
 from __future__ import annotations
 
+import math
 from typing import Any, Sequence
 
 import numpy as np
@@ -156,11 +157,11 @@ def fmt_fixed(v: float, nd: int = 4) -> str:
     """Fixed-point with ``nd`` decimals; an em dash when ``v`` is NaN.
 
     The ``generate_slm_pib_rms_pib_report.py`` formatter. Note it does **not**
-    accept ``None`` (it raises ``TypeError`` on ``v == v``) and renders ``inf``
-    as ``"inf"``; :func:`fmt_metric` handles both. Kept separate so extraction
-    stays behaviour-preserving — see the module docstring.
+    accept ``None`` (it raises ``TypeError`` in ``math.isnan(v)``) and renders
+    ``inf`` as ``"inf"``; :func:`fmt_metric` handles both. Kept separate so
+    extraction stays behaviour-preserving — see the module docstring.
     """
-    return f"{v:.{nd}f}" if v == v else "—"
+    return f"{v:.{nd}f}" if not math.isnan(v) else "—"
 
 
 def fmt_signed(v: float, spec: str = "+.4f", missing: str = "n/a") -> str:

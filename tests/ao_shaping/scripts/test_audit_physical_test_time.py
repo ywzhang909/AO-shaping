@@ -530,6 +530,18 @@ class TestEndToEnd:
         savings = [item["saving_seconds"] for item in ledger["optimizations"]]
         assert savings == sorted(savings, reverse=True)
 
+    def test_build_ledger_survives_a_checkout_without_capture_manifests(self, tmp_path: Path):
+        """A checkout without `data/debug/physical_forward_defocus` must still build.
+
+        Regression: `optimization_items` read `capture["median_capture_seconds"]`
+        straight out of a possibly-empty dict, so a fresh clone raised `KeyError`
+        instead of returning only the code-fact item.
+        """
+        ledger = audit.build_ledger(tmp_path, write_cost_s=5.0, mil_round_seconds=700.0)
+        assert ledger["optimizations"]
+        savings = [item["saving_seconds"] for item in ledger["optimizations"]]
+        assert savings == sorted(savings, reverse=True)
+
     @pytest.mark.skipif(
         not _real_capture_present(), reason=_REAL_CAPTURE_SKIP
     )

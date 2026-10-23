@@ -286,17 +286,19 @@ def main() -> int:
         runners = []
         if "physics" in args.models:
             runners.append(
-                lambda: train_physics(train_t, val_t, cfg_seed, device)
+                lambda _tr=train_t, _va=val_t, _cf=cfg_seed:
+                train_physics(_tr, _va, _cf, device)
             )
         if "hybrid" in args.models:
             for width in args.residual_width:
                 runners.append(
-                    lambda w=width: train_hybrid(train_t, val_t, cfg_seed, device, w)
+                    lambda w=width, _tr=train_t, _va=val_t, _cf=cfg_seed:
+                    train_hybrid(_tr, _va, _cf, device, w)
                 )
         if "unet" in args.models:
             runners.append(
-                lambda: train_unet(
-                    train_t, val_t, cfg_seed, device, args.unet_features
+                lambda _tr=train_t, _va=val_t, _cf=cfg_seed: train_unet(
+                    _tr, _va, _cf, device, args.unet_features
                 )
             )
         for run in runners:
@@ -315,7 +317,7 @@ def main() -> int:
     names = sorted({r["name"] for r in rows})
     for name in names:
         group = [r for r in rows if r["name"] == name]
-        pick = lambda k: float(np.mean([r[k] for r in group]))
+        pick = lambda k, _group=group: float(np.mean([r[k] for r in _group]))
         print(f"{name:<22}{int(pick('params')):>10,}{pick('mse'):>10.5f}"
               f"{pick('r2'):>+9.4f}{pick('psnr'):>8.2f}dB{pick('ssim'):>8.4f}"
               f"{pick('correlation'):>7.3f}{pick('centroid_offset_px'):>8.2f}"

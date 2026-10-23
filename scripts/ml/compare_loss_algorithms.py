@@ -404,8 +404,8 @@ def _write_markdown(path: Path, rows: list[dict], args, epochs: int) -> None:
             key = (row["objective"], row["algorithm"], row["optimizer_type"])
             groups.setdefault(key, []).append(row)
         for key, items in sorted(groups.items()):
-            def stat(field: str) -> str:
-                vals = [float(i[field]) for i in items if field in i]
+            def stat(field: str, _items=items) -> str:
+                vals = [float(i[field]) for i in _items if field in i]
                 if not vals:
                     return "-"
                 spread = max(vals) - min(vals) if len(vals) > 1 else 0.0

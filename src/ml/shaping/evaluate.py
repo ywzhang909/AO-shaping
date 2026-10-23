@@ -47,6 +47,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import math
 from collections import defaultdict
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -116,7 +117,7 @@ def _mean(values: list[float]) -> float:
     Returns:
         The arithmetic mean, or ``float("nan")``.
     """
-    usable = [v for v in values if v is not None and v == v]
+    usable = [v for v in values if v is not None and not math.isnan(v)]
     return float(np.mean(usable)) if usable else float("nan")
 
 
@@ -348,7 +349,7 @@ def _paired_rows(files: list[dict[str, Any]], metric: str) -> list[float]:
         base_value = row.get(f"{metric}_baseline")
         if model_value is None or base_value is None:
             continue
-        if model_value != model_value or base_value != base_value:
+        if math.isnan(model_value) or math.isnan(base_value):
             continue
         diffs.append(float(base_value) - float(model_value))
     return diffs
@@ -372,7 +373,7 @@ def _verdict(p_value: float, min_p: float, n_pairs: int) -> str:
             f"n/a: {n_pairs} files cannot reach p<0.05 "
             f"(structural floor {min_p:.4g}); report the effect size only"
         )
-    if p_value != p_value:
+    if math.isnan(p_value):
         return "n/a: p-value undefined"
     if p_value < 0.05:
         return f"significant (p={p_value:.4g} < 0.05)"
@@ -612,7 +613,7 @@ def _fmt(value: Any, spec: str = ".5f") -> str:
         number = float(value)
     except (TypeError, ValueError):
         return "n/a"
-    if number != number:
+    if math.isnan(number):
         return "n/a"
     return format(number, spec)
 

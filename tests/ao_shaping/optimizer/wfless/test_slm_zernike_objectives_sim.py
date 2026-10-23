@@ -10,6 +10,8 @@ Pins that every objective in :data:`SHAPING_OBJECTIVE_CHOICES`:
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from ao_shaping.drivers.sim.slm_pib_sim import (
@@ -258,7 +260,7 @@ def test_rms_pib_adaptive_columns_are_not_nan_on_later_rows(monkeypatch):
 
     for column in _RMS_PIB_ADAPTIVE_COLUMNS:
         values = [row[column] for row in recorder.history[1:]]
-        assert all(v == v for v in values), f"{column} contains NaN: {values}"
+        assert all(not math.isnan(v) for v in values), f"{column} contains NaN: {values}"
 
 
 def test_shape_schedule_runs_without_error(monkeypatch):

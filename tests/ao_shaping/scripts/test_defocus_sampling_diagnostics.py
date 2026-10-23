@@ -2,6 +2,7 @@
 import json
 
 import numpy as np
+import pytest
 import torch
 
 from scripts.slm.diagnose_defocus_sampling import response_bias
@@ -9,8 +10,22 @@ from scripts.slm.fit_defocus_forward_dataset import PhysicalForwardFit
 from scripts.slm.refit_defocus_uniformity_model import supervised_loss
 
 
-def test_fft_refinement_preserves_physical_peak_irradiance():
+@pytest.fixture(autouse=True)
+def _four_threads_then_restore():
+    """Pin 4 threads for determinism, then hand the conftest budget back.
+
+    The suite asserts the process-wide thread budget (tests/conftest.py) from a
+    later module, so a bare ``set_num_threads(4)`` here silently reddens that
+    check. Scoped rather than global: ``torch`` has no per-test isolation.
+    """
+    previous = torch.get_num_threads()
     torch.set_num_threads(4)
+    try:
+        yield
+    finally:
+        torch.set_num_threads(previous)
+
+def test_fft_refinement_preserves_physical_peak_irradiance():
     kwargs = dict(phases=np.zeros((1, 128, 128), np.float32), images=np.ones((1, 1, 1)),
                   camera_xy=np.array([[[1360., 1020.]]]), matrix=np.array([[0., 7400.], [-7500., 0.]]),
                   focus_diopter=0., train_mask=[True], amplitude_center=[950., 750.])
@@ -20,7 +35,6 @@ def test_fft_refinement_preserves_physical_peak_irradiance():
 
 
 def test_pixel_integral_reduces_peak_with_no_change_to_command():
-    torch.set_num_threads(4)
     phases = np.zeros((1, 64, 64), np.float32)
     kwargs = dict(phases=phases, images=np.ones((1, 1, 1)), camera_xy=np.array([[[1360., 1020.]]]),
                   matrix=np.array([[0., 7400.], [-7500., 0.]]), focus_diopter=0.,

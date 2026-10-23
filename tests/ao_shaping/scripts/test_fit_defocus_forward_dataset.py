@@ -1,9 +1,25 @@
 """Simulation first: fixed-axis calibration and differentiable residual fit."""
 import numpy as np
+import pytest
 import torch
 
 from scripts.slm.fit_defocus_forward_dataset import PhysicalForwardFit, ramp_matrix
 
+
+@pytest.fixture(autouse=True)
+def _four_threads_then_restore():
+    """Pin 4 threads for determinism, then hand the conftest budget back.
+
+    The suite asserts the process-wide thread budget (tests/conftest.py) from a
+    later module, so a bare ``set_num_threads(4)`` here silently reddens that
+    check. Scoped rather than global: ``torch`` has no per-test isolation.
+    """
+    previous = torch.get_num_threads()
+    torch.set_num_threads(4)
+    try:
+        yield
+    finally:
+        torch.set_num_threads(previous)
 
 def test_ramp_matrix_recovers_axis_exchange():
     rows = []
@@ -18,7 +34,6 @@ def test_ramp_matrix_recovers_axis_exchange():
 
 
 def test_physical_fit_improves_synthetic_defocus_without_test_frames():
-    torch.set_num_threads(4)
     rng = np.random.default_rng(19)
     phases = rng.normal(0, .3, (3, 128, 128)).astype(np.float32)
     y, x = np.mgrid[-40:41:2, -40:41:2]
@@ -37,7 +52,6 @@ def test_physical_fit_improves_synthetic_defocus_without_test_frames():
 
 
 def test_residual_basis_has_no_second_defocus_and_receives_gradient():
-    torch.set_num_threads(4)
     y, x = np.mgrid[-30:31:2, -30:31:2]
     model = PhysicalForwardFit(np.zeros((1, 128, 128), np.float32), np.ones((1, 31, 31)),
                                np.stack((x+1360, y+1020), axis=-1),

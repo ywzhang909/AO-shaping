@@ -63,6 +63,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import math
 import platform
 import re
 import shutil
@@ -608,7 +609,7 @@ def _float(value: object) -> float | None:
         result = float(str(value).strip())
     except (TypeError, ValueError):
         return None
-    return result if result == result else None  # NaN never counts.
+    return result if not math.isnan(result) else None  # NaN never counts.
 
 
 def _text(value: str | None) -> str | None:

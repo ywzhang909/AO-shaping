@@ -12,6 +12,7 @@ before the schedule existed — not by inspecting that a flag reads ``False``.
 from __future__ import annotations
 
 import ast
+import math
 from pathlib import Path
 import sys
 
@@ -39,7 +40,7 @@ def _nan_safe(value):
     ``==`` reports a difference between two runs that are identical down to the
     bit.
     """
-    if isinstance(value, float) and value != value:
+    if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, dict):
         return {key: _nan_safe(item) for key, item in value.items()}

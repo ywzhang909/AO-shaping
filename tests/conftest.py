@@ -127,6 +127,29 @@ def _pin_torch_threads() -> tuple[int, int] | None:
 
 
 _TORCH_POOLS = _pin_torch_threads()
+if _TORCH_POOLS is not None:
+    import torch
+
+
+@pytest.fixture(autouse=True)
+def _enforce_thread_budget():
+    """Re-assert the process-wide thread budget before every test.
+
+    Tests may legitimately shrink torch's pools for determinism, but the budget
+    is a process-wide invariant (asserted by
+    ``tests/ao_shaping/test_conventions.py::test_the_thread_budget_is_in_force_in_this_process``).
+    Without this, that assertion measures which module happened to run last
+    instead of whether the suite honours the budget: two modules that pin 1 and 4
+    threads leave the process at 4 and redden a later test that never touched the
+    pools. Re-pinning costs two attribute reads and makes a leak local to one test.
+    """
+    threads = _pool_threads()
+    for var in _THREAD_ENV_VARS:
+        if os.environ.get(var) != str(threads):
+            os.environ[var] = str(threads)
+    os.environ.setdefault("MKL_DYNAMIC", "FALSE")
+    if _TORCH_POOLS is not None and torch.get_num_threads() != threads:
+        torch.set_num_threads(threads)
 
 
 def pytest_report_header() -> list[str]:

@@ -63,6 +63,7 @@ import argparse
 import csv
 import importlib.util
 import json
+import math
 import pickle
 import re
 import sys
@@ -172,7 +173,7 @@ def as_float(value: Any) -> float | None:
         result = float(value)
     except (TypeError, ValueError):
         return None
-    return result if result == result else None
+    return result if not math.isnan(result) else None
 
 
 def fmt(value: Any, nd: int = 4) -> str:
@@ -1365,7 +1366,7 @@ def _render_gif_frame(
             correlation = normalized_correlation(rolled, frame)
         ax_predicted.set_title(
             "模型预测 (按记录几何缩放到相机网格)\n与实测的相关性 "
-            + (f"{correlation:.4f}" if correlation == correlation else "未记录"),
+            + (f"{correlation:.4f}" if not math.isnan(correlation) else "未记录"),
             fontsize=8,
         )
     else:
@@ -1732,7 +1733,7 @@ def render_panel_scan_figure(stage: StageData, out_path: Path) -> Path | None:
         valid = [
             (x, y, d)
             for x, y, d in zip(xs, ys, deltas)
-            if x is not None and y is not None and d is not None and d == d
+            if x is not None and y is not None and d is not None and not math.isnan(d)
         ]
         if valid:
             grid = np.full((5, 5), np.nan)
@@ -2081,7 +2082,7 @@ def render_truth_stats_figure(
     positions = np.arange(len(truths), dtype=float)
     ax_bars.bar(positions, values, color=colours)
     for position, value in zip(positions, values):
-        if value != value:
+        if math.isnan(value):
             continue
         ax_bars.text(
             position,

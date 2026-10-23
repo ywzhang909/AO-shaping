@@ -852,11 +852,6 @@ def optimization_items(
     campaign = measured["campaign"]
     items: list[dict[str, Any]] = []
 
-    per_sample = (
-        capture["median_capture_seconds"] + capture["median_gap_seconds"]
-    )
-    n_samples = capture["n_samples"]
-
     # 1) settle 判据的无条件丢帧 ------------------------------------------------
     discard_s = settle_max_discard_now * frame_read_seconds
     items.append(
@@ -888,6 +883,16 @@ def optimization_items(
             "saving_seconds": (discard_s - 3 * frame_read_seconds) * 600,
         }
     )
+
+    if not capture:
+        # 检出里没有 `data/debug/physical_forward_defocus` 的采集清单时, 2)-4) 需要的
+        # `n_samples` / 读数桶 / 参考帧占比全部没有实测依据 —— 按本函数的契约
+        # "没有依据的项不进这张表" 直接跳过。campaign 取自同一目录, 此时同样为空,
+        # 后续 campaign 项自然也不会产出; 这里只返回第 1) 项 (代码事实, 不依赖落盘记录)。
+        return items
+
+    per_sample = capture["median_capture_seconds"] + capture["median_gap_seconds"]
+    n_samples = capture["n_samples"]
 
     # 2) reference 帧降频 ------------------------------------------------------
     attribution = capture["attribution"]

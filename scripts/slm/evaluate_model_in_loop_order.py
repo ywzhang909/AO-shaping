@@ -61,7 +61,7 @@ def evaluate_run(run_dir: Path, orders: tuple[int, ...]) -> dict:
             if steps:
                 coefficients, _, _, optimizer = _fit_aberration_at_probes(
                     optimizer, frames, steps,
-                    rearm=lambda current: _make_optimizer(config, current, source),
+                    rearm=lambda current, _config=config: _make_optimizer(_config, current, source),
                 )
             else:
                 coefficients = initial.copy()

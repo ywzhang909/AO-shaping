@@ -526,8 +526,8 @@ def write_report(
         cross = strehl_08_crossing(amps, s)
         short = name.split(" / ")[0]
         idx = {a: i for i, a in enumerate(amps)}
-        def _v(a):
-            return f"{s[idx[a]]:.3f}"
+        def _v(a, _s=s, _idx=idx):
+            return f"{_s[_idx[a]]:.3f}"
         add(f"| {noll} | {short} | {_v(0.1)} | {_v(0.4)} | {_v(0.8)} | {_v(1.2)} | {_v(1.6)} | {_v(2.0)} | "
             f"{'—' if cross is None else f'{cross:.2f}'} |")
     add("")

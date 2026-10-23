@@ -571,8 +571,8 @@ def build_report(runs: list[RunData], out_md: Path) -> None:
     tf_final: list[tuple[str, float | None, float | None, float | None]] = []
     for r in runs:
         if r.run in CURRICULUM_TRIO:
-            def last_of(tag: str) -> float | None:
-                c = r.tf_curves.get(tag, [])
+            def last_of(tag: str, _r=r) -> float | None:
+                c = _r.tf_curves.get(tag, [])
                 return c[-1][1] if c else None
             tf_final.append((r.run, last_of("ao/best_pib"),
                              last_of("ao/best_strehl"), last_of("rollout/ep_rew_mean")))

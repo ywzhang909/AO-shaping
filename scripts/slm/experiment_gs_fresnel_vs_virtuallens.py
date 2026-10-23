@@ -847,7 +847,7 @@ def search_defocus(
     for key in ("score", "score_fixed"):
         _, a0, _row = best_under(key)
         l, h = max(lo, a0 - step), min(hi, a0 + step)
-        evaluate(golden_section(lambda a: -evaluate(a)[key], l, h, n_iters=rc.n_defocus_golden))
+        evaluate(golden_section(lambda a, _key=key: -evaluate(a)[_key], l, h, n_iters=rc.n_defocus_golden))
 
     eps = DEFOCUS_BOUNDARY_FRAC * (hi - lo)
 

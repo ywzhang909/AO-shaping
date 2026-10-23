@@ -36,6 +36,7 @@ Writes ``report/loss_defects/closed_loop_loss_taxonomy.json``.
 from __future__ import annotations
 
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -386,7 +387,9 @@ def main() -> None:
         ]
         # Redundancy: highest |Spearman| against any incumbent.
         rho = {k: _spearman(baseline[name], baseline[f"incumbent:{k}"]) for k in inc}
-        worst = max((abs(v) for v in rho.values() if v == v), default=float("nan"))
+        worst = max(
+            (abs(v) for v in rho.values() if not math.isnan(v)), default=float("nan")
+        )
         verdict[name] = {
             "values": row,
             "discrimination": discrim,

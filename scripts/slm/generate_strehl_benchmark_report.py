@@ -147,9 +147,9 @@ def run_all_algorithms(landscape: StrehlLandscape) -> dict[str, dict]:
         # Per-evaluation tracking: one fitness call == one device load.
         eval_strehls: list[float] = []
 
-        def fitness(v: np.ndarray) -> float:
+        def fitness(v: np.ndarray, _eval_strehls=eval_strehls) -> float:
             strehl = float(landscape.score(v)[0])
-            eval_strehls.append(strehl)
+            _eval_strehls.append(strehl)
             return -strehl
 
         opt = HeuristicOptimizer.create(

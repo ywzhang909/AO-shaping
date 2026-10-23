@@ -26,6 +26,7 @@ Runs offline on the simulated backend with ``device="cpu"``.
 from __future__ import annotations
 
 import copy
+import math
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -392,7 +393,7 @@ def _nan_safe(value):
     difference between two runs that are in fact identical down to the bit.
     Substituting a sentinel keeps the comparison strict everywhere else.
     """
-    if isinstance(value, float) and value != value:
+    if isinstance(value, float) and math.isnan(value):
         return None
     if isinstance(value, dict):
         return {key: _nan_safe(item) for key, item in value.items()}

@@ -428,8 +428,8 @@ def _read_points(csv_path: Path) -> list[SweepPoint]:
     with csv_path.open("r", encoding="utf-8", newline="") as handle:
         lines = [line for line in handle if not line.startswith("#")]
     for row in csv.DictReader(lines):
-        def _f(key: str) -> float | None:
-            raw = (row.get(key) or "").strip()
+        def _f(key: str, _row=row) -> float | None:
+            raw = (_row.get(key) or "").strip()
             if not raw:
                 return None
             try:

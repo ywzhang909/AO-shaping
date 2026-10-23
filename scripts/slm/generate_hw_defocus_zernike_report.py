@@ -942,12 +942,12 @@ def repeat_check_block(
     worst_label = ""
     for label, a, b in rows:
         rel = (b - a) / a if a else float("nan")
-        if rel == rel and abs(rel) > abs(worst):
+        if not math.isnan(rel) and abs(rel) > abs(worst):
             worst = rel
             worst_label = label
         lines.append(
             f"| {label} | {a:.6g} | {b:.6g} | "
-            f"{'—' if rel != rel else f'{rel * 100:+.2f}%'} |"
+            f"{'—' if math.isnan(rel) else f'{rel * 100:+.2f}%'} |"
         )
     own_focal = (own.get("config") or {}).get("defocus_focal_mm")
     rep_focal = (repeat.get("config") or {}).get("defocus_focal_mm")
@@ -1725,9 +1725,11 @@ def defocus_group_section(
     edge20 = at(20.0, "chirp_edge_waves")
     edge50 = at(50.0, "chirp_edge_waves")
     big_dz = ""
-    if edge20 == edge20:  # not NaN
+    if not math.isnan(edge20):
         edge50_txt = (
-            f"、Δz = 50 mm 时是 {fmt_metric(edge50, 2)} 波" if edge50 == edge50 else ""
+            f"、Δz = 50 mm 时是 {fmt_metric(edge50, 2)} 波"
+            if not math.isnan(edge50)
+            else ""
         )
         big_dz = f"""
 #### {level}.4 大 Δz 与 SLM 采样
@@ -1792,10 +1794,14 @@ def defocus_group_section(
     elif phase == "hardware_gs":
         recorded_side = int(cfg.get("target_side_px", legacy_side))
         spot0 = response_data.get(0.0, {}).get("fwhm", float("nan"))
-        ratio = (recorded_side / spot0) if (spot0 and spot0 == spot0) else float("nan")
+        ratio = (
+            (recorded_side / spot0)
+            if (spot0 and not math.isnan(spot0))
+            else float("nan")
+        )
         # 框与光斑同量级 ⇒ 这个孔径就是该相位自己的口径; 框远大于光斑 ⇒ 它是**继承来的**
         # 孔径 (上一轮沿用了模型相位的方斑边长), 用它读出来的东西只能当「口径 A」。
-        same_scale = bool(ratio == ratio and ratio <= 1.5)
+        same_scale = bool(not math.isnan(ratio) and ratio <= 1.5)
         if same_scale:
             aperture_word = (
                 f"这一组的目标框是**预先登记**的该相位成形目标（{recorded_side} px = "
@@ -2732,7 +2738,7 @@ def standing_defocus_mm(cfg: dict[str, Any]) -> float:
     """
     edge = correction_edge_rad(cfg)
     slope = dz_edge_slope_rad_per_mm(cfg)
-    if not (edge == edge) or not (slope == slope) or slope == 0.0:
+    if math.isnan(edge) or math.isnan(slope) or slope == 0.0:
         return float("nan")
     return abs(edge / slope)
 
@@ -2755,7 +2761,7 @@ def focus_block(focus: dict[str, Any], cfg: dict[str, Any]) -> str:
     """§1.3 的正文: 焦面矫正的证据 (数字全部来自证据文件与探针计划)。"""
     stand = standing_defocus_mm(cfg)
     edge = correction_edge_rad(cfg)
-    edge_waves = edge / (2.0 * math.pi) if edge == edge else float("nan")
+    edge_waves = edge / (2.0 * math.pi) if not math.isnan(edge) else float("nan")
     focal_mm = float(cfg.get("defocus_focal_mm") or 0.0)
     lines: list[str] = []
 
@@ -2787,7 +2793,7 @@ def focus_block(focus: dict[str, Any], cfg: dict[str, Any]) -> str:
         )
         for note in focus.get("notes") or []:
             lines.append(f"  - 标定器记录：{note}")
-        if best_d == best_d and best_f == best_f:
+        if not math.isnan(best_d) and not math.isnan(best_f):
             lines.append(
                 f"- 探针本轮用的焦面矫正是 `fresnel_panel(f_v = {focal_mm:.1f} mm)`，"
                 f"与标定值相差 {abs(focal_mm - best_f):.1f} mm"
@@ -2910,7 +2916,7 @@ def build_markdown(
         claims_num = 10
     # 数据驱动的局部量: 泽尼克扫描自己的目标框、仿真 G1 行的框、焦面标定的读数。
     zernike_w0 = float(zernike.get("w0_px") or float("nan"))
-    zernike_box = (2.0 * zernike_w0) if zernike_w0 == zernike_w0 else float("nan")
+    zernike_box = (2.0 * zernike_w0) if not math.isnan(zernike_w0) else float("nan")
     sim_box = int(sim_g1[0]["side_px"]) if sim_g1 else 0
     focus_gain = float(focus.get("gain_vs_flat", float("nan")))
     focus_fwhm = float(focus_best_point(focus).get("fwhm_px", float("nan")))
@@ -2955,31 +2961,33 @@ def build_markdown(
     steer_slope = float(steer.get("slope_local_px_per_mm", float("nan")))
     steer_dz = (
         (hw_side / 2.0) / abs(steer_slope)
-        if steer_slope == steer_slope and abs(steer_slope) > 1e-9
+        if not math.isnan(steer_slope) and abs(steer_slope) > 1e-9
         else float("nan")
     )
     steer_dz_matched = (
         (matched_side / 2.0) / abs(steer_slope)
-        if steer_slope == steer_slope and abs(steer_slope) > 1e-9
+        if not math.isnan(steer_slope) and abs(steer_slope) > 1e-9
         else float("nan")
     )
-    if steer_slope != steer_slope:
+    if math.isnan(steer_slope):
         steer_word = "本轮没有可用的转向拟合"
         steer_dz_word = "不可判"
     elif abs(steer_slope) < 0.5:
         steer_word = "去倾斜自标定已把转向压到可忽略的量级（<0.5 px/mm）"
         steer_dz_word = (
-            f"{steer_dz:.1f} mm 以上才推得出去" if steer_dz == steer_dz else "不可判"
+            f"{steer_dz:.1f} mm 以上才推得出去"
+            if not math.isnan(steer_dz)
+            else "不可判"
         )
     else:
         steer_word = (
             f"光斑在 |Δz| ≳ {steer_dz:.1f} mm 处就会被推出 {hw_side} px 的框，"
             f"换成按光斑自身宽度的「匹配框」口径（{matched_side} px）则是 ≳ "
             f"{steer_dz_matched:.1f} mm"
-            if steer_dz == steer_dz and steer_dz_matched == steer_dz_matched
+            if not math.isnan(steer_dz) and not math.isnan(steer_dz_matched)
             else "转向量级不可判"
         )
-        steer_dz_word = f"{steer_dz:.1f} mm" if steer_dz == steer_dz else "不可判"
+        steer_dz_word = f"{steer_dz:.1f} mm" if not math.isnan(steer_dz) else "不可判"
     spread = order_spread(orders)
     if scan_groups is None:
         scan_groups = [

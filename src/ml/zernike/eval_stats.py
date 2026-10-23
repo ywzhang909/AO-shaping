@@ -59,7 +59,7 @@ def sign_flip_pvalue(diffs: Sequence[float]) -> float:
     4 folds**. A 4-fold protocol therefore *structurally* cannot reach p < 0.05, no
     matter how large the effect -- report effect sizes there instead of a verdict.
     """
-    clean = [d for d in diffs if d == d]
+    clean = [d for d in diffs if not math.isnan(d)]
     n = len(clean)
     if n == 0:
         return float("nan")
@@ -94,7 +94,7 @@ def cohens_dz(diffs: Sequence[float]) -> float:
     ``std([0.1, 0.1, 0.1], ddof=1)`` come out as ~1.7e-17 rather than 0.0, so an exact
     comparison silently returns a ~6e15 "effect size" instead of ``inf``.
     """
-    clean = np.asarray([d for d in diffs if d == d], dtype=np.float64)
+    clean = np.asarray([d for d in diffs if not math.isnan(d)], dtype=np.float64)
     if clean.size < 2:
         return float("nan")
     sd = float(clean.std(ddof=1))
@@ -113,7 +113,7 @@ def holm_bonferroni(pvalues: Mapping[str, float]) -> dict[str, float]:
     cells will produce a "winner" by chance. NaN inputs are passed through untouched so
     an unusable comparison is visibly unusable rather than silently ranked.
     """
-    finite = {k: v for k, v in pvalues.items() if v == v}
+    finite = {k: v for k, v in pvalues.items() if not math.isnan(v)}
     items = sorted(finite.items(), key=lambda kv: kv[1])
     m = len(items)
     adjusted: dict[str, float] = {}
@@ -135,7 +135,7 @@ def paired_comparison(diffs: Sequence[float], label: str = "") -> dict:
     produce, so a report can say "4 folds cannot reach significance" instead of
     printing a non-significant p as if it were a negative result.
     """
-    clean = [d for d in diffs if d == d]
+    clean = [d for d in diffs if not math.isnan(d)]
     return {
         "label": label,
         "n_pairs": len(clean),
@@ -186,7 +186,7 @@ def seed_agreement(per_seed_diffs: Mapping[int, float]) -> dict:
     A single seed is not evidence of anything on this axis; report the flip rather than
     averaging it away.
     """
-    usable = {s: d for s, d in per_seed_diffs.items() if d == d}
+    usable = {s: d for s, d in per_seed_diffs.items() if not math.isnan(d)}
     diffs = list(usable.values())
     signs = sorted({int(math.copysign(1, d)) for d in diffs if d != 0.0})
     flips = len(signs) > 1
@@ -226,7 +226,7 @@ def aggregate_by_arm(
     """
     out: dict[str, dict[str, float]] = {}
     for arm, folds in per_fold.items():
-        values = [v for v in folds.values() if v == v]
+        values = [v for v in folds.values() if not math.isnan(v)]
         if not values:
             continue
         out[arm] = {
@@ -247,5 +247,5 @@ def iter_paired_diffs(
     """
     for fold in sorted(set(baseline) & set(arm)):
         b, a = baseline[fold], arm[fold]
-        if b == b and a == a:
+        if not math.isnan(b) and not math.isnan(a):
             yield fold, a - b

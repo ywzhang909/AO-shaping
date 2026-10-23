@@ -613,9 +613,10 @@ def cli() -> None:
         except (ValueError, TypeError) as exc:
             logger.warning("{}: objective figure failed: {}", d, exc)
         for group, producer in (
-            ("zernike", lambda: plot_zernike(run, fig_dir, tag)),
-            ("frames", lambda: plot_frames(run, fig_dir, tag, best_epoch)),
-            ("gif", lambda: make_gif(run, fig_dir, tag)),
+            ("zernike", lambda _run=run, _tag=tag: plot_zernike(_run, fig_dir, _tag)),
+            ("frames", lambda _run=run, _tag=tag, _best_epoch=best_epoch:
+             plot_frames(_run, fig_dir, _tag, _best_epoch)),
+            ("gif", lambda _run=run, _tag=tag: make_gif(_run, fig_dir, _tag)),
         ):
             try:
                 path = producer()
