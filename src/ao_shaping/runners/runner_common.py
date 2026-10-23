@@ -2377,6 +2377,65 @@ class SlmGsRefineParams:
     side_factor: Annotated[
         float, option("--side-factor", help="Multiplier on the target side.")
     ] = 1.0
+    target_shape: Annotated[
+        str,
+        option(
+            "--target-shape",
+            type=click.Choice(list(TARGET_SHAPE_CHOICES)),
+            help=(
+                "Far-field target shape, used for BOTH the GS warm start and the "
+                "measured mask (PIB/CV are scored inside the shape, never inside a "
+                "box around it). --target-side is the characteristic size: square "
+                "edge / circle+pentagon diameter / rectangle short side / annular "
+                "outer diameter / grid+cross bounding size / gaussian "
+                "characteristic size (sigma = ratio*side)."
+            ),
+        ),
+    ] = "square"
+    target_aspect_ratio: Annotated[
+        float,
+        option(
+            "--target-aspect-ratio",
+            help="rectangle: long/short side ratio (long axis horizontal), >= 1.",
+        ),
+    ] = 2.0
+    target_inner_ratio: Annotated[
+        float,
+        option(
+            "--target-inner-ratio",
+            help="annular: inner/outer radius ratio, in (0, 1).",
+        ),
+    ] = 0.6
+    target_sigma_ratio: Annotated[
+        float,
+        option(
+            "--target-sigma-ratio",
+            help=(
+                "gaussian: sigma as a fraction of --target-side (0.25 matches the "
+                "GS family's own gaussian target)."
+            ),
+        ),
+    ] = 0.25
+    target_line_width: Annotated[
+        float,
+        option(
+            "--target-line-width",
+            help="grid/cross: line width as a fraction of --target-side.",
+        ),
+    ] = 0.02
+    target_grid_nx: Annotated[
+        int, option("--target-grid-nx", help="grid: number of vertical lines.")
+    ] = 5
+    target_grid_ny: Annotated[
+        int, option("--target-grid-ny", help="grid: number of horizontal lines.")
+    ] = 5
+    target_thickness: Annotated[
+        float,
+        option(
+            "--target-thickness",
+            help="cross: line width of both strokes as a fraction of --target-side.",
+        ),
+    ] = 0.05
     w_pib: Annotated[
         float, option("--w-pib", help="Composite weight on power-in-bucket.")
     ] = 0.5
@@ -3300,6 +3359,14 @@ def build_gs_refine_config(
         early_stop_score=params.early_stop_score,
         target_side=params.target_side,
         side_factor=params.side_factor,
+        target_shape=params.target_shape,
+        target_aspect_ratio=params.target_aspect_ratio,
+        target_inner_ratio=params.target_inner_ratio,
+        target_sigma_ratio=params.target_sigma_ratio,
+        target_line_width=params.target_line_width,
+        target_grid_nx=params.target_grid_nx,
+        target_grid_ny=params.target_grid_ny,
+        target_thickness=params.target_thickness,
         w_pib=params.w_pib,
         w_unif=params.w_unif,
         exclude_zero_order_for_cv=params.exclude_zero_order_for_cv,
@@ -3612,13 +3679,19 @@ def save_gs_refine_results(
                 "shape_iou",
                 "exposure_ms_readback",
                 "target_side",
+                "mask_area_frac",
                 "lr",
                 "pos",
                 "neg",
                 "cy",
                 "cx",
             ),
-            text_keys=("timestamp_utc", "pos_timestamp_utc", "neg_timestamp_utc"),
+            text_keys=(
+                "timestamp_utc",
+                "pos_timestamp_utc",
+                "neg_timestamp_utc",
+                "target_shape",
+            ),
             img_keys=(
                 "_img",
                 "_phase",

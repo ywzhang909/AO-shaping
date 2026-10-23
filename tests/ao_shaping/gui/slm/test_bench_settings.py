@@ -1,4 +1,4 @@
-"""Offline tests for the sidebar 「本次实验光路」 block (bench_settings).
+"""Offline tests for the sidebar 「CCD参数设置」 block (bench_settings).
 
 Everything here runs without Streamlit's server and without hardware:
 ``st.session_state`` is patched to a plain dict and ``st.rerun`` is a no-op in

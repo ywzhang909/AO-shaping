@@ -654,7 +654,7 @@ flowchart LR
 | --- | --- |
 | A 相机 | 相机类型（daheng/miicam/sim）、相机 ID、像元间距 `μm`（**含「探测」按钮与渲染期自动探测告警**，`key="camera_pixel_um"` 未变，从旧「相机工具」区整体搬来）、会话曝光 `ms`（0 = 自动；caption 写明 0 会被大恒钳到约 0.02 ms，比可用区间暗 20–75×；超 `AO_DAHENG_MAX_EXPOSURE_MS` 立即 warning，运行前再 error 一次）**+ 「探测」按钮（`key="detect_exposure_btn"`，仅 daheng 可用）**：点一下按当前光路实测曝光 |
 | B 读出窗口 | 「启用开窗」+ 窗口边长 `px`。上界 = `min(max_width, max_height)`、step = 设备特征网格 `inc`（**取得到相机时是真值，取不到时用保守兜底并在 caption 说明来源**，点「探测窗口上限」重读）。⚠️ 已**取消** `cam_size_min = max(16, target_side)` 互夹：侧栏先渲染、拿不到主区目标边长，而 Streamlit 对「min 变化后越界」是**抛异常不是夹取** → 改到运行前校验（§8.2） |
-| C 去零级载波 | 载波（-1 关 / 0 实测自动 / 128 / 96 / 64）+ 光栅方向 |
+| C 载波（已移出） | **载波控件已并入侧栏「相位叠加（底相位 / 载波 / 离焦）」区块** —— 它现在是一层**发送叠加**，不再是实验光路的固定参数。见下方 §相位叠加 |
 | D 面板与瞳面（每 SLM） | 入射中心 `x,y`（**空 = 自动定位**）、模型覆盖宽度（32 – `PANEL_RES[0]=1920`，step 10；GS 的 `beam_radius_px×2` 落同一字段）、**实测照明半径**（面板px，0 = 未实测）+ **「探测半径」按钮**（两轴各一次半平面随机相位边界扫描，约 5–10 分钟；证据落 `data/debug/bench_settings/beam_radius/`）+ **「探测焦面」按钮**（`key="detect_focus_btn"`，plain 相位上扫菲涅尔焦距 ±6 m⁻¹，逐点自动重调曝光，约 1–2 分钟；结果写 `slm{N}_bench_focus_probe`，供侧栏「离焦叠加 (发送叠加)」的推荐焦距做粗补偿，证据落 `data/debug/bench_settings/focus_probe/`）；SLM 面板 caption 并排展示**像素间距 `8 μm`（`PITCH_UM`，面板模型用这个）** 与**有效口径 `7.8 μm`（`PIXEL_SIZE_UM`）** —— 相差 0.2 μm 是真实器件几何，不是待修误差（见 `slm200_constants` 注释） |
 | E 标定（每 SLM） | 几何来源（自动标定（推荐）/ 复用已标定几何 / 沿用上次结果）+ 条件显示的几何文件路径（复用模式下用 `discover_model_in_loop_geometry(region=…)` 给建议值）+ 「标定 SLM N 光路」primary 按钮（**复用模式下 disabled**：那时两步都不测，点下去只会刷新 `calibrated_at`，却让人以为重新量过）+ 有手动改动时出现的「恢复探测值」 |
 
@@ -754,12 +754,33 @@ CLI 原有行为）。侧栏实测曝光因此真正传到 sweep —— `0` 只�
 保留的硬约束：`w_eff > 0`（min 0.01，help 保留「只优化 -CV 会掏空目标框 实测环围能量→0.002」）；
 探针 σ ≥ 3.0；窗口边长必须是设备 `inc` 的整数倍；曝光 min 0（0 时大恒强制 warning）。
 
-### 8.3 离焦叠加（发送管线 T4 叠加层）
+### 8.3 相位叠加：底相位 / 载波 / 离焦（三层可多选）
+
+三层都是**驱动层全局叠加**，且渲染在**同一个**侧栏区块
+「相位叠加（底相位 / 载波 / 离焦）」里，各自一个 checkbox —— 可多选，勾中的**全部相加**。
+
+| 层 | 驱动槽位 | 域 | 为什么在那一域 |
+| --- | --- | --- | --- |
+| 底相位 | `set_base_phase(gray)` | 灰度 | 它是「设备上已显示过的那张图」，按灰度原样叠加才与当初显示一致；送进 LUT 会改变它 |
+| 载波（倾斜） | `set_phase_overlay(rad)` | 弧度 | 光路里真实的相位，应该被 LUT 重映射 |
+| 离焦 | `set_phase_overlay(rad)` | 弧度 | 同上；菲涅尔粗调 + Zernike (2,0) 细调 |
+
+**单一漏斗**：三层由 `bench_settings.build_send_overlay` 汇成一份 `PhaseOverlay`，
+经 `_apply_slm_overlays` → `apply_overlays_to_handle` 推到句柄。因此任何走
+`create_phase_from_array` 的发送（一键下发 / CSV / 周期切换 / 整形结果 / 优化器自开
+句柄）都自动带上，不需要每个调用点各写一遍。
+
+> **2026-10-23 修的缺陷**：载波原先只作为 `blaze_period_px` 喂给整形优化器、由优化器
+> 自己在相位里加，于是侧栏「一次下发」的 PatternHelper 相位**从来没带上它**。
+> 现在载波是叠加层的一层。实验验证：平场 + 周期 128 载波，0 级位移
+> `(1218,964) → (1219,906)`，Δy = **−58 px**，与预测 `TILT_SHIFT_SCALE/128 = 57.8 px`
+> 一致；关掉后回到 964（可逆、不累积）。
+
+⚠️ **不重复施加**：载波叠加层在优化器打开句柄时就装到它的 SLM 上，所以整轮优化与最终
+相位口径一致；因此 GUI 给整形优化器传 `blaze_period_px = -1`，否则倾斜会被加两遍。
 
 离焦不再是「整形完成后的手动微调」（旧版 `defocus_trim_fragment` 滑块，拖动即触发整页
-rerun、面板丢失），而是**驱动层全局叠加**：侧栏「离焦叠加 (发送叠加)」区一个主开关一开，
-`set_phase_overlay` 就承载该层，作用于其后**所有**发送路径（优化器 / 一键下发 / CSV / 周期
-切换都走 `create_phase_from_array`），与底相位同属 T4 发送管线叠加层、同机制。
+rerun、面板丢失），而是与上面两层同机制的全局叠加。
 
 **侧栏控件（`multi_slm_controller._render_defocus_overlay_block`，每台 SLM 一份）：**
 

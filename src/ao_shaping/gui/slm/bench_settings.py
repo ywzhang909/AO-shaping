@@ -1,4 +1,4 @@
-"""本次实验光路：侧栏区块 + 「自动探测但允许人工修改」的 session 契约。
+"""CCD参数设置：侧栏区块 + 「自动探测但允许人工修改」的 session 契约。
 
 为什么单独一个模块
 ------------------
@@ -11,7 +11,7 @@ SLM 的入射位置与几何，都在一次实验内固定。把它们留在主�
 
 本模块只管两件事：
 
-1. :func:`render_bench_settings` —— 侧栏「本次实验光路」区块（实验级 + 每 SLM 级）；
+1. :func:`render_bench_settings` —— 侧栏「CCD参数设置」区块（实验级 + 每 SLM 级）；
 2. 三态 session 契约 —— 每个可探测字段的 ``unset`` / ``detected`` / ``manual``。
 
 两层光路的分工
@@ -706,6 +706,53 @@ def build_defocus_overlay(prefix: str = "slm1", slm=None) -> np.ndarray:
     return out
 
 
+def build_carrier_overlay(prefix: str = "slm1", slm=None) -> np.ndarray | None:
+    """构造**载波（倾斜）**叠加相位（弧度，panel_size）；未启用时返回 ``None``。
+
+    这是「载波没有叠加倾斜相位」那个缺陷的落点：载波原先只作为
+    ``blaze_period_px`` 喂给整形优化器，由优化器自己在相位里加，于是侧栏
+    「一次下发」的 PatternHelper 相位**从来没带上它**。现在载波成为发送管线
+    叠加层的一层（与离焦同槽位、同机制），任何走
+    ``create_phase_from_array`` 的发送都会带上。
+
+    周期语义沿用侧栏：``-1`` = 关闭、``0`` = 实测自动。自动选择需要相机反馈
+    （属于整形运行内部的事），叠加层这里没有画面可依，所以 ``0`` 也按未启用
+    处理，而不是猜一个周期。
+    """
+    if not bool(st.session_state.get(_scoped(prefix, "blaze_enabled"), False)):
+        return None
+    period = int(st.session_state.get("bench_blaze_period_px", -1))
+    if period <= 0:
+        return None
+    from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W
+    from ao_shaping.utils.wavefront.zero_order_overlay import (
+        OverlayParams,
+        apply_zero_order_overlay,
+    )
+
+    panel_shape = (SLM_PANEL_H, SLM_PANEL_W)
+    direction = str(st.session_state.get("bench_blaze_direction", "vertical"))
+    params = OverlayParams(
+        mode="blaze",
+        blaze_period_px=float(period),
+        blaze_direction=direction,
+        wavelength_nm=float(
+            (getattr(slm, "wavelength", None) if slm is not None else None) or 1064.0
+        ),
+        panel_pixel_um=float(
+            (getattr(slm, "Pitch_um", 8.0) if slm is not None else 8.0) or 8.0
+        ),
+    )
+    try:
+        out = apply_zero_order_overlay(
+            np.zeros(panel_shape, dtype=np.float64), params
+        )
+    except Exception as exc:  # 叠加层失败不卡主流程
+        logger.warning("载波叠加构造失败 (%s): %s", prefix, exc)
+        return None
+    return np.asarray(out, dtype=np.float64)
+
+
 def rebuild_defocus_overlay(prefix: str, slm) -> None:
     """把当前离焦设置推到驱动（set_phase_overlay），供叠加层在重连/重取后重建。
 
@@ -755,6 +802,13 @@ def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
         if built is not None and np.allclose(built, 0.0, atol=1e-12):
             built = None
         phase_rad = built
+
+    # 载波与离焦同为弧度域叠加，直接相加。它们都是「光路里真实存在的相位」，
+    # 因此和离焦一样必须经过矫正/LUT（与底相位的灰度域语义不同）。
+    carrier = build_carrier_overlay(prefix, slm)
+    if carrier is not None:
+        phase_rad = carrier if phase_rad is None else phase_rad + carrier
+
     base = st.session_state.get(_scoped(prefix, "base_phase"))
     overlay_on = bool(st.session_state.get(_scoped(prefix, "overlay_base"), False))
     base_gray = base if (base is not None and overlay_on) else None
@@ -1768,7 +1822,7 @@ def merge_bench_values(
 
 
 def render_bench_settings() -> None:
-    """侧栏「本次实验光路」区块入口。
+    """侧栏「CCD参数设置」区块入口。
 
     顺序是硬约束：先 flush pending、再重算人工覆盖表，最后才实例化控件。
     调用方（``render_slm_sidebar``）只需在侧栏早期调用一次。
@@ -1943,18 +1997,23 @@ def _render_window_block(disabled: bool) -> None:
         st.rerun()
 
 
-def _render_blaze_block(disabled: bool) -> None:
-    """C 去零级载波：载波周期 / 光栅方向。"""
-    st.caption("C 去零级载波")
+def render_blaze_controls(prefix: str, disabled: bool) -> None:
+    """载波周期 / 光栅方向控件。
+
+    从实验光路区块搬出：载波现在是一层**发送叠加**（见
+    :func:`build_carrier_overlay`），因此与底相位/离焦一起渲染在侧栏
+    「相位叠加」区块里。键名不变，仍写 ``bench_blaze_period_px`` /
+    ``bench_blaze_direction``。
+    """
     d1, d2 = st.columns(2)
     with d1:
         st.selectbox(
-            "载波",
+            "载波周期",
             options=list(BLAZE_PERIOD_OPTIONS),
             format_func=lambda p: BLAZE_PERIOD_LABELS[p],
             key="bench_blaze_period_px",
             disabled=disabled,
-            help="离轴载波把 0 级移出读出窗；-1 = 关闭，0 = 实测自动选择",
+            help="离轴载波把 0 级移出读出窗；-1 = 关闭，0 = 实测自动选择（需相机反馈）",
         )
     with d2:
         st.selectbox(
@@ -1962,6 +2021,11 @@ def _render_blaze_block(disabled: bool) -> None:
             options=list(BLAZE_DIRECTIONS),
             key="bench_blaze_direction",
             disabled=disabled,
+        )
+    if int(st.session_state.get("bench_blaze_period_px", -1)) == 0:
+        st.warning(
+            "周期 = 0 是「实测自动」，需要相机反馈；发送叠加层这里没有画面可依，"
+            "所以不会叠加。请选一个具体周期。"
         )
 
 
@@ -1991,7 +2055,7 @@ def _render_experiment_block() -> None:
     detected = detected_state("")
     manual = manual_fields("")
 
-    with st.expander("本次实验光路", expanded=False):
+    with st.expander("CCD参数设置", expanded=False):
         if busy:
             st.info(
                 "标定或闭环整形进行中 —— SLM 句柄已交给标定器 / 优化器"
@@ -2001,7 +2065,8 @@ def _render_experiment_block() -> None:
         cam_type = _render_camera_block(disabled)
         _render_exposure_block(disabled, cam_type)
         _render_window_block(disabled)
-        _render_blaze_block(disabled)
+        # 载波控件已并入侧栏「相位叠加」区块（与底相位/离焦同处、可勾选）：
+        # 它现在是一层**发送叠加**，而不是实验光路的一个固定参数。
         _render_summary_block(detected, manual)
 
 

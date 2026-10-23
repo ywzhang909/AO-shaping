@@ -336,7 +336,7 @@ class TestSplitKeptFunctionInventory:
             "_render_camera_block",
             "_render_exposure_block",
             "_render_window_block",
-            "_render_blaze_block",
+            "render_blaze_controls",
             "_render_summary_block",
             "_render_slm_geometry_block",
             "_render_slm_focus_block",

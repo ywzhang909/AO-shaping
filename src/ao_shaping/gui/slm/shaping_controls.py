@@ -660,7 +660,7 @@ def validate_target_fits_window(values: Mapping[str, Any]) -> str | None:
     if side > window_side:
         return (
             f"目标方边长 {side} px 超过读出窗口边长 {window_side} px —— "
-            "在左侧「本次实验光路」把窗口边长调大，或把目标边长调小"
+            "在左侧「CCD参数设置」把窗口边长调大，或把目标边长调小"
         )
     return None
 
@@ -756,7 +756,7 @@ class ShapingMethod(ABC):
 
         The order is fixed by the page contract: 目标与评分 → 预算 → 高级参数.
         Optical-path settings (camera, window, exposure, carrier, panel centre,
-        geometry) are **not** here — they live in the sidebar 「本次实验光路」
+        geometry) are **not** here — they live in the sidebar 「CCD参数设置」
         block and come back through :func:`bench_settings.merge_bench_values`,
         applied by :func:`render_closed_loop_shaping`.
         """
@@ -768,7 +768,7 @@ class ShapingMethod(ABC):
         with st.expander("高级参数", expanded=False):
             self.render_advanced(values)
         st.caption(
-            "面板与瞳面几何、相机、读出窗口、曝光与去零级载波在左侧「本次实验光路」"
+            "面板与瞳面几何、相机、读出窗口、曝光与去零级载波在左侧「CCD参数设置」"
             "（一次实验固定；换光路后在那里重标定即可，不必重填主区）。"
         )
         return values
@@ -936,7 +936,7 @@ class ShapingMethod(ABC):
         """One row of method-specific numeric inputs (e.g. frames per measurement).
 
         相机类型 / ID / 像元间距 / 曝光 / 读出窗口 / 载波 **不在这里** ——
-        它们已经搬到侧栏「本次实验光路」区块
+        它们已经搬到侧栏「CCD参数设置」区块
         (:mod:`ao_shaping.gui.slm.bench_settings`)，因为一次实验内固定，本来
         就不该每跑一次就重填一遍。真正喂给优化器的值经
         :func:`merge_bench_values` 回来，由
@@ -1407,7 +1407,11 @@ class GsRefineMethod(ShapingMethod):
             cam_size=int(values.get("cam_size", 250)),
             slm_number=self.slm_num,
             n_eval_frames=int(values.get("n_eval_frames", r.get("n_eval_frames", 4))),
-            blaze_period_px=int(values.get("blaze_period_px", -1)),
+            # 载波现在由发送叠加层承载（`bench_settings.build_carrier_overlay`），
+            # 该层在优化器打开句柄时就装到它的 SLM 上 —— 所以整轮优化与最终相位
+            # 都带载波，口径一致。这里必须传 -1，否则优化器会再施加一次，
+            # 倾斜被加两遍（相位斜率翻倍，0 级跑得更远）。
+            blaze_period_px=-1,
             blaze_direction=str(values.get("blaze_direction", "vertical")),
         )
 
@@ -1483,7 +1487,7 @@ class GsRefineMethod(ShapingMethod):
         st.caption(
             "GS+SPGD 没有自动会话标定：本次用的入射中心是兜底实测值 "
             f"{bench_settings.PUPIL_CENTER_FALLBACK}。若这条光路换过，"
-            "请在左侧「本次实验光路」标定 SLM 光路或手填入射中心，否则会直接失效。"
+            "请在左侧「CCD参数设置」标定 SLM 光路或手填入射中心，否则会直接失效。"
         )
 
 
@@ -1727,7 +1731,8 @@ class ModelInLoopMethod(ShapingMethod):
             cam_size=int(values["cam_size"]),
             camera_pixel_um=camera_pixel_um,
             slm_number=self.slm_num,
-            blaze_period_px=int(values.get("blaze_period_px", -1)),
+            # 同 GsRefineMethod：载波由发送叠加层承载，优化器不得再施加一次。
+            blaze_period_px=-1,
             blaze_direction=str(values.get("blaze_direction", "vertical")),
         )
 
@@ -1870,7 +1875,7 @@ class ModelInLoopMethod(ShapingMethod):
             st.caption(
                 "探测到新值，当前仍使用人工值（人工值优先）："
                 + "；".join(bench_settings.field_hint(prefix, name) for name in kept)
-                + "。在左侧「本次实验光路」点「恢复探测值」可改回探测值。"
+                + "。在左侧「CCD参数设置」点「恢复探测值」可改回探测值。"
             )
         # The widgets are back-filled through the pending table, so they only take
         # the new values on the **next** render.  ``values`` is the run's own copy
@@ -1964,7 +1969,7 @@ class ModelInLoopMethod(ShapingMethod):
             return None
         return (
             f"几何文件的 region={found} 与当前模型网格 region={values['region']} "
-            "不一致（模型网格本身不同）：在左侧「本次实验光路」改 region，"
+            "不一致（模型网格本身不同）：在左侧「CCD参数设置」改 region，"
             "或把几何来源切回「自动标定」重标"
         )
 
@@ -2008,7 +2013,7 @@ def render_bench_status(prefix: str, slm_num: int) -> str | None:
     if not calibrated:
         return (
             f"光路 SLM {slm_num}：○ 未标定 —— {bench_settings.uncalibrated_note(prefix)}；"
-            "也可先在左侧「本次实验光路」手动标定"
+            "也可先在左侧「CCD参数设置」手动标定"
         )
     parts = [f"光路 SLM {slm_num}：● 已标定 {detected.get('calibrated_at') or '-'}"]
     parts.append(
@@ -2040,7 +2045,7 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     校验区 has to come *before* the button so the button can be ``disabled``;
     结果 last because a run blocks the page and only then has anything to show.
     Optical-path settings are **not** here — they are in the sidebar
-    「本次实验光路」 block (:mod:`ao_shaping.gui.slm.bench_settings`), because one
+    「CCD参数设置」 block (:mod:`ao_shaping.gui.slm.bench_settings`), because one
     experiment fixes one optical path.
     """
     prefix = f"slm{slm_num}"

@@ -453,7 +453,7 @@ def degenerate_metrics(
 
     Returns:
         ``[(指标名, 说明), ...]``；空列表 = 全部指标有区分度。退化的指标
-        **不得计入综合分**（:func:`select_best_window` 自动剔除），说明里带
+        **不得计入复合分数**（:func:`select_best_window` 自动剔除），说明里带
         「该指标无区分度，请改用实测一致性」的处置提示。
     """
     valid = [p for p in points if p.valid]
@@ -516,7 +516,7 @@ def select_best_window(
       空盒点 1555.2 px 选成「最优」。
     * 有效点为空 ⇒ 返回 ``(None, None, None)`` + 说明「该区间内没有可填满的
       目标，需增大照明/曝光或改小目标」；
-    * :func:`degenerate_metrics` 标记的**退化指标不计入综合分**（权重清零），
+    * :func:`degenerate_metrics` 标记的**退化指标不计入复合分数**（权重清零），
       随结果显式返回 ``degenerate=[(名, 说明), ...]``；两项参与排序的指标
       全部退化 ⇒ 同样返回 ``(None, None, None)`` + 说明（拒绝构造假分数）。
 
@@ -798,7 +798,7 @@ class TargetSizeCalibration:
 
         * ``"largest_valid"``（默认）：有效点里**最大**的尺寸 —— 照明/曝光能填满
           的最大边长。2026-10-23 实测细扫 40–240 px 的有效区间为 40–100 px：
-          40 px 均匀性最好但填得少，100 px 填得最大，默认取大者；
+          40 px 均匀度最好但填得少，100 px 填得最大，默认取大者；
         * ``"best_balance"``：有效点里按 CV × 效率折中，
           分数 = (1 − minmax(CV)) × minmax(efficiency)，取 argmax —— 「均匀且
           填得上」的折中点。

@@ -344,9 +344,8 @@ def _render(
     monkeypatch.setattr(gui, "st", recorder)
     monkeypatch.setattr(gui, "widget_default", lambda key, default: default)
     for helper in (
-        "_render_grayscale_config",
-        "_render_base_phase_block",
-        "_render_defocus_overlay_block",
+        # 三层叠加已合并为一个区块（底相位 / 载波 / 离焦）。
+        "render_phase_overlay_block",
     ):
         monkeypatch.setattr(gui, helper, lambda *a, **k: None)
     for handler in (

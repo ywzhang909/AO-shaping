@@ -46,7 +46,7 @@ from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 # probe runs in a daemon thread and is abandoned after this interval.
 SLM_PROBE_TIMEOUT_S = 3.0
 
-# 像元间距的探测与告警已搬到「本次实验光路」区块（bench_settings）—— 那是一次
+# 像元间距的探测与告警已搬到「CCD参数设置」区块（bench_settings）—— 那是一次
 # 实验内固定的量，不该和「刷新相机状态」这种一次性诊断按钮混在一起。下面三个名字
 # 是为旧 import 路径保留的再导出。
 _DETECT_CAMERA_PIXEL_UM = detect_camera_pixel_um
@@ -594,9 +594,7 @@ def _sync_slm_session_state(slm_num: int, slm: Any) -> None:
     # 这个 key 被图案生成器当**采样间距**用（见 _build_slm_pattern 的
     # pixel_pitch_um），所以必须同步 Pitch_um 而不是有效口径 Pixel_Size_um
     # ——两者相差 0.2 μm，见 slm200_constants 注释。
-    _safe_set_state(
-        f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pitch_um", 8.0))
-    )
+    _safe_set_state(f"{prefix}_pixel_pitch_um", float(getattr(slm, "Pitch_um", 8.0)))
     _safe_set_state(f"{prefix}_bits", int(getattr(slm, "Gray_Scale_bits", 10)))
     _safe_set_state(f"{prefix}_use_120hz", bool(slm._use_120hz))
 
@@ -981,9 +979,9 @@ def render_slm_sidebar():
 
     st.markdown("")
 
-    st.markdown('')
+    st.markdown("")
 
-    # 「本次实验光路」区块：相机类型/ID、像元间距（+ 探测 + 自动探测告警）、
+    # 「CCD参数设置」区块：相机类型/ID、像元间距（+ 探测 + 自动探测告警）、
     # 会话曝光（+ 探测）、读出窗口、去零级载波，以及每台已连接 SLM 的面板几何、
     # 照明半径（+ 探测）与标定按钮。
     # 像元间距的 widget key 仍是 camera_pixel_um（不新建同 key widget），
@@ -1012,49 +1010,6 @@ def render_slm_sidebar():
             _render_slm_settings(slm_num)
 
 
-@st.fragment()
-def _render_grayscale_config(slm_num: int, prefix: str, slm_obj: Santec) -> None:
-    """灰度设置区块（fragment 局部刷新，无 run_every 定时器）。
-
-    两个按钮处理器在更新 _max_gray 后触发整页 rerun（st.rerun(scope="app")），
-    使主区域的控制组件从新的 _max_gray 重新初始化（仅 fragment 级 rerun 会让
-    flat_gray 滑块保持旧值）；本区块在同一次全页 rerun 中随之重渲染, caption
-    立即显示最新 _max_gray。不设 run_every: 定时器会在设备断开（本区块不再被
-    调用）后持续请求已被剪枝的旧 fragment ID, 触发
-    "The fragment with id ... does not exist anymore" 反复警告。
-    """
-    st.caption("灰度设置")
-    max_gray = int(getattr(slm_obj, "_max_gray", Santec.MAX_GRAYSCALE_VALUE))
-    max_gray_abs = int(Santec.MAX_GRAYSCALE_VALUE)
-    st.caption(f"最大灰度值 (2π对应): **{max_gray}** / {max_gray_abs}")
-    new_max_gray = st.number_input(
-        "2π 灰度值",
-        min_value=1,
-        max_value=max_gray_abs,
-        step=1,
-        value=max_gray,
-        key=f"{prefix}_max_gray",
-    )
-    if st.button("应用灰度设置", key=f"{prefix}_apply_gray_btn", type="secondary"):
-        try:
-            slm_obj._max_gray = int(new_max_gray)
-            refresh_phase_preview(slm_num)
-            _reset_context_widgets(slm_num)
-            st.rerun(scope="app")
-        except Exception as e:
-            st.error(f"更新灰度设置失败: {e}")
-
-    if st.button("获取当前2π灰度", key=f"{prefix}_read_max_gray_btn", type="secondary"):
-        try:
-            _wl, current_max_gray = slm_obj.get_wavelength_info()
-            slm_obj._max_gray = int(current_max_gray)
-            refresh_phase_preview(slm_num)
-            _reset_context_widgets(slm_num)
-            st.rerun(scope="app")
-        except Exception as e:
-            st.error(f"读取灰度失败: {e}")
-
-
 def _slm_resolution_label(width: int, height: int) -> str:
     """The resolution line of the device-info block."""
     return f"分辨率: {width}×{height}"
@@ -1077,9 +1032,7 @@ def _slm_serial_label(slm_obj: Santec) -> str:
     return f"SLM序列号: {sn_display if sn_display else '-'}"
 
 
-def _render_slm_wavelength_mismatch(
-    slm_num: int, prefix: str, slm_obj: Santec
-) -> None:
+def _render_slm_wavelength_mismatch(slm_num: int, prefix: str, slm_obj: Santec) -> None:
     """Warn when the sidebar wavelength differs from the device's own value."""
     if slm_obj is None or slm_obj.wavelength is None:
         return
@@ -1088,9 +1041,7 @@ def _render_slm_wavelength_mismatch(
         return
     col_wl1, col_wl2 = st.columns([4, 1])
     with col_wl1:
-        st.warning(
-            f"波长: 设定值 {widget_wl} nm ≠ 设备值 {int(slm_obj.wavelength)} nm"
-        )
+        st.warning(f"波长: 设定值 {widget_wl} nm ≠ 设备值 {int(slm_obj.wavelength)} nm")
     with col_wl2:
         if st.button("同步", key=f"{prefix}_sync_wl_btn", type="primary"):
             st.session_state[f"{prefix}_wavelength"] = int(slm_obj.wavelength)
@@ -1109,9 +1060,7 @@ def _render_slm_config_status(slm_num: int, prefix: str, slm_obj: Santec) -> Non
         st.json(loaded_cfg)
     else:
         st.caption("未找到匹配的配置文件（使用设备默认值）")
-    if st.button(
-        "刷新配置", key=f"{prefix}_refresh_config_btn", type="secondary"
-    ):
+    if st.button("刷新配置", key=f"{prefix}_refresh_config_btn", type="secondary"):
         fresh = slm_obj.load_config() if slm_obj._serial_number else {}
         st.session_state[f"{prefix}_loaded_config"] = fresh
         st.rerun()
@@ -1236,9 +1185,7 @@ def _clear_correction(slm_num: int) -> None:
         st.error(f"清除矫正失败: {e}")
 
 
-def _render_slm_correction_section(
-    slm_num: int, prefix: str, slm_obj: Santec
-) -> None:
+def _render_slm_correction_section(slm_num: int, prefix: str, slm_obj: Santec) -> None:
     """Wavefront-correction toggle, CSV upload, and apply / clear."""
     st.caption("叠加矫正")
     use_correction = st.checkbox(
@@ -1301,7 +1248,9 @@ def _save_slm_config(slm_num: int, prefix: str) -> None:
         if (ui_shift_x, ui_shift_y) != (slm.shift_x, slm.shift_y):
             slm.set_shift(shift_x=ui_shift_x, shift_y=ui_shift_y)
         slm.save_config()
-        st.success(f"SLM {slm_num} 配置已保存（序列号: {slm._serial_number or '未知'}）")
+        st.success(
+            f"SLM {slm_num} 配置已保存（序列号: {slm._serial_number or '未知'}）"
+        )
     except Exception as e:
         st.error(f"保存配置到设备失败: {e}")
 
@@ -1335,9 +1284,7 @@ def _render_slm_save_section(slm_num: int, prefix: str) -> None:
     if st.button("保存配置", key=f"{prefix}_save_config_btn", type="secondary"):
         _save_slm_config(slm_num, prefix)
 
-    if st.button(
-        "保存当前相位到CSV", key=f"{prefix}_save_csv_btn", type="secondary"
-    ):
+    if st.button("保存当前相位到CSV", key=f"{prefix}_save_csv_btn", type="secondary"):
         _save_slm_phase_csv(slm_num)
 
 
@@ -1358,26 +1305,17 @@ def _render_slm_settings(slm_num: int):
     with st.expander(f"SLM {slm_num} 设置", expanded=True):
         _render_slm_device_section(slm_num, prefix, slm_obj)
 
-    # --- Section 2: Grayscale config (collapsed by default) ---
-    with st.expander("灰度设置", expanded=False):
-        _render_grayscale_config(slm_num, prefix, slm_obj)
-
     # --- Section 3: Wavefront correction (overlay layer 1 of the send pipeline) ---
     with st.expander("波前矫正", expanded=False):
         _render_slm_correction_section(slm_num, prefix, slm_obj)
 
-    # --- Section 3b: Base phase (T4 long-lived overlay) ---
-    with st.expander("底相位 (发送叠加)", expanded=False):
-        _render_base_phase_block(slm_num)
-
-    # --- Section 3b2: Defocus overlay (T4 long-lived overlay) ---
-    with st.expander("离焦叠加 (发送叠加)", expanded=False):
-        _render_defocus_overlay_block(slm_num)
+    # --- Section 3b: 相位叠加（底相位 / 载波 / 离焦，可多选） ---
+    with st.expander("相位叠加（底相位 / 载波 / 离焦）", expanded=False):
+        render_phase_overlay_block(slm_num)
 
     # --- Section 3c: Save (persist) ---
     with st.expander("保存", expanded=False):
         _render_slm_save_section(slm_num, prefix)
-
 
 
 def _toggle_phases_task(
@@ -1645,7 +1583,9 @@ def render_phase_control(slm_num: int):
 
     st.markdown("")
     st.subheader("持续任务：周期切换")
-    st.caption("后台线程在相位 A 与相位 B 之间持续来回切换（运行期间独占面板，需「停止」释放）")
+    st.caption(
+        "后台线程在相位 A 与相位 B 之间持续来回切换（运行期间独占面板，需「停止」释放）"
+    )
     _render_phase_toggle_section(slm_num, prefix)
 
 
@@ -1746,9 +1686,7 @@ def _render_defocus_overlay_block(slm_num: int):
         radius = max(1, int(round(span / 2.0)))
         wl = getattr(slm, "wavelength", None) if connected else None
         wl_text = f"{wl:.0f} nm" if wl else "1064 nm (默认)"
-        st.caption(
-            f"离焦孔径：中心 {centre}，半径 {radius} px，波长 {wl_text}"
-        )
+        st.caption(f"离焦孔径：中心 {centre}，半径 {radius} px，波长 {wl_text}")
 
     # 幂等同步：把当前离焦开关/参数推给驱动（纯 numpy，无硬件 I/O），
     # 使叠加层始终等于 UI 配置。connected 时才推，避免对空句柄操作。
@@ -1762,9 +1700,7 @@ def _render_defocus_overlay_block(slm_num: int):
     applied = bool(st.session_state.get(f"{prefix}_defocus_enabled", False))
     if applied:
         eff_focal = bench_settings.bench_defocus_focal(prefix)
-        eff_fine = float(
-            st.session_state.get(f"{prefix}_defocus_amount", 0.0) or 0.0
-        )
+        eff_fine = float(st.session_state.get(f"{prefix}_defocus_amount", 0.0) or 0.0)
         st.caption(
             f"离焦叠加：**已启用**（焦距 {eff_focal:.1f} mm，"
             f"细调 {eff_fine:+.1f}；作用于所有发送）"
@@ -1773,14 +1709,26 @@ def _render_defocus_overlay_block(slm_num: int):
         st.caption("离焦叠加：**已关闭**（未对发送叠加相位）")
 
 
-def _render_base_phase_block(slm_num: int):
-    """底相位 (T4 长期配置): 发送管线叠加层, 渲染在侧栏「底相位 (发送叠加)」区。
+def render_phase_overlay_block(slm_num: int) -> None:
+    """相位叠加（底相位 / 载波 / 离焦）：三层可分别勾选，勾中的全部相加。
 
-    从 render_phase_control 移出 (操作路线图 v1.0 变更项 1): 底相位影响其后的
-    所有相位发送, 属长期配置而非一次下发; widget 键 (slm{N}_base_phase /
-    slm{N}_overlay_base) 不变, session state 行为与 AppTest 断言不受影响。
-    实际叠加由驱动 ``set_base_phase`` 承载，经 :func:`_apply_slm_overlays` 统一
-    推给设备（受「叠加底相位」开关门控）。
+    为什么合到一处
+    --------------
+    2026-10-23 之前三层散在三个地方、语义还不同：底相位在驱动的灰度槽，载波只
+    作为 ``blaze_period_px`` 喂给整形优化器（于是侧栏「一次下发」的
+    PatternHelper 相位**从来没带上它** —— 这就是「载波没有叠加倾斜相位」），
+    离焦是另一块独立按钮。分开放的后果就是「某一层只对某条发送路径生效」。
+
+    现在三层都经 :func:`build_send_overlay` 汇成一份 ``PhaseOverlay``，由
+    :func:`_apply_slm_overlays` 推到句柄。任何走 ``create_phase_from_array`` 的
+    发送（一键下发 / CSV / 周期切换 / 整形结果 / 优化器自开句柄）都自动带上。
+
+    两个域不能混
+    ------------
+    * 底相位 → 灰度槽（矫正/LUT **之后**）：它是「设备上已显示过的那张图」，
+      按灰度原样叠加才与当初显示一致。
+    * 载波 / 离焦 → 弧度槽（矫正/LUT **之前**）：它们是光路里真实的相位，
+      应当被 LUT 重映射。
     """
     prefix = f"slm{slm_num}"
     st.caption("将当前显示相位保存为底相位，后续发送相位时可自动叠加")
@@ -1829,6 +1777,30 @@ def _render_base_phase_block(slm_num: int):
     else:
         st.caption("当前底相位: 未设置")
 
+    # --- 载波（倾斜）-----------------------------------------------------
+    st.divider()
+    from ao_shaping.gui.slm import bench_settings as _bs
+
+    busy = _bs.bench_busy()
+    carrier_on = st.checkbox(
+        "叠加载波（倾斜）",
+        value=widget_default(f"{prefix}_blaze_enabled", False),
+        key=f"{prefix}_blaze_enabled",
+        disabled=busy,
+        help="把 0 级移出读出窗的离轴载波。作为发送叠加层作用于所有发送；"
+        "整形优化器不再另行施加，避免倾斜被加两遍。",
+    )
+    _bs.render_blaze_controls(prefix, busy or not carrier_on)
+    if carrier_on != bool(st.session_state.get(f"{prefix}_blaze_enabled", False)):
+        # checkbox 已经用 key 写回 session，这一支只在语义上兜底（键被外部改过）。
+        st.session_state[f"{prefix}_blaze_enabled"] = carrier_on
+    if not busy:
+        _apply_slm_overlays(slm_num)
+
+    # --- 离焦 ------------------------------------------------------------
+    st.divider()
+    st.caption("离焦（菲涅尔粗调 + Zernike (2,0) 细调）")
+    _render_defocus_overlay_block(slm_num)
 
 
 if __name__ == "__main__":

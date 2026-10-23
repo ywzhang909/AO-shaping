@@ -352,11 +352,6 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "灰度设置"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
         "label": "波前矫正"
       },
       {
@@ -420,12 +415,7 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "底相位 (发送叠加)"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
-        "label": "离焦叠加 (发送叠加)"
+        "label": "相位叠加（底相位 / 载波 / 离焦）"
       },
       {
         "expanded": false,
@@ -600,11 +590,6 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "灰度设置"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
         "label": "波前矫正"
       },
       {
@@ -660,12 +645,7 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "底相位 (发送叠加)"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
-        "label": "离焦叠加 (发送叠加)"
+        "label": "相位叠加（底相位 / 载波 / 离焦）"
       },
       {
         "expanded": false,
@@ -791,11 +771,6 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "灰度设置"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
         "label": "波前矫正"
       },
       {
@@ -851,12 +826,7 @@
       {
         "expanded": false,
         "kind": "expander",
-        "label": "底相位 (发送叠加)"
-      },
-      {
-        "expanded": false,
-        "kind": "expander",
-        "label": "离焦叠加 (发送叠加)"
+        "label": "相位叠加（底相位 / 载波 / 离焦）"
       },
       {
         "expanded": false,
