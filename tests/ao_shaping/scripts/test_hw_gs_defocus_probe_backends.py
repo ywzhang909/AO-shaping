@@ -600,7 +600,7 @@ def _twin_overlay_ready() -> bool:
     """仿真孪生的 ``set_phase_overlay`` 契约落地了没有。"""
     try:
         from ao_shaping.drivers.sim import slm_pib_sim
-    except Exception:  # pragma: no cover - 孪生包不可导入
+    except ImportError:  # pragma: no cover - 孪生包不可导入
         return False
     return hasattr(slm_pib_sim.SimSLMPib, "set_phase_overlay")
 

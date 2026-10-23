@@ -14,7 +14,7 @@ except ImportError as exc:
     CUPY_UNAVAILABLE_REASON = (
         f"CuPy is not installed in the active Python environment ({exc})"
     )
-except Exception as exc:
+except (ImportError, RuntimeError) as exc:
     cp = None
     CUPY_AVAILABLE = False
     CUPY_UNAVAILABLE_REASON = (
