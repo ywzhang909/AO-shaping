@@ -187,7 +187,7 @@ class FFmpegCamera(BaseCamera):
             float: 所设定的曝光时间。
 
         异常:
-            AssertionError: 相机未初始化。
+            CameraError: 相机未初始化。
         """
         self._ensure_open()
         self.exposure_time_ms = max(0.011, float(time_ms))
@@ -214,7 +214,7 @@ class FFmpegCamera(BaseCamera):
             ((width, height), (center_x, center_y))。
 
         异常:
-            AssertionError: 相机未初始化。
+            CameraError: 相机未初始化。
         """
         self._ensure_open()
         # FFmpeg 不支持 ROI —— 返回当前尺寸
@@ -237,7 +237,8 @@ class FFmpegCamera(BaseCamera):
             np.ndarray: 单帧为 uint8，多帧平均为 float32 原始灰度值。
 
         异常:
-            AssertionError: n_sample 不是正数, 或相机未初始化。
+            AssertionError: n_sample 不是正数。
+            CameraError: 相机未初始化。
             FFmpegCameraError: 采集帧失败。
         """
         self._ensure_open()
@@ -586,7 +587,7 @@ class ImageFolderCamera(BaseCamera):
             float: 所设定的延迟时间。
 
         异常:
-            AssertionError: 相机未初始化。
+            CameraError: 相机未初始化。
         """
         self._ensure_recording()
         self.exposure_time_ms = max(0.0, float(time_ms))
@@ -613,7 +614,7 @@ class ImageFolderCamera(BaseCamera):
             ((width, height), (center_x, center_y))。
 
         异常:
-            AssertionError: 相机未初始化。
+            CameraError: 相机未初始化。
         """
         self._ensure_recording()
         center_x = self.cam_width // 2
@@ -635,7 +636,8 @@ class ImageFolderCamera(BaseCamera):
             np.ndarray: 采集到的图像, 为 uint8 数组。
 
         异常:
-            AssertionError: n_sample 不是正数, 或相机未初始化。
+            AssertionError: n_sample 不是正数。
+            CameraError: 相机未初始化。
             FFmpegCameraError: 读图失败。
         """
         self._ensure_recording()
