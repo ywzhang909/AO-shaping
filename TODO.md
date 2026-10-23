@@ -544,6 +544,29 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > 搬移前仍需逐块核对依赖。
 
 
+### 8.13 2026-10-23：容器门禁 7 处红清到全绿（顺带挖出一个真·单一事实源违例）
+
+起点是 4 处**长期红**、先前被记作「master 既有、与本次改动无关」的容器失败；收尾后连同 #173/#176
+新引入的 3 处，共 **7 处全部清掉**。**教训：「既有失败」不是免检理由** —— 其中 1 处拦着的是一件真事。
+
+| 红点 | 真因 | 处置 | commit |
+|---|---|---|---|
+| `test_device_mutex::test_the_old_names_are_the_same_objects` | 🔴 **兼容再导出被本地定义覆盖**：`run_hw_sweep_groups.py` 既 `from ...device_mutex import`（:228）又在下文**自己再定义同名** 7 个（`probe_devices` / `format_probe_line` / `resolve_probe_cmd` / `OWN_PIDS_ENV` / `PROBE_CMD_ENV` / `PROBE_IDLE` / `PROBE_NOTE_PREFIX`）。来由：驱动先有自己的实现（`251b2328`），权威版后落（`ff46321d`），接导入时**没删旧定义**（`6f3aff24`）。6 个逐字节等价，**`probe_devices` 已漂移**：本地版返回 `ProbeResult(status=PROBE_IDLE)`，权威版返回 `source=PROBE_SOURCE_SDK` | 删 7 处残留定义（135 行，纯删除）；漂移当前**不可观测**（`format_probe_line` 不把 `source` 写进协议行，父进程在 `device_mutex.py:1191` 重新盖章），但兼容入口从此不再跟随权威实现，且权威 docstring 的第三条硬约束（返回前释放句柄，否则下次开锁 -10003）对旧脚本失效 | `8e451110` |
+| `test_cli_argv_binding::test_santec_and_camera_call_sites_are_stable` | 设备互斥特性给 census 加了 1 Santec + 2 camera（`kernels/device_mutex.py`；其中一条是 module-docstring 用例，按既定口径计入） | 沿既有溯源链**显式**重钉 30→31 / 28→30，并补两份逐文件字典条目 | `55b1187f` |
+| `test_device_mutex` 两处 PID 树测试 | 测试用 `os.getppid()` 写持有者元数据；容器里 pytest 常是 PID 1 ⇒ `getppid()==0`（父在命名空间外），「持有者是我的父进程」这一前提在测试进程内**不存在**（实现本身是命名空间安全的：进程表 `parent=0` 即 `break`，`is_held_by_me` 对 `pid<=0` 直接 False） | 把该条挪进**真子进程**里判（其父进程就是测试进程 ⇒ 命名空间内、确定可验）；并补上用例名里写着、**原本根本没测**的后代条；祖先条保留条件判断并写明为何在容器里是空真 | `15da456e` |
+| `test_common_helpers_not_reintroduced[_fmt]` | `compare_sim_vs_hw.py` 的 `def _fmt` **不是**五个既有格式化器的副本，而是**第六个**：`None→—`、`±inf→∞/-∞`、`g` 规格。17 个探针值实测，五个没有一个逐字节相同（`fmt_general` 同 `g` 规格但输出 `inf`/`None`，`fmt_metric` 输出扁平 `-`） | 提取为 `scripts._common.fmt_sigfig`（进 `__all__`），59 处调用点改名；等价性用「被删函数体 vs 新函数」在探针集与 `digits=3..6` 上逐字节证明。同时把该生成器纳入 `MIGRATED` 契约（要求具名内联 repo-root bootstrap —— 也正是 ruff E402 豁免的那种写法），防止再漂 | `b6ee43f1` |
+| `test_no_script_hardcodes_a_machine_absolute_path` | `scripts/slm/fix_report_links.py` 写死 `D:/Projects/TIFO/...`；且未登记 `scripts/README.md`、无引用、就地改写报告 | **删除**（不是修）：链接完整性已由 `test_report_relative_links_resolve` 机器化守护，留着一条更坏的改链接路径是隐患 | `395d7623` |
+| `test_report_relative_links_resolve[gs_issue_live_20261015.md]` | 正是上面那个脚本的幂等守卫只跳过 `../figures/`、漏了已正确的 `figures/` ⇒ 15 条链接变成 `../figures/figures/…`。正确目标是 `report/shape_trials/figures/`（由 `generate_shape_trial_profiles.py:105 FIG_DIR` 决定；`gs_refine/figures/` 下有**同名但字节不同**的另一套，靠猜必错） | 15 条改回 `../figures/…` | `395d7623` |
+
+**门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
+`--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
+
+**仍未收口的一条**：两个 ruff 工作流钉版不一致 —— `ci.yml` 用 `uv tool install ruff==0.11.10`，而
+`ruff.yml` 用 `pip install "ruff>=0.15.12"`，两者都跑 `ruff check .` 且都是硬门禁。本次已实测 E402
+判定在两个版本下逐字节一致（879 条完全相同），所以不影响 R-63；但版本漂移迟早会让「本地绿的」与
+「CI 绿的」不是同一件事。建议单独一刀统一（升到同一版本，并按项目配置重测全量规则命中数）。
+
+
 ## 来源清单
 
 | 来源文档 | 提出日期 | 主题 | 现落点 |
