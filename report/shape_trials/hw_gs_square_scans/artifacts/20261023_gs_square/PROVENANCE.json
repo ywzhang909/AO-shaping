@@ -1,8 +1,8 @@
 {
   "report": "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md",
   "generator": "scripts/slm/generate_hw_gs_square_scans_report.py",
+  "batch": "baseline",
   "run_root": "data/debug/hw_gs_square_scans/20261023_gs_square",
-  "log": "logs/gs_square_scan.log",
   "files": {
     "manifest.json": {
       "source": "data/debug/hw_gs_square_scans/20261023_gs_square/manifest.json",

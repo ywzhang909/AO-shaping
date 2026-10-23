@@ -1,0 +1,53 @@
+[
+  {
+    "group": "blaze",
+    "variable": "blaze_period_px",
+    "meta": {
+      "cam_type": "daheng",
+      "exposure_ms": "180.0",
+      "gs_iters": "200",
+      "mode": "atomic"
+    },
+    "dir": "blaze",
+    "n_rows": 3,
+    "created_utc": "2026-10-23T09:49:37+00:00",
+    "summary": {
+      "n_rows": 3,
+      "mode": "atomic",
+      "configs": [
+        "blaze_32",
+        "blaze_40",
+        "blaze_48"
+      ],
+      "selected_side_px": 1200,
+      "selected_source": "cli",
+      "blaze_base": "gs"
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_retest_frozen\\blaze"
+  },
+  {
+    "group": "zernike",
+    "variable": "n_max",
+    "meta": {
+      "cam_type": "daheng",
+      "exposure_ms": "180.0",
+      "gs_iters": "200",
+      "mode": "atomic"
+    },
+    "dir": "zernike",
+    "n_rows": 3,
+    "created_utc": "2026-10-23T09:51:04+00:00",
+    "summary": {
+      "n_rows": 3,
+      "mode": "atomic",
+      "configs": [
+        "nmax_17",
+        "nmax_18",
+        "nmax_19"
+      ],
+      "selected_side_px": 1200,
+      "selected_source": "cli"
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_retest_frozen\\zernike"
+  }
+]

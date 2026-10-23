@@ -1,0 +1,93 @@
+{
+  "report": "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md",
+  "generator": "scripts/slm/generate_hw_gs_square_scans_report.py",
+  "batch": "retest_prior",
+  "run_root": "data/debug/hw_gs_square_scans/20261023_retest_power_changed",
+  "files": {
+    "manifest.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/manifest.json",
+      "sha256": "d0a6e95e51abb419226c7e82c1cf0aff82d73cd7fe51d0b9df20cb53467af04d",
+      "bytes": 1301
+    },
+    "blaze/measurements.csv": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.csv",
+      "sha256": "c4d1605aa6b67e2313db27bcc4a75b7a03e306791162c72a3cd8904823d02f2b",
+      "bytes": 1897
+    },
+    "blaze/measurements.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/measurements.json",
+      "sha256": "17302d37666ae51725abb38a994ee25bafb212c037e2d9d1c34ddf4b4697f505",
+      "bytes": 8947
+    },
+    "blaze/blaze_32/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_32/metrics.json",
+      "sha256": "88da1129aa0400515210b1625450ef2f4344d4011e4bc00c6252adda6778d844",
+      "bytes": 2708
+    },
+    "logs/retest_blaze_32.log": {
+      "source": "logs/retest_blaze_32.log",
+      "sha256": "1bc006789ebf99eaae70764e04193f81061361693bb83afaa44609efbb7cdf8c",
+      "bytes": 22552
+    },
+    "blaze/blaze_40/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_40/metrics.json",
+      "sha256": "219c6b3f74a3e310ad079acd525a6601765683802bd60781b186b617cd2ad92b",
+      "bytes": 2829
+    },
+    "logs/retest_blaze_40.log": {
+      "source": "logs/retest_blaze_40.log",
+      "sha256": "a884ab28c44c0a3f1323c51469d3b4927e01164e33a4cd0cd19e014efc2c149d",
+      "bytes": 22732
+    },
+    "blaze/blaze_48/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/blaze/blaze_48/metrics.json",
+      "sha256": "9d0028947bfcf137162d7feb1523af3d7334ecde95188605041b388402acdaad",
+      "bytes": 2876
+    },
+    "logs/retest_blaze_48.log": {
+      "source": "logs/retest_blaze_48.log",
+      "sha256": "cfe9fd4e391242050bb5fee3f39d88b3f35c6aba28bb1b5e522168d4f2a245f6",
+      "bytes": 22732
+    },
+    "zernike/measurements.csv": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.csv",
+      "sha256": "35148de10e137fb901974e442b8dee648766a2ad64200cf1ceb69289f1aa6878",
+      "bytes": 1769
+    },
+    "zernike/measurements.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/measurements.json",
+      "sha256": "1c1b2ad6046a83056d674b25067f5f235d81fc81f67a631d4da1909f4985435c",
+      "bytes": 53893
+    },
+    "zernike/nmax_17/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_17/metrics.json",
+      "sha256": "0eb4456b1a406516fef147940901b4b9d647c92f43f0768f700cb95aff508740",
+      "bytes": 16647
+    },
+    "logs/retest_zernike_17.log": {
+      "source": "logs/retest_zernike_17.log",
+      "sha256": "1caf61324ad2a3b86d699b9e44d16786794e9087eae035e44f73192a6a593d7c",
+      "bytes": 23430
+    },
+    "zernike/nmax_18/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_18/metrics.json",
+      "sha256": "ff00156d0e1bb9000ffeeefb6fff313250beb081acf68dcc5852ef1487ee0795",
+      "bytes": 16799
+    },
+    "logs/retest_zernike_18.log": {
+      "source": "logs/retest_zernike_18.log",
+      "sha256": "3778c2fcdde465860420d7eff36de3ae8005710c1329305190e4053c92880bb6",
+      "bytes": 23422
+    },
+    "zernike/nmax_19/metrics.json": {
+      "source": "data/debug/hw_gs_square_scans/20261023_retest_power_changed/zernike/nmax_19/metrics.json",
+      "sha256": "53854b358c221933909719cc31eac252c8573e4211a64ce356c9395e464d5f69",
+      "bytes": 16921
+    },
+    "logs/retest_zernike_19.log": {
+      "source": "logs/retest_zernike_19.log",
+      "sha256": "fd2098ceb5a6f710b759f4734eda407c59def47e7d1c26bb2f2800a240b42f2e",
+      "bytes": 24344
+    }
+  }
+}

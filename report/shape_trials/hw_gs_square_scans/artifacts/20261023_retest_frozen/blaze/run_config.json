@@ -1,0 +1,97 @@
+{
+  "timestamp_utc": "2026-10-23T09:49:37+00:00",
+  "stage": "blaze",
+  "variable": "blaze_period_px",
+  "mode": "atomic",
+  "frame_shape_hw": [
+    1944,
+    2592
+  ],
+  "zero_order_xy_frozen": [
+    1245.0,
+    908.0
+  ],
+  "zero_order_method": "平场帧 zero_order_center(refine=False, despike_k=3) —— 定位一次即冻结",
+  "exposure_ms_requested": 180.0,
+  "exposure_ceiling_ms": 200.0,
+  "exposure_ms_working": 180.0,
+  "frames_per_measurement": 4,
+  "settle": {
+    "n_discard": 3,
+    "wait_s": 0.5,
+    "tol": 0.02,
+    "max_wait_s": 6.0
+  },
+  "spot_assessment": {
+    "usable": false,
+    "blocked": false,
+    "peak": 255.0,
+    "excess": 254.25,
+    "noise": 0.2562928432566969,
+    "fwhm_px": 112.58960812874727,
+    "frame_px": 1944,
+    "fill": 0.22864550760892224,
+    "span_fraction": 0.16872427983539096,
+    "hollowness": 1.0,
+    "reason": "光路有光但没有可评分的局域光斑（光斑过大或弥散）: 先用焦面探测标定瞳面菲涅尔焦距"
+  },
+  "defocus_focal_mm": null,
+  "slm_number": 1,
+  "cam_type": "daheng",
+  "cam_id": 0,
+  "protected_memory_slot": 6,
+  "backend": "daheng",
+  "preflight": {
+    "timestamp_utc": "2026-10-23T09:49:36+00:00",
+    "frame_shape_hw": [
+      1944,
+      2592
+    ],
+    "zero_order_xy_frozen": [
+      1245.0,
+      908.0
+    ],
+    "zero_order_method": "平场帧 zero_order_center(refine=False, despike_k=3) —— 定位一次即冻结",
+    "exposure_ms_requested": 180.0,
+    "exposure_ceiling_ms": 200.0,
+    "exposure_ms_working": 180.0,
+    "frames_per_measurement": 4,
+    "settle": {
+      "n_discard": 3,
+      "wait_s": 0.5,
+      "tol": 0.02,
+      "max_wait_s": 6.0
+    },
+    "spot_assessment": {
+      "usable": false,
+      "blocked": false,
+      "peak": 255.0,
+      "excess": 254.25,
+      "noise": 0.2562928432566969,
+      "fwhm_px": 112.58960812874727,
+      "frame_px": 1944,
+      "fill": 0.22864550760892224,
+      "span_fraction": 0.16872427983539096,
+      "hollowness": 1.0,
+      "reason": "光路有光但没有可评分的局域光斑（光斑过大或弥散）: 先用焦面探测标定瞳面菲涅尔焦距"
+    },
+    "defocus_focal_mm": null,
+    "slm_number": 1,
+    "cam_type": "daheng",
+    "cam_id": 0,
+    "protected_memory_slot": 6,
+    "backend": "daheng"
+  },
+  "selected_side_px": 1200,
+  "blaze_periods": [
+    16,
+    24,
+    32,
+    40,
+    48,
+    64,
+    96,
+    128
+  ],
+  "blaze_base": "gs"
+}

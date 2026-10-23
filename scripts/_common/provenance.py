@@ -1317,6 +1317,27 @@ REPORTS: dict[str, ReportProvenance] = {
             "报告正文 `sim_vs_hw_20261022.md` 直接嵌入这张表 (共用同一个渲染函数)"
         ),
     ),
+    "report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md": ReportProvenance(
+        script="scripts/slm/generate_hw_gs_square_scans_report.py",
+        command=(
+            "python scripts/slm/generate_hw_gs_square_scans_report.py "
+            "--run-root data/debug/hw_gs_square_scans/20261023_gs_square "
+            "--retest-root data/debug/hw_gs_square_scans/20261023_retest_frozen"
+        ),
+        environment="离线+硬件",
+        extra_scripts=(
+            "scripts/slm/hw_gs_square_scans.py",
+        ),
+        note=(
+            "GS 方形光斑三段扫描（边长 18 行 / Zernike 阶数 24 行 / 闪耀光栅 8 行）加激光功率变化后的"
+            "复测（光栅 32/40/48、Zernike 17/18/19，同一脚本版本、每配置一个原子进程）。数字全部从落盘 "
+            "measurements.csv 解析，表格渲染后回读逐单元自检；复测**推翻**了基线两处「异常」"
+            "（光栅周期 40、Zernike n_max=18）——它们是整帧全黑的一次失败采集，不是物理异常；"
+            "位移只有 measured_shift_y_px 可读，方向跨批可用但标度与 1/P 形状不可用"
+            "（实测 α≈0.48 vs 预测 1.00），故「方框跟着预测走」需改为框固定 + 宽 ROI；"
+            "复测与基线是两个功率 regime（20 ms vs 180 ms），绝对值不可横比。"
+        ),
+    ),
     "report/shape_trials/hw_defocus_zernike/artifacts/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
