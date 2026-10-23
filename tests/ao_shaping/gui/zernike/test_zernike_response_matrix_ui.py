@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for Zernike Response Matrix UI - shift_x and shift_y parameters (Task 1)
 
 These tests verify that:

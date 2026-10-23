@@ -1,4 +1,4 @@
-﻿"""镜像测试: 权威 run_benchmark_suite / gerchberg_saxton 的核心语义。
+"""镜像测试: 权威 run_benchmark_suite / gerchberg_saxton 的核心语义。
 
 设计 (严格对齐 AGENTS.md):
 - 权威模块 `src/ao_shaping/algorithm/beam_shaping_benchmark.py` 与

@@ -111,6 +111,38 @@ def _is_historical(path: Path) -> bool:
     return any(marker in rel for marker in _HISTORICAL_DOCS)
 
 
+def test_no_tracked_source_py_starts_with_a_utf8_bom() -> None:
+    """No repo-owned ``.py`` may begin with a UTF-8 BOM (``ef bb bf``).
+
+    Regression guard for the BOM trap: an earlier version read source with
+    ``encoding="utf-8"`` and ran the text straight into ``ast.parse``, so a
+    BOM-prefixed (but perfectly importable) script raised
+    ``SyntaxError: invalid non-printable character U+FEFF``. The guards now read
+    ``utf-8-sig`` so a BOM can no longer *crash* them -- but a BOM is still
+    noise that editors and diffs treat inconsistently, and the issue noted one
+    was silently re-introduced after a previous one-off strip. This guard makes
+    that a loud failure instead of a silent recurrence.
+
+    Scoped to repo-owned source (``src/``, ``scripts/``, ``tests/``); vendored
+    ``libs/`` is excluded so a dependency's own encoding never fails our guard.
+    """
+    offenders: list[str] = []
+    for top in ("src", "scripts", "tests"):
+        root = REPO / top
+        if not root.is_dir():
+            continue
+        for p in sorted(root.rglob("*.py")):
+            if "__pycache__" in p.parts:
+                continue
+            if p.read_bytes()[:3] == b"\xef\xbb\xbf":
+                offenders.append(p.relative_to(REPO).as_posix())
+    assert not offenders, (
+        "These .py files start with a UTF-8 BOM -- strip the leading "
+        "``ef bb bf`` (the three invisible bytes); it is not required by "
+        f"CPython and it confuses editors/diffs and AST-parsing guards: {offenders}"
+    )
+
+
 def _dotted(name: str) -> str:
     return name[: -len(".__init__")] if name.endswith(".__init__") else name
 

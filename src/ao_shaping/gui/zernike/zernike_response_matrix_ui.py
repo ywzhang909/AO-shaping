@@ -1,4 +1,4 @@
-﻿"""
+"""
 Zernike Response Matrix Calibration UI (Streamlit)
 
 Features:

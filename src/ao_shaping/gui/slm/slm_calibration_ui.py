@@ -1,4 +1,4 @@
-﻿"""SLM LUT (Look-Up Table) Calibration UI
+"""SLM LUT (Look-Up Table) Calibration UI
 
 Features:
 1. Connect to SLM and camera devices

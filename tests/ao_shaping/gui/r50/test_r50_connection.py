@@ -1,4 +1,4 @@
-﻿"""RED tests for r50_channel_select + r50_connection (pure logic, no streamlit).
+"""RED tests for r50_channel_select + r50_connection (pure logic, no streamlit).
 
 Contract covered (Wave 1):
 - S1 basis: ChannelInfo / ChannelSelection / CSV wiring index semantics

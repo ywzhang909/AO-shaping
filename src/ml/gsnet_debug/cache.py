@@ -1,4 +1,4 @@
-﻿"""Lean, mmap-able on-disk cache for the offline GSNet training corpus.
+"""Lean, mmap-able on-disk cache for the offline GSNet training corpus.
 
 ===========================  Why this module exists  ===========================
 

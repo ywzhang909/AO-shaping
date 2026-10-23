@@ -1,4 +1,4 @@
-﻿"""R50 voltage send logic: clipping, bulk array build, send with retry/reconnect,
+"""R50 voltage send logic: clipping, bulk array build, send with retry/reconnect,
 per-mode apply helpers and thread-safe send loops.
 
 Pure logic — no top-level streamlit import (streamlit-dependent UI lives in the
