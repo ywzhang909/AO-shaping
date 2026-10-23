@@ -171,7 +171,7 @@ def gather() -> dict:
         "beam_center_panel": tuple(bk.BEAM_CENTER_PANEL),
         "beam_radius_panel": float(bk.BEAM_RADIUS_PANEL),
         "panel_wh": (int(bk.SLM_PANEL_W), int(bk.SLM_PANEL_H)),
-        "max_exposure_ms": float(zc.MAX_EXPOSURE_MS),
+        "max_exposure_ms": float(zc.WFS_EXPOSURE_SAFETY_MAX_MS),
         # settle discipline (per phase write)
         "n_discard": int(cap_sig["n_discard"].default),
         "n_frames": int(cap_sig["n_frames"].default),

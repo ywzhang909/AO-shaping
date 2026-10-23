@@ -47,10 +47,10 @@ from ao_shaping.drivers.slm import Santec
 from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
-    MAX_EXPOSURE_MS,
     PANEL_H,
     PANEL_W,
     SETTLE_REDUNDANCY_S,
+    WFS_EXPOSURE_SAFETY_MAX_MS,
     WFS_ZERNIKE_ORDER,
     calibrate_center_shift,
     collect_device_info,
@@ -63,6 +63,7 @@ from ao_shaping.tools.zernike.common import (
     measure_wavefront,
     measure_zernike,
     nm_of,
+    require_wfs_exposure_within_safety_ceiling,
     safe_pinv,
     show_phase,
     um_to_waves,
@@ -548,9 +549,9 @@ class ZernikeCorrectionParams:
 @with_params(ZernikeCorrectionParams, kw_name="params")
 def main(params: ZernikeCorrectionParams) -> int:
     """SLM Zernike 模式法波前矫正 — 三阶段流程."""
-    if params.wfs_exposure_ms > MAX_EXPOSURE_MS:
+    if params.wfs_exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
         raise click.BadParameter(
-            f"WFS 曝光 {params.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+            f"WFS 曝光 {params.wfs_exposure_ms}ms > {WFS_EXPOSURE_SAFETY_MAX_MS}ms")
     if not 2 <= params.wfs_order <= 10:
         raise click.BadParameter("--wfs-order 必须在 2..10")
 
@@ -582,7 +583,7 @@ def main(params: ZernikeCorrectionParams) -> int:
         slm.open()
         wfs.open()
         exp = float(wfs.exposure_time)
-        assert exp <= MAX_EXPOSURE_MS
+        require_wfs_exposure_within_safety_ceiling(exp, source="WFS")
         wl, max_gray = slm.get_wavelength_info()
         wfs.take_image(n_sample=1, dynamicNoiseCut=True)
         cx, cy, dx, dy = wfs.pupil = wfs.optimize_pupil()

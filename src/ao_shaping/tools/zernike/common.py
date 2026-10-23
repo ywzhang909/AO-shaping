@@ -37,10 +37,26 @@ from ao_shaping.utils.wavefront.zernike_utils import (
 )
 
 PANEL_H, PANEL_W = 1200, 1920
-MAX_EXPOSURE_MS = 7.0
+WFS_EXPOSURE_SAFETY_MAX_MS = 7.0
 DEFAULT_EXPOSURE_MS = 4.0
 SETTLE_REDUNDANCY_S = 0.1          # 像素翻转估算之外额外等待
 WFS_ZERNIKE_ORDER = 10             # orders 有效值 0=auto 或 2..10 (10 → 66 项); 15 非法!
+
+
+def require_wfs_exposure_within_safety_ceiling(exp_ms: float, *, source: str = "WFS") -> float:
+    """WFS 曝光的激光安全上限校验 —— **显式 raise, 不用 assert**。
+
+    读回的是**硬件当前实际曝光** (上一次会话可能遗留更大值), 属于外部状态;
+    `assert` 在 `python -O` 下被整条移除, 用在那里等于没有联锁。
+    """
+    value = float(exp_ms)
+    if value > WFS_EXPOSURE_SAFETY_MAX_MS:
+        raise ValueError(
+            f"{source} 实际曝光 {value}ms 超过安全上限 "
+            f"{WFS_EXPOSURE_SAFETY_MAX_MS}ms (检查上一次会话遗留的曝光设置)"
+        )
+    return value
+
 
 # ⚠️ 单位一致性 (2026-09-16 实测定位的矫正失效根因):
 #   `get_zernike()` 返回**µm**; 响应矩阵必须与矫正时的 `w` 用**同一单位**。

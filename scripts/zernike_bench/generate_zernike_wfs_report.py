@@ -52,14 +52,15 @@ from ao_shaping.drivers.wfs import ThorlabWFS
 from ao_shaping.tools.zernike.common import (
     DEFAULT_EXPOSURE_MS,
     DLL_ZERNIKE_NAMES,
-    MAX_EXPOSURE_MS,
     PANEL_H,
     PANEL_W,
     SETTLE_REDUNDANCY_S,
+    WFS_EXPOSURE_SAFETY_MAX_MS,
     WFS_ZERNIKE_ORDER,
     flat_gray,
     make_phase,
     measure_zernike,
+    require_wfs_exposure_within_safety_ceiling,
     show_phase,
 )
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
@@ -357,8 +358,8 @@ def main() -> int:
     ap.add_argument("-o", "--output-dir", default=str(DEFAULT_OUTPUT))
     args = ap.parse_args()
 
-    if args.wfs_exposure_ms > MAX_EXPOSURE_MS:
-        raise SystemExit(f"WFS exposure {args.wfs_exposure_ms}ms > {MAX_EXPOSURE_MS}ms")
+    if args.wfs_exposure_ms > WFS_EXPOSURE_SAFETY_MAX_MS:
+        raise SystemExit(f"WFS exposure {args.wfs_exposure_ms}ms > {WFS_EXPOSURE_SAFETY_MAX_MS}ms")
 
     out = Path(args.output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -378,7 +379,7 @@ def main() -> int:
         slm.open()
         wfs.open()
         exp = float(wfs.exposure_time)
-        assert exp <= MAX_EXPOSURE_MS
+        require_wfs_exposure_within_safety_ceiling(exp, source="WFS")
         wl, max_gray = slm.get_wavelength_info()
         sx = slm.shift_x if args.shift_x is None else args.shift_x
         sy = slm.shift_y if args.shift_y is None else args.shift_y
