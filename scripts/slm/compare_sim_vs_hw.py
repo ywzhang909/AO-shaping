@@ -553,7 +553,7 @@ def build_cells(hw: Bundle, sim: Bundle) -> list[Cell]:
         sim_sum = sim.zernike.get(group_name, {})
         for baseline_key, baseline_label in (
             ("flat", "平场基线"),
-            ("gs_freeform", "GS 自由相位基线"),
+            ("gs_freeform", "GS 逐像素相位基线"),
         ):
             hw_base_block = hw_sum.get("baselines", {}).get(baseline_key, {})
             sim_base_block = sim_sum.get("baselines", {}).get(baseline_key, {})
@@ -2105,7 +2105,7 @@ def hw_focus_diopter_grid(bundle: Bundle) -> list[float] | None:
 def hw_zernike_target_side(bundle: Bundle) -> float | None:
     """实测那一轮阶数扫描用的**目标框边长** (相机像元)。
 
-    两侧必须用**同一个框**: 框是「功率/均匀性」类指标的分母, 框不同则 PIB / CV /
+    两侧必须用**同一个框**: 框是「功率/均匀度」类指标的分母, 框不同则 PIB / CV /
     AR 全部不可比。实测的框是它自己自动定尺的结果, 从 ``summary.json`` 里读。
     """
     for summary in bundle.zernike.values():
