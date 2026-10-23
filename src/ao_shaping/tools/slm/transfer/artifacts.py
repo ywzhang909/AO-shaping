@@ -1,0 +1,105 @@
+"""Device-free validation and relocation of recorded transfer artifacts."""
+from __future__ import annotations
+
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+
+from .capture import to_panel
+from ao_shaping.algorithm.signal_processing.multishape_objective import ShapeObjective, image_metrics
+
+
+def resolve_recorded_path(value, *, relative_to=None):
+    """Resolve a relocated repository artifact without assuming the old drive."""
+    path = Path(value)
+    if path.exists():
+        return path.resolve()
+    roots = [Path(relative_to), *Path(relative_to).parents] if relative_to else []
+    roots += [Path.cwd(), *Path.cwd().parents]
+    normalized = str(value).replace("\\", "/")
+    suffix = normalized[normalized.index("data/"):] if "data/" in normalized else normalized
+    for root in roots:
+        candidate = root / suffix
+        if candidate.exists():
+            return candidate.resolve()
+    raise FileNotFoundError(f"Recorded artifact unavailable: {value}; restore its data directory")
+
+
+def audit_run(run: Path):
+    """Recompute metrics from raw CCD frames and verify phase/mask/clock contracts."""
+    run = Path(run)
+    config = json.loads((run / "config.json").read_text(encoding="utf-8"))
+    records = json.loads((run / "manifest.json").read_text(encoding="utf-8"))
+    if not records:
+        raise ValueError("empty acquisition manifest")
+    exposures, labels, hashes = {}, set(), {}
+    maximum_peak, frame_count = 0., 0
+    for row in records:
+        label = row["label"]
+        if label in labels:
+            raise ValueError(f"duplicate capture label: {label}")
+        labels.add(label)
+        file = run / row["file"]
+        with np.load(file, allow_pickle=False) as saved:
+            raw, phase, xy, target, core = (saved[k] for k in ("raw_frames", "model_phase", "camera_xy", "target", "core"))
+            if raw.ndim != 3 or raw.shape[0] != len(row["frames"]):
+                raise ValueError(f"raw frame count differs: {label}")
+            if not np.isfinite(raw).all() or not np.isfinite(phase).all():
+                raise ValueError(f"nonfinite data: {label}")
+            if not np.array_equal(to_panel(phase), saved["panel_phase"]):
+                raise ValueError(f"display/model phase mismatch: {label}")
+            if saved["panel_gray"].shape != saved["panel_phase"].shape:
+                raise ValueError(f"grayscale shape mismatch: {label}")
+            if xy.shape != (*target.shape, 2) or core.shape != target.shape:
+                raise ValueError(f"camera/target shape mismatch: {label}")
+            x, y = xy[..., 0].astype(int), xy[..., 1].astype(int)
+            if x.min() < 0 or y.min() < 0 or x.max() >= raw.shape[2] or y.max() >= raw.shape[1]:
+                raise ValueError(f"camera window beyond sensor: {label}")
+            objective = ShapeObjective(target)
+            if not np.array_equal(objective.core, core):
+                raise ValueError(f"core mask mismatch: {label}")
+            measured = image_metrics(raw.mean(0)[y, x], objective)
+            for key in ("cv", "mean", "ee_roi", "target_peak"):
+                if not np.isclose(measured[key], row["metrics"][key], rtol=1e-6, atol=1e-6):
+                    raise ValueError(f"raw/manifest {key} mismatch: {label}")
+            image = raw.mean(0)[y, x]
+            distribution = image / image.sum()
+            loss = measured["cv"]**2 + 2*(1-measured["ee_roi"]) + target.sum()*np.square(distribution-target/target.sum()).sum()
+            if not np.isclose(loss, row["loss"], rtol=2e-6, atol=2e-6):
+                raise ValueError(f"raw/manifest objective mismatch: {label}")
+            maximum_peak = max(maximum_peak, float(raw.max()))
+            if raw.max() >= 250:
+                raise ValueError(f"saturated measurement: {label}")
+            frame_count += len(raw)
+        exposure = float(row["exposure_ms"])
+        if not np.isfinite(exposure) or exposure <= 0:
+            raise ValueError(f"invalid exposure: {label}")
+        exposures.setdefault(label.split("_")[0], set()).add(exposure)
+        for frame in row["frames"]:
+            if not frame.get("timestamp_utc") or frame["end_monotonic_ns"] < frame["monotonic_ns"]:
+                raise ValueError(f"invalid host clock: {label}")
+            if frame["exposure_ms"] != exposure:
+                raise ValueError(f"per-frame exposure mismatch: {label}")
+        hashes[row["file"]] = hashlib.sha256(file.read_bytes()).hexdigest()
+    for shape in config["shapes"]:
+        if not {shape+"_seed", shape+"_final"}.issubset(labels):
+            raise ValueError(f"unfinished shape: {shape}")
+        if len(exposures[shape]) != 1:
+            raise ValueError(f"paired exposure changed: {shape}")
+    summary = json.loads((run / "summary.json").read_text(encoding="utf-8"))
+    if len(summary) != len(config["shapes"])*config["blocks"]:
+        raise ValueError("incomplete optimization blocks")
+    by_label = {r["label"]: r for r in records}
+    for block in summary:
+        prefix = f"{block['shape']}_{block['block']}_"
+        losses = {suffix: by_label[prefix+suffix]["loss"] for suffix in ("A1", "B1", "B2", "A2")}
+        accepted = .5*(losses["B1"]+losses["B2"]) < .5*(losses["A1"]+losses["A2"])-abs(losses["A2"]-losses["A1"])
+        if accepted != block["accepted"]:
+            raise ValueError(f"acceptance decision differs: {prefix}")
+    return dict(run=str(run.resolve()), captures=len(records), raw_frames=frame_count,
+                maximum_peak=maximum_peak, shapes=config["shapes"], blocks=len(summary),
+                accepted_blocks=sum(b["accepted"] for b in summary),
+                exposure_ms={s: sorted(e)[0] for s, e in exposures.items()},
+                file_sha256=hashes, status="passed", timestamp_scope="host calls, not sensor exposure triggers")

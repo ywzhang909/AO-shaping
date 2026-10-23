@@ -1,0 +1,213 @@
+"""Offline transfer of a compact physical forward model using recorded CCD data.
+
+No device imports. Geometry uses the recorded ramp pairs. Validation phases are
+excluded from both parameter fitting and checkpoint selection. Exposure division
+assumes a linear camera response and is explicitly recorded as an assumption.
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import pickle
+from dataclasses import replace
+from pathlib import Path
+
+import numpy as np
+from scipy.ndimage import map_coordinates
+from scipy.optimize import nnls
+
+
+from ao_shaping.tools.slm.transfer.capture import clock
+
+
+def spot(row):
+    if "spot_xy" in row:
+        return np.asarray(row["spot_xy"], dtype=float)
+    return np.array([row["spot"][f"centroid_{axis}"] for axis in ("x", "y")])
+
+
+def geometry(rows):
+    """Fit full 2D ramp displacement; preserve sign and both CCD axes."""
+    slopes = {"x": [], "y": []}
+    for row in rows:
+        if not row["label"].startswith("ramp_"):
+            continue
+        _, axis, period, sign = row["label"].split("_")
+        if int(sign) != 1:
+            continue
+        negative = next((other for other in rows if other["label"] == f"ramp_{axis}_{period}_-1"
+                         and other.get("branch") == row.get("branch")), None)
+        if negative is None:
+            raise ValueError(f"missing negative ramp: {row['label']}")
+        slopes[axis].append((spot(row) - spot(negative)) * float(period) / 2)
+    if any(not values for values in slopes.values()):
+        raise ValueError("both ramp axes required")
+    matrix = np.stack([np.mean(slopes[axis], axis=0) for axis in ("x", "y")], axis=1)
+    if not np.isfinite(matrix).all() or np.linalg.cond(matrix) > 100:
+        raise ValueError("degenerate camera geometry")
+    spread = {axis: np.asarray(values).tolist() for axis, values in slopes.items()}
+    return matrix, spread
+
+
+def valid(row):
+    return (row.get("settled", {}).get("settled", True)
+            and row.get("exposure_status", row.get("exposure_setting", {}).get("status", "ok")) == "ok"
+            and float(row.get("peak", 255)) < 250
+            and float(row["exposure_ms"]) > 0)
+
+
+def load_dataset(directory, size, span):
+    rows = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
+    usable = [row for row in rows if valid(row)]
+    matrix, ramp_samples = geometry(usable)
+    references = [row for row in usable if row["label"] == "reference_start"]
+    if not references:
+        raise ValueError("valid reference_start required")
+    centre = spot(references[0])
+    yy, xx = np.mgrid[-span:span+1:2, -span:span+1:2]
+    xy = np.stack((xx + round(centre[0]), yy + round(centre[1])), axis=-1)
+    selected = [row for row in usable if row.get("split") in {"train", "test", "validation"}]
+    phases, images = [], []
+    for row in selected:
+        with np.load(directory / row["file"]) as payload:
+            # New captures store exactly the control grid that was displayed.
+            if "panel_gray" in payload and payload["model_phase"].shape == (size, size):
+                phase = payload["model_phase"]
+            else:
+                panel = np.zeros((1920, 1920), dtype=np.float32)
+                panel[:1200] = payload["panel_phase"]
+                gy, gx = np.mgrid[:size, :size] * (1920 / size)
+                phase = map_coordinates(panel, [gy, gx], order=1)
+            frame = payload["raw_frames"].mean(0)
+            if xy[..., 0].min() < 0 or xy[..., 1].min() < 0 or xy[..., 0].max() >= frame.shape[1] or xy[..., 1].max() >= frame.shape[0]:
+                raise ValueError("fixed camera window extends beyond sensor")
+            images.append(frame[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"])
+            phases.append(phase)
+    train = np.array([row["split"] == "train" for row in selected])
+    if not train.any() or train.all():
+        raise ValueError("independent training and validation phases required")
+    return selected, np.stack(phases), np.stack(images), xy, matrix, ramp_samples, train
+
+
+def metrics(predictions, measured):
+    results = []
+    for prediction, target in zip(predictions, measured):
+        cv_p = float(prediction.std() / max(float(prediction.mean()), 1e-9))
+        cv_t = float(target.std() / max(float(target.mean()), 1e-9))
+        p, t = prediction.ravel(), target.ravel()
+        results.append(dict(correlation=float(np.corrcoef(p, t)[0, 1]),
+                            cv_prediction=cv_p, cv_measured=cv_t, cv_abs_error=abs(cv_p-cv_t),
+                            relative_l2=float(np.linalg.norm(p-t)/max(np.linalg.norm(t), 1e-9))))
+    return results
+
+
+def fit(args):
+    import torch
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusForward, load_frozen_parameters,
+    )
+    from ao_shaping.algorithm.signal_processing.physical_forward_fit import PhysicalForwardFit
+
+    torch.set_num_threads(4)
+    old = load_frozen_parameters(args.checkpoint)
+    rows, phases, images, xy, matrix, ramp_samples, train = load_dataset(args.dataset, old.grid_size, args.span)
+    args.out.mkdir(parents=True, exist_ok=False)
+    provenance = dict(dataset=str(args.dataset.resolve()), checkpoint=str(args.checkpoint.resolve()),
+                      script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+                      manifest_sha256=hashlib.sha256((args.dataset / "manifest.json").read_bytes()).hexdigest(),
+                      iterations=args.iterations, ramp_matrix=matrix.tolist(), ramp_samples=ramp_samples,
+                      exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
+                      window_step_px=2, window_span_px=args.span, rows=rows, **clock())
+    (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
+    np.savez_compressed(args.out / "inputs.npz", phases=phases, measured=images, camera_xy=xy, train=train)
+    initial = replace(old, ramp_matrix=tuple(tuple(x) for x in matrix))
+    frozen = FrozenDefocusForward(initial, xy, device="cpu")
+    basis = {4: frozen.z4.numpy()}
+    basis.update({j: b.numpy() for j, b in zip(frozen.residual_modes, frozen.residual_basis)})
+    model = PhysicalForwardFit(phases, images, xy, matrix, 0., train, old.amplitude_center_xy,
+                               learn_amplitude=True, initial_defocus=old.defocus_diopter,
+                               learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
+                               basis_arrays=basis, batch_size=4)
+    with torch.no_grad():
+        model.origin.copy_(torch.tensor(old.origin_xy))
+        model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
+        model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
+    target = model.images[model.train]
+    target_mean = target.mean((1, 2), keepdim=True).clamp_min(1e-9)
+    target_cv = target.std((1, 2), correction=0) / target_mean[:, 0, 0]
+    best_loss, history = float("inf"), []
+    kernel = frozen._blaze_kernel
+    for iteration in range(args.iterations + 1):
+        started = clock()
+        model.optimizer.zero_grad()
+        prediction = model.prediction()
+        if kernel is not None:
+            prediction = torch.nn.functional.conv2d(prediction[:, None], kernel, padding=12)[:, 0]
+        # Estimate shared radiometry on training pixels, then use that same
+        # prediction in both optimization and reported metrics. Never use
+        # validation pixels to choose gain or additive background.
+        optical_prediction = prediction.detach().numpy()
+        design = np.stack((optical_prediction[train].ravel(), np.ones(optical_prediction[train].size)), axis=1)
+        scale, offset = nnls(design, images[train].ravel())[0]
+        prediction = prediction * float(scale) + float(offset)
+        p = prediction[model.train]
+        normalized = p / p.mean((1, 2), keepdim=True).clamp_min(1e-9)
+        cv = p.std((1, 2), correction=0) / p.mean((1, 2)).clamp_min(1e-9)
+        target_normalized = target / target_mean
+        relative_mse = (((normalized-target_normalized)**2).mean((1, 2))
+                        / target_normalized.square().mean((1, 2)).clamp_min(1e-9)).mean()
+        pc, tc = p.flatten(1), target.flatten(1)
+        pc, tc = pc-pc.mean(1, keepdim=True), tc-tc.mean(1, keepdim=True)
+        correlation_loss = (1-(pc*tc).sum(1)/(pc.norm(dim=1)*tc.norm(dim=1)).clamp_min(1e-9)).mean()
+        loss = correlation_loss + .25 * relative_mse + .25 * ((cv-target_cv)/target_cv.clamp_min(.1)).square().mean()
+        if not torch.isfinite(loss):
+            raise RuntimeError("nonfinite training loss; prior snapshots retained")
+        params = dict(defocus_diopter=float(model.d.detach()), origin=model.origin.detach().tolist(),
+                      amplitude_center=model.center.detach().tolist(),
+                      amplitude_width=model.log_width.detach().exp().tolist(),
+                      residual_noll_radians={str(j): float(v) for j, v in zip(model.residual_modes, model.residual.detach())},
+                      gain=1., background=0., sigma_ccd_px=old.sigma_ccd_px)
+        predicted = prediction.detach().numpy()
+        params.update(gain=float(scale), background=float(offset))
+        entry = dict(iteration=iteration, loss=float(loss.detach()), parameters=params,
+                     metrics=metrics(predicted, images), **started, end_monotonic_ns=__import__("time").monotonic_ns())
+        history.append(entry)
+        np.savez_compressed(args.out / f"iteration_{iteration:04d}.npz", prediction=predicted)
+        with (args.out / "iterations.pkl").open("wb") as stream:
+            pickle.dump(history, stream, protocol=5)
+        if entry["loss"] < best_loss:
+            best_loss = entry["loss"]
+            (args.out / "result.json").write_text(json.dumps(entry, indent=2), encoding="utf-8")
+        if iteration % 10 == 0:
+            print(f"{iteration}: train loss={entry['loss']:.5f}", flush=True)
+        if iteration < args.iterations:
+            loss.backward()
+            model.optimizer.step()
+            with torch.no_grad():
+                model.d.clamp_(-2, 2)
+                model.center.clamp_(0, 1920)
+                model.log_width.clamp_(float(np.log(80)), float(np.log(800)))
+    best = json.loads((args.out / "result.json").read_text())
+    # Self-contained checkpoint, with explicit geometry rather than a stale upstream chain.
+    (args.out / "frozen_parameters.json").write_text(json.dumps(dict(
+        **best["parameters"], ramp_matrix=matrix.tolist(), grid_size=old.grid_size,
+        fft_size=old.fft_size, pixel_samples=old.pixel_samples), indent=2), encoding="utf-8")
+    print(f"selected iteration={best['iteration']} using training loss only", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dataset", type=Path, required=True)
+    parser.add_argument("--checkpoint", type=Path, required=True)
+    parser.add_argument("--out", type=Path, required=True)
+    parser.add_argument("--iterations", type=int, default=100)
+    parser.add_argument("--span", type=int, default=160)
+    args = parser.parse_args()
+    if args.iterations < 0 or args.span < 20 or args.span % 2:
+        parser.error("iterations >= 0; span must be even and >= 20")
+    fit(args)
+
+
+if __name__ == "__main__":
+    main()
