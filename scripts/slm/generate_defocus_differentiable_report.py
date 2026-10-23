@@ -34,15 +34,24 @@ def _mpl():
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    for name in ("Microsoft YaHei", "SimHei", "DejaVu Sans"):
-        matplotlib.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
-        matplotlib.rcParams["axes.unicode_minus"] = False
+    matplotlib.rcParams["font.sans-serif"] = ["Microsoft YaHei", "SimHei", "DejaVu Sans"]
+    matplotlib.rcParams["axes.unicode_minus"] = False
     return plt
 
 
 # --------------------------------------------------------------------------- #
 # 读数据
 # --------------------------------------------------------------------------- #
+def load_e_reps(run_dir: Path) -> list[dict]:
+    """E 阶段：初值 vs 冻结最优的 A-B-B-A 重放（每次 rep 一个 stage_d_block1.json）。"""
+    reps = []
+    for directory in sorted((run_dir / "stage_e").glob("rep*")):
+        record_path = directory / "stage_d_block1.json"
+        if record_path.exists():
+            reps.append(json.loads(record_path.read_text(encoding="utf-8")))
+    return reps
+
+
 def load_run(run_dir: Path) -> dict:
     chain_path = run_dir / "stage_d" / "chain.json"
     if not chain_path.exists():
@@ -54,12 +63,16 @@ def load_run(run_dir: Path) -> dict:
     for entry in chain["blocks"]:
         run_block = run_dir / entry["run_dir"] / "stage_d_block1.json"
         record = json.loads(run_block.read_text(encoding="utf-8"))
-        seed_panel = run_dir / "stage_d" / f"block{entry['block']}_candidate" / "seed_panel.npy"
-        candidate_panel = run_dir / "stage_d" / f"block{entry['block']}_candidate" / "candidate_panel.npy"
-        blocks.append(dict(meta=entry, record=record,
-                           seed_panel=np.load(seed_panel) if seed_panel.exists() else None,
-                           candidate_panel=np.load(candidate_panel) if candidate_panel.exists() else None))
-    return dict(chain=chain, noise=noise, direction=direction, blocks=blocks)
+        directory = None
+        for name in (f"block{entry['block']}_candidate", f"candidate_block{entry['block']}"):
+            candidate = run_dir / "stage_d" / name
+            if (candidate / "seed_panel.npy").exists():
+                directory = candidate
+                break
+        seed_panel = np.load(directory / "seed_panel.npy") if directory else None
+        candidate_panel = np.load(directory / "candidate_panel.npy") if directory else None
+        blocks.append(dict(meta=entry, record=record, seed_panel=seed_panel, candidate_panel=candidate_panel))
+    return dict(chain=chain, noise=noise, direction=direction, blocks=blocks, e_reps=load_e_reps(run_dir))
 
 
 def panel_to_grid(panel: np.ndarray, size: int = 128) -> np.ndarray:
@@ -165,18 +178,21 @@ def plot_direction(data: dict, path: Path) -> dict:
     plt = _mpl()
     record = data["direction"]
     order = record["order"]
-    values = [r["cv_core"] for r in record["records"]]
+    positions = sorted({r["position"] for r in record["records"]})
+    labels = [next(r["phase"] for r in record["records"] if r["position"] == p) for p in positions]
+    values = [float(np.mean([r["cv_core"] for r in record["records"] if r["position"] == p])) for p in positions]
+    x = np.arange(len(values))
     resolution = float(record.get("three_sigma_resolution", float("nan")))
     fig, ax = plt.subplots(figsize=(8.2, 4.2))
-    positions = np.arange(len(values))
-    colors = ["#7f7f7f" if name == "seed" else ("#2ca02c" if name == "b_plus" else "#d62728") for name in order]
-    ax.bar(positions, values, color=colors, alpha=0.85)
+    colors = ["#7f7f7f" if name == "seed" else ("#2ca02c" if name == "b_plus" else "#d62728") for name in labels]
+    ax.bar(x, values, color=colors, alpha=0.85)
     seed_mean = float(record["seed_baseline_mean"])
     ax.axhline(seed_mean, color="k", ls="--", lw=1, label=f"基线 {seed_mean:.4f}")
     ax.axhspan(seed_mean - resolution, seed_mean + resolution, color="k", alpha=0.08,
                label=f"±3σ ({resolution:.4f})")
-    ax.set_xticks(positions, [f"{i + 1}\n{n}" for i, n in enumerate(order)], fontsize=8)
-    ax.set_ylabel("CV（固定掩膜）")
+    ax.set_xticks(x, [f"{i + 1}\n{n}" for i, n in enumerate(labels)], fontsize=8)
+    ax.set_ylim(seed_mean - 6 * resolution, max(max(values), seed_mean) + 4 * resolution)
+    ax.set_ylabel("CV（固定掩膜，每点 5 帧均值）")
     ax.set_title(f"方向检验：Δ+ = {record['delta_plus']:+.5f}，Δ− = {record['delta_minus']:+.5f}")
     ax.legend(fontsize=9)
     fig.tight_layout()
@@ -272,8 +288,35 @@ def render_gif(data: dict, replays: dict, run_dir: Path, path: Path, *, max_fram
 # --------------------------------------------------------------------------- #
 # 报告
 # --------------------------------------------------------------------------- #
+def build_e_section(data: dict) -> str:
+    """E 阶段（冻结最优相位，初值 vs 最优 A-B-B-A 重复 3 次）的正文段。"""
+    reps = data.get("e_reps") or []
+    if not reps:
+        return "（E 阶段的 3 次重放尚未采集。）"
+    deltas = [float(r["delta"]) for r in reps]
+    baselines = [float(r["baseline_mean"]) for r in reps]
+    candidates = [float(r["candidate_mean"]) for r in reps]
+    resolution = float(data["noise"]["three_sigma_resolution"])
+    mean_delta = float(np.mean(deltas))
+    sd = float(np.std(deltas, ddof=1)) if len(deltas) > 1 else float("nan")
+    rows = "\n".join(f"| {i + 1} | {r['baseline_mean']:.5f} | {r['candidate_mean']:.5f} | "
+                     f"{r['delta']:+.5f} | {r['drift']:+.5f} |" for i, r in enumerate(reps))
+    return f"""## 4b. 冻结重放（E 阶段）
+
+初值与冻结最优相位各 5 帧，A-B-B-A 完整重复 {len(reps)} 次（共 {len(reps) * 20} 帧原始数据）。
+
+| 重放 | 初值 CV | 最优 CV | Δ | 漂移 (A2−A1) |
+|---|---|---|---|---|
+{rows}
+
+合并：Δ = **{mean_delta:+.5f}**（sd {sd:.5f}），3σ 分辨率 {resolution:.5f}；
+末态 CV 从 {float(np.mean(baselines)):.5f} 降到 {float(np.mean(candidates)):.5f}
+（相对 −{abs(mean_delta) / float(np.mean(baselines)):.1%}）。"""
+
+
 def write_report(data: dict, artifacts: dict, path: Path) -> None:
     chain = data["chain"]
+    e_section = build_e_section(data)
     direction = data["direction"]
     floor = data["noise"]
     blocks = chain["blocks"]
@@ -340,6 +383,8 @@ A2−A1 为漂移。接受条件为 Δ < −3σ（{artifacts['curves']['resoluti
 上图上半栏：**模型预测**的 CV 逐步曲线（蓝）与**实验系统实测**的 CV 锚点（红方块，误差棒为 3σ）；
 下半栏：模型预测的目标区均值。数据由 `scripts/slm/generate_defocus_differentiable_report.py`
 离线重放每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
+
+{e_section}
 
 ![过程动画](figures/{STAMP}_process.gif)
 

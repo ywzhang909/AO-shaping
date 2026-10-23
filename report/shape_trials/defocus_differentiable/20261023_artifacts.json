@@ -1,7 +1,11 @@
 {
-  "blocks": 1,
+  "blocks": 5,
   "replays": {
-    "1": 10
+    "1": 10,
+    "2": 10,
+    "3": 10,
+    "4": 10,
+    "5": 10
   },
   "artifacts": {
     "direction": {
@@ -16,10 +20,10 @@
     },
     "curves": {
       "resolution": 0.01648262014525826,
-      "steps": 10
+      "steps": 50
     },
     "gif": {
-      "frames": 13,
+      "frames": 65,
       "path": "D:\\Projects\\TIFO\\AO-shaping\\report\\shape_trials\\defocus_differentiable\\figures\\20261023_process.gif"
     }
   }

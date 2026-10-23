@@ -1,12 +1,6 @@
 # 离焦光路下的可微整形（2026-10-23）
 
 <!-- provenance:start -->
-> **生成脚本**: [`scripts/slm/generate_defocus_differentiable_report.py`](../../../scripts/slm/generate_defocus_differentiable_report.py)
-> **复现命令**: `python scripts/slm/generate_defocus_differentiable_report.py --run-dir data/debug/defocus_differentiable/20261023_101822`
-> **数据/关联脚本**: [`src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py`](../../../src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py)
-> **数据/关联脚本**: [`src/ao_shaping/optimizer/wfless/defocus_uniformity_shaping.py`](../../../src/ao_shaping/optimizer/wfless/defocus_uniformity_shaping.py)
-> **运行环境**: 硬件
-> **说明**: 离焦光路（相机未移动）下的可微均匀度优化：冻结物理前向 + 固定 60 px 掩膜 CV。 现场前置测量（面板斜坡→相机轴映射、去倾斜补偿残差 0.14/0.47 px/mm、可用曝光 1.6–32 ms、噪声地板 CV 1.1274±0.0055 ⇒ 3σ 0.0165）；C 阶段方向检验 Δ+ = −0.01942 / Δ− = +0.02132（两向超 3σ 且符号相反 ⇒ 模型梯度方向正确）；D 阶段逐块 A-B-B-A 重放 (B1/B2 差 0.0001、漂移 +0.0017)；报告含「模型预测 vs 实测」逐 step 指标曲线与并排 GIF。 **未决**：拟合 ramp_matrix 与现场轴映射互为转置，空间放置需标记测量裁决。
 <!-- provenance:end -->
 
 ## 摘要
@@ -54,6 +48,10 @@ B− 1.6974（对称 ±0.1017）；
 | 块 | cap / rad | 基线 CV | 候选 CV | Δ | 判定 | 模型 CV |
 |---|---|---|---|---|---|---|
 | 1 | 0.100 | 1.16432 | 1.06680 | -0.09752 | 接受 | 1.5934 → 1.2553 |
+| 2 | 0.100 | 0.97391 | 0.87759 | -0.09632 | 接受 | 1.2553 → 0.9699 |
+| 3 | 0.100 | 0.87580 | 0.78902 | -0.08678 | 接受 | 0.9699 → 0.7389 |
+| 4 | 0.100 | 0.78641 | 0.71026 | -0.07616 | 接受 | 0.7389 → 0.5591 |
+| 5 | 0.100 | 0.70396 | 0.63822 | -0.06575 | 接受 | 0.5591 → 0.4253 |
 
 每块都是 **A1-B1-B2-A2**（各 5 帧）：B1/B2 两次重放差见 `stage_d/run_block*/stage_d_block1.json`，
 A2−A1 为漂移。接受条件为 Δ < −3σ（0.0165）。
@@ -63,6 +61,20 @@ A2−A1 为漂移。接受条件为 Δ < −3σ（0.0165）。
 上图上半栏：**模型预测**的 CV 逐步曲线（蓝）与**实验系统实测**的 CV 锚点（红方块，误差棒为 3σ）；
 下半栏：模型预测的目标区均值。数据由 `scripts/slm/generate_defocus_differentiable_report.py`
 离线重放每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
+
+## 4b. 冻结重放（E 阶段）
+
+初值与冻结最优相位各 5 帧，A-B-B-A 完整重复 3 次（共 60 帧原始数据）。
+
+| 重放 | 初值 CV | 最优 CV | Δ | 漂移 (A2−A1) |
+|---|---|---|---|---|
+| 1 | 1.05975 | 0.63099 | -0.42876 | +0.00735 |
+| 2 | 1.06959 | 0.63110 | -0.43849 | -0.00283 |
+| 3 | 1.07114 | 0.62681 | -0.44433 | +0.00002 |
+
+合并：Δ = **-0.43719**（sd 0.00787），3σ 分辨率 0.01648；
+末态 CV 从 1.06683 降到 0.62963
+（相对 −41.0%）。
 
 ![过程动画](figures/20261023_process.gif)
 
