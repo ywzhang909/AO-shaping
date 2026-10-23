@@ -3657,13 +3657,14 @@ flattening a real measurement to zero in a committed report.
 | `fmt_general(v, spec=".4g")` | `_fmt` in `generate_slm_pib_online_report.py` | Passthrough to `format(v, spec)`; no `None`/NaN special case. |
 | `fmt_fixed(v, nd=4)` | `_fmt` in `generate_slm_pib_rms_pib_report.py` | Em dash for NaN; **raises on `None`** (recorded limitation, kept). |
 | `fmt_signed(v, spec="+.4f")` | `_fmt` in `generate_shape_objective_comparison.py` | `"n/a"` for non-finite. |
+| `fmt_sigfig(v, digits=4)` | `_fmt` in `compare_sim_vs_hw.py` | Significant-figures ``g``; `—` for `None`/NaN, `∞`/`-∞` for `±inf`. The **sixth** formatter (added 2026-10-23, `b6ee43f1`); kept separate because it renders missing as `—` and infinities as `∞`, which none of the five above do. |
 | `markdown_table(headers, rows)` | `_markdown_table` ×2 | GitHub-flavoured table. |
 | `savefig(fig, path, dpi=150)` | `_savefig` ×3 | `bbox_inches="tight"` + closes the figure. |
 | `plot_summary_bars(results, out_path, *, metric_key, xlabel, title)` | `plot_summary_bars` ×2 (heuristic-PIB and Strehl benchmarks) | Horizontal bar chart, one metric per algorithm, sorted descending. Every constant is pinned to what both copies used — `figsize=(8,5)`, `color="steelblue"`, value label at `+0.01` with 3 decimals, `xlim=(0,1.05)`, `grid(axis="x", alpha=0.3)`, `dpi=150` — and **byte-identical PNG output was verified for both call sites**, so no committed figure is rewritten. `generate_slm_pib_rms_pib_report` keeps its own `plot_summary_bars`: it scales figure height with the row count, derives a dynamic `xlim` from the data, uses `dpi=110` without `bbox_inches`, and returns the path instead of `None`. |
 | `iters_to_threshold(curve, threshold)` | ×2 | 1-based first crossing; `- 1e-12` absorbs float noise. |
 | `format_iters(v)` | ×2 | Em dash when the threshold was never reached. |
 
-**The five formatters are deliberately NOT merged.** A 170-probe before/after
+**The six formatters are deliberately NOT merged.** A 170-probe before/after
 comparison of the old inline copies against `_common` came out **168 identical**;
 the only 2 differences are the sanctioned tiny-value fix above. Merging the other
 three would have rewritten already-committed reports (`0.5` → `0.5000`,

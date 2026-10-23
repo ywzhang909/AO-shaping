@@ -283,7 +283,7 @@ def plot_summary_bars(
     derives a dynamic ``xlim`` from the data, uses dpi=110 without
     ``bbox_inches="tight"``, and returns the path instead of ``None``. Folding it in
     would force one contract onto both and rewrite a committed figure -- the same
-    reason ``scripts/_common``'s five formatters are deliberately not merged.
+    reason ``scripts/_common``'s six formatters are deliberately not merged.
 
     Args:
         results: ``{label: {metric_key: value}}``, sorted by that value descending.
