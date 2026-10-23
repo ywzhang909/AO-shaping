@@ -42,6 +42,8 @@ def load() -> dict:
     refit = _latest("data/debug/physical_forward_defocus/refit_after_focus_*/refit.json")
     flat_dir = ROOT / "logs/target_size_sweep/direction_after_focus_dev/direction_record.json"
     probe_dir = ROOT / "logs/target_size_sweep/direction_probe_seed/direction_record.json"
+    probe1000_dir = ROOT / "logs/target_size_sweep/direction_probe_1000px/direction_record.json"
+    floor1000 = ROOT / "logs/target_size_sweep/noise_floor_1000px_after_focus/noise_floor.json"
     return dict(
         old_focus=json.loads(old_focus_path.read_text(encoding="utf-8")) if old_focus_path.exists() else None,
         new_focus=json.loads((new_focus_dir / "focus.json").read_text(encoding="utf-8"))
@@ -49,6 +51,8 @@ def load() -> dict:
         refit=json.loads(refit.read_text(encoding="utf-8")) if refit else None,
         flat=json.loads(flat_dir.read_text(encoding="utf-8")) if flat_dir.exists() else None,
         probe=json.loads(probe_dir.read_text(encoding="utf-8")) if probe_dir.exists() else None,
+        probe1000=json.loads(probe1000_dir.read_text(encoding="utf-8")) if probe1000_dir.exists() else None,
+        floor1000=json.loads(floor1000.read_text(encoding="utf-8")) if floor1000.exists() else None,
     )
 
 
@@ -76,10 +80,11 @@ def plot_focus(data: dict, path: Path) -> dict:
 
 def plot_direction(data: dict, path: Path) -> dict:
     plt = _mpl()
-    fig, axes = plt.subplots(1, 2, figsize=(9.6, 3.8), sharey=True)
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 3.8), sharey=False)
     summary = {}
-    for axis, key, title in zip(axes, ("flat", "probe"),
-                                ("平场初值（失败）", "结构化探针初值（本次）")):
+    for axis, key, title in zip(axes, ("flat", "probe", "probe1000"),
+                                ("平场 / 60 px / 0.03 rad", "探针 / 60 px / 0.03 rad",
+                                 "探针 / 1000 px / 0.06 rad")):
         record = data.get(key)
         if not record or "measured" not in record:
             axis.set_title(f"{title}：无数据", fontsize=9)
@@ -96,7 +101,8 @@ def plot_direction(data: dict, path: Path) -> dict:
         axis.legend(fontsize=8)
         axis.grid(alpha=0.3, axis="y")
         summary[key] = dict(delta_plus=measured["delta_plus"], delta_minus=measured["delta_minus"],
-                            verdict=record.get("verdict"), model=record.get("model_cv"))
+                            verdict=record.get("verdict"), model=record.get("model_cv"),
+                            resolution=resolution)
     fig.tight_layout()
     fig.savefig(path, dpi=140)
     plt.close(fig)
@@ -109,6 +115,7 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
     refit = data.get("refit") or {}
     flat = artifacts["direction"].get("flat", {})
     probe = artifacts["direction"].get("probe", {})
+    probe1000 = artifacts["direction"].get("probe1000", {})
 
     def fmt(value, digits=3):
         return f"{value:.{digits}f}" if isinstance(value, (int, float)) else str(value)
@@ -163,14 +170,15 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
 | 初值 | 模型 Δ+ | 模型 Δ− | 实测 Δ+ | 实测 Δ− | 判定 |
 |---|---|---|---|---|---|
 | 平场（失败） | {fmt((flat.get("model") or {}).get("b_plus"), 4)} | {fmt((flat.get("model") or {}).get("b_minus"), 4)} | {fmt(flat.get("delta_plus"), 5)} | {fmt(flat.get("delta_minus"), 5)} | 未通过 |
-| **结构化探针** | {fmt((probe.get("model") or {}).get("b_plus"), 4)} | {fmt((probe.get("model") or {}).get("b_minus"), 4)} | **{fmt(probe.get("delta_plus"), 5)}** | **{fmt(probe.get("delta_minus"), 5)}** | **{("通过" if probe.get("verdict") else "未通过")}** |
+| 结构化探针 / 60 px / 0.03 rad | {fmt((probe.get("model") or {}).get("b_plus"), 4)} | {fmt((probe.get("model") or {}).get("b_minus"), 4)} | {fmt(probe.get("delta_plus"), 5)} | {fmt(probe.get("delta_minus"), 5)} | {("通过" if probe.get("verdict") else "未通过")} |
+| **结构化探针 / 1000 px / 0.06 rad** | {fmt((probe1000.get("model") or {}).get("b_plus"), 2)} | {fmt((probe1000.get("model") or {}).get("b_minus"), 2)} | **{fmt(probe1000.get("delta_plus"), 5)}** | **{fmt(probe1000.get("delta_minus"), 5)}** | **{("通过" if probe1000.get("verdict") else "未通过")}**（3σ {fmt(probe1000.get("resolution"), 4)}） |
 
 判据：两个方向都超过 3σ 且符号相反（模型下降方向 B+ 应让实测 CV 下降、B− 应上升）。
 模型侧三个值（seed / B+ / B−）见方向记录 JSON。
 
 ## 4. 结论与下一步
 
-{_conclusion(flat, probe)}
+{_conclusion(flat, probe, probe1000)}
 
 ## 5. 复现
 
@@ -187,7 +195,15 @@ python scripts/slm/direction_test_after_optics_change.py --checkpoint <新检查
     path.write_text(text, encoding="utf-8")
 
 
-def _conclusion(flat: dict, probe: dict) -> str:
+def _conclusion(flat: dict, probe: dict, probe1000: dict | None = None) -> str:
+    if probe1000 and probe1000.get("verdict"):
+        return ("**1000 px 目标 + 0.06 rad 增量下方向检验通过**：实测 Δ+ = "
+                f"{probe1000['delta_plus']:+.5f}、Δ− = {probe1000['delta_minus']:+.5f}，"
+                f"均超过该掩膜的 3σ = {probe1000['resolution']:.4f} 且符号相反 "
+                "⇒ 新检查点的梯度在实验系统上指对了方向。\n\n"
+                "这也说明 60 px 那次失败是**增量太小**（0.03 rad 下实测效应 ~0.015 < 3σ 0.0165），"
+                "不是方向错。\n\n下一步：按 1000 px 目标进入 D 块闭环（每块 10 步、A-B-B-A、"
+                "按该掩膜的 3σ 判读），并同步用 HDR 采集做大框度量。")
     if not probe:
         return "结构化初值的方向检验尚未完成。"
     if probe.get("verdict"):
@@ -226,4 +242,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
+
+
 
