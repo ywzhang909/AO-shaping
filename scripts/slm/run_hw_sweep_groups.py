@@ -348,60 +348,6 @@ def _extract_santec_error_code(text: str) -> int | None:
         return None
 
 
-def classify_device_unavailable(text: str) -> DeviceUnavailable | None:
-    """判定一段子进程输出是不是「设备不可用」, 并归类。
-
-    为什么要有它: 2026-10-21 18:23 实测, SLM 的 USB 当时是断开的, 驱动把
-    **27 组**全当普通失败记进索引, 100 s 内全灭 —— 根因 (设备根本不可用) 在
-    索引里完全看不出来。「设备不可用」与「这一组坏了」是**两件不同的事**:
-    前者要中止整轮, 后者跑下一组。
-
-    五类归类 (处置不同, 所以必须分开): 断电类 (``slm_absent`` /
-    ``camera_absent``) 要人处理; 被占类 (``slm_busy`` / ``camera_busy``)
-    等一会儿就好; **光路不通** (``light_path_blocked``) 是实验系统光路的问题 ——
-    设备都在, 但光束没到 CCD, 等是等不来的, 而且**必须立刻中止整轮**
-    (实测 2026-10-22 12:5x: 驱动把剩下 8 组逐个跑了一遍, 每组都报
-    「光束没有到达相机」, 根因在索引里被埋掉了)。
-
-    Args:
-        text: 子进程的输出 (stderr + stdout 拼起来)。
-
-    Returns:
-        判定结果; 不是设备不可用时返回 ``None``。
-    """
-    if not text:
-        return None
-    code = _extract_santec_error_code(text)
-    best_pos = -1
-    best: DeviceUnavailable | None = None
-    for kind, pattern in (
-        (KIND_SLM_ABSENT, _SLM_ABSENT_RE),
-        (KIND_SLM_BUSY, _SLM_BUSY_RE),
-        (KIND_CAMERA_BUSY, _CAMERA_BUSY_RE),
-        (KIND_CAMERA_ABSENT, _CAMERA_ABSENT_RE),
-        # 🔴 光路不通: 设备都在, 光束没到 CCD ⇒ 立刻中止整轮, 不等、不续跑。
-        (KIND_LIGHT_PATH_BLOCKED, _LIGHT_PATH_BLOCKED_RE),
-    ):
-        positions = [m.start() for m in pattern.finditer(text)]
-        if not positions:
-            continue
-        detail, remedy = DEVICE_UNAVAILABLE_INFO[kind]
-        # 光路不通**不是**设备错误码能解释的: 输出里若混着别的 Santec 码
-        # (例如上一次失败留下的), 挂上去只会把根因指歪 ⇒ 这一类不带码。
-        candidate = DeviceUnavailable(
-            kind=kind,
-            code=None if kind == KIND_LIGHT_PATH_BLOCKED else code,
-            detail=detail,
-            remedy=remedy,
-            reason_text=_reason_text(text, pattern),
-        )
-        # 取**最后**出现的那一处: 一组失败时最后一条错误才是致命原因。
-        if positions[-1] > best_pos:
-            best_pos = positions[-1]
-            best = candidate
-    return best
-
-
 def classify_probe_setup_error(text: str) -> str | None:
     """判定一段输出是不是「探针自己没装好」(而不是设备被占)。
 
@@ -429,10 +375,8 @@ def classify_probe_setup_error(text: str) -> str | None:
 #: 探针子进程输出的协议行前缀 (后面跟 status 与 key=value 字段)。
 PROBE_LINE_PREFIX = "DEVICE_PROBE:"
 #: 探针子进程输出的说明行前缀 (人看的, 可以含空格)。
-PROBE_NOTE_PREFIX = "DEVICE_PROBE_NOTE:"
 
 #: 探针的三种结论。
-PROBE_IDLE = "idle"                 # 设备可用
 PROBE_UNAVAILABLE = "unavailable"   # 设备不可用 (kind 说的是哪一类)
 PROBE_BROKEN = "broken"             # 探针自己没装好 —— **不是**设备的问题
 
@@ -441,7 +385,6 @@ PROBE_POLL_S = 15.0
 #: 探针子进程的超时 (s) —— 探针不该把驱动挂住。
 PROBE_TIMEOUT_S = 120.0
 #: 探针命令的环境变量名 (测试与非常规环境用它换成别的探针)。
-PROBE_CMD_ENV = "AO_HW_DEVICE_PROBE_CMD"
 
 #: 占用者进程的命令行里出现这些关键字就算「可能在用设备」。
 #:
@@ -483,7 +426,6 @@ NON_DEVICE_PATTERNS: tuple[re.Pattern[str], ...] = (
 WAIT_REPORT_INTERVAL_S = 60.0
 
 #: 显式声明「这些进程是我们自己的」的环境变量 (逗号分隔的 pid)。
-OWN_PIDS_ENV = "AO_HW_OWN_PIDS"
 
 
 @dataclass(frozen=True)
@@ -501,16 +443,6 @@ class ProbeResult:
 
     message: str = ""
     """人看的说明 (可含空格, 走 NOTE 行)。"""
-
-
-def format_probe_line(result: ProbeResult) -> str:
-    """把探针结论格式化成协议行 (字段值里不许有空格)。"""
-    parts = [PROBE_LINE_PREFIX, result.status]
-    if result.kind:
-        parts.append(f"kind={result.kind}")
-    if result.code is not None:
-        parts.append(f"code={int(result.code)}")
-    return " ".join(parts)
 
 
 def parse_probe_output(stdout: str, stderr: str = "") -> ProbeResult:
@@ -576,59 +508,6 @@ def _ensure_repo_paths() -> None:
             sys.path.insert(0, text)
 
 
-def probe_devices(
-    slm_number: int = 1,
-    cam_id: int = 0,
-    cam_type: str = "daheng",
-    exposure_ms: float = 0.2,
-) -> ProbeResult:
-    """真开一次 SLM + 相机再关 —— 只探可用性。
-
-    两条硬约束:
-
-    1. **恒用 memory 模式**开 SLM: DVI 模式的 ``open()`` 可能挂死, 挂死后
-       必须物理断电才恢复 (``drivers/slm/AGENTS.md``)。
-    2. **自己带 PYTHONPATH**: 见 :func:`_ensure_repo_paths`。
-
-    Args:
-        slm_number: SLM 编号。
-        cam_id: 相机编号。
-        cam_type: 相机类型 (默认大恒)。
-        exposure_ms: 开相机时的曝光 (ms)。
-
-    Returns:
-        探针结论。
-    """
-    _ensure_repo_paths()
-    # -- SLM: 恒用 memory 模式 --------------------------------------------
-    try:
-        from ao_shaping.drivers.slm.santec import Santec
-
-        slm = Santec(slm_number=int(slm_number), video_mode=0)
-        try:
-            slm.open()
-        finally:
-            with contextlib.suppress(Exception):
-                slm.close()
-    except Exception as exc:  # 探针要把任何异常都翻译成结论
-        return _probe_failure(f"{type(exc).__name__}: {exc}")
-    # -- 相机 --------------------------------------------------------------
-    try:
-        from ao_shaping.drivers.ccd.common import create_camera
-
-        cam = create_camera(
-            cam_type, cam_id=int(cam_id), exposure_time_ms=float(exposure_ms)
-        )
-        try:
-            cam.open()
-        finally:
-            with contextlib.suppress(Exception):
-                cam.close()
-    except Exception as exc:  # 同上
-        return _probe_failure(f"{type(exc).__name__}: {exc}")
-    return ProbeResult(status=PROBE_IDLE)
-
-
 def _probe_failure(text: str) -> ProbeResult:
     """把探针里的异常翻译成结论。"""
     setup = classify_probe_setup_error(text)
@@ -689,20 +568,6 @@ def parse_probe_cmd(text: str) -> list[str]:
         if isinstance(data, list):
             return [str(item) for item in data]
     return stripped.split()
-
-
-def resolve_probe_cmd(explicit: str | None = None) -> list[str] | None:
-    """探针命令: 命令行参数优先, 其次环境变量, 都没有则用内置探针。"""
-    if explicit:
-        parsed = parse_probe_cmd(explicit)
-        if parsed:
-            return parsed
-    env_text = os.environ.get(PROBE_CMD_ENV, "")
-    if env_text.strip():
-        parsed = parse_probe_cmd(env_text)
-        if parsed:
-            return parsed
-    return None
 
 
 def run_device_probe(
