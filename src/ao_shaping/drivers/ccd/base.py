@@ -147,7 +147,7 @@ class BaseCamera(ABC):
             float: 实际设定的曝光时间, 单位毫秒。
 
         异常:
-            AssertionError: 相机未初始化。
+            CameraError: 相机未初始化。
         """
         pass
 
@@ -168,7 +168,8 @@ class BaseCamera(ABC):
             实际设定的 ((width, height), (center_x, center_y))。
 
         异常:
-            AssertionError: 相机未初始化, 或 center 非法。
+            CameraError: 相机未初始化。
+            AssertionError: center 非法。
         """
         pass
 
