@@ -39,7 +39,7 @@
 | 项 | 值 | 来源 |
 |---|---|---|
 | 波长 | 1064 nm | `plan.bench` |
-| 焦距 | 122.406 mm | `plan.bench` |
+| 焦距 | 0.122 m | `plan.bench` |
 | SLM 面板 (W×H) | [1200, 1920] (行×列) | `plan.bench` |
 | 面板像元 | 8.0 µm | `plan.bench` |
 | 相机像元 | 2.2 µm | `plan.bench` |
@@ -220,7 +220,7 @@ GS 把能量**摊到边长上千像素的方斑上**，而 0 级是一个衍射�
 
 ## 5. Zernike 重构段
 
-把选定边长（1200 px）那一次的 GS 相位拟合到 Zernike 基，然后用**前 N 阶**重构相位、下发、测量。N 从 30 降到 7，最高阶用 496 个模式（拟合网格 256、拟合上限 30 阶、拟合耗时 1.20 s —— 这四项都来自 `zernike/run_config.json`）。
+把选定边长（1200.0 px）那一次的 GS 相位拟合到 Zernike 基，然后用**前 N 阶**重构相位、下发、测量。N 从 30 降到 7，最高阶用 496 个模式（拟合网格 256、拟合上限 30 阶、拟合耗时 1.20 s —— 这四项都来自 `zernike/run_config.json`）。
 
 | n_max | 模式数 | 解释方差 | 残差 RMS (rad) | CV | PIB | score | frame_peak | 质心偏移 x | 质心偏移 y | 旗标 |
 |---|---|---|---|---|---|---|---|---|---|---|
@@ -535,6 +535,65 @@ side_max_raw        = 2 · (948 − 10) = 1876 px
 
 - **段级 `run_config.json` 的 `zero_order_xy_frozen` 不是每配置的框心。** 闪耀光栅段级记 (1245, 908)，而三个配置各自是 (1252, 902) / (1253, 910) / (1245, 908)；Zernike 阶数段级记 (1205, 908)，而三个配置各自是 (1244, 908) / (1206, 908) / (1205, 908)。本节一律用**每配置 `metrics.json` 的 `preflight`** 值 —— 那才是真正摆放方框的那个数。
 - **`fit_seconds` 不是整段耗时**：它是**本进程这一次**拟合的墙钟（复测里 1.10 s / 1.07 s / 0.66 s），复测是每配置一个进程，所以它既不累加也不代表阶段时长。本节不用它做任何时长判断。
+
+## 12. CCD 远场光斑图
+
+本节把每段**实测远场帧**直接摆出来 —— 不是指标曲线，是相机画面。帧来自各配置落盘的 `frame_*.npz`（`np.load(...)["frame"]`，`float32`、画幅与 `run_config.frame_shape_hw` 一致、0–255 counts），每格是**该配置落盘帧的算术平均**（右下角标 `×N 帧均值`）。
+
+生成器在画图前逐格核对两件事：帧的最大值必须等于该行 CSV 的 `frame_peak`，npz 里那个 0 维 `params`（JSON）的 `cv`/`pib`/`score`/`frame_peak` 必须等于该行 CSV。两者任一不符就报错退出 —— 否则拼图会张冠李戴。
+
+### 12.1 显示了哪些配置
+
+| 拼图 | 段 | 配置 | 取值 | 源 | 帧数 (实际 / 计划) | 峰值 (counts) | 峰值状态 | CV | PIB | 方框中位电平 (counts) | 备注 |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 1 · 边长 | 边长扫描 | index_001 | side=200 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_001.npz` | 1 / 4 | 138.50 | 未饱和 | 0.6917 | 0.5476 | 25.25 | — |
+| 1 · 边长 | 边长扫描 | index_005 | side=600 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_005.npz` | 1 / 4 | 140.00 | 未饱和 | 0.8607 | 0.6908 | 3.50 | — |
+| 1 · 边长 | 边长扫描 | index_009 | side=1000 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz` | 1 / 4 | 134.75 | 未饱和 | 1.0119 | 0.8024 | 1.50 | — |
+| 1 · 边长 | 边长扫描 | index_014 | side=1500 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_014.npz` | 1 / 4 | 147.50 | 未饱和 | 1.1935 | 0.9241 | 1.00 | — |
+| 1 · 边长 | 边长扫描 | index_017 | side=1800 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_017.npz` | 1 / 4 | 160.50 | 未饱和 | 2.7860 | 0.9688 | 1.00 | — |
+| 1 · 边长 | 边长扫描 | index_008 | side=900 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_008.npz` | 1 / 4 | 120.25 | 未饱和 | 0.9673 | 0.7822 | 2.00 | score 最高行 (1500 px) 已在固定格内 ⇒ 取最接近 1000 的未入选行 900 px |
+| 2 · Zernike | Zernike 阶数扫描 | index_000 | n_max=30 | `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_000.npz` | 1 / 4 | 255.00 | 饱和 | 7.3024 | 0.9076 | 0.00 | — |
+| 2 · Zernike | Zernike 阶数扫描 | index_011 | n_max=19 | `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_011.npz` | 1 / 4 | 255.00 | 饱和 | 7.5831 | 0.9100 | 0.00 | — |
+| 2 · Zernike | Zernike 阶数扫描 | index_018 | n_max=12 | `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_018.npz` | 1 / 4 | 255.00 | 饱和 | 7.6950 | 0.9122 | 0.00 | — |
+| 2 · Zernike | Zernike 阶数扫描 | index_023 | n_max=7 | `data/debug/hw_gs_square_scans/20261023_gs_square/zernike/frame_023.npz` | 1 / 4 | 255.00 | 饱和 | 7.7136 | 0.9123 | 0.00 | — |
+| 2 · Zernike | 边长扫描 | index_011 | side=1200 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_011.npz` | 1 / 4 | 124.75 | 未饱和 | 1.0613 | 0.8577 | 1.00 | 同 run-root 边长段的 1200 px 行（未截断） |
+| 3 · 光栅 | 闪耀光栅扫描 | index_002 | P=32 px | `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_002.npz` | 1 / 4 | 255.00 | 饱和 | 2.7303 | 0.6794 | 1.00 | — |
+| 3 · 光栅 | 闪耀光栅扫描 | index_005 | P=64 px | `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_005.npz` | 1 / 4 | 255.00 | 饱和 | 2.2878 | 0.7929 | 1.00 | — |
+| 3 · 光栅 | 闪耀光栅扫描 | index_007 | P=128 px | `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_007.npz` | 1 / 4 | 255.00 | 饱和 | 2.0261 | 0.8313 | 1.00 | — |
+| 3 · 光栅 | 闪耀光栅扫描 | index_000 | P=16 px | `data/debug/hw_gs_square_scans/20261023_gs_square/blaze/frame_000.npz` | 1 / 4 | 255.00 | 饱和 | 5.2836 | 0.3770 | 0.25 | 该行方框出画, PIB 不可与其它行横比 |
+| 4 · 整帧 | 边长扫描 | index_009 | side=1000 px | `data/debug/hw_gs_square_scans/20261023_gs_square/sides/frame_009.npz` | 1 / 4 | 134.75 | 未饱和 | 1.0119 | 0.8024 | 1.50 | 不裁剪, 用于核对 0 级与画面中心的相对位置 |
+
+**帧数口径**：「实际 / 计划」= 该配置**落盘的 npz 个数** / `run_config.frames_per_measurement`。本轮计划值是 4，而落盘的是**已经做过多帧平均的那一张**（每个 npz 内部已含若干次曝光），所以「实际 1 / 计划 4」不代表少了 3 帧，而是**平均后只存了一张**；生成器按实际存在的 npz 求平均，不补帧、不报错，并把两个数都写进 `frames_selection.json`。
+
+### 12.2 四张拼图
+
+![边长段: 方斑随边长变化](figures/fig6_farfield_sides_20261023_gs_square.png)
+
+*边长段: 方斑随边长变化。* 对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，**颜色不代表线性强度**）；裁剪：以 `box_center` 为中心、边长 `box_side × 1.4` （已夹到画幅内）；叠加：目标框（虚线）、预测框心（十字）、实测质心（圆点）；右下角 `×N 帧均值`。方斑随目标边长变化：小方框里方斑被压得最亮（100–200 px 甚至顶到满量程），方框放大后方斑摊开、峰值下降。第 6 格是 score 最高行或它的回退（见表）。
+
+方框内**中位电平**：`side=200 px` 是 25.25 counts，`side=1500 px` 只有 1.00 counts（整列见 §12.1）。方框放大后方斑被摊薄到 **1–2 counts 的量化地板**，在对数显示下就是一片黑 —— 那是数据本身的动态范围，不是画错；读那些格的均匀度请回 CSV 的 CV / PIB。
+
+![Zernike 段: 低阶重构后的远场](figures/fig7_farfield_zernike_20261023_gs_square.png)
+
+*Zernike 段: 低阶重构后的远场。* 对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，**颜色不代表线性强度**）；裁剪：以 `box_center` 为中心、边长 `box_side × 1.4` （已夹到画幅内）；叠加：目标框（虚线）、预测框心（十字）、实测质心（圆点）；右下角 `×N 帧均值`。 饱和格：n_max=30, n_max=19, n_max=12, n_max=7。低阶 Zernike 重构后的远场：与同框的 GS 参照（最后一格）比，重构出来的不是方斑而是一个亮核 —— 这正是 §5.1 的结论在画面上的样子。
+
+方框内**中位电平**：`side=1200 px` 是 1.00 counts，`n_max=30` 只有 0.00 counts（整列见 §12.1）。框内大部分像素是 0 counts、峰值却顶到满量程 ⇒ 光集中在一个亮核上，**这正是 CV 7.3 的画面形态**（§5.1 的「PIB 假高分」）。
+
+![闪耀光栅段: 光栅把方斑搬走](figures/fig8_farfield_blaze_20261023_gs_square.png)
+
+*闪耀光栅段: 光栅把方斑搬走。* 对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，**颜色不代表线性强度**）；裁剪：以 `box_center` 为中心、边长 `box_side × 1.4` （已夹到画幅内）；叠加：目标框（虚线）、预测框心（十字）、实测质心（圆点）；右下角 `×N 帧均值`。 饱和格：P=32 px, P=64 px, P=128 px, P=16 px。叠加闪耀光栅后，方框跟着**预测**位移走；16 px 那一行位移最大，框已出画（格内左下角标出出画面积）。
+
+方框内**中位电平**：`P=32 px` 是 1.00 counts，`P=16 px` 只有 0.25 counts（整列见 §12.1）。框内中位只有 1 counts 上下、峰值饱和 ⇒ 框里是一个亮核加几乎全暗的背景，方斑并没有跟着框走（§6.4）。
+
+![整帧: 0 级不在画面中心](figures/fig9_farfield_fullframe_20261023_gs_square.png)
+
+*整帧: 0 级不在画面中心。* 对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，**颜色不代表线性强度**）；本图**不裁剪**（整帧）；叠加：目标框（虚线）、预测框心（十字）、实测质心（圆点）、0 级 argmax（星）与画面中心（叉）；右下角 `×N 帧均值`。整帧不裁剪：0 级（argmax）与画面几何中心并不重合，这就是 §8 里「最大边长必须现场量」的由来。
+
+### 12.3 显示口径
+
+1. **裁剪**：拼图 1–3 以该行 CSV 的 `box_center_x/y` 为中心、边长取 `box_side_px × 1.4`，并夹到画幅内（夹过就在 `frames_selection.json` 里记 `clipped_by_frame`）；拼图 4 **不裁剪**。
+2. **对数拉伸**：`matplotlib.colors.LogNorm(vmin=1, vmax=该格峰值)`。0 级与方斑的每像素亮度差 2–3 个数量级（§4.2），线性拉伸只会看到 0 级一个点，方斑的结构全部落在最暗的几档里；对数显示能把两者放进同一张图。**代价是颜色与强度不成线性** —— 要读绝对强度请回 CSV 的 `frame_peak` / `box_peak`，不要从颜色反推。
+3. **叠加与饱和**：目标框（虚线）、预测框心（十字）、实测质心（圆点）；`box_clipped_px > 0` 的格子在左下角标 `框出画 … px`。该行 `frame_peak ≥ 255` 时标题末尾加「饱和」——意味着最亮像素已被 8 bit 削平，画面里那一片的颜色不随强度变化。
 
 ## 附录 A. 输入契约（`artifacts/20261023_gs_square/`）
 

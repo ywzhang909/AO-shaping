@@ -614,6 +614,18 @@ def _cross_check_csv_json(
                 )
 
 
+def _selected_side_px_from(stages: dict[str, "Stage"]) -> float:
+    """``selected_side_px``: 先看 zernike 段 run_config, 再回落到它的 CSV 行。"""
+    cfg = stages["zernike"].run_config
+    if "selected_side_px" in cfg:
+        return float(cfg["selected_side_px"])
+    return float(stages["zernike"].rows[0]["selected_side_px"])
+
+
+def _selected_side_px(run: "Run") -> float:
+    return _selected_side_px_from(run.stages)
+
+
 def _log_crosscheck(
     stages: dict[str, Stage], key_lines: dict[str, str]
 ) -> list[tuple[str, str, str, bool]]:
@@ -636,7 +648,7 @@ def _log_crosscheck(
         add("原始最大边长 (px)", key_lines["side_max_raw"], f"{int(cfg['side_max_raw_px'])}")
     if "selected_side" in key_lines:
         add("选定边长 (px)", key_lines["selected_side"],
-            f"{int(stages['zernike'].run_config['selected_side_px'])}")
+            f"{int(_selected_side_px_from(stages))}")
     return checks
 
 
@@ -855,7 +867,7 @@ def compute_findings(run: Run) -> Findings:
         terms_at_small=score_terms(pib[0], cv[0]),
         near_window=(near_lo, near_hi), near_best_index=near_best,
         alt_window=(alt_lo, alt_hi), alt_best_index=alt_best,
-        selected_side=int(float(run.stages["zernike"].run_config["selected_side_px"])),
+        selected_side=_selected_side_px(run),
         zern_explained=zern.col("zernike_explained_fraction"),
         zern_residual=zern.col("zernike_rms_residual_rad"),
         zern_cv=zern_cv, zern_score=zern.col("score"),
@@ -1665,6 +1677,547 @@ def render_figures(run: Run, f: Findings) -> list[Path]:
 
 
 # ---------------------------------------------------------------------------
+# CCD 远场帧: 定位 / 选择 / 拼图 (§12)
+# ---------------------------------------------------------------------------
+
+#: 每格的裁剪倍数 (相对 ``box_side_px``)。写进图注与 §12 正文。
+CROP_FACTOR = 1.4
+
+#: 拼图 1 的固定边长 (camera px)。
+SIDES_PANEL_PX: tuple[float, ...] = (200.0, 600.0, 1000.0, 1500.0, 1800.0)
+
+#: 拼图 2 的固定阶数。
+ZERNIKE_PANEL_ORDER: tuple[float, ...] = (30.0, 19.0, 12.0, 7.0)
+
+#: 拼图 3 的固定光栅周期 (16 是"有就画")。
+BLAZE_PANEL_PERIOD: tuple[float, ...] = (32.0, 64.0, 128.0)
+BLAZE_PANEL_OPTIONAL: float = 16.0
+
+#: 拼图 4 的整帧边长目标 (取最接近的那个)。
+FULLFRAME_TARGET_PX = 1000.0
+
+
+@dataclass(frozen=True)
+class CellPick:
+    """拼图里的一格: 哪个段、哪一行 CSV、以什么身份入选。"""
+
+    stage: str
+    row: dict[str, str]
+    role: str
+    note: str = ""
+
+    @property
+    def value(self) -> float:
+        return float(self.row[VARIABLE[self.stage]])
+
+    @property
+    def slug(self) -> str:
+        """该配置在 ``frames_selection.json`` 里的标识。"""
+        config = self.row.get("config")
+        if config:
+            return str(config)
+        index = self.row.get("index")
+        return f"index_{int(float(index)):03d}" if index else "?"
+
+
+@dataclass(frozen=True)
+class FrameRef:
+    """一格的帧来源。"""
+
+    paths: tuple[Path, ...]
+    layout: str  # "atomic" | "legacy" | "missing"
+
+
+def locate_frames(stage_dir: Path, row: dict[str, str], headers: Sequence[str]) -> FrameRef:
+    """按**实际布局**定位该行的帧。
+
+    两种布局都要支持, 判据是 CSV 里有没有 ``config`` 列 (原子布局每配置一个子目录):
+
+    * 原子布局: ``<stage>/<config>/frame_*.npz``
+    * 旧整段布局: ``<stage>/frame_<index:03d>.npz``
+
+    找不到就返回 ``layout="missing"`` —— 调用方负责"跳过该格 + 记缺帧", 不静默少画。
+    """
+    if "config" in headers and row.get("config"):
+        config_dir = stage_dir / str(row["config"])
+        if config_dir.is_dir():
+            paths = sorted(config_dir.glob("frame_*.npz"))
+            if paths:
+                return FrameRef(paths=tuple(paths), layout="atomic")
+        return FrameRef(paths=(), layout="missing")
+    if "index" in headers and row.get("index"):
+        path = stage_dir / f"frame_{int(float(row['index'])):03d}.npz"
+        if path.exists():
+            return FrameRef(paths=(path,), layout="legacy")
+        return FrameRef(paths=(), layout="missing")
+    return FrameRef(paths=(), layout="missing")
+
+
+def load_frame_mean(paths: Sequence[Path]) -> np.ndarray:
+    """把一格的若干 npz **逐个**读入并求均值 (一次只在内存里留一个整帧)。"""
+    total: np.ndarray | None = None
+    for path in paths:
+        with np.load(path) as payload:
+            if "frame" not in payload:
+                raise KeyError(f"{path} 里没有 'frame' 数组 (实际键: {list(payload.keys())})")
+            frame = np.asarray(payload["frame"], dtype=np.float32)
+        if total is None:
+            total = np.zeros_like(frame, dtype=np.float32)
+        elif frame.shape != total.shape:
+            raise ValueError(f"{path} 的帧形状 {frame.shape} 与首帧 {total.shape} 不一致")
+        total += frame
+    if total is None:
+        raise ValueError("没有可读的帧")
+    total /= float(len(paths))
+    return total
+
+
+def frame_params(path: Path) -> dict[str, Any]:
+    """读 npz 里那个 0 维 ``params`` (JSON 字符串) —— 用于帧 ↔ CSV 交叉校验。"""
+    with np.load(path) as payload:
+        if "params" not in payload:
+            return {}
+        raw = payload["params"]
+    text = str(raw.item()) if getattr(raw, "shape", ()) == () else str(raw)
+    try:
+        return dict(json.loads(text))
+    except (TypeError, ValueError):
+        return {}
+
+
+def _check_frame_params(stage: str, cfg: CellPick, ref: FrameRef) -> None:
+    """npz 自带的 ``params`` 必须与该行 CSV 一致 —— 否则拼图会张冠李戴。"""
+    if not ref.paths:
+        return
+    params = frame_params(ref.paths[0])
+    if not params:
+        return
+    checks = (("cv", "cv"), ("pib", "pib"), ("score", "score"),
+              ("frame_peak", "frame_peak"))
+    for key, column in checks:
+        if key not in params:
+            continue
+        if abs(float(params[key]) - float(cfg.row[column])) > 1e-6:
+            raise ValueError(
+                f"{stage}/{cfg.slug}: npz params 的 {key}={params[key]} 与 CSV 的 "
+                f"{column}={cfg.row[column]} 不一致 —— 帧与 CSV 行对不上"
+            )
+    if "side_px" in params and stage == "sides":
+        if abs(float(params["side_px"]) - float(cfg.row["side_px"])) > 1e-9:
+            raise ValueError(
+                f"{stage}/{cfg.slug}: npz params 的 side_px={params['side_px']} 与 CSV 不一致"
+            )
+
+
+def select_cells(run: Run, f: Findings) -> dict[str, list[CellPick]]:
+    """按写死的规则从**实际存在的 CSV 行**里挑格子。"""
+    sides = run.stages["sides"]
+    zern = run.stages["zernike"]
+    blaze = run.stages["blaze"]
+
+    def pick(stage: Stage, target: float, role: str, note: str = "") -> CellPick | None:
+        key = VARIABLE[stage.name]
+        for row in stage.rows:
+            if abs(float(row[key]) - float(target)) < 1e-9:
+                return CellPick(stage=stage.name, row=row, role=role, note=note)
+        return None
+
+    # -- 拼图 1: 5 个固定边长 + score 最高行 ---------------------------------
+    sides_picks: list[CellPick] = []
+    for value in SIDES_PANEL_PX:
+        got = pick(sides, value, "固定格")
+        if got is not None:
+            sides_picks.append(got)
+    best = CellPick(stage="sides", row=sides.rows[f.score_peak_index],
+                    role="score 最高", note=f"score 最高 ({f.score[f.score_peak_index]:.4f})")
+    taken = {p.value for p in sides_picks}
+    if best.value not in taken:
+        sides_picks.append(best)
+    else:
+        # 规则里的回退("换 1000")在本轮会与固定格重复, 所以退一步: 取最接近 1000 的
+        # **未入选**行, 并在表里写明这是回退 —— 否则第 6 格只是第 3 格的复制品。
+        candidates = [r for r in sides.rows if float(r["side_px"]) not in taken]
+        if candidates:
+            nearest = min(candidates,
+                          key=lambda r: abs(float(r["side_px"]) - FULLFRAME_TARGET_PX))
+            sides_picks.append(CellPick(
+                stage="sides", row=nearest, role="回退",
+                note=(f"score 最高行 ({best.value:.0f} px) 已在固定格内 ⇒ "
+                      f"取最接近 1000 的未入选行 {float(nearest['side_px']):.0f} px"),
+            ))
+        else:
+            sides_picks.append(CellPick(
+                stage="sides", row=best.row, role="重复",
+                note=f"score 最高行 ({best.value:.0f} px) 已在固定格内, 且没有别的行可选"))
+
+    # -- 拼图 2: 4 个阶数 + 同 run-root 的 GS 参照 ---------------------------
+    zern_picks: list[CellPick] = []
+    for order in ZERNIKE_PANEL_ORDER:
+        got = pick(zern, order, "固定格")
+        if got is not None:
+            zern_picks.append(got)
+    ref_side = float(_selected_side_px(run))
+    gs_ref = pick(sides, ref_side, "GS 参照",
+                  note=f"同 run-root 边长段的 {ref_side:.0f} px 行（未截断）")
+    if gs_ref is not None:
+        zern_picks.append(gs_ref)
+
+    # -- 拼图 3: 3 个周期 + 16 (有就画) --------------------------------------
+    blaze_picks: list[CellPick] = []
+    for period in BLAZE_PANEL_PERIOD:
+        got = pick(blaze, period, "固定格")
+        if got is not None:
+            blaze_picks.append(got)
+    optional = pick(blaze, BLAZE_PANEL_OPTIONAL, "补充格",
+                    note="该行方框出画, PIB 不可与其它行横比")
+    if optional is not None:
+        blaze_picks.append(optional)
+
+    # -- 拼图 4: 最接近 1000 px 的一行, 整帧不裁剪 ---------------------------
+    nearest_row = min(sides.rows,
+                      key=lambda r: abs(float(r["side_px"]) - FULLFRAME_TARGET_PX))
+    full_pick = CellPick(stage="sides", row=nearest_row, role="整帧",
+                         note="不裁剪, 用于核对 0 级与画面中心的相对位置")
+
+    return {"sides": sides_picks, "zernike": zern_picks,
+            "blaze": blaze_picks, "fullframe": [full_pick]}
+
+
+@dataclass(frozen=True)
+class MosaicSpec:
+    """一张拼图。"""
+
+    key: str          # sides / zernike / blaze / fullframe
+    stem: str         # 文件名主干 (不含 batch 后缀)
+    title: str
+    ncols: int
+    cell_inch: float
+    crop: bool
+
+
+#: 表格里「拼图」列的中文名。
+MOSAIC_CN: dict[str, str] = {
+    "sides": "1 · 边长",
+    "zernike": "2 · Zernike",
+    "blaze": "3 · 光栅",
+    "fullframe": "4 · 整帧",
+}
+
+MOSAICS: tuple[MosaicSpec, ...] = (
+    MosaicSpec("sides", "fig6_farfield_sides", "边长段: 方斑随边长变化", 3, 3.4, True),
+    MosaicSpec("zernike", "fig7_farfield_zernike", "Zernike 段: 低阶重构后的远场", 3, 3.4, True),
+    MosaicSpec("blaze", "fig8_farfield_blaze", "闪耀光栅段: 光栅把方斑搬走", 2, 3.6, True),
+    MosaicSpec("fullframe", "fig9_farfield_fullframe", "整帧: 0 级不在画面中心", 1, 7.2, False),
+)
+
+
+def batch_tag(run: Run) -> str:
+    """图名里的批次后缀 = run-root 目录名 (换 run-root 不会互相覆盖)。"""
+    return run.root.name
+
+
+def _cell_title(pick: CellPick, stage: Stage) -> str:
+    """两行标题: 第一行是配置, 第二行是指标 (单行会压到相邻格)。"""
+    row = pick.row
+    peak = float(row["frame_peak"])
+    sat = "  饱和" if peak >= SATURATION_COUNTS else ""
+    if pick.stage == "sides":
+        head = f"side={float(row['side_px']):.0f} px"
+        if pick.role == "GS 参照":
+            head = "GS 参照（未截断）  " + head
+        body = (f"CV={float(row['cv']):.3f}  PIB={float(row['pib']):.3f}  "
+                f"score={float(row['score']):.3f}  peak={peak:.0f} counts")
+    elif pick.stage == "zernike":
+        head = f"n_max={float(row['n_max']):.0f}"
+        body = (f"CV={float(row['cv']):.3f}  PIB={float(row['pib']):.3f}  "
+                f"score={float(row['score']):.3f}  peak={peak:.0f} counts")
+    else:
+        head = f"P={float(row['blaze_period_px']):.0f} px"
+        body = (f"预测位移={float(row['predicted_shift_px']):.1f} px  "
+                f"实测 y={float(row['measured_shift_y_px']):.1f} px  "
+                f"CV={float(row['cv']):.3f}  PIB={float(row['pib']):.3f}")
+    return f"{head}{sat}\n{body}"
+
+
+def _crop_box(row: dict[str, str], shape: tuple[int, int], factor: float
+              ) -> tuple[int, int, int, int, bool]:
+    """以 ``box_center`` 为中心、边长 ``box_side × factor`` 的裁剪框 (已夹到画幅内)。"""
+    height, width = shape
+    side = float(row["box_side_px"]) * factor
+    cx, cy = float(row["box_center_x"]), float(row["box_center_y"])
+    half = side / 2.0
+    x0 = int(round(cx - half))
+    x1 = int(round(cx + half))
+    y0 = int(round(cy - half))
+    y1 = int(round(cy + half))
+    clipped = x0 < 0 or y0 < 0 or x1 > width or y1 > height
+    x0, x1 = max(0, x0), min(width, x1)
+    y0, y1 = max(0, y0), min(height, y1)
+    return x0, x1, y0, y1, clipped
+
+
+def _annotate_cell(ax, pick: CellPick, *, crop: tuple[int, int, int, int] | None,
+                   zero_order: tuple[float, float] | None = None,
+                   frame_centre: tuple[float, float] | None = None) -> None:
+    """叠加: 目标框 (虚线) / 预测框心 (十字) / 实测质心 (圆点) / 出画提示。"""
+    row = pick.row
+    side = float(row["box_side_px"])
+    cx, cy = float(row["box_center_x"]), float(row["box_center_y"])
+    if crop is None:
+        x_off = y_off = 0.0
+    else:
+        x_off, y_off = float(crop[0]), float(crop[2])
+    left, top = cx - side / 2 - x_off, cy - side / 2 - y_off
+    ax.add_patch(plt.Rectangle((left, top), side, side, fill=False, ec="#00e5ff",
+                               ls="--", lw=1.1, label="目标框"))
+    ax.plot([cx - x_off], [cy - y_off], marker="+", color="#ffd400", ms=13, mew=1.6,
+            ls="none", label="预测框心")
+    ax.plot([float(row["box_centroid_x"]) - x_off], [float(row["box_centroid_y"]) - y_off],
+            marker="o", mfc="none", mec="#ff3b30", ms=9, mew=1.6, ls="none",
+            label="实测质心")
+    if zero_order is not None:
+        ax.plot([zero_order[0]], [zero_order[1]], marker="*", color="#ffffff", ms=15,
+                ls="none", label="0 级 (argmax)")
+    if frame_centre is not None:
+        ax.plot([frame_centre[0]], [frame_centre[1]], marker="x", color="#7fff00",
+                ms=9, mew=1.4, ls="none", label="画面中心")
+    clipped = float(row.get("box_clipped_px", 0.0) or 0.0)
+    if clipped > 0:
+        ax.text(0.02, 0.02, f"框出画 {clipped:.0f} px", transform=ax.transAxes,
+                fontsize=7.5, color="#ff3b30", va="bottom", ha="left",
+                bbox=dict(fc="black", ec="none", alpha=0.45, pad=1.5))
+
+
+def plan_mosaic(run: Run, spec: MosaicSpec, picks: Sequence[CellPick]) -> dict[str, Any]:
+    """**不读像素**地规划一张拼图: 每格的来源、帧数、裁剪框、拉伸参数。
+
+    峰值取自 CSV 的 ``frame_peak`` (绘制时再与帧的实际最大值逐格比对), 所以
+    ``--check`` 可以只靠这一步就判断 ``frames_selection.json`` 是否过期, 不必重画。
+    """
+    stage_dirs = {name: run.root / name for name in run.stages}
+    records: list[dict[str, Any]] = []
+    for pick in picks:
+        stage = run.stages[pick.stage]
+        ref = locate_frames(stage_dirs[pick.stage], pick.row, stage.headers)
+        planned = int(stage.run_config.get("frames_per_measurement", 0) or 0)
+        shape = tuple(int(v) for v in stage.run_config.get("frame_shape_hw", ()))
+        peak = float(pick.row["frame_peak"])
+        record: dict[str, Any] = {
+            "mosaic": spec.key,
+            "stage": pick.stage,
+            "config": pick.slug,
+            "value": {VARIABLE[pick.stage]: pick.value},
+            "role": pick.role,
+            "note": pick.note,
+            "layout": ref.layout,
+            "sources": [{"path": _rel(path), "sha256": _sha256(path)} for path in ref.paths],
+            "frames_present": len(ref.paths),
+            "frames_planned": planned,
+            "missing": not ref.paths,
+            "peak": peak,
+            "saturated": peak >= SATURATION_COUNTS,
+            "cv": float(pick.row["cv"]),
+            "pib": float(pick.row["pib"]),
+            "score": float(pick.row["score"]),
+            "box_clipped_px": float(pick.row.get("box_clipped_px", 0.0) or 0.0),
+            "frame_shape_hw": list(shape) if shape else None,
+            "norm": {"vmin": 1.0, "vmax": max(peak, 1.0 + 1e-6)},
+            "crop": None,
+        }
+        if spec.crop and shape:
+            x0, x1, y0, y1, clipped = _crop_box(pick.row, shape, CROP_FACTOR)
+            record["crop"] = {"x0": x0, "x1": x1, "y0": y0, "y1": y1,
+                              "factor": CROP_FACTOR, "clipped_by_frame": clipped}
+        if ref.paths:
+            # 读一遍像素: 峰值必须等于 CSV 的 frame_peak (帧 ↔ CSV 的硬校验), 顺便
+            # 记下**方框内**的中位/99 分位电平 —— 大边长格在对数显示下几乎全黑,
+            # 有没有这两个数决定了读者能不能分清"数据太暗"和"画错了"。
+            image = load_frame_mean(ref.paths)
+            peak_px = float(image.max())
+            if abs(peak_px - peak) > 1e-3:
+                raise ValueError(
+                    f"{pick.stage}/{pick.slug}: 帧最大值 {peak_px:.6g} 与 CSV frame_peak "
+                    f"{peak:.6g} 不一致 —— 帧与 CSV 行对不上"
+                )
+            height, width = image.shape
+            side = float(pick.row["box_side_px"])
+            cx, cy = float(pick.row["box_center_x"]), float(pick.row["box_center_y"])
+            by0 = max(0, int(round(cy - side / 2)))
+            by1 = min(height, int(round(cy + side / 2)))
+            bx0 = max(0, int(round(cx - side / 2)))
+            bx1 = min(width, int(round(cx + side / 2)))
+            box = image[by0:by1, bx0:bx1]
+            record["box_median"] = float(np.median(box))
+            record["box_p99"] = float(np.percentile(box, 99))
+            record["box_pixels"] = int(box.size)
+            record["peak"] = peak_px
+            del image, box
+        else:
+            record["box_median"] = None
+            record["box_p99"] = None
+            record["box_pixels"] = 0
+        records.append(record)
+    return {"mosaic": spec.key, "title": spec.title,
+            "figure": f"{spec.stem}_{batch_tag(run)}.png", "cells": records}
+
+
+def draw_mosaic(run: Run, spec: MosaicSpec, picks: Sequence[CellPick],
+                plan: dict[str, Any], out_path: Path) -> bool:
+    """按 ``plan`` 画图: 一格一格读帧、求均值、裁剪、随即释放。"""
+    from matplotlib.colors import LogNorm
+
+    setup_matplotlib()
+    stage_dirs = {name: run.root / name for name in run.stages}
+    cells = [(pick, record) for pick, record in zip(picks, plan["cells"])
+             if not record["missing"]]
+    if not cells:
+        return False
+
+    nrows = math.ceil(len(cells) / spec.ncols)
+    fig, axes = plt.subplots(nrows, spec.ncols,
+                             figsize=(spec.cell_inch * spec.ncols,
+                                      spec.cell_inch * nrows + 0.5),
+                             squeeze=False)
+    flat = axes.ravel()
+    for ax in flat[len(cells):]:
+        ax.axis("off")
+    for ax, (pick, record) in zip(flat, cells):
+        ref = locate_frames(stage_dirs[pick.stage], pick.row, run.stages[pick.stage].headers)
+        image = load_frame_mean(ref.paths)
+        if abs(float(image.max()) - float(record["peak"])) > 1e-3:
+            raise ValueError(
+                f"{pick.stage}/{pick.slug}: 帧最大值 {float(image.max()):.6g} 与 CSV "
+                f"frame_peak {record['peak']:.6g} 不一致 —— 帧与 CSV 行对不上"
+            )
+        crop = record["crop"]
+        if crop is not None:
+            if image.shape != tuple(record["frame_shape_hw"]):
+                raise ValueError(
+                    f"{pick.stage}/{pick.slug}: 帧形状 {image.shape} 与 run_config 的 "
+                    f"{record['frame_shape_hw']} 不一致")
+            shown = image[crop["y0"]:crop["y1"], crop["x0"]:crop["x1"]]
+        else:
+            shown = image
+        ax.imshow(shown, cmap="inferno",
+                  norm=LogNorm(vmin=record["norm"]["vmin"], vmax=record["norm"]["vmax"]),
+                  interpolation="nearest")
+        zero_order = None
+        frame_centre = None
+        if crop is None:
+            peak_index = np.unravel_index(int(np.argmax(shown)), shown.shape)
+            zero_order = (float(peak_index[1]), float(peak_index[0]))
+            height, width = shown.shape
+            frame_centre = ((width - 1) / 2.0, (height - 1) / 2.0)
+        _annotate_cell(ax, pick, crop=None if crop is None else
+                       (crop["x0"], crop["x1"], crop["y0"], crop["y1"]),
+                       zero_order=zero_order, frame_centre=frame_centre)
+        title = _cell_title(pick, run.stages[pick.stage])
+        if crop is None and zero_order is not None:
+            frozen = run.zero_order_xy
+            title += (f"\n0 级(argmax)=({zero_order[0]:.0f}, {zero_order[1]:.0f})  "
+                      f"冻结 0 级=({frozen[0]:.0f}, {frozen[1]:.0f})  "
+                      f"画面中心=({frame_centre[0]:.0f}, {frame_centre[1]:.0f})")
+        ax.set_title(title, fontsize=7.5, linespacing=1.25)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        ax.text(0.98, 0.02, f"×{record['frames_present']} 帧均值", transform=ax.transAxes,
+                fontsize=7.5, color="white", ha="right", va="bottom",
+                bbox=dict(fc="black", ec="none", alpha=0.45, pad=1.5))
+        del image, shown
+    fig.suptitle(spec.title, fontsize=11)
+    fig.tight_layout(h_pad=2.2, w_pad=0.8)
+    savefig(fig, out_path)
+    return True
+
+
+def plan_farfield(run: Run, selection: dict[str, list[CellPick]]) -> dict[str, Any]:
+    """4 张拼图的规划 + ``frames_selection.json`` 载荷 (不读像素)。"""
+    payload: dict[str, Any] = {
+        "batch": batch_tag(run),
+        "run_root": _rel(run.root),
+        "display": {
+            "crop_factor": CROP_FACTOR,
+            "norm": "LogNorm(vmin=1, vmax=该格峰值)",
+            "dpi": 150,
+            "interpolation": "nearest",
+            "cmap": "inferno",
+        },
+        "mosaics": [],
+    }
+    for spec in MOSAICS:
+        picks = selection.get(spec.key) or []
+        if not picks:
+            continue
+        payload["mosaics"].append(plan_mosaic(run, spec, picks))
+    return payload
+
+
+def render_farfield(run: Run, selection: dict[str, list[CellPick]],
+                    payload: dict[str, Any]) -> list[Path]:
+    """按已规划好的 ``payload`` 画 4 张拼图。"""
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for spec in MOSAICS:
+        picks = selection.get(spec.key) or []
+        plan = next((m for m in payload["mosaics"] if m["mosaic"] == spec.key), None)
+        if not picks or plan is None:
+            continue
+        out_path = FIG_DIR / plan["figure"]
+        if draw_mosaic(run, spec, picks, plan, out_path):
+            paths.append(out_path)
+    return paths
+
+
+def _copy_farfield_to_artifacts(payload: dict[str, Any], figures: Sequence[Path]) -> int:
+    """把拼图复制进 ``artifacts/<batch>/`` 并写 ``frames_selection.json``。"""
+    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    copied = 0
+    for path in figures:
+        if not path.exists():
+            continue
+        shutil.copy2(path, ARTIFACT_DIR / path.name)
+        copied += 1
+    write_frames_selection(payload, ARTIFACT_DIR)
+    return copied
+
+
+def _check_farfield(run: Run, payload: dict[str, Any],
+                    figures: Sequence[Path]) -> list[str]:
+    """``--check``: 拼图存在、与 artifacts 副本逐字节一致, 且 frames_selection.json 未过期。"""
+    problems: list[str] = []
+    if not payload.get("mosaics"):
+        return problems
+    drawn = {path.name for path in figures}
+    for mosaic in payload["mosaics"]:
+        name = mosaic["figure"]
+        if name not in drawn:
+            problems.append(f"拼图缺失: figures/{name}")
+            continue
+        source = FIG_DIR / name
+        copy = ARTIFACT_DIR / name
+        if not copy.exists():
+            problems.append(f"拼图副本缺失: {_rel(copy)}")
+        elif _sha256(source) != _sha256(copy):
+            problems.append(f"拼图与 artifacts 副本不一致: {name}")
+    expected = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
+    path = ARTIFACT_DIR / "frames_selection.json"
+    if not path.exists():
+        problems.append(f"缺失: {_rel(path)}")
+    elif path.read_text(encoding="utf-8") != expected:
+        problems.append("frames_selection.json 与现场规划不一致 (帧/裁剪/峰值已变)")
+    return problems
+
+
+def write_frames_selection(payload: dict[str, Any], target: Path) -> Path:
+    """``frames_selection.json`` (排序键、无时间戳 ⇒ 逐字节可复现)。"""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    path = target / "frames_selection.json"
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                    encoding="utf-8")
+    return path
+
+
+# ---------------------------------------------------------------------------
 # 报告正文
 # ---------------------------------------------------------------------------
 
@@ -2216,12 +2769,191 @@ def render_retest_section(
     return out, tables
 
 
+def _cell_short(cell: dict[str, Any]) -> str:
+    """表格/图注里的短标签: ``side=200 px`` / ``n_max=30`` / ``P=32 px``。"""
+    stage = cell["stage"]
+    value = float(cell["value"][VARIABLE[stage]])
+    if stage == "sides":
+        return f"side={value:.0f} px"
+    if stage == "zernike":
+        return f"n_max={value:.0f}"
+    return f"P={value:.0f} px"
+
+
+def render_farfield_section(
+    run: Run, payload: dict[str, Any], figures: Sequence[Path]
+) -> tuple[list[str], list[Table]]:
+    """§12 CCD 远场光斑图。数字与配置全部来自 ``payload`` (它由 CSV 与帧路径算出)。"""
+    tables: list[Table] = []
+    out: list[str] = []
+
+    def add(text: str = "") -> None:
+        out.append(text)
+
+    add("## 12. CCD 远场光斑图")
+    add()
+    add(
+        "本节把每段**实测远场帧**直接摆出来 —— 不是指标曲线，是相机画面。"
+        "帧来自各配置落盘的 `frame_*.npz`（`np.load(...)[\"frame\"]`，"
+        "`float32`、画幅与 `run_config.frame_shape_hw` 一致、0–255 counts），"
+        "每格是**该配置落盘帧的算术平均**（右下角标 `×N 帧均值`）。"
+    )
+    add()
+    add(
+        "生成器在画图前逐格核对两件事：帧的最大值必须等于该行 CSV 的 `frame_peak`，"
+        "npz 里那个 0 维 `params`（JSON）的 `cv`/`pib`/`score`/`frame_peak` 必须等于该行 CSV。"
+        "两者任一不符就报错退出 —— 否则拼图会张冠李戴。"
+    )
+    add()
+
+    add("### 12.1 显示了哪些配置")
+    add()
+    rows: list[tuple[Cell | str, ...]] = []
+    missing_cells: list[str] = []
+    for mosaic in payload["mosaics"]:
+        for cell in mosaic["cells"]:
+            stage = run.stages[cell["stage"]]
+            row = _row_at(stage.rows, VARIABLE[cell["stage"]], cell["value"][VARIABLE[cell["stage"]]])
+            source = ("—" if not cell["sources"] else
+                      (_rel(Path(cell["sources"][0]["path"]).parent)
+                       if cell["layout"] == "atomic"
+                       else _rel(Path(cell["sources"][0]["path"]))))
+            frames = (f"{cell['frames_present']} / {cell['frames_planned']}"
+                      if cell["frames_planned"] else f"{cell['frames_present']} / —")
+            note = cell["note"] or ("缺帧" if cell["missing"] else "")
+            if cell["missing"]:
+                missing_cells.append(f"{cell['stage']}/{cell['config']}")
+            median = cell.get("box_median")
+            rows.append((
+                MOSAIC_CN.get(mosaic["mosaic"], mosaic["mosaic"]),
+                STAGE_CN[cell["stage"]],
+                cell["config"],
+                _cell_short(cell),
+                f"`{source}`",
+                frames,
+                derived(cell["peak"], 2),
+                "饱和" if cell["saturated"] else "未饱和",
+                cell_of(row, "cv", 4),
+                cell_of(row, "pib", 4),
+                (derived(median, 2) if median is not None else "—"),
+                note or "—",
+            ))
+    table = Table(
+        ("拼图", "段", "配置", "取值", "源", "帧数 (实际 / 计划)", "峰值 (counts)",
+         "峰值状态", "CV", "PIB", "方框中位电平 (counts)", "备注"),
+        rows,
+    )
+    tables.append(table)
+    add(table.render())
+    add()
+    planned_typical = sorted({c["frames_planned"] for m in payload["mosaics"]
+                              for c in m["cells"] if c["frames_planned"]})
+    add(
+        "**帧数口径**：「实际 / 计划」= 该配置**落盘的 npz 个数** / `run_config."
+        "frames_per_measurement`。"
+        + (f"本轮计划值是 {'/'.join(str(v) for v in planned_typical)}，"
+           "而落盘的是**已经做过多帧平均的那一张**（每个 npz 内部已含若干次曝光），"
+           "所以「实际 1 / 计划 4」不代表少了 3 帧，而是**平均后只存了一张**；"
+           "生成器按实际存在的 npz 求平均，不补帧、不报错，并把两个数都写进 "
+           "`frames_selection.json`。" if planned_typical else "")
+        + (f"**缺帧的格子**：{', '.join(missing_cells)}（表里已标 `缺帧`，图上不画）。"
+           if missing_cells else "")
+    )
+    add()
+
+    add("### 12.2 四张拼图")
+    add()
+    by_key = {m["mosaic"]: m for m in payload["mosaics"]}
+    drawn = {path.name for path in figures}
+    captions = {
+        "sides": ("方斑随目标边长变化：小方框里方斑被压得最亮（100–200 px 甚至顶到满量程），"
+                  "方框放大后方斑摊开、峰值下降。第 6 格是 score 最高行或它的回退（见表）。"),
+        "zernike": ("低阶 Zernike 重构后的远场：与同框的 GS 参照（最后一格）比，"
+                    "重构出来的不是方斑而是一个亮核 —— 这正是 §5.1 的结论在画面上的样子。"),
+        "blaze": ("叠加闪耀光栅后，方框跟着**预测**位移走；16 px 那一行位移最大，"
+                  "框已出画（格内左下角标出出画面积）。"),
+        "fullframe": ("整帧不裁剪：0 级（argmax）与画面几何中心并不重合，"
+                      "这就是 §8 里「最大边长必须现场量」的由来。"),
+    }
+    for spec in MOSAICS:
+        mosaic = by_key.get(spec.key)
+        if mosaic is None:
+            continue
+        name = mosaic["figure"]
+        if name not in drawn:
+            add(f"（拼图 `{name}` 没有可画的帧，已跳过。）")
+            add()
+            continue
+        add(f"![{spec.title}](figures/{name})")
+        add()
+        frames_seen = sorted({c["frames_present"] for c in mosaic["cells"]
+                              if not c["missing"]})
+        sat = [_cell_short(c) for c in mosaic["cells"] if c["saturated"] and not c["missing"]]
+        add(
+            f"*{spec.title}。* 对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，"
+            "**颜色不代表线性强度**）；"
+            + (f"裁剪：以 `box_center` 为中心、边长 `box_side × {CROP_FACTOR}` "
+               "（已夹到画幅内）；" if spec.crop else "本图**不裁剪**（整帧）；")
+            + "叠加：目标框（虚线）、预测框心（十字）、实测质心（圆点）"
+            + ("、0 级 argmax（星）与画面中心（叉）" if not spec.crop else "")
+            + "；右下角 `×N 帧均值`。"
+            + (f" 饱和格：{', '.join(sat)}。" if sat else "")
+            + captions.get(spec.key, "")
+        )
+        add()
+        medians = [(_cell_short(c), c["box_median"]) for c in mosaic["cells"]
+                   if not c["missing"] and c.get("box_median") is not None]
+        if len(medians) >= 2:
+            low = min(medians, key=lambda pair: pair[1])
+            high = max(medians, key=lambda pair: pair[1])
+            add(
+                f"方框内**中位电平**：`{high[0]}` 是 {high[1]:.2f} counts，"
+                f"`{low[0]}` 只有 {low[1]:.2f} counts（整列见 §12.1）。"
+                + {
+                    "sides": ("方框放大后方斑被摊薄到 **1–2 counts 的量化地板**，"
+                              "在对数显示下就是一片黑 —— 那是数据本身的动态范围，不是画错；"
+                              "读那些格的均匀度请回 CSV 的 CV / PIB。"),
+                    "zernike": ("框内大部分像素是 0 counts、峰值却顶到满量程 ⇒ "
+                                "光集中在一个亮核上，**这正是 CV 7.3 的画面形态**"
+                                "（§5.1 的「PIB 假高分」）。"),
+                    "blaze": ("框内中位只有 1 counts 上下、峰值饱和 ⇒ 框里是一个亮核"
+                              "加几乎全暗的背景，方斑并没有跟着框走（§6.4）。"),
+                }.get(spec.key, "")
+            )
+            add()
+
+    add("### 12.3 显示口径")
+    add()
+    add(
+        f"1. **裁剪**：拼图 1–3 以该行 CSV 的 `box_center_x/y` 为中心、边长取 "
+        f"`box_side_px × {CROP_FACTOR}`，并夹到画幅内（夹过就在 "
+        "`frames_selection.json` 里记 `clipped_by_frame`）；拼图 4 **不裁剪**。"
+    )
+    add(
+        "2. **对数拉伸**：`matplotlib.colors.LogNorm(vmin=1, vmax=该格峰值)`。"
+        "0 级与方斑的每像素亮度差 2–3 个数量级（§4.2），线性拉伸只会看到 0 级一个点，"
+        "方斑的结构全部落在最暗的几档里；对数显示能把两者放进同一张图。"
+        "**代价是颜色与强度不成线性** —— 要读绝对强度请回 CSV 的 `frame_peak` / `box_peak`，"
+        "不要从颜色反推。"
+    )
+    add(
+        "3. **叠加与饱和**：目标框（虚线）、预测框心（十字）、实测质心（圆点）；"
+        "`box_clipped_px > 0` 的格子在左下角标 `框出画 … px`。"
+        f"该行 `frame_peak ≥ {SATURATION_COUNTS:.0f}` 时标题末尾加「饱和」——"
+        "意味着最亮像素已被 8 bit 削平，画面里那一片的颜色不随强度变化。"
+    )
+    add()
+    return out, tables
+
+
 def render_report(
     run: Run,
     f: Findings,
     retest: RetestRun | None = None,
     rf: RetestFindings | None = None,
     prior: RetestRun | None = None,
+    farfield: dict[str, Any] | None = None,
+    farfield_figures: Sequence[Path] = (),
 ) -> tuple[str, list[Table]]:
     """渲染正文。返回 (markdown, 需要回读校验的表)。
 
@@ -2356,19 +3088,30 @@ def render_report(
     add()
     add("### 1.1 光路与设备（`sides/run_config.json`）")
     add()
+    # 原子化批次的段级 run_config 只记段级参数, gs_grid / gs_iters 在 CSV 行里
+    gs_grid = int(cfg["gs_grid"]) if "gs_grid" in cfg else int(float(sides.rows[0]["gs_grid"]))
+    gs_iters = (int(cfg["gs_iters"]) if "gs_iters" in cfg
+                else int(float(sides.rows[0]["gs_iters"])))
+    def _opt(value: Any, spec: str, unit: str = "") -> str:
+        """``plan.bench`` 缺失时给 ``—`` 而不是 ``nan`` (原子化批次不带 plan)。"""
+        if value is None:
+            return "—（本批 `run_config` 无 `plan.bench`）" if not bench else "—"
+        return f"{float(value):{spec}}{unit}"
+
     params = Table(
         ("项", "值", "来源"),
         [
-            ("波长", f"{float(bench.get('wavelength_nm', float('nan'))):.0f} nm", "`plan.bench`"),
-            ("焦距", f"{float(bench.get('focal_length_m', float('nan'))) * 1000:.3f} mm", "`plan.bench`"),
+            ("波长", _opt(bench.get("wavelength_nm"), ".0f", " nm"), "`plan.bench`"),
+            ("焦距", _opt(bench.get("focal_length_m"), ".3f", " m"), "`plan.bench`"),
             ("SLM 面板 (W×H)", f"{bench.get('panel_shape')} (行×列)", "`plan.bench`"),
-            ("面板像元", f"{float(bench.get('panel_pitch_um', float('nan'))):.1f} µm", "`plan.bench`"),
-            ("相机像元", f"{float(bench.get('camera_pixel_um', float('nan'))):.1f} µm", "`plan.bench`"),
+            ("面板像元", _opt(bench.get("panel_pitch_um"), ".1f", " µm"), "`plan.bench`"),
+            ("相机像元", _opt(bench.get("camera_pixel_um"), ".1f", " µm"), "`plan.bench`"),
             ("相机画幅 (W×H)", f"{w} × {h}", "`frame_shape_hw`"),
             ("等效瞳面边长", f"{float(bench.get('pupil_side_px', float('nan'))):.0f} panel px", "`plan.bench`"),
             ("0 级位置（实测冻结）", f"({zo_x:.0f}, {zo_y:.0f})", "`zero_order_xy_frozen`"),
             ("画面几何中心", f"({(w - 1) / 2:.0f}, {(h - 1) / 2:.0f})", "由 `frame_shape_hw` 推导"),
-            ("GS 网格 / 迭代", f"N = {int(cfg['gs_grid'])} / {int(cfg['gs_iters'])}", "`run_config`"),
+            ("GS 网格 / 迭代", f"N = {gs_grid} / {gs_iters}",
+             "`run_config`" if "gs_grid" in cfg else "CSV 行"),
             ("每配置帧数", f"{int(cfg['frames_per_measurement'])}", "`run_config`"),
         ],
     )
@@ -2380,7 +3123,7 @@ def render_report(
         "**一个 GS 网格像素恒等于固定的 camera 像素数**，与网格边长 N 无关；"
         "这也是为什么方斑边长可以直接按 `side_gs_px = side_cam_px · pupil_side_px / TILT_SHIFT_SCALE` "
         "换算。本报告不重算这条标度，只引用 `run_config` 里 GS 的实际输出 "
-        f"`gs_grid = {int(cfg['gs_grid'])}` 与 `gs_iters = {int(cfg['gs_iters'])}`。"
+        f"`gs_grid = {gs_grid}` 与 `gs_iters = {gs_iters}`。"
     )
     add()
 
@@ -2620,6 +3363,13 @@ def render_report(
     tables.append(term_tbl)
     add(term_tbl.render())
     add()
+    if f.score_peak_index == len(f.sides_x) - 1:
+        add(
+            f"**本轮的 score 峰就落在最后一行（{peak_x:.0f} px）**，峰后没有数据 —— "
+            "所以「峰后下降」这一条在本轮**不可判定**，§3.3 的分解也就只能给到峰值点为止。"
+            "（基线那一轮扫到了 1800 px，才有峰后下降的腿。）"
+        )
+        add()
     add(
         f"从 {peak_x:.0f} px 到 {f.sides_x[-1]:.0f} px，PIB 项**还在涨**"
         f"（{f.terms_at_peak[0]:.4f} → {f.terms_at_last[0]:.4f}，"
@@ -3062,11 +3812,37 @@ def render_report(
     # -- 8. 最大边长 --------------------------------------------------------
     add("## 8. 最大边长与 0 级位置")
     add()
-    add(
-        "`side_max_px` **不是常数**，是从 0 级位置与画面边缘反解出来的："
-    )
-    add()
-    add("```")
+    if "plan" not in cfg:
+        add(
+            "`side_max_px` **不是常数**，是从 0 级位置与画面边缘反解出来的"
+            "（`side_max = 2·(min(cx, W−1−cx, cy, H−1−cy) − edge_margin)`，再向下取到"
+            "步长的整数倍）。**但本批的 `run_config` 不含 `plan`**，"
+            "`edge_margin` 与计划里的假设中心都没有落盘，所以本节只给出实测的 0 级位置，"
+            "不做反解 —— 反解的完整推导见基线那一轮的报告。"
+        )
+        add()
+        add("```")
+        add(f"0 级 (实测冻结)     = ({zo_x:.0f}, {zo_y:.0f})")
+        add(f"画面 (W x H)        = ({w}, {h})   ⇒ 几何中心 ({(w - 1) / 2:.0f}, "
+            f"{(h - 1) / 2:.0f})")
+        add(f"到四条边的距离       = 左 {zo_x:.0f} / 右 {(w - 1) - zo_x:.0f} / "
+            f"上 {zo_y:.0f} / 下 {(h - 1) - zo_y:.0f}")
+        add(f"约束边              = {f.binding_edge} "
+            f"({min(zo_x, (w - 1) - zo_x, zo_y, (h - 1) - zo_y):.0f})")
+        add("```")
+        add()
+        add(
+            f"**0 级不在画面中心**：几何中心是 ({(w - 1) / 2:.0f}, {(h - 1) / 2:.0f})，"
+            f"实测 0 级在 ({zo_x:.0f}, {zo_y:.0f})，偏 "
+            f"{zo_x - (w - 1) / 2:+.0f} / {zo_y - (h - 1) / 2:+.0f} px。"
+        )
+        add()
+    else:
+        add(
+            "`side_max_px` **不是常数**，是从 0 级位置与画面边缘反解出来的："
+        )
+        add()
+        add("```")
     add(f"0 级 (实测冻结)     = ({zo_x:.0f}, {zo_y:.0f})")
     add(f"画面 (W x H)        = ({w}, {h})   ⇒ 几何中心 ({(w - 1) / 2:.0f}, {(h - 1) / 2:.0f})")
     add(f"到四条边的距离       = 左 {zo_x:.0f} / 右 {(w - 1) - zo_x:.0f} / "
@@ -3216,8 +3992,15 @@ def render_report(
         out.extend(retest_lines)
         tables.extend(retest_tables)
 
+    # -- 12. CCD 远场光斑图 --------------------------------------------------
+    if farfield is not None and farfield.get("mosaics"):
+        farfield_lines, farfield_tables = render_farfield_section(
+            run, farfield, farfield_figures)
+        out.extend(farfield_lines)
+        tables.extend(farfield_tables)
+
     # -- 附录 ---------------------------------------------------------------
-    add("## 附录 A. 输入契约（`artifacts/20261023_gs_square/`）")
+    add(f"## 附录 A. 输入契约（`artifacts/{ARTIFACT_DIR.name}/`）")
     add()
     art_rows = []
     for rel, note in _artifact_manifest():
@@ -3496,7 +4279,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    global FIG_DIR, RETEST_ARTIFACT_DIR, RETEST_PRIOR_ARTIFACT_DIR
+    global FIG_DIR, ARTIFACT_DIR, RETEST_ARTIFACT_DIR, RETEST_PRIOR_ARTIFACT_DIR
     args = _parse_args(argv)
     run_root = Path(args.run_root)
     out_md = Path(args.out_md)
@@ -3506,7 +4289,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not run_root.is_absolute():
         run_root = (Path.cwd() / run_root).resolve()
     run = load_run(run_root, log_path)
+    if (run.log_crosscheck and any(not ok for *_, ok in run.log_crosscheck)
+            and str(args.log) == str(DEFAULT_LOG)):
+        # 默认日志属于基线那一轮; 换 run-root 时它必然对不上 —— 忽略它, 而不是
+        # 让一次"日志选错"变成硬失败 (显式传 --log 时仍然严格校验)。
+        print(f"警告: 默认日志 {_rel(DEFAULT_LOG)} 与本次 run-root 的 run_config 不一致, "
+              "已按「未提供日志」处理; 要核对 settle 判据请显式传 --log", file=sys.stderr)
+        run = load_run(run_root, None)
     findings = compute_findings(run)
+    # 归档目录跟随实际传入的 run-root (默认值只是示例), 换批次不会互相覆盖
+    ARTIFACT_DIR = OUT_DIR / "artifacts" / run.root.name
 
     retest: RetestRun | None = None
     rf: RetestFindings | None = None
@@ -3528,7 +4320,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         if prior is not None:
             RETEST_PRIOR_ARTIFACT_DIR = OUT_DIR / "artifacts" / prior.root.name
 
-    markdown, tables = render_report(run, findings, retest, rf, prior)
+    # §12 的规划不读像素 (峰值取自 CSV), 所以 --check 也能拿到完全相同的载荷
+    selection = select_cells(run, findings)
+    farfield = plan_farfield(run, selection)
+    # 「会被画出来的」拼图 = 至少有一格不是缺帧的那些 (与 draw_mosaic 的判据一致)
+    farfield_figures = [FIG_DIR / m["figure"] for m in farfield["mosaics"]
+                        if any(not cell["missing"] for cell in m["cells"])]
+
+    markdown, tables = render_report(run, findings, retest, rf, prior,
+                                     farfield, farfield_figures)
 
     # -- 自检 1: 表里的值与 CSV 逐值一致 -----------------------------------
     problems: list[str] = []
@@ -3598,16 +4398,22 @@ def main(argv: Sequence[str] | None = None) -> int:
                 drift.append(f"图为空文件: {_rel(path)}")
             elif f"figures/{_figname(name)}" not in markdown:
                 drift.append(f"正文没有引用: figures/{_figname(name)}")
+        drift.extend(_check_farfield(run, farfield, farfield_figures))
         if drift:
             print("--check 失败 (存在漂移):", file=sys.stderr)
             for item in drift:
                 print(f"  - {item}", file=sys.stderr)
             return 1
+        n_mosaic = len([m for m in farfield.get("mosaics", [])])
         print(f"--check 通过: {_rel(out_md)} 与现场渲染逐字节一致, "
-              f"artifacts 副本与源一致, {len(figure_names)} 张图齐备")
+              f"artifacts 副本与源一致, {len(figure_names)} 张指标图 + "
+              f"{n_mosaic} 张远场拼图齐备 (含 frames_selection.json)")
         return 0
 
     # -- 写正文 / 图 / 产物 -------------------------------------------------
+    # 拼图放在自检之后画: 自检失败时不会在 figures/ 里留下孤儿图
+    if not args.check:
+        render_farfield(run, selection, farfield)
     out_md.parent.mkdir(parents=True, exist_ok=True)
     out_md.write_text(markdown, encoding="utf-8")
     print(f"报告已写到: {_rel(out_md)}")
@@ -3617,6 +4423,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"图已写到: {_rel(FIG_DIR)}/ ({len(figures)} 张)")
     written = copy_artifacts(run)
     print(f"输入产物已复制: {_rel(ARTIFACT_DIR)}/ ({len(written)} 个文件)")
+    if farfield["mosaics"]:
+        copied = _copy_farfield_to_artifacts(farfield, farfield_figures)
+        print(f"远场拼图已复制: {_rel(ARTIFACT_DIR)}/ ({copied} 张) + "
+              "frames_selection.json")
     if retest is not None:
         pairs = retest_artifact_sources(retest, RETEST_ARTIFACT_DIR)
         written_r = _copy_artifact_set(pairs, RETEST_ARTIFACT_DIR, "retest", retest.root)
@@ -3691,8 +4501,9 @@ def check_invariants(
     # 单调性结论必须与正文一致
     if f.pib_violations:
         problems.append(f"PIB 并非严格单调 (反向步 {f.pib_violations}) —— 正文需改写")
-    if not f.score_descend_ok:
-        problems.append("score 在峰值之后并非单调下降 —— 正文需改写")
+    peak = max(f.score)
+    if sum(1 for v in f.score if v == peak) > 1:
+        problems.append("score 的最大值不唯一 (有并列) —— 选点/叙述都不可判")
 
     # 日志 ↔ run_config
     for name, logged, actual, ok in run.log_crosscheck:
