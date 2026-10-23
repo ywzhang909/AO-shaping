@@ -237,6 +237,25 @@ REPORTS: dict[str, ReportProvenance] = {
             "**未决**：拟合 ramp_matrix 与现场轴映射互为转置，空间放置需标记测量裁决。"
         ),
     ),
+    "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023_r2.md": ReportProvenance(
+        script="scripts/slm/generate_recalibration_report.py",
+        command="python scripts/slm/generate_recalibration_report.py",
+        environment="硬件",
+        extra_scripts=(
+            "scripts/slm/run_focus_recalibration.py",
+            "scripts/slm/capture_defocus_forward_dataset.py",
+            "scripts/slm/refit_model_after_optics_change.py",
+            "scripts/slm/direction_test_after_optics_change.py",
+            "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+        ),
+        note=(
+            "光路变化（CCD 移到焦平面）后的重标定第二轮，与 20261023 那一轮**互不覆盖**： "
+            "焦点 1783.5 mm/0.5607 m⁻¹/31.4× → inf/0.0000/1.00×（已在焦面）；重拟合把 "
+            "defocus_diopter 从 −0.6452 改到 −0.1160（等效焦距 8623 mm，fit loss 1.02→0.14），"
+            "零点移到 (1219, 964) 并重建采样窗；B± 方向检验：平场初值两向同号（失败），"
+            "结构化探针初值**符号正确但幅度不足**（Δ+ −0.0148 / Δ− +0.0115，0.7–0.9σ）。"
+        ),
+    ),
     "report/slm/differentiable_opt/differentiable_opt_animation_20261022.md": ReportProvenance(
         script="scripts/slm/render_differentiable_opt_animation.py",
         command=(
