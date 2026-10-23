@@ -54,7 +54,40 @@ SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳面场的二
 ``peak_counts_per_ms``        ``None`` (走旧的相对强度口径)      counts     单位峰值分数每毫秒的 counts
 ``noise_spec``                ``None`` (走旧的 ADU 噪声模型)     –          counts 口径的探测器噪声模型
 ``panel_aberration``          ``None`` (理想面板)                –          面板静态相差 (Zernike + 粗糙度)
+``camera_defocus_m``          ``0.0`` (探测器在 2f 焦面上)       m          相机离焦量 (探测器在 f + Δz 处)
+``counts_reference``          :data:`COUNTS_REFERENCE_FRAME`     –          counts 口径的归一化参考 (逐帧 / 固定)
 ============================  ==================================  ==========  ==========================================
+
+🔴 **「CCD 离焦」是这个模块曾经缺的那一个自由度** (2026-10-22)
+--------------------------------------------------------
+本模块的远场是面板相位的**纯 FFT** ⇒ **焦面按构造就落在探测器上**, 于是:
+
+* 「用瞳面菲涅尔相位把焦面搬回探测器」这件事在仿真里**毫无效果** (加一片透镜
+  只会让光斑变糊, 不会变好) —— 焦面标定扫出来的最佳 1/f 恒为 0;
+* 离焦扫描里「平场宽度随菲涅尔矫正收敛」这件事也**根本不存在** (理想瞳面 + 菲涅尔
+  相位造不出一个会随离焦散开的弥散晕)。
+
+真实实验系统两样都有: 探测器并不在 2f 焦面上 (实测最佳 1/f = +0.6454 m⁻¹ ⇒
+等效瞳面二次相位焦距 1549.33 mm), 而面板还自带静态相差。
+
+**物理 (Collins/ABCD)**: 系统矩阵 ``T(f+Δz)·L(f)·T(f)`` 给出 ``A = -(f+Δz)/f``,
+于是相机离焦在**瞳面**上等价于一个二次相位
+
+.. code-block:: text
+
+    相位(r) = -π · Δz · r² / (λ · f²)
+
+(``B ≡ f`` ⇒ 核尺度仍是 λf ⇒ CCD 离焦只让图样**变模糊**, 不缩放)。补偿它所需的
+面板菲涅尔相位是 ``+π r²/(λ·f_v)``, 其中 ``f_v = f²/Δz``。
+
+本模块把这件事实现为**瞳面**上的二次相位 (而不是焦面复场上的角谱传播): 面板是
+1920×1200 的长方形, 单一补零因子无法让两轴的远场节距同时对齐 (行 1.57 / 列 0.98
+相机像元), 角谱写法在这种各向异性网格上没有唯一确定的物理含义; 而 Collins 的
+结果只依赖透镜焦距与离焦量, 与远场网格无关 —— 瞳面二次相位是**唯一**正确的写法。
+
+⇒ 拧 :attr:`SimPibSystem.camera_defocus_m` 就能让「最佳补偿值落在 f_v ≈ 1549 mm」
+这件事在仿真里成立, 且符号与实测一致 (``Δz > 0`` ⇒ 探测器在焦面**之后**
+⇒ 补偿焦距 ``f_v = f²/Δz > 0``)。
 
 ⚠️ **远场补零因子 = 角标度**: 远场一个采样点的物理尺寸是 ``λ·f / (N_pad · p)``, 而本模块
 的约定是「**一个远场采样点 = 一个相机像元**」。故只有当 ``N_pad = λ·f / (d_cam · p)``
@@ -68,6 +101,7 @@ SLM 在前焦面、CCD 在后焦面, 因此 CCD 图像就是 SLM 瞳面场的二
 
 from __future__ import annotations
 
+import math
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Mapping
@@ -135,12 +169,54 @@ FAR_FIELD_WINDOW = 1024
 # 相机 ROI 窗口边长 (px) —— 真实实验系统用的是 250 px。
 CAM_WINDOW_PX = 250
 
+#: counts 口径的**逐帧**归一化 (历史行为): 每一帧都把自己的峰值当作 100。
+COUNTS_REFERENCE_FRAME = "frame"
+
+#: counts 口径的**固定**归一化: 参考量 = 平场 (零相位、理想聚焦) 的远场峰值,
+#: 帧与帧之间不变 ⇒ 光被散开后 counts 自然下降 (能量守恒)。
+COUNTS_REFERENCE_FLAT = "flat"
+
+#: counts 口径允许的归一化参考。
+COUNTS_REFERENCE_MODES: tuple[str, ...] = (
+    COUNTS_REFERENCE_FRAME,
+    COUNTS_REFERENCE_FLAT,
+)
+
 
 def _forward_fft2(field: np.ndarray) -> np.ndarray:
     """二维正向 FFT, 可用时走 scipy 的多线程核。"""
     if _scipy_fft is not None:
         return _scipy_fft.fft2(field, workers=-1)
     return np.fft.fft2(field)
+
+
+def _smooth_gaussian(field: np.ndarray, sigma_px: float) -> np.ndarray:
+    """把一张白噪声场用**可分离高斯核**平滑 (面形误差的相关长度)。
+
+    核是 1D 的 ⇒ 卷积是两次一维卷积 (O(N·k)), 1920×1200 的面板在 σ=30 px 时
+    约 0.3 s —— 而且只在**第一次**算 (面板属性是静态的, 之后走缓存)。
+
+    Args:
+        field: 输入场 (二维)。
+        sigma_px: 高斯核的标准差 (像素)。
+
+    Returns:
+        平滑后的场 (与输入同形)。
+    """
+    sigma = float(sigma_px)
+    if sigma <= 0.0:
+        return field
+    radius = max(int(math.ceil(3.0 * sigma)), 1)
+    x = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (x / sigma) ** 2)
+    kernel /= kernel.sum()
+    out = np.apply_along_axis(
+        lambda row: np.convolve(row, kernel, mode="same"), 1, field
+    )
+    out = np.apply_along_axis(
+        lambda col: np.convolve(col, kernel, mode="same"), 0, out
+    )
+    return out
 
 
 @dataclass(frozen=True)
@@ -158,12 +234,21 @@ class SimPanelAberration:
         zernike_n_max: 面板 Zernike 的径向阶数上限。
         roughness_sigma_rad: 面板粗糙度 (高斯随机场的 RMS, 弧度)。
         roughness_seed: 粗糙度随机场的种子 (固定 → 可复现)。
+        roughness_corr_px: 粗糙度的**空间相关长度** (面板 px)。``0`` (默认) =
+            逐像元白噪声 (旧行为); 给定值 ⇒ 白噪声先被一个高斯核 (σ = 该值)
+            平滑, 于是粗糙度是一张**面形误差** (而不是像素级白噪声)。
+
+            🔴 **为什么要有这个**: 逐像元白噪声在远场上只是给背景加一层弥散
+            本底 (光斑的**核心**不变), 复现不了实测的「散斑晕」—— 实测面板的
+            面形误差在**几十个面板像元**的尺度上相关, 它把光散成一个**弥散晕**
+            (光斑变宽、而且是对称的)。
     """
 
     zernike_rad: Mapping[int, float] = field(default_factory=dict)
     zernike_n_max: int = 6
     roughness_sigma_rad: float = 0.0
     roughness_seed: int = 0
+    roughness_corr_px: float = 0.0
 
     def is_empty(self) -> bool:
         """是否什么也不注入 (⇒ 与不传本类逐位等价)。"""
@@ -183,11 +268,20 @@ class SimNoiseSpec:
         shot_k: 散粒噪声系数 —— ``σ_shot = shot_k · √signal_counts``。
         quantize_bits: 量化位深 (例如 8 ⇒ uint8, 帧被取整并裁剪到 ``[0, 255]``);
             ``None`` = 不量化。
+        dark_level_counts: 探测器的**暗电平** (counts)。真实相机在无光时仍读出一个
+            非零的本底 (本实验系统实测 26.75 counts), 量化作用在**带暗电平的原始
+            ADU** 上, 暗电平靠**减中位数** (暗帧扣除) 去掉。
+
+            🔴 **为什么必须有它**: 没有暗电平时, 背景的读出噪声被 ``clip(·, 0, None)``
+            **整流**成一块与像素数成正比的 DC 底座; 而当背景的分布恰好让「中位数」
+            落在两个取值之间时, 中位数本身就会**逐帧跳变** ⇒ 整帧总功率抖 3 个量级,
+            而 PIB 的分母正是整帧总功率 ⇒ σ(PIB) 被它支配 (实测 0.0011 vs 仿真 0.073)。
     """
 
     read_sigma_counts: float = 0.0
     shot_k: float = 0.0
     quantize_bits: int | None = None
+    dark_level_counts: float = 0.0
 
 
 class SimPibSystem:
@@ -218,6 +312,9 @@ class SimPibSystem:
         peak_counts_per_ms: float | None = None,
         noise_spec: SimNoiseSpec | None = None,
         panel_aberration: SimPanelAberration | None = None,
+        camera_defocus_m: float = 0.0,
+        counts_reference: str = COUNTS_REFERENCE_FRAME,
+        illumination_radius_px: float | None = None,
     ) -> None:
         """构造共享的光学状态。
 
@@ -246,11 +343,27 @@ class SimPibSystem:
                 ``counts = 峰值分数 · peak_counts_per_ms · 曝光(ms)``。
             noise_spec: counts 口径的探测器噪声模型; 只在 counts 口径下生效。
             panel_aberration: 面板静态相差 (Zernike + 粗糙度); 默认 ``None`` = 理想面板。
+            camera_defocus_m: 相机离焦量 (m)。``0.0`` (默认) = 探测器正好在 2f 焦面上
+                (本模块改动前的行为, 逐位不变)。``Δz > 0`` = 探测器在焦面**之后**
+                Δz 处 ⇒ 瞳面上等价地乘一个二次相位 ``-π·Δz·r²/(λ·f²)``, 补偿它
+                所需的面板菲涅尔相位焦距是 ``f_v = f²/Δz`` (见模块 docstring)。
+            counts_reference: counts 口径的归一化参考。"frame" (默认) = 逐帧把
+                自己的峰值当作 100 (历史行为); "flat" = 固定参考 (平场在理想
+                聚焦下的远场峰值), 于是光被散开后 counts 自然下降。
+            illumination_radius_px: 入射光的**照明盘半径** (面板 px)。``None``
+                (默认) = 不截断 (高斯一路铺到面板边缘, 本模块改动前的行为);
+                给定值 ⇒ 光只落在那个盘内 (真实实验系统就是这样: 光只落在
+                照明盘里, 而面板菲涅尔矫正的遮罩也正好是这个盘)。
         """
         if noise_spec is not None and peak_counts_per_ms is None:
             raise ValueError(
                 "noise_spec (counts 口径) 需要 peak_counts_per_ms 同时给出: "
                 "counts 口径的噪声必须知道 counts 的标度"
+            )
+        if counts_reference not in COUNTS_REFERENCE_MODES:
+            raise ValueError(
+                f"counts_reference must be one of {COUNTS_REFERENCE_MODES}, "
+                f"got {counts_reference!r}"
             )
         self.slm_h, self.slm_w = slm_shape
         self.ccd_h, self.ccd_w = ccd_res
@@ -270,10 +383,18 @@ class SimPibSystem:
         )
         self.noise_spec = noise_spec
         self.panel_aberration = panel_aberration
+        self.camera_defocus_m = float(camera_defocus_m)
+        self.counts_reference = str(counts_reference)
+        self.illumination_radius_px = (
+            None if illumination_radius_px is None else float(illumination_radius_px)
+        )
         self._rng = np.random.default_rng(seed)
         self._lock = threading.Lock()
         self._phase: np.ndarray = np.zeros((self.slm_h, self.slm_w), dtype=np.float64)
         self._far_field: np.ndarray | None = None
+        self._far_field_raw: np.ndarray | None = None
+        self._flat_reference_cache: float | None = None
+        self._defocus_phase_cache: np.ndarray | None = None
         self._pad_buffer: np.ndarray | None = None
         self._amplitude: np.ndarray | None = None
         self._gray: np.ndarray | None = None
@@ -349,6 +470,103 @@ class SimPibSystem:
         """
         return self.peak_counts_per_ms is not None
 
+    @property
+    def defocus_focal_m(self) -> float:
+        """相机离焦的**等效瞳面二次相位焦距** (m)。
+
+        补偿一片焦距 ``f_v`` 的面板菲涅尔相位就能把焦面搬回探测器 ⇒
+        ``f_v = f²/Δz``。``Δz = 0`` ⇒ ``inf`` (不需要补偿)。
+
+        本实验系统的实测值: 最佳 1/f = +0.6454 m⁻¹ ⇒ ``f_v = 1549.33 mm``。
+        """
+        dz = float(self.camera_defocus_m)
+        if dz == 0.0:
+            return float("inf")
+        return float(self.focal_length_m**2 / dz)
+
+    def _defocus_phase(self) -> np.ndarray | None:
+        """相机离焦在**瞳面**上的等效二次相位 (raw 弧度), ``None`` = 无离焦。
+
+        物理: Collins/ABCD 给出 ``T(f+Δz)·L(f)·T(f)`` 的 ``A = -(f+Δz)/f``, 于是
+        探测器离焦等价于瞳面乘 ``exp(-i·π·Δz·r²/(λ·f²))``。中心取面板中心
+        (与入射高斯光束中心、以及实测的照明中心 ``(960, 600)`` 一致) —— 偏心的
+        二次相位等价于一片偏心透镜, 会额外带来转向。
+
+        缓存: 离焦量与几何都是静态的 ⇒ 只算一次。
+        """
+        if float(self.camera_defocus_m) == 0.0:
+            return None
+        if self._defocus_phase_cache is not None:
+            return self._defocus_phase_cache
+        lam = self.wavelength_nm * 1e-9
+        f = self.focal_length_m
+        dz = float(self.camera_defocus_m)
+        pitch = self.slm_pixel_um * 1e-6
+        cx = self.slm_w / 2.0
+        cy = self.slm_h / 2.0
+        xs = (np.arange(self.slm_w) - cx) * pitch
+        ys = (np.arange(self.slm_h) - cy) * pitch
+        r2 = ys[:, None] ** 2 + xs[None, :] ** 2
+        phase = -np.pi * dz * r2 / (lam * f**2)
+        self._defocus_phase_cache = phase
+        return phase
+
+    def _compute_far_field_raw(
+        self,
+        phase: np.ndarray,
+        *,
+        include_disturbance: bool = True,
+        include_dm: bool = True,
+        include_defocus: bool = True,
+    ) -> np.ndarray:
+        """未归一化的远场强度 (裁剪后的 ``|FFT|**2``)。
+
+        Args:
+            phase: 瞳面相位 (raw 弧度)。
+            include_disturbance: 是否叠加扰动相位。
+            include_dm: 是否叠加 DM 电压带来的瞳面相位。
+            include_defocus: 是否叠加相机离焦的等效二次相位。
+
+        Returns:
+            远场强度数组 (未归一化)。
+        """
+        # 干扰与 SLM 命令共处同一个瞳面, 所以它在傅里叶变换之前就被加进去。
+        # `self._phase` 保持为纯命令 —— 把干扰烘进去会被重复计入。
+        if include_disturbance and self.disturbance is not None:
+            phase = phase + self.disturbance.phase()
+        # DM 相位 (电压 → 瞳面相位) 与干扰同一约定: 在求值时叠加进瞳面相位,
+        # 绝不烘进 ``self._phase``, 避免 SLM 命令与 DM 贡献重复计入。
+        if include_dm:
+            phase = phase + self.dm_optics.phase()
+        # 面板静态相差 (Zernike + 粗糙度) 同样是**面板的属性**, 在瞳面里相加。
+        # 同一约定: 求值时才加, ``self._phase`` 保持纯命令。
+        panel_phase = self._panel_aberration_field()
+        if panel_phase is not None:
+            phase = phase + panel_phase
+        # 相机离焦 (CCD 不在 2f 焦面上) —— 同样在瞳面里相加。
+        defocus_phase = self._defocus_phase()
+        if include_defocus and defocus_phase is not None:
+            phase = phase + defocus_phase
+        # SLM 网格上的高斯入射光束幅度 (静态几何 ⇒ 懒缓存, 见下)。
+        amplitude = self._amplitude_field()
+        pupil = amplitude * np.exp(1j * phase)
+        pad = self.far_field_padding
+        if pad > 1:
+            shape = (self.slm_h * pad, self.slm_w * pad)
+            buffer = self._pad_buffer
+            if buffer is None or buffer.shape != shape:
+                buffer = np.zeros(shape, dtype=np.complex128)
+                self._pad_buffer = buffer
+            buffer[: self.slm_h, : self.slm_w] = pupil
+            padded = buffer
+        else:
+            padded = pupil
+        spectrum = np.fft.fftshift(np.abs(_forward_fft2(padded)) ** 2)
+        window = min(self.far_field_window, spectrum.shape[0], spectrum.shape[1])
+        y0 = (spectrum.shape[0] - window) // 2
+        x0 = (spectrum.shape[1] - window) // 2
+        return spectrum[y0 : y0 + window, x0 : x0 + window]
+
     def far_field(self) -> np.ndarray:
         """计算 (并缓存) 所显示相位的远场图像。
 
@@ -365,46 +583,38 @@ class SimPibSystem:
                 self._far_field = None
             if self._far_field is not None:
                 return self._far_field.copy()
-            phase = self._phase
-            # 干扰与 SLM 命令共处同一个瞳面, 所以它在傅里叶变换之前就被加进去。
-            # 上面的提前返回保证每次真实光学求值只消耗它一次。`self._phase` 保持为
-            # 纯命令 —— 把干扰烘进去会被重复计入。
-            if self.disturbance is not None:
-                phase = phase + self.disturbance.phase()
-            # DM 相位 (电压 → 瞳面相位) 与干扰同一约定: 在求值时叠加进瞳面相位,
-            # 绝不烘进 ``self._phase``, 避免 SLM 命令与 DM 贡献重复计入。
-            phase = phase + self.dm_optics.phase()
-            # 面板静态相差 (Zernike + 粗糙度) 同样是**面板的属性**, 在瞳面里相加。
-            # 同一约定: 求值时才加, ``self._phase`` 保持纯命令。
-            panel_phase = self._panel_aberration_field()
-            if panel_phase is not None:
-                phase = phase + panel_phase
-            # SLM 网格上的高斯入射光束幅度 (静态几何 ⇒ 懒缓存, 见下)。
-            amplitude = self._amplitude_field()
-            pupil = amplitude * np.exp(1j * phase)
-            pad = self.far_field_padding
-            if pad > 1:
-                shape = (self.slm_h * pad, self.slm_w * pad)
-                buffer = self._pad_buffer
-                if buffer is None or buffer.shape != shape:
-                    buffer = np.zeros(shape, dtype=np.complex128)
-                    self._pad_buffer = buffer
-                buffer[: self.slm_h, : self.slm_w] = pupil
-                padded = buffer
-            else:
-                padded = pupil
-            spectrum = np.fft.fftshift(np.abs(_forward_fft2(padded)) ** 2)
-            window = min(self.far_field_window, spectrum.shape[0], spectrum.shape[1])
-            y0 = (spectrum.shape[0] - window) // 2
-            x0 = (spectrum.shape[1] - window) // 2
-            spectrum = spectrum[y0 : y0 + window, x0 : x0 + window]
+            raw = self._compute_far_field_raw(self._phase)
+            # 未归一化的那一份留给 counts 口径的固定参考用 (见 ``counts_frame``)。
+            self._far_field_raw = raw
             # 归一化到 ~0..255 的灰度范围, 使曝光/峰值逻辑的行为像真实相机
             # (平场光束下峰值 ~100)。
-            peak = float(spectrum.max())
+            peak = float(raw.max())
+            spectrum = raw
             if peak > 0:
                 spectrum = spectrum * (100.0 / peak)
             self._far_field = spectrum.astype(np.float64)
             return self._far_field.copy()
+
+    def _flat_reference_peak(self) -> float:
+        """**固定**的 counts 参考: 平场 (零相位) 在**理想聚焦**下的远场峰值。
+
+        为什么参考必须是「理想聚焦」的平场: 真实实验系统的绝对光度标定是拿
+        **已经矫正到焦面**的平场峰值定的 (实测 0.2 ms 整帧峰值 26.7 counts ⇒
+        133.5 counts/(峰值分数·ms))。若参考取「未矫正的平场」, 那张被离焦散开的
+        平场就会恰好等于参考, 于是矫正后的光反而**超出**标定 ⇒ 绝对标度错位。
+
+        「理想聚焦」= 不带相机离焦 (但**带**面板静态相差 —— 那是面板自己的属性)。
+        不含扰动与 DM: 那是别的光学元件, 不是「平场」的一部分。
+        """
+        if self._flat_reference_cache is None:
+            raw = self._compute_far_field_raw(
+                np.zeros((self.slm_h, self.slm_w), dtype=np.float64),
+                include_disturbance=False,
+                include_dm=False,
+                include_defocus=False,
+            )
+            self._flat_reference_cache = float(raw.max())
+        return self._flat_reference_cache
 
     def _amplitude_field(self) -> np.ndarray:
         """高斯入射光束幅度 (峰值 1), 只依赖静态几何 (``slm_h/w`` + ``beam_w0``)。
@@ -412,12 +622,26 @@ class SimPibSystem:
         懒缓存: 每次远场求值都重算 ``mgrid`` + ``exp`` 会白白 churn 4 个
         2.3M 元素临时数组 (~74 MB/次, 1920x1200 面板), 闭环里这是 FFT 之外
         最大的单笔浪费。
+
+        ⚠️ **口径**: 幅度是 ``exp(-r²/(2·w0²))`` ⇒ **幅度**的 1/e 半径是 ``w0``,
+        **强度**的 1/e² 半径是 ``√2·w0``。本实验系统的照明盘半径是 450 面板 px
+        (见 ``utils.slm.bench_constants.BEAM_RADIUS_PANEL``), 而实测的焦面矫正后
+        平场 FWHM ~14.6 相机像元 对应**强度** 1/e² 半径 ≈ 380–400 面板 px ⇒ 想让
+        孪生复现那个光斑宽度, ``beam_w0`` 要取 ``400·√2 ≈ 565.7``。
+
+        ``illumination_radius_px`` 给定时再**截断**到那个半径 (真实实验系统的光
+        只落在照明盘内)。这一项与面板菲涅尔矫正相干的遮罩 (同一个盘) 必须一致:
+        否则盘外的光拿不到矫正, 留下一圈没被矫正的残余离焦。
         """
         if self._amplitude is None:
             yy, xx = np.mgrid[0 : self.slm_h, 0 : self.slm_w]
             cy, cx = self.slm_h / 2.0, self.slm_w / 2.0
             r2 = (xx - cx) ** 2 + (yy - cy) ** 2
-            self._amplitude = np.exp(-r2 / (2.0 * self.beam_w0**2))
+            amplitude = np.exp(-r2 / (2.0 * self.beam_w0**2))
+            radius = self.illumination_radius_px
+            if radius is not None and float(radius) > 0.0:
+                amplitude = np.where(r2 <= float(radius) ** 2, amplitude, 0.0)
+            self._amplitude = amplitude
         return self._amplitude
 
     def _panel_aberration_field(self) -> np.ndarray | None:
@@ -455,6 +679,9 @@ class SimPibSystem:
         if sigma > 0:
             rng = np.random.default_rng(int(spec.roughness_seed))
             field = rng.normal(0.0, 1.0, size=(self.slm_h, self.slm_w))
+            corr = float(spec.roughness_corr_px)
+            if corr > 0.0:
+                field = _smooth_gaussian(field, corr)
             rms = float(np.sqrt(np.mean(field**2)))
             roughness = field * (sigma / rms)
         else:
@@ -488,8 +715,10 @@ class SimPibSystem:
         """远场 → **counts** 帧 (绝对光度 + 可选的 counts 噪声)。
 
         换算: ``counts = 峰值分数 · peak_counts_per_ms · 曝光(ms)``, 其中峰值分数是
-        ``far_field() / 100`` (远场峰值恒被归一到 100)。故曝光翻倍 ⇒ counts 翻倍,
-        这与真实相机的线性响应一致。
+
+        * ``"frame"`` 口径: ``far_field() / 100`` (远场峰值恒被归一到 100);
+        * ``"flat"`` 口径: ``far_field_raw() / 平场(理想聚焦)峰值`` —— 参考量**固定**,
+          于是光被散开后 counts 自然下降 (能量守恒), 而不是被逐帧归一拉回原峰值。
 
         未开启 counts 口径 (``peak_counts_per_ms is None``) 时**回落到**
         :meth:`far_field_noisy` (旧的相对强度口径), 于是既有调用方逐位不变。
@@ -508,12 +737,27 @@ class SimPibSystem:
             raise ValueError(f"exposure_ms must be >= 0, got {exposure_ms!r}")
         if self.peak_counts_per_ms is None:
             return self.far_field_noisy()
-        fraction = self.far_field() / 100.0
+        if self.counts_reference == COUNTS_REFERENCE_FLAT:
+            # 固定参考: 峰值分数 = 当前远场 / 平场(理想聚焦)峰值。
+            self.far_field()  # 确保缓存里有当前相位的**未归一化**远场
+            raw = self._far_field_raw
+            reference = self._flat_reference_peak()
+            if raw is None or reference <= 0.0:
+                fraction = np.zeros_like(self.far_field())
+            else:
+                fraction = raw / reference
+        else:
+            fraction = self.far_field() / 100.0
         counts = fraction * float(self.peak_counts_per_ms) * exposure
         spec = self.noise_spec
         if spec is not None:
+            signal = counts
+            # 暗电平: 真实相机在无光时仍读出非零本底, 它**先**加进原始 ADU,
+            # 量化作用在带暗电平的信号上, 暗电平靠减中位数 (暗帧扣除) 去掉。
+            if float(spec.dark_level_counts) != 0.0:
+                counts = counts + float(spec.dark_level_counts)
             if spec.shot_k > 0:
-                sigma = spec.shot_k * np.sqrt(np.clip(counts, 0.0, None))
+                sigma = spec.shot_k * np.sqrt(np.clip(signal, 0.0, None))
                 counts = counts + self._rng.normal(0.0, 1.0, counts.shape) * sigma
             if spec.read_sigma_counts > 0:
                 counts = counts + self._rng.normal(
@@ -544,6 +788,10 @@ def get_system(
     peak_counts_per_ms: float | None = None,
     noise_spec: SimNoiseSpec | None = None,
     panel_aberration: SimPanelAberration | None = None,
+    camera_defocus_m: float | None = None,
+    counts_reference: str | None = None,
+    illumination_radius_px: float | None = None,
+    beam_w0: float | None = None,
 ) -> SimPibSystem:
     """返回进程级的 :class:`SimPibSystem` (首次使用时创建)。
 
@@ -567,6 +815,10 @@ def get_system(
         peak_counts_per_ms: 绝对光度换算 (counts/(峰值分数·ms)); ``None`` = 旧口径。
         noise_spec: counts 口径的探测器噪声模型。
         panel_aberration: 面板静态相差 (Zernike + 粗糙度)。
+        camera_defocus_m: 相机离焦量 (m); ``None`` = 无离焦。
+        counts_reference: counts 口径的归一化参考 ("frame" / "flat")。
+        illumination_radius_px: 入射光照明盘半径 (面板 px); ``None`` = 不截断。
+        beam_w0: 入射高斯光束的**幅度** 1/e 半径 (面板 px); ``None`` = 默认值。
 
     Returns:
         进程级的 system。
@@ -590,6 +842,10 @@ def get_system(
                     ("peak_counts_per_ms", peak_counts_per_ms),
                     ("noise_spec", noise_spec),
                     ("panel_aberration", panel_aberration),
+                    ("camera_defocus_m", camera_defocus_m),
+                    ("counts_reference", counts_reference),
+                    ("illumination_radius_px", illumination_radius_px),
+                    ("beam_w0", beam_w0),
                 )
                 if value is not None
             },
@@ -612,6 +868,10 @@ def reset_system(
     peak_counts_per_ms: float | None = None,
     noise_spec: SimNoiseSpec | None = None,
     panel_aberration: SimPanelAberration | None = None,
+    camera_defocus_m: float | None = None,
+    counts_reference: str | None = None,
+    illumination_radius_px: float | None = None,
+    beam_w0: float | None = None,
 ) -> SimPibSystem:
     """替换进程级的 system (用于矩阵单元格之间)。
 
@@ -635,6 +895,10 @@ def reset_system(
                 ("peak_counts_per_ms", peak_counts_per_ms),
                 ("noise_spec", noise_spec),
                 ("panel_aberration", panel_aberration),
+                ("camera_defocus_m", camera_defocus_m),
+                ("counts_reference", counts_reference),
+                ("illumination_radius_px", illumination_radius_px),
+                ("beam_w0", beam_w0),
             )
             if value is not None
         },

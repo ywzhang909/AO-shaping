@@ -1213,6 +1213,33 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/build_hw_sweep_plan.py",
         ),
     ),
+    "report/shape_trials/sim_vs_hw/sim_vs_hw_20261022.md": ReportProvenance(
+        script="scripts/slm/compare_sim_vs_hw.py",
+        command=(
+            "python scripts/slm/compare_sim_vs_hw.py --execute "
+            "--params report/shape_trials/sim_vs_hw/artifacts/sim_twin_params_20261022.json"
+        ),
+        environment="离线",
+        note=(
+            "数字孪生 vs 第三轮硬件实测的逐项对照: 仿真侧跑的是**同一批采集脚本**的 "
+            "`--cam-type sim` 路径 (脚本文件未改, 只在运行时注入口径), 实测侧全部从 "
+            "round3_20261022 的归档产物读出 ⇒ 两边的差就是**物理模型**的差"
+        ),
+        extra_scripts=(
+            "scripts/slm/hw_gs_defocus_probe.py",
+            "scripts/slm/run_gs_refine_zernike_sweep.py",
+            "src/ao_shaping/tools/slm/panel/focus_probe.py",
+        ),
+    ),
+    "report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261022.md": ReportProvenance(
+        script="scripts/slm/compare_sim_vs_hw.py",
+        command="python scripts/slm/compare_sim_vs_hw.py --execute",
+        environment="离线",
+        note=(
+            "同一轮渲染出的**数据表** (逐项数字 + 判定 + 六类差距归因 + 调参建议); "
+            "报告正文 `sim_vs_hw_20261022.md` 直接嵌入这张表 (共用同一个渲染函数)"
+        ),
+    ),
     "report/shape_trials/hw_defocus_zernike/artifacts/README.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="硬件",
