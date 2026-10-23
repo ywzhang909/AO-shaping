@@ -44,6 +44,15 @@ __all__ = [
 # Metric formatting
 # ---------------------------------------------------------------------------
 
+# Magnitude thresholds for the two formatters below, named (PLR2004) so the cut
+# points can be read/tuned in one place instead of as scattered literals. The two
+# formatters are deliberately NOT identical (see module docstring): fmt_metric
+# switches to scientific below 1e-4, fmt_ratio below 1e-3; both switch above 1e5.
+_FMT_METRIC_INT_MIN = 10.0  # |v| >= this whole number renders as a plain int (".0f")
+_FMT_METRIC_SMALL = 1e-4    # fmt_metric: |v| < this renders scientific (".3e")
+_FMT_RATIO_SMALL = 1e-3     # fmt_ratio:  |v| < this renders scientific
+_FMT_LARGE = 1e5            # both formatters: |v| >= this renders scientific
+
 
 def fmt_metric(v: Any, nd: int = 4) -> str:
     """Format a metric for markdown: ints/large magnitudes compact, else fixed.
@@ -64,11 +73,11 @@ def fmt_metric(v: Any, nd: int = 4) -> str:
         return str(v)
     if np.isnan(f) or np.isinf(f):
         return "-"
-    if f.is_integer() and abs(f) >= 10.0:
+    if f.is_integer() and abs(f) >= _FMT_METRIC_INT_MIN:
         return f"{f:.0f}"
-    if f != 0 and abs(f) < 1e-4:
+    if f != 0 and abs(f) < _FMT_METRIC_SMALL:
         return f"{f:.3e}"
-    if abs(f) >= 1e5:
+    if abs(f) >= _FMT_LARGE:
         return f"{f:.3e}"
     return f"{f:.{nd}f}"
 
@@ -81,7 +90,7 @@ def fmt_ratio(value: float, digits: int = 6) -> str:
     """
     if value == 0.0:
         return "0"
-    if abs(value) < 1e-3 or abs(value) >= 1e5:
+    if abs(value) < _FMT_RATIO_SMALL or abs(value) >= _FMT_LARGE:
         return f"{value:.{digits}e}"
     return f"{value:.{digits}g}"
 
