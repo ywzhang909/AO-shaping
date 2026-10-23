@@ -13,6 +13,10 @@ from ao_shaping.algorithm.gradient.adam import Base
 from ao_shaping.utils import ImageVoltagesDisplay, logger, Recorder
 from ao_shaping.utils.objective_direction import objective_direction
 from ao_shaping.optimizer.spid_pib_loop import open_pib_bench, spid_pib_epoch
+from ao_shaping.optimizer.wfless._convergence_diagnostics import (
+    MIN_HISTORY,
+    convergence_lr_delta_factors,
+)
 from ao_shaping.utils.image.spots_calc import radius
 from ao_shaping.algorithm.goal_functions.target_func import ImageTargetFunc
 from ao_shaping.optimizer._camera_inject import (
@@ -158,69 +162,21 @@ def learning_schedule(
         base_lr, base_delta = 6, 5
 
     # 如果没有收敛状态历史，直接返回基础参数
-    if gradient_history is None or pib_history is None or len(gradient_history) < 5:
+    if (
+        gradient_history is None
+        or pib_history is None
+        or len(gradient_history) < MIN_HISTORY
+    ):
         return base_lr, base_delta
 
-    # 收敛状态检测
-    recent_grads = (
-        list(gradient_history[-10:])
-        if len(gradient_history) >= 10
-        else gradient_history
+    # 收敛状态检测 (共享实现: _convergence_diagnostics; PIB 越高越好, 停滞需低 std)
+    lr_factor, delta_factor = convergence_lr_delta_factors(
+        gradient_history,
+        pib_history,
+        epoch,
+        higher_is_better=True,
+        stagnant_needs_low_std=True,
     )
-    recent_pibs = list(pib_history[-10:]) if len(pib_history) >= 10 else pib_history
-
-    # 计算梯度变化趋势（方差越小越稳定）
-    grad_mean = np.mean(recent_grads)
-    grad_std = np.std(recent_grads) if len(recent_grads) > 1 else 0
-    grad_cv = grad_std / (grad_mean + 1e-8)  # 变异系数
-
-    # 计算 PIB 变化率
-    np.mean(recent_pibs)
-    pib_std = np.std(recent_pibs) if len(recent_pibs) > 1 else 0
-    pib_trend = (
-        (recent_pibs[-1] - recent_pibs[0]) / (len(recent_pibs) + 1e-8)
-        if len(recent_pibs) > 1
-        else 0
-    )
-
-    # 动态调整因子
-    lr_factor = 1.0
-    delta_factor = 1.0
-
-    # 情况1：梯度方差小（收敛稳定）-> 减小 lr 和 delta 以精细调整
-    if grad_cv < 0.1:
-        lr_factor = 0.5
-        delta_factor = 0.5
-    # 情况2：梯度方差中等（正常波动）-> 保持
-    elif grad_cv < 0.3:
-        lr_factor = 0.8
-        delta_factor = 0.8
-    # 情况3：梯度方差大（震荡）-> 大幅减小 lr
-    elif grad_cv > 0.8:
-        lr_factor = 0.3
-        delta_factor = 1.2  # 增加探索
-
-    # 情况4：PIB 长时间无明显提升（可能陷入局部最优）
-    if abs(pib_trend) < 1e-5 and pib_std < 0.01:
-        # 增加探索：提高 delta
-        delta_factor = max(delta_factor, 1.5)
-        lr_factor = min(lr_factor, 0.7)
-    # 情况5：PIB 持续下降（发散）-> 立即减小 lr
-    elif pib_trend < -0.001:
-        lr_factor = 0.4
-        delta_factor = 0.6
-    # 情况6：PIB 持续上升（正常收敛）-> 保持或微调
-    elif pib_trend > 0.001:
-        lr_factor = min(lr_factor, 1.1)
-
-    # 早期 epoch 使用较大的学习率（warmup 效果）
-    if epoch < 20:
-        lr_factor *= 1.2
-        delta_factor *= 1.1
-
-    # 限制调整范围
-    lr_factor = np.clip(lr_factor, 0.2, 2.0)
-    delta_factor = np.clip(delta_factor, 0.3, 2.5)
 
     final_lr = base_lr * lr_factor
     final_delta = base_delta * delta_factor

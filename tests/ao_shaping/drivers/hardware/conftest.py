@@ -10,6 +10,26 @@ Usage:
     pytest tests/ao_shaping/drivers/hardware/ -v --hardware
 
 Run with actual hardware connected. Tests skip automatically if devices unavailable.
+
+Exception-handling contract (issue #174 batch 3):
+    Each device fixture keeps a *broad* ``except Exception`` around
+    ``import + construct + open/initialize + close``. This is intentional,
+    not a BLE001 blind-except: the driver packages guard their native-SDK
+    imports internally (``import gxipy`` / ``import miicam`` are wrapped), so
+    the fixture's own ``import`` line never raises; the failure that should
+    trigger ``pytest.skip`` surfaces in ``open()``/``initialize()`` and its
+    type differs per device:
+
+    - Thorlab WFS   -> OSError (WFS_64.dll / VISA missing)
+    - Santec SLM    -> SantecError (``_slm_win`` / SDK import fails)
+    - NLight DM     -> Exception ("Drv_UDPST.dll not found.")
+    - Daheng CCD    -> NameError (``gx`` is undefined when the SDK import fails)
+    - MiiCam        -> AttributeError (``miicam`` module is set to ``None``)
+    - (device present but not responding) -> ConnectionAbortedError / *Error
+
+    There is no single narrow base class meaning "device unavailable", so
+    narrowing to ``ImportError`` (or any specific subclass) would turn a
+    hardware-absent *skip* into an *error*. Do not narrow these.
 """
 from pathlib import Path
 
@@ -104,10 +124,19 @@ def wfs_stable_sampling():
 
 @pytest.fixture(scope="module")
 def slm():
-    """Santec SLM-200 instance. Skips if hardware unavailable."""
+    """Santec SLM-200 instance. Skips if hardware unavailable.
+
+    Note: the constructor signature is (slm_number, use_120hz, wavelength,
+    video_mode, shift_x, shift_y, correction_csv_path) -- there is no
+    ``phase_range`` parameter (it used to be a legacy kwarg; the 200-unit
+    phase range is now fixed internally by ``SLM_Ctrl_WriteWL``). Passing it
+    raised ``TypeError`` on every call, which this fixture's broad ``except``
+    swallowed and reported as "hardware not available", masking the real
+    defect. See issue #174 batch 3.
+    """
     try:
         from ao_shaping.drivers.slm.santec import Santec
-        slm = Santec(slm_number=1, wavelength=1064, phase_range=200)
+        slm = Santec(slm_number=1, wavelength=1064)
         slm.open()
         yield slm
         slm.close()

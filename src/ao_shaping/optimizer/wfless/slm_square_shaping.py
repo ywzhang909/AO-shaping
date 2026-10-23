@@ -102,6 +102,10 @@ from ao_shaping.optimizer.constants import (
     TEST_EXPOSURE_TIME_BRIGHTNESS,
     create_optimizer,
 )
+from ao_shaping.optimizer.wfless._convergence_diagnostics import (
+    MIN_HISTORY,
+    convergence_lr_delta_factors,
+)
 from ao_shaping.optimizer.wfless.adaptive_spgd_core import (
     AdaptiveSpgdConfig,
     get_stage_weights,
@@ -739,57 +743,23 @@ def learning_schedule(
     else:
         base_lr, base_delta = 1.0, 1.0
 
-    if gradient_history is None or cv_history is None or len(gradient_history) < 5:
+    if (
+        gradient_history is None
+        or cv_history is None
+        or len(gradient_history) < MIN_HISTORY
+    ):
         return base_lr, base_delta
 
-    recent_grads = (
-        list(gradient_history[-10:])
-        if len(gradient_history) >= 10
-        else gradient_history
+    # Convergence state detection (shared: _convergence_diagnostics). CV is
+    # lower-is-better (rising CV = divergence) and needs no std gate for
+    # stagnation, so higher_is_better=False / stagnant_needs_low_std=False.
+    lr_factor, delta_factor = convergence_lr_delta_factors(
+        gradient_history,
+        cv_history,
+        epoch,
+        higher_is_better=False,
+        stagnant_needs_low_std=False,
     )
-    recent_cvs = list(cv_history[-10:]) if len(cv_history) >= 10 else cv_history
-
-    grad_mean = np.mean(recent_grads)
-    grad_std = np.std(recent_grads) if len(recent_grads) > 1 else 0
-    grad_cv = grad_std / (grad_mean + 1e-8)
-
-    cv_trend = (
-        (recent_cvs[-1] - recent_cvs[0]) / (len(recent_cvs) + 1e-8)
-        if len(recent_cvs) > 1
-        else 0
-    )
-
-    lr_factor = 1.0
-    delta_factor = 1.0
-
-    # Gradient variance control
-    if grad_cv < 0.1:
-        lr_factor = 0.5
-        delta_factor = 0.5
-    elif grad_cv < 0.3:
-        lr_factor = 0.8
-        delta_factor = 0.8
-    elif grad_cv > 0.8:
-        lr_factor = 0.3
-        delta_factor = 1.2
-
-    # CV trend control
-    if abs(cv_trend) < 1e-5:  # Stagnant
-        delta_factor = max(delta_factor, 1.5)
-        lr_factor = min(lr_factor, 0.7)
-    elif cv_trend > 0.001:  # CV increasing (diverging)
-        lr_factor = 0.4
-        delta_factor = 0.6
-    elif cv_trend < -0.001:  # CV decreasing (converging)
-        lr_factor = min(lr_factor, 1.1)
-
-    # Early warmup
-    if epoch < 20:
-        lr_factor *= 1.2
-        delta_factor *= 1.1
-
-    lr_factor = np.clip(lr_factor, 0.2, 2.0)
-    delta_factor = np.clip(delta_factor, 0.3, 2.5)
 
     return base_lr * lr_factor, base_delta * delta_factor
 

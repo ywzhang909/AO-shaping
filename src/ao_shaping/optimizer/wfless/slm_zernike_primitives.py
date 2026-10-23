@@ -26,6 +26,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ao_shaping.drivers.slm.santec import MEMORY_MODE_INTERNAL
+from ao_shaping.optimizer.wfless._convergence_diagnostics import (
+    MIN_HISTORY,
+    convergence_lr_delta_factors,
+)
 from ao_shaping.utils.wavefront.zernike_utils import parse_zernike_coefficients
 
 if TYPE_CHECKING:
@@ -142,71 +146,25 @@ def learning_schedule(
         base_lr, base_delta = 6, 5
 
     # If no convergence history, return base parameters directly (still capped)
-    if gradient_history is None or pib_history is None or len(gradient_history) < 5:
+    if (
+        gradient_history is None
+        or pib_history is None
+        or len(gradient_history) < MIN_HISTORY
+    ):
         return (
             min(base_lr, max_lr),
             min(base_delta, max_delta),
         )
 
-    # Convergence state detection
-    recent_grads = (
-        list(gradient_history[-10:])
-        if len(gradient_history) >= 10
-        else gradient_history
+    # Convergence state detection (shared: _convergence_diagnostics;
+    # PIB higher-is-better, stagnant needs low std), then cap by max_lr/max_delta
+    lr_factor, delta_factor = convergence_lr_delta_factors(
+        gradient_history,
+        pib_history,
+        epoch,
+        higher_is_better=True,
+        stagnant_needs_low_std=True,
     )
-    recent_pibs = list(pib_history[-10:]) if len(pib_history) >= 10 else pib_history
-
-    # Gradient trend (lower variance = more stable convergence)
-    grad_mean = np.mean(recent_grads)
-    grad_std = np.std(recent_grads) if len(recent_grads) > 1 else 0
-    grad_cv = grad_std / (grad_mean + 1e-8)  # Coefficient of variation
-
-    # PIB trend
-    np.mean(recent_pibs)
-    pib_std = np.std(recent_pibs) if len(recent_pibs) > 1 else 0
-    pib_trend = (
-        (recent_pibs[-1] - recent_pibs[0]) / (len(recent_pibs) + 1e-8)
-        if len(recent_pibs) > 1
-        else 0
-    )
-
-    # Dynamic adjustment factors
-    lr_factor = 1.0
-    delta_factor = 1.0
-
-    # Case 1: Small gradient variance (stable convergence) → reduce lr and delta
-    if grad_cv < 0.1:
-        lr_factor = 0.5
-        delta_factor = 0.5
-    # Case 2: Medium gradient variance (normal fluctuation) → keep
-    elif grad_cv < 0.3:
-        lr_factor = 0.8
-        delta_factor = 0.8
-    # Case 3: Large gradient variance (oscillation) → reduce lr significantly
-    elif grad_cv > 0.8:
-        lr_factor = 0.3
-        delta_factor = 1.2  # Increase exploration
-
-    # Case 4: PIB not improving (possible local optimum)
-    if abs(pib_trend) < 1e-5 and pib_std < 0.01:
-        delta_factor = max(delta_factor, 1.5)
-        lr_factor = min(lr_factor, 0.7)
-    # Case 5: PIB decreasing (diverging) → reduce lr
-    elif pib_trend < -0.001:
-        lr_factor = 0.4
-        delta_factor = 0.6
-    # Case 6: PIB increasing (normal convergence) → keep or fine-tune
-    elif pib_trend > 0.001:
-        lr_factor = min(lr_factor, 1.1)
-
-    # Early epoch warmup
-    if epoch < 20:
-        lr_factor *= 1.2
-        delta_factor *= 1.1
-
-    # Clamp adjustment range
-    lr_factor = np.clip(lr_factor, 0.2, 2.0)
-    delta_factor = np.clip(delta_factor, 0.3, 2.5)
 
     final_lr = min(base_lr * lr_factor, max_lr)
     final_delta = min(base_delta * delta_factor, max_delta)
