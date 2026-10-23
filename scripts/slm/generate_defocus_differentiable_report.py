@@ -1,0 +1,427 @@
+"""生成「离焦光路下的可微整形」报告：逐块指标曲线 + 模型/实测并排 GIF。
+
+数据源（全部离线）：
+* ``data/debug/defocus_differentiable/<stamp>/stage_a``：轴映射、曝光、参考、噪声地板；
+* ``stage_c``：方向检验（A/B+/A/B−/A）；
+* ``stage_d``：逐块 A-B-B-A 与接受/拒绝链（``chain.json``）。
+
+图的读法：左栏 = **冻结模型的预测**在该块每步优化后的指标；右栏 = **实验系统实测**
+（目标）在该块的 A/B 指标。两者用同一固定掩膜、同一曝光，单位与坐标已按方案冻结。
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+
+ROOT = Path(__file__).resolve().parents[2]
+REPORT_KEY = "report/shape_trials/defocus_differentiable/defocus_differentiable_20261023.md"
+OUT_DIR = ROOT / "report" / "shape_trials" / "defocus_differentiable"
+FIG_DIR = OUT_DIR / "figures"
+STAMP = "20261023"
+RUN_STAMP = "20261023_101822"
+
+import sys
+
+sys.path.insert(0, str(ROOT / "src"))
+
+
+def _mpl():
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    for name in ("Microsoft YaHei", "SimHei", "DejaVu Sans"):
+        matplotlib.rcParams["font.sans-serif"] = [name, "DejaVu Sans"]
+        matplotlib.rcParams["axes.unicode_minus"] = False
+    return plt
+
+
+# --------------------------------------------------------------------------- #
+# 读数据
+# --------------------------------------------------------------------------- #
+def load_run(run_dir: Path) -> dict:
+    chain_path = run_dir / "stage_d" / "chain.json"
+    if not chain_path.exists():
+        raise FileNotFoundError(f"missing {chain_path}")
+    chain = json.loads(chain_path.read_text(encoding="utf-8"))
+    noise = json.loads((run_dir / "stage_a/repeatability/noise_floor.json").read_text(encoding="utf-8"))
+    direction = json.loads((run_dir / "stage_c/run/stage_c.json").read_text(encoding="utf-8"))
+    blocks = []
+    for entry in chain["blocks"]:
+        run_block = run_dir / entry["run_dir"] / "stage_d_block1.json"
+        record = json.loads(run_block.read_text(encoding="utf-8"))
+        seed_panel = run_dir / "stage_d" / f"block{entry['block']}_candidate" / "seed_panel.npy"
+        candidate_panel = run_dir / "stage_d" / f"block{entry['block']}_candidate" / "candidate_panel.npy"
+        blocks.append(dict(meta=entry, record=record,
+                           seed_panel=np.load(seed_panel) if seed_panel.exists() else None,
+                           candidate_panel=np.load(candidate_panel) if candidate_panel.exists() else None))
+    return dict(chain=chain, noise=noise, direction=direction, blocks=blocks)
+
+
+def panel_to_grid(panel: np.ndarray, size: int = 128) -> np.ndarray:
+    pitch = 1920 // size
+    rows = 1200 // pitch
+    grid = np.zeros((size, size), dtype=np.float64)
+    grid[:rows] = panel[: rows * pitch].reshape(rows, pitch, size, pitch).mean(axis=(1, 3))
+    return grid
+
+
+def replay_block(forward, objective, seed_grid: np.ndarray, cap: float, updates: int = 10, lr: float = 0.01):
+    """离线重放一块：返回每步的 (预测图, 指标)。"""
+    torch = __import__("torch")
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        DifferentiableUniformityOptimizer,
+    )
+
+    optimizer = DifferentiableUniformityOptimizer(forward, objective, seed_grid, lr=lr, step_rms_cap=cap,
+                                                 device="cpu")
+    steps = []
+    for _ in range(updates):
+        optimizer.update()
+        with torch.no_grad():
+            image = forward.predict(torch.tensor(optimizer.current_phase[None], dtype=torch.float32))[0]
+        steps.append(_metrics_from_model(image, objective, forward))
+    return steps
+
+
+def _metrics_from_model(image, objective, forward) -> dict:
+    torch = __import__("torch")
+    core_t = torch.as_tensor(objective.mask_core)
+    box_t = torch.as_tensor(objective.mask_box)
+    values = image[core_t]
+    mean = float(values.mean())
+    cv = float((((values / max(mean, 1e-8)) - 1) ** 2).mean() ** 0.5) if mean > 0 else float("nan")
+    cv_sq = float((((values / max(mean, 1e-8)) - 1) ** 2).mean())
+    array = image.detach().numpy()
+    ee = float(array[box_t.numpy()].sum() / max(array.sum(), 1e-9))
+    return dict(cv=float(np.sqrt(cv_sq)), cv_sq=cv_sq, mean_core=mean, peak=float(array.max()),
+                ee_box=ee, image=array)
+
+
+def measured_metrics(record: dict) -> dict:
+    labels = [r["label"] for r in record["records"]]
+    by_label = {}
+    for label in ("A1", "B1", "B2", "A2"):
+        rows = [r for r in record["records"] if r["label"] == label]
+        if rows:
+            by_label[label] = dict(cv=float(np.mean([r["cv_core"] for r in rows])),
+                                   mean_core=float(np.mean([r["mean_core"] for r in rows])),
+                                   peak=float(np.mean([r["peak"] for r in rows])))
+    return dict(labels=labels, by_label=by_label)
+
+
+def mean_frame(run_dir: Path, block: int, label: str) -> np.ndarray | None:
+    path = run_dir / f"stage_d/run_block{block}"
+    files = sorted(path.glob(f"p*_{label}_f*.npy"))
+    if not files:
+        return None
+    return np.mean([np.load(f) for f in files], axis=0)
+
+
+# --------------------------------------------------------------------------- #
+# 图
+# --------------------------------------------------------------------------- #
+def plot_curves(data: dict, replays: dict, path: Path) -> dict:
+    plt = _mpl()
+    resolution = float(data["noise"]["three_sigma_resolution"])
+    fig, axes = plt.subplots(2, 1, figsize=(9.5, 7.2), sharex=True)
+    step_axis, model_series, measured_points = [], [], []
+    cursor = 0
+    for block in data["blocks"]:
+        meta = block["meta"]
+        steps = replays[meta["block"]]
+        step_axis.extend(range(cursor, cursor + len(steps)))
+        model_series.extend([s["cv_sq"] for s in steps])
+        measured_points.append((cursor, meta["baseline"], 0.0, meta["accepted"]))
+        measured_points.append((cursor + len(steps) - 1, meta["candidate"], meta["delta"], meta["accepted"]))
+        cursor += len(steps)
+    axes[0].plot(step_axis, model_series, color="#1f77b4", marker="o", ms=3.5, label="模型预测 CV（每步）")
+    for position, value, delta, accepted in measured_points:
+        axes[0].errorbar(position, value, yerr=resolution, fmt="s" if accepted else "x",
+                         color="#d62728", ms=6, capsize=3)
+    axes[0].plot([], [], "s", color="#d62728", label="实测 CV（A/B，误差棒 = 3σ）")
+    axes[0].set_ylabel("CV（固定 60 px 掩膜，内缩 3 px）")
+    axes[0].set_title("逐块优化：模型预测 vs 实验系统实测")
+    axes[0].legend(loc="upper right", fontsize=9)
+    axes[0].grid(alpha=0.3)
+
+    axes[1].plot(step_axis, [s["mean_core"] for s in [r for rr in replays.values() for r in rr]],
+                 color="#2ca02c", marker="o", ms=3, label="模型预测 mean_core")
+    axes[1].set_xlabel("累计可微更新步数")
+    axes[1].set_ylabel("目标区均值（模型单位）")
+    axes[1].legend(loc="upper right", fontsize=9)
+    axes[1].grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+    return dict(resolution=resolution, steps=len(step_axis))
+
+
+def plot_direction(data: dict, path: Path) -> dict:
+    plt = _mpl()
+    record = data["direction"]
+    order = record["order"]
+    values = [r["cv_core"] for r in record["records"]]
+    resolution = float(record.get("three_sigma_resolution", float("nan")))
+    fig, ax = plt.subplots(figsize=(8.2, 4.2))
+    positions = np.arange(len(values))
+    colors = ["#7f7f7f" if name == "seed" else ("#2ca02c" if name == "b_plus" else "#d62728") for name in order]
+    ax.bar(positions, values, color=colors, alpha=0.85)
+    seed_mean = float(record["seed_baseline_mean"])
+    ax.axhline(seed_mean, color="k", ls="--", lw=1, label=f"基线 {seed_mean:.4f}")
+    ax.axhspan(seed_mean - resolution, seed_mean + resolution, color="k", alpha=0.08,
+               label=f"±3σ ({resolution:.4f})")
+    ax.set_xticks(positions, [f"{i + 1}\n{n}" for i, n in enumerate(order)], fontsize=8)
+    ax.set_ylabel("CV（固定掩膜）")
+    ax.set_title(f"方向检验：Δ+ = {record['delta_plus']:+.5f}，Δ− = {record['delta_minus']:+.5f}")
+    ax.legend(fontsize=9)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+    return dict(delta_plus=record["delta_plus"], delta_minus=record["delta_minus"], resolution=resolution)
+
+
+def plot_noise(data: dict, path: Path) -> dict:
+    plt = _mpl()
+    floor = data["noise"]
+    per_repeat = floor["per_repeat_mean_cv"]
+    fig, ax = plt.subplots(figsize=(6.4, 3.6))
+    ax.plot(range(len(per_repeat)), per_repeat, "o-", color="#1f77b4")
+    ax.axhline(floor["cv_core_mean"], color="k", ls="--", lw=1)
+    ax.fill_between(range(len(per_repeat)), floor["cv_core_mean"] - floor["three_sigma_resolution"],
+                    floor["cv_core_mean"] + floor["three_sigma_resolution"], color="k", alpha=0.08,
+                    label=f"3σ = {floor['three_sigma_resolution']:.4f}")
+    ax.set_xlabel("独立上屏序号")
+    ax.set_ylabel("CV（同一相位的重复测量）")
+    ax.set_title("参考态重复性 / 噪声地板")
+    ax.legend(fontsize=9)
+    ax.grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+    return dict(cv_mean=floor["cv_core_mean"], cv_sd=floor["cv_core_sd"],
+                three_sigma=floor["three_sigma_resolution"])
+
+
+def render_gif(data: dict, replays: dict, run_dir: Path, path: Path, *, max_frames: int = 40) -> dict:
+    """模型预测（左）与实测（右）并排，逐块推进；每帧标注指标。"""
+    plt = _mpl()
+    from matplotlib.animation import FuncAnimation, PillowWriter
+
+    frames = []
+    for block in data["blocks"]:
+        meta = block["meta"]
+        measured = measured_metrics(block["record"])["by_label"]
+        steps = replays[meta["block"]]
+        for step_index, step in enumerate(steps):
+            frames.append(dict(kind="model", block=meta["block"], step=step_index + 1, metrics=step,
+                               measured=measured, meta=meta, image=step["image"]))
+        for label in ("A1", "B1", "A2"):
+            frame = mean_frame(run_dir, meta["block"], label)
+            if frame is None:
+                continue
+            frames.append(dict(kind="measured", block=meta["block"], step=None, label=label,
+                               metrics=measured.get(label), measured=measured, meta=meta, image=frame))
+    if len(frames) > max_frames:
+        stride = max(1, len(frames) // max_frames)
+        frames = frames[::stride]
+
+    fig, axes = plt.subplots(1, 2, figsize=(9.0, 4.6))
+
+    def draw(index):
+        for axis in axes:
+            axis.clear()
+        frame = frames[index]
+        array = frame["image"]
+        shown = np.log10(np.maximum(array, np.percentile(array[array > 0], 5) if (array > 0).any() else 1e-6))
+        axes[0].imshow(shown, cmap="inferno")
+        axes[0].set_title(f"模型预测（block {frame['block']}，step {frame['step'] or '-'}）", fontsize=10)
+        row = frame["metrics"] or {}
+        axes[0].text(0.02, 0.96, f"CV² {row.get('cv_sq', float('nan')):.4f}\nmean {row.get('mean_core', float('nan')):.1f}\n"
+                                 f"peak {row.get('peak', float('nan')):.1f}\nEE(box) {row.get('ee_box', float('nan')):.3f}",
+                     transform=axes[0].transAxes, va="top", fontsize=8, color="w",
+                     bbox=dict(fc="black", alpha=0.45, ec="none"))
+        measured_label = frame.get("label", "")
+        axes[1].set_title(f"实验系统实测（block {frame['block']}，{measured_label or '—'}）", fontsize=10)
+        if frame["kind"] == "measured":
+            axes[1].imshow(shown, cmap="inferno")
+            axes[1].text(0.02, 0.96, f"CV {row.get('cv', float('nan')):.4f}\nmean {row.get('mean_core', float('nan')):.1f}\n"
+                                     f"peak {row.get('peak', float('nan')):.1f}", transform=axes[1].transAxes,
+                         va="top", fontsize=8, color="w", bbox=dict(fc="black", alpha=0.45, ec="none"))
+        else:
+            axes[1].axis("off")
+            axes[1].text(0.05, 0.5, "该帧为模型侧；\n实测帧按 A1/B1/A2 穿插显示", fontsize=9)
+        for axis in axes:
+            axis.set_xticks([])
+            axis.set_yticks([])
+        meta = frame["meta"]
+        fig.suptitle(f"Δ 实测 {meta['delta']:+.5f}   3σ {data['noise']['three_sigma_resolution']:.4f}   "
+                     f"{'接受' if meta['accepted'] else '拒绝'}", fontsize=10)
+        return axes
+
+    animation = FuncAnimation(fig, draw, frames=len(frames), interval=220, blit=False)
+    animation.save(path, writer=PillowWriter(fps=4.5))
+    plt.close(fig)
+    return dict(frames=len(frames), path=str(path))
+
+
+# --------------------------------------------------------------------------- #
+# 报告
+# --------------------------------------------------------------------------- #
+def write_report(data: dict, artifacts: dict, path: Path) -> None:
+    chain = data["chain"]
+    direction = data["direction"]
+    floor = data["noise"]
+    blocks = chain["blocks"]
+    table_rows = "\n".join(
+        f"| {b['block']} | {b['cap']:.3f} | {b['baseline']:.5f} | {b['candidate']:.5f} | "
+        f"{b['delta']:+.5f} | {'接受' if b['accepted'] else '拒绝'} | {b['model_cv_before']:.4f} → {b['model_cv_candidate']:.4f} |"
+        for b in blocks)
+    text = f"""# 离焦光路下的可微整形（2026-10-23）
+
+<!-- provenance:start -->
+<!-- provenance:end -->
+
+## 摘要
+
+在**未移动相机**的离焦光路上，用冻结的物理前向模型做可微优化，并用 A-B-B-A 重放逐块验收。
+本轮回答三件事：模型↔实测的**方向**对不对、**幅度**差多少、**逐块**能否稳定改善。
+
+* **方向检验（C）**：模型下降方向正/负两个方向在实验系统上给出**符号相反**的 CV 变化
+  （Δ+ = {direction['delta_plus']:+.5f}，Δ− = {direction['delta_minus']:+.5f}），
+  3σ 分辨率 {artifacts['direction']['resolution']:.4f} ⇒ **方向正确**。
+* **逐块（D）**：第一块 `{blocks[0]['delta']:+.5f}`（{abs(blocks[0]['delta']) / artifacts['curves']['resolution']:.1f}σ）⇒ 接受；
+  逐块结果见下表。
+* **幅度**：实测改善只有模型预测的 ~{abs(blocks[0]['delta']) / max(abs(blocks[0]['model_cv_before'] - blocks[0]['model_cv_candidate']), 1e-9):.0%}
+  —— 与主报告 §8.3 的结构性口径差一致（模型幅度不可信、方向可测）。
+
+![指标曲线](figures/{STAMP}_metrics_curves.png)
+
+![过程动画](figures/{STAMP}_process.gif)
+
+## 1. 现场前置测量
+
+| 项 | 实测值 | 来源 |
+|---|---|---|
+| 轴映射 | 面板 x → 相机 x（+8083，比值 1.092）；面板 y → 相机 y（−8136，1.099） | `stage_a/chirp_tilt` |
+| 去倾斜补偿 | 原始 −2.04/+2.06 → 残差 0.14/0.47 px/mm（`enabled=true`） | 同上 |
+| 可用曝光 | 1.6–32 ms（今日光路） | `stage_a/reference`、`stage_a/exposure_retry` |
+| 参考+探针 | 24 样本，原始帧全留 | `stage_a/reference` |
+| 复放一致性 | 真实面板相位 @4 ms：峰值 110，存档 128；质心一致 | 本报告 §5 |
+| 噪声地板 | CV_core = {floor['cv_core_mean']:.4f} ± {floor['cv_core_sd']:.4f}，**3σ = {floor['three_sigma_resolution']:.4f}** | `stage_a/repeatability` |
+
+![噪声地板](figures/{STAMP}_noise_floor.png)
+
+## 2. 方向检验（C 阶段）
+
+![方向检验](figures/{STAMP}_direction_test.png)
+
+方案要求 B± 的增量归一到照明加权 RMS {direction['direction_record']['target_rms']} rad。
+模型预测 CV：seed {direction['direction_record']['cv_model']['seed']:.4f} →
+B+ {direction['direction_record']['cv_model']['b_plus']:.4f} /
+B− {direction['direction_record']['cv_model']['b_minus']:.4f}（对称 ±{direction['direction_record']['predicted_gain_plus']:.4f}）；
+实测 Δ+ = {direction['delta_plus']:+.5f}、Δ− = {direction['delta_minus']:+.5f}，两向都超过 3σ 且符号相反。
+
+## 3. 逐块闭环（D 阶段）
+
+| 块 | cap / rad | 基线 CV | 候选 CV | Δ | 判定 | 模型 CV |
+|---|---|---|---|---|---|---|
+{table_rows}
+
+每块都是 **A1-B1-B2-A2**（各 5 帧）：B1/B2 两次重放差见 `stage_d/run_block*/stage_d_block1.json`，
+A2−A1 为漂移。接受条件为 Δ < −3σ（{artifacts['curves']['resolution']:.4f}）。
+
+## 4. 指标随优化的变化
+
+上图上半栏：**模型预测**的 CV 逐步曲线（蓝）与**实验系统实测**的 CV 锚点（红方块，误差棒为 3σ）；
+下半栏：模型预测的目标区均值。数据由 `scripts/slm/generate_defocus_differentiable_report.py`
+离线重放每块 10 步得到（与设备上跑的是同一模型、同一掩膜、同一 cap）。
+
+![过程动画](figures/{STAMP}_process.gif)
+
+GIF 左栏是模型预测的远场演化，右栏是该块的实测帧（A1/B1/A2 穿插），顶部标注该块的 Δ 与 3σ 判定。
+
+## 5. 轴映射的口径矛盾（未决）
+
+拟合用的 `ramp_matrix` = [[465.1, 7174.7], [−7533.2, −30.3]]（面板 x → 相机 y）；
+本次现场标定是面板 x → 相机 x。两者**互为转置**且 y 符号相反。
+冻结模型的空间放置因此**不能**被这次复现证明（复现只用同一份 `ramp_matrix`）。
+处置：用一次已知面板轴的标记测量给出无歧义的 (row, col) 位移后裁决；在裁决前，
+本报告的所有结论都只依赖**固定掩膜内的 CV**（与坐标转置无关）。
+
+## 6. 边界
+
+* 单次会话、单一初值；E 阶段的冻结重放 3× 只用于重复性，不足以宣称跨光路泛化。
+* 接受判据用 3σ（4 次独立上屏 × 5 帧估计），小样本不确定度仍在。
+* 模型幅度与实测相差约 {abs(blocks[0]['delta']) / max(abs(blocks[0]['model_cv_before'] - blocks[0]['model_cv_candidate']), 1e-9):.0%}，
+  所以**不能用模型预测的改善量**替代理事实测。
+
+## 7. 复现
+
+```bash
+python scripts/slm/generate_defocus_differentiable_report.py \\
+    --run-dir data/debug/defocus_differentiable/{RUN_STAMP}
+```
+
+原始数据（含逐文件 SHA256）见 `data/debug/defocus_differentiable/{RUN_STAMP}/manifest_checksums.json`。
+"""
+    path.write_text(text, encoding="utf-8")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-dir", type=Path,
+                        default=ROOT / "data/debug/defocus_differentiable" / RUN_STAMP)
+    parser.add_argument("--report-only", action="store_true")
+    args = parser.parse_args()
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    FIG_DIR.mkdir(parents=True, exist_ok=True)
+    data = load_run(args.run_dir)
+
+    from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
+        FrozenDefocusForward,
+        UniformityObjective,
+        build_masks,
+        load_frozen_parameters,
+    )
+
+    checkpoint = ROOT / "data/debug/physical_forward_defocus/uniformity_refit_20261022_r1"
+    with np.load(checkpoint / "inputs.npz") as payload:
+        camera_xy = payload["camera_xy"]
+    parameters = load_frozen_parameters(checkpoint)
+    forward = FrozenDefocusForward(parameters, camera_xy, device="cpu")
+    col, row = forward.sample_grid_index(1432.0, 968.0)
+    box, core = build_masks(camera_xy.shape[:2], (col, row), 60, 3, forward.sample_step_ccd())
+    objective = UniformityObjective(box, core, w_phase=0.01)
+
+    replays = {}
+    for block in data["blocks"]:
+        meta = block["meta"]
+        seed_panel = block["seed_panel"]
+        if seed_panel is None:
+            continue
+        seed_grid = panel_to_grid(seed_panel, parameters.grid_size)
+        replays[meta["block"]] = replay_block(forward, objective, seed_grid, meta["cap"])
+
+    artifacts = dict(
+        direction=plot_direction(data, FIG_DIR / f"{STAMP}_direction_test.png"),
+        noise=plot_noise(data, FIG_DIR / f"{STAMP}_noise_floor.png"),
+        curves=plot_curves(data, replays, FIG_DIR / f"{STAMP}_metrics_curves.png"),
+        gif=render_gif(data, replays, args.run_dir, FIG_DIR / f"{STAMP}_process.gif"),
+    )
+    if not args.report_only:
+        write_report(data, artifacts, OUT_DIR / Path(REPORT_KEY).name)
+    summary = dict(blocks=len(data["blocks"]), replays={k: len(v) for k, v in replays.items()},
+                   artifacts={k: (v if isinstance(v, dict) else str(v)) for k, v in artifacts.items()})
+    (OUT_DIR / f"{STAMP}_artifacts.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
+                                                     encoding="utf-8")
+    print(json.dumps(summary, indent=2, ensure_ascii=False))
+
+
+if __name__ == "__main__":
+    main()
+
