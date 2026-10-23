@@ -1,4 +1,4 @@
-﻿"""W3-T9 e2e regression for the R50 controller rewrite.
+"""W3-T9 e2e regression for the R50 controller rewrite.
 
 Locks in the legacy bug fix: "多个控制器发送电压不能一次成功，要点击下发好几次才能全部发送到"
 (one click must reach ALL controllers). Uses simulated controllers and verifies

@@ -1,4 +1,4 @@
-﻿"""R50 控制器控制面板 (Streamlit) — 薄编排层。
+"""R50 控制器控制面板 (Streamlit) — 薄编排层。
 
 面向 ``MicroDM.py`` 中 :class:`R50Controller` / :class:`MicroDM` 的 UI。
 
