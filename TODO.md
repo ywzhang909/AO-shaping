@@ -445,7 +445,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 项 | 为什么不能 |
 |---|---|
 | 不要为「让 lint 变绿」给 `src/ml/` 加 noqa | 那 30 个 F821 是真缺陷，加 noqa 等于把 `NameError` 藏得更深 |
-| 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 435 条 bootstrap 约定瞬间爆红 |
+| 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 `scripts/*` 的 709 条 bootstrap 约定瞬间爆红（E402 实测总数 879 = scripts 709 / tests 128 / src 42，见 §8.3；原估 435 已作废，2026-10-23 随 R-63 step 2b 重钉） |
 | 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
 | 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
 | 不要把 `except BaseException`（`hardware_utils.py:628`）改成 `Exception` | 会造成静默行为变更，已推理见 §8.4 |
