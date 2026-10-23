@@ -112,6 +112,11 @@ from loguru import logger
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
 from ao_shaping.drivers.sim.disturbance import SimDisturbance
 from ao_shaping.drivers.sim.dm_optics import SimDmOptics
+from ao_shaping.drivers.sim.nonideal import (
+    SlmLutModel,
+    ZeroOrderModel,
+    CameraNonIdealModel,
+)
 from ao_shaping.drivers.slm.santec.slm200_constants import GRAY_SCALE_BITS
 
 try:  # scipy 的 pocketfft 是多线程的, 而补零后的变换需要它。
@@ -315,6 +320,11 @@ class SimPibSystem:
         camera_defocus_m: float = 0.0,
         counts_reference: str = COUNTS_REFERENCE_FRAME,
         illumination_radius_px: float | None = None,
+        # --- V2.0 器件级非理想物理 (NonIdealModule) ---
+        # 三个旋钮全部默认 = 理想器件 ⇒ 置空时与改动前**逐位相同**。
+        zero_order_eta: float = 0.0,
+        slm_lut: SlmLutModel | None = None,
+        nonideal_camera: CameraNonIdealModel | None = None,
     ) -> None:
         """构造共享的光学状态。
 
@@ -354,6 +364,21 @@ class SimPibSystem:
                 (默认) = 不截断 (高斯一路铺到面板边缘, 本模块改动前的行为);
                 给定值 ⇒ 光只落在那个盘内 (真实实验系统就是这样: 光只落在
                 照明盘里, 而面板菲涅尔矫正的遮罩也正好是这个盘)。
+            zero_order_eta: 零级光能量占比 (0~1); 0 = 理想单分量器件 (改动前行为)。
+                见 :class:`ao_shaping.drivers.sim.nonideal.ZeroOrderModel` —— 真实
+                LCoS 瞳面是双分量 ``U = U_in·[η + (1−η)e^{iφ}]``, 零级项在远场形成
+                弥散晕, 使「框外功率占比」的来源构成与硬件一致。
+            slm_lut: 可选的 :class:`SlmLutModel` (SLM LUT 非线性 + 灰度量化往返)。
+                ``None`` = 不经 LUT (改动前行为: 理想线性弧度→远场)。给了就走 LUT
+                往返, 引入 2π/993 量化误差 (与硬件一致)。
+            nonideal_camera: 可选的 :class:`CameraNonIdealModel` (PRNU + 暗电流 FPN)。
+                ``None`` = 只保留逐像元高斯白噪声 (改动前行为)。给了就在量化**前**
+                先加逐像元暗场图、再乘固定 PRNU 乘性图, 复现探测器的空间相关噪声地板。
+
+            ⚠️ **远场网格各向异性**: 面板是 1920×1200 的长方形, 单一整数补零因子
+            无法同时对齐两轴的角标度。``far_field_padding`` 因此接受 ``int`` (两轴
+            同值) 或 ``(pad_rows, pad_cols)`` 元组 (两轴分别指定) —— 见
+            :attr:`far_field_padding` 与 :meth:`far_field_pitch_um`。
         """
         if noise_spec is not None and peak_counts_per_ms is None:
             raise ValueError(
@@ -370,7 +395,19 @@ class SimPibSystem:
         self.beam_w0 = float(beam_w0)
         self.noise_adu = float(noise_adu)
         self.disturbance = disturbance
-        self.far_field_padding = max(1, int(far_field_padding))
+        # 远场补零: int (两轴同值) 或 (pad_rows, pad_cols) 元组 (各向异性)。
+        # 经 property setter 归一化到 self._pad_rows / self._pad_cols。
+        self.far_field_padding = far_field_padding
+        # V2.0 器件级非理想模型 (默认 identity ⇒ 与改动前逐位相同)。
+        self._zero_order = ZeroOrderModel(eta=float(zero_order_eta))
+        self.slm_lut = slm_lut
+        self._nonideal_camera = nonideal_camera
+        # PRNU / 暗场 FPN 固定图缓存 (固定 = 帧间恒定, 可复现)。
+        self._prnu_cache: np.ndarray | None = None
+        self._prnu_cache_shape: tuple[int, int] | None = None
+        self._dark_fpn_cache: np.ndarray | None = None
+        self._dark_fpn_cache_shape: tuple[int, int] | None = None
+        self._dark_fpn_cache_base: float = 0.0
         self.far_field_window = max(1, int(far_field_window))
         self.slm_pixel_um = float(slm_pixel_um)
         self.wavelength_nm = float(wavelength_nm)
@@ -407,6 +444,37 @@ class SimPibSystem:
             slm_shape=(self.slm_h, self.slm_w)
         )
         self._dm_version: int = 0
+
+    # --- 远场各向异性补零 (V2.0) --------------------------------------
+
+    @staticmethod
+    def _normalize_padding(pad: int | tuple[int, int]) -> tuple[int, int]:
+        """把补零因子归一化成 ``(pad_rows, pad_cols)``。
+
+        * ``int`` ⇒ 两轴同值;
+        * ``(r, c)`` 元组 ⇒ 两轴分别指定 (长方形面板各向异性修正)。
+        """
+        if isinstance(pad, (tuple, list)):
+            if len(pad) != 2:
+                raise ValueError(
+                    f"far_field_padding tuple must have length 2, got {len(pad)}"
+                )
+            return (max(1, int(pad[0])), max(1, int(pad[1])))
+        return (max(1, int(pad)), max(1, int(pad)))
+
+    @property
+    def far_field_padding(self) -> int | tuple[int, int]:
+        """远场 FFT 补零因子; ``int`` (两轴同值) 或 ``(pad_rows, pad_cols)`` 元组。
+
+        外部脚本会直接 ``system.far_field_padding = int(...)`` 赋值, 故用 property
+        暴露: 赋值即重新归一化 ``self._pad_rows`` / ``self._pad_cols``。
+        """
+        return self._far_field_padding_raw
+
+    @far_field_padding.setter
+    def far_field_padding(self, value: int | tuple[int, int]) -> None:
+        self._far_field_padding_raw = value
+        self._pad_rows, self._pad_cols = self._normalize_padding(value)
 
     # --- SLM 侧 --------------------------------------------------------
 
@@ -445,8 +513,9 @@ class SimPibSystem:
         """
         lam = self.wavelength_nm * 1e-9
         pitch = self.slm_pixel_um * 1e-6
-        n_rows = self.slm_h * self.far_field_padding
-        n_cols = self.slm_w * self.far_field_padding
+        # 各向异性: 行/列补零因子可不同 (长方形面板)。
+        n_rows = self.slm_h * self._pad_rows
+        n_cols = self.slm_w * self._pad_cols
         row = lam * self.focal_length_m / (n_rows * pitch) * 1e6
         col = lam * self.focal_length_m / (n_cols * pitch) * 1e6
         return float(row), float(col)
@@ -549,10 +618,18 @@ class SimPibSystem:
             phase = phase + defocus_phase
         # SLM 网格上的高斯入射光束幅度 (静态几何 ⇒ 懒缓存, 见下)。
         amplitude = self._amplitude_field()
-        pupil = amplitude * np.exp(1j * phase)
-        pad = self.far_field_padding
-        if pad > 1:
-            shape = (self.slm_h * pad, self.slm_w * pad)
+        # V2.0 双分量瞳面: 真实 LCoS 存在零级分量
+        # ``U_slm = √η·U_in + √(1−η)·U_in·e^{iφ}``, 零级项在远场形成弥散晕。
+        zo = self._zero_order
+        if zo.is_identity():
+            pupil = amplitude * np.exp(1j * phase)
+        else:
+            w_mod, w_zero = zo.pupil_weights()
+            pupil = w_mod * (amplitude * np.exp(1j * phase)) + w_zero * amplitude
+        pad_rows = self._pad_rows
+        pad_cols = self._pad_cols
+        if pad_rows > 1 or pad_cols > 1:
+            shape = (self.slm_h * pad_rows, self.slm_w * pad_cols)
             buffer = self._pad_buffer
             if buffer is None or buffer.shape != shape:
                 buffer = np.zeros(shape, dtype=np.complex128)
@@ -711,6 +788,49 @@ class SimPibSystem:
             img = img + self._rng.normal(0.0, self.noise_adu / 10.0, img.shape)
         return img
 
+    def _prnu_map(self, shape: tuple[int, int]) -> np.ndarray | None:
+        """固定乘性 PRNU 图 (量化**前**乘), 帧间恒定; identity ⇒ None。
+
+        PRNU 是空间相关的固定乘性图 ``M(x,y) ~ N(1, σ²)`` —— 真实 sCMOS 的像素响应
+        非均匀。它造成 CV/复合分数的**系统性**波动 (逐像元高斯白噪声模拟不出)。
+
+        缓存: 固定图只生成一次, 只要形状一致就复用 (可复现)。
+        """
+        cam = self._nonideal_camera
+        if cam is None or cam.is_identity():
+            return None
+        if self._prnu_cache is not None and self._prnu_cache_shape == shape:
+            return self._prnu_cache
+        m = cam.prnu_map(shape)
+        self._prnu_cache = m
+        self._prnu_cache_shape = shape
+        return m
+
+    def _dark_fpn_map(
+        self, shape: tuple[int, int], base_dark: float
+    ) -> np.ndarray | None:
+        """固定暗场 FPN 图 (量化**前**加), 帧间恒定; identity ⇒ None。
+
+        暗电流 FPN 是逐像元固定偏置 ``D(x,y) = base_dark + N(0, σ²)`` —— 真实相机的
+        暗电平不再是一个全局常数。固定模式噪声直接进 CV 计算。
+
+        缓存: 固定图只生成一次 (依赖形状与 base_dark)。
+        """
+        cam = self._nonideal_camera
+        if cam is None or cam.is_identity():
+            return None
+        if (
+            self._dark_fpn_cache is not None
+            and self._dark_fpn_cache_shape == shape
+            and abs(self._dark_fpn_cache_base - float(base_dark)) < 1e-9
+        ):
+            return self._dark_fpn_cache
+        m = cam.dark_map(shape, base_dark)
+        self._dark_fpn_cache = m
+        self._dark_fpn_cache_shape = shape
+        self._dark_fpn_cache_base = float(base_dark)
+        return m
+
     def counts_frame(self, exposure_ms: float) -> np.ndarray:
         """远场 → **counts** 帧 (绝对光度 + 可选的 counts 噪声)。
 
@@ -750,12 +870,22 @@ class SimPibSystem:
             fraction = self.far_field() / 100.0
         counts = fraction * float(self.peak_counts_per_ms) * exposure
         spec = self.noise_spec
+        # V2.0 探测器空间相关非理想性 (固定图, 量化**前**作用):
+        # 先加逐像元暗场 FPN (含全局暗电平 base_dark), 再乘固定 PRNU 乘性图。
+        # 固定图在帧间恒定 ⇒ 可复现, 且不会被逐帧的高斯白噪声掩盖。
+        base_dark = float(spec.dark_level_counts) if spec is not None else 0.0
+        dark_fpn = self._dark_fpn_map(counts.shape, base_dark)
+        if dark_fpn is not None:
+            counts = counts + dark_fpn
+        elif base_dark != 0.0:
+            counts = counts + base_dark
+        prnu = self._prnu_map(counts.shape)
+        if prnu is not None:
+            counts = counts * prnu
         if spec is not None:
+            # 注意: 暗电平已在上一步 (经 dark_fpn 或 base_dark) 加进 counts,
+            # 这里只处理散粒/读出噪声 + 量化。
             signal = counts
-            # 暗电平: 真实相机在无光时仍读出非零本底, 它**先**加进原始 ADU,
-            # 量化作用在带暗电平的信号上, 暗电平靠减中位数 (暗帧扣除) 去掉。
-            if float(spec.dark_level_counts) != 0.0:
-                counts = counts + float(spec.dark_level_counts)
             if spec.shot_k > 0:
                 sigma = spec.shot_k * np.sqrt(np.clip(signal, 0.0, None))
                 counts = counts + self._rng.normal(0.0, 1.0, counts.shape) * sigma
@@ -789,10 +919,13 @@ def get_system(
     noise_spec: SimNoiseSpec | None = None,
     panel_aberration: SimPanelAberration | None = None,
     camera_defocus_m: float | None = None,
-    counts_reference: str | None = None,
-    illumination_radius_px: float | None = None,
-    beam_w0: float | None = None,
-) -> SimPibSystem:
+        counts_reference: str | None = None,
+        illumination_radius_px: float | None = None,
+        beam_w0: float | None = None,
+        zero_order_eta: float = 0.0,
+        slm_lut: SlmLutModel | None = None,
+        nonideal_camera: CameraNonIdealModel | None = None,
+    ) -> SimPibSystem:
     """返回进程级的 :class:`SimPibSystem` (首次使用时创建)。
 
     ``disturbance`` 与其余口径旋钮**只在 system 于此处被创建时**生效; 已存在的
@@ -846,6 +979,9 @@ def get_system(
                     ("counts_reference", counts_reference),
                     ("illumination_radius_px", illumination_radius_px),
                     ("beam_w0", beam_w0),
+                    ("zero_order_eta", zero_order_eta),
+                    ("slm_lut", slm_lut),
+                    ("nonideal_camera", nonideal_camera),
                 )
                 if value is not None
             },
@@ -868,11 +1004,14 @@ def reset_system(
     peak_counts_per_ms: float | None = None,
     noise_spec: SimNoiseSpec | None = None,
     panel_aberration: SimPanelAberration | None = None,
-    camera_defocus_m: float | None = None,
-    counts_reference: str | None = None,
-    illumination_radius_px: float | None = None,
-    beam_w0: float | None = None,
-) -> SimPibSystem:
+        camera_defocus_m: float | None = None,
+        counts_reference: str | None = None,
+        illumination_radius_px: float | None = None,
+        beam_w0: float | None = None,
+        zero_order_eta: float = 0.0,
+        slm_lut: SlmLutModel | None = None,
+        nonideal_camera: CameraNonIdealModel | None = None,
+    ) -> SimPibSystem:
     """替换进程级的 system (用于矩阵单元格之间)。
 
     口径旋钮的语义与 :func:`get_system` 相同 (``None`` = 用默认值)。
@@ -899,6 +1038,9 @@ def reset_system(
                 ("counts_reference", counts_reference),
                 ("illumination_radius_px", illumination_radius_px),
                 ("beam_w0", beam_w0),
+                ("zero_order_eta", zero_order_eta),
+                ("slm_lut", slm_lut),
+                ("nonideal_camera", nonideal_camera),
             )
             if value is not None
         },
@@ -1033,10 +1175,20 @@ class SimSLMPib:
                     overlay.shape,
                     rad.shape,
                 )
+        # V2.0 SLM LUT 往返: 设备**实际显示**出的相位 = LUT 反查 + 量化误差。
+        # 远场必须看到实际显示的相位 (而非命令相位), 否则 V2.0 的 CV/量化修正
+        # 就进不到远场。灰度编码仍按命令相位 (与驱动一致), 仅上膛的远场相位被替换。
+        # ⚠️ 用 ``slm_lut is not None`` 判定是否走往返 (而非 ``is_identity()``):
+        # γ=1 的 LUT 仍会量化 (与完全不经 LUT 略有差别)。
+        lut = self.system.slm_lut
+        if lut is not None:
+            displayed = lut.actual_phase(total)
+        else:
+            displayed = total
         # 存下**合成后**的弧度相位, 供远场使用 (离焦必须在远场里看得见)。
-        self.system.set_phase_rad(total)
+        self.system.set_phase_rad(displayed)
         self.last_phase_rad = rad.copy()
-        self.last_applied_phase_rad = total.copy()
+        self.last_applied_phase_rad = displayed.copy()
         # 弧度 → 灰度 (2*pi 映射到 2π 灰度), wrap 方式与驱动一致。
         two_pi_gray = (
             float(self.system.two_pi_gray) if max_grayscale is None else float(max_grayscale)
