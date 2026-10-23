@@ -1,0 +1,23 @@
+{
+  "timestamp_utc": "2026-10-23T10:44:09+00:00",
+  "stage": "sides",
+  "side_px": 1200,
+  "rank_by": "score",
+  "rank_value": 0.7011197372745197,
+  "score": 0.7011197372745197,
+  "quality": 0.5102741592179336,
+  "cv": 0.9110245025841692,
+  "pib": 0.878959946396597,
+  "target_side_near": 1000.0,
+  "near_tolerance": 200.0,
+  "near_window_px": [
+    800.0,
+    1200.0
+  ],
+  "gs_grid": 512,
+  "gs_iters": 200,
+  "n_sides_rows": 17,
+  "phase_path": "sides/side_1200/pupil_phase.npy",
+  "source_csv": "sides/measurements.csv",
+  "grain": "选定边长的基准相位 = 该边长 config 目录里的 pupil_phase.npy (GS 网格相位); 第 2/3 段优先复用它"
+}

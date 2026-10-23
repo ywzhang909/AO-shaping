@@ -1,0 +1,709 @@
+{
+  "batch": "20261023_atomic_full",
+  "display": {
+    "cmap": "inferno",
+    "crop_factor": 1.4,
+    "dpi": 150,
+    "interpolation": "nearest",
+    "norm": "LogNorm(vmin=1, vmax=该格峰值)"
+  },
+  "mosaics": [
+    {
+      "cells": [
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 219.5,
+          "box_p99": 255.0,
+          "box_pixels": 40000,
+          "config": "side_200",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 1139,
+            "x1": 1419,
+            "y0": 756,
+            "y1": 1036
+          },
+          "cv": 0.5623828890080886,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "sides",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.2295144704872705,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.43478122137256386,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_200/frame_000.npz",
+              "sha256": "797e33217da5dca8ad5ee22bd41496f89abf1086b12b8e09068496a5b47398f0"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 200.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 70.0,
+          "box_p99": 255.0,
+          "box_pixels": 360000,
+          "config": "side_600",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 872,
+            "x1": 1712,
+            "y0": 450,
+            "y1": 1290
+          },
+          "cv": 0.8147732250549049,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "sides",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.645073588490881,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.5980533122857994,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_600/frame_000.npz",
+              "sha256": "ffae14984f14442de1cfe8d8d8c742485ea85e981f8121a937dae3f14a3255b4"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 600.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 29.0,
+          "box_p99": 143.0,
+          "box_pixels": 1000000,
+          "config": "side_1000",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 554,
+            "x1": 1954,
+            "y0": 198,
+            "y1": 1598
+          },
+          "cv": 0.848501606124711,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "sides",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8144131170479375,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.67769590965211,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz",
+              "sha256": "b5505f3a820a60d2ae96ebab2beafa0fc6fd9abcf2578c4705c8af601a014101"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 1000.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 13.0,
+          "box_p99": 62.0,
+          "box_pixels": 2250000,
+          "config": "side_1500",
+          "crop": {
+            "clipped_by_frame": true,
+            "factor": 1.4,
+            "x0": 204,
+            "x1": 2304,
+            "y0": 0,
+            "y1": 1944
+          },
+          "cv": 1.121721484805815,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "sides",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.9353824849037742,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.703348940024649,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1500/frame_000.npz",
+              "sha256": "21db6a36220f3118208a2949a89c523f70d5c35cb07a9f3489b45939fda3e553"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 1500.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 10.25,
+          "box_p99": 49.25,
+          "box_pixels": 2890000,
+          "config": "side_1700",
+          "crop": {
+            "clipped_by_frame": true,
+            "factor": 1.4,
+            "x0": 63,
+            "x1": 2443,
+            "y0": 0,
+            "y1": 1944
+          },
+          "cv": 1.5218360926270988,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "sides",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.9575015154672484,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.677018996284818,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1700/frame_000.npz",
+              "sha256": "53f79595e87da9989cc7050c9a13c29bea9095a1bcf60b9ef6dea759bbb01549"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 1700.0
+          }
+        }
+      ],
+      "figure": "fig6_farfield_sides_20261023_atomic_full.png",
+      "mosaic": "sides",
+      "title": "边长段: 方斑随边长变化"
+    },
+    {
+      "cells": [
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 2.25,
+          "box_p99": 250.75,
+          "box_pixels": 1440000,
+          "config": "nmax_30",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 410,
+            "x1": 2090,
+            "y0": 65,
+            "y1": 1745
+          },
+          "cv": 2.791588409728157,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "zernike",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8911649947957588,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.5774533509739531,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_30/frame_000.npz",
+              "sha256": "c10b8b3609e17b4e408cf6c21706b07d5bbf4f8684fea2c3587603438c162121"
+            }
+          ],
+          "stage": "zernike",
+          "value": {
+            "n_max": 30.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 2.0,
+          "box_p99": 178.5,
+          "box_pixels": 1440000,
+          "config": "nmax_19",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 369,
+            "x1": 2049,
+            "y0": 68,
+            "y1": 1748
+          },
+          "cv": 2.7667990153642497,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "zernike",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.875195479441725,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.5703364385366394,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_19/frame_000.npz",
+              "sha256": "f470f4ba608c2ba86be9b38aac1df93176aa330b83889617a558c0389f0284a2"
+            }
+          ],
+          "stage": "zernike",
+          "value": {
+            "n_max": 19.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 2.0,
+          "box_p99": 173.0,
+          "box_pixels": 1440000,
+          "config": "nmax_12",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 367,
+            "x1": 2047,
+            "y0": 66,
+            "y1": 1746
+          },
+          "cv": 2.7290147664466007,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "zernike",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8797729629348418,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.5739701553908827,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_12/frame_000.npz",
+              "sha256": "3cb8033c862ab3ca509d79be75115a71cb9a46cb87b1eb3299efe5e1fb3136d1"
+            }
+          ],
+          "stage": "zernike",
+          "value": {
+            "n_max": 12.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 2.0,
+          "box_p99": 173.25,
+          "box_pixels": 1440000,
+          "config": "nmax_7",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 365,
+            "x1": 2045,
+            "y0": 67,
+            "y1": 1747
+          },
+          "cv": 2.730102042580304,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "zernike",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8833533460770032,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.5757212633184298,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/zernike/nmax_7/frame_000.npz",
+              "sha256": "e877a52a6dfc2f55dbbb6bdd94d9c005a82a5ad95826b414d3a61c491a8e94a8"
+            }
+          ],
+          "stage": "zernike",
+          "value": {
+            "n_max": 7.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 20.0,
+          "box_p99": 101.75,
+          "box_pixels": 1440000,
+          "config": "side_1200",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 413,
+            "x1": 2093,
+            "y0": 60,
+            "y1": 1740
+          },
+          "cv": 0.9110245025841692,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "zernike",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "同 run-root 边长段的 1200 px 行（未截断）",
+          "peak": 255.0,
+          "pib": 0.878959946396597,
+          "role": "GS 参照",
+          "saturated": true,
+          "score": 0.7011197372745197,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1200/frame_000.npz",
+              "sha256": "ee041f427ca8331a66bce36db4b9b0995807de299b8c88c83a1dc71502726627"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 1200.0
+          }
+        }
+      ],
+      "figure": "fig7_farfield_zernike_20261023_atomic_full.png",
+      "mosaic": "zernike",
+      "title": "Zernike 段: 低阶重构后的远场"
+    },
+    {
+      "cells": [
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 13.75,
+          "box_p99": 96.5,
+          "box_pixels": 1440000,
+          "config": "blaze_32",
+          "crop": {
+            "clipped_by_frame": true,
+            "factor": 1.4,
+            "x0": 367,
+            "x1": 2047,
+            "y0": 298,
+            "y1": 1944
+          },
+          "cv": 1.3394768082641162,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "blaze",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.7526163210894637,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.590031159735734,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_32/frame_000.npz",
+              "sha256": "c8e097245abdce3ae5a6c8355bf76a86affae5b49ec8f1ca7df9607a5c3680fc"
+            }
+          ],
+          "stage": "blaze",
+          "value": {
+            "blaze_period_px": 32.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 16.75,
+          "box_p99": 97.75,
+          "box_pixels": 1440000,
+          "config": "blaze_64",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 366,
+            "x1": 2046,
+            "y0": 184,
+            "y1": 1864
+          },
+          "cv": 1.119467838228453,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "blaze",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8551852552486113,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.6635009018531435,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_64/frame_000.npz",
+              "sha256": "e523d214fef1398b880c0c938b5c96a468fa0699dfc54b163aece883c95f5470"
+            }
+          ],
+          "stage": "blaze",
+          "value": {
+            "blaze_period_px": 64.0
+          }
+        },
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 18.0,
+          "box_p99": 101.0,
+          "box_pixels": 1440000,
+          "config": "blaze_128",
+          "crop": {
+            "clipped_by_frame": false,
+            "factor": 1.4,
+            "x0": 367,
+            "x1": 2047,
+            "y0": 126,
+            "y1": 1806
+          },
+          "cv": 1.0558322395057358,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "blaze",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "",
+          "peak": 255.0,
+          "pib": 0.8982023402583298,
+          "role": "固定格",
+          "saturated": true,
+          "score": 0.6923116765079393,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_128/frame_000.npz",
+              "sha256": "a31569807def8270ecebc04f0a15c73a328394fddd84f5b620dc311e95a99f59"
+            }
+          ],
+          "stage": "blaze",
+          "value": {
+            "blaze_period_px": 128.0
+          }
+        },
+        {
+          "box_clipped_px": 31200.0,
+          "box_median": 4.25,
+          "box_p99": 73.5,
+          "box_pixels": 1408800,
+          "config": "blaze_16",
+          "crop": {
+            "clipped_by_frame": true,
+            "factor": 1.4,
+            "x0": 366,
+            "x1": 2046,
+            "y0": 530,
+            "y1": 1944
+          },
+          "cv": 2.173053767419437,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "blaze",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "该行方框出画, PIB 不可与其它行横比",
+          "peak": 255.0,
+          "pib": 0.4069760360983636,
+          "role": "补充格",
+          "saturated": true,
+          "score": 0.3610649255488102,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/blaze/blaze_16/frame_000.npz",
+              "sha256": "c621c2ec5b7e775203c866abf1d4cf1d908862029c15430bff5497741da0c4b1"
+            }
+          ],
+          "stage": "blaze",
+          "value": {
+            "blaze_period_px": 16.0
+          }
+        }
+      ],
+      "figure": "fig8_farfield_blaze_20261023_atomic_full.png",
+      "mosaic": "blaze",
+      "title": "闪耀光栅段: 光栅把方斑搬走"
+    },
+    {
+      "cells": [
+        {
+          "box_clipped_px": 0.0,
+          "box_median": 29.0,
+          "box_p99": 143.0,
+          "box_pixels": 1000000,
+          "config": "side_1000",
+          "crop": null,
+          "cv": 0.848501606124711,
+          "frame_shape_hw": [
+            1944,
+            2592
+          ],
+          "frames_planned": 4,
+          "frames_present": 1,
+          "layout": "atomic",
+          "missing": false,
+          "mosaic": "fullframe",
+          "norm": {
+            "vmax": 255.0,
+            "vmin": 1.0
+          },
+          "note": "不裁剪, 用于核对 0 级与画面中心的相对位置",
+          "peak": 255.0,
+          "pib": 0.8144131170479375,
+          "role": "整帧",
+          "saturated": true,
+          "score": 0.67769590965211,
+          "sources": [
+            {
+              "path": "data/debug/hw_gs_square_scans/20261023_atomic_full/sides/side_1000/frame_000.npz",
+              "sha256": "b5505f3a820a60d2ae96ebab2beafa0fc6fd9abcf2578c4705c8af601a014101"
+            }
+          ],
+          "stage": "sides",
+          "value": {
+            "side_px": 1000.0
+          }
+        }
+      ],
+      "figure": "fig9_farfield_fullframe_20261023_atomic_full.png",
+      "mosaic": "fullframe",
+      "title": "整帧: 0 级不在画面中心"
+    }
+  ],
+  "run_root": "data/debug/hw_gs_square_scans/20261023_atomic_full"
+}

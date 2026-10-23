@@ -1,0 +1,111 @@
+[
+  {
+    "group": "sides",
+    "variable": "side_px",
+    "meta": {
+      "cam_type": "daheng",
+      "mode": "atomic"
+    },
+    "dir": "sides",
+    "n_rows": 17,
+    "created_utc": "2026-10-23T10:56:20+00:00",
+    "summary": {
+      "n_rows": 17,
+      "mode": "atomic",
+      "configs": [
+        "side_100",
+        "side_200",
+        "side_300",
+        "side_400",
+        "side_500",
+        "side_600",
+        "side_700",
+        "side_800",
+        "side_900",
+        "side_1000",
+        "side_1100",
+        "side_1200",
+        "side_1300",
+        "side_1400",
+        "side_1500",
+        "side_1600",
+        "side_1700"
+      ]
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_atomic_full\\sides"
+  },
+  {
+    "group": "zernike",
+    "variable": "n_max",
+    "meta": {
+      "cam_type": "daheng",
+      "mode": "atomic"
+    },
+    "dir": "zernike",
+    "n_rows": 24,
+    "created_utc": "2026-10-23T10:56:20+00:00",
+    "summary": {
+      "n_rows": 24,
+      "mode": "atomic",
+      "configs": [
+        "nmax_7",
+        "nmax_8",
+        "nmax_9",
+        "nmax_10",
+        "nmax_11",
+        "nmax_12",
+        "nmax_13",
+        "nmax_14",
+        "nmax_15",
+        "nmax_16",
+        "nmax_17",
+        "nmax_18",
+        "nmax_19",
+        "nmax_20",
+        "nmax_21",
+        "nmax_22",
+        "nmax_23",
+        "nmax_24",
+        "nmax_25",
+        "nmax_26",
+        "nmax_27",
+        "nmax_28",
+        "nmax_29",
+        "nmax_30"
+      ],
+      "selected_side_px": [
+        1200
+      ]
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_atomic_full\\zernike"
+  },
+  {
+    "group": "blaze",
+    "variable": "blaze_period_px",
+    "meta": {
+      "cam_type": "daheng",
+      "mode": "atomic"
+    },
+    "dir": "blaze",
+    "n_rows": 8,
+    "created_utc": "2026-10-23T10:56:20+00:00",
+    "summary": {
+      "n_rows": 8,
+      "mode": "atomic",
+      "configs": [
+        "blaze_16",
+        "blaze_24",
+        "blaze_32",
+        "blaze_40",
+        "blaze_48",
+        "blaze_64",
+        "blaze_96",
+        "blaze_128"
+      ],
+      "selected_side_px": [
+        1200
+      ]
+    },
+    "dir_abs": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\hw_gs_square_scans\\20261023_atomic_full\\blaze"
+  }
+]
