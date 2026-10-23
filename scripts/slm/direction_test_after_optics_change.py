@@ -96,7 +96,7 @@ def main() -> None:
             image = forward.predict(torch.tensor(grid[None], dtype=torch.float32))[0]
             values = image[torch.as_tensor(core)]
             mean = values.mean().clamp_min(1e-8)
-            return float((((values / mean) - 1) ** 2).mean())
+            return float(np.sqrt((((values / mean) - 1) ** 2).mean()))
 
     record = dict(checkpoint=str(args.checkpoint), spot_xy=list(args.spot_xy), centre=list(centre),
                   target_side_px=args.target_side_px, target_rms=args.target_rms, applied_rms=applied,
@@ -176,4 +176,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

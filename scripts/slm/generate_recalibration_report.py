@@ -175,7 +175,12 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
 | 结构化探针 / 60 px / 0.03 rad | {fmt((probe.get("model") or {}).get("b_plus"), 4)} | {fmt((probe.get("model") or {}).get("b_minus"), 4)} | {fmt(probe.get("delta_plus"), 5)} | {fmt(probe.get("delta_minus"), 5)} | {("通过" if probe.get("verdict") else "未通过")} |
 | **结构化探针 / 1000 px / 0.06 rad** | {fmt((probe1000.get("model") or {}).get("b_plus"), 2)} | {fmt((probe1000.get("model") or {}).get("b_minus"), 2)} | **{fmt(probe1000.get("delta_plus"), 5)}** | **{fmt(probe1000.get("delta_minus"), 5)}** | **{("通过" if probe1000.get("verdict") else "未通过")}**（3σ {fmt(probe1000.get("resolution"), 4)}） |
 
-判据：两个方向都超过 3σ 且符号相反（模型下降方向 B+ 应让实测 CV 下降、B− 应上升）。
+判据（2026-10-23 收紧）：**Δ+ < −3σ 且 Δ− > +3σ** —— 只查"异号"不够，异号但方向反了同样是错。
+
+> ⚠️ **模型列与实测列的单位不同**：上表的模型列在 2026-10-23 修正前记录的是 **CV²**
+> （对应 CV = √值：1000 px 那轮 seed 14.99 / B+ 14.30 / B− 15.72；60 px 那轮 1.49 / 1.45 / 1.53），
+> 实测列是 **CV**。修正后脚本两处都输出 CV；写这一段是为了让旧记录可被正确解读。
+> 掩膜一致性：模型按 `--spot-xy` 建掩膜、实测按首帧 argmax，**偏差 >5 px 现在会告警并记 `mask_offset_px`**。
 模型侧三个值（seed / B+ / B−）见方向记录 JSON。
 
 ## 4. 结论与下一步
@@ -248,6 +253,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 
