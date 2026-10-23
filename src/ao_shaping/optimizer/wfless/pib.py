@@ -30,6 +30,19 @@ from ao_shaping.optimizer.constants import (
     KEEP_VOLTAGE_WHEN_EXIT,
     create_optimizer,
 )
+# Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
+from ao_shaping.algorithm.tabu.tabu_search import (
+    AdaptiveSearchState,
+    TabuMemory,
+)
+from ao_shaping.utils.io.recorder_keys import (
+    RECORD_DIFF,
+    RECORD_EPOCH,
+    RECORD_GRAD,
+    RECORD_IMAGE,
+    RECORD_ROI_ENERGY,
+    RECORD_VOLTAGES,
+)
 
 
 # 测试/仿真注入点: 设为 SimCamera 等替身即可替换真实驱动, None = 使用真实驱动。
@@ -47,22 +60,6 @@ beta3 = 0.9999
 
 # camera parameters (pib-specific)
 ADVISE_EXPOSURE_TIME_BRIGHTNESS = int(255 / 3)
-
-
-# Re-export TabuMemory and AdaptiveSearchState from shared algorithm module
-from ao_shaping.algorithm.tabu.tabu_search import (
-    AdaptiveSearchState,
-    TabuMemory,
-)
-from ao_shaping.utils.io.recorder_keys import (
-    RECORD_DIFF,
-    RECORD_EPOCH,
-    RECORD_GRAD,
-    RECORD_IMAGE,
-    RECORD_ROI_ENERGY,
-    RECORD_VOLTAGES,
-)
-
 
 
 def _extract_optimizer_momentum(optimizer: Base) -> np.ndarray | float | None:

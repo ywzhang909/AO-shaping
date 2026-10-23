@@ -4,11 +4,11 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Requires DM + Camera hardware")
-
-
 from ao_shaping.optimizer.wfless.pib import optimize_pib
 from ao_shaping.utils.io.file import get_init_V_by_rms
+
+pytestmark = pytest.mark.skip(reason="Requires DM + Camera hardware")
+
 
 def test_optimize_pib():
 

@@ -45,15 +45,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
-#: Largest share of the camera window a measured flat spot may fill before the
-#: geometry is refused (see :meth:`BenchGeometry.self_check_failures`). Measured on
-#: this bench: 13.19 px of 300 (4.4%) for a geometry that shaped acceptably, against
-#: 106.85 px of 300 (36%) for one fitted on an uncorrected defocused pupil -- both of
-#: which cleared the correlation floor, at 0.848 and 0.831. The bound sits ~3.4x above
-#: the usable value and ~2.4x below the broken one.
-GEOMETRY_MAX_SPOT_WINDOW_FRACTION = 0.15
-
-
 import numpy as np
 from loguru import logger
 from scipy.ndimage import zoom
@@ -83,6 +74,14 @@ from ao_shaping.utils.io.recorder_keys import (
     RECORD_IMAGE,
     RECORD_PHASE,
 )
+
+#: Largest share of the camera window a measured flat spot may fill before the
+#: geometry is refused (see :meth:`BenchGeometry.self_check_failures`). Measured on
+#: this bench: 13.19 px of 300 (4.4%) for a geometry that shaped acceptably, against
+#: 106.85 px of 300 (36%) for one fitted on an uncorrected defocused pupil -- both of
+#: which cleared the correlation floor, at 0.848 and 0.831. The bound sits ~3.4x above
+#: the usable value and ~2.4x below the broken one.
+GEOMETRY_MAX_SPOT_WINDOW_FRACTION = 0.15
 
 #: ``spot_fwhm`` was sunk to the leaf ``utils/image`` layer (R-48, #64); this alias
 #: keeps the private name used throughout this module and its tests intact.

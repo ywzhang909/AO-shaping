@@ -1,6 +1,9 @@
 from __future__ import annotations
 import numpy as np
 import time
+import json
+
+from adam_cython import SGD, Adam, AdamW, AdaMOD, Muno, MunoW, Muon, AdamNS
 
 
 class SGD_Py:
@@ -198,8 +201,6 @@ class AdamNS_Py:
         return self.lr * u.flatten()
 
 
-from adam_cython import SGD, Adam, AdamW, AdaMOD, Muno, MunoW, Muon, AdamNS
-
 np.random.seed(42)
 dims = [10, 100, 1000, 10000]
 n_iter = 1000
@@ -290,8 +291,6 @@ for dim in dims:
         )
 
 # Save results for report
-import json
-
 with open("benchmark_results.json", "w") as f:
     # Convert numpy types to Python native
     def convert(obj):

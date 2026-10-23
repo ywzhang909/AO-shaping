@@ -10,12 +10,13 @@ These tests verify that:
 import streamlit as st
 import pytest
 
-pytestmark = pytest.mark.skip(reason="Requires Streamlit runtime and live SLM/WFS hardware")
 from unittest.mock import patch, MagicMock, PropertyMock
 import pytest
 import sys
 from pathlib import Path
 from datetime import datetime
+
+pytestmark = pytest.mark.skip(reason="Requires Streamlit runtime and live SLM/WFS hardware")
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
