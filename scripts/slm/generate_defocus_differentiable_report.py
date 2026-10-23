@@ -413,6 +413,14 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
     chain = data["chain"]
     e_section = build_e_section(data)
     rounds_sections_joined = "\n".join(artifacts.get("rounds_sections") or ["（多轮数据尚未采集。）"])
+    # 溯源块是 sync_report_provenance.py 生成的；重写正文时必须原样保留，否则 --check 报漂移
+    provenance_block = "<!-- provenance:start -->\n<!-- provenance:end -->"
+    if path.exists():
+        previous = path.read_text(encoding="utf-8")
+        if "<!-- provenance:start -->" in previous and "<!-- provenance:end -->" in previous:
+            head = previous.index("<!-- provenance:start -->")
+            tail = previous.index("<!-- provenance:end -->") + len("<!-- provenance:end -->")
+            provenance_block = previous[head:tail]
     direction = data["direction"]
     floor = data["noise"]
     blocks = chain["blocks"]
@@ -422,9 +430,7 @@ def write_report(data: dict, artifacts: dict, path: Path) -> None:
         for b in blocks)
     text = f"""# 离焦光路下的可微整形（2026-10-23）
 
-<!-- provenance:start -->
-<!-- provenance:end -->
-
+{provenance_block}
 ## 摘要
 
 在**未移动相机**的离焦光路上，用冻结的物理前向模型做可微优化，并用 A-B-B-A 重放逐块验收。
@@ -520,7 +526,6 @@ python scripts/slm/generate_defocus_differentiable_report.py \\
 """
     path.write_text(text, encoding="utf-8")
 
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path,
@@ -583,5 +588,6 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
