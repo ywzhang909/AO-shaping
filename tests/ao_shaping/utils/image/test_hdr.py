@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from ao_shaping.utils.image.hdr import HdrFuseError, hdr_fuse, robust_mean
+from ao_shaping.utils.image.hdr import HdrFuseError, box_metrics, hdr_fuse, robust_mean
 
 
 def _scene(radiance: np.ndarray, exposure_ms: float, *, full_scale: float = 255.0) -> np.ndarray:
@@ -72,3 +72,28 @@ def test_robust_mean_clips_outliers():
     mask = np.ones((1, 5), dtype=bool)
     assert robust_mean(image, mask) == pytest.approx(1.0, abs=1e-9)
     assert robust_mean(image, mask, clip_sigma=None) == pytest.approx(20.8, rel=1e-6)
+
+
+def test_box_metrics_reports_fill_and_validity():
+    image = np.zeros((101, 101))
+    image[45:56, 45:56] = 20.0       # 11x11 的亮块（围绕中心）
+    image[2:5, 2:5] = 5.0            # 远处另一团光，保证 ``ee_box`` 有区分度
+    small = box_metrics(image, (50, 50), box_px=11, step_px=1.0)
+    large = box_metrics(image, (50, 50), box_px=39, step_px=1.0)
+    assert small["mean_core"] > large["mean_core"]
+    assert 0 < large["fill"] < small["fill"] <= 1
+    assert small["ee_box"] >= large["ee_box"]         # 能量都在两块内部时二者相等（不因框大而虚高）
+    gated = box_metrics(image, (50, 50), box_px=39, step_px=1.0, signal_floor=5.0)
+    assert gated["valid"] is False                     # 大框均值远低于门槛
+    assert box_metrics(image, (50, 50), box_px=11, step_px=1.0, signal_floor=5.0)["valid"] is True
+
+
+def test_box_metrics_handles_all_nan():
+    image = np.full((21, 21), np.nan)
+    result = box_metrics(image, (10, 10), box_px=10)
+    assert not result["valid"]
+    assert np.isnan(result["mean_core"])
+    assert result["coverage"] == 0.0
+
+
+

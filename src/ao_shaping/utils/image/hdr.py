@@ -102,6 +102,60 @@ def hdr_fuse(frames: Sequence[npt.NDArray[np.floating]], exposures_ms: Sequence[
                      invalid_pixels=int((~valid).sum()))
 
 
+def box_metrics(image: npt.NDArray[np.floating], centre_ij: tuple[int, int], box_px: float, *,
+                step_px: float = 1.0, inner_shrink_px: float = 3.0, zero_half_px: float = 15.0,
+                signal_floor: float | None = None, floor_multiplier: float = 3.0,
+                clip_sigma: float | None = 3.0) -> dict[str, float | bool]:
+    """在**线性化**图上算方框指标（大框专用：不依赖单曝光的绝对计数）。
+
+    Args:
+        image: 线性化图（``hdr_fuse(...).radiance`` 或单曝光 counts），NaN 表示无效像素。
+        centre_ij: 方框中心 ``(col, row)``（相机像元）。
+        box_px: 方框边长（相机像元）。
+        step_px: 图像一个像素对应的相机像元数。
+        inner_shrink_px: 内部核心区相对外框的内缩（默认 3 px）。
+        zero_half_px: 零级掩膜的半宽（默认 15 px）。
+        signal_floor: 目标区均值的判定下限（同一量纲）；给了才判 ``valid``。
+        floor_multiplier: ``valid`` 要求 ``mean_core >= floor_multiplier × signal_floor``。
+        clip_sigma: 稳健均值的中位数±k·MAD 截断；``None`` 用普通均值。
+
+    Returns:
+        含 ``mean_core / peak / fill / cv_core / ee_box / zero_ratio / valid / coverage`` 的字典；
+        掩膜内无有效像素时相应量为 ``nan`` 且 ``valid`` 为 False。
+    """
+    array = np.asarray(image, dtype=np.float64)
+    col, row = int(centre_ij[0]), int(centre_ij[1])
+    half = max(1, int(round(box_px / 2.0 / step_px)))
+    inner = max(1, half - int(round(inner_shrink_px / step_px)))
+    zero_half = max(1, int(round(zero_half_px / step_px)))
+    yy, xx = np.mgrid[: array.shape[0], : array.shape[1]]
+    box = (np.abs(xx - col) <= half) & (np.abs(yy - row) <= half)
+    core = (np.abs(xx - col) <= inner) & (np.abs(yy - row) <= inner)
+    zero = (np.abs(xx - col) <= zero_half) & (np.abs(yy - row) <= zero_half)
+
+    values = array[core]
+    values = values[np.isfinite(values)]
+    mean_core = float(values.mean()) if values.size else float("nan")
+    finite = np.isfinite(array)
+    peak = float(np.nanmax(array)) if finite.any() else float("nan")
+    total = float(np.nansum(array))
+    if values.size and mean_core > 0:
+        cv_sq = float((((values / mean_core) - 1.0) ** 2).mean())
+    else:
+        cv_sq = float("nan")
+    floor = robust_mean(array, core, clip_sigma=clip_sigma) if values.size else float("nan")
+    valid = bool(np.isfinite(mean_core) and mean_core > 0
+                 and (signal_floor is None or mean_core >= floor_multiplier * float(signal_floor)))
+    return dict(mean_core=mean_core, core_px=int(values.size), peak=peak,
+                fill=float(mean_core / peak) if np.isfinite(peak) and peak > 0 else float("nan"),
+                cv_core=float(np.sqrt(cv_sq)) if np.isfinite(cv_sq) else float("nan"),
+                cv_sq=cv_sq,
+                ee_box=float(np.nansum(array[box]) / total) if total > 0 else float("nan"),
+                zero_ratio=float(np.nansum(array[zero]) / total) if total > 0 else float("nan"),
+                robust_mean=floor, valid=valid,
+                coverage=float(finite.sum() / array.size))
+
+
 def robust_mean(image: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_], *,
                 clip_sigma: float | None = 3.0) -> float:
     """掩膜内的稳健均值（可选按中位数 ± clip_sigma·MAD 剔除离群），用于 HDR 图的目标区均值。"""
