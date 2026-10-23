@@ -59,6 +59,19 @@
 
 这次新增设备数据共 19 组、95 张原始帧；其中一组稳定超时，保留失败原值。所有硬件记录保留实际曝光、总相位、稳定判决、UTC 微秒格式时间和单调时钟起止。分析目录保存输入数组、源文件哈希及当次脚本副本；输入原始 NPZ 另以 SHA-256 引用。本轮证据清单为 `sampling_followup_evidence_20261022.json`，含 268 个文件的相对路径、字节数及 SHA-256，总计 `582011381 bytes`。原始帧不经背景扣除覆写。派生的校正图像单独保存，允许负值，不以截断掩盖偏置误差。精确格式时间戳不代表已获得相机硬件同步精度。
 
+### 各目录的可视化图像
+
+以下为六个目录的离线渲染图像（SLM 相位 / CCD 远场光斑 / 迭代 metrics），所有图像由 `pkl_visualizations/` 下的脚本从落盘数据生成，不依赖设备在线。完整画廊见 `../pkl_visualizations/index.html`。
+
+| 目录 | 可视化内容 | 图像 |
+|---|---|---|
+| `sampling_audit_20261022_r1/` | 迭代 metrics + 实测 vs 预测 montage | ![metrics](../pkl_visualizations/sampling_audit_20261022_r1/metrics.png) ![montage](../pkl_visualizations/sampling_audit_20261022_r1/meas_pred_montage.png) |
+| `response_bias_20261022_r2/` | SLM 相位 + 相位包裹 + CCD 远场（C/U 两分支） | ![C](../pkl_visualizations/response_bias_20261022_r2/response_bias_20261022_r2__C_frac0.1_exp0.307ms.png) ![U](../pkl_visualizations/response_bias_20261022_r2/response_bias_20261022_r2__U_frac0.1_exp7.51ms.png) |
+| `radiometry_audit_20261022_r2/` | 迭代 metrics（训练得分与混合系数） | ![metrics](../pkl_visualizations/radiometry_audit_20261022_r2/metrics.png) |
+| `response_repeat_20261022_r3/` | SLM 相位 + 相位包裹 + CCD 远场（U 分支） | ![U](../pkl_visualizations/response_repeat_20261022_r3/response_repeat_20261022_r3__U_frac0.5_exp37.554ms.png) |
+| `uniformity_refit_20261022_r1/` | 损失曲线 + 参数曲线 + 探针相位/CCD/预测四联图 | ![loss](../pkl_visualizations/uniformity_refit_20261022_r1/metrics_loss.png) ![params](../pkl_visualizations/uniformity_refit_20261022_r1/metrics_params.png) ![probe_max](../pkl_visualizations/uniformity_refit_20261022_r1/probe_peak_max.png) ![probe_min](../pkl_visualizations/uniformity_refit_20261022_r1/probe_peak_min.png) |
+| `fixed_phase_repeat_20261022_r4/` | SLM 相位 + 相位包裹 + CCD 远场（C/U 两分支） | ![C](../pkl_visualizations/fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__C_frac1.0_exp3.079ms.png) ![U](../pkl_visualizations/fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__U_frac1.0_exp75.109ms.png) |
+
 初始 12 个验证探针与后采 12 个新探针已经被上一阶段观察，本轮把它们作为诊断数据，不能再声称是未见的最终测试。拟合及模型选择仅用原训练相位；后续若满足门槛，另采新相位作最终模型验收。
 
 ## 2. 传播采样：变化很小，不能解释主要 CV 误差
@@ -86,6 +99,12 @@
 
 结论限于这批已保存的带宽及光路：加密后的变化远小于 C 的 CV 偏差。不能把当前主要误差归因于 FFT 采样不足或单个 CCD 像素面积积分缺失。尚未覆盖任意高空间频率相位，也没有声称无限网格严格收敛。`2 px` 间隔的诊断 ROI 与每个真实像素 `1×1 px` 的面积积分是两个概念，积分没有把 `2×2 px` 当成物理 CCD 像元。
 
+**采样诊断可视化**（`sampling_audit_20261022_r1/`）：
+
+![采样 metrics](../pkl_visualizations/sampling_audit_20261022_r1/metrics.png)
+
+![实测 vs 预测 montage](../pkl_visualizations/sampling_audit_20261022_r1/meas_pred_montage.png)
+
 ## 3. 曝光偏置：有实际影响，但单独校正不能解决 CV
 
 补充曝光：C 为 `0.307/0.769/1.539/3.079/1.539 ms`，U 为 `7.510/18.777/37.554/75.109/37.554 ms`。无饱和；前 9 组稳定，第 10 组 U 重复档超时，不作为有效响应验证样本。随后延长最大等待至 `30 s`，保留 `stable_tol=0.05`，固定 U `37.554 ms` 重复 3 次，均稳定。3 次原始圆盘积分为 `428383.8/430390.0/431368.8 counts`；与较早同曝光读数存在漂移，因此不能拿后来的重复强行替代前面失败记录。
@@ -100,6 +119,12 @@ counts_p(t, branch) = slope_p,branch * t + offset_p
 
 因此本轮不把大面积截距忽略，也不将这种校正直接升级成相机通用响应标定。当前档位足以检查局部仿射偏置，仍不足以稳定辨识双指数/Bezier 等高自由度模型。
 
+**曝光偏置的 SLM 相位与 CCD 远场**（`response_bias_20261022_r2/`）：
+
+![C 分支 0.307 ms](../pkl_visualizations/response_bias_20261022_r2/response_bias_20261022_r2__C_frac0.1_exp0.307ms.png)
+
+![U 分支 7.51 ms](../pkl_visualizations/response_bias_20261022_r2/response_bias_20261022_r2__U_frac0.1_exp7.51ms.png)
+
 ## 4. 剩余峰宽（FWHM）：有效展宽仅部分解释，未调制光不是充分解释
 
 对固定物理预测施加已知单位的等效高斯强度展宽（effective blur），sigma 以 CCD px 表示，检查 `0/1/2/3/4/6/8 px`。该项是**有效模型偏差**，不是独立测得的 CCD PSF。比较时使用校正后的观测、固定 ROI，且仅在原训练相位上拟合共享非负增益与常数背景。
@@ -109,6 +134,10 @@ counts_p(t, branch) = slope_p,branch * t + offset_p
 另用冻结物理模型的零指令强度作为相位无关本底光模板，与主信号做非相干非负混合。训练择优约为 `sigma=2 px`，系数约主信号 `26.20994`、模板 `0.32766`、常数 `0.02109`。其后采 CV 误差为 U `0.0841`、C `0.1859`，相对单分量几乎没有改善。模板混合系数不是经独立标定的器件零级比例；该结果仅表明这一非相干背景假设不足以解释当前误差，没有排除相干零级、振幅耦合或更复杂的相位响应。
 
 ![采样与有效展宽对 CV 预测误差的影响](figures/sampling_radiometry_20261022_r2.png)
+
+**有效展宽诊断的迭代 metrics**（`radiometry_audit_20261022_r2/`）：
+
+![radiometry metrics](../pkl_visualizations/radiometry_audit_20261022_r2/metrics.png)
 
 ## 5. 训练目标修正与后续门槛
 
@@ -129,6 +158,16 @@ counts_p(t, branch) = slope_p,branch * t + offset_p
 
 原始计数率的 CV 与偏置校正后的 CV 对应不同测量定义，不能将两者误差差值全部归于展宽改善；精确展宽消融应比较第 4 节相同校正目标下的结果。对照显示：C 的 CV 对峰宽/目标函数敏感，但 U 的误差没有同步下降，**当前模型仍不能共同通过均匀度及几何验收**。原训练相位的 CV 误差本身仍超门槛，说明问题不只是验证集种子变化。因此继续保持可微整形关闭；没有采集新的优化相位或宣称方形匀化成功。设备最后在 19:08 恢复平相位并释放连接；没有改变相机位置或关闭激光。
 
+**联合拟合的迭代 metrics 与代表性探针**（`uniformity_refit_20261022_r1/`）：
+
+![loss 曲线](../pkl_visualizations/uniformity_refit_20261022_r1/metrics_loss.png)
+
+![参数曲线](../pkl_visualizations/uniformity_refit_20261022_r1/metrics_params.png)
+
+![探针 peak_max](../pkl_visualizations/uniformity_refit_20261022_r1/probe_peak_max.png)
+
+![探针 peak_min](../pkl_visualizations/uniformity_refit_20261022_r1/probe_peak_min.png)
+
 ## 5.1 已排除项、剩余假设及下一次实验
 
 本次证据支持：当前采样与像素面积积分变化足够小，不是主要 CV 误差来源；背景偏置、峰宽与训练目标有实际影响，但这三项还不足以解决问题。没有把有效高斯展宽当成测得的器件非理想机制，也没有把训练择优的小幅背景模板系数当成真实零级比例。
@@ -144,7 +183,17 @@ counts_p(t, branch) = slope_p,branch * t + offset_p
 
 这表明固定相位下的短时测量重复性明显好于当前约 `0.09` 的模型 CV 误差；两者来自不同相位，不能当成正式配对显著性检验，但不支持“全部只是随机测量噪声”。同时 C 的原计数与校正 CV 相差约 `0.10`，再次说明偏置口径必须明确。逐张原始帧、每组平均帧的指标均已保存到单独 JSON；原始帧本身仍在数据目录。
 
+**固定相位重复参考的 SLM 相位与 CCD 远场**（`fixed_phase_repeat_20261022_r4/`）：
+
+![C 分支 3.079 ms](../pkl_visualizations/fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__C_frac1.0_exp3.079ms.png)
+
+![U 分支 75.109 ms](../pkl_visualizations/fixed_phase_repeat_20261022_r4/fixed_phase_repeat_20261022_r4__U_frac1.0_exp75.109ms.png)
+
 本轮曝光扫描中固定 U 的 FWHM 随曝光仍有明显变化，其可能来自低信号/阈值测量依赖或光斑结构漂移，不能只凭稳定峰值归因。同时用固定总相位在可用计数范围拍多曝光，检查逐像素响应斜率是否保持空间一致；当前稳定判据不等同于逐像素光强完全稳定。
+
+**固定 U 分支曝光重复的 SLM 相位与 CCD 远场**（`response_repeat_20261022_r3/`）：
+
+![U 分支 37.554 ms](../pkl_visualizations/response_repeat_20261022_r3/response_repeat_20261022_r3__U_frac0.5_exp37.554ms.png)
 
 下一步可检验独立的相位响应/振幅耦合以及相干零级，但需要新的探针设计，不能把这些物理项都随意拟合成模糊。相位响应须复用既有离散器件模型并独立测量；相干零级须用载波方向/频率和参考相位变化来辨识干涉，不能仅在强度模型中加入一张固定模板后宣称已排除。后续各项均保持输入/输出独立保存，并在新模型确定后采新种子验收。
 

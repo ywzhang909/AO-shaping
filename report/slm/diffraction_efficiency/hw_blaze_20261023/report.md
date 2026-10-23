@@ -96,3 +96,15 @@
 * 全量程扫描 (41 点, 含原始帧): `data/diffraction_efficiency/gifscan_20261023_1420/`
 * 高精度确认段 (21 点, 每点 8 帧): `data/diffraction_efficiency/fine_newoptics_20261023_1415/`
 * 图: `figures/transfer_vs_gray.png`, `figures/fine_scan.png`, `figures/spot_vs_gray.gif`
+
+## 衍射效率算法 (如何找出 0 级与 ±1 级)
+
+基于 core.py 的 measure_orders / _pick_orders:
+
+1. 去背景: prepare_frame (减中位数 + 截断非负)。
+2. 找光斑: _find_peaks 贪心取局部极大 (按峰值降序, 清空已找到斑周围 min_separation_px), 最多 8 个, 阈值默认 0.02×帧内峰值。
+3. 挑阶次: 有标定中心时中心附近 (max(0.25×sep,25px) 容差) 找最近斑作零级; 若被熄灭则取强斑中最对称的一对其中点; 无标定时最亮斑作零级。其余斑按锚点→最亮旁斑方向投影, 仅在 0.5×sep~2×sep 几何窗口内选正/负最大作为 ±1 级。
+4. 能量积分: 每个斑中心取圆 ROI (半径 0.08×sep, 下限 8px), 圆内求和得 E0/E+/E-。
+5. 效率: η0=E0/(E0+E++E-), η±1=E±/..., η+1总=(E++E-)/...。
+
+要点: 只在 ±1 级几何窗口内找阶次防旁瓣误判; 零级熄灭时用两侧中点; 归一化用三者和而非全帧。
