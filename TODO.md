@@ -263,7 +263,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ~~第 1 批（纯收益，零行为风险）~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ 2026-10-03 → archive §5.1 |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K` |
 | ~~第 1.7 批 首项（lint 抑制层，纯离线，见 §8）~~ | ~~**F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）~~ ✅ 2026-10-14 |
-| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（312 处无标注 `except Exception` + 111 处 `assert` 护栏；后者含硬件安全检查，`python -O` 下会消失，**应先于任何硬件复测处理**） |
+| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（实测 **BLE001 514 处**（原估 312）+ **`src/` assert 99 处**当运行期护栏（原估 111）；后者含硬件安全联锁，`python -O` 下整条消失，**应先于任何硬件复测处理**。✅ WFS 曝光安全上限簇已收口（`e6f80254`，见 §8.9）⇒ 剩余最大簇 = CCD「设备已打开」36 处） |
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | ~~**R-29**~~ ✅ #50 ⇒ ~~**R-33**~~ ✅ #51（上游已实现，判据已失效）⇒ ~~**R-43**~~ ✅ #53（补 38 项测试）⇒ ~~**R-39**~~ ✅ 实测判定无需改代码（见 §2.2；#52 仍开放待硬件） |
@@ -337,7 +337,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ID | 摘要 | issue | 波次 |
 |---|---|---|---|
 | R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | ✅ **第 1–4 步已完成**（`41cacbd2` step 1 → `8aa88fa2` step 2a → `84214f7f` step 2b；step 3 RUF100 常驻、step 4 `exclude` 已删并有护栏钉死），全局 `ignore` 现仅剩 RUF00x / isort / pyupgrade / E501 / F841 / F811 / PLC0415 / E731 / E741。**仅剩第 5 步**（`BLE001`/`SLF001`/`S301`），前置 = R-64。GitHub 出站仍被拦截 ⇒ 未能开对应 issue | A 🟡（第 5 步待 R-64） |
-| R-64 | `src/` 还有 **312 处无标注 `except Exception`**（带 noqa 的只占 9%）+ **111 处 `assert` 当运行期护栏**（`python -O` 下消失，含硬件安全检查） | — 待开 issue | A 🟢 |
+| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 514 条**（`src/` 355 / `tests/` 46 / `scripts/` 114；原表写 "312 处无标注"），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）。**剩余最大簇（下一步）**：CCD「设备已打开」前置断言 **36 处**（实测 `miicam/driver.py` 18 / `daheng/driver.py` 12 / `ffmpeg/driver.py` 6；原表 37 且 daheng 记 13）⇒ 照 SLM `_ensure_open()` 范式收口到 `BaseCamera._ensure_open()` 抛 `CameraError`；另 cartographer 13 处删、optimizer 7 处删、~40 处内部不变式**保留 `assert`**（§8.10）。⚠️ 三条前置里已清 1 条（改名），仍开放：`spots_calc` 3 处被测试锁成 `AssertionError` 契约、`DeviceParameter` 边界"已声明未接线"。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇已收口，CCD 簇待做） |
 
 ### 8.1 根因：压制发生在**配置层**，不在代码层
 
@@ -472,8 +472,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 簇 | 条数 | 现状 | 应收口到 |
 |---|---|---|---|
 | CCD 设备已打开 | **37** | 见上 | `BaseCamera._ensure_open()`，照抄 SLM 范式 |
-| WFS 曝光**安全上限** | 5 | `MAX_EXPOSURE_MS = 7.0` 在 `tools/slm/` **声明 3 处**（`calibration.py:127`、`slm_wfs_probe.py:44`、`slm_zernike_common.py:38`）、5 个脚本各查**两遍**（CLI 层 `if…raise` + 内层 `assert`，后者 `-O` 下失效）| 移进 `ThorlabWFS.exposure_time` setter（`thorlab_wfs.py:1801-1818` **已在此校验硬件边界** `EXP_TIME_LOW/HIGH`），安全上限与硬件边界并列 |
-| 曝光/范围校验（**层已对，机制错**）| 9 | `drivers/ccd/common.py:66,81,86,95`、`thorlab_wfs.py:1811`、`nlight/driver.py:147,148` 用 `assert` | 就地改 `raise`（`ExposureTime` 越界 → `CameraError`；`EXP_TIME_*` → `WfsError`；DM 梯度 → `DeviceError`）。**位置不用动，只换机制** |
+| WFS 曝光**安全上限** | ~~5~~ **6**（实测：`scripts/zernike_bench/generate_zernike_wfs_report.py:381` 也是同一写法，原行数漏计） | ✅ **机制已修 + 已单源 + 已改名**（`e6f80254`，2026-10-23）。原状：`MAX_EXPOSURE_MS = 7.0` 在 `tools/zernike/common.py:40`、`tools/wfs/wfs_probe.py:44`、`tools/slm/calibration/calibration.py:127` **声明 3 处**（原表把路径写作 `slm_wfs_probe.py` / `slm_zernike_common.py`，2026-10-12 重组后已移动），6 个脚本各查**两遍**：CLI 层 `if…raise`（策略，保留）+ 内层 `assert`（机制，`-O` 下整条消失）。被 `assert` 守护的是 `exp = float(wfs.exposure_time)` —— **打开后从硬件读回的实际曝光**（上一次会话可能遗留更大值），属外部状态 ⇒ 正是 Python 文档所说"不得用 assert 校验外部输入"。现统一到 `tools/zernike/common.py` 的 `WFS_EXPOSURE_SAFETY_MAX_MS` + `require_wfs_exposure_within_safety_ceiling()`（显式 `ValueError`；`wfs_probe.py:159` 那个吞掉它的 `except AssertionError` 已确认由 `:161` 的 `except Exception` 等价接管，控制流不变），并加 AST 守卫防复发 | ⚠️ **原计划"移进 `ThorlabWFS.exposure_time` setter"这一步与本表 §8.10 的红线冲突，建议撤销**：setter（`thorlab_wfs.py:1774-1776`）**已经**用显式 raise 校验**硬件边界** `EXP_TIME_LOW/HIGH = 0.002/86`（与设备无关的事实）；而 `7.0` 是**随光路/激光功率变化的策略上限**，写进驱动就是把策略伪装成机制（与 R-57 对 `--max_peak` 的结论同形）。要做的是把它变成**可配置**（类比 `AO_DAHENG_MAX_EXPOSURE_MS` 的按会话设上限），而不是搬进驱动 |
+| 曝光/范围校验（**层已对，机制错**）| ~~9~~ **0 剩余**（2026-10-23 实测） | ✅ **已完成**（#174：`009e621d`/`bb64c162`/`2ceb288f`）。实测 `drivers/ccd/common.py`、`drivers/dm/nlight/driver.py`、`drivers/dm/nlight/sdk.py` 的 `assert` 计数均为 **0**，`thorlab_wfs.py:1774` 注释即写明 "Explicit raise, not `assert`"。⇒ 本行原列的 `common.py:66,81,86,95` / `thorlab_wfs.py:1811` / `nlight/driver.py:147,148` 全部过时，勿重复处理。**仍在的 WFS `assert`（另一类，非本行）**：`thorlab_wfs.py:446`（`device_in_use`）、`:1074`/`:1184`（high speed mode 前置）、`:1475`（`zernike_order <= 10` 设备边界）、`:468` 已是 `or` 表达式非断言 | 就地改 `raise`（原计划）——**该子项已结** |
 | NLight 原生连接 | 1 | `dm/nlight/sdk.py:62` `assert self._dll.GetConnection2()` | `raise DeviceNotFoundError`（`device_base.py:558`）—— 否则 `-O` 下对空句柄调用原生函数 |
 | 参数校验 | 10 | `n_sample > 0` / `tolerance > 0` / `width and height` / offset ≥0，散在 3 个相机驱动 | 相机侧入口统一 `raise ValueError`；调用侧的重复项删 |
 | cartographer 设备前置 | 13 | `assert self.slm.is_open` / `assert self.wfs.is_connected()` | **删** —— 驱动的 `_ensure_open` 已覆盖；`is_connected()` 是**询问**，不是断言 |
@@ -490,9 +490,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 1. ⚠️ **`spots_calc.py:77,119,133` 不许批量转换** ——
    `tests/ao_shaping/utils/test_spots_calc.py:104`（`test_crop_3d_image_raises_assertion`）
    用 `pytest.raises(AssertionError)` 把 `assert` **锁成了公开契约**。要改必须先改测试契约。
-2. 🔴 **`MAX_EXPOSURE_MS` 命名冲突，同名差 1400 倍**：工具层 `7.0`（WFS 激光安全上限）
-   vs `drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）。
-   合并前必须先改名（如 `WFS_EXPOSURE_SAFETY_MAX_MS`），否则移动过程中必然误用。
+2. ✅ **`MAX_EXPOSURE_MS` 命名冲突（同名差 1400 倍）已解除**（`e6f80254`）：工具层 `7.0`（WFS 激光安全上限）改名 `WFS_EXPOSURE_SAFETY_MAX_MS` 并收敛到**一处声明**；`drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）**保持原名原值不动**（驱动层不在本次改动范围，且语义不同）。实测 `src/` + `scripts/` 下除 miicam 外 `MAX_EXPOSURE_MS` 命中数 **0**（改前 30），并由新测试 `tests/ao_shaping/tools/wfs/test_exposure_safety_ceiling.py` 钉住"两者是不同量"。
 3. 💡 **`DeviceParameter` 的边界是"已声明但未接线"**：WFS 已用
    `register_parameter` 登记了 `exposure_time_ms` 的 `EXP_TIME_LOW/HIGH`，
    但 `set_parameter_value`（`device_base.py:354`，内部 `:375` 调 `validate()`）
