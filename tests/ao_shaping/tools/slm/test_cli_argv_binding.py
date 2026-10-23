@@ -1177,11 +1177,17 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
     # scan path and its replay-verify path) landed upstream. 29 -> 30 and 27 -> 28
     # on 2026-10-21: slm/calibration/diffraction_efficiency/measure.py
     # (1 Santec + 1 camera — the blazed-grating diffraction-efficiency sweep)
-    # landed upstream. This guard pins the census so a
+    # landed upstream. 30 -> 31 and 28 -> 30 when kernels/device_mutex.py
+    # landed (ff46321d: 1 Santec + 1 camera in its acquire path, plus 1 camera
+    # in the module docstring's usage example) without a re-baseline; 31 -> 34
+    # and 30 -> 33 on 2026-10-23 when tools/slm/transfer landed
+    # (capture.py / capture_response.py / validate.py — 1 Santec + 1 camera
+    # each; the package's remaining modules construct no device). This guard
+    # pins the census so a
     # *refactor* cannot quietly consolidate device sessions; adding a genuinely
     # new probe is a legitimate change and must be re-baselined here deliberately.
-    assert sum(santec.values()) == 30, f"Santec( construction sites changed: {santec}"
-    assert sum(camera.values()) == 28, f"camera-open call sites changed: {camera}"
+    assert sum(santec.values()) == 34, f"Santec( construction sites changed: {santec}"
+    assert sum(camera.values()) == 33, f"camera-open call sites changed: {camera}"
 
     assert santec == {
         "slm/calibration/calibration.py": 2,
@@ -1202,6 +1208,9 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
         "slm/replay_disturbance.py": 1,
+        "slm/transfer/capture.py": 1,
+        "slm/transfer/capture_response.py": 1,
+        "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/floor_probe.py": 1,
         "ccd/short_exposure_probe.py": 1,
@@ -1211,6 +1220,7 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "wfs/zernike_response.py": 1,
         "zernike/abba_probe.py": 1,
         "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 1,
         "kernels/sweep_analysis.py": 1,
     }, f"Santec( per-file census drifted: {santec}"
 
@@ -1232,12 +1242,16 @@ def test_santec_and_camera_call_sites_are_stable() -> None:
         "slm/panel/phase_response.py": 1,
         "slm/panel/tilt_probe.py": 1,
         "slm/replay_disturbance.py": 1,
+        "slm/transfer/capture.py": 1,
+        "slm/transfer/capture_response.py": 1,
+        "slm/transfer/validate.py": 1,
         "ccd/drift_probe.py": 1,
         "ccd/exposure_check.py": 1,
         "ccd/floor_probe.py": 1,
         "ccd/short_exposure_probe.py": 1,
         "zernike/abba_probe.py": 1,
         "zernike/sweep_probe.py": 1,
+        "kernels/device_mutex.py": 2,
         "kernels/sweep_analysis.py": 1,
     }, f"camera-open per-file census drifted: {camera}"
 
