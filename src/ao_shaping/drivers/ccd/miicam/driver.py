@@ -253,8 +253,17 @@ class MIICamera(BaseCamera):
     # 初始化
     # =========================================================================
 
+    def _require_sdk(self) -> None:
+        """SDK 不可用时给出可行动的错误, 而不是对 ``None`` 取属性。"""
+        if miicam is None:
+            raise CameraError(
+                "miicam SDK 不可用; 需要 _setup_miicam_sdk() 成功 "
+                f"(当前 _MIICAM_AVAILABLE={_MIICAM_AVAILABLE})"
+            )
+
     def initialize(self) -> None:
         """初始化相机设备。"""
+        self._require_sdk()
         # 关闭此前已打开的相机设备 (若有)
         self.__exit__(None, None, None)
 

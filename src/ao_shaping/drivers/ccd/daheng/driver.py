@@ -9,16 +9,19 @@ import numpy as np
 import numpy.typing as npt
 
 from ao_shaping.drivers.ccd import BaseCamera
-from ao_shaping.drivers.ccd.base import AveragedFrame
+from ao_shaping.drivers.ccd.base import AveragedFrame, CameraError
 from ao_shaping.drivers.ccd.common import ExposureTime
 from ao_shaping.drivers.ccd.daheng import constants
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 from ao_shaping.utils.io.file import logger
 
+_SDK_IMPORT_ERROR: str | None = None
 try:
     import gxipy as gx  # type: ignore[import-untyped]
 except (ImportError, OSError) as e:
+    gx = None  # type: ignore[assignment]
+    _SDK_IMPORT_ERROR = f"{type(e).__name__}: {e}"
     logger.error(f"Daheng SDK import failed: {e}")
 
 # ── CCD 配置参数 ─────────────────────────────────────────
@@ -153,6 +156,19 @@ class DahengCamera(BaseCamera):
     def __exit__(self, exc_type, exc_value, traceback):
         self.close()
 
+    def _require_sdk(self) -> None:
+        """SDK 不可用时给出可行动的错误, 而不是 `NameError`。
+
+        模块顶层的 `import gxipy` 失败时 `gx` 被绑成 ``None`` (见模块 docstring 附近),
+        因此这里必须**先**拦住: 否则后续对 ``gx.`` 的取值会炸成一个看不出原因的
+        ``AttributeError``/``NameError``。
+        """
+        if gx is None:
+            raise CameraError(
+                f"gxipy SDK 不可用 ({_SDK_IMPORT_ERROR or 'import failed'}); "
+                "大恒相机需要 libs/gxipy 在 PYTHONPATH 上"
+            )
+
     def initialize(self):
         """
         初始化相机设备。
@@ -172,6 +188,7 @@ class DahengCamera(BaseCamera):
         返回:
             无
         """
+        self._require_sdk()
         # 关闭之前打开的相机设备（如果有）
         self.__exit__(None, None, None)
 
