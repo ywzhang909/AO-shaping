@@ -50,7 +50,9 @@ class HdrResult:
 
 def hdr_fuse(frames: Sequence[npt.NDArray[np.floating]], exposures_ms: Sequence[float], *,
              dark: float = 0.0, full_scale: float = 255.0, saturation_fraction: float = 0.98,
-             min_counts: float = 0.0, reference_exposure_ms: float | None = None) -> HdrResult:
+             min_counts: float = 0.0, reference_exposure_ms: float | None = None,
+             read_noise_counts: float = 0.0, min_snr: float = 0.0,
+             selection: str = "best_snr") -> HdrResult:
     """把多曝光帧融合成线性化结果。
 
     Args:
@@ -61,13 +63,19 @@ def hdr_fuse(frames: Sequence[npt.NDArray[np.floating]], exposures_ms: Sequence[
         saturation_fraction: 视作饱和的比例阈值（默认 0.98）。
         min_counts: 低于它视作不可用（例如负值或纯暗）；默认 0。
         reference_exposure_ms: 融合图``fused``所乘的参考曝光；缺省取最短曝光。
+        read_noise_counts: 读出噪声（counts）。相机把负噪声截到 0，会引入**整流偏置**
+            ``σ·√(2/π)``；给了它就从每帧减去这个偏置，避免长曝光暗区的系统性正偏。
+        selection: ``"best_snr"``（默认）按 ``(signal)/sqrt(signal + σ²)`` 选信噪比最好的
+            未饱和曝光；``"longest"`` 退回"取最长未饱和曝光"的旧行为。
 
     Returns:
         :class:`HdrResult`。
 
     Raises:
-        HdrFuseError: 帧数为空、形状不一致、曝光非正或长度不匹配。
+        HdrFuseError: 帧数为空、形状不一致、曝光非正或长度不匹配、``selection`` 非法。
     """
+    if selection not in {"best_snr", "longest"}:
+        raise HdrFuseError(f"unknown selection {selection!r}")
     if len(frames) == 0:
         raise HdrFuseError("frames must not be empty")
     if len(frames) != len(exposures_ms):
@@ -86,12 +94,25 @@ def hdr_fuse(frames: Sequence[npt.NDArray[np.floating]], exposures_ms: Sequence[
     radiance = np.full(shape, np.nan)
     source = np.full(shape, -1, dtype=np.int16)
     all_saturated = np.ones(shape, dtype=bool)
-    for index in order:                      # 依次用更长的曝光补空位 ⇒ 最终取最长的可用
+    sigma = float(read_noise_counts)
+    bias = sigma * np.sqrt(2.0 / np.pi) if sigma > 0 else 0.0
+    best_score = np.full(shape, -np.inf)
+    for index in order:                      # 短 → 长；best_snr 按原始计数的信噪比比较
         frame = arrays[index]
-        usable = (frame < saturation_level) & ((frame - dark) > float(min_counts))
+        raw_signal = frame - dark
+        usable = (frame < saturation_level) & (raw_signal > float(min_counts))
+        if sigma > 0 and min_snr > 0:
+            usable &= raw_signal >= float(min_snr) * sigma
         all_saturated &= ~(frame < saturation_level)
-        radiance = np.where(usable, (frame - dark) / exposures[index], radiance)
-        source = np.where(usable, np.int16(index), source)
+        if selection == "longest":
+            score = np.full(shape, float(index))
+        else:
+            score = np.where(usable, raw_signal / np.sqrt(np.maximum(raw_signal, 0.0) + sigma ** 2 + 1e-12),
+                             -np.inf)
+        take = usable & (score > best_score)
+        radiance = np.where(take, (raw_signal - bias) / exposures[index], radiance)
+        source = np.where(take, np.int16(index), source)
+        best_score = np.where(take, score, best_score)
 
     valid = source >= 0
     reference = float(reference_exposure_ms) if reference_exposure_ms is not None else float(exposures.min())
@@ -105,7 +126,7 @@ def hdr_fuse(frames: Sequence[npt.NDArray[np.floating]], exposures_ms: Sequence[
 def box_metrics(image: npt.NDArray[np.floating], centre_ij: tuple[int, int], box_px: float, *,
                 step_px: float = 1.0, inner_shrink_px: float = 3.0, zero_half_px: float = 15.0,
                 signal_floor: float | None = None, floor_multiplier: float = 3.0,
-                clip_sigma: float | None = 3.0) -> dict[str, float | bool]:
+                min_coverage: float = 0.9, clip_sigma: float | None = 3.0) -> dict[str, float | bool]:
     """在**线性化**图上算方框指标（大框专用：不依赖单曝光的绝对计数）。
 
     Args:
@@ -117,6 +138,8 @@ def box_metrics(image: npt.NDArray[np.floating], centre_ij: tuple[int, int], box
         zero_half_px: 零级掩膜的半宽（默认 15 px）。
         signal_floor: 目标区均值的判定下限（同一量纲）；给了才判 ``valid``。
         floor_multiplier: ``valid`` 要求 ``mean_core >= floor_multiplier × signal_floor``。
+        min_coverage: 核心区有效像素占比低于它 ⇒ 该框判不可测（HDR 阶梯没覆盖到暗区）。
+            注意：**不要**用逐像素 SNR 门限去筛均值 —— 那只会保留亮像素、把框均值抬高。
         clip_sigma: 稳健均值的中位数±k·MAD 截断；``None`` 用普通均值。
 
     Returns:
@@ -144,7 +167,9 @@ def box_metrics(image: npt.NDArray[np.floating], centre_ij: tuple[int, int], box
     else:
         cv_sq = float("nan")
     floor = robust_mean(array, core, clip_sigma=clip_sigma) if values.size else float("nan")
-    valid = bool(np.isfinite(mean_core) and mean_core > 0
+    core_total = int(core.sum())
+    core_coverage = float(values.size / core_total) if core_total else 0.0
+    valid = bool(np.isfinite(mean_core) and mean_core > 0 and core_coverage >= float(min_coverage)
                  and (signal_floor is None or mean_core >= floor_multiplier * float(signal_floor)))
     return dict(mean_core=mean_core, core_px=int(values.size), peak=peak,
                 fill=float(mean_core / peak) if np.isfinite(peak) and peak > 0 else float("nan"),
@@ -152,7 +177,7 @@ def box_metrics(image: npt.NDArray[np.floating], centre_ij: tuple[int, int], box
                 cv_sq=cv_sq,
                 ee_box=float(np.nansum(array[box]) / total) if total > 0 else float("nan"),
                 zero_ratio=float(np.nansum(array[zero]) / total) if total > 0 else float("nan"),
-                robust_mean=floor, valid=valid,
+                robust_mean=floor, valid=valid, core_coverage=core_coverage,
                 coverage=float(finite.sum() / array.size))
 
 
@@ -174,3 +199,5 @@ def robust_mean(image: npt.NDArray[np.floating], mask: npt.NDArray[np.bool_], *,
         return float(values[keep].mean()) if keep.any() else median
     keep = np.abs(values - median) <= clip_sigma * mad
     return float(values[keep].mean()) if keep.any() else median
+
+

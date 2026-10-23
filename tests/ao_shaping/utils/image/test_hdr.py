@@ -97,3 +97,50 @@ def test_box_metrics_handles_all_nan():
 
 
 
+
+
+def test_read_noise_bias_is_corrected_at_long_exposure():
+    """相机把负噪声截到 0 ⇒ 暗区在长曝光下系统性正偏；给 read_noise_counts 后应消掉。"""
+    rng = np.random.default_rng(7)
+    truth = np.full((64, 64), 0.07)                       # counts/ms
+    exposures = [1.0, 4.0, 16.0]
+    frames = [np.clip(truth * e + rng.normal(0, 1.2, truth.shape), 0, 255) for e in exposures]
+    naive = hdr_fuse(frames, exposures, full_scale=255.0, reference_exposure_ms=4.0,
+                     selection="longest")
+    # 0.07 counts/ms 在 16 ms 下只有 1.1 counts ≈ 0.9σ ⇒ 本就不该被"算出来"
+    gated = hdr_fuse(frames, exposures, full_scale=255.0, reference_exposure_ms=4.0,
+                     read_noise_counts=1.2, min_snr=3.0)
+    assert naive.coverage > 0.5                       # 旧行为：硬算，覆盖率虚高
+    assert gated.coverage < 0.05                      # 新行为：信号不足 ⇒ 判不可测
+    # 给到 64 ms（≈ 4.5 counts ≈ 3.7σ）后，同一区域应变为可测且接近真值
+    long_frames = [np.clip(truth * e + rng.normal(0, 1.2, truth.shape), 0, 255) for e in (4.0, 16.0, 64.0)]
+    measured = hdr_fuse(long_frames, [4.0, 16.0, 64.0], full_scale=255.0, reference_exposure_ms=4.0,
+                        read_noise_counts=1.2, min_snr=3.0)
+    assert measured.coverage > 0.5
+    error = abs(float(np.nanmean(measured.radiance)) - 0.07) / 0.07
+    assert error < 0.25
+
+
+def test_selection_modes_agree_on_clean_data():
+    radiance = np.array([[0.3, 3.0]])
+    frames = [radiance * 2.0, radiance * 20.0]
+    a = hdr_fuse(frames, [2.0, 20.0], selection="longest")
+    b = hdr_fuse(frames, [2.0, 20.0], selection="best_snr")
+    assert np.allclose(a.radiance, b.radiance, rtol=1e-9)
+
+
+def test_unknown_selection_rejected():
+    with pytest.raises(HdrFuseError):
+        hdr_fuse([np.zeros((2, 2))], [4.0], selection="median")
+
+
+
+def test_box_metrics_rejects_low_core_coverage():
+    """HDR 阶梯没覆盖暗区时，核心区大部分像素无效 ⇒ 该框必须判不可测（不能拿亮像素充数）。"""
+    image = np.full((41, 41), np.nan)
+    image[18:23, 18:23] = 5.0                    # 只有极少数像素有效
+    result = box_metrics(image, (20, 20), box_px=20, min_coverage=0.9)
+    assert result["core_coverage"] < 0.3
+    assert result["valid"] is False
+    full = np.full((41, 41), 5.0)
+    assert box_metrics(full, (20, 20), box_px=20, min_coverage=0.9)["valid"] is True
