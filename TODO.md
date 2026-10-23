@@ -336,7 +336,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 | ID | 摘要 | issue | 波次 |
 |---|---|---|---|
-| R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | — 待开 issue | A 🟢 |
+| R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | ✅ **第 1–4 步已完成**（`41cacbd2` step 1 → `8aa88fa2` step 2a → `84214f7f` step 2b；step 3 RUF100 常驻、step 4 `exclude` 已删并有护栏钉死），全局 `ignore` 现仅剩 RUF00x / isort / pyupgrade / E501 / F841 / F811 / PLC0415 / E731 / E741。**仅剩第 5 步**（`BLE001`/`SLF001`/`S301`），前置 = R-64。GitHub 出站仍被拦截 ⇒ 未能开对应 issue | A 🟡（第 5 步待 R-64） |
 | R-64 | `src/` 还有 **312 处无标注 `except Exception`**（带 noqa 的只占 9%）+ **111 处 `assert` 当运行期护栏**（`python -O` 下消失，含硬件安全检查） | — 待开 issue | A 🟢 |
 
 ### 8.1 根因：压制发生在**配置层**，不在代码层
@@ -377,7 +377,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **noqa 已多余**（别名其实被用了） | 0 | 2026-10-21 复核：原 3 处（`utils/wavefront/matrix_utils.py:51`、`drivers/sim/beam_backend.py:209`、`optimizer/wfless/pib.py:95`）已由 `1faaabb5` 全部删除 ⇒ 本类已清空。⚠️ 勿误删 `pib.py` 现有 3 条 `# noqa: F401`（`:23`/`:24`/`:25`）：那是**必需**的再导出豁免（该文件无 `__all__`，去掉即报 F401），且 `pib._camera_cls` 被 `tests/ao_shaping/runners/test_sensorless_sim_params.py:132-133` 断言身份（行号 2026-10-23 重钉，跟进 `2ceb288f` 顶部 `_convergence_diagnostics` import 块下移 +4，原 `:19`/`:20`/`:21`）|
 | **应改为正式再导出** | 1 | `display/image_display.py:15` ⇒ 补 `__all__`，让 F401 不再是问题。⚠️ 不能改成 `import as` 冗余别名 —— `tests/ao_shaping/display/test_image_voltages_display.py` 有身份断言（`a is b`）。✅ 已补 `__all__`（commit `41cacbd2`，2026-10-23，R-63 step 1），re-export 由 blanket `# noqa: F401` 改为声明式公开面，身份断言测试 4 passed |
 | **合法副作用/能力探测，保留 noqa** | 8 | `drivers/dm/__init__.py:26,27`（驱动注册；`tests/ao_shaping/runners/test_cli_contract_freeze.py` 依赖）、`drivers/dm/_registry.py:77`（惰性 sim 导入以避环）、`optimizer/wfless/slm_gs_refine.py:757`（注册 sim 相机；`test_sim_camera_registration.py` 依赖）、`gui/slm/pyarrow_probe.py:39,60`（能力探测）、`tools/slm/slm_phase_response.py:47`（Agg 先于 pyplot） |
-| **全域 `E402` ignore 是错的工具** | — | `scripts/` 的 **435 条** E402 是仓库**明文约定**的 `sys.path` bootstrap ⇒ 正确做法是 `lint.per-file-ignores` 给 `scripts/*` 加 E402，而不是全局 ignore，这样 `src/` 与 `tests/` 才能被检查 |
+| **全域 `E402` ignore 是错的工具** | — | ✅ **已完成（`84214f7f`，2026-10-23，R-63 step 2b）**。原估 **435 条** 偏低：按项目配置实测 **879 条**（`scripts/` 709 / `tests/` 128 / `src/` 42），且在两个被钉住的 ruff（ci.yml `0.11.10`、ruff.yml `>=0.15.12`）下逐字节相同 ⇒ 不是版本产物。已按 §8.6 第 1–2 步执行：step 2a（`8aa88fa2`）用**纯行位置移动**修掉 40 处普通错位（11 个文件的模块级语句多重集与 HEAD **AST 相同**，逐语句 `ast.dump` 比对，故代码内容/注释/相对 import 顺序均未变），step 2b 把余下 839 条按**成因**分组写进 `lint.per-file-ignores`（22 条具名豁免 + `scripts/*` + `__init__.py`），全局 `ignore` 里已无 `E402` ⇒ `src/`、`tests/` 从此真的被检查。 |
+| ↳ **E402 剩余豁免的可修性（2026-10-23 探测，两个 ruff 版本结论一致）** | — | ruff 的 E402 **豁免**：直接 `sys.path.insert(...)`、`os.environ[k] = ...`、`os.environ.setdefault(...)`、**带守卫的** `if k not in sys.modules: sys.modules[k] = ...`；**不豁免**：**无守卫的** `sys.modules[k] = MagicMock()`、`warnings.filterwarnings(...)`、以及**任何中间赋值**（`ROOT = Path(...)`、`torch = pytest.importorskip(...)`）。⇒ 现有豁免多数是被**赋值**触发，而非 bootstrap 本身。两条零风险收口路径已写进 `ruff.toml` 注释备查：① 去掉绑定形式（`pytest.importorskip("torch")` 单独一行 + `import torch`）可退掉 `tests/ao_shaping/ml/*` 48 条；② 把路径内联（不留 `ROOT =`）可退掉 bootstrap 类。**未在本刀做**：要改 ~40 文件且无正确性收益。**永不该动**：`tools/kernels`-类**导入普查测试**（`tests/ao_shaping/optimizer/wfless/test_slm_model_in_loop.py` 围绕自身 import 采样 `sys.modules`，移动 import 会改变被测对象）。 |
 | **matplotlib Agg 那批多半不需要** | ~18 | ruff 的 E402 **已豁免** `sys.path` / `os.environ` 修改与 `matplotlib.use()` 激活（`is_matplotlib_activation`，PR #9094 修 #9091）⇒ `src/ml/shaping/viz.py:50-55`、`src/ml/gsnet_debug/train.py:43-66` 的 noqa 即使开 E402 也很可能仍不需要，**先验证再删** |
 
 ### 8.4 `BLE001` 31 条：遵守规范 = **收窄类型**，而非删 noqa
@@ -426,13 +427,18 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 > 会被删掉，等规则真正启用时就变成裸奔。故顺序为：
 
 1. **先改代码** —— §8.3 的 1 条真缺陷 + 3 条多余 noqa；§8.4 的收窄项
+   ✅ 真缺陷与 `__all__` 项已做（`41cacbd2`）；E402 普通错位 40 处已做（`8aa88fa2`，逐文件 AST 证伪「仅移动」）。§8.4 的 `BLE001` 收窄进行中（#174：`009e621d`/`bb64c162`/`2ceb288f`）。
 2. **再改配置** —— 从全局 `ignore` 移除 `F401`、`E402`；改用 `lint.per-file-ignores`
    给 `scripts/*` 加 `E402`（保住 435 条 bootstrap 约定）、给 `__init__.py` 加 `F401`
    （AGENTS.md 的再导出 shim 约定）
+   ✅ 两步都已落地：`F401` 已移出（见 §8.2），`E402` 已移出（`84214f7f`，与 22 条具名豁免**同一提交**入库，故 §8.7「瞬间爆红」那条没有发生）。⚠️ 「435 条」估算作废：实测 **879 条**（scripts 709 / tests 128 / src 42），见 §8.3 同主题行。
 3. **然后**清理剩余死 noqa：`ruff check src/ --extend-select RUF100 --fix`
    —— **必须 `--extend-select`**；用 `--select RUF100` 会替换整条选择链导致全量误报
+   ✅ 已入库为**常驻规则**（`select` 含 `RUF100`，864 条死 noqa 已在先前一轮清除并逐文件 AST 验证）；本轮 `--extend-select RUF100` 命中 0。不得改回一次性 `--fix` 扫描。
 4. **最后**处理 `exclude = ["src/ml/**"]`：先清 F-14，再逐族放开（建议先只放开 `F` 族）
+   ✅ F-14 已清（2026-10-14），`exclude` 已删，并由 `test_ruff_excludes_nothing_under_src` 钉死不得回归。
 5. `BLE001` / `SLF001` / `S301` **暂不整族启用** —— 等 §8.4 收窄完成，否则一次性 299+129+6 条
+   🔴 仍开放，**前置 = R-64**。启用前必须先按项目配置实测真实命中数（`--extend-select BLE001` 等），**不得按估数决策**——§8.3 的 435→879 就是估数失准的实例。
 
 ### 8.7 护栏：以下**不是**待办，**不得**当作「顺手清理」去做
 
