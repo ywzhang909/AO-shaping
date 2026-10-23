@@ -109,7 +109,7 @@
 
 **CCD 远场**
 
-![plain 远场](../figures/figures/gs_issue_live_farfield_20261015_205654.png)
+![plain 远场](../figurgs_issue_live_farfield_20261015_205654.png)
 
 > 勘误：本节旧版误嵌入了 `20261019_100334`（2026-10-19 正向模型闭环校正运行）的相位与远场图；现已更正为本运行 `20261015_205654` 的图（`best_phase.npy` 与调试 PKL 最佳帧，与下方 X/Y 光强截面同源）。
 
@@ -125,7 +125,7 @@
 
 **CCD 远场**
 
-![weighted 远场](../figures/figures/gs_issue_live_farfield_20261015_205848.png)
+![weighted 远场](../figurgs_issue_live_farfield_20261015_205848.png)
 
 **X/Y 光强截面**
 
@@ -139,7 +139,7 @@
 
 **CCD 远场**
 
-![adaptive-feedback 远场](../figures/figures/gs_issue_live_farfield_20261015_210048.png)
+![adaptive-feedback 远场](../figurgs_issue_live_farfield_20261015_210048.png)
 
 **X/Y 光强截面**
 
@@ -153,7 +153,7 @@
 
 **CCD 远场**
 
-![plain 复测 远场](../figures/figures/gs_issue_live_farfield_20261015_210155.png)
+![plain 复测 远场](../figurgs_issue_live_farfield_20261015_210155.png)
 
 **X/Y 光强截面**
 
@@ -167,7 +167,7 @@
 
 **CCD 远场**
 
-![plain 再复测 远场](../figures/figures/gs_issue_live_farfield_20261015_211345.png)
+![plain 再复测 远场](../figurgs_issue_live_farfield_20261015_211345.png)
 
 **X/Y 光强截面**
 
@@ -222,4 +222,7 @@
 > **记录完成时间**：2026-10-15  
 > **记录人员**：AO-shaping 实验团队  
 > **数据完整性**：五轮完整数据已归档，未删除任何失败记录。
+
+
+
 

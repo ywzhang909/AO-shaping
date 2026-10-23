@@ -314,9 +314,105 @@ def build_e_section(data: dict) -> str:
 （相对 −{abs(mean_delta) / float(np.mean(baselines)):.1%}）。"""
 
 
+def reconstruct_rounds_from_runs(run_dir: Path, name: str) -> list[dict] | None:
+    """rounds.json 被并发运行覆盖时的兜底：从 ``run_round*/stage_d_block1.json`` 重建实测行。"""
+    rows = []
+    for index in range(1, 16):
+        path = run_dir / name / f"run_round{index}" / "stage_d_block1.json"
+        if not path.exists():
+            continue
+        record = json.loads(path.read_text(encoding="utf-8"))
+        rows.append(dict(round=index, refit=dict(first_loss=float("nan"), last_loss=float("nan")),
+                         model_before=dict(cv_sq=float("nan")), model_after=dict(cv_sq=float("nan")),
+                         measured=dict(baseline=record["baseline_mean"], candidate=record["candidate_mean"],
+                                       delta=record["delta"], accepted=record.get("accepted"),
+                                       drift=record.get("drift"))))
+    return rows or None
+
+
+def load_rounds(run_dir: Path, name: str) -> dict | None:
+    """读 ``stage_r`` / ``stage_big`` 的 rounds.json 与其噪声地板（3σ 是掩膜相关的）。"""
+    path = run_dir / name / "rounds.json"
+    if not path.exists():
+        return None
+    rounds = json.loads(path.read_text(encoding="utf-8"))
+    recovered = reconstruct_rounds_from_runs(run_dir, name)
+    if recovered and len(recovered) > len(rounds):
+        rounds = recovered       # rounds.json 被别的运行覆盖过，以 run 目录为准
+    floor_path = run_dir / name / "noise_floor" / "noise_floor.json"
+    if not floor_path.exists():
+        # stage_r 用 60 px 掩膜，其地板记在 stage_a；stage_big 有自己的 1000 px 地板
+        floor_path = run_dir / "stage_a" / "repeatability" / "noise_floor.json"
+    resolution = None
+    if floor_path.exists():
+        resolution = float(json.loads(floor_path.read_text(encoding="utf-8"))["three_sigma_resolution"])
+    return dict(name=name, rounds=rounds, resolution=resolution)
+
+
+def plot_rounds(entry: dict, path: Path) -> dict:
+    """多轮闭环：模型预测 CV（上）与实测 CV（下），实测那条才代表光斑。"""
+    plt = _mpl()
+    rounds = entry["rounds"]
+    resolution = entry["resolution"]
+    x = np.arange(1, len(rounds) + 1)
+    fig, axes = plt.subplots(2, 1, figsize=(9.0, 6.4), sharex=True)
+    axes[0].plot(x, [r["model_before"]["cv_sq"] for r in rounds], "o-", color="#1f77b4", label="模型预测（本轮起点）")
+    axes[0].plot(x, [r["model_after"]["cv_sq"] for r in rounds], "s--", color="#17becf", label="模型预测（本轮候选）")
+    axes[0].set_yscale("log")
+    axes[0].set_ylabel("模型 CV²（掩膜）")
+    axes[0].set_title(f"{entry['name']}：模型预测 vs 实测（每轮重拟合 + 10 步可微）")
+    axes[0].legend(fontsize=9)
+    axes[0].grid(alpha=0.3, which="both")
+
+    baselines = [r["measured"]["baseline"] for r in rounds]
+    candidates = [r["measured"]["candidate"] for r in rounds]
+    axes[1].plot(x, baselines, "o-", color="#7f7f7f", label="实测基线（A）")
+    axes[1].plot(x, candidates, "s-", color="#d62728", label="实测候选（B）")
+    if resolution:
+        for xi, value in zip(x, baselines):
+            axes[1].errorbar(xi, value, yerr=resolution, fmt="none", ecolor="#7f7f7f", capsize=3, alpha=0.7)
+    axes[1].set_xlabel("轮次")
+    axes[1].set_ylabel("实测 CV（同一掩膜）")
+    axes[1].legend(fontsize=9)
+    axes[1].grid(alpha=0.3)
+    fig.tight_layout()
+    fig.savefig(path, dpi=140)
+    plt.close(fig)
+    return dict(rounds=len(rounds), resolution=resolution,
+                first_baseline=float(baselines[0]), last_candidate=float(candidates[-1]))
+
+
+def build_rounds_section(entry: dict, artifact: dict, *, title: str) -> str:
+    rounds = entry["rounds"]
+    rows = "\n".join(
+        f"| {r['round']} | {r['refit']['first_loss']:.4f} → {r['refit']['last_loss']:.4f} | "
+        f"{r['model_before']['cv_sq']:.3f} → {r['model_after']['cv_sq']:.3f} | "
+        f"{r['measured']['baseline']:.5f} | {r['measured']['candidate']:.5f} | "
+        f"{r['measured']['delta']:+.5f} | {'接受' if r['measured']['accepted'] else '拒绝'} |"
+        for r in rounds)
+    deltas = [float(r["measured"]["delta"]) for r in rounds]
+    resolution = artifact.get("resolution")
+    resolution_text = f"{resolution:.4f}" if resolution else "未记录"
+    above = sum(1 for d in deltas if resolution and abs(d) > resolution)
+    return f"""### {title}
+
+| 轮 | 正向重拟合 loss | 模型 CV² | 实测基线 | 实测候选 | 实测 Δ | 判定 |
+|---|---|---|---|---|---|---|
+{rows}
+
+该掩膜的 3σ = {resolution_text}；逐轮配对 Δ ∈ [{min(deltas):+.5f}, {max(deltas):+.5f}]，
+其中 {above}/{len(deltas)} 轮超过 3σ。
+
+> ⚠️ **跨轮的实测绝对值不可比**：每轮起点是上一轮接受的相位，而 1000 px 掩膜的
+> 中心又按本轮首帧重新冻结，基线本身会在轮间大幅跳动（本批 4.019–6.048）。
+> 只有**同一轮内 A/B 配对 Δ**（同一掩膜、同一曝光、A-B-B-A 扣除漂移）才是有效判据。
+"""
+
+
 def write_report(data: dict, artifacts: dict, path: Path) -> None:
     chain = data["chain"]
     e_section = build_e_section(data)
+    rounds_sections_joined = "\n".join(artifacts.get("rounds_sections") or ["（多轮数据尚未采集。）"])
     direction = data["direction"]
     floor = data["noise"]
     blocks = chain["blocks"]
@@ -390,6 +486,14 @@ A2−A1 为漂移。接受条件为 Δ < −3σ（{artifacts['curves']['resoluti
 
 GIF 左栏是模型预测的远场演化，右栏是该块的实测帧（A1/B1/A2 穿插），顶部标注该块的 Δ 与 3σ 判定。
 
+## 4c. 多轮闭环（正向重拟合 + 可微优化）
+
+{rounds_sections_joined}
+
+两条曲线必须分开读：**模型 CV 会随重拟合单调下降**（模型越来越贴合当天数据），
+**只有实测 CV 下降才代表光斑在变好**。60 px 目标的 4 轮里实测基线几乎不动
+（全部被拒 ⇒ 已接受相位没推进），而 1000 px 目标那轮取消拒绝判定后实测连续下降。
+
 ## 5. 轴映射的口径矛盾（未决）
 
 拟合用的 `ramp_matrix` = [[465.1, 7174.7], [−7533.2, −30.3]]（面板 x → 相机 y）；
@@ -458,6 +562,16 @@ def main() -> None:
         curves=plot_curves(data, replays, FIG_DIR / f"{STAMP}_metrics_curves.png"),
         gif=render_gif(data, replays, args.run_dir, FIG_DIR / f"{STAMP}_process.gif"),
     )
+    rounds_sections = []
+    for name, title in (("stage_r", "多轮重拟合（60 px 目标，拒绝判定开启）"),
+                        ("stage_big", "多轮重拟合（1000 px 目标 + 1201 px 窗，取消拒绝判定）")):
+        entry = load_rounds(args.run_dir, name)
+        if entry is None:
+            continue
+        artifact = plot_rounds(entry, FIG_DIR / f"{STAMP}_{name}_rounds.png")
+        artifacts[name] = artifact
+        rounds_sections.append(build_rounds_section(entry, artifact, title=title))
+    artifacts["rounds_sections"] = rounds_sections
     if not args.report_only:
         write_report(data, artifacts, OUT_DIR / Path(REPORT_KEY).name)
     summary = dict(blocks=len(data["blocks"]), replays={k: len(v) for k, v in replays.items()},
@@ -469,4 +583,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 

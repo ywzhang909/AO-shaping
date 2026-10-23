@@ -292,6 +292,30 @@ class UniformityObjective:
                            l_shape=float(l_shape.detach()) if hasattr(l_shape, "detach") else float(l_shape))
 
 
+def recentre_window(centre_xy: tuple[float, float], *, half_span_px: float = 120.0,
+                    step_px: float = 2.0) -> npt.NDArray[np.floating]:
+    """以**实测零点**为中心重建模型采样窗（``camera_xy`` 的 (H, W, 2) 布局）。
+
+    拟合数据集里的窗心对应采集当天的 U 支零点；换会话后零点会漂（2026-10-23 实测
+    漂了约 72 px），沿用旧窗会让零点贴边、背景与 EE 分母不对称。评估与重拟合前
+    都应以本次实测零点重建。
+
+    Args:
+        centre_xy: 本次实测零点 ``(x, y)``，相机像元。
+        half_span_px: 单边跨度（121 点 × 2 px ⇒ 120）。
+        step_px: 采样步长（与拟合口径一致，默认 2 px）。
+
+    Returns:
+        形状 ``(2*n+1, 2*n+1, 2)`` 的数组，``[..., 0]`` 是 x、``[..., 1]`` 是 y。
+    """
+    count = int(round(half_span_px / step_px))
+    offsets = np.arange(-count, count + 1, dtype=np.float64) * step_px
+    xs = float(centre_xy[0]) + offsets
+    ys = float(centre_xy[1]) + offsets
+    xx, yy = np.meshgrid(xs, ys, indexing="xy")
+    return np.stack([xx, yy], axis=-1)
+
+
 def build_masks(shape: tuple[int, int], centre_ij: tuple[int, int], box_px: int,
                 inner_shrink_px: int, step_ccd_px: tuple[float, float]) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]:
     """按 CCD 像元尺寸构造方框/核心掩膜（冻结用一次）。"""
