@@ -46,7 +46,31 @@ def load_pairs(dataset: Path, run_dir: Path | None) -> tuple[np.ndarray, np.ndar
     return np.stack(panels), np.stack(frames), np.array(frames[0].shape)
 
 
-def main() -> None:
+def restore_frozen(model, snapshots: dict) -> None:
+    """把冻结参数的数值还原到快照（每步优化后调用）。
+
+    为什么用"还原"而不是 `requires_grad=False`：`PhysicalForwardFit` 的 `d` /
+    `center` / `log_width` / `residual` 是在 `__init__` 里建的可训练张量，没有暴露
+    逐参数开关；在优化循环里每步把数值拷回快照，等价于参数级冻结，且不必改动
+    `fit_defocus_forward_dataset` 的公共语义。
+    """
+    import torch
+
+    for name, value in snapshots.items():
+        target = getattr(model, name)
+        with torch.no_grad():
+            target.data.copy_(value)
+
+
+def snapshot_parameters(model) -> dict:
+    """快照所有可冻结参数（小步重拟合用来证明"真的没动"）。"""
+    return {
+        name: getattr(model, name).detach().clone()
+        for name in ("d", "origin", "center", "log_width", "residual")
+    }
+
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True, help="新采集目录（含 sample_*.npz）")
     parser.add_argument("--checkpoint", type=Path, required=True,
@@ -56,7 +80,19 @@ def main() -> None:
     parser.add_argument("--window-half-span-px", type=float, default=200.0)
     parser.add_argument("--step-px", type=float, default=2.0)
     parser.add_argument("--spot-xy", type=float, nargs=2, default=None)
-    args = parser.parse_args()
+    parser.add_argument("--freeze-defocus", action="store_true",
+                        help="冻结离焦 d（全量重拟合会把梯度弄失效，见模块 docstring）")
+    parser.add_argument("--freeze-amplitude", action="store_true",
+                        help="冻结照明幅度中心/宽度")
+    parser.add_argument("--freeze-residual", action="store_true",
+                        help="冻结面板残差 Noll 系数")
+    parser.add_argument("--small-step", action="store_true",
+                        help="便捷开关 = 同时打开上面三个 ⇒ 只有 origin 能动")
+    return parser
+
+
+def main() -> None:
+    args = build_parser().parse_args()
     args.out.mkdir(parents=True, exist_ok=False)
 
     from scripts.slm.diagnose_defocus_sampling import fixed_panel_basis
@@ -86,13 +122,40 @@ def main() -> None:
     xs = np.clip(xy[..., 0], 0, frame_shape[1] - 1).astype(int)
     images = np.stack([frame[ys, xs] for frame in frames])
 
+    freeze_defocus = bool(args.freeze_defocus or args.small_step)
+    freeze_residual = bool(args.freeze_residual or args.small_step)
+    learn_amplitude = not bool(args.freeze_amplitude or args.small_step)
+
     model = PhysicalForwardFit(phases, images, xy, np.asarray(old.ramp_matrix), 0.0,
                                np.ones(len(phases), bool), old.amplitude_center_xy,
-                               learn_amplitude=True, initial_defocus=old.defocus_diopter,
-                               learn_residual=True, fft_size=old.fft_size, pixel_samples=old.pixel_samples,
+                               learn_amplitude=learn_amplitude, initial_defocus=old.defocus_diopter,
+                               learn_residual=not freeze_residual, fft_size=old.fft_size,
+                               pixel_samples=old.pixel_samples,
                                basis_arrays=fixed_panel_basis(size), batch_size=len(phases))
-    losses = [float(model.update()) for _ in range(args.iterations)]
+    before = snapshot_parameters(model)
+    frozen_names = {
+        "d": freeze_defocus,
+        "center": not learn_amplitude,
+        "log_width": not learn_amplitude,
+        "residual": freeze_residual,
+    }
+    frozen = {name: before[name] for name, is_frozen in frozen_names.items() if is_frozen}
+
+    losses = []
+    for _ in range(args.iterations):
+        losses.append(float(model.update()))
+        if frozen:
+            restore_frozen(model, frozen)
     residual = {int(k): float(v) for k, v in zip(model.residual_modes, model.residual.detach().tolist())}
+
+    after = snapshot_parameters(model)
+    deltas = {
+        "defocus_diopter": float(after["d"] - before["d"]),
+        "origin": [float(v) for v in (after["origin"] - before["origin"])],
+        "amplitude_center": [float(v) for v in (after["center"] - before["center"])],
+        "amplitude_width": [float(v) for v in (after["log_width"].exp() - before["log_width"].exp())],
+        "residual_max_abs": float((after["residual"] - before["residual"]).abs().max()),
+    }
 
     parameters = dict(defocus_diopter=float(model.d.detach()),
                       origin=[float(v) for v in model.origin.detach()],
@@ -125,6 +188,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

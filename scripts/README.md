@@ -4265,3 +4265,110 @@ error terms, the diagnostics that say which class dominates, and the per-session
 calibration), `validation.json` (before/after on the held-out sets) and
 `summary.md`.
 
+### Current-path multishape transfer capture and offline fit (2026-10-23)
+
+`slm/transfer_multishape_experiment.py` prints a plan by default. With explicit
+`--execute`, it captures signed ramps on both SLM axes, three phase families,
+raw CCD frames, exposure probes, actual displayed grayscale and frame clocks.
+Use a new directory under `data/debug/transfer_multishape_experiment/` for every
+capture. Hardware execution requires authorization and available devices.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/transfer_multishape_experiment.py --out data/debug/transfer_multishape_experiment/<capture>
+.venv\Scripts\python.exe scripts/slm/fit_transfer_multishape.py --dataset <recorded-directory> --checkpoint <initial-checkpoint> --out data/debug/fit_transfer_multishape/<fit> --iterations 100
+```
+
+The second command never opens devices. It derives the full camera mapping from
+recorded signed ramps, initializes physical parameters from the checkpoint, and
+excludes validation phases from fitting and checkpoint selection. It records
+per-iteration predictions, parameters, metrics and clocks. Exposure division
+assumes a linear response; the fitted additive background is not a measured dark
+frame. A lower fitting loss does not establish a usable phase gradient.
+
+The hand-written experiment record is
+[`diagnosis_and_transfer_20261023.md`](../report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md).
+
+`slm/validate_transfer_shapes.py` consumes the self-contained physical checkpoint
+and full measured ramp matrix. The plan is printed unless `--execute` is given.
+It synthesizes square/rectangle/triangle/star seeds, makes bounded differentiable
+updates, and accepts them only after fixed-exposure A–B–B–A CCD comparisons.
+The first block also measures a negative phase increment to compare model and
+experimental local responses. Core CV and target energy are evaluated on fixed
+canonical masks, never a region selected from the observed image. Every raw
+frame, exact phase and update clock is retained. Devices are released on exit.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/validate_transfer_shapes.py --checkpoint <fit>/frozen_parameters.json --out data/debug/validate_transfer_shapes/<new-run> --zero-xy <column> <row> --execute
+.venv\Scripts\python.exe scripts/slm/summarize_transfer_shapes.py --run data/debug/validate_transfer_shapes/<new-run> --out <artifact-directory>
+```
+
+The summary command opens no devices. It produces a CCD/model comparison figure
+and numeric JSON with input hashes. Its EE denominator is the saved 441 px camera
+window, not the full sensor. Raw counts are not dark-corrected; a small CV in weak
+background cannot establish successful shaping. Exposure is adapted per shape,
+then held fixed for all its paired measurements.
+
+Follow-up response and measured-anchor workflow:
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/capture_transfer_response.py --source <paired-run> --out data/debug/capture_transfer_response/<new-run> --execute
+.venv\Scripts\python.exe scripts/slm/analyze_transfer_response.py --source <response-run> --out data/debug/analyze_transfer_response/<new-analysis>
+.venv\Scripts\python.exe scripts/slm/calibrate_transfer_blur.py --source <paired-run> --checkpoint <fit>/frozen_parameters.json --out data/debug/calibrate_transfer_blur/<new-fit>
+.venv\Scripts\python.exe scripts/slm/validate_transfer_shapes.py --checkpoint <new-fit>/frozen_parameters.json --seed-run <paired-run> --mode anchored --zero-xy <column> <row> --blocks 4 --out data/debug/validate_transfer_shapes/<new-run> --execute
+.venv\Scripts\python.exe scripts/slm/analyze_transfer_direction.py --run <new-run> --out data/debug/analyze_transfer_direction/<new-analysis>
+```
+
+The response capture interleaves reference exposures and retains all transition
+frames. Analysis fits each pixel using the first occurrence of each exposure and
+checks repeated acquisitions independently. Its illuminated intercept is not a
+dark measurement. The blur calibration fits shared gain/background using square
+and triangle seeds; rectangle/star seeds do not select its parameters. It changes
+an effective blur term, without claiming a measured camera PSF.
+
+`--mode anchored` uses the new A1 CCD measurement as each block's intensity
+reference and adds the frozen model's predicted intensity change before taking
+the next gradient step. Thus the local Jacobian comes from the physical model,
+while the objective starts from the measured image. A camera image is acquired
+per block, not per model iteration. `--seed-run` replays accepted phases only when
+the saved target and camera grid exactly match; otherwise it refuses that phase.
+This is a local correction and does not establish a globally accurate forward
+model. Reusing earlier validation images for calibration retires those images as
+independent validation for that new checkpoint.
+
+The direction analyzer compares the original model objective with the local
+measured-anchor objective on the actual saved positive/negative increments. It
+also checks the anchor derivative against central differences at three step
+sizes. It does not open devices or overwrite any experimental direction record.
+
+Three-shape reproduction guide and traceable figures:
+
+The reusable workflow now lives in `src/ao_shaping/tools/slm/transfer/`.
+Use the integrated command instead of chaining individual scripts:
+
+```powershell
+.venv\Scripts\python.exe -m ao_shaping.tools.slm.transfer plan --out data/debug/slm_transfer/<new-session> --checkpoint <checkpoint>
+.venv\Scripts\python.exe -m ao_shaping.tools.slm.transfer run --out data/debug/slm_transfer/<new-session> --checkpoint <checkpoint> --execute
+.venv\Scripts\python.exe -m ao_shaping.tools.slm.transfer replay --run <recorded-anchored-run> --out <new-analysis-directory>
+```
+
+See [the operation guide](../docs/slm/slm_transfer_workflow.md) for device
+discovery, offline execution, cold initialization and archive audit. The nine
+original scripts remain compatibility wrappers; their numerical implementation
+is no longer duplicated in `scripts/`.
+
+```powershell
+.venv\Scripts\python.exe scripts/slm/bootstrap_transfer_checkpoint.py --dataset <fresh-capture> --out <new-initial-directory> --center 960 600 --width 400 300 --defocus 0
+.venv\Scripts\python.exe scripts/slm/generate_multishape_reproduction_figures.py
+```
+
+The bootstrap command uses measured signed-ramp geometry and produces a nominal
+checkpoint without a historical model. Input amplitude and defocus are initial
+guesses; subsequent phase-diverse fitting and CCD validation remain necessary.
+The figure generator uses archived raw frames and parameter histories, opens no
+devices, and exports grouped parameter bars, fit trajectories, original GS and
+anchored CCD sequences, phase maps, timing plots, a model diagram and numeric
+data with source hashes. See the complete
+[square/rectangle/triangle reproduction report](../report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md)
+for runnable PowerShell steps and the distinction between cold initialization
+and the experimentally verified checkpoint-transfer workflow.
+
