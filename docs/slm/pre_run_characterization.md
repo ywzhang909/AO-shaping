@@ -188,7 +188,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 位置 | 形式 |
 |---|---|
 | `utils/image/beam_metrics.py:223` | `in_mask.sum() / total`(全图 sum) |
-| `optimizer/wfless/slm_square_shaping.py:418` | `np.sum(img)`(全图 sum) |
+| `optimizer/wfless/slm_square_shaping.py:434` | `np.sum(img)`(全图 sum)（2026-10-23 重钉，跟进 `2ceb288f` 顶部 import 块下移 +16，原 `:418`）|
 | `utils/image/beam_metrics.py:159` | `2·Σmin(m,t) / (Σm + Σt)` |
 
 标准的环围能量是**全图能量归一化**(Born & Wolf; Siegman)。用全图分母时,
@@ -224,7 +224,7 @@ K = λ·f / (d_slm · p_cam)          K = utils/slm/bench_constants.TILT_SHIFT_S
 | 8 | `utils/slm/bench_constants.py:36` (R-81 下沉, 原 `tools/slm/slm_bench_probe.py:78`; `bench_kernels` 仅再导出) | `TILT_SHIFT_SCALE = 7400.0` | 文档里同时存在 `7600/P`、`5021/Λ`、`132940/P` 四种说法。**现在整条光路几何都由它派生, 两者不会再漂移**; ⚠️ `K ∝ λ`, 换波长须按 §3.0.1 折算 |
 | 9 | `optimizer/wfless/slm_zernike_pib.py:569,583`（另 ABBA 探针 `:1672`）| 每帧 `set_reference_center(recenter(...))`（`recenter` 即 `zero_order_center`，`:569`）| 散斑上 argmax 在近似等亮的颗粒间跳 ⇒ 目标框漂移 ⇒ 指标不连续, 优化器追一个会动的框（2026-10-20 复核，原 `:1214,1443,1470` 三处现收敛到 `recenter`/`score`；`1ce4717a` 常量收敛后整体 −1）|
 | 10 | `utils/image/beam_metrics.py:371,414,462,512` | 4 个 0 阶定位实现 | 暗帧上裸 `argmax`: 峰值 22–46 而帧均值 0.26, 单个热像素即可取胜; 参考质心曾在 60 px 内自漂 |
-| 11 | `optimizer/wfless/slm_square_shaping.py:435`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差 |
+| 11 | `optimizer/wfless/slm_square_shaping.py:497`<br>vs `optimizer/wfless/slm_gs_refine.py:268` | 截零 vs 扣中位数 | **故意不同**, 见 §2。统一会引入 1600× 误差（2026-10-23 重钉 slm_square_shaping.py 侧，跟进 `2ceb288f` 顶部 import 块下移，原 `:435`；slm_gs_refine.py 本 commit 未动，其行号保持）|
 | 12 | `utils/image/beam_metrics.py:223` 等三处 | EE 分母约定不统一 | 见 §3 |
 | 13 | ~~`MAX_GRAYSCALE_VALUE` 1023 vs 993~~ | — | **不是冲突, 已撤回**。1023 = `2^bits−1`(满量程, 与波长无关, 矫正 CSV 契约); 993 = 设备在 1064 nm 动态查询的 2π 灰度。**两个不同的量** |
 | 14 | `tools/kernels/bench_kernels.py:capture_settled` (原 `tools/slm/slm_bench_probe.py:262`)<br>vs `optimizer/wfless/slm_gs_refine.py:351` | 两份 settle 实现 | 后者是私有第三份拷贝, **不要照抄**。`slm_zernike_sweep_probe.capture_settled` 是认可的薄封装 |
