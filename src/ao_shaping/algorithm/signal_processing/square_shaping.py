@@ -41,6 +41,7 @@ __all__ = [
     "differentiable_shape",
     "spgd_shape",
     "analytic_amplitude_target",
+    "analytic_ot_phase",
     "power_in_bucket",
     "efficiency",
     "uniformity_cv",
@@ -87,6 +88,60 @@ class SquareShapingConfig:
     zero_order_margin_px: float = 10.0
     far_field_padding: int = 8
     seed: int = 0
+    target_edge_soft_px: float = 0.0
+    """Soft-edge width of the GS target amplitude (Gaussian sigma, far-field px).
+
+    ``0.0`` (the default) reproduces the hard-edged square bit for bit. A few
+    pixels of super-Gaussian falloff suppress the spectral leakage a hard edge
+    inevitably produces (sinc-type ringing and high-frequency speckle), which
+    is the cheapest available uniformity gain -- changing the *target* beats
+    changing the *algorithm*. Applies to the GS-family amplitude constraint
+    only; ``make_square_target`` (and therefore every metric that derives its
+    support from it) stays hard-edged, so PIB / CV keep their meaning.
+    """
+    target_gaussian_sigma_px: float | None = None
+    """Override the ``gaussian`` target's sigma (far-field px).
+
+    ``None`` (the default) keeps the historical ``target_side_px / 4`` bit for
+    bit. Set it when the caller's gaussian target is defined by a *ratio* of its
+    characteristic size rather than by that fixed quarter: the ring/sigma
+    geometry must match whatever mask the caller then *measures* PIB/CV on,
+    otherwise the GS target and the objective are two different shapes.
+    """
+    target_inner_radius_px: float | None = None
+    target_outer_radius_px: float | None = None
+    """Override the ``annulus`` target's inner / outer radius (far-field px).
+
+    ``None`` (the default) keeps the historical ``side/4 .. 3*side/4`` bit for
+    bit. The historical ring is a fixed 1:3 radius ratio at a *fixed* outer
+    radius, which cannot express "outer diameter = target side, inner = 60% of
+    it"; a caller that defines the ring that way must pass both radii or its
+    measured mask would sit on a different ring than the GS phase aims at.
+    """
+    target_amplitude: np.ndarray | None = field(default=None, repr=False, compare=False)
+    """Optional **far-field amplitude** target to inject instead of a built-in kind.
+
+    ``None`` (the default) keeps every existing branch bit for bit. When given
+    it must be a ``(far_field_size, far_field_size)`` non-negative array; GS then
+    constrains the far field to ``sqrt(target)`` with ``target = amplitude**2``
+    normalised to unit sum, exactly like the built-in kinds. This is the
+    injection point for shapes the built-in kinds cannot express (rectangle,
+    grid, cross, pentagon) -- so the caller keeps a single GS loop and a single
+    geometry source (``utils.image.target.create_target_shape``) instead of a
+    second copy of either.
+
+    Excluded from ``__eq__``/``repr``: an array-valued field would make config
+    equality raise ("truth value of an array is ambiguous") and dump megabytes
+    into a log line.
+    """
+    init_noise: float = 0.1
+    """Sigma (radians) of the random perturbation on the GS initial field.
+
+    ``0.1`` is the historical value and keeps the default path bit-for-bit.
+    Set ``0.0`` when the initial field is an analytic transport map
+    (:func:`analytic_ot_phase`): its structure is the point, and noise only
+    degrades it.
+    """
     w_loggrad: float = 0.0
     """Weight of the intensity-space structural term (default OFF).
 
@@ -114,9 +169,50 @@ class SquareShapingConfig:
             )
         if self.target_kind not in ("square", "circle", "gaussian", "annulus"):
             raise ValueError(f"unknown target_kind {self.target_kind!r}")
+        if self.target_gaussian_sigma_px is not None and not (
+            math.isfinite(self.target_gaussian_sigma_px)
+            and self.target_gaussian_sigma_px > 0.0
+        ):
+            raise ValueError(
+                "target_gaussian_sigma_px must be > 0 and finite when given, got "
+                f"{self.target_gaussian_sigma_px!r}"
+            )
+        for name in ("target_inner_radius_px", "target_outer_radius_px"):
+            value = getattr(self, name)
+            if value is not None and not (math.isfinite(value) and value > 0.0):
+                raise ValueError(f"{name} must be > 0 and finite when given, got {value!r}")
+        if (
+            self.target_inner_radius_px is not None
+            and self.target_outer_radius_px is not None
+            and self.target_inner_radius_px >= self.target_outer_radius_px
+        ):
+            raise ValueError(
+                "target_inner_radius_px must be smaller than target_outer_radius_px, "
+                f"got inner={self.target_inner_radius_px} outer="
+                f"{self.target_outer_radius_px}"
+            )
+        if self.target_amplitude is not None:
+            amp = np.asarray(self.target_amplitude)
+            if amp.ndim != 2:
+                raise ValueError(
+                    f"target_amplitude must be 2-D, got shape {amp.shape}"
+                )
+            if not np.isfinite(amp).all() or float(amp.min()) < 0.0:
+                raise ValueError("target_amplitude must be finite and non-negative")
+            if float(amp.sum()) <= 0.0:
+                raise ValueError("target_amplitude must carry some energy")
         if not math.isfinite(self.w_loggrad) or self.w_loggrad < 0.0:
             raise ValueError(
                 f"w_loggrad must be >= 0 and finite, got {self.w_loggrad!r}"
+            )
+        if not math.isfinite(self.target_edge_soft_px) or self.target_edge_soft_px < 0.0:
+            raise ValueError(
+                "target_edge_soft_px must be >= 0 and finite, got "
+                f"{self.target_edge_soft_px!r}"
+            )
+        if not math.isfinite(self.init_noise) or self.init_noise < 0.0:
+            raise ValueError(
+                f"init_noise must be >= 0 and finite, got {self.init_noise!r}"
             )
 
     @property
@@ -228,22 +324,51 @@ def make_square_target(cfg: SquareShapingConfig) -> np.ndarray:
     """在远场网格上构造归一化目标 (sum=1)。
 
     目标尺寸以**远场 (补零后) 像素**计, 使目标函数在尺度上稳定。
+
+    ``cfg.target_amplitude`` 非 ``None`` 时直接用它 (取其平方并归一化到
+    ``sum=1``, 与内建分支同一口径) —— 这是内建 ``target_kind`` 表达不了的形状
+    (rectangle / grid / cross / pentagon) 的注入入口。``None`` 时逐位等于历史
+    实现。
     """
     n = cfg.far_field_size
     y, x = np.ogrid[:n, :n]
     cx, cy = n // 2, n // 2
     side = int(cfg.target_side_px)
+    if cfg.target_amplitude is not None:
+        amp = np.asarray(cfg.target_amplitude, dtype=np.float64)
+        if amp.shape != (n, n):
+            raise ValueError(
+                f"target_amplitude shape {amp.shape} != far-field grid ({n}, {n})"
+            )
+        target = amp**2
+        total = float(target.sum())
+        if not math.isfinite(total) or total <= 0.0:
+            raise ValueError("target_amplitude carries no energy on the far-field grid")
+        return target / total
     target = np.zeros((n, n))
     if cfg.target_kind == "square":
         target[cy - side // 2 : cy + side // 2, cx - side // 2 : cx + side // 2] = 1.0
     elif cfg.target_kind == "circle":
         target[(x - cx) ** 2 + (y - cy) ** 2 <= (side / 2) ** 2] = 1.0
     elif cfg.target_kind == "gaussian":
-        s = side / 4
+        if cfg.target_gaussian_sigma_px is None:
+            s = side / 4
+        else:
+            s = float(cfg.target_gaussian_sigma_px)
         target = np.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * s**2))
     elif cfg.target_kind == "annulus":
         r = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
-        target[(r >= side / 2 - side / 4) & (r <= side / 2 + side / 4)] = 1.0
+        inner = (
+            side / 2 - side / 4
+            if cfg.target_inner_radius_px is None
+            else float(cfg.target_inner_radius_px)
+        )
+        outer = (
+            side / 2 + side / 4
+            if cfg.target_outer_radius_px is None
+            else float(cfg.target_outer_radius_px)
+        )
+        target[(r >= inner) & (r <= outer)] = 1.0
     else:
         raise ValueError(f"unknown target_kind {cfg.target_kind!r}")
     return target / target.sum()
@@ -260,13 +385,17 @@ def _initial_field(
     返回 ``(field, amp_slm, amp_target, target, base)``:
     * ``field``: 远场网格上的初始复场 ``amp_slm * exp(1j*(base + noise))``;
     * ``amp_slm``: 补零后的 Gaussian 瞳面幅度;
-    * ``amp_target``: 目标幅度 (``sqrt(target)``);
-    * ``target``: 目标强度;
+    * ``amp_target``: 目标幅度 (``sqrt(target)``; ``cfg.target_edge_soft_px>0``
+      时为软边目标幅度, 能量与硬边目标一致);
+    * ``target``: 目标强度 (**硬边支撑域** —— 指标与支撑域以它为准; 内建方斑取
+      值恰为 0/1, ``cfg.target_amplitude`` 注入时是注入幅度的平方);
     * ``base``: 固定的瞳面相位 (raw 弧度, 补零后), 未使用时为零。
+
+    ``cfg.init_noise`` scales the random part; ``0.0`` makes the initial field
+    exactly ``base_phase`` (used with :func:`analytic_ot_phase`).
     """
     rng = np.random.default_rng(cfg.seed if seed is None else seed)
     target = make_square_target(cfg)
-    amp_target = np.sqrt(target)
     pupil = cfg.make_gaussian_pupil()
     amp_slm = _pad_centred(pupil, cfg.far_field_size).astype(np.float64)
     if base_phase is None:
@@ -275,8 +404,161 @@ def _initial_field(
         base = _pad_centred(
             np.asarray(base_phase, dtype=np.float64), cfg.far_field_size
         )
-    field = amp_slm * np.exp(1j * (base + rng.normal(0, 0.1, size=amp_slm.shape)))
+    field = amp_slm * np.exp(
+        1j * (base + rng.normal(0.0, cfg.init_noise, size=amp_slm.shape))
+    )
+    if cfg.target_edge_soft_px > 0.0:
+        amp_target = _soft_edge_amplitude(target, cfg.target_edge_soft_px)
+    else:
+        amp_target = np.sqrt(target)
     return field, amp_slm, amp_target, target, base
+
+
+# ---------------------------------------------------------------------------
+# 目标域整形: 软边目标幅度 + 解析最优传输 (OT) 初值
+#
+# 综述的两条核心建议: (1) 改目标比改算法划算 —— 硬边方斑的 sinc 型频谱泄漏
+# 必然产生振铃, 几个像素的超高斯下降沿即可把均匀度从 ~85% 推到 >90%;
+# (2) 解析/OT 初值 + 少量迭代精修是目前性价比最高的组合 —— OT 解无相位涡旋、
+# 可插值、几乎不需要调参, 作为任意迭代算法的通用初值可把收敛迭代数减半。
+# ---------------------------------------------------------------------------
+
+
+def _gaussian_kernel_1d(sigma_px: float) -> np.ndarray:
+    """Unit-sum 1-D Gaussian kernel with a 3-sigma half-width."""
+    radius = max(1, int(math.ceil(3.0 * sigma_px)))
+    coords = np.arange(-radius, radius + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (coords / sigma_px) ** 2)
+    return kernel / kernel.sum()
+
+
+def _soft_edge_amplitude(target: np.ndarray, sigma_px: float) -> np.ndarray:
+    """Gaussian-softened target **amplitude** on the far-field grid.
+
+    The hard square intensity is blurred with a Gaussian of ``sigma_px``
+    (far-field px) and renormalised to unit energy before the square root, so
+    the constraint's total energy matches the hard target's and ``relax``
+    keeps its meaning. Blurring the *intensity* (not the amplitude) keeps the
+    edge profile monotone, which is what suppresses the ringing.
+    """
+    if sigma_px <= 0.0:
+        return np.sqrt(target)
+    kernel = _gaussian_kernel_1d(sigma_px)
+    radius = (kernel.size - 1) // 2
+    rows = np.zeros_like(target)
+    padded = np.pad(target, ((radius, radius), (0, 0)))
+    for i, weight in enumerate(kernel):
+        rows += weight * padded[i : i + target.shape[0], :]
+    out = np.zeros_like(target)
+    padded = np.pad(rows, ((0, 0), (radius, radius)))
+    for i, weight in enumerate(kernel):
+        out += weight * padded[:, i : i + target.shape[1]]
+    total = float(out.sum())
+    if not math.isfinite(total) or total <= 0.0:
+        return np.sqrt(target)
+    return np.sqrt(out / total)
+
+
+def _relax_at(relax: float, ramp_frac: float, n_iters: int, epoch: int) -> float:
+    """Effective Fienup relaxation at ``epoch`` under a linear tighten ramp.
+
+    ``ramp_frac <= 0`` returns ``relax`` unchanged -- the historical constant
+    schedule. Otherwise the relaxation ramps linearly from ``relax`` up to 1.0
+    over the first ``ramp_frac * n_iters`` iterations: a loose amplitude
+    constraint early (the target amplitude may float) escapes the ringing
+    basin faster, and the tightened tail converges. Requires ``relax < 1`` to
+    have any effect.
+    """
+    if ramp_frac <= 0.0:
+        return relax
+    ramp_iters = max(1, int(round(ramp_frac * max(1, n_iters))))
+    frac = min(1.0, (epoch + 1) / ramp_iters)
+    return relax + (1.0 - relax) * frac
+
+
+def _amplitude_error(ff: np.ndarray, amp_target: np.ndarray) -> float:
+    """Relative RMS mismatch between a far field and the target amplitude."""
+    denom = float(np.sqrt(np.mean(amp_target**2)))
+    if denom <= 0.0:
+        return 0.0
+    return float(np.sqrt(np.mean((np.abs(ff) - amp_target) ** 2)) / denom)
+
+
+def analytic_ot_phase(
+    cfg: SquareShapingConfig,
+    *,
+    target_side_px: int | None = None,
+    amplitude: np.ndarray | None = None,
+) -> np.ndarray:
+    """Separable Monge (Fermat-CDF) optimal-transport phase, input -> square.
+
+    Models "transport the input amplitude onto a uniform square" as a Monge
+    optimal-transport problem and returns the Kantorovich potential in the
+    separable (Fermat-CDF) form: each axis is mapped through the CDF of its
+    own marginal, and the phase is the sum of the two 1-D potentials.
+
+    On a 2f-Fourier bench a pupil-plane phase slope ``phi'`` displaces the
+    focal-plane ray by ``X = f*lambda*phi'/(2*pi)``, so the potential that
+    realises the transport map ``X(x) = s*(2*F(x)-1)`` (``F`` the marginal
+    CDF, ``s`` the target half-width) is::
+
+        phi(x) = 2*pi*s/(lambda*f) * integral of (2*F(x')-1) dx'
+
+    Properties that matter for the warm start:
+
+    * **no phase vortices** -- a principal source of GS efficiency loss and
+      residual speckle;
+    * **interpolable** -- the coarse multi-resolution pass upsamples it
+      losslessly enough for the fine pass to continue from;
+    * **almost no hyper-parameters** -- the only input is the target side.
+
+    Limitation: it is a geometric-optics solution, so it is exact only when
+    the target is many diffraction-limited spots across. Keep 10-50 GS
+    refinement iterations after it; use it as an *initial field*, not as the
+    final answer.
+
+    Args:
+        cfg: Shaping configuration; supplies the grid, the input amplitude
+            model (:meth:`SquareShapingConfig.make_gaussian_pupil`), the
+            wavelength / focal length and the far-field pixel size.
+        target_side_px: Target square side in far-field pixels (default
+            ``cfg.target_side_px``).
+        amplitude: Optional measured input amplitude on the pupil grid
+            (``cfg.n_grid`` square). When given, the marginals are taken from
+            it instead of the Gaussian model -- the documented remedy for a
+            bench whose real illumination is not the modelled Gaussian.
+
+    Returns:
+        The phase in **raw unwrapped radians** on the ``cfg.n_grid`` pupil
+        grid (the same convention every other phase in this module uses).
+    """
+    n = cfg.n_grid
+    if amplitude is None:
+        amp = cfg.make_gaussian_pupil()
+    else:
+        amp = np.asarray(amplitude, dtype=np.float64)
+        if amp.shape != (n, n):
+            raise ValueError(f"amplitude shape {amp.shape} != pupil grid ({n}, {n})")
+        if not np.isfinite(amp).all() or amp.min() < 0.0:
+            raise ValueError("amplitude must be finite and non-negative")
+    intensity = amp**2
+    marginal_x = intensity.sum(axis=0)
+    marginal_y = intensity.sum(axis=1)
+    total_x = float(marginal_x.sum())
+    total_y = float(marginal_y.sum())
+    if not (total_x > 0.0 and total_y > 0.0):
+        raise ValueError("degenerate input amplitude: a marginal integrates to zero")
+    cdf_x = np.cumsum(marginal_x / total_x)
+    cdf_y = np.cumsum(marginal_y / total_y)
+    side = cfg.target_side_px if target_side_px is None else int(target_side_px)
+    if side < 1:
+        raise ValueError(f"target_side_px must be >= 1, got {side}")
+    half_side_m = 0.5 * float(side) * cfg.far_field_pixel_size
+    pitch_m = cfg.aperture_size / n
+    scale = 2.0 * math.pi * half_side_m * pitch_m / (cfg.wavelength * cfg.focal_length)
+    phi_x = scale * np.cumsum(2.0 * cdf_x - 1.0)
+    phi_y = scale * np.cumsum(2.0 * cdf_y - 1.0)
+    return phi_y[:, None] + phi_x[None, :]
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +791,8 @@ def gs_shape(
     verbose: bool = False,
     return_phase_only: bool = True,
     base_phase: np.ndarray | None = None,
+    convergence_tol: float = 0.0,
+    relax_ramp_frac: float = 0.0,
 ) -> ShapingResult:
     """单块纯相位 SLM 的 Gerchberg-Saxton 整形。
 
@@ -523,18 +807,47 @@ def gs_shape(
         verbose: 每 20 轮记录一次 history。
         return_phase_only: 保留接口兼容 (当前总是返回相位)。
         base_phase: 固定的瞳面相位 (raw 弧度, n_grid x n_grid), GS 解加在其上。
+            配 ``cfg.init_noise = 0`` 即为纯解析初值 (如
+            :func:`analytic_ot_phase`)。
+        convergence_tol: 收敛判据 —— 远场幅度 RMS 误差的相对变化小于该值即
+            收工 (0 = 跑满 ``n_iters``, 历史行为)。GS 在振铃解附近空转是常见
+            的时间浪费, 该判据典型可省 20%-40% 迭代。只在 >0 时付出每轮一次
+            误差度量。
+        relax_ramp_frac: 分阶段放开约束 —— 前 ``frac * n_iters`` 轮内把
+            ``relax`` 线性收紧到 1.0 (0 = 恒定 ``relax``, 历史行为)。松弛的
+            早期约束允许目标区幅度浮动, 比全程硬约束更快跳出振铃。
     """
     field, amp_slm, amp_target, target, _base = _initial_field(
         cfg, seed=seed, base_phase=base_phase
     )
 
     history: list[dict[str, float]] = []
+    n_run = 0
+    prev_err: float | None = None
     for i in range(n_iters):
+        relax_i = _relax_at(relax, relax_ramp_frac, n_iters, i)
         ff = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
-        ff = ff * (amp_target / (np.abs(ff) + 1e-12)) * relax
-        ff = ff * (1 - relax) + amp_target * np.exp(1j * np.angle(ff)) * relax
+        if convergence_tol > 0.0:
+            # 收敛判据: 远场幅度误差的相对变化低于 tol 即收工, 避免在振铃解
+            # 附近空转。误差取自**施加约束前**的远场 (即当前重建的真实误差)。
+            err = _amplitude_error(ff, amp_target)
+            if (
+                prev_err is not None
+                and abs(prev_err - err) <= convergence_tol * max(prev_err, 1e-12)
+            ):
+                break
+            prev_err = err
+        # Fienup 松弛: 约束后的远场与**约束前**的远场按 relax 混合。
+        # (历史实现先把 ff 缩放到目标幅度, 再与**缩放后的自己**混合, 结果只差
+        # 一个正实数因子, 随后被瞳面 angle 投影完全抵消 —— relax<1 时是恒等
+        # 变换, 参数从未生效。angle 仍取缩放后的场, 故 relax=1 时与历史实现
+        # 逐字节相同, 默认路径不变。)
+        ff_scaled = ff * (amp_target / (np.abs(ff) + 1e-12))
+        constrained = amp_target * np.exp(1j * np.angle(ff_scaled))
+        ff = ff * (1 - relax_i) + constrained * relax_i
         field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
         field = amp_slm * np.exp(1j * np.angle(field))
+        n_run = i + 1
         if verbose and i % 20 == 0:
             inten = np.abs(np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))) ** 2
             inten = inten / inten.max()
@@ -546,6 +859,9 @@ def gs_shape(
     inten = inten / (inten.sum() + 1e-12)
     center = np.unravel_index(np.argmax(inten), inten.shape)[::-1]
     metrics = compute_bench_metrics(inten, target, center=center)
+    if convergence_tol > 0.0:
+        # 让调用方看得出是「跑满」还是「提前收敛」。
+        metrics = {**metrics, "iters_run": float(n_run)}
     n = cfg.n_grid
     pad = (cfg.far_field_size - n) // 2
     pupil_phase = np.angle(field)[pad : pad + n, pad : pad + n]
@@ -555,7 +871,7 @@ def gs_shape(
         intensity=inten,
         metrics=metrics,
         history=history,
-        n_iters=n_iters,
+        n_iters=n_run,
     )
 
 
@@ -595,6 +911,10 @@ class UniformSquareShaper:
 
     能量守恒: 构造时把 ``amp_target`` 重标定到与瞳面总能量一致; 因子 c 在
     ``angle(c*X) = angle(X)`` 下被抵消, 故 ``gamma=0`` 时与 ``gs_shape`` 逐位等价。
+
+    ``convergence_tol`` / ``relax_ramp_frac`` / ``base_phase`` 与
+    :func:`gs_shape` 同义: 评分收敛判据 (评分每轮都已计算, 不增加成本)、
+    分阶段收紧的幅度约束、以及固定初值 (配 ``cfg.init_noise=0`` 即纯解析初值)。
     """
 
     def __init__(
@@ -610,6 +930,8 @@ class UniformSquareShaper:
         dm_gamma_a: float = -1.0,
         dm_gamma_b: float = 1.0,
         relax: float = 1.0,
+        convergence_tol: float = 0.0,
+        relax_ramp_frac: float = 0.0,
         seed: int | None = None,
         verbose: bool = False,
         base_phase: np.ndarray | None = None,
@@ -633,6 +955,14 @@ class UniformSquareShaper:
             raise ValueError(f"n_iters must be >= 1, got {n_iters}")
         if select not in GS_SELECT:
             raise ValueError(f"select must be one of {GS_SELECT}, got {select!r}")
+        if not math.isfinite(convergence_tol) or convergence_tol < 0.0:
+            raise ValueError(
+                f"convergence_tol must be >= 0 and finite, got {convergence_tol!r}"
+            )
+        if not (0.0 <= relax_ramp_frac <= 1.0):
+            raise ValueError(
+                f"relax_ramp_frac must be in [0, 1], got {relax_ramp_frac!r}"
+            )
 
         self.cfg = cfg
         self.method = method
@@ -644,6 +974,8 @@ class UniformSquareShaper:
         self.dm_gamma_a = dm_gamma_a
         self.dm_gamma_b = dm_gamma_b
         self.relax = relax
+        self.convergence_tol = convergence_tol
+        self.relax_ramp_frac = relax_ramp_frac
         self.verbose = verbose
         self.select = select
 
@@ -664,12 +996,19 @@ class UniformSquareShaper:
         self.amp_target = amp_target
         self.target = target
         self.base = base
-        self.support = amp_target > 0
+        # 支撑域取**硬边**目标: 软边目标幅度的 Gaussian 尾没有精确零点,
+        # ``amp_target > 0`` 会变成整幅画面, 加权/HIO 的信号区就失效了。
+        # 软边关闭时两者逐字节相同 (方斑取值恰为 0/1)。
+        self.support = target > 0
         self.W = np.ones_like(amp_target)
         self.g = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(field)))
         self._iter = 0
         self.history: list[dict[str, float]] = []
         self.pad = (cfg.far_field_size - cfg.n_grid) // 2
+
+    def _relax_now(self) -> float:
+        """Current-iteration relaxation under the optional tighten ramp."""
+        return _relax_at(self.relax, self.relax_ramp_frac, self.n_iters, self._iter)
 
     def update(self) -> np.ndarray:
         """执行一步迭代, 返回裁剪后的 pupil 相位 (raw 弧度, 不 mod 2π)。"""
@@ -692,6 +1031,7 @@ class UniformSquareShaper:
         return np.angle(self.field)[p : p + n, p : p + n]
 
     def _weighted_step(self) -> None:
+        relax = self._relax_now()
         ff = np.fft.fftshift(np.fft.fft2(np.fft.ifftshift(self.field)))
         ratio = np.ones_like(self.amp_target)
         ratio[self.support] = (
@@ -699,11 +1039,12 @@ class UniformSquareShaper:
         ) ** self.gamma
         self.W = np.clip(self.W * ratio, 1.0 / self.weight_clip, self.weight_clip)
         self.W /= max(float(self.W[self.support].mean()), 1e-12)
-        ff = (self.W * self.amp_target) * ff / (np.abs(ff) + 1e-12)
-        ff = (
-            ff * (1 - self.relax)
-            + (self.W * self.amp_target) * np.exp(1j * np.angle(ff)) * self.relax
-        )
+        # Fienup 松弛: 与**约束前**的远场混合 (同 :func:`gs_shape` 的修正;
+        # 旧的「先缩放再与自身混合」只差一个正实数因子, 被 angle 投影抵消,
+        # relax<1 时从未生效; angle 取缩放后的场, relax=1 逐字节不变)。
+        ff_scaled = (self.W * self.amp_target) * ff / (np.abs(ff) + 1e-12)
+        constrained = (self.W * self.amp_target) * np.exp(1j * np.angle(ff_scaled))
+        ff = ff * (1 - relax) + constrained * relax
         self.field = np.fft.fftshift(np.fft.ifft2(np.fft.ifftshift(ff)))
         self.field = self.amp_slm * np.exp(1j * np.angle(self.field))
 
@@ -813,6 +1154,9 @@ class UniformSquareShaper:
         """跑完 ``n_iters`` 步, 返回与 ``gs_shape`` 同构的结果。
 
         ⚠️ **``select="best"`` (默认) 返回历史最优迭代, 而不是最后一次。**
+
+        ``convergence_tol > 0`` 时按综合评分的变化提前收工 (评分已每轮计算,
+        判据本身不增加成本); 实际步数记入 ``n_iters``。
         """
         n = self.cfg.n_grid
         p = self.pad
@@ -820,6 +1164,7 @@ class UniformSquareShaper:
         best_score = -np.inf
         best_field: np.ndarray | None = None
         best_iter = -1
+        prev_score: float | None = None
         for _ in range(self.n_iters):
             self.update()
             score, m = self._score()
@@ -827,6 +1172,13 @@ class UniformSquareShaper:
                 best_score = score
                 best_iter = self._iter - 1
                 best_field = self.field[p : p + n, p : p + n].copy()
+            if self.convergence_tol > 0.0 and prev_score is not None:
+                if (
+                    abs(prev_score - score)
+                    <= self.convergence_tol * max(abs(prev_score), 1e-12)
+                ):
+                    break
+            prev_score = score
             if self.verbose and (self._iter - 1) % 20 == 0:
                 self.history.append({"iter": self._iter - 1, **m})
         if track and best_field is not None:

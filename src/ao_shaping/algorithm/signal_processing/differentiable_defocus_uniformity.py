@@ -102,6 +102,15 @@ def load_frozen_parameters(checkpoint_dir: str | Path, *, fft_size: int = 1024,
         KeyError: 参数缺字段。
     """
     ckpt = Path(checkpoint_dir)
+    standalone = ckpt if ckpt.is_file() else ckpt / "frozen_parameters.json"
+    if standalone.is_file():
+        parameters = json.loads(standalone.read_text(encoding="utf-8"))
+        return FrozenDefocusParameters.from_dicts(
+            parameters, parameters["ramp_matrix"],
+            fft_size=int(parameters.get("fft_size", fft_size)),
+            pixel_samples=int(parameters.get("pixel_samples", pixel_samples)),
+            grid_size=int(parameters.get("grid_size", 128)),
+        )
     cfg = json.loads((ckpt / "config.json").read_text(encoding="utf-8"))
     sampling_cfg = json.loads((Path(cfg["source"]) / "config.json").read_text(encoding="utf-8"))
     upstream = json.loads(Path(sampling_cfg["fit"]).read_text(encoding="utf-8"))
