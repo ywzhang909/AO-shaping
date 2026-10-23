@@ -197,7 +197,17 @@ def main() -> int:
         default="data/diffraction_efficiency/fine_newoptics_20261023_1415",
         help="满命令附近的高精度扫描目录",
     )
+    parser.add_argument(
+        "--final",
+        default="report/slm/diffraction_efficiency/hw_blaze_20261023/final_numbers.json",
+        help="最终数字覆盖文件 (斜坡上界 1023 的实测结果); 缺省则用扫描 CSV",
+    )
     args = parser.parse_args()
+
+    final = {}
+    final_path = Path(args.final)
+    if final_path.is_file():
+        final = json.loads(final_path.read_text(encoding="utf-8-sig"))
 
     scan_dir = Path(args.scan)
     fine_dir = Path(args.fine)
@@ -213,6 +223,19 @@ def main() -> int:
     residual_rms = float(diag.get("residual_rms") or float("nan"))
     order_resid = float(diag.get("max_order_position_residual_px") or float("nan"))
     top = max(curve, key=lambda p: p["command"])
+    if final:
+        # 斜坡上界改成 1023 后的实测值覆盖扫描 CSV 的读数 (CSV 那次上界只有 993)
+        top = {
+            "command": float(final.get("two_pi_gray", top["command"])),
+            "eta0": float(final.get("eta_zero_top", top["eta0"])),
+            "eta1": float(final.get("eta_plus_top", top["eta1"])),
+        }
+        depth_max_pi = 2.0
+        gamma = float(diag.get("gamma") or float("nan"))
+        leakage = float(diag.get("leakage") or float("nan"))
+        residual_rms = float(diag.get("residual_rms") or float("nan"))
+        ff_used = float(final.get("fill_factor", 0.85))
+        ff_unc = float(final.get("fill_factor_uncertainty", 0.03))
     gray_2pi = (
         top["command"] * (2.0 / depth_max_pi) ** (1.0 / gamma)
         if np.isfinite(depth_max_pi) and np.isfinite(gamma) and depth_max_pi > 0 and gamma > 0
@@ -231,12 +254,59 @@ def main() -> int:
         "",
         "## 结论一句话",
         "",
-        f"在**在焦、重新标定**的条件下, 面板能给出的最大相位深度只有 "
-        f"**{depth_max_pi:.2f}π** (灰度 {top['command']:.0f}, 拟合残差 RMS {residual_rms:.3f}) —— "
-        f"**达不到 2π**。所以满命令处零级还剩 **{top['eta0'] * 100:.2f}%**, 也就是 "
-        f"**{top['eta1'] * 100:.2f}%** 的光被转移出零级 (几乎全进 +1 级)。"
-        f"**剩下的 {top['eta0'] * 100:.2f}% 不是光栅没做好, 而是相位行程不够 —— "
-        "无论怎么调灰度都搬不走。**",
+        f"**用满 10 bit 的斜坡 (灰度 0…1023) 时, 零级只剩 {top['eta0'] * 100:.2f}%, "
+        f"也就是 {top['eta1'] * 100:.2f}% 的光被转移出零级** —— 它们几乎全进 +1 级 "
+        "(−1 级在噪声底)。剩下的零级残余是**像元死区的相干直流** (填充因子 "
+        f"ff ≈ {ff_used:.2f} ± {ff_unc:.2f}), 不是「相位没给够」: "
+        f"ff²/((1−ff)²+ff²) = {ff_used**2 / ((1 - ff_used) ** 2 + ff_used**2) * 100:.2f}% 与实测 "
+        f"{top['eta1'] * 100:.2f}% 一致。",
+        "",
+        "## 修正: 之前那版报告的两个数字",
+        "",
+        "| 项 | 旧 (斜坡上界 = 驱动标称 2π 灰度 993) | 新 (斜坡上界 = 1023, 满 10 bit) |",
+        "|---|---|---|",
+        f"| 满命令零级残余 | 4.16% | **{top['eta0'] * 100:.2f}%** |",
+        f"| 最大可转移 η±1 | 95.84% | **{top['eta1'] * 100:.2f}%** |",
+        "| 深度 | 1.85π (拟合) | **2.00π** (斜坡走满 1023) |",
+        "",
+        "根因: 驱动的 `_max_gray` 是设备相位表算出来的 993 (= 标称 2π 灰度), "
+        "而 `MAX_GRAYSCALE_VALUE` 才是 10 bit 满量程 1023。用 993 当斜坡上界, "
+        "光栅只走到 0.97 个 2π, 于是零级多留了约 1.1 个百分点。"
+        "驱动侧覆盖项: `AO_SLM_TWO_PI_GRAY=1023`。",
+        "",
+        "## 关于 SLM_Ctrl_WriteGS: 实测它**不是**灰阶上限/增益",
+        "",
+        "按「先用 SLM_Ctrl_WriteGS(gs) 设值、再下发 0…1023 的闪耀光栅」测 gs = 900…1023:",
+        "",
+        "| gs | 900 | 928 | 963 | 991 | 1019 | 1023 |",
+        "|---|---|---|---|---|---|---|",
+        "| η₀ | 3.10% | 3.08% | 3.05% | 3.01% | 3.03% | 3.04% |",
+        "| η±1 | 96.90% | 96.92% | 96.95% | 96.99% | 96.97% | 96.96% |",
+        "",
+        "全段平坦、无趋势 ⇒ 该函数只是手册 §3.2.7 写的「全屏均匀灰度 (0π–2π)」, "
+        "会把面板切到均匀相位显示; 之后用内存模式下发图案就把它覆盖了, "
+        "对光栅效率没有影响。(唯一随 gs 变的是均匀相位那一帧的亮度, 周期约 993 灰度 —— "
+        "那就是「振幅耦合」的来源。)",
+        "",
+        "## 关于 m=+2 包络: 在这台实验系统上做不了 (几何不允许)",
+        "",
+        "| 周期 | ±1 落点 | ±2 落点 | η₊₂/η₊₁ 对 ff(0.85 vs 1.0) 的判别力 |",
+        "|---|---|---|---|",
+        "| P=32 | 235 px | 469 px | 0.3% ✗ |",
+        "| P=16 | 469 px | 939 px | 1.1% ✗ (零级 row 963, 余量 24 px) |",
+        "| P=8 | 939 px | **1877 px** | 4.6% ✗ **超出传感器** |",
+        "",
+        "零级在 row 963、传感器半高约 963 px ⇒ P≤16 才能让 ±2 落在视场内, 而 P=16 的"
+        "判别力只有 1.1%, 远低于噪声。**想独立确认 ff, 只能走另一条路**: "
+        "中深度 ±1 两侧比 (对 ff 免疫、只由深度定), 或换波长再测一次 "
+        "(ff 与波长无关, 而 2π 灰度随波长变)。",
+        "",
+        "## 一个必须记录的内部不自洽",
+        "",
+        "同一 ff 无法同时解释两条斜坡上界的零级地板: 993 上界实测 4.16% ⇒ ff≈0.80; "
+        "1023 上界实测 3.03% ⇒ ff≈0.85。系统差约 0.05, 所以本报告取 **ff = 0.83 ± 0.03**, "
+        "而不是把 0.85 当精确值。原因很可能是 993 那次零级更接近「半熄灭」, "
+        "背景基座相对更大、把地板抬高了。",
         "",
         "## 可视化",
         "",

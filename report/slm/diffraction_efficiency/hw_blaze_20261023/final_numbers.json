@@ -1,0 +1,12 @@
+﻿{
+  "eta_zero_top": 0.0303,
+  "eta_plus_top": 0.9696,
+  "fill_factor": 0.83,
+  "fill_factor_uncertainty": 0.03,
+  "two_pi_gray": 1023,
+  "source": "data/diffraction_efficiency/gs_ceiling_20261023_151229 (斜坡上界 1023, gs 900-1023 平坦)",
+  "envelope_feasible": false,
+  "envelope_reason": "P=8 的 ±2 级落在 1877px, 超出传感器可用行程 ~963px; P=16 判别力仅 1.1%",
+  "prior_ramp_993_eta_zero": 0.0416
+}
+

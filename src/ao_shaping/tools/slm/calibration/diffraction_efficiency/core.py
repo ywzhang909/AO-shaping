@@ -1151,17 +1151,28 @@ def _fit_model(
     y: np.ndarray,
     period_px: int,
     fit_fill: bool = True,
+    y_zero: np.ndarray | None = None,
 ) -> np.ndarray:
-    """scipy ``least_squares`` 的残差函数 (参数向量在前, 固定参数在 ``args``)。"""
+    """scipy ``least_squares`` 的残差函数 (参数向量在前, 固定参数在 ``args``)。
+
+    ⚠️ 只拟合 r1 时**识别不出 ff**: 满命令附近 r1 已接近饱和 (对 ff 不敏感),
+    4% 的零级地板摊进 41 个点的 RMS 就看不见了, 而且 ``soft_l1`` 还会把它当
+    离群点降权 (2026-10-23 实测: 3 参数与 4 参数给出同一个 1.846π 与 ff=1.000)。
+    给了 ``y_zero`` 就把 r0 的残差一起纳入 —— 地板只出现在 r0 上, 这样 ff 才被
+    钉住。
+    """
     if fit_fill:
         depth_max, gamma, leakage, fill = (float(v) for v in params)
     else:
         depth_max, gamma, leakage = (float(v) for v in params)
         fill = 1.0
-    _, r1 = discrete_order_efficiencies(
+    r0, r1 = discrete_order_efficiencies(
         u, depth_max, gamma, period_px, leakage, fill
     )
-    return np.nan_to_num(r1, nan=0.0) - y
+    blocks = [np.nan_to_num(r1, nan=0.0) - y]
+    if y_zero is not None:
+        blocks.append(np.nan_to_num(r0, nan=0.0) - y_zero)
+    return np.concatenate(blocks)
 
 
 def fit_phase_response(
@@ -1170,6 +1181,7 @@ def fit_phase_response(
     *,
     command_max: float,
     period_px: int,
+    eta_zero: Sequence[float] | None = None,
     gate: FwhmGate | None = None,
     depth_max_bounds: tuple[float, float] = (0.0, 8.0 * math.pi),
     gamma_bounds: tuple[float, float] = (0.05, 10.0),
@@ -1201,7 +1213,14 @@ def fit_phase_response(
     """
     cmd = np.asarray(commands, dtype=np.float64)
     y = np.asarray(eta_plus_total, dtype=np.float64)
+    y0 = None if eta_zero is None else np.asarray(eta_zero, dtype=np.float64)
+    if y0 is not None and y0.shape != y.shape:
+        raise ValueError(
+            f"eta_zero 与 eta_plus_total 长度不一致: {y0.shape} vs {y.shape}"
+        )
     keep = np.isfinite(cmd) & np.isfinite(y)
+    if y0 is not None:
+        keep &= np.isfinite(y0)
     if gate is not None and gate.violations:
         for index in gate.violations:
             if 0 <= index < keep.size:
@@ -1215,6 +1234,8 @@ def fit_phase_response(
             if 0 <= index < keep.size:
                 keep[index] = False
     cmd, y = cmd[keep], y[keep]
+    if y0 is not None:
+        y0 = y0[keep]
     if cmd.size < 3:
         excluded = (
             len(gate.violations) + len(gate.skipped_indices) if gate is not None else 0
@@ -1243,7 +1264,7 @@ def fit_phase_response(
                         result = least_squares(
                             _fit_model,
                             x0=np.array(x0, dtype=np.float64),
-                            args=(u, y, period, fit_fill_factor),
+                            args=(u, y, period, fit_fill_factor, y0),
                             bounds=(
                                 np.array(
                                     [
@@ -1260,7 +1281,7 @@ def fit_phase_response(
                                     + hi_extra
                                 ),
                             ),
-                            loss="soft_l1",
+                            loss="linear" if fit_fill_factor else "soft_l1",
                             f_scale=0.02,
                             max_nfev=4000,
                         )

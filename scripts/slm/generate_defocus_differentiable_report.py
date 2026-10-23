@@ -527,11 +527,27 @@ python scripts/slm/generate_defocus_differentiable_report.py \\
     path.write_text(text, encoding="utf-8")
 
 def main() -> None:
+    global STAMP
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-dir", type=Path,
                         default=ROOT / "data/debug/defocus_differentiable" / RUN_STAMP)
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--stamp", default=STAMP,
+                        help="图名前缀（换光路后必须换新戳，避免覆盖旧图）；默认 " + STAMP)
+    parser.add_argument("--report-name", default=Path(REPORT_KEY).name,
+                        help="报告文件名；默认 " + Path(REPORT_KEY).name)
+    parser.add_argument("--force", action="store_true",
+                        help="允许覆盖已存在且指向**另一次运行**的报告（默认拒绝）")
     args = parser.parse_args()
+    STAMP = args.stamp
+    report_path = OUT_DIR / (args.report_name if args.report_name.endswith(".md")
+                             else args.report_name + ".md")
+    if report_path.exists() and not args.force:
+        existing = report_path.read_text(encoding="utf-8")
+        if Path(args.run_dir).name not in existing:
+            raise SystemExit(
+                f"拒绝覆盖：{report_path.name} 指向另一次运行（本次请求 {Path(args.run_dir).name}）。"
+                "换光路后请用 --report-name 与 --stamp 写新报告/新图戳，或显式 --force。")
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     data = load_run(args.run_dir)
@@ -578,7 +594,7 @@ def main() -> None:
         rounds_sections.append(build_rounds_section(entry, artifact, title=title))
     artifacts["rounds_sections"] = rounds_sections
     if not args.report_only:
-        write_report(data, artifacts, OUT_DIR / Path(REPORT_KEY).name)
+        write_report(data, artifacts, report_path)
     summary = dict(blocks=len(data["blocks"]), replays={k: len(v) for k, v in replays.items()},
                    artifacts={k: (v if isinstance(v, dict) else str(v)) for k, v in artifacts.items()})
     (OUT_DIR / f"{STAMP}_artifacts.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False),
@@ -588,6 +604,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
