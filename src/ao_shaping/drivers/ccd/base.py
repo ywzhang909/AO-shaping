@@ -250,6 +250,115 @@ class BaseCamera(ABC):
         xv, yv = np.meshgrid(x, y)
         return xv, yv
 
+    def _validated_ladder(self, exposures_ms: Sequence[float], n_sample: int) -> tuple[list[float], int]:
+        """校验曝光阶梯与每档采样数，返回 (曝光列表, 采样数)。"""
+        exposures = [float(value) for value in exposures_ms]
+        if len(exposures) < 2:
+            raise ValueError(f"exposure ladder needs at least two exposures, got {exposures!r}")
+        for index, value in enumerate(exposures):
+            if not np.isfinite(value) or value <= 0.0:
+                raise ValueError(f"exposures_ms[{index}] must be a finite positive float, got {value!r}")
+        samples = int(n_sample)
+        if samples < 1:
+            raise ValueError(f"n_sample must be >= 1, got {n_sample!r}")
+        return exposures, samples
+
+    def _acquire_exposure_ladder(self, exposures: Sequence[float], samples: int, *,
+                                 restore_exposure: bool = True) -> tuple[list[np.ndarray], list[float], float | None]:
+        """按曝光阶梯采集：返回 (每档帧, **实际生效**的曝光, 进入时的曝光)。
+
+        只依赖基类的 ``reset_exposure_time`` / ``get_numpy_image``，因此所有后端
+        （daheng / miicam / sim / ffmpeg / image_folder）零改动可用。约定：
+
+        * 每档固定 ``skip_first=True`` —— 改曝光后的首帧可能是陈旧帧；
+        * 记录**实际生效**的曝光（后端会把越界值钳到设备范围），融合必须吃实际值；
+        * ``restore_exposure`` 时在 ``finally`` 里写回进入时的曝光（异常路径同样恢复）。
+        """
+        from ao_shaping.drivers.ccd import common
+
+        original: float | None = None
+        try:
+            original = common.get_camera_exposure_ms(self)
+        except AttributeError:
+            logger.warning(
+                "{} exposes no readable exposure time; leaving the camera at the "
+                "last ladder exposure {:.4f} ms", type(self).__name__, float(exposures[-1]))
+        frames: list[np.ndarray] = []
+        applied: list[float] = []
+        try:
+            for ms in exposures:
+                common.set_camera_exposure_ms(self, ms)
+                if original is None:
+                    applied.append(float(ms))
+                else:
+                    effective = float(common.get_camera_exposure_ms(self))
+                    applied.append(effective)
+                    if abs(effective - float(ms)) > 1e-9:
+                        logger.warning(
+                            "exposure {} ms was clamped to {} ms; the fusion normalises "
+                            "this frame by the value actually used", ms, effective)
+                frames.append(self.get_numpy_image(samples, skip_first=True))
+        finally:
+            if restore_exposure and original is not None:
+                common.set_camera_exposure_ms(self, original)
+        return frames, applied, original
+
+    def capture_hdr(
+        self,
+        exposures_ms: Sequence[float],
+        *,
+        n_sample: int = 1,
+        restore_exposure: bool = True,
+        dark: float = 0.0,
+        read_noise_counts: float = 0.0,
+        min_snr: float = 0.0,
+        reference_exposure_ms: float | None = None,
+    ):
+        """多曝光阶梯采集并融合成**辐射度** HDR 图（counts/ms），与显示融合分开。
+
+        与 :meth:`capture_fused` 共用同一套采集契约（每档丢首帧、读回实际曝光、
+        退出恢复曝光），区别只在融合语义：
+
+        * :meth:`capture_fused` 走 ``utils.image.exposure_fusion`` 的拉普拉斯金字塔，
+          输出**显示参考**的 0–255 图 —— 观感好，但幅度被权重混合改写，不能用来
+          判"目标区均值是否超过噪声地板"。
+        * 本方法走 ``utils.image.hdr.hdr_fuse``，输出**线性 radiance**（每毫秒计数）
+          + ``valid`` / ``source_index`` / ``coverage``，可直接喂
+          ``utils.image.hdr.box_metrics`` 做 CV / EE / 填充率 / 可测性判定。
+
+        参数:
+            exposures_ms: 曝光阶梯（ms，至少两档）。**阶梯要够到暗区**：最暗的目标区
+                在最长一档下需要 ≳10 counts，否则该区域只会得到噪声整流值。
+            n_sample: 每档采样帧数（``>1`` 时驱动内部平均）。
+            restore_exposure: 退出时是否恢复进入时的曝光。
+            dark: 暗电平（counts），从每帧减去。
+            read_noise_counts: 读出噪声（counts），用于扣除噪声整流偏置 σ·√(2/π)。
+            min_snr: 只接受 ``原始计数 >= min_snr×σ`` 的像素；不满足的标无效。
+            reference_exposure_ms: 融合图 ``fused`` 使用的参考曝光；缺省取最短一档。
+
+        返回:
+            ``HdrResult``（``radiance`` / ``fused`` / ``valid`` / ``source_index`` /
+            ``coverage`` / ``saturated_pixels`` / ``invalid_pixels``），并带上本次采集
+            的 ``full_scale`` 与 ``applied_exposures_ms`` 便于事后核对。
+
+        异常:
+            ValueError: 阶梯少于两档、含非有限/非正曝光，或 ``n_sample < 1``。
+        """
+        from dataclasses import replace
+
+        from ao_shaping.drivers.ccd import common
+        from ao_shaping.utils.image.hdr import hdr_fuse
+
+        exposures, samples = self._validated_ladder(exposures_ms, n_sample)
+        frames, applied, _ = self._acquire_exposure_ladder(exposures, samples,
+                                                           restore_exposure=restore_exposure)
+        detector_full_scale = float(common.full_scale(frames[0]))
+        result = hdr_fuse(frames, applied, dark=dark, full_scale=detector_full_scale,
+                          read_noise_counts=read_noise_counts, min_snr=min_snr,
+                          reference_exposure_ms=reference_exposure_ms)
+        return replace(result, full_scale=detector_full_scale,
+                       applied_exposures_ms=tuple(applied))
+
     def capture_fused(
         self,
         exposures_ms: Sequence[float],
@@ -309,60 +418,9 @@ class BaseCamera(ABC):
         # 但本模块刻意只 import abc / numpy / loguru, 保持导入面最小; 同理延后。
         from ao_shaping.utils.image.exposure_fusion import exposure_fusion
 
-        exposures = [float(value) for value in exposures_ms]
-        if len(exposures) < 2:
-            raise ValueError(
-                f"exposure ladder needs at least two exposures, got {exposures!r}"
-            )
-        for index, value in enumerate(exposures):
-            if not np.isfinite(value) or value <= 0.0:
-                raise ValueError(
-                    f"exposures_ms[{index}] must be a finite positive float, "
-                    f"got {value!r}"
-                )
-        samples = int(n_sample)
-        if samples < 1:
-            raise ValueError(f"n_sample must be >= 1, got {n_sample!r}")
-
-        original_exposure: float | None = None
-        try:
-            original_exposure = common.get_camera_exposure_ms(self)
-        except AttributeError:
-            # 该后端既没有 ``exposure_time_ms`` 也没有 ``exposure_time``, 没有可恢复
-            # 的原值。这不是错误: 阶梯本身照常跑完, 只是退出后停在最后一档。
-            logger.warning(
-                "{} exposes no readable exposure time; leaving the camera at the "
-                "last ladder exposure {:.4f} ms",
-                type(self).__name__,
-                exposures[-1],
-            )
-
-        frames: list[np.ndarray] = []
-        applied: list[float] = []
-        try:
-            for ms in exposures:
-                common.set_camera_exposure_ms(self, ms)
-                # 记录**实际生效**的曝光而不是请求值: 后端会把越界值钳到设备范围
-                # (``DahengCamera.reset_exposure_time`` 如此, 且按 ABC 契约返回
-                # 实际值), 而 ``set_camera_exposure_ms`` 丢弃那个返回值、只回报请求
-                # 值。Stage 0 的曝光归一化必须吃实际值, 否则该帧权重会整体按钳位
-                # 比例偏掉而不报任何错。既然后端无可读曝光属性, 只能退回请求值。
-                if original_exposure is None:
-                    applied.append(ms)
-                else:
-                    effective = float(common.get_camera_exposure_ms(self))
-                    applied.append(effective)
-                    if abs(effective - ms) > 1e-9:
-                        logger.warning(
-                            "exposure {} ms was clamped to {} ms; the fusion "
-                            "normalises this frame by the value actually used",
-                            ms,
-                            effective,
-                        )
-                frames.append(self.get_numpy_image(samples, skip_first=True))
-        finally:
-            if restore_exposure and original_exposure is not None:
-                common.set_camera_exposure_ms(self, original_exposure)
+        exposures, samples = self._validated_ladder(exposures_ms, n_sample)
+        frames, applied, _ = self._acquire_exposure_ladder(exposures, samples,
+                                                           restore_exposure=restore_exposure)
 
         detector_full_scale = float(common.full_scale(frames[0]))
         fused = exposure_fusion(

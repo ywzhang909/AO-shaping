@@ -40,6 +40,8 @@ class HdrResult:
     reference_exposure_ms: float
     saturated_pixels: int                   # 所有帧都饱和的像素数
     invalid_pixels: int                     # 无可用帧的像素数
+    full_scale: float | None = None         # 采集时的探测器满量程（由相机层填入）
+    applied_exposures_ms: tuple[float, ...] | None = None   # 实际生效的曝光（被钳位后的值）
 
     @property
     def coverage(self) -> float:

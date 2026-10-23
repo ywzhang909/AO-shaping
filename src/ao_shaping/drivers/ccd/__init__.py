@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 from ao_shaping.drivers._lazy import install_lazy_attrs
 from ao_shaping.drivers.ccd.base import BaseCamera, CameraError
+from ao_shaping.utils.image.hdr import HdrResult, box_metrics, hdr_fuse
 from ao_shaping.drivers.ccd.ffmpeg import (
     FFmpegCamera,
     FFmpegCameraError,
@@ -58,3 +59,5 @@ __all__ = [
     "FFmpegCameraError",
     "ImageFolderCamera",
 ]
+
+
