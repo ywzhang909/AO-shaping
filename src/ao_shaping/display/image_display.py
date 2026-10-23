@@ -12,11 +12,44 @@ if TYPE_CHECKING:
 # Canonical pygame views live in ``ao_shaping.display``; re-exported here so the
 # legacy ``ao_shaping.utils[.image].display`` import paths keep working. This is
 # the dependency direction the utils -> display visualisation migration intends.
-from ao_shaping.display.windows import (  # noqa: F401
+from ao_shaping.display.windows import (
     VOLT_HEIGHT,
     ImageVoltagesDisplay,
 )
 from ao_shaping.utils.io.handler import Register
+
+#: Public surface of this module. Declared so the re-exports below are formal
+#: API rather than incidental imports (``ao_shaping.utils`` / ``ao_shaping``
+#: pull ``ImageVoltagesDisplay`` / ``VOLT_HEIGHT`` from here, and
+#: ``display/__init__.py`` re-exports the plotting helpers and colour constants).
+__all__ = (
+    "BACKGROUND_COLOR",
+    "ImageVoltagesDisplay",
+    "LINE_COLOR",
+    "LOG_J_HEIGHT",
+    "Register",
+    "VOLT_HEIGHT",
+    "ZERN_BAR_DEFAULT_COLOR",
+    "ZERN_BG_COLOR",
+    "ZERN_MODERATE_COLOR",
+    "ZERN_PROGRESS_BG",
+    "ZERN_PROGRESS_FILL",
+    "ZERN_STABLE_COLOR",
+    "ZERN_TEXT_COLOR",
+    "ZERN_UNSTABLE_COLOR",
+    "ZernikeCalibrationDisplay",
+    "make_debug_wavefront_ax_plots",
+    "plot_funcs",
+    "plot_img",
+    "plot_log_j",
+    "plot_pib_history",
+    "plot_rms_history",
+    "plot_voltage_comparison",
+    "plot_voltage_heatmap",
+    "plot_voltages",
+    "plot_wavefront",
+    "save_recorder_artifacts",
+)
 
 # display settings
 LOG_J_HEIGHT = 200
