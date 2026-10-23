@@ -1559,6 +1559,56 @@ memory mode), and `--probe-devices` probes once and exits (used internally by
 `<root>/groups_manifest.json` **after every group**, so a hard kill still leaves
 the completed groups indexed.
 
+### hw_gs_square_scans.py
+
+GS-only (no SPGD) square-shaping scan in three segments — **side length**, **Zernike
+truncation order**, **blaze-grating period** — with **one parameter set per process**:
+
+```bash
+# one process = one configuration (atomic mode, recommended)
+python scripts/slm/hw_gs_square_scans.py --execute --scan sides   --side-px 700      --run-root $RUN --cam-type daheng --exposure-ms 20
+python scripts/slm/hw_gs_square_scans.py --execute --scan zernike --n-max 11        --run-root $RUN --cam-type daheng --exposure-ms 20
+python scripts/slm/hw_gs_square_scans.py --execute --scan blaze   --blaze-period 32 --run-root $RUN --cam-type daheng --exposure-ms 20
+
+# offline: pick the side near 1000, rebuild CSV/manifest/figures, or print every command line
+python scripts/slm/hw_gs_square_scans.py --scan select    --run-root $RUN
+python scripts/slm/hw_gs_square_scans.py --scan summarize --run-root $RUN
+python scripts/slm/hw_gs_square_scans.py --plan-commands  --run-root $RUN --exposure-ms 20
+```
+
+Each atomic process writes `<run-root>/<stage>/<config-slug>/` (`phase_*.npy`,
+`pupil_phase.npy`, `frame_*.npz`, `metrics.json`) and upserts its row into the stage
+CSV and the root `manifest.json` (deduplicated by slug, so re-running one configuration
+replaces exactly that row). `zernike` / `blaze` read `<run-root>/sides/selected.json`
+and reuse the cached pupil phase (`base_phase_source=cache`); a missing `selected.json`
+exits **6**. `--side-px` doubles as an explicit override for `zernike` / `blaze`
+(`selected_source=cli`). The whole-segment path (`--scan all`, `--scan sides` without a
+value selector) is kept for debugging only.
+
+**Why it exists**: one process per configuration gives each measurement its own device
+lifecycle and its own exposure, so a power change or a hung acquisition costs one
+configuration instead of the round.
+
+### generate_hw_gs_square_scans_report.py
+
+Offline report generator for the scans above: reads the landed `measurements.csv` /
+`metrics.json` / logs and renders
+`report/shape_trials/hw_gs_square_scans/hw_gs_square_scans_20261023.md` plus 5 figures
+and the artifact archive. Every number in every table is parsed from the artifacts and
+then **read back** from the rendered Markdown and compared cell by cell; `--check`
+verifies the report bytes, the artifact byte-copies and the figure set, so a re-run is
+idempotent.
+
+```bash
+python scripts/slm/generate_hw_gs_square_scans_report.py \
+    --run-root data/debug/hw_gs_square_scans/20261023_gs_square \
+    --retest-root data/debug/hw_gs_square_scans/20261023_retest_frozen
+```
+
+`--retest-root` is optional: it adds the "复测（功率已变）" section and a neighbour-comparison
+figure. The retest batch is a **separate power regime**, so it is only compared within
+itself, never against the baseline's absolute values.
+
 ### build_hw_sweep_plan.py
 
 Generates the **JSON plan** that `run_hw_sweep_groups.py` drives, for the

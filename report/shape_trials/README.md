@@ -27,6 +27,7 @@
 
 | 日期 | 报告 | 主题 |
 |------|------|------|
+| 2026-10-23 | [GS 方形光斑三段扫描：边长 / Zernike 阶数 / 闪耀光栅](hw_gs_square_scans/hw_gs_square_scans_20261023.md) | 纯 GS（无 SPGD）三段扫描 + 功率变化后的原子化复测；PIB 与 CV 互相抵消决定 score 峰、低阶 Zernike 只解释 3.25% 相位方差、`predicted_shift_px` 方向可用但标度与 1/P 形状不可用；两处基线「异常」经复测判定为整帧全黑的失败采集
 | 2026-10-23 | [离焦光路下的可微整形测试方案](defocus_differentiable_test_plan_20261023.md) | 对照可微实验负结果；GS 初值、固定 ROI CV、梯度方向配对探测与短块 CCD 验收；仅制定方案 |
 | 2026-10-22 | [跨系列联合分析与下一步实验计划](experiment_summary_20261022.md) | MIL 损失审计 + 离焦/泽尼克测试 + 当天四轮 campaign 失败的联合分析；规律清单、脚本盘点与阶段 0–6 计划 |
 | 2026-10-22 | [物理预测采样与响应诊断](model_in_loop/physical_forward_sampling_20261022_r2.md) | 传播采样、CCD 像素积分、曝光偏置和剩余峰宽；逐步数据保留 |
