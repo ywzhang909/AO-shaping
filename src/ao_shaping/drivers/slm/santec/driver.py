@@ -69,6 +69,36 @@ from ao_shaping.drivers.slm.santec.wavefront_correction import WavefrontCorrecti
 from ao_shaping.utils.io.device_config import ConfigHandler, DeviceParam, param
 from ao_shaping.utils.io.file import ROOT_DIR as PROJECT_ROOT
 
+# ── 两个"灰度"的区别 (2026-10-23 实测定案, 别再混) ─────────────────────────
+#
+# 1. ``MAX_GRAYSCALE_VALUE`` = 1023 —— 面板**灰度满量程** (10 bit)。它只用作
+#    "弧度 → 灰度"的标度因子 (:meth:`Santec.create_phase_from_array` 里
+#    ``gray = phase / 2π * max_grayscale``), 与实际面板映射无关。
+#
+# 2. ``self._max_gray`` —— 当前波长下 **2π 对应的灰度**, 由设备相位表算出:
+#    ``SLM_Ctrl_ReadWL`` 回报"满量程 (1023) 处能到多少相位" (单位 0.01π,
+#    200 = 2.00π), 于是 ``_max_gray = 1023 * 2 / phase_pi``。本机 1064 nm
+#    回报 phase=206 ⇒ 2.06π ⇒ ``_max_gray = 993``。设备侧**不可写小**:
+#    请求 196/200 都会被设备吸附成 **206** (手册 ``docs/slm-200/dev.md``
+#    §3.2.4: "Set phase 2.00π ⇒ calculation result 2.01π"), 实测确认;
+#    只有**调大**会被接受 (206→214, 220→224)。
+#
+# 实测结论 (在焦, P=32, 瞳面掩膜 600 module, 见
+# ``report/slm/diffraction_efficiency/hw_blaze_20261023/report.md``):
+#   * 零级地板在 phase ≥ 2.06π 处**饱和于 2.86%**, 继续加大 phase 无收益
+#     ⇒ 有效 2π 灰度在 956~993, **不是 1023**; ff ≈ 0.854, η±1_max ≈ 97.1%;
+#   * ``SLM_Ctrl_WriteGS`` **不是**灰阶上限/增益 —— gs 900…1023 全段效率平坦
+#     (它只是"全屏均匀相位", 手册 §3.2.7; 下发内存图案即覆盖)。
+#
+# 因此**不提供** 2π 灰度的覆盖开关: 设备值自洽, 覆盖只会造成 3% 过调制。
+# 复核脚本 (都在 ``scripts/slm/``):
+#   * ``probe_wl_phase_vs_efficiency.py`` —— 扫 ``WriteWL`` 的 phase (= 2π 灰度旋钮),
+#     给出"地板饱和 ⇒ ff"与"设备吸附/不能调低"的证据;
+#   * ``probe_gs_ceiling_vs_efficiency.py`` —— 证否 ``WriteGS`` 是灰阶增益;
+#   * ``calib_geometry_from_orders.py`` —— 单帧 ±1 落点实测 Kx/Ky/零级中心;
+#   * ``gen_diffraction_efficiency_hw_report.py`` —— 离线重渲染上述报告。
+# 契约测试: ``tests/ao_shaping/tools/slm/test_slm_diffraction_efficiency.py``。
+
 # LCOS 像素翻转时序常量
 # 0→2π（满相位量程，_max_gray 灰度）翻转耗时至多 200ms（厂商规格）。
 # display_data 的自动等待按最大灰度变化 / 满量程 正比线性估算。
@@ -1476,6 +1506,12 @@ class Santec:
     ) -> int:
         """将相位数据写入内存并显示，等待像素翻转完成。
 
+        ⚠️ **灰度上限是 1023（10-bit）**：2026-10-23 实测，写 1024 会**回绕成 0**
+        （灰度 0/1023/1024 三档平场的相机均值 0.20193 / 0.20478 / 0.20201 ——
+        1024 与 0 无法区分）。因此本方法在写入前把数组**硬钳到 1023**并记一条
+        warning，避免 2π 的像素被悄悄变成 0 相位。码空间的"1024 级"只体现在
+        标度上（0…1023 共 1024 个码），不是一个可取的值。
+
         像素下发后的等待时间语义:
           - ``wait_time_s=None`` 或 ``< 0``: 自动估算。按相邻两帧之间最大灰度变化
             相对 2π 满量程（``_max_gray``）的比例线性推算翻转等待时间
@@ -1495,6 +1531,16 @@ class Santec:
             RuntimeError: 设备未打开
         """
         self._ensure_open()
+        # 1024 会回绕成 0（2026-10-23 实测：灰度 0/1023/1024 平场的相机均值
+        # 0.20193 / 0.20478 / 0.20201，1024 与 0 无法区分）⇒ 发送前硬钳到 1023，
+        # 绝不把越界码送给面板（否则 2π 的像素会变成 0 相位）。
+        phase_gray = np.asarray(phase_gray)
+        if phase_gray.size and int(phase_gray.max()) > self.MAX_GRAYSCALE_VALUE:
+            logger.warning(
+                "display_data: 灰度最大值 {} 超过 10-bit 上限 {}（写 1024 会回绕成 0），已钳位",
+                int(phase_gray.max()), self.MAX_GRAYSCALE_VALUE,
+            )
+            phase_gray = np.minimum(phase_gray, self.MAX_GRAYSCALE_VALUE).astype(np.uint16)
         # 在显示前记录当前已显示相位，用于计算最大灰度变化
         # （display_memory/display_video 会同步更新 _displayed_phase_cache）
         prev_phase = self._displayed_phase_cache
@@ -2443,52 +2489,6 @@ class Santec:
                     f"强制写入波长 {self.wavelength}nm 以编程相位表"
                 )
                 self.set_wavelength(self.wavelength, save_to_device=True)
-
-        self._apply_two_pi_gray_override()
-
-    def _apply_two_pi_gray_override(self) -> None:
-        """可选: 用环境变量覆盖设备相位表给出的 2π 灰度。
-
-        设备通过 ``SLM_Ctrl_ReadWL`` 回报"满量程 (灰度 1023) 处能到多少相位",
-        驱动据此换算 2π 灰度 (本机 1064 nm 回报 phase=206 ⇒ 2.06π ⇒ 2π 在灰度
-        **993**)。但这个标称值可能比面板实际响应乐观: 2026-10-23 的衍射效率实测
-        (在焦, P=32, 见 ``report/slm/diffraction_efficiency/hw_blaze_20261023/report.md``)
-        给出零级地板 4.16%, 与"满量程真实深度 = 2.00π + 填充因子 0.828"精确吻合
-        (预测 η±1_max = 95.84%, 实测 95.84%), 而 1.71π 会预测 13% 的地板 ——
-        被实测排除。故本机真实 2π 灰度 ≈ 1023。
-
-        ⚠️ **设备侧不可写**: ``set_wavelength()`` 请求 2.00π (200) 会被设备改成
-        206 (手册 ``docs/slm-200/dev.md:1066``: "Set phase 2.00π ⇒ calculation
-        result 2.01π"), 实测确认。所以只能在驱动侧覆盖。
-
-        用法: ``AO_SLM_TWO_PI_GRAY=1023`` (不设 = 用设备标称值, 行为不变)。
-        """
-        override = os.environ.get("AO_SLM_TWO_PI_GRAY")
-        if not override:
-            return
-        try:
-            value = int(float(override))
-        except (TypeError, ValueError):
-            logger.warning(
-                "AO_SLM_TWO_PI_GRAY={} 无法解析为整数, 忽略", override
-            )
-            return
-        clamped = max(1, min(value, int(self.MAX_GRAYSCALE_VALUE)))
-        if clamped != value:
-            logger.warning(
-                "AO_SLM_TWO_PI_GRAY={} 超出 [1, {}], 已钳位至 {}",
-                value,
-                self.MAX_GRAYSCALE_VALUE,
-                clamped,
-            )
-        logger.warning(
-            "SLM #{}: 2π 灰度被 AO_SLM_TWO_PI_GRAY 覆盖: 设备标称 {} -> {} "
-            "(相位→灰度换算与 max_gray 都随之改变)",
-            self.slm_number,
-            self._max_gray,
-            clamped,
-        )
-        self._max_gray = clamped
 
     def _wait_for_ready(self, max_retries: int = 10, retry_delay: float = 0.1) -> bool:
         """等待设备就绪（参考官方demo）

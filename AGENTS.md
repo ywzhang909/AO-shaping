@@ -641,13 +641,14 @@ CENTER=577,655
 # session; unset or 0 = code probes the CCD image (doubling ladder to saturation)
 # AO_DAHENG_MAX_EXPOSURE_MS=0.6
 
-# SLM 2π gray override. The device reports its phase table via SLM_Ctrl_ReadWL
-# (1064 nm -> phase=206 => 2.06π at gray 1023 => driver derives 2π gray = 993).
-# Measured 2026-10-23 by diffraction-efficiency sweep: the panel's real depth at
-# gray 1023 is ≈2.00π and the zero-order floor 4.16% is explained by fill factor
-# 0.828 (predicts η±1_max = 95.84%, measured 95.84%). Device-side write is
-# impossible (requesting 200 returns 206), so override in the driver:
-# AO_SLM_TWO_PI_GRAY=1023
+# SLM 2π gray: NOT an env knob any more (2026-10-23). MAX_GRAYSCALE_VALUE=1023 is
+# only the radian→gray scale; the real 2π gray comes from the device phase table
+# (SLM_Ctrl_ReadWL → 1064 nm phase=206 ⇒ 2.06π ⇒ 993) and the device **rejects**
+# smaller values (196/200 snap to 206), so it cannot be forced to 1023.
+# Zero-order floor saturates at 2.86% for phase ≥ 2.06π (ff≈0.854, η±1_max≈97.1%),
+# so the device value is self-consistent. Full logic + evidence pointers live in
+# the module comment above `src/ao_shaping/drivers/slm/santec/driver.py:MAX_PIXEL_FLIP_TIME_S`;
+# probes: scripts/slm/probe_wl_phase_vs_efficiency.py, probe_gs_ceiling_vs_efficiency.py
 
 # Library paths
 PYTHONPATH=src;libs
