@@ -1,0 +1,102 @@
+[
+  {
+    "stage": "capture",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:46:23.611566+00:00",
+    "monotonic_ns": 387704941722300,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:49:04.875543+00:00",
+      "monotonic_ns": 387866205267900
+    }
+  },
+  {
+    "stage": "fit",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:49:04.876002+00:00",
+    "monotonic_ns": 387866205716600,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:49:18.948712+00:00",
+      "monotonic_ns": 387880278399300
+    }
+  },
+  {
+    "stage": "CCD_model_blocks",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:49:18.951317+00:00",
+    "monotonic_ns": 387880280993900,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:52:15.630974+00:00",
+      "monotonic_ns": 388056960189400
+    }
+  },
+  {
+    "stage": "exposure_response_capture",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:52:15.634867+00:00",
+    "monotonic_ns": 388056964070500,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:53:21.428396+00:00",
+      "monotonic_ns": 388122757444800
+    }
+  },
+  {
+    "stage": "exposure_response_analysis",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:53:21.429321+00:00",
+    "monotonic_ns": 388122758359000,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:53:24.423909+00:00",
+      "monotonic_ns": 388125752936100
+    }
+  },
+  {
+    "stage": "blur_calibration",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:53:24.424704+00:00",
+    "monotonic_ns": 388125753723300,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:53:37.949633+00:00",
+      "monotonic_ns": 388139278618400
+    }
+  },
+  {
+    "stage": "CCD_anchored_blocks",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:53:37.950006+00:00",
+    "monotonic_ns": 388139278983200,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:55:45.689682+00:00",
+      "monotonic_ns": 388267018325300
+    }
+  },
+  {
+    "stage": "raw_data_audit",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:55:45.690446+00:00",
+    "monotonic_ns": 388267019079400,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:55:49.302839+00:00",
+      "monotonic_ns": 388270631465800
+    }
+  },
+  {
+    "stage": "summary",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:55:49.303058+00:00",
+    "monotonic_ns": 388270631678000,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:55:52.786137+00:00",
+      "monotonic_ns": 388274114763300
+    }
+  },
+  {
+    "stage": "direction_check",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T12:55:52.786716+00:00",
+    "monotonic_ns": 388274115332000,
+    "end": {
+      "timestamp_utc": "2026-10-23T12:55:54.987605+00:00",
+      "monotonic_ns": 388276316221100
+    }
+  }
+]

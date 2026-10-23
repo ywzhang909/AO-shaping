@@ -4,8 +4,14 @@
 > **生成脚本**: 人工撰写，无生成脚本
 > **数据/关联脚本**: [`scripts/slm/transfer_multishape_experiment.py`](../../../scripts/slm/transfer_multishape_experiment.py)
 > **数据/关联脚本**: [`scripts/slm/fit_transfer_multishape.py`](../../../scripts/slm/fit_transfer_multishape.py)
-> **运行环境**: 离线（读取已有实验数据；新采集待确认）
-> **说明**: 原始 CCD 区域复算、载波几何纠正、迁移拟合验证及当前光路采集准备；按时间追加记录。
+> **数据/关联脚本**: [`scripts/slm/validate_transfer_shapes.py`](../../../scripts/slm/validate_transfer_shapes.py)
+> **数据/关联脚本**: [`scripts/slm/summarize_transfer_shapes.py`](../../../scripts/slm/summarize_transfer_shapes.py)
+> **数据/关联脚本**: [`scripts/slm/capture_transfer_response.py`](../../../scripts/slm/capture_transfer_response.py)
+> **数据/关联脚本**: [`scripts/slm/analyze_transfer_response.py`](../../../scripts/slm/analyze_transfer_response.py)
+> **数据/关联脚本**: [`scripts/slm/calibrate_transfer_blur.py`](../../../scripts/slm/calibrate_transfer_blur.py)
+> **数据/关联脚本**: [`scripts/slm/analyze_transfer_direction.py`](../../../scripts/slm/analyze_transfer_direction.py)
+> **运行环境**: 离线+硬件（Santec SLM #1 + Daheng CCD）
+> **说明**: 原始 CCD 区域复算、载波几何纠正、物理参数迁移拟合和多形状配对实验；按时间追加记录。
 <!-- provenance:end -->
 
 本记录按时间追加。历史报告及原始实验数据保持原样；下列纠正优先于历史报告中对应的解释。本轮尚未完成新的实验采集，不把离线检查写成实验结果。

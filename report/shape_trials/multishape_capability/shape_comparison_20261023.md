@@ -2,10 +2,11 @@
 
 <!-- provenance:start -->
 > **生成脚本**: [`scripts/slm/summarize_multishape_capability.py`](../../../scripts/slm/summarize_multishape_capability.py)
-> **复现命令**: `python scripts/slm/summarize_multishape_capability.py --exposure-ms 0.80`
-> **数据/关联脚本**: [`scripts/slm/run_multishape_capability.py`](../../../scripts/slm/run_multishape_capability.py)（设备运行）、[`scripts/slm/generate_capability_report.py`](../../../scripts/slm/generate_capability_report.py)（单次运行报告）
-> **运行环境**: 离线（只读已落盘的 run.json，不碰设备、不重算测量量）
-> **说明**: 各形状共用同一套协议（同帧定心、闭环不加倾斜、末尾叠加 32 px 周期载波、面积 7200 px²）；表格每行是一次独立运行，合并前未做加权。
+> **复现命令**: `python scripts/slm/summarize_multishape_capability.py --exposure-ms 0.8 --allow-unknown-exposure`
+> **数据/关联脚本**: [`scripts/slm/run_multishape_capability.py`](../../../scripts/slm/run_multishape_capability.py)
+> **数据/关联脚本**: [`scripts/slm/generate_capability_report.py`](../../../scripts/slm/generate_capability_report.py)
+> **运行环境**: 离线（只读已落盘 run.json，不重算测量量）
+> **说明**: 四种形状（同面积 7200 px²、同曝光 0.8 ms）的横向对比; 正方形那份 run.json 没有 exposure_ms 字段（脚本改版前的产物），表内以 * 标注, 不静默当成已知值
 <!-- provenance:end -->
 
 ## 摘要

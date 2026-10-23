@@ -1,0 +1,89 @@
+{
+  "run": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\transfer_integration\\live_20261023\\anchored",
+  "results": [
+    {
+      "shape": "square",
+      "anchored_model_loss_plus": 1.487459659576416,
+      "anchored_model_loss_minus": 1.6658470630645752,
+      "measured_A1_loss": 1.5568046569824219,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.088958740234375,
+          "automatic": -0.08895301073789597,
+          "relative_error": 6.440622319897084e-05
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.08895397186279297,
+          "automatic": -0.08895301073789597,
+          "relative_error": 1.0804744036451354e-05
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.08895993232727051,
+          "automatic": -0.08895301073789597,
+          "relative_error": 7.780569514237856e-05
+        }
+      ],
+      "timestamp_utc": "2026-10-23T12:55:53.460423+00:00",
+      "monotonic_ns": 388274789043000
+    },
+    {
+      "shape": "rectangle",
+      "anchored_model_loss_plus": 1.3403633832931519,
+      "anchored_model_loss_minus": 1.545177936553955,
+      "measured_A1_loss": 1.4230694770812988,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.10217547416687012,
+          "automatic": -0.10217417776584625,
+          "relative_error": 1.2687986372810958e-05
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.10217826068401337,
+          "automatic": -0.10217417776584625,
+          "relative_error": 3.995877537728594e-05
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.10216236114501953,
+          "automatic": -0.10217417776584625,
+          "relative_error": 0.0001156517339811775
+        }
+      ],
+      "timestamp_utc": "2026-10-23T12:55:54.246073+00:00",
+      "monotonic_ns": 388275574692100
+    },
+    {
+      "shape": "triangle",
+      "anchored_model_loss_plus": 1.9107425212860107,
+      "anchored_model_loss_minus": 2.1384105682373047,
+      "measured_A1_loss": 1.9923603534698486,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.11240482330322266,
+          "automatic": -0.11239177733659744,
+          "relative_error": 0.00011606233826835787
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.11239051818847656,
+          "automatic": -0.11239177733659744,
+          "relative_error": 1.1203204991670847e-05
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.1123964786529541,
+          "automatic": -0.11239177733659744,
+          "relative_error": 4.182796839369995e-05
+        }
+      ],
+      "timestamp_utc": "2026-10-23T12:55:54.920462+00:00",
+      "monotonic_ns": 388276249076700
+    }
+  ]
+}

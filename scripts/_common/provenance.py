@@ -86,6 +86,29 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线（读取已保存的 Santec/Daheng 实验数据）",
+        note="三形状从零探测、物理参数微调、GS 与 CCD 锚定闭环复现手册；图片和参数 CSV 由离线脚本生成。",
+        extra_scripts=("scripts/slm/generate_multishape_reproduction_figures.py",
+                       "src/ao_shaping/tools/slm/transfer/workflow.py",
+                       "src/ao_shaping/tools/slm/transfer/artifacts.py",
+                       "src/ao_shaping/algorithm/signal_processing/physical_forward_fit.py",
+                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py",
+                       "scripts/slm/bootstrap_transfer_checkpoint.py",
+                       "scripts/slm/transfer_multishape_experiment.py",
+                       "scripts/slm/fit_transfer_multishape.py", "scripts/slm/validate_transfer_shapes.py",
+                       "scripts/slm/calibrate_transfer_blur.py"),
+    ),
+    "report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md": ReportProvenance(
+        script=HANDWRITTEN,
+        environment="离线+硬件（Santec SLM #1 + Daheng CCD）",
+        note="原始 CCD 区域复算、载波几何纠正、物理参数迁移拟合和多形状配对实验；按时间追加记录。",
+        extra_scripts=("scripts/slm/transfer_multishape_experiment.py", "scripts/slm/fit_transfer_multishape.py",
+                       "scripts/slm/validate_transfer_shapes.py", "scripts/slm/summarize_transfer_shapes.py",
+                       "scripts/slm/capture_transfer_response.py", "scripts/slm/analyze_transfer_response.py",
+                       "scripts/slm/calibrate_transfer_blur.py", "scripts/slm/analyze_transfer_direction.py"),
+    ),
     "report/zernike_coeff2amp/zernike_coeff_report/report.md": ReportProvenance(
         script="scripts/ml/generate_zernike_coeff_report.py",
         command="python scripts/ml/generate_zernike_coeff_report.py",
@@ -1306,6 +1329,82 @@ REPORTS: dict[str, ReportProvenance] = {
             "scripts/slm/hw_gs_defocus_probe.py",
             "scripts/slm/run_gs_refine_zernike_sweep.py",
             "src/ao_shaping/tools/slm/panel/focus_probe.py",
+        ),
+    ),
+    "report/shape_trials/multishape_capability/capability_square_20261023_182153.md": ReportProvenance(
+        script="scripts/slm/generate_capability_report.py",
+        command=(
+            "python scripts/slm/generate_capability_report.py "
+            "--run-dir data/debug/multishape_forward/square_20261023_182153"
+        ),
+        environment="离线（读设备运行落盘产物）",
+        note=(
+            "正方形目标（面积 7200 px²）0.8 ms 下的 5 块闭环 + 末尾 best/best+载波对比；模型方向未验证，报告只陈述实测"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_multishape_capability.py",
+            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+        ),
+    ),
+    "report/shape_trials/multishape_capability/capability_rectangle_20261023_191444.md": ReportProvenance(
+        script="scripts/slm/generate_capability_report.py",
+        command=(
+            "python scripts/slm/generate_capability_report.py "
+            "--run-dir data/debug/multishape_forward/rectangle08_20261023_191444"
+        ),
+        environment="离线（读设备运行落盘产物）",
+        note=(
+            "长方形 120×60（面积 7200 px²）0.8 ms 下的同一协议运行；首块 Δ −0.03737（3.45σ），载波使零点能量占比 3.23%→0.17%"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_multishape_capability.py",
+            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+        ),
+    ),
+    "report/shape_trials/multishape_capability/capability_triangle_20261023_191105.md": ReportProvenance(
+        script="scripts/slm/generate_capability_report.py",
+        command=(
+            "python scripts/slm/generate_capability_report.py "
+            "--run-dir data/debug/multishape_forward/triangle08_20261023_191105"
+        ),
+        environment="离线（读设备运行落盘产物）",
+        note=(
+            "等边三角形（面积 7200 px²）0.8 ms 下的同一协议运行；首块 Δ −0.03422（3.16σ），载波使零点能量占比 3.81%→0.20%"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_multishape_capability.py",
+            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+        ),
+    ),
+    "report/shape_trials/multishape_capability/capability_star_20261023_191213.md": ReportProvenance(
+        script="scripts/slm/generate_capability_report.py",
+        command=(
+            "python scripts/slm/generate_capability_report.py "
+            "--run-dir data/debug/multishape_forward/star08_20261023_191213"
+        ),
+        environment="离线（读设备运行落盘产物）",
+        note=(
+            "五角星（面积 7200 px²）0.8 ms 下的同一协议运行；首块 Δ −0.02662（2.46σ），载波使零点能量占比 3.76%→0.20%"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_multishape_capability.py",
+            "src/ao_shaping/algorithm/signal_processing/target_masks.py",
+        ),
+    ),
+    "report/shape_trials/multishape_capability/shape_comparison_20261023.md": ReportProvenance(
+        script="scripts/slm/summarize_multishape_capability.py",
+        command=(
+            "python scripts/slm/summarize_multishape_capability.py "
+            "--exposure-ms 0.8 --allow-unknown-exposure"
+        ),
+        environment="离线（只读已落盘 run.json，不重算测量量）",
+        note=(
+            "四种形状（同面积 7200 px²、同曝光 0.8 ms）的横向对比; 正方形那份 run.json "
+            "没有 exposure_ms 字段（脚本改版前的产物），表内以 * 标注, 不静默当成已知值"
+        ),
+        extra_scripts=(
+            "scripts/slm/run_multishape_capability.py",
+            "scripts/slm/generate_capability_report.py",
         ),
     ),
     "report/shape_trials/sim_vs_hw/artifacts/sim_vs_hw_20261022.md": ReportProvenance(
