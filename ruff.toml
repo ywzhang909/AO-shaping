@@ -19,6 +19,18 @@ select = [
     # `--fix` then deletes them together with the trailing rationale prose. Write the
     # reason as its own comment so a future sweep cannot eat it.
     "RUF100",
+    # B023 (flake8-bugbear): a function defined inside a loop body that closes
+    # over a loop variable keeps only the *last* iteration's value if it is
+    # invoked after the loop. All 44 findings were real late-binding hazards
+    # whose fix is to bind the value as a default argument
+    # (`def f(x=loop_var)` / `lambda x=loop_var:`), which is what #170 cleared.
+    # Enabled so the hazard cannot regrow; see issue #170.
+    "B023",
+    # PLR0124 (pylint): `x == x` / `x != x` is only ever a NaN test
+    # (`x != x` is the canonical nan-check idiom). All 45 sites were rewritten
+    # to `math.isnan(x)` / `not math.isnan(x)`, which is explicit and identical
+    # for real scalars; see issue #171.
+    "PLR0124",
 ]
 
 # Deliberately no `exclude` for project code. It used to hold `exclude = ["src/ml/**"]`,
