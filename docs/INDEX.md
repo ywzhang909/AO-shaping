@@ -1,7 +1,7 @@
 # AO-Shaping 文档总索引
 
 > 本文件是 `docs/` 的**入口索引**：按主题分域，每个文件一句话说明"这里能查到什么"。
-> 共 145 个 Markdown 文档（2026-10-23 盘点）。新文档请在本索引登记后再提交。
+> 共 146 个 Markdown 文档（2026-10-23 盘点）。新文档请在本索引登记后再提交。
 >
 > 阅读路径建议：
 > 1. 第一次接触仓库 → `dev/call_graph_wiki/index.md`（调用图 + 逐函数手册，含全局调用图/类图）
@@ -32,6 +32,7 @@
 |---|---|
 | `user/cli-reference.md` | **CLI 正式参考**：全部 flag 拼写/取值域/默认值逐字来自 `--help` 转储 |
 | `dev/coding_conventions.md` | 编码约定（Python 3.12+、导入、命名等） |
+| `dev/extension_guide.md` | 二次开发与扩展指南：改动分层路由 + 最小模板（何时加新设备/算法/CLI，复用哪些 canonical 入口） |
 | `dev/todo_archive.md` | 已决事项档案（每条都是"一次决策的证据"，非变更日志） |
 
 ## 开发手册（call_graph_wiki）— 54 篇
