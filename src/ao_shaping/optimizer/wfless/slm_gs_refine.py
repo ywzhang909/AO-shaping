@@ -95,6 +95,8 @@ from ao_shaping.utils.image.exposure_control import (
     configured_daheng_exposure_limit,
     resolve_daheng_exposure_limit,
 )
+from ao_shaping.utils.image.target.patterns import create_target_shape
+from ao_shaping.utils.image.target.metrics import TARGET_SHAPE_CHOICES
 from ao_shaping.utils.image.targets import square_mask
 from ao_shaping.utils.io.file import Recorder
 from ao_shaping.utils.slm.bench_constants import (
@@ -166,6 +168,12 @@ _STAGE_FLAT = "flat"
 _STAGE_GS = "gs"
 _STAGE_REFINE = "refine"
 
+#: A target shape covering less than this fraction of the ROI frame is treated as
+#: a broken geometry (wrong coordinate frame, or a size that collapsed to a few
+#: pixels) rather than as a very small but valid target: PIB/CV over a handful of
+#: pixels is pure noise, and the optimizer would chase it for a whole run.
+_MIN_TARGET_AREA_FRAC = 1e-3
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -209,10 +217,49 @@ class SlmGsRefineConfig:
 
     # --- objective ---------------------------------------------------------
     target_side: int = 0
-    """Target square side in **camera** pixels. 0 = derive from the pupil image."""
+    """Characteristic target size in **camera** pixels. 0 = derive from the pupil
+    image.
+
+    Its per-shape meaning is the one the CLI documents: square edge / circle and
+    pentagon diameter / rectangle SHORT side / annular OUTER diameter / grid and
+    cross bounding size / gaussian characteristic size (``sigma = ratio*side``).
+    """
 
     side_factor: float = 1.0
     """Multiplier applied to the derived target side."""
+
+    target_shape: str = "square"
+    """Far-field target shape; a member of ``TARGET_SHAPE_CHOICES``.
+
+    ``square`` (the default) reproduces every earlier run bit for bit. The other
+    shapes change both the GS target **and** the measured mask, which is the
+    point: scoring a circle with a square box would measure empty corners.
+    """
+
+    target_aspect_ratio: float = 2.0
+    """``rectangle`` long/short side ratio (long axis horizontal); must be >= 1."""
+
+    target_inner_ratio: float = 0.6
+    """``annular`` inner/outer radius ratio; must be in (0, 1)."""
+
+    target_sigma_ratio: float = 0.25
+    """``gaussian`` sigma as a fraction of the characteristic size; must be > 0.
+
+    The default 0.25 matches the GS family's own gaussian target (``side/4``), so
+    the default gaussian run aims at and scores the same profile.
+    """
+
+    target_line_width: float = 0.02
+    """``grid``/``cross`` line width as a fraction of the characteristic size."""
+
+    target_grid_nx: int = 5
+    """``grid`` number of vertical lines."""
+
+    target_grid_ny: int = 5
+    """``grid`` number of horizontal lines."""
+
+    target_thickness: float = 0.05
+    """``cross`` line width (both strokes) as a fraction of the characteristic size."""
 
     w_pib: float = 0.5
     w_unif: float = 0.5
@@ -404,6 +451,43 @@ class SlmGsRefineConfig:
             raise ValueError(
                 f"target_side must be non-negative, got {self.target_side}"
             )
+        if self.target_shape not in TARGET_SHAPE_CHOICES:
+            raise ValueError(
+                f"target_shape must be one of {TARGET_SHAPE_CHOICES}, "
+                f"got {self.target_shape!r}"
+            )
+        if not (np.isfinite(self.target_aspect_ratio) and self.target_aspect_ratio >= 1):
+            raise ValueError(
+                f"target_aspect_ratio must be >= 1 and finite, got "
+                f"{self.target_aspect_ratio}"
+            )
+        if not (0.0 < self.target_inner_ratio < 1.0):
+            raise ValueError(
+                f"target_inner_ratio must be in (0, 1), got {self.target_inner_ratio}"
+            )
+        if not (np.isfinite(self.target_sigma_ratio) and self.target_sigma_ratio > 0):
+            raise ValueError(
+                f"target_sigma_ratio must be positive and finite, got "
+                f"{self.target_sigma_ratio}"
+            )
+        if not (np.isfinite(self.target_line_width) and self.target_line_width > 0):
+            raise ValueError(
+                f"target_line_width must be positive and finite, got "
+                f"{self.target_line_width}"
+            )
+        if not (np.isfinite(self.target_thickness) and self.target_thickness > 0):
+            raise ValueError(
+                f"target_thickness must be positive and finite, got "
+                f"{self.target_thickness}"
+            )
+        if self.target_grid_nx < 1:
+            raise ValueError(
+                f"target_grid_nx must be at least 1, got {self.target_grid_nx}"
+            )
+        if self.target_grid_ny < 1:
+            raise ValueError(
+                f"target_grid_ny must be at least 1, got {self.target_grid_ny}"
+            )
         if self.panel_pixel_um <= 0:
             raise ValueError(
                 f"panel_pixel_um must be positive, got {self.panel_pixel_um}"
@@ -498,8 +582,193 @@ def _metrics(
     return composite_from_pib_cv(pib, cv, w_pib=w_pib, w_unif=w_unif), pib, cv
 
 
-def _target_mask(frame: np.ndarray, cy: int, cx: int, side: int) -> np.ndarray:
-    """Build the frozen target square, or say which frame the centre came from.
+# ---------------------------------------------------------------------------
+# Target shape geometry
+#
+# One resolved geometry feeds BOTH the GS target (bench far-field pixels) and the
+# measured mask (camera pixels), so the phase cannot aim at one shape while the
+# objective scores another. The pattern rasteriser itself is never re-implemented
+# here -- every shape comes from the canonical
+# ``utils.image.target.patterns.create_target_shape``.
+# ---------------------------------------------------------------------------
+
+#: The shapes the GS family expresses natively through
+#: ``SquareShapingConfig.target_kind``. The CLI spelling ``annular`` maps onto the
+#: algorithm layer's ``annulus``: the two names must never drift apart, so the
+#: mapping lives in exactly this one dict (a test asserts every entry).
+_GS_NATIVE_TARGET_KINDS: dict[str, str] = {
+    "square": "square",
+    "circle": "circle",
+    "gaussian": "gaussian",
+    "annular": "annulus",
+}
+
+#: Intensity contour that defines the *measured support* of a gaussian target:
+#: the 1/e^2 radius (``r = 2 sigma``), the standard beam-width convention. A
+#: gaussian pattern never reaches exactly zero in float32, so a plain ``> 0``
+#: test would make the entire frame the target and reduce PIB to a total-power
+#: ratio while CV averages over empty pixels.
+_GAUSSIAN_SUPPORT_LEVEL = float(np.exp(-2.0))
+
+
+@dataclass(frozen=True)
+class TargetGeometry:
+    """One shape's resolved geometry, in pixels of the grid it is rasterised on.
+
+    All lengths are in that grid's pixels. The same numbers describe the target
+    in **camera** pixels for the measured mask and in **bench far-field** pixels
+    for the GS phase, which is exactly what keeps the two on one shape.
+    """
+
+    side: float
+    aspect_ratio: float
+    inner_radius: float
+    outer_radius: float
+    sigma: float
+    line_width_px: float
+    thickness_px: float
+    nx: int
+    ny: int
+
+
+def target_geometry(config: SlmGsRefineConfig, side: float) -> TargetGeometry:
+    """Resolve ``--target-shape``'s parameters for characteristic size ``side``.
+
+    ``side`` keeps its documented per-shape meaning: square edge / circle and
+    pentagon diameter / rectangle SHORT side / annular OUTER diameter / grid and
+    cross bounding size / gaussian characteristic size (``sigma = ratio*side``).
+    The aspect ratio, ring ratio, sigma ratio, line width and cross thickness are
+    all expressed *relative to* that one size, so every shape is compared at the
+    same feature scale.
+
+    Args:
+        config: The run configuration supplying the shape parameters.
+        side: Characteristic size in pixels of the target grid.
+
+    Returns:
+        The resolved geometry.
+
+    Raises:
+        ValueError: If ``side`` is not positive.
+    """
+    if not np.isfinite(side) or side <= 0:
+        raise ValueError(f"target characteristic size must be positive, got {side!r}")
+    outer = float(side) / 2.0
+    return TargetGeometry(
+        side=float(side),
+        aspect_ratio=float(config.target_aspect_ratio),
+        inner_radius=float(config.target_inner_ratio) * outer,
+        outer_radius=outer,
+        sigma=float(config.target_sigma_ratio) * float(side),
+        line_width_px=float(config.target_line_width) * float(side),
+        thickness_px=float(config.target_thickness) * float(side),
+        nx=int(config.target_grid_nx),
+        ny=int(config.target_grid_ny),
+    )
+
+
+def _rasterise_target(
+    shape: str,
+    grid_shape: tuple[int, int],
+    cy: float,
+    cx: float,
+    geom: TargetGeometry,
+) -> np.ndarray:
+    """Rasterise ``shape`` on a ``grid_shape`` canvas centred on ``(cy, cx)``.
+
+    The geometry is **not** re-implemented here: every pattern comes from
+    :func:`~ao_shaping.utils.image.target.patterns.create_target_shape`, the
+    canonical factory. This function only (a) converts the resolved
+    :class:`TargetGeometry` into that factory's kwargs, and (b) gives ``grid`` /
+    ``cross`` a ``side``-sized canvas, because the factory draws those two across
+    the *whole* array while ``--target-side`` is documented as their bounding
+    size. Rasterising on the bounding canvas and placing it is a crop, not a
+    second geometry.
+
+    Args:
+        shape: A member of ``TARGET_SHAPE_CHOICES``.
+        grid_shape: ``(h, w)`` of the output canvas.
+        cy: Centre row (``y``) in canvas pixels.
+        cx: Centre column (``x``) in canvas pixels.
+        geom: The resolved geometry for this canvas.
+
+    Returns:
+        ``(h, w)`` float32 intensity pattern in ``[0, 1]``.
+    """
+    height, width = int(grid_shape[0]), int(grid_shape[1])
+    m = float(min(height, width))
+    if shape in {"grid", "cross"}:
+        # Bounding canvas: the factory's line positions span its whole array, so
+        # the canvas edge IS the bounding size. The factory's `line_width` /
+        # `thickness` are fractions of the canvas half-size, and its stroke width
+        # is twice the half-width -- so passing the pixel width divided by the
+        # canvas edge gives exactly `geom.line_width_px` / `geom.thickness_px`.
+        canvas = max(3, int(round(geom.side)))
+        pattern = create_target_shape(
+            shape,
+            (canvas, canvas),
+            line_width=geom.line_width_px / canvas,
+            thickness=geom.thickness_px / canvas,
+            nx=geom.nx,
+            ny=geom.ny,
+        )
+        out = np.zeros((height, width), dtype=np.float32)
+        y0 = int(round(cy)) - canvas // 2
+        x0 = int(round(cx)) - canvas // 2
+        ys, ye = max(0, y0), min(height, y0 + canvas)
+        xs, xe = max(0, x0), min(width, x0 + canvas)
+        if ye > ys and xe > xs:
+            out[ys:ye, xs:xe] = pattern[ys - y0 : ye - y0, xs - x0 : xe - x0]
+        return out
+    if shape == "square":
+        return create_target_shape(
+            shape, (height, width), side=geom.side, center=(cx, cy)
+        )
+    if shape in {"circle", "spot", "pentagon"}:
+        # Both are sized by a radius = side/2 -> radius_ratio = side / min(h, w).
+        return create_target_shape(
+            shape,
+            (height, width),
+            radius_ratio=geom.side / m,
+            center=(cx, cy),
+        )
+    if shape == "gaussian":
+        # The factory takes sigma = radius/2 with radius = ratio*min/2.
+        return create_target_shape(
+            shape,
+            (height, width),
+            radius_ratio=4.0 * geom.sigma / m,
+            center=(cx, cy),
+        )
+    if shape == "annular":
+        return create_target_shape(
+            shape,
+            (height, width),
+            inner_radius=geom.inner_radius,
+            outer_radius=geom.outer_radius,
+            center=(cx, cy),
+        )
+    if shape == "rectangle":
+        return create_target_shape(
+            shape,
+            (height, width),
+            side=geom.side,
+            aspect_ratio=geom.aspect_ratio,
+            center=(cx, cy),
+        )
+    # grid / cross are handled above; anything left is a genuine unknown shape and
+    # the factory is the authority on the message.
+    return create_target_shape(shape, (height, width), side=geom.side, center=(cx, cy))
+
+
+def _target_mask(
+    frame: np.ndarray,
+    cy: int,
+    cx: int,
+    side: int,
+    config: SlmGsRefineConfig,
+) -> np.ndarray:
+    """Build the frozen target **shape** mask, or say which frame the centre came from.
 
     框中心必须是 ``frame`` 的**窗口内**坐标: ``frame`` 是相机裁出来的 ROI 窗口
     (通常是 256x256, 零级在 ~128)。而**全幅**传感器坐标 (未裁剪画面上的零级,
@@ -507,18 +776,45 @@ def _target_mask(frame: np.ndarray, cy: int, cx: int, side: int) -> np.ndarray:
     2026-10-21 实测的分块续跑失败正是这么来的, 而报错只有一句
     "target square ... is empty", 两个坐标系被静默混用, 根本看不出是哪一处。
 
-    所以这里把两个坐标系、画幅尺寸都写进报错里。
+    所以这里把形状、特征尺寸、两个坐标系与画幅尺寸都写进报错里。
+
+    掩膜按 ``--target-shape`` 生成 (形状掩膜, 不是方框切片):
+
+    * ``square`` 走 :func:`~ao_shaping.utils.image.targets.square_mask` —— 它的
+      半像素边界约定 (``round(cy ± side/2)`` 切片) 是历史口径, 与形状工厂的
+      "``|x-cx| <= half`` 含端点" 差一个像素; 方斑必须逐位不变, 所以这里显式
+      委托, 由测试锁定两者相同。
+    * 其余形状由 :func:`_rasterise_target` 出图案后取阈值。``gaussian`` 取 1/e²
+      等强线 (``r <= 2 sigma``, 严格大于判据), 其余取 ``> 0``。
+
+    形状掩膜的意义: 对方斑以外的形状, **方框切片会把框内的空白像素算进 CV 与
+    PIB 的分母** —— cross / grid / annular 的框内大部分是空的, 于是 CV 被空白
+    拉高、PIB 被空白稀释, 优化器去追一个它其实无法填满的框。
     """
-    mask = square_mask(frame.shape, cy, cx, side)
-    if mask.any():
+    geom = target_geometry(config, side)
+    shape = config.target_shape
+    if shape == "square":
+        mask = square_mask(frame.shape, cy, cx, side)
+    else:
+        pattern = _rasterise_target(shape, frame.shape, cy, cx, geom)
+        level = _GAUSSIAN_SUPPORT_LEVEL if shape == "gaussian" else 0.0
+        mask = pattern > level
+    area_frac = float(mask.mean()) if mask.size else 0.0
+    if mask.any() and area_frac >= _MIN_TARGET_AREA_FRAC:
         return mask
     h, w = frame.shape[0], frame.shape[1]
     raise ValueError(
-        f"target square (side={side}px at window-local ({cy},{cx})) is empty on "
-        f"the {h}x{w} ROI frame: the mask centre must be a WINDOW-LOCAL "
-        f"coordinate (inside the cropped ROI, 0..{min(h, w) - 1}), not a "
-        f"FULL-FRAME sensor coordinate (e.g. (1434, 973) on a 2592x1944 "
-        f"sensor). The two coordinate frames must not be mixed."
+        f"target shape {shape!r} (characteristic size={side}px at window-local "
+        f"({cy},{cx}), aspect={geom.aspect_ratio}, inner={geom.inner_radius:.1f}, "
+        f"outer={geom.outer_radius:.1f}, sigma={geom.sigma:.1f}, "
+        f"nx={geom.nx}, ny={geom.ny}, line_width={geom.line_width_px:.1f}px, "
+        f"thickness={geom.thickness_px:.1f}px) covers "
+        f"{area_frac * 100.0:.3f}% of the {h}x{w} ROI frame: the mask centre must "
+        f"be a WINDOW-LOCAL coordinate (inside the cropped ROI, 0..{min(h, w) - 1}), "
+        f"not a FULL-FRAME sensor coordinate (e.g. (1434, 973) on a 2592x1944 "
+        f"sensor), and the shape must be large enough to cover at least "
+        f"{_MIN_TARGET_AREA_FRAC * 100.0:.1f}% of it. The two coordinate frames "
+        f"must not be mixed."
     )
 
 
@@ -575,6 +871,48 @@ def _derive_target_side(config: SlmGsRefineConfig, radius_px: float) -> int:
     return max(3, int(round(aperture_m * config.focal_length_m / cam_pitch_m * factor)))
 
 
+def _gs_target_config(
+    config: SlmGsRefineConfig, probe: ShapingBenchConfig, bench_side: int
+) -> ShapingBenchConfig:
+    """Aim the GS forward model at ``config.target_shape``.
+
+    Two disjoint routes, and both end in the **same** GS loop:
+
+    * shapes the algorithm layer expresses natively (``square`` / ``circle`` /
+      ``gaussian`` / ``annular``) set ``target_kind`` -- plus the resolved sigma
+      and ring radii, because the algorithm layer's own defaults are a fixed
+      ``side/4`` sigma and a fixed 1:3 ring at ``side/4 .. 3*side/4``, which is
+      not the geometry ``--target-side`` documents (outer diameter = side,
+      inner = ``--target-inner-ratio`` of it). Without the override GS would aim
+      at one ring while the measured mask scored another.
+    * the rest (``rectangle`` / ``grid`` / ``cross`` / ``pentagon``) inject the
+      far-field amplitude rasterised by the canonical target factory
+      (``SquareShapingConfig.target_amplitude``). No GS loop and no geometry is
+      copied into this module: the same :func:`_rasterise_target` that builds the
+      measured mask builds this amplitude.
+
+    ``target_shape == "square"`` returns ``probe`` untouched, so the historical
+    square path stays bit-for-bit what it always was.
+    """
+    shape = config.target_shape
+    if shape == "square":
+        return probe
+    kind = _GS_NATIVE_TARGET_KINDS.get(shape)
+    geom = target_geometry(config, bench_side)
+    if kind is not None:
+        overrides: dict[str, Any] = {"target_kind": kind}
+        if kind == "gaussian":
+            overrides["target_gaussian_sigma_px"] = geom.sigma
+        elif kind == "annulus":
+            overrides["target_inner_radius_px"] = geom.inner_radius
+            overrides["target_outer_radius_px"] = geom.outer_radius
+        return replace(probe, **overrides)
+    far_field = probe.far_field_size
+    centre = (far_field // 2, far_field // 2)
+    pattern = _rasterise_target(shape, (far_field, far_field), centre[1], centre[0], geom)
+    return replace(probe, target_amplitude=np.sqrt(pattern.astype(np.float64)))
+
+
 def _gs_pupil_phase(
     config: SlmGsRefineConfig, radius_px: float, target_side_cam: int
 ) -> np.ndarray | None:
@@ -585,6 +923,9 @@ def _gs_pupil_phase(
     variants route through :class:`UniformSquareShaper` for weighted feedback,
     Fienup HIO, or adaptive target-domain feedback. Their measured uniformity
     must be compared against plain GS before adoption.
+
+    ``config.target_shape`` aims the target at that shape (see
+    :func:`_gs_target_config`); ``"square"`` is the untouched default.
 
     Returns ``None`` when the warm start is disabled or GS degenerates, in which
     case the caller simply proceeds from the flat phase.
@@ -613,11 +954,12 @@ def _gs_pupil_phase(
         bench_side = max(
             3, int(round(target_side_cam * cam_pitch_m / probe.far_field_pixel_size))
         )
-    cfg = replace(probe, target_side_px=bench_side)
+    cfg = _gs_target_config(config, replace(probe, target_side_px=bench_side), bench_side)
 
     logger.info(
-        "GS warm start: n_grid={} aperture={:.3f}mm bench_target={}px "
+        "GS warm start: shape={} n_grid={} aperture={:.3f}mm bench_target={}px "
         "(camera side {}px @ {:.2f}um/px)",
+        config.target_shape,
         n_grid,
         aperture_m * 1e3,
         bench_side,
@@ -840,6 +1182,7 @@ class _RefineContext:
     last_exposure_ms: float | None = None
     cv_mask: np.ndarray | None = None
     mask: np.ndarray | None = None
+    mask_area_frac: float = 0.0
     cy: int = 0
     cx: int = 0
     base_panel: np.ndarray | None = None
@@ -951,6 +1294,8 @@ class _RefineContext:
             ),
             "shape_iou": compute_shape_iou(frame, mask),
             "target_side": self.target_side,
+            "target_shape": self.config.target_shape,
+            "mask_area_frac": self.mask_area_frac,
             RECORD_EPOCH: len(self.recorder.history),
             "timestamp_utc": self.last_capture_utc,
             "exposure_ms_readback": (
@@ -1151,6 +1496,13 @@ def _locate_zero_order_and_window(ctx: _RefineContext) -> None:
                 int(np.argmax(discovery)), np.asarray(discovery).shape
             )
             full_frame_center = (int(zx), int(zy))
+        elif recorded_full_center is not None:
+            # 续跑块**跳过**了零级重定位 (没有全幅帧可看), 但它记着上一块用的是
+            # 哪个位置 —— 那正是本块摆窗口用的位置, 必须原样带下去。漏掉这一支
+            # 会让本块把 (0, 0) 记成「全幅零级」, 下一块于是重新定位, 冻结的
+            # ROI 在第二道块边界上就失效了 (2026-10-23 修复: 此前这一支落到
+            # 下面的 (0, 0) 兜底)。
+            full_frame_center = (int(full_x), int(full_y))
         else:
             full_frame_center = (0, 0)
         signal_local_xy = full_frame_center
@@ -1281,7 +1633,8 @@ def _apply_resume_state(ctx: _RefineContext) -> None:
         )
     ctx.cy = cy
     ctx.cx = cx
-    ctx.mask = _target_mask(frame0, cy, cx, ctx.target_side)
+    ctx.mask = _target_mask(frame0, cy, cx, ctx.target_side, ctx.config)
+    ctx.mask_area_frac = float(ctx.mask.mean())
     ctx.best_score = float(resume["best_score"])
     ctx.best_phase = np.asarray(resume["best_phase"], dtype=np.float64)
     ctx.best_frame = np.asarray(resume["best_frame"], dtype=np.float64)
@@ -1306,7 +1659,8 @@ def _stage_flat_baseline(ctx: _RefineContext) -> None:
     )
     ctx.cy = cy
     ctx.cx = cx
-    ctx.mask = _target_mask(frame0, cy, cx, ctx.target_side)
+    ctx.mask = _target_mask(frame0, cy, cx, ctx.target_side, ctx.config)
+    ctx.mask_area_frac = float(ctx.mask.mean())
     if ctx.config.exclude_zero_order_for_cv:
         from ao_shaping.utils.image.beam_metrics import zero_order_exclusion_mask
 
@@ -1515,12 +1869,20 @@ def _run_gs_refine_session(
 
     best_row = max(recorder.history, key=lambda r: r["score"])
     logger.info(
-        "best composite {:.4f} at stage={} epoch={} ({} evaluations)",
+        "best composite {:.4f} at stage={} epoch={} ({} evaluations); "
+        "target_shape={} mask_area={:.3f}%",
         best_row["score"],
         best_row["stage"],
         best_row.get("epoch", "-"),
         len(recorder.history),
+        config.target_shape,
+        ctx.mask_area_frac * 100.0,
     )
+    # Summary-level shape record: the history rows carry it too, but a consumer
+    # reading only the summary (the CLI banner, the saved debug JSON) must be able
+    # to tell which shape was scored without opening the CSV.
+    recorder.target_shape = config.target_shape
+    recorder.mask_area_frac = ctx.mask_area_frac
     # How many refinement epochs actually ran: the number of ``refine`` rows in
     # the history. A run cut short by the wall-clock budget must be visible as
     # "fewer epochs than asked for", not as a silent gap.

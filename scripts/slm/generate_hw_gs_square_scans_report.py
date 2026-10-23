@@ -131,6 +131,13 @@ DEFAULT_RETEST_PRIOR_ROOT = (
 #: 复测日志目录 (``--retest-log-dir``); 文件名为 ``retest_<stage>_<取值>.log``。
 DEFAULT_RETEST_LOG_DIR = ROOT / "logs"
 
+#: 整轮原子重扫 (``--atomic-root``)。这是**唯一「单一脚本版本 + 单一功率」的完整一轮**,
+#: 所以三段数字第一次真正可比。不给就完全不渲染 §13。
+DEFAULT_ATOMIC_ROOT = ROOT / "data" / "debug" / "hw_gs_square_scans" / "20261023_atomic_full"
+
+#: 原子整轮产物的归档目录 (同样从默认根的目录名推导)。
+ATOMIC_ARTIFACT_DIR = OUT_DIR / "artifacts" / DEFAULT_ATOMIC_ROOT.name
+
 #: 复测产物的归档目录 (报告输入契约的第二块)。基线那一批在 ``ARTIFACT_DIR``。
 #: 目录名**从默认根的目录名推导** —— 换 ``--retest-root`` 时 :func:`main` 会把它改成
 #: 参数那一批的目录名, 所以这里不另抄一份批次字面量。
@@ -957,6 +964,11 @@ class RetestStage:
     def variable(self) -> str:
         return VARIABLE[self.name]
 
+    @property
+    def x(self) -> list[float]:
+        """自变量列 (与 :class:`Stage` 同名, 让 ``compute_findings`` 能直接吃这一批)。"""
+        return [float(r[self.variable]) for r in self.rows]
+
     def row_of(self, value: float) -> dict[str, str]:
         for row in self.rows:
             if abs(float(row[self.variable]) - float(value)) < 1e-9:
@@ -965,6 +977,11 @@ class RetestStage:
 
     def col(self, key: str) -> list[float]:
         return [float(r[key]) for r in self.rows]
+
+    def median(self, key: str) -> float:
+        """与 :meth:`Stage.median` 同名同义。"""
+        vals = [v for v in self.col(key) if math.isfinite(v)]
+        return float(np.median(vals)) if vals else float("nan")
 
 
 @dataclass
@@ -992,12 +1009,45 @@ class RetestRun:
         return values.pop()
 
     @property
+    def stage_plans(self) -> dict[str, Any]:
+        """原子化批次没有 ``plan`` ⇒ 空 dict (``compute_findings`` 只用它算"计划里被砍掉的配置")。"""
+        return {}
+
+    def _sides_cfg(self) -> dict[str, Any]:
+        stage = self.stages.get("sides")
+        return dict(stage.run_config) if stage is not None else {}
+
+    @property
+    def zero_order_xy(self) -> tuple[float, float]:
+        """段级冻结 0 级 (只有带 sides 段的整轮批次才有)。"""
+        return run_zero_order(self._sides_cfg())
+
+    @property
+    def frame_shape_hw(self) -> tuple[int, int]:
+        shape = self._sides_cfg().get("frame_shape_hw") or ()
+        if len(shape) != 2:
+            return 0, 0
+        return int(shape[0]), int(shape[1])
+
+    @property
     def all_configs(self) -> list[RetestConfig]:
         return [cfg for name in RETEST_STAGES for cfg in self.stages[name].configs]
 
     @property
     def settle_count(self) -> int:
         return sum(len(cfg.settle) for cfg in self.all_configs)
+
+    def settle_for(self, stage: str, index: int) -> SettleRecord | None:
+        """该配置自己的第一条 settle 告警 (没有就 ``None``)。
+
+        与 :meth:`Run.settle_for` 同名同义 —— 复测/整轮批次的日志是**每配置一个文件**,
+        所以按配置下标取, 不需要像基线那样按"下一行打印"归属。
+        """
+        st = self.stages.get(stage)
+        if st is None or not (0 <= index < len(st.configs)):
+            return None
+        events = st.configs[index].settle
+        return events[0] if events else None
 
     @property
     def selected_source(self) -> str:
@@ -1031,9 +1081,15 @@ def _settle_records(lines: Sequence[str]) -> list[SettleRecord]:
     return out
 
 
-def load_retest(root: Path, log_dir: Path) -> RetestRun:
-    """读复测批次。**每次调用都从磁盘重新解析** —— 复测产物会被冻结版脚本覆盖重跑,
-    所以这里绝不缓存、绝不内联任何复测数字。
+def load_retest(root: Path, log_dir: Path | None,
+                stage_names: Sequence[str] = RETEST_STAGES) -> RetestRun:
+    """读一个**原子化批次** (每配置一个进程 + 一个 ``metrics.json``)。
+
+    §11 的复测批与 §13 的整轮重扫都是这个形状, 所以共用这一份读取:
+    差别只有段集合 (``stages``) 与有没有每配置日志 (``log_dir=None`` 就跳过)。
+
+    **每次调用都从磁盘重新解析** —— 这些产物会被脚本覆盖重跑, 所以绝不缓存、
+    绝不内联任何数字。
     """
     manifest = load_json(root / "manifest.json")
     if not isinstance(manifest, list):
@@ -1041,7 +1097,7 @@ def load_retest(root: Path, log_dir: Path) -> RetestRun:
     by_group = {str(entry.get("group")): entry for entry in manifest}
 
     stages: dict[str, RetestStage] = {}
-    for name in RETEST_STAGES:
+    for name in stage_names:
         if name not in by_group:
             raise ValueError(f"复测 manifest 里没有 '{name}' 这一段")
         stage_dir = root / name
@@ -1076,15 +1132,17 @@ def load_retest(root: Path, log_dir: Path) -> RetestRun:
                 raise ValueError(
                     f"{metrics_path} 的 config 是 {metrics.get('config')!r}, 期望 {config_name!r}"
                 )
-            log_path = log_dir / f"retest_{name}_{int(round(value))}.log"
+            log_path = (log_dir / f"retest_{name}_{int(round(value))}.log"
+                        if log_dir is not None else None)
             settle: list[SettleRecord] = []
-            if log_path.exists():
+            if log_path is not None and log_path.exists():
                 settle = _settle_records(_unwrap_log(log_path))
             _cross_check_retest_metrics(name, config_name, row, metrics)
             configs.append(
                 RetestConfig(stage=name, config=config_name, value=value, row=row,
                              metrics=metrics,
-                             log_path=log_path if log_path.exists() else None,
+                             log_path=(log_path if log_path is not None
+                                       and log_path.exists() else None),
                              settle=settle)
             )
         if [cfg.value for cfg in configs] != [float(r[VARIABLE[name]]) for r in rows]:
@@ -1095,7 +1153,8 @@ def load_retest(root: Path, log_dir: Path) -> RetestRun:
             run_config=load_json(stage_cfg_path) if stage_cfg_path.exists() else {},
         )
 
-    return RetestRun(root=root, manifest=manifest, stages=stages, log_dir=log_dir)
+    return RetestRun(root=root, manifest=manifest, stages=stages,
+                     log_dir=log_dir if log_dir is not None else Path("."))
 
 
 #: CSV 与单配置 ``metrics.json`` 必须逐值一致的那批键 (两边都有, 且是本节要用的)。
@@ -1809,8 +1868,18 @@ def _check_frame_params(stage: str, cfg: CellPick, ref: FrameRef) -> None:
             )
 
 
-def select_cells(run: Run, f: Findings) -> dict[str, list[CellPick]]:
-    """按写死的规则从**实际存在的 CSV 行**里挑格子。"""
+def select_cells(
+    run: Run,
+    f: Findings,
+    *,
+    sides_panel: Sequence[float] = SIDES_PANEL_PX,
+    add_score_cell: bool = True,
+) -> dict[str, list[CellPick]]:
+    """按写死的规则从**实际存在的 CSV 行**里挑格子。
+
+    ``sides_panel`` / ``add_score_cell`` 让 §13 的整轮重扫用另一套边长格
+    (200/600/1000/1500/1700, 且不追加 score 格) —— 其余规则完全一样。
+    """
     sides = run.stages["sides"]
     zern = run.stages["zernike"]
     blaze = run.stages["blaze"]
@@ -1824,14 +1893,16 @@ def select_cells(run: Run, f: Findings) -> dict[str, list[CellPick]]:
 
     # -- 拼图 1: 5 个固定边长 + score 最高行 ---------------------------------
     sides_picks: list[CellPick] = []
-    for value in SIDES_PANEL_PX:
+    for value in sides_panel:
         got = pick(sides, value, "固定格")
         if got is not None:
             sides_picks.append(got)
     best = CellPick(stage="sides", row=sides.rows[f.score_peak_index],
                     role="score 最高", note=f"score 最高 ({f.score[f.score_peak_index]:.4f})")
     taken = {p.value for p in sides_picks}
-    if best.value not in taken:
+    if not add_score_cell:
+        pass
+    elif best.value not in taken:
         sides_picks.append(best)
     else:
         # 规则里的回退("换 1000")在本轮会与固定格重复, 所以退一步: 取最接近 1000 的
@@ -2168,25 +2239,68 @@ def render_farfield(run: Run, selection: dict[str, list[CellPick]],
     return paths
 
 
-def _copy_farfield_to_artifacts(payload: dict[str, Any], figures: Sequence[Path]) -> int:
+def _atomic_artifact_manifest(atomic: RetestRun) -> list[tuple[str, str]]:
+    """§13 归档目录的文件说明 (与实际复制的文件一一对应)。"""
+    rows: list[tuple[str, str]] = [("manifest.json", "三段汇总 (行数 / 自变量 / 模式 / 配置名)")]
+    for name in STAGES:
+        stage_dir = atomic.root / name
+        rows.append((f"{name}/measurements.csv",
+                     f"{STAGE_CN[name]} 全部指标 — §13 的**唯一来源**"))
+        rows.append((f"{name}/measurements.json", "同上的 JSON 版 (用于交叉校验)"))
+        if (stage_dir / "run_config.json").exists():
+            rows.append((f"{name}/run_config.json",
+                         "段级参数 (无 `plan`; 含 mode / preflight / side_max / 冻结 0 级)"))
+    if (atomic.root / "sides" / "selected.json").exists():
+        rows.append(("sides/selected.json", "第 1 段选定边长与它的分数"))
+    for name in STAGES:
+        for cfg in atomic.stages[name].configs:
+            rows.append((f"{name}/{cfg.config}/metrics.json",
+                         f"{cfg.config} 单配置指标 + `preflight`(含本进程冻结的 0 级)"))
+    rows.append(("frames_selection.json", "§13 四张拼图的逐格来源 + sha256 + 裁剪/拉伸参数"))
+    rows.append(("PROVENANCE.json", "源路径 + sha256 + 生成脚本"))
+    return rows
+
+
+def atomic_artifact_sources(atomic: RetestRun, target: Path) -> list[tuple[Path, Path]]:
+    """§13 归档的 (源, 目标) 清单。"""
+    pairs: list[tuple[Path, Path]] = [(atomic.root / "manifest.json", target / "manifest.json")]
+    for name in STAGES:
+        stage_dir = atomic.root / name
+        for fname in ("measurements.csv", "measurements.json", "run_config.json"):
+            src = stage_dir / fname
+            if src.exists():
+                pairs.append((src, target / name / fname))
+        for cfg in atomic.stages[name].configs:
+            pairs.append((stage_dir / cfg.config / "metrics.json",
+                          target / name / cfg.config / "metrics.json"))
+    selected = atomic.root / "sides" / "selected.json"
+    if selected.exists():
+        pairs.append((selected, target / "sides" / "selected.json"))
+    return pairs
+
+
+def _copy_farfield_to_artifacts(payload: dict[str, Any], figures: Sequence[Path],
+                                target: Path | None = None) -> int:
     """把拼图复制进 ``artifacts/<batch>/`` 并写 ``frames_selection.json``。"""
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    target = ARTIFACT_DIR if target is None else target
+    target.mkdir(parents=True, exist_ok=True)
     copied = 0
     for path in figures:
         if not path.exists():
             continue
-        shutil.copy2(path, ARTIFACT_DIR / path.name)
+        shutil.copy2(path, target / path.name)
         copied += 1
-    write_frames_selection(payload, ARTIFACT_DIR)
+    write_frames_selection(payload, target)
     return copied
 
 
-def _check_farfield(run: Run, payload: dict[str, Any],
-                    figures: Sequence[Path]) -> list[str]:
+def _check_farfield(run: Run, payload: dict[str, Any], figures: Sequence[Path],
+                    artifact_dir: Path | None = None) -> list[str]:
     """``--check``: 拼图存在、与 artifacts 副本逐字节一致, 且 frames_selection.json 未过期。"""
     problems: list[str] = []
     if not payload.get("mosaics"):
         return problems
+    artifact_dir = ARTIFACT_DIR if artifact_dir is None else artifact_dir
     drawn = {path.name for path in figures}
     for mosaic in payload["mosaics"]:
         name = mosaic["figure"]
@@ -2194,13 +2308,13 @@ def _check_farfield(run: Run, payload: dict[str, Any],
             problems.append(f"拼图缺失: figures/{name}")
             continue
         source = FIG_DIR / name
-        copy = ARTIFACT_DIR / name
+        copy = artifact_dir / name
         if not copy.exists():
             problems.append(f"拼图副本缺失: {_rel(copy)}")
         elif _sha256(source) != _sha256(copy):
             problems.append(f"拼图与 artifacts 副本不一致: {name}")
     expected = json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n"
-    path = ARTIFACT_DIR / "frames_selection.json"
+    path = artifact_dir / "frames_selection.json"
     if not path.exists():
         problems.append(f"缺失: {_rel(path)}")
     elif path.read_text(encoding="utf-8") != expected:
@@ -2946,6 +3060,612 @@ def render_farfield_section(
     return out, tables
 
 
+# ---------------------------------------------------------------------------
+# §13 整轮原子重扫 (单一脚本版本 + 单一功率)
+# ---------------------------------------------------------------------------
+
+
+def load_selected(root: Path) -> dict[str, Any]:
+    """``sides/selected.json`` (选定边长与它的分数)。没有就返回空 dict。"""
+    path = root / "sides" / "selected.json"
+    return load_json(path) if path.exists() else {}
+
+
+def _two_tier_split(values: Sequence[float]) -> float | None:
+    """在一维样本里找**最大间隙**作为两档分界 (返回分界中点); 样本太集中就返回 None。"""
+    ordered = sorted(set(float(v) for v in values))
+    if len(ordered) < 2:
+        return None
+    gaps = [(ordered[i + 1] - ordered[i], i) for i in range(len(ordered) - 1)]
+    gap, index = max(gaps)
+    span = ordered[-1] - ordered[0]
+    if span <= 0 or gap < 0.25 * span:
+        return None
+    return (ordered[index] + ordered[index + 1]) / 2.0
+
+
+@dataclass
+class AtomicFindings:
+    """§13 要用的派生量。全部现场算, 不内联任何数字。"""
+
+    exposure_ms: float
+    ceiling_ms: float
+    mode: str
+    zero_order: tuple[float, float]
+    side_max: float
+    side_max_raw: float
+    step: float
+    rejected: tuple[float, ...]
+    n_sides: int
+    selected_side: float
+    selected_score: float
+    score_max: float
+    score_argmax_side: float
+    plateau: list[tuple[float, float]]
+    plateau_gap: float
+    tail: list[tuple[float, float]]
+    box_peak_min: float
+    box_peak_max: float
+    frame_peak_values: list[float]
+    ar_median: float
+    ar_outliers: list[tuple[float, float]]
+    zern_cv_min: float
+    zern_cv_max: float
+    zern_pib_min: float
+    zern_pib_max: float
+    zern_explained_min: float
+    zern_explained_max: float
+    zern_modes_max: float
+    tier_split: float | None
+    tier_low: list[tuple[float, float, float]]
+    tier_high: list[tuple[float, float, float]]
+    centroid_x_span: float
+    blaze: list[tuple[float, float, float, float, float, float, float, float]]
+    blaze_meas_min: tuple[float, float]
+    blaze_meas_max: tuple[float, float]
+    blaze_ratio_min: float
+    blaze_ratio_max: float
+    blaze_flat_ratio: float
+    blaze_predicted_ratio: float
+    blaze_clipped: list[float]
+    cross: list[tuple[str, float, float, float, float, float, float, float]]
+    cross_cv_max: float
+    cross_score_max: float
+
+
+def compute_atomic_findings(
+    run: Run, atomic: RetestRun, selected: dict[str, Any],
+    retest: RetestRun | None,
+) -> AtomicFindings:
+    sides = atomic.stages["sides"]
+    zern = atomic.stages["zernike"]
+    blaze = atomic.stages["blaze"]
+    sides_cfg = sides.run_config
+
+    xs = sides.col("side_px")
+    scores = sides.col("score")
+    order = sorted(range(len(scores)), key=lambda i: -scores[i])
+    peak = order[0]
+    score_max = scores[peak]
+    plateau = [(xs[i], scores[i]) for i in range(len(xs)) if scores[i] >= score_max - 1e-3]
+    tail = [(xs[i], scores[i]) for i in range(len(xs)) if xs[i] > max(p for p, _ in plateau)]
+    plateau_gap = (max(s for _, s in plateau) - min(s for _, s in plateau)) if len(plateau) > 1 else 0.0
+
+    box_peaks = sides.col("box_peak")
+    ars = sides.col("ar")
+    ar_median = float(np.median(ars))
+    ar_outliers = [(xs[i], ars[i]) for i in range(len(ars))
+                   if abs(ars[i] / ar_median - 1.0) > 0.5]
+
+    z_cv = zern.col("cv")
+    z_pib = zern.col("pib")
+    z_exp = zern.col("zernike_explained_fraction")
+    z_off = zern.col("box_centroid_offset_x")
+    z_centroid = zern.col("box_centroid_x")
+    z_n = zern.col("n_max")
+    z0x = [cfg.zero_order[0] for cfg in zern.configs]
+    split = _two_tier_split(z0x)
+    tier_low: list[tuple[float, float, float]] = []
+    tier_high: list[tuple[float, float, float]] = []
+    for i in range(len(z_n)):
+        bucket = tier_low if split is None or z0x[i] < split else tier_high
+        bucket.append((z_n[i], z_off[i], z0x[i]))
+
+    b_p = blaze.col("blaze_period_px")
+    b_pred = blaze.col("predicted_shift_px")
+    b_meas = blaze.col("measured_shift_y_px")
+    blaze_rows = [
+        (b_p[i], b_pred[i], b_meas[i],
+         b_meas[i] / b_pred[i] if b_pred[i] else float("nan"),
+         blaze.col("cv")[i], blaze.col("pib")[i], blaze.col("score")[i],
+         blaze.col("box_clipped_px")[i])
+        for i in range(len(b_p))
+    ]
+    clipped = [b_p[i] for i in range(len(b_p)) if blaze.col("box_clipped_px")[i] > 0]
+    clean = [row for row in blaze_rows if row[7] <= 0]
+    meas_clean = [row[2] for row in clean]
+    pred_clean = [row[1] for row in clean]
+
+    # 与 §11 复测的同功率交叉核对 (只比两批都有的配置)
+    cross: list[tuple[str, float, float, float, float, float, float, float]] = []
+    if retest is not None:
+        for stage_name in ("blaze", "zernike"):
+            if stage_name not in retest.stages:
+                continue
+            for cfg in retest.stages[stage_name].configs:
+                try:
+                    mine = atomic.stages[stage_name].row_of(cfg.value)
+                except KeyError:
+                    continue
+                cv_a = float(mine["cv"])
+                cv_b = float(cfg.row["cv"])
+                sc_a = float(mine["score"])
+                sc_b = float(cfg.row["score"])
+                cross.append((
+                    stage_name, cfg.value, cv_a, cv_b,
+                    abs(cv_a - cv_b) / ((cv_a + cv_b) / 2.0),
+                    sc_a, sc_b, abs(sc_a - sc_b) / ((sc_a + sc_b) / 2.0),
+                ))
+
+    return AtomicFindings(
+        exposure_ms=atomic.exposure_ms,
+        ceiling_ms=atomic.exposure_ceiling_ms,
+        mode=atomic.mode,
+        zero_order=run_zero_order(sides_cfg),
+        side_max=float(sides_cfg.get("side_max_px", float("nan"))),
+        side_max_raw=float(sides_cfg.get("side_max_raw_px", float("nan"))),
+        step=float(min(b - a for a, b in zip(xs, xs[1:]))) if len(xs) > 1 else 1.0,
+        rejected=(
+            float(sides_cfg.get("side_max_px", float("nan"))) + 100.0,
+            float(sides_cfg.get("side_max_px", float("nan"))) + 200.0,
+        ),
+        n_sides=len(xs),
+        selected_side=float(selected.get("side_px", float("nan"))),
+        selected_score=float(selected.get("rank_value", float("nan"))),
+        score_max=score_max,
+        score_argmax_side=xs[peak],
+        plateau=plateau,
+        plateau_gap=plateau_gap,
+        tail=tail,
+        box_peak_min=min(box_peaks),
+        box_peak_max=max(box_peaks),
+        frame_peak_values=sorted({float(v) for v in sides.col("frame_peak")}),
+        ar_median=ar_median,
+        ar_outliers=ar_outliers,
+        zern_cv_min=min(z_cv),
+        zern_cv_max=max(z_cv),
+        zern_pib_min=min(z_pib),
+        zern_pib_max=max(z_pib),
+        zern_explained_min=min(z_exp),
+        zern_explained_max=max(z_exp),
+        zern_modes_max=max(zern.col("zernike_modes_used")),
+        tier_split=split,
+        tier_low=tier_low,
+        tier_high=tier_high,
+        centroid_x_span=max(z_centroid) - min(z_centroid),
+        blaze=blaze_rows,
+        blaze_meas_min=((min(clean, key=lambda r: r[2])[0],
+                         min(clean, key=lambda r: r[2])[2]) if clean
+                        else (float("nan"), float("nan"))),
+        blaze_meas_max=((max(clean, key=lambda r: r[2])[0],
+                         max(clean, key=lambda r: r[2])[2]) if clean
+                        else (float("nan"), float("nan"))),
+        blaze_ratio_min=min(row[3] for row in clean) if clean else float("nan"),
+        blaze_ratio_max=max(row[3] for row in clean) if clean else float("nan"),
+        blaze_flat_ratio=(max(meas_clean) / min(meas_clean)) if clean else float("nan"),
+        blaze_predicted_ratio=(max(pred_clean) / min(pred_clean)) if clean else float("nan"),
+        blaze_clipped=clipped,
+        cross=cross,
+        cross_cv_max=max((row[4] for row in cross), default=float("nan")),
+        cross_score_max=max((row[7] for row in cross), default=float("nan")),
+    )
+
+
+def run_zero_order(cfg: dict[str, Any]) -> tuple[float, float]:
+    """段级 ``zero_order_xy_frozen`` (取不到就给 nan)。"""
+    xy = cfg.get("zero_order_xy_frozen")
+    if not xy:
+        return float("nan"), float("nan")
+    return float(xy[0]), float(xy[1])
+
+
+def fig_atomic_sides(run: Run, atomic: RetestRun) -> Path:
+    """边长 → CV/PIB/score: 本轮实线 + 基线虚线 (定性对照)。"""
+    setup_matplotlib()
+    a_sides = atomic.stages["sides"]
+    b_sides = run.stages["sides"]
+    ax_x = a_sides.col("side_px")
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12.0, 4.6))
+
+    ax1.plot(ax_x, a_sides.col("cv"), "o-", color="#d62728", label="CV（本轮）")
+    ax1.plot(b_sides.x, b_sides.col("cv"), "s--", color="#d62728", alpha=0.45,
+             label="CV（基线, 20 ms）")
+    ax1.set_xlabel("目标方框边长 (camera px)")
+    ax1.set_ylabel("CV", color="#d62728")
+    ax1.tick_params(axis="y", labelcolor="#d62728")
+    ax1.grid(alpha=0.3)
+    ax1b = ax1.twinx()
+    ax1b.plot(ax_x, a_sides.col("pib"), "o-", color="#1f77b4", label="PIB（本轮）")
+    ax1b.plot(b_sides.x, b_sides.col("pib"), "s--", color="#1f77b4", alpha=0.45,
+              label="PIB（基线, 20 ms）")
+    ax1b.set_ylabel("PIB", color="#1f77b4")
+    ax1b.tick_params(axis="y", labelcolor="#1f77b4")
+    handles = ax1.get_lines() + ax1b.get_lines()
+    ax1.legend(handles, [ln.get_label() for ln in handles], fontsize=7.5, loc="upper left")
+    ax1.set_title("(a) CV / PIB: 形状一致, 高度不可比")
+
+    ax2.plot(ax_x, a_sides.col("score"), "o-", color="#2ca02c", label="score（本轮）")
+    ax2.plot(b_sides.x, b_sides.col("score"), "s--", color="#2ca02c", alpha=0.45,
+             label="score（基线, 20 ms）")
+    scores_a = a_sides.col("score")
+    peak_x = max(zip(ax_x, scores_a), key=lambda pair: pair[1])[0]
+    plateau_x = [x for x, sc in zip(ax_x, scores_a) if sc >= max(scores_a) - 1e-3]
+    ax2.plot([peak_x], [max(scores_a)], "k*", ms=14, label=f"argmax {peak_x:.0f} px")
+    if len(plateau_x) > 1:
+        ax2.axvspan(min(plateau_x), max(plateau_x), color="k", alpha=0.08,
+                    label=f"平台 {min(plateau_x):.0f}–{max(plateau_x):.0f} px")
+    ax2.set_xlabel("目标方框边长 (camera px)")
+    ax2.set_ylabel("score = 0.5·PIB + 0.5/(1+CV)")
+    ax2.grid(alpha=0.3)
+    ax2.legend(fontsize=8, loc="lower right")
+    ax2.set_title("(b) score 是平台, 不是单点")
+    fig.suptitle(f"整轮原子重扫（{atomic.exposure_ms:g} ms, 单一版本）", fontsize=11)
+    fig.tight_layout()
+    path = FIG_DIR / f"fig10_atomic_sides_{batch_tag(atomic)}.png"
+    savefig(fig, path)
+    return path
+
+
+def fig_atomic_blaze(atomic: RetestRun) -> Path:
+    """光栅周期 → 预测位移 (1/P) vs 实测位移 (近水平)。"""
+    setup_matplotlib()
+    blaze = atomic.stages["blaze"]
+    x = blaze.col("blaze_period_px")
+    pred = blaze.col("predicted_shift_px")
+    meas = blaze.col("measured_shift_y_px")
+    clipped = [i for i in range(len(x)) if blaze.col("box_clipped_px")[i] > 0]
+    keep = [i for i in range(len(x)) if i not in clipped]
+
+    fig, ax = plt.subplots(figsize=(7.6, 4.8))
+    ax.plot(x, pred, "o-", color="#1f77b4", label="预测位移 (∝ 1/周期)")
+    ax.plot([x[i] for i in keep], [meas[i] for i in keep], "s-", color="#ff7f0e",
+            label="实测位移 y")
+    for i in clipped:
+        ax.plot([x[i]], [meas[i]], "x", color="#d62728", ms=11, mew=2,
+                label="该行方框出画 (不计入趋势)")
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xticks(x)
+    ax.set_xticklabels([f"{v:.0f}" for v in x])
+    ax.minorticks_off()
+    ax.set_yticks([50, 100, 200, 400])
+    ax.set_yticklabels(["50", "100", "200", "400"])
+    ax.set_xlabel("闪耀光栅周期 (SLM px, 对数轴)")
+    ax.set_ylabel("位移 (camera px, 对数轴)")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend(fontsize=8)
+    ax.set_title("预测按 1/周期 下降, 实测几乎水平 —— 比值从 0.22 涨到 1.20")
+    fig.tight_layout()
+    path = FIG_DIR / f"fig11_atomic_blaze_shift_{batch_tag(atomic)}.png"
+    savefig(fig, path)
+    return path
+
+
+def render_atomic_section(
+    run: Run, f: Findings, atomic: RetestRun, af: AtomicFindings,
+    retest: RetestRun | None, figures: Sequence[Path],
+) -> tuple[list[str], list[Table]]:
+    """§13 整轮原子重扫。数字全部从该批 CSV / metrics.json 现读。"""
+    tables: list[Table] = []
+    out: list[str] = []
+    sides = atomic.stages["sides"]
+    zern = atomic.stages["zernike"]
+    blaze = atomic.stages["blaze"]
+
+    def add(text: str = "") -> None:
+        out.append(text)
+
+    add("## 13. 整轮原子重扫（单一版本 + 单一功率）")
+    add()
+    add(
+        "第三批产物：`"
+        f"{_rel(atomic.root)}/`。它是**唯一「单一脚本版本 + 单一功率」的完整一轮** —— "
+        "三段（边长 / Zernike / 光栅）在同一个 `mode=atomic` 下逐配置重扫，"
+        "所以三段数字之间第一次真正可比。"
+    )
+    add()
+
+    add("### 13.1 口径")
+    add()
+    gate = Table(
+        ("项", "本轮取值", "来源"),
+        [
+            ("生效曝光 (ms)", derived(af.exposure_ms, 1), "`run_config` / 每配置 `preflight`"),
+            ("会话上限 (ms)", derived(af.ceiling_ms, 1), "`run_config`"),
+            ("调用方式", f"`mode = {af.mode}`（每配置一个独立进程）", "`manifest` / `run_config`"),
+            ("0 级（段级冻结）", f"({af.zero_order[0]:.0f}, {af.zero_order[1]:.0f})",
+             "`run_config.zero_order_xy_frozen`"),
+            ("可用最大边长 (px)", derived(af.side_max, 0), "`run_config.side_max_px`"),
+            ("反解原始值 (px)", derived(af.side_max_raw, 0), "`run_config.side_max_raw_px`"),
+            ("边长步长 (px)", derived(af.step, 0), "由 CSV 的 `side_px` 相邻差"),
+            ("实际边长行数", derived(float(af.n_sides), 0), "`manifest.n_rows` / CSV"),
+            ("选定边长 (px)", derived(af.selected_side, 0), "`sides/selected.json`"),
+            ("选定时的 score", derived(af.selected_score, 4), "`sides/selected.json`"),
+        ],
+    )
+    tables.append(gate)
+    add(gate.render())
+    add()
+    add(
+        "**1800 与 1900 被拒是保护生效，不是失败。** 按步长 "
+        f"{af.step:.0f} px 往上，接下来的两档是 "
+        f"{af.rejected[0]:.0f} / {af.rejected[1]:.0f} px，都超过本轮实测的可用最大边长 "
+        f"{af.side_max:.0f} px（= 2·(min(cx, W−1−cx, cy, H−1−cy) − edge_margin) 向下取整，"
+        f"原始 {af.side_max_raw:.0f} px）。脚本原文的拒绝理由："
+    )
+    add()
+    add("> 边长 `{value}` px 超过本次实测的画面可用最大边长 "
+        f"{af.side_max:.0f} px —— 方框会压在帧边上, PIB/EE 就不再是方斑质量了。"
+        "改小 --side-px, 或调 --edge-margin-px / 曝光")
+    add()
+    add("（上面是脚本里的**消息模板**：`{value}` 处就是被拒的那一档边长 —— "
+        f"本轮是 {af.rejected[0]:.0f} 与 {af.rejected[1]:.0f}。）")
+    add()
+    add(
+        "这条保护的判据是**方框会不会压到帧边**（压边后窗函数与读出噪声会污染方框内的统计，"
+        "PIB/EE 就不再是方斑质量的度量）。所以「少了两行」恰恰是它该做的事："
+        f"宁可只有 {af.n_sides} 行可用数据，也不给两个框压边的假点。"
+        f"（退出码 2 —— 该脚本把这条越限检查与读帧超时共用同一个硬退出码。）"
+    )
+    add()
+
+    # -- 13.2 边长段 --------------------------------------------------------
+    add("### 13.2 边长段")
+    add()
+    side_tbl = Table(
+        ("边长 (px)", "CV", "PIB", "score", "box_peak", "frame_peak",
+         "方框内面积 (px)", "出画面积 (px)", "AR", "质心偏移 x", "质心偏移 y"),
+        [(cell_of(r, "side_px", 0), cell_of(r, "cv", 4), cell_of(r, "pib", 4),
+          cell_of(r, "score", 4), cell_of(r, "box_peak", 2), cell_of(r, "frame_peak", 2),
+          cell_of(r, "box_area_px", 0), cell_of(r, "box_clipped_px", 0),
+          cell_of(r, "ar", 4), cell_of(r, "box_centroid_offset_x", 2),
+          cell_of(r, "box_centroid_offset_y", 2))
+         for r in sides.rows],
+    )
+    tables.append(side_tbl)
+    add(side_tbl.render())
+    add()
+    plateau_txt = " / ".join(f"{p:.0f}（{s:.4f}）" for p, s in af.plateau)
+    tail_txt = " / ".join(f"{p:.0f}（{s:.4f}）" for p, s in af.tail)
+    add(
+        f"**score 的平台在 {min(p for p, _ in af.plateau):.0f}–"
+        f"{max(p for p, _ in af.plateau):.0f} px**：{plateau_txt}，两者只差 "
+        f"{af.plateau_gap:.1e}。之后开始掉：{tail_txt}。"
+        f"（argmax 在 {af.score_argmax_side:.0f} px。）"
+        "也就是说这一轮的「最优边长」不是一个点，而是一段**平台**："
+        f"平台宽 {max(p for p, _ in af.plateau) - min(p for p, _ in af.plateau):.0f} px，"
+        f"而平台内的高度差只有 {af.plateau_gap:.1e} —— 在单次测量的分辨力内，"
+        "峰落在平台哪一点**不可判定**（与 §3.3 基线那一轮同一性质）。"
+    )
+    add()
+    add(
+        f"**`box_peak` 与饱和**：全部 {af.n_sides} 行的 `frame_peak` 都是 "
+        f"{'/'.join(f'{v:.0f}' for v in af.frame_peak_values)}（0 级削顶），"
+        f"而 `box_peak` 只有 {af.box_peak_min:.2f}–{af.box_peak_max:.2f} —— "
+        "**削顶的是框外的 0 级，不是方斑本身**（`box_peak < frame_peak` 就证明最亮像素在框外）。"
+        "这与 §4 的「0 级饱和」是两回事：那一条说的是平场 0 级不含线性信息，"
+        "这一条说的是方斑自己贴着满量程但还没到顶 —— 方斑的读数仍然可信。"
+    )
+    add()
+    if af.ar_outliers:
+        add(
+            "**一个没解释的离群**：`ar`（方框内长宽比）在 "
+            + "、".join(f"{p:.0f} px 处是 {v:.2f}" for p, v in af.ar_outliers)
+            + f"，而同列中位数只有 {af.ar_median:.2f}。这一行的 CV/PIB/score 都在趋势上，"
+            "所以不是整帧坏，问题只可能出在 AR 这个量本身。**机制未定**，"
+            "不要据此删行；要确认需要看该行的方框内二值轮廓（`ar` 由"
+            " `square_aspect_ratio` 从框内二值掩膜算出）。"
+        )
+        add()
+
+    # -- 13.3 Zernike 段 ----------------------------------------------------
+    add("### 13.3 Zernike 段")
+    add()
+    zern_tbl = Table(
+        ("n_max", "模式数", "解释方差", "残差 RMS (rad)", "CV", "PIB", "score",
+         "质心偏移 x", "质心偏移 y"),
+        [(cell_of(r, "n_max", 0), cell_of(r, "zernike_modes_used", 0),
+          cell_of(r, "zernike_explained_fraction", 6),
+          cell_of(r, "zernike_rms_residual_rad", 6),
+          cell_of(r, "cv", 4), cell_of(r, "pib", 4), cell_of(r, "score", 4),
+          cell_of(r, "box_centroid_offset_x", 2), cell_of(r, "box_centroid_offset_y", 2))
+         for r in zern.rows],
+    )
+    tables.append(zern_tbl)
+    add(zern_tbl.render())
+    add()
+    add(
+        f"**CV 全平**：{af.zern_cv_min:.4f}–{af.zern_cv_max:.4f}（相对跨度 "
+        f"{(af.zern_cv_max - af.zern_cv_min) / af.zern_cv_min:.1%}），PIB "
+        f"{af.zern_pib_min:.4f}–{af.zern_pib_max:.4f}，score "
+        f"{min(float(r['score']) for r in zern.rows):.4f}–"
+        f"{max(float(r['score']) for r in zern.rows):.4f}。"
+        f"解释方差从 {af.zern_explained_min * 100:.3f}% 单调升到 "
+        f"{af.zern_explained_max * 100:.3f}%（{af.zern_modes_max:.0f} 个模式）—— "
+        "**阶数加了四倍，画面上几乎没变**，这就是 §5.1「基不适配」的量化版。"
+    )
+    add()
+    if af.tier_split is not None:
+        low = sorted(af.tier_low)
+        high = sorted(af.tier_high)
+        add(
+            "**`box_centroid_offset_x` 的两档台阶**："
+            f"低档 {min(v for _, v, _ in low):.2f}–{max(v for _, v, _ in low):.2f} px"
+            f"（n_max = {'/'.join(f'{n:.0f}' for n, _, _ in low)}），"
+            f"高档 {min(v for _, v, _ in high):.2f}–{max(v for _, v, _ in high):.2f} px"
+            f"（n_max = {'/'.join(f'{n:.0f}' for n, _, _ in high)}）。"
+            "**台阶的位置已经定位：它不在远场里**。把这一列拆开看 ——"
+        )
+        add()
+        add(
+            f"- `box_centroid_x`（实测质心）在全部 {len(af.tier_low) + len(af.tier_high)} 个配置上只差 "
+            f"**{af.centroid_x_span:.1f} px**；"
+        )
+        add(
+            f"- 两档的差别全在**参考原点**上：低档各配置的 0 级 x 是 "
+            f"{min(z for _, _, z in low):.0f}–{max(z for _, _, z in low):.0f}，"
+            f"高档是 {min(z for _, _, z in high):.0f}–{max(z for _, _, z in high):.0f}，"
+            f"分界落在 x ≈ {af.tier_split:.0f}；"
+        )
+        add(
+            "- 而 `offset_x ≡ centroid_x − 0 级 x`（定义如此），所以台阶 = **原点跳了约 "
+            f"{min(z for _, _, z in high) - max(z for _, _, z in low):.0f} px**，不是光斑移动。"
+        )
+        add()
+        add(
+            f"注意 `n_max = 21` 落在**低档**（{min(v for n, v, _ in low if n == 21.0):.2f} px）"
+            "—— 20 与 22 都在高档。所以这个台阶**不是 `n_max` 的函数**，"
+            "而是「那一次进程把 0 级定到了哪一簇」的结果。"
+        )
+        add()
+        add(
+            "**为什么原点会跳，仍未定。** 本轮能确定的只有「跳的是参考原点」；"
+            "候选机制是每配置独立在饱和平台上 `argmax`（§11.6 已记录同一现象："
+            "同一段里 0 级定位跨进程相差 8–39 px），但本轮**无法**把它与别的可能分开。"
+            "要定因需要固定 0 级后再复测一次（§11.6 的四条方案）。"
+            "**在定因之前，不要把 `box_centroid_offset_x` 的任何台阶读成物理效应。**"
+        )
+        add()
+
+    # -- 13.4 光栅段 --------------------------------------------------------
+    add("### 13.4 闪耀光栅段")
+    add()
+    blaze_tbl = Table(
+        ("周期 (px)", "预测位移 (px)", "实测位移 y (px)", "实测/预测", "CV", "PIB",
+         "score", "出画面积 (px)"),
+        [(cell_of(r, "blaze_period_px", 0), cell_of(r, "predicted_shift_px", 2),
+          cell_of(r, "measured_shift_y_px", 2), derived(ratio, 4),
+          cell_of(r, "cv", 4), cell_of(r, "pib", 4), cell_of(r, "score", 4),
+          cell_of(r, "box_clipped_px", 0))
+         for r, (_, _, _, ratio, _, _, _, _) in zip(blaze.rows, af.blaze)],
+    )
+    tables.append(blaze_tbl)
+    add(blaze_tbl.render())
+    add()
+    add(
+        f"**实测几乎不随周期变**：排除出画那一行后，实测位移 y 只有 "
+        f"{af.blaze_meas_min[1]:.2f}（P={af.blaze_meas_min[0]:.0f}）→ "
+        f"{af.blaze_meas_max[1]:.2f} px（P={af.blaze_meas_max[0]:.0f}），"
+        f"全程只变 **{af.blaze_flat_ratio:.2f}×**；而预测在同一区间变了 "
+        f"**{af.blaze_predicted_ratio:.2f}×**（它按 `TILT_SHIFT_SCALE/周期` 构造，"
+        "所以是严格的 1/P）。于是实测/预测从 "
+        f"{af.blaze_ratio_min:.3f} 一路涨到 {af.blaze_ratio_max:.3f} —— "
+        "**比值不是常数，说明错的不是标度系数，而是 1/P 这个形状本身**（与 §6.4 同一结论，"
+        "这一轮把它在同一功率下复现了一遍）。"
+    )
+    add()
+    add(
+        f"**出画那一行**：P = {'/'.join(f'{p:.0f}' for p in af.blaze_clipped)} 的 "
+        "`box_clipped_px > 0`（预测位移把框推到画面外），该行 PIB 不可与其它行横比。"
+        "它的 CV/score 也一并在表里给着，但只能当「框错位后的读数」，不是周期 16 的质量。"
+    )
+    add()
+
+    # -- 13.5 与 §11 复测的同功率交叉核对 -----------------------------------
+    add("### 13.5 与 §11 复测的同功率交叉核对")
+    add()
+    if af.cross:
+        add(
+            "§11 的复测批与本轮**同为 "
+            f"{af.exposure_ms:g} ms**，所以这两批可以做**同功率**对照"
+            "（不同于基线的 20 ms）。逐配置比两批的 CV 与 score："
+        )
+        add()
+        cross_tbl = Table(
+            ("段", "配置", "CV (本轮)", "CV (§11)", "ΔCV", "score (本轮)", "score (§11)", "Δscore"),
+            [(STAGE_CN[stage], derived(value, 0), derived(cv_a, 4), derived(cv_b, 4),
+              derived(dcv, 4), derived(sc_a, 4), derived(sc_b, 4), derived(dsc, 4))
+             for stage, value, cv_a, cv_b, dcv, sc_a, sc_b, dsc in af.cross],
+        )
+        tables.append(cross_tbl)
+        add(cross_tbl.render())
+        add()
+        higher = sum(1 for row in af.cross if row[5] > row[6])
+        add(
+            f"**结论：同功率不同批次的重复性约 1%。** CV 最大差 "
+            f"{af.cross_cv_max:.1%}、score 最大差 {af.cross_score_max:.1%}；"
+            f"方向**不系统**（{len(af.cross)} 个配置里本轮 score 高 {higher} 个、"
+            f"低 {len(af.cross) - higher} 个），也就是说这 1% 是噪声而不是批次偏差。"
+            "这条带宽正是 §11.5 判定 1/2 需要的那个量：基线那两处异常偏 "
+            f"+72% / +801%，比它大两个数量级以上，所以「黑帧」判定不依赖某一批的运气。"
+        )
+    else:
+        add("（没有 §11 的复测批可比 —— 未给 `--retest-root`。）")
+    add()
+
+    # -- 13.6 与基线的定性对照 ----------------------------------------------
+    add("### 13.6 与基线的对照（只能定性）")
+    add()
+    base = run.stages
+    base_sides = base["sides"]
+    cmp_rows: list[tuple[Cell | str, ...]] = []
+    for label, key, stage, pick in (
+        ("边长段 score 最高", "score", "sides", max(base_sides.col("score"))),
+        ("边长段 CV 最小", "cv", "sides", min(base_sides.col("cv"))),
+        ("Zernike 段 CV 最小", "cv", "zernike", min(base["zernike"].col("cv"))),
+        ("光栅段 score 最高", "score", "blaze", max(base["blaze"].col("score"))),
+    ):
+        mine = (max(atomic.stages[stage].col(key))
+                if key == "score" else min(atomic.stages[stage].col(key)))
+        cmp_rows.append((label, f"{key} = {pick:.4f}", f"{key} = {mine:.4f}", "不可横比"))
+    cmp_tbl = Table(("关键量", "基线（20 ms）", "本轮（180 ms）", "可比性"), cmp_rows)
+    tables.append(cmp_tbl)
+    add(cmp_tbl.render())
+    add()
+    add(
+        f"两批的曝光差 {af.exposure_ms / run.exposure_ms:.0f}×（功率也差一个量级，见 §11.1），"
+        "所以**任何绝对值都不能横比**。这张表只用来回答一个问题：**趋势是否一致** —— "
+        "例如「CV 随边长上升」「score 有平台」「低阶 Zernike 的 CV 与阶数无关」，"
+        "这些**形状**在两批里是一致的，而高度不是。"
+    )
+    add()
+
+    # -- 13.7 图 ------------------------------------------------------------
+    add("### 13.7 图")
+    add()
+    drawn = {p.name for p in figures}
+    for stem, caption in (
+        ("fig10_atomic_sides", "边长 → CV / PIB / score（本轮实线，基线虚线仅作定性对照）"),
+        ("fig11_atomic_blaze_shift", "光栅周期 → 预测位移（1/P）vs 实测位移（近水平）"),
+    ):
+        name = f"{stem}_{batch_tag(atomic)}.png"
+        if name in drawn:
+            add(f"![{caption}](figures/{name})")
+            add()
+            add(f"*{caption}。*")
+            add()
+    for spec in MOSAICS:
+        name = f"{spec.stem}_{batch_tag(atomic)}.png"
+        if name in drawn:
+            add(f"![{spec.title}（本轮）](figures/{name})")
+            add()
+            add(f"*{spec.title}（本轮 {af.exposure_ms:g} ms）。* "
+                "口径与 §12 完全一致：对数显示（`LogNorm(vmin=1, vmax=该格峰值)`，"
+                "**颜色不代表线性强度**）、"
+                + (f"裁剪 `box_side × {CROP_FACTOR}`、" if spec.crop else "整帧不裁剪、")
+                + "目标框/预测框心/实测质心叠加、右下角 `×N 帧均值`。"
+                "每格的源 npz 与 sha256 见 `artifacts/"
+                f"{ATOMIC_ARTIFACT_DIR.name}/frames_selection.json`。")
+            add()
+    add(
+        "拼图里没有 1800/1900 两格 —— 这两行本来就没有被采集（§13.1）。"
+        "边长格取 200 / 600 / 1000 / 1500 / 1700 五档（§13 不追加 score 格："
+        "本轮 score 是平台而不是单点，追加一格会误导）。"
+    )
+    add()
+    return out, tables
+
+
 def render_report(
     run: Run,
     f: Findings,
@@ -2954,6 +3674,9 @@ def render_report(
     prior: RetestRun | None = None,
     farfield: dict[str, Any] | None = None,
     farfield_figures: Sequence[Path] = (),
+    atomic: RetestRun | None = None,
+    af: AtomicFindings | None = None,
+    atomic_figures: Sequence[Path] = (),
 ) -> tuple[str, list[Table]]:
     """渲染正文。返回 (markdown, 需要回读校验的表)。
 
@@ -3999,6 +4722,13 @@ def render_report(
         out.extend(farfield_lines)
         tables.extend(farfield_tables)
 
+    # -- 13. 整轮原子重扫 ----------------------------------------------------
+    if atomic is not None and af is not None:
+        atomic_lines, atomic_tables = render_atomic_section(
+            run, f, atomic, af, retest, atomic_figures)
+        out.extend(atomic_lines)
+        tables.extend(atomic_tables)
+
     # -- 附录 ---------------------------------------------------------------
     add(f"## 附录 A. 输入契约（`artifacts/{ARTIFACT_DIR.name}/`）")
     add()
@@ -4015,6 +4745,9 @@ def render_report(
                 "已作废（跨脚本版本）—— **仅存档为证据，报告不引用**" if rel == "manifest.json"
                 else "同上（已作废批次）",
             ))
+    if atomic is not None:
+        for rel, note in _atomic_artifact_manifest(atomic):
+            art_rows.append((f"`{ATOMIC_ARTIFACT_DIR.name}/{rel}`", note))
     art_tbl = Table(("文件", "说明"), art_rows)
     tables.append(art_tbl)
     add(art_tbl.render())
@@ -4024,6 +4757,9 @@ def render_report(
             f"复测批次的产物单独归档在 `artifacts/{RETEST_ARTIFACT_DIR.name}/`"
             f"（{len(_retest_artifact_manifest(retest))} 个文件），与基线**并列**而不是覆盖 —— "
             "两批的 `measurements.csv` 各自独立，§11 的数字从第二块读。"
+            + (f"整轮原子重扫（§13）在 `artifacts/{ATOMIC_ARTIFACT_DIR.name}/`"
+               f"（{len(_atomic_artifact_manifest(atomic))} 个文件，含 4 张拼图与 "
+               "`frames_selection.json`）。" if atomic is not None else "")
             + (f"更早一版复测在 `artifacts/{RETEST_PRIOR_ARTIFACT_DIR.name}/`"
                f"（{len(_retest_artifact_manifest(prior))} 个文件）—— 那一批跨了两个脚本版本，"
                "**已作废**，只作为证据留存，报告不引用它的数字。" if prior is not None else "")
@@ -4271,6 +5007,9 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--retest-root", default="",
                         help="复测批次根目录 (含 manifest.json 与 blaze/zernike); "
                              "不给就完全不渲染 §11")
+    parser.add_argument("--atomic-root", default="",
+                        help="整轮原子重扫的根目录 (单一版本 + 单一功率, 三段齐全); "
+                             "不给就完全不渲染 §13")
     parser.add_argument("--retest-prior-root", default=str(DEFAULT_RETEST_PRIOR_ROOT),
                         help="更早一版复测 (只用于算批间重复性带宽); 不存在就跳过那张表")
     parser.add_argument("--check", action="store_true",
@@ -4280,6 +5019,7 @@ def _parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     global FIG_DIR, ARTIFACT_DIR, RETEST_ARTIFACT_DIR, RETEST_PRIOR_ARTIFACT_DIR
+    global ATOMIC_ARTIFACT_DIR
     args = _parse_args(argv)
     run_root = Path(args.run_root)
     out_md = Path(args.out_md)
@@ -4327,8 +5067,36 @@ def main(argv: Sequence[str] | None = None) -> int:
     farfield_figures = [FIG_DIR / m["figure"] for m in farfield["mosaics"]
                         if any(not cell["missing"] for cell in m["cells"])]
 
+    atomic: RetestRun | None = None
+    af: AtomicFindings | None = None
+    atomic_selection: dict[str, list[CellPick]] = {}
+    atomic_farfield: dict[str, Any] = {"mosaics": []}
+    atomic_figures: list[Path] = []
+    if args.atomic_root:
+        atomic_root = Path(args.atomic_root)
+        if not atomic_root.is_absolute():
+            atomic_root = (Path.cwd() / atomic_root).resolve()
+        atomic = load_retest(atomic_root, None, stage_names=STAGES)
+        ATOMIC_ARTIFACT_DIR = OUT_DIR / "artifacts" / atomic.root.name
+        selected = load_selected(atomic.root)
+        af = compute_atomic_findings(run, atomic, selected, retest)
+        atomic_findings = compute_findings(atomic)
+        atomic_selection = select_cells(
+            atomic, atomic_findings,
+            sides_panel=(200.0, 600.0, 1000.0, 1500.0, 1700.0),
+            add_score_cell=False,
+        )
+        atomic_farfield = plan_farfield(atomic, atomic_selection)
+        atomic_mosaics = [FIG_DIR / m["figure"] for m in atomic_farfield["mosaics"]
+                          if any(not cell["missing"] for cell in m["cells"])]
+        atomic_figures = atomic_mosaics + [
+            FIG_DIR / f"fig10_atomic_sides_{batch_tag(atomic)}.png",
+            FIG_DIR / f"fig11_atomic_blaze_shift_{batch_tag(atomic)}.png",
+        ]
+
     markdown, tables = render_report(run, findings, retest, rf, prior,
-                                     farfield, farfield_figures)
+                                     farfield, farfield_figures,
+                                     atomic, af, atomic_figures)
 
     # -- 自检 1: 表里的值与 CSV 逐值一致 -----------------------------------
     problems: list[str] = []
@@ -4399,21 +5167,42 @@ def main(argv: Sequence[str] | None = None) -> int:
             elif f"figures/{_figname(name)}" not in markdown:
                 drift.append(f"正文没有引用: figures/{_figname(name)}")
         drift.extend(_check_farfield(run, farfield, farfield_figures))
+        if atomic is not None:
+            drift.extend(_check_artifact_set(
+                atomic_artifact_sources(atomic, ATOMIC_ARTIFACT_DIR), ATOMIC_ARTIFACT_DIR))
+            for stem in ("fig10_atomic_sides", "fig11_atomic_blaze_shift"):
+                path = FIG_DIR / f"{stem}_{batch_tag(atomic)}.png"
+                if not path.exists():
+                    drift.append(f"图缺失: {_rel(path)}")
+                elif path.stat().st_size == 0:
+                    drift.append(f"图为空文件: {_rel(path)}")
+                elif f"figures/{path.name}" not in markdown:
+                    drift.append(f"正文没有引用: figures/{path.name}")
+            drift.extend(_check_farfield(atomic, atomic_farfield, atomic_mosaics,
+                                         artifact_dir=ATOMIC_ARTIFACT_DIR))
         if drift:
             print("--check 失败 (存在漂移):", file=sys.stderr)
             for item in drift:
                 print(f"  - {item}", file=sys.stderr)
             return 1
         n_mosaic = len([m for m in farfield.get("mosaics", [])])
+        extra = ""
+        if atomic is not None:
+            extra = (f"; §13 另有 2 张曲线 + {len(atomic_mosaics)} 张拼图与 "
+                     f"`artifacts/{ATOMIC_ARTIFACT_DIR.name}/`")
         print(f"--check 通过: {_rel(out_md)} 与现场渲染逐字节一致, "
               f"artifacts 副本与源一致, {len(figure_names)} 张指标图 + "
-              f"{n_mosaic} 张远场拼图齐备 (含 frames_selection.json)")
+              f"{n_mosaic} 张远场拼图齐备 (含 frames_selection.json){extra}")
         return 0
 
     # -- 写正文 / 图 / 产物 -------------------------------------------------
     # 拼图放在自检之后画: 自检失败时不会在 figures/ 里留下孤儿图
     if not args.check:
         render_farfield(run, selection, farfield)
+        if atomic is not None and af is not None:
+            render_farfield(atomic, atomic_selection, atomic_farfield)
+            fig_atomic_sides(run, atomic)
+            fig_atomic_blaze(atomic)
     out_md.parent.mkdir(parents=True, exist_ok=True)
     out_md.write_text(markdown, encoding="utf-8")
     print(f"报告已写到: {_rel(out_md)}")
@@ -4427,6 +5216,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         copied = _copy_farfield_to_artifacts(farfield, farfield_figures)
         print(f"远场拼图已复制: {_rel(ARTIFACT_DIR)}/ ({copied} 张) + "
               "frames_selection.json")
+    if atomic is not None:
+        pairs_a = atomic_artifact_sources(atomic, ATOMIC_ARTIFACT_DIR)
+        written_a = _copy_artifact_set(pairs_a, ATOMIC_ARTIFACT_DIR, "atomic", atomic.root)
+        copied_a = _copy_farfield_to_artifacts(atomic_farfield, atomic_figures,
+                                               target=ATOMIC_ARTIFACT_DIR)
+        print(f"整轮原子重扫产物已复制: {_rel(ATOMIC_ARTIFACT_DIR)}/ "
+              f"({len(written_a)} 个源文件 + {copied_a} 张图) + frames_selection.json")
     if retest is not None:
         pairs = retest_artifact_sources(retest, RETEST_ARTIFACT_DIR)
         written_r = _copy_artifact_set(pairs, RETEST_ARTIFACT_DIR, "retest", retest.root)

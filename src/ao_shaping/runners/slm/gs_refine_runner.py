@@ -22,6 +22,11 @@ CLI 两种入口等价::
     # 目标方形边长显式指定 (相机像素)
     python src/ao_shaping/main.py slm-gs-refine --target-side 90
 
+    # 其他形状: GS 目标与评分掩膜同时切换 (不是只换掩膜)
+    python src/ao_shaping/main.py slm-gs-refine --target-shape circle --target-side 90
+    python src/ao_shaping/main.py slm-gs-refine --target-shape annular --target-inner-ratio 0.6
+    python src/ao_shaping/main.py slm-gs-refine --target-shape cross --target-thickness 0.08
+
     # 从平场起步 (跳过 GS 预整形)
     python src/ao_shaping/main.py slm-gs-refine --no-gs-warm-start
 
@@ -79,14 +84,42 @@ from ao_shaping.utils.cli.exposure import (
 from ao_shaping.utils.io.cli_helpers import resolve_debug
 
 
+def _shape_params_line(params: SlmGsRefineParams) -> str:
+    """Only the parameters the chosen shape actually reads.
+
+    Printing all eight for every shape would imply the irrelevant ones do
+    something: ``--target-grid-nx`` is silently ignored for a circle, and a run
+    whose banner suggests otherwise invites a wrong conclusion about why a shape
+    came out as it did.
+    """
+    shape = params.target_shape
+    if shape == "rectangle":
+        return f"aspect={params.target_aspect_ratio} (long axis horizontal)"
+    if shape == "annular":
+        return f"inner/outer={params.target_inner_ratio}"
+    if shape == "gaussian":
+        return f"sigma={params.target_sigma_ratio} x side"
+    if shape == "grid":
+        return (
+            f"{params.target_grid_nx}x{params.target_grid_ny} lines, "
+            f"line_width={params.target_line_width} x side"
+        )
+    if shape == "cross":
+        return f"thickness={params.target_thickness} x side"
+    return "edge = target side"
+
+
 @click.command()
 @click.pass_context
 @with_params(SlmGsRefineParams, kw_name="params")
 def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     """SLM GS 预整形 + 全频随机相位 SPGD 细化 (SLM + CCD 闭环)。
 
-    把远场光斑整形为均匀方形。先用 GS 算一个开环预整形相位 (只在实测优于平场时
-    采用), 再用无感知 SPGD 细化全频随机相位。
+    把远场光斑整形为 ``--target-shape`` 指定的形状 (默认方斑)。先用 GS 算一个
+    开环预整形相位 (只在实测优于平场时采用), 再用无感知 SPGD 细化全频随机相位。
+
+    形状同时作用于**两处**: GS 的目标, 以及 PIB/CV 的评分掩膜 —— 否则会出现
+    「用方框给圆形打分」这种把框内空白算进分母的口径错误。
 
     目标函数与仿真一致: ``0.5*PIB + 0.5/(1+CV)``, 读取真实 CCD 帧计算。
     """
@@ -166,6 +199,10 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     click.echo(
         f"Target side: {params.target_side or 'auto'} px (factor {params.side_factor})"
     )
+    click.echo(
+        f"Target shape: {params.target_shape}  "
+        + _shape_params_line(params)
+    )
     click.echo(f"SLM pupil center: {params.pupil_center or 'panel center'}")
     click.echo(
         f"Objective: 0.5-style composite w_pib={params.w_pib} w_unif={params.w_unif}"
@@ -208,6 +245,11 @@ def run(ctx: click.Context, params: SlmGsRefineParams) -> None:
     )
     click.echo(f"  PIB: {best_iter.get('pib', float('nan')):.4f}")
     click.echo(f"  CV : {best_iter.get('cv', float('nan')):.4f}")
+    click.echo(
+        f"  target: {params.target_shape} "
+        f"(mask covers {best_iter.get('mask_area_frac', float('nan')) * 100:.2f}% "
+        "of the ROI frame)"
+    )
 
     save_result = save_gs_refine_results(recorder, params, root_dir=root_dir, debug=debug)
     click.echo(f"History saved: {save_result.csv_file}")

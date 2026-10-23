@@ -619,7 +619,7 @@ def tradeoff_notes(points: list[SizeMetrics]) -> str:
     best_cv = min(valid_pts, key=lambda p: p.uniformity)
     largest = max(valid_pts, key=lambda p: p.size_px)
     return (
-        f"取舍: {best_cv.size_px:.0f} px 均匀性最好 (CV={best_cv.uniformity:.3f}), "
+        f"取舍: {best_cv.size_px:.0f} px 均匀度最好 (CV={best_cv.uniformity:.3f}), "
         f"{largest.size_px:.0f} px 填得最大 (fill={largest.fill:.3f}, 最大有效尺寸); "
         f"recommend() 默认 constraint='largest_valid' → {largest.size_px:.0f} px"
     )
