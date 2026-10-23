@@ -22,6 +22,8 @@ OUT_DIR = ROOT / "report" / "shape_trials" / "defocus_differentiable"
 FIG_DIR = OUT_DIR / "figures"
 STAMP = "20261023"
 RUN_STAMP = "20261023_101822"
+# 历史默认值（20261022 那一轮）：只作缺省，使用时 main() 会打印警告；换光路后必须显式给参数。
+CHECKPOINT = ROOT / "data/debug/physical_forward_defocus/uniformity_refit_20261022_r1"
 
 import sys
 
@@ -532,6 +534,8 @@ def main() -> None:
     parser.add_argument("--run-dir", type=Path,
                         default=ROOT / "data/debug/defocus_differentiable" / RUN_STAMP)
     parser.add_argument("--report-only", action="store_true")
+    parser.add_argument("--checkpoint", type=Path, default=CHECKPOINT,
+                        help="冻结检查点；默认是 20261022 的历史值，换光路后必须显式指定")
     parser.add_argument("--stamp", default=STAMP,
                         help="图名前缀（换光路后必须换新戳，避免覆盖旧图）；默认 " + STAMP)
     parser.add_argument("--report-name", default=Path(REPORT_KEY).name,
@@ -539,6 +543,10 @@ def main() -> None:
     parser.add_argument("--force", action="store_true",
                         help="允许覆盖已存在且指向**另一次运行**的报告（默认拒绝）")
     args = parser.parse_args()
+    if args.run_dir == ROOT / "data/debug/defocus_differentiable" / RUN_STAMP:
+        print("⚠ --run-dir 用的是历史默认值 " + RUN_STAMP + "；光路变化后必须显式指定", flush=True)
+    if args.checkpoint == CHECKPOINT:
+        print("⚠ --checkpoint 用的是历史默认值（20261022 那一轮）；换光路后必须显式指定", flush=True)
     STAMP = args.stamp
     report_path = OUT_DIR / (args.report_name if args.report_name.endswith(".md")
                              else args.report_name + ".md")
@@ -559,7 +567,7 @@ def main() -> None:
         load_frozen_parameters,
     )
 
-    checkpoint = ROOT / "data/debug/physical_forward_defocus/uniformity_refit_20261022_r1"
+    checkpoint = args.checkpoint
     with np.load(checkpoint / "inputs.npz") as payload:
         camera_xy = payload["camera_xy"]
     parameters = load_frozen_parameters(checkpoint)
@@ -604,6 +612,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
 
 
 

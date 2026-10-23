@@ -49,8 +49,8 @@ def load_pairs(dataset: Path, run_dir: Path | None) -> tuple[np.ndarray, np.ndar
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True, help="新采集目录（含 sample_*.npz）")
-    parser.add_argument("--checkpoint", type=Path,
-                        default=ROOT / "data/debug/physical_forward_defocus/uniformity_refit_20261022_r1")
+    parser.add_argument("--checkpoint", type=Path, required=True,
+                        help="初始检查点；**必须显式给**（历史配置不可信，不设默认值）")
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=150)
     parser.add_argument("--window-half-span-px", type=float, default=200.0)

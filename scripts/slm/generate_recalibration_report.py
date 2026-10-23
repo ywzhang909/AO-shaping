@@ -36,8 +36,10 @@ def _latest(pattern: str) -> Path | None:
     return Path(matches[-1]) if matches else None
 
 
-def load() -> dict:
-    old_focus_path = ROOT / "data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json"
+OLD_FOCUS = ROOT / "data/debug/physical_forward_defocus/alignment_20261022_1812/focus.json"
+
+
+def load(old_focus_path: Path = OLD_FOCUS) -> dict:
     new_focus_dir = _latest("data/debug/physical_forward_defocus/focus_recal_*")
     refit = _latest("data/debug/physical_forward_defocus/refit_after_focus_*/refit.json")
     flat_dir = ROOT / "logs/target_size_sweep/direction_after_focus_dev/direction_record.json"
@@ -225,13 +227,17 @@ def _conclusion(flat: dict, probe: dict, probe1000: dict | None = None) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--old-focus", type=Path, default=OLD_FOCUS,
+                        help="对比用的旧 focus.json；默认是 20261022 的历史文件")
     args = parser.parse_args()
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     FIG_DIR.mkdir(parents=True, exist_ok=True)
     report_path = OUT_DIR / Path(REPORT_KEY).name
     if report_path.exists() and not args.force:
         print(f"  {report_path.name} 已存在；加 --force 覆盖（本文件只属于 r2 这一轮）")
-    data = load()
+    if args.old_focus == OLD_FOCUS:
+        print("⚠ --old-focus 用的是 20261022 的历史标定；换光路后请显式指定", flush=True)
+    data = load(args.old_focus)
     artifacts = dict(focus=plot_focus(data, FIG_DIR / f"{STAMP}_focus_compare.png"),
                      direction=plot_direction(data, FIG_DIR / f"{STAMP}_direction.png"))
     write_report(data, artifacts, report_path)
