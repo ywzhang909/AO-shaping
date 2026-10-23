@@ -18,6 +18,7 @@ import time
 from pathlib import Path
 
 import numpy as np
+from loguru import logger
 
 ROOT = Path(__file__).resolve().parents[2]
 import sys
@@ -129,6 +130,15 @@ def main() -> None:
                 if first.ndim == 1:
                     first = first.reshape(1944, 2592)
                 row, col = np.unravel_index(int(np.argmax(first)), first.shape)
+                # 掩膜一致性：模型按 --spot-xy 建掩膜、实测按首帧 argmax 定中心。
+                # 两者偏离时 CV 不可比 —— 告警并记录，绝不静默重定中心。
+                offset_px = float(np.hypot(col - args.spot_xy[0], row - args.spot_xy[1]))
+                if offset_px > 5.0:
+                    logger.warning(
+                        "实测零点 ({}, {}) 与 --spot-xy ({:.1f}, {:.1f}) 相差 {:.1f} px；"
+                        "模型与实测掩膜不在同一位置，本次结论不可比",
+                        col, row, args.spot_xy[0], args.spot_xy[1], offset_px)
+                record["mask_offset_px"] = offset_px
                 half = int(round(args.target_side_px / 2))
                 yy, xx = np.mgrid[: first.shape[0], : first.shape[1]]
                 core_mask = (np.abs(yy - row) <= half - 3) & (np.abs(xx - col) <= half - 3)
@@ -162,10 +172,11 @@ def main() -> None:
         if args.noise_floor and args.noise_floor.exists():
             resolution = float(json.loads(args.noise_floor.read_text(encoding="utf-8"))["three_sigma_resolution"])
             record["three_sigma_resolution"] = resolution
-            record["verdict"] = bool(abs(record["measured"]["delta_plus"]) > resolution
-                                     and abs(record["measured"]["delta_minus"]) > resolution
-                                     and np.sign(record["measured"]["delta_plus"])
-                                     != np.sign(record["measured"]["delta_minus"]))
+            dp = record["measured"]["delta_plus"]
+            dm = record["measured"]["delta_minus"]
+            # 判决必须查**方向**：Δ+ 应下降、Δ− 应上升，且都超过 3σ。
+            # 只查"异号"会放过方向反了的记录（例如 Δ+ +0.08 / Δ− −0.08）。
+            record["verdict"] = bool(dp < -resolution and dm > resolution)
         print(json.dumps({k: v for k, v in record["measured"].items() if k != "frames"},
                          indent=2, ensure_ascii=False), flush=True)
 
