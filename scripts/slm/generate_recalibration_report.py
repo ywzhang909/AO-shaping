@@ -45,6 +45,11 @@ def load(old_focus_path: Path = OLD_FOCUS) -> dict:
     flat_dir = ROOT / "logs/target_size_sweep/direction_after_focus_dev/direction_record.json"
     probe_dir = ROOT / "logs/target_size_sweep/direction_probe_seed/direction_record.json"
     probe1000_dir = ROOT / "logs/target_size_sweep/direction_probe_1000px/direction_record.json"
+    recheck_dirs = {
+        "60_003": ROOT / "logs/target_size_sweep/dir60_spot1227_rms003/direction_record.json",
+        "60_006": ROOT / "logs/target_size_sweep/dir60_spot1227_rms006/direction_record.json",
+        "1000_006": ROOT / "logs/target_size_sweep/dir1000_spot1227_rms006/direction_record.json",
+    }
     floor1000 = ROOT / "logs/target_size_sweep/noise_floor_1000px_after_focus/noise_floor.json"
     return dict(
         old_focus=json.loads(old_focus_path.read_text(encoding="utf-8")) if old_focus_path.exists() else None,
@@ -207,7 +212,7 @@ def _conclusion(flat: dict, probe: dict, probe1000: dict | None = None) -> str:
         return ("**1000 px 目标 + 0.06 rad 增量下方向检验通过**：实测 Δ+ = "
                 f"{probe1000['delta_plus']:+.5f}、Δ− = {probe1000['delta_minus']:+.5f}，"
                 f"均超过该掩膜的 3σ = {probe1000['resolution']:.4f} 且符号相反 "
-                "⇒ 新检查点的梯度在实验系统上指对了方向。\n\n"
+                "⇒ 该次记录通过，但见 §3b 的复核：位置对齐后不可复现。\n\n"
                 "这也说明 60 px 那次失败是**增量太小**（0.03 rad 下实测效应 ~0.015 < 3σ 0.0165），"
                 "不是方向错。\n\n下一步：按 1000 px 目标进入 D 块闭环（每块 10 步、A-B-B-A、"
                 "按该掩膜的 3σ 判读），并同步用 HDR 采集做大框度量。")
@@ -253,6 +258,8 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+
 
 
 
