@@ -1503,3 +1503,118 @@ def test_gui_never_redeclares_driver_voltage_bounds() -> None:
         "`drivers/dm/micro/micro_constants.py`; import them so the GUI cannot drift "
         "away from what the driver enforces."
     )
+
+
+#: Thread bodies in ``gui/`` that still reach ``st.session_state``. Each entry is
+#: recorded debt: the guard fails if it grows, **and** if it stops being true, so a
+#: fix cannot quietly leave a stale exemption behind.
+_GUI_THREAD_SS_ALLOWLIST = {
+    "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py::_run_calibration_thread",
+    "src/ao_shaping/gui/slm/slm_calibration_ui.py::_calibration_worker",
+}
+
+
+def _scan_thread_func(
+    func: ast.FunctionDef | ast.AsyncFunctionDef,
+) -> tuple[bool, set[str], set[str]]:
+    """Return (touches session_state directly, names called, Thread targets spawned)."""
+    touches = False
+    called: set[str] = set()
+    targets: set[str] = set()
+    for node in ast.walk(func):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr == "session_state"
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "st"
+        ):
+            touches = True
+        if not isinstance(node, ast.Call):
+            continue
+        if isinstance(node.func, ast.Name):
+            called.add(node.func.id)
+        elif isinstance(node.func, ast.Attribute):
+            if node.func.attr == "Thread":
+                target_kw = next(
+                    (kw.value for kw in node.keywords if kw.arg == "target"), None
+                )
+                if isinstance(target_kw, ast.Name):
+                    targets.add(target_kw.id)
+                elif node.args and isinstance(node.args[0], ast.Name):
+                    targets.add(node.args[0].id)
+            called.add(node.func.attr)
+    return touches, called, targets
+
+
+def _gui_thread_body_offenders() -> set[str]:
+    """``file::function`` for every ``Thread(target=...)`` body that reaches session_state.
+
+    Reachability is transitive and resolved to a fixpoint over same-module calls,
+    because that is how the violations actually happened: ``_matrix_continuous_loop``
+    wrote session_state through ``set_tab2_feedback``, and the single-unit loops
+    wrote it through ``_single_send_v``. A scan that only inspects the thread body's
+    own attribute accesses reports all three as clean while shipping the race.
+    """
+    for path in sorted((SRC / "ao_shaping" / "gui").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+
+        direct: set[str] = set()           # bodies with their own session_state access
+        graph: dict[str, set[str]] = {}    # function -> names it calls
+        thread_targets: set[str] = set()
+
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            touches, called, targets = _scan_thread_func(node)
+            if touches:
+                direct.add(node.name)
+            graph.setdefault(node.name, set()).update(called)
+            thread_targets.update(targets)
+
+        reaching = set(direct)
+        changed = True
+        while changed:
+            changed = False
+            for caller, callees in graph.items():
+                if caller in reaching:
+                    continue
+                if any(callee in reaching for callee in callees):
+                    reaching.add(caller)
+                    changed = True
+
+        for target in thread_targets & reaching:
+            yield f"{rel}::{target}"
+
+
+def test_gui_thread_bodies_never_reach_session_state() -> None:
+    """No ``Thread(target=...)`` body under ``gui/`` may touch ``st.session_state``.
+
+    AGENTS.md states the rule and the approved shape (parameter snapshot in a
+    plain dict, ``threading.Event`` for stop, ``queue.Queue`` drained by the main
+    thread on rerun), but until now nothing enforced it. ``st.session_state`` is
+    keyed off Streamlit's ``ScriptRunContext``; touching it from a hand-spawned
+    thread produces the ``missing ScriptRunContext`` path and races the rerun that
+    is reading the same value. The three loops in ``gui/dm/micro_dm_ui.py`` polled
+    ``mdm_single_running`` / ``mdm_matrix_continuous_running`` **as the loop
+    condition, every tick**, and appended to the history deques every tick -- the
+    widest possible window -- while ``disconnect_dm`` never stopped the matrix
+    thread at all, leaving it driving an already-closed device until an exception
+    tripped it.
+
+    The allowlist is two-way on purpose (same convention as
+    ``test_drivers_only_assert_internal_invariants``): the remaining two offenders
+    are real but pre-date this change and are tracked as debt in TODO.md 8.9.
+    """
+    found = set(_gui_thread_body_offenders())
+    new = sorted(found - _GUI_THREAD_SS_ALLOWLIST)
+    stale = sorted(_GUI_THREAD_SS_ALLOWLIST - found)
+    assert not new and not stale, (
+        f"{new = } -- thread bodies must receive their device handle, a parameter "
+        "snapshot, a threading.Event and a queue.Queue as arguments; only the main "
+        "thread touches st.session_state (AGENTS.md, 'Streamlit background threads'). "
+        f"{stale = } -- fixed; drop it from the allowlist."
+    )

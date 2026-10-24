@@ -530,11 +530,33 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    （负字面量在 AST 里是 `UnaryOp(USub, Constant)` 而非 `Constant`），靠"把守卫跑在
    改前树上"的非空验证抓到 ⇒ 加 `_numeric_literal`；与"grep 漏 `except (…, AssertionError)`
    元组形式"是同一类只看一种拼写的盲区，守卫的**非空性**必须实测而不是假定。
-4. 🔴 **新发现（未修）**：`gui/dm/micro_dm_ui.py:642-657` 的 `_matrix_continuous_loop`
-   是 daemon 线程且**直接读写 `st.session_state`**，违反 AGENTS.md 的 Streamlit
-   后台线程规则（须按 R50 `run_loop` 模式：参数快照传 plain dict、
-   `threading.Event` 传停止信号、`queue.Queue` 回传状态）。同文件的 `r50_*`
-   兄弟模块已经是正确写法，属可对照的既有范式。
+4. ✅ **`gui/` 后台线程触碰 `st.session_state` 已收口**（本提交）：实测**不是单点而是 5 处** ——
+   `gui/dm/micro_dm_ui.py` 的 `_matrix_continuous_loop` / `_single_fixed_loop` /
+   `_single_periodic_loop`，`gui/zernike/zernike_response_matrix_ui.py::_run_calibration_thread`，
+   `gui/slm/slm_calibration_ui.py::_calibration_worker`。最重的三个 dm 循环把 `session_state`
+   的 running 标志**当循环条件每 tick 轮询**、并每 tick 往历史 deque 追加（竞态窗口最大）；
+   而 `disconnect_dm` **根本没停**矩阵线程 ⇒ 它继续驱动已关闭的设备，直到异常把它绊倒。
+   违规还是**间接**的：`_matrix_continuous_loop` 自己不写 `session_state`，它经
+   `set_tab2_feedback` 写；两个单单元循环经 `_single_send_v` 写 ⇒ **只扫线程体自身属性
+   访问的守卫会把这三处全判干净**。改法与 `gui/r50/r50_voltage_send.py` 的
+   `run_loop/start_loop/stop_loop` **同构但不跨设备域 import**：`_start_bg_loop` 在主线程建
+   `Event`+`Queue` 并把句柄存进 `session_state`；线程体只收 ctrl / 参数快照 / `Event` / `Queue`；
+   停止用 `Event` 而非被轮询的布尔标志；线程在 `finally` 里 set 自己的 Event 表示自退，
+   **运行标志只由主线程清**；样本与错误走队列，由 fragment 在 rerun 时排空（tab1 的
+   `run_every=0.15` 就是排空点）。用户可见行为不变：Streamlit 本来就**不会**因线程写
+   `session_state` 而 rerun，旧代码的反馈同样只在下次 rerun 才出现。
+   顺带堵掉两处**新模型下才会显形**的生命周期坑：设备为 `None` 时原代码直接 `return`，
+   而运行标志改由主线程持有后，早退不 set Event 会把「运行中」指示灯**永久卡住**
+   ⇒ 改为回传错误并在 `finally` set Event。
+   守卫 `test_gui_thread_bodies_never_reach_session_state`：`Thread(target=…)` 的体内
+   **沿同模块调用图做到不动点**（否则间接违规漏检），allowlist **两向**。剩余 2 处
+   （zernike/slm 只在收尾与出错时触碰，窗口小得多）作为**已登记欠债**进 allowlist，
+   改好却不删条目同样判失败。非空性实测：把同一守卫跑在改前的 `950e2e9d` 上 ⇒
+   `new` 恰为那 3 个 dm 循环且 `stale=[]`（顺带证明 2 条 allowlist 当时确实成立，
+   不是凭空写的）。新增 `tests/ao_shaping/gui/dm/test_micro_dm_threads.py`（13 项，
+   纯逻辑无硬件）：把 `st.session_state` 换成「一碰就炸」的哨兵后跑遍三条循环；
+   其中 `test_bomb_actually_trips_on_session_state_access` 钉**哨兵本身有效** ——
+   否则「从不触碰」只是一句空话。⚠️ 该文件此前**没有任何测试 import 过 `micro_dm_ui`**。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
@@ -594,6 +616,8 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 | `test_common_helpers_not_reintroduced[_fmt]` | `compare_sim_vs_hw.py` 的 `def _fmt` **不是**五个既有格式化器的副本，而是**第六个**：`None→—`、`±inf→∞/-∞`、`g` 规格。17 个探针值实测，五个没有一个逐字节相同（`fmt_general` 同 `g` 规格但输出 `inf`/`None`，`fmt_metric` 输出扁平 `-`） | 提取为 `scripts._common.fmt_sigfig`（进 `__all__`），59 处调用点改名；等价性用「被删函数体 vs 新函数」在探针集与 `digits=3..6` 上逐字节证明。同时把该生成器纳入 `MIGRATED` 契约（要求具名内联 repo-root bootstrap —— 也正是 ruff E402 豁免的那种写法），防止再漂 | `b6ee43f1` |
 | `test_no_script_hardcodes_a_machine_absolute_path` | `scripts/slm/fix_report_links.py` 写死 `D:/Projects/TIFO/...`；且未登记 `scripts/README.md`、无引用、就地改写报告 | **删除**（不是修）：链接完整性已由 `test_report_relative_links_resolve` 机器化守护，留着一条更坏的改链接路径是隐患 | `395d7623` |
 | `test_report_relative_links_resolve[gs_issue_live_20261015.md]` | 正是上面那个脚本的幂等守卫只跳过 `../figures/`、漏了已正确的 `figures/` ⇒ 15 条链接变成 `../figures/figures/…`。正确目标是 `report/shape_trials/figures/`（由 `generate_shape_trial_profiles.py:105 FIG_DIR` 决定；`gs_refine/figures/` 下有**同名但字节不同**的另一套，靠猜必错） | 15 条改回 `../figures/…` | `395d7623` |
+
+| `test_gs_refine_target_shapes::test_default_gs_phase_is_bit_identical_to_the_pre_change_golden` | 🔴 **与生俱红**（2026-10-24 查明，非本轮改动引入）：写下该测试的提交 `d2d0c2b0`（10-23 20:52）当场就是 **7 failed / 38 passed**；到 merge `1de0104c` 只剩它一条还红。期望金标 `c94410b9…` 自写入起**从未被改动过**，而当前实际值 `ebd0b18e…` **在全历史中从未出现过** ⇒ 不是「重新基线又被回退」，是**金标当初就对不上出货代码**。**根因：仓库没有 pytest CI**（AGENTS.md MISSING INFRASTRUCTURE 已自陈），所以一条与生俱红的测试能安静躺一天以上无人知 | ⏳ **待办（独立单元；先别改基线）**：在「`target_amplitude` / sigma / 半径 三个新字段加入**之前**」的父提交上，用测试里同一配置重算 sha1，二选一裁决 —— 若等于 `c94410b9` ⇒ 加字段**确实改了默认数值**，金标拦住的是真回归（GS 是确定性交替投影，任一默认值一变哈希必变）；若不等 ⇒ 金标当初抄错了配置，按可复现来源重钉并把来处写进 docstring | — |
 
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。

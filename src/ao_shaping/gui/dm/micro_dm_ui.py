@@ -16,8 +16,10 @@ from __future__ import annotations
 
 import collections
 import io
+import queue
 import threading
 import time
+from collections.abc import Callable, Sequence
 
 import numpy as np
 import streamlit as st
@@ -129,6 +131,80 @@ def set_tab2_feedback(message: str, msg_type: str = "info") -> None:
     st.session_state.mdm_tab2_feedback_type = msg_type
 
 
+# =============================================================================
+# 后台下发循环的线程边界 (约定见 AGENTS.md "Streamlit background threads")
+#
+# 线程体只看传入的 ctrl / 参数快照 / threading.Event / queue.Queue;
+# st.session_state 自始至终只由主线程读写。停止信号是 Event (不是被轮询的
+# session_state 布尔标志), 回传走队列, 由 fragment 在 rerun 时排空。
+# 与 gui/r50/r50_voltage_send.py 的 run_loop/start_loop/stop_loop 同构。
+# =============================================================================
+
+def _start_bg_loop(
+    loop_fn: Callable[..., None],
+    args: tuple,
+    *,
+    running_key: str,
+    stop_key: str,
+    queue_key: str,
+    thread_name: str,
+) -> None:
+    """主线程启动后台循环: Event + Queue 建在这里, 句柄存进 session_state。"""
+    stop_event = threading.Event()
+    out_q: queue.Queue = queue.Queue()
+    st.session_state[stop_key] = stop_event
+    st.session_state[queue_key] = out_q
+    st.session_state[running_key] = True
+    threading.Thread(
+        target=loop_fn,
+        args=(*args, stop_event, out_q),
+        daemon=True,
+        name=thread_name,
+    ).start()
+
+
+def _stop_bg_loop(running_key: str, stop_key: str) -> None:
+    """主线程请求停止: set Event, 循环在下一个 tick 退出。"""
+    stop_event = st.session_state.get(stop_key)
+    if stop_event is not None:
+        stop_event.set()
+    st.session_state[running_key] = False
+
+
+def _drain_bg_loop(
+    running_key: str,
+    stop_key: str,
+    queue_key: str,
+    feedback_setter: Callable[[str, str], None],
+    sample_sink: Callable[[float, float], None] | None = None,
+    bounds_ref: Sequence[float] | None = None,
+) -> None:
+    """主线程每次 rerun 排空回传队列, 并把已自退的循环对账为停止。
+
+    循环在 ``finally`` 里 set 自己的 Event 表示退出; 运行标志只由主线程清,
+    所以界面不会和线程抢同一个标志。``bounds_ref`` 在运行期间刷新成当前软限值,
+    等价于线程原本每 tick 读 ``mdm_vmin/mdm_vmax`` 的行为。
+    """
+    stop_event = st.session_state.get(stop_key)
+    if stop_event is not None and stop_event.is_set():
+        st.session_state[running_key] = False
+    if bounds_ref is not None and st.session_state.get(running_key):
+        bounds_ref[0] = float(st.session_state.mdm_vmin)
+        bounds_ref[1] = float(st.session_state.mdm_vmax)
+    out_q = st.session_state.get(queue_key)
+    if out_q is None:
+        return
+    while True:
+        try:
+            kind, payload = out_q.get_nowait()
+        except queue.Empty:
+            break
+        if kind == "sample" and sample_sink is not None:
+            sample_sink(payload[0], payload[1])
+        else:
+            feedback_setter(str(payload), "error")
+
+
 def show_and_clear_feedback(tab: str = "tab1") -> None:
     """显示反馈并清除。"""
     fb_key = f"mdm_{tab}_feedback"
@@ -238,7 +314,7 @@ def connect_single() -> None:
 
 def disconnect_single() -> None:
     """断开单个单元连接。"""
-    st.session_state.mdm_single_running = False
+    _stop_bg_loop(_SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY)
     try:
         if st.session_state.mdm_single_controller is not None:
             st.session_state.mdm_single_controller.close()
@@ -254,58 +330,89 @@ def disconnect_single() -> None:
 # Tab 1: 单单元发送线程
 # =============================================================================
 
-def _single_send_v(ctrl, channel: int, voltage: float, apply_all: bool) -> None:
-    """向单单元下发电压 (单通道或全部通道)。"""
-    v = float(np.clip(voltage, st.session_state.mdm_vmin, st.session_state.mdm_vmax))
-    v = float(np.clip(v, HW_VOLTAGE_MIN, HW_VOLTAGE_MAX))
+def _clamp_voltage(voltage: float, bounds: Sequence[float]) -> float:
+    """先夹到软限 (侧栏 vmin/vmax), 再夹到驱动硬上限。"""
+    v = float(np.clip(float(voltage), float(bounds[0]), float(bounds[1])))
+    return float(np.clip(v, HW_VOLTAGE_MIN, HW_VOLTAGE_MAX))
+
+
+def _apply_single_voltage(ctrl, channel: int, v: float, apply_all: bool) -> bool:
+    """向单单元下发电压 (单通道或全部通道); 未连接时返回 False, 调用方据此不记历史。"""
     if ctrl is None:
-        return
+        return False
     if apply_all:
         ctrl.set_all_channel_voltage(v)
     else:
         ctrl.set_channel_voltage(channel, v)
-    st.session_state.mdm_single_history.append(v)
-    st.session_state.mdm_single_history_t.append(time.time())
+    return True
 
 
-def _single_fixed_loop(channel: int, voltage: float, apply_all: bool, interval: float) -> None:
+def _record_single_sample(voltage: float, t: float) -> None:
+    """主线程把一次下发记进可视化历史 (deque 有 maxlen, 无需手工裁剪)。"""
+    st.session_state.mdm_single_history.append(voltage)
+    st.session_state.mdm_single_history_t.append(t)
+
+
+#: 线程边界句柄所在的 session_state 键 (Event/Queue 由主线程创建与持有)。
+_SINGLE_RUNNING_KEY = "mdm_single_running"
+_SINGLE_STOP_KEY = "mdm_single_stop"
+_SINGLE_Q_KEY = "mdm_single_q"
+_SINGLE_BOUNDS_KEY = "mdm_single_bounds_ref"
+_MATRIX_RUNNING_KEY = "mdm_matrix_continuous_running"
+_MATRIX_STOP_KEY = "mdm_matrix_stop"
+_MATRIX_Q_KEY = "mdm_matrix_q"
+
+
+def _single_fixed_loop(
+    channel: int, voltage: float, apply_all: bool, interval: float,
+    ctrl, bounds_ref: Sequence[float],
+    stop_event: threading.Event, out_q: queue.Queue,
+) -> None:
     """固定电压持续下发线程。"""
-    ctrl = st.session_state.mdm_single_controller
     try:
-        while st.session_state.mdm_single_running:
-            _single_send_v(ctrl, channel, voltage, apply_all)
+        while not stop_event.is_set():
+            v = _clamp_voltage(voltage, bounds_ref)
+            if not _apply_single_voltage(ctrl, channel, v, apply_all):
+                out_q.put(("error", "设备未连接，持续下发已停止"))
+                break
+            out_q.put(("sample", (v, time.time())))
             time.sleep(interval)
     except Exception as e:
-        st.session_state.mdm_single_running = False
+        out_q.put(("error", f"固定电压下发异常: {e}"))
         logger.exception(f"固定电压下发异常: {e}")
-        set_tab1_feedback(f"固定电压下发异常: {e}", "error")
+    finally:
+        stop_event.set()
 
 
 def _single_periodic_loop(
     channel: int, apply_all: bool, wave_type: str,
     amp: float, offset: float, high: float, low: float,
     period: float, dt: float,
+    ctrl, bounds_ref: Sequence[float],
+    stop_event: threading.Event, out_q: queue.Queue,
 ) -> None:
     """周期波形下发线程，并记录下发电压用于可视化。"""
-    ctrl = st.session_state.mdm_single_controller
-    if ctrl is None:
-        return
     period = max(period, 0.05)
     t0 = time.time()
     try:
-        while st.session_state.mdm_single_running:
+        while not stop_event.is_set():
             elapsed = time.time() - t0
             phase = elapsed % period
             if wave_type == "sine":
                 v = offset + amp * np.sin(2 * np.pi * phase / period)
             else:  # square
                 v = high if phase < period / 2 else low
-            _single_send_v(ctrl, channel, v, apply_all)
+            v = _clamp_voltage(v, bounds_ref)
+            if not _apply_single_voltage(ctrl, channel, v, apply_all):
+                out_q.put(("error", "设备未连接，周期下发已停止"))
+                break
+            out_q.put(("sample", (v, time.time())))
             time.sleep(dt)
     except Exception as e:
-        st.session_state.mdm_single_running = False
+        out_q.put(("error", f"周期波形下发异常: {e}"))
         logger.exception(f"周期波形下发异常: {e}")
-        set_tab1_feedback(f"周期波形下发异常: {e}", "error")
+    finally:
+        stop_event.set()
 
 
 # =============================================================================
@@ -381,6 +488,12 @@ def _render_waveform_preview(period: float, wave_type: str,
 @st.fragment(run_every=0.15)
 def _tab1_fragment():
     """Tab 1 单单元控制 fragment — 按钮自动刷新 + run_every 实时电压可视化."""
+    _drain_bg_loop(
+        _SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY, _SINGLE_Q_KEY,
+        set_tab1_feedback,
+        sample_sink=_record_single_sample,
+        bounds_ref=st.session_state.get(_SINGLE_BOUNDS_KEY),
+    )
 
     # ---- 顶部状态栏 ----
     col_status1, col_status2 = st.columns([1, 4])
@@ -466,8 +579,15 @@ def _tab1_fragment():
                         set_tab1_feedback("设备未连接", "error")
                     else:
                         try:
-                            _single_send_v(st.session_state.mdm_single_controller,
-                                           int(channel), voltage, st.session_state.mdm_single_apply_all)
+                            v = _clamp_voltage(
+                                voltage,
+                                (st.session_state.mdm_vmin, st.session_state.mdm_vmax),
+                            )
+                            if _apply_single_voltage(
+                                st.session_state.mdm_single_controller,
+                                int(channel), v, st.session_state.mdm_single_apply_all,
+                            ):
+                                _record_single_sample(v, time.time())
                             set_tab1_feedback(f"已下发 {voltage:.1f} V", "success")
                         except Exception as e:
                             set_tab1_feedback(f"发送失败: {e}", "error")
@@ -480,18 +600,26 @@ def _tab1_fragment():
                         if not st.session_state.mdm_single_connected:
                             set_tab1_feedback("设备未连接", "error")
                         else:
-                            st.session_state.mdm_single_running = True
-                            threading.Thread(
-                                target=_single_fixed_loop,
-                                args=(int(channel), voltage,
-                                      st.session_state.mdm_single_apply_all, 0.1),
-                                daemon=True,
-                            ).start()
+                            st.session_state[_SINGLE_BOUNDS_KEY] = [
+                                float(st.session_state.mdm_vmin),
+                                float(st.session_state.mdm_vmax),
+                            ]
+                            _start_bg_loop(
+                                _single_fixed_loop,
+                                (int(channel), voltage,
+                                 st.session_state.mdm_single_apply_all, 0.1,
+                                 st.session_state.mdm_single_controller,
+                                 st.session_state[_SINGLE_BOUNDS_KEY]),
+                                running_key=_SINGLE_RUNNING_KEY,
+                                stop_key=_SINGLE_STOP_KEY,
+                                queue_key=_SINGLE_Q_KEY,
+                                thread_name="mdm-fixed-loop",
+                            )
                             set_tab1_feedback(f"持续下发 {voltage:.1f} V", "success")
                 else:
                     if st.button("⏹ 停止", use_container_width=True, type="secondary",
                                  key="mdm_single_hold_stop"):
-                        st.session_state.mdm_single_running = False
+                        _stop_bg_loop(_SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY)
                         set_tab1_feedback("已停止持续下发", "info")
         else:
             wave_type = st.segmented_control(
@@ -548,18 +676,26 @@ def _tab1_fragment():
                     if not st.session_state.mdm_single_connected:
                         set_tab1_feedback("设备未连接", "error")
                     else:
-                        st.session_state.mdm_single_running = True
-                        threading.Thread(
-                            target=_single_periodic_loop,
-                            args=(int(channel), st.session_state.mdm_single_apply_all,
-                                  wave_type, amp, offset, high, low, period, 0.05),
-                            daemon=True,
-                        ).start()
+                        st.session_state[_SINGLE_BOUNDS_KEY] = [
+                            float(st.session_state.mdm_vmin),
+                            float(st.session_state.mdm_vmax),
+                        ]
+                        _start_bg_loop(
+                            _single_periodic_loop,
+                            (int(channel), st.session_state.mdm_single_apply_all,
+                             wave_type, amp, offset, high, low, period, 0.05,
+                             st.session_state.mdm_single_controller,
+                             st.session_state[_SINGLE_BOUNDS_KEY]),
+                            running_key=_SINGLE_RUNNING_KEY,
+                            stop_key=_SINGLE_STOP_KEY,
+                            queue_key=_SINGLE_Q_KEY,
+                            thread_name="mdm-periodic-loop",
+                        )
                         set_tab1_feedback(f"周期下发中: {wave_type}, 周期{period}s", "success")
             else:
                 if st.button("⏹ 停止", type="primary", use_container_width=True,
                              key="mdm_single_period_stop"):
-                    st.session_state.mdm_single_running = False
+                    _stop_bg_loop(_SINGLE_RUNNING_KEY, _SINGLE_STOP_KEY)
                     set_tab1_feedback("周期下发已停止", "info")
 
     # ---- 实时电压可视化 ----
@@ -631,6 +767,7 @@ def connect_dm() -> bool:
 
 def disconnect_dm() -> None:
     """断开 MicroDM 连接。"""
+    _stop_bg_loop(_MATRIX_RUNNING_KEY, _MATRIX_STOP_KEY)
     try:
         if st.session_state.mdm_dm is not None:
             st.session_state.mdm_dm.close()
@@ -643,22 +780,25 @@ def disconnect_dm() -> None:
         logger.exception(f"MicroDM disconnect failed: {e}")
 
 
-def _matrix_continuous_loop(voltage: float, interval: float) -> None:
+def _matrix_continuous_loop(
+    voltage: float, interval: float, dm, vmin: float, vmax: float,
+    stop_event: threading.Event, out_q: queue.Queue,
+) -> None:
     """矩阵持续电压发送后台线程。"""
-    dm = st.session_state.mdm_dm
-    if dm is None:
-        return
     try:
-        voltage_clipped = float(np.clip(voltage, st.session_state.mdm_vmin, st.session_state.mdm_vmax))
-        voltage_clipped = float(np.clip(voltage_clipped, HW_VOLTAGE_MIN, HW_VOLTAGE_MAX))
+        if dm is None:
+            out_q.put(("error", "设备未连接，矩阵持续发送已停止"))
+            return
+        voltage_clipped = _clamp_voltage(voltage, (vmin, vmax))
         voltages = np.full(TOTAL_CHANNELS, voltage_clipped, dtype=np.float64)
-        while st.session_state.mdm_matrix_continuous_running:
+        while not stop_event.is_set():
             dm.send_voltages(voltages)
             time.sleep(interval)
     except Exception as e:
-        st.session_state.mdm_matrix_continuous_running = False
+        out_q.put(("error", f"矩阵持续发送异常: {e}"))
         logger.exception(f"矩阵持续电压发送异常: {e}")
-        set_tab2_feedback(f"矩阵持续发送异常: {e}", "error")
+    finally:
+        stop_event.set()
 
 
 def _render_heatmap(matrix, vmin, vmax, colormap):
@@ -694,6 +834,10 @@ def _hw_reset_action() -> None:
 @st.fragment()
 def _tab2_fragment():
     """Tab 2 矩阵联合控制 fragment — 按钮点击自动刷新."""
+    _drain_bg_loop(
+        _MATRIX_RUNNING_KEY, _MATRIX_STOP_KEY, _MATRIX_Q_KEY,
+        set_tab2_feedback,
+    )
     vmin = st.session_state.mdm_vmin
     vmax = st.session_state.mdm_vmax
 
@@ -946,17 +1090,21 @@ def _tab2_fragment():
                 else:
                     st.session_state.mdm_matrix_continuous_voltage = continuous_voltage
                     st.session_state.mdm_matrix_continuous_interval = continuous_interval
-                    st.session_state.mdm_matrix_continuous_running = True
-                    threading.Thread(
-                        target=_matrix_continuous_loop,
-                        args=(continuous_voltage, continuous_interval), daemon=True,
-                    ).start()
+                    _start_bg_loop(
+                        _matrix_continuous_loop,
+                        (continuous_voltage, continuous_interval, st.session_state.mdm_dm,
+                         float(st.session_state.mdm_vmin), float(st.session_state.mdm_vmax)),
+                        running_key=_MATRIX_RUNNING_KEY,
+                        stop_key=_MATRIX_STOP_KEY,
+                        queue_key=_MATRIX_Q_KEY,
+                        thread_name="mdm-matrix-loop",
+                    )
                     set_tab2_feedback(f"矩阵持续发送中: {continuous_voltage}V, 间隔{continuous_interval}s", "success")
         with col_cv_btn2:
             if st.button("⏹ 停止发送",
                          disabled=not st.session_state.mdm_matrix_continuous_running,
                          use_container_width=True, type="secondary", key="mdm_cv_stop"):
-                st.session_state.mdm_matrix_continuous_running = False
+                _stop_bg_loop(_MATRIX_RUNNING_KEY, _MATRIX_STOP_KEY)
                 set_tab2_feedback("矩阵持续发送已停止", "info")
         if st.session_state.mdm_matrix_continuous_running:
             st.success(f"🔵 持续发送中: {continuous_voltage} V, 间隔 {continuous_interval} s")
