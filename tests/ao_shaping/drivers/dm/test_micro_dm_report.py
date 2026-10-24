@@ -9,12 +9,14 @@ Run with:
 
 from __future__ import annotations
 
+import sys
 import time
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pytest
+from loguru import logger
 
 from ao_shaping.drivers.dm.micro import (
     MAX_CHANNELS,
@@ -27,6 +29,35 @@ from ao_shaping.drivers.sim.dm import SimMicroDM
 from tests.ao_shaping.utils.test_report import TestReport, TestWithReport
 
 
+def _backend_note(dm) -> str:
+    if isinstance(dm, SimMicroDM):
+        return (
+            "BACKEND = SimMicroDM (simulation fallback): the hardware MicroDM was "
+            "unavailable, so the numbers below are NOT device evidence."
+        )
+    return f"BACKEND = {type(dm).__name__} (hardware): numbers below are device I/O."
+
+
+def _open_dm():
+    # The sim fallback is deliberate, but it must never be silent: the hardware
+    # report this module writes is a tracked doc, so a quiet swap would publish
+    # simulation numbers as device evidence.
+    try:
+        dm = MicroDM()
+        dm.open()
+        if dm.is_connected():
+            return dm
+        reason = "is_connected() is False after open()"
+    except Exception as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+    logger.warning(
+        "MicroDM hardware unavailable ({}); falling back to SimMicroDM -- "
+        "the generated report is not device evidence.",
+        reason,
+    )
+    return SimMicroDM()
+
+
 class TestMicroDMReport:
     """Micro DM hardware tests with visual report."""
 
@@ -34,17 +65,7 @@ class TestMicroDMReport:
 
     @pytest.fixture
     def dm(self):
-        """Create DM instance (hardware or simulation)."""
-        # Try hardware first, fall back to simulation
-        try:
-            dm = MicroDM()
-            dm.open()
-            if dm.is_connected():
-                return dm
-        except Exception:
-            pass
-        # Fallback to simulation
-        return SimMicroDM()
+        return _open_dm()
 
     @pytest.fixture
     def sim_dm(self):
@@ -56,6 +77,7 @@ class TestMicroDMReport:
         with TestReport("micro-dm") as report:
             report.add_section("Micro DM Hardware Test Report", 2)
             report.add_text("Testing Micro Deformable Mirror driver functionality.")
+            report.add_text(_backend_note(dm))
 
             # Test 1: Device info
             with TestWithReport(report, "Device Information"):
@@ -447,6 +469,73 @@ def test_micro_dm_simulation_report(tmp_path: Path):
 
         report.save()
         print(f"Report saved to: {report.report_path}")
+
+
+class _HardwareUnavailable:
+    instances = 0
+
+    def __init__(self) -> None:
+        type(self).instances += 1
+        raise RuntimeError("controller not found")
+
+
+class _HardwareUnconnected:
+    instances = 0
+
+    def __init__(self) -> None:
+        type(self).instances += 1
+
+    def open(self) -> None:
+        return None
+
+    def is_connected(self) -> bool:
+        return False
+
+
+def _dm_with_patched_hardware(monkeypatch, hardware_cls):
+    # Patch this module's own globals: a dotted-string target can bind a *second*
+    # import of the same file (namespace packages), which would let the fixture
+    # contact real hardware and silently time out for minutes.
+    hardware_cls.instances = 0
+    monkeypatch.setattr(sys.modules[__name__], "MicroDM", hardware_cls)
+    messages: list[str] = []
+    sink = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    try:
+        dm = _open_dm()
+    finally:
+        logger.remove(sink)
+    assert hardware_cls.instances == 1, (
+        "MicroDM patch did not take effect -- the fixture reached real hardware"
+    )
+    return dm, messages
+
+
+@pytest.mark.parametrize(
+    "hardware_cls",
+    [_HardwareUnavailable, _HardwareUnconnected],
+    ids=["open-raised", "open-silent-but-unconnected"],
+)
+def test_sim_fallback_is_announced_on_both_routes(monkeypatch, hardware_cls) -> None:
+    """A hardware run that actually used simulation must say so.
+
+    The second route never raised, so the original bare `except Exception: pass`
+    could not have reported it at all.
+    """
+    dm, messages = _dm_with_patched_hardware(monkeypatch, hardware_cls)
+
+    assert isinstance(dm, SimMicroDM)
+    assert any("falling back to SimMicroDM" in m for m in messages), messages
+
+
+def test_backend_note_marks_a_sim_run_as_not_device_evidence() -> None:
+    note = _backend_note(SimMicroDM())
+
+    assert "SimMicroDM" in note
+    assert "NOT device evidence" in note
+
+
+def test_backend_note_names_the_hardware_class() -> None:
+    assert "_HardwareUnconnected (hardware)" in _backend_note(_HardwareUnconnected())
 
 
 if __name__ == "__main__":

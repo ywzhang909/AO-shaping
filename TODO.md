@@ -657,7 +657,48 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    collection 阶段拦下 ⇒ **改完测试文件先在宿主机 AST/ruff，再进容器**。
    回归：`tools/slm/test_slm_train_data_collect` + `utils/image` + `gui/slm` **371 passed / 0 failed**；
    `test_conventions` **32 passed / 1 skipped**。术语门禁 `合计: 0 个文件, 0 行`。
-   **BLE001 分簇剩余（未做）**：只剩 `tests/ao_shaping/drivers` 10 处 silent。
+   **BLE001 分簇进度**：已**逐处读过**的簇 = `src/drivers` 19→17、`src/gui` 27→26、`src/tools` 15→14、
+   `tests/ao_shaping/drivers` 10→9（本行写于第 8 项之前，`tests` 片见下）。
+   2026-10-24 全仓复测（`src`+`tests`+`scripts`，AST 判 silent）：**silent 共 90**，
+   分 `src/` 63（drivers/ccd 15、tools/slm 11、gui/ccd 9、gui/slm 9、gui/r50 6、drivers/dm 2、
+   optimizer/wfless 2、tools/wfs 3、runners 2…）、`tests/` 16（drivers/dm 7、utils/test_spots_calc.py 4、
+   gui/zernike 2…）、`scripts/` 11（probe_optical_path_validity.py 2…）。
+   ⇒ **尚未逐处过**：`tests/` 非 drivers 的 7 处、`scripts/` 11 处、`src/runners` 2 处、`src/optimizer` 3 处。
+
+8. ✅ **BLE001 `tests/ao_shaping/drivers` 片（10 处 silent）⇒ 9 处正确不动、1 处是**假绿+假证据**缺陷**（2026-10-24）：
+   9 处不动的理由：fixture/工装的尽力 close（`ccd/test_exposure_states.py:99`、
+   `test_hardware_integration.py:569`、`dm/multi_port_server.py:78/84/133`、`dm/port_listener.py:91/99/160`）。
+   ⚠️ `multi_port_server.py:128`（吞掉 recv 循环异常）**实测不是假绿**：消费方
+   `dm/test_micro_dm_multi_controller.py:83-88` 逐条断言记录内容（`HEADER`/`FOOTER`/`0x09`/载荷长度），
+   丢消息会以断言失败或 `IndexError` 暴露 ⇒ 只缺归因，不缺判定 ⇒ 与 `src/drivers` 簇同判据，不动。
+   **真缺陷**：`dm/test_micro_dm_report.py` 的 `dm` fixture 先试硬件、失败后**静默**回落 `SimMicroDM`，
+   而该类 `pytestmark = pytest.mark.hardware`、它写的是**入库文档** `docs/micro-dm/micro-dm_report.md`
+   （标题 "Micro DM Hardware Test Report"）⇒ 硬件**存在但打不开**（设备被占 / IP 错 / SDK 缺）时测试照样绿，
+   报告把**仿真数字当设备验证结论**。这是"错数字不可归因"判据里后果最重的一类：产物本身是设备证据，
+   且落在 `test_only_the_harness_or_hardware_tests_write_tracked_docs` 守卫的入库文档上。
+   ⚠️ **两条静默路，旧结构只可能报告其中一条**：① 构造/`open()` 抛异常（被 `except: pass` 吞）；
+   ② `open()` 成功但 `is_connected()` 为假 ⇒ 直接落到 `return SimMicroDM()`，**根本没有异常**，
+   任何 `except` 里的补丁都覆盖不到它。
+   修法（**策略不变**：仍允许回落，工装要在无硬件机器上可用）：回落逻辑抽成模块级 `_open_dm()`
+   （fixture 只委托；顺带让这段风险逻辑能被离线测试直接驱动），两条路都写 `reason` 并在收尾打**一条**
+   `logger.warning`；新增 `_backend_note(dm)`，把**实际服务的设备类**写进报告正文
+   （仿真回退时明写 "NOT device evidence"）⇒ 产物**自我描述**，不再靠人回忆 fixture 干了什么。
+   测试 4 项（模块级、不带 `hardware` 标记 ⇒ CI 默认可跑）：`test_sim_fallback_is_announced_on_both_routes`
+   （两条路各跑一次）+ `_backend_note` 两个分支。
+   **非空性实测**：把**改前 fixture 体逐字移植**成改前树里的 `_open_dm()` ⇒ 2 失败
+   （`assert any("falling back to SimMicroDM" …)`）+ 2 通过（后两项与 fixture 体无关）；改后整文件
+   **5 passed / 2 skipped**（skip 的 2 项要 `--hardware`）。
+   🔴 **本片我自己制造、又当场抓住的坑，比修复本身更值钱**：测试里用
+   `monkeypatch.setattr("tests.ao_shaping.drivers.dm.test_micro_dm_report.MicroDM", cls)` 这种**点号字符串目标**，
+   在**命名空间包**下绑到了同一文件的**第二次 import** ⇒ "离线"单元测试**真的去连了硬件**：日志
+   `Controller[24] 192.168.0.124 connection failed`（28 个控制器逐个超时）、`No controllers connected`，
+   墙钟 **522 s**（`drivers` 是**阻塞分片** ⇒ CI 里白等 8 分钟），而且两个用例是**因为错误的原因**通过/失败。
+   修法：目标改 `sys.modules[__name__]`（与本测试同一 globals，必然命中），并加**自证断言**
+   `hardware_cls.instances == 1`（补丁没生效就直接失败，而不是悄悄退化成硬件测试）。
+   改后同一组测试 **1.30 s**、整文件 **1.57 s** ⇒ **522 s 全是我这一处造成的**，不是既有仿真测试的开销
+   （我一开始把它误记成既有开销，是靠改后计时才否证的）。
+   ⇒ 新规则（已进本行，未固化成守卫）：**硬件包附近的"离线"测试必须断言桩对象确实被调用**，
+   不能只断言返回值 —— 否则补丁失效会静默变成一次真硬件访问。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
