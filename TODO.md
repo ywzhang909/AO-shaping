@@ -1060,6 +1060,24 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       的方向是"改写 tracked docs 的用例必须带 `hardware` 标记"；两块 `report_refs=0`（不碰 `TestReport` 工装）
       ⇒ 增加标记只会更满足它。实测合跑 **41 passed / 1 skipped**（既有 `ruff not on PATH` 跳过）。
 
+22. ✅ **「死 mock 工装」普查：两条硬信号实测为 0 ⇒ 第 20 项删掉的那一处是孤例，不是类**（2026-10-25）：
+    - **只取三条无歧义信号**（刻意不测"接了 mock 但从不校验"，见下）：
+      ① mock 局部变量赋值后**全函数再无读取**（含属性读）⇒ **0 处**；
+      ② `with patch(...)` 的 body **只有 `pass` / `...`** ⇒ **0 处**；
+      ③ `@patch` 装饰器注入的参数**从未被引用** ⇒ **3 处**。
+    - **结论：不落守卫、不改代码**。第 20 项那种「搭完台只留一句 `pass`」是**孤例**；
+      而且 ③ 那 3 处**全是误报**，不是缺陷。
+    - ⚠️ **这 3 处不得清理**：`drivers/ccd/daheng/test_constants.py:65`、`:81`、
+      `drivers/ccd/test_auto_exposure.py:86` 全部是
+      `@patch("ao_shaping.drivers.ccd.daheng.driver.gx", create=True)` ——
+      `create=True` 的用意就是**在没装厂商 SDK 的机器上凭空造出那个符号**，测试本体自然不必点它的名字。
+      删掉参数会直接让这三测在缺 SDK 的环境炸掉。且它们**都有真断言**
+      （`result is True` / `isinstance(result, np.ndarray)` + `max == 50` / `assert_called_once_with(...)`）⇒ 有信号。
+    - **口径边界（诚实记）**：能自动判的只有"完全无人引用"这类硬惰性；而第 20 项真正的形状是
+      "mock 都接上了、却没有任何一条断言引用它们"——这个**不能**自动化：一旦按"无断言"筛，
+      就重新踩回第 18 项的误报（`test_failing_pull_does_not_raise_out_of_the_callback` 那类
+      「不得抛出」契约本就没有断言）。所以这类判断**保留人工**，不做普查式批量处理。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
