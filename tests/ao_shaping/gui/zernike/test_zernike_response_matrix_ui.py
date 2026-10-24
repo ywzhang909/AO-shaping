@@ -16,8 +16,6 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
-pytestmark = pytest.mark.skip(reason="Requires Streamlit runtime and live SLM/WFS hardware")
-
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -85,8 +83,8 @@ class TestSLMShiftParameters:
 
         assert "zrm_shift_x" in content, "zrm_shift_x should be used in st.number_input"
         assert "zrm_shift_y" in content, "zrm_shift_y should be used in st.number_input"
-        assert '"SLM Shift X"' in content, "Should have 'SLM Shift X' input label"
-        assert '"SLM Shift Y"' in content, "Should have 'SLM Shift Y' input label"
+        assert '"SLM Shift X (像素)"' in content, "Should have 'SLM Shift X (像素)' input label"
+        assert '"SLM Shift Y (像素)"' in content, "Should have 'SLM Shift Y (像素)' input label"
 
     def test_zernikeslm_receives_shift_params(self):
         """Test that ZernikeSLM constructor receives shift_x and shift_y"""
@@ -95,7 +93,7 @@ class TestSLMShiftParameters:
         mock_zernikeslm.return_value = mock_instance
 
         mock_state = self._create_mock_session_state(
-            zrm_slm_number=1,
+            zrm_slm_selection=1,
             zrm_slm_wavelength=532,
             zrm_slm_n_max=10,
             zrm_shift_x=50,
@@ -138,7 +136,7 @@ class TestSLMShiftParameters:
         mock_zernikeslm.return_value = mock_instance
 
         mock_state = self._create_mock_session_state(
-            zrm_slm_number=1,
+            zrm_slm_selection=1,
             zrm_slm_wavelength=532,
             zrm_slm_n_max=10,
             zrm_shift_x=0,
@@ -207,7 +205,7 @@ class TestWFSSettings:
             _initialize_state()
 
             assert mock_state.zrm_wfs_mla_res == "768", "zrm_wfs_mla_res should default to '768'"
-            assert mock_state.zrm_wfs_exp_time == 0.0, "zrm_wfs_exp_time should default to 0.0"
+            assert mock_state.zrm_wfs_exp_time == 0.01, "zrm_wfs_exp_time should default to 0.01"
             assert mock_state.zrm_wfs_pupil_diameter == 2.0, "zrm_wfs_pupil_diameter should default to 2.0"
             assert mock_state.zrm_wfs_pupil_center_x == 0.0, "zrm_wfs_pupil_center_x should default to 0.0"
             assert mock_state.zrm_wfs_pupil_center_y == 0.0, "zrm_wfs_pupil_center_y should default to 0.0"
@@ -219,7 +217,7 @@ class TestWFSSettings:
         with open(ui_file_path, "r", encoding="utf-8") as f:
             content = f.read()
 
-        assert "WFS设置" in content, "Should have 'WFS设置' subheader"
+        assert "WFS参数" in content, "Should have 'WFS参数' subheader"
         assert "zrm_wfs_mla_res" in content, "zrm_wfs_mla_res should be used in UI"
         assert "zrm_wfs_exp_time" in content, "zrm_wfs_exp_time should be used in UI"
         assert "zrm_wfs_pupil_diameter" in content, "zrm_wfs_pupil_diameter should be used in UI"
@@ -418,17 +416,14 @@ class TestCalibrationParameters:
                                                 with patch.object(st, 'divider'):
                                                     with patch("matplotlib.pyplot.subplots"):
                                                         with patch.object(st, 'pyplot'):
-                                                            try:
-                                                                render_calibrate_mode()
-                                                            except Exception:
-                                                                pass  # Ignore errors from mocks
+                                                            render_calibrate_mode()
 
                 # Check that calibrate_zernike_response_matrix was called with correct parameters
-                if mock_calibrate.called:
-                    call_args = mock_calibrate.call_args
-                    assert call_args.kwargs.get("excluded_piston") is True, "excluded_piston should be True"
-                    assert call_args.kwargs.get("compute_inverses") is True, "compute_inverses should be True"
-                    assert call_args.kwargs.get("verbose") is True, "verbose should be True"
+                mock_calibrate.assert_called_once()
+                call_args = mock_calibrate.call_args
+                assert call_args.kwargs.get("excluded_piston") is True, "excluded_piston should be True"
+                assert call_args.kwargs.get("compute_inverses") is True, "compute_inverses should be True"
+                assert call_args.kwargs.get("verbose") is True, "verbose should be True"
 
 
 class TestProgressVisualization:
@@ -494,7 +489,6 @@ class TestProgressVisualization:
         # Check that st.empty() is used for progress_bar placeholder
         assert "progress_bar = st.empty()" in content, "Should create progress_bar placeholder with st.empty()"
         assert "status_text = st.empty()" in content, "Should create status_text placeholder with st.empty()"
-        assert "plot_placeholder = st.empty()" in content, "Should create plot_placeholder with st.empty()"
 
     def test_callback_creates_json_file(self):
         """Test that the callback writes progress to JSON file"""
@@ -521,7 +515,7 @@ class TestProgressVisualization:
                     "timestamp": "2026-04-28T10:00:00",
                 }
 
-                _progress_callback(test_data)
+                _progress_callback(progress_file, test_data)
 
                 # Verify JSON file was created with correct data
                 with open(progress_file, "r") as f:
@@ -652,17 +646,14 @@ class TestProgressVisualization:
                                                 with patch.object(st, 'rerun'):
                                                     with patch("pathlib.Path.mkdir"):
                                                         with patch("pathlib.Path.exists", return_value=False):
-                                                            try:
-                                                                render_calibrate_mode()
-                                                            except Exception:
-                                                                pass  # Ignore errors from mocks
+                                                            render_calibrate_mode()
 
                 # Verify that Thread was called with correct target
-                if mock_threading.Thread.called:
-                    call_args = mock_threading.Thread.call_args
-                    assert call_args.kwargs.get("target") is not None, "Thread should have a target function"
-                    assert call_args.kwargs.get("daemon") is True, "Thread should be daemon=True"
-                    assert "args" in call_args.kwargs, "Thread should have args"
+                mock_threading.Thread.assert_called_once()
+                call_args = mock_threading.Thread.call_args
+                assert call_args.kwargs.get("target") is not None, "Thread should have a target function"
+                assert call_args.kwargs.get("daemon") is True, "Thread should be daemon=True"
+                assert "args" in call_args.kwargs, "Thread should have args"
 
     def test_progress_callback_format(self):
         """Test that progress callback writes correct JSON format"""
@@ -689,7 +680,7 @@ class TestProgressVisualization:
                     "result_path": "/path/to/results",
                 }
 
-                _progress_callback(completion_data)
+                _progress_callback(progress_file, completion_data)
 
                 with open(progress_file, "r") as f:
                     saved_data = json.load(f)
@@ -706,7 +697,7 @@ class TestProgressVisualization:
                     "status": "error",
                 }
 
-                _progress_callback(error_data)
+                _progress_callback(progress_file, error_data)
 
                 with open(progress_file, "r") as f:
                     saved_data = json.load(f)

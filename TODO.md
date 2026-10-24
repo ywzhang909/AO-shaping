@@ -677,7 +677,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      **本行写于第 9/10 项之前，四个片已全部逐处过完**（2026-10-25 用**守卫自己的规则** `_blind_silent_handlers`
      重测**残留**：`src/` **61** —— 与棘轮基线逐字相等，口径自证一致；`tests/` 11 = drivers 9 + 非 drivers 2；
      `scripts/` 11；合计 **83**。分片：`src/runners` 1 + `src/optimizer` 2 = 3（第 9 项：5 处里 2 处真缺陷已修）、
-     `tests/` 非 drivers 2（第 10 项：7 处里 5 处已修、2 处判定为只记录不动）、`scripts/` 11（第 10 项：全部合法）。
+     `tests/` 非 drivers 2（第 10 项：7 处里 5 处已修、2 处判定为只记录不动 —— ⚠️ 该判定的**前提是该文件整模块跳过**，前提已由第 15 项撤除，现非 drivers 残留 **0**）、`scripts/` 11（第 10 项：全部合法）。
 
 8. ✅ **BLE001 `tests/ao_shaping/drivers` 片（10 处 silent）⇒ 9 处正确不动、1 处是「假绿+假证据」缺陷**（2026-10-24）：
    9 处不动的理由：fixture/工装的尽力 close（`ccd/test_exposure_states.py:99`、
@@ -897,6 +897,38 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       `hardware_utils.py:627: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
     - 宿主 ruff 在落容器**之前**拦下一个真错：标识符写成 `re-raised`，连字符被解析成 `re - raised =`，
       报 `invalid-syntax: Invalid assignment target` —— 省一次容器运行。
+
+15. ✅ **`gui/zernike` UI 测试的整模块硬跳过已撤除：22 条全部复活（其中 15 条本来就该跑），并顺带清掉该文件里 2 处盲吞 + 2 处条件断言**（2026-10-25）：
+    - **跳过理由与文件自身矛盾**（这正是它长期无人质疑的原因）：`pytestmark = pytest.mark.skip(reason="Requires Streamlit runtime and live SLM/WFS hardware")`，
+      但实测该文件**没有任何 `AppTest`**、自带 `MockSessionState`、`st.button` 等被 `patch.object`，
+      且被测的 `calibrate_zernike_response_matrix` 在测试里就是 `MagicMock` ⇒ 既不需 Streamlit 运行时，也不需设备。
+      **实测证据**：撤除跳过行后整文件 **1.7 s** 结束、无挂起（挂起风险实测不存在）；撤跳过但**不改任何断言**时 22 条里 **15 条直接通过**。
+    - **7 条失败全部是测试侧腐烂，不是代码缺陷** —— 每条都先用 UI 现值核实，才改期望（绝不反向）：
+      标签 `"SLM Shift X"` 实际是 `"SLM Shift X (像素)"`（UI `:1082`；测试把引号两端都锚进源码文本，故永不匹配）；
+      `zrm_wfs_exp_time` 默认 `0.0` 实际 `0.01`（UI `:138` 带注释 "Valid default within [0.002, 86]"，即有意选择）；
+      子标题 `WFS设置` 实际 `WFS参数`（UI `:965`）；`plot_placeholder = st.empty()` 在 UI 里**根本不存在**
+      （全文件 `placeholder` 零命中，只有 `:758-759` 的 `progress_bar` / `status_text`）⇒ 断言的是幻影，**删断言而非改名迁就**；
+      `_progress_callback(data)` 实际签名是 `_progress_callback(progress_file, progress_data)`（UI `:639`），
+      三处调用点全改（`:521`/`:689`/`:706` —— 第三处在 `error_data` 分支，第一轮读取窗口没覆盖到）；
+      `zrm_slm_number=1` 是喂错键：`connect_slm` 读的是 `zrm_slm_selection`（`:237`，且 `:108-109` 初始化为 1），
+      `zrm_slm_number` 只是连接后回填的实际编号（`:255`）⇒ 已专门查过生产路径 `slm_number` 不会为 `None`，不是 UI 缺陷。
+    - ⚠️ **这批测试的断言机制本身是「源码文本 grep」**（`open(ui).read()` 后 `assert '"…"' in content`）：
+      测的是**字符串是否出现**而不是行为，所以 UI 一改措辞它就腐烂；加上整模块跳过 ⇒ 腐烂完全不可见。
+      本项只把期望对齐现值并删幻影断言，**没有**重写成行为断言（那是单独一刀，仍开放）。
+    - **随复活一并修掉两处「检查了但什么都没断言」**（第 12 项那一类；此前正因为整模块跳过才被判「只记录不动」）：
+      `test_calibrate_receives_parameters` 与 `test_threading_for_calibration` 原本是
+      `try: render_calibrate_mode()` + `except Exception: pass`，再把**全部**断言挂在 `if mock_*.called:` 之下
+      ⇒ 结构上永远不会失败。改成 `assert_called_once()` 并去掉吞异常之后**仍然通过**
+      （实测 `-k=calibrate_receives_parameters` 1 passed；整文件 22 passed）⇒ 校准确被调用一次，
+      线程确有 `target` / `daemon=True` / `args`（UI `:1225` 确实起线程），掩码从来不存在。
+    - **计数联动**（用棘轮守卫自己的规则 `_blind_silent_handlers` 重测，口径与第 11 项一致）：
+      `tests/` 盲吞 **11 → 9**（非 drivers **2 → 0**），全仓 silent **83 → 81**；`src/` **61 不变** ⇒ 棘轮基线不受影响。
+      上面第 7-10 项那段「非 drivers 2 = 只记录不动」已就地标注其前提已撤。
+    - **同类普查（只记数，理由未验）**：`tests/` 仍有 **9 条模块级跳过** —— `drivers/test_tm.py`（COM3）、
+      `drivers/slm/test_slm_miicam.py`、`drivers/test_driver.py`、`drivers/ccd/test_miicam.py`、
+      `ao/test_combine.py`、`ao/test_wfless.py`、`ao/test_wf.py`、`display/test_windows.py`（pygame 显示），
+      以及 `algorithm/test_differentiable_defocus_uniformity.py` 的 `skipif`（缺 checkpoint，条件式，合法）。
+      除本项这条之外**都没验证过理由是否成立** —— 本项的教训是「理由必须可实测」，不是「凡跳过都可疑」。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
