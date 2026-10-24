@@ -1181,7 +1181,7 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   + best-effort pytest 作业 `continue-on-error`），新克隆重新自带 CI 工作流 ——
   本地 `ruff check .` 仍须保持全绿。
   ✅ **2026-10-24：pytest 已成硬门禁**（`.github/workflows/pytest.yml`，push + PR）：
-  一次镜像构建 + **7 个分片**，每片一个 pytest 进程，`AO_CPUS=4 / AO_MEMORY=6g`
+  一次镜像构建 + **8 个分片**，每片一个 pytest 进程，`AO_CPUS=4 / AO_MEMORY=6g`
   （ubuntu-latest 4 vCPU / 16 GB，留头寸）。`ci.yml` 里那个整目录单进程的
   `continue-on-error` 作业已删除 —— 它在 runner 上**不可能通过**（实测无目标参数的
   `run_pytest_ci.sh` 在 16g 上限下 34% 处 SIGKILL，exit 137）。分片清单只列**目录**、
