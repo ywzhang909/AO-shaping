@@ -1968,3 +1968,42 @@ def test_thread_boundary_exception_capture_keeps_base_exception() -> None:
         "an interrupt inside the worker would then vanish and the caller would treat "
         f"the call as successful:\n  " + "\n  ".join(sorted(narrowed))
     )
+
+
+def _ctypes_imports_in_utils() -> list[str]:
+    """Files under ``utils/`` binding a native SDK through ``ctypes``."""
+    found: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "utils").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name == "ctypes" or a.name.startswith("ctypes.") for a in node.names):
+                    found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] == "ctypes":
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return found
+
+
+def test_the_utils_leaf_layer_never_binds_a_native_sdk() -> None:
+    """``utils/`` is the leaf layer: no ``ctypes``, so no vendored driver bindings.
+
+    ``utils/wavefront/vi.py`` (188 lines of ctypes VISA) was deleted in bbb3820b,
+    which left the invariant behind as prose only -- nothing stopped the same shape
+    from coming back under a new filename. Native SDK binding belongs in
+    ``drivers/``, which is where the lazy-import contract, the ``hardware`` gate and
+    the device error classes live; a ``ctypes`` import in ``utils/`` silently breaks
+    the "import utils without a device or SDK" property the offline probes rely on.
+
+    Measured 2026-10-25: 0 such imports in ``src/ao_shaping/utils/``. The baseline is
+    an empty set, not a ``file:line`` allowlist, so there is nothing to re-pin.
+    """
+    offenders = _ctypes_imports_in_utils()
+    assert not offenders, (
+        f"{len(offenders)} file(s) under utils/ import ctypes. That layer is the "
+        "import-light leaf the offline probes and tools depend on; move the binding "
+        "into drivers/ (lazy registration in drivers/_lazy.py) instead:\n  "
+        + "\n  ".join(sorted(offenders))
+    )

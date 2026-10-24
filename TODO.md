@@ -1078,6 +1078,46 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       就重新踩回第 18 项的误报（`test_failing_pull_does_not_raise_out_of_the_callback` 那类
       「不得抛出」契约本就没有断言）。所以这类判断**保留人工**，不做普查式批量处理。
 
+23. ✅ **AGENTS 反模式表两处过期条目已更正，并把「叶子层不得绑 SDK」钉成守卫**（2026-10-25）：
+    - **先记本次的测量教训**：判断 `sim.py` 有没有消费者时我用了不带 `-E` 的 `git grep`，
+      BRE 下裸 `|` 是**字面字符** ⇒ 返回 0 命中，我据此差点写下「无 importer」。
+      同一模式改 ERE 重跑得 3 命中，**正对照实测 BRE=0 / ERE=3** ⇒ 0 命中不等于不存在，
+      必须先证明过滤器本身能命中已知存在的东西。
+    - **`utils/wavefront/vi.py` 那一行是幻影**：该文件早在 `bbb3820b` 被删（-188 行 ctypes VISA），
+      `git ls-files` 已无任何 `vi.py`；现存 ctypes 只在 `drivers/`（正当的 SDK 绑定）。
+      而该行仍写「remove it or move it out of utils」⇒ 指着不存在的文件让后来人修。
+      改为**保留不变式并机械钉住**：新守卫
+      `test_conventions.py::test_the_utils_leaf_layer_never_binds_a_native_sdk`
+      扫 `src/ao_shaping/utils/**` 的 `import ctypes` / `from ctypes ...`；实测基线 **0**
+      ⇒ 空基线、没有 allowlist 会腐烂。**差分**：临时树里（同时带上未提交的新守卫，第 14 项的教训）
+      往 `utils/wavefront/zernike_calc.py` 注入一行 `import ctypes` ⇒ 守卫失败并点名该文件；
+      不注入时 `test_conventions.py` **37 passed / 1 skipped**。
+    - **「Vector-beam demo `sim.py` 应搬去 `scripts/`」这条已过期，照做反而会打断导入**：
+      `14b1cda`（#90/#128，见 §8.12 台账）已把 6 个库文件的 `__main__` demo 搬成独立脚本 ——
+      `sim.py`→`scripts/signal_processing/demo_wavefront_sim.py`、
+      `wavefront.py`→`scripts/signal_processing/demo_wavefront_reconstruction.py`。
+      实测 `sim.py` 只剩库代码（`numpy` / `matplotlib.colors` / `loguru`，**无** `__main__`、
+      `argparse`、`plt.show`），而它**唯一的消费者**恰是那个 demo
+      （取 `VectorAdaptiveOptics` / `VectorBeamPropagator` / `calculate_stokes_rgb` /
+      `create_gaussian_field`）⇒ 把模块本身搬去 `scripts/` 反而会断；
+      `wavefront.py` 另有 2 个消费者（demo + `tests/ao_shaping/algorithm/test_wavefront.py`）。
+    - **顺手清掉搬移留下的两处悬挂横幅**：`sim.py:187` 与 `wavefront.py:163` 各是
+      **文件最后一行**的段落标题（`# ==== 6. 主程序 ====`、`# ---- 演示 ----`），其后**零行内容**
+      ⇒ demo 早已搬走、标题成孤儿。删后 `py_compile` 通过、**末尾恰好一个换行**、
+      demo 所需 4 个符号仍可解析，且 `tests/ao_shaping/algorithm` + 两条脚本导入守卫合跑
+      **556 passed** ⇒ 行为零变化（实测，非假设）。
+    - **改 `AGENTS.md` 前已确认它不被任何测试解析**：4 处命中全是 docstring 里的散文引用，
+      `test_report_provenance.py` 只是把 `report/AGENTS.md` 当作**布局规范**而跳过溯源块检查。
+      改后 `test_conventions.py` + 分片覆盖守卫合跑 **42 passed / 1 skipped**。
+    - **门禁口径两处更正**（本轮实测得出，防止将来误报）：
+      1. 「逐行 `**` 奇偶」这条自检**本身是错的**：`**强调**` 跨软换行在 CommonMark 里合法，
+         且行内代码里的 glob（`utils/**`）同样含星号对。改成**按段落块**（连续非空行）统计、
+         并先剥掉行内代码 ⇒ 实测 **149 个块中未配对 0 个**；旧的逐行口径会虚报 12 行，
+         照着它改文反而会破坏本来正确的措辞。
+      2. 双重夹注 grep 会**自指命中** `AGENTS.md:24` —— 该行正是把禁写形态**引出来当作规则**，
+         与 `HEAD` 逐字相同、非本次引入 ⇒ 该检查的作用域须排除这条定义行；
+         本次新增的 AGENTS 行实测 0 命中。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

@@ -158,6 +158,3 @@ def reconstruct_poisson_svd(sx, sy, remove_tilt=True):
 
     rms = float(np.std(phi))
     return phi, rms
-
-
-# ---------------- 演示 ----------------
