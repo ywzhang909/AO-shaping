@@ -747,7 +747,44 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    看着像我在 `gui/` 收口过的**重复边界漂移**，读 `:87-89` 才发现明文写着同步路径与异步路径**有意不统一**
    （异步用驱动自己的 `VOLTAGE_MIN/MAX`）⇒ 不动。本会话这是第 4 次"模式匹配出的缺陷被上下文否证"。
    **BLE001 分簇状态**：`src/` 各簇已**全部逐处读过**（drivers 19→17、gui 27→26、tools 15→14、runners+optimizer 5→3 保留）；
-   未读：`tests/` 非 drivers 的 7 处、`scripts/` 11 处。
+   `tests/` 与 `scripts/` 见下第 10 项。
+
+10. ✅ **BLE001 收尾两片：`tests/` 非 drivers 7 处 ⇒ 5 处修、2 处只记录不动；`scripts/` 11 处 ⇒ 全部合法**（2026-10-25）：
+    判据在这两棵树**换了一把尺子**：`tests/` 里吞异常的真正危害是**空过的绿**（阻塞分片里尤其贵），
+    `scripts/` 里则是**报告表格里少一行/少一个数**（报告是结论的唯一事实源）。
+    **修掉的 5 处**：
+    ① `utils/test_spots_calc.py` 4 处：CuPy 奇偶校验断言写在 `try: if CUPY_AVAILABLE: … except Exception: pass
+    # Skip if cupy not working` 里 ⇒ 把**可用性**与**正确性**混为一谈：无 GPU 时断言根本不执行却记为 passed
+    （绿而无内容），而**装了却坏掉**的 CuPy 抛错同样被吞 ⇒ 真奇偶缺陷不可见。改为本仓既有的
+    「硬件跳过模式」`pytest.skip(CUPY_UNAVAILABLE_REASON)`（可用性 ⇒ **显式跳过**，可见），断言不再包 `try`
+    （正确性 ⇒ 坏 GPU 直接失败）。⚠️ 顺带发现 `CUPY_UNAVAILABLE_REASON`（区分"未安装/初始化失败/无 CUDA 设备"
+    三种原因）**定义了却从未被引用** —— 我第一版硬编码了自己的跳过文案四遍，已改为复用该单一事实源。
+    实测账目：这两文件从 `N passed` 变 **65 passed / 4 skipped**，跳过原因逐条打印
+    （`CuPy is not installed in the active Python environment (No module named 'cupy')`）。
+    ② `optimizer/wfless/test_slm_zernike_rmse.py:157`：`except Exception: pass` 本身是**有据可依的通过条件**
+    （"验证在开硬件之前跑完，能走到硬件错即算通过"），**不是**误吞；真正的问题在**配置构造写在 `try` 内**
+    ⇒ `SlmZernikePibConfig` / `CameraParamsPib` 字段改名会抛 `TypeError` 并被当作"已到硬件"吞掉，
+    测试在**传入非法配置**的情况下依旧绿。修法是把配置**提到 `try` 外**并把两个 handler 合成一个带断言的
+    （顺带该点不再是静默吞）。⚠️ 这条风险不是假想：`SlmZernikePibConfig` 正是本会话收敛过的 dataclass API。
+    **变异实测（决定性）**：把 `center=` 改成 `ceners=` 后 —— 旧版 **1 passed（盲）**，新版
+    **1 failed：`TypeError: SlmZernikePibConfig.__init__() got an unexpected keyword argument 'ceners'`（有牙）**。
+    **只记录不动的 2 处**：`gui/zernike/test_zernike_response_matrix_ui.py:423/657` —— 该文件
+    `:19 pytestmark = pytest.mark.skip(...)` **整模块硬跳过**，不构成 CI 空绿；且其真正的弱点**不是吞异常**而是
+    `if mock_calibrate.called:` 这个**条件断言**（mock 未被调用时不做任何断言却通过）。**不改**：这类重度 mock 的
+    Streamlit 测试我跑不起来，改它本身就是把它弄坏的方式 ⇒ 记为**已知弱点**，要动必须先让模块可跑。
+    **`scripts/` 11 处全部合法**，分四类：`finally` 尽力清理（`set_phase_overlay(None)` ×3、
+    `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
+    （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
+    与 §8.9 第 5 项 ffmpeg 枚举同判据）；**逐条跳过损坏产物**（`generate_bench_twin_report.py:348`，注释已写明
+    "落盘产物损坏时只丢这一项"）；**可选设备元数据**（`probe_optical_path_validity.py:1351/1356`）。
+    ⚠️ 我先前怀疑 `generate_inverse_shaping_model_report.py:325` 的 `except: continue` 会**悄悄缩小发布表格的样本集**
+    —— **实测否证**：行字典同时发布 `"n": len(norms)` 与 `"records": len(records)`，跳过会表现为 `n < records`，
+    **归因本来就有** ⇒ 不动。另实测 `cam_exposure_range_ms` / `cam_hardware` 在两处赋值之外**全文件零引用**，
+    且该探针的 verdict 分支（`:930-957`）走的是设备互斥锁、不读它们 ⇒ 只影响描述性元数据，不影响结论。
+    **BLE001 全仓终账（实测，非减法推算）**：silent（`pass`/`continue` 且无 raise）由 **90 → 83**
+    （`src` 63→61、`tests` 16→11、`scripts` 11 不变）；`src`/`tests`/`scripts` **三棵树已全部逐处判定完毕**。
+    回归：`tests/ao_shaping/utils` 按 CI 的 `AO_TEST_PER_FILE=1` 跑 **1326 passed / 4 skipped / exit 0**，
+    `tests/ao_shaping/optimizer` 同法 **1261 passed / 3 skipped / exit 0**。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

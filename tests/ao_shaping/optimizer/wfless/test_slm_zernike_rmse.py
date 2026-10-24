@@ -144,18 +144,22 @@ def test_rmse_accepts_target_shape_in_validation() -> None:
     # objectives (i.e. it is not remapped away to ``shape``). The validation
     # runs before any hardware is opened, so reaching hardware/open errors
     # (anything except that specific ValueError) is the pass condition.
+    #
+    # The config is built OUTSIDE the try on purpose: a drifted dataclass signature
+    # raises TypeError inside the try otherwise, which looks identical to "we reached
+    # the hardware" and leaves this test green while passing an invalid config.
+    config = SlmZernikePibConfig(
+        center="shape",
+        epochs=1,
+        camera=CameraParamsPib(target=ObjectiveTarget(name="rmse", target_shape="circle")),
+    )
     try:
-        optimize_slm_zernike_pib(
-            SlmZernikePibConfig(
-                center="shape",
-                epochs=1,
-                camera=CameraParamsPib(target=ObjectiveTarget(name="rmse", target_shape="circle")),
-            )
+        optimize_slm_zernike_pib(config)
+    except Exception as exc:
+        assert "target_shape can only be used" not in str(exc), (
+            f"validation rejected a valid rmse + target_shape config: "
+            f"{type(exc).__name__}: {exc}"
         )
-    except ValueError as exc:
-        assert "target_shape can only be used" not in str(exc)
-    except Exception:
-        pass  # hardware / camera errors - validation already accepted the args
 
 
 def test_effective_objective_key_keeps_rmse() -> None:

@@ -114,16 +114,13 @@ class TestCenterOfMassNumba:
         cx, cy = center_of_mass_numba(intensity, xv, yv)
         assert cx == 2.0
         assert cy == 2.0
-        try:
-            if CUPY_AVAILABLE:
-                intensity_cp = cp.asarray(intensity)
-                xv_cp = cp.asarray(xv)
-                yv_cp = cp.asarray(yv)
-                cx_cp, cy_cp = center_of_mass_cupy(intensity_cp, xv_cp, yv_cp)
-                assert cx_cp == 2.0
-                assert cy_cp == 2.0
-        except Exception:
-            pass  # Skip if cupy not working
+        if not CUPY_AVAILABLE:
+            pytest.skip(CUPY_UNAVAILABLE_REASON)
+        cx_cp, cy_cp = center_of_mass_cupy(
+            cp.asarray(intensity), cp.asarray(xv), cp.asarray(yv)
+        )
+        assert cx_cp == 2.0
+        assert cy_cp == 2.0
 
     def test_center_of_mass_numba_shifted(self):
         intensity = np.zeros((5, 5))
@@ -132,16 +129,13 @@ class TestCenterOfMassNumba:
         cx, cy = center_of_mass_numba(intensity, xv, yv)
         assert cx == 3.0
         assert cy == 1.0
-        try:
-            if CUPY_AVAILABLE:
-                intensity_cp = cp.asarray(intensity)
-                xv_cp = cp.asarray(xv)
-                yv_cp = cp.asarray(yv)
-                cx_cp, cy_cp = center_of_mass_cupy(intensity_cp, xv_cp, yv_cp)
-                assert cx_cp == 3.0
-                assert cy_cp == 1.0
-        except Exception:
-            pass
+        if not CUPY_AVAILABLE:
+            pytest.skip(CUPY_UNAVAILABLE_REASON)
+        cx_cp, cy_cp = center_of_mass_cupy(
+            cp.asarray(intensity), cp.asarray(xv), cp.asarray(yv)
+        )
+        assert cx_cp == 3.0
+        assert cy_cp == 1.0
 
     def test_center_of_mass_numba_moment_2(self):
         intensity = np.ones((3, 3))
@@ -149,16 +143,13 @@ class TestCenterOfMassNumba:
         cx, cy = center_of_mass_numba(intensity, xv, yv, moment=2)
         assert cx == 1.0
         assert cy == 1.0
-        try:
-            if CUPY_AVAILABLE:
-                intensity_cp = cp.asarray(intensity)
-                xv_cp = cp.asarray(xv)
-                yv_cp = cp.asarray(yv)
-                cx_cp, cy_cp = center_of_mass_cupy(intensity_cp, xv_cp, yv_cp, moment=2)
-                assert cx_cp == 1.0
-                assert cy_cp == 1.0
-        except Exception:
-            pass
+        if not CUPY_AVAILABLE:
+            pytest.skip(CUPY_UNAVAILABLE_REASON)
+        cx_cp, cy_cp = center_of_mass_cupy(
+            cp.asarray(intensity), cp.asarray(xv), cp.asarray(yv), moment=2
+        )
+        assert cx_cp == 1.0
+        assert cy_cp == 1.0
 
 
 class TestCenterOfBrightnessNumba:
@@ -168,14 +159,11 @@ class TestCenterOfBrightnessNumba:
         cx, cy = center_of_brightness_numba(img)
         assert cx == 3
         assert cy == 2
-        try:
-            if CUPY_AVAILABLE:
-                img_cp = cp.asarray(img)
-                cx_cp, cy_cp = center_of_brightness_cupy(img_cp)
-                assert cx_cp == 3
-                assert cy_cp == 2
-        except Exception:
-            pass
+        if not CUPY_AVAILABLE:
+            pytest.skip(CUPY_UNAVAILABLE_REASON)
+        cx_cp, cy_cp = center_of_brightness_cupy(cp.asarray(img))
+        assert cx_cp == 3
+        assert cy_cp == 2
 
 
 class TestDiffractionLimit:
