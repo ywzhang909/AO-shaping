@@ -301,7 +301,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | X-4 | [#74](https://github.com/ywzhang909/AO-shaping/issues/74) | 死分叉结论修正：**单向移植 ~80 LOC，不是删除** | F 🟡 |
 | R-29 | [#50](https://github.com/ywzhang909/AO-shaping/issues/50) | ✅ 已完成：`utils/image/display.py` → `display/image_display.py`（commit `a9236e9`，2026-10-09），re-export 已改指 `ao_shaping.display.image_display`，无兼容 shim | E ✅ |
 | ~~R-58~~ | [#77](https://github.com/ywzhang909/AO-shaping/issues/77) | ❌ **误报，已 `not planned` 结案**：`phase_display.py` 的模块级 `PhaseMap` 导入**增量 0 个 `drivers.*` 模块**（原判据的 60 个其实来自父包 `ao_shaping/__init__.py` 的 20 处 eager 再导出）；`model/field.py` 唯一的 `drivers` 导入已在函数内延迟（`model/field.py:43`，注释说明是为规避循环）；`model/` 亦不在 utils 的禁止清单内，且 README 已把 `phase_to_slm_grayscale()` 接受 `PhaseMap` 列为既定契约 | ✅ |
-| ~~R-59~~ | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 用户拍板**方案 3 改名消歧**（`612f8cad`，2026-10-16）：canonical `spots_calc.power_bucket`（dpix 缩放+weighted）保留原名，`wave.py` 裸求和版改名 `power_bucket_sum`，两处 docstring 标注量纲差异，不改数值行为；`docs/simulation.md` 同步改名 | ✅ || ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max-peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
+| ~~R-59~~ | [#78](https://github.com/ywzhang909/AO-shaping/issues/78) | `power_bucket` 两份**归一化语义不同**（`wave.py` 裸桶内和 vs `spots_calc` 的 `weighted`/`use_dpix_scaling`），**委托会改数值、删除会打断活测试** → 用户拍板**方案 3 改名消歧**（`612f8cad`，2026-10-16）：canonical `spots_calc.power_bucket`（dpix 缩放+weighted）保留原名，`wave.py` 裸求和版改名 `power_bucket_sum`，两处 docstring 标注量纲差异，不改数值行为；`docs/simulation.md` 同步改名 | ✅ |
+| ~~R-57~~ | — （已落地，无需 issue） | 峰峰值安全已由软惩罚改为**可行性门**：CLI `--max-peak`（相机计数，默认 `0`=关闭），超限则**不提交该轮更新**，镜像 fold 门（**完全不调** `optimizer.update`，以免用无据的编辑污染 Adam 动量；不追加 `_diff_history`、不刷新基线、不 best-track），违规轮诚实记录 `gate="peak"` 并从 "updates applied" 扣除。**⚠️ 它不是投影也不是安全联锁**：±d 帧在被检查前已出光、提交点要到下一轮才显示（滞后一轮）、只约束相机窗内计数、且 `exposure_time_ms=0` 的自动曝光会掩盖它（该组合下运行器显式告警）。真激光安全仍须带外硬件联锁（IEC 60825-1）。依据见 `report/pib_loss_terms/README.md` §4.1 | E ✅ |
 
 | ~~R-62~~ | [#83](https://github.com/ywzhang909/AO-shaping/issues/83) | ✅ **收敛完成**：3 处 best-frame PNG saver 提为 `display/frames.py::save_best_image(img, out_path, *, title, marker_side=None, hide_axes=False)`（从 `display` **子模块**导入，避免拉进 `windows.py` 的 pygame —— 实测导入后 pygame 未加载）。差异全部参数化而非抹平：**红色十字**（方形 runner 的目标方斑半对角参考）、`axis("off")`、文件名（`best_square.png` vs `best_far_field.png`）、各 runner 自己的标题指标。第三份原用 `plt.savefig`，统一为 `fig.savefig`（新建 figure 上等价，且不依赖 pyplot 隐式当前图）。文件名与标题不变 ⇒ 不改写任何已提交报告 | ✅ |
 | R-46 | [#62](https://github.com/ywzhang909/AO-shaping/issues/62) | ✅ **已收口**。item 1（#63/R-47 `78a9d3d7`）+ item 2（`capture_settled` 移入 `bench_kernels`）此前已完成。本轮收口最后一条模块级 `optimizer→tools` 边：`gaussian_grid`（纯 numpy）从 `tools/kernels/bench_kernels.py` 下沉到叶子 `utils/wavefront/beam_amplitude.py`（新建，仅 import numpy），`bench_kernels` re-export（`a is b` 已验证，`__all__` 不变），`slm_model_in_loop` 改从叶子 import。`capture_settled` 是**函数内延迟 import 的设备内核**（非模块级边），按 `slm_model_in_loop.py` 原注释「last remaining optimizer->tools edge」判定为已接受边界，不动。守卫：新建 `tests/ao_shaping/utils/wavefront/test_beam_amplitude.py`（AST 叶子守卫 + re-export 同一性 + 数值不变量，含 odd-region 浮点孔径 `region/2.0`（阈值 56.25）vs 整型 `region//2`（49）的边界锁定，防 R-51 合并时漂移）；更新 `test_slm_model_in_loop.py::test_declared_module_level_dependencies_are_the_documented_ones` 依赖 pin（`bench_kernels`→`beam_amplitude`）并加负断言防边复活。⚠️ `gaussian_grid` 与 `model_in_loop_shaping._pupil_amplitude`/`amplitude` 是**三份非字节相同**的近重复（孔径半径 float vs int-clamp），合并属行为敏感，归 **R-51（#67）** | ✅ |
@@ -1184,6 +1185,34 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       **刻意不顺手改** —— 属既存缺陷、非本轮动因，且两表均为带日期的历史记录，改动须另立条目；
       发现先登记于此，避免下一轮把它们误算成新引入的破坏。
 
+26. ✅ **markdown 表格单元里的裸 `|` 会切列：手维护文档 5 处已修，生成报告 24 处登记待修**（2026-10-25）：
+    - **普查口径（基准是分隔行，不是表头）**：以 `|---|` 分隔行的列数为真值。理由实测：
+      `report/shape_trials/hw_defocus_zernike/` 三份报告里坏的是**表头本身**（`max|c| (rad)` 把表头
+      切成 14 格，而分隔行与数据行一致为 12 格）—— 拿表头当基准会把**责任行**判反。
+      只报"写入格数 > 声明格数"的行；**少于**声明是合法的（GFM 补齐短行、行尾 `|` 可省略），刻意不报。
+    - **手维护文档 5 处，全部修掉，三种不同成因**：
+      ① 行内代码里的裸 `|` **照样切列**：`docs/architecture.md` 的 `|E|`、`docs/dev/todo_archive.md` 的
+        `[spgd|ga]`、`scripts/README.md` 的 `--protocol(file|objective)` ⇒ 转义成 `\|`；
+      ② `TODO.md` 里**两行挤在同一物理行**（`… | ✅ || ~~R-57~~ | …`，缺换行）⇒ 拆回两行；
+      ③ `TODO.md` 四列表把留档说明放成了**第五格** ⇒ 并回第四格（不是转义问题）。
+      ⇒ **计数是探测器，不是诊断**：同一个"格数超出"症状至少三种成因，每处都必须读原文再决定改法。
+    - **生成报告 24 处 / 11 份刻意不改 `.md`**：它们由 `scripts/_common/provenance.py::REPORTS` 映射的
+      **8 个生成脚本**产出，手改会在下次重生成时被覆盖。正确修法在**生成侧**，且实测**全仓没有转义约定**
+      （`replace("|"` 零命中；仅有的两个 `_row*` 定义是 CSV 取行与排序键，不是 markdown 发射器；
+      8 个脚本一律裸 `f"| {a} | {b} |"`）⇒ 需先立一个共享的行发射/转义 helper 再逐脚本接线；而
+      `hw_defocus_zernike` 系列与 `test_miicam_auto_exposure_report.py`（`-m hardware`）重生成要碰设备数据
+      ⇒ **本轮不做**，登记为后续单元（先修 helper + 接线，数据可离线的那批先重生成）。
+    - **新增守卫** `test_handwritten_markdown_tables_never_split_a_cell_on_a_raw_pipe`
+      （`tests/ao_shaping/test_conventions.py`）：覆盖 119 个手维护 `.md` / **609 个表块**，
+      围栏代码块先清空（仓库在围栏里写表格样例，不清就会报渲染中根本不存在的缺陷），空基线。
+    - **守卫自身的两条教训（比修 5 处更值钱）**：
+      ① 首版把 `_unfenced_md_lines` 的三元写反（`"" if open_fence is None else line`）⇒ 把**围栏外**的
+        真表格全部清空，扫到 **0 个表块**。若反空转断言写成 `blocks > 0`，这个守卫会**永远空过还显示通过**；
+        因为按实测 609 留了 `blocks > 400`，当场判红。⇒ **计数型守卫要断言"扫到了量级"，不是"扫到了东西"**。
+      ② 差异证明用**对 `HEAD` 内容跑同一段代码**（`git archive HEAD | tar -x -C /tmp/head_tree` 后 exec 守卫
+        helper）：工作树 **0**，`HEAD` 树 **5**（正是修掉的那 5 处）。比人工注入更硬——证明守卫抓的是
+        **真实存在过的缺陷类**，不是我为它造的样本。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
@@ -1198,7 +1227,7 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 | 文件 | 块行数 | `__main__` 守卫 | 裸模块级语句 |
 |---|---|---|---|
-| `optimizer/wfless/slm_zernike_shaping.py` | ~~119~~ | 1 | **0** | ← 2026-10-20 该文件已整体删除（#138），本行为 2026-10-14 的历史测量留档 |
+| `optimizer/wfless/slm_zernike_shaping.py` | ~~119~~ | 1 | **0**（← 2026-10-20 该文件已整体删除（#138），本行为 2026-10-14 的历史测量留档） |
 | `optimizer/wfless/slm_square_shaping.py` | 113 | 1 | **0** |
 | `optimizer/rl/rl_wfs.py` / `lr_wfs.py` / `lr.py` | 64 / 60 / 58 | 各 1 | 各 **0** |
 | `algorithm/signal_processing/sim.py` / `wavefront.py` | 48 / 45 | 各 1 | 各 **0** |

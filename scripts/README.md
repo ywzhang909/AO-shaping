@@ -3085,7 +3085,7 @@ corpus, no hardware.
 
 | Script | Purpose |
 |---|---|
-| `train_coeff.py` (module entry: `python -m ml.zernike.train_coeff`) | Train `ZernikeCoeffConvNet`/`ZernikeCoeffMLP` with `--protocol(file|objective)`, `--fold`, `--held-out-path`, `--input-terms`, `--w-ellipse`, W&B. R² selects checkpoints. |
+| `train_coeff.py` (module entry: `python -m ml.zernike.train_coeff`) | Train `ZernikeCoeffConvNet`/`ZernikeCoeffMLP` with `--protocol(file\|objective)`, `--fold`, `--held-out-path`, `--input-terms`, `--w-ellipse`, W&B. R² selects checkpoints. |
 | `sweep_coeff_models.py` | Sweep width/depth × n_max × lr × optimizer across folds. |
 | `forward_search.py` | Forward-model search: physics × U-Net residual × loss × normalization × n_max. Writes `report/loss_defects/forward_search.json`. |
 | `forward_search_extra.py` | Expanded forward search with additional loss/augmentation combinations. |

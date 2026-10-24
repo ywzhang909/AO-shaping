@@ -2007,3 +2007,113 @@ def test_the_utils_leaf_layer_never_binds_a_native_sdk() -> None:
         "into drivers/ (lazy registration in drivers/_lazy.py) instead:\n  "
         + "\n  ".join(sorted(offenders))
     )
+
+
+_MD_TABLE_SKIP = re.compile(
+    r"(^|/)(report|call_graph_wiki|node_modules|\.venv|__pycache__)(/|$)"
+)
+_MD_FENCE = re.compile(r"^\s*(```|~~~)")
+_MD_SEP_ROW = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$")
+
+
+def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
+    """Markdown lines with fenced bodies blanked, original line numbers kept.
+
+    Table-shaped text inside a fence must not be read as a table: this repo documents
+    row formats inside fenced blocks, and parsing those would report defects no
+    renderer ever shows.
+    """
+    lines: list[tuple[int, str]] = []
+    open_fence: str | None = None
+    for lineno, line in enumerate(text.splitlines(), 1):
+        mark = _MD_FENCE.match(line)
+        if mark:
+            if open_fence is None:
+                open_fence = mark.group(1)
+            elif mark.group(1) == open_fence:
+                open_fence = None
+            lines.append((lineno, ""))
+            continue
+        lines.append((lineno, line if open_fence is None else ""))
+    return lines
+
+
+def _md_pipe_count(line: str) -> int:
+    """Cell delimiters in a table row: every ``|`` that is not GFM-escaped."""
+    return len(re.findall(r"(?<!\\)\|", line))
+
+
+def _markdown_table_cell_splits() -> tuple[list[str], int]:
+    """Rows writing more cells than their own separator row declares."""
+    offenders: list[str] = []
+    blocks = 0
+    for path in sorted(REPO.rglob("*.md")):
+        rel = str(path.relative_to(REPO))
+        if _MD_TABLE_SKIP.search(rel):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:  # ruff owns encoding failures
+            continue
+        rows: list[tuple[int, str]] = []
+        table_blocks: list[list[tuple[int, str]]] = []
+        for lineno, line in _unfenced_md_lines(text):
+            if line.startswith("|"):
+                rows.append((lineno, line))
+            elif rows:
+                table_blocks.append(rows)
+                rows = []
+        if rows:
+            table_blocks.append(rows)
+        blocks += len(table_blocks)
+        for block in table_blocks:
+            if len(block) < 2 or not _MD_SEP_ROW.match(block[1][1]):
+                continue  # no separator row: prose shaped like a table
+            declared = _md_pipe_count(block[1][1])
+            for lineno, line in block:
+                written = _md_pipe_count(line)
+                if written > declared:
+                    offenders.append(
+                        f"{rel}:{lineno}: separator declares {declared - 1} cell(s), "
+                        f"this row writes {written - 1}: {line[:70]}"
+                    )
+    return offenders, blocks
+
+
+def test_handwritten_markdown_tables_never_split_a_cell_on_a_raw_pipe() -> None:
+    """A bare ``|`` in a markdown table cell must be escaped or it splits the cell.
+
+    Inline code does not protect the pipe: ``|E|``, ``[spgd|ga]`` and
+    ``--protocol(file|objective)`` each silently added a column to a hand-written
+    table. The same census surfaced two further shapes this count also catches: an
+    archival note parked in a fifth cell of a four-column table (TODO.md), and two
+    rows fused onto one physical line by a missing newline (TODO.md) -- so the count
+    is a detector, not a diagnosis, and each hit still needs its cause read.
+
+    The separator row, not the header, is the structural reference: a header can be
+    the broken line itself (the hw_defocus_zernike reports put ``max|c| (rad)`` in a
+    header, splitting it into 14 cells against a 12-cell body). Rows writing *fewer*
+    cells are legal -- GFM pads short rows and the trailing ``|`` is optional -- so
+    they are deliberately not flagged.
+
+    ``report/**`` is excluded on purpose because those files are generated: 24 splits
+    live in 11 of them and the fix belongs in the 8 generator scripts named by
+    scripts/_common/provenance.py, since hand-editing a generated report reverts the
+    instant it is regenerated. Registered in TODO.md section 8.9 item 26.
+
+    Measured 2026-10-25: 0 offenders across 119 hand-written markdown files and 609
+    table blocks. Empty baseline, so there is nothing to re-pin; the block count is
+    asserted so a broken glob or skip pattern cannot leave the guard enforcing
+    nothing while still passing.
+    """
+    offenders, blocks = _markdown_table_cell_splits()
+    assert blocks > 400, (
+        f"only {blocks} markdown table blocks scanned -- the file set or the skip "
+        "pattern has stopped matching, so this guard is enforcing nothing"
+    )
+    assert not offenders, (
+        f"{len(offenders)} markdown table row(s) write more cells than their "
+        "separator declares. Escape the pipe as backslash-| (inline code included), "
+        "or merge the overflow back into the last cell if a note outgrew the schema:"
+        "\n  " + "\n  ".join(sorted(offenders))
+    )

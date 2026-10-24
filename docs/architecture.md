@@ -11,7 +11,7 @@
 | 类 | 单位与用途 |
 |---|---|
 | `PhaseMap`, `OPDMap` | 未包裹相位 (rad) 与光程差 (m)，用明确的波长相互转换 |
-| `AmplitudeMap`, `ComplexField`, `PSFImage` | 场振幅 `|E|`、复电场与焦面强度；强度转振幅使用平方根 |
+| `AmplitudeMap`, `ComplexField`, `PSFImage` | 场振幅 `\|E\|`、复电场与焦面强度；强度转振幅使用平方根 |
 | `WfsSlopes` | 分开的 `sx`/`sy`，单位为 `arcsec` 或 `rad`，支持 `to_units()` |
 | `DmCommands` | 电压数组、致动器数量和允许范围，支持 `clipped()` |
 | `ZernikeCoefficients` | 带显式 Noll 索引的 `rad`/`waves` 系数 |
