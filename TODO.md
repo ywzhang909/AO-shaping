@@ -501,7 +501,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    与 `crop_numba` 各断一次）互相一致，无需改动。
    🔴 但它暗示的风险"**异常类型被当成契约**"是真的，且方向相反 —— 危险不在测试里
    `pytest.raises(AssertionError)`，而在**生产代码的 `except AssertionError`**：见下新增行。
-2. ✅ **`MAX_EXPOSURE_MS` 命名冲突（同名差 1400 倍）已解除**（`e6f80254`）：工具层 `7.0`（WFS 激光安全上限）改名 `WFS_EXPOSURE_SAFETY_MAX_MS` 并收敛到**一处声明**；`drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）**保持原名原值不动**（驱动层不在本次改动范围，且语义不同）。实测 `src/` + `scripts/` 下除 miicam 外 `MAX_EXPOSURE_MS` 命中数 **0**（改前 30），并由新测试 `tests/ao_shaping/tools/wfs/test_exposure_safety_ceiling.py` 钉住"两者是不同量"。
+2. ✅ **`MAX_EXPOSURE_MS` 命名冲突（同名差 1400 倍）已解除**（`e6f80254`）：工具层 `7.0`（WFS 激光安全上限）改名 `WFS_EXPOSURE_SAFETY_MAX_MS` 并收敛到**一处声明**；`drivers/ccd/miicam/driver.py:133` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）**保持原名原值不动**（2026-10-25 重钉，`7532c8cb` 在 `MIN_EXPOSURE_MS` 上方插入一行，原 `:132`）（驱动层不在本次改动范围，且语义不同）。实测 `src/` + `scripts/` 下除 miicam 外 `MAX_EXPOSURE_MS` 命中数 **0**（改前 30），并由新测试 `tests/ao_shaping/tools/wfs/test_exposure_safety_ceiling.py` 钉住"两者是不同量"。
 3. ✅ **`DeviceParameter` 登记表：结论是"不要接线"，改修「自相矛盾的声明」**（`950e2e9d`）：
    实测比原判断更强 —— `set_parameter_value` / `get_parameter_value` 在 `gui/`、
    `runners/`、`tools/` 下调用数 **0**；唯一走校验的写缝 `sync_from_twin`
@@ -626,7 +626,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 7. ✅ **BLE001 `tools` 片（15 处 silent）⇒ 14 处正确不动、1 处真缺陷；并挖出一个更严重的系统性缺陷：loguru 的 `%`-参数被静默丢弃**（2026-10-24）：
    14 处分五类且**全部不动**：`main()` 收尾的尽力 close（`panel/diagnose.py:403/408`、`panel/phase_response.py:585/590`、
    `wfs/wfs_reference.py:309`、`wfs/zernike_correction.py:713`、`wfs/zernike_response.py:554`、
-   `calibration/train_data_collect.py:956/961/966`）、重连前先关旧设备（`cartographer/slm_cartographer_ui.py:99/145`）、
+   `calibration/train_data_collect.py:971/976/981`（2026-10-25 重钉，`9bfc7f18` 在 `on_record` 处新增计数块 +15 行，原 `:956/961/966`））、重连前先关旧设备（`cartographer/slm_cartographer_ui.py:99/145`）、
    **可选依赖探测**（`train_data_collect.py:187`，下一行就是 `return _RECOGNISED_FAMILIES` 回落）、
    **有注释的基底外 Noll 索引跳过**（`panel/focus_preflight.py:553`；`gen.fit` 只返回自身基底的项 ⇒ 该跳过实际不可达）。
    真缺陷 1 处：`train_data_collect.py:683-687` 用 `except Exception: pass` 包住 `on_record(dict(record))`。
