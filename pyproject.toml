@@ -8,18 +8,27 @@ testpaths = ["tests"]
 addopts = [
     "-ra",
     "--strict-markers",
-    # 2026-10-16 default exclusions: three test areas that can BLOCK a plain
-    # `pytest` (hang with no output), so a regular run must not touch them:
+    # 2026-10-16 exclusions, NARROWED 2026-10-24 by measurement. Three areas are
+    # excluded, each backed by a container number instead of "the drivers tree
+    # might hang":
     #   (1) the only real Streamlit AppTest (needs web automation or it hangs),
-    #   (2) hardware drivers (SLM/CCD SDK waits have no timeout protection; the
-    #       SLM's USB handle is exclusive with a running Streamlit app),
+    #   (2) drivers/dm: 560.83 s for 144 tests (every probe against an absent
+    #       MicroDM waits out its own connect timeout) AND 2 tests that FAIL
+    #       instead of skipping when no controller answers,
     #   (3) ml (65 GB hwdataset heavy I/O + torch; multiprocess/mmap has hung
     #       full-tree runs before).
-    # The ignores only prune DISCOVERY from testpaths: a bare `pytest` skips
-    # these areas (5774 of 8218 tests), but explicitly named paths still collect
-    # as usual (`pytest tests/ao_shaping/drivers` works unchanged).
+    # The rest of drivers/ is green and fast in the same container and is now
+    # DISCOVERED: ccd 204 passed / 25 skipped, sim 394 / 2 in 63.33 s, wfs 110 / 11,
+    # slm 158 / 127 in 7.95 s, adc 49 in 2.84 s, hardware 37 skipped in 0.06 s,
+    # drivers root files 13 / 9. Excluding the whole tree is what let
+    # drivers/ccd rot to 6 failed + 1 error for months without CI noticing
+    # (rot fixed in 29001826; discovery restored here so the next occurrence
+    # is visible).
+    # The ignores only prune DISCOVERY from testpaths; explicitly named paths
+    # always collect (measured: `pytest tests/ao_shaping/drivers/dm` still
+    # collects all 144 while that exact path is listed here).
     "--ignore=tests/ao_shaping/gui/slm/test_zernike_abort_repro.py",
-    "--ignore=tests/ao_shaping/drivers",
+    "--ignore=tests/ao_shaping/drivers/dm",
     "--ignore=tests/ao_shaping/ml",
     # 2026-10-21: 全局超时，避免未被忽略区域的测试在 CI / 本地无限挂起
     # （硬件驱动 SDK 等待、Streamlit AppTest 等曾有挂起先例；超过阈值即判失败而非卡死）。

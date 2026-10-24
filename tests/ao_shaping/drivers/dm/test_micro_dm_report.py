@@ -380,9 +380,14 @@ class TestMicroDMReport:
             print(f"\nReport saved to: {report.report_path}")
 
 
-def test_micro_dm_simulation_report():
-    """Standalone simulation test that runs without hardware."""
-    with TestReport("micro-dm") as report:
+def test_micro_dm_simulation_report(tmp_path: Path):
+    """Standalone simulation test that runs without hardware.
+
+    ``device_dir`` overrides the harness default ``docs/<device>/``: this test is
+    simulation-only, so writing its artifact into the checkout would litter the
+    working tree and fail outright wherever the repo is mounted read-only.
+    """
+    with TestReport("micro-dm", device_dir=str(tmp_path)) as report:
         report.add_section("Micro DM Simulation Test", 2)
 
         dm = SimMicroDM()

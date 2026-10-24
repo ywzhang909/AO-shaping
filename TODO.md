@@ -565,7 +565,22 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 **CCD「SDK 缺失 → 看不懂的崩溃」已修**：`drivers/ccd/daheng/driver.py` 顶层 `try: import gxipy as gx / except: logger.error(...)` 在失败分支里**根本没有绑定 `gx`** ⇒ 无 SDK 的机器上 `get_numpy_image` 在 `gx.GxFrameStatusList.SUCCESS` 处抛 `NameError`；`miicam/driver.py` 绑了 `None`，于是在 `miicam.Miicam()` 处抛 `AttributeError: 'NoneType' object has no attribute 'Miicam'`。两者现都：失败分支显式绑定（daheng 另存 `_SDK_IMPORT_ERROR` 供报错），并在 `initialize()` 第一行经**单一** `_require_sdk()` 抛 `CameraError`（带可行动信息：需要 `libs/gxipy` 在 PYTHONPATH 上）。`try/except` 本身不动 ⇒ 惰性加载红线保持不破。测试侧：`test_reset_exposure_time.py` 5 条改为用 `monkeypatch.setattr(driver, "gx", fake_gx)` 注入假 SDK 令牌（不再依赖真实 SDK 是否存在），`test_miicam_report.py` / `test_miicam_auto_exposure_report.py` 按 `miicam is None` / `_MIICAM_AVAILABLE` 跳过（沿用 `requires_oopao` 与 `test_wfs_report.py` 既有写法，未删任何断言）。实测 `tests/ao_shaping/drivers/ccd`：**198 passed / 25 skipped / 0 failed**（修前 189 passed / 23 skipped / **6 failed + 1 error**）。
 
-⚠️ 仍值得做的一步：这组测试腐烂之所以**长期不可见**，是因为 `pyproject.toml` 的 `addopts --ignore=tests/ao_shaping/drivers` 把整个目录排除在发现集之外。纯 mock 的相机测试（如上面 5 条）其实不需要硬件，应移出该名单或按 marker 拆分，否则下一次同类腐烂照样没人看见。
+✅ **发现集已按实测收窄（见本提交）**：这组测试腐烂之所以**长期不可见**，是因为 `addopts` 与
+`run_pytest_ci.sh` 都把整棵 `tests/ao_shaping/drivers` 排除在发现集之外。现两处同步收窄到
+**只排除 `drivers/dm`**（实测 144 个测试耗 **560.83 s**，且 2 个测试在无控制器应答时失败而非跳过），
+其余各域实测**绿且快**已恢复：`ccd` 204/25、`sim` 394/2（63.33 s）、`wfs` 110/11、`slm` 158/127（7.95 s）、
+`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s）、根文件 13/9。裸 `pytest` 收集数 **8011 → 9147**。
+
+🔴 顺带挖出**第二份排除清单**：`scripts/build/run_pytest_ci.sh` 的 `EXCLUDES` 把同样的路径重述成
+绝对路径（脚本从 scratch 目录启动 pytest，pyproject 的**相对**排除在那种 CWD 下匹配不到任何东西）。
+本次改动第一次提交后实测发现**收窄完全没生效**——pyproject 已改、脚本仍写整棵 `drivers`。
+现由 `test_conventions.py::test_pytest_excludes_match_across_configs` 钉住两处集合相等。
+⚠️ 实测纠正一处旧文档说法：`--ignore` **从不**裁剪显式点名的路径（`pytest tests/ao_shaping/drivers/dm`
+在被排除时仍收集 144 个），故原表"显式指定不受影响"的说法成立但机制与直觉不同。
+
+⚠️ 仍开放（本次未处理）：`drivers/dm` 那 **2 个在无控制器时失败而非跳过**的测试
+（`test_micro_dm_report.py::TestMicroDMReport::{test_micro_dm_basic_report,test_micro_dm_voltage_calibration_report}`）
+—— 修好 fixture 的跳过分级后，`dm` 才有资格回到发现集（但 560 s 的墙钟本身仍需先解决）。
 
 **仍未收口的一条**：两个 ruff 工作流钉版不一致 —— `ci.yml` 用 `uv tool install ruff==0.11.10`，而
 `ruff.yml` 用 `pip install "ruff>=0.15.12"`，两者都跑 `ruff check .` 且都是硬门禁。**已实测两版真的不等价**：

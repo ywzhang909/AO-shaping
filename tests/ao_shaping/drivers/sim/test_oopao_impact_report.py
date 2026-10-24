@@ -62,6 +62,13 @@ requires_oopao = pytest.mark.skipif(
     reason="OOPAO library not available in this environment",
 )
 
+#: Only the end-to-end episodes need this; the other 26 tests in this module run
+#: without it, so this stays a class marker instead of a module-level importorskip.
+requires_gymnasium = pytest.mark.skipif(
+    importlib.util.find_spec("gymnasium") is None,
+    reason="gymnasium lives in the optional `rl` group, which the CPU test image omits",
+)
+
 
 @pytest.fixture(autouse=True)
 def _restore_backend_env():
@@ -361,6 +368,7 @@ class TestDeadConfig:
 
 @pytest.mark.slow
 @requires_oopao
+@requires_gymnasium
 class TestEndToEnd:
     """Real episodes through the routed environment, then a full report run."""
 

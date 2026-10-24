@@ -139,13 +139,24 @@ fi
 # 65 GB hwdataset corpus, and its multiproc + mmap has hung full-tree runs
 # before. Re-state them as absolute paths so they still exclude.
 #
-# The same three areas are excluded, for the same reasons, as in pyproject:
+# The same areas are excluded here and in pyproject's addopts, for the same
+# reasons, and must stay in sync -- pinned by
+# tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs
+# (they drifted apart once already: pyproject was narrowed while this list still
+# carried the whole drivers tree, which silently kept the narrowed discovery off).
 #   (1) the only real Streamlit AppTest (needs web automation or it hangs),
-#   (2) hardware drivers (SLM/CCD SDK waits have no timeout protection),
+#   (2) drivers/dm: 560.83 s for 144 tests (each probe against an absent MicroDM
+#       waits out its own connect timeout) + 2 tests that FAIL rather than skip
+#       when no controller answers,
 #   (3) ml (65 GB hwdataset heavy I/O + torch).
+# The other driver domains stay INCLUDED: measured green and fast in this same
+# container (ccd 204 passed / 25 skipped, sim 396 / 13, wfs 109 / 11, slm 158 /
+# 127 in 7.95 s, adc 49 in 2.84 s, hardware 37 skipped in 0.06 s). Excluding the
+# whole tree is what let drivers/ccd rot to 6 failed + 1 error without CI seeing
+# it (rot fixed in 29001826).
 EXCLUDES=(
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/gui/slm/test_zernike_abort_repro.py"
-    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/drivers"
+    "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/drivers/dm"
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
 )
 

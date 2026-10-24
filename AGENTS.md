@@ -781,21 +781,30 @@ docker build -f docker/Dockerfile.test.cpu -t ao-shaping-test:cpu .
 ./scripts/build/run_pytest_ci.sh
 ```
 
-### 常规测试默认排除（pytest addopts，2026-10-16）
+### 常规测试默认排除（pytest addopts，2026-10-16；2026-10-24 按实测收窄）
 
-`pyproject.toml` 的 `addopts` 默认 `--ignore` 三类**会阻塞**（挂死、无输出）的测试，
+`pyproject.toml` 的 `addopts` 默认 `--ignore` 三类**会阻塞**（挂死、无输出、或慢到不可用）的测试，
 容器里的 `pytest` / `pytest tests` 不再踩到它们（从仓库根目录运行）：
 
 | 排除 | 原因 |
 |---|---|
 | `tests/ao_shaping/gui/slm/test_zernike_abort_repro.py` | 唯一跑**真 `AppTest`** streamlit 运行时的测试，需网页自动化配合，否则挂死；其余 GUI 测试只把 `streamlit` 当命名空间 mock，安全 |
-| `tests/ao_shaping/drivers` | 硬件测试：SLM/相机 SDK 等待无超时保护（见反模式「diff-shaping 硬件闭环挂起」）；SLM 的 USB 句柄与运行中的 Streamlit 应用互斥（错误码 -10003「USB设备已打开」） |
+| ~~`tests/ao_shaping/drivers`~~ → `tests/ao_shaping/drivers/dm` | **原排除整棵 drivers 树是过度保守，且造成了真实的可见性事故**：`drivers/ccd` 曾烂到 **6 failed + 1 error** 而 CI 毫无察觉（`29001826` 修）。实测各域在容器内**绿且快**，已全部恢复进发现集：`ccd` 204 passed / 25 skipped、`sim` 394 / 2（63.33 s）、`wfs` 110 / 11、`slm` 158 / 127（7.95 s）、`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s，`--hardware` 门）、drivers 根文件 13 / 9。**只留 `dm`**：144 个测试耗 **560.83 s**（每个对不存在的 MicroDM 的探测都等满自己的连接超时），且有 2 个测试在无控制器应答时**失败而非跳过** |
 | `tests/ao_shaping/ml` | 65 GB hwdataset 重 I/O + torch：多进程/mmap 曾把整树 `pytest tests` 挂死 |
 
-⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`，实测 8218 →
-5774）；**显式指定的路径不受影响**——`pytest tests/ao_shaping/drivers` 照常收集
-1035 个，无需任何覆盖（先确认没有别的进程占着 SLM/相机）。要连 discovery 也全部
-恢复：
+🔴 **排除清单有两份，必须同步**：`scripts/build/run_pytest_ci.sh` 的 `EXCLUDES` 把同样的路径
+重述成**绝对路径**（因为该脚本从 scratch 目录启动 pytest，pyproject 里的**相对**排除在那种 CWD 下
+匹配不到任何东西，会把 65 GB 语料与硬件域放回 CI）。这份重复已在 2026-10-24 实际漂移过一次：
+pyproject 已收窄到 `drivers/dm`，脚本仍是整棵 `drivers`，于是"收窄发现集"静默失效。
+现由 `tests/ao_shaping/test_conventions.py::test_pytest_excludes_match_across_configs` 钉住
+（比较两处 `--ignore` 集合，差集非空即失败）。**改任一处都必须改另一处。**
+
+⚠️ `--ignore` 只作用于 **discovery**（从 `testpaths` 发现的裸 `pytest`）。2026-10-24 实测：
+全树总计 **10709** 个测试，裸 `pytest` 收集 **9147**（被排除的是 `ml` **1415** +
+`drivers/dm` **144** + AppTest **3**）；**收窄前只收集 8011**，即整棵 drivers 树额外藏了
+**1136** 个测试。⚠️ **显式指定的路径不受 `--ignore` 影响**——实测 `pytest tests/ao_shaping/drivers/dm`
+在该路径正被排除时仍收集 **144** 个。要在实验系统上跑 `dm` 无需任何覆盖，
+只是要先确认没有别的进程占着 SLM/相机。要连 discovery 也全部恢复：
 
 ```bash
 ./run_pytest.sh -- -o "addopts=-ra --strict-markers"
