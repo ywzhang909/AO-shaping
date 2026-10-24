@@ -786,6 +786,24 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     回归：`tests/ao_shaping/utils` 按 CI 的 `AO_TEST_PER_FILE=1` 跑 **1326 passed / 4 skipped / exit 0**，
     `tests/ao_shaping/optimizer` 同法 **1261 passed / 3 skipped / exit 0**。
 
+11. ✅ **BLE001 分簇的结论已被钉成守卫：`test_conventions.py::test_blind_silent_exception_handlers_in_src_do_not_grow`（棘轮，基线 61）**（2026-10-25）：
+    五片逐个判读的价值会随下一次随手 `except Exception: pass` 蒸发 ⇒ 加**只增不减**的棘轮。
+    - **基线与守卫用同一条 AST 规则自测**（不依赖 ruff）：`src/` **61**；同时独立复测
+      `tests/` 11、`scripts/` 11 ⇒ 三棵树合计 **83**，与 §8.10 之前用 ruff-`BLE001` 定位 + AST 复核得到的
+      **83 逐树一致** —— 两个互不相同的检测器给出同一数，规则本身才算定义清楚（守卫不得用它算不出来的量做基线）。
+    - **计数棘轮，不用 `path:line` allowlist**：本会话已两次为陈旧行号重钉（`977b663c` 甚至**按插入行数推算**而**差一**，
+      实测应为 `:970/975/980`）⇒ 行号 pin 会随任何无关插入腐烂，计数不会；失败时打印全量 offender 列表保证仍可 diff。
+    - **作用域只 `src/`**（守卫名与断言同宽，§8.10 的正面执行）：`tests/`/`scripts/` 里的尽力 close 是合法工装噪声，
+      并进来会让硬门禁狼来了。基线**双向**：若计数下降也必须显式改小，不让它变成"没人再推导过的数字"。
+    - **非空性实测**：临时树里注入一个 `except Exception: pass` ⇒ 守卫失败
+      `62 > baseline 61` 并点名注入处；不注入 ⇒ 34 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
+    ⚠️ **本片差点产出一个"跑过但什么都没断言"的验证——正是本账本整条 campaign 的论点本身**：
+    我第一次非空性验证往 `src/ao_shaping/utils/cli_params.py` 注入，而该文件**早已迁到 `utils/cli/params.py`**
+    ⇒ 注入脚本 `FileNotFoundError` 退出，但后续 pytest **仍照跑**，于是在**未改动的树**上得到
+    `1 passed` —— 一个"证明守卫有牙"的验证其实什么都没验。修法：验证脚本的副作用必须**先自证**
+    （本次改为 `grep -c` 确认注入落地 + `&&` 串接使失败即停），再让被验证对象跑。
+    规则：**任何"证明某检查非空"的步骤，必须先断言该检查的输入确实变了**；否则红色与绿色都不承载信息。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

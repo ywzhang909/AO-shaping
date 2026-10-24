@@ -1740,3 +1740,75 @@ def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() ->
         "stdlib logging is being scanned -- % formatting is correct there, so this "
         "would report working code as a defect"
     )
+
+
+# Measured 2026-10-25 by the same AST rule used below. Each of these handlers was read
+# in context and judged legitimate (TODO.md 8.9 items 5-10); the number is a floor to
+# defend, not an endorsement.
+_BLIND_SILENT_BASELINE = 61
+
+
+def _blind_silent_handlers(root: Path) -> list[str]:
+    """Blind ``except`` / ``except Exception`` handlers whose body only ignores.
+
+    A handler that logs, re-raises, or runs recovery is **not** counted: the defect
+    being pinned is an *unattributable* failure, not broad matching on its own -- most
+    broad handlers in this tree are correct (teardown, enumeration control flow,
+    retry-then-raise) and were individually confirmed as such.
+    """
+    found: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ExceptHandler):
+                continue
+            blind = node.type is None or (
+                isinstance(node.type, ast.Name)
+                and node.type.id in {"Exception", "BaseException"}
+            )
+            if not blind:
+                continue
+            if all(isinstance(stmt, (ast.Pass, ast.Continue)) for stmt in node.body):
+                found.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return found
+
+
+def test_blind_silent_exception_handlers_in_src_do_not_grow() -> None:
+    """No new blind handler may swallow a failure in the production tree.
+
+    Five sweeps read every such handler in ``src/``, ``tests/`` and ``scripts/`` in
+    context (TODO.md 8.9 items 5-10) and the verdict was consistent: the count is not
+    the target, the question is whether the swallow makes a wrong number or a lost
+    measurement unattributable. Real defects found that way include an MIICAM frame
+    callback that dropped frames with zero trace, a training-data collector that could
+    lose a record from the persisted corpus, a lost ADC sample series, a swallowed DM
+    zero-voltage safety reset, and a hardware report that silently published simulation
+    numbers as device evidence.
+
+    This ratchet keeps that verdict from decaying. It is deliberately **count-based
+    rather than an allowlist of ``path:line``**: line pins drift on every unrelated
+    insertion (this repo has already had to re-pin stale ones), so a pin list would rot
+    while a count cannot. The offender list is printed so a regression stays diffable.
+
+    Scope is ``src/`` only, matching the claim in the name: in ``tests/`` a swallow
+    risks a vacuously green assertion and in ``scripts/`` a missing report row, but both
+    also contain legitimate harness teardown, and folding them in would make the guard
+    cry wolf on ordinary test churn.
+    """
+    offenders = _blind_silent_handlers(SRC)
+    if len(offenders) > _BLIND_SILENT_BASELINE:
+        raise AssertionError(
+            f"blind silent exception handlers in src/ grew: "
+            f"{len(offenders)} > baseline {_BLIND_SILENT_BASELINE}. Judge the new one in "
+            "context first: if a failure it hides could make a number wrong or a "
+            "measurement lost, report it (log with the reason and a count) instead of "
+            f"silencing it. Current set:\n  " + "\n  ".join(sorted(offenders))
+        )
+    assert len(offenders) == _BLIND_SILENT_BASELINE, (
+        f"count fell to {len(offenders)} < baseline {_BLIND_SILENT_BASELINE} -- good "
+        "news, but lower the baseline deliberately so it stays a measured fact rather "
+        "than a number nobody re-derives."
+    )
