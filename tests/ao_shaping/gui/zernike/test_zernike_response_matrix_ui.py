@@ -16,6 +16,74 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+import ast
+
+_UI_SOURCE = (
+    Path(__file__).resolve().parents[4]
+    / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
+)
+_UI_TREE = ast.parse(_UI_SOURCE.read_text(encoding="utf-8-sig"))
+_WIDGET_CALLS = ("number_input", "checkbox", "selectbox", "text_input", "slider", "toggle")
+
+
+def _widget_call(key: str):
+    """The Streamlit widget call whose value lands in ``st.session_state.<key>``.
+
+    Asserted on the parsed UI tree rather than on source text: a string check keeps
+    passing after the widget is deleted, as long as the label survives in a comment.
+    Covers the two-hop form too (``new_exp = st.number_input(...)`` and only then
+    ``st.session_state.zrm_wfs_exp_time = new_exp``).
+    """
+    hops: set[str] = set()
+    for node in ast.walk(_UI_TREE):
+        if not isinstance(node, ast.Assign):
+            continue
+        bound = any(
+            isinstance(t, ast.Attribute)
+            and t.attr == key
+            and isinstance(t.value, ast.Attribute)
+            and t.value.attr == "session_state"
+            for t in node.targets
+        )
+        if not bound:
+            continue
+        value = node.value
+        if (
+            isinstance(value, ast.Call)
+            and isinstance(value.func, ast.Attribute)
+            and value.func.attr in _WIDGET_CALLS
+        ):
+            return value
+        if isinstance(value, ast.Name):
+            hops.add(value.id)
+    for node in ast.walk(_UI_TREE):
+        if not isinstance(node, ast.Assign) or not isinstance(node.value, ast.Call):
+            continue
+        func = node.value.func
+        if not isinstance(func, ast.Attribute) or func.attr not in _WIDGET_CALLS:
+            continue
+        if any(isinstance(t, ast.Name) and t.id in hops for t in node.targets):
+            return node.value
+    return None
+
+
+def _label_of(call) -> str:
+    """First positional argument of a widget call; '' when the label is dynamic."""
+    if call is not None and call.args and isinstance(call.args[0], ast.Constant):
+        return str(call.args[0].value)
+    return ""
+
+
+def _call_names(attr: str) -> list:
+    return [
+        node
+        for node in ast.walk(_UI_TREE)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == attr
+    ]
+
+
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -75,16 +143,15 @@ class TestSLMShiftParameters:
             assert mock_state.zrm_shift_y == 0, "zrm_shift_y should default to 0"
 
     def test_shift_inputs_in_slm_settings(self):
-        """Test that shift_x and shift_y number_inputs exist in SLM Settings"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_shift_x" in content, "zrm_shift_x should be used in st.number_input"
-        assert "zrm_shift_y" in content, "zrm_shift_y should be used in st.number_input"
-        assert '"SLM Shift X (像素)"' in content, "Should have 'SLM Shift X (像素)' input label"
-        assert '"SLM Shift Y (像素)"' in content, "Should have 'SLM Shift Y (像素)' input label"
+        """shift_x / shift_y must be real widgets bound to their session keys."""
+        for key, label in (("zrm_shift_x", "SLM Shift X (像素)"),
+                           ("zrm_shift_y", "SLM Shift Y (像素)")):
+            call = _widget_call(key)
+            assert call is not None, f"{key} must be bound by a Streamlit widget"
+            assert call.func.attr == "number_input", f"{key} should be an st.number_input"
+            assert _label_of(call) == label, (
+                f"{key} label should be {label!r}, got {_label_of(call)!r}"
+            )
 
     def test_zernikeslm_receives_shift_params(self):
         """Test that ZernikeSLM constructor receives shift_x and shift_y"""
@@ -211,18 +278,12 @@ class TestWFSSettings:
             assert mock_state.zrm_wfs_pupil_center_y == 0.0, "zrm_wfs_pupil_center_y should default to 0.0"
 
     def test_wfs_settings_section_exists(self):
-        """Test that WFS设置 section exists in sidebar"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "WFS参数" in content, "Should have 'WFS参数' subheader"
-        assert "zrm_wfs_mla_res" in content, "zrm_wfs_mla_res should be used in UI"
-        assert "zrm_wfs_exp_time" in content, "zrm_wfs_exp_time should be used in UI"
-        assert "zrm_wfs_pupil_diameter" in content, "zrm_wfs_pupil_diameter should be used in UI"
-        assert "zrm_wfs_pupil_center_x" in content, "zrm_wfs_pupil_center_x should be used in UI"
-        assert "zrm_wfs_pupil_center_y" in content, "zrm_wfs_pupil_center_y should be used in UI"
+        """The WFS section needs a real subheader and widget-driven keys."""
+        headers = {_label_of(node) for node in _call_names("subheader")}
+        assert "WFS参数" in headers, "the WFS section needs st.subheader('WFS参数')"
+        for key in ("zrm_wfs_mla_res", "zrm_wfs_exp_time", "zrm_wfs_pupil_diameter",
+                    "zrm_wfs_pupil_center_x", "zrm_wfs_pupil_center_y"):
+            assert _widget_call(key) is not None, f"{key} should be driven by a widget"
 
     def test_wfsmanager_receives_parameters(self):
         """Test that WFSManager receives WFS parameters"""
@@ -256,19 +317,22 @@ class TestWFSSettings:
                 assert call_args.kwargs.get("pupil_center") == (1.5, -0.5), "pupil_center should be (1.5, -0.5)"
 
     def test_mla_res_options(self):
-        """Test that MLA resolution selectbox has correct options"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Check that the MLA resolution options exist in the selectbox
-        assert "1280x1024" in content, "Should have 1280x1024 option"
-        assert "1024x1024" in content, "Should have 1024x1024 option"
-        assert "768x768" in content, "Should have 768x768 option"
-        assert "512x512" in content, "Should have 512x512 option"
-        assert "320x320" in content, "Should have 320x320 option"
-        assert "options=[0, 1, 2, 3, 4]" in content, "Should have 5 MLA resolution options"
+        """Five resolutions on offer, each displayed as WxH through format_func."""
+        call = _widget_call("zrm_wfs_mla_res")
+        assert call is not None and call.func.attr == "selectbox", (
+            "zrm_wfs_mla_res should be an st.selectbox"
+        )
+        options = next((k for k in call.keywords if k.arg == "options"), None)
+        assert options is not None and len(options.value.elts) == 5, (
+            "the selectbox must offer exactly 5 MLA resolutions"
+        )
+        fmt = next((k for k in call.keywords if k.arg == "format_func"), None)
+        assert fmt is not None, "resolutions are shown through format_func"
+        shown = {n.value for n in ast.walk(fmt.value)
+                 if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+        assert {"1280x1024", "1024x1024", "768x768", "512x512", "320x320"} <= shown, (
+            f"every option must map to a WxH label, got {sorted(shown)}"
+        )
 
 
 class TestCalibrationParameters:
@@ -344,34 +408,28 @@ class TestCalibrationParameters:
             assert mock_state.zrm_verbose is True, "zrm_verbose should default to True"
 
     def test_excluded_piston_checkbox_exists(self):
-        """Test that excluded_piston checkbox exists in Calibration Parameters"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_excluded_piston" in content, "zrm_excluded_piston should be used in st.checkbox"
-        assert ("排除Piston" in content or "excluded_piston" in content), "Should have checkbox for excluding piston"
+        """The piston flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_excluded_piston")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_excluded_piston should be an st.checkbox"
+        )
+        assert "Piston" in _label_of(call), (
+            f"label should name Piston, got {_label_of(call)!r}"
+        )
 
     def test_compute_inverses_checkbox_exists(self):
-        """Test that compute_inverses checkbox exists"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_compute_inverses" in content, "zrm_compute_inverses should be used in st.checkbox"
-        assert "compute_inverses" in content, "Should have checkbox for computing inverses"
+        """The inverse-matrix flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_compute_inverses")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_compute_inverses should be an st.checkbox"
+        )
 
     def test_verbose_checkbox_exists(self):
-        """Test that verbose checkbox exists (optional)"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        assert "zrm_verbose" in content, "zrm_verbose should be used in st.checkbox"
-        assert "verbose" in content, "Should have checkbox for verbose output"
+        """The verbose flag must be a checkbox wired to its session key."""
+        call = _widget_call("zrm_verbose")
+        assert call is not None and call.func.attr == "checkbox", (
+            "zrm_verbose should be an st.checkbox"
+        )
 
     def test_calibrate_receives_parameters(self):
         """Test that calibrate_zernike_response_matrix receives excluded_piston, compute_inverses, verbose"""
@@ -480,15 +538,18 @@ class TestProgressVisualization:
             assert mock_state.zrm_calibration_running is False, "zrm_calibration_running should default to False"
 
     def test_progress_bar_placeholder_exists(self):
-        """Test that progress_bar = st.empty() is created"""
-        ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-
-        with open(ui_file_path, "r", encoding="utf-8") as f:
-            content = f.read()
-
-        # Check that st.empty() is used for progress_bar placeholder
-        assert "progress_bar = st.empty()" in content, "Should create progress_bar placeholder with st.empty()"
-        assert "status_text = st.empty()" in content, "Should create status_text placeholder with st.empty()"
+        """Progress UI must create its placeholders through st.empty()."""
+        names = {
+            t.id
+            for node in ast.walk(_UI_TREE)
+            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Attribute)
+            and node.value.func.attr == "empty"
+            for t in node.targets if isinstance(t, ast.Name)
+        }
+        assert {"progress_bar", "status_text"} <= names, (
+            f"progress placeholders need st.empty(); got {sorted(names)}"
+        )
 
     def test_callback_creates_json_file(self):
         """Test that the callback writes progress to JSON file"""

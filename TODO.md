@@ -994,6 +994,26 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       覆盖已在别处实测存在（9/15/10/8/5/3 条断言），而不是「没有 assert」。
     - **决定不做**：给 107 处批量补断言 —— 既没有验收判据，也没有设备可对照，属越界改动（minimal-diff 红线）。
 
+19. ✅ **`gui/zernike` UI 测试的「源码文本 grep」机制已换成 AST 结构断言：该文件 26 → 3 处，全仓 113 → 90**（2026-10-25，第 15/16 项留下的那一刀）：
+    - **改的是断言机制，不是期望值**：7 个测试（`test_shift_inputs_in_slm_settings`、`test_wfs_settings_section_exists`、
+      `test_mla_res_options`、三个 checkbox 测试、`test_progress_bar_placeholder_exists`）原先清一色是
+      `open(ui).read()` + `assert "<字面量>" in content`；现在用模块级 `_widget_call(key)` 在 UI 的 **AST** 上找
+      「结果落进 `st.session_state.<key>` 的那个 widget 调用」，再断言 widget 种类与标签。
+    - 新助手必须处理**两跳绑定**：曝光时间不是直接落键，而是 `new_exp = st.number_input(...)`（UI `:1010`）
+      之后才 `st.session_state.zrm_wfs_exp_time = new_exp`（`:1024`）⇒ 只认直接赋值会误报「没有 widget」。
+    - **顺手杀掉最脆的一条**：`assert "options=[0, 1, 2, 3, 4]" in content` 钉的是**源码排版**
+      （列表字面量的空格写法），任何人重排代码都会让它变红；现在断言 `selectbox` 的 `options` 有 5 项、
+      且 `format_func` 字典把 5 个索引映射到 `1280x1024` … `320x320`（UI `:968-970`）。
+    - **差分实测（三处改动，全部点名）**：临时树里改 shift 标签 ⇒ `zrm_shift_x label should be
+      'SLM Shift X (像素)', got 'SLM 平移 X'`；删掉曝光时间的落键赋值 ⇒ `zrm_wfs_exp_time should be
+      driven by a widget`；`options` 砍到 4 项 ⇒ `the selectbox must offer exactly 5 MLA resolutions`。
+      未改动时整文件 **22 passed**；差分树**同时带上了未提交的新测试**（第 14 项那条教训在这里直接省下一次空跑）。
+    - 🔴 **严格性升级的硬证据**：在「删掉曝光 widget 落键」那棵树上，字符串 `zrm_wfs_exp_time`
+      **仍然出现在 UI 源码里** ⇒ 旧断言 `assert "zrm_wfs_exp_time" in content` 会**照样通过**，
+      而那个输入控件其实已经不存在 —— 这就是本类断言的假通过模式，也是第 16 项只把这个文件单列为真腐烂的原因。
+    - **残留 3 处**（同文件 `test_polling_displays_updates`）未转：它断言的是轮询展示的文字，
+      要驱动 `_render_calibration_polling()` 的读取循环才有行为等价物，不在本刀范围。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
