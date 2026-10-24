@@ -930,6 +930,28 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       以及 `algorithm/test_differentiable_defocus_uniformity.py` 的 `skipif`（缺 checkpoint，条件式，合法）。
       除本项这条之外**都没验证过理由是否成立** —— 本项的教训是「理由必须可实测」，不是「凡跳过都可疑」。
 
+16. ✅ **「源码文本 grep」断言类普查：实测 113 处 / 26 文件，其中只有一个文件算真腐烂**（2026-10-25）：
+    - **普查口径是 AST 而不是全文 grep**：只算 `assert <字面量> in <变量>` 且该变量确实绑自
+      `read()` / `read_text()`（跟着赋值走）⇒ 全 `tests/` **113 处 / 26 个文件**。
+    - ⚠️ **第一版分类错了，错在「文件里有没有 `.py` 字面量」**：那样会得出「101 处是源码 grep」的**假结论**。
+      报告生成类测试**同时**引用生成器脚本路径**和**生成的 markdown，两种扩展名共存 ⇒
+      扩展名存在性**说不出断言读的到底是哪一样**。正确判据是**断言比较的那个变量绑自哪里**，
+      再加上字面量的种类（措辞 / 标识符 / 产物内容）。
+    - 更正后的实测三分（逐文件把断言字面量抽出来看，不猜）：
+      1. **产物内容断言 —— 合法，产物就是被测物**：`test_generate_slm_pib_sim_report_disturbance.py` 17 处
+         （断言的是生成的表格单元与实测数字）、`test_generate_capability_report.py`、
+         `test_summarize_optics_change_blocks.py` 等 ⇒ 这类措辞一改就是**产品变了**，不是测试腐烂。
+      2. **机制不变式守卫 —— 合法，与 `test_conventions.py` 同族**：`test_term_gate_enforced.py`
+         （断言 CI 里必须出现 `term_unify_20261016.py --check`）、`test_utils_import_is_sdk_free.py`
+         （`__getattr__` / `_LAZY_EXPORTS`）、`test_no_historical_bench_defaults.py`、`test_report_provenance.py`
+         ⇒ 断言的是**标识符与命令**，是有意的源码检查。
+      3. **措辞脆弱 —— 这才是真腐烂，且只有第 15 项那个文件**：
+         `tests/ao_shaping/gui/zernike/test_zernike_response_matrix_ui.py` 26 处把**会话键**（`zrm_shift_x`）
+         与**用户可见标签**（`"SLM Shift X (像素)"`、`WFS参数`）混在同一机制里，而标签按设计就会变
+         ⇒ 第 15 项已把期望对齐 UI 现值；**机制本身（源码 grep 代替行为断言）仍是开放的一刀**，未动。
+    - **不落守卫**（有意）：普查结论是「26 个文件里只有 1 个属于腐烂」，任何覆盖全 `tests/` 的禁令都会把
+      上面 1、2 两类合法用法直接判成违规 —— §8.10 那条「不得宣称多于实测」在**普查驱动**的工作上同样适用。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
