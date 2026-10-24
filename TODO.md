@@ -1118,6 +1118,46 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
          与 `HEAD` 逐字相同、非本次引入 ⇒ 该检查的作用域须排除这条定义行；
          本次新增的 AGENTS 行实测 0 命中。
 
+24. ✅ **`AGENTS.md` 的地图性引用逐条实测：5 处指向不存在的文件/包，已全部重钉；另有两件事刻意不做**（2026-10-25）：
+    - **为什么单独一刀**：`AGENTS.md` 是人类与 AI 工具共用的**入口地图**，指向不存在的文件就是布置
+      **幻影任务** —— 本项开头我差点去"删"一个 2026-09-20 就已不存在的 `vi.py`（第 23 项）。
+    - **已重钉的 5 处**（每条都由整树 basename 搜索 + `ls` + `git log --diff-filter=D` 实测得出）：
+      1. `tools/slm/slm_diagnose.py`（`:1111`、`:1159`）⇒ 真身 `tools/slm/panel/diagnose.py`；
+      2. `utils/slm/pattern_helper.py`（`:1135`）⇒ 真身 `utils/wavefront/pattern_helper.py`；
+      3. `tools/slm/slm_zernike_common.um_to_waves()`（`:1118`）⇒ canonical 是
+         `utils/wavefront/zernike_utils.py` 的 `um_to_waves`（`:93`），`tools/zernike/common.py:36`
+         只是**带注释声明的 re-export** ⇒ 旧写法不仅指错文件，还**违反本仓单一事实源**；
+      4. `diff_shaping_runner.py`（`:1115`）⇒ 该 runner 已在 `fbef1926` 删除；条目里的挂起结论**原样保留**，
+         只把指针改到仍然存在的 `report/slm/slm_shaping_diff/readme.md` 与回归测试
+         `tests/ao_shaping/runners/test_diff_shaping_runner.py`；
+      5. 结构表 `:266` 的「仍开放: `display.py`」⇒ 实测该文件已不在 `utils/image/`（搬到
+         `display/image_display.py`，`a9236e9`），而同文件 `:1130` 已记为**搬完** ⇒ 两处自相矛盾，
+         已改为完成态并注明旧路径无 shim、由 `test_utils_leaf_no_rendering_import.py` 钉住。
+    - **顺带按 `ls` 补齐结构表**：`utils/wavefront/` 行漏列 3 个真实模块（`pattern_helper` /
+      `beam_amplitude` / `fraunhofer`），`utils/slm/` 行却列了它**没有**的 `pattern_helper` ⇒ 两行重写。
+    - **`:1135` 的前提也已不成立**（AST 实测）：该文件模块级只有 `__future__` / `typing` / `numpy` /
+      `utils.wavefront.phase_unwrap:8` / `utils.wavefront.zernike_calc:13`，`algorithm` 全部延迟到函数内
+      （`:20/:36/:92/:98/:837/:854/:871/:890/:903`）⇒ 红线**保留**，状态改记**已合规**，并点名既有守卫
+      `test_utils_has_no_module_scope_import_of_a_higher_layer`（其非空性由
+      `test_the_deferred_forms_still_exist_so_the_guard_is_not_vacuous` 守住，现 14 处延迟形式）。
+    - ⚠️ **刻意不做之一：不把根 `AGENTS.md` 纳入 `_LIVE_DOCS`**。实测 `AGENTS.md:249` 与 `:721` 含字面
+      占位符 `python -m ao_shaping.runners.xxx` ⇒ 纳入后
+      `test_documented_python_dash_m_entry_points_resolve` 会因**占位符**变红，而不是因缺陷变红。
+    - ⚠️ **刻意不做之二：不加「反引号路径必须全部解析」的守卫**。本轮三次普查证明该记号语言**无界**：
+      公式（`(w//2, h//2)`）、调用签名（`...um_to_waves()`）、裸基名（`records.py` 实际在 `ml/hwdataset/`）、
+      glob（`scripts/generate_*_report.py`）与目录 token（`utils/`）混在同一列；朴素扫描得
+      **解析 5 / 未解析 45** —— 那是在量我的正则，不是量树。真要做须先定**路径语法**并复用
+      `_HISTORICAL_DOCS` 的「记录 vs 指令」分法；**宁可不落，也不落一个专产误报的守卫**（§8.10 红线）。
+    - ⚠️ **本轮我自己踩到的 4 个测量错误**（都被正对照当场抓住，记下防再犯）：
+      ① `git grep` 不带 `-E` 时裸 `|` 是字面字符 ⇒ 「无消费者」是假结论（同模式 BRE 0 / ERE 3）；
+      ② 逐行 `**` 奇偶会误报**合法的跨行强调**与代码内 glob（12 处假阳）⇒ 改成按**段落块**统计才准
+      （真实缺陷 0 处，见第 23 项）；③ 双引号内的反引号被 bash **命令替换**，得到的计数 `1` 是垃圾值；
+      ④ 分类器把非 `.py` 的 token 削成扩展名（`README.md` → `md`）⇒ 真实存在的文件被判 DEAD。
+      规则：**任何 0 命中 / N 命中的普查结论，必须用同一模式跑一条正对照**，并写明方言（BRE/ERE）与引号方式。
+    - **改动自身的验证**：9 个新指针全部在树中解析 OK；编辑过的行**列数与原表头一致**（结构表 4 个 `|`、
+      反模式表 3 个 `|`）；表格行奇数强调 **0 处**；术语门禁 `合计: 0 个文件, 0 行`；
+      `test_conventions.py` + 分片覆盖守卫合跑 **42 passed / 1 skipped**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
