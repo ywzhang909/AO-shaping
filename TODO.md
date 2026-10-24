@@ -642,6 +642,28 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > 顺带发现（**不改**）：`report/zotero_objectives/README.md:518` 仍引 `compute_metrics` L350 ——
 > 那是 #69 改名**前**的 `square_shaping` 函数，报告是当时实验的记录，代码行号与旧名不追改。
 
+> 🔴 **惰性契约的「磁盘半边」此前零执行**（本轮收口）。README/AGENTS 写「`import ao_shaping`
+> 及其子包不得加载原生 SDK、不得做磁盘 I/O」：SDK 半边有机制（惰性 `_load_sdk`），
+> **磁盘半边一个守卫都没有**，而且一直在被违反 —— `DeviceConfigManager.__init__`
+> （`utils/io/file.py:1145`）既 `mkdir(parents=True)` 又读 `defaults.json`，而它由**五个模块级
+> 单例**在 import 期实例化（`thorlab_wfs.py:193`、`santec/driver.py:276`、`daheng/driver.py:46`、
+> `micro/driver.py:96`、`nlight/driver.py:76`）；再叠上 `drivers/__init__.py:28` 急切
+> `from ...wfs import ThorlabWFS` ⇒ **任何** `ao_shaping.drivers.*` 的 import 都会建
+> `data/wfs_configs/wfs`。后果不是理论：只读挂载下 `import ao_shaping.drivers.sim.slm_shaping_bench`
+> 直接 `OSError: [Errno 30] Read-only file system: '/workspace/data/wfs_configs'` —— 这条 import
+> 根本不可用（本轮给 GS 金标做跨提交重算时就是这么撞上的）。
+> 修法最小且**不改语义**：`__init__` 不碰磁盘；全类唯一 mkdir 挪到写盘点
+> （`save_config` 建 `device_config_dir`、`save_default_config` 建 `config_dir`）。⚠️ 那次
+> `__init__` mkdir 是**承重**的 —— `save_config` 自己从不建目录，**直接删会让每次保存都
+> FileNotFoundError**（所以是"挪走"不是"删掉"）。`defaults.json` 改为首次访问时加载
+> （`_get_default_config()`；`save_default_config` 后把缓存置 `None` 作废）。
+> 守卫 `tests/ao_shaping/utils/test_import_makes_no_disk_writes.py`（10 项）跑在**子进程**里并加
+> `-B`：同进程内模块早已被 import，检查会假绿；字节码缓存本身也是写。判定范围限 repo 与 scratch ——
+> 实测第一版把 **matplotlib 在 HOME 下建自己的缓存**也算违规（那不是本契约，也不是我们能修的），
+> 故按 §8.10「机制只声明它真正执行的策略」收窄并在 docstring 写明边界。
+> 非空性实测：同一守卫跑在改前树 `fca1ed88` ⇒ `VIOLATION … mkdir('/workspace/data/wfs_configs/wfs')`。
+> 容器：drivers+utils+gui+tools+optimizer **5059 passed / 248 skipped / 0 失败**（48g，25m58s）。
+
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
 
