@@ -804,6 +804,43 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     （本次改为 `grep -c` 确认注入落地 + `&&` 串接使失败即停），再让被验证对象跑。
     规则：**任何"证明某检查非空"的步骤，必须先断言该检查的输入确实变了**；否则红色与绿色都不承载信息。
 
+12. ✅ **BLE001 收尾时顺带量到的另一类"检查了但什么都没断言"：`tests/` 里 30 个「全部断言都在 `if` 里」的测试 ⇒ 修 3 处（逐处差分证明），其余按类保留不钉**（2026-10-25）：
+    这是吞异常在 `tests/` 里的同构体：不是"失败不可归因"，而是**通过不承载信息**。
+    AST 测法（与 §8.9 第 11 项不同的一条独立规则，别混用）：一个 `test_*` 函数里的**断言事件**
+    = `Assert` 节点 + `assert_*`（mock）+ `pytest.raises/fail/xfail`；若**每一个**断言事件都落在某个
+    `If` 之下 ⇒ 该测试可以在前提不成立时零断言通过。全仓命中 **30**。
+    分布（前几）：`drivers/slm/test_slm_hardware.py` 5（硬件门控，CI 不产生绿）、
+    `gui/slm/test_pattern_controls.py` 3、`gui/zernike/test_zernike_response_matrix_ui.py` 2（整模块
+    `pytest.mark.skip` 硬跳过）、`optimizer/wfless/test_slm_model_in_loop.py` 2、
+    `scripts/test_build_hw_sweep_plan.py` 2，其余各 1。
+    **修掉 3 处，每处都跑"旧盲 / 新有牙"差分**（改前测试与改后测试对**同一变异**的反应）：
+    ① `display/test_display_layering.py::test_no_module_scope_algorithm_import`：AST 扫描型守卫，
+    全部断言挂在 `isinstance(node, ast.Import*)` 上 ⇒ **若模块一个顶层 import 都没有，扫描什么也不看就通过**。
+    加前提断言（顶层 import 列表非空）。差分：把该文件 6 个顶层 import 剥掉（AST 复测确认
+    `top-level imports after mutation: 0` 后才允许跑）⇒ 旧版 `1 passed`（盲），新版失败并点名
+    "declares no module-scope import: the scan below would pass without examining anything"。
+    ② `optimizer/wfless/test_slm_zernike_primitives.py::test_module_defines_no_module_level_mutable_state`：
+    名字声称"无模块级可变状态"，机制**只匹配 `ast.Dict`** ⇒ 模块级 list / set / 推导式 / `dict()` 之类
+    同样会造成两个 importer 在一个进程里共享槽位轮换状态，却能全身而绿。扩到 Dict/List/Set +
+    ListComp/SetComp/DictComp + `dict/list/set/deque/defaultdict/Counter/OrderedDict()`；
+    先实测真实模块**命中 0** ⇒ 扩宽不会把既有代码判成缺陷。差分：注入模块级 list + set ⇒
+    旧版 `2 passed`（盲），新版点名 `_INJECTED_LIST_STATE = <List> at line 189; _INJECTED_SET_STATE = <Set> at line 190`。
+    ③ `optimizer/wfless/test_slm_model_in_loop.py`：**实测发现该测试自写下起就没断言过任何东西** ——
+    它的循环是 `for row in history[1:]: if not row["accepted"]: assert row["reason"]`，而这份小仿真
+    **一条 rejected 轮次都不产生**（前提永假）。改名
+    `test_every_history_row_names_a_machine_readable_reason`，把检查改为对**全部** history 行无条件成立
+    （另加一条一致性检查：被拒的行不得标成 `"accepted"`）；理由写在 docstring 里：
+    拒绝分支本身已由 `acceptance_verdict` 的直接测试覆盖（§该文件 `:811-893` 十余项），端到端唯一能证明的是
+    **verdict 的 reason 确实落到记录行上**。差分：把模块里 `reason=` 全部置空 ⇒ 旧版 `2 passed`（盲），
+    新版失败并给出 `round 1 recorded reason=''`。⚠️ 注意这不是"加个断言让它更严"，而是
+    **原测试的通过条件恒真**；`optimizer` 是阻塞分片，所以修复必须同时证明它**不会把既有绿变红**（先测 0 命中 / 真实 159 passed）。
+    **其余 ~27 处不钉棘轮**（与第 11 项相反的判定，写清楚免得下次重议）：其中多数是**循环内逐元素断言**
+    （测试自己构造的数据上 `if isinstance(...)` 过滤，正常写法），且 5 处在硬跳过模块里；
+    "条件断言"这条规则的假阳性压力远大于"盲吞异常"，计数基线会把合法写法一起钉死。
+    `gui/zernike` 两处维持第 10 项判定：真弱点是 `if mock_calibrate.called:` 这类条件断言，
+    但重度 mock 的 Streamlit 测试我跑不起来 ⇒ 只记录不动。
+    回归：三个被改文件 **159 passed / 0 failed**；旧测试名在全仓**无其它引用**（改名安全）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

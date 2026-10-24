@@ -203,10 +203,29 @@ class TestSharedModuleContract:
     def test_module_defines_no_module_level_mutable_state(self):
         # Slot rotation state must be owned per-consumer, never shared through a
         # module global -- otherwise two importers in one process would interleave.
+        # Widen beyond dict: a module-level list or set interleaves exactly the same
+        # way, so a dict-only check would not deliver what this test's name claims.
         tree = ast.parse(Path(common.__file__).read_text(encoding="utf-8-sig"))
+        offenders: list[str] = []
         for node in tree.body:
-            if isinstance(node, ast.Assign) and isinstance(node.value, ast.Dict):
-                pytest.fail(f"module-level dict state at line {node.lineno}")
+            if not isinstance(node, ast.Assign):
+                continue
+            value = node.value
+            kind: str | None = None
+            if isinstance(value, (ast.Dict, ast.List, ast.Set)):
+                kind = type(value).__name__
+            elif isinstance(value, (ast.ListComp, ast.SetComp, ast.DictComp)):
+                kind = f"{type(value).__name__} comprehension"
+            elif isinstance(value, ast.Call):
+                name = getattr(value.func, "id", None) or getattr(value.func, "attr", None)
+                if name in {
+                    "dict", "list", "set", "deque", "defaultdict", "Counter", "OrderedDict",
+                }:
+                    kind = f"{name}()"
+            if kind:
+                targets = ", ".join(ast.unparse(t) for t in node.targets)
+                offenders.append(f"{targets} = <{kind}> at line {node.lineno}")
+        assert not offenders, "module-level mutable state: " + "; ".join(offenders)
 
     def test_public_surface(self):
         for name in (
