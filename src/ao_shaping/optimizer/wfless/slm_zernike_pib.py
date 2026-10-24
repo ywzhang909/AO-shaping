@@ -1301,7 +1301,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                                 cam.reset_window(
                                     cast(tuple[int, int], center_full), (_raw_w, _raw_h)
                                 )
-                            except (RuntimeError, ValueError, AssertionError) as exc:
+                            except (RuntimeError, ValueError) as exc:
                                 logger.warning(
                                     "raw view {}x{} rejected by the camera: {}",
                                     _raw_w,
@@ -1334,7 +1334,7 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
                             cam.get_numpy_image(config.n_eval_frames),
                         )
                         setattr(recorder, "raw_frame_shape", full_frame_shape)
-                    except (RuntimeError, ValueError, AssertionError) as exc:
+                    except (RuntimeError, ValueError) as exc:
                         logger.warning("raw before/after capture failed: {}", exc)
                     logger.info(
                         "SLM left at best {} phase: {:.4f} @ epoch {} (initial {:.4f})",

@@ -1126,6 +1126,76 @@ def test_wfs_driver_guards_every_dll_entry_point() -> None:
     )
 
 
+#: Handlers that legitimately catch ``AssertionError`` because the assertion comes
+#: from a **third-party** library inside the protected expression, not from this
+#: repo. Keyed by ``<path>: <sorted handler names>`` rather than by line number, so
+#: line drift cannot hide a new one and a changed handler turns the entry stale.
+_CATCH_ASSERTION_ALLOWLIST = frozenset({
+    # torch's own CUDA probe raises AssertionError on a broken driver stack; the
+    # documented contract here is to degrade to ``pin_memory=False`` ("driver
+    # hiccup"). ``src/ml/`` contains no driver asserts of ours, so this cannot be
+    # one of the conversions this rule protects against.
+    "src/ml/hwdataset/dataset.py: ('AssertionError', 'RuntimeError')",
+})
+
+
+def test_production_code_never_catches_assertion_error() -> None:
+    """Nothing under ``src/`` or ``scripts/`` may have an ``except AssertionError``.
+
+    Catching an assertion converts a programmer invariant into runtime control flow,
+    and it fails twice over. Under ``python -O`` the assert that produced the
+    exception no longer exists, so the handler is dead code -- and when a driver
+    assert is converted to an explicit raise (what 8.9 asks for), a handler written
+    against ``AssertionError`` **stops firing silently**, in the hardware-only paths
+    that no container test executes. That is not hypothetical: converting
+    ``assert x_offset >= 0`` to ``ValueError`` bypassed the narrow handler in
+    ``calibration.py::apply_stored_window``, so an out-of-range stored window crashed
+    the calibration step instead of degrading to the full frame its own docstring
+    promises; converting the high-speed assert to ``WfsError`` dropped
+    ``wfs_probe.py``'s actionable hint and turned it into a traceback. Both shipped
+    green because the handlers sit on untestable paths -- which is exactly why this
+    is a structural rule rather than something to catch by running tests.
+
+    This is why the scan is AST-based and not a grep: the first grep for
+    ``except AssertionError`` reported zero while three tuple-form handlers
+    (``except (RuntimeError, ValueError, AssertionError)``) were present. Grep
+    cannot see them; ``ast.ExceptHandler`` walks every name in the tuple.
+
+    ``tests/`` is exempt on purpose: there ``pytest.raises(AssertionError)`` documents
+    an intentional internal-invariant contract (8.9's "keep ``assert``" row), and a
+    test may legitimately assert that an invariant still trips.
+    """
+    found: set[str] = set()
+    for root in (SRC, REPO / "scripts"):
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            except (OSError, SyntaxError):
+                continue
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ExceptHandler) or node.type is None:
+                    continue
+                names = sorted(
+                    {
+                        sub.id
+                        for sub in ast.walk(node.type)
+                        if isinstance(sub, ast.Name)
+                    }
+                )
+                if "AssertionError" in names:
+                    rel = path.relative_to(REPO).as_posix()
+                    found.add(f"{rel}: {tuple(names)}")
+
+    new = sorted(found - _CATCH_ASSERTION_ALLOWLIST)
+    stale = sorted(_CATCH_ASSERTION_ALLOWLIST - found)
+    assert not new and not stale, (
+        f"{new = } -- `except AssertionError` is dead under `python -O` and detaches "
+        "silently when a driver assert becomes an explicit raise; catch what the "
+        f"callee actually raises. {stale = } -- no longer present, drop from the "
+        "allowlist."
+    )
+
+
 #: Attribute reads that mean "is the device usable?" -- i.e. a device-state
 #: precondition. `Panel_Res` counts because it is a driver **class constant**, so
 #: asserting on it can only ever fire on a fake object.

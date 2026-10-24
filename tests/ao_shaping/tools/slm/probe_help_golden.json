@@ -1,7 +1,7 @@
 {
   "calibration": {
-    "body_literals": 628,
-    "body_literals_sha256": "376daed0d3d423c9",
+    "body_literals": 627,
+    "body_literals_sha256": "a88e9b8b080d1556",
     "declared": [
       "--align-margin",
       "--align-min-window",
@@ -750,8 +750,8 @@
     ]
   },
   "slm_wfs_probe": {
-    "body_literals": 91,
-    "body_literals_sha256": "2030d1cf0b0f1096",
+    "body_literals": 90,
+    "body_literals_sha256": "fcfd08628b44fac4",
     "declared": [
       "--exposure-ms",
       "--mla-index",
@@ -772,8 +772,8 @@
     ]
   },
   "slm_wfs_reference": {
-    "body_literals": 253,
-    "body_literals_sha256": "a5c9d00d9e7a6a20",
+    "body_literals": 252,
+    "body_literals_sha256": "a31be9bf5a3a74ca",
     "declared": [
       "--flat-rms-threshold",
       "--n-avg",

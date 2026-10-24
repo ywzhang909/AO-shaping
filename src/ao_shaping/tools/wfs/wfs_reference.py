@@ -298,9 +298,6 @@ def main(params: WfsReferenceParams) -> int:
 
         slm.display_data(flat_gray(), wait_time_s=0.5)
 
-    except AssertionError as e:
-        click.echo(f"[FAIL] 断言失败: {e}")
-        all_ok = False
     except Exception as e:
         logger.exception("流程失败")
         click.echo(f"[FAIL] {type(e).__name__}: {e}")
