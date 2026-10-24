@@ -952,6 +952,30 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **不落守卫**（有意）：普查结论是「26 个文件里只有 1 个属于腐烂」，任何覆盖全 `tests/` 的禁令都会把
       上面 1、2 两类合法用法直接判成违规 —— §8.10 那条「不得宣称多于实测」在**普查驱动**的工作上同样适用。
 
+17. ✅ **删掉 `tests/ao_shaping/ao/` 里 3 个「永远不可能失败」的硬件演示：0 断言 + 整模块跳过 + 调用已过期 API**（2026-10-25）：
+    - **实测三件套**：`test_wf.py` 39 行 / `test_wfless.py` 51 行 / `test_combine.py` 93 行，
+      `assert` 计数 **0 / 0 / 0**，且各自还调 `plt.show()` ⇒ 它们不是测试，是**在硬件上跑图的脚本**
+      （AGENTS 早写明硬件编排归 `tools/`、实验叙述归 `report/`、测试一律 mock-first）。
+    - **其中一条即便接上设备也会炸**：`test_wf.py:13` 调 `optimizer_rms_dm(init_v=…, epochs=20_000)`，
+      而现签名 `rms.py:50` 为 `dm: DM | None = None`、`:90` 明确 "dm parameter is required" ⇒ 那条整模块
+      跳过把这笔**已过期调用**一并掩掉了（`test_combine.py:25` 同形）。
+    - **删除不丢覆盖**（逐 API 实测）：`optimizer_rms_dm` 由 `optimizer/wf/test_rms_sim_seam.py`（9 断言）覆盖；
+      `optimize_pib` 由 6 处覆盖（`test_spid_pib_path_characterization.py` 15、`test_sensorless_sim_params.py` 15、
+      `test_pib_objective_sign.py` 10、`test_spgd_convention.py` 8、`test_pib_objective_columns.py` 5、
+      `test_combined_optimizer_voltage_reset.py` 3），最后那个也正是 `combined_optimizer` 的行为测试。
+    - **同目录的 `test_respond_matrix.py` 保留**：它不是整模块 `pytestmark`，而是在第 12 行按
+      `AO_RUN_HARDWARE=1` **逐测试**放行（含 2 条断言）⇒ 是正当的硬件门，不是掩码。
+      目录未清空 ⇒ `pytest.yml:107` 的 `tests/ao_shaping/ao` 分片路径仍然有效，**无需改 CI**。
+    - **容器实测**：删后 `tests/ao_shaping/ao` + 分片覆盖守卫 `test_pytest_workflow_shards_cover_tree.py`
+      + `test_conventions.py` 合跑 **41 passed / 2 skipped**，两条 skip 都已知且正当
+      （硬件门 `test_respond_matrix.py:12`、`ruff not on PATH`）。
+    - ⚠️ **顺带记一条我自己的测量错误（发现即弃用，未据其下任何结论）**：普查「无断言测试」时把
+      `any(<生成器> for d in [fn.decorator_list])` 写成对**生成器对象**取真值 ⇒ 恒为真，过滤器等于不存在，
+      输出把 fixture、`__init__`、桩类全列成「测试」。本项结论改用逐文件 `grep -c assert` 加签名与调用点核对**重测**得到。
+      另：`pyproject` 里「忽略 `tests/ao_shaping/drivers`」已不存在 —— 现行是 `drivers/conftest.py` +
+      `_hardware_gate.py` 用 `hardware` 标记门控（注释见 `:25-31`），属**有意替换**而非回归；
+      我按旧账本以为是漂移，实测后才纠正（第 13 项「重钉要 grep 实测、不要靠算术」在这里再次生效）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
