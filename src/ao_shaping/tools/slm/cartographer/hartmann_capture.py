@@ -153,8 +153,6 @@ class HartmannCapture:
 
     def configure_wfs(self) -> None:
         """Apply configuration to WFS device."""
-        assert self._wfs.is_connected(), "WFS device must be opened first"
-
         # Set exposure time (0 = auto)
         if self.config.exposure_time_ms > 0:
             self._wfs.exposure_time = self.config.exposure_time_ms
@@ -195,7 +193,6 @@ class HartmannCapture:
         Returns:
             HartmannMeasurement with saved reference centroids.
         """
-        assert self._wfs.is_connected(), "WFS device must be opened first"
         logger.info(f"Capturing reference Hartmann spots: {label}")
 
         # Capture spots with averaging
@@ -249,7 +246,6 @@ class HartmannCapture:
         Returns:
             HartmannMeasurement with displacements and optional wavefront.
         """
-        assert self._wfs.is_connected(), "WFS device must be opened first"
         assert self._reference_saved, "Call capture_reference() first"
 
         logger.info(f"Capturing measurement Hartmann spots: {label}")

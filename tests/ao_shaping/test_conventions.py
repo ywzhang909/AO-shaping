@@ -1066,3 +1066,50 @@ def test_wfs_driver_guards_every_dll_entry_point() -> None:
         f"{rel}: `assert` is back inside ThorlabWFS at {asserts} -- it is "
         "stripped under `python -O`, so raise WfsError instead"
     )
+
+
+#: Attribute reads that mean "is the device usable?" -- i.e. a device-state
+#: precondition. `Panel_Res` counts because it is a driver **class constant**, so
+#: asserting on it can only ever fire on a fake object.
+_DEVICE_STATE_READS = (".is_open", ".is_connected(", ".Panel_Res")
+
+
+def _cartographer_device_state_asserts(path: Path) -> list[int]:
+    """Line numbers of ``assert`` statements testing device readiness or a driver constant."""
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    except (OSError, SyntaxError):
+        return []
+    return [
+        node.lineno
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Assert)
+        and any(read in ast.unparse(node.test) for read in _DEVICE_STATE_READS)
+    ]
+
+
+def test_cartographer_never_asserts_on_device_state() -> None:
+    """The cartographer must not re-implement device readiness checks.
+
+    It carried 9 ``assert self.slm.is_open`` / ``assert self.wfs.is_connected()``
+    sites. Those ask the driver a question the driver is supposed to answer itself,
+    and ``python -O`` deletes the answer -- after which an unopened WFS hands a null
+    handle to ``WFS_64.dll``, which (for ``select_mla`` and the auto-exposure branch
+    of ``take_image``) reports no error at all and yields garbage numbers instead.
+
+    The checks now live in the drivers -- ``Santec._ensure_open``,
+    ``ThorlabWFS._ensure_open`` and ``BaseCamera._ensure_open`` -- so removing them
+    here loses nothing. The 4 asserts that remain in this package guard **internal**
+    state (``self.lut``, ``self._reference_saved``, ``self._last_measurement``),
+    which is what ``assert`` is for under 8.9's own rule.
+    """
+    offenders: list[str] = []
+    for path in sorted(
+        (SRC / "ao_shaping" / "tools" / "slm" / "cartographer").rglob("*.py")
+    ):
+        for lineno in _cartographer_device_state_asserts(path):
+            offenders.append(f"{path.relative_to(REPO).as_posix()}:{lineno}")
+    assert not offenders, (
+        "device-readiness `assert` is back in the cartographer -- the drivers guard "
+        f"this now (Santec/ThorlabWFS._ensure_open): {offenders}"
+    )

@@ -811,7 +811,6 @@ def optimize_slm_zernike_pib(config: SlmZernikePibConfig):
         apply_overlays_to_handle(slm_ctx, config.send_overlay)
 
     with cam_ctx as cam, slm_ctx as slm, display_ctx as live_display:
-        assert cam is not None and slm is not None
         blaze_choice = None
         if blaze_period_px >= 0:
             from ao_shaping.optimizer.wfless._blaze_calibration import select_blaze

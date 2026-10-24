@@ -229,9 +229,6 @@ class PhaseGrayscaleLUT:
             generate_traditional_gradient_pattern,
         )
 
-        assert self.slm.is_open, "SLM must be opened"
-        assert self.wfs.is_connected(), "WFS must be opened"
-
         logger.info("Starting LUT calibration...")
 
         # Configure WFS

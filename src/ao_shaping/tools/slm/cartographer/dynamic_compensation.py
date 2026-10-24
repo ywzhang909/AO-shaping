@@ -158,9 +158,6 @@ class DynamicCompensator:
         Returns:
             Measured wavefront array (radians or waves, per WFS convention).
         """
-        assert self.slm.is_open, "SLM must be opened"
-        assert self.wfs.is_connected(), "WFS must be connected"
-
         logger.info("Measuring initial aberration (flat zero grayscale)...")
 
         self.slm.set_grayscale(0)
@@ -212,7 +209,6 @@ class DynamicCompensator:
             Compensation grayscale array (uint16) for SLM display.
         """
         assert self.lut is not None, "LUT must be set before compute_compensation()"
-        assert self.slm.Panel_Res is not None
 
         logger.info("Computing compensation pattern...")
 
@@ -268,7 +264,6 @@ class DynamicCompensator:
         Args:
             compensation_grayscale: 2D uint16 grayscale array.
         """
-        assert self.slm.is_open, "SLM must be opened"
         logger.info("Applying compensation to SLM (driver-rotated memory slot)...")
         # 刻意省略 display_data 的槽位参数: 固定槽位是固件 no-op (同一槽连续 display_memory 不刷新面板, 之后每帧都是旧图), 省略后驱动在 1~127 槽间自行轮换
         self.slm.display_data(compensation_grayscale)
@@ -281,7 +276,6 @@ class DynamicCompensator:
         Returns:
             (corrected_wavefront, corrected_stats) tuple.
         """
-        assert self.wfs.is_connected(), "WFS must be connected"
         logger.info("Verifying correction...")
 
         HartmannCapture, HartmannCaptureConfig = self._load_capture_dependencies()
