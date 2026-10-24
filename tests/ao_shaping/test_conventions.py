@@ -2009,11 +2009,25 @@ def test_the_utils_leaf_layer_never_binds_a_native_sdk() -> None:
     )
 
 
-_MD_TABLE_SKIP = re.compile(
-    r"(^|/)(report|call_graph_wiki|node_modules|\.venv|__pycache__)(/|$)"
+_MD_SKIP = re.compile(
+    r"(^|/)(call_graph_wiki|node_modules|\.venv|__pycache__|\.git)(/|$)"
 )
 _MD_FENCE = re.compile(r"^\s*(```|~~~)")
 _MD_SEP_ROW = re.compile(r"^\|[\s:|-]*-[\s:|-]*\|?\s*$")
+_MD_ENTRY = re.compile(r'"([^"]+\.md)":\s*ReportProvenance\(')
+# The entry's OWN script field: a fixed window past the key spills into the next
+# entry, and a neighbouring script=HANDWRITTEN then reclassifies a generated report
+# as hand-written (measured: models_report/report.md, 4 offenders mis-bucketed).
+_MD_SCRIPT_FIELD = re.compile(r'script\s*=\s*(HANDWRITTEN|"[^"]+")')
+
+# Measured 2026-10-25: 23 rows under the row-width rule, plus 1 that only the
+# header/delimiter check can see (slm_pib_bench: a 9-cell header against a 10-cell
+# delimiter). One earlier hit was never a generated defect at all -- a hand-written
+# summary that happens to live under report/ -- and was fixed in place, so it is not
+# counted here. The generator-side unit (TODO 8.9 item 26) takes the rest to 0; until
+# then this number may only go DOWN, never up, and it is not comparable to the 24 the
+# one-directional rule reported before the header check existed.
+_MD_GENERATED_SPLIT_BASELINE = 24
 
 
 def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
@@ -2021,7 +2035,9 @@ def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
 
     Table-shaped text inside a fence must not be read as a table: this repo documents
     row formats inside fenced blocks, and parsing those would report defects no
-    renderer ever shows.
+    renderer ever shows. A line is kept only while the fence is CLOSED -- inverted
+    once already, which is why the caller bounds the block count by a measured
+    magnitude instead of ``> 0``.
     """
     lines: list[tuple[int, str]] = []
     open_fence: str | None = None
@@ -2043,13 +2059,35 @@ def _md_pipe_count(line: str) -> int:
     return len(re.findall(r"(?<!\\)\|", line))
 
 
+def _generated_report_paths() -> tuple[set[str], set[str]]:
+    """Report files split into generated vs hand-written, per provenance.REPORTS.
+
+    The repo already records which report a script owns and which are 人工撰写, so the
+    split reuses that single source instead of treating everything under report/ as
+    generated: hand-written summaries live there too, and a directory-keyed exclusion
+    would have protected their split cells forever.
+    """
+    text = (REPO / "scripts" / "_common" / "provenance.py").read_text(encoding="utf-8")
+    generated: set[str] = set()
+    handwritten: set[str] = set()
+    for match in _MD_ENTRY.finditer(text):
+        field = _MD_SCRIPT_FIELD.search(text, match.end())
+        if field is None:
+            continue  # no script field: unknown, falls into the must-be-zero bucket
+        if field.group(1) == "HANDWRITTEN":
+            handwritten.add(match.group(1))
+        else:
+            generated.add(match.group(1))
+    return generated, handwritten
+
+
 def _markdown_table_cell_splits() -> tuple[list[str], int]:
     """Rows writing more cells than their own separator row declares."""
     offenders: list[str] = []
     blocks = 0
     for path in sorted(REPO.rglob("*.md")):
-        rel = str(path.relative_to(REPO))
-        if _MD_TABLE_SKIP.search(rel):
+        rel = path.relative_to(REPO).as_posix()
+        if _MD_SKIP.search(rel):
             continue
         try:
             text = path.read_text(encoding="utf-8")
@@ -2070,50 +2108,76 @@ def _markdown_table_cell_splits() -> tuple[list[str], int]:
             if len(block) < 2 or not _MD_SEP_ROW.match(block[1][1]):
                 continue  # no separator row: prose shaped like a table
             declared = _md_pipe_count(block[1][1])
-            for lineno, line in block:
+            # The header is checked in BOTH directions: a header/delimiter mismatch is
+            # not a cosmetic wobble, GFM refuses to see the table at all.
+            header = _md_pipe_count(block[0][1])
+            if header != declared:
+                offenders.append(
+                    f"{rel}:{block[0][0]}: header writes {header - 1} cell(s), the "
+                    f"delimiter row declares {declared - 1} -- the block is not parsed "
+                    f"as a table at all: {block[0][1][:60]}"
+                )
+            # Data rows only in ONE direction: GFM pads a short row and the trailing
+            # pipe is optional, so fewer cells is legal and must not be flagged.
+            for lineno, line in block[2:]:
                 written = _md_pipe_count(line)
                 if written > declared:
                     offenders.append(
-                        f"{rel}:{lineno}: separator declares {declared - 1} cell(s), "
+                        f"{rel}:{lineno}: delimiter declares {declared - 1} cell(s), "
                         f"this row writes {written - 1}: {line[:70]}"
                     )
     return offenders, blocks
 
 
-def test_handwritten_markdown_tables_never_split_a_cell_on_a_raw_pipe() -> None:
-    """A bare ``|`` in a markdown table cell must be escaped or it splits the cell.
+def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
+    """Every markdown table row keeps the column count its separator declares.
 
-    Inline code does not protect the pipe: ``|E|``, ``[spgd|ga]`` and
-    ``--protocol(file|objective)`` each silently added a column to a hand-written
-    table. The same census surfaced two further shapes this count also catches: an
-    archival note parked in a fifth cell of a four-column table (TODO.md), and two
-    rows fused onto one physical line by a missing newline (TODO.md) -- so the count
-    is a detector, not a diagnosis, and each hit still needs its cause read.
+    A bare ``|`` splits a cell and inline code does not protect it: ``|E|``,
+    ``[spgd|ga]``, ``--protocol(file|objective)`` and a bare ``|Δz|`` each silently
+    added a column. Two further shapes trip the same count -- two rows fused onto one
+    physical line by a missing newline, and a note parked in a fifth cell of a
+    four-column table -- so the count is a detector, not a diagnosis: each hit needs
+    its cause read before choosing escape / split-line / merge-cell.
 
-    The separator row, not the header, is the structural reference: a header can be
-    the broken line itself (the hw_defocus_zernike reports put ``max|c| (rad)`` in a
-    header, splitting it into 14 cells against a 12-cell body). Rows writing *fewer*
-    cells are legal -- GFM pads short rows and the trailing ``|`` is optional -- so
-    they are deliberately not flagged.
+    The separator row, not the header, is the arity reference. A header can be the
+    defective line itself (the hw_defocus_zernike reports put ``max|c| (rad)`` in the
+    header: 14 cells against a 12-cell body), so a header-relative check blamed the
+    wrong rows on those three files. Rows writing fewer cells than declared are legal
+    -- GFM pads short rows and the trailing ``|`` is optional -- and are not flagged.
 
-    ``report/**`` is excluded on purpose because those files are generated: 24 splits
-    live in 11 of them and the fix belongs in the 8 generator scripts named by
-    scripts/_common/provenance.py, since hand-editing a generated report reverts the
-    instant it is regenerated. Registered in TODO.md section 8.9 item 26.
+    Generated reports are counted against a baseline rather than excluded, so a new
+    split cannot arrive silently: 24 rows across 11 generated reports are baselined, and they must be
+    fixed in the 8 generator scripts (no escaping convention exists repo-wide), which
+    TODO 8.9 item 26 tracks. Hand-written files -- hand-written reports included --
+    must stay at zero.
 
-    Measured 2026-10-25: 0 offenders across 119 hand-written markdown files and 609
-    table blocks. Empty baseline, so there is nothing to re-pin; the block count is
-    asserted so a broken glob or skip pattern cannot leave the guard enforcing
-    nothing while still passing.
+    Measured 2026-10-25: 0 hand-written offenders, 24 generated rows, 1487 table blocks.
+    The block bound is a measured magnitude on purpose: an inverted fence test once
+    blanked every real table and scanned 0 blocks, which a ``blocks > 0`` check would
+    have reported as a passing guard.
     """
     offenders, blocks = _markdown_table_cell_splits()
-    assert blocks > 400, (
+    generated, handwritten = _generated_report_paths()
+    assert len(generated) >= 20 and len(handwritten) >= 5, (
+        f"provenance parse found {len(generated)} generated / {len(handwritten)} "
+        "hand-written reports -- the map layout changed, so the two buckets below are "
+        "not the buckets they claim to be"
+    )
+    assert blocks > 1000, (
         f"only {blocks} markdown table blocks scanned -- the file set or the skip "
         "pattern has stopped matching, so this guard is enforcing nothing"
     )
-    assert not offenders, (
-        f"{len(offenders)} markdown table row(s) write more cells than their "
-        "separator declares. Escape the pipe as backslash-| (inline code included), "
-        "or merge the overflow back into the last cell if a note outgrew the schema:"
-        "\n  " + "\n  ".join(sorted(offenders))
+    split_gen = sorted(o for o in offenders if o.split(":")[0] in generated)
+    split_hand = sorted(o for o in offenders if o.split(":")[0] not in generated)
+    assert not split_hand, (
+        f"{len(split_hand)} hand-written markdown table row(s) write more cells than "
+        "their separator declares. Escape the pipe as backslash-| (inline code "
+        "included), or merge the overflow back into the last cell if a note outgrew "
+        "the schema:\n  " + "\n  ".join(split_hand)
+    )
+    assert len(split_gen) <= _MD_GENERATED_SPLIT_BASELINE, (
+        f"{len(split_gen)} generated-report rows split cells, above the baseline of "
+        f"{_MD_GENERATED_SPLIT_BASELINE}. A generated .md is re-written by its "
+        "generator, so fix the emitter rather than the artifact (TODO 8.9 item 26):\n"
+        "  " + "\n  ".join(split_gen)
     )

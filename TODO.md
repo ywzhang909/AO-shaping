@@ -1202,13 +1202,32 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       8 个脚本一律裸 `f"| {a} | {b} |"`）⇒ 需先立一个共享的行发射/转义 helper 再逐脚本接线；而
       `hw_defocus_zernike` 系列与 `test_miicam_auto_exposure_report.py`（`-m hardware`）重生成要碰设备数据
       ⇒ **本轮不做**，登记为后续单元（先修 helper + 接线，数据可离线的那批先重生成）。
-    - **新增守卫** `test_handwritten_markdown_tables_never_split_a_cell_on_a_raw_pipe`
-      （`tests/ao_shaping/test_conventions.py`）：覆盖 119 个手维护 `.md` / **609 个表块**，
-      围栏代码块先清空（仓库在围栏里写表格样例，不清就会报渲染中根本不存在的缺陷），空基线。
-    - **守卫自身的两条教训（比修 5 处更值钱）**：
+    - **新增守卫** `test_markdown_table_rows_never_write_more_cells_than_declared`
+      （`tests/ao_shaping/test_conventions.py`）：覆盖全部 260 个 `.md` / **1487 个表块**，
+      围栏代码块先清空（仓库在围栏里写表格样例，不清就会报渲染中根本不存在的缺陷）。
+      **两个桶**：手维护文件空基线（必须 0）；生成报告按 **24** 计数棘轮（只降不升）。
+      桶的划分**复用 `provenance.REPORTS`**（生成 vs `script=HANDWRITTEN`），不按目录猜。
+    - **同一症状的第三种成因（本轮新发现，不是转义问题）**：`report/models_analysis/`
+      的表**分隔行短一列**（表头与数据行都写 8 格，`|---|` 只声明 7 格）—— 这不是错位，
+      **GFM 根本不把整块当表格**（分隔行与表头列数必须相等）。修法是**给分隔行补一列**，
+      转义任何单元都是错的 ⇒ 单靠"单元里有没有裸 `|`"判因由会走偏，必须读分隔行。
+    - **反方向漏检 ⇒ 表头改双向校验**：`report/slm_pib_bench/` 是 9 格表头配 **10 格**分隔行，
+      旧规则只报"行数 > 分隔行"，结构上**看不见**这种形状。现规则：表头 `!=` 分隔行即报；
+      数据行只在 `>` 时报（GFM 补齐短行、行尾 `|` 可省，**少于**是合法的，不能报）。
+    - **普查工具自身的两个坑（都值一节）**：
+      ① 判"生成 vs 手维护"最初按目录 `report/` 一刀切 ⇒ 把 `script=HANDWRITTEN` 的
+        **手维护报告**（`experiment_summary_20261022.md`）永久豁免了，而它确有切列缺陷。
+        ⇒ 分类必须复用仓库已有的单一事实源 `provenance.REPORTS`。
+      ② 解析扁平字面量映射时用**固定 400 字符窗口**取 `script=` 字段，窗口**溢到下一条**
+        （`models_report/report.md` 是生成的，却因邻居 `reward_analysis.md` 的
+        `script=HANDWRITTEN` 被判成手维护，连带 4 处误进"必须为 0"的桶）⇒ 改为从键位置起
+        **搜该条目自己的第一个** `script=` 字段。判据：分类数须等于条目数（实测 85 + 54 = 139）。
+    - **守卫自身的三条教训（比修 5 处更值钱）**：
       ① 首版把 `_unfenced_md_lines` 的三元写反（`"" if open_fence is None else line`）⇒ 把**围栏外**的
         真表格全部清空，扫到 **0 个表块**。若反空转断言写成 `blocks > 0`，这个守卫会**永远空过还显示通过**；
         因为按实测 609 留了 `blocks > 400`，当场判红。⇒ **计数型守卫要断言"扫到了量级"，不是"扫到了东西"**。
+      ③ 棘轮基线的注释必须写清算术（23 + 新查出的 1，且与旧规则的 24 **不可比**）；
+        写成"24, down from 24"就是一条**看起来自洽但为假**的注释——正是本轮在别处清理的那类东西。
       ② 差异证明用**对 `HEAD` 内容跑同一段代码**（`git archive HEAD | tar -x -C /tmp/head_tree` 后 exec 守卫
         helper）：工作树 **0**，`HEAD` 树 **5**（正是修掉的那 5 处）。比人工注入更硬——证明守卫抓的是
         **真实存在过的缺陷类**，不是我为它造的样本。
