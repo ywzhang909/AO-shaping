@@ -1633,13 +1633,17 @@ _PERCENT_SPEC = re.compile(r"%[-+ #0]*\d*(?:\.\d+)?[sdifge]")
 def _dropped_arg_loguru_calls() -> list[str]:
     """Every loguru call that passes %-style arguments (which loguru discards).
 
+    Covers ``src/``, ``tests/`` and ``scripts/`` -- the same claim the test name makes.
+
     Scoped to files importing ``from loguru import logger`` on purpose: under the
     stdlib ``logging`` module ``%``-args are the correct form, and
     ``gui/utils/phase_overlay.py`` uses that module -- flagging it would be wrong,
-    not merely noisy.
+    not merely noisy. Aliases are included, because the substring check matches
+    ``from loguru import logger as loguru_logger`` too.
     """
     offenders: list[str] = []
-    for path in sorted(SRC.rglob("*.py")):
+    roots = (SRC, REPO / "tests", REPO / "scripts")
+    for path in sorted(p for root in roots for p in root.rglob("*.py")):
         text = path.read_text(encoding="utf-8-sig")
         if "from loguru import logger" not in text:
             continue

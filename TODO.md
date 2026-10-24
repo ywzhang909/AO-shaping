@@ -648,6 +648,15 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    守卫 `test_conventions.py::test_loguru_calls_never_pass_percent_style_arguments`（AST：`logger.<level>` + 首参为
    含 %-转换符的字符串常量 + **另带参数** + 消息不含 `{`；`logger.log` 的消息在 `args[1]` 而非 `args[0]`）。
    **非空性实测**：同一守卫跑在改前树 ⇒ 报 **19 处**并失败；改后 ⇒ 32 passed / 1 skipped。
+   ⚠️ **上一行是守卫健壮性不足的第一版，已当场纠正（§8.10「守卫必须只声称它真正强制的东西」的反例）**：
+   守卫名 `…_never_pass_percent_style_arguments` 是**全称**声称，而 helper 只扫 `SRC/` ⇒ 名字比机制宽。
+   已把扫描域扩到 `src` + `tests` + `scripts`（别名导入也算：子串检查能命中
+   `from loguru import logger as loguru_logger`，实测 `tests/ao_shaping/runners/test_runner_common.py:19`）。
+   扩域**立刻抓到 1 处新的既有缺陷**：`scripts/slm/hw_differentiable_phase_opt.py:2628`
+   ⇒ 该类缺陷的既有总数应为 **20**（`src` 19 + `scripts` 1），上文"19 处"是**当时的 src 口径**，保留不改。
+   ⚠️ 这一处还暴露批量转换脚本的第二个坑：它含**符号标志** `%+.2f`，脚本式的 `%.Nf`→`{:.Nf}` 映射会
+   **把 `+` 抹平**（变成 `{:.2f}`，正号消失）⇒ 手工转 `{:+.2f}`，并用 `str.format` **渲染样本实测**
+   保号成立（`rot=+0.50°`）。扩域后守卫**先红后绿**：红时恰好只报这 1 处，改后 32 passed / 1 skipped。
    行为测试 `TestOnRecordFailureIsAttributable`（2 项，无硬件，复用本文件既有 `_FakeCamera/_FakeSlm/build_plan`）：
    钉「回调失败**不中断**采集（yield 记录数 == plan 数）」与「失败**必须计数上报**（收尾行含总条数，逐条行按 1/100 限流）」。
    非空性：改前 ⇒ `4 records dropped with zero attribution` 失败、另一项通过（后者正是"策略未变"的证词）。
