@@ -1,3 +1,9 @@
+"""Timing-module tests: need the physical serial link (TM == SerialPortFSM, COM3).
+
+Gated by ``--hardware`` rather than a blanket skip: a ``pytest.mark.skip``
+cannot be overridden, so these could never run anywhere, including the lab's
+hardware job.
+"""
 import pytest
 
 from ao_shaping.drivers.tm import TM
@@ -5,7 +11,7 @@ from ao_shaping.drivers.tm import TM
 import serial
 import time
 
-pytestmark = pytest.mark.skip(reason="Requires serial port (COM3) hardware")
+pytestmark = pytest.mark.hardware
 
 
 def test_serial():

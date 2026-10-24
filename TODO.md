@@ -1033,6 +1033,33 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **全仓口径同步**（与第 16 项同一条 AST 规则）：`assert <字面量> in <读文件变量>` 由 **113 → 87**
       （26 → 25 个文件），其中本文件已**清零**。
 
+21. ✅ **两个"任何地方都永不执行"的设备测试模块改由 `--hardware` 门控（26 测 / 57 断言复活）；另两个刻意不动，各有证据**（2026-10-25，续第 15 项那张只记了数的普查表）：
+    - **为什么 blanket skip 本身是缺陷**：`pytest.mark.skip` **不可覆盖** ⇒ 连设备会话里显式要跑也跑不到；
+      而 `pytest.mark.hardware` 由 `drivers/conftest.py` → `_hardware_gate.skip_marked_hardware_tests` 控制
+      （没有 `--hardware` 才加 skip）。改的是**可达性**，不是 CI 结果。
+    - **改的两块**：`drivers/test_tm.py`（6 测 / 11 断言）、`drivers/ccd/test_miicam.py`（20 测 / 46 断言）。
+    - **差分两侧都实测**：① 默认跑 ⇒ `SKIPPED [6] … test_tm.py: need --hardware option to run` +
+      `SKIPPED [20] … ccd/test_miicam.py: 同上`，共 **26 skipped**、**无一执行**（不碰设备，CI 与改前完全一致，
+      只是跳过由守卫施加而非 blanket skip）；② 加 `--hardware` ⇒ `test_port_list` **真的执行并通过**
+      （`1 passed, 5 deselected`）⇒ 标记不是装饰。
+    - **先验 API 现时性再放行**（第 17 项教训：永久跳过的模块会静默腐烂）：`TM` 其实是别名
+      （`tm/__init__.py:9` = `SerialPortFSM as TM`），构造签名 `(port, baud)` 对上 `TM("COM3")`，
+      `__enter__`/`__exit__` 都在 ⇒ `with TM("COM3")` 合法；四个 helper 测点名的
+      `_pack_position_xy` / `_build_frame` / `list_port` / `parse_position_data` / `validate_received_data` /
+      `wait_rx` **逐个存在于现类**。`test_miicam.py` 的 `MIICamera` 导入、构造关键字、实例方法亦逐条对上。
+    - ⚠️ **刻意保留 blanket skip 的两块**：
+      1. `drivers/slm/test_slm_miicam.py:258` 断言 `slm.phase_range == 200`，而 `phase_range`
+         **只在** `drivers/sim/optics/simulated_slm.py:73` 定义，`Santec` 上没有 ⇒ 启用即 `AttributeError`；
+         且那段 `try` 只捕 `ImportError`（`:265`），掩不住它。要放行得先由设备侧确认正确属性。
+      2. `drivers/test_driver.py`：实例解析在该文件里**取到 0 个设备实例**（设备经工厂/注册表而来），
+         等于方法核对没做 ⇒ "未验"不等于"通过"，不放行。
+    - **普查表的两处更正**：`display/test_windows.py` 共 6 行且**没有任何 `def test_`**（0 测 0 断言）
+      ⇒ 它是占位文件而非"被跳过的测试"；`algorithm/test_differentiable_defocus_uniformity.py` 是**条件** `skipif`
+      （缺 checkpoint）⇒ 合法。这两类都不是第 17/21 项那种掩码。
+    - **守卫联动已确认**：`test_conventions.py::test_only_the_harness_or_hardware_tests_write_tracked_docs`
+      的方向是"改写 tracked docs 的用例必须带 `hardware` 标记"；两块 `report_refs=0`（不碰 `TestReport` 工装）
+      ⇒ 增加标记只会更满足它。实测合跑 **41 passed / 1 skipped**（既有 `ruff not on PATH` 跳过）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

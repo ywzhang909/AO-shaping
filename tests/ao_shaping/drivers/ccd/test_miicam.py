@@ -1,12 +1,16 @@
+"""MIICAM 4100-series camera tests: need the camera and its SDK.
+
+Gated by ``--hardware`` rather than a blanket skip: ``pytest.mark.skip`` cannot
+be overridden, so none of these could ever run -- not in CI, not in the lab's
+hardware job.
+"""
 import time
 
 import numpy as np
 import pytest
 
 
-pytestmark = pytest.mark.skip(
-    reason="Requires MIICAM 4100 series camera hardware and SDK"
-)
+pytestmark = pytest.mark.hardware
 
 
 class TestMIICAMCamera:
