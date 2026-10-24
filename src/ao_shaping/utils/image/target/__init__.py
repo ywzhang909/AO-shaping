@@ -32,8 +32,10 @@ from ao_shaping.utils.image.target.ccd import (
     square_target_from_measurement,
 )
 from ao_shaping.utils.image.target.metrics import (
+    DIFFERENTIABLE_SHAPE_CHOICES,
     LOGGRAD_EPS,
     LOGGRAD_SIGMA,
+    POLYGON_SHAPE_CHOICES,
     SHAPE_STAGE_WEIGHTS,
     TARGET_SHAPE_CHOICES,
     log_gradient_difference_from_fields,
@@ -48,6 +50,7 @@ from ao_shaping.utils.image.target.metrics import (
     shape_metric,
     shape_stage,
     shape_stage_from_energy,
+    shape_tile_coverage,
     spot_waist_sigma,
     target_shape_roi,
 )
@@ -96,6 +99,8 @@ __all__ = [
     "coerce_target_shape",
     # metrics
     "TARGET_SHAPE_CHOICES",
+    "POLYGON_SHAPE_CHOICES",
+    "DIFFERENTIABLE_SHAPE_CHOICES",
     "target_shape_roi",
     "spot_waist_sigma",
     "roi_energy_loss",

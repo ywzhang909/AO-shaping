@@ -28,6 +28,8 @@ from typing import Any
 
 import numpy as np
 
+from ao_shaping.utils.image.exposure_fusion import _gaussian_kernel_1d
+
 
 
 __all__ = [
@@ -421,15 +423,13 @@ def _initial_field(
 # 必然产生振铃, 几个像素的超高斯下降沿即可把均匀度从 ~85% 推到 >90%;
 # (2) 解析/OT 初值 + 少量迭代精修是目前性价比最高的组合 —— OT 解无相位涡旋、
 # 可插值、几乎不需要调参, 作为任意迭代算法的通用初值可把收敛迭代数减半。
+#
+# ``_gaussian_kernel_1d`` is imported from the single implementation in
+# :mod:`ao_shaping.utils.image.exposure_fusion` (issue #199 R4: a byte-identical
+# second copy used to live here). For every ``sigma > 0`` the two are
+# numerically identical; ``_soft_edge_amplitude`` guards ``sigma <= 0`` before
+# calling, so the ``sigma == 0`` identity arm is unused from this module.
 # ---------------------------------------------------------------------------
-
-
-def _gaussian_kernel_1d(sigma_px: float) -> np.ndarray:
-    """Unit-sum 1-D Gaussian kernel with a 3-sigma half-width."""
-    radius = max(1, int(math.ceil(3.0 * sigma_px)))
-    coords = np.arange(-radius, radius + 1, dtype=np.float64)
-    kernel = np.exp(-0.5 * (coords / sigma_px) ** 2)
-    return kernel / kernel.sum()
 
 
 def _soft_edge_amplitude(target: np.ndarray, sigma_px: float) -> np.ndarray:

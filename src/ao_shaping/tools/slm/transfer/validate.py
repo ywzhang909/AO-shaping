@@ -20,6 +20,7 @@ from ao_shaping.tools.slm.transfer.capture import clock, to_panel
 from ao_shaping.algorithm.signal_processing.multishape_objective import (
     ShapeObjective, anchored_intensity, gs_seed, image_metrics, target_at,
 )
+from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 
 
 def replay_seed(directory, shape, xy, target):
@@ -225,7 +226,7 @@ def main():
     parser.add_argument("--zero-xy", type=float, nargs=2, required=True)
     parser.add_argument("--period", type=float, default=64.)
     parser.add_argument("--side", type=float, default=80.)
-    parser.add_argument("--shapes", nargs="+", choices=("square", "rectangle", "triangle", "star"), default=["square", "rectangle", "triangle", "star"])
+    parser.add_argument("--shapes", nargs="+", choices=POLYGON_SHAPE_CHOICES, default=list(POLYGON_SHAPE_CHOICES))
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)

@@ -31,6 +31,7 @@ import numpy as np
 import numpy.typing as npt
 from loguru import logger
 
+from ao_shaping.utils.image.target.metrics import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
 
 if TYPE_CHECKING:  # pragma: no cover – type-only imports
@@ -100,7 +101,10 @@ def create_target_mask(
     Raises:
         ValueError: *shape* 无效或 *grid_size* 不是二维时。
     """
-    valid_shapes = {"square", "rectangle", "triangle", "star", "circle", "gaussian", "spot"}
+    # Single vocabulary (issue #199 P1): the subset of the canonical
+    # ``TARGET_SHAPE_CHOICES`` whose geometry mapping this factory implements.
+    # It used to be a private inline set.
+    valid_shapes = DIFFERENTIABLE_SHAPE_CHOICES
     if shape not in valid_shapes:
         raise ValueError(f"Invalid shape {shape!r}. Must be one of {valid_shapes}")
     if len(grid_size) != 2:

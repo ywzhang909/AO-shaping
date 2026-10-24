@@ -16,12 +16,15 @@ from scipy.optimize import nnls
 
 from ao_shaping.tools.slm.transfer.capture import clock
 from ao_shaping.tools.slm.transfer.validate import ShapeObjective, image_metrics
+from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 
 
 def available_seed_shapes(rows):
     """Require both training shapes and at least one unseen shape family."""
     labels = {r["label"] for r in rows}
-    shapes = [s for s in ("square", "rectangle", "triangle", "star") if s + "_seed" in labels]
+    # Single vocabulary (issue #199 P1): the polygon seed family, as a documented
+    # subset view of the canonical TARGET_SHAPE_CHOICES.
+    shapes = [s for s in POLYGON_SHAPE_CHOICES if s + "_seed" in labels]
     if not {"square", "triangle"}.issubset(shapes):
         raise ValueError("square and triangle seed captures required for training")
     if not {"rectangle", "star"}.intersection(shapes):

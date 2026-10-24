@@ -87,6 +87,7 @@ from ao_shaping.optimizer.wfless.adaptive_trust_region import (
     AdaptiveTrustRegionConfig,
 )
 from ao_shaping.utils.image.frame_analysis import crop_around_zero_order
+from ao_shaping.utils.image.target import DIFFERENTIABLE_SHAPE_CHOICES
 from ao_shaping.utils.slm.bench_constants import (
     BEAM_CENTER_PANEL,
     BLAZE_PERIOD_MIN_PX,
@@ -1091,8 +1092,16 @@ class SlmModelInLoopConfig:
             )
         if self.target_side < 1:
             raise ValueError(f"target_side must be >= 1, got {self.target_side}")
-        if self.target_shape not in {"square", "rectangle", "triangle", "star", "circle"}:
-            raise ValueError(f"unsupported target_shape: {self.target_shape}")
+        # Single vocabulary (issue #199 P1): the end-to-end supported set of this
+        # chain -- non-square targets are scored through
+        # ``differentiable_shaping.create_target_mask``, whose geometry mapping
+        # covers exactly DIFFERENTIABLE_SHAPE_CHOICES (a subset view of the
+        # canonical TARGET_SHAPE_CHOICES).
+        if self.target_shape not in DIFFERENTIABLE_SHAPE_CHOICES:
+            raise ValueError(
+                f"unsupported target_shape: {self.target_shape}; must be one of "
+                f"{DIFFERENTIABLE_SHAPE_CHOICES}"
+            )
         if self.region < 2:
             raise ValueError(f"region must be >= 2, got {self.region}")
         if self.n_orders < 1:

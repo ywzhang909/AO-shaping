@@ -183,6 +183,9 @@ class TestBehaviourThroughBothPaths:
             "cross",
             "gaussian",
             "pentagon",
+            "triangle",
+            "star",
+            "spot",
         }
 
     def test_square_amplitude_both_paths(self) -> None:

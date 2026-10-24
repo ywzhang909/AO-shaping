@@ -638,6 +638,9 @@ class TestShapeConstants:
     """Module constants moved with the metric family."""
 
     def test_target_shape_choices(self) -> None:
+        # Issue #199 P1: the canonical vocabulary now mirrors the rasteriser's
+        # full support set (patterns.TargetShape) one-for-one, so every accepted
+        # name is guaranteed to rasterise. Domain subsets are views of this.
         assert set(TARGET_SHAPE_CHOICES) == {
             "circle",
             "square",
@@ -647,6 +650,9 @@ class TestShapeConstants:
             "cross",
             "gaussian",
             "pentagon",
+            "triangle",
+            "star",
+            "spot",
         }
 
     def test_shape_stage_weights(self) -> None:

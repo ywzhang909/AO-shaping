@@ -99,6 +99,7 @@ from ao_shaping.utils.cli.exposure import (
 )
 from ao_shaping.utils.cli.params import ClickGroup, option
 from ao_shaping.utils.image.target import (
+    DIFFERENTIABLE_SHAPE_CHOICES,
     SHAPING_OBJECTIVE_CHOICES,
     SQUARE_OBJECTIVE_CHOICES,
     TARGET_SHAPE_CHOICES,
@@ -2386,9 +2387,10 @@ class SlmGsRefineParams:
                 "Far-field target shape, used for BOTH the GS warm start and the "
                 "measured mask (PIB/CV are scored inside the shape, never inside a "
                 "box around it). --target-side is the characteristic size: square "
-                "edge / circle+pentagon diameter / rectangle short side / annular "
-                "outer diameter / grid+cross bounding size / gaussian "
-                "characteristic size (sigma = ratio*side)."
+                "edge / circle+pentagon+triangle+star diameter / rectangle short "
+                "side / annular outer diameter / grid+cross bounding size / "
+                "gaussian characteristic size (sigma = ratio*side); spot is the "
+                "alias of circle."
             ),
         ),
     ] = "square"
@@ -2789,7 +2791,12 @@ class SlmModelInLoopParams:
         str,
         option(
             "--target-shape",
-            type=click.Choice(["square", "rectangle", "triangle", "star", "circle"]),
+            # Single vocabulary (issue #199 P1). The model-in-loop chain scores
+            # non-square targets through differentiable_shaping.create_target_mask,
+            # so its end-to-end supported set is DIFFERENTIABLE_SHAPE_CHOICES
+            # (a documented subset view of TARGET_SHAPE_CHOICES) -- offering the
+            # full vocabulary here would accept shapes that fail later, mid-run.
+            type=click.Choice(list(DIFFERENTIABLE_SHAPE_CHOICES)),
             help="Far-field target shape; rectangle has a 2:1 width-to-height ratio.",
         ),
     ] = "square"

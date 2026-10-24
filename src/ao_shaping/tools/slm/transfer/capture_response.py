@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from ao_shaping.tools.slm.transfer.capture import clock, to_panel
+from ao_shaping.utils.image.target import POLYGON_SHAPE_CHOICES
 
 FRACTIONS = (1.0, 0.25, 1.0, 0.5, 1.0, 0.125, 1.0, 0.5, 0.25, 0.125, 1.0)
 
@@ -171,7 +172,7 @@ def main():
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument(
-        "--shape", default="square", choices=("square", "rectangle", "triangle", "star")
+        "--shape", default="square", choices=POLYGON_SHAPE_CHOICES
     )
     parser.add_argument("--frames", type=int, default=3)
     parser.add_argument("--camera", default="daheng")

@@ -25,6 +25,7 @@ from ao_shaping.utils.image.beam_metrics import (
     prepare_frame,
     zero_order_center,
 )
+from ao_shaping.utils.image.centroid import windowed_centroid
 
 
 @dataclass
@@ -236,22 +237,16 @@ def measure_spot(frame: np.ndarray, box: int = 40) -> SpotMeasurement:
     Width cannot make that distinction -- a -4 rad ring measured *narrower* than
     the -2.5 rad lobe on this bench -- so any width threshold picks the wrong
     points.
+
+    The centroid itself is the shared :func:`windowed_centroid` primitive
+    (issue #199 R6): global argmax, local window, window-minimum background
+    subtraction, intensity weighting.
     """
     img = np.asarray(frame, dtype=np.float64)
     sm = smooth_frame(despike_frame(img, 3), 5)
     fwhm = float(spot_fwhm(sm))
     peak = float(img.max())
-    cy, cx = (int(v) for v in np.unravel_index(int(sm.argmax()), sm.shape))
-    r = int(box)
-    y0, y1 = max(cy - r, 0), min(cy + r + 1, sm.shape[0])
-    x0, x1 = max(cx - r, 0), min(cx + r + 1, sm.shape[1])
-    patch = np.maximum(sm[y0:y1, x0:x1] - sm[y0:y1, x0:x1].min(), 0.0)
-    tot = float(patch.sum())
-    if tot <= 0:
-        return SpotMeasurement(peak, fwhm, float(cx), float(cy), 0.0)
-    yy, xx = np.mgrid[y0:y1, x0:x1]
-    mx = float((patch * xx).sum() / tot)
-    my = float((patch * yy).sum() / tot)
+    mx, my = windowed_centroid(sm, int(box))
     iy = min(max(int(round(my)), 0), sm.shape[0] - 1)
     ix = min(max(int(round(mx)), 0), sm.shape[1] - 1)
     hollow = float(sm[iy, ix] / peak) if peak > 0 else 0.0

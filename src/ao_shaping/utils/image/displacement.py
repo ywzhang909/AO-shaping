@@ -9,6 +9,10 @@
 所以差分图 `carrier - best` 的**正峰**是新位置、**负峰**是原位置。
 
 本模块纯 numpy，供 runner（运行时就地判定）与离线报告共用，是位移判定的唯一实现。
+
+局部质心原语与 :mod:`ao_shaping.utils.image.frame_analysis` 的
+:func:`~ao_shaping.utils.image.frame_analysis.measure_spot` 共用
+:func:`ao_shaping.utils.image.centroid.windowed_centroid`（issue #199 R6）。
 """
 
 from __future__ import annotations
@@ -16,20 +20,19 @@ from __future__ import annotations
 import numpy as np
 import numpy.typing as npt
 
+from ao_shaping.utils.image.centroid import windowed_centroid
 
-def _centroid_in_window(image: npt.NDArray[np.floating], win: int) -> tuple[float, float]:
-    """先粗定位全局峰，再在局部窗口内做强度加权质心（比裸 argmax 抗噪）。"""
-    row, col = np.unravel_index(int(np.argmax(image)), image.shape)
-    half = max(2, int(win) // 2)
-    row_slice = slice(max(0, row - half), min(image.shape[0], row + half + 1))
-    col_slice = slice(max(0, col - half), min(image.shape[1], col + half + 1))
-    block = np.clip(image[row_slice, col_slice].astype(float) - float(image[row_slice, col_slice].min()), 0, None)
-    total = float(block.sum())
-    if total <= 0:
-        return float(col), float(row)
-    yy, xx = np.mgrid[: block.shape[0], : block.shape[1]]
-    return (float((xx * block).sum() / total) + col_slice.start,
-            float((yy * block).sum() / total) + row_slice.start)
+
+def _centroid_in_window(
+    image: npt.NDArray[np.floating], win: int
+) -> tuple[float, float]:
+    """先粗定位全局峰，再在局部窗口内做强度加权质心（比裸 argmax 抗噪）。
+
+    薄封装: 委托给唯一的窗口质心原语
+    :func:`ao_shaping.utils.image.centroid.windowed_centroid`（窗口半宽
+    ``max(2, win // 2)``，与历史实现一致）。
+    """
+    return windowed_centroid(image, max(2, int(win) // 2))
 
 
 def measure_displacement(

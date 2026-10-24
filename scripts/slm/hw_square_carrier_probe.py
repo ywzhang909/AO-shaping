@@ -3,8 +3,11 @@
 为什么这样设计（2026-10-23 的实测教训）：
 * **当前光路的方向检验未通过**（位置对齐后 Δ 反号且低于 3σ），所以这一轮定位是
   **探索性上限测量**，不是"可微优化有效"的证明；报告必须按此口径写。
-* **载波**：给总相位叠加一维线性斜坡，把目标搬到离 0 级 Δx 处，
-  Δx ≈ λ·f/(p_panel·period) / 像元 —— 这样未调制的 0 级光不再落在目标框里。
+* **载波**：给总相位叠加一维线性斜坡（闪耀光栅），把目标搬到离 0 级 Δx 处。
+  斜坡与位移预测一律走 canonical
+  :mod:`ao_shaping.utils.wavefront.zero_order_overlay`（issue #199 R5：脚本
+  曾经自带一份 1D ramp 和朴素的 ``λf/(p·period)`` 公式，而实测台架常数是
+  ``TILT_SHIFT_SCALE``，且面板↔相机轴相差 90°）。
 * **不开窗**：整帧 1944×2592 采（不调 `reset_window`），0 级与目标同帧可见、可分别度量。
 """
 
@@ -24,6 +27,12 @@ import sys
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "libs"))
 
+from ao_shaping.utils.wavefront.zero_order_overlay import (
+    OverlayParams,
+    apply_zero_order_overlay,
+    predicted_shift_px,
+)
+
 
 def square_target(size_grid: int, side_px: float, centre: tuple[int, int]) -> np.ndarray:
     """在模型网格上做归一化方形目标强度（0/1）。"""
@@ -33,14 +42,19 @@ def square_target(size_grid: int, side_px: float, centre: tuple[int, int]) -> np
     return mask.astype(np.float32)
 
 
-def carrier_phase(panel_shape: tuple[int, int], period_px: float, axis: str = "x") -> np.ndarray:
-    """一维线性斜坡（raw 弧度）：2π·x/period ⇒ 远场平移 λf/(p·period) / 像元。"""
-    height, width = panel_shape
-    if axis == "x":
-        ramp = (np.arange(width, dtype=np.float64) % period_px) / period_px
-        return np.broadcast_to(2 * np.pi * ramp, (height, width)).copy()
-    ramp = (np.arange(height, dtype=np.float64) % period_px) / period_px
-    return np.broadcast_to((2 * np.pi * ramp)[:, None], (height, width)).copy()
+def carrier_overlay_params(period_px: float, axis: str) -> OverlayParams:
+    """载波 overlay 参数（canonical 实现，issue #199 R5）。
+
+    ``axis="x"`` 是沿面板 x 的斜坡，即 overlay 约定的 ``"vertical"`` 竖条纹；
+    ``axis="y"`` 对应 ``"horizontal"``。位移大小由实测台架常数
+    ``TILT_SHIFT_SCALE`` 决定（``predicted_shift_px``），面板 x 向斜坡按 90°
+    轴交换搬到相机 y 向。
+    """
+    return OverlayParams(
+        mode="blaze",
+        blaze_period_px=float(period_px),
+        blaze_direction="vertical" if axis == "x" else "horizontal",
+    )
 
 
 def metrics(frame: np.ndarray, centre_xy: tuple[float, float], side_px: float,
@@ -131,14 +145,16 @@ def main() -> None:
     rows = 1200 // pitch
     panel = np.zeros((1200, 1920), dtype=np.float64)
     panel[: rows * pitch] = np.repeat(np.repeat(phase_grid[:rows], pitch, axis=0), pitch, axis=1)
-    panel += carrier_phase((1200, 1920), args.carrier_period_px, args.carrier_axis)
+    # 载波走 canonical overlay（raw 弧度叠加，唯一的 mod-2π 在驱动灰度换算）
+    overlay = carrier_overlay_params(args.carrier_period_px, args.carrier_axis)
+    panel = apply_zero_order_overlay(panel, overlay)
     np.save(args.out / "phase_panel_rad.npy", panel)
 
-    # 载波带来的远场平移（理论值，用于定位目标框）
-    camera_px = 2.2e-6
-    shift_px = (1064e-9 * 0.125 / (8e-6 * args.carrier_period_px)) / camera_px
-    record["carrier_shift_px_theory"] = float(shift_px)
-    print(f"[carrier] period {args.carrier_period_px} px ⇒ 远场平移理论 {shift_px:.0f} CCD px", flush=True)
+    # 载波带来的远场平移（实测台架常数 TILT_SHIFT_SCALE，含面板↔相机 90° 轴交换）
+    shift_dx, shift_dy = predicted_shift_px(overlay)
+    record["carrier_shift_px_theory"] = [float(shift_dx), float(shift_dy)]
+    print(f"[carrier] period {args.carrier_period_px} px ⇒ 远场平移理论 "
+          f"({shift_dx:.0f}, {shift_dy:.0f}) CCD px", flush=True)
 
     if not args.execute:
         (args.out / "probe.json").write_text(json.dumps(record, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -180,11 +196,11 @@ def main() -> None:
         slm.close()
 
     zero_row, zero_col = np.unravel_index(int(np.argmax(shots["flat"])), shots["flat"].shape)
-    # 目标应在 0 级 + 载波位移处；两方向都试，取更亮的那个作为"目标已成形"的证据
+    # 目标应在 0 级 + 载波位移处；预测位移来自实测台架常数（含 90° 轴交换），
+    # 两个方向都试，取更亮的那个作为"目标已成形"的证据
     candidates = []
     for sign in (+1, -1):
-        shifted = (zero_col + sign * shift_px, zero_row) if args.carrier_axis == "x" \
-            else (zero_col, zero_row + sign * shift_px)
+        shifted = (zero_col + sign * shift_dx, zero_row + sign * shift_dy)
         candidates.append((sign, shifted, metrics(shots["shaped"], shifted, args.target_side_px,
                                                   (zero_col, zero_row))))
     best = max(candidates, key=lambda item: item[2]["target_peak"])

@@ -73,6 +73,8 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
     ):
         assert option in result.output
     assert "shape" in result.output
+    # Issue #199 P1: the canonical vocabulary mirrors the rasteriser's full
+    # support set (patterns.TargetShape) one-for-one.
     assert set(TARGET_SHAPE_CHOICES) == {
         "circle",
         "square",
@@ -82,6 +84,9 @@ def test_slm_pib_cli_exposes_shape_objective_options() -> None:
         "cross",
         "gaussian",
         "pentagon",
+        "triangle",
+        "star",
+        "spot",
     }
 
 

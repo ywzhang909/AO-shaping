@@ -5,16 +5,55 @@ Part of the :mod:`ao_shaping.utils.image.target` package (split by type).
 
 from __future__ import annotations
 
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import numpy as np
 
 from loguru import logger
 
-from ao_shaping.utils.image.target.patterns import create_target_shape
+from ao_shaping.utils.image.exposure_fusion import _gaussian_kernel_1d
+from ao_shaping.utils.image.target.patterns import TargetShape, create_target_shape
 
+__all__ = [
+    "DIFFERENTIABLE_SHAPE_CHOICES",
+    "LOGGRAD_EPS",
+    "LOGGRAD_SIGMA",
+    "POLYGON_SHAPE_CHOICES",
+    "SHAPE_STAGE_WEIGHTS",
+    "TARGET_SHAPE_CHOICES",
+    "TargetShape",
+    "log_gradient_difference_from_fields",
+    "log_gradient_difference_metric",
+    "log_gradient_field",
+    "pearson_shape_metric",
+    "rmse_out_metric",
+    "rmse_shape_metric",
+    "rms_pib_terms",
+    "roi_energy_loss",
+    "roi_pib_metric",
+    "shape_metric",
+    "shape_stage",
+    "shape_stage_from_energy",
+    "shape_tile_coverage",
+    "spot_waist_sigma",
+    "target_shape_roi",
+]
 
-TARGET_SHAPE_CHOICES = (
+#: Every target shape the closed-loop chain accepts -- the **single vocabulary**
+#: (issue #199 P1). It mirrors :data:`ao_shaping.utils.image.target.patterns.
+#: TargetShape` one-for-one (the rasteriser's full support set), so any name here
+#: is guaranteed to rasterise. Domain subsets are *views* of this tuple, never
+#: private copies:
+#:
+#: * :data:`POLYGON_SHAPE_CHOICES` -- the polygon family of the physical-forward
+#:   transfer tooling (seed captures / blur calibration / capability reports);
+#: * :data:`DIFFERENTIABLE_SHAPE_CHOICES` -- the shapes
+#:   :func:`ao_shaping.algorithm.signal_processing.differentiable_shaping.
+#:   create_target_mask` maps onto its geometry kwargs.
+#:
+#: ``"spot"`` is the documented alias of ``"circle"`` (focused disk); it stays in
+#: the vocabulary because the differentiable family has always accepted it.
+TARGET_SHAPE_CHOICES: tuple[str, ...] = (
     "circle",
     "square",
     "rectangle",
@@ -23,19 +62,32 @@ TARGET_SHAPE_CHOICES = (
     "cross",
     "gaussian",
     "pentagon",
+    "triangle",
+    "star",
+    "spot",
 )
 
+#: Polygon family accepted by the physical-forward transfer tooling. Subset view
+#: of :data:`TARGET_SHAPE_CHOICES` (order preserved); the single source for
+#: ``target_masks`` / transfer CLI choices / blur calibration.
+POLYGON_SHAPE_CHOICES: tuple[str, ...] = tuple(
+    s for s in TARGET_SHAPE_CHOICES if s in {"square", "rectangle", "triangle", "star"}
+)
 
-TargetShape = Literal[
-    "gaussian",
-    "circle",
-    "square",
-    "annular",
-    "grid",
-    "cross",
-    "rectangle",
-    "pentagon",
-]
+#: Shapes accepted by ``differentiable_shaping.create_target_mask`` (its
+#: parameter mapping only covers these). Subset view of
+#: :data:`TARGET_SHAPE_CHOICES`; also the end-to-end supported set of the
+#: model-in-loop chain (``slm_model_in_loop`` scores non-square targets through
+#: that factory).
+DIFFERENTIABLE_SHAPE_CHOICES: tuple[str, ...] = tuple(
+    s
+    for s in TARGET_SHAPE_CHOICES
+    if s in {"square", "rectangle", "triangle", "star", "circle", "gaussian", "spot"}
+)
+
+# The views above must never drift out of the canonical vocabulary.
+assert set(POLYGON_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
+assert set(DIFFERENTIABLE_SHAPE_CHOICES) <= set(TARGET_SHAPE_CHOICES)
 
 
 def target_shape_roi(
@@ -91,7 +143,17 @@ def target_shape_roi(
     if shape in {"square", "rectangle"}:
         kwargs["side"] = template_h
         kwargs["aspect_ratio"] = aspect_ratio
-    elif shape in {"circle", "annular", "gaussian", "pentagon"}:
+    elif shape in {
+        "circle",
+        "spot",
+        "annular",
+        "gaussian",
+        "pentagon",
+        "triangle",
+        "star",
+    }:
+        # ``spot`` is the documented alias of ``circle``; ``triangle`` / ``star``
+        # take their circumradius from ``size`` exactly like ``pentagon``.
         kwargs["radius_ratio"] = 1.0
     if shape == "annular":
         kwargs["outer_radius"] = template_h / 2.0
@@ -592,13 +654,14 @@ LOGGRAD_SIGMA: float = 1.0
 
 
 def _loggrad_kernel(sigma: float) -> np.ndarray:
-    """Normalised 1D Gaussian kernel; ``sigma == 0`` is the identity kernel."""
-    if sigma == 0.0:
-        return np.ones(1, dtype=np.float64)
-    radius = int(np.ceil(3.0 * sigma))
-    offsets = np.arange(-radius, radius + 1, dtype=np.float64)
-    kernel = np.exp(-(offsets**2) / (2.0 * sigma * sigma))
-    return kernel / kernel.sum()
+    """Normalised 1D Gaussian kernel; ``sigma == 0`` is the identity kernel.
+
+    Thin delegation to the single kernel implementation in
+    :mod:`ao_shaping.utils.image.exposure_fusion` (issue #199 R4: the repo had
+    three byte-identical copies). Kept as a private alias so this module's
+    call sites and docstrings read unchanged.
+    """
+    return _gaussian_kernel_1d(sigma)
 
 
 def _loggrad_blur(img: np.ndarray, kernel: np.ndarray) -> np.ndarray:
