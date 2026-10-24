@@ -630,7 +630,17 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > ② `test_no_generator_redefines_an_extracted_helper[_fmt]` —— `scripts/slm/summarize_optics_change_blocks.py`
 > 把 `_fmt` 又写了一遍（#173 已收敛为 `scripts/_common` 五个具名格式化器）⇒ **wt-190 在办，勿抢**；
 > ③ `test_no_bare_compute_metrics_is_defined_anywhere` —— `scripts/slm/sweep_target_size.py`
-> 重新定义了裸 `compute_metrics`（#69 当年正因三个不同契约同名才改名）⇒ **无人认领，本轮接**。
+> 重新定义了裸 `compute_metrics`（#69 当年正因三个不同契约同名才改名）⇒ **已修（本提交）**：
+> 改名 **`compute_size_metrics`**（与同文件的 `SizeMetrics` / `best_balance_size` 同一词汇）。
+> ⚠️ 判过"是不是三个 canonical 之一的副本"——**不是**：它吃**预建掩膜 + 基线帧**
+> (`arr, base_arr, box, core, zero_disk, ref_mask, noise_floor, k`)，输出带 `fill` / `valid`
+> 防退化门限，且**空核心区显式记 `1e3` 最差值**；而 `compute_bench_metrics` 吃
+> `(intensity, target, center=)`、`uniformity_cv` 在空支撑域返回 **`+inf`**（口径不同）。
+> 它写的 `sqrt(mean((v/m-1)²))` 与 `std/mean` 是**同一量的另一种写法**（非重复实现）。
+> ⇒ 按守卫自己的指示「用 canonical 或**另起显式名**」走改名，不删不重接。
+> def + 3 处调用全改；守卫 5 passed；脚本 `--help` 仍可跑。
+> 顺带发现（**不改**）：`report/zotero_objectives/README.md:518` 仍引 `compute_metrics` L350 ——
+> 那是 #69 改名**前**的 `square_shaping` 函数，报告是当时实验的记录，代码行号与旧名不追改。
 
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
