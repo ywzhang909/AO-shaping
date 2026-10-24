@@ -502,7 +502,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    🔴 但它暗示的风险"**异常类型被当成契约**"是真的，且方向相反 —— 危险不在测试里
    `pytest.raises(AssertionError)`，而在**生产代码的 `except AssertionError`**：见下新增行。
 2. ✅ **`MAX_EXPOSURE_MS` 命名冲突（同名差 1400 倍）已解除**（`e6f80254`）：工具层 `7.0`（WFS 激光安全上限）改名 `WFS_EXPOSURE_SAFETY_MAX_MS` 并收敛到**一处声明**；`drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）**保持原名原值不动**（驱动层不在本次改动范围，且语义不同）。实测 `src/` + `scripts/` 下除 miicam 外 `MAX_EXPOSURE_MS` 命中数 **0**（改前 30），并由新测试 `tests/ao_shaping/tools/wfs/test_exposure_safety_ceiling.py` 钉住"两者是不同量"。
-3. ✅ **`DeviceParameter` 登记表：结论是"不要接线"，改修**自相矛盾的声明**（`950e2e9d`）：
+3. ✅ **`DeviceParameter` 登记表：结论是"不要接线"，改修「自相矛盾的声明」**（`950e2e9d`）：
    实测比原判断更强 —— `set_parameter_value` / `get_parameter_value` 在 `gui/`、
    `runners/`、`tools/` 下调用数 **0**；唯一走校验的写缝 `sync_from_twin`
    （`device_base.py:519`）的整条消费链（`get_all_twin_states` /
@@ -589,7 +589,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    ⚠️ **未加新 AST 守卫**：行为测试比静态守卫更硬（守卫只看拼写，看不到「是否计数 / 是否限流」）；
    本轮已新增 8 个守卫，不再膨胀。分簇逐片见 §8.9 第 5-7 项。
 
-6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确、**不动**；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
+6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确「不动」；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
    26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
    自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:133/179` 重连前先关旧设备、
    `r50_single.py:110`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
@@ -674,7 +674,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    gui/zernike 2…）、`scripts/` 11（probe_optical_path_validity.py 2…）。
    ⇒ **尚未逐处过**：`tests/` 非 drivers 的 7 处、`scripts/` 11 处、`src/runners` 2 处、`src/optimizer` 3 处。
 
-8. ✅ **BLE001 `tests/ao_shaping/drivers` 片（10 处 silent）⇒ 9 处正确不动、1 处是**假绿+假证据**缺陷**（2026-10-24）：
+8. ✅ **BLE001 `tests/ao_shaping/drivers` 片（10 处 silent）⇒ 9 处正确不动、1 处是「假绿+假证据」缺陷**（2026-10-24）：
    9 处不动的理由：fixture/工装的尽力 close（`ccd/test_exposure_states.py:99`、
    `test_hardware_integration.py:569`、`dm/multi_port_server.py:78/84/133`、`dm/port_listener.py:91/99/160`）。
    ⚠️ `multi_port_server.py:128`（吞掉 recv 循环异常）**实测不是假绿**：消费方
@@ -706,8 +706,48 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    `hardware_cls.instances == 1`（补丁没生效就直接失败，而不是悄悄退化成硬件测试）。
    改后同一组测试 **1.30 s**、整文件 **1.57 s** ⇒ **522 s 全是我这一处造成的**，不是既有仿真测试的开销
    （我一开始把它误记成既有开销，是靠改后计时才否证的）。
-   ⇒ 新规则（已进本行，未固化成守卫）：**硬件包附近的"离线"测试必须断言桩对象确实被调用**，
-   不能只断言返回值 —— 否则补丁失效会静默变成一次真硬件访问。
+    ⇒ 新规则（已进本行，未固化成守卫）：**硬件包附近的"离线"测试必须断言桩对象确实被调用**，
+    不能只断言返回值 —— 否则补丁失效会静默变成一次真硬件访问。
+
+9. ✅ **BLE001 `src/runners` + `src/optimizer` 片（5 处 silent）⇒ 2 处真缺陷；并修掉本账本自己守卫的「扫描盲区」（§8.10 第二次）**（2026-10-24）：
+   3 处不动：`runners/slm/zernike_matrix_runner.py:1377`（`finally` 里的尽力 `dev.close()`）、
+   `optimizer/wfless/slm_square_shaping.py:1807/2183`（包住 `display_ctx.update(...)` —— 显示刷新失败**不该**中断优化闭环）。
+   **真缺陷两处，都在闭环热路径上**：
+   ① `runners/micro_drive/voltage_runner.py:_adc_worker` 用 `except Exception: pass` 吞掉 ADC 读取失败。
+   不可归因的关键实测：消费端 `:359` 只 `logger.debug("Drained {} ADC samples this cycle", …)` —— 只数**收到多少**，
+   不数**丢了多少** ⇒ 设备掉线时记录的 `(时间戳, 电压)` 序列出现缺口而**整轮仍绿**。
+   修法（策略不变：在工作线程里抛会**静默**终结采集）：计数 + 首条与每 100 条 WARNING + 线程收尾一条总数。
+   ⚠️ **顺带实测到热自旋**：失败路径立即返回，20 ms 窗口内**空转 40,800 次**（≈2M 次/秒），
+   一边猛敲已失效的 DAQ、一边和电压更新循环抢 CPU ⇒ 加 `_ADC_READ_RETRY_S = 0.005` 的**仅错误路径**退避
+   （成功路径的节拍由 DAQ 采样窗自身决定，**不动**）。
+   ② `optimizer/combined_optimizer.py:353` 吞掉 `dm.send_voltages(zeros)` —— 这是 `finally` 里的**安全复位**。
+   这里**不能抛**（会掩盖结束本轮的那个异常），但**静默更糟**：变形镜物理上停在最后一组（可能很大的）电压，
+   下一个人站在实验系统前**无从得知**。改成 `logger.error`。
+   证据分层（按可验证性选，不是一律写测试）：① 有离线行为测试 —— `adc` 是注入参数且模块离线可导入
+   （`TYPE_CHECKING` + `try/except ImportError` 的 `ADC_AVAILABLE`），新 `tests/ao_shaping/runners/test_voltage_adc_worker.py`
+   5 项钉「失败不终结采集 / 失败被计数上报 / 不热自旋（`calls < 50`）/ 限流行数 = `1 + n//100` / 恢复后仍入队且仍告警」。
+   ② 无处可跑行为测试 —— `optimize_pib` 要开相机与 DM，无离线工装 ⇒ 新 `tests/ao_shaping/optimizer/test_combined_optimizer_voltage_reset.py`
+   用 AST 钉「每个被守卫的 `send_voltages` 处理器必须记日志」，且**先断言该守卫结构存在**（结构挪走就失败，不让它空过）。
+   **非空性实测**：两项新测试跑在改前树 ⇒ **5 失败 / 2 通过**，而通过的 2 项恰是「策略未变」那两项
+   （采集不中断、守卫结构存在）—— 红绿分布本身即证据。
+   🔴 **本片最大的收获是本账本自己的守卫漏扫**：`utils/__init__.py:32` 把 loguru 的 `logger` **再导出**，
+   而 9bfc7f18 落地的守卫按字面 `from loguru import logger` 过滤 ⇒ **20 个模块从未被扫**（含 `combined_optimizer`）。
+   即：同一提交里我把扫描域从 `src` 扩到 `src+tests+scripts`，却仍按**一种写法**认 logger —— 守卫的作用域比它的名字窄，
+   正是 §8.10 第一次实例的同类复犯。已改为「直接导入 **或** 从 `ao_shaping.*` 再导出，且不含 `logging.getLogger(`」，
+   并加 `test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import` **把边界的两侧都钉住**
+   （再导出模块必须算进、stdlib `logging` 模块必须排除，否则守卫会把正确代码判成缺陷；且该测试先断言前提仍成立）。
+   实测：全仓**没有**同时混用两种 logger 的文件 ⇒ 不会整文件漏扫；扩域后重扫三棵树 ⇒ **dropped-arg 归 0**
+   （该类缺陷全仓既有总数 20 = `src` 19 + `scripts` 1，已全部修完）。
+   ⚠️ 本片我自己犯的两个错，都被工具抓住：① ADC 测试的限流公式写成 `1 + (n-1)//100`，在 n 为 100 整数倍时**差一**
+   （实际规则是第 1 条 + 每 100 条 ⇒ `1 + n//100`）—— 容器实测 `40,800` 次失败时暴露；
+   ② 我把整棵 `tests/ao_shaping/optimizer` 在**单进程** 10 g 下执行 ⇒ **exit 137（SIGKILL）且无 summary**，
+   极易误读成测试挂死；这不是代码缺陷，是**我的调用方式错** —— 该目录必须按 CI 的方式 `AO_TEST_PER_FILE=1`，
+   改后 **1271 passed / 3 skipped / exit 0**。
+   ⚠️ 另一次"先怀疑后读上下文"的否证：`voltage_runner.py:90-91` 的 `HW_VOLTAGE_MIN/MAX = -20.0/120.0`
+   看着像我在 `gui/` 收口过的**重复边界漂移**，读 `:87-89` 才发现明文写着同步路径与异步路径**有意不统一**
+   （异步用驱动自己的 `VOLTAGE_MIN/MAX`）⇒ 不动。本会话这是第 4 次"模式匹配出的缺陷被上下文否证"。
+   **BLE001 分簇状态**：`src/` 各簇已**全部逐处读过**（drivers 19→17、gui 27→26、tools 15→14、runners+optimizer 5→3 保留）；
+   未读：`tests/` 非 drivers 的 7 处、`scripts/` 11 处。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

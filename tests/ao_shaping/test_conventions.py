@@ -1628,6 +1628,21 @@ _LOGURU_LEVELS = {
     "log",
 }
 _PERCENT_SPEC = re.compile(r"%[-+ #0]*\d*(?:\.\d+)?[sdifge]")
+_LOGURU_IMPORT = re.compile(r"^\s*from loguru import logger\b", re.M)
+_LOGGER_REEXPORT = re.compile(r"^\s*from ao_shaping[\w.]* import [^(]*\blogger\b", re.M)
+_STDLIB_LOGGER = re.compile(r"logging\.getLogger\(")
+
+
+def _uses_loguru_logger(text: str) -> bool:
+    """Whether this module's ``logger`` is loguru's -- by import, or by re-export.
+
+    ``ao_shaping.utils`` re-exports the loguru logger, so filtering on the literal
+    ``from loguru import logger`` alone leaves ~20 modules unscanned; a guard whose
+    reach is narrower than its name is the 8.10 failure mode.
+    """
+    if _STDLIB_LOGGER.search(text):
+        return False
+    return bool(_LOGURU_IMPORT.search(text) or _LOGGER_REEXPORT.search(text))
 
 
 def _dropped_arg_loguru_calls() -> list[str]:
@@ -1635,17 +1650,16 @@ def _dropped_arg_loguru_calls() -> list[str]:
 
     Covers ``src/``, ``tests/`` and ``scripts/`` -- the same claim the test name makes.
 
-    Scoped to files importing ``from loguru import logger`` on purpose: under the
-    stdlib ``logging`` module ``%``-args are the correct form, and
+    Scoped to modules whose ``logger`` is loguru's (see :func:`_uses_loguru_logger`):
+    under the stdlib ``logging`` module ``%``-args are the correct form, and
     ``gui/utils/phase_overlay.py`` uses that module -- flagging it would be wrong,
-    not merely noisy. Aliases are included, because the substring check matches
-    ``from loguru import logger as loguru_logger`` too.
+    not merely noisy.
     """
     offenders: list[str] = []
     roots = (SRC, REPO / "tests", REPO / "scripts")
     for path in sorted(p for root in roots for p in root.rglob("*.py")):
         text = path.read_text(encoding="utf-8-sig")
-        if "from loguru import logger" not in text:
+        if not _uses_loguru_logger(text):
             continue
         try:
             tree = ast.parse(text)
@@ -1684,16 +1698,45 @@ def test_loguru_calls_never_pass_percent_style_arguments() -> None:
     loguru interpolates with ``str.format``, so ``logger.info("x %s", v)`` prints
     the literal ``x %s`` and drops ``v`` -- a diagnostic that reports no values at
     all, which is the same unattributable-failure class as a swallowed exception.
-    Measured 21 such calls in 3 loguru modules (18 of them in the training-data
-    collector, including its zero-order-freeze line and its per-record failure
-    warnings); the runtime proof is a captured log reading exactly
-    ``零阶定位（冻结）：(%.1f, %.1f)``. Converted in this commit, preserving
-    precision via ``{:.1f}``. Non-vacuity: this guard reports those 21 sites against
-    the pre-fix tree and 0 after (TODO.md 8.9 item 7).
+    Measured **19 pre-existing** calls in 3 loguru modules (16 in the training-data
+    collector, plus its zero-order-freeze line); the runtime proof is a captured log
+    reading exactly ``零阶定位（冻结）：(%.1f, %.1f)``. 21 were converted in total, the
+    extra 2 having been introduced by the fix that uncovered the problem -- i.e. the
+    first version of that fix reproduced the very defect it was curing. Converted with
+    precision preserved (``%.1f`` -> ``{:.1f}``). Non-vacuity: this guard reports those
+    19 sites against the pre-fix tree and 0 after (TODO.md 8.9 item 7).
     """
     offenders = _dropped_arg_loguru_calls()
     assert not offenders, (
         f"{len(offenders)} loguru call(s) pass %-style arguments that loguru silently "
         f"discards: {offenders}. Use brace slots instead -- '{{}}' for a plain value, "
         "'{:.1f}' to keep precision."
+    )
+
+
+def test_the_loguru_guard_follows_the_logger_not_one_spelling_of_its_import() -> None:
+    """The scan must cover re-exported loggers, and skip stdlib ``logging`` files.
+
+    ``ao_shaping.utils`` re-exports the loguru logger, so filtering on the literal
+    import line left ~20 modules unscanned -- this guard's reach first came up short of
+    its own name. ``phase_overlay.py`` is the opposite case: it uses stdlib ``logging``,
+    where ``%``-args are correct, so it must stay out of the scan rather than be
+    converted. Each side of that boundary is pinned here, because a filter that quietly
+    narrows turns a hard gate into a no-op.
+    """
+    reexport = (
+        SRC / "ao_shaping" / "optimizer" / "combined_optimizer.py"
+    ).read_text(encoding="utf-8-sig")
+    stdlib = (SRC / "ao_shaping" / "gui" / "utils" / "phase_overlay.py").read_text(
+        encoding="utf-8-sig"
+    )
+
+    assert "from loguru import logger" not in reexport, (
+        "combined_optimizer now imports loguru directly -- this test's premise moved, "
+        "so the re-export half of the filter is no longer being exercised"
+    )
+    assert _uses_loguru_logger(reexport), "a re-exported logger escaped the scan"
+    assert not _uses_loguru_logger(stdlib), (
+        "stdlib logging is being scanned -- % formatting is correct there, so this "
+        "would report working code as a defect"
     )

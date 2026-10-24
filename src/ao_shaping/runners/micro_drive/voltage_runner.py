@@ -91,6 +91,10 @@ HW_VOLTAGE_MIN = -20.0
 HW_VOLTAGE_MAX = 120.0
 SINGLE_CHANNELS = 50
 
+#: Backoff after a failed ADC read; only the error path needs pacing, the success
+#: path is paced by the DAQ sample window itself.
+_ADC_READ_RETRY_S = 0.005
+
 #: Selectors accepted by :func:`main` for `python -m` dispatch.
 
 # Global state for signal handler
@@ -146,13 +150,31 @@ def _adc_worker(
     t_start: float,
 ) -> None:
     """Background thread that continuously reads ADC and pushes (timestamp, value) into queue."""
+    read_errors = 0
     while not stop_event.is_set():
         try:
             mean_v = adc.read_mean()
             ts = time.time() - t_start
             result_queue.put((ts, mean_v))
-        except Exception:
-            pass
+        except Exception as exc:
+            # Never raise: killing this thread would end acquisition silently. The
+            # drain loop only counts what it received, so an unreported read failure
+            # leaves gaps in the recorded (timestamp, voltage) series with no trace.
+            read_errors += 1
+            if read_errors == 1 or read_errors % 100 == 0:
+                logger.warning(
+                    "ADC 读取失败 (第 {} 次): {} —— 该采样点未入队, 记录将出现缺口",
+                    read_errors,
+                    exc,
+                )
+            # A failed read returns instantly: measured 40,800 attempts in a 20 ms
+            # window, stealing CPU from the voltage loop while hammering a dead
+            # device. Success-path pacing is owned by the DAQ and is untouched.
+            stop_event.wait(_ADC_READ_RETRY_S)
+    if read_errors:
+        logger.warning(
+            "ADC 采集线程结束: 共 {} 次读取失败, 相应采样点未入队", read_errors
+        )
 
 
 def _resolve_port(ip: str, port: int | None) -> int:
