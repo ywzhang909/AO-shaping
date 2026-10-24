@@ -981,3 +981,88 @@ def test_ccd_drivers_never_assert_on_device_state() -> None:
         "src/ao_shaping/drivers/ccd/ -- use BaseCamera._ensure_open() "
         f"(or _ensure_recording) so the check survives `python -O`: {offenders}"
     )
+
+
+#: Methods of ``ThorlabWFS`` allowed to touch the DLL handle without guarding.
+#: ``__init__`` / ``open`` establish it and ``close`` releases it, so they must
+#: run unguarded; ``is_connected`` is the pure query; ``handle_error`` serves the
+#: open/close error paths; the two private helpers are reachable only from
+#: already-guarded callers (``get_mla_name`` and ``get_wavefront``).
+_WFS_GUARD_EXEMPT = frozenset({
+    "__init__", "open", "close", "is_connected", "handle_error", "_ensure_open",
+    "_try_get_mla_name_fallback", "_get_stable_samples",
+})
+
+
+def _wfs_unguarded_dll_methods(path: Path) -> list[str]:
+    """``ThorlabWFS`` methods that use the DLL handle without guarding it first.
+
+    The check is structural rather than a grep for ``_ensure_open``: a method
+    counts as unguarded only if its **first statement after the docstring** is not
+    ``self._ensure_open()``, which is what actually orders the guard before the
+    handle reaches the DLL.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    cls = next(
+        n for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "ThorlabWFS"
+    )
+    offenders: list[str] = []
+    for fn in cls.body:
+        if not isinstance(fn, ast.FunctionDef) or fn.name in _WFS_GUARD_EXEMPT:
+            continue
+        if not any(
+            isinstance(sub, ast.Attribute) and sub.attr == "_instrument_handle"
+            for sub in ast.walk(fn)
+        ):
+            continue
+        body = [
+            s for s in fn.body
+            if not (isinstance(s, ast.Expr) and isinstance(s.value, ast.Constant))
+        ]
+        if not body or ast.unparse(body[0]) != "self._ensure_open()":
+            offenders.append(f"{fn.name}:{fn.lineno}")
+    return offenders
+
+
+def test_wfs_driver_guards_every_dll_entry_point() -> None:
+    """``ThorlabWFS`` must refuse a null handle in the driver, not in callers.
+
+    Unlike the CCD drivers, the WFS driver had **no** open-state check at all:
+    every public method handed ``self._instrument_handle`` to ``WFS_64.dll``, and
+    a null handle is not a reliable failure there -- ``select_mla`` discards its
+    return codes and the auto-exposure branch of ``take_image`` ignores the error
+    code -- so an unopened call returned garbage rather than raising. The only
+    thing preventing that was ``assert wfs.is_connected()`` spelled out at each
+    call site, which ``python -O`` strips.
+
+    So the mechanism now lives in the driver (``_ensure_open`` raising
+    ``WfsError``, mirroring ``BaseCamera._ensure_open`` and
+    ``Santec._ensure_open``) and the callers are free of device asserts -- which
+    ``test_cartographer_never_asserts_on_device_state`` pins from the other side.
+    The class is also required to hold **no** ``assert`` at all, since every one
+    of its former asserts guarded either device readiness or a parameter bound
+    that is handed to the DLL.
+
+    Placed here for the same reason as the CCD guard: ``pyproject`` ``addopts
+    --ignore`` prunes ``tests/ao_shaping/drivers/**`` from default discovery.
+    """
+    path = SRC / "ao_shaping" / "drivers" / "wfs" / "thorlab_wfs.py"
+    rel = path.relative_to(REPO).as_posix()
+
+    unguarded = _wfs_unguarded_dll_methods(path)
+    assert not unguarded, (
+        f"{rel}: ThorlabWFS methods reach self._instrument_handle without "
+        f"calling self._ensure_open() first: {unguarded}"
+    )
+
+    tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+    cls = next(
+        n for n in tree.body
+        if isinstance(n, ast.ClassDef) and n.name == "ThorlabWFS"
+    )
+    asserts = [n.lineno for n in ast.walk(cls) if isinstance(n, ast.Assert)]
+    assert not asserts, (
+        f"{rel}: `assert` is back inside ThorlabWFS at {asserts} -- it is "
+        "stripped under `python -O`, so raise WfsError instead"
+    )
