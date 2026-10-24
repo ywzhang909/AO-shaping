@@ -1185,10 +1185,18 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   ⚠️ 另：**别把「日志里点数停在某个位置」当成挂起** —— `Tee-Object`/`Select-Object`
   管道会缓冲，实测「停在 216」的那次运行其实以 28 点/分钟正常推进，点数是缓冲
   量化出来的假象。判据要看进程 CPU 与内存，而不是日志末尾的点数。
-- **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F]`，`libs/**` 与
+- **Linting**: ruff 已配置（`ruff.toml`，`select = [E, F, RUF100, B023, PLR0124]`，
+  `libs/**` 与
   `notebooks/**` 显式排除，守卫见
   `tests/ao_shaping/ml/test_train_cli_runnable.py::test_ruff_excludes_nothing_under_src`）；
   mypy / flake8 未配置。
+  🔴 **ruff 版本只有一把**：`ci.yml`、`ruff.yml` 与 `pyproject.toml` 的 dev 组下限必须
+  同为一个**精确版**（现 `0.15.12`），由
+  `tests/ao_shaping/test_conventions.py::test_all_ruff_pins_agree_and_are_exact` 钉住。
+  此前两处不一致（`ci.yml==0.11.10` vs `ruff.yml>=0.15.12`）实测**不等价**：`PLC0415`
+  在 0.11.10 是 preview 规则（**0** 命中，ruff 自己会打印 "Selection `PLC0415` has no
+  effect because preview is not enabled"），在 0.15.12 已稳定（**1476** 命中）；
+  `SLF001` 差 2 条。硬门禁不得写 `>=`（新版本能在两次推送之间无代码变化地把门禁翻红）。
 - **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）；同日 7 个 machine-local 目录整体移出跟踪并忽略：`.auto_doc_review`/`.claude`/`.codegraph`/`.slim`/`.streamlit`/`.vscode`/`_scripts`（本地副本保留，不随仓库分发）。**注意 `.github/` 不在其列**：它 2026-10-19 曾一并移出，2026-10-21 已恢复入库（见上文 CI 条，`1d33d078`），根 `.gitignore` 中 `.github` 的忽略行同日删除。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 

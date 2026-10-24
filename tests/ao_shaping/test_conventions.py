@@ -917,6 +917,64 @@ def test_the_ruf100_gate_is_measured_with_the_project_select_set() -> None:
     )
 
 
+#: Config files that install or require ruff, each of which must name exactly one
+#: version. A second occurrence -- typically a commented-out old pin -- fails the
+#: "exactly one" check on purpose, because that is how a stale version survives a
+#: bump and gets copied back in later.
+_RUFF_PIN_SITES = (
+    ".github/workflows/ci.yml",
+    ".github/workflows/ruff.yml",
+    "pyproject.toml",
+)
+_RUFF_EXACT_PIN_SITES = (".github/workflows/ci.yml", ".github/workflows/ruff.yml")
+
+
+def test_all_ruff_pins_agree_and_are_exact() -> None:
+    """Every ruff pin names one exact, identical version.
+
+    Two workflows both run ``ruff check .`` as a hard gate, and they used to
+    install *different* ruffs: ``ci.yml`` pinned ``==0.11.10`` while ``ruff.yml``
+    asked for ``>=0.15.12``. That is not one gate but two non-equivalent ones.
+    Measured on the project config: ``PLC0415`` yielded **0** findings under
+    0.11.10 (it is a preview rule there, and ruff itself prints "Selection
+    `PLC0415` has no effect because preview is not enabled") against **1476** under
+    0.15.12 where it is stable, and ``SLF001`` differed by 2 findings.
+
+    The pin also used to sit **below** the dev-group floor in ``pyproject.toml``
+    (``ruff>=0.15.12``), so CI ran a ruff that no developer reproduces locally --
+    the failure a contributor sees and the failure CI reports are different tools.
+
+    ``>=`` is rejected for the gate itself: a floating bound lets a new ruff
+    release flip a hard gate red with no code change between two pushes, which is
+    the non-reproducibility that made the discrepancy above expensive to diagnose.
+    Bumping ruff is therefore a single-number change across three files, and this
+    test fails if any of them falls out of step.
+    """
+    pin_re = re.compile(
+        r"ruff\s*(?P<op>===|==|>=|<=|~=)\s*(?P<version>\d+(?:\.\d+)+)"
+    )
+    pins: dict[str, list[re.Match[str]]] = {}
+    for rel in _RUFF_PIN_SITES:
+        pins[rel] = list(pin_re.finditer((REPO / rel).read_text(encoding="utf-8")))
+        assert len(pins[rel]) == 1, (
+            f"{rel} must name exactly one ruff version; found {len(pins[rel])}: "
+            f"{[m.group(0) for m in pins[rel]]}"
+        )
+
+    versions = {m.group("version") for m in (p[0] for p in pins.values())}
+    assert len(versions) == 1, (
+        "ruff pins disagree -- bump all of them together: "
+        + ", ".join(f"{rel}={pins[rel][0].group(0)}" for rel in _RUFF_PIN_SITES)
+    )
+
+    for rel in _RUFF_EXACT_PIN_SITES:
+        operator = pins[rel][0].group("op")
+        assert operator == "==", (
+            f"{rel} installs ruff with `{operator}`; a hard gate must pin an exact "
+            "version, otherwise a new ruff release can flip it with no code change"
+        )
+
+
 # ---------------------------------------------------------------------------
 # 8. CCD device-readiness guards survive `python -O`
 # ---------------------------------------------------------------------------

@@ -14,6 +14,11 @@ jobs:
       with:
         python-version: "3.12"
     - name: Install ruff
-      run: pip install "ruff>=0.15.12"
+      # Exact pin, identical to ci.yml -- two workflows both run `ruff check .`
+      # as a hard gate, so they must run the same ruff. `>=` here used to make CI
+      # non-reproducible: a new ruff release could flip the gate with no code
+      # change. See tests/ao_shaping/test_conventions.py::
+      # test_all_ruff_pins_agree_and_are_exact
+      run: pip install "ruff==0.15.12"
     - name: Ruff (hard gate)
       run: ruff check .
