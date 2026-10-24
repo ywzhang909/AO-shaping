@@ -1341,3 +1341,165 @@ def test_drivers_only_assert_internal_invariants() -> None:
         f"{new = } -- raise explicitly instead of asserting (stripped under "
         f"`python -O`); {stale = } -- no longer present, drop from the allowlist"
     )
+
+
+def _numeric_registry_bounds(tree: ast.Module) -> dict[str, list[int]]:
+    """Map ``file: param`` -> line numbers where a registered default is out of range.
+
+    Only fully resolvable numeric declarations are judged: a bare literal, or a
+    name bound to a numeric literal at module level (``EXP_TIME_LOW``). Anything
+    dynamic is skipped rather than guessed at, so the guard cannot invent findings.
+    """
+    consts: dict[str, object] = {}
+    for node in tree.body:
+        targets = node.targets if isinstance(node, ast.Assign) else ([node.target] if isinstance(node, ast.AnnAssign) else [])
+        for target in targets:
+            if isinstance(target, ast.Name):
+                try:
+                    consts[target.id] = ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    pass
+
+    def resolve(expr: ast.expr | None) -> float | None:
+        if expr is None:
+            return None
+        try:
+            value = ast.literal_eval(expr)
+        except (ValueError, TypeError):
+            if isinstance(expr, ast.Name):
+                value = consts.get(expr.id)
+            else:
+                return None
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+        return float(value)
+
+    found: dict[str, list[int]] = {}
+    for node in ast.walk(tree):
+        if not (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "register_parameter"
+        ):
+            continue
+        kwargs = {kw.arg: kw.value for kw in node.keywords if kw.arg}
+        positional = list(node.args)
+        default = resolve(kwargs.get("default_value", positional[1] if len(positional) > 1 else None))
+        if default is None:
+            continue
+        low = resolve(kwargs.get("min_value", positional[2] if len(positional) > 2 else None))
+        high = resolve(kwargs.get("max_value", positional[3] if len(positional) > 3 else None))
+        if (low is not None and default < low) or (high is not None and default > high):
+            name = positional[0] if positional and isinstance(positional[0], ast.Constant) else kwargs.get("name")
+            label = name.value if isinstance(name, ast.Constant) else "<dynamic>"
+            found.setdefault(label, []).append(node.lineno)
+    return found
+
+
+def test_registered_parameter_defaults_satisfy_declared_bounds() -> None:
+    """A ``register_parameter`` default must lie inside that same call's bounds.
+
+    The registry is a *declaration*, and a declaration that contradicts itself is
+    worse than no declaration: it reads like an enforced contract while nothing
+    enforces it. ``ThorlabWFS._register_parameters`` registered
+    ``exposure_time_ms`` with ``min_value=EXP_TIME_LOW`` (0.002) and
+    ``default_value=0.0`` -- its own default outside its own floor. The driver is
+    not wrong; ``open()`` treats 0.0 as the legal "auto exposure" sentinel and
+    resets any non-zero out-of-range value back to it, so the accepted domain is
+    ``{0.0} u [EXP_TIME_LOW, EXP_TIME_HIGH]`` and the registry has to declare the
+    floor as 0.0 to stay truthful about the value it ships with.
+
+    Scanned every ``register_parameter`` call under ``src/``: 62 sites, 1 offender
+    before the fix, 0 after. No allowlist -- there is no legitimate way for a
+    default to violate its own declared range, so a future hit is a real defect.
+    """
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+        for label, lines in _numeric_registry_bounds(tree).items():
+            for line in lines:
+                offenders.append(f"{rel}:{line} {label}")
+    assert not offenders, (
+        f"{offenders = } -- a registered default sits outside its own declared "
+        "min/max; declare the range the driver actually accepts (including any "
+        "sentinel it documents) or move the bound to where it is enforced."
+    )
+
+
+#: GUI-level hardware limits that must be imported, never re-typed as literals.
+#: ``SINE_AMP_MAX`` is excluded: it is derived from these two, not duplicated.
+_GUI_DRIVER_BOUNDS = ("HW_VOLTAGE_MIN", "HW_VOLTAGE_MAX")
+
+
+def _numeric_literal(node: ast.expr | None) -> float | None:
+    """Return the number a literal expresses, **including a leading unary minus**.
+
+    ``-20.0`` parses as ``UnaryOp(USub, Constant(20.0))``, so an
+    ``isinstance(node, ast.Constant)`` test silently reports a negative bound as
+    "not a literal" -- the same blind spot as grepping for one spelling of a
+    form that has several.
+    """
+    if (
+        isinstance(node, ast.Constant)
+        and not isinstance(node.value, bool)
+        and isinstance(node.value, (int, float))
+    ):
+        return float(node.value)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        inner = _numeric_literal(node.operand)
+        if inner is None:
+            return None
+        return -inner if isinstance(node.op, ast.USub) else inner
+    return None
+
+
+def test_gui_never_redeclares_driver_voltage_bounds() -> None:
+    """``gui/`` must take R50Power voltage limits from the driver, not restate them.
+
+    The limits exist once, in ``drivers/dm/micro/micro_constants.py`` (VOLTAGE_MIN
+    / VOLTAGE_MAX, from the R50Power datasheet), and ``gui/r50/r50_channel_select.py``
+    already binds ``HW_VOLTAGE_MIN: float = VOLTAGE_MIN`` through the PEP-562 lazy
+    re-export. ``gui/dm/micro_dm_ui.py`` instead re-typed ``-20.0``/``120.0``, and
+    the copy drifted in the only direction that matters: its sine-amplitude widget
+    allowed ``max_value=140.0``, 20 V past the hardware ceiling. Nothing downstream
+    complained because the driver clips silently, so the panel accepts a setting the
+    hardware cannot produce. Amplitude is now ``SINE_AMP_MAX``: with ``offset +/- amp``
+    both required to stay in range, adding the two inequalities gives
+    ``2*amp <= VOLTAGE_MAX - VOLTAGE_MIN``, so 70.0 is the exact ceiling and every
+    larger value only reached the truncation warning.
+
+    Judged on the AST, not the text: the offending form is an assignment whose
+    *value* is a numeric constant, which covers both module level and the ``Cfg``
+    dataclass body, and survives a rename of the driver constant it should use.
+    """
+    offenders: list[str] = []
+    for path in sorted((SRC / "ao_shaping" / "gui").rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(REPO).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            literal = _numeric_literal(value)
+            if literal is None:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in _GUI_DRIVER_BOUNDS:
+                    offenders.append(
+                        f"{rel}:{node.lineno} {target.id} = {literal!r}"
+                    )
+    assert not offenders, (
+        f"{offenders = } -- voltage limits are declared in "
+        "`drivers/dm/micro/micro_constants.py`; import them so the GUI cannot drift "
+        "away from what the driver enforces."
+    )

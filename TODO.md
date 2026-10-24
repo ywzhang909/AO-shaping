@@ -337,7 +337,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ID | 摘要 | issue | 波次 |
 |---|---|---|---|
 | R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | ✅ **第 1–4 步已完成**（`41cacbd2` step 1 → `8aa88fa2` step 2a → `84214f7f` step 2b；step 3 RUF100 常驻、step 4 `exclude` 已删并有护栏钉死），全局 `ignore` 现仅剩 RUF00x / isort / pyupgrade / E501 / F841 / F811 / PLC0415 / E731 / E741。**仅剩第 5 步**（`BLE001`/`SLF001`/`S301`），前置 = R-64。GitHub 出站仍被拦截 ⇒ 未能开对应 issue | A 🟡（第 5 步待 R-64） |
-| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 514 条**（`src/` 355 / `tests/` 46 / `scripts/` 114；原表写 "312 处无标注"），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + 本提交删调用侧，实测见 §8.9）；~40 处内部不变式**保留 `assert`**（§8.10）；`src/` 其余 `assert` 99 条与 BLE001 514 条仍按 §8.9 分簇推进。⚠️ 三条前置里已清 1 条（改名），仍开放：`spots_calc` 3 处被测试锁成 `AssertionError` 契约、`DeviceParameter` 边界"已声明未接线"。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
+| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 514 条**（`src/` 355 / `tests/` 46 / `scripts/` 114；原表写 "312 处无标注"），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + 本提交删调用侧，实测见 §8.9）；~40 处内部不变式**保留 `assert`**（§8.10）；`src/` 其余 `assert` 99 条与 BLE001 514 条仍按 §8.9 分簇推进。⚠️ 三条前置**已全部收口**：改名（`e6f80254`）；`spots_calc` 3 处实测**不是待办**（实现与测试契约互相一致，见 §8.9 第 1 项）；`DeviceParameter` **否决"把 `validate()` 接到写路径"**（实测该写缝在生产路径不可达，且接线会把硬 `raise` 降级为静默失败、并把合法哨兵 `exposure_time_ms=0.0` 判成越界），改为修自相矛盾的注册声明 + GUI 重复边界漂移（见 §8.9 第 3 项）。⇒ 新开放项换为 `gui/dm/micro_dm_ui.py:642-657` 后台线程直接触碰 `st.session_state`（§8.9 第 4 项）。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
 
 ### 8.1 根因：压制发生在**配置层**，不在代码层
 
@@ -502,11 +502,39 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    🔴 但它暗示的风险"**异常类型被当成契约**"是真的，且方向相反 —— 危险不在测试里
    `pytest.raises(AssertionError)`，而在**生产代码的 `except AssertionError`**：见下新增行。
 2. ✅ **`MAX_EXPOSURE_MS` 命名冲突（同名差 1400 倍）已解除**（`e6f80254`）：工具层 `7.0`（WFS 激光安全上限）改名 `WFS_EXPOSURE_SAFETY_MAX_MS` 并收敛到**一处声明**；`drivers/ccd/miicam/driver.py:132` `MAX_EXPOSURE_MS = 10000.0`（相机自身硬件上限）**保持原名原值不动**（驱动层不在本次改动范围，且语义不同）。实测 `src/` + `scripts/` 下除 miicam 外 `MAX_EXPOSURE_MS` 命中数 **0**（改前 30），并由新测试 `tests/ao_shaping/tools/wfs/test_exposure_safety_ceiling.py` 钉住"两者是不同量"。
-3. 💡 **`DeviceParameter` 的边界是"已声明但未接线"**：WFS 已用
-   `register_parameter` 登记了 `exposure_time_ms` 的 `EXP_TIME_LOW/HIGH`，
-   但 `set_parameter_value`（`device_base.py:354`，内部 `:375` 调 `validate()`）
-   **只被** `sync_from_twin`（`:519`）、`mock_devices.py`、`simulated_laser.py` 调用
-   ⇒ **硬件写路径上从不生效**。所以不是"要新建校验层"，而是**把已有的声明接到写路径上**。
+3. ✅ **`DeviceParameter` 登记表：结论是"不要接线"，改修**自相矛盾的声明**（本提交）：
+   实测比原判断更强 —— `set_parameter_value` / `get_parameter_value` 在 `gui/`、
+   `runners/`、`tools/` 下调用数 **0**；唯一走校验的写缝 `sync_from_twin`
+   （`device_base.py:519`）的整条消费链（`get_all_twin_states` /
+   `sync_from_twin_states` / `get_twin_snapshot`）在 `src`+`tests`+`scripts` 全树
+   调用数也是 **0** ⇒ 该写缝**在生产路径上不可达**，不只是"硬件写路径不生效"。
+   ⇒ **明确否决"把 `validate()` 接到写路径"**（原方案的暗示方向）：`validate()` 越界只
+   `return False` + 打日志（`device_base.py:77-81`），而驱动一律硬 `raise` ——
+   接线等于把强校验降级成静默失败；而且它会拒绝驱动自己文档化的合法哨兵
+   `exposure_time_ms = 0.0`（自动曝光），直接把 `open()` 的正常路径判成越界。
+   真正修的是**重复声明漂移**：全扫 `src/` 下 **62** 处 `register_parameter`，
+   **1 处自相矛盾** —— `ThorlabWFS` 注册 `default_value=0.0` 却写
+   `min_value=EXP_TIME_LOW`(0.002)，自己的默认值落在自己声明的下限之外；
+   驱动 `open()` 的实际接受域是 `{0.0} ∪ [EXP_TIME_LOW, EXP_TIME_HIGH]`（`:467-474`
+   把非零越界值重置回 0.0）⇒ 注册下限改 `0.0` 使声明与哨兵一致，硬件下限仍**唯一**来自
+   `EXP_TIME_LOW`。`BaseWFS` 一侧原本就诚实（`min_value=0.0` + "0 selects auto"）。
+   同簇第二处：`gui/dm/micro_dm_ui.py:37-38` 把驱动常量 `-20.0/120.0` 重打一遍，
+   并且**已经漂了** —— 正弦振幅控件 `max_value=140.0` 超硬件上限 20 V，而驱动静默
+   截断所以无人报错；现取 `SINE_AMP_MAX = (VOLTAGE_MAX - VOLTAGE_MIN)/2`：
+   `offset±amp` 须同时落界内 ⇒ 两式相加得 `2·amp ≤ 峰峰值`，故 70.0 是**精确**上限，
+   更大的振幅只能命中截断警告。写法与 `gui/r50/r50_channel_select.py:41-42`
+   （`HW_VOLTAGE_MIN: float = VOLTAGE_MIN`，经 PEP-562 惰性再导出）一致。
+   两条守卫：`test_registered_parameter_defaults_satisfy_declared_bounds`（**无**
+   allowlist —— 默认值落在自己值域外没有合法情形）、
+   `test_gui_never_redeclares_driver_voltage_bounds`。⚠️ 后者首版**漏报** `-20.0`
+   （负字面量在 AST 里是 `UnaryOp(USub, Constant)` 而非 `Constant`），靠"把守卫跑在
+   改前树上"的非空验证抓到 ⇒ 加 `_numeric_literal`；与"grep 漏 `except (…, AssertionError)`
+   元组形式"是同一类只看一种拼写的盲区，守卫的**非空性**必须实测而不是假定。
+4. 🔴 **新发现（未修）**：`gui/dm/micro_dm_ui.py:642-657` 的 `_matrix_continuous_loop`
+   是 daemon 线程且**直接读写 `st.session_state`**，违反 AGENTS.md 的 Streamlit
+   后台线程规则（须按 R50 `run_loop` 模式：参数快照传 plain dict、
+   `threading.Event` 传停止信号、`queue.Queue` 回传状态）。同文件的 `r50_*`
+   兄弟模块已经是正确写法，属可对照的既有范式。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

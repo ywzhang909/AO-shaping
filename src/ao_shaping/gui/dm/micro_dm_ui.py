@@ -23,7 +23,7 @@ import numpy as np
 import streamlit as st
 from loguru import logger
 
-from ao_shaping.drivers.dm.micro import R50Controller
+from ao_shaping.drivers.dm.micro import R50Controller, VOLTAGE_MAX, VOLTAGE_MIN
 from ao_shaping.utils.io.network import ping_reachable, tcp_reachable
 # =============================================================================
 # Constants
@@ -33,9 +33,13 @@ GRID_SIZE = 39
 TOTAL_CHANNELS = GRID_SIZE * GRID_SIZE  # 1521
 SINGLE_CHANNELS = 50  # 单个 R50Power 控制器通道数
 
-# 硬件物理极限 (不可超越)
-HW_VOLTAGE_MIN = -20.0
-HW_VOLTAGE_MAX = 120.0
+# 硬件物理极限 (不可超越)。唯一来源: drivers/dm/micro/micro_constants.py
+# (R50Power 数据手册), 与 gui/r50/r50_channel_select.py 同一写法。
+HW_VOLTAGE_MIN = VOLTAGE_MIN
+HW_VOLTAGE_MAX = VOLTAGE_MAX
+
+#: offset±amp 须同时落在 [MIN, MAX] 内 ⇒ 2*amp <= 峰峰值; 更大振幅必被截断。
+SINE_AMP_MAX = (HW_VOLTAGE_MAX - HW_VOLTAGE_MIN) / 2.0
 
 # 实时可视化刷新间隔 (s)
 REFRESH_INTERVAL = 0.15
@@ -507,7 +511,7 @@ def _tab1_fragment():
             if wave_type == "sine":
                 col_a, col_o = st.columns(2)
                 with col_a:
-                    amp = st.number_input("振幅 (V)", min_value=0.0, max_value=140.0,
+                    amp = st.number_input("振幅 (V)", min_value=0.0, max_value=SINE_AMP_MAX,
                                           value=st.session_state.mdm_single_amp, step=1.0,
                                           format="%.1f", key="mdm_single_amp")
                 with col_o:

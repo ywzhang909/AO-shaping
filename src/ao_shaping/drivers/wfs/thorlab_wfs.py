@@ -331,13 +331,19 @@ class ThorlabWFS(BaseWFS):
 
     def _register_parameters(self) -> None:
         """注册 WFS 专有参数。"""
+        # 注册值域含 0.0 = 自动曝光哨兵 (open() 里把非零越界值重置回 0.0),
+        # 所以 min_value 不能写成硬件下限 EXP_TIME_LOW。
         self.register_parameter(
             "exposure_time_ms",
             default_value=0.0,
-            min_value=EXP_TIME_LOW,
+            min_value=0.0,
             max_value=EXP_TIME_HIGH,
             unit="ms",
-            description="Camera exposure time in milliseconds",
+            description=(
+                "Camera exposure time in ms; 0 selects auto exposure. Non-zero "
+                f"manual values are range-checked by the driver against "
+                f"[{EXP_TIME_LOW}, {EXP_TIME_HIGH}]."
+            ),
         )
         self.register_parameter(
             "master_gain",
