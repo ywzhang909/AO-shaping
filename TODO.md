@@ -1017,6 +1017,21 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       而那个输入控件其实已经不存在 —— 这就是本类断言的假通过模式，也是第 16 项只把这个文件单列为真腐烂的原因。
     - **残留 3 处**（同文件 `test_polling_displays_updates`）未转：它断言的是轮询展示的文字，
       要驱动 `_render_calibration_polling()` 的读取循环才有行为等价物，不在本刀范围。
+      ⚠️ **本行的判断错了**（同日更正，见第 20 项）：不需要驱动那条循环，**按函数取作用域**就够了 ⇒ 3 处已转完。
+
+20. ✅ **该文件最后 3 处源码 grep 已转完（26 → 0），并删掉一段「搭完台就 `pass`」的死工装**（2026-10-25）：
+    - `test_polling_displays_updates` 原 68 行：**约 45 行 mock 脚手架**（临时 JSON、`st.empty` 三连
+      `side_effect`、`patch time.sleep` / `Path.exists` / `builtins.open`）跑完之后里面只有一句 `pass`，
+      真正的断言只有其后 **3 条读源码文本**的 `in content` ⇒ 整套 mock 从未被断言引用。
+    - 现在用 `_function(name)` 把 AST 断言**限定到目标函数体内**：`st.session_state.get("zrm_progress_file")`
+      （UI `:777`）确有读、JSON 解码按 `load` / `loads` **两种拼法都接受**（钉行为不钉写法）、
+      以及对进度条调用 `.progress(...)`（UI `:789`）。
+    - **差分两条各自点名**：① 只在 `_render_calibration_polling` 内部把键名 `zrm_progress_file` 改成
+      `zrm_prog` ⇒ 失败 `polling must read the progress-file path out of session state`；**同时** UI 文本里
+      该字符串**仍然存在**（`:178/:182/:1210/:1241`）⇒ 旧断言会**照样通过**，这是本类假通过的直接证据。
+      ② 把 `progress_bar.progress(` 改成 `update(` ⇒ 失败 `polling must update the progress bar`。
+    - **全仓口径同步**（与第 16 项同一条 AST 规则）：`assert <字面量> in <读文件变量>` 由 **113 → 87**
+      （26 → 25 个文件），其中本文件已**清零**。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

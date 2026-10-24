@@ -90,6 +90,15 @@ sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 
+def _function(name: str):
+    """A FunctionDef from the UI module, so assertions bind to the right scope."""
+    return next(
+        (n for n in ast.walk(_UI_TREE)
+         if isinstance(n, ast.FunctionDef) and n.name == name),
+        None,
+    )
+
+
 class TestSLMShiftParameters:
     """Test suite for shift_x and shift_y parameters in Zernike Response Matrix UI"""
 
@@ -593,73 +602,41 @@ class TestProgressVisualization:
                 Path(progress_file).unlink()
 
     def test_polling_displays_updates(self):
-        """Test that polling loop reads JSON and updates plots"""
-        import tempfile
-        import json
-        import time
+        """The polling fragment must read the progress JSON and move the bar.
 
-        # Create a temporary progress file with test data
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.json') as f:
-            progress_file = f.name
+        Scoped to the function that has to do it. The previous version read the
+        whole module as text, so ``zrm_progress_file`` anywhere in the file
+        satisfied it -- ``_progress_callback`` and the session-state init both
+        mention it -- while ~45 lines of mock scaffolding ended in ``pass``,
+        exercising nothing. JSON decoding is matched as load/loads so a
+        refactor of the spelling stays green.
+        """
+        fn = _function("_render_calibration_polling")
+        assert fn is not None, "the polling fragment _render_calibration_polling must exist"
 
-        try:
-            # Write initial progress data
-            progress_data = {
-                "current_mode": 3,
-                "total_modes": 15,
-                "mode_name": "Defocus",
-                "percent": 20.0,
-                "message": "Calibrating mode 3/15: Defocus",
-                "timestamp": datetime.now().isoformat(),
-            }
+        session_reads = {
+            n.args[0].value
+            for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "get" and n.args and isinstance(n.args[0], ast.Constant)
+        }
+        assert "zrm_progress_file" in session_reads, (
+            "polling must read the progress-file path out of session state"
+        )
 
-            with open(progress_file, "w") as f:
-                json.dump(progress_data, f)
+        decoded = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr in {"load", "loads"}
+        ]
+        assert decoded, "polling must decode the progress JSON"
 
-            # Mock session state with progress file
-            mock_state = self._create_mock_session_state(
-                zrm_progress_file=progress_file,
-                zrm_calibration_running=True,
-                zrm_calibration_result=None,
-            )
-
-            # Mock st.empty() to return mock placeholders
-            mock_progress_bar = MagicMock()
-            mock_status_text = MagicMock()
-            mock_plot_placeholder = MagicMock()
-
-            with patch.object(st, 'session_state', mock_state):
-                with patch.object(st, 'empty', side_effect=[mock_progress_bar, mock_status_text, mock_plot_placeholder]):
-                    with patch.object(st, 'rerun'):
-                        with patch("time.sleep"):
-                            from ao_shaping.gui.zernike.zernike_response_matrix_ui import render_calibrate_mode
-
-                            # Mock file exists check
-                            with patch("pathlib.Path.exists", return_value=True):
-                                with patch("builtins.open", create=True) as mock_open:
-                                    # Simulate reading progress file
-                                    mock_open.return_value.__enter__ = MagicMock()
-                                    mock_open.return_value.__exit__ = MagicMock()
-                                    mock_open.return_value.read.return_value = json.dumps(progress_data)
-
-                                    # The function should attempt to read the progress file
-                                    # We can't fully test the rendering without a Streamlit context,
-                                    # but we can verify the file reading logic exists
-                                    pass
-
-            # Verify the UI file contains polling logic
-            ui_file_path = Path(__file__).resolve().parents[4] / "src" / "ao_shaping" / "gui" / "zernike" / "zernike_response_matrix_ui.py"
-            with open(ui_file_path, "r", encoding="utf-8") as f:
-                content = f.read()
-
-            assert "zrm_progress_file" in content, "Should reference zrm_progress_file"
-            assert "json.load" in content, "Should load JSON progress data"
-            assert "progress_bar.progress" in content, "Should update progress bar"
-
-        finally:
-            # Clean up
-            if Path(progress_file).exists():
-                Path(progress_file).unlink()
+        moved = [
+            n for n in ast.walk(fn)
+            if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+            and n.func.attr == "progress"
+        ]
+        assert moved, "polling must update the progress bar"
 
     def test_threading_for_calibration(self):
         """Test that calibration runs in background thread"""
