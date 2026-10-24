@@ -1812,3 +1812,61 @@ def test_blind_silent_exception_handlers_in_src_do_not_grow() -> None:
         "news, but lower the baseline deliberately so it stays a measured fact rather "
         "than a number nobody re-derives."
     )
+
+
+#: Names that belong to a device's own lifecycle. An ``assert`` about one of these is a
+#: precondition on hardware state, not an invariant about a locally computed value.
+_DEVICE_STATE_NAMES = (
+    "is_open", "is_connected", "is_ready", "_instrument_handle", "_dll", "_handle",
+    "_device_open", "_ensure_open", "_sdk", "_miicam", "_session",
+)
+
+
+def _device_state_asserts_outside_drivers() -> list[str]:
+    found: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        rel = path.relative_to(SRC)
+        if rel.parts[:2] == ("ao_shaping", "drivers"):  # pinned separately
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Assert):
+                continue
+            test = ast.unparse(node.test).lower()
+            if any(name in test for name in _DEVICE_STATE_NAMES):
+                found.append(
+                    f"{rel}:{node.lineno}: assert {ast.unparse(node.test)[:60]}"
+                )
+    return found
+
+
+def test_no_assert_on_device_state_outside_the_drivers_tree() -> None:
+    """Device preconditions must be explicit raises, never ``assert``.
+
+    Two independent reasons, both already paid for in this tree: an ``assert`` is
+    stripped whole by ``python -O``, and even unstripped it raises the wrong class --
+    callers cannot narrow on it, which is exactly the defect 92dbe716 chased through
+    ``except AssertionError`` handlers. A guard that decides whether a device may be
+    touched has to survive both.
+
+    Measured 2026-10-25, whole ``src/``: 36 asserts, of which 5 live in ``drivers/``
+    (all internal invariants, pinned by :data:`_DRIVERS_ASSERT_ALLOWLIST`) and 31
+    elsewhere -- the last 31 guard values the calling function just computed
+    (``img.ndim == 2``, ``G.ndim >= 2``, ``self.lut is not None``, shape equality) and
+    **stay** ``assert`` per 8.10. Zero of them touch device state, so the baseline here
+    is empty by measurement rather than by decree.
+
+    Deliberately narrow: it fires on device-lifecycle identifiers only. Broadening it to
+    "any assert in production" would re-litigate the 8.10 decision to keep internal
+    invariants as asserts, which cost nothing and read better than a raise.
+    """
+    offenders = _device_state_asserts_outside_drivers()
+    assert not offenders, (
+        f"{len(offenders)} assert(s) outside drivers/ guard device state, which "
+        "`python -O` deletes and which raises a type callers cannot catch. Move the "
+        "check into the driver as an explicit raise of its own error class "
+        "(CameraError / WfsError / DeviceError):\n  " + "\n  ".join(offenders)
+    )

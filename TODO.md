@@ -263,7 +263,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ~~第 1 批（纯收益，零行为风险）~~ | ~~R-23、R-24、R-30、R-31、F-2、F-6、F-7、F-8、R-40~~ ✅ 2026-10-03 → archive §5.1 |
 | **第 1.5 批（文档/常量收口，先定事实再改代码）** | **F-12** → **F-11** → **F-10**（#59 → #58 → #57）。**F-12 是 H-11 / H-16 的前置**，未定案前不要改 `K` |
 | ~~第 1.7 批 首项（lint 抑制层，纯离线，见 §8）~~ | ~~**F-14**（`src/ml/` 30 个 F821，含必然 `NameError`）~~ ✅ 2026-10-14 |
-| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（实测 **BLE001 522 处**（2026-10-24 复测，原 514；原估 312）+ **`src/` assert 99 处**当运行期护栏（原估 111）；后者含硬件安全联锁，`python -O` 下整条消失，**应先于任何硬件复测处理**。✅ WFS 曝光安全上限簇已收口（`e6f80254`）＋ **CCD「设备已打开」簇已收口**（`de5b9ccd`，`BaseCamera._ensure_open()` 抛 `CameraError`，`drivers/ccd` 设备状态 `assert` 实测归 0），详见 §8.9） |
+| **第 1.7 批 剩余（lint 抑制层）** | **R-63**（73 条 noqa 分类 + `ruff.toml` 分层，**严格按 §8.6 的 5 步顺序**：F-14 已完成 ⇒ 第 4 步的排除已删除，可从第 1 步继续，但 RUF100 仍不得先跑）→ **R-64**（实测 **BLE001 522 处**（2026-10-24 复测，原 514；原估 312）+ **`src/` assert 当运行期护栏**：2026-10-25 重钉，现树 `src/` `assert` 共 **36**（`drivers/` 5 + 其外 31，全为本地不变式，按 §8.10 保留）；原记 99/111 与"含硬件安全联锁"系各簇收口**前**口径，实测设备状态类 `assert` 现 **0**（守卫见 §8.9 第 13 项）。✅ WFS 曝光安全上限簇已收口（`e6f80254`）＋ **CCD「设备已打开」簇已收口**（`de5b9ccd`，`BaseCamera._ensure_open()` 抛 `CameraError`，`drivers/ccd` 设备状态 `assert` 实测归 0），详见 §8.9） |
 | ~~第 2 批（止真 bug）~~ | ~~R-1~R-4、R-9~R-11、R-35~~ ✅ → archive §5.2 / §5.3 |
 | ~~第 3 批（架构重构）~~ | ~~R-20、R-21、R-22、R-25、R-26、R-27、R-28、R-32、R-36、R-37、R-41、R-42、F-14、F-15~~ ✅ → archive §5.4–§5.13 |
 | **第 3 批剩余（离线）** | ~~**R-29**~~ ✅ #50 ⇒ ~~**R-33**~~ ✅ #51（上游已实现，判据已失效）⇒ ~~**R-43**~~ ✅ #53（补 38 项测试）⇒ ~~**R-39**~~ ✅ 实测判定无需改代码（见 §2.2；#52 仍开放待硬件） |
@@ -337,7 +337,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ID | 摘要 | issue | 波次 |
 |---|---|---|---|
 | R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | ✅ **第 1–4 步已完成**（`41cacbd2` step 1 → `8aa88fa2` step 2a → `84214f7f` step 2b；step 3 RUF100 常驻、step 4 `exclude` 已删并有护栏钉死），全局 `ignore` 现仅剩 RUF00x / isort / pyupgrade / E501 / F841 / F811 / PLC0415 / E731 / E741。**仅剩第 5 步**（`BLE001`/`SLF001`/`S301`），前置 = R-64。GitHub 出站仍被拦截 ⇒ 未能开对应 issue | A 🟡（第 5 步待 R-64） |
-| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 522 条**（2026-10-24 复测，原记 514 与 `src/` 355 均已过时；按 handler 行为分 **272 记日志后吞 / 152 其它 / 95 纯静默（`pass`、`continue` 且无 raise，`src/` 占 67）/ 3 重抛**，分簇见 §8.9 第 5 项），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + `3ba720ec` 删调用侧，实测见 §8.9）；~40 处内部不变式**保留 `assert`**（§8.10）；`src/` 其余 `assert` 99 条与 BLE001 522 条仍按 §8.9 分簇推进。⚠️ 三条前置**已全部收口**：改名（`e6f80254`）；`spots_calc` 3 处实测**不是待办**（实现与测试契约互相一致，见 §8.9 第 1 项）；`DeviceParameter` **否决"把 `validate()` 接到写路径"**（实测该写缝在生产路径不可达，且接线会把硬 `raise` 降级为静默失败、并把合法哨兵 `exposure_time_ms=0.0` 判成越界），改为修自相矛盾的注册声明 + GUI 重复边界漂移（见 §8.9 第 3 项）。⇒ 原新开放项 `gui/dm/micro_dm_ui.py` 后台线程触碰 `st.session_state`（§8.9 第 4 项，原 `:642-657`）**已收口**（`987ed669`；函数现 `:783`）。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
+| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 522 条**（2026-10-24 复测，原记 514 与 `src/` 355 均已过时；按 handler 行为分 **272 记日志后吞 / 152 其它 / 95 纯静默（`pass`、`continue` 且无 raise，`src/` 占 67）/ 3 重抛**，分簇见 §8.9 第 5 项），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + `3ba720ec` 删调用侧，实测见 §8.9）；**~40 处内部不变式保留 `assert`**（§8.10）；实测 `src/` `assert` 共 **36**、设备状态类 **0** ⇒ `assert` 半项已收口（§8.9 第 13 项守卫）；BLE001 522 条中 silent 已逐处判定完毕（§8.9 第 5-10 项），盲吞计数钉成棘轮（基线 61，第 11 项）。⚠️ 三条前置**已全部收口**：改名（`e6f80254`）；`spots_calc` 3 处实测**不是待办**（实现与测试契约互相一致，见 §8.9 第 1 项）；`DeviceParameter` **否决"把 `validate()` 接到写路径"**（实测该写缝在生产路径不可达，且接线会把硬 `raise` 降级为静默失败、并把合法哨兵 `exposure_time_ms=0.0` 判成越界），改为修自相矛盾的注册声明 + GUI 重复边界漂移（见 §8.9 第 3 项）。⇒ 原新开放项 `gui/dm/micro_dm_ui.py` 后台线程触碰 `st.session_state`（§8.9 第 4 项，原 `:642-657`）**已收口**（`987ed669`；函数现 `:783`）。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
 
 ### 8.1 根因：压制发生在**配置层**，不在代码层
 
@@ -840,6 +840,31 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     `gui/zernike` 两处维持第 10 项判定：真弱点是 `if mock_calibrate.called:` 这类条件断言，
     但重度 mock 的 Streamlit 测试我跑不起来 ⇒ 只记录不动。
     回归：三个被改文件 **159 passed / 0 failed**；旧测试名在全仓**无其它引用**（改名安全）。
+
+13. ✅ **R-64 的另一半（"`assert` 当运行期护栏"）经实测已收口**：现树 `src/` 共 36 条 `assert`，设备状态类 0 ⇒ 钉守卫防回归（原记 99/111 与"含硬件安全联锁"均为各簇收口前的口径）（2026-10-25）：
+    - **AST 全量实测**（不是 grep）：`src/` `assert` 共 **36** = `drivers/` **5** + 其外 **31**。
+      `drivers/` 那 5 条与既有双向 allowlist `_DRIVERS_ASSERT_ALLOWLIST` **逐字一致**，且全是
+      `width_val is not None` / `isinstance(result, np.ndarray)` / `max_grayscale is not None` 一类**本地不变式**。
+      其外 31 条**逐条读过**：`img.ndim == 2`、`G.ndim >= 2`、`type(x) is type(y)`、`self.lut is not None`、
+      `out.shape == panel_phase.shape` … **全部是本函数刚算出的值的不变式，没有一条断言设备生命周期状态**
+      ⇒ §8.7 表里"含设备已打开断言、曝光范围检查、安全检查"在**当前树**上不成立：那些联锁原本就在 `drivers/`，
+      并已由 #174 系列 + CCD `_ensure_open()` + WFS `_ensure_open()` + NLight 显式 `raise` + cartographer 各簇收口。
+    - ⚠️ **`python -O` 可达性实测：全仓（`pyproject` scripts、CI workflow、docs、Streamlit 启动、源码）
+      没有任何 `-O` / `PYTHONOPTIMIZE` 使用** ⇒ "被 `-O` 整条删除"在**本仓当前不是活风险**。
+      诚实记法：本守卫是**回归保险**，不是修现存缺陷。但它不依赖 `-O`：`assert` 抛的异常类型
+      调用方**无法窄化**，正是 `92dbe716` 追过的 `except AssertionError` 静默失配那一类 —— 这条论证与 `-O` 无关。
+    - **新守卫** `test_conventions.py::test_no_assert_on_device_state_outside_the_drivers_tree`：
+      AST 扫 `src/` 全树，跳过 `ao_shaping/drivers/`（那里由 `test_drivers_only_assert_internal_invariants` 双向钉住），
+      按**设备生命周期标识符**词表命中（`is_open` / `is_connected` / `is_ready` / `_instrument_handle` / `_dll` /
+      `_handle` / `_device_open` / `_ensure_open` / `_sdk` / `_miicam` / `_session`）。基线 **0 ⇒ 没有 allowlist 可腐烂**。
+      词表有意**窄**：不做"生产代码一律禁 `assert`"的全域禁令 —— 那会重开 §8.10 已判的"内部不变式**保留** `assert`"
+      （改 `raise` 只增加运行开销与 traceback 噪声，零安全收益）。
+    - **非空性实测**（并按第 11 项规则先自证注入落地）：临时树里往 `optimizer/combined_optimizer.py`
+      注入 `assert dev.is_open()` ⇒ 守卫失败并点名 `combined_optimizer.py:369`；未注入 ⇒ 35 passed / 1 skipped
+      （既有 ruff-not-on-PATH 跳过）。基线是用**守卫自己的规则**在同一棵树上重测得到（31 / 0），
+      不借用别条规则的数 —— 第 11 项那条教训在这里直接省掉了一次"守卫跑的是另一套口径"的坑。
+    - 结论：**R-64 的 `assert` 半项关闭**；§1.7 批与 R-64 行里两处过期数（99 / 111）按"重钉"就地更正，
+      §8.7 那张带日期的 2026-10-23 测量表**保留原数**（它记录的是当时口径）。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
