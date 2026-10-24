@@ -62,11 +62,16 @@ def test_skip_first_discards_exactly_one_frame(monkeypatch, backend):
 
 @pytest.mark.parametrize("backend", ["daheng", "miicam"])
 def test_nonpositive_sample_count_rejected(backend):
+    """The count is caller input, so it raises ValueError, not AssertionError.
+
+    It used to be an ``assert``, which ``python -O`` strips -- leaving a nonsense
+    sample count to reach the capture loop.
+    """
     if backend == "daheng":
         from ao_shaping.drivers.ccd.daheng.driver import DahengCamera as Camera
     else:
         from ao_shaping.drivers.ccd.miicam.driver import MIICamera as Camera
-    with pytest.raises(AssertionError, match="Sample count"):
+    with pytest.raises(ValueError, match="Sample count"):
         object.__new__(Camera).get_numpy_image(n_sample=0)
 
 

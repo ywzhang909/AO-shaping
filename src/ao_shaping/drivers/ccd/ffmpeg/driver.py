@@ -242,7 +242,8 @@ class FFmpegCamera(BaseCamera):
             FFmpegCameraError: 采集帧失败。
         """
         self._ensure_open()
-        assert n_sample > 0, "Sample count must be > 0"
+        if n_sample <= 0:
+            raise ValueError("Sample count must be > 0")
 
         import cv2
 
@@ -641,7 +642,8 @@ class ImageFolderCamera(BaseCamera):
             FFmpegCameraError: 读图失败。
         """
         self._ensure_recording()
-        assert n_sample > 0, "Sample count must be > 0"
+        if n_sample <= 0:
+            raise ValueError("Sample count must be > 0")
 
         # 按需跳过第一张图
         if skip_first:

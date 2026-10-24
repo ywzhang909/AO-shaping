@@ -1153,3 +1153,63 @@ def test_pytest_excludes_match_across_configs() -> None:
         f"{sorted(pyproject_ignores - shell_ignores)}; only the script: "
         f"{sorted(shell_ignores - pyproject_ignores)}"
     )
+
+
+#: The complete set of ``assert`` statements allowed anywhere under ``drivers/``,
+#: as ``<path under drivers/>: <expression>``. Each one tests an **internal**
+#: invariant that no external input or device state can reach, which is precisely
+#: the only thing Python's guidance reserves ``assert`` for.
+#:
+#: Matched on the parsed expression rather than the line number so that inserting
+#: code above an allowed assert cannot take it off the allowlist, and adding a new
+#: one cannot hide behind a shifted line.
+_DRIVERS_ASSERT_ALLOWLIST = frozenset({
+    "ccd/daheng/driver.py: width_val is not None and height_val is not None",
+    "dm/micro/driver.py: isinstance(result, np.ndarray)",
+    "dm/micro/driver.py: entry.physical_position is not None",
+    "sim/wfs/simulated_wfs.py: self._raw is not None and self._flux is not None",
+    "slm/santec/driver.py: max_grayscale is not None",
+})
+
+
+def _drivers_asserts() -> dict[str, list[int]]:
+    """Every ``assert`` under ``drivers/``, keyed by path + parsed expression."""
+    drivers = SRC / "ao_shaping" / "drivers"
+    found: dict[str, list[int]] = {}
+    for path in sorted(drivers.rglob("*.py")):
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        except (OSError, SyntaxError):
+            continue
+        rel = path.relative_to(drivers).as_posix()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Assert):
+                found.setdefault(f"{rel}: {ast.unparse(node.test)}", []).append(node.lineno)
+    return found
+
+
+def test_drivers_only_assert_internal_invariants() -> None:
+    """Under ``drivers/``, ``assert`` may only guard internal invariants.
+
+    A driver sits on the boundary with the outside world, so what it checks there
+    is either device state (did the SDK actually hand us a live handle?) or a
+    caller-supplied argument (``n_sample > 0``). ``python -O`` strips every
+    ``assert`` in the file, after which an unguarded driver either drives the SDK
+    through a null handle or silently accepts a nonsense count. Each of the three
+    driver domains now raises instead, through one entry point per concern:
+    ``BaseCamera._ensure_open`` (29001826 / de5b9ccd), ``Santec._ensure_open``,
+    ``ThorlabWFS._ensure_open`` (e4868b54), ``DeviceNotFoundError`` in the DM and
+    TM drivers, and ``ValueError`` for argument bounds.
+
+    The comparison is deliberately **two-way**: a new assert fails the test, and so
+    does an allowlist entry whose assert has since been converted or deleted. A
+    stale allowlist is how a guard quietly stops protecting anything, and this repo
+    has been bitten repeatedly by stale entries in its own ledger.
+    """
+    found = _drivers_asserts()
+    new = sorted(set(found) - _DRIVERS_ASSERT_ALLOWLIST)
+    stale = sorted(_DRIVERS_ASSERT_ALLOWLIST - set(found))
+    assert not new and not stale, (
+        f"{new = } -- raise explicitly instead of asserting (stripped under "
+        f"`python -O`); {stale = } -- no longer present, drop from the allowlist"
+    )

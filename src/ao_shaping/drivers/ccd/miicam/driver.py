@@ -570,7 +570,8 @@ class MIICamera(BaseCamera):
             np.ndarray: 调整后采集到的图像 (uint8/uint16, 取决于位深)。
         """
         self._ensure_open()
-        assert tolerance > 0, "tolerance must be > 0"
+        if tolerance <= 0:
+            raise ValueError("tolerance must be > 0")
 
         target_val = float(target_max)
         low = int(max(target_val - tolerance, 10))
@@ -767,9 +768,10 @@ class MIICamera(BaseCamera):
             x_offset = max(0, center[0] - (width // 2))
             y_offset = max(0, center[1] - (height // 2))
 
-        assert x_offset >= 0 and y_offset >= 0, (
-            f"Window center position: {center} must be within image, window size: {size}"
-        )
+        if x_offset < 0 or y_offset < 0:
+            raise ValueError(
+                f"Window center position: {center} must be within image, window size: {size}"
+            )
 
         try:
             self.cam.put_Size(width, height)
@@ -819,7 +821,8 @@ class MIICamera(BaseCamera):
         返回:
             处理后的平均图像。
         """
-        assert n_sample > 0, "Sample count must be > 0"
+        if n_sample <= 0:
+            raise ValueError("Sample count must be > 0")
 
         first_img = self.__take_one_shot()
 

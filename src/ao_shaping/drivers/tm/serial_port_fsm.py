@@ -10,6 +10,7 @@ import serial.tools.list_ports
 import threading
 import queue
 
+from ao_shaping.drivers.device_base import DeviceNotFoundError
 from ao_shaping.utils import logger
 from loguru import logger
 
@@ -33,7 +34,8 @@ class SerialPortFSM:
             self.ser.port = port
         else:
             available_port = self.list_port()
-            assert available_port, "No available serial port found."
+            if not available_port:
+                raise DeviceNotFoundError("No available serial port found.")
             self.ser.port = available_port[0]
         self.ser.baudrate = baud
         self.ser.bytesize = serial.EIGHTBITS
