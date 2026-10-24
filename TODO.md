@@ -587,8 +587,42 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    非空性实测：同一测试跑在改前树 ⇒ `AttributeError: no attribute '_callback_error_count'`。
    回归：`drivers/ccd` + `test_conventions` **241 passed / 26 skipped / 0 failed**。
    ⚠️ **未加新 AST 守卫**：行为测试比静态守卫更硬（守卫只看拼写，看不到「是否计数 / 是否限流」）；
-   本轮已新增 8 个守卫，不再膨胀。下一片（未做，按风险排序）：`gui` 27 处 silent（`ccd_analyzer.py` 独占 9）
-   → `tools` 15 → `tests/ao_shaping/drivers` 10。
+    本轮已新增 8 个守卫，不再膨胀。下一片（未做，按风险排序）：
+    → `tools` 15 → `tests/ao_shaping/drivers` 10。
+
+6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确、**不动**；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
+   26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
+   自带注释 "Ignore errors when cleaning up stale state"、`slm_calibration_ui.py:133/179` 重连前先关旧设备、
+   `r50_single.py:110`）、**重试循环**（`r50_voltage_send.py:111` `_send_with_recovery`：吞单次失败后重试，
+   整体成败由返回值交给调用方）、**上报动作本身的失败**（`ccd_analyzer.py:292/314` 是包住
+   `raw_frame_queue.put(("error", …))` 的**内层**护栏 —— 外层已把错误送进队列；`r50_voltage_send.py:395/402/420`
+   同理包住 `feedback_q.put`）、**探测降级**（`bench_settings.py:1390/1399` `detect_camera_pixel_um` 回落
+   `KNOWN_CAMERA_PIXEL_UM` 型号表，外层打 debug 并显式 `return None`，注释已写明"探测失败不是错误"）、
+   **清理进度文件**（`zernike_response_matrix_ui.py:833`）。⇒ **一处都没改成 raise**。
+   唯一真缺陷不是"吞掉测量"而是**死代码**：`gui/zernike/zernike_debug_viewer.py:392-404` 在
+   `pinv_matrix = np.linalg.pinv(...)` 之后算 `np.linalg.matrix_rank(...)` 判分支、分支里算
+   `‖A‖₂ · ‖A⁺‖₂`，**结果从不赋值**，`else` 也是 `pass` ⇒ 两个分支都不决定任何事。
+   代价是实的：`matrix_rank` 与两个 `ord=2` 的 `np.linalg.norm` **各自要做一次 SVD**，所以每次从调试数据
+   算响应矩阵都**白做两次 O(n³) SVD** 再丢掉。已删（连同其误导性注释）。
+   🔴 **我最初的定性是错的，被实测否证**：先看 `:801-803` 确实显示 `result.condition_number`，
+   于是判"缺赋值 ⇒ 一个 UI 诊断量永远显示不出来"。实测两头都不成立 —— `:435` 已把 `pinv_matrix=pinv_matrix`
+   传进 result，而 `condition_number` 是 `ZernikeResponseMatrixResult` 上的 **property**，自己算
+   `np.linalg.cond(self.matrix)`（`optimizer/wf/zernike_response_matrix.py:111`），根本不需要那个局部表达式。
+   ⇒ 规则：**判"缺赋值"之前必须先查该值的消费点是不是已经由别处（尤其 property/派生字段）承担**；
+   本 campaign 这是第二次"初判被实测推翻"（前一次见 §8.9 前置 1 的 `spots_calc`）。
+   ⚠️ **判据盲区（比删掉这处更值钱）**：本片的分簇只看 **handler 行为**（`pass`/`continue` 且无 raise），
+   于是 AST 结构复核在同一函数里另抓到 **2 处被丢弃的三元表达式**（`:382-384`
+   `float(np.mean(variance_matrix)) if … else 0.0` ×2，注释写着 "Compute derived properties"）——
+   它们没有任何 `except`，**永远不会进 BLE001 计数**。同样确认为冗余：`mean_variance`/`max_variance`
+   也是 result 上的 property，UI 直接读 `result.mean_variance`（`:786/:826`），已一并删。
+   ⇒ 对 UI/指标类文件，除 handler 之外还要过一遍「**表达式语句的结果被丢弃**」（`ast.Expr` 且非 `Call`，
+   排除 docstring）—— 本轮用 `/tmp/struct.py` 手工做，未固化为守卫（只 2 例，先记账不膨胀）。
+   验证：该文件**测试覆盖为零**（`git grep -ln zernike_debug_viewer -- tests` 空）⇒ 不能只靠回归；
+   改后在 CI 镜像里 import 并用 `inspect.getsource` 断言 `pinv` 仍在、被弃的 SVD 与两条三元已消失。
+   回归 `optimizer/wf` + `gui` **566 passed / 23 skipped / 0 failed**（`condition_number`/`variance`
+   property 的测试都在 `optimizer/wf`，证明显示路径未被我碰坏）。
+   计数变化：该文件 BLE001 **4 → 3**，`gui` silent **27 → 26**。
+   下一片（未做，按风险排序）：`tools` 15 → `tests/ao_shaping/drivers` 10。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
