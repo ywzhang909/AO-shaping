@@ -171,7 +171,7 @@
 | `optimizer/wfless/sim_spgd.py` | **保留** `optimizer/wfless/sim_spgd.py` | ❌ 依赖 `optimizer.constants.create_optimizer`, 违反 sim→optimizer 禁止原则 |
 | `optimizer/rl/envs.py` 中的 3 个类 | `sim/rl/turbulence_env.py` | `SimTurbulenceAOEnv`, `_BaseSimAOEnv`, `StaticAberrationAOEnv` |
 | `optimizer/rl/envs.py` 中余下类 | **保留** `envs.py` | `LaserCastEnv`, `TraditionalAOEnv` (非 sim) |
-| `utils/slm/gs_debug_optics.py` | **保留** | `grayscale_to_radians` 仍被 scripts/tests 使用; `idealized_far_field` 已弃用 (AGANTS anti-pattern) |
+| `utils/slm/gs_debug_optics.py` | **保留** | `grayscale_to_radians` 仍被 scripts/tests 使用; `idealized_far_field` **也未弃用**（2026-10-25 实测：47 行模块内 `deprecat`、`弃用`、`legacy` 一类标记命中 **0**，且被 `tests/ao_shaping/utils/test_gs_debug_optics.py:18-24` 真实调用并断言、被 `scripts/slm/generate_gs_refine_fwdmodel_report.py:280` 报告正文引用）⇒ 它是**仅测试与报告引用的 numpy 查看辅助**，不是死代码；原括注 `(AGANTS anti-pattern)` 两处皆误：拼写应为 AGENTS，且 `AGENTS.md` 里**没有**关于该符号的反模式条目（全文仅在结构表把它当模块名列出）|
 
 **新包结构 (根目录散文件 → 子目录归类):**
 
@@ -1157,6 +1157,32 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **改动自身的验证**：9 个新指针全部在树中解析 OK；编辑过的行**列数与原表头一致**（结构表 4 个 `|`、
       反模式表 3 个 `|`）；表格行奇数强调 **0 处**；术语门禁 `合计: 0 个文件, 0 行`；
       `test_conventions.py` + 分片覆盖守卫合跑 **42 passed / 1 skipped**。
+
+25. ✅ **一条"已弃用"标签在动手前被实测推翻：`idealized_far_field` 是活代码，不是死代码**（2026-10-25）：
+    - **为什么单独立项**：`:174` 那行写着「`idealized_far_field` 已弃用 (AGANTS anti-pattern)」，我据此**准备删它**；
+      普查在动手前把它推翻 ⇒ 记录这条，是因为**没有代码内标记支撑的状态标签会直接导致错误动作**。
+    - **推翻它的实测证据**：① 该模块 47 行里 `deprecat\|弃用\|已废弃\|no longer used\|legacy` 命中 **0**，
+      docstring 只说明"是归一化 FFT 图、不是标定过的 CCD 预测"（划边界，不是弃用声明）；
+      ② `tests/ao_shaping/utils/test_gs_debug_optics.py:18 test_far_field_uses_off_center_pupil`
+      在 `:20`、`:24` **实际调用并断言**它 ⇒ 删掉就是打断一个活测试；
+      ③ `scripts/slm/generate_gs_refine_fwdmodel_report.py:280` 的报告正文把它当**对照口径**引用。
+    - **原括注两处皆误**：`AGANTS` 是 `AGENTS` 的拼写错误；且 `AGENTS.md` 全文**并无**关于该符号的反模式条目
+      （只在结构表把 `gs_debug_optics` 作为模块名列出）⇒ 该行引用的是一个**不存在的条目**。
+    - **单一事实源核查（结论：不违例）**：canonical 远场在 `utils/wavefront/fraunhofer.py`
+      （`focal_field` / `focal_intensity` / `interpolated_pupil_*`，torch 可微，7+ 个 src/scripts 模块引用），
+      而 `idealized_far_field` 是 **numpy + 峰值归一化 + 偏心圆瞳**的查看实现 ⇒ 栈与语义都不同，
+      不属于"重复实现同一数学"那一类（第 34 项 / Zernike 收敛那类才是）。
+    - **处置**：`:174` 只改**理由**、保留 **保留** 裁决；"要不要真的弃用 / 挪成报告专用 helper"**留给设备侧决定**——
+      它涉及"该 helper 的语义是否仍要作为对照口径"，无设备无从验证等价性 ⇒ 本轮不做（避免把口径判断当重构做）。
+    - **顺带一条普查纪律**（与第 23、24 项同源）：判断"死代码"须同时看 **import 面**与**断言面**——
+      只看 `git grep 名字` 的命中数会漏掉"仅被测试引用"这一类，而这一类删了就是**削测试**。
+
+    - **本轮新增一条自检口径**：表格行的列数须与**该块表头**一致，且只数**未转义**的 `|`
+      （GFM 里代码段内的裸 `|` 照样切列）。按此扫 `TODO.md` 的 31 个表块：本轮**引入的破坏 = 0**
+      —— 先误引入 1 处（在表格单元的代码段里写了 `a|b|c`），正是被这条自检当场抓出并修掉的。
+      另有 **2 处既存破坏**（`:304` 10 列 vs 表头 5；§8.12 表一行 6 vs 5，`HEAD` 里即在）：
+      **刻意不顺手改** —— 属既存缺陷、非本轮动因，且两表均为带日期的历史记录，改动须另立条目；
+      发现先登记于此，避免下一轮把它们误算成新引入的破坏。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
