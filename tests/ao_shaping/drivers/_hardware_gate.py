@@ -16,6 +16,10 @@ survive. Narrowing the default exclusion from the whole ``drivers`` tree to
 Registering through this helper makes the outcome order-independent: whichever
 conftest loads first wins, and the option, its help text and the skip rule exist in
 exactly one place.
+
+Three conftests now delegate here -- ``drivers/conftest.py`` (the tree root, added
+because the gate was otherwise only active when an unrelated subtree happened to be
+in the same session), plus the original ``drivers/hardware/`` and ``drivers/slm/``.
 """
 
 from __future__ import annotations

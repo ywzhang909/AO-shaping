@@ -567,11 +567,15 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 
 **CCD「SDK 缺失 → 看不懂的崩溃」已修**：`drivers/ccd/daheng/driver.py` 顶层 `try: import gxipy as gx / except: logger.error(...)` 在失败分支里**根本没有绑定 `gx`** ⇒ 无 SDK 的机器上 `get_numpy_image` 在 `gx.GxFrameStatusList.SUCCESS` 处抛 `NameError`；`miicam/driver.py` 绑了 `None`，于是在 `miicam.Miicam()` 处抛 `AttributeError: 'NoneType' object has no attribute 'Miicam'`。两者现都：失败分支显式绑定（daheng 另存 `_SDK_IMPORT_ERROR` 供报错），并在 `initialize()` 第一行经**单一** `_require_sdk()` 抛 `CameraError`（带可行动信息：需要 `libs/gxipy` 在 PYTHONPATH 上）。`try/except` 本身不动 ⇒ 惰性加载红线保持不破。测试侧：`test_reset_exposure_time.py` 5 条改为用 `monkeypatch.setattr(driver, "gx", fake_gx)` 注入假 SDK 令牌（不再依赖真实 SDK 是否存在），`test_miicam_report.py` / `test_miicam_auto_exposure_report.py` 按 `miicam is None` / `_MIICAM_AVAILABLE` 跳过（沿用 `requires_oopao` 与 `test_wfs_report.py` 既有写法，未删任何断言）。实测 `tests/ao_shaping/drivers/ccd`：**198 passed / 25 skipped / 0 failed**（修前 189 passed / 23 skipped / **6 failed + 1 error**）。
 
-✅ **发现集已按实测收窄（见本提交）**：这组测试腐烂之所以**长期不可见**，是因为 `addopts` 与
-`run_pytest_ci.sh` 都把整棵 `tests/ao_shaping/drivers` 排除在发现集之外。现两处同步收窄到
-**只排除 `drivers/dm`**（实测 144 个测试耗 **560.83 s**，且 2 个测试在无控制器应答时失败而非跳过），
-其余各域实测**绿且快**已恢复：`ccd` 204/25、`sim` 394/2（63.33 s）、`wfs` 110/11、`slm` 158/127（7.95 s）、
-`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s）、根文件 13/9。裸 `pytest` 收集数 **8011 → 9147**。
+✅ **发现集已按实测彻底取消 drivers 排除（`7d10f7d4` 起，本提交收口）**：这组测试腐烂之所以**长期不可见**，是因为 `addopts` 与 `run_pytest_ci.sh` 都把整棵 `tests/ao_shaping/drivers` 排除在发现集之外。现两处的 drivers 排除**已全部撤销**，各域实测**绿且快**：`ccd` 204/25、`sim` 394/2（63.33 s）、`wfs` 110/11、`slm` 158/127（7.95 s）、`adc` 49（2.84 s）、`hardware` 37 skipped（0.06 s）、`dm` 139/5（**40.22 s**）、根文件 13/9。裸 `pytest` 收集数 **8011 → 9147 → 9293**（实测；9293 = 9147 + 本会话新增 2 条门禁测试 + `dm` 144）。整棵 `drivers` 单 session **1067 passed / 216 skipped / 124.43 s**。
+
+🔴 **上一提交把 `dm` 的成因写错了，此处更正**：我写的是"2 个测试在无控制器应答时**失败而非跳过**，修好 fixture 的跳过分级是前置条件"。实测（`--durations`）两条真因都不同：
+1. 那 2 条失败其实是 **`TestReport` 写 `docs/micro-dm/` 撞上只读挂载**的 `OSError: [Errno 30]`（`test_micro_dm_report.py:56` / `:331`），与"会不会跳过"无关 —— 它们在 `--hardware` 下写这份入库报告本就是设计意图（`docs/micro-dm/*` 已在 `.gitignore`）。
+2. 真正的缺陷是 **`hardware` 标记在 `dm/` 下无人执行**：跳过钩子只存在于 `drivers/slm/conftest.py` 与 `drivers/hardware/conftest.py`，而 `pytest_collection_modifyitems` 是**会话级**钩子 —— 于是 `pytest drivers/dm drivers/slm` 会跳过、`pytest drivers/dm` 单独跑就不跳过。**同一条测试的跳过与否取决于同会话里还收集了哪棵无关子树**。后果不是观感问题：`TestMicroDMReport` 的 fixture 因此把 26 个不可达控制器（192.168.0.101-126）逐个扫到底，**每个测试 260 s 的 setup，两条合计 520 s，占掉该域 560 s 的绝大部分**。
+
+⇒ 修法是**把门放到测试真正所在的层**：新增 `tests/ao_shaping/drivers/conftest.py`（复用上一提交建的 `_hardware_gate` 单源），使 `--hardware` 门对整个 `drivers/` 一致生效。实测 `dm` 由 **560.73 s / 2 failed** 变为 **40.22 s / 0 failed**（`SKIPPED [2] ... need --hardware option to run`）。剩下的 27 s 是 `test_dm.py::TestDMRegistry::test_list_reachable_types`，它**通过**而非挂起。
+
+⚠️ 方法论教训（已第三次踩同一类坑）：**"慢/挂起"要先用 `--durations` 归因**，不要按域整体归因。`dm` 曾被当作"硬件驱动天然慢所以排除"，实际 93% 的成本来自**一个未被执行的标记**，一次 conftest 就消掉了。
 
 🔴 顺带挖出**第二份排除清单**：`scripts/build/run_pytest_ci.sh` 的 `EXCLUDES` 把同样的路径重述成
 绝对路径（脚本从 scratch 目录启动 pytest，pyproject 的**相对**排除在那种 CWD 下匹配不到任何东西）。
@@ -580,9 +584,9 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 ⚠️ 实测纠正一处旧文档说法：`--ignore` **从不**裁剪显式点名的路径（`pytest tests/ao_shaping/drivers/dm`
 在被排除时仍收集 144 个），故原表"显式指定不受影响"的说法成立但机制与直觉不同。
 
-⚠️ 仍开放（本次未处理）：`drivers/dm` 那 **2 个在无控制器时失败而非跳过**的测试
-（`test_micro_dm_report.py::TestMicroDMReport::{test_micro_dm_basic_report,test_micro_dm_voltage_calibration_report}`）
-—— 修好 fixture 的跳过分级后，`dm` 才有资格回到发现集（但 560 s 的墙钟本身仍需先解决）。
+✅ 本条已结（见上一段）：`drivers/dm` 的 2 条失败真因是只读挂载下 `TestReport` 写 `docs/`，且该域的
+560 s 来自未被执行的 `hardware` 标记；两者已由 `drivers/conftest.py` 一并解决，`dm` 已进发现集
+（40.22 s / 139 passed / 5 skipped）。
 
 🔴 **同一收窄顺带暴露了 CI 侧的启动期崩溃**：`drivers/hardware/conftest.py` 与
 `drivers/slm/conftest.py` **各自**注册 `--hardware` —— 前者无条件、后者包
