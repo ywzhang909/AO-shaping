@@ -774,9 +774,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     **变异实测（决定性）**：把 `center=` 改成 `ceners=` 后 —— 旧版 **1 passed（盲）**，新版
     **1 failed：`TypeError: SlmZernikePibConfig.__init__() got an unexpected keyword argument 'ceners'`（有牙）**。
     **只记录不动的 2 处**：`gui/zernike/test_zernike_response_matrix_ui.py:423/657` —— 该文件
-    `:19 pytestmark = pytest.mark.skip(...)` **整模块硬跳过**，不构成 CI 空绿；且其真正的弱点**不是吞异常**而是
+    `:19 pytestmark = pytest.mark.skip(...)` **整模块硬跳过**（记录当时的状态；现已由第 15 项撤除），不构成 CI 空绿；且其真正的弱点**不是吞异常**而是
     `if mock_calibrate.called:` 这个**条件断言**（mock 未被调用时不做任何断言却通过）。**不改**：这类重度 mock 的
     Streamlit 测试我跑不起来，改它本身就是把它弄坏的方式 ⇒ 记为**已知弱点**，要动必须先让模块可跑。
+    ⚠️ 本判定的**前提是该文件整模块跳过**（"跑不起来"即指此）；第 15 项实测该前提为假（无任何 AppTest、全 mock、1.7 s 跑完），
+    跳过已撤，此 2 处随复活**一并改严**（`assert_called_once`、去吞异常）⇒ 本条「只记录不动」判定**已失效**，见第 15 项。
     **`scripts/` 11 处全部合法**，分四类：`finally` 尽力清理（`set_phase_overlay(None)` ×3、
     `display_data(zeros)`、`dev.close()`、`wfs.close()`）；**搜索循环里跳过读不到的候选**
     （`generate_fouriergsnet_sim_report.py:181` 遍历各候选目录找含所需键的 `config.json` —— 跳过坏候选是**控制流**，
@@ -815,8 +817,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     = `Assert` 节点 + `assert_*`（mock）+ `pytest.raises/fail/xfail`；若**每一个**断言事件都落在某个
     `If` 之下 ⇒ 该测试可以在前提不成立时零断言通过。全仓命中 **30**。
     分布（前几）：`drivers/slm/test_slm_hardware.py` 5（硬件门控，CI 不产生绿）、
-    `gui/slm/test_pattern_controls.py` 3、`gui/zernike/test_zernike_response_matrix_ui.py` 2（整模块
-    `pytest.mark.skip` 硬跳过）、`optimizer/wfless/test_slm_model_in_loop.py` 2、
+    `gui/slm/test_pattern_controls.py` 3、`gui/zernike/test_zernike_response_matrix_ui.py` 2（记录当时整模块
+    `pytest.mark.skip` 硬跳过；⚠️ 该跳过已由第 15 项撤除，此 2 处条件断言已随复活改严）、`optimizer/wfless/test_slm_model_in_loop.py` 2、
     `scripts/test_build_hw_sweep_plan.py` 2，其余各 1。
     **修掉 3 处，每处都跑"旧盲 / 新有牙"差分**（改前测试与改后测试对**同一变异**的反应）：
     ① `display/test_display_layering.py::test_no_module_scope_algorithm_import`：AST 扫描型守卫，
@@ -844,6 +846,8 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     "条件断言"这条规则的假阳性压力远大于"盲吞异常"，计数基线会把合法写法一起钉死。
     `gui/zernike` 两处维持第 10 项判定：真弱点是 `if mock_calibrate.called:` 这类条件断言，
     但重度 mock 的 Streamlit 测试我跑不起来 ⇒ 只记录不动。
+    ⚠️ 此「维持」与「跑不起来」的前提（整模块跳过）已由第 15 项实测推翻，2 处条件断言已随复活
+    **一并改严且仍全绿** ⇒ 本句对 `gui/zernike` 的判定**已失效**，以第 15 项为准。
     回归：三个被改文件 **159 passed / 0 failed**；旧测试名在全仓**无其它引用**（改名安全）。
 
 13. ✅ **R-64 的另一半（"`assert` 当运行期护栏"）经实测已收口**：现树 `src/` 共 36 条 `assert`，设备状态类 0 ⇒ 钉守卫防回归（原记 99/111 与"含硬件安全联锁"均为各簇收口前的口径）（2026-10-25）：
