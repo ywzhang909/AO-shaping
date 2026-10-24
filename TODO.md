@@ -673,7 +673,11 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    分 `src/` 63（drivers/ccd 15、tools/slm 11、gui/ccd 9、gui/slm 9、gui/r50 6、drivers/dm 2、
    optimizer/wfless 2、tools/wfs 3、runners 2…）、`tests/` 16（drivers/dm 7、utils/test_spots_calc.py 4、
    gui/zernike 2…）、`scripts/` 11（probe_optical_path_validity.py 2…）。
-   ⇒ **尚未逐处过**：`tests/` 非 drivers 的 7 处、`scripts/` 11 处、`src/runners` 2 处、`src/optimizer` 3 处。
+   ⇒ ~~**尚未逐处过**：`tests/` 非 drivers 的 7 处、`scripts/` 11 处、`src/runners` 2 处、`src/optimizer` 3 处~~
+     **本行写于第 9/10 项之前，四个片已全部逐处过完**（2026-10-25 用**守卫自己的规则** `_blind_silent_handlers`
+     重测**残留**：`src/` **61** —— 与棘轮基线逐字相等，口径自证一致；`tests/` 11 = drivers 9 + 非 drivers 2；
+     `scripts/` 11；合计 **83**。分片：`src/runners` 1 + `src/optimizer` 2 = 3（第 9 项：5 处里 2 处真缺陷已修）、
+     `tests/` 非 drivers 2（第 10 项：7 处里 5 处已修、2 处判定为只记录不动）、`scripts/` 11（第 10 项：全部合法）。
 
 8. ✅ **BLE001 `tests/ao_shaping/drivers` 片（10 处 silent）⇒ 9 处正确不动、1 处是「假绿+假证据」缺陷**（2026-10-24）：
    9 处不动的理由：fixture/工装的尽力 close（`ccd/test_exposure_states.py:99`、
