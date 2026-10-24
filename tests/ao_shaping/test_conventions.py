@@ -1870,3 +1870,101 @@ def test_no_assert_on_device_state_outside_the_drivers_tree() -> None:
         "check into the driver as an explicit raise of its own error class "
         "(CameraError / WfsError / DeviceError):\n  " + "\n  ".join(offenders)
     )
+
+
+def _thread_boundary_capture_handlers() -> list[str]:
+    """Handlers that stash a caught exception so another thread can re-raise it.
+
+    The re-raise may be a name (``raise error[0]`` from a list) or a subscript
+    (``raise box["error"]``); matching only the name form misses the second shape,
+    and a guard that misses one of the three sites would enforce less than it claims.
+    """
+    found: list[str] = []
+    for root in (SRC, REPO / "scripts", REPO / "tests"):
+        for path in sorted(root.rglob("*.py")):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+            except (SyntaxError, UnicodeDecodeError):  # ruff owns these
+                continue
+            for fn in ast.walk(tree):
+                if not isinstance(fn, ast.FunctionDef):
+                    continue
+                if not any(
+                    isinstance(c, ast.Call) and getattr(c.func, "attr", "") == "Thread"
+                    for c in ast.walk(fn)
+                ):
+                    continue
+                for handler in ast.walk(fn):
+                    if not isinstance(handler, ast.ExceptHandler) or not handler.name:
+                        continue
+                    containers: set[str] = set()
+                    for stmt in handler.body:
+                        for node in ast.walk(stmt):
+                            if isinstance(node, ast.Assign) and isinstance(
+                                node.value, ast.Name
+                            ) and node.value.id == handler.name:
+                                for tgt in node.targets:
+                                    if isinstance(tgt, ast.Name):
+                                        containers.add(tgt.id)
+                                    elif isinstance(tgt, ast.Subscript) and isinstance(
+                                        tgt.value, ast.Name
+                                    ):
+                                        containers.add(tgt.value.id)
+                            if (
+                                isinstance(node, ast.Call)
+                                and getattr(node.func, "attr", "") == "append"
+                                and isinstance(node.func.value, ast.Name)
+                                and any(
+                                    isinstance(a, ast.Name) and a.id == handler.name
+                                    for a in node.args
+                                )
+                            ):
+                                containers.add(node.func.value.id)
+                    if not containers:
+                        continue
+                    re_raised = any(
+                        isinstance(r, ast.Raise)
+                        and r.exc is not None
+                        and any(
+                            n.id in containers
+                            for n in ast.walk(r.exc)
+                            if isinstance(n, ast.Name)
+                        )
+                        for r in ast.walk(fn)
+                    )
+                    if re_raised:
+                        kind = (
+                            ast.unparse(handler.type) if handler.type else "bare except"
+                        )
+                        found.append(
+                            f"{path.relative_to(REPO)}:{handler.lineno}: {kind}"
+                        )
+    return found
+
+
+def test_thread_boundary_exception_capture_keeps_base_exception() -> None:
+    """A worker thread's caught exception must be re-raisable in full, not just Exception.
+
+    These handlers exist to move an exception across a thread boundary so the calling
+    thread can re-raise it (``call_with_timeout`` and its script copies). Narrowing one
+    to ``except Exception`` compiles, tests keep passing, and the behaviour change is
+    silent: the worker's ``KeyboardInterrupt``/``SystemExit`` is never stored, so the
+    caller sees a completed call instead of an interrupt -- the timeout helper returns
+    ``None`` as if the SDK call had succeeded. 8.7 records this as forbidden prose;
+    this pins it mechanically.
+
+    Measured 2026-10-25: 3 such handlers, all already ``BaseException``, so the
+    baseline is empty. The premise (that the scan finds any at all) is asserted too --
+    a scan matching nothing would pass trivially.
+    """
+    handlers = _thread_boundary_capture_handlers()
+    assert handlers, (
+        "no thread-boundary exception-capture handler found anywhere: the shape this "
+        "guard is about has changed, so it is enforcing nothing"
+    )
+    narrowed = [h for h in handlers if not h.endswith(": BaseException")]
+    assert not narrowed, (
+        f"{len(narrowed)} thread-boundary handler(s) narrowed below BaseException -- "
+        "an interrupt inside the worker would then vanish and the caller would treat "
+        f"the call as successful:\n  " + "\n  ".join(sorted(narrowed))
+    )

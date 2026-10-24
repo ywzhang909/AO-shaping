@@ -337,7 +337,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | ID | 摘要 | issue | 波次 |
 |---|---|---|---|
 | R-63 | ruff 抑制层清理：73 条 noqa 分类 + `ruff.toml` 分层重构（见 §8.3 / §8.6） | ✅ **第 1–4 步已完成**（`41cacbd2` step 1 → `8aa88fa2` step 2a → `84214f7f` step 2b；step 3 RUF100 常驻、step 4 `exclude` 已删并有护栏钉死），全局 `ignore` 现仅剩 RUF00x / isort / pyupgrade / E501 / F841 / F811 / PLC0415 / E731 / E741。**仅剩第 5 步**（`BLE001`/`SLF001`/`S301`），前置 = R-64。GitHub 出站仍被拦截 ⇒ 未能开对应 issue | A 🟡（第 5 步待 R-64） |
-| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 522 条**（2026-10-24 复测，原记 514 与 `src/` 355 均已过时；按 handler 行为分 **272 记日志后吞 / 152 其它 / 95 纯静默（`pass`、`continue` 且无 raise，`src/` 占 67）/ 3 重抛**，分簇见 §8.9 第 5 项），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（§8.7 明文禁改 2 处）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + `3ba720ec` 删调用侧，实测见 §8.9）；**~40 处内部不变式保留 `assert`**（§8.10）；实测 `src/` `assert` 共 **36**、设备状态类 **0** ⇒ `assert` 半项已收口（§8.9 第 13 项守卫）；BLE001 522 条中 silent 已逐处判定完毕（§8.9 第 5-10 项），盲吞计数钉成棘轮（基线 61，第 11 项）。⚠️ 三条前置**已全部收口**：改名（`e6f80254`）；`spots_calc` 3 处实测**不是待办**（实现与测试契约互相一致，见 §8.9 第 1 项）；`DeviceParameter` **否决"把 `validate()` 接到写路径"**（实测该写缝在生产路径不可达，且接线会把硬 `raise` 降级为静默失败、并把合法哨兵 `exposure_time_ms=0.0` 判成越界），改为修自相矛盾的注册声明 + GUI 重复边界漂移（见 §8.9 第 3 项）。⇒ 原新开放项 `gui/dm/micro_dm_ui.py` 后台线程触碰 `st.session_state`（§8.9 第 4 项，原 `:642-657`）**已收口**（`987ed669`；函数现 `:783`）。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
+| R-64 | ruff 抑制层的下一片：`assert` 当运行期护栏（`python -O` 下整条消失）+ 无标注宽异常 | ⚠️ **2026-10-23 实测重量（原估数全部偏低/过时）**：**BLE001 522 条**（2026-10-24 复测，原记 514 与 `src/` 355 均已过时；按 handler 行为分 **272 记日志后吞 / 152 其它 / 95 纯静默（`pass`、`continue` 且无 raise，`src/` 占 67）/ 3 重抛**，分簇见 §8.9 第 5 项），**`src/` `assert` 99 条**（原表 111；`src/ml/` 0），`except:` 裸捕获 **0**，`except BaseException` 5 处（2026-10-25 逐处判定：**3 处线程边界捕获禁改**且已机械钉住、1 处退出清理已复核保留、1 处本就重抛 —— 见 §8.9 第 14 项；原记「§8.7 明文禁改 2 处」是当时口径）。**已做**：#174 系列（`009e621d`/`bb64c162`/`2ceb288f`）收口 import 守卫与 `drivers/ccd/common.py`+`nlight` 的 assert→raise；本仓 `e6f80254` 收口 **WFS 曝光安全上限** 簇（6 处 assert→显式 raise、常量 3 处声明→1 处、解除与 `MIICamera.MAX_EXPOSURE_MS` 的 1400 倍同名冲突、加 AST 守卫防复发）；**CCD「设备已打开」簇已收口**（`de5b9ccd`：37 处设备状态 `assert` 收口到 `BaseCamera._ensure_open()`/`_device_open()` 抛 `CameraError`，`drivers/ccd` 实测归 0，AST 守卫 `test_ccd_drivers_never_assert_on_device_state` 钉在 CI 默认发现集内；`29001826` 把 SDK 缺失时的 `NameError`/`AttributeError` 改为 `_require_sdk()` 抛 `CameraError`）。**剩余**：~~cartographer 13 处删、optimizer 7 处删~~ **两簇均已收口**（`e4868b54` 补 `ThorlabWFS._ensure_open` 机制 + `3ba720ec` 删调用侧，实测见 §8.9）；**~40 处内部不变式保留 `assert`**（§8.10）；实测 `src/` `assert` 共 **36**、设备状态类 **0** ⇒ `assert` 半项已收口（§8.9 第 13 项守卫）；BLE001 522 条中 silent 已逐处判定完毕（§8.9 第 5-10 项），盲吞计数钉成棘轮（基线 61，第 11 项）。⚠️ 三条前置**已全部收口**：改名（`e6f80254`）；`spots_calc` 3 处实测**不是待办**（实现与测试契约互相一致，见 §8.9 第 1 项）；`DeviceParameter` **否决"把 `validate()` 接到写路径"**（实测该写缝在生产路径不可达，且接线会把硬 `raise` 降级为静默失败、并把合法哨兵 `exposure_time_ms=0.0` 判成越界），改为修自相矛盾的注册声明 + GUI 重复边界漂移（见 §8.9 第 3 项）。⇒ 原新开放项 `gui/dm/micro_dm_ui.py` 后台线程触碰 `st.session_state`（§8.9 第 4 项，原 `:642-657`）**已收口**（`987ed669`；函数现 `:783`）。GitHub 出站仍被拦截 ⇒ 未能开 issue | A 🟡（WFS 簇 + CCD 簇已收口，其余分簇推进） |
 
 ### 8.1 根因：压制发生在**配置层**，不在代码层
 
@@ -387,15 +387,16 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 
 * **`except Exception` 不捕获 `KeyboardInterrupt` / `SystemExit`**（二者继承 `BaseException`）
   ⇒ 遥测类 `except Exception` 对 Ctrl-C 是**安全**的，不必收窄。
-* 真风险只有 **2 处 `except BaseException`**，而其中
-  `utils/image/hardware_utils.py:628` **必须保持 `BaseException`**：它跑在 daemon
+* 真风险只有 **2 处 `except BaseException`**（⚠️ 2026-10-25 重测：现树 **5 处** = `src/` 3 + `scripts/` 2，
+  逐处判定见 §8.9 第 14 项；本行的「2 处」是本节写作时的口径，`transfer/workflow.py` 与 `scripts/` 两处未计入），而其中
+  `utils/image/hardware_utils.py:627`（原钉 `:628`，已按 grep 实测重钉）**必须保持 `BaseException`**：它跑在 daemon
   工作线程里，目的就是把工作线程的任何异常搬到调用线程重抛。收窄成 `Exception`
   会让工作线程的 `KeyboardInterrupt`/`SystemExit` 静默消失，`call_with_timeout`
   改为返回 `None`（静默行为变更）。它**不影响**主线程 Ctrl-C（`join` 可中断）。
 
 | 处置 | 站点 | 收窄到 |
 |---|---|---|
-| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:628` | 不改，仅把线程边界语义写进注释 |
+| **保持 `BaseException` + 补注释** | `utils/image/hardware_utils.py:627` | 不改，仅把线程边界语义写进注释；已机械钉住：`test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception` |
 | **最高价值：收窄** | `drivers/slm/santec/driver.py:1184` | `SantecError` —— 房内既有写法：`slm_gs_refine.py:780` `except SantecError as exc: if exc.code != 1: raise` |
 | 收窄 | `gui/r50/r50_channel_select.py:360` | `(ValueError, KeyError, TypeError)`（pandas `int()` / 列访问） |
 | 收窄 | `tools/slm/slm_zernike_common.py:114,129,155,162,166` | `(SantecError, WfsError, AttributeError)` |
@@ -404,7 +405,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | **必须保持宽** | 遥测 12 条（`ml/zernike/train_coeff.py:512,524,547,581,591`、`ml/zernike/train_amp.py:1301,1329`、`ml/shaping/train.py:680,741,767`、`ml/gsnet_debug/train.py:737,855`） | wandb 从网络/文件系统/序列化多路抛错；且 `except Exception` 不吞 Ctrl-C ⇒ 保留 noqa + 理由 |
 | **必须保持宽** | `zernike_matrix_runner.py:846` | 包住**调用方传入的任意回调**，无法枚举 |
 | 边缘（建议保留） | `zernike_matrix_runner.py:1448`（整条多设备流水线）、`:1323`（显示回调） | 收窄会变脆 |
-| **改动前须单独复核** | `optimizer/wfless/slm_zernike_pib.py:1285`（`BaseException`，在 finally 清理里）、`:1297` | 唯一可能真吞 `KeyboardInterrupt` 的站点；须先确认清理后是否重抛（行号 2026-10-20 随 #43 BenchSession 重构重钉，原 `:1182`/`:1194`；`1ce4717a` 常量收敛后整体 −1）|
+| **改动前须单独复核 → 已复核，保留** | `optimizer/wfless/slm_zernike_pib.py:1355`（`BaseException`，在 `_apply_best_on_exit()` 退出清理里；原钉 `:1285`/`:1297` 两处已漂移，2026-10-25 实测**只剩 1 处**） | 已逐行读：处理器把异常**类型与消息都写进日志**，再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown" ⇒ 不重抛但**不静默**；宽捕获是**必需**的（收窄后 Ctrl-C 走不到安全态）。无需改动 |
 
 ⚠️ **ruff 没有「故意宽 catch」的开关**：`lint.flake8-blind-except.allow-raise`
 **不存在**（官方 settings 无该节；GitHub 全仓 grep 无结果）。唯一相关选项是
@@ -448,7 +449,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
 | 不要把 `E402` 从 `ignore` 直接挪到 `select` 而不给 `scripts/*` 开 `per-file-ignores` | 会让 `scripts/*` 的 709 条 bootstrap 约定瞬间爆红（E402 实测总数 879 = scripts 709 / tests 128 / src 42，见 §8.3；原估 435 已作废，2026-10-23 随 R-63 step 2b 重钉） |
 | 不要先跑 RUF100 再开规则 | 见 §8.6 第 3 步，会删掉将来必需的 noqa |
 | 不要用 `# ruff: enable` 复活被 ignore 的规则 | 官方明确：range suppression **不能**启用"未被 select 的规则" |
-| 不要把 `except BaseException`（`hardware_utils.py:628`）改成 `Exception` | 会造成静默行为变更，已推理见 §8.4 |
+| 不要把 `except BaseException`（`hardware_utils.py:627`，以及两处同构的线程边界捕获 `scripts/slm/diff_beam_capture_flat.py:68`、`scripts/slm/hw_gs_defocus_probe.py:1071`）改成 `Exception` | 会造成静默行为变更（工作线程的 Ctrl-C 消失，调用方把挂起当成成功），已推理见 §8.4；已机械钉住：`test_thread_boundary_exception_capture_keeps_base_exception`（见 §8.9 第 14 项） |
 
 ### 8.8 一处不一致（非缺陷，但值得知道）
 
@@ -865,6 +866,33 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       不借用别条规则的数 —— 第 11 项那条教训在这里直接省掉了一次"守卫跑的是另一套口径"的坑。
     - 结论：**R-64 的 `assert` 半项关闭**；§1.7 批与 R-64 行里两处过期数（99 / 111）按"重钉"就地更正，
       §8.7 那张带日期的 2026-10-23 测量表**保留原数**（它记录的是当时口径）。
+
+14. ✅ **`except BaseException` 全量复核收口：实测 5 处，逐处判定正当，并把「线程边界不得收窄」钉成守卫**（2026-10-25）：
+    - **AST 实测 5 处**（不是 grep 计数）：`optimizer/wfless/slm_zernike_pib.py:1355`、
+      `tools/slm/transfer/workflow.py:78`、`utils/image/hardware_utils.py:627`、
+      `scripts/slm/diff_beam_capture_flat.py:68`、`scripts/slm/hw_gs_defocus_probe.py:1071`
+      ⇒ §8.4 的「真风险只有 2 处」与 R-64 行的「禁改 2 处」均为当时口径，已就地重钉。
+    - **逐处判定：没有一处需要改**（本项初始假设「能在硬件运动中途静默吞掉中断」被实测推翻）：
+      `workflow.py:78` 记录状态后 `raise`（本就重抛）；`hardware_utils.py:627`、
+      `diff_beam_capture_flat.py:68`、`hw_gs_defocus_probe.py:1071` 是三处**同构的线程边界捕获**，
+      调用方确定重抛（实测 `:77 raise error[0]`、`:1082 raise box["error"]`）——
+      它们正是把「原生 SDK 调用无限挂起」变成**有界且可归因**的机制
+      （后者文档还引用了仓库里那次 900 s 强杀记录）；
+      `slm_zernike_pib.py:1355` 在 `_apply_best_on_exit()` 退出清理里：异常类型与消息都写进日志，
+      再强制 `set_grayscale(0)` 回安全平场，内层兜底 `except Exception` 记 "SLM state unknown"
+      ⇒ 不重抛但**不静默**，且宽捕获是必需的：收窄后 Ctrl-C 走不到安全态。
+    - **新守卫** `test_conventions.py::test_thread_boundary_exception_capture_keeps_base_exception`：
+      AST 扫 `src` + `scripts` + `tests`，命中「起线程 + 把捕获的异常存进容器 + 同子树内重抛该容器」的处理器，
+      要求捕获类型必须是 `BaseException`。基线 3 处全部合规 ⇒ **违规数 0**；并断言「至少扫到 1 处」自证非空。
+    - ⚠️ **规则形状差点写错**：第一版只认 `raise <name>`，实测 3 处只看见 2 处 —— 漏掉
+      `raise box["error"]` 这种**下标**形式。就此落守卫会**悄悄少钉一处**却按名字宣称全覆盖
+      （§8.10 那条红线我第三次差点踩）。
+    - ⚠️ **差分第一次无效**：临时树从 `HEAD` 切出，而新守卫还在工作区未提交 ⇒ 树里没有该测试，
+      输出只是 `36 deselected` 而非失败。教训：**差分必须把被测的新代码一并带进临时树**。
+      补上后实测：把 `hardware_utils.py:627` 改成 `except Exception` ⇒ 守卫失败并点名
+      `hardware_utils.py:627: Exception`；未改动 ⇒ 36 passed / 1 skipped（既有 ruff-not-on-PATH 跳过）。
+    - 宿主 ruff 在落容器**之前**拦下一个真错：标识符写成 `re-raised`，连字符被解析成 `re - raised =`，
+      报 `invalid-syntax: Invalid assignment target` —— 省一次容器运行。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
