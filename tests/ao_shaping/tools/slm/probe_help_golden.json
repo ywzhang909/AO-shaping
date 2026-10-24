@@ -666,8 +666,8 @@
     ]
   },
   "slm_train_data_collect": {
-    "body_literals": 245,
-    "body_literals_sha256": "0272eac0c591f289",
+    "body_literals": 247,
+    "body_literals_sha256": "a161b30e34afb153",
     "declared": [
       "--algorithm",
       "--beam-radius",
