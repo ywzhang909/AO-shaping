@@ -550,10 +550,17 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    ⇒ 改为回传错误并在 `finally` set Event。
    守卫 `test_gui_thread_bodies_never_reach_session_state`：`Thread(target=…)` 的体内
    **沿同模块调用图做到不动点**（否则间接违规漏检），allowlist **两向**。剩余 2 处
-   （zernike/slm 只在收尾与出错时触碰，窗口小得多）作为**已登记欠债**进 allowlist，
-   改好却不删条目同样判失败。非空性实测：把同一守卫跑在改前的 `950e2e9d` 上 ⇒
+   （zernike/slm 只在收尾与出错时触碰，窗口小得多）当时作为**已登记欠债**进 allowlist，
+   改好却不删条目同样判失败。✅ **这两处现已收口（本提交）**：`_GUI_THREAD_SS_ALLOWLIST`
+   已清空 ⇒ 该守卫从此**零例外**；同时补上这两个 worker 原本**完全没有**的覆盖
+   （`test_zernike_calibration_thread_boundary.py` 5 项 + `test_slm_calibration_thread_boundary.py`
+   6 项，假设备、无硬件），其中 `slm_cal_camera` 是**线程体内读 session_state 的设备句柄**，
+   一并改为 spawn 期传入。⚠️ 清空时若逐字删掉两条会留下 `= {}` —— 那是**空 dict 不是空 set**，
+   守卫里 `allowlist - found` 会 `TypeError`；已写成 `set()`。
+   非空性实测：把同一守卫跑在改前的 `950e2e9d` 上 ⇒
    `new` 恰为那 3 个 dm 循环且 `stale=[]`（顺带证明 2 条 allowlist 当时确实成立，
-   不是凭空写的）。新增 `tests/ao_shaping/gui/dm/test_micro_dm_threads.py`（13 项，
+   不是凭空写的）；把**清空后**的守卫跑在改前的 `408593a2` 上 ⇒ `new` 恰为 zernike/slm
+   这 2 处且 `stale=[]`。新增 `tests/ao_shaping/gui/dm/test_micro_dm_threads.py`（13 项，
    纯逻辑无硬件）：把 `st.session_state` 换成「一碰就炸」的哨兵后跑遍三条循环；
    其中 `test_bomb_actually_trips_on_session_state_access` 钉**哨兵本身有效** ——
    否则「从不触碰」只是一句空话。⚠️ 该文件此前**没有任何测试 import 过 `micro_dm_ui`**。

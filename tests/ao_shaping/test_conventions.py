@@ -1508,10 +1508,7 @@ def test_gui_never_redeclares_driver_voltage_bounds() -> None:
 #: Thread bodies in ``gui/`` that still reach ``st.session_state``. Each entry is
 #: recorded debt: the guard fails if it grows, **and** if it stops being true, so a
 #: fix cannot quietly leave a stale exemption behind.
-_GUI_THREAD_SS_ALLOWLIST = {
-    "src/ao_shaping/gui/zernike/zernike_response_matrix_ui.py::_run_calibration_thread",
-    "src/ao_shaping/gui/slm/slm_calibration_ui.py::_calibration_worker",
-}
+_GUI_THREAD_SS_ALLOWLIST: set[str] = set()
 
 
 def _scan_thread_func(
