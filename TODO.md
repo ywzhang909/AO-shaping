@@ -617,7 +617,20 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 | `test_no_script_hardcodes_a_machine_absolute_path` | `scripts/slm/fix_report_links.py` 写死 `D:/Projects/TIFO/...`；且未登记 `scripts/README.md`、无引用、就地改写报告 | **删除**（不是修）：链接完整性已由 `test_report_relative_links_resolve` 机器化守护，留着一条更坏的改链接路径是隐患 | `395d7623` |
 | `test_report_relative_links_resolve[gs_issue_live_20261015.md]` | 正是上面那个脚本的幂等守卫只跳过 `../figures/`、漏了已正确的 `figures/` ⇒ 15 条链接变成 `../figures/figures/…`。正确目标是 `report/shape_trials/figures/`（由 `generate_shape_trial_profiles.py:105 FIG_DIR` 决定；`gs_refine/figures/` 下有**同名但字节不同**的另一套，靠猜必错） | 15 条改回 `../figures/…` | `395d7623` |
 
-| `test_gs_refine_target_shapes::test_default_gs_phase_is_bit_identical_to_the_pre_change_golden` | 🔴 **与生俱红**（2026-10-24 查明，非本轮改动引入）：写下该测试的提交 `d2d0c2b0`（10-23 20:52）当场就是 **7 failed / 38 passed**；到 merge `1de0104c` 只剩它一条还红。期望金标 `c94410b9…` 自写入起**从未被改动过**，而当前实际值 `ebd0b18e…` **在全历史中从未出现过** ⇒ 不是「重新基线又被回退」，是**金标当初就对不上出货代码**。**根因：仓库没有 pytest CI**（AGENTS.md MISSING INFRASTRUCTURE 已自陈），所以一条与生俱红的测试能安静躺一天以上无人知 | ⏳ **待办（独立单元；先别改基线）**：在「`target_amplitude` / sigma / 半径 三个新字段加入**之前**」的父提交上，用测试里同一配置重算 sha1，二选一裁决 —— 若等于 `c94410b9` ⇒ 加字段**确实改了默认数值**，金标拦住的是真回归（GS 是确定性交替投影，任一默认值一变哈希必变）；若不等 ⇒ 金标当初抄错了配置，按可复现来源重钉并把来处写进 docstring | — |
+| `test_gs_refine_target_shapes::test_default_gs_phase_is_bit_identical_to_the_pre_change_golden` | 🔴 **与生俱红**（2026-10-24 查明，非本轮改动引入）：写下该测试的提交 `d2d0c2b0`（10-23 20:52）当场就是 **7 failed / 38 passed**；到 merge `1de0104c` 只剩它一条还红。期望金标 `c94410b9…` 自写入起**从未被改动过**，而当前实际值 `ebd0b18e…` **在全历史中从未出现过** ⇒ 不是「重新基线又被回退」，是**金标当初就对不上出货代码**。**根因：仓库没有 pytest CI**（AGENTS.md MISSING INFRASTRUCTURE 已自陈），所以一条与生俱红的测试能安静躺一天以上无人知 | ✅ **已修（本提交）**：跨提交重算证明**数值从来没变** —— 同一配置在 `6a5e1067`、`6a5e1067^`、`d2d0c2b0`、merge `1de0104c` 与当前 master 上**全是** `ebd0b18e…`；再扫 **2000 组** `(n_grid, far_field_padding, target_side_px, n_iters, seed)` 组合，**无一**产出 `c94410b9` ⇒ 旧字面量**无法从本仓库任何状态复现**（抄错或凭空写的），**不是回归**。据此把金标重钉为 `ebd0b18e…`，并把「加三个新字段没有改变默认数值」的依据从「来历不明的常量」换成「**跨提交重算相等**」；测试改名 `test_default_gs_phase_matches_the_pinned_golden`（原名的 `pre_change` 暗示了它从来没有的来历），docstring 记下证据与可直接重算的代码。该文件现 **45 passed** | 本提交 |
+
+> **2026-10-24 全量门禁实测**（默认发现集，不带 `--hardware`）：`AO_MEMORY=48g` 下
+> **8953 passed / 363 skipped / 3 failed**，2185 s。⚠️ 顺带测出容器脚本默认的
+> `AO_MEMORY=16g` **跑不完全量**：在 34% 处被 SIGKILL（**exit 137**，不是测试失败，
+> 现场没有任何 summary）⇒ 全量必须抬到 48g（宿主 751 G，无压力）。
+> 三条红**在 merge `1de0104c` 上当时就已红**（本轮在同一提交上重跑验证），与本轮改动无关，
+> 且全是**自家防重复守卫拦住新代码**：
+> ① `test_help_text_matches_golden` —— `slm-gsnet` 的 `--help` 由 `COMMAND [ARGS]`
+> 变 `[COMMAND] [ARGS]`（group 子命令变可选），金标未重钉 ⇒ **wt-193 在办，勿抢**；
+> ② `test_no_generator_redefines_an_extracted_helper[_fmt]` —— `scripts/slm/summarize_optics_change_blocks.py`
+> 把 `_fmt` 又写了一遍（#173 已收敛为 `scripts/_common` 五个具名格式化器）⇒ **wt-190 在办，勿抢**；
+> ③ `test_no_bare_compute_metrics_is_defined_anywhere` —— `scripts/slm/sweep_target_size.py`
+> 重新定义了裸 `compute_metrics`（#69 当年正因三个不同契约同名才改名）⇒ **无人认领，本轮接**。
 
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
