@@ -54,8 +54,29 @@ mkdir -p "$SCRATCH"
 SEED_DATA="${AO_TEST_DATA_SEED:-$HOME/ao-testdata}"
 if [ "${AO_TEST_DATA_REFRESH:-1}" = "1" ]; then
     "$REPO/scripts/build/stage_test_data.sh" >/dev/null
+    # 清理必须真的生效。容器以 root 运行，上一轮会在 scratch/data 里留下 root 属主
+    # 的目录，普通用户的 rm -rf 删不掉；原先写成 `rm -rf … || true` 把失败吞掉，
+    # 随后的 cp 就在**仍存在**的目标目录里嵌套出一份 data/ao-testdata/，夹具因此全部
+    # "消失"，表现是十几个 r50 测试报 "CSV not found: …/1300-5-enriched.csv"，与被测
+    # 代码毫无关系（2026-10-24 实测踩过）。删不掉就用一次性 root 容器删；再不行就
+    # 大声失败，绝不带着被污染的 stage 继续跑。
     rm -rf "$SCRATCH/data" 2>/dev/null || true
-    cp -r "$SEED_DATA" "$SCRATCH/data"
+    if [ -e "$SCRATCH/data" ]; then
+        docker run --rm -v "$SCRATCH/data:/victim" --entrypoint sh "$IMAGE" \
+            -c 'rm -rf /victim/* /victim/.[!.]*' \
+            || { echo "FATAL: cannot clean $SCRATCH/data (root-owned leftovers?)" >&2; exit 1; }
+    fi
+    mkdir -p "$SCRATCH/data"
+    # `src/.` -> `dst/`：把**内容**拷进目录，与 dst 是否存在无关（`cp -r src dst`
+    # 在 dst 已存在时会嵌套成 dst/src，这正是上面那次假红的机制）。
+    cp -a "$SEED_DATA/." "$SCRATCH/data/"
+    seed_n=$(find "$SEED_DATA" -maxdepth 1 -mindepth 1 | wc -l)
+    staged_n=$(find "$SCRATCH/data" -maxdepth 1 -mindepth 1 | wc -l)
+    if [ "$staged_n" -ne "$seed_n" ] || [ "$staged_n" -eq 0 ]; then
+        echo "FATAL: staged $staged_n entries into $SCRATCH/data but $SEED_DATA has" \
+             "$seed_n -- fixtures would silently be missing inside the container." >&2
+        exit 1
+    fi
 fi
 # --tmpfs /workspace/logs 在这里行不通：/workspace 是 ro bind，docker 建
 # tmpfs 挂载点要在底层 overlay 上 mkdir，ro 下必报 "read-only file system"

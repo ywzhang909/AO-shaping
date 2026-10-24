@@ -664,6 +664,24 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > 非空性实测：同一守卫跑在改前树 `fca1ed88` ⇒ `VIOLATION … mkdir('/workspace/data/wfs_configs/wfs')`。
 > 容器：drivers+utils+gui+tools+optimizer **5059 passed / 248 skipped / 0 失败**（48g，25m58s）。
 
+> 🔴 **CI 夹具 staging 会把夹具自己埋掉**（已修）。`scripts/build/run_pytest_ci.sh` 原样是
+> `rm -rf "$SCRATCH/data" 2>/dev/null || true` + `cp -r "$SEED_DATA" "$SCRATCH/data"`。两处都**静默**错：
+> 容器以 root 运行 ⇒ 上一轮在 `scratch/data` 里留下 root 属主目录 ⇒ 普通用户 `rm -rf` **必然**失败，
+> 而 `|| true` 把失败吞了 ⇒ 紧接着的 `cp -r src dst` 在**仍存在**的 dst 里**嵌套**出
+> `data/ao-testdata/` ⇒ `/workspace/data/` 顶层看不到任何夹具。表现极具误导性：8 个 `gui/r50`
+> 测试报 `CSV not found: /workspace/data/1300-5-enriched.csv`，与被测代码毫无关系（本轮先被误怀疑成
+> 自己刚改的 `utils/io/file.py`，查到挂载层才定位）。
+> 修：删不掉就用一次性 root 容器删，再不行**大声 FATAL 退出**，绝不带污染 stage 继续跑；拷贝改为
+> `cp -a "$SEED_DATA/." "$SCRATCH/data/"`（拷**内容**，与 dst 是否存在无关）；再加顶层条目数校验
+> （seed 与 staged 不等、或为 0 ⇒ FATAL）。⚠️ 顺带记：`AO_TEST_DATA_REFRESH` **默认就是 1**，
+> 传 `=0` 会完全跳过 staging 而复用上一轮的 `scratch/data` —— stage 坏过一次后，后续所有 `=0`
+> 的运行都继续吃坏数据（本轮前半段就是这么连着红的）。
+> 守卫 `tests/ao_shaping/scripts/test_ci_scratch_staging.py`（5 项，纯 shell 语义、不需 docker）：
+> 先**复现** `cp -r src dst` 在 dst 已存在时嵌套，再证 `cp -a src/. dst/` 幂等，最后钉住 harness
+> 用的是安全形式且清理失败不被吞。端到端实测：用 root 容器往 `scratch/data` 造一个 root 属主目录
+> （正是原致坏条件）再 `REFRESH=1` ⇒ 无嵌套、root 残留被清、夹具在顶层、seed 9 项 == staged 9 项、
+> `test_r50_connection.py` **36 passed**（同一条件下旧逻辑产生 8 处假红）。
+
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
 
