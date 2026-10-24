@@ -181,6 +181,65 @@ EXCLUDES=(
     "--ignore=$WORKDIR_IN_CONTAINER/tests/ao_shaping/ml"
 )
 
+# Interpreter and options are kept in separate arrays on purpose: the per-file mode
+# re-invokes pytest *inside* the container, and if the interpreter words were part of
+# the options array the inner call would become `python -m pytest python -m pytest …`
+# (pytest then treats `python`, `-m`, `pytest` as targets -> "no tests collected").
+PYTEST_INTERP=( python -m pytest )
+PYTEST_OPTS=(
+    -p no:cacheprovider
+    --rootdir "$WORKDIR_IN_CONTAINER"
+    "${EXCLUDES[@]}"
+)
+
+# AO_TEST_PER_FILE=1 gives every test file its own pytest process.
+#
+# Why the mode exists (measured 2026-10-24, not assumed): optimizer/wfless -- 1074
+# items -- is SIGKILLed (exit 137) as a single process at BOTH 6g and 12g, yet every
+# one of its 55 files passes alone inside 4g. The symptom is in-process accumulation
+# across files, so raising the ceiling does not help and a hand-maintained grouping
+# would silently stop covering any file someone adds later. The list is therefore
+# produced by --collect-only, which already respects EXCLUDES.
+#
+# PASSTHROUGH flags are not forwarded in this mode (the per-file runs use -q).
+if [ "${AO_TEST_PER_FILE:-0}" = "1" ]; then
+    CONTAINER_CMD=(
+        bash -c '
+            set -u
+            base=()
+            while [ $# -gt 0 ] && [ "$1" != "--" ]; do base+=("$1"); shift; done
+            [ $# -gt 0 ] && shift
+            collected=$(python -m pytest "${base[@]}" "$@" --collect-only -q) || {
+                printf "FATAL: --collect-only failed; refusing to run an unknown set.\n" >&2
+                printf "%s\n" "$collected" >&2
+                exit 1
+            }
+            files=$(printf "%s\n" "$collected" | sed -n "s/::.*//p" | sort -u | grep .)
+            count=$(printf "%s\n" "$files" | grep -c . || true)
+            if [ "$count" -eq 0 ]; then
+                printf "FATAL: per-file mode collected 0 test files -- a shard that runs\n" >&2
+                printf "nothing must never look green.\n" >&2
+                exit 1
+            fi
+            printf "[ao-pytest-ci] per-file mode: %d test file(s), one process each\n" "$count"
+            status=0
+            for f in $files; do
+                # --collect-only prints paths relative to --rootdir, but CWD here is the
+                # scratch dir, so a relative path resolves to nothing. Re-anchor it.
+                case "$f" in
+                    /*) path="$f" ;;
+                    *)  path="$AO_PYTEST_ROOT/$f" ;;
+                esac
+                python -m pytest "${base[@]}" -q "$path" || status=1
+            done
+            exit $status
+        '
+        _ "${PYTEST_OPTS[@]}" -- "${TARGETS[@]}"
+    )
+else
+    CONTAINER_CMD=( "${PYTEST_INTERP[@]}" "${PYTEST_OPTS[@]}" "${PASSTHROUGH[@]}" "${TARGETS[@]}" )
+fi
+
 exec docker run --rm \
     --name ao-pytest-ci \
     --cpus="$CPU_LIMIT" \
@@ -208,9 +267,4 @@ exec docker run --rm \
     -e GIT_CONFIG_VALUE_1="*" \
     -w "$SCRATCH" \
     "$IMAGE" \
-    python -m pytest \
-        -p no:cacheprovider \
-        --rootdir "$WORKDIR_IN_CONTAINER" \
-        "${EXCLUDES[@]}" \
-        "${PASSTHROUGH[@]}" \
-        "${TARGETS[@]}"
+    "${CONTAINER_CMD[@]}"

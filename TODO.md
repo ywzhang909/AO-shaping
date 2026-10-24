@@ -689,6 +689,33 @@ AST 全量扫描（`src/**`，排除 `__pycache__`）：**10 个** ≥10 行的 
 > （正是原致坏条件）再 `REFRESH=1` ⇒ 无嵌套、root 残留被清、夹具在顶层、seed 9 项 == staged 9 项、
 > `test_r50_connection.py` **36 passed**（同一条件下旧逻辑产生 8 处假红）。
 
+> 🔴 **pytest 门禁缺失（本轮补上）**：`ci.yml` 里那个 `continue-on-error` 的整目录单进程
+> 作业**不可能通过** —— 实测无目标的 `run_pytest_ci.sh` 在 `--memory=16g` 下于 34% 处被
+> SIGKILL（**exit 137，无任何 summary**），而 ubuntu-latest 总共才 16 GB。这与 2026-10-20
+> 已记录的根因一致（sim 后端每次测量做 7680×4800 complex128 FFT，分配器不还内存）：本轮
+> 把它**定位到具体片** —— `optimizer/wfless` 整域单进程在 **6g 与 12g 下都死**，而它 55 个
+> 文件**每一个单独跑都在 4g 内通过** ⇒ 症状是进程内跨文件累积，不是某个巨型用例，所以
+> **抬上限无效**（12g 也死）。按手工清单分组会被"新增文件静默漏测"反噬，故给 harness 加
+> `AO_TEST_PER_FILE=1`：文件清单由 `--collect-only` 现生成（天然遵守 EXCLUDES），
+> **每文件一个 pytest 进程**；实测覆盖与单进程**逐项相等**（wfless 1072 passed + 2 skipped
+> == 1074 collected；整个 optimizer 1259 + 3 == 1262），代价约多几分钟。
+> 新工作流 `.github/workflows/pytest.yml`：一次镜像构建 + 7 片，`AO_CPUS=4 / AO_MEMORY=6g`
+> （留头寸），**5 片 blocking / 2 片 advisory**（`scripts` 的 `_fmt` 归 wt-190，
+> `runners-gui-misc` 的 `slm-gsnet --help` 金标归 wt-193，两者落地即转 blocking）。
+> 分片清单只列**目录**。守卫 `test_pytest_workflow_shards_cover_tree.py`（5 项，正则解析
+> 而非 YAML —— 本仓不依赖 PyYAML，跑不起来的守卫不是守卫）**两向**钉：每个顶层测试区必须被
+> 覆盖 / 每个分片目标必须存在 / 至少要有一个 blocking 片。⚠️ 它当场抓出我手写的清单**漏了
+> `tests/ao_shaping/test_config.py`（81 项）**，还抓出我一度把分片写成 8 个文件的显式清单。
+> 非空性实测：删掉一行 `run_shard` ⇒ 守卫报出被删片覆盖的全部区域名。
+> ⚠️ 顺带修掉 harness 两个自找 bug：(a) 我把 `PYTEST_BASE` 里含 `python -m pytest` 直接喂给
+> 容器内循环 ⇒ 变成 `python -m pytest python -m pytest …`，pytest 把 `python`/`-m`/`pytest`
+> 当测试目标 ⇒ "no tests collected"；解释器与选项已拆成两个数组。(b) 首版 `sed -n "s/::.*//"`
+> 缺 `p` ⇒ 收集到 **0 个文件却 exit 0**（假绿），已加 `p` 并补**空清单即 FATAL**；
+> `--collect-only` 给的是**相对 rootdir** 的路径而容器 CWD 是 scratch ⇒ 必须重新锚定绝对路径。
+> 本机验证：YAML 可解析、内联 shell `bash -n` 通过、stub 回放证明 blocking 片失败会
+> 让作业红而 advisory 片不会；45 项 CI/门禁相关守卫全绿。⚠️ 未做：Actions 真实运行
+> （本机 GitHub HTTPS 出站被拦），故工作流是按上述实测**构建**的，非 CI 实测通过。
+
 **门禁状态（推送树 `b6ee43f1`）**：`ruff check .` 在 `0.11.10` 与 `0.15.12` 下均 `All checks passed!`；
 `--extend-select RUF100` 干净；术语门禁 `合计: 0 个文件, 0 行`。
 

@@ -1180,7 +1180,21 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   **2026-10-21 恢复入库**（`1d33d078`，现 `.github/workflows/ci.yml`：ruff 硬门禁
   + best-effort pytest 作业 `continue-on-error`），新克隆重新自带 CI 工作流 ——
   本地 `ruff check .` 仍须保持全绿。
-  仍缺：pytest 硬门禁（现为 continue-on-error）与类型检查门禁。
+  ✅ **2026-10-24：pytest 已成硬门禁**（`.github/workflows/pytest.yml`，push + PR）：
+  一次镜像构建 + **7 个分片**，每片一个 pytest 进程，`AO_CPUS=4 / AO_MEMORY=6g`
+  （ubuntu-latest 4 vCPU / 16 GB，留头寸）。`ci.yml` 里那个整目录单进程的
+  `continue-on-error` 作业已删除 —— 它在 runner 上**不可能通过**（实测无目标参数的
+  `run_pytest_ci.sh` 在 16g 上限下 34% 处 SIGKILL，exit 137）。分片清单只列**目录**、
+  不列文件（文件清单会在新增测试时静默失盖），由
+  `tests/ao_shaping/scripts/test_pytest_workflow_shards_cover_tree.py` 两向钉住：
+  每个顶层测试区必须被某片覆盖、每个分片目标必须存在、且至少要有一个阻塞分片
+  （否则"永远红不了的作业"等于没有门禁）。`optimizer` 片用 `AO_TEST_PER_FILE=1`
+  （见下），实测覆盖率与单进程一致（1259 passed + 3 skipped == 1262 collected）。
+  两片暂为 advisory：`scripts`（`_fmt`，wt-190 在办）与 `runners-gui-misc`
+  （`slm-gsnet --help` 金标，wt-193 在办）—— 两者落地后即转 blocking。
+  ⚠️ 门禁是 **fail-closed** 的：镜像构建失败会让整个作业变红，这是有意取舍
+  （宁可红也不允许"没跑测试却绿"）。
+  仍缺：类型检查门禁（mypy / pyright 未配置）。
   注：本机工作树还残留两个未跟踪的 `ruff.yml`/`pylint.yml`（2026-10-19 移出跟踪的
   本地遗留，现已被 `ci.yml` 取代）—— 属本机状态，勿提交。
   ⚠️ **pytest 门禁必须分片跑，不能单进程整目录跑。** 2026-10-20 实测：sim 后端
@@ -1191,6 +1205,9 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   同时跑就会互相拖成「假挂起」（实测进程 99% user CPU、页错误 0、可用内存 36 GB
   —— 是分配抖动，不是死锁）。分片（按文件）跑则每个文件都在秒级～分钟级完成，
   全部文件合计约 20–25 分钟。
+  ⇒ 该口径已进机器：`scripts/build/run_pytest_ci.sh` 的 `AO_TEST_PER_FILE=1` 就是它，
+  **每文件一个 pytest 进程**，清单由 `--collect-only` 现生成（自动遵守 EXCLUDES，不会因
+  新增文件而静默漏测），**收集到 0 个文件即 FATAL** —— 一片「什么都没跑却绿」比红更糟。
   ⚠️ 另：**别把「日志里点数停在某个位置」当成挂起** —— `Tee-Object`/`Select-Object`
   管道会缓冲，实测「停在 216」的那次运行其实以 28 点/分钟正常推进，点数是缓冲
   量化出来的假象。判据要看进程 CPU 与内存，而不是日志末尾的点数。
@@ -1209,7 +1226,8 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
 - **machine-local 开发工具配置**: `.mcp.json`、`.pre-commit-config.yaml`、`opencode.jsonc`、`pyrightconfig.json`、`skills-lock.json` 已移出 git 跟踪并加入根 `.gitignore`（2026-10-19，仅保留在开发者本机，不再入库）；同日 7 个 machine-local 目录整体移出跟踪并忽略：`.auto_doc_review`/`.claude`/`.codegraph`/`.slim`/`.streamlit`/`.vscode`/`_scripts`（本地副本保留，不随仓库分发）。**注意 `.github/` 不在其列**：它 2026-10-19 曾一并移出，2026-10-21 已恢复入库（见上文 CI 条，`1d33d078`），根 `.gitignore` 中 `.github` 的忽略行同日删除。
 - **No requirements.txt**: Only `pyproject.toml` and `uv.lock`
 
-Consider adding: pytest 硬门禁（当前 `ci.yml` 的 pytest 作业仍为 `continue-on-error`，等 CI 依赖解析加固后转正）与类型检查门禁。ruff 门禁已入库（见上文 CI 条），无需重新提交工作流文件。
+Consider adding: 类型检查门禁（mypy / pyright 未配置）。pytest 硬门禁已于
+2026-10-24 入库（见上文 CI 条），ruff 门禁已入库，无需重新提交工作流文件。
 
 ---
 
