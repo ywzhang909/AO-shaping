@@ -1615,3 +1615,81 @@ def test_gui_thread_bodies_never_reach_session_state() -> None:
         "thread touches st.session_state (AGENTS.md, 'Streamlit background threads'). "
         f"{stale = } -- fixed; drop it from the allowlist."
     )
+
+
+_LOGURU_LEVELS = {
+    "debug",
+    "info",
+    "success",
+    "warning",
+    "error",
+    "critical",
+    "exception",
+    "log",
+}
+_PERCENT_SPEC = re.compile(r"%[-+ #0]*\d*(?:\.\d+)?[sdifge]")
+
+
+def _dropped_arg_loguru_calls() -> list[str]:
+    """Every loguru call that passes %-style arguments (which loguru discards).
+
+    Scoped to files importing ``from loguru import logger`` on purpose: under the
+    stdlib ``logging`` module ``%``-args are the correct form, and
+    ``gui/utils/phase_overlay.py`` uses that module -- flagging it would be wrong,
+    not merely noisy.
+    """
+    offenders: list[str] = []
+    for path in sorted(SRC.rglob("*.py")):
+        text = path.read_text(encoding="utf-8-sig")
+        if "from loguru import logger" not in text:
+            continue
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:  # ruff owns syntax errors
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if node.func.attr not in _LOGURU_LEVELS:
+                continue
+            receiver = node.func.value
+            name = (
+                receiver.id
+                if isinstance(receiver, ast.Name)
+                else getattr(receiver, "attr", "")
+            )
+            if "logger" not in str(name).lower():
+                continue
+            # logger.log(level, msg, ...) keeps the message in args[1], not args[0].
+            msg_at = 1 if node.func.attr == "log" else 0
+            if len(node.args) < msg_at + 2:
+                continue
+            msg = node.args[msg_at]
+            if not isinstance(msg, ast.Constant) or not isinstance(msg.value, str):
+                continue
+            if "{" in msg.value:  # already slot-formatted
+                continue
+            if _PERCENT_SPEC.search(msg.value):
+                offenders.append(f"{path.relative_to(REPO)}:{node.lineno}")
+    return offenders
+
+
+def test_loguru_calls_never_pass_percent_style_arguments() -> None:
+    """A loguru message using ``%s`` loses every argument it was given.
+
+    loguru interpolates with ``str.format``, so ``logger.info("x %s", v)`` prints
+    the literal ``x %s`` and drops ``v`` -- a diagnostic that reports no values at
+    all, which is the same unattributable-failure class as a swallowed exception.
+    Measured 21 such calls in 3 loguru modules (18 of them in the training-data
+    collector, including its zero-order-freeze line and its per-record failure
+    warnings); the runtime proof is a captured log reading exactly
+    ``零阶定位（冻结）：(%.1f, %.1f)``. Converted in this commit, preserving
+    precision via ``{:.1f}``. Non-vacuity: this guard reports those 21 sites against
+    the pre-fix tree and 0 after (TODO.md 8.9 item 7).
+    """
+    offenders = _dropped_arg_loguru_calls()
+    assert not offenders, (
+        f"{len(offenders)} loguru call(s) pass %-style arguments that loguru silently "
+        f"discards: {offenders}. Use brace slots instead -- '{{}}' for a plain value, "
+        "'{:.1f}' to keep precision."
+    )

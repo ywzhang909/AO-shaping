@@ -398,3 +398,74 @@ class TestNoHardware:
         assert out.returncode == 0, out.stderr
         assert "NATIVE=[]" in out.stdout, out.stdout
         assert "gxipy=False" in out.stdout, out.stdout
+
+
+class TestOnRecordFailureIsAttributable:
+    """A failing ``on_record`` sink must not abort acquisition, but must not be silent.
+
+    ``history`` -- fed **only** by ``on_record`` -- is the single queue that reaches the
+    writer: ``main()`` flushes once ``len(history) >= flush_every`` and hands
+    ``batch.history`` to ``save_recorder_debug_artifacts``. So a swallowed callback
+    failure drops a collected record from the persisted corpus *and* shifts the
+    batching, with nothing left to attribute it to. Same failure class as a silently
+    dropped camera frame (TODO 8.9 item 5), not a harmless observer hiccup:
+    ``recorder.append(rec)`` holds an in-process copy that never reaches the writer, so
+    it is not a second chance at persistence.
+
+    Deliberately unchanged: the loop never raises, because losing the rest of a
+    hardware acquisition is worse than losing one record.
+    """
+
+    @staticmethod
+    def _drain(params: CollectParams, on_record) -> list[dict]:
+        from ao_shaping.tools.slm.calibration.train_data_collect import acquire
+
+        return list(
+            acquire(
+                _FakeCamera(),
+                _FakeSlm(),
+                None,
+                build_plan(params),
+                params,
+                on_record=on_record,
+            )
+        )
+
+    @staticmethod
+    def _always_fail(record) -> None:
+        raise RuntimeError("sink down")
+
+    def test_sink_failure_still_yields_every_record(self) -> None:
+        """Attribution must not cost us the run: the handler stays non-raising."""
+        params = _params()
+        plan_len = len(build_plan(params))
+
+        rows = self._drain(params, self._always_fail)
+
+        assert plan_len > 0
+        assert len(rows) == plan_len
+
+    def test_sink_failure_is_counted_once_reported_not_spammed(self) -> None:
+        from loguru import logger
+
+        params = _params()
+        plan_len = len(build_plan(params))
+        messages: list[str] = []
+
+        sink_id = logger.add(
+            lambda m: messages.append(m.record["message"]), level="WARNING"
+        )
+        try:
+            rows = self._drain(params, self._always_fail)
+        finally:
+            logger.remove(sink_id)
+
+        assert rows
+        drops = [m for m in messages if "on_record" in m]
+        assert drops, f"{plan_len} records dropped with zero attribution: {messages}"
+        # The total is load-bearing; the per-record throttle is not, so pin them apart.
+        assert any(
+            f"{plan_len} 条记录" in m and "未进入落盘队列" in m for m in drops
+        ), drops
+        # "累计" marks a per-record line: first failure, then every 100th.
+        assert len([m for m in drops if "累计" in m]) == 1 + (plan_len - 1) // 100, drops

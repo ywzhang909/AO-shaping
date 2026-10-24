@@ -587,8 +587,7 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    非空性实测：同一测试跑在改前树 ⇒ `AttributeError: no attribute '_callback_error_count'`。
    回归：`drivers/ccd` + `test_conventions` **241 passed / 26 skipped / 0 failed**。
    ⚠️ **未加新 AST 守卫**：行为测试比静态守卫更硬（守卫只看拼写，看不到「是否计数 / 是否限流」）；
-    本轮已新增 8 个守卫，不再膨胀。下一片（未做，按风险排序）：
-    → `tools` 15 → `tests/ao_shaping/drivers` 10。
+   本轮已新增 8 个守卫，不再膨胀。分簇逐片见 §8.9 第 5-7 项。
 
 6. ✅ **BLE001 `gui` 片（原列 27 处 silent）逐处读上下文 ⇒ 26 处正确、**不动**；删 1 处死代码；并暴露本判据的盲区**（2026-10-24）：
    26 处的正确性理由分五类，与 `drivers` 簇同源：**清理陈旧的尽力 close**（`multi_slm_controller.py:639`
@@ -622,7 +621,43 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
    回归 `optimizer/wf` + `gui` **566 passed / 23 skipped / 0 failed**（`condition_number`/`variance`
    property 的测试都在 `optimizer/wf`，证明显示路径未被我碰坏）。
    计数变化：该文件 BLE001 **4 → 3**，`gui` silent **27 → 26**。
-   下一片（未做，按风险排序）：`tools` 15 → `tests/ao_shaping/drivers` 10。
+   下一片：`tools` 15（**已做**，见下第 7 项）→ `tests/ao_shaping/drivers` 10（未做）。
+
+7. ✅ **BLE001 `tools` 片（15 处 silent）⇒ 14 处正确不动、1 处真缺陷；并挖出一个更严重的系统性缺陷：loguru 的 `%`-参数被静默丢弃**（2026-10-24）：
+   14 处分五类且**全部不动**：`main()` 收尾的尽力 close（`panel/diagnose.py:403/408`、`panel/phase_response.py:585/590`、
+   `wfs/wfs_reference.py:309`、`wfs/zernike_correction.py:713`、`wfs/zernike_response.py:554`、
+   `calibration/train_data_collect.py:956/961/966`）、重连前先关旧设备（`cartographer/slm_cartographer_ui.py:99/145`）、
+   **可选依赖探测**（`train_data_collect.py:187`，下一行就是 `return _RECOGNISED_FAMILIES` 回落）、
+   **有注释的基底外 Noll 索引跳过**（`panel/focus_preflight.py:553`；`gen.fit` 只返回自身基底的项 ⇒ 该跳过实际不可达）。
+   真缺陷 1 处：`train_data_collect.py:683-687` 用 `except Exception: pass` 包住 `on_record(dict(record))`。
+   判据成立的**关键实测**是落盘路径：`history` 只由 `on_record` 喂（`:926`），而 `_flush(history)` 是**唯一**写 pkl 的路
+   （`batch.history = list(rows)` → `save_recorder_debug_artifacts`），循环里那份 `recorder.append(rec)` **从不进写入器**
+   ⇒ 吞掉一次回调失败 = **一条已采集记录从语料中消失**，还顺带挪动 `len(history) >= flush_every` 的分批。
+   修法**不改策略**（观测者失败不该毁掉整轮硬件采集），只补**归因 + 计数**：首条与每 100 条 WARNING（带 `p.index`），
+   生成器收尾再报总数 —— 与 §8.9 第 5 项 miicam 丢帧同一处理（不抛、计数、限流）。
+   🔴 **我自己的第一版补丁犯了同一类错，是运行时日志抓住的**：新写的
+   `logger.warning("…(第 %d 条, 累计 %d 条): %s…", idx, n, e)` 在 loguru 下**参数全被丢弃**
+   （loguru 用 `str.format` 插值，不是 stdlib 的 `%`），等于"修不可归因"却产出一条**没有数字的**归因日志。
+   证据是测试捕获的既有日志：`零阶定位（冻结）：(%.1f, %.1f)`。
+   系统性测量（AST 逐调用，写明 ruff 无关）：**既有 19 处** `logger.*(含 %-转换符的消息, *args)` 分布在 3 个 loguru 模块
+   （`train_data_collect` 16 / `gui/slm/bench_settings` 2 / `utils/image/target/objective` 1），加我新写的 2 处
+   ⇒ 本次共改 **21 处**，一律转 `{}` 槽位且**保留精度**（`%.1f` → `{:.1f}`），并审计**槽位数 == 参数位数：0 处失配**。
+   ⚠️ **不得一刀切**：`gui/utils/phase_overlay.py` 用的是 **stdlib `logging`**（`:56`），那里 `%` 才是正确写法
+   ⇒ 守卫按「该文件是否 `from loguru import logger`」过滤，**不用 allowlist**；
+   `tools/ccd/exposure_check.py:148` 是 `{:.1%}` 配字面 `%`（本已正确），检测器以「消息含 `{` 即跳过」绕开。
+   守卫 `test_conventions.py::test_loguru_calls_never_pass_percent_style_arguments`（AST：`logger.<level>` + 首参为
+   含 %-转换符的字符串常量 + **另带参数** + 消息不含 `{`；`logger.log` 的消息在 `args[1]` 而非 `args[0]`）。
+   **非空性实测**：同一守卫跑在改前树 ⇒ 报 **19 处**并失败；改后 ⇒ 32 passed / 1 skipped。
+   行为测试 `TestOnRecordFailureIsAttributable`（2 项，无硬件，复用本文件既有 `_FakeCamera/_FakeSlm/build_plan`）：
+   钉「回调失败**不中断**采集（yield 记录数 == plan 数）」与「失败**必须计数上报**（收尾行含总条数，逐条行按 1/100 限流）」。
+   非空性：改前 ⇒ `4 records dropped with zero attribution` 失败、另一项通过（后者正是"策略未变"的证词）。
+   ⚠️ 本片踩到的两个**自身工具坑**（都会复发，记下）：① `run_pytest_ci.sh` 把不带 `-` 的参数一律当**路径**，
+   故 `-k NAME` 会让 `-k` 悬空报 `expected one argument` ⇒ 必须写单 token `-k=NAME`；
+   ② 守卫里我写的 `f"… '{}' …"` 中 `{}` 是**空表达式** ⇒ f-string SyntaxError，本地漏跑 `ast.parse` 就被容器在
+   collection 阶段拦下 ⇒ **改完测试文件先在宿主机 AST/ruff，再进容器**。
+   回归：`tools/slm/test_slm_train_data_collect` + `utils/image` + `gui/slm` **371 passed / 0 failed**；
+   `test_conventions` **32 passed / 1 skipped**。术语门禁 `合计: 0 个文件, 0 行`。
+   **BLE001 分簇剩余（未做）**：只剩 `tests/ao_shaping/drivers` 10 处 silent。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 

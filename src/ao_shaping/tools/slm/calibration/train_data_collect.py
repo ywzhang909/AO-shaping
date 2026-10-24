@@ -213,7 +213,7 @@ def validate_family_prefix(prefix: str) -> str:
             best = f
             best_len = len(f)
     if best is not None:
-        logger.warning("前缀 '%s' 未精确匹配，已按最长前缀匹配为 '%s'", prefix, best)
+        logger.warning("前缀 '{}' 未精确匹配，已按最长前缀匹配为 '{}'", prefix, best)
         return best
     raise ValueError(
         f"subdir_prefix '{prefix}' 不在 ml/hwdataset 识别列表中。\n"
@@ -582,12 +582,13 @@ def acquire(
         )
         zc = zero_order_center(np.asarray(flat_img))
         zero_center = (float(zc[0]), float(zc[1]))
-        logger.info("零阶定位（冻结）：(%.1f, %.1f)", zero_center[0], zero_center[1])
+        logger.info("零阶定位（冻结）：({:.1f}, {:.1f})", zero_center[0], zero_center[1])
     except Exception as e:
-        logger.warning("零阶定位失败：%s（将不冻结 ROI）", e)
+        logger.warning("零阶定位失败：{}（将不冻结 ROI）", e)
         zero_center = None
 
     rec = Recorder(mark="J", mode="max")
+    dropped_records = 0
     for p in plan:
         phase_rad = make_phase(p, params)
         # 下发并平均
@@ -608,7 +609,7 @@ def acquire(
             try:
                 pupil_arr = np.asarray(pupil_cam.get_numpy_image())
             except Exception as e:
-                logger.debug("瞳面相机采集失败：%s", e)
+                logger.debug("瞳面相机采集失败：{}", e)
                 pupil_arr = None
         # 构造记录
         #
@@ -672,9 +673,9 @@ def acquire(
                 record["_phase"] = np.asarray(gray, dtype=np.uint16)
             except Exception as e:
                 logger.warning(
-                    "未能保存 _phase 面板 (第 %d 条): %s —— 该条记录将只有 _c, "
+                    "未能保存 _phase 面板 (第 {} 条): {} —— 该条记录将只有 _c, "
                     "ZERNIKE 来源会被 ml/hwdataset 按 300.0 px 重建, 与实际下发的 "
-                    "%s px 不符。",
+                    "{} px 不符。",
                     p.index,
                     e,
                     params.zernike_radius,
@@ -683,9 +684,23 @@ def acquire(
         if on_record is not None:
             try:
                 on_record(dict(record))
-            except Exception:
-                pass
+            except Exception as e:
+                dropped_records += 1
+                if dropped_records == 1 or dropped_records % 100 == 0:
+                    logger.warning(
+                        "on_record 回调失败 (第 {} 条, 累计 {} 条): {} —— 该条记录未进入"
+                        "刷写队列, 落盘产物会缺它。",
+                        p.index,
+                        dropped_records,
+                        e,
+                    )
         yield record
+
+    if dropped_records:
+        logger.warning(
+            "本次采集有 {} 条记录因 on_record 回调失败未进入落盘队列",
+            dropped_records,
+        )
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -818,17 +833,17 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if params.store_panel and params.mode in ("zernike", "freeform"):
         logger.warning(
-            "--store-panel 与 mode=%s 同时开启: `ml/hwdataset.index._classify` "
+            "--store-panel 与 mode={} 同时开启: `ml/hwdataset.index._classify` "
             "规定 `_phase` 存在时它**就是**下发面板 (index.py:683, 无视同时存在的 "
-            "`_c`), 因此这些记录会被判为 PANEL_GRAY 而不是 %s, `n_max`/`n_terms` "
-            "信息将丢失。要保留 %s 语义就别加 --store-panel。",
+            "`_c`), 因此这些记录会被判为 PANEL_GRAY 而不是 {}, `n_max`/`n_terms` "
+            "信息将丢失。要保留 {} 语义就别加 --store-panel。",
             params.mode,
             "ZERNIKE" if params.mode == "zernike" else "FREEFORM",
             params.mode,
         )
     if params.store_panel and params.mode == "zernike":
         logger.warning(
-            "忠实的 Zernike 重放有两条路: (1) 保持 --zernike-radius %s "
+            "忠实的 Zernike 重放有两条路: (1) 保持 --zernike-radius {} "
             "(= ml/hwdataset/records.py 的 _ZERNIKE_APERTURE_RADIUS, 该常量**不读** "
             "sidecar 的 zernike_radius), 只存 `_c` 即可精确重建; 或 (2) 换非 300 "
             "半径并加 --store-panel 存面板, 但代价是 source 变成 PANEL_GRAY。",
@@ -847,7 +862,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         from ao_shaping.drivers.slm import Santec  # type: ignore
         from ao_shaping.utils.image.hardware_utils import open_camera  # type: ignore
     except Exception as e:
-        logger.error("导入硬件驱动失败：%s", e)
+        logger.error("导入硬件驱动失败：{}", e)
         return 1
 
     cam = None
@@ -857,7 +872,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         # 打开 SLM（memory mode，video_mode=0）
         slm = Santec(slm_number=params.slm_number, video_mode=0)
         slm.open()
-        logger.info("SLM #%d 已打开（memory mode）", params.slm_number)
+        logger.info("SLM #{} 已打开（memory mode）", params.slm_number)
 
         # 打开远场相机
         cam = open_camera(
@@ -867,7 +882,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             bit_depth=8,
         )
         cam.open()
-        logger.info("远场相机已打开（type=%s, id=%d）", params.camera_type, params.cam_id)
+        logger.info("远场相机已打开（type={}, id={}）", params.camera_type, params.cam_id)
 
         # 打开瞳面相机（可选）
         if params.pupil_cam_id is not None:
@@ -879,9 +894,9 @@ def main(argv: Sequence[str] | None = None) -> int:
                     bit_depth=8,
                 )
                 pupil_cam.open()
-                logger.info("瞳面相机已打开（id=%d）", params.pupil_cam_id)
+                logger.info("瞳面相机已打开（id={}）", params.pupil_cam_id)
             except Exception as e:
-                logger.warning("瞳面相机打开失败：%s", e)
+                logger.warning("瞳面相机打开失败：{}", e)
                 pupil_cam = None
 
         # 采集
@@ -918,7 +933,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 title="slm_train_data_collect",
             )
             logger.info(
-                "已刷写%s产物（记录 %d 条）", "最终" if final else "中间", len(rows)
+                "已刷写{}产物（记录 {} 条）", "最终" if final else "中间", len(rows)
             )
             return True
 
@@ -933,7 +948,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     history.clear()
                 except Exception as e:
                     logger.error(
-                        "中间刷写失败（第 %d 批）：%s —— 继续采集, 结束时仍会尝试落盘",
+                        "中间刷写失败（第 {} 批）：{} —— 继续采集, 结束时仍会尝试落盘",
                         flushed,
                         e,
                     )
@@ -942,11 +957,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             try:
                 _flush(history, final=True)
             except Exception as e:
-                logger.error("最终刷写失败：%s", e)
+                logger.error("最终刷写失败：{}", e)
                 return 1
         return 0
     except Exception as e:
-        logger.exception("采集过程中发生异常：%s", e)
+        logger.exception("采集过程中发生异常：{}", e)
         return 1
     finally:
         # 关闭设备

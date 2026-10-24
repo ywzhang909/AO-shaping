@@ -748,7 +748,7 @@ def build_carrier_overlay(prefix: str = "slm1", slm=None) -> np.ndarray | None:
             np.zeros(panel_shape, dtype=np.float64), params
         )
     except Exception as exc:  # 叠加层失败不卡主流程
-        logger.warning("载波叠加构造失败 (%s): %s", prefix, exc)
+        logger.warning("载波叠加构造失败 ({}): {}", prefix, exc)
         return None
     return np.asarray(out, dtype=np.float64)
 
@@ -797,7 +797,7 @@ def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
         try:
             built = build_defocus_overlay(prefix, slm)
         except Exception as exc:  # 叠加层失败不卡主流程
-            logger.warning("SLM 离焦叠加重建失败 (%s): %s", prefix, exc)
+            logger.warning("SLM 离焦叠加重建失败 ({}): {}", prefix, exc)
             built = None
         if built is not None and np.allclose(built, 0.0, atol=1e-12):
             built = None
