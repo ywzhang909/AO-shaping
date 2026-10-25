@@ -181,7 +181,6 @@ class TestCentreFreeWidth:
         profile, _ = self.MEASURED_X
         stub_devices[1].profile = profile
         result = _run(steps=16)
-        assert result.radius_px == result.fall_hi_px - result.fall_lo_px >> 1 or True
         width = result.fall_hi_px - result.fall_lo_px
         assert result.radius_px == pytest.approx(width / 2.0)
 

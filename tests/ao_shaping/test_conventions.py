@@ -2968,3 +2968,73 @@ def test_reproduce_commands_in_live_docs_name_tracked_scripts() -> None:
         + "\nA moved script leaves its old path behind in the usage fence; repoint the "
         "command at the tracked location, keeping the fence's own separator style."
     )
+
+
+#: A boolean short-circuit containing a *dominant* constant throws away its own check:
+#: ``x or True`` is always true and ``x and False`` is always false, however the rest
+#: evaluates. Three were live -- a hardware tool gate, an assertion in a test, and a
+#: generator metric whose key was never even rendered. Only dominant constants are
+#: flagged: ``x or False`` and ``x and True`` are redundant but do not silence anything.
+#: Scope is the repo's own trees; the vendored SDK code under ``libs/`` is not ours to
+#: edit, which is the same boundary ``ruff.toml`` draws.
+_TAUTOLOGY_SCOPE = ("src/", "scripts/", "tests/")
+#: Floor on parsed files. Measured 1223; a scan that silently parsed nothing would
+#: otherwise pass by verifying nothing (TODO 8.9 items 32, 34, 38, 40).
+_MIN_TAUTOLOGY_FILES = 1000
+
+
+def test_no_boolean_short_circuit_discards_its_own_check() -> None:
+    """No tracked source file may neutralize a condition with ``or True`` / ``and False``.
+
+    A guard written that way cannot fail, so it reports confidence the code never
+    established. The test file case was worse than dead code: an assertion carrying
+    ``or True`` looks like coverage while asserting nothing, and the correct assertion
+    already sat on the next line.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith(_TAUTOLOGY_SCOPE)
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            # A file this repo's ruff gate parses must parse here too; skipping a
+            # failure quietly would shrink the corpus the assertion speaks for.
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.BoolOp):
+                continue
+            dominant = True if isinstance(node.op, ast.Or) else False
+            if any(isinstance(v, ast.Constant) and v.value is dominant
+                   for v in node.values):
+                seg = ast.get_source_segment(text, node) or ""
+                offenders.append(f"{rel}:{node.lineno}: {' '.join(seg.split())[:100]}")
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the "
+        "count below describes is smaller than the tree."
+    )
+    assert len(files) >= _MIN_TAUTOLOGY_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_TAUTOLOGY_FILES} -- the "
+        "scope filter stopped matching the repo's own trees, so a pass would mean "
+        "nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} self-neutralizing boolean condition(s):\n  "
+        + "\n  ".join(offenders[:15])
+        + "\nDelete the dead operand (and the wrapper it disables) rather than leaving "
+        "a check that can never fail."
+    )

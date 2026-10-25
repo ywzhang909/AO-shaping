@@ -1770,6 +1770,50 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **验收**：容器 `test_conventions.py` 全量 + provenance + shard 覆盖 **614 passed / 1 skipped**
       （skip 是沙箱里没有 ruff 在 PATH，已由仓库根 `ruff check .` 单独通过）；术语门禁
       `合计: 0 个文件, 0 行`；新增行无禁用词；`scripts/README.md` 强调配对与 HEAD 持平（1→1）；ruff 全绿。
+41. ✅ **三处「自己把自己短路」的布尔条件（含一条永不会失败的断言）；补 AST 守卫**（2026-10-25）：
+    - **类别**：`x or True` 与 `x and False` 里的**支配常量**会把同一表达式里其余部分全部丢掉 —— 写成像检查、
+      实则永不为假。只拦支配常量这一侧：`x or False` / `x and True` 只是冗余，不会让任何检查失效。
+    - **普查**：跟踪的 `.py`/`.pyx` 共 1238 个可解析；守卫范围限定 `src/ scripts/ tests/` 共 **1223** 个
+      （`libs/` 是第三方 SDK，不由我们改，与 `ruff.toml` 同界），命中 **3 处**。
+    - **(1) 报告生成器的死指标** `scripts/oopao/generate_asm_vs_fraunhofer_report.py:127-130`：
+      `gs_shift_is_exact_ifftshift = bool(np.allclose(...) or True)`，原注释自己承认「实际要比的是两个构造器
+      之间」，于是把比较结果丢掉。**不截断的 grep 显示全仓只有这一行定义它，没有任何消费者**（模板与产物都不
+      引用）⇒ 既空转又是死代码，删这 4 行即可，产物一字不动。该脚本会**计算并重写**产物，所以我**刻意没有
+      运行它**：跑一次就会把带日期与当日 GPU 名的记录覆盖掉。
+    - **(2) 硬件工具里的惯性控制流** `src/ao_shaping/tools/slm/cartographer/hartmann_capture.py:264`：
+      `if wavefront_device is not None or True:` 的块体内**已经**做了回落
+      （`wavefront_device if wavefront_device else self._wfs`），所以这个门只是无效包装。删门并把 2 条语句
+      反缩进，**用 AST 证明等价**（`if` 体的 `ast.dump` 与反缩进后代码逐条相同，且 `orelse` 为空）。
+      ⚠️ `tests/` 里**没有任何一处引用 `HartmannCapture` / `hartmann_capture`** —— 这一处不能靠测试取证；
+      但 `cartographer/__init__.py:29` 在 import 期就导入该模块，故整条 `tests/ao_shaping/tools/slm`
+      （**788 passed / 4 skipped**）都在走它的导入路径。
+    - **(3) 最坏的一类：永远不会失败的断言** `tests/ao_shaping/tools/slm/test_beam_extent_sweep.py:184`：
+      `assert result.radius_px == result.fall_hi_px - result.fall_lo_px >> 1 or True` —— 优先级使它是
+      `radius_px == ((hi-lo) >> 1)`，再被 `or True` 整个中和，**该断言无论实现怎样都会通过**。而**紧邻的下一行**
+      就是正确断言 `radius_px == pytest.approx(width / 2.0)` ⇒ 删掉被中和的重复断言（覆盖率不减；把它「修好」
+      只会留下第二条同义断言）。
+    - **新守卫** `test_no_boolean_short_circuit_discards_its_own_check`（`tests/ao_shaping/test_conventions.py`，
+      root-guards 片，blocking）：`ast.walk` 找 `BoolOp`，任一操作数是支配常量即命中；**解析失败不再静默跳过**，
+      改为收集并断言为空 —— 否则语料会在无声中缩小，而下面那个计数正是在替语料大小说话。下限
+      `_MIN_TAUTOLOGY_FILES = 1000`（实测 1223）。守卫不会命中自己：它提到的 `or True` 只存在于 docstring 与
+      注释里（不是 `BoolOp` 节点），自身的 `and`/`any(...)` 也不含支配常量。
+    - **差分**：守卫先上线、代码不动 ⇒ **红**，点名 3 处（**没有一处是我注入的**）；三处修完 ⇒ **绿**
+      （`test_conventions.py` 全量 + 被改测试 **58 passed / 1 skipped**）。
+    - **两条负结果（同样入账）**：(a) 第 40 项之后我普查「哪些注册生成器把报告正文写成字面量模板」，
+      65 个生成器里只有 **2** 个如此，另一个 `generate_asm_vs_fraunhofer_report.py` 报出的「漂移 11/12 行」
+      其实是**我自己的比较越过了格式化边界**（模板里是 `{torch_vs_numpy:.3e}` 占位，产物里是已填的实测值）——
+      不是缺陷；这同时**证明**第 38 项的 `_FROZEN_REPRODUCIBLE_REPORTS` 只有 1 个成员是完备的，而非登记不足
+      （其余 63 个生成器从 `data/`、`logs/` 组装正文，逐字节复现根本不可得）。(b) 我一度认定产物第 73 行
+      「实测两者相差恰好一个 `ifftshift`（`max|Δ| = 0.000e+00`）」自相矛盾；读生成器代码后确认该指标是
+      **扣除 `ifftshift` 之后**的残差（`|canonical_prop − ifftshift(old)|.max()`），0 正是该声明的证据 ——
+      是我的怀疑不成立，声明本身成立。
+    - **再记仪表化自伤四处**：(1) 早先「该指标无人引用」的结论出自 `| head -8` **截断**的 grep（第 28 类旧错
+      重犯），删代码前改跑不截断版本才确认；(2) `ast.True` 不是节点类 ⇒ SyntaxError，另有非捕获 `(?:…)` 上调
+      `.group(1)` ⇒ `IndexError: no such group`；(3) 修复脚本**连着两次**死在自己的辅助逻辑上（一次把 body
+      起点设在门那一行导致 body 为空，一次对**类方法内部**带缩进的片段直接 `ast.parse` ⇒ `IndentationError`，
+      须先 `textwrap.dedent`）—— 两次都在写盘**之前**抛出，`git diff --stat` 证明没有留下半成品；
+      (4) 教训同上：**同一量只允许一种推导式**，且写盘类脚本要在改动前把断言全部前置。
+
 
 
 

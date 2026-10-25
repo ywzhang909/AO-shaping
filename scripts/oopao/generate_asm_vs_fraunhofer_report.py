@@ -124,10 +124,6 @@ def measure() -> dict[str, object]:
         _random_field(), DX, z_gs, 633e-9, band_limit=False
     )
     gs_shape = canonical.shape
-    out["gs_shift_is_exact_ifftshift"] = bool(
-        np.allclose(old, np.fft.ifftshift(old))
-        or True  # informational: the identity checked is between the two builders
-    )
     from ao_shaping.algorithm.signal_processing.angular_spectrum import (
         _build_propagator_numpy,
     )

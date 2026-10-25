@@ -261,17 +261,16 @@ class HartmannCapture:
         wavefront = None
         wavefront_stats: dict[str, float] = {}
 
-        if wavefront_device is not None or True:
-            wfs_for_wf = wavefront_device if wavefront_device else self._wfs
-            try:
-                wf, stats = wfs_for_wf.get_wavefront(
-                    cancel_tile=self.config.cancel_tilt
-                )
-                wavefront = wf
-                wavefront_stats = {k: float(v) for k, v in stats.items()}
-                logger.debug(f"Wavefront RMS: {wavefront_stats.get('rms', 'N/A')}")
-            except Exception as e:
-                logger.warning(f"Wavefront reconstruction failed: {e}")
+        wfs_for_wf = wavefront_device if wavefront_device else self._wfs
+        try:
+            wf, stats = wfs_for_wf.get_wavefront(
+                cancel_tile=self.config.cancel_tilt
+            )
+            wavefront = wf
+            wavefront_stats = {k: float(v) for k, v in stats.items()}
+            logger.debug(f"Wavefront RMS: {wavefront_stats.get('rms', 'N/A')}")
+        except Exception as e:
+            logger.warning(f"Wavefront reconstruction failed: {e}")
 
         measurement = HartmannMeasurement(
             timestamp=time.strftime("%Y-%m-%dT%H:%M:%S"),
