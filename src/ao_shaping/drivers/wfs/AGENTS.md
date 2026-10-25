@@ -120,6 +120,14 @@ DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py
   **没有**跟随本次标定的排除选择 —— 转发会同时改变被探针的模式与被比对的行集合, 属只有实验系统
   才能重定的数值, 故由 `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py` 的
   `TestAmplitudeProbeKeepsItsOwnExclusions` 锁死现状; 要改必须连同设备侧基准一起重定。
+- ⚠️ **模态空间回退把「斜率样本」喂给「Zernike 响应矩阵的伪逆」** (读码确认, **未修**):
+  `runners/slm/zernike_matrix_runner.py::from_response_matrix` 优先用 `deviation_response_matrix`
+  (斜率空间, 与 `_measure_wfs_step` 的 `get_spot_deviation` 同空间 ⇒ 正确); 只有当已存盘的 h5 **缺**
+  `deviation_response_matrix` 或 `subaperture_mask` 时才回退到 `D = result.matrix` (行 = WFS Zernike
+  通道) 且 `mask_indices = arange(D.shape[0])`, 而测量侧**始终**取斜率 —— 于是实际取的是「前 N 个斜率
+  样本」去乘 Zernike 空间的伪逆。**维度自洽所以不会报错, 空间不自洽**。改它等于改闭环控制语义
+  ⇒ 设备侧决定, 本次只做构造期校验: `pinv.shape == (D.shape[1], D.shape[0])` 必须成立, 且 `s_ref` 与
+  `mask_indices` 同源于 matrix 行数 (守卫测试 `tests/ao_shaping/runners/slm/test_from_response_matrix_guard.py`)。
 
 ## 惰性加载 (2026-10-01)
 

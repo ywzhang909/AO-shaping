@@ -1428,7 +1428,14 @@ def from_response_matrix(result, config: LoopConfig) -> AOClosedLoop:
     elif result.pinv_matrix is not None:
         D = result.matrix
         D_pinv = result.pinv_matrix
-        s_ref = np.zeros(D_pinv.shape[1])
+        if D_pinv.shape != (D.shape[1], D.shape[0]):
+            raise ValueError(
+                f"响应矩阵与其伪逆不是同一份标定: matrix shape={D.shape}, "
+                f"pinv shape={D_pinv.shape}, 期望 pinv shape={(D.shape[1], D.shape[0])}"
+            )
+        # s_ref 与 mask_indices 必须同源 (都由 matrix 行数决定), 否则两者当场就不等,
+        # 而失败要等到闭环迭代里的 matmul 才以 numpy 形状错的形式暴露。
+        s_ref = np.zeros(D.shape[0])
 
         logger.info(
             f"使用模态空间响应矩阵: D shape={D.shape}, pinv shape={D_pinv.shape}"

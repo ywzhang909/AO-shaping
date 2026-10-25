@@ -2421,6 +2421,33 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        可读断言；CI 钉版 ruff **0.15.12** 全绿；两个改动文件 stdlib 语法编译通过；`noll_offset` 全树
        **零**残留引用。
 
+57. ✅ **闭环载入响应矩阵时不校验「矩阵与它的伪逆是不是同一份标定」—— 把 numpy 深处的形状错提前到构造期**（2026-10-25）：
+     - **读码在先，否掉了我自己刚写的守卫**（第 21 次自伤）：我原本推断「GUI 产出的矩阵行数是
+       `67 − 排除个数`，闭环喂 66 通道 ⇒ 勾掉 tip/tilt 就会广播失败」，并已按此写了一个断言
+       「行数必须等于 66」的测试。**读消费方即否证**：模态分支的 `mask_indices = arange(D.shape[0])`
+       是**从矩阵自己**导出的，实测向量总是被裁到矩阵行数 —— 那个崩溃不可能发生。草稿测试当场删除，
+       **没有**把它调参调到通过。**编造出来的不变量比没有守卫更糟**：它会把一个不存在的关系钉成契约。
+     - **实测到的真缺陷**：`runners/slm/zernike_matrix_runner.py::from_response_matrix` 的模态分支从
+       同一个 h5 取 `matrix` 与 `pinv_matrix`，**从不校验后者是不是前者的伪逆**。容器探针（值可识别的
+       合成矩阵）实测：一致时 `D=(66,65)`、`pinv=(65,66)`、`mask_len=66`、`s_ref=(66,)` 自洽；把
+       一次 64 行标定算出的伪逆配到 66 行矩阵上 ⇒ **构造期静默接受**，并立即把不一致固化成
+       `mask_len=66` 与 `s_ref_len=64` 两个当场就不等的量。
+     - **失败为什么难查**：它不在构造处报，而要等到闭环迭代里的 matmul 才以
+       `matmul: Input operand 1 has a mismatch in its core dimension 0 … (size 66 is different from 64)`
+       的形式暴露 —— 只报两个 shape，不说是矩阵行还是伪逆列、也不带矩阵自己的排除元数据。
+     - **修法是最小的形状契约**：构造期要求 `pinv.shape == (D.shape[1], D.shape[0])`，否则
+       `ValueError` 带上三方 shape；并让 `s_ref` 与 `mask_indices` **同源**（都由 matrix 行数决定，
+       不再从 `pinv.shape[1]` 反推）。对任何由本仓产出的合法文件都是**空操作**，只改变已损坏文件的路径。
+     - **RED 在先**：`test_pinv_from_another_calibration_is_rejected_at_construction` 先跑 ⇒
+       `Failed: DID NOT RAISE ValueError`（日志同时印出 `pinv shape=(65, 64)` 被接受）；实现后 2 passed。
+     - **另一条只读码确认、刻意未修**：同一条回退分支把 `_measure_wfs_step` 的**斜率**样本喂给
+       **Zernike** 响应矩阵的伪逆（`mask_indices = arange(D.shape[0])` 取的是前 N 个斜率样本）。
+       维度自洽所以永不报错，空间不自洽。它只在 h5 **缺** `deviation_response_matrix` /
+       `subaperture_mask` 时才被走到；改它等于改闭环控制语义 ⇒ 设备侧决定，已记进
+       `drivers/wfs/AGENTS.md`。
+     - **验证**：新守卫 **2 passed**；`tests/ao_shaping/runners` + `optimizer/wf` **675 passed /
+       26 skipped**；CI 钉版 ruff **0.15.12** 全绿；探针文件与草稿测试均已删除，工作树只含预期改动。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
