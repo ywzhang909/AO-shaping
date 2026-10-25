@@ -2020,15 +2020,15 @@ _MD_ENTRY = re.compile(r'"([^"]+\.md)":\s*ReportProvenance\(')
 # as hand-written (measured: models_report/report.md, 4 offenders mis-bucketed).
 _MD_SCRIPT_FIELD = re.compile(r'script\s*=\s*(HANDWRITTEN|"[^"]+")')
 
-# 24 at first measurement -> 19 (two wrong DELIMITER rows, see TODO 8.9 item 27) -> 7.
-# The 12 just cleared: 8 hand-written row literals escaped in their emitting generator
-# (inverse_design 3, oopao_vs_numpy 1, asm_vs_fraunhofer 3, zernike_farfield_sim 1) so a
-# regeneration emits what the artifact now says, plus 3 hw_defocus artifacts whose emitter
-# markdown_table already fixed, plus 1 hand-added zernike_amp row with no emitter at all.
-# The remaining 7 are miicam probe rows; that report's .md is written by
-# scripts/ccd/miicam_auto_exposure_probe.py, which needs a real camera to regenerate.
-# This number may only go DOWN, never up.
-_MD_GENERATED_SPLIT_BASELINE = 7
+# Driven to zero in three stages (TODO 8.9 item 27): 24 -> 19 by correcting two wrong
+# DELIMITER rows (generate_models_report declared 7 for an 8-column header,
+# generate_pib_bench 10 for a 9-column header -- one line each cleared five rows);
+# 19 -> 7 by escaping 8 hand-written row literals in the emitting generators so a
+# regeneration matches the artifact; 7 -> 0 by wiring the miicam probe's render path.
+# Kept as a SEPARATE bucket from the hand-written one even though both are empty, so a
+# future split in a generated file names the generator as the place to fix, not the .md.
+# This number may only go DOWN -- and it cannot, since DOWN from 0 is a failure.
+_MD_GENERATED_SPLIT_BASELINE = 0
 
 
 def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
@@ -2162,14 +2162,14 @@ def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     tolerance -- a mechanical escaping pass once did exactly that, and only the header
     (which must match the delimiter exactly) betrayed it.
 
-    Generated reports are counted against a baseline rather than excluded, so a new
-    split cannot arrive silently: 19 rows across 9 generated reports are baselined.
-    The fix is on the emitting side -- cells go through ``escape_md_cell`` inside
-    ``markdown_table``, and generators that hand-write row strings are being wired to
-    the same rule (TODO 8.9 item 27). Hand-written files, hand-written reports
-    included, must stay at zero.
+    Generated reports get their own bucket rather than an exclusion, so a split cannot
+    arrive silently there either. That bucket is now empty: the emitting side was fixed
+    (``markdown_table`` escapes cells; the generators that hand-write row strings
+    escape their literals; the miicam probe escapes at render time -- TODO 8.9 item 27),
+    so the baseline is zero tolerance. Hand-written files, hand-written reports
+    included, are also held at zero.
 
-    Measured 2026-10-25: 0 hand-written offenders, 7 generated rows, 1487 table blocks,
+    Measured 2026-10-25: 0 offenders of either kind over 1487 table blocks,
     and 0 rows whose outer delimiter is escaped.
     The block bound is a measured magnitude on purpose: an inverted fence test once
     blanked every real table and scanned 0 blocks, which a ``blocks > 0`` check would
