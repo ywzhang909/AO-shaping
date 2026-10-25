@@ -26,7 +26,7 @@ import numpy as np
 
 from loguru import logger
 from ao_shaping.model.field import PhaseMap
-from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
 
 __all__ = [
     "DEFAULT_WAVELENGTH",
@@ -40,7 +40,7 @@ __all__ = [
 
 # Shared physical / SLM constants
 DEFAULT_WAVELENGTH: float = LASER_WAVELENGTH_M  # 1064 nm YAG laser (meters)
-DEFAULT_SLM_PIXEL_SIZE: float = 8e-6  # SLM pixel pitch (meters)
+DEFAULT_SLM_PIXEL_SIZE: float = SLM_PITCH_M  # SLM pixel pitch (meters)
 DEFAULT_DISTANCE: float = 0.1  # default propagation distance (meters)
 DEFAULT_MAX_GRAYSCALE: int = 1023  # grayscale value corresponding to 2*pi
 
