@@ -116,6 +116,7 @@ REPORTS: dict[str, ReportProvenance] = {
         environment="离线（仿真先验 + 已存档的 Santec/Daheng 实验数据）",
         note="仿真预训练的分组 CV 指标与「无 GS 的逐位复现」；两部分的检查点互不共用，报告 §1 明确分开。",
         extra_scripts=("scripts/slm/reproduce_transfer_block_without_gs.py",
+                       "scripts/slm/generate_transfer_no_gs_gif.py",
                        "src/ao_shaping/tools/slm/transfer/pretrain.py",
                        "src/ao_shaping/tools/slm/transfer/workflow.py",
                        "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",

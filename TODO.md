@@ -3070,6 +3070,50 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
               90 skipped / 6 failed**，这 6 条正是第 74 条纠正后的既有红集（2 条文档调用类 + 4 条 provenance /
               shard 类，已在 HEAD 上用 stash A/B 证过与本条无关）；CI 钉版 ruff **0.15.12** 全绿。
 
+76. ✅ **手工维护的 CI 分片清单会静默失去覆盖：一个根级守卫模块进来了却没进任何分片，而让 master 变红的正是那条「有测试没被跑」的断言**（2026-10-26）：
+     - **现象与因果**：`test_every_test_area_is_sharded` 在 HEAD 上就红，点名
+              `tests/ao_shaping/test_issue167_function_shape.py`。`git show --stat 695c8dc2`（2026-10-26）显示那次提交
+              **只新增这一个文件**，完全没碰 `.github/workflows/pytest.yml` ⇒ 手写的分片清单再没人补。该守卫住在
+              **blocking** 的 `scripts` 分片里 ⇒ **master 的 CI 此刻就是红的**，而它红的原因就是有一个测试文件
+              从未被执行。
+     - **为什么这类洞比没有 CI 更糟**（守卫 docstring 原话）：分片清单悄悄不再覆盖某个目录时，绿色作业
+              等于**断言**那些测试跑过了。补法是往 `run_shard "root-guards"` 那一行末尾加该模块，并保持
+              **一行一条调用** —— 守卫用正则逐行解析，跟不了续行，写续行会让它以为自己什么都没查。
+     - **进 blocking 分片之前先证明它自己会过**：单独跑该模块 = **5 passed / 0.07 s**；再按 workflow 里那行
+              **逐字**的调用跑整个 root-guards 分片 ⇒ **116 passed / 1 skipped / 2 failed**（2 即既有文档调用类红对），
+              且收集数从约 111 涨到 116 —— 那 5 条确实进到分片里了，不是只改了一行 YAML。其余三条分片守卫
+              （目标存在 / 无嵌套重复 / 至少一个硬门禁）同时保持绿。
+     - **纠正我自己的一条过期认知**：我此前记着本仓库「缺 pytest 自动化 workflow」。实际有
+              `.github/workflows/pytest.yml`（2026-10-24 起的硬门禁：构建一次镜像，每个分片一个独立 pytest 进程）
+              与 `ci.yml`（钉版 ruff）。它注释里给的实测数据与我第 64 条**独立撞到的** wfless OOM 完全对上：
+              不带目标的全量（9311 collected）在 16g 下 34% 处 exit 137，`optimizer/wfless` 在 6g 与 12g 都死而它
+              55 个文件各自单独跑全过 ⇒ CI 的解法是 `AO_TEST_PER_FILE=1` 且核对过覆盖等价。我当时把「我这侧的环境
+              限制」误记成了「仓库缺基础设施」。
+     - **同一分片里的第二个红：先判哪一侧过期，再跑守卫给的修法**。`test_sync_check_reports_no_drift`
+              点名 `report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md` 头部过期，并直接给出
+              命令 `python scripts/sync_report_provenance.py`。**照跑就会删掉一条真实溯源**：报告头部列 7 条
+              关联脚本，registry 只剩 6 条，缺的是 `scripts/slm/generate_transfer_no_gs_gif.py`。证据链：该脚本已跟踪；
+              它默认 `--out-dir` 正是这份报告自己的 `images/`；报告正文嵌入它产出的两张 GIF 并在原话里点它的名字；
+              头部那一行自 `5e514006` 起从未变过。相反，registry 那一侧是在 `52537df9`（一次 resolving one dedup
+              collision 的 23-commit 合并）中被丢掉的 ⇒ **过期的是单一事实源**。
+     - **修法次序**：改 `scripts/_common/provenance.py` 把条目补回（按头部既有顺序插在
+              `reproduce_transfer_block_without_gs.py` 之后），再让生成脚本重渲染。补完后 `--check` 的漂移换成
+              `report/README.md: index is stale`（索引由脚本生成，属正常连带）⇒ 跑一次幂等生成脚本，
+              `git diff report/README.md` **恰好一行**，就是那一行里补回 `generate_transfer_no_gs_gif.py`。最终
+              `check: clean`、`headers updated: 0`。
+     - **既有红由 6 降到只剩 2**：`tests/ao_shaping/scripts` 的失败由 4 条变成 **2** 条（574 → 575 passed）。
+              剩下的 2 条仍是 `pib_exit_safety` 家族，而这次把它的性质**钉死**：`git log --all -- 'report/slm/pib_exit_safety*'`
+              在**全部引用共 1788 个提交上为空** ⇒ 那份报告从未存在过；registry 指定的生成器
+              `scripts/slm/generate_pib_exit_safety_report.py` 同样从未被提交（`--diff-filter=A` 空）；配套的
+              `tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py` 未跟踪；只有
+              `scripts/slm/verify_pib_exit_safety_hw.py`（issue #145 的硬件验收脚本）真实存在。另外我扫了 6 个兄弟
+              工作树：两个缺失文件在**任何工作树里都不存在** ⇒ 不是忘了 push，而是 registry 里一条指向**从未落地
+              的实验**的条目。
+     - **为什么不自行了断**：删条目会同时抹掉作者意图与 `report/README.md` 的索引行（索引由 REPORTS 渲染）；
+              反过来补一个生成器等于**伪造一次不存在的实验**。两者都比留红更坏 ⇒ 保留红并把证据链写全，交 owner 定。
+     - **验证与门禁**：上面两条守卫的结果如述；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；
+              workflow 的改动由守卫自身的正则解析接受（`test_workflow_exists_and_has_shards` 仍绿）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

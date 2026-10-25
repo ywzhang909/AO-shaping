@@ -112,7 +112,7 @@ jobs:
           run_shard "drivers" 0 1 tests/ao_shaping/drivers
           run_shard "tools" 0 1 tests/ao_shaping/tools
           run_shard "optimizer" 1 1 tests/ao_shaping/optimizer
-          run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py
+          run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py tests/ao_shaping/test_issue167_function_shape.py
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 1 tests/ao_shaping/scripts
 
