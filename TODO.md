@@ -2124,6 +2124,59 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       这正是本会话把「先断言、后写盘」写进脚本的原因；连带一个更阴的坑：随后我跑的 `parses OK` 与 `ruff`
       是对**未改动的文件**跑的，差点被当成改动的验证 —— **验证必须在确认改动已落地之后跑**。
 
+49. ✅ **驱动的 Zernike 数组被标成「Noll 1976」，而手册与实测都说是顺序 m 枚举 —— 改 4 处标签、撤回我自己写错的一句、并否证一个按散文关键词建守卫的候选**（2026-10-25）：
+    - **仓库对自己的硬件契约是分裂的**：工具与 runner 层六处写法正确（`tools/zernike/common.py:6`、
+      `tools/wfs/zernike_response.py:13`、`tools/wfs/zernike_correction.py:291`、
+      `runners/slm/zernike_matrix_runner.py:34/947/1314` 均写「顺序 m 枚举，非标准 Noll 1976」），
+      而驱动与设备文档写反（`thorlab_wfs.py:1507`「系数为 Noll 1976 约定」、
+      `drivers/wfs/AGENTS.md:128`「Noll 1976 1-based 前 66 项」）。
+    - **判据是双重确认的，不是我推的**（`common.py:6-19` 本就点名「驱动 docstring 不准确」）：
+      官方手册 `roCMm` "derived from Zernike coefficient **Z[5]**"、
+      `arrayZernikeUm` "indices [1..66] are used instead of [0..65]"；实测加载 (2,0)→[5]、(2,2)→[6]、
+      (3,1)→[9]、(4,0)→[13]，响应矩阵 14/14 强对角。另外该标签**自相矛盾**：同一行还写
+      `RoC = coeff[5]`，而标准 Noll 的 5 号是 (2,-2) 像散 —— 只有顺序 m 才让 5 号等于 defocus。
+    - **孪生与驱动差两件事**（容器实测，无硬件；`SimulatedWFS` 可离线构造，这是它比驱动好在的地方）：
+      | 注入模式 | 孪生落点 | 文档中的 DLL 槽位 |
+      |---|---:|---:|
+      | Noll 2 = (1,1) | 1 | 3 |
+      | Noll 3 = (1,-1) | 2 | 2 |
+      | Noll 4 = (2,0) defocus | **3** | **5** |
+      | Noll 5 = (2,-2) | 4 | 4 |
+      | Noll 6 = (2,2) | 5 | 6 |
+
+      长度也不同：@n=4 孪生 15 / 驱动缓冲区 16；@n=10 孪生 66 / 驱动 67。
+      ⇒ 为驱动写的 `w[1:]`、`w[5]` 用到孪生上会取到**另一个模式**，且不报错。
+      孪生自己的测试也钉着 0 基（`test_simulated_wfs.py:143` 注入 Noll 4 断言 `argmax == 3`）。
+    - **撤回我自己写错的一句**（第 47 项里我刚加进 AGENTS.md 的那句）：我写「runner 直接
+      `um_to_waves(z0[1:])`，没有走 `tools/zernike/common.py` 那个修索引的入口」—— 实测
+      `zernike_matrix_runner.py:94` 正是 `from ao_shaping.tools.zernike.common import (… measure_zernike …)`，
+      而 `measure_zernike`（`common.py:389-406`）返回的就是原始 67 长数组 ⇒ 那里的 `[1:]` 是**正确**用法。
+      我上一轮还怀疑那里有 off-by-one，同样不成立。**先把要断言的东西 grep 一遍再写进文档**，这一次救了我。
+    - **实际改动 4 处**：`thorlab_wfs.py` 的 `get_zernike` 注意段（标签改为顺序 m，保留 RoC 与 µm 事实，
+      并指回权威模块）；`drivers/wfs/AGENTS.md:128` 表行；`common.py:19` —— 我改完驱动之后它自己变成了
+      **过期描述**（仍在说「驱动 docstring 不准确」），改为记录已改正；`simulated_wfs.py` 的
+      `get_zernike` docstring 原文只说「按 Noll 排序」，读者会默认它与驱动一致，现明写两侧排序与长度不同
+      并指向未决条目。
+    - **一个被否证的守卫候选**（谓词：散文里 `Noll` 与 驱动/`coeff[`/DLL 同现即违规）：活树 9 处命中里
+      多数是**正确表述** —— `thorlab_wfs.py:1510`「标准 Noll 里 5 号是 (2,-2) 像散」、
+      `simulated_wfs.py:400`「本仿真按 0 基 Noll 序」、`zernike_matrix_runner.py:533/630`
+      「66 = Noll 总数」（讲的是**项数**，与枚举无关）、`common.py:20`（我新写的改正说明）；
+      另有 `zernike_response.py:590` 已经写了 `(非 Noll)`，是我的否定词表漏了拼写。
+      ⇒ 该谓词会把刚写正确的句子标成违规，属**假缺陷发生器**，不建。散文里的枚举约定**不可判定**。
+    - **留给设备侧的两处，我没有动**：(1) 孪生 0 基 Noll 与驱动 1 基顺序 m 统一到哪一侧 —— 需要 DLL 契约与
+      既有落盘语料的口径；(2) `drivers/slm/AGENTS.md:131` 的实测记录「SLM-x 平移驱动 WFS Noll3 (y-tilt)，
+      SLM-y 平移驱动 WFS Noll2 (x-tip)」—— 按 Noll 是 2=(1,1)/3=(1,-1)，按 DLL 槽位是 [2]=(1,-1)/[3]=(1,1)，
+      **标签直接决定哪个轴对应哪个通道**，我手上没有判据说它当时用的是哪一套，故只记录、不改写实测结论。
+    - **仪表自伤两处**：(1) 普查脚本读 `/tmp/tracked.z`，而那份清单**已被我在上一轮末尾删掉** ⇒
+      `FileNotFoundError` —— 缺失输入不等于「0 命中」（本会话第 9 处）；(2) 我在两条 grep 结果下写了
+      「^ empty = …」而输出**根本不空**（`from ao_shaping.tools.zernike.common import (` 就在下一行）——
+      **给尚未看到的结果预先写解说，本身就在制造假结论**。
+    - **验证**：容器把 `test_conventions.py` + `drivers/wfs` + `drivers/sim` + `tools/wfs` + `optimizer/wf`
+      合在同一次运行 ⇒ **692 passed / 15 skipped**（skip 全是硬件与可选 `rl` 组）；术语门禁 0 文件、
+      `ruff check .` 全绿、`sync_report_provenance.py --check` clean、双夹注仅 `AGENTS.md` 与术语表两行。
+      ⚠️ 诚实边界：枚举正确性依据是**手册引文 + 既有实测**，本次**没有重新上实验系统** —— 「14/14 强对角」
+      是引用，不是本次复现。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

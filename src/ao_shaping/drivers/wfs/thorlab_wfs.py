@@ -1504,8 +1504,11 @@ class ThorlabWFS(BaseWFS):
             - 结果依赖 pupil 正确性: 调用前必须 ``wfs.pupil = wfs.optimize_pupil()``。
               硬编码 pupil 与光束不符时, 边界无效子孔径会污染 LSF 拟合, 产生巨大的
               假 tip/tilt 系数 (2026-09 实测: |z|=4.6~12.8λ → pupil 修正后 ≤0.22λ)。
-            - 系数为 Noll 1976 约定 (索引 1 起, 前 66 项), 输出单位 µm (µm/0.532 = λ @532nm),
-              RoC = coeff[5]。
+            - 排序为**顺序 m 枚举** (``m = -n..+n``, 索引 1 起、前 66 项), **不是标准 Noll 1976**;
+              官方手册与硬件实测双重确认, 权威表述见
+              :mod:`ao_shaping.tools.zernike.common` (defocus=(2,0) 落在 ``coeff[5]``,
+              故 RoC = coeff[5]; 标准 Noll 里 5 号是 (2,-2) 像散, 与该式矛盾)。
+            - 输出单位 µm (µm/0.532 = λ @532nm)。
         """
         self._ensure_open()
         # Explicit raise, not `assert`: `python -O` strips asserts, and an

@@ -16,7 +16,9 @@
   `arrayZernikeUm` "indices [1..66] are used instead of [0..65]"。
 - 实测佐证: 加载 (2,0)→[5], (2,2)→[6], (3,1)→[9], (4,0)→[13]; 响应矩阵 14/14 强对角。
 
-标准 Noll 中 defocus=4、spherical=11 ⇒ 驱动 docstring 的 "Noll 1976 约定" 不准确。
+标准 Noll 中 defocus=4、spherical=11 ⇒ 与上面的槽位**对不上**。驱动 docstring 曾被误标为
+"Noll 1976 约定", 2026-10-25 已改正为顺序 m 枚举 (`drivers/wfs/thorlab_wfs.py` 的
+`get_zernike` 注意段); 本模块的 `nm_of` 才是这套槽位映射的权威入口。
 """
 from __future__ import annotations
 

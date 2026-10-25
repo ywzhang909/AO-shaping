@@ -55,9 +55,21 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 `w = w[1:]` 正是这个约定 (`tools/wfs/zernike_response.py`)。两者各自对消费者正确, 但绝不能
 混用; 该 +1 关系已由 `tests/ao_shaping/drivers/wfs/test_base_wfs.py` 钉死, 防止无声漂移。
 
-⚠️ **仍未决 (2026-10-25 实测, 无硬件)**: 孪生侧 `SimulatedWFS._n_modes(n)` =
-`len(list_zernike_modes(n))` = **66** (@n=10, 0 基、无空槽), 而驱动侧缓冲区是 **67** —— 两者对
-`index 0` 的含义并不一致。把它统一成哪一侧是**设备侧口径**决定, 本次**未改动**。
+⚠️ **仍未决 (2026-10-25 实测, 无硬件)**: 孪生与驱动的差异是**两处**, 不只是 0 号槽。
+
+- **长度**: 孪生 `SimulatedWFS.get_zernike()` 返回 `len(list_zernike_modes(n))` 长
+  (@n=4 → 15, @n=10 → 66), 无空槽; 驱动侧缓冲区是 **67** (@n=10, 含 0 号空槽)。
+- **排序**: 孪生是 **0 基 Noll** 序 (实测注入 Noll 4 = (2,0) defocus ⇒ 峰值落在 `index 3`);
+  驱动侧是 **1 基、顺序 m 枚举** —— `DLL [5] = (2,0) defocus`
+  (`tools/zernike/common.py:8-12`、`tools/wfs/zernike_response.py:15-19`)。
+
+⇒ 同一模式在两侧落在**不同槽位** (defocus: 孪生 3 / 驱动 5), 所以为驱动写的
+`w[1:]`、`w[5]` 这类下标用到孪生上会取到**另一个模式**, 且不报错。统一到哪一侧是
+**设备侧口径**决定 (需要 DLL 契约与既有落盘语料的口径), 本次**未改动**。
+⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
+`z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
+返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按
+0 基 Noll 去索引驱动读数 (拿 defocus=`[3]`), 就会在硬件上取到另一个模式。
 
 ## 惰性加载 (2026-10-01)
 
@@ -115,7 +127,7 @@ ThorlabWFS 在 `__init__` 中注册参数:
 | **勿硬编码 pupil（瞳面）** | 硬编码 `(0,0,8mm)` 与真实光束不符时, 边界无效子孔径污染 `WFS_ZernikeLsf` 全孔径 LSF 拟合 → 巨大假 tip/tilt (实测 \|z\|=4.6~12.8λ) |
 | **本机实测 pupil（瞳面） 参考** (SLM200 + WFS M01219666, 532nm) | 中心 ≈ (-0.148, +0.148) mm, 直径 ≈ 3.62 × 3.88 mm |
 | **zernike LSF 是最干净主度量** | 修正 pupil（瞳面） 后倾斜阶梯 0.10~3.20λ 读出 0.0061~0.2169λ, 线性度 R²=0.9603 (plane 度量小倾斜端受噪声干扰) |
-| **`get_zernike` 依赖 pupil（瞳面） 正确性** | 系数为 µm (µm/0.532=λ @532nm), Noll 1976 1-based 前 66 项, RoC=coeff[5]; 前置 `CalcSpotToReferenceDeviations(0)` |
+| **`get_zernike` 依赖 pupil（瞳面） 正确性** | 系数为 µm (µm/0.532=λ @532nm), **顺序 m 枚举** (1 基、前 66 项, 非标准 Noll 1976), RoC=coeff[5]; 前置 `CalcSpotToReferenceDeviations(0)` |
 | **`WFS_ZernikeLsf` typed 绑定被注释仍可用** | `_sdk_bindings.py` L319-320 注释了 `restype/argtypes`, 驱动直接调用未声明函数 (ctypes 宽松传参) 正常工作 — 建议补绑以启用类型检查 |
 | **`MlaRes` 枚举成员是 `Res512` 非 `RES_512`** (2026-09-16) | 实际成员: `Res320/Res512/Res768/Res1024/Res1280` (**无 540/600**); 驱动 `__init__` 传 `mla_index=MlaRes.Res512` |
 | **WFS 单独运行 80 次捕获无堆损坏 (2026-09-16 实测)** | n=5 zernike-matrix 3/3 崩溃 `0xC0000374` (faulthandler 检测点在 `get_zernike` L1493, 但检测点≠源头); WFS-only 隔离探针 (`scripts/zernike_bench/wfs_probe.py`) 80 iter 零崩溃 → **WFS DLL 侧排除**, 嫌疑在 Santec SLM 写入路径 (4.6MB `dat` 缓冲生命周期)。详见 `report/slm/daily/daily_2026-09-16.md` |
