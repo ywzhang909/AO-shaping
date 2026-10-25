@@ -56,6 +56,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
 )
 from ao_shaping.tools.kernels.bench_kernels import measure_spot
 from ao_shaping.tools.kernels.sweep_analysis import SIGMA_FLOOR
+from ao_shaping.utils.io.npz_summary import save_summary_npz
 
 #: Full width of the analysis ROI in pixels; half of this is the half-width
 #: handed to :func:`~ao_shaping.tools.kernels.bench_kernels.crop_roi`.
@@ -472,12 +473,12 @@ def save_floor_records_pkl(path: Path, rows: Sequence[dict[str, Any]]) -> Path:
 
 
 def save_floor_summary_npz(path: Path, summary: dict[str, Any]) -> Path:
-    """Write the summary dict to a compressed ``.npz``; parents are created."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, **{k: np.asarray(v) for k, v in summary.items()})
-    logger.info("summary -> {}", path)
-    return path
+    """Write the summary dict to a compressed ``.npz``; parents are created.
+
+    Thin wrapper over :func:`~ao_shaping.utils.io.npz_summary.save_summary_npz`
+    (the shared probe writer); the domain name is kept for the run scripts.
+    """
+    return save_summary_npz(path, summary)
 
 
 # ---------------------------------------------------------------------------

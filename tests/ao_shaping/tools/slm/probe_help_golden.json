@@ -144,8 +144,8 @@
     ]
   },
   "slm_abba_probe": {
-    "body_literals": 157,
-    "body_literals_sha256": "8edee0e71f0dd93a",
+    "body_literals": 156,
+    "body_literals_sha256": "16d27f4e30504beb",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -242,8 +242,8 @@
     ]
   },
   "slm_beam_extent": {
-    "body_literals": 19,
-    "body_literals_sha256": "8a7ec9ff2826eebc",
+    "body_literals": 16,
+    "body_literals_sha256": "2f5ff502845cb226",
     "declared": [
       "--axis",
       "--cam-id",
@@ -392,8 +392,8 @@
     ]
   },
   "slm_floor_probe": {
-    "body_literals": 208,
-    "body_literals_sha256": "d872bf720517601e",
+    "body_literals": 207,
+    "body_literals_sha256": "0d9796187812a2ee",
     "declared": [
       "--cam-id",
       "--cam-type",
@@ -526,8 +526,8 @@
     ]
   },
   "slm_panel_locate": {
-    "body_literals": 141,
-    "body_literals_sha256": "85e76b3288b37dd5",
+    "body_literals": 138,
+    "body_literals_sha256": "1309befde205220d",
     "declared": [
       "--cam-id",
       "--cam-type",

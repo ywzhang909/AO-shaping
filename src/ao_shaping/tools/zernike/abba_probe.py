@@ -64,6 +64,7 @@ from ao_shaping.tools.zernike.sweep_probe import (
 from ao_shaping.utils.cli.params import option, with_params
 from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.io.cli_helpers import parse_floats as _parse_floats
+from ao_shaping.utils.io.npz_summary import save_summary_npz
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 
 #: RNG seed for the dense coefficient maps. Pinned so a run is reproducible up
@@ -439,12 +440,13 @@ def dense_abba_sweep(
 
 
 def save_abba_summary_npz(path: Path, summary: dict[str, Any]) -> Path:
-    """Write the summary dict to a compressed ``.npz``; parents are created."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    np.savez_compressed(path, **{k: np.asarray(v) for k, v in summary.items()})
-    logger.info("summary -> {}", path)
-    return path
+    """Write the summary dict to a compressed ``.npz``; parents are created.
+
+    Thin wrapper over :func:`~ao_shaping.utils.io.npz_summary.save_summary_npz`
+    (the shared probe writer); the domain name stays because the tests import
+    it by name.
+    """
+    return save_summary_npz(path, summary)
 
 
 def save_abba_records_pkl(path: Path, rows: Sequence[dict[str, Any]]) -> Path:

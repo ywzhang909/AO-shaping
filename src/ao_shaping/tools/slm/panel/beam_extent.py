@@ -60,29 +60,13 @@ from loguru import logger
 from ao_shaping.tools.kernels.bench_kernels import (
     SLM_PANEL_H,
     SLM_PANEL_W,
-    ProbePolicy,
     core_fraction,
     display_and_average,
     measure_flat_reference,
     random_phase,
 )
+from ao_shaping.tools.slm.panel.probe_policy import probe_policy
 from ao_shaping.utils.cli.params import option, with_params
-
-#: Mounted frames after the write (LCOS flip) before the kept ones.
-_PROBE_DISCARD = 2
-#: Measured kept-frame budget -- see the module docstring. ``--frames`` may raise
-#: it, never lower it.
-_PROBE_FRAMES = 7
-
-
-def _probe_policy(frames: int) -> ProbePolicy:
-    """Fixed-budget acquisition for an energy-ratio measurement."""
-    return ProbePolicy(
-        mode="frames",
-        n_frames=max(int(frames), _PROBE_FRAMES),
-        n_discard=_PROBE_DISCARD,
-        combine="median",
-    )
 
 
 @dataclass
@@ -190,7 +174,7 @@ def sweep_axis(
     positions = np.linspace(0, span, int(steps) + 1)[1:]
     base_rand = random_phase(panel, seed=int(seed))
     yy, xx = np.mgrid[0 : panel[0], 0 : panel[1]]
-    policy = _probe_policy(frames)
+    policy = probe_policy(frames)
 
     with Santec(
         slm_number=slm_number, wavelength=slm_wavelength, video_mode=0

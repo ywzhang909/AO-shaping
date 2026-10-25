@@ -85,28 +85,11 @@ from ao_shaping.tools.kernels.bench_kernels import (
     BEAM_RADIUS_PANEL,
     SLM_PANEL_H,
     SLM_PANEL_W,
-    ProbePolicy,
     capture_settled_report,
     measure_flat_reference,
 )
+from ao_shaping.tools.slm.panel.probe_policy import probe_policy
 from ao_shaping.utils.cli.params import option, with_params
-
-#: Mounted frames after the write (LCOS flip) before the kept ones.
-_PROBE_DISCARD = 2
-#: Measured kept-frame budget: enough samples for the median to reject one
-#: corrupted frame, and the count the 2026-10-24 run showed sufficient (peak
-#: sigma 1.4%). ``--frames`` may raise it, never lower it.
-_PROBE_FRAMES = 7
-
-
-def _probe_policy(frames: int) -> ProbePolicy:
-    """Fixed-budget acquisition for an energy-ratio measurement."""
-    return ProbePolicy(
-        mode="frames",
-        n_frames=max(int(frames), _PROBE_FRAMES),
-        n_discard=_PROBE_DISCARD,
-        combine="median",
-    )
 
 
 def _box_mask(shape: tuple[int, int], cx: int, cy: int, r: int) -> np.ndarray:
@@ -260,7 +243,7 @@ def scan_panel(
     frames = params.frames
     # Fixed budget: energy-ratio frames do not need a *stable* frame, and the
     # settle criterion cannot converge for them (see the module docstring).
-    policy = _probe_policy(frames)
+    policy = probe_policy(frames)
     seed = params.seed
     max_flat_drift = params.max_flat_drift
     debug_dir = Path(params.debug_dir) if params.debug_dir else None
