@@ -13,6 +13,7 @@ from loguru import logger
 from ao_shaping.drivers.device_base import DeviceState, DeviceType
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
 from ao_shaping.drivers.sim.base import SimulatedDevice, WavefrontProcessor
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 
 class SimulatedTurbulentScreen(WavefrontProcessor):
@@ -125,7 +126,7 @@ class SimulatedTurbulentScreen(WavefrontProcessor):
         """直接施加湍流 (回退路径)。"""
         npix = getattr(wave, "npix", 512)
         dpix = getattr(wave, "dpix", 1e-3)
-        wavelength = getattr(wave, "wavelength", getattr(wave, "lamd", 1064e-9))
+        wavelength = getattr(wave, "wavelength", getattr(wave, "lamd", LASER_WAVELENGTH_M))
 
         phase = self._generate_kolmogorov_phase(
             npix=npix,

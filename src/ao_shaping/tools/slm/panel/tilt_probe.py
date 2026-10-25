@@ -55,6 +55,7 @@ from ao_shaping.tools.kernels.bench_kernels import (
     ramp_panel,
 )
 from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 
 @dataclass
@@ -221,7 +222,7 @@ def main(params: TiltProbeParams) -> None:
             "Measured scale {:.0f} cam px per 1/period; theory for a {:.1f} mm "
             "aperture is f*lambda/(pi*R*camera_pixel) = {:.0f}.",
             scale, 1e3 * 450 * SLM_PITCH_M,
-            0.125 * 1064e-9 / (np.pi * 450 * SLM_PITCH_M * 2.2e-6),
+            0.125 * LASER_WAVELENGTH_M / (np.pi * 450 * SLM_PITCH_M * 2.2e-6),
         )
 
 

@@ -46,6 +46,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.sim.beam_backend import make_beam_config, turbulence_phase
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
 #: 合法的 :attr:`DisturbanceConfig.mode` 取值。
@@ -96,7 +97,7 @@ class DisturbanceConfig:
     distance_m: float = 500.0
     l_max: float = 30.0
     l_min: float = 2e-3
-    wavelength_m: float = 1064e-9
+    wavelength_m: float = LASER_WAVELENGTH_M
     pixel_pitch_m: float = 8e-6
     thermal_halo_pv_waves: float = 0.30
     thermal_halo_radius_px: float = 600.0

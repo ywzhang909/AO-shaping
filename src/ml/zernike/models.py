@@ -52,6 +52,7 @@ from loguru import logger
 from ao_shaping.algorithm.signal_processing.angular_spectrum import (
     angular_spectrum_propagate_torch,
 )
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 from ao_shaping.utils.wavefront.fraunhofer import focal_field
 from ao_shaping.utils.wavefront.zernike_calc import (
     ZernikeGenerator,
@@ -313,7 +314,7 @@ class ZernikeAmpConfig:
     far_field_padding: int = 10
     center_crop: bool = True
     propagation: Propagation = "fft"
-    wavelength: float = 1064e-9
+    wavelength: float = LASER_WAVELENGTH_M
     pixel_pitch: float = 8e-6
     distance: float = 0.1224
     asm_band_limit: bool = False

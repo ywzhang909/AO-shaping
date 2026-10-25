@@ -64,6 +64,7 @@ import numpy as np
 from loguru import logger
 from scipy import ndimage
 
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 # 硬件契约字面量 (对齐真实 Santec SLM200 驱动)。
@@ -72,7 +73,7 @@ PANEL_RES = (1920, 1200)  # (宽, 高) — 驱动约定
 PANEL_H, PANEL_W = 1920, 1200  # 标定器约定 (h, w)
 
 # 2f 傅里叶实验系统的默认光学参数。
-LAMBDA = 1064e-9
+LAMBDA = LASER_WAVELENGTH_M
 D_SLM = 8e-6
 D_CCD = 2.2e-6
 F_LENS = 0.125

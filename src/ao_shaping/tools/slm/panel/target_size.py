@@ -63,6 +63,7 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 
 __all__ = [
     "OpticalLimits",
@@ -214,7 +215,7 @@ class OpticalLimits:
 #: 是它对应的签名 —— ``TargetSizeCalibration.load(path)`` 不带 ``limits``
 #: 参数时用它校验存档是否过期。
 DEFAULT_SYSTEM = OpticalLimits(
-    wavelength_m=1064e-9,
+    wavelength_m=LASER_WAVELENGTH_M,
     focal_m=0.125,
     slm_pixels=(1200, 1920),
     pixel_pitch_m=8e-6,

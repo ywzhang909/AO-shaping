@@ -110,6 +110,7 @@ from typing import Any
 
 import numpy as np
 
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
 
@@ -288,7 +289,7 @@ class BenchTwinConfig:
         errors: 三族误差参数。
     """
 
-    wavelength_m: float = 1064e-9
+    wavelength_m: float = LASER_WAVELENGTH_M
     slm_pixel_um: float = 8.0
     ccd_pixel_um: float = 2.2
     focal_length_m: float = 0.125
@@ -308,7 +309,7 @@ class BenchTwinConfig:
         cls,
         camera_px_per_model_px: float,
         *,
-        wavelength_m: float = 1064e-9,
+        wavelength_m: float = LASER_WAVELENGTH_M,
         slm_pixel_um: float = 8.0,
         ccd_pixel_um: float = 2.2,
         region: int = 128,
@@ -953,7 +954,7 @@ class BenchTwin:
         )
         crop_px = payload.get("crop_px")
         config = BenchTwinConfig(
-            wavelength_m=float(payload.get("wavelength_m", 1064e-9)),
+            wavelength_m=float(payload.get("wavelength_m", LASER_WAVELENGTH_M)),
             slm_pixel_um=float(payload.get("slm_pixel_um", 8.0)),
             ccd_pixel_um=float(payload.get("ccd_pixel_um", 2.2)),
             focal_length_m=float(payload.get("focal_length_m", 0.125)),
