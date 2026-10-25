@@ -63,6 +63,7 @@ from ao_shaping.utils.image.exposure_control import (
     DAHENG_EXPOSURE_LIMIT_ENV,
     configured_daheng_exposure_limit,
 )
+from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
 from ao_shaping.utils.io.file import Recorder, save_recorder_debug_artifacts
 from ao_shaping.utils.io.cli_helpers import setup_coredumpy
 from ao_shaping.display import AutoDisplay, FrameInfo
@@ -553,7 +554,7 @@ def _show_best_result(res: Recorder, config: SlmSquareConfig) -> None:
 
     # Reconstruct the full-panel phase for display (freeform: upsample grid -> panel)
     phase_grid = int(config.phase_grid)
-    panel_h, panel_w = 1200, 1920
+    panel_h, panel_w = SLM_PANEL_H, SLM_PANEL_W
     cells = np.asarray(best_phase, dtype=np.float64).reshape(phase_grid, phase_grid)
     block_h = int(np.ceil(panel_h / phase_grid))
     block_w = int(np.ceil(panel_w / phase_grid))

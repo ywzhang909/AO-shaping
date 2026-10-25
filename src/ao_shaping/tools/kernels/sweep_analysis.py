@@ -59,6 +59,7 @@ import numpy as np
 
 from ao_shaping.utils.image.beam_metrics import zero_order_center
 from ao_shaping.utils.image.targets import roi_pib_metric, target_shape_roi
+from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
 from ao_shaping.utils.slm.phase_display import phase_to_slm_grayscale
 from ao_shaping.utils.wavefront.zernike_calc import zernike_modes
 from ao_shaping.utils.wavefront.zernike_utils import generate_zernike_phase
@@ -776,7 +777,7 @@ def snr_sweep(
     *,
     n_max: int = 9,
     radius: float | None = 480.0,
-    resolution: tuple[int, int] = (1920, 1200),
+    resolution: tuple[int, int] = (SLM_PANEL_W, SLM_PANEL_H),
     target_shape: str = "square",
     target_size: float = 50.0,
     deltas: Sequence[float] = DEFAULT_DELTAS,

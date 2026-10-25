@@ -49,6 +49,7 @@ import numpy as np
 from loguru import logger
 
 from ao_shaping.drivers.dm.nlight import NLight
+from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
 
 #: 本模型所镜像的物理设备。致动器数与电压上下限直接从中读取; 只有未记载的行程
 #: 是这里的建模参数。
@@ -74,7 +75,7 @@ class SimDmOptics:
     def __init__(
         self,
         n_actuators: int | None = None,
-        slm_shape: tuple[int, int] = (1200, 1920),
+        slm_shape: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W),
         v_min: float | None = None,
         v_max: float | None = None,
         stroke_um: float = UNCALIBRATED_STROKE_UM,

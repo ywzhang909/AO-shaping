@@ -120,11 +120,12 @@ from ao_shaping.tools.zernike.common import (
     require_wfs_exposure_within_safety_ceiling,
 )
 from ao_shaping.utils.cli.params import option, with_params
+from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
 from ao_shaping.utils.wavefront.pattern_helper import PatternHelper
 
 SETTLE_S = 0.2
 CAMERA_SAMPLES = 10
-PANEL_H, PANEL_W = 1200, 1920
+PANEL_H, PANEL_W = SLM_PANEL_H, SLM_PANEL_W
 DEFAULT_CONFIG = Path("data/slm_configs/slm")
 DEFAULT_OUTPUT = Path("data/calibration/defocus_shift_calib.json")
 
