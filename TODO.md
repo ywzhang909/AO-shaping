@@ -1232,6 +1232,27 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       ③ 棘轮基线的注释必须写清算术（23 + 新查出的 1，且与旧规则的 24 **不可比**）；
         写成"24, down from 24"就是一条**看起来自洽但为假**的注释——正是本轮在别处清理的那类东西。
 
+27. ✅ **表格切列的生成侧接线（第一阶段）：共享发射器已修 + 两处分隔行错列已修，棘轮 24→19**（2026-10-25）：
+    - **共享发射器**：`scripts/_common/__init__.py` 的 `markdown_table`（全仓 87 处调用）此前用 `str(cell)`
+      裸拼接，任何含 `|` 的单元都自我切列。新增 `escape_md_cell`（**幂等**：已有的 `\|` 不动；无 `|` 时短路），
+      表头与单元都过它。`generate_hw_defocus_zernike_report.py` 的 14 处表格因此**已在源头**修好
+      （`max|c| (rad)` 现发射为 `max\|c\| (rad)`），但它**已落盘**的三份报告文本仍需同步。
+    - **两处不是转义，而是分隔行列数错**（第 26 项预告的"第三种成因"）：`scripts/rl/generate_models_report.py:703`
+      给 8 列表头发射 7 格分隔行（连带 4 行判超），`scripts/slm/generate_pib_bench_report.py:462` 给 9 列表头
+      发射 10 格分隔行（连带 1 行判超）。**只改分隔行那一行**即消 5 处；产物同步改（实测两表现在
+      header = delimiter = data row）。⇒ 棘轮从 24 掉到 19 的步长不是"一行一处"，注释里写清算术。
+    - **发射路径普查（决定剩下 19 处怎么修）**：8 个受影响生成脚本里只有 `generate_hw_defocus_zernike_report.py`(14)
+      与 `generate_zernike_amp_report.py`(7) 用 `markdown_table`；其余 6 个（inverse_design / oopao_vs_numpy /
+      asm_vs_fraunhofer / farfield_sim / pib_bench / models）一律**手写行字符串** ⇒ 逐个转义其字面量。
+      另：miicam 报告的 `.md` 由 `scripts/ccd/miicam_auto_exposure_probe.py:868` 写（`tests/.../test_miicam_auto_exposure_report.py`
+      只是驱动硬件），接线点在**探针脚本**里，不在测试里。
+    - **一处产物内容是手加的（已漂移）**：`report/zernike_phase2amp/zernike_amp_report/report.md:697` 的 piston 行
+      在**当前**生成脚本里没有任何发射点（`可学习参数中排除` 全仓零命中；脚本只在 `:699` 发射同物理的**项目符号**，
+      该符号在产物 `:40`）。⇒ **重生成会删掉这一整行**。这一处只能改产物文本，同时登记：手加内容已与生成脚本漂移。
+    - **验收口径（本轮不重生成任何报告）**：实验记录重生成会动数字，属设备侧判断 ⇒ 只跑**重扫**（守卫计数）
+      与 helper 单测；`markdown_table` 的既有 characterization 测试用无 `|` 的单元，故契约兼容、逐字不变。
+    - **下一步（同项续做）**：剩余 19 处 = 6 个手写行脚本的字面量转义 + 3 份 hw_defocus 产物同步 ⇒ 棘轮到 0。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

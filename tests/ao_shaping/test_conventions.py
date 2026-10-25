@@ -2020,14 +2020,15 @@ _MD_ENTRY = re.compile(r'"([^"]+\.md)":\s*ReportProvenance\(')
 # as hand-written (measured: models_report/report.md, 4 offenders mis-bucketed).
 _MD_SCRIPT_FIELD = re.compile(r'script\s*=\s*(HANDWRITTEN|"[^"]+")')
 
-# Measured 2026-10-25: 23 rows under the row-width rule, plus 1 that only the
-# header/delimiter check can see (slm_pib_bench: a 9-cell header against a 10-cell
-# delimiter). One earlier hit was never a generated defect at all -- a hand-written
-# summary that happens to live under report/ -- and was fixed in place, so it is not
-# counted here. The generator-side unit (TODO 8.9 item 26) takes the rest to 0; until
-# then this number may only go DOWN, never up, and it is not comparable to the 24 the
-# one-directional rule reported before the header check existed.
-_MD_GENERATED_SPLIT_BASELINE = 24
+# 24 at first measurement, then -5 during the generator sweep (TODO 8.9 item 27): two
+# tables had a wrong DELIMITER row rather than wrong cells -- generate_models_report
+# declared 7 columns against an 8-column header (4 flagged rows) and generate_pib_bench
+# declared 10 against a 9-column header (1 flagged row). One line each cleared all five,
+# which is why this count moves in steps that are not row-shaped.
+# The remaining 19 are cells built by generators that hand-write row strings instead of
+# calling markdown_table, plus the three committed hw_defocus artifacts whose emitter is
+# already fixed. May only go DOWN, never up.
+_MD_GENERATED_SPLIT_BASELINE = 19
 
 
 def _unfenced_md_lines(text: str) -> list[tuple[int, str]]:
@@ -2146,12 +2147,13 @@ def test_markdown_table_rows_never_write_more_cells_than_declared() -> None:
     -- GFM pads short rows and the trailing ``|`` is optional -- and are not flagged.
 
     Generated reports are counted against a baseline rather than excluded, so a new
-    split cannot arrive silently: 24 rows across 11 generated reports are baselined, and they must be
-    fixed in the 8 generator scripts (no escaping convention exists repo-wide), which
-    TODO 8.9 item 26 tracks. Hand-written files -- hand-written reports included --
-    must stay at zero.
+    split cannot arrive silently: 19 rows across 9 generated reports are baselined.
+    The fix is on the emitting side -- cells go through ``escape_md_cell`` inside
+    ``markdown_table``, and generators that hand-write row strings are being wired to
+    the same rule (TODO 8.9 item 27). Hand-written files, hand-written reports
+    included, must stay at zero.
 
-    Measured 2026-10-25: 0 hand-written offenders, 24 generated rows, 1487 table blocks.
+    Measured 2026-10-25: 0 hand-written offenders, 19 generated rows, 1487 table blocks.
     The block bound is a measured magnitude on purpose: an inverted fence test once
     blanked every real table and scanned 0 blocks, which a ``blocks > 0`` check would
     have reported as a passing guard.
