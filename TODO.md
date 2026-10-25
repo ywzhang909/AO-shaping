@@ -1489,6 +1489,39 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       **差分三条**：只改产物 → 2 failed；只改脚本常量 → 同样 2 failed（**两个方向的漂移都被抓到**）；
       只往产物手加一节 → 棘轮抓到并点名新增标题。写点未接线那条差分在改脚本**之前**已取到。
 
+34. ✅ **给「生成报告以无人能发射的尾节收尾」建守卫：11 份产物的尾节只存在于产物里**（2026-10-25）：
+    - **缺陷**：provenance 登记的 85 份生成报告中，**11 份的最后一节**（696/441/713/503/267/569/526/
+      415/163/259/326 字节）在其 owner 脚本与**所有**被跟踪的 `scripts/`、`src/`、`tests/` 源文件里
+      都找不到对应字句，而 owner 用 `write_text` **整文件覆写**该产物 ⇒ 下次重新生成就删掉这节内容。
+    - **判据必须是内容级，不能按 `provenance.script` 核对**：该字段记的是**复现入口**，不是写盘者。
+      反例：`report/miicam_auto_exposure/miicam_auto_exposure_probe/report.md` 登记的是
+      `tests/ao_shaping/drivers/ccd/test_miicam_auto_exposure_report.py`（它 subprocess 驱动探针），
+      而 `## 运行后状态` 实际由 `scripts/ccd/miicam_auto_exposure_probe.py`（`lines.append` 处）发射。
+      按 script 字段核对会把这一节误判为孤儿（本轮 13 条候选里就有它）。
+    - **标题只是代理，所以只扫最后一节**：先前按「全部标题字面量」扫 85 份得 **346/1019 条假孤儿**
+      （`### 6.1` 之类带运行名的标题、`### gaussian__defocus__off` 都是循环里由数据拼出来的，
+      永远不会以字面量出现在脚本中）。扫**尾节**（附录 / 结论 / 复现）既覆盖本类又避开数据拼标题。
+    - **不搬回生成器，改为棘轮登记**：这 11 份的 owner 在本环境跑不起来 —— 两个要 `data/debug`
+      （`scripts/build/stage_test_data.sh` 的 `EXCLUDE_RE` 明确排除 `debug`，且所需 `summary_snr.json`
+      在暂存树与本机语料里实测**均为 0**），其余 `environment=硬件`。把正文移进无法执行的生成器，
+      只是把一个不可验证换成另一个不可验证。故用 `_UNEMITTED_FINAL_SECTIONS` 基线：
+      **出现新孤儿即失败；基线条目若已不再是孤儿也即失败**（修好必须删条目，不许基线悄悄腐烂）。
+    - **两个反空转下限**：emitter 语料 > 500（实测 1274）、扫到的生成报告 ≥ 60（实测 85）。
+      另加**跨解析器互校**：新 `_report_owners()`（AST 读 `ReportProvenance(...)` 调用）与第 26 项的
+      正则版 `_generated_report_paths()` 给出的集合必须相等 —— 两种读法一旦漂移就失败
+      （本仓已两次被重复实现的漂移咬到）。
+    - **写守卫时就发现的自指陷阱**（未上线）：基线字典逐字引用了那 11 个标题，若 emitter 语料包含
+      本测试文件自身，则每条基线都会「被记录它的守卫发射」，`stale` 一侧全部失效 ⇒ 语料排除 `__file__`。
+    - **验收**：容器 `test_conventions.py` **42 passed / 1 skipped**（新增一条守卫）；
+      `tests/ao_shaping/scripts/` **2422 passed / 1 failed**，唯一红是 wt-190 的 `_fmt` 复用守卫
+      （今日已在干净 HEAD worktree 复现，该片为 advisory、blocking=0），与本轮无关。
+      **差分两条**（scratch worktree 里先拷入改过的守卫，否则「通过」只说明守卫不存在）：
+      给某生成报告追加一个新尾节 → `1 failed … end on a section no emitter can reproduce` 并点名该产物；
+      把某基线节的标题加进其 owner → `1 failed … no longer in that state`（证明棘轮两侧都咬）。
+    - **仍开放**：把这 11 节真正搬回各自生成器，只能在能执行该生成器的机器上做（硬件会话或本地
+      `data/debug`）；`REPORTS` 没有「实际写盘者」字段，若要机器化审计需加字段，属 schema 决定
+      （本轮只在 `note` 里补了人工说明，未改语义）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

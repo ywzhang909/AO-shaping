@@ -2422,3 +2422,135 @@ def test_backticked_hex_citations_in_the_changelog_resolve_to_commits() -> None:
         "citation, re-verify against `git log` and correct the entry -- never delete the "
         "claim just to go green."
     )
+
+#: Generated reports whose FINAL section is emitted by nobody: the heading stem appears in
+#: no tracked emitter source while the owning script rewrites the whole file. Regenerating
+#: such a report deletes that section -- these are hand-pasted findings (pitfalls, follow-up
+#: ordering), i.e. exactly the content worth keeping. Measured 2026-10-25 over 85 generated
+#: reports. Pinned rather than repaired because these generators cannot be run here (环境=硬件,
+#: or data/debug which scripts/build/stage_test_data.sh excludes): moving prose into a
+#: generator nobody can execute swaps one unverifiable claim for another. Each entry is
+#: removed by moving the section into its owner and re-running that owner, not by editing
+#: this dict -- a stale entry fails the guard.
+_UNEMITTED_FINAL_SECTIONS: dict[str, str] = {
+    'report/diff_beam/diff_beam_frame_analysis/README.md': '## 9. 关联',
+    'report/shape_trials/gui_closed_loop_shaping/gui_closed_loop_shaping_20261014.md': '## 10. 相关文档',
+    'report/slm/differentiable_opt/differentiable_opt_animation_20261022.md': '## 6. 落盘数据与复现',
+    'report/slm/diffraction_efficiency/hw_blaze_20261023/report.md': '## 衍射效率算法 (如何找出 0 级与 ±1 级)',
+    'report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md': '## 与 slm-model-in-loop 的关系',
+    'report/slm/zernike_wfs_report/report.md': '## 4. 结论与注意',
+    'report/slm_pib_bench/pib_bench_report/EXPERIMENT_REPORT.md': '## 7. 复现方式',
+    'report/slm_pib_bench/pib_bench_report/report.md': '### 7.3 ROI 必须一次定位后冻结',
+    'report/slm_pib_heuristic_hw/slm_pib_heuristic_hw_report/report.md': '### 5. 原始产物',
+    'report/slm_zernike_shaping/slm_zernike_shaping_report/report.md': '## 4. SPGD',
+    'report/zernike_r2_baseline/pod_ridge/report.md': '### 若仍要继续,建议的顺序',
+}
+
+
+def _report_owners() -> dict[str, str]:
+    """``{artifact: generating script}`` for every report provenance marks generated.
+
+    ``REPORTS`` is a dict literal whose values are ``ReportProvenance(...)`` calls, so the map
+    is read off the call keywords: ``literal_eval`` over the whole literal raises on a Call node,
+    and the assignment is annotated (``ast.AnnAssign``) rather than a plain ``ast.Assign``.
+    ``script=HANDWRITTEN`` is a bare name, not a string, so both shapes count as 'generated'.
+    """
+    text = (REPO / "scripts" / "_common" / "provenance.py").read_text(encoding="utf-8")
+    literal = None
+    for node in ast.walk(ast.parse(text)):
+        target = node.target if isinstance(node, ast.AnnAssign) else (
+            node.targets[0] if isinstance(node, ast.Assign) else None
+        )
+        if target is not None and getattr(target, "id", "") == "REPORTS":
+            literal = node.value
+    assert isinstance(literal, ast.Dict), (
+        "REPORTS is no longer a dict literal -- this parser and provenance.py have diverged."
+    )
+    owners: dict[str, str] = {}
+    for key, value in zip(literal.keys, literal.values):
+        if not isinstance(key, ast.Constant) or not isinstance(value, ast.Call):
+            continue
+        script = None
+        for kw in value.keywords:
+            if kw.arg == "script":
+                script = kw.value.value if isinstance(kw.value, ast.Constant) else getattr(kw.value, "id", None)
+        if isinstance(script, str) and script != "HANDWRITTEN":
+            owners[str(key.value)] = script
+    return owners
+
+
+def test_generated_reports_do_not_end_with_a_section_nobody_emits() -> None:
+    """No generated report may finish on prose that its generator cannot reproduce.
+
+    The oracle is content-level -- the heading stem must appear in some tracked emitter -- not
+    the declared owner, because provenance's ``script`` is the *reproduce entry point*: the
+    MiiCam probe report names a hardware test that shells out to the script which actually
+    writes the file (its ``运行后状态`` section is emitted there). Auditing through that field
+    reports a clean section as drift. A heading is only a proxy, which is why the check is
+    limited to the final section -- a repo-wide heading sweep flagged 346 of 1019 headings,
+    nearly all of them composed from data inside a loop and therefore never literals.
+    """
+    import subprocess
+
+    owners = _report_owners()
+    generated, _handwritten = _generated_report_paths()
+    assert set(owners) == generated, (
+        f"the two provenance readers disagree ({len(set(owners) - generated)} / "
+        f"{len(generated - set(owners))}): {sorted(set(owners) ^ generated)[:4]} -- one of them "
+        "has stopped matching provenance.py's schema."
+    )
+
+    tracked = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout.split(b"\0")
+    emitters: dict[str, str] = {}
+    self_rel = Path(__file__).relative_to(REPO).as_posix()
+    for raw in tracked:
+        rel = raw.decode("utf-8", errors="replace")
+        # Only code and templates can emit prose: another report quoting a heading, or the
+        # report/README.md index listing a title, is not evidence the section is reproducible.
+        # This module is skipped as well -- its baseline dict quotes every baselined heading,
+        # so counting it would let each recorded section look emitted by the guard recording it.
+        if (
+            rel != self_rel
+            and rel.startswith(("scripts/", "src/", "tests/"))
+            and (REPO / rel).is_file()
+        ):
+            emitters[rel] = (REPO / rel).read_text(encoding="utf-8", errors="replace")
+    assert len(emitters) > 500, (
+        f"only {len(emitters)} emitter file(s) scanned -- the corpus is empty or git ls-files "
+        "failed, so 'emitted by nobody' would be measuring nothing."
+    )
+
+    scanned = 0
+    orphans: dict[str, str] = {}
+    for path in sorted(owners):
+        artifact = REPO / path
+        if not artifact.is_file():
+            continue
+        text = artifact.read_text(encoding="utf-8", errors="replace")
+        heads = [ln.strip() for ln in text.splitlines() if re.match(r"^#{2,3} ", ln)]
+        if not heads:
+            continue
+        scanned += 1
+        last = heads[-1]
+        stem = re.sub(r"^#+\s*", "", last)
+        if not any(stem in src for src in emitters.values()):
+            orphans[path] = last
+    assert scanned >= 60, (
+        f"only {scanned} generated report(s) scanned; provenance lists "
+        f"{len(owners)} -- the sweep stopped covering the corpus."
+    )
+
+    fresh = {p: h for p, h in orphans.items() if p not in _UNEMITTED_FINAL_SECTIONS}
+    assert not fresh, (
+        f"{len(fresh)} generated report(s) end on a section no emitter can reproduce: {fresh}. "
+        "Write the section in the generating script and re-run it; pasting it into the "
+        "artifact loses it the next time anyone regenerates that report."
+    )
+    stale = {p: h for p, h in _UNEMITTED_FINAL_SECTIONS.items() if orphans.get(p) != h}
+    assert not stale, (
+        f"{len(stale)} baselined section(s) are no longer in that state: {stale}. Either the "
+        "section was moved into its generator (good -- drop the entry) or the artifact was "
+        "rewritten behind the baseline; check which before touching the dict."
+    )
