@@ -7,6 +7,12 @@ irradiance scaling were copy-pasted between them, and the wavelength /
 panel constants were hardcoded at each site (issue #199 R2/P5). This
 module is the single source for that shared math.
 
+The bench-level physical constants (panel size, pixel pitch, wavelength)
+themselves live in the zero-import leaf
+:mod:`ao_shaping.utils.slm.bench_constants` and are re-exported here under
+the names the two forward classes import, so this module never becomes a
+second declaration site for them.
+
 Every helper is written so a class that switches to it keeps its exact
 arithmetic: the expressions are the ones the classes used inline, in the
 same evaluation order, so the extraction moves no number. That property
@@ -31,17 +37,26 @@ from typing import Any
 
 import numpy as np
 
-#: SLM panel geometry (height, width) in pixels.
-PANEL_H, PANEL_W = 1200, 1920
+from ao_shaping.utils.slm.bench_constants import (
+    LASER_WAVELENGTH_M,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+)
+
+#: SLM panel geometry (height, width) in pixels. Delegated to
+#: :mod:`ao_shaping.utils.slm.bench_constants` (R-47 single source) -- these
+#: aliases keep the names both forward classes already import.
+PANEL_H, PANEL_W = SLM_PANEL_H, SLM_PANEL_W
 #: Panel pitch expressed in panel pixels: a ``size`` x ``size`` control grid
 #: covers the full 1920 px width, i.e. ``pitch = PANEL_PITCH_PX / size``.
 PANEL_PITCH_PX = 1920.0
 #: Pupil half-span in panel pixels (the illuminated disk is 2x this).
 PANEL_HALF_SPAN_PX = 960.0
 #: SLM pixel pitch in metres.
-PANEL_PIXEL_PITCH_M = 8e-6
+PANEL_PIXEL_PITCH_M = SLM_PITCH_M
 #: Laser wavelength in metres (YAG).
-WAVELENGTH_M = 1064e-9
+WAVELENGTH_M = LASER_WAVELENGTH_M
 #: Illumination ceiling in panel pixels (rows at/above it are masked out).
 PANEL_ILLUMINATION_CEILING_PX = 1200.0
 #: Irradiance reference the scaling below is normalised against.

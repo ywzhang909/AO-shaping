@@ -48,6 +48,9 @@ SLM_PANEL_W = 1920
 SLM_PANEL_H = 1200
 #: SLM pixel pitch in metres.
 SLM_PITCH_M = 8e-6
+#: Laser wavelength in metres (YAG, 1064 nm). Single source of truth -- do
+#: not re-declare it; 14 call sites used to spell out ``1064e-9`` inline.
+LASER_WAVELENGTH_M = 1064e-9
 #: Illuminated beam centre in **panel** px (x, y). NOT a camera coordinate: the
 #: two frames are swapped 90 deg and differ >10x in scale.
 BEAM_CENTER_PANEL = (960, 600)
