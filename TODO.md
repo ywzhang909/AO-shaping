@@ -1849,6 +1849,47 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       特性**，不是本次回归，也不是该目录的缺陷。结论：这种档位下宽范围跑给不出判据，正确做法是把证据打在
       变更的爆炸半径上 —— 只跑受影响的 9 个文件，**33 s** 即得 103 passed / 1 skipped。另注：
       `pyproject.toml` 已因同类原因把 `tests/ao_shaping/ml` 排除出裸跑默认，`optimizer/` 没有这层保护。
+43. ✅ **两处 `pytest.raises(Exception)` 让测试接受任何异常；补守卫（并记下四条被普查否证的候选类）**（2026-10-25）：
+    - **普查数值**：`tests/` 的 **507** 个 `.py` 里共有 `pytest.raises(...)` 调用点 **978** 处，其中**裸 `Exception`
+      只有 2 处**。本仓惯用**具名**异常（643 `ValueError`、55 `RuntimeError`、42 `SystemExit`、37 `TypeError`、
+      12 `click.BadParameter`），所以这 2 处是离群点，不是一种需要保留的风格。裸 `Exception` 的问题是
+      **任何异常都算通过**：被测代码因重构抛 `TypeError`、因改名抛 `AttributeError`，测试照样绿。
+    - **修法都有出处，不是猜的**：
+      * `tests/ao_shaping/utils/test_shaping_objective.py:612` → `dataclasses.FrozenInstanceError`。依据是
+        `utils/image/target/objective.py:323` 的 `@dataclass(frozen=True)`（且该类 docstring 就写着结果是不可变快照）。
+        这条**离线可执行**：与 `test_conventions.py` 同跑 **107 passed / 2 skipped**（两处 skip 分别是硬件门控与
+        沙箱里没有 ruff 在 PATH）。
+      * `tests/ao_shaping/drivers/ccd/test_exposure_states.py:105` → `click.BadParameter`。依据是
+        `utils/cli/exposure.py:111` 的 `def _reject(...) -> click.BadParameter`，且 `resolve_exposure` 的
+        `Raises:` 段明写该类型、所有拒绝路径都是 `raise _reject(...)`。⚠️ 这条测试本身是**硬件门控**（同文件
+        L45-49 模块级 skip），本机无法执行断言 ⇒ 我改为**取证于同参数同调用的离线测试**
+        `tests/ao_shaping/runners/test_exposure_cli_token.py:127-128`（`resolve_exposure("0", param_hint=HINT)`
+        包在 `pytest.raises(click.BadParameter)` 里），该文件与 `utils/test_cli_helpers.py` 同跑 **65 passed**。
+        同时把 `import click` 放在门控**之上**（L41），这样 collect 阶段就会解析它 —— 容器里该模块按预期
+        SKIPPED 而**收集成功**，说明依赖不是哑弹。
+    - **新守卫** `test_pytest_raises_names_a_specific_exception`（`tests/ao_shaping/test_conventions.py`，
+      root-guards 片，blocking）：AST 扫 `tests/`，匹配 `pytest.raises(...)` 且**位置参数是裸 `Exception` /
+      `BaseException` 名字**；`(ValueError, TypeError)` 这类具名元组不命中。解析失败**收集并断言为空**
+      （静默跳过会让下面那个计数替一个被悄悄缩小的语料背书）。下限 `_MIN_PYTEST_RAISES_CALLS = 400`
+      （实测 978 / 507）。守卫不会命中自己：docstring 与注释里出现的 `pytest.raises(Exception)` 是字符串常量，
+      不是 `Call` 节点。
+    - **差分**：守卫先上线、测试不动 ⇒ **红**，逐条点名那 2 处（**没有一处是我注入的**；`50 deselected` 同时
+      证明守卫确实被收集而非空跑）；两处修完 ⇒ **绿**。
+    - **四条被普查否证的候选守卫**（数字在此，免得将来重建成假缺陷发生器）：(a) 「类内重复定义 ⇒ 方法被遮蔽」
+      命中 12 处，**全是 `@property` / `@xxx.setter` 配对** —— 合法惯用法，不建；(b) 「只含 docstring / `pass`
+      的空测试」**0** 处；(c) 「类级可变字面量」24 处几乎全是**约定或只读常量**（Gymnasium 环境的 `metadata`、
+      `ctypes.Structure._fields_`、测试类的 `_enums_to_check` / `NOLLS` 等），硬建会一次产生约 24 个假缺陷，不建；
+      (d) 「`assert` 被自己的 `except` 吞掉」**0** 处（`except Exception: pass` 虽有 111 处，但那是第 42 项已记的
+      可选后端兜底问题，与断言无关）。
+    - **再记两次自伤**：(1) 我用**下标**编辑文件：先插入一行 `import click`，随后仍按**旧下标**写 `L[104]` ——
+      那一行此时已经变成函数 docstring，于是把 docstring 覆盖成 `with` 行，制造出两个叠在一起的 `with`
+      （`IndentationError`）。处置：`git checkout --` 回到 HEAD（并 grep 计数确认第 39 项的 `r"""` 修复仍在，
+      不是被回滚掉），再**只用内容替换 + `count == 1` 断言**重做。教训：**插入之后任何下标定位都会错位**，
+      改文件一律按内容而非行号。(2) `echo '... site B's test ...'` 单引号里带撇号，命令在引号处
+      「寻找匹配的 `' 时遇到了未预期的 EOF」被截断（本会话第三次同类）—— echo 里不得出现撇号与反引号。
+    - **已知边界（不假装类别已封死）**：若某处**确实故意**接受任何异常（只断言「必须抛错」），零容忍会挡住它；
+      目前这样的用例为 0，真要豁免得引入显式标记，届时再定，不预先开口子。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

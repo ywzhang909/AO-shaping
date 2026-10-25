@@ -18,6 +18,8 @@ never imported by ``targets.py`` itself.
 
 from __future__ import annotations
 
+from dataclasses import FrozenInstanceError
+
 import numpy as np
 import pytest
 
@@ -609,7 +611,7 @@ class TestObjectiveResult:
 
     def test_is_frozen(self) -> None:
         res = ObjectiveResult(1.0, 0.5, 0.5)
-        with pytest.raises(Exception):
+        with pytest.raises(FrozenInstanceError):
             res.j = 2.0  # type: ignore[misc]
 
     def test_tracking_is_required(self) -> None:

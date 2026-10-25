@@ -3112,3 +3112,77 @@ def test_no_mutable_default_arguments() -> None:
         "calls. Use an immutable literal (tuple / frozenset), ``None`` with a body-level "
         "fallback, or ``field(default_factory=...)`` in a dataclass."
     )
+
+
+#: ``pytest.raises(Exception)`` accepts *any* error, so the test keeps passing when the
+#: code under test fails for an unrelated reason -- a ``TypeError`` from a refactor or an
+#: ``AttributeError`` from a rename would both satisfy it. This is not a house style worth
+#: preserving: the repo already names the exception almost everywhere (643 ``ValueError``,
+#: 55 ``RuntimeError``, 37 ``TypeError``, 12 ``click.BadParameter``), leaving two bare
+#: outliers. A tuple of specific exceptions is fine and is not flagged.
+_RAISES_BARE_TYPES = frozenset({"Exception", "BaseException"})
+#: Floor on collected ``pytest.raises`` call sites: measured 978 across 507 test files,
+#: of which these 2 are bare -- outliers, not a house style. A finder that matched
+#: nothing would otherwise pass by checking nothing (TODO 8.9 items 32, 34, 38, 40-42).
+_MIN_PYTEST_RAISES_CALLS = 400
+
+
+def test_pytest_raises_names_a_specific_exception() -> None:
+    """Every ``pytest.raises`` in the suite must name a concrete exception type.
+
+    The two bare sites were provable from the code they test: ``_reject`` returns
+    ``click.BadParameter`` and every rejection path in ``resolve_exposure`` raises it,
+    while ``ObjectiveResult`` is ``@dataclass(frozen=True)``, whose assignment raises
+    ``FrozenInstanceError``. Both replacements were therefore derived, not guessed --
+    which matters because one of the two tests needs real hardware to run.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    files = [
+        t.decode("utf-8", errors="replace")
+        for t in listing.split(b"\0")
+        if t and t.decode("utf-8", errors="replace").endswith(".py")
+        and t.decode("utf-8", errors="replace").startswith("tests/")
+    ]
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    calls = 0
+    for rel in sorted(files):
+        text = (REPO / rel).read_text(encoding="utf-8-sig", errors="replace")
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            fn = node.func
+            if not (isinstance(fn, ast.Attribute) and fn.attr == "raises"
+                    and isinstance(fn.value, ast.Name) and fn.value.id == "pytest"):
+                continue
+            calls += 1
+            for arg in node.args:
+                if isinstance(arg, ast.Name) and arg.id in _RAISES_BARE_TYPES:
+                    offenders.append(f"{rel}:{node.lineno}: pytest.raises({arg.id})")
+
+    assert not unparsed, (
+        f"{len(unparsed)} test file(s) failed to parse: {unparsed[:5]} -- the corpus the "
+        "count below describes is smaller than the suite."
+    )
+    assert calls >= _MIN_PYTEST_RAISES_CALLS, (
+        f"found only {calls} pytest.raises call site(s), below the floor "
+        f"{_MIN_PYTEST_RAISES_CALLS} -- the finder stopped matching the suite's own idiom, "
+        "so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} pytest.raises site(s) accept any exception:\n  "
+        + "\n  ".join(offenders[:15])
+        + "\nName the exception the code actually raises (its own docstring, ``Raises:`` "
+        "block or return annotation usually states it); a tuple of specific types is also "
+        "acceptable."
+    )
