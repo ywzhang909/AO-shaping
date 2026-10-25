@@ -2917,18 +2917,23 @@ python scripts/slm/generate_slm_zernike_shaping_report.py --debug-root data/debu
 ### generate_fouriergsnet_pipeline_report.py
 
 Generates the FourierGSNet pipeline integration-test report. **Fully offline** —
-pure markdown, no hardware, no figures.
+pure markdown, no hardware, no figures. The body **and its generation stamp** are
+re-emitted verbatim: this is a frozen record of a 2026-09-22 experiment, so the
+generator never re-dates it, and `REPORT` must stay byte-identical to the
+committed artifact (pinned by
+`test_frozen_reports_reproduce_their_committed_artifact`).
 
 **Usage:**
 ```bash
 python scripts/slm/generate_fouriergsnet_pipeline_report.py
-python scripts/slm/generate_fouriergsnet_pipeline_report.py -o report/fouriergsnet_pipeline
 ```
 
 **What it does** (writes `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`):
-- Documents the 5 integration tests in
-  `tests/ao_shaping/drivers/sim/test_sim_fouriergsnet_pipeline.py` that drive
-  the REAL standalone `fouriergsnet_optimize.py` pipeline
+- Records the 5 integration tests that drove the standalone
+  `fouriergsnet_optimize.py` pipeline — **both since deleted** (`fouriergsnet_optimize.py`
+  in `f19dced5`, `test_sim_fouriergsnet_pipeline.py` and `test_fouriergsnet_optimize.py`
+  in `baefba2d`), so the paths and line numbers below are the 2026-09-22 state, not
+  current code
   (ShapingSystem → adaptive_gs_init → closed_loop → _append_final_record)
   through `SimFourierGSNetEnv` with no hardware and no pipeline modification
 - Harness decisions: narrow beam `BeamParams(region=256, w0=1.0)` (default

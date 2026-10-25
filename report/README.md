@@ -36,7 +36,7 @@
 | [`centroid_test_visualization/centroid_test_visualization/centroid_test_report_duplicate_run.md`](centroid_test_visualization/centroid_test_visualization/centroid_test_report_duplicate_run.md) | `scripts/slm/generate_centroid_test_visualization.py` | 离线 | 同一次报告的更早一次运行，仅 Generated 时间戳不同；保留作对照，正式版见 centroid_test_report.md |
 | [`diff_beam/diff_beam_frame_analysis/README.md`](diff_beam/diff_beam_frame_analysis/README.md) | `scripts/slm/diff_beam_frame_analysis.py` | 离线+硬件 | 正文为人工实测记录 (SLM200 + 大恒 CCD)；本脚本渲染逐帧产物 |
 | [`fouriergsnet_pipeline/TODO.md`](fouriergsnet_pipeline/TODO.md) | `人工撰写` | 硬件 | 实验系统光路验证待办清单 (设备 + 激光就绪后执行) |
-| [`fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`](fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md) | `scripts/slm/generate_fouriergsnet_pipeline_report.py` | 离线 | 5 项集成测试的结果记录 |
+| [`fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md`](fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md) | `scripts/slm/generate_fouriergsnet_pipeline_report.py` | 离线 | 2026-09-22 集成测试记录（冻结：正文与生成时间逐字重发；被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除） |
 | [`fouriergsnet_pipeline/hardware_run_20261001.md`](fouriergsnet_pipeline/hardware_run_20261001.md) | `人工撰写 (+gsnet_runner.py)` | 硬件 | 实验方形整形运行报告；由 slm-gsnet 命令产生 |
 | [`fouriergsnet_pipeline/next_attempt_plan.md`](fouriergsnet_pipeline/next_attempt_plan.md) | `人工撰写` | 离线+硬件 | GS 家族整形下一步尝试方案 (slm-gs-refine × FourierGSNet, 2026-10-12) |
 | [`fouriergsnet_pipeline/offline_training/report.md`](fouriergsnet_pipeline/offline_training/report.md) | `scripts/slm/generate_gsnet_offline_report.py` | 离线 | 读 data/gsnet_train/run-*/summary.json |

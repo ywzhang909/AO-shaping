@@ -1634,6 +1634,53 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       删掉的 CLI；默认 `-o report/fouriergsnet_pipeline` 并**不写**注册表里的产物路径；
       已提交产物里有 **22 行**生成器从不发射。该生成器纯 stdlib、可离线跑，所以这条产物
       **能**端到端复现，但重新生成会删掉手写结论（属第 33 项那一类取舍）⇒ 需先裁定归属再动，另立一项。
+38. ✅ **让 fouriergsnet 报告的生成器与已提交产物逐字节一致；给「离线可重跑」的生成报告建端到端复现守卫**（2026-10-25）：
+    - **由头**：第 37 项末尾登记的未决单元。三条可测缺陷：(D1) 生成器默认 `-o report/fouriergsnet_pipeline`
+      写的是 `report/fouriergsnet_pipeline/report.md`（**未被跟踪**），而注册产物在
+      `report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md` ⇒ provenance 的
+      **复现命令写不出它自己登记的那份产物**；(D2) 生成器 docstring 以现在时断言已删除的文件存在；
+      (D3) 产物比生成器多 26 行、少 11 行。
+    - **裁定方向与第 33 项相反：这次产物才是权威。** 那 26 行里是 2026-10-01 的**复核注释**：
+      `phi.cpu().numpy()` 这个 bug 已在源头修成 `phi.detach()`、8 处行号已漂移、`SETTLE_S` 现为 0.2；
+      而生成器仍把它写成「修复方向: `phi.detach().cpu().numpy()`」。**照第 33 项把手写段搬进生成器，
+      就会用过期文本覆盖一份已更正的记录。** 所以改成生成器逐字重发产物正文。
+    - **被测主体确已删除（普查核实，不是移动）**：`fouriergsnet_optimize.py` 删于 `f19dced5`；
+      `test_sim_fouriergsnet_pipeline.py` 与 `tests/ao_shaping/runners/test_fouriergsnet_optimize.py`
+      删于 `baefba2d`；索引里无同名后继。报告因此是 2026-09-22 的历史记录，§1/§4/§5 的路径按当时状态
+      保留。我在 §4 补一条 **2026-10-25** 的 `⚠️` 说明（沿用该报告已有的 2026-10-01 `⚠️` 注记惯例）
+      声明这些路径不是现存代码。
+    - **生成时间必须冻结**：原生成器用 `datetime.now()` ⇒ 重跑会把 `生成时间: 2026-09-22 12:13:32`
+      改成运行当天，既篡改「记录何时写下」又让逐字节复现永远不可能。改为把正文（含该行）逐字内嵌、
+      取消 `.format` ⇒ 守卫**不需要任何豁免**，比较就是纯字节相等。
+    - **新守卫** `test_frozen_reports_reproduce_their_committed_artifact`（`test_conventions.py`，
+      root-guards 片，blocking）：把生成器跑到 `tmp_path`（`-o` 传**绝对路径**，pathlib 遇绝对操作数会
+      替换 ⇒ 绝不写进仓库），与产物剥掉 provenance 块后的正文比对。**登记前提**：该生成器只 import
+      标准库、正文是字面量（不读 `data/`、`logs/`）。其余 84 份生成报告做不到，所以
+      `_FROZEN_REPRODUCIBLE_REPORTS` 刻意显式且短。
+    - **差分（三段，方向明确）**：先上守卫再修 ⇒ **红**，报「产物独有 26 行 / 生成器独有 11 行」
+      —— 失败归因于真实缺陷，而不是我注入的假缺陷；修后工作区**绿**；把一致状态三件套（守卫 +
+      生成器 + 产物）拷进 HEAD worktree 仍**绿**；再在产物尾部手写加一节 ⇒ **红**，报
+      「产物独有 4 行 / 生成器独有 0 行」—— 正是当初造成该缺陷的那个回归方向。
+    - **同步修掉的**：`scripts/README.md` 里 `-o report/fouriergsnet_pipeline` 那条示例（指向未被跟踪的
+      杂散路径）删除，"Documents the 5 integration tests … that drive the REAL standalone …"
+      由现在时改过去时并点名两个删除 commit；`provenance.py` 该条 `note` 增「冻结：正文与生成时间
+      逐字重发；被测脚本/测试已删除」，重跑 sync（`headers updated: 1`、`--check: clean`），并**在换块
+      之后重新验证字节相等**（5469 字符，True）。
+    - **普查负结果（不建守卫）**：试过把守卫扩成「活文档里**全限定**的 `src|scripts|tests|libs/….py`
+      路径引用必须在 git 索引里」——484 个 token 中 6 个未跟踪，逐个裁定后**只有 1 个**是真缺陷
+      （`scripts/README.md:2930`，本项已修），其余 5 个都合法：`docs/drivers_architecture.md:822` 的
+      `newbrand.py` 是「如何新增驱动」的**假设文件名**；`src/calculators/CYLON_CONVERSION_SUMMARY.md:9`
+      的 `gerchberg_saxton.py` 讲的正是**它已变成 `.pyx`**；`docs/issues_report.md` 三处是登记当时的路径。
+      机器判据分不清「假设」「已改名的历史记录」与「笔误」⇒ 与第 32、36 项同类，不建守卫。
+    - **再记三次仪表化自伤**：(1) `_UNEMITTED_FINAL_SECTIONS` 与 `REPORTS` 都是**带注解赋值**，
+      我**第三次**只匹配 `ast.Assign`，于是 dry-run 报 `entries = 0` 的**假绿灯**（0 缺陷看着像干净）——
+      只因我把「必须 ~139」写进打印才没被骗；(2) `except ValueError → "<<sentinel>>"` 把 `HANDWRITTEN`
+      变成**字符串**，于是 `isinstance(script, str)` 把 54 条手写条目误计成生成条目（真实是 85/54）；
+      (3) 我从 `provenance:end` 切分产物时把 **H1 标题划进了 provenance 块**，生成的模板丢了标题 ⇒
+      字节比较 False；若沿用「两种推导各测一次」的老写法就会漏掉。教训：**同一量只允许一种推导式**。
+    - **仍开放**：该报告 §1/§5 与 `scripts/README.md` 里的 `L814` / `L938` 一类**行号**引用，按第 32 项
+      结论仍不可判定，保留原样；`report/**` 内指向已删除代码的路径按第 35 项的历史分界不入守卫。
+
 
 
 ### 8.10 `assert` → 驱动层：三条护栏

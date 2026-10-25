@@ -2730,3 +2730,74 @@ def test_python_invocation_paths_in_docs_and_docstrings_are_tracked() -> None:
         "form -- `PYTHONPATH=src` plus a relative file path breaks as soon as the caller "
         "changes directory)."
     )
+
+
+#: Reports whose generator carries no runtime data dependency -- the body is a
+#: literal template, and it imports only the standard library. For those, the
+#: registered reproduce command must produce byte-identical content, because
+#: nothing about the machine or the corpus can legitimately change the output.
+#: Every other generated report reads ``data/`` or ``logs/`` (gitignored) and
+#: cannot be re-run here, so this list is deliberately short and explicit
+#: (TODO 8.9 item 38).
+_FROZEN_REPRODUCIBLE_REPORTS: dict[str, str] = {
+    "report/fouriergsnet_pipeline/fouriergsnet_pipeline_report/report.md":
+        "scripts/slm/generate_fouriergsnet_pipeline_report.py",
+}
+
+#: ``sync_report_provenance.py`` injects this block into the artifact; the
+#: generator itself never emits it, so the comparison strips it from the
+#: committed side.
+_PROVENANCE_BLOCK = re.compile(
+    r"<!-- provenance:start -->.*?<!-- provenance:end -->\n\n", re.S
+)
+
+
+def test_frozen_reports_reproduce_their_committed_artifact(tmp_path: Path) -> None:
+    """Re-run an offline generator and require the committed artifact byte-for-byte.
+
+    A ``script=`` registration is a claim that the named generator produces the
+    artifact. When the generator's template has drifted from the committed file,
+    that claim is false in both directions: the registered reproduce command no
+    longer yields the artifact, and the artifact holds conclusions the generator
+    cannot emit. The fouriergsnet pipeline report was exactly that -- its
+    committed copy carries a 2026-10-01 review that *retracts* the generator's
+    central finding (the ``phi.detach()`` bug was fixed at the source, and eight
+    line numbers had drifted), so re-running the registered command would have
+    overwritten a corrected record with a stale one.
+    """
+    import difflib
+
+    for art_rel, script_rel in sorted(_FROZEN_REPRODUCIBLE_REPORTS.items()):
+        art_path = REPO / art_rel
+        assert art_path.is_file(), f"registered artifact {art_rel} is missing"
+        artifact = art_path.read_text(encoding="utf-8")
+        committed_body = _PROVENANCE_BLOCK.sub("", artifact, count=1)
+        assert len(committed_body) > 1000, (
+            f"{art_rel}: stripped body is only {len(committed_body)} chars -- the "
+            "block regex matched more than the provenance header, so this comparison "
+            "would be vacuous."
+        )
+
+        # ``-o`` takes a directory; an absolute path escapes ``_REPO_ROOT`` (pathlib
+        # replaces on an absolute operand), so the repo is never written to.
+        out_dir = tmp_path / art_rel.replace("/", "_")
+        subprocess.run(
+            [sys.executable, str(REPO / script_rel), "-o", str(out_dir)],
+            check=True, cwd=str(REPO), capture_output=True,
+        )
+        emitted = (out_dir / "report.md").read_text(encoding="utf-8")
+
+        diff = list(difflib.unified_diff(
+            emitted.splitlines(), committed_body.splitlines(),
+            fromfile=f"{script_rel} (generated)", tofile=art_rel, lineterm="",
+        ))
+        assert emitted == committed_body, (
+            f"{script_rel} does not reproduce {art_rel}: "
+            f"{sum(1 for d in diff if d.startswith('+') and not d.startswith('+++'))} "
+            f"line(s) only in the artifact, "
+            f"{sum(1 for d in diff if d.startswith('-') and not d.startswith('---'))} "
+            f"only in the generator.\n" + "\n".join(diff[:40])
+            + "\nThe generator owns the registration, so its template must match the "
+            "committed record; fold any dated review note into the template rather "
+            "than editing the artifact alone."
+        )

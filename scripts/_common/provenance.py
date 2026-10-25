@@ -419,7 +419,8 @@ REPORTS: dict[str, ReportProvenance] = {
         script="scripts/slm/generate_fouriergsnet_pipeline_report.py",
         command="python scripts/slm/generate_fouriergsnet_pipeline_report.py",
         environment="离线",
-        note="5 项集成测试的结果记录",
+        note="2026-09-22 集成测试记录（冻结：正文与生成时间逐字重发；"
+             "被测脚本已在 f19dced5 删除，测试已在 baefba2d 删除）",
     ),
     "report/fouriergsnet_pipeline/hardware_run_20261001.md": ReportProvenance(
         script=HANDWRITTEN,
