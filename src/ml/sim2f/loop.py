@@ -1,4 +1,4 @@
-﻿"""Closed-loop ablation on the calibrated twin: five arms, per-family numbers.
+"""Closed-loop ablation on the calibrated twin: five arms, per-family numbers.
 
 The five arms, exactly
 ======================
@@ -564,6 +564,12 @@ def run_loop(
             )
             if probe_result.linear is not None
             else None,
+            # Bounded, so it stays readable when the one-step inverse is huge:
+            # the linear solve is reported as evidence about the bank, not as an
+            # estimate (see fit.probe).
+            "linear_cos": _cosine(probe_result.linear, truth, refit_rows)
+            if probe_result.linear is not None
+            else None,
             **_coefficient_error(c_probe, truth, refit_rows),
         }
         if not probe_result.ok:
@@ -765,6 +771,17 @@ def run_loop(
                         for sample in per_sample
                         if sample["probe"]["linear_coeff_rmse"] is not None
                     ),
+                )
+            ),
+            "linear_cos": float(
+                sum(
+                    sample["probe"]["linear_cos"]
+                    for sample in per_sample
+                    if sample["probe"]["linear_cos"] is not None
+                )
+                / max(
+                    1,
+                    sum(1 for sample in per_sample if sample["probe"]["linear_cos"] is not None),
                 )
             ),
         },

@@ -133,10 +133,10 @@ DEFAULT_RCOND = 1e-6
 #: state.
 DEFAULT_TRUST_RAD = 1.5
 
-#: Exposure ladder of :func:`noise_ladder`, milliseconds.  ``None`` would be the
-#: detector-less bench, which is the reference point the other rungs are read
-#: against, so it is listed explicitly by the caller, not defaulted to.
-DEFAULT_LADDER_EXPOSURES: tuple[float, ...] = (0.15, 1.0, 5.0, 20.0)
+#: Exposure ladder of :func:`noise_ladder`, milliseconds.  ``None`` is the
+#: detector-less bench -- the noise-free reference every other rung is read
+#: against -- so it leads the ladder rather than being defaulted away.
+DEFAULT_LADDER_EXPOSURES: tuple[float | None, ...] = (None, 0.15, 1.0, 5.0, 20.0)
 
 #: A camera read: ``phase (1, grid, grid) radians -> frame``.  The frame may be
 #: counts (a detector bench) or model intensity (a detector-less one); the
@@ -522,11 +522,10 @@ def _model_frame(bench: object, phase: Tensor) -> Tensor:
     return _prepare(frame)
 
 
-def _coefficient_vector(bench: object, coeffs: np.ndarray | Tensor | Sequence[float]) -> np.ndarray:
-    """Validate a coefficient vector against the bench's basis size.
+def _coefficient_vector(coeffs: np.ndarray | Tensor | Sequence[float]) -> np.ndarray:
+    """Validate a coefficient vector.
 
     Args:
-        bench: The bench.
         coeffs: ``(n_modes,)`` values, radians.
 
     Returns:
@@ -535,7 +534,8 @@ def _coefficient_vector(bench: object, coeffs: np.ndarray | Tensor | Sequence[fl
     Raises:
         ValueError: If the vector is not 1-D or is empty.
     """
-    array = np.asarray(coeffs, dtype=np.float64).reshape(-1)
+    array = np.asarray(coeffs.detach() if isinstance(coeffs, Tensor) else coeffs, dtype=np.float64)
+    array = array.reshape(-1)
     if array.size < 1:
         raise ValueError("a coefficient vector needs at least one element")
     return array.copy()
@@ -741,13 +741,15 @@ def probe(
 
     The linear step alone is *not* the answer on this bench.  The camera frame is
     a speckle field whose intensity is quadratic in the phase over the interval
-    the probe spans, so a one-step secant inversion inflates the estimate
-    (measured 2.7x on the calibrated twin) and leaves a coefficient RMS error as
-    large as the coefficients themselves.  The stage therefore uses the linear
-    estimate as *evidence* (it is reported, with the rank and condition number
-    that say whether the bank had any authority) and runs the same trust-region
-    fit :func:`refine` uses, from ``fit_cfg.init`` (zero by default -- measured
-    better than the linear start, see :class:`FitConfig`).
+    the probe spans, so a one-step secant inversion is inflated (measured 2.7x on
+    one draw) and points in the wrong direction once the aberration is a few
+    tenths of a radian: on the four loop states its cosine with the truth is
+    -0.01, 0.41, -0.05 and 0.09 (mean 0.11), i.e. no useful information.  The
+    stage therefore uses the linear estimate as *evidence* (it is reported, with
+    the rank and condition number that say whether the bank had any authority)
+    and runs the same trust-region fit :func:`refine` uses, from
+    ``fit_cfg.init`` (zero by default -- measured better than the linear start,
+    see :class:`FitConfig`).
 
     Args:
         bench: The bench (see :func:`build_response`).
@@ -781,6 +783,19 @@ def probe(
             linear=response.linear,
             linear_residual=response.linear_residual,
             rank=0,
+            condition=response.condition,
+        )
+    if response.rank < len(response.noll):
+        return _failure(
+            "rank-deficient probe matrix: "
+            f"rank {response.rank} of {len(response.noll)} probed mode(s); Noll "
+            f"{list(response.dropped)} cannot be identified from this bank, so a "
+            "one-step estimate would be arbitrary along them",
+            coeffs=zeros,
+            free_noll=free,
+            linear=response.linear,
+            linear_residual=response.linear_residual,
+            rank=response.rank,
             condition=response.condition,
         )
     if not free:
@@ -893,7 +908,7 @@ def refine(
         ValueError: If ``c_hat0`` does not match ``cfg.n_modes``.
     """
     resolved = FitConfig.from_aberration(cfg) if fit_cfg is None else fit_cfg
-    start = _coefficient_vector(bench, c_hat0)
+    start = _coefficient_vector(c_hat0)
     if start.size != int(resolved.n_modes):
         raise ValueError(
             f"c_hat0 has {start.size} coefficient(s), expected {int(resolved.n_modes)} "
@@ -1087,7 +1102,7 @@ def noise_ladder(
         ValueError: If the true vector does not match ``cfg.n_modes``.
     """
     resolved = FitConfig.from_aberration(cfg) if fit_cfg is None else fit_cfg
-    truth = _coefficient_vector(bench, coeffs)
+    truth = _coefficient_vector(coeffs)
     if truth.size != int(resolved.n_modes):
         raise ValueError(
             f"coeffs has {truth.size} element(s), expected {int(resolved.n_modes)}"
