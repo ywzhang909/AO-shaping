@@ -2797,6 +2797,51 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        失败对仍是既有 `pib_exit_safety` 那对）；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；
        守卫文件编译通过。
 
+69. ✅ **生成式调用图 wiki 把自己声明为 CLI 注册表的唯一权威，却发布了一个不存在的命令，并且是三个漂移的副本里那个「兜底 else」替它编造了入口函数**（2026-10-26）：
+     - **两条先作废的自我判断**：① 我原本想给「代码侧命令清单」补守卫，普查后发现
+       `tests/ao_shaping/runners/test_cli_contract_freeze.py` 已经用 `cli.commands` 把 19 个名字钉死 ⇒
+       再写一份枚举就是本仓反模式；② 我记忆里的「AGENTS 说 20 个命令」也是过时的 —— 现在 `AGENTS.md` /
+       `README.md` / `docs/user/cli-reference.md` 三处都写 19，且 §8.9 第 29 项早已把那个多出来的
+       `spgd-square` 追认成幽灵。
+     - **守卫范围的边界（不推翻旧决定）**：§8.9 第 30 项**已经否决过**「全仓禁止幽灵命令名」这条守卫 ——
+       因为 `CHANGELOG.md` / `report/` / `scripts/README.md` 里提旧名字是合法的历史叙述。本条的守卫只钉
+       **生成式 wiki 的注册表**（它自称权威），不碰散文，也不是把那条被否决的决定再端上来。
+     - **缺陷本体**：`SCHEMA.md` 写着「以 `entry/cli.md` 的 20 行注册表为唯一权威」，但那张表里有
+       `spgd-square`（它早已不是顶层命令，只是 `slm-pib` 的 `square` 子命令），而该页 frontmatter 的
+       `source:` 竟然指向 `src/ao_shaping/tools/slm/panel/diagnose.py:314` —— 一个与方形整形无关的文件。
+       文档不仅列了不存在的命令，还**为它编造了实现**。
+     - **根因是三份同逻辑副本漂移（R-25 类）**：`reg()` 循环用显式 `if/elif` 放行两个 tools 命令；
+       而 `entry/cli.md` 表格与 `cmd_page()` 两处写成 `cmd.get(key) or (lut if name == "slm-lut" else
+       diagnose.main)` 的示意形式 —— 结尾那个**兜底 else** 让任何在资产 `cmd_entries`（实测 17 键）
+       里查不到的命令
+       都拿到 diagnose 的入口。地面事实：`slm_square_run` 根本不在 `cmd_entries` 里，于是幽灵顺着 else
+       被发布成页面 / 表行 / 索引行 / 图节点。
+     - **修法**：三处收敛成唯一解析器 `cmd_qualifier`，两个 tools 命令由显式 `_TOOL_ENTRIES` 兜住，
+       **解析不到就 `LookupError`，不再猜**；注册表删掉幽灵；两处写死的「20」改成 `len(CMD_ORDER)`；
+       生成时把 `CMD_ORDER` 与 `main.py` 的 `add_command(name=…)` 互校，集合不同就 `SystemExit`
+       （实测 drift 为空，19 == 19）。
+     - **产物同步的两个实测前提**：`gen_wiki_pages.py` 读**已提交**的 JSON 资产、不重新解析源码 ⇒
+       重跑只改动 `entry/cli.md` 一个文件（20 → 19 行），我这一轮改过的源码行号没有渗进 wiki（那是
+       `0a776ab6` / `03b5dcb8` 的活）。另外生成器**从不删除**它不再产出的页面 ⇒ 幽灵页必须显式 `git rm`。
+     - **保留信息而非删掉引用**：`index.md` 的行删掉（已无指向目标）；但 `diagram/call-graph-overview.md`
+       的行与 mermaid 节点**改名**为 `slm-pib square` 而不是删除 —— 那条调用链是真的
+       （`slm_shaping_runner.square` → `optimize_slm_square` → 相机），且 `commands/slm-pib.md` 本来就已经
+       写了 `square` 子命令。普查也确认过：`scripts/` 下没有任何脚本生成 index / diagram / mmd，所以手工修
+       是对的，不是漏跑生成器。
+     - **故意留下的 stale（记录）**：`assets/diagram_layers.svg` 的标签仍是旧名。仓内脚本只产 `.mmd`
+       （`gen_diagrams.py` / `build_module_graph.py`），SVG 出自外部渲染器；它的 `viewBox` 与坐标是布局算出来的，
+       手改 `<text>` 节点会让更长的标签溢出边框 ⇒ 只能重渲染，列为待决。
+     - **新守卫用运行时注册表，不再解析第二遍**：`test_call_graph_wiki_cli_registry_tracks_main` 取
+       `from ao_shaping.main import cli`，双向断言（有幽灵页 / 有命令缺页都报）+ 表集合 + 标题里的数量，
+       并带 `_MIN_CLI_COMMANDS = 19` 地板防空转。
+     - **差分控制用真实历史缺陷，而不是造假样本**：把 HEAD 的幽灵页与修复前的 `entry/cli.md` 放回去 ⇒
+       守卫红且消息点名 `['spgd-square']`；从**修复后**备份 `cp` 回来（`cmp` 逐字节一致）⇒ 再绿。
+       另记一次工具告警：我用 `grep -c '^| '` 数表行得到 19 是**不可靠**的（它数的是该文件所有表格的行），
+       可靠做法是解析出 (名字, 入口) 对再比对集合。
+     - **验证**：conventions + `test_cli_contract_freeze` **95 passed / 1 skipped / 2 failed**（失败对仍是
+       既有 `pib_exit_safety`）；wiki 页面数 19 == `main.py` 注册数 19；生成器互校 drift 为空；
+       改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿；改动面 = 生成器 + 5 处 wiki 产物 + 守卫 + 本条。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

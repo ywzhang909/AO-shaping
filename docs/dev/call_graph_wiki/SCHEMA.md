@@ -3,7 +3,7 @@
 ## Domain
 
 本 wiki 覆盖 **AO-Shaping 仓库**（`projects/AO-shaping/repo/`）的**开发使用**：
-以 `main.py` 为根入口，梳理其 Click CLI 的 20 个命令、命令到 runner / optimizer /
+以 `main.py` 为根入口，梳理其 Click CLI 的 19 个命令、命令到 runner / optimizer /
 driver 的函数调用图，并为每个骨架函数提供"逐函数"的优化文档（签名、真实 docstring、
 入/出边调用关系、调试模式、产物落盘）。
 
@@ -24,8 +24,10 @@ driver 的函数调用图，并为每个骨架函数提供"逐函数"的优化�
   每个命令页标注了"调用链分析（自动）"段，硬件/算法/落盘均为自动可达性结果。
 - **区分已解析/未解析**：静态分析无法解析到的目标（反射、动态 import、第三方库）
   在页面里显式标为 `*(未解析/外部)*`，不硬连边。
-- 命令名 → runner 符号的映射不是纯派生的（`closed-loop`→`zernike_closed_loop_run`、
-  `spgd-square`→`slm_square_run`），以 `entry/cli.md` 的 20 行注册表为唯一权威。
+- 命令名 → runner 符号的映射不是纯派生的（`closed-loop`→`zernike_closed_loop_run`，以及
+  `slm-lut` / `slm-diagnose` 两个 tools 命令走生成器里的 `_TOOL_ENTRIES`），以 `entry/cli.md`
+  的 19 行注册表为唯一权威；`gen_wiki_pages.py` 生成时会把这份注册表与 `main.py` 的实际注册名
+  互校，不一致就直接失败（曾经的 `spgd-square` 幽灵就是这么漏进来的）。
 
 ## Frontmatter
 
@@ -62,7 +64,7 @@ source: src/ao_shaping/.../file.py:line     # 该页对应的源码锚点
 
 ## Page Thresholds
 
-- **建页**：命令（20 个全建）+ 被 ≥1 个命令直接/间接调用的**骨架**函数（optimizer、
+- **建页**：命令（19 个全建）+ 被 ≥1 个命令直接/间接调用的**骨架**函数（optimizer、
   driver 工厂、CLI 参数装饰器、LUT/矩阵/光斑工具、调试落盘）。
 - **不建页**：纯内部辅助（`_*` 私有函数、单命令内部的局部 helper）、第三方库函数、
   仅 1 处且无复用价值的琐碎工具——这些在命令页的"直接调用"列表里点到即可。

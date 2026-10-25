@@ -56,7 +56,7 @@ source: main.py + src/ao_shaping/main.py:73
 | `ga-zernike` | `runners.zernike_search_runner.run` | [[functions/optimizer-ga]]（经 [[functions/run-heuristic-search]]） |
 | `greedy-zernike` | `runners.zernike_search_runner.greedy_zernike_run` | [[functions/optimizer-greedy]] |
 | `slm-pib` | `runners.slm.slm_shaping_runner.run`（`spgd`/`heuristic` 子命令） | PIB 族（SPGD/启发式） |
-| `spgd-square` | `runners.slm.slm_shaping_runner.square` | [[functions/optimize-slm-square]] |
+| `slm-pib square` | `runners.slm.slm_shaping_runner.square` | [[functions/optimize-slm-square]] |
 | `slm-gsnet` | `runners.slm.gsnet_runner.run`（`spgd`/`heuristic`/`train`） | freeform SPGD / FourierGSNet 训练 |
 | `slm-gs-refine` | `runners.slm.gs_refine_runner.run` | GS 开环预矫正 + SPGD 细化（经 `runner_common`） |
 | `slm-model-in-loop` | `runners.slm.model_in_loop_runner.run` | 正向模型闭环（经 `runner_common`） |

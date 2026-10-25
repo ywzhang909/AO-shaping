@@ -5,6 +5,7 @@ actual docstring. No invented content.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 from collections import defaultdict
@@ -81,7 +82,6 @@ CMD_ORDER = [
     ("ga-zernike", "遗传算法 Zernike 波前优化"),
     ("greedy-zernike", "贪婪局部搜索 Zernike 波前优化"),
     ("slm-pib", "SLM Zernike 整形（spgd/heuristic 子命令）"),
-    ("spgd-square", "SLM 方形远场均匀度整形（SPGD）"),
     ("slm-gsnet", "SLM freeform 方形整形（spgd/heuristic/train）"),
     ("slm-gs-refine", "GS 预整形 + 全频随机相位 SPGD 细化"),
     ("slm-model-in-loop", "正向模型闭环方形整形（反复迭代）"),
@@ -89,7 +89,8 @@ CMD_ORDER = [
     ("slm-diagnose", "SLM 面板硬件自检（逐级定位）"),
 ]
 # explicit command -> runners-package symbol (two names don't derive from the
-# CLI name: closed-loop -> zernike_closed_loop_run, spgd-square -> slm_square_run)
+# CLI name: closed-loop -> zernike_closed_loop_run; the two tools commands live in
+# _TOOL_ENTRIES instead, since they never reach the asset's cmd_entries.
 CMD_SYMS = {
     "wf": "wf_run",
     "pib": "pib_run",
@@ -105,22 +106,69 @@ CMD_SYMS = {
     "ga-zernike": "ga_zernike_run",
     "greedy-zernike": "greedy_zernike_run",
     "slm-pib": "slm_pib_run",
-    "spgd-square": "slm_square_run",
     "slm-gsnet": "slm_gsnet_run",
     "slm-gs-refine": "slm_gs_refine_run",
     "slm-model-in-loop": "slm_model_in_loop_run",
     "slm-lut": "slm-lut",
     "slm-diagnose": "slm-diagnose",
 }
-for name, desc in CMD_ORDER:
-    key = CMD_SYMS[name]
-    qual = cmd.get(key)
+#: ``slm-lut`` and ``slm-diagnose`` are tools commands, so they never appear in the
+#: asset's ``cmd_entries``; they are the only tolerated misses, named explicitly.
+_TOOL_ENTRIES = {
+    "slm-lut": "ao_shaping.tools.slm.calibration.lut_runner.run",
+    "slm-diagnose": "ao_shaping.tools.slm.panel.diagnose.main",
+}
+
+
+def cmd_qualifier(name):
+    """Resolve a CLI name to its entry function, or refuse to invent one.
+
+    Two of the three copies of this lookup used to end in a bare ``else`` that handed
+    back diagnose's entry point for *any* unresolved name, so a command that was no
+    longer registered still got published -- page, table row and index entry -- with a
+    fabricated mapping, in a wiki whose SCHEMA calls this table the authority on the
+    CLI surface.
+    """
+    qual = cmd.get(CMD_SYMS[name]) or _TOOL_ENTRIES.get(name)
     if qual is None:
-        if name == "slm-lut":
-            qual = "ao_shaping.tools.slm.calibration.lut_runner.run"
-        elif name == "slm-diagnose":
-            qual = "ao_shaping.tools.slm.panel.diagnose.main"
-    reg(f"commands/{name}", qual, f"{name} — {desc}", ["command"], "command")
+        raise LookupError(
+            f"{name}: no entry function for {CMD_SYMS[name]!r} in cmd_entries -- if the "
+            "command is gone, drop it from CMD_ORDER/CMD_SYMS; if it is a tools command, "
+            "add it to _TOOL_ENTRIES"
+        )
+    return qual
+
+
+def registered_cli_commands():
+    """The names ``main.py`` registers, read from its AST.
+
+    The registry above is hand-maintained and had already kept a retired command while
+    stating the count as a literal, so generation now stops if the two disagree.
+    """
+    tree = ast.parse((REPO / "src" / "ao_shaping" / "main.py").read_text(encoding="utf-8"))
+    names = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "add_command"
+        ):
+            for kw in node.keywords:
+                if kw.arg == "name" and isinstance(kw.value, ast.Constant):
+                    names.add(kw.value.value)
+    return names
+
+
+_drift = sorted({name for name, _ in CMD_ORDER} ^ registered_cli_commands())
+if _drift:
+    raise SystemExit(
+        f"wiki CLI registry disagrees with main.py on {len(_drift)} name(s): {_drift} "
+        "-- regenerate the asset or fix CMD_ORDER before publishing a wrong table"
+    )
+
+
+for name, desc in CMD_ORDER:
+    reg(f"commands/{name}", cmd_qualifier(name), f"{name} — {desc}", ["command"], "command")
 
 reg("functions/optimizer-rms-dm", "ao_shaping.optimizer.wf.rms.optimizer_rms_dm",
     "optimizer_rms_dm（DM 电压 SPGD 波前 RMS 优化）", ["optimizer", "wavefront", "spgd"], "function")
@@ -345,26 +393,24 @@ def entry_cli():
             "debug 判定为 `get_debug_mode() or bool(debug)`，即 `--debug` 旗标、环境变量 `DEBUG=1/true` 任一开启即生效" \
             "（详见 [[functions/debug-mode]]），开启后 loguru 切到 DEBUG 级日志。\n\n"
     body += "(2) 通过 `ctx.ensure_object(dict)` 把 `dir` 与 `debug` 存入 `ctx.obj`，供子命令经 `@click.pass_context` 读取。\n\n"
-    body += "(3) 注册 20 个子命令（18 个 runner 符号 + 2 个 tools 命令）。命令注册采用 **懒加载**：" \
-            "`ao_shaping.runners.__init__` 用模块级 `__getattr__` + `_LAZY_RUNNERS` 映射，" \
-            "只有命令真正被调用时才 import 对应 runner 模块（避免 `python -m` 时的 sys.modules 警告，见 R-27）。\n\n"
+    body += (
+        f"(3) 注册 {len(CMD_ORDER)} 个子命令（{len(CMD_ORDER) - len(_TOOL_ENTRIES)} 个 runner "
+        f"符号 + {len(_TOOL_ENTRIES)} 个 tools 命令）。命令注册采用 **懒加载**："
+        "`ao_shaping.runners.__init__` 用模块级 `__getattr__` + `_LAZY_RUNNERS` 映射，"
+        "只有命令真正被调用时才 import 对应 runner 模块"
+        "（避免 `python -m` 时的 sys.modules 警告，见 R-27）。\n\n"
+    )
     body += "## 签名\n\n```python\ndef cli(ctx: click.Context, dir: str, debug: bool | None)\n```\n\n"
-    body += "## 注册的 20 个命令\n\n"
+    body += f"## 注册的 {len(CMD_ORDER)} 个命令\n\n"
     body += "| 命令 | runner 入口函数 | 页面 |\n|---|---|---|\n"
     for name, desc in CMD_ORDER:
-        key = CMD_SYMS[name]
-        qual = cmd.get(key) or (
-            "ao_shaping.tools.slm.calibration.lut_runner.run" if name == "slm-lut"
-            else "ao_shaping.tools.slm.panel.diagnose.main")
+        qual = cmd_qualifier(name)
         body += f"| `{name}` | `{qual.split('.',1)[1]}` | [[commands/{name}]] |\n"
     body += "\n## 调用关系\n\n- 被 `main.py` 的 `__main__` 块调用\n- 调用 [[functions/debug-mode|`get_debug_mode`]]\n- 分发到各 [[commands/wf|命令入口]]（下表）\n"
     return "entry/cli.md", body
 
 def cmd_page(name, desc):
-    key = CMD_SYMS[name]
-    qual = cmd.get(key) or (
-        "ao_shaping.tools.slm.calibration.lut_runner.run" if name == "slm-lut"
-        else "ao_shaping.tools.slm.panel.diagnose.main")
+    qual = cmd_qualifier(name)
     info = nodes.get(qual)
     if not info:
         return f"commands/{name}.md", f"## {name}\n\n（未在调用图中解析到入口函数 {qual}）\n"

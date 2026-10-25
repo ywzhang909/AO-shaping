@@ -35,7 +35,7 @@ flowchart TD
 
     subgraph G5["SLM 光束整形族 (方形 / PIB / 自由相位)"]
         C51["slm-pib<br/>slm_shaping_runner.run() + spgd/heuristic 子命令"]
-        C52["spgd-square<br/>slm_shaping_runner.square()"]
+        C52["slm-pib square<br/>slm_shaping_runner.square()"]
         C53["slm-gsnet<br/>gsnet_runner.run() + spgd/heuristic/train"]
         C54["slm-gs-refine<br/>gs_refine_runner.run()"]
         C55["slm-model-in-loop<br/>model_in_loop_runner.run()"]

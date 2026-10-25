@@ -3821,3 +3821,58 @@ def test_the_paper_version_pin_in_index_tracks_the_paper() -> None:
         f"opens with {paper.group(1)}（{paper.group(2)} 修订） -- restate the version in the "
         "index row in the same commit that bumps the paper"
     )
+#: The generated call-graph wiki declares itself the authority on the CLI surface
+#: (``SCHEMA.md``: ``entry/cli.md`` 的注册表为唯一权威), so its table, its per-command pages and
+#: its stated count are assertions about ``main.py`` -- not prose that may remember a retired
+#: name. ``AGENTS.md`` / ``CHANGELOG.md`` legitimately discuss ``spgd-square`` as history; this
+#: scope deliberately excludes them (the repo-wide version of this guard was rejected once
+#: already, TODO 8.9 item 30).
+_WIKI_DIR = REPO / "docs" / "dev" / "call_graph_wiki"
+_WIKI_COUNT_HEAD = re.compile(r"^## 注册的 (\d+) 个命令", re.MULTILINE)
+#: Floor measured 2026-10-26: 19 registered commands and 19 pages. A guard that parses
+#: nothing passes vacuously, so a shape change has to be loud.
+_MIN_CLI_COMMANDS = 19
+
+
+def test_call_graph_wiki_cli_registry_tracks_main() -> None:
+    """The wiki's CLI registry must be exactly what ``main.py`` registers.
+
+    Regression: the generator's command list kept the retired ``spgd-square`` after it stopped
+    being a top-level command, and two of its three qualifier lookups ended in a bare ``else``
+    that handed back the diagnose entry point -- so a page was published for a command that did
+    not exist, claiming a source file it never touched.
+    """
+    from ao_shaping.main import cli  # the runtime registry, not a second parse of main.py
+
+    registered = set(cli.commands)
+    assert len(registered) >= _MIN_CLI_COMMANDS, (
+        f"main.py registers {len(registered)} command(s), below the floor "
+        f"{_MIN_CLI_COMMANDS} -- the import found a degraded CLI"
+    )
+
+    pages = {path.stem for path in (_WIKI_DIR / "commands").glob("*.md")}
+    assert pages, "no command pages under docs/dev/call_graph_wiki/commands -- wrong wiki path"
+    ghost_pages = sorted(pages - registered)
+    assert not ghost_pages, (
+        f"{len(ghost_pages)} wiki command page(s) name something main.py does not register: "
+        f"{ghost_pages}. Drop the page and its index/diagram rows, or register the command."
+    )
+    missing_pages = sorted(registered - pages)
+    assert not missing_pages, (
+        f"{len(missing_pages)} registered command(s) have no wiki page: {missing_pages} -- "
+        "regenerate the wiki (scripts/call_graph/gen_wiki_pages.py)"
+    )
+
+    cli_page = (_WIKI_DIR / "entry" / "cli.md").read_text(encoding="utf-8")
+    table = set(re.findall(r"^\| `([a-z][a-z0-9-]+)` \| `", cli_page, re.MULTILINE))
+    assert table, "the entry/cli.md registry table parsed to nothing -- its shape changed"
+    assert table == registered, (
+        f"entry/cli.md's registry table disagrees with main.py: only-in-table="
+        f"{sorted(table - registered)} only-in-main={sorted(registered - table)}"
+    )
+
+    head = _WIKI_COUNT_HEAD.search(cli_page)
+    assert head, "entry/cli.md lost its '## 注册的 N 个命令' heading -- the count went literal again"
+    assert int(head.group(1)) == len(registered), (
+        f"entry/cli.md states {head.group(1)} command(s) but main.py registers {len(registered)}"
+    )
