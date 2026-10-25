@@ -4004,6 +4004,65 @@ _ENV_ALLOWLIST: tuple[str, ...] = ()
 #: so the parse has to be loud about its own scope.
 _MIN_ENV_NAMES_READ = 15
 
+#: Platform-provided names that production code reads but this repo does not define.
+#: Requiring a doc entry for them would mean documenting Windows or Linux itself.
+_OS_ENV_NAMES: tuple[str, ...] = ("COMPUTERNAME", "USERPROFILE", "XDG_DATA_HOME")
+
+
+def test_env_names_read_by_code_are_documented() -> None:
+    """Every environment name production code reads is named in a live document.
+
+    The case-collision guard checks one direction; this checks the other. A knob can be read at
+    runtime, honoured, and still be undiscoverable: the census over 21 read names found 11
+    repo-owned ones in no live document -- four ``*_CONFIG_DIR`` overrides, three vendor SDK/DLL
+    path seams, one optional OOPAO source path, and three debug/tuning switches -- beside 3
+    OS-provided names that are exempted rather than documented.
+    """
+    found, unparsed, scanned = _env_names_read_by_code()
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) could not be parsed, so this guard saw nothing inside them: "
+        f"{unparsed}"
+    )
+    assert len(found) >= _MIN_ENV_NAMES_READ, (
+        f"only {len(found)} environment name(s) parsed over {scanned} file(s), below the floor "
+        f"{_MIN_ENV_NAMES_READ} -- the extractor stopped matching how this repo reads env vars"
+    )
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+
+    corpus: dict[str, str] = {}
+    for rel in tracked:
+        if not rel.endswith(".md") or rel == "CHANGELOG.md":
+            continue
+        path = REPO / rel
+        if _is_historical(path):
+            continue
+        corpus[rel] = path.read_text(encoding="utf-8", errors="replace")
+    assert len(corpus) >= 40, (
+        f"only {len(corpus)} live document(s) scanned -- the corpus disappeared, so a pass here "
+        "would only prove the search was empty"
+    )
+
+    missing: dict[str, list[str]] = {}
+    for name, sites in found.items():
+        if name in _OS_ENV_NAMES:
+            continue
+        if not any(name in text for text in corpus.values()):
+            missing[name] = sorted(sites)[:3]
+
+    assert not missing, (
+        f"{len(missing)} environment name(s) are read by production code but appear in no live "
+        f"document ({len(corpus)} docs scanned, {len(_OS_ENV_NAMES)} OS-provided names exempted):\n  "
+        + "\n  ".join(f"{n} <- {v}" for n, v in sorted(missing.items()))
+        + "\nDocument each in the Environment Variables section of AGENTS.md with its default "
+        "value and what it changes: a knob nobody can find is a knob nobody can set."
+    )
+
+
 _QUOTED_PY_PATH = re.compile(
     r"""[`'"]((?:src|scripts|tests)/[A-Za-z0-9_./-]+\.py)(?::\d+)?[`'"]"""
 )
