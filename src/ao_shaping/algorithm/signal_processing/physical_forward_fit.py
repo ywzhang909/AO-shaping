@@ -6,9 +6,29 @@ from datetime import datetime, timezone
 
 import numpy as np
 
+from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
+    PANEL_PITCH_PX,
+    PANEL_W,
+    camera_sample_grids,
+    defocus_phase,
+    diopter_scale,
+    gaussian_amplitude,
+    irradiance_scale,
+    panel_grid,
+    sample_intensity,
+    subpixel_offsets,
+)
+
 
 class PhysicalForwardFit:
-    """Nine-parameter shared physical fit with fixed camera geometry."""
+    """Nine-parameter shared physical fit with fixed camera geometry.
+
+    The panel geometry, Gaussian illumination, camera sampling grids and FFT
+    irradiance scaling live in ``defocus_forward_core`` (issue #199 R2), shared
+    bit-for-bit with ``FrozenDefocusForward``; this class keeps only the
+    fitting-specific parts (trainable defocus / origin / amplitude, the
+    control-grid Zernike basis, batching).
+    """
 
     def __init__(self, phases, images, camera_xy, matrix, focus_diopter, train_mask,
                  amplitude_center, *, learn_amplitude=False, initial_defocus=None,
@@ -24,7 +44,7 @@ class PhysicalForwardFit:
         size = self.phases.shape[-1]
         if self.phases.ndim != 3 or self.phases.shape[-2] != size or size < 8:
             raise ValueError("phases must be square batched grids of size >= 8")
-        self.pitch = 1920. / size
+        self.pitch = PANEL_PITCH_PX / size
         self.fft_size = fft_size or 4 * size
         if self.fft_size < size or self.fft_size % 2 or pixel_samples < 1:
             raise ValueError("require even fft_size >= phase grid, pixel_samples >= 1")
@@ -38,11 +58,8 @@ class PhysicalForwardFit:
                                np.nan_to_num(generate_zernike_phase({4: 1.0}, (size, size))),
                                dtype=torch.float32)
         # Z4 = sqrt(3)*(2*r^2 - 1); pupil half-span is 960 panel pixels.
-        self.diopter_scale = float(np.pi * (960 * 8e-6) ** 2 / (2 * np.sqrt(3) * 1064e-9))
-        y, x = torch.meshgrid(torch.arange(size), torch.arange(size), indexing="ij")
-        self.panel_x = x.float() * self.pitch
-        self.panel_y = y.float() * self.pitch
-        self.panel_mask = (self.panel_y < 1200).float()
+        self.diopter_scale = diopter_scale()
+        self.panel_x, self.panel_y, self.panel_mask = panel_grid(torch, size)
         d = -focus_diopter if initial_defocus is None else initial_defocus
         self.d = torch.nn.Parameter(torch.tensor(float(d)))
         # Use one shared optical-axis intercept, not per-image fitted shifts.
@@ -70,28 +87,23 @@ class PhysicalForwardFit:
     def prediction(self):
         torch = self.torch
         width = self.log_width.exp()
-        amplitude = torch.exp(-((self.panel_x - self.center[0]) / width[0]) ** 2
-                              -((self.panel_y - self.center[1]) / width[1]) ** 2) * self.panel_mask
-        phase = self.phases + self.d * self.diopter_scale * self.z4
-        if self.residual_basis is not None:
-            phase = phase + torch.einsum("i,ijk->jk", self.residual, self.residual_basis)
-        grids = []
-        for iy in range(self.pixel_samples):
-            for ix in range(self.pixel_samples):
-                offset = self.xy.new_tensor([(ix+.5)/self.pixel_samples-.5,
-                                             (iy+.5)/self.pixel_samples-.5])
-                frequencies = (self.xy + offset - self.origin) @ self.inverse.T
-                fft_indices = frequencies * (self.fft_size * self.pitch) + self.fft_size//2
-                grids.append(2 * fft_indices / (self.fft_size-1) - 1)
+        amplitude = gaussian_amplitude(torch, self.panel_x, self.panel_y, self.center, width,
+                                       self.panel_mask)
+        grids = camera_sample_grids(
+            torch, self.xy, self.origin, self.inverse,
+            subpixel_offsets(torch, self.pixel_samples, device=self.xy.device),
+            fft_size=self.fft_size, pitch=self.pitch)
         predictions = []
-        for start in range(0, len(phase), self.batch_size):
-            field = amplitude * torch.exp(1j * phase[start:start+self.batch_size])
+        for start in range(0, len(self.phases), self.batch_size):
+            phase = defocus_phase(torch, self.phases[start:start+self.batch_size], self.d,
+                                  self.diopter_scale, self.z4,
+                                  residual_values=self.residual,
+                                  residual_basis=self.residual_basis)
+            field = amplitude * torch.exp(1j * phase)
             intensity = self.propagate(field, self.fft_size)
             # Preserve physical irradiance units when input pitch or FFT changes.
-            intensity = intensity * (self.pitch**2 * self.fft_size / (15**2 * 512))**2
-            sampled = sum(torch.nn.functional.grid_sample(
-                intensity[:, None], grid[None].expand(len(intensity), -1, -1, -1),
-                align_corners=True, padding_mode="zeros")[:, 0] for grid in grids) / len(grids)
+            intensity = intensity * irradiance_scale(self.pitch, self.fft_size)
+            sampled = sample_intensity(torch, intensity, grids)
             predictions.append(sampled)
         return torch.cat(predictions)
 
@@ -111,7 +123,7 @@ class PhysicalForwardFit:
         self.optimizer.step()
         with torch.no_grad():
             self.d.clamp_(-2, 2)
-            self.center.clamp_(0, 1920)
+            self.center.clamp_(0, PANEL_W)
             self.log_width.clamp_(float(np.log(80)), float(np.log(800)))
         self.history.append(float(loss.detach()))
         self.iteration_records.append(dict(iteration=len(self.history), loss=self.history[-1],

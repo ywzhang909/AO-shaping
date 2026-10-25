@@ -19,12 +19,18 @@ from typing import Any, Mapping, Sequence
 import numpy as np
 import numpy.typing as npt
 
+from ao_shaping.algorithm.signal_processing.defocus_forward_core import (
+    PANEL_PITCH_PX,
+    camera_sample_grids,
+    defocus_phase,
+    diopter_scale,
+    gaussian_amplitude,
+    irradiance_scale,
+    panel_grid,
+    sample_intensity,
+    subpixel_offsets,
+)
 from ao_shaping.algorithm.signal_processing.iterative_base import IterativeOptimizer
-
-PANEL_H, PANEL_W = 1200, 1920
-PANEL_PITCH_PX = 1920.0
-WAVELENGTH_M = 1064e-9
-PANEL_ILLUMINATION_CEILING_PX = 1200.0
 
 
 def _torch():
@@ -80,8 +86,8 @@ class FrozenDefocusParameters:
 
     @property
     def diopter_scale(self) -> float:
-        """Zernike Noll 4 单位系数对应的屈光度标度（与拟合脚本同一公式）。"""
-        return float(np.pi * (960 * 8e-6) ** 2 / (2 * np.sqrt(3) * WAVELENGTH_M))
+        """Zernike Noll 4 单位系数对应的屈光度标度（共享前向核心同一公式）。"""
+        return diopter_scale()
 
     def to_dict(self) -> dict[str, Any]:
         return dict(defocus_diopter=self.defocus_diopter, origin=list(self.origin_xy),
@@ -123,7 +129,10 @@ class FrozenDefocusForward:
     """冻结物理前向：128 控制网格相位 → 相机采样网格上的强度。
 
     数学与 ``PhysicalForwardFit.prediction()`` + refit 后处理（高斯展宽 / 增益 /
-    加性背景）逐项一致；类自身不持有可训练参数，唯一叶子是传入的相位。
+    加性背景）逐项一致；两者共用的面板几何、高斯幅度、相机采样网格与 FFT
+    辐照度标度已抽到 ``defocus_forward_core``（issue #199 R2），本类只保留
+    冻结侧特有的部分（1920² 上采样 Zernike 基、blaze/增益/背景后处理）。
+    类自身不持有可训练参数，唯一叶子是传入的相位。
     """
 
     def __init__(self, params: FrozenDefocusParameters, camera_xy: npt.NDArray[np.floating],
@@ -137,16 +146,11 @@ class FrozenDefocusForward:
         self._device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         size = int(params.grid_size)
         self.pitch = PANEL_PITCH_PX / size
-        y, x = torch.meshgrid(torch.arange(size, dtype=torch.float32),
-                              torch.arange(size, dtype=torch.float32), indexing="ij")
-        self.panel_x = (x * self.pitch).to(self._device)
-        self.panel_y = (y * self.pitch).to(self._device)
-        self.panel_mask = (self.panel_y < PANEL_ILLUMINATION_CEILING_PX).float()
+        self.panel_x, self.panel_y, self.panel_mask = panel_grid(torch, size, device=self._device)
         center = torch.tensor(params.amplitude_center_xy, dtype=torch.float32, device=self._device)
         width = torch.tensor(params.amplitude_width_xy, dtype=torch.float32, device=self._device)
-        self.amplitude = (torch.exp(-((self.panel_x - center[0]) / width[0]) ** 2
-                                    - ((self.panel_y - center[1]) / width[1]) ** 2)
-                          * self.panel_mask)
+        self.amplitude = gaussian_amplitude(torch, self.panel_x, self.panel_y, center, width,
+                                            self.panel_mask)
         self.z4 = self._mode_basis(4)
         self.residual_modes = sorted(int(k) for k in params.residual_noll_radians)
         self.residual_basis = (torch.stack([self._mode_basis(j) for j in self.residual_modes])
@@ -158,12 +162,7 @@ class FrozenDefocusForward:
         inverse = np.linalg.inv(np.asarray(params.ramp_matrix, dtype=np.float64))
         self.inverse = torch.tensor(inverse, dtype=torch.float32, device=self._device)
         self._xy_t = torch.tensor(xy, dtype=torch.float32, device=self._device)
-        self._grid_offsets = []
-        for iy in range(params.pixel_samples):
-            for ix in range(params.pixel_samples):
-                offset = ((ix + 0.5) / params.pixel_samples - 0.5,
-                          (iy + 0.5) / params.pixel_samples - 0.5)
-                self._grid_offsets.append(torch.tensor(offset, dtype=torch.float32, device=self._device))
+        self._grid_offsets = subpixel_offsets(torch, params.pixel_samples, device=self._device)
         self._blaze_kernel = self._build_blaze_kernel(params.sigma_ccd_px)
 
     def _mode_basis(self, noll: int):
@@ -214,20 +213,15 @@ class FrozenDefocusForward:
         if total.ndim == 2:
             total = total[None]
         p = self.params
-        phase_all = total + p.defocus_diopter * p.diopter_scale * self.z4
-        if self.residual_basis is not None:
-            phase_all = phase_all + torch.einsum("i,ijk->jk", self.residual_values, self.residual_basis)
+        phase_all = defocus_phase(torch, total, p.defocus_diopter, p.diopter_scale, self.z4,
+                                  residual_values=self.residual_values,
+                                  residual_basis=self.residual_basis)
         field = self.amplitude[None] * torch.exp(1j * phase_all)
         intensity = focal_intensity(field, p.fft_size)
-        intensity = intensity * (self.pitch ** 2 * p.fft_size / (15 ** 2 * 512)) ** 2
-        grids = []
-        for offset in self._grid_offsets:
-            frequencies = (self._xy_t + offset - self.origin) @ self.inverse.T
-            indices = frequencies * (p.fft_size * self.pitch) + p.fft_size // 2
-            grids.append(2 * indices / (p.fft_size - 1) - 1)
-        sampled = sum(torch.nn.functional.grid_sample(
-            intensity[:, None], grid[None].expand(len(intensity), -1, -1, -1),
-            align_corners=True, padding_mode="zeros")[:, 0] for grid in grids) / len(grids)
+        intensity = intensity * irradiance_scale(self.pitch, p.fft_size)
+        grids = camera_sample_grids(torch, self._xy_t, self.origin, self.inverse,
+                                    self._grid_offsets, fft_size=p.fft_size, pitch=self.pitch)
+        sampled = sample_intensity(torch, intensity, grids)
         if self._blaze_kernel is not None:
             sampled = torch.nn.functional.conv2d(sampled[:, None], self._blaze_kernel, padding=12)[:, 0]
         return sampled * float(p.gain) + float(p.background)

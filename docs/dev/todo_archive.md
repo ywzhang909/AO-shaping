@@ -1800,3 +1800,39 @@ send-time phase overlay（`_phase_overlay` 弧度层 + `_base_phase` 灰度层�
 golden 浮点噪声）、脚本 smoke import、square_target 逐位一致；ruff 全过。
 
 ---
+
+### 5.40 物理前向核心抽取：两份前向共享同一套几何（issue #199 step 4，2026-10-25）
+
+**问题**：`FrozenDefocusForward`（冻结推理）与 `PhysicalForwardFit`（拟合）
+各自内联实现同一套物理——面板网格、高斯照明幅度、相机采样网格、FFT 辐照度
+标度全部复制两份；`PhysicalForwardFit` 还把 `1064e-9` / `1200` / `1920.` /
+`960*8e-6` 写死在函数体里（R2 + P5：同包零共享）。
+
+**改动**：
+- 新建 `algorithm/signal_processing/defocus_forward_core.py`：常量
+  （`PANEL_PITCH_PX` / `PANEL_HALF_SPAN_PX` / `PANEL_PIXEL_PITCH_M` /
+  `WAVELENGTH_M` / `PANEL_ILLUMINATION_CEILING_PX` / 辐照度参考值）+
+  `diopter_scale()` / `panel_grid()` / `gaussian_amplitude()` /
+  `subpixel_offsets()` / `camera_sample_grids()` / `sample_intensity()` /
+  `irradiance_scale()` / `defocus_phase()`。torch 由调用方传入，模块本身
+  不依赖 ML extra。
+- 两个前向类改为调用核心；按类保留：Zernike 基构造（Frozen 从 1920² 采样
+  +7 px，Fit 在控制网格上生成）与 refit 后处理（blaze / 增益 / 背景，
+  仅 Frozen 有）。
+- 关键细节：`defocus_phase()` 的表达式按两个类原有的求值顺序书写
+  （float 标点 vs 0 维 tensor 的混合乘法各自保持原 rounding），所以抽取
+  **不移动任何一个数**。
+
+**验证（逐位）**：
+- 孪生测试 `test_two_forwards_agree_bit_for_bit`：同一几何驱动两个前向，
+  `np.array_equal` 逐位一致。两处输入耦合写进测试自校准：拟合器宽度是
+  `__init__` 写死的 `exp(log(260))`（float32 回环差 1 ULP），冻结侧直接
+  采用该恢复值；拟合器的 z4 由冻结侧的采样基注入。
+- 重构前后各转储 15 个数组（合成孪生 + 真实检查点存档预测 + 全部中间量：
+  amplitude / z4 / grids / blaze / illumination），`np.array_equal` 全部
+  逐位一致；检查点存档预测相对 L1 仍为 9.976e-08。
+- golden（`defocus_forward_core_golden.json`）按仓库 shape+容差方案固化
+  冻结侧后处理；algorithm 套件 733 passed（仅存量 differentiable-shaping
+  golden 浮点噪声，与基线一致）。
+
+---
