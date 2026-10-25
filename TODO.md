@@ -1447,6 +1447,48 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **仍开放的这条**（不做不等于没问题）：行内容漂移（行号存在但指向的代码已改写）无法机械判定，
       它比「行号越界」更常见也更隐蔽；目前只有 `main.py` 一处的**禁钉行号**规则（第 29 项）在防它。
 
+33. ✅ **让生成脚本真正拥有 zernike_amp 报告的手写附录；并记明「生成报告手写段落」普查为何不可用**（2026-10-25）：
+    - **缺陷**：`report/zernike_phase2amp/zernike_amp_report/report.md` 由
+      `scripts/ml/generate_zernike_amp_report.py` **整文件覆写**（写入点在 `main()` 末尾），
+      但产物里有 **75 行脚本从不产出的手写内容**：`## 附录 A: 名词解释 (Glossary)`
+      （产物 679–703，2078 字节 / 21 行表格）与 `### U-Net 对比模型`（43–92，50 行）。
+      `git grep` 证实这些字句**不在任何被跟踪源文件里** ⇒ 唯一副本存于一个会被机器覆写的文件。
+      第 27 项当时只记下其中 **piston 一行**，实际是**两节**。
+    - **只修可机械验证的那一半**：附录位于产物**末尾**，拼接点唯一 ⇒ 移进生成脚本成模块级 raw
+      字符串常量 `GLOSSARY_APPENDIX`，写入点改为 `write_text(text + GLOSSARY_APPENDIX)`，且放在
+      「synthesis 为空则删 §10 并重编号」之后，不与 `## 11.`/`## 12.` 的替换相互作用。
+      ⚠️ **必须 raw**：表格带着第 31 项留下的 `\|` 单元格转义与 LaTeX 花括号 `e^{iφ₀}`，
+      塞进 `build_report` 那个巨型 f-string 会被当作格式域吃掉。产物**一字未改**（它本来就对），
+      脚本 +37 行；字节级用 AST 取常量证 `artifact.endswith(appendix) = True`（2084 字节 / 21 行）。
+    - **不修的另一半写进代码而非忘掉**：`### U-Net 对比模型` 在文档**中部**，其中部拼接点无法验证
+      —— 生成脚本的输入 `logs/zernike_amp_sweep.json`、`logs/zernike_amp_final/summary.json` 被
+      `.gitignore:41` 的 `logs*` 排除（`git ls-files logs/` 仅 1 条），从克隆根本跑不起来。
+      盲插 1228 行的 f-string 风险大于收益 ⇒ 以 `KNOWN_UNEMITTED_HEADINGS` 做**棘轮**登记
+      （只可缩不可涨；擅自删基线条目会立刻失败，因为标题仍不在脚本中）。
+    - **顺带查实的溯源缺口**（属口径决定，未在本轮改）：该报告 provenance 块写有
+      `复现命令: python scripts/ml/generate_zernike_amp_report.py` 与 `运行环境: 离线`，
+      但**输入不在仓库**（11 张图已提交，JSON 未提交）⇒ 「可复现」只对当时那台机器成立。
+      要不要提交这类输入、或给 provenance 增加 `inputs=` 并显式声明缺失，另议。
+    - **为何没有「所有生成报告」的守卫**：标题-字面量这条**代理不成立**。扫 85 份生成报告得
+      **346 个「孤儿标题」/ 1019 标题**，样例 `### 6.1` 与 `### gaussian__defocus__off` 全是
+      **由数据在循环里拼出的标题**，永远不会以字面量出现在脚本里。守卫只在
+      「单报告 ↔ 单脚本」这种对上成立（就是本条），且必须显式承认标题只是代理。
+    - **本轮仪表化又错四次**（延续「比例不合理 ⇒ 先怀疑仪表」）：
+      ⑦ `REPORTS` 是**带注解赋值**，我只查 `ast.Assign` ⇒ 取到 `None` 却差点继续统计；
+      ⑧ `REPORTS` 的值是 **`ReportProvenance(...)` 调用**而非 dict ⇒ `script` 字段全缺，
+        `REPO / ""` 退化成仓库根并抛 `IsADirectoryError`；「85 生成 / 54 手写」是修好后才成立的数；
+      ⑨ 新测试的三个用例把 **fixture 当自由变量**引用（报 `FixtureFunctionDefinition has no len()`），
+        三条断言**根本没执行**，当时只有第四条是真失败 —— 「测试失败」不等于「差分成立」；
+      ⑩ 行核对扫了**全文**的粗体首格行，把别的表的行当成缺失。
+      另：一次在 heredoc 里手写三引号定界符导致 `SyntaxError` —— 自此**含引号/反斜杠的编辑一律
+      先写成文件再执行**（本轮的脚本改动与差分驱动都是这么做的）。
+    - **验收**：新测试 `tests/ao_shaping/scripts/test_zernike_amp_report_appendix.py` **5 passed**。
+      更大范围 `tests/ao_shaping/scripts/` + `test_conventions.py`：**2463 passed / 65 skipped / 1 failed**，
+      唯一红是 wt-190 的 `_fmt` 复用守卫，已在**干净 HEAD worktree**（我的三个文件不存在）复现
+      ⇒ 与本轮无关，不抢修。
+      **差分三条**：只改产物 → 2 failed；只改脚本常量 → 同样 2 failed（**两个方向的漂移都被抓到**）；
+      只往产物手加一节 → 棘轮抓到并点名新增标题。写点未接线那条差分在改脚本**之前**已取到。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

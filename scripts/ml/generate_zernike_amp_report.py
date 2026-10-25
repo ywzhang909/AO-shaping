@@ -612,6 +612,42 @@ def iteration_table(iteration: dict | None) -> str:
     )
 
 
+#: Emitted verbatim: the f-string in build_report() ends at the section-12 code fence, so
+#: without this constant regenerating the report silently deletes 附录 A. It was hand-pasted
+#: into the artifact (TODO 8.9 item 27 caught one row of it, the piston row).
+#: Raw on purpose: the glossary carries escaped pipes in cells and braces inside LaTeX, both
+#: of which an f-string would reinterpret.
+GLOSSARY_APPENDIX = r"""
+---
+
+## 附录 A: 名词解释 (Glossary)
+
+| 缩写/术语 | 完整名称 | 定义 |
+|---|---|---|
+| **NNLS** | Nonnegative Least Squares | 约束最小二乘法，要求解向量 `x ≥ 0`。在本项目用于 `slm_model_in_loop.py:_fit_flat_leakage`，拟合物理上不可为负的模型增益 `g ≥ 0`。实现: `scipy.optimize.nnls`。 |
+| **CV** | Coefficient of Variation | 质量分中的均匀度项: `CV = std(box) / mean(box)`。越小表示光斑越均匀。CV=0 获得最大奖励。 |
+| **EE** | Encircled Energy | 质量分中的能量项: 落在目标 box 内的总能量 / 全帧总能量。衡量目标框内光斑能量覆盖率。 |
+| **R²** | Coefficient of Determination | 决定系数: `R² = 1 - SS_res / SS_tot`。衡量模型解释方差的比例。本文使用 `ml.zernike.metrics` 的实现。 |
+| **SSIM** | Structural Similarity Index | 结构相似性指标。衡量亮度、对比度、结构三个维度的相似度。注意: SSIM 在散斑场上偏弱，详见 §9 局限。 |
+| **PSNR** | Peak Signal-to-Noise Ratio | 峰值信噪比: `PSNR = 10 · log10(MAX² / MSE)`。图像质量指标，单位 dB。 |
+| **NRMSE** | Normalized RMSE | 归一化均方根误差: `RMSE / (max - min)`。 |
+| **DOF** | Degrees of Freedom | 可优化参数的维度。物理模型: 135 (Zernike 系数); U-Net: 7,778,465; Freeform: 4,096 (64×64 网格)。 |
+| **FOV** | Field of View | 视场角 / 相机视野范围。各 family 的 `fov_px` 不同: 64 / 248 / 320 / 1944 px。详见 §2 数据管线。 |
+| **Zernike** | Zernike polynomials | 圆形瞳面上的正交多项式基。Noll 1976 约定 (Noll 4 = defocus, Noll 5 = astigmatism x²−y²)。 |
+| **FFT** | Fast Fourier Transform | 快速傅里叶变换。用于 Fraunhofer 远场传播: `fftshift(fft2(ifftshift(field)))`。 |
+| **SPGD** | Stochastic Parallel Gradient Descent | 无感知优化算法。通过比较带正负扰动的两次测量估计梯度，每次迭代需 2 次相机读数。 |
+| **GS** | Gerchberg-Saxton | 迭代相位恢复算法。用于没有 WFS 的闭环校正，仓库实现见 `algorithm/signal_processing/gerchberg_saxton.py`。 |
+| **PIB** | Power-in-Bucket | 桶内功率: 落在目标半径内的光功率总和。整形质量的一个指标。 |
+| **piston** | Zernike Noll 1 (0,0) | 常数相位项。远场强度不受 piston 影响 (`\|FFT(e^{iφ₀}U)\| = \|FFT(U)\|`), 因此从可学习参数中排除。 |
+| **far_field_padding** | -- | FFT 网格相对于瞳面网格的 padding 倍数。标定物理尺度以匹配相机视场。默认 10 (适用于 248 px fov)。详见 §3.1。 |
+| **zfrac** | Zernike energy fraction | 合成相位中落在 Zernike 张成空间的能量占比。衡量相位是否"出流形"。 |
+| **wfs** | Wavefront Sensor | 波前传感器。Thorlabs 模块，详见 `drivers/wfs/`。 |
+| **CCD** | Charge-Coupled Device | 电荷耦合器件，相机传感器。详见 `drivers/ccd/`。 |
+| **SLM** | Spatial Light Modulator | 空间光调制器。Santec 设备，详见 `drivers/slm/`。 |
+| **DM** | Deformable Mirror | 可变反射镜。NLight 设备，详见 `drivers/dm/`。 |
+"""
+
+
 # --------------------------------------------------------------------------- #
 # report
 # --------------------------------------------------------------------------- #
@@ -1219,7 +1255,7 @@ def main() -> int:
             text = text[:start] + text[end:]
             text = text.replace("## 11. 本报告中被推翻的结论", "## 10. 本报告中被推翻的结论")
             text = text.replace("## 12. 复现", "## 11. 复现")
-    (out_dir / "report.md").write_text(text, encoding="utf-8")
+    (out_dir / "report.md").write_text(text + GLOSSARY_APPENDIX, encoding="utf-8")
     print(f"wrote {out_dir / 'report.md'}")
     return 0
 
