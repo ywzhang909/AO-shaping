@@ -1938,6 +1938,65 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       (3) 又一次在 heredoc / echo 里混引号，触发「寻找匹配的 `' 时遇到了未预期的 EOF」，并把同一命令里
       要跑的容器测试一并带走。教训照旧：**要验证就把脚本写成文件**，别在 shell 里嵌 Python。
 
+45. ✅ **`update()` 的「必须返回下一步」这半句被写了两次、强制了零次；补形状判定的 AST 守卫（并把一次被否证的普查反过来变成守卫的价值）**（2026-10-25）：
+    - **契约的出处不是我编的**：`AGENTS.md`「Class-based Optimizer Convention」与
+      `src/ao_shaping/algorithm/README.md` 都写 `update()` 执行一步并**返回**下一步状态。
+      前半句到处在用，后半句**没有任何守卫**；而全仓 **36 处**调用点写成
+      `update = optimizer.update(gradient)` —— 一个忘了 `return` 的具体实现会把 `None`
+      无声递给这 36 处，直到下游某次下标才炸。
+    - **普查数字（范围 `algorithm/` + `optimizer/`）**：**89** 个文件、**20** 个 `update`
+      方法、**17** 个有值返回、**3** 个接口桩、**现行违规 0**。所以这条守卫是**预防性**的，
+      不是修 bug —— 按第 42 项同一口径如实标注，不冒充战绩。
+    - **它的价值恰好来自一次被否证的普查**：我先测「赋值给 `None` 返回型方法」，命中 **64** 处
+      却**全是假阳性**（`np.sort` / `np.append` 返回数组，`x = opt.update(g)` 是本仓约定）。
+      也就是说：**同那 36 处**调用点让按方法名反着查毫无用处，却正好让「正向查有没有返回」成立。
+      否证的不是方向，是谓词的方向。
+    - **豁免按形状，不按血统**：三个桩各自是 `algorithm/gradient/adam.py:115 Base.update`
+      （`@abstractmethod`，体是 `pass`）、`algorithm/signal_processing/iterative_base.py:58
+      IterativeOptimizer.update`（`@abstractmethod`，体是 `...`）、
+      `optimizer/wfless/model_in_loop_shaping.py:760 _StepAOptimizer.update`（`Protocol` 成员，
+      体是 `...`）。**不写「类继承 `ABC` 即豁免」** —— ABC 里完全可以有一个具体的
+      `update()`，按祖先放行正是真实违规藏身的地方；也不用名字白名单。
+    - **两个仪表陷阱被写死进守卫**：(1) `ast.walk(fn)` 会**下钻进嵌套闭包**，里面一个
+      `return` 就能替一个不返回的外层 `update()` 顶罪 ⇒ 守卫用自己的栈，遇
+      `FunctionDef` / `AsyncFunctionDef` / `Lambda` **不下钻**；(2) `ast.Ellipsis` 在
+      Python 3.13 上**已弃用**（普查当场打出 `DeprecationWarning: … removed in Python 3.14`）
+      ⇒ 桩判定比较 `ast.Constant` 且其 `value is Ellipsis`。
+    - **防空转的下限**：`_MIN_UPDATE_SCOPE_FILES = 60`（实测 89）、`_MIN_UPDATE_METHODS = 15`
+      （实测 20），解析失败**收集并断言为空**。守卫只扫两个已知目录，因此用 `rglob` 而不是
+      `git ls-files`（与第 42/43 项不同，这是**有意**的选择，见下条）。
+    - **差分：不改动任何被跟踪文件**（`rglob` 的副产品）。探针是作用域内一个**未跟踪**文件，
+      内含两个类：具体的 `_ConcreteNoReturn.update()`（无返回）与同文件的
+      `@abstractmethod` 桩。结果**只点名具体那一个**、桩不被点名 ⇒ 一次跑完同时验出
+      「找得到」与「豁免不误伤」两半；删掉探针 ⇒ 复绿；全套 root-guards 由
+      **50 passed → 51 passed**（skip 数不变），收集数 +1 证明它确是被收集的用例而非死函数。
+    - **本轮一并否证、不再重建的候选类**（数字留在此）：
+      (a) `field(default=<可变字面量>)` 在 1238 个 `.py` / 450 个 dataclass 里 **0 命中**，
+      探针也证实 `ruff` **不管**它，但仍**不建守卫**：常见写法 `x: list = []` 在 dataclass
+      里**类创建时就抛 `ValueError`**（语言自己拦），剩下这一种冷门拼写在仓里一次都没出现，
+      纯推测性守卫不值一次收集成本；
+      (b) `.format()` / `%` 的占位符与实参不匹配 —— `ruff` **已拥有**（F524 缺参、F522 多余命名
+      实参，`%` 侧 F504/F507），全库绿 ⇒ 类别既在零也已被强制；
+      (c) 丢弃型变异 `d.get(k, []).append(…)` 与链式 `or`（`if m == "a" or "b":`）各 **0 命中**，
+      且检测器由**正对照**证明是活的（不是空扫）；
+      (d) 相位自包裹 `np.mod(…, 2π)` 在 `src/` 有 **20** 处，但**该类别在 AST 层不可判定** ——
+      契约禁的是**生成器**自包裹，而驱动、仿真后端、显示渲染器和 `phase_wrap.py` 本身都合法包裹，
+      守卫会第一时间命中那个唯一合法包裹点自身 ⇒ 不建；
+      (e) WFS 的 µm 契约：三处 `get_zernike` 定义**都**在 docstring 里写明 µm；仿真侧算的是
+      `z_rad * (wavelength_nm * 1e-3) / (2π)`（弧度→waves→µm，正是 `um_to_waves` 的逆），
+      硬件侧从 `WFS_ZernikeLsf` 填的是 `zernike_um` ⇒ **孪生与硬件一致**，无缺陷。
+    - **再记四处自伤（三处是旧坑的第四次变形）**：(1) 我断言「硬件驱动的 docstring 没写单位」，
+      依据是 `git grep -A10` 的**截断窗口**——单位其实在 docstring 的「注意」段里，是整段读取的
+      AST 普查把我证伪的；这是「截断冒充证据」在本会话的第三次（前两次：`| head -8`、空输出）；
+      (2) 我把路径猜成 `drivers/sim/simulated_wfs.py`（真实是 `drivers/sim/wfs/simulated_wfs.py`），
+      空输出差点被我读成「没有实现」——**路径错配的空结果不是证据**；
+      (3) 我未测量就断言「本文件没有 `E501` 豁免」，实测 `E501` 在 `ruff.toml` 的**全局 `ignore`**
+      里且全仓**没有 `line-length` 设置**（94 列探针直接通过）——对工具行为的断言要先探针；
+      (4) 两处计数仪表错：`git grep -c` 在**零命中时不打印任何东西**，于是我的
+      `um_to_waves=<次数>` 列显示空白而不是 0；账本加粗配平检查先按**空行**切段（条目正文里根本没有
+      空行 ⇒ 48 行只算出「1 段」），改成按 `- ` 切段后 `BULLET = r"^- \*\*"` 又因**缩进**对不上，
+      连既有的第 42/43 项都报出 0 个 bullet。两处都只因数字看着不对才被抓住。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

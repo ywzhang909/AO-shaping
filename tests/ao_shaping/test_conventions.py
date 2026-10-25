@@ -3186,3 +3186,124 @@ def test_pytest_raises_names_a_specific_exception() -> None:
         "block or return annotation usually states it); a tuple of specific types is also "
         "acceptable."
     )
+
+
+#: The class-based optimizer convention (AGENTS.md "Class-based Optimizer Convention",
+#: ``src/ao_shaping/algorithm/README.md``) states that ``update()`` performs one step
+#: **and returns the next state/solution**. The first half is used everywhere; the
+#: second half was enforced nowhere, while 36 call sites assign its result -- a concrete
+#: ``update()`` that forgets to return hands ``None`` to every one of them. Measured
+#: corpus: 89 files, 20 ``update`` methods, 17 value-returning, 3 interface stubs,
+#: 0 violations, so this guard is preventive rather than a bug fix.
+_UPDATE_SCOPE = (SRC / "ao_shaping" / "algorithm", SRC / "ao_shaping" / "optimizer")
+_MIN_UPDATE_SCOPE_FILES = 60
+_MIN_UPDATE_METHODS = 15
+
+
+def _is_interface_stub(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """Exempt by shape: ``@abstractmethod`` / ``@overload``, or docstring + ``pass``/``...``.
+
+    Deliberately NOT "the enclosing class derives from ``ABC``": an ABC may hold a fully
+    concrete ``update()``, and excusing a method by class ancestry is how a real
+    violation hides. All three current stubs are caught by shape alone.
+    """
+    for dec in fn.decorator_list:
+        name = dec.id if isinstance(dec, ast.Name) else getattr(dec, "attr", "")
+        if name in ("abstractmethod", "overload"):
+            return True
+
+    body = list(fn.body)
+    if (
+        body
+        and isinstance(body[0], ast.Expr)
+        and isinstance(body[0].value, ast.Constant)
+        and isinstance(body[0].value.value, str)
+    ):
+        body = body[1:]
+    if not body:
+        return True
+    return all(
+        isinstance(stmt, ast.Pass)
+        or (
+            isinstance(stmt, ast.Expr)
+            and isinstance(stmt.value, ast.Constant)
+            and stmt.value.value is Ellipsis
+        )
+        for stmt in body
+    )
+
+
+def _returns_a_value(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    """A ``Return``/``Yield`` owned by *fn*, not by a nested function.
+
+    ``ast.walk(fn)`` descends into inner closures, where a single ``return`` would
+    falsely exempt an outer ``update()`` that itself returns nothing.
+    """
+    stack: list[ast.AST] = [fn]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, ast.Return):
+            if node.value is not None:
+                return True
+        elif isinstance(node, ast.Yield):
+            return True
+        for child in ast.iter_child_nodes(node):
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)):
+                continue
+            stack.append(child)
+    return False
+
+
+def test_concrete_update_methods_return_a_value() -> None:
+    """Every concrete ``update()`` in algorithm/ and optimizer/ returns a value.
+
+    Callers in the wavefront, PIB and shaping loops all write
+    ``update = optimizer.update(gradient)``, so an implicit ``None`` propagates without
+    failing until something downstream indexes it.
+    """
+    files = sorted({p for root in _UPDATE_SCOPE for p in root.rglob("*.py")})
+
+    offenders: list[str] = []
+    unparsed: list[str] = []
+    methods = 0
+    for path in files:
+        rel = path.relative_to(REPO).as_posix()
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for owner in (n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)):
+            for fn in owner.body:
+                if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    continue
+                if fn.name != "update":
+                    continue
+                methods += 1
+                if _is_interface_stub(fn):
+                    continue
+                if not _returns_a_value(fn):
+                    offenders.append(
+                        f"{rel}:{fn.lineno}: class {owner.name}.update() returns nothing"
+                    )
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the counts "
+        "below describe is smaller than the scope."
+    )
+    assert len(files) >= _MIN_UPDATE_SCOPE_FILES, (
+        f"scanned {len(files)} file(s) in the update() scope, below the floor "
+        f"{_MIN_UPDATE_SCOPE_FILES} -- the scope stopped matching the repo's own trees, so "
+        "a pass here would mean nothing was checked."
+    )
+    assert methods >= _MIN_UPDATE_METHODS, (
+        f"found only {methods} ``update`` method(s), below the floor "
+        f"{_MIN_UPDATE_METHODS} -- the finder stopped matching the convention's own shape."
+    )
+    assert not offenders, (
+        f"{len(offenders)} concrete ``update()`` method(s) return nothing:\n  "
+        + "\n  ".join(offenders[:15])
+        + "\n``update()`` must return the next state/solution (AGENTS.md class-based "
+        "optimizer convention); callers assign its result, so an implicit ``None`` "
+        "propagates silently. Interface stubs are exempt by shape, not by name."
+    )
