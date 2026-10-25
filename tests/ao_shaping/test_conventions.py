@@ -3307,3 +3307,90 @@ def test_concrete_update_methods_return_a_value() -> None:
         "optimizer convention); callers assign its result, so an implicit ``None`` "
         "propagates silently. Interface stubs are exempt by shape, not by name."
     )
+
+
+#: ``calc_n_zernike_terms`` legitimately has TWO counts in this repo: the canonical one
+#: (piston-excluded) and the WFS family's ``+1`` (piston-included, because slope fitting
+#: carries that term). Both are documented as single implementations -- ``drivers/wfs/base.py``
+#: keeps "只保留唯一一份实现" and ``drivers/wfs/AGENTS.md`` pins the ``+1`` relation
+#: "防止两套实现无声漂移". ``ThorlabWFS`` nevertheless carried a third copy that re-derived the
+#: arithmetic instead of inheriting ``BaseWFS``; that copy is deleted in the same commit that
+#: adds this guard. So the rule is structural, not a name allowlist: any definition of the
+#: entry point outside the canonical module must *call* it, which is exactly what a
+#: backward-compat shim does. Measured: 716 files in scope, 3 definitions
+#: (1 canonical + 2 delegating). ``tests/`` is out of scope by design -- a test-local
+#: re-derivation is an independent oracle, not a second production implementation.
+_TERM_COUNT_NAME = "calc_n_zernike_terms"
+_TERM_COUNT_CANON = "src/ao_shaping/utils/wavefront/zernike_calc.py"
+_MIN_TERM_COUNT_SCOPE_FILES = 600
+_MIN_TERM_COUNT_DEFS = 3
+
+
+def test_term_count_entry_point_is_not_reimplemented() -> None:
+    """Every ``calc_n_zernike_terms`` outside the canonical module delegates to it.
+
+    A copied body drifts in silence: the WFS count and the canonical count differ by exactly
+    one piston term, so a duplicate that keeps or drops that term silently changes coefficient
+    vector sizes -- the same class of defect that produced the documented 1.88x unit bug.
+    """
+    files = sorted(
+        p.relative_to(REPO).as_posix()
+        for root in (SRC, REPO / "scripts")
+        for p in root.rglob("*.py")
+        if "__pycache__" not in p.parts
+    )
+
+    unparsed: list[str] = []
+    defs: list[tuple[str, int, bool]] = []
+    for rel in files:
+        try:
+            tree = ast.parse((REPO / rel).read_text(encoding="utf-8-sig", errors="replace"))
+        except SyntaxError:
+            unparsed.append(rel)
+            continue
+        for fn in ast.walk(tree):
+            if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if fn.name != _TERM_COUNT_NAME:
+                continue
+            delegates = any(
+                isinstance(call, ast.Call)
+                and (
+                    (isinstance(call.func, ast.Name)
+                     and call.func.id.endswith(_TERM_COUNT_NAME))
+                    or (isinstance(call.func, ast.Attribute)
+                        and call.func.attr.endswith(_TERM_COUNT_NAME))
+                )
+                for call in ast.walk(fn)
+            )
+            defs.append((rel, fn.lineno, delegates))
+
+    offenders = [
+        f"{rel}:{line}"
+        for rel, line, delegates in defs
+        if rel != _TERM_COUNT_CANON and not delegates
+    ]
+
+    assert not unparsed, (
+        f"{len(unparsed)} file(s) failed to parse: {unparsed[:5]} -- the corpus the counts "
+        "below describe is smaller than the scope."
+    )
+    assert len(files) >= _MIN_TERM_COUNT_SCOPE_FILES, (
+        f"scanned {len(files)} file(s), below the floor {_MIN_TERM_COUNT_SCOPE_FILES} -- the "
+        "scope stopped matching the repo's own trees."
+    )
+    assert len(defs) >= _MIN_TERM_COUNT_DEFS, (
+        f"found only {len(defs)} definition(s) of ``{_TERM_COUNT_NAME}``, below the floor "
+        f"{_MIN_TERM_COUNT_DEFS} -- the finder stopped matching the entry point's own shape."
+    )
+    assert any(rel == _TERM_COUNT_CANON for rel, _, _ in defs), (
+        f"no ``{_TERM_COUNT_NAME}`` definition in {_TERM_COUNT_CANON} -- the canonical entry "
+        "point moved or was renamed, so this guard is checking nothing it claims to."
+    )
+    assert not offenders, (
+        f"{len(offenders)} re-implementation(s) of ``{_TERM_COUNT_NAME}`` that do not delegate "
+        "to the canonical module:\n  " + "\n  ".join(offenders[:15])
+        + f"\nInherit from ``BaseWFS`` (whose own copy delegates) or call "
+        f"``{_TERM_COUNT_CANON}`` directly; a body that re-derives ``(n+1)(n+2)//2`` can "
+        "disagree with the canonical count by the piston term and nothing will raise."
+    )

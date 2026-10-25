@@ -1487,18 +1487,6 @@ class ThorlabWFS(BaseWFS):
             else float(np.std(wavefront)),
         }
 
-    @staticmethod
-    def calc_n_zernike_terms(n: int) -> int:
-        """计算给定阶数下的 Zernike 项数。
-
-        参数:
-            n: Zernike 阶数。
-
-        返回:
-            Zernike 项数。
-        """
-        return (n + 1) * (n + 2) // 2 + 1
-
     @require_take_image
     def get_zernike(self, zernike_order: int = 10) -> np.ndarray:
         """由斑点偏差计算 Zernike 多项式系数。

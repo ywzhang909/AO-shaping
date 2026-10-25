@@ -1995,7 +1995,57 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       (4) 两处计数仪表错：`git grep -c` 在**零命中时不打印任何东西**，于是我的
       `um_to_waves=<次数>` 列显示空白而不是 0；账本加粗配平检查先按**空行**切段（条目正文里根本没有
       空行 ⇒ 48 行只算出「1 段」），改成按 `- ` 切段后 `BULLET = r"^- \*\*"` 又因**缩进**对不上，
-      连既有的第 42/43 项都报出 0 个 bullet。两处都只因数字看着不对才被抓住。
+       连既有的第 42/43 项都报出 0 个 bullet。两处都只因数字看着不对才被抓住。
+
+46. ✅ **`ThorlabWFS` 自己重算了 `calc_n_zernike_terms`，而它的基类 docstring 明写「只保留唯一一份实现」——删副本 + 按「名字与形状」判定的委托守卫（并修掉一处描述已被删除之对手的 docstring）**（2026-10-25）：
+    - **缺陷本体**：`drivers/wfs/thorlab_wfs.py:1490` 的 `@staticmethod calc_n_zernike_terms` 直接返回
+      `(n + 1) * (n + 2) // 2 + 1`；而它的基类 `drivers/wfs/base.py:66` 早已写成 canonical + 1 的
+      **委托**，docstring 明写「这里只保留唯一一份实现，避免两者在无人察觉的情况下各自漂移」，
+      `drivers/wfs/AGENTS.md` 的「`calc_n_zernike_terms` 的 piston 偏移」一节又把该 `+1` 关系钉给
+      `test_base_wfs.py`。⇒ 子类是**第三份**实现：与基类恒等，却各写一遍。
+    - **成因是收口没走到子类**：覆盖来自 `588415a4`（早期），基类的单一实现声明来自 `3e63680f`（较晚）。
+    - **孪生与硬件此前靠巧合一致**：`SimulatedWFS` 不覆盖（走基类委托），硬件驱动自带公式 —— 两边数值
+      相同纯属巧合，改基类而不动驱动就会分裂。删掉覆盖之后**结构上**只剩一份实现。
+    - **删除是行为保持的（量过，不是推断）**：两处签名与装饰完全相同（`(n: int) -> int`，均
+      `@staticmethod`），基类体 `canonical(n) + 1` 与被删表达式恒等；调用点
+      `self.calc_n_zernike_terms(zernike_order)`（`thorlab_wfs.py:1530`）与
+      `ThorlabWFS.calc_n_zernike_terms(n)`（`test_base_wfs.py:166` / `:174`）都按继承解析。
+      钉该关系的测试 **131 passed**；全部消费者（`optimizer/wf` + `tools/wfs` + `drivers/wfs` +
+      `drivers/sim`）**640 passed / 14 skipped**（skip 全是硬件与可选 `rl` 组）。
+    - **新守卫 `test_term_count_entry_point_is_not_reimplemented`**（`tests/ao_shaping/test_conventions.py`，
+      root-guards 片，blocking）：谓词是**名字 + 形状**，不是白名单 —— canonical 之外任何
+      **定义** `calc_n_zernike_terms` 处，体内必须**调用**一个以该名结尾的函数（向后兼容 re-export 的
+      形状正是如此，`base.py` 与 `matrix_utils.py` 都这样通过），重算算术的副本过不了。并且**断言
+      canonical 自身仍存在**（入口被改名或搬走时守卫必须失败，而不是空过），解析失败收集后断言为空；
+      下限 `_MIN_TERM_COUNT_SCOPE_FILES = 600`（实测 716）、`_MIN_TERM_COUNT_DEFS = 3`（实测 3）。
+    - **差分**：探针是作用域内一个未跟踪文件，体内重算表达式 ⇒ 守卫**只点名探针**，同名的
+      `base.py` / `matrix_utils.py` **不被点名** —— 一次同时证明「找得到违规」与「谓词按形状而非白名单」；
+      删探针 ⇒ 复绿；`test_conventions.py` 由 **51 → 52 passed**（skip 不变）。
+    - **两处刻意保留的作用域边界（不假装类别已封死）**：(1) 三角数表达式 `(x+1)*(x+2)//2` 全仓 **22** 处
+      （canonical 之外 21），但**按公式建守卫会一次造出十几个假缺陷** ——
+      `scripts/slm/hw_gs_square_scans.py:709-710` 是拿该公式**校验 canonical** 的断言，报告生成器里则
+      是表格算术；(2) `tests/ao_shaping/optimizer/wf/test_zernike_response_matrix.py:10` 有一份本地
+      重算（循环式）—— **测试里的独立算例按本会话口径不算第二份生产实现**，故作用域排除 `tests/`。
+    - **一处我自己的前提被证伪（记下来免得重犯）**：原本打算守卫「全仓禁止 `import aotools`」，实测
+      `aotools>=1.0.7` 是**已声明依赖**（`pyproject.toml:76`），且 `src/` 里有 **3 处合法使用**
+      （PSF、湍流相位屏）；红线禁的是**重复实现 Zernike 数学**（原文点名的是 `RZern` 与 `noll2nm` 表），
+      从来不是使用 aotools ⇒ 照原方案上线会在 3 处正常代码上变红。
+    - **顺手修掉的过期 docstring**：`zernike_calc.py` 的 `ZernikeGenerator.noll_to_nm` 曾警告「本约定与
+      `optimizer/wf/ga_zernike.py`、`optimizer/wf/rms_by_zernike.py` 里的 hardcoded lookup table 不同」——
+      实测这两个文件对 `noll|NOLL|(2,0)` **0 命中**，且都 `from ...zernike_calc import zernike_modes`
+      （`ga_zernike.py:35`、`rms_by_zernike.py:42`），而 `noll_to_nm_legacy` 在代码里**已不存在**
+      （只在 `AGENTS.md` 与两份文档里作为历史记录留存）⇒ 参考实现自己在描述一个**已被删除的对手约定**，
+      改为陈述单一事实源。
+    - **再记一处仪表自伤（本会话第五类）**：我用 `ast.walk` 统计「重复定义」时**不记录作用域**，于是
+      `zernike_calc.py:118` 的模块级 `noll_to_nm` 与 `:366` 的 `ZernikeGenerator.noll_to_nm` **方法**
+      被算成两处 ⇒ 我一度准备报「canonical 模块内部存在遮蔽式重复定义」。真相是两个命名空间，无遮蔽。
+      教训：**定义类普查必须同时记录所属作用域**，否则「MULTIPLE」这个标记是在撒谎。
+    - **明确不动、需要人来判断的物理问题（不在最小修复范围）**：
+      `runners/slm/zernike_matrix_runner.py:184/633` 用 **canonical 版**（`calc_n_zernike_terms(10)` = 66）
+      作为 WFS 项数，而 `optimizer/wf/zernike_response_matrix.py:197/432/502` 用
+      **`wfs.calc_n_zernike_terms(...)`**（67，含 piston）—— 两处读起来像同一个 WFS 边界却差一项 piston；
+      两个数值**都已有测试各自钉住**，且它紧邻硬件系数向量的尺寸（正是当年 1.88× 单位 bug 的那条边界）
+      ⇒ 这需要设备侧口径的判断，不是我能靠最小改动替它决定的。
 
 ### 8.10 `assert` → 驱动层：三条护栏
 
