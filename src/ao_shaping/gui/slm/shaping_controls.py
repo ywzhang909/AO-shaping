@@ -15,16 +15,19 @@ closed-loop pipeline the CLI runners drive:
 - **Model-in-loop** (``slm-model-in-loop``): the frontier method
   (``report/shape_trials/model_in_loop_live_20261013.md``), best uniformity so
   far but not yet an accepted uniform square; needs torch.
+- **迁移模型** (``slm_transfer`` / ``ao_shaping.tools.slm.transfer``): 少参数物理
+  正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 A–B–B–A 配对
+  验收（``report/shape_trials/multishape_capability/``）；同样需要 torch。
 
 Architecture — why adapters + decorators
 ----------------------------------------
-Both optimizers are **actively being developed**, and they do not share a
+All three optimizers are **actively being developed**, and they do not share a
 result type, a parameter object or even a lifecycle. Rather than letting that
 leak into the page, every algorithm is a small adapter implementing
 :class:`ShapingMethod`, and the cross-cutting concerns are decorators:
 
 - :func:`register_shaping_method` — class decorator that registers an adapter
-  in :data:`SHAPING_METHODS`. Adding a third algorithm is one decorated class;
+  in :data:`SHAPING_METHODS`. Adding a fourth algorithm is one decorated class;
   the selector, the run button and the lifecycle need no edit.
 - :func:`shaping_session` — method decorator wrapping :meth:`ShapingMethod.run`.
   It owns the parts that must never be forgotten: the optimizers open and close
@@ -54,9 +57,8 @@ from __future__ import annotations
 
 import functools
 import json
-import subprocess
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterator, Mapping, MutableMapping
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -83,6 +85,8 @@ from ao_shaping.gui.slm.bench_settings import (
     MIL_TARGET_SIDE_MIN_PX,
 )
 from ao_shaping.gui.slm.pattern_controls import refresh_phase_preview
+from ao_shaping.gui.utils.phase_overlay import apply_overlays_to_handle
+from ao_shaping.utils.io.timestamp import format_ts
 from ao_shaping.runners.runner_common import (
     SlmGsRefineParams,
     SlmModelInLoopParams,
@@ -108,23 +112,32 @@ __all__ = [
     "GS_REFINE_RECIPE",
     "MIL_BUDGET_PRESETS",
     "SHAPING_METHODS",
+    "TRANSFER_RECIPE",
+    "TRANSFER_SHAPE_LABELS",
+    "TRANSFER_STAGE_LABELS",
     "GsRefineMethod",
     "ModelInLoopMethod",
     "SlmOwnership",
     "ShapingMethod",
     "ShapingOutcome",
+    "TransferMethod",
     "build_gs_refine_params",
     "build_model_in_loop_params",
+    "discover_transfer_checkpoint",
     "get_shaping_method",
     "get_shaping_method_by_label",
     "outcome_from_gs_recorder",
     "outcome_from_model_in_loop",
+    "outcome_from_transfer",
+    "plan_transfer_session_dir",
     "register_shaping_method",
     "render_closed_loop_shaping",
     "shaping_method_labels",
     "shaping_session",
     "validate_daheng_exposure",
     "validate_daheng_fixed_exposure",
+    "validate_exposure",
+    "validate_torch",
     "with_slm_ownership",
 ]
 
@@ -212,11 +225,12 @@ MIL_WIDGET_DEFAULTS: dict[str, Any] = {
 #: because ``MIL_WIDGET_DEFAULTS`` is the table tests and callers reach for.
 MIL_PUPIL_CENTER_FALLBACK: str = bench_settings.PUPIL_CENTER_FALLBACK
 
-#: Shared 目标与评分 caption — one formula for both methods, so switching the
-#: algorithm never means re-learning what the score means.
+#: Shared 目标与评分 caption — one formula for the methods that score a far field,
+#: so switching the algorithm never means re-learning what the score means.
 _OBJECTIVE_CAPTION = (
     "目标与评分（相机像素；复合分数 = w_pib·PIB + w_unif·1/(1+CV)）。"
-    "GS 的权重是 w_pib / w_unif，正向模型的是 w_eff / w_uni。"
+    "GS 的权重是 w_pib / w_unif，正向模型的是 w_eff / w_uni，迁移模型的是形状 + "
+    "目标尺寸。"
 )
 
 #: GS 相位网格上限放开后的耗时提示（上界 64 → 128 时的代价必须说清）。
@@ -633,16 +647,6 @@ def shaping_session(
 # ---------------------------------------------------------------------------
 
 
-def _format_center(center: Any) -> str:
-    """面板坐标 → ``"x,y"``（``SlmModelInLoopParams.pupil_center`` 的文本形式）。"""
-    point = getattr(center, "pupil_center", center)
-    try:
-        x, y = point[0], point[1]
-    except (TypeError, IndexError, KeyError):
-        return bench_settings.PUPIL_CENTER_FALLBACK
-    return f"{int(round(float(x)))},{int(round(float(y)))}"
-
-
 def validate_target_fits_window(values: Mapping[str, Any]) -> str | None:
     """目标方边长必须整个落在读出窗内。
 
@@ -663,6 +667,33 @@ def validate_target_fits_window(values: Mapping[str, Any]) -> str | None:
             "在左侧「CCD参数设置」把窗口边长调大，或把目标边长调小"
         )
     return None
+
+
+def validate_torch(requirement: str) -> str | None:
+    """算法需要 torch 时统一的一条拒绝路径（未安装 → 错误文本）。"""
+    try:
+        import torch  # noqa: F401
+    except ImportError as exc:
+        return f"{requirement}需要 torch（未安装）: {exc}"
+    return None
+
+
+def validate_exposure(
+    values: Mapping[str, Any], *, fixed: bool, auto_rejected: str | None = None
+) -> str | None:
+    """共享曝光校验。
+
+    ``fixed=True``：该算法每轮都观察同一相位，「让设备自己决定」会观察到上一轮
+    残留，所以自动曝光是错误（``auto_rejected`` 给出该算法的措辞）。
+    ``fixed=False``：允许 ``default``/``auto`` 令牌，只对显式数值做上限检查。
+    """
+    exposure = numeric_exposure(
+        values.get("exposure_time_ms", DEFAULT_EXPOSURE_TOKEN)
+    )
+    if exposure is None:
+        return auto_rejected if fixed else None
+    validator = validate_daheng_fixed_exposure if fixed else validate_daheng_exposure
+    return validator(str(values.get("cam_type", "")), exposure)
 
 
 # ---------------------------------------------------------------------------
@@ -717,6 +748,13 @@ class ShapingMethod(ABC):
     blurb: ClassVar[str] = ""
     #: Verb used in the run button, e.g. "开始 GS+SPGD 闭环整形".
     action: ClassVar[str] = "开始闭环整形"
+    #: True when the optimizer takes the GUI's send-pipeline overlay (载波 / 离焦 /
+    #: 底相位) and applies it to the SLM handle it opens itself.
+    applies_send_overlay: ClassVar[bool] = True
+    #: True when the adopted phase already carries the zero-order carrier
+    #: (``ramp_matrix`` baked into the model phase).  Such a phase must be sent
+    #: with the sidebar carrier layer **skipped**, or the tilt is applied twice.
+    phase_carries_carrier: ClassVar[bool] = False
 
     def __init__(self, prefix: str, slm_num: int) -> None:
         self.prefix = prefix
@@ -769,7 +807,8 @@ class ShapingMethod(ABC):
             self.render_advanced(values)
         st.caption(
             "面板与瞳面几何、相机、读出窗口、曝光与去零级载波在左侧「CCD参数设置」"
-            "（一次实验固定；换光路后在那里重标定即可，不必重填主区）。"
+            "（一次实验固定；运行直接复用那里的标定结果，换光路后在那里点一次"
+            "「标定」即可，不必重填主区）。"
         )
         return values
 
@@ -797,22 +836,33 @@ class ShapingMethod(ABC):
         """Return an error message when the inputs must not be run as-is."""
         return None
 
-    def prepare_config(self, config: Any, values: Mapping[str, Any]) -> None:
-        """Hook for per-run config tweaks (progress callback, debug dir, ...)."""
+    def hint_bench_calibration(self, values: Mapping[str, Any]) -> None:
+        """「本次直接复用侧栏标定」这一事实必须出声 —— 但只是提示，不是错误。
 
-    def auto_calibrate(
-        self, params: Any, config: Any, values: Mapping[str, Any]
-    ) -> tuple[Any, Any] | None:
-        """Return a (possibly) calibrated (params, config), or None to leave them alone.
-
-        Called inside the SLM-ownership handover, i.e. with the devices free.
-        Raising aborts the run -- a bench that cannot be calibrated must not be
-        shaped blind.
-
-        Default is no-op: an algorithm that needs no session preflight (GS+SPGD
-        has none, on the CLI side either) simply does not override it.
+        三种方法都不在运行时重新标定：入射中心 / sweep 几何 / 曝光只来自侧栏。
+        从未标定过时光路会落到 ``PUPIL_CENTER_FALLBACK``（本实验系统的实测值），
+        换一条光路则静默失效 —— 正是这一行存在的理由。
         """
-        return None
+        prefix = str(values.get("bench_prefix", self.prefix))
+        if bench_settings.detected_state(prefix).get("pupil_center"):
+            return
+        st.caption(
+            "本次直接复用左侧「CCD参数设置」的标定结果：还没有标定记录，"
+            f"入射中心用的是兜底实测值 {bench_settings.PUPIL_CENTER_FALLBACK}。"
+            f"换过光路请先点「标定 SLM {self.slm_num} 光路」或手填入射中心。"
+        )
+
+    def prepare_config(self, config: Any, values: Mapping[str, Any]) -> None:
+        """共有：把 GUI 同一条发送管线用的叠加层交给优化器。
+
+        优化器在自己打开 SLM 句柄时装上这一层，所以整轮闭环与最终下发的口径
+        一致；CLI 运行 ``send_overlay`` 仍为 ``None``。整条相位自带载波的方法
+        （``applies_send_overlay = False``）不接这一层，否则倾斜会加两遍。
+        """
+        if not self.applies_send_overlay:
+            return
+        prefix = str(values.get("bench_prefix", self.prefix))
+        config.send_overlay = bench_settings.build_send_overlay(prefix)
 
     # --- shared template --------------------------------------------------
 
@@ -835,14 +885,6 @@ class ShapingMethod(ABC):
         params = self.build_params(values)
         config = self.make_config(params, debug=debug)
         self.prepare_config(config, values)
-        # Session preflight belongs here and nowhere else: the devices are the
-        # calibrator's at this point (``shaping_session`` already handed the
-        # SLM over), and it is the same position the CLI holds in ``run()`` --
-        # before ``optimize_slm_model_in_loop`` opens Step A.  Raising from the
-        # hook aborts the run through the one and only error path.
-        calibrated = self.auto_calibrate(params, config, values)
-        if calibrated is not None:
-            params, config = calibrated
         # Snapshot the optical path **as it is right now**, before any device
         # moves: afterwards a re-acquire + re-render would read different values.
         prefix = str(values.get("bench_prefix", self.prefix))
@@ -866,6 +908,36 @@ class ShapingMethod(ABC):
         st.caption(snapshot_summary_line(str(self.prefix)))
         self.summarise(outcome)
 
+    @contextmanager
+    def _phase_send_overlay(self, slm: Any) -> Iterator[None]:
+        """下发最佳相位期间的发送叠加层。
+
+        只有 ``phase_carries_carrier`` 的方法（迁移模型）需要临时摘掉侧栏载波层；
+        换层成功与否都不许丢相位，且退出时立刻恢复完整叠加层，否则操作员之后的
+        每一次手动下发都会丢掉载波。
+        """
+        if not self.phase_carries_carrier or slm is None:
+            yield
+            return
+        try:
+            apply_overlays_to_handle(
+                slm,
+                bench_settings.build_send_overlay(
+                    self.prefix, slm, include_carrier=False
+                ),
+            )
+        except Exception as exc:  # 换层失败不该丢掉相位
+            logger.warning("下发接受相位前切换叠加层失败（按当前叠加继续）: {}", exc)
+        try:
+            yield
+        finally:
+            try:
+                apply_overlays_to_handle(
+                    slm, bench_settings.build_send_overlay(self.prefix, slm)
+                )
+            except Exception as exc:
+                logger.warning("恢复发送叠加层失败: {}", exc)
+
     def show_phase(self, slm: Any, outcome: ShapingOutcome | None) -> None:
         """Display the adopted phase once the GUI owns the SLM again.
 
@@ -877,16 +949,17 @@ class ShapingMethod(ABC):
         """
         if outcome is None or outcome.panel_phase is None:
             return
-        try:
-            phase_gray = slm.create_phase_from_array(outcome.panel_phase)
-            slm.display_data(phase_gray, memory_mode=MEMORY_MODE_INTERNAL)
-            refresh_phase_preview(self.slm_num)
-            max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
-            st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
-        except Exception as exc:  # surfaced to the operator
-            logger.exception("下发最佳相位失败: {}", exc)
-            st.error(f"最佳相位下发失败: {exc}")
-            return
+        with self._phase_send_overlay(slm):
+            try:
+                phase_gray = slm.create_phase_from_array(outcome.panel_phase)
+                slm.display_data(phase_gray, memory_mode=MEMORY_MODE_INTERNAL)
+                refresh_phase_preview(self.slm_num)
+                max_gray = getattr(slm, "_max_gray", None) or Santec.MAX_GRAYSCALE_VALUE
+                st.success(f"最佳相位已下发（raw 弧度走驱动管线，2π={max_gray}）")
+            except Exception as exc:  # surfaced to the operator
+                logger.exception("下发最佳相位失败: {}", exc)
+                st.error(f"最佳相位下发失败: {exc}")
+                return
 
     def summarise(self, outcome: ShapingOutcome) -> None:
         """Render the results table plus the verdict line (shared)."""
@@ -981,6 +1054,29 @@ class ShapingMethod(ABC):
                 "目标框在读出噪声里没有意义"
             )
         return side
+
+    def common_param_values(self, values: Mapping[str, Any]) -> dict[str, Any]:
+        """所有优化器参数对象共有的光路字段（一个映射，三份参数对象共用）。
+
+        ``blaze_period_px`` 恒为 -1：载波由发送叠加层承载并在优化器打开句柄时
+        装上，优化器自己再加一次会让相位斜率翻倍。
+        """
+        return {
+            "camera_pixel_um": float(
+                st.session_state.get(
+                    "camera_pixel_um",
+                    values.get("camera_pixel_um", bench_settings.DEFAULT_CAMERA_PIXEL_UM),
+                )
+            ),
+            "cam_type": str(values.get("cam_type", "daheng")),
+            "cam_id": int(values.get("cam_id", 0)),
+            "cam_size": int(values.get("cam_size", bench_settings.DEFAULT_WINDOW_SIDE_PX)),
+            "pupil_center": str(
+                values.get("pupil_center", bench_settings.PUPIL_CENTER_FALLBACK)
+            ),
+            "blaze_period_px": -1,
+            "blaze_direction": str(values.get("blaze_direction", "vertical")),
+        }
 
 
 # ---------------------------------------------------------------------------
@@ -1387,32 +1483,16 @@ class GsRefineMethod(ShapingMethod):
             panel_pixel_um=float(
                 values.get("panel_pixel_um", r.get("panel_pixel_um", 8.0))
             ),
-            camera_pixel_um=float(
-                st.session_state.get(
-                    "camera_pixel_um", values.get("camera_pixel_um", 2.2)
-                )
-            ),
             beam_radius_px=float(
                 values.get("beam_radius_px", r.get("beam_radius_px", 450.0))
-            ),
-            pupil_center=str(
-                values.get("pupil_center", r.get("pupil_center", "960,690"))
             ),
             far_field_padding=int(
                 values.get("far_field_padding", r.get("far_field_padding", 3))
             ),
-            cam_type=str(values.get("cam_type", "daheng")),
-            cam_id=int(values.get("cam_id", 0)),
             exposure_time_ms=exposure_param(values.get("exposure_time_ms", 0.1)),
-            cam_size=int(values.get("cam_size", 250)),
             slm_number=self.slm_num,
             n_eval_frames=int(values.get("n_eval_frames", r.get("n_eval_frames", 4))),
-            # 载波现在由发送叠加层承载（`bench_settings.build_carrier_overlay`），
-            # 该层在优化器打开句柄时就装到它的 SLM 上 —— 所以整轮优化与最终相位
-            # 都带载波，口径一致。这里必须传 -1，否则优化器会再施加一次，
-            # 倾斜被加两遍（相位斜率翻倍，0 级跑得更远）。
-            blaze_period_px=-1,
-            blaze_direction=str(values.get("blaze_direction", "vertical")),
+            **self.common_param_values(values),
         )
 
     def make_config(self, params: SlmGsRefineParams, *, debug: bool) -> Any:
@@ -1434,12 +1514,7 @@ class GsRefineMethod(ShapingMethod):
             )
 
         config.callback = _callback
-        # Send-pipeline overlay (离焦 / 底相位 T4): hand the optimizer the same
-        # overlay the GUI's own send path uses, so the closed loop (which opens
-        # its own SLM) sends the identical phase. The optimizer applies it to its
-        # handle at open time (driver slot); CLI runs leave ``send_overlay`` None.
-        prefix = str(values.get("bench_prefix", self.prefix))
-        config.send_overlay = bench_settings.build_send_overlay(prefix)
+        super().prepare_config(config, values)
 
     def execute(self, config: Any) -> ShapingOutcome:
         from ao_shaping.optimizer.wfless.slm_gs_refine import optimize_slm_gs_refine
@@ -1458,37 +1533,15 @@ class GsRefineMethod(ShapingMethod):
         return result.save_dir
 
     def validate(self, values: Mapping[str, Any]) -> str | None:
-        exposure = numeric_exposure(values["exposure_time_ms"])
-        if exposure is None:
-            # gs-refine cannot run on a deferred exposure: auto-exposure would
-            # observe the previous iteration's phase, so "let the device decide"
-            # is an error here rather than a deferral.
-            return "gs-refine 需要显式正曝光；自动曝光会观察到上一相位残留"
-        error = validate_daheng_fixed_exposure(
-            str(values["cam_type"]), exposure
+        error = validate_exposure(
+            values,
+            fixed=True,
+            auto_rejected="gs-refine 需要显式正曝光；自动曝光会观察到上一相位残留",
         ) or validate_target_fits_window(values)
         if error is not None:
             return error
-        self._hint_uncalibrated_centre(values)
+        self.hint_bench_calibration(values)
         return None
-
-    def _hint_uncalibrated_centre(self, values: Mapping[str, Any]) -> None:
-        """「现在用的是兜底瞳面中心」必须出声 —— 但只是提示，不是错误。
-
-        GS+SPGD 没有会话标定（CLI 侧同样没有：``slm-gs-refine`` 不跑 panel scan，
-        也不做 sweep），所以它的入射中心只能来自侧栏。而
-        ``bench_settings.PUPIL_CENTER_FALLBACK`` 是**本实验系统**的实测值：
-        仿真、或者已经确认过中心的那条光路都能直接用它跑，挡住它们等于挡住合法
-        的实验。换一条光路则会静默失效 —— 正是这一行存在的理由。
-        """
-        prefix = str(values.get("bench_prefix", self.prefix))
-        if bench_settings.detected_state(prefix).get("pupil_center"):
-            return
-        st.caption(
-            "GS+SPGD 没有自动会话标定：本次用的入射中心是兜底实测值 "
-            f"{bench_settings.PUPIL_CENTER_FALLBACK}。若这条光路换过，"
-            "请在左侧「CCD参数设置」标定 SLM 光路或手填入射中心，否则会直接失效。"
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1696,9 +1749,6 @@ class ModelInLoopMethod(ShapingMethod):
         )
 
     def build_params(self, values: Mapping[str, Any]) -> SlmModelInLoopParams:
-        camera_pixel_um = float(
-            st.session_state.get("camera_pixel_um", values.get("camera_pixel_um", 2.2))
-        )
         return SlmModelInLoopParams(
             n_rounds=int(values["n_rounds"]),
             seed=int(values["seed"]),
@@ -1719,21 +1769,14 @@ class ModelInLoopMethod(ShapingMethod):
             warm_start=bool(values.get("warm_start", True)),
             region=int(values["region"]),
             panel_span_px=float(values["panel_span_px"]),
-            pupil_center=str(values["pupil_center"]),
             far_field_padding=int(values["far_field_padding"]),
             geometry_file=str(values.get("geometry_file", "")).strip() or None,
-            cam_type=str(values["cam_type"]),
-            cam_id=int(values["cam_id"]),
             # ``bench_settings`` may hand back the ``default`` token when the session
             # exposure was never probed; anything numeric passes through as-is.
             exposure_time_ms=exposure_param(values["exposure_time_ms"]),
             max_exposure_ms=float(values["max_exposure_ms"]),
-            cam_size=int(values["cam_size"]),
-            camera_pixel_um=camera_pixel_um,
             slm_number=self.slm_num,
-            # 同 GsRefineMethod：载波由发送叠加层承载，优化器不得再施加一次。
-            blaze_period_px=-1,
-            blaze_direction=str(values.get("blaze_direction", "vertical")),
+            **self.common_param_values(values),
         )
 
     def make_config(self, params: SlmModelInLoopParams, *, debug: bool) -> Any:
@@ -1750,11 +1793,7 @@ class ModelInLoopMethod(ShapingMethod):
 
         if not getattr(config, "debug_dir", None):
             config.debug_dir = str(debug_run_dir(Path("data"), "slm_model_in_loop"))
-        # Send-pipeline overlay (离焦 / 底相位 T4): hand the optimizer the same
-        # overlay the GUI's own send path uses (the optimizer applies it to the
-        # SLM it opens at run start). CLI runs leave ``send_overlay`` None.
-        prefix = str(values.get("bench_prefix", self.prefix))
-        config.send_overlay = bench_settings.build_send_overlay(prefix)
+        super().prepare_config(config, values)
         st.info(
             f"正向模型闭环运行中：{config.n_rounds} 轮 × (Step A "
             f"{config.step_a_iterations} 步拟合 + Step B {config.step_b_iterations} "
@@ -1767,146 +1806,6 @@ class ModelInLoopMethod(ShapingMethod):
         )
 
         return outcome_from_model_in_loop(optimize_slm_model_in_loop(config), config)
-
-    def auto_calibrate(
-        self, params: SlmModelInLoopParams, config: Any, values: Mapping[str, Any]
-    ) -> tuple[SlmModelInLoopParams, Any] | None:
-        """会话预检：入射定位 + sweep 几何，与 CLI ``slm-model-in-loop`` 同一入口。
-
-        CLI 的 ``auto_session = cam_type != "sim" and geometry_file is None`` 在
-        ``run()`` 里自动做这一步；GUI 以前只能靠操作员先点一次侧栏标定按钮，
-        于是每次运行都要靠人工，标定一次忘了就整场实验在**未标定**的光路上跑。
-        这里把它接回运行路径：
-
-        * ``cam_type == "sim"`` —— 数字孪生自带几何，不标定（也不碰任何硬件）；
-        * 几何来源 ``reuse`` 且已填几何文件 —— 已有实测几何，不标定；
-        * 几何来源 ``keep`` 且 ``bench_detected`` 里已有本次会话的标定 —— 不标定；
-        * 其余（``auto``，或 ``keep`` 但还没有结果）—— 标定。
-
-        三个刻意的选择：
-
-        1. **用运行自己的 params / config**，不是 ``build_calibration_params``
-           —— 后者是侧栏按钮那条独立路径（探针参数取默认值）。标定的是即将整形的
-           那一套光路，用别的参数标出来的几何对不上这次运行。
-        2. **手动值优先**：``apply_session_calibration`` 会无脑写回探测值，而
-           三态契约规定人工值永远优先，所以这里逐字段判断后再写。
-        3. **失败即中止**：未标定的实验系统上整形出来的相位毫无意义，因此上抛，
-           由 :func:`shaping_session` 那一条路径上屏（只上屏一次）。
-        """
-        from ao_shaping.runners.slm.model_in_loop_session import calibrate_session
-
-        prefix = str(values.get("bench_prefix", self.prefix))
-        cam_type = str(getattr(params, "cam_type", "") or values.get("cam_type", ""))
-        if cam_type == "sim":
-            # 数字孪生没有面板可扫，也没有硬件几何可测。
-            return None
-        source = bench_settings.bench_geometry_source(prefix)
-        geometry_file = str(getattr(params, "geometry_file", "") or "").strip()
-        if source == "reuse" and geometry_file:
-            return None
-        detected = bench_settings.detected_state(prefix)
-        if source == "keep" and (
-            detected.get("pupil_center") or detected.get("geometry_file")
-        ):
-            return None
-
-        # ``debug_dir`` is the run's own directory: the evidence (panel_scan/,
-        # session_geometry/) has to sit next to the results it explains.
-        # Guard on the *string* -- ``str(Path(""))`` is ``"."`` (truthy), so
-        # testing the Path would let an unset debug_dir send the evidence to the
-        # current working directory.
-        raw_save_dir = str(getattr(config, "debug_dir", "") or "").strip()
-        if raw_save_dir:
-            save_dir = Path(raw_save_dir)
-        else:
-            from ao_shaping.utils.io.file import debug_run_dir
-
-            save_dir = debug_run_dir(Path("data"), "slm_model_in_loop")
-        st.info(
-            "本次先自动标定再整形：全板入射定位 → 曝光探测 → sweep 几何"
-            "（约 1–3 分钟，证据随本次运行存放）"
-        )
-        try:
-            with st.spinner("正在自动标定，请勿触碰设备（约 1–3 分钟）"):
-                calibration = calibrate_session(
-                    params, config, save_dir, locate=True, geometry=True
-                )
-        except (
-            RuntimeError,
-            ValueError,
-            OSError,
-            subprocess.CalledProcessError,
-        ) as exc:
-            step = getattr(exc, "preflight_step", "会话标定")
-            message = (
-                f"{step}未通过，已中止本次运行: {exc}\n"
-                f"证据目录: {save_dir}\n"
-                "在未标定的实验系统上整形得到的相位没有意义，因此不会继续。"
-                "若该实验系统无法被正向模型描述，请改用 GS+SPGD 闭环整形"
-                "（gs-refine 不依赖正向模型几何）。"
-            )
-            logger.exception("SLM {} 运行前会话标定失败: {}", self.slm_num, exc)
-            raise RuntimeError(message) from exc
-
-        resolved_params, resolved_config = self._merge_calibration(
-            params, config, calibration, prefix
-        )
-        bench_settings.publish_session_calibration(
-            prefix,
-            resolved_config,
-            calibration,
-            source=source,
-            save_dir=save_dir,
-            # 一次运行不该把操作员选的「自动标定」悄悄改成「复用已标定几何」——
-            # 否则第二次运行就静默地不再测量了。
-            pin_geometry_source=False,
-        )
-        for line in calibration.summary_lines():
-            st.caption(line)
-        kept = [
-            name
-            for name, measured in (
-                ("pupil_center", calibration.pupil_center),
-                ("geometry_file", calibration.geometry_file),
-            )
-            if measured is not None and name in bench_settings.manual_state(prefix)
-        ]
-        if kept:
-            st.caption(
-                "探测到新值，当前仍使用人工值（人工值优先）："
-                + "；".join(bench_settings.field_hint(prefix, name) for name in kept)
-                + "。在左侧「CCD参数设置」点「恢复探测值」可改回探测值。"
-            )
-        # The widgets are back-filled through the pending table, so they only take
-        # the new values on the **next** render.  ``values`` is the run's own copy
-        # of them, so refresh it here or the effective-optical-path snapshot
-        # (params.json) would report the pre-calibration centre.
-        if isinstance(values, MutableMapping):
-            values["pupil_center"] = _format_center(resolved_config.pupil_center)
-            values["geometry_file"] = str(resolved_config.geometry_file or "")
-        return resolved_params, resolved_config
-
-    @staticmethod
-    def _merge_calibration(
-        params: SlmModelInLoopParams,
-        config: Any,
-        calibration: Any,
-        prefix: str,
-    ) -> tuple[SlmModelInLoopParams, Any]:
-        """把探测值并进来，但**逐字段**尊重人工覆盖表。
-
-        ``apply_session_calibration`` 是无脑合并：它不知道三态契约，会把操作员手
-        填的入射中心直接冲掉。所以这里只对「人工表里没有」的字段调用 ``replace``。
-        """
-        manual = bench_settings.manual_state(prefix)
-        center = getattr(calibration, "pupil_center", None)
-        if center is not None and "pupil_center" not in manual:
-            params = replace(params, pupil_center=f"{center[0]},{center[1]}")
-            config = replace(config, pupil_center=tuple(center))
-        geometry = getattr(calibration, "geometry_file", None)
-        if geometry is not None and "geometry_file" not in manual:
-            config = replace(config, geometry_file=str(geometry))
-        return params, config
 
     def save(
         self, params: SlmModelInLoopParams, outcome: ShapingOutcome, *, debug: bool
@@ -1922,22 +1821,17 @@ class ModelInLoopMethod(ShapingMethod):
         return saved.save_dir
 
     def validate(self, values: Mapping[str, Any]) -> str | None:
-        try:
-            import torch  # noqa: F401
-        except ImportError as exc:
-            return f"正向模型闭环需要 torch（未安装）: {exc}"
-        # A deferred exposure (the widget's 0, i.e. auto) has no number to compare
-        # against the saturation ceiling, so only range-check an explicit value.
-        exposure = numeric_exposure(values["exposure_time_ms"])
-        if exposure is not None:
-            error = validate_daheng_exposure(str(values["cam_type"]), exposure)
-            if error is not None:
-                return error
-        return (
-            validate_target_fits_window(values)
+        error = (
+            validate_torch("正向模型闭环")
+            or validate_exposure(values, fixed=False)
+            or validate_target_fits_window(values)
             or self._validate_holdout(values)
             or self._validate_geometry_region(values)
+            or self._require_session_geometry(values)
         )
+        if error is None:
+            self.hint_bench_calibration(values)
+        return error
 
     def _validate_holdout(self, values: Mapping[str, Any]) -> str | None:
         """验证集探针 0 被控件允许，但 Step A 拟合本身要求 ≥ 1。
@@ -1952,6 +1846,25 @@ class ModelInLoopMethod(ShapingMethod):
         return (
             "验证集探针必须 ≥ 1（Step A 拟合依赖它）。真要关闭验证集验证请把"
             "「全频随机相位验证集探针」设为 0。"
+        )
+
+    def _require_session_geometry(self, values: Mapping[str, Any]) -> str | None:
+        """硬件上正向模型没有 sweep 几何就跑不起来，且**不再**在运行时替操作员测。
+
+        无 ``geometry_file`` 时优化器回落到 speckle 求解 —— 在本实验系统是实测
+        失败（相关度 ≈0.07，低于 0.50 门槛），要等几分钟才中止。所以运行前就拒绝，
+        并把唯一可行的动作写清楚。
+        """
+        if str(values.get("cam_type", "")) == "sim":
+            return None
+        if str(values.get("geometry_file", "") or "").strip():
+            return None
+        return (
+            "没有可复用的 sweep 几何：正向模型闭环不再在运行时自动标定。"
+            f"请在左侧「CCD参数设置」的「SLM {self.slm_num} · 光路几何与标定」点一次"
+            f"「标定 SLM {self.slm_num} 光路」（入射定位 → 曝光探测 → sweep 几何，"
+            "约 1–3 分钟），之后每次运行直接复用那次结果；"
+            "或把几何来源切到「复用已标定几何」并填一条几何文件。"
         )
 
     def _validate_geometry_region(self, values: Mapping[str, Any]) -> str | None:
@@ -1970,8 +1883,484 @@ class ModelInLoopMethod(ShapingMethod):
         return (
             f"几何文件的 region={found} 与当前模型网格 region={values['region']} "
             "不一致（模型网格本身不同）：在左侧「CCD参数设置」改 region，"
-            "或把几何来源切回「自动标定」重标"
+            f"或点一次「标定 SLM {self.slm_num} 光路」重标（运行路径不测量）"
         )
+
+
+# ---------------------------------------------------------------------------
+# Transfer: physical-forward-model closed loop (docs/slm/slm_transfer_workflow.md)
+# ---------------------------------------------------------------------------
+
+#: Shapes the transfer entry actually implements.  Not "any text pattern":
+#: ``TransferSession.validate`` rejects anything outside this set, and 五角星 is
+#: implemented but has **no device result yet** (workflow doc §7).
+TRANSFER_SHAPE_LABELS: dict[str, str] = {
+    "square": "正方形",
+    "rectangle": "长方形",
+    "triangle": "三角形",
+    "star": "五角星（已实现，尚无实验结果）",
+}
+
+#: The recipe the reproduction report ran (report/shape_trials/multishape_capability/
+#: physical_multishape_reproduction_20261023.md); the GUI defaults to it so the
+#: operator reproduces measured behaviour rather than a guessed budget.
+TRANSFER_RECIPE: dict[str, Any] = {
+    "shapes": ["square"],
+    "count": 24,
+    "iterations": 60,
+    "blocks": 4,
+    "updates": 10,
+    "frames": 3,
+    "side": 80.0,
+    "period": 64.0,
+    "seed": 102319,
+    "adaptation": "auto",
+    "objective": "shape",
+    "accept_metric": "loss",
+    "seed_policy": "transfer",
+}
+
+#: Stage names emitted by ``run_session`` → operator-readable labels.  Keeping the
+#: mapping here (not in the transfer package) means the measurement code has no
+#: presentation knowledge.
+TRANSFER_STAGE_LABELS: dict[str, str] = {
+    "capture": "当前光路采集（探针 + 逐帧自动曝光）",
+    "reuse_capture": "复用已有采集",
+    "nominal_initialization": "名义模型初始化（冷启动，未标定）",
+    "fit": "物理模型迁移 / 拟合",
+    "CCD_model_blocks": "CCD 模型配对块",
+    "exposure_response_capture": "曝光阶梯诊断",
+    "exposure_response_analysis": "曝光响应分析",
+    "blur_calibration": "有效展宽 / 辐射尺度校准",
+    "CCD_anchored_blocks": "CCD 锚定优化（A–B–B–A 验收）",
+    "GS_and_differentiable_synthesis": "GS + 可微相位合成（离线）",
+    "transferred_phase_differentiable_synthesis": "历史接受相位迁移 + 可微合成（离线）",
+    "raw_data_audit": "原始数据审计",
+    "summary": "指标摘要",
+    "direction_check": "方向核对",
+}
+
+
+def discover_transfer_checkpoint() -> Path | None:
+    """最近一次 transfer 会话留下的 ``fit/frozen_parameters.json``（按 mtime）。
+
+    The workflow's recommended loop is "keep the last accepted checkpoint and
+    re-run against it" (§7).  Finding it automatically removes the one step where
+    an operator most easily types a stale path; the field stays editable, and an
+    empty box still means a cold start.
+    """
+    root = Path("data") / "debug" / "slm_transfer"
+    if not root.is_dir():
+        return None
+    candidates = sorted(
+        root.glob("*/fit/frozen_parameters.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
+    return candidates[0] if candidates else None
+
+
+def plan_transfer_session_dir(root_dir: Path = Path("data")) -> Path:
+    """Planned ``<root>/debug/slm_transfer/<stamp>`` session dir, **not created**.
+
+    ``run_session`` creates the session directory itself with ``exist_ok=False``
+    (refusing to merge two sessions' evidence is the documented behaviour), so the
+    GUI must hand it a path that does not exist yet.  ``debug_run_dir`` creates on
+    call, which would collide -- hence this planned variant, on the same
+    two-level ``data/debug/<script>/<stamp>`` convention.
+    """
+    base = root_dir / "debug" / "slm_transfer"
+    stamp = format_ts()
+    candidate = base / stamp
+    # Second resolution is enough for a human, but two runs started in the same
+    # second are possible when an operator double-clicks.
+    suffix = 2
+    while candidate.exists():
+        candidate = base / f"{stamp}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def outcome_from_transfer(session_dir: Path, shapes: Sequence[str]) -> ShapingOutcome:
+    """Normalise one finished transfer session into the page's result view.
+
+    Reads only what the session wrote (``anchored/manifest.json`` +
+    ``anchored/<shape>_best.npy`` + ``journal.json``) -- the transfer pipeline is
+    the only writer, so the GUI never re-derives a metric and cannot disagree
+    with the audit.
+
+    The accepted phase is on the **model control grid** (the pipeline tiling it
+    onto the panel is ``capture.to_panel``), so it is tiled here, exactly the way
+    the pipeline tiled it when it was measured.  No resampling, no re-wrapping:
+    the phase stays raw radians and goes through the normal driver pipeline.
+    """
+    anchored = session_dir / "anchored"
+    rows: list[dict[str, Any]] = []
+    cv_by_shape: dict[str, dict[str, float]] = {}
+    manifest = anchored / "manifest.json"
+    if manifest.is_file():
+        records = json.loads(manifest.read_text(encoding="utf-8"))
+        by_label = {str(r.get("label")): r for r in records}
+        for shape in shapes:
+            for suffix, stage in (("_seed", "接受初值 (seed)"), ("_final", "验收后 (final)")):
+                row = by_label.get(f"{shape}{suffix}")
+                if row is None:
+                    continue
+                metrics = row.get("metrics") or {}
+                cv = _round_metric(metrics.get("cv"))
+                ee = _round_metric(metrics.get("ee_roi"))
+                rows.append(
+                    {
+                        "形状": TRANSFER_SHAPE_LABELS.get(shape, shape),
+                        "阶段": stage,
+                        "CV": cv,
+                        "EE_ROI": ee,
+                        "曝光 ms": _round_metric(row.get("exposure_ms"), 3),
+                    }
+                )
+                if cv is not None:
+                    cv_by_shape.setdefault(shape, {})[suffix] = cv
+
+    # Accepted phases are saved per shape as <shape>_best.npy; the page can put
+    # exactly one on the panel, so it takes the first requested shape that has one.
+    displayed = next(
+        (s for s in shapes if (anchored / f"{s}_best.npy").is_file()), None
+    )
+    panel_phase: np.ndarray | None = None
+    best_score = float("nan")
+    flat_score: float | None = None
+    if displayed is not None:
+        from ao_shaping.tools.slm.transfer.capture import to_panel
+
+        model_phase = np.load(anchored / f"{displayed}_best.npy")
+        panel_phase = to_panel(np.asarray(model_phase, dtype=np.float64))
+        scores = cv_by_shape.get(displayed, {})
+        best_score = float(scores.get("_final", float("nan")))
+        if "_seed" in scores:
+            flat_score = float(scores["_seed"])
+
+    stages = _transfer_stage_states(session_dir)
+    failed = [name for name, status in stages.items() if status == "failed"]
+    note_parts = [
+        "已下发形状："
+        + TRANSFER_SHAPE_LABELS.get(displayed, displayed or "")
+        + f"（其余形状的接受相位在 {anchored}/<shape>_best.npy）"
+        if displayed
+        else "本轮没有可下发的接受相位"
+    ]
+    if len(shapes) > 1:
+        note_parts.append("多个形状时下发第一个已保存的形状；其余请用「一次下发」的 CSV/npz 载入")
+    if failed:
+        note_parts.append("失败阶段：" + "、".join(TRANSFER_STAGE_LABELS.get(s, s) for s in failed))
+    return ShapingOutcome(
+        panel_phase=panel_phase,
+        best_score=best_score,
+        flat_score=flat_score,
+        rows=tuple(rows),
+        note="；".join(note_parts),
+        saved_dir=session_dir,
+        raw_result=session_dir,
+    )
+
+
+def _round_metric(value: Any, digits: int = 4) -> float | None:
+    try:
+        return round(float(value), digits)
+    except (TypeError, ValueError):
+        return None
+
+
+def _transfer_stage_states(session_dir: Path) -> dict[str, str]:
+    """``journal.json`` → ``{stage: status}`` (last entry per stage wins)."""
+    journal = session_dir / "journal.json"
+    if not journal.is_file():
+        return {}
+    states: dict[str, str] = {}
+    for entry in json.loads(journal.read_text(encoding="utf-8")):
+        states[str(entry.get("stage"))] = str(entry.get("status"))
+    return states
+
+
+@register_shaping_method
+class TransferMethod(ShapingMethod):
+    """Physical-forward-model transfer closed loop (``ao_shaping.tools.slm.transfer``).
+
+    Same entry as the CLI: a :class:`TransferSession` handed to ``run_session``.
+    There is deliberately no GUI-side orchestrator -- the stage sequence, the
+    journal, the audit and the acceptance rules must be identical to the runs the
+    reproduction report describes.
+
+    What this pipeline is *not* like the other two adapters
+    -------------------------------------------------------
+    * It carries its **own** optical-path model: it re-measures the geometry with
+      tilt probes, fits/migrates a low-parameter physical forward model, and the
+      carrier is baked into the phase through ``ramp_matrix``.  Consequently
+      ``validate.run`` clears the driver's radian overlay, and the sidebar 离焦
+      叠加 is *not* applied during a transfer run -- the model fits defocus
+      instead.  Showing the accepted phase must therefore also skip the carrier
+      layer, or the tilt would be applied twice.
+    * It does its **own** per-frame exposure search and reads its own fixed
+      measurement window (``half_span_px=220``), so the sidebar exposure and
+      readout window do not steer the measurement.  Only
+      ``AO_DAHENG_MAX_EXPOSURE_MS`` still bounds it.
+    """
+
+    key: ClassVar[str] = "transfer"
+    label: ClassVar[str] = "迁移模型闭环整形（物理模型，需 torch）"
+    action: ClassVar[str] = "开始迁移模型闭环整形"
+    #: 本方法的相位自带载波（``ramp_matrix``），且 ``validate.run`` 测量期间会
+    #: 清掉驱动叠加层 —— 所以运行时不接侧栏叠加层。
+    applies_send_overlay: ClassVar[bool] = False
+    phase_carries_carrier: ClassVar[bool] = True
+    blurb: ClassVar[str] = (
+        "少参数物理正向模型 + 当前光路重测几何 + 检查点迁移，再用 CCD 锚定短块与 "
+        "A–B–B–A 配对验收生成目标相位。与 CLI ``-m ao_shaping.tools.slm.transfer`` "
+        "同一入口；配方与验收见 "
+        "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md。"
+    )
+
+    def __init__(self, prefix: str, slm_num: int) -> None:
+        super().__init__(prefix, slm_num)
+        #: Widget handle for stage progress; created in :meth:`prepare_config`.
+        self._progress: Any = None
+        self._session_dir: Path | None = None
+        # Initialised here (not just in ``prepare_config``) so a direct
+        # ``execute()`` / ``_on_stage()`` cannot raise ``AttributeError``.
+        self._stage_total: int = 0
+        self._stage_index: int = 0
+
+    # --- widgets ----------------------------------------------------------
+
+    def render_objective(self, values: dict[str, Any]) -> None:
+        """目标：形状（可多选）/ 目标尺寸 / 载波周期。"""
+        d = TRANSFER_RECIPE
+        cells = _param_cells(3)
+        with cells[0]:
+            values["shapes"] = st.multiselect(
+                "目标形状",
+                options=list(TRANSFER_SHAPE_LABELS),
+                default=list(d["shapes"]),
+                format_func=TRANSFER_SHAPE_LABELS.__getitem__,
+                key=self.wkey("shapes"),
+                help="长方形用于验证、正方形+三角形用于跨形状展宽校准；"
+                "只选一个形状时自动跳过校准阶段（等价 CLI --skip-calibration）",
+            )
+        with cells[1]:
+            values["side"] = self.num_input(
+                "side",
+                "目标尺寸 (CCD px)",
+                d["side"],
+                8.0,
+                400.0,
+                5.0,
+                help="正方形边长 / 长方形 2:1 的短边 / 三角形外接圆半径的一半 —— "
+                "沿用 CLI --side 的口径，三角形不按边长解释",
+            )
+        with cells[2]:
+            values["period"] = self.num_input(
+                "period",
+                "载波周期 (面板 px)",
+                d["period"],
+                4.0,
+                1024.0,
+                8.0,
+                help="去零级载波的斜率光栅周期，写进物理模型的 ramp_matrix；"
+                "必须让目标整个落在测量窗内，否则运行前即拒绝",
+            )
+        st.caption(
+            "本方法的载波在**模型与相位内部**（``ramp_matrix``），不是侧栏「相位叠加」里那一层 —— "
+            "两者不能同时施加，下发接受相位时会自动跳过叠加层里的载波。"
+        )
+
+    def render_budget(self, values: dict[str, Any]) -> None:
+        """预算：探针数 / 拟合迭代 / 锚定块数 / 每块更新数 / 每点帧数 / 随机种子。"""
+        d = TRANSFER_RECIPE
+        for cell, (name, label, lo, hi, step, help_text) in zip(
+            _param_cells(4),
+            (
+                ("count", "探针数", 6, 96, 6, "分组随机探针数（CLI --count）"),
+                ("iterations", "拟合迭代", 0, 400, 10, "模型参数拟合迭代（CLI --iterations）"),
+                ("blocks", "锚定块数", 1, 24, 1, "CCD 锚定短块数，每块一次 A–B–B–A 验收"),
+                ("updates", "每块更新数", 1, 60, 1, "每块内的模型更新次数"),
+            ),
+            strict=True,
+        ):
+            with cell:
+                values[name] = self.num_input(
+                    name, label, d[name], lo, hi, step, help=help_text
+                )
+        for cell, (name, label, lo, hi, step, help_text) in zip(
+            _param_cells(2),
+            (
+                ("frames", "每点帧数", 3, 12, 1, "每个测量点的原始帧数（中位数前的样本数）"),
+                ("seed", "随机种子", 0, 999999, 1, "探针/初始化随机种子（CLI --seed）"),
+            ),
+            strict=True,
+        ):
+            with cell:
+                values[name] = self.num_input(
+                    name, label, d[name], lo, hi, step, help=help_text
+                )
+
+    def render_advanced(self, values: dict[str, Any]) -> None:
+        """迁移来源与验收口径（与 CLI 的 --checkpoint/--seed-run/--adaptation/... 同名）。"""
+        d = TRANSFER_RECIPE
+        found = discover_transfer_checkpoint()
+        values["checkpoint"] = st.text_input(
+            "历史检查点 (frozen_parameters.json)",
+            value=str(found) if found is not None else "",
+            key=self.wkey("checkpoint"),
+            help="留空 = 冷启动（先名义模型初始化再完整拟合，慢且初值未标定）。"
+            "默认自动填入最近一次 transfer 会话的冻结检查点",
+        )
+        if found is not None:
+            st.caption(f"自动发现最近检查点：{found}")
+        values["seed_run"] = st.text_input(
+            "历史接受相位目录 (跳过 GS)",
+            value="",
+            key=self.wkey("seed_run"),
+            help="指向历史会话的 anchored/ 目录；填写后初值来自历史接受相位，"
+            "本轮不调用 GS（CLI --seed-run）",
+        )
+        cells = _param_cells(4)
+        with cells[0]:
+            values["adaptation"] = st.selectbox(
+                "模型适配",
+                options=["auto", "alignment", "full"],
+                index=["auto", "alignment", "full"].index(str(d["adaptation"])),
+                key=self.wkey("adaptation"),
+                help="auto = 先只调位置（≤30 次），验证不足再解冻离焦/宽度/像差完整拟合",
+            )
+        with cells[1]:
+            values["seed_policy"] = st.selectbox(
+                "历史相位迁移策略",
+                options=["transfer", "strict"],
+                index=["transfer", "strict"].index(str(d["seed_policy"])),
+                key=self.wkey("seed_policy"),
+                help="transfer = 按新旧模型静态像差差值与几何修正历史相位；"
+                "strict = 要求网格与目标逐项相同",
+            )
+        with cells[2]:
+            values["objective"] = st.selectbox(
+                "图像优化目标",
+                options=["shape", "cv"],
+                index=["shape", "cv"].index(str(d["objective"])),
+                key=self.wkey("objective"),
+                help="cv = 只以目标核心内 CV² 为图像项（匀化优先，EE 仍记录但不参与目标）",
+            )
+        with cells[3]:
+            values["accept_metric"] = st.selectbox(
+                "A–B–B–A 验收指标",
+                options=["loss", "cv"],
+                index=["loss", "cv"].index(str(d["accept_metric"])),
+                key=self.wkey("accept_metric"),
+                help="cv = 候选平均 CV 必须优于参考平均 CV 减去前后参考漂移；"
+                "这样 EE 上升而 CV 退化的候选不会被接受",
+            )
+        values["calibration"] = st.checkbox(
+            "跨形状校准（曝光阶梯 + 有效展宽）",
+            value=True,
+            key=self.wkey("calibration"),
+            help="需要同时选正方形/长方形/三角形；只选一个形状时自动跳过（CLI --skip-calibration）",
+        )
+        st.caption(
+            "曝光与读出窗由本流程自己确定：逐帧自动曝光、测量窗固定 half_span=220 px。"
+            f"附加曝光上限仍受 {DAHENG_EXPOSURE_LIMIT_ENV} 约束"
+            f"（当前 {configured_daheng_exposure_limit() or '未设置 = 由画面探测'}）。"
+        )
+
+    # --- mapping ----------------------------------------------------------
+
+    def build_params(self, values: Mapping[str, Any]) -> Any:
+        """Widget values → :class:`TransferSession`（与 CLI 同一个参数对象）。"""
+        from ao_shaping.tools.slm.transfer.workflow import TransferSession
+
+        session_dir = plan_transfer_session_dir()
+        self._session_dir = session_dir
+        checkpoint = str(values.get("checkpoint", "") or "").strip()
+        seed_run = str(values.get("seed_run", "") or "").strip()
+        shapes = tuple(values.get("shapes") or ())
+        calibration = values.get("calibration", True)
+        return TransferSession(
+            out=session_dir,
+            checkpoint=Path(checkpoint) if checkpoint else None,
+            seed_run=Path(seed_run) if seed_run else None,
+            shapes=shapes,
+            count=int(values["count"]),
+            iterations=int(values["iterations"]),
+            blocks=int(values["blocks"]),
+            updates=int(values["updates"]),
+            frames=int(values["frames"]),
+            side=float(values["side"]),
+            period=float(values["period"]),
+            seed=int(values["seed"]),
+            camera=str(values.get("cam_type", "daheng")),
+            cam_id=int(values.get("cam_id", 0)),
+            slm_number=int(values.get("slm_number", self.slm_num)),
+            calibration=None if calibration is True else False,
+            adaptation=str(values["adaptation"]),
+            accept_metric=str(values["accept_metric"]),
+            objective=str(values["objective"]),
+            seed_policy=str(values["seed_policy"]),
+        )
+
+    def make_config(self, params: Any, *, debug: bool) -> Any:
+        """``TransferSession`` *is* the config; ``debug`` never switches evidence off.
+
+        The pipeline's evidence model is a session directory with journal/audit
+        from the first stage on -- there is no "run without saving" mode to mirror,
+        so the debug checkbox cannot remove it.
+        """
+        return params
+
+    def prepare_config(self, config: Any, values: Mapping[str, Any]) -> None:
+        """Stage progress: the run blocks the page, so the only live signal is this bar."""
+        stages = config.plan()["stages"]
+        self._progress = st.progress(0.0, text=f"共 {len(stages)} 个阶段：{stages[0]}")
+        self._stage_total = len(stages)
+        self._stage_index = 0
+
+    def _on_stage(self, name: str, status: str) -> None:
+        """``run_session`` stage hook → progress bar.  Runs on the Streamlit thread."""
+        if status != "complete" or self._progress is None:
+            return
+        self._stage_index += 1
+        label = TRANSFER_STAGE_LABELS.get(name, name)
+        self._progress.progress(
+            min(1.0, self._stage_index / max(1, self._stage_total)),
+            text=f"{self._stage_index}/{self._stage_total} {label}",
+        )
+
+    def execute(self, config: Any) -> ShapingOutcome:
+        """The only place the transfer pipeline is invoked."""
+        from ao_shaping.tools.slm.transfer.workflow import run_session
+
+        run_session(config, on_stage=self._on_stage)
+        return outcome_from_transfer(Path(config.out), tuple(config.shapes))
+
+    def validate(self, values: Mapping[str, Any]) -> str | None:
+        """运行前拒绝：让 transfer 自己的规则先跑一遍，而不是等硬件阶段失败。
+
+        ``TransferSession.validate`` is the authoritative rule set; calling it here
+        means the run button is disabled instead of the operator losing several
+        minutes to a device stage that was going to fail anyway.
+        """
+        error = validate_torch("迁移模型闭环")
+        if error is not None:
+            return error
+        cam_type = str(values.get("cam_type", ""))
+        if cam_type != "daheng":
+            return (
+                f"迁移模型闭环目前只对大恒相机做过实验验证（相机类型 {cam_type!r}）。"
+                "其他后端仅有接口支持；请先在左侧「CCD参数设置」把相机类型设为 daheng"
+            )
+        if not values.get("shapes"):
+            return "至少选择一个目标形状"
+        try:
+            self.build_params(values).validate()
+        except (FileNotFoundError, ValueError) as exc:
+            return str(exc)
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -2004,16 +2393,18 @@ def render_bench_status(prefix: str, slm_num: int) -> str | None:
     """状态条：一句话说清「这条光路现在是什么状态」。
 
     Three cases, and each one answers a question the operator actually has:
-    not calibrated at all (it will be measured before the run), calibrated with
+    not calibrated at all (the sidebar 标定 button has never run), calibrated with
     some fields hand-overridden, or calibrated and trusted.
     """
     detected = bench_settings.detected_state(prefix)
     manual = bench_settings.manual_fields(prefix)
-    calibrated = bool(detected.get("pupil_center") or detected.get("geometry_file"))
+    # One predicate, one implementation: ``is_calibrated`` also drives the
+    # sidebar expander title, so the status bar cannot disagree with it.
+    calibrated = bench_settings.is_calibrated(prefix)
     if not calibrated:
         return (
             f"光路 SLM {slm_num}：○ 未标定 —— {bench_settings.uncalibrated_note(prefix)}；"
-            "也可先在左侧「CCD参数设置」手动标定"
+            f"标定按钮在左侧「CCD参数设置」→「SLM {slm_num} · 光路几何与标定」"
         )
     parts = [f"光路 SLM {slm_num}：● 已标定 {detected.get('calibrated_at') or '-'}"]
     parts.append(
@@ -2053,7 +2444,7 @@ def render_closed_loop_shaping(slm_num: int) -> None:
     st.subheader("闭环整形 (SLM + CCD)")
     st.caption(
         "开环整形（旧 GS方形整形/稳像法）在本实验系统已被实测证伪；此处复用 CLI "
-        "`slm-gs-refine` / `slm-model-in-loop` 的闭环管线，默认值即 "
+        "`slm-gs-refine` / `slm-model-in-loop` / 迁移模型工具入口的闭环管线，默认值即 "
         "[report/shape_trials](../../../../report/shape_trials/README.md) 的"
         "交错重放验证配方。运行期间本页阻塞，且 SLM 句柄临时交给优化器"
         "（另一台 SLM 不受影响）。"

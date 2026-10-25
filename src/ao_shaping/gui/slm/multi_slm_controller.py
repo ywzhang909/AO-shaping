@@ -849,41 +849,6 @@ def display_slm_status(slm_num: int):
         st.warning("未连接")
 
 
-def render_auto_calibrate_entry(slm_num: int) -> None:
-    """Per-SLM 「一键光路标定」：一次跑完定位 → 曝光 → 半径 → 几何。
-
-    这是**整链**入口，与 bench_settings D/E 组里的逐步控件并存而不重复：
-    D/E 供手工分步排查（只测半径、只重标几何），这里供「换完光路按一次」。
-
-    四步的顺序不可换 —— 半径要减本会话的中心，几何要瞄准本会话的中心，
-    曝光要被后两步复用 —— 所以编排集中在这里，不散落到各控件。
-    半径与曝光都由 ``calibrate_session`` 同一入口实测，GUI 不另写一份。
-    """
-    from ao_shaping.gui.slm import bench_settings
-
-    prefix = f"slm{slm_num}"
-    if bench_settings.bench_busy():
-        return
-
-    summary = bench_settings.bench_summary_lines(prefix)
-    with st.expander(f"SLM {slm_num} · 一键光路标定", expanded=False):
-        if summary:
-            for line in summary:
-                st.caption(line)
-        else:
-            st.caption(bench_settings.uncalibrated_note(prefix))
-        if st.button(
-            f"一键标定 SLM {slm_num} 光路",
-            key=f"{prefix}_auto_calibrate_all_btn",
-            type="primary",
-            use_container_width=True,
-            help="全板入射定位 → 曝光探测 → 照明半径边界扫描 → sweep 几何。"
-            "约 3–8 分钟（半径扫描占大头）；期间本机不要触碰设备。",
-        ):
-            bench_settings.run_session_calibration(prefix, slm_num)
-            st.rerun()
-
-
 def render_slm_sidebar():
     """Render sidebar with device table and per-SLM settings."""
     st.header("SLM 设备")
@@ -986,20 +951,10 @@ def render_slm_sidebar():
     # 照明半径（+ 探测）与标定按钮。
     # 像元间距的 widget key 仍是 camera_pixel_um（不新建同 key widget），
     # 整个区块只在这里实例化一次 —— 主区的整形参数区不再重复它。
+    # 标定入口也只有这一处：光路摘要卡 + 「标定 SLM N 光路」按钮同在一个折叠块里
+    # （2026-10-24 删掉原先独立的「一键光路标定」块 —— 它调的是同一个
+    # run_session_calibration，纯重复入口）。
     render_bench_settings()
-
-    # 自动标定链路的唯一驱动点放在这里（而不是散在 bench_settings 的
-    # D/E 两块里），因为「这台 SLM 现在能不能直接整形」是设备级问题：
-    # 入射定位 → 曝光 → 照明半径 → sweep 几何 四步的顺序不能换，任一步失败
-    # 都不该继续。bench_settings 负责每一步的控件与三态回填，这里负责编排。
-    connected = [
-        slm_num
-        for slm_num in (1, 2)
-        if st.session_state.get(f"slm{slm_num}_connected")
-        and st.session_state.get(f"slm{slm_num}") is not None
-    ]
-    for slm_num in connected:
-        render_auto_calibrate_entry(slm_num)
 
     for slm_num in (1, 2):
         prefix = f"slm{slm_num}"

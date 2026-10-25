@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 from typing import Any
 
 import numpy as np
@@ -231,3 +232,62 @@ class TestShapingDoesNotDoubleApply:
         }
         mil = sc.ModelInLoopMethod("slm1", 1).build_params(mil_values)
         assert mil.blaze_period_px == -1
+
+
+class TestTransferSkipsTheSendOverlay:
+    """迁移模型的相位自带 ``ramp_matrix`` 载波，所以它**不接**侧栏发送叠加层。
+
+    接了这一层就是把同一个倾斜加两遍（0 级会跑两倍远），而且 ``transfer.validate.run``
+    在测量期间还会主动清掉驱动叠加层 —— 运行期与下发期的口径必须一致。
+    """
+
+    def test_the_flag_is_an_explicit_opt_out(self) -> None:
+        from ao_shaping.gui.slm import shaping_controls as sc
+
+        assert sc.TransferMethod.applies_send_overlay is False
+        # The base default stays True: the flag is opt-out, not opt-in.
+        assert sc.ShapingMethod.applies_send_overlay is True
+        assert sc.GsRefineMethod.applies_send_overlay is True
+        assert sc.ModelInLoopMethod.applies_send_overlay is True
+
+    def test_prepare_config_never_assigns_send_overlay(self, monkeypatch) -> None:
+        from ao_shaping.gui.slm import shaping_controls as sc
+        from ao_shaping.tools.slm.transfer.workflow import TransferSession
+
+        # ``TransferSession`` is frozen and has no such field, so a base-class
+        # ``prepare_config`` (which assigns ``config.send_overlay``) could only
+        # crash here — nothing to catch it at the mapping layer.
+        assert "send_overlay" not in {f.name for f in dataclasses.fields(TransferSession)}
+
+        assigned: dict[str, Any] = {}
+
+        class _RecordingConfig:
+            """Records every attribute write (a frozen dataclass cannot)."""
+
+            stages = ["capture", "fit", "summary", "direction_check"]
+
+            def __init__(self) -> None:
+                object.__setattr__(self, "assigned", assigned)
+
+            def plan(self) -> dict[str, Any]:
+                return {"stages": list(self.stages)}
+
+            def __setattr__(self, name, value) -> None:
+                self.assigned[name] = value
+                object.__setattr__(self, name, value)
+
+        monkeypatch.setattr(st, "progress", lambda value, text=None: None)
+
+        config = _RecordingConfig()
+        sc.TransferMethod("slm1", 1).prepare_config(config, {"bench_prefix": "slm1"})
+
+        assert "send_overlay" not in assigned, assigned
+
+        # Guard the guard: the same recorder must catch the assignment on a
+        # method that *does* take the overlay, otherwise this test could pass
+        # because the recorder observes nothing at all.
+        gs_config = _RecordingConfig()
+        sc.ShapingMethod.prepare_config(
+            sc.GsRefineMethod("slm1", 1), gs_config, {"bench_prefix": "slm1"}
+        )
+        assert "send_overlay" in gs_config.assigned

@@ -567,10 +567,19 @@ def _record_calls(monkeypatch, sink: list[dict[str, Any]]) -> None:
 
 
 class TestSummaryAndGeometry:
-    def test_uncalibrated_summary_says_it_will_auto_calibrate(self, state) -> None:
+    def test_uncalibrated_summary_points_at_the_calibration_button(self, state) -> None:
+        """未标定 ≠ 「运行时会自动标定」。
+
+        运行路径不再测量（2026-10-24 删掉 ``auto_calibrate``），所以这一行必须指向
+        侧栏的「标定 … 光路」按钮，而不是承诺一次运行期的标定。
+        """
         lines = bs.bench_summary_lines("slm1")
-        assert lines[0].startswith(bs.MARK_UNSET)
-        assert "自动标定" in lines[0]
+        line = lines[0]
+        assert line.startswith(bs.MARK_UNSET)
+        assert "标定" in line
+        assert "光路" in line
+        assert "运行时会先" not in line
+        assert "运行时自动" not in line
 
     def test_calibrated_summary_lists_the_measured_facts(self, state) -> None:
         bs.record_detection(
@@ -653,3 +662,166 @@ class TestMergeBenchValues:
 
         state["slm1_bench_pupil_center"] = " 123,456 "
         assert bs.bench_pupil_center("slm1") == "123,456"
+
+
+# ---------------------------------------------------------------------------
+# reusable geometry (the run path no longer measures)
+# ---------------------------------------------------------------------------
+
+
+class TestReusableGeometryFile:
+    """``reusable_geometry_file`` —— 运行路径唯一的几何来源。
+
+    三条规则，按优先级：几何来源「复用」时文本框里的路径 → 本会话已标定的探测产物
+    → 空串（= 没有可复用的几何，由 ``ModelInLoopMethod.validate`` 拒绝运行）。
+    """
+
+    def test_reuse_mode_uses_the_text_box(self, state, tmp_path) -> None:
+        box = tmp_path / "box.json"
+        box.write_text("{}", encoding="utf-8")
+        state["slm1_bench_geometry_source"] = "reuse"
+        state["slm1_bench_geometry_file"] = f"  {box}  "
+        bs.record_detection("slm1", {"geometry_file": "data/detected.json"})
+
+        assert bs.reusable_geometry_file("slm1") == str(box)
+
+    def test_reuse_mode_with_an_empty_box_uses_the_detected_artefact(self, state) -> None:
+        state["slm1_bench_geometry_source"] = "reuse"
+        bs.record_detection("slm1", {"geometry_file": "data/detected.json"})
+
+        assert bs.reusable_geometry_file("slm1") == "data/detected.json"
+
+    @pytest.mark.parametrize("source", ["auto", "keep"])
+    def test_the_dropdown_does_not_gate_the_run(self, state, source) -> None:
+        """``auto``/``keep`` 只影响按钮下一次测什么；运行一律复用已有产物。
+
+        文本框属于「复用」模式（下次点按钮才测量时不该被一个手填路径挡住），所以
+        这两种来源下解析到的是本会话的探测产物。
+        """
+        state["slm1_bench_geometry_source"] = source
+        state["slm1_bench_geometry_file"] = "data/box.json"
+        bs.record_detection("slm1", {"geometry_file": "data/detected.json"})
+
+        assert bs.reusable_geometry_file("slm1") == "data/detected.json"
+
+    def test_nothing_anywhere_is_the_empty_string(self, state) -> None:
+        assert bs.reusable_geometry_file("slm1") == ""
+
+        # A detection that recorded no geometry is still "nothing".
+        bs.record_detection("slm1", {"geometry_file": ""})
+        assert bs.reusable_geometry_file("slm1") == ""
+
+    def test_namespaces_do_not_leak_between_slms(self, state) -> None:
+        """Dual SLM: SLM 2's entrance plane is SLM 1's exit plane."""
+        bs.record_detection("slm1", {"geometry_file": "data/slm1.json"})
+        bs.record_detection("slm2", {"geometry_file": "data/slm2.json"})
+
+        assert bs.reusable_geometry_file("slm1") == "data/slm1.json"
+        assert bs.reusable_geometry_file("slm2") == "data/slm2.json"
+class TestCalibrationMarker:
+    """折叠标题自报标定状态。
+
+    操作者看的是 D/E 组里的字段；字段为空并不等于「没标定」，所以在**标题**上
+    给出状态，折叠着也能判断这台 SLM 现在能不能直接整形。
+    """
+
+    def test_uncalibrated_is_the_marker_when_nothing_was_measured(self, state) -> None:
+        assert bs.is_calibrated("slm1") is False
+        assert bs.calibration_marker("slm1") == f"{bs.MARK_UNSET} 未标定"
+
+    def test_marker_flips_once_a_centre_is_detected(self, state) -> None:
+        bs.record_detection("slm1", {"pupil_center": (960, 690)})
+        assert bs.calibration_marker("slm1") == f"{bs.MARK_DETECTED} 已标定"
+
+    def test_sweep_geometry_alone_also_counts_as_calibrated(self, state) -> None:
+        """sweep 几何是标定的另一半证据：只有它、没有中心也必须算已标定。"""
+        bs.record_detection("slm1", {"geometry_file": "data/geo.json"})
+        assert bs.is_calibrated("slm1") is True
+        assert bs.calibration_marker("slm1") == f"{bs.MARK_DETECTED} 已标定"
+
+    def test_namespaces_do_not_share_the_state(self, state) -> None:
+        bs.record_detection("slm2", {"pupil_center": (900, 610)})
+        assert bs.calibration_marker("slm1") == f"{bs.MARK_UNSET} 未标定"
+        assert bs.calibration_marker("slm2") == f"{bs.MARK_DETECTED} 已标定"
+
+    def test_expander_title_carries_the_marker(self, state, monkeypatch) -> None:
+        labels: list[str] = []
+        expander = st.expander
+
+        def _record(label, *args, **kwargs):
+            labels.append(label)
+            return expander(label, *args, **kwargs)
+
+        monkeypatch.setattr(st, "expander", _record)
+        _connect_slm(state)
+
+        bs.render_bench_settings()
+
+        titles = [label for label in labels if "光路几何与标定" in label]
+        assert titles, f"no per-SLM calibration expander rendered; got {labels}"
+        assert all(bs.MARK_UNSET in label for label in titles)
+
+    def test_expander_title_reports_detected_after_a_calibration(
+        self, state, monkeypatch
+    ) -> None:
+        labels: list[str] = []
+        expander = st.expander
+
+        def _record(label, *args, **kwargs):
+            labels.append(label)
+            return expander(label, *args, **kwargs)
+
+        monkeypatch.setattr(st, "expander", _record)
+        _connect_slm(state)
+        bs.record_detection("slm1", {"pupil_center": (960, 690)})
+
+        bs.render_bench_settings()
+
+        titles = [label for label in labels if "光路几何与标定" in label]
+        assert titles
+        assert all(bs.MARK_DETECTED in label for label in titles)
+
+
+class TestSingleCalibrationEntry:
+    """标定只有**一个**入口：摘要卡 + D + E 同在一个折叠块里。
+
+    2026-10-24 合并前，侧栏有两块：「SLM N · 光路几何与标定」与
+    「SLM N · 一键光路标定」。两个主按钮调的是同一个
+    ``run_session_calibration``，后者只是把摘要卡放在自己的折叠块里，并且在
+    「复用」来源下**不禁用** —— 点下去等于只刷新 ``calibrated_at``。
+    """
+
+    def test_summary_renders_in_the_same_block_as_the_button(
+        self, state, monkeypatch
+    ) -> None:
+        """摘要卡必须落在存活的那一块里（否则合并就把摘要弄丢了）。"""
+        prefixes: list[str] = []
+        original = bs.bench_summary_lines
+
+        def _record(prefix, *args, **kwargs):
+            prefixes.append(prefix)
+            return original(prefix, *args, **kwargs)
+
+        monkeypatch.setattr(bs, "bench_summary_lines", _record)
+        _connect_slm(state)
+
+        bs.render_bench_settings()
+
+        assert "slm1" in prefixes, f"summary card never rendered; got {prefixes}"
+
+    def test_no_second_calibration_button_remains(self, state, monkeypatch) -> None:
+        _connect_slm(state)
+        calls: list[dict[str, Any]] = []
+        _record_calls(monkeypatch, calls)
+
+        bs.render_bench_settings()
+
+        keys = [spec["key"] for spec in calls if "key" in spec]
+        assert "slm1_bench_calibrate_btn" in keys
+        assert not [k for k in keys if "auto_calibrate" in k], keys
+
+    def test_one_click_entry_is_gone(self, state) -> None:
+        """``render_auto_calibrate_entry`` 是那个重复入口，已整体删除。"""
+        from ao_shaping.gui.slm import multi_slm_controller
+
+        assert not hasattr(multi_slm_controller, "render_auto_calibrate_entry")

@@ -504,10 +504,20 @@ class TestMethodRegistry:
     """The registration decorator is the extension point: a third algorithm
     must be addable without touching the section renderer."""
 
-    def test_both_algorithms_registered(self) -> None:
+    def test_all_three_algorithms_registered(self) -> None:
         from ao_shaping.gui.slm import shaping_controls
 
-        assert set(shaping_controls.SHAPING_METHODS) == {"gs-refine", "model-in-loop"}
+        assert set(shaping_controls.SHAPING_METHODS) == {
+            "gs-refine",
+            "model-in-loop",
+            "transfer",
+        }
+        # A half-registered adapter (key present, label/action left blank) would
+        # show an empty selector option and an unlabelled run button — the page
+        # is generated from the registry, so nothing else would catch it.
+        for key, cls in shaping_controls.SHAPING_METHODS.items():
+            assert cls.label.strip(), f"{key} 缺 label"
+            assert cls.action.strip(), f"{key} 缺 action"
 
     def test_lookup_and_unknown_key(self) -> None:
         from ao_shaping.gui.slm import shaping_controls

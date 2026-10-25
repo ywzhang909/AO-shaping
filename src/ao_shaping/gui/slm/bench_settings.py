@@ -118,6 +118,7 @@ __all__ = [
     "record_detection",
     "render_bench_settings",
     "reset_manual",
+    "reusable_geometry_file",
     "run_session_calibration",
     "widget_default",
     "set_bench_busy",
@@ -149,13 +150,14 @@ BLAZE_PERIOD_LABELS: dict[int, str] = {
 
 BLAZE_DIRECTIONS: tuple[str, ...] = ("vertical", "horizontal")
 
-#: 几何来源。``auto`` 每次运行前自动标定；``reuse`` 复用已标定几何文件；
-#: ``keep`` 沿用上次结果（本次不再标定，也不改任何值）。
+#: 几何来源 —— 文档的是**标定按钮**的作用范围，不是运行路径（运行不测量）。
+#: ``auto`` 点按钮时入射中心与 sweep 几何全测；``reuse`` 直接用已有几何文件；
+#: ``keep`` 只重测入射中心，沿用上次几何。
 GEOMETRY_SOURCE_OPTIONS: tuple[str, ...] = ("auto", "reuse", "keep")
 GEOMETRY_SOURCE_LABELS: dict[str, str] = {
-    "auto": "自动标定（推荐）",
+    "auto": "自动标定（点按钮时全测）",
     "reuse": "复用已标定几何",
-    "keep": "沿用上次结果",
+    "keep": "沿用上次几何（只重测中心）",
 }
 
 #: 相机像元间距默认 / 已知型号表（大恒 MER2-507 = 2.2 μm，本实验系统实测）。
@@ -319,19 +321,44 @@ def bench_fields(prefix: str) -> dict[str, BenchField]:
 
 _FIELD_CATALOG: dict[str, BenchField] = {
     "camera_pixel_um": BenchField(
-        "camera_pixel_um", CAMERA_PIXEL_KEY, "μm", "rel", CAMERA_PIXEL_REL_TOLERANCE, "相机像元间距"
+        "camera_pixel_um",
+        CAMERA_PIXEL_KEY,
+        "μm",
+        "rel",
+        CAMERA_PIXEL_REL_TOLERANCE,
+        "相机像元间距",
     ),
     "exposure_ms": BenchField(
-        "exposure_ms", "bench_exposure_ms", "ms", "rel", EXPOSURE_REL_TOLERANCE, "会话曝光"
+        "exposure_ms",
+        "bench_exposure_ms",
+        "ms",
+        "rel",
+        EXPOSURE_REL_TOLERANCE,
+        "会话曝光",
     ),
     "cam_size": BenchField(
-        "cam_size", "bench_cam_size", "px", "abs", float(WINDOW_SIDE_TOLERANCE_STEP), "读出窗口边长"
+        "cam_size",
+        "bench_cam_size",
+        "px",
+        "abs",
+        float(WINDOW_SIDE_TOLERANCE_STEP),
+        "读出窗口边长",
     ),
     "pupil_center": BenchField(
-        "pupil_center", "bench_pupil_center", "px", "center", CENTER_TOLERANCE_PX, "入射中心"
+        "pupil_center",
+        "bench_pupil_center",
+        "px",
+        "center",
+        CENTER_TOLERANCE_PX,
+        "入射中心",
     ),
     "panel_span_px": BenchField(
-        "panel_span_px", "bench_panel_span_px", "px", "abs", PANEL_SPAN_TOLERANCE_PX, "模型覆盖宽度"
+        "panel_span_px",
+        "bench_panel_span_px",
+        "px",
+        "abs",
+        PANEL_SPAN_TOLERANCE_PX,
+        "模型覆盖宽度",
     ),
     "geometry_file": BenchField(
         "geometry_file", "bench_geometry_file", "", "text", 0.0, "几何文件"
@@ -610,14 +637,18 @@ def bench_value(prefix: str, name: str, fallback: Any = None) -> Any:
     return fallback if value is None else value
 
 
-def bench_pupil_center(prefix: str = "slm1", fallback: str = PUPIL_CENTER_FALLBACK) -> str:
+def bench_pupil_center(
+    prefix: str = "slm1", fallback: str = PUPIL_CENTER_FALLBACK
+) -> str:
     """入射中心的字符串形式（``"x,y"``）。
 
     解析顺序：人工填的文本 → 本次标定的探测值 → ``fallback``。
     ``fallback`` 默认是本实验系统的实测值，只在**从未标定过**时兜底；控件本身
     的默认值是空串，placeholder 写「留空 = 自动定位」。
     """
-    raw = str(st.session_state.get(_scoped(prefix, "bench_pupil_center"), "") or "").strip()
+    raw = str(
+        st.session_state.get(_scoped(prefix, "bench_pupil_center"), "") or ""
+    ).strip()
     if raw:
         return raw
     detected = detected_state(prefix).get("pupil_center")
@@ -673,13 +704,20 @@ def build_defocus_overlay(prefix: str = "slm1", slm=None) -> np.ndarray:
     的半径 = span/2，``bench_pupil_center``），波长/像元取设备实参（缺省 1064nm /
     8 μm）。
     """
-    from ao_shaping.tools.kernels.bench_kernels import SLM_PANEL_H, SLM_PANEL_W, fresnel_panel, zernike_panel
+    from ao_shaping.tools.kernels.bench_kernels import (
+        SLM_PANEL_H,
+        SLM_PANEL_W,
+        fresnel_panel,
+        zernike_panel,
+    )
 
     panel_shape = (SLM_PANEL_H, SLM_PANEL_W)
     centre = bench_pupil_center(prefix)
     point = _coerce_point(centre) or (960.0, 600.0)
     # 半径 = 照明直径/2（panel_span_px 即 2×半径）；缺省 900 px 口径 → 450 px。
-    span = float(st.session_state.get(_scoped(prefix, "bench_panel_span_px"), 900.0) or 900.0)
+    span = float(
+        st.session_state.get(_scoped(prefix, "bench_panel_span_px"), 900.0) or 900.0
+    )
     radius = max(1, int(round(span / 2.0)))
     wavelength = getattr(slm, "wavelength", None) if slm is not None else None
     pixel_um = float(getattr(slm, "Pitch_um", 8.0)) if slm is not None else 8.0
@@ -744,9 +782,7 @@ def build_carrier_overlay(prefix: str = "slm1", slm=None) -> np.ndarray | None:
         ),
     )
     try:
-        out = apply_zero_order_overlay(
-            np.zeros(panel_shape, dtype=np.float64), params
-        )
+        out = apply_zero_order_overlay(np.zeros(panel_shape, dtype=np.float64), params)
     except Exception as exc:  # 叠加层失败不卡主流程
         logger.warning("载波叠加构造失败 (%s): %s", prefix, exc)
         return None
@@ -776,8 +812,10 @@ def rebuild_defocus_overlay(prefix: str, slm) -> None:
         slm.set_phase_overlay(overlay)
 
 
-def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
-    """按当前 session 状态合成**发送管线叠加层**（离焦 + 底相位）。
+def build_send_overlay(
+    prefix: str = "slm1", slm=None, *, include_carrier: bool = True
+) -> PhaseOverlay | None:
+    """按当前 session 状态合成**发送管线叠加层**（离焦 + 载波 + 底相位）。
 
     这是「叠加层真值」的唯一读取点：controller 的 ``_apply_slm_overlays`` 和
     闭环整形（gs-refine / model-in-loop）的 GUI 入口共用它，保证 GUI 会话句柄
@@ -792,7 +830,9 @@ def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
     降级为不叠该层，不卡主流程。
     """
     phase_rad = None
-    defocus_enabled = bool(st.session_state.get(_scoped(prefix, "defocus_enabled"), False))
+    defocus_enabled = bool(
+        st.session_state.get(_scoped(prefix, "defocus_enabled"), False)
+    )
     if defocus_enabled:
         try:
             built = build_defocus_overlay(prefix, slm)
@@ -805,7 +845,11 @@ def build_send_overlay(prefix: str = "slm1", slm=None) -> PhaseOverlay | None:
 
     # 载波与离焦同为弧度域叠加，直接相加。它们都是「光路里真实存在的相位」，
     # 因此和离焦一样必须经过矫正/LUT（与底相位的灰度域语义不同）。
-    carrier = build_carrier_overlay(prefix, slm)
+    # ``include_carrier=False`` 用于**相位本身已经含载波**的发送：迁移模型闭环
+    # （``tools/slm/transfer``）把载波写进它的 ``ramp_matrix`` 并烘焙进接受相位
+    # （见 ``transfer.validate.run`` 里的 ``to_panel`` 与 ``set_phase_overlay(None)``），
+    # 再叠一次就是两份倾斜、0 级跑两倍远。
+    carrier = build_carrier_overlay(prefix, slm) if include_carrier else None
     if carrier is not None:
         phase_rad = carrier if phase_rad is None else phase_rad + carrier
 
@@ -1047,9 +1091,7 @@ def _confirm_working_exposure(
     :class:`RuntimeError`。本函数不碰设备状态，只用注入的两个回调，因此可以
     用合成帧直接做数值回归。最后一个返回值是回读帧的 dtype，调用方据此算满量程。
     """
-    working = working_exposure_ms(
-        ceiling_ms, fraction=work_fraction, floor_ms=floor_ms
-    )
+    working = working_exposure_ms(ceiling_ms, fraction=work_fraction, floor_ms=floor_ms)
     confirmations: list[dict[str, float]] = []
     readback = working
     peak = 0.0
@@ -1184,7 +1226,11 @@ def probe_session_exposure_ms(
     logger.info(
         "曝光探测：上限 {:.4f} ms（最后未饱和 {:.4f} ms），工作曝光 {:.4f} ms，"
         "峰值 {:.0f}/{:.0f} ({:.0%})",
-        ceiling, evidence["last_safe_ms"], working, peak, full_scale,
+        ceiling,
+        evidence["last_safe_ms"],
+        working,
+        peak,
+        full_scale,
         evidence["peak_fraction"],
     )
     return working, evidence
@@ -1198,9 +1244,7 @@ def probe_session_exposure_ms(
 BEAM_RADIUS_DEBUG_DIR = Path("data") / "debug" / "bench_settings" / "beam_radius"
 
 
-def _centre_from_values(
-    state: Any, slm_num: int
-) -> tuple[float, float] | None:
+def _centre_from_values(state: Any, slm_num: int) -> tuple[float, float] | None:
     """会话里该 SLM 的入射中心；没有就返回 ``None``。
 
     远边界只是一个位置，半径必须减去中心才是半径 —— 所以这一步失败时宁可
@@ -1263,8 +1307,7 @@ def _radius_from_sweep(
     if centre is not None:
         out["centre_panel_px"] = [float(centre[0]), float(centre[1])]
         centred = {
-            a: float(results[a].edge_px)
-            - float(centre[0] if a == "x" else centre[1])
+            a: float(results[a].edge_px) - float(centre[0] if a == "x" else centre[1])
             for a in ("x", "y")
         }
         out["radius_x_px"] = centred["x"]
@@ -1305,7 +1348,11 @@ def measure_illuminated_radius(
     """
     from ao_shaping.tools.slm.panel.beam_extent import sweep_axis
 
-    out: dict[str, Any] = {"slm_number": slm_num, "cam_type": cam_type, "cam_id": cam_id}
+    out: dict[str, Any] = {
+        "slm_number": slm_num,
+        "cam_type": cam_type,
+        "cam_id": cam_id,
+    }
     try:
         if exposure_ms is None or float(exposure_ms) <= 0:
             exposure_ms, _ = probe_session_exposure_ms(cam_type, cam_id)
@@ -1347,7 +1394,11 @@ def measure_illuminated_radius(
         )
         logger.info(
             "SLM {} 实测照明半径 {:.0f} 面板px（x 边 {:.0f} / y 边 {:.0f}，曝光 {:.3f} ms）",
-            slm_num, out["radius_px"], out["edge_x"], out["edge_y"], out["exposure_ms"],
+            slm_num,
+            out["radius_px"],
+            out["edge_x"],
+            out["edge_y"],
+            out["exposure_ms"],
         )
     except Exception as exc:  # 探测失败不该掀翻侧栏
         logger.exception("SLM {} 照明半径探测失败", slm_num)
@@ -1420,7 +1471,9 @@ def detect_camera_pixel_um(cam_type: str = "daheng", cam_id: int = 0) -> float |
     return None
 
 
-def auto_check_camera_pixel_um(cam_type: str | None = None, cam_id: int | None = None) -> None:
+def auto_check_camera_pixel_um(
+    cam_type: str | None = None, cam_id: int | None = None
+) -> None:
     """渲染期比对会话值与硬件探测值；不一致时给一行告警 + 「采用」按钮。
 
     **从不静默覆盖** —— 已有值一律由操作者决定是否采用（这就是「自动探测但
@@ -1437,7 +1490,9 @@ def auto_check_camera_pixel_um(cam_type: str | None = None, cam_id: int | None =
         mismatch = False
         if detected is not None:
             try:
-                rel = abs(float(detected) - float(configured)) / abs(float(detected) or 1.0)
+                rel = abs(float(detected) - float(configured)) / abs(
+                    float(detected) or 1.0
+                )
             except (TypeError, ValueError, ZeroDivisionError):
                 rel = float("inf")
             mismatch = rel > tolerance
@@ -1450,7 +1505,9 @@ def auto_check_camera_pixel_um(cam_type: str | None = None, cam_id: int | None =
         detected = st.session_state.get("_cam_pixel_detected")
         col1, col2 = st.columns([4, 1])
         with col1:
-            st.warning(f"相机像元间距：会话值 {configured} μm ≠ 硬件探测值 {detected} μm")
+            st.warning(
+                f"相机像元间距：会话值 {configured} μm ≠ 硬件探测值 {detected} μm"
+            )
         with col2:
             if st.button("采用", key="adopt_camera_pixel_btn", type="primary"):
                 if detected is not None:
@@ -1467,13 +1524,16 @@ def auto_check_camera_pixel_um(cam_type: str | None = None, cam_id: int | None =
 
 def _calibration_widget_values(prefix: str) -> dict[str, Any]:
     """标定所需的、可能只在主区渲染过的控件值（主区没展开时用默认值）。"""
+
     def _read(key: str, fallback: Any) -> Any:
         return st.session_state.get(key, fallback)
 
     from ao_shaping.gui.slm.shaping_controls import MIL_WIDGET_DEFAULTS
 
     return {
-        "region": int(_read(f"{prefix}_shp_model-in-loop_region", MIL_WIDGET_DEFAULTS["region"])),
+        "region": int(
+            _read(f"{prefix}_shp_model-in-loop_region", MIL_WIDGET_DEFAULTS["region"])
+        ),
         "far_field_padding": int(
             _read(
                 f"{prefix}_shp_model-in-loop_far_field_padding",
@@ -1484,12 +1544,22 @@ def _calibration_widget_values(prefix: str) -> dict[str, Any]:
             _read(f"{prefix}_shp_model-in-loop_min_holdout_correlation", 0.5)
         ),
         "probe_spread": float(
-            _read(f"{prefix}_shp_model-in-loop_probe_spread", MIL_WIDGET_DEFAULTS["probe_spread"])
+            _read(
+                f"{prefix}_shp_model-in-loop_probe_spread",
+                MIL_WIDGET_DEFAULTS["probe_spread"],
+            )
         ),
         "probe_count": int(
-            _read(f"{prefix}_shp_model-in-loop_probe_count", MIL_WIDGET_DEFAULTS["probe_count"])
+            _read(
+                f"{prefix}_shp_model-in-loop_probe_count",
+                MIL_WIDGET_DEFAULTS["probe_count"],
+            )
         ),
-        "n_rounds": int(_read(f"{prefix}_shp_model-in-loop_n_rounds", MIL_WIDGET_DEFAULTS["n_rounds"])),
+        "n_rounds": int(
+            _read(
+                f"{prefix}_shp_model-in-loop_n_rounds", MIL_WIDGET_DEFAULTS["n_rounds"]
+            )
+        ),
         "seed": int(MIL_WIDGET_DEFAULTS["seed"]),
     }
 
@@ -1534,7 +1604,9 @@ def build_calibration_params(prefix: str, slm_num: int) -> Any:
             or DEFAULT_EXPOSURE_TOKEN
         ),
         max_exposure_ms=float(configured_daheng_exposure_limit()),
-        cam_size=int(st.session_state.get("bench_cam_size", DEFAULT_WINDOW_SIDE_PX) or 0),
+        cam_size=int(
+            st.session_state.get("bench_cam_size", DEFAULT_WINDOW_SIDE_PX) or 0
+        ),
         camera_pixel_um=float(
             st.session_state.get(CAMERA_PIXEL_KEY, DEFAULT_CAMERA_PIXEL_UM)
         ),
@@ -1548,7 +1620,9 @@ def _geometry_file_for_source(prefix: str) -> str | None:
     """几何来源 = 复用时取路径，否则 ``None``（= 本次自动测量）。"""
     if bench_geometry_source(prefix) != "reuse":
         return None
-    raw = str(st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or "").strip()
+    raw = str(
+        st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or ""
+    ).strip()
     return raw or None
 
 
@@ -1558,16 +1632,35 @@ def bench_geometry_source(prefix: str) -> str:
     return source if source in GEOMETRY_SOURCE_OPTIONS else "auto"
 
 
+def reusable_geometry_file(prefix: str) -> str:
+    """本次运行直接复用的 sweep 几何文件（运行路径不再自动标定）。
+
+    解析顺序：几何来源「复用」时文本框里的路径（人工指定的那条）→ 本会话已标定
+    的探测产物 → 空串（= 没有可复用的几何，由调用方拒绝运行）。
+    """
+    if bench_geometry_source(prefix) == "reuse":
+        raw = str(
+            st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or ""
+        ).strip()
+        if raw:
+            return raw
+    return str(detected_state(prefix).get("geometry_file", "") or "").strip()
+
+
 def uncalibrated_note(prefix: str) -> str:
     """「还没标定」那一行（状态条与光路摘要共用同一句措辞）。
 
-    措辞里必须出现「运行时先自动标定」和「约 1–3 分钟」：这是操作员在点运行
-    **之前**唯一能看到自己将要等多久的地方，而运行本身是同步阻塞的。
+    It has to point at the sidebar 标定 button: the run path no longer measures, so
+    that button is the single action that clears this state. The duration lives on
+    that button's help **only** — repeating it here would be a second copy that
+    drifts, and the length genuinely differs (the geometry step runs the
+    illumination-radius boundary sweep only on some sessions).
     """
     source = bench_geometry_source(prefix)
     return (
         f"几何来源「{GEOMETRY_SOURCE_LABELS.get(source, source)}」"
-        " —— 运行时先自动标定（约 1–3 分钟：入射定位 → 曝光探测 → sweep 几何）"
+        " —— 还没标定：先点本区块的「标定 … 光路」按钮（入射定位 → 曝光探测 → "
+        "sweep 几何）。闭环整形直接复用这次结果，不再在运行时重测。"
     )
 
 
@@ -1618,9 +1711,12 @@ def run_session_calibration(prefix: str, slm_num: int) -> str | None:
         return message
 
     try:
-        with st.spinner(
-            "正在标定，请勿触碰设备（入射定位 → 曝光探测 → sweep 几何，约 1–3 分钟）"
-        ), with_slm_ownership(slm_num):
+        with (
+            # 不带耗时: 全 GUI 唯一的耗时口径在按钮 help 里（几何步带不带照明半径
+            # 边界扫描差 3 倍），这里再写一个数就是第三份会漂的副本。
+            st.spinner("正在标定，请勿触碰设备（入射定位 → 曝光探测 → sweep 几何）"),
+            with_slm_ownership(slm_num),
+        ):
             calibration = calibrate_session(
                 params, config, save_dir, locate=locate, geometry=geometry
             )
@@ -1659,18 +1755,15 @@ def publish_session_calibration(
     *,
     source: str,
     save_dir: Any,
-    pin_geometry_source: bool = True,
 ) -> dict[str, Any]:
     """把一次会话标定的结果写进三态表，并排好下一次 flush 的 widget 回填。
 
-    三态的判定只有这一处实现：侧栏按钮 :func:`run_session_calibration` 与运行
-    路径 :meth:`~ao_shaping.gui.slm.shaping_controls.ModelInLoopMethod.auto_calibrate`
-    共用它，所以「什么算探测值 / 什么算人工值」在两条路径上不可能分歧。
+    三态的判定只有这一处实现：侧栏「标定」按钮
+    :func:`run_session_calibration` 是**唯一**的测量路径（运行路径不再标定），
+    所以「什么算探测值 / 什么算人工值」不可能分歧。
 
-    ``pin_geometry_source=False`` 给运行路径用：操作员选的是「自动标定（每次
-    运行前重测）」，一次运行**不应该**把这个选择悄悄改成「复用已标定几何」，
-    否则第二次运行就静默地不再测量了。侧栏按钮保留原行为（回填完切到复用，
-    因为它本身就是一次性动作）。
+    回填完把几何来源钉到「复用已标定几何」：标定按钮本身就是一次性动作，之后的
+    运行直接复用这次结果。
     """
     exposure_ms = float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
     detected: dict[str, Any] = {
@@ -1689,16 +1782,12 @@ def publish_session_calibration(
     record_detection(prefix, detected)
     record_detection("", {"exposure_ms": exposure_ms})
     # 重新标定**不覆盖手动值**：只给没有被人工改过的字段排队回填。
-    backfill = _detected_backfill(
-        prefix, resolved_config, pin_source=pin_geometry_source
-    )
+    backfill = _detected_backfill(prefix, resolved_config)
     queue_pending(prefix, backfill)
     return backfill
 
 
-def _detected_backfill(
-    prefix: str, resolved_config: Any = None, *, pin_source: bool = True
-) -> dict[str, Any]:
+def _detected_backfill(prefix: str, resolved_config: Any = None) -> dict[str, Any]:
     """探测值 → widget key 的回填表（跳过人工字段）。
 
     ``resolved_config`` is the object
@@ -1724,7 +1813,7 @@ def _detected_backfill(
             if field.kind == "center"
             else value
         )
-    if pin_source and backfill.get(fields["geometry_file"].widget_key):
+    if backfill.get(fields["geometry_file"].widget_key):
         backfill[_scoped(prefix, "bench_geometry_source")] = "reuse"
     return backfill
 
@@ -1743,12 +1832,32 @@ def _now_text() -> str:
 # ---------------------------------------------------------------------------
 
 
+def is_calibrated(prefix: str) -> bool:
+    """本会话是否已有可用光路测量（入射中心或 sweep 几何任一即可）。
+
+    ``bench_summary_lines`` 与折叠标题 ``calibration_marker`` 共用这一个判据:
+    两处各写一份会让「摘要说已标定、标题说未标定」的漂移无人发现。
+    """
+    detected = detected_state(prefix)
+    return bool(detected.get("pupil_center") or detected.get("geometry_file"))
+
+
+def calibration_marker(prefix: str) -> str:
+    """折叠标题用的标定状态短语（``● 已标定`` / ``○ 未标定``）。
+
+    放在标题里而不是只在块内: 折叠状态下也要能看出这台 SLM 能不能直接整形。
+    """
+    if is_calibrated(prefix):
+        return f"{MARK_DETECTED} 已标定"
+    return f"{MARK_UNSET} 未标定"
+
+
 def bench_summary_lines(prefix: str) -> tuple[str, ...]:
     """光路摘要（``●`` 未标定 / 已标定 + 手动覆盖项）。"""
     detected = detected_state(prefix)
     manual = manual_fields(prefix)
     lines: list[str] = []
-    if not detected.get("pupil_center") and not detected.get("geometry_file"):
+    if not is_calibrated(prefix):
         lines.append(f"{MARK_UNSET} 未标定 —— {uncalibrated_note(prefix)}")
     else:
         center = _coerce_point(detected.get("pupil_center"))
@@ -1790,7 +1899,11 @@ def merge_bench_values(
     values["cam_type"] = cam_type
     values["cam_id"] = cam_id
     values["cam_crop_enabled"] = crop
-    values["cam_size"] = int(st.session_state.get("bench_cam_size", 0) or 0) if crop else 0
+    # 裁窗关闭 ⇒ ``0``，即整帧。runner 用 ``0`` 表示「不重置窗口」，所以这里
+    # 不能退回一个边长 —— 退回边长会在关闭裁窗时反而开出一个 256 px 的窗口。
+    values["cam_size"] = (
+        int(st.session_state.get("bench_cam_size", 0) or 0) if crop else 0
+    )
     values["exposure_time_ms"] = (
         float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
         or DEFAULT_EXPOSURE_TOKEN
@@ -1799,7 +1912,9 @@ def merge_bench_values(
         st.session_state.get(CAMERA_PIXEL_KEY, DEFAULT_CAMERA_PIXEL_UM)
     )
     values["blaze_period_px"] = int(st.session_state.get("bench_blaze_period_px", -1))
-    values["blaze_direction"] = str(st.session_state.get("bench_blaze_direction", "vertical"))
+    values["blaze_direction"] = str(
+        st.session_state.get("bench_blaze_direction", "vertical")
+    )
     values["max_exposure_ms"] = float(configured_daheng_exposure_limit())
 
     if method_key == "gs-refine":
@@ -1808,7 +1923,9 @@ def merge_bench_values(
         values["beam_radius_px"] = span / 2.0
     else:
         values["panel_span_px"] = float(bench_value(prefix, "panel_span_px", 900.0))
-        values["geometry_file"] = _geometry_file_for_source(prefix) or ""
+        # 运行路径不测量：直接把侧栏已标定的 sweep 几何交出去（人工路径优先，
+        # 其次本会话的探测产物）。空串 = 没有可复用的几何，validate 会拒绝运行。
+        values["geometry_file"] = reusable_geometry_file(prefix)
     values["pupil_center"] = bench_pupil_center(prefix)
     values["bench_geometry_source"] = bench_geometry_source(prefix)
     values["bench_prefix"] = prefix
@@ -1833,7 +1950,9 @@ def render_bench_settings() -> None:
 
     for slm_num in (1, 2):
         prefix = f"slm{slm_num}"
-        if not (st.session_state.get(f"{prefix}_connected") and st.session_state.get(prefix)):
+        if not (
+            st.session_state.get(f"{prefix}_connected") and st.session_state.get(prefix)
+        ):
             continue
         flush_pending(prefix)
         sync_manual_states(prefix)
@@ -1867,7 +1986,9 @@ def _render_camera_block(disabled: bool) -> str:
             key="bench_cam_id",
             disabled=disabled,
         )
-    auto_check_camera_pixel_um(cam_type, int(st.session_state.get("bench_cam_id", 0) or 0))
+    auto_check_camera_pixel_um(
+        cam_type, int(st.session_state.get("bench_cam_id", 0) or 0)
+    )
 
     p1, p2 = st.columns([3, 1])
     with p1:
@@ -1942,7 +2063,9 @@ def _render_exposure_block(disabled: bool, cam_type: str) -> None:
             else:
                 queue_pending("", {"bench_exposure_ms": float(probed_ms)})
                 record_detection("", {"exposure_ms": float(probed_ms)})
-                source = "环境变量" if evidence["ceiling_source"] == "env" else "画面探测"
+                source = (
+                    "环境变量" if evidence["ceiling_source"] == "env" else "画面探测"
+                )
                 st.success(
                     f"探测到会话曝光 {probed_ms:.3f} ms"
                     f"（饱和上限 {evidence['ceiling_ms']:.3f} ms，来源：{source}；"
@@ -1957,7 +2080,9 @@ def _render_exposure_block(disabled: bool, cam_type: str) -> None:
                 st.rerun()
     ceiling = configured_daheng_exposure_limit()
     if cam_type == "daheng" and ceiling > 0 and float(exposure) > ceiling:
-        st.warning(f"曝光 {exposure} ms 超过本光路饱和保护上限 {ceiling} ms，运行前会被拦下")
+        st.warning(
+            f"曝光 {exposure} ms 超过本光路饱和保护上限 {ceiling} ms，运行前会被拦下"
+        )
     if cam_type == "daheng" and float(exposure) == 0:
         st.warning("曝光 = 0 → 大恒钳到约 0.02 ms（比可用区间暗 20–75×）")
 
@@ -2044,7 +2169,10 @@ def _render_summary_block(detected: dict[str, Any], manual: list[str]) -> None:
             st.caption(field_hint("", name))
     if manual:
         st.warning(f"实验级有 {len(manual)} 项手动覆盖：{'、'.join(manual)}")
-    if detected.get("exposure_ms") is not None and field_state("", "exposure_ms") == "detected":
+    if (
+        detected.get("exposure_ms") is not None
+        and field_state("", "exposure_ms") == "detected"
+    ):
         st.caption("上表曝光为标定时在用的会话曝光（sweep 内部还会按画面自动起曝）")
 
 
@@ -2081,8 +2209,8 @@ def _render_slm_geometry_block(
         key=_scoped(prefix, "bench_pupil_center"),
         placeholder="留空 = 自动定位",
         disabled=disabled,
-        help="入射光斑在 SLM 面板上的坐标 (x, y)。留空则运行时由 "
-        "calibrate_session 的全板随机相位盘扫描定位。",
+        help="入射光斑在 SLM 面板上的坐标 (x, y)。留空 = 点「标定 … 光路」时由 "
+        "calibrate_session 的全板随机相位盘扫描定位；运行路径不测量。",
     )
     st.number_input(
         "模型覆盖宽度 (面板px)",
@@ -2182,9 +2310,10 @@ def _run_focus_probe(prefix: str, slm_num: int, cam_type: str) -> None:
         st.session_state.get(_scoped(prefix, "bench_beam_radius_px"), 0.0) or 0.0
     )
     exposure = float(st.session_state.get("bench_exposure_ms", 0.0) or 0.0)
-    with st.spinner(
-        "正在扫描菲涅尔焦距（每个点都会自动重调曝光）…"
-    ), with_slm_ownership(slm_num):
+    with (
+        st.spinner("正在扫描菲涅尔焦距（每个点都会自动重调曝光）…"),
+        with_slm_ownership(slm_num),
+    ):
         evidence = probe_session_focus(
             slm_num,
             cam_type,
@@ -2230,9 +2359,7 @@ def _render_slm_focus_block(
                 # 光路受阻与「没找到焦面」是两件事: 前者要查三段光路, 后者要
                 # 重扫焦距。混成同一句话正是 2026-10-21 那次误判的根源 ——
                 # 操作者只看到「没找到可用点」, 不知道光根本没到相机。
-                st.error(
-                    f"焦面探测：**光路受阻** —— {focus.get('blockage_reason')}"
-                )
+                st.error(f"焦面探测：**光路受阻** —— {focus.get('blockage_reason')}")
             else:
                 st.warning(
                     "焦面探测没有找到可用点（所有点的曝光都落在可测带之外）；"
@@ -2265,8 +2392,8 @@ def _render_slm_calibration_block(
         format_func=lambda s: GEOMETRY_SOURCE_LABELS[s],
         key=_scoped(prefix, "bench_geometry_source"),
         disabled=disabled,
-        help="自动标定 = 每次运行前重新测量；复用 = 用下方已标定几何文件；"
-        "沿用上次结果 = 本次不改任何光路值",
+        help="自动标定 = 点「标定」按钮时测量入射中心 + sweep 几何；"
+        "沿用上次几何 = 只重测中心。运行路径不测量，直接复用这里的结果。",
     )
     if source == "reuse":
         st.text_input(
@@ -2289,7 +2416,10 @@ def _render_slm_calibration_block(
         help=(
             "复用模式下不测量：请改「几何来源」为「自动标定」"
             if source == "reuse"
-            else "全板入射定位 → 曝光探测 → sweep 几何（约 1–3 分钟）"
+            # 全块唯一的耗时口径：几何步在会话没带几何文件、非 sim、曝光 > 0 时
+            # 还会跑一次照明半径边界扫描（_should_measure_radius），那一步才是大头。
+            else "全板入射定位 → 曝光探测 → sweep 几何"
+            "（3–8 分钟；几何步不做照明半径边界扫描时 1–3 分钟）"
         ),
     ):
         error = run_session_calibration(prefix, slm_num)
@@ -2327,7 +2457,14 @@ def _render_slm_calibration_block(
 
 
 def _render_slm_block(prefix: str, slm_num: int) -> None:
-    """每台已连接 SLM 的面板几何与标定区块。"""
+    """每台已连接 SLM 的唯一标定入口：光路摘要 + 几何/离焦 + 标定。
+
+    2026-10-24 合并：原先这里只有 D（几何/离焦）与 E（标定）两组，光路摘要与
+    第二个主按钮在 multi_slm_controller 的独立折叠块里。两个按钮调的是同一个
+    ``run_session_calibration``，差别只在摘要卡，所以独立块是纯重复入口（且在
+    「复用」来源下不禁用，点下去只刷新时间戳）。现在摘要卡搬到本块顶部，全块
+    只有一个「标定 SLM N 光路」。
+    """
     busy = bench_busy()
     disabled = busy
     detected = detected_state(prefix)
@@ -2336,7 +2473,15 @@ def _render_slm_block(prefix: str, slm_num: int) -> None:
     # across blocks.
     cam_type, cam_id = bench_camera()
 
-    with st.expander(f"SLM {slm_num} · 光路几何与标定", expanded=False):
+    with st.expander(
+        f"SLM {slm_num} · 光路几何与标定 · {calibration_marker(prefix)}",
+        expanded=False,
+    ):
+        # 光路摘要（未标定时是「○ 未标定 —— …」，已标定时是 ○/● + 实测事实）。
+        # 它总至少返回一行，所以不需要空分支。
+        for line in bench_summary_lines(prefix):
+            st.caption(line)
+
         if busy:
             st.info(
                 f"闭环整形/标定进行中 —— SLM {slm_num} 句柄已交给优化器"
@@ -2386,7 +2531,9 @@ def _geometry_help_text(prefix: str) -> str:
     )
 
     region = _calibration_widget_values(prefix)["region"]
-    raw = str(st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or "").strip()
+    raw = str(
+        st.session_state.get(_scoped(prefix, "bench_geometry_file"), "") or ""
+    ).strip()
     if not raw:
         suggestion = discover_model_in_loop_geometry(int(region))
         head = (
