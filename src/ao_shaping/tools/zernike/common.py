@@ -64,6 +64,9 @@ def require_wfs_exposure_within_safety_ceiling(exp_ms: float, *, source: str = "
 #   `get_zernike()` 返回**µm**; 响应矩阵必须与矫正时的 `w` 用**同一单位**。
 #   曾因矩阵用原始 µm 构建、而矫正用 `w = z/0.532` (λ), 反解系数被放大 1/0.532 = 1.88×,
 #   矫正过驱动 88% → 实测闭环仅 19.7% (离线最优可达 75%)。**一律经 `um_to_waves` 换算。**
+#   ⚠️ 但 `um_to_waves` 是乘 1/0.532 的倒数, 与直接 `/0.532` **不是逐位相同** (0~2 步长 0.001
+#   的 2001 个采样值里 768 个末位不同)。现存 14 处直接除 (普查: 全部是 µm→λ, 无反向混用);
+#   把它们并进 `um_to_waves` 是**数值变更**而非风格整理, 需先重定既有基准, 属设备侧决定。
 # `LAMBDA_UM` / `UM_TO_WAVES` / `um_to_waves` 的 canonical 实现在 zernike_utils
 # (设备无关纯数学, 2026-09 收敛), 此处 re-export 保持 10+ 调用方导入路径不变。
 
@@ -127,6 +130,9 @@ def _require_dll_slot(nm: tuple[int, int]) -> int:
 #: [4]=(2,-2) 是像散, [5]=(2,0) 才是离焦 —— 所以离焦必须按模式查表取槽位。
 TILT_DLL_SLOTS: tuple[int, int] = (_require_dll_slot((1, -1)), _require_dll_slot((1, 1)))
 DEFOCUS_DLL_SLOT: int = _require_dll_slot((2, 0))
+
+#: tip/tilt 的连续槽位切片 (即 z[2:4]); 与上面的槽位常量同源, 免得各处再写死下标。
+TILT_DLL_SLICE: slice = slice(TILT_DLL_SLOTS[0], TILT_DLL_SLOTS[1] + 1)
 
 
 def wfs_channels_lambda(
@@ -474,8 +480,8 @@ def measure_wavefront(wfs: ThorlabWFS, n_avg: int = 3) -> tuple[np.ndarray, dict
 
 def added_tilt(z: np.ndarray, base: np.ndarray) -> tuple[float, np.ndarray]:
     """相对基线的附加倾斜 (λ): DLL [2],[3] 两分量, 返回 (范数, 分量)."""
-    t = z[2:4] / 0.532
-    b = base[2:4] / 0.532
+    t = z[TILT_DLL_SLICE] / 0.532
+    b = base[TILT_DLL_SLICE] / 0.532
     d = t - b
     return float(np.linalg.norm(d)), d
 
@@ -547,7 +553,7 @@ def diagnose_beam_radius(slm: Santec, wfs: ThorlabWFS, ph: PatternHelper,
             if verbose:
                 logger.debug(f"   R={r:5.0f}px  无有效读数")
             continue
-        d = float(z[5]) / 0.532           # DLL [5] = (2,0) defocus
+        d = float(z[DEFOCUS_DLL_SLOT]) / 0.532   # DLL [5] = (2,0) defocus
         out.append({"radius": float(r), "defocus_lam": d})
         if verbose:
             logger.debug(f"   R={r:5.0f}px  defocus[5]={d:+.4f}λ")

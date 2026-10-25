@@ -2323,6 +2323,34 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        **52 passed / 1 skipped / 2 failed**（新守卫使 passed 由 51 升到 52，失败对不变）；
        两个改动模块在容器里可导入；`ruff check .` 全绿。
 
+54. ✅ **倾斜/离焦槽位改由枚举常量派生，并查明「并进 `um_to_waves`」不是风格整理而是数值变更 —— 顺带撞上一个冻结探针字面量的护栏**（2026-10-25）：
+     - **槽位常量化是逐位等价的**：`added_tilt` 的 `z[2:4]` 与半径诊断的 `z[5]` 改用
+       `TILT_DLL_SLICE` / `DEFOCUS_DLL_SLOT`，两者都由第 52 项的 `_require_dll_slot` 从 (n,m)
+       枚举派生。动手前先在容器里验 `DEFOCUS_DLL_SLOT == 5`、`TILT_DLL_SLOTS == (2, 3)`，并确认
+       **两种写法在同一数组上逐位相同** —— 先证等价，再换写法。
+     - **一次被否证的「顺手统一」**：把现存 14 处 `x / 0.532` 并进 `um_to_waves` 不是整理。
+       canonical 实现是**乘倒数** `UM_TO_WAVES = 1 / 0.532`，在 0~2 步长 0.001 的 2001 个采样值里
+       **768 个末位不同**。同一次普查也确认这 14 处**全是** µm→λ 的除法、无一处反向混用，即文档里
+       记过的 1.88× 过驱动缺陷**当前不在树上**。因此合并是**设备侧数值决定**（须先重定基准），
+       记为待决；代码里只留结论与测量，不做未授权的数值改动。
+     - **新撞到的护栏**：`tests/ao_shaping/tools/slm/test_probe_flags.py` **冻结每个探针函数体内的字符串字面量**（计数 + sha256）。第 53 项把两条错误消息与 `w`/`w_before`/`wavefront` 三个键搬进入口，净 −5，于是该守卫对 `slm_zernike_response` 判红。**它不是假警报**：这条守卫的存在理由正是防止文本重写把 dict key 或日志格式悄悄改坏。
+     - **我的流程失误（在案）**：第 53 项推送前只跑了 `tools/wfs` 与 `tests/ao_shaping/scripts`，
+       于是用上一项的 `812 passed / 4 skipped` **代替重跑该目录**，把两条红留在了 `origin/master`。
+       引用旧基线不等于重跑：目录级守卫必须按目录重跑才算数。
+     - **重新基线只用守卫自己的函数**：经 `_golden_entry`（它自带的字面量扫描器与哈希）重算，不另写一份
+       扫描逻辑。写回前先断言爆炸半径：只有一个探针、只有 `body_literals` 与 `body_literals_sha256`
+       两个字段动、`help`/`declared` 逐字节不变（287 → 282）。写回后与 HEAD blob 逐行比较只差 **2 行**，
+       且文件仍与守卫的序列化格式逐字节可往返。
+     - **容器环境事实**：CI 容器把仓库挂成**只读**（写 golden 得 `Errno 30`），且它的 `/tmp` 是容器私有
+       —— 既不能在容器内写回，也不能借 `/tmp` 递给宿主。正解是让容器把重算值打到 stdout，
+       宿主侧按唯一锚点打补丁。
+     - **验证**：`test_probe_flags.py` **127 passed / 1 skipped**（skip 是 ~9 分钟的 opt-in 渲染）；
+       `tests/ao_shaping/tools/slm` **821 passed / 4 skipped**（旧 812 + 本循环新增 9 项，失败 0）；
+       `tools/wfs` + `test_slm_zernike_common.py` 25 passed；conventions **52 passed / 1 skipped /
+       2 failed**（不变，仍是 `pib_exit_safety` 那对既有失败）；术语门 **0 个文件**、双重夹注 2 行、
+       provenance `--check` clean（142 份）；ruff 用 CI 钉版 **0.15.12** 全绿（宿主另有 0.16.0，
+       钉版才是门禁）。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
