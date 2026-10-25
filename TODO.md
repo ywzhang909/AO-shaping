@@ -1278,6 +1278,39 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **诚实登记没做的事**：**没有**在相机上重生成 miicam 报告。产物与生成器一致由"同一转义规则 +
       纯函数单测"保证，不是由一次真跑保证；真跑一次的验收点在设备侧。
 
+28. ✅ **死符号普查：76 条线索，本轮一条不删 —— 普查看不见「入口组合」与「约定面」**（2026-10-25）：
+    - **口径**：`src/**/*.py` 的 439 个模块（跳过 `__init__.py` 再导出层）中的**模块级**符号，同时满足
+      ① 本模块内零自用；② 全仓 1230 个 `.py` 里零外部引用（`ast.Name` / `ast.Attribute` / `ast.alias` 三面）；
+      ③ 不在该模块 `__all__`；④ 不由注册型装饰器（`click.command|group` / `fixture` / `abstractmethod` /
+      `property` / `dataclass` …）绑定 ⇒ **76 条**。再要求字符串字面量与 md/yml/json/ipynb 全文里也**不出现**
+      ⇒ **49 条**。
+    - **普查工具自身的两个坑（都已修，记下来免得重踩）**：
+      ① 首版 `self_use = refs_in(...) - 1` **过减**：`FunctionDef`/`ClassDef` 的名字是**字符串字段**、
+        不生成 `ast.Name` 节点，只有 `Assign` 目标才生成 ⇒ 只在自身模块被调用一次的函数会被误判成
+        「零自用」。现只对 `const` 减 1。
+      ② 首版按「候选 × 文件 × 节点」三重遍历 ⇒ **15 分钟超时**。改为**先一遍 `ast.walk` 建全局名字索引**、
+        过滤后再对存活者做字符串扫描。⇒ 普查脚本的**候选数与耗时都必须可复现**。
+    - **为什么本轮不删：清单头部就不是该删的东西**（逐条实测，非推断）：
+      - `drivers/device_base.py DeviceBusyError`：`AGENTS.md` 驱动错误层级的一部分，属**公开 API 面**；
+      - `drivers/slm/santec/_slm_win.py` 的 `FLAGS_COLOR_*` / `SLM_BS` / `SLM_ER` / `SHORT` / `UCHAR`：
+        厂商 SDK 的**镜像常量**（驱动协议面，命中的是厂商文档而非本仓调用）；
+      - `runners/slm/offset_runner.py search_offset_by_defocus`：同文件
+        `search_offset_by_defocus_with_optimization` 在 `:519` 被该模块自己的入口调用、`:494` 给出
+        `python -m ao_shaping.runners.slm.offset_runner` 用法，且 `AGENTS.md` 写明该 runner **未注册、
+        计划迁到 `tools/slm/`** ⇒ 正确动作是**迁移**，不是删除；
+      - `runners/slm/gsnet_runner.py _FreeformSquareDisplay`（134 行私有类，标识符面与字符串面**全仓零命中**）：
+        最强的一条真候选，但该文件落在 `pytest.yml` 的 **advisory 分片 `runners-gui-misc`**，其
+        `slm-gsnet --help` golden 正由 **wt-193** 修 ⇒ 在途改动，**不顺手删**；
+      - `src/ml/train.py train_model`（232 行）：全仓仅剩**文档串**提到它，活路径是 `train()` /
+        `_train_phase_mode()` / `_train_coeffs_mode()` ⇒ 确属遗留，但它是 ML 训练入口，**归 ML 侧定夺**；
+      - `gui/r50/r50_channel_select.py` 的 `render_channel_selector` / `show_feedback` /
+        `ensure_session_defaults` 与 `gui/r50/r50_joint.py` 的 4 个 `_jc_*`：Streamlit 的 UI 靠**入口组合**
+        驱动，且 `_jc_*` 前缀像是**在途重构**的中间态 ⇒ 要 UI 侧确认。
+    - **可复用结论**：AST 普查只覆盖 **import 面 / 断言面 / 字符串面**，看不见三样东西——
+      ① `python -m` 与 `streamlit run` 的**入口组合**；② 写在 `AGENTS.md` 与厂商文档里的**约定面**；
+      ③ **迁移与重构意图**。故 76 条是**待业主确认的线索清单**，不是删除清单。本轮**未改任何代码**；
+      真要动某一条，按「先立失败测试 → 删 → 全量分片复验」单独开条目。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
