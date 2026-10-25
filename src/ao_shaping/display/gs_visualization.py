@@ -33,7 +33,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 from loguru import logger
-from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
 
 
 def create_gs_iteration_frame(
@@ -280,7 +280,7 @@ def gerchberg_saxton_with_visualization(
     source_amplitude: np.ndarray,
     target_amplitude: np.ndarray,
     iterations: int = 50,
-    cell_spacing: float = 8e-6,
+    cell_spacing: float = SLM_PITCH_M,
     distance: float = 0.1,
     wavelength: float = LASER_WAVELENGTH_M,
     output_dir: Path | None = None,

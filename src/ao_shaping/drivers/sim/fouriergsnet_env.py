@@ -64,17 +64,26 @@ import numpy as np
 from loguru import logger
 from scipy import ndimage
 
-from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
+from ao_shaping.utils.slm.bench_constants import (
+    LASER_WAVELENGTH_M,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+)
 from ao_shaping.utils.wavefront.zernike_calc import ZernikeGenerator
 
 # 硬件契约字面量 (对齐真实 Santec SLM200 驱动)。
 MEMORY_MODE_INTERNAL = 0
-PANEL_RES = (1920, 1200)  # (宽, 高) — 驱动约定
-PANEL_H, PANEL_W = 1920, 1200  # 标定器约定 (h, w)
+PANEL_RES = (SLM_PANEL_W, SLM_PANEL_H)  # (宽, 高) — 驱动约定
+# 标定器约定的 (h, w) 与驱动约定的 PANEL_RES (宽, 高) **互为转置**: 本环境
+# 自初始提交 (b5ecc3c3) 起即以 1920 行 x 1200 列的朝向渲染, display_phase 的
+# 形状校验与全部 sim 测试都钉住该朝向 —— 勿"顺手"改回 (SLM_PANEL_H,
+# SLM_PANEL_W); 换 bench 时两者一起翻转, 转置关系不变。
+PANEL_H, PANEL_W = SLM_PANEL_W, SLM_PANEL_H  # 标定器约定 (h, w)
 
 # 2f 傅里叶实验系统的默认光学参数。
 LAMBDA = LASER_WAVELENGTH_M
-D_SLM = 8e-6
+D_SLM = SLM_PITCH_M
 D_CCD = 2.2e-6
 F_LENS = 0.125
 D_EFF = 7.8e-6
@@ -119,7 +128,7 @@ class SimSLM:
     """
 
     MEMORY_MODE_INTERNAL = 0
-    Panel_Res = (1920, 1200)
+    Panel_Res = (SLM_PANEL_W, SLM_PANEL_H)
     _max_gray = 255  # 工厂 LUT: 2π 对应灰度 255 (SLMLUTCalibrator.factory_2pi)
 
     def __init__(

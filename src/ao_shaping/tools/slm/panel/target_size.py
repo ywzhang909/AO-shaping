@@ -63,7 +63,12 @@ from pathlib import Path
 from typing import Any, Sequence
 
 import numpy as np
-from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
+from ao_shaping.utils.slm.bench_constants import (
+    LASER_WAVELENGTH_M,
+    SLM_PANEL_H,
+    SLM_PANEL_W,
+    SLM_PITCH_M,
+)
 
 __all__ = [
     "OpticalLimits",
@@ -111,8 +116,8 @@ class OpticalLimits:
 
     wavelength_m: float
     focal_m: float
-    slm_pixels: tuple[int, int] = (1200, 1920)
-    pixel_pitch_m: float = 8e-6
+    slm_pixels: tuple[int, int] = (SLM_PANEL_H, SLM_PANEL_W)
+    pixel_pitch_m: float = SLM_PITCH_M
     camera_pixel_m: float = 2.2e-6
     camera_shape: tuple[int, int] = (1944, 2592)
 
@@ -217,8 +222,8 @@ class OpticalLimits:
 DEFAULT_SYSTEM = OpticalLimits(
     wavelength_m=LASER_WAVELENGTH_M,
     focal_m=0.125,
-    slm_pixels=(1200, 1920),
-    pixel_pitch_m=8e-6,
+    slm_pixels=(SLM_PANEL_H, SLM_PANEL_W),
+    pixel_pitch_m=SLM_PITCH_M,
     camera_pixel_m=2.2e-6,
     camera_shape=(1944, 2592),
 )

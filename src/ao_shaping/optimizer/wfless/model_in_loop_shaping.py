@@ -68,7 +68,7 @@ from ao_shaping.utils.image.frame_analysis import spot_fwhm
 # ``_linear_slope`` was a verbatim copy of the canonical leaf kernel; alias it so the
 # fitting math keeps one home (utils/math/fitting.py, R-49/#65) and the two cannot drift.
 from ao_shaping.utils.math.fitting import fit_linear_slope as _linear_slope
-from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M
+from ao_shaping.utils.slm.bench_constants import LASER_WAVELENGTH_M, SLM_PITCH_M
 from ao_shaping.utils.wavefront.zernike_calc import calc_n_zernike_terms
 from ao_shaping.utils.io.recorder_keys import (
     RECORD_COEFFS,
@@ -1509,7 +1509,7 @@ def calibrate_bench_geometry(
     *,
     wavelength: float = LASER_WAVELENGTH_M,
     focal_length: float = 0.125,
-    slm_pitch: float = 8e-6,
+    slm_pitch: float = SLM_PITCH_M,
     camera_pixel: float = 2.2e-6,
     region: int = 256,
     far_field_size: int = 4096,

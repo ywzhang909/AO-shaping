@@ -6,12 +6,14 @@ from __future__ import annotations
 
 import numpy as np
 
+from ao_shaping.utils.slm.bench_constants import SLM_PITCH_M
+
 
 def compute_square_side(
     spot_diameter_cam_px: float,
     factor: float = 1.5,
     p_cam: float = 8e-6,
-    d_slm: float = 8e-6,
+    d_slm: float = SLM_PITCH_M,
 ) -> int:
     """Auto-compute square side (SLM-grid pixels) from the beam spot size.
 
@@ -25,7 +27,7 @@ def compute_square_side(
         spot_diameter_cam_px: Measured spot diameter in camera pixels.
         factor: Square-to-spot size factor (default 1.5).
         p_cam: Camera pixel pitch in meters (default matches SLM pitch).
-        d_slm: SLM pixel pitch in meters (default 8e-6).
+        d_slm: SLM pixel pitch in meters (default SLM_PITCH_M, 8e-6).
 
     Returns:
         Square side length in SLM-grid pixels.
