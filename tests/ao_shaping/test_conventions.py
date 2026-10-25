@@ -3780,3 +3780,44 @@ def test_no_self_assignment_subscript() -> None:
         f"{len(offenders)} self-assignment site(s): {offenders}. A ``x[k] = x[k]`` statement "
         "either duplicates the conversion above it or hides the fact that none is happening."
     )
+#: The paper's version is restated by hand in ``docs/INDEX.md``, and that restatement drifts:
+#: upstream's v4.7 bump (00637811) left the index still saying v4.6, after the pin had already
+#: needed its own catch-up commit once before (6bfde391).
+_PAPER_DOC = REPO / "docs" / "paper_gs_refine_experiment.md"
+_INDEX_DOC = REPO / "docs" / "INDEX.md"
+#: Anchored to the head of the paper's version paragraph on purpose: the same paragraph ends
+#: with a 版本沿革 list naming every older release, so an unanchored search would match the
+#: oldest entry rather than the current one.
+_PAPER_VERSION = re.compile(r"^版本\s+(v\d+\.\d+)（(\d{4}-\d{2}-\d{2}) 修订）", re.MULTILINE)
+_INDEX_VERSION = re.compile(r"(v\d+\.\d+)（(\d{4}-\d{2}-\d{2}) 修订")
+
+
+def test_the_paper_version_pin_in_index_tracks_the_paper() -> None:
+    """``docs/INDEX.md`` must restate the paper's current version and revision date.
+
+    Only those two tokens are pinned. The rest of the index row is prose about what a given
+    revision added, and pinning it would force an index edit on every paper rewrite.
+    """
+    paper = _PAPER_VERSION.search(_PAPER_DOC.read_text(encoding="utf-8-sig"))
+    assert paper, (
+        "no version paragraph at the head of docs/paper_gs_refine_experiment.md -- the guard "
+        "would be comparing nothing"
+    )
+
+    row = next(
+        (
+            line
+            for line in _INDEX_DOC.read_text(encoding="utf-8-sig").split("\n")
+            if "paper_gs_refine_experiment.md" in line
+        ),
+        None,
+    )
+    assert row, "docs/INDEX.md no longer carries a row for the paper -- the pin moved or renamed"
+    pin = _INDEX_VERSION.search(row)
+    assert pin, f"the paper's index row states no version: {row[:140]}"
+
+    assert (pin.group(1), pin.group(2)) == (paper.group(1), paper.group(2)), (
+        f"docs/INDEX.md pins the paper as {pin.group(1)}（{pin.group(2)} 修订） while the paper "
+        f"opens with {paper.group(1)}（{paper.group(2)} 修订） -- restate the version in the "
+        "index row in the same commit that bumps the paper"
+    )
