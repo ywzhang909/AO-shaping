@@ -155,3 +155,29 @@ def test_root_isolation_also_holds_for_python_prose(tmp_path: Path) -> None:
     assert proc.returncode == 1, proc.stdout
     assert "probe.py" in proc.stdout, proc.stdout
     assert "合计: 1 个文件, 1 行" in proc.stdout, proc.stdout
+#: The T-66 term followed by 实验, i.e. the compound the table never registered. The
+#: bare rule matches the prefix and leaves a doubled 实验 behind.
+_T66_COMPOUND = "正文只保留真实硬件实验内容。\n"
+
+
+def test_t66_compound_is_registered_before_the_bare_term(tmp_path: Path) -> None:
+    """The table's own ordering rule -- compounds before bare terms -- must hold for T-66.
+
+    Regression found while repairing the paper's v4.7 prose: ``transform()`` applies the
+    bare T-66 rule **inside inline code as well**, and on the unregistered compound it
+    leaves a duplicated 实验, so an ``--apply`` pass would turn the gate green while making
+    the sentence worse. The fix mirrors the sibling compound already in the table (the
+    T-03 pair maps the same ``...实验`` shape), so it registers no new term.
+    """
+    root = _seed(tmp_path, _T66_COMPOUND)
+
+    _run("--apply", "--root", str(root))
+    text = (root / "probe.md").read_text(encoding="utf-8")
+
+    assert "实验实验" not in text, f"the bare rule duplicated the replacement: {text!r}"
+    assert "真实硬件" not in text, f"the compound was left untouched: {text!r}"
+
+    again = _run("--check", "--root", str(root))
+    assert again.returncode == 0, (
+        f"the rewrite is not canonical (a second pass still flags it): {again.stdout}"
+    )
