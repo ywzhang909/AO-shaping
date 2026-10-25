@@ -1,4 +1,4 @@
-﻿"""Tests for the 2f forward model (``ml.sim2f.optics``).
+"""Tests for the 2f forward model (``ml.sim2f.optics``).
 
 The physics is pinned by measurement, not by restating the code:
 

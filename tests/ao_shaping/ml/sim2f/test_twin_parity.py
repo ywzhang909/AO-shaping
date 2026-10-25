@@ -1,4 +1,4 @@
-﻿"""Parity of :class:`ml.sim2f.optics.Sim2f` against the calibrated BenchTwin.
+"""Parity of :class:`ml.sim2f.optics.Sim2f` against the calibrated BenchTwin.
 
 ``drivers/sim/bench_twin.py`` is the repository's fitted 2f twin; this package's
 forward model must agree with it, or the labels and the closed loop would be

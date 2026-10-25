@@ -1,4 +1,4 @@
-﻿"""Unit tests for the target library: shapes, anti-aliasing, support, determinism.
+"""Unit tests for the target library: shapes, anti-aliasing, support, determinism.
 
 The support mask is the part that is easy to get subtly wrong, because it feeds
 the teacher's encircled-energy term: it must be the *geometric* region the shape
