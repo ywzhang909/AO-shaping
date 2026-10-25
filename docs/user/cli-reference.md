@@ -50,9 +50,9 @@ python src/ao_shaping/main.py --dir data wf
 python src/ao_shaping/main.py wf -d data
 ```
 
-⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w-pib`（下划线）与 `--w-unif`（连字符）；`spgd-square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w-uniformity`；`pib` 用 `--shrink-iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
+⚠️ **flag 命名本身不一致**。源码里下划线与连字符混用，例如 `slm-gs-refine` 同时有 `--w-pib`（下划线）与 `--w-unif`（连字符）；`slm-pib square` 用 `--w-uniformity`，而 `slm-gsnet` 的子命令用 `--w-uniformity`；`pib` 用 `--shrink-iter`，`rms-zernike` 用 `--lr-schedule`。**flag 必须从 `--help` 逐字复制，不要凭记忆或推测**，写错一个字符 Click 会直接报错。
 
-⚠️ **调试模式有三条等价路径**：`main.py --debug <cmd>` / `<cmd> --debug` / 环境变量 `DEBUG=1`；真值为 `1` / `true` / `yes`，不区分大小写。并非每个命令都自带 `--debug` 选项，`wf` / `pipeline` / `ga-zernike` / `spgd-square` / `slm-lut` / `slm-diagnose` / `slm-gs-refine` 的选项表里没有 `--debug`，这几个命令要开调试只能走组级 `--debug` 或 `DEBUG=1`。
+⚠️ **调试模式有三条等价路径**：`main.py --debug <cmd>` / `<cmd> --debug` / 环境变量 `DEBUG=1`；真值为 `1` / `true` / `yes`，不区分大小写。并非每个命令都自带 `--debug` 选项，`wf` / `pipeline` / `ga-zernike` / `slm-pib square` / `slm-lut` / `slm-diagnose` / `slm-gs-refine` 的选项表里没有 `--debug`，这几个命令要开调试只能走组级 `--debug` 或 `DEBUG=1`。
 
 ℹ️ 每个命令的选项表都不再重复列出通用的 `--help`（每个命令都有，用来打印帮助并退出）。
 

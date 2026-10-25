@@ -36,9 +36,9 @@ graph TD
     OPT --> SLM
 ```
 
-## 3. 与 spgd-square 的区别
+## 3. 与 slm-pib square 的区别
 
-| 项 | `spgd-square` | `slm-gsnet` |
+| 项 | `slm-pib square` | `slm-gsnet` |
 |------|---------------|-------------|
 | 相位参数化 | `--basis zernike/freeform` | **固定 freeform** |
 | 子命令 | 无 (单命令) | `spgd` / `heuristic` |
@@ -116,7 +116,7 @@ python src/ao_shaping/main.py slm-gsnet heuristic --algorithm ga --cam-type sim 
 
 ## 8. 曝光默认值陷阱 (红线)
 
-同 `spgd-square`：`--exposure-time-ms` 的裸 `0` 现在报错 —— `default`（默认）不改设备当前曝光，`auto` 是自动选取（等同旧 `0` 语义，大恒驱动钳到 ~0.02 ms），数字是显式 ms。实验前必须显式传入实测曝光（不要留给 `auto`）。
+同 `slm-pib square`：`--exposure-time-ms` 的裸 `0` 现在报错 —— `default`（默认）不改设备当前曝光，`auto` 是自动选取（等同旧 `0` 语义，大恒驱动钳到 ~0.02 ms），数字是显式 ms。实验前必须显式传入实测曝光（不要留给 `auto`）。
 
 ## 9. 关键反模式 (红线)
 

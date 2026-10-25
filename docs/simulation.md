@@ -56,7 +56,7 @@ python -c "from ao_shaping.drivers.sim import SimTurbulenceAOEnv; env = SimTurbu
 
 | runner | 驱动量 | 仿真下是否有物理意义 |
 |--------|--------|---------------------|
-| `slm-pib` / `slm-gsnet` / `spgd-square` | SLM 相位 | **有** —— `set_phase_rad` 直接改变远场 |
+| `slm-pib` / `slm-gsnet` / `slm-pib square` | SLM 相位 | **有** —— `set_phase_rad` 直接改变远场 |
 | `pib` / `combined` | DM 电压 | **有** —— `SimulateDM.send_voltages` → `SimDmOptics` → `far_field()` |
 | `wf` / `rms-zernike` 等 | DM 电压 → WFS | **有** —— DM 同时发布给当前活跃的 `SimulatedWFS.dm_optics` |
 
