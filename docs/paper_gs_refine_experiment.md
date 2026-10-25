@@ -1,7 +1,7 @@
 # 相位型液晶空间光调制器上的傅里叶光束整形闭环实验：Gerchberg–Saxton 预矫正与随机并行梯度下降细化的两级方法
 ## ——可微计算框架下物理低参数前向与深度网络的定量对照
 
-版本 v4.5（2026-10-25 修订）。相对 v4.4 的修订：新增 8.6 节，用 10 月 23 日至 25 日实验记录，从光学与深度学习两侧阐明可行性与性能的机理，对 8.2 至 8.5 节四条实践边界作机理解释，新增图 23 至 27 与表 20；原 8.6 节顺延为 8.7 节。v4.4（2026-10-25 修订）。相对 v4.3 的修订：新增 8.5 节，用 10 月 23 日多形状迁移记录的定量结果，阐述可微物理模型在迁移学习中的实践（少量探针跨光路迁移加 CCD 强度锚定闭环），把迁移学习从仿真侧对照提升为已验证的硬件实践，新增图 21、22 与表 19；原 8.5 节顺延为 8.6 节。v4.3 相对 v4.2 的修订：(1) 新增第 8 节，用 10 月 25 日改进搜索报告与 44 运行强化学习分析报告的定量结果，阐述深度学习在傅里叶光束整形中的三类实践（端到端学习前向、物理基座加学习残差、面向时序控制的强化学习）及其三条定量边界，把深度学习从对照项提升为并列的实践路线；(2) 新增图 16 至图 20 与表 17 至表 18，图链接均采用仓库 raw 地址；(3) 原第 8 节、第 9 节顺延为第 9 节、第 10 节，正文中对原第 8 节的 4 处引用随之更新。v4.2（2026-10-16 修订）。相对 v3.2 的修订：(1) 以可微计算光学与深度学习的领域框架重新组织方法定位，将 model-in-loop（MIL）闭环与重型深度前向（U-Net、算子网络）放在同一坐标系下作定量对照；(2) 新增第 7.6 节，与埃因霍温理工大学（TU/e）独立开展的可微物理仿真研究（2026 年度汇报）逐项对照，作为本论文核心结论的独立佐证；(3) 新增 U-Net、物理信息神经网络（PINN）、DeepONet、Adam 四项参考文献并修正 [8] 的 DOI；(4) 全部数据仍来自真实在线测量记录，未做任何修饰。v4.1 相对 v4.0 的修订：新增第 7.7 节，用本仓库可微仿真把 TU/e 的系统松弛与混合拟合两项能力跑成定量实验，并与 report/shape_trials 实测标定做定量对照（对应 GitHub issue #149）；第 9 节将系统松弛由候选改进升级为仿真已验证、待实测的结论；仓库 docs 跟踪副本与项目目录 v4.1 合并为同一份。v4.2 相对 v4.1 的修订：第 7.7 节新增 T4「样本查询与不确定性采样」定量实验（表 16），用 12 维 Zernike 可微仿真加 3 成员 CNN 集成复现 TU/e 第四类能力，定量证实无约束梯度最大化不确定度的选样塌缩机制（选样范数被推到域外 2.6 倍、两两距离一个量级以上），并给出 24 查询预算下未优于盲采样的边界结论；第 7.6 节第四项能力由「无直接对应实验」更新为指向 T4 定量结果。
+版本 v4.6（2026-10-25 修订）。相对 v4.5 的修订：(1) 新增 8.8 节，用 10 月 22 日硬件离焦加 Zernike 阶数扫描与 10 月 23 日 GS 方形三段扫描（边长 18 档、Zernike 24 档、闪耀光栅 8 档）的最新实验记录，补全两级方法在硬件上的单变量边界证据（常驻离焦约 9.7 mm、转向约 减 0.60 像元/毫米、PIB 随边长单调、Zernike 阶数差异可分辨但非单调），新增 2 张 GitHub 图；(2) 8.5 节新增可微物理模型结构图，把 14 个 Adam 拟合标量与 Step A/Step B 两步交替环路图形化，与图 3 的 66 项 Zernike 闭式模型同族对照；(3) 8.1 节把深度学习的三条结构性优势（毫秒级推理、数据驱动补残差、时序与跨域学习）与本项目四类实践一一显式对应。v4.5（2026-10-25 修订）。相对 v4.4 的修订：新增 8.6 节，用 10 月 23 日至 25 日实验记录，从光学与深度学习两侧阐明可行性与性能的机理，对 8.2 至 8.5 节四条实践边界作机理解释，新增图 24 至 28 与表 20；原 8.6 节顺延为 8.7 节。v4.4（2026-10-25 修订）。相对 v4.3 的修订：新增 8.5 节，用 10 月 23 日多形状迁移记录的定量结果，阐述可微物理模型在迁移学习中的实践（少量探针跨光路迁移加 CCD 强度锚定闭环），把迁移学习从仿真侧对照提升为已验证的硬件实践，新增图 22、23 与表 19；原 8.5 节顺延为 8.6 节。v4.3 相对 v4.2 的修订：(1) 新增第 8 节，用 10 月 25 日改进搜索报告与 44 运行强化学习分析报告的定量结果，阐述深度学习在傅里叶光束整形中的三类实践（端到端学习前向、物理基座加学习残差、面向时序控制的强化学习）及其三条定量边界，把深度学习从对照项提升为并列的实践路线；(2) 新增图 16 至图 20 与表 17 至表 18，图链接均采用仓库 raw 地址；(3) 原第 8 节、第 9 节顺延为第 9 节、第 10 节，正文中对原第 8 节的 4 处引用随之更新。v4.2（2026-10-16 修订）。相对 v3.2 的修订：(1) 以可微计算光学与深度学习的领域框架重新组织方法定位，将 model-in-loop（MIL）闭环与重型深度前向（U-Net、算子网络）放在同一坐标系下作定量对照；(2) 新增第 7.6 节，与埃因霍温理工大学（TU/e）独立开展的可微物理仿真研究（2026 年度汇报）逐项对照，作为本论文核心结论的独立佐证；(3) 新增 U-Net、物理信息神经网络（PINN）、DeepONet、Adam 四项参考文献并修正 [8] 的 DOI；(4) 全部数据仍来自真实在线测量记录，未做任何修饰。v4.1 相对 v4.0 的修订：新增第 7.7 节，用本仓库可微仿真把 TU/e 的系统松弛与混合拟合两项能力跑成定量实验，并与 report/shape_trials 实测标定做定量对照（对应 GitHub issue #149）；第 9 节将系统松弛由候选改进升级为仿真已验证、待实测的结论；仓库 docs 跟踪副本与项目目录 v4.1 合并为同一份。v4.2 相对 v4.1 的修订：第 7.7 节新增 T4「样本查询与不确定性采样」定量实验（表 16），用 12 维 Zernike 可微仿真加 3 成员 CNN 集成复现 TU/e 第四类能力，定量证实无约束梯度最大化不确定度的选样塌缩机制（选样范数被推到域外 2.6 倍、两两距离一个量级以上），并给出 24 查询预算下未优于盲采样的边界结论；第 7.6 节第四项能力由「无直接对应实验」更新为指向 T4 定量结果。
 
 实验日期：2026 年 10 月 12 日（含 10 月 1 日对照实验；MIL 实测数据跨 10 月 13 日至 15 日）
 状态：实验结果完整，正文初稿。文中全部数据来自真实在线测量记录（`data/debug/slm_gs_refine/20261012_180222`、`20261012_183900`、`20261012_190400`、`data/debug/slm_model_in_loop/` 各运行及交错重放目录），未做任何修饰。
@@ -521,6 +521,8 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 本项目的目标是傅里叶面的静态自由形式相位到强度映射，这类问题有三个适合学习类方法的结构性特点。第一，映射是确定性的且输入输出维度固定：64 乘 64 的瞳面相位映射到 64 乘 64 的远场强度，同一相位在噪声限内总是给出同一远场，满足监督学习的数据假设。第二，目标函数可解析计算，仿真前向可以以单次傅里叶变换对的成本生成任意多组相位到远场的训练对，深度学习方法在其它领域常遇到的数据瓶颈在这里不存在。第三，物理先验强且传播算子对幅度线性，远场强度的结构由瞳面相位的干涉决定，网络可以用很小的参数预算学到这个映射。这三点解释了约 70 参数的 Zernike 闭式模型为何能在每轮仅 2 至 8 张探针的极小样本下达到 0.81 至 0.84 的同帧相关性，也解释了更大网络为何是把这个数字继续往上提的合理方向，而不是与物理模型互斥的另一条路。
 
+把这三点结构性特点转译成深度学习的三条具体优势，并对应到本项目的四类实践。其一，深度网络能直接学习相位到远场的正逆映射，把迭代相位恢复的秒级计算压缩到单次前向的毫秒级推理，这是端到端学习前向（8.2 节）相对 GS 迭代的核心优势。其二，深度网络以数据驱动方式补物理模型表示不了的残差，在物理基座已扛下映射主体的前提下，用少量卷积参数学掉器件串扰、有限填充因子等非理想项，这是物理基座加学习残差（8.3 节）的优势所在。其三，深度网络（含强化学习策略网络）能学习逐帧时序决策与跨光路的域适应，这是面向时序控制的强化学习（8.4 节）与可微模型迁移学习（8.5 节）相对于批量优化闭环的优势。三条优势各自划出定量边界（8.2 至 8.5 节），但方向一致：深度学习在傅里叶光束整形里的价值是补物理模型的盲区、扛物理模型扛不动的时序与跨域任务，而不是替代可微物理前向。
+
 ### 8.2 实践一：端到端学习前向模型
 
 端到端路线用神经网络直接学习相位到远场强度的映射，取代闭式前向。逆向整形报告给出了这条路线在本项目的完整实践记录：一个 121,177 参数的 U-Net（相位余弦、正弦加曝光共 3 通道输入，编码解码通道 [8,16,32]）先在 44 个历史相位上用亮区加权平方误差损失（权重 1 加 20 倍目标区权重）预训练，再在每个评价运行里只用该运行自身的 2 至 4 张探针微调 10 步。在 24 张验证集帧的同帧对比中，预训练后 U-Net 同帧相关性 0.018、10 步微调后 0.030（环围能量仅 0.16），而 70 参数闭式物理前向达到 0.839（表 8、图 11）；五形状 30 张验证集帧的补充核查里，物理模型 0.8294、U-Net 再次近零（表 9）。
@@ -594,17 +596,25 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 前三种实践都在一条固定的光路上进行，回答的是在已知光路下学习类方法能做什么。迁移学习要回答的是另一个问题：在一条光路上拟合好的可微模型，能否只靠少量新探针迁移到一条新（离焦）光路，并驱动硬件闭环。这是迁移学习里最典型的情形，源域是已拟合光路，目标域是新离焦光路，适应手段是少量探针加实测锚定。10 月 23 日的多形状迁移记录给出了这条路线的完整实践。
 
-本实践的可微模型与 5.4 节、7.2 节的闭式物理前向同族，但把全部几何与振幅做成可拟合：14 个物理标量（离焦 1、共享光轴原点 2、入射振幅中心 2、振幅宽度 2、Noll 5 至 11 静态像差 7），再加 NNLS 拟合的非负增益与加性背景（杂散光）项 2 个标量，有效展宽用离散候选选择，不含任何卷积权重。迁移到离焦光路时，先用平相位参考、双轴正负载波（周期 64 与 128 面板像元）和三类相位族（Zernike Noll 4 至 11、平滑随机、带限随机，各带独立训练与验证分组）重新估计二维几何，得到映射矩阵 M（约 94.23、7467.69、减 7536.71、122.22）与零级参考位置；SLM x 向载波主要产生 CCD 负行方向位移，这一步若行列混淆，就会把弱背景误读成虚假的低 CV 区域。随后以上一路径的检查点初始化，在离焦光路的新探针上用 Adam 重新拟合 14 个标量。微调轨迹见图 21：训练相关性 0.86909 到 0.90606，验证相关性 0.90128 到 0.90397，但验证窗 CV 绝对误差从 0.44284 升到 0.47118。相关性提高并不等于模型能准确预测均匀度，这正是迁移的第一条陷阱，即模型拟合了新光路的结构，但辐射与均匀度的标定是偏的。
+本实践的可微模型与 5.4 节、7.2 节的闭式物理前向同族，但把全部几何与振幅做成可拟合：14 个物理标量（离焦 1、共享光轴原点 2、入射振幅中心 2、振幅宽度 2、Noll 5 至 11 静态像差 7），再加 NNLS 拟合的非负增益与加性背景（杂散光）项 2 个标量，有效展宽用离散候选选择，不含任何卷积权重。迁移到离焦光路时，先用平相位参考、双轴正负载波（周期 64 与 128 面板像元）和三类相位族（Zernike Noll 4 至 11、平滑随机、带限随机，各带独立训练与验证分组）重新估计二维几何，得到映射矩阵 M（约 94.23、7467.69、减 7536.71、122.22）与零级参考位置；SLM x 向载波主要产生 CCD 负行方向位移，这一步若行列混淆，就会把弱背景误读成虚假的低 CV 区域。随后以上一路径的检查点初始化，在离焦光路的新探针上用 Adam 重新拟合 14 个标量。
+
+该 14 标量可微模型的结构与数据流如图 21 所示：SLM 相位 φ（128×128 原始弧度场）与高斯入射振幅 A（中心 2、宽度 2 共 4 个标量）、静态相位（离焦 1 加 Noll 5 至 11 共 7 个标量）在复场节点合成 A·exp[i(φ + 静态)]，经 1024×1024 傅里叶变换得远场强度 |U|²，再经相机映射（固定斜坡 M 加原点 2 个标量）与像素积分（3×3 有效模糊、增益与加性背景项）得到与 CCD 读数同量纲的预测图；冻结前向 F(φ) 节点承载 8.5 节的 CCD 强度锚定（实测提供绝对水平、模型只供局部增量），末端损失（核心 CV 加能量项加形状项）经自动微分与 Adam 投影回传到 SLM 相位，闭成环路。Step A 拟合这 14 个物理标量时 φ 取已知探针相位冻结，Step B 冻结 14 个标量、只优化 φ，两步交替构成迁移闭环，与图 3 的 66 项 Zernike 闭式模型同族而参数量更小，是为极小探针样本量定制的轻量化前向。
+
+![迁移实践所用可微物理模型结构：14 个 Adam 拟合标量与两步交替环路](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/model_structure_20261023.png)
+
+图 21　迁移实践所用可微物理模型结构：14 个 Adam 拟合标量（入射高斯 4、离焦加静态像差 8、相机原点 2）与 Step A/Step B 两步交替环路，冻结前向承载 CCD 强度锚定
+
+微调轨迹见图 22：训练相关性 0.86909 到 0.90606，验证相关性 0.90128 到 0.90397，但验证窗 CV 绝对误差从 0.44284 升到 0.47118。相关性提高并不等于模型能准确预测均匀度，这正是迁移的第一条陷阱，即模型拟合了新光路的结构，但辐射与均匀度的标定是偏的。
 
 ![迁移微调的参数与预测误差轨迹](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/fit_trajectories_20261023.png)
 
-图 21　迁移微调的参数与预测误差轨迹（训练与验证的相关性、CV 误差随迭代）
+图 22　迁移微调的参数与预测误差轨迹（训练与验证的相关性、CV 误差随迭代）
 
 关键手段是 CCD 强度锚定。原始正向预测系统性偏低（模型 CV 约 0.10 至 0.14，CCD 0.51 至 0.74），直接用原始图像的梯度会把搜索推向错误的起点。本实践构造局部强度代理 I_local(φ) = max{I_A1/t + F_θ(φ) − F_θ(φ_A), 1e-8}：实测图像提供绝对参考强度，可微模型 F 只提供局部变化量（Jacobian 仍由完整前向的反向传播给出）。目标函数（固定掩膜 CV² 加 2 乘（1 减 EE_ROI）加轮廓误差加 0.001 相位平滑项）在这个代理上计算，每个块只有当真实 CCD 的 A、B、B、A 配对检查显示候选优于参考且超出漂移量时才接受。这是通过锚定完成的域适应与标定：不需要正向模型全局准确，只需要它的局部增量可用，绝对水平由测量钉住。
 
 ![迁移加 CCD 锚定闭环的四形状逐块实测演化](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/ccd_block_evolution_20261023.png)
 
-图 22　迁移加 CCD 锚定闭环的四形状逐块实测演化（初始、候选与独立最终采集）
+图 23　迁移加 CCD 锚定闭环的四形状逐块实测演化（初始、候选与独立最终采集）
 
 四种形状各 4 块、每块 10 次可微更新，16 个块全部通过 A、B、B、A 漂移验收，结果见表 19：核心 CV 相对下降，正方形 34.72%（0.679 到 0.444）、长方形 22.28%（0.611 到 0.475）、三角形 42.79%（0.583 到 0.333）、五角星 45.64%（0.474 到 0.258）。核心均值保持在约 31 至 40 counts，低 CV 来自真实信号而非测量弱背景；正方形与长方形的 EE_ROI 略降，说明匀化并非无代价。
 
@@ -631,19 +641,19 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 其二，器件的相位带宽与能量地板是硬上限。10 月 23 日闪耀光栅实测表明这台 LCOS 在 1064 nm 下满命令（10 bit 灰度 0 至 1023）相位深度只有 2.00π，零级至少保留 3.03% 的能量（相干直流地板，与填充因子 ff 约 0.85 的解析值 97.16% 能量转移一致）；有效 2π 灰度在 956 至 993 之间，2π 灰度外推约 1083 超出面板 1023 上限。这意味着任何学习类方法的整形能力上限都被这个能量分配与有限相位行程钉住：8.5 节 16 个块里 EE_ROI 随 CV 下降略降（正方形 0.4807 到 0.4581、长方形 0.6096 到 0.5885），与 10 月 1 日 576 自由度 SPGD 退化为随机游走，是同一器件约束在不同自由度分配下的两种表现。
 
-其三，离焦的不对称性。10 月 25 日 2f 孪生消融（图 24、图 25）把 10.0847 mm 相机离焦单独隔离后：零相位帧被离焦弥散到目标尺度，flat 的 NCC 从 0.358 升到 0.801、L1 从 1.492 降到 0.853；而正确整形的光束本来尺度就对，被离焦过度弥散，NCC 从 0.932 掉到 0.610。两支因此交叉，在含离焦的系统上没有任何相位（连真值系数的 oracle 也是）能赢 flat。这说明"网络在换光路后失效"首先是物理现象（离焦把零相位抬起来），不是网络容量问题，也解释了 8.5 节为什么必须把离焦放进可拟合的 14 个物理标量里而不是交给网络隐式吸收。
+其三，离焦的不对称性。10 月 25 日 2f 孪生消融（图 25、图 26）把 10.0847 mm 相机离焦单独隔离后：零相位帧被离焦弥散到目标尺度，flat 的 NCC 从 0.358 升到 0.801、L1 从 1.492 降到 0.853；而正确整形的光束本来尺度就对，被离焦过度弥散，NCC 从 0.932 掉到 0.610。两支因此交叉，在含离焦的系统上没有任何相位（连真值系数的 oracle 也是）能赢 flat。这说明"网络在换光路后失效"首先是物理现象（离焦把零相位抬起来），不是网络容量问题，也解释了 8.5 节为什么必须把离焦放进可拟合的 14 个物理标量里而不是交给网络隐式吸收。
 
 ![2f 孪生上 8 族目标 teacher 与零相位对比](https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig01_teacher_vs_flat_family_20261025.png)
 
-图 23　2f 孪生上 8 族目标 teacher（逐样本可微优化）与零相位对比：逐族 L1 与 NCC，柱顶数字为最薄特征宽度
+图 24　2f 孪生上 8 族目标 teacher（逐样本可微优化）与零相位对比：逐族 L1 与 NCC，柱顶数字为最薄特征宽度
 
 ![离焦对零相位与整形两支的反向作用](https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig07_ablation_mechanism_20261025.png)
 
-图 24　离焦机制：10.0847 mm 离焦把零相位点斑弥散到目标尺度（flat NCC 0.358 到 0.801），同时把正确整形光束过度弥散（NCC 0.932 到 0.610）
+图 25　离焦机制：10.0847 mm 离焦把零相位点斑弥散到目标尺度（flat NCC 0.358 到 0.801），同时把正确整形光束过度弥散（NCC 0.932 到 0.610）
 
 ![静态误差消融：离焦与 0 级 η 的四变体归因](https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig06_ablation_variants_20261025.png)
 
-图 25　静态误差归因消融：离焦 10.0847 mm 与 0 级 η 0.10 的四变体下 flat、net_open、net_closed、oracle 五路读数
+图 26　静态误差归因消融：离焦 10.0847 mm 与 0 级 η 0.10 的四变体下 flat、net_open、net_closed、oracle 五路读数
 
 #### 8.6.2 深度学习侧的三条约束
 
@@ -665,11 +675,11 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 ![三路读数对照：纯模型 CV、锚定代理 CV、CCD 实测 CV](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/sim_pretrain_transfer/figures/transfer_three_readings_20261024.png)
 
-图 26　无 GS 迁移复现的三路读数：同一候选相位下纯模型 CV 8/8 变差、锚定代理 CV 与 CCD 实测 CV 8/8 变好，代理增益放大 0.91 至 1.90 倍（中位 1.56）
+图 27　无 GS 迁移复现的三路读数：同一候选相位下纯模型 CV 8/8 变差、锚定代理 CV 与 CCD 实测 CV 8/8 变好，代理增益放大 0.91 至 1.90 倍（中位 1.56）
 
 ![噪声阶梯：曝光档与系数拟合可观测性](https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig09_noise_ladder_20261025.png)
 
-图 27　2f 孪生闭环噪声阶梯：0.15 ms 与 1 ms 档在全部变体上拒测（峰值 8 至 135 counts），20 ms 是唯一全变体可测档（峰 227 counts），系数 RMSE 非单调
+图 28　2f 孪生闭环噪声阶梯：0.15 ms 与 1 ms 档在全部变体上拒测（峰值 8 至 135 counts），20 ms 是唯一全变体可测档（峰 227 counts），系数 RMSE 非单调
 
 #### 8.6.3 用机理重读四条实践边界
 
@@ -688,6 +698,37 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 以上四类实践可归纳为四条定量边界。边界一是样本量边界：端到端学习前向在 44 个实测相位的小样本下，121,177 参数网络近零而 70 参数闭式模型 0.81 至 0.84，这是样本量与模型复杂度失配的直接定量形态。边界二是分工边界：联合残差改进加 0.0426 说明深度学习在补物理模型盲区上有真实正面价值，但冻结基座劣于联合训练、且必须防过度平滑，架构细节决定成败，混合与物理统计不可区分这一旧结论不能直接套用。边界三是方向边界：正向改进不能迁移到逆解，正向 R² 从 0.63 升到 0.87 时逆向分数不变，瓶颈是训练分布覆盖，下一步必须引入模型证明无法表示的物理生成器。边界四是迁移边界：可微模型在源域光路上拟合后，迁移到离焦新光路仅靠 3 训练 3 验证的少探针，相关性升到 0.90 但均匀度预测仍偏，必须加 CCD 强度锚定才能把局部可微梯度钉到正确起点，最终 16 块全部通过 A、B、B、A 验收、核心 CV 下降 22 至 46%。这说明迁移学习在本项目的正面形态是低参数可微模型加实测锚定，而不是端到端网络或大参数残差。
 
 在本项目的定位里，深度学习与两级物理流程不是替代关系而是互补关系：GS 预矫正与 SPGD 细化解决当前样本量下的硬件闭环，学习前向与学习残差解决预测保真度的提升，强化学习架构预留时序控制的方向。两级流程已在实验系统上以复合分数 0.527 到 0.778 验证（细化增益加 0.0043 经交错重放可复现），四类深度学习实践中，前三类在仿真侧各自划出边界、迁移学习则在硬件侧验证了跨光路的闭环可行性，两者共用同一套验收口径与测量纪律（稳定后采集、逐帧去背景、交错重放比较），这就是本项目在傅里叶光束整形里对深度学习的定位。
+
+
+### 8.8 最新实验记录补充：GS 方形三段扫描与硬件离焦加 Zernike 阶数扫描
+
+10 月 22 日至 23 日的两组实验记录把第 2 至 4 节的两级方法放回硬件上再测了两遍：一组是 10 月 23 日纯 GS 方形远场整形的三段扫描（目标方框边长 18 档、Zernike 截断阶数 24 档、闪耀光栅周期 8 档，全程无闭环优化、无随机数），另一组是 10 月 22 日第三轮硬件离焦扫描加多阶 Zernike 匀化测试。两组记录共同回答一个问题：在 10 月 12 日两级流程在线实现之后，把 GS 预矫正这一步单独拆出来、在更大的扫描空间里单变量扫一遍，硬件给出的边界与 4.7 节、6.3 节的结论是否一致。
+
+#### 8.8.1 GS 方形三段扫描：边长与阶数的可分辨边界
+
+纯 GS 方形扫描沿三个自变量各扫一遍，三种扫描之间只通过选定边长与选定相位单向传递。边长扫描 18 档（约 100 至 1800 相机像元）给出第一条可分辨边界：PIB 随边长单调上升，18 档中反向步数为 0，从 0.4353 到 0.9688；CV 与 PIB 的 Spearman 秩相关达 0.996，但 200 与 1500 像元处有两处回落，说明 CV 与 PIB 大体同步但不严格同步；复合分数在 1500 像元处最高（0.6900），与 1600 像元处次高值只差 2.07e-04，峰后单调下降但峰本身不可分辨，即最优边长只能给到约 1500 至 1600 像元的一个平台而非一个尖峰。三条目标（PIB、CV、复合分数）随边长的演化见图 29。这三条数字与 4.1 节 100×100 目标的选择相互印证：100 像元方框是 PIB 与 CV 的折中点，再大则 CV 上升、再小则 PIB 受限。
+
+![GS 方形边长扫描：PIB、CV 与复合分数随边长的演化](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/hw_gs_square_scans/figures/fig1_sides_objectives_20261023.png)
+
+图 29　GS 方形边长扫描 18 档：PIB 从 0.4353 单调升到 0.9688、CV 与 PIB 同步（Spearman 0.996）、复合分数在 1500 至 1600 像元平台达峰
+
+Zernike 截断阶数扫描 24 档（n_max 从 3 到 25 步长不等）给出第二条边界，也是与 8.6.1 的器件相位带宽约束直接相关的边界。拟合残差随阶数严格单调不增，从 0.3182 rad（n_max=3）降到 0.1510 rad（n_max=25），是唯一单调的量；但 CV 随阶数只是整体下降、并不单调，从 0.2895（n_max=3）降到 0.2547（n_max=20），跨度 0.0348，在 n_max=11 与 25 处有回升；同一批相位的框内功率 PIB 反而从 0.0908 降到 0.0712（跨度 0.0196），而 GS 逐像素相位本身是 CV 0.4820、PIB 0.2237。三个事实合起来说明：截断到低阶 Zernike 会把方斑抹平，框内更均匀（CV 低）但近一半框内功率被摊到框外，只看 CV 会把平滑误读成整形更好。Zernike 重构的相位残差与 CV 随阶数的演化见图 30。这条边界与 8.6.1 的 2.00π 相位带宽、3.03% 零级能量地板是同一器件约束在不同自由度分配下的表现：低阶 Zernike 的相位行程在 2.00π 内足够，但 2π 灰度只到 956 至 993，高阶级 Zernike 的相位峰谷在面板上被截断，复测已确认 n_max=18 的 CV 13.53 是整帧全黑的一次失败采集而非物理异常，复测 CV 2.7609 落在 n_max=17 与 19 的趋势内。
+
+![GS 方形 Zernike 阶数扫描：相位残差与 CV 随 n_max 的演化](https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/hw_gs_square_scans/figures/fig3_zernike_reconstruction_20261023.png)
+
+图 30　GS 方形 Zernike 阶数扫描 24 档：拟合残差从 0.3182 rad 单调降到 0.1510 rad，CV 整体下降但不单调（n_max=11 与 25 回升），PIB 反而下降
+
+闪耀光栅周期扫描 8 档（周期 16 至 48 面板像元）给出第三条边界：score 随周期单调上升，反向步数为 0；周期 16 的预测位移 462.5 像元让方框出画（裁剪掉整框的 5.50%），与 7.4 节的相位带宽上限一致，即周期越短、一阶衍射效率越高但位移越大，最终受限于面板口径与目标框位置。
+
+#### 8.8.2 硬件离焦加 Zernike 阶数扫描：常驻离焦与转向
+
+10 月 22 日第三轮硬件测试在真实实验系统上在线实现了离焦扫描与 Zernike 阶数扫描，与 gs_defocus_sim 的纯仿真结论逐条对拍，给出两条对两级方法关键性的硬件证据。其一，实验系统自带约 9.7 mm 的常驻离焦（平相位下光斑 FWHM 约 115 像元且呈环形），必须先做瞳面焦面矫正（fresnel_panel，f_v 约 1549.3 mm，面板边缘二次相位 23.96 rad 约 3.81 波）才能测到离焦响应，否则测到的是弥散环；加上矫正后光斑收到 14.6 像元、峰值曝光提高约 29 倍。这与 8.6.1 的离焦不对称性结论直接衔接：10 月 25 日 2f 孪生消融隔离出的 10.0847 mm 相机离焦，与 10 月 22 日硬件实测的约 9.7 mm 常驻离焦量级一致，说明这台实验系统的离焦不是装配误差而是系统性物理量，任何跨光路迁移（8.5 节）必须把离焦放进可拟合参数而不能交给网络隐式吸收。
+
+其二，瞳面二次相位在这套实验系统上不是纯粹的离焦，它同时把光斑推走（转向）。主组实测转向速率约 减 0.60 像元/毫米（质心 x 相对冻结零级、绝对值 1.5007 毫米内拟合），转向叠加在光斑本来就不在框中心之上，于是同一个绝对值离焦在正负半轴上的劣化不对称：本轮各组在正负 1.5007 毫米处的差值，硬件 GS 相位组为 0.0654、模型 GS 相位组为 0.0005（噪声地板 0.00192），而仿真那边只差 0.0008，这是硬件与仿真最大的口径差异。复合分数在绝对值 1.5007 毫米相对零离焦的变化，硬件 GS 组为 0.171、模型 GS 组为 0.099。本轮离焦组带去倾斜自标定（先用测试斜坡测出面板到相机轴的映射与符号、再加一片反向瞳面斜坡把转向分量抵消），所以转向对读数的影响比第一轮小，但孔径是否仍会藏住响应由本组的孔径灵敏度表自己给出。这条结论直接支撑 8.6.1 的离焦不对称性：离焦与转向在硬件上耦合，是两级方法中 GS 预矫正必须包含静态像差（而非只调离焦）的物理依据。
+
+Zernike 阶数扫描在硬件上在线实现 8 阶，阶数之间的 CV 跨度 0.0379 是同口径噪声 0.00897 的 4.2 倍、PIB 跨度 0.0221 是噪声地板 0.00179 的 12.3 倍，超过 3 倍标准差、差异不是噪声；但 CV 随阶数只是整体下降并不单调、PIB 反而下降，与 8.8.1 的 24 档扫描结论一致：阶数之间的差异全部来自 Zernike 拟合、不是 SPGD 优化出来的，阶数越高越好这一直觉排序在硬件上被推翻。
+
+这两组记录与 4.7 节、6.3 节的结论一致：硬件闭环的瓶颈不在算法而在测量，自由度必须与单帧差分信噪比匹配；GS 预矫正的有效性由 18 档边长扫描的 PIB 单调性、24 档阶数扫描的拟合残差单调性共同支撑，而 Zernike 阶数不是越高越好、离焦必须先矫正这两条边界，是两级方法自由度分配（GS 在仿真域建立大尺度结构、SPGD 只做低自由度残差修正）在硬件上再验证的定量证据。
 
 ## 9 局限与下一步
 
@@ -760,7 +801,7 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 
 ## 附录 B 素材与代码链接（GitHub）
 
-本文全部代码、报告与图素材公开托管于 [ywzhang909/AO-shaping](https://github.com/ywzhang909/AO-shaping)（分支 `master`，commit `e7942568`，2026-10-16 核对；2026-10-23 起镜像分支 `banckend` 已删除，图片链接随之改指 `master`）。正文图 3 至图 27 的图片链接均采用该仓库的 raw 地址，附录 A 所列报告、脚本与数据文件均可在仓库内按路径访问。
+本文全部代码、报告与图素材公开托管于 [ywzhang909/AO-shaping](https://github.com/ywzhang909/AO-shaping)（分支 `master`，commit `e7942568`，2026-10-16 核对；2026-10-23 起镜像分支 `banckend` 已删除，图片链接随之改指 `master`）。正文图 3 至图 30 的图片链接均采用该仓库的 raw 地址，附录 A 所列报告、脚本与数据文件均可在仓库内按路径访问。
 
 | 素材 | GitHub 路径 |
 |---|---|
@@ -776,8 +817,8 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 | FourierGSNet 仿真矩阵（6.3 节，图 14 至 15） | `report/fouriergsnet_sim/fouriergsnet_sim_report/report.md`、`report/fouriergsnet_sim/figures/` |
 | 正向模型改进搜索与残差改进（8.2 至 8.3 节，图 16、17、18，表 17 至 18） | `report/loss_defects/inverse_design_report/inverse_design_report.md`、`report/loss_defects/figures/` |
 | 44 运行强化学习分析（8.4 节，图 19、20） | `report/models_analysis/models_report/report.md`、`report/models_analysis/models_report/` |
-| 可微模型跨光路迁移与 CCD 锚定（8.5 节，图 21、22，表 19） | `report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md`、`physical_multishape_reproduction_20261023.md`、`report/shape_trials/multishape_capability/figures/` |
-| 光学与深度学习机理分析（8.6 节，图 23 至 27，表 20） | `report/sim2f_shaping/closed_loop_20261025/report.md`、`report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md`、`report/slm/diffraction_efficiency/hw_blaze_20261023/report.md` |
+| 可微模型跨光路迁移与 CCD 锚定（8.5 节，图 22、23，表 19） | `report/shape_trials/multishape_capability/diagnosis_and_transfer_20261023.md`、`physical_multishape_reproduction_20261023.md`、`report/shape_trials/multishape_capability/figures/` |
+| 光学与深度学习机理分析（8.6 节，图 24 至 28，表 20） | `report/sim2f_shaping/closed_loop_20261025/report.md`、`report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md`、`report/slm/diffraction_efficiency/hw_blaze_20261023/report.md` |
 | 数字孪生消融（表 14） | `report/iterative_zernike_shaping/data.json` |
 | 相位带宽实测（表 15） | `report/slm/model_in_loop_hw_runbook/model_in_loop_bench_calibration.md` |
 | 逆向 U-Net 语料结果（7.3 节） | `report/inverse_shaping_unet/inverse_shaping_report/report.md` |
@@ -805,13 +846,16 @@ FourierGSNet 数字孪生（`drivers/sim/fouriergsnet_env.py`）上的闭环矩�
 | 图 18 | 逆向设计预测与独立仿真对比 | https://github.com/ywzhang909/AO-shaping/raw/master/report/loss_defects/figures/inverse_pred_vs_true.png |
 | 图 19 | 44 运行强化学习家族构成 | https://github.com/ywzhang909/AO-shaping/raw/master/report/models_analysis/models_report/runs_overview.png |
 | 图 20 | 44 运行强化学习学习曲线 | https://github.com/ywzhang909/AO-shaping/raw/master/report/models_analysis/models_report/learning_curves.png |
-| 图 21 | 迁移微调的参数与预测误差轨迹 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/fit_trajectories_20261023.png |
-| 图 22 | 迁移加 CCD 锚定闭环的四形状逐块演化 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/ccd_block_evolution_20261023.png |
-| 图 23 | 2f 孪生上 8 族目标 teacher 与零相位对比 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig01_teacher_vs_flat_family_20261025.png |
-| 图 24 | 离焦对零相位与整形两支的反向作用 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig07_ablation_mechanism_20261025.png |
-| 图 25 | 静态误差归因消融：离焦与 0 级 η 四变体 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig06_ablation_variants_20261025.png |
-| 图 26 | 无 GS 迁移复现的三路读数 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/sim_pretrain_transfer/figures/transfer_three_readings_20261024.png |
-| 图 27 | 2f 孪生闭环噪声阶梯与可观测性 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig09_noise_ladder_20261025.png |
+| 图 21 | 可微物理模型结构（14 标量加 Step A/B 环路） | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/model_structure_20261023.png |
+| 图 22 | 迁移微调的参数与预测误差轨迹 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/fit_trajectories_20261023.png |
+| 图 23 | 迁移加 CCD 锚定闭环的四形状逐块演化 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/multishape_capability/figures/ccd_block_evolution_20261023.png |
+| 图 24 | 2f 孪生上 8 族目标 teacher 与零相位对比 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig01_teacher_vs_flat_family_20261025.png |
+| 图 25 | 离焦对零相位与整形两支的反向作用 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig07_ablation_mechanism_20261025.png |
+| 图 26 | 静态误差归因消融：离焦与 0 级 η 四变体 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig06_ablation_variants_20261025.png |
+| 图 27 | 无 GS 迁移复现的三路读数 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/sim_pretrain_transfer/figures/transfer_three_readings_20261024.png |
+| 图 28 | 2f 孪生闭环噪声阶梯与可观测性 | https://github.com/ywzhang909/AO-shaping/raw/master/report/sim2f_shaping/closed_loop_20261025/figures/fig09_noise_ladder_20261025.png |
+| 图 29 | GS 方形边长扫描 PIB、CV 与复合分数 | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/hw_gs_square_scans/figures/fig1_sides_objectives_20261023.png |
+| 图 30 | GS 方形 Zernike 阶数扫描相位残差与 CV | https://github.com/ywzhang909/AO-shaping/raw/master/report/shape_trials/hw_gs_square_scans/figures/fig3_zernike_reconstruction_20261023.png |
 
 ## 附录 A 数据与可复现性
 
