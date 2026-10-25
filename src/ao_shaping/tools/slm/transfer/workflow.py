@@ -9,6 +9,8 @@ from types import SimpleNamespace
 
 import numpy as np
 
+from ao_shaping.utils.image.target.metrics import POLYGON_SHAPE_CHOICES
+
 from .capture import clock
 
 
@@ -58,7 +60,7 @@ class TransferSession:
             raise ValueError("count >= 6, frames >= 3 and iterations >= 0 required")
         if min(self.blocks, self.updates) < 1 or self.side <= 0 or self.period < 4:
             raise ValueError("invalid target or optimization parameters")
-        if not self.shapes or len(set(self.shapes)) != len(self.shapes) or not set(self.shapes) <= {"square", "rectangle", "triangle", "star"}:
+        if not self.shapes or len(set(self.shapes)) != len(self.shapes) or not set(self.shapes) <= set(POLYGON_SHAPE_CHOICES):
             raise ValueError("unique supported shapes required")
         if self.dataset and not (self.dataset / "manifest.json").is_file():
             raise FileNotFoundError(self.dataset / "manifest.json")

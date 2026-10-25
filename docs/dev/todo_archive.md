@@ -1914,3 +1914,28 @@ transfer 判定与 bench 指标若漂移，报告数字不可比。
 - 套件：utils+tools/slm+import-resolve 守卫 2783 passed；runners 533 passed
   （2 个 CLI golden 失败在未改动 HEAD 只读克隆上复现，系并发 agent 的 CLI
   WIP）；ruff 对触及文件全清（剩余 5 个在 runs/ 他人 WIP）。
+
+---
+
+### 5.43 Step 7（issue #199 守卫测试 + 收尾）
+
+- 新增三个守卫（均经负向验证：临时注入对应漂移 → 守卫失败）：
+  - `tests/ao_shaping/utils/image/test_shape_vocabulary_single_source.py`：
+    AST 扫 src，判据 = "纯字符串 List/Tuple/Set 字面量、成员 ⊆ 词表、
+    ≥3 个、且等于某个已登记视图"；豁免 Literal 类型别名 slice、
+    `in`/`not in` 比较操作数、收窄支持集（benchmark 3 形状/wrapper 4
+    形状等功能限制）。附视图子集/顺序断言。
+  - `tests/ao_shaping/utils/image/test_no_duplicate_gaussian_kernel.py`：
+    名字含 `gaussian_kernel_1d` 的 def 全 src 唯一且在
+    `exposure_fusion.py`；所有 import 必须来自该模块；两个历史消费者
+    identity 委托 + sigma=0 identity kernel。
+  - `tests/ao_shaping/algorithm/test_forward_core_single_import.py`：
+    core 七个专属符号唯一定义于 `defocus_forward_core.py`；
+    `diopter_scale` = core def + ddu 的 `@property` 单行委托（剥
+    docstring 后判据）；两个前向模块正向 import 断言。
+- 顺带收敛守卫抓到的唯一真漂移：`tools/slm/transfer/workflow.py` 的
+  `set(self.shapes) <= {"square","rectangle","triangle","star"}`（=
+  POLYGON_SHAPE_CHOICES 精确镜像）改 import 视图。
+- 范围外记录：`fraunhofer.focal_intensity`（同名的不同职责 Fraunhofer
+  传播原语）与 20+ 处 `1.064e-06` 波长字面量散布均为 #199 范围外存量，
+  前者不进专属符号集、后者由 Step 4 孪生测试覆盖行为风险。
