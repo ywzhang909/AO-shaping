@@ -2683,6 +2683,50 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        编译通过，diff **49 insertions / 7 deletions**；
        CI 钉版 ruff **0.15.12** 全绿。
 
+65. ✅ **LUT 加载器校验了形状与长度，却从不校验取值：一张全是 65535 的表被照常采用，而它随后会作用于每一帧相位的每个像素**（2026-10-26）：
+     - **先记我被自己实验推翻的假设（本会话第 5 次）**：我进场时的判断是 —— `save_lut` 用 `np.savetxt`
+       默认格式写 `lut_inverse.csv`（无 `fmt=`，即 `%.18e`），而 `Santec.load_lut` 的回退路径按
+       `dtype=np.uint16` 用 `np.genfromtxt` 读它，整数 dtype 解析不了科学计数法，会**替换成非法填充值**
+       且不抛异常。**用真实写入方做 RED 测试后该结论作废**：`genfromtxt` 对整数 dtype 能正确转换
+       科学计数法，回退路径把写入方存的表**逐值**读回。我几乎没有凭记忆把 `genfromtxt` 的机制写进结论 ——
+       差一点又犯一次。
+     - **实测站住的是取值域**：`load_lut` 只校验 `ndim == 1` 与 `size >= 1024`，**从不看值**。测试给出
+       确凿证据：一张 `np.full(1024, 65535)`（uint16 满值，正是损坏/填充替换后的典型形状）被**采纳**，
+       日志只有 `INFO ... LUT 已从 lut.npz 加载 (len=1024)`。而 `apply_lut_remap` 在
+       `create_phase_from_array`（全仓唯一 wrap 点）里对每个像素生效 ⇒ 破坏以「远场不对」的形式出现在
+       实验上，而不是以错误的形式出现在代码里。
+     - **为什么既有套件看不见**：`tests/ao_shaping/drivers/slm/test_slm_lut_hook.py` 的
+       `_write_csv_lut` 把灰度列**手写**成裸整数 —— 与第 64 条里 `np.zeros((3, 28))` 同一类问题：
+       测试替身编码了一个没有生产者会做的假设。这里它没有掩盖解析缺陷（解析本就正确），但它使
+       **取值域这个问题从未被问起**。
+     - **上限不是设备侧决定（来源已核）**：`MAX_GRAYSCALE_VALUE = get_max_grayscale()` 即
+       `2 ** GRAY_SCALE_BITS - 1`（`slm200_constants.py`）是**面板满量程**（10 bit ⇒ 1023），驱动自己的
+       注释块明确把它与**随波长变**的 `_max_gray`（本机 1064 nm ⇒ 993）区分开；
+       `utils/slm/phase_display.py` 的 `DEFAULT_MAX_GRAYSCALE = 1023` 同源。所以取值按
+       `MAX_GRAYSCALE_VALUE` 判、长度下限取它 +1，用的是仓库既有单一事实源，**没有**新写字面量
+       1023 / 1024。
+     - **修复与收敛同处**：`lut.npz` 与 `lut_inverse.csv` 两条路径各自带着一段**完全相同**的
+       `ndim`/`size` 判定；再加第三份取值判定只会更糟。改为一个
+       `_lut_table_or_none(table, *, source)` 承载形状 + 长度 + 灰度域，两条路径都调它，不合格就
+       `logger.warning` 并**保持当前状态**（沿用该方法已文档化的语义）。
+     - **RED 与差分控制**：修复前新套件 **1 failed / 4 passed**，失败消息里把被采纳的
+       `array([65535, ...])` 原样打出来作证据；修复后 5 条全绿。控制实验：**只删取值域那一段**
+       （保留形状/长度判定）⇒ **1 failed / 26 passed**，变红的正是取值域那一条，而既有
+       `test_slm_lut_hook.py` 26 条**全绿** ⇒ 这道判定既能拦住损坏表，又不会误杀合法表（其 LUT 峰值
+       恰为 1023）。
+     - **顺带作废的另一条猜测**：叶子层 `utils/slm/slm_lut.load_lut` 确实完全没有校验，但它的消费者
+       只有测试，硬件路径走的是 `Santec.load_lut` ⇒ 本次只修驱动侧，**不对叶子层做投机式 API 改动**。
+     - **我自己的操作错误（第 25 次）**：给 CI 包装脚本传标记时写成 `-m "not hardware"`（两个 token）
+       ⇒ `argument -m: expected one argument`，白跑一轮。**单 token 形式 `"-m=not hardware"` 早就在我自己的
+       环境记录里** —— 反复踩的原因不是不知道，而是**重新推导**参数形式而不查记录。附带收获：钉版 ruff
+       逮出我新加的两条 `# noqa: E402` 是死指令（`ruff.toml` 未启用 `E402`，且 `test_slm_lut_hook.py`
+       的房内写法本就不带 noqa）。
+     - **验证**：新测试 `tests/ao_shaping/drivers/slm/test_lut_csv_fallback_format.py` 5 条；与既有
+       `test_slm_lut_hook.py` + `utils/test_slm_lut.py` 合跑 **58 passed**；有界宽跑
+       `drivers/slm` + `utils/slm` + `conventions`（`-m=not hardware`）**233 passed / 19 skipped /
+       2 failed**（失败对仍是既有 `pib_exit_safety`）/ 109 deselected；驱动编译通过，diff
+       **31 insertions / 13 deletions**；CI 钉版 ruff **0.15.12** 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

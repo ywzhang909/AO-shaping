@@ -2077,6 +2077,31 @@ class Santec:
         logger.info(f"SLM #{self.slm_number} 已清除矫正数据")
         return False
 
+    def _lut_table_or_none(self, table: np.ndarray, *, source: str) -> np.ndarray | None:
+        """校验加载到的 inverse_gray 补偿表，不合格就拒绝采用。
+
+        LUT 会作用于每一帧相位的**每个像素**：一张长度不足、形状不符、或灰度越出面板
+        满量程的表，绝不能在实验上以"远场不对"的形式被发现。此处统一按
+        ``MAX_GRAYSCALE_VALUE``（面板 10 bit 满量程，与波长无关；随波长变的 2π 灰度是
+        ``self._max_gray``）判定，长度下限取其 +1（即灰度索引个数）。
+        """
+        if table.ndim != 1 or table.size < self.MAX_GRAYSCALE_VALUE + 1:
+            logger.warning(
+                f"SLM #{self.slm_number} {source} 形状无效 "
+                f"(ndim={table.ndim}, size={table.size})，保持当前状态"
+            )
+            return None
+
+        lut = table.astype(np.uint16)
+        if int(lut.max()) > self.MAX_GRAYSCALE_VALUE:
+            logger.warning(
+                f"SLM #{self.slm_number} {source} 灰度越界 "
+                f"(max={int(lut.max())}，面板满量程 0..{self.MAX_GRAYSCALE_VALUE})，"
+                f"保持当前状态"
+            )
+            return None
+        return lut
+
     def load_lut(self, lut_dir: str | Path | None) -> None:
         """从 LUT 目录加载相位→灰度补偿表。
 
@@ -2119,15 +2144,11 @@ class Santec:
                 )
                 return
 
-            if inverse_gray.ndim != 1 or inverse_gray.size < 1024:
-                logger.warning(
-                    f"SLM #{self.slm_number} inverse_gray 形状无效 "
-                    f"(ndim={inverse_gray.ndim}, size={inverse_gray.size})，"
-                    f"保持当前状态"
-                )
+            lut = self._lut_table_or_none(inverse_gray, source="lut.npz")
+            if lut is None:
                 return
 
-            self._lut = inverse_gray.astype(np.uint16)
+            self._lut = lut
             self._lut_dir = lut_path
             logger.info(
                 f"SLM #{self.slm_number} LUT 已从 {npz_file} 加载 "
@@ -2159,14 +2180,11 @@ class Santec:
                 )
                 return
 
-            if inverse_gray.ndim != 1 or inverse_gray.size < 1024:
-                logger.warning(
-                    f"SLM #{self.slm_number} lut_inverse.csv 数据长度不足 "
-                    f"(len={inverse_gray.size})，保持当前状态"
-                )
+            lut = self._lut_table_or_none(inverse_gray, source="lut_inverse.csv")
+            if lut is None:
                 return
 
-            self._lut = inverse_gray.astype(np.uint16)
+            self._lut = lut
             self._lut_dir = lut_path
             logger.info(
                 f"SLM #{self.slm_number} LUT 已从 {csv_file} 加载 "
