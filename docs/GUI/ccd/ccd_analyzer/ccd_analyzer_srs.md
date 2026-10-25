@@ -249,5 +249,5 @@ sequenceDiagram
 ## 8. 相关文档
 
 - 用户手册: [`ccd_analyzer_user_manual.md`](./ccd_analyzer_user_manual.md)
-- 图像分析算法: [`ao_shaping/utils/image/spots_calc/`](../../../../../utils/image/spots_calc/)
+- 图像分析算法: [`src/ao_shaping/utils/image/spots_calc.py`](../../../../src/ao_shaping/utils/image/spots_calc.py)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)

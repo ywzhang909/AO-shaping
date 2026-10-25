@@ -2554,3 +2554,102 @@ def test_generated_reports_do_not_end_with_a_section_nobody_emits() -> None:
         "section was moved into its generator (good -- drop the entry) or the artifact was "
         "rewritten behind the baseline; check which before touching the dict."
     )
+
+
+#: A link target that resolves against the *git index*, not the working tree. Targets are
+#: skipped when they are URLs, bare anchors, or contain a template marker; a trailing
+#: ``:NNN`` is stripped because ``[x](file.py:120)`` is a citation style used in these docs.
+_LINK_TARGET = re.compile(r"!?\[((?:[^\[\]]|\n)*?)\]\(([^)\s]+)[^)]*\)")
+_LINK_SKIP = re.compile(r"^(?:https?://|mailto:|#|data:|//)")
+_LINK_LINE_CITE = re.compile(r":\d+(?:-\d+)?$")
+#: Floor on the number of link targets actually resolved. A guard that parses nothing passes
+#: vacuously, which is how the table-arity guard nearly shipped (it had scanned 0 blocks).
+_MIN_LIVE_DOC_LINKS = 200
+
+
+def _live_docs_link_targets() -> tuple[list[str], int]:
+    """``(offenders, checked)`` for relative links in live docs, resolved against the index.
+
+    Resolution uses the tracked file list rather than ``Path.exists()`` on purpose: ``logs/``
+    and ``data/`` are gitignored, so a link into them is real on the author's machine and dead
+    on every fresh clone -- which is the failure this found (16 links, several pointing at
+    ``../logs/mamba_curriculum_*/report.md`` while the label already named the committed
+    report). Historical docs are excluded by the repo's own marker list: dated records cite
+    machine-local run artefacts by design.
+    """
+    import subprocess
+
+    listing = subprocess.run(
+        ["git", "ls-files", "-z"],
+        capture_output=True,
+        cwd=str(REPO),
+        check=False,
+    ).stdout
+    tracked = {t.decode("utf-8", errors="replace") for t in listing.split(b"\0") if t}
+    tracked_dirs = {
+        "/".join(t.split("/")[:k]) for t in tracked for k in range(1, len(t.split("/")))
+    }
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in sorted(tracked):
+        if not rel.endswith(".md"):
+            continue
+        path = REPO / rel
+        if not path.is_file() or _is_historical(path):
+            continue
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for lineno, line in _unfenced_md_lines(text):
+            # Blank inline code before matching: a link written as literal text inside a
+            # code span is documentation, not a link. Fences are already handled by
+            # _unfenced_md_lines -- doing this the other way round lets a span swallow the
+            # fence marker and unmask the block it was meant to hide.
+            blanked = re.sub(r"`+[^`\n]*`+", lambda m: " " * len(m.group(0)), line)
+            for match in _LINK_TARGET.finditer(blanked):
+                target = match.group(2).strip()
+                if _LINK_SKIP.match(target) or "<" in target:
+                    continue
+                target = target.split("#")[0].split("?")[0]
+                target = _LINK_LINE_CITE.sub("", target)
+                if not target:
+                    continue
+                checked += 1
+                base = REPO / target.lstrip("/") if target.startswith("/") else path.parent / target
+                try:
+                    rp = base.resolve().relative_to(REPO).as_posix()
+                except ValueError:
+                    offenders.append(f"{rel}:{lineno} escapes the repo: {target!r}")
+                    continue
+                if rp in tracked or rp in tracked_dirs:
+                    continue
+                if any(t == rp or t.startswith(rp.rstrip("/") + "/") for t in tracked):
+                    continue
+                here = (REPO / rp).exists()
+                offenders.append(
+                    f"{rel}:{lineno} not in the git index: {target!r}"
+                    + (" (exists locally but is untracked -- dead on a fresh clone)" if here else "")
+                )
+    return offenders, checked
+
+
+def test_relative_links_in_live_docs_point_at_tracked_paths() -> None:
+    """Every relative link in a live doc resolves to a path the next clone will actually have.
+
+    Measured 2026-10-25: 0 offenders over 289 resolved targets, after 16 fixes. The two shapes
+    found were a wrong ``../`` depth in ``docs/GUI/**`` (docs sit 4 levels down; the links
+    climbed 5 or 6, leaving the repository entirely) and links into gitignored ``logs/`` which
+    resolve on one machine and nowhere else.
+    """
+    offenders, checked = _live_docs_link_targets()
+    assert checked >= _MIN_LIVE_DOC_LINKS, (
+        f"resolved only {checked} link target(s) across live docs, below the floor "
+        f"{_MIN_LIVE_DOC_LINKS} -- the grammar stopped matching the docs' format, so a pass "
+        "here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} link(s) in live docs point at something a fresh clone will not "
+        "have:\n  " + "\n  ".join(offenders[:25])
+        + "\nFix the path (relative to the *document*, and check the depth), or link the "
+        "committed artefact the label already names -- never leave a link into gitignored "
+        "logs/ or data/."
+    )

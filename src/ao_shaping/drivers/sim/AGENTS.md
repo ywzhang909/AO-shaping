@@ -393,7 +393,7 @@ RMS 最小解, SPGD 正确地保留初始平场命令。要看到真实的校正
 7. **API 漂移**: 本地 submodule 比旧 pin `8e12a17f` 领先若干提交, 导入会打印
    `Telescope is no longer the "master" class ...` 警告 — 属预期, 当前用法未触及该 API。
 
-对比报告与图片见 [`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`](../../../../logs/mamba_curriculum_20260323_121023/report.md)
+对比报告与图片见 [`report/oopao_vs_numpy/oopao_vs_numpy_report/report.md`](../../../../report/oopao_vs_numpy/oopao_vs_numpy_report/report.md)
 (生成器 `scripts/oopao/generate_oopao_vs_numpy_report.py`); 后端回归测试
 `tests/ao_shaping/drivers/sim/test_oopao_backend.py`。
 

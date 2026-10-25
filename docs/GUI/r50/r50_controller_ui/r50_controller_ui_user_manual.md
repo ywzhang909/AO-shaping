@@ -52,5 +52,5 @@ streamlit run src/ao_shaping/gui/r50/r50_controller_ui.py
 ## 4. 相关文档
 
 - 需求规格说明书: [`r50_controller_ui_srs.md`](./r50_controller_ui_srs.md)
-- 驱动参考: [`ao_shaping/drivers/dm/micro/`](../../../../../drivers/dm/micro/)
+- 驱动参考: [`src/ao_shaping/drivers/dm/micro/`](../../../../src/ao_shaping/drivers/dm/micro/)
 - GUI 索引: [`docs/gui.md`](../../../gui.md)
