@@ -3028,6 +3028,48 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
               自带日期快照要不要加「其中测试已删除」注记（加注记等于改动一份有日期的记录）；`pib_exit_safety`
               家族缺的究竟是脚本还是报告，只有原作者能定。
 
+75. ✅ **写全文本里的 CLI 调用同样是断言：命令名、组子命令、flag 三层此前无人校验，其中一条让读者执行 click 会当场拒绝的命令**（2026-10-26）：
+     - **口径（与既有两条守卫不重复）**：`test_python_invocation_paths_in_docs_and_docstrings_are_tracked`
+              管「被调用的**脚本**存在」，第 74 条管「被引用的**路径**存在」；本条管 `main.py` **之后**的三层
+              —— 命令名、组子命令、以及解析到具体命令后的每一个 flag。三者任一不存在，读者照抄就失败。
+     - **普查**：活文档与 `src/` / `scripts/` 的字符串字面量里可解析的调用声明 **72** 条（65 条是可运行
+              形态，其余是 click 自己的 Synopsis 写法）；组调用 23 条；顶层命令 **19** 个（与 AST 计数一致）；
+              真正的组只有 2 个：`slm-pib`（spgd / heuristic / square）与 `slm-gsnet`（spgd / heuristic / train）。
+     - **唯一的真缺陷，但落在两处**：`generate_model_in_loop_report.py` 生成的用法与
+              `docs/slm/model_in_loop_algorithm.md` 都写 `main.py slm-model-in-loop --cam-type sim -r 2 --debug`。
+              而 `--debug` 只在**顶层组**声明（`main.py` 的 group 回调），golden help 里 **13** 个命令自己的 help
+              含 `--debug`、`slm-model-in-loop` **不在其列** ⇒ 这个位置的 flag 必被 click 拒绝。修法：把
+              `--debug` 移到命令名**之前**（`main.py` 自己的用法行就是这个写法），语义不变 ——
+              `resolve_debug(ctx)` 读的正是组级 `ctx.obj`，注释承诺的 step dump 照样落盘。
+     - **刻意没走的另一条"修法"（待你拍板）**：给该命令的参数类补一个 `--debug` 也能让文档成立，但那是
+              **CLI 契约改动**（`cli_help_golden.json` 正在钉每个命令的 help 文本），不属纯文本修复。
+     - **守卫怎么解析**：先吃组级前置 flag，且**取值型**选项要把它的值一并吃掉（否则 `--dir data` 里的
+              `data` 会被当成命令名）；再取命令名；命令是组时解析子命令（**裸组调用判红**，click 的答案是
+              Missing command）；最后把剩余 flag 逐个对**解析到的那个命令**的声明比对。
+     - **我自己的守卫差点误伤正确的文本（两处真因，都值得记住）**：① click 把 `--x` / `--no-x` 这类
+              flag 对的否定形式放进 `secondary_opts` 而非 `opts` ⇒ 漏读它会把 `gs_refine_runner.py` docstring 里
+              **完全正确**的 `--no-gs-warm-start` 判成编造，我差一步就删掉一行正确文档；② `--help` 由 click
+              惰性附加（`get_help_option_names(ctx)`），从不出现在 `command.params` 里。
+     - **Synopsis 不是调用**：`[OPTIONS]`、`<command>`、以及本仓爱写的省略号，都是 click **描述**命令的
+              写法而不是可执行指令 ⇒ 按占位跳过；另外 markdown 行内代码的尾随反引号必须从 flag 上剥掉
+              （否则 `--debug` 挂着一个反引号就成了假阳性）。
+     - **豁免文档里的同类问题（record-only，不改写）**：对 `report/` 与设备文档目录用**同一套**解析复测
+              ⇒ 57 条调用里 12 条指向未注册命令，其中 **3 条是我临时普查脚本自己的吞值缺陷**（`--dir data`），
+              其余 9 条全在 `report/` 的冻结记录里（`diff-shaping` / `diff-beam` / `gs-square`，其中一条早已用
+              删除线标注）⇒ 与第 72、74 条口径一致，不改写。**是否把 `_HISTORICAL_DOCS` 拆成「行号引用豁免」与
+              「可运行调用豁免」两类由你定**：`docs/slm/` 里那条错误命令行我已手工修掉，但按定义守卫查不到它。
+     - **RED 与差分控制**：缺陷在场时守卫红并点名它，改完转绿。控制实验植入两处（一个未声明的组 flag、
+              一个裸组调用）⇒ **分别命中不同分支**，消息还把真实选项表与真实子命令表一起打印；随后从**修复后**的
+              备份恢复，`cmp` 逐字节一致，再绿。
+     - **工具自错三次（记下以免重犯）**：① `\S+` 把 markdown 的闭合引号吃进 token（`train"]`）⇒ 假阳性；
+              ② 临时普查的 walker 未实现「取值型组选项吞值」，把 `--dir data` 的值当命令，虚报一批；③ 我用
+              `chr(92)` 手拼正则字面量，拼出了 `[\^` 和一个多余引号 ⇒ **语法错误**，而且它不在测试阶段暴露、是在
+              **collect 阶段**让整个 `test_conventions.py` 无法导入（表现为 1 error 而非 failed）。补充规则：
+              **改完测试文件先 `ast.parse` + ruff，再进容器**（嵌套 heredoc 与手拼转义是本 session 已第 4 次踩同类坑）。
+     - **验证**：新守卫 green；宽跑 `test_conventions` + `runners` + `scripts` ⇒ **3063 passed /
+              90 skipped / 6 failed**，这 6 条正是第 74 条纠正后的既有红集（2 条文档调用类 + 4 条 provenance /
+              shard 类，已在 HEAD 上用 stash A/B 证过与本条无关）；CI 钉版 ruff **0.15.12** 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

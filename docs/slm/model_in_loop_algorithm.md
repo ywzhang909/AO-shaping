@@ -831,7 +831,7 @@ CLI 默认 `--region 64` / `--far-field-padding 8` ⇒ 远场 `far_field_size = 
 python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2
 
 # 同一次运行顺带落 step dump (验证 dump 在没有硬件时也能写)
-python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2 --debug
+python src/ao_shaping/main.py --debug slm-model-in-loop --cam-type sim -r 2
 ```
 
 ### 15.7 探针三连: 顺序**不能反**

@@ -4046,6 +4046,165 @@ _QUOTED_PY_PATH_HISTORICAL: dict[tuple[str, str], str] = {
 #: matching without silently checking nothing.
 _MIN_QUOTED_PY_PATH_CLAIMS = 250
 
+#: ``python <hub> main.py <command> [subcommand] [flags...]`` as written in live text. The tail is
+#: captured on one line only: a backslash-continued block puts its remaining flags on the next line,
+#: and letting ``\s`` cross the newline made the next line's ``python`` look like a subcommand.
+_CLI_INVOCATION = re.compile(
+    r"(?:python3?|uv run python)[^\n]*?\S*main\.py((?:[ \t]+\S+)*)"
+)
+
+#: 72 invocation claims resolved over live markdown and src/ + scripts/ string literals, 65 of them
+#: runnable-looking and the rest click synopses; the floor leaves room for rewording but not for an
+#: extractor that quietly matches nothing.
+_MIN_CLI_INVOCATION_CLAIMS = 50
+
+
+def test_cli_invocations_in_live_text_name_real_commands_and_options() -> None:
+    """Every written-out CLI invocation names a command, subcommand and flag that exist.
+
+    The sibling guards here check that an invoked *script* is tracked and that a quoted *path* is
+    tracked; neither looks at what follows ``main.py``. This resolves the whole invocation against the
+    live click tree: the command, the subcommand when the command is a group, and every flag. A bare
+    group is an offender because click answers ``Missing command``, and a flag the command never
+    declared is an offender because click answers ``no such option``. Flag spellings are the part docs
+    drift on most easily -- ``docs/user/cli-reference.md`` already documents a live ``-d`` collision
+    between group level and command level, and a group option placed after the subcommand is rejected
+    exactly the way a made-up one is.
+    """
+    import click
+
+    from ao_shaping.main import cli
+
+    tracked = {
+        t.decode("utf-8", errors="replace")
+        for t in subprocess.run(
+            ["git", "ls-files", "-z"], capture_output=True, cwd=str(REPO), check=False
+        ).stdout.split(b"\0")
+        if t
+    }
+    targets = sorted(
+        rel
+        for rel in tracked
+        if (rel.endswith(".py") and (rel.startswith("src/") or rel.startswith("scripts/")))
+        or (rel.endswith(".md") and rel != "CHANGELOG.md" and not _is_historical(REPO / rel))
+    )
+
+    group_allowed: set[str] = {"--help", "-h"}
+    group_params: dict[str, click.Parameter] = {}
+    for param in cli.params:
+        group_allowed.update(param.opts)
+        group_allowed.update(param.secondary_opts)
+        for opt in (*param.opts, *param.secondary_opts):
+            group_params[opt] = param
+
+    def placeholder(token: str) -> bool:
+        # ``main.py [OPTIONS] [COMMAND]`` is how click itself writes a synopsis, and ``…`` /
+        # ``<command>`` are how this repo abbreviates one. Neither is a runnable invocation.
+        return token.startswith(("<", "[")) or chr(8230) in token
+
+
+    offenders: list[str] = []
+    checked = 0
+    for rel in targets:
+        path = REPO / rel
+        if not path.is_file():
+            continue
+        if rel.endswith(".py"):
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8-sig", errors="replace"), filename=rel)
+            except SyntaxError:
+                continue
+            claims = [
+                (node.lineno, value)
+                for node in ast.walk(tree)
+                if isinstance(node, ast.Constant) and isinstance(node.value, str)
+                for value in node.value.splitlines()
+            ]
+        else:
+            claims = list(
+                enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1)
+            )
+
+        for lineno, line in claims:
+            for match in _CLI_INVOCATION.finditer(line):
+                checked += 1
+                tokens = [t for t in match.group(1).split() if t != chr(92)]
+                while tokens and tokens[0].startswith("-"):
+                    raw = tokens.pop(0)
+                    flag = raw.split("=", 1)[0]
+                    param = group_params.get(flag)
+                    if flag not in group_allowed:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {flag!r} is not an option of the top-level group; "
+                            f"a group flag must precede the command name. Declared: "
+                            f"{sorted(group_allowed)}"
+                        )
+                    elif param is not None and not param.is_flag and "=" not in raw and tokens:
+                        tokens.pop(0)
+                if not tokens:
+                    continue
+                name = tokens.pop(0)
+                rest = tokens
+                if placeholder(name):
+                    continue
+                command = cli.commands.get(name)
+                if command is None:
+                    offenders.append(f"{rel}:{lineno} -> command {name!r} is not registered")
+                    continue
+                # Resolve a subcommand only through a group; a plain command takes none.
+                if isinstance(command, click.Group):
+                    nxt = next(
+                        (t for t in rest if not t.startswith("-") and not placeholder(t)), None
+                    )
+                    if nxt is None and not any(t in ("--help", "-h") for t in rest):
+                        offenders.append(
+                            f"{rel}:{lineno} -> group {name!r} invoked with no subcommand "
+                            f"(click: Missing command); its subcommands are "
+                            f"{sorted(command.commands)}"
+                        )
+                        continue
+                    if nxt is not None and nxt in command.commands:
+                        command = command.commands[nxt]
+                        rest = rest[rest.index(nxt) + 1:]
+                    elif nxt is not None:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {name} {nxt!r} is not a subcommand of that group; "
+                            f"registered: {sorted(command.commands)}"
+                        )
+                        continue
+                # click attaches --help lazily (get_help_option_names(ctx)), so it never shows up in
+                # command.params. Accept the default plus the -h alias this hub's context_settings
+                # declares; anything else has to be a real declared option.
+                allowed: set[str] = {"--help", "-h"}
+                for param in command.params:
+                    allowed.update(param.opts)
+                    allowed.update(param.secondary_opts)
+                for token in rest:
+                    if not token.startswith("-") or token.startswith("<"):
+                        continue
+                    flag = token.split("=", 1)[0].rstrip(").,;:`\"'")
+                    if flag in ("--", "-"):
+                        continue
+                    if flag not in allowed:
+                        offenders.append(
+                            f"{rel}:{lineno} -> {flag!r} is not an option of "
+                            f"{name}; "
+                            f"declared: {sorted(a for a in allowed if a.startswith('--'))[:12]}"
+                        )
+
+    assert checked >= _MIN_CLI_INVOCATION_CLAIMS, (
+        f"resolved only {checked} CLI invocation claim(s), below the floor "
+        f"{_MIN_CLI_INVOCATION_CLAIMS} -- the grammar stopped matching how this repo writes its "
+        "commands, so a pass here would mean nothing was checked."
+    )
+    assert not offenders, (
+        f"{len(offenders)} written-out CLI invocation(s) cannot run as written:\n  "
+        + "\n  ".join(offenders[:20])
+        + "\nFix the text to the command tree that exists (run `python src/ao_shaping/main.py "
+        "<command> --help` to see real flags); do not invent options."
+    )
+
+
 
 def test_quoted_source_paths_in_live_text_exist_in_the_git_index() -> None:
     """A quoted repo path is an existence claim: the file must be in the next clone.

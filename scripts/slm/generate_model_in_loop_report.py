@@ -1139,7 +1139,7 @@ def _section_bench_commands() -> list[str]:
     )
     A("```bash\n# 纯离线自检\npython src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2\n\n"
       "# 同一次运行顺带落 step dump (验证 dump 在没有硬件时也能写)\n"
-      "python src/ao_shaping/main.py slm-model-in-loop --cam-type sim -r 2 --debug\n```\n")
+      "python src/ao_shaping/main.py --debug slm-model-in-loop --cam-type sim -r 2\n```\n")
 
     A("### 15.7 探针三连: 顺序**不能反**\n")
     A(
