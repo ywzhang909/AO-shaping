@@ -15,7 +15,7 @@ python src/ao_shaping/main.py --help
 python src/ao_shaping/main.py wf --help
 ```
 
-当前共 **20 个命令**：
+当前共 **19 个命令**：
 
 | 命令 | 一句话用途 | 详情章节 |
 |---|---|---|
@@ -34,11 +34,10 @@ python src/ao_shaping/main.py wf --help
 | `combined` | AdaMOD 综合 PIB 优化器 | 15 |
 | `slm-lut` | SLM gray-to-phase LUT 标定 | 16 |
 | `slm-diagnose` | SLM 硬件自检，逐级定位「面板不调制光」类故障 | 17 |
-| `spgd-square` | SLM 方形光斑整形优化器（Zernike 系数 + 相机反馈） | 18 |
-| `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 19 |
-| `slm-pib` | Santec SLM 的 Zernike 系数整形，group | 20 |
-| `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 21 |
-| `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 22 |
+| `slm-gsnet` | freeform 相位方形远场整形，group，含 `train` 离线训练 | 18 |
+| `slm-pib` | Santec SLM 的 Zernike 系数整形，group（含 `spgd` / `heuristic` / `square` 子命令，`square` 即方形光斑整形） | 19 |
+| `slm-gs-refine` | SLM GS 预整形 + 全频随机相位 SPGD 细化 | 20 |
+| `slm-model-in-loop` | SLM model-in-the-loop 方形整形闭环 | 21 |
 
 历史沿革：`gs` / `gs-square` / `diff-shaping` / `diff-beam` 已从 CLI 移除，其功能并入 `slm-gsnet` 与 `algorithm/signal_processing/`。
 

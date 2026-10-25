@@ -77,7 +77,7 @@ AO-shaping/
 ├── src/
 │   ├── ao_shaping/               # 主程序包
 │   │   ├── __init__.py
-│   │   ├── main.py               # CLI入口点 (Click-based), 注册 20 个命令
+│   │   ├── main.py               # CLI入口点 (Click-based), 注册 19 个命令
 │   │   ├── config.py             # 中央配置 (DM_N_ACTUATORS, DEFAULTS, PATHS, ao_config)
 │   │   ├── runners/              # 运行器包 (硬件编排层: Click CLI, 设备生命周期)
 │   │   │   ├── __init__.py       # Lazy imports + re-exports (via __getattr__)
@@ -99,7 +99,7 @@ AO-shaping/
 │   │   │   └── slm/                       # SLM 相关 runner
 │   │   │       ├── rms_zernike_runner.py     # SLM Zernike RMS (rms-zernike)
 │   │   │       ├── zernike_matrix_runner.py  # Zernike响应矩阵 (zernike-matrix) + closed-loop
-│   │   │       ├── slm_shaping_runner.py     # SLM Zernike PIB (slm-pib) + 方形整形 (spgd-square)
+│   │   │       ├── slm_shaping_runner.py     # SLM Zernike PIB (slm-pib 命令组) + 方形整形 (square 子命令)
 │   │   │       ├── gsnet_runner.py           # SLM自由相位方形整形 (slm-gsnet)
 │   │   │       ├── gs_refine_runner.py       # GS 预矫正 + SPGD 细化 (slm-gs-refine)
 │   │   │       ├── model_in_loop_runner.py   # 正向模型闭环校正 (slm-model-in-loop)

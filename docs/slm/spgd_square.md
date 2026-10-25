@@ -1,4 +1,4 @@
-# SLM 方形光斑 SPGD 整形 (spgd-square)
+# SLM 方形光斑 SPGD 整形（`slm-pib` 的 `square` 子命令；无 `spgd-square` 顶层命令）
 
 > **运行环境**: 离线 (纯源码静态分析; 不开设备)
 
@@ -20,7 +20,7 @@
 
 ```mermaid
 graph TD
-    CLI["main.py · spgd-square"]
+    CLI["main.py · slm-pib square"]
     RUN["runners/slm/slm_shaping_runner.py · square()"]
     OPT["optimizer/wfless/slm_square_shaping.py · optimize_slm_square()"]
     ALG["algorithm/ · SPGD (adamod/adam/sgd/muno)"]
@@ -96,7 +96,7 @@ score = w_uniformity * (1 - CV) + w_efficiency * EE + w_aspect * (1 - |AR - 1|)
 
 ```bash
 # 无硬件仿真
-python src/ao_shaping/main.py spgd-square --cam-type sim --slm-type sim -e 5
+python src/ao_shaping/main.py slm-pib square --cam-type sim --slm-type sim -e 5
 ```
 
 - `--cam-type sim` / `--slm-type sim` 走 2f-Fourier 数字孪生
@@ -130,10 +130,11 @@ python src/ao_shaping/main.py spgd-square --cam-type sim --slm-type sim -e 5
 - `data/slm_square_shaping/<日期>/`：历史 CSV、`best_phase.npy` (raw 弧度)、最优远场图 PNG
 - `--debug`：逐轮帧、相位、Recorder pkl
 
-## 10. 三个等价入口
+## 10. 等价入口
+
+> ⚠️ **无 `spgd-square` 顶层命令**：`main.py spgd-square` 会报 `No such command`。方形整形是 `slm-pib` 命令组的 `square` 子命令，等价入口如下（2026-10-25 核实，见 `main.py` 的 `# Register subcommands` 段）：
 
 ```bash
-python src/ao_shaping/main.py spgd-square ...
-python src/ao_shaping/main.py slm-pib square ...   # 同一 runner 的 square 子命令
+python src/ao_shaping/main.py slm-pib square ...   # slm-pib 命令组的 square 子命令
 python -m ao_shaping.runners.slm.slm_shaping_runner square ...
 ```
