@@ -1413,6 +1413,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
       换成真实歧义前缀 `224ab5d` → `prefix not unique`；把 CHANGELOG 截到 4 行 → `below the floor`。
       真实树 `test_conventions.py` **41 passed / 1 skipped**，ruff 全绿，引用普查 **71 引用 / 0 失配**。
 
+32. ✅ **`path:行号` 引用普查：结论是「不建守卫」，并记下一次连错六次的仪表化过程**（2026-10-25）：
+    - **动机**：本会话我自己两次被行号引用坑到（写 `main.py:106`/`:113` 后改 docstring 就让引用失效，
+      第 29 项因此禁了 `main.py` 的行号钉）。于是想给「引用的行号超过文件当前长度」这条**可机械判定**的
+      子集建守卫。普查后**放弃**。
+    - **精确形人口太少**：只接受根相对精确形（`src/`、`tests/`、`scripts/`、`docs/`… 直接命中
+      `git ls-files`），扫 31 份活文档得 **6 条**：4 条行号在范围内、**0 条越界**、2 条路径已迁走
+      （`utils/wfs_utils.py`、`utils/pattern_helper.py`）。下限时限只能设 4，一改排版就碎；
+      按本仓既有纪律（`_ALLOWED_UNRESOLVED` 注释：**没有待豁免的真实声明就别加豁免**）不值得建。
+    - **那 2 条也不是缺陷**：`docs/issues_report.md` 开头就声明「**本报告已严重过时**…§1~§3 引用的
+      行号都需要重新扫描，实施前请勿直接引用」，且**同一个表格格里已自注新路径**
+      （「2026-10-01：该文件现已迁至 `utils/wavefront/wfs_utils.py`，行号已漂移」）。
+      快照 + 就地更正 ⇒ 不动它，也不因此把它加进 `_HISTORICAL_DOCS`：`_is_historical()` 的唯一消费者是
+      `_unresolved()`（`python -m` 守卫），加豁免**今天不改变任何判定**，只会遮蔽将来的真实声明。
+    - **其余形态不可判定**：宽松语法扫到 235 条，绝大多数是**裸文件名或相对目录形**
+      （如 `drivers/INTERFACE_DOCS.md` 写 `ccd/base.py`、AGENTS.md 先给全路径后再写 `transforms.py:440`）。
+      判它们要么靠 basename 唯一性猜（本仓 `base.py`/`common.py`/`driver.py` 多处同名），要么靠
+      「相对本文档目录」这条**仓库里从未写明**的约定。猜测型守卫产出假阳性，**比没有守卫更糟**。
+    - **仪表化连错六次（本条的主要价值在这里）**——每一次都让普查数字一度失真，全部靠
+      「比例不合理 ⇒ 先怀疑仪表」拦下：
+      ① `st=*** MISSING ***` 被 bash 解析成「赋值 + 命令」，打印 17 行 shell 错误却被读成「17 个缺失」；
+      ② 探针里 `subprocess.run` **漏 `cwd=`**，容器 git 全部 `rc=128 not a git repository`；
+      ③ `git rev-parse --disambiguate <tok>` 拆成两个 argv（git 要 `--disambiguate=<tok>`），
+        rev-parse 把未知选项**与 token 本身**回显进 stdout，`startswith` 过滤让笔误哈希匹配自己 →
+        **已在上一项上线的守卫给出了错误诊断**（已改为单次 `git cat-file -t`，歧义看 stderr）；
+      ④ **通过分支不计数**：解析成功、行号在范围内的引用不 increment，于是「共 235 条」里
+        一类引用整体消失（`root-path` 桶根本不存在）——计数守卫必须同时计通过项；
+      ⑤ `git ls-files` 对非 ASCII 路径**加引号转义**，2951 条里 9 条不是路径（须 `-z`）；
+      ⑥ `next((p for p in PREFIXES if (p + rel) in tset), None)` 返回**前缀**而非 `p + rel`，
+        于是 `read_text` 打在目录上抛 `IsADirectoryError`。
+      最开始的 **211/279「缺陷」**就是 ①④⑤⑥ 合成出来的假结果；若我当时直接照单修文档，
+      就会把一批**正确的简写引用**改错——这正是本仓反复记录的「先证明仪表可信，再相信它的数字」。
+    - **仍开放的这条**（不做不等于没问题）：行内容漂移（行号存在但指向的代码已改写）无法机械判定，
+      它比「行号越界」更常见也更隐蔽；目前只有 `main.py` 一处的**禁钉行号**规则（第 29 项）在防它。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
