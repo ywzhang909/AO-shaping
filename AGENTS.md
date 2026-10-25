@@ -1203,8 +1203,10 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   每个顶层测试区必须被某片覆盖、每个分片目标必须存在、且至少要有一个阻塞分片
   （否则"永远红不了的作业"等于没有门禁）。`optimizer` 片用 `AO_TEST_PER_FILE=1`
   （见下），实测覆盖率与单进程一致（1259 passed + 3 skipped == 1262 collected）。
-  两片暂为 advisory：`scripts`（`_fmt`，wt-190 在办）与 `runners-gui-misc`
-  （`slm-gsnet --help` 金标，wt-193 在办）—— 两者落地后即转 blocking。
+  一片暂为 advisory：`scripts`（`_fmt` 去重，wt-190 在办）。
+  `runners-gui-misc` 曾因 `slm-gsnet --help` 基线红而挂 advisory（wt-193 在办），
+  **2026-10-25 已转 blocking**：基线由上游 `c5cd68a9` 重做后实测整片全绿
+  （1149 passed / 30 skipped / 0 failed，`AO_CPUS=4 / AO_MEMORY=6g`）。
   ⚠️ 门禁是 **fail-closed** 的：镜像构建失败会让整个作业变红，这是有意取舍
   （宁可红也不允许"没跑测试却绿"）。
   仍缺：类型检查门禁（mypy / pyright 未配置）。

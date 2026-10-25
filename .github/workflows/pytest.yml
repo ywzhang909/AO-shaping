@@ -47,11 +47,14 @@ jobs:
 
       - name: Run shards
         # Each shard is its own pytest process, which is what keeps peak RSS bounded.
-        # `advisory` marks the two shards that are red on arrival for pre-existing
-        # reasons tracked in TODO.md 8.13 and already being fixed by other worktrees
-        # (scripts -> the `_fmt` dedup in wt-190; runners/gui -> the `slm-gsnet`
-        # --help golden in wt-193). They are reported, and flip to blocking when those
-        # land -- nothing here hides a failure: the summary prints every status.
+        # `advisory` marks a shard that is red on arrival for a pre-existing reason
+        # tracked in TODO.md 8.13 and already being fixed by another worktree
+        # (scripts -> the `_fmt` dedup in wt-190). It is reported but does not fail the
+        # job; it flips to blocking when that lands. `runners-gui-misc` was advisory for
+        # the `slm-gsnet` --help golden (wt-193) and turned blocking on 2026-10-25, after
+        # the golden was re-baselined upstream in c5cd68a9 -- measured green over the whole
+        # shard at AO_CPUS=4 / AO_MEMORY=6g: 1149 passed, 30 skipped, 0 failed. Nothing
+        # here hides a failure: the summary prints every status.
         env:
           AO_CPUS: "4"
           AO_CPU_THREADS: "4"
@@ -104,7 +107,7 @@ jobs:
           run_shard "tools" 0 1 tests/ao_shaping/tools
           run_shard "optimizer" 1 1 tests/ao_shaping/optimizer
           run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py
-          run_shard "runners-gui-misc" 0 0 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
+          run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
           run_shard "scripts" 0 0 tests/ao_shaping/scripts
 
           echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"

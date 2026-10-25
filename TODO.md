@@ -1551,6 +1551,40 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **仍开放**：`report/**` 内指向 `data/debug/` 的链接按上述分界不入本守卫；若要机器化审计
       「实际写盘者」，需给 `REPORTS` 增字段（第 34 项已记），属 schema 决定。
 
+36. ✅ **兑现「落地即转 blocking」：`runners-gui-misc` 转阻塞；并记一次「不能建守卫」的反例**（2026-10-25）：
+    - **由头**：上游 `c5cd68a9` 重做了 `cli_help_golden.json`（即 wt-193 在办的 `slm-gsnet --help`
+      基线）。第 29 项当时写的是「两者落地后即转 blocking」—— 于是这一半到期了，**兑现而不是留着**。
+    - **翻牌前测的是整片，不是单个文件**：`runners-gui-misc` 的六个目标（`runners` `gui` `model`
+      `display` `report` `ao`）在 CI 资源档 `AO_CPUS=4 / AO_MEMORY=6g` 下实测
+      **1149 passed / 30 skipped / 0 failed（34 s）**。只凭 `test_cli_contract_freeze.py`
+      38 passed 就翻牌**不成立** —— 该片还盖着另外五个目录。
+    - **顺手排掉一个更严重的怀疑**：该片显式传 `tests/ao_shaping/gui`，而 `pyproject.toml` 的
+      `--ignore` 只作用于 discovery、显式路径不受影响 ⇒ 会不会把唯一跑真 `AppTest` 的
+      `test_zernike_abort_repro.py` 收进来挂死？**不会**：`scripts/build/run_pytest_ci.sh`
+      自己注入 `--ignore`（180-181 行），而 CI 调的就是这个 harness，故 CI 与本机同覆盖。
+    - **改动**：`run_shard "runners-gui-misc" 0 0` → `0 1`（现 **7 blocking / 1 advisory**）。
+      `scripts` 片仍 advisory —— 其红是 wt-190 的 `_fmt` 复用守卫，今日已在**干净 HEAD worktree**
+      复现，尚未落地。同时改掉两处**翻牌后会撒谎的说明**：workflow 注释块与
+      AGENTS.md「两片暂为 advisory」。
+    - **验收**：容器 `test_pytest_workflow_shards_cover_tree.py` + `test_conventions.py` +
+      `test_cli_contract_freeze.py` **86 passed / 1 skipped**；术语门禁 `合计: 0`；arity 0/1489；
+      ruff 全绿。三处锚点各**只匹配一次**（`once()` 断言），所以不存在文档与配置半更新。
+    - **命名一处盲区（不假装已修）**：第 33 项的附录守卫 `test_zernike_amp_report_appendix.py`
+      落在 `tests/ao_shaping/scripts/`，正是**仍 advisory** 的那片 ⇒ 它目前只能报警、不能拦停。
+      第 34、35 项的守卫在 `test_conventions.py`（root-guards，blocking）才有牙；
+      `scripts` 片转 blocking 时前者一并生效。
+    - **反例：phantom 命令名这条不能建守卫**。上游那条 commit 修了 5 处把 `spgd-square`
+      当顶层命令的引用，我本想据此扩守卫，普查后**放弃**：`spgd-square` / `gs-square` /
+      `diff-beam` 在跟踪文件里的剩余出现（115 / 11 / 23 条）几乎全是**刻意保留的废弃说明**
+      —— `AGENTS.md`「无 `spgd-square` 顶层命令」、`README.md`「已从 CLI 中移除」、
+      `docs/user/cli-reference.md` 的「历史沿革」。机械判据分不清「声称它是命令」与
+      「声明它已不存在」，硬建就会去改坏正确的历史说明。
+      ⚠️ 而且我自己先把 `hadamard-matrix` 误列进 phantom 名单 —— 它**确实已注册**
+      （`main.py` 19 条之一），差点据此立一条把合法引用判成缺陷的守卫。可判定的那一半
+      第 30 项的五源互校已经钉住（golden 19 键、其中无 `spgd-square`，与 `main.py` 注册集一致）。
+    - 另记一次仪表化自伤：grep 模式里的**反引号放在双引号内**会触发命令替换
+      （`寻找匹配的 `` EOF`）。自此含反引号/反斜杠的一律先写成文件再执行。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
