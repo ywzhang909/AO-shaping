@@ -606,77 +606,94 @@ LOCAL_DIR_PREFIXES = (
     "logs/",
     ".history/",
 )
-apply_mode = "--apply" in sys.argv
-check_mode = "--check" in sys.argv
-if apply_mode and check_mode:
-    raise SystemExit("--apply 与 --check 互斥: 前者写文件, 后者只判定退出码")
 
-#: 扫描根。默认仓库根; --root 只给守卫测试指向临时样本目录, 使"检测器真的会
-#: 报错"可被断言而不是只能相信 dry-run 输出。
-ROOT = REPO
-for _i, _a in enumerate(sys.argv):
-    if _a == "--root" and _i + 1 < len(sys.argv):
-        ROOT = Path(sys.argv[_i + 1]).resolve()
+def main(argv: "list[str] | None" = None) -> int:
+    """Scan --root and report drift; import-time work is exactly nothing.
 
-FILES = []
-for f in ROOT.rglob("*.md"):
-    rel = f.relative_to(ROOT).as_posix()
-    if rel.startswith((".git/", ".venv/", "venv/")):
-        continue
-    if rel.startswith(LOCAL_DIR_PREFIXES):
-        continue
-    if "call_graph_wiki" in rel:  # 生成文档，pupil 为代码标识符
-        continue
-    if f.name in EXCLUDE_NAMES:
-        continue
-    FILES.append(f)
+    The scan used to run at module scope straight off ``sys.argv``, so every importer
+    inherited a full-repo walk (about 4 s here) plus stdout, and inherited write mode
+    if the ambient argv happened to contain --apply. tests/ao_shaping/scripts/
+    test_term_gate_enforced.py records a real instance of that family: an --apply run
+    against a temp --root rewrote the live worktree because the *.py pass resolved
+    REPO rather than the requested root.
+    """
+    argv = list(sys.argv if argv is None else argv)
+    apply_mode = "--apply" in argv
+    check_mode = "--check" in argv
+    if apply_mode and check_mode:
+        raise SystemExit("--apply 与 --check 互斥: 前者写文件, 后者只判定退出码")
 
-# .py 文件清单（2026-10-22，issue #187）：中文叙述（docstring/字符串/注释）
-# 进入引擎；排除集见 PY_EXCLUDE 注释。
-PY_FILES = []
-for f in ROOT.rglob('*.py'):
-    rel = f.relative_to(ROOT).as_posix()
-    if rel.startswith(('.git', '.venv', 'venv')):
-        continue
-    if rel.startswith(LOCAL_DIR_PREFIXES):
-        continue
-    if rel.startswith('libs/') or 'libs/' in rel:   # vendored 第三方库
-        continue
-    if 'call_graph_wiki' in rel:
-        continue
-    if rel in PY_EXCLUDE:
-        continue
-    PY_FILES.append(f)
+    #: 扫描根。默认仓库根; --root 只给守卫测试指向临时样本目录, 使"检测器真的会
+    #: 报错"可被断言而不是只能相信 dry-run 输出。
+    root = REPO
+    for _i, _a in enumerate(argv):
+        if _a == "--root" and _i + 1 < len(argv):
+            root = Path(argv[_i + 1]).resolve()
 
-total = {}
-for f in FILES:
-    rel_posix = f.relative_to(ROOT).as_posix()
-    orig = f.read_text(encoding="utf-8")
-    new = transform(orig, rel_posix)
-    if new == orig:
-        continue
-    changed = sum(1 for a, b in zip(orig.split("\n"), new.split("\n")) if a != b)
-    total[rel_posix] = changed
-    if apply_mode:
-        f.write_text(new, encoding="utf-8")
+    files = []
+    for f in root.rglob("*.md"):
+        rel = f.relative_to(root).as_posix()
+        if rel.startswith((".git/", ".venv/", "venv/")):
+            continue
+        if rel.startswith(LOCAL_DIR_PREFIXES):
+            continue
+        if "call_graph_wiki" in rel:  # 生成文档，pupil 为代码标识符
+            continue
+        if f.name in EXCLUDE_NAMES:
+            continue
+        files.append(f)
 
-for f in PY_FILES:
-    rel_posix = f.relative_to(ROOT).as_posix()
-    orig = f.read_text(encoding='utf-8')
-    new = transform_py(orig, rel_posix)
-    if new == orig:
-        continue
-    changed = sum(1 for a, b in zip(orig.split('\n'), new.split('\n')) if a != b)
-    total[rel_posix] = changed
-    if apply_mode:
-        f.write_text(new, encoding='utf-8')
+    # .py 文件清单（2026-10-22，issue #187）：中文叙述（docstring/字符串/注释）
+    # 进入引擎；排除集见 PY_EXCLUDE 注释。
+    py_files = []
+    for f in root.rglob('*.py'):
+        rel = f.relative_to(root).as_posix()
+        if rel.startswith(('.git', '.venv', 'venv')):
+            continue
+        if rel.startswith(LOCAL_DIR_PREFIXES):
+            continue
+        if rel.startswith('libs/') or 'libs/' in rel:   # vendored 第三方库
+            continue
+        if 'call_graph_wiki' in rel:
+            continue
+        if rel in PY_EXCLUDE:
+            continue
+        py_files.append(f)
 
-tag = '文件 (dry-run)' if not apply_mode else '文件 (已写入)'
-print(f"{tag}: 变化行数")
-for k, v in sorted(total.items()):
-    print(f"  {v:4d}  {k}")
-print(f"合计: {len(total)} 个文件, {sum(total.values())} 行")
+    total: dict[str, int] = {}
+    for f in files:
+        rel_posix = f.relative_to(root).as_posix()
+        orig = f.read_text(encoding="utf-8")
+        new = transform(orig, rel_posix)
+        if new == orig:
+            continue
+        changed = sum(1 for a, b in zip(orig.split("\n"), new.split("\n")) if a != b)
+        total[rel_posix] = changed
+        if apply_mode:
+            f.write_text(new, encoding="utf-8")
 
-if check_mode and total:
-    print("术语门禁未通过: 先跑 --apply 统一, 或改写正文后重试")
-    raise SystemExit(1)
+    for f in py_files:
+        rel_posix = f.relative_to(root).as_posix()
+        orig = f.read_text(encoding='utf-8')
+        new = transform_py(orig, rel_posix)
+        if new == orig:
+            continue
+        changed = sum(1 for a, b in zip(orig.split('\n'), new.split('\n')) if a != b)
+        total[rel_posix] = changed
+        if apply_mode:
+            f.write_text(new, encoding='utf-8')
+
+    tag = '文件 (dry-run)' if not apply_mode else '文件 (已写入)'
+    print(f"{tag}: 变化行数")
+    for k, v in sorted(total.items()):
+        print(f"  {v:4d}  {k}")
+    print(f"合计: {len(total)} 个文件, {sum(total.values())} 行")
+
+    if check_mode and total:
+        print("术语门禁未通过: 先跑 --apply 统一, 或改写正文后重试")
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

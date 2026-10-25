@@ -3114,6 +3114,43 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
      - **验证与门禁**：上面两条守卫的结果如述；术语门禁 **0 个文件**；CI 钉版 ruff **0.15.12** 全绿；
               workflow 的改动由守卫自身的正则解析接受（`test_workflow_exists_and_has_shards` 仍绿）。
 
+77. ✅ **术语引擎在 import 期就扫描全仓、还把写模式取自环境里的 `sys.argv`；顺带把四条长期红归并成同一根因**（2026-10-26）：
+     - **本条一开始想做的事被证据否掉（先记下，以免下次又去做同款守卫）**：原打算加「`REPORTS` 每个键都必须
+              对应磁盘上真实报告」的断言。普查 142 个键只有 1 个缺文件（`pib_exit_safety`），但
+              `report/README.md` 里有一个**刻意**的小节「尚未生成产物的报告」，正文明写这些条目「已在 `REPORTS`
+              登记但产物尚未提交（需要硬件，或尚未跑过），因此没有可点击的文件」⇒ 「登记先于产物」是本仓**有意
+              支持的状态**，那条守卫会与设计打架 ⇒ 不做。
+     - **同一次普查顺手把既有红归并**：四条长期红其实**同一根因** —— `scripts/README.md:865-867` 的三条
+              调用指令与 `scripts/_common/provenance.py` 的登记条目都指向
+              `scripts/slm/generate_pib_exit_safety_report.py`；该脚本在全仓 **1788 个提交的全部引用上从未存在**
+              （`git log --all --diff-filter=A` 为空），配套报告同样从未存在，配套测试未跟踪；只有
+              `scripts/slm/verify_pib_exit_safety_hw.py`（issue #145 的硬件验收脚本）真实存在，且两个缺失文件在
+              6 个兄弟工作树里也都不存在 ⇒ 不是漏 push，而是登记指向一次从未落地的实验。删条目会抹掉作者意图与
+              索引行，补脚本等于伪造实验 ⇒ 保留红、写全证据，交 owner。
+     - **真正属于我这侧的缺陷**：`scripts/_common/term_unify_20261016.py` 把扫描放在**模块作用域**，并从
+              `sys.argv` 直接取 `--apply`。实测 import 一次 = **4.05 s + 2 行 stdout**（任何 import 它的测试都在付这个
+              钱，还往测试输出里打印）。更要紧的是**写模式继承自调用方的 argv**：把 HEAD 版引擎放到**同深度**副本、
+              只把 `sys.argv` 设成含 `--apply` 与 `--root <tmp>`，**光是 import 就把样本文件改写了**（3 行 stdout +
+              文件被重写）—— 数据完整性问题，不只是慢。
+     - **修法**：扫描与打印整体移进 `main(argv)`，模块底部只留 `if __name__ == "__main__"` 调用；
+              `--root` / `--apply` / `--check` 全部走参数，模块作用域不再有任何 IO。修后 import = **0.017 s、0 行
+              stdout、不改任何文件**，也没有了模块级 `total`；`main(["--check", "--root", seed])` 仍返回 1 且不写。
+     - **行为等价是证出来的，不是推的**：三种调用（无参 / `--check` / `--apply --check`）改前改后**逐字节
+              一致**，退出码 0 / 0 / 1 不变；`--check --root <tmp>` 仍然只判定不写；CI 侧调用面
+              （`.github/workflows/ci.yml` 里的 `--check`）不变。
+     - **新守卫与它的非空转控制**：`test_importing_the_engine_scans_and_writes_nothing` 用
+              `spec_from_file_location` 现场加载引擎，把 `sys.argv` 设成含 `--apply` 的组合，断言 import 不打印、
+              不写文件、不残留模块级扫描状态，并断言显式 `main(...)` 仍报告漂移且不写。控制实验：同一逻辑跑
+              HEAD 版引擎 ⇒ **判红**（3 行 stdout + 改写文件），跑修后引擎 ⇒ 通过。该文件现 **11 passed**。
+     - **两次工具自错（记下形状）**：① 在 oxpy 里调 `git status` ⇒ `FileNotFoundError: git`（该沙箱没有
+              git 可执行，这条约束早已写明，我仍犯了）；② 把 HEAD 版引擎副本放 `/tmp` ⇒ 它靠
+              `Path(__file__).parents[2]` 认仓库根，当场 `IndexError` ⇒ **副本必须与原文件同深度**才可比；改放
+              `scripts/_common/_old_engine_probe.py`（untracked，用完即删，`git status` 证无残留），演示范围由
+              `--root <tmp>` 锁死，不碰真仓。另修掉自己新写 docstring 里一处错误的交叉指向（isolation 测试在第
+              143 行、新测试在 163 行，「pinned below」应为「pinned above」）。
+     - **验证**：`tests/ao_shaping/scripts` + `test_conventions` 宽跑 ⇒ **2524 passed / 65 skipped / 4 failed**，
+              4 条即上面归并后的同一根因；CI 钉版 ruff **0.15.12** 全绿；术语引擎自身 `--check` ⇒ **0 个文件**。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

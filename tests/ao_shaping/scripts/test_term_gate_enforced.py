@@ -160,6 +160,44 @@ def test_root_isolation_also_holds_for_python_prose(tmp_path: Path) -> None:
 _T66_COMPOUND = "正文只保留真实硬件实验内容。\n"
 
 
+def test_importing_the_engine_scans_and_writes_nothing(tmp_path: Path) -> None:
+    """Import must be inert: the scan belongs to ``main()``, never to module scope.
+
+    The module used to walk the whole repo at import (measured 4.05 s and two stdout lines
+    here) and picked write mode from the ambient ``sys.argv``, so an importer whose argv
+    happened to contain ``--apply`` would have rewritten files without anyone calling
+    anything -- the same root cause as the ``--root`` isolation incident pinned above.
+    """
+    import contextlib
+    import importlib.util
+    import io
+
+    seed = tmp_path / "seed"
+    seed.mkdir()
+    probe = seed / "probe.md"
+    probe.write_text(_VIOLATION, encoding="utf-8")
+
+    saved_argv = list(sys.argv)
+    sys.argv = ["pytest", "--apply", "--root", str(seed)]
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            spec = importlib.util.spec_from_file_location("_term_unify_probe", _UNIFIER)
+            module = importlib.util.module_from_spec(spec)
+            assert spec.loader is not None
+            spec.loader.exec_module(module)
+    finally:
+        sys.argv = saved_argv
+
+    assert buf.getvalue() == "", f"importing the engine printed: {buf.getvalue()!r}"
+    assert probe.read_text(encoding="utf-8") == _VIOLATION, "importing the engine rewrote a file"
+    assert callable(getattr(module, "main", None)), "main() is gone; the CLI must stay importable"
+    assert not hasattr(module, "total"), "module-scope scan state is back"
+
+    assert module.main(["--check", "--root", str(seed)]) == 1, "explicit --check must report drift"
+    assert probe.read_text(encoding="utf-8") == _VIOLATION, "--check wrote the file"
+
+
 def test_t66_compound_is_registered_before_the_bare_term(tmp_path: Path) -> None:
     """The table's own ordering rule -- compounds before bare terms -- must hold for T-66.
 
