@@ -1204,8 +1204,12 @@ VS Code settings in `.vscode/settings.json` (machine-local, untracked) set PYTHO
   每个顶层测试区必须被某片覆盖、每个分片目标必须存在、且至少要有一个阻塞分片
   （否则"永远红不了的作业"等于没有门禁）。`optimizer` 片用 `AO_TEST_PER_FILE=1`
   （见下），实测覆盖率与单进程一致（1259 passed + 3 skipped == 1262 collected）。
-  一片暂为 advisory：`scripts`（`_fmt` 去重，wt-190 在办）。
-  `runners-gui-misc` 曾因 `slm-gsnet --help` 基线红而挂 advisory（wt-193 在办），
+   **2026-10-25 起 8 片全部 blocking，无 advisory**：最后一片 `scripts` 的名义原因是
+   wt-190 的 `_fmt` 去重 —— 该去重**已入库**（`741ea0e5` 是 master 祖先），但 `273181e6`
+   又**重新引入**一份本地 `def _fmt`，守卫在 master 上**仍红**；本账本 §8.9 第 44 项把该
+   副本改走 `scripts/_common` 的 `fmt_general` 后实测整片全绿
+   （**2423 passed / 64 skipped / 0 failed**，`AO_CPUS=4 / AO_MEMORY=6g`），当日转 blocking。
+   `runners-gui-misc` 曾因 `slm-gsnet --help` 基线红而挂 advisory（wt-193 在办），
   **2026-10-25 已转 blocking**：基线由上游 `c5cd68a9` 重做后实测整片全绿
   （1149 passed / 30 skipped / 0 failed，`AO_CPUS=4 / AO_MEMORY=6g`）。
   ⚠️ 门禁是 **fail-closed** 的：镜像构建失败会让整个作业变红，这是有意取舍

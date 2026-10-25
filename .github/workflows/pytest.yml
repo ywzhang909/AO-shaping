@@ -48,13 +48,19 @@ jobs:
       - name: Run shards
         # Each shard is its own pytest process, which is what keeps peak RSS bounded.
         # `advisory` marks a shard that is red on arrival for a pre-existing reason
-        # tracked in TODO.md 8.13 and already being fixed by another worktree
-        # (scripts -> the `_fmt` dedup in wt-190). It is reported but does not fail the
-        # job; it flips to blocking when that lands. `runners-gui-misc` was advisory for
+        # tracked in TODO.md and already being fixed by another worktree; it is reported
+        # but does not fail the job, and flips to blocking once that lands. NO shard is
+        # advisory as of 2026-10-25: `scripts` was the last one, nominally waiting on the
+        # `_fmt` dedup in wt-190 -- that dedup DID land (741ea0e5 is an ancestor of
+        # master), but 273181e6 re-introduced a local `def _fmt`, so the guard was still
+        # red on master. The copy is routed back through scripts/_common in TODO.md 8.9
+        # item 44; measured green over the whole shard at AO_CPUS=4 / AO_MEMORY=6g:
+        # 2423 passed, 64 skipped, 0 failed (the same shard was 2422 passed / 1 failed
+        # before -- the +1 is exactly that guard). `runners-gui-misc` was advisory for
         # the `slm-gsnet` --help golden (wt-193) and turned blocking on 2026-10-25, after
-        # the golden was re-baselined upstream in c5cd68a9 -- measured green over the whole
-        # shard at AO_CPUS=4 / AO_MEMORY=6g: 1149 passed, 30 skipped, 0 failed. Nothing
-        # here hides a failure: the summary prints every status.
+        # the golden was re-baselined upstream in c5cd68a9 -- measured green at the same
+        # envelope: 1149 passed, 30 skipped, 0 failed. Nothing here hides a failure: the
+        # summary prints every status.
         env:
           AO_CPUS: "4"
           AO_CPU_THREADS: "4"
@@ -108,7 +114,7 @@ jobs:
           run_shard "optimizer" 1 1 tests/ao_shaping/optimizer
           run_shard "root-guards" 0 1 tests/ao_shaping/test_config.py tests/ao_shaping/test_conventions.py tests/ao_shaping/test_import_purity.py
           run_shard "runners-gui-misc" 0 1 tests/ao_shaping/runners tests/ao_shaping/gui tests/ao_shaping/model tests/ao_shaping/display tests/ao_shaping/report tests/ao_shaping/ao
-          run_shard "scripts" 0 0 tests/ao_shaping/scripts
+          run_shard "scripts" 0 1 tests/ao_shaping/scripts
 
           echo "blocking shard failures: $FAILURES" >> "$GITHUB_STEP_SUMMARY"
           echo ""

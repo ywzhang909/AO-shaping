@@ -1890,6 +1890,54 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
     - **已知边界（不假装类别已封死）**：若某处**确实故意**接受任何异常（只断言「必须抛错」），零容忍会挡住它；
       目前这样的用例为 0，真要豁免得引入显式标记，届时再定，不预先开口子。
 
+44. ✅ **`_fmt` 副本回潮：wt-190 的去重已入库，`273181e6` 又写回一份本地实现 —— 改走 `scripts/_common`，并把 `scripts` 分片由 advisory 转 blocking（结清第 36/39/43 项三次记欠）**（2026-10-25）：
+    - **判据是守卫的颜色，不是祖先关系（第 39 项那条教训再次生效）**：`refactor/190-fmt-dedup` 尖端
+      `741ea0e5` 已是 master 祖先 ⇒ 去重**确实已入库**；但
+      `test_no_generator_redefines_an_extracted_helper[_fmt]` 在 master 上**仍红**。红因不是「别人没办完」，
+      而是新功能提交 `273181e6`（D 块离线汇总器）在 `scripts/slm/summarize_optics_change_blocks.py:386`
+      **重新引入**一份本地 `def _fmt`。也就是说：三次记欠等的条件早已满足，拦住它的是**一次回潮的重复实现**
+      —— 恰好是该守卫存在的理由本身。
+    - **改法沿 wt-190 既有约定，不另立第三套**：删除本地定义，六个调用点改走
+      `fmt_general(v, ".5f", missing_none=_NA)`；`from scripts._common import fmt_general` 落在 sys.path
+      bootstrap **之下**（与 `spgd_drift_cancel_loop.py:100` 同形；`scripts/*` 对 `E402` 是 per-file 豁免，
+      无需 `noqa`）。
+    - **为什么是 `fmt_general` 而不是 `fmt_metric` / `fmt_fixed`（选错就等于制造漂移）**：本地语义是
+      `None → "—"`（em dash，`_NA`）加 `.5f`。`fmt_metric` 把 `None` 渲染成 `-`（连字符）且对整数与大量级
+      做紧凑化；`fmt_fixed` 只处理 NaN，遇 `None` 直接 `TypeError`。只有 `fmt_general` 同时可配 `spec` 与
+      `missing_none` —— 后者正是 wt-190 为第三份退役副本加的开关。
+    - **等价性是量出来的，不是推的**：17 个**定义域内**取值（float / int / `bool` / `np.float16|32|64` /
+      `np.int64` / `None` / NaN / ±inf）新旧**逐字节一致，0 处不同**。另有 4 个**定义域外**输入行为不同：
+      `"0.5"` 旧抛 `ValueError` 新给 `0.50000`，`"abc"` / `[1.0]` / `{}` 旧抛新原样透传。六个调用点只会取
+      `cv_core` 均值或 `None`，故这是**健壮性差异而非输出差异** —— 按实际口径记录，不宣称全域一致。
+    - **验证落在渲染口径上**：该脚本自己的测试读 `blocks.md` 全文（L208 / 229 / 252 / 267 / 315 / 340），
+      em dash 与 5 位小数单元格都在断言范围内 ⇒ **62 passed** 是**渲染之后**的一致，不只是等价性探针。
+    - **有意不注册进 `MIGRATED`（已知边界，不假装完备）**：该片另一条
+      `test_migrated_generator_bootstraps_the_repo_root` 要求**字面**
+      `sys.path.insert(0, str(Path(__file__).resolve().parents[2]))`，而本脚本用 `for` 循环逐个
+      `sys.path.insert(0, _text)`（四个候选路径）⇒ 注册会**把当前绿的测试改红**，还得顺手重构别人的
+      bootstrap，越界。红守卫由 `EXTRACTED` 驱动、扫**全部** `scripts/**`，与 `MIGRATED` 无关，
+      故删副本本身就已让守卫转绿。
+    - **一次被否证的候选守卫（`ruff` 已拥有的东西不再自建）**：「字典字面量里重复常量键（一份静默覆盖
+      另一份）」在 1238 个跟踪 `.py` 里 **0 命中**；探针同时证实 `ruff` 的 **F601** 已覆盖该类别
+      （`select = [E, F]` 且全库绿 ⇒ 类别既在零也已被强制）。自建守卫就是 `_fmt` 教训换装：同一条规则的
+      第二份实现会自由漂移。
+    - **翻转与测量**：`run_shard "scripts" 0 0` → `0 1`，`pytest.yml` 注释块与 `AGENTS.md` 同步改写为
+      「2026-10-25 起 8 片全部 blocking」。数字按 **CI 自己的包络**取（不是我第一次跑的 8 CPU / 8g）：
+      `AO_CPUS=4 / AO_MEMORY=6g` 下整片 **2423 passed / 64 skipped / 0 failed**；修前同片是
+      **2422 passed / 1 failed**，+1 恰是这条守卫翻绿。改完**解析该文件的守卫**也复跑：
+      `test_pytest_workflow_shards_cover_tree.py` **5 passed**（每片一行、不用续行的契约仍成立，
+      8 条 `run_shard` 全部被解析）。
+    - **这笔翻转的真实收益**：`scripts` 片转 blocking 之后，此前**只报不拦**的第 33 项附录守卫
+      （`tests/ao_shaping/scripts/test_zernike_amp_report_appendix.py`）与该片全部守卫**首次具备 CI 牙齿**。
+    - **已知未证（不假装门禁已验证）**：`pytest.yml` **从未在真实 runner 上执行过**（GitHub HTTPS 出口被封），
+      故本次翻转是**前瞻性配置**；本地容器全绿只是必要条件，其拦截效果要等首次真实 CI 运行才算证实。
+    - **再记三次自伤（全是本会话反复踩的旧坑）**：(1) 等价性探针里 `safe(fn, v)` 没有 `**kwargs`，
+      `missing_none=` 直接 `TypeError` ⇒ 前两轮「验证」其实一条都没比对成功，我却在叙述里当作已验；
+      (2) 探针放在 `/tmp` 被 `/tmp/struct.py` **遮蔽标准库 `struct`**（Python 把脚本所在目录置于
+      `sys.path[0]`），numpy 导入链整体崩掉 ⇒ 处置是**挪到干净目录**，不改名他人文件；
+      (3) 又一次在 heredoc / echo 里混引号，触发「寻找匹配的 `' 时遇到了未预期的 EOF」，并把同一命令里
+      要跑的容器测试一并带走。教训照旧：**要验证就把脚本写成文件**，别在 shell 里嵌 Python。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
