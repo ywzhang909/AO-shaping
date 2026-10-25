@@ -62,7 +62,7 @@ class TiltProbeParams:
     """CLI surface of the tilt probe.
 
     Field order *is* the ``--help`` order, and the whole nine-option surface is
-    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+    frozen by ``tests/ao_shaping/runners/cli_help_golden.json``.
 
     These five device/acquisition knobs are declared locally rather than spliced
     from :mod:`ao_shaping.tools.slm.params`. The shared groups are deliberately

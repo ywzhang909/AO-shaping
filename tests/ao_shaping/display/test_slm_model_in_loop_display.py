@@ -24,6 +24,8 @@ from ao_shaping.runners.runner_common import SlmModelInLoopParams
 from ao_shaping.runners.slm.model_in_loop_runner import run as mil_run
 
 #: The golden lives with the CLI contract tests, not with the display tests.
+#: It is the single shared snapshot (main-group commands + tools probes, keyed
+#: ``main:<registered-name>``); see ``cli_help_snapshot``.
 GOLDEN = pathlib.Path(__file__).parents[1] / "runners" / "cli_help_golden.json"
 
 #: The four panels the feature is specified to show, in window order.
@@ -93,7 +95,7 @@ def test_golden_help_contains_the_show_flag() -> None:
     golden's rendering of ``--show`` is pinned too.
     """
     data = json.loads(GOLDEN.read_text(encoding="utf-8-sig"))
-    text = data["slm-model-in-loop"]
+    text = data["main:slm-model-in-loop"]
     assert "--show " in text or text.rstrip().endswith("--show"), "flag not rendered"
     assert "PREDICTED" in text, "the help must state the predicted-far-field panel"
 

@@ -53,7 +53,7 @@ class ExposureCheckParams:
     """CLI surface of the exposure-check probe.
 
     Field order *is* the ``--help`` order, and the whole five-option surface is
-    frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+    frozen by ``tests/ao_shaping/runners/cli_help_golden.json``.
 
     This probe is camera-only, so neither shared group is a fit:
     ``SlmBenchParams`` would add ``--slm-number``/``--slm-wavelength`` that this

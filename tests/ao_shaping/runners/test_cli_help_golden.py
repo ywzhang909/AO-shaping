@@ -23,14 +23,11 @@ commands (``main`` and ``main_shift_calib``).
 ``slm_zernike_sweep_probe`` is now included: it was migrated from argparse to
 click (TODO.md R5), and its 21-option ``--help`` is part of the frozen surface.
 
-Normalisation
--------------
-Only the whole ``Usage: <something>`` line is rewritten to the literal
-``Usage: <prog>`` so the snapshot is prog-name independent. Nothing else in the
-help text is altered - option order, help strings, defaults, metavars and the
-subcommand listing are all part of the contract. Each command also stores an
-integer exit code under a ``:exit`` key, so every command contributes two
-parametrized cases.
+The capture scheme, the normalisation rules and the golden file itself are
+shared with ``test_cli_contract_freeze.py`` (R-35) through
+``cli_help_snapshot``: since 2026-10-25 there is a single ``cli_help_golden.json``
+instead of the former width-88 / CliRunner pair. See that module for the merge
+rationale.
 
 Regeneration (opt-in only)
 -------------------------
@@ -40,172 +37,68 @@ The default is **compare**. To re-capture after an intentional CLI change::
 
 The rewrite happens in a module-scoped fixture, so it runs once per session
 before the first comparison. Review the resulting ``git diff`` on
-``_cli_help_golden.json`` (written with ``indent=1, sort_keys=True``,
+``cli_help_golden.json`` (written with ``indent=1, sort_keys=True``,
 ``ensure_ascii=False`` so Chinese help text stays readable and the diff is
 reviewable line-by-line).
 """
 
 from __future__ import annotations
 
-import difflib
-import importlib
-import json
 import os
-import re
 from collections import Counter
-from pathlib import Path
-from typing import Any
 
-import click
 import pytest
-from click.testing import CliRunner
-from loguru import logger
 
-GOLDEN_PATH = Path(__file__).parent / "_cli_help_golden.json"
+from tests.ao_shaping.runners.cli_help_snapshot import (
+    EXIT_SUFFIX,
+    GOLDEN_PATH,
+    REGENERATE_ENV_VAR,
+    collect,
+    load_golden,
+    regeneration_requested,
+    rewrite_golden,
+    tools_slm_commands,
+    unified_diff,
+)
 
-EXIT_SUFFIX = ":exit"
-PROG = "<prog>"
-REGENERATE_ENV_VAR = "AO_UPDATE_HELP_GOLDEN"
-_USAGE_RE = re.compile(r"^Usage: .*$", re.MULTILINE)
-# `--dm-type` renders click.Choice(DM_TYPES) -- the *live* DM registry -- so its contents depend on
-# which modules a process imported first: DM types self-register as an import side effect, and
-# runner_common deliberately snapshots the registry before importing asyn_micro_dm. That makes the
-# choice list import-order dependent, not a behavioural contract. Scoped to --dm-type on purpose:
-# a broader "any [a|b|c]" rule would also hide changes to STATIC choice lists (--camera-type,
-# --wfs-type, --objective), which this golden exists to catch.
-_DM_TYPE_CHOICE_RE = re.compile(r"^(\s+--dm-type\s+)\[[a-z_0-9|]+\]", re.MULTILINE)
-# Click renders a `click.Path` default through `os.path.sep`, so one and the same command
-# prints `data\x.csv` on Windows and `data/x.csv` everywhere else. Comparing that verbatim
-# would make this snapshot machine-dependent: the committed one was produced off-Windows, so
-# regenerating on Windows flips every path default and reports drift that is not a
-# behavioural change. Scoped to the `[default: ...]` suffix on purpose -- help prose elsewhere
-# legitimately contains both slashes (e.g. "input/output", "miicam/daheng"), so a repo-wide
-# backslash rule would silently hide real edits.
-_DEFAULT_PATH_RE = re.compile(r"(\[default:[^\]\n]*(?:\n(?![ \t]*-)[^\]\n]*)*)\]")
-
-TOOLS_SLM_MODULES: list[str] = [
-    "tools.slm.calibration.calibration",
-    "tools.slm.calibration.gray_response",
-    "tools.slm.calibration.phase_capture",
-    "tools.slm.calibration.lut_runner",
-    "tools.slm.panel.beam_extent",
-    "tools.slm.panel.diagnose",
-    "tools.slm.panel.panel_locate",
-    "tools.slm.panel.phase_resolution",
-    "tools.slm.panel.phase_response",
-    "tools.slm.panel.tilt_probe",
-    "tools.ccd.exposure_check",
-    "tools.wfs.wfs_probe",
-    "tools.wfs.wfs_reference",
-    "tools.wfs.zernike_correction",
-    "tools.wfs.zernike_response",
-    "tools.zernike.sweep_probe",
-]
-
-#: Currently-colliding resolved click names in Group B, measured on the
-#: unmodified tree. ``main`` is the click-default name derived from a bare
-#: ``@click.command``; ``run`` is an explicit ``@click.command("run")``.
-EXPECTED_COLLIDING_NAMES: dict[str, int] = {"main": 13, "run": 3}
-
-
-def normalize(text: str) -> str:
-    """Normalise the three parts of ``--help`` that are not behavioural contract.
-
-    The ``Usage:`` line carries the prog name, ``--dm-type``'s choice list is the live DM
-    registry (see ``_DM_TYPE_CHOICE_RE``), and a ``click.Path`` default carries the platform
-    separator (see ``_DEFAULT_PATH_RE``). Everything else - flag names, their order, types,
-    defaults and help prose - is compared verbatim.
-    """
-    text = _USAGE_RE.sub(f"Usage: {PROG}", text)
-    text = _DM_TYPE_CHOICE_RE.sub(r"\g<1>[<dm-types>]", text)
-    return _DEFAULT_PATH_RE.sub(lambda m: m.group(1).replace("\\", "/") + "]", text)
-
-
-def invoke_help(cmd: click.Command) -> tuple[str, int]:
-    """Invoke ``--help`` under a fixed prog name; return (normalised, exit code)."""
-    result = CliRunner().invoke(cmd, ["--help"], prog_name=PROG)
-    return normalize(result.output), int(result.exit_code)
-
-
-def main_group_commands() -> dict[str, click.Command]:
-    """Group A: the commands registered on the top-level click group.
-
-    Keyed ``main:<registered-name>`` so the two groups cannot collide.
-    """
-    from ao_shaping.main import cli
-
-    return {f"main:{name}": cli.commands[name] for name in sorted(cli.commands)}
-
-
-def tools_slm_commands() -> dict[str, click.Command]:
-    """Group B: every ``click.Command`` attribute of the tools probe modules."""
-    found: dict[str, click.Command] = {}
-    for module in TOOLS_SLM_MODULES:
-        mod = importlib.import_module("ao_shaping." + module)
-        for attr, obj in sorted(vars(mod).items()):
-            if isinstance(obj, click.Command):
-                found[f"{module}:{attr}"] = obj
-    return dict(sorted(found.items()))
-
-
-def collect() -> dict[str, Any]:
-    """Capture every command's normalised ``--help`` plus its exit code."""
-    golden: dict[str, Any] = {}
-    for key, cmd in {**main_group_commands(), **tools_slm_commands()}.items():
-        out, code = invoke_help(cmd)
-        golden[key] = out
-        golden[f"{key}{EXIT_SUFFIX}"] = code
-    return golden
-
-
-def load_golden() -> dict[str, Any]:
-    """Load the committed snapshot (fails the test if it is missing)."""
-    if not GOLDEN_PATH.exists():
-        pytest.fail(
-            f"Golden file missing: {GOLDEN_PATH}. Regenerate it with "
-            f"{REGENERATE_ENV_VAR}=1 ./.venv/bin/python -m pytest {__file__} -q"
-        )
-    return json.loads(GOLDEN_PATH.read_text(encoding="utf-8"))
-
-
-def all_golden_keys() -> list[str]:
-    """Every key in the snapshot: one help key and one ``:exit`` key per command."""
-    return sorted(load_golden().keys())
-
-
-def unified_diff(expected: Any, actual: Any, key: str) -> str:
-    """Unified diff so a reviewer can see exactly which flag moved."""
-    return "\n".join(
-        difflib.unified_diff(
-            str(expected).splitlines(),
-            str(actual).splitlines(),
-            fromfile=f"golden[{key}]",
-            tofile=f"current[{key}]",
-            lineterm="",
-        )
-    )
+#: Group B's resolved click names, keyed ``tools.slm.<module>:<attr>``, measured
+#: on the unmodified tree. The merged golden normalises the ``Usage:`` line to
+#: ``Usage: <prog>`` (prog-name independence), so this mapping is what still
+#: pins *which* name each probe command resolves to - a bare
+#: ``@click.command`` derives it from the function name, and an explicit
+#: ``@click.command("run")`` overrides it.
+EXPECTED_RESOLVED_NAMES: dict[str, str] = {
+    "tools.ccd.exposure_check:main": "main",
+    "tools.slm.calibration.calibration:main": "main",
+    "tools.slm.calibration.calibration:main_shift_calib": "main-shift-calib",
+    "tools.slm.calibration.gray_response:run": "run",
+    "tools.slm.calibration.lut_runner:run": "run",
+    "tools.slm.calibration.phase_capture:run": "run",
+    "tools.slm.panel.beam_extent:main": "main",
+    "tools.slm.panel.diagnose:main": "main",
+    "tools.slm.panel.panel_locate:main": "main",
+    "tools.slm.panel.phase_resolution:main": "main",
+    "tools.slm.panel.phase_response:main": "main",
+    "tools.slm.panel.tilt_probe:main": "main",
+    "tools.wfs.wfs_probe:main": "main",
+    "tools.wfs.wfs_reference:main": "main",
+    "tools.wfs.zernike_correction:main": "main",
+    "tools.wfs.zernike_response:main": "main",
+    "tools.zernike.sweep_probe:main": "main",
+}
 
 
 @pytest.fixture(scope="module")
-def current() -> dict[str, Any]:
+def current() -> dict[str, str | int]:
     """Live capture, taken once per session (plus opt-in regeneration)."""
     live = collect()
-    if os.environ.get(REGENERATE_ENV_VAR) == "1":
-        GOLDEN_PATH.write_text(
-            json.dumps(live, indent=1, sort_keys=True, ensure_ascii=False) + "\n",
-            encoding="utf-8",
-        )
-        logger.warning(
-            "{} was set: rewrote {} with {} keys",
-            REGENERATE_ENV_VAR,
-            GOLDEN_PATH,
-            len(live),
-        )
+    if regeneration_requested():
+        rewrite_golden(live)
     return live
 
 
-@pytest.mark.parametrize("key", all_golden_keys())
-def test_cli_help_matches_golden(key: str, current: dict[str, Any]) -> None:
+@pytest.mark.parametrize("key", sorted(load_golden().keys()))
+def test_cli_help_matches_golden(key: str, current: dict[str, str | int]) -> None:
     """Each command contributes two cases: its help text and its exit code."""
     golden = load_golden()
     expected = golden.get(key)
@@ -225,7 +118,9 @@ def test_cli_help_matches_golden(key: str, current: dict[str, Any]) -> None:
     pytest.fail(f"--help drift for {key}:\n{unified_diff(expected, actual, key)}")
 
 
-def test_golden_covers_exactly_the_current_command_set(current: dict[str, Any]) -> None:
+def test_golden_covers_exactly_the_current_command_set(
+    current: dict[str, str | int],
+) -> None:
     """Adding or removing a command must not slip through unnoticed."""
     golden = load_golden()
     golden_keys = set(golden)
@@ -252,10 +147,10 @@ def test_all_help_exit_codes_are_zero() -> None:
     assert bad == {}, f"non-zero --help exit codes frozen in golden: {bad}"
 
 
-def test_command_name_collisions_are_frozen() -> None:
-    """Freeze the currently-colliding resolved command name multiset (Group B).
+def test_group_b_resolved_command_names_are_frozen() -> None:
+    """Freeze the resolved click name of every Group B command.
 
-    Measured on the unmodified tree: twelve modules resolve to the bare name
+    Measured on the unmodified tree: thirteen modules resolve to the bare name
     ``main`` (a bare ``@click.command`` derives the name from the function), and
     three resolve to ``run`` (``gray_response``, ``phase_capture``,
     ``slm_lut_runner``). ``calibration.main_shift_calib`` is the only Group B
@@ -265,14 +160,16 @@ def test_command_name_collisions_are_frozen() -> None:
     forbidden by ``src/ao_shaping/tools/slm/TODO.md`` section 6 ("--help
     不可用, 且 main.py 会从 2 个变成 22 个工具导入"); doing it correctly would require
     adding an explicit ``name=`` to every single command. This test is the
-    tripwire that makes such a rename impossible to do quietly.
+    tripwire that makes such a rename impossible to do quietly - and since the
+    merged golden normalises the ``Usage:`` line, it is the *only* place the
+    full mapping (not just the colliding multiset) is pinned.
     """
     resolved = {key: cmd.name for key, cmd in tools_slm_commands().items()}
-    counter = Counter(resolved.values())
-    colliding = {name: n for name, n in counter.items() if n > 1}
-
-    assert colliding == EXPECTED_COLLIDING_NAMES, (
-        "Group B resolved command-name collision multiset changed: "
-        f"golden={EXPECTED_COLLIDING_NAMES} current={colliding}. "
-        f"Resolved names: {dict(sorted(resolved.items()))}"
+    assert resolved == EXPECTED_RESOLVED_NAMES, (
+        "Group B resolved command names changed: "
+        f"golden={EXPECTED_RESOLVED_NAMES} current={resolved}"
+    )
+    colliding = {name: n for name, n in Counter(resolved.values()).items() if n > 1}
+    assert colliding == {"main": 13, "run": 3}, (
+        f"Group B collision multiset changed: current={colliding}"
     )

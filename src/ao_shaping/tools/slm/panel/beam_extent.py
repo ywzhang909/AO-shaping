@@ -56,7 +56,7 @@ class BeamExtentParams:
     """CLI surface of the beam-extent probe.
 
     Field order *is* the ``--help`` order, and the whole eleven-option surface
-    is frozen by ``tests/ao_shaping/runners/_cli_help_golden.json``.
+    is frozen by ``tests/ao_shaping/runners/cli_help_golden.json``.
 
     Declared locally rather than spliced from :mod:`ao_shaping.tools.slm.params`:
     the shared ``SlmBenchParams`` types ``--cam-type`` as a ``click.Choice``

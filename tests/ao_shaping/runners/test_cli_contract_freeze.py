@@ -12,7 +12,12 @@ command-line behaviour, so every observable is pinned here first:
    help output byte-identical to the pre-registration help. That divergence is
    pinned, not normalised.
 3. **Full ``--help`` text** for every registered command, byte-for-byte, against
-   a committed golden file.
+   the committed golden file. The golden is shared with
+   ``test_cli_help_golden.py`` since 2026-10-25 (one ``cli_help_golden.json``
+   for the whole CLI surface - the 19 commands here plus the 17 ``tools``
+   probes and their exit codes; see ``cli_help_snapshot`` for the merge). This
+   test consumes it from the R-35 side: the frozen inventory below must be
+   exactly what the golden carries for Group A.
 4. **No duplicate option flag** inside one command — a duplicate is what a
    cross-``with_params`` field-name collision looks like once click has silently
    dropped one of the two declarations.
@@ -22,25 +27,19 @@ command-line behaviour, so every observable is pinned here first:
 
 Regenerate the golden file after an INTENDED help-text change with::
 
-    AO_CLI_CONTRACT_UPDATE=1 pytest tests/ao_shaping/runners/test_cli_contract_freeze.py
+    AO_UPDATE_HELP_GOLDEN=1 pytest tests/ao_shaping/runners/test_cli_help_golden.py
 """
 
 from __future__ import annotations
 
-import json
-import os
-import re
 import typing
-from pathlib import Path
 
 import click
 import pytest
 
 from ao_shaping.main import cli
 from ao_shaping.runners.runner_common import WfsParams, parse_tuple
-
-_GOLDEN_PATH = Path(__file__).with_name("cli_help_golden.json")
-_UPDATE = os.environ.get("AO_CLI_CONTRACT_UPDATE") == "1"
+from tests.ao_shaping.runners.cli_help_snapshot import EXIT_SUFFIX, collect, load_golden
 
 #: Registered command names, frozen 2026-10-03 (R-35).
 EXPECTED_COMMANDS = (
@@ -77,25 +76,18 @@ EXPECTED_DM_TYPE_CHOICES = {
 }
 
 
-_DM_TYPE_CHOICE_RE = re.compile(r"^(?P<head>\s*--dm-type\s*)\[[a-z_0-9|]+\]", re.MULTILINE)
+def _collect_help() -> dict[str, str | int]:
+    """The shared snapshot: every command's normalised ``--help`` plus exit codes.
 
-
-def _help_text(command: click.Command) -> str:
-    """Render ``--help`` for one command through click's own formatter.
-
-    The one genuinely environment-dependent fragment is normalised away: the
-    ``--dm-type`` choice list is built from the live DM registry, so a full-suite
-    run (where other tests registered DM types first) legitimately renders more
-    entries than a bare run. Its *declaration* is pinned separately by
-    ``test_dm_matrix_offer_the_pre_asyn_micro_snapshot``; every other choice list
-    (``--wfs-type``, ``--mode``, ``--mla-index``, ...) stays byte-for-byte frozen.
+    The one genuinely environment-dependent fragment is normalised away by the
+    shared capture: the ``--dm-type`` choice list is built from the live DM
+    registry, so a full-suite run (where other tests registered DM types first)
+    legitimately renders more entries than a bare run. Its *declaration* is
+    pinned separately by ``test_dm_matrix_offer_the_pre_asyn_micro_snapshot``;
+    every other choice list (``--wfs-type``, ``--mode``, ``--mla-index``, ...)
+    stays byte-for-byte frozen.
     """
-    ctx = click.Context(command, info_name=command.name, terminal_width=88)
-    return _DM_TYPE_CHOICE_RE.sub(r"\g<head>[<DM_TYPES>]", command.get_help(ctx))
-
-
-def _collect_help() -> dict[str, str]:
-    return {name: _help_text(command) for name, command in sorted(cli.commands.items())}
+    return collect()
 
 
 # ---------------------------------------------------------------------------
@@ -177,17 +169,30 @@ def test_no_new_command_silently_grows_dm_type() -> None:
 
 
 def test_help_text_matches_golden() -> None:
+    """Group A's ``--help`` is frozen byte-for-byte in the shared golden.
+
+    The snapshot is shared with ``test_cli_help_golden.py`` (which additionally
+    parametrises over the ``tools`` probes and their exit codes). What is pinned
+    *here* is the R-35 direction: the frozen inventory must be exactly the set
+    of ``main:`` entries the golden carries, and a fresh capture must match
+    every one of them byte-for-byte.
+    """
+    golden = load_golden()
     actual = _collect_help()
-    if _UPDATE or not _GOLDEN_PATH.exists():
-        _GOLDEN_PATH.write_text(
-            json.dumps(actual, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-            encoding="utf-8",
-        )
-        pytest.skip("golden file written; re-run without AO_CLI_CONTRACT_UPDATE")
-    expected = json.loads(_GOLDEN_PATH.read_text(encoding="utf-8"))
-    assert sorted(actual) == sorted(expected), "command set drifted from the golden"
-    for name in sorted(expected):
-        assert actual[name] == expected[name], f"--help text of {name!r} changed"
+    expected_keys = {f"main:{name}" for name in EXPECTED_COMMANDS}
+    golden_group_a = {
+        key
+        for key in golden
+        if key.startswith("main:") and not key.endswith(EXIT_SUFFIX)
+    }
+    assert golden_group_a == expected_keys, (
+        "golden's Group A command set drifted from the frozen inventory: "
+        f"missing={sorted(expected_keys - golden_group_a)} "
+        f"stale={sorted(golden_group_a - expected_keys)}"
+    )
+    for name in EXPECTED_COMMANDS:
+        key = f"main:{name}"
+        assert actual[key] == golden[key], f"--help text of {name!r} changed"
 
 
 # ---------------------------------------------------------------------------

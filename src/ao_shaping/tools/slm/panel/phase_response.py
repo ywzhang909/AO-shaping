@@ -424,7 +424,7 @@ def _render_only(cases: list[PhaseCase], out: Path) -> dict:
 @dataclass
 class PhaseResponseParams:
     """CLI 表面: 11 个选项, 字段顺序 **就是** ``--help`` 顺序 (迁移前的
-    ``@click.option`` 声明顺序, 由 ``tests/ao_shaping/runners/_cli_help_golden.json``
+    ``@click.option`` 声明顺序, 由 ``tests/ao_shaping/runners/cli_help_golden.json``
     逐字节冻结, 勿调整)。
 
     默认值只写在 dataclass 字段上 —— ``with_params`` 把它注入 click 选项

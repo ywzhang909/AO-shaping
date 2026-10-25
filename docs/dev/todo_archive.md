@@ -1738,3 +1738,33 @@ send-time phase overlay（`_phase_overlay` 弧度层 + `_base_phase` 灰度层�
 优化器 import 不拉 torch/streamlit（`gui/utils/phase_overlay.py` 零重依赖）。
 
 ---
+
+### 5.38 两份 `--help` golden 合并成一份（2026-10-25）
+
+**问题**：CLI 表层有两份 golden，覆盖重叠、口径不同：
+
+| 文件 | 消费者 | 范围 | 采集口径 |
+|---|---|---|---|
+| `cli_help_golden.json` | `test_cli_contract_freeze.py`（R-35） | 19 条 main 命令 | `get_help` 强制 `terminal_width=88`，Usage 行带真名，`--dm-type` → `[<DM_TYPES>]` |
+| `_cli_help_golden.json` | `test_cli_help_golden.py`（T1.1/T1.3） | 19 条 main + 17 个 tools 探针 + `:exit` | `CliRunner` 环境宽度，Usage → `<prog>`，路径分隔符归一 |
+
+同一批命令在两份文件里存的是**不同文本**（Usage 行、换行宽度、占位符、路径斜杠），
+一次有意的 CLI 改动要重生两次，reviewer 单看一份看不到全表面。
+
+**改动**：
+- 新增 `tests/ao_shaping/runners/cli_help_snapshot.py`：唯一的采集 + golden IO
+  （`normalize` / `collect` / `load_golden` / `rewrite_golden`），两个测试模块共用。
+  保留 CliRunner 口径 —— 它是可移植的那一半（prog 名、平台、DM 注册表全归一）。
+- `cli_help_golden.json` 成为唯一 golden（72 键 = 36 命令 × help + exit），
+  内容即原 `_cli_help_golden.json`；后者删除。`AO_CLI_CONTRACT_UPDATE=1` 这条
+  重生入口随之退役，统一走 `AO_UPDATE_HELP_GOLDEN=1`。
+- `test_cli_contract_freeze.py` 的 golden 测试改为消费共享快照，并从 R-35 方向
+  补一条断言：冻结清单与 golden 的 `main:` 键集合必须一致。
+- 合并丢了「Usage 行钉住 Group B 的解析名」—— `test_cli_help_golden.py` 的
+  碰撞测试从「碰撞多重集」升级为**全量解析名映射**（17 条）补偿。
+
+**验证**：三个消费者（两个 golden 测试 + display 测试）141 passed，与合并前
+基线同数；`AO_UPDATE_HELP_GOLDEN=1` 重生后与提交版逐字节一致（round-trip 证明
+拷贝未过期）；7 个 src docstring 的路径引用同步更新；ruff 全过。
+
+---
