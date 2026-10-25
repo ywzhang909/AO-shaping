@@ -2473,6 +2473,31 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        2 failed**（失败对仍是既有 `pib_exit_safety` 那对）；CI 钉版 ruff **0.15.12** 全绿；植入的探针
        已删除，工作树只含预期改动。
 
+59. ✅ **按「消费者读一个没人写的键」这一缺陷类普查 WFS 统计字典：活路径没有实例，但抓到一处更隐蔽的默认值掩盖型，并测清了一次改名的边界**（2026-10-25）：
+     - **普查否证了自己的假设**：预期会在 WFS 统计字典上抓到第二例键名漂移。**在用的读路径没有**
+       —— `rms.py`、`rms_zernike_runner.py`、`zernike_matrix_runner.py` 读的键都落在生产者键集内。
+     - **两条中间结论被我自己后续测量推翻（在案）**：(a) 我断言「没有测试钉住这个键集」—— 实有
+       `tests/ao_shaping/drivers/sim/test_simulated_wfs.py` 断言
+       `set(stats) == {min, max, diff, mean, rms, wighted_rms}`；(b) 我断言「错拼键**从未落盘**」——
+       也不成立：`rms.py:137/197` 把**整份** `statics` 放进 recorder 的 `_statics` 列，而
+       `save_history` 写 CSV ⇒ 该键以**字符串文本**形式存在于历史工件；同时 `save_history_hdf5`
+       对非标量列直接 `logger.warning("skip mixed/non-scalar column")` 跳过 ⇒ 它**不是结构化字段**。
+       正确结论是「改名不打断任何**读取**路径」，而不是「改名无代价」。
+     - **确实抓到一处，且形态更隐蔽**：`runners/slm/offset_runner.py` 搜索环里两处
+       `statics.get("total_intensity", 1e6)`，而 `total_intensity` 只由 **CCD** 分析路径
+       (`utils/image/target/ccd.py`) 写入、WFS 侧从不写 ⇒ **默认值无条件生效**，被打印并参与比较的
+       「强度」其实是个常数。与同文件已记录的 `zernike_coeffs` 硬下标死读相比，这一处**带默认值**，
+       把本该抛出的 `KeyError` 抹成静默 —— 同一缺陷类里更难发现的那一档。
+     - **为什么本项不动代码**：(1) `model/quantities.py::WavefrontStatistics.from_legacy` 全树
+       **零调用方**，给未进入数据通路的 API 加防御属凭猜；(2) `offset_runner` 两处要改的是**取哪一路
+       数据源**（WFS 还是 CCD 强度）或删功能，且该 runner 未注册、已计划迁入 `tools/slm/` ⇒ 行为决定；
+       (3) 错拼键改名是**对外契约**决定。本项产出是契约边界与文档，不是代码。
+     - **已记进 `drivers/wfs/AGENTS.md`**：`offset_runner` 的两处死读（含第二处的默认值形态），以及
+       「同一统计量两种拼写 + 桥接垫片零调用」的改名边界；并把该段里已漂移的**行号引用换成符号名**
+       （`measure_defocus_coefficient()`、搜索环）—— 本会话已因行号漂移误判过一次定位。
+     - **验证**：无代码改动；conventions **53 passed / 1 skipped / 2 failed**（与改文档前一致，失败对
+       仍是既有 `pib_exit_safety` 那对）；术语门 **0 个文件**、双重夹注 2 行；CI 钉版 ruff 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |

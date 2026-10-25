@@ -90,9 +90,21 @@ WFS 家族曾是**唯一没有共享基类**的设备家族: `ThorlabWFS` 直接
 DLL 槽位只在 1..3 重合、从 4 起分岔。现由 `tools/zernike/common.py` 的 `TILT_DLL_SLOTS` /
 `DEFOCUS_DLL_SLOT` 从 `DLL_ZERNIKE_ORDER` 现取槽位, 回归测试在
 `tests/ao_shaping/tools/slm/test_slm_zernike_common.py` (逐槽不同值的存根读数)。
-⚠️ 仍未决之外的一处新发现: `runners/slm/offset_runner.py:46` 读 `statics["zernike_coeffs"]`
-是**死分支** —— 驱动的统计量字典只有 `min/max/diff/mean/rms/wighted_rms`, 全树无处写入该键,
-故 `measure_defocus_coefficient()` 恒返回 `0.0`; 改数据源还是删功能属行为决定, 本次未动。
+⚠️ `runners/slm/offset_runner.py` 有**两处**读 WFS 统计字典里**无人写入**的键 (键名漂移类):
+- `measure_defocus_coefficient()` 硬下标读 `statics["zernike_coeffs"]` —— 驱动统计字典只有
+  `min/max/diff/mean/rms/wighted_rms`, 全树无处写该键, 故该函数恒返回 `0.0`;
+- 搜索环里两处 `statics.get("total_intensity", 1e6)` —— `total_intensity` 只由 **CCD** 分析路径
+  (`utils/image/target/ccd.py`) 写入, WFS 侧从不写 ⇒ **默认值 1e6 无条件生效**, 于是被打印并参与
+  比较的"强度"实际是个常数。默认值把本该抛出的 `KeyError` 变成静默, **比硬下标那一处更难发现**。
+两处同属"改数据源还是删功能"的行为决定 (该 runner 未注册且计划迁入 `tools/slm/`), 本次只记录。
+
+⚠️ **同一个统计量在仓库里有两种拼写**: 字典键是错拼 `wighted_rms` (驱动与孪生都写它,
+`optimizer/wf/rms.py` 还硬下标读它), 而模型层 `model/quantities.py::WavefrontStatistics` 的字段是
+正确拼写 `weighted_rms`, 两者靠一个**零调用方**的 `from_legacy` 桥接。改名边界已实测: 键集由
+`tests/ao_shaping/drivers/sim/test_simulated_wfs.py` 钉住 (少键会被测试抓到); 该键**不作为结构化
+字段落盘** —— `save_history` 写 CSV (整份字典以字符串形式出现在 `_statics` 列), 而
+`save_history_hdf5` 直接**跳过**非标量列。⇒ 改名不打断任何**读取**路径, 但历史工件里的文本拼写会
+与新版不一致。是否统一属契约决定, 未单方面改动。
 ⚠️ 该未决项**不波及** `runners/slm/zernike_matrix_runner.py:839/889` 的 `z0[1:]`: 那里的
 `z0` 来自 `measure_zernike`, 它正是 `tools/zernike/common.py` 的入口 (runner `:94` 导入),
 返回的是原始 67 长数组 (index 0 未用), 因此 `[1:]` 是**正确**用法。风险在别处: 新代码若按
