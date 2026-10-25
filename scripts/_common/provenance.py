@@ -86,6 +86,18 @@ class ReportProvenance:
 #:   ``硬件``   -- needs a real bench (SLM / CCD / WFS / DM / micro-DM).
 #:   ``离线+硬件`` -- renders offline, but the numbers were measured on hardware.
 REPORTS: dict[str, ReportProvenance] = {
+    "report/shape_trials/sim_pretrain_transfer/sim_pretrain_transfer_20261024.md": ReportProvenance(
+        script="scripts/slm/generate_sim_pretrain_transfer_report.py",
+        command="python scripts/slm/generate_sim_pretrain_transfer_report.py",
+        environment="离线（仿真先验 + 已存档的 Santec/Daheng 实验数据）",
+        note="仿真预训练的分组 CV 指标与「无 GS 的逐位复现」；两部分的检查点互不共用，报告 §1 明确分开。",
+        extra_scripts=("scripts/slm/reproduce_transfer_block_without_gs.py",
+                       "src/ao_shaping/tools/slm/transfer/pretrain.py",
+                       "src/ao_shaping/tools/slm/transfer/workflow.py",
+                       "src/ao_shaping/algorithm/signal_processing/differentiable_defocus_uniformity.py",
+                       "src/ao_shaping/algorithm/signal_processing/multishape_objective.py"),
+    ),
+
     "report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md": ReportProvenance(
         script=HANDWRITTEN,
         environment="离线（读取已保存的 Santec/Daheng 实验数据）",
@@ -187,6 +199,20 @@ REPORTS: dict[str, ReportProvenance] = {
         note=(
             "相机离开 2f 焦面后的菲涅尔补偿实测 (1/f≈+0.70 m⁻¹, f≈+1420 mm): 逐点自适应曝光的"
             "必要性 (曝光跨度达 96×)、峰值与整帧能量两项交叉验证、4 趟重复性与跨趟光强 7.3× 变化"
+        ),
+    ),
+    "report/slm/pib_exit_safety/pib_exit_safety_20261025.md": ReportProvenance(
+        script="scripts/slm/generate_pib_exit_safety_report.py",
+        command="python scripts/slm/generate_pib_exit_safety_report.py",
+        environment="离线 (读硬件采集的 summary.json 与远场裁切)",
+        extra_scripts=(
+            "scripts/slm/verify_pib_exit_safety_hw.py",
+            "tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py",
+        ),
+        note=(
+            "issue #145 (H-28) 的硬件验收: 搜索主体被 KeyboardInterrupt / 相机掉线打断后, "
+            "面板实际停在哪个状态 —— 固件回读 (内存槽号 / 直接灰度) 与光学比对两条独立证据, "
+            "外加退出写入是否绕开了「写到当前显示槽是空操作」的固件陷阱"
         ),
     ),
     "report/slm/diffraction_efficiency/hw_blaze_20261023/report.md": ReportProvenance(

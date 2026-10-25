@@ -1,0 +1,22 @@
+[
+  {
+    "stage": "fit",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T23:55:40.925019+00:00",
+    "monotonic_ns": 32790251985600,
+    "end": {
+      "timestamp_utc": "2026-10-23T23:55:59.226419+00:00",
+      "monotonic_ns": 32808553383600
+    }
+  },
+  {
+    "stage": "GS_and_differentiable_synthesis",
+    "status": "complete",
+    "timestamp_utc": "2026-10-23T23:55:59.227358+00:00",
+    "monotonic_ns": 32808554320800,
+    "end": {
+      "timestamp_utc": "2026-10-23T23:56:03.403264+00:00",
+      "monotonic_ns": 32812730238600
+    }
+  }
+]

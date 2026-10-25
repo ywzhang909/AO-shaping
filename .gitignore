@@ -188,3 +188,5 @@ none
 /.auto_doc_review/
 /_scripts/
 /.workbuddy/
+*.pt
+.history/*

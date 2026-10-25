@@ -67,6 +67,8 @@ def audit_run(run: Path):
             image = raw.mean(0)[y, x]
             distribution = image / image.sum()
             loss = measured["cv"]**2 + 2*(1-measured["ee_roi"]) + target.sum()*np.square(distribution-target/target.sum()).sum()
+            if config.get("objective", "shape") == "cv":
+                loss = measured["cv"]**2
             if not np.isclose(loss, row["loss"], rtol=2e-6, atol=2e-6):
                 raise ValueError(f"raw/manifest objective mismatch: {label}")
             maximum_peak = max(maximum_peak, float(raw.max()))
@@ -94,7 +96,11 @@ def audit_run(run: Path):
     by_label = {r["label"]: r for r in records}
     for block in summary:
         prefix = f"{block['shape']}_{block['block']}_"
-        losses = {suffix: by_label[prefix+suffix]["loss"] for suffix in ("A1", "B1", "B2", "A2")}
+        metric = config.get("accept_metric", "loss")
+        if metric not in {"loss", "cv"}:
+            raise ValueError("unknown acceptance metric")
+        losses = {suffix: (by_label[prefix+suffix]["metrics"]["cv"] if metric == "cv" else
+                           by_label[prefix+suffix]["loss"]) for suffix in ("A1", "B1", "B2", "A2")}
         accepted = .5*(losses["B1"]+losses["B2"]) < .5*(losses["A1"]+losses["A2"])-abs(losses["A2"]-losses["A1"])
         if accepted != block["accepted"]:
             raise ValueError(f"acceptance decision differs: {prefix}")

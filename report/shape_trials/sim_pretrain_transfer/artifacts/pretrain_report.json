@@ -1,0 +1,1465 @@
+{
+  "setup": {
+    "fft_size": 128,
+    "pixel_samples": 1,
+    "grid_size": 32,
+    "seed": 102419,
+    "power": 1.0,
+    "probes_per_combo": 8,
+    "exposure_cycle": [
+      0.5,
+      1.0,
+      1.5
+    ],
+    "scale": 20.22779456339054
+  },
+  "grid": [
+    {
+      "combo": 0,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 1,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 2,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 3,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 4,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 5,
+      "defocus": -0.12,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 6,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 7,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 8,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 9,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 10,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 11,
+      "defocus": -0.12,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 12,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 13,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 14,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 15,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 16,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 17,
+      "defocus": -0.12,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 18,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 19,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 20,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 21,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 22,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 23,
+      "defocus": -0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 24,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 25,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 26,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 27,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 28,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 29,
+      "defocus": -0.06,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 30,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 31,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 32,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 33,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 34,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 35,
+      "defocus": -0.06,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 36,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 37,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 38,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 39,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 40,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 41,
+      "defocus": 0.0,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 42,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 43,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 44,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 45,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 46,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 47,
+      "defocus": 0.0,
+      "shift": [
+        12.0,
+        -8.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 48,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 49,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 50,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 51,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 52,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 53,
+      "defocus": 0.0,
+      "shift": [
+        -18.0,
+        10.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    },
+    {
+      "combo": 54,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.0
+    },
+    {
+      "combo": 55,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 0.85,
+      "aberration": 0.05
+    },
+    {
+      "combo": 56,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.0
+    },
+    {
+      "combo": 57,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.0,
+      "aberration": 0.05
+    },
+    {
+      "combo": 58,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.0
+    },
+    {
+      "combo": 59,
+      "defocus": 0.06,
+      "shift": [
+        0.0,
+        0.0
+      ],
+      "width_scale": 1.2,
+      "aberration": 0.05
+    }
+  ],
+  "probes": [
+    "probe_000_zernike",
+    "probe_001_smooth",
+    "probe_002_bandlimited",
+    "probe_003_zernike",
+    "probe_004_smooth",
+    "probe_005_bandlimited",
+    "probe_006_zernike",
+    "probe_007_smooth"
+  ],
+  "combinations": 60,
+  "samples": "16 features per combination (mean and std over 8 probes of 8 descriptors)",
+  "alpha": 0.01,
+  "alpha_sweep": {
+    "0.01": {
+      "mae": {
+        "dy_defocus": 0.0004611452610049444,
+        "dx_center": 2.664376032153861,
+        "dy_center": 1.528180679962701,
+        "log_width_scale": 0.0018489013377447352,
+        "aberration_rad": 0.015595548857641424
+      },
+      "r2": {
+        "dy_defocus": 0.9998803651486837,
+        "dx_center": 0.9285998016143681,
+        "dy_center": 0.9305875741235873,
+        "log_width_scale": 0.9997242208022309,
+        "aberration_rad": 0.33102209773223124
+      },
+      "worst_r2": 0.33102209773223124
+    },
+    "0.1": {
+      "mae": {
+        "dy_defocus": 0.0006775760643231305,
+        "dx_center": 3.0575465935449104,
+        "dy_center": 1.7276852297989842,
+        "log_width_scale": 0.0026515924411891186,
+        "aberration_rad": 0.016620921243560804
+      },
+      "r2": {
+        "dy_defocus": 0.9997510273790826,
+        "dx_center": 0.9034924552591437,
+        "dy_center": 0.905626732695044,
+        "log_width_scale": 0.999495992410028,
+        "aberration_rad": 0.33674893830576924
+      },
+      "worst_r2": 0.33674893830576924
+    },
+    "1": {
+      "mae": {
+        "dy_defocus": 0.0018159083667094377,
+        "dx_center": 4.554862173756285,
+        "dy_center": 2.7191760060682433,
+        "log_width_scale": 0.005998845727271275,
+        "aberration_rad": 0.022500446844045056
+      },
+      "r2": {
+        "dy_defocus": 0.9980216588979286,
+        "dx_center": 0.7423098910387183,
+        "dy_center": 0.7423018661431171,
+        "log_width_scale": 0.9973743675323199,
+        "aberration_rad": 0.06684867958935747
+      },
+      "worst_r2": 0.06684867958935747
+    },
+    "10": {
+      "mae": {
+        "dy_defocus": 0.00540534082568782,
+        "dx_center": 7.641936340367581,
+        "dy_center": 4.508603843835915,
+        "log_width_scale": 0.02408949723643615,
+        "aberration_rad": 0.025839057399915093
+      },
+      "r2": {
+        "dy_defocus": 0.977290991648721,
+        "dx_center": 0.3783443007093815,
+        "dy_center": 0.37910058484400766,
+        "log_width_scale": 0.9611942494643374,
+        "aberration_rad": -0.10248039742318449
+      },
+      "worst_r2": -0.10248039742318449
+    }
+  },
+  "alpha_selection": "alpha default comes from this sweep on the same combinations (not nested CV); treat the ranking as indicative",
+  "metrics": {
+    "dy_defocus": {
+      "mae": 0.0004611452610049444,
+      "rmse": 0.0006430070342920903,
+      "r2": 0.9998803651486837,
+      "bias": -2.5114269142876426e-05
+    },
+    "dx_center": {
+      "mae": 2.664376032153861,
+      "rmse": 3.129417072007705,
+      "r2": 0.9285998016143681,
+      "bias": 0.055546804668524456
+    },
+    "dy_center": {
+      "mae": 1.528180679962701,
+      "rmse": 1.8412232020599777,
+      "r2": 0.9305875741235873,
+      "bias": -0.013279671200628703
+    },
+    "log_width_scale": {
+      "mae": 0.0018489013377447352,
+      "rmse": 0.002339170826516273,
+      "r2": 0.9997242208022309,
+      "bias": 4.3983191801307044e-05
+    },
+    "aberration_rad": {
+      "mae": 0.015595548857641424,
+      "rmse": 0.020447767333314302,
+      "r2": 0.33102209773223124,
+      "bias": -0.00026084873441596586
+    }
+  },
+  "folds": [
+    {
+      "combo": 0,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0001417560277796326,
+        "dx_center": 2.2411715804140497,
+        "dy_center": 0.6187368193348166,
+        "log_width_scale": 0.0015939707898544042,
+        "aberration_rad": 0.012375392680672346
+      }
+    },
+    {
+      "combo": 1,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00029132920711480437,
+        "dx_center": 2.8909007427754365,
+        "dy_center": 1.1630178008160534,
+        "log_width_scale": 0.001292197466010725,
+        "aberration_rad": 0.013264806751953781
+      }
+    },
+    {
+      "combo": 2,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 2.4978654814045154e-05,
+        "dx_center": 1.435907171663736,
+        "dy_center": 1.4511571554754759,
+        "log_width_scale": 0.002257134947201319,
+        "aberration_rad": 0.020308433388102877
+      }
+    },
+    {
+      "combo": 3,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00037845788474921704,
+        "dx_center": 0.706805313519991,
+        "dy_center": 0.9380218049238932,
+        "log_width_scale": 0.0014619472279532933,
+        "aberration_rad": 0.0076404045618864574
+      }
+    },
+    {
+      "combo": 4,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005116977214196516,
+        "dx_center": 2.477301881620668,
+        "dy_center": 0.8393081184249971,
+        "log_width_scale": 4.599950585154611e-05,
+        "aberration_rad": 0.02864578953029125
+      }
+    },
+    {
+      "combo": 5,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0001852303536067912,
+        "dx_center": 2.473389586928443,
+        "dy_center": 0.8633715841099177,
+        "log_width_scale": 0.0001984574204334788,
+        "aberration_rad": 0.013926082218201859
+      }
+    },
+    {
+      "combo": 6,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0001769380650847585,
+        "dx_center": 5.30097969749626,
+        "dy_center": 2.9039313561797364,
+        "log_width_scale": 0.0015428863453124664,
+        "aberration_rad": 0.014484491655943657
+      }
+    },
+    {
+      "combo": 7,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0002958052337697914,
+        "dx_center": 3.541875118660668,
+        "dy_center": 1.6836480578283037,
+        "log_width_scale": 0.004678074743841687,
+        "aberration_rad": 0.011648935874474145
+      }
+    },
+    {
+      "combo": 8,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 5.00824924674903e-05,
+        "dx_center": 3.763306643296948,
+        "dy_center": 1.9137588065709874,
+        "log_width_scale": 0.0017098421151104113,
+        "aberration_rad": 0.028477897860016397
+      }
+    },
+    {
+      "combo": 9,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005059301912690162,
+        "dx_center": 2.563184207426298,
+        "dy_center": 1.0704233511063048,
+        "log_width_scale": 0.0011839960232452613,
+        "aberration_rad": 0.001829787054126647
+      }
+    },
+    {
+      "combo": 10,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0007002449696703328,
+        "dx_center": 4.188201984256667,
+        "dy_center": 2.858626933832066,
+        "log_width_scale": 9.424486193992943e-05,
+        "aberration_rad": 0.04366741370849467
+      }
+    },
+    {
+      "combo": 11,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0004731589750719134,
+        "dx_center": 4.841510401754256,
+        "dy_center": 3.369022287603797,
+        "log_width_scale": 5.898745538343575e-05,
+        "aberration_rad": 0.002547313078003932
+      }
+    },
+    {
+      "combo": 12,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.000171579282841422,
+        "dx_center": 5.4766445190473405,
+        "dy_center": 3.4758230559825076,
+        "log_width_scale": 0.002662156029040297,
+        "aberration_rad": 0.0036745355638718863
+      }
+    },
+    {
+      "combo": 13,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00035974464260474237,
+        "dx_center": 5.093421266392799,
+        "dy_center": 3.3636801845164364,
+        "log_width_scale": 3.7411007354326564e-05,
+        "aberration_rad": 0.034903350661723134
+      }
+    },
+    {
+      "combo": 14,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 5.824489117131626e-05,
+        "dx_center": 2.8333196455199783,
+        "dy_center": 1.4460653604900404,
+        "log_width_scale": 0.0006989639393975471,
+        "aberration_rad": 0.0015850161546505717
+      }
+    },
+    {
+      "combo": 15,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00025145153413994037,
+        "dx_center": 2.614154717089871,
+        "dy_center": 1.220645934226086,
+        "log_width_scale": 0.00015835396681420678,
+        "aberration_rad": 0.03179274748822507
+      }
+    },
+    {
+      "combo": 16,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00032018914249290487,
+        "dx_center": 3.402388933922289,
+        "dy_center": 1.798357346038923,
+        "log_width_scale": 0.0028394045088628583,
+        "aberration_rad": 0.0026696205568112266
+      }
+    },
+    {
+      "combo": 17,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0001532030100820092,
+        "dx_center": 3.8294794323166137,
+        "dy_center": 2.0075645469290375,
+        "log_width_scale": 0.002694417121876319,
+        "aberration_rad": 0.04866568809975909
+      }
+    },
+    {
+      "combo": 18,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00015611071600930837,
+        "dx_center": 1.827012387342399,
+        "dy_center": 1.6575348932890392,
+        "log_width_scale": 0.001965766462281582,
+        "aberration_rad": 0.022627266913739
+      }
+    },
+    {
+      "combo": 19,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 6.944344857441609e-05,
+        "dx_center": 1.9904449182803767,
+        "dy_center": 0.6594911514238638,
+        "log_width_scale": 0.0017999915262922606,
+        "aberration_rad": 0.0020306871140744615
+      }
+    },
+    {
+      "combo": 20,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0003942432213741992,
+        "dx_center": 1.056714716282526,
+        "dy_center": 0.07208685067590792,
+        "log_width_scale": 0.0015015329496008423,
+        "aberration_rad": 0.004488123898976574
+      }
+    },
+    {
+      "combo": 21,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005130398381209822,
+        "dx_center": 3.8236710925531043,
+        "dy_center": 1.722227800232306,
+        "log_width_scale": 0.0035216024544616163,
+        "aberration_rad": 0.01596993128686005
+      }
+    },
+    {
+      "combo": 22,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0003017960306622436,
+        "dx_center": 1.4580263917499132,
+        "dy_center": 1.5760396691774532,
+        "log_width_scale": 0.0015384654751166293,
+        "aberration_rad": 0.013885914860923632
+      }
+    },
+    {
+      "combo": 23,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0006715489341799635,
+        "dx_center": 0.17918357447105815,
+        "dy_center": 0.43906262903624904,
+        "log_width_scale": 0.0005541832608474684,
+        "aberration_rad": 0.005763169574725377
+      }
+    },
+    {
+      "combo": 24,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 2.0381303108801818e-05,
+        "dx_center": 3.47318297561217,
+        "dy_center": 1.614365196900355,
+        "log_width_scale": 0.00261539309936093,
+        "aberration_rad": 0.018243075964157567
+      }
+    },
+    {
+      "combo": 25,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 3.263506572387387e-05,
+        "dx_center": 0.6367827712871428,
+        "dy_center": 0.8878095105430157,
+        "log_width_scale": 0.0010308795114845615,
+        "aberration_rad": 0.011594053504113015
+      }
+    },
+    {
+      "combo": 26,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005946362710399083,
+        "dx_center": 0.9509130327012016,
+        "dy_center": 0.8396743982115131,
+        "log_width_scale": 0.0001818746113326341,
+        "aberration_rad": 0.0019227641840330184
+      }
+    },
+    {
+      "combo": 27,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005115911491476582,
+        "dx_center": 3.9622166890174313,
+        "dy_center": 2.6933782039399974,
+        "log_width_scale": 0.0008398694288089719,
+        "aberration_rad": 0.024199722507178247
+      }
+    },
+    {
+      "combo": 28,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0004943838725305766,
+        "dx_center": 1.9386898180136374,
+        "dy_center": 0.8341436305970493,
+        "log_width_scale": 0.003490486781864005,
+        "aberration_rad": 0.010556827609927317
+      }
+    },
+    {
+      "combo": 29,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0009028095651867907,
+        "dx_center": 0.13864480858234174,
+        "dy_center": 0.3487073351471697,
+        "log_width_scale": 0.003533928626608035,
+        "aberration_rad": 0.009329568174479302
+      }
+    },
+    {
+      "combo": 30,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 3.100549903403693e-05,
+        "dx_center": 3.7810425043269813,
+        "dy_center": 1.9208440980456203,
+        "log_width_scale": 0.004440057983293888,
+        "aberration_rad": 0.023609664223180102
+      }
+    },
+    {
+      "combo": 31,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00010478933101229493,
+        "dx_center": 1.0779753955455291,
+        "dy_center": 1.01670010226956,
+        "log_width_scale": 0.0004226442094165672,
+        "aberration_rad": 0.005070326879420599
+      }
+    },
+    {
+      "combo": 32,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0003757016234022803,
+        "dx_center": 0.9638990073878375,
+        "dy_center": 0.42173805759524186,
+        "log_width_scale": 0.003014888823180635,
+        "aberration_rad": 0.005117678415702147
+      }
+    },
+    {
+      "combo": 33,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005254919351606185,
+        "dx_center": 1.8326800009369357,
+        "dy_center": 1.3790822785024872,
+        "log_width_scale": 0.00462229358577608,
+        "aberration_rad": 0.01659625006912213
+      }
+    },
+    {
+      "combo": 34,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 8.06870978898866e-05,
+        "dx_center": 3.405168566243521,
+        "dy_center": 1.826067636021678,
+        "log_width_scale": 0.0007311086806918721,
+        "aberration_rad": 0.01410860642063555
+      }
+    },
+    {
+      "combo": 35,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0007133643374548082,
+        "dx_center": 1.5208845553208619,
+        "dy_center": 0.4961114519179546,
+        "log_width_scale": 0.00044880003112193756,
+        "aberration_rad": 0.010431068850807863
+      }
+    },
+    {
+      "combo": 36,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00020297311912593347,
+        "dx_center": 0.8950611135973182,
+        "dy_center": 0.09631325908435395,
+        "log_width_scale": 0.0011284167167256443,
+        "aberration_rad": 0.005234640014802491
+      }
+    },
+    {
+      "combo": 37,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0003768476585315067,
+        "dx_center": 0.7962261640026318,
+        "dy_center": 1.0875573603796398,
+        "log_width_scale": 0.0027422472946548038,
+        "aberration_rad": 0.0004577439483467449
+      }
+    },
+    {
+      "combo": 38,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 6.740800394180319e-05,
+        "dx_center": 1.7615386471967196,
+        "dy_center": 0.43335509618367374,
+        "log_width_scale": 0.001882876636497735,
+        "aberration_rad": 0.00741785761357916
+      }
+    },
+    {
+      "combo": 39,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0004276567039278936,
+        "dx_center": 1.0837815922565985,
+        "dy_center": 0.05209725118812003,
+        "log_width_scale": 0.0007387408260332495,
+        "aberration_rad": 0.001081704282873977
+      }
+    },
+    {
+      "combo": 40,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0002437497218616691,
+        "dx_center": 0.4564998949614547,
+        "dy_center": 0.4278167569012775,
+        "log_width_scale": 0.001452700155656489,
+        "aberration_rad": 0.0040400647984100944
+      }
+    },
+    {
+      "combo": 41,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005314174527953422,
+        "dx_center": 0.5827482261593662,
+        "dy_center": 0.26090003717781485,
+        "log_width_scale": 0.0005411765975083527,
+        "aberration_rad": 0.003443665681075375
+      }
+    },
+    {
+      "combo": 42,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 5.098798613922817e-05,
+        "dx_center": 3.1711215438384404,
+        "dy_center": 2.2643757319458473,
+        "log_width_scale": 6.600436937101439e-05,
+        "aberration_rad": 0.011796398613796739
+      }
+    },
+    {
+      "combo": 43,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 5.970189984699087e-05,
+        "dx_center": 0.5927084332774086,
+        "dy_center": 0.04019771958608054,
+        "log_width_scale": 0.002479771366335981,
+        "aberration_rad": 0.01422907724037991
+      }
+    },
+    {
+      "combo": 44,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0007758834770349443,
+        "dx_center": 4.055808014496018,
+        "dy_center": 2.782970964396152,
+        "log_width_scale": 0.00039543452114399955,
+        "aberration_rad": 0.01959849713299822
+      }
+    },
+    {
+      "combo": 45,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00046894772742937796,
+        "dx_center": 1.3860757938963282,
+        "dy_center": 1.1277084771228,
+        "log_width_scale": 0.0033902567290617068,
+        "aberration_rad": 0.0262127520021759
+      }
+    },
+    {
+      "combo": 46,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.000323542383753532,
+        "dx_center": 3.104803610647066,
+        "dy_center": 2.268169983019991,
+        "log_width_scale": 0.002036133756357944,
+        "aberration_rad": 0.014929880350298807
+      }
+    },
+    {
+      "combo": 47,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0006495335807322894,
+        "dx_center": 1.4955745803259983,
+        "dy_center": 1.4224201584998486,
+        "log_width_scale": 0.0019010673698086067,
+        "aberration_rad": 0.022937803853040357
+      }
+    },
+    {
+      "combo": 48,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0006309123390734125,
+        "dx_center": 4.113529448844211,
+        "dy_center": 2.092235615536338,
+        "log_width_scale": 0.004099619608343014,
+        "aberration_rad": 0.005741994685649225
+      }
+    },
+    {
+      "combo": 49,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 7.4520661327869e-05,
+        "dx_center": 2.7763887421505675,
+        "dy_center": 1.3425156114962036,
+        "log_width_scale": 0.0024961694536679013,
+        "aberration_rad": 0.0013493576933181206
+      }
+    },
+    {
+      "combo": 50,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00042055274830622713,
+        "dx_center": 2.8947010971601888,
+        "dy_center": 1.2918497778023532,
+        "log_width_scale": 0.0011780539384593919,
+        "aberration_rad": 0.030375673661860274
+      }
+    },
+    {
+      "combo": 51,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.001224416959322898,
+        "dx_center": 0.5121265398139698,
+        "dy_center": 0.032109250122070776,
+        "log_width_scale": 0.0027064394148020024,
+        "aberration_rad": 0.020945709014183453
+      }
+    },
+    {
+      "combo": 52,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.00016630271892787568,
+        "dx_center": 4.759439252203357,
+        "dy_center": 2.575682549101387,
+        "log_width_scale": 0.0010957998441214756,
+        "aberration_rad": 0.026085074800569465
+      }
+    },
+    {
+      "combo": 53,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0005155282452923848,
+        "dx_center": 2.1281433000208256,
+        "dy_center": 0.9199837865473661,
+        "log_width_scale": 0.003154746296170713,
+        "aberration_rad": 0.017622128322443822
+      }
+    },
+    {
+      "combo": 54,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0015808418974144547,
+        "dx_center": 4.241889358821234,
+        "dy_center": 2.4134217077939137,
+        "log_width_scale": 0.006812315504293176,
+        "aberration_rad": 0.03254606362152267
+      }
+    },
+    {
+      "combo": 55,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0007001052504703106,
+        "dx_center": 4.074898119185681,
+        "dy_center": 2.5643536667245552,
+        "log_width_scale": 0.0025891515155309908,
+        "aberration_rad": 0.013098937409104505
+      }
+    },
+    {
+      "combo": 56,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0012487044876115586,
+        "dx_center": 2.8693347060790755,
+        "dy_center": 1.8148029428641852,
+        "log_width_scale": 0.0010452326286382345,
+        "aberration_rad": 0.03746515081358574
+      }
+    },
+    {
+      "combo": 57,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0023759610000289658,
+        "dx_center": 5.268415269331699,
+        "dy_center": 3.0384703165529316,
+        "log_width_scale": 0.004161712975618221,
+        "aberration_rad": 0.009955431474432362
+      }
+    },
+    {
+      "combo": 58,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0013473811692555834,
+        "dx_center": 7.96751558801952,
+        "dy_center": 4.748840666437094,
+        "log_width_scale": 0.0003476758991171891,
+        "aberration_rad": 0.0028805884274551753
+      }
+    },
+    {
+      "combo": 59,
+      "train_samples": 59,
+      "test_samples": 1,
+      "mae": {
+        "dy_defocus": 0.0016611569483821823,
+        "dx_center": 5.183156843188712,
+        "dy_center": 3.2024667133822087,
+        "log_width_scale": 0.0010301238697422443,
+        "aberration_rad": 0.06863432866331798
+      }
+    }
+  ],
+  "folds_scored": 60,
+  "timings": {
+    "library_s": 52.27,
+    "fit_s": 0.18,
+    "total_s": 52.46
+  },
+  "caveat": "Matched-model synthetic library: no camera noise, LUT, non-linearity or zero-order light. Grouped CV measures identifiability, not hardware accuracy.",
+  "timestamp_utc": "2026-10-24T01:27:46.038652+00:00",
+  "monotonic_ns": 38315476247800
+}

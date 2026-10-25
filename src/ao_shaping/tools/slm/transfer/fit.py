@@ -1,8 +1,9 @@
 """Offline transfer of a compact physical forward model using recorded CCD data.
 
-No device imports. Geometry uses the recorded ramp pairs. Validation phases are
-excluded from both parameter fitting and checkpoint selection. Exposure division
-assumes a linear camera response and is explicitly recorded as an assumption.
+No device imports. Geometry uses the recorded ramp pairs. Each individual stage
+fits and selects its iteration on training phases only; automatic stage selection
+uses validation phases and therefore requires subsequent independent CCD checks.
+Exposure division assumes a linear camera response, recorded as an assumption.
 """
 from __future__ import annotations
 
@@ -103,6 +104,11 @@ def metrics(predictions, measured):
 
 
 def fit(args):
+    adaptation = getattr(args, "adaptation", "full")
+    if adaptation == "auto":
+        return fit_adaptive(args)
+    if adaptation not in {"full", "alignment"}:
+        raise ValueError("unknown adaptation mode")
     import torch
     from ao_shaping.algorithm.signal_processing.differentiable_defocus_uniformity import (
         FrozenDefocusForward, load_frozen_parameters,
@@ -117,6 +123,7 @@ def fit(args):
                       script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
                       manifest_sha256=hashlib.sha256((args.dataset / "manifest.json").read_bytes()).hexdigest(),
                       iterations=args.iterations, ramp_matrix=matrix.tolist(), ramp_samples=ramp_samples,
+                      adaptation=adaptation,
                       exposure_assumption="counts/exposure_ms; linearity and illuminated offset not independently calibrated",
                       window_step_px=2, window_span_px=args.span, rows=rows, **clock())
     (args.out / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
@@ -133,6 +140,8 @@ def fit(args):
         model.origin.copy_(torch.tensor(old.origin_xy))
         model.log_width.copy_(torch.tensor(old.amplitude_width_xy).log())
         model.residual.copy_(torch.tensor([old.residual_noll_radians.get(j, 0) for j in model.residual_modes]))
+    from .adaptation import configure_adaptation
+    configure_adaptation(model, adaptation)
     target = model.images[model.train]
     target_mean = target.mean((1, 2), keepdim=True).clamp_min(1e-9)
     target_cv = target.std((1, 2), correction=0) / target_mean[:, 0, 0]
@@ -196,6 +205,56 @@ def fit(args):
     print(f"selected iteration={best['iteration']} using training loss only", flush=True)
 
 
+def fit_adaptive(args):
+    """Warm transfer with an explicit validation-selected baseline and fallback.
+
+    Validation phases select the stage, so final independent acceptance remains
+    the paired CCD experiment. Raw data and every candidate stay on disk.
+    """
+    from types import SimpleNamespace
+    from .adaptation import needs_full_adaptation, validation_quality
+
+    args.out.mkdir(parents=True, exist_ok=False)
+    candidates = []
+
+    def run_candidate(mode, checkpoint):
+        options = dict(vars(args), adaptation=mode, checkpoint=checkpoint,
+                       out=args.out / mode)
+        if mode == "alignment":
+            options["iterations"] = min(args.iterations, 30)
+        fit(SimpleNamespace(**options))
+        root = options["out"]
+        result = json.loads((root / "result.json").read_text(encoding="utf-8"))
+        rows = json.loads((root / "provenance.json").read_text(encoding="utf-8"))["rows"]
+        with (root / "iterations.pkl").open("rb") as stream:
+            initial = pickle.load(stream)[0]
+        # Iteration zero includes fresh geometry and NNLS radiometry, but no
+        # optical update. Keep it when transfer degrades validation phases.
+        for label, entry in ((mode + "_initial", initial), (mode, result)):
+            candidates.append(dict(stage=label, directory=str(root.resolve()),
+                                   quality=validation_quality(entry, rows), entry=entry))
+        return min(candidates, key=lambda item: item["quality"]["score"])
+
+    selected = run_candidate("alignment", args.checkpoint)
+    escalated = needs_full_adaptation(selected["quality"])
+    if escalated:
+        selected = run_candidate("full", args.checkpoint)
+    root = Path(selected["directory"])
+    provenance = json.loads((root / "provenance.json").read_text(encoding="utf-8"))
+    checkpoint = json.loads((root / "frozen_parameters.json").read_text(encoding="utf-8"))
+    checkpoint.update(selected["entry"]["parameters"])
+    (args.out / "frozen_parameters.json").write_text(json.dumps(checkpoint, indent=2), encoding="utf-8")
+    (args.out / "result.json").write_text(json.dumps(selected["entry"], indent=2), encoding="utf-8")
+    (args.out / "provenance.json").write_text(json.dumps(provenance | dict(
+        adaptation="auto", selection="validation phases; final acceptance requires paired CCD"), indent=2), encoding="utf-8")
+    decision = dict(selected_stage=selected["stage"], escalated=escalated,
+                    escalation_heuristic=dict(correlation_below=.85, relative_l2_above=.25),
+                    candidates=[{k: v for k, v in c.items() if k != "entry"} for c in candidates],
+                    **clock())
+    (args.out / "adaptation.json").write_text(json.dumps(decision, indent=2), encoding="utf-8")
+    print(f"Automatic adaptation selected {selected['stage']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dataset", type=Path, required=True)
@@ -203,6 +262,7 @@ def main():
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--iterations", type=int, default=100)
     parser.add_argument("--span", type=int, default=160)
+    parser.add_argument("--adaptation", choices=("auto", "alignment", "full"), default="auto")
     args = parser.parse_args()
     if args.iterations < 0 or args.span < 20 or args.span % 2:
         parser.error("iterations >= 0; span must be even and >= 20")

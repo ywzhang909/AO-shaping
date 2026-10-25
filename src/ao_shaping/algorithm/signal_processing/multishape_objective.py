@@ -21,7 +21,8 @@ def target_at(xy, shape, centre, side):
 class ShapeObjective:
     """CV plus shape fidelity and window energy, on one frozen camera grid."""
 
-    def __init__(self, target):
+    def __init__(self, target, *, cv_only=False):
+        self.cv_only = bool(cv_only)
         self.target = np.asarray(target, dtype=np.float32)
         self.box = self.target > .5
         self.core = binary_erosion(self.box, iterations=2)
@@ -39,7 +40,7 @@ class ShapeObjective:
         shape_loss = ((image/total-target/target.sum())**2).sum()*target.sum()
         smooth = .5*((1-torch.cos(delta_phase[1:]-delta_phase[:-1])).mean()
                      +(1-torch.cos(delta_phase[:, 1:]-delta_phase[:, :-1])).mean())
-        loss = cv2+2*(1-energy)+shape_loss+.001*smooth
+        loss = cv2+.001*smooth if self.cv_only else cv2+2*(1-energy)+shape_loss+.001*smooth
         return loss, dict(l_cv=float(cv2.detach()), ee_roi=float(energy.detach()),
                           shape_loss=float(shape_loss.detach()))
 

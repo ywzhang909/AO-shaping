@@ -30,12 +30,14 @@ def analyze(run, out):
         phases = []
         for row in (a, b, minus):
             with np.load(run / row["file"]) as data:
-                phases.append(data["model_phase"])
+                # Transferred raw phases can be float64; propagation grids and
+                # the production optimizer use float32, including autograd.
+                phases.append(np.asarray(data["model_phase"], dtype=np.float32))
                 if row is a:
                     xy, target = data["camera_xy"], data["target"]
                     image = data["raw_frames"].mean(0)[xy[..., 1].astype(int), xy[..., 0].astype(int)] / row["exposure_ms"]
         forward = FrozenDefocusForward(params, xy, device="cpu")
-        objective = ShapeObjective(target)
+        objective = ShapeObjective(target, cv_only=config.get("objective", "shape") == "cv")
         zero = torch.zeros_like(torch.tensor(phases[0]))
         with torch.no_grad():
             baseline, plus, negative = [forward.predict(phase)[0] for phase in phases]

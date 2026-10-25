@@ -50,14 +50,22 @@ def run(args):
     if not args.execute:
         print(json.dumps(dict(zero_xy=args.zero_xy, target_xy=centre.tolist(), shapes=args.shapes), indent=2))
         return
-    prepared = []
+    prepared, seed_provenance = [], {}
     for shape in args.shapes:
-        objective = ShapeObjective(target_at(xy, shape, centre, args.side))
+        objective = ShapeObjective(target_at(xy, shape, centre, args.side),
+                                   cv_only=getattr(args, "objective", "shape") == "cv")
         box = objective.box
         if box[0].any() or box[-1].any() or box[:, 0].any() or box[:, -1].any():
             raise ValueError("target intersects camera window boundary; adjust period/side")
-        phase = (replay_seed(args.seed_run, shape, xy, objective.target) if args.seed_run else
-                 gs_seed(forward, centre, args.side, shape))
+        if args.seed_run:
+            from .seeding import accepted_seed
+            source = json.loads((args.seed_run / "config.json").read_text(encoding="utf-8"))
+            if float(source["side"]) != float(args.side):
+                raise ValueError("accepted seed target size differs from requested target")
+            phase, seed_provenance[shape] = accepted_seed(args.seed_run, shape, forward, xy,
+                objective.target, policy=getattr(args, "seed_policy", "strict"), centre=centre)
+        else:
+            phase = gs_seed(forward, centre, args.side, shape)
         if not np.isfinite(phase).all():
             raise ValueError("nonfinite seed phase")
         prepared.append((shape, objective, phase))
@@ -75,7 +83,10 @@ def run(args):
                                                        period=args.period, side=args.side,
                                                        checkpoint_sha256=hashlib.sha256(args.checkpoint.read_bytes()).hexdigest(),
                                                        script_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-                                                       gs_iterations=80, phase_lr=.01, phase_rms_cap=.2,
+                                                       gs_iterations=0 if args.seed_run else 80,
+                                                       accept_metric=getattr(args, "accept_metric", "loss"),
+                                                       objective=getattr(args, "objective", "shape"),
+                                                       seed_provenance=seed_provenance, phase_lr=.01, phase_rms_cap=.2,
                                                        camera=args.camera, cam_id=args.cam_id, slm_number=args.slm_number, wavelength_nm=1064,
                                                        mode=args.mode, seed_run=str(args.seed_run) if args.seed_run else None,
                                                        blocks=args.blocks, updates=args.updates, frames=args.frames,
@@ -196,15 +207,14 @@ def run(args):
                             np.savez_compressed(args.out/f"{shape}_direction_difference.npz",
                                                 predicted=predicted_difference, measured=measured_difference)
                             (args.out/f"{shape}_direction.json").write_text(json.dumps(direction, indent=2), encoding="utf-8")
-                        baseline = .5*(a1["loss"]+a2["loss"])
-                        proposed = .5*(b1["loss"]+b2["loss"])
-                        drift = abs(a2["loss"]-a1["loss"])
-                        accepted = proposed < baseline-drift
+                        from .paired import paired_decision
+                        decision = paired_decision(a1, b1, b2, a2,
+                                                   metric=getattr(args, "accept_metric", "loss"))
+                        accepted = decision["accepted"]
                         if accepted:
                             best = candidate.copy()
                             optimizer.accept()
-                        entry = dict(shape=shape, block=block, baseline=baseline, candidate=proposed,
-                                     accepted=accepted, drift=drift, **clock())
+                        entry = dict(shape=shape, block=block, **decision, **clock())
                         summary.append(entry)
                         (args.out/"summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
                         print(json.dumps(entry), flush=True)
@@ -230,10 +240,15 @@ def main():
     parser.add_argument("--blocks", type=int, default=2)
     parser.add_argument("--updates", type=int, default=10)
     parser.add_argument("--frames", type=int, default=3)
-    parser.add_argument("--mode", choices=("model", "anchored"), default="model")
+    parser.add_argument("--mode", choices=("model", "anchored"), default=None,
+                        help="Accepted-phase continuation defaults to anchored; cold synthesis defaults to model")
     parser.add_argument("--seed-run", type=Path, help="Replay accepted phases; exact grid/target match required")
+    parser.add_argument("--seed-policy", choices=("strict", "transfer"), default="strict")
+    parser.add_argument("--accept-metric", choices=("loss", "cv"), default="loss")
+    parser.add_argument("--objective", choices=("shape", "cv"), default="shape")
     parser.add_argument("--execute", action="store_true")
     args = parser.parse_args()
+    args.mode = args.mode or ("anchored" if args.seed_run else "model")
     if args.period < 4 or args.side <= 0 or min(args.blocks, args.updates, args.frames) < 1:
         parser.error("invalid sampling or iteration parameters")
     run(args)

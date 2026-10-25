@@ -23,7 +23,7 @@ class Reject(importlib.abc.MetaPathFinder):
         if fullname == "scripts" or fullname.startswith(("scripts.", "ao_shaping.drivers")):
             raise AssertionError("Forbidden import: " + fullname)
 sys.meta_path.insert(0, Reject())
-for name in ("capture", "fit", "validate", "bootstrap", "capture_response", "response", "blur", "direction", "summary", "workflow", "hardware"):
+for name in ("capture", "fit", "validate", "bootstrap", "capture_response", "response", "blur", "direction", "summary", "workflow", "hardware", "adaptation", "simulation", "seeding", "paired"):
     importlib.import_module("ao_shaping.tools.slm.transfer." + name)
 '''
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
@@ -97,9 +97,22 @@ def test_audit_recomputes_raw_metrics_and_acceptance(tmp_path):
         audit_run(tmp_path)
 
 
+def test_audit_cv_acceptance_uses_raw_cv_instead_of_composite_loss(tmp_path):
+    make_run(tmp_path)
+    config = json.loads((tmp_path / "config.json").read_text())
+    config["accept_metric"] = "cv"
+    (tmp_path / "config.json").write_text(json.dumps(config))
+    # Synthetic target core is constant: both candidates have CV=0. No strict
+    # improvement exists, although the composite energy objective improved.
+    summary = json.loads((tmp_path / "summary.json").read_text())
+    summary[0]["accepted"] = False
+    (tmp_path / "summary.json").write_text(json.dumps(summary))
+    assert audit_run(tmp_path)["accepted_blocks"] == 0
+
+
 def test_session_rejects_incomplete_calibration_shapes(tmp_path):
     with pytest.raises(ValueError, match="skip-calibration"):
-        TransferSession(tmp_path, shapes=("square",)).validate()
+        TransferSession(tmp_path, shapes=("square",), calibration=True).validate()
 
 
 def test_relocated_archive_resolves_against_run_ancestors(tmp_path):

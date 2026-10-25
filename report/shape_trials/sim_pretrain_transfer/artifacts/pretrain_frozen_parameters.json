@@ -1,0 +1,57 @@
+{
+  "defocus_diopter": -0.04799999999999995,
+  "origin": [
+    64.0,
+    64.0
+  ],
+  "amplitude_center": [
+    958.1999999999999,
+    600.6
+  ],
+  "amplitude_width": [
+    301.9868128680339,
+    261.7219044856294
+  ],
+  "residual_noll_radians": {
+    "5": 0.025000000000000046,
+    "6": 0.025000000000000046,
+    "7": 0.025000000000000046,
+    "8": 0.025000000000000046,
+    "9": 0.025000000000000046,
+    "10": 0.025000000000000046,
+    "11": 0.025000000000000046
+  },
+  "gain": 1.0,
+  "background": 0.0,
+  "sigma_ccd_px": 0.0,
+  "ramp_matrix": [
+    [
+      0.0,
+      5000.0
+    ],
+    [
+      -5000.0,
+      0.0
+    ]
+  ],
+  "fft_size": 128,
+  "pixel_samples": 1,
+  "grid_size": 32,
+  "pretrain": {
+    "note": "synthetic mean deviation from the nominal prior; not a hardware-calibrated checkpoint",
+    "mean_delta": [
+      -0.07299999999999995,
+      -1.8000000000000125,
+      0.6000000000000074,
+      0.006600875765393219,
+      0.025000000000000046
+    ],
+    "params": [
+      "dy_defocus",
+      "dx_center",
+      "dy_center",
+      "log_width_scale",
+      "aberration_rad"
+    ]
+  }
+}

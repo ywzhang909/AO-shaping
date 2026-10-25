@@ -1,0 +1,52 @@
+{
+  "selected_stage": "full",
+  "escalated": true,
+  "escalation_heuristic": {
+    "correlation_below": 0.85,
+    "relative_l2_above": 0.25
+  },
+  "candidates": [
+    {
+      "stage": "alignment_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\fit\\alignment",
+      "quality": {
+        "correlation": 0.8654117834254396,
+        "relative_l2": 0.4822638847258995,
+        "cv_abs_error": 0.681259908246694,
+        "score": 0.61685210130046
+      }
+    },
+    {
+      "stage": "alignment",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\fit\\alignment",
+      "quality": {
+        "correlation": 0.8497897625137881,
+        "relative_l2": 0.4943937081627137,
+        "cv_abs_error": 0.5272843022820334,
+        "score": 0.6446039456489256
+      }
+    },
+    {
+      "stage": "full_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\fit\\full",
+      "quality": {
+        "correlation": 0.8654117834254396,
+        "relative_l2": 0.4822638847258995,
+        "cv_abs_error": 0.681259908246694,
+        "score": 0.61685210130046
+      }
+    },
+    {
+      "stage": "full",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\fit\\full",
+      "quality": {
+        "correlation": 0.8789330560278699,
+        "relative_l2": 0.43943856665114395,
+        "cv_abs_error": 0.5142883902083892,
+        "score": 0.5605055106232741
+      }
+    }
+  ],
+  "timestamp_utc": "2026-10-24T01:26:45.823043+00:00",
+  "monotonic_ns": 38255260639600
+}

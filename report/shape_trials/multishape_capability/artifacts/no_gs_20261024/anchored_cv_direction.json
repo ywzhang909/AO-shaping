@@ -1,0 +1,89 @@
+{
+  "run": "data\\debug\\slm_transfer\\live_no_gs_cv_anchored_20261024",
+  "results": [
+    {
+      "shape": "square",
+      "anchored_model_loss_plus": 0.12063036859035492,
+      "anchored_model_loss_minus": 0.1686931997537613,
+      "measured_A1_loss": 0.14137223362922668,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.024048984050750732,
+          "automatic": -0.024049067869782448,
+          "relative_error": 3.4853339085425145e-06
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.024049978703260422,
+          "automatic": -0.024049067869782448,
+          "relative_error": 3.787252742350485e-05
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.024048984050750732,
+          "automatic": -0.024049067869782448,
+          "relative_error": 3.4853339085425145e-06
+        }
+      ],
+      "timestamp_utc": "2026-10-24T01:48:34.664321+00:00",
+      "monotonic_ns": 39564101912400
+    },
+    {
+      "shape": "rectangle",
+      "anchored_model_loss_plus": 0.16417989134788513,
+      "anchored_model_loss_minus": 0.2223021686077118,
+      "measured_A1_loss": 0.1899200975894928,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.029103830456733704,
+          "automatic": -0.02910400927066803,
+          "relative_error": 6.143962251495927e-06
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.029103457927703857,
+          "automatic": -0.02910400927066803,
+          "relative_error": 1.8943883608779107e-05
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.029103457927703857,
+          "automatic": -0.02910400927066803,
+          "relative_error": 1.8943883608779107e-05
+        }
+      ],
+      "timestamp_utc": "2026-10-24T01:48:35.722528+00:00",
+      "monotonic_ns": 39565160119300
+    },
+    {
+      "shape": "triangle",
+      "anchored_model_loss_plus": 0.09945704787969589,
+      "anchored_model_loss_minus": 0.18481822311878204,
+      "measured_A1_loss": 0.13599306344985962,
+      "derivative_checks": [
+        {
+          "h": 0.1,
+          "finite_difference": -0.04267871379852295,
+          "automatic": -0.04267887771129608,
+          "relative_error": 3.840606452707645e-06
+        },
+        {
+          "h": 0.03,
+          "finite_difference": -0.04267866536974907,
+          "automatic": -0.04267887771129608,
+          "relative_error": 4.975331086462177e-06
+        },
+        {
+          "h": 0.01,
+          "finite_difference": -0.04267990589141846,
+          "automatic": -0.04267887771129608,
+          "relative_error": 2.4090496473709937e-05
+        }
+      ],
+      "timestamp_utc": "2026-10-24T01:48:37.161415+00:00",
+      "monotonic_ns": 39566599012300
+    }
+  ]
+}

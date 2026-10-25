@@ -838,6 +838,34 @@ python scripts/slm/diff_beam_frame_analysis.py --run-dir data/diff_beam/run_<ts>
 > `parabolic_min`, `latest_match`, `group_raw_scan`, `analyze_linearity`,
 > `LINEARITY_AMPS`) — scripts keep only figure/markdown rendering.
 
+### generate_pib_exit_safety_report.py
+
+Renders the **issue #145 (H-28) exit-safety acceptance report** from the
+artefacts `scripts/slm/verify_pib_exit_safety_hw.py` already wrote.
+**Fully offline** — it never constructs a camera or an SLM, so the evidence can
+be re-read with the instruments powered down. Output:
+`report/slm/pib_exit_safety/pib_exit_safety_20261025.md` + `figures/`.
+
+The question it answers is *what is the panel actually displaying* after a run
+dies. Two independent answers are printed and they catch different failures:
+the **firmware readback** (memory-slot number, or direct-grayscale with gray 0)
+names the state, while the **optical comparison** is what exposes a firmware
+no-op — `display_data(...)` into the slot the LCOS already shows does not
+refresh the panel, so a cleanup can "restore the best phase" into empty space.
+The gated predicates are read from each record's `verdict_keys`, so the report's
+acceptance table cannot disagree with what the harness actually gated.
+
+**Usage:**
+```powershell
+python scripts/slm/generate_pib_exit_safety_report.py                 # newest run_* with summary.json
+python scripts/slm/generate_pib_exit_safety_report.py --run-dir report/slm/pib_exit_safety/artifacts/run_20261025_120000
+python scripts/slm/generate_pib_exit_safety_report.py --no-figures
+```
+Every number comes from `summary.json` / the `.npz` crops; with no artefact run
+it exits non-zero and points at the harness instead of writing a placeholder.
+The generator re-stamps its own provenance block (`insert_header`), because it
+overwrites the same report path on every run.
+
 ### generate_hwdataset_corpus_report.py
 
 Generates the `report/hwdataset_corpus` corpus-composition report (12 metadata
@@ -3131,6 +3159,51 @@ by before — put new statistics there, not in a script. Pinned by
 
 ## Verification Scripts
 
+### verify_pib_exit_safety_hw.py
+
+**Hardware** acceptance of issue #145 (H-28): does the `slm_zernike_pib`
+`try/finally` safety exit really leave the SLM on a defined phase (or flat) when
+a run dies? Five scenarios, each one run of the real optimiser through
+monkeypatched display/camera wrappers that record every write and can inject the
+failure at a chosen point:
+
+| key | algorithm | injected failure |
+|---|---|---|
+| A | SPGD | `KeyboardInterrupt` via `_thread.interrupt_main` from a timer, armed on the Nth memory write |
+| B | SPGD | `CameraError` raised from the real driver's `get_numpy_image` on the Nth capture (device stays open) |
+| C | SPGD (10 epochs) | none — a normal short run right after B, to check epoch-0 metrics are sane |
+| D | GA (heuristic) | `KeyboardInterrupt`, same mechanism as A |
+| E | SPGD, `target_size=16` | `KeyboardInterrupt` on a demanding box, to force the best-phase exit branch |
+
+The SLM is kept open past the crash through a `_KeepOpen` proxy (closing drops
+the panel), then the panel is identified two independent ways: firmware readback
+(`get_displayed_memory_number` — error code 1 means direct-grayscale mode and is
+normal; `get_current_grayscale`) and optics (correlate the live frame against
+re-rendered flat / exit-phase / last-iterate crops, against a repeat-frame noise
+floor). `exit_used_a_fresh_slot` is computed from the write log, which is the
+only way to catch the "wrote into the displayed slot" firmware no-op.
+
+Search quality gates are disabled (`fold_ratio=0.0`, `noise_gate_k=-1.0`):
+this bench's flat far field is speckled, so the gates reject every epoch as a
+brightness fold and the search never commits an iterate for the cleanup to
+restore. That is orthogonal to the exit path.
+
+**Usage:**
+```powershell
+# needs the instruments; SLM in memory mode, no other process holding the USB handle
+python scripts/slm/verify_pib_exit_safety_hw.py                 # A–E
+python scripts/slm/verify_pib_exit_safety_hw.py --only A,C      # subset
+python scripts/slm/verify_pib_exit_safety_hw.py --watchdog-s 120
+python scripts/slm/verify_pib_exit_safety_hw.py --dry-run       # print the plan, touch nothing
+```
+Writes `report/slm/pib_exit_safety/artifacts/run_<stamp>/` — `summary.json`
+(rewritten after **every** scenario, so a crash still leaves evidence) and
+`frames/*.npz`. A failing lane is recorded with its `failed_keys` and does not
+stop the remaining scenarios; the exit code is 0 only if all pass. Render the
+report with `generate_pib_exit_safety_report.py`. Offline coverage of the
+decision logic (write log, firmware naming, optical classification, verdict
+plumbing) lives in `tests/ao_shaping/scripts/test_verify_pib_exit_safety_hw.py`.
+
 ### generate_bench_probe_report.py
 
 Regenerates the **illustrated SLM bench-probe report** from artefacts a hardware
@@ -4281,7 +4354,10 @@ capture. Hardware execution requires authorization and available devices.
 
 The second command never opens devices. It derives the full camera mapping from
 recorded signed ramps, initializes physical parameters from the checkpoint, and
-excludes validation phases from fitting and checkpoint selection. It records
+excludes validation phases from gradient fitting and within-stage iteration
+selection. Automatic transfer uses validation phases to select between the
+unchanged optical baseline, alignment adaptation and full optical fitting;
+independent final acceptance therefore requires paired CCD measurements. It records
 per-iteration predictions, parameters, metrics and clocks. Exposure division
 assumes a linear response; the fitted additive background is not a measured dark
 frame. A lower fitting loss does not establish a usable phase gradient.

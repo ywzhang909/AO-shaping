@@ -1,0 +1,56 @@
+{
+  "checkpoint": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\fit\\frozen_parameters.json",
+  "zero_xy": [
+    1227.0,
+    963.0
+  ],
+  "target_xy": [
+    1227.9059624943345,
+    846.1248874983858
+  ],
+  "shapes": [
+    "square",
+    "rectangle",
+    "triangle"
+  ],
+  "period": 64.0,
+  "side": 80.0,
+  "checkpoint_sha256": "bd4fbb6c6c426e7d7144a117f4952ee662c74ffcd222028a7f2bc6d99fbb6c39",
+  "script_sha256": "c308943d4eb9e314dd449aad6a25843d31b203d98e54f5733487ac99076e1572",
+  "gs_iterations": 0,
+  "accept_metric": "cv",
+  "objective": "cv",
+  "seed_provenance": {
+    "square": {
+      "policy": "strict",
+      "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\anchored",
+      "label": "square_final",
+      "gs_calls": 0
+    },
+    "rectangle": {
+      "policy": "strict",
+      "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\anchored",
+      "label": "rectangle_final",
+      "gs_calls": 0
+    },
+    "triangle": {
+      "policy": "strict",
+      "source": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\anchored",
+      "label": "triangle_final",
+      "gs_calls": 0
+    }
+  },
+  "phase_lr": 0.01,
+  "phase_rms_cap": 0.2,
+  "camera": "daheng",
+  "cam_id": 0,
+  "slm_number": 1,
+  "wavelength_nm": 1064,
+  "mode": "anchored",
+  "seed_run": "data\\debug\\slm_transfer\\live_no_gs_20261024_0926\\anchored",
+  "blocks": 2,
+  "updates": 5,
+  "frames": 3,
+  "timestamp_utc": "2026-10-24T01:44:22.283805+00:00",
+  "monotonic_ns": 39311721390700
+}

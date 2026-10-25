@@ -1,0 +1,6 @@
+{
+  "status": "passed",
+  "output": "direction_recovered/result.json",
+  "original_failure": "float64 phase and float32 sampling grid; original failed journal retained",
+  "timestamp_utc": "2026-10-24T01:41:07.279793+00:00"
+}

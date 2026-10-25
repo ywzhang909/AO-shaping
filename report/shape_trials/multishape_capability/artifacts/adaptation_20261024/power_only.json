@@ -1,0 +1,32 @@
+{
+  "selected_stage": "alignment_initial",
+  "escalated": false,
+  "escalation_heuristic": {
+    "correlation_below": 0.85,
+    "relative_l2_above": 0.25
+  },
+  "candidates": [
+    {
+      "stage": "alignment_initial",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\synthetic_20261024_power_fit\\alignment",
+      "quality": {
+        "correlation": 0.9999999999999751,
+        "relative_l2": 2.2287987633262674e-07,
+        "cv_abs_error": 9.5367431640625e-07,
+        "score": 2.228799012016225e-07
+      }
+    },
+    {
+      "stage": "alignment",
+      "directory": "D:\\Projects\\TIFO\\AO-shaping\\data\\debug\\slm_transfer\\synthetic_20261024_power_fit\\alignment",
+      "quality": {
+        "correlation": 0.9999999999999751,
+        "relative_l2": 2.2287987633262674e-07,
+        "cv_abs_error": 9.5367431640625e-07,
+        "score": 2.228799012016225e-07
+      }
+    }
+  ],
+  "timestamp_utc": "2026-10-23T23:55:38.251366+00:00",
+  "monotonic_ns": 32787578336500
+}
