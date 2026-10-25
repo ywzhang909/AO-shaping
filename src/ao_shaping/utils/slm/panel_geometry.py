@@ -9,6 +9,11 @@ Naming trap: this is a **spatial placement** op (model-grid radians -> panel-siz
 radians, zero outside the disc). It is NOT the radians->uint16 grayscale
 conversion in :func:`ao_shaping.utils.slm.phase_display.phase_to_slm_grayscale`.
 The two are different transforms and must not be merged.
+
+Also hosts :func:`flat_gray` (moved up from the retired top-level
+``utils/slm_phase.py`` under issue #199 P3): it is panel-res pattern creation,
+the same family as the placement op, and its default resolution derives from
+the single-source bench constants instead of a third panel-size literal.
 """
 
 from __future__ import annotations
@@ -18,7 +23,30 @@ from scipy.ndimage import zoom
 
 from ao_shaping.utils.slm.bench_constants import SLM_PANEL_H, SLM_PANEL_W
 
-__all__ = ["phase_to_panel"]
+__all__ = ["DEFAULT_PANEL_RES", "flat_gray", "phase_to_panel"]
+
+#: Default panel resolution as ``(height, width)`` -- the shape the Santec
+#: driver expects. Derived from ``SLM_PANEL_H``/``SLM_PANEL_W`` so a bench
+#: change updates exactly one place.
+DEFAULT_PANEL_RES = (SLM_PANEL_H, SLM_PANEL_W)
+
+
+def flat_gray(
+    panel_res: tuple[int, int] | None = None,
+    gray_value: int = 0,
+) -> np.ndarray:
+    """Create a raw uint16 flat grayscale pattern.
+
+    Args:
+        panel_res: ``(height, width)`` in panel px; defaults to
+            :data:`DEFAULT_PANEL_RES` (a falsy value also falls back to it).
+        gray_value: Fill value (0..1023 for the 10-bit Santec panel).
+
+    Returns:
+        A ``(height, width)`` uint16 array filled with ``gray_value``.
+    """
+    height, width = panel_res or DEFAULT_PANEL_RES
+    return np.full((height, width), gray_value, dtype=np.uint16)
 
 
 def phase_to_panel(

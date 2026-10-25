@@ -1,4 +1,4 @@
-"""Regression anchors for ``ao_shaping.utils.targets``.
+"""Regression anchors for ``ao_shaping.utils.image.targets``.
 
 Pins the exact current behavior of the target-pattern generation module
 (parametric shapes, masks, image loading, square-target sizing and the

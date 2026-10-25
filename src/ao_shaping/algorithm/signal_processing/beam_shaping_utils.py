@@ -8,12 +8,12 @@
 迁移对照表:
 - 目标图形生成 (``create_target_shape`` / ``create_target_mask`` /
   ``load_target_image`` / ``square_target_from_measurement`` / ...) ->
-  :mod:`ao_shaping.utils.targets`.
+  :mod:`ao_shaping.utils.image.targets`.
 - 质量指标 (``compute_beam_metrics`` / ``compute_shaping_metrics`` /
   ``compute_square_metrics`` / ``compute_quality_score`` /
   ``measure_spot_diameter_cam`` / ``measure_bright_span`` /
   ``normalize_pattern`` / ``intensity_to_amplitude`` / ``clamp_side``) ->
-  :mod:`ao_shaping.utils.beam_metrics`.
+  :mod:`ao_shaping.utils.image.beam_metrics`.
 - SLM 相位转换 / 存储槽轮转 (``phase_to_slm_grayscale`` /
   ``pick_slm_slot`` / ``display_phase`` + 物理常量) ->
   :mod:`ao_shaping.utils.slm.phase_display`.
@@ -24,7 +24,7 @@
 from __future__ import annotations
 
 # fmt: off
-# 目标图形生成 -> ``ao_shaping.utils.targets``
+# 目标图形生成 -> ``ao_shaping.utils.image.targets``
 from ao_shaping.utils.image.targets import (
     build_square_target_amplitude,
     compute_square_side,
@@ -34,7 +34,7 @@ from ao_shaping.utils.image.targets import (
     load_target_image,
     square_target_from_measurement,
 )
-# 质量指标 -> ``ao_shaping.utils.beam_metrics``
+# 质量指标 -> ``ao_shaping.utils.image.beam_metrics``
 from ao_shaping.utils.image.beam_metrics import (
     clamp_side,
     compute_beam_metrics,

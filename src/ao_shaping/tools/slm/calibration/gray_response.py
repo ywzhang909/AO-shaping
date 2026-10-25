@@ -29,7 +29,8 @@ except ImportError:
 from ao_shaping.drivers.ccd.miicam.driver import MIICamera
 from ao_shaping.drivers.slm.santec import Santec, SlotRotator
 from ao_shaping.utils.cli.params import option, with_params
-from ao_shaping.utils.slm_phase import capture_frame, flat_gray
+from ao_shaping.utils.image.hardware_utils import capture_frame
+from ao_shaping.utils.slm.panel_geometry import flat_gray
 
 FIELDNAMES = [
     "gray_value",

@@ -5,6 +5,8 @@ re-exports these names for backward compatibility.
 
 Contains:
 - ``capture_amplitude``: CCD 远场采集 → float32 振幅。
+- ``capture_frame``: 平均帧采集 (可丢弃前置帧, 来自已退役的
+  ``utils/slm_phase.py``, issue #199 P3)。
 - ``call_with_timeout``: 硬件 SDK 调用 (可能挂起) 的看门狗超时。
 - Auto-exposure helpers (纯目标计算 + 相机应用)。
 - Frame recording (``frames/`` 目录 + PNG + JSONL 元数据)。
@@ -33,6 +35,7 @@ if TYPE_CHECKING:  # pragma: no cover
 
 __all__ = [
     "capture_amplitude",
+    "capture_frame",
     "init_frame_recording",
     "save_frame_png",
     "record_frame",
@@ -89,6 +92,39 @@ def capture_amplitude(
     if amax > 0:
         amp = amp / amax
     return amp.astype(np.float32)
+
+
+def capture_frame(
+    camera: Any,
+    n_sample: int = 1,
+    skip_first: bool = True,
+    discard_count: int = 0,
+) -> np.ndarray:
+    """Capture a fresh averaged frame with optional discarded leading frames.
+
+    A thin wrapper over ``camera.get_numpy_image`` used by the SLM
+    calibration probes; ``skip_first``/``discard_count`` drop stale frames
+    that the sensor still holds from the previous display.
+
+    Args:
+        camera: An opened camera exposing ``get_numpy_image``.
+        n_sample: Frames to average (>= 1).
+        skip_first: Forwarded to ``get_numpy_image``; also forces one extra
+            discard when ``n_sample == 1``.
+        discard_count: Additional frames to grab and drop before capturing.
+
+    Returns:
+        The averaged frame array (dtype/shape from the driver).
+
+    Raises:
+        ValueError: If ``n_sample < 1``.
+    """
+    if n_sample < 1:
+        raise ValueError("n_sample must be at least 1")
+    discard = 1 if skip_first and n_sample == 1 else 0
+    for _ in range(discard + discard_count):
+        camera.get_numpy_image(n_sample=1)
+    return camera.get_numpy_image(n_sample=n_sample, skip_first=skip_first)
 
 
 # ---------------------------------------------------------------------------

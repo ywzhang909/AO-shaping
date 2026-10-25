@@ -1889,3 +1889,28 @@ transfer 判定与 bench 指标若漂移，报告数字不可比。
   `ml/gsnet/evaluate.py` 自带指标、`transfer/fit.py::metrics`（全帧 CV）。
 
 ---
+
+---
+
+### 5.42 Step 6（issue #199 P3+P4：遗留清理与门面文档）
+
+- **P3**：删顶层 `utils/slm_phase.py`。`flat_gray`/`DEFAULT_PANEL_RES` 上移
+  `utils/slm/panel_geometry.py`（与 `phase_to_panel` 同家的面板尺寸图案创建；
+  `DEFAULT_PANEL_RES` 改从 `bench_constants.SLM_PANEL_H/W` 派生，消除第三方
+  面板尺寸字面量，值 `(1200, 1920)` 逐位不变）；`capture_frame` 上移
+  `utils/image/hardware_utils.py`（相机采集的家，duck-typed `Any` 符合该
+  叶子层约束）。三个消费者（`panel/phase_response`、`calibration/
+  phase_capture`、`calibration/gray_response`）改 import 后行为逐位不变
+  （fake-camera 调用序列断言：skip_first/n_sample==1 的额外丢弃、
+  discard_count、n_sample<1 ValueError 全部复现旧语义）。
+- **P4**：`algorithm/signal_processing/beam_shaping_utils.py`（deprecated
+  re-export 门面）docstring 的腐烂路径 `ao_shaping.utils.targets` /
+  `ao_shaping.utils.beam_metrics` 修正为 `ao_shaping.utils.image.*`（连同
+  import 块注释）；两个测试文件 docstring 头部同类腐烂一并修。
+- 范围外记录：`tools/zernike/common.py::flat_gray()`（无参数第三份，
+  wfs/report/runner 消费者）签名不同，属 R-28 去重范围，未动；
+  `ml/hwdataset/records.py::DEFAULT_PANEL_RESOLUTION`（(w,h) 顺序相反）
+  是 ml 侧独立常量，未动。
+- 套件：utils+tools/slm+import-resolve 守卫 2783 passed；runners 533 passed
+  （2 个 CLI golden 失败在未改动 HEAD 只读克隆上复现，系并发 agent 的 CLI
+  WIP）；ruff 对触及文件全清（剩余 5 个在 runs/ 他人 WIP）。

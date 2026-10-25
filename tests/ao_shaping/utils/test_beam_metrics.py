@@ -1,4 +1,4 @@
-"""Regression-anchor tests for :mod:`ao_shaping.utils.beam_metrics`.
+"""Regression-anchor tests for :mod:`ao_shaping.utils.image.beam_metrics`.
 
 Pins the exact current behavior of the pure-NumPy beam-shaping metrics
 (compute_beam_metrics, compute_shaping_metrics, compute_square_metrics,
