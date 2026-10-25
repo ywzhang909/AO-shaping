@@ -2338,3 +2338,87 @@ def test_agents_md_never_pins_main_py_by_line_number() -> None:
         'Cite the symbol instead (e.g. `cli.add_command(..., name="...")`); line numbers '
         "here move on every docstring edit, which is how they were already wrong once."
     )
+
+
+#: ``CHANGELOG.md`` is the one live document whose backticked hex tokens are commit
+#: citations by convention -- batches like ``(``26d01013``, `fdc0696c``, ...)`` sitting
+#: next to the issue numbers they close. Measured 2026-10-25: 71 such citations, one of
+#: which was a one-character typo (``fdc0696c`` for ``fdc0696f``, "lift the T1/T2
+#: composite into a shared _common.shaping_score (#154)") -- and #154 was the only item in
+#: that batch no listed hash covered, which is how the typo was identifiable at all.
+_CHANGELOG = REPO / "CHANGELOG.md"
+
+#: A markdown link label names a *file*, not a commit. The CHANGELOG's only non-commit hex
+#: tokens are link labels (``[`20261014`](./report/.../model_in_loop_live_20261014.md)``),
+#: so they are excluded by CONTEXT and never by digit shape: 37 commits in this history
+#: have all-digit short hashes (``91209176`` is one, and it resolves), so "all digits means
+#: a date" would silently excuse a genuinely broken citation.
+_MD_LINK_LABEL = re.compile(r"\[[^\]]*\]\([^)]*\)")
+
+#: A floor, not an exact count -- citations grow with every entry. The point is to fail when
+#: the grammar stops matching the file: a guard that parses 0 tokens passes vacuously, which
+#: is how the markdown-table arity guard nearly shipped (it scanned 0 blocks, caught only by
+#: an unrelated magnitude bound). Measured 71; floor 50 leaves room to reformat, none to vanish.
+_MIN_CHANGELOG_CITATIONS = 50
+
+
+def test_backticked_hex_citations_in_the_changelog_resolve_to_commits() -> None:
+    """Every backticked hex token in ``CHANGELOG.md`` names a commit that exists.
+
+    A citation to an unreachable commit voids its own evidence: the batch line reads as
+    verified while one of its six hashes matches nothing. Same rot class as a stale path
+    citation (TODO 8.9 items 23/24/29/30), same remedy -- resolve mechanically instead of
+    trusting the prose.
+
+    Scoped to ``CHANGELOG.md`` deliberately. The identical grammar over every ``*.md`` in
+    the repo returned 185 candidates with 16 false positives in four shapes: dates, device
+    serial numbers (``22030102``), upstream OOPAO revisions (OOPAO is a separate editable
+    install, ``oopao = { path = "libs/OOPAO" }``, so its revs are legitimately absent from
+    this object database), and recorded-checksum prefixes in test write-ups. A repo-wide
+    rule would have to hard-code all four exemptions, and would then be measuring its own
+    regex rather than the repository.
+    """
+    import subprocess
+
+    text = _MD_LINK_LABEL.sub("", _CHANGELOG.read_text(encoding="utf-8"))
+    citations = {token for token in re.findall(r"`([0-9a-f]{7,40})`", text)}
+    assert len(citations) >= _MIN_CHANGELOG_CITATIONS, (
+        f"parsed only {len(citations)} citation(s) from CHANGELOG.md, below the floor "
+        f"{_MIN_CHANGELOG_CITATIONS}: the token grammar no longer matches the file's format, "
+        "so a pass here would mean nothing was actually checked."
+    )
+
+    broken: list[str] = []
+    for cite in sorted(citations):
+        probe = subprocess.run(
+            ["git", "cat-file", "-t", cite],
+            capture_output=True,
+            text=True,
+            cwd=str(REPO),
+            check=False,
+        )
+        kind = probe.stdout.strip()
+        if kind == "commit":
+            continue
+        # `cat-file -t` is the one call that separates the three document defects, reporting an
+        # ambiguous abbreviation on stderr rather than through an option. An earlier draft used
+        # `git rev-parse --disambiguate <token>` as two argv entries, which git rejects (it needs
+        # `--disambiguate=<token>`): rev-parse echoed the unknown option AND the token itself to
+        # stdout, so a filtered scan matched the typo against its own text and labelled a
+        # nonexistent hash "names a non-commit object" -- a wrong diagnosis shipped inside a
+        # guard whose whole purpose is diagnosis.
+        if kind:
+            why = f"names a {kind}, not a commit"
+        elif "ambiguous" in probe.stderr:
+            why = "prefix not unique"
+        else:
+            why = "no such object"
+        broken.append(f"{cite} ({why})")
+    assert not broken, (
+        f"{len(broken)} CHANGELOG.md citation(s) do not resolve to a commit: {broken}. "
+        "For a typo, `git rev-parse --disambiguate=<prefix>` usually shows the intended "
+        "commit next to the batch's issue number (the case this guard was written for: "
+        "`fdc0696c` -> `fdc0696f`, batch item #154). If history was rewritten under the "
+        "citation, re-verify against `git log` and correct the entry -- never delete the "
+        "claim just to go green."
+    )
