@@ -2639,6 +2639,50 @@ ao_shaping/__init__.py ─lazy/shim─→ sim.*
        `test_interaction_matrix_zernike.py` 合跑 **23 passed / 1 skipped**（该 skip 是既有的 mock 接口
        不足）；改动文件编译通过；CI 钉版 ruff **0.15.12** 全绿。
 
+64. ✅ **两个模块对同一份落盘格式的理解不一致：缓存写入方存的是 1-D 拼接 + 偏移表，读取方却按矩形数组逐行下标，于是每条记录拿到的是别人家的数**（2026-10-26）：
+     - **来路（沿第 63 条向外普查）**：普查「一个逻辑产物落多个文件」的持久化方案后，**第一个候选被我自己
+       推翻** —— 硬件在环那条路径读 `fitted_coefficients.npy` 的加载器**已经**同时校验形状（对齐
+       `calc_n_zernike_terms(n_orders)`）与有限性，并已有测试覆盖。同一轮里我还怀疑 `source_amplitude.npy`
+       是「只写不读」的死产物，grep 后同样作废：它被约 10 个离线分析脚本读回。**两条都在动手前死掉，
+       没有产生任何代码改动。**
+     - **站住的缺陷是跨模块布局不一致**：写入方 `src/ml/gsnet_debug/cache.py` 把 `c_flat.npy` 存成
+       **1-D 拼接**（`np.concatenate(c_chunks)`），记录边界放在 `c_offsets.npy`，并明确声明每条记录的
+       项数「never padded and never truncated」；它自己的读取方按 `flat[start:stop]` 切片。而
+       `optimizer/wfless/model_in_loop_shaping.py` 的 `_records_from_cache` **从不读 `c_offsets`**
+       （该文件出现次数为 0），却按 `coeffs[index]` 逐行取。对 1-D 数组这个下标是**一个标量**，且来自
+       另一条记录的区段 ⇒ 每条记录只在 slot 0 拿到一个错位的数、其余全是 0，且**全程无警告**。这些值正是
+       `CalibrationRecord.coefficients`，用于报告逐记录拟合误差 —— 也就是说报告里的地面真值是错的。
+     - **为什么一直没暴露**：既有缓存测试写的是 `np.zeros((3, 28))` —— **2-D 矩形**，而没有任何写入方
+       产出这种形状。测试把实现者的假设当成了格式定义。
+     - **RED 先行，且故意留一条兼容性锚点**：新测试先跑 **5 failed / 1 passed**。唯一通过的那条不是我
+       顺手写错的，而是**动手前就写下**的约束：2-D 矩形布局必须继续能加载（既有测试用的正是它）。修复后
+       该锚点仍绿。
+     - **不靠猜：先量写入方能否产出空系数行**：写入方在 `_coerce_coefficients` **之前**就对缺系数键的记录
+       报错（"cannot be cached"），所以「空行」不是真实情形，无需特例。
+     - **修复**：新增 `_per_record_coefficients`（1-D ⇒ 按 `c_offsets` 切片；缺 `c_offsets` 或偏移表
+       跨度与数组不符 ⇒ **`ValueError` 拒绝猜边界**；2-D ⇒ 行数必须等于帧数，此前多出的帧会**静默**拿到
+       `None`）。填充到 `n_coeffs` 的语义原样保留 —— 这次只改**取到的值**，不改口径。
+     - **差分控制证明「切片」与「校验」各自受力**：只把取值改回 `coeffs[index]`（**保留**校验）⇒
+       恰好两条数值测试变红，四条拒绝类测试仍绿（2 failed / 4 passed）。
+     - **我自己的误读（在案，已被自己的实验推翻）**：一次「未打补丁」的整目录运行里我看到
+       `FFFF.F`，就推断「我的修复顺带修好了 5 条在库红测试」。**不成立**：该模块自己的测试在未打补丁的树上
+       是 **49 passed / 0 failed**，把同一条整目录命令在未打补丁的树上重跑则**一条失败行都没有**。最可能是
+       同一次运行在 ~33% 处被 SIGKILL 前的内存压力抖动。**这个推断没有进入任何结论或提交说明。**
+     - **我自己的操作错误（第 24 次）**：差分控制里我把 `cp` 还原与「换回未打补丁版本」写在同一条
+       命令中，而命令里一个 echo 的单引号串内出现了撇号 ⇒ bash **解析失败**，但**第一行已经执行**（已把
+       未打补丁版本覆盖进工作树），后半段的还原**从未运行**。发现方式只是我在下一条命令开头先打印
+       `git diff --numstat`（**为空**）。规则：任何会改文件做控制的命令，还原必须由**另一条**命令凭 diff
+       构成确认；含撇号的说明文字不要用单引号包裹。
+     - **既有限制（不由本次改动引起，两次实测一致）**：`tests/ao_shaping/optimizer/wfless` **整目录**
+       在 6 g 包络内无法作为一批运行 —— 约 33% 处 exit 137（SIGKILL），**打补丁前后完全相同**。因此本条
+       的验证用**定向消费者集合**，不用整目录。
+     - **验证**：定向终跑（缓存布局 + `test_model_in_loop_shaping` + `test_slm_model_in_loop` +
+       display）**213 passed**；更早一轮含 conventions 的消费者批次 **268 passed / 1 skipped / 2 failed**
+       （失败对仍是既有 `pib_exit_safety`）；新测试
+       `tests/ao_shaping/optimizer/wfless/test_model_in_loop_cache_layout.py` 6 条全绿；改动文件
+       编译通过，diff **49 insertions / 7 deletions**；
+       CI 钉版 ruff **0.15.12** 全绿。
+
 ### 8.10 `assert` → 驱动层：三条护栏
 
 | 项 | 为什么不能 |
