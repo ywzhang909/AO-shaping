@@ -3934,3 +3934,61 @@ def test_wiki_source_citations_land_on_definitions() -> None:
         "gen_wiki_pages.py; if a page is hand-written, derive its citation instead of "
         "pinning a literal."
     )
+#: Two docs restate the CLI inventory by hand as a table plus a count: ``README.md``'s command
+#: overview and ``docs/user/cli-reference.md``'s reference table. Both were wrong at one point
+#: (TODO 8.9 item 29 found 8 places naming a retired command as top-level), and nothing re-checks
+#: them. Only table *rows* and the stated count are read, so prose that legitimately discusses a
+#: retired command -- e.g. README's note that ``spgd-square`` is no longer top-level -- is never
+#: treated as an inventory claim (the repo-wide prose version of this guard was rejected, item 30).
+_CLI_DOC_README = REPO / "README.md"
+_CLI_DOC_REFERENCE = REPO / "docs" / "user" / "cli-reference.md"
+_CLI_README_ROW = re.compile(r"^\| `([a-z][a-z0-9-]+)` \| \[docs/", re.MULTILINE)
+_CLI_README_COUNT = re.compile(r"注册 \*\*(\d+) 个顶层命令\*\*")
+_CLI_REFERENCE_ROW = re.compile(r"^\| `([a-z][a-z0-9-]+)` \| [^|]+ \| \d+ \|$", re.MULTILINE)
+_CLI_REFERENCE_COUNT = re.compile(r"当前共 \*\*(\d+) 个命令\*\*")
+#: Measured 2026-10-26: 19 rows in each table. A guard that parses no rows passes vacuously.
+_MIN_CLI_DOC_ROWS = 19
+
+
+def test_cli_inventory_tables_in_docs_track_the_registered_commands() -> None:
+    """Both hand-written CLI tables and their stated counts must equal the live registry.
+
+    A command added to ``main.py`` without a doc row -- or a row left behind after removal --
+    is a claim about an interface that does not exist, and users type what the table says.
+    """
+    from ao_shaping.main import cli  # the runtime registry, not a re-parse of main.py
+
+    registered = set(cli.commands)
+    assert len(registered) >= _MIN_CLI_DOC_ROWS, (
+        f"main.py registers {len(registered)} command(s), below the floor "
+        f"{_MIN_CLI_DOC_ROWS} -- the import found a degraded CLI"
+    )
+
+    sources = (
+        (_CLI_DOC_README, _CLI_README_ROW, _CLI_README_COUNT, "**全局选项**"),
+        (_CLI_DOC_REFERENCE, _CLI_REFERENCE_ROW, _CLI_REFERENCE_COUNT, "## 2. 全局选项"),
+    )
+    for path, row_re, count_re, tail_marker in sources:
+        rel = path.relative_to(REPO).as_posix()
+        text = path.read_text(encoding="utf-8-sig")
+        table_text = text.split(tail_marker)[0] if tail_marker in text else text
+
+        rows = row_re.findall(table_text)
+        assert len(rows) >= _MIN_CLI_DOC_ROWS, (
+            f"{rel}: parsed {len(rows)} command row(s), below the floor {_MIN_CLI_DOC_ROWS} "
+            "-- the table's shape changed, so this guard is checking nothing"
+        )
+        extra = sorted(set(rows) - registered)
+        missing = sorted(registered - set(rows))
+        assert not extra and not missing, (
+            f"{rel}'s CLI table disagrees with main.py: "
+            f"listed-but-not-registered={extra} registered-but-unlisted={missing}"
+        )
+
+        stated = count_re.findall(text)
+        assert stated, f"{rel} no longer states its command count -- the wording changed"
+        wrong = [n for n in stated if int(n) != len(registered)]
+        assert not wrong, (
+            f"{rel} states {wrong} command(s) while main.py registers {len(registered)} -- "
+            "restate the count in the same commit that changes the CLI"
+        )
