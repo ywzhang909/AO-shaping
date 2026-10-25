@@ -101,6 +101,16 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 include = ["ao_shaping*", "ml*"]
 
+# `ml.sim2f` ships a data asset: the von Karman Zernike covariance that
+# `AberrationConfig(aberration_model="kolmogorov")` reads through
+# `Path(__file__).parent / "assets"`. setuptools' default file set is `*.py`
+# only, so without this block the file exists in a source checkout and is
+# missing from an installed wheel -- i.e. the feature would work from the repo
+# root and fail everywhere else, which is exactly the CWD-relative trap
+# `drivers/AGENTS.md` records for `data/dm_adj.txt`.
+[tool.setuptools.package-data]
+"ml.sim2f" = ["assets/*.npz", "assets/*.json"]
+
 [dependency-groups]
 dev = [
     "ipywidgets>=8.1.8",

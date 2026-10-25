@@ -62,7 +62,9 @@ Phase generators in this repository return **raw unwrapped radians**; the only
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 __all__ = [
@@ -859,6 +861,23 @@ class AberrationConfig:
             energy goes, the spot position no longer identifies tilt, and
             letting it move would absorb real shaping error into a degenerate
             direction.
+        aberration_model: Shape of the high-order coefficient ensemble.
+            ``"iid"`` (default) draws them ``N(0, 1)`` independently and only
+            rescales the total RMS -- the behaviour every corpus so far was
+            generated with, kept as the default **bit for bit**.
+            ``"kolmogorov"`` draws them from the spatially correlated von Karman
+            covariance in :attr:`covariance_path`, then rescales to the *same*
+            ``rms_rad``.  The two differ only in the *shape* of the ensemble,
+            never in its amplitude: real turbulence has strongly correlated
+            modes with variance falling steeply with radial order, while an i.i.d.
+            draw puts far too much energy in high order.
+        covariance_path: Path to the ``.npz`` holding the ``(n_modes - 2, n_modes
+            - 2)`` Zernike covariance in ``rad**2`` for Noll ``4 ..
+            n_modes + 1``.  Required (and validated to exist) for
+            ``aberration_model="kolmogorov"``; ignored by ``"iid"``.
+            :data:`ml.sim2f.optics.DEFAULT_COVARIANCE_PATH` is the packaged
+            asset; regenerate it with
+            ``scripts/ml/build_sim2f_aberration_covariance.py``.
     """
 
     n_modes: int = 21
@@ -872,6 +891,11 @@ class AberrationConfig:
     fit_iters: int = 80
     fit_lr: float = 0.05
     fit_frozen: tuple[int, ...] = (1, 2, 3)
+    # Appended (not inserted) on purpose: the fields above keep their positions
+    # so any positional construction of this dataclass still means the same
+    # thing.
+    aberration_model: Literal["iid", "kolmogorov"] = "iid"
+    covariance_path: str | None = None
 
     def __post_init__(self) -> None:
         if self.n_modes < 1:
@@ -900,6 +924,26 @@ class AberrationConfig:
         for noll in (*self.probe_modes, *self.probe_frozen, *self.fit_frozen):
             if int(noll) < 1:
                 raise ValueError(f"Noll indices are 1-based and >= 1, got {noll}")
+        if self.aberration_model not in ("iid", "kolmogorov"):
+            raise ValueError(
+                "aberration_model must be 'iid' or 'kolmogorov', got "
+                f"{self.aberration_model!r}"
+            )
+        if self.aberration_model == "kolmogorov":
+            # Only the kolmogorov path reads the file, so a stale path under
+            # "iid" is deliberately not an error: switching the model on is the
+            # moment to be told the asset is missing, not before.
+            if not self.covariance_path:
+                raise ValueError(
+                    "aberration_model='kolmogorov' requires covariance_path "
+                    "(see ml.sim2f.optics.DEFAULT_COVARIANCE_PATH and "
+                    "scripts/ml/build_sim2f_aberration_covariance.py)"
+                )
+            asset = Path(self.covariance_path)
+            if not asset.is_file() or not os.access(asset, os.R_OK):
+                raise ValueError(
+                    f"covariance_path is not a readable file: {self.covariance_path!r}"
+                )
 
     @property
     def coefficient_noll(self) -> tuple[int, ...]:
@@ -920,6 +964,8 @@ class AberrationConfig:
             "fit_iters": int(self.fit_iters),
             "fit_lr": float(self.fit_lr),
             "fit_frozen": [int(v) for v in self.fit_frozen],
+            "aberration_model": str(self.aberration_model),
+            "covariance_path": None if self.covariance_path is None else str(self.covariance_path),
         }
 
 

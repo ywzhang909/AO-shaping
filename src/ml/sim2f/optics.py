@@ -77,6 +77,8 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -92,10 +94,21 @@ from ml.sim2f.config import AberrationConfig, Sim2fConfig
 
 __all__ = [
     "AberrationState",
+    "DEFAULT_COVARIANCE_PATH",
     "Sim2f",
     "draw_aberration",
     "write_aberration",
 ]
+
+#: Packaged von Karman Zernike covariance for the reference geometry
+#: (``n_modes`` 21 -> Noll 4..22, grid 128).  Anchored to the package, never to
+#: the CWD: the driver layer already paid for that lesson (a class-body
+#: ``np.loadtxt("data/dm_adj.txt")`` made ``import ao_shaping`` fail anywhere but
+#: the repo root).  Regenerate with
+#: ``scripts/ml/build_sim2f_aberration_covariance.py``.
+DEFAULT_COVARIANCE_PATH = (
+    Path(__file__).parent / "assets" / "zernike_cov_kolmogorov_n21.npz"
+)
 
 #: Floor used when reducing a ``(cos, sin)`` pair to an angle, so an exactly zero
 #: phasor resolves to angle 0 instead of NaN.
@@ -1243,6 +1256,109 @@ class AberrationState:
         )
 
 
+@lru_cache(maxsize=8)
+def _covariance_factor(path: str) -> tuple[np.ndarray, np.ndarray]:
+    """Load a Kolmogorov covariance asset and factor it for drawing.
+
+    The factor ``L = V diag(sqrt(clip(lambda, 0)))`` has ``L L^T = Sigma``, so
+    ``L @ g`` is ``N(0, Sigma)`` for ``g ~ N(0, I)``.  Going through one
+    eigendecomposition per *path* (not per draw) is what keeps the correlated
+    path cheap enough for a corpus run.
+
+    Negative eigenvalues are **clipped at zero**, deliberately: ``Sigma`` is a
+    covariance projected through ``pinv``, so round-off leaves eigenvalues of
+    order ``-1e-16 * max`` that must not reach ``sqrt``.  The clip cannot hide a
+    rank-deficient asset -- the packaged one has ``min/max = 1.3e-2`` -- and
+    ``sqrt`` of a clipped-to-zero eigenvalue simply yields a zero direction
+    instead of a NaN.
+
+    Args:
+        path: Path to the ``.npz`` (``covariance``, ``noll``, plus provenance
+            scalars).
+
+    Returns:
+        ``(noll, factor)``: the Noll indices covered, ``(K,)``, and the ``(K, K)``
+        draw factor in ``rad``.
+
+    Raises:
+        FileNotFoundError: If the asset is missing.
+        ValueError: If the asset is malformed (wrong shape, mismatched ``noll``,
+            non-finite entries, or no positive eigenvalue at all).
+    """
+    asset = Path(path)
+    if not asset.is_file():
+        raise FileNotFoundError(
+            f"Kolmogorov covariance asset not found: {asset}. Generate it with "
+            "scripts/ml/build_sim2f_aberration_covariance.py, or leave "
+            f"aberration_model='iid'. Packaged asset: {DEFAULT_COVARIANCE_PATH}"
+        )
+    with np.load(asset) as data:
+        covariance = np.asarray(data["covariance"], dtype=np.float64)
+        noll = np.asarray(data["noll"], dtype=np.int64)
+    if covariance.ndim != 2 or covariance.shape[0] != covariance.shape[1]:
+        raise ValueError(
+            f"{asset} has covariance shape {covariance.shape}, expected (K, K)"
+        )
+    if noll.shape != (covariance.shape[0],):
+        raise ValueError(
+            f"{asset} has noll shape {noll.shape} but covariance shape "
+            f"{covariance.shape}"
+        )
+    if not np.all(np.isfinite(covariance)):
+        raise ValueError(f"{asset} has non-finite covariance entries")
+
+    eigenvalues, eigenvectors = np.linalg.eigh(0.5 * (covariance + covariance.T))
+    if float(eigenvalues.max()) <= 0.0:
+        raise ValueError(f"{asset} covariance has no positive eigenvalue")
+    eigenvalues = np.clip(eigenvalues, 0.0, None)
+    factor = eigenvectors * np.sqrt(eigenvalues)[None, :]
+    logger.debug(
+        "loaded Kolmogorov Zernike covariance {} (Noll {}..{}, eig {:.3e}..{:.3e} rad^2)",
+        asset.name,
+        int(noll[0]),
+        int(noll[-1]),
+        float(eigenvalues.min()),
+        float(eigenvalues.max()),
+    )
+    return noll, factor
+
+
+def _correlated_high_order(white: np.ndarray, cfg: AberrationConfig) -> np.ndarray:
+    """Map i.i.d. normals onto the correlated von Karman ensemble.
+
+    ``white`` is consumed as-is, so the correlated and i.i.d. paths use **the
+    same number of RNG draws** -- a seed cannot mean "the same noise" across
+    models (that is impossible: the two ensembles differ), but it does mean the
+    rest of the state (tilt, illumination) stays aligned for a given seed.
+
+    Args:
+        white: ``(K,)`` standard normals, ``K = n_modes - 2``.
+        cfg: Distribution contract; ``covariance_path`` must be set.
+
+    Returns:
+        ``(K,)`` coefficients in ``rad``, distributed ``N(0, Sigma)``.
+
+    Raises:
+        ValueError: If the config has no path, or the asset covers a different
+            number of modes.
+    """
+    if not cfg.covariance_path:
+        raise ValueError(
+            "aberration_model='kolmogorov' requires covariance_path; "
+            f"see {DEFAULT_COVARIANCE_PATH}"
+        )
+    noll, factor = _covariance_factor(str(cfg.covariance_path))
+    if factor.shape[0] != white.size:
+        raise ValueError(
+            f"covariance asset covers {factor.shape[0]} modes "
+            f"(Noll {int(noll[0])}..{int(noll[-1])}) but n_modes="
+            f"{cfg.n_modes} asks for {white.size} (Noll 4..{cfg.n_modes + 1}); "
+            "rebuild it with scripts/ml/build_sim2f_aberration_covariance.py "
+            f"--n-modes {cfg.n_modes}"
+        )
+    return factor @ white
+
+
 def draw_aberration(
     sim: Sim2f,
     cfg: AberrationConfig,
@@ -1250,9 +1366,33 @@ def draw_aberration(
 ) -> AberrationState:
     """Draw one bench state from :class:`~ml.sim2f.config.AberrationConfig`.
 
-    The high-order modes are drawn ``N(0, 1)`` and then rescaled so the vector's
-    RMS is uniform in ``cfg.rms_rad`` -- drawing both the RMS and the shape from
-    one distribution would concentrate every state near the same magnitude.
+    The high-order modes are drawn and then rescaled so the vector's RMS is
+    uniform in ``cfg.rms_rad`` -- drawing both the RMS and the shape from one
+    distribution would concentrate every state near the same magnitude.  The
+    *shape* of the ensemble is ``cfg.aberration_model``:
+
+    * ``"iid"`` (default): ``N(0, 1)`` per mode.  This is what every corpus so
+      far was generated with, and the draw order is pinned by
+      ``tests/ao_shaping/ml/sim2f/test_aberration_covariance.py`` -- adding a
+      correlation option must not perturb these bytes.
+    * ``"kolmogorov"``: ``N(0, Sigma)`` from a von Karman covariance asset
+      (strongly correlated modes, variance falling with radial order).  The
+      ``rms_rad`` rescale is applied *after* the correlated draw, so the
+      amplitude knob -- and therefore the difficulty range -- is identical
+      between the two models.
+
+      That ordering has a measured cost worth knowing: fixing the vector's RMS
+      puts every draw on a sphere, and an anisotropic ensemble squeezes toward
+      isotropy on a sphere (Bingham).  Over 2000 draws the realised diagonal
+      ladder is compressed by 0.85x at low order and 1.27x at the highest mode
+      (measured in ``test_end_to_end_shape_survives_the_rms_rescale``), so the
+      defocus-to-Noll-22 ratio lands at ~24x instead of the asset's 35x --
+      still an order of magnitude away from the 1x an i.i.d. draw gives.  If the
+      *exact* ``Sigma`` is ever needed, the amplitude has to come from the
+      ensemble (e.g. draw the RMS from the physically implied Rayleigh/"energy
+      in the pupil" distribution) instead of from an independent uniform
+      ``rms_rad``.
+
     Tip/tilt is drawn as a spot offset (uniform magnitude on a uniform azimuth)
     because that is the observable, and converted through the bench.
 
@@ -1270,6 +1410,8 @@ def draw_aberration(
     n_high = max(0, n_modes - 2)
     if n_high > 0:
         high = rng.standard_normal(n_high)
+        if cfg.aberration_model == "kolmogorov":
+            high = _correlated_high_order(high, cfg)
         rms = float(np.sqrt(np.mean(high * high)))
         target = float(rng.uniform(*cfg.rms_rad))
         if rms > 0.0:

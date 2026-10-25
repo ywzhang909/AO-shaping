@@ -1,0 +1,55 @@
+{
+  "asset": "zernike_cov_kolmogorov_n21.npz",
+  "covariance_sha256": "6200b8fedf8e1465717f261870f4a38129fe29a24d3128f92a7a8f88f64c5311",
+  "environment": {
+    "cupy": "14.2.0",
+    "numpy": "2.4.4",
+    "platform": "win32",
+    "python": "3.13.2"
+  },
+  "estimator": "analytic-von-karman",
+  "n_samples": 0,
+  "oopao": {
+    "commit": "e8e9aa60cf99f4ab21a4dae7c29aae9b9ec6ec87",
+    "imported_via": "ao_shaping.drivers.sim._oopao_compat",
+    "path": "libs/OOPAO"
+  },
+  "seed": null,
+  "sim2f": {
+    "aperture_m": 0.0054,
+    "basis_roundtrip_max_abs_err": 1.4432899320127035e-15,
+    "grid": 128,
+    "n_modes": 21,
+    "n_pupil_samples": 7232,
+    "noll": [
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19,
+      20,
+      21,
+      22
+    ],
+    "phase_variance_rad2_at_500nm_piston_removed": 0.0068131589022186745,
+    "pupil_pitch_m": 5.625e-05,
+    "pupil_radius_px": 48.0
+  },
+  "turbulence": {
+    "L0_m": 25.0,
+    "oopao_reference_wavelength_m": 5e-07,
+    "r0_m_at_500nm": 0.15,
+    "wavelength_rad2_expressed_at_m": 1.064e-06
+  }
+}

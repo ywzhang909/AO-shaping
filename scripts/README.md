@@ -3178,6 +3178,7 @@ defocus rather than the 0-order light, and the three conclusions it overturned.
 | Script | Purpose |
 |---|---|
 | `generate_sim2f_shaping_report.py` | Render `report/sim2f_shaping/closed_loop_20261025/report.md` + 9 figures from `runs/sim2f_fair/**` (teacher-vs-flat per family, bench transfer, four-variant ablation, noise ladder, determinism). `--run-dir` re-points it at another lane; a missing artefact renders `未测`, never a placeholder. |
+| `build_sim2f_aberration_covariance.py` | 生成 `ml.sim2f` 的 von Karman Zernike 协方差资产 (`src/ml/sim2f/assets/zernike_cov_kolmogorov_n21.npz` + 同源 JSON)。做法: OOPAO `phaseStats.makeCovarianceMatrix` 在模型实际使用的瞳面采样点上求相位协方差 (先去 piston), 再用 `Sim2f.zernike_basis` 的最小二乘投影得到 Noll 4..22 的系数协方差 (`rad²`, 换算到 1064 nm)。默认解析解 ⇒ 无采样噪声, 重跑逐字节一致; `--estimator sampled` 走 OOPAO 相位屏做蒙特卡洛交叉校核, `--check` 比对 JSON 里记录的 SHA 与磁盘上的载荷。`AberrationConfig(aberration_model="kolmogorov", covariance_path=...)` 读它; 默认仍是 `"iid"`, 逐位不变。 |
 
 ## Verification Scripts
 
@@ -4470,4 +4471,3 @@ data with source hashes. See the complete
 [square/rectangle/triangle reproduction report](../report/shape_trials/multishape_capability/physical_multishape_reproduction_20261023.md)
 for runnable PowerShell steps and the distinction between cold initialization
 and the experimentally verified checkpoint-transfer workflow.
-

@@ -122,6 +122,14 @@ report/**/*.npy
 # fresh clone would raise FileNotFoundError from
 # ao_shaping.utils.wavefront.wavefront_calc.get_zernike_base_matrixs.
 !scripts/tuning_devices/stdWavefront/std_wavefront.npz
+# Same reasoning: the von Karman Zernike covariance under src/ml/sim2f/assets/ is
+# *source data*, not a run artefact -- `AberrationConfig(aberration_model=
+# "kolmogorov")` reads it through `Path(__file__).parent`, so without this negation
+# a fresh clone would silently lose the correlated aberration model (and a built
+# wheel would have shipped it, from `[tool.setuptools.package-data]`).  Rebuildable
+# byte-for-byte by `scripts/ml/build_sim2f_aberration_covariance.py`; the sibling
+# JSON records the SHA-256 `--check` verifies.
+!src/ml/sim2f/assets/*.npz
 *.log
 scripts/dev**
 tmp_*
