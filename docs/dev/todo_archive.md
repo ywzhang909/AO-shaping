@@ -1768,3 +1768,35 @@ send-time phase overlay（`_phase_overlay` 弧度层 + `_base_phase` 灰度层�
 拷贝未过期）；7 个 src docstring 的路径引用同步更新；ruff 全过。
 
 ---
+
+### 5.39 形状→掩膜几何单一化 + 词表/几何层归位（issue #199 step 3，2026-10-25）
+
+**问题**：形状→掩膜几何有 5 份实现（`patterns` / `differentiable_shaping` /
+`target_masks` / `ddu.build_masks` / `hw_square_carrier_probe.square_target`），
+且 `target_masks` 放错层（在 `algorithm/signal_processing`，纯几何却依赖上层包）。
+像素口径不统一：patterns 方盒是闭合 `[-h,h]^2`，even-odd PIP 是半开盒；
+`build_masks` 用**平均** CCD 步长单一取整，各向异性步长下两轴同宽（U1）。
+
+**改动**：
+- 新建 `utils/image/target/geometry.py`（纯原语：多边形顶点 / 鞋面积 /
+  even-odd PIP / 盒核掩膜）与 `masks.py`（工厂：`build_polygon_masks` /
+  `build_box_core_masks` / `shift_mask`，含轴对齐矩形闭合盒快路径）。
+- `patterns` 三角/星形 PIP 委托共享原语（孪生测试钉住逐位一致，输出不动）；
+  `target_masks.py` 删除（几何并入 geometry.py，git 记为 rename 源）；
+  `ddu.build_masks` 更名为 `build_box_core_masks` 并按轴精确取半边；
+  `hw_square_carrier_probe.square_target` 委托 `create_target_shape`（逐位一致）。
+- 像素级契约测试 `test_mask_factories_agree_pixelwise.py`：闭合 vs 半开盒口径、
+  委托孪生、三角形 `(3sqrt(3)/4)R^2` 与五角星 `5*R*r*sin(36deg)` 解析面积
+  （r/R = sin36/sin54 ~ 0.727；旧 docstring 的 18deg 是笔误，已修正）、各向异性。
+- 消费者转向：7 个 scripts/slm 生成脚本、`target_size.py` docstring、
+  `provenance.py` 4 处路径登记、4 份能力报告溯源行、report README 索引。
+
+**共享工作树事故**：本提交最初被并发 agent 的整索引提交扫入其 sim2f 工作
+（92 文件混提交）。已用 soft reset + 显式路径拆分：对方文件从原提交
+`rev-parse` 取 blob 钉索引，逐字节复原（树差异仅 README 索引 4 行）。
+拆分手法与「subprocess text=True 会污染 blob 换行符」的教训已入 MEMORY.md。
+
+**验证**：utils/image/target 31 passed；utils 全量、algorithm 全量（仅存量
+golden 浮点噪声）、脚本 smoke import、square_target 逐位一致；ruff 全过。
+
+---
