@@ -13,12 +13,12 @@ Key differences from slm_zernike_pib.py:
 ==================== 使用方法 ====================
 
 CLI 入口 (推荐):
-    python src/ao_shaping/main.py spgd-square -e 2000 -n 4 --target-side 0 \
+    python src/ao_shaping/main.py slm-pib square -e 2000 -n 4 --target-side 0 \
         --w-uniformity 0.4 --w-efficiency 0.6 --w-aspect 0.0
 
     # 或用 --init-coeffs 指定起始 Zernike 系数 (Noll 索引 dict)。
     # zernike 基只优化 Defocus (2,0) [Noll 4] 与 Spherical (4,0) [Noll 11]:
-    python src/ao_shaping/main.py spgd-square --init-coeffs '{"4":1.0,"11":0.5}'
+    python src/ao_shaping/main.py slm-pib square --init-coeffs '{"4":1.0,"11":0.5}'
 
 编程调用:
     >>> from ao_shaping.optimizer.wfless.slm_square_shaping import optimize_slm_square
