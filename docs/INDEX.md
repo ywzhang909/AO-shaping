@@ -23,7 +23,7 @@
 | `tabu_search_algorithm.md` | 禁忌搜索算法实现说明（英文，`algorithm/tabu`） |
 | `zernike_usage.md` | Zernike 两层入口用法（模式编号/系数换算入口） |
 | `terminology_glossary.md` | **术语规范表**（唯一权威）：150+ 条口语→规范对照 + DO-NOT-TOUCH 保留清单 + T-60/T-61 新词登记 |
-| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v3.x，含 MIL 正向模型 + 可微光学框架综述 |
+| `paper_gs_refine_experiment.md` | 实验论文（GS 预矫正 + 随机平行梯度下降两级整形）：v4.6（2026-10-25 修订，新增 8.8 节 10-22/23 硬件扫描 + 8.5 模型结构图 21–30），含 MIL 正向模型 + 可微光学框架综述 |
 | `自适应 SPGD 光束整形闭环：完整方案总结.md` | 自适应 SPGD 方案：PPO 可信域思想 + 均匀化复合目标 + 自适应权重 + 历史信息复用 |
 
 ## CLI / 用户
